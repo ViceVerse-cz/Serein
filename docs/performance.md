@@ -1,6 +1,6 @@
 # Native-first plugin artwork fallback - September 26, 2026
 
-Baseline `48e442715a0db51f54eedfabd99d1f8dba4369a3`, compared with this change on
+Baseline `48e442715a0db51f54eedfabd99d1f8dba4369a3`, compared with `5f4dfdb` on
 Windows 11 Home 10.0.26200, Ryzen 7 7800X3D, 31.1 GiB RAM and pinned Rust 1.98.1.
 Both standard voice-enabled `cargo xtask package` builds used locked dependencies
 without demo/developer features. Complete distribution ZIPs use .NET `ZipFile`
@@ -20,6 +20,64 @@ lookups only when artwork is chosen. Native CPU/RSS/frame timing is not applicab
 to this event-only branch, and a still screenshot cannot verify animation. Focused
 synthetic tests verify native/fallback routing and multi-frame GIF output; they do
 not establish live Discord interoperability.
+
+# Lazy Fluent catalog loading - September 27, 2026
+
+Compared `a07ed34` before and after replacing Fluent's all-catalog static loader
+with one replaceable bundle for the selected language. Windows x64, Ryzen 7
+7800X3D, 32 GB RAM, Rust 1.98.1; release desktop with
+`--features developer-session`, without demo. Each localization build ran beside
+the same installed production executable after a 15-second warmup. Twenty samples
+were taken two seconds apart with no compiler running. CPU is process CPU time as
+a percentage of all 16 logical processors; memory is Windows `WorkingSet64` and
+`PrivateMemorySize64`.
+
+| Metric | All 11 catalogs | Selected catalog | Delta |
+| --- | ---: | ---: | ---: |
+| Average CPU | 0.894% | 0.935% | +0.041 percentage points; noise |
+| Maximum CPU | 1.118% | 1.167% | +0.049 percentage points; noise |
+| Average working set | 185.7 MiB | 162.9 MiB | -22.8 MiB / -12.3% |
+| Maximum working set | 186.2 MiB | 162.9 MiB | -23.3 MiB / -12.5% |
+| Average private memory | 370.8 MiB | 351.3 MiB | -19.5 MiB / -5.3% |
+| Maximum private memory | 371.1 MiB | 351.4 MiB | -19.7 MiB / -5.3% |
+
+The simultaneous installed-production controls measured 162.0/348.2 MiB
+working/private memory during the baseline run and 163.9/352.7 MiB during the
+updated run. The updated localization build therefore no longer has a measurable
+idle-memory premium in this sample. Its 0.087-percentage-point average CPU excess
+over the updated control is too small for a performance claim.
+
+All eleven FTL files remain embedded in the executable for offline language
+switching, but only the selected catalog is parsed into a Fluent bundle. Switching
+language replaces and drops the previous bundle. The 76,410,880-byte developer
+executable includes debug information; standard package, compressed distribution,
+startup latency, frame timing, GPU memory, and cross-platform memory remain
+unmeasured. Both live-session processes stayed responsive; no messages, calls,
+microphone, or camera actions were performed.
+
+# Thread browser review fixes - September 28, 2026
+
+Compared PR #455 head `e06d72fd` with review fix `c4eef429` on Windows x64,
+Ryzen 7 7800X3D, 32 GB RAM, Rust 1.98.1. One standard voice-enabled
+`cargo xtask package` build per revision, without demo/developer-session features.
+Both used the same detached worktree and release target, with
+`CARGO_INCREMENTAL=0` and `CARGO_BUILD_JOBS=2`. Before/after distributions were
+preserved separately; installed totals sum all 198 files. ZIPs use .NET
+`ZipFile.CreateFromDirectory` with `CompressionLevel.Optimal` and no root folder.
+NSIS was unavailable, so no installer executable was generated.
+
+| Metric, bytes | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Desktop executable | 76,694,528 | 76,697,088 | +2,560 / +0.0033% |
+| Full installed package | 80,797,844 | 80,800,404 | +2,560 / +0.0032% |
+| Portable ZIP | 44,176,880 | 44,178,210 | +1,330 / +0.0030% |
+
+These small artifact deltas are not a runtime-performance result. The changes
+reuse the existing bounded archive request path without adding polling or caches.
+Native screenshots and matched idle CPU/memory measurements were blocked by the
+unavailable Computer Use native pipe (Windows error 2). Frame and startup latency
+also remain unmeasured; synthetic UI tests are not native or live Discord proof.
+The later documentation-only commit is outside these measured package trees.
 
 # Animated profile review fixes - September 22, 2026
 
@@ -2098,3 +2156,114 @@ improvement from these short runs. The demo disables downloaded-image workers, s
 it controls for idle regressions rather than measuring the queue fix. System/GPU
 resources are not fully represented by process RSS. Frame/startup latency remains
 unmeasured; the frame diagnostic only confirmed matching viewport and scale.
+
+## Development data isolation (September 27, 2026)
+
+Windows x86_64 package measurements compare clean `672ee68` with
+`fix/isolate-development-storage`, both built using Rust 1.98.1 and
+`cargo xtask package`. The package command disables default features, so this measures the
+shipping OS-data-directory path rather than the worktree-local development path. NSIS was
+unavailable; the installed-directory total covers the complete unsigned `dist` tree and the
+compressed total is an optimal PowerShell ZIP of that same tree.
+
+| Metric | Baseline | After | Delta | Method |
+|---|---:|---:|---:|---|
+| Packaged executable | 76,558,336 B | 76,556,800 B | -1,536 B (-0.002%) | `dist/serein.exe` file size |
+| Installed package directory | 80,661,162 B | 80,660,045 B | -1,117 B (-0.001%) | Sum of 198 files under `dist` |
+| Compressed distribution | 44,140,603 B | 44,141,033 B | +430 B (+0.001%) | PowerShell `Compress-Archive -CompressionLevel Optimal` |
+
+The deltas are immaterial build/link/compression noise. CPU, RSS and rendering measurements are
+not applicable because the change only selects the persistent-data root before those existing
+workers open their files; it adds no polling, queue, network request or render work.
+
+## Live stream preview (September 27, 2026)
+
+Windows x86_64 package measurements compare `origin/main` at `1ecf8d16` with
+`feat/live-stream-preview` at `54c34e66`, both built using Rust 1.98.1 and
+`cargo xtask package`. Each installed-directory total covers the same 198 files; ZIPs use
+PowerShell `Compress-Archive -CompressionLevel Optimal`. NSIS was unavailable.
+
+| Metric | Baseline | After | Delta |
+|---|---:|---:|---:|
+| Packaged executable | 76,688,384 B | 76,739,072 B | +50,688 B (+0.0661%) |
+| Installed package directory | 80,791,700 B | 80,842,358 B | +50,658 B (+0.0627%) |
+| Compressed distribution | 44,171,707 B | 44,184,003 B | +12,296 B (+0.0278%) |
+
+The preview adds no polling or closed-popover rendering work: one visible hover starts one
+latest-wins request capped at 4 KiB, and the still uses the existing 512-pixel media bounds.
+Native CPU/RSS and frame timing were not measured because desktop capture/control was unavailable.
+
+## Windows transparent caption controls — September 28, 2026
+
+The earlier transparency-layer workaround did not fix the reported duplication.
+Its measurements have been removed: they do not describe the final native-caption
+fix. The final change suppresses `WS_SYSMENU` only for a blurred custom frame and
+keeps that suppression across winit style rewrites. Native title-bar mode restores
+the system controls. No dependency, worker, timer, or asset was added.
+
+The comparison baseline is `f6e7cfb2` (before the working caption fix), Windows x64,
+Rust 1.98.1, locked dependencies and standard voice-enabled `cargo xtask package`.
+The baseline package was preserved separately; the measured package is `dd5af5f3`.
+Installed size sums all 198 files. Both portable ZIPs were produced using .NET
+`ZipFile.CreateFromDirectory` with `CompressionLevel.Optimal` and no enclosing
+directory. This compares the final correction, not the complete branch against main.
+
+| Package metric, bytes | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 76,688,896 | 76,692,480 | +3,584 / +0.0047% |
+| Full installed package | 80,792,212 | 80,795,796 | +3,584 / +0.0044% |
+| Portable ZIP | 44,171,877 | 44,173,235 | +1,358 / +0.0031% |
+
+Both standard voice-enabled package builds passed. `makensis` is unavailable, so
+the optional NSIS installer was skipped. Final matched release CPU, working-set,
+frame/input-latency measurements are unavailable; no runtime performance
+improvement is claimed from the old debug measurements or from screenshots.
+
+Native synthetic evidence in `docs/pr-evidence/windows-transparency/` uses
+`--demo --demo-transparency --demo-friends`, DX12/DirectComposition, 125% scale,
+and a 1500 x 900 pixel window. Before is `f6e7cfb2`; after is the caption fix
+following maximize, restore, minimize and restore. The owner also confirmed the
+normal non-demo debug build works. These are visual checks, not benchmarks or
+proof of live Discord interoperability.
+
+The subsequent fullscreen review correction retains the latest requested system-menu
+bit instead of always restoring it. Its expanded native-window regression test,
+focused Clippy, and normal debug build passed, followed by owner confirmation.
+The package sizes and screenshots above predate that correction; release sizes
+and performance have not been remeasured for the review follow-up.
+
+## Stream preview review fixes (September 28, 2026)
+
+The comparison is the pre-review branch at `d65e5bfa` versus the five review fixes
+at `cb26f2a9`, not the complete feature versus main. Both standard voice-enabled
+packages passed `cargo xtask package` using Rust 1.98.1 on Windows 11 x64, a Ryzen
+7 7800X3D and 32 GB RAM. The same isolated worktree/target built both revisions;
+the baseline package was preserved before rebuilding. NSIS was unavailable.
+Installed totals include all 198 files; portable ZIPs use .NET `ZipFile` with
+Optimal compression and no enclosing directory.
+
+| Package metric, bytes | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 76,755,968 | 76,756,992 | +1,024 / +0.00133% |
+| Installed directory | 80,859,284 | 80,860,308 | +1,024 / +0.00127% |
+| Portable ZIP | 44,192,527 | 44,192,549 | +22 / +0.00005% |
+
+The release `replay-bench` executables process 100,000 synthetic message events.
+Each batch below discards one warmup per revision and takes the median of five
+direct executable runs; the second batch alternates baseline/after to reduce
+time-varying machine load. No build was started by this task during sampling;
+other desktop/background activity was not controlled.
+
+| Replay timing, ms | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| First, separate batches | 132.50 | 145.87 | +13.37 / +10.09% |
+| Paired rerun | 138.50 | 137.27 | -1.23 / -0.89% |
+| Paired five-run range | 135.83-142.11 | 135.95-149.05 | overlapping |
+
+The inconsistent timing delta does not establish a speedup or a repeatable
+regression. Every run retained 500 records and 331,992-332,477 estimated timeline
+bytes. This is a generic reducer control, not preview latency, process RSS, UI
+frame timing or live Discord evidence. The fixes add no dependency, worker or
+polling and preserve the one-request, 4 KiB response and 512-pixel media bounds.
+Native interaction screenshots and CPU/RSS measurements remain unavailable:
+the Computer Use module could not connect to its native pipe (`os error 2`).

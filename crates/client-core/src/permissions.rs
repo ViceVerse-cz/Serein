@@ -965,6 +965,14 @@ impl State {
 		let mut roster = std::mem::take(&mut self.voice.roster);
 		roster.retain(|entry| self.can_view(entry.channel));
 		self.voice.roster = roster;
+		if self
+			.voice
+			.preview
+			.as_ref()
+			.is_some_and(|preview| !self.has_voice_access(preview.channel))
+		{
+			self.voice.preview = None;
+		}
 		if let Some(channel) = self.voice.active.as_ref().map(|call| call.channel)
 			&& !self.has_voice_access(channel)
 		{

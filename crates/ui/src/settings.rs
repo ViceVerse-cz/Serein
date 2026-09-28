@@ -1,6 +1,6 @@
 //! User settings modal in Discord's layout: a sidebar of pages on the left, the selected page
 //! on the right, and a round close control with its Escape hint.
-use crate::{MessagingUi, design, icons};
+use crate::{MessagingUi, design, i18n::Language, icons};
 use client_core::State;
 use egui::RichText;
 
@@ -54,7 +54,7 @@ impl Page {
 	/// then community add-ons.
 	const SECTIONS: [(&'static str, &'static [Self]); 3] = [
 		(
-			"User settings",
+			"section-user",
 			&[
 				Self::Account,
 				Self::Profile,
@@ -63,7 +63,7 @@ impl Page {
 			],
 		),
 		(
-			"App settings",
+			"section-app",
 			&[
 				Self::Appearance,
 				Self::Chat,
@@ -75,47 +75,51 @@ impl Page {
 				Self::Updates,
 			],
 		),
-		("Customization", &[Self::Themes, Self::Extensions]),
+		("section-customization", &[Self::Themes, Self::Extensions]),
 	];
-	fn label(self) -> &'static str {
+	fn label_key(self) -> &'static str {
 		match self {
-			Self::Account => "My Account",
-			Self::Profile => "Profile",
-			Self::General => "General",
-			Self::Appearance => "Appearance",
-			Self::Chat => "Chat",
-			Self::MessagingPermissions => "Messaging Permissions",
-			Self::Notifications => "Notifications",
-			Self::Activity => "Game Activity",
-			Self::Voice => "Voice & Video",
-			Self::Keybinds => "Keybinds",
-			Self::Storage => "Data & Privacy",
-			Self::Updates => "Updates",
-			Self::Extensions => "Extensions",
-			Self::Themes => "Themes",
+			Self::Account => "page-account",
+			Self::Profile => "page-profile",
+			Self::General => "page-general",
+			Self::Appearance => "page-appearance",
+			Self::Chat => "page-chat",
+			Self::MessagingPermissions => "page-messaging-permissions",
+			Self::Notifications => "page-notifications",
+			Self::Activity => "page-activity",
+			Self::Voice => "page-voice",
+			Self::Keybinds => "page-keybinds",
+			Self::Storage => "page-storage",
+			Self::Updates => "page-updates",
+			Self::Extensions => "page-extensions",
+			Self::Themes => "page-themes",
 		}
 	}
-	fn description(self) -> &'static str {
+	fn label(self, language: Language) -> String {
+		language.text(self.label_key())
+	}
+	fn description_key(self) -> &'static str {
 		match self {
-			Self::Account => "The Discord account signed in on this device.",
-			Self::Profile => "Choose how you appear across Discord.",
-			Self::General => "Startup, window and graphics behavior on this device.",
-			Self::Appearance => "Theme, colours, window effects and layout.",
-			Self::Chat => "How messages, media, links and scrolling behave.",
-			Self::MessagingPermissions => {
-				"Control who can contact you and how messages are filtered."
-			}
-			Self::Notifications => "Choose which notifications you receive and how they appear.",
-			Self::Activity => "Show others what you are playing.",
-			Self::Voice => "Microphone, speakers, camera and voice processing.",
-			Self::Keybinds => "Keyboard shortcuts for Serein.",
-			Self::Storage => "What Serein keeps on this device.",
-			Self::Updates => "Keep Serein up to date on this device.",
-			Self::Extensions => "Manage community plugins.",
-			Self::Themes => "Choose a community theme.",
+			Self::Account => "description-account",
+			Self::Profile => "description-profile",
+			Self::General => "description-general",
+			Self::Appearance => "description-appearance",
+			Self::Chat => "description-chat",
+			Self::MessagingPermissions => "description-messaging-permissions",
+			Self::Notifications => "description-notifications",
+			Self::Activity => "description-activity",
+			Self::Voice => "description-voice",
+			Self::Keybinds => "description-keybinds",
+			Self::Storage => "description-storage",
+			Self::Updates => "description-updates",
+			Self::Extensions => "description-extensions",
+			Self::Themes => "description-themes",
 		}
 	}
-	fn matches(self, query: &str) -> bool {
+	fn description(self, language: Language) -> String {
+		language.text(self.description_key())
+	}
+	fn matches(self, query: &str, language: Language) -> bool {
 		let keywords = match self {
 			Self::Account => "my account profile logout",
 			Self::Profile => "profile edit display name about me bio pronouns color colour",
@@ -149,7 +153,25 @@ impl Page {
 			Self::Themes => "themes shop store catalog import community appearance colors",
 		};
 		keywords.contains(query)
+			|| self.label(language).to_lowercase().contains(query)
+			|| self.description(language).to_lowercase().contains(query)
 	}
+}
+
+fn gpu_label(language: Language, preference: model::GpuPreference) -> String {
+	language.text(match preference {
+		model::GpuPreference::Automatic => "gpu-automatic",
+		model::GpuPreference::HighPerformance => "gpu-high-performance",
+		model::GpuPreference::PowerSaving => "gpu-power-saving",
+	})
+}
+
+fn gpu_description(language: Language, preference: model::GpuPreference) -> String {
+	language.text(match preference {
+		model::GpuPreference::Automatic => "gpu-automatic-description",
+		model::GpuPreference::HighPerformance => "gpu-high-performance-description",
+		model::GpuPreference::PowerSaving => "gpu-power-saving-description",
+	})
 }
 
 impl MessagingUi {
@@ -253,10 +275,12 @@ impl MessagingUi {
 	/// Fixture-only entry point for the native offline settings preview.
 	pub fn preview_settings(&mut self, page: &str) {
 		self.settings.open = true;
-		if let Some(page) = Page::ALL
-			.into_iter()
-			.find(|candidate| candidate.label().to_lowercase().contains(page))
-		{
+		if let Some(page) = Page::ALL.into_iter().find(|candidate| {
+			candidate
+				.label(Language::English)
+				.to_lowercase()
+				.contains(page)
+		}) {
 			self.settings.page = page;
 		}
 	}
@@ -315,29 +339,24 @@ impl MessagingUi {
 					.show(ui, |ui| {
 						let editing_theme =
 							self.settings.page == Page::Themes && self.extensions.editing_theme();
+						let heading = if editing_theme {
+							self.language.text("theme-maker")
+						} else {
+							self.settings.page.label(self.language)
+						};
+						let description = if editing_theme {
+							self.language.text("theme-maker-description")
+						} else {
+							self.settings.page.description(self.language)
+						};
 						ui.horizontal_top(|ui| {
 							ui.vertical(|ui| {
 								ui.spacing_mut().item_spacing.y = 2.0;
 								ui.label(
-									design::semibold(
-										ui,
-										if editing_theme {
-											"Theme maker"
-										} else {
-											self.settings.page.label()
-										},
-										20.0,
-									)
-									.color(colors.text_strong),
+									design::semibold(ui, &heading, 20.0).color(colors.text_strong),
 								);
 								ui.label(
-									RichText::new(if editing_theme {
-										"Make it yours. Preview changes in your conversations."
-									} else {
-										self.settings.page.description()
-									})
-									.size(13.0)
-									.color(colors.muted),
+									RichText::new(&description).size(13.0).color(colors.muted),
 								);
 							});
 							ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
@@ -350,15 +369,18 @@ impl MessagingUi {
 							ui.add_space(8.0);
 							self.settings_search(ui);
 							egui::ComboBox::from_id_salt("settings-page")
-								.selected_text(self.settings.page.label())
+								.selected_text(self.settings.page.label(self.language))
 								.width(ui.available_width())
 								.show_ui(ui, |ui| {
 									for page in Page::ALL {
-										if page.matches(&self.settings.query.to_lowercase()) {
+										if page.matches(
+											&self.settings.query.to_lowercase(),
+											self.language,
+										) {
 											ui.selectable_value(
 												&mut self.settings.page,
 												page,
-												page.label(),
+												page.label(self.language),
 											);
 										}
 									}
@@ -385,12 +407,19 @@ impl MessagingUi {
 								ui.set_width((ui.available_width() - scroll_padding).min(720.0));
 								ui.spacing_mut().item_spacing.y = 12.0;
 								let query = self.settings.query.to_lowercase();
-								if !Page::ALL.into_iter().any(|p| p.matches(&query)) {
+								if !Page::ALL
+									.into_iter()
+									.any(|p| p.matches(&query, self.language))
+								{
 									ui.label(
-										design::semibold(ui, "No settings found", 16.0)
-											.color(colors.text_strong),
+										design::semibold(
+											ui,
+											self.language.text("no-settings-found"),
+											16.0,
+										)
+										.color(colors.text_strong),
 									);
-									ui.weak("Try theme, notifications, voice, or cache.");
+									ui.weak(self.language.text("search-suggestion"));
 									return;
 								}
 								match self.settings.page {
@@ -433,10 +462,7 @@ impl MessagingUi {
 								}
 								if state.demo {
 									ui.add_space(20.0);
-									design::hint(
-										ui,
-										"Offline preview · changes stay in this session and are never sent.",
-									);
+									design::hint(ui, &self.language.text("offline-preview"));
 								}
 								ui.add_space(24.0);
 							});
@@ -461,6 +487,7 @@ impl MessagingUi {
 
 	fn settings_navigation(&mut self, ui: &mut egui::Ui, state: &State) {
 		let colors = design::palette(ui);
+		let language = self.language;
 		egui::ScrollArea::vertical()
 			.id_salt("settings-navigation-scroll")
 			.auto_shrink([false, false])
@@ -473,16 +500,21 @@ impl MessagingUi {
 					let visible: Vec<Page> = pages
 						.iter()
 						.copied()
-						.filter(|page| page.matches(&query))
+						.filter(|page| page.matches(&query, language))
 						.collect();
 					if visible.is_empty() {
 						continue;
 					}
 					ui.add_space(6.0);
-					ui.add(egui::Label::new(design::eyebrow(ui, heading, colors.muted)));
+					ui.add(egui::Label::new(design::eyebrow(
+						ui,
+						language.text(heading),
+						colors.muted,
+					)));
 					ui.add_space(2.0);
 					for page in visible {
-						if nav_item(ui, page.label(), self.settings.page == page).clicked() {
+						if nav_item(ui, &page.label(language), self.settings.page == page).clicked()
+						{
 							if page == Page::MessagingPermissions && self.settings.page != page {
 								self.settings.messaging_permissions.requested = false;
 							}
@@ -533,7 +565,7 @@ impl MessagingUi {
 						.color(colors.muted),
 				);
 				ui.label(
-					RichText::new("Unofficial · not endorsed by Discord")
+					RichText::new(language.text("unofficial"))
 						.size(11.0)
 						.color(colors.muted),
 				);
@@ -542,6 +574,7 @@ impl MessagingUi {
 
 	fn settings_search(&mut self, ui: &mut egui::Ui) {
 		let colors = design::palette(ui);
+		let language = self.language;
 		egui::Frame::new()
 			.fill(colors.raised)
 			.corner_radius(6)
@@ -551,7 +584,7 @@ impl MessagingUi {
 					ui.spacing_mut().item_spacing.x = 6.0;
 					let response = ui.add(
 						egui::TextEdit::singleline(&mut self.settings.query)
-							.hint_text("Search")
+							.hint_text(language.text("search"))
 							.char_limit(64)
 							.frame(egui::Frame::NONE)
 							.desired_width(ui.available_width() - 24.0),
@@ -559,8 +592,9 @@ impl MessagingUi {
 					icons::inline(ui, icons::Icon::Search, 16.0, colors.muted);
 					if response.changed() {
 						let query = self.settings.query.to_lowercase();
-						if !self.settings.page.matches(&query)
-							&& let Some(page) = Page::ALL.into_iter().find(|p| p.matches(&query))
+						if !self.settings.page.matches(&query, language)
+							&& let Some(page) =
+								Page::ALL.into_iter().find(|p| p.matches(&query, language))
 						{
 							self.settings.page = page;
 						}
@@ -571,18 +605,20 @@ impl MessagingUi {
 
 	fn settings_logout(&mut self, ui: &mut egui::Ui, demo: bool) {
 		let colors = design::palette(ui);
-		let label = if demo { "Exit preview" } else { "Log out" };
+		let label = self
+			.language
+			.text(if demo { "exit-preview" } else { "log-out" });
 		let (rect, response) =
 			ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::click());
 		response
-			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
+			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
 		if response.hovered() || response.has_focus() {
 			ui.painter().rect_filled(rect, 4, colors.hover);
 		}
 		ui.painter().text(
 			egui::pos2(rect.left() + 10.0, rect.center().y),
 			egui::Align2::LEFT_CENTER,
-			label,
+			&label,
 			egui::FontId::new(15.0, design::medium_family(ui.ctx())),
 			colors.danger,
 		);
@@ -650,11 +686,11 @@ impl MessagingUi {
 									.truncate(),
 								);
 								ui.label(
-									RichText::new(if state.demo {
-										"Offline preview · synthetic account"
+									RichText::new(crate::i18n::translate_if_key(if state.demo {
+										"settings-account-page-offline-preview-synthetic-account"
 									} else {
-										"Signed in with your Discord account"
-									})
+										"settings-account-page-signed-in-with-your-discord-account"
+									}))
 									.size(13.0)
 									.color(colors.muted),
 								);
@@ -668,11 +704,11 @@ impl MessagingUi {
 							.show(ui, |ui| {
 								ui.set_width(ui.available_width());
 								ui.spacing_mut().item_spacing.y = 10.0;
-								account_row(ui, "Display name", &name);
+								account_row(ui, "settings-account-page-display-name", &name);
 								ui.separator();
 								account_row(
 									ui,
-									"Email, password and security",
+									"settings-account-page-email-password-and-security",
 									"Managed in Discord",
 								);
 							});
@@ -683,7 +719,9 @@ impl MessagingUi {
 								|ui| {
 									if design::button(
 										ui,
-										"Edit profile",
+										&crate::i18n::translate(
+											"settings-account-page-edit-profile",
+										),
 										design::ButtonKind::Outline,
 									)
 									.clicked()
@@ -716,118 +754,137 @@ impl MessagingUi {
 		} else {
 			"Log out"
 		};
-		design::group(ui, "Session", |ui| {
-			if design::row(
-				ui,
-				label,
-				Some(if state.demo {
-					"Closes the offline fixture. Nothing is stored for the preview."
-				} else {
-					"Removes the saved login and clears this account's local cache and drafts."
-				}),
-				|ui| design::button(ui, label, design::ButtonKind::Danger),
-			)
-			.clicked()
-			{
-				self.logout_requested = true;
-				self.settings.open = false;
-			}
-		});
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-account-page-session"),
+			|ui| {
+				if design::row(
+					ui,
+					label,
+					Some(if state.demo {
+						"settings-account-page-closes-the-offline-fixture-nothing-is-stored-for-the-preview"
+					} else {
+						"settings-account-page-removes-the-saved-login-and-clears-this-account-s-local"
+					}),
+					|ui| design::button(ui, label, design::ButtonKind::Danger),
+				)
+				.clicked()
+				{
+					self.logout_requested = true;
+					self.settings.open = false;
+				}
+			},
+		);
 	}
 
 	fn general_settings(&mut self, ui: &mut egui::Ui, _demo: bool) {
-		design::group(ui, "Startup", |ui| {
+		let language = self.language;
+		let title = language.text("language-group");
+		design::group(ui, &title, |ui| {
+			let label = language.text("language-label");
+			let description = language.text("language-description");
+			design::row(ui, &label, Some(&description), |ui| {
+				egui::ComboBox::from_id_salt("display-language")
+					.selected_text(self.language.name(language))
+					.width(ui.available_width().min(220.0))
+					.show_ui(ui, |ui| {
+						for candidate in Language::ALL {
+							ui.selectable_value(
+								&mut self.language,
+								candidate,
+								candidate.name(language),
+							);
+						}
+					});
+			});
+		});
+		let title = language.text("general-startup");
+		design::group(ui, &title, |ui| {
 			ui.add_enabled_ui(self.startup_available && !self.startup_busy, |ui| {
-				design::switch(
-					ui,
-					"Open Serein when your computer starts",
-					Some("Serein signs in and connects in the background."),
-					&mut self.startup_enabled,
-				);
+				let label = language.text("general-open-at-startup");
+				let description = language.text("general-open-at-startup-description");
+				design::switch(ui, &label, Some(&description), &mut self.startup_enabled);
 				design::card_divider(ui);
 				ui.add_enabled_ui(self.startup_enabled, |ui| {
-					design::switch(
-						ui,
-						"Start minimized",
-						Some("Start in the background, out of your way."),
-						&mut self.startup_minimized,
-					);
+					let label = language.text("general-start-minimized");
+					let description = language.text("general-start-minimized-description");
+					design::switch(ui, &label, Some(&description), &mut self.startup_minimized);
 				});
 			});
 			if !self.startup_available {
-				design::hint(ui, "Automatic startup is available on Windows and macOS.");
+				design::hint(ui, &language.text("general-startup-unavailable"));
 			} else if !self.startup_status.is_empty() {
 				design::hint(ui, self.startup_status);
 			}
 		});
-		design::group(ui, "Window", |ui| {
+		let title = language.text("general-window");
+		design::group(ui, &title, |ui| {
 			#[cfg(target_os = "linux")]
 			{
+				let label = language.text("general-hide-decorations");
+				let description = language.text("general-hide-decorations-description");
 				design::switch(
 					ui,
-					"Hide window decorations",
-					Some(
-						"Remove the system title bar and borders. Use your window manager to move, resize or close Serein.",
-					),
+					&label,
+					Some(&description),
 					&mut self.hide_window_decorations,
 				);
 				design::card_divider(ui);
 			}
 			#[cfg(any(target_os = "windows", target_os = "macos"))]
 			{
-				design::switch(
-					ui,
-					"Hide Serein title bar",
-					Some("Use the system title bar and window buttons instead."),
-					&mut self.hide_title_bar,
-				);
+				let label = language.text("general-hide-title-bar");
+				let description = language.text("general-hide-title-bar-description");
+				design::switch(ui, &label, Some(&description), &mut self.hide_title_bar);
 				design::card_divider(ui);
 			}
 			ui.add_enabled_ui(self.tray_available, |ui| {
-				design::switch(
-					ui,
-					if cfg!(target_os = "macos") {
-						"Keep Serein in the menu bar"
-					} else {
-						"Keep Serein in the system tray"
-					},
-					Some(if cfg!(target_os = "macos") {
-						"Closing the window keeps Serein in the menu bar. Quit from its menu to exit."
-					} else if cfg!(target_os = "linux") {
-						"Closing keeps Serein running. Use the tray to show, minimize or quit."
-					} else {
-						"Closing the window keeps Serein in the notification area. Quit from its menu to exit."
-					}),
-					&mut self.minimize_to_tray,
-				);
+				let label = language.text(if cfg!(target_os = "macos") {
+					"general-keep-menu-bar"
+				} else {
+					"general-keep-system-tray"
+				});
+				let description = language.text(if cfg!(target_os = "macos") {
+					"general-menu-bar-description"
+				} else if cfg!(target_os = "linux") {
+					"general-linux-tray-description"
+				} else {
+					"general-windows-tray-description"
+				});
+				design::switch(ui, &label, Some(&description), &mut self.minimize_to_tray);
 			});
 			if !self.tray_available {
-				design::hint(ui, "The tray is unavailable on this platform.");
+				design::hint(ui, &language.text("general-tray-unavailable"));
 			} else if !self.tray_status.is_empty() {
 				design::hint(ui, self.tray_status);
 			}
 		});
-		design::group(ui, "Graphics", |ui| {
+		let title = language.text("general-graphics");
+		design::group(ui, &title, |ui| {
+			let restart = language.text("general-gpu-restart");
 			let detail = if self.gpu_adapter.is_empty() {
-				"Takes effect the next time Serein starts.".to_owned()
+				restart
 			} else {
 				format!(
-					"Currently drawing with {}. Takes effect the next time Serein starts.",
-					self.gpu_adapter
+					"{} {}. {}",
+					language.text("general-gpu-current-prefix"),
+					self.gpu_adapter,
+					restart
 				)
 			};
-			design::row(ui, "Render with", Some(&detail), |ui| {
+			let label = language.text("general-render-with");
+			design::row(ui, &label, Some(&detail), |ui| {
 				egui::ComboBox::from_id_salt("gpu-preference")
-					.selected_text(self.gpu_preference.label())
+					.selected_text(gpu_label(language, self.gpu_preference))
 					.width(ui.available_width().min(220.0))
 					.show_ui(ui, |ui| {
 						for preference in model::GpuPreference::ALL {
 							ui.selectable_value(
 								&mut self.gpu_preference,
 								preference,
-								preference.label(),
+								gpu_label(language, preference),
 							)
-							.on_hover_text(preference.description());
+							.on_hover_text(gpu_description(language, preference));
 						}
 					});
 			});
@@ -841,10 +898,18 @@ impl MessagingUi {
 		ui.set_min_width(324.0);
 		ui.set_max_width(324.0);
 		ui.spacing_mut().item_spacing.y = 6.0;
-		ui.label(design::eyebrow(ui, "Mode", colors.muted));
+		ui.label(design::eyebrow(
+			ui,
+			crate::i18n::translate("settings-appearance-menu-mode"),
+			colors.muted,
+		));
 		theme_preference_cards(ui);
 		ui.add_space(6.0);
-		ui.label(design::eyebrow(ui, "Theme", colors.muted));
+		ui.label(design::eyebrow(
+			ui,
+			crate::i18n::translate("settings-appearance-menu-theme"),
+			colors.muted,
+		));
 		let current = design::variant();
 		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(0.0, 4.0);
@@ -859,7 +924,11 @@ impl MessagingUi {
 			}
 		});
 		ui.add_space(6.0);
-		ui.label(design::eyebrow(ui, "Display", colors.muted));
+		ui.label(design::eyebrow(
+			ui,
+			crate::i18n::translate("settings-appearance-menu-display"),
+			colors.muted,
+		));
 		let mut value = self.reading_preferences;
 		ui.spacing_mut().slider_width = 96.0;
 		self.zoom_row(ui, &mut value);
@@ -871,88 +940,102 @@ impl MessagingUi {
 	fn appearance_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
 		let colors = design::palette(ui);
 		ui.add_space(4.0);
-		ui.label(design::eyebrow(ui, "Theme", colors.muted));
+		ui.label(design::eyebrow(
+			ui,
+			crate::i18n::translate("settings-appearance-settings-theme"),
+			colors.muted,
+		));
 		theme_preference_cards(ui);
 		self.colour_preset_settings(ui);
 		self.custom_font.show(ui);
-		design::group(ui, "Accent", |ui| {
-			let themed_accent = design::theme_sets_accent(ui.visuals().dark_mode);
-			design::row(
-				ui,
-				"Primary color",
-				Some(if themed_accent {
-					"The active theme brings its own accent; it takes over while the theme is in use."
-				} else {
-					"Used for buttons, selection and message highlights."
-				}),
-				|ui| {
-					ui.add_enabled_ui(!themed_accent, |ui| {
-						if self.primary_color.is_some()
-							&& design::text_action(ui, "Reset").clicked()
-						{
-							self.primary_color = None;
-						}
-						let mut color = self.primary_color.unwrap_or(design::DEFAULT_PRIMARY_COLOR);
-						if design::color_edit(ui, &mut color)
-							.on_hover_text("Choose primary color")
-							.changed()
-						{
-							self.primary_color = Some(color);
-						}
-					});
-				},
-			);
-		});
-		design::group(ui, "Window effects", |ui| {
-			design::switch(
-				ui,
-				"Transparency & blur",
-				Some(
-					"Restart Serein after changing this. Themes can customize effects while enabled.",
-				),
-				&mut self.transparency_blur,
-			);
-			if self.transparency_blur {
-				design::card_divider(ui);
-				design::slider_row(
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-appearance-settings-accent"),
+			|ui| {
+				let themed_accent = design::theme_sets_accent(ui.visuals().dark_mode);
+				design::row(
 					ui,
-					"Transparency",
-					None,
-					&mut self.transparency,
-					0..=100,
-					"%",
+					"settings-appearance-settings-primary-color",
+					Some(if themed_accent {
+						"settings-appearance-settings-the-active-theme-brings-its-own-accent-it-takes-over"
+					} else {
+						"settings-appearance-settings-used-for-buttons-selection-and-message-highlights"
+					}),
+					|ui| {
+						ui.add_enabled_ui(!themed_accent, |ui| {
+							if self.primary_color.is_some()
+								&& design::text_action(
+									ui,
+									&crate::i18n::translate("settings-appearance-settings-reset"),
+								)
+								.clicked()
+							{
+								self.primary_color = None;
+							}
+							let mut color =
+								self.primary_color.unwrap_or(design::DEFAULT_PRIMARY_COLOR);
+							if design::color_edit(ui, &mut color)
+								.on_hover_text(crate::i18n::translate(
+									"settings-appearance-settings-choose-primary-color",
+								))
+								.changed()
+							{
+								self.primary_color = Some(color);
+							}
+						});
+					},
 				);
-				ui.add_space(8.0);
-				design::slider_row(
-					ui,
-					"Blur",
-					Some("Zero disables blur; the native compositor controls its exact strength."),
-					&mut self.blur,
-					0..=100,
-					"%",
-				);
-				ui.add_space(4.0);
+			},
+		);
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-appearance-settings-window-effects"),
+			|ui| {
 				design::switch(
 					ui,
-					"Apply to all surfaces",
-					Some("Include sidebars, server rail, headers, and composer."),
-					&mut self.transparent_all,
+					"settings-appearance-settings-transparency-blur",
+					Some(
+						"settings-appearance-settings-restart-serein-after-changing-this-themes-can-customize-effects-while",
+					),
+					&mut self.transparency_blur,
 				);
-			}
-		});
+				if self.transparency_blur {
+					design::card_divider(ui);
+					design::slider_row(
+						ui,
+						"settings-appearance-settings-transparency",
+						None,
+						&mut self.transparency,
+						0..=100,
+						"%",
+					);
+					ui.add_space(8.0);
+					design::blur_control(
+						ui,
+						"settings-appearance-settings-blur",
+						"settings-appearance-settings-the-system-applies-its-standard-blur-strength",
+						&mut self.blur,
+					);
+				}
+			},
+		);
 		self.layout_settings(ui, demo);
 	}
 
 	fn chat_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
 		self.chat_reading_settings(ui, demo);
-		design::group(ui, "Channel list", |ui| {
-			design::switch(
-				ui,
-				"Show hidden channels",
-				Some("Show channels you cannot currently access."),
-				&mut self.show_hidden_channels,
-			);
-		});
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-chat-settings-channel-list"),
+			|ui| {
+				design::switch(
+					ui,
+					"settings-chat-settings-show-hidden-channels",
+					Some("settings-chat-settings-show-channels-you-cannot-currently-access"),
+					&mut self.show_hidden_channels,
+				);
+			},
+		);
 	}
 
 	/// Built-in presets plus enabled community themes, one swatch each.
@@ -992,46 +1075,55 @@ impl MessagingUi {
 			})
 			.map_or(current.label(), |(_, _, label, _)| label.as_str())
 			.to_owned();
-		design::group(ui, "Colour preset", |ui| {
-			ui.horizontal_wrapped(|ui| {
-				ui.spacing_mut().item_spacing = egui::vec2(12.0, 10.0);
-				for (variant, id, label, swatch) in presets {
-					let selected = if let Some(active) = &self.extensions.active_theme {
-						id.as_ref() == Some(active)
-					} else {
-						variant == Some(current)
-					};
-					let response = preset_swatch(ui, &label, &swatch, selected);
-					if response.on_hover_text(&label).clicked()
-						&& !selected && !self.extensions.busy
-					{
-						if let Some(variant) = variant {
-							design::set_variant(variant);
-							design::apply(ui.ctx());
-							self.theme_variant_changed = Some(variant);
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-colour-preset-settings-colour-preset"),
+			|ui| {
+				ui.horizontal_wrapped(|ui| {
+					ui.spacing_mut().item_spacing = egui::vec2(12.0, 10.0);
+					for (variant, id, label, swatch) in presets {
+						let selected = if let Some(active) = &self.extensions.active_theme {
+							id.as_ref() == Some(active)
+						} else {
+							variant == Some(current)
+						};
+						let response = preset_swatch(ui, &label, &swatch, selected);
+						if response.on_hover_text(&label).clicked()
+							&& !selected && !self.extensions.busy
+						{
+							if let Some(variant) = variant {
+								design::set_variant(variant);
+								design::apply(ui.ctx());
+								self.theme_variant_changed = Some(variant);
+							}
+							self.extensions
+								.queue(ui.ctx(), crate::ExtensionRequest::SelectTheme { id });
 						}
-						self.extensions
-							.queue(ui.ctx(), crate::ExtensionRequest::SelectTheme { id });
 					}
-				}
-			});
-			ui.add_space(4.0);
-			ui.label(
+				});
+				ui.add_space(4.0);
+				ui.label(
 				RichText::new(format!(
-					"{active_label} · saved with your appearance. Gradient presets always use dark text."
+					"{active_label} · {}",
+					crate::i18n::translate(
+						"settings-colour-preset-settings-saved-with-your-appearance-gradient-presets-always-use-dark-text"
+					)
 				))
 				.size(12.0)
 				.color(colors.muted),
 			);
-		});
+			},
+		);
 	}
 
 	fn activity_settings(&mut self, ui: &mut egui::Ui, state: &State) {
 		design::card(ui, |ui| {
 			design::switch(
 				ui,
-				"Share game activity",
-				Some("Detect running games and ask Discord to share them as activity."),
+				"settings-activity-settings-share-game-activity",
+				Some(
+					"settings-activity-settings-detect-running-games-and-ask-discord-to-share-them-as",
+				),
 				&mut self.share_game_activity,
 			);
 			design::card_divider(ui);
@@ -1078,39 +1170,59 @@ impl MessagingUi {
 	}
 
 	fn storage_page(&mut self, ui: &mut egui::Ui, state: &State) {
-		design::group(ui, "Local storage", |ui| {
-			design::row(
-				ui,
-				"Clear cache",
-				Some("Removes cached messages and media. Drafts and your login stay."),
-				|ui| {
-					ui.add_enabled_ui(!state.demo, |ui| {
-						if design::button(ui, "Clear cache", design::ButtonKind::Outline).clicked()
-						{
-							self.clear_cache_requested = true;
-						}
-					});
-				},
-			);
-			if !state.demo && !self.storage_status.is_empty() {
-				design::hint(ui, self.storage_status);
-			}
-			design::card_divider(ui);
-			design::hint(
-				ui,
-				"Messages and drafts are cached on this device inside bounded, account-isolated files. Cache data is not encrypted by Serein; saved login tokens use the OS credential store.",
-			);
-		});
-		design::group(ui, "Your privacy", |ui| {
-			design::hint(
-				ui,
-				"Serein does not collect telemetry or upload diagnostics. Discord retains service-side data according to its own policies.",
-			);
-		});
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-storage-page-local-storage"),
+			|ui| {
+				design::row(
+					ui,
+					"settings-storage-page-clear-cache",
+					Some(
+						"settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-stay",
+					),
+					|ui| {
+						ui.add_enabled_ui(!state.demo, |ui| {
+							if design::button(
+								ui,
+								&crate::i18n::translate("settings-storage-page-clear-cache"),
+								design::ButtonKind::Outline,
+							)
+							.clicked()
+							{
+								self.clear_cache_requested = true;
+							}
+						});
+					},
+				);
+				if !state.demo && !self.storage_status.is_empty() {
+					design::hint(ui, self.storage_status);
+				}
+				design::card_divider(ui);
+				design::hint(
+					ui,
+					&crate::i18n::translate(
+						"settings-storage-page-messages-and-drafts-are-cached-on-this-device-inside-bounded",
+					),
+				);
+			},
+		);
+		design::group(
+			ui,
+			&crate::i18n::translate("settings-storage-page-your-privacy"),
+			|ui| {
+				design::hint(
+					ui,
+					&crate::i18n::translate(
+						"settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains",
+					),
+				);
+			},
+		);
 	}
 }
 
 fn account_row(ui: &mut egui::Ui, label: &str, value: &str) {
+	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	ui.horizontal(|ui| {
 		ui.vertical(|ui| {
@@ -1127,11 +1239,12 @@ fn account_row(ui: &mut egui::Ui, label: &str, value: &str) {
 
 /// Sidebar entry in the settings modal; the selected page uses the strong surface and text.
 pub(super) fn nav_item(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
+	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(ui.available_width(), 34.0), egui::Sense::click());
 	response.widget_info(|| {
-		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), selected, label)
+		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), selected, &label)
 	});
 	let hot = response.hovered() || response.has_focus();
 	if selected {
@@ -1156,20 +1269,32 @@ pub(super) fn nav_item(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::
 			egui::StrokeKind::Inside,
 		);
 	}
-	ui.painter().text(
-		egui::pos2(rect.left() + 12.0, rect.center().y),
-		egui::Align2::LEFT_CENTER,
-		label,
+	let color = if selected {
+		colors.text_strong
+	} else if hot {
+		colors.text
+	} else {
+		colors.muted
+	};
+	// Long localized page names elide inside the row; hovering shows the full name.
+	let mut job = egui::text::LayoutJob::simple_singleline(
+		label.clone(),
 		egui::FontId::new(15.0, design::medium_family(ui.ctx())),
-		if selected {
-			colors.text_strong
-		} else if hot {
-			colors.text
-		} else {
-			colors.muted
-		},
+		color,
 	);
-	response
+	job.wrap = egui::text::TextWrapping::truncate_at_width(rect.width() - 24.0);
+	let galley = ui.painter().layout_job(job);
+	let elided = galley.elided;
+	ui.painter().galley(
+		egui::pos2(rect.left() + 12.0, rect.center().y - galley.size().y / 2.0),
+		galley,
+		color,
+	);
+	if elided {
+		response.on_hover_text(label)
+	} else {
+		response
+	}
 }
 
 /// Discord's round close button with the "ESC" hint underneath.
@@ -1177,7 +1302,11 @@ pub(super) fn close_control(ui: &mut egui::Ui) -> egui::Response {
 	let colors = design::palette(ui);
 	let (rect, response) = ui.allocate_exact_size(egui::vec2(40.0, 56.0), egui::Sense::click());
 	response.widget_info(|| {
-		egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), "Close settings (Esc)")
+		egui::WidgetInfo::labeled(
+			egui::Role::Button,
+			ui.is_enabled(),
+			crate::i18n::translate("settings-close-control-close-settings-esc"),
+		)
 	});
 	let hot = response.hovered() || response.has_focus();
 	let center = egui::pos2(rect.center().x, rect.top() + 18.0);
@@ -1208,7 +1337,9 @@ pub(super) fn close_control(ui: &mut egui::Ui) -> egui::Response {
 		egui::FontId::new(11.0, design::semibold_family(ui.ctx())),
 		colors.muted,
 	);
-	response.on_hover_text("Close settings (Esc)")
+	response.on_hover_text(crate::i18n::translate(
+		"settings-close-control-close-settings-esc",
+	))
 }
 
 /// Dark, light or system cards with a miniature of each palette and a radio marker.
@@ -1219,25 +1350,24 @@ fn preset_swatch(
 	swatch: &design::Palette,
 	selected: bool,
 ) -> egui::Response {
+	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	let (rect, response) = ui.allocate_exact_size(egui::vec2(76.0, 70.0), egui::Sense::click());
-	response
-		.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, label));
+	response.widget_info(|| {
+		egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, &label)
+	});
 	let painter = &ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
 	if response.hovered() || response.has_focus() {
 		painter.rect_filled(rect, 6, colors.hover);
 	}
 	let center = egui::pos2(rect.center().x, rect.top() + 24.0);
-	match swatch.backdrop {
-		Some([top, bottom]) => {
-			painter.circle_filled(center, 20.0, bottom);
-			painter.circle_filled(center - egui::vec2(5.0, 5.0), 11.0, top);
-		}
-		None => {
-			painter.circle_filled(center, 20.0, swatch.chat);
-			painter.circle_filled(center + egui::vec2(5.0, 5.0), 9.0, swatch.base);
-		}
-	}
+	let [top, bottom] = swatch.backdrop.unwrap_or_else(|| {
+		// Opaque presets run from their lightest surface to their darkest one.
+		let mut surfaces = [swatch.chat, swatch.selected, swatch.base];
+		surfaces.sort_by(|a, b| design::luminance(*b).total_cmp(&design::luminance(*a)));
+		[surfaces[0], surfaces[2]]
+	});
+	gradient_circle(painter, center, 20.0, top, bottom);
 	painter.circle_stroke(
 		center,
 		20.0,
@@ -1262,7 +1392,7 @@ fn preset_swatch(
 	painter.text(
 		egui::pos2(rect.center().x, rect.bottom() - 10.0),
 		egui::Align2::CENTER_CENTER,
-		label,
+		&label,
 		egui::FontId::proportional(11.0),
 		if selected {
 			colors.text_strong
@@ -1271,6 +1401,30 @@ fn preset_swatch(
 		},
 	);
 	response
+}
+
+/// Diagonal gradient from `top` (top-left) to `bottom` (bottom-right), like the window backdrop.
+fn gradient_circle(
+	painter: &egui::Painter,
+	center: egui::Pos2,
+	radius: f32,
+	top: egui::Color32,
+	bottom: egui::Color32,
+) {
+	const SEGMENTS: u32 = 48;
+	let color_at = |offset: egui::Vec2| {
+		let t = (offset.x + offset.y) / (2.0 * std::f32::consts::SQRT_2 * radius) + 0.5;
+		top.lerp_to_gamma(bottom, t)
+	};
+	let mut mesh = egui::Mesh::default();
+	mesh.colored_vertex(center, color_at(egui::Vec2::ZERO));
+	for i in 0..SEGMENTS {
+		let offset =
+			egui::Vec2::angled(i as f32 * std::f32::consts::TAU / SEGMENTS as f32) * radius;
+		mesh.colored_vertex(center + offset, color_at(offset));
+		mesh.add_triangle(0, 1 + i, 1 + (i + 1) % SEGMENTS);
+	}
+	painter.add(egui::Shape::mesh(mesh));
 }
 
 fn theme_preference_cards(ui: &mut egui::Ui) {
@@ -1282,22 +1436,29 @@ fn theme_preference_cards(ui: &mut egui::Ui) {
 		let width = ((ui.available_width() - 20.0) / 3.0).clamp(88.0, 240.0);
 		// Narrow cards (the signed-out appearance popup) cannot hold the long system label.
 		for (preference, label) in [
-			(egui::ThemePreference::Dark, "Dark"),
-			(egui::ThemePreference::Light, "Light"),
+			(
+				egui::ThemePreference::Dark,
+				"theme-editor-appearance-switch-dark",
+			),
+			(
+				egui::ThemePreference::Light,
+				"theme-editor-appearance-switch-light",
+			),
 			(
 				egui::ThemePreference::System,
 				if width < 140.0 {
-					"System"
+					"language-system"
 				} else {
-					"Sync with system"
+					"settings-appearance-sync-with-system"
 				},
 			),
 		] {
+			let label = crate::i18n::translate_if_key(label);
 			let selected = current == preference;
 			let (rect, response) =
 				ui.allocate_exact_size(egui::vec2(width, 76.0), egui::Sense::click());
 			response.widget_info(|| {
-				egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, label)
+				egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, &label)
 			});
 			let painter = ui.painter();
 			painter.rect(
@@ -1373,7 +1534,7 @@ fn theme_preference_cards(ui: &mut egui::Ui) {
 			painter.text(
 				egui::pos2(rect.left() + 12.0, rect.bottom() - 14.0),
 				egui::Align2::LEFT_CENTER,
-				label,
+				&label,
 				egui::FontId::new(14.0, design::medium_family(ui.ctx())),
 				if selected {
 					colors.text_strong

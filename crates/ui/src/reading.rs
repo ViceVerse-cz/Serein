@@ -39,8 +39,8 @@ impl MessagingUi {
 		let mut zoom = self.reading_zoom_draft.unwrap_or(value.zoom_percent);
 		let response = design::slider_row(
 			ui,
-			"Zoom",
-			Some("Scales text and controls across the app."),
+			"reading-zoom-row-zoom",
+			Some("reading-zoom-row-scales-text-and-controls-across-the-app"),
 			&mut zoom,
 			80..=150,
 			"%",
@@ -57,6 +57,7 @@ impl MessagingUi {
 
 	/// Header eyebrow with a quiet reset on the right, so the reset stays reachable above a tall card.
 	fn header_with_reset(ui: &mut egui::Ui, title: &str, reset: &str) -> bool {
+		let title = crate::i18n::translate_if_key(title);
 		let colors = design::palette(ui);
 		let mut clicked = false;
 		ui.add_space(4.0);
@@ -72,14 +73,18 @@ impl MessagingUi {
 	/// Zoom, sidebar width and member list: the Layout group of the Appearance page.
 	pub fn layout_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
 		let mut value = self.reading_preferences;
-		let reset = Self::header_with_reset(ui, "Layout", "Reset layout");
+		let reset = Self::header_with_reset(
+			ui,
+			"reading-layout-settings-layout",
+			"reading-layout-settings-reset-layout",
+		);
 		design::card(ui, |ui| {
 			self.zoom_row(ui, &mut value);
 			ui.add_space(10.0);
 			design::slider_row(
 				ui,
-				"Sidebar width",
-				Some("Channel and conversation list width in wide windows."),
+				"reading-layout-settings-sidebar-width",
+				Some("reading-layout-settings-channel-and-conversation-list-width-in-wide-windows"),
 				&mut value.sidebar_width,
 				190..=360,
 				" px",
@@ -87,9 +92,16 @@ impl MessagingUi {
 			design::card_divider(ui);
 			design::switch(
 				ui,
-				"Show People in wide windows",
-				Some("Keep the member list open whenever the window is wide enough."),
+				"reading-layout-settings-show-people-in-servers",
+				Some("reading-layout-settings-keep-the-server-member-list-open"),
 				&mut value.show_members,
+			);
+			design::card_divider(ui);
+			design::switch(
+				ui,
+				"reading-layout-settings-show-people-in-direct-messages",
+				Some("reading-layout-settings-keep-the-member-list-open-in-direct-messages"),
+				&mut value.show_members_dms,
 			);
 		});
 		if reset {
@@ -97,6 +109,7 @@ impl MessagingUi {
 			value.zoom_percent = defaults.zoom_percent;
 			value.sidebar_width = defaults.sidebar_width;
 			value.show_members = defaults.show_members;
+			value.show_members_dms = defaults.show_members_dms;
 			self.reading_save_requested = true;
 		}
 		self.reading_save_notice(ui, demo);
@@ -108,51 +121,79 @@ impl MessagingUi {
 	/// Media, link and scrolling behaviour shown on the Chat page.
 	pub fn chat_reading_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
 		let mut value = self.reading_preferences;
-		let reset = Self::header_with_reset(ui, "Messages and media", "Reset chat");
+		let reset = Self::header_with_reset(
+			ui,
+			"reading-chat-reading-settings-messages-and-media",
+			"reading-chat-reading-settings-reset-chat",
+		);
 		design::card(ui, |ui| {
 			design::switch(
 				ui,
-				"Animate GIFs",
-				Some("Visible chat GIFs play automatically."),
+				"reading-chat-reading-settings-animate-gifs",
+				Some("reading-chat-reading-settings-visible-chat-gifs-play-automatically"),
 				&mut value.animate_gifs,
 			);
 			design::card_divider(ui);
 			design::switch(
 				ui,
-				"Hide image and GIF links",
-				Some("Hide standalone links when their image or GIF preview is shown."),
+				"reading-chat-reading-settings-hide-image-and-gif-links",
+				Some(
+					"reading-chat-reading-settings-hide-standalone-links-when-their-image-or-gif-preview-is",
+				),
 				&mut value.hide_media_links,
 			);
-		});
-		design::group(ui, "Links", |ui| {
+			design::card_divider(ui);
 			design::switch(
 				ui,
-				"Confirm before opening links",
-				Some("Ask before opening external links. Discord links always open directly."),
-				&mut value.confirm_external_links,
+				"reading-chat-reading-settings-compact-message-spacing",
+				Some("reading-chat-reading-settings-tighter-gaps-between-message-groups"),
+				&mut value.compact_messages,
 			);
 		});
-		design::group(ui, "Scrolling", |ui| {
-			design::switch(
-				ui,
-				"Smooth scrolling",
-				Some("Animate wheel movement and jumps between messages."),
-				&mut value.smooth_scrolling,
-			);
-			ui.add_space(10.0);
-			design::slider_row(
-				ui,
-				"Scrolling speed",
-				Some("Mouse wheel and trackpad movement. 100% is the default."),
-				&mut value.scroll_speed_percent,
-				25..=300,
-				"%",
-			);
-		});
+		design::group(
+			ui,
+			&crate::i18n::translate("reading-chat-reading-settings-links"),
+			|ui| {
+				design::switch(
+					ui,
+					"reading-chat-reading-settings-confirm-before-opening-links",
+					Some(
+						"reading-chat-reading-settings-ask-before-opening-external-links-discord-links-always-open-directly",
+					),
+					&mut value.confirm_external_links,
+				);
+			},
+		);
+		design::group(
+			ui,
+			&crate::i18n::translate("reading-chat-reading-settings-scrolling"),
+			|ui| {
+				design::switch(
+					ui,
+					"reading-chat-reading-settings-smooth-scrolling",
+					Some(
+						"reading-chat-reading-settings-animate-wheel-movement-and-jumps-between-messages",
+					),
+					&mut value.smooth_scrolling,
+				);
+				ui.add_space(10.0);
+				design::slider_row(
+					ui,
+					"reading-chat-reading-settings-scrolling-speed",
+					Some(
+						"reading-chat-reading-settings-mouse-wheel-and-trackpad-movement-100-is-the-default",
+					),
+					&mut value.scroll_speed_percent,
+					25..=300,
+					"%",
+				);
+			},
+		);
 		if reset {
 			let defaults = ReadingPreferences::default();
 			value.animate_gifs = defaults.animate_gifs;
 			value.hide_media_links = defaults.hide_media_links;
+			value.compact_messages = defaults.compact_messages;
 			value.confirm_external_links = defaults.confirm_external_links;
 			value.smooth_scrolling = defaults.smooth_scrolling;
 			value.scroll_speed_percent = defaults.scroll_speed_percent;
@@ -167,7 +208,14 @@ impl MessagingUi {
 	fn reading_save_notice(&mut self, ui: &mut egui::Ui, demo: bool) {
 		if !demo && self.reading_status.contains("could not") {
 			design::notice(ui, design::Level::Warning, self.reading_status);
-			if design::text_action(ui, "Retry saving reading settings").clicked() {
+			if design::text_action(
+				ui,
+				&crate::i18n::translate(
+					"reading-reading-save-notice-retry-saving-reading-settings",
+				),
+			)
+			.clicked()
+			{
 				self.reading_save_requested = true;
 			}
 		}
@@ -229,6 +277,8 @@ mod tests {
 				_ => {}
 			}
 		}
+		// Labels are looked up by their English text, whatever the host locale is.
+		crate::i18n::set_current(crate::i18n::Language::English);
 		let ctx = egui::Context::default();
 		let mut view = MessagingUi {
 			notifications_enabled: true,
@@ -261,6 +311,8 @@ mod tests {
 			zoom_percent: 125,
 			sidebar_width: 300,
 			show_members: false,
+			show_members_dms: false,
+			compact_messages: true,
 			animate_gifs: false,
 			smooth_scrolling: true,
 			scroll_speed_percent: 100,
@@ -276,7 +328,7 @@ mod tests {
 		let found = frame(&mut view, vec![]);
 		let people = found
 			.iter()
-			.find(|(text, _)| text == "Show People in wide windows")
+			.find(|(text, _)| text == "Show People in servers")
 			.unwrap()
 			.1
 			.center();

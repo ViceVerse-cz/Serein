@@ -650,6 +650,7 @@ mod tests {
 			channel: Id(20),
 			guild: Some(Id(10)),
 			connected_at: Some(Instant::now()),
+			channel_started_at: None,
 			server_muted: false,
 			server_deafened: false,
 			request: 7,

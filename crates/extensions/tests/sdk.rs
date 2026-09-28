@@ -166,7 +166,6 @@ fn every_sdk_panel_and_appearance_field_is_accepted_by_the_host() {
 				transparency_blur: Some(true),
 				transparency: Some(25),
 				blur: Some(50),
-				transparent_all: Some(false),
 				body_size: Some(16),
 				heading_size: Some(20),
 				button_size: Some(14),

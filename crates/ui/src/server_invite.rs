@@ -51,11 +51,11 @@ impl InviteDialog {
 			format!("Invite friends to {name}")
 		};
 		let response = crate::dialog::Dialog::new("server-invite-dialog", title)
-			.subtitle(if settings_open {
-				"Control how long this link lasts and how many people can use it."
+			.subtitle(crate::i18n::translate_if_key(if settings_open {
+				"server-invite-show-control-how-long-this-link-lasts-and-how-many-people"
 			} else {
-				"Share a link so friends can join this server."
-			})
+				"server-invite-show-share-a-link-so-friends-can-join-this-server"
+			}))
 			.width(540.0)
 			.show(ctx, |d| {
 				if settings_open {
@@ -91,12 +91,17 @@ impl InviteDialog {
 				};
 				ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 0.0), layout, |ui| {
 					ui.label(
-						egui::RichText::new("Recipients will land in")
-							.size(18.0)
-							.color(colors.muted),
+						egui::RichText::new(crate::i18n::translate(
+							"server-invite-picker-recipients-will-land-in",
+						))
+						.size(18.0)
+						.color(colors.muted),
 					);
 					let current = state.channels.iter().find(|c| Some(c.id) == *channel);
-					let name = current.map_or("No eligible channel", |c| c.name.as_str());
+					let name = current.map_or_else(
+						|| crate::i18n::translate("server-invite-picker-no-eligible-channel"),
+						|channel| channel.name.clone(),
+					);
 					egui::ComboBox::from_id_salt("invite-channel")
 						.selected_text((
 							crate::icons::atom(
@@ -149,7 +154,9 @@ impl InviteDialog {
 					icons::paint(ui.painter(), icons::Icon::Search, rect, colors.muted);
 					ui.add(
 						egui::TextEdit::singleline(&mut self.search)
-							.hint_text("Search for friends")
+							.hint_text(crate::i18n::translate(
+								"server-invite-picker-search-for-friends",
+							))
 							.char_limit(100)
 							.font(egui::FontId::proportional(18.0))
 							.align(egui::Align2::LEFT_CENTER)
@@ -238,15 +245,19 @@ impl InviteDialog {
 										},
 									);
 									let status = state.server_invite_status(guild, user.id);
-									let label = match status {
-										Some(InviteStatus::Sending) => "Sending…",
-										Some(InviteStatus::Sent) => "Sent",
+									let label = crate::i18n::translate_if_key(match status {
+										Some(InviteStatus::Sending) => {
+											"server-invite-picker-sending"
+										}
+										Some(InviteStatus::Sent) => "server-invite-picker-sent",
 										Some(InviteStatus::Failed(
 											client_core::auth::Failure::Ambiguous,
-										)) => "Uncertain",
-										Some(InviteStatus::Failed(_)) => "Retry",
-										None => "Invite",
-									};
+										)) => "server-invite-picker-uncertain",
+										Some(InviteStatus::Failed(_)) => {
+											"server-invite-picker-retry"
+										}
+										None => "server-invite-picker-invite",
+									});
 									let can_send = enabled
 										&& !matches!(
 											status,
@@ -259,7 +270,7 @@ impl InviteDialog {
 										);
 									let button = ui
 										.add_enabled_ui(can_send, |ui| {
-											design::button(ui, label, design::ButtonKind::Outline)
+											design::button(ui, &label, design::ButtonKind::Outline)
 										})
 										.inner;
 									button.widget_info(|| {
@@ -283,13 +294,13 @@ impl InviteDialog {
 				if friends.is_empty() {
 					ui.colored_label(
 						colors.muted,
-						if !state.friends_known() {
-							"Friends are not available yet."
+						crate::i18n::translate_if_key(if !state.friends_known() {
+							"server-invite-picker-friends-are-not-available-yet"
 						} else if query.is_empty() {
-							"No friends to invite yet. Share the link below."
+							"server-invite-picker-no-friends-to-invite-yet-share-the-link-below"
 						} else {
-							"No friends match your search."
-						},
+							"server-invite-picker-no-friends-match-your-search"
+						}),
 					);
 				}
 			});
@@ -309,7 +320,7 @@ impl InviteDialog {
 		ui.add_space(20.0);
 		ui.label(design::medium(
 			ui,
-			"Or, send a server invite link to a friend",
+			crate::i18n::translate("server-invite-picker-or-send-a-server-invite-link-to-a-friend"),
 			17.0,
 		));
 		ui.add_space(8.0);
@@ -319,10 +330,11 @@ impl InviteDialog {
 			let options = state.created_invite_options(guild).unwrap_or(self.options);
 			ui.label(
 				egui::RichText::new(if options.max_age == 0 {
-					"Your invite link never expires.".to_owned()
+					crate::i18n::translate("server-invite-picker-your-invite-link-never-expires")
 				} else {
 					format!(
-						"Your invite link expires in {}.",
+						"{} {}.",
+						crate::i18n::translate("server-invite-picker-your-invite-link-expires-in"),
 						expiry_label(options.max_age)
 					)
 				})
@@ -333,9 +345,11 @@ impl InviteDialog {
 				.add_enabled(
 					!state.server_action_pending() && !state.server_invite_pending(),
 					egui::Button::new(
-						egui::RichText::new("Edit link.")
-							.size(12.0)
-							.color(colors.link),
+						egui::RichText::new(crate::i18n::translate(
+							"server-invite-picker-edit-link",
+						))
+						.size(12.0)
+						.color(colors.link),
 					)
 					.frame(false),
 				)
@@ -353,7 +367,9 @@ impl InviteDialog {
 			design::notice(
 				ui,
 				design::Level::Warning,
-				"You need Create Invite permission in a channel to create an invite.",
+				&crate::i18n::translate(
+					"server-invite-picker-you-need-create-invite-permission-in-a-channel-to-create",
+				),
 			);
 		}
 	}
@@ -424,24 +440,30 @@ impl InviteDialog {
 		let mut options = self.settings.unwrap();
 		ui.add_space(28.0);
 		ui.add_enabled_ui(!pending, |ui| {
-			ui.label(design::medium(ui, "Expire After", 18.0));
+			ui.label(design::medium(ui, crate::i18n::translate("server-invite-settings-expire-after"), 18.0));
 			ui.add_space(8.0);
-			select(ui, "invite-expiry", expiry_label(options.max_age), |ui| {
+			select(ui, "invite-expiry", &expiry_label(options.max_age), |ui| {
 				for seconds in [1800, 3600, 21600, 43200, 86400, 604800, 2592000, 0] { ui.selectable_value(&mut options.max_age, seconds, expiry_label(seconds)); }
 			});
 			ui.add_space(24.0);
-			ui.label(design::medium(ui, "Max Number of Uses", 18.0));
+			ui.label(design::medium(ui, crate::i18n::translate("server-invite-settings-max-number-of-uses"), 18.0));
 			ui.add_space(8.0);
 			select(ui, "invite-uses", &uses_label(options.max_uses), |ui| {
 				for uses in [0, 1, 5, 10, 25, 50, 100] { ui.selectable_value(&mut options.max_uses, uses, uses_label(uses)); }
 			});
 			ui.add_space(16.0);
-			design::switch(ui, "Grant temporary membership", Some("Temporary members are automatically kicked when they disconnect unless a role has been assigned"), &mut options.temporary);
+			design::switch(ui, "server-invite-settings-grant-temporary-membership", Some("server-invite-settings-temporary-members-are-automatically-kicked-when-they-disconnect-unless-a"), &mut options.temporary);
 		});
 		ui.add_space(24.0);
 		let mut back = false;
 		ui.horizontal(|ui| {
-			if design::button(ui, "Cancel", design::ButtonKind::Outline).clicked() {
+			if design::button(
+				ui,
+				&crate::i18n::translate("server-invite-settings-cancel"),
+				design::ButtonKind::Outline,
+			)
+			.clicked()
+			{
 				back = true;
 			}
 			if ui
@@ -450,11 +472,11 @@ impl InviteDialog {
 					|ui| {
 						design::button(
 							ui,
-							if pending {
-								"Generating…"
+							&crate::i18n::translate_if_key(if pending {
+								"server-invite-settings-generating"
 							} else {
-								"Generate a New Link"
-							},
+								"server-invite-settings-generate-a-new-link"
+							}),
 							design::ButtonKind::Primary,
 						)
 					},
@@ -473,21 +495,21 @@ impl InviteDialog {
 		self.settings = if back { None } else { Some(options) };
 	}
 }
-fn expiry_label(seconds: u32) -> &'static str {
-	match seconds {
-		0 => "Never",
-		1800 => "30 minutes",
-		3600 => "1 hour",
-		21600 => "6 hours",
-		43200 => "12 hours",
-		86400 => "1 day",
-		604800 => "7 days",
-		_ => "30 days",
-	}
+fn expiry_label(seconds: u32) -> String {
+	crate::i18n::translate_if_key(match seconds {
+		0 => "server-invite-expiry-label-never",
+		1800 => "server-invite-expiry-label-30-minutes",
+		3600 => "server-invite-expiry-label-1-hour",
+		21600 => "server-invite-expiry-label-6-hours",
+		43200 => "server-invite-expiry-label-12-hours",
+		86400 => "server-invite-expiry-label-1-day",
+		604800 => "server-invite-expiry-label-7-days",
+		_ => "server-invite-expiry-label-30-days",
+	})
 }
 fn uses_label(uses: u16) -> String {
 	if uses == 0 {
-		"No limit".into()
+		crate::i18n::translate("server-invite-uses-label-no-limit")
 	} else {
 		uses.to_string()
 	}

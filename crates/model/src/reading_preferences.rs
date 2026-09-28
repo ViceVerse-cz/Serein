@@ -3,7 +3,11 @@
 pub struct ReadingPreferences {
 	pub zoom_percent: u16,
 	pub sidebar_width: u16,
+	/// Member list in servers; direct and group messages keep their own choice.
 	pub show_members: bool,
+	pub show_members_dms: bool,
+	/// Tighter gaps between message groups.
+	pub compact_messages: bool,
 	pub animate_gifs: bool,
 	pub smooth_scrolling: bool,
 	pub scroll_speed_percent: u16,
@@ -16,6 +20,8 @@ impl Default for ReadingPreferences {
 			zoom_percent: 100,
 			sidebar_width: 236,
 			show_members: true,
+			show_members_dms: true,
+			compact_messages: false,
 			animate_gifs: true,
 			smooth_scrolling: true,
 			scroll_speed_percent: 100,
@@ -49,6 +55,8 @@ mod tests {
 						zoom_percent,
 						sidebar_width,
 						show_members,
+						show_members_dms: show_members,
+						compact_messages: false,
 						animate_gifs: false,
 						smooth_scrolling: true,
 						scroll_speed_percent: 100,

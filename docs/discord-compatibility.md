@@ -461,6 +461,14 @@ and clears delayed mixer output after a stall. Decoder input is bounded to 16 pi
 and 16 MiB, with a 150 ms age limit and keyframe recovery. These bounds reduce backlog;
 they do not implement sender-clock audio/video synchronization or establish live sync.
 
+September 27 preview update: hovering a currently streaming guild participant requests
+Discord's still preview and shows it in a compact 16:9 popover with a Watch Stream action.
+The response is accepted only when it names the requested stream under Discord's CDN/media
+host and passes the existing bounded image decoder. One newer request cancels the previous
+one; hidden previews show an unavailable state. Watching while idle first joins the voice
+channel and then reuses the existing receive-only stream negotiation. The request route and
+normal-account response remain unofficial and live-unverified.
+
 A device-free localhost test runs the actual sender and viewer through an MLS exchange,
 stereo Opus and H.264, encrypted UDP forwarding, decoded audio and video. It verifies the
 local media handoff, not PulseAudio/WASAPI capture, speaker output, or Discord forwarding.
@@ -640,7 +648,7 @@ discord.com route is an integration assumption, not a new API guarantee. Headles
 construction and explicit confirmation; native launch, browser account selection and destination
 resolution remain owner-unverified. The browser uses its own session and Discord authorization.
 
-Loaded threads (September 10): READY guild thread arrays follow the original [discord.py-self guild parser](https://github.com/dolfies/discord.py-self/blob/master/discord/guild.py); active create/update/delete, scoped sync, archive eviction and owner-removal handling are informed by its [dispatch implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py). Discord's [Gateway thread events](https://docs.discord.com/developers/events/gateway-events#thread-list-sync) document the guild/parent scope and membership fields. These primary sources establish wire evidence, not normal-account acceptance; no implementation blocks were copied. Active discovery is limited to service-supplied snapshots/events; explicit archive reads are described below, with existing subscriptions unchanged. Clicking an unresolved channel mention performs one bounded documented channel read and admits only a same-guild thread whose loaded parent remains viewable. Unknown updates do not otherwise hydrate a missing thread. See native navigation scope.
+Loaded threads (September 10): READY guild thread arrays follow the original [discord.py-self guild parser](https://github.com/dolfies/discord.py-self/blob/master/discord/guild.py); active create/update/delete, scoped sync, archive eviction and owner-removal handling are informed by its [dispatch implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py). Discord's [Gateway thread events](https://docs.discord.com/developers/events/gateway-events#thread-list-sync) document the guild/parent scope and membership fields. These primary sources establish wire evidence, not normal-account acceptance; no implementation blocks were copied. Active discovery is limited to service-supplied snapshots/events; explicit archive reads are described below, with existing subscriptions unchanged. A visible unresolved channel mention performs one bounded documented channel read and admits only a same-guild thread whose loaded parent remains viewable; resolved names are retained in a bounded session-only cache. Unknown updates do not otherwise hydrate a missing thread. See native navigation scope.
 
 Serein is unofficial and not endorsed by Discord. No normal-user live session has been tested. Technical compatibility does not imply approval. Discord forbids normal-account automation outside its OAuth2/bot API and warns of account termination ([policy](https://support.discord.com/hc/en-us/articles/115002192352-Automated-User-Accounts-Self-Bots)); its [terms](https://discord.com/terms) also apply.
 
@@ -1204,11 +1212,16 @@ and guild positions, checks the freshly read data version, and requires a confir
 response before changing the displayed layout. Conflicts and uncertain saves expose
 a refresh/retry action. Other-client changes require the rail context menu's explicit
 refresh; Gateway settings updates are not consumed in this slice.
+Layouts left by other clients are normalized instead of rejected: a server listed
+twice keeps its first placement, ID-less multi-server entries become standalone
+servers, empty ID-less entries are dropped, zero or repeated folder IDs get a fresh
+ID, invalid colors fall back to the default and control characters in names become
+spaces. Stored servers that the account has left stay in the layout.
 
 Primary implementation evidence checked: [settings schema](https://github.com/discord-userdoccers/discord-protos)
 and [discord.py-self HTTP adapter](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py).
-Limits: 200 servers, 200 folder entries, 100 characters/400 bytes per name, 16 KiB
-retained layout, and a 6 MiB response cap for Discord's 5 MiB encoded settings value
+Limits: 1,000 stored servers, including left ones, 1,000 folder entries,
+100 characters/400 bytes per name, 128 KiB retained layout, and a 6 MiB response cap for Discord's 5 MiB encoded settings value
 plus its JSON envelope. Oversized settings disable organization
 without hiding normal server navigation. Demo edits stay in memory; live edits persist
 through Discord. No live account actions were performed in fast local validation.

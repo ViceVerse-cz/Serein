@@ -166,6 +166,8 @@ impl ClanTag {
 #[derive(Clone)]
 pub struct ProfileConnection {
 	pub kind: String,
+	/// Account identifier on the connected service; some profile URLs need it.
+	pub id: String,
 	pub name: String,
 	pub verified: bool,
 }
@@ -212,7 +214,7 @@ impl UserProfile {
 			+ self
 				.connections
 				.iter()
-				.map(|c| c.kind.capacity() + c.name.capacity())
+				.map(|c| c.kind.capacity() + c.id.capacity() + c.name.capacity())
 				.sum::<usize>()
 			+ self.mutual_guilds.capacity() * size_of::<ProfileGuild>()
 			+ self
@@ -268,7 +270,7 @@ impl UserProfile {
 			}) && self
 			.connections
 			.iter()
-			.all(|c| c.kind.len() <= 64 && c.name.len() <= 512)
+			.all(|c| c.kind.len() <= 64 && c.id.len() <= 512 && c.name.len() <= 512)
 			&& self
 				.mutual_guilds
 				.iter()

@@ -10,6 +10,9 @@ use model::{
 	},
 };
 
+const MAX_CHANNEL_REFERENCE_NAMES: usize = 64;
+const MAX_CHANNEL_REFERENCE_NAME_BYTES: usize = 8 * 1024;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Edit {
 	pub name: String,
@@ -275,6 +278,7 @@ pub struct Actions {
 	details: Option<(Id, Edit)>,
 	post: Option<(Id, PostDetails)>,
 	status: Option<(Id, &'static str, bool)>,
+	reference_names: Vec<(Id, Box<str>)>,
 }
 impl Actions {
 	pub(crate) fn reset(&mut self) {
@@ -650,6 +654,46 @@ impl State {
 			action,
 		})
 	}
+	pub fn channel_reference_name(&self, id: Id) -> Option<&str> {
+		self.channel(id)
+			.filter(|channel| {
+				channel.guild.is_some() && matches!(channel.kind, 0 | 5 | 10..=12 | 15 | 16)
+			})
+			.map(|channel| channel.name.as_str())
+			.or_else(|| {
+				self.channel_actions
+					.reference_names
+					.iter()
+					.find(|(known, _)| *known == id)
+					.map(|(_, name)| name.as_ref())
+			})
+	}
+	fn remember_channel_reference_name(&mut self, channel: &model::Channel) {
+		self.forget_channel_reference_name(channel.id);
+		if channel.name.len() > MAX_CHANNEL_REFERENCE_NAME_BYTES {
+			return;
+		}
+		while self.channel_actions.reference_names.len() >= MAX_CHANNEL_REFERENCE_NAMES
+			|| self
+				.channel_actions
+				.reference_names
+				.iter()
+				.map(|(_, name)| name.len())
+				.sum::<usize>()
+				+ channel.name.len()
+				> MAX_CHANNEL_REFERENCE_NAME_BYTES
+		{
+			self.channel_actions.reference_names.remove(0);
+		}
+		self.channel_actions
+			.reference_names
+			.push((channel.id, channel.name.clone().into_boxed_str()));
+	}
+	pub(crate) fn forget_channel_reference_name(&mut self, id: Id) {
+		self.channel_actions
+			.reference_names
+			.retain(|(known, _)| *known != id);
+	}
 	pub(crate) fn cancel_channel_action(&mut self) {
 		if let Some((_, channel, _, action, _)) = self.channel_actions.pending.take() {
 			self.channel_actions.status = Some((
@@ -953,12 +997,16 @@ impl State {
 					!observed
 				}) {
 					let target = updated.id;
+					if reference {
+						self.remember_channel_reference_name(&updated);
+					}
 					self.apply(crate::Envelope {
 						generation: self.generation,
 						event: crate::Event::ChannelCreated(*updated),
 					});
 					if reference {
 						if self.channel(target).is_none() {
+							self.forget_channel_reference_name(target);
 							self.channel_actions.status =
 								Some((channel, "Thread could not be loaded", false));
 							return Ok(());
@@ -1358,7 +1406,17 @@ mod tests {
 			}),
 		);
 		assert_eq!(valid.channel(Id(4)).unwrap().name, "Synthetic thread");
+		assert_eq!(
+			valid.channel_reference_name(Id(4)),
+			Some("Synthetic thread")
+		);
 		assert_eq!(valid.archived_thread, Some(Id(4)));
+		valid.retire_archived_thread(None);
+		assert!(valid.channel(Id(4)).is_none());
+		assert_eq!(
+			valid.channel_reference_name(Id(4)),
+			Some("Synthetic thread")
+		);
 
 		let mut state = state();
 		state.selected = Some(Id(3));

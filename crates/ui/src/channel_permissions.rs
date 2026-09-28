@@ -26,10 +26,10 @@ impl PermissionsUi {
 			.any(|o| o.kind == 0 && o.id == guild && o.deny & p::VIEW_CHANNEL != 0);
 		egui::Frame::new().fill(colors.raised).stroke(egui::Stroke::new(1.0, colors.border)).corner_radius(12).inner_margin(16).show(ui, |ui| {
 			ui.add_enabled_ui(state.can_edit_channel_permission(channel.id, p::VIEW_CHANNEL) && (rows.len() < p::MAX_OVERWRITES || rows.iter().any(|o| o.kind == 0 && o.id == guild)), |ui| {
-				if design::switch(ui, if category { "Private Category" } else { "Private Channel" }, Some(if category {
-					"Only selected members and roles can view this category. Synced channels follow its permissions."
+				if design::switch(ui, if category { "channel-permissions-show-private-category" } else { "channel-permissions-show-private-channel" }, Some(if category {
+					"channel-permissions-show-only-selected-members-and-roles-can-view-this-category-synced"
 				} else {
-					"Only selected members and roles can view this channel. Administrators retain access."
+					"channel-permissions-show-only-selected-members-and-roles-can-view-this-channel-administrators"
 				}), &mut private).changed() {
 					set_permission(rows, (0, guild), p::VIEW_CHANNEL, if private { -1 } else { 1 });
 				}
@@ -38,38 +38,42 @@ impl PermissionsUi {
 		if !state.can_manage_channel_permissions(channel.id) {
 			dialog::hint(
 				ui,
-				"You need Manage Channels and Manage Permissions to change these settings.",
+				"channel-permissions-show-you-need-manage-channels-and-manage-permissions-to-change-these",
 			);
 		}
 		design::divider(ui);
-		egui::CollapsingHeader::new(design::semibold(ui, "Advanced permissions", 18.0))
-			.default_open(true)
-			.show(ui, |ui| {
-				let selected = self.selected.get_or_insert((0, guild));
-				if *selected != (0, guild) && !rows.iter().any(|o| (o.kind, o.id) == *selected) {
-					*selected = (0, guild);
-				}
-				if ui.available_width() >= 580.0 {
-					ui.horizontal_top(|ui| {
-						ui.allocate_ui_with_layout(
-							egui::vec2(180.0, 0.0),
-							egui::Layout::top_down(egui::Align::Min),
-							|ui| {
-								ui.set_width(180.0);
-								self.targets(ui, state, channel, rows);
-							},
-						);
-						ui.add_space(16.0);
-						ui.vertical(|ui| {
-							self.permissions(ui, state, channel, rows);
-						});
+		egui::CollapsingHeader::new(design::semibold(
+			ui,
+			crate::i18n::translate("channel-permissions-show-advanced-permissions"),
+			18.0,
+		))
+		.default_open(true)
+		.show(ui, |ui| {
+			let selected = self.selected.get_or_insert((0, guild));
+			if *selected != (0, guild) && !rows.iter().any(|o| (o.kind, o.id) == *selected) {
+				*selected = (0, guild);
+			}
+			if ui.available_width() >= 580.0 {
+				ui.horizontal_top(|ui| {
+					ui.allocate_ui_with_layout(
+						egui::vec2(180.0, 0.0),
+						egui::Layout::top_down(egui::Align::Min),
+						|ui| {
+							ui.set_width(180.0);
+							self.targets(ui, state, channel, rows);
+						},
+					);
+					ui.add_space(16.0);
+					ui.vertical(|ui| {
+						self.permissions(ui, state, channel, rows);
 					});
-				} else {
-					self.targets(ui, state, channel, rows);
-					ui.separator();
-					self.permissions(ui, state, channel, rows);
-				}
-			});
+				});
+			} else {
+				self.targets(ui, state, channel, rows);
+				ui.separator();
+				self.permissions(ui, state, channel, rows);
+			}
+		});
 	}
 
 	fn targets(
@@ -80,86 +84,114 @@ impl PermissionsUi {
 		rows: &mut Vec<p::Overwrite>,
 	) {
 		let guild = channel.guild.unwrap();
-		dialog::label(ui, "ROLES/MEMBERS");
+		dialog::label(ui, "channel-permissions-targets-roles-members");
 		ui.add_enabled_ui(
 			state.can_manage_channel_permissions(channel.id) && rows.len() < p::MAX_OVERWRITES,
 			|ui| {
-				ui.menu_button("+ Add role or member", |ui| {
-					ui.set_width(240.0);
-					ui.add(
-						egui::TextEdit::singleline(&mut self.search)
-							.hint_text("Search roles or loaded members")
-							.char_limit(64)
-							.desired_width(f32::INFINITY),
-					);
-					let query = self.search.to_lowercase();
-					let roles = state
-						.permissions
-						.guilds
-						.get(&guild)
-						.and_then(|g| g.roles.as_deref())
-						.unwrap_or_default();
-					egui::ScrollArea::vertical()
-						.max_height(210.0)
-						.show(ui, |ui| {
-							for role in roles
-								.iter()
-								.filter(|r| r.name.to_lowercase().contains(&query))
-							{
-								if ui
-									.selectable_label(false, format!("Role: {}", role.name))
-									.clicked()
+				ui.menu_button(
+					crate::i18n::translate("channel-permissions-targets-add-role-or-member"),
+					|ui| {
+						ui.set_width(240.0);
+						ui.add(
+							egui::TextEdit::singleline(&mut self.search)
+								.hint_text(crate::i18n::translate(
+									"channel-permissions-targets-search-roles-or-loaded-members",
+								))
+								.char_limit(64)
+								.desired_width(f32::INFINITY),
+						);
+						let query = self.search.to_lowercase();
+						let roles = state
+							.permissions
+							.guilds
+							.get(&guild)
+							.and_then(|g| g.roles.as_deref())
+							.unwrap_or_default();
+						egui::ScrollArea::vertical()
+							.max_height(210.0)
+							.show(ui, |ui| {
+								for role in roles
+									.iter()
+									.filter(|r| r.name.to_lowercase().contains(&query))
 								{
-									self.add(rows, (0, role.id));
-									ui.close();
-								}
-							}
-							// ponytail: suggestions use the loaded member window; add service search when broader discovery is needed.
-							for user in state
-								.members
-								.iter()
-								.filter(|m| m.guild == Some(guild))
-								.flat_map(|m| {
-									m.slots.iter().flatten().filter_map(|slot| match slot {
-										model::MemberSlot::Person(m) => Some(m),
-										_ => None,
-									})
-								})
-								.map(|m| &m.user)
-								.chain(state.user.iter())
-							{
-								if user.name.to_lowercase().contains(&query)
-									&& ui
-										.selectable_label(false, format!("Member: {}", user.name))
+									if ui
+										.selectable_label(
+											false,
+											format!(
+												"{}: {}",
+												crate::i18n::translate(
+													"channel-permissions-targets-role"
+												),
+												role.name
+											),
+										)
 										.clicked()
-								{
-									self.add(rows, (1, user.id));
-									ui.close();
+									{
+										self.add(rows, (0, role.id));
+										ui.close();
+									}
 								}
-							}
+								// ponytail: suggestions use the loaded member window; add service search when broader discovery is needed.
+								for user in state
+									.members
+									.iter()
+									.filter(|m| m.guild == Some(guild))
+									.flat_map(|m| {
+										m.slots.iter().flatten().filter_map(|slot| match slot {
+											model::MemberSlot::Person(m) => Some(m),
+											_ => None,
+										})
+									})
+									.map(|m| &m.user)
+									.chain(state.user.iter())
+								{
+									if user.name.to_lowercase().contains(&query)
+										&& ui
+											.selectable_label(
+												false,
+												format!(
+													"{}: {}",
+													crate::i18n::translate(
+														"channel-permissions-targets-member"
+													),
+													user.name
+												),
+											)
+											.clicked()
+									{
+										self.add(rows, (1, user.id));
+										ui.close();
+									}
+								}
+							});
+						ui.separator();
+						let label = dialog::label(ui, "channel-permissions-targets-member-id");
+						ui.add(
+							egui::TextEdit::singleline(&mut self.member_id)
+								.char_limit(20)
+								.desired_width(f32::INFINITY),
+						)
+						.labelled_by(label.id);
+						let id = self.member_id.parse::<u64>().ok().filter(|id| {
+							*id != 0
+								&& Id(*id) != guild && !roles.iter().any(|r| r.id == Id(*id))
+								&& !rows.iter().any(|o| o.id == Id(*id) && o.kind != 1)
 						});
-					ui.separator();
-					let label = dialog::label(ui, "Member ID");
-					ui.add(
-						egui::TextEdit::singleline(&mut self.member_id)
-							.char_limit(20)
-							.desired_width(f32::INFINITY),
-					)
-					.labelled_by(label.id);
-					let id = self.member_id.parse::<u64>().ok().filter(|id| {
-						*id != 0
-							&& Id(*id) != guild && !roles.iter().any(|r| r.id == Id(*id))
-							&& !rows.iter().any(|o| o.id == Id(*id) && o.kind != 1)
-					});
-					if ui
-						.add_enabled(id.is_some(), egui::Button::new("Add Member"))
-						.clicked()
-					{
-						self.add(rows, (1, Id(id.unwrap())));
-						self.member_id.clear();
-						ui.close();
-					}
-				});
+						if ui
+							.add_enabled(
+								id.is_some(),
+								egui::Button::new(crate::i18n::translate(
+									"channel-permissions-targets-add-member",
+								)),
+							)
+							.clicked()
+						{
+							self.add(rows, (1, Id(id.unwrap())));
+							self.member_id.clear();
+							ui.close();
+						}
+					},
+				);
 			},
 		);
 		egui::ScrollArea::vertical()
@@ -235,169 +267,172 @@ impl PermissionsUi {
 		for (group, values) in [
 			(
 				if channel.kind == 4 {
-					"General Category Permissions"
+					"channel-permissions-add-general-category-permissions"
 				} else {
-					"General Channel Permissions"
+					"channel-permissions-add-general-channel-permissions"
 				},
 				&[
 					(
 						p::VIEW_CHANNEL,
-						"View Channels",
-						"Allows members to view these channels.",
+						"channel-permissions-add-view-channels",
+						"channel-permissions-add-allows-members-to-view-these-channels",
 					),
 					(
 						p::MANAGE_CHANNELS,
-						"Manage Channels",
-						"Allows members to edit channel settings and delete channels.",
+						"channel-permissions-add-manage-channels",
+						"channel-permissions-add-allows-members-to-edit-channel-settings-and-delete-channels",
 					),
 					(
 						p::MANAGE_ROLES,
-						"Manage Permissions",
-						"Allows members to change channel permissions.",
+						"channel-permissions-add-manage-permissions",
+						"channel-permissions-add-allows-members-to-change-channel-permissions",
 					),
 					(
 						p::MANAGE_WEBHOOKS,
-						"Manage Webhooks",
-						"Allows members to create, edit, and delete webhooks.",
+						"channel-permissions-add-manage-webhooks",
+						"channel-permissions-add-allows-members-to-create-edit-and-delete-webhooks",
 					),
 				][..],
 			),
 			(
-				"Membership Permissions",
+				"channel-permissions-add-membership-permissions",
 				&[(
 					1,
-					"Create Invite",
-					"Allows members to invite people to this server.",
+					"channel-permissions-add-create-invite",
+					"channel-permissions-add-allows-members-to-invite-people-to-this-server",
 				)][..],
 			),
 			(
-				"Text Channel Permissions",
+				"channel-permissions-add-text-channel-permissions",
 				&[
 					(
 						p::SEND_MESSAGES,
-						"Send Messages",
-						"Allows members to send messages in these channels.",
+						"channel-permissions-add-send-messages",
+						"channel-permissions-add-allows-members-to-send-messages-in-these-channels",
 					),
 					(
 						p::SEND_MESSAGES_IN_THREADS,
-						"Send Messages in Threads",
-						"Allows members to reply in threads.",
+						"channel-permissions-add-send-messages-in-threads",
+						"channel-permissions-add-allows-members-to-reply-in-threads",
 					),
 					(
 						p::CREATE_PUBLIC_THREADS,
-						"Create Public Threads",
-						"Allows members to start public threads.",
+						"channel-permissions-add-create-public-threads",
+						"channel-permissions-add-allows-members-to-start-public-threads",
 					),
 					(
 						p::CREATE_PRIVATE_THREADS,
-						"Create Private Threads",
-						"Allows members to start private threads.",
+						"channel-permissions-add-create-private-threads",
+						"channel-permissions-add-allows-members-to-start-private-threads",
 					),
 					(
 						p::EMBED_LINKS,
-						"Embed Links",
-						"Shows previews for links members send.",
+						"channel-permissions-add-embed-links",
+						"channel-permissions-add-shows-previews-for-links-members-send",
 					),
 					(
 						p::ATTACH_FILES,
-						"Attach Files",
-						"Allows members to upload files and media.",
+						"channel-permissions-add-attach-files",
+						"channel-permissions-add-allows-members-to-upload-files-and-media",
 					),
 					(
 						p::ADD_REACTIONS,
-						"Add Reactions",
-						"Allows members to add new emoji reactions.",
+						"channel-permissions-add-add-reactions",
+						"channel-permissions-add-allows-members-to-add-new-emoji-reactions",
 					),
 					(
 						p::USE_EXTERNAL_EMOJIS,
-						"Use External Emoji",
-						"Allows emoji from other servers.",
+						"channel-permissions-add-use-external-emoji",
+						"channel-permissions-add-allows-emoji-from-other-servers",
 					),
 					(
 						p::USE_EXTERNAL_STICKERS,
-						"Use External Stickers",
-						"Allows stickers from other servers.",
+						"channel-permissions-add-use-external-stickers",
+						"channel-permissions-add-allows-stickers-from-other-servers",
 					),
 					(
 						p::MENTION_EVERYONE,
-						"Mention @everyone, @here, and All Roles",
-						"Allows mentions that notify everyone or entire roles.",
+						"channel-permissions-add-mention-everyone-here-and-all-roles",
+						"channel-permissions-add-allows-mentions-that-notify-everyone-or-entire-roles",
 					),
 					(
 						p::MANAGE_MESSAGES,
-						"Manage Messages",
-						"Allows members to delete others' messages.",
+						"channel-permissions-add-manage-messages",
+						"channel-permissions-add-allows-members-to-delete-others-messages",
 					),
 					(
 						p::PIN_MESSAGES,
-						"Pin Messages",
-						"Allows members to pin and unpin messages.",
+						"channel-permissions-add-pin-messages",
+						"channel-permissions-add-allows-members-to-pin-and-unpin-messages",
 					),
 					(
 						p::MANAGE_THREADS,
-						"Manage Threads",
-						"Allows members to manage and delete threads.",
+						"channel-permissions-add-manage-threads",
+						"channel-permissions-add-allows-members-to-manage-and-delete-threads",
 					),
 					(
 						p::READ_MESSAGE_HISTORY,
-						"Read Message History",
-						"Allows members to read previous messages.",
+						"channel-permissions-add-read-message-history",
+						"channel-permissions-add-allows-members-to-read-previous-messages",
 					),
 					(
 						p::SEND_TTS_MESSAGES,
-						"Send Text-to-Speech Messages",
-						"Allows messages read aloud with text-to-speech.",
+						"channel-permissions-add-send-text-to-speech-messages",
+						"channel-permissions-add-allows-messages-read-aloud-with-text-to-speech",
 					),
 				][..],
 			),
 			(
-				"Voice Channel Permissions",
+				"channel-permissions-add-voice-channel-permissions",
 				&[
 					(
 						p::CONNECT,
-						"Connect",
-						"Allows members to join voice channels.",
+						"channel-permissions-add-connect",
+						"channel-permissions-add-allows-members-to-join-voice-channels",
 					),
 					(
 						p::SPEAK,
-						"Speak",
-						"Allows members to speak in voice channels.",
+						"channel-permissions-add-speak",
+						"channel-permissions-add-allows-members-to-speak-in-voice-channels",
 					),
 					(
 						p::STREAM,
-						"Video",
-						"Allows members to share video and their screen.",
+						"channel-permissions-add-video",
+						"channel-permissions-add-allows-members-to-share-video-and-their-screen",
 					),
 					(
 						p::USE_VAD,
-						"Use Voice Activity",
-						"Allows speaking without push-to-talk.",
+						"channel-permissions-add-use-voice-activity",
+						"channel-permissions-add-allows-speaking-without-push-to-talk",
 					),
 					(
 						p::MUTE_MEMBERS,
-						"Mute Members",
-						"Allows members to mute others in voice channels.",
+						"channel-permissions-add-mute-members",
+						"channel-permissions-add-allows-members-to-mute-others-in-voice-channels",
 					),
 					(
 						p::DEAFEN_MEMBERS,
-						"Deafen Members",
-						"Allows members to deafen others in voice channels.",
+						"channel-permissions-add-deafen-members",
+						"channel-permissions-add-allows-members-to-deafen-others-in-voice-channels",
 					),
 					(
 						p::MOVE_MEMBERS,
-						"Move Members",
-						"Allows members to move others between voice channels.",
+						"channel-permissions-add-move-members",
+						"channel-permissions-add-allows-members-to-move-others-between-voice-channels",
 					),
 				][..],
 			),
 		] {
-			if group == "Voice Channel Permissions" && !matches!(channel.kind, 2 | 4 | 13) {
+			if group == "channel-permissions-add-voice-channel-permissions"
+				&& !matches!(channel.kind, 2 | 4 | 13)
+			{
 				continue;
 			}
 			ui.add_space(12.0);
 			design::section(ui, group, None);
 			for &(bit, label, help) in values {
 				ui.push_id(bit, |ui| {
+					let label = crate::i18n::translate_if_key(label);
 					let overwrite = rows.iter().find(|o| (o.kind, o.id) == key);
 					let mut value = overwrite.map_or(0, |o| {
 						if o.deny & bit != 0 {
@@ -417,16 +452,16 @@ impl PermissionsUi {
 							egui::Layout::top_down(egui::Align::Min),
 							|ui| {
 								ui.set_width(width);
-								ui.label(design::medium(ui, label, 15.0));
+								ui.label(design::medium(ui, &label, 15.0));
 								dialog::hint(ui, help);
 							},
 						);
 						ui.add_enabled_ui(enabled, |ui| {
 							ui.spacing_mut().item_spacing.x = 0.0;
 							for (choice, glyph, name, color) in [
-								(-1, "×", "Deny", colors.danger),
-								(0, "/", "Inherit", colors.muted),
-								(1, "✓", "Allow", colors.positive),
+								(-1, "×", "channel-permissions-add-deny", colors.danger),
+								(0, "/", "channel-permissions-add-inherit", colors.muted),
+								(1, "✓", "channel-permissions-add-allow", colors.positive),
 							] {
 								let response = ui.add(
 									egui::Button::new(
@@ -436,7 +471,8 @@ impl PermissionsUi {
 									.min_size(egui::vec2(34.0, 30.0))
 									.corner_radius(3),
 								);
-								let accessible = format!("{name} {label}");
+								let accessible =
+									format!("{} {label}", crate::i18n::translate_if_key(name));
 								response.widget_info(|| {
 									egui::WidgetInfo::selected(
 										egui::Role::RadioButton,
@@ -469,7 +505,10 @@ impl PermissionsUi {
 				.add_enabled(
 					editable,
 					egui::Button::new(
-						egui::RichText::new("Remove Role / Member").color(colors.danger),
+						egui::RichText::new(crate::i18n::translate(
+							"channel-permissions-permissions-remove-role-member",
+						))
+						.color(colors.danger),
 					),
 				)
 				.clicked()

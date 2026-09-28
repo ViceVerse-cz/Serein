@@ -301,16 +301,26 @@ impl MessagingUi {
 									egui::Role::Button,
 									true,
 									format!(
-										"Open {}{}, {} notifications",
+										"{} {}{}, {} {}",
+										crate::i18n::translate(
+											"notifications-notification-rail-open"
+										),
 										channel.name,
 										if in_call {
-											", in a call"
+											crate::i18n::translate(
+												"notifications-notification-rail-in-a-call",
+											)
 										} else if unread {
-											", unread"
+											crate::i18n::translate(
+												"notifications-notification-rail-unread",
+											)
 										} else {
-											""
+											String::new()
 										},
-										count
+										count,
+										crate::i18n::translate(
+											"notifications-notification-rail-notifications"
+										)
 									),
 								)
 							});
@@ -351,9 +361,18 @@ impl MessagingUi {
 							},
 						);
 						response.widget_info(|| {
-							egui::WidgetInfo::labeled(egui::Role::Button, true, "Add a Server")
+							egui::WidgetInfo::labeled(
+								egui::Role::Button,
+								true,
+								crate::i18n::translate(
+									"notifications-notification-rail-add-a-server",
+								),
+							)
 						});
-						design::rail_name(&response, "Add a Server");
+						design::rail_name(
+							&response,
+							crate::i18n::translate("notifications-notification-rail-add-a-server"),
+						);
 						if response.clicked() {
 							self.join_server.open_picker(state.generation);
 						}

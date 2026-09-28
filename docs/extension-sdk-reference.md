@@ -348,8 +348,8 @@ fields. This keeps existing struct literals and handlers source-compatible.
 `messaging_settings` exposes only the loaded account preference snapshot. Each
 guild-ID array exposes at most 1,024 of the native model's sorted IDs and sets
 `truncated` when either list is longer. `guild_folders`
-contains the complete loaded layout and service version, bounded to 200 folders,
-200 unique server IDs and 16 KiB of native heap data. Missing fields mean the
+contains the complete loaded layout and service version, bounded to 1,000 folders,
+1,000 unique server IDs and 128 KiB of native heap data. Missing fields mean the
 capability was not granted, the native data is not loaded, or lower-priority
 extended data was omitted to keep the complete invocation below its 256 KiB ABI
 limit. Query results are retained ahead of settings and folder snapshots.

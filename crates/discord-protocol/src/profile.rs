@@ -109,6 +109,8 @@ struct Badge {
 struct Connection {
 	#[serde(rename = "type")]
 	kind: String,
+	#[serde(default)]
+	id: String,
 	name: String,
 	#[serde(default)]
 	verified: bool,
@@ -291,6 +293,7 @@ pub fn decode_profile(bytes: &[u8], guild: Option<Id>) -> Result<UserProfile, De
 			.into_iter()
 			.map(|c| ProfileConnection {
 				kind: text(c.kind, 16, &mut limited),
+				id: text(c.id, 128, &mut limited),
 				name: text(c.name, 128, &mut limited),
 				verified: c.verified,
 			})

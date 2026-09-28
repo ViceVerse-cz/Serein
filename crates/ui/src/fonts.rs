@@ -64,17 +64,24 @@ pub struct Settings {
 impl Settings {
 	pub(super) fn show(&mut self, ui: &mut egui::Ui) {
 		use crate::design;
-		design::group(ui, "Typography", |ui| {
+		design::group(ui, &crate::i18n::translate("fonts-show-typography"), |ui| {
 			ui.add_enabled_ui(!self.busy, |ui| {
 				design::row(
 					ui,
-					"Interface font",
-					Some(self.name.as_deref().unwrap_or("Inter (default)")),
+					"fonts-show-interface-font",
+					Some(self.name.as_deref().unwrap_or("fonts-show-inter-default")),
 					|ui| {
-						if design::text_action(ui, "Reset").clicked() {
+						if design::text_action(ui, &crate::i18n::translate("fonts-show-reset"))
+							.clicked()
+						{
 							self.request = Some(Action::Reset);
 						}
-						if design::button(ui, "Import font…", design::ButtonKind::Outline).clicked()
+						if design::button(
+							ui,
+							&crate::i18n::translate("fonts-show-import-font"),
+							design::ButtonKind::Outline,
+						)
+						.clicked()
 						{
 							self.request = Some(Action::Import);
 						}
@@ -83,9 +90,11 @@ impl Settings {
 			});
 			design::hint(
 				ui,
-				"TTF or OTF, up to 8 MiB. Saved on this device. Code keeps its monospace font.",
+				&crate::i18n::translate("fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this"),
 			);
-			ui.label("The quick brown fox jumps over the lazy dog. 0123456789");
+			ui.label(crate::i18n::translate(
+				"fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789",
+			));
 			if !self.status.is_empty() {
 				design::hint(ui, self.status);
 			}

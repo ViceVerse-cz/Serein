@@ -205,6 +205,12 @@ pub enum Command {
 		request: u64,
 	},
 	CancelProfile,
+	StreamPreview {
+		guild: Id,
+		channel: Id,
+		user: Id,
+		request: u64,
+	},
 	/// None loads the account's global profile; Some writes only explicitly changed fields.
 	EditProfile {
 		user: Id,
@@ -488,6 +494,13 @@ pub enum Event {
 		guild: Option<Id>,
 		request: u64,
 		result: Result<Box<UserProfile>, auth::Failure>,
+	},
+	StreamPreview {
+		guild: Id,
+		channel: Id,
+		user: Id,
+		request: u64,
+		result: Result<String, auth::Failure>,
 	},
 	ProfileEdited {
 		user: Id,
@@ -1052,6 +1065,19 @@ impl State {
 			self.last_viewed_channels.remove(0);
 		}
 		self.last_viewed_channels.push((guild, channel));
+	}
+	/// Restores saved server visits (oldest first) behind the ones made this session.
+	pub fn seed_viewed_channels(&mut self, saved: &[(Id, Id)]) {
+		let room = MAX_VIEWED_SERVERS.saturating_sub(self.last_viewed_channels.len());
+		let mut fresh: Vec<_> = saved
+			.iter()
+			.rev()
+			.filter(|(guild, _)| !self.last_viewed_channels.iter().any(|(id, _)| id == guild))
+			.take(room)
+			.copied()
+			.collect();
+		fresh.reverse();
+		self.last_viewed_channels.splice(0..0, fresh);
 	}
 	pub fn select_guild(&mut self, guild: Id) -> Option<Command> {
 		self.guild(guild)?;
@@ -2022,6 +2048,16 @@ impl State {
 		if matches!(command, Command::CancelProfile) {
 			return;
 		}
+		if let Command::StreamPreview {
+			guild,
+			channel,
+			user,
+			request,
+		} = command
+		{
+			self.apply_stream_preview(guild, channel, user, request, Err(auth::Failure::Capacity));
+			return;
+		}
 
 		if let Command::Voice(control) = command {
 			match control {
@@ -2225,6 +2261,9 @@ impl State {
 			Event::ThreadChanged { guild, patch } => Some((*guild, patch.id)),
 			_ => None,
 		};
+		if let Some((_, id)) = archive_mutation {
+			self.forget_channel_reference_name(id);
+		}
 		if archive_mutation.is_some_and(|(guild, id)| {
 			self.archives.as_ref().is_some_and(|view| {
 				view.guild == guild
@@ -2552,6 +2591,16 @@ impl State {
 				result,
 			} => {
 				self.apply_profile(user, guild, request, result);
+				Ok(())
+			}
+			Event::StreamPreview {
+				guild,
+				channel,
+				user,
+				request,
+				result,
+			} => {
+				self.apply_stream_preview(guild, channel, user, request, result);
 				Ok(())
 			}
 
@@ -2960,6 +3009,7 @@ impl State {
 					self.freshness = Freshness::Stale;
 				}
 				self.voice.roster.clear();
+				self.voice.preview = None;
 				self.voice.dm_calls.clear();
 				self.voice.dm_participants.clear();
 				self.members = None;
@@ -3834,6 +3884,7 @@ impl Event {
 				Self::Profile { result, .. } | Self::ProfileEdited { result, .. } => {
 					result.as_ref().map_or(0, |p| p.bytes())
 				}
+				Self::StreamPreview { result, .. } => result.as_ref().map_or(0, String::capacity),
 				Self::Voice(event) => event.bytes(),
 				Self::Permissions(event) => event.bytes(),
 				Self::GuildEmojis { emojis, .. } => custom_emoji_bytes(emojis),

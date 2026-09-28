@@ -1,9 +1,12 @@
 use crate::Id;
 use std::collections::HashSet;
 
-pub const MAX_FOLDERS: usize = 200;
-pub const MAX_GUILDS: usize = 200;
+// Discord allows 200 joined servers, but stored layouts can keep servers that were left.
+pub const MAX_FOLDERS: usize = 1000;
+pub const MAX_GUILDS: usize = 1000;
 pub const MAX_NAME_BYTES: usize = 400;
+pub const MAX_NAME_CHARS: usize = 100;
+pub const MAX_HEAP_BYTES: usize = 128 * 1024;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Folder {
@@ -22,7 +25,7 @@ pub struct Settings {
 impl Settings {
 	pub fn valid(&self) -> bool {
 		if self.folders.len() > MAX_FOLDERS
-			|| self.heap_bytes() > 16 * 1024
+			|| self.heap_bytes() > MAX_HEAP_BYTES
 			|| self.version > u32::MAX.into()
 		{
 			return false;
@@ -30,14 +33,12 @@ impl Settings {
 		let mut guilds = HashSet::new();
 		let mut folders = HashSet::new();
 		self.folders.iter().all(|folder| {
-			folder
-				.id
-				.is_none_or(|id| id != 0 && id <= i64::MAX as u64 && folders.insert(id))
+			folder.id.is_none_or(|id| id != 0 && folders.insert(id))
 				&& (folder.id.is_some() || folder.guild_ids.len() == 1)
 				&& folder.color.is_none_or(|color| color <= 0xffffff)
 				&& folder.name.as_ref().is_none_or(|name| {
 					name.len() <= MAX_NAME_BYTES
-						&& name.chars().count() <= 100
+						&& name.chars().count() <= MAX_NAME_CHARS
 						&& !name.chars().any(char::is_control)
 				}) && folder.guild_ids.len() <= MAX_GUILDS
 				&& folder

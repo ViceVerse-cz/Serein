@@ -4,9 +4,10 @@ use crate::DecodeError;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use model::{
 	Id,
-	guild_folders::{Folder, MAX_FOLDERS, MAX_GUILDS, Settings},
+	guild_folders::{Folder, MAX_FOLDERS, MAX_GUILDS, MAX_NAME_CHARS, Settings},
 };
 use serde::Deserialize;
+use std::collections::{HashMap, HashSet};
 
 // Discord accepts a 5 MiB base64 settings value; leave bounded room for its JSON envelope.
 pub const MAX_SETTINGS_RESPONSE: usize = 6 * 1024 * 1024;
@@ -14,7 +15,23 @@ const MAX_FOLDER_WIRE: usize = 128 * 1024;
 
 pub struct Decoded {
 	pub settings: Settings,
-	folder_wire: Vec<u8>,
+	/// Folder-subtree fields other than entries, such as guild positions, kept verbatim.
+	other_fields: Vec<u8>,
+	/// Unknown entry fields, keyed by the entry they belong to after normalization.
+	unknown: HashMap<Key, Vec<u8>>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Key {
+	Folder(u64),
+	Server(Id),
+}
+
+fn key(folder: &Folder) -> Option<Key> {
+	match folder.id {
+		Some(id) => Some(Key::Folder(id)),
+		None => folder.guild_ids.first().map(|id| Key::Server(*id)),
+	}
 }
 
 #[derive(Deserialize)]
@@ -36,7 +53,8 @@ pub fn decode_response(bytes: &[u8]) -> Result<Decoded, DecodeError> {
 		.decode(response.settings)
 		.map_err(|_| DecodeError)?;
 	let mut settings = Settings::default();
-	let mut folder_wire = Vec::new();
+	let mut other_fields = Vec::new();
+	let mut unknown = HashMap::new();
 	let mut version_seen = false;
 	let mut folders_seen = false;
 	for field in fields(&wire)? {
@@ -61,15 +79,18 @@ pub fn decode_response(bytes: &[u8]) -> Result<Decoded, DecodeError> {
 				if value.len() > MAX_FOLDER_WIRE {
 					return Err(DecodeError);
 				}
-				folder_wire = value.to_vec();
+				let mut entries = Vec::new();
 				for folder in fields(value)? {
 					if folder.number == 1 {
-						if settings.folders.len() >= MAX_FOLDERS {
+						if entries.len() >= MAX_FOLDERS {
 							return Err(DecodeError);
 						}
-						settings.folders.push(decode_folder(folder.message()?)?);
+						entries.push(decode_folder(folder.message()?)?);
+					} else {
+						other_fields.extend_from_slice(folder.raw);
 					}
 				}
+				(settings.folders, unknown) = normalize(entries);
 			}
 			_ => {}
 		}
@@ -83,12 +104,14 @@ pub fn decode_response(bytes: &[u8]) -> Result<Decoded, DecodeError> {
 	}
 	Ok(Decoded {
 		settings,
-		folder_wire,
+		other_fields,
+		unknown,
 	})
 }
 
-fn decode_folder(bytes: &[u8]) -> Result<Folder, DecodeError> {
+fn decode_folder(bytes: &[u8]) -> Result<(Folder, Vec<u8>), DecodeError> {
 	let mut folder = Folder::default();
+	let mut unknown = Vec::new();
 	for field in fields(bytes)? {
 		match field.number {
 			1 => {
@@ -109,22 +132,75 @@ fn decode_folder(bytes: &[u8]) -> Result<Folder, DecodeError> {
 				let mut name = String::new();
 				for value in fields(field.message()?)? {
 					if value.number == 1 {
-						name = std::str::from_utf8(value.message()?)
-							.map_err(|_| DecodeError)?
-							.to_owned();
+						name = String::from_utf8_lossy(value.message()?)
+							.chars()
+							.map(|c| if c.is_control() { ' ' } else { c })
+							.take(MAX_NAME_CHARS)
+							.collect();
 					}
 				}
 				folder.name = Some(name);
 			}
 			4 => {
-				folder.color = Some(
-					u32::try_from(wrapper_integer(field.message()?)?).map_err(|_| DecodeError)?,
-				)
+				folder.color = u32::try_from(wrapper_integer(field.message()?)?)
+					.ok()
+					.filter(|color| *color <= 0xffffff)
 			}
-			_ => {}
+			_ => unknown.extend_from_slice(field.raw),
 		}
 	}
-	Ok(folder)
+	Ok((folder, unknown))
+}
+
+/// Other clients can leave layouts that Discord's client still shows. Instead of rejecting
+/// them, keep each server's first placement, split ID-less groups into standalone servers,
+/// drop empty ID-less entries and give zero or repeated folder IDs a fresh one.
+fn normalize(entries: Vec<(Folder, Vec<u8>)>) -> (Vec<Folder>, HashMap<Key, Vec<u8>>) {
+	let mut folder_ids = HashSet::new();
+	let keeps_id: Vec<bool> = entries
+		.iter()
+		.map(|(folder, _)| folder.id.is_some_and(|id| id != 0 && folder_ids.insert(id)))
+		.collect();
+	let mut next_id = 1;
+	let mut guilds = HashSet::new();
+	let mut folders = Vec::new();
+	let mut unknown = HashMap::new();
+	for ((mut folder, fields), keeps_id) in entries.into_iter().zip(keeps_id) {
+		folder
+			.guild_ids
+			.retain(|id| id.0 != 0 && guilds.insert(*id));
+		if folder.id.is_some() && !keeps_id {
+			while !folder_ids.insert(next_id) {
+				next_id += 1;
+			}
+			folder.id = Some(next_id);
+		}
+		if folder.id.is_none() && folder.guild_ids.len() != 1 {
+			let mut ids = folder.guild_ids.into_iter();
+			let Some(first) = ids.next() else {
+				continue;
+			};
+			folders.push(Folder {
+				guild_ids: vec![first],
+				..Folder::default()
+			});
+			folders.extend(ids.map(|id| Folder {
+				guild_ids: vec![id],
+				..Folder::default()
+			}));
+			if !fields.is_empty() {
+				unknown.insert(Key::Server(first), fields);
+			}
+			continue;
+		}
+		if !fields.is_empty()
+			&& let Some(key) = key(&folder)
+		{
+			unknown.insert(key, fields);
+		}
+		folders.push(folder);
+	}
+	(folders, unknown)
 }
 
 fn wrapper_integer(bytes: &[u8]) -> Result<u64, DecodeError> {
@@ -143,32 +219,12 @@ pub fn encode_patch(current: &Decoded, settings: &Settings) -> Result<String, De
 	if !settings.valid() || settings.version != current.settings.version {
 		return Err(DecodeError);
 	}
-	let old_fields = fields(&current.folder_wire)?;
-	let mut subtree = Vec::new();
-	for field in &old_fields {
-		if field.number != 1 {
-			subtree.extend_from_slice(field.raw);
-		}
-	}
+	let mut subtree = current.other_fields.clone();
 	for folder in &settings.folders {
-		let mut encoded = Vec::new();
-		// ponytail: at most 200 folders; index by identity if this account bound grows.
-		for (old, field) in current
-			.settings
-			.folders
-			.iter()
-			.zip(old_fields.iter().filter(|field| field.number == 1))
-		{
-			if (folder.id.is_some() && old.id == folder.id)
-				|| (folder.id.is_none() && old.id.is_none() && old.guild_ids == folder.guild_ids)
-			{
-				for unknown in fields(field.message()?)? {
-					if !(1..=4).contains(&unknown.number) {
-						encoded.extend_from_slice(unknown.raw);
-					}
-				}
-			}
-		}
+		let mut encoded = key(folder)
+			.and_then(|key| current.unknown.get(&key))
+			.cloned()
+			.unwrap_or_default();
 		let ids: Vec<u8> = folder
 			.guild_ids
 			.iter()
@@ -314,7 +370,8 @@ mod tests {
 		message(9, b"future", &mut subtree);
 		let current = Decoded {
 			settings: Settings::default(),
-			folder_wire: subtree.clone(),
+			other_fields: subtree.clone(),
+			unknown: HashMap::new(),
 		};
 		let settings = Settings {
 			folders: vec![Folder {
@@ -331,7 +388,7 @@ mod tests {
 		let response = serde_json::json!({"settings": STANDARD.encode(&wire)});
 		let decoded = decode_response(response.to_string().as_bytes()).unwrap();
 		assert_eq!(decoded.settings, settings);
-		assert!(decoded.folder_wire.starts_with(&subtree));
+		assert_eq!(decoded.other_fields, subtree);
 		wire.pop();
 		assert!(
 			decode_response(
@@ -353,5 +410,71 @@ mod tests {
 			.into_bytes();
 		assert!(response.len() > 1024 * 1024);
 		assert!(decode_response(&response).is_ok());
+	}
+
+	#[test]
+	fn messy_large_layouts_are_normalized_instead_of_rejected() {
+		fn entry(id: Option<i64>, guilds: &[u64], name: Option<&str>, extra: bool) -> Vec<u8> {
+			let mut entry = Vec::new();
+			if extra {
+				message(9, b"future", &mut entry);
+			}
+			let ids: Vec<u8> = guilds.iter().flat_map(|id| id.to_le_bytes()).collect();
+			message(1, &ids, &mut entry);
+			if let Some(id) = id {
+				integer_wrapper(2, id as u64, &mut entry);
+			}
+			if let Some(name) = name {
+				let mut wrapper = Vec::new();
+				message(1, name.as_bytes(), &mut wrapper);
+				message(3, &wrapper, &mut entry);
+			}
+			entry
+		}
+		let mut subtree = Vec::new();
+		// Stale servers from past memberships push the layout past 200 entries.
+		for id in 1..=300 {
+			message(1, &entry(None, &[id], None, false), &mut subtree);
+		}
+		for folder in [
+			entry(Some(5), &[3, 400], Some("Dup\nname"), true), // 3 repeats a loose server
+			entry(Some(5), &[401], None, false),                // repeated folder ID
+			entry(Some(0), &[402], None, false),                // zero folder ID
+			entry(Some(-7), &[403], None, false),               // negative Int64Value
+			entry(None, &[404, 405], None, true),               // ID-less group
+			entry(None, &[], None, false),                      // empty ID-less entry
+		] {
+			message(1, &folder, &mut subtree);
+		}
+		let mut wire = vec![10, 2, 24, 3];
+		message(14, &subtree, &mut wire);
+		let response = serde_json::json!({"settings": STANDARD.encode(&wire)}).to_string();
+		let decoded = decode_response(response.as_bytes()).unwrap();
+		let folders = &decoded.settings.folders;
+		assert_eq!(folders.len(), 306);
+		let (dup, repeated, zero, negative) =
+			(&folders[300], &folders[301], &folders[302], &folders[303]);
+		assert_eq!((dup.id, dup.guild_ids.clone()), (Some(5), vec![Id(400)]));
+		assert_eq!(dup.name.as_deref(), Some("Dup name"));
+		assert_eq!(repeated.id, Some(1));
+		assert_eq!(zero.id, Some(2));
+		assert_eq!(negative.id, Some(-7i64 as u64));
+		assert_eq!(
+			(folders[304].id, folders[304].guild_ids.clone()),
+			(None, vec![Id(404)])
+		);
+		assert_eq!(
+			(folders[305].id, folders[305].guild_ids.clone()),
+			(None, vec![Id(405)])
+		);
+
+		let patch = encode_patch(&decoded, &decoded.settings).unwrap();
+		let mut wire = vec![10, 2, 24, 3];
+		wire.extend(STANDARD.decode(patch).unwrap());
+		let response = serde_json::json!({"settings": STANDARD.encode(&wire)}).to_string();
+		let saved = decode_response(response.as_bytes()).unwrap();
+		assert_eq!(saved.settings, decoded.settings);
+		assert!(saved.unknown.contains_key(&Key::Folder(5)));
+		assert!(saved.unknown.contains_key(&Key::Server(Id(404))));
 	}
 }

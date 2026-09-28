@@ -362,10 +362,20 @@ fn main() -> eframe::Result {
 				eframe::egui_wgpu::WgpuSetupCreateNew {
 					// Avoid Intel Vulkan driver startup crashes; keep the diagnostic override.
 					#[cfg(target_os = "windows")]
-					instance_descriptor: eframe::wgpu::InstanceDescriptor {
-						backends: eframe::wgpu::Backends::from_env()
-							.unwrap_or(eframe::wgpu::Backends::DX12),
-						..eframe::wgpu::InstanceDescriptor::new_without_display_handle_from_env()
+					instance_descriptor: {
+						let mut descriptor =
+							eframe::wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+						descriptor.backends = eframe::wgpu::Backends::from_env()
+							.unwrap_or(eframe::wgpu::Backends::DX12);
+						// An HWND swapchain is always opaque; only a DirectComposition one carries
+						// alpha to the desktop and its acrylic backdrop. The env override still wins.
+						if transparency_available
+							&& eframe::wgpu::Dx12SwapchainKind::from_env().is_none()
+						{
+							descriptor.backend_options.dx12.presentation_system =
+								eframe::wgpu::Dx12SwapchainKind::DxgiFromVisual;
+						}
+						descriptor
 					},
 					// Only adapters that can present to this window are eligible; the saved
 					// preference just orders them. A power hint alone picks GPUs the display is
@@ -3462,6 +3472,7 @@ impl Desktop {
 								message.content.chars().take(200).collect::<String>()
 							),
 							author: message.author,
+							mentions: message.mentions,
 							attachments: message.attachments,
 							embeds: message.embeds,
 						}
@@ -3553,6 +3564,7 @@ impl Desktop {
 									id: message.id,
 									channel,
 									author: message.author,
+									mentions: message.mentions,
 									excerpt: message.content.clone(),
 									attachments: message.attachments,
 									embeds: message.embeds,
@@ -3597,6 +3609,20 @@ impl Desktop {
 					guild,
 					request,
 					result: Err(Failure::Protocol),
+				},
+				Command::StreamPreview {
+					guild,
+					channel,
+					user,
+					request,
+				} => Event::StreamPreview {
+					guild,
+					channel,
+					user,
+					request,
+					result: Ok(format!(
+						"https://cdn.discordapp.com/streams/guild:{guild}:{channel}:{user}/0123456789abcdef.png"
+					)),
 				},
 				Command::EditProfile {
 					user,
@@ -3800,11 +3826,13 @@ impl Desktop {
 	}
 	/// Boot stage while a saved login is being restored, so launch shows progress
 	/// instead of a welcome card the user cannot act on yet.
-	fn restoring(&self) -> Option<&'static str> {
+	fn restoring(&self) -> Option<String> {
 		// Fixture-only preview of the restore screen, e.g. `--demo --demo-restoring`.
 		#[cfg(feature = "demo")]
 		if self.fixture_only && std::env::args().any(|arg| arg == "--demo-restoring") {
-			return Some("Checking your saved login");
+			return Some(ui::i18n::translate(
+				"main-restoring-checking-your-saved-login",
+			));
 		}
 		if self.fixture_only
 			|| self.state.demo
@@ -3821,13 +3849,17 @@ impl Desktop {
 			.as_ref()
 			.is_some_and(|store| store.remaining(std::time::Instant::now()).is_some())
 		{
-			return Some("Checking your saved login");
+			return Some(ui::i18n::translate(
+				"main-restoring-checking-your-saved-login",
+			));
 		}
-		self.connection.is_some().then_some("Connecting to Discord")
+		self.connection
+			.is_some()
+			.then(|| ui::i18n::translate("main-restoring-connecting-to-discord"))
 	}
 	/// Restore screen for returning accounts: no sign-in controls, just the stage,
 	/// an indeterminate bar and a way out to the welcome screen.
-	fn restoring_screen(&mut self, ui: &mut egui::Ui, stage: &'static str) {
+	fn restoring_screen(&mut self, ui: &mut egui::Ui, stage: &str) {
 		let p = ui::design::palette(ui);
 		egui::CentralPanel::default()
 			.frame(egui::Frame::NONE.fill(ui::design::window_palette(ui).canvas))
@@ -3851,7 +3883,14 @@ impl Desktop {
 					})
 					.show(ui, |ui| {
 						ui.horizontal(|ui| {
-							ui.label(ui::design::semibold(ui, "Serein", 16.0).color(p.muted));
+							ui.label(
+								ui::design::semibold(
+									ui,
+									ui::i18n::translate("main-restoring-screen-serein"),
+									16.0,
+								)
+								.color(p.muted),
+							);
 							ui.with_layout(
 								egui::Layout::right_to_left(egui::Align::Center),
 								|ui| {
@@ -3884,7 +3923,14 @@ impl Desktop {
 						p.accent_text,
 					);
 					ui.add_space(18.0);
-					ui.label(ui::design::semibold(ui, "Welcome back", 24.0).color(p.text_strong));
+					ui.label(
+						ui::design::semibold(
+							ui,
+							ui::i18n::translate("main-restoring-screen-welcome-back"),
+							24.0,
+						)
+						.color(p.text_strong),
+					);
 					ui.add_space(6.0);
 					ui.label(
 						egui::RichText::new(format!("{stage}…"))
@@ -3916,7 +3962,13 @@ impl Desktop {
 						egui::vec2(220.0, 0.0),
 						egui::Layout::top_down(egui::Align::Center),
 						|ui| {
-							if ui::design::secondary_button(ui, "Use a different account").clicked()
+							if ui::design::secondary_button(
+								ui,
+								&ui::i18n::translate(
+									"main-restoring-screen-use-a-different-account",
+								),
+							)
+							.clicked()
 							{
 								if let Some(store) = &mut self.store {
 									store.cancel_load();
@@ -3966,7 +4018,14 @@ impl Desktop {
 								p.accent_text,
 							);
 							ui.add_space(8.0);
-							ui.label(ui::design::semibold(ui, "Serein", 16.0).color(p.text_strong));
+							ui.label(
+								ui::design::semibold(
+									ui,
+									ui::i18n::translate("main-sign-in-screen-serein"),
+									16.0,
+								)
+								.color(p.text_strong),
+							);
 							ui.add_space(8.0);
 							// Painted rather than framed: the pill must hug the text, not the row height.
 							let stage = ui.painter().layout_no_wrap(
@@ -4015,7 +4074,7 @@ impl Desktop {
 										};
 									egui::containers::menu::MenuButton::from_button(quiet(
 										ui,
-										"Appearance",
+										&ui::i18n::translate("page-appearance"),
 										p.muted,
 									))
 									.config(sticky())
@@ -4023,17 +4082,18 @@ impl Desktop {
 									ui.add_space(8.0);
 									let updates = &self.messaging.updates;
 									let (label, color) = if updates.ready {
-										("Restart to update", p.link)
+										("updates-shows-update-banner-restart-to-update", p.link)
 									} else if updates.busy {
-										("Updating…", p.muted)
+										("updates-shows-update-banner-updating", p.muted)
 									} else if updates.available {
-										("Update available", p.link)
+										("updates-shows-update-banner-update-available", p.link)
 									} else {
-										("Updates", p.muted)
+										("page-updates", p.muted)
 									};
+									let label = ui::i18n::translate(label);
 									let demo = self.fixture_only || self.state.demo;
 									egui::containers::menu::MenuButton::from_button(quiet(
-										ui, label, color,
+										ui, &label, color,
 									))
 									.config(sticky())
 									.ui(ui, |ui| self.messaging.updates_menu(ui, demo));
@@ -4067,9 +4127,9 @@ impl Desktop {
 							);
 							ui.add_space(18.0);
 							ui.label(
-								egui::RichText::new(
-									"Independent and open source. Not affiliated with Discord.",
-								)
+								egui::RichText::new(ui::i18n::translate(
+									"main-sign-in-screen-independent-and-open-source-not-affiliated-with-discord",
+								))
 								.size(12.0)
 								.color(p.muted),
 							);
@@ -4182,11 +4242,11 @@ impl Desktop {
 			ui.label(
 				ui::design::semibold(
 					ui,
-					if returning {
-						"Welcome back"
+					ui::i18n::translate_if_key(if returning {
+						"main-sign-in-header-welcome-back"
 					} else {
-						"Welcome to Serein"
-					},
+						"main-sign-in-header-welcome-to-serein"
+					}),
 					22.0,
 				)
 				.color(p.text_strong),
@@ -4194,11 +4254,11 @@ impl Desktop {
 			ui.add_space(5.0);
 			ui.add(
 				egui::Label::new(
-					egui::RichText::new(if returning {
-						"Continue with a saved account, or sign in with another one."
+					egui::RichText::new(ui::i18n::translate_if_key(if returning {
+						"main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another"
 					} else {
-						"Sign in with your Discord account to get started."
-					})
+						"main-sign-in-header-sign-in-with-your-discord-account-to-get-started"
+					}))
 					.size(14.0)
 					.color(p.muted),
 				)
@@ -4209,7 +4269,11 @@ impl Desktop {
 	/// Accounts already signed in on this device: one tap restores their saved login.
 	fn sign_in_accounts(&mut self, ui: &mut egui::Ui, enabled: bool) {
 		let p = ui::design::palette(ui);
-		ui.label(ui::design::eyebrow(ui, "Saved accounts", p.muted));
+		ui.label(ui::design::eyebrow(
+			ui,
+			ui::i18n::translate("main-sign-in-accounts-saved-accounts"),
+			p.muted,
+		));
 		ui.add_space(6.0);
 		let saved: Vec<(model::Id, String, String)> = self
 			.messaging
@@ -4302,15 +4366,21 @@ impl Desktop {
 				ui.set_width(ui.available_width());
 				ui.checkbox(
 					&mut self.authorized,
-					ui::design::medium(ui, "I own this account and authorize this session.", 13.0)
-						.color(p.text_strong),
+					ui::design::medium(
+						ui,
+						ui::i18n::translate(
+							"main-sign-in-consent-i-own-this-account-and-authorize-this-session",
+						),
+						13.0,
+					)
+					.color(p.text_strong),
 				);
 				ui.add_space(4.0);
 				ui.add(
 					egui::Label::new(
-						egui::RichText::new(
-							"Passwords and 2FA stay on Discord's own login page; only the session token is kept, in your OS credential store.",
-						)
+						egui::RichText::new(ui::i18n::translate(
+							"main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page",
+						))
 						.size(12.0)
 						.color(p.muted),
 					)
@@ -4439,7 +4509,12 @@ impl Desktop {
 			ui.allocate_space(egui::vec2(width, 16.0));
 		});
 		ui.add_space(14.0);
-		if ui::design::secondary_button(ui, "Explore the offline preview").clicked() {
+		if ui::design::secondary_button(
+			ui,
+			&ui::i18n::translate("main-sign-in-preview-explore-the-offline-preview"),
+		)
+		.clicked()
+		{
 			if let Some(store) = &mut self.store {
 				store.cancel_load();
 			}
@@ -4457,16 +4532,24 @@ impl Desktop {
 		ui.add_space(8.0);
 		ui.vertical_centered(|ui| {
 			ui.label(
-				egui::RichText::new("Sample conversations. No Discord connection.")
-					.size(12.0)
-					.color(p.muted),
+				egui::RichText::new(&ui::i18n::translate(
+					"main-sign-in-preview-sample-conversations-no-discord-connection",
+				))
+				.size(12.0)
+				.color(p.muted),
 			);
 		});
 	}
 	/// Secondary panels: what this client is, and the owner's own session token.
 	fn sign_in_disclosures(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
 		let p = ui::design::palette(ui);
-		if ui::design::disclosure(ui, "About Serein", self.about_open).clicked() {
+		if ui::design::disclosure(
+			ui,
+			&ui::i18n::translate("main-sign-in-disclosures-about-serein"),
+			self.about_open,
+		)
+		.clicked()
+		{
 			self.about_open = !self.about_open;
 		}
 		if self.about_open {
@@ -4494,7 +4577,7 @@ impl Desktop {
 					}
 					if !self.fixture_only {
 						ui.add_space(2.0);
-						if ui::design::button(ui, "Forget saved login", ui::design::ButtonKind::Outline)
+						if ui::design::button(ui, &ui::i18n::translate("main-sign-in-disclosures-forget-saved-login"), ui::design::ButtonKind::Outline)
 							.clicked()
 						{
 							self.logout(ctx);
@@ -4502,7 +4585,13 @@ impl Desktop {
 					}
 				});
 		}
-		if ui::design::disclosure(ui, "Sign in with a session token", self.token_open).clicked() {
+		if ui::design::disclosure(
+			ui,
+			&ui::i18n::translate("main-sign-in-disclosures-sign-in-with-a-session-token"),
+			self.token_open,
+		)
+		.clicked()
+		{
 			self.token_open = !self.token_open;
 		}
 		if self.token_open {
@@ -4517,9 +4606,9 @@ impl Desktop {
 				.show(ui, |ui| {
 					ui.add(
 						egui::Label::new(
-							egui::RichText::new(
-								"For owners who already hold a valid Discord session token, for example from another signed-in Serein install. Passwords and 2FA are never used here; this bypasses Discord's hosted login page entirely.",
-							)
+							egui::RichText::new(ui::i18n::translate(
+								"main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token",
+							))
 							.size(12.0)
 							.color(p.muted),
 						)
@@ -4531,14 +4620,18 @@ impl Desktop {
 						egui::TextEdit::singleline(&mut *self.token_input)
 							.password(true)
 							.char_limit(2048)
-							.hint_text("Session token"),
+							.hint_text(ui::i18n::translate(
+								"main-sign-in-disclosures-session-token",
+							)),
 					);
 					ui.add_space(8.0);
 					let connect = ui
 						.add_enabled_ui(self.authorized && !self.token_input.is_empty(), |ui| {
 							ui::design::button(
 								ui,
-								"Connect with this token",
+								&ui::i18n::translate(
+									"main-sign-in-disclosures-connect-with-this-token",
+								),
 								ui::design::ButtonKind::Primary,
 							)
 						})
@@ -5004,7 +5097,7 @@ impl Desktop {
 						// Nothing could have been saved without a credential store.
 						Err(platform::CredentialError::NoStore) => "",
 						Err(_) => {
-							"Could not remove saved login; remove cz.viceverse.serein / discord-session in your OS credential manager"
+							"Could not remove the Serein saved login in your OS credential manager"
 						}
 					};
 				}
@@ -5357,10 +5450,9 @@ impl Desktop {
 			self.transparency_available,
 			self.messaging.transparency,
 			self.messaging.blur,
-			self.messaging.transparent_all,
 		);
 		if effects != ui::design::default_window_effects() {
-			ui::design::set_window_effects(effects.0, effects.1, effects.2, effects.3);
+			ui::design::set_window_effects(effects.0, effects.1, effects.2);
 			ui::design::apply(ctx);
 			ctx.request_repaint();
 		}
@@ -5375,9 +5467,8 @@ impl Desktop {
 			self.window.set_transparent(transparent);
 			self.window_transparent = transparent;
 		}
-		let blur = transparent && effects.2 > 0;
 		if let Some(window_blur) = &mut self.window_blur {
-			window_blur.set_enabled(blur);
+			window_blur.set_enabled(transparent && effects.2 > 0);
 		}
 	}
 	/// Frame period of the display the window is on; egui otherwise assumes 60 Hz.
@@ -5935,13 +6026,17 @@ impl eframe::App for Desktop {
 						ui.vertical(|ui| {
 							ui.spacing_mut().item_spacing.y = 1.0;
 							ui.label(
-								ui::design::semibold(ui, "Sign in to Discord", 15.0)
-									.color(p.text_strong),
+								ui::design::semibold(
+									ui,
+									ui::i18n::translate("main-ui-sign-in-to-discord"),
+									15.0,
+								)
+								.color(p.text_strong),
 							);
 							ui.label(
-								egui::RichText::new(
-									"discord.com · temporary login window · passwords and 2FA never leave the page",
-								)
+								egui::RichText::new(ui::i18n::translate(
+									"main-ui-discord-com-temporary-login-window-passwords-and-2fa-never-leave",
+								))
 								.size(12.0)
 								.color(p.muted),
 							);
@@ -5953,7 +6048,12 @@ impl eframe::App for Desktop {
 							if ui
 								.add(
 									egui::Button::new(
-										ui::design::medium(ui, "Cancel", 13.0).color(p.text_strong),
+										ui::design::medium(
+											ui,
+											ui::i18n::translate("main-ui-cancel"),
+											13.0,
+										)
+										.color(p.text_strong),
 									)
 									.fill(p.raised)
 									.stroke(egui::Stroke::new(1.0, p.border))
@@ -5972,7 +6072,10 @@ impl eframe::App for Desktop {
 				.frame(egui::Frame::NONE.fill(p.canvas))
 				.show(ui, |ui| {
 					ui.centered_and_justified(|ui| {
-						ui.label(egui::RichText::new("Loading discord.com…").color(p.muted));
+						ui.label(
+							egui::RichText::new(ui::i18n::translate("main-ui-loading-discord-com"))
+								.color(p.muted),
+						);
 					});
 				});
 			if let Some(login) = &self.login {
@@ -6057,13 +6160,6 @@ impl eframe::App for Desktop {
 					self.runtime.handle(),
 					&ctx,
 					self.fixture_only || self.state.demo,
-				);
-			}
-			if let Some(fullscreen) = player.take_fullscreen_request() {
-				self.window.set_fullscreen(
-					fullscreen.then(|| {
-						winit::window::Fullscreen::Borderless(self.window.current_monitor())
-					}),
 				);
 			}
 			self.notifications.set_enabled(
@@ -6369,9 +6465,18 @@ impl eframe::App for Desktop {
 				self.request_session_end(&ctx, SessionEnd::Logout);
 			}
 		} else if let Some(stage) = self.restoring() {
-			self.restoring_screen(ui, stage);
+			self.restoring_screen(ui, &stage);
 		} else {
 			self.sign_in_screen(ui);
+		}
+		// Outside the signed-in branch so leaving an account still restores the window mode.
+		let video = self.messaging.video().take_fullscreen_request();
+		let voice = self.messaging.take_voice_fullscreen_request();
+		for fullscreen in [video, voice].into_iter().flatten() {
+			self.window.set_fullscreen(
+				fullscreen
+					.then(|| winit::window::Fullscreen::Borderless(self.window.current_monitor())),
+			);
 		}
 		#[cfg(feature = "demo")]
 		if let Some(diagnostic) = &self.rendering_demo {

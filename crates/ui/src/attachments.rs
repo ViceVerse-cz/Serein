@@ -204,7 +204,13 @@ pub fn pending_card(
 		),
 		|ui| {
 			ui.add_enabled_ui(removable, |ui| {
-				icons::button(ui, Icon::Trash, 32.0, "Remove attachment").clicked()
+				icons::button(
+					ui,
+					Icon::Trash,
+					32.0,
+					&crate::i18n::translate("attachments-pending-card-remove-attachment"),
+				)
+				.clicked()
 			})
 			.inner
 		},
@@ -431,7 +437,9 @@ fn open_original(
 	opening: &mut Option<String>,
 ) -> Option<egui::Response> {
 	let target = attachment.media.url.as_deref().and_then(external_url)?;
-	let response = ui.small_button("Open original…");
+	let response = ui.small_button(crate::i18n::translate(
+		"attachments-open-original-open-original",
+	));
 	if response.clicked() {
 		*opening = Some(target);
 	}
@@ -512,18 +520,43 @@ fn media_menu(
 	let mut action = None;
 	popup.show(|ui| {
 		let idle = !demo && !download.busy();
-		let kind = if video { "video" } else { "image" };
-		for (copy, label) in [
-			(true, format!("Copy {kind}")),
-			(false, format!("Save {kind} as…")),
-		] {
+		let actions = if video {
+			[
+				(
+					true,
+					crate::i18n::translate("attachments-media-menu-copy-video"),
+				),
+				(
+					false,
+					crate::i18n::translate("attachments-media-menu-save-video-as"),
+				),
+			]
+		} else {
+			[
+				(
+					true,
+					crate::i18n::translate("attachments-media-menu-copy-image"),
+				),
+				(
+					false,
+					crate::i18n::translate("attachments-media-menu-save-image-as"),
+				),
+			]
+		};
+		for (copy, label) in actions {
 			if ui
 				.add_enabled(idle, egui::Button::new(label))
-				.on_disabled_hover_text(if demo {
-					"Unavailable for synthetic attachments"
-				} else {
-					"A media transfer is already active"
-				})
+				.on_disabled_hover_text(crate::i18n::translate_if_key(
+					&(if demo {
+						crate::i18n::translate(
+							"attachments-media-menu-unavailable-for-synthetic-attachments",
+						)
+					} else {
+						crate::i18n::translate(
+							"attachments-media-menu-a-media-transfer-is-already-active",
+						)
+					}),
+				))
 				.clicked()
 			{
 				action = Some(copy);
@@ -531,11 +564,20 @@ fn media_menu(
 			}
 		}
 		if let Some(url) = url.and_then(external_url) {
-			if video && ui.button("Open original…").clicked() {
+			if video
+				&& ui
+					.button(crate::i18n::translate(
+						"attachments-media-menu-open-original",
+					))
+					.clicked()
+			{
 				*opening = Some(url.clone());
 				ui.close();
 			}
-			if ui.button("Copy link").clicked() {
+			if ui
+				.button(crate::i18n::translate("attachments-media-menu-copy-link"))
+				.clicked()
+			{
 				ui.ctx().copy_text(url);
 				ui.close();
 			}
@@ -554,10 +596,20 @@ impl DownloadUi {
 		if !self.status.is_empty() {
 			ui.horizontal_wrapped(|ui| {
 				ui.small(&self.status);
-				if self.active && ui.small_button("Cancel download").clicked() {
+				if self.active
+					&& ui
+						.small_button(crate::i18n::translate(
+							"attachments-show-status-cancel-download",
+						))
+						.clicked()
+				{
 					self.cancel_requested = true;
 				}
-				if !self.active && ui.small_button("Dismiss").clicked() {
+				if !self.active
+					&& ui
+						.small_button(crate::i18n::translate("attachments-show-status-dismiss"))
+						.clicked()
+				{
 					self.dismiss_requested = true;
 				}
 			});
@@ -571,13 +623,20 @@ fn download_button(
 	demo: bool,
 ) -> egui::Response {
 	let response = ui
-		.add_enabled(!demo && !download.busy(), egui::Button::new("Download"))
-		.on_hover_text("Choose where to save this file · up to 100 MiB")
-		.on_disabled_hover_text(if demo {
-			"Downloads are disabled for synthetic attachments"
+		.add_enabled(
+			!demo && !download.busy(),
+			egui::Button::new(crate::i18n::translate(
+				"attachments-download-button-download",
+			)),
+		)
+		.on_hover_text(crate::i18n::translate(
+			"attachments-download-button-choose-where-to-save-this-file-up-to-100-mib",
+		))
+		.on_disabled_hover_text(crate::i18n::translate_if_key(if demo {
+			"attachments-download-button-downloads-are-disabled-for-synthetic-attachments"
 		} else {
-			"A download is already active"
-		});
+			"attachments-download-button-a-download-is-already-active"
+		}));
 	if response.clicked() {
 		download.request = Some(attachment.clone());
 	}
@@ -804,7 +863,9 @@ pub fn viewer(
 					} else {
 						egui::CursorIcon::ZoomIn
 					})
-					.on_hover_text("Scroll to zoom · Drag to pan · Double-click to reset")
+					.on_hover_text(crate::i18n::translate(
+						"attachments-viewer-scroll-to-zoom-drag-to-pan-double-click-to-reset",
+					))
 					.on_hover_text(
 						attachment
 							.description
@@ -857,11 +918,11 @@ pub fn viewer(
 							glass_button(ui, Icon::Download, 40.0, "Download")
 						})
 						.inner
-						.on_disabled_hover_text(if demo {
-							"Downloads are disabled for synthetic attachments"
+						.on_disabled_hover_text(crate::i18n::translate_if_key(if demo {
+							"attachments-viewer-downloads-are-disabled-for-synthetic-attachments"
 						} else {
-							"A download is already active"
-						})
+							"attachments-viewer-a-download-is-already-active"
+						}))
 						.clicked()
 					{
 						if attachment.id == Id(0) {
@@ -941,8 +1002,14 @@ pub fn viewer(
 						&& ui
 							.add(
 								egui::Label::new(
-									design::medium(ui, "Open in browser", 13.0)
-										.color(Color32::from_rgb(0, 168, 252)),
+									design::medium(
+										ui,
+										crate::i18n::translate(
+											"attachments-viewer-open-in-browser",
+										),
+										13.0,
+									)
+									.color(Color32::from_rgb(0, 168, 252)),
 								)
 								.sense(Sense::click())
 								.selectable(false),
@@ -966,8 +1033,12 @@ pub fn viewer(
 							&& ui
 								.add(
 									egui::Label::new(
-										design::medium(ui, "Cancel", 13.0)
-											.color(Color32::from_rgb(0, 168, 252)),
+										design::medium(
+											ui,
+											crate::i18n::translate("attachments-viewer-cancel"),
+											13.0,
+										)
+										.color(Color32::from_rgb(0, 168, 252)),
 									)
 									.sense(Sense::click())
 									.selectable(false),

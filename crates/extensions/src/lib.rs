@@ -270,7 +270,9 @@ pub struct ThemeStyle {
 	pub transparency: Option<u8>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub blur: Option<u8>,
-	#[serde(skip_serializing_if = "Option::is_none")]
+	/// Legacy switch: transparency now always covers every surface. Older themes that still
+	/// set it keep parsing; the value is ignored and never written back.
+	#[serde(skip_serializing)]
 	pub transparent_all: Option<bool>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub body_size: Option<u8>,
@@ -661,7 +663,6 @@ impl Theme {
 			.or(self.style.transparency_blur);
 		self.style.transparency = other.style.transparency.or(self.style.transparency);
 		self.style.blur = other.style.blur.or(self.style.blur);
-		self.style.transparent_all = other.style.transparent_all.or(self.style.transparent_all);
 		self.style.heading_size = other.style.heading_size.or(self.style.heading_size);
 		self.style.button_size = other.style.button_size.or(self.style.button_size);
 		self.style.small_size = other.style.small_size.or(self.style.small_size);

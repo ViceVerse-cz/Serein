@@ -245,8 +245,8 @@ are retained.
 The server rail retains at most 15 DM IDs (120 bytes) and one sorted boxed badge
 record per guild represented in validated navigation: at most 131,072 records,
 16 bytes each on the supported 64-bit targets (2 MiB). Folder rows retain at most
-131,072 guild rows plus 200 folder headers, each 40 bytes on 64-bit targets
-(5,250,880 bytes). Rebuilds use temporary bounded vectors/maps in addition to the
+131,072 guild rows plus 1,000 folder headers, each 40 bytes on 64-bit targets
+(5,282,880 bytes). Rebuilds use temporary bounded vectors/maps in addition to the
 previous cache; these ceilings are not measured process RSS. Session generation,
 state revision and local expansion/call changes retire stale derived views.
 UI session reset releases the caches. No disk records or schema migration change.
@@ -520,11 +520,11 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 
 | Data | Location / bound | Removal |
 |---|---|---|
-| Discord token | OS credential store, service `cz.viceverse.serein`, account `discord-session` for the session restored on launch and `discord-session.<account id>` for each remembered account; at most 2048 bytes each. A per-account entry is written once, when the roster records none, and rewritten only for a token the owner just supplied: on macOS every access to an existing entry is governed by that item's keychain ACL | Explicit logout / Forget saved login removes both entries for that account; forgetting or pruning a saved account removes its per-account entry; invalid-token expiry also requests deletion |
+| Discord token | OS credential store, service `cz.viceverse.serein`; packaged builds use account `discord-session` for the session restored on launch and `discord-session.<account id>` for each remembered account, while default source builds use the corresponding `discord-session.development` names; at most 2048 bytes each. A per-account entry is written once, when the roster records none, and rewritten only for a token the owner just supplied: on macOS every access to an existing entry is governed by that item's keychain ACL | Explicit logout / Forget saved login removes both entries for that build profile's account; forgetting or pruning a saved account removes its per-account entry; invalid-token expiry also requests deletion |
 | Remembered accounts (switcher) | `accounts` table in `client.sqlite3`: at most 8 rows of account ID, username, display name (64 bytes each), avatar hash, last-use timestamp and a flag recording whether the credential store holds that account's entry; no token | Logging out of, or forgetting, that account; the least recently used row is pruned past 8, taking its token and cached data with it |
-| History and drafts | `dirs::data_local_dir()/serein/client.sqlite3` | Clear cached history also clears service images and keeps drafts; logout clears the authenticated account’s history and drafts |
+| History and drafts | `SEREIN_DATA_DIR/client.sqlite3` when an absolute override is set; otherwise `dirs::data_local_dir()/serein-development/client.sqlite3` for default source builds and `dirs::data_local_dir()/serein/client.sqlite3` for packaged builds | Clear cached history also clears service images and keeps drafts; logout clears the authenticated account’s history and drafts |
 | Messages | 500 per window, at most 20 stored channel windows globally, 48 MiB estimated text/metadata; SQLite main database capped at 64 MiB | Oldest touched channel evicted transactionally |
-| Avatar, server-icon, profile-banner and message-preview PNGs | Account subdirectory beneath `dirs::data_local_dir()/serein/avatars`; 1 GiB / 4096 files per account, 90 days since last use, at most 2 MiB per preview (512 KiB for icons/avatars) | Clear cache or account logout; versioned avatar/icon/banner keys and hashed media-source keys separate changed images |
+| Avatar, server-icon, profile-banner and message-preview PNGs | Account subdirectory beneath the selected application-data root's `avatars`; 1 GiB / 4096 files per account, 90 days since last use, at most 2 MiB per preview (512 KiB for icons/avatars) | Clear cache or account logout; versioned avatar/icon/banner keys and hashed media-source keys separate changed images |
 | Selected profile metadata | One session-memory record, at most 64 KiB; profile response body at most 256 KiB | Closing/changing the profile, session reset or logout; no SQLite profile table |
 | Explicit attachment downloads | User-selected destination, 1 byte through 100 MiB per original file; one active dialog/transfer; randomized sibling partial while writing | Cancel/error removes the partial when possible; completed downloads remain user-owned outside cache cleanup |
 | Selected upload source | Up to ten session-only paths (4096 encoded bytes each), filenames (256 UTF-8 bytes each) and size/modified metadata; 500,000,000 bytes total, read in 64 KiB chunks | Removal, send completion/failure, cancellation or session teardown; sources are never copied to recovery/cache files or deleted |
@@ -537,7 +537,7 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 | Audio devices, input profile/custom processing, push-to-talk and gain | Device-wide `app_preferences` SQLite singleton, bounded to 16 KiB; device names ≤1,024 bytes each | Retained across restart/logout; demo changes remain in memory |
 | Authentication page | Wry incognito on Windows/macOS; ephemeral WebKit6 NetworkSession on Linux, destroyed on token handoff/cancel/timeout | Platform engine teardown; OS artifacts not promised erased |
 
-Typical database directories: macOS `~/Library/Application Support/serein`, Windows `%LOCALAPPDATA%/serein`, Linux `$XDG_DATA_HOME/serein` or `~/.local/share/serein`. The Unix directory is private (0700). Database contents are **not encrypted by Serein**. OS token protection does not encrypt history, backups or drafts.
+Typical packaged-build database directories: macOS `~/Library/Application Support/serein`, Windows `%LOCALAPPDATA%/serein`, Linux `$XDG_DATA_HOME/serein` or `~/.local/share/serein`; default source builds use the sibling `serein-development` directory. An absolute `SEREIN_DATA_DIR` selects the root for SQLite, image caches, extensions and detectable-game metadata; an empty or relative override disables those stores instead of falling back to production data. `cargo xtask package` disables the development feature, so distributed executables use the packaged-build directory and credential namespace. Newly created Unix data directories are private (0700); existing override permissions are preserved. Database contents are **not encrypted by Serein**. OS token protection does not encrypt history, backups or drafts, and the override does not relocate credentials from the OS store.
 
 The app writes no background log, analytics, crash upload, saved password, MFA ticket, or plaintext credential file. A separate credential-free CDN downloader loads visible avatars, server icons, profile banners and validated service-proxied message images. Build outputs, this documentation, synthetic test databases and package files are development artifacts.
 
@@ -888,6 +888,14 @@ stream/buffers on cancellation. Pausing retains the current bounded decoded clip
 ## Screen sharing
 
 Screen/window labels, selected source identifiers, settings, raw pixels and encoded video exist only in session memory. They are not written to SQLite, diagnostics, previews or video files. Sources and video queues use the limits in [screen-sharing compatibility](discord-compatibility.md#outgoing-screen-sharing--september-11-2026). Stream credentials and DAVE identities are ephemeral and redacted; the signing key is shared with the active voice call and zeroized when its final owner drops. Native OS/driver capture surfaces are distinct from application-owned frame buffers. Synthetic PR screenshots are development evidence, excluded from runtime assets.
+
+An opened live-stream preview retains one URL of at most 2,048 bytes and one bounded still in
+the existing 512-pixel media working set. Preview responses are capped at 4 KiB, and a newer
+request cancels the previous one. `/streams/` media has no disk-cache key, so neither its URL
+nor pixels enter SQLite or the account image cache. No new schema or persistent queue is added.
+Losing voice access clears the preview URL and invalidates in-flight results even if the
+channel roster remains visible. Oversized preview responses fail locally without ending
+the account session; authentication failures still terminate it.
 
 Outgoing packet pacing retains the already packetized access unit across transport turns,
 at most 2,048 packets of 1,200 wire bytes each, instead of sending it in one uninterrupted
@@ -1316,6 +1324,8 @@ catalog polling is introduced.
 
 Search rich-text previews retain at most 25 messages / 256 KiB per page, with
 8 KiB of source per message; oversized messages show an explicit preview-limit notice.
+Each hit may retain at most 100 service-supplied mentioned users within that same page cap;
+unknown channel references reuse the bounded on-demand channel lookup rather than a directory.
 Formatting reuses the 512-entry / 1 MiB bounded parser cache, pruned to the current
 page and cleared when search closes. Spoilers remain concealed until revealed;
 custom emoji reuse the existing visible-only image requests. No search persistence

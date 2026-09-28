@@ -34,7 +34,10 @@ pub use login_linux::LoginView;
 /// Logical height of the native header the desktop app draws above the login webview.
 pub const LOGIN_HEADER_HEIGHT: f32 = 56.0;
 const SERVICE: &str = "cz.viceverse.serein";
+#[cfg(not(feature = "development-data"))]
 const ACCOUNT: &str = "discord-session";
+#[cfg(feature = "development-data")]
+const ACCOUNT: &str = "discord-session.development";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CredentialError {
 	/// No OS credential store exists (e.g. Linux without a Secret Service provider).
@@ -203,6 +206,14 @@ fn bounds(parent: &winit::window::Window) -> wry::Rect {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn credential_account_names_are_profile_scoped() {
+		#[cfg(feature = "development-data")]
+		assert_eq!(ACCOUNT, "discord-session.development");
+		#[cfg(not(feature = "development-data"))]
+		assert_eq!(ACCOUNT, "discord-session");
+		assert_eq!(account_entry(model::Id(7)), format!("{ACCOUNT}.7"));
+	}
 	#[test]
 	fn handoff_accepts_only_our_discord_origin() {
 		assert!(discord_origin("https://discord.com/login"));

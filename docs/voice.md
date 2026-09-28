@@ -119,6 +119,12 @@ Select an existing server voice channel to inspect its roster, then explicitly J
 
 An authenticated empty room displays “Connected · waiting for others”; audio devices open for local microphone detection, respecting mute, deafen, push-to-talk and SPEAK permission. Captured audio is consumed locally while alone; transmission waits until another participant joins and DAVE is secured. The client does not transmit unencrypted microphone audio to make an empty room appear connected. A server move, changed voice endpoint/session or main Gateway failure requires an explicit rejoin. The roster is session-only, bounded to 4,096 entries and 1 MiB, and is cleared on fresh login/resync and relevant access invalidation; during a resumable disconnect it is labeled last-known until missed events replay. Missing user details use a fallback identity rather than fetching a whole guild directory.
 
+Hovering a participant marked LIVE opens a compact still preview when Discord supplies one.
+**Watch Stream** joins that voice channel when no call is active, then starts the existing
+receive-only stream path after the call connects. It never silently switches an active call;
+hidden or unavailable previews remain explicit. The preview request requires current roster
+state plus VIEW_CHANNEL and CONNECT. This normal-user route remains unofficial and live-unverified.
+
 `cargo run --locked -- --demo --demo-voice` shows a separately labeled synthetic roster/call scene, including long names and mute/deafen states. It cannot connect, ring, or access devices. The ordinary `--demo` fixture remains the before/after comparison scenario.
 
 For live verification, the owner must explicitly enable `voice` and control a private guild voice channel and the participating official clients. In addition to the DM gate above: join empty then add two official-client participants; verify actual intelligible audio in every direction and simultaneous speech; exercise encrypted joins/leaves and the last peer leaving/rejoining; check self mute/deafen, server mute/deafen, denied Connect/Speak, full room, deliberate switching, a server move/disconnect and voice region migration; verify devices/keys/tasks are released on Leave/logout/exit. Never record participants or publish private account/channel data. None of these live outcomes is established by the synthetic roster screenshot.

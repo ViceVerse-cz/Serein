@@ -925,6 +925,7 @@ mod tests {
 							discriminator: 0,
 							primary_guild: None,
 						},
+						mentions: vec![],
 						excerpt: "Synthetic".into(),
 						attachments: vec![],
 						embeds: vec![],

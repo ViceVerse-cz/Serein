@@ -6,7 +6,8 @@ use client_core::{
 	voice::{self, Command, Participant, RosterEntry, Secret},
 };
 use discord_protocol::{
-	CallDto, GuildDto, UserDto, VoiceMemberDto, VoiceServerDto, VoiceStateDto, decode, stream,
+	CallDto, ChannelInfoDto, GuildDto, UserDto, VoiceChannelStartTimeDto, VoiceMemberDto,
+	VoiceServerDto, VoiceStateDto, decode, stream,
 };
 use model::{Id, Member, User};
 use serde_json::json;
@@ -319,6 +320,37 @@ impl Calls {
 			| Command::Ring { .. } => return Ok(None),
 		};
 		Ok(Some(Frame::Text(json!({"op":4,"d":{"guild_id":guild,"channel_id":channel,"self_mute":self.muted,"self_deaf":self.deafened,"self_video":self.camera}}).to_string().into())))
+	}
+	pub(super) fn channel_info_packet(&self, channel: Id) -> Option<Frame> {
+		let guild = self.active_guild?;
+		(self.active.is_some_and(|(active, _)| active == channel)
+			&& self.allowed.get(&channel) == Some(&Some(guild)))
+		.then(|| {
+			Frame::Text(
+				json!({"op":43,"d":{"guild_id":guild,"fields":["voice_start_time"]}})
+					.to_string()
+					.into(),
+			)
+		})
+	}
+	fn channel_started(
+		&self,
+		guild: Id,
+		channel: Id,
+		unix_seconds: Option<u64>,
+		emit: &impl Fn(Event) -> Result<(), Failure>,
+	) -> Result<(), Failure> {
+		if self.active.is_some_and(|(active, _)| active == channel)
+			&& self.active_guild == Some(guild)
+			&& self.allowed.get(&channel) == Some(&Some(guild))
+		{
+			emit(Event::Voice(voice::Event::ChannelStarted {
+				guild,
+				channel,
+				unix_seconds,
+			}))?;
+		}
+		Ok(())
 	}
 	pub(super) fn stream_packet(
 		&mut self,
@@ -817,6 +849,25 @@ impl Calls {
 				owner,
 				emit,
 			)?,
+			"CHANNEL_INFO" => {
+				let info: ChannelInfoDto = decode(data).map_err(|_| Failure::Protocol)?;
+				if info.channels.len() > client_core::MAX_NAV {
+					return Err(Failure::Capacity);
+				}
+				if let Some((channel, unix_seconds)) = info
+					.channels
+					.into_iter()
+					.find(|channel| self.active.is_some_and(|(active, _)| active == channel.id))
+					.map(|channel| (channel.id, channel.voice_start_time))
+				{
+					self.channel_started(info.guild_id, channel, unix_seconds, emit)?;
+				}
+			}
+			"VOICE_CHANNEL_START_TIME_UPDATE" => {
+				let update: VoiceChannelStartTimeDto =
+					decode(data).map_err(|_| Failure::Protocol)?;
+				self.channel_started(update.guild_id, update.id, update.voice_start_time, emit)?;
+			}
 			"VOICE_SERVER_UPDATE" => {
 				let mut server: VoiceServerDto = decode(data).map_err(|_| Failure::Protocol)?;
 				let token = Zeroizing::new(std::mem::take(&mut server.token));
@@ -1212,6 +1263,30 @@ mod tests {
 		assert_eq!(join["d"]["guild_id"], "10");
 		assert_eq!(join["d"]["self_mute"], true);
 		assert_eq!(join["d"]["self_deaf"], true);
+		let Frame::Text(info) = calls.channel_info_packet(Id(20)).unwrap() else {
+			panic!("channel info");
+		};
+		let info: serde_json::Value = serde_json::from_str(&info).unwrap();
+		assert_eq!(
+			info,
+			json!({"op":43,"d":{"guild_id":"10","fields":["voice_start_time"]}})
+		);
+		calls
+			.dispatch(
+				"CHANNEL_INFO",
+				br#"{"guild_id":"10","channels":[{"id":"20","voice_start_time":1700000000}]}"#,
+				Some(Id(1)),
+				&emit,
+			)
+			.unwrap();
+		assert!(matches!(
+			events.lock().unwrap()[0],
+			Event::Voice(voice::Event::ChannelStarted {
+				guild: Id(10),
+				channel: Id(20),
+				unix_seconds: Some(1_700_000_000)
+			})
+		));
 		calls
 			.dispatch(
 				"VOICE_SERVER_UPDATE",
@@ -1220,7 +1295,7 @@ mod tests {
 				&emit,
 			)
 			.unwrap();
-		assert!(events.lock().unwrap().is_empty());
+		assert_eq!(events.lock().unwrap().len(), 1);
 		calls
 			.dispatch(
 				"VOICE_SERVER_UPDATE",
@@ -1230,7 +1305,7 @@ mod tests {
 			)
 			.unwrap();
 		assert!(matches!(
-			events.lock().unwrap()[0],
+			events.lock().unwrap()[1],
 			Event::Voice(voice::Event::Server {
 				channel: Id(20),
 				request: 5,
@@ -1239,7 +1314,7 @@ mod tests {
 		));
 		calls.dispatch("VOICE_STATE_UPDATE", br#"{"guild_id":"10","channel_id":"20","user_id":"1","session_id":"synthetic-session","suppress":true}"#, Some(Id(1)), &emit).unwrap();
 		assert!(matches!(
-			events.lock().unwrap()[1],
+			events.lock().unwrap()[2],
 			Event::Voice(voice::Event::State {
 				request: Some(5),
 				server_muted: true,

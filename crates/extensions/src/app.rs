@@ -1932,7 +1932,7 @@ impl AppAction {
 				if *base_version > u32::MAX.into() {
 					return Err(Error::Invalid);
 				}
-				if folders.len() > 200 {
+				if folders.len() > crate::extended::MAX_GUILD_FOLDERS {
 					return Err(Error::Limit);
 				}
 				for folder in folders {
