@@ -11,6 +11,7 @@ url.workspace = true
 serde.workspace = true
 time = { workspace = true, features = ["formatting"] }
 serde_json.workspace = true
+serde_path_to_error = "0.1.20"
 thiserror.workspace = true
 
 [lints]

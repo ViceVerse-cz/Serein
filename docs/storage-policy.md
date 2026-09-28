@@ -1,5 +1,26 @@
 # Local storage policy and audit
 
+## Image decoding and edited-field allocations (September 28, 2026)
+
+Already-sized RGBA8 still images decode directly into their final egui pixel
+buffer and premultiply alpha through at most 64 KiB of temporary pixel storage.
+This replaces a temporary full-size RGBA copy, up to 64 MiB for a 4096×4096
+output. Conversion scratch is additional to the decoder allocation reservation.
+Encoded-input, source-dimension and decoder-allocation checks remain unchanged,
+including reservation of the
+decoded output before allocation. Resizing and other pixel formats retain their
+existing conversion path. Decoder scratch, active jobs, queued results, texture
+uploads and GPU resources are additional; this is not a whole-process cap.
+
+Message patches release string/vector allocations for explicit null or empty
+fields. A nonempty replacement compacts an old allocation only when it exceeds
+1 KiB and four times the replacement length; ordinary edits continue reusing
+capacity. Absent fields, stale updates and forwarded snapshot bodies keep their
+existing semantics. Timeline accounting continues charging allocated capacity,
+so released space becomes available within the same row/byte budgets. No cache
+ceiling, schema, disk record, worker, asset or dependency changes. Allocator
+retention means released capacity does not guarantee an equal process-RSS drop.
+
 ## App extension snapshots and proposals (September 22, 2026)
 
 Independently granted app snapshots contain only already-loaded, accessible data.

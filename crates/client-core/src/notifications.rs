@@ -142,6 +142,11 @@ impl Setting {
 			+ self.channels.capacity() * size_of::<(Id, Option<bool>, Option<u8>)>()
 			+ self.channel_mute_until.capacity() * size_of::<(Id, i64)>()
 	}
+	fn mute_expired(&self, channel: Id) -> bool {
+		self.channel_mute_until
+			.iter()
+			.any(|(id, until)| *id == channel && *until <= State::permission_time())
+	}
 }
 pub enum Event {
 	Settings {
@@ -240,12 +245,7 @@ impl State {
 				.find(|(id, ..)| *id == channel)
 				.and_then(|(_, muted, _)| *muted)
 		});
-		if muted == Some(true)
-			&& setting.is_some_and(|s| {
-				s.channel_mute_until
-					.iter()
-					.any(|(id, until)| *id == channel && *until <= Self::permission_time())
-			}) {
+		if muted == Some(true) && setting.is_some_and(|s| s.mute_expired(channel)) {
 			return Some(false);
 		}
 		muted.or_else(|| (self.demo || setting.is_some()).then_some(false))
@@ -366,7 +366,14 @@ impl State {
 			.channels
 			.iter()
 			.find(|(id, ..)| *id == channel)
-			.map(|(_, muted, _)| *muted)
+			.map(|(_, muted, _)| {
+				// Expired timed mutes keep `muted: true` on the service.
+				if *muted == Some(true) && setting.mute_expired(channel) {
+					Some(false)
+				} else {
+					*muted
+				}
+			})
 			.unwrap_or_else(|| (self.demo || setting.muted.is_some()).then_some(false))
 	}
 	pub(crate) fn confirm_dm_muted(
@@ -396,6 +403,8 @@ impl State {
 		} else {
 			setting.channels.push((channel, Some(muted), None));
 		}
+		// DM mute writes are untimed, so a stale expiry must not unmute them.
+		setting.channel_mute_until.retain(|(id, _)| *id != channel);
 		self.read_state.activity.clear_notifications();
 		self.check_notification_capacity()
 	}
@@ -534,17 +543,16 @@ impl State {
 			if let Some((_, muted, override_level)) =
 				setting.channels.iter().find(|(c, ..)| *c == id)
 			{
-				let muted = if channel.guild.is_none() && id == channel.id {
-					self.pending_dm_muted(id).or(*muted)
-				} else if setting
-					.channel_mute_until
-					.iter()
-					.any(|(channel, until)| *channel == id && *until <= Self::permission_time())
-				{
+				let pending = if channel.guild.is_none() && id == channel.id {
+					self.pending_dm_muted(id)
+				} else {
+					None
+				};
+				let muted = pending.or(if setting.mute_expired(id) {
 					Some(false)
 				} else {
 					*muted
-				};
+				});
 				if muted == Some(true) || (channel.guild.is_some() && muted != Some(false)) {
 					return false;
 				}

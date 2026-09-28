@@ -2136,6 +2136,7 @@ impl TimelineView {
 													let mut preview =
 														egui::text::LayoutJob::default();
 													let mut preview_emojis = Vec::new();
+													let mut attachment_icon = None;
 													if let Some(original) =
 														state.timeline.get(reply)
 													{
@@ -2149,6 +2150,21 @@ impl TimelineView {
 															self.request_reply_target(reply);
 														}
 														surface.keep(&reply_avatar);
+														attachment_icon = (!original
+															.attachments
+															.is_empty())
+														.then(|| {
+															if original.attachments.iter().any(
+																|attachment| {
+																	attachment.is_image()
+																		|| attachment.is_video()
+																},
+															) {
+																crate::icons::Icon::Image
+															} else {
+																crate::icons::Icon::File
+															}
+														});
 														preview.append(
 															&format!(
 																"@{}  ",
@@ -2176,6 +2192,24 @@ impl TimelineView {
 																			13.0,
 																		),
 																	color: colors.muted,
+																	..Default::default()
+																},
+															);
+														} else if attachment_icon.is_some()
+															&& original.content.trim().is_empty()
+														{
+															preview.append(
+																&crate::i18n::translate(
+																	"timeline-show-with-scroll-click-to-see-attachment",
+																),
+																0.0,
+																egui::TextFormat {
+																	font_id:
+																		egui::FontId::proportional(
+																			13.0,
+																		),
+																	color: colors.muted,
+																	italics: true,
 																	..Default::default()
 																},
 															);
@@ -2224,14 +2258,37 @@ impl TimelineView {
 														&preview,
 														&preview_emojis,
 													);
+													// Keep room for the trailing attachment glyph when truncating.
+													let icon_size = 16.0;
+													let label_width = ui.available_width()
+														- attachment_icon.map_or(0.0, |_| {
+															icon_size + ui.spacing().item_spacing.x
+														});
 													let (
 														preview_pos,
 														preview_galley,
 														reply_preview,
-													) = egui::Label::new(preview)
-														.truncate()
-														.sense(egui::Sense::click())
-														.layout_in_ui(ui);
+													) = ui.allocate_ui(
+														egui::vec2(
+															label_width.max(0.0),
+															ui.available_height(),
+														),
+														|ui| {
+															egui::Label::new(preview)
+																.truncate()
+																.sense(egui::Sense::click())
+																.layout_in_ui(ui)
+														},
+													)
+													.inner;
+													if let Some(icon) = attachment_icon {
+														crate::icons::inline(
+															ui,
+															icon,
+															icon_size,
+															colors.muted,
+														);
+													}
 													reply_preview.widget_info(|| {
 														egui::WidgetInfo::labeled(
 															egui::Role::Link,

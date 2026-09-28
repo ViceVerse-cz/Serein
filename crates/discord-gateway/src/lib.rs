@@ -34,6 +34,16 @@ use tokio_tungstenite::{
 };
 use zeroize::Zeroizing;
 
+/// Queues a redacted, user-copyable decode cause ahead of the fixed failure label.
+fn diagnosed(
+	emit: impl Fn(Event) -> Result<(), Failure>,
+	failure: Failure,
+	cause: String,
+) -> Failure {
+	let _ = emit(Event::FailureDetail(cause.into()));
+	failure
+}
+
 fn socket_failure(error: tokio_tungstenite::tungstenite::Error) -> Failure {
 	match error {
 		tokio_tungstenite::tungstenite::Error::Capacity(_) => {
@@ -1348,7 +1358,7 @@ async fn run_inner(
 					};
 					match frame {
 						Some(Ok(Frame::Text(text))) => {
-							let packet: GatewayPacket = decode_gateway(text.as_bytes()).map_err(|_| Failure::Protocol)?;
+							let packet: GatewayPacket = decode_gateway(text.as_bytes()).map_err(|_| diagnosed(&emit, Failure::Protocol, diagnose_packet(text.as_bytes())))?;
 							// Reaction counts are additive: do not apply a repeated dispatch or
 							// move the resume cursor backwards when one is replayed.
 							if packet.op == 0
@@ -1375,10 +1385,10 @@ async fn run_inner(
 									"READY" => {
 										direct_presence=presence::Pending::default();
 										active_members=None;members_deadline=None;sent_members = !subscriptions_open;
-										let envelope = ready::decode(packet.d.get().as_bytes()).map_err(|_| Failure::ProtocolAt("Gateway login: invalid READY identity or relationships"))?;
+										let envelope = ready::decode(packet.d.get().as_bytes()).map_err(|_| diagnosed(&emit, Failure::ProtocolAt("Gateway login: invalid READY identity or relationships"), ready::diagnose(packet.d.get().as_bytes())))?;
 										if envelope.user.bot { return Err(Failure::InvalidCredential); }
-										let permissions = envelope.permissions().map_err(|_|Failure::ProtocolAt("Gateway login: invalid permission metadata"))?;
-										let (mut ready, warnings) = envelope.navigation().map_err(|_| Failure::ProtocolAt("Gateway login: invalid READY guild or channel metadata"))?;
+										let permissions = envelope.permissions().map_err(|_| diagnosed(&emit, Failure::ProtocolAt("Gateway login: invalid permission metadata"), ready::diagnose(packet.d.get().as_bytes())))?;
+										let (mut ready, mut warnings) = envelope.navigation().map_err(|_| diagnosed(&emit, Failure::ProtocolAt("Gateway login: invalid READY guild or channel metadata"), ready::diagnose(packet.d.get().as_bytes())))?;
 										owner_id=Some(ready.user.id);
 										if ready.user.username.is_empty() || ready.user.username.len() > 128 || ready.user.username.chars().any(char::is_control) || ready.session_id.is_empty() || ready.session_id.chars().any(char::is_control) {
 											return Err(Failure::ProtocolAt("Gateway login: invalid account identity or session ID"));
@@ -1418,6 +1428,7 @@ async fn run_inner(
 											}
 										}
 										let (guilds, channels) = ready.navigation().map_err(|_| Failure::ProtocolAt("Gateway login: invalid or oversized channel/thread navigation"))?;
+										warnings.entries |= ready.skipped;
 										let (read_entries,read_version,partial)=ready.read_state.take().map_or((None,None,false),|snapshot|(Some(snapshot.entries.into_iter().filter(|e|e.kind==0).map(|e|(e.id,e.last_message_id,e.mention_count)).collect()),snapshot.version,snapshot.partial));
 										if guilds.len() + channels.len() > MAX_NAV { return Err(Failure::CapacityAt("Account navigation exceeds 131,072 entries; connection stopped")); }
 										direct_presence.bootstrap_users=friends.as_ref().into_iter().flatten().map(|(u,_)|u.id).chain(channels.iter().filter(|c|c.guild.is_none() && matches!(c.kind,1|3)).flat_map(|c|c.recipients.iter().map(|u|u.id))).take(client_core::presence::MAX_DIRECT_PRESENCES).collect();
@@ -1458,7 +1469,7 @@ async fn run_inner(
 										if let Some(event) = queries.chunk(packet.d.get().as_bytes()) { emit(event)?; }
 									}
 									"READY_SUPPLEMENTAL" => {
-										let (mut extra, warnings) = ready::supplemental(packet.d.get().as_bytes()).map_err(|_|Failure::ProtocolAt("Gateway login: invalid supplemental guild or voice metadata"))?;
+										let (mut extra, warnings) = ready::supplemental(packet.d.get().as_bytes()).map_err(|_| diagnosed(&emit, Failure::ProtocolAt("Gateway login: invalid supplemental guild or voice metadata"), ready::diagnose_supplemental(packet.d.get().as_bytes())))?;
 										if warnings != model::account::Warnings::default() { emit(Event::StartupWarnings(warnings))?; }
 										if let Some(friends) = extra.merged_presences.as_ref().and_then(|m| m.friends.as_deref()).or(extra.presences.as_deref()) {
 											direct_presence.friends(friends, Instant::now(), &emit)?;

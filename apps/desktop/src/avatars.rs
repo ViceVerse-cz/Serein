@@ -1198,8 +1198,32 @@ fn decode(bytes: &[u8], budget: &Budget) -> Option<egui::ColorImage> {
 	limits.max_image_width = Some(budget.canvas);
 	limits.max_image_height = Some(budget.canvas);
 	limits.max_alloc = Some(budget.alloc);
-	reader.limits(limits);
-	let mut image = reader.decode().ok()?;
+	reader.limits(limits.clone());
+	let mut decoder = reader.into_decoder().ok()?;
+	// `into_decoder` checks dimensions but, unlike `ImageReader::decode`, does not
+	// reserve the output allocation. Preserve that reservation before either path.
+	use image::ImageDecoder;
+	limits.reserve(decoder.total_bytes()).ok()?;
+	decoder.set_limits(limits).ok()?;
+	let (width, height) = decoder.dimensions();
+	if decoder.color_type() == image::ColorType::Rgba8
+		&& width <= budget.fit
+		&& height <= budget.fit
+	{
+		// CDN renditions already at their target size need one full-image allocation.
+		// Decode into Color32's safe byte view, then premultiply with bounded scratch.
+		let mut image = egui::ColorImage::filled(
+			[width as usize, height as usize],
+			egui::Color32::TRANSPARENT,
+		);
+		decoder.read_image(image.as_raw_mut()).ok()?;
+		for chunk in image.as_raw_mut().chunks_mut(64 * 1024) {
+			let converted = egui::ColorImage::from_rgba_unmultiplied([chunk.len() / 4, 1], chunk);
+			chunk.copy_from_slice(converted.as_raw());
+		}
+		return Some(image);
+	}
+	let mut image = image::DynamicImage::from_decoder(decoder).ok()?;
 	if image.width() > budget.fit || image.height() > budget.fit {
 		image = image.resize(
 			budget.fit,
@@ -1589,6 +1613,128 @@ impl Disk {
 
 #[cfg(test)]
 mod tests {
+	// Exact pre-optimization decoder, retained only as a pixel/limit and RSS comparator.
+	fn legacy_decode(bytes: &[u8], budget: &Budget) -> Option<egui::ColorImage> {
+		if bytes.len() > budget.encoded {
+			return None;
+		}
+		// Provider previews can be GIF/JPEG/WebP; decode only the first frame, within limits.
+		let mut reader = image::ImageReader::new(Cursor::new(bytes))
+			.with_guessed_format()
+			.ok()?;
+		let mut limits = image::Limits::default();
+		limits.max_image_width = Some(budget.canvas);
+		limits.max_image_height = Some(budget.canvas);
+		limits.max_alloc = Some(budget.alloc);
+		reader.limits(limits);
+		let mut image = reader.decode().ok()?;
+		if image.width() > budget.fit || image.height() > budget.fit {
+			image = image.resize(
+				budget.fit,
+				budget.fit,
+				image::imageops::FilterType::Lanczos3,
+			);
+		}
+		let image = image.into_rgba8();
+		Some(egui::ColorImage::from_rgba_unmultiplied(
+			[image.width() as usize, image.height() as usize],
+			image.as_raw(),
+		))
+	}
+	#[test]
+	fn direct_image_decode_preserves_pixels_formats_and_resize() {
+		let rgba = image::RgbaImage::from_fn(256, 67, |x, y| {
+			image::Rgba([x as u8, (255 - x) as u8, (y * 83) as u8, x as u8])
+		});
+		let rgba = image::DynamicImage::ImageRgba8(rgba);
+		let gray = image::DynamicImage::ImageLuma8(image::GrayImage::from_fn(256, 3, |x, _| {
+			image::Luma([x as u8])
+		}));
+		let wide = image::DynamicImage::ImageRgba16(image::ImageBuffer::from_fn(256, 3, |x, y| {
+			image::Rgba([x as u16 * 257, 32768, y as u16 * 20000, x as u16 * 257])
+		}));
+		for (source, format) in [
+			(rgba.clone(), image::ImageFormat::Png),
+			(rgba.clone(), image::ImageFormat::WebP),
+			(rgba.clone(), image::ImageFormat::Gif),
+			(
+				image::DynamicImage::ImageRgb8(rgba.to_rgb8()),
+				image::ImageFormat::Png,
+			),
+			(
+				image::DynamicImage::ImageRgb8(rgba.to_rgb8()),
+				image::ImageFormat::Jpeg,
+			),
+			(gray, image::ImageFormat::Png),
+			(wide, image::ImageFormat::Png),
+		] {
+			let mut bytes = Cursor::new(Vec::new());
+			source.write_to(&mut bytes, format).unwrap();
+			for fit in [128, 256, 512] {
+				let budget = Budget {
+					fit,
+					..Budget::legacy(512)
+				};
+				let expected = legacy_decode(bytes.get_ref(), &budget).unwrap();
+				assert_eq!(
+					decode(bytes.get_ref(), &budget).unwrap(),
+					expected,
+					"{format:?}, fit={fit}"
+				);
+			}
+		}
+	}
+
+	#[test]
+	fn direct_image_decode_preserves_rejection_limits() {
+		let bytes = png(16, 16);
+		let base = Budget::legacy(512);
+		for budget in [
+			Budget {
+				encoded: bytes.len() - 1,
+				..base
+			},
+			Budget { canvas: 15, ..base },
+			Budget {
+				alloc: 16 * 16 * 4 - 1,
+				..base
+			},
+		] {
+			assert!(legacy_decode(&bytes, &budget).is_none());
+			assert!(decode(&bytes, &budget).is_none());
+		}
+		for malformed in [b"invalid image".as_slice(), &bytes[..bytes.len() / 2]] {
+			assert!(legacy_decode(malformed, &base).is_none());
+			assert!(decode(malformed, &base).is_none());
+		}
+	}
+
+	/// Run the emitted test executable directly under `/usr/bin/time -l`; use release
+	/// builds for timing comparisons. Fixture generation is excluded from peak RSS.
+	/// Set SEREIN_IMAGE_DECODE_FIXTURE to a prebuilt synthetic 4096x4096 RGBA PNG,
+	/// and SEREIN_IMAGE_DECODE_LEGACY=1 only for the original decoder comparison.
+	#[test]
+	#[ignore = "isolated large-image RSS workload; requires a prebuilt synthetic PNG fixture"]
+	fn image_decode_memory_workload() {
+		let path = std::env::var_os("SEREIN_IMAGE_DECODE_FIXTURE")
+			.expect("set SEREIN_IMAGE_DECODE_FIXTURE to a synthetic 4096x4096 RGBA PNG");
+		let bytes = fs::read(path).unwrap();
+		let budget =
+			budget("media:vs:4096x4096:https://cdn.discordapp.com/attachments/1/2/synthetic.png");
+		let legacy = std::env::var_os("SEREIN_IMAGE_DECODE_LEGACY").is_some();
+		let decode = if legacy { legacy_decode } else { decode };
+		let started = Instant::now();
+		let image = decode(&bytes, &budget).expect("synthetic image decodes");
+		assert_eq!(image.size, [4096, 4096]);
+		assert_eq!(image.pixels.len(), 4096 * 4096);
+		std::hint::black_box(&image);
+		println!(
+			"image_decode_memory_workload legacy={legacy}, elapsed_ms={:.3}, retained_pixel_bytes={}",
+			started.elapsed().as_secs_f64() * 1000.0,
+			image.pixels.capacity() * size_of::<egui::Color32>()
+		);
+	}
+
 	fn queued_image(edge: usize) -> AvatarResult {
 		AvatarResult {
 			key: "synthetic".into(),

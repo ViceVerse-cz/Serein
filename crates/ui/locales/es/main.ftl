@@ -1622,6 +1622,7 @@ main-sign-in-header-welcome-back = Bienvenido de nuevo
 # Context: sign_in_header
 main-sign-in-header-welcome-to-serein = Bienvenido a Serein
 # Context: sign_in_preview
+main-sign-in-status-copy-failure-details = Copiar detalles del error
 main-sign-in-preview-explore-the-offline-preview = Explora la vista previa sin conexión
 # Context: sign_in_preview
 main-sign-in-preview-sample-conversations-no-discord-connection = Conversaciones de muestra. Sin conexión de Discord.
@@ -3600,6 +3601,8 @@ timeline-show-system-open-this-channels-threads = Abrir los hilos de este canal.
 timeline-show-system-see-all = . Ver todo
 # Context: show_with_scroll
 timeline-show-with-scroll-application-interaction-pending = Interacción de la aplicación pendiente...
+# Context: show_with_scroll
+timeline-show-with-scroll-click-to-see-attachment = Haz clic para ver el archivo adjunto
 # Context: show_with_scroll
 timeline-show-with-scroll-deleted-message-had-no-text = [El mensaje eliminado no tenía texto]
 # Context: show_with_scroll

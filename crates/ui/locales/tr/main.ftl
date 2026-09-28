@@ -1622,6 +1622,7 @@ main-sign-in-header-welcome-back = tekrar hoşgeldiniz
 # Context: sign_in_header
 main-sign-in-header-welcome-to-serein = Serein'e hoş geldiniz
 # Context: sign_in_preview
+main-sign-in-status-copy-failure-details = Hata ayrıntılarını kopyala
 main-sign-in-preview-explore-the-offline-preview = Çevrimdışı önizlemeyi keşfedin
 # Context: sign_in_preview
 main-sign-in-preview-sample-conversations-no-discord-connection = Örnek konuşmalar. Discord bağlantısı yok.
@@ -3600,6 +3601,8 @@ timeline-show-system-open-this-channels-threads = Bu kanalın konularını aç
 timeline-show-system-see-all = . Tümünü gör
 # Context: show_with_scroll
 timeline-show-with-scroll-application-interaction-pending = Uygulama etkileşimi bekleniyor…
+# Context: show_with_scroll
+timeline-show-with-scroll-click-to-see-attachment = Eki görmek için tıkla
 # Context: show_with_scroll
 timeline-show-with-scroll-deleted-message-had-no-text = [Silinen mesajda metin yoktu]
 # Context: show_with_scroll

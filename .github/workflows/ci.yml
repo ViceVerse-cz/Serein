@@ -31,6 +31,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2.9.2
         with:
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo xtask check
       - uses: oven-sh/setup-bun@v2.2.0
         with:
@@ -61,6 +62,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2.9.2
         with:
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: |
             . -> target
             examples/extensions -> target
@@ -83,6 +85,7 @@ jobs:
           key: cargo-audit-0.22.2
           cache-targets: false
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo install cargo-audit --version 0.22.2 --locked --no-default-features
       - run: cargo audit --deny warnings
   licenses:
@@ -95,6 +98,7 @@ jobs:
         with:
           key: cargo-deny-0.20.2
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo install cargo-deny --version 0.20.2 --locked
       - run: cargo fetch --locked
       - run: cargo fetch --locked --manifest-path fuzz/Cargo.toml
@@ -117,6 +121,7 @@ jobs:
         with:
           key: cargo-fuzz-0.13.2
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: |
             . -> target
             fuzz -> target

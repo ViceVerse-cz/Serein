@@ -1622,6 +1622,7 @@ main-sign-in-header-welcome-back = Добро пожаловать
 # Context: sign_in_header
 main-sign-in-header-welcome-to-serein = Добро пожаловать в Серейн
 # Context: sign_in_preview
+main-sign-in-status-copy-failure-details = Копировать сведения об ошибке
 main-sign-in-preview-explore-the-offline-preview = Ознакомьтесь с предварительной версией в автономном режиме
 # Context: sign_in_preview
 main-sign-in-preview-sample-conversations-no-discord-connection = Примеры разговоров. Нет подключения к Дискорду.
@@ -3600,6 +3601,8 @@ timeline-show-system-open-this-channels-threads = Откройте темы эт
 timeline-show-system-see-all = . Посмотреть все
 # Context: show_with_scroll
 timeline-show-with-scroll-application-interaction-pending = Ожидается взаимодействие с приложением…
+# Context: show_with_scroll
+timeline-show-with-scroll-click-to-see-attachment = Нажмите, чтобы посмотреть вложение
 # Context: show_with_scroll
 timeline-show-with-scroll-deleted-message-had-no-text = [В удаленном сообщении не было текста]
 # Context: show_with_scroll

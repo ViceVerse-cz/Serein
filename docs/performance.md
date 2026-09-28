@@ -2337,3 +2337,213 @@ composer-button absence checked. Captures are in `docs/pr-evidence/custom-rpc/`
 (`native-after.jpg`, `native-light.jpg`, `native-scrolled.jpg`). A matched native
 before capture was not collected. CPU/RSS/frame timing and live Discord
 interoperability remain unmeasured.
+## RAM allocation audit — September 28, 2026
+
+This audit separates live application allocations, allocator retention, process RSS,
+and GPU/driver memory. Component budgets are admission ceilings, not reservations
+or an application-wide RAM cap. A smaller executable does not establish lower RAM.
+Apple's [memory-footprint guidance](https://developer.apple.com/library/archive/technotes/tn2434/_index.html)
+likewise distinguishes heap/anonymous-VM attribution from a single process total.
+The code review used the locked dependencies, including image 0.25.10 and egui
+`fe6d63ef`, rather than assuming APIs from their latest releases.
+
+### Findings and decisions
+
+| Area | Finding | Action |
+| --- | --- | --- |
+| Still-image decoding | Already-sized RGBA8 images occupied an intermediate RGBA buffer and a second egui pixel buffer simultaneously. A 4096² image needs 64 MiB per buffer. | Decode directly into the final pixel allocation and premultiply alpha with at most 64 KiB of conversion scratch. Preserve dimension, encoded-byte and decoder-allocation validation; other formats and resizing retain their established path. |
+| Message updates | `clear` retained allocations and `clone_from` reused oversized allocations after large fields became small. These capacities remained charged to timeline budgets. | Release explicit null/empty fields; compact a shortened nonempty field only when its allocation exceeds 1 KiB and four times its new length. Ordinary edits retain allocation reuse. |
+| Fonts and bundled artwork | CJK inflation is already lazy; imported font weights share bytes; system fallback uses memory-mapped files. Twemoji already decodes into one final pixel buffer and icon pixels are released after upload. | Preserve language coverage, artwork and existing sharing. No new dependency or allocator. |
+| History and SQLite | Active/dormant timelines are moved; at most two dormant windows share the resident-history budget. Incremental SQLite saves borrow rows and the page-cache target is already 2 MiB. | Preserve limits, history previews, transactions and persistence semantics. |
+| Animation residency | Legacy and inline animation caches each permit 128 MiB and can retain offscreen clips. Viewer pixels already release after the viewer stops painting. | Future candidate: measured offscreen grace-period eviction, compared against revisit latency, decode CPU and download activity. No arbitrary cache-cap reduction here. |
+| Concurrent decoding | Eight jobs can hold encoded input, frame collections and decoder scratch outside the 128 MiB completed-result queue. | Future candidate: byte admission before expensive decode while preserving overlapping downloads. Measure mixed small-avatar/large-picture workloads before choosing a budget. |
+| Retired image workers | Started [Tokio blocking decoders](https://docs.rs/tokio/1.53.1/tokio/task/fn.spawn_blocking.html) cannot be stopped by aborting their async waiter. Old/new worker decodes can overlap during replacement. | The eight-job limit is per worker, not a global bound across retired workers. Cancellation-aware decode and rapid-replacement stress tests merit separate work. |
+| Stream rendering | `watch.rs` constructs a new ColorImage for each received stream frame; other video paths already reuse Arc buffers. | This is allocation churn, not proof of a leak. Profile a synthetic producer/renderer workload before changing frame ownership. |
+| Large-account startup | Borrowed protocol projection and moved channel vectors avoid full copies, but old/new account state overlaps during validation with wire/decompression buffers. | Keep atomic validation and supported-account ceilings. A replacement-READY heap profile is needed before redesign. |
+
+Rust documents that [`Vec::clear`](https://doc.rust-lang.org/std/vec/struct.Vec.html#method.clear)
+retains capacity. Applying `shrink_to_fit` indiscriminately would trade repeated
+allocations for tiny savings, so the patch compacts only empty or substantially
+shrunk fields. Stale patches, absent fields, immutable forwarded bodies and history
+reconciliation retain their existing behavior. Nested payload accounting remains
+unchanged; this is not a new global compactor.
+
+The direct image path preserves image 0.25.10's explicit output-buffer reservation
+before decoding: `ImageReader::into_decoder` alone does not perform the reservation
+that `ImageReader::decode` does. Pixel-equivalence tests cover every alpha value,
+PNG/WebP/GIF, RGB/grayscale/16-bit input, JPEG, resized output and conversion
+chunk boundaries. Bounded chunks use the existing optimized egui conversion
+routine, including in debug builds; scratch is additional to decoder reservations. Decoder failure
+releases the partially filled buffer. No unsafe conversion or reduced image quality
+is introduced.
+
+### Component measurements
+
+Baseline `2d5345a` versus this change, macOS 27.0 (26A428), Apple M1, 16 GiB RAM,
+Rust 1.98.1, locked dependencies. The clean starting checkout `dc82f22` was
+fast-forwarded to the remote default branch before building. Baseline package,
+demo, replay and cache-test executables were preserved before production edits.
+Only the cache benchmark's test code was added to the baseline. No compiler ran
+during measurement; all inputs were synthetic, with no account, microphone,
+camera or live media session.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| 4096² RGBA PNG release decode, median process peak RSS, bytes | 146,554,880 | 79,364,096 | -67,190,784 / -45.85% |
+| Same workload, release decode time, median ms | 23.823 | 23.132 | -0.691 / -2.90% |
+| Final retained pixel allocation, bytes | 67,108,864 | 67,108,864 | Unchanged |
+| 500 messages shortened from 7,000 to 6 bytes, estimated timeline bytes | 3,736,500 | 239,500 | -3,497,000 / -93.59% |
+| Same workload, content string capacities, bytes | 3,500,000 | 3,000 | -3,497,000 / -99.91% |
+| Same workload, release µs per 500 edits | 133.052 | 144.874 | +11.823 / +8.89% |
+| Ordinary 64-to-6-byte edits, release µs per 500 edits | 132.277 | 137.433 | +5.156 / +3.90% |
+| Ordinary edit workload, estimated timeline bytes | 268,500 | 268,500 | Unchanged |
+| 100,000-event release reducer replay, median ms | 152.027 | 153.925 | +1.898 / +1.25%; overlapping ranges |
+| Replay retained timeline, estimated bytes / rows | 331,992–332,477 / 500 | 331,992–332,477 / 500 | Unchanged |
+| 60-second lifecycle soak, process peak RSS, bytes | 18,612,224 | 18,612,224 | Unchanged |
+
+The image measurement uses the emitted **release** desktop test executable directly
+under macOS `/usr/bin/time -l`: one warmup per mode, then five alternating legacy/
+direct pairs, each in a fresh process. The test-only legacy comparator reproduces
+the original decoder in the same executable. Its pregenerated 338,205-byte PNG
+contains 4096 identical rows with all 256 alpha values. Fixture generation happens
+in a separate process. The final 64 MiB pixel allocation is identical; the saving
+replaces the full-frame conversion buffer with at most 64 KiB of scratch. This is
+isolated decoder peak RSS, not desktop RSS, GPU memory or an eight-worker peak test.
+Raw legacy peaks: 146,554,880; 146,538,496; 146,538,496; 146,554,880; 146,554,880.
+Direct peaks: 79,364,096; 79,364,096; 79,396,864; 79,364,096; 79,380,480 bytes.
+Legacy decode times: 24.099, 23.814, 24.326, 23.823, 23.646 ms. Direct: 23.240,
+22.867, 23.131, 23.222, 23.132 ms. This small timing change is workload-specific;
+the primary improvement is temporary memory, not a general image speedup.
+
+A matching debug check (one warmup and five alternating pairs) measured median
+peak RSS 150,175,744 → 82,935,808 bytes and decode time 45.211 → 44.407 ms.
+Using the existing optimized egui conversion in bounded chunks avoids moving
+per-pixel conversion into unoptimized application code in debug builds.
+
+The cache workload uses release builds, one warmup batch and five measured
+batches of 100 windows. Timing covers 500 patch applications per window,
+excluding message/patch construction. All 500 messages survive and contain the
+same edited text. Capacity/estimated-byte results are deterministic, not RSS.
+Compacting large fields costs about 24 ns more per edit in this workload; this
+is a measured memory/time tradeoff. The ordinary case preserves its allocation
+reuse and shows no RAM saving. These microbenchmarks do not establish visible
+UI latency differences.
+
+Replay uses one warmup per revision and five alternating direct-executable pairs.
+Baseline times: 151.558, 152.027, 154.554, 152.045, 151.720 ms. After: 153.925,
+152.214, 154.824, 157.826, 152.611 ms. This ordinary insertion workload does not
+meaningfully exercise the fixes; no general reducer speedup is claimed.
+One 60-second lifecycle soak per revision exercised 66,400 / 66,688 channel
+visits and 39,840,000 / 40,012,800 inserts, each with nine logout cycles. Both
+kept identical steady resident-history estimate ranges: 856,392–9,786,824 bytes
+under row pressure and 6,178,192–13,395,456 under byte pressure. All lifecycle
+and bound assertions passed. This is bounded synthetic pressure, not proof
+against every leak or live-account workload.
+
+Reproduce the component workloads:
+
+```sh
+cargo test --locked --release -p session-cache tests::edited_message_capacity_workload -- --ignored --exact --nocapture
+cargo test --locked --release -p serein avatars::tests::image_decode_memory_workload --no-run
+# Run the emitted desktop test executable directly, not Cargo, under /usr/bin/time -l:
+SEREIN_IMAGE_DECODE_FIXTURE=/tmp/serein-ram-4096.png SEREIN_IMAGE_DECODE_LEGACY=1 /usr/bin/time -l PATH_TO_TEST_BINARY avatars::tests::image_decode_memory_workload --ignored --exact --nocapture
+SEREIN_IMAGE_DECODE_FIXTURE=/tmp/serein-ram-4096.png /usr/bin/time -l PATH_TO_TEST_BINARY avatars::tests::image_decode_memory_workload --ignored --exact --nocapture
+cargo replay
+# After building, run target/release/replay-bench directly for timing/peak RSS:
+/usr/bin/time -l target/release/replay-bench --soak 60
+```
+
+For the historical cache comparison, add only `empty_patch` and
+`edited_message_capacity_workload` from this change to `2d5345a` and preserve
+its production implementation. Generate the image fixture separately using
+only Python's standard library:
+
+```python
+import struct, zlib
+def chunk(kind, data):
+    return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
+row = b'\0' + bytes(v for x in range(4096) for v in (x % 256, 255 - x % 256, 83, x % 256))
+compressor = zlib.compressobj(6)
+with open('/tmp/serein-ram-4096.png', 'wb') as output:
+    output.write(b'\x89PNG\r\n\x1a\n')
+    output.write(chunk(b'IHDR', struct.pack('>IIBBBBB', 4096, 4096, 8, 6, 0, 0, 0)))
+    for _ in range(4096):
+        data = compressor.compress(row)
+        if data:
+            output.write(chunk(b'IDAT', data))
+    output.write(chunk(b'IDAT', compressor.flush()))
+    output.write(chunk(b'IEND', b''))
+```
+
+### Native idle control
+
+Both preserved release demo builds used `--no-default-features --features demo`
+and were launched with `--demo --demo-friends --demo-frame-sample=1,1` on the same
+Apple M1 Metal renderer. The built-in display was 2560×1600 Retina and asleep;
+this is an **occluded/display-asleep idle control**, not active rendering evidence.
+The default 1120×760 viewport was requested; actual window size/display scale
+were not independently verified. No interaction was injected.
+
+After a ten-second warmup, `ps -p PID -o %cpu=,rss=` sampled each owned process
+20 times at one-second intervals. One launch per revision; settled RSS is the
+median of the final five samples. `vmmap -summary PID` was captured afterward.
+No child/helper processes were found. Only the owned synthetic processes were
+terminated after sampling.
+
+| Native control metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Median idle CPU | 0.0% | 0.0% | Unchanged |
+| Peak / settled RSS, KiB | 136,432 / 136,432 | 135,760 / 135,760 | -672 / -0.49% |
+| Physical footprint, vmmap display | 73.0M | 72.3M | -0.7M |
+| Peak physical footprint, vmmap display | 90.9M | 90.5M | -0.4M |
+
+These small native differences are within uncontrolled launch/allocator variation;
+no general desktop RAM improvement is claimed. The idle fixture does not exercise
+the large-image or shrinking-message workloads. Frame markers did not complete
+while the display was asleep, so p95 frame time, startup latency, active scrolling
+and GPU-wide memory remain unmeasured.
+
+### Standard package and verification
+
+Both revisions passed `cargo xtask package`, including voice, with default/demo
+features disabled. The complete outputs were preserved in separate directories.
+Each package contains the same 205 file paths; installed size sums those files.
+ZIPs use `ditto -c -k --sequesterRsrc` over each complete `dist` directory without
+an enclosing directory. These are locally ad-hoc signed and verified macOS
+bundles, not notarized releases.
+
+| Package metric, bytes | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 61,003,200 | 61,003,216 | +16 / less than 0.001% |
+| Full installed package | 67,010,392 | 67,010,408 | +16 / less than 0.001% |
+| Compressed distribution | 42,808,529 | 42,809,918 | +1,389 / +0.0032% |
+
+These negligible artifact differences do not establish a package-size improvement.
+Licenses, notices, runtime assets and dependency versions are unchanged.
+
+Workspace/fuzz formatting, strict workspace Clippy, focused image/cache tests
+(including release image tests), the standard feature-disabled build check and
+policy checks passed. The final `cargo test --workspace --locked --no-fail-fast`
+run had **1,148 passed, six failed and 24 ignored**. `cargo xtask check` is
+consequently **not green**. All failures are in unchanged network fixtures:
+
+- Gateway `local_socket_identify_ack_drop_resume_and_invalid_session` and
+  `outgoing_activity_waits_for_ready_coalesces_clears_and_resumes`, plus voice
+  `local_guild_voice_waiting_mixed_audio_and_resume`: `Protocol(WrongHttpMethod)`.
+- API `invites_http_pause_preserves_features_and_revoke_reconciles_without_retry`,
+  `integrations_http_permission_scopes_mutation_reconciliation_and_no_retry` and
+  `upload_cancel_before_write_and_redirect_never_send_message`: a loopback listener
+  accepted a connection during a 50–80 ms no-request assertion.
+
+A prior full run had 1,150 passed, four failed and 24 ignored: the two Gateway
+tests and two voice tests (`local_voice_websocket_udp_dave_and_opus_exchange`
+also failed then). Gateway failures reproduced individually. An independent
+loopback listener with no client launched received an unsolicited HTTP `HEAD`
+after 1.336 seconds; only the method was recorded, with no headers or payloads.
+The extra API connections are consistent with that observed probe interference,
+but their methods were not captured. No API/Gateway/voice code or test was changed,
+and no check was disabled or production handshake weakened.
+
+The PR stays draft while full verification is blocked. Windows/Linux runtime
+behavior and live Discord were not measured. Screenshots are not applicable
+because this has no visible UI change.

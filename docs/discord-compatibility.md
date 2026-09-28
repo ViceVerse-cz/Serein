@@ -212,9 +212,17 @@ catalogs decode independently. Rejected optional sections remain unavailable and
 bounded feature warning; they do not abort otherwise valid login. Unknown read state is not
 treated as read. Unknown guild notification settings or DND suppress desktop alerts; DMs use
 default delivery when global DM settings are absent unless a known mute, block, spam/request,
-or DND state suppresses them. Identity,
-session/resume address, relationships, navigation, permissions and voice data remain strict.
-Supplemental optional metadata follows the same policy. No raw payload or parser error is logged.
+or DND state suppresses them. The account's own identity, session ID and resume address remain
+strict. Other entries degrade individually (September 28): an explicit `null` in a defaulted field
+reads as its default; a malformed or conflicting guild, channel, thread, DM, DM recipient, contact,
+voice state or other member row is dropped (the first of repeated IDs wins) and a startup warning
+names the affected categories; more than 10,000 relationships are truncated with the same warning.
+A malformed, truncated or conflicting role list, overwrite list, own member row or `merged_members`
+alignment makes that permission metadata unknown, never granted; capacity ceilings still stop the
+session. SakuraCord's lossy READY decoding was reviewed as prior art; no code was copied.
+Supplemental optional metadata follows the same policy. No raw payload or parser error is logged;
+when login still fails, the sign-in banner offers a copyable report with the schema path and
+error kind of the first failure, with remote strings, numbers and ID-like map keys redacted.
 
 The Gateway prepares the permission mirror before transferring one atomic startup event to
 the UI. Its single reserved slot permits up to 128 MiB while ordinary events retain their

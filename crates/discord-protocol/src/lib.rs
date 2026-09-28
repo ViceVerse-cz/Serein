@@ -4,6 +4,7 @@ pub mod activity_sharing;
 pub mod application_commands;
 pub mod archives;
 mod attachments;
+mod diagnostics;
 mod embeds;
 mod extra_content;
 pub mod forum;
@@ -11,6 +12,7 @@ pub mod gifs;
 pub mod group_actions;
 pub mod guild_folders;
 pub mod invites;
+mod lossy;
 pub mod messaging_permissions;
 pub mod notifications;
 pub mod permissions;
@@ -85,11 +87,11 @@ pub struct UserDto {
 	pub username: String,
 	#[serde(default)]
 	pub global_name: Option<String>,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub bot: bool,
 	#[serde(default)]
 	pub avatar: Option<String>,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub discriminator: String,
 	#[serde(default)]
 	pub primary_guild: Option<PrimaryGuildDto>,
@@ -157,7 +159,7 @@ impl UserDto {
 pub struct ChannelDto {
 	#[serde(default)]
 	pub icon: Option<String>,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub flags: u64,
 	#[serde(default)]
 	pub last_message_id: Option<Id>,
@@ -166,21 +168,22 @@ pub struct ChannelDto {
 	pub guild_id: Option<Id>,
 	#[serde(default)]
 	pub parent_id: Option<Id>,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub position: i32,
 	#[serde(default)]
 	pub name: Option<String>,
 	#[serde(rename = "type")]
 	pub kind: u8,
-	#[serde(default)]
+	/// An unreadable recipient is dropped without losing the conversation.
+	#[serde(default, deserialize_with = "lossy::recipients")]
 	pub recipients: Vec<UserDto>,
 	#[serde(default)]
 	pub permission_overwrites: Option<Vec<Overwrite>>,
 	#[serde(default)]
 	pub message_count: Option<u32>,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub is_message_request: bool,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub is_spam: bool,
 	#[serde(default)]
 	pub available_tags: Option<forum::TagList>,
@@ -443,9 +446,10 @@ mod channel_tests {
 		assert!(!flags.is_obfuscated());
 		let payload = serde_json::json!({"user":{"id":"9","username":"Synthetic"},"session_id":"s","resume_gateway_url":"wss://gateway.discord.gg","guilds":[{"id":"1","channels":[{"id":"2","type":0,"flags":131072},{"id":"2","type":0}]}]});
 		let mut ready: Ready = decode(&serde_json::to_vec(&payload).unwrap()).unwrap();
+		let (_, channels) = ready.navigation().unwrap();
 		assert!(
-			ready.navigation().is_err(),
-			"Filtering must not bypass duplicate identity validation"
+			ready.skipped && channels.is_empty(),
+			"A duplicate never replaces the first (hidden) channel"
 		);
 	}
 
@@ -550,6 +554,9 @@ pub struct Ready {
 	pub guilds: Vec<GuildDto>,
 	#[serde(default)]
 	pub private_channels: Vec<ChannelDto>,
+	/// Set when decoding or [`Ready::navigation`] dropped malformed or conflicting entries.
+	#[serde(skip)]
+	pub skipped: bool,
 }
 impl Ready {
 	pub fn navigation(&mut self) -> Result<(Vec<Guild>, Vec<Channel>), DecodeError> {
@@ -563,30 +570,33 @@ impl Ready {
 		if incoming > threads::MAX_ITEMS {
 			return Err(DecodeError);
 		}
-		let mut guild_ids = std::collections::BTreeSet::new();
-		if self.user.id.0 == 0
-			|| self.guilds.iter().any(|g| {
-				g.id.0 == 0
-					|| !guild_ids.insert(g.id)
-					|| g.channels
-						.iter()
-						.chain(&g.threads)
-						.any(|c| c.guild_id.is_some_and(|id| id != g.id))
-			}) {
+		if self.user.id.0 == 0 {
 			return Err(DecodeError);
 		}
+		// Zero, repeated or cross-server entries are dropped individually; the first one wins.
+		let mut skipped = false;
+		let mut guild_ids = std::collections::BTreeSet::new();
+		self.guilds.retain(|g| {
+			let keep = g.id.0 != 0 && guild_ids.insert(g.id);
+			skipped |= !keep;
+			keep
+		});
 		let mut ids = std::collections::BTreeSet::new();
-		if self
-			.private_channels
-			.iter()
-			.chain(
-				self.guilds
-					.iter()
-					.flat_map(|g| g.channels.iter().chain(&g.threads)),
-			)
-			.any(|c| c.id.0 == 0 || !ids.insert(c.id))
-		{
-			return Err(DecodeError);
+		self.private_channels.retain(|c| {
+			let keep = c.id.0 != 0 && ids.insert(c.id);
+			skipped |= !keep;
+			keep
+		});
+		for g in &mut self.guilds {
+			let guild = g.id;
+			for list in [&mut g.channels, &mut g.threads] {
+				list.retain(|c| {
+					let keep =
+						c.id.0 != 0 && c.guild_id.is_none_or(|id| id == guild) && ids.insert(c.id);
+					skipped |= !keep;
+					keep
+				});
+			}
 		}
 		drop(ids);
 		let mut channels: Vec<_> = std::mem::take(&mut self.private_channels)
@@ -648,20 +658,25 @@ impl Ready {
 					{
 						continue;
 					}
-					channels.push(threads::into_thread(thread, g.id)?);
+					match threads::into_thread(thread, g.id) {
+						Ok(thread) => channels.push(thread),
+						Err(_) => skipped = true,
+					}
 				}
-				Ok(Guild {
+				Guild {
 					emojis: g.emojis.map(|emojis| emojis.0),
-					stickers: g
-						.stickers
-						.map(|list| stickers::guild_catalog(list.0, g.id))
-						.transpose()?,
+					stickers: g.stickers.and_then(|list| {
+						let stickers = stickers::guild_catalog(list.0, g.id).ok();
+						skipped |= stickers.is_none();
+						stickers
+					}),
 					id: g.id,
 					name: g.name.chars().take(128).collect(),
 					icon: g.icon.filter(|hash| model::valid_avatar_hash(hash)),
-				})
+				}
 			})
-			.collect::<Result<Vec<_>, DecodeError>>()?;
+			.collect::<Vec<_>>();
+		self.skipped |= skipped;
 		let bytes = channels.iter().map(Channel::bytes).sum::<usize>()
 			+ guilds.iter().map(Guild::bytes).sum::<usize>();
 		if channels.len() + guilds.len() > threads::MAX_ITEMS || bytes > model::account::MAX_BYTES {
@@ -1065,6 +1080,17 @@ pub struct Deleted {
 pub struct BulkDeleted {
 	pub ids: Vec<Id>,
 	pub channel_id: Id,
+}
+/// Redacted decode cause of a whole Gateway packet, for a user-copyable failure report.
+pub fn diagnose_packet(bytes: &[u8]) -> String {
+	if bytes.len() > MAX_GATEWAY_WIRE {
+		return format!(
+			"Gateway packet is {} bytes; limit is {MAX_GATEWAY_WIRE}",
+			bytes.len()
+		);
+	}
+	diagnostics::trace::<GatewayPacket>("packet", bytes)
+		.unwrap_or_else(|| "Gateway packet decoded; a later check failed".into())
 }
 #[derive(Deserialize)]
 pub struct GatewayPacket {
@@ -1488,12 +1514,15 @@ mod tests {
 #[derive(Deserialize)]
 pub struct RoleDto {
 	pub id: Id,
+	#[serde(deserialize_with = "lossy::text_or_number")]
 	pub permissions: String,
 }
 #[derive(Deserialize)]
 pub struct Overwrite {
 	pub id: Id,
+	#[serde(deserialize_with = "lossy::text_or_number")]
 	pub allow: String,
+	#[serde(deserialize_with = "lossy::text_or_number")]
 	pub deny: String,
 }
 fn member_list_id(everyone: u128, overwrites: &[Overwrite]) -> Option<String> {
@@ -2018,19 +2047,19 @@ pub struct VoiceStateDto {
 	pub user_id: Id,
 	#[serde(default)]
 	pub session_id: Option<String>,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub self_mute: bool,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub self_deaf: bool,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub mute: bool,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub deaf: bool,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub suppress: bool,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub self_video: bool,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub self_stream: bool,
 	#[serde(default)]
 	pub member: Option<VoiceMemberDto>,

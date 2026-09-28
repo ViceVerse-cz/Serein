@@ -1,5 +1,8 @@
 //! Minimal, session-only permission metadata. No member directory is retained.
-use crate::{DecodeError, Timestamp, decode, decode_gateway};
+use crate::{
+	DecodeError, Timestamp, decode,
+	lossy::{Lossy, Slots, null_default},
+};
 use model::{Id, Patch, permissions as p};
 use serde::{
 	Deserialize, Deserializer,
@@ -67,34 +70,39 @@ pub(crate) fn bits<'de, D: Deserializer<'de>>(d: D) -> Result<u128, D::Error> {
 				.parse()
 				.map_err(|_| E::custom("Permission bits overflow"))
 		}
+		fn visit_u64<E: serde::de::Error>(self, value: u64) -> Result<u128, E> {
+			Ok(value.into())
+		}
 	}
-	d.deserialize_str(BitsVisitor)
+	d.deserialize_any(BitsVisitor)
 }
 #[derive(Deserialize)]
 pub(crate) struct Role {
 	id: Id,
 	permissions: Bits,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "null_default")]
 	name: String,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "null_default")]
 	color: u32,
 	#[serde(default)]
 	colors: Option<RoleColors>,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "null_default")]
 	position: i32,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "null_default")]
 	hoist: bool,
 }
 #[derive(Deserialize)]
 struct RoleColors {
-	primary_color: u32,
+	#[serde(default)]
+	primary_color: Option<u32>,
 }
 impl Role {
 	pub(crate) fn checked(self) -> Result<p::Role, DecodeError> {
 		nonzero(self.id)?;
 		let color = self
 			.colors
-			.map_or(self.color, |colors| colors.primary_color);
+			.and_then(|colors| colors.primary_color)
+			.unwrap_or(self.color);
 		if color > 0xff_ffff {
 			return Err(DecodeError);
 		}
@@ -121,10 +129,14 @@ struct Overwrite {
 	allow: Bits,
 	deny: Bits,
 }
-fn overwrites(rows: List<Overwrite, 1000>, user: Id) -> Result<Vec<p::Overwrite>, DecodeError> {
+/// A truncated or partly malformed list is never read as complete: that could drop a deny.
+fn overwrites(rows: Overwrites, user: Id) -> Result<Vec<p::Overwrite>, DecodeError> {
+	if rows.skipped {
+		return Err(DecodeError);
+	}
 	let mut seen = BTreeSet::new();
 	let mut retained = Vec::new();
-	for row in rows.0 {
+	for row in rows.items {
 		nonzero(row.id)?;
 		if row.kind > 1 || !seen.insert((row.kind, row.id)) {
 			return Err(DecodeError);
@@ -142,6 +154,7 @@ fn overwrites(rows: List<Overwrite, 1000>, user: Id) -> Result<Vec<p::Overwrite>
 	retained.shrink_to_fit();
 	Ok(retained)
 }
+type Overwrites = Lossy<Overwrite, 1000, true>;
 #[derive(Deserialize)]
 struct Identity {
 	id: Id,
@@ -212,30 +225,44 @@ struct Guild {
 	#[serde(default)]
 	properties: Option<Properties>,
 	#[serde(default)]
-	roles: Option<List<Role, 512>>,
+	roles: Option<Lossy<Role, 512, true>>,
 	#[serde(default)]
-	members: List<Member, MAX_MEMBERS>,
+	members: Lossy<Member, MAX_MEMBERS, true>,
 	#[serde(default)]
-	channels: List<Channel, MAX_ITEMS>,
+	channels: Lossy<Channel, MAX_ITEMS>,
 }
 #[derive(Deserialize)]
 struct Channel {
 	id: Id,
 	#[serde(default)]
 	guild_id: Option<Id>,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "null_default")]
 	flags: u64,
 	#[serde(rename = "type", default)]
 	kind: Option<u8>,
 	#[serde(default)]
-	permission_overwrites: Patch<List<Overwrite, 1000>>,
+	permission_overwrites: Patch<Overwrites>,
 }
+type Merged = Slots<Lossy<Member, MAX_MEMBERS, true>, MAX_ITEMS>;
 #[derive(Deserialize)]
-struct Ready {
+struct Ready<'a> {
 	#[serde(default)]
-	guilds: List<Guild, MAX_ITEMS>,
-	#[serde(default)]
-	merged_members: Option<List<List<Member, MAX_MEMBERS>, MAX_ITEMS>>,
+	guilds: Slots<Guild, MAX_ITEMS>,
+	#[serde(default, borrow)]
+	merged_members: Option<&'a serde_json::value::RawValue>,
+}
+/// Index-aligned with guilds; an unreadable or misaligned list only leaves members unknown.
+fn merged_rows(merged: Option<&[u8]>, guilds: usize) -> Vec<Vec<Member>> {
+	merged
+		.and_then(|bytes| serde_json::from_slice::<Merged>(bytes).ok())
+		.filter(|rows| rows.items.len() == guilds)
+		.map(|rows| {
+			rows.items
+				.into_iter()
+				.map(|row| row.map(|row| row.items).unwrap_or_default())
+				.collect()
+		})
+		.unwrap_or_default()
 }
 fn nonzero(id: Id) -> Result<(), DecodeError> {
 	if id.0 == 0 { Err(DecodeError) } else { Ok(()) }
@@ -257,15 +284,26 @@ fn self_member(
 	guild: Id,
 	full: bool,
 ) -> Result<Option<MemberUpdate>, DecodeError> {
+	// Snapshots (`full`) keep other members' malformed rows from failing the login; an
+	// unusable or conflicting own row leaves the membership unknown instead.
 	let mut selected = None;
 	for member in members {
-		if member.is_self(user)? {
-			let mut update = member.patch(guild)?;
+		let is_self = match member.is_self(user) {
+			Ok(is_self) => is_self,
+			Err(_) if full => continue,
+			Err(error) => return Err(error),
+		};
+		if is_self {
+			let mut update = match member.patch(guild) {
+				Ok(update) => update,
+				Err(_) if full => return Ok(None),
+				Err(error) => return Err(error),
+			};
 			if full && matches!(update.2, Patch::Absent) {
 				update.2 = Patch::Null;
 			}
 			if selected.as_ref().is_some_and(|old| old != &update) {
-				return Err(DecodeError);
+				return if full { Ok(None) } else { Err(DecodeError) };
 			}
 			selected = Some(update);
 		}
@@ -286,34 +324,33 @@ fn checked_snapshot(
 	let mut bytes = 0;
 	let mut role_count = 0;
 	let mut overwrite_count = 0;
+	// Malformed rows only make that guild's or channel's permissions unknown (never allowed);
+	// the capacity bounds below still stop the session.
 	for row in guilds {
 		let (guild, extra) = row?;
-		nonzero(guild.id)?;
-		if !guild_ids.insert(guild.id) {
-			return Err(DecodeError);
+		if guild.id.0 == 0 || !guild_ids.insert(guild.id) {
+			continue;
 		}
-		let owner = match owner_patch(guild.owner_id, guild.properties)? {
-			Patch::Value(id) => Some(id),
+		let owner = match owner_patch(guild.owner_id, guild.properties) {
+			Ok(Patch::Value(id)) => Some(id),
 			_ => None,
 		};
-		let roles = guild
-			.roles
-			.map(|rows| {
-				let mut seen = BTreeSet::new();
-				rows.0
-					.into_iter()
-					.map(|r| {
-						let role = r.checked()?;
-						if !seen.insert(role.id) {
-							return Err(DecodeError);
-						}
-						Ok(role)
-					})
-					.collect::<Result<Vec<_>, DecodeError>>()
-			})
-			.transpose()?;
+		let roles = guild.roles.filter(|rows| !rows.skipped).and_then(|rows| {
+			let mut seen = BTreeSet::new();
+			rows.items
+				.into_iter()
+				.map(|r| {
+					let role = r.checked()?;
+					if !seen.insert(role.id) {
+						return Err(DecodeError);
+					}
+					Ok(role)
+				})
+				.collect::<Result<Vec<_>, DecodeError>>()
+				.ok()
+		});
 		let member = self_member(
-			guild.members.0.into_iter().chain(extra),
+			guild.members.items.into_iter().chain(extra),
 			user,
 			guild.id,
 			true,
@@ -337,14 +374,15 @@ fn checked_snapshot(
 		};
 		bytes += retained_guild.bytes();
 		snapshot.guilds.push(retained_guild);
-		for channel in guild.channels.0 {
-			nonzero(channel.id)?;
-			if !channel_ids.insert(channel.id) || channel.guild_id.is_some_and(|id| id != guild.id)
+		for channel in guild.channels.items {
+			if channel.id.0 == 0
+				|| channel.guild_id.is_some_and(|id| id != guild.id)
+				|| !channel_ids.insert(channel.id)
 			{
-				return Err(DecodeError);
+				continue;
 			}
 			let overwrites = match channel.permission_overwrites {
-				Patch::Value(rows) => Some(overwrites(rows, user)?),
+				Patch::Value(rows) => overwrites(rows, user).ok(),
 				_ => None,
 			};
 			// Threads use the admitted parent's overwrites; hidden channels never become permission sources.
@@ -404,27 +442,36 @@ pub fn ready_fields(
 	{
 		return Err(DecodeError);
 	}
-	// Decode each guild in the same pass that splits the array; a raw-value split would
-	// scan every byte twice.
-	let guilds: List<Guild, MAX_ITEMS> = serde_json::from_slice(guilds).map_err(|_| DecodeError)?;
-	let merged: Option<List<List<Member, MAX_MEMBERS>, MAX_ITEMS>> = merged
-		.map(serde_json::from_slice)
-		.transpose()
-		.map_err(|_| DecodeError)?;
-	if merged
-		.as_ref()
-		.is_some_and(|rows| rows.0.len() != guilds.0.len())
-	{
-		return Err(DecodeError);
-	}
-	let mut merged = merged.map(|rows| rows.0.into_iter());
+	// Each guild is split as a raw value first so one malformed guild is skipped alone.
+	let guilds: Slots<Guild, MAX_ITEMS> =
+		serde_json::from_slice(guilds).map_err(|_| DecodeError)?;
+	let mut merged = merged_rows(merged, guilds.items.len()).into_iter();
 	checked_snapshot(
-		guilds.0.into_iter().map(|guild| {
-			let members = merged.as_mut().and_then(Iterator::next).unwrap_or_default();
-			Ok((guild, members.0))
+		guilds.items.into_iter().filter_map(|guild| {
+			let members = merged.next().unwrap_or_default();
+			guild.map(|guild| Ok((guild, members)))
 		}),
 		user,
 	)
+}
+/// Redacted first failure of [`ready_fields`] for a user-copyable login report.
+pub(crate) fn diagnose_ready_fields(guilds: &[u8], merged: Option<&[u8]>, user: Id) -> String {
+	if let Some(cause) = crate::diagnostics::trace::<Slots<Guild, MAX_ITEMS>>("guilds", guilds) {
+		return cause;
+	}
+	let Ok(guilds) = serde_json::from_slice::<Slots<Guild, MAX_ITEMS>>(guilds) else {
+		return "guilds: permission data could not be decoded".into();
+	};
+	let mut merged = merged_rows(merged, guilds.items.len()).into_iter();
+	for (index, guild) in guilds.items.into_iter().enumerate() {
+		let members = merged.next().unwrap_or_default();
+		if let Some(guild) = guild
+			&& checked_snapshot([Ok((guild, members))], user).is_err()
+		{
+			return format!("guilds[{index}]: permissions exceed a safety bound");
+		}
+	}
+	"guilds: permissions exceed an account-wide safety bound".into()
 }
 pub fn guild(bytes: &[u8], user: Id) -> Result<p::Snapshot, DecodeError> {
 	checked_snapshot([Ok((decode(bytes)?, Vec::new()))], user)
@@ -507,28 +554,24 @@ fn passive_member(
 }
 
 pub fn supplemental(bytes: &[u8], user: Id) -> Result<Vec<MemberUpdate>, DecodeError> {
-	let ready: Ready = decode_gateway(bytes)?;
-	if ready
-		.merged_members
-		.as_ref()
-		.is_some_and(|m| m.0.len() != ready.guilds.0.len())
-	{
+	if bytes.len() > crate::MAX_GATEWAY_WIRE {
 		return Err(DecodeError);
 	}
-	let mut merged = ready.merged_members.map(|m| m.0);
+	let ready: Ready<'_> = serde_json::from_slice(bytes).map_err(|_| DecodeError)?;
+	let mut merged = merged_rows(
+		ready.merged_members.map(|m| m.get().as_bytes()),
+		ready.guilds.items.len(),
+	)
+	.into_iter();
 	let mut updates = Vec::new();
 	let mut ids = BTreeSet::new();
-	for (index, guild) in ready.guilds.0.into_iter().enumerate() {
-		nonzero(guild.id)?;
-		if !ids.insert(guild.id) {
-			return Err(DecodeError);
-		}
-		let extra = merged
-			.as_mut()
-			.map(|rows| std::mem::take(&mut rows[index].0))
-			.unwrap_or_default();
+	for guild in ready.guilds.items {
+		let extra = merged.next().unwrap_or_default();
+		let Some(guild) = guild.filter(|g| g.id.0 != 0 && ids.insert(g.id)) else {
+			continue;
+		};
 		if let Some(update) = self_member(
-			guild.members.0.into_iter().chain(extra),
+			guild.members.items.into_iter().chain(extra),
 			user,
 			guild.id,
 			true,
@@ -755,15 +798,51 @@ mod tests {
 				"Validate before dropping another member's overwrite"
 			);
 		}
-		for value in [
-			json!({"guilds":[{"id":"1"}],"merged_members":[]}),
+		// Malformed snapshot rows degrade to unknown (never granting) instead of failing login.
+		let snapshot =
+			|value: serde_json::Value| ready(&serde_json::to_vec(&value).unwrap(), Id(9)).unwrap();
+		let members = json!([{"user_id":"9","roles":["2"]}]);
+		let aligned = snapshot(json!({"guilds":[{"id":"1"}],"merged_members":[members]}));
+		assert!(aligned.guilds[0].member.is_some());
+		let misaligned =
+			snapshot(json!({"guilds":[{"id":"1"}],"merged_members":[members, members]}));
+		assert!(misaligned.guilds[0].member.is_none());
+		let crossed = snapshot(
 			json!({"guilds":[{"id":"1","channels":[{"id":"2","guild_id":"3","type":0}]}]}),
-			json!({"guilds":[{"id":"1","roles":[{"id":"1","permissions":"8"},{"id":"1","permissions":"0"}]}]}),
-			json!({"guilds":[{"id":"1","members":[{"user_id":"9","roles":["2","2"]}]}]}),
-			json!({"guilds":[{"id":"1","members":[{"user_id":"9","roles":[]},{"user_id":"9","roles":["2"]}]}]}),
+		);
+		assert!(crossed.channels.is_empty());
+		for roles in [
+			json!([{"id":"1","permissions":"8"},{"id":"1","permissions":"0"}]),
+			json!([{"id":"1","permissions":"8"},{"id":"2","permissions":"invalid"}]),
 		] {
-			assert!(ready(&serde_json::to_vec(&value).unwrap(), Id(9)).is_err());
+			assert!(
+				snapshot(json!({"guilds":[{"id":"1","roles":roles}]})).guilds[0]
+					.roles
+					.is_none()
+			);
 		}
+		for members in [
+			json!([{"user_id":"9","roles":["2","2"]}]),
+			json!([{"user_id":"9","roles":[]},{"user_id":"9","roles":["2"]}]),
+		] {
+			assert!(
+				snapshot(json!({"guilds":[{"id":"1","members":members}]})).guilds[0]
+					.member
+					.is_none()
+			);
+		}
+		let others = snapshot(
+			json!({"guilds":[{"id":"1","members":[{"roles":[]},{"user_id":"8","communication_disabled_until":"soon"},{"user_id":"9","roles":["2"]}]}]}),
+		);
+		assert!(
+			others.guilds[0].member.is_some(),
+			"Other members' rows never block our own"
+		);
+		let overwrites = json!([{"id":"8","type":1,"allow":"invalid","deny":"0"}]);
+		let channel = snapshot(
+			json!({"guilds":[{"id":"1","channels":[{"id":"2","type":0,"permission_overwrites":overwrites}]}]}),
+		);
+		assert_eq!(channel.channels[0].overwrites, None);
 	}
 
 	#[test]
@@ -776,7 +855,11 @@ mod tests {
 				(Id(2), Patch::Value(Vec::new()), Patch::Null)
 			]
 		);
-		assert!(supplemental(br#"{"guilds":[{"id":"1"}],"merged_members":[]}"#, Id(9)).is_err());
+		assert!(
+			supplemental(br#"{"guilds":[{"id":"1"}],"merged_members":[]}"#, Id(9))
+				.unwrap()
+				.is_empty()
+		);
 		assert_eq!(passive(br#"{"guild_id":"1","updated_members":[{"user":{"id":"9"},"communication_disabled_until":null}]}"#,Id(9)).unwrap(),Some((Id(1),Patch::Absent,Patch::Null)));
 		assert!(
 			passive(br#"{"updated_channels":[]}"#, Id(9))
@@ -795,7 +878,11 @@ mod tests {
 				&serde_json::to_vec(&json!({"guilds":[{"id":"1","roles":roles}]})).unwrap(),
 				Id(9)
 			)
-			.is_err()
+			.unwrap()
+			.guilds[0]
+				.roles
+				.is_none(),
+			"A truncated role list is unknown, not partial"
 		);
 		let rows: Vec<_> = (10..1011)
 			.map(|id| json!({"id":id.to_string(),"type":1,"allow":"0","deny":"0"}))

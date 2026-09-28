@@ -1622,6 +1622,7 @@ main-sign-in-header-welcome-back = Vítejte zpět
 # Context: sign_in_header
 main-sign-in-header-welcome-to-serein = Vítejte v destinaci Serein
 # Context: sign_in_preview
+main-sign-in-status-copy-failure-details = Kopírovat podrobnosti o chybě
 main-sign-in-preview-explore-the-offline-preview = Prozkoumejte offline náhled
 # Context: sign_in_preview
 main-sign-in-preview-sample-conversations-no-discord-connection = Ukázkové rozhovory. Žádné připojení Discord.
@@ -3600,6 +3601,8 @@ timeline-show-system-open-this-channels-threads = Otevřít vlákna tohoto kaná
 timeline-show-system-see-all = . Zobrazit vše
 # Context: show_with_scroll
 timeline-show-with-scroll-application-interaction-pending = Čeká se na interakci s aplikací…
+# Context: show_with_scroll
+timeline-show-with-scroll-click-to-see-attachment = Kliknutím zobrazíte přílohu
 # Context: show_with_scroll
 timeline-show-with-scroll-deleted-message-had-no-text = [Smazaná zpráva neobsahovala žádný text]
 # Context: show_with_scroll

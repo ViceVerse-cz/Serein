@@ -1622,6 +1622,7 @@ main-sign-in-header-welcome-back = Witamy z powrotem
 # Context: sign_in_header
 main-sign-in-header-welcome-to-serein = Witamy w Sereinie
 # Context: sign_in_preview
+main-sign-in-status-copy-failure-details = Kopiuj szczegóły błędu
 main-sign-in-preview-explore-the-offline-preview = Poznaj podgląd offline
 # Context: sign_in_preview
 main-sign-in-preview-sample-conversations-no-discord-connection = Przykładowe rozmowy. Brak połączenia Discord.
@@ -3600,6 +3601,8 @@ timeline-show-system-open-this-channels-threads = Otwórz wątki tego kanału
 timeline-show-system-see-all = . Zobacz wszystko
 # Context: show_with_scroll
 timeline-show-with-scroll-application-interaction-pending = Oczekiwanie na interakcję z aplikacją…
+# Context: show_with_scroll
+timeline-show-with-scroll-click-to-see-attachment = Kliknij, aby zobaczyć załącznik
 # Context: show_with_scroll
 timeline-show-with-scroll-deleted-message-had-no-text = [Usunięta wiadomość nie zawierała tekstu]
 # Context: show_with_scroll
