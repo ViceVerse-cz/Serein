@@ -2129,36 +2129,34 @@ The deltas are immaterial build/link/compression noise. CPU, RSS and rendering m
 not applicable because the change only selects the persistent-data root before those existing
 workers open their files; it adds no polling, queue, network request or render work.
 
-## Windows DirectComposition transparency layering — September 28, 2026
+## Windows transparent caption controls — September 28, 2026
 
-Baseline `e6c68bf2`, compared with this change on Windows x64, Rust 1.98.1 and locked
-dependencies. The native control used debug demo builds with
-`--demo --demo-transparency --demo-friends`, a five-second warmup and ten one-second
-samples on each of three launches. CPU is the median sample from the median launch;
-working set is the median launch peak and median of each launch's last five samples.
-No compiler ran during sampling. The short idle run does not measure frame or input
-latency.
+The earlier transparency-layer workaround did not fix the reported duplication.
+Its measurements have been removed: they do not describe the final native-caption
+fix. The final change suppresses `WS_SYSMENU` only for a blurred custom frame and
+keeps that suppression across winit style rewrites. Native title-bar mode restores
+the system controls. No dependency, worker, timer, or asset was added.
 
-| Native idle metric | Baseline | After | Delta |
-| --- | ---: | ---: | ---: |
-| Median sampled CPU | 0.00% | 0.00% | At sampling floor |
-| Sampled peak working set, bytes | 303,509,504 | 303,366,144 | -143,360 / -0.05% |
-| Settled working set, bytes | 303,509,504 | 303,366,144 | -143,360 / -0.05% |
-
-The working-set difference is noise; no runtime improvement is claimed. Both native
-captures used synthetic data and DirectComposition on DX12. No Discord account,
-message, call, microphone or camera was used.
-
-Both standard voice-enabled `cargo xtask package` builds passed. `makensis` was not
-installed, so the installer executable was not produced. Installed size sums the 198
-files in `dist`; portable ZIPs use PowerShell `Compress-Archive -CompressionLevel
-Optimal` over that directory.
+The comparison baseline is `f6e7cfb2` (before the working caption fix), Windows x64,
+Rust 1.98.1, locked dependencies and standard voice-enabled `cargo xtask package`.
+The baseline package was preserved separately. Installed size sums all 198 files;
+portable ZIP uses PowerShell `Compress-Archive -CompressionLevel Optimal` over
+`dist`. This compares the final correction, not the complete branch against main.
 
 | Package metric, bytes | Baseline | After | Delta |
 | --- | ---: | ---: | ---: |
-| Executable | 73,533,440 | 73,533,440 | 0 |
-| Full installed package | 77,636,266 | 77,636,266 | 0 |
-| Portable ZIP | 43,362,194 | 43,361,601 | -593 / -0.0014% |
+| Executable | 76,688,896 | Pending | Pending |
+| Full installed package | 80,792,212 | Pending | Pending |
+| Portable ZIP | 44,171,877 | Pending | Pending |
 
-The ZIP delta is compression metadata noise, not a size optimization. Runtime assets,
-licenses and notices are unchanged.
+Final package verification is pending. `makensis` is unavailable, so an NSIS
+installer cannot be generated locally. Final matched release CPU, working-set,
+frame/input-latency measurements are unavailable; no runtime performance
+improvement is claimed from the old debug measurements or from screenshots.
+
+Native synthetic evidence in `docs/pr-evidence/windows-transparency/` uses
+`--demo --demo-transparency --demo-friends`, DX12/DirectComposition, 125% scale,
+and a 1500 x 900 pixel window. Before is `f6e7cfb2`; after is the caption fix
+following maximize, restore, minimize and restore. The owner also confirmed the
+normal non-demo debug build works. These are visual checks, not benchmarks or
+proof of live Discord interoperability.
