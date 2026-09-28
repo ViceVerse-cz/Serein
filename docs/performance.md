@@ -32,6 +32,30 @@ startup latency, frame timing, GPU memory, and cross-platform memory remain
 unmeasured. Both live-session processes stayed responsive; no messages, calls,
 microphone, or camera actions were performed.
 
+# Thread browser review fixes - September 28, 2026
+
+Compared PR #455 head `e06d72fd` with review fix `c4eef429` on Windows x64,
+Ryzen 7 7800X3D, 32 GB RAM, Rust 1.98.1. One standard voice-enabled
+`cargo xtask package` build per revision, without demo/developer-session features.
+Both used the same detached worktree and release target, with
+`CARGO_INCREMENTAL=0` and `CARGO_BUILD_JOBS=2`. Before/after distributions were
+preserved separately; installed totals sum all 198 files. ZIPs use .NET
+`ZipFile.CreateFromDirectory` with `CompressionLevel.Optimal` and no root folder.
+NSIS was unavailable, so no installer executable was generated.
+
+| Metric, bytes | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Desktop executable | 76,694,528 | 76,697,088 | +2,560 / +0.0033% |
+| Full installed package | 80,797,844 | 80,800,404 | +2,560 / +0.0032% |
+| Portable ZIP | 44,176,880 | 44,178,210 | +1,330 / +0.0030% |
+
+These small artifact deltas are not a runtime-performance result. The changes
+reuse the existing bounded archive request path without adding polling or caches.
+Native screenshots and matched idle CPU/memory measurements were blocked by the
+unavailable Computer Use native pipe (Windows error 2). Frame and startup latency
+also remain unmeasured; synthetic UI tests are not native or live Discord proof.
+The later documentation-only commit is outside these measured package trees.
+
 # Animated profile review fixes - September 22, 2026
 
 Compared the PR head `ffa38ae` with `dda91ab` on Windows x64, Ryzen 7 7800X3D,
