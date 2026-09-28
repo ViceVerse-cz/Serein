@@ -2244,3 +2244,100 @@ frame timing or live Discord evidence. The fixes add no dependency, worker or
 polling and preserve the one-request, 4 KiB response and 512-pixel media bounds.
 Native interaction screenshots and CPU/RSS measurements remain unavailable:
 the Computer Use module could not connect to its native pipe (`os error 2`).
+
+# DX12 allocation policy - September 28, 2026
+
+Compared clean baseline `5dd38dde6432e7efe4484c450652a9c8849ec357` with
+implementation `dd4f4e191f79c241cea9e3d04332010d7d62b565`. The desktop now
+preserves eframe's adapter-specific device descriptor and changes only the DX12
+memory hint from `Performance` to `MemoryUsage`. This permits smaller allocation
+blocks; it does not cap resource sizes, reduce texture limits, or change image
+quality settings. Other backends retain their inherited hint. This measurement
+applies to this NVIDIA/DX12 configuration; savings on other adapters are unmeasured.
+
+Windows 11 Home 10.0.26200, Ryzen 7 7800X3D (8 cores / 16 logical processors),
+31.116 GiB usable RAM, RTX 5070 Ti / DX12, NVIDIA driver 32.0.15.9186, Rust 1.98.1.
+Both native executables used `cargo build --release --locked -p serein --features
+demo`, retaining the default development-data feature and always-built voice.
+Neither contains the earlier DHAT/allocator instrumentation. The release profile,
+lockfile and toolchain were unchanged; the retry used one Cargo job to reduce
+concurrent compiler memory pressure.
+
+Five alternating baseline/after launches used `--demo --demo-friends
+--demo-frame-sample=8,15`. Each requested an 8-second warmup, then sampled Windows
+process counters for approximately 15 seconds at a requested 250 ms interval
+(58 samples per run). GPU Process Memory counters were read for the exact PID
+after each timed process sample and memory-map inventory. The requested viewport
+was 1120 x 760; nine start records confirm that size and scale 1.25, while baseline
+run 4 produced no frame marker. Background build/test processes were present in
+all runs. These are memory observations, not a controlled CPU/latency benchmark.
+
+[Per-run measurements and frame records](pr-evidence/dx12-memory/measurements.json)
+include executable hashes and the number of background build processes at both
+sampling endpoints. The GPU readings had status 0 on both adapter instances;
+the table sums the exact process's instances. OS memory columns use the final
+sample, not the window average. Peak below means the largest sampled value after
+warmup, not a startup peak. MiB = 1,048,576 bytes.
+
+| Median of five runs | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Dedicated GPU usage | 255.344 MiB | 115.344 MiB | -140.000 MiB / -54.83% |
+| Shared GPU usage | 27.535 MiB | 27.535 MiB | unchanged |
+| GPU total committed | 282.883 MiB | 142.883 MiB | -140.000 MiB |
+| Process private commitment, final / sampled peak | 320.633 MiB | 181.434 MiB | -139.199 MiB / -43.41% |
+| Process working set, final / sampled peak | 111.969 MiB | 111.852 MiB | -0.117 MiB; no resident-RAM benefit established |
+
+Dedicated GPU usage ranged from 244.453-255.344 MiB before and 99.332-115.344 MiB
+after. Individual paired reductions ranged from 129.109 to 156.012 MiB; the
+median reduction was 140 MiB. Process private commitment ranged from
+320.223-337.133 MiB before and 165.969-183.367 MiB after. Working-set ranges were
+109.750-142.633 MiB and 111.695-112.230 MiB respectively. Driver/process accounting
+overlaps these GPU counters: do not add the private-commit reduction to the GPU
+reduction, or describe either as an equivalent reduction in resident system RAM.
+No current heap-by-type or exact live GPU-resource occupancy comparison was made.
+
+Observed process CPU medians were about 0.104% of one logical core in both
+variants. The ranges were 0-0.104% before and 0-2.915% after. Counter quantization,
+background work and missing matched focus/input windows prevent a CPU speedup or
+no-regression claim. The OS sampling window is separate from the application's
+frame-marker window. Only after runs 1 and 4 produced complete frame records:
+after-1 was focus/input-valid (30 of 30) but had one **507.355 ms elapsed logic/UI
+sample**; its other 29 samples were below 1 ms. After-4 had disturbed focus/input
+(7 of 10 viewport-focused, 9 of 10 input-free) and a 13.300 ms maximum. None of
+the baseline runs completed a frame window. The 507.355 ms observation remains
+unresolved and must not be discarded. Pinned eframe calls logic and UI back to
+back; this is wall time that can include blocking or descheduling, not GPU or
+whole-frame latency. There is no matched baseline that attributes it to the hint.
+
+Additional 15-second offline process checks launched chat, a static 640 x 360
+stream texture, and a static 320 x 240 camera texture in both versions. All six
+processes remained alive, Windows reported them responsive, and stderr identified
+RTX 5070 Ti / DX12 without an additional error. These are initialization/static
+texture checks, not inspected visual results, active codecs, sustained uploads,
+scrolling, resizing, animation stress, or live Discord tests. Computer Use could
+not connect to its native Windows pipe (`os error 2`), so interactive verification
+remains unavailable. Keep the change in draft for hands-on checks, including the
+unresolved timing observation. Smaller allocation blocks may increase allocation
+work under churn; no claim of regression-free rendering is made.
+
+`cargo test --locked -p serein gpu::tests` passed all five tests, including the
+all-backend policy/descriptor check. The complete `cargo xtask check` passed
+formatting, strict workspace Clippy, 1,146 tests (24 ignored), the desktop build
+without default features, and policy checks. Its initial attempt hit MSVC linker
+`LNK1102: out of memory` during competing builds; the one-job retry passed.
+
+Both standard voice-enabled `cargo xtask package` builds use no default features
+and exclude demo. Packages were preserved separately; installed totals include
+198 files. ZIPs use .NET `ZipFile.CreateFromDirectory`, `CompressionLevel.Optimal`,
+without a root folder. NSIS was unavailable, so no installer executable was made.
+
+| Standard package, bytes | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 76,765,184 | 76,766,720 | +1,536 / +0.00200% |
+| Installed directory | 80,868,500 | 80,870,036 | +1,536 / +0.00190% |
+| Portable ZIP | 44,197,653 | 44,197,914 | +261 / +0.00059% |
+
+The documentation/evidence commit follows these measured binaries and does not
+change application code. Full raw captures, samplers, build logs and separately
+preserved binaries are local at
+`E:/codex-builds/serein-dx12-memory-evidence-20260928`.
