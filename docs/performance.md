@@ -2311,3 +2311,29 @@ frame timing or live Discord evidence. The fixes add no dependency, worker or
 polling and preserve the one-request, 4 KiB response and 512-pixel media bounds.
 Native interaction screenshots and CPU/RSS measurements remain unavailable:
 the Computer Use module could not connect to its native pipe (`os error 2`).
+
+## Custom Rich Presence editor and catalog follow-up (September 28, 2026)
+
+Final source `e4a7c8c524a1e0f6eaf1b6b873284ccb8454d2d9` removes the shipped
+plugin from the client binary and uses the separately published Serein-extensions
+package. The standard voice-enabled release package passed on the same Windows
+machine/toolchain as above. NSIS remains unavailable; the complete portable ZIP
+uses .NET ZipFile with Optimal compression and no enclosing folder.
+
+| Package metric, bytes | Original baseline `5dd38dde` | Final | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 76,765,184 | 76,983,808 | +218,624 |
+| Installed directory | 80,868,500 | 81,087,124 | +218,624 |
+| Portable ZIP | 44,197,608 | 44,282,657 | +85,049 |
+
+Compared with the previous Custom RPC build `dcbc431b`, executable and installed
+size decrease by 389,120 bytes; ZIP size decreases by 62,629 bytes. This is a
+package-size measurement, not a runtime speed or memory claim. No new reducer
+measurement was needed for this UI/package-only follow-up.
+
+The native helper is now available: dark 1120x900 and light 800x760 synthetic
+windows were inspected, with section navigation, editable text, scrolling and
+composer-button absence checked. Captures are in `docs/pr-evidence/custom-rpc/`
+(`native-after.jpg`, `native-light.jpg`, `native-scrolled.jpg`). A matched native
+before capture was not collected. CPU/RSS/frame timing and live Discord
+interoperability remain unmeasured.
