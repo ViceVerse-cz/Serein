@@ -2139,18 +2139,19 @@ the system controls. No dependency, worker, timer, or asset was added.
 
 The comparison baseline is `f6e7cfb2` (before the working caption fix), Windows x64,
 Rust 1.98.1, locked dependencies and standard voice-enabled `cargo xtask package`.
-The baseline package was preserved separately. Installed size sums all 198 files;
-portable ZIP uses PowerShell `Compress-Archive -CompressionLevel Optimal` over
-`dist`. This compares the final correction, not the complete branch against main.
+The baseline package was preserved separately; the final package is `dd5af5f3`.
+Installed size sums all 198 files. Both portable ZIPs were produced using .NET
+`ZipFile.CreateFromDirectory` with `CompressionLevel.Optimal` and no enclosing
+directory. This compares the final correction, not the complete branch against main.
 
 | Package metric, bytes | Baseline | After | Delta |
 | --- | ---: | ---: | ---: |
-| Executable | 76,688,896 | Pending | Pending |
-| Full installed package | 80,792,212 | Pending | Pending |
-| Portable ZIP | 44,171,877 | Pending | Pending |
+| Executable | 76,688,896 | 76,692,480 | +3,584 / +0.0047% |
+| Full installed package | 80,792,212 | 80,795,796 | +3,584 / +0.0044% |
+| Portable ZIP | 44,171,877 | 44,173,235 | +1,358 / +0.0031% |
 
-Final package verification is pending. `makensis` is unavailable, so an NSIS
-installer cannot be generated locally. Final matched release CPU, working-set,
+Both standard voice-enabled package builds passed. `makensis` is unavailable, so
+the optional NSIS installer was skipped. Final matched release CPU, working-set,
 frame/input-latency measurements are unavailable; no runtime performance
 improvement is claimed from the old debug measurements or from screenshots.
 
