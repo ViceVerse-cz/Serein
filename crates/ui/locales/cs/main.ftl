@@ -934,6 +934,7 @@ extensions-ui-preview-modal-creator-preview = Náhled tvůrce
 extensions-ui-preview-modal-example-deleted-message-appearance = Příklad vzhledu smazané zprávy
 # Context: preview_modal
 extensions-ui-preview-modal-selecting-artwork-sends-it-as-an-image-attachment = Výběrem kresby se odešle jako obrazová příloha.
+extensions-ui-preview-modal-unavailable-artwork-falls-back-to-images = Nedostupné emoji a samolepky se místo toho odešlou jako obrázkové přílohy.
 # Context: settings
 extensions-ui-settings-no-extensions-yet = Zatím žádná rozšíření
 # Context: settings

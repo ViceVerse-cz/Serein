@@ -934,6 +934,7 @@ extensions-ui-preview-modal-creator-preview = Yaratıcı önizlemesi
 extensions-ui-preview-modal-example-deleted-message-appearance = Örnek silinmiş mesaj görünümü
 # Context: preview_modal
 extensions-ui-preview-modal-selecting-artwork-sends-it-as-an-image-attachment = Resim seçildiğinde resim eki olarak gönderilir.
+extensions-ui-preview-modal-unavailable-artwork-falls-back-to-images = Kullanılamayan emojiler ve çıkartmalar bunun yerine resim eki olarak gönderilir.
 # Context: settings
 extensions-ui-settings-no-extensions-yet = Henüz uzantı yok
 # Context: settings

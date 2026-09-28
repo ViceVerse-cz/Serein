@@ -934,6 +934,7 @@ extensions-ui-preview-modal-creator-preview = Vorschau des Erstellers
 extensions-ui-preview-modal-example-deleted-message-appearance = Beispiel für das Erscheinungsbild einer gelöschten Nachricht
 # Context: preview_modal
 extensions-ui-preview-modal-selecting-artwork-sends-it-as-an-image-attachment = Wenn Sie ein Bild auswählen, wird es als Bildanhang gesendet.
+extensions-ui-preview-modal-unavailable-artwork-falls-back-to-images = Nicht verfügbare Emojis und Sticker werden stattdessen als Bildanhänge gesendet.
 # Context: settings
 extensions-ui-settings-no-extensions-yet = Noch keine Verlängerungen
 # Context: settings

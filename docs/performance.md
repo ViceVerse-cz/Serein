@@ -15,11 +15,13 @@ the same compiled artifacts passed.
 | Installed package bytes | 77,645,994 | 77,648,042 | +2,048 / +0.0026% |
 | Portable ZIP bytes | 43,363,325 | 43,363,214 | -111 / -0.0003% (compression noise) |
 
-The selection change adds no idle work: it performs bounded catalog and permission
-lookups only when artwork is chosen. Native CPU/RSS/frame timing is not applicable
-to this event-only branch, and a still screenshot cannot verify animation. Focused
-synthetic tests verify native/fallback routing and multi-frame GIF output; they do
-not establish live Discord interoperability.
+While the picker is open, eligibility and permission checks run for visible cells
+on each frame, not only when artwork is chosen. The review follow-up reuses each
+cell's known guild/emoji for composer eligibility instead of scanning all guild
+emoji catalogs again. Actual selection still resolves the emoji ID against current
+state; reaction eligibility retains the existing core validation path. No polling
+or additional cache is introduced. Native CPU/RSS/frame timing remains unmeasured;
+synthetic routing and multi-frame GIF tests do not establish live interoperability.
 
 # Lazy Fluent catalog loading - September 27, 2026
 

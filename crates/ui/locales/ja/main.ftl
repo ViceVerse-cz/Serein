@@ -934,6 +934,7 @@ extensions-ui-preview-modal-creator-preview = クリエイタープレビュー
 extensions-ui-preview-modal-example-deleted-message-appearance = 削除されたメッセージの外観の例
 # Context: preview_modal
 extensions-ui-preview-modal-selecting-artwork-sends-it-as-an-image-attachment = アートワークを選択すると、画像添付として送信されます。
+extensions-ui-preview-modal-unavailable-artwork-falls-back-to-images = 使用できない絵文字やスタンプは、代わりに画像として添付されます。
 # Context: settings
 extensions-ui-settings-no-extensions-yet = まだ拡張機能はありません
 # Context: settings

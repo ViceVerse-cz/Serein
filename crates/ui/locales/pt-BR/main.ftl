@@ -934,6 +934,7 @@ extensions-ui-preview-modal-creator-preview = Visualização do criador
 extensions-ui-preview-modal-example-deleted-message-appearance = Exemplo de aparência de mensagem excluída
 # Context: preview_modal
 extensions-ui-preview-modal-selecting-artwork-sends-it-as-an-image-attachment = A seleção da arte é enviada como um anexo de imagem.
+extensions-ui-preview-modal-unavailable-artwork-falls-back-to-images = Emojis e figurinhas indisponíveis são enviados como imagens anexadas.
 # Context: settings
 extensions-ui-settings-no-extensions-yet = Ainda não há extensões
 # Context: settings
