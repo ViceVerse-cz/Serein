@@ -386,7 +386,7 @@ fn main() -> eframe::Result {
 							gpu::select(gpu_preference, adapters, surface)
 						},
 					)),
-					..eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle()
+					..gpu::setup()
 				},
 			),
 			// Keep cursor-driven redraws synchronized even where AutoVsync selects FifoRelaxed.
