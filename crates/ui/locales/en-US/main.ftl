@@ -252,6 +252,7 @@ archives-show-no-active-thread-matches-this-search = No active thread matches th
 archives-show-no-older-threads-reported-by-the-service = No older threads reported by the service.
 # Context: show
 archives-show-no-older-threads-returned = No older threads returned.
+archives-show-no-older-thread-matches-this-search = No older thread matches this search.
 # Context: show
 archives-show-older-threads = OLDER THREADS
 # Context: show
