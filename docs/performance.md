@@ -2139,7 +2139,7 @@ the system controls. No dependency, worker, timer, or asset was added.
 
 The comparison baseline is `f6e7cfb2` (before the working caption fix), Windows x64,
 Rust 1.98.1, locked dependencies and standard voice-enabled `cargo xtask package`.
-The baseline package was preserved separately; the final package is `dd5af5f3`.
+The baseline package was preserved separately; the measured package is `dd5af5f3`.
 Installed size sums all 198 files. Both portable ZIPs were produced using .NET
 `ZipFile.CreateFromDirectory` with `CompressionLevel.Optimal` and no enclosing
 directory. This compares the final correction, not the complete branch against main.
@@ -2161,3 +2161,9 @@ and a 1500 x 900 pixel window. Before is `f6e7cfb2`; after is the caption fix
 following maximize, restore, minimize and restore. The owner also confirmed the
 normal non-demo debug build works. These are visual checks, not benchmarks or
 proof of live Discord interoperability.
+
+The subsequent fullscreen review correction retains the latest requested system-menu
+bit instead of always restoring it. Its expanded native-window regression test,
+focused Clippy, and normal debug build passed, followed by owner confirmation.
+The package sizes and screenshots above predate that correction; release sizes
+and performance have not been remeasured for the review follow-up.
