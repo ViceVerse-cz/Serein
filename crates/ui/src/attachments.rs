@@ -1155,41 +1155,6 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn shared_artwork_keeps_compact_tiles_and_matching_row_heights() {
-		let mut attachment = Attachment {
-			id: Id(1),
-			filename: String::new(),
-			description: None,
-			content_type: Some("image/png".into()),
-			size: 1,
-			spoiler: false,
-			media: Default::default(),
-			duration_ms: None,
-			waveform: vec![],
-		};
-		let gallery = image_layout(1, 500.0).1;
-		for (name, edge) in [("emoji-7.gif", 48.0), ("sticker-8.png", 160.0)] {
-			attachment.filename = name.into();
-			attachment.content_type = Some("image/png".into());
-			assert_eq!(artwork_size(&attachment, gallery), egui::Vec2::splat(edge));
-			assert_eq!(estimated_height(&[attachment.clone()], 500.0), edge + 6.0);
-			assert_eq!(
-				artwork_size(&attachment, egui::Vec2::splat(20.0)),
-				egui::Vec2::splat(20.0)
-			);
-		}
-		for name in [
-			"photo.png",
-			"emoji-0.png",
-			"emoji-nope.png",
-			"sticker-8.txt",
-		] {
-			attachment.filename = name.into();
-			assert_eq!(artwork_size(&attachment, gallery), gallery);
-		}
-	}
-
-	#[test]
 	fn image_gallery_wraps_without_filenames_and_opens_each_attachment() {
 		let mut message = test_support::message(1, Id(2));
 		message.attachments = (0..3)

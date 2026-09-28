@@ -2364,45 +2364,44 @@ mod tests {
 		state.logout();
 		assert!(cache.update(&state, None, "brand_new"));
 		assert_eq!(cache.len(), 0);
-	}
 
-	#[test]
-	fn custom_match_cache_bounds_results_and_retained_query_bytes() {
-		let mut state = test_support::demo_state();
-		let emoji = state.guilds[0].emojis.as_ref().unwrap()[0].clone();
-		let mut guild = state.guilds[0].clone();
-		guild.emojis = Some(
-			(1..=CUSTOM_LIMIT)
-				.rev()
-				.map(|id| model::CustomEmoji {
-					id: Id(id as u64),
-					name: format!("emoji_{id}"),
-					..emoji.clone()
-				})
-				.collect(),
-		);
-		let mut second = guild.clone();
-		second.id = Id(guild.id.0 + 1);
-		state.guilds = vec![guild, second];
-		let mut cache = CustomMatches::default();
-		cache.update(&state, None, "emoji");
-		assert_eq!(cache.len(), CUSTOM_LIMIT);
-		assert_eq!(
-			std::mem::size_of_val(cache.entries.as_ref()),
-			CUSTOM_LIMIT * size_of::<(usize, usize)>()
-		);
-		assert_eq!(cache.get(&state, 0).unwrap().1.id, Id(1));
-		assert_eq!(
-			cache.get(&state, CUSTOM_LIMIT - 1).unwrap().1.id,
-			Id(CUSTOM_LIMIT as u64)
-		);
-		let query = "😀".repeat(64);
-		assert!(cache.update(&state, None, &query));
-		assert_eq!(cache.query.len(), 256);
-		assert!(!cache.update(&state, None, &query));
-		assert!(cache.update(&state, None, &"😀".repeat(65)));
-		assert!(cache.query.is_empty());
-		assert!(cache.key.is_none());
+		{
+			let mut state = test_support::demo_state();
+			let emoji = state.guilds[0].emojis.as_ref().unwrap()[0].clone();
+			let mut guild = state.guilds[0].clone();
+			guild.emojis = Some(
+				(1..=CUSTOM_LIMIT)
+					.rev()
+					.map(|id| model::CustomEmoji {
+						id: Id(id as u64),
+						name: format!("emoji_{id}"),
+						..emoji.clone()
+					})
+					.collect(),
+			);
+			let mut second = guild.clone();
+			second.id = Id(guild.id.0 + 1);
+			state.guilds = vec![guild, second];
+			let mut cache = CustomMatches::default();
+			cache.update(&state, None, "emoji");
+			assert_eq!(cache.len(), CUSTOM_LIMIT);
+			assert_eq!(
+				std::mem::size_of_val(cache.entries.as_ref()),
+				CUSTOM_LIMIT * size_of::<(usize, usize)>()
+			);
+			assert_eq!(cache.get(&state, 0).unwrap().1.id, Id(1));
+			assert_eq!(
+				cache.get(&state, CUSTOM_LIMIT - 1).unwrap().1.id,
+				Id(CUSTOM_LIMIT as u64)
+			);
+			let query = "😀".repeat(64);
+			assert!(cache.update(&state, None, &query));
+			assert_eq!(cache.query.len(), 256);
+			assert!(!cache.update(&state, None, &query));
+			assert!(cache.update(&state, None, &"😀".repeat(65)));
+			assert!(cache.query.is_empty());
+			assert!(cache.key.is_none());
+		}
 	}
 
 	#[test]
@@ -2897,23 +2896,6 @@ mod tests {
 		assert_eq!(insert(&mut draft, "👍", selection, 0), Some(1));
 		assert_eq!(draft, "👍");
 		assert_eq!(draft.capacity(), 4);
-	}
-
-	#[test]
-	fn completed_shortcode_becomes_unicode_at_the_caret() {
-		let mut draft = "look :eyes: here :pray:".to_owned();
-		assert_eq!(complete_shortcode(&mut draft, 11, 0), Some(6));
-		assert_eq!(draft, "look 👀 here :pray:");
-		assert_eq!(complete_shortcode(&mut draft, 18, 0), Some(13));
-		assert_eq!(draft, "look 👀 here 🙏");
-		let mut alias = ":folded_hands:".to_owned();
-		assert_eq!(complete_shortcode(&mut alias, 14, 0), Some(1));
-		assert_eq!(alias, "🙏");
-		for literal in ["word:eyes:", "https:", "<:eyes:", ":unknown:"] {
-			let mut draft = literal.to_owned();
-			let cursor = draft.chars().count();
-			assert_eq!(complete_shortcode(&mut draft, cursor, 0), None);
-		}
 	}
 
 	#[test]

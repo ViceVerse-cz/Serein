@@ -817,6 +817,18 @@ mod tests {
 		assert_eq!((audio.sample_rate, audio.channels), (48_000, 1));
 		assert!(audio.track.samples.len() > 100);
 		assert!(matches!(audio.track.codec, AudioCodec::Aac { ref config } if config.len() >= 2));
+
+		{
+			// AAC-LC, 48 kHz (index 3), mono.
+			assert_eq!(audio_specific_config(&[0x11, 0x88]), Some((48_000, 1)));
+			// HE-AAC (object type 5) is rejected.
+			assert_eq!(audio_specific_config(&[0x2b, 0x92, 0x08, 0x00]), None);
+			assert_eq!(
+				descriptor(&[0x03, 0x80, 0x80, 0x80, 0x05], 0),
+				Ok((3, 5, 5))
+			);
+			assert!(descriptor(&[0x03, 0x80, 0x80, 0x80, 0x80, 0x05], 0).is_err());
+		}
 	}
 
 	#[test]
@@ -833,18 +845,5 @@ mod tests {
 		assert!(parse(&mut truncated, 64).is_err());
 		let mut junk = std::io::Cursor::new(vec![0_u8; 64]);
 		assert!(parse(&mut junk, 64).is_err());
-	}
-
-	#[test]
-	fn descriptors_and_configs_parse() {
-		// AAC-LC, 48 kHz (index 3), mono.
-		assert_eq!(audio_specific_config(&[0x11, 0x88]), Some((48_000, 1)));
-		// HE-AAC (object type 5) is rejected.
-		assert_eq!(audio_specific_config(&[0x2b, 0x92, 0x08, 0x00]), None);
-		assert_eq!(
-			descriptor(&[0x03, 0x80, 0x80, 0x80, 0x05], 0),
-			Ok((3, 5, 5))
-		);
-		assert!(descriptor(&[0x03, 0x80, 0x80, 0x80, 0x80, 0x05], 0).is_err());
 	}
 }

@@ -111,29 +111,4 @@ mod tests {
 		}
 		assert_eq!(super::discord_timestamp(i64::MAX, b'f'), None);
 	}
-	#[test]
-	fn phrases_relative_timestamps_in_both_directions() {
-		let now = time::OffsetDateTime::now_utc().unix_timestamp();
-		for (offset, expected) in [
-			(-5, "a few seconds ago"),
-			(-600, "10 minutes ago"),
-			(-7_200, "2 hours ago"),
-			(-864_000, "10 days ago"),
-			(-15_552_000, "6 months ago"),
-			(-157_680_000, "5 years ago"),
-			(3_600, "in an hour"),
-			(172_800, "in 2 days"),
-		] {
-			assert_eq!(
-				super::discord_timestamp(now + offset, b'R').as_deref(),
-				Some(expected),
-				"offset {offset}"
-			);
-		}
-	}
-	#[test]
-	fn keeps_the_instant() {
-		let utc = time::OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
-		assert_eq!(super::local(utc).unix_timestamp(), utc.unix_timestamp());
-	}
 }

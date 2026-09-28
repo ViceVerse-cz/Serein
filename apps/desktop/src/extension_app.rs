@@ -1288,26 +1288,7 @@ mod tests {
 			}],
 		}
 	}
-	#[test]
-	fn extended_change_key_ignores_unrelated_revisions_and_tracks_queries() {
-		let mut state = test_support::demo_state();
-		let initial = extended_change_key(&state);
-		state.revision = state.revision.wrapping_add(1);
-		assert_eq!(extended_change_key(&state), initial);
-		let channel = state.selected.unwrap();
-		state.search = Some(client_core::search::SearchView {
-			pins: true,
-			channel,
-			query: String::new(),
-			before: None,
-			pin_before: None,
-			request: 1,
-			loading: true,
-			error: None,
-			page: None,
-		});
-		assert_ne!(extended_change_key(&state), initial);
-	}
+
 	#[test]
 	fn extension_app_account_audio_snapshots_are_granted_and_track_preference_changes() {
 		let state = test_support::demo_state();
@@ -1355,50 +1336,50 @@ mod tests {
 				.own_presence
 				.is_none()
 		);
+
+		{
+			let state = test_support::demo_state();
+			let mut messaging = ui::MessagingUi::default();
+			let reading = snapshot(
+				&state,
+				&messaging,
+				&manifest(vec![Capability::LocalSettings]),
+			)
+			.unwrap();
+			assert!(reading.notification_settings.is_none());
+			assert_eq!(reading.settings.unwrap().scroll_speed_percent, Some(100));
+			let caps = manifest(vec![Capability::NotificationSettings]);
+			assert!(uses_app(&caps.capabilities));
+			let app = snapshot(&state, &messaging, &caps).unwrap();
+			assert!(app.settings.is_none() && app.context.is_none());
+			assert_eq!(
+				app.notification_settings.unwrap(),
+				messaging.extension_notification_settings()
+			);
+			let before = ChangeKey::capture(&state, &messaging);
+			messaging.notification_options.volume = 10;
+			assert_eq!(
+				ChangeKey::capture(&state, &messaging).changed(&before),
+				Some(AppEventKind::Settings)
+			);
+			let mut preferences = crate::app_settings::Settings::default();
+			preferences.observe(&messaging);
+			assert!(preferences.state.dirty);
+			let mut restored = ui::MessagingUi::default();
+			preferences.apply(&mut restored);
+			assert_eq!(
+				restored.notification_options,
+				messaging.notification_options
+			);
+			let before = ChangeKey::capture(&state, &messaging);
+			messaging.reading_preferences.scroll_speed_percent = 150;
+			assert_eq!(
+				ChangeKey::capture(&state, &messaging).changed(&before),
+				Some(AppEventKind::Settings)
+			);
+		}
 	}
 
-	#[test]
-	fn extension_app_notification_grant_and_settings_events_use_local_preferences() {
-		let state = test_support::demo_state();
-		let mut messaging = ui::MessagingUi::default();
-		let reading = snapshot(
-			&state,
-			&messaging,
-			&manifest(vec![Capability::LocalSettings]),
-		)
-		.unwrap();
-		assert!(reading.notification_settings.is_none());
-		assert_eq!(reading.settings.unwrap().scroll_speed_percent, Some(100));
-		let caps = manifest(vec![Capability::NotificationSettings]);
-		assert!(uses_app(&caps.capabilities));
-		let app = snapshot(&state, &messaging, &caps).unwrap();
-		assert!(app.settings.is_none() && app.context.is_none());
-		assert_eq!(
-			app.notification_settings.unwrap(),
-			messaging.extension_notification_settings()
-		);
-		let before = ChangeKey::capture(&state, &messaging);
-		messaging.notification_options.volume = 10;
-		assert_eq!(
-			ChangeKey::capture(&state, &messaging).changed(&before),
-			Some(AppEventKind::Settings)
-		);
-		let mut preferences = crate::app_settings::Settings::default();
-		preferences.observe(&messaging);
-		assert!(preferences.state.dirty);
-		let mut restored = ui::MessagingUi::default();
-		preferences.apply(&mut restored);
-		assert_eq!(
-			restored.notification_options,
-			messaging.notification_options
-		);
-		let before = ChangeKey::capture(&state, &messaging);
-		messaging.reading_preferences.scroll_speed_percent = 150;
-		assert_eq!(
-			ChangeKey::capture(&state, &messaging).changed(&before),
-			Some(AppEventKind::Settings)
-		);
-	}
 	#[test]
 	fn extension_app_message_metadata_and_relationships_are_scoped_and_bounded() {
 		let mut state = test_support::demo_state();

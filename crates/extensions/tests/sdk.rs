@@ -90,58 +90,78 @@ fn host_invocations_and_legacy_handlers_keep_the_v1_contract() {
 		assert_eq!(output.image_sharing, action == "activate");
 		assert_eq!(output.preserve_deleted_messages, action == "activate");
 	}
-}
 
-#[test]
-fn typed_event_handlers_preserve_old_inputs_and_match_host_events() {
-	assert_eq!(
-		sdk::MAX_EVENT_CONTENT_BYTES,
-		extensions::MAX_EVENT_CONTENT_BYTES
-	);
-	let legacy = sdk::Invocation {
-		action: "show".into(),
-		selected_message: None,
-		composer: None,
-		storage: None,
-		values: Default::default(),
-	};
-	let legacy_bytes = serde_json::to_vec(&legacy).unwrap();
-	let extended: sdk::EventInvocation = serde_json::from_slice(&legacy_bytes).unwrap();
-	assert_eq!(extended.invocation, legacy);
-	assert!(extended.message_event.is_none());
-	assert_eq!(serde_json::to_vec(&extended).unwrap(), legacy_bytes);
-	for kind in [
-		extensions::MessageEventKind::Create,
-		extensions::MessageEventKind::Update,
-		extensions::MessageEventKind::Delete,
-	] {
-		let input = Invocation {
-			action: "event".into(),
-			message_event: Some(Box::new(extensions::MessageEvent {
-				kind,
-				channel_id: "18446744073709551615".into(),
-				message_id: "2".into(),
-				author_id: (kind == extensions::MessageEventKind::Create).then(|| "3".into()),
-				content: (kind == extensions::MessageEventKind::Create).then(|| "hello".into()),
-			})),
-			..Default::default()
-		};
-		let manifest = manifest("event", Surface::MessageEvent);
-		input.validate(&manifest).unwrap();
-		let bytes = serde_json::to_vec(&input).unwrap();
-		let expected_event = serde_json::to_value(input.message_event.as_ref().unwrap()).unwrap();
-		let response = sdk::dispatch_typed(&bytes, |input: sdk::EventInvocation| {
-			assert_eq!(input.invocation.action, "event");
-			let event = input.message_event.unwrap();
-			assert_eq!(serde_json::to_value(&event).unwrap(), expected_event);
-			let mut output = sdk::Output::default();
-			output.set_storage_json(&event.kind).unwrap();
-			output
-		})
+	{
+		let sdk: sdk::Output = serde_json::from_str("{}").unwrap();
+		assert_eq!(sdk, sdk::Output::default());
+		let bytes = sdk::dispatch(br#"{"action":"apply","future_context":true}"#, |_| sdk).unwrap();
+		let wire: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+		assert!(wire.get("image_sharing").is_none());
+		assert!(wire.get("preserve_deleted_messages").is_none());
+		assert!(wire.get("appearance").is_none());
+		let host: Output = serde_json::from_slice(&bytes).unwrap();
+		assert!(!host.image_sharing && !host.preserve_deleted_messages);
+		host.validate(
+			&manifest("apply", Surface::Panel),
+			&Invocation {
+				action: "apply".into(),
+				..Default::default()
+			},
+		)
 		.unwrap();
-		let output: Output = serde_json::from_slice(&response).unwrap();
-		output.validate(&manifest, &input).unwrap();
-		assert!(output.storage.is_some());
+	}
+
+	{
+		assert_eq!(
+			sdk::MAX_EVENT_CONTENT_BYTES,
+			extensions::MAX_EVENT_CONTENT_BYTES
+		);
+		let legacy = sdk::Invocation {
+			action: "show".into(),
+			selected_message: None,
+			composer: None,
+			storage: None,
+			values: Default::default(),
+		};
+		let legacy_bytes = serde_json::to_vec(&legacy).unwrap();
+		let extended: sdk::EventInvocation = serde_json::from_slice(&legacy_bytes).unwrap();
+		assert_eq!(extended.invocation, legacy);
+		assert!(extended.message_event.is_none());
+		assert_eq!(serde_json::to_vec(&extended).unwrap(), legacy_bytes);
+		for kind in [
+			extensions::MessageEventKind::Create,
+			extensions::MessageEventKind::Update,
+			extensions::MessageEventKind::Delete,
+		] {
+			let input = Invocation {
+				action: "event".into(),
+				message_event: Some(Box::new(extensions::MessageEvent {
+					kind,
+					channel_id: "18446744073709551615".into(),
+					message_id: "2".into(),
+					author_id: (kind == extensions::MessageEventKind::Create).then(|| "3".into()),
+					content: (kind == extensions::MessageEventKind::Create).then(|| "hello".into()),
+				})),
+				..Default::default()
+			};
+			let manifest = manifest("event", Surface::MessageEvent);
+			input.validate(&manifest).unwrap();
+			let bytes = serde_json::to_vec(&input).unwrap();
+			let expected_event =
+				serde_json::to_value(input.message_event.as_ref().unwrap()).unwrap();
+			let response = sdk::dispatch_typed(&bytes, |input: sdk::EventInvocation| {
+				assert_eq!(input.invocation.action, "event");
+				let event = input.message_event.unwrap();
+				assert_eq!(serde_json::to_value(&event).unwrap(), expected_event);
+				let mut output = sdk::Output::default();
+				output.set_storage_json(&event.kind).unwrap();
+				output
+			})
+			.unwrap();
+			let output: Output = serde_json::from_slice(&response).unwrap();
+			output.validate(&manifest, &input).unwrap();
+			assert!(output.storage.is_some());
+		}
 	}
 }
 
@@ -232,25 +252,4 @@ fn every_sdk_panel_and_appearance_field_is_accepted_by_the_host() {
 	let roundtrip: sdk::Output =
 		serde_json::from_slice(&serde_json::to_vec(&host).unwrap()).unwrap();
 	assert_eq!(roundtrip, expected);
-}
-
-#[test]
-fn absent_effects_keep_defaults_and_new_flags_do_not_leak_into_old_outputs() {
-	let sdk: sdk::Output = serde_json::from_str("{}").unwrap();
-	assert_eq!(sdk, sdk::Output::default());
-	let bytes = sdk::dispatch(br#"{"action":"apply","future_context":true}"#, |_| sdk).unwrap();
-	let wire: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-	assert!(wire.get("image_sharing").is_none());
-	assert!(wire.get("preserve_deleted_messages").is_none());
-	assert!(wire.get("appearance").is_none());
-	let host: Output = serde_json::from_slice(&bytes).unwrap();
-	assert!(!host.image_sharing && !host.preserve_deleted_messages);
-	host.validate(
-		&manifest("apply", Surface::Panel),
-		&Invocation {
-			action: "apply".into(),
-			..Default::default()
-		},
-	)
-	.unwrap();
 }

@@ -284,31 +284,30 @@ mod tests {
 		assert_eq!(&out[..4], &[16, 235, 16, 16]);
 		assert!(bgra_to_yuv420(&frame, 3, 2, Chroma::Planar, &mut out).is_err());
 		assert!(bgra_to_yuv420(&frame, 4, 2, Chroma::Planar, &mut out[..11]).is_err());
-	}
 
-	#[test]
-	fn banded_conversion_matches_a_single_band() {
-		let (width, height) = (320, 180);
-		let mut frame = solid(333, 250, 333 * 4, [0; 4]);
-		for (index, byte) in frame.data.iter_mut().enumerate() {
-			*byte = (index * 31 % 251) as u8;
+		{
+			let (width, height) = (320, 180);
+			let mut frame = solid(333, 250, 333 * 4, [0; 4]);
+			for (index, byte) in frame.data.iter_mut().enumerate() {
+				*byte = (index * 31 % 251) as u8;
+			}
+			let mut banded = vec![0; width * height * 3 / 2];
+			bgra_to_yuv420(&frame, width, height, Chroma::Interleaved, &mut banded).unwrap();
+			let columns = Axis::new(333, 240, width, 4);
+			let rows = Axis::new(250, 180, height, frame.stride);
+			let mut single = vec![0; width * height * 3 / 2];
+			let (luma, uv) = single.split_at_mut(width * height);
+			Band {
+				source: &frame.data,
+				columns: &columns,
+				rows: &rows,
+				width,
+				first: 0,
+				luma,
+				chroma: Out::Interleaved(uv),
+			}
+			.run();
+			assert!(banded == single);
 		}
-		let mut banded = vec![0; width * height * 3 / 2];
-		bgra_to_yuv420(&frame, width, height, Chroma::Interleaved, &mut banded).unwrap();
-		let columns = Axis::new(333, 240, width, 4);
-		let rows = Axis::new(250, 180, height, frame.stride);
-		let mut single = vec![0; width * height * 3 / 2];
-		let (luma, uv) = single.split_at_mut(width * height);
-		Band {
-			source: &frame.data,
-			columns: &columns,
-			rows: &rows,
-			width,
-			first: 0,
-			luma,
-			chroma: Out::Interleaved(uv),
-		}
-		.run();
-		assert!(banded == single);
 	}
 }

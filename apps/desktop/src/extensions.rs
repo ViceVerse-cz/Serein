@@ -1677,6 +1677,55 @@ mod tests {
 			wake_cancel: Arc::new(tokio::sync::Notify::new()),
 		}
 	}
+
+	fn theme(id: &str) -> Package {
+		Package {
+			manifest: Manifest {
+				api_version: 1,
+				id: id.into(),
+				name: id.into(),
+				version: "1.0.0".into(),
+				author: "Synthetic test".into(),
+				license: "MIT".into(),
+				source: "https://github.com/ViceVerse-cz/rustcord".into(),
+				kind: ExtensionKind::Theme,
+				capabilities: Vec::new(),
+				actions: Vec::new(),
+			},
+			theme: Some(Theme::default()),
+			background_image: Vec::new(),
+			cover_image: Vec::new(),
+			wasm: Vec::new(),
+		}
+	}
+	fn source(profile: &Profile, package: &Package) -> InstallSource {
+		let bytes = serde_json::to_vec(package).unwrap();
+		let path = profile.0.join(format!("{}.json", package.manifest.id));
+		fs::write(&path, &bytes).unwrap();
+		InstallSource::Local {
+			path,
+			sha256: digest(&bytes),
+			manifest: package.manifest.clone(),
+		}
+	}
+	fn message_event_job() -> Job {
+		Job::Invoke {
+			id: "message-counter".into(),
+			account: "account".into(),
+			invocation: Invocation {
+				action: "message-event".into(),
+				message_event: Some(Box::new(extensions::MessageEvent {
+					kind: extensions::MessageEventKind::Create,
+					channel_id: "1".into(),
+					message_id: "2".into(),
+					author_id: Some("3".into()),
+					content: Some("Synthetic message".into()),
+				})),
+				..Default::default()
+			},
+		}
+	}
+
 	#[test]
 	fn bundled_themes_open_without_installing_and_preserve_preview_intent() {
 		let profile = Profile::new();
@@ -1729,53 +1778,6 @@ mod tests {
 			.is_err(),
 			"do not hide a corrupt installed package behind the bundled original"
 		);
-	}
-	fn theme(id: &str) -> Package {
-		Package {
-			manifest: Manifest {
-				api_version: 1,
-				id: id.into(),
-				name: id.into(),
-				version: "1.0.0".into(),
-				author: "Synthetic test".into(),
-				license: "MIT".into(),
-				source: "https://github.com/ViceVerse-cz/rustcord".into(),
-				kind: ExtensionKind::Theme,
-				capabilities: Vec::new(),
-				actions: Vec::new(),
-			},
-			theme: Some(Theme::default()),
-			background_image: Vec::new(),
-			cover_image: Vec::new(),
-			wasm: Vec::new(),
-		}
-	}
-	fn source(profile: &Profile, package: &Package) -> InstallSource {
-		let bytes = serde_json::to_vec(package).unwrap();
-		let path = profile.0.join(format!("{}.json", package.manifest.id));
-		fs::write(&path, &bytes).unwrap();
-		InstallSource::Local {
-			path,
-			sha256: digest(&bytes),
-			manifest: package.manifest.clone(),
-		}
-	}
-	fn message_event_job() -> Job {
-		Job::Invoke {
-			id: "message-counter".into(),
-			account: "account".into(),
-			invocation: Invocation {
-				action: "message-event".into(),
-				message_event: Some(Box::new(extensions::MessageEvent {
-					kind: extensions::MessageEventKind::Create,
-					channel_id: "1".into(),
-					message_id: "2".into(),
-					author_id: Some("3".into()),
-					content: Some("Synthetic message".into()),
-				})),
-				..Default::default()
-			},
-		}
 	}
 
 	#[test]

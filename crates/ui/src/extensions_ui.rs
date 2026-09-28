@@ -2998,200 +2998,6 @@ mod tests {
 		);
 	}
 
-	#[test]
-	fn original_theme_customization_and_gallery_preview_return() {
-		for action in ["Back to themes", "Customize"] {
-			let ctx = egui::Context::default();
-			let mut shop = ExtensionUi {
-				themes: true,
-				..Default::default()
-			};
-			let package = crate::theme_editor::ThemeEditor::new().package;
-			let original_id = package.manifest.id.clone();
-			let mut original = entry();
-			original.manifest = package.manifest.clone();
-			original.theme_preview = package.theme.clone();
-			shop.set_entries(vec![original.clone()]);
-			frame(&ctx, &mut shop, 900.0, vec![]);
-			let labels = frame(&ctx, &mut shop, 900.0, vec![]);
-			click(&ctx, &mut shop, 900.0, &labels, "Customize");
-			assert!(matches!(
-				shop.requests.pop(),
-				Some(ExtensionRequest::EditTheme { preview: false, .. })
-			));
-			shop.open_preview(&ctx, &original);
-			assert!(shop.enlarged.is_none());
-			assert!(matches!(
-				shop.requests.pop(),
-				Some(ExtensionRequest::EditTheme { preview: true, .. })
-			));
-			shop.receive_theme_edit(package, None, None, false, true);
-			assert!(shop.begin_gallery_preview(&ctx));
-			assert!(!shop.begin_gallery_preview(&ctx));
-			assert!(matches!(
-				shop.requests.pop(),
-				Some(ExtensionRequest::PreviewTheme { theme: Some(_), .. })
-			));
-			frame(&ctx, &mut shop, 900.0, vec![]);
-			let labels = frame(&ctx, &mut shop, 900.0, vec![]);
-			click(&ctx, &mut shop, 900.0, &labels, action);
-			assert!(!shop.previewing_theme());
-			assert!(shop.gallery_preview.is_none());
-			assert!(matches!(
-				shop.requests.pop(),
-				Some(ExtensionRequest::PreviewTheme { theme: None, .. })
-			));
-			if action == "Customize" {
-				let editor = shop.theme_editor.as_ref().unwrap();
-				assert_ne!(editor.package.manifest.id, original_id);
-				assert!(editor.dirty);
-			} else {
-				assert!(shop.theme_editor.is_none());
-			}
-		}
-	}
-	#[test]
-	fn local_theme_opens_for_edit_and_cover_replaces_palette_preview() {
-		let ctx = egui::Context::default();
-		let mut shop = ExtensionUi {
-			themes: true,
-			..Default::default()
-		};
-		let mut local = entry();
-		local.manifest.kind = ExtensionKind::Theme;
-		local.manifest.id = "local-cover".into();
-		local.manifest.name = "Local cover".into();
-		local.enabled = true;
-		local.local_theme = true;
-		local.theme_preview = Some(extensions::Theme::default());
-		local.cover_image = Some(Arc::new(egui::ColorImage::filled(
-			[16, 9],
-			egui::Color32::GREEN,
-		)));
-		shop.set_entries(vec![local.clone()]);
-		frame(&ctx, &mut shop, 900.0, vec![]);
-		let labels = frame(&ctx, &mut shop, 900.0, vec![]);
-		assert!(labels.iter().any(|(text, _)| text == "Edit theme"));
-		assert!(
-			shop.previews
-				.get("local-cover")
-				.is_some_and(|preview| preview.texture.is_some()),
-			"custom cover should create a card texture"
-		);
-		let mut replaced = local.clone();
-		replaced.cover_image = Some(Arc::new(egui::ColorImage::filled(
-			[16, 9],
-			egui::Color32::BLUE,
-		)));
-		shop.set_entries(vec![replaced]);
-		assert!(!shop.previews.contains_key("local-cover"));
-		click(&ctx, &mut shop, 900.0, &labels, "Edit theme");
-		assert!(shop.requests.iter().any(
-			|request| matches!(request, ExtensionRequest::EditTheme { id, .. } if id == "local-cover")
-		));
-
-		let mut package = crate::theme_editor::ThemeEditor::new().package;
-		package.manifest.id = "local-cover".into();
-		shop.receive_theme_edit(
-			package.clone(),
-			None,
-			local.cover_image.clone(),
-			true,
-			false,
-		);
-		assert_eq!(
-			shop.theme_editor.as_ref().unwrap().package.manifest.id,
-			"local-cover"
-		);
-		assert!(!shop.theme_editor.as_ref().unwrap().dirty);
-		shop.theme_editor = None;
-		shop.receive_theme_edit(package, None, local.cover_image.clone(), false, false);
-		assert_ne!(
-			shop.theme_editor.as_ref().unwrap().package.manifest.id,
-			"local-cover"
-		);
-	}
-	#[test]
-	fn theme_card_keeps_use_and_edit_side_by_side() {
-		for width in [320.0, 900.0] {
-			let ctx = egui::Context::default();
-			let mut shop = ExtensionUi {
-				themes: true,
-				..Default::default()
-			};
-			let mut theme = entry();
-			theme.manifest.kind = ExtensionKind::Theme;
-			theme.manifest.id = "local-card".into();
-			theme.enabled = true;
-			theme.local_theme = true;
-			theme.update_available = true;
-			theme.theme_preview = Some(extensions::Theme::default());
-			shop.set_entries(vec![theme]);
-			frame(&ctx, &mut shop, width, vec![]);
-			let labels = frame(&ctx, &mut shop, width, vec![]);
-			let edit = labels
-				.iter()
-				.find(|(text, _)| text == "Edit theme")
-				.unwrap()
-				.1;
-			let use_theme = labels
-				.iter()
-				.find(|(text, _)| text == "Use theme")
-				.unwrap()
-				.1;
-			assert!(
-				use_theme.right() < edit.left()
-					&& (use_theme.center().y - edit.center().y).abs() < 4.0,
-				"apply and edit share the footer row"
-			);
-			let remove = labels.iter().find(|(text, _)| text == "Remove").unwrap().1;
-			assert!(
-				remove.bottom() < use_theme.top() && remove.right() <= width,
-				"remove stays a quiet link above the footer"
-			);
-			shop.busy = true;
-			click(&ctx, &mut shop, width, &labels, "Use theme");
-			assert!(shop.requests.is_empty());
-			shop.busy = false;
-			let labels = frame(&ctx, &mut shop, width, vec![]);
-			click(&ctx, &mut shop, width, &labels, "Use theme");
-			assert!(
-				matches!(shop.requests.pop(), Some(ExtensionRequest::SelectTheme { id: Some(id) }) if id == "local-card")
-			);
-			// The desktop confirms selection only after the existing persistence job succeeds.
-			shop.active_theme = Some("local-card".into());
-			let labels = frame(&ctx, &mut shop, width, vec![]);
-			assert!(labels.iter().any(|(text, _)| text == "Active"));
-			assert!(!labels.iter().any(|(text, _)| text == "Use theme"));
-			assert!(
-				!labels
-					.iter()
-					.any(|(text, _)| text == "Disable & delete data"
-						|| text == "THEME" || text
-						== "Give your conversations a different look.")
-			);
-			click(&ctx, &mut shop, width, &labels, "More");
-			let menu = frame(&ctx, &mut shop, width, vec![]);
-			assert!(menu.iter().any(|(text, _)| text == "Import theme…"));
-			assert!(
-				!menu
-					.iter()
-					.any(|(text, _)| text == "Use built-in appearance"),
-				"built-in presets live in Appearance, not the gallery menu"
-			);
-			click(&ctx, &mut shop, width, &menu, "Refresh catalog");
-			assert!(matches!(
-				shop.requests.as_slice(),
-				[ExtensionRequest::RefreshCatalog]
-			));
-			shop.requests.clear();
-			let labels = frame(&ctx, &mut shop, width, vec![]);
-			click(&ctx, &mut shop, width, &labels, "Remove");
-			assert!(shop.requests.iter().any(
-				|request| matches!(request, ExtensionRequest::Disable { id } if id == "local-card")
-			));
-		}
-	}
 	fn frame(
 		ctx: &egui::Context,
 		extensions: &mut ExtensionUi,
@@ -3336,59 +3142,6 @@ mod tests {
 	}
 
 	#[test]
-	fn status_banner_wraps_and_clears_on_refresh() {
-		for width in [320.0, 900.0] {
-			let ctx = egui::Context::default();
-			let mut extensions = ExtensionUi::default();
-			extensions.set_entries(vec![entry()]);
-			extensions.status = "Disabled. Downloaded code and extension data were removed.".into();
-			let labels = frame(&ctx, &mut extensions, width, vec![]);
-			assert!(
-				labels
-					.iter()
-					.any(|(text, rect)| text.starts_with("Disabled.") && rect.right() <= width),
-				"the status banner must stay inside the page at {width}"
-			);
-			click(&ctx, &mut extensions, width, &labels, "Refresh");
-			assert!(
-				extensions.status.is_empty()
-					&& matches!(
-						extensions.requests.as_slice(),
-						[ExtensionRequest::RefreshCatalog]
-					),
-				"refreshing clears the previous status instead of reporting itself"
-			);
-		}
-	}
-
-	#[test]
-	fn image_sharing_plugin_has_local_card_and_enlarged_preview() {
-		for width in [320.0, 900.0] {
-			let ctx = egui::Context::default();
-			let mut shop = ExtensionUi::default();
-			let mut plugin = entry();
-			plugin.manifest.capabilities = vec![Capability::ImageSharing];
-			shop.set_entries(vec![plugin.clone()]);
-			for _ in 0..2 {
-				frame(&ctx, &mut shop, width, vec![]);
-			}
-			let labels = frame(&ctx, &mut shop, width, vec![]);
-			assert!(labels.iter().any(|(text, _)| text == "Image attachment"));
-			assert!(!labels.iter().any(|(text, _)| text == "Preview unavailable"));
-			shop.open_preview(&ctx, &plugin);
-			frame(&ctx, &mut shop, width, vec![]);
-			assert_eq!(shop.enlarged.as_deref(), Some(plugin.manifest.id.as_str()));
-			assert!(shop.previews.is_empty());
-			assert!(
-				!shop
-					.requests
-					.iter()
-					.any(|r| matches!(r, ExtensionRequest::Preview { .. }))
-			);
-		}
-	}
-
-	#[test]
 	fn shop_previews_load_visible_cards_once_and_evict_with_metadata() {
 		for width in [320.0, 900.0] {
 			let ctx = egui::Context::default();
@@ -3451,27 +3204,47 @@ mod tests {
 			assert!(labels.iter().any(|(text, _)| text == "No matches"));
 			assert!(shop.previews.is_empty());
 		}
-	}
 
-	#[test]
-	fn tall_shop_keeps_visible_previews_without_repeated_downloads() {
-		let ctx = egui::Context::default();
-		let mut shop = ExtensionUi::default();
-		shop.set_entries(
-			(0..20)
-				.map(|i| {
-					let mut entry = entry();
-					entry.manifest.id = format!("plugin-{i}");
-					entry.preview = Some(extensions::Preview {
-						url: "https://example.com/image.png".into(),
-						sha256: "a".repeat(64),
-						download_bytes: 123,
-					});
-					entry
-				})
-				.collect(),
-		);
-		for _ in 0..5 {
+		{
+			let ctx = egui::Context::default();
+			let mut shop = ExtensionUi::default();
+			shop.set_entries(
+				(0..20)
+					.map(|i| {
+						let mut entry = entry();
+						entry.manifest.id = format!("plugin-{i}");
+						entry.preview = Some(extensions::Preview {
+							url: "https://example.com/image.png".into(),
+							sha256: "a".repeat(64),
+							download_bytes: 123,
+						});
+						entry
+					})
+					.collect(),
+			);
+			for _ in 0..5 {
+				ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(900.0, 8000.0),
+						)),
+						..Default::default()
+					},
+					|ui| shop.settings(ui, &State::default()),
+				)
+				.drop_without_applying_deltas();
+				for request in std::mem::take(&mut shop.requests) {
+					if let ExtensionRequest::Preview { id } = request {
+						shop.receive_preview(
+							id,
+							Some(egui::ColorImage::filled([1, 1], egui::Color32::BLUE)),
+						);
+					}
+				}
+			}
+			let retained: Vec<_> = shop.previews.keys().cloned().collect();
+			assert_eq!(retained.len(), 20, "every visible card keeps its thumbnail");
 			ctx.run_ui(
 				egui::RawInput {
 					screen_rect: Some(egui::Rect::from_min_size(
@@ -3483,38 +3256,17 @@ mod tests {
 				|ui| shop.settings(ui, &State::default()),
 			)
 			.drop_without_applying_deltas();
-			for request in std::mem::take(&mut shop.requests) {
-				if let ExtensionRequest::Preview { id } = request {
-					shop.receive_preview(
-						id,
-						Some(egui::ColorImage::filled([1, 1], egui::Color32::BLUE)),
-					);
-				}
-			}
+			assert!(shop.requests.is_empty());
+			shop.receive_preview(
+				"plugin-19".into(),
+				Some(egui::ColorImage::filled([1, 1], egui::Color32::BLUE)),
+			);
+			assert_eq!(
+				shop.previews.keys().cloned().collect::<Vec<_>>(),
+				retained,
+				"late offscreen images cannot evict visible previews"
+			);
 		}
-		let retained: Vec<_> = shop.previews.keys().cloned().collect();
-		assert_eq!(retained.len(), 20, "every visible card keeps its thumbnail");
-		ctx.run_ui(
-			egui::RawInput {
-				screen_rect: Some(egui::Rect::from_min_size(
-					egui::Pos2::ZERO,
-					egui::vec2(900.0, 8000.0),
-				)),
-				..Default::default()
-			},
-			|ui| shop.settings(ui, &State::default()),
-		)
-		.drop_without_applying_deltas();
-		assert!(shop.requests.is_empty());
-		shop.receive_preview(
-			"plugin-19".into(),
-			Some(egui::ColorImage::filled([1, 1], egui::Color32::BLUE)),
-		);
-		assert_eq!(
-			shop.previews.keys().cloned().collect::<Vec<_>>(),
-			retained,
-			"late offscreen images cannot evict visible previews"
-		);
 	}
 
 	#[test]

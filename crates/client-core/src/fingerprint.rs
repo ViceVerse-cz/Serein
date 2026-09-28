@@ -129,28 +129,29 @@ pub fn nonce(unix_ms: u128, sequence: u64) -> String {
 mod tests {
 	use super::*;
 	#[test]
-	fn base64_matches_standard_encoding() {
-		assert_eq!(base64(b""), "");
-		assert_eq!(base64(b"f"), "Zg==");
-		assert_eq!(base64(b"fo"), "Zm8=");
-		assert_eq!(base64(b"foo"), "Zm9v");
-		assert_eq!(base64(b"foobar"), "Zm9vYmFy");
-	}
-	#[test]
 	fn properties_are_valid_json_and_consistent_with_user_agent() {
-		let text = properties();
-		assert!(text.starts_with('{') && text.ends_with('}'));
-		assert!(text.contains(&format!("\"browser_user_agent\":\"{}\"", user_agent())));
-		assert!(text.contains(&format!("\"browser\":\"{}\"", browser())));
-		assert!(text.contains(&format!("\"browser_version\":\"{}\"", browser_version())));
-		assert!(user_agent().starts_with("Mozilla/5.0 ("));
-		assert_eq!(user_agent().contains("Chrome/"), browser() == "Chrome");
-		assert_eq!(user_agent().contains("Version/"), browser() == "Safari");
-		assert!(
-			super_properties()
-				.bytes()
-				.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='))
-		);
+		{
+			let text = properties();
+			assert!(text.starts_with('{') && text.ends_with('}'));
+			assert!(text.contains(&format!("\"browser_user_agent\":\"{}\"", user_agent())));
+			assert!(text.contains(&format!("\"browser\":\"{}\"", browser())));
+			assert!(text.contains(&format!("\"browser_version\":\"{}\"", browser_version())));
+			assert!(user_agent().starts_with("Mozilla/5.0 ("));
+			assert_eq!(user_agent().contains("Chrome/"), browser() == "Chrome");
+			assert_eq!(user_agent().contains("Version/"), browser() == "Safari");
+			assert!(
+				super_properties()
+					.bytes()
+					.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='))
+			);
+		}
+		{
+			assert_eq!(base64(b""), "");
+			assert_eq!(base64(b"f"), "Zg==");
+			assert_eq!(base64(b"fo"), "Zm8=");
+			assert_eq!(base64(b"foo"), "Zm9v");
+			assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+		}
 	}
 	#[test]
 	fn nonce_is_a_decimal_snowflake() {

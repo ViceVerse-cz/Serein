@@ -303,389 +303,395 @@ mod tests {
 	}
 	#[test]
 	fn role_edit_gates_hierarchy_defaults_entitlements_and_new_grants() {
-		let state = state();
-		assert!(state.can_edit_guild_role(Id(2), Id(4)));
-		assert!(!state.can_edit_guild_role(Id(2), Id(3)));
-		assert!(!state.can_edit_guild_role(Id(2), Id(5)));
-		assert!(state.can_move_guild_role(Id(2), Id(4), 2));
-		assert!(!state.can_move_guild_role(Id(2), Id(4), 3));
-		assert!(!state.can_delete_guild_role(Id(2), Id(2)));
-		assert!(!state.role_action_allowed(
-			Id(2),
-			&Action::Edit {
-				id: Id(2),
-				edit: Edit {
-					name: Some("rename default".into()),
-					..Edit::default()
-				}
-			}
-		));
-		assert!(state.role_action_allowed(
-			Id(2),
-			&Action::Edit {
-				id: Id(2),
-				edit: Edit {
-					permissions: Some(p::VIEW_CHANNEL),
-					permission_mask: p::VIEW_CHANNEL,
-					..Edit::default()
-				}
-			}
-		));
-		assert!(!state.role_action_allowed(
-			Id(2),
-			&Action::Edit {
-				id: Id(4),
-				edit: Edit {
-					permissions: Some(p::ADMINISTRATOR),
-					permission_mask: p::ADMINISTRATOR,
-					..Edit::default()
-				}
-			}
-		));
-		assert!(state.role_action_allowed(
-			Id(2),
-			&Action::Edit {
-				id: Id(4),
-				edit: Edit {
-					permissions: Some(0),
-					permission_mask: 1 << 110,
-					..Edit::default()
-				}
-			}
-		));
-		assert!(!state.role_action_allowed(
-			Id(2),
-			&Action::Edit {
-				id: Id(4),
-				edit: Edit {
-					colors: Some(Colors {
-						primary: 1,
-						secondary: Some(2),
-						tertiary: None
-					}),
-					..Edit::default()
-				}
-			}
-		));
-		assert!(!state.can_edit_role_icon(Id(2), Id(4)));
-	}
-	#[test]
-	fn role_matching_gateway_confirmation_allows_catalog_completion() {
-		let mut state = state();
-		let edit = Edit {
-			name: Some("Renamed".into()),
-			..Default::default()
-		};
-		let Command::ServerAdmin { guild, request, .. } = state
-			.request_server_admin(
+		{
+			let state = state();
+			assert!(state.can_edit_guild_role(Id(2), Id(4)));
+			assert!(!state.can_edit_guild_role(Id(2), Id(3)));
+			assert!(!state.can_edit_guild_role(Id(2), Id(5)));
+			assert!(state.can_move_guild_role(Id(2), Id(4), 2));
+			assert!(!state.can_move_guild_role(Id(2), Id(4), 3));
+			assert!(!state.can_delete_guild_role(Id(2), Id(2)));
+			assert!(!state.role_action_allowed(
 				Id(2),
-				server_admin::Action::Roles(Action::Edit { id: Id(4), edit }),
-			)
-			.unwrap()
-		else {
-			panic!()
-		};
-		let mut confirmed = state.server_admin.roles.as_ref().unwrap().clone();
-		let changed = confirmed
-			.items
-			.iter_mut()
-			.find(|role| role.id == Id(4))
-			.unwrap();
-		changed.name = "Renamed".into();
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Permissions(crate::permissions::Event::Role {
-				guild,
-				role: changed.permission_role(),
-			}),
-		});
-		confirmed.items.reverse(); // Gateway and REST order are independent.
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::ServerAdmin(crate::server_admin::Event {
-				guild,
-				request,
-				result: Ok(server_admin::Result::Roles(
-					model::server_roles::Result::Catalog {
-						catalog: confirmed,
-						selected: Some(Id(4)),
-					},
-				)),
-			}),
-		});
-		assert!(!state.server_admin.pending);
-		assert!(!state.server_admin.needs_refresh);
-		assert!(state.server_admin.error.is_none());
-		assert_eq!(
-			state
-				.server_admin
-				.roles
-				.as_ref()
+				&Action::Edit {
+					id: Id(2),
+					edit: Edit {
+						name: Some("rename default".into()),
+						..Edit::default()
+					}
+				}
+			));
+			assert!(state.role_action_allowed(
+				Id(2),
+				&Action::Edit {
+					id: Id(2),
+					edit: Edit {
+						permissions: Some(p::VIEW_CHANNEL),
+						permission_mask: p::VIEW_CHANNEL,
+						..Edit::default()
+					}
+				}
+			));
+			assert!(!state.role_action_allowed(
+				Id(2),
+				&Action::Edit {
+					id: Id(4),
+					edit: Edit {
+						permissions: Some(p::ADMINISTRATOR),
+						permission_mask: p::ADMINISTRATOR,
+						..Edit::default()
+					}
+				}
+			));
+			assert!(state.role_action_allowed(
+				Id(2),
+				&Action::Edit {
+					id: Id(4),
+					edit: Edit {
+						permissions: Some(0),
+						permission_mask: 1 << 110,
+						..Edit::default()
+					}
+				}
+			));
+			assert!(!state.role_action_allowed(
+				Id(2),
+				&Action::Edit {
+					id: Id(4),
+					edit: Edit {
+						colors: Some(Colors {
+							primary: 1,
+							secondary: Some(2),
+							tertiary: None
+						}),
+						..Edit::default()
+					}
+				}
+			));
+			assert!(!state.can_edit_role_icon(Id(2), Id(4)));
+		}
+		{
+			let mut state = state();
+			let edit = Edit {
+				name: Some("Renamed".into()),
+				..Default::default()
+			};
+			let Command::ServerAdmin { guild, request, .. } = state
+				.request_server_admin(
+					Id(2),
+					server_admin::Action::Roles(Action::Edit { id: Id(4), edit }),
+				)
 				.unwrap()
+			else {
+				panic!()
+			};
+			let mut confirmed = state.server_admin.roles.as_ref().unwrap().clone();
+			let changed = confirmed
 				.items
-				.iter()
+				.iter_mut()
 				.find(|role| role.id == Id(4))
-				.unwrap()
-				.name,
-			"Renamed"
-		);
-		assert_eq!(state.server_admin.selected_role, Some(Id(4)));
+				.unwrap();
+			changed.name = "Renamed".into();
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Permissions(crate::permissions::Event::Role {
+					guild,
+					role: changed.permission_role(),
+				}),
+			});
+			confirmed.items.reverse(); // Gateway and REST order are independent.
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::ServerAdmin(crate::server_admin::Event {
+					guild,
+					request,
+					result: Ok(server_admin::Result::Roles(
+						model::server_roles::Result::Catalog {
+							catalog: confirmed,
+							selected: Some(Id(4)),
+						},
+					)),
+				}),
+			});
+			assert!(!state.server_admin.pending);
+			assert!(!state.server_admin.needs_refresh);
+			assert!(state.server_admin.error.is_none());
+			assert_eq!(
+				state
+					.server_admin
+					.roles
+					.as_ref()
+					.unwrap()
+					.items
+					.iter()
+					.find(|role| role.id == Id(4))
+					.unwrap()
+					.name,
+				"Renamed"
+			);
+			assert_eq!(state.server_admin.selected_role, Some(Id(4)));
+		}
 	}
 	#[test]
 	fn role_gateway_move_delete_and_stale_catalog_cannot_restore_permissions() {
-		let mut state = state();
-		let mut moved = state
-			.server_admin
-			.roles
-			.as_ref()
-			.unwrap()
-			.items
-			.iter()
-			.find(|role| role.id == Id(4))
-			.unwrap()
-			.permission_role();
-		moved.position = 4;
-		let Command::ServerAdmin { guild, request, .. } = state
-			.request_server_admin(Id(2), server_admin::Action::Roles(Action::Load))
-			.unwrap()
-		else {
-			panic!()
-		};
-		let stale = state.server_admin.roles.as_ref().unwrap().clone();
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Permissions(crate::permissions::Event::Role { guild, role: moved }),
-		});
-		assert!(!state.can_edit_guild_role(guild, Id(4)));
-		let mut own = state
-			.permissions
-			.guilds
-			.get(&guild)
-			.unwrap()
-			.roles
-			.as_ref()
-			.unwrap()
-			.iter()
-			.find(|role| role.id == Id(3))
-			.unwrap()
-			.clone();
-		own.bits &= !p::MANAGE_GUILD;
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Permissions(crate::permissions::Event::Role { guild, role: own }),
-		});
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::ServerAdmin(crate::server_admin::Event {
-				guild,
-				request,
-				result: Ok(server_admin::Result::Roles(
-					model::server_roles::Result::Catalog {
-						catalog: stale,
-						selected: None,
+		{
+			let mut state = state();
+			let mut moved = state
+				.server_admin
+				.roles
+				.as_ref()
+				.unwrap()
+				.items
+				.iter()
+				.find(|role| role.id == Id(4))
+				.unwrap()
+				.permission_role();
+			moved.position = 4;
+			let Command::ServerAdmin { guild, request, .. } = state
+				.request_server_admin(Id(2), server_admin::Action::Roles(Action::Load))
+				.unwrap()
+			else {
+				panic!()
+			};
+			let stale = state.server_admin.roles.as_ref().unwrap().clone();
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Permissions(crate::permissions::Event::Role { guild, role: moved }),
+			});
+			assert!(!state.can_edit_guild_role(guild, Id(4)));
+			let mut own = state
+				.permissions
+				.guilds
+				.get(&guild)
+				.unwrap()
+				.roles
+				.as_ref()
+				.unwrap()
+				.iter()
+				.find(|role| role.id == Id(3))
+				.unwrap()
+				.clone();
+			own.bits &= !p::MANAGE_GUILD;
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Permissions(crate::permissions::Event::Role { guild, role: own }),
+			});
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::ServerAdmin(crate::server_admin::Event {
+					guild,
+					request,
+					result: Ok(server_admin::Result::Roles(
+						model::server_roles::Result::Catalog {
+							catalog: stale,
+							selected: None,
+						},
+					)),
+				}),
+			});
+			assert!(!state.can_open_member_settings(guild));
+			assert!(state.server_admin.needs_refresh);
+			assert!(!state.can_edit_guild_role(guild, Id(4)));
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Permissions(crate::permissions::Event::RoleRemoved {
+					guild,
+					id: Id(4),
+				}),
+			});
+			assert!(!state.can_edit_guild_role(guild, Id(4)));
+		}
+		{
+			let mut state = state();
+			let mut user = state.user.as_ref().unwrap().clone();
+			user.id = Id(8);
+			let mut member = server_admin::Member {
+				user,
+				nick: None,
+				roles: vec![Id(4)],
+				joined_at: None,
+				join_source: None,
+				invite_code: None,
+				flags: None,
+				unusual_dm_until: None,
+				timeout_until: None,
+			};
+			let catalog = state.server_admin.roles.as_mut().unwrap();
+			catalog
+				.items
+				.iter_mut()
+				.find(|role| role.id == Id(4))
+				.unwrap()
+				.member_count = Some(10);
+			state.server_admin.members = Some(server_admin::Members {
+				items: vec![member.clone()],
+				roles: catalog
+					.items
+					.iter()
+					.map(|role| server_admin::Role {
+						role: role.permission_role(),
+						managed: role.managed,
+					})
+					.collect(),
+				total: 10,
+				..Default::default()
+			});
+			state.server_admin.member_role_filter = Some(Id(4));
+			let Command::ServerAdmin { guild, request, .. } = state
+				.request_server_admin(
+					Id(2),
+					server_admin::Action::SetRole {
+						user: Id(8),
+						role: Id(4),
+						assigned: false,
 					},
-				)),
-			}),
-		});
-		assert!(!state.can_open_member_settings(guild));
-		assert!(state.server_admin.needs_refresh);
-		assert!(!state.can_edit_guild_role(guild, Id(4)));
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Permissions(crate::permissions::Event::RoleRemoved { guild, id: Id(4) }),
-		});
-		assert!(!state.can_edit_guild_role(guild, Id(4)));
-	}
-	#[test]
-	fn role_assignment_completion_rejects_stale_results_and_invalidates_counts() {
-		let mut state = state();
-		let mut user = state.user.as_ref().unwrap().clone();
-		user.id = Id(8);
-		let mut member = server_admin::Member {
-			user,
-			nick: None,
-			roles: vec![Id(4)],
-			joined_at: None,
-			join_source: None,
-			invite_code: None,
-			flags: None,
-			unusual_dm_until: None,
-			timeout_until: None,
-		};
-		let catalog = state.server_admin.roles.as_mut().unwrap();
-		catalog
-			.items
-			.iter_mut()
-			.find(|role| role.id == Id(4))
-			.unwrap()
-			.member_count = Some(10);
-		state.server_admin.members = Some(server_admin::Members {
-			items: vec![member.clone()],
-			roles: catalog
-				.items
-				.iter()
-				.map(|role| server_admin::Role {
-					role: role.permission_role(),
-					managed: role.managed,
-				})
-				.collect(),
-			total: 10,
-			..Default::default()
-		});
-		state.server_admin.member_role_filter = Some(Id(4));
-		let Command::ServerAdmin { guild, request, .. } = state
-			.request_server_admin(
-				Id(2),
-				server_admin::Action::SetRole {
-					user: Id(8),
-					role: Id(4),
-					assigned: false,
-				},
-			)
-			.unwrap()
-		else {
-			panic!()
-		};
-		member.roles.clear();
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::ServerAdmin(crate::server_admin::Event {
-				guild,
-				request: request + 1,
-				result: Ok(server_admin::Result::Member(member.clone())),
-			}),
-		});
-		assert_eq!(state.server_admin.members.as_ref().unwrap().items.len(), 1);
-		assert_eq!(
-			state
-				.server_admin
-				.roles
-				.as_ref()
+				)
 				.unwrap()
-				.items
-				.iter()
-				.find(|role| role.id == Id(4))
-				.unwrap()
-				.member_count,
-			Some(10)
-		);
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::ServerAdmin(crate::server_admin::Event {
-				guild,
-				request,
-				result: Ok(server_admin::Result::Member(member)),
-			}),
-		});
-		assert!(
-			state
-				.server_admin
-				.members
-				.as_ref()
-				.unwrap()
-				.items
-				.is_empty()
-		);
-		assert_eq!(state.server_admin.members.as_ref().unwrap().total, 9);
-		assert_eq!(
-			state
-				.server_admin
-				.roles
-				.as_ref()
-				.unwrap()
-				.items
-				.iter()
-				.find(|role| role.id == Id(4))
-				.unwrap()
-				.member_count,
-			None
-		);
+			else {
+				panic!()
+			};
+			member.roles.clear();
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::ServerAdmin(crate::server_admin::Event {
+					guild,
+					request: request + 1,
+					result: Ok(server_admin::Result::Member(member.clone())),
+				}),
+			});
+			assert_eq!(state.server_admin.members.as_ref().unwrap().items.len(), 1);
+			assert_eq!(
+				state
+					.server_admin
+					.roles
+					.as_ref()
+					.unwrap()
+					.items
+					.iter()
+					.find(|role| role.id == Id(4))
+					.unwrap()
+					.member_count,
+				Some(10)
+			);
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::ServerAdmin(crate::server_admin::Event {
+					guild,
+					request,
+					result: Ok(server_admin::Result::Member(member)),
+				}),
+			});
+			assert!(
+				state
+					.server_admin
+					.members
+					.as_ref()
+					.unwrap()
+					.items
+					.is_empty()
+			);
+			assert_eq!(state.server_admin.members.as_ref().unwrap().total, 9);
+			assert_eq!(
+				state
+					.server_admin
+					.roles
+					.as_ref()
+					.unwrap()
+					.items
+					.iter()
+					.find(|role| role.id == Id(4))
+					.unwrap()
+					.member_count,
+				None
+			);
+		}
 	}
 	#[test]
 	fn role_members_completion_requires_current_directory_permission() {
-		let mut state = state();
-		let Command::ServerAdmin { guild, request, .. } = state
-			.request_server_admin(
-				Id(2),
-				server_admin::Action::Roles(Action::Members {
-					role: Some(Id(4)),
-					query: Default::default(),
-				}),
-			)
-			.unwrap()
-		else {
-			panic!()
-		};
-		state
-			.permissions
-			.guilds
-			.get_mut(&guild)
-			.unwrap()
-			.roles
-			.as_mut()
-			.unwrap()
-			.iter_mut()
-			.find(|role| role.id == Id(3))
-			.unwrap()
-			.bits &= !p::MANAGE_GUILD;
-		state.permissions.clear_cache();
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::ServerAdmin(crate::server_admin::Event {
-				guild,
-				request,
-				result: Ok(server_admin::Result::Roles(
-					model::server_roles::Result::Members {
+		{
+			let mut state = state();
+			let Command::ServerAdmin { guild, request, .. } = state
+				.request_server_admin(
+					Id(2),
+					server_admin::Action::Roles(Action::Members {
 						role: Some(Id(4)),
-						page: Default::default(),
-					},
-				)),
-			}),
-		});
-		assert!(state.server_admin.members.is_none());
-		assert!(!state.server_admin.pending);
-	}
-	#[test]
-	fn role_completion_is_scoped_and_revoked_permission_closes_editor() {
-		let mut state = state();
-		let Command::ServerAdmin { guild, request, .. } = state
-			.request_server_admin(Id(2), server_admin::Action::Roles(Action::Load))
-			.unwrap()
-		else {
-			panic!()
-		};
-		let catalog = state.server_admin.roles.as_ref().unwrap().clone();
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::ServerAdmin(crate::server_admin::Event {
-				guild,
-				request: request + 1,
-				result: Ok(server_admin::Result::Roles(
-					model::server_roles::Result::Catalog {
-						catalog: catalog.clone(),
-						selected: Some(Id(4)),
-					},
-				)),
-			}),
-		});
-		assert!(state.server_admin.pending);
-		assert_eq!(state.server_admin.selected_role, None);
-		state.permissions.guilds.get_mut(&Id(2)).unwrap().member = None;
-		state.permissions.clear_cache();
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::ServerAdmin(crate::server_admin::Event {
-				guild,
-				request,
-				result: Ok(server_admin::Result::Roles(
-					model::server_roles::Result::Catalog {
-						catalog,
-						selected: Some(Id(4)),
-					},
-				)),
-			}),
-		});
-		assert!(state.server_admin.roles.is_none());
-		assert!(state.server_admin.guild.is_none());
+						query: Default::default(),
+					}),
+				)
+				.unwrap()
+			else {
+				panic!()
+			};
+			state
+				.permissions
+				.guilds
+				.get_mut(&guild)
+				.unwrap()
+				.roles
+				.as_mut()
+				.unwrap()
+				.iter_mut()
+				.find(|role| role.id == Id(3))
+				.unwrap()
+				.bits &= !p::MANAGE_GUILD;
+			state.permissions.clear_cache();
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::ServerAdmin(crate::server_admin::Event {
+					guild,
+					request,
+					result: Ok(server_admin::Result::Roles(
+						model::server_roles::Result::Members {
+							role: Some(Id(4)),
+							page: Default::default(),
+						},
+					)),
+				}),
+			});
+			assert!(state.server_admin.members.is_none());
+			assert!(!state.server_admin.pending);
+		}
+		{
+			let mut state = state();
+			let Command::ServerAdmin { guild, request, .. } = state
+				.request_server_admin(Id(2), server_admin::Action::Roles(Action::Load))
+				.unwrap()
+			else {
+				panic!()
+			};
+			let catalog = state.server_admin.roles.as_ref().unwrap().clone();
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::ServerAdmin(crate::server_admin::Event {
+					guild,
+					request: request + 1,
+					result: Ok(server_admin::Result::Roles(
+						model::server_roles::Result::Catalog {
+							catalog: catalog.clone(),
+							selected: Some(Id(4)),
+						},
+					)),
+				}),
+			});
+			assert!(state.server_admin.pending);
+			assert_eq!(state.server_admin.selected_role, None);
+			state.permissions.guilds.get_mut(&Id(2)).unwrap().member = None;
+			state.permissions.clear_cache();
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::ServerAdmin(crate::server_admin::Event {
+					guild,
+					request,
+					result: Ok(server_admin::Result::Roles(
+						model::server_roles::Result::Catalog {
+							catalog,
+							selected: Some(Id(4)),
+						},
+					)),
+				}),
+			});
+			assert!(state.server_admin.roles.is_none());
+			assert!(state.server_admin.guild.is_none());
+		}
 	}
 }

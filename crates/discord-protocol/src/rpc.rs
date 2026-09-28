@@ -342,147 +342,145 @@ mod tests {
 
 	#[test]
 	fn rich_activity_survives_without_secrets_or_actions() {
-		let bytes = command(json!({"details":"Ranked match","state":"Round 2", "type":0,
-			"timestamps":{"start":1_700_000_000,"end":1_700_000_030},
-			"assets":{"large_image":"map_key","large_text":"Map","small_image":"123","small_text":"Rank"},
-			"secrets":{"join":"synthetic-private-secret"},"buttons":[{"label":"Join","url":"https://example.com"}],
-			"name":"Spoofed name","application_id":"99"}));
-		let decoded = decode_command(&bytes).unwrap();
-		let ack = String::from_utf8(acknowledge(&decoded)).unwrap();
-		assert!(ack.contains("synthetic-1"));
-		assert!(!ack.contains("secret") && !ack.contains("buttons"));
-		let activity = decoded
+		{
+			let bytes = command(json!({"details":"Ranked match","state":"Round 2", "type":0,
+				"timestamps":{"start":1_700_000_000,"end":1_700_000_030},
+				"assets":{"large_image":"map_key","large_text":"Map","small_image":"123","small_text":"Rank"},
+				"secrets":{"join":"synthetic-private-secret"},"buttons":[{"label":"Join","url":"https://example.com"}],
+				"name":"Spoofed name","application_id":"99"}));
+			let decoded = decode_command(&bytes).unwrap();
+			let ack = String::from_utf8(acknowledge(&decoded)).unwrap();
+			assert!(ack.contains("synthetic-1"));
+			assert!(!ack.contains("secret") && !ack.contains("buttons"));
+			let activity = decoded
+				.activity
+				.unwrap()
+				.into_activity(Id(42), "Public app name".into())
+				.unwrap();
+			let output = serde_json::to_value(activity).unwrap();
+			assert_eq!(output["name"], "Public app name");
+			assert_eq!(output["application_id"], "42");
+			assert_eq!(output["details"], "Ranked match");
+			assert_eq!(output["timestamps"]["start"], 1_700_000_000_000_u64);
+			assert_eq!(output["assets"]["large_image"], "map_key");
+			assert!(
+				decode_command(&command(Value::Null))
+					.unwrap()
+					.activity
+					.is_none()
+			);
+			assert!(
+				decode_command(br#"{"cmd":"SET_ACTIVITY","nonce":"clear","args":{"pid":123}}"#)
+					.unwrap()
+					.activity
+					.is_none()
+			);
+			assert_eq!(
+				decode_handshake(br#"{"v":1,"client_id":"42"}"#).unwrap(),
+				Id(42)
+			);
+			let ready: Value = serde_json::from_slice(&ready(Id(42), "Synthetic player")).unwrap();
+			assert_eq!(ready["evt"], "READY");
+			assert_eq!(ready["data"]["v"], 1);
+			let millis = decode_command(&command(
+				json!({"timestamps":{"start":1_700_000_000_000_u64}}),
+			))
+			.unwrap()
 			.activity
 			.unwrap()
-			.into_activity(Id(42), "Public app name".into())
+			.into_activity(Id(42), "Modern SDK".into())
 			.unwrap();
-		let output = serde_json::to_value(activity).unwrap();
-		assert_eq!(output["name"], "Public app name");
-		assert_eq!(output["application_id"], "42");
-		assert_eq!(output["details"], "Ranked match");
-		assert_eq!(output["timestamps"]["start"], 1_700_000_000_000_u64);
-		assert_eq!(output["assets"]["large_image"], "map_key");
-		assert!(
-			decode_command(&command(Value::Null))
-				.unwrap()
-				.activity
-				.is_none()
-		);
-		assert!(
-			decode_command(br#"{"cmd":"SET_ACTIVITY","nonce":"clear","args":{"pid":123}}"#)
-				.unwrap()
-				.activity
-				.is_none()
-		);
-		assert_eq!(
-			decode_handshake(br#"{"v":1,"client_id":"42"}"#).unwrap(),
-			Id(42)
-		);
-		let ready: Value = serde_json::from_slice(&ready(Id(42), "Synthetic player")).unwrap();
-		assert_eq!(ready["evt"], "READY");
-		assert_eq!(ready["data"]["v"], 1);
-		let millis = decode_command(&command(
-			json!({"timestamps":{"start":1_700_000_000_000_u64}}),
-		))
-		.unwrap()
-		.activity
-		.unwrap()
-		.into_activity(Id(42), "Modern SDK".into())
-		.unwrap();
-		assert_eq!(millis.timestamps.unwrap().start, Some(1_700_000_000_000));
-		let error: Value = serde_json::from_slice(&error_for_payload(
-			br#"{"cmd":"SUBSCRIBE","nonce":"subscribe-1","evt":"ACTIVITY_JOIN"}"#,
-		))
-		.unwrap();
-		assert_eq!(error["cmd"], "SUBSCRIBE");
-		assert_eq!(error["nonce"], "subscribe-1");
-		assert_eq!(error["evt"], "ERROR");
-		let error: Value = serde_json::from_slice(&error_for_payload(
-			json!({"cmd":"x".repeat(1000),"nonce":"x".repeat(1000)})
-				.to_string()
-				.as_bytes(),
-		))
-		.unwrap();
-		assert_eq!(error["cmd"], "SET_ACTIVITY");
-		assert!(error["nonce"].is_null());
-	}
-
-	#[test]
-	fn invite_requests_are_bounded_and_other_commands_stay_unsupported() {
-		let Request::Invite { nonce, code } = decode_request(
-			br#"{"cmd":"INVITE_BROWSER","nonce":"invite-1","args":{"code":"hTKzmak"}}"#,
-		)
-		.unwrap() else {
-			panic!("an invite request must decode as one")
-		};
-		assert_eq!((nonce.as_str(), code.as_str()), ("invite-1", "hTKzmak"));
-		let ack: Value = serde_json::from_slice(&invite_acknowledge(&nonce, &code)).unwrap();
-		assert_eq!(ack["cmd"], "INVITE_BROWSER");
-		assert_eq!(ack["nonce"], "invite-1");
-		assert_eq!(ack["data"]["code"], "hTKzmak");
-		assert!(matches!(
-			decode_request(&command(json!({}))).unwrap(),
-			Request::SetActivity(_)
-		));
-		for bytes in [
-			br#"{"cmd":"INVITE_BROWSER","nonce":"n","args":{"code":"../secret"}}"#.as_slice(),
-			br#"{"cmd":"INVITE_BROWSER","nonce":"n","args":{"code":"https://discord.gg/a"}}"#,
-			br#"{"cmd":"INVITE_BROWSER","nonce":"n","args":{"code":""}}"#,
-			br#"{"cmd":"INVITE_BROWSER","nonce":"n","args":{}}"#,
-			br#"{"cmd":"INVITE_BROWSER","args":{"code":"hTKzmak"}}"#,
-			br#"{"cmd":"AUTHORIZE","nonce":"n","args":{"scopes":["rpc"]}}"#,
-			br#"{"cmd":"GUILD_TEMPLATE_BROWSER","nonce":"n","args":{"code":"hTKzmak"}}"#,
-		] {
-			assert!(decode_request(bytes).is_err());
+			assert_eq!(millis.timestamps.unwrap().start, Some(1_700_000_000_000));
+			let error: Value = serde_json::from_slice(&error_for_payload(
+				br#"{"cmd":"SUBSCRIBE","nonce":"subscribe-1","evt":"ACTIVITY_JOIN"}"#,
+			))
+			.unwrap();
+			assert_eq!(error["cmd"], "SUBSCRIBE");
+			assert_eq!(error["nonce"], "subscribe-1");
+			assert_eq!(error["evt"], "ERROR");
+			let error: Value = serde_json::from_slice(&error_for_payload(
+				json!({"cmd":"x".repeat(1000),"nonce":"x".repeat(1000)})
+					.to_string()
+					.as_bytes(),
+			))
+			.unwrap();
+			assert_eq!(error["cmd"], "SET_ACTIVITY");
+			assert!(error["nonce"].is_null());
 		}
-		assert!(!valid_invite_code(&"a".repeat(MAX_INVITE_CODE + 1)));
-		assert!(valid_invite_code("wumpus-friends_1"));
-	}
-
-	#[test]
-	fn rejects_malformed_unbounded_and_unsupported_payloads() {
-		for bytes in [
-			br#"{"v":2,"client_id":"42"}"#.as_slice(),
-			br#"{"v":1,"client_id":42}"#,
-			br#"{"v":1,"client_id":"0"}"#,
-			br#"{"v":1,"client_id":"18446744073709551616"}"#,
-			b"[]",
-			b"{",
-		] {
-			assert!(decode_handshake(bytes).is_err());
+		{
+			let Request::Invite { nonce, code } = decode_request(
+				br#"{"cmd":"INVITE_BROWSER","nonce":"invite-1","args":{"code":"hTKzmak"}}"#,
+			)
+			.unwrap() else {
+				panic!("an invite request must decode as one")
+			};
+			assert_eq!((nonce.as_str(), code.as_str()), ("invite-1", "hTKzmak"));
+			let ack: Value = serde_json::from_slice(&invite_acknowledge(&nonce, &code)).unwrap();
+			assert_eq!(ack["cmd"], "INVITE_BROWSER");
+			assert_eq!(ack["nonce"], "invite-1");
+			assert_eq!(ack["data"]["code"], "hTKzmak");
+			assert!(matches!(
+				decode_request(&command(json!({}))).unwrap(),
+				Request::SetActivity(_)
+			));
+			for bytes in [
+				br#"{"cmd":"INVITE_BROWSER","nonce":"n","args":{"code":"../secret"}}"#.as_slice(),
+				br#"{"cmd":"INVITE_BROWSER","nonce":"n","args":{"code":"https://discord.gg/a"}}"#,
+				br#"{"cmd":"INVITE_BROWSER","nonce":"n","args":{"code":""}}"#,
+				br#"{"cmd":"INVITE_BROWSER","nonce":"n","args":{}}"#,
+				br#"{"cmd":"INVITE_BROWSER","args":{"code":"hTKzmak"}}"#,
+				br#"{"cmd":"AUTHORIZE","nonce":"n","args":{"scopes":["rpc"]}}"#,
+				br#"{"cmd":"GUILD_TEMPLATE_BROWSER","nonce":"n","args":{"code":"hTKzmak"}}"#,
+			] {
+				assert!(decode_request(bytes).is_err());
+			}
+			assert!(!valid_invite_code(&"a".repeat(MAX_INVITE_CODE + 1)));
+			assert!(valid_invite_code("wumpus-friends_1"));
 		}
-		assert!(decode_handshake(&vec![b' '; MAX_FRAME_BYTES + 1]).is_err());
-		assert!(decode_command(&vec![b' '; MAX_FRAME_BYTES + 1]).is_err());
-		for activity in [
-			json!([]),
-			json!({"type":1}),
-			json!({"type":4}),
-			json!({"details":"x".repeat(129)}),
-			json!({"state":"é".repeat(65)}),
-			json!({"details":"bad\ntext"}),
-			json!({"timestamps":[]}),
-			json!({"assets":[]}),
-			json!({"assets":{"large_image":"x".repeat(MAX_ASSET_KEY + 1)}}),
-			json!({"timestamps":{"start":u64::MAX}}),
-			json!({"timestamps":{"start":-1}}),
-			json!({"timestamps":{"start":10,"end":9}}),
-		] {
-			assert!(decode_command(&command(activity)).is_err());
-		}
-		for (key, value) in [
-			("nonce", json!("")),
-			("nonce", json!("x".repeat(129))),
-			("nonce", json!(1)),
-			("cmd", json!("AUTHORIZE")),
-			("args", json!([])),
-			("args", json!({"pid":0,"activity":null})),
-			("args", json!({"pid":u64::MAX,"activity":null})),
-			("args", json!({"activity":null})),
-		] {
-			// Replace exactly the field under test, keeping all other required fields valid.
-			let mut payload: Value = serde_json::from_slice(&command(json!({}))).unwrap();
-			payload[key] = value;
-			assert!(decode_command(payload.to_string().as_bytes()).is_err());
+		{
+			for bytes in [
+				br#"{"v":2,"client_id":"42"}"#.as_slice(),
+				br#"{"v":1,"client_id":42}"#,
+				br#"{"v":1,"client_id":"0"}"#,
+				br#"{"v":1,"client_id":"18446744073709551616"}"#,
+				b"[]",
+				b"{",
+			] {
+				assert!(decode_handshake(bytes).is_err());
+			}
+			assert!(decode_handshake(&vec![b' '; MAX_FRAME_BYTES + 1]).is_err());
+			assert!(decode_command(&vec![b' '; MAX_FRAME_BYTES + 1]).is_err());
+			for activity in [
+				json!([]),
+				json!({"type":1}),
+				json!({"type":4}),
+				json!({"details":"x".repeat(129)}),
+				json!({"state":"é".repeat(65)}),
+				json!({"details":"bad\ntext"}),
+				json!({"timestamps":[]}),
+				json!({"assets":[]}),
+				json!({"assets":{"large_image":"x".repeat(MAX_ASSET_KEY + 1)}}),
+				json!({"timestamps":{"start":u64::MAX}}),
+				json!({"timestamps":{"start":-1}}),
+				json!({"timestamps":{"start":10,"end":9}}),
+			] {
+				assert!(decode_command(&command(activity)).is_err());
+			}
+			for (key, value) in [
+				("nonce", json!("")),
+				("nonce", json!("x".repeat(129))),
+				("nonce", json!(1)),
+				("cmd", json!("AUTHORIZE")),
+				("args", json!([])),
+				("args", json!({"pid":0,"activity":null})),
+				("args", json!({"pid":u64::MAX,"activity":null})),
+				("args", json!({"activity":null})),
+			] {
+				// Replace exactly the field under test, keeping all other required fields valid.
+				let mut payload: Value = serde_json::from_slice(&command(json!({}))).unwrap();
+				payload[key] = value;
+				assert!(decode_command(payload.to_string().as_bytes()).is_err());
+			}
 		}
 	}
 }

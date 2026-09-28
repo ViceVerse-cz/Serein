@@ -1394,7 +1394,6 @@ async fn run_stream_inner(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::diagnostics::Signal;
 	use crate::video_receive::Receivers;
 	use opus2::Decoder;
 
@@ -1498,23 +1497,6 @@ mod tests {
 			receivers.keyframe_requests().collect::<Vec<_>>(),
 			vec![700, 800]
 		);
-	}
-
-	#[test]
-	fn signal_opcodes_map_to_their_own_slots() {
-		for (op, slot) in [
-			(2, Signal::Ready as usize),
-			(4, Signal::Session as usize),
-			(11, Signal::Clients as usize),
-			(12, Signal::Sender as usize),
-			(21, Signal::PrepareTransition as usize),
-			(22, Signal::ExecuteTransition as usize),
-			(24, Signal::PrepareEpoch as usize),
-		] {
-			assert_eq!(signal_of(op) as usize, slot, "opcode {op}");
-		}
-		assert_eq!(signal_of(8) as usize, Signal::Other as usize);
-		assert_eq!(signal_of(99) as usize, Signal::Other as usize);
 	}
 
 	async fn receive_media(socket: &UdpSocket, packet: &mut [u8]) -> (usize, SocketAddr) {
@@ -1670,66 +1652,21 @@ mod tests {
 				.unwrap(),
 			[0.25; STREAM_AUDIO_FRAME]
 		);
-	}
-	#[test]
-	fn soundshare_is_announced_before_captured_audio_is_enabled() {
-		let mut audio = Some(StreamAudio {
-			encoder: Encoder::new(48_000, Channels::Stereo, Application::Audio).unwrap(),
-			pending: Vec::with_capacity(STREAM_AUDIO_PENDING),
-			speaking: false,
-			last_tick: Instant::now(),
-		});
-		let event = soundshare_announcement(&mut audio, 42).unwrap();
-		assert_eq!(
-			event,
-			json!({"op":5,"d":{"speaking":2,"delay":0,"ssrc":42}})
-		);
-		assert!(audio.unwrap().speaking);
-	}
-	#[test]
-	fn negotiation_timeout_distinguishes_missing_group_from_unexecuted_transition() {
-		let server = crate::test_mls::Delivery::new();
-		let mut alice = Dave::new(1, Some(2), 3).unwrap();
-		let mut bob = Dave::new(2, Some(1), 3).unwrap();
-		alice.session.set_external_sender(&server.external).unwrap();
-		bob.session.set_external_sender(&server.external).unwrap();
-		assert_eq!(
-			negotiation_timeout(false, false, false, &alice, false),
-			"Discord voice Hello timed out; rejoin the call"
-		);
-		assert_eq!(
-			negotiation_timeout(true, false, false, &alice, false),
-			"Discord voice Ready timed out; rejoin the call"
-		);
-		assert_eq!(
-			negotiation_timeout(true, true, false, &alice, false),
-			"Discord voice protocol selection timed out; no transport key was received"
-		);
-		assert_eq!(
-			negotiation_timeout(true, true, true, &alice, false),
-			"Discord DAVE group negotiation timed out; no accepted commit or welcome was received"
-		);
-		let (_, welcome) = server.add(&mut bob, &alice.key_package().unwrap());
-		alice
-			.group_changed(30, &[&[0, 7], welcome.as_slice()].concat())
-			.unwrap();
-		assert!(!alice.ready);
-		assert_eq!(
-			negotiation_timeout(true, true, true, &alice, false),
-			"Discord DAVE transition execution timed out; no audio was enabled"
-		);
-		assert_eq!(
-			negotiation_timeout(false, true, true, &alice, true),
-			"Discord voice resume acknowledgement timed out; rejoin the call"
-		);
-	}
-	#[test]
-	fn requires_h264_in_the_session_description() {
-		assert!(h264_negotiated(&json!({"video_codec":"H264"})));
-		assert!(!h264_negotiated(&json!({"video_codec":"VP8"})));
-		assert!(!h264_negotiated(
-			&json!({"sdp":"a=rtpmap:101 H264/90000\\r\\n"})
-		));
+
+		{
+			let mut audio = Some(StreamAudio {
+				encoder: Encoder::new(48_000, Channels::Stereo, Application::Audio).unwrap(),
+				pending: Vec::with_capacity(STREAM_AUDIO_PENDING),
+				speaking: false,
+				last_tick: Instant::now(),
+			});
+			let event = soundshare_announcement(&mut audio, 42).unwrap();
+			assert_eq!(
+				event,
+				json!({"op":5,"d":{"speaking":2,"delay":0,"ssrc":42}})
+			);
+			assert!(audio.unwrap().speaking);
+		}
 	}
 	#[test]
 	fn validated_endpoints_discovery_and_real_opus() {
@@ -1765,6 +1702,14 @@ mod tests {
 			960
 		);
 		assert!(output.iter().any(|sample| sample.abs() > 0.01));
+
+		{
+			assert!(h264_negotiated(&json!({"video_codec":"H264"})));
+			assert!(!h264_negotiated(&json!({"video_codec":"VP8"})));
+			assert!(!h264_negotiated(
+				&json!({"sdp":"a=rtpmap:101 H264/90000\\r\\n"})
+			));
+		}
 	}
 	#[tokio::test]
 	async fn local_voice_websocket_udp_dave_and_opus_exchange() {

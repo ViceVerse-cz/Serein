@@ -1280,113 +1280,73 @@ mod tests {
 			&egui::Context::default(),
 		);
 		assert_eq!(*activity.borrow(), Some(scanned));
-	}
 
-	#[test]
-	fn latest_game_falls_back_and_clears_without_polling() {
-		let (activity, _) = watch::channel(None);
-		let (report, _) = watch::channel(Ok(None));
-		let mut values = std::array::from_fn(|_| None);
-		let first = rpc::ActivityFields::default()
-			.into_activity(model::Id(7), "First game".into())
-			.unwrap();
-		let second = rpc::ActivityFields::default()
-			.into_activity(model::Id(8), "Second game".into())
-			.unwrap();
-		values[0] = Some((Instant::now(), first.clone()));
-		values[1] = Some((Instant::now() + Duration::from_millis(1), second.clone()));
-		publish(
-			&values,
-			&None,
-			&activity,
-			&report,
-			&egui::Context::default(),
-		);
-		assert_eq!(*activity.borrow(), Some(second));
-		values[1] = None;
-		publish(
-			&values,
-			&None,
-			&activity,
-			&report,
-			&egui::Context::default(),
-		);
-		assert_eq!(*activity.borrow(), Some(first));
-		let first = values[0].as_mut().unwrap();
-		first.1.details = Some("  Next beatmap  ".into());
-		first.1.state = Some(" ".into());
-		first.1.assets = Some(rpc::Assets {
-			large_image: Some("99".into()),
-			..Default::default()
-		});
-		publish(
-			&values,
-			&None,
-			&activity,
-			&report,
-			&egui::Context::default(),
-		);
-		let display = report.borrow().as_ref().unwrap().clone().unwrap();
-		assert!(display.valid());
-		assert_eq!(display.summary(), "Playing First game");
-		assert_eq!(display.details.as_deref(), Some("Next beatmap"));
-		assert!(display.state.is_none());
-		assert_eq!(
-			display.image,
-			Some(model::ActivityImage::Asset {
-				application: model::Id(7),
-				asset: model::Id(99),
-			})
-		);
-		values[0] = None;
-		publish(
-			&values,
-			&None,
-			&activity,
-			&report,
-			&egui::Context::default(),
-		);
-		assert!(activity.borrow().is_none());
-		assert_eq!(*report.borrow(), Ok(None));
-	}
-
-	#[test]
-	fn a_small_badge_never_becomes_the_artwork() {
-		let activity = |assets: rpc::Assets| {
-			rpc::ActivityFields {
-				assets: Some(assets),
+		{
+			let (activity, _) = watch::channel(None);
+			let (report, _) = watch::channel(Ok(None));
+			let mut values = std::array::from_fn(|_| None);
+			let first = rpc::ActivityFields::default()
+				.into_activity(model::Id(7), "First game".into())
+				.unwrap();
+			let second = rpc::ActivityFields::default()
+				.into_activity(model::Id(8), "Second game".into())
+				.unwrap();
+			values[0] = Some((Instant::now(), first.clone()));
+			values[1] = Some((Instant::now() + Duration::from_millis(1), second.clone()));
+			publish(
+				&values,
+				&None,
+				&activity,
+				&report,
+				&egui::Context::default(),
+			);
+			assert_eq!(*activity.borrow(), Some(second));
+			values[1] = None;
+			publish(
+				&values,
+				&None,
+				&activity,
+				&report,
+				&egui::Context::default(),
+			);
+			assert_eq!(*activity.borrow(), Some(first));
+			let first = values[0].as_mut().unwrap();
+			first.1.details = Some("  Next beatmap  ".into());
+			first.1.state = Some(" ".into());
+			first.1.assets = Some(rpc::Assets {
+				large_image: Some("99".into()),
 				..Default::default()
-			}
-			.into_activity(model::Id(7), "A game".into())
-			.unwrap()
-		};
-		// The reported failure: only the badge resolved, so it was shown as the cover.
-		let badge_only = display_activity(&activity(rpc::Assets {
-			small_image: Some("42".into()),
-			..Default::default()
-		}));
-		assert_eq!(
-			badge_only.image,
-			Some(model::ActivityImage::Application(model::Id(7)))
-		);
-		assert_eq!(
-			badge_only.small_image,
-			Some(model::ActivityImage::Asset {
-				application: model::Id(7),
-				asset: model::Id(42),
-			})
-		);
-		let proxied = display_activity(&activity(rpc::Assets {
-			large_image: Some("mp:external/hash-01/https/example.com/cover.png".into()),
-			..Default::default()
-		}));
-		assert_eq!(
-			proxied.image,
-			Some(model::ActivityImage::Proxy(
-				"external/hash-01/https/example.com/cover.png".into()
-			))
-		);
-		assert!(proxied.valid());
+			});
+			publish(
+				&values,
+				&None,
+				&activity,
+				&report,
+				&egui::Context::default(),
+			);
+			let display = report.borrow().as_ref().unwrap().clone().unwrap();
+			assert!(display.valid());
+			assert_eq!(display.summary(), "Playing First game");
+			assert_eq!(display.details.as_deref(), Some("Next beatmap"));
+			assert!(display.state.is_none());
+			assert_eq!(
+				display.image,
+				Some(model::ActivityImage::Asset {
+					application: model::Id(7),
+					asset: model::Id(99),
+				})
+			);
+			values[0] = None;
+			publish(
+				&values,
+				&None,
+				&activity,
+				&report,
+				&egui::Context::default(),
+			);
+			assert!(activity.borrow().is_none());
+			assert_eq!(*report.borrow(), Ok(None));
+		}
 	}
 
 	#[tokio::test]

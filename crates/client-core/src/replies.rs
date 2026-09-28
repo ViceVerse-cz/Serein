@@ -373,529 +373,529 @@ mod tests {
 
 	#[test]
 	fn chat_links_select_same_server_other_server_and_dm_without_joining_voice() {
-		for (guild, channel, kind) in [
-			(Some(Id(10)), Id(2), 0),
-			(Some(Id(20)), Id(3), 0),
-			(None, Id(4), 1),
-			(Some(Id(20)), Id(3), 15),
-			(Some(Id(20)), Id(3), 2),
-		] {
-			let mut state = chat_link_state();
-			state
-				.channels
-				.iter_mut()
-				.find(|c| c.id == channel)
-				.unwrap()
-				.kind = kind;
-			let command = state.open_chat_link(guild, channel, None).unwrap();
-			assert_eq!(state.selected, Some(channel));
-			assert!(command.is_none_or(
-				|command| matches!(command, Command::History { channel: id, .. } if id == channel)
-			));
-			assert!(state.voice.active.is_none());
-			assert_eq!(state.drafts[&Id(1)], "Unsent draft");
+		{
+			for (guild, channel, kind) in [
+				(Some(Id(10)), Id(2), 0),
+				(Some(Id(20)), Id(3), 0),
+				(None, Id(4), 1),
+				(Some(Id(20)), Id(3), 15),
+				(Some(Id(20)), Id(3), 2),
+			] {
+				let mut state = chat_link_state();
+				state
+					.channels
+					.iter_mut()
+					.find(|c| c.id == channel)
+					.unwrap()
+					.kind = kind;
+				let command = state.open_chat_link(guild, channel, None).unwrap();
+				assert_eq!(state.selected, Some(channel));
+				assert!(command.is_none_or(
+					|command| matches!(command, Command::History { channel: id, .. } if id == channel)
+				));
+				assert!(state.voice.active.is_none());
+				assert_eq!(state.drafts[&Id(1)], "Unsent draft");
+			}
 		}
-	}
-
-	#[test]
-	fn chat_links_scroll_loaded_messages_or_fetch_one_targeted_page() {
-		let mut state = chat_link_state();
-		let request = state.request;
-		assert!(
-			state
-				.open_chat_link(Some(Id(10)), Id(1), Some(Id(100)))
-				.unwrap()
-				.is_none()
-		);
-		assert_eq!(state.search_target, Some(Id(100)));
-		assert_eq!(state.request, request);
-		assert!(state.timeline.get(Id(100)).is_some());
-		for (guild, channel) in [(Some(Id(10)), Id(1)), (Some(Id(20)), Id(3)), (None, Id(4))] {
+		{
 			let mut state = chat_link_state();
-			let command = state
-				.open_chat_link(guild, channel, Some(Id(50)))
-				.unwrap()
-				.unwrap();
+			let request = state.request;
 			assert!(
-				matches!(command, Command::History { channel: id, before: Some(Id(51)), after: None, request } if id == channel && request == state.request)
+				state
+					.open_chat_link(Some(Id(10)), Id(1), Some(Id(100)))
+					.unwrap()
+					.is_none()
 			);
-			assert_eq!(state.selected, Some(channel));
-			assert_eq!(state.search_target, Some(Id(50)));
-			assert!(state.history_targeted && state.history_pending);
-			assert_eq!(state.drafts[&Id(1)], "Unsent draft");
+			assert_eq!(state.search_target, Some(Id(100)));
+			assert_eq!(state.request, request);
+			assert!(state.timeline.get(Id(100)).is_some());
+			for (guild, channel) in [(Some(Id(10)), Id(1)), (Some(Id(20)), Id(3)), (None, Id(4))] {
+				let mut state = chat_link_state();
+				let command = state
+					.open_chat_link(guild, channel, Some(Id(50)))
+					.unwrap()
+					.unwrap();
+				assert!(
+					matches!(command, Command::History { channel: id, before: Some(Id(51)), after: None, request } if id == channel && request == state.request)
+				);
+				assert_eq!(state.selected, Some(channel));
+				assert_eq!(state.search_target, Some(Id(50)));
+				assert!(state.history_targeted && state.history_pending);
+				assert_eq!(state.drafts[&Id(1)], "Unsent draft");
+			}
 		}
-	}
-
-	#[test]
-	fn chat_links_keep_recent_history_when_a_restored_window_knows_the_target_was_deleted() {
-		let mut state = chat_link_state();
-		state.timeline.delete(Id(50)).unwrap();
-		state.select(Id(2));
-		assert_eq!(state.resident_window_count(), 1);
-		let command = state
-			.open_chat_link(Some(Id(10)), Id(1), Some(Id(50)))
-			.unwrap();
-		assert!(matches!(
-			command,
-			Some(Command::History {
-				channel: Id(1),
-				before: None,
-				..
-			})
-		));
-		assert_eq!(state.status, "This message was deleted");
-		assert!(state.search_target.is_none());
 	}
 
 	#[test]
 	fn chat_links_reject_invalid_unavailable_and_forbidden_targets_before_navigation() {
-		for blocked in 0..11 {
-			let mut state = chat_link_state();
-			let mut guild = Some(Id(20));
-			let mut channel = Id(3);
-			let mut message = Some(Id(50));
-			match blocked {
-				0 => channel = Id(0),
-				1 => channel = Id(999),
-				2 => guild = None,
-				3 => message = Some(Id(0)),
-				4 => message = Some(Id(u64::MAX)),
-				5 => state.channels[2].kind = 4,
-				6 => state.user = None,
-				7 => state.gateway_connected = false,
-				8 => state.auth = AuthState::Unauthenticated,
-				9 => state.channels[2].kind = 15,
-				_ => {
-					guild = Some(Id(10));
-					channel = Id(1);
-					state.timeline.delete(Id(50)).unwrap();
+		{
+			for blocked in 0..11 {
+				let mut state = chat_link_state();
+				let mut guild = Some(Id(20));
+				let mut channel = Id(3);
+				let mut message = Some(Id(50));
+				match blocked {
+					0 => channel = Id(0),
+					1 => channel = Id(999),
+					2 => guild = None,
+					3 => message = Some(Id(0)),
+					4 => message = Some(Id(u64::MAX)),
+					5 => state.channels[2].kind = 4,
+					6 => state.user = None,
+					7 => state.gateway_connected = false,
+					8 => state.auth = AuthState::Unauthenticated,
+					9 => state.channels[2].kind = 15,
+					_ => {
+						guild = Some(Id(10));
+						channel = Id(1);
+						state.timeline.delete(Id(50)).unwrap();
+					}
 				}
+				let revision = state.revision;
+				let request = state.request;
+				assert!(
+					state.open_chat_link(guild, channel, message).is_err(),
+					"case {blocked}"
+				);
+				assert_eq!(state.selected, Some(Id(1)));
+				assert_eq!(state.revision, revision);
+				assert_eq!(state.request, request);
+				assert!(state.search_target.is_none());
+				assert!(state.timeline.get(Id(100)).is_some());
+				assert_eq!(state.drafts[&Id(1)], "Unsent draft");
 			}
-			let revision = state.revision;
-			let request = state.request;
-			assert!(
-				state.open_chat_link(guild, channel, message).is_err(),
-				"case {blocked}"
-			);
-			assert_eq!(state.selected, Some(Id(1)));
-			assert_eq!(state.revision, revision);
-			assert_eq!(state.request, request);
+		}
+		{
+			let mut state = chat_link_state();
+			state.timeline.delete(Id(50)).unwrap();
+			state.select(Id(2));
+			assert_eq!(state.resident_window_count(), 1);
+			let command = state
+				.open_chat_link(Some(Id(10)), Id(1), Some(Id(50)))
+				.unwrap();
+			assert!(matches!(
+				command,
+				Some(Command::History {
+					channel: Id(1),
+					before: None,
+					..
+				})
+			));
+			assert_eq!(state.status, "This message was deleted");
 			assert!(state.search_target.is_none());
-			assert!(state.timeline.get(Id(100)).is_some());
-			assert_eq!(state.drafts[&Id(1)], "Unsent draft");
 		}
 	}
 
 	#[test]
 	fn accepted_deletion_effects_are_scoped_bounded_and_reset_on_rejected_generation() {
-		let mut state = state();
-		state.timeline.insert(message(50), false, false).unwrap();
-		apply(&mut state, Event::Message(deleted_source(101, 50, 2)));
-		assert_eq!(state.take_reply_deletions(), vec![(Id(2), Id(50))]);
-		assert!(state.timeline.get(Id(50)).is_some()); // Inactive channel is independent.
-		apply(&mut state, Event::Message(deleted_source(101, 50, 1)));
-		assert!(state.timeline.get(Id(50)).is_none());
-		state.apply(Envelope {
-			generation: state.generation - 1,
-			event: Event::Message(deleted_source(102, 40, 1)),
-		});
-		assert!(state.take_reply_deletions().is_empty());
-		assert!(!state.timeline.is_deleted(Id(40)));
-		state.history(Some(Id(201)));
-		let request = state.request;
-		apply(
-			&mut state,
-			Event::History {
-				channel: Id(1),
-				request,
-				older: true,
-				messages: (1..=50)
-					.map(|target| deleted_source(100 + target, target, 1))
-					.collect(),
-			},
-		);
-		let effects = state.take_reply_deletions();
-		assert_eq!(effects.len(), 50);
-		assert!(effects.iter().all(|(channel, _)| *channel == Id(1)));
-		assert!(state.take_reply_deletions().is_empty());
-	}
-
-	#[test]
-	fn rejected_history_cannot_publish_deletion_effects_or_remove_loaded_bodies() {
-		for invalid in 0..6 {
+		{
 			let mut state = state();
 			state.timeline.insert(message(50), false, false).unwrap();
-			state.history(Some(Id(150)));
-			let mut request = state.request;
-			let mut source = deleted_source(101, 50, 1);
-			let mut messages = vec![];
-			match invalid {
-				0 => request += 1,
-				1 => source.channel = Id(2),
-				2 => source.id = Id(151),
-				3 => messages.push(source.clone()),
-				4 => source.kind = 0,
-				_ => {
-					let mut oversized = message(102);
-					oversized.content = "x".repeat(64 * 1024 + 1);
-					messages.push(oversized);
-				}
-			}
-			messages.push(source);
+			apply(&mut state, Event::Message(deleted_source(101, 50, 2)));
+			assert_eq!(state.take_reply_deletions(), vec![(Id(2), Id(50))]);
+			assert!(state.timeline.get(Id(50)).is_some()); // Inactive channel is independent.
+			apply(&mut state, Event::Message(deleted_source(101, 50, 1)));
+			assert!(state.timeline.get(Id(50)).is_none());
+			state.apply(Envelope {
+				generation: state.generation - 1,
+				event: Event::Message(deleted_source(102, 40, 1)),
+			});
+			assert!(state.take_reply_deletions().is_empty());
+			assert!(!state.timeline.is_deleted(Id(40)));
+			state.history(Some(Id(201)));
+			let request = state.request;
 			apply(
 				&mut state,
 				Event::History {
 					channel: Id(1),
 					request,
 					older: true,
-					messages,
+					messages: (1..=50)
+						.map(|target| deleted_source(100 + target, target, 1))
+						.collect(),
 				},
 			);
+			let effects = state.take_reply_deletions();
+			assert_eq!(effects.len(), 50);
+			assert!(effects.iter().all(|(channel, _)| *channel == Id(1)));
 			assert!(state.take_reply_deletions().is_empty());
-			assert!(state.timeline.get(Id(50)).is_some());
-			assert!(!state.timeline.is_deleted(Id(50)));
 		}
-	}
-
-	#[test]
-	fn send_deletion_requires_correlation_and_handles_gateway_first_without_replacing_text() {
-		for invalid in 0..3 {
-			let mut state = state();
-			state.timeline.insert(message(50), false, false).unwrap();
-			if invalid != 0 {
-				state.pending.push(Pending {
-					sticker: None,
-					channel: Id(if invalid == 1 { 2 } else { 1 }),
-					content: "Pending".into(),
-					attachments: vec![],
-					nonce: "synthetic".into(),
-					delivery: Delivery::Ambiguous,
-					confirmed: None,
-				});
-			}
-			let mut source = deleted_source(101, 50, 1);
-			if invalid == 2 {
-				source.author.id = Id(8);
-			}
-			apply(
-				&mut state,
-				Event::SendResult {
-					nonce: "synthetic".into(),
-					result: Ok(source),
-				},
-			);
-			assert!(state.take_reply_deletions().is_empty());
-			assert!(state.timeline.get(Id(50)).is_some());
-		}
-		let mut state = state();
-		state.timeline.insert(message(50), false, false).unwrap();
-		state.pending.push(Pending {
-			sticker: None,
-			channel: Id(1),
-			content: "Pending".into(),
-			attachments: vec![],
-			nonce: "synthetic".into(),
-			delivery: Delivery::Ambiguous,
-			confirmed: None,
-		});
-		let mut source = deleted_source(101, 50, 1);
-		source.reply_deleted = false;
-		source.nonce = Some("synthetic".into());
-		source.content = "Newer Gateway body".into();
-		source.edited_at = Some(20);
-		apply(&mut state, Event::Message(source));
-		assert!(state.pending.is_empty());
-		apply(
-			&mut state,
-			Event::SendResult {
-				nonce: "synthetic".into(),
-				result: Ok(deleted_source(101, 50, 1)),
-			},
-		);
-		assert_eq!(state.take_reply_deletions(), vec![(Id(1), Id(50))]);
-		assert!(state.timeline.is_deleted(Id(50)));
-		let source = state.timeline.get(Id(101)).unwrap();
-		assert_eq!(source.content, "Newer Gateway body");
-		assert!(source.reply_deleted);
-		state.pending.push(Pending {
-			sticker: None,
-			channel: Id(2),
-			content: "Pending".into(),
-			attachments: vec![],
-			nonce: "other".into(),
-			delivery: Delivery::Ambiguous,
-			confirmed: None,
-		});
-		apply(
-			&mut state,
-			Event::SendResult {
-				nonce: "other".into(),
-				result: Ok(deleted_source(102, 40, 2)),
-			},
-		);
-		assert_eq!(state.take_reply_deletions(), vec![(Id(2), Id(40))]);
-		assert!(!state.timeline.is_deleted(Id(40)));
-	}
-
-	#[test]
-	fn send_deletion_capacity_clears_the_known_deleted_body_and_preserves_drafts() {
-		let mut state = state();
-		state.drafts.insert(Id(1), "Unsent draft".into());
-		state.timeline.insert(message(50), false, false).unwrap();
-		let mut source = deleted_source(101, 50, 1);
-		source.reply_deleted = false;
-		source.nonce = Some("synthetic".into());
-		state.timeline.insert(source, false, false).unwrap();
-		for id in 1000..1000 + session_cache::MAX_MUTATIONS as u64 {
-			state.timeline.delete(Id(id)).unwrap();
-		}
-		apply(
-			&mut state,
-			Event::SendResult {
-				nonce: "synthetic".into(),
-				result: Ok(deleted_source(101, 50, 1)),
-			},
-		);
-		assert!(state.timeline.is_empty());
-		assert_eq!(state.freshness, Freshness::Stale);
-		assert_eq!(state.take_reply_deletions(), vec![(Id(1), Id(50))]);
-		assert_eq!(state.drafts[&Id(1)], "Unsent draft");
-	}
-
-	#[test]
-	fn loaded_reply_target_only_scrolls_and_preserves_composer_work() {
-		let mut state = state();
-		state.timeline.insert(message(50), false, false).unwrap();
-		state.reply = Some(Reply::to(Id(100)));
-		state.drafts.insert(Id(1), "Unsent draft".into());
-		state.pending.push(Pending {
-			sticker: None,
-			channel: Id(1),
-			content: "Pending".into(),
-			attachments: vec![],
-			nonce: "synthetic".into(),
-			delivery: Delivery::Ambiguous,
-			confirmed: None,
-		});
-		let request = state.request;
-		let revision = state.revision;
-		let content = state.timeline.get(Id(50)).unwrap().content.as_ptr();
-		assert!(state.can_open_reply_target(Id(50)));
-		assert!(state.open_reply_target(Id(50)).is_none());
-		assert_eq!(state.search_target, Some(Id(50)));
-		assert_eq!(state.request, request);
-		assert_eq!(state.revision, revision + 1);
-		assert!(!state.history_pending);
-		assert_eq!(state.freshness, Freshness::Fresh);
-		assert_eq!(
-			state.timeline.get(Id(50)).unwrap().content.as_ptr(),
-			content
-		);
-		assert_eq!(state.reply_target(), Some(Id(100)));
-		assert_eq!(state.drafts[&Id(1)], "Unsent draft");
-		assert_eq!(state.pending[0].delivery, Delivery::Ambiguous);
-		assert!(state.can_open_reply_target(Id(100))); // Composer context is also a source.
-	}
-
-	#[test]
-	fn unloaded_reply_uses_one_scoped_page_and_preserves_deletion_guards() {
-		let mut state = state();
-		state.reply = Some(Reply::to(Id(50)));
-		state.drafts.insert(Id(1), "Unsent draft".into());
-		apply(
-			&mut state,
-			Event::Delete {
-				channel: Id(1),
-				id: Id(40),
-			},
-		);
-		let command = state.open_reply_target(Id(50)).unwrap();
-		let Command::History {
-			channel,
-			before,
-			request,
-			..
-		} = command
-		else {
-			panic!()
-		};
-		assert_eq!(channel, Id(1));
-		assert_eq!(before, Some(Id(51)));
-		assert_eq!(state.timeline.row_count(), 0);
-		assert!(state.timeline.is_deleted(Id(40)));
-		assert_eq!(state.freshness, Freshness::Loading);
-		assert_eq!(state.reply_target(), Some(Id(50)));
-		assert_eq!(state.drafts[&Id(1)], "Unsent draft");
-		assert!(state.open_reply_target(Id(50)).is_none());
-		assert_eq!(state.request, request);
-		// A delete racing the request must also defeat both live and REST bodies.
-		apply(
-			&mut state,
-			Event::Delete {
-				channel: Id(1),
-				id: Id(50),
-			},
-		);
-		apply(&mut state, Event::Message(message(50)));
-		apply(
-			&mut state,
-			Event::History {
-				channel,
-				request,
-				older: true,
-				messages: vec![message(50), message(40), message(30)],
-			},
-		);
-		assert_eq!(state.timeline.row_ids().collect::<Vec<_>>(), vec![Id(30)]);
-		assert!(state.timeline.is_deleted(Id(50)));
-		assert!(!state.can_open_reply_target(Id(50)));
-		assert_eq!(state.freshness, Freshness::Fresh);
-	}
-
-	#[test]
-	fn reply_targets_require_a_current_scoped_reference_and_safe_state() {
-		let state = state();
-		assert!(!state.can_open_reply_target(Id(25)));
-		assert!(!state.can_open_reply_target(Id(100))); // Loaded alone is not a reference.
-		for target in [Id(0), Id(u64::MAX)] {
-			let mut invalid = self::state();
-			invalid.reply = Some(Reply::to(target));
-			assert!(!invalid.can_open_reply_target(target));
-			assert!(invalid.open_reply_target(target).is_none());
-		}
-		for blocked in 0..8 {
-			let mut state = self::state();
-			match blocked {
-				0 => state.auth = AuthState::Unauthenticated,
-				1 => state.gateway_connected = false,
-				2 => state.freshness = Freshness::Stale,
-				3 => state.history_pending = true,
-				4 => state.selected = Some(Id(2)),
-				5 => state.channels[0].kind = 2,
-				6 => {
-					state.timeline.delete(Id(50)).unwrap();
+		{
+			for invalid in 0..6 {
+				let mut state = state();
+				state.timeline.insert(message(50), false, false).unwrap();
+				state.history(Some(Id(150)));
+				let mut request = state.request;
+				let mut source = deleted_source(101, 50, 1);
+				let mut messages = vec![];
+				match invalid {
+					0 => request += 1,
+					1 => source.channel = Id(2),
+					2 => source.id = Id(151),
+					3 => messages.push(source.clone()),
+					4 => source.kind = 0,
+					_ => {
+						let mut oversized = message(102);
+						oversized.content = "x".repeat(64 * 1024 + 1);
+						messages.push(oversized);
+					}
 				}
-				_ => {
-					let mut target = message(50);
-					target.channel = Id(2);
-					state.timeline.insert(target, false, false).unwrap();
-				}
-			}
-			assert!(!state.can_open_reply_target(Id(50)));
-			assert!(state.open_reply_target(Id(50)).is_none());
-			assert!(state.search_target.is_none());
-		}
-	}
-
-	#[test]
-	fn failure_navigation_logout_and_revocation_retire_target_requests() {
-		for transition in 0..4 {
-			let mut state = state();
-			state.open_reply_target(Id(50)).unwrap();
-			let request = state.request;
-			let generation = state.generation;
-			match transition {
-				0 => apply(
-					&mut state,
-					Event::HistoryFailed {
-						channel: Id(1),
-						request,
-						failure: Failure::Network,
-					},
-				),
-				1 => {
-					state.select(Id(2));
-				}
-				2 => state.logout(),
-				_ => apply(&mut state, Event::Unavailable(Id(1))),
-			}
-			assert!(state.search_target.is_none());
-			state.apply(Envelope {
-				generation,
-				event: Event::History {
-					channel: Id(1),
-					request,
-					older: true,
-					messages: vec![message(50)],
-				},
-			});
-			assert!(state.timeline.get(Id(50)).is_none());
-		}
-	}
-
-	#[test]
-	fn explicit_reference_deletion_retires_composer_and_loaded_target() {
-		for history in [false, true] {
-			let mut state = state();
-			state.timeline.insert(message(50), false, false).unwrap();
-			state.reply = Some(Reply::to(Id(50)));
-			let mut source = message(101);
-			source.reply_to = Some(Id(50));
-			source.kind = 19;
-			source.reply_deleted = true;
-			if history {
-				state.history(None);
-				let request = state.request;
+				messages.push(source);
 				apply(
 					&mut state,
 					Event::History {
 						channel: Id(1),
 						request,
-						older: false,
-						messages: vec![message(50), source],
+						older: true,
+						messages,
 					},
 				);
-			} else {
-				apply(&mut state, Event::Message(source));
+				assert!(state.take_reply_deletions().is_empty());
+				assert!(state.timeline.get(Id(50)).is_some());
+				assert!(!state.timeline.is_deleted(Id(50)));
 			}
-			assert!(state.timeline.get(Id(50)).is_none());
-			assert!(state.timeline.is_deleted(Id(50)));
-			assert!(state.reply.is_none());
-			assert!(!state.can_open_reply_target(Id(50)));
-			assert!(state.open_reply_target(Id(50)).is_none());
 		}
 	}
 
 	#[test]
-	fn fetched_target_ranges_never_become_recent_resident_windows_after_scroll() {
-		let mut state = state();
-		for channel in [2, 3, 1] {
-			state.select(Id(channel)).unwrap();
+	fn send_deletion_requires_correlation_and_handles_gateway_first_without_replacing_text() {
+		{
+			for invalid in 0..3 {
+				let mut state = state();
+				state.timeline.insert(message(50), false, false).unwrap();
+				if invalid != 0 {
+					state.pending.push(Pending {
+						sticker: None,
+						channel: Id(if invalid == 1 { 2 } else { 1 }),
+						content: "Pending".into(),
+						attachments: vec![],
+						nonce: "synthetic".into(),
+						delivery: Delivery::Ambiguous,
+						confirmed: None,
+					});
+				}
+				let mut source = deleted_source(101, 50, 1);
+				if invalid == 2 {
+					source.author.id = Id(8);
+				}
+				apply(
+					&mut state,
+					Event::SendResult {
+						nonce: "synthetic".into(),
+						result: Ok(source),
+					},
+				);
+				assert!(state.take_reply_deletions().is_empty());
+				assert!(state.timeline.get(Id(50)).is_some());
+			}
+			let mut state = state();
+			state.timeline.insert(message(50), false, false).unwrap();
+			state.pending.push(Pending {
+				sticker: None,
+				channel: Id(1),
+				content: "Pending".into(),
+				attachments: vec![],
+				nonce: "synthetic".into(),
+				delivery: Delivery::Ambiguous,
+				confirmed: None,
+			});
+			let mut source = deleted_source(101, 50, 1);
+			source.reply_deleted = false;
+			source.nonce = Some("synthetic".into());
+			source.content = "Newer Gateway body".into();
+			source.edited_at = Some(20);
+			apply(&mut state, Event::Message(source));
+			assert!(state.pending.is_empty());
+			apply(
+				&mut state,
+				Event::SendResult {
+					nonce: "synthetic".into(),
+					result: Ok(deleted_source(101, 50, 1)),
+				},
+			);
+			assert_eq!(state.take_reply_deletions(), vec![(Id(1), Id(50))]);
+			assert!(state.timeline.is_deleted(Id(50)));
+			let source = state.timeline.get(Id(101)).unwrap();
+			assert_eq!(source.content, "Newer Gateway body");
+			assert!(source.reply_deleted);
+			state.pending.push(Pending {
+				sticker: None,
+				channel: Id(2),
+				content: "Pending".into(),
+				attachments: vec![],
+				nonce: "other".into(),
+				delivery: Delivery::Ambiguous,
+				confirmed: None,
+			});
+			apply(
+				&mut state,
+				Event::SendResult {
+					nonce: "other".into(),
+					result: Ok(deleted_source(102, 40, 2)),
+				},
+			);
+			assert_eq!(state.take_reply_deletions(), vec![(Id(2), Id(40))]);
+			assert!(!state.timeline.is_deleted(Id(40)));
+		}
+		{
+			let mut state = state();
+			state.drafts.insert(Id(1), "Unsent draft".into());
+			state.timeline.insert(message(50), false, false).unwrap();
+			let mut source = deleted_source(101, 50, 1);
+			source.reply_deleted = false;
+			source.nonce = Some("synthetic".into());
+			state.timeline.insert(source, false, false).unwrap();
+			for id in 1000..1000 + session_cache::MAX_MUTATIONS as u64 {
+				state.timeline.delete(Id(id)).unwrap();
+			}
+			apply(
+				&mut state,
+				Event::SendResult {
+					nonce: "synthetic".into(),
+					result: Ok(deleted_source(101, 50, 1)),
+				},
+			);
+			assert!(state.timeline.is_empty());
+			assert_eq!(state.freshness, Freshness::Stale);
+			assert_eq!(state.take_reply_deletions(), vec![(Id(1), Id(50))]);
+			assert_eq!(state.drafts[&Id(1)], "Unsent draft");
+		}
+	}
+
+	#[test]
+	fn loaded_reply_target_only_scrolls_and_preserves_composer_work() {
+		{
+			let mut state = state();
+			state.timeline.insert(message(50), false, false).unwrap();
+			state.reply = Some(Reply::to(Id(100)));
+			state.drafts.insert(Id(1), "Unsent draft".into());
+			state.pending.push(Pending {
+				sticker: None,
+				channel: Id(1),
+				content: "Pending".into(),
+				attachments: vec![],
+				nonce: "synthetic".into(),
+				delivery: Delivery::Ambiguous,
+				confirmed: None,
+			});
 			let request = state.request;
-			let mut loaded = message(100);
-			loaded.channel = Id(channel);
-			loaded.reply_to = Some(Id(50));
+			let revision = state.revision;
+			let content = state.timeline.get(Id(50)).unwrap().content.as_ptr();
+			assert!(state.can_open_reply_target(Id(50)));
+			assert!(state.open_reply_target(Id(50)).is_none());
+			assert_eq!(state.search_target, Some(Id(50)));
+			assert_eq!(state.request, request);
+			assert_eq!(state.revision, revision + 1);
+			assert!(!state.history_pending);
+			assert_eq!(state.freshness, Freshness::Fresh);
+			assert_eq!(
+				state.timeline.get(Id(50)).unwrap().content.as_ptr(),
+				content
+			);
+			assert_eq!(state.reply_target(), Some(Id(100)));
+			assert_eq!(state.drafts[&Id(1)], "Unsent draft");
+			assert_eq!(state.pending[0].delivery, Delivery::Ambiguous);
+			assert!(state.can_open_reply_target(Id(100))); // Composer context is also a source.
+		}
+		{
+			let mut state = state();
+			state.reply = Some(Reply::to(Id(50)));
+			state.drafts.insert(Id(1), "Unsent draft".into());
+			apply(
+				&mut state,
+				Event::Delete {
+					channel: Id(1),
+					id: Id(40),
+				},
+			);
+			let command = state.open_reply_target(Id(50)).unwrap();
+			let Command::History {
+				channel,
+				before,
+				request,
+				..
+			} = command
+			else {
+				panic!()
+			};
+			assert_eq!(channel, Id(1));
+			assert_eq!(before, Some(Id(51)));
+			assert_eq!(state.timeline.row_count(), 0);
+			assert!(state.timeline.is_deleted(Id(40)));
+			assert_eq!(state.freshness, Freshness::Loading);
+			assert_eq!(state.reply_target(), Some(Id(50)));
+			assert_eq!(state.drafts[&Id(1)], "Unsent draft");
+			assert!(state.open_reply_target(Id(50)).is_none());
+			assert_eq!(state.request, request);
+			// A delete racing the request must also defeat both live and REST bodies.
+			apply(
+				&mut state,
+				Event::Delete {
+					channel: Id(1),
+					id: Id(50),
+				},
+			);
+			apply(&mut state, Event::Message(message(50)));
 			apply(
 				&mut state,
 				Event::History {
-					channel: Id(channel),
+					channel,
 					request,
-					older: false,
-					messages: vec![loaded],
+					older: true,
+					messages: vec![message(50), message(40), message(30)],
 				},
 			);
+			assert_eq!(state.timeline.row_ids().collect::<Vec<_>>(), vec![Id(30)]);
+			assert!(state.timeline.is_deleted(Id(50)));
+			assert!(!state.can_open_reply_target(Id(50)));
+			assert_eq!(state.freshness, Freshness::Fresh);
 		}
-		assert_eq!(state.resident_window_count(), 2);
-		state.open_reply_target(Id(50)).unwrap();
-		let request = state.request;
-		apply(
-			&mut state,
-			Event::History {
-				channel: Id(1),
-				request,
-				older: true,
-				messages: vec![message(50)],
-			},
-		);
-		assert_eq!(state.search_target.take(), Some(Id(50))); // The UI consumes only the cue.
-		assert!(state.history_targeted);
-		assert!(state.resident_history_rows() <= 1475);
-		assert!(state.resident_history_bytes() <= 16 * 1024 * 1024 - 66 * 1024);
-		state.select(Id(2)).unwrap();
-		assert!(!state.history_targeted);
-		state.select(Id(1)).unwrap();
-		assert_eq!(state.timeline.row_count(), 0);
-		assert!(state.search_target.is_none());
+	}
+
+	#[test]
+	fn reply_targets_require_a_current_scoped_reference_and_safe_state() {
+		{
+			let state = state();
+			assert!(!state.can_open_reply_target(Id(25)));
+			assert!(!state.can_open_reply_target(Id(100))); // Loaded alone is not a reference.
+			for target in [Id(0), Id(u64::MAX)] {
+				let mut invalid = self::state();
+				invalid.reply = Some(Reply::to(target));
+				assert!(!invalid.can_open_reply_target(target));
+				assert!(invalid.open_reply_target(target).is_none());
+			}
+			for blocked in 0..8 {
+				let mut state = self::state();
+				match blocked {
+					0 => state.auth = AuthState::Unauthenticated,
+					1 => state.gateway_connected = false,
+					2 => state.freshness = Freshness::Stale,
+					3 => state.history_pending = true,
+					4 => state.selected = Some(Id(2)),
+					5 => state.channels[0].kind = 2,
+					6 => {
+						state.timeline.delete(Id(50)).unwrap();
+					}
+					_ => {
+						let mut target = message(50);
+						target.channel = Id(2);
+						state.timeline.insert(target, false, false).unwrap();
+					}
+				}
+				assert!(!state.can_open_reply_target(Id(50)));
+				assert!(state.open_reply_target(Id(50)).is_none());
+				assert!(state.search_target.is_none());
+			}
+		}
+		{
+			for transition in 0..4 {
+				let mut state = state();
+				state.open_reply_target(Id(50)).unwrap();
+				let request = state.request;
+				let generation = state.generation;
+				match transition {
+					0 => apply(
+						&mut state,
+						Event::HistoryFailed {
+							channel: Id(1),
+							request,
+							failure: Failure::Network,
+						},
+					),
+					1 => {
+						state.select(Id(2));
+					}
+					2 => state.logout(),
+					_ => apply(&mut state, Event::Unavailable(Id(1))),
+				}
+				assert!(state.search_target.is_none());
+				state.apply(Envelope {
+					generation,
+					event: Event::History {
+						channel: Id(1),
+						request,
+						older: true,
+						messages: vec![message(50)],
+					},
+				});
+				assert!(state.timeline.get(Id(50)).is_none());
+			}
+		}
+	}
+
+	#[test]
+	fn explicit_reference_deletion_retires_composer_and_loaded_target() {
+		{
+			for history in [false, true] {
+				let mut state = state();
+				state.timeline.insert(message(50), false, false).unwrap();
+				state.reply = Some(Reply::to(Id(50)));
+				let mut source = message(101);
+				source.reply_to = Some(Id(50));
+				source.kind = 19;
+				source.reply_deleted = true;
+				if history {
+					state.history(None);
+					let request = state.request;
+					apply(
+						&mut state,
+						Event::History {
+							channel: Id(1),
+							request,
+							older: false,
+							messages: vec![message(50), source],
+						},
+					);
+				} else {
+					apply(&mut state, Event::Message(source));
+				}
+				assert!(state.timeline.get(Id(50)).is_none());
+				assert!(state.timeline.is_deleted(Id(50)));
+				assert!(state.reply.is_none());
+				assert!(!state.can_open_reply_target(Id(50)));
+				assert!(state.open_reply_target(Id(50)).is_none());
+			}
+		}
+		{
+			let mut state = state();
+			for channel in [2, 3, 1] {
+				state.select(Id(channel)).unwrap();
+				let request = state.request;
+				let mut loaded = message(100);
+				loaded.channel = Id(channel);
+				loaded.reply_to = Some(Id(50));
+				apply(
+					&mut state,
+					Event::History {
+						channel: Id(channel),
+						request,
+						older: false,
+						messages: vec![loaded],
+					},
+				);
+			}
+			assert_eq!(state.resident_window_count(), 2);
+			state.open_reply_target(Id(50)).unwrap();
+			let request = state.request;
+			apply(
+				&mut state,
+				Event::History {
+					channel: Id(1),
+					request,
+					older: true,
+					messages: vec![message(50)],
+				},
+			);
+			assert_eq!(state.search_target.take(), Some(Id(50))); // The UI consumes only the cue.
+			assert!(state.history_targeted);
+			assert!(state.resident_history_rows() <= 1475);
+			assert!(state.resident_history_bytes() <= 16 * 1024 * 1024 - 66 * 1024);
+			state.select(Id(2)).unwrap();
+			assert!(!state.history_targeted);
+			state.select(Id(1)).unwrap();
+			assert_eq!(state.timeline.row_count(), 0);
+			assert!(state.search_target.is_none());
+		}
 	}
 
 	#[test]

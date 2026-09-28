@@ -1059,614 +1059,517 @@ mod tests {
 
 	#[test]
 	fn stream_preview_is_scoped_to_the_current_streamer_request() {
-		let mut state = stream_preview_state();
-		let Some(crate::Command::StreamPreview { request, .. }) =
-			state.request_stream_preview(Id(10), Id(20), Id(30))
-		else {
-			panic!("stream preview was not requested");
-		};
-		state.apply_stream_preview(Id(10), Id(20), Id(30), request + 1, Ok("stale".into()));
-		assert!(state.voice.preview.as_ref().unwrap().loading);
-		state.apply_stream_preview(Id(10), Id(20), Id(30), request, Ok("preview".into()));
-		let preview = state.voice.preview.as_ref().unwrap();
-		assert!(!preview.loading);
-		assert_eq!(preview.url.as_deref(), Some("preview"));
-	}
-
-	#[test]
-	fn stream_preview_capacity_is_local_but_expired_auth_ends_session() {
-		let mut state = stream_preview_state();
-		let command = state
-			.request_stream_preview(Id(10), Id(20), Id(30))
-			.unwrap();
-		state.command_rejected(command);
-		assert_eq!(state.auth, AuthState::Authenticated);
-		assert!(state.gateway_connected);
-		let preview = state.voice.preview.as_ref().unwrap();
-		assert!(!preview.loading);
-		assert!(preview.error.is_some());
-		let request = preview.request;
-		state.apply_stream_preview(Id(10), Id(20), Id(30), request, Err(Failure::Expired));
-		assert_ne!(state.auth, AuthState::Authenticated);
-		assert!(state.voice.preview.is_none());
-	}
-
-	#[test]
-	fn stream_preview_revoked_connect_clears_cached_and_inflight_results() {
-		use model::permissions as p;
-		for cached in [false, true] {
+		{
 			let mut state = stream_preview_state();
-			state
+			let Some(crate::Command::StreamPreview { request, .. }) =
+				state.request_stream_preview(Id(10), Id(20), Id(30))
+			else {
+				panic!("stream preview was not requested");
+			};
+			state.apply_stream_preview(Id(10), Id(20), Id(30), request + 1, Ok("stale".into()));
+			assert!(state.voice.preview.as_ref().unwrap().loading);
+			state.apply_stream_preview(Id(10), Id(20), Id(30), request, Ok("preview".into()));
+			let preview = state.voice.preview.as_ref().unwrap();
+			assert!(!preview.loading);
+			assert_eq!(preview.url.as_deref(), Some("preview"));
+		}
+		{
+			let mut state = stream_preview_state();
+			let command = state
 				.request_stream_preview(Id(10), Id(20), Id(30))
 				.unwrap();
-			let request = state.voice.preview.as_ref().unwrap().request;
-			if cached {
-				state.apply_stream_preview(Id(10), Id(20), Id(30), request, Ok("preview".into()));
-			}
-			state.apply(Envelope {
-				generation: state.generation,
-				event: CoreEvent::Permissions(crate::permissions::Event::Guild(p::Guild {
-					id: Id(10),
-					owner: Some(Id(99)),
-					roles: Some(vec![p::Role {
-						id: Id(10),
-						name: String::new(),
-						color: 0,
-						position: 0,
-						hoist: false,
-						bits: p::VIEW_CHANNEL,
-					}]),
-					member: Some(p::Member {
-						roles: vec![],
-						timeout_until: None,
-					}),
-				})),
-			});
-			assert!(state.can_view(Id(20)));
-			assert!(!state.has_voice_access(Id(20)));
-			assert_eq!(state.voice.roster.len(), 1);
+			state.command_rejected(command);
+			assert_eq!(state.auth, AuthState::Authenticated);
+			assert!(state.gateway_connected);
+			let preview = state.voice.preview.as_ref().unwrap();
+			assert!(!preview.loading);
+			assert!(preview.error.is_some());
+			let request = preview.request;
+			state.apply_stream_preview(Id(10), Id(20), Id(30), request, Err(Failure::Expired));
+			assert_ne!(state.auth, AuthState::Authenticated);
 			assert!(state.voice.preview.is_none());
-			state.apply_stream_preview(Id(10), Id(20), Id(30), request, Ok("late".into()));
-			assert!(state.voice.preview.is_none());
-			assert!(
+		}
+		{
+			use model::permissions as p;
+			for cached in [false, true] {
+				let mut state = stream_preview_state();
 				state
 					.request_stream_preview(Id(10), Id(20), Id(30))
-					.is_none()
-			);
-			let denied = state.voice.preview.as_ref().unwrap().request;
-			state.apply_stream_preview(Id(10), Id(20), Id(30), denied, Ok("denied".into()));
-			assert!(state.voice.preview.is_none());
+					.unwrap();
+				let request = state.voice.preview.as_ref().unwrap().request;
+				if cached {
+					state.apply_stream_preview(
+						Id(10),
+						Id(20),
+						Id(30),
+						request,
+						Ok("preview".into()),
+					);
+				}
+				state.apply(Envelope {
+					generation: state.generation,
+					event: CoreEvent::Permissions(crate::permissions::Event::Guild(p::Guild {
+						id: Id(10),
+						owner: Some(Id(99)),
+						roles: Some(vec![p::Role {
+							id: Id(10),
+							name: String::new(),
+							color: 0,
+							position: 0,
+							hoist: false,
+							bits: p::VIEW_CHANNEL,
+						}]),
+						member: Some(p::Member {
+							roles: vec![],
+							timeout_until: None,
+						}),
+					})),
+				});
+				assert!(state.can_view(Id(20)));
+				assert!(!state.has_voice_access(Id(20)));
+				assert_eq!(state.voice.roster.len(), 1);
+				assert!(state.voice.preview.is_none());
+				state.apply_stream_preview(Id(10), Id(20), Id(30), request, Ok("late".into()));
+				assert!(state.voice.preview.is_none());
+				assert!(
+					state
+						.request_stream_preview(Id(10), Id(20), Id(30))
+						.is_none()
+				);
+				let denied = state.voice.preview.as_ref().unwrap().request;
+				state.apply_stream_preview(Id(10), Id(20), Id(30), denied, Ok("denied".into()));
+				assert!(state.voice.preview.is_none());
+			}
 		}
 	}
 
 	#[test]
 	fn guild_roster_moves_mutes_limits_and_selection_never_join_implicitly() {
-		let mut state = ClientState {
-			auth: AuthState::Authenticated,
-			gateway_connected: true,
-			user: Some(User {
-				primary_guild: None,
-				id: Id(1),
-				name: "Owner".into(),
-				avatar: None,
-				webhook: false,
-				kind: Default::default(),
-				discriminator: 0,
-			}),
-			guilds: vec![model::Guild {
-				stickers: None,
-				id: Id(10),
-				name: "Synthetic".into(),
-				icon: None,
-				emojis: None,
-			}],
-			channels: [20, 21]
-				.into_iter()
-				.map(|id| Channel {
-					id: Id(id),
-					guild: Some(Id(10)),
-					kind: 2,
-					name: "Room".into(),
-					last_message: None,
-					parent_id: None,
-					position: 0,
-					recipients: vec![],
-					icon: None,
-					member_list_id: None,
-					tags: None,
-					message_count: None,
-				})
-				.collect(),
-			..ClientState::default()
-		};
-		crate::tests::grant_permissions(&mut state);
-		let entry = |user, channel| RosterEntry {
-			guild: Id(10),
-			channel: Id(channel),
-			participant: Participant {
-				user: Id(user),
-				muted: true,
-				deafened: false,
-				server_muted: true,
-				server_deafened: false,
-				video: false,
-				streaming: false,
-			},
-			member: None,
-		};
-		state.apply_voice(Event::Snapshot {
-			guild: None,
-			partial: false,
-			participants: vec![entry(2, 20)],
-		});
-		assert!(state.voice.active.is_none());
-		assert!(matches!(
-			state.select(Id(20)),
-			Some(crate::Command::History {
-				channel: Id(20),
-				..
-			})
-		));
-		assert_eq!(state.selected, Some(Id(20)));
-		assert!(state.history_pending);
-		assert!(state.voice.active.is_none());
-		state.apply_voice(Event::Snapshot {
-			guild: None,
-			partial: true,
-			participants: vec![entry(3, 21)],
-		});
-		assert_eq!(state.voice.roster.len(), 2);
-		assert!(matches!(
-			state.start_call(Id(20), true),
-			Some(crate::Command::Voice(Command::Join { ring: false, .. }))
-		));
-		let call = state.voice.active.as_ref().unwrap();
-		let request = call.request;
-		assert_eq!(call.guild, Some(Id(10)));
-		assert!(call.connected_at.is_none());
-		assert!(call.channel_started_at.is_none());
-		assert_eq!(call.participants.len(), 1);
-		let unix_seconds = SystemTime::now()
-			.duration_since(UNIX_EPOCH)
-			.unwrap()
-			.as_secs()
-			- 3663;
-		state.apply_voice(Event::ChannelStarted {
-			guild: Id(10),
-			channel: Id(20),
-			unix_seconds: Some(unix_seconds),
-		});
-		assert!(
-			state
-				.voice
-				.active
-				.as_ref()
-				.unwrap()
-				.channel_started_at
-				.unwrap()
-				.elapsed()
-				.as_secs() >= 3663
-		);
-		state.apply_voice(Event::Progress {
-			channel: Id(20),
-			request,
-			phase: Phase::Waiting,
-		});
-		let connected_at = state.voice.active.as_ref().unwrap().connected_at;
-		assert!(connected_at.is_some());
-		state.apply_voice(Event::Progress {
-			channel: Id(20),
-			request,
-			phase: Phase::Connected,
-		});
-		assert_eq!(
-			state.voice.active.as_ref().unwrap().connected_at,
-			connected_at
-		);
-		state.apply_voice(Event::State {
-			guild: Some(Id(10)),
-			channel: Some(Id(21)),
-			user: Id(2),
-			request: None,
-			session: None,
-			member: None,
-			muted: false,
-			deafened: true,
-			server_muted: false,
-			server_deafened: true,
-			video: false,
-			streaming: false,
-		});
-		assert!(state.voice.active.as_ref().unwrap().participants.is_empty());
-		assert_eq!(
-			state
-				.voice
-				.roster
-				.iter()
-				.find(|r| r.participant.user == Id(2))
-				.unwrap()
-				.channel,
-			Id(21)
-		);
-		state.apply(Envelope {
-			generation: state.generation,
-			event: CoreEvent::Disconnected,
-		});
-		assert_eq!(state.voice.roster.len(), 2);
-		assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Connected);
-		state.apply(Envelope {
-			generation: state.generation,
-			event: CoreEvent::PermissionsChanged,
-		});
-		assert!(state.voice.roster.is_empty());
-		crate::tests::grant_permissions(&mut state);
-		let mut oversized = entry(2, 20);
-		oversized.member = Some(Member {
-			roles: vec![],
-			user: User {
-				primary_guild: None,
-				id: Id(2),
-				name: "x".repeat(MAX_ROSTER_BYTES),
-				avatar: None,
-				webhook: false,
-				kind: Default::default(),
-				discriminator: 0,
-			},
-			nick: None,
-			status: None,
-			custom_status: None,
-			activities: vec![],
-			clients: model::ClientPlatforms::default(),
-		});
-		state.apply_voice(Event::Snapshot {
-			guild: None,
-			partial: false,
-			participants: vec![oversized],
-		});
-		assert!(state.voice.roster.is_empty());
-		assert!(state.status.contains("capacity"));
-		state.apply_voice(Event::Snapshot {
-			guild: None,
-			partial: false,
-			participants: (1..=MAX_PARTICIPANTS as u64)
-				.map(|user| entry(user, 20))
-				.collect(),
-		});
-		state.leave_call();
-		state.gateway_connected = true;
-		assert!(state.start_call(Id(20), false).is_none());
-		state.apply(Envelope {
-			generation: state.generation,
-			event: CoreEvent::Unavailable(Id(20)),
-		});
-		assert!(state.voice.roster.is_empty());
-
-		use model::permissions as p;
-		state
-			.permissions
-			.replace(p::Snapshot {
-				guilds: vec![p::Guild {
+		{
+			let mut state = ClientState {
+				auth: AuthState::Authenticated,
+				gateway_connected: true,
+				user: Some(User {
+					primary_guild: None,
+					id: Id(1),
+					name: "Owner".into(),
+					avatar: None,
+					webhook: false,
+					kind: Default::default(),
+					discriminator: 0,
+				}),
+				guilds: vec![model::Guild {
+					stickers: None,
 					id: Id(10),
-					owner: Some(Id(999)),
-					roles: Some(vec![p::Role {
-						name: String::new(),
-						color: 0,
-						position: 0,
-						hoist: false,
-						id: Id(10),
-						bits: p::VIEW_CHANNEL | p::CONNECT,
-					}]),
-					member: Some(p::Member {
-						roles: vec![],
-						timeout_until: None,
-					}),
-				}],
-				channels: vec![p::Channel {
-					id: Id(21),
-					guild: Id(10),
-					overwrites: Some(vec![]),
-				}],
-			})
-			.unwrap();
-		assert!(
-			state.start_call(Id(21), false).is_some(),
-			"CONNECT permits a listen-only call"
-		);
-		assert!(state.voice.active.as_ref().unwrap().muted);
-		state.voice.active.as_mut().unwrap().phase = Phase::Connected;
-		assert!(!state.can_camera(Id(21)));
-		assert!(state.set_call_camera(true).is_none());
-		assert!(matches!(
-			state.set_call_mute(false, false),
-			Some(crate::Command::Voice(Command::SetMute { mute: true, .. }))
-		));
-		state
-			.permissions
-			.guilds
-			.get_mut(&Id(10))
-			.unwrap()
-			.roles
-			.as_mut()
-			.unwrap()[0]
-			.bits |= p::SPEAK | p::STREAM;
-		state.permissions.clear_cache();
-		assert!(state.set_call_camera(true).is_some());
-		assert!(matches!(
-			state.set_call_mute(false, false),
-			Some(crate::Command::Voice(Command::SetMute { mute: false, .. }))
-		));
-		state
-			.permissions
-			.guilds
-			.get_mut(&Id(10))
-			.unwrap()
-			.roles
-			.as_mut()
-			.unwrap()[0]
-			.bits &= !p::CONNECT;
-		state.permissions.clear_cache();
-		assert!(!state.can_call(Id(21)));
-		assert!(state.set_call_camera(false).is_some());
-		assert!(!state.voice.active.as_ref().unwrap().camera);
-		assert!(state.set_call_mute(false, false).is_none());
-		state.leave_call();
-		assert!(state.start_call(Id(21), false).is_none());
-	}
-
-	#[test]
-	fn revoked_view_releases_idle_roster_and_rejects_late_voice_updates() {
-		use model::permissions as p;
-		let mut state = ClientState {
-			auth: AuthState::Authenticated,
-			gateway_connected: true,
-			user: Some(User {
-				primary_guild: None,
-				id: Id(1),
-				name: "Owner".into(),
-				avatar: None,
-				webhook: false,
-				kind: Default::default(),
-				discriminator: 0,
-			}),
-			guilds: vec![model::Guild {
-				stickers: None,
-				id: Id(10),
-				name: "Synthetic".into(),
-				icon: None,
-				emojis: None,
-			}],
-			channels: [20, 21]
-				.into_iter()
-				.map(|id| Channel {
-					id: Id(id),
-					guild: Some(Id(10)),
-					kind: 2,
-					name: "Room".into(),
-					last_message: None,
-					parent_id: None,
-					position: 0,
-					recipients: vec![],
+					name: "Synthetic".into(),
 					icon: None,
-					member_list_id: None,
-					tags: None,
-					message_count: None,
-				})
-				.collect(),
-			..ClientState::default()
-		};
-		state
-			.permissions
-			.replace(p::Snapshot {
-				guilds: vec![p::Guild {
-					id: Id(10),
-					owner: Some(Id(99)),
-					roles: Some(vec![p::Role {
-						id: Id(10),
-						bits: p::VIEW_CHANNEL | p::CONNECT,
-						name: String::new(),
-						color: 0,
-						position: 0,
-						hoist: false,
-					}]),
-					member: Some(p::Member {
-						roles: vec![],
-						timeout_until: None,
-					}),
+					emojis: None,
 				}],
 				channels: [20, 21]
 					.into_iter()
-					.map(|id| p::Channel {
+					.map(|id| Channel {
 						id: Id(id),
-						guild: Id(10),
-						overwrites: Some(vec![]),
+						guild: Some(Id(10)),
+						kind: 2,
+						name: "Room".into(),
+						last_message: None,
+						parent_id: None,
+						position: 0,
+						recipients: vec![],
+						icon: None,
+						member_list_id: None,
+						tags: None,
+						message_count: None,
 					})
 					.collect(),
-			})
-			.unwrap();
-		let entry = |channel| RosterEntry {
-			guild: Id(10),
-			channel: Id(channel),
-			participant: Participant {
-				user: Id(channel + 100),
+				..ClientState::default()
+			};
+			crate::tests::grant_permissions(&mut state);
+			let entry = |user, channel| RosterEntry {
+				guild: Id(10),
+				channel: Id(channel),
+				participant: Participant {
+					user: Id(user),
+					muted: true,
+					deafened: false,
+					server_muted: true,
+					server_deafened: false,
+					video: false,
+					streaming: false,
+				},
+				member: None,
+			};
+			state.apply_voice(Event::Snapshot {
+				guild: None,
+				partial: false,
+				participants: vec![entry(2, 20)],
+			});
+			assert!(state.voice.active.is_none());
+			assert!(matches!(
+				state.select(Id(20)),
+				Some(crate::Command::History {
+					channel: Id(20),
+					..
+				})
+			));
+			assert_eq!(state.selected, Some(Id(20)));
+			assert!(state.history_pending);
+			assert!(state.voice.active.is_none());
+			state.apply_voice(Event::Snapshot {
+				guild: None,
+				partial: true,
+				participants: vec![entry(3, 21)],
+			});
+			assert_eq!(state.voice.roster.len(), 2);
+			assert!(matches!(
+				state.start_call(Id(20), true),
+				Some(crate::Command::Voice(Command::Join { ring: false, .. }))
+			));
+			let call = state.voice.active.as_ref().unwrap();
+			let request = call.request;
+			assert_eq!(call.guild, Some(Id(10)));
+			assert!(call.connected_at.is_none());
+			assert!(call.channel_started_at.is_none());
+			assert_eq!(call.participants.len(), 1);
+			let unix_seconds = SystemTime::now()
+				.duration_since(UNIX_EPOCH)
+				.unwrap()
+				.as_secs() - 3663;
+			state.apply_voice(Event::ChannelStarted {
+				guild: Id(10),
+				channel: Id(20),
+				unix_seconds: Some(unix_seconds),
+			});
+			assert!(
+				state
+					.voice
+					.active
+					.as_ref()
+					.unwrap()
+					.channel_started_at
+					.unwrap()
+					.elapsed()
+					.as_secs() >= 3663
+			);
+			state.apply_voice(Event::Progress {
+				channel: Id(20),
+				request,
+				phase: Phase::Waiting,
+			});
+			let connected_at = state.voice.active.as_ref().unwrap().connected_at;
+			assert!(connected_at.is_some());
+			state.apply_voice(Event::Progress {
+				channel: Id(20),
+				request,
+				phase: Phase::Connected,
+			});
+			assert_eq!(
+				state.voice.active.as_ref().unwrap().connected_at,
+				connected_at
+			);
+			state.apply_voice(Event::State {
+				guild: Some(Id(10)),
+				channel: Some(Id(21)),
+				user: Id(2),
+				request: None,
+				session: None,
+				member: None,
+				muted: false,
+				deafened: true,
+				server_muted: false,
+				server_deafened: true,
+				video: false,
+				streaming: false,
+			});
+			assert!(state.voice.active.as_ref().unwrap().participants.is_empty());
+			assert_eq!(
+				state
+					.voice
+					.roster
+					.iter()
+					.find(|r| r.participant.user == Id(2))
+					.unwrap()
+					.channel,
+				Id(21)
+			);
+			state.apply(Envelope {
+				generation: state.generation,
+				event: CoreEvent::Disconnected,
+			});
+			assert_eq!(state.voice.roster.len(), 2);
+			assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Connected);
+			state.apply(Envelope {
+				generation: state.generation,
+				event: CoreEvent::PermissionsChanged,
+			});
+			assert!(state.voice.roster.is_empty());
+			crate::tests::grant_permissions(&mut state);
+			let mut oversized = entry(2, 20);
+			oversized.member = Some(Member {
+				roles: vec![],
+				user: User {
+					primary_guild: None,
+					id: Id(2),
+					name: "x".repeat(MAX_ROSTER_BYTES),
+					avatar: None,
+					webhook: false,
+					kind: Default::default(),
+					discriminator: 0,
+				},
+				nick: None,
+				status: None,
+				custom_status: None,
+				activities: vec![],
+				clients: model::ClientPlatforms::default(),
+			});
+			state.apply_voice(Event::Snapshot {
+				guild: None,
+				partial: false,
+				participants: vec![oversized],
+			});
+			assert!(state.voice.roster.is_empty());
+			assert!(state.status.contains("capacity"));
+			state.apply_voice(Event::Snapshot {
+				guild: None,
+				partial: false,
+				participants: (1..=MAX_PARTICIPANTS as u64)
+					.map(|user| entry(user, 20))
+					.collect(),
+			});
+			state.leave_call();
+			state.gateway_connected = true;
+			assert!(state.start_call(Id(20), false).is_none());
+			state.apply(Envelope {
+				generation: state.generation,
+				event: CoreEvent::Unavailable(Id(20)),
+			});
+			assert!(state.voice.roster.is_empty());
+
+			use model::permissions as p;
+			state
+				.permissions
+				.replace(p::Snapshot {
+					guilds: vec![p::Guild {
+						id: Id(10),
+						owner: Some(Id(999)),
+						roles: Some(vec![p::Role {
+							name: String::new(),
+							color: 0,
+							position: 0,
+							hoist: false,
+							id: Id(10),
+							bits: p::VIEW_CHANNEL | p::CONNECT,
+						}]),
+						member: Some(p::Member {
+							roles: vec![],
+							timeout_until: None,
+						}),
+					}],
+					channels: vec![p::Channel {
+						id: Id(21),
+						guild: Id(10),
+						overwrites: Some(vec![]),
+					}],
+				})
+				.unwrap();
+			assert!(
+				state.start_call(Id(21), false).is_some(),
+				"CONNECT permits a listen-only call"
+			);
+			assert!(state.voice.active.as_ref().unwrap().muted);
+			state.voice.active.as_mut().unwrap().phase = Phase::Connected;
+			assert!(!state.can_camera(Id(21)));
+			assert!(state.set_call_camera(true).is_none());
+			assert!(matches!(
+				state.set_call_mute(false, false),
+				Some(crate::Command::Voice(Command::SetMute { mute: true, .. }))
+			));
+			state
+				.permissions
+				.guilds
+				.get_mut(&Id(10))
+				.unwrap()
+				.roles
+				.as_mut()
+				.unwrap()[0]
+				.bits |= p::SPEAK | p::STREAM;
+			state.permissions.clear_cache();
+			assert!(state.set_call_camera(true).is_some());
+			assert!(matches!(
+				state.set_call_mute(false, false),
+				Some(crate::Command::Voice(Command::SetMute { mute: false, .. }))
+			));
+			state
+				.permissions
+				.guilds
+				.get_mut(&Id(10))
+				.unwrap()
+				.roles
+				.as_mut()
+				.unwrap()[0]
+				.bits &= !p::CONNECT;
+			state.permissions.clear_cache();
+			assert!(!state.can_call(Id(21)));
+			assert!(state.set_call_camera(false).is_some());
+			assert!(!state.voice.active.as_ref().unwrap().camera);
+			assert!(state.set_call_mute(false, false).is_none());
+			state.leave_call();
+			assert!(state.start_call(Id(21), false).is_none());
+		}
+		{
+			use model::permissions as p;
+			let mut state = ClientState {
+				auth: AuthState::Authenticated,
+				gateway_connected: true,
+				user: Some(User {
+					primary_guild: None,
+					id: Id(1),
+					name: "Owner".into(),
+					avatar: None,
+					webhook: false,
+					kind: Default::default(),
+					discriminator: 0,
+				}),
+				guilds: vec![model::Guild {
+					stickers: None,
+					id: Id(10),
+					name: "Synthetic".into(),
+					icon: None,
+					emojis: None,
+				}],
+				channels: [20, 21]
+					.into_iter()
+					.map(|id| Channel {
+						id: Id(id),
+						guild: Some(Id(10)),
+						kind: 2,
+						name: "Room".into(),
+						last_message: None,
+						parent_id: None,
+						position: 0,
+						recipients: vec![],
+						icon: None,
+						member_list_id: None,
+						tags: None,
+						message_count: None,
+					})
+					.collect(),
+				..ClientState::default()
+			};
+			state
+				.permissions
+				.replace(p::Snapshot {
+					guilds: vec![p::Guild {
+						id: Id(10),
+						owner: Some(Id(99)),
+						roles: Some(vec![p::Role {
+							id: Id(10),
+							bits: p::VIEW_CHANNEL | p::CONNECT,
+							name: String::new(),
+							color: 0,
+							position: 0,
+							hoist: false,
+						}]),
+						member: Some(p::Member {
+							roles: vec![],
+							timeout_until: None,
+						}),
+					}],
+					channels: [20, 21]
+						.into_iter()
+						.map(|id| p::Channel {
+							id: Id(id),
+							guild: Id(10),
+							overwrites: Some(vec![]),
+						})
+						.collect(),
+				})
+				.unwrap();
+			let entry = |channel| RosterEntry {
+				guild: Id(10),
+				channel: Id(channel),
+				participant: Participant {
+					user: Id(channel + 100),
+					muted: false,
+					deafened: false,
+					server_muted: false,
+					server_deafened: false,
+					video: false,
+					streaming: false,
+				},
+				member: None,
+			};
+			state.apply_voice(Event::Snapshot {
+				guild: None,
+				partial: false,
+				participants: vec![entry(20), entry(21)],
+			});
+			assert_eq!(state.voice.roster.len(), 2);
+			assert!(state.voice.active.is_none());
+			let access = |bits| {
+				CoreEvent::Permissions(crate::permissions::Event::Channel {
+					channel: Id(20),
+					guild: Some(Id(10)),
+					overwrites: model::Patch::Value(vec![p::Overwrite {
+						id: Id(10),
+						kind: 0,
+						allow: 0,
+						deny: bits,
+					}]),
+				})
+			};
+			// Losing CONNECT does not hide a roster that the account may still view.
+			state.apply(Envelope {
+				generation: state.generation,
+				event: access(p::CONNECT),
+			});
+			assert_eq!(state.voice.roster.len(), 2);
+			state.apply(Envelope {
+				generation: state.generation,
+				event: access(p::VIEW_CHANNEL),
+			});
+			assert!(!state.can_view(Id(20)));
+			assert_eq!(state.voice.roster.len(), 1);
+			assert_eq!(state.voice.roster[0].channel, Id(21));
+			state.apply_voice(Event::Snapshot {
+				guild: None,
+				partial: true,
+				participants: vec![entry(20)],
+			});
+			state.apply_voice(Event::State {
+				guild: Some(Id(10)),
+				channel: Some(Id(20)),
+				user: Id(120),
+				request: None,
+				session: None,
+				member: None,
 				muted: false,
 				deafened: false,
 				server_muted: false,
 				server_deafened: false,
 				video: false,
 				streaming: false,
-			},
-			member: None,
-		};
-		state.apply_voice(Event::Snapshot {
-			guild: None,
-			partial: false,
-			participants: vec![entry(20), entry(21)],
-		});
-		assert_eq!(state.voice.roster.len(), 2);
-		assert!(state.voice.active.is_none());
-		let access = |bits| {
-			CoreEvent::Permissions(crate::permissions::Event::Channel {
-				channel: Id(20),
-				guild: Some(Id(10)),
-				overwrites: model::Patch::Value(vec![p::Overwrite {
-					id: Id(10),
-					kind: 0,
-					allow: 0,
-					deny: bits,
-				}]),
-			})
-		};
-		// Losing CONNECT does not hide a roster that the account may still view.
-		state.apply(Envelope {
-			generation: state.generation,
-			event: access(p::CONNECT),
-		});
-		assert_eq!(state.voice.roster.len(), 2);
-		state.apply(Envelope {
-			generation: state.generation,
-			event: access(p::VIEW_CHANNEL),
-		});
-		assert!(!state.can_view(Id(20)));
-		assert_eq!(state.voice.roster.len(), 1);
-		assert_eq!(state.voice.roster[0].channel, Id(21));
-		state.apply_voice(Event::Snapshot {
-			guild: None,
-			partial: true,
-			participants: vec![entry(20)],
-		});
-		state.apply_voice(Event::State {
-			guild: Some(Id(10)),
-			channel: Some(Id(20)),
-			user: Id(120),
-			request: None,
-			session: None,
-			member: None,
-			muted: false,
-			deafened: false,
-			server_muted: false,
-			server_deafened: false,
-			video: false,
-			streaming: false,
-		});
-		assert_eq!(state.voice.roster.len(), 1);
-		state.apply(Envelope {
-			generation: state.generation,
-			event: access(0),
-		});
-		assert!(state.can_view(Id(20)));
-		assert_eq!(
-			state.voice.roster.len(),
-			1,
-			"Restoring access cannot restore discarded participants"
-		);
-		state.apply_voice(Event::Snapshot {
-			guild: None,
-			partial: true,
-			participants: vec![entry(20)],
-		});
-		assert_eq!(state.voice.roster.len(), 2);
+			});
+			assert_eq!(state.voice.roster.len(), 1);
+			state.apply(Envelope {
+				generation: state.generation,
+				event: access(0),
+			});
+			assert!(state.can_view(Id(20)));
+			assert_eq!(
+				state.voice.roster.len(),
+				1,
+				"Restoring access cannot restore discarded participants"
+			);
+			state.apply_voice(Event::Snapshot {
+				guild: None,
+				partial: true,
+				participants: vec![entry(20)],
+			});
+			assert_eq!(state.voice.roster.len(), 2);
+		}
 	}
 
-	#[test]
-	fn answering_a_dm_call_seeds_the_caller_and_tracks_their_departure() {
-		let mut state = ClientState {
-			auth: AuthState::Authenticated,
-			gateway_connected: true,
-			user: Some(User {
-				primary_guild: None,
-				id: Id(1),
-				name: "Owner".into(),
-				avatar: None,
-				webhook: false,
-				kind: Default::default(),
-				discriminator: 0,
-			}),
-			channels: vec![Channel {
-				last_message: None,
-				id: Id(2),
-				name: "DM".into(),
-				guild: None,
-				parent_id: None,
-				position: 0,
-				kind: 1,
-				recipients: vec![User {
-					primary_guild: None,
-					id: Id(3),
-					name: "Peer".into(),
-					avatar: None,
-					webhook: false,
-					kind: Default::default(),
-					discriminator: 0,
-				}],
-				icon: None,
-				member_list_id: None,
-				tags: None,
-				message_count: None,
-			}],
-			..ClientState::default()
-		};
-		let peer = Participant {
-			user: Id(3),
-			muted: false,
-			deafened: false,
-			server_muted: false,
-			server_deafened: false,
-			video: false,
-			streaming: false,
-		};
-		// CALL_CREATE arrives before this device joins; the caller must not be forgotten.
-		state.apply_voice(Event::Call {
-			channel: Id(2),
-			ringing: Some(vec![Id(1)]),
-			participants: Some(vec![peer]),
-			unavailable: false,
-		});
-		assert!(state.voice.active.is_none());
-		assert!(state.start_call(Id(2), false).is_some());
-		let call = state.voice.active.as_ref().unwrap();
-		assert_eq!(call.participants, vec![peer]);
-		let request = call.request;
-		// The caller hanging up leaves this device alone in the call rather than ending it.
-		state.apply_voice(Event::State {
-			request: Some(request),
-			guild: None,
-			channel: None,
-			user: Id(3),
-			session: None,
-			member: None,
-			muted: false,
-			deafened: false,
-			server_muted: false,
-			server_deafened: false,
-			video: false,
-			streaming: false,
-		});
-		let call = state.voice.active.as_ref().unwrap();
-		assert!(call.participants.is_empty());
-		assert_ne!(call.phase, Phase::Failed);
-		// Their state while this device is not in the call still updates the known membership.
-		assert!(state.leave_call().is_some());
-		state.apply_voice(Event::State {
-			request: None,
-			guild: None,
-			channel: Some(Id(2)),
-			user: Id(3),
-			session: None,
-			member: None,
-			muted: true,
-			deafened: false,
-			server_muted: false,
-			server_deafened: false,
-			video: false,
-			streaming: false,
-		});
-		assert!(state.start_call(Id(2), false).is_some());
-		let seeded = &state.voice.active.as_ref().unwrap().participants;
-		assert_eq!(seeded.len(), 1);
-		assert!(seeded[0].user == Id(3) && seeded[0].muted);
-		state.apply_voice(Event::Deleted { channel: Id(2) });
-		assert!(state.voice.dm_participants.is_empty());
-	}
 	fn dm_state() -> ClientState {
 		ClientState {
 			auth: AuthState::Authenticated,
@@ -1707,136 +1610,237 @@ mod tests {
 	}
 	#[test]
 	fn dm_calls_require_gesture_and_reject_late_states() {
-		let mut state = dm_state();
-		state.apply_voice(Event::Call {
-			channel: Id(2),
-			ringing: Some(vec![Id(1)]),
-			participants: None,
-			unavailable: false,
-		});
-		assert_eq!(state.voice.incoming, Some(Id(2)));
-		assert!(state.voice.active.is_none()); // Incoming call never grants microphone access.
-		assert!(state.start_call(Id(9), true).is_none());
-		assert!(state.start_call(Id(2), false).is_some());
-		assert!(!state.voice.active.as_ref().unwrap().camera);
-		assert!(state.set_call_camera(true).is_none());
-		let request = state.voice.active.as_ref().unwrap().request;
-		assert_eq!(
-			state.voice.active.as_ref().unwrap().phase,
-			Phase::Connecting
-		);
-		assert!(state.start_call(Id(2), true).is_none());
-		state.apply(Envelope {
-			generation: state.generation + 1,
-			event: CoreEvent::Voice(Event::Progress {
+		{
+			let mut state = dm_state();
+			state.apply_voice(Event::Call {
+				channel: Id(2),
+				ringing: Some(vec![Id(1)]),
+				participants: None,
+				unavailable: false,
+			});
+			assert_eq!(state.voice.incoming, Some(Id(2)));
+			assert!(state.voice.active.is_none()); // Incoming call never grants microphone access.
+			assert!(state.start_call(Id(9), true).is_none());
+			assert!(state.start_call(Id(2), false).is_some());
+			assert!(!state.voice.active.as_ref().unwrap().camera);
+			assert!(state.set_call_camera(true).is_none());
+			let request = state.voice.active.as_ref().unwrap().request;
+			assert_eq!(
+				state.voice.active.as_ref().unwrap().phase,
+				Phase::Connecting
+			);
+			assert!(state.start_call(Id(2), true).is_none());
+			state.apply(Envelope {
+				generation: state.generation + 1,
+				event: CoreEvent::Voice(Event::Progress {
+					channel: Id(2),
+					request,
+					phase: Phase::Connected,
+				}),
+			});
+			state.apply_voice(Event::Progress {
+				channel: Id(2),
+				request: request + 1,
+				phase: Phase::Connected,
+			});
+			assert_eq!(
+				state.voice.active.as_ref().unwrap().phase,
+				Phase::Connecting
+			);
+			state.apply_voice(Event::Progress {
 				channel: Id(2),
 				request,
 				phase: Phase::Connected,
-			}),
-		});
-		state.apply_voice(Event::Progress {
-			channel: Id(2),
-			request: request + 1,
-			phase: Phase::Connected,
-		});
-		assert_eq!(
-			state.voice.active.as_ref().unwrap().phase,
-			Phase::Connecting
-		);
-		state.apply_voice(Event::Progress {
-			channel: Id(2),
-			request,
-			phase: Phase::Connected,
-		});
-		assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Connected);
-		assert!(matches!(
-			state.set_call_camera(true),
-			Some(crate::Command::Voice(Command::SetCamera {
+			});
+			assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Connected);
+			assert!(matches!(
+				state.set_call_camera(true),
+				Some(crate::Command::Voice(Command::SetCamera {
+					enabled: true,
+					..
+				}))
+			));
+			assert!(state.voice.active.as_ref().unwrap().camera);
+			state.command_rejected(crate::Command::Voice(Command::SetCamera {
+				channel: Id(2),
+				request: request + 1,
 				enabled: true,
-				..
-			}))
-		));
-		assert!(state.voice.active.as_ref().unwrap().camera);
-		state.command_rejected(crate::Command::Voice(Command::SetCamera {
-			channel: Id(2),
-			request: request + 1,
-			enabled: true,
-		}));
-		assert!(state.voice.active.as_ref().unwrap().camera);
-		state.command_rejected(crate::Command::Voice(Command::SetCamera {
-			channel: Id(2),
-			request,
-			enabled: true,
-		}));
-		assert!(!state.voice.active.as_ref().unwrap().camera);
-		assert!(state.set_call_camera(true).is_some());
-		assert!(matches!(
-			state.set_call_mute(false, true),
-			Some(crate::Command::Voice(Command::SetMute {
-				mute: true,
-				deaf: true,
-				..
-			}))
-		));
-		state.apply(Envelope {
-			generation: state.generation,
-			event: CoreEvent::Disconnected,
-		});
-		// The voice socket is independent of the gateway: a dropped gateway keeps the call.
-		assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Connected);
-		assert!(state.voice.active.as_ref().unwrap().camera);
-		state.apply_voice(Event::Progress {
-			channel: Id(2),
-			request,
-			phase: Phase::Connected,
-		});
-		assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Connected);
-		assert!(state.leave_call().is_some());
-		state.gateway_connected = true;
-		state.channels[0].kind = 13;
-		assert!(state.start_call(Id(2), true).is_none());
-		let secret = Secret::new("SYNTHETIC_VOICE_SECRET".into()).unwrap();
-		assert!(!format!("{secret:?}").contains("SYNTHETIC"));
-		assert!(Secret::new("bad\nheader".into()).is_err());
-		state.channels[0].kind = 1;
-		let command = state.start_call(Id(2), true).unwrap();
-		state.command_rejected(command);
-		assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Failed);
-		assert!(
-			state
-				.voice
-				.active
-				.as_ref()
-				.unwrap()
-				.error
-				.unwrap()
-				.contains("queue")
-		);
-		state.leave_call();
-		let command = state
-			.start_call_with_mute(Id(2), false, true, true)
-			.unwrap();
-		assert!(matches!(
-			command,
-			crate::Command::Voice(Command::Join {
-				ring: false,
-				mute: true,
-				deaf: true,
-				..
-			})
-		));
-		assert!(state.voice.active.as_ref().unwrap().muted);
-		assert!(state.voice.active.as_ref().unwrap().deafened);
-		let mute = state.set_call_mute(true, false).unwrap();
-		state.command_rejected(mute);
-		assert!(state.voice.active.as_ref().unwrap().muted);
-		assert_eq!(
-			state.voice.active.as_ref().unwrap().phase,
-			Phase::Connecting
-		);
-		state.logout();
-		assert!(state.voice.active.is_none());
-		assert!(state.voice.incoming.is_none());
+			}));
+			assert!(state.voice.active.as_ref().unwrap().camera);
+			state.command_rejected(crate::Command::Voice(Command::SetCamera {
+				channel: Id(2),
+				request,
+				enabled: true,
+			}));
+			assert!(!state.voice.active.as_ref().unwrap().camera);
+			assert!(state.set_call_camera(true).is_some());
+			assert!(matches!(
+				state.set_call_mute(false, true),
+				Some(crate::Command::Voice(Command::SetMute {
+					mute: true,
+					deaf: true,
+					..
+				}))
+			));
+			state.apply(Envelope {
+				generation: state.generation,
+				event: CoreEvent::Disconnected,
+			});
+			// The voice socket is independent of the gateway: a dropped gateway keeps the call.
+			assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Connected);
+			assert!(state.voice.active.as_ref().unwrap().camera);
+			state.apply_voice(Event::Progress {
+				channel: Id(2),
+				request,
+				phase: Phase::Connected,
+			});
+			assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Connected);
+			assert!(state.leave_call().is_some());
+			state.gateway_connected = true;
+			state.channels[0].kind = 13;
+			assert!(state.start_call(Id(2), true).is_none());
+			let secret = Secret::new("SYNTHETIC_VOICE_SECRET".into()).unwrap();
+			assert!(!format!("{secret:?}").contains("SYNTHETIC"));
+			assert!(Secret::new("bad\nheader".into()).is_err());
+			state.channels[0].kind = 1;
+			let command = state.start_call(Id(2), true).unwrap();
+			state.command_rejected(command);
+			assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Failed);
+			assert!(
+				state
+					.voice
+					.active
+					.as_ref()
+					.unwrap()
+					.error
+					.unwrap()
+					.contains("queue")
+			);
+			state.leave_call();
+			let command = state
+				.start_call_with_mute(Id(2), false, true, true)
+				.unwrap();
+			assert!(matches!(
+				command,
+				crate::Command::Voice(Command::Join {
+					ring: false,
+					mute: true,
+					deaf: true,
+					..
+				})
+			));
+			assert!(state.voice.active.as_ref().unwrap().muted);
+			assert!(state.voice.active.as_ref().unwrap().deafened);
+			let mute = state.set_call_mute(true, false).unwrap();
+			state.command_rejected(mute);
+			assert!(state.voice.active.as_ref().unwrap().muted);
+			assert_eq!(
+				state.voice.active.as_ref().unwrap().phase,
+				Phase::Connecting
+			);
+			state.logout();
+			assert!(state.voice.active.is_none());
+			assert!(state.voice.incoming.is_none());
+		}
+		{
+			let mut state = ClientState {
+				auth: AuthState::Authenticated,
+				gateway_connected: true,
+				user: Some(User {
+					primary_guild: None,
+					id: Id(1),
+					name: "Owner".into(),
+					avatar: None,
+					webhook: false,
+					kind: Default::default(),
+					discriminator: 0,
+				}),
+				channels: vec![Channel {
+					last_message: None,
+					id: Id(2),
+					name: "DM".into(),
+					guild: None,
+					parent_id: None,
+					position: 0,
+					kind: 1,
+					recipients: vec![User {
+						primary_guild: None,
+						id: Id(3),
+						name: "Peer".into(),
+						avatar: None,
+						webhook: false,
+						kind: Default::default(),
+						discriminator: 0,
+					}],
+					icon: None,
+					member_list_id: None,
+					tags: None,
+					message_count: None,
+				}],
+				..ClientState::default()
+			};
+			let peer = Participant {
+				user: Id(3),
+				muted: false,
+				deafened: false,
+				server_muted: false,
+				server_deafened: false,
+				video: false,
+				streaming: false,
+			};
+			// CALL_CREATE arrives before this device joins; the caller must not be forgotten.
+			state.apply_voice(Event::Call {
+				channel: Id(2),
+				ringing: Some(vec![Id(1)]),
+				participants: Some(vec![peer]),
+				unavailable: false,
+			});
+			assert!(state.voice.active.is_none());
+			assert!(state.start_call(Id(2), false).is_some());
+			let call = state.voice.active.as_ref().unwrap();
+			assert_eq!(call.participants, vec![peer]);
+			let request = call.request;
+			// The caller hanging up leaves this device alone in the call rather than ending it.
+			state.apply_voice(Event::State {
+				request: Some(request),
+				guild: None,
+				channel: None,
+				user: Id(3),
+				session: None,
+				member: None,
+				muted: false,
+				deafened: false,
+				server_muted: false,
+				server_deafened: false,
+				video: false,
+				streaming: false,
+			});
+			let call = state.voice.active.as_ref().unwrap();
+			assert!(call.participants.is_empty());
+			assert_ne!(call.phase, Phase::Failed);
+			// Their state while this device is not in the call still updates the known membership.
+			assert!(state.leave_call().is_some());
+			state.apply_voice(Event::State {
+				request: None,
+				guild: None,
+				channel: Some(Id(2)),
+				user: Id(3),
+				session: None,
+				member: None,
+				muted: true,
+				deafened: false,
+				server_muted: false,
+				server_deafened: false,
+				video: false,
+				streaming: false,
+			});
+			assert!(state.start_call(Id(2), false).is_some());
+			let seeded = &state.voice.active.as_ref().unwrap().participants;
+			assert_eq!(seeded.len(), 1);
+			assert!(seeded[0].user == Id(3) && seeded[0].muted);
+			state.apply_voice(Event::Deleted { channel: Id(2) });
+			assert!(state.voice.dm_participants.is_empty());
+		}
 	}
 
 	fn service_ring(state: &mut ClientState, ringing: &[Id]) {
@@ -1850,132 +1854,132 @@ mod tests {
 
 	#[test]
 	fn outgoing_ring_requires_explicit_intent_and_service_confirmation() {
-		let mut state = dm_state();
-		state.start_call(Id(2), true).unwrap();
-		let first = state.voice.active.as_ref().unwrap().request;
-		assert_eq!(state.outgoing_ring(), None);
-		service_ring(&mut state, &[]); // Initial call creation can precede the ring request.
-		state.apply_voice(Event::Progress {
-			channel: Id(2),
-			request: first,
-			phase: Phase::Waiting,
-		});
-		assert_eq!(state.outgoing_ring(), None);
-		service_ring(&mut state, &[Id(3)]);
-		assert_eq!(state.outgoing_ring(), Some(Id(2)));
-		service_ring(&mut state, &[]);
-		assert_eq!(state.outgoing_ring(), None);
-		service_ring(&mut state, &[Id(3)]);
-		assert_eq!(
-			state.outgoing_ring(),
-			None,
-			"ended ringing cannot restart itself"
-		);
-		state.leave_call();
-		state.apply_voice(Event::Deleted { channel: Id(2) });
-		state.start_call(Id(2), true).unwrap();
-		service_ring(&mut state, &[Id(3)]);
-		state.apply_voice(Event::Failed {
-			channel: Id(2),
-			request: first,
-			message: "Old attempt failed",
-		});
-		assert_eq!(
-			state.outgoing_ring(),
-			Some(Id(2)),
-			"stale failure cannot stop a new attempt"
-		);
-		for ring in [false, true] {
-			state.leave_call();
-			state.start_call(Id(2), ring).unwrap(); // An existing service call is a join.
-			service_ring(&mut state, &[Id(3)]);
-			let request = state.voice.active.as_ref().unwrap().request;
+		{
+			let mut state = dm_state();
+			state.start_call(Id(2), true).unwrap();
+			let first = state.voice.active.as_ref().unwrap().request;
+			assert_eq!(state.outgoing_ring(), None);
+			service_ring(&mut state, &[]); // Initial call creation can precede the ring request.
 			state.apply_voice(Event::Progress {
 				channel: Id(2),
-				request,
+				request: first,
 				phase: Phase::Waiting,
 			});
 			assert_eq!(state.outgoing_ring(), None);
-		}
-	}
-
-	#[test]
-	fn outgoing_ring_stops_permanently_on_answer_or_call_invalidation() {
-		for end in [
-			"leave",
-			"deleted",
-			"failed",
-			"connected",
-			"gateway",
-			"disconnect",
-			"logout",
-			"peer-state",
-			"peer-call",
-			"owner-left",
-			"stale-request",
-		] {
-			let mut state = dm_state();
-			state.start_call(Id(2), true).unwrap();
-			let request = state.voice.active.as_ref().unwrap().request;
 			service_ring(&mut state, &[Id(3)]);
 			assert_eq!(state.outgoing_ring(), Some(Id(2)));
-			match end {
-				"leave" => {
-					state.leave_call();
-				}
-				"deleted" => state.apply_voice(Event::Deleted { channel: Id(2) }),
-				"failed" => state.apply_voice(Event::Failed {
+			service_ring(&mut state, &[]);
+			assert_eq!(state.outgoing_ring(), None);
+			service_ring(&mut state, &[Id(3)]);
+			assert_eq!(
+				state.outgoing_ring(),
+				None,
+				"ended ringing cannot restart itself"
+			);
+			state.leave_call();
+			state.apply_voice(Event::Deleted { channel: Id(2) });
+			state.start_call(Id(2), true).unwrap();
+			service_ring(&mut state, &[Id(3)]);
+			state.apply_voice(Event::Failed {
+				channel: Id(2),
+				request: first,
+				message: "Old attempt failed",
+			});
+			assert_eq!(
+				state.outgoing_ring(),
+				Some(Id(2)),
+				"stale failure cannot stop a new attempt"
+			);
+			for ring in [false, true] {
+				state.leave_call();
+				state.start_call(Id(2), ring).unwrap(); // An existing service call is a join.
+				service_ring(&mut state, &[Id(3)]);
+				let request = state.voice.active.as_ref().unwrap().request;
+				state.apply_voice(Event::Progress {
 					channel: Id(2),
 					request,
-					message: "Synthetic failure",
-				}),
-				"connected" => state.apply_voice(Event::Progress {
-					channel: Id(2),
-					request,
-					phase: Phase::Connected,
-				}),
-				"gateway" => state.gateway_connected = false,
-				"disconnect" => state.disconnect_voice("Synthetic disconnect"),
-				"logout" => state.logout(),
-				"peer-state" | "owner-left" => state.apply_voice(Event::State {
-					guild: None,
-					member: None,
-					server_muted: false,
-					server_deafened: false,
-					request: Some(request),
-					channel: (end == "peer-state").then_some(Id(2)),
-					user: if end == "peer-state" { Id(3) } else { Id(1) },
-					session: None,
-					muted: false,
-					deafened: false,
-					video: false,
-					streaming: false,
-				}),
-				"peer-call" => state.apply_voice(Event::Call {
-					channel: Id(2),
-					ringing: Some(vec![Id(3)]),
-					participants: Some(vec![Participant {
-						user: Id(3),
-						muted: false,
-						deafened: false,
+					phase: Phase::Waiting,
+				});
+				assert_eq!(state.outgoing_ring(), None);
+			}
+		}
+		{
+			for end in [
+				"leave",
+				"deleted",
+				"failed",
+				"connected",
+				"gateway",
+				"disconnect",
+				"logout",
+				"peer-state",
+				"peer-call",
+				"owner-left",
+				"stale-request",
+			] {
+				let mut state = dm_state();
+				state.start_call(Id(2), true).unwrap();
+				let request = state.voice.active.as_ref().unwrap().request;
+				service_ring(&mut state, &[Id(3)]);
+				assert_eq!(state.outgoing_ring(), Some(Id(2)));
+				match end {
+					"leave" => {
+						state.leave_call();
+					}
+					"deleted" => state.apply_voice(Event::Deleted { channel: Id(2) }),
+					"failed" => state.apply_voice(Event::Failed {
+						channel: Id(2),
+						request,
+						message: "Synthetic failure",
+					}),
+					"connected" => state.apply_voice(Event::Progress {
+						channel: Id(2),
+						request,
+						phase: Phase::Connected,
+					}),
+					"gateway" => state.gateway_connected = false,
+					"disconnect" => state.disconnect_voice("Synthetic disconnect"),
+					"logout" => state.logout(),
+					"peer-state" | "owner-left" => state.apply_voice(Event::State {
+						guild: None,
+						member: None,
 						server_muted: false,
 						server_deafened: false,
+						request: Some(request),
+						channel: (end == "peer-state").then_some(Id(2)),
+						user: if end == "peer-state" { Id(3) } else { Id(1) },
+						session: None,
+						muted: false,
+						deafened: false,
 						video: false,
 						streaming: false,
-					}]),
-					unavailable: false,
-				}),
-				"stale-request" => state.voice.active.as_mut().unwrap().request += 1,
-				_ => unreachable!(),
+					}),
+					"peer-call" => state.apply_voice(Event::Call {
+						channel: Id(2),
+						ringing: Some(vec![Id(3)]),
+						participants: Some(vec![Participant {
+							user: Id(3),
+							muted: false,
+							deafened: false,
+							server_muted: false,
+							server_deafened: false,
+							video: false,
+							streaming: false,
+						}]),
+						unavailable: false,
+					}),
+					"stale-request" => state.voice.active.as_mut().unwrap().request += 1,
+					_ => unreachable!(),
+				}
+				assert_eq!(state.outgoing_ring(), None, "{end}");
+				state.gateway_connected = true;
+				if let Some(call) = &mut state.voice.active {
+					call.phase = Phase::Waiting;
+					call.participants.clear();
+				}
+				service_ring(&mut state, &[Id(3)]);
+				assert_eq!(state.outgoing_ring(), None, "{end} must consume the intent");
 			}
-			assert_eq!(state.outgoing_ring(), None, "{end}");
-			state.gateway_connected = true;
-			if let Some(call) = &mut state.voice.active {
-				call.phase = Phase::Waiting;
-				call.participants.clear();
-			}
-			service_ring(&mut state, &[Id(3)]);
-			assert_eq!(state.outgoing_ring(), None, "{end} must consume the intent");
 		}
 	}
 }

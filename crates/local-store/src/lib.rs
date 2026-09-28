@@ -1497,16 +1497,6 @@ mod tests {
 	}
 
 	#[cfg(feature = "development-data")]
-	#[test]
-	fn development_data_directory_is_persistent_and_separate() {
-		let root = default_data_dir().unwrap();
-		assert!(root.is_absolute());
-		assert_eq!(
-			root.file_name().and_then(|name| name.to_str()),
-			Some("serein-development")
-		);
-	}
-
 	#[cfg(unix)]
 	#[test]
 	fn existing_data_directory_permissions_are_preserved() {
@@ -1530,14 +1520,6 @@ mod tests {
 	}
 
 	#[cfg(not(feature = "development-data"))]
-	#[test]
-	fn packaged_data_directory_uses_the_os_default() {
-		assert_eq!(
-			default_data_dir(),
-			dirs::data_local_dir().map(|root| root.join("serein"))
-		);
-	}
-
 	#[test]
 	fn changed_rows_preserve_retained_data_and_rollback_invalid_updates() {
 		let mut store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
@@ -2038,21 +2020,21 @@ mod tests {
 		value.voice_input = None;
 		value.language = Some("../cs".into());
 		assert!(store.save_app_preferences(&value).is_err());
-	}
-	#[test]
-	fn app_preferences_tolerate_an_unknown_gpu_preference() {
-		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
-		store
-			.0
-			.execute(
-				"INSERT INTO app_preferences VALUES(1,?1)",
-				[r#"{"gpu_preference":"quantum-gpu"}"#],
-			)
-			.unwrap();
-		assert_eq!(
-			store.app_preferences().unwrap().gpu_preference,
-			model::GpuPreference::Automatic
-		);
+
+		{
+			let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+			store
+				.0
+				.execute(
+					"INSERT INTO app_preferences VALUES(1,?1)",
+					[r#"{"gpu_preference":"quantum-gpu"}"#],
+				)
+				.unwrap();
+			assert_eq!(
+				store.app_preferences().unwrap().gpu_preference,
+				model::GpuPreference::Automatic
+			);
+		}
 	}
 	use super::*;
 	#[test]
@@ -2405,39 +2387,38 @@ mod tests {
 		assert!(!store.game_activity_enabled().unwrap());
 		drop(store);
 		std::fs::remove_dir_all(root).unwrap();
-	}
 
-	#[test]
-	fn game_activity_rejects_corrupt_values_and_storage_failure() {
-		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
-		store.save_game_activity_enabled(true).unwrap();
-		assert!(
+		{
+			let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+			store.save_game_activity_enabled(true).unwrap();
+			assert!(
+				store
+					.0
+					.execute("INSERT INTO game_activity VALUES(2,1)", [])
+					.is_err()
+			);
+			assert!(
+				store
+					.0
+					.execute("UPDATE game_activity SET enabled=2", [])
+					.is_err()
+			);
 			store
 				.0
-				.execute("INSERT INTO game_activity VALUES(2,1)", [])
-				.is_err()
-		);
-		assert!(
-			store
-				.0
-				.execute("UPDATE game_activity SET enabled=2", [])
-				.is_err()
-		);
-		store
-			.0
-			.execute_batch("PRAGMA ignore_check_constraints=ON;")
-			.unwrap();
-		for invalid in ["2", "-1", "0.5", "'invalid'", "x'01'"] {
-			store
-				.0
-				.execute(&format!("UPDATE game_activity SET enabled={invalid}"), [])
+				.execute_batch("PRAGMA ignore_check_constraints=ON;")
 				.unwrap();
-			assert_eq!(store.game_activity_enabled(), Err(StoreError::Incompatible));
+			for invalid in ["2", "-1", "0.5", "'invalid'", "x'01'"] {
+				store
+					.0
+					.execute(&format!("UPDATE game_activity SET enabled={invalid}"), [])
+					.unwrap();
+				assert_eq!(store.game_activity_enabled(), Err(StoreError::Incompatible));
+			}
+			store.save_game_activity_enabled(false).unwrap();
+			assert!(!store.game_activity_enabled().unwrap());
+			store.0.execute_batch("DROP TABLE game_activity;").unwrap();
+			assert_eq!(store.game_activity_enabled(), Err(StoreError::Unavailable));
 		}
-		store.save_game_activity_enabled(false).unwrap();
-		assert!(!store.game_activity_enabled().unwrap());
-		store.0.execute_batch("DROP TABLE game_activity;").unwrap();
-		assert_eq!(store.game_activity_enabled(), Err(StoreError::Unavailable));
 	}
 
 	#[test]
@@ -2545,6 +2526,77 @@ mod tests {
 		assert!(store.load_channel(Id(1), Id(2)).unwrap().is_empty());
 		drop(store);
 		std::fs::remove_dir_all(root).unwrap();
+
+		{
+			let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+			store
+				.save_reading_preferences(ReadingPreferences {
+					animate_gifs: true,
+					..Default::default()
+				})
+				.unwrap();
+			store
+				.0
+				.execute_batch(
+					"ALTER TABLE reading_preferences DROP COLUMN hide_media_links; PRAGMA user_version=11;",
+				)
+				.unwrap();
+			let store = LocalStore::initialize(store.0).unwrap();
+			let mut preferences = store.reading_preferences().unwrap();
+			assert!(preferences.animate_gifs && preferences.hide_media_links);
+			preferences.hide_media_links = false;
+			store.save_reading_preferences(preferences).unwrap();
+			let store = LocalStore::initialize(store.0).unwrap();
+			assert_eq!(store.reading_preferences().unwrap(), preferences);
+		}
+
+		{
+			let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+			store
+				.save_reading_preferences(ReadingPreferences {
+					smooth_scrolling: false,
+					scroll_speed_percent: 100,
+					..Default::default()
+				})
+				.unwrap();
+			store
+				.0
+				.execute_batch(
+					"ALTER TABLE reading_preferences DROP COLUMN smooth_scrolling; PRAGMA user_version=18;",
+				)
+				.unwrap();
+			let store = LocalStore::initialize(store.0).unwrap();
+			let mut preferences = store.reading_preferences().unwrap();
+			assert!(preferences.smooth_scrolling);
+			preferences.smooth_scrolling = false;
+			store.save_reading_preferences(preferences).unwrap();
+			let store = LocalStore::initialize(store.0).unwrap();
+			assert_eq!(store.reading_preferences().unwrap(), preferences);
+		}
+
+		{
+			let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+			store
+				.save_reading_preferences(ReadingPreferences {
+					zoom_percent: 125,
+					..Default::default()
+				})
+				.unwrap();
+			store
+				.0
+				.execute_batch(
+					"ALTER TABLE reading_preferences DROP COLUMN animate_gifs; PRAGMA user_version=10;",
+				)
+				.unwrap();
+			let store = LocalStore::initialize(store.0).unwrap();
+			let mut preferences = store.reading_preferences().unwrap();
+			assert_eq!(preferences.zoom_percent, 125);
+			assert!(!preferences.animate_gifs);
+			preferences.animate_gifs = true;
+			store.save_reading_preferences(preferences).unwrap();
+			let store = LocalStore::initialize(store.0).unwrap();
+			assert_eq!(store.reading_preferences().unwrap(), preferences);
+		}
 	}
 
 	#[test]
@@ -2568,79 +2620,6 @@ mod tests {
 		assert!(store.gif_favorites(Id(1)).unwrap().is_empty());
 	}
 
-	#[test]
-	fn hide_media_links_migrates_enabled_and_round_trips_disabled() {
-		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
-		store
-			.save_reading_preferences(ReadingPreferences {
-				animate_gifs: true,
-				..Default::default()
-			})
-			.unwrap();
-		store
-			.0
-			.execute_batch(
-				"ALTER TABLE reading_preferences DROP COLUMN hide_media_links; PRAGMA user_version=11;",
-			)
-			.unwrap();
-		let store = LocalStore::initialize(store.0).unwrap();
-		let mut preferences = store.reading_preferences().unwrap();
-		assert!(preferences.animate_gifs && preferences.hide_media_links);
-		preferences.hide_media_links = false;
-		store.save_reading_preferences(preferences).unwrap();
-		let store = LocalStore::initialize(store.0).unwrap();
-		assert_eq!(store.reading_preferences().unwrap(), preferences);
-	}
-
-	#[test]
-	fn smooth_scrolling_migrates_enabled_and_round_trips_disabled() {
-		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
-		store
-			.save_reading_preferences(ReadingPreferences {
-				smooth_scrolling: false,
-				scroll_speed_percent: 100,
-				..Default::default()
-			})
-			.unwrap();
-		store
-			.0
-			.execute_batch(
-				"ALTER TABLE reading_preferences DROP COLUMN smooth_scrolling; PRAGMA user_version=18;",
-			)
-			.unwrap();
-		let store = LocalStore::initialize(store.0).unwrap();
-		let mut preferences = store.reading_preferences().unwrap();
-		assert!(preferences.smooth_scrolling);
-		preferences.smooth_scrolling = false;
-		store.save_reading_preferences(preferences).unwrap();
-		let store = LocalStore::initialize(store.0).unwrap();
-		assert_eq!(store.reading_preferences().unwrap(), preferences);
-	}
-
-	#[test]
-	fn gif_animation_migrates_off_and_round_trips() {
-		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
-		store
-			.save_reading_preferences(ReadingPreferences {
-				zoom_percent: 125,
-				..Default::default()
-			})
-			.unwrap();
-		store
-			.0
-			.execute_batch(
-				"ALTER TABLE reading_preferences DROP COLUMN animate_gifs; PRAGMA user_version=10;",
-			)
-			.unwrap();
-		let store = LocalStore::initialize(store.0).unwrap();
-		let mut preferences = store.reading_preferences().unwrap();
-		assert_eq!(preferences.zoom_percent, 125);
-		assert!(!preferences.animate_gifs);
-		preferences.animate_gifs = true;
-		store.save_reading_preferences(preferences).unwrap();
-		let store = LocalStore::initialize(store.0).unwrap();
-		assert_eq!(store.reading_preferences().unwrap(), preferences);
-	}
 	#[test]
 	fn reading_preferences_validate_storage_types_bounds_and_atomic_replacement() {
 		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();

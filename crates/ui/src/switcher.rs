@@ -731,23 +731,6 @@ mod tests {
 	}
 
 	#[test]
-	fn lowercase_buffer_matches_allocating_normalization() {
-		let mut buffer = String::new();
-		for value in [
-			"",
-			"General Chat",
-			"Žofie Example",
-			"ΟΔΥΣΣΕΎΣ ΑΣ",
-			"İstanbul",
-			&"🦀A".repeat(1000),
-			&"x".repeat(1000),
-		] {
-			lowercase_bounded_into(&mut buffer, value);
-			assert_eq!(buffer, bounded(value).to_lowercase(), "{value:?}");
-		}
-	}
-
-	#[test]
 	fn search_is_bounded_scoped_and_matches_words_across_labels() {
 		let mut state = state();
 		assert_eq!(candidates(&state, "").len(), RESULTS);

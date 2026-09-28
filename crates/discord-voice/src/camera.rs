@@ -667,41 +667,6 @@ mod tests {
 	use openh264::formats::YUVSource;
 
 	#[test]
-	fn hardware_camera_frames_decode_and_stay_independently_decodable() {
-		let mut encoder = CameraEncoder::new().unwrap();
-		// Exactly one encoder is live: hardware when the machine offers it, openh264 otherwise.
-		#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-		assert_eq!(encoder.hardware.is_some(), encoder.software.is_none());
-		for length in [0, WIDTH * HEIGHT * 3 - 1, WIDTH * HEIGHT * 3 + 1] {
-			assert!(encoder.encode(vec![0; length]).is_err());
-		}
-		let mut decoder = openh264::decoder::Decoder::new().unwrap();
-		for value in [0, 96, 255] {
-			let mut rgb = vec![value; WIDTH * HEIGHT * 3];
-			// Flat pictures compress to almost nothing; vary one row so the size check bites.
-			for (index, pixel) in rgb
-				.as_chunks_mut::<3>()
-				.0
-				.iter_mut()
-				.take(WIDTH)
-				.enumerate()
-			{
-				*pixel = [(index % 251) as u8, value, (index % 97) as u8];
-			}
-			let Some(frame) = encoder.encode(rgb).unwrap() else {
-				continue;
-			};
-			assert_eq!(frame.rgb.len(), WIDTH * HEIGHT * 3);
-			assert!(frame.h264.len() <= MAX_ENCODED_BYTES);
-			// The sender drops to the latest frame, so each picture must stand alone.
-			assert!(crate::video_receive::is_keyframe(&frame.h264));
-			assert!(crate::video_receive::has_parameter_sets(&frame.h264));
-			let decoded = decoder.decode(&frame.h264).unwrap().unwrap();
-			assert_eq!(decoded.dimensions(), (WIDTH, HEIGHT));
-		}
-	}
-
-	#[test]
 	fn camera_frames_are_bounded_independently_decodable_and_stop_is_immediate() {
 		let mut encoder = encoder().unwrap();
 		let mut yuv = YUVBuffer::new(WIDTH, HEIGHT);
@@ -729,5 +694,39 @@ mod tests {
 		assert!(!camera.stopped());
 		camera.shared.finished.store(true, Ordering::Release);
 		assert!(camera.stopped());
+
+		{
+			let mut encoder = CameraEncoder::new().unwrap();
+			// Exactly one encoder is live: hardware when the machine offers it, openh264 otherwise.
+			#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+			assert_eq!(encoder.hardware.is_some(), encoder.software.is_none());
+			for length in [0, WIDTH * HEIGHT * 3 - 1, WIDTH * HEIGHT * 3 + 1] {
+				assert!(encoder.encode(vec![0; length]).is_err());
+			}
+			let mut decoder = openh264::decoder::Decoder::new().unwrap();
+			for value in [0, 96, 255] {
+				let mut rgb = vec![value; WIDTH * HEIGHT * 3];
+				// Flat pictures compress to almost nothing; vary one row so the size check bites.
+				for (index, pixel) in rgb
+					.as_chunks_mut::<3>()
+					.0
+					.iter_mut()
+					.take(WIDTH)
+					.enumerate()
+				{
+					*pixel = [(index % 251) as u8, value, (index % 97) as u8];
+				}
+				let Some(frame) = encoder.encode(rgb).unwrap() else {
+					continue;
+				};
+				assert_eq!(frame.rgb.len(), WIDTH * HEIGHT * 3);
+				assert!(frame.h264.len() <= MAX_ENCODED_BYTES);
+				// The sender drops to the latest frame, so each picture must stand alone.
+				assert!(crate::video_receive::is_keyframe(&frame.h264));
+				assert!(crate::video_receive::has_parameter_sets(&frame.h264));
+				let decoded = decoder.decode(&frame.h264).unwrap().unwrap();
+				assert_eq!(decoded.dimensions(), (WIDTH, HEIGHT));
+			}
+		}
 	}
 }

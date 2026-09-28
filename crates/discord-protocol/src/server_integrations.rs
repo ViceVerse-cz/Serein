@@ -191,49 +191,55 @@ mod tests {
 	use serde_json::json;
 	#[test]
 	fn integrations_metadata_bounds_and_unknown_fields() {
-		let item = json!({"id":"1","name":"Example","type":"discord","enabled":true,"user":{"id":"4","username":"Owner"},"application":{"id":"5","name":"Example","icon":null,"description":"Useful tools","bot":{"id":"6","username":"Bot","bot":true}}});
-		let page = integrations(&serde_json::to_vec(&vec![item.clone()]).unwrap(), Id(2)).unwrap();
-		let value = &page.integrations.as_ref().unwrap()[0];
-		assert!(value.synced_at.is_none());
-		assert_eq!(
-			value.application.as_ref().unwrap().bot.as_ref().unwrap().id,
-			Id(6)
-		);
-		assert!(page.webhooks.is_none());
-		assert!(
-			integrations(&serde_json::to_vec(&vec![item.clone(); 51]).unwrap(), Id(2)).is_err()
-		);
-		assert!(integrations(&serde_json::to_vec(&vec![item.clone(); 2]).unwrap(), Id(2)).is_err());
-		let mut bad = item;
-		bad["application"]["description"] = json!("x".repeat(4097));
-		assert!(integrations(&serde_json::to_vec(&vec![bad]).unwrap(), Id(2)).is_err());
-		assert!(webhooks(&vec![b' '; MAX_WIRE + 1], Id(2)).is_err());
-		let mut page = page;
-		page.integrations.as_mut().unwrap().reserve(m::MAX_BYTES);
-		assert!(!page.valid());
-		let result = model::server_admin::Result::Integrations(page);
-		assert!(result.bytes() > m::MAX_BYTES);
-		assert!(!result.valid());
-	}
-	#[test]
-	fn integrations_webhooks_discard_secrets_and_validate_scope() {
-		let item = json!({"id":"3","guild_id":"2","channel_id":"4","type":1,"name":"Hook","token":"SYNTHETIC_SECRET".repeat(3000),"url":"SYNTHETIC_EXECUTION_URL"});
-		let page = webhooks(&serde_json::to_vec(&vec![item.clone()]).unwrap(), Id(2)).unwrap();
-		assert!(page.bytes() < 2 * 1024);
-		assert!(page.integrations.is_none());
-		assert!(webhooks(&serde_json::to_vec(&vec![item.clone()]).unwrap(), Id(8)).is_err());
-		assert!(webhooks(&serde_json::to_vec(&vec![item; 2]).unwrap(), Id(2)).is_err());
-		let followed = webhook(br#"{"id":"7","guild_id":"2","channel_id":"4","type":2,"source_channel":{"id":"8","name":"news"}}"#, Id(2)).unwrap();
-		assert!(followed.source_guild.is_none());
-		assert_eq!(
-			followed.source_channel.unwrap().name.as_deref(),
-			Some("news")
-		);
-		assert!(channel_scope(br#"{"id":"4","guild_id":"9","type":0}"#, Id(2), Id(4)).is_err());
-		assert!(channel_scope(br#"{"id":"4","guild_id":"2","type":11}"#, Id(2), Id(4)).is_err());
-		assert!(!m::valid_webhook_name("DisCord updates"));
-		assert!(!m::valid_webhook_name("\n"));
-		assert!(m::valid_webhook_name("Build updates"));
+		{
+			let item = json!({"id":"1","name":"Example","type":"discord","enabled":true,"user":{"id":"4","username":"Owner"},"application":{"id":"5","name":"Example","icon":null,"description":"Useful tools","bot":{"id":"6","username":"Bot","bot":true}}});
+			let page =
+				integrations(&serde_json::to_vec(&vec![item.clone()]).unwrap(), Id(2)).unwrap();
+			let value = &page.integrations.as_ref().unwrap()[0];
+			assert!(value.synced_at.is_none());
+			assert_eq!(
+				value.application.as_ref().unwrap().bot.as_ref().unwrap().id,
+				Id(6)
+			);
+			assert!(page.webhooks.is_none());
+			assert!(
+				integrations(&serde_json::to_vec(&vec![item.clone(); 51]).unwrap(), Id(2)).is_err()
+			);
+			assert!(
+				integrations(&serde_json::to_vec(&vec![item.clone(); 2]).unwrap(), Id(2)).is_err()
+			);
+			let mut bad = item;
+			bad["application"]["description"] = json!("x".repeat(4097));
+			assert!(integrations(&serde_json::to_vec(&vec![bad]).unwrap(), Id(2)).is_err());
+			assert!(webhooks(&vec![b' '; MAX_WIRE + 1], Id(2)).is_err());
+			let mut page = page;
+			page.integrations.as_mut().unwrap().reserve(m::MAX_BYTES);
+			assert!(!page.valid());
+			let result = model::server_admin::Result::Integrations(page);
+			assert!(result.bytes() > m::MAX_BYTES);
+			assert!(!result.valid());
+		}
+		{
+			let item = json!({"id":"3","guild_id":"2","channel_id":"4","type":1,"name":"Hook","token":"SYNTHETIC_SECRET".repeat(3000),"url":"SYNTHETIC_EXECUTION_URL"});
+			let page = webhooks(&serde_json::to_vec(&vec![item.clone()]).unwrap(), Id(2)).unwrap();
+			assert!(page.bytes() < 2 * 1024);
+			assert!(page.integrations.is_none());
+			assert!(webhooks(&serde_json::to_vec(&vec![item.clone()]).unwrap(), Id(8)).is_err());
+			assert!(webhooks(&serde_json::to_vec(&vec![item; 2]).unwrap(), Id(2)).is_err());
+			let followed = webhook(br#"{"id":"7","guild_id":"2","channel_id":"4","type":2,"source_channel":{"id":"8","name":"news"}}"#, Id(2)).unwrap();
+			assert!(followed.source_guild.is_none());
+			assert_eq!(
+				followed.source_channel.unwrap().name.as_deref(),
+				Some("news")
+			);
+			assert!(channel_scope(br#"{"id":"4","guild_id":"9","type":0}"#, Id(2), Id(4)).is_err());
+			assert!(
+				channel_scope(br#"{"id":"4","guild_id":"2","type":11}"#, Id(2), Id(4)).is_err()
+			);
+			assert!(!m::valid_webhook_name("DisCord updates"));
+			assert!(!m::valid_webhook_name("\n"));
+			assert!(m::valid_webhook_name("Build updates"));
+		}
 	}
 }
 

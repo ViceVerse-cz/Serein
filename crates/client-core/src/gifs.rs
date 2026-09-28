@@ -239,64 +239,92 @@ mod tests {
 
 	#[test]
 	fn gif_requests_are_single_flight_and_results_match_the_live_request() {
-		let mut state = test_state();
-		assert!(state.request_gifs(Some("   ")).is_none());
-		let Some(Command::Gifs {
-			query: Some(query),
-			request,
-		}) = state.request_gifs(Some(" wave "))
-		else {
-			panic!("search command")
-		};
-		assert_eq!(query, "wave");
-		assert!(state.request_gifs(Some("wave")).is_none());
-		state.apply_gifs(request.wrapping_sub(1), Ok(GifPage::default()));
-		assert!(state.gifs.view.as_ref().unwrap().loading);
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Gifs {
+		{
+			let mut state = test_state();
+			assert!(state.request_gifs(Some("   ")).is_none());
+			let Some(Command::Gifs {
+				query: Some(query),
 				request,
-				result: Ok(GifPage {
-					gifs: vec![gif("a")],
+			}) = state.request_gifs(Some(" wave "))
+			else {
+				panic!("search command")
+			};
+			assert_eq!(query, "wave");
+			assert!(state.request_gifs(Some("wave")).is_none());
+			state.apply_gifs(request.wrapping_sub(1), Ok(GifPage::default()));
+			assert!(state.gifs.view.as_ref().unwrap().loading);
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Gifs {
+					request,
+					result: Ok(GifPage {
+						gifs: vec![gif("a")],
+						categories: vec![],
+					}),
+				},
+			});
+			let view = state.gifs.view.as_ref().unwrap();
+			assert!(!view.loading && view.error.is_none());
+			assert_eq!(view.page.as_ref().unwrap().gifs.len(), 1);
+			assert!(state.request_gifs(Some("wave")).is_none());
+			assert!(state.clear_gifs().is_none());
+			assert!(state.request_gifs(Some("wave")).is_none());
+			let cached = state.gifs.view.as_ref().unwrap();
+			assert!(!cached.loading && cached.page.is_some());
+			assert!(matches!(
+				state.request_gifs(None),
+				Some(Command::Gifs { query: None, .. })
+			));
+			assert!(matches!(state.clear_gifs(), Some(Command::CancelGifs)));
+			assert!(state.clear_gifs().is_none());
+			let Some(Command::Gifs { request, .. }) = state.request_gifs(None) else {
+				panic!()
+			};
+			state.apply_gifs(request, Err(Failure::RateLimited));
+			assert!(state.gifs.view.as_ref().unwrap().error.is_some());
+			assert!(state.request_gifs(None).is_some(), "errors allow a retry");
+			let mut invalid = gif("bad");
+			invalid.width = 0;
+			let Some(Command::Gifs { request, .. }) = state.request_gifs(Some("x")) else {
+				panic!()
+			};
+			state.apply_gifs(
+				request,
+				Ok(GifPage {
+					gifs: vec![invalid],
 					categories: vec![],
 				}),
-			},
-		});
-		let view = state.gifs.view.as_ref().unwrap();
-		assert!(!view.loading && view.error.is_none());
-		assert_eq!(view.page.as_ref().unwrap().gifs.len(), 1);
-		assert!(state.request_gifs(Some("wave")).is_none());
-		assert!(state.clear_gifs().is_none());
-		assert!(state.request_gifs(Some("wave")).is_none());
-		let cached = state.gifs.view.as_ref().unwrap();
-		assert!(!cached.loading && cached.page.is_some());
-		assert!(matches!(
-			state.request_gifs(None),
-			Some(Command::Gifs { query: None, .. })
-		));
-		assert!(matches!(state.clear_gifs(), Some(Command::CancelGifs)));
-		assert!(state.clear_gifs().is_none());
-		let Some(Command::Gifs { request, .. }) = state.request_gifs(None) else {
-			panic!()
-		};
-		state.apply_gifs(request, Err(Failure::RateLimited));
-		assert!(state.gifs.view.as_ref().unwrap().error.is_some());
-		assert!(state.request_gifs(None).is_some(), "errors allow a retry");
-		let mut invalid = gif("bad");
-		invalid.width = 0;
-		let Some(Command::Gifs { request, .. }) = state.request_gifs(Some("x")) else {
-			panic!()
-		};
-		state.apply_gifs(
-			request,
-			Ok(GifPage {
-				gifs: vec![invalid],
-				categories: vec![],
-			}),
-		);
-		assert!(state.gifs.view.as_ref().unwrap().page.is_none());
-		state.gateway_connected = false;
-		assert!(state.request_gifs(None).is_none());
+			);
+			assert!(state.gifs.view.as_ref().unwrap().page.is_none());
+			state.gateway_connected = false;
+			assert!(state.request_gifs(None).is_none());
+		}
+		{
+			let mut state = test_state();
+			for index in 0..(GIF_CACHE_PAGES + 3) {
+				let query = format!("query{index}");
+				let Some(Command::Gifs { request, .. }) = state.request_gifs(Some(&query)) else {
+					panic!("uncached query");
+				};
+				state.apply_gifs(
+					request,
+					Ok(GifPage {
+						gifs: vec![gif(&format!("g{index}"))],
+						categories: vec![],
+					}),
+				);
+				state.clear_gifs();
+			}
+			assert_eq!(state.gifs.cache.len(), GIF_CACHE_PAGES);
+			assert!(state.gifs.cache_bytes <= GIF_CACHE_BYTES);
+			assert!(matches!(
+				state.request_gifs(Some("query0")),
+				Some(Command::Gifs { .. })
+			));
+			state.logout();
+			assert!(state.gifs.cache.is_empty());
+			assert_eq!(state.gifs.cache_bytes, 0);
+		}
 	}
 
 	#[test]
@@ -327,34 +355,6 @@ mod tests {
 		assert!(!state.toggle_gif_favorite(&invalid));
 		state.restore_gif_favorites(vec![gif("late")]);
 		assert!(!state.is_gif_favorite(&gif("late")));
-	}
-
-	#[test]
-	fn gif_result_cache_is_bounded_and_cleared_with_the_session() {
-		let mut state = test_state();
-		for index in 0..(GIF_CACHE_PAGES + 3) {
-			let query = format!("query{index}");
-			let Some(Command::Gifs { request, .. }) = state.request_gifs(Some(&query)) else {
-				panic!("uncached query");
-			};
-			state.apply_gifs(
-				request,
-				Ok(GifPage {
-					gifs: vec![gif(&format!("g{index}"))],
-					categories: vec![],
-				}),
-			);
-			state.clear_gifs();
-		}
-		assert_eq!(state.gifs.cache.len(), GIF_CACHE_PAGES);
-		assert!(state.gifs.cache_bytes <= GIF_CACHE_BYTES);
-		assert!(matches!(
-			state.request_gifs(Some("query0")),
-			Some(Command::Gifs { .. })
-		));
-		state.logout();
-		assert!(state.gifs.cache.is_empty());
-		assert_eq!(state.gifs.cache_bytes, 0);
 	}
 
 	fn test_state() -> State {
