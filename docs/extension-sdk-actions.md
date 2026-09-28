@@ -931,7 +931,7 @@ External artwork URLs go through Discord's image proxy; Wasm and Serein do not
 fetch the caller's URL directly. Metadata or artwork failures clear the outgoing
 custom activity and report an error; users can revise and reapply. Button/text/
 image links and other rich fields depend on Discord's handling of this unofficial
-client. See the [Custom Rich Presence example](../examples/extensions/custom-rpc).
+client. See the [Custom Rich Presence example](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/custom-rpc).
 
 ## Panels and storage
 

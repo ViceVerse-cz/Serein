@@ -60,7 +60,7 @@ may not be available in a released build.
 | [Message Counter](message-counter/src/lib.rs) | Reactive events, saved counters and a reset button |
 | [Message Delete Protector](message-delete-protector/src/lib.rs) | Opt-in activation enabling host-managed message retention |
 | [Emoji & Sticker Images](emoji-sticker-images/src/lib.rs) | Activation enabling image attachment fallback |
-| [Custom Rich Presence](custom-rpc/README.md) | Native activity editor/preview, saved Apply/Stop controls and activation restore through the bounded `rich_presence` capability |
+| [Custom Rich Presence](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/custom-rpc) | Native activity editor/preview, saved Apply/Stop controls and activation restore through the bounded `rich_presence` capability |
 
 For this tutorial, use `app-toolbox/` in a development copy. Keep its `Cargo.toml`,
 and replace `manifest.json` and `src/lib.rs` with the examples below. The Cargo
@@ -445,14 +445,14 @@ Authors package compiled bytes; Serein never runs their build scripts.
 
 ## Custom Rich Presence example
 
-The [Custom Rich Presence editor](custom-rpc/README.md) is a complete preview SDK
+The [Custom Rich Presence editor](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/custom-rpc) is a complete preview SDK
 example. It declares `rich_presence` and `storage`, returns `RichPresenceOutput`,
 and uses `Element::ActivityPreview` alongside native form controls. Preview and
 draft edits do not publish; Apply returns Set and saves the applied fields. Stop
 returns Clear and saves an inactive flag while keeping those fields. Activation
 restores only a saved active configuration. Extension Disable deletes its data.
 
-Build from `examples/extensions`:
+Build from `plugins` in Serein-extensions:
 
 ```sh
 cargo test --locked -p custom-rpc

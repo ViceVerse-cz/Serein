@@ -16,6 +16,8 @@ use std::{
 };
 
 struct Preview {
+	interactive: bool,
+	smoke: bool,
 	messaging: ui::MessagingUi,
 	state: client_core::State,
 	output: PathBuf,
@@ -93,6 +95,19 @@ impl eframe::App for Preview {
 				ui::design::set_background_image(&ctx, image);
 				ui::design::apply(&ctx);
 			}
+		}
+		if self.interactive {
+			return;
+		}
+		if self.smoke {
+			self.frames += 1;
+			if self.frames >= 5 {
+				self.saved.store(true, Ordering::Release);
+				println!("Offline UI smoke run completed; no screenshot captured.");
+				ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+			}
+			ctx.request_repaint();
+			return;
 		}
 		if self.requested && self.writer.is_none() {
 			let screenshot = self
@@ -259,10 +274,13 @@ fn extension_fixture(
 	),
 	Box<dyn std::error::Error>,
 > {
+	let external = std::env::var_os("SEREIN_PREVIEW_PACKAGE")
+		.map(std::fs::read)
+		.transpose()?;
 	let bytes: &[u8] = match id {
-		"custom-rpc" => {
-			include_bytes!("../../../examples/extensions/packages/custom-rpc.serein-extension")
-		}
+		"custom-rpc" => external
+			.as_deref()
+			.ok_or("Set SEREIN_PREVIEW_PACKAGE to the external Custom RPC package")?,
 		"serein-ocean" => include_bytes!("../../../extensions/ocean.serein-extension"),
 		"message-delete-protector" => include_bytes!(
 			"../../../examples/extensions/packages/message-delete-protector.serein-extension"
@@ -446,9 +464,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo --output=PATH.png [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|profile-card|member-tags|dm-tags|account|appearance|general|extensions|server|server-engagement|server-stickers] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--light]".into());
+		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|profile-card|member-tags|dm-tags|account|appearance|general|extensions|server|server-engagement|server-stickers] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--light]".into());
 	}
-	let output = PathBuf::from(value("--output=").ok_or("Missing --output=PATH.png")?);
+	let smoke = args.iter().any(|arg| arg == "--smoke");
+	let interactive = args.iter().any(|arg| arg == "--interactive");
+	let output = PathBuf::from(
+		value("--output=")
+			.or((smoke || interactive).then_some(""))
+			.ok_or("Missing --output=PATH.png")?,
+	);
 	let page = value("--page=").unwrap_or("profile").to_owned();
 	if !matches!(
 		page.as_str(),
@@ -758,6 +782,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				}
 			}
 			Ok(Box::new(Preview {
+				interactive,
+				smoke,
 				messaging,
 				state,
 				output,
@@ -771,7 +797,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			}))
 		}),
 	)?;
-	if !saved.load(Ordering::Acquire) {
+	if !interactive && !saved.load(Ordering::Acquire) {
 		return Err("No screenshot saved".into());
 	}
 	Ok(())

@@ -2,7 +2,7 @@
 
 ## Custom Rich Presence - September 28, 2026
 
-The bundled **Custom Rich Presence** plugin adds an independent native implementation of
+The **Custom Rich Presence** plugin in Serein-extensions adds an independent native implementation of
 [Vencord CustomRPC](https://vencord.dev/plugins/CustomRPC). Enable it in Extensions, open its
 editor, enter a nonzero Discord application ID and name, then Preview or Apply. Playing,
 Streaming, Listening, Watching and Competing support details/state links, two artwork slots,

@@ -18,10 +18,19 @@ pub(crate) fn actions(
 			if let Element::Row { children } = element
 				&& controls(element)
 			{
-				for child in children.iter().rev() {
+				for child in children
+					.iter()
+					.filter(|e| matches!(e, Element::Button { id, .. } if id == "apply"))
+					.chain(
+						children
+							.iter()
+							.filter(|e| !matches!(e, Element::Button { id, .. } if id == "apply")),
+					) {
 					if let Element::Button { id, label } = child {
 						let kind = if id == "apply" {
 							design::ButtonKind::Primary
+						} else if id == "stop" {
+							design::ButtonKind::Neutral
 						} else {
 							design::ButtonKind::Outline
 						};
@@ -49,17 +58,67 @@ pub(crate) fn editor(
 		Element::ActivityPreview { presence } => Some(presence.as_ref()),
 		_ => None,
 	});
+	let sections: Vec<_> = elements
+		.iter()
+		.enumerate()
+		.filter_map(|(index, e)| match e {
+			Element::Heading { text } if index != 0 => Some((index, text.as_str())),
+			_ => None,
+		})
+		.collect();
+	if sections.is_empty() {
+		form(ui, elements, values, action);
+		preview_card(ui, preview, avatars, state, activity_status);
+		return;
+	}
+	let first_section = sections.first().map_or(elements.len(), |(index, _)| *index);
+	for element in &elements[..first_section] {
+		match element {
+			Element::Text { text } => design::hint(ui, text),
+			Element::Heading { .. } => {}
+			_ => form(ui, std::slice::from_ref(element), values, action),
+		}
+	}
+	ui.add_space(12.0);
+	let tab_id = ui.scope_id().with("presence-section");
+	let mut selected = ui
+		.ctx()
+		.data_mut(|data| data.get_temp::<usize>(tab_id).unwrap_or(0))
+		.min(sections.len().saturating_sub(1));
+	let labels: Vec<_> = sections.iter().map(|(_, title)| *title).collect();
+	let per_row = if ui.available_width() < 600.0 {
+		3
+	} else {
+		labels.len().max(1)
+	};
+	for (row, labels) in labels.chunks(per_row).enumerate() {
+		ui.push_id(row, |ui| {
+			if let Some(index) = design::segmented(ui, labels, selected.wrapping_sub(row * per_row))
+			{
+				selected = row * per_row + index;
+			}
+		});
+	}
+	ui.ctx().data_mut(|data| data.insert_temp(tab_id, selected));
+	ui.add_space(16.0);
+	let Some(&(start, title)) = sections.get(selected) else {
+		return;
+	};
+	let end = sections
+		.get(selected + 1)
+		.map_or(elements.len(), |(index, _)| *index);
+	let fields = &elements[start + 1..end];
 	if ui.available_width() >= 690.0 {
 		let width = ui.available_width();
 		ui.horizontal_top(|ui| {
+			ui.spacing_mut().item_spacing.x = 24.0;
 			ui.allocate_ui_with_layout(
-				egui::vec2(width - 300.0, 0.0),
+				egui::vec2(width - 299.0, 0.0),
 				egui::Layout::top_down(egui::Align::Min),
 				|ui| {
-					form(ui, elements, values, action);
+					design::group(ui, title, |ui| form(ui, fields, values, action));
 				},
 			);
-			ui.separator();
 			ui.allocate_ui_with_layout(
 				egui::vec2(275.0, 0.0),
 				egui::Layout::top_down(egui::Align::Min),
@@ -69,9 +128,9 @@ pub(crate) fn editor(
 			);
 		});
 	} else {
+		design::group(ui, title, |ui| form(ui, fields, values, action));
+		ui.add_space(20.0);
 		preview_card(ui, preview, avatars, state, activity_status);
-		ui.add_space(12.0);
-		form(ui, elements, values, action);
 	}
 }
 
@@ -81,38 +140,59 @@ fn form(
 	values: &mut BTreeMap<String, String>,
 	action: &mut Option<String>,
 ) {
-	let mut at = 0;
-	while at < elements.len() {
-		if controls(&elements[at]) || matches!(elements[at], Element::ActivityPreview { .. }) {
-			at += 1;
+	for element in elements {
+		if controls(element) || matches!(element, Element::ActivityPreview { .. }) {
 			continue;
 		}
-		if let Element::Heading { text } = &elements[at] {
-			let end = elements[at + 1..]
-				.iter()
-				.position(|e| matches!(e, Element::Heading { .. }))
-				.map_or(elements.len(), |offset| at + 1 + offset);
-			if at == 0 {
-				for element in &elements[at + 1..end] {
-					if !controls(element) && !matches!(element, Element::ActivityPreview { .. }) {
-						render_elements(ui, std::slice::from_ref(element), values, action);
-					}
-				}
-			} else {
-				ui.add_space(8.0);
-				egui::CollapsingHeader::new(egui::RichText::new(text).strong())
-					.id_salt(("presence-section", text))
-					.default_open(text == "Activity")
-					.show(ui, |ui| {
-						ui.set_width(ui.available_width());
-						ui.spacing_mut().item_spacing.y = 6.0;
-						render_elements(ui, &elements[at + 1..end], values, action);
-					});
+		match element {
+			Element::TextInput { id, label, value } => {
+				let label = design::label(ui, label);
+				let value = values.entry(id.clone()).or_insert_with(|| value.clone());
+				design::input(
+					ui,
+					egui::TextEdit::singleline(value)
+						.id_salt(id)
+						.char_limit(1024),
+				)
+				.labelled_by(label.id);
+				ui.add_space(10.0);
 			}
-			at = end;
-		} else {
-			render_elements(ui, &elements[at..at + 1], values, action);
-			at += 1;
+			Element::Select {
+				id,
+				label,
+				options,
+				value,
+			} => {
+				let label = design::label(ui, label);
+				let selected = values.entry(id.clone()).or_insert_with(|| value.clone());
+				egui::ComboBox::from_id_salt(id)
+					.width(ui.available_width())
+					.selected_text(selected.as_str())
+					.show_ui(ui, |ui| {
+						for option in options {
+							ui.selectable_value(selected, option.clone(), option);
+						}
+					})
+					.response
+					.labelled_by(label.id);
+				ui.add_space(10.0);
+			}
+			Element::Text { text } => {
+				design::hint(ui, text);
+				ui.add_space(8.0);
+			}
+			Element::Button { id, label } => {
+				if ui
+					.push_id(id, |ui| {
+						design::button(ui, label, design::ButtonKind::Neutral)
+					})
+					.inner
+					.clicked()
+				{
+					*action = Some(id.clone());
+				}
+			}
+			_ => render_elements(ui, std::slice::from_ref(element), values, action),
 		}
 	}
 }

@@ -180,7 +180,7 @@ supports 52 capabilities, with at most 64 distinct declarations per manifest.
 
 ### Custom Rich Presence
 
-The preview [Custom Rich Presence plugin](../examples/extensions/custom-rpc)
+The preview [Custom Rich Presence plugin](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/custom-rpc)
 provides a native editor with validated fields and a local preview. It covers
 activity type, application ID/name, details/state and links, large/small artwork,
 two buttons, party size and timers. **Preview changes** is local; **Apply presence**
@@ -351,7 +351,7 @@ retention, including existing protector packages with no-op activation. Input is
 restricted to the granted context and bounded form values.
 Results can propose a composer replacement or return native headings, text, rows,
 separators, buttons, text inputs, checkboxes, dropdowns and integer sliders. Standalone
-panel actions are available from the composer Tools menu as well as the shop. Composer proposals require Apply, retain
+panel actions are available from Settings > Extensions. Composer actions appear in the composer Tools menu. Composer proposals require Apply, retain
 the ordinary Send action and are discarded when their originating context is
 stale. Account/session changes invalidate outstanding results.
 

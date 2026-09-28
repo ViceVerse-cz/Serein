@@ -955,7 +955,7 @@ impl ExtensionUi {
 					.manifest
 					.actions
 					.iter()
-					.any(|action| matches!(action.surface, Surface::Composer | Surface::Panel))
+					.any(|action| action.surface == Surface::Composer)
 		}) {
 			return;
 		}
@@ -964,9 +964,12 @@ impl ExtensionUi {
 			crate::i18n::translate("extensions-ui-composer-menu-tools"),
 			|ui| {
 				for entry in self.entries.iter().filter(|entry| entry.enabled) {
-					for action in entry.manifest.actions.iter().filter(|action| {
-						matches!(action.surface, Surface::Composer | Surface::Panel)
-					}) {
+					for action in entry
+						.manifest
+						.actions
+						.iter()
+						.filter(|action| action.surface == Surface::Composer)
+					{
 						if ui
 							.add_enabled(
 								!self.busy,
