@@ -352,8 +352,20 @@ impl ClientState {
 	) {
 		if let Err(failure) = &result
 			&& failure.ends_session()
+			&& *failure != Failure::Capacity
 		{
 			self.fail(*failure);
+			return;
+		}
+		if !self.can_call(channel) {
+			if self
+				.voice
+				.preview
+				.as_ref()
+				.is_some_and(|preview| preview.channel == channel)
+			{
+				self.voice.preview = None;
+			}
 			return;
 		}
 		let Some(preview) = self.voice.preview.as_mut().filter(|preview| {
@@ -988,8 +1000,7 @@ mod tests {
 	use super::*;
 	use crate::{Envelope, Event as CoreEvent};
 	use model::{Channel, User};
-	#[test]
-	fn stream_preview_is_scoped_to_the_current_streamer_request() {
+	fn stream_preview_state() -> ClientState {
 		let mut state = ClientState {
 			auth: AuthState::Authenticated,
 			gateway_connected: true,
@@ -1043,6 +1054,12 @@ mod tests {
 			..Default::default()
 		};
 		crate::tests::grant_permissions(&mut state);
+		state
+	}
+
+	#[test]
+	fn stream_preview_is_scoped_to_the_current_streamer_request() {
+		let mut state = stream_preview_state();
 		let Some(crate::Command::StreamPreview { request, .. }) =
 			state.request_stream_preview(Id(10), Id(20), Id(30))
 		else {
@@ -1054,6 +1071,72 @@ mod tests {
 		let preview = state.voice.preview.as_ref().unwrap();
 		assert!(!preview.loading);
 		assert_eq!(preview.url.as_deref(), Some("preview"));
+	}
+
+	#[test]
+	fn stream_preview_capacity_is_local_but_expired_auth_ends_session() {
+		let mut state = stream_preview_state();
+		let command = state
+			.request_stream_preview(Id(10), Id(20), Id(30))
+			.unwrap();
+		state.command_rejected(command);
+		assert_eq!(state.auth, AuthState::Authenticated);
+		assert!(state.gateway_connected);
+		let preview = state.voice.preview.as_ref().unwrap();
+		assert!(!preview.loading);
+		assert!(preview.error.is_some());
+		let request = preview.request;
+		state.apply_stream_preview(Id(10), Id(20), Id(30), request, Err(Failure::Expired));
+		assert_ne!(state.auth, AuthState::Authenticated);
+		assert!(state.voice.preview.is_none());
+	}
+
+	#[test]
+	fn stream_preview_revoked_connect_clears_cached_and_inflight_results() {
+		use model::permissions as p;
+		for cached in [false, true] {
+			let mut state = stream_preview_state();
+			state
+				.request_stream_preview(Id(10), Id(20), Id(30))
+				.unwrap();
+			let request = state.voice.preview.as_ref().unwrap().request;
+			if cached {
+				state.apply_stream_preview(Id(10), Id(20), Id(30), request, Ok("preview".into()));
+			}
+			state.apply(Envelope {
+				generation: state.generation,
+				event: CoreEvent::Permissions(crate::permissions::Event::Guild(p::Guild {
+					id: Id(10),
+					owner: Some(Id(99)),
+					roles: Some(vec![p::Role {
+						id: Id(10),
+						name: String::new(),
+						color: 0,
+						position: 0,
+						hoist: false,
+						bits: p::VIEW_CHANNEL,
+					}]),
+					member: Some(p::Member {
+						roles: vec![],
+						timeout_until: None,
+					}),
+				})),
+			});
+			assert!(state.can_view(Id(20)));
+			assert!(!state.has_voice_access(Id(20)));
+			assert_eq!(state.voice.roster.len(), 1);
+			assert!(state.voice.preview.is_none());
+			state.apply_stream_preview(Id(10), Id(20), Id(30), request, Ok("late".into()));
+			assert!(state.voice.preview.is_none());
+			assert!(
+				state
+					.request_stream_preview(Id(10), Id(20), Id(30))
+					.is_none()
+			);
+			let denied = state.voice.preview.as_ref().unwrap().request;
+			state.apply_stream_preview(Id(10), Id(20), Id(30), denied, Ok("denied".into()));
+			assert!(state.voice.preview.is_none());
+		}
 	}
 
 	#[test]

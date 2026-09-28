@@ -537,7 +537,8 @@ impl MessagingUi {
 				self.voice_participant_menu(&row, state, entry);
 				if entry.participant.streaming {
 					self.stream_preview_popup(ui, &row, state, entry);
-				} else if let Some(user) = user {
+				}
+				if let Some(user) = user {
 					self.profile.person_click(ui, &row, None, user);
 				}
 			},
@@ -563,9 +564,16 @@ impl MessagingUi {
 				.corner_radius(10),
 		);
 		let open = tooltip.popup.is_open();
-		if open && self.stream_preview_open != Some(target) {
-			self.stream_preview_open = Some(target);
-			self.stream_preview_request = Some(target);
+		if open {
+			let frame = ui.ctx().cumulative_frame_nr();
+			if !self
+				.stream_preview_open
+				.is_some_and(|(previous, last_frame)| {
+					previous == target && frame <= last_frame.saturating_add(1)
+				}) {
+				self.stream_preview_request = Some(target);
+			}
+			self.stream_preview_open = Some((target, frame));
 		}
 		let colors = design::palette(ui);
 		tooltip.show(|ui| {
@@ -660,7 +668,11 @@ impl MessagingUi {
 				ui.close();
 			}
 		});
-		if !open && self.stream_preview_open == Some(target) {
+		if !open
+			&& self
+				.stream_preview_open
+				.is_some_and(|(previous, _)| previous == target)
+		{
 			self.stream_preview_open = None;
 		}
 	}
@@ -702,8 +714,11 @@ impl MessagingUi {
 				state.status = "Leave the current call before watching this stream";
 			}
 			Some((_, Phase::Connected | Phase::Waiting)) => {
-				if state.watch_stream(user).is_some() {
-					self.stream_preview_watch = None;
+				self.stream_preview_watch = None;
+				if state.voice.active.as_ref().and_then(|call| call.watching) != Some(user)
+					&& state.watch_stream(user).is_none()
+				{
+					state.status = "This stream is not available in the connected voice channel";
 				}
 			}
 			Some((_, Phase::Failed)) => {
@@ -4886,6 +4901,112 @@ mod tests {
 			messaging.stream_preview_request,
 			Some((Id(10), Id(25), Id(2)))
 		);
+		messaging.stream_preview_request = None;
+		for render_row in [true, false, true] {
+			ctx.run_ui(Default::default(), |ui| {
+				if render_row {
+					messaging.voice_participant(ui, &state, &state.voice.roster[0]);
+				}
+			})
+			.drop_without_applying_deltas();
+			if !render_row {
+				assert!(messaging.stream_preview_request.is_none());
+			}
+		}
+		assert_eq!(
+			messaging.stream_preview_request.take(),
+			Some((Id(10), Id(25), Id(2))),
+			"Reopening after the row disappears must refresh the still"
+		);
+		ctx.run_ui(Default::default(), |ui| {
+			messaging.voice_participant(ui, &state, &state.voice.roster[0]);
+		})
+		.drop_without_applying_deltas();
+		assert!(
+			messaging.stream_preview_request.is_none(),
+			"An uninterrupted hover requests only once"
+		);
+	}
+
+	#[test]
+	fn streaming_roster_click_still_opens_profile() {
+		let state = test_support::voice_demo_state();
+		let entry = &state.voice.roster[2];
+		assert!(entry.participant.streaming);
+		let mut messaging = MessagingUi::default();
+		let ctx = egui::Context::default();
+		let mut rect = egui::Rect::NOTHING;
+		ctx.run_ui(Default::default(), |ui| {
+			rect = ui
+				.scope(|ui| messaging.voice_participant(ui, &state, entry))
+				.response
+				.rect;
+		})
+		.drop_without_applying_deltas();
+		let pos = rect.left_center() + egui::vec2(40.0, 0.0);
+		for pressed in [true, false] {
+			ctx.run_ui(
+				egui::RawInput {
+					events: vec![
+						egui::Event::PointerMoved(pos),
+						egui::Event::PointerButton {
+							pos,
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					],
+					..Default::default()
+				},
+				|ui| {
+					ui.scope(|ui| messaging.voice_participant(ui, &state, entry));
+				},
+			)
+			.drop_without_applying_deltas();
+		}
+		assert_eq!(
+			messaging.profile.open_user().map(|user| user.id),
+			Some(entry.participant.user)
+		);
+	}
+
+	#[test]
+	fn stream_preview_watch_clears_rejected_and_completed_intents() {
+		for phase in [Phase::Connected, Phase::Waiting] {
+			for present in [false, true] {
+				let mut state = test_support::voice_demo_state();
+				let call = state.voice.active.as_mut().unwrap();
+				call.phase = phase;
+				if !present {
+					call.participants
+						.retain(|participant| participant.user != Id(3));
+				}
+				let mut messaging = MessagingUi {
+					stream_preview_watch: Some((Id(25), Id(3))),
+					..Default::default()
+				};
+				let mut commands = vec![];
+				messaging.apply_stream_preview_watch(&mut state, &mut commands);
+				assert!(messaging.stream_preview_watch.is_none());
+				assert_eq!(
+					state.voice.active.as_ref().unwrap().watching,
+					present.then_some(Id(3))
+				);
+				assert!(commands.is_empty());
+				if !present {
+					assert_eq!(
+						state.status,
+						"This stream is not available in the connected voice channel"
+					);
+				} else {
+					state.status = "";
+					messaging.stream_preview_watch = Some((Id(25), Id(3)));
+					messaging.apply_stream_preview_watch(&mut state, &mut commands);
+					assert!(messaging.stream_preview_watch.is_none());
+					assert!(state.status.is_empty());
+				}
+			}
+		}
 	}
 
 	#[test]

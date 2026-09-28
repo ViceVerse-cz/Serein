@@ -893,6 +893,9 @@ An opened live-stream preview retains one URL of at most 2,048 bytes and one bou
 the existing 512-pixel media working set. Preview responses are capped at 4 KiB, and a newer
 request cancels the previous one. `/streams/` media has no disk-cache key, so neither its URL
 nor pixels enter SQLite or the account image cache. No new schema or persistent queue is added.
+Losing voice access clears the preview URL and invalidates in-flight results even if the
+channel roster remains visible. Oversized preview responses fail locally without ending
+the account session; authentication failures still terminate it.
 
 Outgoing packet pacing retains the already packetized access unit across transport turns,
 at most 2,048 packets of 1,200 wire bytes each, instead of sending it in one uninterrupted

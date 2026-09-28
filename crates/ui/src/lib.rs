@@ -356,7 +356,7 @@ pub struct MessagingUi {
 	pub voice_chat_open: bool,
 	/// Tile click to start (`Some(user)`) or stop (`None`) watching, applied by the stage.
 	watch_request: Option<Option<Id>>,
-	stream_preview_open: Option<(Id, Id, Id)>,
+	stream_preview_open: Option<((Id, Id, Id), u64)>,
 	stream_preview_request: Option<(Id, Id, Id)>,
 	stream_preview_watch: Option<(Id, Id)>,
 	pub voice_inputs: Vec<(String, String)>,

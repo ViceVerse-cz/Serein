@@ -375,7 +375,7 @@ impl Connection {
 								let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
 								stream_preview=Some(AbortTask(tokio::spawn(async move {
 									let event=api.execute(command).await;
-									let failure=match &event {Event::StreamPreview{result:Err(f),..} if f.ends_session()=>Some(*f),_=>None};
+									let failure=stream_preview_session_failure(&event);
 									let error=emit(event).err().or(failure);
 									if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
 									wake.request_repaint();
@@ -854,6 +854,18 @@ fn ring_action(
 	}
 }
 
+fn stream_preview_session_failure(event: &Event) -> Option<Failure> {
+	match event {
+		// An oversized optional still must not disconnect the account.
+		Event::StreamPreview { result: Err(f), .. }
+			if f.ends_session() && *f != Failure::Capacity =>
+		{
+			Some(*f)
+		}
+		_ => None,
+	}
+}
+
 // Reads can finish after navigation/cancellation. Only a session-ending failure is global.
 fn scope_history_failure(event: Event, channel: model::Id, request: u64) -> Event {
 	let failure = match event {
@@ -870,6 +882,28 @@ fn scope_history_failure(event: Event, channel: model::Id, request: u64) -> Even
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn stream_preview_capacity_is_local_but_auth_failures_end_the_session() {
+		for (failure, expected) in [
+			(Failure::Capacity, None),
+			(Failure::Forbidden, None),
+			(Failure::Expired, Some(Failure::Expired)),
+			(Failure::Challenged, Some(Failure::Challenged)),
+			(Failure::InvalidCredential, Some(Failure::InvalidCredential)),
+		] {
+			assert_eq!(
+				stream_preview_session_failure(&Event::StreamPreview {
+					guild: model::Id(1),
+					channel: model::Id(2),
+					user: model::Id(3),
+					request: 4,
+					result: Err(failure),
+				}),
+				expected
+			);
+		}
+	}
+
 	#[tokio::test]
 	async fn activity_privacy_waits_for_opt_in_and_propagates_expired_session() {
 		let api = Arc::new(
