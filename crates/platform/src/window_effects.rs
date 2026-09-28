@@ -17,6 +17,8 @@ pub struct Blur {
 	#[cfg(target_os = "macos")]
 	macos: Option<macos::Blur>,
 	native_enabled: bool,
+	#[cfg(target_os = "windows")]
+	decorated: bool,
 	// Keep the native display and surface alive until the protocol objects are dropped.
 	window: Arc<Window>,
 }
@@ -30,6 +32,8 @@ impl Blur {
 			#[cfg(target_os = "macos")]
 			macos: macos::Blur::new(&window),
 			native_enabled: false,
+			#[cfg(target_os = "windows")]
+			decorated: window.is_decorated(),
 			window,
 		}
 	}
@@ -43,13 +47,17 @@ impl Blur {
 		} else {
 			enabled
 		};
-		if enabled == self.native_enabled {
+		let unchanged = enabled == self.native_enabled;
+		#[cfg(target_os = "windows")]
+		let unchanged = unchanged && self.decorated == self.window.is_decorated();
+		if unchanged {
 			return;
 		}
 		self.native_enabled = enabled;
 		#[cfg(target_os = "windows")]
 		{
 			use winit::platform::windows::{BackdropType, WindowExtWindows};
+			self.decorated = self.window.is_decorated();
 			if let Err(error) = dwm::extend_frame(&self.window, enabled) {
 				eprintln!("Window blur: {error}");
 			}

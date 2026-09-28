@@ -323,7 +323,7 @@ impl GuildFolderInput {
 		if self.id == Some(0) || self.color.is_some_and(|color| color > 0xffffff) {
 			return Err(Error::Invalid);
 		}
-		app::ids(self.guild_ids.iter().map(String::as_str), 200)?;
+		app::ids(self.guild_ids.iter().map(String::as_str), MAX_GUILD_FOLDERS)?;
 		if self.id.is_none() && self.guild_ids.len() != 1 {
 			return Err(Error::Invalid);
 		}
@@ -334,9 +334,12 @@ impl GuildFolderInput {
 	}
 }
 
+/// Matches the native layout bound; stored layouts can keep servers that were left.
+pub const MAX_GUILD_FOLDERS: usize = 1000;
+
 impl GuildFoldersSnapshot {
 	pub fn validate(&self) -> Result<(), Error> {
-		if self.folders.len() > 200 {
+		if self.folders.len() > MAX_GUILD_FOLDERS {
 			return Err(Error::Limit);
 		}
 		for folder in &self.folders {

@@ -2145,3 +2145,42 @@ PowerShell `Compress-Archive -CompressionLevel Optimal`. NSIS was unavailable.
 The preview adds no polling or closed-popover rendering work: one visible hover starts one
 latest-wins request capped at 4 KiB, and the still uses the existing 512-pixel media bounds.
 Native CPU/RSS and frame timing were not measured because desktop capture/control was unavailable.
+
+## Windows transparent caption controls — September 28, 2026
+
+The earlier transparency-layer workaround did not fix the reported duplication.
+Its measurements have been removed: they do not describe the final native-caption
+fix. The final change suppresses `WS_SYSMENU` only for a blurred custom frame and
+keeps that suppression across winit style rewrites. Native title-bar mode restores
+the system controls. No dependency, worker, timer, or asset was added.
+
+The comparison baseline is `f6e7cfb2` (before the working caption fix), Windows x64,
+Rust 1.98.1, locked dependencies and standard voice-enabled `cargo xtask package`.
+The baseline package was preserved separately; the measured package is `dd5af5f3`.
+Installed size sums all 198 files. Both portable ZIPs were produced using .NET
+`ZipFile.CreateFromDirectory` with `CompressionLevel.Optimal` and no enclosing
+directory. This compares the final correction, not the complete branch against main.
+
+| Package metric, bytes | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 76,688,896 | 76,692,480 | +3,584 / +0.0047% |
+| Full installed package | 80,792,212 | 80,795,796 | +3,584 / +0.0044% |
+| Portable ZIP | 44,171,877 | 44,173,235 | +1,358 / +0.0031% |
+
+Both standard voice-enabled package builds passed. `makensis` is unavailable, so
+the optional NSIS installer was skipped. Final matched release CPU, working-set,
+frame/input-latency measurements are unavailable; no runtime performance
+improvement is claimed from the old debug measurements or from screenshots.
+
+Native synthetic evidence in `docs/pr-evidence/windows-transparency/` uses
+`--demo --demo-transparency --demo-friends`, DX12/DirectComposition, 125% scale,
+and a 1500 x 900 pixel window. Before is `f6e7cfb2`; after is the caption fix
+following maximize, restore, minimize and restore. The owner also confirmed the
+normal non-demo debug build works. These are visual checks, not benchmarks or
+proof of live Discord interoperability.
+
+The subsequent fullscreen review correction retains the latest requested system-menu
+bit instead of always restoring it. Its expanded native-window regression test,
+focused Clippy, and normal debug build passed, followed by owner confirmation.
+The package sizes and screenshots above predate that correction; release sizes
+and performance have not been remeasured for the review follow-up.

@@ -1206,11 +1206,16 @@ and guild positions, checks the freshly read data version, and requires a confir
 response before changing the displayed layout. Conflicts and uncertain saves expose
 a refresh/retry action. Other-client changes require the rail context menu's explicit
 refresh; Gateway settings updates are not consumed in this slice.
+Layouts left by other clients are normalized instead of rejected: a server listed
+twice keeps its first placement, ID-less multi-server entries become standalone
+servers, empty ID-less entries are dropped, zero or repeated folder IDs get a fresh
+ID, invalid colors fall back to the default and control characters in names become
+spaces. Stored servers that the account has left stay in the layout.
 
 Primary implementation evidence checked: [settings schema](https://github.com/discord-userdoccers/discord-protos)
 and [discord.py-self HTTP adapter](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py).
-Limits: 200 servers, 200 folder entries, 100 characters/400 bytes per name, 16 KiB
-retained layout, and a 6 MiB response cap for Discord's 5 MiB encoded settings value
+Limits: 1,000 stored servers, including left ones, 1,000 folder entries,
+100 characters/400 bytes per name, 128 KiB retained layout, and a 6 MiB response cap for Discord's 5 MiB encoded settings value
 plus its JSON envelope. Oversized settings disable organization
 without hiding normal server navigation. Demo edits stay in memory; live edits persist
 through Discord. No live account actions were performed in fast local validation.

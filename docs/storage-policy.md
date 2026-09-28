@@ -245,8 +245,8 @@ are retained.
 The server rail retains at most 15 DM IDs (120 bytes) and one sorted boxed badge
 record per guild represented in validated navigation: at most 131,072 records,
 16 bytes each on the supported 64-bit targets (2 MiB). Folder rows retain at most
-131,072 guild rows plus 200 folder headers, each 40 bytes on 64-bit targets
-(5,250,880 bytes). Rebuilds use temporary bounded vectors/maps in addition to the
+131,072 guild rows plus 1,000 folder headers, each 40 bytes on 64-bit targets
+(5,282,880 bytes). Rebuilds use temporary bounded vectors/maps in addition to the
 previous cache; these ceilings are not measured process RSS. Session generation,
 state revision and local expansion/call changes retire stale derived views.
 UI session reset releases the caches. No disk records or schema migration change.
