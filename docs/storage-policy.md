@@ -1167,7 +1167,9 @@ package contents never enter application diagnostics or account caches.
 The ZIP central directory is checked before allocation (4 MiB / 8,192 entries);
 ZIP64 packages are rejected. Extracted data is capped at 1 GiB. Paths, duplicate
 names, symlinks and special files are validated before writing to private staging
-beside the installation. Staging records the app/helper owner and is reused or
+beside the installation. Staging records the app/helper owner and a completed
+Windows handoff; cleanup removes these markers last so a temporarily locked file
+cannot turn owned storage into an unrecognized directory. Staging is reused or
 cleaned before another download; backups from interrupted replacements are kept
 for recovery and block another installation instead of being deleted.
 

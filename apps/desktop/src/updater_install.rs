@@ -260,10 +260,12 @@ pub(super) fn create_stage() -> Result<Staged, String> {
 					.into(),
 			);
 		}
-		if entry.path().join("previous.app").exists()
-			|| entry.path().join("previous").exists()
-			|| entry.path().join("failed.app").exists()
-			|| entry.path().join("previous.AppImage").exists()
+		let installed = entry.path().join("installed").is_file();
+		if !installed
+			&& (entry.path().join("previous.app").exists()
+				|| entry.path().join("previous").exists()
+				|| entry.path().join("failed.app").exists()
+				|| entry.path().join("previous.AppImage").exists())
 		{
 			return Err(format!(
 				"An interrupted update needs recovery before continuing. Its backup is in {}.",
@@ -327,7 +329,40 @@ fn process_alive(pid: u32) -> bool {
 	}
 }
 pub(super) fn cleanup(directory: &Path) {
-	let _ = fs::remove_dir_all(directory);
+	let Ok(entries) = fs::read_dir(directory) else {
+		return;
+	};
+	for entry in entries {
+		let Ok(entry) = entry else { return };
+		let name = entry.file_name();
+		if matches!(name.to_str(), Some("owner" | "installed")) {
+			continue;
+		}
+		let result = entry.file_type().and_then(|kind| {
+			if kind.is_dir() {
+				fs::remove_dir_all(entry.path())
+			} else {
+				fs::remove_file(entry.path())
+			}
+		});
+		if result.is_err() {
+			return;
+		}
+	}
+	let has_leftovers = fs::read_dir(directory).map_or(true, |mut entries| {
+		entries.any(|entry| {
+			entry.is_err()
+				|| entry.is_ok_and(|entry| {
+					!matches!(entry.file_name().to_str(), Some("owner" | "installed"))
+				})
+		})
+	});
+	if has_leftovers {
+		return;
+	}
+	let _ = fs::remove_file(directory.join("installed"));
+	let _ = fs::remove_file(directory.join("owner"));
+	let _ = fs::remove_dir(directory);
 }
 
 fn safe_path(name: &str) -> Result<PathBuf, String> {
@@ -934,7 +969,17 @@ try {
   Start-Process -FilePath (Join-Path $installation 'serein.exe') -WorkingDirectory $installation -ErrorAction SilentlyContinue
   exit 1
 }
-Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+[IO.File]::WriteAllText((Join-Path $stage 'installed'), '')
+Get-ChildItem -LiteralPath $stage -Force |
+  Where-Object { $_.Name -notin @('owner', 'installed') } |
+  Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+$remaining = @(Get-ChildItem -LiteralPath $stage -Force |
+  Where-Object { $_.Name -notin @('owner', 'installed') })
+if ($remaining.Count -eq 0) {
+  Remove-Item -LiteralPath (Join-Path $stage 'installed') -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath (Join-Path $stage 'owner') -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $stage -Force -ErrorAction SilentlyContinue
+}
 "#;
 
 #[cfg(feature = "demo")]
@@ -1012,6 +1057,36 @@ pub(super) fn debug_check() -> Result<(), String> {
 	bytes[length - 11] = 0xff;
 	if preflight_zip(&mut std::io::Cursor::new(bytes)).is_ok() {
 		return Err("Oversized ZIP directory accepted.".into());
+	}
+
+	#[cfg(windows)]
+	{
+		use std::os::windows::fs::OpenOptionsExt;
+
+		let mut nonce = [0_u8; 8];
+		getrandom::fill(&mut nonce).map_err(|_| "Cannot create cleanup check storage.")?;
+		let directory = std::env::temp_dir().join(format!(
+			"serein-update-cleanup-check-{:016x}",
+			u64::from_ne_bytes(nonce)
+		));
+		fs::create_dir(&directory).map_err(|_| "Cannot create cleanup check storage.")?;
+		fs::write(directory.join("owner"), b"serein-updater-v1")
+			.map_err(|_| "Cannot create cleanup ownership marker.")?;
+		let locked = fs::OpenOptions::new()
+			.write(true)
+			.create_new(true)
+			.share_mode(0)
+			.open(directory.join("locked"))
+			.map_err(|_| "Cannot create locked cleanup fixture.")?;
+		cleanup(&directory);
+		if !directory.join("owner").is_file() || !directory.join("locked").is_file() {
+			return Err("Partial cleanup discarded its ownership marker.".into());
+		}
+		drop(locked);
+		cleanup(&directory);
+		if directory.exists() {
+			return Err("Unlocked update storage was not cleaned.".into());
+		}
 	}
 	Ok(())
 }
