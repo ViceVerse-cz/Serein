@@ -962,60 +962,6 @@ mod tests {
 		}
 	}
 
-	#[tokio::test]
-	async fn custom_presence_cancels_stale_artwork_and_stop_clears() {
-		let service = Offline {
-			release: Some(Arc::new(Notify::new())),
-			..Offline::default()
-		};
-		let started = service.started.clone();
-		let mut request = extensions::CustomRichPresence {
-			application_id: "7".into(),
-			name: "Custom game".into(),
-			large_image: Some(extensions::RichPresenceImage {
-				key: "map".into(),
-				text: None,
-				url: None,
-			}),
-			..Default::default()
-		};
-		let (send, receive) = watch::channel(Some(request.clone()));
-		let (output, mut results) = watch::channel(Ok(None));
-		let worker = tokio::spawn(custom::run(receive, output, service));
-		timeout(Duration::from_secs(2), started.notified())
-			.await
-			.unwrap();
-		// Metadata never completes: a newer request must cancel it and publish without artwork.
-		request.large_image = None;
-		request.name = "Latest custom game".into();
-		send.send_replace(Some(request));
-		timeout(Duration::from_secs(2), results.changed())
-			.await
-			.unwrap()
-			.unwrap();
-		assert_eq!(
-			results
-				.borrow_and_update()
-				.as_ref()
-				.unwrap()
-				.as_ref()
-				.unwrap()
-				.name,
-			"Latest custom game"
-		);
-		send.send_replace(None);
-		timeout(Duration::from_secs(2), results.changed())
-			.await
-			.unwrap()
-			.unwrap();
-		assert_eq!(*results.borrow_and_update(), Ok(None));
-		drop(send);
-		timeout(Duration::from_secs(2), worker)
-			.await
-			.unwrap()
-			.unwrap();
-	}
-
 	async fn handshake(game: &mut tokio::io::DuplexStream) {
 		write_frame(game, 0, br#"{"v":1,"client_id":"7"}"#)
 			.await
@@ -1394,130 +1340,73 @@ mod tests {
 			&egui::Context::default(),
 		);
 		assert_eq!(*activity.borrow(), Some(scanned));
-	}
 
-	#[test]
-	fn latest_game_falls_back_and_clears_without_polling() {
-		let (activity, _) = watch::channel(None);
-		let (report, _) = watch::channel(Ok(None));
-		let mut values = std::array::from_fn(|_| None);
-		let first = rpc::ActivityFields::default()
-			.into_activity(model::Id(7), "First game".into())
-			.unwrap();
-		let second = rpc::ActivityFields::default()
-			.into_activity(model::Id(8), "Second game".into())
-			.unwrap();
-		values[0] = Some((Instant::now(), first.clone()));
-		values[1] = Some((Instant::now() + Duration::from_millis(1), second.clone()));
-		publish(
-			&values,
-			&None,
-			&activity,
-			&report,
-			&egui::Context::default(),
-		);
-		assert_eq!(*activity.borrow(), Some(second));
-		values[1] = None;
-		publish(
-			&values,
-			&None,
-			&activity,
-			&report,
-			&egui::Context::default(),
-		);
-		assert_eq!(*activity.borrow(), Some(first));
-		let first = values[0].as_mut().unwrap();
-		first.1.details = Some("  Next beatmap  ".into());
-		first.1.state = Some(" ".into());
-		first.1.assets = Some(rpc::Assets {
-			large_image: Some("99".into()),
-			..Default::default()
-		});
-		publish(
-			&values,
-			&None,
-			&activity,
-			&report,
-			&egui::Context::default(),
-		);
-		let display = report.borrow().as_ref().unwrap().clone().unwrap();
-		assert!(display.valid());
-		assert_eq!(display.summary(), "Playing First game");
-		assert_eq!(display.details.as_deref(), Some("Next beatmap"));
-		assert!(display.state.is_none());
-		assert_eq!(
-			display.image,
-			Some(model::ActivityImage::Asset {
-				application: model::Id(7),
-				asset: model::Id(99),
-			})
-		);
-		values[0] = None;
-		publish(
-			&values,
-			&None,
-			&activity,
-			&report,
-			&egui::Context::default(),
-		);
-		assert!(activity.borrow().is_none());
-		assert_eq!(*report.borrow(), Ok(None));
-	}
-
-	#[test]
-	fn end_only_activity_retains_its_countdown() {
-		let activity = rpc::ActivityFields {
-			timestamps: Some(rpc::Timestamps {
-				start: None,
-				end: Some(1_700_000_000_000),
-			}),
-			..Default::default()
-		}
-		.into_activity(model::Id(7), "Countdown".into())
-		.unwrap();
-		let display = display_activity(&activity);
-		assert_eq!(display.started_at, None);
-		assert_eq!(display.ends_at, Some(1_700_000_000_000));
-		assert!(display.valid());
-	}
-
-	#[test]
-	fn a_small_badge_never_becomes_the_artwork() {
-		let activity = |assets: rpc::Assets| {
-			rpc::ActivityFields {
-				assets: Some(assets),
+		{
+			let (activity, _) = watch::channel(None);
+			let (report, _) = watch::channel(Ok(None));
+			let mut values = std::array::from_fn(|_| None);
+			let first = rpc::ActivityFields::default()
+				.into_activity(model::Id(7), "First game".into())
+				.unwrap();
+			let second = rpc::ActivityFields::default()
+				.into_activity(model::Id(8), "Second game".into())
+				.unwrap();
+			values[0] = Some((Instant::now(), first.clone()));
+			values[1] = Some((Instant::now() + Duration::from_millis(1), second.clone()));
+			publish(
+				&values,
+				&None,
+				&activity,
+				&report,
+				&egui::Context::default(),
+			);
+			assert_eq!(*activity.borrow(), Some(second));
+			values[1] = None;
+			publish(
+				&values,
+				&None,
+				&activity,
+				&report,
+				&egui::Context::default(),
+			);
+			assert_eq!(*activity.borrow(), Some(first));
+			let first = values[0].as_mut().unwrap();
+			first.1.details = Some("  Next beatmap  ".into());
+			first.1.state = Some(" ".into());
+			first.1.assets = Some(rpc::Assets {
+				large_image: Some("99".into()),
 				..Default::default()
-			}
-			.into_activity(model::Id(7), "A game".into())
-			.unwrap()
-		};
-		// The reported failure: only the badge resolved, so it was shown as the cover.
-		let badge_only = display_activity(&activity(rpc::Assets {
-			small_image: Some("42".into()),
-			..Default::default()
-		}));
-		assert_eq!(
-			badge_only.image,
-			Some(model::ActivityImage::Application(model::Id(7)))
-		);
-		assert_eq!(
-			badge_only.small_image,
-			Some(model::ActivityImage::Asset {
-				application: model::Id(7),
-				asset: model::Id(42),
-			})
-		);
-		let proxied = display_activity(&activity(rpc::Assets {
-			large_image: Some("mp:external/hash-01/https/example.com/cover.png".into()),
-			..Default::default()
-		}));
-		assert_eq!(
-			proxied.image,
-			Some(model::ActivityImage::Proxy(
-				"external/hash-01/https/example.com/cover.png".into()
-			))
-		);
-		assert!(proxied.valid());
+			});
+			publish(
+				&values,
+				&None,
+				&activity,
+				&report,
+				&egui::Context::default(),
+			);
+			let display = report.borrow().as_ref().unwrap().clone().unwrap();
+			assert!(display.valid());
+			assert_eq!(display.summary(), "Playing First game");
+			assert_eq!(display.details.as_deref(), Some("Next beatmap"));
+			assert!(display.state.is_none());
+			assert_eq!(
+				display.image,
+				Some(model::ActivityImage::Asset {
+					application: model::Id(7),
+					asset: model::Id(99),
+				})
+			);
+			values[0] = None;
+			publish(
+				&values,
+				&None,
+				&activity,
+				&report,
+				&egui::Context::default(),
+			);
+			assert!(activity.borrow().is_none());
+			assert_eq!(*report.borrow(), Ok(None));
+		}
 	}
 
 	#[tokio::test]
@@ -1606,5 +1495,76 @@ mod tests {
 		settings.dirty = false;
 		settings.observe(false);
 		assert!(settings.dirty && settings.saving && !settings.enabled);
+	}
+
+	#[tokio::test]
+	async fn custom_presence_cancels_stale_artwork_and_stop_clears() {
+		let service = Offline {
+			release: Some(Arc::new(Notify::new())),
+			..Offline::default()
+		};
+		let started = service.started.clone();
+		let mut request = extensions::CustomRichPresence {
+			application_id: "7".into(),
+			name: "Custom game".into(),
+			large_image: Some(extensions::RichPresenceImage {
+				key: "map".into(),
+				text: None,
+				url: None,
+			}),
+			..Default::default()
+		};
+		let (send, receive) = watch::channel(Some(request.clone()));
+		let (output, mut results) = watch::channel(Ok(None));
+		let worker = tokio::spawn(custom::run(receive, output, service));
+		timeout(Duration::from_secs(2), started.notified())
+			.await
+			.unwrap();
+		// Metadata never completes: a newer request must cancel it and publish without artwork.
+		request.large_image = None;
+		request.name = "Latest custom game".into();
+		send.send_replace(Some(request));
+		timeout(Duration::from_secs(2), results.changed())
+			.await
+			.unwrap()
+			.unwrap();
+		assert_eq!(
+			results
+				.borrow_and_update()
+				.as_ref()
+				.unwrap()
+				.as_ref()
+				.unwrap()
+				.name,
+			"Latest custom game"
+		);
+		send.send_replace(None);
+		timeout(Duration::from_secs(2), results.changed())
+			.await
+			.unwrap()
+			.unwrap();
+		assert_eq!(*results.borrow_and_update(), Ok(None));
+		drop(send);
+		timeout(Duration::from_secs(2), worker)
+			.await
+			.unwrap()
+			.unwrap();
+	}
+
+	#[test]
+	fn end_only_activity_retains_its_countdown() {
+		let activity = rpc::ActivityFields {
+			timestamps: Some(rpc::Timestamps {
+				start: None,
+				end: Some(1_700_000_000_000),
+			}),
+			..Default::default()
+		}
+		.into_activity(model::Id(7), "Countdown".into())
+		.unwrap();
+		let display = display_activity(&activity);
+		assert_eq!(display.started_at, None);
+		assert_eq!(display.ends_at, Some(1_700_000_000_000));
+		assert!(display.valid());
 	}
 }

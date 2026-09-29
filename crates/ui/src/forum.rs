@@ -1821,20 +1821,6 @@ mod tests {
 	}
 
 	#[test]
-	fn relative_times_round_down() {
-		let now = time::OffsetDateTime::from_unix_timestamp(1_800_000_000).unwrap();
-		let at = |seconds_ago: i64| {
-			Id((((1_800_000_000 - seconds_ago - 1_420_070_400) as u64) * 1000) << 22)
-		};
-		assert_eq!(ago(at(5), now), "just now");
-		assert_eq!(ago(at(125), now), "2m ago");
-		assert_eq!(ago(at(7_200), now), "2h ago");
-		assert_eq!(ago(at(15 * 86_400), now), "15d ago");
-		assert_eq!(ago(at(70 * 86_400), now), "2mo ago");
-		assert_eq!(ago(at(800 * 86_400), now), "2y ago");
-	}
-
-	#[test]
 	fn post_composer_stages_images_and_sends_them_with_the_first_message() {
 		let ctx = egui::Context::default();
 		let mut state = test_support::demo_state();

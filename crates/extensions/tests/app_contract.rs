@@ -911,108 +911,6 @@ fn discovery_is_forward_tolerant_and_does_not_change_legacy_input() {
 }
 
 #[test]
-fn notification_preferences_validate_every_patch_field_and_volume_boundaries() {
-	let manifest = test_manifest(vec![Capability::NotificationSettings]);
-	let fields = [
-		"new_message",
-		"current_channel",
-		"incoming_ring",
-		"outgoing_ring",
-		"disable_sounds",
-		"unread_badge",
-		"mute",
-		"unmute",
-		"deafen",
-		"undeafen",
-		"camera_on",
-		"screen_share_on",
-		"user_join",
-		"user_leave",
-	];
-	for field in fields {
-		for value in [false, true] {
-			let wire = serde_json::json!({field: value});
-			let authored: sdk::NotificationSettingsPatch =
-				serde_json::from_value(wire.clone()).unwrap();
-			assert_eq!(serde_json::to_value(&authored).unwrap(), wire);
-			let patch: NotificationSettingsPatch =
-				serde_json::from_value(serde_json::to_value(authored).unwrap()).unwrap();
-			HostEffect::SetNotificationSettings { settings: patch }
-				.validate(&manifest)
-				.unwrap();
-		}
-	}
-	let mut nulls = serde_json::Map::new();
-	for field in fields.into_iter().chain(["volume"]) {
-		nulls.insert(field.into(), serde_json::Value::Null);
-	}
-	for wire in [serde_json::json!({}), serde_json::Value::Object(nulls)] {
-		let settings: NotificationSettingsPatch = serde_json::from_value(wire).unwrap();
-		assert!(matches!(
-			HostEffect::SetNotificationSettings { settings }.validate(&manifest),
-			Err(Error::Invalid)
-		));
-	}
-	for volume in [0, 100, 101, 255] {
-		let patch = NotificationSettingsPatch {
-			volume: Some(volume),
-			..Default::default()
-		};
-		assert_eq!(patch.validate().is_ok(), volume <= 100);
-		let mut data = snapshot();
-		data.notification_settings.as_mut().unwrap().volume = volume;
-		assert_eq!(
-			data.validate(&test_manifest(read_grants())).is_ok(),
-			volume <= 100
-		);
-	}
-	assert!(
-		serde_json::from_value::<NotificationSettingsPatch>(serde_json::json!({"volume": 256}))
-			.is_err()
-	);
-	assert!(
-		serde_json::from_value::<NotificationSettingsPatch>(serde_json::json!({"unknown": true}))
-			.is_err()
-	);
-}
-
-#[test]
-fn scrolling_settings_are_optional_on_older_hosts_and_validate_speed_bounds() {
-	let wire = serde_json::json!({
-		"zoom_percent": 100, "sidebar_width": 236, "show_members": true,
-		"animate_gifs": false, "hide_media_links": true
-	});
-	let old: sdk::LocalSettingsSnapshot = serde_json::from_value(wire.clone()).unwrap();
-	assert_eq!(old.smooth_scrolling, None);
-	assert_eq!(old.scroll_speed_percent, None);
-	assert_eq!(serde_json::to_value(old).unwrap(), wire);
-	let mut host: LocalSettingsSnapshot = serde_json::from_value(wire).unwrap();
-	host.validate().unwrap();
-	for speed in [0, 24, 25, 300, 301, u16::MAX] {
-		let patch = LocalSettingsPatch {
-			scroll_speed_percent: Some(speed),
-			..Default::default()
-		};
-		host.scroll_speed_percent = Some(speed);
-		assert_eq!(patch.validate().is_ok(), (25..=300).contains(&speed));
-		assert_eq!(host.validate().is_ok(), (25..=300).contains(&speed));
-	}
-	for enabled in [false, true] {
-		let authored = sdk::LocalSettingsPatch {
-			smooth_scrolling: Some(enabled),
-			..Default::default()
-		};
-		let patch: LocalSettingsPatch =
-			serde_json::from_value(serde_json::to_value(authored).unwrap()).unwrap();
-		patch.validate().unwrap();
-		assert_eq!(patch.smooth_scrolling, Some(enabled));
-		assert_eq!(patch.scroll_speed_percent, None);
-	}
-	let old_app: sdk::AppSnapshot = serde_json::from_str("{}").unwrap();
-	assert!(old_app.notification_settings.is_none());
-}
-
-#[test]
 fn app_actions_round_trip_and_require_foreground_granted_confirmation() {
 	let actions = [
 		r#"{"type":"send_message","channel_id":"2","content":"hello"}"#,
@@ -1338,4 +1236,106 @@ fn preference_snapshots_are_bounded_and_old_hosts_can_omit_them() {
 	assert!(data.validate(&manifest).is_err());
 	let old: sdk::AppSnapshot = serde_json::from_str("{}").unwrap();
 	assert!(old.audio_settings.is_none() && old.own_presence.is_none());
+
+	{
+		let wire = serde_json::json!({
+			"zoom_percent": 100, "sidebar_width": 236, "show_members": true,
+			"animate_gifs": false, "hide_media_links": true
+		});
+		let old: sdk::LocalSettingsSnapshot = serde_json::from_value(wire.clone()).unwrap();
+		assert_eq!(old.smooth_scrolling, None);
+		assert_eq!(old.scroll_speed_percent, None);
+		assert_eq!(serde_json::to_value(old).unwrap(), wire);
+		let mut host: LocalSettingsSnapshot = serde_json::from_value(wire).unwrap();
+		host.validate().unwrap();
+		for speed in [0, 24, 25, 300, 301, u16::MAX] {
+			let patch = LocalSettingsPatch {
+				scroll_speed_percent: Some(speed),
+				..Default::default()
+			};
+			host.scroll_speed_percent = Some(speed);
+			assert_eq!(patch.validate().is_ok(), (25..=300).contains(&speed));
+			assert_eq!(host.validate().is_ok(), (25..=300).contains(&speed));
+		}
+		for enabled in [false, true] {
+			let authored = sdk::LocalSettingsPatch {
+				smooth_scrolling: Some(enabled),
+				..Default::default()
+			};
+			let patch: LocalSettingsPatch =
+				serde_json::from_value(serde_json::to_value(authored).unwrap()).unwrap();
+			patch.validate().unwrap();
+			assert_eq!(patch.smooth_scrolling, Some(enabled));
+			assert_eq!(patch.scroll_speed_percent, None);
+		}
+		let old_app: sdk::AppSnapshot = serde_json::from_str("{}").unwrap();
+		assert!(old_app.notification_settings.is_none());
+	}
+
+	{
+		let manifest = test_manifest(vec![Capability::NotificationSettings]);
+		let fields = [
+			"new_message",
+			"current_channel",
+			"incoming_ring",
+			"outgoing_ring",
+			"disable_sounds",
+			"unread_badge",
+			"mute",
+			"unmute",
+			"deafen",
+			"undeafen",
+			"camera_on",
+			"screen_share_on",
+			"user_join",
+			"user_leave",
+		];
+		for field in fields {
+			for value in [false, true] {
+				let wire = serde_json::json!({field: value});
+				let authored: sdk::NotificationSettingsPatch =
+					serde_json::from_value(wire.clone()).unwrap();
+				assert_eq!(serde_json::to_value(&authored).unwrap(), wire);
+				let patch: NotificationSettingsPatch =
+					serde_json::from_value(serde_json::to_value(authored).unwrap()).unwrap();
+				HostEffect::SetNotificationSettings { settings: patch }
+					.validate(&manifest)
+					.unwrap();
+			}
+		}
+		let mut nulls = serde_json::Map::new();
+		for field in fields.into_iter().chain(["volume"]) {
+			nulls.insert(field.into(), serde_json::Value::Null);
+		}
+		for wire in [serde_json::json!({}), serde_json::Value::Object(nulls)] {
+			let settings: NotificationSettingsPatch = serde_json::from_value(wire).unwrap();
+			assert!(matches!(
+				HostEffect::SetNotificationSettings { settings }.validate(&manifest),
+				Err(Error::Invalid)
+			));
+		}
+		for volume in [0, 100, 101, 255] {
+			let patch = NotificationSettingsPatch {
+				volume: Some(volume),
+				..Default::default()
+			};
+			assert_eq!(patch.validate().is_ok(), volume <= 100);
+			let mut data = snapshot();
+			data.notification_settings.as_mut().unwrap().volume = volume;
+			assert_eq!(
+				data.validate(&test_manifest(read_grants())).is_ok(),
+				volume <= 100
+			);
+		}
+		assert!(
+			serde_json::from_value::<NotificationSettingsPatch>(serde_json::json!({"volume": 256}))
+				.is_err()
+		);
+		assert!(
+			serde_json::from_value::<NotificationSettingsPatch>(
+				serde_json::json!({"unknown": true})
+			)
+			.is_err()
+		);
+	}
 }

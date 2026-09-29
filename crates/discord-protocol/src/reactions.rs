@@ -109,111 +109,112 @@ mod tests {
 
 	#[test]
 	fn reaction_deltas_validate_type_identity_and_bounded_emoji() {
-		let wire =
-			json!({"channel_id":"2","message_id":"3","user_id":"4","emoji":{"id":null,"name":"x"}});
-		for (fields, burst) in [
-			(json!({}), false),
-			(json!({"type":0,"burst":false}), false),
-			(json!({"type":1,"burst":true}), true),
-			(json!({"type":1}), true),
-			(json!({"burst":true}), true),
-		] {
-			let mut value = wire.clone();
-			value
-				.as_object_mut()
-				.unwrap()
-				.extend(fields.as_object().unwrap().clone());
-			let event: ReactionDelta = decode(&serde_json::to_vec(&value).unwrap()).unwrap();
-			assert_eq!(
-				(event.channel_id, event.message_id, event.user_id),
-				(Id(2), Id(3), Id(4))
-			);
-			assert_eq!(event.burst, burst);
-			assert_eq!(event.emoji.name.as_deref(), Some("x"));
-		}
-		for fields in [
-			json!({"type":2}),
-			json!({"type":256}),
-			json!({"type":-1}),
-			json!({"type":"1"}),
-			json!({"type":null}),
-			json!({"burst":null}),
-			json!({"type":0,"burst":true}),
-			json!({"type":1,"burst":false}),
-			json!({"user_id":"0"}),
-			json!({"channel_id":"0"}),
-			json!({"message_id":"0"}),
-			json!({"emoji":{"id":"0","name":"x"}}),
-			json!({"emoji":{"id":null,"name":null}}),
-			json!({"emoji":{"id":null,"name":""}}),
-			json!({"emoji":{"id":null,"name":"x\n"}}),
-			json!({"emoji":{"id":null,"name":"x".repeat(129)}}),
-			json!({"emoji":{"id":null,"name":"é".repeat(65)}}),
-		] {
-			let mut value = wire.clone();
-			value
-				.as_object_mut()
-				.unwrap()
-				.extend(fields.as_object().unwrap().clone());
-			assert!(decode::<ReactionDelta>(&serde_json::to_vec(&value).unwrap()).is_err());
-		}
-		for emoji in [
-			json!({"id":"5","name":null}),
-			json!({"id":null,"name":"é".repeat(64)}),
-		] {
-			let mut value = wire.clone();
-			value["emoji"] = emoji;
-			let event: ReactionDelta = decode(&serde_json::to_vec(&value).unwrap()).unwrap();
+		{
+			let wire = json!({"channel_id":"2","message_id":"3","user_id":"4","emoji":{"id":null,"name":"x"}});
+			for (fields, burst) in [
+				(json!({}), false),
+				(json!({"type":0,"burst":false}), false),
+				(json!({"type":1,"burst":true}), true),
+				(json!({"type":1}), true),
+				(json!({"burst":true}), true),
+			] {
+				let mut value = wire.clone();
+				value
+					.as_object_mut()
+					.unwrap()
+					.extend(fields.as_object().unwrap().clone());
+				let event: ReactionDelta = decode(&serde_json::to_vec(&value).unwrap()).unwrap();
+				assert_eq!(
+					(event.channel_id, event.message_id, event.user_id),
+					(Id(2), Id(3), Id(4))
+				);
+				assert_eq!(event.burst, burst);
+				assert_eq!(event.emoji.name.as_deref(), Some("x"));
+			}
+			for fields in [
+				json!({"type":2}),
+				json!({"type":256}),
+				json!({"type":-1}),
+				json!({"type":"1"}),
+				json!({"type":null}),
+				json!({"burst":null}),
+				json!({"type":0,"burst":true}),
+				json!({"type":1,"burst":false}),
+				json!({"user_id":"0"}),
+				json!({"channel_id":"0"}),
+				json!({"message_id":"0"}),
+				json!({"emoji":{"id":"0","name":"x"}}),
+				json!({"emoji":{"id":null,"name":null}}),
+				json!({"emoji":{"id":null,"name":""}}),
+				json!({"emoji":{"id":null,"name":"x\n"}}),
+				json!({"emoji":{"id":null,"name":"x".repeat(129)}}),
+				json!({"emoji":{"id":null,"name":"é".repeat(65)}}),
+			] {
+				let mut value = wire.clone();
+				value
+					.as_object_mut()
+					.unwrap()
+					.extend(fields.as_object().unwrap().clone());
+				assert!(decode::<ReactionDelta>(&serde_json::to_vec(&value).unwrap()).is_err());
+			}
+			for emoji in [
+				json!({"id":"5","name":null}),
+				json!({"id":null,"name":"é".repeat(64)}),
+			] {
+				let mut value = wire.clone();
+				value["emoji"] = emoji;
+				let event: ReactionDelta = decode(&serde_json::to_vec(&value).unwrap()).unwrap();
+				assert!(
+					event
+						.emoji
+						.name
+						.as_ref()
+						.is_none_or(|name| name.capacity() <= 128)
+				);
+				let cleared: ReactionEmojiTarget =
+					decode(&serde_json::to_vec(&value).unwrap()).unwrap();
+				assert_eq!(cleared.emoji, event.emoji);
+			}
 			assert!(
-				event
-					.emoji
-					.name
-					.as_ref()
-					.is_none_or(|name| name.capacity() <= 128)
+				decode::<ReactionEmojiTarget>(br#"{"channel_id":"2","message_id":"3"}"#).is_err()
 			);
-			let cleared: ReactionEmojiTarget =
-				decode(&serde_json::to_vec(&value).unwrap()).unwrap();
-			assert_eq!(cleared.emoji, event.emoji);
+			assert!(decode::<ReactionTarget>(br#"{"channel_id":"2","message_id":"3"}"#).is_ok());
 		}
-		assert!(decode::<ReactionEmojiTarget>(br#"{"channel_id":"2","message_id":"3"}"#).is_err());
-		assert!(decode::<ReactionTarget>(br#"{"channel_id":"2","message_id":"3"}"#).is_ok());
-	}
-
-	#[test]
-	fn reactions_decode_bounded_counts_custom_emoji_and_partial_removals() {
-		let raw = serde_json::json!({"id":"1","channel_id":"2","author":{"id":"3","username":"Test"},
-            "reactions":[{"emoji":{"id":null,"name":"👍"},"count":3,"me":true,"me_burst":true},
-            {"emoji":{"id":"4","name":null},"count":1,"me":false}]});
-		let message = decode::<MessageDto>(&serde_json::to_vec(&raw).unwrap())
-			.unwrap()
-			.into_model();
-		let reactions = message.reactions.unwrap();
-		assert!(reactions[0].me && reactions[0].me_burst);
-		assert_eq!(reactions[1].emoji.id, Some(Id(4)));
-		assert!(matches!(
-			decode::<PatchDto>(br#"{"id":"1","channel_id":"2"}"#)
+		{
+			let raw = serde_json::json!({"id":"1","channel_id":"2","author":{"id":"3","username":"Test"},
+	            "reactions":[{"emoji":{"id":null,"name":"👍"},"count":3,"me":true,"me_burst":true},
+	            {"emoji":{"id":"4","name":null},"count":1,"me":false}]});
+			let message = decode::<MessageDto>(&serde_json::to_vec(&raw).unwrap())
 				.unwrap()
-				.into_model()
-				.reactions,
-			Patch::Absent
-		));
-		assert!(matches!(
-			decode::<PatchDto>(br#"{"id":"1","channel_id":"2","reactions":null}"#)
-				.unwrap()
-				.into_model()
-				.reactions,
-			Patch::Null
-		));
-		for values in [
-			vec![raw["reactions"][0].clone(); 65],
-			vec![raw["reactions"][0].clone(); 2],
-			vec![
-				serde_json::json!({"emoji":{"id":null,"name":"x".repeat(129)},"count":1,"me":false}),
-			],
-		] {
-			let mut bad = raw.clone();
-			bad["reactions"] = serde_json::json!(values);
-			assert!(decode::<MessageDto>(&serde_json::to_vec(&bad).unwrap()).is_err());
+				.into_model();
+			let reactions = message.reactions.unwrap();
+			assert!(reactions[0].me && reactions[0].me_burst);
+			assert_eq!(reactions[1].emoji.id, Some(Id(4)));
+			assert!(matches!(
+				decode::<PatchDto>(br#"{"id":"1","channel_id":"2"}"#)
+					.unwrap()
+					.into_model()
+					.reactions,
+				Patch::Absent
+			));
+			assert!(matches!(
+				decode::<PatchDto>(br#"{"id":"1","channel_id":"2","reactions":null}"#)
+					.unwrap()
+					.into_model()
+					.reactions,
+				Patch::Null
+			));
+			for values in [
+				vec![raw["reactions"][0].clone(); 65],
+				vec![raw["reactions"][0].clone(); 2],
+				vec![
+					serde_json::json!({"emoji":{"id":null,"name":"x".repeat(129)},"count":1,"me":false}),
+				],
+			] {
+				let mut bad = raw.clone();
+				bad["reactions"] = serde_json::json!(values);
+				assert!(decode::<MessageDto>(&serde_json::to_vec(&bad).unwrap()).is_err());
+			}
 		}
 	}
 }
@@ -268,63 +269,63 @@ mod catalog_tests {
 
 	#[test]
 	fn guild_catalog_preserves_availability_roles_and_unknown_vs_empty() {
-		let emoji =
-			json!({"id":"4","name":"party_parrot","animated":true,"available":true,"roles":[]});
-		let mut ready: Ready = decode(&serde_json::to_vec(&json!({
-            "user":{"id":"1","username":"Synthetic"},"session_id":"synthetic","resume_gateway_url":"wss://gateway.discord.gg",
-            "guilds":[{"id":"2","emojis":[emoji.clone()]},{"id":"3"},{"id":"5","emojis":[]}]
-        })).unwrap()).unwrap();
-		let (guilds, _) = ready.navigation().unwrap();
-		let custom = &guilds[0].emojis.as_ref().unwrap()[0];
-		assert_eq!(custom.markup(), "<a:party_parrot:4>");
-		assert!(custom.usable());
-		assert!(guilds[1].emojis.is_none());
-		assert_eq!(guilds[2].emojis.as_deref(), Some([].as_slice()));
-		for (field, value) in [
-			("roles", json!(["6"])),
-			("roles", json!(null)),
-			("available", json!(false)),
-			("managed", json!(true)),
-		] {
-			let mut restricted = emoji.clone();
-			restricted[field] = value;
-			let guild: GuildDto =
-				decode(&serde_json::to_vec(&json!({"id":"2","emojis":[restricted]})).unwrap())
-					.unwrap();
-			assert!(!guild.emojis.unwrap().0[0].usable());
+		{
+			let emoji =
+				json!({"id":"4","name":"party_parrot","animated":true,"available":true,"roles":[]});
+			let mut ready: Ready = decode(&serde_json::to_vec(&json!({
+	            "user":{"id":"1","username":"Synthetic"},"session_id":"synthetic","resume_gateway_url":"wss://gateway.discord.gg",
+	            "guilds":[{"id":"2","emojis":[emoji.clone()]},{"id":"3"},{"id":"5","emojis":[]}]
+	        })).unwrap()).unwrap();
+			let (guilds, _) = ready.navigation().unwrap();
+			let custom = &guilds[0].emojis.as_ref().unwrap()[0];
+			assert_eq!(custom.markup(), "<a:party_parrot:4>");
+			assert!(custom.usable());
+			assert!(guilds[1].emojis.is_none());
+			assert_eq!(guilds[2].emojis.as_deref(), Some([].as_slice()));
+			for (field, value) in [
+				("roles", json!(["6"])),
+				("roles", json!(null)),
+				("available", json!(false)),
+				("managed", json!(true)),
+			] {
+				let mut restricted = emoji.clone();
+				restricted[field] = value;
+				let guild: GuildDto =
+					decode(&serde_json::to_vec(&json!({"id":"2","emojis":[restricted]})).unwrap())
+						.unwrap();
+				assert!(!guild.emojis.unwrap().0[0].usable());
+			}
+			let update: GuildEmojisUpdate = decode(br#"{"guild_id":"2","emojis":[]}"#).unwrap();
+			assert!(update.emojis.0.is_empty());
 		}
-		let update: GuildEmojisUpdate = decode(br#"{"guild_id":"2","emojis":[]}"#).unwrap();
-		assert!(update.emojis.0.is_empty());
-	}
-
-	#[test]
-	fn guild_catalog_rejects_duplicates_invalid_names_items_and_bytes() {
-		let emoji = json!({"id":"4","name":"wave","available":true,"roles":[]});
-		let oversized: Vec<_> = (1..=model::MAX_GUILD_EMOJIS + 1)
-			.map(|id| {
-				let mut e = emoji.clone();
-				e["id"] = json!(id.to_string());
-				e
-			})
-			.collect();
-		let large_roles: Vec<_> = (1..=256).map(|id| id.to_string()).collect();
-		let over_bytes: Vec<_> = (1..=256)
-			.map(|id| json!({"id":id.to_string(),"name":"wave","roles":large_roles}))
-			.collect();
-		for values in [
-			vec![emoji.clone(), emoji],
-			oversized,
-			over_bytes,
-			vec![json!({"id":"4","name":"../unsafe"})],
-			vec![json!({"id":"4","name":"x".repeat(33)})],
-			vec![json!({"id":"4","name":"wave","roles":vec!["5";257]})],
-		] {
-			assert!(
-				decode::<GuildEmojisUpdate>(
-					&serde_json::to_vec(&json!({"guild_id":"2","emojis":values})).unwrap()
-				)
-				.is_err()
-			);
+		{
+			let emoji = json!({"id":"4","name":"wave","available":true,"roles":[]});
+			let oversized: Vec<_> = (1..=model::MAX_GUILD_EMOJIS + 1)
+				.map(|id| {
+					let mut e = emoji.clone();
+					e["id"] = json!(id.to_string());
+					e
+				})
+				.collect();
+			let large_roles: Vec<_> = (1..=256).map(|id| id.to_string()).collect();
+			let over_bytes: Vec<_> = (1..=256)
+				.map(|id| json!({"id":id.to_string(),"name":"wave","roles":large_roles}))
+				.collect();
+			for values in [
+				vec![emoji.clone(), emoji],
+				oversized,
+				over_bytes,
+				vec![json!({"id":"4","name":"../unsafe"})],
+				vec![json!({"id":"4","name":"x".repeat(33)})],
+				vec![json!({"id":"4","name":"wave","roles":vec!["5";257]})],
+			] {
+				assert!(
+					decode::<GuildEmojisUpdate>(
+						&serde_json::to_vec(&json!({"guild_id":"2","emojis":values})).unwrap()
+					)
+					.is_err()
+				);
+			}
 		}
 	}
 }

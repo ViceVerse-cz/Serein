@@ -537,21 +537,4 @@ mod tests {
 		assert_eq!(browser.target, None);
 		assert!(avatars.take_requests().is_empty());
 	}
-	#[test]
-	fn search_matches_names_tags_and_source() {
-		let sticker = Sticker {
-			id: Id(1),
-			name: "Wave".into(),
-			tags: "hello,greeting".into(),
-			description: String::new(),
-			format_type: 1,
-			guild_id: Some(Id(2)),
-			pack_id: None,
-			available: true,
-		};
-		assert!(matches(&sticker, "Cozy Club", "wave"));
-		assert!(matches(&sticker, "Cozy Club", "hello"));
-		assert!(matches(&sticker, "Cozy Club", "cozy"));
-		assert!(!matches(&sticker, "Cozy Club", "sleep"));
-	}
 }

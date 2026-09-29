@@ -563,62 +563,61 @@ mod tests {
 		state.logout();
 		assert!(cache.sync(&state));
 		assert!(cache.guild_badges.is_empty());
-	}
 
-	#[test]
-	fn rail_cache_preserves_the_first_fifteen_chats_and_local_call_changes() {
-		let mut state = test_support::demo_state();
-		let template = state.channel(Id(22)).unwrap().clone();
-		for id in 100..116 {
+		{
+			let mut state = test_support::demo_state();
+			let template = state.channel(Id(22)).unwrap().clone();
+			for id in 100..116 {
+				apply(
+					&mut state,
+					Event::ChannelCreated(model::Channel {
+						id: Id(id),
+						last_message: Some(Id(200)),
+						..template.clone()
+					}),
+				);
+			}
 			apply(
 				&mut state,
-				Event::ChannelCreated(model::Channel {
-					id: Id(id),
-					last_message: Some(Id(200)),
-					..template.clone()
+				Event::ReadState(read_state::Event::Snapshot {
+					partial: false,
+					entries: Some(
+						std::iter::once((Id(20), Some(Id(495)), 0))
+							.chain((100..=115).map(|id| (Id(id), Some(Id(1)), 0)))
+							.collect(),
+					),
+					version: Some(1),
 				}),
 			);
+			let mut cache = RailCache::default();
+			assert!(cache.sync(&state));
+			assert!(!cache.direct.contains(&Id(43)));
+			assert_eq!(
+				&*cache.direct,
+				&(101..=115).rev().map(Id).collect::<Vec<_>>()
+			);
+			// Exercise the local command preparation gate; no command is dispatched by this test.
+			state.demo = false;
+			let revision = state.revision;
+			assert!(state.start_call(Id(22), false).is_some());
+			assert_eq!(state.revision, revision);
+			assert!(cache.sync(&state));
+			assert_eq!(cache.direct.len(), 15);
+			assert_eq!(cache.direct[0], Id(22));
+			assert_eq!(cache.direct[14], Id(102));
+			assert!(state.leave_call().is_some());
+			assert_eq!(state.revision, revision);
+			assert!(cache.sync(&state));
+			assert_eq!(cache.direct[0], Id(115));
+			assert_eq!(cache.direct[14], Id(101));
+			// Session failure through a local completion must also retire unread visibility.
+			state.folders_pending = true;
+			state.apply_guild_folders(Err(client_core::auth::Failure::Expired));
+			assert!(cache.sync(&state));
+			assert!(cache.direct.is_empty());
+			apply(&mut state, Event::Resumed);
+			assert!(cache.sync(&state));
+			assert_eq!(cache.direct.len(), 15);
 		}
-		apply(
-			&mut state,
-			Event::ReadState(read_state::Event::Snapshot {
-				partial: false,
-				entries: Some(
-					std::iter::once((Id(20), Some(Id(495)), 0))
-						.chain((100..=115).map(|id| (Id(id), Some(Id(1)), 0)))
-						.collect(),
-				),
-				version: Some(1),
-			}),
-		);
-		let mut cache = RailCache::default();
-		assert!(cache.sync(&state));
-		assert!(!cache.direct.contains(&Id(43)));
-		assert_eq!(
-			&*cache.direct,
-			&(101..=115).rev().map(Id).collect::<Vec<_>>()
-		);
-		// Exercise the local command preparation gate; no command is dispatched by this test.
-		state.demo = false;
-		let revision = state.revision;
-		assert!(state.start_call(Id(22), false).is_some());
-		assert_eq!(state.revision, revision);
-		assert!(cache.sync(&state));
-		assert_eq!(cache.direct.len(), 15);
-		assert_eq!(cache.direct[0], Id(22));
-		assert_eq!(cache.direct[14], Id(102));
-		assert!(state.leave_call().is_some());
-		assert_eq!(state.revision, revision);
-		assert!(cache.sync(&state));
-		assert_eq!(cache.direct[0], Id(115));
-		assert_eq!(cache.direct[14], Id(101));
-		// Session failure through a local completion must also retire unread visibility.
-		state.folders_pending = true;
-		state.apply_guild_folders(Err(client_core::auth::Failure::Expired));
-		assert!(cache.sync(&state));
-		assert!(cache.direct.is_empty());
-		apply(&mut state, Event::Resumed);
-		assert!(cache.sync(&state));
-		assert_eq!(cache.direct.len(), 15);
 	}
 }

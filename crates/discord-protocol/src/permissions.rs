@@ -626,295 +626,299 @@ mod tests {
 
 	#[test]
 	fn role_display_metadata_accepts_modern_and_legacy_colors_with_bounded_names() {
-		let snapshot = ready(br#"{"guilds":[{"id":"1","roles":[{"id":"1","permissions":"1024"},{"id":"2","permissions":"0","name":"Moderators","color":1122867,"position":3,"hoist":true}]}]}"#, Id(9)).unwrap();
-		let role = &snapshot.guilds[0].roles.as_ref().unwrap()[1];
-		assert_eq!(
-			(role.name.as_str(), role.color, role.position, role.hoist),
-			("Moderators", 0x112233, 3, true)
-		);
-		let payload = json!({"guild_id":"1","role":{"id":"2","permissions":"0","name":format!("\n{}", "é".repeat(120)),"color":1122867,"colors":{"primary_color":4478310,"secondary_color":null},"position":4,"hoist":false}});
-		let (_, updated) = super::role(&serde_json::to_vec(&payload).unwrap()).unwrap();
-		assert_eq!(updated.name.chars().count(), 100);
-		assert_eq!(
-			(updated.color, updated.position, updated.hoist),
-			(0x445566, 4, false)
-		);
-		assert!(updated.bytes() >= size_of::<p::Role>() + 200);
-		let (_, uncolored) = super::role(br#"{"guild_id":"1","role":{"id":"2","permissions":"0","color":1122867,"colors":{"primary_color":0}}}"#).unwrap();
-		assert_eq!(uncolored.color, 0);
-		assert!(
-			super::role(
-				br#"{"guild_id":"1","role":{"id":"2","permissions":"0","color":16777216}}"#
-			)
-			.is_err()
-		);
-	}
-
-	#[test]
-	fn ready_self_metadata_is_aligned_scoped_and_keeps_future_role_overwrites() {
-		let snapshot = ready(br#"{"guilds":[{"id":"1","properties":{"owner_id":"7"},
-            "roles":[{"id":"1","permissions":"1024"},{"id":"2","permissions":"2048"},{"id":"3","permissions":"0"}],
-            "members":[{"user":{"id":"8"},"roles":[]}],
-            "channels":[{"id":"4","type":0,"permission_overwrites":[
-                {"id":"3","type":0,"allow":"0","deny":"2048"},
-                {"id":"8","type":1,"allow":"8","deny":"0"},
-                {"id":"9","type":1,"allow":"32768","deny":"0"}]},
-                {"id":"5","type":0,"flags":131072,"permission_overwrites":[]},
-                {"id":"6","type":11,"permission_overwrites":[]}]},
-            {"id":"10"}],"merged_members":[[{"user_id":"9","roles":["2"],"communication_disabled_until":"2026-01-01T00:00:00.1Z"}],[]]}"#, Id(9)).unwrap();
-		assert_eq!(snapshot.guilds[0].owner, Some(Id(7)));
-		assert_eq!(
-			snapshot.guilds[0].member.as_ref().unwrap().roles,
-			vec![Id(2)]
-		);
-		let until = snapshot.guilds[0]
-			.member
-			.as_ref()
-			.unwrap()
-			.timeout_until
-			.unwrap();
-		assert_eq!(until, 1_767_225_601);
-		assert!(
-			snapshot.guilds[1].owner.is_none()
-				&& snapshot.guilds[1].roles.is_none()
-				&& snapshot.guilds[1].member.is_none()
-		);
-		assert_eq!(snapshot.channels.len(), 1);
-		let overwrites = snapshot.channels[0].overwrites.as_ref().unwrap();
-		assert_eq!(
-			overwrites
-				.iter()
-				.map(|o| (o.kind, o.id))
-				.collect::<Vec<_>>(),
-			vec![(0, Id(3)), (1, Id(9))]
-		);
-		let known_empty = ready(br#"{"guilds":[{"id":"1","roles":[],"members":[{"user_id":"9","roles":[]}],"channels":[{"id":"2","type":0,"permission_overwrites":[]}]}]}"#,Id(9)).unwrap();
-		assert_eq!(known_empty.guilds[0].roles, Some(Vec::new()));
-		assert_eq!(
-			known_empty.guilds[0].member.as_ref().unwrap().timeout_until,
-			None
-		);
-		assert_eq!(known_empty.channels[0].overwrites, Some(Vec::new()));
+		{
+			let snapshot = ready(br#"{"guilds":[{"id":"1","roles":[{"id":"1","permissions":"1024"},{"id":"2","permissions":"0","name":"Moderators","color":1122867,"position":3,"hoist":true}]}]}"#, Id(9)).unwrap();
+			let role = &snapshot.guilds[0].roles.as_ref().unwrap()[1];
+			assert_eq!(
+				(role.name.as_str(), role.color, role.position, role.hoist),
+				("Moderators", 0x112233, 3, true)
+			);
+			let payload = json!({"guild_id":"1","role":{"id":"2","permissions":"0","name":format!("\n{}", "é".repeat(120)),"color":1122867,"colors":{"primary_color":4478310,"secondary_color":null},"position":4,"hoist":false}});
+			let (_, updated) = super::role(&serde_json::to_vec(&payload).unwrap()).unwrap();
+			assert_eq!(updated.name.chars().count(), 100);
+			assert_eq!(
+				(updated.color, updated.position, updated.hoist),
+				(0x445566, 4, false)
+			);
+			assert!(updated.bytes() >= size_of::<p::Role>() + 200);
+			let (_, uncolored) = super::role(br#"{"guild_id":"1","role":{"id":"2","permissions":"0","color":1122867,"colors":{"primary_color":0}}}"#).unwrap();
+			assert_eq!(uncolored.color, 0);
+			assert!(
+				super::role(
+					br#"{"guild_id":"1","role":{"id":"2","permissions":"0","color":16777216}}"#
+				)
+				.is_err()
+			);
+		}
+		{
+			let snapshot = ready(br#"{"guilds":[{"id":"1","properties":{"owner_id":"7"},
+	            "roles":[{"id":"1","permissions":"1024"},{"id":"2","permissions":"2048"},{"id":"3","permissions":"0"}],
+	            "members":[{"user":{"id":"8"},"roles":[]}],
+	            "channels":[{"id":"4","type":0,"permission_overwrites":[
+	                {"id":"3","type":0,"allow":"0","deny":"2048"},
+	                {"id":"8","type":1,"allow":"8","deny":"0"},
+	                {"id":"9","type":1,"allow":"32768","deny":"0"}]},
+	                {"id":"5","type":0,"flags":131072,"permission_overwrites":[]},
+	                {"id":"6","type":11,"permission_overwrites":[]}]},
+	            {"id":"10"}],"merged_members":[[{"user_id":"9","roles":["2"],"communication_disabled_until":"2026-01-01T00:00:00.1Z"}],[]]}"#, Id(9)).unwrap();
+			assert_eq!(snapshot.guilds[0].owner, Some(Id(7)));
+			assert_eq!(
+				snapshot.guilds[0].member.as_ref().unwrap().roles,
+				vec![Id(2)]
+			);
+			let until = snapshot.guilds[0]
+				.member
+				.as_ref()
+				.unwrap()
+				.timeout_until
+				.unwrap();
+			assert_eq!(until, 1_767_225_601);
+			assert!(
+				snapshot.guilds[1].owner.is_none()
+					&& snapshot.guilds[1].roles.is_none()
+					&& snapshot.guilds[1].member.is_none()
+			);
+			assert_eq!(snapshot.channels.len(), 1);
+			let overwrites = snapshot.channels[0].overwrites.as_ref().unwrap();
+			assert_eq!(
+				overwrites
+					.iter()
+					.map(|o| (o.kind, o.id))
+					.collect::<Vec<_>>(),
+				vec![(0, Id(3)), (1, Id(9))]
+			);
+			let known_empty = ready(br#"{"guilds":[{"id":"1","roles":[],"members":[{"user_id":"9","roles":[]}],"channels":[{"id":"2","type":0,"permission_overwrites":[]}]}]}"#,Id(9)).unwrap();
+			assert_eq!(known_empty.guilds[0].roles, Some(Vec::new()));
+			assert_eq!(
+				known_empty.guilds[0].member.as_ref().unwrap().timeout_until,
+				None
+			);
+			assert_eq!(known_empty.channels[0].overwrites, Some(Vec::new()));
+		}
 	}
 
 	#[test]
 	fn member_owner_and_channel_updates_preserve_absent_null_and_explicit_empty() {
-		let (_, roles, until) = member(br#"{"guild_id":"1","user":{"id":"9"},"roles":[]}"#, Id(9))
-			.unwrap()
-			.unwrap();
-		assert_eq!(roles, Patch::Value(Vec::new()));
-		assert_eq!(until, Patch::Absent);
-		let (_, roles, until) = member(
-			br#"{"guild_id":"1","user_id":"9","communication_disabled_until":null}"#,
-			Id(9),
-		)
-		.unwrap()
-		.unwrap();
-		assert_eq!(roles, Patch::Absent);
-		assert_eq!(until, Patch::Null);
-		assert_eq!(
-			member(br#"{"guild_id":"1","user_id":"9","roles":null}"#, Id(9))
-				.unwrap()
-				.unwrap()
-				.1,
-			Patch::Null
-		);
-		assert!(
-			member(br#"{"guild_id":"1","user":{"id":"8"},"roles":[]}"#, Id(9))
-				.unwrap()
-				.is_none()
-		);
-		assert!(
-			member(
-				br#"{"guild_id":"1","user":{"id":"9"},"user_id":"8","roles":[]}"#,
-				Id(9)
-			)
-			.is_err()
-		);
-		assert!(owner(br#"{"id":"1","name":"renamed"}"#).unwrap().is_none());
-		assert_eq!(
-			owner(br#"{"id":"1","owner_id":"7","properties":{"owner_id":null}}"#).unwrap(),
-			Some((Id(1), Patch::Null))
-		);
-		let update = channel(br#"{"id":"2","permission_overwrites":[]}"#, Id(9))
-			.unwrap()
-			.unwrap();
-		assert_eq!(update.guild, None);
-		assert_eq!(update.overwrites, Patch::Value(Vec::new()));
-		assert_eq!(
-			channel(
-				br#"{"id":"2","guild_id":"1","permission_overwrites":null}"#,
-				Id(9)
-			)
-			.unwrap()
-			.unwrap()
-			.overwrites,
-			Patch::Null
-		);
-		assert!(
-			channel(br#"{"id":"2","name":"renamed"}"#, Id(9))
-				.unwrap()
-				.is_none()
-		);
-		assert!(
-			channel(
-				br#"{"id":"2","flags":131072,"permission_overwrites":[]}"#,
-				Id(9)
-			)
-			.unwrap()
-			.is_none()
-		);
-	}
-
-	#[test]
-	fn malformed_bits_scope_and_discarded_overwrites_never_grant() {
-		let (_, high) =
-			role(br#"{"guild_id":"1","role":{"id":"2","permissions":"18446744073709551616"}}"#)
-				.unwrap();
-		assert_eq!(high.bits, 1_u128 << 64);
-		for bits in [
-			"",
-			"+8",
-			"-1",
-			" 8",
-			"1.0",
-			"340282366920938463463374607431768211456",
-		] {
-			let bytes =
-				serde_json::to_vec(&json!({"guild_id":"1","role":{"id":"2","permissions":bits}}))
+		{
+			let (_, roles, until) =
+				member(br#"{"guild_id":"1","user":{"id":"9"},"roles":[]}"#, Id(9))
+					.unwrap()
 					.unwrap();
-			assert!(role(&bytes).is_err());
-		}
-		for row in [
-			json!({"id":"8","type":2,"allow":"8","deny":"0"}),
-			json!({"id":"0","type":1,"allow":"8","deny":"0"}),
-			json!({"id":"8","type":1,"allow":"invalid","deny":"0"}),
-			json!({"id":"8","allow":"8","deny":"0"}),
-		] {
-			let bytes =
-				serde_json::to_vec(&json!({"id":"2","permission_overwrites":[row]})).unwrap();
-			assert!(
-				channel(&bytes, Id(9)).is_err(),
-				"Validate before dropping another member's overwrite"
+			assert_eq!(roles, Patch::Value(Vec::new()));
+			assert_eq!(until, Patch::Absent);
+			let (_, roles, until) = member(
+				br#"{"guild_id":"1","user_id":"9","communication_disabled_until":null}"#,
+				Id(9),
+			)
+			.unwrap()
+			.unwrap();
+			assert_eq!(roles, Patch::Absent);
+			assert_eq!(until, Patch::Null);
+			assert_eq!(
+				member(br#"{"guild_id":"1","user_id":"9","roles":null}"#, Id(9))
+					.unwrap()
+					.unwrap()
+					.1,
+				Patch::Null
 			);
-		}
-		// Malformed snapshot rows degrade to unknown (never granting) instead of failing login.
-		let snapshot =
-			|value: serde_json::Value| ready(&serde_json::to_vec(&value).unwrap(), Id(9)).unwrap();
-		let members = json!([{"user_id":"9","roles":["2"]}]);
-		let aligned = snapshot(json!({"guilds":[{"id":"1"}],"merged_members":[members]}));
-		assert!(aligned.guilds[0].member.is_some());
-		let misaligned =
-			snapshot(json!({"guilds":[{"id":"1"}],"merged_members":[members, members]}));
-		assert!(misaligned.guilds[0].member.is_none());
-		let crossed = snapshot(
-			json!({"guilds":[{"id":"1","channels":[{"id":"2","guild_id":"3","type":0}]}]}),
-		);
-		assert!(crossed.channels.is_empty());
-		for roles in [
-			json!([{"id":"1","permissions":"8"},{"id":"1","permissions":"0"}]),
-			json!([{"id":"1","permissions":"8"},{"id":"2","permissions":"invalid"}]),
-		] {
 			assert!(
-				snapshot(json!({"guilds":[{"id":"1","roles":roles}]})).guilds[0]
-					.roles
+				member(br#"{"guild_id":"1","user":{"id":"8"},"roles":[]}"#, Id(9))
+					.unwrap()
 					.is_none()
 			);
-		}
-		for members in [
-			json!([{"user_id":"9","roles":["2","2"]}]),
-			json!([{"user_id":"9","roles":[]},{"user_id":"9","roles":["2"]}]),
-		] {
 			assert!(
-				snapshot(json!({"guilds":[{"id":"1","members":members}]})).guilds[0]
-					.member
+				member(
+					br#"{"guild_id":"1","user":{"id":"9"},"user_id":"8","roles":[]}"#,
+					Id(9)
+				)
+				.is_err()
+			);
+			assert!(owner(br#"{"id":"1","name":"renamed"}"#).unwrap().is_none());
+			assert_eq!(
+				owner(br#"{"id":"1","owner_id":"7","properties":{"owner_id":null}}"#).unwrap(),
+				Some((Id(1), Patch::Null))
+			);
+			let update = channel(br#"{"id":"2","permission_overwrites":[]}"#, Id(9))
+				.unwrap()
+				.unwrap();
+			assert_eq!(update.guild, None);
+			assert_eq!(update.overwrites, Patch::Value(Vec::new()));
+			assert_eq!(
+				channel(
+					br#"{"id":"2","guild_id":"1","permission_overwrites":null}"#,
+					Id(9)
+				)
+				.unwrap()
+				.unwrap()
+				.overwrites,
+				Patch::Null
+			);
+			assert!(
+				channel(br#"{"id":"2","name":"renamed"}"#, Id(9))
+					.unwrap()
 					.is_none()
 			);
+			assert!(
+				channel(
+					br#"{"id":"2","flags":131072,"permission_overwrites":[]}"#,
+					Id(9)
+				)
+				.unwrap()
+				.is_none()
+			);
 		}
-		let others = snapshot(
-			json!({"guilds":[{"id":"1","members":[{"roles":[]},{"user_id":"8","communication_disabled_until":"soon"},{"user_id":"9","roles":["2"]}]}]}),
-		);
-		assert!(
-			others.guilds[0].member.is_some(),
-			"Other members' rows never block our own"
-		);
-		let overwrites = json!([{"id":"8","type":1,"allow":"invalid","deny":"0"}]);
-		let channel = snapshot(
-			json!({"guilds":[{"id":"1","channels":[{"id":"2","type":0,"permission_overwrites":overwrites}]}]}),
-		);
-		assert_eq!(channel.channels[0].overwrites, None);
+		{
+			let (_, high) =
+				role(br#"{"guild_id":"1","role":{"id":"2","permissions":"18446744073709551616"}}"#)
+					.unwrap();
+			assert_eq!(high.bits, 1_u128 << 64);
+			for bits in [
+				"",
+				"+8",
+				"-1",
+				" 8",
+				"1.0",
+				"340282366920938463463374607431768211456",
+			] {
+				let bytes = serde_json::to_vec(
+					&json!({"guild_id":"1","role":{"id":"2","permissions":bits}}),
+				)
+				.unwrap();
+				assert!(role(&bytes).is_err());
+			}
+			for row in [
+				json!({"id":"8","type":2,"allow":"8","deny":"0"}),
+				json!({"id":"0","type":1,"allow":"8","deny":"0"}),
+				json!({"id":"8","type":1,"allow":"invalid","deny":"0"}),
+				json!({"id":"8","allow":"8","deny":"0"}),
+			] {
+				let bytes =
+					serde_json::to_vec(&json!({"id":"2","permission_overwrites":[row]})).unwrap();
+				assert!(
+					channel(&bytes, Id(9)).is_err(),
+					"Validate before dropping another member's overwrite"
+				);
+			}
+			// Malformed snapshot rows degrade to unknown (never granting) instead of failing login.
+			let snapshot = |value: serde_json::Value| {
+				ready(&serde_json::to_vec(&value).unwrap(), Id(9)).unwrap()
+			};
+			let members = json!([{"user_id":"9","roles":["2"]}]);
+			let aligned = snapshot(json!({"guilds":[{"id":"1"}],"merged_members":[members]}));
+			assert!(aligned.guilds[0].member.is_some());
+			let misaligned =
+				snapshot(json!({"guilds":[{"id":"1"}],"merged_members":[members, members]}));
+			assert!(misaligned.guilds[0].member.is_none());
+			let crossed = snapshot(
+				json!({"guilds":[{"id":"1","channels":[{"id":"2","guild_id":"3","type":0}]}]}),
+			);
+			assert!(crossed.channels.is_empty());
+			for roles in [
+				json!([{"id":"1","permissions":"8"},{"id":"1","permissions":"0"}]),
+				json!([{"id":"1","permissions":"8"},{"id":"2","permissions":"invalid"}]),
+			] {
+				assert!(
+					snapshot(json!({"guilds":[{"id":"1","roles":roles}]})).guilds[0]
+						.roles
+						.is_none()
+				);
+			}
+			for members in [
+				json!([{"user_id":"9","roles":["2","2"]}]),
+				json!([{"user_id":"9","roles":[]},{"user_id":"9","roles":["2"]}]),
+			] {
+				assert!(
+					snapshot(json!({"guilds":[{"id":"1","members":members}]})).guilds[0]
+						.member
+						.is_none()
+				);
+			}
+			let others = snapshot(
+				json!({"guilds":[{"id":"1","members":[{"roles":[]},{"user_id":"8","communication_disabled_until":"soon"},{"user_id":"9","roles":["2"]}]}]}),
+			);
+			assert!(
+				others.guilds[0].member.is_some(),
+				"Other members' rows never block our own"
+			);
+			let overwrites = json!([{"id":"8","type":1,"allow":"invalid","deny":"0"}]);
+			let channel = snapshot(
+				json!({"guilds":[{"id":"1","channels":[{"id":"2","type":0,"permission_overwrites":overwrites}]}]}),
+			);
+			assert_eq!(channel.channels[0].overwrites, None);
+		}
 	}
 
 	#[test]
 	fn supplemental_and_passive_select_only_self_without_member_fanout() {
-		let updates = supplemental(br#"{"guilds":[{"id":"1"},{"id":"2"}],"merged_members":[[{"user_id":"8","roles":[]},{"user_id":"9","roles":["3"]}],[{"user":{"id":"9"},"roles":[]}]]}"#,Id(9)).unwrap();
-		assert_eq!(
-			updates,
-			vec![
-				(Id(1), Patch::Value(vec![Id(3)]), Patch::Null),
-				(Id(2), Patch::Value(Vec::new()), Patch::Null)
-			]
-		);
-		assert!(
-			supplemental(br#"{"guilds":[{"id":"1"}],"merged_members":[]}"#, Id(9))
+		{
+			let updates = supplemental(br#"{"guilds":[{"id":"1"},{"id":"2"}],"merged_members":[[{"user_id":"8","roles":[]},{"user_id":"9","roles":["3"]}],[{"user":{"id":"9"},"roles":[]}]]}"#,Id(9)).unwrap();
+			assert_eq!(
+				updates,
+				vec![
+					(Id(1), Patch::Value(vec![Id(3)]), Patch::Null),
+					(Id(2), Patch::Value(Vec::new()), Patch::Null)
+				]
+			);
+			assert!(
+				supplemental(br#"{"guilds":[{"id":"1"}],"merged_members":[]}"#, Id(9))
+					.unwrap()
+					.is_empty()
+			);
+			assert_eq!(passive(br#"{"guild_id":"1","updated_members":[{"user":{"id":"9"},"communication_disabled_until":null}]}"#,Id(9)).unwrap(),Some((Id(1),Patch::Absent,Patch::Null)));
+			assert!(
+				passive(br#"{"updated_channels":[]}"#, Id(9))
+					.unwrap()
+					.is_none()
+			);
+		}
+		{
+			let roles: Vec<_> = (1..=513)
+				.map(|id| json!({"id":id.to_string(),"permissions":"0"}))
+				.collect();
+			assert!(
+				ready(
+					&serde_json::to_vec(&json!({"guilds":[{"id":"1","roles":roles}]})).unwrap(),
+					Id(9)
+				)
 				.unwrap()
-				.is_empty()
-		);
-		assert_eq!(passive(br#"{"guild_id":"1","updated_members":[{"user":{"id":"9"},"communication_disabled_until":null}]}"#,Id(9)).unwrap(),Some((Id(1),Patch::Absent,Patch::Null)));
-		assert!(
-			passive(br#"{"updated_channels":[]}"#, Id(9))
-				.unwrap()
-				.is_none()
-		);
-	}
-
-	#[test]
-	fn metadata_limits_include_discarded_rows_and_aggregate_roles() {
-		let roles: Vec<_> = (1..=513)
-			.map(|id| json!({"id":id.to_string(),"permissions":"0"}))
-			.collect();
-		assert!(
-			ready(
-				&serde_json::to_vec(&json!({"guilds":[{"id":"1","roles":roles}]})).unwrap(),
-				Id(9)
-			)
-			.unwrap()
-			.guilds[0]
-				.roles
-				.is_none(),
-			"A truncated role list is unknown, not partial"
-		);
-		let rows: Vec<_> = (10..1011)
-			.map(|id| json!({"id":id.to_string(),"type":1,"allow":"0","deny":"0"}))
-			.collect();
-		assert!(
-			channel(
-				&serde_json::to_vec(&json!({"id":"2","permission_overwrites":rows})).unwrap(),
-				Id(9)
-			)
-			.is_err()
-		);
-		let ids: Vec<_> = (10..523).map(|id| id.to_string()).collect();
-		assert!(
-			member(
-				&serde_json::to_vec(&json!({"guild_id":"1","user_id":"9","roles":ids})).unwrap(),
-				Id(9)
-			)
-			.is_err()
-		);
-		let guilds: Vec<_> = (1..=33).map(|guild| json!({"id":guild.to_string(),"roles":(100..612).map(|id| json!({"id":id.to_string(),"permissions":"0"})).collect::<Vec<_>>()})).collect();
-		let bytes = serde_json::to_vec(&json!({"guilds":guilds})).unwrap();
-		assert!(bytes.len() < crate::MAX_WIRE);
-		assert!(ready(&bytes, Id(9)).is_ok());
-		let channels: Vec<_> = (10..43).map(|id| json!({"id":id.to_string(),"type":0,"permission_overwrites":
-            (100..1100).map(|role| json!({"id":role.to_string(),"type":0,"allow":"0","deny":"0"})).collect::<Vec<_>>()
-        })).collect();
-		let bytes =
-			serde_json::to_vec(&json!({"guilds":[{"id":"1","channels":channels}]})).unwrap();
-		assert!(bytes.len() < crate::MAX_WIRE);
-		assert!(
-			ready(&bytes, Id(9)).is_ok(),
-			"Normal accounts can exceed the old aggregate overwrite and byte limits"
-		);
+				.guilds[0]
+					.roles
+					.is_none(),
+				"A truncated role list is unknown, not partial"
+			);
+			let rows: Vec<_> = (10..1011)
+				.map(|id| json!({"id":id.to_string(),"type":1,"allow":"0","deny":"0"}))
+				.collect();
+			assert!(
+				channel(
+					&serde_json::to_vec(&json!({"id":"2","permission_overwrites":rows})).unwrap(),
+					Id(9)
+				)
+				.is_err()
+			);
+			let ids: Vec<_> = (10..523).map(|id| id.to_string()).collect();
+			assert!(
+				member(
+					&serde_json::to_vec(&json!({"guild_id":"1","user_id":"9","roles":ids}))
+						.unwrap(),
+					Id(9)
+				)
+				.is_err()
+			);
+			let guilds: Vec<_> = (1..=33).map(|guild| json!({"id":guild.to_string(),"roles":(100..612).map(|id| json!({"id":id.to_string(),"permissions":"0"})).collect::<Vec<_>>()})).collect();
+			let bytes = serde_json::to_vec(&json!({"guilds":guilds})).unwrap();
+			assert!(bytes.len() < crate::MAX_WIRE);
+			assert!(ready(&bytes, Id(9)).is_ok());
+			let channels: Vec<_> = (10..43).map(|id| json!({"id":id.to_string(),"type":0,"permission_overwrites":
+	            (100..1100).map(|role| json!({"id":role.to_string(),"type":0,"allow":"0","deny":"0"})).collect::<Vec<_>>()
+	        })).collect();
+			let bytes =
+				serde_json::to_vec(&json!({"guilds":[{"id":"1","channels":channels}]})).unwrap();
+			assert!(bytes.len() < crate::MAX_WIRE);
+			assert!(
+				ready(&bytes, Id(9)).is_ok(),
+				"Normal accounts can exceed the old aggregate overwrite and byte limits"
+			);
+		}
 	}
 }

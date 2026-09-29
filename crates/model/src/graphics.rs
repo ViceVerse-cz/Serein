@@ -71,19 +71,19 @@ mod tests {
 
 	#[test]
 	fn round_trips_through_storage_keys() {
-		for preference in GpuPreference::ALL {
-			let key = String::from(preference);
-			assert_eq!(GpuPreference::from(key), preference);
+		{
+			for preference in GpuPreference::ALL {
+				let key = String::from(preference);
+				assert_eq!(GpuPreference::from(key), preference);
+			}
 		}
-	}
-
-	#[test]
-	fn unknown_and_default_fall_back_to_automatic() {
-		assert_eq!(GpuPreference::default(), GpuPreference::Automatic);
-		assert_eq!(
-			GpuPreference::from("quantum-gpu".to_owned()),
-			GpuPreference::Automatic
-		);
-		assert_eq!(GpuPreference::from(String::new()), GpuPreference::Automatic);
+		{
+			assert_eq!(GpuPreference::default(), GpuPreference::Automatic);
+			assert_eq!(
+				GpuPreference::from("quantum-gpu".to_owned()),
+				GpuPreference::Automatic
+			);
+			assert_eq!(GpuPreference::from(String::new()), GpuPreference::Automatic);
+		}
 	}
 }

@@ -1641,6 +1641,7 @@ mod tests {
 			image.as_raw(),
 		))
 	}
+
 	#[test]
 	fn direct_image_decode_preserves_pixels_formats_and_resize() {
 		let rgba = image::RgbaImage::from_fn(256, 67, |x, y| {
@@ -1939,6 +1940,7 @@ mod tests {
 			super::decode_animation(&bytes[..100], &FrameBudget::legacy(160), |_| {}).is_none()
 		);
 	}
+
 	#[test]
 	fn sticker_urls_and_decode_budgets_are_scoped() {
 		for prefix in ["embed", "anim"] {
@@ -2007,41 +2009,123 @@ mod tests {
 		] {
 			assert!(super::cdn_url(key).is_none());
 		}
-	}
-	#[test]
-	fn application_and_group_icon_urls_accept_only_ids_and_hashes() {
-		for hash in [
-			"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			"a_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		] {
+
+		{
+			for hash in [
+				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"a_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			] {
+				assert_eq!(
+					super::cdn_url(&format!("application-icon-7-{hash}")),
+					Some(format!(
+						"https://cdn.discordapp.com/app-icons/7/{hash}.png?size=128"
+					))
+				);
+			}
 			assert_eq!(
-				super::cdn_url(&format!("application-icon-7-{hash}")),
-				Some(format!(
-					"https://cdn.discordapp.com/app-icons/7/{hash}.png?size=128"
-				))
+				super::cdn_url("group-icon-7-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").as_deref(),
+				Some(
+					"https://cdn.discordapp.com/channel-icons/7/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png?size=128"
+				)
+			);
+			for key in [
+				"application-icon-0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"application-icon-7-../private",
+				"application-icon-7-a.png?token=secret",
+				"application-icon-7-https://example.com",
+				"application-icon-7-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"group-icon-0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"group-icon-7-../private",
+				"group-icon-7-a.png?token=secret",
+				"group-icon-7-https://example.com",
+				"group-icon-7-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			] {
+				assert!(super::cdn_url(key).is_none());
+			}
+		}
+
+		{
+			assert_eq!(
+				super::cdn_url("activity-7-8").as_deref(),
+				Some("https://cdn.discordapp.com/app-assets/7/8.png?size=128")
+			);
+			assert_eq!(
+				super::cdn_url("app-icon-7").as_deref(),
+				Some("https://discord.com/api/v10/applications/7/rpc")
+			);
+			for key in [
+				"activity-0-8",
+				"activity-7-0",
+				"activity-7-../8",
+				"activity-7-8?size=8192",
+				"activity-7-https://example.com",
+				"app-icon-0",
+				"app-icon-7/rpc",
+				"app-icon-7?token=secret",
+			] {
+				assert!(super::cdn_url(key).is_none());
+			}
+			assert_eq!(
+				super::application_icon_url(
+					"app-icon-7",
+					br#"{"id":"7","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","name":"Ignored"}"#
+				)
+				.as_deref(),
+				Some(
+					"https://cdn.discordapp.com/app-icons/7/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png?size=128"
+				)
+			);
+			for bytes in [
+				br#"{"id":"8","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#.as_slice(),
+				br#"{"id":"7","icon":null}"#,
+				br#"{"id":"7"}"#,
+				br#"{"id":"7","icon":"../../private"}"#,
+				br#"{"id":"7","icon":"https://example.com/icon.png"}"#,
+				br#"{"id":"7","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"}"#,
+			] {
+				assert!(super::application_icon_url("app-icon-7", bytes).is_none());
+			}
+			assert!(
+				super::application_icon_url(
+					"app-icon-7",
+					&vec![b' '; super::MAX_APPLICATION_METADATA + 1]
+				)
+				.is_none()
 			);
 		}
-		assert_eq!(
-			super::cdn_url("group-icon-7-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").as_deref(),
-			Some(
-				"https://cdn.discordapp.com/channel-icons/7/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png?size=128"
-			)
-		);
-		for key in [
-			"application-icon-0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			"application-icon-7-../private",
-			"application-icon-7-a.png?token=secret",
-			"application-icon-7-https://example.com",
-			"application-icon-7-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			"group-icon-0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			"group-icon-7-../private",
-			"group-icon-7-a.png?token=secret",
-			"group-icon-7-https://example.com",
-			"group-icon-7-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		] {
-			assert!(super::cdn_url(key).is_none());
+
+		{
+			assert_eq!(
+				super::cdn_url("emoji-9001").as_deref(),
+				Some("https://cdn.discordapp.com/emojis/9001.png?size=64")
+			);
+			for key in [
+				"emoji-0",
+				"emoji-../9001",
+				"emoji-9001?size=8192",
+				"emoji-https://example.com",
+				"emoji-9001/foo",
+			] {
+				assert!(super::cdn_url(key).is_none());
+			}
+		}
+
+		{
+			let source = "https://cdn.discordapp.com/streams/guild:1:2:3/0123456789abcdef.png";
+			assert!(embed_url(source, 512).is_some());
+			let key = format!("media:is:e512:{source}");
+			assert_eq!(job_urls(&key).unwrap().primary, source);
+			assert!(disk_key(&key).is_none());
+			assert!(
+				embed_url(
+					"https://cdn.discordapp.com/streams/guild:1:2:3/../token.png",
+					512,
+				)
+				.is_none()
+			);
 		}
 	}
+
 	#[test]
 	fn gif_animation_decodes_full_size_and_partial_frames() {
 		let mut bytes = Vec::new();
@@ -2188,73 +2272,6 @@ mod tests {
 			)
 		);
 	}
-	#[test]
-	fn activity_artwork_urls_and_application_metadata_are_scoped() {
-		assert_eq!(
-			super::cdn_url("activity-7-8").as_deref(),
-			Some("https://cdn.discordapp.com/app-assets/7/8.png?size=128")
-		);
-		assert_eq!(
-			super::cdn_url("app-icon-7").as_deref(),
-			Some("https://discord.com/api/v10/applications/7/rpc")
-		);
-		for key in [
-			"activity-0-8",
-			"activity-7-0",
-			"activity-7-../8",
-			"activity-7-8?size=8192",
-			"activity-7-https://example.com",
-			"app-icon-0",
-			"app-icon-7/rpc",
-			"app-icon-7?token=secret",
-		] {
-			assert!(super::cdn_url(key).is_none());
-		}
-		assert_eq!(
-			super::application_icon_url(
-				"app-icon-7",
-				br#"{"id":"7","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","name":"Ignored"}"#
-			)
-			.as_deref(),
-			Some(
-				"https://cdn.discordapp.com/app-icons/7/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png?size=128"
-			)
-		);
-		for bytes in [
-			br#"{"id":"8","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#.as_slice(),
-			br#"{"id":"7","icon":null}"#,
-			br#"{"id":"7"}"#,
-			br#"{"id":"7","icon":"../../private"}"#,
-			br#"{"id":"7","icon":"https://example.com/icon.png"}"#,
-			br#"{"id":"7","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"}"#,
-		] {
-			assert!(super::application_icon_url("app-icon-7", bytes).is_none());
-		}
-		assert!(
-			super::application_icon_url(
-				"app-icon-7",
-				&vec![b' '; super::MAX_APPLICATION_METADATA + 1]
-			)
-			.is_none()
-		);
-	}
-
-	#[test]
-	fn custom_emoji_urls_are_static_and_confined_to_discord_cdn() {
-		assert_eq!(
-			super::cdn_url("emoji-9001").as_deref(),
-			Some("https://cdn.discordapp.com/emojis/9001.png?size=64")
-		);
-		for key in [
-			"emoji-0",
-			"emoji-../9001",
-			"emoji-9001?size=8192",
-			"emoji-https://example.com",
-			"emoji-9001/foo",
-		] {
-			assert!(super::cdn_url(key).is_none());
-		}
-	}
 
 	use super::*;
 	use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -2266,21 +2283,6 @@ mod tests {
 			.write_to(&mut encoded, image::ImageFormat::Png)
 			.unwrap();
 		encoded.into_inner()
-	}
-	#[test]
-	fn stream_preview_urls_are_confined_to_discord_cdn() {
-		let source = "https://cdn.discordapp.com/streams/guild:1:2:3/0123456789abcdef.png";
-		assert!(embed_url(source, 512).is_some());
-		let key = format!("media:is:e512:{source}");
-		assert_eq!(job_urls(&key).unwrap().primary, source);
-		assert!(disk_key(&key).is_none());
-		assert!(
-			embed_url(
-				"https://cdn.discordapp.com/streams/guild:1:2:3/../token.png",
-				512,
-			)
-			.is_none()
-		);
 	}
 
 	#[test]

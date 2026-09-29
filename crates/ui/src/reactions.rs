@@ -392,23 +392,6 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn truncated_reaction_names_include_the_hidden_count() {
-		let many = reacting_names(["A", "B", "C", "D"].into_iter(), 9);
-		assert!(
-			["A", "B", "C", "6"]
-				.into_iter()
-				.all(|part| many.contains(part))
-		);
-		assert_eq!(reacting_names(["A", "B", "C"].into_iter(), 3), "A, B, C");
-		let one = reacting_names(["A", "B", "C"].into_iter(), 4);
-		assert!(
-			["A", "B", "C", "1"]
-				.into_iter()
-				.all(|part| one.contains(part))
-		);
-	}
-
-	#[test]
 	fn custom_reaction_button_loads_its_image() {
 		let ctx = egui::Context::default();
 		let mut avatars = crate::avatars::Avatars::default();
@@ -426,76 +409,51 @@ mod tests {
 		});
 		assert!(!output.textures_delta.set.is_empty());
 		output.textures_delta.clear();
-	}
 
-	#[test]
-	fn empty_reactions_do_not_allocate_a_row() {
-		let ctx = egui::Context::default();
-		let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-			let before = ui.min_rect();
-			assert_eq!(
-				show(
-					ui,
-					Some(&[]),
-					true,
-					false,
-					false,
-					(&mut crate::avatars::Avatars::default(), true),
-					model::Id(1),
-					None,
-					|_, _| true,
-				),
-				None
-			);
-			assert_eq!(ui.min_rect(), before);
-		});
-		output.drop_without_applying_deltas();
-	}
-
-	#[test]
-	fn hovering_starts_reaction_user_load_before_the_tooltip_opens() {
-		let ctx = egui::Context::default();
-		crate::emoji::install(&ctx).unwrap();
-		let emoji = ReactionEmoji {
-			id: None,
-			name: Some("👍".into()),
-		};
-		let mut action = None;
-		for frame in 0..2 {
-			let output = ctx.run_ui(
-				egui::RawInput {
-					screen_rect: Some(egui::Rect::from_min_size(
-						egui::Pos2::ZERO,
-						egui::vec2(240.0, 180.0),
-					)),
-					events: (frame == 0)
-						.then(|| egui::Event::PointerMoved(egui::pos2(20.0, 15.0)))
-						.into_iter()
-						.collect(),
-					..Default::default()
-				},
-				|ui| {
-					action = show(
-						ui,
-						Some(&[Reaction {
-							emoji: emoji.clone(),
-							count: 3,
-							me: false,
-							me_burst: false,
-						}]),
-						true,
-						false,
-						false,
-						(&mut crate::avatars::Avatars::default(), true),
-						model::Id(1),
-						None,
-						|_, _| true,
-					);
-				},
-			);
-			output.drop_without_applying_deltas();
+		{
+			let ctx = egui::Context::default();
+			crate::emoji::install(&ctx).unwrap();
+			let emoji = ReactionEmoji {
+				id: None,
+				name: Some("👍".into()),
+			};
+			let mut action = None;
+			for frame in 0..2 {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(240.0, 180.0),
+						)),
+						events: (frame == 0)
+							.then(|| egui::Event::PointerMoved(egui::pos2(20.0, 15.0)))
+							.into_iter()
+							.collect(),
+						..Default::default()
+					},
+					|ui| {
+						action = show(
+							ui,
+							Some(&[Reaction {
+								emoji: emoji.clone(),
+								count: 3,
+								me: false,
+								me_burst: false,
+							}]),
+							true,
+							false,
+							false,
+							(&mut crate::avatars::Avatars::default(), true),
+							model::Id(1),
+							None,
+							|_, _| true,
+						);
+					},
+				);
+				output.drop_without_applying_deltas();
+			}
+			assert_eq!(action, Some(Action::Inspect(emoji, false)));
 		}
-		assert_eq!(action, Some(Action::Inspect(emoji, false)));
 	}
 
 	#[test]

@@ -843,113 +843,111 @@ mod tests {
 			),
 			Outcome::MinimizeToTraySaved(Err(StoreError::Unavailable))
 		));
-	}
 
-	#[test]
-	fn game_activity_operations_keep_their_own_results_even_when_history_is_blocked() {
-		let safety = HistorySafety::default();
-		safety.block();
-		let mut store = Ok(LocalStore::open(std::path::Path::new(":memory:")).unwrap());
-		assert!(matches!(
-			execute(&mut store, &safety, Id(0), 0, Operation::LoadGameActivity),
-			Outcome::GameActivity(Ok(false))
-		));
-		assert!(matches!(
-			execute(
-				&mut store,
-				&safety,
-				Id(0),
-				0,
-				Operation::SaveGameActivity(true)
-			),
-			Outcome::GameActivitySaved(Ok(()))
-		));
-		assert!(matches!(
-			execute(&mut store, &safety, Id(9), 0, Operation::LoadGameActivity),
-			Outcome::GameActivity(Ok(true))
-		));
-		let mut unavailable = Err(StoreError::Unavailable);
-		assert!(matches!(
-			execute(
-				&mut unavailable,
-				&safety,
-				Id(0),
-				0,
-				Operation::LoadGameActivity
-			),
-			Outcome::GameActivity(Err(StoreError::Unavailable))
-		));
-		assert!(matches!(
-			execute(
-				&mut unavailable,
-				&safety,
-				Id(0),
-				0,
-				Operation::SaveGameActivity(false)
-			),
-			Outcome::GameActivitySaved(Err(StoreError::Unavailable))
-		));
-	}
+		{
+			let safety = HistorySafety::default();
+			safety.block();
+			let mut store = Ok(LocalStore::open(std::path::Path::new(":memory:")).unwrap());
+			assert!(matches!(
+				execute(&mut store, &safety, Id(0), 0, Operation::LoadGameActivity),
+				Outcome::GameActivity(Ok(false))
+			));
+			assert!(matches!(
+				execute(
+					&mut store,
+					&safety,
+					Id(0),
+					0,
+					Operation::SaveGameActivity(true)
+				),
+				Outcome::GameActivitySaved(Ok(()))
+			));
+			assert!(matches!(
+				execute(&mut store, &safety, Id(9), 0, Operation::LoadGameActivity),
+				Outcome::GameActivity(Ok(true))
+			));
+			let mut unavailable = Err(StoreError::Unavailable);
+			assert!(matches!(
+				execute(
+					&mut unavailable,
+					&safety,
+					Id(0),
+					0,
+					Operation::LoadGameActivity
+				),
+				Outcome::GameActivity(Err(StoreError::Unavailable))
+			));
+			assert!(matches!(
+				execute(
+					&mut unavailable,
+					&safety,
+					Id(0),
+					0,
+					Operation::SaveGameActivity(false)
+				),
+				Outcome::GameActivitySaved(Err(StoreError::Unavailable))
+			));
+		}
 
-	#[test]
-	fn reading_operations_report_their_own_results_without_touching_account_history() {
-		let safety = HistorySafety::default();
-		let mut store = Ok(LocalStore::open(std::path::Path::new(":memory:")).unwrap());
-		let value = model::ReadingPreferences {
-			zoom_percent: 125,
-			sidebar_width: 300,
-			show_members: false,
-			show_members_dms: false,
-			compact_messages: false,
-			animate_gifs: false,
-			smooth_scrolling: true,
-			scroll_speed_percent: 100,
-			hide_media_links: true,
-			confirm_external_links: true,
-		};
-		store
-			.as_mut()
-			.unwrap()
-			.save_draft(Id(1), Id(2), "Synthetic draft")
-			.unwrap();
-		safety.block(); // History cleanup does not prohibit application settings.
-		assert!(matches!(
-			execute(
-				&mut store,
-				&safety,
-				Id(0),
-				0,
-				Operation::SaveReadingPreferences(value)
-			),
-			Outcome::ReadingPreferencesSaved(Ok(()))
-		));
-		assert!(matches!(execute(&mut store, &safety, Id(9), 0,
+		{
+			let safety = HistorySafety::default();
+			let mut store = Ok(LocalStore::open(std::path::Path::new(":memory:")).unwrap());
+			let value = model::ReadingPreferences {
+				zoom_percent: 125,
+				sidebar_width: 300,
+				show_members: false,
+				show_members_dms: false,
+				compact_messages: false,
+				animate_gifs: false,
+				smooth_scrolling: true,
+				scroll_speed_percent: 100,
+				hide_media_links: true,
+				confirm_external_links: true,
+			};
+			store
+				.as_mut()
+				.unwrap()
+				.save_draft(Id(1), Id(2), "Synthetic draft")
+				.unwrap();
+			safety.block(); // History cleanup does not prohibit application settings.
+			assert!(matches!(
+				execute(
+					&mut store,
+					&safety,
+					Id(0),
+					0,
+					Operation::SaveReadingPreferences(value)
+				),
+				Outcome::ReadingPreferencesSaved(Ok(()))
+			));
+			assert!(matches!(execute(&mut store, &safety, Id(9), 0,
             Operation::LoadReadingPreferences), Outcome::ReadingPreferences(Ok(stored)) if stored == value));
-		assert_eq!(
-			store.as_ref().unwrap().load_drafts(Id(1)).unwrap()[&Id(2)],
-			"Synthetic draft"
-		);
-		let mut unavailable = Err(StoreError::Unavailable);
-		assert!(matches!(
-			execute(
-				&mut unavailable,
-				&safety,
-				Id(0),
-				0,
-				Operation::LoadReadingPreferences
-			),
-			Outcome::ReadingPreferences(Err(StoreError::Unavailable))
-		));
-		assert!(matches!(
-			execute(
-				&mut unavailable,
-				&safety,
-				Id(0),
-				0,
-				Operation::SaveReadingPreferences(value)
-			),
-			Outcome::ReadingPreferencesSaved(Err(StoreError::Unavailable))
-		));
+			assert_eq!(
+				store.as_ref().unwrap().load_drafts(Id(1)).unwrap()[&Id(2)],
+				"Synthetic draft"
+			);
+			let mut unavailable = Err(StoreError::Unavailable);
+			assert!(matches!(
+				execute(
+					&mut unavailable,
+					&safety,
+					Id(0),
+					0,
+					Operation::LoadReadingPreferences
+				),
+				Outcome::ReadingPreferences(Err(StoreError::Unavailable))
+			));
+			assert!(matches!(
+				execute(
+					&mut unavailable,
+					&safety,
+					Id(0),
+					0,
+					Operation::SaveReadingPreferences(value)
+				),
+				Outcome::ReadingPreferencesSaved(Err(StoreError::Unavailable))
+			));
+		}
 	}
 
 	#[test]

@@ -387,36 +387,68 @@ mod channel_tests {
 	use super::*;
 	#[test]
 	fn group_icon_hash_and_patches_keep_absent_null_and_value_distinct() {
-		let channel = decode::<ChannelDto>(
-			br#"{"id":"3","type":3,"icon":"0123456789abcdef0123456789abcdef"}"#,
-		)
-		.unwrap()
-		.into_model();
-		assert_eq!(
-			channel.icon.as_deref(),
-			Some("0123456789abcdef0123456789abcdef")
-		);
-		assert!(matches!(
-			decode::<ChannelPatchDto>(br#"{"id":"3"}"#)
+		{
+			let channel = decode::<ChannelDto>(
+				br#"{"id":"3","type":3,"icon":"0123456789abcdef0123456789abcdef"}"#,
+			)
+			.unwrap()
+			.into_model();
+			assert_eq!(
+				channel.icon.as_deref(),
+				Some("0123456789abcdef0123456789abcdef")
+			);
+			assert!(matches!(
+				decode::<ChannelPatchDto>(br#"{"id":"3"}"#)
+					.unwrap()
+					.into_model()
+					.icon,
+				Patch::Absent
+			));
+			assert!(matches!(
+				decode::<ChannelPatchDto>(br#"{"id":"3","icon":null}"#)
+					.unwrap()
+					.into_model()
+					.icon,
+				Patch::Null
+			));
+			assert!(matches!(
+				decode::<ChannelPatchDto>(br#"{"id":"3","icon":"../invalid"}"#)
+					.unwrap()
+					.into_model()
+					.icon,
+				Patch::Null
+			));
+		}
+		{
+			let channel = decode::<ChannelDto>(
+				br#"{"id":"3","guild_id":"1","type":0,"name":"general","position":12,"parent_id":"2"}"#,
+			)
+			.unwrap()
+			.into_model();
+			assert_eq!(channel.parent_id, Some(Id(2)));
+			assert_eq!(channel.position, 12);
+			assert!(channel.supports_text());
+			let category =
+				decode::<ChannelDto>(br#"{"id":"2","guild_id":"1","type":4,"name":"Category"}"#)
+					.unwrap()
+					.into_model();
+			assert!(!category.supports_text());
+			let patch = decode::<ChannelPatchDto>(br#"{"id":"3","position":0,"parent_id":null}"#)
 				.unwrap()
-				.into_model()
-				.icon,
-			Patch::Absent
-		));
-		assert!(matches!(
-			decode::<ChannelPatchDto>(br#"{"id":"3","icon":null}"#)
-				.unwrap()
-				.into_model()
-				.icon,
-			Patch::Null
-		));
-		assert!(matches!(
-			decode::<ChannelPatchDto>(br#"{"id":"3","icon":"../invalid"}"#)
-				.unwrap()
-				.into_model()
-				.icon,
-			Patch::Null
-		));
+				.into_model();
+			assert_eq!(patch.parent_id, Patch::Null);
+			assert_eq!(patch.position, Patch::Value(0));
+			assert_eq!(patch.name, Patch::Absent);
+			assert_eq!(patch.kind, Patch::Absent);
+			assert_eq!(
+				decode::<ChannelPatchDto>(br#"{"id":"3"}"#)
+					.unwrap()
+					.into_model()
+					.parent_id,
+				Patch::Absent
+			);
+			assert!(decode::<ChannelDto>(br#"{"id":"3","type":0,"position":4294967296}"#).is_err());
+		}
 	}
 	#[test]
 	fn ready_omits_obfuscated_channels_and_their_threads_without_inventing_child_permissions() {
@@ -451,38 +483,6 @@ mod channel_tests {
 			ready.skipped && channels.is_empty(),
 			"A duplicate never replaces the first (hidden) channel"
 		);
-	}
-
-	#[test]
-	fn category_metadata_and_partial_channel_updates() {
-		let channel = decode::<ChannelDto>(
-			br#"{"id":"3","guild_id":"1","type":0,"name":"general","position":12,"parent_id":"2"}"#,
-		)
-		.unwrap()
-		.into_model();
-		assert_eq!(channel.parent_id, Some(Id(2)));
-		assert_eq!(channel.position, 12);
-		assert!(channel.supports_text());
-		let category =
-			decode::<ChannelDto>(br#"{"id":"2","guild_id":"1","type":4,"name":"Category"}"#)
-				.unwrap()
-				.into_model();
-		assert!(!category.supports_text());
-		let patch = decode::<ChannelPatchDto>(br#"{"id":"3","position":0,"parent_id":null}"#)
-			.unwrap()
-			.into_model();
-		assert_eq!(patch.parent_id, Patch::Null);
-		assert_eq!(patch.position, Patch::Value(0));
-		assert_eq!(patch.name, Patch::Absent);
-		assert_eq!(patch.kind, Patch::Absent);
-		assert_eq!(
-			decode::<ChannelPatchDto>(br#"{"id":"3"}"#)
-				.unwrap()
-				.into_model()
-				.parent_id,
-			Patch::Absent
-		);
-		assert!(decode::<ChannelDto>(br#"{"id":"3","type":0,"position":4294967296}"#).is_err());
 	}
 }
 #[derive(Deserialize)]
@@ -1126,176 +1126,294 @@ mod tests {
 	use super::*;
 	#[test]
 	fn webhook_authors_require_explicit_message_metadata() {
-		let mut wire = serde_json::json!({"id":"100","channel_id":"2","author":{"id":"3","username":"Synthetic webhook","bot":true},"content":"webhook"});
-		let read =
-			|wire: &serde_json::Value| decode::<MessageDto>(&serde_json::to_vec(wire).unwrap());
-		assert!(!read(&wire).unwrap().into_model().author.webhook);
-		wire["webhook_id"] = serde_json::json!("3");
-		let author = read(&wire).unwrap().into_model().author;
-		assert!(author.webhook);
-		assert_eq!(author.name, "Synthetic webhook");
-		wire["webhook_id"] = serde_json::Value::Null;
-		assert!(!read(&wire).unwrap().into_model().author.webhook);
-		wire["webhook_id"] = serde_json::json!("invalid");
-		assert!(read(&wire).is_err());
-	}
-	#[test]
-	fn account_badges_follow_bot_and_application_provenance() {
-		let mut wire = serde_json::json!({"id":"100","channel_id":"2","author":{"id":"3","username":"BOT WEBHOOK APP"},"content":"synthetic"});
-		let label = |wire: &serde_json::Value| {
-			decode::<MessageDto>(&serde_json::to_vec(wire).unwrap())
-				.unwrap()
-				.into_model()
-				.author
-				.account_label()
-		};
-		assert_eq!(label(&wire), None, "Names are not account metadata");
-		wire["author"]["bot"] = serde_json::json!(true);
-		assert_eq!(label(&wire), Some("BOT"));
-		wire["webhook_id"] = serde_json::json!("3");
-		assert_eq!(label(&wire), Some("WEBHOOK"));
-		wire["application_id"] = serde_json::json!("4");
-		assert_eq!(label(&wire), Some("APP"));
-		wire["webhook_id"] = serde_json::Value::Null;
-		assert_eq!(label(&wire), Some("APP"));
-		wire["author"]["bot"] = serde_json::json!(false);
-		assert_eq!(
-			label(&wire),
-			None,
-			"Human rich-presence/game messages are not apps"
-		);
-		let user: UserDto =
-			decode(br#"{"id":"3","username":"Synthetic member","bot":true}"#).unwrap();
-		assert_eq!(user.into_model().account_label(), Some("BOT"));
+		{
+			let mut wire = serde_json::json!({"id":"100","channel_id":"2","author":{"id":"3","username":"Synthetic webhook","bot":true},"content":"webhook"});
+			let read =
+				|wire: &serde_json::Value| decode::<MessageDto>(&serde_json::to_vec(wire).unwrap());
+			assert!(!read(&wire).unwrap().into_model().author.webhook);
+			wire["webhook_id"] = serde_json::json!("3");
+			let author = read(&wire).unwrap().into_model().author;
+			assert!(author.webhook);
+			assert_eq!(author.name, "Synthetic webhook");
+			wire["webhook_id"] = serde_json::Value::Null;
+			assert!(!read(&wire).unwrap().into_model().author.webhook);
+			wire["webhook_id"] = serde_json::json!("invalid");
+			assert!(read(&wire).is_err());
+		}
+		{
+			let mut wire = serde_json::json!({"id":"100","channel_id":"2","author":{"id":"3","username":"BOT WEBHOOK APP"},"content":"synthetic"});
+			let label = |wire: &serde_json::Value| {
+				decode::<MessageDto>(&serde_json::to_vec(wire).unwrap())
+					.unwrap()
+					.into_model()
+					.author
+					.account_label()
+			};
+			assert_eq!(label(&wire), None, "Names are not account metadata");
+			wire["author"]["bot"] = serde_json::json!(true);
+			assert_eq!(label(&wire), Some("BOT"));
+			wire["webhook_id"] = serde_json::json!("3");
+			assert_eq!(label(&wire), Some("WEBHOOK"));
+			wire["application_id"] = serde_json::json!("4");
+			assert_eq!(label(&wire), Some("APP"));
+			wire["webhook_id"] = serde_json::Value::Null;
+			assert_eq!(label(&wire), Some("APP"));
+			wire["author"]["bot"] = serde_json::json!(false);
+			assert_eq!(
+				label(&wire),
+				None,
+				"Human rich-presence/game messages are not apps"
+			);
+			let user: UserDto =
+				decode(br#"{"id":"3","username":"Synthetic member","bot":true}"#).unwrap();
+			assert_eq!(user.into_model().account_label(), Some("BOT"));
+		}
 	}
 	#[test]
 	fn message_nickname_is_bounded_and_keeps_global_identity() {
-		let mut message = decode::<MessageDto>(
-			&serde_json::to_vec(&serde_json::json!({
-				"id":"100", "channel_id":"20", "author":{"id":"3","username":"Global"},
-				"member":{"nick":"界".repeat(200)}
-			}))
-			.unwrap(),
-		)
-		.unwrap()
-		.into_model();
-		assert_eq!(message.author.name, "Global");
-		assert_eq!(
-			message.author_nick.as_deref(),
-			Some("界".repeat(128).as_str())
-		);
-		let bytes = message.bytes();
-		let nick = message.author_nick.take().unwrap();
-		assert_eq!(bytes - message.bytes(), nick.capacity());
-	}
-	#[test]
-	fn message_author_roles_are_bounded_and_session_only() {
-		let mut wire = serde_json::json!({
-			"id":"100", "channel_id":"20", "author":{"id":"3","username":"Synthetic"},
-			"member":{"roles":["12", "11"]}
-		});
-		let read =
-			|value: &serde_json::Value| decode::<MessageDto>(&serde_json::to_vec(value).unwrap());
-		let mut message = read(&wire).unwrap().into_model();
-		assert_eq!(message.author_roles, vec![Id(11), Id(12)]);
-		let bytes = message.bytes();
-		let roles = std::mem::take(&mut message.author_roles);
-		assert_eq!(bytes - message.bytes(), roles.capacity() * size_of::<Id>());
-		for roles in [
-			serde_json::json!(["0"]),
-			serde_json::json!(["11", "11"]),
-			serde_json::json!(
-				(1..=model::permissions::MAX_MEMBER_ROLES + 1)
-					.map(|id| id.to_string())
-					.collect::<Vec<_>>()
-			),
-		] {
-			wire["member"]["roles"] = roles;
-			assert!(read(&wire).is_err());
+		{
+			let mut message = decode::<MessageDto>(
+				&serde_json::to_vec(&serde_json::json!({
+					"id":"100", "channel_id":"20", "author":{"id":"3","username":"Global"},
+					"member":{"nick":"界".repeat(200)}
+				}))
+				.unwrap(),
+			)
+			.unwrap()
+			.into_model();
+			assert_eq!(message.author.name, "Global");
+			assert_eq!(
+				message.author_nick.as_deref(),
+				Some("界".repeat(128).as_str())
+			);
+			let bytes = message.bytes();
+			let nick = message.author_nick.take().unwrap();
+			assert_eq!(bytes - message.bytes(), nick.capacity());
 		}
-		wire["member"] = serde_json::Value::Null;
-		assert!(read(&wire).unwrap().into_model().author_roles.is_empty());
+		{
+			let mut wire = serde_json::json!({
+				"id":"100", "channel_id":"20", "author":{"id":"3","username":"Synthetic"},
+				"member":{"roles":["12", "11"]}
+			});
+			let read = |value: &serde_json::Value| {
+				decode::<MessageDto>(&serde_json::to_vec(value).unwrap())
+			};
+			let mut message = read(&wire).unwrap().into_model();
+			assert_eq!(message.author_roles, vec![Id(11), Id(12)]);
+			let bytes = message.bytes();
+			let roles = std::mem::take(&mut message.author_roles);
+			assert_eq!(bytes - message.bytes(), roles.capacity() * size_of::<Id>());
+			for roles in [
+				serde_json::json!(["0"]),
+				serde_json::json!(["11", "11"]),
+				serde_json::json!(
+					(1..=model::permissions::MAX_MEMBER_ROLES + 1)
+						.map(|id| id.to_string())
+						.collect::<Vec<_>>()
+				),
+			] {
+				wire["member"]["roles"] = roles;
+				assert!(read(&wire).is_err());
+			}
+			wire["member"] = serde_json::Value::Null;
+			assert!(read(&wire).unwrap().into_model().author_roles.is_empty());
+		}
 	}
 	#[test]
 	fn notification_metadata_is_service_derived_and_role_mentions_are_bounded() {
-		let wire = || {
-			serde_json::json!({
-				"id":"100", "channel_id":"2", "author":{"id":"3","username":"Synthetic"},
-				"content":"@everyone <@&4>",
-			})
-		};
-		let read =
-			|value: &serde_json::Value| decode::<MessageDto>(&serde_json::to_vec(value).unwrap());
-		let plain = read(&wire()).unwrap().into_model();
-		assert!(plain.mention_roles.is_empty());
-		assert!(!plain.mention_everyone && !plain.suppress_notifications);
-		let mut value = wire();
-		value["mention_roles"] = serde_json::json!(["4", "5"]);
-		value["mention_everyone"] = true.into();
-		value["flags"] = (4096 | 4 | 32768).into();
-		let message = read(&value).unwrap().into_model();
-		assert_eq!(message.mention_roles, vec![Id(4), Id(5)]);
-		assert!(message.mention_everyone && message.suppress_notifications);
-		assert!(message.embeds_suppressed && message.extra_content.components_v2);
-		assert!(model::valid_mention_roles(&message.mention_roles));
-		let bytes = message.bytes();
-		let role_bytes = message.mention_roles.capacity() * size_of::<Id>();
-		let mut without_roles = message;
-		without_roles.mention_roles = Vec::new();
-		assert_eq!(bytes - without_roles.bytes(), role_bytes);
-		value["mention_roles"] = (1..=100)
-			.map(|id| id.to_string())
-			.collect::<Vec<_>>()
-			.into();
-		assert!(model::valid_mention_roles(
-			&read(&value).unwrap().into_model().mention_roles
-		));
-		for roles in [
-			serde_json::json!(null),
-			serde_json::json!({}),
-			serde_json::json!(["0"]),
-			serde_json::json!([1]),
-			serde_json::json!(["4", "4"]),
-			serde_json::json!((1..=101).map(|id| id.to_string()).collect::<Vec<_>>()),
-		] {
-			value["mention_roles"] = roles;
+		{
+			let wire = || {
+				serde_json::json!({
+					"id":"100", "channel_id":"2", "author":{"id":"3","username":"Synthetic"},
+					"content":"@everyone <@&4>",
+				})
+			};
+			let read = |value: &serde_json::Value| {
+				decode::<MessageDto>(&serde_json::to_vec(value).unwrap())
+			};
+			let plain = read(&wire()).unwrap().into_model();
+			assert!(plain.mention_roles.is_empty());
+			assert!(!plain.mention_everyone && !plain.suppress_notifications);
+			let mut value = wire();
+			value["mention_roles"] = serde_json::json!(["4", "5"]);
+			value["mention_everyone"] = true.into();
+			value["flags"] = (4096 | 4 | 32768).into();
+			let message = read(&value).unwrap().into_model();
+			assert_eq!(message.mention_roles, vec![Id(4), Id(5)]);
+			assert!(message.mention_everyone && message.suppress_notifications);
+			assert!(message.embeds_suppressed && message.extra_content.components_v2);
+			assert!(model::valid_mention_roles(&message.mention_roles));
+			let bytes = message.bytes();
+			let role_bytes = message.mention_roles.capacity() * size_of::<Id>();
+			let mut without_roles = message;
+			without_roles.mention_roles = Vec::new();
+			assert_eq!(bytes - without_roles.bytes(), role_bytes);
+			value["mention_roles"] = (1..=100)
+				.map(|id| id.to_string())
+				.collect::<Vec<_>>()
+				.into();
+			assert!(model::valid_mention_roles(
+				&read(&value).unwrap().into_model().mention_roles
+			));
+			for roles in [
+				serde_json::json!(null),
+				serde_json::json!({}),
+				serde_json::json!(["0"]),
+				serde_json::json!([1]),
+				serde_json::json!(["4", "4"]),
+				serde_json::json!((1..=101).map(|id| id.to_string()).collect::<Vec<_>>()),
+			] {
+				value["mention_roles"] = roles;
+				assert!(read(&value).is_err());
+			}
+			value["mention_roles"] = serde_json::json!([]);
+			value["mention_everyone"] = serde_json::json!("true");
 			assert!(read(&value).is_err());
 		}
-		value["mention_roles"] = serde_json::json!([]);
-		value["mention_everyone"] = serde_json::json!("true");
-		assert!(read(&value).is_err());
+		{
+			let message=decode::<MessageDto>(br#"{"id":"1","channel_id":"2","author":{"id":"3","username":"author"},"content":"<@4>","mentions":[{"id":"4","username":"user","global_name":"Display name"}]}"#).unwrap().into_model();
+			assert_eq!(message.mentions[0].id, Id(4));
+			assert_eq!(message.mentions[0].name, "Display name");
+			assert!(matches!(
+				decode::<PatchDto>(br#"{"id":"1","channel_id":"2"}"#)
+					.unwrap()
+					.into_model()
+					.mentions,
+				Patch::Absent
+			));
+			assert!(matches!(
+				decode::<PatchDto>(br#"{"id":"1","channel_id":"2","mentions":null}"#)
+					.unwrap()
+					.into_model()
+					.mentions,
+				Patch::Null
+			));
+			let large = serde_json::json!({"id":"1","channel_id":"2","mentions":(1..=101).map(|id|serde_json::json!({"id":id.to_string(),"username":"synthetic"})).collect::<Vec<_>>()});
+			assert!(decode::<PatchDto>(&serde_json::to_vec(&large).unwrap()).is_err());
+		}
 	}
 	#[test]
 	fn forwarded_snapshot_uses_bounded_audio_body_and_outer_identity() {
-		let mut wire = serde_json::json!({
-			"id":"100", "channel_id":"2", "author":{"id":"3","username":"Forwarder"},
-			"type":0, "content":"", "message_reference":{"type":1,"channel_id":"99","message_id":"50"},
-			"message_snapshots":[{"message":{"type":0,"content":"Frozen text", "mention_everyone":true,
-				"attachments":[{"id":"60","filename":"Samsung.mp3","size":3850000,"content_type":"audio/mpeg", "url":"https://cdn.discordapp.com/attachments/99/60/Samsung.mp3"}],
-				"embeds":[{"type":"rich","title":"Snapshot embed"}]}}]
-		});
-		let read = |wire: &serde_json::Value| {
-			decode::<MessageDto>(&serde_json::to_vec(wire).unwrap())
-				.unwrap()
-				.into_model()
-		};
-		let message = read(&wire);
-		assert!(message.forwarded && !message.unsupported);
-		assert_eq!(message.content, "Frozen text");
-		assert_eq!(message.author.id, Id(3));
-		assert_eq!(message.channel, Id(2));
-		assert_eq!(message.id, Id(100));
-		assert!(message.reply_to.is_none() && !message.mention_everyone);
-		assert!(message.attachments[0].is_audio());
-		assert_eq!(message.embeds[0].title.as_deref(), Some("Snapshot embed"));
-		let snapshot = wire["message_snapshots"][0].clone();
-		for snapshots in [
-			serde_json::json!([]),
-			serde_json::json!([snapshot.clone(), snapshot]),
-		] {
-			wire["message_snapshots"] = snapshots;
+		{
+			let mut wire = serde_json::json!({
+				"id":"100", "channel_id":"2", "author":{"id":"3","username":"Forwarder"},
+				"type":0, "content":"", "message_reference":{"type":1,"channel_id":"99","message_id":"50"},
+				"message_snapshots":[{"message":{"type":0,"content":"Frozen text", "mention_everyone":true,
+					"attachments":[{"id":"60","filename":"Samsung.mp3","size":3850000,"content_type":"audio/mpeg", "url":"https://cdn.discordapp.com/attachments/99/60/Samsung.mp3"}],
+					"embeds":[{"type":"rich","title":"Snapshot embed"}]}}]
+			});
+			let read = |wire: &serde_json::Value| {
+				decode::<MessageDto>(&serde_json::to_vec(wire).unwrap())
+					.unwrap()
+					.into_model()
+			};
 			let message = read(&wire);
-			assert!(!message.forwarded && message.unsupported && message.attachments.is_empty());
+			assert!(message.forwarded && !message.unsupported);
+			assert_eq!(message.content, "Frozen text");
+			assert_eq!(message.author.id, Id(3));
+			assert_eq!(message.channel, Id(2));
+			assert_eq!(message.id, Id(100));
+			assert!(message.reply_to.is_none() && !message.mention_everyone);
+			assert!(message.attachments[0].is_audio());
+			assert_eq!(message.embeds[0].title.as_deref(), Some("Snapshot embed"));
+			let snapshot = wire["message_snapshots"][0].clone();
+			for snapshots in [
+				serde_json::json!([]),
+				serde_json::json!([snapshot.clone(), snapshot]),
+			] {
+				wire["message_snapshots"] = snapshots;
+				let message = read(&wire);
+				assert!(
+					!message.forwarded && message.unsupported && message.attachments.is_empty()
+				);
+			}
+		}
+		{
+			let wire = || {
+				serde_json::json!({
+					"id":"100", "channel_id":"2", "author":{"id":"3","username":"Synthetic"},
+					"type":19, "message_reference":{"message_id":"50","channel_id":"2"}
+				})
+			};
+			let read = |value: serde_json::Value| {
+				decode::<MessageDto>(&serde_json::to_vec(&value).unwrap())
+					.unwrap()
+					.into_model()
+			};
+			let unknown = read(wire());
+			assert_eq!(unknown.reply_to, Some(Id(50)));
+			assert!(!unknown.reply_deleted && !unknown.unsupported);
+			for kind in [19, 23] {
+				let mut value = wire();
+				value["type"] = kind.into();
+				value["referenced_message"] = serde_json::Value::Null;
+				let deleted = read(value);
+				assert_eq!(deleted.reply_to, Some(Id(50)));
+				assert!(deleted.reply_deleted && !deleted.unsupported);
+			}
+			let mut value = wire();
+			// Nested bodies are deliberately discarded, never rendered or cached as another message.
+			value["referenced_message"] = serde_json::json!({"content":"nested secret marker", "referenced_message":{"content":"nested"}});
+			let resolved = read(value);
+			assert!(!resolved.reply_deleted);
+			assert!(resolved.content.is_empty());
+			for invalid in 0..9 {
+				let mut value = wire();
+				value["referenced_message"] = serde_json::Value::Null;
+				match invalid {
+					0 => {
+						value["message_reference"]["channel_id"] = "9".into();
+					}
+					1 => {
+						value["message_reference"]
+							.as_object_mut()
+							.unwrap()
+							.remove("channel_id");
+					}
+					2 => {
+						value["message_reference"]["type"] = 1.into();
+					}
+					3 => {
+						value["message_reference"]["type"] = 999.into();
+					}
+					4 => {
+						value["message_reference"]["message_id"] = "0".into();
+						assert!(
+							decode::<MessageDto>(&serde_json::to_vec(&value).unwrap()).is_err()
+						);
+						continue;
+					}
+					5 => {
+						value["message_reference"]["message_id"] = "100".into();
+					}
+					6 => {
+						value["message_reference"]["message_id"] = "101".into();
+					}
+					7 => {
+						value["type"] = 21.into();
+					}
+					_ => {
+						value["flags"] = 2.into();
+					}
+				}
+				let message = read(value);
+				assert!(
+					message.reply_to.is_none() && !message.reply_deleted && message.unsupported
+				);
+			}
+			for invalid in [
+				serde_json::json!([]),
+				serde_json::json!("invalid"),
+				serde_json::Value::Object(
+					(0..65)
+						.map(|i| (i.to_string(), serde_json::Value::Null))
+						.collect(),
+				),
+			] {
+				let mut value = wire();
+				value["referenced_message"] = invalid;
+				assert!(decode::<MessageDto>(&serde_json::to_vec(&value).unwrap()).is_err());
+			}
 		}
 	}
 	#[test]
@@ -1327,90 +1445,6 @@ mod tests {
 		assert!(read(wire.clone()).interaction.is_none());
 		wire.as_object_mut().unwrap().remove("interaction_metadata");
 		assert!(read(wire).interaction.is_none());
-	}
-	#[test]
-	fn reply_references_require_same_channel_and_distinguish_deleted_from_unknown() {
-		let wire = || {
-			serde_json::json!({
-				"id":"100", "channel_id":"2", "author":{"id":"3","username":"Synthetic"},
-				"type":19, "message_reference":{"message_id":"50","channel_id":"2"}
-			})
-		};
-		let read = |value: serde_json::Value| {
-			decode::<MessageDto>(&serde_json::to_vec(&value).unwrap())
-				.unwrap()
-				.into_model()
-		};
-		let unknown = read(wire());
-		assert_eq!(unknown.reply_to, Some(Id(50)));
-		assert!(!unknown.reply_deleted && !unknown.unsupported);
-		for kind in [19, 23] {
-			let mut value = wire();
-			value["type"] = kind.into();
-			value["referenced_message"] = serde_json::Value::Null;
-			let deleted = read(value);
-			assert_eq!(deleted.reply_to, Some(Id(50)));
-			assert!(deleted.reply_deleted && !deleted.unsupported);
-		}
-		let mut value = wire();
-		// Nested bodies are deliberately discarded, never rendered or cached as another message.
-		value["referenced_message"] = serde_json::json!({"content":"nested secret marker", "referenced_message":{"content":"nested"}});
-		let resolved = read(value);
-		assert!(!resolved.reply_deleted);
-		assert!(resolved.content.is_empty());
-		for invalid in 0..9 {
-			let mut value = wire();
-			value["referenced_message"] = serde_json::Value::Null;
-			match invalid {
-				0 => {
-					value["message_reference"]["channel_id"] = "9".into();
-				}
-				1 => {
-					value["message_reference"]
-						.as_object_mut()
-						.unwrap()
-						.remove("channel_id");
-				}
-				2 => {
-					value["message_reference"]["type"] = 1.into();
-				}
-				3 => {
-					value["message_reference"]["type"] = 999.into();
-				}
-				4 => {
-					value["message_reference"]["message_id"] = "0".into();
-					assert!(decode::<MessageDto>(&serde_json::to_vec(&value).unwrap()).is_err());
-					continue;
-				}
-				5 => {
-					value["message_reference"]["message_id"] = "100".into();
-				}
-				6 => {
-					value["message_reference"]["message_id"] = "101".into();
-				}
-				7 => {
-					value["type"] = 21.into();
-				}
-				_ => {
-					value["flags"] = 2.into();
-				}
-			}
-			let message = read(value);
-			assert!(message.reply_to.is_none() && !message.reply_deleted && message.unsupported);
-		}
-		for invalid in [
-			serde_json::json!([]),
-			serde_json::json!("invalid"),
-			serde_json::Value::Object(
-				(0..65)
-					.map(|i| (i.to_string(), serde_json::Value::Null))
-					.collect(),
-			),
-		] {
-			let mut value = wire();
-			value["referenced_message"] = invalid;
-			assert!(decode::<MessageDto>(&serde_json::to_vec(&value).unwrap()).is_err());
-		}
 	}
 	#[test]
 	fn system_types_keep_original_content_and_describe_known_events() {
@@ -1474,28 +1508,6 @@ mod tests {
 		assert!(decode::<MessageDto>(&serde_json::to_vec(&invalid).unwrap()).is_err());
 		invalid["type"] = serde_json::json!(-1);
 		assert!(decode::<MessageDto>(&serde_json::to_vec(&invalid).unwrap()).is_err());
-	}
-	#[test]
-	fn bounded_message_mentions_and_patch_presence() {
-		let message=decode::<MessageDto>(br#"{"id":"1","channel_id":"2","author":{"id":"3","username":"author"},"content":"<@4>","mentions":[{"id":"4","username":"user","global_name":"Display name"}]}"#).unwrap().into_model();
-		assert_eq!(message.mentions[0].id, Id(4));
-		assert_eq!(message.mentions[0].name, "Display name");
-		assert!(matches!(
-			decode::<PatchDto>(br#"{"id":"1","channel_id":"2"}"#)
-				.unwrap()
-				.into_model()
-				.mentions,
-			Patch::Absent
-		));
-		assert!(matches!(
-			decode::<PatchDto>(br#"{"id":"1","channel_id":"2","mentions":null}"#)
-				.unwrap()
-				.into_model()
-				.mentions,
-			Patch::Null
-		));
-		let large = serde_json::json!({"id":"1","channel_id":"2","mentions":(1..=101).map(|id|serde_json::json!({"id":id.to_string(),"username":"synthetic"})).collect::<Vec<_>>()});
-		assert!(decode::<PatchDto>(&serde_json::to_vec(&large).unwrap()).is_err());
 	}
 	#[test]
 	fn precision_patches_and_hostile_payloads() {
@@ -1828,73 +1840,76 @@ mod member_tests {
 	use super::*;
 	#[test]
 	fn member_roles_are_retained_sorted_and_bounded_before_list_admission() {
-		let member: MemberItem =
-			decode(br#"{"member":{"user":{"id":"5","username":"Synthetic"},"roles":["12","11"]}}"#)
-				.unwrap();
-		let mut member = member.into_model().unwrap();
-		assert_eq!(member.roles, vec![Id(11), Id(12)]);
-		let bytes = member.bytes();
-		member.roles.reserve(100);
-		assert!(member.bytes() >= bytes + 100 * size_of::<Id>());
-		for roles in [
-			serde_json::json!(["0"]),
-			serde_json::json!(["11", "11"]),
-			serde_json::json!((1..=513).map(|id| id.to_string()).collect::<Vec<_>>()),
-		] {
-			let value = serde_json::json!({"member":{"user":{"id":"5","username":"Synthetic"},"roles":roles}});
-			// The row is rejected alone; its list position survives as a placeholder.
-			let item = decode::<MemberItem>(&serde_json::to_vec(&value).unwrap()).unwrap();
-			assert!(matches!(item, MemberItem::Unreadable));
+		{
+			let member: MemberItem = decode(
+				br#"{"member":{"user":{"id":"5","username":"Synthetic"},"roles":["12","11"]}}"#,
+			)
+			.unwrap();
+			let mut member = member.into_model().unwrap();
+			assert_eq!(member.roles, vec![Id(11), Id(12)]);
+			let bytes = member.bytes();
+			member.roles.reserve(100);
+			assert!(member.bytes() >= bytes + 100 * size_of::<Id>());
+			for roles in [
+				serde_json::json!(["0"]),
+				serde_json::json!(["11", "11"]),
+				serde_json::json!((1..=513).map(|id| id.to_string()).collect::<Vec<_>>()),
+			] {
+				let value = serde_json::json!({"member":{"user":{"id":"5","username":"Synthetic"},"roles":roles}});
+				// The row is rejected alone; its list position survives as a placeholder.
+				let item = decode::<MemberItem>(&serde_json::to_vec(&value).unwrap()).unwrap();
+				assert!(matches!(item, MemberItem::Unreadable));
+			}
 		}
-	}
-
-	#[test]
-	fn member_list_rows_fail_individually() {
-		let update: MemberUpdate = decode(
-			serde_json::json!({"guild_id":"1","id":"everyone","ops":[
-				{"op":"SYNC","range":[0,99],"items":[
-					{"group":{"id":"online","count":3}},
-					{"member":{"user":{"id":"2","username":"Readable"}},"presence":{"status":"online","activities":[{"type":0,"name":"Game","timestamps":{"start":"not a number"}}]}},
-					{"member":{"user":{"id":"0","username":"Bad identity"}}},
-					{"member":{"user":{"id":"4","username":"Kept"},"presence":{"status":"idle","activities":[]}}}
-				]},
-				{"op":"FUTURE_OPERATION","index":1},
-				{"op":"UPDATE","index":3}
-			]})
-			.to_string()
-			.as_bytes(),
-		)
-		.unwrap();
-		let [
-			MemberOp::Sync { items, .. },
-			MemberOp::Unknown,
-			MemberOp::Update {
-				item: MemberItem::Unreadable,
-				..
-			},
-		] = <[MemberOp; 3]>::try_from(update.ops).ok().unwrap()
-		else {
-			panic!("operations keep their order and shape");
-		};
-		let slots: Vec<_> = items.into_iter().map(MemberItem::into_slot).collect();
-		assert!(matches!(&slots[0], Some(model::MemberSlot::Group(id)) if id == "online"));
-		// An unrepresentable activity is dropped, never the member or its status.
-		let Some(model::MemberSlot::Person(readable)) = &slots[1] else {
-			panic!("readable member stays");
-		};
-		assert_eq!(readable.user.id, Id(2));
-		assert_eq!(readable.status.as_deref(), Some("online"));
-		assert!(readable.activities.is_empty());
-		assert!(slots[2].is_none(), "an unreadable row keeps its position");
-		let Some(model::MemberSlot::Person(kept)) = &slots[3] else {
-			panic!("later rows keep their index");
-		};
-		assert_eq!(kept.status.as_deref(), Some("idle"));
-		assert!(
-			decode::<MemberUpdate>(br#"{"guild_id":"1","id":"everyone","ops":[{"op":"DELETE"}]}"#)
+		{
+			let update: MemberUpdate = decode(
+				serde_json::json!({"guild_id":"1","id":"everyone","ops":[
+					{"op":"SYNC","range":[0,99],"items":[
+						{"group":{"id":"online","count":3}},
+						{"member":{"user":{"id":"2","username":"Readable"}},"presence":{"status":"online","activities":[{"type":0,"name":"Game","timestamps":{"start":"not a number"}}]}},
+						{"member":{"user":{"id":"0","username":"Bad identity"}}},
+						{"member":{"user":{"id":"4","username":"Kept"},"presence":{"status":"idle","activities":[]}}}
+					]},
+					{"op":"FUTURE_OPERATION","index":1},
+					{"op":"UPDATE","index":3}
+				]})
+				.to_string()
+				.as_bytes(),
+			)
+			.unwrap();
+			let [
+				MemberOp::Sync { items, .. },
+				MemberOp::Unknown,
+				MemberOp::Update {
+					item: MemberItem::Unreadable,
+					..
+				},
+			] = <[MemberOp; 3]>::try_from(update.ops).ok().unwrap()
+			else {
+				panic!("operations keep their order and shape");
+			};
+			let slots: Vec<_> = items.into_iter().map(MemberItem::into_slot).collect();
+			assert!(matches!(&slots[0], Some(model::MemberSlot::Group(id)) if id == "online"));
+			// An unrepresentable activity is dropped, never the member or its status.
+			let Some(model::MemberSlot::Person(readable)) = &slots[1] else {
+				panic!("readable member stays");
+			};
+			assert_eq!(readable.user.id, Id(2));
+			assert_eq!(readable.status.as_deref(), Some("online"));
+			assert!(readable.activities.is_empty());
+			assert!(slots[2].is_none(), "an unreadable row keeps its position");
+			let Some(model::MemberSlot::Person(kept)) = &slots[3] else {
+				panic!("later rows keep their index");
+			};
+			assert_eq!(kept.status.as_deref(), Some("idle"));
+			assert!(
+				decode::<MemberUpdate>(
+					br#"{"guild_id":"1","id":"everyone","ops":[{"op":"DELETE"}]}"#
+				)
 				.is_err(),
-			"a position change without a position cannot be applied"
-		);
+				"a position change without a position cannot be applied"
+			);
+		}
 	}
 
 	#[test]

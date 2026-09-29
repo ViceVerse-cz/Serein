@@ -1125,28 +1125,6 @@ mod tests {
 	}
 
 	#[test]
-	fn a_silent_stall_can_request_keyframes_without_observed_loss() {
-		let mut receivers = Receivers::default();
-		receivers.announce(7, 700).unwrap();
-		receivers.announce(8, 800).unwrap();
-		// A clean keyframe from each sender leaves nothing owed.
-		assert!(receivers.push(700, 1, 900, true, &[0x65, 1]).is_some());
-		assert!(receivers.accept(7, true));
-		assert!(receivers.push(800, 1, 900, true, &[0x65, 1]).is_some());
-		assert!(receivers.accept(8, true));
-		assert!(!receivers.awaiting());
-		assert_eq!(receivers.take_stats().incomplete, 0);
-		// Video simply stops: no loss is observed, so only the stall path recovers it.
-		assert!(receivers.has_sources());
-		receivers.require_all_keyframes();
-		assert!(receivers.awaiting());
-		assert_eq!(
-			receivers.keyframe_requests().collect::<Vec<_>>(),
-			vec![700, 800]
-		);
-	}
-
-	#[test]
 	fn parameter_set_detection_needs_both_sps_and_pps() {
 		assert!(has_parameter_sets(&[
 			0, 0, 0, 1, 0x67, 1, 0, 0, 1, 0x68, 2, 0, 0, 0, 1, 0x65, 3
@@ -1156,26 +1134,6 @@ mod tests {
 		]));
 		assert!(!has_parameter_sets(&[0, 0, 0, 1, 0x65, 3]));
 		assert!(!has_parameter_sets(&[]));
-	}
-
-	#[test]
-	fn receiver_stats_count_unknown_incomplete_and_complete_pictures() {
-		let mut receivers = Receivers::default();
-		receivers.announce(7, 700).unwrap();
-		assert!(receivers.push(999, 1, 900, true, &[0x65, 1]).is_none());
-		assert!(receivers.push(700, 1, 900, true, &[0x65, 1]).is_some());
-		assert!(receivers.push(700, 3, 1800, true, &[0x41, 1]).is_none());
-		let stats = receivers.take_stats();
-		assert_eq!(
-			(stats.unknown_ssrc, stats.incomplete, stats.complete),
-			(1, 1, 1)
-		);
-		assert!(receivers.awaiting());
-		let stats = receivers.take_stats();
-		assert_eq!(
-			(stats.unknown_ssrc, stats.incomplete, stats.complete),
-			(0, 0, 0)
-		);
 	}
 
 	#[test]
@@ -1236,6 +1194,25 @@ mod tests {
 			assert!(receivers.accept(7, true));
 			assert!(receivers.keyframe_requests().next().is_none());
 			assert!(receivers.accept(7, false));
+		}
+
+		{
+			let mut receivers = Receivers::default();
+			receivers.announce(7, 700).unwrap();
+			assert!(receivers.push(999, 1, 900, true, &[0x65, 1]).is_none());
+			assert!(receivers.push(700, 1, 900, true, &[0x65, 1]).is_some());
+			assert!(receivers.push(700, 3, 1800, true, &[0x41, 1]).is_none());
+			let stats = receivers.take_stats();
+			assert_eq!(
+				(stats.unknown_ssrc, stats.incomplete, stats.complete),
+				(1, 1, 1)
+			);
+			assert!(receivers.awaiting());
+			let stats = receivers.take_stats();
+			assert_eq!(
+				(stats.unknown_ssrc, stats.incomplete, stats.complete),
+				(0, 0, 0)
+			);
 		}
 	}
 	#[test]

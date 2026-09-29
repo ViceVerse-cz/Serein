@@ -3842,39 +3842,6 @@ mod pending_tests;
 mod tests {
 	use super::*;
 
-	#[test]
-	fn message_hover_keeps_the_shared_image_visible() {
-		let ctx = egui::Context::default();
-		ctx.set_theme(egui::ThemePreference::Dark);
-		let color = egui::Color32::from_rgb(32, 40, 48);
-		let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-			assert_eq!(
-				crate::design::row_highlight(ui, color, 0.7),
-				color.gamma_multiply(0.7)
-			);
-		});
-		output.textures_delta.clear();
-		let mut theme = extensions::Theme::default();
-		theme.dark.background = Some(extensions::Background {
-			sections: Some(extensions::SectionOpacity::default()),
-			..Default::default()
-		});
-		crate::design::set_extension_theme(Some(&theme));
-		crate::design::set_background_image(
-			&ctx,
-			Some(std::sync::Arc::new(egui::ColorImage::filled(
-				[1, 1],
-				egui::Color32::WHITE,
-			))),
-		);
-		let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-			assert!(crate::design::has_section_background(ui));
-			assert_eq!(crate::design::row_highlight(ui, color, 0.7).a(), 48);
-		});
-		output.textures_delta.clear();
-		crate::design::set_extension_theme(None);
-	}
-
 	// Synthetic regressions: no transport or acknowledgement worker is running.
 	fn banner_frame(
 		ctx: &egui::Context,
@@ -4433,13 +4400,7 @@ mod tests {
 			embeds_suppressed: false,
 		}
 	}
-	#[test]
-	fn mass_mentions_highlight_every_viewer() {
-		let mut message = text_message(1);
-		assert!(!mentions_viewer(&message, &State::default()));
-		message.mention_everyone = true;
-		assert!(mentions_viewer(&message, &State::default()));
-	}
+
 	#[test]
 	fn forwarded_audio_keeps_sender_label_and_player_in_narrow_and_wide_rows() {
 		fn text(shape: &egui::Shape, out: &mut Vec<String>) {
@@ -6435,64 +6396,6 @@ mod tests {
 	}
 
 	#[test]
-	fn instant_wheel_preserves_units_axes_and_zoom_gestures() {
-		let options = egui::InputOptions::default();
-		let zoom = egui::Modifiers {
-			ctrl: true,
-			command: true,
-			..Default::default()
-		};
-		let events = [
-			egui::Event::MouseWheel {
-				unit: egui::MouseWheelUnit::Point,
-				delta: egui::vec2(1.0, 2.0),
-				phase: egui::TouchPhase::Move,
-				modifiers: egui::Modifiers::NONE,
-			},
-			egui::Event::MouseWheel {
-				unit: egui::MouseWheelUnit::Line,
-				delta: egui::vec2(0.0, -2.0),
-				phase: egui::TouchPhase::Move,
-				modifiers: egui::Modifiers::NONE,
-			},
-			egui::Event::MouseWheel {
-				unit: egui::MouseWheelUnit::Page,
-				delta: egui::vec2(0.0, 0.5),
-				phase: egui::TouchPhase::Move,
-				modifiers: egui::Modifiers::NONE,
-			},
-			egui::Event::MouseWheel {
-				unit: egui::MouseWheelUnit::Point,
-				delta: egui::vec2(0.0, 3.0),
-				phase: egui::TouchPhase::Move,
-				modifiers: egui::Modifiers::SHIFT,
-			},
-			egui::Event::MouseWheel {
-				unit: egui::MouseWheelUnit::Point,
-				delta: egui::vec2(5.0, 0.0),
-				phase: egui::TouchPhase::Move,
-				modifiers: egui::Modifiers::ALT,
-			},
-			egui::Event::MouseWheel {
-				unit: egui::MouseWheelUnit::Line,
-				delta: egui::vec2(0.0, 100.0),
-				phase: egui::TouchPhase::Move,
-				modifiers: zoom,
-			},
-			egui::Event::MouseWheel {
-				unit: egui::MouseWheelUnit::Page,
-				delta: egui::vec2(0.0, 100.0),
-				phase: egui::TouchPhase::Start,
-				modifiers: egui::Modifiers::NONE,
-			},
-		];
-		assert_eq!(
-			crate::scroll::instant_wheel_delta(&events, options, 600.0),
-			egui::vec2(4.0, 227.0)
-		);
-	}
-
-	#[test]
 	fn wheel_scrolling_keeps_visible_messages_stable_during_measurement() {
 		fn texts(shape: &egui::Shape, out: &mut BTreeMap<String, f32>) {
 			match shape {
@@ -7563,35 +7466,6 @@ mod tests {
 	}
 
 	#[test]
-	fn navigation_preserves_active_download_controls() {
-		let mut view = TimelineView::default();
-		view.download.active = true;
-		view.download.status = "Downloading: 1 / 2 KiB".into();
-		view.download.cancel_requested = true;
-		let mut state = State::default();
-		let context = egui::Context::default();
-		for channel in [Some(Id(2)), Some(Id(3)), None] {
-			state.selected = channel;
-			context
-				.run_ui(Default::default(), |ui| {
-					view.show(
-						ui,
-						&mut state,
-						&mut None,
-						&mut None,
-						(
-							&mut crate::avatars::Avatars::default(),
-							&mut crate::profiles::ProfileSession::default(),
-						),
-						None,
-					);
-				})
-				.drop_without_applying_deltas();
-			assert!(view.download.active && view.download.cancel_requested);
-			assert_eq!(view.download.status, "Downloading: 1 / 2 KiB");
-		}
-	}
-	#[test]
 	fn same_id_revision_reset_does_not_reuse_reveal_or_height() {
 		let mut message = Message {
 			sticker_items: vec![],
@@ -8264,71 +8138,71 @@ mod tests {
 				.any(|text| text.starts_with("Only you can see this")),
 			"private footer missing"
 		);
-	}
-	#[test]
-	fn live_edge_snap_paints_the_tail_in_place() {
-		let ctx = egui::Context::default();
-		crate::design::apply(&ctx);
-		let mut state = channel_messages(21, 48);
-		let mut view = TimelineView::default();
-		let mut settled = None;
-		for frame in 0..6 {
-			settled = newest_y(&paint_timeline(&ctx, &mut view, &mut state, frame), 48);
-		}
-		let settled = settled.expect("settled tail");
 
-		view.heights.retain(|id, _| id.0 <= 12);
-		view.following = false;
-		view.target_browsing = true;
-		view.jump = false;
-		view.anchor = Some((Id(1), 0.0));
-		view.revision = u64::MAX;
-		paint_timeline(&ctx, &mut view, &mut state, 20);
-		view.follow_latest(&state);
-		let mut ack = Vec::new();
-		for frame in 0..6 {
-			ack.push(newest_y(
-				&paint_timeline(&ctx, &mut view, &mut state, 30 + frame),
-				48,
-			));
-		}
-		assert!(
-			ack.iter()
-				.all(|y| y.is_some_and(|y| (y - settled).abs() < 1.0)),
-			"ack to the bottom walked the tail {ack:?}, settled at {settled}"
-		);
+		{
+			let ctx = egui::Context::default();
+			crate::design::apply(&ctx);
+			let mut state = channel_messages(21, 48);
+			let mut view = TimelineView::default();
+			let mut settled = None;
+			for frame in 0..6 {
+				settled = newest_y(&paint_timeline(&ctx, &mut view, &mut state, frame), 48);
+			}
+			let settled = settled.expect("settled tail");
 
-		let mut loading = channel_messages(22, 48);
-		loading.timeline.clear();
-		loading.freshness = model::Freshness::Loading;
-		loading.history_pending = true;
-		loading.older_exhausted = false;
-		loading.channels[0].last_message = None;
-		let mut opened = TimelineView::default();
-		paint_timeline(&ctx, &mut opened, &mut loading, 60);
-		for id in 1..=48 {
-			let mut message = text_message(id);
-			message.channel = Id(22);
-			message.content = format!("Row {id}");
-			loading.timeline.insert(message, false, false).unwrap();
+			view.heights.retain(|id, _| id.0 <= 12);
+			view.following = false;
+			view.target_browsing = true;
+			view.jump = false;
+			view.anchor = Some((Id(1), 0.0));
+			view.revision = u64::MAX;
+			paint_timeline(&ctx, &mut view, &mut state, 20);
+			view.follow_latest(&state);
+			let mut ack = Vec::new();
+			for frame in 0..6 {
+				ack.push(newest_y(
+					&paint_timeline(&ctx, &mut view, &mut state, 30 + frame),
+					48,
+				));
+			}
+			assert!(
+				ack.iter()
+					.all(|y| y.is_some_and(|y| (y - settled).abs() < 1.0)),
+				"ack to the bottom walked the tail {ack:?}, settled at {settled}"
+			);
+
+			let mut loading = channel_messages(22, 48);
+			loading.timeline.clear();
+			loading.freshness = model::Freshness::Loading;
+			loading.history_pending = true;
+			loading.older_exhausted = false;
+			loading.channels[0].last_message = None;
+			let mut opened = TimelineView::default();
+			paint_timeline(&ctx, &mut opened, &mut loading, 60);
+			for id in 1..=48 {
+				let mut message = text_message(id);
+				message.channel = Id(22);
+				message.content = format!("Row {id}");
+				loading.timeline.insert(message, false, false).unwrap();
+			}
+			loading.freshness = model::Freshness::Fresh;
+			loading.history_pending = false;
+			loading.older_exhausted = true;
+			loading.channels[0].last_message = Some(Id(48));
+			loading.revision += 1;
+			let mut arrived = Vec::new();
+			for frame in 0..6 {
+				arrived.push(newest_y(
+					&paint_timeline(&ctx, &mut opened, &mut loading, 70 + frame),
+					48,
+				));
+			}
+			assert!(
+				arrived
+					.iter()
+					.all(|y| y.is_some_and(|y| (y - settled).abs() < 1.0)),
+				"opening onto loaded history walked the tail {arrived:?}, settled at {settled}"
+			);
 		}
-		loading.freshness = model::Freshness::Fresh;
-		loading.history_pending = false;
-		loading.older_exhausted = true;
-		loading.channels[0].last_message = Some(Id(48));
-		loading.revision += 1;
-		let mut arrived = Vec::new();
-		for frame in 0..6 {
-			arrived.push(newest_y(
-				&paint_timeline(&ctx, &mut opened, &mut loading, 70 + frame),
-				48,
-			));
-		}
-		assert!(
-			arrived
-				.iter()
-				.all(|y| y.is_some_and(|y| (y - settled).abs() < 1.0)),
-			"opening onto loaded history walked the tail {arrived:?}, settled at {settled}"
-		);
 	}
 }

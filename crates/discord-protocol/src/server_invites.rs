@@ -123,63 +123,66 @@ mod tests {
 	use super::*;
 	#[test]
 	fn invites_metadata_timestamps_roles_and_payload_bounds() {
-		let invite = serde_json::json!({"code":"synthetic","guild":{"id":"2"},"roles":[{"id":"5","name":"Member"}],"created_at":"2026-01-01T00:00:00Z","max_age":0,"max_uses":0});
-		let page = snapshot(
-			&serde_json::to_vec(&vec![invite.clone()]).unwrap(),
-			Id(2),
-			vec![],
-		)
-		.unwrap();
-		assert_eq!(page.items[0].roles, Some(vec![Id(5)]));
-		assert_eq!(page.items[0].created_at, Some(1_767_225_600_000_000_000));
-		assert_eq!(page.items[0].max_age, Some(0));
-		assert!(
-			snapshot(
-				&serde_json::to_vec(&vec![invite; 1001]).unwrap(),
+		{
+			let invite = serde_json::json!({"code":"synthetic","guild":{"id":"2"},"roles":[{"id":"5","name":"Member"}],"created_at":"2026-01-01T00:00:00Z","max_age":0,"max_uses":0});
+			let page = snapshot(
+				&serde_json::to_vec(&vec![invite.clone()]).unwrap(),
 				Id(2),
-				vec![]
+				vec![],
 			)
-			.is_err()
-		);
-		assert!(
-			features(
-				&serde_json::to_vec(&serde_json::json!({"id":"2","features":["X".repeat(129)]}))
+			.unwrap();
+			assert_eq!(page.items[0].roles, Some(vec![Id(5)]));
+			assert_eq!(page.items[0].created_at, Some(1_767_225_600_000_000_000));
+			assert_eq!(page.items[0].max_age, Some(0));
+			assert!(
+				snapshot(
+					&serde_json::to_vec(&vec![invite; 1001]).unwrap(),
+					Id(2),
+					vec![]
+				)
+				.is_err()
+			);
+			assert!(
+				features(
+					&serde_json::to_vec(
+						&serde_json::json!({"id":"2","features":["X".repeat(129)]})
+					)
 					.unwrap(),
-				Id(2)
-			)
-			.is_err()
-		);
-		assert!(snapshot(&vec![b' '; MAX_WIRE + 1], Id(2), vec![]).is_err());
-		let mut page = page;
-		page.features.reserve(m::MAX_BYTES);
-		assert!(!page.valid());
-	}
-	#[test]
-	fn invites_keep_unknown_metadata_and_reject_wrong_scope_or_duplicate_codes() {
-		let body = br#"[{"code":"abc_1","guild":{"id":"2"},"channel":{"id":"3","name":"chat"}}]"#;
-		let page = snapshot(body, Id(2), vec![]).unwrap();
-		assert!(page.items[0].uses.is_none() && page.items[0].inviter.is_none());
-		assert!(snapshot(body, Id(4), vec![]).is_err());
-		assert!(revoked(br#"{"code":"other","guild":{"id":"2"}}"#, Id(2), "abc_1").is_err());
-		assert!(
-			snapshot(
-				br#"[{"code":"x","guild":{"id":"2"}},{"code":"x","guild":{"id":"2"}}]"#,
-				Id(2),
-				vec![]
-			)
-			.is_err()
-		);
-		assert!(!m::valid_code("../other"));
-	}
-	#[test]
-	fn invites_pause_preserves_unknown_features() {
-		let body = pause_body(vec!["FUTURE_FLAG".into(), "COMMUNITY".into()], true).unwrap();
-		assert_eq!(
-			body["features"],
-			serde_json::json!(["FUTURE_FLAG", "COMMUNITY", "INVITES_DISABLED"])
-		);
-		let body =
-			pause_body(vec!["FUTURE_FLAG".into(), "INVITES_DISABLED".into()], false).unwrap();
-		assert_eq!(body["features"], serde_json::json!(["FUTURE_FLAG"]));
+					Id(2)
+				)
+				.is_err()
+			);
+			assert!(snapshot(&vec![b' '; MAX_WIRE + 1], Id(2), vec![]).is_err());
+			let mut page = page;
+			page.features.reserve(m::MAX_BYTES);
+			assert!(!page.valid());
+		}
+		{
+			let body =
+				br#"[{"code":"abc_1","guild":{"id":"2"},"channel":{"id":"3","name":"chat"}}]"#;
+			let page = snapshot(body, Id(2), vec![]).unwrap();
+			assert!(page.items[0].uses.is_none() && page.items[0].inviter.is_none());
+			assert!(snapshot(body, Id(4), vec![]).is_err());
+			assert!(revoked(br#"{"code":"other","guild":{"id":"2"}}"#, Id(2), "abc_1").is_err());
+			assert!(
+				snapshot(
+					br#"[{"code":"x","guild":{"id":"2"}},{"code":"x","guild":{"id":"2"}}]"#,
+					Id(2),
+					vec![]
+				)
+				.is_err()
+			);
+			assert!(!m::valid_code("../other"));
+		}
+		{
+			let body = pause_body(vec!["FUTURE_FLAG".into(), "COMMUNITY".into()], true).unwrap();
+			assert_eq!(
+				body["features"],
+				serde_json::json!(["FUTURE_FLAG", "COMMUNITY", "INVITES_DISABLED"])
+			);
+			let body =
+				pause_body(vec!["FUTURE_FLAG".into(), "INVITES_DISABLED".into()], false).unwrap();
+			assert_eq!(body["features"], serde_json::json!(["FUTURE_FLAG"]));
+		}
 	}
 }

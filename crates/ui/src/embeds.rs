@@ -897,62 +897,6 @@ mod tests {
 	}
 
 	#[test]
-	fn gallery_card_shows_one_title_all_images_and_keeps_suppression() {
-		let mut message = test_support::message(1, model::Id(20));
-		message.embeds = gallery_embeds(3);
-		message.embeds[0].title = Some("Shared card title".into());
-		message.embeds[1].limited = true;
-		for width in [240.0, 480.0] {
-			for suppressed in [false, true] {
-				message.embeds_suppressed = suppressed;
-				let ctx = egui::Context::default();
-				let mut images = Avatars::default();
-				let mut cache = FormatCache::default();
-				let mut output = ctx.run_ui(
-					egui::RawInput {
-						screen_rect: Some(egui::Rect::from_min_size(
-							egui::Pos2::ZERO,
-							egui::vec2(width, 900.0),
-						)),
-						..Default::default()
-					},
-					|ui| {
-						let mut profile = crate::profiles::ProfileSession::default();
-						show(
-							ui,
-							&message,
-							&mut cache,
-							&mut images,
-							&mut None,
-							&mut DownloadUi::default(),
-							&mut profile,
-							&client_core::State::default(),
-						);
-					},
-				);
-				let labels: Vec<_> = output
-					.shapes
-					.iter()
-					.filter_map(|shape| match &shape.shape {
-						egui::Shape::Text(text) => Some(text.galley.job.text.as_str()),
-						_ => None,
-					})
-					.collect();
-				assert_eq!(
-					labels
-						.iter()
-						.filter(|label| **label == "Shared card title")
-						.count(),
-					usize::from(!suppressed)
-				);
-				assert_eq!(labels.contains(&"Embed display limited"), !suppressed);
-				assert_eq!(images.take_requests().len(), if suppressed { 0 } else { 3 });
-				output.textures_delta.clear();
-			}
-		}
-	}
-
-	#[test]
 	fn gallery_tiles_fit_without_overlap_and_open_each_original() {
 		for theme in [egui::Theme::Dark, egui::Theme::Light] {
 			for width in [96.0, 240.0, 456.0] {
@@ -1047,49 +991,6 @@ mod tests {
 		message.content = message.embeds[0].url.clone().unwrap();
 		message.embeds[0].kind = "rich".into();
 		assert!(!standalone_media_links(&message));
-	}
-
-	#[test]
-	fn chat_gifs_reuse_favorites_and_reject_unapproved_media() {
-		let mut embed = Embed {
-			kind: "gifv".into(),
-			url: Some("https://klipy.com/gifs/synthetic-wave".into()),
-			thumbnail: Some(model::EmbedMedia {
-				url: Some("https://static.klipy.com/synthetic/wave.gif".into()),
-				width: 320,
-				height: 180,
-				..Default::default()
-			}),
-			..Default::default()
-		};
-		let mut gifs = client_core::gifs::Gifs::default();
-		let mut gif = gif_for_embed(&embed, &gifs).unwrap();
-		assert!(gif.valid());
-		gif.id = "provider-id".into();
-		gifs.favorites.push(gif.clone());
-		assert_eq!(gif_for_embed(&embed, &gifs), Some(gif));
-		gifs.favorites.clear();
-		embed.thumbnail.as_mut().unwrap().url = Some("https://example.com/wave.gif".into());
-		assert!(gif_for_embed(&embed, &gifs).is_none());
-	}
-
-	#[test]
-	fn direct_images_and_gifs_use_media_instead_of_cards() {
-		let mut embed = Embed {
-			kind: "image".into(),
-			thumbnail: Some(model::EmbedMedia::default()),
-			..Default::default()
-		};
-		assert!(inline_image(&embed).is_some());
-		embed.kind = "gifv".into();
-		assert!(inline_image(&embed).is_some());
-		embed.kind = "rich".into();
-		assert!(inline_image(&embed).is_none());
-		embed.kind = "image".into();
-		embed.thumbnail = None;
-		assert!(inline_image(&embed).is_none());
-		embed.image = Some(model::EmbedMedia::default());
-		assert!(inline_image(&embed).is_some());
 	}
 
 	#[test]

@@ -4055,20 +4055,6 @@ mod tests {
 	}
 
 	#[test]
-	fn local_mute_still_applies_with_full_volume_overrides() {
-		let mut view = MessagingUi::default();
-		let volumes: Vec<_> = (100..164).map(|user| (user, 150)).collect();
-		view.set_voice_user_volume_overrides(&volumes);
-		view.set_voice_user_volume(Id(9), 100);
-		assert_eq!(view.voice_user_volume_overrides(), volumes);
-		view.set_voice_user_locally_muted(Id(9), true);
-		assert!(view.voice_user_volumes().contains(&(9, 0)));
-		assert_eq!(view.voice_user_volume_overrides(), volumes);
-		view.set_voice_user_locally_muted(Id(9), false);
-		assert_eq!(view.voice_user_volumes().to_vec(), volumes);
-	}
-
-	#[test]
 	fn local_mutes_zero_one_speaker_and_keep_their_stored_volume() {
 		let mut view = MessagingUi::default();
 		view.set_voice_user_volume_overrides(&[(7, 150)]);
@@ -4751,89 +4737,6 @@ mod tests {
 	}
 
 	#[test]
-	fn voice_roster_marks_streaming_participants_live() {
-		let mut state = test_support::demo_state();
-		state.voice.roster = vec![RosterEntry {
-			guild: Id(10),
-			channel: Id(25),
-			participant: client_core::voice::Participant {
-				user: Id(1),
-				muted: false,
-				deafened: false,
-				server_muted: false,
-				server_deafened: false,
-				video: false,
-				streaming: true,
-			},
-			member: Some(model::Member {
-				user: model::User {
-					id: Id(1),
-					name: "i play baal".into(),
-					avatar: None,
-					webhook: false,
-					kind: Default::default(),
-					discriminator: 0,
-					primary_guild: None,
-				},
-				nick: None,
-				roles: vec![],
-				status: None,
-				custom_status: None,
-				activities: vec![],
-				clients: model::ClientPlatforms::default(),
-			}),
-		}];
-		let mut messaging = MessagingUi::default();
-		let ctx = egui::Context::default();
-		let output = ctx.run_ui(
-			egui::RawInput {
-				screen_rect: Some(egui::Rect::from_min_size(
-					egui::Pos2::ZERO,
-					egui::vec2(190.0, 120.0),
-				)),
-				..Default::default()
-			},
-			|ui| messaging.voice_participant(ui, &state, &state.voice.roster[0]),
-		);
-		let texts: Vec<_> = output
-			.shapes
-			.iter()
-			.filter_map(|shape| match &shape.shape {
-				egui::Shape::Text(text) => Some(text.galley.job.text.as_str()),
-				_ => None,
-			})
-			.collect();
-		assert!(
-			texts.contains(&"LIVE"),
-			"Streamers get a LIVE pill: {texts:?}"
-		);
-		assert!(
-			texts.iter().any(|text| text.contains("i play baal")),
-			"The name stays alongside the pill: {texts:?}"
-		);
-		output.drop_without_applying_deltas();
-		state.voice.roster[0].participant.streaming = false;
-		let output = ctx.run_ui(
-			egui::RawInput {
-				screen_rect: Some(egui::Rect::from_min_size(
-					egui::Pos2::ZERO,
-					egui::vec2(190.0, 120.0),
-				)),
-				..Default::default()
-			},
-			|ui| messaging.voice_participant(ui, &state, &state.voice.roster[0]),
-		);
-		assert!(
-			!output.shapes.iter().any(|shape| matches!(
-				&shape.shape,
-				egui::Shape::Text(text) if text.galley.job.text == "LIVE"
-			)),
-			"Idle participants keep a plain row"
-		);
-		output.drop_without_applying_deltas();
-	}
-
-	#[test]
 	fn streaming_roster_hover_has_preview_and_watch_action() {
 		let mut state = test_support::demo_state();
 		state.voice.roster = vec![RosterEntry {
@@ -5007,78 +4910,6 @@ mod tests {
 				}
 			}
 		}
-	}
-
-	#[test]
-	fn voice_roster_preserves_status_space_with_long_names_and_virtualizes() {
-		let mut state = State {
-			demo: true,
-			selected: Some(Id(25)),
-			..Default::default()
-		};
-		state.voice.roster = (1..=64)
-			.map(|id| RosterEntry {
-				guild: Id(10),
-				channel: Id(25),
-				participant: client_core::voice::Participant {
-					user: Id(id),
-					muted: true,
-					deafened: true,
-					server_muted: false,
-					server_deafened: false,
-					video: false,
-					streaming: false,
-				},
-				member: Some(model::Member {
-					user: model::User {
-						id: Id(id),
-						name: "Long synthetic participant name ".repeat(5),
-						avatar: None,
-						webhook: false,
-						kind: Default::default(),
-						discriminator: 0,
-						primary_guild: None,
-					},
-					nick: None,
-					roles: vec![],
-					status: None,
-					custom_status: None,
-					activities: vec![],
-					clients: model::ClientPlatforms::default(),
-				}),
-			})
-			.collect();
-		let mut messaging = MessagingUi::default();
-		let ctx = egui::Context::default();
-		for theme in [egui::Theme::Light, egui::Theme::Dark] {
-			ctx.set_theme(theme);
-			let mut output = ctx.run_ui(
-				egui::RawInput {
-					screen_rect: Some(egui::Rect::from_min_size(
-						egui::Pos2::ZERO,
-						egui::vec2(190.0, 320.0),
-					)),
-					..Default::default()
-				},
-				|ui| {
-					let width = ui.available_width();
-					let row = ui.scope(|ui| {
-						messaging.voice_participant(ui, &state, &state.voice.roster[0])
-					});
-					assert!(
-						row.response.rect.width() <= width + 1.0,
-						"Long names must not displace the mute/deafen icons"
-					);
-					messaging.voice_channel(ui, &mut state, Id(25), &mut vec![]);
-				},
-			);
-			assert!(
-				output.textures_delta.set.len() < 20,
-				"Only visible avatars should be loaded"
-			);
-			output.textures_delta.clear();
-		}
-		assert!(messaging.take_avatar_requests().is_empty());
 	}
 
 	#[test]

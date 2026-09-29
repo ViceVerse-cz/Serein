@@ -403,252 +403,255 @@ mod tests {
 
 	#[test]
 	fn diagnosis_names_the_failing_field_without_account_values() {
-		let mut payload = fixture();
-		payload["user"]["username"] = json!(42);
-		let bytes = serde_json::to_vec(&payload).unwrap();
-		assert!(decode(&bytes).is_err());
-		assert_eq!(
-			diagnose(&bytes),
-			"user.username: invalid type: integer `…`, expected a string"
-		);
-		assert_eq!(
-			diagnose(&serde_json::to_vec(&fixture()).unwrap()),
-			"READY decoded; a later size or consistency check failed"
-		);
+		{
+			let mut payload = fixture();
+			payload["user"]["username"] = json!(42);
+			let bytes = serde_json::to_vec(&payload).unwrap();
+			assert!(decode(&bytes).is_err());
+			assert_eq!(
+				diagnose(&bytes),
+				"user.username: invalid type: integer `…`, expected a string"
+			);
+			assert_eq!(
+				diagnose(&serde_json::to_vec(&fixture()).unwrap()),
+				"READY decoded; a later size or consistency check failed"
+			);
+		}
+		{
+			let mut payload = fixture();
+			payload["guilds"][0]["roles"] = json!([{"id":"1","permissions":"invalid"}]);
+			let bytes = serde_json::to_vec(&payload).unwrap();
+			let permissions = decode(&bytes).unwrap().permissions().unwrap();
+			assert!(
+				permissions.guilds[0].roles.is_none(),
+				"Unreadable roles stay unknown"
+			);
+			for fault in [
+				json!({"id":"1","channels":[{"id":"2","type":0},{"id":"2","type":0}]}),
+				json!({"id":"1","channels":[{"id":"2","guild_id":"3","type":0}]}),
+				json!({"id":"1","voice_states":[{"user_id":false}]}),
+			] {
+				let mut payload = fixture();
+				payload["guilds"] = json!([fault]);
+				let bytes = serde_json::to_vec(&payload).unwrap();
+				let (mut ready, _) = decode(&bytes).unwrap().navigation().unwrap();
+				let (guilds, channels) = ready.navigation().unwrap();
+				assert!(ready.skipped && guilds.len() == 1 && channels.len() <= 1);
+			}
+			let mut payload = fixture();
+			payload["user"]["username"] = json!(null);
+			let bytes = serde_json::to_vec(&payload).unwrap();
+			assert!(decode(&bytes).is_err(), "Our own identity stays required");
+			assert!(diagnose(&bytes).starts_with("user.username: invalid type: null"));
+			for count in [model::account::MAX_ENTRIES - 1, model::account::MAX_ENTRIES] {
+				let mut ready: Ready =
+					crate::decode(&serde_json::to_vec(&fixture()).unwrap()).unwrap();
+				ready.guilds[0].channels = (0..count)
+					.map(|index| ChannelDto {
+						id: Id(index as u64 + 100),
+						guild_id: Some(Id(1)),
+						name: None,
+						kind: 0,
+						icon: None,
+						flags: 1 << 17,
+						last_message_id: None,
+						parent_id: None,
+						position: 0,
+						recipients: Vec::new(),
+						permission_overwrites: None,
+						message_count: None,
+						is_message_request: false,
+						is_spam: false,
+						available_tags: None,
+						applied_tags: None,
+						default_reaction_emoji: None,
+						default_forum_layout: None,
+						default_sort_order: None,
+						default_tag_setting: None,
+					})
+					.collect();
+				assert_eq!(
+					ready.navigation().is_ok(),
+					count < model::account::MAX_ENTRIES
+				);
+			}
+		}
 	}
 
 	#[test]
 	fn malformed_entries_are_dropped_instead_of_rejecting_login() {
-		let mut payload = fixture();
-		let channel = payload["guilds"][0]["channels"][0].clone();
-		let mut nulls = channel.clone();
-		for key in [
-			"position",
-			"flags",
-			"recipients",
-			"is_spam",
-			"is_message_request",
-		] {
-			nulls[key] = json!(null);
-		}
-		let mut bad = channel.clone();
-		bad["id"] = json!("20");
-		bad["type"] = json!("text");
-		payload["guilds"][0]["channels"] = json!([nulls, bad]);
-		payload["guilds"][0]["name"] = json!(null);
-		payload["guilds"]
-			.as_array_mut()
-			.unwrap()
-			.push(json!({"id": false}));
-		payload["private_channels"] =
-			json!([{"id":"30","type":1,"recipients":[{"id":"31","username":null}]},{"id":"x"}]);
-		payload["relationships"] = json!([{"id":"31","type":1,"user_ignored":null},{"type":1}]);
-		let bytes = serde_json::to_vec(&payload).unwrap();
-		let envelope = decode(&bytes).unwrap();
-		assert!(envelope.permissions().is_ok());
-		let (mut ready, _) = envelope.navigation().unwrap();
-		assert!(ready.skipped);
-		assert_eq!(ready.relationships.as_ref().unwrap().0.len(), 1);
-		let (guilds, channels) = ready.navigation().unwrap();
-		assert_eq!(guilds.len(), 1);
-		assert!(channels.iter().any(|c| c.id == model::Id(30)));
-		assert!(!channels.iter().any(|c| c.id == model::Id(20)));
-	}
-
-	#[test]
-	fn optional_failures_preserve_valid_navigation_and_unknown_metadata() {
-		let mut payload = fixture();
-		payload["read_state"] = json!({"entries":[{"id":"2","last_message_id":true}]});
-		payload["user_guild_settings"] = json!({"entries":[{"guild_id":"1","muted":"invalid"}]});
-		payload["sessions"] = json!([{"status":false}]);
-		payload["presences"] = json!([{"user_id":"3","activities":false}]);
-		payload["merged_presences"] = json!({"friends":false});
-		payload["guilds"][0]["emojis"] = json!([{"id":"4","name":"invalid emoji name"}]);
-		payload["guilds"]
-			.as_array_mut()
-			.unwrap()
-			.push(json!({"id":"5","emojis":[]}));
-		let bytes = serde_json::to_vec(&payload).unwrap();
-		let envelope = decode(&bytes).unwrap();
-		assert_eq!(envelope.permissions().unwrap().channels.len(), 1);
-		let (mut ready, warnings) = envelope.navigation().unwrap();
-		assert_eq!(
-			warnings,
-			Warnings {
-				read_state: true,
-				notifications: true,
-				sessions: true,
-				presence: true,
-				emojis: true,
-				stickers: false,
-				entries: false,
+		{
+			let mut payload = fixture();
+			let channel = payload["guilds"][0]["channels"][0].clone();
+			let mut nulls = channel.clone();
+			for key in [
+				"position",
+				"flags",
+				"recipients",
+				"is_spam",
+				"is_message_request",
+			] {
+				nulls[key] = json!(null);
 			}
-		);
-		assert!(
-			ready.read_state.is_none()
-				&& ready.user_guild_settings.is_none()
-				&& ready.sessions.is_none()
-		);
-		assert!(ready.presences.is_none());
-		assert!(ready.merged_presences.unwrap().friends.is_none());
-		ready.merged_presences = None;
-		let (guilds, channels) = ready.navigation().unwrap();
-		assert_eq!(channels.len(), 1);
-		assert!(guilds[0].emojis.is_none());
-		assert_eq!(guilds[1].emojis, Some(vec![]));
-		assert!(
-			crate::decode::<crate::GuildDto>(&serde_json::to_vec(&payload["guilds"][0]).unwrap())
-				.is_err()
-		);
-		let supplemental_payload =
-			json!({"guilds":[payload["guilds"][0].clone()],"merged_presences":false});
-		let (extra, warnings) =
-			supplemental(&serde_json::to_vec(&supplemental_payload).unwrap()).unwrap();
-		assert!(warnings.emojis && warnings.presence);
-		assert_eq!(extra.guilds.len(), 1);
-		assert!(extra.guilds[0].emojis.is_none() && extra.merged_presences.is_none());
-		let (extra, warnings) =
-			supplemental(br#"{"guilds":[{"id":"1","voice_states":[{"user_id":false}]}]}"#).unwrap();
-		assert!(warnings.entries && extra.guilds[0].voice_states.is_empty());
-	}
-
-	#[test]
-	fn invalid_optional_stickers_preserve_ready_and_have_their_own_warning() {
-		for stickers in [
-			json!(true),
-			json!([{"id":"4","name":null,"format_type":1}]),
-			json!([{"id":"4","name":"Wave","format_type":1,"guild_id":"8"}]),
-			json!([{"id":"4","name":"Wave","format_type":1,"pack_id":"8"}]),
-		] {
-			let mut payload = fixture();
-			payload["guilds"][0]["stickers"] = stickers;
-			let bytes = serde_json::to_vec(&payload).unwrap();
-			let (mut ready, warnings) = decode(&bytes).unwrap().navigation().unwrap();
-			assert!(warnings.stickers);
-			assert!(!warnings.emojis);
-			let (guilds, channels) = ready.navigation().unwrap();
-			assert_eq!(channels.len(), 1);
-			assert!(guilds[0].stickers.is_none());
-		}
-		let mut payload = fixture();
-		payload["guilds"][0]["stickers"] = json!([{"id":"4","name":"Wave","format_type":1}]);
-		let bytes = serde_json::to_vec(&payload).unwrap();
-		let (mut ready, warnings) = decode(&bytes).unwrap().navigation().unwrap();
-		assert!(!warnings.stickers);
-		assert_eq!(
-			ready.navigation().unwrap().0[0].stickers.as_ref().unwrap()[0].guild_id,
-			Some(Id(1))
-		);
-	}
-
-	#[test]
-	fn large_accounts_cross_old_navigation_permission_and_read_limits() {
-		for guild_count in [70, 96, 200] {
-			let mut payload = fixture();
-			payload["guilds"] = json!((1..=guild_count).map(|guild| json!({
-				"id":guild.to_string(),"name":"Synthetic", "owner_id":"9",
-				"roles":[{"id":guild.to_string(),"permissions":"1024"}],
-				"channels":(1..=100).map(|channel| json!({"id":(guild*1000+channel).to_string(),"type":0,"name":"general","permission_overwrites":[]})).collect::<Vec<_>>()
-			})).collect::<Vec<_>>());
-			payload["read_state"] = json!({"entries":(1..=4001).map(|id| json!({"id":id.to_string(),"last_message_id":"7"})).collect::<Vec<_>>()});
-			payload["user_guild_settings"] = json!({"entries":[{"guild_id":"1","muted":false,"channel_overrides":(1..=4001).map(|id| json!({"channel_id":id.to_string(),"muted":false})).collect::<Vec<_>>()}]});
-			payload["sessions"] = json!([{"status":"online"}]);
-			payload["presences"] = json!([{"user_id":"3","status":"online"}]);
+			let mut bad = channel.clone();
+			bad["id"] = json!("20");
+			bad["type"] = json!("text");
+			payload["guilds"][0]["channels"] = json!([nulls, bad]);
+			payload["guilds"][0]["name"] = json!(null);
+			payload["guilds"]
+				.as_array_mut()
+				.unwrap()
+				.push(json!({"id": false}));
+			payload["private_channels"] =
+				json!([{"id":"30","type":1,"recipients":[{"id":"31","username":null}]},{"id":"x"}]);
+			payload["relationships"] = json!([{"id":"31","type":1,"user_ignored":null},{"type":1}]);
 			let bytes = serde_json::to_vec(&payload).unwrap();
 			let envelope = decode(&bytes).unwrap();
-			let permissions = envelope.permissions().unwrap();
-			assert_eq!(permissions.channels.len(), guild_count * 100);
-			let (mut ready, warnings) = envelope.navigation().unwrap();
-			assert_eq!(warnings, Warnings::default());
-			assert_eq!(ready.read_state.as_ref().unwrap().entries.len(), 4001);
-			assert_eq!(ready.sessions.as_ref().unwrap().dnd(), Some(false));
+			assert!(envelope.permissions().is_ok());
+			let (mut ready, _) = envelope.navigation().unwrap();
+			assert!(ready.skipped);
+			assert_eq!(ready.relationships.as_ref().unwrap().0.len(), 1);
 			let (guilds, channels) = ready.navigation().unwrap();
-			assert_eq!(guilds.len(), guild_count);
-			assert_eq!(channels.len(), guild_count * 100);
+			assert_eq!(guilds.len(), 1);
+			assert!(channels.iter().any(|c| c.id == model::Id(30)));
+			assert!(!channels.iter().any(|c| c.id == model::Id(20)));
 		}
-	}
-
-	#[test]
-	fn essential_failures_and_navigation_capacity_remain_strict() {
-		let mut payload = fixture();
-		payload["guilds"][0]["roles"] = json!([{"id":"1","permissions":"invalid"}]);
-		let bytes = serde_json::to_vec(&payload).unwrap();
-		let permissions = decode(&bytes).unwrap().permissions().unwrap();
-		assert!(
-			permissions.guilds[0].roles.is_none(),
-			"Unreadable roles stay unknown"
-		);
-		for fault in [
-			json!({"id":"1","channels":[{"id":"2","type":0},{"id":"2","type":0}]}),
-			json!({"id":"1","channels":[{"id":"2","guild_id":"3","type":0}]}),
-			json!({"id":"1","voice_states":[{"user_id":false}]}),
-		] {
+		{
 			let mut payload = fixture();
-			payload["guilds"] = json!([fault]);
+			payload["read_state"] = json!({"entries":[{"id":"2","last_message_id":true}]});
+			payload["user_guild_settings"] =
+				json!({"entries":[{"guild_id":"1","muted":"invalid"}]});
+			payload["sessions"] = json!([{"status":false}]);
+			payload["presences"] = json!([{"user_id":"3","activities":false}]);
+			payload["merged_presences"] = json!({"friends":false});
+			payload["guilds"][0]["emojis"] = json!([{"id":"4","name":"invalid emoji name"}]);
+			payload["guilds"]
+				.as_array_mut()
+				.unwrap()
+				.push(json!({"id":"5","emojis":[]}));
 			let bytes = serde_json::to_vec(&payload).unwrap();
-			let (mut ready, _) = decode(&bytes).unwrap().navigation().unwrap();
-			let (guilds, channels) = ready.navigation().unwrap();
-			assert!(ready.skipped && guilds.len() == 1 && channels.len() <= 1);
-		}
-		let mut payload = fixture();
-		payload["user"]["username"] = json!(null);
-		let bytes = serde_json::to_vec(&payload).unwrap();
-		assert!(decode(&bytes).is_err(), "Our own identity stays required");
-		assert!(diagnose(&bytes).starts_with("user.username: invalid type: null"));
-		for count in [model::account::MAX_ENTRIES - 1, model::account::MAX_ENTRIES] {
-			let mut ready: Ready = crate::decode(&serde_json::to_vec(&fixture()).unwrap()).unwrap();
-			ready.guilds[0].channels = (0..count)
-				.map(|index| ChannelDto {
-					id: Id(index as u64 + 100),
-					guild_id: Some(Id(1)),
-					name: None,
-					kind: 0,
-					icon: None,
-					flags: 1 << 17,
-					last_message_id: None,
-					parent_id: None,
-					position: 0,
-					recipients: Vec::new(),
-					permission_overwrites: None,
-					message_count: None,
-					is_message_request: false,
-					is_spam: false,
-					available_tags: None,
-					applied_tags: None,
-					default_reaction_emoji: None,
-					default_forum_layout: None,
-					default_sort_order: None,
-					default_tag_setting: None,
-				})
-				.collect();
+			let envelope = decode(&bytes).unwrap();
+			assert_eq!(envelope.permissions().unwrap().channels.len(), 1);
+			let (mut ready, warnings) = envelope.navigation().unwrap();
 			assert_eq!(
-				ready.navigation().is_ok(),
-				count < model::account::MAX_ENTRIES
+				warnings,
+				Warnings {
+					read_state: true,
+					notifications: true,
+					sessions: true,
+					presence: true,
+					emojis: true,
+					stickers: false,
+					entries: false,
+				}
+			);
+			assert!(
+				ready.read_state.is_none()
+					&& ready.user_guild_settings.is_none()
+					&& ready.sessions.is_none()
+			);
+			assert!(ready.presences.is_none());
+			assert!(ready.merged_presences.unwrap().friends.is_none());
+			ready.merged_presences = None;
+			let (guilds, channels) = ready.navigation().unwrap();
+			assert_eq!(channels.len(), 1);
+			assert!(guilds[0].emojis.is_none());
+			assert_eq!(guilds[1].emojis, Some(vec![]));
+			assert!(
+				crate::decode::<crate::GuildDto>(
+					&serde_json::to_vec(&payload["guilds"][0]).unwrap()
+				)
+				.is_err()
+			);
+			let supplemental_payload =
+				json!({"guilds":[payload["guilds"][0].clone()],"merged_presences":false});
+			let (extra, warnings) =
+				supplemental(&serde_json::to_vec(&supplemental_payload).unwrap()).unwrap();
+			assert!(warnings.emojis && warnings.presence);
+			assert_eq!(extra.guilds.len(), 1);
+			assert!(extra.guilds[0].emojis.is_none() && extra.merged_presences.is_none());
+			let (extra, warnings) =
+				supplemental(br#"{"guilds":[{"id":"1","voice_states":[{"user_id":false}]}]}"#)
+					.unwrap();
+			assert!(warnings.entries && extra.guilds[0].voice_states.is_empty());
+		}
+		{
+			for stickers in [
+				json!(true),
+				json!([{"id":"4","name":null,"format_type":1}]),
+				json!([{"id":"4","name":"Wave","format_type":1,"guild_id":"8"}]),
+				json!([{"id":"4","name":"Wave","format_type":1,"pack_id":"8"}]),
+			] {
+				let mut payload = fixture();
+				payload["guilds"][0]["stickers"] = stickers;
+				let bytes = serde_json::to_vec(&payload).unwrap();
+				let (mut ready, warnings) = decode(&bytes).unwrap().navigation().unwrap();
+				assert!(warnings.stickers);
+				assert!(!warnings.emojis);
+				let (guilds, channels) = ready.navigation().unwrap();
+				assert_eq!(channels.len(), 1);
+				assert!(guilds[0].stickers.is_none());
+			}
+			let mut payload = fixture();
+			payload["guilds"][0]["stickers"] = json!([{"id":"4","name":"Wave","format_type":1}]);
+			let bytes = serde_json::to_vec(&payload).unwrap();
+			let (mut ready, warnings) = decode(&bytes).unwrap().navigation().unwrap();
+			assert!(!warnings.stickers);
+			assert_eq!(
+				ready.navigation().unwrap().0[0].stickers.as_ref().unwrap()[0].guild_id,
+				Some(Id(1))
 			);
 		}
 	}
 
 	#[test]
-	fn borrowed_fields_preserve_permission_and_navigation_projections() {
-		let bytes = br#"{"user":{"id":"9","username":"Synthetic"},"session_id":"synthetic","resume_gateway_url":"wss://gateway.discord.gg/","guilds":[{"id":"1","owner_id":"9","name":"Synthetic","roles":[],"channels":[{"id":"2","type":0,"name":"general","permission_overwrites":[]}]}]}"#;
-		let envelope = decode(bytes).unwrap();
-		assert_eq!(
-			envelope.permissions().unwrap(),
-			permissions::ready(bytes, Id(9)).unwrap()
-		);
-		let mut expected: Ready = crate::decode(bytes).unwrap();
-		assert!(
-			envelope.navigation().unwrap().0.navigation().unwrap()
-				== expected.navigation().unwrap()
-		);
-		let bytes = br#"{"guild_id":"1","updated_members":[{"user":{"id":"9","username":"Synthetic"},"roles":[]}],"updated_channels":[{"id":"2","last_message_id":"3"}]}"#;
-		let envelope = passive(bytes).unwrap();
-		assert_eq!(
-			envelope.permissions(Id(9)).unwrap(),
-			permissions::passive(bytes, Id(9)).unwrap()
-		);
-		let voice = envelope.voice().unwrap();
-		assert_eq!(voice.updated_members.len(), 1);
-		assert_eq!(voice.updated_channels[0].id, Id(2));
+	fn large_accounts_cross_old_navigation_permission_and_read_limits() {
+		{
+			for guild_count in [70, 96, 200] {
+				let mut payload = fixture();
+				payload["guilds"] = json!((1..=guild_count).map(|guild| json!({
+					"id":guild.to_string(),"name":"Synthetic", "owner_id":"9",
+					"roles":[{"id":guild.to_string(),"permissions":"1024"}],
+					"channels":(1..=100).map(|channel| json!({"id":(guild*1000+channel).to_string(),"type":0,"name":"general","permission_overwrites":[]})).collect::<Vec<_>>()
+				})).collect::<Vec<_>>());
+				payload["read_state"] = json!({"entries":(1..=4001).map(|id| json!({"id":id.to_string(),"last_message_id":"7"})).collect::<Vec<_>>()});
+				payload["user_guild_settings"] = json!({"entries":[{"guild_id":"1","muted":false,"channel_overrides":(1..=4001).map(|id| json!({"channel_id":id.to_string(),"muted":false})).collect::<Vec<_>>()}]});
+				payload["sessions"] = json!([{"status":"online"}]);
+				payload["presences"] = json!([{"user_id":"3","status":"online"}]);
+				let bytes = serde_json::to_vec(&payload).unwrap();
+				let envelope = decode(&bytes).unwrap();
+				let permissions = envelope.permissions().unwrap();
+				assert_eq!(permissions.channels.len(), guild_count * 100);
+				let (mut ready, warnings) = envelope.navigation().unwrap();
+				assert_eq!(warnings, Warnings::default());
+				assert_eq!(ready.read_state.as_ref().unwrap().entries.len(), 4001);
+				assert_eq!(ready.sessions.as_ref().unwrap().dnd(), Some(false));
+				let (guilds, channels) = ready.navigation().unwrap();
+				assert_eq!(guilds.len(), guild_count);
+				assert_eq!(channels.len(), guild_count * 100);
+			}
+		}
+		{
+			let bytes = br#"{"user":{"id":"9","username":"Synthetic"},"session_id":"synthetic","resume_gateway_url":"wss://gateway.discord.gg/","guilds":[{"id":"1","owner_id":"9","name":"Synthetic","roles":[],"channels":[{"id":"2","type":0,"name":"general","permission_overwrites":[]}]}]}"#;
+			let envelope = decode(bytes).unwrap();
+			assert_eq!(
+				envelope.permissions().unwrap(),
+				permissions::ready(bytes, Id(9)).unwrap()
+			);
+			let mut expected: Ready = crate::decode(bytes).unwrap();
+			assert!(
+				envelope.navigation().unwrap().0.navigation().unwrap()
+					== expected.navigation().unwrap()
+			);
+			let bytes = br#"{"guild_id":"1","updated_members":[{"user":{"id":"9","username":"Synthetic"},"roles":[]}],"updated_channels":[{"id":"2","last_message_id":"3"}]}"#;
+			let envelope = passive(bytes).unwrap();
+			assert_eq!(
+				envelope.permissions(Id(9)).unwrap(),
+				permissions::passive(bytes, Id(9)).unwrap()
+			);
+			let voice = envelope.voice().unwrap();
+			assert_eq!(voice.updated_members.len(), 1);
+			assert_eq!(voice.updated_channels[0].id, Id(2));
+		}
 	}
 }

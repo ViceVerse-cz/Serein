@@ -225,96 +225,96 @@ mod tests {
 
 	#[test]
 	fn expiry_uses_wire_age_and_monotonic_deadline_without_mutating_queries() {
-		let mut state = state();
-		let now = Instant::now();
-		let wall = UNIX_EPOCH + Duration::from_millis(100_500);
-		state.observe_typing_at(signal(2, 98), wall, now);
-		let deadline = now + Duration::from_millis(7500);
-		assert_eq!(state.typing_deadline(now), Some(deadline));
-		assert_eq!(state.typing_users(now).collect::<Vec<_>>(), vec![Id(2)]);
-		assert_eq!(state.typing_users(deadline).count(), 0);
-		assert_eq!(state.typing_deadline(deadline), None);
-		assert_eq!(state.revision, 0);
-		assert_eq!(state.timeline.row_count(), 0);
-		assert!(state.typing.users[0].is_some()); // Queries need no pruning mutation.
-	}
-
-	#[test]
-	fn timestamps_reject_expired_far_future_and_overflow_and_cap_tolerated_skew() {
-		let now = Instant::now();
-		let wall = UNIX_EPOCH + Duration::from_secs(100);
-		for timestamp in [0, 89, 90, 106, u64::MAX] {
+		{
 			let mut state = state();
-			state.observe_typing_at(signal(2, timestamp), wall, now);
-			assert_eq!(state.typing_users(now).count(), 0);
-			assert_eq!(state.typing_deadline(now), None);
+			let now = Instant::now();
+			let wall = UNIX_EPOCH + Duration::from_millis(100_500);
+			state.observe_typing_at(signal(2, 98), wall, now);
+			let deadline = now + Duration::from_millis(7500);
+			assert_eq!(state.typing_deadline(now), Some(deadline));
+			assert_eq!(state.typing_users(now).collect::<Vec<_>>(), vec![Id(2)]);
+			assert_eq!(state.typing_users(deadline).count(), 0);
+			assert_eq!(state.typing_deadline(deadline), None);
+			assert_eq!(state.revision, 0);
+			assert_eq!(state.timeline.row_count(), 0);
+			assert!(state.typing.users[0].is_some()); // Queries need no pruning mutation.
 		}
-		for (timestamp, remaining) in [(91, 1), (100, 10), (105, 10)] {
-			let mut state = state();
-			state.observe_typing_at(signal(2, timestamp), wall, now);
-			assert_eq!(
-				state.typing_deadline(now),
-				Some(now + Duration::from_secs(remaining))
-			);
+		{
+			let now = Instant::now();
+			let wall = UNIX_EPOCH + Duration::from_secs(100);
+			for timestamp in [0, 89, 90, 106, u64::MAX] {
+				let mut state = state();
+				state.observe_typing_at(signal(2, timestamp), wall, now);
+				assert_eq!(state.typing_users(now).count(), 0);
+				assert_eq!(state.typing_deadline(now), None);
+			}
+			for (timestamp, remaining) in [(91, 1), (100, 10), (105, 10)] {
+				let mut state = state();
+				state.observe_typing_at(signal(2, timestamp), wall, now);
+				assert_eq!(
+					state.typing_deadline(now),
+					Some(now + Duration::from_secs(remaining))
+				);
+			}
 		}
 	}
 
 	#[test]
 	fn bounded_flood_refresh_and_out_of_order_signals_have_fixed_storage() {
-		let mut state = state();
-		let now = Instant::now();
-		let wall = UNIX_EPOCH + Duration::from_secs(100);
-		for user in 2..=1000 {
-			state.observe_typing_at(signal(user, 100), wall, now);
-		}
-		assert_eq!(state.typing_users(now).count(), 8);
-		assert!(size_of::<Typing>() <= 512);
-		state.observe_typing_at(signal(2, 95), wall, now);
-		assert_eq!(
-			state.typing.users[0].unwrap().1,
-			now + Duration::from_secs(10)
-		);
-		let later = now + Duration::from_secs(5);
-		state.observe_typing_at(signal(2, 105), wall + Duration::from_secs(5), later);
-		assert_eq!(
-			state.typing.users[0].unwrap().1,
-			later + Duration::from_secs(10)
-		);
-		let expired = now + Duration::from_secs(10);
-		state.observe_typing_at(signal(1001, 110), wall + Duration::from_secs(10), expired);
-		assert_eq!(
-			state.typing_users(expired).collect::<Vec<_>>(),
-			vec![Id(2), Id(1001)]
-		);
-	}
-
-	#[test]
-	fn scope_auth_freshness_owner_and_generation_gate_typing() {
-		let now = Instant::now();
-		let wall = UNIX_EPOCH + Duration::from_secs(100);
-		for blocked in 0..9 {
+		{
 			let mut state = state();
-			let mut signal = signal(2, 100);
-			match blocked {
-				0 => signal.user = Id(0),
-				1 => signal.user = Id(1),
-				2 => signal.channel = Id(11),
-				3 => state.auth = AuthState::Expired,
-				4 => state.gateway_connected = false,
-				5 => state.freshness = Freshness::Loading,
-				6 => state.channels[0].kind = 2,
-				7 => state.channels[0].guild = Some(Id(99)), // Unknown permissions.
-				_ => state.history_pending = true,
+			let now = Instant::now();
+			let wall = UNIX_EPOCH + Duration::from_secs(100);
+			for user in 2..=1000 {
+				state.observe_typing_at(signal(user, 100), wall, now);
 			}
-			state.observe_typing_at(signal, wall, now);
+			assert_eq!(state.typing_users(now).count(), 8);
+			assert!(size_of::<Typing>() <= 512);
+			state.observe_typing_at(signal(2, 95), wall, now);
+			assert_eq!(
+				state.typing.users[0].unwrap().1,
+				now + Duration::from_secs(10)
+			);
+			let later = now + Duration::from_secs(5);
+			state.observe_typing_at(signal(2, 105), wall + Duration::from_secs(5), later);
+			assert_eq!(
+				state.typing.users[0].unwrap().1,
+				later + Duration::from_secs(10)
+			);
+			let expired = now + Duration::from_secs(10);
+			state.observe_typing_at(signal(1001, 110), wall + Duration::from_secs(10), expired);
+			assert_eq!(
+				state.typing_users(expired).collect::<Vec<_>>(),
+				vec![Id(2), Id(1001)]
+			);
+		}
+		{
+			let now = Instant::now();
+			let wall = UNIX_EPOCH + Duration::from_secs(100);
+			for blocked in 0..9 {
+				let mut state = state();
+				let mut signal = signal(2, 100);
+				match blocked {
+					0 => signal.user = Id(0),
+					1 => signal.user = Id(1),
+					2 => signal.channel = Id(11),
+					3 => state.auth = AuthState::Expired,
+					4 => state.gateway_connected = false,
+					5 => state.freshness = Freshness::Loading,
+					6 => state.channels[0].kind = 2,
+					7 => state.channels[0].guild = Some(Id(99)), // Unknown permissions.
+					_ => state.history_pending = true,
+				}
+				state.observe_typing_at(signal, wall, now);
+				assert_eq!(state.typing_users(now).count(), 0);
+			}
+			let mut state = state();
+			state.apply(Envelope {
+				generation: state.generation - 1,
+				event: Event::Typing(signal(2, 100)),
+			});
 			assert_eq!(state.typing_users(now).count(), 0);
 		}
-		let mut state = state();
-		state.apply(Envelope {
-			generation: state.generation - 1,
-			event: Event::Typing(signal(2, 100)),
-		});
-		assert_eq!(state.typing_users(now).count(), 0);
 	}
 
 	#[test]
@@ -350,38 +350,38 @@ mod tests {
 
 	#[test]
 	fn navigation_session_and_permission_transitions_clear_typing() {
-		let now = Instant::now();
-		let wall = UNIX_EPOCH + Duration::from_secs(100);
-		for transition in 0..7 {
-			let mut state = state();
-			state.observe_typing_at(signal(2, 100), wall, now);
-			match transition {
-				0 => {
-					state.select(Id(11));
+		{
+			let now = Instant::now();
+			let wall = UNIX_EPOCH + Duration::from_secs(100);
+			for transition in 0..7 {
+				let mut state = state();
+				state.observe_typing_at(signal(2, 100), wall, now);
+				match transition {
+					0 => {
+						state.select(Id(11));
+					}
+					1 => apply(&mut state, Event::Disconnected),
+					2 => apply(&mut state, Event::Resync),
+					3 => apply(&mut state, Event::PermissionsChanged),
+					4 => apply(&mut state, Event::Unavailable(Id(10))),
+					5 => apply(&mut state, Event::Failure(crate::auth::Failure::Expired)),
+					_ => state.logout(),
 				}
-				1 => apply(&mut state, Event::Disconnected),
-				2 => apply(&mut state, Event::Resync),
-				3 => apply(&mut state, Event::PermissionsChanged),
-				4 => apply(&mut state, Event::Unavailable(Id(10))),
-				5 => apply(&mut state, Event::Failure(crate::auth::Failure::Expired)),
-				_ => state.logout(),
+				assert!(state.typing.users.iter().all(Option::is_none));
+				assert_eq!(state.typing_deadline(now), None);
 			}
-			assert!(state.typing.users.iter().all(Option::is_none));
-			assert_eq!(state.typing_deadline(now), None);
 		}
-	}
-
-	#[test]
-	fn valid_same_conversation_message_removes_only_its_author() {
-		let mut state = state();
-		let now = Instant::now();
-		let wall = UNIX_EPOCH + Duration::from_secs(100);
-		for user in [2, 3] {
-			state.observe_typing_at(signal(user, 100), wall, now);
+		{
+			let mut state = state();
+			let now = Instant::now();
+			let wall = UNIX_EPOCH + Duration::from_secs(100);
+			for user in [2, 3] {
+				state.observe_typing_at(signal(user, 100), wall, now);
+			}
+			apply(&mut state, Event::Message(message(2, 11)));
+			assert_eq!(state.typing_users(now).count(), 2);
+			apply(&mut state, Event::Message(message(2, 10)));
+			assert_eq!(state.typing_users(now).collect::<Vec<_>>(), vec![Id(3)]);
 		}
-		apply(&mut state, Event::Message(message(2, 11)));
-		assert_eq!(state.typing_users(now).count(), 2);
-		apply(&mut state, Event::Message(message(2, 10)));
-		assert_eq!(state.typing_users(now).collect::<Vec<_>>(), vec![Id(3)]);
 	}
 }

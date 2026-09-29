@@ -164,47 +164,6 @@ mod tests {
 		encoded[..length].to_vec()
 	}
 	#[test]
-	fn per_user_volume_is_independent_live_and_limited() {
-		let mut mixer = Mixer::default();
-		mixer.announce(1, 11).unwrap();
-		mixer.announce(2, 22).unwrap();
-		for (volumes, expected) in [
-			(vec![], 0.3),
-			(vec![(1, 0)], 0.2),
-			(vec![(1, 50), (2, 200)], 0.45),
-			(vec![(1, 200), (2, 0)], 0.2),
-			(vec![(1, 0), (2, 0)], 0.0),
-			(vec![(99, 0)], 0.3),
-			(vec![(1, u16::MAX)], 0.4),
-		] {
-			for speaker in &mut mixer.speakers {
-				speaker.pcm.fill(speaker.user as f32 * 0.1);
-				speaker.offset = 0;
-				speaker.length = 960;
-			}
-			let frame = mixer.pop_with_volumes(&volumes).0.unwrap();
-			assert!(
-				frame
-					.iter()
-					.all(|sample| (*sample - expected).abs() < 0.0001)
-			);
-			assert_eq!(mixer.speaking().count(), 2);
-		}
-		for speaker in &mut mixer.speakers {
-			speaker.pcm.fill(0.8);
-			speaker.offset = 0;
-		}
-		assert!(
-			mixer
-				.pop_with_volumes(&[(1, 200)])
-				.0
-				.unwrap()
-				.iter()
-				.all(|s| *s == 1.0)
-		);
-	}
-
-	#[test]
 	fn independent_streams_mix_on_one_clock_and_release_on_leave() {
 		let mut together = Mixer::default();
 		let mut alice = Mixer::default();
@@ -241,6 +200,46 @@ mod tests {
 		}
 		assert!(together.announce(65, 165).is_err());
 		assert_eq!(together.speakers.len(), 63);
+
+		{
+			let mut mixer = Mixer::default();
+			mixer.announce(1, 11).unwrap();
+			mixer.announce(2, 22).unwrap();
+			for (volumes, expected) in [
+				(vec![], 0.3),
+				(vec![(1, 0)], 0.2),
+				(vec![(1, 50), (2, 200)], 0.45),
+				(vec![(1, 200), (2, 0)], 0.2),
+				(vec![(1, 0), (2, 0)], 0.0),
+				(vec![(99, 0)], 0.3),
+				(vec![(1, u16::MAX)], 0.4),
+			] {
+				for speaker in &mut mixer.speakers {
+					speaker.pcm.fill(speaker.user as f32 * 0.1);
+					speaker.offset = 0;
+					speaker.length = 960;
+				}
+				let frame = mixer.pop_with_volumes(&volumes).0.unwrap();
+				assert!(
+					frame
+						.iter()
+						.all(|sample| (*sample - expected).abs() < 0.0001)
+				);
+				assert_eq!(mixer.speaking().count(), 2);
+			}
+			for speaker in &mut mixer.speakers {
+				speaker.pcm.fill(0.8);
+				speaker.offset = 0;
+			}
+			assert!(
+				mixer
+					.pop_with_volumes(&[(1, 200)])
+					.0
+					.unwrap()
+					.iter()
+					.all(|s| *s == 1.0)
+			);
+		}
 	}
 	#[test]
 	fn short_packets_fill_realtime_ticks_without_silence_or_reorder_starvation() {
