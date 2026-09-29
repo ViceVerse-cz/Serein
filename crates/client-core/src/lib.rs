@@ -204,6 +204,7 @@ pub enum Command {
 		user: Id,
 		guild: Option<Id>,
 		request: u64,
+		with_mutuals: bool,
 	},
 	CancelProfile,
 	StreamPreview {
@@ -2046,6 +2047,7 @@ impl State {
 			user,
 			guild,
 			request,
+			..
 		} = command
 		{
 			self.apply_profile(user, guild, request, Err(auth::Failure::Capacity));

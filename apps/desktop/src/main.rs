@@ -3641,6 +3641,7 @@ impl Desktop {
 					user,
 					guild,
 					request,
+					..
 				} => Event::Profile {
 					user,
 					guild,

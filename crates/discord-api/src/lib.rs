@@ -943,9 +943,10 @@ impl DiscordApi {
 				user,
 				guild,
 				request,
+				with_mutuals,
 			} => {
 				let mut path = format!(
-					"/users/{user}/profile?with_mutual_guilds=true&with_mutual_friends=true&with_mutual_friends_count=false"
+					"/users/{user}/profile?with_mutual_guilds={with_mutuals}&with_mutual_friends={with_mutuals}&with_mutual_friends_count=false"
 				);
 				if let Some(guild) = guild {
 					path.push_str(&format!("&guild_id={guild}"));
@@ -954,7 +955,7 @@ impl DiscordApi {
 					.request_limited(Method::GET, &path, None, profile::MAX_PROFILE_WIRE)
 					.await
 					.and_then(|bytes| {
-						let profile = profile::decode_profile(&bytes, guild)
+						let profile = profile::decode_profile(&bytes, guild, with_mutuals)
 							.map_err(|_| Failure::Protocol)?;
 						if profile.user.id != user {
 							return Err(Failure::Protocol);
@@ -2438,6 +2439,7 @@ mod tests {
 					user: model::Id(5),
 					guild: Some(model::Id(2)),
 					request: 9,
+					with_mutuals: true,
 				})
 				.await
 		});
@@ -2471,7 +2473,8 @@ mod tests {
 			api.execute(Command::Profile {
 				user: model::Id(5),
 				guild: None,
-				request: 10
+				request: 10,
+				with_mutuals: true,
 			})
 			.await,
 			Event::Profile {
@@ -2485,7 +2488,8 @@ mod tests {
 			api.execute(Command::Profile {
 				user: model::Id(5),
 				guild: None,
-				request: 11
+				request: 11,
+				with_mutuals: true,
 			})
 			.await,
 			Event::Profile {

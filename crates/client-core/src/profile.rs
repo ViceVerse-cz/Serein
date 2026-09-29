@@ -375,6 +375,7 @@ impl State {
 			user,
 			guild,
 			request: self.profile_request,
+			with_mutuals: self.user.as_ref().is_none_or(|own| own.id != user),
 		})
 	}
 	pub fn clear_profile(&mut self) -> Command {
@@ -682,6 +683,20 @@ mod tests {
 		assert!(state.own_profile.reload_required);
 	}
 	#[test]
+	fn own_profile_does_not_request_mutuals() {
+		let mut state = State::default();
+		state.auth = AuthState::Authenticated;
+		state.gateway_connected = true;
+		state.user = Some(own_data("Self").user.clone());
+		for (user, expected) in [(Id(1), false), (Id(2), true)] {
+			let Some(Command::Profile { with_mutuals, .. }) = state.request_profile(user, None)
+			else {
+				panic!("missing request");
+			};
+			assert_eq!(with_mutuals, expected);
+		}
+	}
+	#[test]
 	fn profiles_require_explicit_request_and_reject_late_views() {
 		{
 			let mut state = State::default();
@@ -720,6 +735,7 @@ mod tests {
 				user: Id(2),
 				guild: None,
 				request: new,
+				with_mutuals: true,
 			});
 			assert!(!state.profile.as_ref().unwrap().loading);
 			assert!(state.profile.as_ref().unwrap().error.is_some());

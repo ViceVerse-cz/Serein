@@ -1933,3 +1933,14 @@ Channel navigation, session/access invalidation and relevant message mutations
 still discard stale results. Pins keep their separate timestamp pagination and
 popout dismissal behavior. Verification is synthetic; normal-account offset
 acceptance and live result ordering remain unverified.
+
+
+## Own profile mutual sections - September 29, 2026
+
+Own-profile popouts now request `with_mutual_guilds=false` and
+`with_mutual_friends=false`, matching the existing profile editor and hidden self
+mutual sections. The decoder accepts null unrequested mutual lists without marking
+the profile incomplete. Requested mutual lists, missing profile metadata, unavailable
+badges/connections, truncated lists and byte limits retain their existing warnings.
+Malformed lists still fail decoding. This addresses a possible false warning;
+the reported account response and live Discord behavior remain unverified.
