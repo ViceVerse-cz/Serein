@@ -360,9 +360,20 @@ pub(super) fn cleanup(directory: &Path) {
 	if has_leftovers {
 		return;
 	}
-	let _ = fs::remove_file(directory.join("installed"));
-	let _ = fs::remove_file(directory.join("owner"));
-	let _ = fs::remove_dir(directory);
+	match fs::remove_file(directory.join("installed")) {
+		Ok(()) => {}
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+		Err(_) => return,
+	}
+	let owner = directory.join("owner");
+	match fs::remove_file(&owner) {
+		Ok(()) => {}
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+		Err(_) => return,
+	}
+	if fs::remove_dir(directory).is_err() {
+		let _ = fs::write(owner, b"serein-updater-v1");
+	}
 }
 
 fn safe_path(name: &str) -> Result<PathBuf, String> {
@@ -977,8 +988,13 @@ $remaining = @(Get-ChildItem -LiteralPath $stage -Force |
   Where-Object { $_.Name -notin @('owner', 'installed') })
 if ($remaining.Count -eq 0) {
   Remove-Item -LiteralPath (Join-Path $stage 'installed') -Force -ErrorAction SilentlyContinue
+  if (Test-Path -LiteralPath (Join-Path $stage 'installed')) { exit 0 }
   Remove-Item -LiteralPath (Join-Path $stage 'owner') -Force -ErrorAction SilentlyContinue
+  if (Test-Path -LiteralPath (Join-Path $stage 'owner')) { exit 0 }
   Remove-Item -LiteralPath $stage -Force -ErrorAction SilentlyContinue
+  if (Test-Path -LiteralPath $stage) {
+    [IO.File]::WriteAllText((Join-Path $stage 'owner'), 'serein-updater-v1')
+  }
 }
 "#;
 
@@ -1078,11 +1094,22 @@ pub(super) fn debug_check() -> Result<(), String> {
 			.share_mode(0)
 			.open(directory.join("locked"))
 			.map_err(|_| "Cannot create locked cleanup fixture.")?;
+		let installed = fs::OpenOptions::new()
+			.write(true)
+			.create_new(true)
+			.share_mode(0)
+			.open(directory.join("installed"))
+			.map_err(|_| "Cannot create locked installed marker.")?;
 		cleanup(&directory);
 		if !directory.join("owner").is_file() || !directory.join("locked").is_file() {
 			return Err("Partial cleanup discarded its ownership marker.".into());
 		}
 		drop(locked);
+		cleanup(&directory);
+		if !directory.join("owner").is_file() || !directory.join("installed").is_file() {
+			return Err("Locked installed marker discarded stage ownership.".into());
+		}
+		drop(installed);
 		cleanup(&directory);
 		if directory.exists() {
 			return Err("Unlocked update storage was not cleaned.".into());
