@@ -3,7 +3,7 @@ use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState, hotkey:
 use model::{KeyChord, KeybindAction, Keybinds};
 #[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 const READY: &str = "Global voice keybinds are enabled.";
 const DISABLED: &str = "Global keybinds are off. Shortcuts work while Serein is focused.";
@@ -19,6 +19,8 @@ const MODIFIER_REQUIRED: &str = "Add Ctrl, Alt, Shift, or Command to use a voice
 const PUSH_TO_TALK: usize = 0;
 const TOGGLE_MUTE: usize = 1;
 const TOGGLE_DEAFEN: usize = 2;
+
+static NATIVE_INPUT: Mutex<Option<Weak<NativeInput>>> = Mutex::new(None);
 
 #[derive(Default)]
 struct NativeState {
@@ -93,6 +95,17 @@ impl NativeInput {
 	}
 }
 
+fn dispatch_native_event(event: GlobalHotKeyEvent) {
+	let input = NATIVE_INPUT
+		.lock()
+		.expect("native hotkey target poisoned")
+		.as_ref()
+		.and_then(Weak::upgrade);
+	if let Some(input) = input {
+		input.handle(event);
+	}
+}
+
 pub struct Hotkeys {
 	manager: Option<GlobalHotKeyManager>,
 	registered: [Option<HotKey>; 3],
@@ -120,8 +133,9 @@ impl Hotkeys {
 			state: Mutex::new(NativeState::default()),
 			wake: wake.clone(),
 		});
-		let event_input = native.clone();
-		GlobalHotKeyEvent::set_event_handler(Some(move |event| event_input.handle(event)));
+		*NATIVE_INPUT.lock().expect("native hotkey target poisoned") =
+			Some(Arc::downgrade(&native));
+		GlobalHotKeyEvent::set_event_handler(Some(dispatch_native_event));
 		let manager = if cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some()
 		{
 			None
