@@ -171,6 +171,8 @@ account-badge-webhook = ウェブフック
 # Context: name
 account-badge-webhook-description = Webhook 作成者
 
+account-badge-verified-bot-description = 認証済みボットアカウント
+
 ## crates/ui/src/account_menu.rs
 # Context: account_identity_card
 account-menu-account-identity-card-loading-profile = プロファイルを読み込み中…

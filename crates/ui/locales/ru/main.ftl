@@ -171,6 +171,8 @@ account-badge-webhook = ВЕБХУК
 # Context: name
 account-badge-webhook-description = Автор вебхука
 
+account-badge-verified-bot-description = Проверенный бот-аккаунт
+
 ## crates/ui/src/account_menu.rs
 # Context: account_identity_card
 account-menu-account-identity-card-loading-profile = Загрузка профиля…

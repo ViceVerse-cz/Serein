@@ -663,6 +663,8 @@ fn grouped(previous: Option<&Message>, message: &Message, boundary: Option<Id>) 
 	previous.is_some_and(|previous| {
 		previous.author.id == message.author.id
 			&& previous.author.account_label() == message.author.account_label()
+			&& (previous.author.kind == model::AccountKind::VerifiedBot)
+				== (message.author.kind == model::AccountKind::VerifiedBot)
 			&& message.reply_to.is_none()
 			&& message.interaction.is_none()
 			&& !message.ephemeral

@@ -11,8 +11,8 @@ use std::{
 
 const MAX_MEDIA_JSON: usize = 256 * 1024;
 const MAX_WINDOW_BYTES: usize = 4 * 1024 * 1024;
-const NATIVE_SCHEMA: u32 = 24;
-const READABLE_SCHEMA: u32 = 24;
+const NATIVE_SCHEMA: u32 = 25;
+const READABLE_SCHEMA: u32 = 25;
 #[derive(serde::Deserialize)]
 struct CachedMentions(#[serde(deserialize_with = "model::deserialize_mentions")] Vec<User>);
 fn parse_author_roles(raw: &str) -> std::result::Result<Vec<Id>, StoreError> {
@@ -323,6 +323,11 @@ impl LocalStore {
 			[],
 			|row| row.get(0),
 		)?;
+		let has_verified_bot: bool = connection.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='verified_bot')",
+			[],
+			|row| row.get(0),
+		)?;
 		let has_stickers: bool = connection.query_row(
 			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='sticker_items')",
 			[],
@@ -382,6 +387,9 @@ impl LocalStore {
 		}
 		if !has_webhook {
 			transaction.execute_batch("ALTER TABLE messages ADD COLUMN webhook INTEGER NOT NULL DEFAULT 0 CHECK(typeof(webhook)='integer' AND webhook IN (0,1));")?;
+		}
+		if !has_verified_bot {
+			transaction.execute_batch("ALTER TABLE messages ADD COLUMN verified_bot INTEGER NOT NULL DEFAULT 0 CHECK(typeof(verified_bot)='integer' AND verified_bot IN (0,1));")?;
 		}
 		transaction.execute_batch("CREATE TABLE IF NOT EXISTS app_preferences(
             singleton INTEGER PRIMARY KEY CHECK(singleton=1),
@@ -854,7 +862,7 @@ impl LocalStore {
 			}
 		}
 		let mut insert = transaction.prepare_cached(
-            "INSERT OR REPLACE INTO messages(account,channel,id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items,interaction,reactions) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29)")?;
+            "INSERT OR REPLACE INTO messages(account,channel,id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items,interaction,reactions,verified_bot) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30)")?;
 		for message in messages {
 			if previous
 				.get(&message.id)
@@ -931,6 +939,12 @@ impl LocalStore {
 			if embeds.len() > MAX_MEDIA_JSON || attachments.len() > MAX_MEDIA_JSON {
 				return Err(StoreError::Capacity);
 			}
+			let verified_bot = message.author.kind == model::AccountKind::VerifiedBot;
+			let account_kind = if verified_bot {
+				model::AccountKind::Bot
+			} else {
+				message.author.kind
+			};
 			insert.execute(params![
 				account,
 				channel,
@@ -951,7 +965,7 @@ impl LocalStore {
 				message.kind,
 				message.reply_deleted,
 				message.author.webhook,
-				message.author.kind as u8,
+				account_kind as u8,
 				message.forwarded,
 				author_roles,
 				message.author_nick.as_deref(),
@@ -961,6 +975,7 @@ impl LocalStore {
 				sticker_items,
 				interaction,
 				reactions,
+				verified_bot,
 			])?;
 		}
 		drop(insert);
@@ -1005,17 +1020,26 @@ impl LocalStore {
 		Ok(())
 	}
 	pub fn load_channel(&self, account: Id, channel: Id) -> Result<Vec<Message>> {
-		let mut query = self.0.prepare_cached("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items,interaction,reactions FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
+		let mut query = self.0.prepare_cached("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items,interaction,reactions,verified_bot FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
 		let mut rows = query.query(params![account.to_string(), channel.to_string()])?;
 		let mut messages = Vec::new();
 		let mut bytes = 0;
 		while let Some(row) = rows.next()? {
-			let account_kind = match row.get_ref(17)? {
+			let mut account_kind = match row.get_ref(17)? {
 				rusqlite::types::ValueRef::Integer(0) => model::AccountKind::Human,
 				rusqlite::types::ValueRef::Integer(1) => model::AccountKind::Bot,
 				rusqlite::types::ValueRef::Integer(2) => model::AccountKind::App,
 				_ => return Err(StoreError::Incompatible),
 			};
+			match row.get_ref(27)? {
+				rusqlite::types::ValueRef::Integer(0) => {}
+				rusqlite::types::ValueRef::Integer(1)
+					if account_kind == model::AccountKind::Bot =>
+				{
+					account_kind = model::AccountKind::VerifiedBot;
+				}
+				_ => return Err(StoreError::Incompatible),
+			}
 			let webhook = match row.get_ref(16)? {
 				rusqlite::types::ValueRef::Integer(0) => false,
 				rusqlite::types::ValueRef::Integer(1) => true,
@@ -1905,6 +1929,7 @@ mod tests {
 			model::AccountKind::Human,
 			model::AccountKind::Bot,
 			model::AccountKind::App,
+			model::AccountKind::VerifiedBot,
 		] {
 			message.author.kind = kind;
 			store
@@ -1915,9 +1940,13 @@ mod tests {
 				kind
 			);
 		}
+		message.author.kind = model::AccountKind::Human;
+		store
+			.save_channel(Id(1), Id(2), &[message.clone()])
+			.unwrap();
 		store
 			.0
-			.execute_batch("ALTER TABLE messages DROP COLUMN account_kind; PRAGMA user_version=13;")
+			.execute_batch("ALTER TABLE messages DROP COLUMN account_kind; ALTER TABLE messages DROP COLUMN verified_bot; PRAGMA user_version=13;")
 			.unwrap();
 		let store = LocalStore::initialize(store.0).unwrap();
 		assert_eq!(
@@ -1930,6 +1959,24 @@ mod tests {
 				.execute("UPDATE messages SET account_kind=3", [])
 				.is_err()
 		);
+		assert!(
+			store
+				.0
+				.execute("UPDATE messages SET verified_bot=2", [])
+				.is_err()
+		);
+		store
+			.0
+			.execute("UPDATE messages SET verified_bot=1", [])
+			.unwrap();
+		assert!(matches!(
+			store.load_channel(Id(1), Id(2)),
+			Err(StoreError::Incompatible)
+		));
+		store
+			.0
+			.execute("UPDATE messages SET verified_bot=0", [])
+			.unwrap();
 		store
 			.0
 			.execute_batch(

@@ -167,6 +167,7 @@ account-badge-bot = NERW
 # Context: name
 account-badge-bot-description = Konto bota
 # Context: name
+account-badge-verified-bot-description = Zweryfikowane konto bota
 account-badge-webhook = WEBHOOK
 # Context: name
 account-badge-webhook-description = Autor webhooka

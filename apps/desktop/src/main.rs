@@ -1150,6 +1150,11 @@ fn demo_members(guild: Option<model::Id>, channel: model::Id, request: u64) -> m
 			let mut member = members[0].clone();
 			member.user.id = model::Id(id);
 			member.user.name = name.into();
+			member.user.kind = if id == 9003 {
+				model::AccountKind::VerifiedBot
+			} else {
+				model::AccountKind::Bot
+			};
 			member.roles.clear();
 			member.status = Some(status.into());
 			members.push(member);

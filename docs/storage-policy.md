@@ -1082,6 +1082,15 @@ network request is introduced; account, item, byte and page limits remain unchan
 Older schema-13 clients cannot reopen a schema-14 cache. User metadata serialized in
 bounded existing caches defaults missing kinds to ordinary/unknown.
 
+Schema 25 adds one checked, default-false `verified_bot` boolean to cached message
+authors. It is set only from the service user object's documented `bot` field plus
+the `public_flags` verified-bot bit. The existing `account_kind` column continues to
+store verified bots as bots; loading combines the two fields, while inconsistent or
+out-of-range cache values are rejected. Existing rows remain unverified until history
+refreshes. The column adds no payload collection, table, queue or network request and
+does not change the existing account, item, byte or page limits. Schema-24 and older
+binaries cannot reopen the upgraded cache.
+
 Message delete protector is opt-in and session-only. Retained deleted payloads share
 the existing 500-row / 4 MiB timeline limit and resident-history budget. They are
 excluded from normal message iteration, service actions and disk cache writes.

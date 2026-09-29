@@ -167,6 +167,7 @@ account-badge-bot = BOT
 # Context: name
 account-badge-bot-description = Bot account
 # Context: name
+account-badge-verified-bot-description = Verified bot account
 account-badge-webhook = WEBHOOK
 # Context: name
 account-badge-webhook-description = Webhook author

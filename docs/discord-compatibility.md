@@ -1360,7 +1360,7 @@ same. `--demo --demo-account` (or `--demo-account=status`) opens the popout with
 synthetic profile at startup for screenshots; dark and light rendering were captured
 natively on macOS.
 
-### Account-type badges (September 12, 2026)
+### Account-type badges (updated September 29, 2026)
 
 Chat author headers and member-list names share a compact theme-aware badge, reserving
 space when a nickname is long. BOT is driven by the user object's explicit `bot` flag;
@@ -1370,12 +1370,18 @@ relabeled from their names, profile errors or generic `application` objects.
 Member payloads normally expose only `bot`, so these display BOT, not a guessed APP
 classification. Webhooks are message authors, not invented guild members.
 
-Sources checked September 12:
+Verified bots use the documented `public_flags` `VERIFIED_BOT` bit (`1 << 16`) only
+when the same user object also explicitly sets `bot`. They display the compact APP
+badge with a checkmark in chat and member lists; ordinary bots and application-generated
+messages keep their existing unchecked badges. Missing flags remain unverified rather
+than being inferred from popularity, names, profile data or application IDs.
+
+Sources checked September 29:
 [Discord User Resource](https://docs.discord.com/developers/resources/user),
 [Discord Message Resource](https://docs.discord.com/developers/resources/message).
 These are documented metadata fields, not a live normal-session verification.
-One fixed-size model enum survives cache schema 14; legacy messages remain unclassified
-until refreshed. Tests cover metadata precedence, migration/roundtrip, grouping changes,
+One fixed-size model enum survives cache schema 25; legacy verified-bot state defaults
+to false until refreshed. Tests cover metadata precedence, migration/roundtrip, grouping changes,
 both named UI surfaces and narrow/light/dark badge layout. Native visual evidence and
 live-account validation are not available in this agent environment.
 

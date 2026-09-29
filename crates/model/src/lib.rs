@@ -109,6 +109,7 @@ impl User {
 		match (self.kind, self.webhook) {
 			(AccountKind::App, _) => Some("APP"),
 			(_, true) => Some("WEBHOOK"),
+			(AccountKind::VerifiedBot, _) => Some("APP"),
 			(AccountKind::Bot, _) => Some("BOT"),
 			_ => None,
 		}
@@ -160,6 +161,7 @@ pub enum AccountKind {
 	Human = 0,
 	Bot = 1,
 	App = 2,
+	VerifiedBot = 3,
 }
 /// Locally remembered account for the switcher: identity only, never a token.
 /// Tokens stay in the OS credential store under their own per-account entry.

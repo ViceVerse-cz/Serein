@@ -167,6 +167,7 @@ account-badge-bot = ROBÔ
 # Context: name
 account-badge-bot-description = Conta de bot
 # Context: name
+account-badge-verified-bot-description = Conta de bot verificada
 account-badge-webhook = WEBHOOK
 # Context: name
 account-badge-webhook-description = Autor do webhook

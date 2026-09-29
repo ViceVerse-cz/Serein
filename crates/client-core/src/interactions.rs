@@ -262,7 +262,9 @@ impl State {
 			(!source.author.webhook
 				&& matches!(
 					source.author.kind,
-					model::AccountKind::Bot | model::AccountKind::App
+					model::AccountKind::Bot
+						| model::AccountKind::App
+						| model::AccountKind::VerifiedBot
 				))
 			.then_some(source.author.id)
 		})?;

@@ -171,6 +171,8 @@ account-badge-webhook = web kancası
 # Context: name
 account-badge-webhook-description = Web kancası yazarı
 
+account-badge-verified-bot-description = Doğrulanmış bot hesabı
+
 ## crates/ui/src/account_menu.rs
 # Context: account_identity_card
 account-menu-account-identity-card-loading-profile = Profil yükleniyor…

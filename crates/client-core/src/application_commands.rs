@@ -129,7 +129,11 @@ impl State {
 					} else {
 						c.kind == 1
 							&& c.recipients.iter().any(|u| {
-								matches!(u.kind, model::AccountKind::Bot | model::AccountKind::App)
+								matches!(
+									u.kind,
+									model::AccountKind::Bot
+										| model::AccountKind::App | model::AccountKind::VerifiedBot
+								)
 							})
 					}
 			})
