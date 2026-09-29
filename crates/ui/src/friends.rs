@@ -594,21 +594,29 @@ impl MessagingUi {
 										})
 									})
 									.flatten();
+								let can_message = restricted.is_none()
+									&& (dm.is_some()
+										|| (!state.user_action_pending()
+											&& (state.demo
+												|| (state.gateway_connected
+													&& state.auth == client_core::auth::AuthState::Authenticated))));
 								let (rect, response, hot) =
 									person_row(ui, after_hot, egui::Sense::click());
 								after_hot = hot;
-								let response = if dm.is_some() {
+								let response = if can_message {
 									response.on_hover_cursor(egui::CursorIcon::PointingHand)
 								} else {
 									response
 								};
 								response.widget_info(|| {
-									egui::WidgetInfo::labeled(egui::Role::Button, true, &user.name)
+									egui::WidgetInfo::labeled(
+										egui::Role::Button,
+										can_message,
+										&user.name,
+									)
 								});
-								if response.clicked()
-									&& let Some(dm) = dm
-								{
-									selected = Some(dm.id);
+								if can_message && response.clicked() {
+									selected = Some(user.id);
 								}
 								user_menu::show(
 									&response,
@@ -717,7 +725,7 @@ impl MessagingUi {
 								actions.spacing_mut().item_spacing.x = ACTION_GAP;
 								if restricted.is_none() {
 									let message = actions
-										.add_enabled_ui(dm.is_some(), |ui| {
+										.add_enabled_ui(can_message, |ui| {
 											round_action(
 												ui,
 												Icon::Threads,
@@ -726,11 +734,8 @@ impl MessagingUi {
 											)
 										})
 										.inner;
-									if message
-										.on_disabled_hover_text(language.text("friends-no-open-dm"))
-										.clicked()
-									{
-										selected = dm.map(|c| c.id);
+									if message.clicked() {
+										selected = Some(user.id);
 									}
 								}
 								let more = round_action(
@@ -753,8 +758,8 @@ impl MessagingUi {
 						}
 					});
 			});
-		if let Some(channel) = selected
-			&& let Some(command) = state.select(channel)
+		if let Some(user) = selected
+			&& let Some(command) = state.open_friend_dm(user)
 		{
 			commands.push(command);
 		}

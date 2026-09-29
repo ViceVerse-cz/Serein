@@ -57,3 +57,7 @@ required-features = ["demo"]
 [[example]]
 name = "unread_navigation"
 required-features = ["demo"]
+
+[[example]]
+name = "friend_message"
+required-features = ["demo"]
