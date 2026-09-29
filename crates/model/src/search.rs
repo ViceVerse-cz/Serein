@@ -1,6 +1,8 @@
 use crate::Id;
 
 pub const SEARCH_PAGE_SIZE: usize = 25;
+/// Maximum offset accepted by the unofficial normal-client search route.
+pub const MAX_SEARCH_OFFSET: u32 = 9_975;
 pub const MAX_SEARCH_BYTES: usize = 256 * 1024;
 pub fn valid_search_query(query: &str) -> bool {
 	!query.trim().is_empty()

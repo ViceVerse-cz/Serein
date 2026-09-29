@@ -3499,6 +3499,7 @@ impl Desktop {
 					channel,
 					query,
 					before,
+					offset,
 					request,
 					..
 				} => {
@@ -3565,7 +3566,7 @@ impl Desktop {
 								)
 							}) {
 							total += 1;
-							if hits.len() < model::SEARCH_PAGE_SIZE {
+							if total > u64::from(offset) && hits.len() < model::SEARCH_PAGE_SIZE {
 								hits.push(model::SearchHit {
 									id: message.id,
 									channel,

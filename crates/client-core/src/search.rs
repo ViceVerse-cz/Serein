@@ -9,11 +9,25 @@ pub struct SearchView {
 	pub channel: Id,
 	pub query: String,
 	pub before: Option<Id>,
+	pub offset: u32,
+	/// Retained during navigation and failures without retaining previous result pages.
+	pub total: Option<u64>,
 	pub pin_before: Option<i128>,
 	pub request: u64,
 	pub loading: bool,
 	pub error: Option<&'static str>,
 	pub page: Option<SearchPage>,
+}
+impl SearchView {
+	pub fn page_count(&self) -> u32 {
+		self.total
+			.unwrap_or(0)
+			.div_ceil(model::SEARCH_PAGE_SIZE as u64)
+			.clamp(
+				1,
+				u64::from(model::MAX_SEARCH_OFFSET) / model::SEARCH_PAGE_SIZE as u64 + 1,
+			) as u32
+	}
 }
 pub enum Outcome {
 	Page(SearchPage),
@@ -51,6 +65,8 @@ impl State {
 			channel,
 			query: query.clone(),
 			before,
+			offset: 0,
+			total: None,
 			pin_before: None,
 			request: self.search_request,
 			loading: true,
@@ -62,7 +78,43 @@ impl State {
 			guild,
 			query,
 			before,
+			offset: 0,
 			request: self.search_request,
+		})
+	}
+	/// Select a zero-based page within the original query and cursor scope.
+	pub fn request_search_page(&mut self, page: u32) -> Option<Command> {
+		if !self.can_search() {
+			return None;
+		}
+		let view = self.search.as_ref()?;
+		if view.pins
+			|| view.loading
+			|| Some(view.channel) != self.selected
+			|| page >= view.page_count()
+		{
+			return None;
+		}
+		let offset = page.checked_mul(model::SEARCH_PAGE_SIZE as u32)?;
+		if offset > model::MAX_SEARCH_OFFSET {
+			return None;
+		}
+		let guild = self.channel(view.channel)?.guild;
+		self.search_request = self.search_request.wrapping_add(1);
+		self.archives = None;
+		let view = self.search.as_mut()?;
+		view.offset = offset;
+		view.request = self.search_request;
+		view.loading = true;
+		view.error = None;
+		view.page = None;
+		Some(Command::Search {
+			channel: view.channel,
+			guild,
+			query: view.query.clone(),
+			before: view.before,
+			offset,
+			request: view.request,
 		})
 	}
 	pub fn request_pins(&mut self) -> Option<Command> {
@@ -92,6 +144,8 @@ impl State {
 			channel,
 			query: String::new(),
 			before: None,
+			offset: 0,
+			total: None,
 			pin_before: before,
 			request: self.search_request,
 			loading: true,
@@ -131,6 +185,7 @@ impl State {
 		view.loading = false;
 		match result {
 			Ok(Outcome::Page(page)) if !view.pins && page.valid(channel, view.before) => {
+				view.total = Some(page.total);
 				view.page = Some(page);
 				view.error = None;
 			}

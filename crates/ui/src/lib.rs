@@ -82,6 +82,8 @@ mod reading;
 pub mod screen;
 pub mod scroll;
 mod search;
+#[cfg(test)]
+mod search_navigation_tests;
 pub mod select;
 mod server_admin;
 mod server_audit_log;
@@ -3711,6 +3713,31 @@ impl MessagingUi {
 			commands.push(command);
 		}
 		let wide_members = ui.available_width() >= 720.0;
+		if !settings_open
+			&& !self.switcher_frame
+			&& !self.ime_active
+			&& state.can_search()
+			&& ctx.memory(|memory| memory.top_modal_layer().is_none())
+			&& !egui::Popup::is_any_open(&ctx)
+			&& ctx.input(|input| {
+				input.focused
+					&& !input.events.iter().any(|event| match event {
+						egui::Event::Ime(
+							egui::ImeEvent::Preedit { text, .. } | egui::ImeEvent::Commit(text),
+						) => !text.is_empty(),
+						egui::Event::Ime(egui::ImeEvent::DeleteSurrounding { .. }) => true,
+						_ => false,
+					})
+			}) && ctx.input_mut(|input| {
+			crate::keybinds::pressed_exact(
+				input,
+				self.keybinds
+					.chord(model::KeybindAction::SearchConversation),
+			)
+		}) && let Some(channel) = state.selected
+		{
+			self.search.focus_conversation(channel);
+		}
 		self.search.sync(&ctx, state, &mut commands);
 		let search_open =
 			self.search.results_visible(state) && state.selected.is_some() && !selected_voice;

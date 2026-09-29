@@ -4090,3 +4090,9 @@ server-integrations-count-one-linked-webhook = { $count } połączony webhook
 server-integrations-count-many-linked-webhooks = Połączone webhooki: { $count }
 server-invites-revoke-title = Unieważnić zaproszenie?
 server-invites-revoke-message = Nie będzie można dołączyć do serwera przez discord.gg/{ $code }.
+
+search-page-label = Strona
+search-page-previous = Poprzednia strona
+search-page-next = Następna strona
+search-page-go = Przejdź do strony
+search-page-retry = Ponów stronę

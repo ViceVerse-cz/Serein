@@ -4090,3 +4090,9 @@ server-integrations-count-one-linked-webhook = 連携済みWebhook { $count }件
 server-integrations-count-many-linked-webhooks = 連携済みWebhook { $count }件
 server-invites-revoke-title = 招待を無効にしますか？
 server-invites-revoke-message = discord.gg/{ $code } ではこのサーバーに参加できなくなります。
+
+search-page-label = ページ
+search-page-previous = 前のページ
+search-page-next = 次のページ
+search-page-go = ページに移動
+search-page-retry = ページを再読み込み

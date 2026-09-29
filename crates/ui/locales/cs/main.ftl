@@ -4090,3 +4090,9 @@ server-integrations-count-one-linked-webhook = { $count } propojený webhook
 server-integrations-count-many-linked-webhooks = Propojené webhooky: { $count }
 server-invites-revoke-title = Zrušit pozvánku?
 server-invites-revoke-message = Pomocí discord.gg/{ $code } se už k tomuto serveru nepůjde připojit.
+
+search-page-label = Stránka
+search-page-previous = Předchozí stránka
+search-page-next = Další stránka
+search-page-go = Přejít na stránku
+search-page-retry = Zkusit stránku znovu

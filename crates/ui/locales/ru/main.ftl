@@ -4090,3 +4090,9 @@ server-integrations-count-one-linked-webhook = Связанных вебхуко
 server-integrations-count-many-linked-webhooks = Связанных вебхуков: { $count }
 server-invites-revoke-title = Отозвать приглашение?
 server-invites-revoke-message = По ссылке discord.gg/{ $code } больше нельзя будет присоединиться к серверу.
+
+search-page-label = Страница
+search-page-previous = Предыдущая страница
+search-page-next = Следующая страница
+search-page-go = Перейти к странице
+search-page-retry = Повторить загрузку
