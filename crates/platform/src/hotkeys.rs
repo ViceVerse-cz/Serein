@@ -70,11 +70,11 @@ impl NativeInput {
 		*self.state.lock().expect("native hotkey state poisoned") = NativeState::default();
 	}
 
-	fn register(&self, index: usize, id: u32) {
+	fn set_registered(&self, index: usize, id: Option<u32>) {
 		self.state
 			.lock()
 			.expect("native hotkey state poisoned")
-			.registered[index] = Some(id);
+			.registered[index] = id;
 	}
 
 	fn take_toggles(&self) -> u8 {
@@ -245,12 +245,15 @@ impl Hotkeys {
 				failed = true;
 				continue;
 			};
+			self.native.set_registered(index, Some(hotkey.id()));
 			match manager.register(hotkey) {
 				Ok(()) => {
 					self.registered[index] = Some(hotkey);
-					self.native.register(index, hotkey.id());
 				}
-				Err(_) => failed = true,
+				Err(_) => {
+					self.native.set_registered(index, None);
+					failed = true;
+				}
 			}
 		}
 		if failed {
@@ -325,6 +328,13 @@ impl Drop for Hotkeys {
 			task.abort();
 		}
 		self.unregister_all();
+		let mut target = NATIVE_INPUT.lock().expect("native hotkey target poisoned");
+		if target
+			.as_ref()
+			.is_some_and(|current| current.ptr_eq(&Arc::downgrade(&self.native)))
+		{
+			*target = None;
+		}
 	}
 }
 
@@ -585,7 +595,7 @@ mod tests {
 				wake_flag.store(true, Ordering::Relaxed);
 			}),
 		};
-		input.register(TOGGLE_MUTE, 42);
+		input.set_registered(TOGGLE_MUTE, Some(42));
 		input.handle(GlobalHotKeyEvent {
 			id: 42,
 			state: HotKeyState::Pressed,
