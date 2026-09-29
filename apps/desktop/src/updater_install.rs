@@ -980,7 +980,10 @@ try {
   Start-Process -FilePath (Join-Path $installation 'serein.exe') -WorkingDirectory $installation -ErrorAction SilentlyContinue
   exit 1
 }
-[IO.File]::WriteAllText((Join-Path $stage 'installed'), '')
+try {
+  [IO.File]::WriteAllText((Join-Path $stage 'installed'), '')
+} catch {
+}
 Get-ChildItem -LiteralPath $stage -Force |
   Where-Object { $_.Name -notin @('owner', 'installed') } |
   Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
