@@ -20,7 +20,7 @@ const PUSH_TO_TALK: usize = 0;
 const TOGGLE_MUTE: usize = 1;
 const TOGGLE_DEAFEN: usize = 2;
 
-static NATIVE_INPUT: Mutex<Option<Weak<NativeInput>>> = Mutex::new(None);
+static NATIVE_INPUTS: Mutex<Vec<Weak<NativeInput>>> = Mutex::new(Vec::new());
 
 #[derive(Default)]
 struct NativeState {
@@ -96,12 +96,13 @@ impl NativeInput {
 }
 
 fn dispatch_native_event(event: GlobalHotKeyEvent) {
-	let input = NATIVE_INPUT
+	let inputs = NATIVE_INPUTS
 		.lock()
-		.expect("native hotkey target poisoned")
-		.as_ref()
-		.and_then(Weak::upgrade);
-	if let Some(input) = input {
+		.expect("native hotkey targets poisoned")
+		.iter()
+		.filter_map(Weak::upgrade)
+		.collect::<Vec<_>>();
+	for input in inputs {
 		input.handle(event);
 	}
 }
@@ -133,8 +134,10 @@ impl Hotkeys {
 			state: Mutex::new(NativeState::default()),
 			wake: wake.clone(),
 		});
-		*NATIVE_INPUT.lock().expect("native hotkey target poisoned") =
-			Some(Arc::downgrade(&native));
+		NATIVE_INPUTS
+			.lock()
+			.expect("native hotkey targets poisoned")
+			.push(Arc::downgrade(&native));
 		GlobalHotKeyEvent::set_event_handler(Some(dispatch_native_event));
 		let manager = if cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some()
 		{
@@ -328,13 +331,11 @@ impl Drop for Hotkeys {
 			task.abort();
 		}
 		self.unregister_all();
-		let mut target = NATIVE_INPUT.lock().expect("native hotkey target poisoned");
-		if target
-			.as_ref()
-			.is_some_and(|current| current.ptr_eq(&Arc::downgrade(&self.native)))
-		{
-			*target = None;
-		}
+		let native = Arc::downgrade(&self.native);
+		NATIVE_INPUTS
+			.lock()
+			.expect("native hotkey targets poisoned")
+			.retain(|current| !current.ptr_eq(&native));
 	}
 }
 
@@ -602,5 +603,42 @@ mod tests {
 		});
 		assert_eq!(input.take_toggles(), 1);
 		assert!(woke.load(Ordering::Relaxed));
+	}
+
+	#[test]
+	fn native_events_reach_each_live_matching_input() {
+		let first = Arc::new(NativeInput {
+			state: Mutex::new(NativeState::default()),
+			wake: Arc::new(|| {}),
+		});
+		let second = Arc::new(NativeInput {
+			state: Mutex::new(NativeState::default()),
+			wake: Arc::new(|| {}),
+		});
+		first.set_registered(TOGGLE_MUTE, Some(42));
+		second.set_registered(TOGGLE_DEAFEN, Some(84));
+		{
+			let mut inputs = NATIVE_INPUTS
+				.lock()
+				.expect("native hotkey targets poisoned");
+			inputs.clear();
+			inputs.extend([Arc::downgrade(&first), Arc::downgrade(&second)]);
+		}
+
+		dispatch_native_event(GlobalHotKeyEvent {
+			id: 42,
+			state: HotKeyState::Pressed,
+		});
+		dispatch_native_event(GlobalHotKeyEvent {
+			id: 84,
+			state: HotKeyState::Pressed,
+		});
+
+		assert_eq!(first.take_toggles(), 1);
+		assert_eq!(second.take_toggles(), 2);
+		NATIVE_INPUTS
+			.lock()
+			.expect("native hotkey targets poisoned")
+			.clear();
 	}
 }
