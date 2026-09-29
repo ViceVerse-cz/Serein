@@ -4107,3 +4107,9 @@ server-notifications-unknown = Some settings are unavailable. Saving changes onl
 server-notifications-offline = Reconnect to change notification settings.
 server-notifications-save = Save changes
 server-notifications-saving = Saving…
+
+search-page-label = Page
+search-page-previous = Previous page
+search-page-next = Next page
+search-page-go = Go to page
+search-page-retry = Retry page

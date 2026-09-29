@@ -26,6 +26,8 @@ use tokio_tungstenite::{
 	},
 };
 
+mod custom;
+
 pub type Detection = Result<Option<model::RichActivity>, &'static str>;
 const MAX_CLIENTS: usize = 8;
 /// Two images per activity, and a client normally repeats the same pair.
@@ -96,7 +98,10 @@ impl Applications for Service {
 
 /// Sharing owns the listeners and all clients. Dropping it cancels every pending operation.
 pub async fn run(
-	enabled: watch::Receiver<bool>,
+	sharing: (
+		watch::Receiver<bool>,
+		watch::Receiver<Option<extensions::CustomRichPresence>>,
+	),
 	activity: watch::Sender<Option<Activity>>,
 	report: watch::Sender<Detection>,
 	invites: watch::Sender<Option<(u64, String)>>,
@@ -104,13 +109,65 @@ pub async fn run(
 	user: User,
 	api: Arc<discord_api::DiscordApi>,
 ) {
+	let (enabled, custom_requests) = sharing;
 	run_enabled(enabled, &activity, &report, &ctx, || async {
 		let service = Service {
 			client: discord_api::rpc::client()?,
 			cooldown: Arc::new(tokio::sync::Mutex::new(Instant::now())),
 			api: api.clone(),
 		};
-		listen(&activity, &report, &invites, &ctx, &user, &service).await
+		let (detected_send, mut detected) = watch::channel(None);
+		let (detected_report_send, mut detected_report) = watch::channel(Ok(None));
+		let (custom_send, mut custom_report) = watch::channel(Ok(None));
+		let _custom = Abort(tokio::spawn(custom::run(
+			custom_requests.clone(),
+			custom_send,
+			service.clone(),
+		)));
+		let listener = listen(
+			&detected_send,
+			&detected_report_send,
+			&invites,
+			&ctx,
+			&user,
+			&service,
+		);
+		tokio::pin!(listener);
+		let mut listening = true;
+		loop {
+			tokio::select! {
+				result = &mut listener, if listening => {
+					listening = false;
+					detected_send.send_replace(None);
+					let _ = detected_report_send.send_replace(result.map(|()| None));
+				}
+				result = detected.changed() => { if result.is_err() { return Ok(()); } }
+				result = detected_report.changed() => { if result.is_err() { return Ok(()); } }
+				result = custom_report.changed() => { if result.is_err() { return Ok(()); } }
+			}
+			let custom = custom_report.borrow_and_update().clone();
+			let (latest, display) = match custom {
+				Ok(Some(value)) => {
+					let display = display_activity(&value);
+					(Some(value), Ok(Some(display)))
+				}
+				Ok(None) => (
+					detected.borrow_and_update().clone(),
+					detected_report.borrow_and_update().clone(),
+				),
+				Err(error) => (None, Err(error)),
+			};
+			activity.send_if_modified(|current| {
+				if *current == latest {
+					false
+				} else {
+					*current = latest;
+					true
+				}
+			});
+			let _ = report.send_replace(display);
+			ctx.request_repaint();
+		}
 	})
 	.await;
 }
@@ -343,10 +400,10 @@ fn display_activity(activity: &Activity) -> model::RichActivity {
 		image: Some(primary),
 		small_image,
 		ends_at: activity.timestamps.as_ref().and_then(|timestamps| {
-			let start = timestamps.start?;
-			timestamps
-				.end
-				.filter(|end| *end > start && *end <= model::MAX_ACTIVITY_TIMESTAMP)
+			timestamps.end.filter(|end| {
+				*end <= model::MAX_ACTIVITY_TIMESTAMP
+					&& timestamps.start.is_none_or(|start| *end > start)
+			})
 		}),
 		started_at: activity
 			.timestamps
@@ -434,9 +491,11 @@ impl<'a, A: Applications> Session<'a, A> {
 		}
 		if assets.large_image.is_none() {
 			assets.large_text = None;
+			assets.large_url = None;
 		}
 		if assets.small_image.is_none() {
 			assets.small_text = None;
+			assets.small_url = None;
 		}
 		assets
 	}
@@ -978,6 +1037,7 @@ mod tests {
 			large_text: Some("Cover".into()),
 			small_image: Some("map".into()),
 			small_text: Some("Rank".into()),
+			..Default::default()
 		};
 		let activity = session
 			.activity(rpc::ActivityFields {
@@ -1435,5 +1495,76 @@ mod tests {
 		settings.dirty = false;
 		settings.observe(false);
 		assert!(settings.dirty && settings.saving && !settings.enabled);
+	}
+
+	#[tokio::test]
+	async fn custom_presence_cancels_stale_artwork_and_stop_clears() {
+		let service = Offline {
+			release: Some(Arc::new(Notify::new())),
+			..Offline::default()
+		};
+		let started = service.started.clone();
+		let mut request = extensions::CustomRichPresence {
+			application_id: "7".into(),
+			name: "Custom game".into(),
+			large_image: Some(extensions::RichPresenceImage {
+				key: "map".into(),
+				text: None,
+				url: None,
+			}),
+			..Default::default()
+		};
+		let (send, receive) = watch::channel(Some(request.clone()));
+		let (output, mut results) = watch::channel(Ok(None));
+		let worker = tokio::spawn(custom::run(receive, output, service));
+		timeout(Duration::from_secs(2), started.notified())
+			.await
+			.unwrap();
+		// Metadata never completes: a newer request must cancel it and publish without artwork.
+		request.large_image = None;
+		request.name = "Latest custom game".into();
+		send.send_replace(Some(request));
+		timeout(Duration::from_secs(2), results.changed())
+			.await
+			.unwrap()
+			.unwrap();
+		assert_eq!(
+			results
+				.borrow_and_update()
+				.as_ref()
+				.unwrap()
+				.as_ref()
+				.unwrap()
+				.name,
+			"Latest custom game"
+		);
+		send.send_replace(None);
+		timeout(Duration::from_secs(2), results.changed())
+			.await
+			.unwrap()
+			.unwrap();
+		assert_eq!(*results.borrow_and_update(), Ok(None));
+		drop(send);
+		timeout(Duration::from_secs(2), worker)
+			.await
+			.unwrap()
+			.unwrap();
+	}
+
+	#[test]
+	fn end_only_activity_retains_its_countdown() {
+		let activity = rpc::ActivityFields {
+			timestamps: Some(rpc::Timestamps {
+				start: None,
+				end: Some(1_700_000_000_000),
+			}),
+			..Default::default()
+		}
+		.into_activity(model::Id(7), "Countdown".into())
+		.unwrap();
+		let display = display_activity(&activity);
+		assert_eq!(display.started_at, None);
+		assert_eq!(display.ends_at, Some(1_700_000_000_000));
+		assert!(display.valid());
 	}
 }

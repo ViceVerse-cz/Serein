@@ -69,6 +69,7 @@ The Rust paths below are relative to `AppOutput`. When using the original
 | JSON field / Rust field | Value and required capability | When it takes effect |
 | --- | --- | --- |
 | `replacement` / `output.replacement` | Optional string; `composer`. The invocation must actually contain composer text. | **Apply to Draft** replaces the original, still-unchanged draft. It never sends a message. |
+| `rich_presence` / `RichPresenceOutput.rich_presence` | Optional `RichPresenceUpdate`; `rich_presence` grant. | Explicit panel/activation Set or Clear updates the contribution; omission leaves it unchanged. See [Custom Rich Presence](#custom-rich-presence). |
 | `panel` / `output.panel` | Array of native `Element` values; no separate panel capability. | A foreground result displays it. Message/app event handlers must return no elements. Activation does not display returned panels. |
 | `storage` / `output.storage` | Optional opaque UTF-8 string; `storage`. | A valid foreground or event result replaces the plugin's saved value before result approval. Activation can read storage but this build does not persist its returned storage. |
 | `appearance` / `output.appearance` | Optional `Theme` object; `appearance`. | An accepted result updates the plugin's appearance overlay immediately, including activation and event results. No Apply button is involved. |
@@ -832,6 +833,106 @@ fresh notification snapshot only with the matching grant. An older host rejects
 a manifest requesting `notification_settings`; support discovery cannot bypass
 that install-time check.
 
+### Custom Rich Presence
+
+> **Preview capability.** `rich_presence` requires a host built from this change;
+> it is not implied by ABI version 1. Live Discord compatibility is unverified.
+
+Declare `rich_presence` to contribute one account-scoped activity. Use the opt-in
+SDK `RichPresenceOutput { output: Output, rich_presence: Option<RichPresenceUpdate> }`.
+The wrapper flattens into the existing output JSON; the original `Output`,
+`Invocation`, `dispatch`, `export!` and compiled plugins keep their ABI. No new
+Wasm imports, persistent plugin instance or generic network access are added.
+Use `dispatch_typed` when testing the wrapper. Older hosts reject the unknown
+manifest capability before running the handler; current host discovery includes
+`rich_presence` among its supported names.
+
+`rich_presence` accepts these operations from an explicit `panel` action or the
+plugin's `activation` action only. Message, composer and reactive event actions
+cannot submit them. Declaring the capability still requires the user's grant.
+
+| JSON / Rust operation | Result |
+| --- | --- |
+| `{"type":"set","presence":{...}}` / `RichPresenceUpdate::Set { presence: Box<CustomRichPresence> }` | Replace this plugin's contribution with the validated configuration |
+| `{"type":"clear"}` / `RichPresenceUpdate::Clear` | Remove this plugin's contribution |
+| Missing or null `rich_presence` / `None` | Leave the contribution unchanged |
+
+The user must also enable Serein's activity-sharing preference. A saved Set is
+pending while sharing is off; the extension grant does not enable that preference.
+Account changes, revocation, disable and logout retire the contribution. Among
+enabled plugins with valid contributions, the first plugin in ascending ID order
+wins, within the existing eight-plugin limit. Custom presence takes priority over
+detected game/IPC activity; clearing it lets the current detected activity resume.
+Invisible/offline visibility and Gateway readiness still gate publication.
+The Gateway presence payload is capped at 4 KiB. If combining Spotify with the
+custom activity would exceed that bound, Spotify is omitted for that update while
+the custom activity and account status are preserved.
+
+#### CustomRichPresence fields
+
+All strings use UTF-8 byte bounds. Optional strings use `None`/null for absence,
+not an empty string. Required text must contain non-whitespace text and no control
+characters. Links must be HTTPS, at most 2,048 bytes, without credentials,
+whitespace, control characters or backslashes. SDK `validate()` supplies local
+form diagnostics; the host revalidates links with its URL parser and checks grants
+and the action surface. The complete serialized `CustomRichPresence` is limited
+to **3 KiB (3,072 bytes)**, including all fields and JSON escaping, even when each
+individual value fits its own limit. The resolved protocol activity has the same
+3-KiB ceiling. A successful validation is not a service acceptance result.
+
+| Field | Rust type | Meaning and bounds |
+| --- | --- | --- |
+| `application_id` | `String` | Required nonzero decimal application ID fitting `u64`, at most 20 bytes |
+| `name` | `String` | Required activity name, at most 128 bytes |
+| `kind` | `RichPresenceKind` | `Playing`, `Streaming`, `Listening`, `Watching`, `Competing`; JSON `playing`, `streaming`, `listening`, `watching`, `competing`; defaults to Playing |
+| `stream_url` | `Option<String>` | Required for Streaming and forbidden for other kinds; HTTPS link |
+| `details`, `state` | `Option<String>` | Each at most 128 bytes |
+| `details_url`, `state_url` | `Option<String>` | Optional clickable text links; each requires its corresponding text |
+| `large_image`, `small_image` | `Option<RichPresenceImage>` | Each has `key: String`, `text: Option<String>`, `url: Option<String>` |
+| Image `key` | `String` | Application asset key, at most 256 bytes without colon/slashes/backslashes, or an HTTPS image URL of at most 1,024 bytes |
+| Image `text` | `Option<String>` | Tooltip, at most 128 bytes |
+| Image `url` | `Option<String>` | HTTPS link for clicking the image |
+| `buttons` | `Vec<RichPresenceButton>` | At most two; each has required `label: String` (1–32 bytes, no control characters) and HTTPS `url: String` |
+| `party` | `Option<RichPresenceParty>` | `current: u32` and `max: u32`; `1 <= current <= max <= 9999` |
+| `timer` | `RichPresenceTimer` | Tagged object described below; defaults to None |
+
+Timer JSON uses `mode` as its tag. `None` is `{"mode":"none"}`, `Elapsed` is
+`{"mode":"elapsed"}`, and `LocalDay` is `{"mode":"local_day"}`. Elapsed time
+stays stable across ordinary field updates; changing timer mode, stopping custom
+presence, disabling sharing or starting a new connection restarts its origin.
+LocalDay uses midnight in the host's local timezone and refreshes after a day
+change on the host's one-minute maintenance check; unavailable or ambiguous local
+offsets produce an error instead of inventing a timestamp.
+
+`Custom { start: Option<u64>, end: Option<u64> }` serializes as
+`{"mode":"custom","start":1700000000000,"end":1700003600000}`. Values are Unix
+**milliseconds**, greater than zero and no later than `253402300799999` (year
+9999). At least one endpoint is required; when both are present, end must follow
+start. Start-only means elapsed time and end-only means a countdown.
+
+#### Native preview and persistence
+
+Return `Element::ActivityPreview { presence: Box::new(presence) }`, JSON
+`{"type":"activity_preview","presence":{...}}`, for a read-only native preview.
+It uses the same field validation and counts as one of the panel's 64 elements.
+The preview itself neither sets presence nor loads external images. A local card
+does not prove what another Discord client displays. Invalid drafts should return
+an explanatory panel and retain input values without an ActivityPreview or Set.
+
+Use the separate `storage` grant for saved settings. Save the applied configuration
+and an active flag on explicit Apply, and return Set from activation only when
+that saved flag is enabled. Stop should return Clear and save `active: false`
+while retaining the last applied fields. Disable is different: Serein removes the
+installed package and plugin data; re-enabling starts fresh. Do not use activation
+to save new storage: activation restores existing data.
+
+The host resolves application metadata and image assets outside rendering.
+External artwork URLs go through Discord's image proxy; Wasm and Serein do not
+fetch the caller's URL directly. Metadata or artwork failures clear the outgoing
+custom activity and report an error; users can revise and reapply. Button/text/
+image links and other rich fields depend on Discord's handling of this unofficial
+client. See the [Custom Rich Presence example](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/custom-rpc).
+
 ## Panels and storage
 
 A panel is a list of native controls returned by your handler. Serein renders
@@ -840,7 +941,7 @@ changes the panel's local form values. A **panel button** runs another declared
 action with those values. It does not automatically approve a host action that
 the next result proposes.
 
-### The nine element types
+### The ten element types
 
 Every element is a JSON object with a `type` tag. Supply every field listed in
 the middle column. The same names are fields of the corresponding Rust `Element`
@@ -862,6 +963,8 @@ Control labels are nonempty, at most 128 UTF-8 bytes, and contain no control
 characters. Dropdowns have 1 through 32 unique nonempty options, each at most
 128 bytes without control characters. A label is what the user sees; an ID is
 what your code uses.
+
+`activity_preview` / `ActivityPreview { presence: Box<CustomRichPresence> }` renders a read-only native activity card. It requires `rich_presence`, validates the same bounded fields as publication, and never starts network work. See [Custom Rich Presence](#custom-rich-presence).
 
 ### IDs and panel limits
 

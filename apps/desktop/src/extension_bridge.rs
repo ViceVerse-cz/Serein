@@ -94,6 +94,7 @@ enum ThemePickerResult {
 }
 #[derive(Default)]
 pub struct Bridge {
+	rich_presence_changed: bool,
 	host: Option<ExtensionHost>,
 	scope: Option<(u64, Option<String>)>,
 	pending: BTreeMap<u64, Pending>,
@@ -119,6 +120,26 @@ pub struct Bridge {
 	connection_interrupted: bool,
 }
 impl Bridge {
+	pub fn take_rich_presence_change(&mut self) -> bool {
+		std::mem::take(&mut self.rich_presence_changed)
+	}
+
+	/// Deterministic precedence for the bounded installed set. Disabled/failed plugins never publish.
+	pub fn rich_presence(&self) -> Option<&extensions::CustomRichPresence> {
+		self.installed
+			.iter()
+			.filter(|entry| entry.error.is_none() && !self.disabled.contains(&entry.manifest.id))
+			.filter(|entry| {
+				entry
+					.manifest
+					.capabilities
+					.contains(&Capability::RichPresence)
+			})
+			.filter(|entry| entry.rich_presence.is_some())
+			.min_by_key(|entry| &entry.manifest.id)
+			.and_then(|entry| entry.rich_presence.as_deref())
+	}
+
 	pub fn data_changed(&mut self, mut changes: crate::extension_data_events::Changes) {
 		if let Some(connected) = changes.connection() {
 			self.observe_connection(connected, &mut changes);
@@ -366,6 +387,7 @@ impl Bridge {
 		for entry in &mut self.installed {
 			entry.preserve_deleted_messages = false;
 			entry.image_sharing = false;
+			entry.rich_presence = None;
 		}
 		self.picker = None;
 		self.theme_picker = None;
@@ -686,6 +708,21 @@ impl Bridge {
 								installed.theme = Some(appearance.clone());
 							}
 							self.apply_theme(ctx);
+						}
+						if context.is_current(state)
+							&& let Some(update) = &output.rich_presence
+							&& let Some(installed) = self
+								.installed
+								.iter_mut()
+								.find(|entry| entry.manifest.id == id)
+						{
+							self.rich_presence_changed = true;
+							installed.rich_presence = match update {
+								extensions::RichPresenceUpdate::Set { presence } => {
+									Some(presence.clone())
+								}
+								extensions::RichPresenceUpdate::Clear => None,
+							};
 						}
 						if invocation.message_event.is_none() && invocation.app_event.is_none() {
 							messaging
@@ -1445,6 +1482,7 @@ mod tests {
 			error: None,
 			preserve_deleted_messages: false,
 			image_sharing: false,
+			rich_presence: None,
 		};
 		let bridge = Bridge {
 			scope: Some((
@@ -1463,6 +1501,31 @@ mod tests {
 		};
 		assert!(bridge.has_message_events(&state));
 		(bridge, state, event)
+	}
+
+	#[test]
+	fn custom_presence_requires_capability_and_clears_with_disable_error_and_logout() {
+		let (mut bridge, _, _) = message_events_fixture();
+		bridge.installed[0].rich_presence = Some(Box::new(extensions::CustomRichPresence {
+			application_id: "123".into(),
+			name: "Synthetic".into(),
+			..Default::default()
+		}));
+		assert!(bridge.rich_presence().is_none());
+		bridge.installed[0]
+			.manifest
+			.capabilities
+			.push(Capability::RichPresence);
+		assert_eq!(bridge.rich_presence().unwrap().name, "Synthetic");
+		let id = bridge.installed[0].manifest.id.clone();
+		bridge.disabled.insert(id.clone());
+		assert!(bridge.rich_presence().is_none());
+		bridge.disabled.remove(&id);
+		bridge.installed[0].error = Some("Failed".into());
+		assert!(bridge.rich_presence().is_none());
+		bridge.installed[0].error = None;
+		let _ = bridge.logout(&egui::Context::default());
+		assert!(bridge.rich_presence().is_none());
 	}
 
 	#[test]

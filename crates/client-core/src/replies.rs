@@ -909,6 +909,8 @@ mod tests {
 				channel: Id(1),
 				query: "Synthetic".into(),
 				before: None,
+				offset: 0,
+				total: None,
 				pin_before: None,
 				request: 1,
 				loading: false,

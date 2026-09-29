@@ -1538,6 +1538,7 @@ dependencies = [
  "serde_path_to_error",
  "thiserror 2.0.20",
  "time",
+ "url",
 ]
 
 [[package]]
@@ -6291,6 +6292,7 @@ dependencies = [
  "sha2 0.10.9",
  "symphonia",
  "test-support",
+ "time",
  "tokio",
  "tokio-tungstenite",
  "ui",

@@ -328,6 +328,7 @@ pub struct InstalledExtension {
 	pub error: Option<String>,
 	pub preserve_deleted_messages: bool,
 	pub image_sharing: bool,
+	pub rich_presence: Option<Box<extensions::CustomRichPresence>>,
 }
 
 pub enum Event {
@@ -575,6 +576,15 @@ impl Stored {
 			sha256: self.sha256.clone(),
 			download_bytes: self.download_bytes,
 			image_sharing: result.as_ref().is_ok_and(|output| output.image_sharing),
+			rich_presence: result
+				.as_ref()
+				.ok()
+				.and_then(|output| match &output.rich_presence {
+					Some(extensions::RichPresenceUpdate::Set { presence }) => {
+						Some(presence.clone())
+					}
+					_ => None,
+				}),
 			// Current protector packages have a no-op activation; consent still opts in.
 			preserve_deleted_messages: activation.is_some()
 				&& result.is_ok()
@@ -841,6 +851,10 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			let mut output =
 				extensions::invoke(&stored.package, &invocation).map_err(|e| e.to_string())?;
 			gate.check()?;
+			if output.rich_presence.is_some() && !stored.grants.contains(&Capability::RichPresence)
+			{
+				return Err("Rich presence access was not granted".into());
+			}
 			if let Some(data) = output.storage.take() {
 				if !stored.grants.contains(&Capability::Storage) || data.len() > MAX_STORAGE {
 					return Err("Plugin data exceeds its granted storage budget".into());
@@ -1108,6 +1122,7 @@ fn load(
 							summary.theme = None;
 							summary.preserve_deleted_messages = false;
 							summary.image_sharing = false;
+							summary.rich_presence = None;
 							summary.error = Some(error);
 							summary
 						}
@@ -1136,6 +1151,7 @@ fn load(
 						error: Some(error),
 						preserve_deleted_messages: false,
 						image_sharing: false,
+						rich_presence: None,
 					},
 				});
 			}

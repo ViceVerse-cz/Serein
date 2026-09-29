@@ -125,18 +125,27 @@ impl State {
 	}
 	pub(crate) fn observe_server_notification_settings(
 		&mut self,
-		event: &crate::notifications::Event,
+		entries: &[crate::notifications::Setting],
 	) {
-		if let Some((Action::Notifications { guild, .. }, _, observed)) =
+		if let Some((Action::Notifications { guild, options }, _, observed)) =
 			&mut self.server_actions.pending
 		{
-			*observed |= match event {
-				crate::notifications::Event::Invalidate => true,
-				crate::notifications::Event::Settings { entries, replace } => {
-					*replace || entries.iter().any(|s| s.guild == Some(*guild))
-				}
-				_ => false,
-			};
+			*observed |= entries
+				.iter()
+				.filter(|setting| setting.guild == Some(*guild))
+				.any(|setting| {
+					options
+						.level
+						.is_none_or(|value| setting.level == Some(value))
+						&& options.muted.is_none_or(|value| {
+							setting.muted == Some(value) && setting.mute_until.is_none()
+						}) && options
+						.suppress_everyone
+						.is_none_or(|value| setting.suppress_everyone == Some(value))
+						&& options
+							.suppress_roles
+							.is_none_or(|value| setting.suppress_roles == Some(value))
+				});
 		}
 	}
 	pub fn server_invite_pending(&self) -> bool {
@@ -664,7 +673,7 @@ mod tests {
 		});
 	}
 	#[test]
-	fn notification_writes_need_membership_not_admin_and_preserve_newer_settings() {
+	fn notification_writes_need_membership_not_admin_and_confirm_after_unrelated_events() {
 		let mut state = state();
 		state.permissions.guilds.clear(); // An ordinary member need not manage the guild.
 		let edit = NotificationOptions {
@@ -701,12 +710,28 @@ mod tests {
 				entries: vec![crate::notifications::Setting {
 					guild: Some(Id(2)),
 					level: Some(2),
+					suppress_roles: Some(true),
 					..Default::default()
 				}],
 				replace: false,
 			})
 			.unwrap();
 		finish(&mut state, old, Ok(None));
+		assert_eq!(state.server_notification_settings(Id(2)).level, Some(1));
+		assert_eq!(
+			state.server_notification_settings(Id(2)).suppress_roles,
+			Some(true)
+		);
+		state
+			.apply_notification_preferences(crate::notifications::Event::Settings {
+				entries: vec![crate::notifications::Setting {
+					guild: Some(Id(2)),
+					level: Some(2),
+					..Default::default()
+				}],
+				replace: false,
+			})
+			.unwrap();
 		assert_eq!(state.server_notification_settings(Id(2)).level, Some(2));
 		let old = state.update_server_notifications(Id(2), edit).unwrap();
 		state.cancel_server_action();

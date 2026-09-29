@@ -4106,3 +4106,9 @@ server-notifications-unknown = Některá nastavení nejsou dostupná. Uložením
 server-notifications-offline = Pro změnu nastavení oznámení se znovu připojte.
 server-notifications-save = Uložit změny
 server-notifications-saving = Ukládání…
+
+search-page-label = Stránka
+search-page-previous = Předchozí stránka
+search-page-next = Další stránka
+search-page-go = Přejít na stránku
+search-page-retry = Zkusit stránku znovu

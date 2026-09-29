@@ -674,7 +674,6 @@ impl State {
 	}
 	pub fn apply_notification_preferences(&mut self, event: Event) -> Result<(), &'static str> {
 		self.observe_dm_settings(&event);
-		self.observe_server_notification_settings(&event);
 		self.read_state.activity.clear_notifications();
 		if event.bytes() > MAX_SETTINGS_BYTES {
 			self.notification_preferences = Preferences::default();
@@ -733,6 +732,7 @@ impl State {
 						"Notification settings exceed safe capacity or contain duplicate IDs",
 					);
 				}
+				self.observe_server_notification_settings(&entries);
 				if replace {
 					self.notification_preferences.settings.clear();
 					self.startup_warnings.notifications = false;

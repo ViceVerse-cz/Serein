@@ -1681,6 +1681,8 @@ mod tests {
 			channel,
 			query: String::new(),
 			before: None,
+			offset: 0,
+			total: None,
 			pin_before: None,
 			request: 0,
 			loading: false,

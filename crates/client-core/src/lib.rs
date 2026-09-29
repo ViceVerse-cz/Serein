@@ -172,6 +172,7 @@ pub enum Command {
 		guild: Option<Id>,
 		query: String,
 		before: Option<Id>,
+		offset: u32,
 		request: u64,
 	},
 	CancelSearch,

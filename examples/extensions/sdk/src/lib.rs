@@ -16,6 +16,8 @@ pub use serde_json;
 use std::{collections::BTreeMap, fmt, io, str::FromStr};
 mod discovery;
 pub use discovery::*;
+mod rich_presence;
+pub use rich_presence::*;
 mod conversation_activity;
 pub use conversation_activity::*;
 mod message_content;
@@ -139,6 +141,9 @@ impl Output {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Element {
+	ActivityPreview {
+		presence: Box<CustomRichPresence>,
+	},
 	Text {
 		text: String,
 	},

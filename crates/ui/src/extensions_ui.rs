@@ -955,7 +955,7 @@ impl ExtensionUi {
 					.manifest
 					.actions
 					.iter()
-					.any(|action| matches!(action.surface, Surface::Composer | Surface::Panel))
+					.any(|action| action.surface == Surface::Composer)
 		}) {
 			return;
 		}
@@ -964,9 +964,12 @@ impl ExtensionUi {
 			crate::i18n::translate("extensions-ui-composer-menu-tools"),
 			|ui| {
 				for entry in self.entries.iter().filter(|entry| entry.enabled) {
-					for action in entry.manifest.actions.iter().filter(|action| {
-						matches!(action.surface, Surface::Composer | Surface::Panel)
-					}) {
+					for action in entry
+						.manifest
+						.actions
+						.iter()
+						.filter(|action| action.surface == Surface::Composer)
+					{
 						if ui
 							.add_enabled(
 								!self.busy,
@@ -2162,6 +2165,8 @@ impl ExtensionUi {
 		state: &mut State,
 		changes: &mut Vec<Id>,
 		editing: bool,
+		avatars: &mut crate::avatars::Avatars,
+		activity_status: (&str, bool),
 	) -> Option<crate::extension_app::ConfirmedEffect> {
 		if let Some(message) = self.error.take() {
 			let mut dismissed = false;
@@ -2201,14 +2206,25 @@ impl ExtensionUi {
 			.find(|entry| entry.manifest.id == result.id)
 			.map_or("Extension tool", |entry| entry.manifest.name.as_str())
 			.to_owned();
+		let rich = self.entries.iter().any(|entry| {
+			entry.manifest.id == result.id
+				&& entry
+					.manifest
+					.capabilities
+					.contains(&Capability::RichPresence)
+		});
 		let mut close = false;
 		let response = crate::dialog::Dialog::new("extension-result", title)
-			.subtitle(crate::i18n::translate(
-				"extensions-ui-show-result-review-the-result-app-actions-and-draft-changes-need-your",
-			))
-			.width(520.0)
+			.subtitle(if rich {
+				"Create your activity, preview it, then apply when ready.".into()
+			} else {
+				crate::i18n::translate(
+					"extensions-ui-show-result-review-the-result-app-actions-and-draft-changes-need-your",
+				)
+			})
+			.width(if rich { 820.0 } else { 520.0 })
 			.show(ctx, |d| {
-				d.scroll(240.0, |ui| {
+				d.scroll(if rich { 200.0 } else { 240.0 }, |ui| {
 					if let Some(replacement) = &result.output.replacement {
 						crate::dialog::label(
 							ui,
@@ -2234,9 +2250,31 @@ impl ExtensionUi {
 						);
 						ui.add_space(10.0);
 					}
+					if rich {
+						ui.add_enabled_ui(!self.busy, |ui| {
+							crate::rich_presence::editor(
+								ui,
+								&result.output.panel,
+								&mut result.values,
+								&mut action,
+								avatars,
+								state,
+								activity_status,
+							);
+						});
+						return;
+					}
 					render_elements(ui, &result.output.panel, &mut result.values, &mut action);
 				});
 				d.footer(|ui| {
+					if rich {
+						crate::rich_presence::actions(
+							ui,
+							&result.output.panel,
+							&mut action,
+							self.busy,
+						);
+					}
 					if let Some(effect) = result.output.effects.first()
 						&& crate::dialog::action(
 							ui,
@@ -2660,6 +2698,7 @@ fn badge(ui: &mut egui::Ui, text: &str, foreground: egui::Color32, background: e
 
 fn capability_label(capability: Capability) -> &'static str {
 	match capability {
+		Capability::RichPresence => "Publish custom activity while activity sharing is enabled",
 		Capability::ImageSharing => "Enable explicit emoji and sticker image attachment selection",
 		Capability::Appearance => "Customize app colors, typography and control styling",
 		Capability::MessageEvents => "Read live message events and text in the active conversation",
@@ -2751,7 +2790,7 @@ fn capability_label(capability: Capability) -> &'static str {
 		}
 	}
 }
-fn render_elements(
+pub(crate) fn render_elements(
 	ui: &mut egui::Ui,
 	elements: &[Element],
 	values: &mut BTreeMap<String, String>,
@@ -2759,6 +2798,9 @@ fn render_elements(
 ) {
 	for element in elements {
 		match element {
+			Element::ActivityPreview { presence } => {
+				crate::rich_presence::summary(ui, presence);
+			}
 			Element::Text { text } => {
 				ui.add(egui::Label::new(text).wrap());
 			}

@@ -27,6 +27,8 @@ fn date_id(value: &str) -> Result<Option<u64>, ()> {
 #[derive(Default)]
 pub struct SearchUi {
 	pub open: bool,
+	page_input: String,
+	page_request: Option<u64>,
 	pins: bool,
 	query: String,
 	channel: Option<Id>,
@@ -51,6 +53,22 @@ pub struct SearchUi {
 }
 
 impl SearchUi {
+	/// Refocus the current query without dropping its page or scroll position.
+	pub fn focus_conversation(&mut self, channel: Id) {
+		if self.open && (self.composing || self.filter_draft.is_some() || self.viewing.is_some()) {
+			return;
+		}
+		if self.channel != Some(channel) || !self.open || self.pins {
+			self.query.clear();
+		}
+		self.channel = Some(channel);
+		self.open = true;
+		self.pins = false;
+		self.focus = true;
+		self.filters_open = false;
+		self.filter_draft = None;
+		self.viewing = None;
+	}
 	pub(super) fn open_extension(&mut self, channel: Id, pins: bool, query: Option<String>) {
 		self.channel = Some(channel);
 		self.open = true;
@@ -171,7 +189,32 @@ impl SearchUi {
 				ui.set_height(28.0);
 				ui.horizontal_centered(|ui| {
 					ui.spacing_mut().item_spacing.x = 6.0;
+					// Search is always scoped to this conversation; show its name, not an ID.
+					if let Some(channel) = state.selected.and_then(|id| state.channel(id)) {
+						let name = state.conversation_name(channel);
+						let width = (ui.available_width() * 0.35).clamp(36.0, 110.0);
+						ui.allocate_ui_with_layout(
+							egui::vec2(width, 24.0),
+							egui::Layout::left_to_right(egui::Align::Center),
+							|ui| {
+								ui.add(
+									egui::Label::new(
+										RichText::new(if channel.guild.is_some() {
+											format!("#{name}")
+										} else {
+											name.to_owned()
+										})
+										.size(12.0)
+										.color(colors.muted),
+									)
+									.truncate(),
+								)
+								.on_hover_text(name);
+							},
+						);
+					}
 					let output = egui::TextEdit::singleline(&mut self.query)
+						.id_salt("conversation-search-query")
 						.char_limit(256)
 						.frame(egui::Frame::NONE)
 						.hint_text(crate::i18n::translate("search-header-input-search"))
@@ -759,7 +802,6 @@ impl SearchUi {
 		let allowed = state.can_search();
 		let mut submit = std::mem::take(&mut self.pending_submit) && !self.pins;
 		let mut media = media;
-		let mut older = None;
 		let mut target = None;
 		ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
 		if self.pins {
@@ -904,12 +946,10 @@ impl SearchUi {
 			}
 			None => {}
 			Some(page) => {
-				let more = page.total > page.hits.len() as u64 || page.partial;
-				let footer = (more && page.hits.last().is_some()) || view.before.is_some();
 				let content_query = model::search_terms(&view.query)
 					.map(|(content, _)| content)
 					.unwrap_or_default();
-				let footer_height = if footer { CHIP_HEIGHT + 20.0 } else { 0.0 };
+				let footer_height = CHIP_HEIGHT + 20.0;
 				egui::ScrollArea::vertical()
 					.id_salt(("search-results", view.request))
 					.auto_shrink([false, false])
@@ -960,58 +1000,15 @@ impl SearchUi {
 						}
 						ui.add_space(4.0);
 					});
-				if footer {
-					hairline(ui);
-					ui.allocate_ui_with_layout(
-						egui::vec2(ui.available_width(), CHIP_HEIGHT),
-						egui::Layout::left_to_right(egui::Align::Center),
-						|ui| {
-							let enabled = allowed && !view.loading;
-							ui.add_enabled_ui(enabled && view.before.is_some(), |ui| {
-								if chip(ui, Chip::new(icons::Icon::CaretLeft, "Newest")).clicked() {
-									older = Some((view.query.clone(), None));
-								}
-							});
-							ui.with_layout(
-								egui::Layout::right_to_left(egui::Align::Center),
-								|ui| {
-									ui.add_enabled_ui(enabled && more, |ui| {
-										let mut older_chip =
-											Chip::new(icons::Icon::ChevronRight, "Older");
-										older_chip.trailing = true;
-										if chip(ui, older_chip).clicked()
-											&& let Some(last) = page.hits.last()
-										{
-											older = Some((view.query.clone(), Some(last.id)));
-										}
-									});
-									ui.with_layout(
-										egui::Layout::centered_and_justified(
-											egui::Direction::LeftToRight,
-										),
-										|ui| {
-											ui.label(
-												RichText::new(format!(
-													"{} {} {}",
-													page.hits.len(),
-													crate::i18n::translate("search-pane-of"),
-													page.total
-												))
-												.size(12.0)
-												.color(colors.muted),
-											);
-										},
-									);
-								},
-							);
-						},
-					);
-				}
 			}
 		}
+		let requested_page = state
+			.search
+			.as_ref()
+			.and_then(|view| self.pager(ui, view, allowed));
 		self.viewer(ui, state, avatars, media.download);
-		if let Some((query, before)) = older
-			&& let Some(command) = state.request_search(query, before)
+		if let Some(page) = requested_page
+			&& let Some(command) = state.request_search_page(page)
 		{
 			commands.push(command);
 		}
@@ -1019,8 +1016,105 @@ impl SearchUi {
 			&& let Some(command) = state.open_search_hit(target)
 		{
 			commands.push(command);
-			self.open = false;
 		}
+	}
+	fn pager(
+		&mut self,
+		ui: &mut egui::Ui,
+		view: &client_core::search::SearchView,
+		allowed: bool,
+	) -> Option<u32> {
+		let current = view.offset / model::SEARCH_PAGE_SIZE as u32;
+		if self.page_request != Some(view.request) {
+			self.page_request = Some(view.request);
+			self.page_input = (current + 1).to_string();
+		}
+		let pages = view.page_count();
+		let mut requested = None;
+		hairline(ui);
+		ui.horizontal(|ui| {
+			ui.spacing_mut().item_spacing.x = 4.0;
+			ui.add_enabled_ui(allowed && !view.loading, |ui| {
+				if ui
+					.add_enabled_ui(current > 0, |ui| {
+						icons::button(
+							ui,
+							icons::Icon::CaretLeft,
+							24.0,
+							&crate::i18n::translate("search-page-previous"),
+						)
+					})
+					.inner
+					.clicked()
+				{
+					requested = Some((current - 1).min(pages - 1));
+				}
+				if ui.available_width() > 260.0 {
+					ui.label(crate::i18n::translate("search-page-label"));
+				}
+				let input = ui
+					.add(
+						egui::TextEdit::singleline(&mut self.page_input)
+							.id_salt("search-page-number")
+							.desired_width(36.0)
+							.char_limit(3),
+					)
+					.accessible_name(crate::i18n::translate("search-page-label"));
+				self.page_input
+					.retain(|character| character.is_ascii_digit());
+				ui.label(format!("/ {pages}"));
+				let page = self
+					.page_input
+					.parse::<u32>()
+					.ok()
+					.filter(|page| (1..=pages).contains(page));
+				let go = ui
+					.add_enabled_ui(page.is_some(), |ui| {
+						icons::button(
+							ui,
+							icons::Icon::Search,
+							24.0,
+							&crate::i18n::translate("search-page-go"),
+						)
+					})
+					.inner
+					.clicked();
+				let enter = input.lost_focus()
+					&& ui.input(|input| input.key_pressed(egui::Key::Enter))
+					&& !self.ime_frame;
+				if (go || enter)
+					&& let Some(page) = page
+				{
+					requested = Some(page - 1);
+				}
+				if ui
+					.add_enabled_ui(current + 1 < pages, |ui| {
+						icons::button(
+							ui,
+							icons::Icon::ChevronRight,
+							24.0,
+							&crate::i18n::translate("search-page-next"),
+						)
+					})
+					.inner
+					.clicked()
+				{
+					requested = Some(current + 1);
+				}
+				if view.error.is_some()
+					&& icons::button(
+						ui,
+						icons::Icon::Reload,
+						24.0,
+						&crate::i18n::translate("search-page-retry"),
+					)
+					.clicked()
+				{
+					requested = Some(current);
+				}
+			});
+		});
+		requested
 	}
 	fn viewer(
 		&mut self,

@@ -488,7 +488,7 @@ mod channel_tests {
 #[derive(Deserialize)]
 pub struct GuildDto {
 	#[serde(default)]
-	pub default_message_notifications: Option<u8>,
+	pub default_message_notifications: Patch<u8>,
 	#[serde(default)]
 	pub stickers: Option<stickers::Catalog>,
 	#[serde(default)]
@@ -513,16 +513,25 @@ pub struct GuildDto {
 }
 impl GuildDto {
 	pub fn default_notification_level(&self) -> Option<u8> {
-		match self
+		match self.default_notification_patch() {
+			Patch::Value(level) => Some(level),
+			Patch::Absent | Patch::Null => None,
+		}
+	}
+	pub fn default_notification_patch(&self) -> Patch<u8> {
+		let value = match self
 			.properties
 			.as_ref()
 			.map(|p| &p.default_message_notifications)
 		{
-			Some(Patch::Value(level)) => Some(*level),
-			Some(Patch::Null) => None,
-			_ => self.default_message_notifications,
+			Some(Patch::Value(level)) => Patch::Value(*level),
+			Some(Patch::Null) => Patch::Null,
+			_ => self.default_message_notifications.clone(),
+		};
+		match value {
+			Patch::Value(level) if level > 1 => Patch::Null,
+			other => other,
 		}
-		.filter(|level| *level <= 1)
 	}
 }
 #[derive(Deserialize)]
@@ -630,8 +639,10 @@ impl Ready {
 				// are flat. The nested values override only fields actually present there.
 				if let Some(properties) = g.properties {
 					match properties.default_message_notifications {
-						Patch::Value(level) => g.default_message_notifications = Some(level),
-						Patch::Null => g.default_message_notifications = None,
+						Patch::Value(level) => {
+							g.default_message_notifications = Patch::Value(level)
+						}
+						Patch::Null => g.default_message_notifications = Patch::Null,
 						Patch::Absent => {}
 					}
 					match properties.name {
@@ -688,9 +699,10 @@ impl Ready {
 					}
 				}
 				Guild {
-					default_message_notifications: g
-						.default_message_notifications
-						.filter(|level| *level <= 1),
+					default_message_notifications: match g.default_message_notifications {
+						Patch::Value(level) if level <= 1 => Some(level),
+						_ => None,
+					},
 					emojis: g.emojis.map(|emojis| emojis.0),
 					stickers: g.stickers.and_then(|list| {
 						let stickers = stickers::guild_catalog(list.0, g.id).ok();

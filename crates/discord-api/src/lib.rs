@@ -808,9 +808,10 @@ impl DiscordApi {
 				guild,
 				query,
 				before,
+				offset,
 				request,
 			} => {
-				let result = self.search(channel, guild, &query, before).await;
+				let result = self.search(channel, guild, &query, before, offset).await;
 				Event::Search {
 					channel,
 					request,
@@ -1260,8 +1261,9 @@ impl DiscordApi {
 		guild: Option<model::Id>,
 		query: &str,
 		before: Option<model::Id>,
+		offset: u32,
 	) -> Result<client_core::search::Outcome, Failure> {
-		if !model::valid_search_query(query) {
+		if !model::valid_search_query(query) || offset > model::MAX_SEARCH_OFFSET {
 			return Err(Failure::Protocol);
 		}
 		let (content, filters) = model::search_terms(query).map_err(|_| Failure::Protocol)?;
@@ -1287,6 +1289,9 @@ impl DiscordApi {
 		if let Some(before) = maximum {
 			path.push_str(&format!("&max_id={before}"));
 		}
+		if offset != 0 {
+			path.push_str(&format!("&offset={offset}"));
+		}
 		let bytes = self
 			.request_limited(Method::GET, &path, None, search::MAX_WIRE)
 			.await?;
@@ -1300,7 +1305,7 @@ impl DiscordApi {
 			return Ok(client_core::search::Outcome::Indexing);
 		}
 		reply
-			.into_page(channel, before)
+			.into_page(channel, maximum.map(model::Id))
 			.map(client_core::search::Outcome::Page)
 			.map_err(|_| Failure::Protocol)
 	}
@@ -2126,6 +2131,9 @@ mod tests {
                 for (route,status,body) in [
                     ("/guilds/2/messages/search?channel_id=1&content=%78%26%23%3F%2E%2E&limit=25&sort_by=timestamp&sort_order=desc","200 OK",r#"{"messages":[[{"id":"9","channel_id":"1","author":{"id":"3","username":"Synthetic"},"content":"match"}]],"total_results":1}"#),
                     ("/channels/1/messages/search?content=%78&limit=25&sort_by=timestamp&sort_order=desc&max_id=9","200 OK",r#"{"messages":[],"total_results":0}"#),
+                    ("/guilds/2/messages/search?channel_id=1&content=%78&limit=25&sort_by=timestamp&sort_order=desc&max_id=8&offset=25","200 OK",r#"{"messages":[],"total_results":50}"#),
+                    ("/channels/1/messages/search?content=%78&limit=25&sort_by=timestamp&sort_order=desc&offset=9975","200 OK",r#"{"messages":[],"total_results":10000}"#),
+                    ("/channels/1/messages/search?content=%78&limit=25&sort_by=timestamp&sort_order=desc&max_id=9&offset=25","200 OK",r#"{"messages":[[{"id":"9","channel_id":"1","author":{"id":"3","username":"Synthetic"},"content":"outside filter"}]],"total_results":50}"#),
                     ("/channels/1/messages/search?content=%78&limit=25&sort_by=timestamp&sort_order=desc","403 Forbidden",r#"{"code":50001}"#),
                     ("/channels/1/messages/pins?limit=25","200 OK",r#"{"items":[{"pinned_at":"2026-09-10T12:00:00Z","message":{"id":"9","channel_id":"1","author":{"id":"3","username":"Synthetic"},"content":"pin"}}],"has_more":true}"#),
                     ("/channels/1/messages/pins?limit=25&before=%32%30%32%36%2D%30%39%2D%31%30%54%31%32%3A%30%30%3A%30%30%5A","200 OK",r#"{"items":[{"pinned_at":"2026-09-10T11:00:00Z","message":{"id":"99","channel_id":"1","author":{"id":"3","username":"Synthetic"},"content":"older pin, newer message"}}],"has_more":false}"#),
@@ -2141,10 +2149,14 @@ mod tests {
                     socket.write_all(format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
                 }
             });
-            let Event::Search {channel:Id(1),request:8,result:Ok(Outcome::Page(page))}=api.execute(Command::Search {channel:Id(1),guild:Some(Id(2)),query:"x&#?..".into(),before:None,request:8}).await else {panic!()};
+            let Event::Search {channel:Id(1),request:8,result:Ok(Outcome::Page(page))}=api.execute(Command::Search {channel:Id(1),guild:Some(Id(2)),query:"x&#?..".into(),before:None,offset:0,request:8}).await else {panic!()};
             assert_eq!(page.hits[0].id,Id(9));
-            assert!(matches!(api.search(Id(1),None,"x",Some(Id(9))).await,Ok(Outcome::Page(p)) if p.hits.is_empty()));
-            assert!(matches!(api.search(Id(1),None,"x",None).await,Err(Failure::Forbidden)));
+            assert!(matches!(api.search(Id(1),None,"x",Some(Id(9)),0).await,Ok(Outcome::Page(p)) if p.hits.is_empty()));
+            assert!(matches!(api.search(Id(1),Some(Id(2)),"x before_id:8",Some(Id(9)),25).await,Ok(Outcome::Page(p)) if p.total == 50));
+            assert!(matches!(api.search(Id(1),None,"x",None,9975).await,Ok(Outcome::Page(p)) if p.total == 10000));
+            assert!(matches!(api.search(Id(1),None,"x before_id:9",None,25).await,Err(Failure::Protocol)));
+            assert!(matches!(api.search(Id(1),None,"x",None,9976).await,Err(Failure::Protocol)));
+            assert!(matches!(api.search(Id(1),None,"x",None,0).await,Err(Failure::Forbidden)));
             let Event::Search { channel:Id(1),request:9,result:Ok(Outcome::Pins(page)) } = api.execute(Command::Pins { channel:Id(1),before:None,request:9 }).await else {panic!()};
             assert!(page.hits[0].id == Id(9) && page.partial);
             let cursor = page.pin_cursor.unwrap();
@@ -2152,7 +2164,7 @@ mod tests {
             assert!(matches!(api.pins(Id(1),Some(cursor)).await,Err(Failure::Protocol)));
             assert!(matches!(api.pins(Id(1),Some(i128::MAX)).await,Err(Failure::Protocol)));
             assert!(matches!(api.pins(Id(1),None).await,Err(Failure::Forbidden)));
-            assert!(matches!(api.search(Id(1),None,"x",None).await,Ok(Outcome::Indexing)));
+            assert!(matches!(api.search(Id(1),None,"x",None,0).await,Ok(Outcome::Indexing)));
             assert!(*api.cooldown.lock().await>Instant::now());
             server.await.unwrap();
         }).await.unwrap();

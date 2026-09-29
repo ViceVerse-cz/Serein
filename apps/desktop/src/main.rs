@@ -2695,6 +2695,15 @@ impl Desktop {
 		let mut own_activity = None;
 		self.messaging.game_activity_status = self.game_activity.status();
 		if let Some(connection) = &self.connection {
+			let custom_changed = self.extensions.take_rich_presence_change();
+			let custom = self.extensions.rich_presence();
+			connection.custom_rich_presence.send_if_modified(|current| {
+				if !custom_changed && current.as_ref() == custom {
+					return false;
+				}
+				*current = custom.cloned();
+				true
+			});
 			connection.share_activity.send_if_modified(|enabled| {
 				if *enabled == self.game_activity.enabled {
 					return false;
@@ -3508,6 +3517,7 @@ impl Desktop {
 					channel,
 					query,
 					before,
+					offset,
 					request,
 					..
 				} => {
@@ -3574,7 +3584,7 @@ impl Desktop {
 								)
 							}) {
 							total += 1;
-							if hits.len() < model::SEARCH_PAGE_SIZE {
+							if total > u64::from(offset) && hits.len() < model::SEARCH_PAGE_SIZE {
 								hits.push(model::SearchHit {
 									id: message.id,
 									channel,

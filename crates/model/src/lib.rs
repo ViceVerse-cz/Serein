@@ -581,7 +581,7 @@ pub struct RichActivity {
 	pub small_image: Option<ActivityImage>,
 	/// Unix milliseconds, as supplied by the activity producer.
 	pub started_at: Option<u64>,
-	/// Track end in Unix milliseconds; absent when duration is unknown.
+	/// Activity end in Unix milliseconds; may be present without a start for a countdown.
 	pub ends_at: Option<u64>,
 }
 pub const MAX_ACTIVITY_TIMESTAMP: u64 = 9_007_199_254_740_991;
@@ -597,7 +597,7 @@ impl RichActivity {
 				.started_at
 				.is_none_or(|at| at <= MAX_ACTIVITY_TIMESTAMP)
 			&& self.ends_at.is_none_or(|end| {
-				end <= MAX_ACTIVITY_TIMESTAMP && self.started_at.is_some_and(|start| end > start)
+				end <= MAX_ACTIVITY_TIMESTAMP && self.started_at.is_none_or(|start| end > start)
 			})
 	}
 	pub fn heap_bytes(&self) -> usize {
@@ -892,6 +892,14 @@ mod presence_tests {
 		allocated.started_at = Some(MAX_ACTIVITY_TIMESTAMP + 1);
 		assert!(!allocated.valid());
 		allocated.started_at = None;
+		allocated.ends_at = Some(1000);
+		assert!(allocated.valid());
+		allocated.started_at = Some(1000);
+		assert!(!allocated.valid());
+		allocated.started_at = None;
+		allocated.ends_at = Some(MAX_ACTIVITY_TIMESTAMP + 1);
+		assert!(!allocated.valid());
+		allocated.ends_at = None;
 		allocated.small_image = Some(ActivityImage::Proxy("external/../secret".into()));
 		assert!(!allocated.valid());
 	}

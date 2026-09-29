@@ -13,6 +13,8 @@ pub const MAX_INVITE_CODE: usize = 64;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Activity {
+	#[serde(flatten)]
+	pub extra: ActivityExtra,
 	pub name: String,
 	pub application_id: Id,
 	#[serde(rename = "type")]
@@ -25,6 +27,42 @@ pub struct Activity {
 	pub timestamps: Option<Timestamps>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub assets: Option<Assets>,
+}
+
+/// Additional user-authored fields; local game IPC retains its existing restricted surface.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct ActivityExtra {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub url: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub details_url: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub state_url: Option<String>,
+	#[serde(skip_serializing_if = "Vec::is_empty")]
+	pub buttons: Vec<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub metadata: Option<ButtonMetadata>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub party: Option<Party>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ButtonMetadata {
+	pub button_urls: Vec<String>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Party {
+	pub size: [u32; 2],
+}
+
+fn valid_link(value: &str) -> bool {
+	value.len() <= 2048
+		&& !value.chars().any(|c| c.is_whitespace() || c.is_control())
+		&& url::Url::parse(value).is_ok_and(|url| {
+			url.scheme() == "https"
+				&& url.has_host()
+				&& url.username().is_empty()
+				&& url.password().is_none()
+		})
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -52,6 +90,10 @@ pub struct Timestamps {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Assets {
 	#[serde(skip_serializing_if = "Option::is_none")]
+	pub large_url: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub small_url: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub large_image: Option<String>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub large_text: Option<String>,
@@ -66,14 +108,42 @@ fn text_valid(value: &str, limit: usize) -> bool {
 }
 
 impl Activity {
-	/// At most seven strings (1,152 UTF-8 bytes total) plus fixed metadata.
+	/// Every string, list and number is bounded before Gateway publication.
 	pub fn validate(&self) -> Result<(), DecodeError> {
 		if self.application_id.0 == 0 || self.name.trim().is_empty() || !text_valid(&self.name, 128)
 		{
 			return Err(DecodeError);
 		}
+		if serde_json::to_vec(self).map_err(|_| DecodeError)?.len() > 3072 {
+			return Err(DecodeError);
+		}
+		let extra = &self.extra;
+		if (self.kind == 1) != extra.url.is_some()
+			|| extra.details_url.is_some() && self.details.is_none()
+			|| extra.state_url.is_some() && self.state.is_none()
+			|| [&extra.url, &extra.details_url, &extra.state_url]
+				.into_iter()
+				.flatten()
+				.any(|url| !valid_link(url))
+			|| extra.buttons.len() > 2
+			|| extra
+				.buttons
+				.iter()
+				.any(|label| label.trim().is_empty() || !text_valid(label, 32))
+			|| extra.metadata.as_ref().map_or(0, |m| m.button_urls.len()) != extra.buttons.len()
+			|| extra
+				.metadata
+				.as_ref()
+				.is_some_and(|m| m.button_urls.iter().any(|url| !valid_link(url)))
+			|| extra
+				.party
+				.as_ref()
+				.is_some_and(|p| p.size[0] == 0 || p.size[0] > p.size[1] || p.size[1] > 9999)
+		{
+			return Err(DecodeError);
+		}
 		validate_fields(
-			self.kind,
+			if self.kind == 1 { 0 } else { self.kind },
 			&self.details,
 			&self.state,
 			&self.timestamps,
@@ -105,6 +175,10 @@ fn validate_fields(
 			.into_iter()
 			.flatten()
 			.any(|text| !text_valid(text, 128))
+			|| [&a.large_url, &a.small_url]
+				.into_iter()
+				.flatten()
+				.any(|url| !valid_link(url))
 			|| [&a.large_image, &a.small_image]
 				.into_iter()
 				.flatten()
@@ -118,6 +192,7 @@ fn validate_fields(
 impl ActivityFields {
 	pub fn into_activity(self, application_id: Id, name: String) -> Result<Activity, DecodeError> {
 		let mut activity = Activity {
+			extra: ActivityExtra::default(),
 			name,
 			application_id,
 			kind: self.kind,
@@ -226,7 +301,7 @@ pub fn decode_command(bytes: &[u8]) -> Result<SetActivity, DecodeError> {
 /// instead of silently succeeding, matching Discord's own RPC surface for absent scopes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
-	SetActivity(SetActivity),
+	SetActivity(Box<SetActivity>),
 	/// `INVITE_BROWSER`: the caller asks the client to show an invite. Joining stays user-confirmed.
 	Invite {
 		nonce: String,
@@ -237,7 +312,9 @@ pub enum Request {
 pub fn decode_request(bytes: &[u8]) -> Result<Request, DecodeError> {
 	let value = payload(bytes)?;
 	match value.get("cmd").and_then(Value::as_str) {
-		Some("SET_ACTIVITY") => decode_command(bytes).map(Request::SetActivity),
+		Some("SET_ACTIVITY") => {
+			decode_command(bytes).map(|activity| Request::SetActivity(Box::new(activity)))
+		}
 		Some("INVITE_BROWSER") => {
 			let nonce = decode_nonce(&value)?;
 			let code = value
@@ -338,6 +415,41 @@ mod tests {
 		json!({"cmd":"SET_ACTIVITY","nonce":"synthetic-1","args":{"pid":123,"activity":activity}})
 			.to_string()
 			.into_bytes()
+	}
+
+	#[test]
+	fn custom_fields_are_bounded_and_use_gateway_button_metadata() {
+		let mut activity = ActivityFields::default()
+			.into_activity(Id(42), "Custom".into())
+			.unwrap();
+		activity.kind = 1;
+		activity.extra = ActivityExtra {
+			url: Some("https://twitch.tv/synthetic".into()),
+			buttons: vec!["Website".into()],
+			metadata: Some(ButtonMetadata {
+				button_urls: vec!["https://example.com".into()],
+			}),
+			party: Some(Party { size: [2, 4] }),
+			..Default::default()
+		};
+		assert!(activity.validate().is_ok());
+		let wire = serde_json::to_value(&activity).unwrap();
+		assert_eq!(wire["buttons"][0], "Website");
+		assert_eq!(wire["metadata"]["button_urls"][0], "https://example.com");
+		assert_eq!(wire["party"]["size"], json!([2, 4]));
+		activity
+			.extra
+			.metadata
+			.as_mut()
+			.unwrap()
+			.button_urls
+			.clear();
+		assert!(activity.validate().is_err());
+		activity.extra.buttons.clear();
+		activity.extra.url = Some("javascript:alert(1)".into());
+		assert!(activity.validate().is_err());
+		activity.extra.url = Some("https://user:password@example.com".into());
+		assert!(activity.validate().is_err());
 	}
 
 	#[test]

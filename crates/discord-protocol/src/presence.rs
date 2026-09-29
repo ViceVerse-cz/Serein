@@ -177,11 +177,10 @@ impl Activity {
 			image,
 			small_image,
 			ends_at: self.timestamps.as_ref().and_then(|timestamps| {
-				let start = timestamps.0.start?;
-				timestamps
-					.0
-					.end
-					.filter(|end| *end > start && *end <= model::MAX_ACTIVITY_TIMESTAMP)
+				timestamps.0.end.filter(|end| {
+					*end <= model::MAX_ACTIVITY_TIMESTAMP
+						&& timestamps.0.start.is_none_or(|start| *end > start)
+				})
 			}),
 			started_at: self
 				.timestamps
@@ -504,6 +503,24 @@ mod tests {
 					panic!()
 				};
 				assert_eq!(activities[0].started_at, expected);
+			}
+			for (timestamps, expected) in [
+				(serde_json::json!({"end":2000}), Some(2000)),
+				(serde_json::json!({"start":1000,"end":2000}), Some(2000)),
+				(serde_json::json!({"start":2000,"end":2000}), None),
+				(
+					serde_json::json!({"end":model::MAX_ACTIVITY_TIMESTAMP+1}),
+					None,
+				),
+			] {
+				let wire =
+					serde_json::json!([{"type":0,"name":"Countdown","timestamps":timestamps}])
+						.to_string();
+				let Patch::Value(activities) = update(&wire).unwrap().activities else {
+					panic!()
+				};
+				assert_eq!(activities[0].ends_at, expected);
+				assert!(activities[0].valid());
 			}
 			for timestamps in [r#"{"start":-1}"#, r#"{"start":"1"}"#, "[]"] {
 				assert!(

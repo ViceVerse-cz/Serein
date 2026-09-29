@@ -4090,3 +4090,9 @@ server-integrations-count-one-linked-webhook = { $count } bağlı webhook
 server-integrations-count-many-linked-webhooks = { $count } bağlı webhook
 server-invites-revoke-title = Davet iptal edilsin mi?
 server-invites-revoke-message = discord.gg/{ $code } ile bu sunucuya artık katılınamayacak.
+
+search-page-label = Sayfa
+search-page-previous = Önceki sayfa
+search-page-next = Sonraki sayfa
+search-page-go = Sayfaya git
+search-page-retry = Sayfayı yeniden dene

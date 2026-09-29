@@ -16,6 +16,8 @@ use std::{
 };
 
 struct Preview {
+	interactive: bool,
+	smoke: bool,
 	messaging: ui::MessagingUi,
 	state: client_core::State,
 	output: PathBuf,
@@ -93,6 +95,19 @@ impl eframe::App for Preview {
 				ui::design::set_background_image(&ctx, image);
 				ui::design::apply(&ctx);
 			}
+		}
+		if self.interactive {
+			return;
+		}
+		if self.smoke {
+			self.frames += 1;
+			if self.frames >= 5 {
+				self.saved.store(true, Ordering::Release);
+				println!("Offline UI smoke run completed; no screenshot captured.");
+				ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+			}
+			ctx.request_repaint();
+			return;
 		}
 		if self.requested && self.writer.is_none() {
 			let screenshot = self
@@ -259,7 +274,13 @@ fn extension_fixture(
 	),
 	Box<dyn std::error::Error>,
 > {
+	let external = std::env::var_os("SEREIN_PREVIEW_PACKAGE")
+		.map(std::fs::read)
+		.transpose()?;
 	let bytes: &[u8] = match id {
+		"custom-rpc" => external
+			.as_deref()
+			.ok_or("Set SEREIN_PREVIEW_PACKAGE to the external Custom RPC package")?,
 		"serein-ocean" => include_bytes!("../../../extensions/ocean.serein-extension"),
 		"message-delete-protector" => include_bytes!(
 			"../../../examples/extensions/packages/message-delete-protector.serein-extension"
@@ -279,7 +300,29 @@ fn extension_fixture(
 	};
 	let package = extensions::parse_package(bytes)?;
 	let invocation = extensions::Invocation {
-		action: "activate".into(),
+		action: if id == "custom-rpc" {
+			"preview"
+		} else {
+			"activate"
+		}
+		.into(),
+		values: if id == "custom-rpc" {
+			[
+				("application-id", "123456789"),
+				("name", "Stargazing"),
+				("details", "Exploring the night sky"),
+				("state", "In the observatory"),
+				("button1-label", "Visit the observatory"),
+				("button1-url", "https://example.com/observatory"),
+				("party-current", "2"),
+				("party-max", "4"),
+			]
+			.into_iter()
+			.map(|(k, v)| (k.into(), v.into()))
+			.collect()
+		} else {
+			Default::default()
+		},
 		..Default::default()
 	};
 	let output = if package.theme.is_none() {
@@ -421,9 +464,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo --output=PATH.png [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|profile-card|member-tags|dm-tags|account|appearance|general|extensions|server|server-engagement|server-stickers] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--light]".into());
+		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|profile-card|member-tags|dm-tags|account|appearance|general|extensions|server|server-engagement|server-stickers] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--light]".into());
 	}
-	let output = PathBuf::from(value("--output=").ok_or("Missing --output=PATH.png")?);
+	let smoke = args.iter().any(|arg| arg == "--smoke");
+	let interactive = args.iter().any(|arg| arg == "--interactive");
+	let output = PathBuf::from(
+		value("--output=")
+			.or((smoke || interactive).then_some(""))
+			.ok_or("Missing --output=PATH.png")?,
+	);
 	let page = value("--page=").unwrap_or("profile").to_owned();
 	if !matches!(
 		page.as_str(),
@@ -609,13 +658,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					}))],
 				});
 				messaging.preview_profile(user);
-			} else if let Some((package, _invocation, result)) = fixture {
+			} else if let Some((package, invocation, result)) = fixture {
 				prime_extension_chat(&mut state);
 				if let Some(theme) = package.theme.as_ref() {
 					ui::design::set_extension_theme(Some(theme));
 					ui::design::apply(&cc.egui_ctx);
 				}
 				if let Some(output) = result {
+					if package.manifest.id == "custom-rpc" {
+						messaging.extensions.set_entries(vec![ui::ExtensionEntry {
+							description: "Custom activity editor".into(),
+							preview: None,
+							theme_preview: None,
+							cover_image: None,
+							local_theme: false,
+							manifest: package.manifest.clone(),
+							reviewed: true,
+							sha256: String::new(),
+							download_bytes: 0,
+							enabled: true,
+							cleanup_pending: false,
+							update_available: false,
+							update_manifest: None,
+						}]);
+						messaging.extensions.present_output(
+							"custom-rpc".into(),
+							invocation,
+							ui::ExtensionContext::panel(&state),
+							output.clone(),
+							&state,
+						);
+					}
 					messaging.image_sharing_enabled = output.image_sharing;
 					if output.image_sharing {
 						test_support::seed_stickers(&mut state);
@@ -709,6 +782,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				}
 			}
 			Ok(Box::new(Preview {
+				interactive,
+				smoke,
 				messaging,
 				state,
 				output,
@@ -722,7 +797,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			}))
 		}),
 	)?;
-	if !saved.load(Ordering::Acquire) {
+	if !interactive && !saved.load(Ordering::Acquire) {
 		return Err("No screenshot saved".into());
 	}
 	Ok(())

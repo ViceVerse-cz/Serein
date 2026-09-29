@@ -255,7 +255,7 @@ fn checked_presences(raw: Option<&RawValue>, warning: &mut bool) -> Option<Box<R
 #[derive(Deserialize)]
 struct Guild<'a> {
 	#[serde(default)]
-	default_message_notifications: Option<u8>,
+	default_message_notifications: model::Patch<u8>,
 	#[serde(default, borrow)]
 	stickers: Option<&'a RawValue>,
 	id: model::Id,
@@ -428,6 +428,14 @@ mod tests {
 				expected
 			);
 		}
+		let guild: crate::GuildDto = crate::decode(br#"{"id":"1"}"#).unwrap();
+		assert_eq!(guild.default_notification_patch(), model::Patch::Absent);
+		let guild: crate::GuildDto =
+			crate::decode(br#"{"id":"1","default_message_notifications":null}"#).unwrap();
+		assert_eq!(guild.default_notification_patch(), model::Patch::Null);
+		let guild: crate::GuildDto =
+			crate::decode(br#"{"id":"1","default_message_notifications":8}"#).unwrap();
+		assert_eq!(guild.default_notification_patch(), model::Patch::Null);
 		let absent: crate::GuildPatchDto = crate::decode(br#"{"id":"1"}"#).unwrap();
 		assert_eq!(
 			absent.into_model().default_message_notifications,

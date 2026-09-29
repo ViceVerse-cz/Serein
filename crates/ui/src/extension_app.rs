@@ -1079,10 +1079,14 @@ mod tests {
 				..Default::default()
 			},
 			|ui| {
-				if let Some(effect) =
-					view.extensions
-						.show_result(ui.ctx(), state, &mut Vec::new(), false)
-				{
+				if let Some(effect) = view.extensions.show_result(
+					ui.ctx(),
+					state,
+					&mut Vec::new(),
+					false,
+					&mut crate::avatars::Avatars::default(),
+					("", false),
+				) {
 					view.apply_extension_effect(ui.ctx(), state, effect, &mut Vec::new())
 						.unwrap();
 				}
