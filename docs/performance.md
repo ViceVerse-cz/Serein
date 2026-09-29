@@ -1,32 +1,3 @@
-# Native DSP loader seam - September 28, 2026
-
-Compared baseline `f15eac0823682f86d6caf52d85432ac6f61f313a` with code commit
-`94cc60fdf04b206de23f85eef37dc91370f66f44` on Windows 11 Home 10.0.26200,
-Ryzen 7 7800X3D, 31.1 GiB RAM, Rust 1.98.1. Both standard voice-enabled
-`cargo xtask package` builds used `--release --locked -p serein --no-default-features`,
-separate output directories and no proprietary plugin. Complete portable ZIPs
-use .NET `ZipFile` with `CompressionLevel.Optimal`. NSIS was unavailable; no
-installer was generated. Both builds retained the existing OpenH264 LNK4255
-duplicate-object warning. A copied build cache needed scoped release artifact
-invalidation before the changed package could compile the new model enum.
-
-| Metric | Baseline | After | Delta |
-| --- | ---: | ---: | ---: |
-| Desktop executable bytes | 76,775,424 | 76,778,496 | +3,072 / +0.0040% |
-| Installed package bytes | 80,878,740 | 80,882,934 | +4,194 / +0.0052% |
-| Portable ZIP bytes | 44,201,150 | 44,220,936 | +19,786 / +0.0448% |
-
-One artifact per revision; ZIP differences include compression variability and
-do not measure runtime speed. A direct synthetic comparison of both Echo
-implementations produced bit-identical PCM for 600 frames / 576,000 samples
-across Off, RNNoise and WebRTC, with AEC/AGC enabled and disabled and history
-resets. No live audio or device access was used. Native CPU/RSS/frame latency
-and proprietary DSP latency remain unmeasured; the native screenshot helper
-was unavailable. The host adds one optional plugin session and one 960-byte
-conversion buffer, with no queues; vendor allocations are not host-enforced.
-Continuous fallback is still blocked by the unchanged worker's fatal DSP error
-handling; see [the draft ABI limitations](native-dsp.md).
-
 # Native-first plugin artwork fallback - September 26, 2026
 
 Baseline `48e442715a0db51f54eedfabd99d1f8dba4369a3`, compared with `5f4dfdb` on

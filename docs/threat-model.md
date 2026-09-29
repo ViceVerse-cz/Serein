@@ -1,13 +1,5 @@
 # Threat model
 
-The optional [native DSP ABI](native-dsp.md) loads owner-installed executable code
-only when Plugin suppression is selected. This is a trusted native boundary,
-separate from Wasm extensions: it has process privileges and receives raw microphone
-PCM on the audio worker. Its ABI forbids unwinding, device access and audio retention
-or transmission, but cannot enforce those constraints or contain native crashes.
-No vendor code/models ship in Serein. Missing libraries and reported ABI failures
-bypass plugin processing; installation integrity remains the owner's responsibility.
-
 Community extensions add an untrusted-code boundary. Wasmi runs without imports,
 WASI or native handles, with compilation, fuel, stack, linear-memory and output
 limits. Only explicitly granted, user-selected context crosses that boundary.

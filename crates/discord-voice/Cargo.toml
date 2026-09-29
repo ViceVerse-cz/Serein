@@ -8,8 +8,6 @@ license.workspace = true
 client-core.workspace = true
 model.workspace = true
 platform.workspace = true
-local-store.workspace = true
-libloading = "=0.8.9"
 tokio.workspace = true
 tokio-tungstenite.workspace = true
 futures-util.workspace = true

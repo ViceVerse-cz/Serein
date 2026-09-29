@@ -37,7 +37,6 @@ impl MessagingUi {
 				NoiseSuppression::Off => "off",
 				NoiseSuppression::RnNoise => "rnnoise",
 				NoiseSuppression::WebRtc => "webrtc",
-				NoiseSuppression::Plugin => "plugin",
 			}
 			.into(),
 			suppression_level: effective.suppression_level,
@@ -197,7 +196,6 @@ impl MessagingUi {
 							"off" => NoiseSuppression::Off,
 							"rnnoise" => NoiseSuppression::RnNoise,
 							"webrtc" => NoiseSuppression::WebRtc,
-							"plugin" => NoiseSuppression::Plugin,
 							_ => return Err("Invalid suppression mode".into()),
 						};
 					}
@@ -363,34 +361,6 @@ impl MessagingUi {
 mod tests {
 	use super::*;
 	use extensions::{AudioSettingsPatch, OwnPresencePatch, OwnProfilePatch};
-
-	#[test]
-	fn plugin_suppression_round_trips_through_audio_patch_and_snapshot() {
-		let mut state = test_support::demo_state();
-		let mut view = MessagingUi::default();
-		let mut commands = Vec::new();
-		view.apply_extension_account_action(
-			&mut state,
-			AppAction::SetAudioSettings {
-				settings: AudioSettingsPatch {
-					suppression: Some("plugin".into()),
-					..Default::default()
-				},
-			},
-			&mut commands,
-		)
-		.unwrap();
-		assert_eq!(view.voice_processing.profile, InputProfile::Custom);
-		assert_eq!(
-			view.voice_processing.effective().suppression,
-			NoiseSuppression::Plugin
-		);
-		let snapshot = view.extension_audio_settings();
-		assert_eq!(snapshot.suppression, "plugin");
-		assert!(snapshot.validate().is_ok());
-		assert!(commands.is_empty());
-		assert!(!view.voice_preview_requested);
-	}
 
 	#[test]
 	fn audio_patch_uses_visible_preset_and_rejects_invalid_patch_atomically() {

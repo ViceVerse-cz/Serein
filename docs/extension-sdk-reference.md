@@ -1151,7 +1151,7 @@ editing a processing field switches to Custom through the native settings path.
 | `input_percent`, `output_percent` | `u16` / integer | Input/output gain, 0 through 200. |
 | `push_to_talk` | `bool` / boolean | Whether push to talk is enabled. |
 | `input_profile` | `String` / string | `voice_isolation`, `studio`, or `custom`. |
-| `suppression` | `String` / string | `off`, `rnnoise`, `webrtc`, or `plugin` (preview). |
+| `suppression` | `String` / string | `off`, `rnnoise`, or `webrtc`. |
 | `suppression_level` | `u8` / integer | Suppression strength, 0 through 3. |
 | `echo_cancellation`, `automatic_gain` | `bool` / boolean | Effective processing options. |
 | `sensitivity_db` | `Option<i16>` / integer or null | Threshold from -80 through 0 dBFS; null means open microphone. |
@@ -1160,13 +1160,6 @@ Read `input.app.as_ref().and_then(|app| app.audio_settings.as_ref())` before
 accessing the fields. The group is absent on an older host or without its grant;
 an absent group does not imply default audio settings. Changes invalidate the
 existing `settings` app event when subscribed with `app_events`.
-
-`plugin` selects an externally installed native DSP library. The snapshot reports
-the selected mode, not whether that library loaded successfully. If unavailable,
-Echo bypasses suppression and returns a microphone processing error. In this
-draft the unchanged worker stops the call/preview on that error; continuous
-Off fallback remains blocked on worker recovery.
-The Wasm SDK exposes neither the native library nor raw audio.
 
 ### OwnPresenceSnapshot: your status and activity preference
 

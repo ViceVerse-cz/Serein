@@ -2415,7 +2415,6 @@ impl MessagingUi {
 				(NoiseSuppression::Off, "Off"),
 				(NoiseSuppression::RnNoise, "RNNoise"),
 				(NoiseSuppression::WebRtc, "WebRTC"),
-				(NoiseSuppression::Plugin, "Plugin"),
 			];
 			design::row(
 				ui,

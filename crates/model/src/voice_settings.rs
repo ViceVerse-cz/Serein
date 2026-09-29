@@ -15,7 +15,6 @@ pub enum NoiseSuppression {
 	#[default]
 	RnNoise,
 	WebRtc,
-	Plugin,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
