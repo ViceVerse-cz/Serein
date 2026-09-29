@@ -2654,3 +2654,38 @@ no UI speed or memory claim is made. Headless egui tests exercise keyboard/click
 input and narrow light/dark pager layouts, but do not validate OS input routing.
 Screenshots contain only synthetic app content and are development evidence,
 not bundled assets. No live-account or audio-device workload was run.
+
+## Complete large-guild subscriptions — September 29, 2026
+
+Baseline: `400ac8cb060757b6b775284356324f22e5968158`; after: this
+large-guild subscription change. Windows 11 Home 10.0.26200, AMD Ryzen 7
+7800X3D, 31.1 GiB RAM, pinned Rust toolchain. Both revisions used the standard
+`cargo xtask package` command. `makensis` was unavailable, so the command
+produced the unsigned package executable and complete `dist` directory but no
+Windows installer. Separate ZIPs were created from each complete `dist`
+directory with .NET `ZipFile` optimal compression and no enclosing directory.
+
+After building each revision with `cargo replay`, its `replay-bench.exe` ran
+once for warmup and five times for measurement. Each run processes 100,000
+synthetic reducer events; the changed gateway subscription packet is outside
+this workload.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable, bytes | 77,560,832 | 77,560,832 | Unchanged |
+| Full installed package, bytes / files | 81,664,148 / 198 | 81,664,148 / 198 | Unchanged |
+| ZIP distribution, bytes | 44,510,112 | 44,510,240 | +128 / +0.0003% |
+| 100,000-event reducer median, ms | 133.5614 | 130.6347 | -2.9267 / -2.19% |
+| Retained timeline, estimated bytes / records | 331,992–332,477 / 500 | 331,992–332,477 / 500 | Unchanged |
+
+Measured replay samples, milliseconds:
+
+- Baseline: 131.9832, 130.0590, 133.5614, 142.3409, 139.4035.
+- After: 126.1190, 130.6347, 133.9218, 126.7004, 135.1862.
+
+The samples overlap, so the median difference does not establish a speed
+improvement. The 128-byte ZIP difference with identical installed files is
+archive metadata variation, not package growth. Retained timeline estimates
+are not process RSS. No dependency, bundled asset, or license changed. This is
+a nonvisual gateway packet fix, so screenshots and renderer measurements are
+not applicable. Live large-guild acceptance remains unverified.

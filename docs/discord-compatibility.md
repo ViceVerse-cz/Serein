@@ -1876,6 +1876,11 @@ replies for the open channel's viewport with a different ID before the first SYN
 is not a list this connection recently left, the mirror follows the service's ID for that
 subscription. Stalled-subscription resets back off from 15 to 30, 60, then 120 seconds.
 
+Opcode 37 subscriptions explicitly disable `member_updates`, matching the complete bulk
+subscription shape used by discord.py-self. This avoids relying on an omitted field when opening
+large guilds that were not implicitly subscribed at login. Live large-guild acceptance remains
+unverified.
+
 SakuraCord's member decoder uses the same wire shapes (optional counts and groups, presence
 beside or inside a member). Offline unit tests cover each case. This was not verified against
 a live server; the original failing payload was not captured.
