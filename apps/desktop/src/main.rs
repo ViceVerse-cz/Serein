@@ -5623,7 +5623,6 @@ impl eframe::App for Desktop {
 		self.sync_fonts(ctx);
 		self.hotkeys.sync(&self.messaging.keybinds, &self.runtime);
 		self.messaging.global_keybind_status = self.hotkeys.status();
-		self.hotkeys.poll();
 		let voice_toggles = self.hotkeys.take_toggle_pending()
 			| self
 				.messaging
