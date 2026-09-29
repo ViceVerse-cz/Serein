@@ -1084,7 +1084,7 @@ bounded existing caches defaults missing kinds to ordinary/unknown.
 
 Schema 25 adds one checked, default-false `verified_bot` boolean to cached message
 authors. It is set only from the service user object's documented `bot` field plus
-the `public_flags` verified-bot bit. The existing `account_kind` column continues to
+the `flags` or `public_flags` verified-bot bit. The existing `account_kind` column continues to
 store verified bots as bots; loading combines the two fields, while inconsistent or
 out-of-range cache values are rejected. Existing rows remain unverified until history
 refreshes. The column adds no payload collection, table, queue or network request and

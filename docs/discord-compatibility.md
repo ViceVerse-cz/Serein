@@ -1370,7 +1370,7 @@ relabeled from their names, profile errors or generic `application` objects.
 Member payloads normally expose only `bot`, so these display BOT, not a guessed APP
 classification. Webhooks are message authors, not invented guild members.
 
-Verified bots use the documented `public_flags` `VERIFIED_BOT` bit (`1 << 16`) only
+Verified bots use the documented `flags` or `public_flags` `VERIFIED_BOT` bit (`1 << 16`) only
 when the same user object also explicitly sets `bot`. They display the compact APP
 badge with a checkmark in chat and member lists; ordinary bots and application-generated
 messages keep their existing unchecked badges. Missing flags remain unverified rather
