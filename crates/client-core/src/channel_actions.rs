@@ -1148,6 +1148,7 @@ mod tests {
 				discriminator: 0,
 			}),
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(2),
 				name: "Synthetic guild".into(),

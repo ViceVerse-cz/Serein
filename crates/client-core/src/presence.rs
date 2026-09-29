@@ -414,6 +414,7 @@ mod tests {
 			freshness: Freshness::Fresh,
 			selected: Some(Id(1)),
 			guilds: vec![Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(10),
 				name: "Synthetic".into(),

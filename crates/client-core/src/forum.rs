@@ -587,6 +587,7 @@ mod tests {
 				discriminator: 0,
 			}),
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				emojis: None,
 				id: Id(1),

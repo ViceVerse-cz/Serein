@@ -33,6 +33,64 @@ impl DiscordApi {
 			return Err(Failure::Protocol);
 		}
 		match action {
+			Action::Notifications { guild, options } => {
+				if !options.valid() {
+					return Err(Failure::Protocol);
+				}
+				let mut body = serde_json::Map::new();
+				if let Some(level) = options.level {
+					body.insert("message_notifications".into(), level.into());
+				}
+				for (name, value) in [
+					("muted", options.muted),
+					("suppress_everyone", options.suppress_everyone),
+					("suppress_roles", options.suppress_roles),
+				] {
+					if let Some(value) = value {
+						body.insert(name.into(), value.into());
+					}
+				}
+				if options.muted.is_some() {
+					body.insert(
+						"mute_config".into(),
+						serde_json::json!({"end_time":null,"selected_time_window":-1}),
+					);
+				}
+				let bytes = self
+					.request_limited(
+						Method::PATCH,
+						&format!("/users/@me/guilds/{guild}/settings"),
+						Some(body.into()),
+						512 * 1024,
+					)
+					.await
+					.map_err(write_failure)?;
+				let setting: discord_protocol::notifications::Setting =
+					discord_protocol::decode(&bytes).map_err(|_| Failure::Ambiguous)?;
+				if setting.guild_id != Some(guild)
+					|| options
+						.level
+						.is_some_and(|value| setting.message_notifications != Some(value))
+					|| options
+						.muted
+						.is_some_and(|value| setting.muted != Some(value))
+					|| options
+						.suppress_everyone
+						.is_some_and(|value| setting.suppress_everyone != Some(value))
+					|| options
+						.suppress_roles
+						.is_some_and(|value| setting.suppress_roles != Some(value))
+					|| (options.muted.is_some()
+						&& setting
+							.mute_config
+							.as_ref()
+							.and_then(|config| config.until())
+							.is_some())
+				{
+					return Err(Failure::Ambiguous);
+				}
+				Ok(None)
+			}
 			// Unofficial normal-user route; deletion is owner-only and attempted once.
 			Action::Delete(guild) => self
 				.request_limited(Method::DELETE, &format!("/guilds/{guild}"), None, 64 * 1024)
@@ -225,7 +283,78 @@ mod tests {
 				temporary: true,
 			},
 		};
+		let notifications = Action::Notifications {
+			guild: Id(2),
+			options: client_core::server_actions::NotificationOptions {
+				level: Some(1),
+				suppress_roles: Some(true),
+				..Default::default()
+			},
+		};
+		let defaults = Action::Notifications {
+			guild: Id(2),
+			options: client_core::server_actions::NotificationOptions {
+				level: Some(3),
+				muted: Some(false),
+				..Default::default()
+			},
+		};
 		for (action, status, body, expected) in [
+			(
+				defaults,
+				200,
+				r#"{"guild_id":"2"}"#,
+				Err(Failure::Ambiguous),
+			),
+			(
+				defaults,
+				200,
+				r#"{"guild_id":"2","message_notifications":3}"#,
+				Err(Failure::Ambiguous),
+			),
+			(
+				defaults,
+				200,
+				r#"{"guild_id":"2","message_notifications":3,"muted":false}"#,
+				Ok(None),
+			),
+			(
+				defaults,
+				200,
+				r#"{"guild_id":"2","message_notifications":3,"muted":false,"mute_config":{"end_time":"2030-01-01T00:00:00Z"}}"#,
+				Err(Failure::Ambiguous),
+			),
+			(
+				notifications,
+				200,
+				r#"{"guild_id":"2","message_notifications":1,"suppress_roles":true}"#,
+				Ok(None),
+			),
+			(
+				notifications,
+				200,
+				r#"{"guild_id":"8","message_notifications":1,"suppress_roles":true}"#,
+				Err(Failure::Ambiguous),
+			),
+			(
+				notifications,
+				200,
+				r#"{"guild_id":"2","message_notifications":0,"suppress_roles":true}"#,
+				Err(Failure::Ambiguous),
+			),
+			(
+				notifications,
+				200,
+				r#"{"guild_id":"2","message_notifications":1}"#,
+				Err(Failure::Ambiguous),
+			),
+			(notifications, 500, "{}", Err(Failure::Ambiguous)),
+			(
+				notifications,
+				429,
+				r#"{"retry_after":0.01}"#,
+				Err(Failure::RateLimited),
+			),
 			(
 				invite,
 				200,
@@ -280,6 +409,21 @@ mod tests {
 						}
 						assert!(headers.contains("SYNTHETIC_SERVER_TOKEN"));
 						match action {
+							Action::Notifications { options, .. } => {
+								assert!(
+									headers
+										.starts_with("PATCH /users/@me/guilds/2/settings HTTP/1.1")
+								);
+								assert_eq!(
+									serde_json::from_slice::<serde_json::Value>(&bytes[end + 4..])
+										.unwrap(),
+									if options.muted.is_some() {
+										serde_json::json!({"message_notifications":3,"muted":false,"mute_config":{"end_time":null,"selected_time_window":-1}})
+									} else {
+										serde_json::json!({"message_notifications":1,"suppress_roles":true})
+									}
+								);
+							}
 							Action::CreateInvite { .. } => {
 								assert!(headers.starts_with("POST /channels/3/invites HTTP/1.1"));
 								assert_eq!(

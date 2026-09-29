@@ -1848,3 +1848,29 @@ subscription. Stalled-subscription resets back off from 15 to 30, 60, then 120 s
 SakuraCord's member decoder uses the same wire shapes (optional counts and groups, presence
 beside or inside a member). Offline unit tests cover each case. This was not verified against
 a live server; the original failing payload was not captured.
+
+## Per-server notification preferences — September 29, 2026
+
+The server dropdown and server-icon context menu expose Notification Settings to
+ordinary members. All messages, Only mentions, Nothing, Use server default, mute,
+and everyone/role suppression use the existing account-scoped
+[`PATCH /users/@me/guilds/{guild_id}/settings`](https://docs.discord.food/resources/guild#modify-user-guild-settings)
+route. Save sends only selected fields, requires confirmation of those fields,
+and leaves channel overrides intact. A newer Gateway settings event supersedes a
+pending REST completion; failed writes are not automatically retried.
+
+Guild defaults (documented [levels 0 and 1](https://docs.discord.com/developers/resources/guild#default-message-notification-level))
+are retained from flat/nested READY metadata and guild updates. User level 3
+inherits that default; category and channel overrides still take precedence.
+A complete valid settings snapshot permits defaults for omitted guild entries,
+matching the [primary unofficial client implementation](https://github.com/dolfies/discord.py-self/blob/2ba64a9a997e151a9c259984e0a179b1fdf4aff4/discord/settings.py#L1986).
+Missing or invalid snapshots, unknown DND, and explicit unknown values remain
+conservative. Expired guild mute timers no longer suppress alerts indefinitely.
+The new mute switch sets an untimed mute; it does not add a duration picker.
+
+The guild stream-preview part of issue #458 was already delivered in
+[PR #457](https://github.com/ViceVerse-cz/Serein/pull/457): hover a LIVE participant
+for a still preview and an explicit Watch Stream action. This change adds no
+stream transport or automatic call joining. Notification writes and previews
+remain unofficial normal-account behavior, verified with synthetic fixtures
+only; neither is proof of live Discord interoperability.

@@ -7,12 +7,13 @@ use model::Id;
 enum Dialog {
 	Invite { guild: Id, channel: Option<Id> },
 	Leave(Id),
+	Notifications(Id),
 }
 
 impl Dialog {
 	fn guild(self) -> Id {
 		match self {
-			Self::Invite { guild, .. } | Self::Leave(guild) => guild,
+			Self::Invite { guild, .. } | Self::Leave(guild) | Self::Notifications(guild) => guild,
 		}
 	}
 }
@@ -24,9 +25,31 @@ pub(super) struct ServerMenu {
 	dialog: Option<Dialog>,
 	generation: u64,
 	invite: InviteDialog,
+	notifications: crate::server_notifications::Editor,
 }
 
 impl ServerMenu {
+	pub fn open_notifications(&mut self, state: &mut State, guild: Id) {
+		state.clear_server_action_result(guild);
+		self.dialog = Some(Dialog::Notifications(guild));
+		self.generation = state.generation;
+		self.notifications = crate::server_notifications::Editor::default();
+	}
+	pub fn notifications_item(&mut self, ui: &mut egui::Ui, state: &mut State, guild: Id) -> bool {
+		if menu_row(
+			ui,
+			icons::Icon::Bell,
+			"server-notifications-title",
+			design::palette(ui).text,
+		)
+		.clicked()
+		{
+			self.open_notifications(state, guild);
+			ui.close();
+			return true;
+		}
+		false
+	}
 	pub fn read_item(&mut self, ui: &mut egui::Ui, state: &State, guild: Id) -> bool {
 		if ui
 			.add_enabled_ui(state.can_mark_guild_read(guild), |ui| {
@@ -161,6 +184,7 @@ impl ServerMenu {
 					self.read_item(ui, state, guild);
 					ui.separator();
 					self.settings_item(ui, state, guild);
+					self.notifications_item(ui, state, guild);
 					if ui
 						.add_enabled_ui(available, |ui| {
 							menu_row(
@@ -214,6 +238,7 @@ impl ServerMenu {
 		if self.generation != state.generation || active != Some(guild) {
 			self.dialog = None;
 			self.invite = InviteDialog::default();
+			self.notifications = crate::server_notifications::Editor::default();
 			return;
 		}
 		let Some(name) = state
@@ -224,6 +249,7 @@ impl ServerMenu {
 		else {
 			self.dialog = None;
 			self.invite = InviteDialog::default();
+			self.notifications = crate::server_notifications::Editor::default();
 			return;
 		};
 		if let Dialog::Invite { channel, .. } = &mut dialog {
@@ -233,6 +259,13 @@ impl ServerMenu {
 			self.dialog = if close { None } else { Some(dialog) };
 			if close {
 				self.invite = InviteDialog::default();
+			}
+			return;
+		}
+		if let Dialog::Notifications(_) = dialog {
+			if self.notifications.show(ctx, state, guild, &name, commands) {
+				self.dialog = None;
+				self.notifications = crate::server_notifications::Editor::default();
 			}
 			return;
 		}

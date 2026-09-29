@@ -407,6 +407,7 @@ mod join_tests {
 				state.apply(crate::Envelope {
 					generation: state.generation,
 					event: crate::Event::GuildJoined(model::Guild {
+						default_message_notifications: None,
 						stickers: None,
 						id: model::Id(2),
 						name: "Synthetic".into(),

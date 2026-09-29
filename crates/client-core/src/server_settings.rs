@@ -17,6 +17,7 @@ pub struct Event {
 }
 #[derive(Default)]
 pub struct Editor {
+	pub(crate) notification_default_changed: bool,
 	pub guild: Option<Id>,
 	pub snapshot: Option<Settings>,
 	pub pending: bool,
@@ -68,6 +69,7 @@ impl State {
 		self.server_settings.guild = Some(guild);
 		self.server_settings.sequence = self.server_settings.sequence.wrapping_add(1);
 		self.server_settings.pending = true;
+		self.server_settings.notification_default_changed = false;
 		self.server_settings.saving = false;
 		self.server_settings.error = None;
 		Some(Command::ServerSettings {
@@ -89,6 +91,7 @@ impl State {
 		}
 		self.server_settings.sequence = self.server_settings.sequence.wrapping_add(1);
 		self.server_settings.pending = true;
+		self.server_settings.notification_default_changed = false;
 		self.server_settings.saving = true;
 		self.server_settings.error = None;
 		Some(Command::ServerSettings {
@@ -201,6 +204,10 @@ impl State {
 			if let Some(guild) = self.guilds.iter_mut().find(|guild| guild.id == event.guild) {
 				guild.name.clone_from(&snapshot.name);
 				guild.icon.clone_from(&snapshot.icon);
+				if !self.server_settings.notification_default_changed {
+					guild.default_message_notifications =
+						Some(snapshot.default_message_notifications);
+				}
 			}
 			self.invalidate_navigation();
 			self.server_settings.snapshot = Some(*snapshot);

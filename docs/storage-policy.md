@@ -1398,3 +1398,11 @@ by shedding rich-activity details (far rows first), then far rows, instead of re
 packet. Each decoded row is captured once as raw JSON for per-row isolation and released with
 the packet. A connection remembers at most 8 recently left list IDs (up to 32 bytes each, no
 row data) so late replies are not mistaken for the open list. No new persistence.
+
+Per-server notification editing (September 29): one modal holds four optional
+scalar edits in session RAM. Saves reuse the existing serial server-action write
+path, with one pending request; no new queue, cache or persistence is added.
+Guild notification defaults and mute deadlines add fixed-size scalar metadata
+to existing bounded navigation/settings records. Channel overrides stay in the
+existing count/byte budgets. Logout and session invalidation clear the editor's
+scope and discard pending results from old generations.

@@ -769,6 +769,7 @@ mod tests {
 				auth: AuthState::Authenticated,
 				gateway_connected: true,
 				guilds: vec![model::Guild {
+					default_message_notifications: None,
 					stickers: None,
 					emojis: None,
 					id: Id(9),
@@ -910,6 +911,7 @@ mod tests {
 				auth: AuthState::Authenticated,
 				gateway_connected: true,
 				guilds: vec![model::Guild {
+					default_message_notifications: None,
 					stickers: None,
 					emojis: None,
 					id: Id(9),

@@ -540,8 +540,9 @@ impl MessagingUi {
 							self.server_menu.read_item(ui, state, id);
 							ui.separator();
 							let settings = self.server_menu.settings_item(ui, state, id);
+							let notifications = self.server_menu.notifications_item(ui, state, id);
 							let leave = self.server_menu.leave_item(ui, state, id);
-							if settings || leave {
+							if settings || notifications || leave {
 								self.guild = Some(id);
 							}
 							ui.separator();
@@ -984,6 +985,7 @@ mod tests {
 				demo: true,
 				guilds: (1..=3)
 					.map(|id| model::Guild {
+						default_message_notifications: None,
 						stickers: None,
 						id: Id(id),
 						name: "Synthetic server".into(),

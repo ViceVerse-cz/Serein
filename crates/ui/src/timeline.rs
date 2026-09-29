@@ -5946,6 +5946,7 @@ mod tests {
 			guilds: [1, 2]
 				.into_iter()
 				.map(|id| model::Guild {
+					default_message_notifications: None,
 					stickers: None,
 					emojis: None,
 					id: Id(id),

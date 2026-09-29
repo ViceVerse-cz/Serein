@@ -301,6 +301,7 @@ pub fn demo_state() -> State {
 				name: "You (synthetic)".into(),
 			},
 			guilds: vec![Guild {
+				default_message_notifications: None,
 				stickers: None,
 				emojis: Some(vec![
 					model::CustomEmoji {
@@ -592,6 +593,8 @@ pub fn demo_state() -> State {
 	state
 		.apply_notification_preferences(client_core::notifications::Event::Settings {
 			entries: vec![client_core::notifications::Setting {
+				overrides_known: true,
+				mute_until: None,
 				guild: Some(Id(10)),
 				muted: Some(false),
 				level: Some(3),
@@ -1010,6 +1013,8 @@ pub fn seed_access_marks(state: &mut State) {
 	state
 		.apply_notification_preferences(client_core::notifications::Event::Settings {
 			entries: vec![client_core::notifications::Setting {
+				overrides_known: true,
+				mute_until: None,
 				guild: Some(GUILD),
 				muted: Some(false),
 				level: Some(3),
@@ -1033,6 +1038,7 @@ pub fn seed_demo_folder_mosaic(state: &mut State) {
 	];
 	for (id, name, hash) in EXTRA {
 		state.guilds.push(Guild {
+			default_message_notifications: None,
 			stickers: None,
 			emojis: None,
 			id: Id(id),
@@ -1664,6 +1670,8 @@ mod tests {
 		state
 			.apply_notification_preferences(n::Event::Settings {
 				entries: vec![n::Setting {
+					overrides_known: true,
+					mute_until: None,
 					channel_mute_until: vec![],
 					guild: None,
 					muted: Some(false),
@@ -1779,6 +1787,8 @@ mod tests {
 			.unwrap()
 			.clone();
 		let setting = n::Setting {
+			overrides_known: true,
+			mute_until: None,
 			channel_mute_until: vec![],
 			guild: channel.guild,
 			muted: Some(false),
@@ -1861,6 +1871,8 @@ mod tests {
 		state
 			.apply_notification_preferences(n::Event::Settings {
 				entries: vec![n::Setting {
+					overrides_known: true,
+					mute_until: None,
 					channel_mute_until: vec![],
 					guild: None,
 					muted: Some(false),
@@ -1887,6 +1899,8 @@ mod tests {
 		state
 			.apply_notification_preferences(n::Event::Settings {
 				entries: vec![n::Setting {
+					overrides_known: true,
+					mute_until: None,
 					channel_mute_until: vec![],
 					guild: None,
 					muted: Some(false),
@@ -1907,6 +1921,8 @@ mod tests {
 		state
 			.apply_notification_preferences(n::Event::Settings {
 				entries: vec![n::Setting {
+					overrides_known: true,
+					mute_until: None,
 					channel_mute_until: vec![],
 					guild: None,
 					muted: Some(false),

@@ -667,6 +667,7 @@ mod tests {
 		use model::permissions as p;
 		let mut state = state();
 		state.guilds.push(model::Guild {
+			default_message_notifications: None,
 			stickers: None,
 			id: Id(10),
 			name: "Synthetic guild".into(),

@@ -872,6 +872,7 @@ mod tests {
 			guilds: [20, 10]
 				.into_iter()
 				.map(|id| model::Guild {
+					default_message_notifications: None,
 					stickers: None,
 					id: Id(id),
 					name: format!("Source{id}"),
@@ -974,6 +975,7 @@ mod tests {
 				use model::permissions as p;
 				state.channels.push(channel(42, Some(guild), 0, "Zoe"));
 				state.guilds.push(model::Guild {
+					default_message_notifications: None,
 					stickers: None,
 					id: guild,
 					name: "Synthetic guild".into(),
@@ -1191,6 +1193,7 @@ mod tests {
 		assert_eq!(query(":+1", 3), Some((0..3, "+1", Kind::Emoji)));
 		assert_eq!(query(":-1", 3), Some((0..3, "-1", Kind::Emoji)));
 		let guilds = vec![model::Guild {
+			default_message_notifications: None,
 			stickers: None,
 			id: Id(9),
 			name: "Guild".into(),

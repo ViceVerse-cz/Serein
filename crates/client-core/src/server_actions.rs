@@ -34,8 +34,29 @@ pub enum InviteStatus {
 	Sent,
 	Failed(Failure),
 }
+/// Sparse account-scoped preferences; no server-management permission is required.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct NotificationOptions {
+	pub level: Option<u8>,
+	pub muted: Option<bool>,
+	pub suppress_everyone: Option<bool>,
+	pub suppress_roles: Option<bool>,
+}
+impl NotificationOptions {
+	pub fn valid(self) -> bool {
+		self.level.is_none_or(|level| level <= 3)
+			&& (self.level.is_some()
+				|| self.muted.is_some()
+				|| self.suppress_everyone.is_some()
+				|| self.suppress_roles.is_some())
+	}
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
+	Notifications {
+		guild: Id,
+		options: NotificationOptions,
+	},
 	CreateInvite {
 		guild: Id,
 		channel: Id,
@@ -47,7 +68,10 @@ pub enum Action {
 impl Action {
 	pub fn guild(self) -> Id {
 		match self {
-			Self::CreateInvite { guild, .. } | Self::Leave(guild) | Self::Delete(guild) => guild,
+			Self::CreateInvite { guild, .. }
+			| Self::Notifications { guild, .. }
+			| Self::Leave(guild)
+			| Self::Delete(guild) => guild,
 		}
 	}
 }
@@ -82,6 +106,39 @@ impl Actions {
 	}
 }
 impl State {
+	pub fn can_update_server_notifications(&self, guild: Id) -> bool {
+		guild.0 != 0
+			&& self.guild(guild).is_some()
+			&& (self.demo || (self.auth == AuthState::Authenticated && self.gateway_connected))
+			&& !self.server_action_pending()
+			&& !self.server_invite_pending()
+	}
+	pub fn update_server_notifications(
+		&mut self,
+		guild: Id,
+		options: NotificationOptions,
+	) -> Option<Command> {
+		if !options.valid() || !self.can_update_server_notifications(guild) {
+			return None;
+		}
+		self.request_server_action(Action::Notifications { guild, options })
+	}
+	pub(crate) fn observe_server_notification_settings(
+		&mut self,
+		event: &crate::notifications::Event,
+	) {
+		if let Some((Action::Notifications { guild, .. }, _, observed)) =
+			&mut self.server_actions.pending
+		{
+			*observed |= match event {
+				crate::notifications::Event::Invalidate => true,
+				crate::notifications::Event::Settings { entries, replace } => {
+					*replace || entries.iter().any(|s| s.guild == Some(*guild))
+				}
+				_ => false,
+			};
+		}
+	}
 	pub fn server_invite_pending(&self) -> bool {
 		self.server_actions.sending.is_some()
 	}
@@ -430,7 +487,11 @@ impl State {
 			{
 				Ok(code)
 			}
-			Action::Leave(_) | Action::Delete(_) if code.is_none() => Ok(None),
+			Action::Leave(_) | Action::Delete(_) | Action::Notifications { .. }
+				if code.is_none() =>
+			{
+				Ok(None)
+			}
 			_ => Err(Failure::Ambiguous),
 		});
 		let status = match result {
@@ -441,6 +502,14 @@ impl State {
 				failure.label()
 			}
 			Ok(code) => match action {
+				Action::Notifications { guild, options } => {
+					if observed || self.guild(guild).is_none() {
+						"Request completed; latest notification settings shown"
+					} else {
+						self.confirm_server_notifications(guild, options)?;
+						"Notification settings saved"
+					}
+				}
 				Action::CreateInvite {
 					guild,
 					channel,
@@ -513,6 +582,7 @@ mod tests {
 				discriminator: 0,
 			}),
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(2),
 				name: "Synthetic server".into(),
@@ -593,6 +663,88 @@ mod tests {
 			event,
 		});
 	}
+	#[test]
+	fn notification_writes_need_membership_not_admin_and_preserve_newer_settings() {
+		let mut state = state();
+		state.permissions.guilds.clear(); // An ordinary member need not manage the guild.
+		let edit = NotificationOptions {
+			level: Some(1),
+			..Default::default()
+		};
+		assert!(state.update_server_notifications(Id(99), edit).is_none());
+		assert!(
+			state
+				.update_server_notifications(Id(2), NotificationOptions::default())
+				.is_none()
+		);
+		assert!(
+			state
+				.update_server_notifications(
+					Id(2),
+					NotificationOptions {
+						level: Some(4),
+						..edit
+					}
+				)
+				.is_none()
+		);
+		let first = state.update_server_notifications(Id(2), edit).unwrap();
+		assert!(state.update_server_notifications(Id(2), edit).is_none());
+		finish(&mut state, first, Err(Failure::Forbidden));
+		assert_eq!(state.server_notification_settings(Id(2)).level, None);
+		let first = state.update_server_notifications(Id(2), edit).unwrap();
+		finish(&mut state, first, Ok(None));
+		assert_eq!(state.server_notification_settings(Id(2)).level, Some(1));
+		let old = state.update_server_notifications(Id(2), edit).unwrap();
+		state
+			.apply_notification_preferences(crate::notifications::Event::Settings {
+				entries: vec![crate::notifications::Setting {
+					guild: Some(Id(2)),
+					level: Some(2),
+					..Default::default()
+				}],
+				replace: false,
+			})
+			.unwrap();
+		finish(&mut state, old, Ok(None));
+		assert_eq!(state.server_notification_settings(Id(2)).level, Some(2));
+		let old = state.update_server_notifications(Id(2), edit).unwrap();
+		state.cancel_server_action();
+		let newer = state
+			.update_server_notifications(
+				Id(2),
+				NotificationOptions {
+					level: Some(0),
+					..Default::default()
+				},
+			)
+			.unwrap();
+		finish(&mut state, old, Ok(None));
+		assert!(state.server_action_pending());
+		finish(&mut state, newer, Ok(None));
+		assert_eq!(state.server_notification_settings(Id(2)).level, Some(0));
+		state.gateway_connected = false;
+		assert!(!state.can_update_server_notifications(Id(2)));
+		assert!(state.update_server_notifications(Id(2), edit).is_none());
+		state.gateway_connected = true;
+		let Command::ServerAction { action, request } =
+			state.update_server_notifications(Id(2), edit).unwrap()
+		else {
+			panic!()
+		};
+		let generation = state.generation;
+		state.logout();
+		state.apply(Envelope {
+			generation,
+			event: CoreEvent::ServerAction(Event::Written {
+				action,
+				request,
+				result: Ok(None),
+			}),
+		});
+		assert_eq!(state.server_notification_settings(Id(2)).level, None);
+	}
+
 	#[test]
 	fn server_invites_options_friends_acknowledgement_and_cancellation() {
 		let mut state = state();

@@ -206,6 +206,7 @@ mod tests {
 				webhook: false,
 			}),
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(2),
 				name: "Synthetic".into(),

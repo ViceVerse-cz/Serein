@@ -1291,6 +1291,7 @@ mod tests {
 			selected: Some(Id(10)),
 			user: Some(user.clone()),
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(1),
 				name: "Synthetic".into(),

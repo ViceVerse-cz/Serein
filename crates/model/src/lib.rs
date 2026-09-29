@@ -231,6 +231,8 @@ impl InvitePreview {
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct Guild {
+	/// Service default: 0 = all messages, 1 = mentions; absent/invalid stays unknown.
+	pub default_message_notifications: Option<u8>,
 	pub stickers: Option<Vec<Sticker>>,
 	pub emojis: Option<Vec<CustomEmoji>>,
 	pub id: Id,
@@ -254,6 +256,7 @@ impl Guild {
 }
 #[derive(Clone)]
 pub struct GuildPatch {
+	pub default_message_notifications: Patch<u8>,
 	pub id: Id,
 	pub name: Patch<String>,
 	pub icon: Patch<String>,

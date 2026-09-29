@@ -38,6 +38,7 @@ fn large_startup() -> crate::Startup {
 		permission_guild.roles.as_mut().unwrap()[0].id = Id(guild);
 		startup.permissions.guilds.push(permission_guild);
 		startup.guilds.push(Guild {
+			default_message_notifications: None,
 			stickers: None,
 			id: Id(guild),
 			name: "Synthetic large account".into(),
@@ -401,6 +402,7 @@ fn state() -> State {
 		Event::Ready {
 			user: user(),
 			guilds: vec![Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(10),
 				name: "Synthetic guild".into(),
@@ -436,6 +438,7 @@ fn cross_server_emoji_checks_destination_and_known_source_roles() {
 		roles: Some(vec![]),
 	};
 	state.guilds.push(Guild {
+		default_message_notifications: None,
 		stickers: None,
 		id: Id(40),
 		name: "Emoji source".into(),
@@ -580,6 +583,7 @@ fn new_custom_reactions_require_eligibility_but_existing_and_removal_stay_separa
 	assert!(!state.can_react(Id(100), Some(&emoji), true));
 	assert!(state.prepare_reaction(Id(100), emoji.clone()).is_none());
 	state.guilds.push(Guild {
+		default_message_notifications: None,
 		stickers: None,
 		id: Id(40),
 		name: "Emoji source".into(),

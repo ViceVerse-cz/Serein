@@ -89,6 +89,9 @@ mod server_integrations;
 mod server_invite;
 mod server_invites;
 mod server_menu;
+#[cfg(test)]
+mod server_notification_tests;
+mod server_notifications;
 mod server_roles;
 mod server_settings;
 mod server_stickers;
@@ -815,6 +818,11 @@ impl MessagingUi {
 	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_account_menu(&mut self, generation: u64) {
 		self.account_menu.preview(generation);
+	}
+	#[cfg(any(test, feature = "demo"))]
+	pub fn preview_server_notifications(&mut self, state: &mut State, guild: Id) {
+		self.guild = Some(guild);
+		self.server_menu.open_notifications(state, guild);
 	}
 	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_custom_status(&mut self, generation: u64) {
@@ -4902,6 +4910,7 @@ mod composer_tests {
 		let mut state = edit_state();
 		state.demo = false;
 		state.guilds.push(model::Guild {
+			default_message_notifications: None,
 			stickers: None,
 			id: Id(100),
 			name: "Synthetic invited server".into(),
@@ -5043,6 +5052,7 @@ mod composer_tests {
 			target.kind = 0;
 			state.channels.push(target);
 			state.guilds.push(model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(100),
 				name: "Linked server".into(),

@@ -2480,3 +2480,55 @@ and no check was disabled or production handshake weakened.
 The PR stays draft while full verification is blocked. Windows/Linux runtime
 behavior and live Discord were not measured. Screenshots are not applicable
 because this has no visible UI change.
+
+## Per-server notification settings — September 29, 2026
+
+Baseline `306bccdbb4d28fa83dac09260772917d3d8b0018`; after is the
+server-notification-settings implementation. Same Apple M1, 16 GiB RAM,
+macOS 27.0, Rust 1.98.1 (Homebrew), pinned lockfile and release profile.
+Both standard packages include voice with default/demo features disabled and
+passed `cargo xtask package`, including local ad-hoc signing verification.
+The baseline package was built and preserved at this exact commit earlier in
+this delivery session for issue #452; its verified artifact was reused. The
+changed package was rebuilt here. Both have the same 205 file paths. Installed
+size sums file bytes; complete `dist` directories were compressed separately
+with `ditto -c -k --sequesterRsrc`, without an enclosing directory.
+
+`cargo replay` builds the unchanged synthetic reducer workload. The baseline
+binary was built from a disposable worktree at the recorded commit and preserved
+before changes. Final direct runs alternate the two binaries, reversing order
+on each pair: one warmup and five measured runs per revision. Host scheduling
+remains uncontrolled. This is reducer elapsed time and retained timeline accounting,
+not process memory, notification delivery latency or UI frame time.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable, bytes | 61,003,216 | 61,036,080 | +32,864 / +0.0539% |
+| Installed package, bytes | 67,010,408 | 67,043,272 | +32,864 / +0.0490% |
+| ZIP distribution, bytes | 42,809,900 | 42,822,815 | +12,915 / +0.0302% |
+| Reducer median, ms / 100,000 events | 172.244000 | 163.930750 | -8.313250 / -4.83% |
+| Retained timeline, estimated bytes / records | 331,992–332,477 / 500 | 331,992–332,477 / 500 | Unchanged |
+
+Five measured samples per revision:
+
+- baseline: 160.914292, 162.024583, 174.693666, 172.244000, 173.763500 ms.
+- after: 163.401625, 160.369042, 178.079000, 173.128042, 163.930750 ms.
+
+The ranges overlap and the baseline itself drifted from a pre-edit median of
+154.611708 ms (five runs: 156.027625, 154.611708, 155.423708, 154.219167,
+152.081875; warmup 196.209500) to 172.244000 ms during paired sampling.
+The observed median difference does not establish a performance improvement.
+Paired warmups were 161.528041 ms baseline and 161.668084 ms after. Retained
+bounds are unchanged. No dependencies, runtime assets or bundled notices changed.
+
+Native synthetic renders were inspected in dark/light mode on Metal at a
+1120×760 viewport and 2× display scale. Headless input tests cover a 320×550
+viewport and scrolling. Native OS input automation was unavailable
+(`AXIsProcessTrusted=false`; targeted event posting had no effect), so matched
+interaction CPU/RSS, startup and p95 frame timing remain unmeasured; no UI
+performance claim. Live Discord and Windows/Linux behavior were not exercised.
+The PR remains draft for this missing native evidence.
+
+`cargo xtask check` passed (911 tests, 23 ignored; formatting, strict Clippy,
+standard app check and policy checks), as did the focused notification/API/UI
+checks, final demo build and standard release package.

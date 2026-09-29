@@ -1757,6 +1757,7 @@ mod tests {
 	fn channel_rows_scroll_continuously_past_voice_participants() {
 		let mut state = test_support::demo_state();
 		state.guilds = vec![model::Guild {
+			default_message_notifications: None,
 			stickers: None,
 			id: Id(100),
 			name: "Synthetic".into(),
@@ -1953,6 +1954,7 @@ mod tests {
 				primary_guild: None,
 			}),
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(100),
 				name: "Synthetic".into(),
@@ -2105,6 +2107,7 @@ mod tests {
 				primary_guild: None,
 			}),
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(100),
 				name: "Synthetic guild".into(),

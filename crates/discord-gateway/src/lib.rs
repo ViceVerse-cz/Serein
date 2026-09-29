@@ -1682,8 +1682,9 @@ async fn run_inner(
 											known_guilds.insert(guild.id);
 											let name = guild.properties.as_ref().and_then(|p| match &p.name { model::Patch::Value(name) => Some(name), _ => None }).unwrap_or(&guild.name).chars().take(128).collect();
 											let icon = guild.properties.as_ref().and_then(|p| match &p.icon { model::Patch::Value(icon) => Some(icon.clone()), _ => None }).or_else(|| guild.icon.clone()).filter(|h| model::valid_avatar_hash(h));
-											emit(Event::GuildJoined(model::Guild { id: guild.id, name, icon, stickers: None, emojis: None }))?;
+											emit(Event::GuildJoined(model::Guild { default_message_notifications: guild.default_notification_level(), id: guild.id, name, icon, stickers: None, emojis: None }))?;
 										}
+										emit(Event::GuildChanged(model::GuildPatch { id: guild.id, name: model::Patch::Absent, icon: model::Patch::Absent, default_message_notifications: guild.default_notification_level().map_or(model::Patch::Null, model::Patch::Value) }))?;
 
 										if let Some(permissions)=permissions {emit(Event::Permissions(client_core::permissions::Event::Snapshot(permissions)))?;}
 										let hidden:std::collections::BTreeSet<_>=guild.channels.iter().filter(|c|c.is_obfuscated()).map(|c|c.id).collect();
@@ -1765,9 +1766,12 @@ fn notification_preferences(
 	client_core::notifications::Event::Settings {
 		entries: entries
 			.into_iter()
+			.map(discord_protocol::notifications::Setting::with_defaults)
 			.map(|s| client_core::notifications::Setting {
+				overrides_known: true,
 				guild: s.guild_id,
-				muted: s.channel_overrides.as_ref().and(s.muted),
+				muted: s.muted,
+				mute_until: s.mute_config.as_ref().and_then(|config| config.until()),
 				level: s.message_notifications,
 				suppress_everyone: s.suppress_everyone,
 				suppress_roles: s.suppress_roles,
@@ -1823,6 +1827,41 @@ mod tests {
 			vec![(model::Id(3), 1577836800)]
 		);
 	}
+	#[test]
+	fn guild_mute_without_channel_overrides_and_full_defaults_are_retained() {
+		let setting = decode::<discord_protocol::notifications::Setting>(
+			br#"{"guild_id":"1","muted":true,"mute_config":{"end_time":"2020-01-01T00:00:00Z"}}"#,
+		)
+		.unwrap();
+		let client_core::notifications::Event::Settings { entries, .. } =
+			notification_preferences(vec![setting], false)
+		else {
+			panic!()
+		};
+		assert_eq!(entries[0].muted, Some(true));
+		assert_eq!(entries[0].mute_until, Some(1577836800));
+		assert_eq!(entries[0].level, Some(3));
+		assert_eq!(entries[0].suppress_roles, Some(false));
+		assert!(entries[0].channels.is_empty());
+	}
+
+	#[test]
+	fn full_channel_overrides_default_omissions_but_keep_null_unknown() {
+		let setting = decode::<discord_protocol::notifications::Setting>(br#"{"guild_id":"1","message_notifications":1,"channel_overrides":[{"channel_id":"3","message_notifications":0},{"channel_id":"4","muted":null,"message_notifications":0}]}"#).unwrap();
+		let client_core::notifications::Event::Settings { entries, .. } =
+			notification_preferences(vec![setting], false)
+		else {
+			panic!()
+		};
+		assert_eq!(
+			entries[0].channels,
+			vec![
+				(model::Id(3), Some(false), Some(0)),
+				(model::Id(4), None, Some(0))
+			]
+		);
+	}
+
 	use serde_json::{Value, json};
 	use tokio::net::{TcpListener, TcpStream};
 	use tokio_tungstenite::{

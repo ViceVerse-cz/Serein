@@ -254,6 +254,8 @@ fn checked_presences(raw: Option<&RawValue>, warning: &mut bool) -> Option<Box<R
 // Only READY tolerates unavailable optional catalogs. Ordinary guild responses remain strict.
 #[derive(Deserialize)]
 struct Guild<'a> {
+	#[serde(default)]
+	default_message_notifications: Option<u8>,
 	#[serde(default, borrow)]
 	stickers: Option<&'a RawValue>,
 	id: model::Id,
@@ -319,6 +321,7 @@ impl<'de> Deserialize<'de> for Guilds {
 						));
 					}
 					out.items.push(crate::GuildDto {
+						default_message_notifications: guild.default_message_notifications,
 						id: guild.id,
 						emojis: optional(guild.emojis, &mut unavailable),
 						properties: guild.properties,
@@ -399,6 +402,49 @@ mod tests {
 
 	fn fixture() -> serde_json::Value {
 		json!({"user":{"id":"9","username":"Synthetic"},"session_id":"synthetic","resume_gateway_url":"wss://gateway.discord.gg/","guilds":[{"id":"1","owner_id":"9","name":"Synthetic","roles":[],"channels":[{"id":"2","type":0,"name":"general","permission_overwrites":[]}]}]})
+	}
+
+	#[test]
+	fn guild_notification_defaults_survive_flat_nested_and_patch_payloads() {
+		for (flat, nested, expected) in [
+			(json!(0), None, Some(0)),
+			(json!(1), None, Some(1)),
+			(json!(null), None, None),
+			(json!(8), None, None),
+			(json!(0), Some(json!(1)), Some(1)),
+			(json!(0), Some(json!(null)), None),
+			(json!(0), Some(json!(8)), None),
+		] {
+			let mut payload = fixture();
+			payload["guilds"][0]["default_message_notifications"] = flat;
+			if let Some(value) = nested {
+				payload["guilds"][0]["properties"] = json!({"default_message_notifications":value});
+			}
+			let bytes = serde_json::to_vec(&payload).unwrap();
+			let (mut ready, _) = decode(&bytes).unwrap().navigation().unwrap();
+			assert_eq!(ready.guilds[0].default_notification_level(), expected);
+			assert_eq!(
+				ready.navigation().unwrap().0[0].default_message_notifications,
+				expected
+			);
+		}
+		let absent: crate::GuildPatchDto = crate::decode(br#"{"id":"1"}"#).unwrap();
+		assert_eq!(
+			absent.into_model().default_message_notifications,
+			model::Patch::Absent
+		);
+		let changed: crate::GuildPatchDto =
+			crate::decode(br#"{"id":"1","default_message_notifications":1}"#).unwrap();
+		assert_eq!(
+			changed.into_model().default_message_notifications,
+			model::Patch::Value(1)
+		);
+		let cleared: crate::GuildPatchDto =
+			crate::decode(br#"{"id":"1","default_message_notifications":null}"#).unwrap();
+		assert_eq!(
+			cleared.into_model().default_message_notifications,
+			model::Patch::Null
+		);
 	}
 
 	#[test]

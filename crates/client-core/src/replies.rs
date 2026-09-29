@@ -345,6 +345,7 @@ mod tests {
 		state.guilds = [10, 20]
 			.into_iter()
 			.map(|id| model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(id),
 				name: "Synthetic guild".into(),

@@ -2155,6 +2155,7 @@ mod tests {
 			let emoji = template.emojis.as_ref().unwrap()[0].clone();
 			state.guilds = (0..guild_count)
 				.map(|guild| model::Guild {
+					default_message_notifications: None,
 					id: Id(template.id.0 + guild),
 					name: format!("Synthetic server {guild}"),
 					icon: None,
@@ -2284,6 +2285,7 @@ mod tests {
 		apply(
 			&mut state,
 			Event::GuildChanged(model::GuildPatch {
+				default_message_notifications: model::Patch::Absent,
 				id: guild,
 				name: model::Patch::Value("Needle server".into()),
 				icon: model::Patch::Absent,
@@ -2937,6 +2939,7 @@ mod tests {
 	fn server_grid_only_requests_visible_images_and_resets_on_navigation() {
 		let mut state = State {
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(1),
 				name: "Synthetic server".into(),

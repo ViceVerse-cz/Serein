@@ -1899,6 +1899,15 @@ impl Desktop {
 		if demo && std::env::args().any(|arg| arg == "--demo-server-settings") {
 			server_settings_demo::open(&mut state, &mut messaging);
 		}
+		#[cfg(feature = "demo")]
+		if demo
+			&& std::env::args().any(|arg| arg == "--demo-server-notifications")
+			&& let Some(guild) = state.guilds.first().map(|g| g.id)
+		{
+			// The new editor fixture includes a known server default: mentions only.
+			state.guilds[0].default_message_notifications = Some(1);
+			messaging.preview_server_notifications(&mut state, guild);
+		}
 		let mut hotkeys = platform::hotkeys::Hotkeys::new({
 			let ctx = cc.egui_ctx.clone();
 			move || ctx.request_repaint()

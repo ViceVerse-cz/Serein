@@ -1014,6 +1014,7 @@ mod tests {
 				primary_guild: None,
 			}),
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				id: Id(10),
 				name: "Synthetic".into(),
 				icon: None,
@@ -1159,6 +1160,7 @@ mod tests {
 					discriminator: 0,
 				}),
 				guilds: vec![model::Guild {
+					default_message_notifications: None,
 					stickers: None,
 					id: Id(10),
 					name: "Synthetic".into(),
@@ -1431,6 +1433,7 @@ mod tests {
 					discriminator: 0,
 				}),
 				guilds: vec![model::Guild {
+					default_message_notifications: None,
 					stickers: None,
 					id: Id(10),
 					name: "Synthetic".into(),

@@ -904,6 +904,7 @@ mod invite_tests {
 				webhook: false,
 			}),
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(2),
 				name: "Synthetic".into(),
@@ -1075,6 +1076,7 @@ mod sticker_tests {
 			gateway_connected: true,
 			user: Some(user(1, "Synthetic")),
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				id: Id(2),
 				name: "Synthetic".into(),
 				icon: None,

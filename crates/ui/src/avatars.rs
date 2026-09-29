@@ -1905,6 +1905,7 @@ mod tests {
 		);
 		let mut preview = Avatars::default();
 		let guild = model::Guild {
+			default_message_notifications: None,
 			stickers: None,
 			emojis: None,
 			id: model::Id(10),

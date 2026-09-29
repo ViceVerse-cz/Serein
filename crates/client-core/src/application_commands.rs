@@ -358,6 +358,7 @@ mod tests {
 			state.channels[0].guild = Some(Id(10));
 			state.channels[0].kind = 0;
 			state.guilds.push(model::Guild {
+				default_message_notifications: None,
 				id: Id(10),
 				name: "Synthetic guild".into(),
 				icon: None,
@@ -652,6 +653,7 @@ mod tests {
 		sibling.id = Id(3);
 		state.channels.push(sibling);
 		state.guilds.push(model::Guild {
+			default_message_notifications: None,
 			id: Id(10),
 			name: "Synthetic guild".into(),
 			icon: None,
