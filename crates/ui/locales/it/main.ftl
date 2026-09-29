@@ -4095,4 +4095,4 @@ search-page-label = Pagina
 search-page-previous = Pagina precedente
 search-page-next = Pagina successiva
 search-page-go = Vai alla pagina
-search-page-retry = Riprova pagina
+search-page-retry = Riprova la pagina
