@@ -33,7 +33,8 @@ importing the package again and starts with fresh extension settings. Serein
 never deletes the creator's Git repository, the user's imported original, or an
 exported theme/image source.
 
-Plugin grants and data belong to the signed-in account. Logout invalidates
+Plugin grants and data belong to the signed-in account, except the narrow
+`api_proxy` connection plugin described below. Logout invalidates
 plugin results, drains bounded in-flight work and clears that account's extension data. Theme selection is a device
 preference. There is no periodic background polling or automatic package update.
 
@@ -132,6 +133,7 @@ supports 52 capabilities, with at most 64 distinct declarations per manifest.
 | `selected_message` | Read selected message text | A user-invoked `message` action only |
 | `composer` | Read the current draft and propose replacement | A `composer` action; replacement requires Apply |
 | `storage` | Read/replace one opaque local UTF-8 value | Per-account/plugin; 1 MiB disk limit and 256 KiB invocation budget |
+| `api_proxy` | Configure the Discord REST API HTTP/HTTPS proxy | Preview; device-wide, available before login; only `storage` may accompany this grant; no account data, Gateway, CDN or calls |
 | `rich_presence` | Contribute one bounded custom activity and restore it during activation | Preview; explicit panel/activation actions only; separate activity-sharing preference; revoked on disable/account change |
 | `deleted_messages` | Enable host retention of already-loaded deleted messages | Activation only; bounded session memory, no deleted text sent to Wasm |
 | `image_sharing` | Enable host emoji/sticker image attachment fallback | Activation only; unavailable native picker selections authorize sending, Wasm receives no image bytes |
@@ -465,7 +467,7 @@ invocation input/output, panel complexity, queues and plugin storage.
 | Execution fuel | 10,000,000 | Shared by parsing and execution; a valid-sized input can still exhaust it. |
 | Wasm call depth / interpreter stack | 128 calls / 256 KiB | Avoid deep recursion. |
 | Serialized input and output | 256 KiB each | Count UTF-8 and JSON escaping, including nested storage JSON. |
-| Manifest actions / capabilities | 16 / 64 distinct | Only the 52 supported capability names are currently accepted. |
+| Manifest actions / capabilities | 16 / 64 distinct | Only the 53 supported capability names are currently accepted. |
 | Panel | 64 elements / 8 row levels | Includes nested children; text and input values are at most 4 KiB each. |
 | Plugin storage on disk | 1 MiB | Its practical size must also fit the smaller invocation/output budget. |
 | App snapshot | 64 KiB | Individual lists have smaller budgets; see the [data reference](extension-sdk-reference.md#app-data). |
@@ -492,3 +494,30 @@ a separate bounded temporary `serein-extension-demo` profile; it can import loca
 fixtures and browse the embedded starter catalog/previews but cannot download a
 catalog, preview or package. `Ctrl+Shift+F12` resets a
 community theme if its colors make controls difficult to read.
+
+## API proxy plugin (preview)
+
+The optional API Proxy plugin uses the native extension panel to select Direct,
+Automatic (environment variables), or a custom HTTP/HTTPS proxy origin. An explicit Apply action changes
+REST routing and saves its configuration with the separately granted `storage`
+capability. No calls, voice sockets, Gateway WebSockets, CDN/media fetches or
+external extension downloads are proxied by this capability.
+
+This is a connection plugin, available in Settings > Extensions before login.
+Consent applies across accounts on this device. Its package and bounded local
+storage live in `extensions/proxy-plugins`, survive account switching/logout, and
+are removed when explicitly disabled. Other plugins keep their account isolation.
+A manifest requesting `api_proxy` must be a plugin with only `api_proxy` and
+optional `storage`, and only panel/activation actions. It receives no account data,
+tokens or requests and has no networking API.
+
+Custom proxy origins must use HTTP or HTTPS, have a host, and be at most 2048 bytes.
+Credentials, paths beyond `/`, queries and fragments are rejected. Proxy login,
+SOCKS and PAC are unsupported. REST requests keep TLS certificate verification.
+A failed configured proxy has no direct fallback. Invalid plugin configuration
+blocks initial API routing; reload/handler errors retain the previous valid route
+until the plugin is repaired or explicitly disabled.
+
+Automatic reads `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and their lowercase
+equivalents, respecting `NO_PROXY`. With none configured it connects directly.
+OS/browser proxy settings and PAC discovery are unsupported.

@@ -1,4 +1,4 @@
-// Direct, origin-fixed REST adapter. No cookies, redirects, logging, persistence or bot SDK.
+// Origin-fixed REST adapter. No cookies, redirects, logging, persistence or bot SDK.
 mod activity_sharing;
 mod archives;
 mod channel_actions;
@@ -10,6 +10,9 @@ mod guild_folders;
 mod interactions;
 mod messaging_permissions;
 mod profile_edit;
+pub mod proxy;
+#[cfg(test)]
+mod proxy_tests;
 pub mod rpc;
 mod server_actions;
 mod server_admin;
@@ -47,6 +50,7 @@ pub struct DiscordApi {
 	interaction_session: std::sync::Mutex<Option<zeroize::Zeroizing<String>>>,
 	ack_token: Mutex<zeroize::Zeroizing<Option<String>>>,
 	client: Client,
+	proxy: Mutex<ProxyState>,
 	upload_client: tokio::sync::OnceCell<Client>,
 	secret: Arc<SessionSecret>,
 	cooldown: Mutex<Instant>,
@@ -57,6 +61,11 @@ pub struct DiscordApi {
 	#[cfg(test)]
 	upload_origin: Option<std::net::SocketAddr>,
 }
+struct ProxyState {
+	receiver: tokio::sync::watch::Receiver<Option<proxy::ApiProxy>>,
+	cached: Option<(proxy::ApiProxy, Client)>,
+}
+
 enum RequestContent {
 	Json(serde_json::Value),
 	Multipart { content_type: String, body: Vec<u8> },
@@ -160,24 +169,43 @@ fn fingerprint_headers() -> Result<reqwest::header::HeaderMap, Failure> {
 	);
 	Ok(headers)
 }
+fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
+	let builder = Client::builder()
+		.redirect(reqwest::redirect::Policy::none())
+		// Keep writes single-attempt, including attachment slot allocation.
+		.retry(reqwest::retry::never())
+		.timeout(Duration::from_secs(20))
+		.connect_timeout(Duration::from_secs(10))
+		.user_agent(client_core::fingerprint::user_agent())
+		.default_headers(fingerprint_headers()?);
+	route
+		.client_builder(builder)
+		.map_err(Failure::ProtocolAt)?
+		.build()
+		.map_err(|_| Failure::ProtocolAt("API proxy connection unavailable"))
+}
 impl DiscordApi {
 	pub fn new(secret: Arc<SessionSecret>) -> Result<Self, Failure> {
-		let client = Client::builder()
-			.redirect(reqwest::redirect::Policy::none())
-			// Keep writes single-attempt, including attachment slot allocation.
-			.retry(reqwest::retry::never())
-			.no_proxy()
-			.timeout(Duration::from_secs(20))
-			.connect_timeout(Duration::from_secs(10))
-			.user_agent(client_core::fingerprint::user_agent())
-			.default_headers(fingerprint_headers()?)
-			.build()
-			.map_err(|_| Failure::Network)?;
+		Self::with_proxy(
+			secret,
+			tokio::sync::watch::channel(Some(proxy::ApiProxy::Direct)).1,
+		)
+	}
+	/// None waits for extension configuration; requests never race ahead using a direct route.
+	pub fn with_proxy(
+		secret: Arc<SessionSecret>,
+		receiver: tokio::sync::watch::Receiver<Option<proxy::ApiProxy>>,
+	) -> Result<Self, Failure> {
+		let client = api_client(&proxy::ApiProxy::Direct)?;
 		Ok(Self {
 			interaction_session: std::sync::Mutex::new(None),
 			upload_client: tokio::sync::OnceCell::new(),
 			ack_token: Mutex::new(zeroize::Zeroizing::new(None)),
 			client,
+			proxy: Mutex::new(ProxyState {
+				receiver,
+				cached: None,
+			}),
 			secret,
 			cooldown: Mutex::new(Instant::now()),
 			requests: Semaphore::new(4),
@@ -187,6 +215,36 @@ impl DiscordApi {
 			#[cfg(test)]
 			upload_origin: None,
 		})
+	}
+	/// Credential-free client snapshot for Discord REST; authorization is added per request.
+	pub async fn rest_client(&self) -> Result<Client, Failure> {
+		let mut state = self.proxy.lock().await;
+		let route = loop {
+			let current = state.receiver.borrow_and_update().clone();
+			if let Some(route) = current {
+				break route;
+			}
+			state.cached = None;
+			state
+				.receiver
+				.changed()
+				.await
+				.map_err(|_| Failure::ProtocolAt("API proxy configuration unavailable"))?;
+		};
+		if let Some((previous, client)) = &state.cached
+			&& previous == &route
+		{
+			return Ok(client.clone());
+		}
+		// Drop the old route first: invalid configuration must never reuse a direct connection.
+		state.cached = None;
+		let client = if route == proxy::ApiProxy::Direct {
+			self.client.clone()
+		} else {
+			api_client(&route)?
+		};
+		state.cached = Some((route, client.clone()));
+		Ok(client)
 	}
 	pub fn stop(&self) {
 		self.stopped.store(true, Ordering::Release);
@@ -299,7 +357,8 @@ impl DiscordApi {
 		let base = &self.base;
 		let write = method != Method::GET;
 		let mut request = self
-			.client
+			.rest_client()
+			.await?
 			.request(method, format!("{base}{path}"))
 			.header(AUTHORIZATION, authorization);
 		if let Some(retry) = retry {

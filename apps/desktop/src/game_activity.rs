@@ -65,19 +65,28 @@ trait Applications: Clone + Send + Sync + 'static {
 	fn detectable(&self) -> impl Future<Output = Result<Vec<Game>, &'static str>> + Send;
 }
 
-/// One HTTP client and one shared rate-limit cooldown for a whole sharing session.
+/// One routed REST adapter and one shared rate-limit cooldown for a sharing session.
 #[derive(Clone)]
 struct Service {
-	client: reqwest::Client,
 	cooldown: Arc<tokio::sync::Mutex<Instant>>,
 	api: Arc<discord_api::DiscordApi>,
 }
 impl Applications for Service {
 	async fn metadata(&self, id: Id) -> Result<Metadata, &'static str> {
-		discord_api::rpc::metadata(&self.client, &mut *self.cooldown.lock().await, id).await
+		let client = self
+			.api
+			.rest_client()
+			.await
+			.map_err(|_| "Game application lookup is unavailable.")?;
+		discord_api::rpc::metadata(&client, &mut *self.cooldown.lock().await, id).await
 	}
 	async fn assets(&self, id: Id) -> Result<Vec<discord_api::rpc::Asset>, &'static str> {
-		discord_api::rpc::assets(&self.client, &mut *self.cooldown.lock().await, id).await
+		let client = self
+			.api
+			.rest_client()
+			.await
+			.map_err(|_| "Game artwork lookup is unavailable.")?;
+		discord_api::rpc::assets(&client, &mut *self.cooldown.lock().await, id).await
 	}
 	async fn external(&self, id: Id, urls: &[String]) -> Result<Vec<String>, &'static str> {
 		self.api
@@ -86,8 +95,13 @@ impl Applications for Service {
 			.map_err(|_| "Discord could not prepare the game's artwork.")
 	}
 	async fn detectable(&self) -> Result<Vec<Game>, &'static str> {
+		let client = self
+			.api
+			.rest_client()
+			.await
+			.map_err(|_| "Game detection is unavailable.")?;
 		let bytes =
-			discord_api::detectable::download_list(&self.client, &mut *self.cooldown.lock().await)
+			discord_api::detectable::download_list(&client, &mut *self.cooldown.lock().await)
 				.await?;
 		// Several megabytes of JSON must never be parsed on a runtime worker.
 		tokio::task::spawn_blocking(move || discord_api::detectable::decode(&bytes))
@@ -112,7 +126,6 @@ pub async fn run(
 	let (enabled, custom_requests) = sharing;
 	run_enabled(enabled, &activity, &report, &ctx, || async {
 		let service = Service {
-			client: discord_api::rpc::client()?,
 			cooldown: Arc::new(tokio::sync::Mutex::new(Instant::now())),
 			api: api.clone(),
 		};

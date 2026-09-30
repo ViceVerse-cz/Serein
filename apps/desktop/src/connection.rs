@@ -64,6 +64,7 @@ impl Connection {
 		generation: u64,
 		expected_user: Option<model::Id>,
 		cached_presence: BTreeMap<model::Id, model::OwnPresence>,
+		api_proxy: watch::Receiver<Option<discord_api::proxy::ApiProxy>>,
 		ctx: egui::Context,
 	) -> Self {
 		let (commands, mut receive) = mpsc::channel(COMMAND_SLOTS);
@@ -102,7 +103,7 @@ impl Connection {
                 emit_event(&send, &typing_send, Envelope {generation,event}, &ctx)
             };
             let result=async {
-                let mut api=DiscordApi::new(secret.clone())?;
+                let mut api=DiscordApi::with_proxy(secret.clone(), api_proxy)?;
                 let user=api.authenticate().await?;
                 if expected_user.is_some_and(|id|id!=user.id){return Err(Failure::InvalidCredential);}
                 let gateway=api.gateway_url().await?;

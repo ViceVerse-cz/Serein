@@ -765,6 +765,7 @@ impl SessionEnd {
 	}
 }
 struct Desktop {
+	api_proxy: tokio::sync::watch::Sender<Option<discord_api::proxy::ApiProxy>>,
 	extensions: extension_bridge::Bridge,
 	extension_close_pending: bool,
 	login: Option<platform::LoginView>,
@@ -1936,6 +1937,7 @@ impl Desktop {
 		// keep the same native/compositor path as builds without window effects.
 		let tray_window = tray_window::State::default();
 		Ok(Self {
+			api_proxy: tokio::sync::watch::channel(None).0,
 			extensions: extension_bridge::Bridge::default(),
 			extension_close_pending: false,
 			login: None,
@@ -2119,6 +2121,7 @@ impl Desktop {
 			self.state.generation,
 			self.state.user.as_ref().map(|u| u.id),
 			self.account_presences.clone(),
+			self.api_proxy.subscribe(),
 			ctx.clone(),
 		));
 	}
@@ -5710,6 +5713,23 @@ impl eframe::App for Desktop {
 			&self.window,
 			self.fixture_only,
 		);
+		if self.extensions.api_proxy_ready() {
+			let route = match self.extensions.api_proxy() {
+				::extensions::ApiProxyConfig::Direct => discord_api::proxy::ApiProxy::Direct,
+				::extensions::ApiProxyConfig::Automatic => discord_api::proxy::ApiProxy::Automatic,
+				::extensions::ApiProxyConfig::Url { url } => {
+					discord_api::proxy::ApiProxy::Url { url }
+				}
+			};
+			self.api_proxy.send_if_modified(|current| {
+				if current.as_ref() == Some(&route) {
+					false
+				} else {
+					*current = Some(route);
+					true
+				}
+			});
+		}
 		self.sync_customization(ctx);
 		#[cfg(feature = "demo")]
 		if self.demo_typing

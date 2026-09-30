@@ -2698,6 +2698,9 @@ fn badge(ui: &mut egui::Ui, text: &str, foreground: egui::Color32, background: e
 
 fn capability_label(capability: Capability) -> &'static str {
 	match capability {
+		Capability::ApiProxy => {
+			"Route the Discord REST API through a proxy across accounts (not calls or media)"
+		}
 		Capability::RichPresence => "Publish custom activity while activity sharing is enabled",
 		Capability::ImageSharing => "Enable explicit emoji and sticker image attachment selection",
 		Capability::Appearance => "Customize app colors, typography and control styling",

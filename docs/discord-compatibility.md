@@ -1958,3 +1958,23 @@ through the same bounded range reader; no decoder, cache or queue is changed.
 The issue #485 error occurs before networking or native decoding when attachment
 URL/metadata admission fails. A media-host URL was one reproducible rejected form;
 the reporter's exact URL and native Linux/Windows playback remain unverified.
+
+## Optional REST API proxy plugin (preview)
+
+The API Proxy community plugin can select a credential-free HTTP/HTTPS CONNECT proxy
+for Serein's Discord REST requests, including native account validation, Gateway
+URL discovery and public application metadata. It is a connection-scoped plugin:
+its narrow grant allows configuration before sign-in and exposes no account data,
+Discord credentials, sockets or general network API to WebAssembly.
+
+Manual URL mode preserves destination TLS validation and never retries directly if
+the proxy fails. Automatic mode uses the process proxy environment and `NO_PROXY`;
+it is not OS PAC discovery. Proxy credentials in URLs are rejected and must not be
+stored in plugin data. Configuration changes replace the REST pool for subsequent
+requests; a request already started finishes on its previous route.
+
+The message Gateway WebSocket, voice signaling/media, calls, screen sharing,
+CDN downloads/uploads, updater, extension catalog and login/verification webviews
+remain on their existing routes. This REST-only plugin does not make Discord fully
+reachable where those endpoints are also blocked. Owner-controlled live use and
+cross-platform proxy interoperability remain unverified.

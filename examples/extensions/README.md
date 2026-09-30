@@ -485,8 +485,9 @@ before building a different presence editor.
 
 Existing `Invocation`, `Output`, `dispatch` and `export!` APIs and struct literal
 shapes remain supported. Opt into events with `EventInvocation`, or app data and
-actions with `AppInvocation` / `AppOutput`, or custom activity contributions with
-`RichPresenceOutput`. Existing plugins need no rebuild.
+actions with `AppInvocation` / `AppOutput`, custom activity contributions with
+`RichPresenceOutput`, or REST proxy configuration with `ApiProxyOutput`.
+Existing compiled plugins need no rebuild.
 
 Older hosts reject unsupported capabilities/surfaces. `api_version: 1` is not a
 capability probe. Current hosts inject a public support catalog available as
@@ -510,3 +511,11 @@ keys. Discord IDs are decimal strings, not JSON numbers. See the
 [output](../../docs/extension-sdk-actions.md#outputs-and-host-actions) field references
 and [sandbox limits](../../docs/extensions.md#resource-and-privacy-limits).
 Fitting a byte limit does not guarantee a handler fits the execution-fuel budget.
+
+## API proxy plugin (preview)
+
+The [API proxy output contract](../../docs/extension-sdk-actions.md#api-proxy-preview)
+uses `ApiProxyOutput.api_proxy` and the `api_proxy` capability, with optional `storage`.
+Only panel/activation actions are allowed; this narrow device-wide scope works
+before login and survives account logout. It routes only Discord REST requests,
+without exposing account data, credentials, calls, Gateway or media access.

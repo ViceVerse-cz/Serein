@@ -51,6 +51,7 @@ for state that survives invocations.
 | Join a call or control host-mediated devices/screen share | [App actions](extension-sdk-actions.md#app-actions) | `voice_connect`, `camera_control`, `audio_settings` or `media_control`; explicit Apply |
 | React to app changes | [App events](extension-sdk-reference.md#appeventkind-why-an-app-observer-ran) | `app_events`, the relevant data grants, and `data_events` for the event kinds that require it |
 | Save plugin preferences | [Panels and storage](extension-sdk-actions.md#panels-and-storage) | `storage` |
+| Configure a REST-only HTTP/HTTPS proxy before login | [API proxy](extension-sdk-actions.md#api-proxy-preview) | Preview `api_proxy`, optional `storage`; device-wide narrow scope, no account data or calls |
 | Publish a custom activity from a native editor | [Custom Rich Presence](extension-sdk-actions.md#custom-rich-presence) | `rich_presence`, explicit panel actions, and `storage` for saved settings; activity sharing remains a separate user choice |
 | Change the app's visual appearance | [Theme guide](theme-api.md) and [appearance output](extension-sdk-actions.md#every-output-field) | A declarative theme, or `appearance` for a plugin overlay |
 | Animate an appearance while enabled | [Scheduled ticks](../examples/extensions/README.md#scheduled-appearance-ticks) | One preview `tick` action and `appearance` |

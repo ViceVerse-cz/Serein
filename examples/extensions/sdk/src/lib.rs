@@ -424,3 +424,82 @@ pub struct ThemeStyle {
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub menu_radius: Option<u8>,
 }
+
+/// Connection-scoped REST API routing. No credentials or account data are exposed.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ApiProxyConfig {
+	#[default]
+	Direct,
+	Automatic,
+	Url {
+		url: String,
+	},
+}
+
+impl<'de> Deserialize<'de> for ApiProxyConfig {
+	fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+		#[derive(Deserialize)]
+		#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
+		enum Wire {
+			Direct {},
+			Automatic {},
+			Url { url: String },
+		}
+		Ok(match Wire::deserialize(deserializer)? {
+			Wire::Direct {} => Self::Direct,
+			Wire::Automatic {} => Self::Automatic,
+			Wire::Url { url } => Self::Url { url },
+		})
+	}
+}
+impl ApiProxyConfig {
+	pub fn validate(&self) -> Result<(), &'static str> {
+		if let Self::Url { url } = self {
+			if url.contains('@')
+				|| url.contains('\\')
+				|| url.len() > 2048
+				|| url
+					.chars()
+					.any(|c| c.is_control() || c.is_ascii_whitespace())
+			{
+				return Err("Invalid proxy URL");
+			}
+			let authority = url
+				.split_once("://")
+				.map(|(_, tail)| tail)
+				.ok_or("Use an HTTP or HTTPS proxy origin")?;
+			if authority
+				.strip_suffix('/')
+				.unwrap_or(authority)
+				.contains('/')
+			{
+				return Err("Use an HTTP or HTTPS proxy origin");
+			}
+			let parsed = url::Url::parse(url).map_err(|_| "Invalid proxy URL")?;
+			if !matches!(parsed.scheme(), "http" | "https")
+				|| parsed.host_str().is_none()
+				|| !parsed.username().is_empty()
+				|| parsed.password().is_some()
+				|| parsed.path() != "/"
+				|| parsed.query().is_some()
+				|| parsed.fragment().is_some()
+			{
+				return Err(
+					"Use an HTTP or HTTPS proxy origin without credentials, path, query or fragment",
+				);
+			}
+		}
+		Ok(())
+	}
+}
+
+/// REST proxy contribution without changing the legacy `Output` struct literal.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ApiProxyOutput {
+	#[serde(flatten)]
+	pub output: Output,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub api_proxy: Option<ApiProxyConfig>,
+}

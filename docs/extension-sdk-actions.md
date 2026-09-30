@@ -1183,3 +1183,29 @@ python pack.py panel-settings/manifest.json target/wasm32-unknown-unknown/releas
 
 For a larger working panel with app
 proposals, read [App Toolbox](../examples/extensions/app-toolbox/src/lib.rs).
+
+## API proxy (preview)
+
+Declare `api_proxy` and optionally `storage`; other capabilities and surfaces
+beyond `panel`/`activation` are rejected. This special plugin has a device-wide
+prelogin scope, survives account logout, and cannot access account data.
+
+Return `ApiProxyOutput { api_proxy: Some(ApiProxyConfig::Url { url }), ..Default::default() }`
+from an explicit Apply action, or restore the saved setting during activation.
+Its flattened `output: Output` field carries the usual panel/storage values;
+use `export!(handle)` for the Wasm exports.
+`ApiProxyConfig::Direct` removes proxy routing; `Automatic` selects environment proxy
+configuration (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, lowercase equivalents and
+`NO_PROXY`), with direct routing when none are configured. OS proxy settings and
+PAC discovery are unsupported. The wire shape is `{"api_proxy":{"mode":"url","url":"http://127.0.0.1:8080"}}`,
+`{"api_proxy":{"mode":"automatic"}}`, or `{"api_proxy":{"mode":"direct"}}`.
+Omitting `api_proxy` leaves the current routing unchanged. Use the SDK's
+`ApiProxyConfig::validate()` before returning user input. The host independently
+validates output and consent.
+
+Only the Discord REST API is affected. Gateway, CDN, media and calls keep their
+existing transports. Custom HTTP/HTTPS origins are capped at 2048 bytes and cannot
+contain credentials, a non-root path, a query or a fragment. Proxy authentication,
+SOCKS and PAC are unsupported. Saved invalid configuration should trap during
+activation rather than silently return Direct; the host then blocks initial API
+routing and preserves an already configured route during reload.

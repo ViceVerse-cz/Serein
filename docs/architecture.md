@@ -13,7 +13,7 @@ The composer schedules one visible expiry deadline and performs no animation or 
 - `discord-protocol`: bounded wire decoding and Discord DTOs, independent of rendering.
 - `client-core`: single UI-thread state owner, generation-tagged events, composer/send lifecycle, navigation and freshness. Network callbacks never mutate it directly.
 - `session-cache`: one active 500-message / 4 MiB timeline, bounded patches/tombstones. Inactive history goes to `local-store`; no unbounded RAM cache per channel.
-- `discord-api`: fixed Discord origin, verified TLS, no redirects, cookies or proxy discovery, four concurrent REST permits, bounded response bodies and conservative shared service cooldown.
+- `discord-api`: fixed Discord origin, verified TLS, no redirects or cookies, direct routing unless an explicitly granted API Proxy plugin selects a route, four concurrent REST permits, bounded response bodies and conservative shared service cooldown.
 - `discord-gateway`: independent Tokio task; JSON without compression, Hello/ACK/heartbeats, Identify/Resume, bounded initial login retries and persistent reconnection with capped backoff after READY. UI queue overload stops the connection instead of silently losing message mutations.
 - `local-store`: SQLite transactions, global disk ceilings, account-isolated messages/drafts. A dedicated worker serializes operations away from rendering.
 - `platform`: OS credential store, temporary Wry login webview and native file-save dialog. No system profile/token extraction. Credential operations are serialized by a dedicated worker to order saves before logout deletion.

@@ -171,6 +171,8 @@ enum ThemePickerResult {
 #[derive(Default)]
 pub struct Bridge {
 	rich_presence_changed: bool,
+	api_proxy_loaded: bool,
+	api_proxy_saved: extensions::ApiProxyConfig,
 	host: Option<ExtensionHost>,
 	scope: Option<(u64, Option<String>)>,
 	pending: BTreeMap<u64, Pending>,
@@ -221,6 +223,31 @@ impl Bridge {
 			.filter(|entry| entry.rich_presence.is_some())
 			.min_by_key(|entry| &entry.manifest.id)
 			.and_then(|entry| entry.rich_presence.as_deref())
+	}
+
+	pub fn api_proxy_ready(&self) -> bool {
+		self.api_proxy_loaded
+	}
+	pub fn api_proxy(&self) -> extensions::ApiProxyConfig {
+		self.api_proxy_saved.clone()
+	}
+	fn refresh_api_proxy(&mut self) {
+		if self.installed.iter().any(|entry| {
+			entry.error.is_some() && entry.manifest.capabilities.contains(&Capability::ApiProxy)
+		}) {
+			self.api_proxy_loaded = false;
+			return;
+		}
+		self.api_proxy_loaded = true;
+		self.api_proxy_saved = self
+			.installed
+			.iter()
+			.filter(|entry| entry.error.is_none() && !self.disabled.contains(&entry.manifest.id))
+			.filter(|entry| entry.manifest.capabilities.contains(&Capability::ApiProxy))
+			.filter(|entry| entry.api_proxy.is_some())
+			.min_by_key(|entry| &entry.manifest.id)
+			.and_then(|entry| entry.api_proxy.clone())
+			.unwrap_or_default();
 	}
 
 	pub fn data_changed(&mut self, mut changes: crate::extension_data_events::Changes) {
@@ -553,6 +580,7 @@ impl Bridge {
 			self.ticks.clear();
 			self.transitions.clear();
 			self.imported = None;
+			self.api_proxy_loaded = false;
 			self.installed.clear();
 			self.disabled.clear();
 			messaging.extensions.reset_runtime();
@@ -643,7 +671,15 @@ impl Bridge {
 						continue;
 					}
 					if let Some((id, _, _)) = pending.as_ref().and_then(|p| p.invocation.as_ref()) {
+						if let Some(entry) = self.installed.iter_mut().find(|entry| {
+							entry.manifest.id == *id
+								&& entry.manifest.capabilities.contains(&Capability::ApiProxy)
+						}) {
+							entry.error = Some(error.clone());
+							self.api_proxy_loaded = false;
+						}
 						self.disabled.insert(id.clone());
+						self.refresh_api_proxy();
 						self.apply_theme(ctx);
 						self.entries(messaging);
 					}
@@ -690,6 +726,7 @@ impl Bridge {
 						messaging.extensions.status = error.clone();
 					}
 					self.installed = installed;
+					self.refresh_api_proxy();
 					self.apply_theme(ctx);
 					self.entries(messaging);
 				}
@@ -767,6 +804,7 @@ impl Bridge {
 						.retain(|old| old.manifest.id != installed.manifest.id);
 					self.disabled.remove(&installed.manifest.id);
 					self.installed.push(installed);
+					self.refresh_api_proxy();
 					self.imported = None;
 					self.apply_theme(ctx);
 					self.entries(messaging);
@@ -780,6 +818,7 @@ impl Bridge {
 					});
 					self.installed.retain(|entry| entry.manifest.id != id);
 					self.disabled.remove(&id);
+					self.refresh_api_proxy();
 					messaging.extensions.remove_runtime(&id);
 					self.apply_theme(ctx);
 					self.entries(messaging);
@@ -863,6 +902,16 @@ impl Bridge {
 								}
 								extensions::RichPresenceUpdate::Clear => None,
 							};
+						}
+						if context.is_current(state)
+							&& let Some(config) = &output.api_proxy
+							&& let Some(installed) = self
+								.installed
+								.iter_mut()
+								.find(|entry| entry.manifest.id == id)
+						{
+							installed.api_proxy = Some(config.clone());
+							self.refresh_api_proxy();
 						}
 						if invocation.message_event.is_none() && invocation.app_event.is_none() {
 							messaging
@@ -1121,6 +1170,8 @@ impl Bridge {
 					self.message_events.retain(|event| event.id != id);
 					if let Some(entry) = self.installed.iter().find(|e| e.manifest.id == id) {
 						let kind = entry.manifest.kind;
+						let connection_plugin =
+							entry.manifest.capabilities.contains(&Capability::ApiProxy);
 						self.cancel_previews(messaging);
 						self.pending.retain(|_, pending| pending.cleanup);
 						messaging.extensions.remove_runtime(&id);
@@ -1131,7 +1182,11 @@ impl Bridge {
 							Job::Disable {
 								id,
 								kind,
-								account: account.clone(),
+								account: if connection_plugin {
+									None
+								} else {
+									account.clone()
+								},
 							},
 							None,
 							state.generation,
@@ -1151,14 +1206,20 @@ impl Bridge {
 					{
 						continue;
 					}
-					if let Some(account) = &account {
+					let connection_plugin = self.installed.iter().any(|entry| {
+						entry.manifest.id == id
+							&& entry.manifest.capabilities.contains(&Capability::ApiProxy)
+					});
+					if account.is_some() || connection_plugin {
 						let manifest = &self
 							.installed
 							.iter()
 							.find(|e| e.manifest.id == id)
 							.unwrap()
 							.manifest;
-						attach_app_data(&mut invocation, state, messaging, manifest);
+						if !connection_plugin {
+							attach_app_data(&mut invocation, state, messaging, manifest);
+						}
 						if crate::extension_app::uses_app(&manifest.capabilities) {
 							// App snapshots and proposals belong to the conversation that produced them.
 							context.app_wide = false;
@@ -1168,7 +1229,11 @@ impl Bridge {
 						self.submit(
 							Job::Invoke {
 								id,
-								account: account.clone(),
+								account: if connection_plugin {
+									String::new()
+								} else {
+									account.clone().unwrap()
+								},
 								invocation,
 							},
 							pending,
@@ -1512,6 +1577,9 @@ impl Bridge {
 		ctx: &egui::Context,
 		messaging: &mut ui::MessagingUi,
 	) {
+		if matches!(job, Job::Load { .. }) {
+			self.api_proxy_loaded = false;
+		}
 		let preview = match &job {
 			Job::Preview { id, preview, .. } => Some((id.clone(), preview.sha256.clone())),
 			_ => None,
@@ -1786,6 +1854,7 @@ mod tests {
 			preserve_deleted_messages: false,
 			image_sharing: false,
 			rich_presence: None,
+			api_proxy: None,
 		};
 		let bridge = Bridge {
 			scope: Some((
@@ -1804,6 +1873,32 @@ mod tests {
 		};
 		assert!(bridge.has_message_events(&state));
 		(bridge, state, event)
+	}
+
+	#[test]
+	fn api_proxy_route_survives_pending_reload_and_plugin_errors() {
+		let (mut bridge, _, _) = message_events_fixture();
+		let config = extensions::ApiProxyConfig::Url {
+			url: "http://localhost:8080".into(),
+		};
+		bridge.installed[0].manifest.capabilities = vec![Capability::ApiProxy];
+		bridge.installed[0].api_proxy = Some(config.clone());
+		bridge.installed[0].error = Some("failed activation".into());
+		bridge.refresh_api_proxy();
+		assert!(!bridge.api_proxy_ready());
+		bridge.installed[0].error = None;
+		bridge.refresh_api_proxy();
+		assert!(bridge.api_proxy_ready());
+		assert_eq!(bridge.api_proxy(), config);
+		bridge.installed[0].error = Some("failed activation".into());
+		bridge.refresh_api_proxy();
+		assert!(!bridge.api_proxy_ready());
+		assert_eq!(bridge.api_proxy(), config);
+		bridge.installed.clear();
+		assert_eq!(bridge.api_proxy(), config);
+		bridge.refresh_api_proxy();
+		assert!(bridge.api_proxy_ready());
+		assert_eq!(bridge.api_proxy(), extensions::ApiProxyConfig::Direct);
 	}
 
 	#[test]

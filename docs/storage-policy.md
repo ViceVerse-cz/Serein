@@ -1417,3 +1417,27 @@ Guild notification defaults and mute deadlines add fixed-size scalar metadata
 to existing bounded navigation/settings records. Channel overrides stay in the
 existing count/byte budgets. Logout and session invalidation clear the editor's
 scope and discard pending results from old generations.
+
+## Connection-scoped API proxy plugin (preview)
+
+Only a plugin granted `api_proxy` (and optionally `storage`) uses the global
+`extensions/proxy-plugins` directory. These plugins have no account snapshot,
+message, file or networking grants and may run before authentication. Account
+plugins retain their existing account isolation; account logout does not erase a
+connection plugin. Explicit disable removes its package/data using the existing
+bounded cleanup path and restores the remaining selected route or Direct.
+
+One validated mode and at most 2,048 UTF-8 bytes of credential-free endpoint
+configuration are coalesced in a watch channel. The API task caches the current
+client pool and snapshots it for new requests; it never builds clients while
+rendering. Already-started requests can finish using the prior route, including
+across a configuration change. Global plugin package, invocation, storage and
+queue budgets remain the existing extension limits. Invalid initial configuration
+blocks REST routing rather than quietly using Direct; runtime failures retain
+an already selected route until repaired or explicitly disabled.
+
+Automatic mode reads bounded validated HTTP/HTTPS proxy environment values,
+including `NO_PROXY` selection. These values are never supplied to plugins,
+written to plugin data or included in errors. URL credentials are unsupported.
+The Gateway, media/CDN, updater, extension downloads, webviews and voice transport
+keep their existing routing. No new network listener or telemetry is introduced.
