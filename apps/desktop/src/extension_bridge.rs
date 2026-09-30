@@ -1589,16 +1589,16 @@ impl Bridge {
 		}
 	}
 	fn source_for(&self, id: &str, sha256: &str, reviewed: bool) -> Option<InstallSource> {
-		self.catalog
+		self.starters
 			.get(id)
-			.filter(|entry| reviewed && entry.sha256 == sha256)
-			.cloned()
-			.map(InstallSource::Catalog)
+			.filter(|entry| reviewed && source_hash(&entry.source) == sha256)
+			.map(|entry| entry.source.clone())
 			.or_else(|| {
-				self.starters
+				self.catalog
 					.get(id)
-					.filter(|entry| reviewed && source_hash(&entry.source) == sha256)
-					.map(|entry| entry.source.clone())
+					.filter(|entry| reviewed && entry.sha256 == sha256)
+					.cloned()
+					.map(InstallSource::Catalog)
 			})
 			.or_else(|| {
 				self.imported
@@ -2187,12 +2187,17 @@ mod tests {
 			description: "Synthetic fixture",
 			download_bytes: 100,
 		};
-		let bridge = Bridge {
+		let mut bridge = Bridge {
 			imported: Some(imported),
 			starters: BTreeMap::from([(id.clone(), starter)]),
 			catalog: BTreeMap::from([(id.clone(), catalog)]),
 			..Default::default()
 		};
+		assert!(matches!(
+			bridge.source_for(&id, &"b".repeat(64), true),
+			Some(InstallSource::Bundled { .. })
+		));
+		bridge.starters.clear();
 		assert!(matches!(
 			bridge.source_for(&id, &"b".repeat(64), true),
 			Some(InstallSource::Catalog(_))

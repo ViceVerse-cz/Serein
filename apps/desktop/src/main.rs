@@ -2038,7 +2038,7 @@ impl Desktop {
 			confirming_forget: sign_in_forget,
 			sign_in_copied: None,
 			credential_status: if demo {
-				"Fixture mode never opens the credential store or network"
+				"Fixture mode skips saved login; extensions use public GitHub downloads"
 			} else if loading_saved {
 				"Checking saved login…"
 			} else {

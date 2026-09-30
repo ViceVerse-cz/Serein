@@ -442,7 +442,8 @@ fn seed_catalog(extensions: &mut ui::ExtensionUi, themes: bool) {
 			})
 			.collect(),
 	);
-	let previews = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../extensions/previews");
+	let previews =
+		PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../community-extensions/previews");
 	{
 		let (id, filename) = ("serein-ocean", "ocean.png");
 		let image = image::open(previews.join(filename))
@@ -824,4 +825,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		return Err("No screenshot saved".into());
 	}
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	#[test]
+	fn non_theme_catalog_loads_community_preview() {
+		super::seed_catalog(&mut ui::ExtensionUi::default(), false);
+	}
 }

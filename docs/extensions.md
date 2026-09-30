@@ -14,6 +14,7 @@ Opening Settings > Themes or Extensions checks that repository's shared catalog
 on the existing worker. Normal builds embed no package payloads; bundled examples
 remain available only as demo/test fixtures. Demo catalog refresh, previews and
 selected catalog installs use the same public repository downloads as normal builds.
+An identical bundled fixture with the approved ID and hash is reused without a download.
 Catalog packages, source and previews have one canonical copy in the pinned
 `community-extensions` Git submodule, backed by `Serein-extensions`. Initialize it
 with `git submodule update --init` before running tests or building demos. Runtime
@@ -58,7 +59,8 @@ preference. There is no periodic background polling or automatic package update.
    No native binary, installer, Git hook or build script runs on an end user's
    computer. Other languages can implement the same Wasm buffer/JSON contract.
 3. Package the manifest and Wasm bytes (or declarative theme) as a single JSON
-   file. Test through Import with an offline `--demo` build first.
+   file. Test through Import with synthetic `--demo` conversations first; catalog browsing
+   may download public GitHub content.
 4. Add the package and reproducible source/build instructions to `Serein-extensions`.
    Commit the package first, then regenerate that repository's `catalog.json` with
    the package commit. Its publishing script records immutable package URLs,
