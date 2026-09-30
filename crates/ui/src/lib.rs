@@ -79,6 +79,7 @@ pub mod dialog;
 mod join_server;
 mod keybinds;
 mod onboarding;
+mod polls;
 mod profile_edit;
 mod reactions;
 mod reading;
@@ -104,6 +105,8 @@ mod settings;
 mod shortcuts;
 mod switcher;
 mod thumbhash;
+#[cfg(feature = "demo")]
+pub use polls::debug_poll_check;
 mod timeline;
 #[cfg(test)]
 mod title_bar_tests;
@@ -190,6 +193,7 @@ fn thread_member_rows<'a>(
 
 #[derive(Default)]
 pub struct MessagingUi {
+	poll_creator: polls::Creator,
 	pub language: i18n::Language,
 	forwarding: forwarding::ForwardDialog,
 	pub image_sharing_enabled: bool,
@@ -2913,7 +2917,10 @@ impl MessagingUi {
                             .inner
                             .on_hover_text(crate::i18n::translate("lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up")))
                     };
-                    if !editing_here { self.extensions.composer_menu(ui, state); }
+                    if !editing_here {
+                        self.extensions.composer_menu(ui, state);
+                        if ui.add_enabled(state.can_create_poll(channel),egui::Button::new("Poll").small()).on_hover_text("Create a poll").clicked() { self.poll_creator.open(state,channel); }
+                    }
                     if attach.is_some_and(|attach| attach.clicked()) {
                         self.attach_requested = true;
                     }
@@ -3479,6 +3486,11 @@ impl MessagingUi {
 		self.timeline.video.seen = false;
 		let side = self.drain_side_press();
 		let mut commands = Vec::new();
+		if let Some(action) = self.poll_creator.show(ui.ctx(), state)
+			&& let Some(command) = state.prepare_poll(None, action)
+		{
+			commands.push(command);
+		}
 		if side.back || side.forward {
 			self.navigate_history(state, &mut commands, side.back);
 		}
@@ -4136,6 +4148,11 @@ impl MessagingUi {
 							self.pending_upload.as_ref(),
 							&mut self.scroll,
 						);
+						if let Some((id, action)) = self.timeline.poll_action.take()
+							&& let Some(command) = state.prepare_poll(Some(id), action)
+						{
+							commands.push(command);
+						}
 						if let Some(id) = self.timeline.sticker_request.take() {
 							if let Some(command) = state.request_sticker(id) {
 								commands.push(command);
@@ -4774,6 +4791,7 @@ mod composer_tests {
 			.timeline
 			.insert(
 				model::Message {
+					poll: None,
 					sticker_items: vec![],
 					id: Id(20),
 					channel: Id(10),

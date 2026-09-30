@@ -658,7 +658,7 @@ describes schemas; normal-account submission and modal Gateway events are unoffi
 This is not full Discord component parity: premium purchases are unavailable, and
 synthetic checks do not verify live application responses, modal uploads or purchases.
 Normal-account interoperability and Windows/Linux visual equivalence remain unverified.
-Polls and stickers still retain presence markers and an Open in Discord fallback.
+Stickers and unsupported future poll layouts retain presence markers and an Open in Discord fallback. Supported polls now have native cards, as described below.
 Old cached component markers acquire controls only after normal history refresh.
 
 Run the offline native component preview with:
@@ -1990,3 +1990,29 @@ credential-bearing environment URLs. Live authentication remains unverified.
 HTTP Basic credentials on an HTTP proxy cross an unencrypted proxy connection,
 even when Discord destination TLS is preserved. The credential form displays
 this warning for HTTP endpoints; HTTPS proxies encrypt the proxy connection.
+
+
+## Native polls (September 30, 2026)
+
+Poll messages now retain bounded questions, up to ten answers, optional emoji, expiry,
+single/multiple choice and supplied results. Native cards use Serein surfaces and accent
+colors with Discord-style answer rows, selection checkmarks, result fills and a vote footer.
+The composer Poll button opens a creation dialog (300-character question, 55-character
+answers, Unicode emoji and the usual 1h/4h/8h/1d/3d/1w durations). Readers can vote,
+remove their vote, explicitly refresh results, and confirm ending their own poll.
+
+Schemas and creation/end routes follow the [official poll reference](https://docs.discord.com/developers/resources/poll).
+Normal-account voting uses the [unofficial first-hand message reference](https://docs.discord.food/resources/message#vote-on-poll):
+PUT /channels/{channel}/polls/{message}/answers/@me with answer_ids; an empty array removes votes.
+Writes are never automatically replayed. Voting reads back the exact message through history;
+Gateway vote events update loaded results and invalidate inactive resident windows. Missing
+results remain unknown or preserve matching earlier results; finalized tallies are authoritative.
+While a poll is running, service counts may be approximate. Multiselect totals count selections.
+Poll content is limited to 8 KiB retained and 128 KiB wire, and one action may be pending.
+
+Typed poll data is currently session-only; the local history database keeps its existing presence
+marker until ordinary history refresh. Forwarded/deleted/private-response polls are read-only.
+Voter-name browsing and a custom-server-emoji creation picker are not included in this fast slice.
+Extension snapshots retain their existing unsupported poll contract. No live Discord account was
+used to verify normal-account interoperability. Use --demo --demo-polls for an offline preview
+and --demo --demo-check-polls for the focused synthetic debug check.

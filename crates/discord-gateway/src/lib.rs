@@ -1359,10 +1359,10 @@ async fn run_inner(
 					match frame {
 						Some(Ok(Frame::Text(text))) => {
 							let packet: GatewayPacket = decode_gateway(text.as_bytes()).map_err(|_| diagnosed(&emit, Failure::Protocol, diagnose_packet(text.as_bytes())))?;
-							// Reaction counts are additive: do not apply a repeated dispatch or
+							// Reaction and poll vote counts are additive: do not apply a repeated dispatch or
 							// move the resume cursor backwards when one is replayed.
 							if packet.op == 0
-								&& matches!(packet.t.as_deref(), Some("MESSAGE_REACTION_ADD" | "MESSAGE_REACTION_REMOVE" | "MESSAGE_REACTION_REMOVE_ALL" | "MESSAGE_REACTION_REMOVE_EMOJI"))
+								&& matches!(packet.t.as_deref(), Some("MESSAGE_POLL_VOTE_ADD" | "MESSAGE_POLL_VOTE_REMOVE" | "MESSAGE_REACTION_ADD" | "MESSAGE_REACTION_REMOVE" | "MESSAGE_REACTION_REMOVE_ALL" | "MESSAGE_REACTION_REMOVE_EMOJI"))
 								&& packet.s.zip(state.sequence).is_some_and(|(next, last)| next <= last)
 							{ continue; }
 							if let Some(sequence) = packet.s { state.sequence = Some(sequence); }
@@ -1621,6 +1621,12 @@ async fn run_inner(
 										let latest = std::mem::take(&mut update.updated_channels);
 										calls.passive(update,owner_id,&emit)?;
 										emit(Event::ReadState(client_core::read_state::Event::Latest(latest.into_iter().map(|c|(c.id,c.last_message_id)).collect())))?;
+									}
+									"MESSAGE_POLL_VOTE_ADD" | "MESSAGE_POLL_VOTE_REMOVE" => {
+										let vote: discord_protocol::polls::Vote = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;
+										if vote.channel_id.0 == 0 || vote.message_id.0 == 0 || vote.user_id.0 == 0 || vote.answer_id == 0 { return Err(Failure::Protocol); }
+										if packet.s.is_some() { emit(Event::Polls(client_core::polls::Event::Vote { channel: vote.channel_id, message: vote.message_id,
+											user: vote.user_id, answer: vote.answer_id, add: packet.t.as_deref() == Some("MESSAGE_POLL_VOTE_ADD") }))?; }
 									}
 									"MESSAGE_UPDATE" => emit(Event::Patch(decode::<PatchDto>(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?.into_model()))?,
 									"MESSAGE_REACTION_ADD" | "MESSAGE_REACTION_REMOVE" | "MESSAGE_REACTION_REMOVE_ALL" | "MESSAGE_REACTION_REMOVE_EMOJI" => {

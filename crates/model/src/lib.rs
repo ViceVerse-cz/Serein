@@ -2,6 +2,7 @@
 pub mod account;
 pub mod application_commands;
 mod image_sharing;
+pub mod polls;
 pub use image_sharing::ImageShare;
 pub mod archives;
 mod channel_preferences;
@@ -325,6 +326,7 @@ impl Interaction {
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct Message {
+	pub poll: Option<Box<polls::Poll>>,
 	pub sticker_items: Vec<Sticker>,
 	/// Original outer message flags, retained for interaction submissions.
 	pub flags: u64,
@@ -393,6 +395,7 @@ impl Message {
 
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>()
+			+ self.poll.as_ref().map_or(0, |poll| poll.bytes())
 			+ self.reactions.as_ref().map_or(0, |r| {
 				reaction_bytes(r) + r.capacity().saturating_sub(r.len()) * size_of::<Reaction>()
 			}) + self.content.capacity()
@@ -439,6 +442,7 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Patch<T> {
 }
 #[derive(Clone)]
 pub struct MessagePatch {
+	pub poll: Patch<Option<Box<polls::Poll>>>,
 	pub sticker_items: Patch<Vec<Sticker>>,
 	pub flags: Patch<u64>,
 	pub components: Patch<Vec<Component>>,

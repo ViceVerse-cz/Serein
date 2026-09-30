@@ -29,6 +29,8 @@ struct RevealScroll {
 
 #[derive(Default)]
 pub struct TimelineView {
+	polls: crate::polls::Cards,
+	pub(super) poll_action: Option<(Id, client_core::polls::Action)>,
 	pub(super) forward_request: Option<Id>,
 	pub(super) sticker_request: Option<Id>,
 	pub(super) browse_sticker: Option<model::Sticker>,
@@ -324,6 +326,7 @@ fn layout_key(message: &Message) -> u64 {
 	message.reply_deleted.hash(&mut key);
 	message.unsupported.hash(&mut key);
 	message.extra_content.hash(&mut key);
+	message.poll.hash(&mut key);
 	message.sticker_items.hash(&mut key);
 	message.components.hash(&mut key);
 	message.kind.hash(&mut key);
@@ -357,7 +360,13 @@ fn reserved_chrome(ui: &egui::Ui, message: &Message, width: f32) -> f32 {
 	);
 	let components = 40.0 * (message.components.len().min(5) as f32);
 	let stickers = 160.0 * (message.sticker_items.len().min(4) as f32);
-	reactions + components + stickers
+	reactions
+		+ components
+		+ stickers
+		+ message
+			.poll
+			.as_ref()
+			.map_or(0.0, |p| 140.0 + 64.0 * p.answers.len() as f32)
 }
 
 pub(crate) fn fill_header_line(ui: &mut egui::Ui, compact: bool, text_line: egui::Rect) {
@@ -2827,10 +2836,16 @@ impl TimelineView {
 													.inner;
 												surface.keep(&response);
 											}
+											if let Some(action) =
+												self.polls.show(ui, state, message)
+											{
+												self.poll_action = Some((message.id, action));
+											}
 											let unknown_system = message.unsupported
 												&& message.system_summary().is_none();
 											if unknown_system
-												|| message.extra_content.poll || ((message
+												|| (message.extra_content.poll
+													&& message.poll.is_none()) || ((message
 												.extra_content
 												.sticker_items
 												|| message.extra_content.stickers)
@@ -2852,7 +2867,8 @@ impl TimelineView {
 												}
 												for (present, label) in [
 													(
-														message.extra_content.poll,
+														message.extra_content.poll
+															&& message.poll.is_none(),
 														"Poll · Preview unavailable",
 													),
 													(
@@ -3739,6 +3755,7 @@ pub fn debug_unread_navigation_check(state: &mut State) {
 	let channel = state.selected.unwrap();
 	let template = state.timeline.iter().next().unwrap().clone();
 	let message = |id| Message {
+		poll: None,
 		id: Id(id),
 		content: format!("Synthetic message {id}"),
 		reply_to: None,
@@ -4428,6 +4445,7 @@ mod tests {
 
 	fn text_message(id: u64) -> Message {
 		Message {
+			poll: None,
 			sticker_items: vec![],
 			id: Id(id),
 			channel: Id(20),
@@ -7479,6 +7497,7 @@ mod tests {
 
 	fn check_channel_rename_heights() {
 		let message = Message {
+			poll: None,
 			sticker_items: vec![],
 			id: Id(1),
 			channel: Id(2),
@@ -7629,6 +7648,7 @@ mod tests {
 	#[test]
 	fn same_id_revision_reset_does_not_reuse_reveal_or_height() {
 		let mut message = Message {
+			poll: None,
 			sticker_items: vec![],
 			reactions: Some(vec![]),
 			id: Id(1),
@@ -7729,6 +7749,7 @@ mod tests {
 			}
 		}
 		let mut message = Message {
+			poll: None,
 			sticker_items: vec![],
 			reactions: Some(vec![]),
 			id: Id(1),

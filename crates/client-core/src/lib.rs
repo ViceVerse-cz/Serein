@@ -22,6 +22,7 @@ pub mod member_search;
 pub mod message_actions;
 pub mod messaging_permissions;
 pub mod notifications;
+pub mod polls;
 pub mod presence;
 pub mod profile;
 pub mod reactions;
@@ -66,6 +67,7 @@ pub const EVENT_SLOTS: usize = 8; // UI drain batch; reliable events share a 32 
 pub const COMMAND_SLOTS: usize = 16; // ordinary commands <=16 KiB; bulk DM settings <=33 KiB; channel edit <=128 KiB; group icon <=350 KiB
 
 pub enum Command {
+	Polls(polls::Request),
 	StickerPacks,
 	Sticker(Id),
 	Interaction(interactions::Request),
@@ -402,6 +404,7 @@ fn prepare_navigation(
 	Ok(permission_state)
 }
 pub enum Event {
+	Polls(polls::Event),
 	StickerEntitlement {
 		user: Id,
 		premium_type: Patch<u8>,
@@ -674,6 +677,7 @@ pub struct State {
 	/// A pin changed in this channel; the pins view should be reloaded once.
 	pub pins_changed: Option<Id>,
 	pub message_actions: message_actions::MessageActions,
+	pub polls: polls::Polls,
 	pub search_target: Option<Id>,
 	/// The next consumed `search_target` restores a saved inset instead of centering.
 	pub restore_scroll: bool,
@@ -886,6 +890,7 @@ impl Default for State {
 			gifs: gifs::Gifs::default(),
 			pins_changed: None,
 			message_actions: Default::default(),
+			polls: Default::default(),
 			search_target: None,
 			restore_scroll: false,
 			history_targeted: false,
@@ -1182,6 +1187,7 @@ impl State {
 		self.search_target = None;
 		self.restore_scroll = false;
 		self.reactions.reset();
+		self.polls.reset();
 		self.interactions.reset();
 		let scope = self.application_command_scope(channel);
 		self.application_commands.retain(scope);
@@ -1741,6 +1747,15 @@ impl State {
 	}
 	/// Reports a command the transport could not accept as a bounded outcome error.
 	pub fn command_rejected(&mut self, command: Command) {
+		if let Command::Polls(request) = command {
+			let _ = self.apply_poll(polls::Event::Result {
+				channel: request.channel,
+				message: request.message,
+				request: request.request,
+				result: Err(auth::Failure::Capacity),
+			});
+			return;
+		}
 		match &command {
 			Command::ApplicationCommands {
 				channel, request, ..
@@ -2576,6 +2591,7 @@ impl State {
 				self.apply_application_commands(channel, request, result);
 				Ok(())
 			}
+			Event::Polls(event) => self.apply_poll(event),
 			Event::Reactions(event) => self.apply_reactions(event),
 			Event::InviteChallenge { request, challenge } => {
 				self.apply_invite_challenge(request, *challenge);
@@ -3712,6 +3728,7 @@ impl State {
 	fn cancel_history(&mut self) {
 		self.typing.clear();
 		self.reactions.reset();
+		self.polls.reset();
 		self.interactions.reset();
 		self.search_target = None;
 		self.request += 1;
@@ -4031,6 +4048,9 @@ impl Event {
 				}
 				Self::RecipientAdded { user, .. } => user.heap_bytes(),
 				Self::History { messages, .. } => messages.iter().map(Message::bytes).sum(),
+				Self::Polls(polls::Event::Result { result, .. }) => {
+					result.as_ref().map_or(0, Message::bytes)
+				}
 				Self::Message(m) => m.bytes(),
 				Self::Patch(p) => {
 					let content = match &p.content {
@@ -4038,10 +4058,13 @@ impl Event {
 						_ => 0,
 					};
 					content
-						+ match &p.sticker_items {
-							Patch::Value(stickers) => model::sticker_bytes(stickers),
+						+ match &p.poll {
+							Patch::Value(Some(poll)) => poll.bytes(),
 							_ => 0,
-						} + match &p.reactions {
+						} + match &p.sticker_items {
+						Patch::Value(stickers) => model::sticker_bytes(stickers),
+						_ => 0,
+					} + match &p.reactions {
 						Patch::Value(r) => model::reaction_bytes(r),
 						_ => 0,
 					} + match &p.mentions {
@@ -5317,6 +5340,7 @@ mod tests {
 	}
 	pub(super) fn message(id: u64) -> Message {
 		Message {
+			poll: None,
 			sticker_items: Vec::new(),
 			reactions: Some(vec![]),
 			id: Id(id),

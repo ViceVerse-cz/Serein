@@ -239,6 +239,7 @@ impl Changes {
 			};
 			changes.0[12] |= matches!(&envelope.event, Event::Pinned { result: Ok(()), .. });
 			changes.0[14] |= match &envelope.event {
+				Event::Polls(_) => true,
 				Event::Patch(patch) => !matches!(patch.extra_content.poll, model::Patch::Absent),
 				Event::Message(m) | Event::SendResult { result: Ok(m), .. } => m.extra_content.poll,
 				Event::History { messages, .. } => {
@@ -339,6 +340,19 @@ fn message_details_changed(state: &State, event: &Event) -> bool {
 			..
 		} => readable(message.channel) && ordinary(message),
 		Event::Patch(patch) => loaded(patch.channel, patch.id),
+		Event::Polls(client_core::polls::Event::Vote {
+			channel, message, ..
+		}) => loaded(*channel, *message),
+		Event::Polls(client_core::polls::Event::Result {
+			channel,
+			message,
+			request,
+			result: Ok(m),
+		}) => {
+			state.polls.pending == Some((*channel, *message, *request))
+				&& readable(*channel)
+				&& ordinary(m)
+		}
 		Event::Edited {
 			channel,
 			message,

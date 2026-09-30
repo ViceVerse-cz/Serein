@@ -36,6 +36,8 @@ mod notification_sounds;
 mod onboarding_demo;
 mod pointer;
 #[cfg(feature = "demo")]
+mod polls_demo;
+#[cfg(feature = "demo")]
 mod post_menu_demo;
 mod proxy_auth;
 mod reading_settings;
@@ -281,6 +283,11 @@ fn main() -> eframe::Result {
 				std::process::exit(2);
 			})
 		});
+	#[cfg(feature = "demo")]
+	if demo && std::env::args().any(|arg| arg == "--demo-check-polls") {
+		polls_demo::check();
+		return Ok(());
+	}
 	#[cfg(feature = "demo")]
 	if demo && std::env::args().any(|arg| arg == "--demo-check-access-marks") {
 		access_marks_demo::check();
@@ -1237,6 +1244,8 @@ impl Desktop {
 			state = {
 				if std::env::args().any(|arg| arg == "--demo-slash-commands") {
 					slash_demo::preview()
+				} else if std::env::args().any(|arg| arg == "--demo-polls") {
+					polls_demo::preview()
 				} else if std::env::args().any(|arg| arg == "--demo-components") {
 					components_demo::preview()
 				} else if std::env::args().any(|arg| arg == "--demo-forwarded") {
@@ -3315,6 +3324,9 @@ impl Desktop {
 						request,
 						result: Ok(()),
 					})
+				}
+				Command::Polls(request) => {
+					polls_demo::respond(&self.state, request, &mut self.synthetic_id)
 				}
 				Command::Reactions(command) => {
 					use client_core::reactions::{Command as R, Event as E};

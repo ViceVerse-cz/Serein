@@ -30,7 +30,7 @@ use client_core::{
 	auth::{AuthProvider, Failure, SessionSecret},
 };
 use discord_protocol::*;
-use model::User;
+use model::{Id, User};
 use reqwest::{
 	Client, Method, StatusCode,
 	header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue},
@@ -911,6 +911,108 @@ impl DiscordApi {
 				Event::ReadState(client_core::read_state::Event::GuildAck {
 					guild,
 					request,
+					result,
+				})
+			}
+			Command::Polls(command) => {
+				use client_core::polls::{Action, Event as E};
+				let channel = command.channel;
+				let message = command.message;
+				let result = async {
+					if channel == Id(0) {
+						return Err(Failure::Protocol);
+					}
+					let bytes = match command.action {
+						Action::Create(create) => {
+							if message.is_some() || !create.valid() {
+								return Err(Failure::Protocol);
+							}
+							let answers: Vec<_> = create
+								.answers
+								.iter()
+								.map(|a| {
+									let emoji = a.emoji.as_ref().map(|e| match e.id {
+										Some(id) => serde_json::json!({"id": id.to_string()}),
+										None => serde_json::json!({"name": e.name}),
+									});
+									let mut media = serde_json::json!({"text":a.text});
+									if let Some(emoji) = emoji {
+										media["emoji"] = emoji;
+									}
+									serde_json::json!({"poll_media":media})
+								})
+								.collect();
+							self.request(
+								Method::POST,
+								&format!("/channels/{channel}/messages"),
+								Some(serde_json::json!({
+									"poll":{"question":{"text":create.question},"answers":answers,"duration":create.duration,
+									"allow_multiselect":create.multiselect,"layout_type":1}, "nonce":command.nonce,
+									"allowed_mentions":{"parse":[],"replied_user":false}
+								})),
+							)
+							.await?
+						}
+						action => {
+							let id = message.filter(|id| *id != Id(0)).ok_or(Failure::Protocol)?;
+							match action {
+								Action::End => {
+									return self
+										.request(
+											Method::POST,
+											&format!("/channels/{channel}/polls/{id}/expire"),
+											None,
+										)
+										.await
+										.and_then(|bytes| {
+											decode::<MessageDto>(&bytes)
+												.map(MessageDto::into_model)
+												.map_err(|_| Failure::Protocol)
+										});
+								}
+								Action::Vote(answers) => {
+									if answers.len() > model::polls::MAX_ANSWERS
+										|| answers
+											.iter()
+											.enumerate()
+											.any(|(i, a)| *a == 0 || answers[..i].contains(a))
+									{
+										return Err(Failure::Protocol);
+									}
+									self.request(
+										Method::PUT,
+										&format!("/channels/{channel}/polls/{id}/answers/@me"),
+										Some(serde_json::json!({"answer_ids":answers})),
+									)
+									.await?;
+								}
+								Action::Read => {}
+								Action::Create(_) => unreachable!(),
+							}
+							let bytes = self
+								.request(
+									Method::GET,
+									&format!("/channels/{channel}/messages?limit=1&around={id}"),
+									None,
+								)
+								.await?;
+							let [dto] =
+								decode::<[MessageDto; 1]>(&bytes).map_err(|_| Failure::Protocol)?;
+							if dto.id != id || dto.channel_id != channel {
+								return Err(Failure::Protocol);
+							}
+							return Ok(dto.into_model());
+						}
+					};
+					decode::<MessageDto>(&bytes)
+						.map(MessageDto::into_model)
+						.map_err(|_| Failure::Protocol)
+				}
+				.await;
+				Event::Polls(E::Result {
+					channel,
+					message,
+					request: command.request,
 					result,
 				})
 			}
