@@ -19,8 +19,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7.0.1
-        with:
-          submodules: true
       - name: Mac signing regression (offline)
         if: runner.os != 'Windows'
         run: bash packaging/macos/test_sign_release.sh
@@ -34,6 +32,9 @@ jobs:
         with:
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Check production build without community fixtures
+        run: cargo check --locked -p serein --bin serein --no-default-features
+      - run: git submodule update --init
       - run: cargo xtask check
       - uses: oven-sh/setup-bun@v2.2.0
         with:

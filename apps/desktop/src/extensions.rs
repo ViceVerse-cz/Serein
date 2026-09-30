@@ -775,11 +775,14 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 		}),
 		Job::RefreshCatalog { demo } => {
 			if demo {
+				#[cfg(any(test, feature = "demo"))]
 				return extensions::parse_catalog(include_bytes!(
 					"../../../community-extensions/catalog.json"
 				))
 				.map(Event::Catalog)
 				.map_err(|error| error.to_string());
+				#[cfg(not(any(test, feature = "demo")))]
+				return Err("Demo catalog is unavailable in this build".into());
 			}
 			let bytes = download(CATALOG_URL, MAX_CATALOG, gate, Duration::from_secs(15))?;
 			cache_catalog(root, &bytes, gate).map(Event::Catalog)
