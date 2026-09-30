@@ -50,6 +50,9 @@ impl FolderUi {
 			self.expanded
 				.retain(|id| settings.folders.iter().any(|f| f.id == Some(*id)));
 			for folder in &settings.folders {
+				if !folder.guild_ids.iter().any(|&id| state.guild(id).is_some()) {
+					continue;
+				}
 				if let Some(id) = folder.id {
 					rows.push((
 						Item::Folder(id),
@@ -943,6 +946,71 @@ mod tests {
 					);
 				}
 			}
+		}
+	}
+
+	#[test]
+	fn empty_and_left_server_folders_disappear_without_changing_settings() {
+		for expanded in [false, true] {
+			let mut state = test_support::demo_state();
+			state.guild_folders = Some(Settings {
+				folders: vec![
+					Folder {
+						id: Some(7),
+						..Default::default()
+					},
+					Folder {
+						id: Some(8),
+						guild_ids: vec![Id(999)],
+						..Default::default()
+					},
+					Folder {
+						id: Some(9),
+						guild_ids: vec![Id(10), Id(9999)],
+						..Default::default()
+					},
+				],
+				..Default::default()
+			});
+			let settings = state.guild_folders.clone();
+			let mut folders = FolderUi::default();
+			if expanded {
+				folders.expanded.extend([7, 8, 9]);
+			}
+			assert!(folders.sync_rows(&state));
+			assert!(
+				!folders
+					.rows
+					.iter()
+					.any(|(item, _)| matches!(item, Item::Folder(7 | 8)))
+			);
+			assert!(
+				folders
+					.rows
+					.iter()
+					.any(|(item, _)| *item == Item::Folder(9))
+			);
+			let guild = state.guild(Id(10)).unwrap().clone();
+			state.guilds.retain(|guild| guild.id != Id(10));
+			state.invalidate_navigation();
+			assert!(folders.sync_rows(&state));
+			assert!(
+				!folders
+					.rows
+					.iter()
+					.any(|(item, _)| matches!(item, Item::Folder(_)))
+			);
+			assert_eq!(state.guild_folders, settings);
+			// A temporarily missing guild can return without losing its folder layout.
+			state.guilds.push(guild);
+			state.invalidate_navigation();
+			assert!(folders.sync_rows(&state));
+			assert!(
+				folders
+					.rows
+					.iter()
+					.any(|(item, _)| *item == Item::Folder(9))
+			);
 		}
 	}
 
