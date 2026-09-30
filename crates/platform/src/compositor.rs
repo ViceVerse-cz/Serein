@@ -97,9 +97,10 @@ fn move_window(
 	}
 	// Workspace names are data, never Lua source. Control characters are rejected above.
 	let pid = std::process::id();
+	let native_workspace = legacy_workspace.unwrap_or(workspace);
 	let reply = request(
 		socket,
-		&format!("dispatch movetoworkspacesilent {workspace},pid:{pid}"),
+		&format!("dispatch movetoworkspacesilent {native_workspace},pid:{pid}"),
 	)?;
 	if reply.trim_ascii() == b"ok" {
 		return Ok(());
@@ -111,15 +112,6 @@ fn move_window(
 	let reply = request(socket, &command)?;
 	if reply.trim_ascii() == b"ok" {
 		return Ok(());
-	}
-	if let Some(workspace) = legacy_workspace {
-		let reply = request(
-			socket,
-			&format!("dispatch movetoworkspacesilent {workspace},pid:{pid}"),
-		)?;
-		if reply.trim_ascii() == b"ok" {
-			return Ok(());
-		}
 	}
 	Err("Hyprland rejected window move".into())
 }
@@ -135,4 +127,57 @@ fn request(socket: &std::path::Path, command: &str) -> Result<Vec<u8>, Box<dyn s
 	let mut reply = Vec::with_capacity(256);
 	stream.take(64 * 1024).read_to_end(&mut reply)?;
 	Ok(reply)
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+	use super::*;
+	use std::io::{Read, Write};
+	use std::os::unix::net::UnixListener;
+
+	#[test]
+	fn native_move_uses_id_and_lua_fallback_keeps_address() {
+		for (index, (workspace, legacy, reject)) in [
+			(WORKSPACE, Some(WORKSPACE), false),
+			("0xabc", Some("3"), false),
+			("0xabc", Some("3"), true),
+			("3", None, false),
+		]
+		.into_iter()
+		.enumerate()
+		{
+			let pid = std::process::id();
+			let path = std::env::temp_dir().join(format!("serein-move-{pid}-{index}.sock"));
+			let listener = UnixListener::bind(&path).unwrap();
+			let server = std::thread::spawn(move || {
+				let mut commands = vec![format!(
+					"dispatch movetoworkspacesilent {},pid:{pid}",
+					legacy.unwrap_or(workspace)
+				)];
+				if reject {
+					commands.push(format!(
+						"dispatch hl.dsp.window.move({{ window = \"pid:{pid}\", workspace = \"{workspace}\", follow = false }})"
+					));
+				}
+				for (i, command) in commands.iter().enumerate() {
+					let (mut stream, _) = listener.accept().unwrap();
+					stream.set_read_timeout(Some(TIMEOUT)).unwrap();
+					let mut received = vec![0; command.len()];
+					stream.read_exact(&mut received).unwrap();
+					assert_eq!(received, command.as_bytes());
+					stream
+						.write_all(if reject && i == 0 {
+							b"invalid dispatcher"
+						} else {
+							b"ok"
+						})
+						.unwrap();
+				}
+			});
+			let result = move_window(&path, workspace, legacy);
+			server.join().unwrap();
+			std::fs::remove_file(path).unwrap();
+			result.unwrap();
+		}
+	}
 }

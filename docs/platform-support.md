@@ -160,9 +160,11 @@ The existing on-by-default tray preference is reused; demo changes are session-o
 **Hyprland / native Wayland:** winit cannot hide, unhide, focus or unminimize a native
 Wayland window. On Hyprland, Close and tray Minimize instead park Serein on
 `special:serein-tray` through the compositor socket; Show moves it to the active
-workspace. This uses `hl.dsp.window.move` with `follow = false`, accepting the new
-workspace `address` or legacy numeric `id`. Older dispatchers fall back to
-`movetoworkspacesilent`. Workspace names are bounded and escaped before Lua dispatch.
+workspace. This first uses `movetoworkspacesilent` with the numeric workspace `id`
+for restoration or the named special workspace for hiding. A compositor rejection
+falls back to `hl.dsp.window.move` with `follow = false`, preserving the workspace
+`address` when supplied, otherwise its numeric `id`. Transport failures are not
+retried. Workspace names are bounded and escaped before Lua dispatch.
 Other Wayland compositors receive minimize/restore requests and may require their
 own window controls; the KDE tray restoration report remains unresolved. Native Wayland remains the default on Wayland sessions, with no
 application-level XWayland fallback or backend override.
