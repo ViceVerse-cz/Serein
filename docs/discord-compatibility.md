@@ -1944,3 +1944,17 @@ the profile incomplete. Requested mutual lists, missing profile metadata, unavai
 badges/connections, truncated lists and byte limits retain their existing warnings.
 Malformed lists still fail decoding. This addresses a possible false warning;
 the reported account response and live Discord behavior remain unverified.
+
+
+## Attachment original URL admission - September 30, 2026
+
+The shared video/audio/download URL validator now normalizes attachment links on
+`media.discordapp.net` to `cdn.discordapp.com`, retaining the original path and
+signed `ex`, `is`, and `hm` query. It still rejects transformed media queries,
+foreign hosts, credentials, non-HTTPS URLs, fragments, mismatched attachment IDs,
+encoded path separators and oversized metadata/files. Playback fetches the original
+through the same bounded range reader; no decoder, cache or queue is changed.
+
+The issue #485 error occurs before networking or native decoding when attachment
+URL/metadata admission fails. A media-host URL was one reproducible rejected form;
+the reporter's exact URL and native Linux/Windows playback remain unverified.
