@@ -32,6 +32,11 @@ builds (`onyx`, `ash`, `midnight-blurple`, `crimson-moon`, `forest`, `sunset`) s
 their renamed presets, so a stored preference survives the rename. `--demo --demo-theme=<key>` and
 `--demo-light` open fixtures in a preset for screenshots.
 
+Message cards use a thin tint only on the conversation surface when chat is translucent.
+Search previews, profile code blocks, component modals and opaque component containers keep
+their normal card/code fills. Pending upload cards and their preview wells retain their
+palette surfaces in both message and forum composers, independently of chat transparency.
+
 ## Brand mark and server rail
 
 The application mark is the Serein chat-wave (`assets/brand/`), not a third-party logo. Its

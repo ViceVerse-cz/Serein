@@ -694,8 +694,20 @@ fn duration_label(hours: u16) -> String {
 	}
 }
 
+#[cfg(any(feature = "demo", test))]
+struct WindowEffectsRestore((bool, u8, u8));
+
+#[cfg(any(feature = "demo", test))]
+impl Drop for WindowEffectsRestore {
+	fn drop(&mut self) {
+		let (enabled, transparency, blur) = self.0;
+		design::set_window_effects(enabled, transparency, blur);
+	}
+}
+
 #[cfg(feature = "demo")]
 pub fn debug_poll_check(state: &State) {
+	let _restore = WindowEffectsRestore(design::default_window_effects());
 	for width in [260.0, 900.0] {
 		for (light, transparency) in [
 			(true, 0),
@@ -759,7 +771,6 @@ pub fn debug_poll_check(state: &State) {
 			output.textures_delta.clear();
 		}
 	}
-	design::set_window_effects(false, 0, 0);
 }
 
 #[cfg(test)]

@@ -1606,6 +1606,7 @@ pub fn debug_role_mentions_check(state: &mut State) {
 				(&state.channels, &mut None, &state.guilds, roles),
 				(&mut avatars, true, &mut 0),
 				&mut surface,
+				crate::design::MessageCardSurface::Opaque,
 			);
 			surface.finish(ui);
 			assert!(profile.open_user().is_none());

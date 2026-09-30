@@ -558,6 +558,22 @@ pub fn message_card_fill(ui: &egui::Ui, color: Color32) -> Color32 {
 	})
 }
 
+/// Surface underneath a message card or fenced code block.
+#[derive(Clone, Copy)]
+pub(crate) enum MessageCardSurface {
+	Opaque,
+	Conversation,
+}
+
+impl MessageCardSurface {
+	pub(crate) fn fill(self, ui: &egui::Ui, color: Color32) -> Color32 {
+		match self {
+			Self::Opaque => color,
+			Self::Conversation => message_card_fill(ui, color),
+		}
+	}
+}
+
 /// Controls floating on a see-through conversation become frosted glass with a hairline
 /// edge: always denser than the surface behind them, so text stays legible at any setting.
 pub fn glass(ui: &egui::Ui, color: Color32) -> (Color32, Stroke) {

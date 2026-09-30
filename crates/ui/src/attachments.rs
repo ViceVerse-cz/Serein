@@ -135,14 +135,13 @@ pub fn pending_card(
 	ui.painter().rect(
 		card,
 		8,
-		design::message_card_fill(ui, colors.sidebar),
+		colors.sidebar,
 		Stroke::new(1.0, colors.border),
 		StrokeKind::Inside,
 	);
 	let preview_rect =
 		Rect::from_min_size(card.min + egui::vec2(8.0, 8.0), egui::vec2(160.0, 108.0));
-	ui.painter()
-		.rect_filled(preview_rect, 4, design::message_card_fill(ui, colors.base));
+	ui.painter().rect_filled(preview_rect, 4, colors.base);
 	match preview {
 		Some(texture) => {
 			let size = texture.size_vec2();
@@ -226,11 +225,12 @@ fn file_card(
 	download: &mut DownloadUi,
 	demo: bool,
 	surface: &mut crate::select::Surface,
+	card_surface: design::MessageCardSurface,
 ) {
 	let colors = design::palette(ui);
 	let kind = file_kind(&attachment.filename, attachment.content_type.as_deref());
 	egui::Frame::new()
-		.fill(design::message_card_fill(ui, colors.raised))
+		.fill(card_surface.fill(ui, colors.raised))
 		.stroke(Stroke::new(1.0, colors.border))
 		.corner_radius(8)
 		.inner_margin(egui::Margin::symmetric(12, 10))
@@ -281,6 +281,7 @@ pub fn show(
 	video: &mut crate::video::VideoUi,
 	demo: bool,
 	surface: &mut crate::select::Surface,
+	card_surface: design::MessageCardSurface,
 ) {
 	show_subset(
 		ui,
@@ -294,6 +295,7 @@ pub fn show(
 		video,
 		demo,
 		surface,
+		card_surface,
 	);
 }
 
@@ -310,6 +312,7 @@ pub(crate) fn show_subset(
 	video: &mut crate::video::VideoUi,
 	demo: bool,
 	surface: &mut crate::select::Surface,
+	card_surface: design::MessageCardSurface,
 ) {
 	for group in attachments.chunk_by(|a, b| a.is_image() == b.is_image()) {
 		if group[0].is_image() {
@@ -382,7 +385,7 @@ pub(crate) fn show_subset(
 							});
 						}
 					} else {
-						file_card(ui, attachment, download, demo, surface);
+						file_card(ui, attachment, download, demo, surface, card_surface);
 					}
 					ui.add_space(6.0);
 				});
@@ -1229,6 +1232,7 @@ mod tests {
 							&mut crate::video::VideoUi::default(),
 							true,
 							&mut surface,
+							crate::design::MessageCardSurface::Conversation,
 						);
 						surface.finish(ui);
 					},
@@ -1480,6 +1484,7 @@ mod tests {
 				&mut crate::video::VideoUi::default(),
 				false,
 				&mut crate::select::Surface::new(ui, "attachment-test"),
+				crate::design::MessageCardSurface::Conversation,
 			)
 		});
 		assert!(images.take_requests().is_empty());
@@ -1497,6 +1502,7 @@ mod tests {
 					&mut crate::video::VideoUi::default(),
 					false,
 					&mut crate::select::Surface::new(ui, "attachment-test"),
+					crate::design::MessageCardSurface::Conversation,
 				)
 			});
 		}

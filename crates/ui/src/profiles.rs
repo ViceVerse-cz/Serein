@@ -2132,6 +2132,7 @@ pub fn show(
 													None,
 													&mut linked,
 													(avatars, state.demo, &state.guilds),
+													crate::design::MessageCardSurface::Opaque,
 												);
 												if let Some(user) = linked.open_user().cloned() {
 													action = Some(Action::Profile(user));

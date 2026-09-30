@@ -403,3 +403,29 @@ fn maximum_creator_draft_fits_short_narrow_windows_and_closes_on_navigation() {
 	.drop_without_applying_deltas();
 	assert!(creator.draft.is_none());
 }
+
+#[test]
+fn poll_check_restores_window_effects_after_unwind() {
+	let _restore = WindowEffectsRestore(design::default_window_effects());
+	let original = (true, 37, 63);
+	design::set_window_effects(original.0, original.1, original.2);
+	let result = std::panic::catch_unwind(|| {
+		let _restore = WindowEffectsRestore(design::default_window_effects());
+		design::set_window_effects(true, 100, 0);
+		panic!("synthetic failed check");
+	});
+	assert!(result.is_err());
+	assert_eq!(design::default_window_effects(), original);
+}
+
+#[cfg(feature = "demo")]
+#[test]
+fn poll_check_restores_callers_window_effects() {
+	let _restore = WindowEffectsRestore(design::default_window_effects());
+	let (state, _) = fixture();
+	for original in [(true, 37, 63), (false, 15, 50)] {
+		design::set_window_effects(original.0, original.1, original.2);
+		debug_poll_check(&state);
+		assert_eq!(design::default_window_effects(), original);
+	}
+}

@@ -696,6 +696,7 @@ fn preview(
 									None,
 									&mut mentions,
 									(avatars, demo, guilds),
+									crate::design::MessageCardSurface::Opaque,
 								);
 							}
 						});

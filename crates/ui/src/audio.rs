@@ -462,6 +462,7 @@ mod tests {
 							&mut crate::video::VideoUi::default(),
 							false,
 							&mut crate::select::Surface::new(ui, "attachment-test"),
+							crate::design::MessageCardSurface::Conversation,
 						);
 						assert!(ui.min_rect().width() <= width + 2.0);
 					},

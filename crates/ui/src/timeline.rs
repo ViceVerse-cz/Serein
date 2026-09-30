@@ -2632,6 +2632,7 @@ impl TimelineView {
 																),
 																(avatars, state.demo, &mut text),
 																&mut surface,
+																crate::design::MessageCardSurface::Conversation,
 															);
 														}
 													})
@@ -2683,6 +2684,7 @@ impl TimelineView {
 													&mut self.download,
 													profile,
 													state,
+													crate::design::MessageCardSurface::Conversation,
 												) {
 													self.gif_favorite = Some(gif);
 												}
@@ -2706,6 +2708,7 @@ impl TimelineView {
 														&mut self.video,
 														state.demo,
 														&mut surface,
+														crate::design::MessageCardSurface::Conversation,
 													);
 													if self.viewing != previous_view {
 														self.component_viewing = None;
@@ -7828,6 +7831,7 @@ mod tests {
 						demo: true,
 						..Default::default()
 					},
+					crate::design::MessageCardSurface::Conversation,
 				);
 				assert!(
 					ui.min_rect().height() > 120.0,
