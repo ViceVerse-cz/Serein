@@ -3,7 +3,8 @@
 A `.serein-extension` theme package contains a version 1 manifest with
 `"kind": "theme"`, empty capabilities/actions, and a `theme` object. There is no
 Wasm module. Import the package from Settings > Themes to try it locally.
-The existing packages in [`extensions`](../extensions) are complete examples.
+The packages in [Serein-extensions/themes](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/themes)
+are complete examples.
 
 Theme package IDs are normalized to ASCII lowercase when parsed, so an imported
 `Golden-Theme` uses the same identity as `golden-theme`. Other ID restrictions
@@ -19,8 +20,8 @@ remain explicit. Installed themes and the last valid catalog work offline.
 Local edits/imports are preserved, and updating an inactive theme does not change
 the current selection. Removing a listing never uninstalls it from a device.
 The eight-installed-theme limit remains unchanged.
-The packages retained under this client's `extensions/` are offline test/demo
-fixtures and are not embedded in normal builds.
+Offline test/demo fixtures read those canonical packages through the pinned
+`community-extensions` submodule and are not embedded in normal builds.
 
 The `light` and `dark` objects each accept `colors`, an optional `backdrop`,
 and optional `background` image settings.
