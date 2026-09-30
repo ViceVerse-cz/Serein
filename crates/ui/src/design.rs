@@ -547,6 +547,17 @@ pub fn chat_alpha(ui: &egui::Ui) -> u8 {
 	section_surface(ui, window_palette(ui).chat, ImageSection::MessageList).a()
 }
 
+/// Message cards sit on an already-painted chat surface. Use only a thin tint on
+/// translucent chat so nested cards and answer rows do not cover the background again.
+pub fn message_card_fill(ui: &egui::Ui, color: Color32) -> Color32 {
+	let alpha = chat_alpha(ui);
+	color.gamma_multiply(if alpha == 255 {
+		1.0
+	} else {
+		f32::from(alpha) / (255.0 * 8.0)
+	})
+}
+
 /// Controls floating on a see-through conversation become frosted glass with a hairline
 /// edge: always denser than the surface behind them, so text stays legible at any setting.
 pub fn glass(ui: &egui::Ui, color: Color32) -> (Color32, Stroke) {

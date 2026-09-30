@@ -135,14 +135,14 @@ pub fn pending_card(
 	ui.painter().rect(
 		card,
 		8,
-		design::glass(ui, colors.sidebar).0,
+		design::message_card_fill(ui, colors.sidebar),
 		Stroke::new(1.0, colors.border),
 		StrokeKind::Inside,
 	);
 	let preview_rect =
 		Rect::from_min_size(card.min + egui::vec2(8.0, 8.0), egui::vec2(160.0, 108.0));
 	ui.painter()
-		.rect_filled(preview_rect, 4, design::glass(ui, colors.base).0);
+		.rect_filled(preview_rect, 4, design::message_card_fill(ui, colors.base));
 	match preview {
 		Some(texture) => {
 			let size = texture.size_vec2();
@@ -230,7 +230,7 @@ fn file_card(
 	let colors = design::palette(ui);
 	let kind = file_kind(&attachment.filename, attachment.content_type.as_deref());
 	egui::Frame::new()
-		.fill(design::glass(ui, colors.raised).0)
+		.fill(design::message_card_fill(ui, colors.raised))
 		.stroke(Stroke::new(1.0, colors.border))
 		.corner_radius(8)
 		.inner_margin(egui::Margin::symmetric(12, 10))
