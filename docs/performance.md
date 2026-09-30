@@ -2773,3 +2773,24 @@ measurement. The host's OS credential IO runs on at most one blocking job;
 active credentials share zeroizing ownership without per-frame secret copies.
 Real credential-store latency, proxy latency, RSS and native frame timing remain
 unmeasured. Previous Wasm timings above concern the earlier package only.
+
+
+### Proxy authentication reviewer follow-up
+
+Source `8468df98477f286ac5a9f4a0fe65199ad45ab95d` pauses new REST client
+acquisition immediately when credential Save/Remove is accepted, preserves a
+rejected Save draft, and warns about unencrypted HTTP proxy authentication.
+The same Windows voice-enabled release packaging and .NET Optimal ZIP procedure
+passed; NSIS remains unavailable. Compared with authentication source `7d048921`:
+
+| Metric | Before bytes | After review fixes bytes | Delta bytes |
+| --- | ---: | ---: | ---: |
+| Executable | 77,702,144 | 77,703,680 | +1,536 |
+| Complete portable folder | 81,805,430 | 81,806,966 | +1,536 |
+| ZIP, .NET Optimal | 44,551,343 | 44,551,885 | +542 |
+
+Credential drafts are copied only on explicit Save and remain zeroizing and
+bounded; accepted jobs clear the draft. Existing in-flight requests retain their
+previous route. No extra background job, queue or dependency was added. These
+package sizes do not establish OS credential-store latency, proxy latency, RSS
+or native frame timing; those remain unmeasured.
