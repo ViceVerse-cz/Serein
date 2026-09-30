@@ -2719,3 +2719,35 @@ Capture CPU, RSS, frame latency and real hardware encoder performance remain
 unmeasured: no live source was captured, and the native demo does not exercise
 portal capture. The fix adds timestamp metadata handling only on Niri portal
 frames, with no new frame queue or dependency.
+
+
+## REST API proxy plugin host (September 30, 2026)
+
+Baseline `92a4bb66` versus the API proxy host change, pinned Rust 1.98.1 on
+Windows. Both used the standard voice-enabled `cargo xtask package`; NSIS was
+unavailable, so no installer was generated. Complete portable folders were
+compressed separately with .NET ZipFile Optimal, without an enclosing directory.
+
+| Metric | Baseline bytes | After bytes | Delta bytes |
+| --- | ---: | ---: | ---: |
+| Executable | 77,564,928 | 77,601,280 | +36,352 |
+| Complete portable folder | 81,668,244 | 81,704,596 | +36,352 |
+| ZIP distribution | 44,510,947 | 44,529,776 | +18,829 |
+
+The external API Proxy package is 920,490 bytes, including its 328,895-byte Wasm
+module and dependency notices; it is downloaded from the community catalog and
+is not bundled with Serein.
+
+The existing release sandbox benchmark used one warmup, five parse-plus-invoke
+samples and 100 invoke samples. Message Delete Protector measured 2,762/1,220 us
+before and 2,697/1,145 us after (parse-plus-invoke / invoke). The actual external
+API Proxy package measured 6,818/2,974 us. Each invocation creates a fresh bounded
+Wasm runtime; plugin execution happens on the extension worker, outside rendering.
+Runs overlapped release compilation, so these noisy timings establish neither an
+improvement nor native frame timing or proxy network latency. The real package's
+activation restore, passive Open and explicit Apply were also checked offline.
+
+Routing uses a bounded coalescing configuration watch and a cached HTTP client
+pool rebuilt only when its selected route changes, outside rendering. Existing
+requests retain their selected route. Native screenshots, process RSS, UI frame
+time, real proxy latency and live/cross-platform compatibility remain unverified.
