@@ -2751,3 +2751,25 @@ Routing uses a bounded coalescing configuration watch and a cached HTTP client
 pool rebuilt only when its selected route changes, outside rendering. Existing
 requests retain their selected route. Native screenshots, process RSS, UI frame
 time, real proxy latency and live/cross-platform compatibility remain unverified.
+
+
+### Proxy authentication follow-up
+
+Final source `7d048921c50792ef91aacf94dcfcb96549f5ba9e` adds host-owned HTTP Basic
+proxy credentials and clears credential input undo history. The final standard
+voice-enabled `cargo xtask package` passed on the same Windows host; no NSIS
+installer was available. Relative to the credential-free host at `f1557f00`:
+
+| Metric | Before bytes | With authentication bytes | Delta bytes |
+| --- | ---: | ---: | ---: |
+| Executable | 77,601,280 | 77,702,144 | +100,864 |
+| Complete portable folder | 81,704,596 | 81,805,430 | +100,834 |
+| ZIP, .NET Optimal | 44,529,776 | 44,551,343 | +21,567 |
+
+The updated external package is 920,979 bytes; its inspected synthetic egui
+catalog preview is 69,881 bytes at 640 x 360, downloaded separately. This is an
+actual offline framebuffer render, not an OS window capture or proxy performance
+measurement. The host's OS credential IO runs on at most one blocking job;
+active credentials share zeroizing ownership without per-frame secret copies.
+Real credential-store latency, proxy latency, RSS and native frame timing remain
+unmeasured. Previous Wasm timings above concern the earlier package only.
