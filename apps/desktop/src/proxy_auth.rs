@@ -23,7 +23,8 @@ impl Authentication {
 		runtime: &tokio::runtime::Runtime,
 		ctx: &eframe::egui::Context,
 		work: impl FnOnce() -> Result + Send + 'static,
-	) {
+	) -> Option<ApiProxy> {
+		self.route = None;
 		let (send, receive) = mpsc::sync_channel(1);
 		self.pending = Some((endpoint, receive));
 		let ctx = ctx.clone();
@@ -31,6 +32,7 @@ impl Authentication {
 			let _ = send.send(work());
 			ctx.request_repaint();
 		});
+		None
 	}
 	pub fn tick(
 		&mut self,
@@ -76,7 +78,7 @@ impl Authentication {
 				Err(mpsc::TryRecvError::Empty) => {}
 			}
 		}
-		let current = match config {
+		let mut current = match config {
 			extensions::ApiProxyConfig::Direct => {
 				self.endpoint = None;
 				self.route = None;
@@ -98,7 +100,7 @@ impl Authentication {
 				if self.endpoint.as_ref() != Some(&url) && self.pending.is_none() {
 					self.endpoint = Some(url.clone());
 					self.route = None;
-					self.start(url, runtime, ctx, move || {
+					let _ = self.start(url, runtime, ctx, move || {
                         if demo { return Ok(None); }
                         match platform::proxy_credentials::load() {
                             Ok(value) => Ok(value),
@@ -130,7 +132,8 @@ impl Authentication {
 					{
 						form.status = "Use a username of 1-256 bytes without a colon, and a password up to 1024 bytes; control characters are unsupported.".into();
 					} else {
-						self.start(url, runtime, ctx, move || {
+						form.clear_draft();
+						current = self.start(url, runtime, ctx, move || {
 							let result = match &value {
 								Some(value) => platform::proxy_credentials::save(value),
 								None => platform::proxy_credentials::forget(),
@@ -153,6 +156,48 @@ impl Authentication {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn credential_removal_pauses_immediately_and_failed_deletion_stays_paused() {
+		let runtime = tokio::runtime::Runtime::new().unwrap();
+		let ctx = eframe::egui::Context::default();
+		let mut form = ui::proxy_auth::Form::default();
+		let url = "http://proxy.invalid/".to_owned();
+		let mut auth = Authentication {
+			endpoint: Some(url.clone()),
+			route: Some(ApiProxy::Authenticated {
+				url: url.clone(),
+				username: std::sync::Arc::new(zeroize::Zeroizing::new("owner".into())),
+				password: std::sync::Arc::new(zeroize::Zeroizing::new("synthetic".into())),
+			}),
+			pending: None,
+		};
+		let (release, hold) = mpsc::sync_channel(1);
+		assert!(
+			auth.start(url.clone(), &runtime, &ctx, move || {
+				hold.recv_timeout(std::time::Duration::from_secs(2))
+					.unwrap_or(Err("Timed out"))
+			})
+			.is_none()
+		);
+		let config = extensions::ApiProxyConfig::Url { url };
+		assert!(
+			auth.tick(config.clone(), &mut form, &runtime, &ctx, false)
+				.is_none()
+		);
+		release.send(Err("Synthetic deletion failed")).unwrap();
+		let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+		while auth.pending.is_some() {
+			assert!(
+				auth.tick(config.clone(), &mut form, &runtime, &ctx, false)
+					.is_none()
+			);
+			assert!(std::time::Instant::now() < deadline);
+			std::thread::yield_now();
+		}
+		assert!(auth.route.is_none());
+		assert_eq!(form.status, "Synthetic deletion failed");
+	}
+
 	#[test]
 	fn changed_endpoint_waits_and_direct_discards_late_credentials() {
 		let runtime = tokio::runtime::Runtime::new().unwrap();

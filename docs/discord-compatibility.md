@@ -1986,3 +1986,7 @@ Credentials are bounded, masked, excluded from Wasm/plugin storage and persisted
 in the OS credential store. Remove saved credentials explicitly to erase them; Direct
 and plugin disable stop using them but retain the OS entry. Automatic mode still rejects
 credential-bearing environment URLs. Live authentication remains unverified.
+
+HTTP Basic credentials on an HTTP proxy cross an unencrypted proxy connection,
+even when Discord destination TLS is preserved. The credential form displays
+this warning for HTTP endpoints; HTTPS proxies encrypt the proxy connection.

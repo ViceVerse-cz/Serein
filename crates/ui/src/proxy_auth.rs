@@ -18,15 +18,25 @@ impl Form {
 		self.username.zeroize();
 		self.password.zeroize();
 	}
+	fn queue_save(&mut self, endpoint: &str) {
+		self.request = Some(Request {
+			endpoint: endpoint.into(),
+			credentials: Some((self.username.clone(), self.password.clone())),
+		});
+	}
+
 	pub fn show(&mut self, ui: &mut egui::Ui, endpoint: &str, manual: bool) {
 		ui.collapsing("Proxy authentication", |ui| {
             ui.label("Credentials stay in Serein's OS credential store and are never shared with the plugin. Apply the proxy URL before saving credentials.");
             ui.add_enabled_ui(manual && !self.busy, |ui| {
+                if url::Url::parse(endpoint).is_ok_and(|url| url.scheme() == "http") {
+                    ui.label("HTTP proxy authentication is unencrypted: anyone observing the connection to the proxy can recover these credentials. Use an HTTPS proxy for encrypted authentication.");
+                }
                 credential_input(ui, "Username", &mut self.username, false, 256);
                 credential_input(ui, "Password", &mut self.password, true, 1024);
                 ui.horizontal(|ui| {
                     if ui.button("Save credentials").clicked() {
-                        self.request = Some(Request { endpoint: endpoint.into(), credentials: Some((std::mem::take(&mut self.username), std::mem::take(&mut self.password))) });
+                        self.queue_save(endpoint);
                     }
                     if ui.button("Remove saved credentials").clicked() {
                         self.clear_draft();
@@ -63,6 +73,26 @@ fn credential_input(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn rejected_save_keeps_the_draft_until_host_acceptance() {
+		let mut form = Form {
+			username: Zeroizing::new("owner".into()),
+			password: Zeroizing::new("synthetic-password".into()),
+			..Default::default()
+		};
+		form.queue_save("http://not-yet-applied.invalid/");
+		// The host rejects the request without starting credential IO.
+		drop(form.request.take());
+		assert_eq!(form.username.as_str(), "owner");
+		assert_eq!(form.password.as_str(), "synthetic-password");
+		form.queue_save("http://applied.invalid/");
+		form.clear_draft();
+		assert!(form.username.is_empty() && form.password.is_empty());
+		let (username, password) = form.request.take().unwrap().credentials.unwrap();
+		assert_eq!(username.as_str(), "owner");
+		assert_eq!(password.as_str(), "synthetic-password");
+	}
+
 	#[test]
 	fn clearing_password_cannot_restore_it_from_widget_undo_history() {
 		let ctx = egui::Context::default();

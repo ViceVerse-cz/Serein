@@ -1452,3 +1452,8 @@ with Remove saved credentials; Direct/disable retain it without using it. Loadin
 pause configured manual routing, rather than sending credentials to another endpoint.
 The plugin receives no proxy username/password fields. Demo neither reads nor writes
 proxy credentials.
+
+Accepting Save or Remove pauses new REST client acquisition immediately, before
+the credential-store job completes. A failed deletion leaves routing paused; it
+does not resume stored credentials. In-flight requests retain their earlier
+snapshot. Rejected saves retain the credential draft until a valid job can start.
