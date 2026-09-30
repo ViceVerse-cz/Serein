@@ -22,6 +22,7 @@ struct Pending {
 	reconcile: bool,
 	preview: Option<(String, String)>,
 	invocation: Option<(String, Invocation, ExtensionContext)>,
+	tick: Option<String>,
 }
 impl Pending {
 	fn reactive(&self) -> bool {
@@ -29,6 +30,81 @@ impl Pending {
 			.as_ref()
 			.is_some_and(|(_, input, _)| input.message_event.is_some() || input.app_event.is_some())
 	}
+}
+
+struct TickSchedule {
+	enabled_at: Instant,
+	next_due: Instant,
+	paused: bool,
+}
+
+struct Transition {
+	from: extensions::Theme,
+	to: extensions::Theme,
+	start: Instant,
+	duration: Duration,
+}
+
+const TRANSITION_REPAINT_MS: u64 = 33;
+
+fn blend_theme(from: &extensions::Theme, to: &extensions::Theme, t: f64) -> extensions::Theme {
+	extensions::Theme {
+		light: blend_palette(&from.light, &to.light, t),
+		dark: blend_palette(&from.dark, &to.dark, t),
+		style: to.style,
+	}
+}
+
+fn blend_palette(
+	from: &extensions::ThemePalette,
+	to: &extensions::ThemePalette,
+	t: f64,
+) -> extensions::ThemePalette {
+	let mut colors = to.colors.clone();
+	for (key, to_value) in &to.colors {
+		if let Some(from_value) = from.colors.get(key)
+			&& let Some(blended) = lerp_hex(from_value, to_value, t)
+		{
+			colors.insert(key.clone(), blended);
+		}
+	}
+	let backdrop = match (&from.backdrop, &to.backdrop) {
+		(Some(from_stops), Some(to_stops)) => Some([
+			lerp_hex(&from_stops[0], &to_stops[0], t).unwrap_or_else(|| to_stops[0].clone()),
+			lerp_hex(&from_stops[1], &to_stops[1], t).unwrap_or_else(|| to_stops[1].clone()),
+		]),
+		_ => to.backdrop.clone(),
+	};
+	extensions::ThemePalette {
+		background: to.background,
+		colors,
+		backdrop,
+	}
+}
+
+fn lerp_hex(from: &str, to: &str, t: f64) -> Option<String> {
+	let from = parse_rgb_hex(from)?;
+	let to = parse_rgb_hex(to)?;
+	let channel = |a: u8, b: u8| {
+		(f64::from(a) + (f64::from(b) - f64::from(a)) * t)
+			.round()
+			.clamp(0.0, 255.0) as u8
+	};
+	Some(format!(
+		"#{:02x}{:02x}{:02x}",
+		channel(from[0], to[0]),
+		channel(from[1], to[1]),
+		channel(from[2], to[2]),
+	))
+}
+
+fn parse_rgb_hex(text: &str) -> Option<[u8; 3]> {
+	let text = text.strip_prefix('#')?;
+	if text.len() != 6 || !text.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+		return None;
+	}
+	let byte = |i: usize| u8::from_str_radix(&text[i..i + 2], 16).ok();
+	Some([byte(0)?, byte(2)?, byte(4)?])
 }
 
 const MAX_MESSAGE_EVENTS: usize = 32;
@@ -94,6 +170,9 @@ enum ThemePickerResult {
 }
 #[derive(Default)]
 pub struct Bridge {
+	rich_presence_changed: bool,
+	api_proxy_loaded: bool,
+	api_proxy_saved: extensions::ApiProxyConfig,
 	host: Option<ExtensionHost>,
 	scope: Option<(u64, Option<String>)>,
 	pending: BTreeMap<u64, Pending>,
@@ -117,8 +196,60 @@ pub struct Bridge {
 	data_key: Option<crate::extension_data_events::DataKey>,
 	connection_observed: bool,
 	connection_interrupted: bool,
+	ticks: BTreeMap<String, TickSchedule>,
+	transitions: BTreeMap<String, Transition>,
 }
 impl Bridge {
+	fn tick_pending(&self, generation: u64, id: &str) -> bool {
+		self.pending
+			.values()
+			.any(|pending| pending.generation == generation && pending.tick.as_deref() == Some(id))
+	}
+	pub fn take_rich_presence_change(&mut self) -> bool {
+		std::mem::take(&mut self.rich_presence_changed)
+	}
+
+	/// Deterministic precedence for the bounded installed set. Disabled/failed plugins never publish.
+	pub fn rich_presence(&self) -> Option<&extensions::CustomRichPresence> {
+		self.installed
+			.iter()
+			.filter(|entry| entry.error.is_none() && !self.disabled.contains(&entry.manifest.id))
+			.filter(|entry| {
+				entry
+					.manifest
+					.capabilities
+					.contains(&Capability::RichPresence)
+			})
+			.filter(|entry| entry.rich_presence.is_some())
+			.min_by_key(|entry| &entry.manifest.id)
+			.and_then(|entry| entry.rich_presence.as_deref())
+	}
+
+	pub fn api_proxy_ready(&self) -> bool {
+		self.api_proxy_loaded
+	}
+	pub fn api_proxy(&self) -> extensions::ApiProxyConfig {
+		self.api_proxy_saved.clone()
+	}
+	fn refresh_api_proxy(&mut self) {
+		if self.installed.iter().any(|entry| {
+			entry.error.is_some() && entry.manifest.capabilities.contains(&Capability::ApiProxy)
+		}) {
+			self.api_proxy_loaded = false;
+			return;
+		}
+		self.api_proxy_loaded = true;
+		self.api_proxy_saved = self
+			.installed
+			.iter()
+			.filter(|entry| entry.error.is_none() && !self.disabled.contains(&entry.manifest.id))
+			.filter(|entry| entry.manifest.capabilities.contains(&Capability::ApiProxy))
+			.filter(|entry| entry.api_proxy.is_some())
+			.min_by_key(|entry| &entry.manifest.id)
+			.and_then(|entry| entry.api_proxy.clone())
+			.unwrap_or_default();
+	}
+
 	pub fn data_changed(&mut self, mut changes: crate::extension_data_events::Changes) {
 		if let Some(connected) = changes.connection() {
 			self.observe_connection(connected, &mut changes);
@@ -366,10 +497,13 @@ impl Bridge {
 		for entry in &mut self.installed {
 			entry.preserve_deleted_messages = false;
 			entry.image_sharing = false;
+			entry.rich_presence = None;
 		}
 		self.picker = None;
 		self.theme_picker = None;
 		self.theme_preview = None;
+		self.ticks.clear();
+		self.transitions.clear();
 		self.pending.retain(|_, pending| pending.cleanup);
 		if let Some(host) = &mut self.host {
 			host.cancel();
@@ -390,6 +524,7 @@ impl Bridge {
 						reconcile: false,
 						preview: None,
 						invocation: None,
+						tick: None,
 					},
 				);
 			}
@@ -442,7 +577,10 @@ impl Bridge {
 			self.picker = None;
 			self.theme_picker = None;
 			self.theme_preview = None;
+			self.ticks.clear();
+			self.transitions.clear();
 			self.imported = None;
+			self.api_proxy_loaded = false;
 			self.installed.clear();
 			self.disabled.clear();
 			messaging.extensions.reset_runtime();
@@ -523,8 +661,25 @@ impl Bridge {
 			}
 			match outcome {
 				Err(error) => {
+					if let Some(id) = pending.as_ref().and_then(|pending| pending.tick.as_ref()) {
+						if let Some(schedule) = self.ticks.get_mut(id) {
+							schedule.paused = true;
+						}
+						messaging.extensions.status = format!(
+							"{id} animation paused after a failed tick; disable and re-enable it to retry. {error}"
+						);
+						continue;
+					}
 					if let Some((id, _, _)) = pending.as_ref().and_then(|p| p.invocation.as_ref()) {
+						if let Some(entry) = self.installed.iter_mut().find(|entry| {
+							entry.manifest.id == *id
+								&& entry.manifest.capabilities.contains(&Capability::ApiProxy)
+						}) {
+							entry.error = Some(error.clone());
+							self.api_proxy_loaded = false;
+						}
 						self.disabled.insert(id.clone());
+						self.refresh_api_proxy();
 						self.apply_theme(ctx);
 						self.entries(messaging);
 					}
@@ -571,6 +726,7 @@ impl Bridge {
 						messaging.extensions.status = error.clone();
 					}
 					self.installed = installed;
+					self.refresh_api_proxy();
 					self.apply_theme(ctx);
 					self.entries(messaging);
 				}
@@ -628,6 +784,8 @@ impl Bridge {
 				}
 				Ok(Event::Enabled(installed)) => {
 					self.app_key = None;
+					self.ticks.remove(&installed.manifest.id);
+					self.transitions.remove(&installed.manifest.id);
 					self.message_events
 						.retain(|event| event.id != installed.manifest.id);
 					if pending.as_ref().is_some_and(|p| p.theme_save) {
@@ -646,17 +804,21 @@ impl Bridge {
 						.retain(|old| old.manifest.id != installed.manifest.id);
 					self.disabled.remove(&installed.manifest.id);
 					self.installed.push(installed);
+					self.refresh_api_proxy();
 					self.imported = None;
 					self.apply_theme(ctx);
 					self.entries(messaging);
 					messaging.extensions.status = "Extension enabled.".into();
 				}
 				Ok(Event::Disabled(id)) => {
+					self.ticks.remove(&id);
+					self.transitions.remove(&id);
 					let theme = self.installed.iter().any(|entry| {
 						entry.manifest.id == id && entry.manifest.kind == ExtensionKind::Theme
 					});
 					self.installed.retain(|entry| entry.manifest.id != id);
 					self.disabled.remove(&id);
+					self.refresh_api_proxy();
 					messaging.extensions.remove_runtime(&id);
 					self.apply_theme(ctx);
 					self.entries(messaging);
@@ -669,6 +831,44 @@ impl Bridge {
 						};
 					}
 				}
+				Ok(Event::Invoked { id, output })
+					if pending
+						.as_ref()
+						.is_some_and(|pending| pending.tick.as_deref() == Some(id.as_str())) =>
+				{
+					let now = Instant::now();
+					if let Some(schedule) = self.ticks.get_mut(&id) {
+						schedule.next_due =
+							now + Duration::from_millis(extensions::TICK_MIN_INTERVAL_MS);
+					}
+					if !self.disabled.contains(&id)
+						&& let Some(appearance) = &output.appearance
+					{
+						let displayed = self.blended_theme(&id);
+						if let Some(installed) = self
+							.installed
+							.iter_mut()
+							.find(|entry| entry.manifest.id == id)
+						{
+							let from = displayed
+								.or_else(|| installed.theme.clone())
+								.unwrap_or_else(|| appearance.clone());
+							self.transitions.insert(
+								id.clone(),
+								Transition {
+									from,
+									to: appearance.clone(),
+									start: now,
+									duration: Duration::from_millis(
+										extensions::TICK_MIN_INTERVAL_MS,
+									),
+								},
+							);
+							installed.theme = Some(appearance.clone());
+							self.apply_theme(ctx);
+						}
+					}
+				}
 				Ok(Event::Invoked { id, output }) => {
 					if let Some((requested, invocation, context)) =
 						pending.and_then(|p| p.invocation)
@@ -678,6 +878,7 @@ impl Bridge {
 						if context.is_current(state)
 							&& let Some(appearance) = &output.appearance
 						{
+							self.transitions.remove(&id);
 							if let Some(installed) = self
 								.installed
 								.iter_mut()
@@ -686,6 +887,31 @@ impl Bridge {
 								installed.theme = Some(appearance.clone());
 							}
 							self.apply_theme(ctx);
+						}
+						if context.is_current(state)
+							&& let Some(update) = &output.rich_presence
+							&& let Some(installed) = self
+								.installed
+								.iter_mut()
+								.find(|entry| entry.manifest.id == id)
+						{
+							self.rich_presence_changed = true;
+							installed.rich_presence = match update {
+								extensions::RichPresenceUpdate::Set { presence } => {
+									Some(presence.clone())
+								}
+								extensions::RichPresenceUpdate::Clear => None,
+							};
+						}
+						if context.is_current(state)
+							&& let Some(config) = &output.api_proxy
+							&& let Some(installed) = self
+								.installed
+								.iter_mut()
+								.find(|entry| entry.manifest.id == id)
+						{
+							installed.api_proxy = Some(config.clone());
+							self.refresh_api_proxy();
 						}
 						if invocation.message_event.is_none() && invocation.app_event.is_none() {
 							messaging
@@ -944,6 +1170,8 @@ impl Bridge {
 					self.message_events.retain(|event| event.id != id);
 					if let Some(entry) = self.installed.iter().find(|e| e.manifest.id == id) {
 						let kind = entry.manifest.kind;
+						let connection_plugin =
+							entry.manifest.capabilities.contains(&Capability::ApiProxy);
 						self.cancel_previews(messaging);
 						self.pending.retain(|_, pending| pending.cleanup);
 						messaging.extensions.remove_runtime(&id);
@@ -954,7 +1182,11 @@ impl Bridge {
 							Job::Disable {
 								id,
 								kind,
-								account: account.clone(),
+								account: if connection_plugin {
+									None
+								} else {
+									account.clone()
+								},
 							},
 							None,
 							state.generation,
@@ -974,14 +1206,20 @@ impl Bridge {
 					{
 						continue;
 					}
-					if let Some(account) = &account {
+					let connection_plugin = self.installed.iter().any(|entry| {
+						entry.manifest.id == id
+							&& entry.manifest.capabilities.contains(&Capability::ApiProxy)
+					});
+					if account.is_some() || connection_plugin {
 						let manifest = &self
 							.installed
 							.iter()
 							.find(|e| e.manifest.id == id)
 							.unwrap()
 							.manifest;
-						attach_app_data(&mut invocation, state, messaging, manifest);
+						if !connection_plugin {
+							attach_app_data(&mut invocation, state, messaging, manifest);
+						}
 						if crate::extension_app::uses_app(&manifest.capabilities) {
 							// App snapshots and proposals belong to the conversation that produced them.
 							context.app_wide = false;
@@ -991,7 +1229,11 @@ impl Bridge {
 						self.submit(
 							Job::Invoke {
 								id,
-								account: account.clone(),
+								account: if connection_plugin {
+									String::new()
+								} else {
+									account.clone().unwrap()
+								},
 								invocation,
 							},
 							pending,
@@ -1076,7 +1318,10 @@ impl Bridge {
 		messaging.extensions.busy = self.picker.is_some()
 			|| self.theme_picker.is_some()
 			|| self.pending.values().any(|pending| {
-				pending.preview.is_none() && !pending.catalog && !pending.reactive()
+				pending.preview.is_none()
+					&& !pending.catalog
+					&& !pending.reactive()
+					&& pending.tick.is_none()
 			});
 		messaging.extensions.catalog_refreshing =
 			self.pending.values().any(|pending| pending.catalog);
@@ -1120,7 +1365,7 @@ impl Bridge {
 			});
 			if wait.is_zero() && !self.host.as_ref().unwrap().busy() {
 				let queued = self.message_events.pop_front().unwrap();
-				if let Some(account) = account {
+				if let Some(account) = &account {
 					let mut invocation = Invocation {
 						action: queued.action,
 						..Default::default()
@@ -1164,7 +1409,7 @@ impl Bridge {
 					self.submit(
 						Job::Invoke {
 							id: queued.id,
-							account,
+							account: account.clone(),
 							invocation,
 						},
 						pending,
@@ -1177,6 +1422,122 @@ impl Bridge {
 			} else if !wait.is_zero() {
 				ctx.request_repaint_after(wait);
 			}
+		}
+		self.schedule_ticks(&account, state.generation, ctx, messaging);
+	}
+	fn schedule_ticks(
+		&mut self,
+		account: &Option<String>,
+		generation: u64,
+		ctx: &egui::Context,
+		messaging: &mut ui::MessagingUi,
+	) {
+		let Some(account) = account else {
+			self.ticks.clear();
+			self.transitions.clear();
+			return;
+		};
+		let now = Instant::now();
+		let active: BTreeSet<String> = self
+			.installed
+			.iter()
+			.filter(|entry| {
+				entry.error.is_none()
+					&& !self.disabled.contains(&entry.manifest.id)
+					&& entry
+						.manifest
+						.actions
+						.iter()
+						.any(|action| action.surface == Surface::Tick)
+			})
+			.map(|entry| entry.manifest.id.clone())
+			.collect();
+		self.ticks.retain(|id, _| active.contains(id));
+		self.transitions.retain(|id, _| active.contains(id));
+		for id in &active {
+			self.ticks.entry(id.clone()).or_insert(TickSchedule {
+				enabled_at: now,
+				next_due: now,
+				paused: false,
+			});
+		}
+
+		if self.host.as_ref().is_some_and(|host| !host.busy()) {
+			let due = active.iter().find(|id| {
+				self.ticks
+					.get(*id)
+					.is_some_and(|schedule| !schedule.paused && now >= schedule.next_due)
+					&& !self.tick_pending(generation, id)
+			});
+			if let Some(id) = due.cloned()
+				&& let Some(action) = self
+					.installed
+					.iter()
+					.find(|entry| entry.manifest.id == id)
+					.and_then(|entry| {
+						entry
+							.manifest
+							.actions
+							.iter()
+							.find(|action| action.surface == Surface::Tick)
+					})
+					.map(|action| action.id.clone())
+			{
+				let elapsed = now
+					.saturating_duration_since(self.ticks[&id].enabled_at)
+					.as_millis()
+					.min(u128::from(u64::MAX)) as u64;
+				let job = Job::Invoke {
+					id: id.clone(),
+					account: account.clone(),
+					invocation: Invocation {
+						action,
+						tick_ms: Some(elapsed),
+						..Default::default()
+					},
+				};
+				match self.host.as_mut().unwrap().submit(job, ctx) {
+					Ok(token) => {
+						self.pending.insert(
+							token,
+							Pending {
+								catalog: false,
+								theme_save: false,
+								generation,
+								cleanup: false,
+								reconcile: false,
+								preview: None,
+								invocation: None,
+								tick: Some(id),
+							},
+						);
+					}
+					Err(error) => {
+						self.ticks.get_mut(&id).unwrap().paused = true;
+						messaging.extensions.status = format!(
+							"{id} animation paused because its tick could not start; disable and re-enable it to retry. {error}"
+						);
+					}
+				}
+			}
+		}
+
+		let easing = self
+			.transitions
+			.values()
+			.any(|transition| now < transition.start + transition.duration);
+		if easing {
+			self.apply_theme(ctx);
+			ctx.request_repaint_after(Duration::from_millis(TRANSITION_REPAINT_MS));
+		} else if self.host.as_ref().is_some_and(|host| !host.busy())
+			&& let Some(wait) = self
+				.ticks
+				.iter()
+				.filter(|(id, schedule)| !schedule.paused && !self.tick_pending(generation, id))
+				.map(|(_, schedule)| schedule.next_due.saturating_duration_since(now))
+				.min()
+		{
+			ctx.request_repaint_after(wait);
 		}
 	}
 	fn refresh_catalog_on_open(
@@ -1216,6 +1577,9 @@ impl Bridge {
 		ctx: &egui::Context,
 		messaging: &mut ui::MessagingUi,
 	) {
+		if matches!(job, Job::Load { .. }) {
+			self.api_proxy_loaded = false;
+		}
 		let preview = match &job {
 			Job::Preview { id, preview, .. } => Some((id.clone(), preview.sha256.clone())),
 			_ => None,
@@ -1237,6 +1601,7 @@ impl Bridge {
 						preview,
 						generation,
 						invocation,
+						tick: None,
 					},
 				);
 			}
@@ -1363,6 +1728,19 @@ impl Bridge {
 			.extensions
 			.set_entries(entries.into_values().collect());
 	}
+	fn blended_theme(&self, id: &str) -> Option<extensions::Theme> {
+		let transition = self.transitions.get(id)?;
+		let t = if transition.duration.is_zero() {
+			1.0
+		} else {
+			(Instant::now()
+				.saturating_duration_since(transition.start)
+				.as_secs_f64()
+				/ transition.duration.as_secs_f64())
+			.clamp(0.0, 1.0)
+		};
+		Some(blend_theme(&transition.from, &transition.to, t))
+	}
 	fn apply_theme(&self, ctx: &egui::Context) {
 		// Explicit theme first, then enabled plugin appearances in stable ID order.
 		let mut entries: Vec<_> = self
@@ -1387,7 +1765,12 @@ impl Bridge {
 			.as_ref()
 			.map_or_else(extensions::Theme::default, |(theme, _)| (**theme).clone());
 		for entry in &entries {
-			appearance.overlay(entry.theme.as_ref().unwrap());
+			let blended = self.blended_theme(&entry.manifest.id);
+			appearance.overlay(
+				blended
+					.as_ref()
+					.unwrap_or_else(|| entry.theme.as_ref().unwrap()),
+			);
 		}
 		ui::design::set_extension_theme(
 			(!entries.is_empty() || self.theme_preview.is_some()).then_some(&appearance),
@@ -1426,6 +1809,31 @@ fn source_hash(source: &InstallSource) -> &str {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn tick_pending_tracks_the_current_job_and_color_blending_is_continuous() {
+		let mut bridge = Bridge::default();
+		bridge.pending.insert(
+			1,
+			Pending {
+				catalog: false,
+				theme_save: false,
+				generation: 7,
+				cleanup: false,
+				reconcile: false,
+				preview: None,
+				invocation: None,
+				tick: Some("rainbow".into()),
+			},
+		);
+		assert!(bridge.tick_pending(7, "rainbow"));
+		assert!(!bridge.tick_pending(8, "rainbow"));
+		assert_eq!(
+			lerp_hex("#000000", "#ffffff", 0.5).as_deref(),
+			Some("#808080")
+		);
+	}
+
 	fn message_events_fixture() -> (Bridge, State, MessageEvent) {
 		let state = test_support::demo_state();
 		let manifest = serde_json::from_str(include_str!(
@@ -1445,6 +1853,8 @@ mod tests {
 			error: None,
 			preserve_deleted_messages: false,
 			image_sharing: false,
+			rich_presence: None,
+			api_proxy: None,
 		};
 		let bridge = Bridge {
 			scope: Some((
@@ -1463,6 +1873,57 @@ mod tests {
 		};
 		assert!(bridge.has_message_events(&state));
 		(bridge, state, event)
+	}
+
+	#[test]
+	fn api_proxy_route_survives_pending_reload_and_plugin_errors() {
+		let (mut bridge, _, _) = message_events_fixture();
+		let config = extensions::ApiProxyConfig::Url {
+			url: "http://localhost:8080".into(),
+		};
+		bridge.installed[0].manifest.capabilities = vec![Capability::ApiProxy];
+		bridge.installed[0].api_proxy = Some(config.clone());
+		bridge.installed[0].error = Some("failed activation".into());
+		bridge.refresh_api_proxy();
+		assert!(!bridge.api_proxy_ready());
+		bridge.installed[0].error = None;
+		bridge.refresh_api_proxy();
+		assert!(bridge.api_proxy_ready());
+		assert_eq!(bridge.api_proxy(), config);
+		bridge.installed[0].error = Some("failed activation".into());
+		bridge.refresh_api_proxy();
+		assert!(!bridge.api_proxy_ready());
+		assert_eq!(bridge.api_proxy(), config);
+		bridge.installed.clear();
+		assert_eq!(bridge.api_proxy(), config);
+		bridge.refresh_api_proxy();
+		assert!(bridge.api_proxy_ready());
+		assert_eq!(bridge.api_proxy(), extensions::ApiProxyConfig::Direct);
+	}
+
+	#[test]
+	fn custom_presence_requires_capability_and_clears_with_disable_error_and_logout() {
+		let (mut bridge, _, _) = message_events_fixture();
+		bridge.installed[0].rich_presence = Some(Box::new(extensions::CustomRichPresence {
+			application_id: "123".into(),
+			name: "Synthetic".into(),
+			..Default::default()
+		}));
+		assert!(bridge.rich_presence().is_none());
+		bridge.installed[0]
+			.manifest
+			.capabilities
+			.push(Capability::RichPresence);
+		assert_eq!(bridge.rich_presence().unwrap().name, "Synthetic");
+		let id = bridge.installed[0].manifest.id.clone();
+		bridge.disabled.insert(id.clone());
+		assert!(bridge.rich_presence().is_none());
+		bridge.disabled.remove(&id);
+		bridge.installed[0].error = Some("Failed".into());
+		assert!(bridge.rich_presence().is_none());
+		bridge.installed[0].error = None;
+		let _ = bridge.logout(&egui::Context::default());
+		assert!(bridge.rich_presence().is_none());
 	}
 
 	#[test]

@@ -91,7 +91,12 @@ pub(crate) async fn download(
 	if Instant::now() < *cooldown {
 		return Err("Game application lookup is rate limited. Try again later.");
 	}
-	let mut response = client.get(url).send().await.map_err(|_| failure)?;
+	let mut response = client
+		.get(url)
+		.timeout(Duration::from_secs(10))
+		.send()
+		.await
+		.map_err(|_| failure)?;
 	if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
 		let seconds = response
 			.headers()

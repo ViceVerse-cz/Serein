@@ -97,6 +97,7 @@ mod tests {
 			auth: client_core::auth::AuthState::Authenticated,
 			gateway_connected: true,
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				id: Id(1),
 				name: "Synthetic".into(),
 				icon: None,

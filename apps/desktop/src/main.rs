@@ -32,9 +32,12 @@ mod group_icon;
 mod interaction_uploads;
 mod notification_runtime;
 mod notification_sounds;
+#[cfg(feature = "demo")]
+mod onboarding_demo;
 mod pointer;
 #[cfg(feature = "demo")]
 mod post_menu_demo;
+mod proxy_auth;
 mod reading_settings;
 #[cfg(feature = "demo")]
 mod rendering_demo;
@@ -343,7 +346,10 @@ fn main() -> eframe::Result {
 				.with_icon(eframe::icon_data::from_png_bytes(icon).expect("bundled app icon"));
 			if cfg!(target_os = "macos") {
 				// Discord-style inline title bar: traffic lights sit over the app's own strip.
+				// eframe swaps in the egui logo when no icon is set; an empty icon keeps the
+				// bundle's Serein.icns in the Dock and app switcher.
 				builder
+					.with_icon(egui::IconData::default())
 					.with_title_shown(false)
 					.with_titlebar_shown(false)
 					.with_fullsize_content_view(true)
@@ -765,6 +771,8 @@ impl SessionEnd {
 	}
 }
 struct Desktop {
+	proxy_auth: proxy_auth::Authentication,
+	api_proxy: tokio::sync::watch::Sender<Option<discord_api::proxy::ApiProxy>>,
 	extensions: extension_bridge::Bridge,
 	extension_close_pending: bool,
 	login: Option<platform::LoginView>,
@@ -844,6 +852,8 @@ struct Desktop {
 	/// Saved account awaiting the owner's confirmation before it is forgotten.
 	confirming_forget: Option<model::Id>,
 	credential_status: &'static str,
+	/// Until when the sign-in failure copy button reads "Copied".
+	sign_in_copied: Option<f64>,
 	forgetting: bool,
 	confirming_close: bool,
 	confirming_logout: bool,
@@ -1148,6 +1158,11 @@ fn demo_members(guild: Option<model::Id>, channel: model::Id, request: u64) -> m
 			let mut member = members[0].clone();
 			member.user.id = model::Id(id);
 			member.user.name = name.into();
+			member.user.kind = if id == 9003 {
+				model::AccountKind::VerifiedBot
+			} else {
+				model::AccountKind::Bot
+			};
 			member.roles.clear();
 			member.status = Some(status.into());
 			members.push(member);
@@ -1889,11 +1904,26 @@ impl Desktop {
 			if rest == "failed" {
 				state.auth = AuthState::Failed;
 				state.status = "Synthetic fixture failure · Discord was not contacted";
+				state.failure_detail =
+					Some("guilds[3].channels[12].permission_overwrites[0].allow: invalid type: null, expected a string".into());
 			}
+		}
+		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg.starts_with("--demo-onboarding")) {
+			onboarding_demo::open(&mut state);
 		}
 		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-server-settings") {
 			server_settings_demo::open(&mut state, &mut messaging);
+		}
+		#[cfg(feature = "demo")]
+		if demo
+			&& std::env::args().any(|arg| arg == "--demo-server-notifications")
+			&& let Some(guild) = state.guilds.first().map(|g| g.id)
+		{
+			// The new editor fixture includes a known server default: mentions only.
+			state.guilds[0].default_message_notifications = Some(1);
+			messaging.preview_server_notifications(&mut state, guild);
 		}
 		let mut hotkeys = platform::hotkeys::Hotkeys::new({
 			let ctx = cc.egui_ctx.clone();
@@ -1918,6 +1948,8 @@ impl Desktop {
 		// keep the same native/compositor path as builds without window effects.
 		let tray_window = tray_window::State::default();
 		Ok(Self {
+			proxy_auth: proxy_auth::Authentication::default(),
+			api_proxy: tokio::sync::watch::channel(None).0,
 			extensions: extension_bridge::Bridge::default(),
 			extension_close_pending: false,
 			login: None,
@@ -2004,6 +2036,7 @@ impl Desktop {
 			presence_authoritative: false,
 			presence_saved: None,
 			confirming_forget: sign_in_forget,
+			sign_in_copied: None,
 			credential_status: if demo {
 				"Fixture mode never opens the credential store or network"
 			} else if loading_saved {
@@ -2090,6 +2123,7 @@ impl Desktop {
 		self.messaging.draft_restore_pending = false;
 		self.state.auth = AuthState::Authenticating;
 		self.state.status = "Connecting to Discord…";
+		self.state.failure_detail = None;
 		let secret = Arc::new(secret);
 		self.pending_save = save.then(|| secret.clone());
 		self.pending_account_save = Some(secret.clone());
@@ -2099,6 +2133,7 @@ impl Desktop {
 			self.state.generation,
 			self.state.user.as_ref().map(|u| u.id),
 			self.account_presences.clone(),
+			self.api_proxy.subscribe(),
 			ctx.clone(),
 		));
 	}
@@ -2680,6 +2715,15 @@ impl Desktop {
 		let mut own_activity = None;
 		self.messaging.game_activity_status = self.game_activity.status();
 		if let Some(connection) = &self.connection {
+			let custom_changed = self.extensions.take_rich_presence_change();
+			let custom = self.extensions.rich_presence();
+			connection.custom_rich_presence.send_if_modified(|current| {
+				if !custom_changed && current.as_ref() == custom {
+					return false;
+				}
+				*current = custom.cloned();
+				true
+			});
 			connection.share_activity.send_if_modified(|enabled| {
 				if *enabled == self.game_activity.enabled {
 					return false;
@@ -2884,6 +2928,12 @@ impl Desktop {
 			&& !self
 				.state
 				.server_admin_command_allowed(*guild, *request, action)
+		{
+			self.state.command_rejected(command);
+			return;
+		}
+		if let Command::Onboarding { guild, request, .. } = &command
+			&& !self.state.onboarding_command_allowed(*guild, *request)
 		{
 			self.state.command_rejected(command);
 			return;
@@ -3158,6 +3208,11 @@ impl Desktop {
 					request,
 					edit,
 				} => server_settings_demo::execute(&self.state, guild, request, edit),
+				Command::Onboarding {
+					guild,
+					request,
+					action,
+				} => onboarding_demo::execute(guild, request, action),
 				Command::GuildFolders(settings) => Event::GuildFolders(Ok(settings
 					.map(|(_, settings)| settings)
 					.unwrap_or_default())),
@@ -3493,6 +3548,7 @@ impl Desktop {
 					channel,
 					query,
 					before,
+					offset,
 					request,
 					..
 				} => {
@@ -3502,11 +3558,17 @@ impl Desktop {
 						Ok(terms) => terms,
 						Err(_) => return,
 					};
+					// Fixture IDs repeat per channel, so an offline search reads one channel.
+					let source = filters
+						.iter()
+						.find_map(|(key, value)| (*key == "channel_id").then(|| value.parse().ok()))
+						.flatten()
+						.map_or(channel, model::Id);
 					for id in (1..=500)
 						.rev()
 						.filter(|id| before.is_none_or(|b| *id < b.0))
 					{
-						let message = test_support::message(id, channel);
+						let message = test_support::message(id, source);
 						if message
 							.content
 							.to_lowercase()
@@ -3515,6 +3577,7 @@ impl Desktop {
 								filters.iter().filter(|(key, _)| key == group).any(
 									|(key, value)| match *key {
 										"author_id" => message.author.id.to_string() == *value,
+										"channel_id" => source.to_string() == *value,
 										"mentions" => message
 											.mentions
 											.iter()
@@ -3526,7 +3589,7 @@ impl Desktop {
 											value.parse::<u64>().is_ok_and(|max| message.id.0 < max)
 										}
 										"pinned" => {
-											self.state.is_pinned(channel, message.id)
+											self.state.is_pinned(source, message.id)
 												== (value == "true")
 										}
 										"author_type" => match value.as_str() {
@@ -3559,10 +3622,10 @@ impl Desktop {
 								)
 							}) {
 							total += 1;
-							if hits.len() < model::SEARCH_PAGE_SIZE {
+							if total > u64::from(offset) && hits.len() < model::SEARCH_PAGE_SIZE {
 								hits.push(model::SearchHit {
 									id: message.id,
-									channel,
+									channel: source,
 									author: message.author,
 									mentions: message.mentions,
 									excerpt: message.content.clone(),
@@ -3604,6 +3667,7 @@ impl Desktop {
 					user,
 					guild,
 					request,
+					..
 				} => Event::Profile {
 					user,
 					guild,
@@ -4450,6 +4514,9 @@ impl Desktop {
 								.wrap(),
 							);
 						}
+						if attention {
+							self.sign_in_failure_details(ui, p.muted);
+						}
 						if !self.fixture_only && !self.credential_status.is_empty() {
 							ui.add(
 								egui::Label::new(
@@ -4474,6 +4541,44 @@ impl Desktop {
 					});
 				});
 			});
+	}
+	/// Redacted decode cause plus a copyable report users can attach to a bug report.
+	fn sign_in_failure_details(&mut self, ui: &mut egui::Ui, muted: egui::Color32) {
+		if let Some(detail) = &self.state.failure_detail {
+			ui.add(
+				egui::Label::new(egui::RichText::new(&**detail).size(12.0).color(muted))
+					.wrap()
+					.selectable(true),
+			);
+		}
+		ui.add_space(4.0);
+		let now = ui.input(|i| i.time);
+		let copied = self.sign_in_copied.is_some_and(|until| now < until);
+		if ui::design::button(
+			ui,
+			if copied {
+				"updates-update-settings-copied"
+			} else {
+				"main-sign-in-status-copy-failure-details"
+			},
+			ui::design::ButtonKind::Outline,
+		)
+		.clicked()
+		{
+			let report = format!(
+				"### Sign-in failure\n- **Reason:** {}\n- **Cause:** {}\n{}",
+				self.state.status,
+				self.state
+					.failure_detail
+					.as_deref()
+					.unwrap_or("No decode detail recorded"),
+				self.messaging.diagnostic_info(ui.ctx())
+			);
+			ui.ctx().copy_text(report);
+			self.sign_in_copied = Some(now + 2.5);
+			ui.ctx()
+				.request_repaint_after(std::time::Duration::from_secs(3));
+		}
 	}
 	/// Fixture-only entry into the offline preview, kept visually secondary to signing in.
 	#[cfg(feature = "demo")]
@@ -5550,7 +5655,6 @@ impl eframe::App for Desktop {
 		self.sync_fonts(ctx);
 		self.hotkeys.sync(&self.messaging.keybinds, &self.runtime);
 		self.messaging.global_keybind_status = self.hotkeys.status();
-		self.hotkeys.poll();
 		let voice_toggles = self.hotkeys.take_toggle_pending()
 			| self
 				.messaging
@@ -5632,6 +5736,23 @@ impl eframe::App for Desktop {
 			&self.window,
 			self.fixture_only,
 		);
+		if self.extensions.api_proxy_ready() {
+			let route = self.proxy_auth.tick(
+				self.extensions.api_proxy(),
+				&mut self.messaging.extensions.proxy_auth,
+				&self.runtime,
+				ctx,
+				self.fixture_only,
+			);
+			self.api_proxy.send_if_modified(|current| {
+				if *current == route {
+					false
+				} else {
+					*current = route;
+					true
+				}
+			});
+		}
 		self.sync_customization(ctx);
 		#[cfg(feature = "demo")]
 		if self.demo_typing

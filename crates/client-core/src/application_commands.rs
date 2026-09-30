@@ -129,7 +129,11 @@ impl State {
 					} else {
 						c.kind == 1
 							&& c.recipients.iter().any(|u| {
-								matches!(u.kind, model::AccountKind::Bot | model::AccountKind::App)
+								matches!(
+									u.kind,
+									model::AccountKind::Bot
+										| model::AccountKind::App | model::AccountKind::VerifiedBot
+								)
 							})
 					}
 			})
@@ -351,292 +355,297 @@ mod tests {
 	}
 	#[test]
 	fn command_permissions_filter_defaults_overrides_threads_and_submission() {
-		use model::permissions as p;
-		let mut state = bot_state();
-		state.user = Some(state.channels[0].recipients[0].clone());
-		state.channels[0].guild = Some(Id(10));
-		state.channels[0].kind = 0;
-		state.guilds.push(model::Guild {
-			id: Id(10),
-			name: "Synthetic guild".into(),
-			icon: None,
-			emojis: None,
-			stickers: None,
-		});
-		let role = |id, bits| p::Role {
-			id: Id(id),
-			bits,
-			name: "Synthetic role".into(),
-			color: 0,
-			position: 0,
-			hoist: false,
-		};
-		state
-			.permissions
-			.replace(p::Snapshot {
-				guilds: vec![p::Guild {
-					id: Id(10),
-					owner: Some(Id(99)),
-					roles: Some(vec![
-						role(10, p::VIEW_CHANNEL | p::USE_APPLICATION_COMMANDS),
-						role(11, 0),
-						role(12, 0),
-					]),
-					member: Some(p::Member {
-						roles: vec![Id(11), Id(12)],
-						timeout_until: None,
-					}),
-				}],
-				channels: vec![p::Channel {
-					id: Id(2),
+		{
+			use model::permissions as p;
+			let mut state = bot_state();
+			state.user = Some(state.channels[0].recipients[0].clone());
+			state.channels[0].guild = Some(Id(10));
+			state.channels[0].kind = 0;
+			state.guilds.push(model::Guild {
+				default_message_notifications: None,
+				id: Id(10),
+				name: "Synthetic guild".into(),
+				icon: None,
+				emojis: None,
+				stickers: None,
+			});
+			let role = |id, bits| p::Role {
+				id: Id(id),
+				bits,
+				name: "Synthetic role".into(),
+				color: 0,
+				position: 0,
+				hoist: false,
+			};
+			state
+				.permissions
+				.replace(p::Snapshot {
+					guilds: vec![p::Guild {
+						id: Id(10),
+						owner: Some(Id(99)),
+						roles: Some(vec![
+							role(10, p::VIEW_CHANNEL | p::USE_APPLICATION_COMMANDS),
+							role(11, 0),
+							role(12, 0),
+						]),
+						member: Some(p::Member {
+							roles: vec![Id(11), Id(12)],
+							timeout_until: None,
+						}),
+					}],
+					channels: vec![p::Channel {
+						id: Id(2),
+						guild: Id(10),
+						overwrites: Some(vec![]),
+					}],
+				})
+				.unwrap();
+			let mut command = command();
+			command.contexts = None;
+			assert!(!state.can_use_application_command(Id(2), &command));
+			assert!(!state.can_compose(Id(2)));
+			state
+				.update_permissions(crate::permissions::Event::Role {
 					guild: Id(10),
-					overwrites: Some(vec![]),
-				}],
-			})
-			.unwrap();
-		let mut command = command();
-		command.contexts = None;
-		assert!(!state.can_use_application_command(Id(2), &command));
-		assert!(!state.can_compose(Id(2)));
-		state
-			.update_permissions(crate::permissions::Event::Role {
-				guild: Id(10),
-				role: role(
-					10,
-					p::VIEW_CHANNEL
-						| p::USE_APPLICATION_COMMANDS
-						| p::SEND_MESSAGES | p::SEND_MESSAGES_IN_THREADS,
-				),
-			})
-			.unwrap();
-		assert!(state.can_use_application_command(Id(2), &command));
-		command.default_member_permissions = Some(p::KICK_MEMBERS);
-		assert!(!state.can_use_application_command(Id(2), &command));
-		command.default_member_permissions = Some(p::VIEW_CHANNEL | p::USE_APPLICATION_COMMANDS);
-		assert!(state.can_use_application_command(Id(2), &command));
-		command.default_member_permissions = Some(0);
-		command.application_permissions.user = Some(true);
-		assert!(
-			!state.can_use_application_command(Id(2), &command),
-			"app-wide allow must preserve command defaults"
-		);
-		command.permissions.roles.insert(Id(10), true);
-		assert!(state.can_use_application_command(Id(2), &command));
-		command.permissions.roles.insert(Id(11), false);
-		assert!(
-			!state.can_use_application_command(Id(2), &command),
-			"member role overrides everyone"
-		);
-		command.permissions.roles.insert(Id(12), true);
-		assert!(
-			state.can_use_application_command(Id(2), &command),
-			"allow wins between matched roles"
-		);
-		command.permissions.user = Some(false);
-		assert!(
-			!state.can_use_application_command(Id(2), &command),
-			"current user overrides roles"
-		);
-		command.permissions.user = Some(true);
-		command.application_permissions.user = Some(false);
-		assert!(
-			state.can_use_application_command(Id(2), &command),
-			"command-specific allow overrides app denial"
-		);
-		command
-			.application_permissions
-			.channels
-			.insert(Id(9), false);
-		assert!(
-			!state.can_use_application_command(Id(2), &command),
-			"a user allow does not override a channel denial"
-		);
-		command.application_permissions.channels.insert(Id(2), true);
-		assert!(
-			state.can_use_application_command(Id(2), &command),
-			"specific channel overrides all channels"
-		);
-		command.permissions.channels.insert(Id(9), false);
-		assert!(
-			!state.can_use_application_command(Id(2), &command),
-			"command channel layer replaces app channel layer"
-		);
-		command.permissions.channels.insert(Id(2), true);
-		assert!(state.can_use_application_command(Id(2), &command));
-		let mut thread = state.channels[0].clone();
-		thread.id = Id(21);
-		thread.kind = 11;
-		thread.parent_id = Some(Id(2));
-		state.channels.push(thread);
-		state.selected = Some(Id(21));
-		command.permissions.channels.insert(Id(21), false);
-		assert!(
-			state.can_use_application_command(Id(21), &command),
-			"thread uses parent rules"
-		);
-		command.permissions.channels.insert(Id(2), false);
-		assert!(!state.can_use_application_command(Id(21), &command));
-		state.selected = Some(Id(2));
-		state.application_commands.scope = Some(Id(10));
-		state.application_commands.commands = vec![command.clone()];
-		assert!(
-			state
-				.prepare_application_command(
-					command.id,
-					&["run".into()],
-					&[("count".into(), "2".into())]
-				)
-				.is_err()
-		);
-		assert!(
-			!state.interactions.busy(),
-			"permission denial must not queue an interaction"
-		);
-		state
-			.update_permissions(crate::permissions::Event::Role {
-				guild: Id(10),
-				role: role(12, p::ADMINISTRATOR),
-			})
-			.unwrap();
-		assert!(
-			state.can_use_application_command(Id(2), &command),
-			"administrator bypasses command restrictions"
-		);
-		state
-			.update_permissions(crate::permissions::Event::Role {
-				guild: Id(10),
-				role: role(12, 0),
-			})
-			.unwrap();
-		state
-			.update_permissions(crate::permissions::Event::Member {
-				guild: Id(10),
-				roles: model::Patch::Null,
-				timeout_until: model::Patch::Absent,
-			})
-			.unwrap();
-		assert!(
-			!state.can_use_application_command(Id(2), &command),
-			"unknown member metadata is not a grant"
-		);
-		state
-			.update_permissions(crate::permissions::Event::Owner {
-				guild: Id(10),
-				owner: model::Patch::Value(Id(3)),
-			})
-			.unwrap();
-		assert!(
-			state.can_use_application_command(Id(2), &command),
-			"owner bypasses defaults and explicit denials"
-		);
-		let dm = bot_state();
-		assert!(
-			dm.can_use_application_command(Id(2), &command),
-			"guild restrictions do not restrict a supported bot DM"
-		);
-	}
-	#[test]
-	fn catalog_scope_and_schema_guard_explicit_interaction_submission() {
-		let mut state = bot_state();
-		let Some(Command::ApplicationCommands {
-			channel, request, ..
-		}) = state.request_application_commands(Id(2), false)
-		else {
-			panic!()
-		};
-		let apply = |state: &mut State, generation, request, commands| {
-			state.apply(Envelope {
-				generation,
-				event: Event::ApplicationCommands {
-					channel,
-					request,
-					result: Ok(commands),
-				},
-			})
-		};
-		let generation = state.generation;
-		apply(&mut state, generation + 1, request, vec![command()]);
-		apply(&mut state, generation, request + 1, vec![command()]);
-		assert!(state.application_commands.commands.is_empty());
-		apply(&mut state, generation, request, vec![command()]);
-		assert_eq!(state.application_commands.commands.len(), 1);
-		let mut required_text = command();
-		required_text.options = vec![schema::CommandOption {
-			kind: 3,
-			name: "text".into(),
-			description: "Required text without an explicit length limit".into(),
-			required: true,
-			..Default::default()
-		}];
-		state.application_commands.commands[0] = required_text.clone();
-		assert!(
-			state
-				.prepare_application_command(Id(4), &[], &[("text".into(), String::new())])
-				.is_err()
-		);
-		assert!(!state.interactions.busy());
-		assert!(
-			!schema::Invocation {
-				command: required_text,
-				options: vec![schema::Argument {
-					kind: 3,
-					name: "text".into(),
-					value: Some(schema::Value::String(String::new())),
-					options: Vec::new(),
-				}],
-			}
-			.valid()
-		);
-		state.application_commands.commands[0] = command();
-		let path = vec!["run".into()];
-		for values in [
-			vec![],
-			vec![("count".into(), "4".into())],
-			vec![("count".into(), "1".into())],
-			vec![("count".into(), "2".into()), ("count".into(), "2".into())],
-			vec![("count".into(), "2".into()), ("file".into(), "123".into())],
-		] {
+					role: role(
+						10,
+						p::VIEW_CHANNEL
+							| p::USE_APPLICATION_COMMANDS
+							| p::SEND_MESSAGES | p::SEND_MESSAGES_IN_THREADS,
+					),
+				})
+				.unwrap();
+			assert!(state.can_use_application_command(Id(2), &command));
+			command.default_member_permissions = Some(p::KICK_MEMBERS);
+			assert!(!state.can_use_application_command(Id(2), &command));
+			command.default_member_permissions =
+				Some(p::VIEW_CHANNEL | p::USE_APPLICATION_COMMANDS);
+			assert!(state.can_use_application_command(Id(2), &command));
+			command.default_member_permissions = Some(0);
+			command.application_permissions.user = Some(true);
+			assert!(
+				!state.can_use_application_command(Id(2), &command),
+				"app-wide allow must preserve command defaults"
+			);
+			command.permissions.roles.insert(Id(10), true);
+			assert!(state.can_use_application_command(Id(2), &command));
+			command.permissions.roles.insert(Id(11), false);
+			assert!(
+				!state.can_use_application_command(Id(2), &command),
+				"member role overrides everyone"
+			);
+			command.permissions.roles.insert(Id(12), true);
+			assert!(
+				state.can_use_application_command(Id(2), &command),
+				"allow wins between matched roles"
+			);
+			command.permissions.user = Some(false);
+			assert!(
+				!state.can_use_application_command(Id(2), &command),
+				"current user overrides roles"
+			);
+			command.permissions.user = Some(true);
+			command.application_permissions.user = Some(false);
+			assert!(
+				state.can_use_application_command(Id(2), &command),
+				"command-specific allow overrides app denial"
+			);
+			command
+				.application_permissions
+				.channels
+				.insert(Id(9), false);
+			assert!(
+				!state.can_use_application_command(Id(2), &command),
+				"a user allow does not override a channel denial"
+			);
+			command.application_permissions.channels.insert(Id(2), true);
+			assert!(
+				state.can_use_application_command(Id(2), &command),
+				"specific channel overrides all channels"
+			);
+			command.permissions.channels.insert(Id(9), false);
+			assert!(
+				!state.can_use_application_command(Id(2), &command),
+				"command channel layer replaces app channel layer"
+			);
+			command.permissions.channels.insert(Id(2), true);
+			assert!(state.can_use_application_command(Id(2), &command));
+			let mut thread = state.channels[0].clone();
+			thread.id = Id(21);
+			thread.kind = 11;
+			thread.parent_id = Some(Id(2));
+			state.channels.push(thread);
+			state.selected = Some(Id(21));
+			command.permissions.channels.insert(Id(21), false);
+			assert!(
+				state.can_use_application_command(Id(21), &command),
+				"thread uses parent rules"
+			);
+			command.permissions.channels.insert(Id(2), false);
+			assert!(!state.can_use_application_command(Id(21), &command));
+			state.selected = Some(Id(2));
+			state.application_commands.scope = Some(Id(10));
+			state.application_commands.commands = vec![command.clone()];
 			assert!(
 				state
-					.prepare_application_command(Id(4), &path, &values)
+					.prepare_application_command(
+						command.id,
+						&["run".into()],
+						&[("count".into(), "2".into())]
+					)
+					.is_err()
+			);
+			assert!(
+				!state.interactions.busy(),
+				"permission denial must not queue an interaction"
+			);
+			state
+				.update_permissions(crate::permissions::Event::Role {
+					guild: Id(10),
+					role: role(12, p::ADMINISTRATOR),
+				})
+				.unwrap();
+			assert!(
+				state.can_use_application_command(Id(2), &command),
+				"administrator bypasses command restrictions"
+			);
+			state
+				.update_permissions(crate::permissions::Event::Role {
+					guild: Id(10),
+					role: role(12, 0),
+				})
+				.unwrap();
+			state
+				.update_permissions(crate::permissions::Event::Member {
+					guild: Id(10),
+					roles: model::Patch::Null,
+					timeout_until: model::Patch::Absent,
+				})
+				.unwrap();
+			assert!(
+				!state.can_use_application_command(Id(2), &command),
+				"unknown member metadata is not a grant"
+			);
+			state
+				.update_permissions(crate::permissions::Event::Owner {
+					guild: Id(10),
+					owner: model::Patch::Value(Id(3)),
+				})
+				.unwrap();
+			assert!(
+				state.can_use_application_command(Id(2), &command),
+				"owner bypasses defaults and explicit denials"
+			);
+			let dm = bot_state();
+			assert!(
+				dm.can_use_application_command(Id(2), &command),
+				"guild restrictions do not restrict a supported bot DM"
+			);
+		}
+		{
+			let mut state = bot_state();
+			let Some(Command::ApplicationCommands {
+				channel, request, ..
+			}) = state.request_application_commands(Id(2), false)
+			else {
+				panic!()
+			};
+			let apply = |state: &mut State, generation, request, commands| {
+				state.apply(Envelope {
+					generation,
+					event: Event::ApplicationCommands {
+						channel,
+						request,
+						result: Ok(commands),
+					},
+				})
+			};
+			let generation = state.generation;
+			apply(&mut state, generation + 1, request, vec![command()]);
+			apply(&mut state, generation, request + 1, vec![command()]);
+			assert!(state.application_commands.commands.is_empty());
+			apply(&mut state, generation, request, vec![command()]);
+			assert_eq!(state.application_commands.commands.len(), 1);
+			let mut required_text = command();
+			required_text.options = vec![schema::CommandOption {
+				kind: 3,
+				name: "text".into(),
+				description: "Required text without an explicit length limit".into(),
+				required: true,
+				..Default::default()
+			}];
+			state.application_commands.commands[0] = required_text.clone();
+			assert!(
+				state
+					.prepare_application_command(Id(4), &[], &[("text".into(), String::new())])
 					.is_err()
 			);
 			assert!(!state.interactions.busy());
+			assert!(
+				!schema::Invocation {
+					command: required_text,
+					options: vec![schema::Argument {
+						kind: 3,
+						name: "text".into(),
+						value: Some(schema::Value::String(String::new())),
+						options: Vec::new(),
+					}],
+				}
+				.valid()
+			);
+			state.application_commands.commands[0] = command();
+			let path = vec!["run".into()];
+			for values in [
+				vec![],
+				vec![("count".into(), "4".into())],
+				vec![("count".into(), "1".into())],
+				vec![("count".into(), "2".into()), ("count".into(), "2".into())],
+				vec![("count".into(), "2".into()), ("file".into(), "123".into())],
+			] {
+				assert!(
+					state
+						.prepare_application_command(Id(4), &path, &values)
+						.is_err()
+				);
+				assert!(!state.interactions.busy());
+			}
+			state.drafts.insert(channel, "Keep this draft".into());
+			let Command::Interaction(request) = state
+				.prepare_application_command(
+					Id(4),
+					&path,
+					&[("count".into(), "2".into()), ("file".into(), String::new())],
+				)
+				.unwrap()
+			else {
+				panic!()
+			};
+			assert!(request.valid());
+			assert!(request.message_id.is_none());
+			assert_eq!(state.drafts[&channel], "Keep this draft");
+			assert!(state.interactions.busy());
+			let interactions::Data::ApplicationCommand { invocation } = request.data else {
+				panic!()
+			};
+			assert_eq!(
+				invocation.options[0].options[0].value,
+				Some(schema::Value::Integer(2))
+			);
+			state.open_home();
+			assert!(state.application_commands.commands.is_empty());
+			apply(&mut state, generation, request.request, vec![command()]);
+			assert!(state.application_commands.commands.is_empty());
+			state.selected = Some(channel);
+			state.interactions.reset();
+			state.request_application_commands(channel, true).unwrap();
+			state.apply(Envelope {
+				generation,
+				event: Event::Disconnected,
+			});
+			assert!(
+				!state.application_commands.loading && state.application_commands.scope.is_none()
+			);
 		}
-		state.drafts.insert(channel, "Keep this draft".into());
-		let Command::Interaction(request) = state
-			.prepare_application_command(
-				Id(4),
-				&path,
-				&[("count".into(), "2".into()), ("file".into(), String::new())],
-			)
-			.unwrap()
-		else {
-			panic!()
-		};
-		assert!(request.valid());
-		assert!(request.message_id.is_none());
-		assert_eq!(state.drafts[&channel], "Keep this draft");
-		assert!(state.interactions.busy());
-		let interactions::Data::ApplicationCommand { invocation } = request.data else {
-			panic!()
-		};
-		assert_eq!(
-			invocation.options[0].options[0].value,
-			Some(schema::Value::Integer(2))
-		);
-		state.open_home();
-		assert!(state.application_commands.commands.is_empty());
-		apply(&mut state, generation, request.request, vec![command()]);
-		assert!(state.application_commands.commands.is_empty());
-		state.selected = Some(channel);
-		state.interactions.reset();
-		state.request_application_commands(channel, true).unwrap();
-		state.apply(Envelope {
-			generation,
-			event: Event::Disconnected,
-		});
-		assert!(!state.application_commands.loading && state.application_commands.scope.is_none());
 	}
 	#[test]
 	fn guild_index_survives_sibling_channels_and_access_events() {
@@ -648,6 +657,7 @@ mod tests {
 		sibling.id = Id(3);
 		state.channels.push(sibling);
 		state.guilds.push(model::Guild {
+			default_message_notifications: None,
 			id: Id(10),
 			name: "Synthetic guild".into(),
 			icon: None,

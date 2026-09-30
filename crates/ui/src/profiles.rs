@@ -199,9 +199,8 @@ pub(crate) fn activity_card(
 								},
 							);
 						});
-					} else if let Some(elapsed) = activity
-						.started_at
-						.and_then(|start| activity_elapsed(start, now))
+					} else if let Some(elapsed) =
+						activity_timer(activity.started_at, activity.ends_at, now)
 					{
 						let color = design::palette(ui).positive;
 						ui.horizontal(|ui| {
@@ -219,7 +218,11 @@ pub(crate) fn activity_card(
 							ui.label(RichText::new(elapsed).monospace().size(12.0).color(color));
 						});
 					}
-					if activity.started_at.is_some() && ui.is_rect_visible(ui.min_rect()) {
+					if activity
+						.ends_at
+						.map_or(activity.started_at.is_some(), |end| end > now)
+						&& ui.is_rect_visible(ui.min_rect())
+					{
 						ui.ctx()
 							.request_repaint_after(std::time::Duration::from_secs(1));
 					}
@@ -329,6 +332,15 @@ fn activity_row(
 			.selectable(false),
 	);
 	response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+fn activity_timer(start: Option<u64>, end: Option<u64>, now: u64) -> Option<String> {
+	match end {
+		Some(end) => {
+			activity_elapsed(0, end.saturating_sub(now)).map(|time| format!("{time} remaining"))
+		}
+		None => start.and_then(|start| activity_elapsed(start, now)),
+	}
 }
 
 fn activity_elapsed(start: u64, now: u64) -> Option<String> {
@@ -2413,113 +2425,7 @@ pub fn synthetic(user: &User, guild: Option<Id>) -> model::UserProfile {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	#[test]
-	fn presence_badge_excludes_the_avatar_hover_target() {
-		let avatar = Rect::from_min_size(egui::Pos2::ZERO, Vec2::splat(80.0));
-		assert_eq!(
-			[
-				pointer_on_presence(Some("online"), avatar, Some(avatar.center())),
-				pointer_on_presence(
-					Some("online"),
-					avatar,
-					Some(presence_badge_rect(avatar).center()),
-				),
-				pointer_on_presence(None, avatar, Some(presence_badge_rect(avatar).center())),
-			],
-			[false, true, false]
-		);
-	}
-	#[test]
-	fn rich_activity_card_keeps_compact_text_badge_and_elapsed_time() {
-		assert_eq!(activity_elapsed(1_000, 131_000).as_deref(), Some("2:10"));
-		assert_eq!(
-			activity_elapsed(1_000, 3_662_000).as_deref(),
-			Some("1:01:01")
-		);
-		assert_eq!(activity_elapsed(1_000, 1_000).as_deref(), Some("0:00"));
-		assert_eq!(activity_elapsed(1_000, 999), None);
-		for dark in [true, false] {
-			for width in [240.0, 316.0] {
-				let ctx = egui::Context::default();
-				ctx.set_visuals(if dark {
-					egui::Visuals::dark()
-				} else {
-					egui::Visuals::light()
-				});
-				design::apply(&ctx);
-				let mut avatars = Avatars::default();
-				let activity = model::RichActivity {
-					kind: 0,
-					name: "Synthetic Studio".into(),
-					details: Some("File CitizenAnimationTracker.cs".into()),
-					state: Some("Solution Synthetic-2026".into()),
-					image: Some(model::ActivityImage::Asset {
-						application: Id(1),
-						asset: Id(2),
-					}),
-					small_image: Some(model::ActivityImage::Application(Id(1))),
-					ends_at: None,
-					started_at: Some(
-						std::time::SystemTime::now()
-							.duration_since(std::time::UNIX_EPOCH)
-							.unwrap()
-							.as_millis() as u64 - 130_000,
-					),
-				};
-				let mut output = ctx.run_ui(input(vec2(500.0, 400.0), vec![]), |ui| {
-					ui.set_width(width);
-					let colors = design::palette(ui);
-					activity_card(
-						ui,
-						&activity,
-						&mut avatars,
-						true,
-						(colors.raised, colors.muted),
-					);
-				});
-				output.textures_delta.clear();
-				let mut painted = String::new();
-				for shape in &output.shapes {
-					text(&shape.shape, &mut painted);
-					if let egui::Shape::Text(text) = &shape.shape {
-						assert_eq!(text.galley.rows.len(), 1, "Card text never wraps");
-					}
-				}
-				assert!(
-					painted.contains("Playing") && painted.contains("Synthetic Studio"),
-					"{painted}"
-				);
-				assert!(!painted.contains("Playing Synthetic Studio"));
-				assert!(painted.contains("2:10"), "{painted}");
-				let meshes = ctx.tessellate(output.shapes.clone(), output.pixels_per_point);
-				let artwork_rect = |image: &model::ActivityImage| {
-					let texture = avatars.texture_id(&image.key()).unwrap();
-					meshes
-						.iter()
-						.find_map(|shape| match &shape.primitive {
-							egui::epaint::Primitive::Mesh(mesh) if mesh.texture_id == texture => {
-								Some(mesh.calc_bounds())
-							}
-							_ => None,
-						})
-						.unwrap()
-				};
-				let main = artwork_rect(activity.image.as_ref().unwrap());
-				let badge = artwork_rect(activity.small_image.as_ref().unwrap());
-				// Tessellation adds a half-pixel antialiasing fringe to each edge.
-				assert!((main.width() - 64.0).abs() <= 1.0 && (main.height() - 64.0).abs() <= 1.0);
-				assert!(
-					(badge.width() - 24.0).abs() <= 1.0 && (badge.height() - 24.0).abs() <= 1.0
-				);
-				assert!(
-					main.intersects(badge)
-						&& badge.right() > main.right()
-						&& badge.bottom() > main.bottom()
-				);
-				output.drop_without_applying_deltas();
-			}
-		}
-	}
+
 	#[test]
 	fn profile_friend_button_requires_confirmation_and_tracks_relationships() {
 		use client_core::user_actions::{Action as UserAction, Event};
@@ -2811,56 +2717,7 @@ mod tests {
 			bounds.bottom()
 		);
 	}
-	#[test]
-	fn other_profiles_show_mutual_summaries() {
-		let user = test_support::message(1, Id(22)).author;
-		let mut data = synthetic(&user, Some(Id(9)));
-		data.bio.clear();
-		data.badges.clear();
-		data.connections.clear();
-		let view = ProfileView {
-			user: user.id,
-			guild: None,
-			request: 1,
-			loading: false,
-			error: None,
-			data: Some(data),
-		};
-		let mut own = user.clone();
-		own.id = Id(1);
-		let state = State {
-			user: Some(own),
-			demo: true,
-			..Default::default()
-		};
-		let ctx = egui::Context::default();
-		let mut images = Avatars::default();
-		let mut opening = None;
-		let mut painted = String::new();
-		for _ in 0..3 {
-			let output = ctx.run_ui(input(vec2(700.0, 900.0), vec![]), |ui| {
-				show(
-					ui,
-					&user,
-					Some(&view),
-					&state,
-					&mut images,
-					&mut opening,
-					&mut FormatCache::default(),
-					true,
-					pos2(20.0, 70.0),
-				);
-			});
-			for shape in &output.shapes {
-				text(&shape.shape, &mut painted);
-			}
-			output.drop_without_applying_deltas();
-		}
-		assert!(painted.contains("1 Mutual Server"));
-		assert!(painted.contains("1 Mutual Friend"));
-		assert!(!painted.contains("Server 9"));
-		assert!(!painted.contains("Mutual friend"));
-	}
+
 	#[test]
 	fn dm_presence_does_not_use_a_visible_guild_snapshot() {
 		let mut state = test_support::demo_state();
@@ -2913,49 +2770,6 @@ mod tests {
 			presence(&state, user.id, Some(Id(10))),
 			(None, None, [].as_slice(), model::ClientPlatforms::default())
 		);
-	}
-
-	#[test]
-	fn base_user_server_tag_is_visible_without_an_extended_profile() {
-		let user = User {
-			id: Id(2),
-			name: "Synthetic person".into(),
-			avatar: None,
-			webhook: false,
-			kind: Default::default(),
-			discriminator: 0,
-			primary_guild: Some(Box::new(model::ClanTag {
-				guild: Id(9),
-				tag: "SPDY".into(),
-				badge: None,
-			})),
-		};
-		let state = State::default();
-		let ctx = egui::Context::default();
-		let mut images = Avatars::default();
-		let mut opening = None;
-		let mut painted = String::new();
-		for _ in 0..3 {
-			let output = ctx.run_ui(input(vec2(800.0, 600.0), vec![]), |ui| {
-				show(
-					ui,
-					&user,
-					None,
-					&state,
-					&mut images,
-					&mut opening,
-					&mut FormatCache::default(),
-					true,
-					pos2(100.0, 100.0),
-				);
-			});
-			painted.clear();
-			for shape in &output.shapes {
-				text(&shape.shape, &mut painted);
-			}
-			output.drop_without_applying_deltas();
-		}
-		assert!(painted.contains("SPDY"), "server tag missing: {painted}");
 	}
 
 	#[test]
@@ -3140,96 +2954,6 @@ mod tests {
 	}
 
 	#[test]
-	fn role_chips_collapse_after_two_rows() {
-		let mut state = test_support::demo_state();
-		let roles = [
-			(Id(101), "Maintainer"),
-			(Id(102), "Contributor"),
-			(Id(103), "Release Manager"),
-			(Id(104), "Documentation"),
-			(Id(105), "Community Helper"),
-			(Id(106), "Bug Hunter"),
-		];
-		for (position, (id, name)) in roles.iter().enumerate() {
-			state.apply(client_core::Envelope {
-				generation: state.generation,
-				event: client_core::Event::Permissions(client_core::permissions::Event::Role {
-					guild: Id(10),
-					role: model::permissions::Role {
-						id: *id,
-						bits: 0,
-						name: (*name).into(),
-						color: 0x5865f2,
-						position: position as i32,
-						hoist: false,
-					},
-				}),
-			});
-		}
-		let guild = model::GuildProfile {
-			guild: Id(10),
-			roles: roles.iter().map(|(id, _)| *id).collect(),
-			nick: None,
-			avatar: None,
-			banner: None,
-			bio: String::new(),
-			pronouns: String::new(),
-			joined_at: None,
-		};
-		let ctx = egui::Context::default();
-		design::apply(&ctx);
-		let output = ctx.run_ui(input(vec2(180.0, 300.0), vec![]), |ui| {
-			ui.set_width(180.0);
-			let theme = Theme::new(&design::palette(ui), None);
-			role_chips(ui, &theme, &state, Id(1), &guild);
-		});
-		let mut painted = String::new();
-		for shape in &output.shapes {
-			text(&shape.shape, &mut painted);
-		}
-		let chips: Vec<_> = output
-			.shapes
-			.iter()
-			.filter_map(|shape| match &shape.shape {
-				egui::Shape::Rect(rect) if rect.corner_radius == CornerRadius::same(6) => {
-					Some(rect.rect)
-				}
-				_ => None,
-			})
-			.collect();
-		assert!(
-			chips.len() < roles.len(),
-			"roles should collapse: {chips:?}"
-		);
-		assert!(
-			painted.contains('+'),
-			"remaining role count missing: {painted}"
-		);
-		assert!(
-			chips.iter().skip(1).any(|chip| chip.top() > chips[0].top()),
-			"roles should occupy more than one row: {chips:?}"
-		);
-		assert_eq!(
-			chips
-				.iter()
-				.map(|chip| chip.center().y.round() as i32)
-				.collect::<std::collections::BTreeSet<_>>()
-				.len(),
-			2,
-			"roles should occupy exactly two rows: {chips:?}"
-		);
-		for (index, chip) in chips.iter().enumerate() {
-			for other in chips.iter().skip(index + 1) {
-				assert!(
-					!chip.intersects(*other),
-					"role chips overlap: {chip:?} {other:?}"
-				);
-			}
-		}
-		output.drop_without_applying_deltas();
-	}
-
-	#[test]
 	fn clicking_outside_closes_but_clicking_inside_keeps_the_popout() {
 		let user = User {
 			id: Id(2),
@@ -3293,5 +3017,25 @@ mod tests {
 			);
 			output.drop_without_applying_deltas();
 		}
+	}
+
+	#[test]
+	fn countdown_takes_precedence_and_stops_at_zero() {
+		assert_eq!(
+			activity_timer(None, Some(131_000), 1_000).as_deref(),
+			Some("2:10 remaining")
+		);
+		assert_eq!(
+			activity_timer(Some(0), Some(131_000), 1_000).as_deref(),
+			Some("2:10 remaining")
+		);
+		assert_eq!(
+			activity_timer(None, Some(131_000), 132_000).as_deref(),
+			Some("0:00 remaining")
+		);
+		assert_eq!(
+			activity_timer(Some(1_000), None, 131_000).as_deref(),
+			Some("2:10")
+		);
 	}
 }

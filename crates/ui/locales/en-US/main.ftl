@@ -167,6 +167,7 @@ account-badge-bot = BOT
 # Context: name
 account-badge-bot-description = Bot account
 # Context: name
+account-badge-verified-bot-description = Verified bot account
 account-badge-webhook = WEBHOOK
 # Context: name
 account-badge-webhook-description = Webhook author
@@ -935,6 +936,7 @@ extensions-ui-preview-modal-creator-preview = Creator preview
 extensions-ui-preview-modal-example-deleted-message-appearance = Example deleted-message appearance
 # Context: preview_modal
 extensions-ui-preview-modal-selecting-artwork-sends-it-as-an-image-attachment = Selecting artwork sends it as an image attachment.
+extensions-ui-preview-modal-unavailable-artwork-falls-back-to-images = Unavailable emoji and stickers fall back to image attachments.
 # Context: settings
 extensions-ui-settings-no-extensions-yet = No extensions yet
 # Context: settings
@@ -1500,7 +1502,7 @@ join-server-show-join-enter-an-invite-below-to-join-an-existing-server = Enter a
 # Context: show_join
 join-server-show-join-join-a-server = Join a Server
 # Context: body
-join-server-status-invite-accepted = Invite accepted. Waiting for server access; complete any server rules in Discord.
+join-server-status-invite-accepted = Invite accepted. Waiting for server access.
 # Context: body
 join-server-status-offline-preview = Offline preview — joining servers is disabled.
 
@@ -1622,6 +1624,7 @@ main-sign-in-header-welcome-back = Welcome back
 # Context: sign_in_header
 main-sign-in-header-welcome-to-serein = Welcome to Serein
 # Context: sign_in_preview
+main-sign-in-status-copy-failure-details = Copy failure details
 main-sign-in-preview-explore-the-offline-preview = Explore the offline preview
 # Context: sign_in_preview
 main-sign-in-preview-sample-conversations-no-discord-connection = Sample conversations. No Discord connection.
@@ -3601,6 +3604,8 @@ timeline-show-system-see-all = . See all
 # Context: show_with_scroll
 timeline-show-with-scroll-application-interaction-pending = Application interaction pending…
 # Context: show_with_scroll
+timeline-show-with-scroll-click-to-see-attachment = Click to see attachment
+# Context: show_with_scroll
 timeline-show-with-scroll-deleted-message-had-no-text = [Deleted message had no text]
 # Context: show_with_scroll
 timeline-show-with-scroll-dismiss-message = Dismiss message
@@ -4087,3 +4092,84 @@ server-integrations-count-one-linked-webhook = { $count } linked webhook
 server-integrations-count-many-linked-webhooks = { $count } linked webhooks
 server-invites-revoke-title = Revoke invite?
 server-invites-revoke-message = People will no longer be able to join this server with discord.gg/{ $code }.
+server-notifications-title = Notification Settings
+server-notifications-default = Use server default
+server-notifications-default-all = Currently: all messages
+server-notifications-default-mentions = Currently: only mentions
+server-notifications-default-unknown = Server default is unavailable
+server-notifications-all = All messages
+server-notifications-mentions = Only mentions
+server-notifications-nothing = Nothing
+server-notifications-mute = Mute server
+server-notifications-everyone = Suppress @everyone and @here
+server-notifications-roles = Suppress role mentions
+server-notifications-overrides = Channel notification overrides still apply. Mute stays on until you turn it off.
+server-notifications-unknown = Some settings are unavailable. Saving changes only the options you select.
+server-notifications-offline = Reconnect to change notification settings.
+server-notifications-save = Save changes
+server-notifications-saving = Saving…
+
+search-page-label = Page
+search-page-previous = Previous page
+search-page-next = Next page
+search-page-go = Go to page
+search-page-retry = Retry page
+search-header-input-search-in = Search { $name }
+search-open-filters-in-a-specific-channel = In a specific channel
+search-open-filters-in-channel = in: channel
+search-overlays-in-channel = In Channel
+search-overlays-no-matching-channels = No matching channels.
+search-filters-channel-picker-choose-a-channel = Choose a channel
+search-filters-channel-picker-search-channels = Search channels
+search-page-previous-short = Previous
+search-page-next-short = Next
+search-result-today-at = Today at { $time }
+search-result-yesterday-at = Yesterday at { $time }
+timeline-unread-banner-one-new-since = 1 new message since { $time }
+timeline-unread-banner-many-new-since = { $count } new messages since { $time }
+
+## crates/ui/src/onboarding.rs
+# Context: show
+onboarding-show-title = Welcome to { $server }
+# Context: show
+onboarding-show-subtitle = Answer a few questions and accept the rules to start chatting.
+# Context: show
+onboarding-show-try-again = Try Again
+# Context: show
+onboarding-show-close = Close
+# Context: show
+onboarding-show-please-wait = Please wait…
+# Context: show
+onboarding-show-finish = Finish
+# Context: show
+onboarding-show-not-now = Not Now
+# Context: show
+onboarding-show-this-server = this server
+# Context: body
+onboarding-body-submitted = Application submitted. A moderator will review it; you can chat once it is approved.
+# Context: body
+onboarding-body-rejected = This server declined the application.
+# Context: body
+onboarding-body-loading = Loading server onboarding…
+# Context: body
+onboarding-body-all-set = You're all set. Nothing is left to complete here.
+# Context: prompt
+onboarding-prompt-pick-one = Pick one
+# Context: prompt
+onboarding-prompt-pick-any = Pick any that apply
+# Context: rules
+onboarding-rules-heading = Server rules
+# Context: rules
+onboarding-rules-review = A moderator reviews these answers before you can chat.
+# Context: field
+onboarding-field-unsupported = This server asks a question Serein can't show yet. Finish joining in the Discord app.
+# Context: field
+onboarding-field-agree = I have read and agree to the rules
+
+## crates/ui/src/lib.rs
+# Context: composer
+lib-composer-onboarding-rules-pending = Accept this server's rules to start chatting.
+# Context: composer
+lib-composer-onboarding-incomplete = Finish joining this server to unlock more channels.
+# Context: composer
+lib-composer-onboarding-complete = Complete Onboarding

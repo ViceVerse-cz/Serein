@@ -587,6 +587,7 @@ mod tests {
 				discriminator: 0,
 			}),
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				emojis: None,
 				id: Id(1),
@@ -604,6 +605,46 @@ mod tests {
 		state.channels[3].last_message = Some(Id(500));
 		crate::tests::grant_permissions(&mut state);
 		state
+	}
+
+	#[test]
+	fn header_reload_refreshes_forum_posts_without_leaving_the_channel() {
+		for kind in [15, 16] {
+			let mut state = state();
+			state.channels[1].kind = kind;
+			assert!(state.select(Id(20)).is_none());
+			state.request_forum_posts(Id(20), false).unwrap();
+			let previous = state.posts.request;
+			state.apply_forum_posts(
+				Id(20),
+				previous,
+				Ok(model::forum::Page {
+					threads: vec![channel(21, Some(Id(20)), 11)],
+					more: true,
+					previews: Vec::new(),
+				}),
+			);
+			assert!(matches!(
+				state.history(None),
+				Command::ForumPosts { parent: Id(20), offset: 0, request, .. }
+					if request > previous
+			));
+			assert_eq!(state.selected, Some(Id(20)));
+			assert_eq!(state.freshness, model::Freshness::Fresh);
+			assert!(!state.history_pending);
+			assert!(state.posts.loading);
+			let request = state.posts.request;
+			assert!(matches!(state.history(None), Command::CancelSearch));
+			assert_eq!(state.posts.request, request);
+			assert_eq!(state.selected, Some(Id(20)));
+			assert!(matches!(
+				state.select(Id(21)),
+				Some(Command::History {
+					channel: Id(21),
+					..
+				})
+			));
+		}
 	}
 
 	#[test]
@@ -657,128 +698,129 @@ mod tests {
 
 	#[test]
 	fn forum_posts_load_on_demand_page_forward_and_reload_after_a_sync() {
-		let mut state = state();
-		// Only joined posts arrive over the gateway, so the list fetches the rest.
-		let Some(Command::ForumPosts {
-			parent: Id(20),
-			guild: Id(1),
-			offset: 0,
-			request,
-		}) = state.request_forum_posts(Id(20), false)
-		else {
-			panic!("the first page should be requested");
-		};
-		assert!(state.request_forum_posts(Id(20), false).is_none());
-		assert!(state.request_forum_posts(Id(20), true).is_none());
-		let page = |ids: &[u64], more| model::forum::Page {
-			threads: ids
-				.iter()
-				.map(|id| channel(*id, Some(Id(20)), 11))
-				.collect(),
-			more,
-			previews: Vec::new(),
-		};
-		// A stale reply for another request is ignored.
-		state.apply_forum_posts(Id(20), request.wrapping_sub(1), Ok(page(&[30], false)));
-		assert!(state.channels.iter().all(|c| c.id != Id(30)));
-		state.apply_forum_posts(Id(20), request, Ok(page(&[23, 21], true)));
-		let posts: Vec<_> = state.forum_posts(Id(20)).iter().map(|c| c.id).collect();
-		assert_eq!(posts, vec![Id(22), Id(23), Id(21)]);
-		assert_eq!(state.posts.loaded, 2);
-		let Some(Command::ForumPosts { offset: 2, .. }) = state.request_forum_posts(Id(20), true)
-		else {
-			panic!("the next page continues from the loaded count");
-		};
-		state.apply_forum_posts(Id(20), state.posts.request, Ok(page(&[], false)));
-		assert!(!state.posts.more && state.posts.error.is_none());
-		assert!(state.request_forum_posts(Id(20), true).is_none());
-		// A page scoped to another parent or guild never reaches navigation.
-		state.reload_forum_posts(Id(20));
-		let request = match state.request_forum_posts(Id(20), false) {
-			Some(Command::ForumPosts { request, .. }) => request,
-			_ => panic!("a reloaded forum fetches again"),
-		};
-		let mut foreign = page(&[31], false);
-		foreign.threads[0].guild = Some(Id(7));
-		state.apply_forum_posts(Id(20), request, Ok(foreign));
-		assert_eq!(
-			state.posts.error,
-			Some("The service returned unexpected posts")
-		);
-		assert!(state.channels.iter().all(|c| c.id != Id(31)));
-		// A failure surfaces once and only a retry clears it.
-		state.reload_forum_posts(Id(20));
-		let request = match state.request_forum_posts(Id(20), false) {
-			Some(Command::ForumPosts { request, .. }) => request,
-			_ => panic!("a reloaded forum fetches again"),
-		};
-		state.apply_forum_posts(Id(20), request, Err(Failure::Capacity));
-		assert!(state.posts.error.is_some() && !state.posts.loading);
-		assert!(state.request_forum_posts(Id(20), false).is_none());
-		// A thread snapshot replaces this scope, so the fetched page must be taken again.
-		state
-			.apply_threads_sync(Id(1), Some(vec![Id(20)]), vec![], vec![])
-			.unwrap();
-		assert!(state.posts.error.is_none() && state.posts.loaded == 0);
-		assert!(matches!(
-			state.request_forum_posts(Id(20), false),
-			Some(Command::ForumPosts { offset: 0, .. })
-		));
-		// A disconnected session asks for nothing.
-		state.gateway_connected = false;
-		state.posts = Posts::default();
-		assert!(!state.can_load_posts(Id(20)));
-		assert!(state.request_forum_posts(Id(20), false).is_none());
-	}
-
-	#[test]
-	fn forum_selection_lists_posts_without_history_and_counts_replies() {
-		let mut state = state();
-		assert!(state.select(Id(20)).is_none());
-		assert_eq!(state.selected, Some(Id(20)));
-		assert!(!state.history_pending);
-		let posts: Vec<_> = state.forum_posts(Id(20)).iter().map(|c| c.id).collect();
-		assert_eq!(posts, vec![Id(22), Id(21)]);
-		let message = model::Message {
-			sticker_items: Vec::new(),
-			reactions: Some(vec![]),
-			id: Id(600),
-			channel: Id(21),
-			author: state.user.clone().unwrap(),
-			content: "Synthetic reply".into(),
-			edited: false,
-			edited_at: None,
-			revision: 0,
-			nonce: None,
-			reply_to: None,
-			kind: 0,
-			reply_deleted: false,
-			interaction: None,
-			forwarded: false,
-			unsupported: false,
-			components: vec![],
-			application_id: None,
-			flags: 0,
-			ephemeral: false,
-			extra_content: Default::default(),
-			embeds: vec![],
-			attachments: vec![],
-			author_nick: None,
-			author_roles: vec![],
-			mention_roles: vec![],
-			mention_everyone: false,
-			suppress_notifications: false,
-			mentions: Vec::new(),
-			embeds_suppressed: false,
-		};
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Message(message),
-		});
-		let post = state.channels.iter().find(|c| c.id == Id(21)).unwrap();
-		assert_eq!(post.message_count, Some(4));
-		assert_eq!(post.last_message, Some(Id(600)));
-		assert_eq!(state.forum_posts(Id(20))[0].id, Id(21));
+		{
+			let mut state = state();
+			// Only joined posts arrive over the gateway, so the list fetches the rest.
+			let Some(Command::ForumPosts {
+				parent: Id(20),
+				guild: Id(1),
+				offset: 0,
+				request,
+			}) = state.request_forum_posts(Id(20), false)
+			else {
+				panic!("the first page should be requested");
+			};
+			assert!(state.request_forum_posts(Id(20), false).is_none());
+			assert!(state.request_forum_posts(Id(20), true).is_none());
+			let page = |ids: &[u64], more| model::forum::Page {
+				threads: ids
+					.iter()
+					.map(|id| channel(*id, Some(Id(20)), 11))
+					.collect(),
+				more,
+				previews: Vec::new(),
+			};
+			// A stale reply for another request is ignored.
+			state.apply_forum_posts(Id(20), request.wrapping_sub(1), Ok(page(&[30], false)));
+			assert!(state.channels.iter().all(|c| c.id != Id(30)));
+			state.apply_forum_posts(Id(20), request, Ok(page(&[23, 21], true)));
+			let posts: Vec<_> = state.forum_posts(Id(20)).iter().map(|c| c.id).collect();
+			assert_eq!(posts, vec![Id(22), Id(23), Id(21)]);
+			assert_eq!(state.posts.loaded, 2);
+			let Some(Command::ForumPosts { offset: 2, .. }) =
+				state.request_forum_posts(Id(20), true)
+			else {
+				panic!("the next page continues from the loaded count");
+			};
+			state.apply_forum_posts(Id(20), state.posts.request, Ok(page(&[], false)));
+			assert!(!state.posts.more && state.posts.error.is_none());
+			assert!(state.request_forum_posts(Id(20), true).is_none());
+			// A page scoped to another parent or guild never reaches navigation.
+			state.reload_forum_posts(Id(20));
+			let request = match state.request_forum_posts(Id(20), false) {
+				Some(Command::ForumPosts { request, .. }) => request,
+				_ => panic!("a reloaded forum fetches again"),
+			};
+			let mut foreign = page(&[31], false);
+			foreign.threads[0].guild = Some(Id(7));
+			state.apply_forum_posts(Id(20), request, Ok(foreign));
+			assert_eq!(
+				state.posts.error,
+				Some("The service returned unexpected posts")
+			);
+			assert!(state.channels.iter().all(|c| c.id != Id(31)));
+			// A failure surfaces once and only a retry clears it.
+			state.reload_forum_posts(Id(20));
+			let request = match state.request_forum_posts(Id(20), false) {
+				Some(Command::ForumPosts { request, .. }) => request,
+				_ => panic!("a reloaded forum fetches again"),
+			};
+			state.apply_forum_posts(Id(20), request, Err(Failure::Capacity));
+			assert!(state.posts.error.is_some() && !state.posts.loading);
+			assert!(state.request_forum_posts(Id(20), false).is_none());
+			// A thread snapshot replaces this scope, so the fetched page must be taken again.
+			state
+				.apply_threads_sync(Id(1), Some(vec![Id(20)]), vec![], vec![])
+				.unwrap();
+			assert!(state.posts.error.is_none() && state.posts.loaded == 0);
+			assert!(matches!(
+				state.request_forum_posts(Id(20), false),
+				Some(Command::ForumPosts { offset: 0, .. })
+			));
+			// A disconnected session asks for nothing.
+			state.gateway_connected = false;
+			state.posts = Posts::default();
+			assert!(!state.can_load_posts(Id(20)));
+			assert!(state.request_forum_posts(Id(20), false).is_none());
+		}
+		{
+			let mut state = state();
+			assert!(state.select(Id(20)).is_none());
+			assert_eq!(state.selected, Some(Id(20)));
+			assert!(!state.history_pending);
+			let posts: Vec<_> = state.forum_posts(Id(20)).iter().map(|c| c.id).collect();
+			assert_eq!(posts, vec![Id(22), Id(21)]);
+			let message = model::Message {
+				sticker_items: Vec::new(),
+				reactions: Some(vec![]),
+				id: Id(600),
+				channel: Id(21),
+				author: state.user.clone().unwrap(),
+				content: "Synthetic reply".into(),
+				edited: false,
+				edited_at: None,
+				revision: 0,
+				nonce: None,
+				reply_to: None,
+				kind: 0,
+				reply_deleted: false,
+				interaction: None,
+				forwarded: false,
+				unsupported: false,
+				components: vec![],
+				application_id: None,
+				flags: 0,
+				ephemeral: false,
+				extra_content: Default::default(),
+				embeds: vec![],
+				attachments: vec![],
+				author_nick: None,
+				author_roles: vec![],
+				mention_roles: vec![],
+				mention_everyone: false,
+				suppress_notifications: false,
+				mentions: Vec::new(),
+				embeds_suppressed: false,
+			};
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Message(message),
+			});
+			let post = state.channels.iter().find(|c| c.id == Id(21)).unwrap();
+			assert_eq!(post.message_count, Some(4));
+			assert_eq!(post.last_message, Some(Id(600)));
+			assert_eq!(state.forum_posts(Id(20))[0].id, Id(21));
+		}
 	}
 
 	#[test]

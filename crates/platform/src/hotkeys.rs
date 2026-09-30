@@ -2,10 +2,8 @@
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState, hotkey::HotKey};
 use model::{KeyChord, KeybindAction, Keybinds};
 #[cfg(target_os = "linux")]
-use std::sync::{
-	Arc,
-	atomic::{AtomicBool, AtomicU8, Ordering},
-};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::{Arc, Mutex, Weak};
 
 const READY: &str = "Global voice keybinds are enabled.";
 const DISABLED: &str = "Global keybinds are off. Shortcuts work while Serein is focused.";
@@ -22,12 +20,98 @@ const PUSH_TO_TALK: usize = 0;
 const TOGGLE_MUTE: usize = 1;
 const TOGGLE_DEAFEN: usize = 2;
 
+static NATIVE_INPUTS: Mutex<Vec<Weak<NativeInput>>> = Mutex::new(Vec::new());
+
+#[derive(Default)]
+struct NativeState {
+	registered: [Option<u32>; 3],
+	ptt_down: bool,
+	pending_toggles: u8,
+}
+
+struct NativeInput {
+	state: Mutex<NativeState>,
+	wake: Arc<dyn Fn() + Send + Sync>,
+}
+
+impl NativeInput {
+	fn handle(&self, event: GlobalHotKeyEvent) {
+		let mut state = self.state.lock().expect("native hotkey state poisoned");
+		let index = state
+			.registered
+			.iter()
+			.position(|id| *id == Some(event.id()));
+		let handled = match (index, event.state()) {
+			(Some(PUSH_TO_TALK), HotKeyState::Pressed) => {
+				state.ptt_down = true;
+				true
+			}
+			(Some(PUSH_TO_TALK), HotKeyState::Released) => {
+				state.ptt_down = false;
+				true
+			}
+			(Some(TOGGLE_MUTE), HotKeyState::Pressed) => {
+				state.pending_toggles ^= 1;
+				true
+			}
+			(Some(TOGGLE_DEAFEN), HotKeyState::Pressed) => {
+				state.pending_toggles ^= 2;
+				true
+			}
+			_ => false,
+		};
+		drop(state);
+		if handled {
+			(self.wake)();
+		}
+	}
+
+	fn clear(&self) {
+		*self.state.lock().expect("native hotkey state poisoned") = NativeState::default();
+	}
+
+	fn set_registered(&self, index: usize, id: Option<u32>) {
+		self.state
+			.lock()
+			.expect("native hotkey state poisoned")
+			.registered[index] = id;
+	}
+
+	fn take_toggles(&self) -> u8 {
+		std::mem::take(
+			&mut self
+				.state
+				.lock()
+				.expect("native hotkey state poisoned")
+				.pending_toggles,
+		)
+	}
+
+	fn ptt_down(&self) -> bool {
+		self.state
+			.lock()
+			.expect("native hotkey state poisoned")
+			.ptt_down
+	}
+}
+
+fn dispatch_native_event(event: GlobalHotKeyEvent) {
+	let inputs = NATIVE_INPUTS
+		.lock()
+		.expect("native hotkey targets poisoned")
+		.iter()
+		.filter_map(Weak::upgrade)
+		.collect::<Vec<_>>();
+	for input in inputs {
+		input.handle(event);
+	}
+}
+
 pub struct Hotkeys {
 	manager: Option<GlobalHotKeyManager>,
 	registered: [Option<HotKey>; 3],
 	bindings: Option<[KeyChord; 3]>,
-	ptt_down: bool,
-	pending_toggles: u8,
+	native: Arc<NativeInput>,
 	status: &'static str,
 	#[cfg(target_os = "linux")]
 	portal: Option<tokio::task::JoinHandle<()>>,
@@ -45,8 +129,16 @@ pub struct Hotkeys {
 
 impl Hotkeys {
 	pub fn new(wake: impl Fn() + Send + Sync + 'static) -> Self {
-		#[cfg(not(target_os = "linux"))]
-		let _ = wake;
+		let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(wake);
+		let native = Arc::new(NativeInput {
+			state: Mutex::new(NativeState::default()),
+			wake: wake.clone(),
+		});
+		NATIVE_INPUTS
+			.lock()
+			.expect("native hotkey targets poisoned")
+			.push(Arc::downgrade(&native));
+		GlobalHotKeyEvent::set_event_handler(Some(dispatch_native_event));
 		let manager = if cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some()
 		{
 			None
@@ -62,8 +154,7 @@ impl Hotkeys {
 			manager,
 			registered: [None; 3],
 			bindings: None,
-			ptt_down: false,
-			pending_toggles: 0,
+			native,
 			status,
 			#[cfg(target_os = "linux")]
 			portal: None,
@@ -76,7 +167,7 @@ impl Hotkeys {
 			#[cfg(target_os = "linux")]
 			portal_status: Arc::new(AtomicU8::new(0)),
 			#[cfg(target_os = "linux")]
-			wake: Arc::new(wake),
+			wake,
 		}
 	}
 
@@ -93,8 +184,6 @@ impl Hotkeys {
 		}
 		self.bindings = next.clone();
 		self.unregister_all();
-		self.ptt_down = false;
-		self.pending_toggles = 0;
 
 		#[cfg(target_os = "linux")]
 		{
@@ -159,9 +248,15 @@ impl Hotkeys {
 				failed = true;
 				continue;
 			};
+			self.native.set_registered(index, Some(hotkey.id()));
 			match manager.register(hotkey) {
-				Ok(()) => self.registered[index] = Some(hotkey),
-				Err(_) => failed = true,
+				Ok(()) => {
+					self.registered[index] = Some(hotkey);
+				}
+				Err(_) => {
+					self.native.set_registered(index, None);
+					failed = true;
+				}
 			}
 		}
 		if failed {
@@ -174,6 +269,7 @@ impl Hotkeys {
 	}
 
 	fn unregister_all(&mut self) {
+		self.native.clear();
 		if let Some(manager) = &self.manager {
 			for hotkey in &mut self.registered {
 				if let Some(hotkey) = hotkey.take() {
@@ -185,24 +281,8 @@ impl Hotkeys {
 		}
 	}
 
-	pub fn poll(&mut self) {
-		while let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
-			for (index, hotkey) in self.registered.iter().enumerate() {
-				if hotkey.is_some_and(|hotkey| hotkey.id() == event.id()) {
-					match (index, event.state()) {
-						(PUSH_TO_TALK, HotKeyState::Pressed) => self.ptt_down = true,
-						(PUSH_TO_TALK, HotKeyState::Released) => self.ptt_down = false,
-						(TOGGLE_MUTE, HotKeyState::Pressed) => self.pending_toggles ^= 1,
-						(TOGGLE_DEAFEN, HotKeyState::Pressed) => self.pending_toggles ^= 2,
-						_ => {}
-					}
-				}
-			}
-		}
-	}
-
 	pub fn take_toggle_pending(&mut self) -> u8 {
-		let pending = std::mem::take(&mut self.pending_toggles);
+		let pending = self.native.take_toggles();
 		#[cfg(target_os = "linux")]
 		return pending | self.portal_pending.swap(0, Ordering::Relaxed);
 		#[cfg(not(target_os = "linux"))]
@@ -220,10 +300,11 @@ impl Hotkeys {
 	}
 
 	pub fn push_to_talk_down(&self) -> bool {
+		let native = self.native.ptt_down();
 		#[cfg(target_os = "linux")]
-		return self.ptt_down || self.portal_ptt_down.load(Ordering::Relaxed);
+		return native || self.portal_ptt_down.load(Ordering::Relaxed);
 		#[cfg(not(target_os = "linux"))]
-		self.ptt_down
+		native
 	}
 
 	pub fn status(&self) -> &'static str {
@@ -250,6 +331,11 @@ impl Drop for Hotkeys {
 			task.abort();
 		}
 		self.unregister_all();
+		let native = Arc::downgrade(&self.native);
+		NATIVE_INPUTS
+			.lock()
+			.expect("native hotkey targets poisoned")
+			.retain(|current| !current.ptr_eq(&native));
 	}
 }
 
@@ -478,6 +564,7 @@ fn code_name(name: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use std::sync::atomic::{AtomicBool, Ordering};
 
 	#[test]
 	fn modifier_bindings_have_native_codes_and_plain_keys_stay_focused() {
@@ -497,5 +584,61 @@ mod tests {
 		assert!(native_hotkey(&KeyChord::new("PageUp", 0)).is_some());
 		assert!(native_hotkey(&KeyChord::new("Insert", 0)).is_some());
 		assert!(native_hotkey(&KeyChord::new("F12", 0)).is_some());
+	}
+
+	#[test]
+	fn native_events_wake_and_fold_without_a_queue() {
+		let woke = Arc::new(AtomicBool::new(false));
+		let wake_flag = woke.clone();
+		let input = NativeInput {
+			state: Mutex::new(NativeState::default()),
+			wake: Arc::new(move || {
+				wake_flag.store(true, Ordering::Relaxed);
+			}),
+		};
+		input.set_registered(TOGGLE_MUTE, Some(42));
+		input.handle(GlobalHotKeyEvent {
+			id: 42,
+			state: HotKeyState::Pressed,
+		});
+		assert_eq!(input.take_toggles(), 1);
+		assert!(woke.load(Ordering::Relaxed));
+	}
+
+	#[test]
+	fn native_events_reach_each_live_matching_input() {
+		let first = Arc::new(NativeInput {
+			state: Mutex::new(NativeState::default()),
+			wake: Arc::new(|| {}),
+		});
+		let second = Arc::new(NativeInput {
+			state: Mutex::new(NativeState::default()),
+			wake: Arc::new(|| {}),
+		});
+		first.set_registered(TOGGLE_MUTE, Some(42));
+		second.set_registered(TOGGLE_DEAFEN, Some(84));
+		{
+			let mut inputs = NATIVE_INPUTS
+				.lock()
+				.expect("native hotkey targets poisoned");
+			inputs.clear();
+			inputs.extend([Arc::downgrade(&first), Arc::downgrade(&second)]);
+		}
+
+		dispatch_native_event(GlobalHotKeyEvent {
+			id: 42,
+			state: HotKeyState::Pressed,
+		});
+		dispatch_native_event(GlobalHotKeyEvent {
+			id: 84,
+			state: HotKeyState::Pressed,
+		});
+
+		assert_eq!(first.take_toggles(), 1);
+		assert_eq!(second.take_toggles(), 2);
+		NATIVE_INPUTS
+			.lock()
+			.expect("native hotkey targets poisoned")
+			.clear();
 	}
 }

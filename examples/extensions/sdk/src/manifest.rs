@@ -30,6 +30,7 @@ pub enum ExtensionKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+	RichPresence,
 	RelationshipControl,
 	AccountControl,
 	AudioSettings,
@@ -94,6 +95,7 @@ pub enum Surface {
 	Activation,
 	MessageEvent,
 	AppEvent,
+	Tick,
 }
 
 /// Declared entry point; its ID arrives in `Invocation::action`.

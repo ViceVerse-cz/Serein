@@ -407,7 +407,12 @@ pub(crate) fn original_url(attachment: &Attachment) -> Option<url::Url> {
 	{
 		return None;
 	}
-	let url = url::Url::parse(attachment.media.url.as_deref()?).ok()?;
+	let mut url = url::Url::parse(attachment.media.url.as_deref()?).ok()?;
+	// Discord media attachment links identify the same original CDN object.
+	// Keep the signed path/query; never fetch a proxy rendition with a different size.
+	if url.host_str() == Some("media.discordapp.net") {
+		url.set_host(Some("cdn.discordapp.com")).ok()?;
+	}
 	let path: Vec<_> = url.path_segments()?.collect();
 	(url.scheme() == "https"
 		&& url.host_str() == Some("cdn.discordapp.com")
@@ -925,6 +930,37 @@ mod tests {
 		assert!(!failed.load(Ordering::Acquire));
 	}
 
+	#[test]
+	fn media_video_links_resolve_to_the_signed_original() {
+		let mut video = attachment();
+		video.filename = "synthetic.MOV".into();
+		video.content_type = Some("video/quicktime".into());
+		let query = "ex=123&is=123&hm=abc";
+		for host in ["cdn.discordapp.com", "media.discordapp.net"] {
+			video.media.url = Some(format!(
+				"https://{host}/attachments/1/2/synthetic.MOV?{query}"
+			));
+			let original = original_url(&video).unwrap();
+			assert!(video.is_video());
+			assert_eq!(
+				original.as_str(),
+				format!("https://cdn.discordapp.com/attachments/1/2/synthetic.MOV?{query}")
+			);
+		}
+		for url in [
+			"https://media.discordapp.net.evil.test/attachments/1/2/synthetic.MOV",
+			"http://media.discordapp.net/attachments/1/2/synthetic.MOV",
+			"https://user@media.discordapp.net/attachments/1/2/synthetic.MOV",
+			"https://media.discordapp.net:444/attachments/1/2/synthetic.MOV",
+			"https://media.discordapp.net/attachments/1/99/synthetic.MOV",
+			"https://media.discordapp.net/attachments/1/2/synthetic.MOV?format=webp",
+			"https://media.discordapp.net/attachments/1/2/%2fapi",
+			"https://media.discordapp.net/attachments/1/2/synthetic.MOV#fragment",
+		] {
+			video.media.url = Some(url.into());
+			assert!(original_url(&video).is_none());
+		}
+	}
 	#[tokio::test]
 	async fn explicit_download_stream_limits_cancel_and_atomic_replacement() {
 		let mut image = attachment();
@@ -961,7 +997,6 @@ mod tests {
 			"https://cdn.discordapp.com/attachments/1/2/%2fapi",
 			"https://cdn.discordapp.com/attachments/1/2/a.png#fragment",
 			"https://127.0.0.1/attachments/1/2/a.png",
-			"https://media.discordapp.net/attachments/1/2/a.png",
 		] {
 			image.media.url = Some(url.into());
 			assert!(original_url(&image).is_none());

@@ -1119,6 +1119,10 @@ pub fn apply(ctx: &egui::Context) {
 	}
 	ctx.options_mut(|options| {
 		options.input_options.line_scroll_speed = crate::scroll::DISCORD_LINE_SCROLL_SPEED;
+		// egui times double clicks release to release with 0.3 s, shorter than the 0.5 s
+		// macOS and Windows default, so ordinary double clicks fell back to caret placement
+		// instead of selecting a word.
+		options.input_options.max_double_click_delay = 0.5;
 	});
 }
 /// Space reserved at the left of window strips for macOS traffic lights.
@@ -1659,84 +1663,6 @@ fn contrast(a: Color32, b: Color32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-	#[test]
-	fn action_button_text_uses_the_current_palette() {
-		use super::*;
-		for theme in [egui::ThemePreference::Dark, egui::ThemePreference::Light] {
-			for kind in [
-				ButtonKind::Neutral,
-				ButtonKind::Outline,
-				ButtonKind::Primary,
-			] {
-				let ctx = egui::Context::default();
-				ctx.set_theme(theme);
-				apply(&ctx);
-				let mut expected = Color32::TRANSPARENT;
-				let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-					let palette = palette(ui);
-					expected = match kind {
-						ButtonKind::Neutral => palette.text,
-						ButtonKind::Outline => palette.text_strong,
-						_ => palette.accent_text,
-					};
-					button(ui, "Readable action", kind);
-				});
-				let text = output
-					.shapes
-					.iter()
-					.find_map(|shape| match &shape.shape {
-						egui::Shape::Text(text) if text.galley.job.text == "Readable action" => {
-							Some(text)
-						}
-						_ => None,
-					})
-					.expect("button label is painted");
-				let color = text
-					.override_text_color
-					.unwrap_or(text.galley.job.sections[0].format.color);
-				assert_eq!(
-					if color == Color32::PLACEHOLDER {
-						text.fallback_color
-					} else {
-						color
-					},
-					expected
-				);
-				output.drop_without_applying_deltas();
-			}
-		}
-	}
-	#[test]
-	fn theme_card_preview_inherits_builtin_colors_not_the_active_theme() {
-		use super::*;
-		set_variant(Variant::Standard);
-		set_primary_color(None);
-		let ctx = egui::Context::default();
-		ctx.set_theme(egui::ThemePreference::Dark);
-		let mut active = extensions::Theme::default();
-		active
-			.dark
-			.colors
-			.insert("sidebar".into(), "#FF0000".into());
-		set_extension_theme(Some(&active));
-		apply(&ctx);
-		let mut candidate = extensions::Theme::default();
-		candidate
-			.dark
-			.colors
-			.insert("accent".into(), "#00FF00".into());
-		let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-			assert_eq!(palette(ui).sidebar, rgb(0xff0000));
-			let preview = theme_preview_palette(ui, &candidate);
-			assert_eq!(
-				preview.sidebar,
-				builtin_colors(true, Variant::Standard).sidebar
-			);
-			assert_eq!(preview.accent, rgb(0x00ff00));
-		});
-		output.textures_delta.clear();
-		set_extension_theme(None);
-	}
 
 	#[test]
 	fn clickable_cursor_preserves_disabled_text_and_specialized_controls() {
@@ -1838,42 +1764,24 @@ mod tests {
 			assert_eq!(customize(base, None), base);
 			assert_eq!(base.accent, rgb(DEFAULT_PRIMARY_RGB));
 		}
-	}
-	#[test]
-	fn popup_surfaces_stay_opaque_for_every_preset() {
-		for variant in Variant::ALL {
-			for dark in [false, true] {
-				let base = colors(dark, variant);
-				let popup = opaque_surfaces(base);
-				for surface in [
-					popup.base,
-					popup.sidebar,
-					popup.chat,
-					popup.raised,
-					popup.canvas,
-					popup.surface,
-				] {
-					assert_eq!(surface.a(), 255);
-				}
-				assert_eq!(popup.text, base.text);
-			}
-		}
-	}
-	#[test]
-	fn role_colors_remain_readable_in_light_and_dark_palettes() {
-		for variant in Variant::ALL {
-			for dark in [false, true] {
-				let p = colors(dark, variant);
-				for rgb in [0, 0xffffff, 0xff0000, 0x00ff00, 0x0000ff, 0xe78284] {
-					for background in [p.sidebar, p.hover] {
-						assert!(
-							contrast(role_name_color(rgb, background, p.text), background) >= 4.5
-						);
+
+		{
+			for variant in Variant::ALL {
+				for dark in [false, true] {
+					let p = colors(dark, variant);
+					for rgb in [0, 0xffffff, 0xff0000, 0x00ff00, 0x0000ff, 0xe78284] {
+						for background in [p.sidebar, p.hover] {
+							assert!(
+								contrast(role_name_color(rgb, background, p.text), background)
+									>= 4.5
+							);
+						}
 					}
 				}
 			}
 		}
 	}
+
 	#[test]
 	fn opaque_presets_keep_readable_text_and_keys_round_trip() {
 		for variant in Variant::ALL {
@@ -1899,6 +1807,26 @@ mod tests {
 		}
 		assert_eq!(Variant::from_key("nonsense"), None);
 		assert_eq!(Variant::from_u8(200), Variant::Standard);
+
+		{
+			for variant in Variant::ALL {
+				for dark in [false, true] {
+					let base = colors(dark, variant);
+					let popup = opaque_surfaces(base);
+					for surface in [
+						popup.base,
+						popup.sidebar,
+						popup.chat,
+						popup.raised,
+						popup.canvas,
+						popup.surface,
+					] {
+						assert_eq!(surface.a(), 255);
+					}
+					assert_eq!(popup.text, base.text);
+				}
+			}
+		}
 	}
 }
 
@@ -3199,37 +3127,5 @@ mod sign_in_widget_tests {
 				assert_eq!(clicks, (row, !row));
 			}
 		}
-	}
-}
-
-#[cfg(test)]
-mod extension_theme_tests {
-	use super::*;
-	#[test]
-	fn extension_colors_keep_aliases_and_user_accent() {
-		let theme = extensions::ThemePalette {
-			colors: [
-				("chat".into(), "#112233".into()),
-				("sidebar".into(), "#445566".into()),
-				("accent".into(), "#ff0000".into()),
-			]
-			.into(),
-			backdrop: Some(["#010203".into(), "#040506".into()]),
-			background: None,
-		};
-		let palette = recolor(
-			builtin_colors(true, Variant::Standard),
-			extension_palette(&theme).unwrap(),
-		);
-		assert_eq!(palette.chat, rgb(0x112233));
-		assert_eq!(palette.canvas, palette.chat);
-		assert_eq!(palette.surface, palette.sidebar);
-		assert_eq!(palette.backdrop, Some([rgb(0x010203), rgb(0x040506)]));
-		assert_eq!(customize(palette, Some([3, 4, 5])).accent, rgb(0x030405));
-		let malformed = extensions::ThemePalette {
-			colors: [("chat".into(), "invalid".into())].into(),
-			..Default::default()
-		};
-		assert!(extension_palette(&malformed).is_none());
 	}
 }

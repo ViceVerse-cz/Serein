@@ -19,6 +19,36 @@ pub(super) fn x11_session() -> bool {
 		&& std::env::var_os("DISPLAY").is_some_and(|value| !value.is_empty())
 }
 
+fn niri_desktop(desktop: &str) -> bool {
+	desktop
+		.split(':')
+		.any(|name| name.eq_ignore_ascii_case("niri"))
+}
+
+/// Niri 26.04 leaves SPA header PTS at zero, which GstBaseSrc preserves (plus
+/// its startup offset) even with do-timestamp=true. Both videorate branches then
+/// discard subsequent pictures. Timestamp at arrival, before either branch.
+/// Only buffer metadata is made writable; pixel memory remains shared.
+pub(super) fn timestamp_niri_frames(source: &gst::Element) -> Result<(), &'static str> {
+	let weak = source.downgrade();
+	source
+		.static_pad("src")
+		.ok_or("Screen capture source has no output")?
+		.add_probe(gst::PadProbeType::BUFFER, move |_, info| {
+			if let Some(time) = weak
+				.upgrade()
+				.and_then(|source| source.current_running_time())
+				&& let Some(gst::PadProbeData::Buffer(buffer)) = &mut info.data
+			{
+				let buffer = buffer.make_mut();
+				buffer.set_pts(time);
+				buffer.set_dts(time);
+			}
+			gst::PadProbeReturn::Ok
+		});
+	Ok(())
+}
+
 fn note(event: &str, value: &str) {
 	if std::env::var_os("SEREIN_VOICE_DIAGNOSTICS").is_some_and(|set| set == "1") {
 		eprintln!("[Serein voice Screen] {event}={value}");
@@ -119,6 +149,11 @@ pub(super) fn run(
 						source.set_property("path", portal.node_id.to_string());
 					}
 					source.set_property("do-timestamp", true);
+					if std::env::var("XDG_CURRENT_DESKTOP")
+						.is_ok_and(|desktop| niri_desktop(&desktop))
+					{
+						timestamp_niri_frames(&source)?;
+					}
 					// Damage-driven desktops still need a fresh IDR when a viewer joins an idle screen.
 					source.set_property("keepalive-time", 1000i32);
 					source.set_property("min-buffers", 2i32);
@@ -384,4 +419,17 @@ pub(super) fn run(
 		drop(audio);
 		result
 	})
+}
+
+#[cfg(test)]
+mod tests {
+	#[test]
+	fn niri_detection_preserves_other_desktops() {
+		for desktop in ["niri", "Niri", "GNOME:niri"] {
+			assert!(super::niri_desktop(desktop));
+		}
+		for desktop in ["", "GNOME", "KDE", "sway", "Hyprland", "not-niri"] {
+			assert!(!super::niri_desktop(desktop));
+		}
+	}
 }

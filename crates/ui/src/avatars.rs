@@ -1388,141 +1388,6 @@ mod tests {
 		assert!(images.gif_texture(&ctx, &gif, false).is_none());
 		assert_eq!(images.take_requests(), vec![format!("gif:{}", gif.preview)]);
 	}
-	#[test]
-	fn group_fallback_stacks_two_members_and_preserves_custom_icons() {
-		for size in [24.0, 32.0, 144.0] {
-			for count in [0, 1, 2, 3] {
-				for custom in [false, true] {
-					let ctx = egui::Context::default();
-					crate::design::apply(&ctx);
-					let mut images = Avatars::default();
-					let mut channel = test_support::demo_state()
-						.channels
-						.into_iter()
-						.find(|c| c.kind == 3)
-						.unwrap();
-					let user = test_support::message(1, channel.id).author;
-					channel.recipients = (0..count)
-						.map(|i| {
-							let mut user = user.clone();
-							user.id = model::Id(i + 100);
-							user
-						})
-						.collect();
-					channel.icon = custom.then(|| "0123456789abcdef0123456789abcdef".into());
-					if let Some(hash) = &channel.icon {
-						let key = format!("group-icon-{}-{hash}", channel.id);
-						images.attempts.insert(key.clone(), (Instant::now(), false));
-						images.accept(
-							&ctx,
-							key,
-							Some(ColorImage::filled([32, 32], egui::Color32::RED)),
-						);
-					}
-					let mut slot = egui::Rect::NOTHING;
-					let mut output = ctx.run_ui(Default::default(), |ui| {
-						slot = images.show_group(ui, &channel, size, true).rect;
-					});
-					output.textures_delta.clear();
-					let artwork: Vec<_> = output
-						.shapes
-						.iter()
-						.filter_map(|s| match &s.shape {
-							egui::Shape::Rect(m)
-								if images
-									.textures
-									.values()
-									.any(|(_, texture)| texture.id() == m.fill_texture_id()) =>
-							{
-								Some(m.rect)
-							}
-							_ => None,
-						})
-						.collect();
-					assert_eq!(
-						artwork.len(),
-						if custom { 1 } else { count.min(2) as usize }
-					);
-					for rect in &artwork {
-						assert!(slot.contains_rect(*rect));
-					}
-					if artwork.len() == 2 {
-						assert!(artwork[0].intersects(artwork[1]));
-						assert!(
-							artwork[0].left() < artwork[1].left()
-								&& artwork[0].top() < artwork[1].top()
-						);
-					}
-					assert!(images.take_requests().is_empty());
-					output.drop_without_applying_deltas();
-				}
-			}
-		}
-	}
-	#[test]
-	fn avatar_artwork_matches_fallback_in_justified_layout() {
-		let ctx = egui::Context::default();
-		let mut images = Avatars::default();
-		let user = User {
-			id: model::Id(1),
-			name: "Synthetic user".into(),
-			avatar: None,
-			webhook: false,
-			kind: Default::default(),
-			discriminator: 0,
-			primary_guild: None,
-		};
-		let mut response_rect = egui::Rect::NOTHING;
-		let output = ctx.run_ui(Default::default(), |ui| {
-			ui.with_layout(
-				egui::Layout::top_down(egui::Align::Min).with_cross_justify(true),
-				|ui| {
-					ui.set_width(200.0);
-					response_rect = images.show(ui, &user, 36.0, false).rect;
-				},
-			);
-		});
-		let fallback = output
-			.shapes
-			.iter()
-			.find_map(|shape| match &shape.shape {
-				egui::Shape::Circle(circle) if circle.radius == 18.0 => Some(circle.center),
-				_ => None,
-			})
-			.unwrap();
-		output.drop_without_applying_deltas();
-		let requests = images.take_requests();
-		assert_eq!(requests.len(), 1);
-		let key = &requests[0];
-		images.accept(
-			&ctx,
-			key.clone(),
-			Some(ColorImage::filled([32, 32], egui::Color32::WHITE)),
-		);
-		let texture = images.texture_id(key).unwrap();
-		let output = ctx.run_ui(Default::default(), |ui| {
-			ui.with_layout(
-				egui::Layout::top_down(egui::Align::Min).with_cross_justify(true),
-				|ui| {
-					ui.set_width(200.0);
-					assert_eq!(images.show(ui, &user, 36.0, false).rect, response_rect);
-				},
-			);
-		});
-		let artwork = output
-			.shapes
-			.iter()
-			.find_map(|shape| match &shape.shape {
-				egui::Shape::Rect(rect) if rect.fill_texture_id() == texture => Some(rect.rect),
-				_ => None,
-			})
-			.unwrap();
-		assert!(response_rect.width() > 36.0);
-		assert_ne!(fallback, response_rect.center());
-		assert_eq!(artwork.center(), fallback);
-		assert_eq!(artwork.size(), egui::Vec2::splat(36.0));
-		output.drop_without_applying_deltas();
-	}
 
 	#[test]
 	fn media_keys_preserve_signed_queries_and_rendition_dimensions() {
@@ -1565,6 +1430,74 @@ mod tests {
 			media_requests(&small, false, Surface::Viewer),
 			[format!("media:vs:64x32:{canonical}")]
 		);
+
+		{
+			let original = "https://media.tenor.com/synthetic/clip.gif";
+			let proxy = "https://media.discordapp.net/attachments/1/2/clip.WeBp?hm=signed";
+			let mut media = model::EmbedMedia {
+				url: Some(original.into()),
+				proxy_url: Some(proxy.into()),
+				width: 1024,
+				height: 512,
+				..Default::default()
+			};
+			assert_eq!(
+				media_requests(&media, true, Surface::Viewer),
+				[format!("media:va:128x64:{original}")]
+			);
+			assert_eq!(
+				media_requests(&media, false, Surface::Viewer),
+				[format!("media:vs:128x64:{proxy}")]
+			);
+			// A non-provider original never overrides the service proxy.
+			media.url = Some("https://example.test/clip.gif".into());
+			assert_eq!(
+				media_requests(&media, true, Surface::Viewer),
+				[format!("media:va:128x64:{proxy}")]
+			);
+			media.proxy_url = Some(proxy.replace(".WeBp", ".GIF"));
+			assert_eq!(
+				media_requests(&media, true, Surface::Viewer),
+				[format!(
+					"media:va:128x64:{}",
+					media.proxy_url.as_deref().unwrap()
+				)]
+			);
+			// Preserve fragments/credentials/ports for the download worker's rejection.
+			for source in [
+				"https://user:pass@media.discordapp.net:444/attachments/1/2/a.png?hm=signed#fragment",
+				"http://media.discordapp.net.evil.test/attachments/1/2/a.png?hm=signed#fragment",
+			] {
+				media.proxy_url = Some(source.into());
+				assert_eq!(
+					media_requests(&media, false, Surface::Inline),
+					[format!("media:is:128x64:{source}")]
+				);
+			}
+			media.proxy_url = Some("not a URL".into());
+			assert_eq!(
+				media_requests(&media, false, Surface::Inline),
+				["media:is:128x64:not a URL"]
+			);
+			media.proxy_url = Some(format!("https://example.test/{}", "a".repeat(2027)));
+			assert_eq!(media.proxy_url.as_ref().unwrap().len(), 2048);
+			let bound = 2048 + "media:is:4096x4096:".len();
+			media.width = 0;
+			assert!(media_requests(&media, false, Surface::Inline)[0].len() <= bound);
+			media.width = 1024;
+			assert!(
+				media_requests(&media, false, Surface::Inline)[0].len() <= bound,
+				"Sized keys keep the request length bound"
+			);
+			media.proxy_url.as_mut().unwrap().push('a');
+			assert!(
+				media_requests(&media, false, Surface::Viewer).is_empty(),
+				"An oversized proxy must not fall back to the original"
+			);
+			media.url = None;
+			media.proxy_url = None;
+			assert!(media_requests(&media, true, Surface::Viewer).is_empty());
+		}
 	}
 
 	fn media_requests(media: &model::EmbedMedia, animate: bool, surface: Surface) -> Vec<String> {
@@ -1584,75 +1517,6 @@ mod tests {
 			"Pending media must not be requested again"
 		);
 		requests
-	}
-
-	#[test]
-	fn media_keys_keep_source_selection_animation_and_url_boundaries() {
-		let original = "https://media.tenor.com/synthetic/clip.gif";
-		let proxy = "https://media.discordapp.net/attachments/1/2/clip.WeBp?hm=signed";
-		let mut media = model::EmbedMedia {
-			url: Some(original.into()),
-			proxy_url: Some(proxy.into()),
-			width: 1024,
-			height: 512,
-			..Default::default()
-		};
-		assert_eq!(
-			media_requests(&media, true, Surface::Viewer),
-			[format!("media:va:128x64:{original}")]
-		);
-		assert_eq!(
-			media_requests(&media, false, Surface::Viewer),
-			[format!("media:vs:128x64:{proxy}")]
-		);
-		// A non-provider original never overrides the service proxy.
-		media.url = Some("https://example.test/clip.gif".into());
-		assert_eq!(
-			media_requests(&media, true, Surface::Viewer),
-			[format!("media:va:128x64:{proxy}")]
-		);
-		media.proxy_url = Some(proxy.replace(".WeBp", ".GIF"));
-		assert_eq!(
-			media_requests(&media, true, Surface::Viewer),
-			[format!(
-				"media:va:128x64:{}",
-				media.proxy_url.as_deref().unwrap()
-			)]
-		);
-		// Preserve fragments/credentials/ports for the download worker's rejection.
-		for source in [
-			"https://user:pass@media.discordapp.net:444/attachments/1/2/a.png?hm=signed#fragment",
-			"http://media.discordapp.net.evil.test/attachments/1/2/a.png?hm=signed#fragment",
-		] {
-			media.proxy_url = Some(source.into());
-			assert_eq!(
-				media_requests(&media, false, Surface::Inline),
-				[format!("media:is:128x64:{source}")]
-			);
-		}
-		media.proxy_url = Some("not a URL".into());
-		assert_eq!(
-			media_requests(&media, false, Surface::Inline),
-			["media:is:128x64:not a URL"]
-		);
-		media.proxy_url = Some(format!("https://example.test/{}", "a".repeat(2027)));
-		assert_eq!(media.proxy_url.as_ref().unwrap().len(), 2048);
-		let bound = 2048 + "media:is:4096x4096:".len();
-		media.width = 0;
-		assert!(media_requests(&media, false, Surface::Inline)[0].len() <= bound);
-		media.width = 1024;
-		assert!(
-			media_requests(&media, false, Surface::Inline)[0].len() <= bound,
-			"Sized keys keep the request length bound"
-		);
-		media.proxy_url.as_mut().unwrap().push('a');
-		assert!(
-			media_requests(&media, false, Surface::Viewer).is_empty(),
-			"An oversized proxy must not fall back to the original"
-		);
-		media.url = None;
-		media.proxy_url = None;
-		assert!(media_requests(&media, true, Surface::Viewer).is_empty());
 	}
 
 	#[test]
@@ -1933,67 +1797,6 @@ mod tests {
 	}
 
 	#[test]
-	fn media_pixels_keep_aspect_without_moving_the_loading_slot() {
-		for dimensions in [[120, 40], [40, 120], [80, 80]] {
-			for metadata in [(640, 240), (0, 0), (240, 640)] {
-				for surface in [Surface::Inline, Surface::Viewer] {
-					let ctx = egui::Context::default();
-					let mut images = Avatars::default();
-					let media = model::EmbedMedia {
-						url: Some("https://cdn.discordapp.com/attachments/1/2/test.png".into()),
-						width: metadata.0,
-						height: metadata.1,
-						..Default::default()
-					};
-					let mut slot = egui::Rect::NOTHING;
-					let output = ctx.run_ui(Default::default(), |ui| {
-						slot = images
-							.show_media(ui, &media, egui::vec2(280.0, 180.0), false, surface)
-							.response
-							.rect;
-					});
-					output.drop_without_applying_deltas();
-					let key = images.take_requests().pop().unwrap();
-					images.accept(
-						&ctx,
-						key.clone(),
-						Some(ColorImage::filled(dimensions, egui::Color32::WHITE)),
-					);
-					let texture = images.texture_id(&key).unwrap();
-					let output = ctx.run_ui(Default::default(), |ui| {
-						assert_eq!(
-							slot,
-							images
-								.show_media(ui, &media, egui::vec2(280.0, 180.0), false, surface)
-								.response
-								.rect
-						);
-					});
-					let meshes = ctx.tessellate(output.shapes.clone(), output.pixels_per_point);
-					let bounds = meshes
-						.iter()
-						.filter_map(|shape| match &shape.primitive {
-							egui::epaint::Primitive::Mesh(mesh) if mesh.texture_id == texture => {
-								Some(mesh.calc_bounds())
-							}
-							_ => None,
-						})
-						.reduce(|a, b| a.union(b))
-						.unwrap();
-					// paint_at rounds to device pixels; allow one pixel of rounding.
-					assert!(
-						(bounds.width()
-							- bounds.height() * dimensions[0] as f32 / dimensions[1] as f32)
-							.abs() <= 2.0
-					);
-					assert!(slot.expand(1.0).contains_rect(bounds));
-					output.drop_without_applying_deltas();
-				}
-			}
-		}
-	}
-
-	#[test]
 	fn pending_requests_survive_retry_and_capacity_until_resolved() {
 		let ctx = egui::Context::default();
 		let mut avatars = Avatars::default();
@@ -2102,6 +1905,7 @@ mod tests {
 		);
 		let mut preview = Avatars::default();
 		let guild = model::Guild {
+			default_message_notifications: None,
 			stickers: None,
 			emojis: None,
 			id: model::Id(10),

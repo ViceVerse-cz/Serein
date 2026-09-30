@@ -188,6 +188,10 @@ underlying image settings. A supplied background object replaces those settings
 when an appearance plugin overlays the selected theme. Plugins cannot supply bytes,
 open an image file, or fetch an image URL.
 
+Preview `tick` actions may replace a plugin's appearance overlay over time. The host
+eases shared hex color keys from the currently displayed value; background settings,
+style metrics and keys present on only one side change immediately.
+
 Images are decoded on the extension worker, with at most 4,096 pixels per edge,
 4,000,000 pixels, and 32 MiB decoder allocation. Only a static decoded image is used.
 Invalid images fail before installation or export. The 16 MiB serialized package

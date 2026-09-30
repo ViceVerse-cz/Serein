@@ -45,6 +45,7 @@ impl KeyChord {
 pub enum KeybindAction {
 	ShowShortcuts,
 	SwitchConversation,
+	SearchConversation,
 	CloseOverlay,
 	SendMessage,
 	InsertNewLine,
@@ -62,9 +63,10 @@ pub enum KeybindAction {
 }
 
 impl KeybindAction {
-	pub const ALL: [Self; 16] = [
+	pub const ALL: [Self; 17] = [
 		Self::ShowShortcuts,
 		Self::SwitchConversation,
+		Self::SearchConversation,
 		Self::CloseOverlay,
 		Self::SendMessage,
 		Self::InsertNewLine,
@@ -85,6 +87,7 @@ impl KeybindAction {
 		match self {
 			Self::ShowShortcuts => "Show Keyboard Shortcuts List",
 			Self::SwitchConversation => "Switch Conversation",
+			Self::SearchConversation => "Search Current Conversation",
 			Self::CloseOverlay => "Close Settings or Dialog",
 			Self::SendMessage => "Send Message",
 			Self::InsertNewLine => "Insert New Line",
@@ -116,6 +119,7 @@ pub struct Keybinds {
 	pub global_enabled: bool,
 	pub show_shortcuts: KeyChord,
 	pub switch_conversation: KeyChord,
+	pub search_conversation: KeyChord,
 	pub close_overlay: KeyChord,
 	pub send_message: KeyChord,
 	pub insert_new_line: KeyChord,
@@ -138,6 +142,7 @@ impl Default for Keybinds {
 			global_enabled: true,
 			show_shortcuts: KeyChord::new("Slash", PRIMARY),
 			switch_conversation: KeyChord::new("K", PRIMARY),
+			search_conversation: KeyChord::new("F", PRIMARY),
 			close_overlay: KeyChord::new("Escape", 0),
 			send_message: KeyChord::new("Enter", 0),
 			insert_new_line: KeyChord::new("Enter", SHIFT),
@@ -161,6 +166,7 @@ impl Keybinds {
 		match action {
 			KeybindAction::ShowShortcuts => &self.show_shortcuts,
 			KeybindAction::SwitchConversation => &self.switch_conversation,
+			KeybindAction::SearchConversation => &self.search_conversation,
 			KeybindAction::CloseOverlay => &self.close_overlay,
 			KeybindAction::SendMessage => &self.send_message,
 			KeybindAction::InsertNewLine => &self.insert_new_line,
@@ -182,6 +188,7 @@ impl Keybinds {
 		match action {
 			KeybindAction::ShowShortcuts => &mut self.show_shortcuts,
 			KeybindAction::SwitchConversation => &mut self.switch_conversation,
+			KeybindAction::SearchConversation => &mut self.search_conversation,
 			KeybindAction::CloseOverlay => &mut self.close_overlay,
 			KeybindAction::SendMessage => &mut self.send_message,
 			KeybindAction::InsertNewLine => &mut self.insert_new_line,

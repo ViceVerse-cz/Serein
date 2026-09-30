@@ -171,6 +171,8 @@ account-badge-webhook = ウェブフック
 # Context: name
 account-badge-webhook-description = Webhook 作成者
 
+account-badge-verified-bot-description = 認証済みボットアカウント
+
 ## crates/ui/src/account_menu.rs
 # Context: account_identity_card
 account-menu-account-identity-card-loading-profile = プロファイルを読み込み中…
@@ -934,6 +936,7 @@ extensions-ui-preview-modal-creator-preview = クリエイタープレビュー
 extensions-ui-preview-modal-example-deleted-message-appearance = 削除されたメッセージの外観の例
 # Context: preview_modal
 extensions-ui-preview-modal-selecting-artwork-sends-it-as-an-image-attachment = アートワークを選択すると、画像添付として送信されます。
+extensions-ui-preview-modal-unavailable-artwork-falls-back-to-images = 使用できない絵文字やスタンプは、代わりに画像として添付されます。
 # Context: settings
 extensions-ui-settings-no-extensions-yet = まだ拡張機能はありません
 # Context: settings
@@ -1499,7 +1502,7 @@ join-server-show-join-enter-an-invite-below-to-join-an-existing-server = 既存�
 # Context: show_join
 join-server-show-join-join-a-server = サーバーに参加する
 # Context: body
-join-server-status-invite-accepted = 招待が受け入れられました。サーバーアクセスを待機しています。 Discord のサーバー ルールを完了します。
+join-server-status-invite-accepted = 招待を承認しました。サーバーへのアクセスを待っています。
 # Context: body
 join-server-status-offline-preview = オフライン プレビュー — サーバーへの参加は無効になっています。
 
@@ -1621,6 +1624,7 @@ main-sign-in-header-welcome-back = おかえり
 # Context: sign_in_header
 main-sign-in-header-welcome-to-serein = セレインへようこそ
 # Context: sign_in_preview
+main-sign-in-status-copy-failure-details = エラーの詳細をコピー
 main-sign-in-preview-explore-the-offline-preview = オフライン プレビューを確認する
 # Context: sign_in_preview
 main-sign-in-preview-sample-conversations-no-discord-connection = 会話例。 Discord接続がありません。
@@ -3600,6 +3604,8 @@ timeline-show-system-see-all = 。全て見る
 # Context: show_with_scroll
 timeline-show-with-scroll-application-interaction-pending = アプリケーションのインタラクションが保留中…
 # Context: show_with_scroll
+timeline-show-with-scroll-click-to-see-attachment = クリックして添付ファイルを表示
+# Context: show_with_scroll
 timeline-show-with-scroll-deleted-message-had-no-text = [削除されたメッセージにはテキストがありませんでした]
 # Context: show_with_scroll
 timeline-show-with-scroll-dismiss-message = メッセージを閉じる
@@ -4086,3 +4092,68 @@ server-integrations-count-one-linked-webhook = 連携済みWebhook { $count }件
 server-integrations-count-many-linked-webhooks = 連携済みWebhook { $count }件
 server-invites-revoke-title = 招待を無効にしますか？
 server-invites-revoke-message = discord.gg/{ $code } ではこのサーバーに参加できなくなります。
+
+search-page-label = ページ
+search-page-previous = 前のページ
+search-page-next = 次のページ
+search-page-go = ページに移動
+search-page-retry = ページを再読み込み
+search-header-input-search-in = { $name } を検索
+search-open-filters-in-a-specific-channel = 特定のチャンネル内
+search-open-filters-in-channel = in: チャンネル
+search-overlays-in-channel = チャンネル内
+search-overlays-no-matching-channels = 一致するチャンネルはありません。
+search-filters-channel-picker-choose-a-channel = チャンネルを選択
+search-filters-channel-picker-search-channels = チャンネルを検索
+search-page-previous-short = 前へ
+search-page-next-short = 次へ
+search-result-today-at = 今日 { $time }
+search-result-yesterday-at = 昨日 { $time }
+timeline-unread-banner-one-new-since = { $time } 以降の新着メッセージ 1 件
+timeline-unread-banner-many-new-since = { $time } 以降の新着メッセージ { $count } 件
+
+## crates/ui/src/onboarding.rs
+# Context: show
+onboarding-show-title = { $server } へようこそ
+# Context: show
+onboarding-show-subtitle = いくつかの質問に答えてルールに同意すると、チャットを始められます。
+# Context: show
+onboarding-show-try-again = 再試行
+# Context: show
+onboarding-show-close = 閉じる
+# Context: show
+onboarding-show-please-wait = お待ちください…
+# Context: show
+onboarding-show-finish = 完了
+# Context: show
+onboarding-show-not-now = あとで
+# Context: show
+onboarding-show-this-server = このサーバー
+# Context: body
+onboarding-body-submitted = 申請を送信しました。モデレーターの承認後にチャットできます。
+# Context: body
+onboarding-body-rejected = このサーバーは申請を却下しました。
+# Context: body
+onboarding-body-loading = サーバーのオンボーディングを読み込み中…
+# Context: body
+onboarding-body-all-set = 準備完了です。ここで完了することは残っていません。
+# Context: prompt
+onboarding-prompt-pick-one = 1つ選択
+# Context: prompt
+onboarding-prompt-pick-any = 当てはまるものをすべて選択
+# Context: rules
+onboarding-rules-heading = サーバールール
+# Context: rules
+onboarding-rules-review = チャットする前に、モデレーターがこれらの回答を確認します。
+# Context: field
+onboarding-field-unsupported = このサーバーには Serein がまだ表示できない質問があります。Discord アプリで参加を完了してください。
+# Context: field
+onboarding-field-agree = ルールを読み、同意します
+
+## crates/ui/src/lib.rs
+# Context: composer
+lib-composer-onboarding-rules-pending = チャットを始めるには、このサーバーのルールに同意してください。
+# Context: composer
+lib-composer-onboarding-incomplete = 参加を完了すると、さらにチャンネルが開放されます。
+# Context: composer
+lib-composer-onboarding-complete = オンボーディングを完了

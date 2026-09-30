@@ -1,5 +1,26 @@
 # Local storage policy and audit
 
+## Image decoding and edited-field allocations (September 28, 2026)
+
+Already-sized RGBA8 still images decode directly into their final egui pixel
+buffer and premultiply alpha through at most 64 KiB of temporary pixel storage.
+This replaces a temporary full-size RGBA copy, up to 64 MiB for a 4096×4096
+output. Conversion scratch is additional to the decoder allocation reservation.
+Encoded-input, source-dimension and decoder-allocation checks remain unchanged,
+including reservation of the
+decoded output before allocation. Resizing and other pixel formats retain their
+existing conversion path. Decoder scratch, active jobs, queued results, texture
+uploads and GPU resources are additional; this is not a whole-process cap.
+
+Message patches release string/vector allocations for explicit null or empty
+fields. A nonempty replacement compacts an old allocation only when it exceeds
+1 KiB and four times the replacement length; ordinary edits continue reusing
+capacity. Absent fields, stale updates and forwarded snapshot bodies keep their
+existing semantics. Timeline accounting continues charging allocated capacity,
+so released space becomes available within the same row/byte budgets. No cache
+ceiling, schema, disk record, worker, asset or dependency changes. Allocator
+retention means released capacity does not guarantee an equal process-RSS drop.
+
 ## App extension snapshots and proposals (September 22, 2026)
 
 Independently granted app snapshots contain only already-loaded, accessible data.
@@ -631,7 +652,7 @@ Image attachment metadata remains bounded by 10 attachments / 64 KiB retained me
 
 Explicit Download creates an original attachment file only at the user-selected location. Suggested filenames are sanitized; downloads never reinterpret message filenames as destination paths, follow redirects, or send credentials to the CDN. Existing regular files are replaced only after native Save confirmation and a complete, flushed transfer. A new destination is published without overwriting a file created meanwhile. The one worker closes/removes its sibling partial on cancellation or failure; cleanup failures are visible. Forced termination or a filesystem error can leave a `.serein-*.partial` sibling, and macOS, Linux and Windows publish new files with exclusive native moves so hard-link support is not required. Normal close waits for the active worker; a cancelled native dialog must still be dismissed. Downloads are explicit user files, not account cache entries, and survive logout/cache clearing. Limits and transfer bounds are strictly enforced.
 
-Conversation search queries and result snippets are session-only, limited to one 25-result / 256 KiB page and a 256-character query. Neither is written to SQLite or diagnostics. Opening a result uses normal bounded history retrieval, whose revalidated messages can enter the existing account cache.
+Conversation search queries and result snippets are session-only, limited to one 25-result / 256 KiB page and a 256-character query. Neither is written to SQLite or diagnostics. Opening a result keeps the same result page and uses normal bounded history retrieval, whose revalidated messages can enter the existing account cache. Numbered navigation adds only fixed-size offset/total metadata and a three-character page input; it replaces the single result page and retains no page history. Offsets are capped at 9,975.
 
 Archived-thread pages share the same exclusive read/result slot with search and pins. At most 25 channel summaries / 64 KiB are retained from a response capped at 512 KiB; member payloads are ignored. Request/next cursors are fixed-size timestamps or IDs. Pages and cursors are not persisted. Opening admits one transient channel within existing account item/byte navigation limits, then uses ordinary bounded history caching. Leaving retires transient navigation, not saved drafts or cached history; explicit revocation still invalidates inaccessible content. No archive directory cache, background paging or added worker queue exists.
 
@@ -1061,6 +1082,15 @@ network request is introduced; account, item, byte and page limits remain unchan
 Older schema-13 clients cannot reopen a schema-14 cache. User metadata serialized in
 bounded existing caches defaults missing kinds to ordinary/unknown.
 
+Schema 25 adds one checked, default-false `verified_bot` boolean to cached message
+authors. It is set only from the service user object's documented `bot` field plus
+the `flags` or `public_flags` verified-bot bit. The existing `account_kind` column continues to
+store verified bots as bots; loading combines the two fields, while inconsistent or
+out-of-range cache values are rejected. Existing rows remain unverified until history
+refreshes. The column adds no payload collection, table, queue or network request and
+does not change the existing account, item, byte or page limits. Schema-24 and older
+binaries cannot reopen the upgraded cache.
+
 Message delete protector is opt-in and session-only. Retained deleted payloads share
 the existing 500-row / 4 MiB timeline limit and resident-history budget. They are
 excluded from normal message iteration, service actions and disk cache writes.
@@ -1146,7 +1176,9 @@ package contents never enter application diagnostics or account caches.
 The ZIP central directory is checked before allocation (4 MiB / 8,192 entries);
 ZIP64 packages are rejected. Extracted data is capped at 1 GiB. Paths, duplicate
 names, symlinks and special files are validated before writing to private staging
-beside the installation. Staging records the app/helper owner and is reused or
+beside the installation. Staging records the app/helper owner and a completed
+Windows handoff; cleanup removes these markers last so a temporarily locked file
+cannot turn owned storage into an unrecognized directory. Staging is reused or
 cleaned before another download; backups from interrupted replacements are kept
 for recovery and block another installation instead of being deleted.
 
@@ -1333,7 +1365,8 @@ or background pagination is added.
 
 ### Emoji and sticker image sharing
 
-The opt-in plugin stages public artwork as ordinary attachments only after selection.
+The opt-in plugin stages public artwork as ordinary attachments only after selecting
+an emoji or sticker that cannot use its normal Discord send path.
 One host download/preparation uses generated HTTPS CDN URLs without credentials or
 redirects, capped at 8 MiB per image and 15 seconds per request. Raster preview decoding
 uses the existing 64 MiB allocation limit and 320px thumbnail edge outside rendering.
@@ -1376,3 +1409,51 @@ by shedding rich-activity details (far rows first), then far rows, instead of re
 packet. Each decoded row is captured once as raw JSON for per-row isolation and released with
 the packet. A connection remembers at most 8 recently left list IDs (up to 32 bytes each, no
 row data) so late replies are not mistaken for the open list. No new persistence.
+
+Per-server notification editing (September 29): one modal holds four optional
+scalar edits in session RAM. Saves reuse the existing serial server-action write
+path, with one pending request; no new queue, cache or persistence is added.
+Guild notification defaults and mute deadlines add fixed-size scalar metadata
+to existing bounded navigation/settings records. Channel overrides stay in the
+existing count/byte budgets. Logout and session invalidation clear the editor's
+scope and discard pending results from old generations.
+
+## Connection-scoped API proxy plugin (preview)
+
+Only a plugin granted `api_proxy` (and optionally `storage`) uses the global
+`extensions/proxy-plugins` directory. These plugins have no account snapshot,
+message, file or networking grants and may run before authentication. Account
+plugins retain their existing account isolation; account logout does not erase a
+connection plugin. Explicit disable removes its package/data using the existing
+bounded cleanup path and restores the remaining selected route or Direct.
+
+One validated mode and at most 2,048 UTF-8 bytes of credential-free endpoint
+configuration are coalesced in a watch channel. The API task caches the current
+client pool and snapshots it for new requests; it never builds clients while
+rendering. Already-started requests can finish using the prior route, including
+across a configuration change. Global plugin package, invocation, storage and
+queue budgets remain the existing extension limits. Invalid initial configuration
+blocks REST routing rather than quietly using Direct; runtime failures retain
+an already selected route until repaired or explicitly disabled.
+
+Automatic mode reads bounded validated HTTP/HTTPS proxy environment values,
+including `NO_PROXY` selection. These values are never supplied to plugins,
+written to plugin data or included in errors. URL credentials are unsupported.
+The Gateway, media/CDN, updater, extension downloads, webviews and voice transport
+keep their existing routing. No new network listener or telemetry is introduced.
+
+Proxy authentication uses one device-wide, profile-scoped OS credential entry,
+containing one exact normalized HTTP/HTTPS origin, username (1-256 bytes without
+a colon), and password (0-1024 bytes), with no control characters. No plaintext
+fallback exists. Drafts and active secret fields use zeroizing containers with
+redacted debug output; transport shares their ownership without per-frame secret copies.
+Credential IO runs on a bounded single blocking job outside rendering. Clear the entry
+with Remove saved credentials; Direct/disable retain it without using it. Loading errors
+pause configured manual routing, rather than sending credentials to another endpoint.
+The plugin receives no proxy username/password fields. Demo neither reads nor writes
+proxy credentials.
+
+Accepting Save or Remove pauses new REST client acquisition immediately, before
+the credential-store job completes. A failed deletion leaves routing paused; it
+does not resume stored credentials. In-flight requests retain their earlier
+snapshot. Rejected saves retain the credential draft until a valid job can start.

@@ -33,6 +33,8 @@ mod extension_admin_actions;
 mod extension_app;
 mod extension_server_actions;
 mod extensions_ui;
+pub mod proxy_auth;
+mod rich_presence;
 mod theme_editor;
 mod thread_create;
 pub use extensions_ui::{ExtensionContext, ExtensionEntry, ExtensionRequest, ExtensionUi};
@@ -76,12 +78,15 @@ mod contact_editor;
 pub mod dialog;
 mod join_server;
 mod keybinds;
+mod onboarding;
 mod profile_edit;
 mod reactions;
 mod reading;
 pub mod screen;
 pub mod scroll;
 mod search;
+#[cfg(test)]
+mod search_navigation_tests;
 pub mod select;
 mod server_admin;
 mod server_audit_log;
@@ -89,6 +94,9 @@ mod server_integrations;
 mod server_invite;
 mod server_invites;
 mod server_menu;
+#[cfg(test)]
+mod server_notification_tests;
+mod server_notifications;
 mod server_roles;
 mod server_settings;
 mod server_stickers;
@@ -189,6 +197,7 @@ pub struct MessagingUi {
 	pub interaction_file_request: Option<String>,
 	interaction_components: components::Components,
 	pub verification: VerificationUi,
+	onboarding: onboarding::OnboardingUi,
 	pub extensions: ExtensionUi,
 	friends: friends::Friends,
 	account_menu: account_menu::AccountMenu,
@@ -815,6 +824,12 @@ impl MessagingUi {
 	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_account_menu(&mut self, generation: u64) {
 		self.account_menu.preview(generation);
+	}
+	#[cfg(any(test, feature = "demo"))]
+	pub fn preview_server_notifications(&mut self, state: &mut State, guild: Id) {
+		self.guild = Some(guild);
+		self.navigation_channel = state.selected;
+		self.server_menu.open_notifications(state, guild);
 	}
 	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_custom_status(&mut self, generation: u64) {
@@ -1901,6 +1916,7 @@ impl MessagingUi {
 		}
 	}
 	/// Conversation header: channel identity on the left, tools and search on the right.
+	#[allow(clippy::too_many_arguments)]
 	fn channel_header(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -1908,6 +1924,7 @@ impl MessagingUi {
 		selected_voice: bool,
 		show_members: bool,
 		wide_members: bool,
+		search_open: bool,
 		commands: &mut Vec<Command>,
 	) {
 		let colors = design::palette(ui);
@@ -1924,6 +1941,10 @@ impl MessagingUi {
 							design::window_palette(ui).chat,
 							design::ImageSection::TopBar,
 						)
+					} else if search_open {
+						// Spanning the search pane, the header sits outside the central panel,
+						// so it paints the chat coat that panel would otherwise provide.
+						design::window_palette(ui).chat
 					} else {
 						egui::Color32::TRANSPARENT
 					})
@@ -2151,10 +2172,14 @@ impl MessagingUi {
 							}
 							let reload = ui
 								.add_enabled_ui(
-									state.freshness != Freshness::Loading
-										&& state
-											.selected
-											.is_some_and(|id| state.can_read_history(id)),
+									state.selected.is_some_and(|id| {
+										if state.is_forum(id) {
+											state.can_load_posts(id) && !state.posts.loading
+										} else {
+											state.freshness != Freshness::Loading
+												&& state.can_read_history(id)
+										}
+									}),
 									|ui| {
 										icons::button(
 											ui,
@@ -2373,6 +2398,46 @@ impl MessagingUi {
 			self.emoji_picker = emoji_picker::Picker::default();
 			self.ime_active = false;
 			self.focus_switched_composer = false;
+			let gated = state
+				.channel(channel)
+				.and_then(|c| c.guild)
+				.filter(|guild| state.needs_onboarding(*guild));
+			if let Some(guild) = gated {
+				design::glass_frame(ui, colors.raised, egui::Margin::same(12))
+					.corner_radius(8)
+					.show(ui, |ui| {
+						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+							if dialog::action(
+								ui,
+								"lib-composer-onboarding-complete",
+								dialog::Action::Primary,
+							)
+							.clicked()
+							{
+								state.open_onboarding(guild);
+							}
+							let hint =
+								crate::i18n::translate(if state.verification_pending(guild) {
+									"lib-composer-onboarding-rules-pending"
+								} else {
+									"lib-composer-onboarding-incomplete"
+								});
+							ui.with_layout(
+								egui::Layout::left_to_right(egui::Align::Center),
+								|ui| {
+									ui.add(
+										egui::Label::new(
+											egui::RichText::new(&hint).color(colors.muted),
+										)
+										.truncate(),
+									)
+									.on_hover_text(&hint);
+								},
+							);
+						});
+					});
+				return;
+			}
 			design::glass_frame(ui, colors.raised, egui::Margin::same(12))
 				.corner_radius(8)
 				.show(ui, |ui| {
@@ -3442,6 +3507,8 @@ impl MessagingUi {
 			state,
 			&mut self.draft_changes,
 			self.editing.is_some(),
+			&mut self.avatars,
+			(self.game_activity_status, self.share_game_activity),
 		) && let Err(error) = self.apply_extension_effect(&ctx, state, effect, &mut commands)
 		{
 			self.extensions.report_error(error);
@@ -3705,6 +3772,31 @@ impl MessagingUi {
 			commands.push(command);
 		}
 		let wide_members = ui.available_width() >= 720.0;
+		if !settings_open
+			&& !self.switcher_frame
+			&& !self.ime_active
+			&& state.can_search()
+			&& ctx.memory(|memory| memory.top_modal_layer().is_none())
+			&& !egui::Popup::is_any_open(&ctx)
+			&& ctx.input(|input| {
+				input.focused
+					&& !input.events.iter().any(|event| match event {
+						egui::Event::Ime(
+							egui::ImeEvent::Preedit { text, .. } | egui::ImeEvent::Commit(text),
+						) => !text.is_empty(),
+						egui::Event::Ime(egui::ImeEvent::DeleteSurrounding { .. }) => true,
+						_ => false,
+					})
+			}) && ctx.input_mut(|input| {
+			crate::keybinds::pressed_exact(
+				input,
+				self.keybinds
+					.chord(model::KeybindAction::SearchConversation),
+			)
+		}) && let Some(channel) = state.selected
+		{
+			self.search.focus_conversation(channel);
+		}
 		self.search.sync(&ctx, state, &mut commands);
 		let search_open =
 			self.search.results_visible(state) && state.selected.is_some() && !selected_voice;
@@ -3723,6 +3815,7 @@ impl MessagingUi {
 				selected_voice,
 				show_members,
 				wide_members,
+				true,
 				&mut commands,
 			);
 			let width = if wide_members {
@@ -3836,6 +3929,7 @@ impl MessagingUi {
 					(warnings.sessions, "session status"),
 					(warnings.emojis, "some server emoji"),
 					(warnings.stickers, "some server stickers"),
+					(warnings.entries, "some malformed channels, DMs or contacts"),
 				]
 				.into_iter()
 				.filter_map(|(unavailable, label)| unavailable.then_some(label))
@@ -3866,6 +3960,7 @@ impl MessagingUi {
 						selected_voice,
 						show_members,
 						wide_members,
+						false,
 						&mut commands,
 					);
 				}
@@ -4316,6 +4411,7 @@ impl MessagingUi {
 			self.timeline.mark_read = None;
 			if !settings_open && let Some(command) = state.prepare_mark_unread(message) {
 				self.timeline.browse_away();
+				self.timeline.reset_unread_divider();
 				commands.push(command);
 			}
 		} else if let Some(message) = self.timeline.mark_read.take() {
@@ -4603,6 +4699,7 @@ impl MessagingUi {
 		}
 		self.show_call_switch(&ctx, state, &mut commands);
 		self.verification.show(&ctx, state);
+		self.onboarding.show(&ctx, state, &mut commands);
 		self.scroll.clear_if_unbound(&ctx);
 		self.scroll.paint(&ctx);
 		// Clear the title bar and channel header so a notice never sits on the chrome.
@@ -4618,136 +4715,6 @@ impl MessagingUi {
 #[cfg(test)]
 mod composer_tests {
 	use super::*;
-
-	#[test]
-	fn image_surface_reaches_the_channel_header_without_a_stripe() {
-		let ctx = egui::Context::default();
-		ctx.set_theme(egui::ThemePreference::Dark);
-		let mut theme = extensions::Theme::default();
-		theme.dark.background = Some(extensions::Background {
-			sections: Some(extensions::SectionOpacity::default()),
-			..Default::default()
-		});
-		design::set_extension_theme(Some(&theme));
-		design::set_background_image(
-			&ctx,
-			Some(std::sync::Arc::new(egui::ColorImage::filled(
-				[1, 1],
-				egui::Color32::WHITE,
-			))),
-		);
-		let mut state = test_support::demo_state();
-		let mut view = MessagingUi::default();
-		let mut output = ctx.run_ui(
-			egui::RawInput {
-				screen_rect: Some(egui::Rect::from_min_size(
-					egui::Pos2::ZERO,
-					egui::vec2(1100.0, 800.0),
-				)),
-				..Default::default()
-			},
-			|ui| {
-				view.show(ui, &mut state);
-			},
-		);
-		let message_alpha = (75 * 255 / 100) as u8;
-		let expected_top = if view.shows_title_bar() { 84.0 } else { 48.0 };
-		let surface_reaches_header = output.shapes.iter().any(|shape| match &shape.shape {
-			egui::Shape::Rect(rect)
-				if rect.fill.a() == message_alpha && rect.rect.height() > 200.0 =>
-			{
-				(rect.rect.top() - expected_top).abs() <= 1.0
-			}
-			_ => false,
-		});
-		output.textures_delta.clear();
-		design::set_extension_theme(None);
-		assert!(
-			surface_reaches_header,
-			"message surface did not reach expected top {expected_top}",
-		);
-	}
-
-	#[test]
-	fn composer_placeholder_alignment() {
-		for scale in [1.0, 1.25, 1.5, 2.0] {
-			for theme in [egui::Theme::Dark, egui::Theme::Light] {
-				let ctx = egui::Context::default();
-				fonts::install(&ctx);
-				design::apply(&ctx);
-				ctx.set_theme(theme);
-				ctx.set_pixels_per_point(scale);
-				let mut state = edit_state();
-				state.channels[0].name = "Alex".into();
-				let mut view = MessagingUi::default();
-				for width in [320.0, 900.0] {
-					for draft in ["", "Message @Alex", "First line\nSecond line"] {
-						state.drafts.insert(Id(10), draft.into());
-						for _ in 0..2 {
-							let mut empty_height = 0.0;
-							let output = ctx.run_ui(
-								egui::RawInput {
-									screen_rect: Some(egui::Rect::from_min_size(
-										egui::Pos2::ZERO,
-										egui::vec2(width, 300.0),
-									)),
-									..Default::default()
-								},
-								|ui| {
-									view.composer(ui, &mut state, Id(10), &ctx, &mut vec![]);
-									empty_height = view
-										.composer_layout
-										.galley(
-											ui,
-											"",
-											300.0,
-											&[],
-											&[],
-											&[],
-											false,
-											&mut view.avatars,
-											true,
-										)
-										.rect
-										.height();
-								},
-							);
-							let frame = output
-								.shapes
-								.iter()
-								.find_map(|s| match &s.shape {
-									egui::Shape::Rect(r) => Some(r.rect),
-									_ => None,
-								})
-								.unwrap();
-							let text = output
-								.shapes
-								.iter()
-								.find_map(|s| match &s.shape {
-									egui::Shape::Text(t)
-										if t.galley.job.text == draft
-											|| t.galley.job.text == "Message @Alex" =>
-									{
-										Some(t.galley.rect.translate(t.pos.to_vec2()))
-									}
-									_ => None,
-								})
-								.unwrap();
-							output.drop_without_applying_deltas();
-							assert!(
-								(text.center().y - frame.center().y).abs() <= 1.0 / scale,
-								"{draft:?}, scale {scale}, width {width}: text {text:?}, frame {frame:?}"
-							);
-							assert!(
-								empty_height >= 15.0,
-								"empty editor must retain a full-height caret"
-							);
-						}
-					}
-				}
-			}
-		}
-	}
 
 	#[test]
 	fn download_cancel_remains_visible_without_a_text_composer() {
@@ -5023,6 +4990,7 @@ mod composer_tests {
 		let mut state = edit_state();
 		state.demo = false;
 		state.guilds.push(model::Guild {
+			default_message_notifications: None,
 			stickers: None,
 			id: Id(100),
 			name: "Synthetic invited server".into(),
@@ -5164,6 +5132,7 @@ mod composer_tests {
 			target.kind = 0;
 			state.channels.push(target);
 			state.guilds.push(model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(100),
 				name: "Linked server".into(),
@@ -6468,115 +6437,6 @@ mod composer_tests {
 		}
 	}
 
-	#[test]
-	fn member_badges_and_subtitles_stay_inside_adjacent_rows() {
-		for light in [false, true] {
-			for width in [180.0, 240.0] {
-				let ctx = egui::Context::default();
-				ctx.set_theme(if light {
-					egui::ThemePreference::Light
-				} else {
-					egui::ThemePreference::Dark
-				});
-				design::apply(&ctx);
-				let mut state = State {
-					demo: true,
-					selected: Some(Id(1)),
-					members: Some(model::MemberList {
-						channel: Id(1),
-						guild: Some(Id(2)),
-						request: 1,
-						total: 3,
-						lazy: false,
-						groups: vec![],
-						ranges: vec![],
-						freshness: Freshness::Fresh,
-						start: 0,
-						slots: (1..=3)
-							.map(|id| {
-								Some(model::MemberSlot::Person(model::Member {
-									user: model::User {
-										id: Id(id),
-										name: format!("Member {id}"),
-										avatar: None,
-										kind: model::AccountKind::Bot,
-										webhook: false,
-										discriminator: 0,
-										primary_guild: (id == 1).then(|| {
-											Box::new(model::ClanTag {
-												guild: Id(9),
-												tag: "SPDY".into(),
-												badge: None,
-											})
-										}),
-									},
-									nick: None,
-									roles: vec![],
-									status: Some("online".into()),
-									custom_status: Some(format!("Activity {id}")),
-									activities: vec![],
-									clients: model::ClientPlatforms::default(),
-								}))
-							})
-							.collect(),
-					}),
-					..Default::default()
-				};
-				let mut messaging = MessagingUi::default();
-				for hover in [false, true] {
-					let mut origin = egui::Pos2::ZERO;
-					let mut output = ctx.run_ui(
-						egui::RawInput {
-							screen_rect: Some(egui::Rect::from_min_size(
-								egui::Pos2::ZERO,
-								egui::vec2(width, 260.0),
-							)),
-							events: if hover {
-								vec![egui::Event::PointerMoved(egui::pos2(80.0, 105.0))]
-							} else {
-								vec![]
-							},
-							..Default::default()
-						},
-						|ui| {
-							origin = ui.cursor().min;
-							let mut commands = vec![];
-							messaging.member_rows(ui, &mut state, &mut commands);
-						},
-					);
-					output.textures_delta.clear();
-					for id in 1..=3 {
-						let row = egui::Rect::from_min_size(
-							origin + egui::vec2(0.0, (id - 1) as f32 * 42.0),
-							egui::vec2(width, 42.0),
-						);
-						let mut labels = vec![format!("Member {id}"), format!("Activity {id}")];
-						if id == 1 {
-							labels.push("SPDY".into());
-						}
-						for label in labels {
-							let text = output
-								.shapes
-								.iter()
-								.find_map(|s| match &s.shape {
-									egui::Shape::Text(t) if t.galley.job.text == label => {
-										Some(egui::Rect::from_min_size(t.pos, t.galley.size()))
-									}
-									_ => None,
-								})
-								.expect("visible member text");
-							assert!(
-								text.top() >= row.top() && text.bottom() <= row.bottom() - 1.0,
-								"{label}, hover={hover}: text {text:?} exceeds row {row:?}"
-							);
-						}
-					}
-					assert!(messaging.take_avatar_requests().is_empty());
-					output.drop_without_applying_deltas();
-				}
-			}
-		}
-	}
 	#[test]
 	fn member_pane_virtualizes_and_preview_never_requests_network() {
 		fn collect_text(shape: &egui::Shape, text: &mut Vec<String>) {

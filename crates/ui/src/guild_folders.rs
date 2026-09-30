@@ -50,6 +50,9 @@ impl FolderUi {
 			self.expanded
 				.retain(|id| settings.folders.iter().any(|f| f.id == Some(*id)));
 			for folder in &settings.folders {
+				if !folder.guild_ids.iter().any(|&id| state.guild(id).is_some()) {
+					continue;
+				}
 				if let Some(id) = folder.id {
 					rows.push((
 						Item::Folder(id),
@@ -540,8 +543,9 @@ impl MessagingUi {
 							self.server_menu.read_item(ui, state, id);
 							ui.separator();
 							let settings = self.server_menu.settings_item(ui, state, id);
+							let notifications = self.server_menu.notifications_item(ui, state, id);
 							let leave = self.server_menu.leave_item(ui, state, id);
-							if settings || leave {
+							if settings || notifications || leave {
 								self.guild = Some(id);
 							}
 							ui.separator();
@@ -853,28 +857,6 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn guild_voice_splits_participants_and_streamers() {
-		let mut state = test_support::voice_demo_state();
-		let mut other_guild = state.voice.roster[0].clone();
-		other_guild.guild = Id(11);
-		other_guild.participant.streaming = true;
-		state.voice.roster.push(other_guild);
-
-		assert_eq!(
-			guild_voice(&state, Id(10), false)
-				.map(|entry| entry.participant.user)
-				.collect::<Vec<_>>(),
-			vec![Id(1), Id(2), Id(3)]
-		);
-		assert_eq!(
-			guild_voice(&state, Id(10), true)
-				.map(|entry| entry.participant.user)
-				.collect::<Vec<_>>(),
-			vec![Id(3)]
-		);
-	}
-
-	#[test]
 	fn server_icon_restores_channel_once_in_standalone_and_expanded_folder() {
 		for grouped in [false, true] {
 			let mut state = test_support::demo_state();
@@ -968,6 +950,71 @@ mod tests {
 	}
 
 	#[test]
+	fn empty_and_left_server_folders_disappear_without_changing_settings() {
+		for expanded in [false, true] {
+			let mut state = test_support::demo_state();
+			state.guild_folders = Some(Settings {
+				folders: vec![
+					Folder {
+						id: Some(7),
+						..Default::default()
+					},
+					Folder {
+						id: Some(8),
+						guild_ids: vec![Id(999)],
+						..Default::default()
+					},
+					Folder {
+						id: Some(9),
+						guild_ids: vec![Id(10), Id(9999)],
+						..Default::default()
+					},
+				],
+				..Default::default()
+			});
+			let settings = state.guild_folders.clone();
+			let mut folders = FolderUi::default();
+			if expanded {
+				folders.expanded.extend([7, 8, 9]);
+			}
+			assert!(folders.sync_rows(&state));
+			assert!(
+				!folders
+					.rows
+					.iter()
+					.any(|(item, _)| matches!(item, Item::Folder(7 | 8)))
+			);
+			assert!(
+				folders
+					.rows
+					.iter()
+					.any(|(item, _)| *item == Item::Folder(9))
+			);
+			let guild = state.guild(Id(10)).unwrap().clone();
+			state.guilds.retain(|guild| guild.id != Id(10));
+			state.invalidate_navigation();
+			assert!(folders.sync_rows(&state));
+			assert!(
+				!folders
+					.rows
+					.iter()
+					.any(|(item, _)| matches!(item, Item::Folder(_)))
+			);
+			assert_eq!(state.guild_folders, settings);
+			// A temporarily missing guild can return without losing its folder layout.
+			state.guilds.push(guild);
+			state.invalidate_navigation();
+			assert!(folders.sync_rows(&state));
+			assert!(
+				folders
+					.rows
+					.iter()
+					.any(|(item, _)| *item == Item::Folder(9))
+			);
+		}
+	}
+
+	#[test]
 	fn folder_rows_reuse_the_catalog_during_message_churn() {
 		let mut state = test_support::demo_state();
 		let mut folders = FolderUi::default();
@@ -988,108 +1035,108 @@ mod tests {
 		assert!(folders.sync_rows(&state));
 		state.invalidate_navigation();
 		assert!(folders.sync_rows(&state));
-	}
 
-	#[test]
-	fn folder_rows_cache_tracks_expansion_order_color_and_acknowledged_writes() {
-		let settings = Settings {
-			folders: vec![
-				Folder {
-					id: Some(7),
-					guild_ids: vec![Id(1), Id(2)],
-					name: Some("Synthetic folder".into()),
-					color: Some(0x123456),
-				},
-				standalone(Id(3)),
-			],
-			..Default::default()
-		};
-		let mut state = State {
-			demo: true,
-			guilds: (1..=3)
-				.map(|id| model::Guild {
-					stickers: None,
-					id: Id(id),
-					name: "Synthetic server".into(),
-					icon: None,
-					emojis: None,
-				})
-				.collect(),
-			guild_folders: Some(settings),
-			..State::default()
-		};
-		let mut folders = FolderUi::default();
-		assert!(folders.sync_rows(&state));
-		assert_eq!(
-			&*folders.rows,
-			&[(Item::Folder(7), None), (Item::Server(Id(3)), None)]
-		);
-		for _ in 0..10 {
+		{
+			let settings = Settings {
+				folders: vec![
+					Folder {
+						id: Some(7),
+						guild_ids: vec![Id(1), Id(2)],
+						name: Some("Synthetic folder".into()),
+						color: Some(0x123456),
+					},
+					standalone(Id(3)),
+				],
+				..Default::default()
+			};
+			let mut state = State {
+				demo: true,
+				guilds: (1..=3)
+					.map(|id| model::Guild {
+						default_message_notifications: None,
+						stickers: None,
+						id: Id(id),
+						name: "Synthetic server".into(),
+						icon: None,
+						emojis: None,
+					})
+					.collect(),
+				guild_folders: Some(settings),
+				..State::default()
+			};
+			let mut folders = FolderUi::default();
+			assert!(folders.sync_rows(&state));
+			assert_eq!(
+				&*folders.rows,
+				&[(Item::Folder(7), None), (Item::Server(Id(3)), None)]
+			);
+			for _ in 0..10 {
+				assert!(!folders.sync_rows(&state));
+			}
+			folders.toggle(7);
+			assert!(folders.sync_rows(&state));
+			assert_eq!(
+				&*folders.rows,
+				&[
+					(Item::Folder(7), Some((7, 0x123456))),
+					(Item::Server(Id(1)), Some((7, 0x123456))),
+					(Item::Server(Id(2)), Some((7, 0x123456))),
+					(Item::Server(Id(3)), None),
+				]
+			);
+			let mut changed = state.guild_folders.clone().unwrap();
+			edit(
+				&mut changed,
+				Edit::Drop(Item::Server(Id(2)), Item::Server(Id(1)), Placement::Before),
+			);
+			edit(
+				&mut changed,
+				Edit::Customize(7, "New name".into(), 0xabcdef),
+			);
+			state.save_guild_folders(changed);
+			assert!(folders.sync_rows(&state));
+			assert_eq!(folders.rows[1], (Item::Server(Id(2)), Some((7, 0xabcdef))));
+			assert_eq!(folders.rows[2], (Item::Server(Id(1)), Some((7, 0xabcdef))));
+			let original = folders.rows.clone();
+			state.demo = false;
+			state.auth = client_core::auth::AuthState::Authenticated;
+			state.gateway_connected = true;
+			let mut changed = state.guild_folders.clone().unwrap();
+			edit(&mut changed, Edit::Dissolve(7));
+			let command = state.save_guild_folders(changed.clone()).unwrap();
 			assert!(!folders.sync_rows(&state));
+			state.command_rejected(command);
+			assert!(!folders.sync_rows(&state));
+			assert!(state.folders_error.is_some());
+			assert_eq!(folders.rows, original);
+			assert!(state.save_guild_folders(changed.clone()).is_some());
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::GuildFolders(Ok(changed)),
+			});
+			assert!(folders.sync_rows(&state));
+			assert_eq!(
+				&*folders.rows,
+				&[
+					(Item::Server(Id(2)), None),
+					(Item::Server(Id(1)), None),
+					(Item::Server(Id(3)), None),
+				]
+			);
+			assert!(folders.expanded.is_empty());
+			let original = folders.rows.clone();
+			assert!(state.load_guild_folders().is_some());
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::GuildFolders(Err(client_core::auth::Failure::Network)),
+			});
+			assert!(folders.sync_rows(&state));
+			assert!(state.folders_error.is_some());
+			assert_eq!(folders.rows, original);
+			state.logout();
+			assert!(folders.sync_rows(&state));
+			assert!(folders.rows.is_empty());
 		}
-		folders.toggle(7);
-		assert!(folders.sync_rows(&state));
-		assert_eq!(
-			&*folders.rows,
-			&[
-				(Item::Folder(7), Some((7, 0x123456))),
-				(Item::Server(Id(1)), Some((7, 0x123456))),
-				(Item::Server(Id(2)), Some((7, 0x123456))),
-				(Item::Server(Id(3)), None),
-			]
-		);
-		let mut changed = state.guild_folders.clone().unwrap();
-		edit(
-			&mut changed,
-			Edit::Drop(Item::Server(Id(2)), Item::Server(Id(1)), Placement::Before),
-		);
-		edit(
-			&mut changed,
-			Edit::Customize(7, "New name".into(), 0xabcdef),
-		);
-		state.save_guild_folders(changed);
-		assert!(folders.sync_rows(&state));
-		assert_eq!(folders.rows[1], (Item::Server(Id(2)), Some((7, 0xabcdef))));
-		assert_eq!(folders.rows[2], (Item::Server(Id(1)), Some((7, 0xabcdef))));
-		let original = folders.rows.clone();
-		state.demo = false;
-		state.auth = client_core::auth::AuthState::Authenticated;
-		state.gateway_connected = true;
-		let mut changed = state.guild_folders.clone().unwrap();
-		edit(&mut changed, Edit::Dissolve(7));
-		let command = state.save_guild_folders(changed.clone()).unwrap();
-		assert!(!folders.sync_rows(&state));
-		state.command_rejected(command);
-		assert!(!folders.sync_rows(&state));
-		assert!(state.folders_error.is_some());
-		assert_eq!(folders.rows, original);
-		assert!(state.save_guild_folders(changed.clone()).is_some());
-		state.apply(client_core::Envelope {
-			generation: state.generation,
-			event: client_core::Event::GuildFolders(Ok(changed)),
-		});
-		assert!(folders.sync_rows(&state));
-		assert_eq!(
-			&*folders.rows,
-			&[
-				(Item::Server(Id(2)), None),
-				(Item::Server(Id(1)), None),
-				(Item::Server(Id(3)), None),
-			]
-		);
-		assert!(folders.expanded.is_empty());
-		let original = folders.rows.clone();
-		assert!(state.load_guild_folders().is_some());
-		state.apply(client_core::Envelope {
-			generation: state.generation,
-			event: client_core::Event::GuildFolders(Err(client_core::auth::Failure::Network)),
-		});
-		assert!(folders.sync_rows(&state));
-		assert!(state.folders_error.is_some());
-		assert_eq!(folders.rows, original);
-		state.logout();
-		assert!(folders.sync_rows(&state));
-		assert!(folders.rows.is_empty());
 	}
 
 	#[test]

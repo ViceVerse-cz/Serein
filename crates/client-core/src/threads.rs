@@ -155,6 +155,7 @@ mod tests {
 			}),
 			guilds: vec![
 				Guild {
+					default_message_notifications: None,
 					stickers: None,
 					emojis: None,
 					id: Id(1),
@@ -162,6 +163,7 @@ mod tests {
 					icon: None,
 				},
 				Guild {
+					default_message_notifications: None,
 					stickers: None,
 					emojis: None,
 					id: Id(2),
@@ -432,6 +434,7 @@ mod tests {
 		] {
 			let mut state = State {
 				guilds: vec![Guild {
+					default_message_notifications: None,
 					stickers: None,
 					emojis: None,
 					id: Id(1),
@@ -482,6 +485,7 @@ mod tests {
 				guilds: [1, 2]
 					.into_iter()
 					.map(|id| Guild {
+						default_message_notifications: None,
 						stickers: None,
 						id: Id(id),
 						name: "Synthetic".into(),

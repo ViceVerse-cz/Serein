@@ -624,8 +624,23 @@ impl Picker {
 		self.image_sharing_enabled && self.reaction.is_none()
 	}
 
-	fn pick(&self, emoji: model::ReactionEmoji, text: String) -> Pick {
-		if self.images()
+	fn shares_emoji(
+		&self,
+		state: &State,
+		emoji: &model::ReactionEmoji,
+		custom: Option<(&model::Guild, &model::CustomEmoji)>,
+	) -> bool {
+		self.images()
+			&& emoji.id.is_some()
+			&& !custom.is_some_and(|(guild, custom)| {
+				self.channel
+					.is_some_and(|channel| state.can_send_custom_emoji(channel, guild.id, custom))
+			})
+	}
+
+	fn pick(&self, state: &State, emoji: model::ReactionEmoji, text: String) -> Pick {
+		let custom = emoji.id.and_then(|id| state.custom_emoji(id));
+		if self.shares_emoji(state, &emoji, custom)
 			&& let Some(id) = emoji.id
 		{
 			return Pick::Image(model::ImageShare::Emoji {
@@ -639,8 +654,24 @@ impl Picker {
 		}
 	}
 
-	fn can_pick(&self, state: &State, emoji: &model::ReactionEmoji) -> bool {
-		if self.images() && emoji.id.is_some() {
+	fn pick_sticker(&self, state: &State, sticker: model::Sticker) -> Pick {
+		if self.images() && !state.can_send_sticker(&sticker) {
+			Pick::Image(model::ImageShare::Sticker {
+				id: sticker.id,
+				format_type: sticker.format_type,
+			})
+		} else {
+			Pick::Sticker(sticker)
+		}
+	}
+
+	fn can_pick(
+		&self,
+		state: &State,
+		emoji: &model::ReactionEmoji,
+		custom: Option<(&model::Guild, &model::CustomEmoji)>,
+	) -> bool {
+		if self.shares_emoji(state, emoji, custom) {
 			return self
 				.channel
 				.is_some_and(|channel| state.can_send(channel) && state.can_attach(channel));
@@ -649,15 +680,16 @@ impl Picker {
 			Some((message, _, _)) => {
 				!state.reactions.busy() && state.can_react(message, Some(emoji), true)
 			}
-			None => emoji.id.is_none_or(|id| {
-				state.custom_emoji(id).is_some_and(|(guild, emoji)| {
-					self.channel.is_some_and(|channel| {
-						state
-							.custom_emoji_unavailable_reason(channel, guild.id, emoji)
-							.is_none()
+			None => {
+				emoji.id.is_none()
+					|| custom.is_some_and(|(guild, emoji)| {
+						self.channel.is_some_and(|channel| {
+							state
+								.custom_emoji_unavailable_reason(channel, guild.id, emoji)
+								.is_none()
+						})
 					})
-				})
-			}),
+			}
 		}
 	}
 
@@ -1020,14 +1052,7 @@ impl Picker {
 										&mut hovered_sticker,
 										image_mode,
 									) {
-										selected = Some(if image_mode {
-											Pick::Image(model::ImageShare::Sticker {
-												id: sticker.id,
-												format_type: sticker.format_type,
-											})
-										} else {
-											Pick::Sticker(sticker)
-										});
+										selected = Some(self.pick_sticker(state, sticker));
 									}
 								},
 							);
@@ -1158,7 +1183,7 @@ impl Picker {
 													ui,
 													crate::emoji::image(ui.ctx(), text, 32.0),
 													name,
-													self.can_pick(state, &emoji),
+													self.can_pick(state, &emoji, None),
 													&colors,
 												);
 												if response.hovered() {
@@ -1169,7 +1194,8 @@ impl Picker {
 													));
 												}
 												if response.clicked() {
-													selected = Some(self.pick(emoji, text.into()));
+													selected =
+														Some(self.pick(state, emoji, text.into()));
 													used = Some(text);
 												}
 											}
@@ -1244,6 +1270,8 @@ impl Picker {
 														for index in
 															(row * columns..count).take(columns)
 														{
+															let custom_emoji =
+																custom.get(state, index);
 															let (
 																image,
 																name,
@@ -1252,7 +1280,7 @@ impl Picker {
 																emoji,
 																text,
 															) = if let Some((guild, emoji)) =
-																custom.get(state, index)
+																custom_emoji
 															{
 																(
 																	avatars.custom_image(
@@ -1294,8 +1322,7 @@ impl Picker {
 																	text.to_owned(),
 																)
 															};
-															let unavailable = custom
-																.get(state, index)
+															let unavailable = custom_emoji
 																.and_then(|(guild, custom)| {
 																	state
 																		.custom_emoji_unavailable_reason(
@@ -1303,8 +1330,11 @@ impl Picker {
 																			custom,
 																		)
 																});
-															let enabled =
-																self.can_pick(state, &emoji);
+															let enabled = self.can_pick(
+																state,
+																&emoji,
+																custom_emoji,
+															);
 															let response = ui
 																.push_id(
 																	(
@@ -1351,8 +1381,9 @@ impl Picker {
 																		.0,
 																	);
 																}
-																selected =
-																	Some(self.pick(emoji, text));
+																selected = Some(
+																	self.pick(state, emoji, text),
+																);
 															}
 														}
 													});
@@ -2124,6 +2155,7 @@ mod tests {
 			let emoji = template.emojis.as_ref().unwrap()[0].clone();
 			state.guilds = (0..guild_count)
 				.map(|guild| model::Guild {
+					default_message_notifications: None,
 					id: Id(template.id.0 + guild),
 					name: format!("Synthetic server {guild}"),
 					icon: None,
@@ -2253,6 +2285,7 @@ mod tests {
 		apply(
 			&mut state,
 			Event::GuildChanged(model::GuildPatch {
+				default_message_notifications: model::Patch::Absent,
 				id: guild,
 				name: model::Patch::Value("Needle server".into()),
 				icon: model::Patch::Absent,
@@ -2333,50 +2366,90 @@ mod tests {
 		state.logout();
 		assert!(cache.update(&state, None, "brand_new"));
 		assert_eq!(cache.len(), 0);
+
+		{
+			let mut state = test_support::demo_state();
+			let emoji = state.guilds[0].emojis.as_ref().unwrap()[0].clone();
+			let mut guild = state.guilds[0].clone();
+			guild.emojis = Some(
+				(1..=CUSTOM_LIMIT)
+					.rev()
+					.map(|id| model::CustomEmoji {
+						id: Id(id as u64),
+						name: format!("emoji_{id}"),
+						..emoji.clone()
+					})
+					.collect(),
+			);
+			let mut second = guild.clone();
+			second.id = Id(guild.id.0 + 1);
+			state.guilds = vec![guild, second];
+			let mut cache = CustomMatches::default();
+			cache.update(&state, None, "emoji");
+			assert_eq!(cache.len(), CUSTOM_LIMIT);
+			assert_eq!(
+				std::mem::size_of_val(cache.entries.as_ref()),
+				CUSTOM_LIMIT * size_of::<(usize, usize)>()
+			);
+			assert_eq!(cache.get(&state, 0).unwrap().1.id, Id(1));
+			assert_eq!(
+				cache.get(&state, CUSTOM_LIMIT - 1).unwrap().1.id,
+				Id(CUSTOM_LIMIT as u64)
+			);
+			let query = "😀".repeat(64);
+			assert!(cache.update(&state, None, &query));
+			assert_eq!(cache.query.len(), 256);
+			assert!(!cache.update(&state, None, &query));
+			assert!(cache.update(&state, None, &"😀".repeat(65)));
+			assert!(cache.query.is_empty());
+			assert!(cache.key.is_none());
+		}
 	}
 
 	#[test]
-	fn custom_match_cache_bounds_results_and_retained_query_bytes() {
+	fn resolved_custom_emoji_eligibility_preserves_native_and_fallback_permissions() {
 		let mut state = test_support::demo_state();
-		let emoji = state.guilds[0].emojis.as_ref().unwrap()[0].clone();
-		let mut guild = state.guilds[0].clone();
-		guild.emojis = Some(
-			(1..=CUSTOM_LIMIT)
-				.rev()
-				.map(|id| model::CustomEmoji {
-					id: Id(id as u64),
-					name: format!("emoji_{id}"),
-					..emoji.clone()
-				})
-				.collect(),
-		);
-		let mut second = guild.clone();
-		second.id = Id(guild.id.0 + 1);
-		state.guilds = vec![guild, second];
-		let mut cache = CustomMatches::default();
-		cache.update(&state, None, "emoji");
-		assert_eq!(cache.len(), CUSTOM_LIMIT);
-		assert_eq!(
-			std::mem::size_of_val(cache.entries.as_ref()),
-			CUSTOM_LIMIT * size_of::<(usize, usize)>()
-		);
-		assert_eq!(cache.get(&state, 0).unwrap().1.id, Id(1));
-		assert_eq!(
-			cache.get(&state, CUSTOM_LIMIT - 1).unwrap().1.id,
-			Id(CUSTOM_LIMIT as u64)
-		);
-		let query = "😀".repeat(64);
-		assert!(cache.update(&state, None, &query));
-		assert_eq!(cache.query.len(), 256);
-		assert!(!cache.update(&state, None, &query));
-		assert!(cache.update(&state, None, &"😀".repeat(65)));
-		assert!(cache.query.is_empty());
-		assert!(cache.key.is_none());
+		let mut picker = Picker {
+			channel: state.selected,
+			image_sharing_enabled: true,
+			..Default::default()
+		};
+		let guild = state.guilds[0].id;
+		let mut matches = CustomMatches::default();
+		matches.update(&state, Some(guild), "serein_party");
+		let (source, custom) = matches.get(&state, 0).unwrap();
+		let emoji = model::ReactionEmoji {
+			id: Some(custom.id),
+			name: Some(custom.name.clone()),
+		};
+		assert!(picker.can_pick(&state, &emoji, Some((source, custom))));
+		assert!(!picker.shares_emoji(&state, &emoji, Some((source, custom))));
+		// Eligibility uses the resolved entry, not another ID search of the catalog.
+		let mut unavailable = custom.clone();
+		unavailable.available = false;
+		assert!(picker.can_pick(&state, &emoji, Some((source, &unavailable))));
+		assert!(picker.shares_emoji(&state, &emoji, Some((source, &unavailable))));
+		picker.image_sharing_enabled = false;
+		assert!(!picker.can_pick(&state, &emoji, Some((source, &unavailable))));
+		picker.image_sharing_enabled = true;
+		state
+			.permissions
+			.guilds
+			.get_mut(&guild)
+			.unwrap()
+			.roles
+			.as_mut()
+			.unwrap()[0]
+			.bits &= !model::permissions::ATTACH_FILES;
+		state.permissions.clear_cache();
+		let (source, custom) = matches.get(&state, 0).unwrap();
+		assert!(!picker.can_pick(&state, &emoji, Some((source, &unavailable))));
+		assert!(picker.can_pick(&state, &emoji, Some((source, custom))));
 	}
 
 	#[test]
 	fn image_sharing_requires_enabled_plugin_and_never_changes_reactions() {
-		let state = test_support::demo_state();
+		let mut state = test_support::demo_state();
 		let mut picker = Picker {
 			channel: state.selected,
 			image_sharing_enabled: true,
@@ -2386,25 +2459,64 @@ mod tests {
 			id: Some(Id(999)),
 			name: Some("wave".into()),
 		};
-		assert!(picker.can_pick(&state, &emoji));
+		assert!(picker.can_pick(&state, &emoji, None));
 		assert!(matches!(
-			picker.pick(emoji.clone(), "<a:wave:999>".into()),
+			picker.pick(&state, emoji.clone(), "<a:wave:999>".into()),
 			Pick::Image(model::ImageShare::Emoji {
 				id: Id(999),
 				animated: true
 			})
 		));
 		picker.image_sharing_enabled = false;
-		assert!(!picker.can_pick(&state, &emoji));
+		assert!(!picker.can_pick(&state, &emoji, None));
 		assert!(matches!(
-			picker.pick(emoji.clone(), "<a:wave:999>".into()),
+			picker.pick(&state, emoji.clone(), "<a:wave:999>".into()),
 			Pick::Insert(_)
 		));
 		picker.image_sharing_enabled = true;
 		picker.reaction = Some((Id(500), egui::Rect::NOTHING, egui::Id::unique("reaction")));
 		assert!(matches!(
-			picker.pick(emoji, "<a:wave:999>".into()),
+			picker.pick(&state, emoji, "<a:wave:999>".into()),
 			Pick::React(Id(500), _)
+		));
+
+		picker.reaction = None;
+		let local = model::ReactionEmoji {
+			id: Some(Id(9002)),
+			name: Some("serein_party".into()),
+		};
+		assert!(matches!(
+			picker.pick(&state, local.clone(), "<a:serein_party:9002>".into()),
+			Pick::Insert(_)
+		));
+		state.selected = Some(Id(22));
+		picker.channel = state.selected;
+		assert!(matches!(
+			picker.pick(&state, local.clone(), "<a:serein_party:9002>".into()),
+			Pick::Image(model::ImageShare::Emoji { id: Id(9002), .. })
+		));
+		state.stickers.external_allowed = true;
+		assert!(matches!(
+			picker.pick(&state, local, "<a:serein_party:9002>".into()),
+			Pick::Insert(_)
+		));
+
+		test_support::seed_stickers(&mut state);
+		let standard = state.stickers.packs[0].stickers[0].clone();
+		assert!(matches!(
+			picker.pick_sticker(&state, standard),
+			Pick::Sticker(_)
+		));
+		let external = state.guilds[0].stickers.as_ref().unwrap()[0].clone();
+		state.stickers.external_allowed = false;
+		assert!(matches!(
+			picker.pick_sticker(&state, external.clone()),
+			Pick::Image(model::ImageShare::Sticker { .. })
+		));
+		state.stickers.external_allowed = true;
+		assert!(matches!(
+			picker.pick_sticker(&state, external),
+			Pick::Sticker(_)
 		));
 	}
 
@@ -2507,7 +2619,8 @@ mod tests {
 			&model::ReactionEmoji {
 				id: None,
 				name: Some("🚀".into())
-			}
+			},
+			None,
 		));
 		state.selected = Some(Id(21));
 		frame(&mut picker, &mut state, &mut avatars, vec![]);
@@ -2667,24 +2780,17 @@ mod tests {
 					break;
 				}
 			}
-			if images {
-				assert!(matches!(
-					picked,
-					Some(Pick::Image(model::ImageShare::Sticker { id: Id(9201), .. }))
-				));
-			} else {
-				let Some(Pick::Sticker(sticker)) = picked else {
-					panic!("keyboard sticker selection");
-				};
-				assert_eq!(sticker.name, "Sleep");
-				assert!(matches!(
-					state.prepare_sticker_send(&sticker),
-					Some(Command::Send {
-						sticker: Some(Id(9201)),
-						..
-					})
-				));
-			}
+			let Some(Pick::Sticker(sticker)) = picked else {
+				panic!("keyboard sticker selection");
+			};
+			assert_eq!(sticker.name, "Sleep");
+			assert!(matches!(
+				state.prepare_sticker_send(&sticker),
+				Some(Command::Send {
+					sticker: Some(Id(9201)),
+					..
+				})
+			));
 			assert_eq!(state.drafts[&channel], "Keep my draft");
 			assert!(!picker.open);
 			state.generation += 1;
@@ -2795,23 +2901,6 @@ mod tests {
 	}
 
 	#[test]
-	fn completed_shortcode_becomes_unicode_at_the_caret() {
-		let mut draft = "look :eyes: here :pray:".to_owned();
-		assert_eq!(complete_shortcode(&mut draft, 11, 0), Some(6));
-		assert_eq!(draft, "look 👀 here :pray:");
-		assert_eq!(complete_shortcode(&mut draft, 18, 0), Some(13));
-		assert_eq!(draft, "look 👀 here 🙏");
-		let mut alias = ":folded_hands:".to_owned();
-		assert_eq!(complete_shortcode(&mut alias, 14, 0), Some(1));
-		assert_eq!(alias, "🙏");
-		for literal in ["word:eyes:", "https:", "<:eyes:", ":unknown:"] {
-			let mut draft = literal.to_owned();
-			let cursor = draft.chars().count();
-			assert_eq!(complete_shortcode(&mut draft, cursor, 0), None);
-		}
-	}
-
-	#[test]
 	fn palette_search_preserves_complete_sequences_and_is_bounded() {
 		let atlas = include_str!("../../../assets/twemoji/index.tsv");
 		let atlas: std::collections::BTreeSet<_> = atlas
@@ -2850,6 +2939,7 @@ mod tests {
 	fn server_grid_only_requests_visible_images_and_resets_on_navigation() {
 		let mut state = State {
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(1),
 				name: "Synthetic server".into(),

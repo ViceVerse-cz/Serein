@@ -160,9 +160,11 @@ The existing on-by-default tray preference is reused; demo changes are session-o
 **Hyprland / native Wayland:** winit cannot hide, unhide, focus or unminimize a native
 Wayland window. On Hyprland, Close and tray Minimize instead park Serein on
 `special:serein-tray` through the compositor socket; Show moves it to the active
-workspace. This uses `hl.dsp.window.move` with `follow = false`, accepting the new
-workspace `address` or legacy numeric `id`. Older dispatchers fall back to
-`movetoworkspacesilent`. Workspace names are bounded and escaped before Lua dispatch.
+workspace. This first uses `movetoworkspacesilent` with the numeric workspace `id`
+for restoration or the named special workspace for hiding. A compositor rejection
+falls back to `hl.dsp.window.move` with `follow = false`, preserving the workspace
+`address` when supplied, otherwise its numeric `id`. Transport failures are not
+retried. Workspace names are bounded and escaped before Lua dispatch.
 Other Wayland compositors receive minimize/restore requests and may require their
 own window controls; the KDE tray restoration report remains unresolved. Native Wayland remains the default on Wayland sessions, with no
 application-level XWayland fallback or backend override.
@@ -257,6 +259,12 @@ Native packages declare the PipeWire and Base runtime plugins; hardware codec av
 still depends on distribution packaging and drivers. The software fallback reuses bundled
 OpenH264. Flatpak needs compatible plugins/GPU access inside its runtime; no extra sandbox
 permission or host socket access is added. Native Linux validation remains pending.
+
+Niri portal capture normalizes frame timestamps at arrival before frame-rate filtering,
+including on Niri 26.04 where presentation timestamps remain constant. This preserves
+the existing VA-API/NVENC/OpenH264 selection and bounded buffers. Other desktops and
+native X11 retain their existing timestamp handling. The offline `linux_screen --niri-timestamps` regression is synthetic; native capture and Discord delivery remain
+unverified. See [the screen-sharing checks](voice.md) for build/run commands.
 
 Screen sharing also tries the legacy `vaapih264enc` element when modern VA encoding
 fails. This optional system plugin uses CPU scaling and hardware H.264 encoding;

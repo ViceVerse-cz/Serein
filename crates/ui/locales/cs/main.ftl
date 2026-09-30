@@ -167,6 +167,7 @@ account-badge-bot = BOT
 # Context: name
 account-badge-bot-description = Bot účet
 # Context: name
+account-badge-verified-bot-description = Ověřený bot účet
 account-badge-webhook = WEBHOOK
 # Context: name
 account-badge-webhook-description = Autor webhooku
@@ -934,6 +935,7 @@ extensions-ui-preview-modal-creator-preview = Náhled tvůrce
 extensions-ui-preview-modal-example-deleted-message-appearance = Příklad vzhledu smazané zprávy
 # Context: preview_modal
 extensions-ui-preview-modal-selecting-artwork-sends-it-as-an-image-attachment = Výběrem kresby se odešle jako obrazová příloha.
+extensions-ui-preview-modal-unavailable-artwork-falls-back-to-images = Nedostupné emoji a samolepky se místo toho odešlou jako obrázkové přílohy.
 # Context: settings
 extensions-ui-settings-no-extensions-yet = Zatím žádná rozšíření
 # Context: settings
@@ -1499,7 +1501,7 @@ join-server-show-join-enter-an-invite-below-to-join-an-existing-server = Níže 
 # Context: show_join
 join-server-show-join-join-a-server = Připojte se k serveru
 # Context: body
-join-server-status-invite-accepted = Pozvánka přijata. Čekání na přístup k serveru; vyplňte všechna pravidla serveru v Discordu.
+join-server-status-invite-accepted = Pozvánka přijata. Čekání na přístup k serveru.
 # Context: body
 join-server-status-offline-preview = Offline náhled — připojení k serverům je zakázáno.
 
@@ -1621,6 +1623,7 @@ main-sign-in-header-welcome-back = Vítejte zpět
 # Context: sign_in_header
 main-sign-in-header-welcome-to-serein = Vítejte v destinaci Serein
 # Context: sign_in_preview
+main-sign-in-status-copy-failure-details = Kopírovat podrobnosti o chybě
 main-sign-in-preview-explore-the-offline-preview = Prozkoumejte offline náhled
 # Context: sign_in_preview
 main-sign-in-preview-sample-conversations-no-discord-connection = Ukázkové rozhovory. Žádné připojení Discord.
@@ -3600,6 +3603,8 @@ timeline-show-system-see-all = . Zobrazit vše
 # Context: show_with_scroll
 timeline-show-with-scroll-application-interaction-pending = Čeká se na interakci s aplikací…
 # Context: show_with_scroll
+timeline-show-with-scroll-click-to-see-attachment = Kliknutím zobrazíte přílohu
+# Context: show_with_scroll
 timeline-show-with-scroll-deleted-message-had-no-text = [Smazaná zpráva neobsahovala žádný text]
 # Context: show_with_scroll
 timeline-show-with-scroll-dismiss-message = Zavřít zprávu
@@ -4086,3 +4091,84 @@ server-integrations-count-one-linked-webhook = { $count } propojený webhook
 server-integrations-count-many-linked-webhooks = Propojené webhooky: { $count }
 server-invites-revoke-title = Zrušit pozvánku?
 server-invites-revoke-message = Pomocí discord.gg/{ $code } se už k tomuto serveru nepůjde připojit.
+server-notifications-title = Nastavení oznámení
+server-notifications-default = Použít výchozí nastavení serveru
+server-notifications-default-all = Aktuálně: všechny zprávy
+server-notifications-default-mentions = Aktuálně: pouze zmínky
+server-notifications-default-unknown = Výchozí nastavení serveru není dostupné
+server-notifications-all = Všechny zprávy
+server-notifications-mentions = Pouze zmínky
+server-notifications-nothing = Nic
+server-notifications-mute = Ztlumit server
+server-notifications-everyone = Potlačit @everyone a @here
+server-notifications-roles = Potlačit zmínky rolí
+server-notifications-overrides = Výjimky oznámení pro kanály stále platí. Ztlumení zůstane zapnuté, dokud ho nevypnete.
+server-notifications-unknown = Některá nastavení nejsou dostupná. Uložením se změní pouze možnosti, které vyberete.
+server-notifications-offline = Pro změnu nastavení oznámení se znovu připojte.
+server-notifications-save = Uložit změny
+server-notifications-saving = Ukládání…
+
+search-page-label = Stránka
+search-page-previous = Předchozí stránka
+search-page-next = Další stránka
+search-page-go = Přejít na stránku
+search-page-retry = Zkusit stránku znovu
+search-header-input-search-in = Hledat v { $name }
+search-open-filters-in-a-specific-channel = V konkrétním kanálu
+search-open-filters-in-channel = v: kanál
+search-overlays-in-channel = V kanálu
+search-overlays-no-matching-channels = Žádné odpovídající kanály.
+search-filters-channel-picker-choose-a-channel = Vyberte kanál
+search-filters-channel-picker-search-channels = Hledat kanály
+search-page-previous-short = Předchozí
+search-page-next-short = Další
+search-result-today-at = Dnes v { $time }
+search-result-yesterday-at = Včera v { $time }
+timeline-unread-banner-one-new-since = 1 nová zpráva od { $time }
+timeline-unread-banner-many-new-since = Nové zprávy od { $time }: { $count }
+
+## crates/ui/src/onboarding.rs
+# Context: show
+onboarding-show-title = Vítej na serveru { $server }
+# Context: show
+onboarding-show-subtitle = Odpověz na pár otázek a přijmi pravidla, abys mohl(a) začít psát.
+# Context: show
+onboarding-show-try-again = Zkusit znovu
+# Context: show
+onboarding-show-close = Zavřít
+# Context: show
+onboarding-show-please-wait = Počkej prosím…
+# Context: show
+onboarding-show-finish = Dokončit
+# Context: show
+onboarding-show-not-now = Teď ne
+# Context: show
+onboarding-show-this-server = tento server
+# Context: body
+onboarding-body-submitted = Žádost odeslána. Moderátor ji posoudí; psát budeš moct po schválení.
+# Context: body
+onboarding-body-rejected = Tento server žádost zamítl.
+# Context: body
+onboarding-body-loading = Načítání uvítání serveru…
+# Context: body
+onboarding-body-all-set = Vše hotovo. Tady už nic nezbývá doplnit.
+# Context: prompt
+onboarding-prompt-pick-one = Vyber jednu možnost
+# Context: prompt
+onboarding-prompt-pick-any = Vyber všechny, které platí
+# Context: rules
+onboarding-rules-heading = Pravidla serveru
+# Context: rules
+onboarding-rules-review = Než budeš moct psát, moderátor tyto odpovědi zkontroluje.
+# Context: field
+onboarding-field-unsupported = Tento server klade otázku, kterou Serein zatím neumí zobrazit. Dokonči připojení v aplikaci Discord.
+# Context: field
+onboarding-field-agree = Přečetl(a) jsem si pravidla a souhlasím s nimi
+
+## crates/ui/src/lib.rs
+# Context: composer
+lib-composer-onboarding-rules-pending = Přijmi pravidla tohoto serveru, abys mohl(a) začít psát.
+# Context: composer
+lib-composer-onboarding-incomplete = Dokonči připojení k serveru a odemkni další kanály.
+# Context: composer
+lib-composer-onboarding-complete = Dokončit uvítání

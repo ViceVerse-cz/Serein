@@ -677,6 +677,9 @@ impl State {
 					p::SEND_MESSAGES
 				};
 				self.permission(channel, p::VIEW_CHANNEL | send) == Some(true)
+					&& !c
+						.guild
+						.is_some_and(|guild| self.verification_pending(guild))
 			})
 	}
 
@@ -700,6 +703,12 @@ impl State {
 				.find(|emoji| emoji.id == id)
 				.map(|emoji| (guild, emoji))
 		})
+	}
+	pub fn can_send_custom_emoji(&self, channel: Id, source: Id, emoji: &CustomEmoji) -> bool {
+		self.custom_emoji_unavailable_reason(channel, source, emoji)
+			.is_none()
+			&& (self.stickers.external_allowed
+				|| self.channel(channel).and_then(|target| target.guild) == Some(source))
 	}
 	/// Local eligibility for an emoji borrowed from `source`'s catalog. Discord still
 	/// decides account entitlements, including Nitro; this is not a send guarantee.

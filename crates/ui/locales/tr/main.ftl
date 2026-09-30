@@ -171,6 +171,8 @@ account-badge-webhook = web kancası
 # Context: name
 account-badge-webhook-description = Web kancası yazarı
 
+account-badge-verified-bot-description = Doğrulanmış bot hesabı
+
 ## crates/ui/src/account_menu.rs
 # Context: account_identity_card
 account-menu-account-identity-card-loading-profile = Profil yükleniyor…
@@ -934,6 +936,7 @@ extensions-ui-preview-modal-creator-preview = Yaratıcı önizlemesi
 extensions-ui-preview-modal-example-deleted-message-appearance = Örnek silinmiş mesaj görünümü
 # Context: preview_modal
 extensions-ui-preview-modal-selecting-artwork-sends-it-as-an-image-attachment = Resim seçildiğinde resim eki olarak gönderilir.
+extensions-ui-preview-modal-unavailable-artwork-falls-back-to-images = Kullanılamayan emojiler ve çıkartmalar bunun yerine resim eki olarak gönderilir.
 # Context: settings
 extensions-ui-settings-no-extensions-yet = Henüz uzantı yok
 # Context: settings
@@ -1499,7 +1502,7 @@ join-server-show-join-enter-an-invite-below-to-join-an-existing-server = Mevcut 
 # Context: show_join
 join-server-show-join-join-a-server = Bir Sunucuya Katılın
 # Context: body
-join-server-status-invite-accepted = Davet kabul edildi. Sunucu erişimi bekleniyor; Discord'daki tüm sunucu kurallarını tamamlayın.
+join-server-status-invite-accepted = Davet kabul edildi. Sunucu erişimi bekleniyor.
 # Context: body
 join-server-status-offline-preview = Çevrimdışı önizleme — sunuculara katılma devre dışı bırakıldı.
 
@@ -1621,6 +1624,7 @@ main-sign-in-header-welcome-back = tekrar hoşgeldiniz
 # Context: sign_in_header
 main-sign-in-header-welcome-to-serein = Serein'e hoş geldiniz
 # Context: sign_in_preview
+main-sign-in-status-copy-failure-details = Hata ayrıntılarını kopyala
 main-sign-in-preview-explore-the-offline-preview = Çevrimdışı önizlemeyi keşfedin
 # Context: sign_in_preview
 main-sign-in-preview-sample-conversations-no-discord-connection = Örnek konuşmalar. Discord bağlantısı yok.
@@ -3600,6 +3604,8 @@ timeline-show-system-see-all = . Tümünü gör
 # Context: show_with_scroll
 timeline-show-with-scroll-application-interaction-pending = Uygulama etkileşimi bekleniyor…
 # Context: show_with_scroll
+timeline-show-with-scroll-click-to-see-attachment = Eki görmek için tıkla
+# Context: show_with_scroll
 timeline-show-with-scroll-deleted-message-had-no-text = [Silinen mesajda metin yoktu]
 # Context: show_with_scroll
 timeline-show-with-scroll-dismiss-message = Mesajı kapat
@@ -4086,3 +4092,68 @@ server-integrations-count-one-linked-webhook = { $count } bağlı webhook
 server-integrations-count-many-linked-webhooks = { $count } bağlı webhook
 server-invites-revoke-title = Davet iptal edilsin mi?
 server-invites-revoke-message = discord.gg/{ $code } ile bu sunucuya artık katılınamayacak.
+
+search-page-label = Sayfa
+search-page-previous = Önceki sayfa
+search-page-next = Sonraki sayfa
+search-page-go = Sayfaya git
+search-page-retry = Sayfayı yeniden dene
+search-header-input-search-in = { $name } içinde ara
+search-open-filters-in-a-specific-channel = Belirli bir kanalda
+search-open-filters-in-channel = içinde: kanal
+search-overlays-in-channel = Kanalda
+search-overlays-no-matching-channels = Eşleşen kanal yok.
+search-filters-channel-picker-choose-a-channel = Bir kanal seç
+search-filters-channel-picker-search-channels = Kanallarda ara
+search-page-previous-short = Önceki
+search-page-next-short = Sonraki
+search-result-today-at = Bugün { $time }
+search-result-yesterday-at = Dün { $time }
+timeline-unread-banner-one-new-since = { $time } itibarıyla 1 yeni mesaj
+timeline-unread-banner-many-new-since = { $time } itibarıyla { $count } yeni mesaj
+
+## crates/ui/src/onboarding.rs
+# Context: show
+onboarding-show-title = { $server } sunucusuna hoş geldin
+# Context: show
+onboarding-show-subtitle = Sohbete başlamak için birkaç soruyu yanıtla ve kuralları kabul et.
+# Context: show
+onboarding-show-try-again = Tekrar dene
+# Context: show
+onboarding-show-close = Kapat
+# Context: show
+onboarding-show-please-wait = Lütfen bekle…
+# Context: show
+onboarding-show-finish = Bitir
+# Context: show
+onboarding-show-not-now = Şimdi değil
+# Context: show
+onboarding-show-this-server = bu sunucu
+# Context: body
+onboarding-body-submitted = Başvuru gönderildi. Bir moderatör inceleyecek; onaylandığında sohbet edebilirsin.
+# Context: body
+onboarding-body-rejected = Bu sunucu başvuruyu reddetti.
+# Context: body
+onboarding-body-loading = Sunucu tanıtımı yükleniyor…
+# Context: body
+onboarding-body-all-set = Her şey hazır. Burada tamamlanacak bir şey kalmadı.
+# Context: prompt
+onboarding-prompt-pick-one = Birini seç
+# Context: prompt
+onboarding-prompt-pick-any = Uygun olanların hepsini seç
+# Context: rules
+onboarding-rules-heading = Sunucu kuralları
+# Context: rules
+onboarding-rules-review = Sohbet edebilmen için bir moderatör bu yanıtları inceler.
+# Context: field
+onboarding-field-unsupported = Bu sunucu, Serein'in henüz gösteremediği bir soru soruyor. Katılımı Discord uygulamasında tamamla.
+# Context: field
+onboarding-field-agree = Kuralları okudum ve kabul ediyorum
+
+## crates/ui/src/lib.rs
+# Context: composer
+lib-composer-onboarding-rules-pending = Sohbete başlamak için bu sunucunun kurallarını kabul et.
+# Context: composer
+lib-composer-onboarding-incomplete = Daha fazla kanalın kilidini açmak için sunucuya katılımı tamamla.
+# Context: composer
+lib-composer-onboarding-complete = Tanıtımı tamamla

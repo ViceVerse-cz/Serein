@@ -21,6 +21,7 @@ fn ready() -> Event {
 	Event::Ready {
 		user: user(),
 		guilds: vec![Guild {
+			default_message_notifications: None,
 			stickers: None,
 			id: Id(10),
 			name: "Synthetic".into(),

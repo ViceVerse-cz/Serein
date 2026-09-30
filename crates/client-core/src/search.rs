@@ -6,14 +6,31 @@ use model::{Freshness, Id, SearchPage};
 
 pub struct SearchView {
 	pub pins: bool,
+	/// Conversation the search was started from; results route back to it.
 	pub channel: Id,
+	/// Server-wide text searches keep their results while the selection stays in this server.
+	pub guild: Option<Id>,
 	pub query: String,
 	pub before: Option<Id>,
+	pub offset: u32,
+	/// Retained during navigation and failures without retaining previous result pages.
+	pub total: Option<u64>,
 	pub pin_before: Option<i128>,
 	pub request: u64,
 	pub loading: bool,
 	pub error: Option<&'static str>,
 	pub page: Option<SearchPage>,
+}
+impl SearchView {
+	pub fn page_count(&self) -> u32 {
+		self.total
+			.unwrap_or(0)
+			.div_ceil(model::SEARCH_PAGE_SIZE as u64)
+			.clamp(
+				1,
+				u64::from(model::MAX_SEARCH_OFFSET) / model::SEARCH_PAGE_SIZE as u64 + 1,
+			) as u32
+	}
 }
 pub enum Outcome {
 	Page(SearchPage),
@@ -49,8 +66,11 @@ impl State {
 		self.search = Some(SearchView {
 			pins: false,
 			channel,
+			guild,
 			query: query.clone(),
 			before,
+			offset: 0,
+			total: None,
 			pin_before: None,
 			request: self.search_request,
 			loading: true,
@@ -62,7 +82,39 @@ impl State {
 			guild,
 			query,
 			before,
+			offset: 0,
 			request: self.search_request,
+		})
+	}
+	/// Select a zero-based page within the original query and cursor scope.
+	pub fn request_search_page(&mut self, page: u32) -> Option<Command> {
+		if !self.can_search() {
+			return None;
+		}
+		let view = self.search.as_ref()?;
+		if view.pins || view.loading || !self.search_in_scope(view) || page >= view.page_count() {
+			return None;
+		}
+		let offset = page.checked_mul(model::SEARCH_PAGE_SIZE as u32)?;
+		if offset > model::MAX_SEARCH_OFFSET {
+			return None;
+		}
+		let guild = view.guild;
+		self.search_request = self.search_request.wrapping_add(1);
+		self.archives = None;
+		let view = self.search.as_mut()?;
+		view.offset = offset;
+		view.request = self.search_request;
+		view.loading = true;
+		view.error = None;
+		view.page = None;
+		Some(Command::Search {
+			channel: view.channel,
+			guild,
+			query: view.query.clone(),
+			before: view.before,
+			offset,
+			request: view.request,
 		})
 	}
 	pub fn request_pins(&mut self) -> Option<Command> {
@@ -90,8 +142,11 @@ impl State {
 		self.search = Some(SearchView {
 			pins: true,
 			channel,
+			guild: None,
 			query: String::new(),
 			before: None,
+			offset: 0,
+			total: None,
 			pin_before: before,
 			request: self.search_request,
 			loading: true,
@@ -118,19 +173,26 @@ impl State {
 			self.fail(*f);
 			return;
 		}
-		if !self.can_search() {
+		if !self.can_search()
+			|| !self
+				.search
+				.as_ref()
+				.is_some_and(|view| self.search_in_scope(view))
+		{
 			return;
 		}
-		let Some(view) = self.search.as_mut().filter(|s| {
-			s.channel == channel
-				&& s.request == request
-				&& s.loading && Some(channel) == self.selected
-		}) else {
+		let Some(view) = self
+			.search
+			.as_mut()
+			.filter(|s| s.channel == channel && s.request == request && s.loading)
+		else {
 			return;
 		};
 		view.loading = false;
+		let scope = view.guild.is_none().then_some(channel);
 		match result {
-			Ok(Outcome::Page(page)) if !view.pins && page.valid(channel, view.before) => {
+			Ok(Outcome::Page(page)) if !view.pins && page.valid(scope, view.before) => {
+				view.total = Some(page.total);
 				view.page = Some(page);
 				view.error = None;
 			}
@@ -154,19 +216,43 @@ impl State {
 			Err(f) => view.error = Some(f.label()),
 		}
 	}
+	/// Server-wide results stay valid while the selection remains in the searched server.
+	fn search_in_scope(&self, view: &SearchView) -> bool {
+		Some(view.channel) == self.selected
+			|| view.guild.is_some_and(|guild| {
+				!view.pins
+					&& self
+						.selected
+						.and_then(|id| self.channel(id))
+						.is_some_and(|channel| channel.guild == Some(guild))
+			})
+	}
 	pub fn open_search_hit(&mut self, message: Id) -> Option<Command> {
-		if !self.can_search()
-			|| !self
-				.search
-				.as_ref()?
-				.page
-				.as_ref()?
-				.hits
-				.iter()
-				.any(|h| h.id == message && Some(h.channel) == self.selected)
-		{
+		if !self.can_search() {
 			return None;
 		}
-		self.open_target_window(message)
+		let view = self.search.as_ref()?;
+		if !self.search_in_scope(view) {
+			return None;
+		}
+		let channel = view
+			.page
+			.as_ref()?
+			.hits
+			.iter()
+			.find(|h| h.id == message)?
+			.channel;
+		if Some(channel) == self.selected {
+			return self.open_target_window(message);
+		}
+		let guild = view.guild?;
+		// Opening another channel clears search; keep the results beside it like Discord does.
+		let view = self.search.take();
+		let result = self.open_chat_link(Some(guild), channel, Some(message));
+		self.search = view;
+		result.unwrap_or_else(|status| {
+			self.status = status;
+			None
+		})
 	}
 }

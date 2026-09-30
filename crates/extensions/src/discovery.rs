@@ -14,6 +14,8 @@ impl HostInfo {
 			api_version: crate::API_VERSION,
 			sdk_revision: 1,
 			capabilities: &[
+				Capability::ApiProxy,
+				Capability::RichPresence,
 				Capability::ActionFeedback,
 				Capability::DataQueries,
 				Capability::MessagingSettings,

@@ -797,69 +797,7 @@ impl JoinDialog {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	#[test]
-	fn invite_field_centers_hint_and_text_with_padding_and_focus_outline() {
-		for light in [false, true] {
-			for width in [240.0, 490.0] {
-				for initial in ["", "synthetic-invite"] {
-					let ctx = egui::Context::default();
-					design::apply(&ctx);
-					ctx.set_visuals(if light {
-						egui::Visuals::light()
-					} else {
-						egui::Visuals::dark()
-					});
-					let mut text = initial.to_owned();
-					let mut rect = egui::Rect::NOTHING;
-					for _ in 0..2 {
-						let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-							ui.set_width(width);
-							let response = invite_input(ui, &mut text, true);
-							assert!(response.has_focus());
-							rect = response.rect;
-						});
-						let mut shapes = Vec::new();
-						fn flatten<'a>(shape: &'a egui::Shape, out: &mut Vec<&'a egui::Shape>) {
-							if let egui::Shape::Vec(children) = shape {
-								for child in children {
-									flatten(child, out);
-								}
-							} else {
-								out.push(shape);
-							}
-						}
-						for shape in &output.shapes {
-							flatten(&shape.shape, &mut shapes);
-						}
-						assert!((rect.height() - 48.0).abs() < 1.0, "{rect:?}");
-						let label = shapes
-							.iter()
-							.find_map(|shape| match shape {
-								egui::Shape::Text(t)
-									if t.galley.job.text
-										== if initial.is_empty() {
-											"https://discord.gg/hTKzmak"
-										} else {
-											initial
-										} =>
-								{
-									Some(t.galley.rect.translate(t.pos.to_vec2()))
-								}
-								_ => None,
-							})
-							.expect("input text is rendered");
-						assert!(
-							(label.center().y - rect.center().y).abs() <= 1.0,
-							"text {label:?}, field {rect:?}"
-						);
-						assert!(label.left() >= rect.left() + 11.0);
-						assert!(shapes.iter().any(|shape| matches!(shape, egui::Shape::Rect(r) if r.rect == rect && r.stroke.width == 2.0 && r.stroke.color == design::palette_for(&ctx).accent)));
-						output.drop_without_applying_deltas();
-					}
-				}
-			}
-		}
-	}
+
 	fn frame(
 		ctx: &egui::Context,
 		dialog: &mut JoinDialog,

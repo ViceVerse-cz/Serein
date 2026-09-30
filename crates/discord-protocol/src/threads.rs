@@ -220,7 +220,15 @@ mod tests {
 			let mut invalid = base.clone();
 			invalid["guilds"][0]["threads"][0][key] = value.into();
 			let mut ready: Ready = decode(&serde_json::to_vec(&invalid).unwrap()).unwrap();
-			assert!(ready.navigation().is_err());
+			let (_, channels) = ready.navigation().unwrap();
+			assert!(
+				ready.skipped,
+				"A conflicting thread is dropped, never merged"
+			);
+			assert_eq!(
+				channels.iter().map(|c| c.id).collect::<Vec<_>>(),
+				vec![Id(2)]
+			);
 		}
 	}
 }

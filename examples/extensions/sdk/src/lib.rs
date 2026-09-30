@@ -16,6 +16,8 @@ pub use serde_json;
 use std::{collections::BTreeMap, fmt, io, str::FromStr};
 mod discovery;
 pub use discovery::*;
+mod rich_presence;
+pub use rich_presence::*;
 mod conversation_activity;
 pub use conversation_activity::*;
 mod message_content;
@@ -53,6 +55,16 @@ pub struct Invocation {
 	pub storage: Option<String>,
 	#[serde(default)]
 	pub values: BTreeMap<String, String>,
+}
+
+/// Opt-in scheduled appearance context, preserving the original `Invocation` API.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TickInvocation {
+	#[serde(flatten)]
+	pub invocation: Invocation,
+	/// Set only for a `tick` action; panel actions decoded by the same handler receive `None`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub tick_ms: Option<u64>,
 }
 
 /// Opt-in message-event context, preserving the original `Invocation` struct literal API.
@@ -139,6 +151,9 @@ impl Output {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Element {
+	ActivityPreview {
+		presence: Box<CustomRichPresence>,
+	},
 	Text {
 		text: String,
 	},
@@ -408,4 +423,83 @@ pub struct ThemeStyle {
 	pub window_radius: Option<u8>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub menu_radius: Option<u8>,
+}
+
+/// Connection-scoped REST API routing. No credentials or account data are exposed.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ApiProxyConfig {
+	#[default]
+	Direct,
+	Automatic,
+	Url {
+		url: String,
+	},
+}
+
+impl<'de> Deserialize<'de> for ApiProxyConfig {
+	fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+		#[derive(Deserialize)]
+		#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
+		enum Wire {
+			Direct {},
+			Automatic {},
+			Url { url: String },
+		}
+		Ok(match Wire::deserialize(deserializer)? {
+			Wire::Direct {} => Self::Direct,
+			Wire::Automatic {} => Self::Automatic,
+			Wire::Url { url } => Self::Url { url },
+		})
+	}
+}
+impl ApiProxyConfig {
+	pub fn validate(&self) -> Result<(), &'static str> {
+		if let Self::Url { url } = self {
+			if url.contains('@')
+				|| url.contains('\\')
+				|| url.len() > 2048
+				|| url
+					.chars()
+					.any(|c| c.is_control() || c.is_ascii_whitespace())
+			{
+				return Err("Invalid proxy URL");
+			}
+			let authority = url
+				.split_once("://")
+				.map(|(_, tail)| tail)
+				.ok_or("Use an HTTP or HTTPS proxy origin")?;
+			if authority
+				.strip_suffix('/')
+				.unwrap_or(authority)
+				.contains('/')
+			{
+				return Err("Use an HTTP or HTTPS proxy origin");
+			}
+			let parsed = url::Url::parse(url).map_err(|_| "Invalid proxy URL")?;
+			if !matches!(parsed.scheme(), "http" | "https")
+				|| parsed.host_str().is_none()
+				|| !parsed.username().is_empty()
+				|| parsed.password().is_some()
+				|| parsed.path() != "/"
+				|| parsed.query().is_some()
+				|| parsed.fragment().is_some()
+			{
+				return Err(
+					"Use an HTTP or HTTPS proxy origin without credentials, path, query or fragment",
+				);
+			}
+		}
+		Ok(())
+	}
+}
+
+/// REST proxy contribution without changing the legacy `Output` struct literal.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ApiProxyOutput {
+	#[serde(flatten)]
+	pub output: Output,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub api_proxy: Option<ApiProxyConfig>,
 }

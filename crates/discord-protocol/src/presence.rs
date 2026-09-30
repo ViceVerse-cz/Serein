@@ -177,11 +177,10 @@ impl Activity {
 			image,
 			small_image,
 			ends_at: self.timestamps.as_ref().and_then(|timestamps| {
-				let start = timestamps.0.start?;
-				timestamps
-					.0
-					.end
-					.filter(|end| *end > start && *end <= model::MAX_ACTIVITY_TIMESTAMP)
+				timestamps.0.end.filter(|end| {
+					*end <= model::MAX_ACTIVITY_TIMESTAMP
+						&& timestamps.0.start.is_none_or(|start| *end > start)
+				})
 			}),
 			started_at: self
 				.timestamps
@@ -389,168 +388,185 @@ mod tests {
 
 	#[test]
 	fn activity_artwork_selection_and_snapshot_updates_agree() {
-		for (fields, image) in [
-			(
-				r#""application_id":"10","assets":{"large_image":"20","small_image":"30"}"#,
-				Some(ActivityImage::Asset {
-					application: Id(10),
-					asset: Id(20),
-				}),
-			),
-			// A badge alone must not become the artwork; the application icon does.
-			(
-				r#""application_id":"10","assets":{"small_image":"30"}"#,
-				Some(ActivityImage::Application(Id(10))),
-			),
-			(
-				r#""application_id":"10""#,
-				Some(ActivityImage::Application(Id(10))),
-			),
-			(
-				r#""assets":{"large_image":"mp:external/synthetic-hash-01/https/example.com/art.png"}"#,
-				Some(ActivityImage::Proxy(
-					"external/synthetic-hash-01/https/example.com/art.png".into(),
-				)),
-			),
-			(
-				r#""application_id":"10","assets":{"large_image":"https://example.com/raw.png","small_image":"30"}"#,
-				Some(ActivityImage::Application(Id(10))),
-			),
-			(r#""assets":{"large_image":"20"}"#, None),
-			(
-				r#""assets":{"large_image":"https://example.com/raw.png"}"#,
-				None,
-			),
-			(
-				r#""application_id":"0","assets":{"large_image":"20"}"#,
-				None,
-			),
-			(
-				r#""application_id":"10","assets":{"large_image":"0"}"#,
-				Some(ActivityImage::Application(Id(10))),
-			),
-			(r#""application_id":null,"assets":null"#, None),
-		] {
-			let wire = format!(r#"[{{"type":0,"name":"Synthetic",{fields}}}]"#);
+		{
+			for (fields, image) in [
+				(
+					r#""application_id":"10","assets":{"large_image":"20","small_image":"30"}"#,
+					Some(ActivityImage::Asset {
+						application: Id(10),
+						asset: Id(20),
+					}),
+				),
+				// A badge alone must not become the artwork; the application icon does.
+				(
+					r#""application_id":"10","assets":{"small_image":"30"}"#,
+					Some(ActivityImage::Application(Id(10))),
+				),
+				(
+					r#""application_id":"10""#,
+					Some(ActivityImage::Application(Id(10))),
+				),
+				(
+					r#""assets":{"large_image":"mp:external/synthetic-hash-01/https/example.com/art.png"}"#,
+					Some(ActivityImage::Proxy(
+						"external/synthetic-hash-01/https/example.com/art.png".into(),
+					)),
+				),
+				(
+					r#""application_id":"10","assets":{"large_image":"https://example.com/raw.png","small_image":"30"}"#,
+					Some(ActivityImage::Application(Id(10))),
+				),
+				(r#""assets":{"large_image":"20"}"#, None),
+				(
+					r#""assets":{"large_image":"https://example.com/raw.png"}"#,
+					None,
+				),
+				(
+					r#""application_id":"0","assets":{"large_image":"20"}"#,
+					None,
+				),
+				(
+					r#""application_id":"10","assets":{"large_image":"0"}"#,
+					Some(ActivityImage::Application(Id(10))),
+				),
+				(r#""application_id":null,"assets":null"#, None),
+			] {
+				let wire = format!(r#"[{{"type":0,"name":"Synthetic",{fields}}}]"#);
+				let Patch::Value(activities) = update(&wire).unwrap().activities else {
+					panic!()
+				};
+				assert_eq!(activities[0].image, image, "{fields}");
+				assert!(activities[0].valid());
+				let snapshot: crate::PresenceDto = crate::decode(
+					format!(r#"{{"status":"online","activities":{wire}}}"#).as_bytes(),
+				)
+				.unwrap();
+				assert_eq!(snapshot.activities.1, activities);
+			}
+		}
+		{
+			for (assets, small_image) in [
+				(
+					serde_json::json!({"large_image":"20","small_image":"30"}),
+					Some(ActivityImage::Asset {
+						application: Id(10),
+						asset: Id(30),
+					}),
+				),
+				(
+					serde_json::json!({"large_image":"20"}),
+					Some(ActivityImage::Application(Id(10))),
+				),
+				(
+					serde_json::json!({"small_image":"30"}),
+					Some(ActivityImage::Asset {
+						application: Id(10),
+						asset: Id(30),
+					}),
+				),
+				(
+					serde_json::json!({"large_image":"20","small_image":"20"}),
+					None,
+				),
+				(
+					serde_json::json!({"large_image":"20","small_image":"mp:external/small/https/example.com/icon.png"}),
+					Some(ActivityImage::Proxy(
+						"external/small/https/example.com/icon.png".into(),
+					)),
+				),
+				(
+					serde_json::json!({"large_image":"20","small_image":"mp:external/../secret"}),
+					None,
+				),
+				(serde_json::json!({"large_image":"invalid"}), None),
+			] {
+				let wire = serde_json::json!([{"type":0,"name":"Synthetic","application_id":"10","assets":assets,"timestamps":{"start":1_700_000_000_000_u64}}]).to_string();
+				let Patch::Value(activities) = update(&wire).unwrap().activities else {
+					panic!()
+				};
+				assert_eq!(activities[0].small_image, small_image, "{assets}");
+				assert_eq!(activities[0].started_at, Some(1_700_000_000_000));
+				assert!(activities[0].valid());
+			}
+			for (start, expected) in [
+				(0, Some(0)),
+				(
+					model::MAX_ACTIVITY_TIMESTAMP,
+					Some(model::MAX_ACTIVITY_TIMESTAMP),
+				),
+				(model::MAX_ACTIVITY_TIMESTAMP + 1, None),
+			] {
+				let wire =
+					serde_json::json!([{"type":0,"name":"Synthetic","timestamps":{"start":start}}])
+						.to_string();
+				let Patch::Value(activities) = update(&wire).unwrap().activities else {
+					panic!()
+				};
+				assert_eq!(activities[0].started_at, expected);
+			}
+			for (timestamps, expected) in [
+				(serde_json::json!({"end":2000}), Some(2000)),
+				(serde_json::json!({"start":1000,"end":2000}), Some(2000)),
+				(serde_json::json!({"start":2000,"end":2000}), None),
+				(
+					serde_json::json!({"end":model::MAX_ACTIVITY_TIMESTAMP+1}),
+					None,
+				),
+			] {
+				let wire =
+					serde_json::json!([{"type":0,"name":"Countdown","timestamps":timestamps}])
+						.to_string();
+				let Patch::Value(activities) = update(&wire).unwrap().activities else {
+					panic!()
+				};
+				assert_eq!(activities[0].ends_at, expected);
+				assert!(activities[0].valid());
+			}
+			for timestamps in [r#"{"start":-1}"#, r#"{"start":"1"}"#, "[]"] {
+				assert!(
+					update(&format!(
+						r#"[{{"type":0,"name":"Synthetic","timestamps":{timestamps}}}]"#
+					))
+					.is_err()
+				);
+			}
+		}
+		{
+			for path in [
+				"",
+				"/external/a",
+				"../a",
+				"external/../a",
+				"external/./a",
+				"external/%2e%2E/a",
+				"external/%2fa",
+				"external/%5Ca",
+				"external/\\a",
+				"external/\na",
+				&"x".repeat(1025),
+			] {
+				let wire = serde_json::json!([{"type":0,"name":"Synthetic","application_id":"10","assets":{"large_image":format!("mp:{path}")}}]).to_string();
+				let Patch::Value(activities) = update(&wire).unwrap().activities else {
+					panic!()
+				};
+				assert_eq!(
+					activities[0].image,
+					Some(ActivityImage::Application(Id(10))),
+					"{path}"
+				);
+				assert_eq!(activities[0].name, "Synthetic");
+			}
+			let wire = serde_json::json!([{"type":0,"name":"Synthetic","assets":{"large_image":format!("mp:{}", "x".repeat(1024))}}]).to_string();
 			let Patch::Value(activities) = update(&wire).unwrap().activities else {
 				panic!()
 			};
-			assert_eq!(activities[0].image, image, "{fields}");
-			assert!(activities[0].valid());
-			let snapshot: crate::PresenceDto =
-				crate::decode(format!(r#"{{"status":"online","activities":{wire}}}"#).as_bytes())
-					.unwrap();
-			assert_eq!(snapshot.activities.1, activities);
-		}
-	}
-
-	#[test]
-	fn activity_badges_and_start_timestamps_are_retained_and_bounded() {
-		for (assets, small_image) in [
-			(
-				serde_json::json!({"large_image":"20","small_image":"30"}),
-				Some(ActivityImage::Asset {
-					application: Id(10),
-					asset: Id(30),
-				}),
-			),
-			(
-				serde_json::json!({"large_image":"20"}),
-				Some(ActivityImage::Application(Id(10))),
-			),
-			(
-				serde_json::json!({"small_image":"30"}),
-				Some(ActivityImage::Asset {
-					application: Id(10),
-					asset: Id(30),
-				}),
-			),
-			(
-				serde_json::json!({"large_image":"20","small_image":"20"}),
-				None,
-			),
-			(
-				serde_json::json!({"large_image":"20","small_image":"mp:external/small/https/example.com/icon.png"}),
-				Some(ActivityImage::Proxy(
-					"external/small/https/example.com/icon.png".into(),
-				)),
-			),
-			(
-				serde_json::json!({"large_image":"20","small_image":"mp:external/../secret"}),
-				None,
-			),
-			(serde_json::json!({"large_image":"invalid"}), None),
-		] {
-			let wire = serde_json::json!([{"type":0,"name":"Synthetic","application_id":"10","assets":assets,"timestamps":{"start":1_700_000_000_000_u64}}]).to_string();
-			let Patch::Value(activities) = update(&wire).unwrap().activities else {
-				panic!()
-			};
-			assert_eq!(activities[0].small_image, small_image, "{assets}");
-			assert_eq!(activities[0].started_at, Some(1_700_000_000_000));
-			assert!(activities[0].valid());
-		}
-		for (start, expected) in [
-			(0, Some(0)),
-			(
-				model::MAX_ACTIVITY_TIMESTAMP,
-				Some(model::MAX_ACTIVITY_TIMESTAMP),
-			),
-			(model::MAX_ACTIVITY_TIMESTAMP + 1, None),
-		] {
-			let wire =
-				serde_json::json!([{"type":0,"name":"Synthetic","timestamps":{"start":start}}])
-					.to_string();
-			let Patch::Value(activities) = update(&wire).unwrap().activities else {
-				panic!()
-			};
-			assert_eq!(activities[0].started_at, expected);
-		}
-		for timestamps in [r#"{"start":-1}"#, r#"{"start":"1"}"#, "[]"] {
 			assert!(
-				update(&format!(
-					r#"[{{"type":0,"name":"Synthetic","timestamps":{timestamps}}}]"#
-				))
-				.is_err()
+				matches!(&activities[0].image, Some(ActivityImage::Proxy(path)) if path.len() == 1024)
 			);
-		}
-	}
-
-	#[test]
-	fn invalid_activity_proxy_paths_fall_back_without_losing_text() {
-		for path in [
-			"",
-			"/external/a",
-			"../a",
-			"external/../a",
-			"external/./a",
-			"external/%2e%2E/a",
-			"external/%2fa",
-			"external/%5Ca",
-			"external/\\a",
-			"external/\na",
-			&"x".repeat(1025),
-		] {
-			let wire = serde_json::json!([{"type":0,"name":"Synthetic","application_id":"10","assets":{"large_image":format!("mp:{path}")}}]).to_string();
-			let Patch::Value(activities) = update(&wire).unwrap().activities else {
-				panic!()
-			};
-			assert_eq!(
-				activities[0].image,
-				Some(ActivityImage::Application(Id(10))),
-				"{path}"
-			);
-			assert_eq!(activities[0].name, "Synthetic");
-		}
-		let wire = serde_json::json!([{"type":0,"name":"Synthetic","assets":{"large_image":format!("mp:{}", "x".repeat(1024))}}]).to_string();
-		let Patch::Value(activities) = update(&wire).unwrap().activities else {
-			panic!()
-		};
-		assert!(
-			matches!(&activities[0].image, Some(ActivityImage::Proxy(path)) if path.len() == 1024)
-		);
-		for field in ["large_image", "small_image"] {
-			let wire = serde_json::json!([{"type":0,"name":"Synthetic","assets":{field:"x".repeat(4097)}}]).to_string();
-			assert!(update(&wire).is_err());
+			for field in ["large_image", "small_image"] {
+				let wire = serde_json::json!([{"type":0,"name":"Synthetic","assets":{field:"x".repeat(4097)}}]).to_string();
+				assert!(update(&wire).is_err());
+			}
 		}
 	}
 
@@ -607,69 +623,69 @@ mod tests {
 
 	#[test]
 	fn matching_games_keep_the_richer_entry_in_snapshots_and_updates() {
-		let basic = serde_json::json!({"type":0,"name":" osu! ","application_id":"10"});
-		let detailed = serde_json::json!({"type":0,"name":"OSU!","state":"Idle","application_id":"20","assets":{"large_image":"30"}});
-		for pair in [
-			[basic.clone(), detailed.clone()],
-			[detailed.clone(), basic.clone()],
-		] {
-			let wire = serde_json::json!([
-				pair[0], {"type":0,"name":"Terraria"},
-				{"type":2,"name":"osu!"}, {"type":0,"name":"Dota 2"}, pair[1]
-			])
-			.to_string();
-			let Patch::Value(activities) = update(&wire).unwrap().activities else {
-				panic!()
-			};
-			assert_eq!(activities.len(), MAX_RICH_ACTIVITIES);
-			assert_eq!(activities[0].state.as_deref(), Some("Idle"));
-			assert_eq!(
-				activities[0].image,
-				Some(ActivityImage::Asset {
-					application: Id(20),
-					asset: Id(30)
-				})
-			);
-			assert_eq!(activities[1].name, "Terraria");
-			assert_eq!(activities[2].kind, 2);
-			let snapshot: crate::MemberItem = crate::decode(format!(r#"{{"member":{{"user":{{"id":"2","username":"Synthetic"}},"presence":{{"status":"online","activities":{wire}}}}}}}"#).as_bytes()).unwrap();
-			assert_eq!(snapshot.into_model().unwrap().activities, activities);
-		}
-		let mut artwork_only = detailed;
-		artwork_only.as_object_mut().unwrap().remove("state");
-		let Patch::Value(activities) =
-			update(&serde_json::json!([basic, artwork_only]).to_string())
-				.unwrap()
-				.activities
-		else {
-			panic!()
-		};
-		assert_eq!(activities.len(), 1);
-		assert!(matches!(
-			activities[0].image,
-			Some(ActivityImage::Asset { .. })
-		));
-	}
-
-	#[test]
-	fn matching_games_prefer_explicit_badges_then_start_timestamps() {
-		let basic = serde_json::json!({"type":0,"name":"Synthetic","application_id":"10","assets":{"large_image":"20"}});
-		let mut badge = basic.clone();
-		badge["assets"]["small_image"] = "30".into();
-		let mut timed = badge.clone();
-		timed["timestamps"] = serde_json::json!({"start":1_700_000_000_000_u64});
-		for (less, more) in [(basic, badge.clone()), (badge, timed)] {
-			for pair in [[&less, &more], [&more, &less]] {
-				let Patch::Value(actual) = update(&serde_json::json!(pair).to_string())
-					.unwrap()
-					.activities
-				else {
+		{
+			let basic = serde_json::json!({"type":0,"name":" osu! ","application_id":"10"});
+			let detailed = serde_json::json!({"type":0,"name":"OSU!","state":"Idle","application_id":"20","assets":{"large_image":"30"}});
+			for pair in [
+				[basic.clone(), detailed.clone()],
+				[detailed.clone(), basic.clone()],
+			] {
+				let wire = serde_json::json!([
+					pair[0], {"type":0,"name":"Terraria"},
+					{"type":2,"name":"osu!"}, {"type":0,"name":"Dota 2"}, pair[1]
+				])
+				.to_string();
+				let Patch::Value(activities) = update(&wire).unwrap().activities else {
 					panic!()
 				};
-				let expected = update(&serde_json::json!([more]).to_string())
+				assert_eq!(activities.len(), MAX_RICH_ACTIVITIES);
+				assert_eq!(activities[0].state.as_deref(), Some("Idle"));
+				assert_eq!(
+					activities[0].image,
+					Some(ActivityImage::Asset {
+						application: Id(20),
+						asset: Id(30)
+					})
+				);
+				assert_eq!(activities[1].name, "Terraria");
+				assert_eq!(activities[2].kind, 2);
+				let snapshot: crate::MemberItem = crate::decode(format!(r#"{{"member":{{"user":{{"id":"2","username":"Synthetic"}},"presence":{{"status":"online","activities":{wire}}}}}}}"#).as_bytes()).unwrap();
+				assert_eq!(snapshot.into_model().unwrap().activities, activities);
+			}
+			let mut artwork_only = detailed;
+			artwork_only.as_object_mut().unwrap().remove("state");
+			let Patch::Value(activities) =
+				update(&serde_json::json!([basic, artwork_only]).to_string())
 					.unwrap()
-					.activities;
-				assert_eq!(Patch::Value(actual), expected);
+					.activities
+			else {
+				panic!()
+			};
+			assert_eq!(activities.len(), 1);
+			assert!(matches!(
+				activities[0].image,
+				Some(ActivityImage::Asset { .. })
+			));
+		}
+		{
+			let basic = serde_json::json!({"type":0,"name":"Synthetic","application_id":"10","assets":{"large_image":"20"}});
+			let mut badge = basic.clone();
+			badge["assets"]["small_image"] = "30".into();
+			let mut timed = badge.clone();
+			timed["timestamps"] = serde_json::json!({"start":1_700_000_000_000_u64});
+			for (less, more) in [(basic, badge.clone()), (badge, timed)] {
+				for pair in [[&less, &more], [&more, &less]] {
+					let Patch::Value(actual) = update(&serde_json::json!(pair).to_string())
+						.unwrap()
+						.activities
+					else {
+						panic!()
+					};
+					let expected = update(&serde_json::json!([more]).to_string())
+						.unwrap()
+						.activities;
+					assert_eq!(Patch::Value(actual), expected);
+				}
 			}
 		}
 	}
@@ -711,132 +727,133 @@ mod tests {
 	}
 
 	#[test]
-	fn offline_member_snapshot_cannot_retain_activity_or_custom_status() {
-		let snapshot: crate::MemberItem = crate::decode(br#"{"member":{"user":{"id":"2","username":"Synthetic"},"presence":{"status":"offline","activities":[{"type":0,"name":"Old game"},{"type":4,"state":"Old custom status"}]}}}"#).unwrap();
-		let member = snapshot.into_model().unwrap();
-		assert_eq!(member.status.as_deref(), Some("offline"));
-		assert!(member.custom_status.is_none());
-		assert!(member.activities.is_empty());
-	}
-
-	#[test]
 	fn custom_status_preserves_absence_and_clears_explicit_missing_activity() {
-		for wire in [
-			r#"{"user":{"id":"2"}}"#,
-			r#"{"user":{"id":"2"},"status":"offline"}"#,
-		] {
-			assert_eq!(
-				decode(wire.as_bytes()).unwrap().custom_status,
-				Patch::Absent
-			);
+		{
+			for wire in [
+				r#"{"user":{"id":"2"}}"#,
+				r#"{"user":{"id":"2"},"status":"offline"}"#,
+			] {
+				assert_eq!(
+					decode(wire.as_bytes()).unwrap().custom_status,
+					Patch::Absent
+				);
+			}
+			for activities in [
+				"null",
+				"[]",
+				r#"[{"type":0,"state":"Not a custom status"}]"#,
+				r#"[{"type":4}]"#,
+				r#"[{"type":4,"state":null,"emoji":null}]"#,
+				r#"[{"type":4,"state":" \n\t "}]"#,
+				r#"[{"type":4,"emoji":{"name":"custom","id":"123"}}]"#,
+			] {
+				let presence = update(activities).unwrap();
+				assert_eq!(presence.custom_status, Patch::Null, "{activities}");
+				assert_eq!(presence.status, Patch::Absent);
+			}
 		}
-		for activities in [
-			"null",
-			"[]",
-			r#"[{"type":0,"state":"Not a custom status"}]"#,
-			r#"[{"type":4}]"#,
-			r#"[{"type":4,"state":null,"emoji":null}]"#,
-			r#"[{"type":4,"state":" \n\t "}]"#,
-			r#"[{"type":4,"emoji":{"name":"custom","id":"123"}}]"#,
-		] {
-			let presence = update(activities).unwrap();
-			assert_eq!(presence.custom_status, Patch::Null, "{activities}");
-			assert_eq!(presence.status, Patch::Absent);
+		{
+			let snapshot: crate::MemberItem = crate::decode(br#"{"member":{"user":{"id":"2","username":"Synthetic"},"presence":{"status":"offline","activities":[{"type":0,"name":"Old game"},{"type":4,"state":"Old custom status"}]}}}"#).unwrap();
+			let member = snapshot.into_model().unwrap();
+			assert_eq!(member.status.as_deref(), Some("offline"));
+			assert!(member.custom_status.is_none());
+			assert!(member.activities.is_empty());
 		}
 	}
 
 	#[test]
 	fn snapshots_and_updates_share_bounded_unicode_custom_status_normalization() {
-		for (activities, expected) in [
-			(
-				r#"[{"type":0,"state":"Ignored"},{"type":4,"state":" Rest\ning \t","emoji":{"name":"\ud83c\udf19","id":null}}]"#,
-				Some("🌙 Resting"),
-			),
-			(
-				r#"[{"type":4,"emoji":{"name":"\ud83c\udf19"}}]"#,
-				Some("🌙"),
-			),
-			(
-				r#"[{"type":4,"state":"Text","emoji":{"name":"custom","id":"123"}}]"#,
-				Some("Text"),
-			),
-			(
-				r#"[{"type":4,"state":"Text","emoji":{"name":"123456789"}}]"#,
-				Some("Text"),
-			),
-			(
-				r#"[{"type":4,"state":"First"},{"type":4,"state":"Second"}]"#,
-				Some("First"),
-			),
-			(r#"[{"type":4},{"type":4,"state":"Second"}]"#, None),
-		] {
+		{
+			for (activities, expected) in [
+				(
+					r#"[{"type":0,"state":"Ignored"},{"type":4,"state":" Rest\ning \t","emoji":{"name":"\ud83c\udf19","id":null}}]"#,
+					Some("🌙 Resting"),
+				),
+				(
+					r#"[{"type":4,"emoji":{"name":"\ud83c\udf19"}}]"#,
+					Some("🌙"),
+				),
+				(
+					r#"[{"type":4,"state":"Text","emoji":{"name":"custom","id":"123"}}]"#,
+					Some("Text"),
+				),
+				(
+					r#"[{"type":4,"state":"Text","emoji":{"name":"123456789"}}]"#,
+					Some("Text"),
+				),
+				(
+					r#"[{"type":4,"state":"First"},{"type":4,"state":"Second"}]"#,
+					Some("First"),
+				),
+				(r#"[{"type":4},{"type":4,"state":"Second"}]"#, None),
+			] {
+				let snapshot: crate::PresenceDto = crate::decode(
+					format!(r#"{{"status":"online","activities":{activities}}}"#).as_bytes(),
+				)
+				.unwrap();
+				assert_eq!(snapshot.custom_status().as_deref(), expected);
+				assert_eq!(
+					update(activities).unwrap().custom_status,
+					expected.map_or(Patch::Null, |s| Patch::Value(s.into()))
+				);
+			}
+			let activities = format!(r#"[{{"type":4,"state":"{}"}}]"#, "🌙".repeat(1024));
+			let Patch::Value(text) = update(&activities).unwrap().custom_status else {
+				panic!()
+			};
+			assert_eq!(text.chars().count(), 128);
+			assert_eq!(text.len(), 512);
 			let snapshot: crate::PresenceDto = crate::decode(
 				format!(r#"{{"status":"online","activities":{activities}}}"#).as_bytes(),
 			)
 			.unwrap();
-			assert_eq!(snapshot.custom_status().as_deref(), expected);
+			assert_eq!(snapshot.custom_status().as_deref(), Some(text.as_str()));
+			// Secrets and unsupported assets are ignored instead of surviving in application state.
+			let rich = format!(
+				r#"[{{"type":0,"secrets":{{"join":"{}"}},"assets":{{"large_image":"unused"}}}},{{"type":4,"state":"Visible"}}]"#,
+				"synthetic".repeat(4096)
+			);
 			assert_eq!(
-				update(activities).unwrap().custom_status,
-				expected.map_or(Patch::Null, |s| Patch::Value(s.into()))
+				update(&rich).unwrap().custom_status,
+				Patch::Value("Visible".into())
 			);
 		}
-		let activities = format!(r#"[{{"type":4,"state":"{}"}}]"#, "🌙".repeat(1024));
-		let Patch::Value(text) = update(&activities).unwrap().custom_status else {
-			panic!()
-		};
-		assert_eq!(text.chars().count(), 128);
-		assert_eq!(text.len(), 512);
-		let snapshot: crate::PresenceDto =
-			crate::decode(format!(r#"{{"status":"online","activities":{activities}}}"#).as_bytes())
+		{
+			let truncated = format!(r#"[{{"type":4,"state":"{} trailing"}}]"#, "x".repeat(127));
+			for (activities, expected) in [
+				(r#"[{"type":4,"emoji":{"name":" \t "}}]"#.to_owned(), None),
+				(
+					r#"[{"type":4,"emoji":{"name":" \t "},"state":"Visible"}]"#.to_owned(),
+					Some("Visible".to_owned()),
+				),
+				(
+					r#"[{"type":4,"state":"\u0000  Visible  \u0000"}]"#.to_owned(),
+					Some("Visible".to_owned()),
+				),
+				(truncated, Some("x".repeat(127))),
+			] {
+				let decoded = update(&activities).unwrap();
+				assert_eq!(
+					decoded.custom_status,
+					expected.clone().map_or(Patch::Null, Patch::Value)
+				);
+				let snapshot: crate::PresenceDto = crate::decode(
+					format!(r#"{{"status":"online","activities":{activities}}}"#).as_bytes(),
+				)
 				.unwrap();
-		assert_eq!(snapshot.custom_status().as_deref(), Some(text.as_str()));
-		// Secrets and unsupported assets are ignored instead of surviving in application state.
-		let rich = format!(
-			r#"[{{"type":0,"secrets":{{"join":"{}"}},"assets":{{"large_image":"unused"}}}},{{"type":4,"state":"Visible"}}]"#,
-			"synthetic".repeat(4096)
-		);
-		assert_eq!(
-			update(&rich).unwrap().custom_status,
-			Patch::Value("Visible".into())
-		);
-	}
-
-	#[test]
-	fn filtering_and_truncation_leave_only_valid_trimmed_custom_statuses() {
-		let truncated = format!(r#"[{{"type":4,"state":"{} trailing"}}]"#, "x".repeat(127));
-		for (activities, expected) in [
-			(r#"[{"type":4,"emoji":{"name":" \t "}}]"#.to_owned(), None),
-			(
-				r#"[{"type":4,"emoji":{"name":" \t "},"state":"Visible"}]"#.to_owned(),
-				Some("Visible".to_owned()),
-			),
-			(
-				r#"[{"type":4,"state":"\u0000  Visible  \u0000"}]"#.to_owned(),
-				Some("Visible".to_owned()),
-			),
-			(truncated, Some("x".repeat(127))),
-		] {
-			let decoded = update(&activities).unwrap();
-			assert_eq!(
-				decoded.custom_status,
-				expected.clone().map_or(Patch::Null, Patch::Value)
-			);
-			let snapshot: crate::PresenceDto = crate::decode(
-				format!(r#"{{"status":"online","activities":{activities}}}"#).as_bytes(),
-			)
-			.unwrap();
-			let clients = snapshot.clients();
-			assert_eq!(snapshot.custom_status(), expected);
-			assert!(
-				model::MemberPresence {
-					user: Id(2),
-					status: None,
-					custom_status: snapshot.custom_status(),
-					activities: snapshot.activities.1,
-					clients,
-				}
-				.valid()
-			);
+				let clients = snapshot.clients();
+				assert_eq!(snapshot.custom_status(), expected);
+				assert!(
+					model::MemberPresence {
+						user: Id(2),
+						status: None,
+						custom_status: snapshot.custom_status(),
+						activities: snapshot.activities.1,
+						clients,
+					}
+					.valid()
+				);
+			}
 		}
 	}
 
@@ -921,63 +938,63 @@ mod tests {
 
 	#[test]
 	fn partial_identity_and_status_patches_do_not_retain_unrelated_presence_data() {
-		for status in ["online", "idle", "dnd", "offline"] {
-			let bytes = format!(
-				r#"{{"guild_id":"1","user":{{"id":"2"}},"status":"{status}","activities":[{{"type":0,"name":"Synthetic"}}],"client_status":{{"desktop":"dnd"}}}}"#
+		{
+			for status in ["online", "idle", "dnd", "offline"] {
+				let bytes = format!(
+					r#"{{"guild_id":"1","user":{{"id":"2"}},"status":"{status}","activities":[{{"type":0,"name":"Synthetic"}}],"client_status":{{"desktop":"dnd"}}}}"#
+				);
+				let presence = decode(bytes.as_bytes()).unwrap();
+				assert_eq!(presence.guild, Some(Id(1)));
+				assert_eq!(presence.user, Id(2));
+				assert_eq!(presence.status, Patch::Value(status.into()));
+			}
+			let presence = decode(br#"{"user":{"id":"2","username":"Ignored"}}"#).unwrap();
+			assert_eq!(presence.guild, None);
+			assert_eq!(presence.status, Patch::Absent);
+			assert_eq!(
+				decode(br#"{"guild_id":null,"user":{"id":"2"},"status":null}"#)
+					.unwrap()
+					.status,
+				Patch::Null
 			);
-			let presence = decode(bytes.as_bytes()).unwrap();
-			assert_eq!(presence.guild, Some(Id(1)));
-			assert_eq!(presence.user, Id(2));
-			assert_eq!(presence.status, Patch::Value(status.into()));
+			for status in ["invisible", "future-status", "ONLINE", ""] {
+				let bytes = format!(r#"{{"user":{{"id":"2"}},"status":"{status}"}}"#);
+				assert_eq!(decode(bytes.as_bytes()).unwrap().status, Patch::Null);
+			}
+			let huge = format!(
+				r#"{{"user":{{"id":"2"}},"status":"{}"}}"#,
+				"x".repeat(128 * 1024)
+			);
+			assert_eq!(decode(huge.as_bytes()).unwrap().status, Patch::Null);
+			let oversized = format!(
+				r#"{{"user":{{"id":"2"}},"status":"{}"}}"#,
+				"x".repeat(crate::MAX_WIRE)
+			);
+			assert!(decode(oversized.as_bytes()).is_err());
 		}
-		let presence = decode(br#"{"user":{"id":"2","username":"Ignored"}}"#).unwrap();
-		assert_eq!(presence.guild, None);
-		assert_eq!(presence.status, Patch::Absent);
-		assert_eq!(
-			decode(br#"{"guild_id":null,"user":{"id":"2"},"status":null}"#)
-				.unwrap()
-				.status,
-			Patch::Null
-		);
-		for status in ["invisible", "future-status", "ONLINE", ""] {
-			let bytes = format!(r#"{{"user":{{"id":"2"}},"status":"{status}"}}"#);
-			assert_eq!(decode(bytes.as_bytes()).unwrap().status, Patch::Null);
+		{
+			for bytes in [
+				r#"{"user":{}}"#,
+				r#"{"user":{"id":"0"}}"#,
+				r#"{"user":{"id":2}}"#,
+				r#"{"user":{"id":"18446744073709551616"}}"#,
+				r#"{"user":{"id":"000000000000000000002"}}"#,
+				r#"{"guild_id":"0","user":{"id":"2"}}"#,
+				r#"{"guild_id":"bad","user":{"id":"2"}}"#,
+				r#"{"guild_id":1,"user":{"id":"2"}}"#,
+				r#"{"guild_id":"1","user":null}"#,
+				r#"{"user":{"id":"2"},"status":42}"#,
+				r#"{"user":{"id":"2"},"status":{"online":null}}"#,
+				r#"{"user":{"id":"2"},"status":"online","status":"idle"}"#,
+			] {
+				assert!(decode(bytes.as_bytes()).is_err());
+			}
+			assert_eq!(
+				decode(br#"{"user":{"id":"18446744073709551615"}}"#)
+					.unwrap()
+					.user,
+				Id(u64::MAX)
+			);
 		}
-		let huge = format!(
-			r#"{{"user":{{"id":"2"}},"status":"{}"}}"#,
-			"x".repeat(128 * 1024)
-		);
-		assert_eq!(decode(huge.as_bytes()).unwrap().status, Patch::Null);
-		let oversized = format!(
-			r#"{{"user":{{"id":"2"}},"status":"{}"}}"#,
-			"x".repeat(crate::MAX_WIRE)
-		);
-		assert!(decode(oversized.as_bytes()).is_err());
-	}
-
-	#[test]
-	fn malformed_identity_scope_or_status_is_rejected() {
-		for bytes in [
-			r#"{"user":{}}"#,
-			r#"{"user":{"id":"0"}}"#,
-			r#"{"user":{"id":2}}"#,
-			r#"{"user":{"id":"18446744073709551616"}}"#,
-			r#"{"user":{"id":"000000000000000000002"}}"#,
-			r#"{"guild_id":"0","user":{"id":"2"}}"#,
-			r#"{"guild_id":"bad","user":{"id":"2"}}"#,
-			r#"{"guild_id":1,"user":{"id":"2"}}"#,
-			r#"{"guild_id":"1","user":null}"#,
-			r#"{"user":{"id":"2"},"status":42}"#,
-			r#"{"user":{"id":"2"},"status":{"online":null}}"#,
-			r#"{"user":{"id":"2"},"status":"online","status":"idle"}"#,
-		] {
-			assert!(decode(bytes.as_bytes()).is_err());
-		}
-		assert_eq!(
-			decode(br#"{"user":{"id":"18446744073709551615"}}"#)
-				.unwrap()
-				.user,
-			Id(u64::MAX)
-		);
 	}
 }

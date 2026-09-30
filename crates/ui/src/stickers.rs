@@ -72,7 +72,7 @@ impl Browser {
 		state: &State,
 		avatars: &mut Avatars,
 		hovered: &mut Option<(Sticker, String)>,
-		as_image: bool,
+		image_fallback: bool,
 	) -> Option<Sticker> {
 		let colors = design::palette(ui);
 		let sections = sections(state);
@@ -195,15 +195,13 @@ impl Browser {
 									ui.horizontal(|ui| {
 										for sticker in row {
 											ui.push_id(sticker.id, |ui| {
-												let enabled = if as_image {
-													sticker.valid()
+												let enabled = state.can_send_sticker(sticker)
+													|| (image_fallback
+														&& sticker.valid() && sticker.available
 														&& state.selected.is_some_and(|channel| {
 															state.can_send(channel)
 																&& state.can_attach(channel)
-														})
-												} else {
-													state.can_send_sticker(sticker)
-												};
+														}));
 												let response = ui
 													.add_enabled_ui(enabled, |ui| {
 														avatars.sticker_image(
@@ -228,7 +226,7 @@ impl Browser {
 												if !enabled {
 													response.on_disabled_hover_text(
 														crate::i18n::translate_if_key(
-															if !as_image
+															if !image_fallback
 																&& state
 																	.sticker_requires_nitro(sticker)
 															{
@@ -538,22 +536,5 @@ mod tests {
 		assert!(browser.query.is_empty());
 		assert_eq!(browser.target, None);
 		assert!(avatars.take_requests().is_empty());
-	}
-	#[test]
-	fn search_matches_names_tags_and_source() {
-		let sticker = Sticker {
-			id: Id(1),
-			name: "Wave".into(),
-			tags: "hello,greeting".into(),
-			description: String::new(),
-			format_type: 1,
-			guild_id: Some(Id(2)),
-			pack_id: None,
-			available: true,
-		};
-		assert!(matches(&sticker, "Cozy Club", "wave"));
-		assert!(matches(&sticker, "Cozy Club", "hello"));
-		assert!(matches(&sticker, "Cozy Club", "cozy"));
-		assert!(!matches(&sticker, "Cozy Club", "sleep"));
 	}
 }

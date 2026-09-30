@@ -1,4 +1,6 @@
-use serein_extension_sdk::{Error, Invocation, MAX_IO_BYTES, Output, dispatch, serde_json};
+use serein_extension_sdk::{
+	Error, Invocation, MAX_IO_BYTES, Output, TickInvocation, dispatch, dispatch_typed, serde_json,
+};
 
 // These names must not affect the exported macro's implementation.
 #[allow(dead_code, unused_macros)]
@@ -73,6 +75,29 @@ fn native_dispatch_preserves_v1_and_reports_bad_input() {
 		)),
 		Err(Error::InputTooLarge)
 	));
+}
+
+#[test]
+fn tick_context_is_opt_in_and_flattened() {
+	let bytes = dispatch_typed(
+		br#"{"action":"tick","storage":"{}","tick_ms":250}"#,
+		|input: TickInvocation| {
+			assert_eq!(input.invocation.action, "tick");
+			assert_eq!(input.tick_ms, Some(250));
+			Output::default()
+		},
+	)
+	.unwrap();
+	assert_eq!(
+		serde_json::from_slice::<Output>(&bytes).unwrap(),
+		Output::default()
+	);
+	assert!(
+		serde_json::to_value(Invocation::default())
+			.unwrap()
+			.get("tick_ms")
+			.is_none()
+	);
 }
 
 #[test]

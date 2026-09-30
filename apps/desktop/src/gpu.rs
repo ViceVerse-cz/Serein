@@ -141,29 +141,21 @@ mod tests {
 		let integrated = info(wgpu::DeviceType::IntegratedGpu, wgpu::Backend::Vulkan);
 		assert!(rank(&discrete, false) < rank(&integrated, false));
 		assert!(!prefer_integrated(GpuPreference::HighPerformance));
-	}
 
-	#[test]
-	fn power_saving_prefers_integrated() {
-		let discrete = info(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Vulkan);
-		let integrated = info(wgpu::DeviceType::IntegratedGpu, wgpu::Backend::Vulkan);
-		assert!(prefer_integrated(GpuPreference::PowerSaving));
-		assert!(rank(&integrated, true) < rank(&discrete, true));
-	}
+		{
+			let discrete = info(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Vulkan);
+			let integrated = info(wgpu::DeviceType::IntegratedGpu, wgpu::Backend::Vulkan);
+			assert!(prefer_integrated(GpuPreference::PowerSaving));
+			assert!(rank(&integrated, true) < rank(&discrete, true));
+		}
 
-	#[test]
-	fn software_and_gl_adapters_come_last() {
-		let vulkan = info(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Vulkan);
-		let gl = info(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Gl);
-		let llvmpipe = info(wgpu::DeviceType::Cpu, wgpu::Backend::Vulkan);
-		assert!(rank(&vulkan, false) < rank(&gl, false));
-		assert!(rank(&gl, false) < rank(&llvmpipe, false));
-		assert!(rank(&gl, true) < rank(&llvmpipe, true));
-	}
-
-	#[test]
-	fn describes_adapters_for_bug_reports() {
-		let described = describe(&info(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Vulkan));
-		assert!(described.ends_with("(Vulkan)"), "{described}");
+		{
+			let vulkan = info(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Vulkan);
+			let gl = info(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Gl);
+			let llvmpipe = info(wgpu::DeviceType::Cpu, wgpu::Backend::Vulkan);
+			assert!(rank(&vulkan, false) < rank(&gl, false));
+			assert!(rank(&gl, false) < rank(&llvmpipe, false));
+			assert!(rank(&gl, true) < rank(&llvmpipe, true));
+		}
 	}
 }

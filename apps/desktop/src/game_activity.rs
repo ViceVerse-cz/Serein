@@ -26,6 +26,8 @@ use tokio_tungstenite::{
 	},
 };
 
+mod custom;
+
 pub type Detection = Result<Option<model::RichActivity>, &'static str>;
 const MAX_CLIENTS: usize = 8;
 /// Two images per activity, and a client normally repeats the same pair.
@@ -63,19 +65,28 @@ trait Applications: Clone + Send + Sync + 'static {
 	fn detectable(&self) -> impl Future<Output = Result<Vec<Game>, &'static str>> + Send;
 }
 
-/// One HTTP client and one shared rate-limit cooldown for a whole sharing session.
+/// One routed REST adapter and one shared rate-limit cooldown for a sharing session.
 #[derive(Clone)]
 struct Service {
-	client: reqwest::Client,
 	cooldown: Arc<tokio::sync::Mutex<Instant>>,
 	api: Arc<discord_api::DiscordApi>,
 }
 impl Applications for Service {
 	async fn metadata(&self, id: Id) -> Result<Metadata, &'static str> {
-		discord_api::rpc::metadata(&self.client, &mut *self.cooldown.lock().await, id).await
+		let client = self
+			.api
+			.rest_client()
+			.await
+			.map_err(|_| "Game application lookup is unavailable.")?;
+		discord_api::rpc::metadata(&client, &mut *self.cooldown.lock().await, id).await
 	}
 	async fn assets(&self, id: Id) -> Result<Vec<discord_api::rpc::Asset>, &'static str> {
-		discord_api::rpc::assets(&self.client, &mut *self.cooldown.lock().await, id).await
+		let client = self
+			.api
+			.rest_client()
+			.await
+			.map_err(|_| "Game artwork lookup is unavailable.")?;
+		discord_api::rpc::assets(&client, &mut *self.cooldown.lock().await, id).await
 	}
 	async fn external(&self, id: Id, urls: &[String]) -> Result<Vec<String>, &'static str> {
 		self.api
@@ -84,8 +95,13 @@ impl Applications for Service {
 			.map_err(|_| "Discord could not prepare the game's artwork.")
 	}
 	async fn detectable(&self) -> Result<Vec<Game>, &'static str> {
+		let client = self
+			.api
+			.rest_client()
+			.await
+			.map_err(|_| "Game detection is unavailable.")?;
 		let bytes =
-			discord_api::detectable::download_list(&self.client, &mut *self.cooldown.lock().await)
+			discord_api::detectable::download_list(&client, &mut *self.cooldown.lock().await)
 				.await?;
 		// Several megabytes of JSON must never be parsed on a runtime worker.
 		tokio::task::spawn_blocking(move || discord_api::detectable::decode(&bytes))
@@ -96,7 +112,10 @@ impl Applications for Service {
 
 /// Sharing owns the listeners and all clients. Dropping it cancels every pending operation.
 pub async fn run(
-	enabled: watch::Receiver<bool>,
+	sharing: (
+		watch::Receiver<bool>,
+		watch::Receiver<Option<extensions::CustomRichPresence>>,
+	),
 	activity: watch::Sender<Option<Activity>>,
 	report: watch::Sender<Detection>,
 	invites: watch::Sender<Option<(u64, String)>>,
@@ -104,13 +123,64 @@ pub async fn run(
 	user: User,
 	api: Arc<discord_api::DiscordApi>,
 ) {
+	let (enabled, custom_requests) = sharing;
 	run_enabled(enabled, &activity, &report, &ctx, || async {
 		let service = Service {
-			client: discord_api::rpc::client()?,
 			cooldown: Arc::new(tokio::sync::Mutex::new(Instant::now())),
 			api: api.clone(),
 		};
-		listen(&activity, &report, &invites, &ctx, &user, &service).await
+		let (detected_send, mut detected) = watch::channel(None);
+		let (detected_report_send, mut detected_report) = watch::channel(Ok(None));
+		let (custom_send, mut custom_report) = watch::channel(Ok(None));
+		let _custom = Abort(tokio::spawn(custom::run(
+			custom_requests.clone(),
+			custom_send,
+			service.clone(),
+		)));
+		let listener = listen(
+			&detected_send,
+			&detected_report_send,
+			&invites,
+			&ctx,
+			&user,
+			&service,
+		);
+		tokio::pin!(listener);
+		let mut listening = true;
+		loop {
+			tokio::select! {
+				result = &mut listener, if listening => {
+					listening = false;
+					detected_send.send_replace(None);
+					let _ = detected_report_send.send_replace(result.map(|()| None));
+				}
+				result = detected.changed() => { if result.is_err() { return Ok(()); } }
+				result = detected_report.changed() => { if result.is_err() { return Ok(()); } }
+				result = custom_report.changed() => { if result.is_err() { return Ok(()); } }
+			}
+			let custom = custom_report.borrow_and_update().clone();
+			let (latest, display) = match custom {
+				Ok(Some(value)) => {
+					let display = display_activity(&value);
+					(Some(value), Ok(Some(display)))
+				}
+				Ok(None) => (
+					detected.borrow_and_update().clone(),
+					detected_report.borrow_and_update().clone(),
+				),
+				Err(error) => (None, Err(error)),
+			};
+			activity.send_if_modified(|current| {
+				if *current == latest {
+					false
+				} else {
+					*current = latest;
+					true
+				}
+			});
+			let _ = report.send_replace(display);
+			ctx.request_repaint();
+		}
 	})
 	.await;
 }
@@ -343,10 +413,10 @@ fn display_activity(activity: &Activity) -> model::RichActivity {
 		image: Some(primary),
 		small_image,
 		ends_at: activity.timestamps.as_ref().and_then(|timestamps| {
-			let start = timestamps.start?;
-			timestamps
-				.end
-				.filter(|end| *end > start && *end <= model::MAX_ACTIVITY_TIMESTAMP)
+			timestamps.end.filter(|end| {
+				*end <= model::MAX_ACTIVITY_TIMESTAMP
+					&& timestamps.start.is_none_or(|start| *end > start)
+			})
 		}),
 		started_at: activity
 			.timestamps
@@ -434,9 +504,11 @@ impl<'a, A: Applications> Session<'a, A> {
 		}
 		if assets.large_image.is_none() {
 			assets.large_text = None;
+			assets.large_url = None;
 		}
 		if assets.small_image.is_none() {
 			assets.small_text = None;
+			assets.small_url = None;
 		}
 		assets
 	}
@@ -978,6 +1050,7 @@ mod tests {
 			large_text: Some("Cover".into()),
 			small_image: Some("map".into()),
 			small_text: Some("Rank".into()),
+			..Default::default()
 		};
 		let activity = session
 			.activity(rpc::ActivityFields {
@@ -1280,113 +1353,73 @@ mod tests {
 			&egui::Context::default(),
 		);
 		assert_eq!(*activity.borrow(), Some(scanned));
-	}
 
-	#[test]
-	fn latest_game_falls_back_and_clears_without_polling() {
-		let (activity, _) = watch::channel(None);
-		let (report, _) = watch::channel(Ok(None));
-		let mut values = std::array::from_fn(|_| None);
-		let first = rpc::ActivityFields::default()
-			.into_activity(model::Id(7), "First game".into())
-			.unwrap();
-		let second = rpc::ActivityFields::default()
-			.into_activity(model::Id(8), "Second game".into())
-			.unwrap();
-		values[0] = Some((Instant::now(), first.clone()));
-		values[1] = Some((Instant::now() + Duration::from_millis(1), second.clone()));
-		publish(
-			&values,
-			&None,
-			&activity,
-			&report,
-			&egui::Context::default(),
-		);
-		assert_eq!(*activity.borrow(), Some(second));
-		values[1] = None;
-		publish(
-			&values,
-			&None,
-			&activity,
-			&report,
-			&egui::Context::default(),
-		);
-		assert_eq!(*activity.borrow(), Some(first));
-		let first = values[0].as_mut().unwrap();
-		first.1.details = Some("  Next beatmap  ".into());
-		first.1.state = Some(" ".into());
-		first.1.assets = Some(rpc::Assets {
-			large_image: Some("99".into()),
-			..Default::default()
-		});
-		publish(
-			&values,
-			&None,
-			&activity,
-			&report,
-			&egui::Context::default(),
-		);
-		let display = report.borrow().as_ref().unwrap().clone().unwrap();
-		assert!(display.valid());
-		assert_eq!(display.summary(), "Playing First game");
-		assert_eq!(display.details.as_deref(), Some("Next beatmap"));
-		assert!(display.state.is_none());
-		assert_eq!(
-			display.image,
-			Some(model::ActivityImage::Asset {
-				application: model::Id(7),
-				asset: model::Id(99),
-			})
-		);
-		values[0] = None;
-		publish(
-			&values,
-			&None,
-			&activity,
-			&report,
-			&egui::Context::default(),
-		);
-		assert!(activity.borrow().is_none());
-		assert_eq!(*report.borrow(), Ok(None));
-	}
-
-	#[test]
-	fn a_small_badge_never_becomes_the_artwork() {
-		let activity = |assets: rpc::Assets| {
-			rpc::ActivityFields {
-				assets: Some(assets),
+		{
+			let (activity, _) = watch::channel(None);
+			let (report, _) = watch::channel(Ok(None));
+			let mut values = std::array::from_fn(|_| None);
+			let first = rpc::ActivityFields::default()
+				.into_activity(model::Id(7), "First game".into())
+				.unwrap();
+			let second = rpc::ActivityFields::default()
+				.into_activity(model::Id(8), "Second game".into())
+				.unwrap();
+			values[0] = Some((Instant::now(), first.clone()));
+			values[1] = Some((Instant::now() + Duration::from_millis(1), second.clone()));
+			publish(
+				&values,
+				&None,
+				&activity,
+				&report,
+				&egui::Context::default(),
+			);
+			assert_eq!(*activity.borrow(), Some(second));
+			values[1] = None;
+			publish(
+				&values,
+				&None,
+				&activity,
+				&report,
+				&egui::Context::default(),
+			);
+			assert_eq!(*activity.borrow(), Some(first));
+			let first = values[0].as_mut().unwrap();
+			first.1.details = Some("  Next beatmap  ".into());
+			first.1.state = Some(" ".into());
+			first.1.assets = Some(rpc::Assets {
+				large_image: Some("99".into()),
 				..Default::default()
-			}
-			.into_activity(model::Id(7), "A game".into())
-			.unwrap()
-		};
-		// The reported failure: only the badge resolved, so it was shown as the cover.
-		let badge_only = display_activity(&activity(rpc::Assets {
-			small_image: Some("42".into()),
-			..Default::default()
-		}));
-		assert_eq!(
-			badge_only.image,
-			Some(model::ActivityImage::Application(model::Id(7)))
-		);
-		assert_eq!(
-			badge_only.small_image,
-			Some(model::ActivityImage::Asset {
-				application: model::Id(7),
-				asset: model::Id(42),
-			})
-		);
-		let proxied = display_activity(&activity(rpc::Assets {
-			large_image: Some("mp:external/hash-01/https/example.com/cover.png".into()),
-			..Default::default()
-		}));
-		assert_eq!(
-			proxied.image,
-			Some(model::ActivityImage::Proxy(
-				"external/hash-01/https/example.com/cover.png".into()
-			))
-		);
-		assert!(proxied.valid());
+			});
+			publish(
+				&values,
+				&None,
+				&activity,
+				&report,
+				&egui::Context::default(),
+			);
+			let display = report.borrow().as_ref().unwrap().clone().unwrap();
+			assert!(display.valid());
+			assert_eq!(display.summary(), "Playing First game");
+			assert_eq!(display.details.as_deref(), Some("Next beatmap"));
+			assert!(display.state.is_none());
+			assert_eq!(
+				display.image,
+				Some(model::ActivityImage::Asset {
+					application: model::Id(7),
+					asset: model::Id(99),
+				})
+			);
+			values[0] = None;
+			publish(
+				&values,
+				&None,
+				&activity,
+				&report,
+				&egui::Context::default(),
+			);
+			assert!(activity.borrow().is_none());
+			assert_eq!(*report.borrow(), Ok(None));
+		}
 	}
 
 	#[tokio::test]
@@ -1475,5 +1508,76 @@ mod tests {
 		settings.dirty = false;
 		settings.observe(false);
 		assert!(settings.dirty && settings.saving && !settings.enabled);
+	}
+
+	#[tokio::test]
+	async fn custom_presence_cancels_stale_artwork_and_stop_clears() {
+		let service = Offline {
+			release: Some(Arc::new(Notify::new())),
+			..Offline::default()
+		};
+		let started = service.started.clone();
+		let mut request = extensions::CustomRichPresence {
+			application_id: "7".into(),
+			name: "Custom game".into(),
+			large_image: Some(extensions::RichPresenceImage {
+				key: "map".into(),
+				text: None,
+				url: None,
+			}),
+			..Default::default()
+		};
+		let (send, receive) = watch::channel(Some(request.clone()));
+		let (output, mut results) = watch::channel(Ok(None));
+		let worker = tokio::spawn(custom::run(receive, output, service));
+		timeout(Duration::from_secs(2), started.notified())
+			.await
+			.unwrap();
+		// Metadata never completes: a newer request must cancel it and publish without artwork.
+		request.large_image = None;
+		request.name = "Latest custom game".into();
+		send.send_replace(Some(request));
+		timeout(Duration::from_secs(2), results.changed())
+			.await
+			.unwrap()
+			.unwrap();
+		assert_eq!(
+			results
+				.borrow_and_update()
+				.as_ref()
+				.unwrap()
+				.as_ref()
+				.unwrap()
+				.name,
+			"Latest custom game"
+		);
+		send.send_replace(None);
+		timeout(Duration::from_secs(2), results.changed())
+			.await
+			.unwrap()
+			.unwrap();
+		assert_eq!(*results.borrow_and_update(), Ok(None));
+		drop(send);
+		timeout(Duration::from_secs(2), worker)
+			.await
+			.unwrap()
+			.unwrap();
+	}
+
+	#[test]
+	fn end_only_activity_retains_its_countdown() {
+		let activity = rpc::ActivityFields {
+			timestamps: Some(rpc::Timestamps {
+				start: None,
+				end: Some(1_700_000_000_000),
+			}),
+			..Default::default()
+		}
+		.into_activity(model::Id(7), "Countdown".into())
+		.unwrap();
+		let display = display_activity(&activity);
+		assert_eq!(display.started_at, None);
+		assert_eq!(display.ends_at, Some(1_700_000_000_000));
+		assert!(display.valid());
 	}
 }

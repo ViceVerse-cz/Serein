@@ -341,6 +341,20 @@ screen/window picker after the quality dialog; source discovery never opens that
 The default is 720p30. The worker tries modern VA-API, legacy VA-API with CPU scaling,
 NVENC with GPU scaling, NVENC with CPU scaling, then the existing OpenH264 software
 encoder. The call stage identifies the active encoder and software fallback.
+On Niri, portal frames receive pipeline running-time timestamps before frame-rate
+filtering. This handles Niri 26.04's constant presentation timestamps, which otherwise
+freeze the preview and prevent video from reaching a viewer who joins later. Detection
+uses the colon-separated `XDG_CURRENT_DESKTOP` list; other desktops retain their source
+timestamps and all existing hardware/software encoder choices remain available.
+Synthetic coverage reproduces the timestamp failure; native/live delivery still needs
+verification. Run the offline regression without capturing a desktop or joining a call:
+
+```sh
+cargo build --locked -p discord-voice -p platform --features winit/wayland --example linux_screen
+target/debug/examples/linux_screen
+target/debug/examples/linux_screen --niri-timestamps
+```
+
 GPU buffers stay native where driver/plugin
 negotiation permits; zero-copy is not guaranteed, especially across GPUs. Local preview
 is capped at 640×360/10 fps and suspended when minimized or viewing another channel.

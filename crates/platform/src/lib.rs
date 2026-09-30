@@ -7,6 +7,7 @@ pub mod hotkeys;
 pub mod notifications;
 pub mod pointer;
 pub mod processes;
+pub mod proxy_credentials;
 pub mod save;
 pub mod startup;
 pub mod tray;
@@ -229,11 +230,11 @@ mod tests {
 		let script = include_str!("login-handoff.js");
 		assert!(!script.contains("localStorage"));
 		assert!(!script.contains("password"));
-	}
-	#[test]
-	fn login_allows_hcaptcha_frames_only_over_https() {
-		assert!(login_navigation("https://newassets.hcaptcha.com/captcha/"));
-		assert!(!login_navigation("http://hcaptcha.com/"));
-		assert!(!login_navigation("https://hcaptcha.com.evil.test/"));
+
+		{
+			assert!(login_navigation("https://newassets.hcaptcha.com/captcha/"));
+			assert!(!login_navigation("http://hcaptcha.com/"));
+			assert!(!login_navigation("https://hcaptcha.com.evil.test/"));
+		}
 	}
 }

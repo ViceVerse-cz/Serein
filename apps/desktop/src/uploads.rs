@@ -53,41 +53,51 @@ fn apng_delay(delay: image::Delay) -> (u16, u16) {
 	(numerator as u16, denominator.max(1) as u16)
 }
 
-fn image_share_source(asset: model::ImageShare) -> Option<(String, String, image::ImageFormat)> {
+fn image_share_source(
+	asset: model::ImageShare,
+) -> Option<(String, String, image::ImageFormat, image::ImageFormat)> {
 	use model::ImageShare;
-	let (id, kind, host, extension, query) = match asset {
+	let (id, kind, host, source_extension, output_extension, query) = match asset {
 		ImageShare::Emoji { id, animated } => (
 			id,
 			"emoji",
 			"cdn.discordapp.com",
 			if animated { "gif" } else { "png" },
+			if animated { "gif" } else { "png" },
 			"?size=64",
 		),
-		ImageShare::Sticker {
-			id,
-			format_type: 1 | 2,
-		} => (id, "sticker", "cdn.discordapp.com", "png", ""),
+		ImageShare::Sticker { id, format_type: 1 } => {
+			(id, "sticker", "cdn.discordapp.com", "png", "png", "")
+		}
+		ImageShare::Sticker { id, format_type: 2 } => {
+			(id, "sticker", "cdn.discordapp.com", "png", "gif", "")
+		}
 		ImageShare::Sticker { id, format_type: 3 } => (
 			id,
 			"sticker",
 			"media.discordapp.net",
 			"png",
+			"png",
 			"?passthrough=false",
 		),
 		ImageShare::Sticker { id, format_type: 4 } => {
-			(id, "sticker", "media.discordapp.net", "gif", "")
+			(id, "sticker", "media.discordapp.net", "gif", "gif", "")
 		}
 		_ => return None,
 	};
+	let format = |extension| {
+		if extension == "gif" {
+			image::ImageFormat::Gif
+		} else {
+			image::ImageFormat::Png
+		}
+	};
 	(id.0 != 0).then(|| {
 		(
-			format!("https://{host}/{kind}s/{id}.{extension}{query}"),
-			format!("{kind}-{id}.{extension}"),
-			if extension == "gif" {
-				image::ImageFormat::Gif
-			} else {
-				image::ImageFormat::Png
-			},
+			format!("https://{host}/{kind}s/{id}.{source_extension}{query}"),
+			format!("{kind}-{id}.{output_extension}"),
+			format(source_extension),
+			format(output_extension),
 		)
 	})
 }
@@ -161,6 +171,7 @@ fn synthetic_share(format: image::ImageFormat) -> Result<Vec<u8>, &'static str> 
 fn compact_artwork(
 	bytes: &[u8],
 	format: image::ImageFormat,
+	output_format: image::ImageFormat,
 	edge: u32,
 	cancelled: &AtomicBool,
 ) -> Result<Vec<u8>, &'static str> {
@@ -175,7 +186,7 @@ fn compact_artwork(
 	let (width, height) = reader
 		.into_dimensions()
 		.map_err(|_| "Could not inspect this artwork safely")?;
-	if width <= edge && height <= edge {
+	if format == output_format && width <= edge && height <= edge {
 		return Ok(bytes.to_vec());
 	}
 	let resize = |frames: image::Frames<'_>| -> Result<Vec<image::Frame>, &'static str> {
@@ -200,8 +211,8 @@ fn compact_artwork(
 			.ok_or("Artwork animation has no frames")
 	};
 	let mut output = Vec::new();
-	match format {
-		image::ImageFormat::Gif => {
+	match (format, output_format) {
+		(image::ImageFormat::Gif, image::ImageFormat::Gif) => {
 			let mut decoder = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(bytes))
 				.map_err(|_| "Could not decode this artwork safely")?;
 			decoder
@@ -214,7 +225,37 @@ fn compact_artwork(
 				.and_then(|()| encoder.encode_frames(frames))
 				.map_err(|_| "Could not resize this artwork")?;
 		}
-		image::ImageFormat::Png => {
+		(image::ImageFormat::Png, image::ImageFormat::Gif) => {
+			let mut decoder = image::codecs::png::PngDecoder::new(std::io::Cursor::new(bytes))
+				.map_err(|_| "Could not decode this artwork safely")?;
+			decoder
+				.set_limits(limits)
+				.map_err(|_| "Artwork animation is too large to prepare safely")?;
+			let frames = if decoder
+				.is_apng()
+				.map_err(|_| "Could not inspect this artwork safely")?
+			{
+				resize(
+					decoder
+						.apng()
+						.map_err(|_| "Could not decode this artwork safely")?
+						.into_frames(),
+				)?
+			} else {
+				vec![image::Frame::new(
+					image::DynamicImage::from_decoder(decoder)
+						.map_err(|_| "Could not decode this artwork safely")?
+						.thumbnail(edge, edge)
+						.into_rgba8(),
+				)]
+			};
+			let mut encoder = image::codecs::gif::GifEncoder::new(&mut output);
+			encoder
+				.set_repeat(image::codecs::gif::Repeat::Infinite)
+				.and_then(|()| encoder.encode_frames(frames))
+				.map_err(|_| "Could not resize this artwork")?;
+		}
+		(image::ImageFormat::Png, image::ImageFormat::Png) => {
 			let mut decoder = image::codecs::png::PngDecoder::new(std::io::Cursor::new(bytes))
 				.map_err(|_| "Could not decode this artwork safely")?;
 			decoder
@@ -343,7 +384,7 @@ impl Uploads {
 		if !self.selected.is_empty() {
 			return Err("Send or remove existing attachments before selecting an image");
 		}
-		let (url, filename, format) =
+		let (url, filename, format, output_format) =
 			image_share_source(asset).ok_or("Unsupported emoji or sticker artwork")?;
 		let cancelled = Arc::new(AtomicBool::new(false));
 		let flag = cancelled.clone();
@@ -372,7 +413,8 @@ impl Uploads {
 					} else {
 						STICKER_EDGE
 					};
-					let bytes = compact_artwork(&bytes, format, edge, &prepare_flag)?;
+					let bytes =
+						compact_artwork(&bytes, format, output_format, edge, &prepare_flag)?;
 					let thumbnail =
 						decode_preview(&bytes).ok_or("Could not decode this image safely")?;
 					let source = Source::image_bytes(filename, bytes)?;
@@ -769,6 +811,7 @@ mod tests {
 			image_share_source(asset).unwrap().0,
 			"https://cdn.discordapp.com/stickers/7.png"
 		);
+		assert_eq!(image_share_source(asset).unwrap().1, "sticker-7.gif");
 		assert_eq!(
 			image_share_source(model::ImageShare::Sticker {
 				id: Id(7),
@@ -888,6 +931,7 @@ mod tests {
 		let still = compact_artwork(
 			still.get_ref(),
 			image::ImageFormat::Png,
+			image::ImageFormat::Png,
 			EMOJI_EDGE,
 			&cancelled,
 		)
@@ -920,13 +964,14 @@ mod tests {
 		let animated_png = compact_artwork(
 			&animated_png,
 			image::ImageFormat::Png,
+			image::ImageFormat::Gif,
 			STICKER_EDGE,
 			&cancelled,
 		)
 		.unwrap();
 		let decoder =
-			image::codecs::png::PngDecoder::new(std::io::Cursor::new(animated_png)).unwrap();
-		assert_eq!(decoder.apng().unwrap().into_frames().count(), 2);
+			image::codecs::gif::GifDecoder::new(std::io::Cursor::new(animated_png)).unwrap();
+		assert_eq!(decoder.into_frames().count(), 2);
 
 		let mut animated_gif = Vec::new();
 		{
@@ -944,6 +989,7 @@ mod tests {
 		}
 		let animated_gif = compact_artwork(
 			&animated_gif,
+			image::ImageFormat::Gif,
 			image::ImageFormat::Gif,
 			STICKER_EDGE,
 			&cancelled,

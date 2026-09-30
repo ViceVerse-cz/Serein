@@ -1369,25 +1369,6 @@ mod tests {
 	}
 
 	#[test]
-	fn stream_errors_distinguish_transient_glitches_from_fatal_disconnects() {
-		for non_fatal in [
-			cpal::ErrorKind::Xrun,
-			cpal::ErrorKind::RealtimeDenied,
-			cpal::ErrorKind::DeviceChanged,
-		] {
-			assert!(!is_fatal_error(&cpal::Error::from(non_fatal)));
-		}
-		for fatal in [
-			cpal::ErrorKind::DeviceNotAvailable,
-			cpal::ErrorKind::StreamInvalidated,
-			cpal::ErrorKind::PermissionDenied,
-			cpal::ErrorKind::DeviceBusy,
-		] {
-			assert!(is_fatal_error(&cpal::Error::from(fatal)));
-		}
-	}
-
-	#[test]
 	fn microphone_recovery_preserves_startup_failures() {
 		let audio = audio_without_devices();
 		audio.set_ready(true);
@@ -1420,5 +1401,23 @@ mod tests {
 		assert!(audio.microphone_unavailable());
 		gate.reopen_input(revision, || Ok(())).unwrap();
 		assert!(!audio.microphone_unavailable());
+
+		{
+			for non_fatal in [
+				cpal::ErrorKind::Xrun,
+				cpal::ErrorKind::RealtimeDenied,
+				cpal::ErrorKind::DeviceChanged,
+			] {
+				assert!(!is_fatal_error(&cpal::Error::from(non_fatal)));
+			}
+			for fatal in [
+				cpal::ErrorKind::DeviceNotAvailable,
+				cpal::ErrorKind::StreamInvalidated,
+				cpal::ErrorKind::PermissionDenied,
+				cpal::ErrorKind::DeviceBusy,
+			] {
+				assert!(is_fatal_error(&cpal::Error::from(fatal)));
+			}
+		}
 	}
 }

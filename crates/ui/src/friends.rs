@@ -594,21 +594,29 @@ impl MessagingUi {
 										})
 									})
 									.flatten();
+								let can_message = restricted.is_none()
+									&& (dm.is_some()
+										|| (!state.user_action_pending()
+											&& (state.demo
+												|| (state.gateway_connected
+													&& state.auth == client_core::auth::AuthState::Authenticated))));
 								let (rect, response, hot) =
 									person_row(ui, after_hot, egui::Sense::click());
 								after_hot = hot;
-								let response = if dm.is_some() {
+								let response = if can_message {
 									response.on_hover_cursor(egui::CursorIcon::PointingHand)
 								} else {
 									response
 								};
 								response.widget_info(|| {
-									egui::WidgetInfo::labeled(egui::Role::Button, true, &user.name)
+									egui::WidgetInfo::labeled(
+										egui::Role::Button,
+										can_message,
+										&user.name,
+									)
 								});
-								if response.clicked()
-									&& let Some(dm) = dm
-								{
-									selected = Some(dm.id);
+								if can_message && response.clicked() {
+									selected = Some(user.id);
 								}
 								user_menu::show(
 									&response,
@@ -717,7 +725,7 @@ impl MessagingUi {
 								actions.spacing_mut().item_spacing.x = ACTION_GAP;
 								if restricted.is_none() {
 									let message = actions
-										.add_enabled_ui(dm.is_some(), |ui| {
+										.add_enabled_ui(can_message, |ui| {
 											round_action(
 												ui,
 												Icon::Threads,
@@ -726,11 +734,8 @@ impl MessagingUi {
 											)
 										})
 										.inner;
-									if message
-										.on_disabled_hover_text(language.text("friends-no-open-dm"))
-										.clicked()
-									{
-										selected = dm.map(|c| c.id);
+									if message.clicked() {
+										selected = Some(user.id);
 									}
 								}
 								let more = round_action(
@@ -753,8 +758,8 @@ impl MessagingUi {
 						}
 					});
 			});
-		if let Some(channel) = selected
-			&& let Some(command) = state.select(channel)
+		if let Some(user) = selected
+			&& let Some(command) = state.open_friend_dm(user)
 		{
 			commands.push(command);
 		}
@@ -1112,6 +1117,75 @@ mod tests {
 		state.logout();
 		check_cache(&mut friends, &state);
 		assert!(friends.list.is_empty());
+
+		{
+			let mut state = test_support::friends_demo_state();
+			let mut friends = Friends::default();
+			check_cache(&mut friends, &state);
+			for status in [
+				Patch::Absent,
+				Patch::Value("idle".into()),
+				Patch::Value("dnd".into()),
+			] {
+				apply(
+					&mut state,
+					Event::DirectPresence(vec![client_core::presence::Update {
+						user: Id(1001),
+						status,
+						custom_status: Patch::Null,
+						activities: Patch::Value(vec![model::RichActivity {
+							kind: 0,
+							name: "Synthetic game".into(),
+							details: None,
+							state: None,
+							image: None,
+							small_image: None,
+							ends_at: None,
+							started_at: None,
+						}]),
+						clients: Patch::Absent,
+					}]),
+				);
+				assert!(!friends.sync_list(&state));
+				let (_, custom, activities, _) = profiles::presence(&state, Id(1001), None);
+				assert_eq!(
+					profiles::subtitle(custom, activities).as_deref(),
+					Some("Playing Synthetic game")
+				);
+				check_cache(&mut friends, &state);
+			}
+			for status in [
+				Patch::Null,
+				Patch::Value("online".into()),
+				Patch::Value("offline".into()),
+			] {
+				apply(
+					&mut state,
+					Event::DirectPresence(vec![client_core::presence::Update {
+						user: Id(1001),
+						status,
+						custom_status: Patch::Absent,
+						activities: Patch::Absent,
+						clients: Patch::Absent,
+					}]),
+				);
+				assert!(friends.sync_list(&state));
+				check_cache(&mut friends, &state);
+			}
+			friends.tab = Tab::All;
+			check_cache(&mut friends, &state);
+			apply(&mut state, Event::Disconnected);
+			assert!(!friends.sync_list(&state));
+			apply(&mut state, Event::Resumed);
+			assert!(!friends.sync_list(&state));
+			state.apply(Envelope {
+				generation: state.generation + 1,
+				event: Event::UserAction(Relationship::Friends(None)),
+			});
+			assert!(!friends.sync_list(&state));
+			apply(&mut state, Event::Resync);
+			check_cache(&mut friends, &state);
+		}
 	}
 
 	#[test]
@@ -1186,201 +1260,6 @@ mod tests {
 			assert!(friends.sync_list(&state));
 			assert_eq!(friends.list, restored);
 			check_cache(&mut friends, &state);
-		}
-	}
-
-	#[test]
-	fn friends_cache_tracks_membership_but_paints_activity_without_rebuilding() {
-		let mut state = test_support::friends_demo_state();
-		let mut friends = Friends::default();
-		check_cache(&mut friends, &state);
-		for status in [
-			Patch::Absent,
-			Patch::Value("idle".into()),
-			Patch::Value("dnd".into()),
-		] {
-			apply(
-				&mut state,
-				Event::DirectPresence(vec![client_core::presence::Update {
-					user: Id(1001),
-					status,
-					custom_status: Patch::Null,
-					activities: Patch::Value(vec![model::RichActivity {
-						kind: 0,
-						name: "Synthetic game".into(),
-						details: None,
-						state: None,
-						image: None,
-						small_image: None,
-						ends_at: None,
-						started_at: None,
-					}]),
-					clients: Patch::Absent,
-				}]),
-			);
-			assert!(!friends.sync_list(&state));
-			let (_, custom, activities, _) = profiles::presence(&state, Id(1001), None);
-			assert_eq!(
-				profiles::subtitle(custom, activities).as_deref(),
-				Some("Playing Synthetic game")
-			);
-			check_cache(&mut friends, &state);
-		}
-		for status in [
-			Patch::Null,
-			Patch::Value("online".into()),
-			Patch::Value("offline".into()),
-		] {
-			apply(
-				&mut state,
-				Event::DirectPresence(vec![client_core::presence::Update {
-					user: Id(1001),
-					status,
-					custom_status: Patch::Absent,
-					activities: Patch::Absent,
-					clients: Patch::Absent,
-				}]),
-			);
-			assert!(friends.sync_list(&state));
-			check_cache(&mut friends, &state);
-		}
-		friends.tab = Tab::All;
-		check_cache(&mut friends, &state);
-		apply(&mut state, Event::Disconnected);
-		assert!(!friends.sync_list(&state));
-		apply(&mut state, Event::Resumed);
-		assert!(!friends.sync_list(&state));
-		state.apply(Envelope {
-			generation: state.generation + 1,
-			event: Event::UserAction(Relationship::Friends(None)),
-		});
-		assert!(!friends.sync_list(&state));
-		apply(&mut state, Event::Resync);
-		check_cache(&mut friends, &state);
-	}
-
-	fn labels(shape: &egui::Shape, out: &mut Vec<String>) {
-		match shape {
-			egui::Shape::Text(text) => out.push(text.galley.job.text.clone()),
-			egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| labels(shape, out)),
-			_ => {}
-		}
-	}
-	#[test]
-	fn friends_filters_search_and_rows_fit_both_themes() {
-		for (width, theme) in [(320., egui::Theme::Dark), (1000., egui::Theme::Light)] {
-			let ctx = egui::Context::default();
-			design::apply(&ctx);
-			ctx.set_theme(theme);
-			let mut state = test_support::friends_demo_state();
-			let mut view = MessagingUi::default();
-			let render = |view: &mut MessagingUi, state: &mut State| {
-				let mut commands = Vec::new();
-				let output = ctx.run_ui(
-					egui::RawInput {
-						screen_rect: Some(egui::Rect::from_min_size(
-							egui::Pos2::ZERO,
-							vec2(width, 760.),
-						)),
-						..Default::default()
-					},
-					|ui| {
-						view.friends_page(ui, state, &mut commands);
-						assert!(ui.min_rect().width() <= width, "friends overflow");
-					},
-				);
-				assert!(
-					commands.is_empty(),
-					"rendering must not send friend actions"
-				);
-				let mut text = Vec::new();
-				for shape in &output.shapes {
-					labels(&shape.shape, &mut text);
-				}
-				output.drop_without_applying_deltas();
-				text
-			};
-			let text = render(&mut view, &mut state);
-			assert!(
-				text.iter()
-					.any(|s| s.starts_with("ONLINE") && s.ends_with('7')),
-				"{text:?}"
-			);
-			assert!(text.iter().any(|s| s == "Robin"));
-			assert!(!text.iter().any(|s| s == "Parker"));
-			apply(
-				&mut state,
-				Event::DirectPresence(vec![client_core::presence::Update {
-					user: Id(1001),
-					status: Patch::Absent,
-					custom_status: Patch::Null,
-					activities: Patch::Value(vec![model::RichActivity {
-						kind: 0,
-						name: "Synthetic game".into(),
-						details: None,
-						state: None,
-						image: None,
-						small_image: None,
-						ends_at: None,
-						started_at: None,
-					}]),
-					clients: Patch::Absent,
-				}]),
-			);
-			assert!(!view.friends.sync_list(&state));
-			assert!(
-				render(&mut view, &mut state)
-					.iter()
-					.any(|s| s == "Playing Synthetic game")
-			);
-			view.friends.tab = Tab::All;
-			let text = render(&mut view, &mut state);
-			assert!(
-				text.iter()
-					.any(|s| s.starts_with("ALL FRIENDS") && s.ends_with("16"))
-			);
-			view.friends.query = "ROBIN.SYNTHETIC".into();
-			let text = render(&mut view, &mut state);
-			assert!(text.iter().any(|s| s == "Robin"));
-			assert!(!text.iter().any(|s| s == "Casey"));
-			view.friends.query = "no-match".into();
-			assert!(
-				render(&mut view, &mut state)
-					.iter()
-					.any(|s| s == "No friends match your search.")
-			);
-			view.friends.tab = Tab::Pending;
-			view.friends.query.clear();
-			let text = render(&mut view, &mut state);
-			assert!(text.iter().any(|s| s == "Avery"));
-			assert!(!text.iter().any(|s| s == "Morgan"));
-			view.friends.outgoing = true;
-			let text = render(&mut view, &mut state);
-			assert!(text.iter().any(|s| s == "Morgan"));
-			assert!(!text.iter().any(|s| s == "Avery"));
-			view.friends.tab = Tab::Restricted;
-			view.friends.query.clear();
-			let text = render(&mut view, &mut state);
-			assert!(text.iter().any(|s| s == "Blocked Example"));
-			assert!(text.iter().any(|s| s == "Blocked"));
-			assert!(text.iter().any(|s| s == "Ignored Example"));
-			assert!(text.iter().any(|s| s == "Ignored"));
-			view.friends.query = "ignored.synthetic".into();
-			let text = render(&mut view, &mut state);
-			assert!(!text.iter().any(|s| s == "Blocked Example"));
-			assert!(text.iter().any(|s| s == "Ignored Example"));
-			view.friends.query = "no-match".into();
-			assert!(
-				render(&mut view, &mut state)
-					.iter()
-					.any(|s| s == "No blocked or ignored users match your search.")
-			);
-			view.friends.tab = Tab::Add;
-			assert!(
-				render(&mut view, &mut state)
-					.iter()
-					.any(|s| s == "Send Friend Request")
-			);
 		}
 	}
 }

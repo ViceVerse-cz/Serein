@@ -6,6 +6,7 @@ use model::{KeyChord, KeybindAction, Keybinds};
 const NAVIGATION: &[KeybindAction] = &[
 	KeybindAction::ShowShortcuts,
 	KeybindAction::SwitchConversation,
+	KeybindAction::SearchConversation,
 	KeybindAction::CloseOverlay,
 ];
 const MESSAGES: &[KeybindAction] = &[

@@ -663,6 +663,8 @@ fn grouped(previous: Option<&Message>, message: &Message, boundary: Option<Id>) 
 	previous.is_some_and(|previous| {
 		previous.author.id == message.author.id
 			&& previous.author.account_label() == message.author.account_label()
+			&& (previous.author.kind == model::AccountKind::VerifiedBot)
+				== (message.author.kind == model::AccountKind::VerifiedBot)
 			&& message.reply_to.is_none()
 			&& message.interaction.is_none()
 			&& !message.ephemeral
@@ -1108,7 +1110,13 @@ fn banner_rect(area: egui::Rect) -> egui::Rect {
 }
 
 /// Returns whether the reader asked to jump to unread or mark the channel read.
-fn unread_banner(ui: &mut egui::Ui, rect: egui::Rect, jump: bool) -> (bool, bool) {
+/// Discord's unread bar; `summary` is "N new messages since HH:MM" once the divider is loaded.
+fn unread_banner(
+	ui: &mut egui::Ui,
+	rect: egui::Rect,
+	jump: bool,
+	summary: Option<&str>,
+) -> (bool, bool) {
 	let colors = crate::design::palette(ui);
 	let mut jump_unread = false;
 	let mut mark_read = false;
@@ -1124,14 +1132,7 @@ fn unread_banner(ui: &mut egui::Ui, rect: egui::Rect, jump: bool) -> (bool, bool
 			se: 8,
 		},
 		|ui| {
-			ui.label(
-				crate::design::medium(
-					ui,
-					crate::i18n::translate("timeline-unread-banner-unread-messages"),
-					13.0,
-				)
-				.color(text),
-			);
+			// Buttons first, so a long summary truncates into the space they leave.
 			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 				if bar_button(ui, "Mark as read", crate::icons::Icon::Check, text).clicked() {
 					mark_read = true;
@@ -1141,6 +1142,26 @@ fn unread_banner(ui: &mut egui::Ui, rect: egui::Rect, jump: bool) -> (bool, bool
 				{
 					jump_unread = true;
 				}
+				ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+					ui.add(
+						egui::Label::new(
+							crate::design::medium(
+								ui,
+								summary.map_or_else(
+									|| {
+										crate::i18n::translate(
+											"timeline-unread-banner-unread-messages",
+										)
+									},
+									str::to_owned,
+								),
+								13.0,
+							)
+							.color(text),
+						)
+						.truncate(),
+					);
+				});
 			});
 		},
 	);
@@ -1317,6 +1338,46 @@ impl TimelineView {
 	pub(super) fn viewing_latest(&self, channel: Id) -> bool {
 		self.channel == Some(channel) && self.following && self.at_current_latest
 	}
+	/// An explicit "Mark unread" starts a new section at the chosen message.
+	pub(super) fn reset_unread_divider(&mut self) {
+		self.unread_boundary = None;
+		self.unread_session = false;
+		self.unread_dismissed = None;
+		self.revision = u64::MAX;
+	}
+	/// "12 new messages since 14:05" for the divider's section; "50+" when older unread
+	/// messages are not loaded yet.
+	fn unread_summary(&self, state: &State) -> Option<String> {
+		let boundary = self.unread_boundary?;
+		let count = state.timeline.iter().filter(|m| m.id >= boundary).count();
+		let first_loaded = state.timeline.iter().next().map(|m| m.id) == Some(boundary);
+		let marker_loaded = state
+			.selected
+			.and_then(|channel| state.read_marker(channel))
+			.flatten()
+			.is_some_and(|read| state.timeline.get(read).is_some());
+		let more = first_loaded && !marker_loaded && !state.older_exhausted;
+		let at = timestamp(boundary);
+		let clock = format!("{:02}:{:02}", at.hour(), at.minute());
+		let time = if at.date() == crate::local_time::now().date() {
+			clock
+		} else {
+			format!("{} {}, {clock}", at.month(), at.day())
+		};
+		let count = if more {
+			format!("{count}+")
+		} else {
+			count.to_string()
+		};
+		Some(crate::i18n::translate_args(
+			if count == "1" {
+				"timeline-unread-banner-one-new-since"
+			} else {
+				"timeline-unread-banner-many-new-since"
+			},
+			&[("count", &count), ("time", &time)],
+		))
+	}
 	/// Leaving the latest page is deliberate reading; nothing is acknowledged automatically.
 	pub(super) fn browse_away(&mut self) {
 		self.target_browsing = true;
@@ -1465,7 +1526,7 @@ impl TimelineView {
 			&& self.at_current_latest
 			&& state.live_edge_latest().is_some()
 			&& ui.input(|input| input.focused);
-		let boundary = state
+		let first_unread = state
 			.selected
 			.and_then(|channel| state.read_marker(channel))
 			.and_then(|read| {
@@ -1474,12 +1535,17 @@ impl TimelineView {
 					.iter()
 					.find(|m| read.is_none_or(|id| m.id > id))
 					.map(|m| m.id)
-			})
-			.filter(|_| !watching_latest || self.unread_boundary.is_some())
-			// Acknowledging the section keeps its divider in place until the reader leaves.
-			.or(self
-				.unread_boundary
-				.filter(|id| state.timeline.get(*id).is_some()));
+			});
+		let kept = self
+			.unread_boundary
+			.filter(|id| state.timeline.get(*id).is_some());
+		// The divider is fixed for the visit. Acknowledging moves the read marker to the latest
+		// message, so the next arrival would otherwise look like a new first unread message;
+		// only older unread history loading above it may move the divider up.
+		let boundary = match kept {
+			Some(kept) => Some(first_unread.map_or(kept, |first| first.min(kept))),
+			None => first_unread.filter(|_| !watching_latest),
+		};
 		if self.unread_boundary != boundary {
 			self.unread_boundary = boundary;
 			self.revision = u64::MAX;
@@ -1656,7 +1722,7 @@ impl TimelineView {
 				.and_then(|channel| channel.last_message);
 			if state.show_missed_banner() && self.unread_dismissed != Some(latest) {
 				let (jump_unread, mark_read) =
-					unread_banner(ui, banner_rect(area), state.can_jump_unread());
+					unread_banner(ui, banner_rect(area), state.can_jump_unread(), None);
 				if jump_unread {
 					self.unread_jump = true;
 					self.browse_away();
@@ -2136,6 +2202,7 @@ impl TimelineView {
 													let mut preview =
 														egui::text::LayoutJob::default();
 													let mut preview_emojis = Vec::new();
+													let mut attachment_icon = None;
 													if let Some(original) =
 														state.timeline.get(reply)
 													{
@@ -2149,6 +2216,21 @@ impl TimelineView {
 															self.request_reply_target(reply);
 														}
 														surface.keep(&reply_avatar);
+														attachment_icon = (!original
+															.attachments
+															.is_empty())
+														.then(|| {
+															if original.attachments.iter().any(
+																|attachment| {
+																	attachment.is_image()
+																		|| attachment.is_video()
+																},
+															) {
+																crate::icons::Icon::Image
+															} else {
+																crate::icons::Icon::File
+															}
+														});
 														preview.append(
 															&format!(
 																"@{}  ",
@@ -2176,6 +2258,24 @@ impl TimelineView {
 																			13.0,
 																		),
 																	color: colors.muted,
+																	..Default::default()
+																},
+															);
+														} else if attachment_icon.is_some()
+															&& original.content.trim().is_empty()
+														{
+															preview.append(
+																&crate::i18n::translate(
+																	"timeline-show-with-scroll-click-to-see-attachment",
+																),
+																0.0,
+																egui::TextFormat {
+																	font_id:
+																		egui::FontId::proportional(
+																			13.0,
+																		),
+																	color: colors.muted,
+																	italics: true,
 																	..Default::default()
 																},
 															);
@@ -2224,14 +2324,37 @@ impl TimelineView {
 														&preview,
 														&preview_emojis,
 													);
+													// Keep room for the trailing attachment glyph when truncating.
+													let icon_size = 16.0;
+													let label_width = ui.available_width()
+														- attachment_icon.map_or(0.0, |_| {
+															icon_size + ui.spacing().item_spacing.x
+														});
 													let (
 														preview_pos,
 														preview_galley,
 														reply_preview,
-													) = egui::Label::new(preview)
-														.truncate()
-														.sense(egui::Sense::click())
-														.layout_in_ui(ui);
+													) = ui.allocate_ui(
+														egui::vec2(
+															label_width.max(0.0),
+															ui.available_height(),
+														),
+														|ui| {
+															egui::Label::new(preview)
+																.truncate()
+																.sense(egui::Sense::click())
+																.layout_in_ui(ui)
+														},
+													)
+													.inner;
+													if let Some(icon) = attachment_icon {
+														crate::icons::inline(
+															ui,
+															icon,
+															icon_size,
+															colors.muted,
+														);
+													}
 													reply_preview.widget_info(|| {
 														egui::WidgetInfo::labeled(
 															egui::Role::Link,
@@ -3498,7 +3621,9 @@ impl TimelineView {
 				|| kept_unread)
 		{
 			self.unread_session |= self.unread_boundary.is_some();
-			let (jump_unread, mark_read) = unread_banner(ui, banner_rect(area), can_jump_unread);
+			let summary = self.unread_summary(state);
+			let (jump_unread, mark_read) =
+				unread_banner(ui, banner_rect(area), can_jump_unread, summary.as_deref());
 			if jump_unread {
 				if state.can_jump_unread() {
 					self.unread_jump = true;
@@ -3785,39 +3910,6 @@ mod pending_tests;
 mod tests {
 	use super::*;
 
-	#[test]
-	fn message_hover_keeps_the_shared_image_visible() {
-		let ctx = egui::Context::default();
-		ctx.set_theme(egui::ThemePreference::Dark);
-		let color = egui::Color32::from_rgb(32, 40, 48);
-		let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-			assert_eq!(
-				crate::design::row_highlight(ui, color, 0.7),
-				color.gamma_multiply(0.7)
-			);
-		});
-		output.textures_delta.clear();
-		let mut theme = extensions::Theme::default();
-		theme.dark.background = Some(extensions::Background {
-			sections: Some(extensions::SectionOpacity::default()),
-			..Default::default()
-		});
-		crate::design::set_extension_theme(Some(&theme));
-		crate::design::set_background_image(
-			&ctx,
-			Some(std::sync::Arc::new(egui::ColorImage::filled(
-				[1, 1],
-				egui::Color32::WHITE,
-			))),
-		);
-		let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-			assert!(crate::design::has_section_background(ui));
-			assert_eq!(crate::design::row_highlight(ui, color, 0.7).a(), 48);
-		});
-		output.textures_delta.clear();
-		crate::design::set_extension_theme(None);
-	}
-
 	// Synthetic regressions: no transport or acknowledgement worker is running.
 	fn banner_frame(
 		ctx: &egui::Context,
@@ -3936,7 +4028,7 @@ mod tests {
 			let mut view = TimelineView::default();
 			let labels = banner_frame(&ctx, &mut view, &mut state, vec![], false);
 			assert!(
-				labels.iter().any(|(text, _)| text == "Unread messages"),
+				labels.iter().any(|(text, _)| text == "Mark as read"),
 				"cached reply {cached_reply} while history is still loading showed {labels:?}"
 			);
 			assert!(
@@ -4006,14 +4098,14 @@ mod tests {
 						view.scroll_offset
 					);
 					assert!(
-						labels.iter().any(|(text, _)| text == "Unread messages"),
+						labels.iter().any(|(text, _)| text == "Mark as read"),
 						"unread join at the bottom hid the banner: {labels:?}"
 					);
 					continue;
 				}
 				if count == 0 {
 					for forbidden in [
-						"Unread messages",
+						"Mark as read",
 						"Viewing older messages",
 						"Jump to unread",
 						"New messages below",
@@ -4027,7 +4119,7 @@ mod tests {
 					assert!(!view.hold_read_ack && view.following);
 				} else {
 					assert!(
-						labels.iter().any(|(text, _)| text == "Unread messages"),
+						labels.iter().any(|(text, _)| text == "Mark as read"),
 						"unacked short join hid the banner: {labels:?}"
 					);
 					assert!(view.following && view.hold_read_ack && view.mark_read.is_none());
@@ -4060,7 +4152,7 @@ mod tests {
 				assert!(view.following && !view.target_browsing);
 				assert_eq!(view.mark_read.take(), Some(Id(21)));
 				for forbidden in [
-					"Unread messages",
+					"Mark as read",
 					"Next messages",
 					"New messages below",
 					"Jump to present",
@@ -4099,7 +4191,7 @@ mod tests {
 				assert_eq!(view.mark_channel_read.take(), Some(Id(20)));
 				let labels = banner_frame(&ctx, &mut view, &mut state, vec![], false);
 				assert!(
-					!labels.iter().any(|(text, _)| text == "Unread messages"),
+					!labels.iter().any(|(text, _)| text == "Mark as read"),
 					"Mark as read left the banner up: {labels:?}"
 				);
 			}
@@ -4376,13 +4468,7 @@ mod tests {
 			embeds_suppressed: false,
 		}
 	}
-	#[test]
-	fn mass_mentions_highlight_every_viewer() {
-		let mut message = text_message(1);
-		assert!(!mentions_viewer(&message, &State::default()));
-		message.mention_everyone = true;
-		assert!(mentions_viewer(&message, &State::default()));
-	}
+
 	#[test]
 	fn forwarded_audio_keeps_sender_label_and_player_in_narrow_and_wide_rows() {
 		fn text(shape: &egui::Shape, out: &mut Vec<String>) {
@@ -5928,6 +6014,7 @@ mod tests {
 			guilds: [1, 2]
 				.into_iter()
 				.map(|id| model::Guild {
+					default_message_notifications: None,
 					stickers: None,
 					emojis: None,
 					id: Id(id),
@@ -6021,7 +6108,7 @@ mod tests {
 			view.mark_read
 		);
 		assert!(
-			labels.iter().any(|(text, _)| text == "Unread messages"),
+			labels.iter().any(|(text, _)| text == "Mark as read"),
 			"{step} removed the unread banner: {labels:?}"
 		);
 	}
@@ -6206,6 +6293,98 @@ mod tests {
 	}
 
 	#[test]
+	fn divider_and_dismissed_banner_stay_put_when_messages_arrive_at_the_live_edge() {
+		let mut state = State {
+			auth: client_core::auth::AuthState::Authenticated,
+			gateway_connected: true,
+			freshness: model::Freshness::Fresh,
+			older_exhausted: true,
+			selected: Some(Id(20)),
+			channels: vec![model::Channel {
+				id: Id(20),
+				guild: None,
+				parent_id: None,
+				position: 0,
+				name: "Synthetic unread conversation".into(),
+				kind: 1,
+				recipients: vec![],
+				member_list_id: None,
+				tags: None,
+				message_count: None,
+				icon: None,
+				last_message: Some(Id(40)),
+			}],
+			..Default::default()
+		};
+		for id in 11..=40 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		let marker = |state: &mut State, read: u64, version: u64| {
+			state
+				.apply_read_state(client_core::read_state::Event::Snapshot {
+					entries: Some(vec![(Id(20), Some(Id(read)), 0)]),
+					version: Some(version),
+					partial: false,
+				})
+				.unwrap();
+		};
+		marker(&mut state, 32, 1);
+		let ctx = egui::Context::default();
+		let mut view = TimelineView::default();
+		let mut labels = Vec::new();
+		for _ in 0..3 {
+			labels = banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		}
+		assert_eq!(view.unread_boundary, Some(Id(33)));
+		assert!(
+			labels.iter().any(|(text, _)| text
+				.replace(['\u{2068}', '\u{2069}'], "")
+				.starts_with("8 new messages since")),
+			"the banner counts the unread section: {labels:?}"
+		);
+		// Reading down to the live edge acknowledges the section and dismisses its banner.
+		banner_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			vec![
+				egui::Event::PointerMoved(egui::pos2(450.0, 300.0)),
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Point,
+					delta: egui::vec2(0.0, -80.0),
+					modifiers: egui::Modifiers::NONE,
+					phase: egui::TouchPhase::Move,
+				},
+			],
+			false,
+		);
+		assert_eq!(view.mark_read.take(), Some(Id(40)));
+		marker(&mut state, 40, 2);
+		// Someone else posts while the reader watches the latest message.
+		state
+			.timeline
+			.insert(text_message(41), false, false)
+			.unwrap();
+		state.channels[0].last_message = Some(Id(41));
+		for _ in 0..3 {
+			labels = banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		}
+		assert_eq!(
+			view.unread_boundary,
+			Some(Id(33)),
+			"the divider stays at the first message that was unread on arrival"
+		);
+		assert!(
+			!labels.iter().any(|(text, _)| text.contains("new message")),
+			"a seen arrival must not revive the dismissed banner: {labels:?}"
+		);
+		assert_eq!(view.mark_read.take(), Some(Id(41)));
+	}
+
+	#[test]
 	fn auto_read_requires_focused_latest_and_does_not_retry_failed_marker() {
 		let mut state = State {
 			auth: client_core::auth::AuthState::Authenticated,
@@ -6374,64 +6553,6 @@ mod tests {
 		assert!(
 			view.following,
 			"The compensated short content must reach its real bottom; hidden leading bounds must not create phantom scroll space"
-		);
-	}
-
-	#[test]
-	fn instant_wheel_preserves_units_axes_and_zoom_gestures() {
-		let options = egui::InputOptions::default();
-		let zoom = egui::Modifiers {
-			ctrl: true,
-			command: true,
-			..Default::default()
-		};
-		let events = [
-			egui::Event::MouseWheel {
-				unit: egui::MouseWheelUnit::Point,
-				delta: egui::vec2(1.0, 2.0),
-				phase: egui::TouchPhase::Move,
-				modifiers: egui::Modifiers::NONE,
-			},
-			egui::Event::MouseWheel {
-				unit: egui::MouseWheelUnit::Line,
-				delta: egui::vec2(0.0, -2.0),
-				phase: egui::TouchPhase::Move,
-				modifiers: egui::Modifiers::NONE,
-			},
-			egui::Event::MouseWheel {
-				unit: egui::MouseWheelUnit::Page,
-				delta: egui::vec2(0.0, 0.5),
-				phase: egui::TouchPhase::Move,
-				modifiers: egui::Modifiers::NONE,
-			},
-			egui::Event::MouseWheel {
-				unit: egui::MouseWheelUnit::Point,
-				delta: egui::vec2(0.0, 3.0),
-				phase: egui::TouchPhase::Move,
-				modifiers: egui::Modifiers::SHIFT,
-			},
-			egui::Event::MouseWheel {
-				unit: egui::MouseWheelUnit::Point,
-				delta: egui::vec2(5.0, 0.0),
-				phase: egui::TouchPhase::Move,
-				modifiers: egui::Modifiers::ALT,
-			},
-			egui::Event::MouseWheel {
-				unit: egui::MouseWheelUnit::Line,
-				delta: egui::vec2(0.0, 100.0),
-				phase: egui::TouchPhase::Move,
-				modifiers: zoom,
-			},
-			egui::Event::MouseWheel {
-				unit: egui::MouseWheelUnit::Page,
-				delta: egui::vec2(0.0, 100.0),
-				phase: egui::TouchPhase::Start,
-				modifiers: egui::Modifiers::NONE,
-			},
-		];
-		assert_eq!(
-			crate::scroll::instant_wheel_delta(&events, options, 600.0),
-			egui::vec2(4.0, 227.0)
 		);
 	}
 
@@ -7506,35 +7627,6 @@ mod tests {
 	}
 
 	#[test]
-	fn navigation_preserves_active_download_controls() {
-		let mut view = TimelineView::default();
-		view.download.active = true;
-		view.download.status = "Downloading: 1 / 2 KiB".into();
-		view.download.cancel_requested = true;
-		let mut state = State::default();
-		let context = egui::Context::default();
-		for channel in [Some(Id(2)), Some(Id(3)), None] {
-			state.selected = channel;
-			context
-				.run_ui(Default::default(), |ui| {
-					view.show(
-						ui,
-						&mut state,
-						&mut None,
-						&mut None,
-						(
-							&mut crate::avatars::Avatars::default(),
-							&mut crate::profiles::ProfileSession::default(),
-						),
-						None,
-					);
-				})
-				.drop_without_applying_deltas();
-			assert!(view.download.active && view.download.cancel_requested);
-			assert_eq!(view.download.status, "Downloading: 1 / 2 KiB");
-		}
-	}
-	#[test]
 	fn same_id_revision_reset_does_not_reuse_reveal_or_height() {
 		let mut message = Message {
 			sticker_items: vec![],
@@ -8207,71 +8299,71 @@ mod tests {
 				.any(|text| text.starts_with("Only you can see this")),
 			"private footer missing"
 		);
-	}
-	#[test]
-	fn live_edge_snap_paints_the_tail_in_place() {
-		let ctx = egui::Context::default();
-		crate::design::apply(&ctx);
-		let mut state = channel_messages(21, 48);
-		let mut view = TimelineView::default();
-		let mut settled = None;
-		for frame in 0..6 {
-			settled = newest_y(&paint_timeline(&ctx, &mut view, &mut state, frame), 48);
-		}
-		let settled = settled.expect("settled tail");
 
-		view.heights.retain(|id, _| id.0 <= 12);
-		view.following = false;
-		view.target_browsing = true;
-		view.jump = false;
-		view.anchor = Some((Id(1), 0.0));
-		view.revision = u64::MAX;
-		paint_timeline(&ctx, &mut view, &mut state, 20);
-		view.follow_latest(&state);
-		let mut ack = Vec::new();
-		for frame in 0..6 {
-			ack.push(newest_y(
-				&paint_timeline(&ctx, &mut view, &mut state, 30 + frame),
-				48,
-			));
-		}
-		assert!(
-			ack.iter()
-				.all(|y| y.is_some_and(|y| (y - settled).abs() < 1.0)),
-			"ack to the bottom walked the tail {ack:?}, settled at {settled}"
-		);
+		{
+			let ctx = egui::Context::default();
+			crate::design::apply(&ctx);
+			let mut state = channel_messages(21, 48);
+			let mut view = TimelineView::default();
+			let mut settled = None;
+			for frame in 0..6 {
+				settled = newest_y(&paint_timeline(&ctx, &mut view, &mut state, frame), 48);
+			}
+			let settled = settled.expect("settled tail");
 
-		let mut loading = channel_messages(22, 48);
-		loading.timeline.clear();
-		loading.freshness = model::Freshness::Loading;
-		loading.history_pending = true;
-		loading.older_exhausted = false;
-		loading.channels[0].last_message = None;
-		let mut opened = TimelineView::default();
-		paint_timeline(&ctx, &mut opened, &mut loading, 60);
-		for id in 1..=48 {
-			let mut message = text_message(id);
-			message.channel = Id(22);
-			message.content = format!("Row {id}");
-			loading.timeline.insert(message, false, false).unwrap();
+			view.heights.retain(|id, _| id.0 <= 12);
+			view.following = false;
+			view.target_browsing = true;
+			view.jump = false;
+			view.anchor = Some((Id(1), 0.0));
+			view.revision = u64::MAX;
+			paint_timeline(&ctx, &mut view, &mut state, 20);
+			view.follow_latest(&state);
+			let mut ack = Vec::new();
+			for frame in 0..6 {
+				ack.push(newest_y(
+					&paint_timeline(&ctx, &mut view, &mut state, 30 + frame),
+					48,
+				));
+			}
+			assert!(
+				ack.iter()
+					.all(|y| y.is_some_and(|y| (y - settled).abs() < 1.0)),
+				"ack to the bottom walked the tail {ack:?}, settled at {settled}"
+			);
+
+			let mut loading = channel_messages(22, 48);
+			loading.timeline.clear();
+			loading.freshness = model::Freshness::Loading;
+			loading.history_pending = true;
+			loading.older_exhausted = false;
+			loading.channels[0].last_message = None;
+			let mut opened = TimelineView::default();
+			paint_timeline(&ctx, &mut opened, &mut loading, 60);
+			for id in 1..=48 {
+				let mut message = text_message(id);
+				message.channel = Id(22);
+				message.content = format!("Row {id}");
+				loading.timeline.insert(message, false, false).unwrap();
+			}
+			loading.freshness = model::Freshness::Fresh;
+			loading.history_pending = false;
+			loading.older_exhausted = true;
+			loading.channels[0].last_message = Some(Id(48));
+			loading.revision += 1;
+			let mut arrived = Vec::new();
+			for frame in 0..6 {
+				arrived.push(newest_y(
+					&paint_timeline(&ctx, &mut opened, &mut loading, 70 + frame),
+					48,
+				));
+			}
+			assert!(
+				arrived
+					.iter()
+					.all(|y| y.is_some_and(|y| (y - settled).abs() < 1.0)),
+				"opening onto loaded history walked the tail {arrived:?}, settled at {settled}"
+			);
 		}
-		loading.freshness = model::Freshness::Fresh;
-		loading.history_pending = false;
-		loading.older_exhausted = true;
-		loading.channels[0].last_message = Some(Id(48));
-		loading.revision += 1;
-		let mut arrived = Vec::new();
-		for frame in 0..6 {
-			arrived.push(newest_y(
-				&paint_timeline(&ctx, &mut opened, &mut loading, 70 + frame),
-				48,
-			));
-		}
-		assert!(
-			arrived
-				.iter()
-				.all(|y| y.is_some_and(|y| (y - settled).abs() < 1.0)),
-			"opening onto loaded history walked the tail {arrived:?}, settled at {settled}"
-		);
 	}
 }

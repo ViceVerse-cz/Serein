@@ -1006,60 +1006,45 @@ mod tests {
 			panic!("Missing portrait frame");
 		};
 		assert_eq!((width, height, rgba.len()), (180, 320, 180 * 320 * 4));
-	}
-	#[test]
-	fn bounded_stream_cursors_and_video_rows() {
-		let stream: IStream = ReadStream {
-			source: Arc::new(Mutex::new(Box::new(std::io::Cursor::new(vec![1, 2, 3, 4])))),
-			position: Mutex::new(0),
-			length: 4,
+
+		{
+			let stream: IStream = ReadStream {
+				source: Arc::new(Mutex::new(Box::new(std::io::Cursor::new(vec![1, 2, 3, 4])))),
+				position: Mutex::new(0),
+				length: 4,
+			}
+			.into();
+			unsafe {
+				let clone = stream.Clone().unwrap();
+				stream.Seek(2, STREAM_SEEK_SET, None).unwrap();
+				let mut bytes = [0_u8; 4];
+				let mut count = 0;
+				assert_eq!(
+					stream.Read(bytes.as_mut_ptr().cast(), 4, Some(&mut count)),
+					S_FALSE
+				);
+				assert_eq!((&bytes[..2], count), (&[3, 4][..], 2));
+				assert_eq!(
+					clone.Read(bytes.as_mut_ptr().cast(), 4, Some(&mut count)),
+					S_OK
+				);
+				assert_eq!(bytes, [1, 2, 3, 4]);
+				assert!(stream.Seek(-5, STREAM_SEEK_SET, None).is_err());
+				assert_eq!(
+					stream.Read(bytes.as_mut_ptr().cast(), MAX_BYTES as u32 + 1, None),
+					E_INVALIDARG
+				);
+			}
+			let input = [1, 2, 3, 0, 4, 5, 6, 0];
+			assert_eq!(
+				rgba_frame(&input, 1, 2, -4, 0, 2, (0, 0)).unwrap(),
+				[6, 5, 4, 255, 3, 2, 1, 255]
+			);
+			assert_eq!(
+				rgba_frame(&input, 1, 2, 4, 90, 2, (0, 0)).unwrap(),
+				[6, 5, 4, 255, 3, 2, 1, 255]
+			);
+			assert!(rgba_frame(&input[..4], 1, 2, 4, 0, 2, (0, 0)).is_err());
 		}
-		.into();
-		unsafe {
-			let clone = stream.Clone().unwrap();
-			stream.Seek(2, STREAM_SEEK_SET, None).unwrap();
-			let mut bytes = [0_u8; 4];
-			let mut count = 0;
-			assert_eq!(
-				stream.Read(bytes.as_mut_ptr().cast(), 4, Some(&mut count)),
-				S_FALSE
-			);
-			assert_eq!((&bytes[..2], count), (&[3, 4][..], 2));
-			assert_eq!(
-				clone.Read(bytes.as_mut_ptr().cast(), 4, Some(&mut count)),
-				S_OK
-			);
-			assert_eq!(bytes, [1, 2, 3, 4]);
-			assert!(stream.Seek(-5, STREAM_SEEK_SET, None).is_err());
-			assert_eq!(
-				stream.Read(bytes.as_mut_ptr().cast(), MAX_BYTES as u32 + 1, None),
-				E_INVALIDARG
-			);
-		}
-		let input = [1, 2, 3, 0, 4, 5, 6, 0];
-		assert_eq!(
-			rgba_frame(&input, 1, 2, -4, 0, 2, (0, 0)).unwrap(),
-			[6, 5, 4, 255, 3, 2, 1, 255]
-		);
-		assert_eq!(
-			rgba_frame(&input, 1, 2, 4, 90, 2, (0, 0)).unwrap(),
-			[6, 5, 4, 255, 3, 2, 1, 255]
-		);
-		assert!(rgba_frame(&input[..4], 1, 2, 4, 0, 2, (0, 0)).is_err());
-	}
-	/// Developer check: `$env:SEREIN_VIDEO_SAMPLE='C:\path\clip.webm'; cargo test -p platform
-	/// decodes_local_sample -- --ignored --nocapture`.
-	#[test]
-	#[ignore = "decodes a developer-supplied local clip"]
-	fn decodes_local_sample() {
-		let path = std::env::var("SEREIN_VIDEO_SAMPLE").expect("SEREIN_VIDEO_SAMPLE path");
-		let bytes = std::fs::read(path).unwrap();
-		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(bytes))).unwrap();
-		let info = decoder.info();
-		eprintln!("{info:?}");
-		assert!(matches!(
-			decoder.read_video().unwrap(),
-			Some(Sample::Video { .. })
-		));
 	}
 }

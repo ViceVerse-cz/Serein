@@ -3,6 +3,8 @@
 > **Preview SDK — PR #411, not yet released.** Extended query, messaging-settings,
 > guild-folder and action-result fields require a host built from this branch.
 
+See [Custom Rich Presence outputs and previews](extension-sdk-actions.md#custom-rich-presence) for the opt-in activity editor contract.
+
 ## Invocation and events
 
 An invocation is one call to your handler. The host chooses a declared action,
@@ -18,6 +20,7 @@ instance. Local variables do not survive the call. Use the separately granted
 | `EventInvocation` | Those actions plus live message events | `input.invocation.action` |
 | `AppInvocation` | Those actions plus app snapshots and app change events | `input.invocation.action` |
 | `ExtendedAppInvocation` | `AppInvocation` plus queries, account settings, folders and tracked action results | `input.invocation.invocation.action` |
+| `TickInvocation` | Preview `tick` actions, or a mixed tick/panel handler | `input.invocation.action` |
 
 The wrappers keep the original `Invocation` fields unchanged. Their `invocation`
 field is a Rust convenience: JSON stays flat. There is no JSON object named
@@ -34,7 +37,7 @@ The examples in this table use `i: &Invocation`. For a wrapper, set
 | `action` | `String` / string | Required manifest action ID, such as `show` or `format-draft`. It is not the action's display label. | `i.action == "show"` |
 | `selected_message` | `Option<String>` / string or null | Text of the message chosen by the user. Requires `selected_message` and a `message` action. It contains no message ID or author object. | `i.selected_message.as_deref()` |
 | `composer` | `Option<String>` / string or null | The current draft for a `composer` action with the `composer` grant. An empty draft is `Some("")`, not `None`. | `i.composer.as_deref()` |
-| `storage` | `Option<String>` / string or null | The plugin's last saved opaque UTF-8 value for this account. Requires `storage`; absent when nothing has been saved. The worker reloads it before execution. | `i.storage_json::<u64>()` if your plugin stores a JSON number |
+| `storage` | `Option<String>` / string or null | The plugin's last saved opaque UTF-8 value for this account (device-wide for the narrow `api_proxy` plugin). Requires `storage`; absent when nothing has been saved. The worker reloads it before execution. | `i.storage_json::<u64>()` if your plugin stores a JSON number |
 | `values` | `BTreeMap<String, String>` / object of string values | Current form values when a panel button invokes an action. Keys are input element IDs. Initial tool/panel opens normally have an empty map; reactive events always do. | `i.value("name")` or `i.parse_value::<bool>("enabled")` |
 
 `values` holds strings even for typed controls: a checkbox supplies `"true"` or
@@ -89,6 +92,12 @@ common optional fields above may instead be serialized as `null`.
 | `messaging_settings` | `Option<MessagingSettingsSnapshot>` / object or absent | Loaded account messaging privacy preferences; requires `messaging_settings`. | `input.messaging_settings.as_ref()` |
 | `guild_folders` | `Option<GuildFoldersSnapshot>` / object or absent | Loaded versioned server-folder layout; requires `guild_folders`. | `input.guild_folders.as_ref()` |
 | `action_result` | `Option<ActionResult>` / object or absent | Apply admission result for `tracked_app_action`; requires `action_feedback`. | `input.action_result.as_ref()` |
+| `tick_ms` | `Option<u64>` / integer or absent | Elapsed milliseconds since this plugin was enabled for the session. Present only on preview `tick` calls through `TickInvocation`. | `input.tick_ms` |
+
+A tick is completion-paced with a 250 ms minimum delay and runs only when the shared
+extension worker is idle. It receives the flattened base invocation plus `tick_ms`;
+granted storage may be read, but values, message/composer context and app snapshots are
+absent. Scheduling pauses after an invocation error until disable/re-enable.
 
 ### HostInfo: discover supported names
 
@@ -102,7 +111,7 @@ can be inspected without decoding a newer capability/event enum.
 | --- | --- | --- | --- |
 | `api_version` | `u32` / integer | Current buffer/JSON ABI version, `1`. | `host.api_version` |
 | `sdk_revision` | `u32` / integer | Current discovery schema revision, `1`; not a release or protocol compatibility claim. | `host.sdk_revision` |
-| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (51 currently), not this plugin's granted capabilities. | `host.supports("forum_data")` |
+| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (52 currently), not this plugin's granted capabilities. | `host.supports("rich_presence")` |
 | `app_events` | `Vec<String>` / array of strings | Host-supported app-event names (21 currently), not an event subscription or delivery guarantee. | `host.supports_event("typing")` |
 
 A supported capability still needs to be declared and explicitly granted. Older
@@ -121,6 +130,7 @@ account snapshot or grant-dependent data:
     "api_version": 1,
     "sdk_revision": 1,
     "capabilities": [
+      "rich_presence",
       "relationship_control",
       "account_control",
       "audio_settings",
@@ -1276,3 +1286,14 @@ fn handle(input: AppInvocation) -> AppOutput {
 
 serein_extension_sdk::export!(handle);
 ```
+
+## Connection output (preview)
+
+| Wire field | SDK Rust / JSON type | Meaning |
+| --- | --- | --- |
+| `api_proxy` | `ApiProxyOutput.api_proxy: Option<ApiProxyConfig>` / tagged object | Configure REST-only routing from a granted panel/activation action; omit to preserve routing. Modes: `Direct`, `Automatic`, `Url { url }`. See [API proxy](extension-sdk-actions.md#api-proxy-preview). |
+
+The wrapper flattens its `output: Output` field into the same response document
+and keeps existing `Output` struct literals and compiled ABI v1 plugins compatible.
+Use `export!(handle)` for this handler.
+It does not grant proxy capability or account access implicitly.

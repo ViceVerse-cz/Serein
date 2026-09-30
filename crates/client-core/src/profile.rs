@@ -375,6 +375,7 @@ impl State {
 			user,
 			guild,
 			request: self.profile_request,
+			with_mutuals: self.user.as_ref().is_none_or(|own| own.id != user),
 		})
 	}
 	pub fn clear_profile(&mut self) -> Command {
@@ -487,174 +488,173 @@ mod tests {
 	}
 	#[test]
 	fn own_profile_requires_loaded_account_and_confirms_only_current_bounded_responses() {
-		let mut state = State::default();
-		assert!(state.load_own_profile().is_none());
-		let mut state = own_state();
-		assert!(state.save_own_profile(edit()).is_none());
-		assert!(matches!(
-			state.load_own_profile(),
-			Some(Command::EditProfile {
-				user: Id(1),
-				changes: None,
-				..
-			})
-		));
-		let request = state.own_profile.request;
-		assert!(state.load_own_profile().is_none());
-		state.apply(Envelope {
-			generation: state.generation + 1,
-			event: Event::ProfileEdited {
-				user: Id(1),
-				request,
-				result: Ok(own_data("Wrong generation")),
-			},
-		});
-		assert!(state.own_profile.loading);
-		complete_own(&mut state, Ok(own_data("Before")));
-		assert!(state.can_save_own_profile());
-		assert!(
-			state
-				.save_own_profile(model::ProfileEdit {
-					bio: Some("x".repeat(191)),
-					..Default::default()
+		{
+			let mut state = State::default();
+			assert!(state.load_own_profile().is_none());
+			let mut state = own_state();
+			assert!(state.save_own_profile(edit()).is_none());
+			assert!(matches!(
+				state.load_own_profile(),
+				Some(Command::EditProfile {
+					user: Id(1),
+					changes: None,
+					..
 				})
-				.is_none()
-		);
-		assert!(state.save_own_profile(Default::default()).is_none());
-		state
-			.profile_cache
-			.insert(Id(1), None, *own_data("Before"), Instant::now());
-		state.request_profile(Id(1), None);
-		assert!(matches!(
-			state.save_own_profile(edit()),
-			Some(Command::EditProfile {
-				changes: Some(_),
-				..
-			})
-		));
-		assert!(state.own_profile.saving && !state.can_save_own_profile());
-		complete_own(&mut state, Ok(own_data("After")));
-		assert_eq!(state.user.as_ref().unwrap().name, "After");
-		assert_eq!(
+			));
+			let request = state.own_profile.request;
+			assert!(state.load_own_profile().is_none());
+			state.apply(Envelope {
+				generation: state.generation + 1,
+				event: Event::ProfileEdited {
+					user: Id(1),
+					request,
+					result: Ok(own_data("Wrong generation")),
+				},
+			});
+			assert!(state.own_profile.loading);
+			complete_own(&mut state, Ok(own_data("Before")));
+			assert!(state.can_save_own_profile());
+			assert!(
+				state
+					.save_own_profile(model::ProfileEdit {
+						bio: Some("x".repeat(191)),
+						..Default::default()
+					})
+					.is_none()
+			);
+			assert!(state.save_own_profile(Default::default()).is_none());
 			state
-				.own_profile
-				.data
-				.as_ref()
-				.unwrap()
-				.global_name
-				.as_deref(),
-			Some("After")
-		);
-		assert!(state.profile.is_none() && state.profile_cache.is_empty());
-		assert!(state.can_save_own_profile());
-		// Duplicate and retired outcomes cannot revert the confirmed account.
-		complete_own(&mut state, Ok(own_data("Before")));
-		assert_eq!(state.user.as_ref().unwrap().name, "After");
-		state.load_own_profile();
-		let mut invalid = own_data("Invalid");
-		invalid.bio = "x".repeat(4097);
-		complete_own(&mut state, Ok(invalid));
-		assert!(!state.can_save_own_profile());
-		assert_eq!(state.user.as_ref().unwrap().name, "After");
-	}
-	#[test]
-	fn own_profile_failed_writes_require_reload_but_rejected_queue_does_not() {
-		let mut state = own_state();
-		state.load_own_profile();
-		complete_own(&mut state, Ok(own_data("Before")));
-		let command = state.save_own_profile(edit()).unwrap();
-		state.command_rejected(command);
-		assert!(state.can_save_own_profile());
-		assert!(state.own_profile.error.is_some());
-		state.save_own_profile(edit());
-		state.clear_own_profile();
-		assert!(state.own_profile.saving);
-		assert!(state.load_own_profile().is_none());
-		complete_own(&mut state, Err(Failure::Ambiguous));
-		assert!(state.own_profile.reload_required && !state.own_profile.saving);
-		assert_eq!(state.own_profile.data.as_ref().unwrap().user.name, "Before");
-		assert!(state.save_own_profile(edit()).is_none());
-		assert!(state.load_own_profile().is_some());
-		assert_eq!(state.own_profile.data.as_ref().unwrap().user.name, "Before");
-		assert!(!state.can_save_own_profile());
-		complete_own(&mut state, Err(Failure::Network));
-		assert_eq!(state.own_profile.data.as_ref().unwrap().user.name, "Before");
-		assert!(state.own_profile.reload_required && !state.can_save_own_profile());
-		assert!(state.load_own_profile().is_some());
-		complete_own(&mut state, Ok(own_data("After")));
-		assert!(state.can_save_own_profile());
-		state.save_own_profile(edit());
-		let request = state.own_profile.request;
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Disconnected,
-		});
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Resumed,
-		});
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::ProfileEdited {
-				user: Id(1),
-				request,
-				result: Ok(own_data("Late")),
-			},
-		});
-		assert!(!state.own_profile.saving && state.own_profile.reload_required);
-		assert_eq!(state.user.as_ref().unwrap().name, "After");
-		state.logout();
-		assert!(state.own_profile.data.is_none());
-		assert!(state.load_own_profile().is_none());
-	}
-	#[test]
-	fn own_profile_idle_disconnect_and_full_reconciliation_offer_explicit_recovery() {
-		let mut state = own_state();
-		state.load_own_profile();
-		complete_own(&mut state, Ok(own_data("Before")));
-		assert!(state.own_profile.error.is_none());
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Disconnected,
-		});
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Resumed,
-		});
-		assert!(state.own_profile.reload_required && state.own_profile.error.is_some());
-		assert!(!state.can_save_own_profile());
-		state.load_own_profile();
-		complete_own(&mut state, Ok(own_data("Before")));
-		let mut message = crate::tests::message(1);
-		message.author = state.user.clone().unwrap();
-		state.timeline.insert(message, false, false).unwrap();
-		state.timeline.begin_page(false);
-		for id in 2..=(session_cache::MAX_MUTATIONS as u64 + 1) {
-			state.timeline.delete(Id(id)).unwrap();
+				.profile_cache
+				.insert(Id(1), None, *own_data("Before"), Instant::now());
+			state.request_profile(Id(1), None);
+			assert!(matches!(
+				state.save_own_profile(edit()),
+				Some(Command::EditProfile {
+					changes: Some(_),
+					..
+				})
+			));
+			assert!(state.own_profile.saving && !state.can_save_own_profile());
+			complete_own(&mut state, Ok(own_data("After")));
+			assert_eq!(state.user.as_ref().unwrap().name, "After");
+			assert_eq!(
+				state
+					.own_profile
+					.data
+					.as_ref()
+					.unwrap()
+					.global_name
+					.as_deref(),
+				Some("After")
+			);
+			assert!(state.profile.is_none() && state.profile_cache.is_empty());
+			assert!(state.can_save_own_profile());
+			// Duplicate and retired outcomes cannot revert the confirmed account.
+			complete_own(&mut state, Ok(own_data("Before")));
+			assert_eq!(state.user.as_ref().unwrap().name, "After");
+			state.load_own_profile();
+			let mut invalid = own_data("Invalid");
+			invalid.bio = "x".repeat(4097);
+			complete_own(&mut state, Ok(invalid));
+			assert!(!state.can_save_own_profile());
+			assert_eq!(state.user.as_ref().unwrap().name, "After");
 		}
-		state.history_pending = true;
-		let request = state.request;
-		state.save_own_profile(edit());
-		complete_own(&mut state, Ok(own_data("After")));
-		assert_eq!(state.user.as_ref().unwrap().name, "After");
-		assert!(state.own_profile.error.is_none());
-		assert!(state.timeline.is_empty() && state.timeline.is_deleted(Id(2)));
-		assert!(!state.history_pending && state.request != request);
-		assert_eq!(state.freshness, model::Freshness::Stale);
-		assert!(state.status.contains("Reload history"));
-	}
-	#[test]
-	fn own_profile_reload_retires_snapshot_when_session_identity_changes() {
-		let mut state = own_state();
-		state.load_own_profile();
-		complete_own(&mut state, Ok(own_data("Before")));
-		state.generation += 1;
-		assert!(state.load_own_profile().is_some());
-		assert!(state.own_profile.data.is_none());
-		complete_own(&mut state, Ok(own_data("Current session")));
-		state.user.as_mut().unwrap().id = Id(2);
-		assert!(state.load_own_profile().is_some());
-		assert!(state.own_profile.data.is_none());
+		{
+			let mut state = own_state();
+			state.load_own_profile();
+			complete_own(&mut state, Ok(own_data("Before")));
+			let command = state.save_own_profile(edit()).unwrap();
+			state.command_rejected(command);
+			assert!(state.can_save_own_profile());
+			assert!(state.own_profile.error.is_some());
+			state.save_own_profile(edit());
+			state.clear_own_profile();
+			assert!(state.own_profile.saving);
+			assert!(state.load_own_profile().is_none());
+			complete_own(&mut state, Err(Failure::Ambiguous));
+			assert!(state.own_profile.reload_required && !state.own_profile.saving);
+			assert_eq!(state.own_profile.data.as_ref().unwrap().user.name, "Before");
+			assert!(state.save_own_profile(edit()).is_none());
+			assert!(state.load_own_profile().is_some());
+			assert_eq!(state.own_profile.data.as_ref().unwrap().user.name, "Before");
+			assert!(!state.can_save_own_profile());
+			complete_own(&mut state, Err(Failure::Network));
+			assert_eq!(state.own_profile.data.as_ref().unwrap().user.name, "Before");
+			assert!(state.own_profile.reload_required && !state.can_save_own_profile());
+			assert!(state.load_own_profile().is_some());
+			complete_own(&mut state, Ok(own_data("After")));
+			assert!(state.can_save_own_profile());
+			state.save_own_profile(edit());
+			let request = state.own_profile.request;
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Disconnected,
+			});
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Resumed,
+			});
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::ProfileEdited {
+					user: Id(1),
+					request,
+					result: Ok(own_data("Late")),
+				},
+			});
+			assert!(!state.own_profile.saving && state.own_profile.reload_required);
+			assert_eq!(state.user.as_ref().unwrap().name, "After");
+			state.logout();
+			assert!(state.own_profile.data.is_none());
+			assert!(state.load_own_profile().is_none());
+		}
+		{
+			let mut state = own_state();
+			state.load_own_profile();
+			complete_own(&mut state, Ok(own_data("Before")));
+			assert!(state.own_profile.error.is_none());
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Disconnected,
+			});
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Resumed,
+			});
+			assert!(state.own_profile.reload_required && state.own_profile.error.is_some());
+			assert!(!state.can_save_own_profile());
+			state.load_own_profile();
+			complete_own(&mut state, Ok(own_data("Before")));
+			let mut message = crate::tests::message(1);
+			message.author = state.user.clone().unwrap();
+			state.timeline.insert(message, false, false).unwrap();
+			state.timeline.begin_page(false);
+			for id in 2..=(session_cache::MAX_MUTATIONS as u64 + 1) {
+				state.timeline.delete(Id(id)).unwrap();
+			}
+			state.history_pending = true;
+			let request = state.request;
+			state.save_own_profile(edit());
+			complete_own(&mut state, Ok(own_data("After")));
+			assert_eq!(state.user.as_ref().unwrap().name, "After");
+			assert!(state.own_profile.error.is_none());
+			assert!(state.timeline.is_empty() && state.timeline.is_deleted(Id(2)));
+			assert!(!state.history_pending && state.request != request);
+			assert_eq!(state.freshness, model::Freshness::Stale);
+			assert!(state.status.contains("Reload history"));
+		}
+		{
+			let mut state = own_state();
+			state.load_own_profile();
+			complete_own(&mut state, Ok(own_data("Before")));
+			state.generation += 1;
+			assert!(state.load_own_profile().is_some());
+			assert!(state.own_profile.data.is_none());
+			complete_own(&mut state, Ok(own_data("Current session")));
+			state.user.as_mut().unwrap().id = Id(2);
+			assert!(state.load_own_profile().is_some());
+			assert!(state.own_profile.data.is_none());
+		}
 	}
 	#[test]
 	fn own_profile_demo_is_explicit_and_profile_results_charge_heap_capacity() {
@@ -683,315 +683,333 @@ mod tests {
 		assert!(state.own_profile.reload_required);
 	}
 	#[test]
-	fn profiles_require_explicit_request_and_reject_late_views() {
-		let mut state = State::default();
-		assert!(state.request_profile(Id(1), None).is_none());
-		state.auth = AuthState::Authenticated;
-		state.gateway_connected = true;
-		let Some(Command::Profile { request, .. }) = state.request_profile(Id(1), None) else {
-			panic!("missing request")
-		};
-		assert!(state.profile.as_ref().unwrap().loading);
-		let Some(Command::Profile { request: new, .. }) = state.request_profile(Id(2), None) else {
-			panic!("missing request")
-		};
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Profile {
-				user: Id(1),
-				guild: None,
-				request,
-				result: Err(Failure::Forbidden),
-			},
-		});
-		assert!(state.profile.as_ref().unwrap().loading);
-		state.apply(Envelope {
-			generation: state.generation + 1,
-			event: Event::Profile {
-				user: Id(2),
-				guild: None,
-				request: new,
-				result: Err(Failure::Forbidden),
-			},
-		});
-		assert!(state.profile.as_ref().unwrap().loading);
-		state.command_rejected(Command::Profile {
-			user: Id(2),
-			guild: None,
-			request: new,
-		});
-		assert!(!state.profile.as_ref().unwrap().loading);
-		assert!(state.profile.as_ref().unwrap().error.is_some());
-		assert!(matches!(state.clear_profile(), Command::CancelProfile));
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Profile {
-				user: Id(2),
-				guild: None,
-				request: new,
-				result: Err(Failure::Network),
-			},
-		});
-		assert!(state.profile.is_none());
-		state.demo = true;
-		assert!(state.request_profile(Id(1), None).is_none());
-	}
-
-	#[test]
-	fn viewed_profiles_are_reused_until_they_expire_or_the_session_changes() {
-		fn profile(user: Id) -> Box<UserProfile> {
-			Box::new(UserProfile {
-				user: model::User {
-					primary_guild: None,
-					id: user,
-					name: "Synthetic".into(),
-					avatar: None,
-					webhook: false,
-					kind: Default::default(),
-					discriminator: 0,
-				},
-				username: "synthetic".into(),
-				global_name: None,
-				banner: None,
-				accent_color: None,
-				bio: String::new(),
-				pronouns: String::new(),
-				badges: vec![],
-				connections: vec![],
-				mutual_guilds: vec![],
-				mutual_friends: vec![],
-				guild: None,
-				theme_colors: None,
-				clan: None,
-				limited: false,
-			})
-		}
+	fn own_profile_does_not_request_mutuals() {
 		let mut state = State {
 			auth: AuthState::Authenticated,
 			gateway_connected: true,
-			guilds: vec![model::Guild {
-				stickers: None,
-				emojis: None,
-				id: Id(9),
-				name: "Synthetic".into(),
-				icon: None,
-			}],
+			user: Some(own_data("Self").user.clone()),
 			..State::default()
 		};
-		let Some(Command::Profile { request, .. }) = state.request_profile(Id(1), None) else {
-			panic!("missing request")
-		};
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Profile {
-				user: Id(1),
+		for (user, expected) in [(Id(1), false), (Id(2), true)] {
+			let Some(Command::Profile { with_mutuals, .. }) = state.request_profile(user, None)
+			else {
+				panic!("missing request");
+			};
+			assert_eq!(with_mutuals, expected);
+		}
+	}
+	#[test]
+	fn profiles_require_explicit_request_and_reject_late_views() {
+		{
+			let mut state = State::default();
+			assert!(state.request_profile(Id(1), None).is_none());
+			state.auth = AuthState::Authenticated;
+			state.gateway_connected = true;
+			let Some(Command::Profile { request, .. }) = state.request_profile(Id(1), None) else {
+				panic!("missing request")
+			};
+			assert!(state.profile.as_ref().unwrap().loading);
+			let Some(Command::Profile { request: new, .. }) = state.request_profile(Id(2), None)
+			else {
+				panic!("missing request")
+			};
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Profile {
+					user: Id(1),
+					guild: None,
+					request,
+					result: Err(Failure::Forbidden),
+				},
+			});
+			assert!(state.profile.as_ref().unwrap().loading);
+			state.apply(Envelope {
+				generation: state.generation + 1,
+				event: Event::Profile {
+					user: Id(2),
+					guild: None,
+					request: new,
+					result: Err(Failure::Forbidden),
+				},
+			});
+			assert!(state.profile.as_ref().unwrap().loading);
+			state.command_rejected(Command::Profile {
+				user: Id(2),
 				guild: None,
-				request,
-				result: Ok(profile(Id(1))),
-			},
-		});
-		assert_eq!(state.profile_cache.len(), 1);
-		state.clear_profile();
-		let now = Instant::now();
-		// Reopening within the TTL is served from RAM without a command.
-		assert!(state.request_profile_at(Id(1), None, now).is_none());
-		let view = state.profile.as_ref().unwrap();
-		assert!(!view.loading && view.error.is_none() && view.data.is_some());
-		// A different server scope is a different profile.
-		assert!(state.request_profile_at(Id(1), Some(Id(9)), now).is_some());
-		// Expired entries are requested again.
-		assert!(
-			state
-				.request_profile_at(Id(1), None, now + CACHE_TTL + Duration::from_secs(1))
-				.is_some()
-		);
-		assert!(state.profile_cache.is_empty());
-		// Bounded by entries and bytes; session invalidation clears everything.
-		for id in 1..=(CACHE_ENTRIES as u64 + 8) {
+				request: new,
+				with_mutuals: true,
+			});
+			assert!(!state.profile.as_ref().unwrap().loading);
+			assert!(state.profile.as_ref().unwrap().error.is_some());
+			assert!(matches!(state.clear_profile(), Command::CancelProfile));
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Profile {
+					user: Id(2),
+					guild: None,
+					request: new,
+					result: Err(Failure::Network),
+				},
+			});
+			assert!(state.profile.is_none());
+			state.demo = true;
+			assert!(state.request_profile(Id(1), None).is_none());
+		}
+		{
+			fn profile(user: Id) -> Box<UserProfile> {
+				Box::new(UserProfile {
+					user: model::User {
+						primary_guild: None,
+						id: user,
+						name: "Synthetic".into(),
+						avatar: None,
+						webhook: false,
+						kind: Default::default(),
+						discriminator: 0,
+					},
+					username: "synthetic".into(),
+					global_name: None,
+					banner: None,
+					accent_color: None,
+					bio: String::new(),
+					pronouns: String::new(),
+					badges: vec![],
+					connections: vec![],
+					mutual_guilds: vec![],
+					mutual_friends: vec![],
+					guild: None,
+					theme_colors: None,
+					clan: None,
+					limited: false,
+				})
+			}
+			let mut state = State {
+				auth: AuthState::Authenticated,
+				gateway_connected: true,
+				guilds: vec![model::Guild {
+					default_message_notifications: None,
+					stickers: None,
+					emojis: None,
+					id: Id(9),
+					name: "Synthetic".into(),
+					icon: None,
+				}],
+				..State::default()
+			};
+			let Some(Command::Profile { request, .. }) = state.request_profile(Id(1), None) else {
+				panic!("missing request")
+			};
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Profile {
+					user: Id(1),
+					guild: None,
+					request,
+					result: Ok(profile(Id(1))),
+				},
+			});
+			assert_eq!(state.profile_cache.len(), 1);
+			state.clear_profile();
+			let now = Instant::now();
+			// Reopening within the TTL is served from RAM without a command.
+			assert!(state.request_profile_at(Id(1), None, now).is_none());
+			let view = state.profile.as_ref().unwrap();
+			assert!(!view.loading && view.error.is_none() && view.data.is_some());
+			// A different server scope is a different profile.
+			assert!(state.request_profile_at(Id(1), Some(Id(9)), now).is_some());
+			// Expired entries are requested again.
+			assert!(
+				state
+					.request_profile_at(Id(1), None, now + CACHE_TTL + Duration::from_secs(1))
+					.is_some()
+			);
+			assert!(state.profile_cache.is_empty());
+			// Bounded by entries and bytes; session invalidation clears everything.
+			for id in 1..=(CACHE_ENTRIES as u64 + 8) {
+				state
+					.profile_cache
+					.insert(Id(id), None, *profile(Id(id)), now);
+			}
+			assert_eq!(state.profile_cache.len(), CACHE_ENTRIES);
+			assert!(state.profile_cache.bytes() <= CACHE_BYTES);
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::PermissionsChanged,
+			});
+			assert!(state.profile_cache.is_empty());
+			// Unchanged typed permission events preserve cached and in-flight views.
 			state
 				.profile_cache
-				.insert(Id(id), None, *profile(Id(id)), now);
-		}
-		assert_eq!(state.profile_cache.len(), CACHE_ENTRIES);
-		assert!(state.profile_cache.bytes() <= CACHE_BYTES);
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::PermissionsChanged,
-		});
-		assert!(state.profile_cache.is_empty());
-		// Unchanged typed permission events preserve cached and in-flight views.
-		state
-			.profile_cache
-			.insert(Id(1), None, *profile(Id(1)), now);
-		assert!(state.request_profile(Id(1), None).is_none());
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Permissions(crate::permissions::Event::RoleRemoved {
-				guild: Id(9),
-				id: Id(10),
-			}),
-		});
-		assert!(state.profile.as_ref().unwrap().data.is_some());
-		assert_eq!(state.profile_cache.len(), 1);
+				.insert(Id(1), None, *profile(Id(1)), now);
+			assert!(state.request_profile(Id(1), None).is_none());
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Permissions(crate::permissions::Event::RoleRemoved {
+					guild: Id(9),
+					id: Id(10),
+				}),
+			});
+			assert!(state.profile.as_ref().unwrap().data.is_some());
+			assert_eq!(state.profile_cache.len(), 1);
 
-		// Invalid snapshots still fail closed without accepting a late profile response.
-		let guild = || model::permissions::Guild {
-			id: Id(9),
-			owner: None,
-			roles: None,
-			member: None,
-		};
-		let Some(Command::Profile { request, .. }) = state.request_profile(Id(2), None) else {
-			panic!("uncached profile request");
-		};
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Permissions(crate::permissions::Event::Snapshot(
-				model::permissions::Snapshot {
-					guilds: vec![guild(), guild()],
-					channels: vec![],
-				},
-			)),
-		});
-		assert!(state.profile.is_none() && state.profile_cache.is_empty());
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Profile {
-				user: Id(2),
-				guild: None,
-				request,
-				result: Ok(profile(Id(2))),
-			},
-		});
-		assert!(state.profile.is_none() && state.profile_cache.is_empty());
-	}
-
-	#[test]
-	fn open_profile_survives_role_edits_and_unrelated_channel_removal() {
-		let profile = |user| {
-			Box::new(UserProfile {
-				user: model::User {
-					primary_guild: None,
-					id: user,
-					name: "Synthetic".into(),
-					avatar: None,
-					webhook: false,
-					kind: Default::default(),
-					discriminator: 0,
-				},
-				username: "synthetic".into(),
-				global_name: None,
-				banner: None,
-				accent_color: None,
-				bio: "kept".into(),
-				pronouns: String::new(),
-				badges: vec![],
-				connections: vec![],
-				mutual_guilds: vec![],
-				mutual_friends: vec![],
-				guild: None,
-				theme_colors: None,
-				clan: None,
-				limited: false,
-			})
-		};
-		let channel = |id| model::Channel {
-			id: Id(id),
-			guild: Some(Id(9)),
-			parent_id: None,
-			kind: 0,
-			name: "Synthetic".into(),
-			position: 0,
-			recipients: vec![],
-			last_message: None,
-			icon: None,
-			member_list_id: None,
-			tags: None,
-			message_count: None,
-		};
-		let mut state = State {
-			auth: AuthState::Authenticated,
-			gateway_connected: true,
-			guilds: vec![model::Guild {
-				stickers: None,
-				emojis: None,
+			// Invalid snapshots still fail closed without accepting a late profile response.
+			let guild = || model::permissions::Guild {
 				id: Id(9),
-				name: "Synthetic".into(),
-				icon: None,
-			}],
-			channels: vec![channel(2), channel(3)],
-			selected: Some(Id(2)),
-			..State::default()
-		};
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Permissions(crate::permissions::Event::Snapshot(
-				model::permissions::Snapshot {
-					guilds: vec![model::permissions::Guild {
-						id: Id(9),
-						owner: None,
-						roles: Some(vec![model::permissions::Role {
-							id: Id(30),
-							bits: 0,
-							name: "old".into(),
-							color: 0,
-							position: 1,
-							hoist: false,
-						}]),
-						member: None,
-					}],
-					channels: vec![],
+				owner: None,
+				roles: None,
+				member: None,
+			};
+			let Some(Command::Profile { request, .. }) = state.request_profile(Id(2), None) else {
+				panic!("uncached profile request");
+			};
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Permissions(crate::permissions::Event::Snapshot(
+					model::permissions::Snapshot {
+						guilds: vec![guild(), guild()],
+						channels: vec![],
+					},
+				)),
+			});
+			assert!(state.profile.is_none() && state.profile_cache.is_empty());
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Profile {
+					user: Id(2),
+					guild: None,
+					request,
+					result: Ok(profile(Id(2))),
 				},
-			)),
-		});
-		let Some(Command::Profile { request, .. }) = state.request_profile(Id(4), Some(Id(9)))
-		else {
-			panic!("profile request");
-		};
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Profile {
-				user: Id(4),
+			});
+			assert!(state.profile.is_none() && state.profile_cache.is_empty());
+		}
+		{
+			let profile = |user| {
+				Box::new(UserProfile {
+					user: model::User {
+						primary_guild: None,
+						id: user,
+						name: "Synthetic".into(),
+						avatar: None,
+						webhook: false,
+						kind: Default::default(),
+						discriminator: 0,
+					},
+					username: "synthetic".into(),
+					global_name: None,
+					banner: None,
+					accent_color: None,
+					bio: "kept".into(),
+					pronouns: String::new(),
+					badges: vec![],
+					connections: vec![],
+					mutual_guilds: vec![],
+					mutual_friends: vec![],
+					guild: None,
+					theme_colors: None,
+					clan: None,
+					limited: false,
+				})
+			};
+			let channel = |id| model::Channel {
+				id: Id(id),
 				guild: Some(Id(9)),
-				request,
-				result: Ok(profile(Id(4))),
-			},
-		});
-		let before = state.profile.as_ref().unwrap().request;
-		assert_eq!(
-			state.profile.as_ref().unwrap().data.as_ref().unwrap().bio,
-			"kept"
-		);
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Permissions(crate::permissions::Event::Role {
-				guild: Id(9),
-				role: model::permissions::Role {
-					id: Id(30),
-					bits: 0,
-					name: "new".into(),
-					color: 0,
-					position: 1,
-					hoist: false,
+				parent_id: None,
+				kind: 0,
+				name: "Synthetic".into(),
+				position: 0,
+				recipients: vec![],
+				last_message: None,
+				icon: None,
+				member_list_id: None,
+				tags: None,
+				message_count: None,
+			};
+			let mut state = State {
+				auth: AuthState::Authenticated,
+				gateway_connected: true,
+				guilds: vec![model::Guild {
+					default_message_notifications: None,
+					stickers: None,
+					emojis: None,
+					id: Id(9),
+					name: "Synthetic".into(),
+					icon: None,
+				}],
+				channels: vec![channel(2), channel(3)],
+				selected: Some(Id(2)),
+				..State::default()
+			};
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Permissions(crate::permissions::Event::Snapshot(
+					model::permissions::Snapshot {
+						guilds: vec![model::permissions::Guild {
+							id: Id(9),
+							owner: None,
+							roles: Some(vec![model::permissions::Role {
+								id: Id(30),
+								bits: 0,
+								name: "old".into(),
+								color: 0,
+								position: 1,
+								hoist: false,
+							}]),
+							member: None,
+						}],
+						channels: vec![],
+					},
+				)),
+			});
+			let Some(Command::Profile { request, .. }) = state.request_profile(Id(4), Some(Id(9)))
+			else {
+				panic!("profile request");
+			};
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Profile {
+					user: Id(4),
+					guild: Some(Id(9)),
+					request,
+					result: Ok(profile(Id(4))),
 				},
-			}),
-		});
-		assert!(
-			state.profile.is_some(),
-			"role edit cleared the open profile"
-		);
-		state.apply(Envelope {
-			generation: state.generation,
-			event: Event::Unavailable(Id(3)),
-		});
-		assert!(
-			state.profile.is_some(),
-			"unrelated channel removal cleared the open profile"
-		);
-		let view = state.profile.as_ref().expect("profile stays open");
-		assert_eq!(view.request, before);
-		assert_eq!(view.data.as_ref().unwrap().bio, "kept");
-		assert_eq!(state.profile_cache.len(), 1);
-		assert!(state.channels.iter().all(|channel| channel.id != Id(3)));
+			});
+			let before = state.profile.as_ref().unwrap().request;
+			assert_eq!(
+				state.profile.as_ref().unwrap().data.as_ref().unwrap().bio,
+				"kept"
+			);
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Permissions(crate::permissions::Event::Role {
+					guild: Id(9),
+					role: model::permissions::Role {
+						id: Id(30),
+						bits: 0,
+						name: "new".into(),
+						color: 0,
+						position: 1,
+						hoist: false,
+					},
+				}),
+			});
+			assert!(
+				state.profile.is_some(),
+				"role edit cleared the open profile"
+			);
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Unavailable(Id(3)),
+			});
+			assert!(
+				state.profile.is_some(),
+				"unrelated channel removal cleared the open profile"
+			);
+			let view = state.profile.as_ref().expect("profile stays open");
+			assert_eq!(view.request, before);
+			assert_eq!(view.data.as_ref().unwrap().bio, "kept");
+			assert_eq!(state.profile_cache.len(), 1);
+			assert!(state.channels.iter().all(|channel| channel.id != Id(3)));
+		}
 	}
 }

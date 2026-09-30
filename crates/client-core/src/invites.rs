@@ -135,73 +135,73 @@ mod tests {
 	use crate::{Envelope, Event};
 	#[test]
 	fn explicit_preview_works_without_a_channel_but_keeps_session_and_cache_guards() {
-		let mut state = State::default();
-		assert!(state.request_join_preview("synthetic".into()).is_none());
-		state.auth = crate::auth::AuthState::Authenticated;
-		state.gateway_connected = true;
-		assert!(state.request_invite("synthetic".into()).is_none());
-		assert!(state.request_join_preview("../bad".into()).is_none());
-		assert!(matches!(
-			state.request_join_preview("synthetic".into()),
-			Some(Command::Invite { .. })
-		));
-		assert!(state.request_join_preview("synthetic".into()).is_none());
-		assert!(state.request_join_preview("another".into()).is_none());
-		state.apply_invite(
-			"synthetic".into(),
-			Ok(model::InvitePreview {
-				guild: model::Id(2),
-				embed: model::Embed::default(),
-			}),
-		);
-		assert!(state.guild(model::Id(2)).is_none());
-		assert!(matches!(
-			state.join_invite("synthetic".into()),
-			Some(Command::JoinInvite { .. })
-		));
-		state.demo = true;
-		assert!(state.request_join_preview("another".into()).is_none());
-		state.demo = false;
-		state.gateway_connected = false;
-		assert!(state.request_join_preview("another".into()).is_none());
-	}
-
-	#[test]
-	fn boxed_invite_charges_payload_and_reaches_the_pending_preview() {
-		let mut title = String::with_capacity(1024);
-		title.push_str("Synthetic invite");
-		let embed = model::Embed {
-			title: Some(title),
-			..Default::default()
-		};
-		let event = Event::Invite {
-			code: "synthetic".into(),
-			result: Ok(Box::new(model::InvitePreview {
-				guild: model::Id(2),
-				embed,
-			})),
-		};
-		assert!(event.bytes() >= size_of::<Event>() + size_of::<model::Embed>() + 1024);
-		let mut state = State::default();
-		state
-			.invites
-			.insert("synthetic".into(), (Instant::now(), None));
-		state.apply(Envelope {
-			generation: state.generation,
-			event,
-		});
-		assert_eq!(
-			state.invites["synthetic"]
-				.1
-				.as_ref()
-				.unwrap()
-				.as_ref()
-				.unwrap()
-				.embed
-				.title
-				.as_deref(),
-			Some("Synthetic invite")
-		);
+		{
+			let mut state = State::default();
+			assert!(state.request_join_preview("synthetic".into()).is_none());
+			state.auth = crate::auth::AuthState::Authenticated;
+			state.gateway_connected = true;
+			assert!(state.request_invite("synthetic".into()).is_none());
+			assert!(state.request_join_preview("../bad".into()).is_none());
+			assert!(matches!(
+				state.request_join_preview("synthetic".into()),
+				Some(Command::Invite { .. })
+			));
+			assert!(state.request_join_preview("synthetic".into()).is_none());
+			assert!(state.request_join_preview("another".into()).is_none());
+			state.apply_invite(
+				"synthetic".into(),
+				Ok(model::InvitePreview {
+					guild: model::Id(2),
+					embed: model::Embed::default(),
+				}),
+			);
+			assert!(state.guild(model::Id(2)).is_none());
+			assert!(matches!(
+				state.join_invite("synthetic".into()),
+				Some(Command::JoinInvite { .. })
+			));
+			state.demo = true;
+			assert!(state.request_join_preview("another".into()).is_none());
+			state.demo = false;
+			state.gateway_connected = false;
+			assert!(state.request_join_preview("another".into()).is_none());
+		}
+		{
+			let mut title = String::with_capacity(1024);
+			title.push_str("Synthetic invite");
+			let embed = model::Embed {
+				title: Some(title),
+				..Default::default()
+			};
+			let event = Event::Invite {
+				code: "synthetic".into(),
+				result: Ok(Box::new(model::InvitePreview {
+					guild: model::Id(2),
+					embed,
+				})),
+			};
+			assert!(event.bytes() >= size_of::<Event>() + size_of::<model::Embed>() + 1024);
+			let mut state = State::default();
+			state
+				.invites
+				.insert("synthetic".into(), (Instant::now(), None));
+			state.apply(Envelope {
+				generation: state.generation,
+				event,
+			});
+			assert_eq!(
+				state.invites["synthetic"]
+					.1
+					.as_ref()
+					.unwrap()
+					.as_ref()
+					.unwrap()
+					.embed
+					.title
+					.as_deref(),
+				Some("Synthetic invite")
+			);
+		}
 	}
 }
 
@@ -261,11 +261,12 @@ impl State {
 		self.invite_join.challenge = None;
 		self.invite_join.result = Some(result);
 		self.status = match result {
-			Ok(_) => {
-				"Invite accepted · waiting for server access; complete any server rules in Discord"
-			}
+			Ok(_) => "Invite accepted · waiting for server access",
 			Err(f) => f.label(),
 		};
+		if let Ok(guild) = result {
+			self.watch_onboarding(guild);
+		}
 		if let Err(f) = result
 			&& f.ends_session()
 		{
@@ -280,142 +281,145 @@ mod join_tests {
 	/// Regression: invite challenges are single-use, scoped, expiring and redacted.
 	#[test]
 	fn invite_challenge_is_single_use_scoped_expiring_and_redacted() {
-		let challenge = || {
-			crate::captcha::Challenge::new(
-				"synthetic-sitekey".into(),
-				Some("private-rqdata".into()),
-				Some("private-rqtoken".into()),
-				None,
-				false,
-			)
-			.unwrap()
-		};
-		let solution = || crate::captcha::Solution::new("private-solution".into()).unwrap();
-		assert!(!format!("{:?}", challenge()).contains("private"));
-		assert!(!format!("{:?}", solution()).contains("private"));
-		assert!(crate::captcha::Solution::new("bad\r\nheader".into()).is_none());
-		assert!(crate::captcha::Solution::new("x".repeat(8193)).is_none());
-		let mut state = State {
-			auth: crate::auth::AuthState::Authenticated,
-			gateway_connected: true,
-			..State::default()
-		};
-		state.invite_join.pending = true;
-		state.invite_join.code = "synthetic".into();
-		state.apply_invite_challenge(1, challenge());
-		assert!(state.invite_challenge().is_none());
-		state.apply_invite_challenge(0, challenge());
-		assert!(state.resume_invite_challenge(1, solution()).is_none());
-		assert!(state.invite_challenge().is_some());
-		let Command::JoinInvite {
-			code,
-			request,
-			captcha: Some(retry),
-		} = state.resume_invite_challenge(0, solution()).unwrap()
-		else {
-			panic!("retry missing")
-		};
-		assert!(retry.matches(
-			&crate::captcha::Target::Invite { code: code.clone() },
-			request
-		));
-		assert!(!retry.matches(
-			&crate::captcha::Target::Invite {
-				code: "another".into()
-			},
-			request
-		));
-		assert!(state.resume_invite_challenge(0, solution()).is_none());
-		state.apply_invite_challenge(0, challenge());
-		assert!(state.invite_challenge().is_none());
-		state.apply_invite_challenge(request, challenge());
-		state.invite_join.challenge.as_mut().unwrap().0 = Instant::now() - crate::captcha::LIFETIME;
-		assert!(state.resume_invite_challenge(request, solution()).is_none());
-		state.invites.insert(
-			"synthetic".into(),
-			(Instant::now() - crate::captcha::LIFETIME, None),
-		);
-		state
-			.invites
-			.insert("another".into(), (Instant::now(), None));
-		state.expire_invite_challenge();
-		assert!(!state.invites.contains_key("synthetic"));
-		assert!(state.invites.contains_key("another"));
-		assert!(!state.invite_join.pending);
-		state.apply_invite_challenge(request, challenge());
-		assert!(state.invite_challenge().is_none());
-		assert_eq!(state.auth, crate::auth::AuthState::Authenticated);
-		state.invite_join.pending = true;
-		state.apply_invite_challenge(request, challenge());
-		state.cancel_invite_challenge(request);
-		assert!(state.resume_invite_challenge(request, solution()).is_none());
-		assert_eq!(
-			state.invite_join.result,
-			Some(Err(Failure::ProtocolAt(
-				"Verification cancelled; join again"
-			)))
-		);
-		state.invite_join.pending = true;
-		state.apply_invite_challenge(request, challenge());
-		state.logout();
-		assert!(state.invite_challenge().is_none());
-	}
-	#[test]
-	fn join_requires_a_fresh_preview_and_ignores_duplicate_and_stale_writes() {
-		let mut state = State {
-			auth: crate::auth::AuthState::Authenticated,
-			gateway_connected: true,
-			..State::default()
-		};
-		assert!(state.join_invite("synthetic".into()).is_none());
-		state.invites.insert(
-			"synthetic".into(),
-			(
-				Instant::now(),
-				Some(Ok(model::InvitePreview {
-					guild: model::Id(2),
-					embed: model::Embed::default(),
-				})),
-			),
-		);
-		assert!(state.join_invite("../bad".into()).is_none());
-		let Some(Command::JoinInvite { request, .. }) = state.join_invite("synthetic".into())
-		else {
-			panic!("join command missing")
-		};
-		assert!(state.join_invite("synthetic".into()).is_none());
-		state.apply_invite_join(request.wrapping_add(1), Ok(model::Id(2)));
-		assert!(state.invite_join.pending);
-		state.cancel_invite_join();
-		state.apply_invite_join(request, Ok(model::Id(2)));
-		assert_eq!(state.invite_join.result, Some(Err(Failure::Ambiguous)));
-		let command = state.join_invite("synthetic".into()).unwrap();
-		state.command_rejected(command);
-		assert!(!state.invite_join.pending);
-		let Some(Command::JoinInvite { request, .. }) = state.join_invite("synthetic".into())
-		else {
-			panic!("retry missing")
-		};
-		state.apply_invite_join(request, Ok(model::Id(2)));
-		assert!(
-			state.guild(model::Id(2)).is_none(),
-			"HTTP must not grant access"
-		);
-		assert!(state.join_invite("synthetic".into()).is_none());
-		for _ in 0..2 {
-			state.apply(crate::Envelope {
-				generation: state.generation,
-				event: crate::Event::GuildJoined(model::Guild {
-					stickers: None,
-					id: model::Id(2),
-					name: "Synthetic".into(),
-					icon: None,
-					emojis: None,
-				}),
-			});
+		{
+			let challenge = || {
+				crate::captcha::Challenge::new(
+					"synthetic-sitekey".into(),
+					Some("private-rqdata".into()),
+					Some("private-rqtoken".into()),
+					None,
+					false,
+				)
+				.unwrap()
+			};
+			let solution = || crate::captcha::Solution::new("private-solution".into()).unwrap();
+			assert!(!format!("{:?}", challenge()).contains("private"));
+			assert!(!format!("{:?}", solution()).contains("private"));
+			assert!(crate::captcha::Solution::new("bad\r\nheader".into()).is_none());
+			assert!(crate::captcha::Solution::new("x".repeat(8193)).is_none());
+			let mut state = State {
+				auth: crate::auth::AuthState::Authenticated,
+				gateway_connected: true,
+				..State::default()
+			};
+			state.invite_join.pending = true;
+			state.invite_join.code = "synthetic".into();
+			state.apply_invite_challenge(1, challenge());
+			assert!(state.invite_challenge().is_none());
+			state.apply_invite_challenge(0, challenge());
+			assert!(state.resume_invite_challenge(1, solution()).is_none());
+			assert!(state.invite_challenge().is_some());
+			let Command::JoinInvite {
+				code,
+				request,
+				captcha: Some(retry),
+			} = state.resume_invite_challenge(0, solution()).unwrap()
+			else {
+				panic!("retry missing")
+			};
+			assert!(retry.matches(
+				&crate::captcha::Target::Invite { code: code.clone() },
+				request
+			));
+			assert!(!retry.matches(
+				&crate::captcha::Target::Invite {
+					code: "another".into()
+				},
+				request
+			));
+			assert!(state.resume_invite_challenge(0, solution()).is_none());
+			state.apply_invite_challenge(0, challenge());
+			assert!(state.invite_challenge().is_none());
+			state.apply_invite_challenge(request, challenge());
+			state.invite_join.challenge.as_mut().unwrap().0 =
+				Instant::now() - crate::captcha::LIFETIME;
+			assert!(state.resume_invite_challenge(request, solution()).is_none());
+			state.invites.insert(
+				"synthetic".into(),
+				(Instant::now() - crate::captcha::LIFETIME, None),
+			);
+			state
+				.invites
+				.insert("another".into(), (Instant::now(), None));
+			state.expire_invite_challenge();
+			assert!(!state.invites.contains_key("synthetic"));
+			assert!(state.invites.contains_key("another"));
+			assert!(!state.invite_join.pending);
+			state.apply_invite_challenge(request, challenge());
+			assert!(state.invite_challenge().is_none());
+			assert_eq!(state.auth, crate::auth::AuthState::Authenticated);
+			state.invite_join.pending = true;
+			state.apply_invite_challenge(request, challenge());
+			state.cancel_invite_challenge(request);
+			assert!(state.resume_invite_challenge(request, solution()).is_none());
+			assert_eq!(
+				state.invite_join.result,
+				Some(Err(Failure::ProtocolAt(
+					"Verification cancelled; join again"
+				)))
+			);
+			state.invite_join.pending = true;
+			state.apply_invite_challenge(request, challenge());
+			state.logout();
+			assert!(state.invite_challenge().is_none());
 		}
-		assert_eq!(state.guilds.len(), 1);
-		state.logout();
-		assert!(state.invite_join.code.is_empty());
+		{
+			let mut state = State {
+				auth: crate::auth::AuthState::Authenticated,
+				gateway_connected: true,
+				..State::default()
+			};
+			assert!(state.join_invite("synthetic".into()).is_none());
+			state.invites.insert(
+				"synthetic".into(),
+				(
+					Instant::now(),
+					Some(Ok(model::InvitePreview {
+						guild: model::Id(2),
+						embed: model::Embed::default(),
+					})),
+				),
+			);
+			assert!(state.join_invite("../bad".into()).is_none());
+			let Some(Command::JoinInvite { request, .. }) = state.join_invite("synthetic".into())
+			else {
+				panic!("join command missing")
+			};
+			assert!(state.join_invite("synthetic".into()).is_none());
+			state.apply_invite_join(request.wrapping_add(1), Ok(model::Id(2)));
+			assert!(state.invite_join.pending);
+			state.cancel_invite_join();
+			state.apply_invite_join(request, Ok(model::Id(2)));
+			assert_eq!(state.invite_join.result, Some(Err(Failure::Ambiguous)));
+			let command = state.join_invite("synthetic".into()).unwrap();
+			state.command_rejected(command);
+			assert!(!state.invite_join.pending);
+			let Some(Command::JoinInvite { request, .. }) = state.join_invite("synthetic".into())
+			else {
+				panic!("retry missing")
+			};
+			state.apply_invite_join(request, Ok(model::Id(2)));
+			assert!(
+				state.guild(model::Id(2)).is_none(),
+				"HTTP must not grant access"
+			);
+			assert!(state.join_invite("synthetic".into()).is_none());
+			for _ in 0..2 {
+				state.apply(crate::Envelope {
+					generation: state.generation,
+					event: crate::Event::GuildJoined(model::Guild {
+						default_message_notifications: None,
+						stickers: None,
+						id: model::Id(2),
+						name: "Synthetic".into(),
+						icon: None,
+						emojis: None,
+					}),
+				});
+			}
+			assert_eq!(state.guilds.len(), 1);
+			state.logout();
+			assert!(state.invite_join.code.is_empty());
+		}
 	}
 }

@@ -913,52 +913,85 @@ mod navigation_tests {
 	}
 	#[test]
 	fn marking_a_dm_or_group_unread_restores_the_badge_count() {
-		for kind in [1, 3] {
-			for ack_first in [false, true] {
-				let mut state = state(Some(Id(500)));
-				state.channels[0].kind = kind;
-				state.timeline.insert(message(498), false, false).unwrap();
-				state.timeline.insert(message(499), false, false).unwrap();
-				let mut removed = message(501);
-				removed.kind = 8;
-				state.timeline.insert(removed, false, false).unwrap();
-				assert_eq!(state.unread_count(Id(1)), 0);
-				let Command::MarkRead {
-					channel,
-					message,
-					request,
-					manual,
-					mention_count,
-				} = state.prepare_mark_unread(Id(498)).unwrap()
-				else {
-					panic!("mark unread");
-				};
-				assert!(manual);
-				assert_eq!((message, mention_count), (Id(497), Some(3)));
-				let ack = Event::Ack {
-					channel,
-					message: Some(message),
-					manual: true,
-					mention_count: None,
-					version: None,
-				};
-				let result = Event::Result {
+		{
+			for kind in [1, 3] {
+				for ack_first in [false, true] {
+					let mut state = state(Some(Id(500)));
+					state.channels[0].kind = kind;
+					state.timeline.insert(message(498), false, false).unwrap();
+					state.timeline.insert(message(499), false, false).unwrap();
+					let mut removed = message(501);
+					removed.kind = 8;
+					state.timeline.insert(removed, false, false).unwrap();
+					assert_eq!(state.unread_count(Id(1)), 0);
+					let Command::MarkRead {
+						channel,
+						message,
+						request,
+						manual,
+						mention_count,
+					} = state.prepare_mark_unread(Id(498)).unwrap()
+					else {
+						panic!("mark unread");
+					};
+					assert!(manual);
+					assert_eq!((message, mention_count), (Id(497), Some(3)));
+					let ack = Event::Ack {
+						channel,
+						message: Some(message),
+						manual: true,
+						mention_count: None,
+						version: None,
+					};
+					let result = Event::Result {
+						channel,
+						message,
+						request,
+						result: Ok(()),
+					};
+					if ack_first {
+						state.apply_read_state(ack).unwrap();
+						state.apply_read_state(result).unwrap();
+					} else {
+						state.apply_read_state(result).unwrap();
+						state.apply_read_state(ack).unwrap();
+					}
+					assert_eq!(state.unread(Id(1)), Some(true));
+					assert_eq!(state.unread_directs(None), vec![Id(1)]);
+					assert_eq!(state.unread_count(Id(1)), 3);
+				}
+			}
+		}
+		{
+			let mut state = state(Some(Id(100)));
+			state.selected = None;
+			assert!(state.can_mark_channel_read(Id(1)));
+			let Some(Command::MarkRead {
+				channel,
+				message,
+				request,
+				manual: false,
+				mention_count: None,
+			}) = state.prepare_mark_channel_read(Id(1))
+			else {
+				panic!("sidebar acknowledgement")
+			};
+			assert_eq!((channel, message), (Id(1), Id(500)));
+			assert!(state.selected.is_none());
+			assert_eq!(state.drafts[&Id(1)], "Preserve draft");
+			assert!(state.prepare_mark_channel_read(Id(1)).is_none());
+			state
+				.apply_read_state(Event::Result {
 					channel,
 					message,
 					request,
 					result: Ok(()),
-				};
-				if ack_first {
-					state.apply_read_state(ack).unwrap();
-					state.apply_read_state(result).unwrap();
-				} else {
-					state.apply_read_state(result).unwrap();
-					state.apply_read_state(ack).unwrap();
-				}
-				assert_eq!(state.unread(Id(1)), Some(true));
-				assert_eq!(state.unread_directs(None), vec![Id(1)]);
-				assert_eq!(state.unread_count(Id(1)), 3);
-			}
+				})
+				.unwrap();
+			assert!(!state.can_mark_channel_read(Id(1)));
+			state.gateway_connected = false;
+			assert!(state.prepare_mark_channel_read(Id(1)).is_none());
+			assert!(state.prepare_mark_channel_read(Id(999)).is_none());
 		}
 	}
 	fn apply(state: &mut State, event: CoreEvent) {
@@ -969,62 +1002,122 @@ mod navigation_tests {
 	}
 	#[test]
 	fn read_failure_is_scoped_and_service_ack_resolves_it_in_either_order() {
-		for ack_first in [false, true] {
-			let mut state = state(Some(Id(100)));
-			let mut other = state.channels[0].clone();
-			other.id = Id(2);
-			state.channels.push(other);
-			let Command::MarkRead {
-				channel,
-				message,
-				request,
-				manual: false,
-				mention_count: None,
-			} = state.prepare_mark_read(Id(500)).unwrap()
-			else {
-				panic!("expected read acknowledgement");
-			};
-			state.select(Id(2));
-			let ack = Event::Ack {
-				channel,
-				message: Some(message),
-				manual: false,
-				mention_count: None,
-				version: None,
-			};
-			if ack_first {
-				state.apply_read_state(ack).unwrap();
-			}
-			state
-				.apply_read_state(Event::Result {
+		{
+			for ack_first in [false, true] {
+				let mut state = state(Some(Id(100)));
+				let mut other = state.channels[0].clone();
+				other.id = Id(2);
+				state.channels.push(other);
+				let Command::MarkRead {
 					channel,
 					message,
 					request,
-					result: Err(Failure::Ambiguous),
-				})
-				.unwrap();
-			assert!(state.read_state.status(Id(2)).is_none());
-			assert_eq!(state.read_state.status(Id(1)).is_some(), !ack_first);
-			if !ack_first {
-				assert!(
-					state
-						.read_state
-						.status(Id(1))
-						.unwrap()
-						.starts_with("Read status")
-				);
+					manual: false,
+					mention_count: None,
+				} = state.prepare_mark_read(Id(500)).unwrap()
+				else {
+					panic!("expected read acknowledgement");
+				};
+				state.select(Id(2));
+				let ack = Event::Ack {
+					channel,
+					message: Some(message),
+					manual: false,
+					mention_count: None,
+					version: None,
+				};
+				if ack_first {
+					state.apply_read_state(ack).unwrap();
+				}
 				state
-					.apply_read_state(Event::Ack {
+					.apply_read_state(Event::Result {
 						channel,
-						message: Some(message),
-						manual: false,
-						mention_count: None,
-						version: None,
+						message,
+						request,
+						result: Err(Failure::Ambiguous),
 					})
 					.unwrap();
+				assert!(state.read_state.status(Id(2)).is_none());
+				assert_eq!(state.read_state.status(Id(1)).is_some(), !ack_first);
+				if !ack_first {
+					assert!(
+						state
+							.read_state
+							.status(Id(1))
+							.unwrap()
+							.starts_with("Read status")
+					);
+					state
+						.apply_read_state(Event::Ack {
+							channel,
+							message: Some(message),
+							manual: false,
+							mention_count: None,
+							version: None,
+						})
+						.unwrap();
+				}
+				assert!(state.read_state.status(Id(1)).is_none());
+				assert_eq!(state.read_marker(Id(1)), Some(Some(message)));
 			}
-			assert!(state.read_state.status(Id(1)).is_none());
-			assert_eq!(state.read_marker(Id(1)), Some(Some(message)));
+		}
+		{
+			for marker in [None, Some(Id(100))] {
+				let mut state = state(marker);
+				let start = marker.unwrap_or(Id(0)).0;
+				assert!(state.can_jump_unread());
+				assert!(
+					matches!(state.open_unread(),Some(Command::History {before:None,after:Some(after),..}) if after.0==start)
+				);
+				assert!(state.history_targeted && state.history_pending);
+				assert!(!state.can_jump_unread() && !state.can_load_newer());
+				let mut incoming = message(501);
+				incoming.author.id = Id(8);
+				apply(&mut state, CoreEvent::Message(incoming));
+				assert!(state.timeline.get(Id(501)).is_none());
+				// Deletion racing the response cannot become the scroll target.
+				apply(
+					&mut state,
+					CoreEvent::Delete {
+						channel: Id(1),
+						id: Id(start + 1),
+					},
+				);
+				page(
+					&mut state,
+					(start + 1..=start + 50).map(message).rev().collect(),
+				);
+				assert_eq!(state.search_target, Some(Id(start + 2)));
+				assert_eq!(state.timeline.iter().count(), 49);
+				assert_eq!(state.read_marker(Id(1)), Some(marker));
+				assert_eq!(state.drafts[&Id(1)], "Preserve draft");
+				assert_eq!(state.reply_target(), Some(Id(500)));
+				assert!(state.read_state.pending.is_none());
+				assert!(
+					matches!(state.newer_history(),Some(Command::History {before:None,after:Some(after),..}) if after.0==start+50)
+				);
+				page(
+					&mut state,
+					(start + 51..=start + 100).map(message).collect(),
+				);
+				assert!(state.search_target.is_none());
+				assert_eq!(state.timeline.iter().count(), 99);
+				assert_eq!(
+					state.timeline.iter().next().map(|m| m.id),
+					Some(Id(start + 2))
+				);
+				assert_eq!(
+					state.timeline.iter().last().map(|m| m.id),
+					Some(Id(start + 100))
+				);
+				assert!(!state.older_exhausted);
+				assert!(state.can_load_older());
+				assert_eq!(state.read_marker(Id(1)), Some(marker));
+				let Command::History { before, after, .. } = state.history(None) else {
+					panic!()
+				};
+				assert!(before.is_none() && after.is_none() && !state.history_targeted);
+			}
 		}
 	}
 	fn page(state: &mut State, messages: Vec<Message>) {
@@ -1039,128 +1132,118 @@ mod navigation_tests {
 		);
 	}
 	#[test]
-	fn sidebar_acknowledges_unselected_channel_without_touching_navigation_or_draft() {
-		let mut state = state(Some(Id(100)));
-		state.selected = None;
-		assert!(state.can_mark_channel_read(Id(1)));
-		let Some(Command::MarkRead {
-			channel,
-			message,
-			request,
-			manual: false,
-			mention_count: None,
-		}) = state.prepare_mark_channel_read(Id(1))
-		else {
-			panic!("sidebar acknowledgement")
-		};
-		assert_eq!((channel, message), (Id(1), Id(500)));
-		assert!(state.selected.is_none());
-		assert_eq!(state.drafts[&Id(1)], "Preserve draft");
-		assert!(state.prepare_mark_channel_read(Id(1)).is_none());
-		state
-			.apply_read_state(Event::Result {
-				channel,
-				message,
-				request,
-				result: Ok(()),
-			})
-			.unwrap();
-		assert!(!state.can_mark_channel_read(Id(1)));
-		state.gateway_connected = false;
-		assert!(state.prepare_mark_channel_read(Id(1)).is_none());
-		assert!(state.prepare_mark_channel_read(Id(999)).is_none());
+	fn historical_sends_confirm_without_splicing_a_live_tail_in_either_order() {
+		{
+			for gateway_first in [false, true] {
+				let mut state = state(Some(Id(100)));
+				state.open_unread().unwrap();
+				page(&mut state, (101..=150).map(message).collect());
+				let Command::Send { nonce, .. } = state.prepare_send().unwrap() else {
+					panic!()
+				};
+				let mut sent = message(501);
+				sent.nonce = Some(nonce.clone());
+				if gateway_first {
+					apply(&mut state, CoreEvent::Message(sent.clone()));
+				}
+				apply(
+					&mut state,
+					CoreEvent::SendResult {
+						nonce,
+						result: Ok(sent.clone()),
+					},
+				);
+				if !gateway_first {
+					apply(&mut state, CoreEvent::Message(sent));
+				}
+				assert!(state.timeline.get(Id(501)).is_none());
+				assert_eq!(state.channels[0].last_message, Some(Id(501)));
+				assert!(
+					state
+						.pending
+						.iter()
+						.all(|p| p.delivery == model::Delivery::Confirmed)
+				);
+				assert!(matches!(
+					state.newer_history(),
+					Some(Command::History {
+						after: Some(Id(150)),
+						..
+					})
+				));
+			}
+		}
+		{
+			for invalid in 0..6 {
+				let mut state = state(Some(Id(100)));
+				match invalid {
+					0 => state.gateway_connected = false,
+					1 => state.auth = AuthState::Unauthenticated,
+					2 => state.freshness = Freshness::Stale,
+					3 => state.history_pending = true,
+					4 => state.read_state.reset(),
+					_ => state.channels.clear(),
+				}
+				assert!(!state.can_jump_unread());
+				assert!(state.open_unread().is_none());
+				assert_eq!(state.timeline.row_count(), 1);
+				assert_eq!(state.drafts[&Id(1)], "Preserve draft");
+			}
+			let mut state = state(Some(Id(100)));
+			state.open_unread().unwrap();
+			page(&mut state, vec![message(100)]);
+			assert_ne!(state.freshness, Freshness::Fresh);
+			assert!(state.timeline.get(Id(100)).is_none());
+			let mut state = self::state(Some(Id(100)));
+			state.open_unread().unwrap();
+			let stale = state.request;
+			state.history(None);
+			apply(
+				&mut state,
+				CoreEvent::History {
+					channel: Id(1),
+					request: stale,
+					older: false,
+					messages: vec![message(101)],
+				},
+			);
+			assert!(state.timeline.get(Id(101)).is_none());
+			page(&mut state, vec![]);
+			assert!(!state.history_targeted && state.search_target.is_none());
+			state.open_unread().unwrap();
+			page(&mut state, vec![]);
+			assert!(
+				state
+					.status
+					.starts_with("No messages returned after this boundary")
+			);
+			assert!(state.history_targeted && state.search_target.is_none());
+			assert!(!state.can_load_newer());
+			assert!(state.read_state.pending.is_none());
+		}
 	}
 	#[test]
-	fn unread_and_next_pages_are_bounded_scoped_and_do_not_acknowledge() {
-		for marker in [None, Some(Id(100))] {
-			let mut state = state(marker);
-			let start = marker.unwrap_or(Id(0)).0;
-			assert!(state.can_jump_unread());
-			assert!(
-				matches!(state.open_unread(),Some(Command::History {before:None,after:Some(after),..}) if after.0==start)
+	fn deleted_pages_and_unknown_latest_keep_a_forward_cursor_without_resurrecting_messages() {
+		{
+			let mut state = state(Some(Id(100)));
+			state.open_unread().unwrap();
+			apply(
+				&mut state,
+				CoreEvent::DeleteBulk {
+					channel: Id(1),
+					ids: (101..=150).map(Id).collect(),
+				},
 			);
-			assert!(state.history_targeted && state.history_pending);
-			assert!(!state.can_jump_unread() && !state.can_load_newer());
-			let mut incoming = message(501);
-			incoming.author.id = Id(8);
-			apply(&mut state, CoreEvent::Message(incoming));
-			assert!(state.timeline.get(Id(501)).is_none());
-			// Deletion racing the response cannot become the scroll target.
 			apply(
 				&mut state,
 				CoreEvent::Delete {
 					channel: Id(1),
-					id: Id(start + 1),
+					id: Id(500),
 				},
 			);
-			page(
-				&mut state,
-				(start + 1..=start + 50).map(message).rev().collect(),
-			);
-			assert_eq!(state.search_target, Some(Id(start + 2)));
-			assert_eq!(state.timeline.iter().count(), 49);
-			assert_eq!(state.read_marker(Id(1)), Some(marker));
-			assert_eq!(state.drafts[&Id(1)], "Preserve draft");
-			assert_eq!(state.reply_target(), Some(Id(500)));
-			assert!(state.read_state.pending.is_none());
-			assert!(
-				matches!(state.newer_history(),Some(Command::History {before:None,after:Some(after),..}) if after.0==start+50)
-			);
-			page(
-				&mut state,
-				(start + 51..=start + 100).map(message).collect(),
-			);
-			assert!(state.search_target.is_none());
-			assert_eq!(state.timeline.iter().count(), 99);
-			assert_eq!(
-				state.timeline.iter().next().map(|m| m.id),
-				Some(Id(start + 2))
-			);
-			assert_eq!(
-				state.timeline.iter().last().map(|m| m.id),
-				Some(Id(start + 100))
-			);
-			assert!(!state.older_exhausted);
-			assert!(state.can_load_older());
-			assert_eq!(state.read_marker(Id(1)), Some(marker));
-			let Command::History { before, after, .. } = state.history(None) else {
-				panic!()
-			};
-			assert!(before.is_none() && after.is_none() && !state.history_targeted);
-		}
-	}
-	#[test]
-	fn historical_sends_confirm_without_splicing_a_live_tail_in_either_order() {
-		for gateway_first in [false, true] {
-			let mut state = state(Some(Id(100)));
-			state.open_unread().unwrap();
 			page(&mut state, (101..=150).map(message).collect());
-			let Command::Send { nonce, .. } = state.prepare_send().unwrap() else {
-				panic!()
-			};
-			let mut sent = message(501);
-			sent.nonce = Some(nonce.clone());
-			if gateway_first {
-				apply(&mut state, CoreEvent::Message(sent.clone()));
-			}
-			apply(
-				&mut state,
-				CoreEvent::SendResult {
-					nonce,
-					result: Ok(sent.clone()),
-				},
-			);
-			if !gateway_first {
-				apply(&mut state, CoreEvent::Message(sent));
-			}
-			assert!(state.timeline.get(Id(501)).is_none());
-			assert_eq!(state.channels[0].last_message, Some(Id(501)));
-			assert!(
-				state
-					.pending
-					.iter()
-					.all(|p| p.delivery == model::Delivery::Confirmed)
-			);
+			assert_eq!(state.timeline.iter().count(), 0);
+			assert!(state.search_target.is_none());
 			assert!(matches!(
 				state.newer_history(),
 				Some(Command::History {
@@ -1168,121 +1251,42 @@ mod navigation_tests {
 					..
 				})
 			));
+			page(&mut state, (151..=200).map(message).collect());
+			let mut reply = message(601);
+			reply.reply_to = Some(Id(151));
+			reply.reply_deleted = true;
+			reply.kind = 19;
+			apply(&mut state, CoreEvent::Message(reply));
+			assert!(state.timeline.is_deleted(Id(151)));
+			assert!(state.timeline.get(Id(601)).is_none());
+			assert!(matches!(
+				state.newer_history(),
+				Some(Command::History {
+					after: Some(Id(200)),
+					..
+				})
+			));
+			page(&mut state, vec![]);
+			assert!(!state.can_load_newer());
 		}
-	}
-	#[test]
-	fn deleted_pages_and_unknown_latest_keep_a_forward_cursor_without_resurrecting_messages() {
-		let mut state = state(Some(Id(100)));
-		state.open_unread().unwrap();
-		apply(
-			&mut state,
-			CoreEvent::DeleteBulk {
-				channel: Id(1),
-				ids: (101..=150).map(Id).collect(),
-			},
-		);
-		apply(
-			&mut state,
-			CoreEvent::Delete {
-				channel: Id(1),
-				id: Id(500),
-			},
-		);
-		page(&mut state, (101..=150).map(message).collect());
-		assert_eq!(state.timeline.iter().count(), 0);
-		assert!(state.search_target.is_none());
-		assert!(matches!(
-			state.newer_history(),
-			Some(Command::History {
-				after: Some(Id(150)),
-				..
-			})
-		));
-		page(&mut state, (151..=200).map(message).collect());
-		let mut reply = message(601);
-		reply.reply_to = Some(Id(151));
-		reply.reply_deleted = true;
-		reply.kind = 19;
-		apply(&mut state, CoreEvent::Message(reply));
-		assert!(state.timeline.is_deleted(Id(151)));
-		assert!(state.timeline.get(Id(601)).is_none());
-		assert!(matches!(
-			state.newer_history(),
-			Some(Command::History {
-				after: Some(Id(200)),
-				..
-			})
-		));
-		page(&mut state, vec![]);
-		assert!(!state.can_load_newer());
-	}
-	#[test]
-	fn replacing_an_after_page_with_a_missing_target_drops_its_forward_cursor() {
-		let mut state = state(Some(Id(100)));
-		state.open_unread().unwrap();
-		page(&mut state, (101..=150).map(message).collect());
-		state.open_target_window(Id(50)).unwrap();
-		let request = state.request;
-		apply(
-			&mut state,
-			CoreEvent::History {
-				channel: Id(1),
-				request,
-				older: true,
-				messages: vec![],
-			},
-		);
-		assert!(state.newer_cursor.is_none());
-		assert!(!state.can_load_newer());
-		assert_eq!(state.search_target, Some(Id(50)));
-	}
-	#[test]
-	fn unread_navigation_rejects_unavailable_scope_bad_ranges_and_late_results() {
-		for invalid in 0..6 {
+		{
 			let mut state = state(Some(Id(100)));
-			match invalid {
-				0 => state.gateway_connected = false,
-				1 => state.auth = AuthState::Unauthenticated,
-				2 => state.freshness = Freshness::Stale,
-				3 => state.history_pending = true,
-				4 => state.read_state.reset(),
-				_ => state.channels.clear(),
-			}
-			assert!(!state.can_jump_unread());
-			assert!(state.open_unread().is_none());
-			assert_eq!(state.timeline.row_count(), 1);
-			assert_eq!(state.drafts[&Id(1)], "Preserve draft");
+			state.open_unread().unwrap();
+			page(&mut state, (101..=150).map(message).collect());
+			state.open_target_window(Id(50)).unwrap();
+			let request = state.request;
+			apply(
+				&mut state,
+				CoreEvent::History {
+					channel: Id(1),
+					request,
+					older: true,
+					messages: vec![],
+				},
+			);
+			assert!(state.newer_cursor.is_none());
+			assert!(!state.can_load_newer());
+			assert_eq!(state.search_target, Some(Id(50)));
 		}
-		let mut state = state(Some(Id(100)));
-		state.open_unread().unwrap();
-		page(&mut state, vec![message(100)]);
-		assert_ne!(state.freshness, Freshness::Fresh);
-		assert!(state.timeline.get(Id(100)).is_none());
-		let mut state = self::state(Some(Id(100)));
-		state.open_unread().unwrap();
-		let stale = state.request;
-		state.history(None);
-		apply(
-			&mut state,
-			CoreEvent::History {
-				channel: Id(1),
-				request: stale,
-				older: false,
-				messages: vec![message(101)],
-			},
-		);
-		assert!(state.timeline.get(Id(101)).is_none());
-		page(&mut state, vec![]);
-		assert!(!state.history_targeted && state.search_target.is_none());
-		state.open_unread().unwrap();
-		page(&mut state, vec![]);
-		assert!(
-			state
-				.status
-				.starts_with("No messages returned after this boundary")
-		);
-		assert!(state.history_targeted && state.search_target.is_none());
-		assert!(!state.can_load_newer());
-		assert!(state.read_state.pending.is_none());
 	}
 }

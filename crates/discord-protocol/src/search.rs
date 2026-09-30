@@ -62,7 +62,11 @@ pub(crate) fn list<'de, D: Deserializer<'de>, T: Deserialize<'de>, const N: usiz
 	d.deserialize_seq(Bounded::<T, N>(std::marker::PhantomData))
 }
 impl Reply {
-	pub fn into_page(self, channel: Id, before: Option<Id>) -> Result<SearchPage, &'static str> {
+	pub fn into_page(
+		self,
+		channel: Option<Id>,
+		before: Option<Id>,
+	) -> Result<SearchPage, &'static str> {
 		let total = self.total_results.ok_or("Search result unavailable")?;
 		let mut hits = Vec::new();
 		for Group(group) in self.messages.ok_or("Missing search messages")?.0 {
@@ -132,7 +136,7 @@ mod tests {
 			json!({"total_results":8,"messages":[[context,matched]],"doing_deep_historical_index":true}),
 		)
 		.unwrap()
-		.into_page(Id(1), Some(Id(4)))
+		.into_page(Some(Id(1)), Some(Id(4)))
 		.unwrap();
 		assert_eq!(page.hits.len(), 1);
 		assert_eq!(page.hits[0].id, Id(3));
@@ -148,7 +152,7 @@ mod tests {
 			assert!(
 				decode(value)
 					.unwrap()
-					.into_page(Id(1), Some(Id(4)))
+					.into_page(Some(Id(1)), Some(Id(4)))
 					.is_err()
 			);
 		}
@@ -158,7 +162,7 @@ mod tests {
 		assert!(decode(json!({"total_results":1,"messages":[vec![hit(3,1,"a");6]]})).is_err());
 		let page = decode(json!({"total_results":1,"messages":[[hit(3,1,&"x".repeat(10000))]]}))
 			.unwrap()
-			.into_page(Id(1), None)
+			.into_page(Some(Id(1)), None)
 			.unwrap();
 		assert!(page.hits[0].excerpt.contains("exceeds preview limit"));
 		assert!(page.bytes() < model::MAX_SEARCH_BYTES);

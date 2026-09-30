@@ -167,6 +167,7 @@ account-badge-bot = ROBÔ
 # Context: name
 account-badge-bot-description = Conta de bot
 # Context: name
+account-badge-verified-bot-description = Conta de bot verificada
 account-badge-webhook = WEBHOOK
 # Context: name
 account-badge-webhook-description = Autor do webhook
@@ -934,6 +935,7 @@ extensions-ui-preview-modal-creator-preview = Visualização do criador
 extensions-ui-preview-modal-example-deleted-message-appearance = Exemplo de aparência de mensagem excluída
 # Context: preview_modal
 extensions-ui-preview-modal-selecting-artwork-sends-it-as-an-image-attachment = A seleção da arte é enviada como um anexo de imagem.
+extensions-ui-preview-modal-unavailable-artwork-falls-back-to-images = Emojis e figurinhas indisponíveis são enviados como imagens anexadas.
 # Context: settings
 extensions-ui-settings-no-extensions-yet = Ainda não há extensões
 # Context: settings
@@ -1499,7 +1501,7 @@ join-server-show-join-enter-an-invite-below-to-join-an-existing-server = Insira 
 # Context: show_join
 join-server-show-join-join-a-server = Junte-se a um servidor
 # Context: body
-join-server-status-invite-accepted = Convite aceito. Aguardando acesso ao servidor; complete quaisquer regras do servidor no Discord.
+join-server-status-invite-accepted = Convite aceito. Aguardando acesso ao servidor.
 # Context: body
 join-server-status-offline-preview = Visualização offline – a adesão aos servidores está desativada.
 
@@ -1621,6 +1623,7 @@ main-sign-in-header-welcome-back = bem vindo de volta
 # Context: sign_in_header
 main-sign-in-header-welcome-to-serein = Bem-vindo ao Serein
 # Context: sign_in_preview
+main-sign-in-status-copy-failure-details = Copiar detalhes da falha
 main-sign-in-preview-explore-the-offline-preview = Explore a visualização off-line
 # Context: sign_in_preview
 main-sign-in-preview-sample-conversations-no-discord-connection = Exemplos de conversas. Sem conexão Discord.
@@ -3600,6 +3603,8 @@ timeline-show-system-see-all = . Ver tudo
 # Context: show_with_scroll
 timeline-show-with-scroll-application-interaction-pending = Interação do aplicativo pendente…
 # Context: show_with_scroll
+timeline-show-with-scroll-click-to-see-attachment = Clique para ver o anexo
+# Context: show_with_scroll
 timeline-show-with-scroll-deleted-message-had-no-text = [A mensagem excluída não tinha texto]
 # Context: show_with_scroll
 timeline-show-with-scroll-dismiss-message = Dispensar mensagem
@@ -4086,3 +4091,68 @@ server-integrations-count-one-linked-webhook = { $count } webhook vinculado
 server-integrations-count-many-linked-webhooks = { $count } webhooks vinculados
 server-invites-revoke-title = Revogar convite?
 server-invites-revoke-message = Não será mais possível entrar no servidor com discord.gg/{ $code }.
+
+search-page-label = Página
+search-page-previous = Página anterior
+search-page-next = Próxima página
+search-page-go = Ir para a página
+search-page-retry = Tentar página novamente
+search-header-input-search-in = Pesquisar em { $name }
+search-open-filters-in-a-specific-channel = Em um canal específico
+search-open-filters-in-channel = em: canal
+search-overlays-in-channel = No canal
+search-overlays-no-matching-channels = Nenhum canal correspondente.
+search-filters-channel-picker-choose-a-channel = Escolha um canal
+search-filters-channel-picker-search-channels = Pesquisar canais
+search-page-previous-short = Anterior
+search-page-next-short = Próxima
+search-result-today-at = Hoje às { $time }
+search-result-yesterday-at = Ontem às { $time }
+timeline-unread-banner-one-new-since = 1 nova mensagem desde { $time }
+timeline-unread-banner-many-new-since = { $count } novas mensagens desde { $time }
+
+## crates/ui/src/onboarding.rs
+# Context: show
+onboarding-show-title = Boas-vindas a { $server }
+# Context: show
+onboarding-show-subtitle = Responda a algumas perguntas e aceite as regras para começar a conversar.
+# Context: show
+onboarding-show-try-again = Tentar novamente
+# Context: show
+onboarding-show-close = Fechar
+# Context: show
+onboarding-show-please-wait = Aguarde…
+# Context: show
+onboarding-show-finish = Concluir
+# Context: show
+onboarding-show-not-now = Agora não
+# Context: show
+onboarding-show-this-server = este servidor
+# Context: body
+onboarding-body-submitted = Inscrição enviada. Um moderador vai analisá-la; você poderá conversar quando for aprovada.
+# Context: body
+onboarding-body-rejected = Este servidor recusou a inscrição.
+# Context: body
+onboarding-body-loading = Carregando a integração do servidor…
+# Context: body
+onboarding-body-all-set = Tudo pronto. Não há mais nada para concluir aqui.
+# Context: prompt
+onboarding-prompt-pick-one = Escolha uma opção
+# Context: prompt
+onboarding-prompt-pick-any = Escolha todas as que se aplicam
+# Context: rules
+onboarding-rules-heading = Regras do servidor
+# Context: rules
+onboarding-rules-review = Um moderador analisa estas respostas antes que você possa conversar.
+# Context: field
+onboarding-field-unsupported = Este servidor faz uma pergunta que o Serein ainda não consegue mostrar. Conclua a entrada no app do Discord.
+# Context: field
+onboarding-field-agree = Li e concordo com as regras
+
+## crates/ui/src/lib.rs
+# Context: composer
+lib-composer-onboarding-rules-pending = Aceite as regras deste servidor para começar a conversar.
+# Context: composer
+lib-composer-onboarding-incomplete = Conclua a entrada neste servidor para desbloquear mais canais.
+# Context: composer
+lib-composer-onboarding-complete = Concluir integração

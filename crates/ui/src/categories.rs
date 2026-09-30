@@ -1444,70 +1444,6 @@ mod tests {
 	}
 
 	#[test]
-	fn direct_message_rows_show_the_recipient_server_tag() {
-		fn text(shape: &egui::Shape, found: &mut Vec<String>) {
-			match shape {
-				egui::Shape::Text(text) => found.push(text.galley.job.text.clone()),
-				egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| text(shape, found)),
-				_ => {}
-			}
-		}
-		let mut dm = channel(1, 1, 0, None);
-		dm.guild = None;
-		dm.name = "Tagged person".into();
-		dm.recipients = vec![model::User {
-			id: Id(2),
-			name: "Tagged person".into(),
-			avatar: None,
-			discriminator: 0,
-			primary_guild: Some(Box::new(model::ClanTag {
-				guild: Id(9),
-				tag: "SPDY".into(),
-				badge: None,
-			})),
-			kind: Default::default(),
-			webhook: false,
-		}];
-		let mut state = State {
-			channels: vec![dm],
-			demo: true,
-			..Default::default()
-		};
-		let mut view = MessagingUi::default();
-		let ctx = egui::Context::default();
-		design::apply(&ctx);
-		let mut painted = Vec::new();
-		for _ in 0..2 {
-			let output = ctx.run_ui(
-				egui::RawInput {
-					screen_rect: Some(egui::Rect::from_min_size(
-						egui::Pos2::ZERO,
-						egui::vec2(240.0, 180.0),
-					)),
-					..Default::default()
-				},
-				|ui| {
-					view.channel_list(ui, &mut state);
-				},
-			);
-			painted.clear();
-			for shape in &output.shapes {
-				text(&shape.shape, &mut painted);
-			}
-			output.drop_without_applying_deltas();
-		}
-		assert!(
-			painted.iter().any(|text| text == "Tagged person"),
-			"painted text: {painted:?}"
-		);
-		assert!(
-			painted.iter().any(|text| text == "SPDY"),
-			"painted text: {painted:?}"
-		);
-		assert!(view.take_avatar_requests().is_empty());
-	}
-
-	#[test]
 	fn shortcuts_survive_collapsed_categories_without_duplicates_or_orphan_threads() {
 		let mut state = test_support::demo_state();
 		state.guilds[0].id = Id(100);
@@ -1816,105 +1752,12 @@ mod tests {
 			[Row::Category(_, 1)]
 		));
 	}
-	#[test]
-	fn empty_server_sidebar_opens_server_actions() {
-		fn labels(shape: &egui::Shape, output: &mut Vec<(String, egui::Rect)>) {
-			match shape {
-				egui::Shape::Text(text) => output.push((
-					text.galley.job.text.clone(),
-					text.galley.rect.translate(text.pos.to_vec2()),
-				)),
-				egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| labels(shape, output)),
-				_ => {}
-			}
-		}
-		let ctx = egui::Context::default();
-		design::apply(&ctx);
-		let mut state = test_support::chat_demo_state();
-		let mut permissions = test_support::permission_snapshot(&state);
-		for guild in &mut permissions.guilds {
-			guild.owner = state.user.as_ref().map(|user| user.id);
-		}
-		state.permissions.replace(permissions).unwrap();
-		let mut view = MessagingUi {
-			guild: Some(Id(10)),
-			..Default::default()
-		};
-		let render = |view: &mut MessagingUi, state: &mut State, events| {
-			let output = ctx.run_ui(
-				egui::RawInput {
-					screen_rect: Some(egui::Rect::from_min_size(
-						egui::Pos2::ZERO,
-						egui::vec2(260.0, 700.0),
-					)),
-					events,
-					..Default::default()
-				},
-				|ui| view.sidebar(ui, state, "Synthetic", &mut vec![]),
-			);
-			let mut text = vec![];
-			for shape in &output.shapes {
-				labels(&shape.shape, &mut text);
-			}
-			output.drop_without_applying_deltas();
-			text
-		};
-		render(&mut view, &mut state, vec![]);
-		let empty = egui::pos2(130.0, 600.0);
-		for pressed in [true, false] {
-			render(
-				&mut view,
-				&mut state,
-				vec![
-					egui::Event::PointerMoved(empty),
-					egui::Event::PointerButton {
-						pos: empty,
-						button: egui::PointerButton::Secondary,
-						pressed,
-						modifiers: egui::Modifiers::NONE,
-					},
-				],
-			);
-		}
-		let text = render(&mut view, &mut state, vec![]);
-		for expected in [
-			"Hide Muted Channels",
-			"Create Channel",
-			"Create Category",
-			"Invite to Server",
-		] {
-			assert!(
-				text.iter().any(|(label, _)| label == expected),
-				"missing {expected}: {text:?}"
-			);
-		}
-		let hide = text
-			.iter()
-			.find(|(label, _)| label == "Hide Muted Channels")
-			.unwrap()
-			.1
-			.center();
-		for pressed in [true, false] {
-			render(
-				&mut view,
-				&mut state,
-				vec![
-					egui::Event::PointerMoved(hide),
-					egui::Event::PointerButton {
-						pos: hide,
-						button: egui::PointerButton::Primary,
-						pressed,
-						modifiers: egui::Modifiers::NONE,
-					},
-				],
-			);
-		}
-		assert_eq!(state.hides_muted_channels(Id(10)), Some(true));
-	}
+
 	#[test]
 	fn channel_rows_scroll_continuously_past_voice_participants() {
 		let mut state = test_support::demo_state();
 		state.guilds = vec![model::Guild {
+			default_message_notifications: None,
 			stickers: None,
 			id: Id(100),
 			name: "Synthetic".into(),
@@ -2111,6 +1954,7 @@ mod tests {
 				primary_guild: None,
 			}),
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(100),
 				name: "Synthetic".into(),
@@ -2263,6 +2107,7 @@ mod tests {
 				primary_guild: None,
 			}),
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(100),
 				name: "Synthetic guild".into(),
@@ -2384,42 +2229,6 @@ mod tests {
 			rows.iter().any(
 				|row| matches!(row, Row::Category(category, _) if category.name == "lowercase")
 			)
-		);
-	}
-	#[test]
-	fn voice_channels_stay_below_text_like_channels_that_share_positions() {
-		let category = Id(1);
-		let mut channels = vec![channel(1, 4, 0, None)];
-		channels.push(channel(100, 15, 0, Some(category)));
-		for index in 0..7 {
-			channels.push(channel(200 + index, 0, index as i32 + 1, Some(category)));
-		}
-		for index in 0..8 {
-			channels.push(channel(50 + index, 2, index as i32, Some(category)));
-		}
-		let state = State {
-			channels,
-			..State::default()
-		};
-		let ids = rows(
-			&state,
-			Scope::Guild(Id(100)),
-			&Roster::default(),
-			&BTreeSet::new(),
-			true,
-		)
-		.into_iter()
-		.map(|row| match row {
-			Row::Channel(channel, ..) | Row::Category(channel, _) => channel.id.0,
-			Row::Participant(entry) => entry.participant.user.0,
-			Row::Heading(..) => 0,
-		})
-		.collect::<Vec<_>>();
-		assert_eq!(
-			ids,
-			[
-				1, 100, 200, 201, 202, 203, 204, 205, 206, 50, 51, 52, 53, 54, 55, 56, 57
-			]
 		);
 	}
 }

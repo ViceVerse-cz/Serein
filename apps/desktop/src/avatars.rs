@@ -741,12 +741,20 @@ fn proxy_base(source: &str) -> Option<url::Url> {
 	} else if path.starts_with("/external/") {
 		let mut parts = path.trim_start_matches('/').split('/');
 		parts.next();
-		parts.next().is_some_and(|hash| {
+		let hash = parts.next().is_some_and(|hash| {
 			(16..=256).contains(&hash.len())
 				&& hash
 					.bytes()
 					.all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-		}) && matches!(parts.next(), Some("https" | "http"))
+		});
+		let mut scheme = parts.next();
+		if scheme.is_some_and(|part| {
+			part.get(..3)
+				.is_some_and(|part| part.eq_ignore_ascii_case("%3f"))
+		}) {
+			scheme = parts.next();
+		}
+		hash && matches!(scheme, Some("https" | "http"))
 			&& parts.next().is_some_and(|domain| !domain.is_empty())
 	} else {
 		let parts: Vec<_> = path.trim_start_matches('/').split('/').collect();
@@ -1198,8 +1206,32 @@ fn decode(bytes: &[u8], budget: &Budget) -> Option<egui::ColorImage> {
 	limits.max_image_width = Some(budget.canvas);
 	limits.max_image_height = Some(budget.canvas);
 	limits.max_alloc = Some(budget.alloc);
-	reader.limits(limits);
-	let mut image = reader.decode().ok()?;
+	reader.limits(limits.clone());
+	let mut decoder = reader.into_decoder().ok()?;
+	// `into_decoder` checks dimensions but, unlike `ImageReader::decode`, does not
+	// reserve the output allocation. Preserve that reservation before either path.
+	use image::ImageDecoder;
+	limits.reserve(decoder.total_bytes()).ok()?;
+	decoder.set_limits(limits).ok()?;
+	let (width, height) = decoder.dimensions();
+	if decoder.color_type() == image::ColorType::Rgba8
+		&& width <= budget.fit
+		&& height <= budget.fit
+	{
+		// CDN renditions already at their target size need one full-image allocation.
+		// Decode into Color32's safe byte view, then premultiply with bounded scratch.
+		let mut image = egui::ColorImage::filled(
+			[width as usize, height as usize],
+			egui::Color32::TRANSPARENT,
+		);
+		decoder.read_image(image.as_raw_mut()).ok()?;
+		for chunk in image.as_raw_mut().chunks_mut(64 * 1024) {
+			let converted = egui::ColorImage::from_rgba_unmultiplied([chunk.len() / 4, 1], chunk);
+			chunk.copy_from_slice(converted.as_raw());
+		}
+		return Some(image);
+	}
+	let mut image = image::DynamicImage::from_decoder(decoder).ok()?;
 	if image.width() > budget.fit || image.height() > budget.fit {
 		image = image.resize(
 			budget.fit,
@@ -1589,6 +1621,129 @@ impl Disk {
 
 #[cfg(test)]
 mod tests {
+	// Exact pre-optimization decoder, retained only as a pixel/limit and RSS comparator.
+	fn legacy_decode(bytes: &[u8], budget: &Budget) -> Option<egui::ColorImage> {
+		if bytes.len() > budget.encoded {
+			return None;
+		}
+		// Provider previews can be GIF/JPEG/WebP; decode only the first frame, within limits.
+		let mut reader = image::ImageReader::new(Cursor::new(bytes))
+			.with_guessed_format()
+			.ok()?;
+		let mut limits = image::Limits::default();
+		limits.max_image_width = Some(budget.canvas);
+		limits.max_image_height = Some(budget.canvas);
+		limits.max_alloc = Some(budget.alloc);
+		reader.limits(limits);
+		let mut image = reader.decode().ok()?;
+		if image.width() > budget.fit || image.height() > budget.fit {
+			image = image.resize(
+				budget.fit,
+				budget.fit,
+				image::imageops::FilterType::Lanczos3,
+			);
+		}
+		let image = image.into_rgba8();
+		Some(egui::ColorImage::from_rgba_unmultiplied(
+			[image.width() as usize, image.height() as usize],
+			image.as_raw(),
+		))
+	}
+
+	#[test]
+	fn direct_image_decode_preserves_pixels_formats_and_resize() {
+		let rgba = image::RgbaImage::from_fn(256, 67, |x, y| {
+			image::Rgba([x as u8, (255 - x) as u8, (y * 83) as u8, x as u8])
+		});
+		let rgba = image::DynamicImage::ImageRgba8(rgba);
+		let gray = image::DynamicImage::ImageLuma8(image::GrayImage::from_fn(256, 3, |x, _| {
+			image::Luma([x as u8])
+		}));
+		let wide = image::DynamicImage::ImageRgba16(image::ImageBuffer::from_fn(256, 3, |x, y| {
+			image::Rgba([x as u16 * 257, 32768, y as u16 * 20000, x as u16 * 257])
+		}));
+		for (source, format) in [
+			(rgba.clone(), image::ImageFormat::Png),
+			(rgba.clone(), image::ImageFormat::WebP),
+			(rgba.clone(), image::ImageFormat::Gif),
+			(
+				image::DynamicImage::ImageRgb8(rgba.to_rgb8()),
+				image::ImageFormat::Png,
+			),
+			(
+				image::DynamicImage::ImageRgb8(rgba.to_rgb8()),
+				image::ImageFormat::Jpeg,
+			),
+			(gray, image::ImageFormat::Png),
+			(wide, image::ImageFormat::Png),
+		] {
+			let mut bytes = Cursor::new(Vec::new());
+			source.write_to(&mut bytes, format).unwrap();
+			for fit in [128, 256, 512] {
+				let budget = Budget {
+					fit,
+					..Budget::legacy(512)
+				};
+				let expected = legacy_decode(bytes.get_ref(), &budget).unwrap();
+				assert_eq!(
+					decode(bytes.get_ref(), &budget).unwrap(),
+					expected,
+					"{format:?}, fit={fit}"
+				);
+			}
+		}
+	}
+
+	#[test]
+	fn direct_image_decode_preserves_rejection_limits() {
+		let bytes = png(16, 16);
+		let base = Budget::legacy(512);
+		for budget in [
+			Budget {
+				encoded: bytes.len() - 1,
+				..base
+			},
+			Budget { canvas: 15, ..base },
+			Budget {
+				alloc: 16 * 16 * 4 - 1,
+				..base
+			},
+		] {
+			assert!(legacy_decode(&bytes, &budget).is_none());
+			assert!(decode(&bytes, &budget).is_none());
+		}
+		for malformed in [b"invalid image".as_slice(), &bytes[..bytes.len() / 2]] {
+			assert!(legacy_decode(malformed, &base).is_none());
+			assert!(decode(malformed, &base).is_none());
+		}
+	}
+
+	/// Run the emitted test executable directly under `/usr/bin/time -l`; use release
+	/// builds for timing comparisons. Fixture generation is excluded from peak RSS.
+	/// Set SEREIN_IMAGE_DECODE_FIXTURE to a prebuilt synthetic 4096x4096 RGBA PNG,
+	/// and SEREIN_IMAGE_DECODE_LEGACY=1 only for the original decoder comparison.
+	#[test]
+	#[ignore = "isolated large-image RSS workload; requires a prebuilt synthetic PNG fixture"]
+	fn image_decode_memory_workload() {
+		let path = std::env::var_os("SEREIN_IMAGE_DECODE_FIXTURE")
+			.expect("set SEREIN_IMAGE_DECODE_FIXTURE to a synthetic 4096x4096 RGBA PNG");
+		let bytes = fs::read(path).unwrap();
+		let budget =
+			budget("media:vs:4096x4096:https://cdn.discordapp.com/attachments/1/2/synthetic.png");
+		let legacy = std::env::var_os("SEREIN_IMAGE_DECODE_LEGACY").is_some();
+		let decode = if legacy { legacy_decode } else { decode };
+		let started = Instant::now();
+		let image = decode(&bytes, &budget).expect("synthetic image decodes");
+		assert_eq!(image.size, [4096, 4096]);
+		assert_eq!(image.pixels.len(), 4096 * 4096);
+		std::hint::black_box(&image);
+		println!(
+			"image_decode_memory_workload legacy={legacy}, elapsed_ms={:.3}, retained_pixel_bytes={}",
+			started.elapsed().as_secs_f64() * 1000.0,
+			image.pixels.capacity() * size_of::<egui::Color32>()
+		);
+	}
+
 	fn queued_image(edge: usize) -> AvatarResult {
 		AvatarResult {
 			key: "synthetic".into(),
@@ -1793,6 +1948,7 @@ mod tests {
 			super::decode_animation(&bytes[..100], &FrameBudget::legacy(160), |_| {}).is_none()
 		);
 	}
+
 	#[test]
 	fn sticker_urls_and_decode_budgets_are_scoped() {
 		for prefix in ["embed", "anim"] {
@@ -1861,41 +2017,123 @@ mod tests {
 		] {
 			assert!(super::cdn_url(key).is_none());
 		}
-	}
-	#[test]
-	fn application_and_group_icon_urls_accept_only_ids_and_hashes() {
-		for hash in [
-			"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			"a_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		] {
+
+		{
+			for hash in [
+				"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"a_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			] {
+				assert_eq!(
+					super::cdn_url(&format!("application-icon-7-{hash}")),
+					Some(format!(
+						"https://cdn.discordapp.com/app-icons/7/{hash}.png?size=128"
+					))
+				);
+			}
 			assert_eq!(
-				super::cdn_url(&format!("application-icon-7-{hash}")),
-				Some(format!(
-					"https://cdn.discordapp.com/app-icons/7/{hash}.png?size=128"
-				))
+				super::cdn_url("group-icon-7-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").as_deref(),
+				Some(
+					"https://cdn.discordapp.com/channel-icons/7/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png?size=128"
+				)
+			);
+			for key in [
+				"application-icon-0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"application-icon-7-../private",
+				"application-icon-7-a.png?token=secret",
+				"application-icon-7-https://example.com",
+				"application-icon-7-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"group-icon-0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"group-icon-7-../private",
+				"group-icon-7-a.png?token=secret",
+				"group-icon-7-https://example.com",
+				"group-icon-7-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			] {
+				assert!(super::cdn_url(key).is_none());
+			}
+		}
+
+		{
+			assert_eq!(
+				super::cdn_url("activity-7-8").as_deref(),
+				Some("https://cdn.discordapp.com/app-assets/7/8.png?size=128")
+			);
+			assert_eq!(
+				super::cdn_url("app-icon-7").as_deref(),
+				Some("https://discord.com/api/v10/applications/7/rpc")
+			);
+			for key in [
+				"activity-0-8",
+				"activity-7-0",
+				"activity-7-../8",
+				"activity-7-8?size=8192",
+				"activity-7-https://example.com",
+				"app-icon-0",
+				"app-icon-7/rpc",
+				"app-icon-7?token=secret",
+			] {
+				assert!(super::cdn_url(key).is_none());
+			}
+			assert_eq!(
+				super::application_icon_url(
+					"app-icon-7",
+					br#"{"id":"7","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","name":"Ignored"}"#
+				)
+				.as_deref(),
+				Some(
+					"https://cdn.discordapp.com/app-icons/7/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png?size=128"
+				)
+			);
+			for bytes in [
+				br#"{"id":"8","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#.as_slice(),
+				br#"{"id":"7","icon":null}"#,
+				br#"{"id":"7"}"#,
+				br#"{"id":"7","icon":"../../private"}"#,
+				br#"{"id":"7","icon":"https://example.com/icon.png"}"#,
+				br#"{"id":"7","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"}"#,
+			] {
+				assert!(super::application_icon_url("app-icon-7", bytes).is_none());
+			}
+			assert!(
+				super::application_icon_url(
+					"app-icon-7",
+					&vec![b' '; super::MAX_APPLICATION_METADATA + 1]
+				)
+				.is_none()
 			);
 		}
-		assert_eq!(
-			super::cdn_url("group-icon-7-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").as_deref(),
-			Some(
-				"https://cdn.discordapp.com/channel-icons/7/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png?size=128"
-			)
-		);
-		for key in [
-			"application-icon-0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			"application-icon-7-../private",
-			"application-icon-7-a.png?token=secret",
-			"application-icon-7-https://example.com",
-			"application-icon-7-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			"group-icon-0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			"group-icon-7-../private",
-			"group-icon-7-a.png?token=secret",
-			"group-icon-7-https://example.com",
-			"group-icon-7-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		] {
-			assert!(super::cdn_url(key).is_none());
+
+		{
+			assert_eq!(
+				super::cdn_url("emoji-9001").as_deref(),
+				Some("https://cdn.discordapp.com/emojis/9001.png?size=64")
+			);
+			for key in [
+				"emoji-0",
+				"emoji-../9001",
+				"emoji-9001?size=8192",
+				"emoji-https://example.com",
+				"emoji-9001/foo",
+			] {
+				assert!(super::cdn_url(key).is_none());
+			}
+		}
+
+		{
+			let source = "https://cdn.discordapp.com/streams/guild:1:2:3/0123456789abcdef.png";
+			assert!(embed_url(source, 512).is_some());
+			let key = format!("media:is:e512:{source}");
+			assert_eq!(job_urls(&key).unwrap().primary, source);
+			assert!(disk_key(&key).is_none());
+			assert!(
+				embed_url(
+					"https://cdn.discordapp.com/streams/guild:1:2:3/../token.png",
+					512,
+				)
+				.is_none()
+			);
 		}
 	}
+
 	#[test]
 	fn gif_animation_decodes_full_size_and_partial_frames() {
 		let mut bytes = Vec::new();
@@ -2042,73 +2280,6 @@ mod tests {
 			)
 		);
 	}
-	#[test]
-	fn activity_artwork_urls_and_application_metadata_are_scoped() {
-		assert_eq!(
-			super::cdn_url("activity-7-8").as_deref(),
-			Some("https://cdn.discordapp.com/app-assets/7/8.png?size=128")
-		);
-		assert_eq!(
-			super::cdn_url("app-icon-7").as_deref(),
-			Some("https://discord.com/api/v10/applications/7/rpc")
-		);
-		for key in [
-			"activity-0-8",
-			"activity-7-0",
-			"activity-7-../8",
-			"activity-7-8?size=8192",
-			"activity-7-https://example.com",
-			"app-icon-0",
-			"app-icon-7/rpc",
-			"app-icon-7?token=secret",
-		] {
-			assert!(super::cdn_url(key).is_none());
-		}
-		assert_eq!(
-			super::application_icon_url(
-				"app-icon-7",
-				br#"{"id":"7","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","name":"Ignored"}"#
-			)
-			.as_deref(),
-			Some(
-				"https://cdn.discordapp.com/app-icons/7/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png?size=128"
-			)
-		);
-		for bytes in [
-			br#"{"id":"8","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#.as_slice(),
-			br#"{"id":"7","icon":null}"#,
-			br#"{"id":"7"}"#,
-			br#"{"id":"7","icon":"../../private"}"#,
-			br#"{"id":"7","icon":"https://example.com/icon.png"}"#,
-			br#"{"id":"7","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"}"#,
-		] {
-			assert!(super::application_icon_url("app-icon-7", bytes).is_none());
-		}
-		assert!(
-			super::application_icon_url(
-				"app-icon-7",
-				&vec![b' '; super::MAX_APPLICATION_METADATA + 1]
-			)
-			.is_none()
-		);
-	}
-
-	#[test]
-	fn custom_emoji_urls_are_static_and_confined_to_discord_cdn() {
-		assert_eq!(
-			super::cdn_url("emoji-9001").as_deref(),
-			Some("https://cdn.discordapp.com/emojis/9001.png?size=64")
-		);
-		for key in [
-			"emoji-0",
-			"emoji-../9001",
-			"emoji-9001?size=8192",
-			"emoji-https://example.com",
-			"emoji-9001/foo",
-		] {
-			assert!(super::cdn_url(key).is_none());
-		}
-	}
 
 	use super::*;
 	use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -2121,20 +2292,14 @@ mod tests {
 			.unwrap();
 		encoded.into_inner()
 	}
+
 	#[test]
-	fn stream_preview_urls_are_confined_to_discord_cdn() {
-		let source = "https://cdn.discordapp.com/streams/guild:1:2:3/0123456789abcdef.png";
-		assert!(embed_url(source, 512).is_some());
-		let key = format!("media:is:e512:{source}");
-		assert_eq!(job_urls(&key).unwrap().primary, source);
-		assert!(disk_key(&key).is_none());
-		assert!(
-			embed_url(
-				"https://cdn.discordapp.com/streams/guild:1:2:3/../token.png",
-				512,
-			)
-			.is_none()
-		);
+	fn external_proxy_urls_accept_encoded_source_queries() {
+		assert!(embed_url(
+			"https://images-ext-1.discordapp.net/external/abcdefghijklmnopqrstuvwxyzABCDEFG/%3Fv%3D4/https/avatars.githubusercontent.com/u/67194087",
+			32,
+		)
+		.is_some());
 	}
 
 	#[test]

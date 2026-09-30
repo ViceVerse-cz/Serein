@@ -13,6 +13,8 @@ pub const MAX_INVITE_CODE: usize = 64;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Activity {
+	#[serde(flatten)]
+	pub extra: ActivityExtra,
 	pub name: String,
 	pub application_id: Id,
 	#[serde(rename = "type")]
@@ -25,6 +27,42 @@ pub struct Activity {
 	pub timestamps: Option<Timestamps>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub assets: Option<Assets>,
+}
+
+/// Additional user-authored fields; local game IPC retains its existing restricted surface.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct ActivityExtra {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub url: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub details_url: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub state_url: Option<String>,
+	#[serde(skip_serializing_if = "Vec::is_empty")]
+	pub buttons: Vec<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub metadata: Option<ButtonMetadata>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub party: Option<Party>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ButtonMetadata {
+	pub button_urls: Vec<String>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Party {
+	pub size: [u32; 2],
+}
+
+fn valid_link(value: &str) -> bool {
+	value.len() <= 2048
+		&& !value.chars().any(|c| c.is_whitespace() || c.is_control())
+		&& url::Url::parse(value).is_ok_and(|url| {
+			url.scheme() == "https"
+				&& url.has_host()
+				&& url.username().is_empty()
+				&& url.password().is_none()
+		})
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -52,6 +90,10 @@ pub struct Timestamps {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Assets {
 	#[serde(skip_serializing_if = "Option::is_none")]
+	pub large_url: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub small_url: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub large_image: Option<String>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub large_text: Option<String>,
@@ -66,14 +108,42 @@ fn text_valid(value: &str, limit: usize) -> bool {
 }
 
 impl Activity {
-	/// At most seven strings (1,152 UTF-8 bytes total) plus fixed metadata.
+	/// Every string, list and number is bounded before Gateway publication.
 	pub fn validate(&self) -> Result<(), DecodeError> {
 		if self.application_id.0 == 0 || self.name.trim().is_empty() || !text_valid(&self.name, 128)
 		{
 			return Err(DecodeError);
 		}
+		if serde_json::to_vec(self).map_err(|_| DecodeError)?.len() > 3072 {
+			return Err(DecodeError);
+		}
+		let extra = &self.extra;
+		if (self.kind == 1) != extra.url.is_some()
+			|| extra.details_url.is_some() && self.details.is_none()
+			|| extra.state_url.is_some() && self.state.is_none()
+			|| [&extra.url, &extra.details_url, &extra.state_url]
+				.into_iter()
+				.flatten()
+				.any(|url| !valid_link(url))
+			|| extra.buttons.len() > 2
+			|| extra
+				.buttons
+				.iter()
+				.any(|label| label.trim().is_empty() || !text_valid(label, 32))
+			|| extra.metadata.as_ref().map_or(0, |m| m.button_urls.len()) != extra.buttons.len()
+			|| extra
+				.metadata
+				.as_ref()
+				.is_some_and(|m| m.button_urls.iter().any(|url| !valid_link(url)))
+			|| extra
+				.party
+				.as_ref()
+				.is_some_and(|p| p.size[0] == 0 || p.size[0] > p.size[1] || p.size[1] > 9999)
+		{
+			return Err(DecodeError);
+		}
 		validate_fields(
-			self.kind,
+			if self.kind == 1 { 0 } else { self.kind },
 			&self.details,
 			&self.state,
 			&self.timestamps,
@@ -105,6 +175,10 @@ fn validate_fields(
 			.into_iter()
 			.flatten()
 			.any(|text| !text_valid(text, 128))
+			|| [&a.large_url, &a.small_url]
+				.into_iter()
+				.flatten()
+				.any(|url| !valid_link(url))
 			|| [&a.large_image, &a.small_image]
 				.into_iter()
 				.flatten()
@@ -118,6 +192,7 @@ fn validate_fields(
 impl ActivityFields {
 	pub fn into_activity(self, application_id: Id, name: String) -> Result<Activity, DecodeError> {
 		let mut activity = Activity {
+			extra: ActivityExtra::default(),
 			name,
 			application_id,
 			kind: self.kind,
@@ -226,7 +301,7 @@ pub fn decode_command(bytes: &[u8]) -> Result<SetActivity, DecodeError> {
 /// instead of silently succeeding, matching Discord's own RPC surface for absent scopes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
-	SetActivity(SetActivity),
+	SetActivity(Box<SetActivity>),
 	/// `INVITE_BROWSER`: the caller asks the client to show an invite. Joining stays user-confirmed.
 	Invite {
 		nonce: String,
@@ -237,7 +312,9 @@ pub enum Request {
 pub fn decode_request(bytes: &[u8]) -> Result<Request, DecodeError> {
 	let value = payload(bytes)?;
 	match value.get("cmd").and_then(Value::as_str) {
-		Some("SET_ACTIVITY") => decode_command(bytes).map(Request::SetActivity),
+		Some("SET_ACTIVITY") => {
+			decode_command(bytes).map(|activity| Request::SetActivity(Box::new(activity)))
+		}
 		Some("INVITE_BROWSER") => {
 			let nonce = decode_nonce(&value)?;
 			let code = value
@@ -341,148 +418,181 @@ mod tests {
 	}
 
 	#[test]
+	fn custom_fields_are_bounded_and_use_gateway_button_metadata() {
+		let mut activity = ActivityFields::default()
+			.into_activity(Id(42), "Custom".into())
+			.unwrap();
+		activity.kind = 1;
+		activity.extra = ActivityExtra {
+			url: Some("https://twitch.tv/synthetic".into()),
+			buttons: vec!["Website".into()],
+			metadata: Some(ButtonMetadata {
+				button_urls: vec!["https://example.com".into()],
+			}),
+			party: Some(Party { size: [2, 4] }),
+			..Default::default()
+		};
+		assert!(activity.validate().is_ok());
+		let wire = serde_json::to_value(&activity).unwrap();
+		assert_eq!(wire["buttons"][0], "Website");
+		assert_eq!(wire["metadata"]["button_urls"][0], "https://example.com");
+		assert_eq!(wire["party"]["size"], json!([2, 4]));
+		activity
+			.extra
+			.metadata
+			.as_mut()
+			.unwrap()
+			.button_urls
+			.clear();
+		assert!(activity.validate().is_err());
+		activity.extra.buttons.clear();
+		activity.extra.url = Some("javascript:alert(1)".into());
+		assert!(activity.validate().is_err());
+		activity.extra.url = Some("https://user:password@example.com".into());
+		assert!(activity.validate().is_err());
+	}
+
+	#[test]
 	fn rich_activity_survives_without_secrets_or_actions() {
-		let bytes = command(json!({"details":"Ranked match","state":"Round 2", "type":0,
-			"timestamps":{"start":1_700_000_000,"end":1_700_000_030},
-			"assets":{"large_image":"map_key","large_text":"Map","small_image":"123","small_text":"Rank"},
-			"secrets":{"join":"synthetic-private-secret"},"buttons":[{"label":"Join","url":"https://example.com"}],
-			"name":"Spoofed name","application_id":"99"}));
-		let decoded = decode_command(&bytes).unwrap();
-		let ack = String::from_utf8(acknowledge(&decoded)).unwrap();
-		assert!(ack.contains("synthetic-1"));
-		assert!(!ack.contains("secret") && !ack.contains("buttons"));
-		let activity = decoded
+		{
+			let bytes = command(json!({"details":"Ranked match","state":"Round 2", "type":0,
+				"timestamps":{"start":1_700_000_000,"end":1_700_000_030},
+				"assets":{"large_image":"map_key","large_text":"Map","small_image":"123","small_text":"Rank"},
+				"secrets":{"join":"synthetic-private-secret"},"buttons":[{"label":"Join","url":"https://example.com"}],
+				"name":"Spoofed name","application_id":"99"}));
+			let decoded = decode_command(&bytes).unwrap();
+			let ack = String::from_utf8(acknowledge(&decoded)).unwrap();
+			assert!(ack.contains("synthetic-1"));
+			assert!(!ack.contains("secret") && !ack.contains("buttons"));
+			let activity = decoded
+				.activity
+				.unwrap()
+				.into_activity(Id(42), "Public app name".into())
+				.unwrap();
+			let output = serde_json::to_value(activity).unwrap();
+			assert_eq!(output["name"], "Public app name");
+			assert_eq!(output["application_id"], "42");
+			assert_eq!(output["details"], "Ranked match");
+			assert_eq!(output["timestamps"]["start"], 1_700_000_000_000_u64);
+			assert_eq!(output["assets"]["large_image"], "map_key");
+			assert!(
+				decode_command(&command(Value::Null))
+					.unwrap()
+					.activity
+					.is_none()
+			);
+			assert!(
+				decode_command(br#"{"cmd":"SET_ACTIVITY","nonce":"clear","args":{"pid":123}}"#)
+					.unwrap()
+					.activity
+					.is_none()
+			);
+			assert_eq!(
+				decode_handshake(br#"{"v":1,"client_id":"42"}"#).unwrap(),
+				Id(42)
+			);
+			let ready: Value = serde_json::from_slice(&ready(Id(42), "Synthetic player")).unwrap();
+			assert_eq!(ready["evt"], "READY");
+			assert_eq!(ready["data"]["v"], 1);
+			let millis = decode_command(&command(
+				json!({"timestamps":{"start":1_700_000_000_000_u64}}),
+			))
+			.unwrap()
 			.activity
 			.unwrap()
-			.into_activity(Id(42), "Public app name".into())
+			.into_activity(Id(42), "Modern SDK".into())
 			.unwrap();
-		let output = serde_json::to_value(activity).unwrap();
-		assert_eq!(output["name"], "Public app name");
-		assert_eq!(output["application_id"], "42");
-		assert_eq!(output["details"], "Ranked match");
-		assert_eq!(output["timestamps"]["start"], 1_700_000_000_000_u64);
-		assert_eq!(output["assets"]["large_image"], "map_key");
-		assert!(
-			decode_command(&command(Value::Null))
-				.unwrap()
-				.activity
-				.is_none()
-		);
-		assert!(
-			decode_command(br#"{"cmd":"SET_ACTIVITY","nonce":"clear","args":{"pid":123}}"#)
-				.unwrap()
-				.activity
-				.is_none()
-		);
-		assert_eq!(
-			decode_handshake(br#"{"v":1,"client_id":"42"}"#).unwrap(),
-			Id(42)
-		);
-		let ready: Value = serde_json::from_slice(&ready(Id(42), "Synthetic player")).unwrap();
-		assert_eq!(ready["evt"], "READY");
-		assert_eq!(ready["data"]["v"], 1);
-		let millis = decode_command(&command(
-			json!({"timestamps":{"start":1_700_000_000_000_u64}}),
-		))
-		.unwrap()
-		.activity
-		.unwrap()
-		.into_activity(Id(42), "Modern SDK".into())
-		.unwrap();
-		assert_eq!(millis.timestamps.unwrap().start, Some(1_700_000_000_000));
-		let error: Value = serde_json::from_slice(&error_for_payload(
-			br#"{"cmd":"SUBSCRIBE","nonce":"subscribe-1","evt":"ACTIVITY_JOIN"}"#,
-		))
-		.unwrap();
-		assert_eq!(error["cmd"], "SUBSCRIBE");
-		assert_eq!(error["nonce"], "subscribe-1");
-		assert_eq!(error["evt"], "ERROR");
-		let error: Value = serde_json::from_slice(&error_for_payload(
-			json!({"cmd":"x".repeat(1000),"nonce":"x".repeat(1000)})
-				.to_string()
-				.as_bytes(),
-		))
-		.unwrap();
-		assert_eq!(error["cmd"], "SET_ACTIVITY");
-		assert!(error["nonce"].is_null());
-	}
-
-	#[test]
-	fn invite_requests_are_bounded_and_other_commands_stay_unsupported() {
-		let Request::Invite { nonce, code } = decode_request(
-			br#"{"cmd":"INVITE_BROWSER","nonce":"invite-1","args":{"code":"hTKzmak"}}"#,
-		)
-		.unwrap() else {
-			panic!("an invite request must decode as one")
-		};
-		assert_eq!((nonce.as_str(), code.as_str()), ("invite-1", "hTKzmak"));
-		let ack: Value = serde_json::from_slice(&invite_acknowledge(&nonce, &code)).unwrap();
-		assert_eq!(ack["cmd"], "INVITE_BROWSER");
-		assert_eq!(ack["nonce"], "invite-1");
-		assert_eq!(ack["data"]["code"], "hTKzmak");
-		assert!(matches!(
-			decode_request(&command(json!({}))).unwrap(),
-			Request::SetActivity(_)
-		));
-		for bytes in [
-			br#"{"cmd":"INVITE_BROWSER","nonce":"n","args":{"code":"../secret"}}"#.as_slice(),
-			br#"{"cmd":"INVITE_BROWSER","nonce":"n","args":{"code":"https://discord.gg/a"}}"#,
-			br#"{"cmd":"INVITE_BROWSER","nonce":"n","args":{"code":""}}"#,
-			br#"{"cmd":"INVITE_BROWSER","nonce":"n","args":{}}"#,
-			br#"{"cmd":"INVITE_BROWSER","args":{"code":"hTKzmak"}}"#,
-			br#"{"cmd":"AUTHORIZE","nonce":"n","args":{"scopes":["rpc"]}}"#,
-			br#"{"cmd":"GUILD_TEMPLATE_BROWSER","nonce":"n","args":{"code":"hTKzmak"}}"#,
-		] {
-			assert!(decode_request(bytes).is_err());
+			assert_eq!(millis.timestamps.unwrap().start, Some(1_700_000_000_000));
+			let error: Value = serde_json::from_slice(&error_for_payload(
+				br#"{"cmd":"SUBSCRIBE","nonce":"subscribe-1","evt":"ACTIVITY_JOIN"}"#,
+			))
+			.unwrap();
+			assert_eq!(error["cmd"], "SUBSCRIBE");
+			assert_eq!(error["nonce"], "subscribe-1");
+			assert_eq!(error["evt"], "ERROR");
+			let error: Value = serde_json::from_slice(&error_for_payload(
+				json!({"cmd":"x".repeat(1000),"nonce":"x".repeat(1000)})
+					.to_string()
+					.as_bytes(),
+			))
+			.unwrap();
+			assert_eq!(error["cmd"], "SET_ACTIVITY");
+			assert!(error["nonce"].is_null());
 		}
-		assert!(!valid_invite_code(&"a".repeat(MAX_INVITE_CODE + 1)));
-		assert!(valid_invite_code("wumpus-friends_1"));
-	}
-
-	#[test]
-	fn rejects_malformed_unbounded_and_unsupported_payloads() {
-		for bytes in [
-			br#"{"v":2,"client_id":"42"}"#.as_slice(),
-			br#"{"v":1,"client_id":42}"#,
-			br#"{"v":1,"client_id":"0"}"#,
-			br#"{"v":1,"client_id":"18446744073709551616"}"#,
-			b"[]",
-			b"{",
-		] {
-			assert!(decode_handshake(bytes).is_err());
+		{
+			let Request::Invite { nonce, code } = decode_request(
+				br#"{"cmd":"INVITE_BROWSER","nonce":"invite-1","args":{"code":"hTKzmak"}}"#,
+			)
+			.unwrap() else {
+				panic!("an invite request must decode as one")
+			};
+			assert_eq!((nonce.as_str(), code.as_str()), ("invite-1", "hTKzmak"));
+			let ack: Value = serde_json::from_slice(&invite_acknowledge(&nonce, &code)).unwrap();
+			assert_eq!(ack["cmd"], "INVITE_BROWSER");
+			assert_eq!(ack["nonce"], "invite-1");
+			assert_eq!(ack["data"]["code"], "hTKzmak");
+			assert!(matches!(
+				decode_request(&command(json!({}))).unwrap(),
+				Request::SetActivity(_)
+			));
+			for bytes in [
+				br#"{"cmd":"INVITE_BROWSER","nonce":"n","args":{"code":"../secret"}}"#.as_slice(),
+				br#"{"cmd":"INVITE_BROWSER","nonce":"n","args":{"code":"https://discord.gg/a"}}"#,
+				br#"{"cmd":"INVITE_BROWSER","nonce":"n","args":{"code":""}}"#,
+				br#"{"cmd":"INVITE_BROWSER","nonce":"n","args":{}}"#,
+				br#"{"cmd":"INVITE_BROWSER","args":{"code":"hTKzmak"}}"#,
+				br#"{"cmd":"AUTHORIZE","nonce":"n","args":{"scopes":["rpc"]}}"#,
+				br#"{"cmd":"GUILD_TEMPLATE_BROWSER","nonce":"n","args":{"code":"hTKzmak"}}"#,
+			] {
+				assert!(decode_request(bytes).is_err());
+			}
+			assert!(!valid_invite_code(&"a".repeat(MAX_INVITE_CODE + 1)));
+			assert!(valid_invite_code("wumpus-friends_1"));
 		}
-		assert!(decode_handshake(&vec![b' '; MAX_FRAME_BYTES + 1]).is_err());
-		assert!(decode_command(&vec![b' '; MAX_FRAME_BYTES + 1]).is_err());
-		for activity in [
-			json!([]),
-			json!({"type":1}),
-			json!({"type":4}),
-			json!({"details":"x".repeat(129)}),
-			json!({"state":"é".repeat(65)}),
-			json!({"details":"bad\ntext"}),
-			json!({"timestamps":[]}),
-			json!({"assets":[]}),
-			json!({"assets":{"large_image":"x".repeat(MAX_ASSET_KEY + 1)}}),
-			json!({"timestamps":{"start":u64::MAX}}),
-			json!({"timestamps":{"start":-1}}),
-			json!({"timestamps":{"start":10,"end":9}}),
-		] {
-			assert!(decode_command(&command(activity)).is_err());
-		}
-		for (key, value) in [
-			("nonce", json!("")),
-			("nonce", json!("x".repeat(129))),
-			("nonce", json!(1)),
-			("cmd", json!("AUTHORIZE")),
-			("args", json!([])),
-			("args", json!({"pid":0,"activity":null})),
-			("args", json!({"pid":u64::MAX,"activity":null})),
-			("args", json!({"activity":null})),
-		] {
-			// Replace exactly the field under test, keeping all other required fields valid.
-			let mut payload: Value = serde_json::from_slice(&command(json!({}))).unwrap();
-			payload[key] = value;
-			assert!(decode_command(payload.to_string().as_bytes()).is_err());
+		{
+			for bytes in [
+				br#"{"v":2,"client_id":"42"}"#.as_slice(),
+				br#"{"v":1,"client_id":42}"#,
+				br#"{"v":1,"client_id":"0"}"#,
+				br#"{"v":1,"client_id":"18446744073709551616"}"#,
+				b"[]",
+				b"{",
+			] {
+				assert!(decode_handshake(bytes).is_err());
+			}
+			assert!(decode_handshake(&vec![b' '; MAX_FRAME_BYTES + 1]).is_err());
+			assert!(decode_command(&vec![b' '; MAX_FRAME_BYTES + 1]).is_err());
+			for activity in [
+				json!([]),
+				json!({"type":1}),
+				json!({"type":4}),
+				json!({"details":"x".repeat(129)}),
+				json!({"state":"é".repeat(65)}),
+				json!({"details":"bad\ntext"}),
+				json!({"timestamps":[]}),
+				json!({"assets":[]}),
+				json!({"assets":{"large_image":"x".repeat(MAX_ASSET_KEY + 1)}}),
+				json!({"timestamps":{"start":u64::MAX}}),
+				json!({"timestamps":{"start":-1}}),
+				json!({"timestamps":{"start":10,"end":9}}),
+			] {
+				assert!(decode_command(&command(activity)).is_err());
+			}
+			for (key, value) in [
+				("nonce", json!("")),
+				("nonce", json!("x".repeat(129))),
+				("nonce", json!(1)),
+				("cmd", json!("AUTHORIZE")),
+				("args", json!([])),
+				("args", json!({"pid":0,"activity":null})),
+				("args", json!({"pid":u64::MAX,"activity":null})),
+				("args", json!({"activity":null})),
+			] {
+				// Replace exactly the field under test, keeping all other required fields valid.
+				let mut payload: Value = serde_json::from_slice(&command(json!({}))).unwrap();
+				payload[key] = value;
+				assert!(decode_command(payload.to_string().as_bytes()).is_err());
+			}
 		}
 	}
 }

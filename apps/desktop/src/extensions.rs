@@ -131,7 +131,7 @@ pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 			include_bytes!(
 				"../../../examples/extensions/packages/emoji-sticker-images.serein-extension"
 			),
-			"While enabled, selecting custom emoji or stickers sends an image attachment immediately.",
+			"While enabled, custom emoji and stickers fall back to image attachments only when native sending is unavailable.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
@@ -328,6 +328,8 @@ pub struct InstalledExtension {
 	pub error: Option<String>,
 	pub preserve_deleted_messages: bool,
 	pub image_sharing: bool,
+	pub rich_presence: Option<Box<extensions::CustomRichPresence>>,
+	pub api_proxy: Option<extensions::ApiProxyConfig>,
 }
 
 pub enum Event {
@@ -575,6 +577,19 @@ impl Stored {
 			sha256: self.sha256.clone(),
 			download_bytes: self.download_bytes,
 			image_sharing: result.as_ref().is_ok_and(|output| output.image_sharing),
+			api_proxy: result
+				.as_ref()
+				.ok()
+				.and_then(|output| output.api_proxy.clone()),
+			rich_presence: result
+				.as_ref()
+				.ok()
+				.and_then(|output| match &output.rich_presence {
+					Some(extensions::RichPresenceUpdate::Set { presence }) => {
+						Some(presence.clone())
+					}
+					_ => None,
+				}),
 			// Current protector packages have a no-op activation; consent still opts in.
 			preserve_deleted_messages: activation.is_some()
 				&& result.is_ok()
@@ -592,7 +607,9 @@ fn validate_job(job: &Job) -> Result<(), String> {
 			invocation,
 		} => {
 			valid_id(id)?;
-			account_key(account)?;
+			if !account.is_empty() {
+				account_key(account)?;
+			}
 			let event_bytes = if let Some(event) = &invocation.message_event {
 				event.validate().map_err(|error| error.to_string())?;
 				event
@@ -800,7 +817,12 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			account,
 			mut invocation,
 		} => {
-			let directory = scope(root, ExtensionKind::Plugin, Some(&account))?.join(&id);
+			let directory = scope(
+				root,
+				ExtensionKind::Plugin,
+				(!account.is_empty()).then_some(account.as_str()),
+			)?
+			.join(&id);
 			if directory.with_extension("disabled").exists() {
 				return Err("Plugin is disabled".into());
 			}
@@ -809,6 +831,9 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 				|| stored.package.manifest.kind != ExtensionKind::Plugin
 			{
 				return Err("Installed plugin identity changed".into());
+			}
+			if is_proxy(&stored.package.manifest) != account.is_empty() {
+				return Err("Plugin connection scope changed".into());
 			}
 			if invocation.selected_message.is_some()
 				&& !stored.grants.contains(&Capability::SelectedMessage)
@@ -841,6 +866,13 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			let mut output =
 				extensions::invoke(&stored.package, &invocation).map_err(|e| e.to_string())?;
 			gate.check()?;
+			if output.api_proxy.is_some() && !stored.grants.contains(&Capability::ApiProxy) {
+				return Err("API proxy access was not granted".into());
+			}
+			if output.rich_presence.is_some() && !stored.grants.contains(&Capability::RichPresence)
+			{
+				return Err("Rich presence access was not granted".into());
+			}
 			if let Some(data) = output.storage.take() {
 				if !stored.grants.contains(&Capability::Storage) || data.len() > MAX_STORAGE {
 					return Err("Plugin data exceeds its granted storage budget".into());
@@ -908,7 +940,7 @@ fn enable(
 		return Err("Package does not match the reviewed manifest".into());
 	}
 	if reviewed {
-		let path = scope(root, package.manifest.kind, account)?
+		let path = manifest_scope(root, &package.manifest, account)?
 			.join(&package.manifest.id)
 			.join("package.json");
 		if path.exists() {
@@ -948,7 +980,7 @@ fn install_stored(
 	gate: &Gate,
 ) -> Result<InstalledExtension, String> {
 	validate_grants(&stored.package.manifest, &stored.grants)?;
-	let parent = scope(root, stored.package.manifest.kind, account)?;
+	let parent = manifest_scope(root, &stored.package.manifest, account)?;
 	let directory = parent.join(&stored.package.manifest.id);
 	if parent.with_extension("disabled").exists() {
 		return Err("Account extension cleanup is incomplete; reopen Extensions to retry".into());
@@ -959,6 +991,7 @@ fn install_stored(
 		);
 	}
 	if stored.package.manifest.kind == ExtensionKind::Plugin
+		&& !is_proxy(&stored.package.manifest)
 		&& !parent.exists()
 		&& count_directories(&root.join("accounts"))? >= MAX_ACCOUNTS
 	{
@@ -1008,12 +1041,31 @@ fn validate_grants(manifest: &Manifest, grants: &[Capability]) -> Result<(), Str
 	Ok(())
 }
 
+fn is_proxy(manifest: &Manifest) -> bool {
+	manifest.capabilities.contains(&Capability::ApiProxy)
+}
+fn manifest_scope(
+	root: &Path,
+	manifest: &Manifest,
+	account: Option<&str>,
+) -> Result<PathBuf, String> {
+	manifest.validate().map_err(|error| error.to_string())?;
+	if is_proxy(manifest) {
+		return Ok(root.join("proxy-plugins"));
+	}
+	if manifest.kind == ExtensionKind::Plugin && account.is_none() {
+		return Err("Select an account before enabling plugins".into());
+	}
+	scope(root, manifest.kind, account)
+}
+
 fn scope(root: &Path, kind: ExtensionKind, account: Option<&str>) -> Result<PathBuf, String> {
 	match kind {
 		ExtensionKind::Theme => Ok(root.join("themes")),
-		ExtensionKind::Plugin => Ok(root.join("accounts").join(account_key(
-			account.ok_or("Select an account before enabling plugins")?,
-		)?)),
+		ExtensionKind::Plugin => match account {
+			Some(account) => Ok(root.join("accounts").join(account_key(account)?)),
+			None => Ok(root.join("proxy-plugins")),
+		},
 	}
 }
 
@@ -1037,7 +1089,10 @@ fn load(
 	gate: &Gate,
 ) -> Result<Vec<InstalledExtension>, String> {
 	cleanup(&root.join("accounts"), MAX_ACCOUNTS, gate)?;
-	let mut scopes = vec![(root.join("themes"), ExtensionKind::Theme)];
+	let mut scopes = vec![
+		(root.join("themes"), ExtensionKind::Theme),
+		(root.join("proxy-plugins"), ExtensionKind::Plugin),
+	];
 	if let Some(account) = account {
 		scopes.push((
 			scope(root, ExtensionKind::Plugin, Some(account))?,
@@ -1067,7 +1122,7 @@ fn load(
 				.map_err(|_| "Cannot read extension entry")?
 				.is_dir()
 			{
-				if installed.len() >= MAX_PER_SCOPE * 2 {
+				if installed.len() >= MAX_PER_SCOPE * 3 {
 					return Err("Too many installed extensions".into());
 				}
 				let id = entry.file_name().to_string_lossy().into_owned();
@@ -1083,7 +1138,11 @@ fn load(
 							"Extension is disabled; cleanup needs retrying".into()
 						}));
 					}
-					if stored.package.manifest.id != id || stored.package.manifest.kind != kind {
+					if stored.package.manifest.id != id
+						|| stored.package.manifest.kind != kind
+						|| is_proxy(&stored.package.manifest)
+							!= (parent == root.join("proxy-plugins"))
+					{
 						return Err("Installed extension identity changed".into());
 					}
 					Ok(stored)
@@ -1108,6 +1167,7 @@ fn load(
 							summary.theme = None;
 							summary.preserve_deleted_messages = false;
 							summary.image_sharing = false;
+							summary.rich_presence = None;
 							summary.error = Some(error);
 							summary
 						}
@@ -1126,7 +1186,11 @@ fn load(
 							license: "Unknown".into(),
 							source: "https://github.com/ViceVerse-cz/rustcord".into(),
 							kind,
-							capabilities: Vec::new(),
+							capabilities: if parent == root.join("proxy-plugins") {
+								vec![Capability::ApiProxy]
+							} else {
+								Vec::new()
+							},
 							actions: Vec::new(),
 						},
 						theme: None,
@@ -1136,6 +1200,8 @@ fn load(
 						error: Some(error),
 						preserve_deleted_messages: false,
 						image_sharing: false,
+						rich_presence: None,
+						api_proxy: None,
 					},
 				});
 			}
@@ -1677,6 +1743,127 @@ mod tests {
 			wake_cancel: Arc::new(tokio::sync::Notify::new()),
 		}
 	}
+
+	fn theme(id: &str) -> Package {
+		Package {
+			manifest: Manifest {
+				api_version: 1,
+				id: id.into(),
+				name: id.into(),
+				version: "1.0.0".into(),
+				author: "Synthetic test".into(),
+				license: "MIT".into(),
+				source: "https://github.com/ViceVerse-cz/rustcord".into(),
+				kind: ExtensionKind::Theme,
+				capabilities: Vec::new(),
+				actions: Vec::new(),
+			},
+			theme: Some(Theme::default()),
+			background_image: Vec::new(),
+			cover_image: Vec::new(),
+			wasm: Vec::new(),
+		}
+	}
+	fn source(profile: &Profile, package: &Package) -> InstallSource {
+		let bytes = serde_json::to_vec(package).unwrap();
+		let path = profile.0.join(format!("{}.json", package.manifest.id));
+		fs::write(&path, &bytes).unwrap();
+		InstallSource::Local {
+			path,
+			sha256: digest(&bytes),
+			manifest: package.manifest.clone(),
+		}
+	}
+	fn message_event_job() -> Job {
+		Job::Invoke {
+			id: "message-counter".into(),
+			account: "account".into(),
+			invocation: Invocation {
+				action: "message-event".into(),
+				message_event: Some(Box::new(extensions::MessageEvent {
+					kind: extensions::MessageEventKind::Create,
+					channel_id: "1".into(),
+					message_id: "2".into(),
+					author_id: Some("3".into()),
+					content: Some("Synthetic message".into()),
+				})),
+				..Default::default()
+			},
+		}
+	}
+
+	#[test]
+	fn proxy_plugins_are_prelogin_global_and_survive_account_logout() {
+		let profile = Profile::new();
+		let root = profile.0.join("extensions");
+		let mut package = extensions::parse_package(include_bytes!(
+			"../../../examples/extensions/packages/message-counter.serein-extension"
+		))
+		.unwrap();
+		assert!(manifest_scope(&root, &package.manifest, None).is_err());
+		package.manifest.id = "api-proxy".into();
+		package.manifest.capabilities = vec![Capability::ApiProxy, Capability::Storage];
+		package.manifest.actions = vec![extensions::Action {
+			id: "settings".into(),
+			label: "Settings".into(),
+			surface: Surface::Panel,
+		}];
+		let installed = enable(
+			&root,
+			source(&profile, &package),
+			package.manifest.capabilities.clone(),
+			None,
+			&gate(),
+		)
+		.unwrap();
+		assert!(installed.error.is_none());
+		let directory = root.join("proxy-plugins/api-proxy");
+		assert!(directory.join("package.json").exists());
+		for account in [None, Some("one"), Some("two")] {
+			assert!(
+				load(&root, account, &gate())
+					.unwrap()
+					.iter()
+					.any(|entry| entry.manifest.id == "api-proxy")
+			);
+		}
+		assert!(
+			run(
+				&root,
+				Job::Invoke {
+					id: "api-proxy".into(),
+					account: "one".into(),
+					invocation: Invocation {
+						action: "settings".into(),
+						..Default::default()
+					}
+				},
+				&gate()
+			)
+			.is_err()
+		);
+		run(
+			&root,
+			Job::Logout {
+				account: "one".into(),
+			},
+			&gate(),
+		)
+		.unwrap();
+		assert!(directory.exists());
+		run(
+			&root,
+			Job::Disable {
+				id: "api-proxy".into(),
+				kind: ExtensionKind::Plugin,
+				account: None,
+			},
+			&gate(),
+		)
+		.unwrap();
+		assert!(!directory.exists());
+	}
+
 	#[test]
 	fn bundled_themes_open_without_installing_and_preserve_preview_intent() {
 		let profile = Profile::new();
@@ -1729,53 +1916,6 @@ mod tests {
 			.is_err(),
 			"do not hide a corrupt installed package behind the bundled original"
 		);
-	}
-	fn theme(id: &str) -> Package {
-		Package {
-			manifest: Manifest {
-				api_version: 1,
-				id: id.into(),
-				name: id.into(),
-				version: "1.0.0".into(),
-				author: "Synthetic test".into(),
-				license: "MIT".into(),
-				source: "https://github.com/ViceVerse-cz/rustcord".into(),
-				kind: ExtensionKind::Theme,
-				capabilities: Vec::new(),
-				actions: Vec::new(),
-			},
-			theme: Some(Theme::default()),
-			background_image: Vec::new(),
-			cover_image: Vec::new(),
-			wasm: Vec::new(),
-		}
-	}
-	fn source(profile: &Profile, package: &Package) -> InstallSource {
-		let bytes = serde_json::to_vec(package).unwrap();
-		let path = profile.0.join(format!("{}.json", package.manifest.id));
-		fs::write(&path, &bytes).unwrap();
-		InstallSource::Local {
-			path,
-			sha256: digest(&bytes),
-			manifest: package.manifest.clone(),
-		}
-	}
-	fn message_event_job() -> Job {
-		Job::Invoke {
-			id: "message-counter".into(),
-			account: "account".into(),
-			invocation: Invocation {
-				action: "message-event".into(),
-				message_event: Some(Box::new(extensions::MessageEvent {
-					kind: extensions::MessageEventKind::Create,
-					channel_id: "1".into(),
-					message_id: "2".into(),
-					author_id: Some("3".into()),
-					content: Some("Synthetic message".into()),
-				})),
-				..Default::default()
-			},
-		}
 	}
 
 	#[test]
@@ -2188,7 +2328,10 @@ mod tests {
 		cleanup(&second, MAX_PER_SCOPE, &gate()).unwrap();
 		assert!(!second.join("plugin").exists());
 		assert!(!second.join("orphan.partial").exists());
-		assert!(scope(&root, ExtensionKind::Plugin, None).is_err());
+		assert_eq!(
+			scope(&root, ExtensionKind::Plugin, None).unwrap(),
+			root.join("proxy-plugins")
+		);
 		assert!(disable(&second, "../outside", &gate()).is_err());
 	}
 

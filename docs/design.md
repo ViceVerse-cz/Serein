@@ -126,3 +126,10 @@ The empty-channel welcome was inspected natively on Ubuntu 26.04.1 at 1120×760
 and at 760×520 with a long Unicode name in light/dark mode. The committed pair
 uses an isolated Xvfb display; the offline composer was also exercised by typing
 and pressing Enter, which replaced the welcome with the synthetic message.
+
+Server Notification Settings are available from the server dropdown and server
+icon context menu, independently of administrative Server Settings. The shared
+modal uses four radio choices, mute and mention-suppression switches, and an
+explicit Save changes action. The content scrolls in short/narrow viewports while
+the footer remains accessible. `--demo --demo-chat --demo-server-notifications`
+with `--features demo` opens the synthetic editor without contacting Discord.

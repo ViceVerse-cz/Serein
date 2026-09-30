@@ -15,6 +15,7 @@ model.workspace = true
 client-core.workspace = true
 pulldown-cmark = { version = "=0.13.4", default-features = false }
 url.workspace = true
+zeroize.workspace = true
 time = { workspace = true, features = ["local-offset"] }
 unicode-segmentation = "=1.13.3"
 unicode-bidi = "=0.3.18"
@@ -56,4 +57,8 @@ required-features = ["demo"]
 
 [[example]]
 name = "unread_navigation"
+required-features = ["demo"]
+
+[[example]]
+name = "friend_message"
 required-features = ["demo"]

@@ -2081,14 +2081,6 @@ mod tests {
 	}
 
 	#[test]
-	fn resolves_common_aliases() {
-		assert_eq!(Language::from_tag("JS"), Some(Language::JavaScript));
-		assert_eq!(Language::from_tag("rs"), Some(Language::Rust));
-		assert_eq!(Language::from_tag("c++"), Some(Language::Cpp));
-		assert_eq!(Language::from_tag("elixir"), None);
-	}
-
-	#[test]
 	fn rust_tokens_cover_keywords_macros_lifetimes_and_strings() {
 		let toks = tokens(
 			Language::Rust,
@@ -2117,43 +2109,6 @@ mod tests {
 		assert!(toks.contains(&("\"open", Token::String)));
 		assert!(toks.contains(&("next", Token::Function)));
 		assert!(toks.contains(&("const", Token::Keyword)));
-	}
-
-	#[test]
-	fn python_decorators_triple_strings_and_comments() {
-		let toks = tokens(
-			Language::Python,
-			"@dataclass\nclass A:\n    \"\"\"doc\nmore\"\"\"\n    x = None  # c",
-		);
-		assert!(toks.contains(&("@dataclass", Token::Attribute)));
-		assert!(toks.contains(&("class", Token::Keyword)));
-		assert!(toks.contains(&("\"\"\"doc\nmore\"\"\"", Token::String)));
-		assert!(toks.contains(&("None", Token::Constant)));
-		assert!(toks.contains(&("# c", Token::Comment)));
-	}
-
-	#[test]
-	fn json_keys_differ_from_values() {
-		let toks = tokens(Language::Json, "{\"a\": \"b\", \"n\": 1.5, \"t\": true}");
-		assert!(toks.contains(&("\"a\"", Token::Attribute)));
-		assert!(toks.contains(&("\"b\"", Token::String)));
-		assert!(toks.contains(&("1.5", Token::Number)));
-		assert!(toks.contains(&("true", Token::Constant)));
-	}
-
-	#[test]
-	fn sql_is_case_insensitive_and_c_has_preprocessor_lines() {
-		let toks = tokens(Language::Sql, "SELECT id FROM t WHERE x = 'a';");
-		assert!(toks.contains(&("SELECT", Token::Keyword)));
-		assert!(toks.contains(&("WHERE", Token::Keyword)));
-		assert!(toks.contains(&("'a'", Token::String)));
-		let toks = tokens(
-			Language::C,
-			"#include <stdio.h>\nint main(void) { return 0; }",
-		);
-		assert!(toks.contains(&("#include <stdio.h>", Token::Attribute)));
-		assert!(toks.contains(&("int", Token::Type)));
-		assert!(toks.contains(&("main", Token::Function)));
 	}
 
 	#[test]

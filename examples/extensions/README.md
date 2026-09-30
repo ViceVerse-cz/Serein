@@ -59,7 +59,9 @@ may not be available in a released build.
 | [Conversation Inspector](conversation-inspector/src/lib.rs) | Rich summaries, forum flags, typing/pins and host discovery |
 | [Message Counter](message-counter/src/lib.rs) | Reactive events, saved counters and a reset button |
 | [Message Delete Protector](message-delete-protector/src/lib.rs) | Opt-in activation enabling host-managed message retention |
-| [Emoji & Sticker Images](emoji-sticker-images/src/lib.rs) | Activation enabling image attachment mode |
+| [Emoji & Sticker Images](emoji-sticker-images/src/lib.rs) | Activation enabling image attachment fallback |
+| [RGB Cycle](rgb-cycle/src/lib.rs) | Host-scheduled, smoothly eased appearance updates with saved settings |
+| [Custom Rich Presence](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/custom-rpc) | Native activity editor/preview, saved Apply/Stop controls and activation restore through the bounded `rich_presence` capability |
 
 For this tutorial, use `app-toolbox/` in a development copy. Keep its `Cargo.toml`,
 and replace `manifest.json` and `src/lib.rs` with the examples below. The Cargo
@@ -106,7 +108,7 @@ Replace the example author and source URL before publishing.
 | `license` | string | License label; include the actual license in your source too. |
 | `source` | string | Public HTTPS source link, at most 2,048 UTF-8 bytes, without embedded credentials. It is metadata, not code to execute. |
 | `kind` | string | `plugin` for Wasm; declarative themes use `theme`. |
-| `capabilities` | string array | Only the permissions needed. Each requires consent; names must be known and unique. At most 64 declarations, with 51 supported today; see the [capability reference](../../docs/extensions.md#capability-reference) for their scopes. |
+| `capabilities` | string array | Only the permissions needed. Each requires consent; names must be known and unique. At most 64 declarations, with 52 supported today; see the [capability reference](../../docs/extensions.md#capability-reference) for their scopes. |
 | `actions` | object array | Entry points invoked by users or the host. Plugins need 1–16 actions with unique IDs. |
 
 Plugins that use `data_queries` or `action_feedback` also declare `app_events` and
@@ -135,10 +137,23 @@ as `con` and `nul` are reserved. Themes declare no actions or capabilities.
 | `activation` | Enable or account load | Each returned feature needs its own grant; used to restore appearance or enable activation features. |
 | `message_event` | Accepted live message change | `message_events`; receives one typed event. |
 | `app_event` | Supported app change | `app_events`; receives the reason and separately granted snapshots. |
+| `tick` | Host schedule while enabled and signed in | `appearance`; receives `tick_ms` through `TickInvocation`. |
 
 At most one action of **each** automatic surface is allowed: `activation`,
-`message_event` and `app_event`. A capability alone does not register a handler;
+`message_event`, `app_event` and `tick`. A capability alone does not register a handler;
 declare its action too.
+
+### Scheduled appearance ticks
+
+> **Preview — PR #286, not yet released.** Use a matching host build.
+
+A `tick` action runs only when the shared extension worker is otherwise idle, at most
+once every 250 ms after the previous call completes. Decode it with `TickInvocation`;
+`tick_ms` is elapsed session time, and granted storage may configure the result.
+The host accepts only `appearance` output, eases colors between accepted results,
+and pauses the schedule after an error until the plugin is disabled and re-enabled.
+There is no render callback, persistent Wasm instance, message/composer context, or
+guaranteed timer precision. See [RGB Cycle](rgb-cycle/src/lib.rs) for a complete handler.
 
 ### Generate and check a typed manifest
 
@@ -428,10 +443,12 @@ are never supplied to this plugin, written to disk, or recovered from before the
 were loaded. Disable, logout, permission revocation and eviction release them.
 
 Emoji & Sticker Images requests `image_sharing` and returns `image_sharing: true`
-from activation. Selecting artwork authorizes an immediate image send after
-validation, preserving text drafts. Wasm receives no image bytes and cannot fetch
-or send anything. Disable/logout revoke the option. Only an activation action
-with the grant may enable this mode.
+from activation. Emoji and stickers that are usable in the conversation keep their
+normal Discord send path; otherwise selecting artwork authorizes an immediate image
+fallback after validation, preserving text drafts. Animated APNG sticker fallbacks
+are sent as GIF attachments. Wasm receives no image bytes and cannot fetch or send
+anything. Disable/logout revoke the option. Only an activation action with the grant
+may enable this mode.
 
 There is at most one activation action per plugin, run on enable/account load.
 Activation itself does not require deleted-message access. Granted `appearance`
@@ -440,11 +457,37 @@ saved choices. Storage is one opaque UTF-8 value, replaced when returned.
 Ocean, Midnight, Rose, Forest and Latte are declarative themes under `extensions/`.
 Authors package compiled bytes; Serein never runs their build scripts.
 
+## Custom Rich Presence example
+
+The [Custom Rich Presence editor](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/custom-rpc) is a complete preview SDK
+example. It declares `rich_presence` and `storage`, returns `RichPresenceOutput`,
+and uses `Element::ActivityPreview` alongside native form controls. Preview and
+draft edits do not publish; Apply returns Set and saves the applied fields. Stop
+returns Clear and saves an inactive flag while keeping those fields. Activation
+restores only a saved active configuration. Extension Disable deletes its data.
+
+Build from `plugins` in Serein-extensions:
+
+```sh
+cargo test --locked -p custom-rpc
+cargo build --locked --release --target wasm32-unknown-unknown -p custom-rpc
+python pack.py custom-rpc/manifest.json target/wasm32-unknown-unknown/release/custom_rpc.wasm packages/custom-rpc.serein-extension
+```
+
+Import the package into an offline `--demo` host first. A synthetic preview does
+not contact Discord or prove live interoperability. The real host requires the
+user's separate activity-sharing preference, resolves artwork outside rendering,
+and honors account visibility. The plugin cannot read credentials or perform
+network requests. Read the [full field/lifecycle reference](../../docs/extension-sdk-actions.md#custom-rich-presence)
+before building a different presence editor.
+
 ## ABI version 1
 
 Existing `Invocation`, `Output`, `dispatch` and `export!` APIs and struct literal
 shapes remain supported. Opt into events with `EventInvocation`, or app data and
-actions with `AppInvocation` / `AppOutput`. Existing plugins need no rebuild.
+actions with `AppInvocation` / `AppOutput`, custom activity contributions with
+`RichPresenceOutput`, or REST proxy configuration with `ApiProxyOutput`.
+Existing compiled plugins need no rebuild.
 
 Older hosts reject unsupported capabilities/surfaces. `api_version: 1` is not a
 capability probe. Current hosts inject a public support catalog available as
@@ -468,3 +511,11 @@ keys. Discord IDs are decimal strings, not JSON numbers. See the
 [output](../../docs/extension-sdk-actions.md#outputs-and-host-actions) field references
 and [sandbox limits](../../docs/extensions.md#resource-and-privacy-limits).
 Fitting a byte limit does not guarantee a handler fits the execution-fuel budget.
+
+## API proxy plugin (preview)
+
+The [API proxy output contract](../../docs/extension-sdk-actions.md#api-proxy-preview)
+uses `ApiProxyOutput.api_proxy` and the `api_proxy` capability, with optional `storage`.
+Only panel/activation actions are allowed; this narrow device-wide scope works
+before login and survives account logout. It routes only Discord REST requests,
+without exposing account data, credentials, calls, Gateway or media access.
