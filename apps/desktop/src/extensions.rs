@@ -78,13 +78,10 @@ pub enum Job {
 	Load {
 		account: Option<String>,
 	},
-	RefreshCatalog {
-		demo: bool,
-	},
+	RefreshCatalog,
 	Preview {
 		id: String,
 		preview: Preview,
-		demo: bool,
 	},
 	InspectImport {
 		path: PathBuf,
@@ -773,22 +770,12 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			starters: starters()?,
 			installed: load(root, account.as_deref(), gate)?,
 		}),
-		Job::RefreshCatalog { demo } => {
-			if demo {
-				#[cfg(any(test, feature = "demo"))]
-				return extensions::parse_catalog(include_bytes!(
-					"../../../community-extensions/catalog.json"
-				))
-				.map(Event::Catalog)
-				.map_err(|error| error.to_string());
-				#[cfg(not(any(test, feature = "demo")))]
-				return Err("Demo catalog is unavailable in this build".into());
-			}
+		Job::RefreshCatalog => {
 			let bytes = download(CATALOG_URL, MAX_CATALOG, gate, Duration::from_secs(15))?;
 			cache_catalog(root, &bytes, gate).map(Event::Catalog)
 		}
-		Job::Preview { id, preview, demo } => {
-			let image = load_preview(&id, &preview, demo, gate);
+		Job::Preview { id, preview } => {
+			let image = load_preview(&preview, gate);
 			Ok(Event::Preview { id, image })
 		}
 		Job::InspectImport { path } => {
@@ -1403,17 +1390,10 @@ fn remove_owned_directory(path: &Path) -> Result<(), String> {
 	fs::remove_dir_all(path).map_err(|_| "Extension cleanup failed; it will retry on launch".into())
 }
 
-fn load_preview(
-	id: &str,
-	preview: &Preview,
-	demo: bool,
-	gate: &Gate,
-) -> Option<eframe::egui::ColorImage> {
+fn load_preview(preview: &Preview, gate: &Gate) -> Option<eframe::egui::ColorImage> {
 	gate.check().ok()?;
 	preview.validate().ok()?;
-	let bytes = if demo {
-		demo_preview(id)?.to_vec()
-	} else if let Some(bytes) = cached_preview(&preview.sha256) {
+	let bytes = if let Some(bytes) = cached_preview(&preview.sha256) {
 		bytes
 	} else {
 		download(
@@ -1427,9 +1407,7 @@ fn load_preview(
 	gate.check().ok()?;
 	let image = decode_preview(&bytes, preview)?;
 	gate.check().ok()?;
-	if !demo {
-		remember_preview(&preview.sha256, bytes);
-	}
+	remember_preview(&preview.sha256, bytes);
 	Some(image)
 }
 
@@ -1465,23 +1443,6 @@ fn remember_preview(sha256: &str, bytes: Vec<u8>) {
 		|| cache.iter().map(|(_, bytes)| bytes.len()).sum::<usize>() > MAX_CACHED_PREVIEW_BYTES
 	{
 		cache.pop_front();
-	}
-}
-
-fn demo_preview(id: &str) -> Option<&'static [u8]> {
-	#[cfg(feature = "demo")]
-	{
-		match id {
-			"serein-ocean" => Some(include_bytes!(
-				"../../../community-extensions/previews/ocean.png"
-			)),
-			_ => None,
-		}
-	}
-	#[cfg(not(feature = "demo"))]
-	{
-		let _ = id;
-		None
 	}
 }
 
@@ -2078,9 +2039,7 @@ mod tests {
 	#[ignore = "Downloads public GitHub catalog/packages; no Discord account or traffic"]
 	fn public_repository_catalog_and_packages_match_pins() {
 		let profile = Profile::new();
-		let Event::Catalog(catalog) =
-			run(&profile.0, Job::RefreshCatalog { demo: false }, &gate()).unwrap()
-		else {
+		let Event::Catalog(catalog) = run(&profile.0, Job::RefreshCatalog, &gate()).unwrap() else {
 			panic!("expected catalog")
 		};
 		assert!(
@@ -2355,8 +2314,7 @@ mod tests {
 		assert!(loaded[0].error.is_some());
 		disable(&directory, "broken", &gate()).unwrap();
 		let mut host = ExtensionHost::new(root);
-		host.queue
-			.push_back((0, Job::RefreshCatalog { demo: false }));
+		host.queue.push_back((0, Job::RefreshCatalog));
 		host.queue.push_back((
 			1,
 			Job::Logout {
@@ -2432,7 +2390,7 @@ mod tests {
 		assert!(decode_preview(&too_large, &metadata(&too_large)).is_none());
 		let cancelled = gate();
 		cancelled.generation.fetch_add(1, Ordering::Release);
-		assert!(load_preview("synthetic", &metadata(b"bad"), false, &cancelled).is_none());
+		assert!(load_preview(&metadata(b"bad"), &cancelled).is_none());
 	}
 
 	#[test]

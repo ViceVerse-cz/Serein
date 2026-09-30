@@ -1091,13 +1091,7 @@ impl Bridge {
 					);
 				}
 				ExtensionRequest::RefreshCatalog => {
-					self.submit(
-						Job::RefreshCatalog { demo },
-						None,
-						state.generation,
-						ctx,
-						messaging,
-					);
+					self.submit(Job::RefreshCatalog, None, state.generation, ctx, messaging);
 				}
 				ExtensionRequest::Preview { id } => {
 					if self.picker.is_some()
@@ -1115,7 +1109,7 @@ impl Bridge {
 						.and_then(|entry| entry.preview.clone())
 					{
 						self.submit(
-							Job::Preview { id, preview, demo },
+							Job::Preview { id, preview },
 							None,
 							state.generation,
 							ctx,
@@ -1145,11 +1139,6 @@ impl Bridge {
 					self.message_events.retain(|event| event.id != id);
 					let source = self.source_for(&id, &sha256, reviewed);
 					if let Some(source) = source {
-						if demo && matches!(source, InstallSource::Catalog(_)) {
-							messaging.extensions.status =
-								"Offline demo: import the local package instead.".into();
-							continue;
-						}
 						self.submit(
 							Job::Enable {
 								source: Box::new(source),
@@ -1327,16 +1316,9 @@ impl Bridge {
 			self.pending.values().any(|pending| pending.catalog);
 		if self.refresh_catalog_on_open(
 			messaging.extension_settings_page(),
-			demo,
 			messaging.extensions.busy || messaging.extensions.catalog_refreshing,
 		) {
-			self.submit(
-				Job::RefreshCatalog { demo },
-				None,
-				state.generation,
-				ctx,
-				messaging,
-			);
+			self.submit(Job::RefreshCatalog, None, state.generation, ctx, messaging);
 			messaging.extensions.catalog_refreshing = true;
 		}
 		if !self.host.as_ref().unwrap().busy() {
@@ -1540,19 +1522,11 @@ impl Bridge {
 			ctx.request_repaint_after(wait);
 		}
 	}
-	fn refresh_catalog_on_open(
-		&mut self,
-		page: Option<ExtensionKind>,
-		demo: bool,
-		busy: bool,
-	) -> bool {
+	fn refresh_catalog_on_open(&mut self, page: Option<ExtensionKind>, busy: bool) -> bool {
 		if page != self.catalog_page {
 			self.catalog_refresh_pending = page.is_some();
 		}
 		self.catalog_page = page;
-		if demo {
-			self.catalog_refresh_pending = false;
-		}
 		if self.catalog_refresh_pending && !busy {
 			self.catalog_refresh_pending = false;
 			return true;
@@ -1586,7 +1560,7 @@ impl Bridge {
 		};
 		let cleanup = matches!(job, Job::Disable { .. } | Job::Logout { .. });
 		let theme_save = matches!(job, Job::SaveTheme { .. });
-		let catalog = matches!(job, Job::RefreshCatalog { .. });
+		let catalog = matches!(job, Job::RefreshCatalog);
 		let reconcile =
 			cleanup || theme_save || matches!(job, Job::Enable { .. } | Job::SelectTheme { .. });
 		match self.host.as_mut().unwrap().submit(job, ctx) {
@@ -1615,10 +1589,17 @@ impl Bridge {
 		}
 	}
 	fn source_for(&self, id: &str, sha256: &str, reviewed: bool) -> Option<InstallSource> {
-		self.starters
+		self.catalog
 			.get(id)
-			.filter(|entry| reviewed && source_hash(&entry.source) == sha256)
-			.map(|entry| entry.source.clone())
+			.filter(|entry| reviewed && entry.sha256 == sha256)
+			.cloned()
+			.map(InstallSource::Catalog)
+			.or_else(|| {
+				self.starters
+					.get(id)
+					.filter(|entry| reviewed && source_hash(&entry.source) == sha256)
+					.map(|entry| entry.source.clone())
+			})
 			.or_else(|| {
 				self.imported
 					.as_ref()
@@ -1626,13 +1607,6 @@ impl Bridge {
 						!reviewed && source_id(source) == id && source_hash(source) == sha256
 					})
 					.cloned()
-			})
-			.or_else(|| {
-				self.catalog
-					.get(id)
-					.filter(|entry| reviewed && entry.sha256 == sha256)
-					.cloned()
-					.map(InstallSource::Catalog)
 			})
 	}
 
@@ -2169,15 +2143,15 @@ mod tests {
 	}
 
 	#[test]
-	fn catalog_refresh_is_once_per_open_delayed_when_busy_and_offline_in_demo() {
+	fn catalog_refresh_is_once_per_open_delayed_when_busy() {
 		let mut bridge = Bridge::default();
 		for page in [ExtensionKind::Theme, ExtensionKind::Plugin] {
-			assert!(!bridge.refresh_catalog_on_open(Some(page), false, true));
-			assert!(bridge.refresh_catalog_on_open(Some(page), false, false));
-			assert!(!bridge.refresh_catalog_on_open(Some(page), false, false));
-			assert!(!bridge.refresh_catalog_on_open(None, false, false));
-			assert!(!bridge.refresh_catalog_on_open(Some(page), true, false));
-			assert!(!bridge.refresh_catalog_on_open(None, false, false));
+			assert!(!bridge.refresh_catalog_on_open(Some(page), true));
+			assert!(bridge.refresh_catalog_on_open(Some(page), false));
+			assert!(!bridge.refresh_catalog_on_open(Some(page), false));
+			assert!(!bridge.refresh_catalog_on_open(None, false));
+			assert!(bridge.refresh_catalog_on_open(Some(page), false));
+			assert!(!bridge.refresh_catalog_on_open(None, false));
 		}
 	}
 
@@ -2203,8 +2177,19 @@ mod tests {
 			download_bytes: 100,
 			release_url: "https://example.org/release.json".into(),
 		};
+		let starter = Starter {
+			source: InstallSource::Bundled {
+				bytes: b"synthetic",
+				sha256: catalog.sha256.clone(),
+				manifest: catalog.manifest.clone(),
+			},
+			theme: None,
+			description: "Synthetic fixture",
+			download_bytes: 100,
+		};
 		let bridge = Bridge {
 			imported: Some(imported),
+			starters: BTreeMap::from([(id.clone(), starter)]),
 			catalog: BTreeMap::from([(id.clone(), catalog)]),
 			..Default::default()
 		};

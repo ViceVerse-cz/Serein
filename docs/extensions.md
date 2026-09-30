@@ -12,7 +12,8 @@ Themes and plugins are published together in
 [Serein-extensions](https://github.com/ViceVerse-cz/Serein-extensions).
 Opening Settings > Themes or Extensions checks that repository's shared catalog
 on the existing worker. Normal builds embed no package payloads; bundled examples
-remain available only in offline demo/test builds.
+remain available only as demo/test fixtures. Demo catalog refresh, previews and
+selected catalog installs use the same public repository downloads as normal builds.
 Catalog packages, source and previews have one canonical copy in the pinned
 `community-extensions` Git submodule, backed by `Serein-extensions`. Initialize it
 with `git submodule update --init` before running tests or building demos. Runtime
