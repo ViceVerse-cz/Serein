@@ -35,13 +35,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "emoji-sticker-images"
-version = "1.0.0"
-dependencies = [
- "serein-extension-sdk",
-]
-
-[[package]]
 name = "form_urlencoded"
 version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -184,13 +177,6 @@ name = "message-counter"
 version = "1.0.0"
 dependencies = [
  "serde",
- "serein-extension-sdk",
-]
-
-[[package]]
-name = "message-delete-protector"
-version = "1.0.0"
-dependencies = [
  "serein-extension-sdk",
 ]
 

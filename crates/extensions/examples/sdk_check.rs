@@ -1,5 +1,5 @@
 //! Offline ABI compatibility and timing check after building the standalone SDK examples.
-//! `cargo run --locked --release -p extensions --example sdk_check -- <wasm-directory>`
+//! `cargo run --locked --release -p extensions --example sdk_check -- <wasm-directory> <catalog-wasm-directory>`
 use extensions::{
 	Element, Invocation, MAX_MODULE_BYTES, MessageEvent, MessageEventKind, Output, Package, invoke,
 	parse_package,
@@ -490,7 +490,14 @@ fn check_app_actions(package: &Package) {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mut args = std::env::args_os().skip(1);
 	let wasm_dir = PathBuf::from(args.next().expect("usage: sdk_check <wasm-directory>"));
-	assert!(args.next().is_none(), "usage: sdk_check <wasm-directory>");
+	let catalog_wasm_dir = PathBuf::from(
+		args.next()
+			.expect("usage: sdk_check <wasm-directory> <catalog-wasm-directory>"),
+	);
+	assert!(
+		args.next().is_none(),
+		"usage: sdk_check <wasm-directory> <catalog-wasm-directory>"
+	);
 	check_app_actions(&rebuilt(
 		include_str!("../../../examples/extensions/app-actions/manifest.json"),
 		&wasm_dir.join("app_actions.wasm"),
@@ -499,10 +506,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		(
 			"message-delete-protector",
 			include_bytes!(
-				"../../../examples/extensions/packages/message-delete-protector.serein-extension"
+				"../../../community-extensions/plugins/packages/message-delete-protector.serein-extension"
 			)
 			.as_slice(),
-			include_str!("../../../examples/extensions/message-delete-protector/manifest.json"),
+			include_str!(
+				"../../../community-extensions/plugins/message-delete-protector/manifest.json"
+			),
 			"message_delete_protector.wasm",
 			Output {
 				preserve_deleted_messages: true,
@@ -512,10 +521,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		(
 			"emoji-sticker-images",
 			include_bytes!(
-				"../../../examples/extensions/packages/emoji-sticker-images.serein-extension"
+				"../../../community-extensions/plugins/packages/emoji-sticker-images.serein-extension"
 			)
 			.as_slice(),
-			include_str!("../../../examples/extensions/emoji-sticker-images/manifest.json"),
+			include_str!(
+				"../../../community-extensions/plugins/emoji-sticker-images/manifest.json"
+			),
 			"emoji_sticker_images.wasm",
 			Output {
 				image_sharing: true,
@@ -524,13 +535,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		),
 	] {
 		check(&format!("{name}/committed"), committed, &expected);
-		let rebuilt = rebuilt(manifest, &wasm_dir.join(wasm_file))?;
-		// The shipped legacy protector returns true; its current source uses no-op activation.
-		let expected = if name == "message-delete-protector" {
-			Output::default()
-		} else {
-			expected
-		};
+		let rebuilt = rebuilt(manifest, &catalog_wasm_dir.join(wasm_file))?;
 		check(
 			&format!("{name}/rebuilt"),
 			&serde_json::to_vec(&rebuilt)?,

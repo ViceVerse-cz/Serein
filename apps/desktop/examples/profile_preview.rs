@@ -281,20 +281,38 @@ fn extension_fixture(
 		"custom-rpc" | "api-proxy" => external
 			.as_deref()
 			.ok_or("Set SEREIN_PREVIEW_PACKAGE to the external plugin package")?,
-		"serein-ocean" => include_bytes!("../../../extensions/ocean.serein-extension"),
+		"serein-ocean" => {
+			include_bytes!("../../../community-extensions/themes/ocean.serein-extension")
+		}
 		"message-delete-protector" => include_bytes!(
-			"../../../examples/extensions/packages/message-delete-protector.serein-extension"
+			"../../../community-extensions/plugins/packages/message-delete-protector.serein-extension"
 		),
-		"serein-midnight" => include_bytes!("../../../extensions/midnight.serein-extension"),
-		"serein-rose" => include_bytes!("../../../extensions/rose.serein-extension"),
-		"serein-forest" => include_bytes!("../../../extensions/forest.serein-extension"),
-		"serein-latte" => include_bytes!("../../../extensions/latte.serein-extension"),
-		"golden-theme" => include_bytes!("../../../extensions/golden.serein-extension"),
-		"black-theme" => include_bytes!("../../../extensions/katana.serein-extension"),
-		"obsidian-theme" => include_bytes!("../../../extensions/obsidian.serein-extension"),
-		"teal-theme" => include_bytes!("../../../extensions/teal.serein-extension"),
+		"serein-midnight" => {
+			include_bytes!("../../../community-extensions/themes/midnight.serein-extension")
+		}
+		"serein-rose" => {
+			include_bytes!("../../../community-extensions/themes/rose.serein-extension")
+		}
+		"serein-forest" => {
+			include_bytes!("../../../community-extensions/themes/forest.serein-extension")
+		}
+		"serein-latte" => {
+			include_bytes!("../../../community-extensions/themes/latte.serein-extension")
+		}
+		"golden-theme" => {
+			include_bytes!("../../../community-extensions/themes/golden.serein-extension")
+		}
+		"black-theme" => {
+			include_bytes!("../../../community-extensions/themes/katana.serein-extension")
+		}
+		"obsidian-theme" => {
+			include_bytes!("../../../community-extensions/themes/obsidian.serein-extension")
+		}
+		"teal-theme" => {
+			include_bytes!("../../../community-extensions/themes/teal.serein-extension")
+		}
 		"emoji-sticker-images" => include_bytes!(
-			"../../../examples/extensions/packages/emoji-sticker-images.serein-extension"
+			"../../../community-extensions/plugins/packages/emoji-sticker-images.serein-extension"
 		),
 		_ => return Err("Unknown fixture extension".into()),
 	};
@@ -339,27 +357,27 @@ fn seed_catalog(extensions: &mut ui::ExtensionUi, themes: bool) {
 	if themes {
 		let packages: [(&[u8], &str); 6] = [
 			(
-				include_bytes!("../../../extensions/ocean.serein-extension"),
+				include_bytes!("../../../community-extensions/themes/ocean.serein-extension"),
 				"",
 			),
 			(
-				include_bytes!("../../../extensions/obsidian.serein-extension"),
+				include_bytes!("../../../community-extensions/themes/obsidian.serein-extension"),
 				"Obsidian violet surfaces and lavender accents.",
 			),
 			(
-				include_bytes!("../../../extensions/forest.serein-extension"),
+				include_bytes!("../../../community-extensions/themes/forest.serein-extension"),
 				"Calm forest greens and fresh leafy accents.",
 			),
 			(
-				include_bytes!("../../../extensions/latte.serein-extension"),
+				include_bytes!("../../../community-extensions/themes/latte.serein-extension"),
 				"Warm coffee tones and a creamy caramel accent.",
 			),
 			(
-				include_bytes!("../../../extensions/rose.serein-extension"),
+				include_bytes!("../../../community-extensions/themes/rose.serein-extension"),
 				"Soft rose accents.",
 			),
 			(
-				include_bytes!("../../../extensions/midnight.serein-extension"),
+				include_bytes!("../../../community-extensions/themes/midnight.serein-extension"),
 				"Deep, quiet surfaces.",
 			),
 		];
@@ -387,10 +405,11 @@ fn seed_catalog(extensions: &mut ui::ExtensionUi, themes: bool) {
 			.collect();
 		entries[0].manifest.name = "My ocean".into();
 		entries[0].manifest.author = "You".into();
-		let image =
-			image::load_from_memory(include_bytes!("../../../extensions/previews/ocean.png"))
-				.expect("valid synthetic cover")
-				.to_rgba8();
+		let image = image::load_from_memory(include_bytes!(
+			"../../../community-extensions/previews/ocean.png"
+		))
+		.expect("valid synthetic cover")
+		.to_rgba8();
 		entries[0].cover_image = Some(Arc::new(egui::ColorImage::from_rgba_unmultiplied(
 			[image.width() as usize, image.height() as usize],
 			image.as_raw(),
@@ -399,8 +418,9 @@ fn seed_catalog(extensions: &mut ui::ExtensionUi, themes: bool) {
 		extensions.set_entries(entries);
 		return;
 	}
-	let catalog = extensions::parse_catalog(include_bytes!("../../../extensions/catalog.json"))
-		.expect("valid fixture catalog");
+	let catalog =
+		extensions::parse_catalog(include_bytes!("../../../community-extensions/catalog.json"))
+			.expect("valid fixture catalog");
 	extensions.set_entries(
 		catalog
 			.entries
@@ -744,7 +764,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					if theme_preview {
 						prime_extension_chat(&mut state);
 						let package = extensions::parse_package(include_bytes!(
-							"../../../extensions/katana.serein-extension"
+							"../../../community-extensions/themes/katana.serein-extension"
 						))?;
 						messaging.extensions.receive_theme_edit(
 							Box::new(package),
@@ -756,7 +776,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					}
 					if let Some(tab) = &theme_editor {
 						let mut package = extensions::parse_package(include_bytes!(
-							"../../../extensions/ocean.serein-extension"
+							"../../../community-extensions/themes/ocean.serein-extension"
 						))
 						.expect("valid theme fixture");
 						package.manifest.name = "My ocean".into();
@@ -768,7 +788,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 							true,
 							false,
 						);
-						let bytes = include_bytes!("../../../extensions/previews/ocean.png");
+						let bytes =
+							include_bytes!("../../../community-extensions/previews/ocean.png");
 						let pixels = image::load_from_memory(bytes)
 							.expect("valid fixture image")
 							.to_rgba8();

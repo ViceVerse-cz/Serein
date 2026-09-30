@@ -16,9 +16,9 @@ fn main() {
 	let mut messaging = ui::MessagingUi::default();
 	let packages: [&[u8]; 2] = [
 		include_bytes!(
-			"../../../examples/extensions/packages/message-delete-protector.serein-extension"
+			"../../../community-extensions/plugins/packages/message-delete-protector.serein-extension"
 		),
-		include_bytes!("../../../extensions/ocean.serein-extension"),
+		include_bytes!("../../../community-extensions/themes/ocean.serein-extension"),
 	];
 	messaging.extensions.set_entries(
 		packages

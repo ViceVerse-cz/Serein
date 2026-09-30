@@ -95,6 +95,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
+          submodules: true
           persist-credentials: false
       - uses: actions/download-artifact@v8.0.1
         with:

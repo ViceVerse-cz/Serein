@@ -13,6 +13,10 @@ Themes and plugins are published together in
 Opening Settings > Themes or Extensions checks that repository's shared catalog
 on the existing worker. Normal builds embed no package payloads; bundled examples
 remain available only in offline demo/test builds.
+Catalog packages, source and previews have one canonical copy in the pinned
+`community-extensions` Git submodule, backed by `Serein-extensions`. Initialize it
+with `git submodule update --init` before running tests or building demos. Runtime
+catalog refresh still reads the external repository's current catalog.
 The last valid catalog and installed packages remain available offline. Refresh
 retries immediately. Catalog changes add/remove available choices and mark
 installed updates; they never install, update or delete packages automatically.
@@ -41,7 +45,7 @@ preference. There is no periodic background polling or automatic package update.
 ## Creator workflow
 
 1. Keep source and license in a public Git repository. Use the standalone Rust
-   example under `examples/extensions/message-delete-protector` and its small SDK.
+   [Message Delete Protector source](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/message-delete-protector) and its small SDK.
    The [SDK authoring guide](../examples/extensions/README.md#test-and-develop-locally)
    covers native handler tests, typed panel values and JSON storage helpers; the v1
    exports and existing plugin source remain compatible. For reactive plugins,

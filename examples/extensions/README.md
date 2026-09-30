@@ -26,6 +26,15 @@ app; return the appropriate output or host action instead.
 
 ## Before you start
 
+Initialize the pinned community package sources and offline fixtures:
+
+```sh
+git submodule update --init
+```
+
+Published catalog plugins live in `community-extensions/plugins`, a checkout of
+`Serein-extensions`; this workspace retains SDK authoring examples only.
+
 You need a Serein source checkout, Rust installed through `rustup`, and Python 3
 available as `python`. Run commands in that checkout so Rust uses its pinned
 `rust-toolchain.toml`. Building the native demo also needs the platform build
@@ -58,8 +67,8 @@ may not be available in a released build.
 | [Guild Inspector](guild-inspector/src/lib.rs) | Loaded channel/thread permissions, member nicknames, roles and server profiles |
 | [Conversation Inspector](conversation-inspector/src/lib.rs) | Rich summaries, forum flags, typing/pins and host discovery |
 | [Message Counter](message-counter/src/lib.rs) | Reactive events, saved counters and a reset button |
-| [Message Delete Protector](message-delete-protector/src/lib.rs) | Opt-in activation enabling host-managed message retention |
-| [Emoji & Sticker Images](emoji-sticker-images/src/lib.rs) | Activation enabling image attachment fallback |
+| [Message Delete Protector](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/message-delete-protector/src/lib.rs) | Opt-in activation enabling host-managed message retention |
+| [Emoji & Sticker Images](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/emoji-sticker-images/src/lib.rs) | Activation enabling image attachment fallback |
 | [RGB Cycle](rgb-cycle/src/lib.rs) | Host-scheduled, smoothly eased appearance updates with saved settings |
 | [Custom Rich Presence](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/custom-rpc) | Native activity editor/preview, saved Apply/Stop controls and activation restore through the bounded `rich_presence` capability |
 
@@ -319,7 +328,8 @@ For the **unchanged repository examples**, also run:
 
 ```powershell
 cargo build --manifest-path examples/extensions/Cargo.toml --workspace --locked --release --target wasm32-unknown-unknown
-cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release
+cargo build --manifest-path community-extensions/plugins/Cargo.toml --locked --release --target wasm32-unknown-unknown -p message-delete-protector -p emoji-sticker-images
+cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release community-extensions/plugins/target/wasm32-unknown-unknown/release
 ```
 
 `sdk_check` runs committed packages and rebuilt modules through the offline host
@@ -433,8 +443,8 @@ and [Panels and storage](../../docs/extension-sdk-actions.md#panels-and-storage)
 
 ## Activation examples
 
-[Message delete protector](message-delete-protector/src/lib.rs) is an opt-in
-activation plugin whose current handler returns `Output::default()`. The host
+[Message delete protector](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/message-delete-protector/src/lib.rs) is an opt-in
+activation plugin whose handler sets `preserve_deleted_messages` on activation. The host
 interprets successful activation with the `deleted_messages` grant as consent to keep
 loaded deleted messages in bounded session memory while enabled. The handler does
 not need to return `preserve_deleted_messages`; that is a compatibility field. The host highlights
