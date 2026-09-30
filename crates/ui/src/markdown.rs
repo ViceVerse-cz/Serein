@@ -1570,7 +1570,7 @@ impl Formatted {
 				ui.set_width(width);
 				ui.add_space(4.0);
 				let frame = egui::Frame::new()
-					.fill(ui.visuals().code_bg_color)
+					.fill(crate::design::glass(ui, ui.visuals().code_bg_color).0)
 					.stroke(Stroke::new(1.0, colors.border))
 					.corner_radius(6)
 					.inner_margin(egui::Margin::symmetric(10, 8));

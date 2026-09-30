@@ -437,7 +437,7 @@ pub fn show(
 			});
 			let width = ui.available_width().min(480.0);
 			let frame = egui::Frame::new()
-				.fill(colors.raised)
+				.fill(crate::design::glass(ui, colors.raised).0)
 				.corner_radius(5)
 				.inner_margin(12)
 				.show(ui, |ui| {

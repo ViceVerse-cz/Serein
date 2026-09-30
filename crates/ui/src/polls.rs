@@ -37,7 +37,7 @@ impl Cards {
 		let mut action = None;
 		let width = (ui.available_width() - 32.0).clamp(48.0, 440.0);
 		egui::Frame::new()
-			.fill(colors.sidebar)
+			.fill(design::glass(ui, colors.sidebar).0)
 			.corner_radius(8)
 			.inner_margin(16)
 			.show(ui, |ui| {
@@ -289,20 +289,32 @@ fn answer_row(
 	});
 	let hot = ui.is_enabled() && (response.hovered() || response.has_focus());
 	let painter = ui.painter();
-	painter.rect_filled(rect, 8, if hot && !results { p.hover } else { p.raised });
+	painter.rect_filled(
+		rect,
+		8,
+		design::glass(ui, if hot && !results { p.hover } else { p.raised }).0,
+	);
 	if show_tally && fraction > 0.0 {
 		let bar = rect.with_max_x(rect.left() + width * fraction);
 		painter.rect_filled(
 			bar,
 			8,
-			design::mix(
-				p.raised,
-				if checked { p.accent } else { p.text },
-				if checked { 0.3 } else { 0.08 },
-			),
+			design::glass(
+				ui,
+				design::mix(
+					p.raised,
+					if checked { p.accent } else { p.text },
+					if checked { 0.3 } else { 0.08 },
+				),
+			)
+			.0,
 		);
 	} else if checked {
-		painter.rect_filled(rect, 8, design::mix(p.raised, p.accent, 0.18));
+		painter.rect_filled(
+			rect,
+			8,
+			design::glass(ui, design::mix(p.raised, p.accent, 0.18)).0,
+		);
 	}
 	if checked || response.has_focus() {
 		painter.rect_stroke(
@@ -686,7 +698,15 @@ fn duration_label(hours: u16) -> String {
 #[cfg(feature = "demo")]
 pub fn debug_poll_check(state: &State) {
 	for width in [260.0, 900.0] {
-		for light in [true, false] {
+		for (light, transparency) in [
+			(true, 0),
+			(false, 0),
+			(true, 50),
+			(false, 50),
+			(true, 100),
+			(false, 100),
+		] {
+			design::set_window_effects(true, transparency, 0);
 			let ctx = egui::Context::default();
 			ctx.set_visuals(if light {
 				egui::Visuals::light()
@@ -700,7 +720,9 @@ pub fn debug_poll_check(state: &State) {
 				)),
 				..Default::default()
 			};
+			let mut card_fill = egui::Color32::TRANSPARENT;
 			let mut output = ctx.run_ui(input, |ui| {
+				card_fill = design::glass(ui, design::palette(ui).sidebar).0;
 				ui.set_width(width - 16.0);
 				let mut cards = Cards::default();
 				for message in state.timeline.iter() {
@@ -713,9 +735,18 @@ pub fn debug_poll_check(state: &State) {
 					width
 				);
 			});
+			assert!(
+				output.shapes.iter().any(|shape| matches!(
+					&shape.shape,
+					egui::Shape::Rect(rect) if rect.fill == card_fill
+				)),
+				"poll card must use the conversation glass fill"
+			);
+			assert_eq!(card_fill.a() == 255, transparency == 0);
 			output.textures_delta.clear();
 		}
 	}
+	design::set_window_effects(false, 0, 0);
 }
 
 #[cfg(test)]
