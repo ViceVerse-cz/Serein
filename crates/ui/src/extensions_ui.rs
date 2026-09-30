@@ -155,6 +155,7 @@ struct PreviewImage {
 }
 #[derive(Default)]
 pub struct ExtensionUi {
+	pub proxy_auth: crate::proxy_auth::Form,
 	pub active_theme: Option<String>,
 	pub entries: Vec<ExtensionEntry>,
 	pub status: String,
@@ -2192,8 +2193,12 @@ impl ExtensionUi {
 				self.error = Some(message);
 			}
 		}
-		let mut result = self.result.take()?;
+		let Some(mut result) = self.result.take() else {
+			self.proxy_auth.clear_draft();
+			return None;
+		};
 		if !result.context.is_current(state) {
+			self.proxy_auth.clear_draft();
 			self.status = "Result discarded because the conversation or draft changed.".into();
 			return None;
 		}
@@ -2213,6 +2218,13 @@ impl ExtensionUi {
 					.capabilities
 					.contains(&Capability::RichPresence)
 		});
+		let proxy = self.entries.iter().any(|entry| {
+			entry.manifest.id == result.id
+				&& entry.manifest.capabilities.contains(&Capability::ApiProxy)
+		});
+		if !proxy {
+			self.proxy_auth.clear_draft();
+		}
 		let mut close = false;
 		let response = crate::dialog::Dialog::new("extension-result", title)
 			.subtitle(if rich {
@@ -2265,6 +2277,14 @@ impl ExtensionUi {
 						return;
 					}
 					render_elements(ui, &result.output.panel, &mut result.values, &mut action);
+					if proxy {
+						ui.separator();
+						self.proxy_auth.show(
+							ui,
+							result.values.get("url").map_or("", String::as_str),
+							result.values.get("mode").is_some_and(|mode| mode == "URL"),
+						);
+					}
 				});
 				d.footer(|ui| {
 					if rich {
@@ -2337,6 +2357,8 @@ impl ExtensionUi {
 		}
 		if !close && !response.close && !applied {
 			self.result = Some(result);
+		} else {
+			self.proxy_auth.clear_draft();
 		}
 		confirmed
 	}

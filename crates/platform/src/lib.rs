@@ -7,6 +7,7 @@ pub mod hotkeys;
 pub mod notifications;
 pub mod pointer;
 pub mod processes;
+pub mod proxy_credentials;
 pub mod save;
 pub mod startup;
 pub mod tray;

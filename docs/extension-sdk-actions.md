@@ -957,7 +957,8 @@ validates output and consent.
 
 Only the Discord REST API is affected. Gateway, CDN, media and calls keep their
 existing transports. Custom HTTP/HTTPS origins are capped at 2048 bytes and cannot
-contain credentials, a non-root path, a query or a fragment. Proxy authentication,
+contain credentials, a non-root path, a query or a fragment. HTTP Basic proxy authentication is configured separately in Serein's host-managed
+masked form and OS credential store; it never enters Wasm input or plugin storage.
 SOCKS and PAC are unsupported. Saved invalid configuration should trap during
 activation rather than silently return Direct; the host then blocks initial API
 routing and preserves an already configured route during reload.

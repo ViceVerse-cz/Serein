@@ -512,7 +512,8 @@ optional `storage`, and only panel/activation actions. It receives no account da
 tokens or requests and has no networking API.
 
 Custom proxy origins must use HTTP or HTTPS, have a host, and be at most 2048 bytes.
-Credentials, paths beyond `/`, queries and fragments are rejected. Proxy login,
+Credentials, paths beyond `/`, queries and fragments are rejected. Serein can attach HTTP Basic proxy credentials from its host-managed masked form
+and OS credential store. Credentials are never passed to Wasm or saved in plugin data.
 SOCKS and PAC are unsupported. REST requests keep TLS certificate verification.
 A failed configured proxy has no direct fallback. Invalid plugin configuration
 blocks initial API routing; reload/handler errors retain the previous valid route

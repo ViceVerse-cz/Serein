@@ -7477,6 +7477,7 @@ dependencies = [
  "unicode-bidi",
  "unicode-segmentation",
  "url",
+ "zeroize",
 ]
 
 [[package]]

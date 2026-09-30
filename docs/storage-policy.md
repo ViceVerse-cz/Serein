@@ -1441,3 +1441,14 @@ including `NO_PROXY` selection. These values are never supplied to plugins,
 written to plugin data or included in errors. URL credentials are unsupported.
 The Gateway, media/CDN, updater, extension downloads, webviews and voice transport
 keep their existing routing. No new network listener or telemetry is introduced.
+
+Proxy authentication uses one device-wide, profile-scoped OS credential entry,
+containing one exact normalized HTTP/HTTPS origin, username (1-256 bytes without
+a colon), and password (0-1024 bytes), with no control characters. No plaintext
+fallback exists. Drafts and active secret fields use zeroizing containers with
+redacted debug output; transport shares their ownership without per-frame secret copies.
+Credential IO runs on a bounded single blocking job outside rendering. Clear the entry
+with Remove saved credentials; Direct/disable retain it without using it. Loading errors
+pause configured manual routing, rather than sending credentials to another endpoint.
+The plugin receives no proxy username/password fields. Demo neither reads nor writes
+proxy credentials.

@@ -118,3 +118,44 @@ async fn rejected_connect_does_not_expose_discord_token_or_fall_back_direct() {
 			.is_err()
 	);
 }
+
+#[tokio::test]
+async fn authenticated_connect_sends_only_proxy_credentials_and_never_falls_back() {
+	let origin = TcpListener::bind("127.0.0.1:0").await.unwrap();
+	let proxy = TcpListener::bind("127.0.0.1:0").await.unwrap();
+	let (_, receive) = watch::channel(Some(ApiProxy::Authenticated {
+		url: format!("http://{}", proxy.local_addr().unwrap()),
+		username: std::sync::Arc::new(zeroize::Zeroizing::new("owner".into())),
+		password: std::sync::Arc::new(zeroize::Zeroizing::new("synthetic-password".into())),
+	}));
+	let mut api = api(receive);
+	api.base = format!("https://{}", origin.local_addr().unwrap());
+	let server = tokio::spawn(async move {
+		let (mut stream, _) = proxy.accept().await.unwrap();
+		let request = headers(&mut stream).await;
+		assert!(request.starts_with("CONNECT 127.0.0.1:"));
+		assert!(
+			request
+				.to_ascii_lowercase()
+				.contains("proxy-authorization: basic b3duzxi6c3ludghldgljlxbhc3n3b3jk\r\n")
+		);
+		assert!(!request.to_ascii_lowercase().contains("\r\nauthorization:"));
+		assert!(!request.contains("SYNTHETIC_PROXY_TOKEN"));
+		stream.write_all(b"HTTP/1.1 407 Proxy Authentication Required\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+	});
+	assert_eq!(
+		timeout(
+			Duration::from_secs(3),
+			api.request(Method::GET, "/synthetic", None)
+		)
+		.await
+		.unwrap(),
+		Err(Failure::Network)
+	);
+	server.await.unwrap();
+	assert!(
+		timeout(Duration::from_millis(50), origin.accept())
+			.await
+			.is_err()
+	);
+}

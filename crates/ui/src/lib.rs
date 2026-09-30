@@ -33,6 +33,7 @@ mod extension_admin_actions;
 mod extension_app;
 mod extension_server_actions;
 mod extensions_ui;
+pub mod proxy_auth;
 mod rich_presence;
 mod theme_editor;
 mod thread_create;

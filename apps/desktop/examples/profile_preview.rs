@@ -278,9 +278,9 @@ fn extension_fixture(
 		.map(std::fs::read)
 		.transpose()?;
 	let bytes: &[u8] = match id {
-		"custom-rpc" => external
+		"custom-rpc" | "api-proxy" => external
 			.as_deref()
-			.ok_or("Set SEREIN_PREVIEW_PACKAGE to the external Custom RPC package")?,
+			.ok_or("Set SEREIN_PREVIEW_PACKAGE to the external plugin package")?,
 		"serein-ocean" => include_bytes!("../../../extensions/ocean.serein-extension"),
 		"message-delete-protector" => include_bytes!(
 			"../../../examples/extensions/packages/message-delete-protector.serein-extension"
@@ -302,6 +302,8 @@ fn extension_fixture(
 	let invocation = extensions::Invocation {
 		action: if id == "custom-rpc" {
 			"preview"
+		} else if id == "api-proxy" {
+			"open"
 		} else {
 			"activate"
 		}
@@ -665,9 +667,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					ui::design::apply(&cc.egui_ctx);
 				}
 				if let Some(output) = result {
-					if package.manifest.id == "custom-rpc" {
+					if matches!(package.manifest.id.as_str(), "custom-rpc" | "api-proxy") {
 						messaging.extensions.set_entries(vec![ui::ExtensionEntry {
-							description: "Custom activity editor".into(),
+							description: package.manifest.name.clone(),
 							preview: None,
 							theme_preview: None,
 							cover_image: None,
@@ -682,7 +684,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 							update_manifest: None,
 						}]);
 						messaging.extensions.present_output(
-							"custom-rpc".into(),
+							package.manifest.id.clone(),
 							invocation,
 							ui::ExtensionContext::panel(&state),
 							output.clone(),

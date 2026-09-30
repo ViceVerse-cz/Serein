@@ -7,7 +7,16 @@ use serde::{Deserialize, Serialize};
 pub enum ApiProxy {
 	Direct,
 	Automatic,
-	Url { url: String },
+	Url {
+		url: String,
+	},
+	// Host-only credentials: never part of the plugin wire format or ordinary storage.
+	#[serde(skip)]
+	Authenticated {
+		url: String,
+		username: std::sync::Arc<zeroize::Zeroizing<String>>,
+		password: std::sync::Arc<zeroize::Zeroizing<String>>,
+	},
 }
 
 // Internally tagged unit variants ignore extra fields in serde; empty structs enforce the schema.
@@ -63,6 +72,25 @@ impl ApiProxy {
 		match self {
 			Self::Direct => Ok(()),
 			Self::Url { url } => validate_url(url),
+			Self::Authenticated {
+				url,
+				username,
+				password,
+			} => {
+				validate_url(url)?;
+				if username.is_empty()
+					|| username.len() > 256
+					|| password.len() > 1024
+					|| username.contains(':')
+					|| username
+						.chars()
+						.chain(password.chars())
+						.any(char::is_control)
+				{
+					return Err("Proxy credentials rejected");
+				}
+				Ok(())
+			}
 			Self::Automatic => {
 				// Reject credentials even in an unused lowercase override; never echo environment values.
 				for name in [
@@ -92,6 +120,15 @@ impl ApiProxy {
 		Ok(match self {
 			Self::Direct => builder.no_proxy(),
 			Self::Automatic => builder,
+			Self::Authenticated {
+				url,
+				username,
+				password,
+			} => builder.no_proxy().proxy(
+				Proxy::all(url)
+					.map_err(|_| "API proxy URL rejected")?
+					.basic_auth(username.as_str(), password.as_str()),
+			),
 			Self::Url { url } => builder
 				.no_proxy()
 				.proxy(Proxy::all(url).map_err(|_| "API proxy URL rejected")?),

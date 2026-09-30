@@ -1961,7 +1961,7 @@ the reporter's exact URL and native Linux/Windows playback remain unverified.
 
 ## Optional REST API proxy plugin (preview)
 
-The API Proxy community plugin can select a credential-free HTTP/HTTPS CONNECT proxy
+The API Proxy community plugin can select an HTTP/HTTPS CONNECT proxy
 for Serein's Discord REST requests, including native account validation, Gateway
 URL discovery and public application metadata. It is a connection-scoped plugin:
 its narrow grant allows configuration before sign-in and exposes no account data,
@@ -1978,3 +1978,11 @@ CDN downloads/uploads, updater, extension catalog and login/verification webview
 remain on their existing routes. This REST-only plugin does not make Discord fully
 reachable where those endpoints are also blocked. Owner-controlled live use and
 cross-platform proxy interoperability remain unverified.
+
+HTTP Basic proxy authentication uses the host-managed Proxy authentication section
+in the plugin panel. Apply the manual URL first, then Save credentials. Only credentials
+for the exact normalized proxy origin are attached to its HTTP/CONNECT requests.
+Credentials are bounded, masked, excluded from Wasm/plugin storage and persisted only
+in the OS credential store. Remove saved credentials explicitly to erase them; Direct
+and plugin disable stop using them but retain the OS entry. Automatic mode still rejects
+credential-bearing environment URLs. Live authentication remains unverified.
