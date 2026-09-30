@@ -70,6 +70,7 @@ pub struct Gate {
 	echo_reset: AtomicBool,
 	preview_level: AtomicU16,
 	processing_ready: AtomicBool,
+	suppression_status: AtomicU16,
 }
 impl Default for Gate {
 	fn default() -> Self {
@@ -91,6 +92,7 @@ impl Default for Gate {
 			echo_reset: AtomicBool::new(false),
 			preview_level: AtomicU16::new(0),
 			processing_ready: AtomicBool::new(true),
+			suppression_status: AtomicU16::new(0),
 		}
 	}
 }
@@ -168,6 +170,9 @@ impl Audio {
 		let (capture, _) = mpsc::sync_channel(1);
 		let (_, playback) = mpsc::sync_channel(1);
 		Self::start_inner(settings, capture, playback, emit, true)
+	}
+	pub fn suppression_status(&self) -> &'static str {
+		echo::Status::from_repr(self.gate.suppression_status.load(Ordering::Relaxed)).label()
 	}
 	pub fn preview_level_db(&self) -> f32 {
 		if !self.gate.capture() {
@@ -417,6 +422,14 @@ impl Audio {
 						if worker_gate.playback() {
 							drops += u64::from(active.output.push(frame).is_err());
 						}
+					}
+					let status = echo.suppression_status() as u16;
+					if worker_gate
+						.suppression_status
+						.swap(status, Ordering::Relaxed)
+						!= status
+					{
+						emit(Ok(()));
 					}
 					metrics.poll(reset, drops, false, noise_frames);
 					std::thread::park_timeout(Duration::from_millis(5));

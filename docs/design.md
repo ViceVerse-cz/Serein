@@ -133,3 +133,9 @@ modal uses four radio choices, mute and mention-suppression switches, and an
 explicit Save changes action. The content scrolls in short/narrow viewports while
 the footer remains accessible. `--demo --demo-chat --demo-server-notifications`
 with `--features demo` opens the synthetic editor without contacting Discord.
+
+Voice & Video defaults to Auto (DeepFilterNet) for new installs and Voice Isolation.
+Custom retains explicit DeepFilterNet/RNNoise/WebRTC/Off choices, four suppression
+strengths and the independent input threshold. A session-only hint identifies the
+active processor or RNNoise fallback. The offline `--demo-settings=voice-processing`
+fixture opens Custom at its suppression controls; it never accesses audio devices.

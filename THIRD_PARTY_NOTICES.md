@@ -1,5 +1,40 @@
 # Third-party notices
 
+Default Auto microphone suppression uses **DeepFilterNet3** when the audio worker
+finds sufficient processing headroom, with the existing **nnnoiseless 0.5.2**
+RNNoise implementation as fallback. Serein vendors the mono DeepFilterNet runtime
+as **deep_filter 0.5.7-serein.1**, from upstream commit
+`d375b2d8309e0935d165700c91da9de862a99c31` (`0.5.7-pre`), with local inference,
+state-reset and Tract compatibility changes described in
+`vendor/deep-filter/SEREIN-PATCH.md`. Original copyrights are retained.
+The upstream repository offers **MIT OR Apache-2.0**; its original license files
+and Serein's modification/provenance record are bundled under
+`assets/licenses/voice/deep-filter-*`.
+
+The unchanged **DeepFilterNet3_onnx.tar.gz** weights (7,983,136 bytes; SHA-256
+`c94d91f70911001c946e0fabb4aa9adc37045f45a03b56008cb0c8244cb63616`) are embedded
+locally as their deterministic Tract NNEF conversion,
+`DeepFilterNet3_nnef.tar.gz` (SHA-256
+`1998816336f7351e143725bafe43b9948243e5681b5adb418638dad5652abb25`).
+No remote model service or runtime download is used. The repository README
+expressly describes the license scope as “all code”; the model archive has no
+separate license entry. Upstream pretrained-weight redistribution questions
+[697](https://github.com/Rikorose/DeepFilterNet/issues/697) and
+[700](https://github.com/Rikorose/DeepFilterNet/issues/700) remained unanswered
+when checked on September 29, 2026. Model-specific license-scope clarification
+remains outstanding; copied repository license texts do not resolve it.
+
+Inference uses **tract-core, tract-data, tract-linalg, tract-nnef and
+tract-pulse-opl 0.22.4** and **ndarray 0.16.1** (MIT OR Apache-2.0); the offline
+converter additionally uses tract-hir, tract-onnx, tract-onnx-opl and tract-pulse. Exact versions, archive checksums and
+unmodified license/copyright texts for all 52 newly locked registry components,
+including build-time helpers, are recorded in
+`assets/licenses/dependencies/PROVENANCE.md` and bundled by existing packaging.
+The omitted **nom-language 0.1.0** archive license was obtained from its exact
+release VCS revision; **liquid-lib 0.26.11** supplies its MIT option in the
+archive. This collection does not waive existing full-artifact evidence gaps or
+the DeepFilterNet model-specific clarification above.
+
 Discord Lottie sticker previews use **rasterlottie 0.2.2** (MIT OR Apache-2.0)
 with default features disabled. Serein uses the MIT option; its unmodified MIT
 license is retained in `assets/licenses/files/rasterlottie-0.2.2-LICENSE-MIT`.

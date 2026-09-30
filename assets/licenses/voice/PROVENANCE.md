@@ -130,3 +130,38 @@ no PulseAudio server is bundled.
 | enum-primitive-derive-0.3.0-LICENSE | [registry source](https://docs.rs/crate/enum-primitive-derive/0.3.0/source/LICENSE) | `819e0555b295079201b0670bb3302855303bdbbcc739f3819b13e1b3d2ec03bb` |
 | futures-0.3.34-LICENSE-MIT | [registry source](https://docs.rs/crate/futures/0.3.34/source/LICENSE-MIT) | `6652c868f35dfe5e8ef636810a4e576b9d663f3a17fb0f5613ad73583e1b88fd` |
 | futures-0.3.34-LICENSE-APACHE | [registry source](https://docs.rs/crate/futures/0.3.34/source/LICENSE-APACHE) | `275c491d6d1160553c32fd6127061d7f9606c3ea25abfad6ca3f6ed088785427` |
+
+## DeepFilterNet3 speech enhancement — September 29, 2026
+
+Serein vendors the mono inference runtime as `deep_filter 0.5.7-serein.1`,
+from DeepFilterNet commit `d375b2d8309e0935d165700c91da9de862a99c31`
+(`0.5.7-pre`). The local patch record below identifies the copied source files,
+Tract 0.22.4 / ndarray 0.16.1 adaptation and runtime/reset changes.
+Hendrik Schröter and DeepFilterNet contributors retain their original copyrights.
+
+The source `models/DeepFilterNet3_onnx.tar.gz` is unchanged: 7,983,136 bytes,
+SHA-256 `c94d91f70911001c946e0fabb4aa9adc37045f45a03b56008cb0c8244cb63616`.
+These bytes also match release v0.5.6 at
+`978576aa8400552a4ce9730838c635aa30db5e61`. Serein embeds its deterministic
+Tract NNEF conversion, `models/DeepFilterNet3_nnef.tar.gz` (7,978,996 bytes,
+SHA-256 `1998816336f7351e143725bafe43b9948243e5681b5adb418638dad5652abb25`);
+the weights are unchanged. No model is downloaded at runtime.
+The upstream root license offers MIT or Apache-2.0, while its README describes
+the licensed scope as “all code”. The model archive carries no separate license
+entry. Explicit model-redistribution questions in upstream
+[issue 697](https://github.com/Rikorose/DeepFilterNet/issues/697) and
+[issue 700](https://github.com/Rikorose/DeepFilterNet/issues/700) remain unanswered
+as checked on September 29, 2026. Retaining the repository's licenses does not
+represent that model-specific clarification as received.
+
+The original license files are copied unmodified from the vendored source, and
+the task's modification record is copied alongside them for distribution.
+New registry inference/build dependencies have separate exact-version licenses
+and archive hashes in `assets/licenses/dependencies/PROVENANCE.md`.
+
+| File | Exact source | SHA-256 |
+| --- | --- | --- |
+| `deep-filter-LICENSE` | [pinned upstream](https://github.com/Rikorose/DeepFilterNet/blob/d375b2d8309e0935d165700c91da9de862a99c31/LICENSE) | `f7ef673bf046d823dcd775bdd0768432bd8855f81d0e5e1290a0a48c42e2dca3` |
+| `deep-filter-LICENSE-MIT` | [pinned upstream](https://github.com/Rikorose/DeepFilterNet/blob/d375b2d8309e0935d165700c91da9de862a99c31/LICENSE-MIT) | `24e6bb09c928af8d8e56268082f87413247ce36b39dd5d33add2f9893968065e` |
+| `deep-filter-LICENSE-APACHE` | [pinned upstream](https://github.com/Rikorose/DeepFilterNet/blob/d375b2d8309e0935d165700c91da9de862a99c31/LICENSE-APACHE) | `1eaee808c5fb6b4e895ba30425285a5cdc5dd25bba2cd230f264c2200c331aec` |
+| `deep-filter-SEREIN-PATCH.md` | `vendor/deep-filter/SEREIN-PATCH.md` (local modification/provenance record) | `6f9541dbf9bea314014dd6324b128529b955482699cb270411135fbdea569297` |

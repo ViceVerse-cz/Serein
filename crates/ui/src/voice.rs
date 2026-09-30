@@ -2341,7 +2341,7 @@ impl MessagingUi {
 			(
 				InputProfile::VoiceIsolation,
 				"Voice Isolation",
-				"RNNoise suppression, echo cancellation and automatic gain for speech.",
+				"voice-suppression-isolation-description",
 			),
 			(
 				InputProfile::Studio,
@@ -2411,10 +2411,16 @@ impl MessagingUi {
 				);
 			}
 			design::card_divider(ui);
+			#[cfg(feature = "demo")]
+			if std::mem::take(&mut self.voice_processing_preview) {
+				ui.scroll_to_cursor(Some(egui::Align::Min));
+			}
 			let choices = [
-				(NoiseSuppression::Off, "Off"),
+				(NoiseSuppression::Auto, "voice-suppression-auto"),
+				(NoiseSuppression::DeepFilterNet, "DeepFilterNet"),
 				(NoiseSuppression::RnNoise, "RNNoise"),
 				(NoiseSuppression::WebRtc, "WebRTC"),
+				(NoiseSuppression::Off, "voice-voice-processing-controls-off"),
 			];
 			design::row(
 				ui,
@@ -2424,6 +2430,7 @@ impl MessagingUi {
 				),
 				|ui| {
 					egui::ComboBox::from_id_salt("voice-noise-suppression")
+						.truncate()
 						.selected_text(crate::i18n::translate_if_key(
 							choices
 								.iter()
@@ -2442,7 +2449,21 @@ impl MessagingUi {
 						});
 				},
 			);
-			if processing.suppression == NoiseSuppression::WebRtc {
+			if processing.suppression == NoiseSuppression::Auto {
+				design::hint(
+					ui,
+					&crate::i18n::translate("voice-suppression-auto-description"),
+				);
+			} else if processing.suppression == NoiseSuppression::DeepFilterNet {
+				design::hint(
+					ui,
+					&crate::i18n::translate("voice-suppression-deepfilter-description"),
+				);
+			}
+			if matches!(
+				processing.suppression,
+				NoiseSuppression::Auto | NoiseSuppression::DeepFilterNet | NoiseSuppression::WebRtc
+			) {
 				ui.add_space(6.0);
 				let strength = ["Low", "Moderate", "High", "Very high"];
 				design::row(
@@ -2451,6 +2472,7 @@ impl MessagingUi {
 					None,
 					|ui| {
 						egui::ComboBox::from_id_salt("voice-suppression-strength")
+							.truncate()
 							.selected_text(crate::i18n::translate_if_key(
 								strength[usize::from(processing.suppression_level.min(3))],
 							))
@@ -2483,6 +2505,15 @@ impl MessagingUi {
 				Some("voice-voice-processing-controls-adjust-microphone-loudness-automatically"),
 				&mut processing.automatic_gain,
 			);
+		}
+		if self.voice_processing.profile == InputProfile::VoiceIsolation {
+			design::hint(
+				ui,
+				&crate::i18n::translate("voice-suppression-auto-description"),
+			);
+		}
+		if let Some(status) = self.voice_suppression_status {
+			design::hint(ui, &crate::i18n::translate_if_key(status));
 		}
 		design::card_divider(ui);
 		design::switch(
@@ -3999,6 +4030,134 @@ fn device_combo(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn suppression_controls_select_deepfilter_strength_without_starting_capture() {
+		fn labels(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+			match shape {
+				egui::Shape::Text(text) => out.push((
+					text.galley.job.text.clone(),
+					text.galley.rect.translate(text.pos.to_vec2()),
+				)),
+				egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| labels(shape, out)),
+				_ => {}
+			}
+		}
+		// Labels are matched in English; the default language follows the host locale.
+		crate::i18n::set_current(crate::i18n::Language::English);
+		let ctx = egui::Context::default();
+		let frame = |view: &mut MessagingUi, events: Vec<egui::Event>| {
+			let mut output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(640.0, 1400.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| view.voice_processing_controls(ui),
+			);
+			output.textures_delta.clear();
+			let mut text = vec![];
+			for shape in output.shapes {
+				labels(&shape.shape, &mut text);
+			}
+			text
+		};
+		let mut view = MessagingUi::default();
+		for label in [
+			"Custom",
+			"Auto (DeepFilterNet)",
+			"DeepFilterNet",
+			"High",
+			"Very high",
+		] {
+			frame(&mut view, vec![]);
+			let text = frame(&mut view, vec![]);
+			let pos = text
+				.iter()
+				.find(|(text, _)| text == label)
+				.unwrap_or_else(|| panic!("Missing control: {label}"))
+				.1
+				.center();
+			for pressed in [true, false] {
+				frame(
+					&mut view,
+					vec![
+						egui::Event::PointerMoved(pos),
+						egui::Event::PointerButton {
+							pos,
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					],
+				);
+			}
+		}
+		assert_eq!(view.voice_processing.profile, InputProfile::Custom);
+		assert_eq!(
+			view.voice_processing.effective().suppression,
+			NoiseSuppression::DeepFilterNet
+		);
+		assert_eq!(view.voice_processing.effective().suppression_level, 3);
+		assert_eq!(view.voice_processing.effective().sensitivity_db, Some(-55));
+		assert!(!view.voice_preview_requested);
+		assert!(!view.voice_refresh_devices);
+		assert_eq!(view.voice_suppression_status, None);
+	}
+
+	#[test]
+	fn suppression_settings_bound_narrow_layout_and_keep_worker_status_read_only() {
+		for theme in [egui::Theme::Dark, egui::Theme::Light] {
+			let ctx = egui::Context::default();
+			ctx.set_theme(theme);
+			for mode in [
+				NoiseSuppression::Auto,
+				NoiseSuppression::DeepFilterNet,
+				NoiseSuppression::RnNoise,
+				NoiseSuppression::WebRtc,
+				NoiseSuppression::Off,
+			] {
+				let mut view = MessagingUi::default();
+				view.voice_processing.edit().suppression = mode;
+				view.voice_suppression_status = Some("voice-suppression-limited");
+				let before = view.voice_processing;
+				for width in [320.0, 640.0] {
+					for _ in 0..2 {
+						ctx.run_ui(
+							egui::RawInput {
+								screen_rect: Some(egui::Rect::from_min_size(
+									egui::Pos2::ZERO,
+									egui::vec2(width, 550.0),
+								)),
+								..Default::default()
+							},
+							|ui| {
+								let available = ui.available_width();
+								let content = egui::ScrollArea::vertical()
+									.show(ui, |ui| view.voice_processing_controls(ui));
+								assert!(
+									content.content_size.x <= available + 1.0,
+									"suppression controls overflow at {width}px: {}",
+									content.content_size.x
+								);
+							},
+						)
+						.drop_without_applying_deltas();
+					}
+				}
+				assert_eq!(view.voice_processing, before);
+				assert_eq!(
+					view.voice_suppression_status,
+					Some("voice-suppression-limited")
+				);
+				assert!(!view.voice_preview_requested);
+				assert!(!view.voice_refresh_devices);
+			}
+		}
+	}
 
 	#[test]
 	fn explicit_join_audio_waits_for_call_switch_and_survives_teardown() {

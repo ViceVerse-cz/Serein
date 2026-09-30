@@ -1,0 +1,164 @@
+Synthetic component workload, macOS 27.0, Apple M1, 16 GiB, Rust 1.98.1.
+Baseline: 306bccdbb4d28fa83dac09260772917d3d8b0018.
+Release, standard voice dependencies; no device/network/audio capture.
+Each mode: run 0 warmup, runs 1–5 measured, 300 x 20 ms frames.
+DeepFilterNet/Auto strength High (24 dB); RNNoise/WebRTC/Off match baseline.
+Primary elapsed timings and separate time -l repetition below. These are not whole-app CPU/UI frame measurements.
+
+Baseline before edits
+Off run=0 init_us=527 total_us=162 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=1 init_us=527 total_us=162 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=2 init_us=527 total_us=162 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=3 init_us=527 total_us=162 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=4 init_us=527 total_us=162 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=5 init_us=527 total_us=160 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+RnNoise run=0 init_us=593 total_us=29743 p50_us=95 p95_us=121 max_us=174 frames=300 audio_ms=6000
+RnNoise run=1 init_us=593 total_us=25058 p50_us=83 p95_us=88 max_us=100 frames=300 audio_ms=6000
+RnNoise run=2 init_us=593 total_us=24996 p50_us=83 p95_us=86 max_us=91 frames=300 audio_ms=6000
+RnNoise run=3 init_us=593 total_us=25034 p50_us=82 p95_us=88 max_us=91 frames=300 audio_ms=6000
+RnNoise run=4 init_us=593 total_us=25138 p50_us=83 p95_us=89 max_us=107 frames=300 audio_ms=6000
+RnNoise run=5 init_us=593 total_us=24953 p50_us=82 p95_us=84 max_us=90 frames=300 audio_ms=6000
+WebRtc run=0 init_us=178 total_us=10433 p50_us=34 p95_us=35 max_us=104 frames=300 audio_ms=6000
+WebRtc run=1 init_us=178 total_us=10281 p50_us=34 p95_us=34 max_us=39 frames=300 audio_ms=6000
+WebRtc run=2 init_us=178 total_us=10311 p50_us=34 p95_us=34 max_us=59 frames=300 audio_ms=6000
+WebRtc run=3 init_us=178 total_us=10311 p50_us=34 p95_us=34 max_us=40 frames=300 audio_ms=6000
+WebRtc run=4 init_us=178 total_us=10300 p50_us=34 p95_us=34 max_us=41 frames=300 audio_ms=6000
+WebRtc run=5 init_us=178 total_us=10657 p50_us=34 p95_us=50 max_us=59 frames=300 audio_ms=6000
+
+After
+Off selected=voice-suppression-off
+Off run=0 init_us=548 total_us=182 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=1 init_us=548 total_us=181 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=2 init_us=548 total_us=181 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=3 init_us=548 total_us=181 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=4 init_us=548 total_us=170 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=5 init_us=548 total_us=161 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+RnNoise selected=voice-suppression-rnnoise
+RnNoise run=0 init_us=608 total_us=30065 p50_us=99 p95_us=119 max_us=199 frames=300 audio_ms=6000
+RnNoise run=1 init_us=608 total_us=25672 p50_us=84 p95_us=89 max_us=163 frames=300 audio_ms=6000
+RnNoise run=2 init_us=608 total_us=25570 p50_us=84 p95_us=88 max_us=129 frames=300 audio_ms=6000
+RnNoise run=3 init_us=608 total_us=25164 p50_us=83 p95_us=87 max_us=90 frames=300 audio_ms=6000
+RnNoise run=4 init_us=608 total_us=24891 p50_us=82 p95_us=84 max_us=90 frames=300 audio_ms=6000
+RnNoise run=5 init_us=608 total_us=24895 p50_us=82 p95_us=84 max_us=89 frames=300 audio_ms=6000
+WebRtc selected=voice-suppression-webrtc
+WebRtc run=0 init_us=220 total_us=10430 p50_us=34 p95_us=35 max_us=108 frames=300 audio_ms=6000
+WebRtc run=1 init_us=220 total_us=10308 p50_us=34 p95_us=34 max_us=49 frames=300 audio_ms=6000
+WebRtc run=2 init_us=220 total_us=10288 p50_us=34 p95_us=34 max_us=38 frames=300 audio_ms=6000
+WebRtc run=3 init_us=220 total_us=10281 p50_us=34 p95_us=34 max_us=39 frames=300 audio_ms=6000
+WebRtc run=4 init_us=220 total_us=10292 p50_us=34 p95_us=34 max_us=39 frames=300 audio_ms=6000
+WebRtc run=5 init_us=220 total_us=10277 p50_us=34 p95_us=34 max_us=38 frames=300 audio_ms=6000
+DeepFilterNet selected=voice-suppression-deepfilter
+DeepFilterNet run=0 init_us=270484 total_us=109557 p50_us=348 p95_us=378 max_us=2232 frames=300 audio_ms=6000
+DeepFilterNet run=1 init_us=270484 total_us=109611 p50_us=368 p95_us=375 max_us=392 frames=300 audio_ms=6000
+DeepFilterNet run=2 init_us=270484 total_us=103957 p50_us=345 p95_us=351 max_us=395 frames=300 audio_ms=6000
+DeepFilterNet run=3 init_us=270484 total_us=103467 p50_us=344 p95_us=349 max_us=365 frames=300 audio_ms=6000
+DeepFilterNet run=4 init_us=270484 total_us=103340 p50_us=344 p95_us=348 max_us=358 frames=300 audio_ms=6000
+DeepFilterNet run=5 init_us=270484 total_us=103405 p50_us=344 p95_us=348 max_us=370 frames=300 audio_ms=6000
+Auto selected=voice-suppression-deepfilter
+Auto run=0 init_us=229784 total_us=106776 p50_us=344 p95_us=355 max_us=1839 frames=300 audio_ms=6000
+Auto run=1 init_us=229784 total_us=103418 p50_us=344 p95_us=349 max_us=366 frames=300 audio_ms=6000
+Auto run=2 init_us=229784 total_us=103349 p50_us=344 p95_us=348 max_us=361 frames=300 audio_ms=6000
+Auto run=3 init_us=229784 total_us=103675 p50_us=343 p95_us=350 max_us=418 frames=300 audio_ms=6000
+Auto run=4 init_us=229784 total_us=103275 p50_us=343 p95_us=348 max_us=371 frames=300 audio_ms=6000
+Auto run=5 init_us=229784 total_us=103219 p50_us=343 p95_us=348 max_us=368 frames=300 audio_ms=6000
+
+After separate time -l repetition
+Off selected=voice-suppression-off
+Off run=0 init_us=318 total_us=147 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=1 init_us=318 total_us=147 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=2 init_us=318 total_us=148 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=3 init_us=318 total_us=147 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=4 init_us=318 total_us=147 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=5 init_us=318 total_us=147 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+RnNoise selected=voice-suppression-rnnoise
+RnNoise run=0 init_us=301 total_us=32889 p50_us=109 p95_us=112 max_us=121 frames=300 audio_ms=6000
+RnNoise run=1 init_us=301 total_us=32886 p50_us=109 p95_us=113 max_us=135 frames=300 audio_ms=6000
+RnNoise run=2 init_us=301 total_us=32842 p50_us=109 p95_us=111 max_us=118 frames=300 audio_ms=6000
+RnNoise run=3 init_us=301 total_us=32919 p50_us=109 p95_us=112 max_us=126 frames=300 audio_ms=6000
+RnNoise run=4 init_us=301 total_us=32888 p50_us=109 p95_us=113 max_us=118 frames=300 audio_ms=6000
+RnNoise run=5 init_us=301 total_us=32878 p50_us=109 p95_us=112 max_us=132 frames=300 audio_ms=6000
+WebRtc selected=voice-suppression-webrtc
+WebRtc run=0 init_us=242 total_us=13666 p50_us=45 p95_us=47 max_us=69 frames=300 audio_ms=6000
+WebRtc run=1 init_us=242 total_us=13923 p50_us=45 p95_us=61 max_us=75 frames=300 audio_ms=6000
+WebRtc run=2 init_us=242 total_us=13530 p50_us=45 p95_us=45 max_us=50 frames=300 audio_ms=6000
+WebRtc run=3 init_us=242 total_us=13582 p50_us=45 p95_us=45 max_us=69 frames=300 audio_ms=6000
+WebRtc run=4 init_us=242 total_us=13529 p50_us=45 p95_us=45 max_us=49 frames=300 audio_ms=6000
+WebRtc run=5 init_us=242 total_us=13523 p50_us=45 p95_us=45 max_us=49 frames=300 audio_ms=6000
+DeepFilterNet selected=voice-suppression-deepfilter
+DeepFilterNet run=0 init_us=296653 total_us=130692 p50_us=421 p95_us=432 max_us=2158 frames=300 audio_ms=6000
+DeepFilterNet run=1 init_us=296653 total_us=125701 p50_us=418 p95_us=423 max_us=448 frames=300 audio_ms=6000
+DeepFilterNet run=2 init_us=296653 total_us=125699 p50_us=417 p95_us=425 max_us=447 frames=300 audio_ms=6000
+DeepFilterNet run=3 init_us=296653 total_us=121482 p50_us=416 p95_us=423 max_us=440 frames=300 audio_ms=6000
+DeepFilterNet run=4 init_us=296653 total_us=116535 p50_us=387 p95_us=394 max_us=419 frames=300 audio_ms=6000
+DeepFilterNet run=5 init_us=296653 total_us=116922 p50_us=387 p95_us=398 max_us=461 frames=300 audio_ms=6000
+Auto selected=voice-suppression-deepfilter
+Auto run=0 init_us=270456 total_us=119647 p50_us=387 p95_us=393 max_us=1993 frames=300 audio_ms=6000
+Auto run=1 init_us=270456 total_us=116795 p50_us=387 p95_us=395 max_us=422 frames=300 audio_ms=6000
+Auto run=2 init_us=270456 total_us=118054 p50_us=392 p95_us=398 max_us=419 frames=300 audio_ms=6000
+Auto run=3 init_us=270456 total_us=118038 p50_us=392 p95_us=399 max_us=426 frames=300 audio_ms=6000
+Auto run=4 init_us=270456 total_us=117889 p50_us=392 p95_us=398 max_us=417 frames=300 audio_ms=6000
+Auto run=5 init_us=270456 total_us=118192 p50_us=392 p95_us=399 max_us=465 frames=300 audio_ms=6000
+
+Baseline time -l repetition
+Off run=0 init_us=538 total_us=179 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=1 init_us=538 total_us=179 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=2 init_us=538 total_us=179 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=3 init_us=538 total_us=179 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=4 init_us=538 total_us=182 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+Off run=5 init_us=538 total_us=182 p50_us=0 p95_us=0 max_us=0 frames=300 audio_ms=6000
+RnNoise run=0 init_us=544 total_us=31720 p50_us=102 p95_us=119 max_us=169 frames=300 audio_ms=6000
+RnNoise run=1 init_us=544 total_us=29502 p50_us=100 p95_us=103 max_us=129 frames=300 audio_ms=6000
+RnNoise run=2 init_us=544 total_us=29249 p50_us=100 p95_us=102 max_us=112 frames=300 audio_ms=6000
+RnNoise run=3 init_us=544 total_us=30271 p50_us=100 p95_us=102 max_us=127 frames=300 audio_ms=6000
+RnNoise run=4 init_us=544 total_us=30246 p50_us=100 p95_us=103 max_us=104 frames=300 audio_ms=6000
+RnNoise run=5 init_us=544 total_us=30295 p50_us=100 p95_us=103 max_us=113 frames=300 audio_ms=6000
+WebRtc run=0 init_us=230 total_us=12770 p50_us=42 p95_us=43 max_us=122 frames=300 audio_ms=6000
+WebRtc run=1 init_us=230 total_us=12614 p50_us=41 p95_us=42 max_us=52 frames=300 audio_ms=6000
+WebRtc run=2 init_us=230 total_us=12604 p50_us=41 p95_us=42 max_us=48 frames=300 audio_ms=6000
+WebRtc run=3 init_us=230 total_us=12578 p50_us=41 p95_us=42 max_us=46 frames=300 audio_ms=6000
+WebRtc run=4 init_us=230 total_us=12631 p50_us=41 p95_us=42 max_us=67 frames=300 audio_ms=6000
+WebRtc run=5 init_us=230 total_us=12583 p50_us=41 p95_us=42 max_us=48 frames=300 audio_ms=6000
+
+After workload process resource report (all five modes)
+        2.33 real         2.29 user         0.01 sys
+            50790400  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                3307  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  28  involuntary context switches
+         15289663977  instructions retired
+          5530667126  cycles elapsed
+            35619248  peak memory footprint
+
+Baseline workload process resource report (three old modes)
+        0.53 real         0.32 user         0.00 sys
+             4849664  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 472  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                  10  involuntary context switches
+          2701622899  instructions retired
+           771854044  cycles elapsed
+             3735912  peak memory footprint
+
+Package bytes (standard release including voice)
+Baseline {"executable": 61003216, "installed": 67010408, "compressed": 42809900, "files": 205}
+After {"executable": 80565440, "installed": 87193674, "compressed": 55665693, "files": 316}

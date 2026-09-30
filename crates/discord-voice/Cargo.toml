@@ -23,6 +23,8 @@ opus2 = { version = "=0.4.0", default-features = false, features = ["backend-lib
 rtrb = "=0.4.0"
 cpal = { version = "=0.18.2", default-features = false }
 sonora = { version = "=0.2.0", default-features = false }
+deep_filter = { path = "../../vendor/deep-filter" }
+ndarray = "=0.16.1"
 nnnoiseless = { version = "=0.5.2", default-features = false }
 openh264 = "=0.9.8"
 image = { version = "=0.25.10", default-features = false }

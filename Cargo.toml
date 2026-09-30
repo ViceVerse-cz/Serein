@@ -1,6 +1,7 @@
 [workspace]
 members = ["apps/desktop", "crates/*", "tools/*"]
 default-members = ["apps/desktop"]
+exclude = ["vendor/deep-filter"]
 resolver = "3"
 
 [workspace.package]
@@ -196,4 +197,39 @@ wry = { path = "vendor/wry" }
 opt-level = 3
 
 [profile.dev.package.sonora-agc2]
+opt-level = 3
+
+# Neural speech processing must meet the same frame budget in debug builds.
+
+[profile.dev.package.deep_filter]
+opt-level = 3
+
+[profile.dev.package.tract-core]
+opt-level = 3
+
+[profile.dev.package.tract-data]
+opt-level = 3
+
+[profile.dev.package.tract-linalg]
+opt-level = 3
+
+[profile.dev.package.tract-onnx]
+opt-level = 3
+
+[profile.dev.package.tract-hir]
+opt-level = 3
+
+[profile.dev.package.tract-pulse]
+opt-level = 3
+
+[profile.dev.package.tract-pulse-opl]
+opt-level = 3
+
+[profile.dev.package.tract-nnef]
+opt-level = 3
+
+[profile.dev.package.tract-onnx-opl]
+opt-level = 3
+
+[profile.dev.package.ndarray]
 opt-level = 3

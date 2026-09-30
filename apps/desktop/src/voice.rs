@@ -422,6 +422,7 @@ impl Voice {
 		self.reap();
 		ui.voice_switch_ready =
 			self.pending.is_none() && self.live.is_none() && self.retiring.is_none();
+		ui.voice_suppression_status = None;
 		self.poll_mic_preview(state, ui, ctx);
 		self.poll_camera_test(state, ui, ctx);
 		ui.voice_speaking.clear();
@@ -624,6 +625,7 @@ impl Voice {
 			failure = live.failure.get().copied();
 			let devices_ready = live.audio.is_ready();
 			ui.voice_microphone_unavailable = live.audio.microphone_unavailable();
+			ui.voice_suppression_status = Some(live.audio.suppression_status());
 			if ui.voice_settings_open() {
 				ui.voice_preview_level = Some(live.audio.preview_level_db());
 				ctx.request_repaint_after(Duration::from_millis(50));
@@ -878,6 +880,7 @@ impl Voice {
 			return;
 		}
 		ui.voice_preview_level = Some(preview.audio.preview_level_db());
+		ui.voice_suppression_status = Some(preview.audio.suppression_status());
 		ui.voice_preview_status = if preview.audio.microphone_unavailable() {
 			"Microphone unavailable; check permission or choose another input. Retrying…"
 		} else if preview.audio.is_ready() {

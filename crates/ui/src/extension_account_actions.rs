@@ -34,6 +34,8 @@ impl MessagingUi {
 			}
 			.into(),
 			suppression: match effective.suppression {
+				NoiseSuppression::Auto => "auto",
+				NoiseSuppression::DeepFilterNet => "deepfilternet",
 				NoiseSuppression::Off => "off",
 				NoiseSuppression::RnNoise => "rnnoise",
 				NoiseSuppression::WebRtc => "webrtc",
@@ -193,6 +195,8 @@ impl MessagingUi {
 					let custom = processing.edit();
 					if let Some(suppression) = settings.suppression.as_deref() {
 						custom.suppression = match suppression {
+							"auto" => NoiseSuppression::Auto,
+							"deepfilternet" => NoiseSuppression::DeepFilterNet,
 							"off" => NoiseSuppression::Off,
 							"rnnoise" => NoiseSuppression::RnNoise,
 							"webrtc" => NoiseSuppression::WebRtc,
@@ -361,6 +365,42 @@ impl MessagingUi {
 mod tests {
 	use super::*;
 	use extensions::{AudioSettingsPatch, OwnPresencePatch, OwnProfilePatch};
+
+	#[test]
+	fn audio_suppression_patch_and_snapshot_preserve_each_mode_without_starting_capture() {
+		let mut view = MessagingUi::default();
+		assert_eq!(view.extension_audio_settings().suppression, "auto");
+		let mut state = test_support::demo_state();
+		let mut commands = Vec::new();
+		for (wire, mode) in [
+			("auto", NoiseSuppression::Auto),
+			("deepfilternet", NoiseSuppression::DeepFilterNet),
+			("rnnoise", NoiseSuppression::RnNoise),
+			("webrtc", NoiseSuppression::WebRtc),
+			("off", NoiseSuppression::Off),
+		] {
+			view.apply_extension_account_action(
+				&mut state,
+				AppAction::SetAudioSettings {
+					settings: AudioSettingsPatch {
+						suppression: Some(wire.into()),
+						suppression_level: Some(1),
+						..Default::default()
+					},
+				},
+				&mut commands,
+			)
+			.unwrap();
+			assert_eq!(view.voice_processing.profile, InputProfile::Custom);
+			assert_eq!(view.voice_processing.effective().suppression, mode);
+			assert_eq!(view.extension_audio_settings().suppression, wire);
+			assert_eq!(view.extension_audio_settings().suppression_level, 1);
+			assert_eq!(view.voice_processing.effective().sensitivity_db, Some(-55));
+			assert!(!view.voice_preview_requested);
+			assert_eq!(view.voice_suppression_status, None);
+		}
+		assert!(commands.is_empty());
+	}
 
 	#[test]
 	fn audio_patch_uses_visible_preset_and_rejects_invalid_patch_atomically() {

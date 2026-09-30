@@ -1989,6 +1989,70 @@ mod tests {
 		));
 	}
 	#[test]
+	fn voice_suppression_preferences_keep_explicit_modes_and_legacy_payloads() {
+		use model::voice_settings::{InputProfile, NoiseSuppression, Processing, VoiceProcessing};
+		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+		assert_eq!(
+			store
+				.app_preferences()
+				.unwrap()
+				.voice_processing
+				.unwrap()
+				.effective()
+				.suppression,
+			NoiseSuppression::Auto
+		);
+		for (mode, wire) in [
+			(NoiseSuppression::Auto, "Auto"),
+			(NoiseSuppression::DeepFilterNet, "DeepFilterNet"),
+			(NoiseSuppression::Off, "Off"),
+			(NoiseSuppression::RnNoise, "RnNoise"),
+			(NoiseSuppression::WebRtc, "WebRtc"),
+		] {
+			let saved = AppPreferences {
+				voice_processing: Some(VoiceProcessing {
+					profile: InputProfile::Custom,
+					custom: Processing {
+						suppression: mode,
+						suppression_level: 1,
+						..Default::default()
+					},
+				}),
+				..Default::default()
+			};
+			store.save_app_preferences(&saved).unwrap();
+			assert_eq!(store.app_preferences().unwrap(), saved);
+			let json = serde_json::to_value(&saved).unwrap();
+			assert_eq!(json["voice_processing"]["custom"]["suppression"], wire);
+			let restored: AppPreferences = serde_json::from_value(json).unwrap();
+			assert_eq!(
+				restored.voice_processing.unwrap().effective().suppression,
+				mode
+			);
+		}
+		for (wire, mode) in [
+			(
+				r#"{"voice_noise_suppression":true}"#,
+				NoiseSuppression::RnNoise,
+			),
+			(
+				r#"{"voice_noise_suppression":false}"#,
+				NoiseSuppression::Off,
+			),
+			("{}", NoiseSuppression::Off),
+		] {
+			let legacy: AppPreferences = serde_json::from_str(wire).unwrap();
+			assert!(legacy.voice_processing.is_none());
+			assert_eq!(
+				VoiceProcessing::from_legacy(legacy.voice_noise_suppression)
+					.effective()
+					.suppression,
+				mode
+			);
+		}
+	}
+
+	#[test]
 	fn app_preferences_round_trip_and_reject_invalid_replacement() {
 		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
 		assert_eq!(store.app_preferences().unwrap(), AppPreferences::default());

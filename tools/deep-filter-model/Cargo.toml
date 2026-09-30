@@ -1,0 +1,21 @@
+[package]
+name = "deep-filter-model"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Offline DeepFilterNet3 ONNX to embedded Tract NNEF conversion"
+
+[dependencies]
+anyhow = "1"
+flate2.workspace = true
+rust-ini = "=0.21.3"
+tar = "0.4"
+tract-nnef = "=0.22.4"
+tract-onnx = "=0.22.4"
+tract-onnx-opl = "=0.22.4"
+tract-pulse = "=0.22.4"
+tract-pulse-opl = "=0.22.4"
+
+[lints]
+workspace = true

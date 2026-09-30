@@ -489,8 +489,8 @@ field, so JSON `null` is invalid.
 | `output_percent` | `Option<u16>` / integer or null | Output gain, 0-200 percent. |
 | `push_to_talk` | `Option<bool>` / boolean or null | Set the native push-to-talk preference. |
 | `input_profile` | `Option<String>` / string or null | `voice_isolation`, `studio` or `custom`. |
-| `suppression` | `Option<String>` / string or null | `off`, `rnnoise` or `webrtc`. |
-| `suppression_level` | `Option<u8>` / integer or null | Suppression level, 0-3. |
+| `suppression` | `Option<String>` / string or null | `auto`, `deepfilternet`, `off`, `rnnoise` or `webrtc`. |
+| `suppression_level` | `Option<u8>` / integer or null | Suppression level, 0-3. Auto/DeepFilterNet attenuation limits: 6/12/24/100 dB; WebRTC: low/moderate/high/very high. Ignored by RNNoise and Off. |
 | `echo_cancellation` | `Option<bool>` / boolean or null | Enable/disable echo cancellation. |
 | `automatic_gain` | `Option<bool>` / boolean or null | Enable/disable automatic gain. |
 | `sensitivity_db` | `Option<i16>` / integer or null | Microphone gate threshold, -80 through 0 dB. |
@@ -502,6 +502,50 @@ processing field, the selected profile supplies those starting values and the
 result becomes custom. Gain/push-to-talk-only changes do not change the profile.
 Settings use native runtime/persistence handling; hardware support and the
 existing call's mute controls still apply.
+
+**Preview:** `auto` (the Voice Isolation default) evaluates DeepFilterNet headroom
+on the audio worker when a call or microphone test starts and can fall back to
+RNNoise. `deepfilternet` explicitly selects that processor. Settings proposals
+wait for the user to select **Apply**; neither proposing nor applying a setting
+joins a call or starts a microphone test. The independent sensitivity gate, mute
+and push-to-talk controls still apply. No new capability, input field or queue is
+added. Older hosts reject `auto` and `deepfilternet` patches.
+
+For example, a handler granted `audio_settings` can read the selected mode and
+propose Auto with High strength:
+
+```rust
+use serein_extension_sdk::{
+    AppAction, AppInvocation, AppOutput, AudioSettingsPatch, HostEffect,
+};
+fn handle(input: AppInvocation) -> AppOutput {
+    let Some(audio) = input.app.as_ref().and_then(|app| app.audio_settings.as_ref()) else {
+        return AppOutput::default();
+    };
+    if audio.suppression == "auto" && audio.suppression_level == 2 {
+        return AppOutput::default();
+    }
+    AppOutput {
+        effects: vec![HostEffect::AppAction {
+            action: AppAction::SetAudioSettings {
+                settings: AudioSettingsPatch {
+                    suppression: Some("auto".into()),
+                    suppression_level: Some(2),
+                    ..Default::default()
+                },
+            },
+        }],
+        ..Default::default()
+    }
+}
+```
+
+The returned value serializes to this complete output object; the host previews
+it and changes preferences only after Apply:
+
+```json
+{"replacement":null,"panel":[],"storage":null,"effects":[{"type":"app_action","action":{"type":"set_audio_settings","settings":{"suppression":"auto","suppression_level":2,"open_microphone":false}}}]}
+```
 
 ```json
 {"effects":[{"type":"app_action","action":{"type":"set_audio_settings","settings":{"output_percent":80,"input_profile":"studio","sensitivity_db":-50}}}]}

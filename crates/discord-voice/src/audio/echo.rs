@@ -1,4 +1,8 @@
 //! Worker-owned speech processing; never runs in device callbacks.
+#[path = "echo/deep_filter.rs"]
+mod deep_filter;
+use deep_filter::DeepFilter;
+pub use deep_filter::Status;
 use model::voice_settings::{NoiseSuppression, Processing, VoiceProcessing};
 use nnnoiseless::DenoiseState;
 use sonora::{
@@ -12,6 +16,8 @@ pub struct Echo {
 	gain: Option<AudioProcessing>,
 	noise: Option<Box<DenoiseState<'static>>>,
 	settings: Processing,
+	deep_filter: DeepFilter,
+	deep_was_active: bool,
 }
 
 fn processor(config: Config) -> AudioProcessing {
@@ -35,6 +41,8 @@ impl Echo {
 			}),
 			gain: None,
 			noise: None,
+			deep_filter: DeepFilter::default(),
+			deep_was_active: false,
 			settings: VoiceProcessing::from_legacy(false).effective(),
 		}
 	}
@@ -43,12 +51,18 @@ impl Echo {
 		if !settings.is_valid() {
 			return Err("Invalid microphone processing settings");
 		}
+		self.deep_filter
+			.configure(settings.suppression, settings.suppression_level);
 		if settings == self.settings {
 			return Ok(());
 		}
-		if settings.suppression == NoiseSuppression::RnNoise && self.noise.is_none() {
+		let neural = matches!(
+			settings.suppression,
+			NoiseSuppression::RnNoise | NoiseSuppression::Auto | NoiseSuppression::DeepFilterNet
+		);
+		if neural && self.noise.is_none() {
 			self.noise = Some(noise_state());
-		} else if settings.suppression != NoiseSuppression::RnNoise {
+		} else if !neural {
 			self.noise = None;
 		}
 		if settings.echo_cancellation != self.settings.echo_cancellation
@@ -92,7 +106,13 @@ impl Echo {
 		Ok(())
 	}
 
+	pub fn suppression_status(&self) -> Status {
+		self.deep_filter.status()
+	}
+
 	pub fn reset(&mut self) {
+		self.deep_filter.reset();
+		self.deep_was_active = false;
 		let config = StreamConfig::new(48_000, 1);
 		self.processor.initialize(config, config, config, config);
 		if let Some(gain) = &mut self.gain {
@@ -143,11 +163,18 @@ impl Echo {
 			}
 			if let Some(noise) = &mut self.noise {
 				let start = time_noise.then(Instant::now);
-				let input = output.map(|s| (s * 32768.0).clamp(-32768.0, 32767.0));
-				noise.process_frame(&mut output, &input);
-				for sample in &mut output {
-					*sample = (*sample / 32768.0).clamp(-1.0, 1.0);
+				let deep_active = self.deep_filter.process(&mut output);
+				if !deep_active {
+					if self.deep_was_active {
+						*noise = noise_state();
+					}
+					let input = output.map(|s| (s * 32768.0).clamp(-32768.0, 32767.0));
+					noise.process_frame(&mut output, &input);
+					for sample in &mut output {
+						*sample = (*sample / 32768.0).clamp(-1.0, 1.0);
+					}
 				}
+				self.deep_was_active = deep_active;
 				if let Some(start) = start {
 					noise_time += start.elapsed();
 				}
@@ -170,5 +197,94 @@ impl Echo {
 			};
 		}
 		Ok(noise_time)
+	}
+}
+
+#[cfg(test)]
+mod deepfilter_tests {
+	use super::*;
+	fn configured() -> Echo {
+		let mut dsp = Echo::new();
+		let settings = Processing {
+			suppression: NoiseSuppression::DeepFilterNet,
+			suppression_level: 2,
+			..Processing::studio()
+		};
+		let deadline = Instant::now();
+		loop {
+			dsp.configure(settings).unwrap();
+			if dsp.suppression_status() != Status::Loading {
+				break;
+			}
+			assert!(deadline.elapsed() < Duration::from_secs(30));
+			std::thread::sleep(Duration::from_millis(5));
+		}
+		assert_eq!(
+			dsp.suppression_status(),
+			Status::DeepFilter,
+			"exercise the actual model, not fallback"
+		);
+		dsp
+	}
+	#[test]
+	fn deepfilter_suppresses_noise_resets_history_and_switches_without_stale_audio() {
+		let mut dsp = configured();
+		let mut seed = 17_u32;
+		let inputs: Vec<[f32; 960]> = (0..100)
+			.map(|_| {
+				std::array::from_fn(|_| {
+					seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+					seed as i32 as f32 / i32::MAX as f32 * 0.05
+				})
+			})
+			.collect();
+		let mut before = 0.0;
+		let mut after = 0.0;
+		for (index, input) in inputs.iter().enumerate() {
+			let mut samples = *input;
+			dsp.capture(&mut samples, false).unwrap();
+			assert!(samples.iter().all(|v| v.is_finite() && v.abs() <= 1.0));
+			if index > 50 {
+				before += input.iter().map(|v| v * v).sum::<f32>();
+				after += samples.iter().map(|v| v * v).sum::<f32>();
+			}
+		}
+		assert!(
+			after < before * 0.5,
+			"synthetic noise must be attenuated: {before} -> {after}"
+		);
+		dsp.reset();
+		let mut first = inputs[0];
+		dsp.capture(&mut first, false).unwrap();
+		for input in &inputs[1..8] {
+			let mut samples = *input;
+			dsp.capture(&mut samples, false).unwrap();
+		}
+		dsp.reset();
+		let mut fresh = inputs[0];
+		dsp.capture(&mut fresh, false).unwrap();
+		assert_eq!(
+			first, fresh,
+			"mute/PTT reset must forget recurrent audio history"
+		);
+		let rn = Processing {
+			suppression: NoiseSuppression::RnNoise,
+			..Processing::studio()
+		};
+		let mut reference = Echo::new();
+		reference.configure(rn).unwrap();
+		dsp.configure(rn).unwrap();
+		let mut expected = inputs[0];
+		let mut switched = inputs[0];
+		reference.capture(&mut expected, false).unwrap();
+		dsp.capture(&mut switched, false).unwrap();
+		assert_eq!(
+			switched, expected,
+			"fallback must start with fresh RNNoise history"
+		);
+		dsp.configure(Processing::studio()).unwrap();
+		let mut raw = inputs[0];
+		dsp.capture(&mut raw, false).unwrap();
+		assert_eq!(raw, inputs[0]);
 	}
 }

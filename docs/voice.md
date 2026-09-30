@@ -221,7 +221,7 @@ summary. Remove the environment variables to disable diagnostics on the next lau
 
 Each voice stage reports `[calls, total_us, max_us]` over `window_ms`:
 `echo_render` processes speaker reference; `echo_capture` includes the selected microphone
-processing; `noise` isolates RNNoise inference within `echo_capture`
+processing; `noise` isolates DeepFilterNet/RNNoise inference within `echo_capture`
 (WebRTC suppression remains inside the combined processor timing);
 `encode` includes Opus and outgoing encryption; `mix` includes remote Opus decoding; `receive` measures accepted packet decryption/queueing.
 `noise_frames` identifies capture frames processed with suppression enabled.
@@ -231,7 +231,7 @@ full capture/playback worker queues; `stalls` counts transport gaps of at least 
 Stage timings exclude device callbacks, socket waits, device opening and UI rendering.
 These are elapsed times, including scheduler preemption, **not process CPU percentages**.
 `debug=true` identifies a build with debug assertions. Development builds optimize the
-Sonora echo-processing crates, RNNoise (`nnnoiseless` and its FFT chain) and libopus
+Sonora echo-processing crates, DeepFilterNet/Tract, RNNoise (`nnnoiseless` and its FFT chain) and libopus
 while keeping application code unoptimized and debuggable; release builds remain the reference for overall performance. Rebuild and
 restart to apply this change. Compare speaking, muted and noise-suppression-on/off windows to narrow
 the cause; UI frame diagnostics help identify excessive rendering separately.
@@ -304,11 +304,13 @@ lifecycle gates hide ineligible activity, including while alone.
 
 Voice & Video settings offers three saved profiles:
 
-- **Voice Isolation:** RNNoise suppression, AEC3 echo cancellation, digital automatic gain
+- **Voice Isolation:** Auto suppression (DeepFilterNet3 when the worker finds enough
+  processing headroom, otherwise RNNoise), AEC3 echo cancellation, digital automatic gain
   control (maximum 20 dB), and −55 dBFS input sensitivity.
 - **Studio:** bypasses processing and sensitivity gating. Manual gain, mute, deafen,
   push-to-talk and permission/security gates still apply.
-- **Custom:** Off, RNNoise, or WebRTC (four suppression strengths);
+- **Custom:** Auto, DeepFilterNet, RNNoise, WebRTC, or Off; four suppression strengths
+  for DeepFilterNet/Auto and WebRTC;
   independent echo cancellation and automatic gain controls; and optional manual
   sensitivity from −80 to 0 dBFS. The gate uses 3 dB hysteresis, a 200 ms release
   hold and a 5 ms ramp. This controls transmitted audio, not just the speaking glow.
@@ -317,7 +319,7 @@ Switching profiles retains Custom settings; editing a preset starts from its vis
 values. Saved preferences without a profile migrate to Custom with their prior
 RNNoise/Off choice, echo cancellation enabled, and gain control/sensitivity gating off.
 
-The worker processes AEC/WebRTC suppression, then optional RNNoise,
+The worker processes AEC/WebRTC suppression, then the selected DeepFilterNet or RNNoise processor,
 then digital automatic gain, manual gain, the local meter, and sensitivity gating.
 Calls and microphone preview share this path; playback audio is not denoised.
 No DSP runs in rendering or native audio callbacks. Settings replace one fixed-size
@@ -713,3 +715,54 @@ checks settings rendering and capture guards without opening devices. Physical l
 microphone permission prompts remain owner-verified behavior.
 
 Rapid mute/unmute invalidates partial callback PCM.
+
+
+## Adaptive DeepFilterNet suppression
+
+New installs and Voice Isolation use **Auto (DeepFilterNet)**. Existing Custom
+RNNoise/WebRTC/Off choices and legacy preference migration are preserved. In Custom,
+select DeepFilterNet explicitly to override the automatic CPU decision, or choose a
+lighter processor/Off. The four DeepFilterNet strengths limit attenuation to
+6, 12, 24 or 100 dB (Low through Very high; High is the default). The separate
+input threshold still controls the noise gate; suppression also works during speech.
+This is not a claim that every noise or voice is handled better than RNNoise.
+
+The fixed standard DeepFilterNet3 model is embedded, with no download, Python,
+GPU, remote processing or audio recording. It processes two 480-sample mono
+48 kHz hops per existing 20 ms frame, after echo cancellation and before gain
+and the input threshold. Its 960-sample STFT and two-hop lookahead add **30 ms**
+of algorithmic delay; device, existing capture pacing and network latency are
+additional. Playback and screen-share audio are unchanged.
+
+Only a deliberately started call or microphone test creates processing state.
+A separate preparation worker compiles the fixed model and runs a deterministic
+nonzero synthetic probe: 16 warmup hops and up to 48 measured hops, with all
+neural stages enabled, capped at 500 ms of probe wall time between hops.
+Model compilation is separate from that probe cap. Auto requires a completed
+probe with p95 at most 3 ms per 10 ms hop, reserving headroom for the rest of the
+call. This measures available performance, not CPU brand or core count. No
+hardware inventory or result is persisted. RNNoise remains active while preparing.
+
+During Auto capture, a 50-hop window averaging over 3 ms/hop or three consecutive
+hops over 7 ms switches to RNNoise for the current selection. It does not
+oscillate or retry on mute/PTT; reselecting a mode or starting another session
+allows another assessment. Forced DeepFilterNet ignores these timing limits,
+but any initialization/inference failure still falls back to RNNoise. Settings
+show the actual processor/fallback reason while a call/test is active.
+
+Model preparation, inference, resets and cleanup run outside rendering and CPAL
+callbacks. One process-wide preparation slot and one model-result channel prevent
+rapid toggles from accumulating loaders; each audio worker owns at most one
+active model. Cancellation discards obsolete results. Full recurrent/STFT resets
+clear microphone history across mute, PTT, device and encryption transitions;
+RNNoise is reset when returning from DeepFilterNet too. Existing PCM queues
+remain unchanged. Vendor provenance, runtime modifications and model-license
+scope clarification are in [the runtime notes](../vendor/deep-filter/SEREIN-PATCH.md).
+
+Device-free regression tests and `cargo run --locked --release -p discord-voice
+--example noise_suppression` exercise the real model. Native offline settings
+can be inspected with `--features demo -- --demo --demo-settings=voice-processing`;
+this opens Custom and scrolls to suppression without starting a probe or microphone.
+Synthetic attenuation/timing is not a perceptual listening test. Real microphones,
+CPU throttling under games, Windows/Linux runtime behavior and Discord call
+quality remain owner-operated checks.

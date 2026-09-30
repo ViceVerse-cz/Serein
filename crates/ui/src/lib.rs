@@ -384,6 +384,10 @@ pub struct MessagingUi {
 	pub voice_muted: bool,
 	pub voice_deafened: bool,
 	pub voice_processing: model::voice_settings::VoiceProcessing,
+	/// Session-only bounded status from the current call or microphone-test worker.
+	pub voice_suppression_status: Option<&'static str>,
+	#[cfg(feature = "demo")]
+	voice_processing_preview: bool,
 	pub voice_preview_requested: bool,
 	pub voice_preview_level: Option<f32>,
 	pub voice_preview_status: &'static str,

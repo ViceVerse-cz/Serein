@@ -1457,3 +1457,17 @@ Accepting Save or Remove pauses new REST client acquisition immediately, before
 the credential-store job completes. A failed deletion leaves routing paused; it
 does not resume stored credentials. In-flight requests retain their earlier
 snapshot. Rejected saves retain the credential draft until a valid job can start.
+
+
+DeepFilterNet (September 29): one embedded 7,983,136-byte compressed model is
+read-only program data. Its fixed mono inference graph and scratch state live
+only for a call/local test. At most one preparation thread per process holds a
+model and a single-result channel; an audio worker retains at most one active
+model, so a replacement can briefly coexist with it. No user model, downloaded
+weights, recorded PCM, persisted benchmark or hardware inventory is accepted.
+Existing eight-frame microphone/reference/playback rings are unchanged. A
+48-duration synthetic probe array and fixed timing counters bound assessment
+state. Cancelled preparations discard their result and release the global slot;
+model compilation itself is synchronous inside that preparation thread.
+Mute/PTT and encryption/device transitions fully reset adaptive speech history.
+The UI receives one fixed status code, not PCM or an expanding diagnostic log.

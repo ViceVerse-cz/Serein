@@ -4172,3 +4172,25 @@ lib-composer-onboarding-rules-pending = Přijmi pravidla tohoto serveru, abys mo
 lib-composer-onboarding-incomplete = Dokonči připojení k serveru a odemkni další kanály.
 # Context: composer
 lib-composer-onboarding-complete = Dokončit uvítání
+
+voice-suppression-auto = Automaticky (DeepFilterNet)
+
+voice-suppression-isolation-description = Automatické potlačení hluku, potlačení ozvěny a automatická hlasitost pro řeč.
+
+voice-suppression-auto-description = Automatický režim ověří DeepFilterNet na syntetickém zvuku při zahájení hovoru nebo testu mikrofonu. Při pomalém zpracování nebo vysoké zátěži použije RNNoise.
+
+voice-suppression-deepfilter-description = DeepFilterNet potlačuje hluk na pozadí a přidává 30 ms zpoždění. Vyšší síla může ovlivnit tichou řeč. Při načítání nebo selhání procesoru se použije RNNoise.
+
+voice-suppression-loading = Připravuji DeepFilterNet; aktivní je RNNoise.
+
+voice-suppression-deepfilter = DeepFilterNet je aktivní · přidává 30 ms zpoždění.
+
+voice-suppression-limited = RNNoise je aktivní: DeepFilterNet překročil časový limit zpracování.
+
+voice-suppression-unavailable = RNNoise je aktivní: DeepFilterNet není dostupný.
+
+voice-suppression-rnnoise = RNNoise je aktivní.
+
+voice-suppression-webrtc = WebRTC je aktivní.
+
+voice-suppression-off = Potlačení hluku je vypnuté.

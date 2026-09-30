@@ -11,8 +11,11 @@ pub enum InputProfile {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NoiseSuppression {
-	Off,
+	/// Prefer DeepFilterNet when a bounded worker probe finds sufficient processing headroom.
 	#[default]
+	Auto,
+	DeepFilterNet,
+	Off,
 	RnNoise,
 	WebRtc,
 }
@@ -21,7 +24,8 @@ pub enum NoiseSuppression {
 #[serde(default)]
 pub struct Processing {
 	pub suppression: NoiseSuppression,
-	/// WebRTC suppression strength, from low (0) through very high (3).
+	/// Strength from low (0) through very high (3); DeepFilterNet limits attenuation
+	/// to 6/12/24/100 dB, while WebRTC uses its four native levels.
 	pub suppression_level: u8,
 	pub echo_cancellation: bool,
 	pub automatic_gain: bool,
@@ -31,7 +35,7 @@ pub struct Processing {
 impl Default for Processing {
 	fn default() -> Self {
 		Self {
-			suppression: NoiseSuppression::RnNoise,
+			suppression: NoiseSuppression::Auto,
 			suppression_level: 2,
 			echo_cancellation: true,
 			automatic_gain: true,
@@ -89,5 +93,47 @@ impl VoiceProcessing {
 		}
 		self.profile = InputProfile::Custom;
 		&mut self.custom
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn voice_isolation_defaults_to_auto_and_preserves_custom_choices() {
+		let mut settings = VoiceProcessing::default();
+		assert_eq!(NoiseSuppression::default(), NoiseSuppression::Auto);
+		assert_eq!(settings.effective().suppression, NoiseSuppression::Auto);
+		assert_eq!(settings.effective().suppression_level, 2);
+		settings.edit().suppression = NoiseSuppression::DeepFilterNet;
+		settings.custom.suppression_level = 1;
+		let custom = settings.custom;
+		settings.profile = InputProfile::Studio;
+		assert_eq!(settings.effective(), Processing::studio());
+		settings.profile = InputProfile::VoiceIsolation;
+		assert_eq!(settings.effective(), Processing::default());
+		assert_eq!(settings.custom, custom);
+		settings.profile = InputProfile::Custom;
+		assert_eq!(settings.effective(), custom);
+		settings.profile = InputProfile::VoiceIsolation;
+		settings.edit().sensitivity_db = Some(-40);
+		assert_eq!(settings.custom.suppression, NoiseSuppression::Auto);
+		assert_eq!(settings.custom.suppression_level, 2);
+	}
+
+	#[test]
+	fn voice_processing_legacy_migration_preserves_explicit_suppression() {
+		for (enabled, expected) in [
+			(true, NoiseSuppression::RnNoise),
+			(false, NoiseSuppression::Off),
+		] {
+			let settings = VoiceProcessing::from_legacy(enabled);
+			assert_eq!(settings.profile, InputProfile::Custom);
+			assert_eq!(settings.effective().suppression, expected);
+			assert_eq!(settings.effective().sensitivity_db, None);
+			assert!(!settings.effective().automatic_gain);
+			assert!(settings.effective().echo_cancellation);
+		}
 	}
 }

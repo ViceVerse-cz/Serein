@@ -4173,3 +4173,25 @@ lib-composer-onboarding-rules-pending = Accept this server's rules to start chat
 lib-composer-onboarding-incomplete = Finish joining this server to unlock more channels.
 # Context: composer
 lib-composer-onboarding-complete = Complete Onboarding
+
+voice-suppression-auto = Auto (DeepFilterNet)
+
+voice-suppression-isolation-description = Auto noise suppression, echo cancellation and automatic gain for speech.
+
+voice-suppression-auto-description = Auto tests DeepFilterNet with synthetic audio when a call or microphone test starts. It uses RNNoise if processing is too slow, and can switch to RNNoise under load.
+
+voice-suppression-deepfilter-description = DeepFilterNet reduces background noise and adds 30 ms of processing delay. Higher strength can affect quiet speech. RNNoise is used while loading or if the processor fails.
+
+voice-suppression-loading = Preparing DeepFilterNet; RNNoise is active.
+
+voice-suppression-deepfilter = DeepFilterNet active · adds 30 ms processing delay.
+
+voice-suppression-limited = RNNoise active: DeepFilterNet exceeded the processing budget.
+
+voice-suppression-unavailable = RNNoise active: DeepFilterNet is unavailable.
+
+voice-suppression-rnnoise = RNNoise active.
+
+voice-suppression-webrtc = WebRTC active.
+
+voice-suppression-off = Noise suppression is off.

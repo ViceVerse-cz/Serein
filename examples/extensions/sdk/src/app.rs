@@ -440,7 +440,9 @@ pub struct AudioSettingsSnapshot {
 	pub output_percent: u16,
 	pub push_to_talk: bool,
 	pub input_profile: String,
+	/// Selected mode: auto, deepfilternet, off, rnnoise, or webrtc; not the active Auto engine.
 	pub suppression: String,
+	/// Strength 0..=3; DeepFilterNet attenuation limits are 6, 12, 24, and 100 dB.
 	pub suppression_level: u8,
 	pub echo_cancellation: bool,
 	pub automatic_gain: bool,
@@ -494,6 +496,7 @@ pub struct AudioSettingsPatch {
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub input_profile: Option<String>,
 	#[serde(skip_serializing_if = "Option::is_none")]
+	/// Selected mode: auto, deepfilternet, off, rnnoise, or webrtc.
 	pub suppression: Option<String>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub suppression_level: Option<u8>,

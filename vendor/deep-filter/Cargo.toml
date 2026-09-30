@@ -1,0 +1,31 @@
+[package]
+name = "deep_filter"
+version = "0.5.7-serein.1"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+description = "Serein's bounded, embedded DeepFilterNet3 inference runtime"
+repository = "https://github.com/Rikorose/DeepFilterNet"
+autobins = false
+
+[lib]
+name = "df"
+path = "src/lib.rs"
+
+[features]
+timings = []
+
+[dependencies]
+anyhow = "1"
+flate2 = "1"
+itertools = "=0.12.1"
+log = "0.4"
+ndarray = "=0.16.1"
+num-complex = "0.4"
+realfft = "3"
+rust-ini = "=0.21.3"
+rustfft = "6"
+tar = "0.4"
+tract-core = "=0.22.4"
+tract-nnef = "=0.22.4"
+tract-pulse-opl = "=0.22.4"

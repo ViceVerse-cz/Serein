@@ -2890,3 +2890,99 @@ bounded; accepted jobs clear the draft. Existing in-flight requests retain their
 previous route. No extra background job, queue or dependency was added. These
 package sizes do not establish OS credential-store latency, proxy latency, RSS
 or native frame timing; those remain unmeasured.
+
+## Adaptive DeepFilterNet3 (2026-09-29)
+
+Baseline: `306bccdbb4d28fa83dac09260772917d3d8b0018`; task branch
+`feat/deepfilter-noise-suppression`. macOS 27.0, Apple M1, 16 GiB, Rust 1.98.1,
+standard release profile and voice dependencies. The baseline component executable
+was built before implementation from the same synthetic workload with its three
+existing modes. `cargo run --locked --release -p discord-voice --example
+noise_suppression` exercises the real audio processor without opening devices.
+Each mode uses 300 precomputed mono 48 kHz frames (six seconds of synthetic
+vowel plus noise), one warmup and five measured repetitions. Echo cancellation,
+gain and the threshold gate are disabled to isolate suppression. DeepFilterNet
+and Auto use High/24 dB; existing modes retain their baseline settings.
+
+| Component metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| RNNoise, median processing elapsed per six seconds of PCM | 25.034 ms | 25.164 ms | +0.130 ms / +0.52%, noise |
+| WebRTC, same workload | 10.311 ms | 10.288 ms | -0.023 ms / -0.22%, noise |
+| Default suppression, RNNoise → Auto/DeepFilterNet | 25.034 ms | 103.349 ms | +78.315 ms / +312.8% |
+| Default suppression, median of five per-run p95 20 ms frame times | 88 µs | 348 µs | +260 µs |
+| Forced DeepFilterNet, median six-second processing elapsed | unavailable | 103.467 ms | new mode |
+
+Auto selected DeepFilterNet on this host. Initial model preparation plus probe was
+230 ms for Auto and 270 ms for forced DeepFilterNet; RNNoise processes input while
+this background work completes. Auto's measured processing elapsed represents
+1.72% of the audio duration, versus 0.42% for baseline RNNoise. This is **not a
+whole-process CPU percentage**, callback deadline guarantee, or an audio quality
+score. The model adds 30 ms of algorithmic delay independently of compute time.
+
+A separate direct-executable repetition under `/usr/bin/time -l` measured Auto
+at 118.038 ms per six seconds (1.97%), per-run p95 median 398 µs, preparation
+270 ms. Baseline RNNoise measured 30.246 ms and current RNNoise 32.886 ms in that
+repetition. This variation is visible in the [raw results](pr-evidence/deepfilter/performance.txt);
+small legacy-mode timing deltas do not establish an improvement or regression.
+No concurrent task build ran during these component measurements.
+
+The same resource-report repetition recorded peak RSS of 50,790,400 bytes for the
+new five-mode workload versus 4,849,664 bytes for the old three-mode workload;
+peak memory footprint was 35,619,248 versus 3,735,912 bytes. This includes model
+compilation/probing and sequential modes, so it measures the added component's
+process peak, not a matched call's settled memory or the native application's RSS.
+One loader and one result slot are allowed process-wide; model state, spectral
+history and input shape are fixed, with unchanged eight-frame PCM queues.
+
+Auto requires a complete synthetic probe at p95 ≤3 ms per 10 ms hop and falls back
+to RNNoise after sustained capture cost exceeds that budget (50-hop average, or
+three consecutive hops >7 ms). Forced DeepFilterNet overrides timing decisions;
+model/inference failures still fall back. No CPU inventory, probe result or PCM is
+persisted. No model is initialized simply by opening settings or starting the app.
+
+Native evidence uses the offline settings preview at 1120×760 logical pixels,
+2× scale, macOS eframe/wgpu Metal. The after fixture opens Custom and scrolls to
+the new controls; the baseline shows the original voice page. Desktop input
+injection is unavailable (Accessibility trust is false), so matched scripted
+native CPU/settled RSS, keyboard/scroll interaction, startup and p95 UI frame
+latency remain unmeasured. Headless light/dark and narrow-layout checks are separate
+from native input verification. Real microphones, listening quality, Discord
+calls, other CPUs and Windows/Linux runtime performance are unverified.
+
+Standard macOS package (including voice), `cargo xtask package`; locally ad-hoc
+signed, not notarized. Baseline package was verified from the same baseline commit
+earlier in this delivery; baseline and after outputs were preserved separately.
+Installed bytes sum regular files; ZIP uses `ditto -c -k --sequesterRsrc`.
+
+| Package metric | Baseline bytes | After bytes | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 61,003,216 | 80,565,440 | +19,562,224 / +32.07% |
+| Full installed package | 67,010,408 | 87,193,674 | +20,183,266 / +30.12% |
+| Compressed distribution | 42,809,900 | 55,665,693 | +12,855,793 / +30.03% |
+
+The package contains 316 files versus 205, principally new dependency notices.
+The lockfile adds 52 registry packages and the vendored inference runtime without
+removing or upgrading existing package versions. The embedded model is 7,983,136
+bytes. Upstream repository licenses and exact provenance are preserved; explicit
+model-weight redistribution clarification is still unanswered upstream. Dedicated
+license CI is separate from packaging; no local license-coverage gate was run.
+
+### Pre-converted NNEF model (2026-09-30)
+
+The runtime now embeds a deterministic Tract NNEF conversion of the unchanged
+weights instead of parsing ONNX at load, so `tract-onnx`, `tract-onnx-opl`,
+`tract-hir` and `tract-pulse` are no longer linked. Same host and release profile;
+`noise_suppression` component example built from the rebased ONNX revision and
+from this change, one run each under `/usr/bin/time -l`. The equivalent
+DeepFilterNet output over 400 synthetic frames at 24 dB is byte-identical.
+
+| Component metric | ONNX loader | NNEF loader | Delta |
+| --- | ---: | ---: | ---: |
+| Example executable, bytes | 21,255,696 | 20,693,408 | -562,288 / -2.6% |
+| Forced DeepFilterNet preparation + probe | 243 ms | 202 ms | -41 ms |
+| Auto preparation + probe | 225 ms | 182 ms | -43 ms |
+| Five-mode workload peak RSS, bytes | 60,145,664 | 49,643,520 | -10,502,144 / -17.5% |
+| Peak memory footprint, bytes | 45,089,200 | 35,684,784 | -9,404,416 / -20.9% |
+
+Steady-state inference is unchanged (per-frame timings within run-to-run noise).
+The full application package was not rebuilt for this follow-up.

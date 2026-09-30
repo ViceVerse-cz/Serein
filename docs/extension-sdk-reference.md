@@ -1161,8 +1161,8 @@ editing a processing field switches to Custom through the native settings path.
 | `input_percent`, `output_percent` | `u16` / integer | Input/output gain, 0 through 200. |
 | `push_to_talk` | `bool` / boolean | Whether push to talk is enabled. |
 | `input_profile` | `String` / string | `voice_isolation`, `studio`, or `custom`. |
-| `suppression` | `String` / string | `off`, `rnnoise`, or `webrtc`. |
-| `suppression_level` | `u8` / integer | Suppression strength, 0 through 3. |
+| `suppression` | `String` / string | `auto`, `deepfilternet`, `off`, `rnnoise`, or `webrtc`. This is the selected mode, not the engine Auto currently uses. |
+| `suppression_level` | `u8` / integer | Suppression strength, 0 through 3. Auto/DeepFilterNet use maximum attenuation of 6/12/24/100 dB; WebRTC uses low/moderate/high/very high. RNNoise and Off ignore this field. |
 | `echo_cancellation`, `automatic_gain` | `bool` / boolean | Effective processing options. |
 | `sensitivity_db` | `Option<i16>` / integer or null | Threshold from -80 through 0 dBFS; null means open microphone. |
 
@@ -1170,6 +1170,14 @@ Read `input.app.as_ref().and_then(|app| app.audio_settings.as_ref())` before
 accessing the fields. The group is absent on an older host or without its grant;
 an absent group does not imply default audio settings. Changes invalidate the
 existing `settings` app event when subscribed with `app_events`.
+
+**Preview:** Voice Isolation now selects `auto` at strength 2. Auto measures
+DeepFilterNet headroom with synthetic audio when a call or microphone test starts;
+it can use RNNoise if processing is too slow. This snapshot exposes neither probe
+measurements nor microphone data. Reading settings does not initialize a model,
+run a probe or start capture. The existing string fields and ABI are unchanged;
+older hosts reject the two new mode values in patches. Handle unknown strings
+when displaying settings from a newer host.
 
 ### OwnPresenceSnapshot: your status and activity preference
 
@@ -1197,7 +1205,7 @@ This complete synthetic input shows both groups:
   "app": {
     "audio_settings": {
       "input_percent": 100, "output_percent": 100, "push_to_talk": false,
-      "input_profile": "voice_isolation", "suppression": "rnnoise",
+      "input_profile": "voice_isolation", "suppression": "auto",
       "suppression_level": 2, "echo_cancellation": true,
       "automatic_gain": true, "sensitivity_db": -55
     },

@@ -275,6 +275,13 @@ impl MessagingUi {
 	/// Fixture-only entry point for the native offline settings preview.
 	pub fn preview_settings(&mut self, page: &str) {
 		self.settings.open = true;
+		#[cfg(feature = "demo")]
+		if page == "voice-processing" {
+			self.settings.page = Page::Voice;
+			self.voice_processing.profile = model::voice_settings::InputProfile::Custom;
+			self.voice_processing_preview = true;
+			return;
+		}
 		if let Some(page) = Page::ALL.into_iter().find(|candidate| {
 			candidate
 				.label(Language::English)

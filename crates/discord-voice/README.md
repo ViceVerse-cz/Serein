@@ -59,7 +59,7 @@ but does not prove that the owner's live no-audio report is resolved.
 
 When enabled, AEC uses Sonora 0.2.0 with its default adaptive delay estimator and
 high-pass filter, in two 10 ms blocks per 20 ms mono frame. WebRTC suppression shares
-this processor; optional RNNoise follows it. Digital-only AGC, when
+this processor; the selected DeepFilterNet or RNNoise follows it. Digital-only AGC, when
 enabled, follows denoising and is capped at 20 dB. Manual gain, the local input meter
 and optional sensitivity gating follow; Studio bypasses all DSP and sensitivity gating.
 The rendered-reference ring holds eight frames (30,720 PCM bytes / 160 ms), in
@@ -88,9 +88,9 @@ between transport ticks flush it. `cargo run --locked -p discord-voice --example
 checks batched capture continuity and gate/stall flushing alongside synthetic AEC.
 
 The desktop persists Voice Isolation, Studio and Custom profiles via the shared
-`VoiceProcessing` model. Voice Isolation selects RNNoise, AEC3, digital AGC and
+`VoiceProcessing` model. Voice Isolation selects Auto (DeepFilterNet3 with measured RNNoise fallback), AEC3, digital AGC and
 −55 dBFS sensitivity; Studio retains only manual gain and privacy/permission gates.
-Custom selects Off, RNNoise (nnnoiseless 0.5.2), or WebRTC (levels 0–3),
+Custom selects Auto, DeepFilterNet, Off, RNNoise (nnnoiseless 0.5.2), or WebRTC (levels 0–3),
 independent echo cancellation/AGC and optional −80..=0 dBFS sensitivity. Sensitivity
 uses 3 dB hysteresis, 200 ms release and a 5 ms ramp. Local activity uses the selected
 threshold, or −70 dBFS when open; remote indicators remain display-only at −45 dBFS.
@@ -123,3 +123,17 @@ loopback. Processed frames go straight to the existing eight-frame output ring; 
 recording, extra PCM queue or callback-side processing is added. The meter reports bounded
 RMS dBFS after processing/manual gain and before sensitivity gating; playback follows the gate. Preview owners must enable readiness
 only after a user request and drop the worker when testing ends.
+
+
+DeepFilterNet uses the embedded standard DFN3 model and Tract 0.22.4, with
+30 ms algorithmic delay. Preparation/probing uses a single process-wide loader
+slot and a one-result channel; inference stays on the existing audio worker.
+Auto's synthetic p95 threshold is 3 ms per 10 ms hop. During capture it falls
+back to RNNoise above a 3 ms average over 50 hops or three consecutive hops over
+7 ms. Explicit DeepFilterNet bypasses the timing policy, not failure fallback.
+Reset clears recurrent, STFT and spectral history without reoptimizing graphs.
+Model transfer uses Tract frozen state and shared immutable plans, with no unsafe
+Send implementation. The fixed model bounds graph/scratch allocations; these
+are not a universal process-RSS ceiling. No new microphone PCM queue is added.
+See [settings and performance policy](../../docs/voice.md#adaptive-deepfilternet-suppression)
+and [vendor provenance](../../vendor/deep-filter/SEREIN-PATCH.md).

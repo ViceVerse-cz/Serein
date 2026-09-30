@@ -1498,11 +1498,12 @@ impl AudioSettingsPatch {
 				.input_profile
 				.as_deref()
 				.is_some_and(|value| !matches!(value, "voice_isolation" | "studio" | "custom"))
-			|| self
-				.suppression
-				.as_deref()
-				.is_some_and(|value| !matches!(value, "off" | "rnnoise" | "webrtc"))
-			|| self.suppression_level.is_some_and(|value| value > 3)
+			|| self.suppression.as_deref().is_some_and(|value| {
+				!matches!(
+					value,
+					"auto" | "deepfilternet" | "off" | "rnnoise" | "webrtc"
+				)
+			}) || self.suppression_level.is_some_and(|value| value > 3)
 			|| self
 				.sensitivity_db
 				.is_some_and(|value| !(-80..=0).contains(&value))

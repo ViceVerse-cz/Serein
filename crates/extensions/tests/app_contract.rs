@@ -1130,6 +1130,55 @@ fn tracked_actions_and_extended_inputs_preserve_v1_wire_compatibility() {
 }
 
 #[test]
+fn audio_suppression_modes_round_trip_between_sdk_and_host_with_consent() {
+	for mode in ["auto", "deepfilternet", "off", "rnnoise", "webrtc"] {
+		let sdk = sdk::AppOutput {
+			effects: vec![sdk::HostEffect::AppAction {
+				action: sdk::AppAction::SetAudioSettings {
+					settings: sdk::AudioSettingsPatch {
+						suppression: Some(mode.into()),
+						suppression_level: Some(2),
+						..Default::default()
+					},
+				},
+			}],
+			..Default::default()
+		};
+		let output: Output = serde_json::from_value(serde_json::to_value(sdk).unwrap()).unwrap();
+		let effect = &output.effects[0];
+		effect
+			.validate(&test_manifest(vec![Capability::AudioSettings]))
+			.unwrap();
+		assert!(effect.validate(&test_manifest(vec![])).is_err());
+		let snapshot = AudioSettingsSnapshot {
+			input_percent: 100,
+			output_percent: 100,
+			push_to_talk: false,
+			input_profile: "custom".into(),
+			suppression: mode.into(),
+			suppression_level: 2,
+			echo_cancellation: true,
+			automatic_gain: true,
+			sensitivity_db: Some(-55),
+		};
+		snapshot.validate().unwrap();
+		let sdk: sdk::AudioSettingsSnapshot =
+			serde_json::from_value(serde_json::to_value(snapshot).unwrap()).unwrap();
+		assert_eq!(sdk.suppression, mode);
+	}
+	for mode in ["", "DeepFilterNet", "future-suppressor"] {
+		assert!(
+			AudioSettingsPatch {
+				suppression: Some(mode.into()),
+				..Default::default()
+			}
+			.validate()
+			.is_err()
+		);
+	}
+}
+
+#[test]
 fn app_action_patches_reject_invalid_ranges_conflicts_and_unbounded_text() {
 	for wire in [
 		r#"{"type":"send_message","channel_id":"0","content":"hello"}"#,

@@ -120,11 +120,47 @@ mod tests {
 		settings.current.notification_options.current_channel = true;
 		settings.loaded = true;
 		settings.apply(&mut ui);
+		assert_eq!(
+			ui.voice_processing.effective().suppression,
+			model::voice_settings::NoiseSuppression::Auto
+		);
 		settings.observe(&ui);
 		assert_eq!(ui.language, ui::i18n::Language::Czech);
 		assert!(ui.notification_options.current_channel);
 		assert!(!settings.state.touched);
 		assert!(!settings.state.dirty);
+	}
+
+	#[test]
+	fn saved_custom_suppression_survives_apply_and_observe() {
+		use model::voice_settings::{InputProfile, NoiseSuppression, VoiceProcessing};
+		for mode in [
+			NoiseSuppression::Auto,
+			NoiseSuppression::DeepFilterNet,
+			NoiseSuppression::RnNoise,
+			NoiseSuppression::WebRtc,
+			NoiseSuppression::Off,
+		] {
+			let mut processing = VoiceProcessing::default();
+			processing.edit().suppression = mode;
+			processing.custom.suppression_level = 3;
+			let mut settings = Settings {
+				current: AppPreferences {
+					voice_processing: Some(processing),
+					voice_noise_suppression: mode != NoiseSuppression::Off,
+					..Default::default()
+				},
+				..Default::default()
+			};
+			let mut view = ui::MessagingUi::default();
+			settings.apply(&mut view);
+			assert_eq!(view.voice_processing.profile, InputProfile::Custom);
+			assert_eq!(view.voice_processing.effective().suppression, mode);
+			settings.observe(&view);
+			assert!(!settings.state.dirty);
+			assert!(!view.voice_preview_requested);
+			assert_eq!(view.voice_suppression_status, None);
+		}
 	}
 
 	#[test]
