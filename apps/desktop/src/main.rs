@@ -72,6 +72,7 @@ const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 	60.0
 };
 
+/// Run explicit offline checks before native startup, or launch the configured desktop client.
 fn main() -> eframe::Result {
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
@@ -79,7 +80,7 @@ fn main() -> eframe::Result {
 	{
 		audio::debug_voice_message_check();
 		println!(
-			"Offline audio check passed: 24 MiB range source, bounded buffering and decoding."
+			"Offline audio check passed: 24 MiB admission and complete range decoding, bounded buffering."
 		);
 		return Ok(());
 	}

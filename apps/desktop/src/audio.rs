@@ -98,6 +98,7 @@ pub struct Audio {
 	status: Status,
 }
 impl Audio {
+	/// Replace playback with a validated attachment; fetching and output stay on the worker.
 	pub fn start(
 		&mut self,
 		attachment: Attachment,
@@ -112,6 +113,7 @@ impl Audio {
 		}
 		result
 	}
+	/// Admit a nonempty attachment through the shared CDN validator and publish one request.
 	fn start_inner(
 		&mut self,
 		attachment: Attachment,
@@ -278,6 +280,7 @@ fn worker(
 }
 
 #[cfg(test)]
+/// Fetch a bounded whole-file fixture; production playback uses the demand-driven range source.
 async fn fetch(
 	url: url::Url,
 	expected: usize,
@@ -352,6 +355,7 @@ struct Pcm {
 }
 
 #[cfg(any(test, all(debug_assertions, feature = "demo")))]
+/// Decode small offline fixtures into retained PCM, independently of streaming admission.
 fn decode(mut bytes: Vec<u8>, current: &impl Fn() -> bool) -> Result<Pcm, &'static str> {
 	if !current() {
 		return Err("Cancelled");
@@ -387,6 +391,7 @@ fn decode(mut bytes: Vec<u8>, current: &impl Fn() -> bool) -> Result<Pcm, &'stat
 	Ok(pcm)
 }
 
+/// Emit bounded PCM packets while enforcing cumulative sample, duration and cancellation limits.
 pub(super) fn decode_stream(
 	source: Box<dyn MediaSource>,
 	current: &impl Fn() -> bool,
@@ -816,8 +821,57 @@ fn demo_wav() -> Vec<u8> {
 	bytes
 }
 
+/// Exercise public admission with a passive worker, without network or audio-device access.
+#[cfg(any(test, all(debug_assertions, feature = "demo")))]
+fn check_large_attachment_admission() {
+	let runtime = tokio::runtime::Builder::new_current_thread()
+		.build()
+		.unwrap();
+	let context = eframe::egui::Context::default();
+	let state = test_support::audio_demo_state();
+	let mut attachment = state.timeline.iter().next().unwrap().attachments[0].clone();
+	let (requests, receiver) = watch::channel(None);
+	let (_status, updates) = watch::channel((0, Status::default()));
+	let mut audio = Audio {
+		gate: Arc::new(Gate::default()),
+		worker: Some(Worker {
+			requests,
+			status: updates,
+			wake: Arc::new(Notify::new()),
+		}),
+		status: Status::default(),
+	};
+	attachment.size = 24 * 1024 * 1024;
+	assert_eq!(
+		audio.start(attachment.clone(), runtime.handle(), &context, false),
+		Ok(())
+	);
+	assert_eq!(audio.status.state, State::Loading);
+	{
+		let published = receiver.borrow();
+		let request = published.as_ref().expect("large attachment admitted");
+		assert_eq!(request.expected, attachment.size as usize);
+		assert_eq!(request.url, crate::downloads::original_url(&attachment));
+		assert!(audio.gate.current(request.generation));
+	}
+	audio.stop();
+	assert!(receiver.borrow().is_none());
+	for size in [0, 100 * 1024 * 1024 + 1] {
+		attachment.size = size;
+		assert!(
+			audio
+				.start(attachment.clone(), runtime.handle(), &context, false)
+				.is_err()
+		);
+		assert!(matches!(audio.status.state, State::Failed(_)));
+		assert!(receiver.borrow().is_none());
+	}
+}
+
 #[cfg(all(debug_assertions, feature = "demo"))]
+/// Exercise streaming, decoding and playback buffering with synthetic data and no output device.
 pub fn debug_voice_message_check() {
+	check_large_attachment_admission();
 	source::debug_check();
 	streaming::debug_check();
 	let runtime = tokio::runtime::Builder::new_current_thread()
@@ -945,6 +999,10 @@ impl Playback {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn start_admits_large_attachments_and_rejects_invalid_sizes() {
+		check_large_attachment_admission();
+	}
 	#[test]
 	fn decode_bounded_audio_and_reject_malformed_headers() {
 		let pcm = decode(demo_wav(), &|| true).unwrap();

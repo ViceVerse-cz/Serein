@@ -895,8 +895,9 @@ include font payload bytes. Demo imports stay in memory and do not read or write
 A deliberate Play action starts one lazy output-only worker. One replaceable request
 retains bounded validated attachment URL metadata; no account credential is sent.
 The credential-free reader refuses redirects and content encoding and validates
-each response against the declared attachment length. There is no fixed encoded
-file-size ceiling; nonzero lengths must fit the platform's address space. Reads
+each response against the declared attachment length. The player has no separate
+20 MiB encoded-file ceiling; the shared original-attachment URL validator still
+requires at most 100 MiB, and nonzero lengths must fit the platform's address space. Reads
 use one 16 KiB HTTP range cache with a 15-second request timeout. The server must
 support ranges for files larger than that cache. Audio stays in RAM: one second
 of stereo f32 PCM (at most 768,000 bytes), bounded decoder/transport buffers,

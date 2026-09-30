@@ -1170,9 +1170,11 @@ Live CDN/account interoperability and native output on other OSes remain unverif
 
 The streaming player no longer rejects encoded attachments above 20 MiB. It reads
 validated 16 KiB HTTP ranges into a one-second PCM queue instead of retaining the
-file. The separate 64 MiB cumulative decoded-audio and ten-minute limits remain;
+file. The shared original-attachment validator still admits at most 100 MiB.
+The separate 64 MiB cumulative decoded-audio and ten-minute limits remain;
 servers without range support require external playback. The offline
-`--demo --demo-check-audio` debug command checks a 24 MiB WAV range source without
+`--demo --demo-check-audio` debug command checks public admission and decodes an entire
+24 MiB WAV over synthetic local HTTP ranges, without retaining the decoded clip,
 opening an audio device or contacting Discord.
 
 ### Unknown Gateway variants (September 10, 2026)
