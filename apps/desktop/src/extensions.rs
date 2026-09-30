@@ -2328,7 +2328,10 @@ mod tests {
 		cleanup(&second, MAX_PER_SCOPE, &gate()).unwrap();
 		assert!(!second.join("plugin").exists());
 		assert!(!second.join("orphan.partial").exists());
-		assert!(scope(&root, ExtensionKind::Plugin, None).is_err());
+		assert_eq!(
+			scope(&root, ExtensionKind::Plugin, None).unwrap(),
+			root.join("proxy-plugins")
+		);
 		assert!(disable(&second, "../outside", &gate()).is_err());
 	}
 
