@@ -63,12 +63,12 @@ for (const job of Object.values(workflow.jobs)) {
 execFileSync('bash', ['-n', 'packaging/macos/sign-release.sh']);
 execFileSync('bash', ['packaging/macos/test_sign_release.sh'], { stdio: 'inherit' });
 execFileSync(process.env.PYTHON || 'python3', ['-c', `
-import glob, os, pathlib, shutil, subprocess, tempfile, tomllib
+import glob, os, pathlib, re, shutil, subprocess, tempfile, tomllib
 root = pathlib.Path.cwd()
 manifest = tomllib.loads((root / 'Cargo.toml').read_text())
 with tempfile.TemporaryDirectory() as directory:
     fixture = pathlib.Path(directory)
-    paths = ['Cargo.toml', 'Cargo.lock', 'fuzz/Cargo.lock', 'packaging/macos/Info.plist']
+    paths = ['Cargo.toml', 'Cargo.lock', 'fuzz/Cargo.lock', 'packaging/macos/Info.plist', 'nix/package.nix']
     for member in manifest['workspace']['members']:
         paths.extend(glob.glob(member + '/Cargo.toml'))
     for path in paths:
@@ -83,7 +83,8 @@ with tempfile.TemporaryDirectory() as directory:
             original = tomllib.loads((root / lock).read_text())['package']
             assert [p for p in packages if 'source' in p] == [p for p in original if 'source' in p]
             assert next(p['version'] for p in packages if p['name'] == 'model' and 'source' not in p) == version
+        assert re.search(r'^\\s*version = "%s";$' % re.escape(version), pathlib.Path('nix/package.nix').read_text(), re.M)
     import plistlib
     assert plistlib.loads(pathlib.Path('packaging/macos/Info.plist').read_bytes())['CFBundleShortVersionString'] == '1.2.3'
 `], { stdio: 'inherit' });
-console.log('Release smoke passed: semantic bumps/notes, nightly isolation, manifest/lock versions, YAML and shell syntax.');
+console.log('Release smoke passed: semantic bumps/notes, nightly isolation, manifest/lock/Nix versions, YAML and shell syntax.');
