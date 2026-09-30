@@ -1484,6 +1484,12 @@ impl State {
 		})
 	}
 	pub fn history(&mut self, before: Option<Id>) -> Command {
+		if let Some(parent) = self.selected.filter(|id| self.is_forum(*id)) {
+			self.reload_forum_posts(parent);
+			return self
+				.request_forum_posts(parent, false)
+				.unwrap_or(Command::CancelSearch);
+		}
 		self.history_range(before, None)
 	}
 	fn open_scrolled_window(&mut self, message: Id) -> Option<Command> {

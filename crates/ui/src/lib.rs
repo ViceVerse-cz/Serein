@@ -2170,10 +2170,14 @@ impl MessagingUi {
 							}
 							let reload = ui
 								.add_enabled_ui(
-									state.freshness != Freshness::Loading
-										&& state
-											.selected
-											.is_some_and(|id| state.can_read_history(id)),
+									state.selected.is_some_and(|id| {
+										if state.is_forum(id) {
+											state.can_load_posts(id) && !state.posts.loading
+										} else {
+											state.freshness != Freshness::Loading
+												&& state.can_read_history(id)
+										}
+									}),
 									|ui| {
 										icons::button(
 											ui,

@@ -608,6 +608,46 @@ mod tests {
 	}
 
 	#[test]
+	fn header_reload_refreshes_forum_posts_without_leaving_the_channel() {
+		for kind in [15, 16] {
+			let mut state = state();
+			state.channels[1].kind = kind;
+			assert!(state.select(Id(20)).is_none());
+			state.request_forum_posts(Id(20), false).unwrap();
+			let previous = state.posts.request;
+			state.apply_forum_posts(
+				Id(20),
+				previous,
+				Ok(model::forum::Page {
+					threads: vec![channel(21, Some(Id(20)), 11)],
+					more: true,
+					previews: Vec::new(),
+				}),
+			);
+			assert!(matches!(
+				state.history(None),
+				Command::ForumPosts { parent: Id(20), offset: 0, request, .. }
+					if request > previous
+			));
+			assert_eq!(state.selected, Some(Id(20)));
+			assert_eq!(state.freshness, model::Freshness::Fresh);
+			assert!(!state.history_pending);
+			assert!(state.posts.loading);
+			let request = state.posts.request;
+			assert!(matches!(state.history(None), Command::CancelSearch));
+			assert_eq!(state.posts.request, request);
+			assert_eq!(state.selected, Some(Id(20)));
+			assert!(matches!(
+				state.select(Id(21)),
+				Some(Command::History {
+					channel: Id(21),
+					..
+				})
+			));
+		}
+	}
+
+	#[test]
 	fn forum_title_replacement_updates_budget_and_preserves_original_when_full() {
 		let mut state = state();
 		let before = state.navigation_bytes();
