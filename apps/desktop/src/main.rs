@@ -75,6 +75,16 @@ const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 fn main() -> eframe::Result {
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-audio")
+	{
+		audio::debug_voice_message_check();
+		println!(
+			"Offline audio check passed: 24 MiB range source, bounded buffering and decoding."
+		);
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-call-cues")
 	{
 		voice::debug_call_cues_check();

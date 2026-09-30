@@ -1,5 +1,5 @@
 //! Demand-driven, bounded attachment reads; demuxers never see unbounded metadata.
-use super::{Gate, INVALID, MAX_ENCODED, NO_SEEK, Request, TOO_LARGE};
+use super::{Gate, INVALID, NO_SEEK, Request};
 use std::{
 	io::{self, Cursor, Read, Seek, SeekFrom},
 	sync::{Arc, atomic::Ordering},
@@ -19,8 +19,8 @@ pub(super) fn source(
 	runtime: Handle,
 ) -> Result<Box<dyn MediaSource>, &'static str> {
 	let raw = if let Some(url) = &request.url {
-		if request.expected == 0 || request.expected > MAX_ENCODED {
-			return Err(TOO_LARGE);
+		if request.expected == 0 {
+			return Err(INVALID);
 		}
 		Raw {
 			input: Input::Http {
@@ -260,8 +260,10 @@ impl Sanitized {
 			if &header[8..12] != b"WAVE" {
 				return Err(invalid());
 			}
-			let end =
-				u32::from_le_bytes(header[4..8].try_into().map_err(|_| invalid())?) as usize + 8;
+			let end = (u32::from_le_bytes(header[4..8].try_into().map_err(|_| invalid())?)
+				as usize)
+				.checked_add(8)
+				.ok_or_else(invalid)?;
 			if end > result.raw.len {
 				return Err(invalid());
 			}
@@ -281,7 +283,9 @@ impl Sanitized {
 				let len =
 					u32::from_le_bytes(chunk[4..8].try_into().map_err(|_| invalid())?) as usize;
 				let next = position
-					.checked_add(8 + len + len % 2)
+					.checked_add(8)
+					.and_then(|next| next.checked_add(len))
+					.and_then(|next| next.checked_add(len % 2))
 					.filter(|next| *next <= end)
 					.ok_or_else(invalid)?;
 				if &chunk[..4] == b"fmt " {
@@ -555,7 +559,13 @@ pub(super) fn debug_check() {
 	assert!(source.raw.bytes_read < 64, "ID3 payload is never fetched");
 
 	// The same source against a synthetic local server: tiny demuxer reads share one range.
-	let fixture = super::demo_wav();
+	// A valid WAV above the old file-size ceiling still uses tiny bounded ranges.
+	let mut fixture = super::demo_wav();
+	fixture.resize(24 * 1024 * 1024, 0);
+	let riff_size = (fixture.len() - 8) as u32;
+	let data_size = (fixture.len() - 44) as u32;
+	fixture[4..8].copy_from_slice(&riff_size.to_le_bytes());
+	fixture[40..44].copy_from_slice(&data_size.to_le_bytes());
 	let expected = fixture.len();
 	let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
 	let url = url::Url::parse(&format!(

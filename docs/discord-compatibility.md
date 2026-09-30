@@ -1168,6 +1168,13 @@ new Discord endpoint or voice protocol. The synthetic demo generates a WAV tone 
 for its MP3-labeled card; a separate original MP3 fixture checks real MP3 decoding.
 Live CDN/account interoperability and native output on other OSes remain unverified.
 
+The streaming player no longer rejects encoded attachments above 20 MiB. It reads
+validated 16 KiB HTTP ranges into a one-second PCM queue instead of retaining the
+file. The separate 64 MiB cumulative decoded-audio and ten-minute limits remain;
+servers without range support require external playback. The offline
+`--demo --demo-check-audio` debug command checks a 24 MiB WAV range source without
+opening an audio device or contacting Discord.
+
 ### Unknown Gateway variants (September 10, 2026)
 
 Unknown dispatches remain ignored without granting capabilities; unsupported opcodes retain the

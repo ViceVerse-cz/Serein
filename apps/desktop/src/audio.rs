@@ -22,12 +22,14 @@ use symphonia::core::{
 };
 use tokio::sync::{Notify, watch};
 
-const MAX_ENCODED: usize = 20 * 1024 * 1024;
+// Whole-file fixture helpers are bounded separately from the streaming player.
+#[cfg(any(test, all(debug_assertions, feature = "demo")))]
+const MAX_FIXTURE_BYTES: usize = 20 * 1024 * 1024;
 const MAX_SAMPLES: usize = 64 * 1024 * 1024 / size_of::<f32>();
 const MAX_SECONDS: u64 = 600;
 const NO_SEEK: u64 = u64::MAX;
 const INVALID: &str = "Unsupported or damaged audio; download to play externally";
-const TOO_LARGE: &str = "Audio preview limit: 20 MiB file, 64 MiB decoded, 10 minutes";
+const TOO_LARGE: &str = "Audio preview limit: 64 MiB decoded, 10 minutes";
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum State {
@@ -117,9 +119,10 @@ impl Audio {
 		context: &eframe::egui::Context,
 		demo: bool,
 	) -> Result<(), &'static str> {
-		if attachment.size == 0 || attachment.size > MAX_ENCODED as u64 {
-			return Err(TOO_LARGE);
-		}
+		let expected = usize::try_from(attachment.size)
+			.ok()
+			.filter(|size| *size > 0)
+			.ok_or("Audio attachment size is invalid")?;
 		let url = if demo {
 			None
 		} else {
@@ -164,7 +167,7 @@ impl Audio {
 		worker.requests.send_replace(Some(Request {
 			generation,
 			url,
-			expected: attachment.size as usize,
+			expected,
 			#[cfg(feature = "demo")]
 			voice_message: attachment.is_voice_message(),
 			duration: Duration::from_millis(u64::from(attachment.duration_ms.unwrap_or(0))),
@@ -282,7 +285,7 @@ async fn fetch(
 	generation: u64,
 	wake: &Notify,
 ) -> Result<Vec<u8>, &'static str> {
-	if expected == 0 || expected > MAX_ENCODED {
+	if expected == 0 || expected > MAX_FIXTURE_BYTES {
 		return Err(TOO_LARGE);
 	}
 	let client = reqwest::Client::builder()
@@ -353,7 +356,7 @@ fn decode(mut bytes: Vec<u8>, current: &impl Fn() -> bool) -> Result<Pcm, &'stat
 	if !current() {
 		return Err("Cancelled");
 	}
-	if bytes.is_empty() || bytes.len() > MAX_ENCODED {
+	if bytes.is_empty() || bytes.len() > MAX_FIXTURE_BYTES {
 		return Err(TOO_LARGE);
 	}
 	if bytes.starts_with(b"OggS") {
@@ -959,7 +962,7 @@ mod tests {
 		assert!(!pcm.samples.is_empty());
 		assert!(pcm.samples.iter().any(|sample| sample.abs() > 0.01));
 		assert!(decode(demo_wav(), &|| false).is_err());
-		assert!(decode(vec![0; MAX_ENCODED + 1], &|| true).is_err());
+		assert!(decode(vec![0; MAX_FIXTURE_BYTES + 1], &|| true).is_err());
 		for field in [22, 40] {
 			let mut bytes = demo_wav();
 			bytes[field..field + 2].copy_from_slice(&u16::MAX.to_le_bytes());
@@ -1061,7 +1064,7 @@ mod tests {
 		cancel.await.unwrap();
 		server.abort();
 		assert_eq!(
-			fetch(url, MAX_ENCODED + 1, &gate, 1, &wake).await,
+			fetch(url, MAX_FIXTURE_BYTES + 1, &gate, 1, &wake).await,
 			Err(TOO_LARGE)
 		);
 	}
