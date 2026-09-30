@@ -2836,10 +2836,14 @@ impl TimelineView {
 													.inner;
 												surface.keep(&response);
 											}
-											if let Some(action) =
-												self.polls.show(ui, state, message)
-											{
-												self.poll_action = Some((message.id, action));
+											if message.poll.is_some() {
+												let shown = ui.scope(|ui| {
+													self.polls.show(ui, state, message)
+												});
+												surface.exclude(shown.response.rect);
+												if let Some(action) = shown.inner {
+													self.poll_action = Some((message.id, action));
+												}
 											}
 											let unknown_system = message.unsupported
 												&& message.system_summary().is_none();

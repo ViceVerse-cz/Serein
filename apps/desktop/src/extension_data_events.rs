@@ -704,6 +704,7 @@ mod tests {
 			Event::Patch(model::MessagePatch {
 				id,
 				channel,
+				poll: model::Patch::Absent,
 				content: model::Patch::Absent,
 				edited: model::Patch::Absent,
 				sticker_items: model::Patch::Absent,

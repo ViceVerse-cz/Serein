@@ -1013,7 +1013,7 @@ impl DiscordApi {
 					channel,
 					message,
 					request: command.request,
-					result,
+					result: result.map(Box::new),
 				})
 			}
 			Command::Reactions(command) => {

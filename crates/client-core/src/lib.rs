@@ -4049,7 +4049,7 @@ impl Event {
 				Self::RecipientAdded { user, .. } => user.heap_bytes(),
 				Self::History { messages, .. } => messages.iter().map(Message::bytes).sum(),
 				Self::Polls(polls::Event::Result { result, .. }) => {
-					result.as_ref().map_or(0, Message::bytes)
+					result.as_ref().map_or(0, |message| message.bytes())
 				}
 				Self::Message(m) => m.bytes(),
 				Self::Patch(p) => {

@@ -2890,3 +2890,32 @@ bounded; accepted jobs clear the draft. Existing in-flight requests retain their
 previous route. No extra background job, queue or dependency was added. These
 package sizes do not establish OS credential-store latency, proxy latency, RSS
 or native frame timing; those remain unmeasured.
+
+
+## Discord poll layout (September 30, 2026)
+
+The starting poll implementation `6b901def` and this layout follow-up used Rust
+1.98.1 on Ubuntu 26.04.1, AMD Ryzen 5 7535U (6 cores / 12 threads), 14,657 MiB RAM.
+Both standard voice-enabled `cargo xtask package` builds and Debian smoke checks
+passed. Installed bytes sum regular files extracted from each `.deb`.
+
+| Metric | Baseline | After | Absolute / percent delta |
+| --- | ---: | ---: | ---: |
+| Standard executable, bytes | 79,609,520 | 79,634,608 | +25,088 / +0.0315% |
+| Full installed package, bytes | 84,055,258 | 84,080,346 | +25,088 / +0.0298% |
+| Compressed Debian package, bytes | 40,157,332 | 40,161,928 | +4,596 / +0.0114% |
+| Synthetic reducer replay median, ms | 156.306 | 154.591 | -1.715 / -1.10% |
+
+Replay binaries from both source revisions ran one warmup and five measured
+100,000-event runs without concurrent compilation. Both retained 500 messages /
+331,992–332,477 estimated timeline bytes. The small timing delta is noisy and is
+not an improvement claim, process RSS or UI latency.
+
+The baseline native release demo used Vulkan llvmpipe (LLVM 21.1.8), Xvfb
+1120 x 760, scale 1, dark theme, and the unvoted synthetic poll after opening and
+closing the creator. Eight seconds of warmup preceded thirty one-second `/proc`
+CPU/VmRSS samples: 0.0666% of one logical CPU and 232,252 KiB peak/settled RSS.
+No child/helper processes or active voice session were observed. The after demo
+release built successfully, but after-process sampling was not collected before
+the owner's expedited push request. Native CPU/RSS deltas, hardware performance,
+frame/startup latency and live account/audio behavior remain unmeasured.

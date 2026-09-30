@@ -85,7 +85,7 @@ pub fn respond(state: &State, request: Request, synthetic_id: &mut u64) -> Event
 		channel: request.channel,
 		message: request.message,
 		request: request.request,
-		result,
+		result: result.map(Box::new),
 	})
 }
 pub fn check() {

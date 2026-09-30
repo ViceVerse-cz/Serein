@@ -23,7 +23,7 @@ pub enum Event {
 		channel: Id,
 		message: Option<Id>,
 		request: u64,
-		result: Result<Message, Failure>,
+		result: Result<Box<Message>, Failure>,
 	},
 	Vote {
 		channel: Id,
@@ -151,6 +151,7 @@ impl State {
 							&& updated.poll.is_some()
 							&& session_cache::Timeline::valid_message(&updated) =>
 					{
+						let updated = *updated;
 						self.resident.remove(channel);
 						if message.is_none() {
 							self.polls.created = self.polls.created.wrapping_add(1);
