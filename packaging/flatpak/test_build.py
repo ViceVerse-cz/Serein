@@ -1,6 +1,7 @@
 """Check offline preparation without downloading crates or touching a real toolchain."""
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -8,6 +9,10 @@ import unittest
 from unittest.mock import patch
 
 import build
+
+
+def clean_git_environment():
+    return {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
 
 
 class PreparationTest(unittest.TestCase):
@@ -23,7 +28,48 @@ class PreparationTest(unittest.TestCase):
     def test_tracked_symlink_is_rejected(self):
         self.prepare_fixture(symlink=True)
 
+    def test_inherited_git_environment_cannot_modify_parent_checkout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory) / "parent"
+            parent.mkdir()
+            subprocess.run(["git", "init", "--quiet", str(parent)], check=True, env=clean_git_environment())
+            tracked = parent / "parent-tracked"
+            tracked.write_text("parent source must remain unchanged")
+            subprocess.run(["git", "add", "parent-tracked"], cwd=parent, check=True, env=clean_git_environment())
+            index = parent / ".git/index"
+            before_index = index.read_bytes()
+            before_source = tracked.read_bytes()
+            inherited = {
+                "GIT_DIR": str(parent / ".git"),
+                "GIT_WORK_TREE": str(parent),
+                "GIT_INDEX_FILE": str(index),
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "core.worktree",
+                "GIT_CONFIG_VALUE_0": str(parent),
+                "SEREIN_FIXTURE_ENV": "retained",
+            }
+            original_output = subprocess.check_output
+
+            def checked_output(*args, **kwargs):
+                self.assertFalse(any(key.startswith("GIT_") for key in os.environ))
+                self.assertEqual(os.environ["SEREIN_FIXTURE_ENV"], "retained")
+                return original_output(*args, **kwargs)
+
+            before_environment = dict(os.environ)
+            with patch.dict(os.environ, inherited), patch.object(subprocess, "check_output", side_effect=checked_output):
+                polluted_environment = dict(os.environ)
+                self.prepare_fixture()
+                self.assertEqual(dict(os.environ), polluted_environment)
+            self.assertEqual(dict(os.environ), before_environment)
+            self.assertEqual(index.read_bytes(), before_index)
+            self.assertEqual(tracked.read_bytes(), before_source)
+            self.assertEqual({path.name for path in parent.iterdir()}, {".git", "parent-tracked"})
+
     def prepare_fixture(self, symlink=False):
+        with patch.dict(os.environ, clean_git_environment(), clear=True):
+            self._prepare_fixture(symlink)
+
+    def _prepare_fixture(self, symlink):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "repo"
             root.mkdir()
