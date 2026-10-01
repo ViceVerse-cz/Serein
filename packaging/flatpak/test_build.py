@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -17,6 +18,12 @@ class PreparationTest(unittest.TestCase):
         self.assertIn("RuntimeRepo=https://flathub.org/repo/flathub.flatpakrepo", ref)
 
     def test_locked_sources_and_exact_compiler_exclude_untracked_data(self):
+        self.prepare_fixture()
+
+    def test_tracked_symlink_is_rejected(self):
+        self.prepare_fixture(symlink=True)
+
+    def prepare_fixture(self, symlink=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "repo"
             root.mkdir()
@@ -29,6 +36,26 @@ class PreparationTest(unittest.TestCase):
             packaging.mkdir(parents=True)
             manifest = json.loads((build.ROOT / "packaging/flatpak/cz.viceverse.serein.json").read_text())
             (packaging / "cz.viceverse.serein.json").write_text(json.dumps(manifest))
+            subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+            subprocess.run(["git", "add", ".cargo/config.toml", "Cargo.lock", "rust-toolchain.toml",
+                            "packaging/flatpak/cz.viceverse.serein.json"], cwd=root, check=True)
+            (packaging / "private-untracked").write_text("must not copy packaging secrets")
+            initialized = root / "initialized-submodule"
+            initialized.mkdir()
+            subprocess.run(["git", "init", "--quiet", str(initialized)], check=True)
+            (initialized / "tracked-child").write_text("must not copy submodule content")
+            subprocess.run(["git", "add", "tracked-child"], cwd=initialized, check=True)
+            subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                            "commit", "--quiet", "-m", "Synthetic submodule"], cwd=initialized, check=True)
+            (initialized / "private-untracked").write_text("must not copy submodule secrets")
+            commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=initialized, text=True).strip()
+            for name in ["initialized-submodule", "uninitialized-submodule", "missing-submodule"]:
+                subprocess.run(["git", "update-index", "--add", "--cacheinfo", f"160000,{commit},{name}"],
+                               cwd=root, check=True)
+            (root / "uninitialized-submodule").mkdir()
+            if symlink:
+                (root / "tracked-symlink").symlink_to("private-untracked")
+                subprocess.run(["git", "add", "tracked-symlink"], cwd=root, check=True)
             compiler = Path(directory) / "compiler"
             (compiler / "bin").mkdir(parents=True)
             (compiler / "bin/rustc").write_text("compiler fixture")
@@ -44,13 +71,20 @@ class PreparationTest(unittest.TestCase):
                 return '[source.crates-io]\nreplace-with = "vendored-sources"\n[source.vendored-sources]\ndirectory = "cargo-vendor"'
 
             with patch.object(build, "ROOT", root), patch.object(build.platform, "system", return_value="Linux"), \
-                    patch.object(build, "output", side_effect=command), \
-                    patch.object(build.subprocess, "check_output", return_value=b".cargo/config.toml\0Cargo.lock\0rust-toolchain.toml\0"):
+                    patch.object(build, "output", side_effect=command):
+                if symlink:
+                    with self.assertRaisesRegex(ValueError, "Refusing symlink source: tracked-symlink"):
+                        build.prepare(destination)
+                    return
                 build.prepare(destination)
                 with self.assertRaises(FileExistsError):
                     build.prepare(destination)
             source = destination / "source"
             self.assertFalse((source / "private-untracked").exists())
+            self.assertFalse((source / "packaging/flatpak/private-untracked").exists())
+            for name in ["initialized-submodule", "uninitialized-submodule", "missing-submodule"]:
+                self.assertFalse((source / name).exists())
+            self.assertEqual(json.loads((source / "packaging/flatpak/cz.viceverse.serein.json").read_text()), manifest)
             self.assertEqual((source / "Cargo.lock").read_text(), "locked fixture")
             self.assertTrue((source / "flatpak-rust/bin/rustc").is_file())
             config = (source / ".cargo/config.toml").read_text()

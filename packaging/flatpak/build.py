@@ -43,9 +43,14 @@ def prepare(destination):
     source = destination / "source"
     source.mkdir()
     # Copy tracked working-tree inputs only: never private untracked files or target/.
-    paths = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT).decode().split("\0")
-    paths += [p.relative_to(ROOT).as_posix() for p in (ROOT / "packaging/flatpak").glob("*") if p.is_file()]
-    for name in sorted(set(paths) - {""}):
+    entries = subprocess.check_output(["git", "ls-files", "--stage", "-z"], cwd=ROOT).decode().split("\0")
+    paths = set()
+    for entry in filter(None, entries):
+        metadata, name = entry.split("\t", 1)
+        # A gitlink records a submodule commit, not a file or vendorable source tree.
+        if metadata.split()[0] != "160000":
+            paths.add(name)
+    for name in sorted(paths):
         src = ROOT / name
         if src.is_symlink():
             raise ValueError(f"Refusing symlink source: {name}")

@@ -2919,3 +2919,31 @@ No child/helper processes or active voice session were observed. The after demo
 release built successfully, but after-process sampling was not collected before
 the owner's expedited push request. Native CPU/RSS deltas, hardware performance,
 frame/startup latency and live account/audio behavior remain unmeasured.
+
+
+## Release validation CI repair (October 1, 2026)
+
+Baseline `44f4719adfcc4fb9781f2057be211d61efc97f61` and repaired build
+`5b4d7ec325f36628c8852876d2093c508ee1d4a5` used pinned Rust 1.98.1 on
+Ubuntu 26.04.1 x86_64, AMD Ryzen 5 7535U, approximately 14 GiB RAM. Each ran
+one standard voice-enabled `cargo xtask package`, `CARGO_BUILD_JOBS=2`, with
+`--release --locked -p serein --no-default-features`. Separate worktrees and
+independent copies of the dependency cache were used; all workspace packages
+were cleaned only in those copies to force a fresh build of each source revision.
+Both Debian package smoke checks passed, including installed contents, ownership,
+desktop metadata and the host shared-library closure.
+
+| Metric | Baseline bytes | After bytes | Absolute / percent delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| Standard executable | 79,645,232 | 79,645,232 | 0 / 0% | Packaged executable length |
+| Full installed Debian payload | 84,090,970 | 84,093,528 | +2,558 / +0.003042% | Sum of extracted regular files |
+| Compressed Debian distribution | 40,166,644 | 40,165,972 | -672 / -0.001673% | `.deb` file length |
+
+Installed files increased from 210 to 211. The complete payload increase is the
+2,195-byte upstream `yoke-derive` license and 363 added notice bytes. Executable
+hashes differ despite identical size; these are one build per revision and the
+tiny compressed delta is not an improvement claim. The compatible derive macro
+patch changes build-time string construction; Gateway, voice teardown and fuzz
+repairs affect only synthetic development tests. Runtime CPU, RSS, frame/startup
+latency and live account/audio behavior were not measured. Flatpak source-preparation repairs
+and this measurement documentation do not change the native installed payload.

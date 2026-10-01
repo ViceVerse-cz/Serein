@@ -13,7 +13,8 @@ python3 packaging/flatpak/build.py target/flatpak-build
 
 Install `flatpak` and `flatpak-builder` with your distribution's package manager
 first. The destination must not exist. Preparation copies tracked working-tree
-sources and downloads exactly Cargo.lock's registry/Git dependencies with
+files, excluding submodule gitlinks and private untracked files, and downloads
+exactly Cargo.lock's registry/Git dependencies with
 `cargo vendor --locked`. `--prepare-only` stops after this network-enabled step.
 The actual application build is offline inside Flatpak's build sandbox, using
 the standard release configuration including voice and bundled notices/source.
