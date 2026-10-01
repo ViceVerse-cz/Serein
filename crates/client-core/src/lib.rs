@@ -2393,7 +2393,7 @@ impl State {
 			&envelope.event,
 			Event::History { .. } | Event::Message(_) | Event::Patch(_) | Event::SendResult { .. }
 		)
-		.then(|| self.timeline.iter().last().map(|message| message.id))
+		.then(|| self.timeline.iter().next_back().map(|message| message.id))
 		.flatten();
 		let incoming_tail = match &envelope.event {
 			Event::Message(message)
@@ -3534,7 +3534,7 @@ impl State {
 			&& self
 				.timeline
 				.iter()
-				.last()
+				.next_back()
 				.is_none_or(|message| message.id < tail)
 		{
 			self.history_targeted = true;

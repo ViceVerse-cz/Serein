@@ -1,3 +1,207 @@
+# CPU/RAM deep dive — October 2, 2026
+
+Baseline `f16bc92fde374b91c5482daf802992f2373ee74c`, compared with the runtime
+changes delivered alongside this report. Both revisions were measured on macOS
+27.0 (26A428), Apple M1 MacBookAir10,1, 16 GiB RAM, pinned Rust 1.98.1 and locked
+dependencies. Main advanced during the audit by a Homebrew cask-only release
+update; measurements retain the recorded starting runtime source. Compiler work
+was serialized and stopped during measurements.
+All workloads are synthetic/offline; no saved account, network session, microphone
+or camera was used. Raw samples are in
+[`pr-evidence/cpu-memory/measurements.json`](pr-evidence/cpu-memory/measurements.json).
+
+The audit covered timeline/reducer/navigation work, retained histories and cache
+bounds, image worker cancellation, stream frame ownership, SQLite working sets,
+protocol projection, fonts and voice/media allocation paths. Three issues were
+fixed:
+
+- Timeline tail queries used forward iteration even though the ordered timeline
+  supports reverse iteration. Reducer reconciliation, read/live-edge/forward
+  cursors and UI tail queries now search from the newest end. A fully loaded
+  selected history checks its newest live row against the read marker, instead
+  of scanning every live row. Retained deleted rows are still skipped; empty and
+  partial histories retain their previous unread/navigation behavior.
+- Aborting an async image job does not stop a running `spawn_blocking` decoder.
+  Replacement workers previously had fresh admission limits while retired
+  decoders could still run. Eight process-wide slots now belong to the actual
+  blocking closures until they finish. Waiting admission is cancellable; existing
+  image byte budgets, download concurrency and result budgets are unchanged.
+- Screen watching allocated a new CPU image before dropping the previous
+  undisplayed frame. New frames reuse that pending allocation. Upload moves the
+  image out as before, preserving immutable pending uploads and retaining no
+  extra CPU frame after upload. Resolution growth avoids geometric over-allocation;
+  a major shrink releases oversized capacity. Invalid dimensions/lengths are
+  rejected without replacing the last valid frame.
+
+Existing byte/item cache budgets, shared/lazy fonts, bounded SQLite page cache,
+resident-history ownership and preallocated voice buffers did not reveal another
+confirmed issue in this audit. These checks are neither a proof of zero leaks nor
+an application-wide RAM cap. Encoded inputs, decoder scratch, completed results,
+pending uploads, textures and driver/framework memory have separate lifetimes.
+There was no cache-quality reduction or dependency change.
+
+## Release CPU and RAM measurements
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Reducer: 100,000 events, median | 153.985 ms | 53.504 ms | -100.481 ms / -65.25% |
+| Cursor triples: full history, median | 263.428 ms | 6.948 ms | -256.481 ms / -97.36% |
+| Cursor triples: ten deleted tail rows, median | 341.132 ms | 16.075 ms | -325.057 ms / -95.29% |
+| 120 frame conversions: all coalesced | 147.600 ms | 147.330 ms | -0.271 ms / -0.18% |
+| Frame test peak RSS: all coalesced | 34.406 MiB | 26.516 MiB | -7.891 MiB / -22.93% |
+| Frame test peak footprint: all coalesced | 26.501 MiB | 18.579 MiB | -7.922 MiB / -29.89% |
+| 120 frame conversions: upload every third frame | 148.299 ms | 147.927 ms | -0.372 ms / -0.25% |
+| Frame test peak RSS: upload every third frame | 34.438 MiB | 34.438 MiB | 0.000 MiB / +0.00% |
+| Frame test peak footprint: upload every third frame | 26.516 MiB | 26.501 MiB | -0.016 MiB / -0.06% |
+| Standard desktop executable | 62,006,096 bytes | 62,006,112 bytes | 16 bytes / +0.00% |
+| Complete installed bundle | 68,016,525 bytes | 68,016,541 bytes | 16 bytes / +0.00% |
+| Complete distribution ZIP | 43,249,803 bytes | 43,251,982 bytes | 2,179 bytes / +0.01% |
+
+Reducer method: build once per revision with `--release --locked`, run the
+preserved `replay-bench` directly for one warmup followed by five alternating
+baseline/after pairs. Baseline elapsed range was 152.415..154.912 ms; after
+52.668..54.331 ms. The 100,000-event workload retained 500 rows and
+331,992..332,477 estimated timeline bytes in both builds. Elapsed time is a CPU
+workload proxy, not native frame latency or process RSS.
+
+Cursor method: identical test-only workload in each revision's release core test
+binary, one warmup and five batches per case. Each batch performs 100,000
+live-edge/forward/unread query triples with 500 retained rows, read marker 500 and
+latest metadata 501. Full-history elapsed ranges were 251.867..276.234 ms before
+and 5.455..9.996 ms after. With ten retained deleted tail rows, ranges were
+340.092..342.216 ms before and 15.997..17.787 ms after. Retained estimates were
+unchanged at 776,996 and 778,508 bytes respectively. This deliberately isolates a
+hot lookup; it does not predict that percentage improvement for the entire UI.
+
+Frame method: the changed release desktop test executable contains an exact
+original allocation-per-frame comparator selected by
+`SEREIN_WATCH_FRAME_LEGACY=1`; unset uses production reuse. Five alternating
+fresh-process pairs per upload scenario, each with one warmup and five measured
+batches of 120 opaque synthetic 1920×1080 frames. Input is 8,294,400 bytes in both
+modes. `/usr/bin/time -l` reports the whole test process's lifetime maximum RSS
+and peak physical footprint; the table uses medians across the five processes.
+Elapsed values are medians of each process's five batches, then across processes.
+Upload interval 0 holds all frames undisplayed. Interval 3 models ownership moving
+out every third frame and a pending CPU upload; it does not run a GPU or codec.
+Release frame elapsed distributions overlap; no conversion CPU improvement is
+claimed. Coalesced-frame peak RSS falls by about one 1080p frame; peak RSS with
+third-frame uploads is unchanged because producer and upload ownership still
+overlap. A fully consuming UI still needs a new frame allocation after each
+ownership transfer. The production transport already bounds frames to 1920 per
+side and 1920×1080 total pixels.
+
+Debug builds use egui's optimized conversion in chunks with at most 64 KiB scratch.
+The same coalesced-frame workload in one fresh process per mode measured
+190.149 → 210.654 ms per 120 frames (+10.8%, about +0.171 ms/frame), while peak
+RSS fell from 38,076,416 to 30,392,320 bytes (-20.2%). This debug CPU/RAM tradeoff
+is separate from the release result; no universal CPU improvement is claimed.
+
+## Native process and lifecycle observations
+
+| Native focused idle metric | Baseline | After | Delta / interpretation |
+| --- | ---: | ---: | --- |
+| Mean CPU, one logical core | 1.180% | 1.275% | +0.096 percentage points; no improvement claim |
+| Post-warmup sampled peak RSS | 124.500 MiB | 127.219 MiB | +2.719 MiB / +2.18%; RSS, not an allocation budget |
+| Settled sampled RSS | 108.766 MiB | 111.484 MiB | +2.719 MiB / +2.50%; last five sample median |
+| Settled / peak physical footprint | 82.1M / 100.6M | 82.4M / 113.9M | +0.3M / +13.3M; lifetime peak difference reversed in repeat |
+
+The native release fixture used `--no-default-features --features demo`, Metal
+on Apple M1, a 1120×760 logical window at display scale 2, and
+`--demo --demo-friends --demo-frame-sample=10,20`. `caffeinate -d -u` kept the
+display awake. After a ten-second warmup, twenty one-second `ps` samples recorded
+process CPU-time deltas and RSS; settled RSS is the median of the last five.
+CPU is percentage of one logical core. Centisecond CPU-time precision gives
+roughly one-percentage-point quantization at this interval. Both fixtures focused
+the search/caret and completed their diagnostic interval; no scripted typing or
+scrolling was injected and no helper children were present. An earlier sleeping
+display run produced no completed frame interval and was excluded.
+
+Baseline/after diagnostic intervals completed 40/40 callbacks over
+20596/20139 ms, all without input and with search/viewport focus.
+Maximum measured callback wall time was 1801/1906 µs.
+Callback instrumentation excludes tessellation and presentation. Startup latency,
+full-frame p95, GPU memory and real message/media workloads remain unmeasured.
+The first changed idle process had a higher lifetime peak physical footprint
+(113.9M versus 100.6M), while its settled footprint was close (82.4M versus
+82.1M). An additional matched fresh-process pair measured settled/peak physical
+footprints of 82.1M/113.7M before and
+82.2M/100.5M after. Its mean CPU was
+1.374%/1.422% and settled RSS
+111.172/111.266 MiB. The raw file retains
+both pairs; lifetime peaks include startup and can vary independently of settled
+RSS. The higher changed-build peak did not repeat. Two launches per revision do
+not isolate a startup-memory cause. These changes target loaded timelines, decoder
+replacement and coalesced video; the focused idle fixture does not exercise all
+three. No native idle CPU/RAM improvement is claimed.
+
+Lifecycle process peak RSS was 17.688 → 17.719 MiB;
+peak physical footprint 16.485 → 16.532 MiB.
+Baseline/after completed 2,092/3,625 passes, 66,944/116,000 channel visits,
+40,166,400/69,600,000 inserts and 9/15 logout cycles in about 60.013 seconds.
+Steady retained history estimates matched: 856,392..9,786,824 bytes for the small
+case and 6,178,192..13,395,456 bytes for the large case.
+
+The one-minute release lifecycle workload alternates row- and byte-pressure
+channel visits, insert/eviction and logout cycles. It has no SQLite, renderer or
+audio devices. Retained-byte assertions remained within their existing budgets;
+process peaks are measurements, not the retained estimates. One soak per revision
+cannot establish long-session leak freedom or allocator behavior on other systems.
+
+## Package, checks and reproduction
+
+Both standard voice-enabled `cargo xtask package` builds passed without
+`demo`/`developer-session`; baseline and changed distributions were preserved
+separately. Installed bytes sum all regular files in the complete bundle,
+including notices/assets; both contain 206 files. ZIPs use
+`ditto -c -k --sequesterRsrc`. Packages are locally ad-hoc signed and not notarized.
+
+Focused core tests passed (128 tests, two ignored), along with six frame ownership,
+resize, invalid-input and alpha regression tests and both decoder cancellation
+regressions. The frame regressions and both decoder cancellation tests also
+passed in release. `cargo xtask check` passed formatting and strict
+workspace/all-target Clippy but stopped at unchanged loopback fixtures.
+The final `cargo test --workspace --locked --no-fail-fast` run recorded 998 passing,
+three failing and 25 ignored test executions. `cargo xtask policy` and the standard
+`cargo check --locked -p serein --no-default-features` passed.
+
+Failures were the Gateway identify/resume and outgoing-activity loopback tests
+(`WrongHttpMethod`) and the voice mixed-audio/resume test (an unexpected accepted
+connection). A separate ephemeral loopback listener received an unsolicited HEAD
+request without any test client. The pinned WebSocket server rejects that method;
+the fixture client sends GET. The same host interference was already documented
+in the earlier September audit. No transport tests were disabled or unrelated
+transport changes made. The PR stays draft for this host test blocker; CI status
+is reported separately. Linux, Windows and live Discord/media behavior are untested.
+
+The baseline revision predates `timeline_cursor_workload`. For the cursor
+comparison, copy only that new ignored test function into the baseline
+`read_state::navigation_tests` module before building its core test executable;
+the existing `state`/`message` helpers suffice. Keep all baseline production
+code unchanged. Confirm the exact filtered invocation runs one test rather than
+zero. This is the same test-only port used for the recorded baseline. The frame
+comparator runs only in the changed desktop test binary, which contains both the
+original allocation path and production reuse.
+
+To reproduce, build each revision once, preserve its executables and run without
+concurrent compiler work:
+
+```bash
+cargo build --locked --release -p replay-bench
+cargo test --locked --release -p client-core --no-run
+cargo test --locked --release -p serein --no-default-features --bin serein --no-run
+cargo build --locked --release -p serein --no-default-features --features demo
+cargo xtask package
+```
+
+Run the emitted core test executable with
+`read_state::navigation_tests::timeline_cursor_workload --ignored --exact --nocapture`.
+Run the desktop test executable with
+`watch::tests::watch_frame_memory_workload --ignored --exact --nocapture` under
+`/usr/bin/time -l`; compare legacy/unset and upload intervals 0/3 via
+`SEREIN_WATCH_FRAME_UPLOAD_EVERY`. Run preserved replay executables directly,
+then `/usr/bin/time -l <replay-bench> --soak 60` separately. The raw sample file
+records workload counts, flags and metric units.
+
 # Custom Rich Presence - September 28, 2026
 
 Baseline `5dd38dde6432e7efe4484c450652a9c8849ec357`, compared with

@@ -3396,7 +3396,7 @@ impl TimelineView {
 			ui.add_space((total - used).max(0.0));
 			for (index, (pending, height)) in pending_rows.iter().enumerate() {
 				let compact = index > 0
-					|| state.timeline.iter().last().is_some_and(|previous| {
+					|| state.timeline.iter().next_back().is_some_and(|previous| {
 						let now = crate::local_time::now();
 						state
 							.user
@@ -3481,7 +3481,7 @@ impl TimelineView {
 		// The live edge counts even when service latest metadata outlived a deleted message;
 		// otherwise the unread banners could never resolve for that channel.
 		self.at_current_latest = state.live_edge_latest().is_some()
-			|| state.timeline.iter().last().is_some_and(|message| {
+			|| state.timeline.iter().next_back().is_some_and(|message| {
 				state.channels.iter().any(|channel| {
 					Some(channel.id) == state.selected && channel.last_message == Some(message.id)
 				})
