@@ -2474,6 +2474,14 @@ mod tests {
 								return Ok(());
 							}
 							Event::Startup(_) => "ready",
+							Event::Onboarding(client_core::onboarding::Event::Gates {
+								snapshot,
+								gates,
+							}) => {
+								assert!(snapshot);
+								assert!(gates.is_empty());
+								"onboarding"
+							}
 							Event::Resumed => "resumed",
 							Event::DirectPresence(_) => "presence",
 							Event::Resync => "resync",
@@ -2555,7 +2563,14 @@ mod tests {
 						.filter(|event| *event != "disconnected")
 						.collect::<Vec<_>>(),
 					[
-						"ready", "resumed", "presence", "resync", "ready", "settings"
+						"ready",
+						"onboarding",
+						"resumed",
+						"presence",
+						"resync",
+						"ready",
+						"settings",
+						"onboarding"
 					]
 				);
 			})
