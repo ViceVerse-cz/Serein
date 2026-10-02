@@ -150,11 +150,7 @@ fn budget(key: &str) -> Budget {
 		Motion::Still => Budget {
 			fit: longest,
 			encoded: media_encoded(&rendition),
-			canvas: match rendition.size {
-				_ if heic_source(rendition.source.as_str()) => 8192,
-				Size::Exact { .. } => (longest * 2).min(8192),
-				Size::Longest(_) => 8192,
-			},
+			canvas: 8192,
 			alloc: 128 * 1024 * 1024,
 			frames: None,
 		},
@@ -601,16 +597,6 @@ struct MediaUrls {
 	fallback: Option<String>,
 }
 
-fn heic_source(source: &str) -> bool {
-	source
-		.split(['?', '#'])
-		.next()
-		.and_then(|path| path.rsplit_once('.'))
-		.is_some_and(|(_, ext)| {
-			ext.eq_ignore_ascii_case("heic") || ext.eq_ignore_ascii_case("heif")
-		})
-}
-
 fn media_urls(rendition: &Rendition) -> Option<MediaUrls> {
 	let source = rendition.source.as_str();
 	let size = rendition.size;
@@ -630,8 +616,7 @@ fn media_urls(rendition: &Rendition) -> Option<MediaUrls> {
 		}
 		Motion::Still => (
 			proxy_url(source, size, ProxyFormat::LosslessWebp),
-			heic_source(source).then_some(()).and_then(|_| {
-				let mut original = proxy_base(source)?;
+			proxy_base(source).and_then(|mut original| {
 				if !original.path().starts_with("/attachments/") {
 					return None;
 				}
@@ -651,8 +636,7 @@ fn media_urls(rendition: &Rendition) -> Option<MediaUrls> {
 		),
 	};
 	#[cfg(target_os = "windows")]
-	if heic_source(source)
-		&& rendition.lane == Lane::Viewer
+	if rendition.lane == Lane::Viewer
 		&& let Some(original) = fallback.clone()
 	{
 		return Some(MediaUrls {
@@ -1319,7 +1303,8 @@ fn decode(bytes: &[u8], budget: &Budget) -> Option<egui::ColorImage> {
 		return None;
 	}
 	if platform::heic::is_heic(bytes) {
-		let (width, height, rgba) = platform::heic::decode(bytes, budget.canvas, budget.alloc)?;
+		let (width, height, rgba) =
+			platform::heic::decode(bytes, budget.canvas, budget.alloc, budget.fit)?;
 		let image = resize_to(image::RgbaImage::from_raw(width, height, rgba)?, budget.fit);
 		return Some(egui::ColorImage::from_rgba_unmultiplied(
 			[image.width() as usize, image.height() as usize],
@@ -2868,6 +2853,20 @@ mod tests {
 #[cfg(all(debug_assertions, feature = "demo"))]
 pub(crate) fn debug_heic_check() {
 	ui::debug_heic_layout_check();
+	let suffixless = Rendition::parse(
+		"media:is:e512:https://media.discordapp.net/attachments/1/2/Attachment?ex=abc&hm=def",
+	)
+	.unwrap();
+	assert_eq!(
+		media_urls(&suffixless).unwrap().fallback.as_deref(),
+		Some("https://cdn.discordapp.com/attachments/1/2/Attachment?ex=abc&hm=def")
+	);
+	let external = Rendition::parse(
+		"media:is:e512:https://images-ext-1.discordapp.net/external/abcdefghijklmnop/https/example.com/photo.png",
+	)
+	.unwrap();
+	assert!(media_urls(&external).unwrap().fallback.is_none());
+
 	for (filename, content_type, image) in [
 		("shelf-christmas-decoration.heic", None, true),
 		("photo.HEIC", Some("application/octet-stream"), true),

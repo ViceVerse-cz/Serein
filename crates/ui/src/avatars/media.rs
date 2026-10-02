@@ -975,7 +975,7 @@ impl Avatars {
 			.is_some_and(|(_, ext)| {
 				ext.eq_ignore_ascii_case("heic") || ext.eq_ignore_ascii_case("heif")
 			});
-		let size = if viewer && heic {
+		let size = if viewer && (heic || native.is_none()) {
 			// Use the maximum existing rendition instead of treating a thumbnail as native size.
 			Size::Longest(Edge::for_target(4096.0, None))
 		} else {
