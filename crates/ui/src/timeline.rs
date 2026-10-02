@@ -3596,8 +3596,7 @@ impl TimelineView {
 							.is_some_and(|pos| output.inner_rect.contains(pos)))
 			}) && state.can_load_older();
 		if self.load_older {
-			self.following = false;
-			self.jump = false;
+			self.browse_away();
 		}
 		// Discord-style overlays: an unread strip hangs from the top edge, the typing indicator
 		// floats in the reserved strip above the composer, and a round control offers the way
@@ -4047,10 +4046,41 @@ mod tests {
 		);
 		assert!(!view.following);
 		assert!(state.older_history().is_some());
+		for _ in 0..3 {
+			banner_frame(&ctx, &mut view, &mut state, vec![], false);
+			assert!(
+				!view.following && view.target_browsing,
+				"waiting for a page preserves browsing intent"
+			);
+		}
 		banner_frame(&ctx, &mut view, &mut state, wheel(120.0), false);
 		assert!(
 			!view.load_older,
 			"pending history must suppress duplicate requests"
+		);
+		let mut older = text_message(19);
+		older.content = "Synthetic older text\n\n".repeat(40);
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::History {
+				channel: Id(20),
+				request: state.request,
+				older: true,
+				messages: vec![older],
+			},
+		});
+		assert!(!state.history_pending);
+		for _ in 0..4 {
+			banner_frame(&ctx, &mut view, &mut state, vec![], false);
+			assert!(
+				!view.following && view.target_browsing,
+				"an arriving older page must not jump to the live edge"
+			);
+		}
+		view.follow_latest(&state);
+		assert!(
+			view.following && !view.target_browsing,
+			"explicit latest navigation still resumes following"
 		);
 	}
 
