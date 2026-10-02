@@ -111,7 +111,12 @@ esac
 
 ARCH=$(uname -m)
 case "$ARCH" in
-    x86_64) ;;
+    x86_64) DEB_ARCH=amd64 ;;
+    aarch64|arm64)
+        [ "$DISTRO_ID:${VERSION_ID:-}" = ubuntu:26.04 ] || \
+            error "Architecture $ARCH is supported only on Ubuntu 26.04."
+        DEB_ARCH=arm64
+        ;;
     *)
         error "Architecture $ARCH is not currently supported by Serein package repositories."
         ;;
@@ -119,7 +124,7 @@ esac
 
 # Native packages must match the distribution that built their shared libraries.
 case "$DISTRO_ID:${VERSION_ID:-}" in
-    ubuntu:26.04) REPO_PATH="ubuntu-26.04/amd64/apt" ;;
+    ubuntu:26.04) REPO_PATH="ubuntu-26.04/$DEB_ARCH/apt" ;;
     fedora:43|fedora:44) REPO_PATH="fedora-$VERSION_ID/$ARCH/rpm" ;;
     opensuse-tumbleweed:*) REPO_PATH="opensuse-tumbleweed/$ARCH/rpm" ;;
     arch:*) REPO_PATH="arch/$ARCH/arch" ;;
@@ -143,7 +148,7 @@ case "$DISTRO_ID" in
         log "Installing APT keyring and source list..."
         $SUDO install -Dm644 "$KEY_FILE" /etc/apt/keyrings/serein.asc
 
-        printf 'deb [arch=amd64 signed-by=/etc/apt/keyrings/serein.asc] %s ./\n' "$REPO_URL" | \
+        printf 'deb [arch=%s signed-by=/etc/apt/keyrings/serein.asc] %s ./\n' "$DEB_ARCH" "$REPO_URL" | \
             $SUDO tee /etc/apt/sources.list.d/serein.list >/dev/null
 
         log "Updating APT package lists..."
