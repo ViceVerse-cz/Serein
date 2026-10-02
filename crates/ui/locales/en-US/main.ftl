@@ -2166,9 +2166,9 @@ reading-chat-reading-settings-scrolling-speed = Scrolling speed
 # Context: chat_reading_settings
 reading-chat-reading-settings-smooth-scrolling = Smooth scrolling
 # Context: chat_reading_settings
-reading-chat-reading-settings-compact-message-spacing = Compact message spacing
+reading-chat-reading-settings-compact-message-spacing = Compact messages
 # Context: chat_reading_settings
-reading-chat-reading-settings-tighter-gaps-between-message-groups = Tighter gaps between message groups fit more messages on screen.
+reading-chat-reading-settings-tighter-gaps-between-message-groups = Show names beside messages without avatars, with tighter message and divider spacing.
 # Context: chat_reading_settings
 reading-chat-reading-settings-visible-chat-gifs-play-automatically = Visible chat GIFs play automatically.
 # Context: layout_settings
@@ -4496,3 +4496,7 @@ server-emoji-empty-animated = No animated emoji yet
 server-emoji-empty-detail = Upload an image to add one. GIFs become animated emoji.
 
 server-stickers-empty-detail = Upload artwork to add your first sticker.
+
+screen-macos-system-picker = Choose with the macOS system picker
+
+screen-macos-system-picker-kind = System content picker

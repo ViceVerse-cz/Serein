@@ -20,7 +20,7 @@ pub fn is_heic(bytes: &[u8]) -> bool {
 				.as_chunks::<4>()
 				.0
 				.iter()
-				.map(<[u8; 4]>::as_slice),
+				.map(|brand| brand.as_slice()),
 		)
 		.any(|brand| matches!(brand, b"heic" | b"heix" | b"heim" | b"heis"))
 }

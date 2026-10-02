@@ -1,5 +1,18 @@
 # Local storage policy and audit
 
+## macOS system sharing picker (October 2, 2026)
+
+macOS discovery retains one generic picker source instead of enumerating window
+titles. After explicit sharing, the worker receives at most one native picker
+result through a one-slot channel. It validates finite, positive dimensions and
+the existing source bounds before retaining the selected filter. Waiting is capped
+at two minutes and checks cancellation every 20 ms; stale results are discarded.
+Existing screen worker retirement prevents overlapping capture workers. The native
+bridge owns one pending callback until completion/cancellation or replacement by
+the next picker; it contains only the result sender, with no account secrets.
+Neither picker metadata nor selected window titles are persisted or logged.
+Existing frame/audio byte limits, encryption gates and capture cleanup still apply.
+
 ## Image decoder lifetime and stream frame reuse (October 2, 2026)
 
 Each image worker still admits eight loads. Blocking image decoders now share

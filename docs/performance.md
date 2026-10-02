@@ -2503,6 +2503,47 @@ request/response latency, p95 frames, GPU memory and live service behavior are
 unmeasured. Raw samples, hashes and provenance are in
 `docs/pr-evidence/short-history-pagination/measurements.json`.
 
+## Compact IRC chat layout (October 2, 2026)
+
+Exact parent `71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35` compared with
+`e5b98f831568094d40ca779267601ee279ed13bb`. The runtime difference is limited to
+compact message authors/spacing, leading-block layout and English/Czech labels.
+Both revisions use the same pinned toolchain, lockfile and voice-inclusive shipping package.
+Workspace-name artifacts were invalidated across worktree PackageIDs before fresh builds;
+all twelve runtime crates compiled from their own worktrees. Immutable copied packages
+passed strict/deep ad-hoc signature verification; they are not notarized releases.
+
+| Same-method standard package | Parent71 | Compact e5 | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 62,269,488 B | 62,269,504 B | +16 B (+0.00003%) |
+| Installed files | 68,279,917 B | 68,279,933 B | +16 B (+0.00002%) |
+| ZIP | 43,363,423 B | 43,364,562 B | +1,139 B (+0.00263%) |
+| File count | 206 | 206 | 0 |
+
+The package uses normal fat LTO. A separate matched native pair uses instrument-free
+**default-plus-demo thin LTO** builds on Apple M1/macOS 27/16 GiB/Metal; the process-only
+`CARGO_PROFILE_RELEASE_LTO=thin` override and other release flags are identical.
+The native workload is ordinary `--demo --demo-chat`, with five seconds warmup and ten
+one-second `ps` samples. All four build owners explicitly paused compilers, native apps
+and heavy IO before the pair. Both native processes stopped with the intended SIGINT.
+
+| Quiet native idle | Parent71 | Compact e5 | Delta |
+| --- | ---: | ---: | ---: |
+| Median process CPU | 0.0% | 0.0% | 0.0 percentage points |
+| Peak RSS | 125,616 KiB | 125,952 KiB | +336 KiB |
+| Settled RSS (last-five median) | 125,568 KiB | 125,904 KiB | +336 KiB (+0.268%) |
+
+This small RSS difference is process-to-process noise; no improvement is claimed.
+Active compact frame timing is unmeasured. Two actual egui glyph/height regressions
+verify ordinary/pending authors, shorter rows, density preservation, leading quote/code
+and long-author bounds at 900/440 points. Fresh full workspace/strict/policy checks passed
+(369 UI and 168 desktop tests). All thirteen current native after frames were captured
+and inspected; historical before-frame source IDs remain explicit in the capture record.
+Hooks were removed byte-exactly before packaging. Linux/Windows native appearance and
+live service compatibility are unmeasured. Raw samples, sizes, hashes and build provenance
+are in `docs/pr-evidence/compact-chat/measurements.json`; per-image identities are in
+`docs/pr-evidence/compact-chat/capture.json`.
+
 ## History copies and decoded-image backpressure — September 26, 2026
 
 Baseline `dad3c26c`, compared with this PR on macOS 27.0 (26A428), Apple M1 Pro,

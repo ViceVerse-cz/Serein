@@ -8,7 +8,21 @@ pub struct Settings {
 }
 
 impl Settings {
+	pub fn from_preferences(value: Result<AppPreferences, local_store::StoreError>) -> Self {
+		let mut settings = Self {
+			loaded: value.is_ok(),
+			current: value.unwrap_or_default(),
+			..Self::default()
+		};
+		settings.state.failed = !settings.loaded;
+		settings
+	}
 	pub fn save(&mut self, cache: Option<&crate::cache::Cache>, generation: u64) -> bool {
+		// Never replace an unread preference row with startup defaults after a read failure.
+		if !self.loaded {
+			self.state.failed = true;
+			return false;
+		}
 		if !self.state.dirty || self.state.saving {
 			return false;
 		}

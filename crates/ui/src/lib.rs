@@ -382,6 +382,8 @@ pub struct MessagingUi {
 	voice_fullscreen_request: Option<bool>,
 	/// Whether the other participants stay visible as a strip under the enlarged tile.
 	pub voice_focus_participants: bool,
+	/// How far the call stage's hover chrome (and tile name badges) has faded out: 0 shown.
+	voice_chrome_hidden: f32,
 	/// Session-only visibility of the selected guild voice channel's chat.
 	pub voice_chat_open: bool,
 	/// Tile click to start (`Some(user)`) or stop (`None`) watching, applied by the stage.
@@ -1975,7 +1977,6 @@ impl MessagingUi {
 		commands: &mut Vec<Command>,
 	) {
 		let colors = design::palette(ui);
-		let language = self.language;
 		egui::Panel::top("channel-header")
 			.exact_size(48.0)
 			.show_separator_line(false)
@@ -2004,340 +2005,353 @@ impl MessagingUi {
 					rect.bottom(),
 					egui::Stroke::new(1.0, colors.border),
 				);
-				let channel = state.selected.and_then(|id| state.channel(id)).cloned();
-				let dm = channel
-					.as_ref()
-					.is_some_and(|c| c.kind == 1 && c.guild.is_none());
-				let shortcuts_available = self.shortcuts_available(state);
-				ui.horizontal_centered(|ui| {
-					ui.spacing_mut().item_spacing.x = 8.0;
-					let voice_chat_label = language.text(if self.voice_chat_open {
-						"hide-chat"
-					} else {
-						"show-chat"
-					});
-					match channel.as_ref() {
-						Some(c) if c.guild.is_none() && c.kind == 3 => {
-							let avatar = self.avatars.show_group(ui, c, 24.0, state.demo);
-							self.group_menu.context(
+				self.channel_header_row(
+					ui,
+					state,
+					selected_voice,
+					show_members,
+					wide_members,
+					commands,
+				);
+			});
+	}
+
+	/// The header's avatar, name and actions; the DM call stage draws it over the call.
+	pub(crate) fn channel_header_row(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		selected_voice: bool,
+		show_members: bool,
+		wide_members: bool,
+		commands: &mut Vec<Command>,
+	) {
+		let colors = design::palette(ui);
+		let language = self.language;
+		let channel = state.selected.and_then(|id| state.channel(id)).cloned();
+		let dm = channel
+			.as_ref()
+			.is_some_and(|c| c.kind == 1 && c.guild.is_none());
+		let shortcuts_available = self.shortcuts_available(state);
+		ui.horizontal_centered(|ui| {
+			ui.spacing_mut().item_spacing.x = 8.0;
+			let voice_chat_label = language.text(if self.voice_chat_open {
+				"hide-chat"
+			} else {
+				"show-chat"
+			});
+			match channel.as_ref() {
+				Some(c) if c.guild.is_none() && c.kind == 3 => {
+					let avatar = self.avatars.show_group(ui, c, 24.0, state.demo);
+					self.group_menu.context(
+						&avatar,
+						state,
+						c,
+						shortcuts::ShortcutView::new(
+							&self.channel_preferences,
+							shortcuts_available,
+						),
+					);
+				}
+				Some(c) if c.guild.is_none() => {
+					if let Some(user) = c.recipients.first() {
+						// Header avatar identifies the conversation; the profile is a
+						// context-menu action, not a click target.
+						let avatar = self.avatars.show_plain(ui, user, 24.0, state.demo);
+						if dm {
+							user_menu::show_with_pin(
 								&avatar,
 								state,
-								c,
-								shortcuts::ShortcutView::new(
+								user,
+								&mut self.profile,
+								&mut self.user_action,
+								Some(shortcuts::ShortcutView::new(
 									&self.channel_preferences,
 									shortcuts_available,
-								),
+								)),
 							);
 						}
-						Some(c) if c.guild.is_none() => {
-							if let Some(user) = c.recipients.first() {
-								// Header avatar identifies the conversation; the profile is a
-								// context-menu action, not a click target.
-								let avatar = self.avatars.show_plain(ui, user, 24.0, state.demo);
-								if dm {
-									user_menu::show_with_pin(
-										&avatar,
-										state,
-										user,
-										&mut self.profile,
-										&mut self.user_action,
-										Some(shortcuts::ShortcutView::new(
-											&self.channel_preferences,
-											shortcuts_available,
-										)),
-									);
-								}
-								let (status, _, _, clients) =
-									profiles::presence(state, user.id, None);
-								if dm && let Some(status) = status {
-									profiles::presence_badge(
-										ui,
-										avatar.rect,
-										status,
-										clients,
-										colors.sidebar,
-									);
-								}
-							} else {
-								icons::inline(ui, icons::Icon::People, 22.0, colors.muted);
-							}
+						let (status, _, _, clients) = profiles::presence(state, user.id, None);
+						if dm && let Some(status) = status {
+							profiles::presence_badge(
+								ui,
+								avatar.rect,
+								status,
+								clients,
+								colors.sidebar,
+							);
 						}
-						Some(c) => {
-							let icon = match c.kind {
-								2 | 13 => icons::Icon::Speaker,
-								5 => icons::Icon::Megaphone,
-								15 | 16 => icons::Icon::Forum,
-								10..=12 => icons::Icon::Thread,
-								_ => icons::Icon::Hash,
-							};
-							icons::inline(ui, icon, 22.0, colors.muted);
-						}
-						None => {}
+					} else {
+						icons::inline(ui, icons::Icon::People, 22.0, colors.muted);
 					}
-					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-						ui.spacing_mut().item_spacing.x = 4.0;
-						if selected_voice
-							&& icons::toggle(
-								ui,
-								icons::Icon::Forum,
-								32.0,
-								self.voice_chat_open,
-								&voice_chat_label,
+				}
+				Some(c) => {
+					let icon = match c.kind {
+						2 | 13 => icons::Icon::Speaker,
+						5 => icons::Icon::Megaphone,
+						15 | 16 => icons::Icon::Forum,
+						10..=12 => icons::Icon::Thread,
+						_ => icons::Icon::Hash,
+					};
+					icons::inline(ui, icon, 22.0, colors.muted);
+				}
+				None => {}
+			}
+			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+				ui.spacing_mut().item_spacing.x = 4.0;
+				if selected_voice
+					&& icons::toggle(
+						ui,
+						icons::Icon::Forum,
+						32.0,
+						self.voice_chat_open,
+						&voice_chat_label,
+					)
+					.clicked()
+				{
+					self.voice_chat_open = !self.voice_chat_open;
+					self.focus_switched_composer = self.voice_chat_open;
+				}
+				if let Some(c) = channel
+					.as_ref()
+					.filter(|c| c.guild.is_none() && c.kind == 3)
+				{
+					self.group_menu.dropdown(
+						ui,
+						state,
+						c,
+						shortcuts::ShortcutView::new(
+							&self.channel_preferences,
+							shortcuts_available,
+						),
+					);
+				}
+				if state.selected.is_some() && !selected_voice {
+					if self.search.open && !self.search.pins() {
+						ui.allocate_ui_with_layout(
+							egui::vec2(240.0_f32.min(ui.available_width() * 0.5).max(120.0), 28.0),
+							egui::Layout::left_to_right(egui::Align::Center),
+							|ui| self.search.header_input(ui, state, commands),
+						);
+					} else {
+						// Search pill.
+						let (pill, response) =
+							ui.allocate_exact_size(egui::vec2(144.0, 28.0), egui::Sense::click());
+						let enabled = state.can_search();
+						response.widget_info(|| {
+							egui::WidgetInfo::labeled(
+								egui::Role::Button,
+								enabled,
+								language.text("search"),
 							)
-							.clicked()
+						});
+						ui.painter().rect_filled(pill, 6, colors.raised);
+						let pill_text = if enabled {
+							colors.muted
+						} else {
+							colors.muted.gamma_multiply(0.5)
+						};
+						ui.painter().text(
+							pill.left_center() + egui::vec2(10.0, 0.0),
+							egui::Align2::LEFT_CENTER,
+							language.text("search"),
+							egui::FontId::proportional(13.0),
+							pill_text,
+						);
+						icons::paint(
+							ui.painter(),
+							icons::Icon::Search,
+							egui::Rect::from_center_size(
+								pill.right_center() - egui::vec2(14.0, 0.0),
+								egui::Vec2::splat(16.0),
+							),
+							pill_text,
+						);
+						if enabled
+							&& response
+								.on_hover_text(language.text("search-conversation"))
+								.clicked()
 						{
-							self.voice_chat_open = !self.voice_chat_open;
-							self.focus_switched_composer = self.voice_chat_open;
-						}
-						if let Some(c) = channel
-							.as_ref()
-							.filter(|c| c.guild.is_none() && c.kind == 3)
-						{
-							self.group_menu.dropdown(
-								ui,
-								state,
-								c,
-								shortcuts::ShortcutView::new(
-									&self.channel_preferences,
-									shortcuts_available,
-								),
-							);
-						}
-						if state.selected.is_some() && !selected_voice {
-							if self.search.open && !self.search.pins() {
-								ui.allocate_ui_with_layout(
-									egui::vec2(
-										240.0_f32.min(ui.available_width() * 0.5).max(120.0),
-										28.0,
-									),
-									egui::Layout::left_to_right(egui::Align::Center),
-									|ui| self.search.header_input(ui, state, commands),
-								);
-							} else {
-								// Search pill.
-								let (pill, response) = ui.allocate_exact_size(
-									egui::vec2(144.0, 28.0),
-									egui::Sense::click(),
-								);
-								let enabled = state.can_search();
-								response.widget_info(|| {
-									egui::WidgetInfo::labeled(
-										egui::Role::Button,
-										enabled,
-										language.text("search"),
-									)
-								});
-								ui.painter().rect_filled(pill, 6, colors.raised);
-								let pill_text = if enabled {
-									colors.muted
-								} else {
-									colors.muted.gamma_multiply(0.5)
-								};
-								ui.painter().text(
-									pill.left_center() + egui::vec2(10.0, 0.0),
-									egui::Align2::LEFT_CENTER,
-									language.text("search"),
-									egui::FontId::proportional(13.0),
-									pill_text,
-								);
-								icons::paint(
-									ui.painter(),
-									icons::Icon::Search,
-									egui::Rect::from_center_size(
-										pill.right_center() - egui::vec2(14.0, 0.0),
-										egui::Vec2::splat(16.0),
-									),
-									pill_text,
-								);
-								if enabled
-									&& response
-										.on_hover_text(language.text("search-conversation"))
-										.clicked()
-								{
-									if state.archives.is_some() {
-										commands.push(state.clear_archives());
-									}
-									self.search.toggle(false);
-								}
+							if state.archives.is_some() {
+								commands.push(state.clear_archives());
 							}
-							ui.add_space(4.0);
-							if icons::toggle(
+							self.search.toggle(false);
+						}
+					}
+					ui.add_space(4.0);
+					if icons::toggle(
+						ui,
+						icons::Icon::People,
+						32.0,
+						show_members,
+						&language.text("show-member-list"),
+					)
+					.clicked()
+					{
+						if wide_members {
+							let shown = self.members_preference(state);
+							*shown = !*shown;
+						} else {
+							self.members_narrow_open = !self.members_narrow_open;
+						}
+					}
+					let pins_open = self.search.open && self.search.pins();
+					let pins = ui
+						.add_enabled_ui(state.can_search() || pins_open, |ui| {
+							icons::toggle(
 								ui,
-								icons::Icon::People,
+								icons::Icon::Pin,
 								32.0,
-								show_members,
-								&language.text("show-member-list"),
+								pins_open,
+								&language.text("pinned-messages"),
 							)
-							.clicked()
-							{
-								if wide_members {
-									let shown = self.members_preference(state);
-									*shown = !*shown;
-								} else {
-									self.members_narrow_open = !self.members_narrow_open;
-								}
-							}
-							let pins_open = self.search.open && self.search.pins();
-							let pins = ui
-								.add_enabled_ui(state.can_search() || pins_open, |ui| {
-									icons::toggle(
-										ui,
-										icons::Icon::Pin,
-										32.0,
-										pins_open,
-										&language.text("pinned-messages"),
-									)
-								})
-								.inner;
-							if pins.clicked()
-								&& self.search.toggle(true)
-								&& let Some(command) = state.request_pins()
-							{
-								commands.push(command);
-							}
-							self.pins_anchor =
-								(self.search.open && self.search.pins()).then_some(pins.rect);
-							if let Some(c) = channel
-								.as_ref()
-								.filter(|c| c.guild.is_some() && matches!(c.kind, 0 | 5 | 15 | 16))
-							{
-								let allowed =
-									state.can_archive(c.id, model::archives::Kind::Public);
-								let archive = ui
-									.add_enabled_ui(allowed, |ui| {
-										icons::button(
-											ui,
-											icons::Icon::Thread,
-											32.0,
-											&language.text("threads"),
-										)
-									})
-									.inner;
-								if archive.clicked() {
-									self.archive_parent = Some(c.id);
-								}
-							}
-							let can_reload = state.selected.is_some_and(|id| {
-								if state.is_forum(id) {
-									state.can_load_posts(id) && !state.posts.loading
-								} else {
-									state.freshness != Freshness::Loading
-										&& state.can_read_history(id)
-								}
-							});
-							let can_reconnect = state.auth
-								== client_core::auth::AuthState::Authenticated
-								&& !state.gateway_connected;
-							let reload = ui
-								.add_enabled_ui(can_reload || can_reconnect, |ui| {
-									icons::button(
-										ui,
-										icons::Icon::Reload,
-										32.0,
-										&language.text("reload-history"),
-									)
-								})
-								.inner;
-							if reload.clicked() {
-								if can_reconnect {
-									self.reconnect_requested = true;
-								}
-								if can_reload {
-									commands.push(state.history(None));
-									self.timeline.follow_latest(state);
-								}
-							}
-						}
-						if let Some(channel) = state.selected.filter(|_| {
-							channel
-								.as_ref()
-								.is_some_and(|c| c.guild.is_none() && matches!(c.kind, 1 | 3))
-						}) {
-							self.voice_settings(ui, state.demo, state.voice.active.is_some());
-							self.call_button(ui, state, channel, commands);
-						}
-						ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-							// Centre the name block in the fixed-height header even without a subtitle.
-							let name = channel.as_ref().map_or_else(
-								|| language.text("direct-messages"),
-								|c| state.conversation_name(c).to_owned(),
-							);
-							let subtitle = channel
-								.as_ref()
-								.filter(|_| dm)
-								.and_then(|c| c.recipients.first())
-								.and_then(|user| {
-									let (_, custom, activities, _) =
-										profiles::presence(state, user.id, None);
-									profiles::subtitle(custom, activities)
-								});
-							let name_height = ui
-								.painter()
-								.layout_no_wrap(
-									name.to_owned(),
-									egui::FontId::new(16.0, design::semibold_family(ui.ctx())),
-									colors.text_strong,
+						})
+						.inner;
+					if pins.clicked()
+						&& self.search.toggle(true)
+						&& let Some(command) = state.request_pins()
+					{
+						commands.push(command);
+					}
+					self.pins_anchor =
+						(self.search.open && self.search.pins()).then_some(pins.rect);
+					if let Some(c) = channel
+						.as_ref()
+						.filter(|c| c.guild.is_some() && matches!(c.kind, 0 | 5 | 15 | 16))
+					{
+						let allowed = state.can_archive(c.id, model::archives::Kind::Public);
+						let archive = ui
+							.add_enabled_ui(allowed, |ui| {
+								icons::button(
+									ui,
+									icons::Icon::Thread,
+									32.0,
+									&language.text("threads"),
 								)
-								.size()
-								.y;
-							let subtitle_height = subtitle.as_ref().map_or(0.0, |text| {
-								1.0 + ui
-									.painter()
-									.layout_no_wrap(
-										text.clone(),
-										egui::FontId::proportional(12.0),
-										colors.muted,
-									)
-									.size()
-									.y
-							});
-							ui.vertical(|ui| {
-								ui.add_space(
-									((ui.available_height() - name_height - subtitle_height) / 2.0)
-										.max(0.0),
-								);
-								ui.spacing_mut().item_spacing.y = 1.0;
+							})
+							.inner;
+						if archive.clicked() {
+							self.archive_parent = Some(c.id);
+						}
+					}
+					let can_reload = state.selected.is_some_and(|id| {
+						if state.is_forum(id) {
+							state.can_load_posts(id) && !state.posts.loading
+						} else {
+							state.freshness != Freshness::Loading && state.can_read_history(id)
+						}
+					});
+					let can_reconnect = state.auth == client_core::auth::AuthState::Authenticated
+						&& !state.gateway_connected;
+					let reload = ui
+						.add_enabled_ui(can_reload || can_reconnect, |ui| {
+							icons::button(
+								ui,
+								icons::Icon::Reload,
+								32.0,
+								&language.text("reload-history"),
+							)
+						})
+						.inner;
+					if reload.clicked() {
+						if can_reconnect {
+							self.reconnect_requested = true;
+						}
+						if can_reload {
+							commands.push(state.history(None));
+							self.timeline.follow_latest(state);
+						}
+					}
+				}
+				if let Some(channel) = state.selected.filter(|_| {
+					channel
+						.as_ref()
+						.is_some_and(|c| c.guild.is_none() && matches!(c.kind, 1 | 3))
+				}) {
+					self.voice_settings(ui, state.demo, state.voice.active.is_some());
+					self.call_button(ui, state, channel, commands);
+				}
+				ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+					// Centre the name block in the fixed-height header even without a subtitle.
+					let name = channel.as_ref().map_or_else(
+						|| language.text("direct-messages"),
+						|c| state.conversation_name(c).to_owned(),
+					);
+					let subtitle = channel
+						.as_ref()
+						.filter(|_| dm)
+						.and_then(|c| c.recipients.first())
+						.and_then(|user| {
+							let (_, custom, activities, _) =
+								profiles::presence(state, user.id, None);
+							profiles::subtitle(custom, activities)
+						});
+					let name_height = ui
+						.painter()
+						.layout_no_wrap(
+							name.to_owned(),
+							egui::FontId::new(16.0, design::semibold_family(ui.ctx())),
+							colors.text_strong,
+						)
+						.size()
+						.y;
+					let subtitle_height = subtitle.as_ref().map_or(0.0, |text| {
+						1.0 + ui
+							.painter()
+							.layout_no_wrap(
+								text.clone(),
+								egui::FontId::proportional(12.0),
+								colors.muted,
+							)
+							.size()
+							.y
+					});
+					ui.vertical(|ui| {
+						ui.add_space(
+							((ui.available_height() - name_height - subtitle_height) / 2.0)
+								.max(0.0),
+						);
+						ui.spacing_mut().item_spacing.y = 1.0;
+						ui.add(
+							egui::Label::new(
+								design::semibold(ui, name, 16.0).color(colors.text_strong),
+							)
+							.truncate(),
+						);
+						{
+							if let Some(text) = subtitle {
 								ui.add(
 									egui::Label::new(
-										design::semibold(ui, name, 16.0).color(colors.text_strong),
+										RichText::new(&text).size(12.0).color(colors.muted),
 									)
 									.truncate(),
-								);
-								{
-									if let Some(text) = subtitle {
-										ui.add(
-											egui::Label::new(
-												RichText::new(&text).size(12.0).color(colors.muted),
-											)
-											.truncate(),
-										)
-										.on_hover_text(text);
-									}
-								}
-							});
-							let in_call = state.voice.active.as_ref().is_some_and(|call| {
-								Some(call.channel) == state.selected
-									&& matches!(
-										call.phase,
-										client_core::voice::Phase::Connected
-											| client_core::voice::Phase::Waiting
-									)
-							});
-							if in_call {
-								ui.add_space(4.0);
-								icons::inline(ui, icons::Icon::InCall, 16.0, colors.positive);
-								ui.add(
-									egui::Label::new(
-										design::medium(ui, language.text("in-a-call"), 14.0)
-											.color(colors.positive),
-									)
-									.selectable(false),
-								);
+								)
+								.on_hover_text(text);
 							}
-						});
+						}
 					});
+					let in_call = state.voice.active.as_ref().is_some_and(|call| {
+						Some(call.channel) == state.selected
+							&& matches!(
+								call.phase,
+								client_core::voice::Phase::Connected
+									| client_core::voice::Phase::Waiting
+							)
+					});
+					if in_call {
+						ui.add_space(4.0);
+						icons::inline(ui, icons::Icon::InCall, 16.0, colors.positive);
+						ui.add(
+							egui::Label::new(
+								design::medium(ui, language.text("in-a-call"), 14.0)
+									.color(colors.positive),
+							)
+							.selectable(false),
+						);
+					}
 				});
 			});
+		});
 	}
 	fn clear_draft(&mut self, state: &mut State, channel: Id) {
 		if self.draft_restore_pending {
@@ -4109,12 +4123,14 @@ impl MessagingUi {
 						});
 				}
 				if state.selected.is_none() && self.guild.is_none() {
-					self.call_bar(ui, state, &mut commands);
+					self.call_bar(ui, state, &mut commands, None);
 					self.timeline.download.show_status(ui);
 					self.friends_page(ui, state, &mut commands);
 					return;
 				}
-				if !search_open {
+				// In a DM call the header moves onto the call stage, shown while hovered.
+				let header_in_call = !search_open && self.dm_call_stage(state).is_some();
+				if !search_open && !header_in_call {
 					self.channel_header(
 						ui,
 						state,
@@ -4135,7 +4151,12 @@ impl MessagingUi {
 							ui.available_rect_before_wrap().top(),
 						)
 					});
-				self.call_bar(ui, state, &mut commands);
+				self.call_bar(
+					ui,
+					state,
+					&mut commands,
+					header_in_call.then_some((selected_voice, show_members, wide_members)),
+				);
 				self.timeline.download.show_status(ui);
 				let Some(channel) = state.selected else {
 					ui.add_space((ui.available_height() * 0.32).max(24.0));

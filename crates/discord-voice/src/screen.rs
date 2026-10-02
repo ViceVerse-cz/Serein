@@ -289,6 +289,7 @@ fn encode_loop(
 		audio_epoch,
 		raw_pending.clone(),
 	)?;
+	// The worker's stop also reaches a pending macOS picker, so call teardown closes it now.
 	#[cfg(not(target_os = "windows"))]
 	let _native = capture::Capture::start(
 		settings,
@@ -297,6 +298,7 @@ fn encode_loop(
 		capture_stop.clone(),
 		ready.clone(),
 		audio_epoch,
+		stop.clone(),
 	)?;
 	let mut encoding = None;
 	let mut first_frame_deadline = Some(Instant::now() + Duration::from_secs(15));

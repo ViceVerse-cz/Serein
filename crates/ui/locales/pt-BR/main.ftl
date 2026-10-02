@@ -4435,3 +4435,7 @@ server-emoji-empty-animated = Nenhum emoji animado ainda
 server-emoji-empty-detail = Envie uma imagem para adicionar um. GIFs viram emojis animados.
 
 server-stickers-empty-detail = Envie uma imagem para adicionar sua primeira figurinha.
+
+screen-macos-system-picker = Escolher com o seletor do macOS
+
+screen-macos-system-picker-kind = Seletor de conteúdo do sistema

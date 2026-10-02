@@ -150,6 +150,30 @@ fn main() {
 			);
 			assert_eq!(state.voice.active.as_ref().unwrap().channel, channel);
 		}
+		// The live share's own box starts watching on click.
+		let mut labels = vec![];
+		for _ in 0..3 {
+			labels = frame(&ctx, &mut view, &mut state, width, vec![]);
+		}
+		let watch = labels
+			.iter()
+			.find(|(text, _)| text == "Watch Stream")
+			.expect("live share box with a Watch Stream button")
+			.1
+			.center();
+		for pressed in [true, false] {
+			frame(&ctx, &mut view, &mut state, width, click(watch, pressed));
+		}
+		assert_eq!(
+			state.voice.active.as_ref().unwrap().watching,
+			Some(model::Id(3)),
+			"clicking the stream box must start watching"
+		);
+		assert_eq!(
+			view.voice_focus,
+			Some(ui::StageFocus::Stream(model::Id(3))),
+			"watching must enlarge the stream at once"
+		);
 		state.voice.active.as_mut().unwrap().watching = Some(model::Id(7));
 		if right_click {
 			view.voice_stream_view = Some(ctx.load_texture(
@@ -166,10 +190,11 @@ fn main() {
 			}
 			let pos = labels
 				.iter()
-				.find(|(text, _)| text == "Stream audio")
+				.find(|(text, _)| text == "Participant's screen")
 				.unwrap()
 				.1
-				.center() + egui::vec2(0.0, 40.0);
+				// The enlarged share runs under the call bar, so click well above it.
+				.center() - egui::vec2(0.0, if expanded { 40.0 } else { 200.0 });
 			for pressed in [true, false] {
 				frame(
 					&ctx,
@@ -312,8 +337,9 @@ fn main() {
 				}
 			}
 		}
+		// Stream audio lives in the share's context menu outside the enlarged view.
 		for (label, expected_volume) in [
-			("Stream audio", 100),
+			("Participant's screen", 100),
 			("Mute stream audio", 0),
 			("Mute stream audio", 100),
 		] {
@@ -321,14 +347,13 @@ fn main() {
 			for _ in 0..3 {
 				labels = frame(&ctx, &mut view, &mut state, width, vec![]);
 			}
-			let mut pos = labels
+			let pos = labels
 				.iter()
 				.find(|(text, _)| text == label)
 				.unwrap()
 				.1
 				.center();
-			let button = if right_click && label == "Stream audio" {
-				pos.y += 40.0;
+			let button = if label == "Participant's screen" {
 				egui::PointerButton::Secondary
 			} else {
 				egui::PointerButton::Primary

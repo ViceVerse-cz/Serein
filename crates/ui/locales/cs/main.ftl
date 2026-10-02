@@ -2165,9 +2165,9 @@ reading-chat-reading-settings-scrolling-speed = Rychlost rolování
 # Context: chat_reading_settings
 reading-chat-reading-settings-smooth-scrolling = Plynulé rolování
 # Context: chat_reading_settings
-reading-chat-reading-settings-compact-message-spacing = Kompaktní rozestupy zpráv
+reading-chat-reading-settings-compact-message-spacing = Kompaktní zprávy
 # Context: chat_reading_settings
-reading-chat-reading-settings-tighter-gaps-between-message-groups = Menší mezery mezi skupinami zpráv zobrazí na obrazovce více zpráv.
+reading-chat-reading-settings-tighter-gaps-between-message-groups = Jména vedle zpráv bez avatarů, s menšími mezerami mezi zprávami a oddělovači.
 # Context: chat_reading_settings
 reading-chat-reading-settings-visible-chat-gifs-play-automatically = Viditelné GIFy chatu se přehrávají automaticky.
 # Context: layout_settings
@@ -4498,3 +4498,7 @@ server-emoji-empty-animated = Zatím žádné animované emoji
 server-emoji-empty-detail = Nahrajte obrázek a přidejte ho. Z GIFů se stanou animované emoji.
 
 server-stickers-empty-detail = Nahrajte obrázek a přidejte svou první nálepku.
+
+screen-macos-system-picker = Vybrat systémovým dialogem macOS
+
+screen-macos-system-picker-kind = Systémový výběr obsahu
