@@ -1566,8 +1566,15 @@ local release, disconnect and removed access clear it.
 Validated Call/State observations update it before dispatch and invalidate pending
 HTTP workers. Unknown ringing authorizes neither start nor stop.
 
-Local voice-confirmation admission failures carry one channel ID, attempt and
-candidate revision plus a fixed static diagnostic through the existing bounded
-event queue. They retain no credentials, allocate no payload buffers and add no
-pending/retry slot. The desktop consumes only the matching current unconfirmed
-candidate; existing bounded local abandonment handles release after failure.
+Local voice-confirmation admission failures carry one generation, channel ID,
+attempt and candidate revision plus a fixed static diagnostic through a dedicated
+latest-report watch. Its optional payload is at most 64 bytes, plus fixed watch
+synchronization metadata; it allocates no payload buffer and retains no credentials.
+It uses no reliable account-event item or byte capacity. Only the current owner
+scope can publish, and older revisions cannot overwrite a newer report for that
+scope. A report stays unseen until the reliable FIFO drains, so a preceding
+replacement or confirmation beyond the current frame's batch is applied first.
+The original negotiation deadline remains bounded during sustained event load.
+The desktop consumes only the matching current unconfirmed candidate;
+existing bounded local abandonment handles release after failure. There is no new
+retry worker or pending command slot.

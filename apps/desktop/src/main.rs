@@ -5377,6 +5377,14 @@ impl Desktop {
 			}
 			let typing_count = events.len() - reliable_count;
 			events.rotate_right(typing_count);
+			// A local candidate failure must remain deliverable when reliable account
+			// events are full. Apply queued signaling first; observe rechecks its scope.
+			if let Some(failure) = connection::take_confirmation_failure(
+				&mut connection.confirmation_failure,
+				&connection.events,
+			) {
+				events.push(failure);
+			}
 			terminal = *connection.terminal.borrow();
 		}
 		let mut persist_timeline = false;

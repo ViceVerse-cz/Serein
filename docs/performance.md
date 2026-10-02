@@ -3676,6 +3676,58 @@ cache, retry loop or schema is added. Raw source IDs, hashes, samples and build
 provenance are recorded in
 `docs/pr-evidence/dm-ring-controls/measurements.json`.
 
+## Voice confirmation queue admission — October 2, 2026
+
+Feature source `9cdad91c86139543a370f3658e5f92257a9064fe` is compared with
+main `1107d9045fb9d98980d6d8e9987c96a362b4f9ab`. The standard feature package
+was built from `5724cf5be34f17a62ee1b5fc07f2cd2653be3d79`; `9cd` adds only
+`cfg(test)` live-negotiation coverage and leaves production source unchanged.
+Later main features are outside this recorded comparison. Environment: macOS
+27.0 (26A428), Apple M1 MacBookAir10,1 / 16 GiB, Rust 1.98.1, locked dependencies.
+Raw samples, source identities, binary hashes and the reducer identity proof:
+[`voice-confirmation-pressure/measurements.json`](pr-evidence/voice-confirmation-pressure/measurements.json).
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 62,154,064 B | 62,154,064 B | unchanged |
+| Installed package, 206 regular files | 68,164,493 B | 68,164,493 B | unchanged |
+| Full distribution ZIP | 43,322,199 B | 43,321,986 B | −213 B / −0.0005% |
+| Optimized native CPU, ten-sample median | 0.0% | 0.0% | 0 percentage points |
+| Optimized native peak RSS | 123,888 KiB | 124,768 KiB | +880 KiB / +0.710% |
+| Optimized settled RSS, last-five median | 123,856 KiB | 124,720 KiB | +864 KiB / +0.698% |
+| Reducer 100,000 events, alternating-five-pair median | 53.379833 ms | 52.975458 ms | −0.404375 ms / −0.758% |
+| Estimated retained timeline, 500 records | 331,992–332,477 B | 331,992–332,477 B | unchanged |
+
+Both actual standard `cargo xtask package` builds passed, including voice and
+bundled notices. The xtask internally uses `--no-default-features`; the repository
+release profile is unchanged. Deep/strict ad-hoc signature verification passed.
+Installed bytes sum regular files; ZIP uses `ditto -c -k --sequesterRsrc` over the
+complete contents without an enclosing directory. All 206 paths match, 203 hashes
+and all 199 bundled license/notice files are identical. Only the executable, regenerated
+Assets.car and ad-hoc signature metadata differ.
+
+Both optimized native executables use default-plus-demo features, FAT LTO,
+codegen-units=1 and identical `--demo --demo-chat`, with no capture hooks. Native
+Metal uses a 1120×760 logical viewport at 2× scale. A 5-second warmup precedes ten
+one-second macOS `ps` samples; settled RSS is the final-five median. All team
+compilers, tests and other native apps were paused during the matched pair, and
+both apps stopped before reducer replay. The 864 KiB settled RSS difference is
+small idle variation; no performance improvement is claimed.
+
+Reducer replay uses one warmup per binary and five alternating pairs. The
+preserved baseline was built from `3f96877f`; all 96 tracked files in its complete
+model, client-core, session-cache, test-support and replay-bench trees plus
+workspace manifests, lockfile, toolchain and Cargo configuration are byte-identical
+to main `1107d904`. Features and release profile also match. This equivalence
+applies only to the pure reducer, not the application or UI. Baseline samples span
+52.768833–53.726709 ms; after samples span 52.405167–54.155959 ms. The ranges overlap.
+These checks measure neither queue latency nor UI frames, GPU or live media.
+
+The new local failure event retains only a channel ID, two `u64` values and a
+fixed static diagnostic in the existing bounded event queue. No allocated payload,
+retry slot, cache or worker is added; the original 30-second negotiation deadline
+remains. No live account, service call, microphone, camera or OS picker was used.
+
 
 ## Server settings polish and rail motion (October 2, 2026)
 
