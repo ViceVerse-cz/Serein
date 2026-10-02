@@ -880,19 +880,38 @@ impl MessagingUi {
 		}) {
 			tiles.push(Tile::LocalScreen);
 		}
-		if let Some(streamer) = call.and_then(|call| call.watching) {
+		// Like Discord, every remote share gets its own box beside its streamer's tile; the
+		// watched one leads, the rest stay previews until someone clicks to watch.
+		let watching = call.and_then(|call| call.watching);
+		if let Some(streamer) = watching {
 			tiles.push(Tile::Stream(streamer));
 		}
+		let own = state.user.as_ref().map(|user| user.id);
+		tiles.extend(
+			entries
+				.iter()
+				.map(|entry| entry.participant.user)
+				.filter(|user| Some(*user) != watching && Some(*user) != own)
+				.filter(|user| {
+					entries
+						.iter()
+						.any(|entry| entry.participant.user == *user && entry.participant.streaming)
+				})
+				.map(Tile::Stream),
+		);
 		tiles.extend(entries.iter().map(Tile::Participant));
 		tiles
 	}
 
-	/// True once any stage tile carries video, so the direct-message stage can grow.
+	/// True once any stage tile carries video or a live share, so the direct-message stage
+	/// can grow.
 	pub(super) fn stage_shows_video(&self, state: &State, channel: Id) -> bool {
 		let entries = stage_participants(state, channel);
 		self.stage_tiles(state, channel, &entries)
 			.iter()
-			.any(|tile| self.tile_has_video(state, channel, tile))
+			.any(|tile| {
+				matches!(tile, Tile::Stream(_)) || self.tile_has_video(state, channel, tile)
+			})
 	}
 
 	/// Stage tiles: a best-fit grid, or one enlarged video with the rest in a strip below.
@@ -919,9 +938,11 @@ impl MessagingUi {
 		});
 		let focus = focus.filter(|_| !ui.input(|input| input.key_pressed(egui::Key::Escape)));
 		self.voice_focus = focus;
-		let video = tiles
-			.iter()
-			.any(|tile| self.tile_has_video(state, channel, tile));
+		// A live share turns the avatar-only DM stage into boxed tiles, as in Discord.
+		let video = tiles.iter().any(|tile| {
+			matches!(tile, Tile::Stream(_) | Tile::LocalScreen)
+				|| self.tile_has_video(state, channel, tile)
+		});
 		let frameless = dm && !video && !state.is_group_dm(channel);
 		let area = ui.available_rect_before_wrap();
 		if area.width() < 40.0 || area.height() < 40.0 {
@@ -1003,6 +1024,14 @@ impl MessagingUi {
 		}
 	}
 
+	fn watching(&self, state: &State, channel: Id, streamer: Id) -> bool {
+		state.voice.active.as_ref().is_some_and(|call| {
+			call.channel == channel
+				&& call.phase != Phase::Failed
+				&& call.watching == Some(streamer)
+		})
+	}
+
 	fn remote_texture(&self, user: Id) -> Option<&egui::TextureHandle> {
 		self.voice_remote_video
 			.iter()
@@ -1013,7 +1042,7 @@ impl MessagingUi {
 	fn tile_has_video(&self, state: &State, channel: Id, tile: &Tile<'_>) -> bool {
 		match tile {
 			Tile::LocalScreen => self.screen.preview.is_some(),
-			Tile::Stream(_) => true,
+			Tile::Stream(streamer) => self.watching(state, channel, *streamer),
 			Tile::Participant(entry) => {
 				let own = state
 					.user
@@ -1047,7 +1076,7 @@ impl MessagingUi {
 		let response = ui.interact(
 			rect,
 			ui.scope_id().with(("voice-tile", tile.key())),
-			if has_video || matches!(tile, Tile::Participant(_)) {
+			if has_video || matches!(tile, Tile::Participant(_) | Tile::Stream(_)) {
 				egui::Sense::click()
 			} else {
 				egui::Sense::hover()
@@ -1064,12 +1093,27 @@ impl MessagingUi {
 					.capture_status
 					.unwrap_or("Your screen · local preview")
 			}
-			Tile::Stream(streamer) => {
+			Tile::Stream(streamer) if has_video => {
 				self.stream_tile(ui, state, rect, channel, *streamer, compact);
 				egui::Popup::context_menu(&response)
 					.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
 					.show(|ui| self.stream_audio_controls(ui));
 				"Screen share you are watching"
+			}
+			Tile::Stream(streamer) => {
+				let watch = self.stream_invite_tile(ui, state, rect, channel, *streamer, compact);
+				let can_watch = self.can_watch(state, channel, *streamer);
+				response.widget_info(|| {
+					egui::WidgetInfo::labeled(egui::Role::Button, can_watch, "Watch Stream")
+				});
+				if can_watch && (watch || response.clicked()) {
+					self.stream_preview_watch = Some((channel, *streamer));
+				}
+				if can_watch {
+					response.on_hover_cursor(egui::CursorIcon::PointingHand);
+					return None;
+				}
+				"Join this voice channel before watching"
 			}
 			Tile::Participant(entry) => {
 				self.participant_tile(ui, state, entry, rect, frameless, compact);
@@ -1202,6 +1246,127 @@ impl MessagingUi {
 		{
 			self.watch_request = Some(None);
 		}
+	}
+
+	/// Whether a click on a live share's box may start watching it (joining if needed).
+	fn can_watch(&self, state: &State, channel: Id, streamer: Id) -> bool {
+		let connected = state.voice.active.as_ref().is_some_and(|call| {
+			call.channel == channel && matches!(call.phase, Phase::Connected | Phase::Waiting)
+		});
+		(connected || (state.voice.active.is_none() && state.can_call(channel)))
+			&& state.user.as_ref().is_none_or(|user| user.id != streamer)
+	}
+
+	/// A live share nobody here watches yet: Discord's dimmed box with the streamer's avatar,
+	/// a LIVE pill and a Watch Stream button. Returns true when the button is clicked.
+	fn stream_invite_tile(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &State,
+		rect: egui::Rect,
+		channel: Id,
+		streamer: Id,
+		compact: bool,
+	) -> bool {
+		let colors = design::palette(ui);
+		ui.painter().rect_filled(rect, 8, PILL_FILL);
+		let user = participant_user(state, channel, streamer);
+		let name = user.map_or("Participant", |user| user.name.as_str());
+		let avatar_size = if compact {
+			(rect.height() * 0.42).clamp(20.0, 40.0)
+		} else {
+			(rect.height() * 0.26).clamp(40.0, 88.0)
+		};
+		let offset = if compact {
+			0.0
+		} else {
+			avatar_size * 0.35 + 8.0
+		};
+		let avatar_rect = egui::Rect::from_center_size(
+			rect.center() - egui::vec2(0.0, offset),
+			egui::Vec2::splat(avatar_size),
+		);
+		let mut avatar_ui = ui.new_child(egui::UiBuilder::new().max_rect(avatar_rect));
+		avatar_ui.set_opacity(0.55);
+		match user {
+			Some(user) => {
+				self.avatars
+					.show_plain(&mut avatar_ui, user, avatar_size, state.demo);
+			}
+			None => design::paint_avatar(&avatar_ui, name, avatar_size, avatar_rect),
+		}
+		let (pill, font, margin) = if compact {
+			(egui::vec2(30.0, 15.0), 9.0, 5.0)
+		} else {
+			(egui::vec2(40.0, 20.0), 11.0, 8.0)
+		};
+		let live = egui::Rect::from_min_size(rect.left_top() + egui::Vec2::splat(margin), pill);
+		ui.painter().rect_filled(live, 4, colors.danger);
+		ui.painter().text(
+			live.center(),
+			egui::Align2::CENTER_CENTER,
+			"LIVE",
+			egui::FontId::new(font, design::medium_family(ui.ctx())),
+			egui::Color32::WHITE,
+		);
+		if compact {
+			return false;
+		}
+		name_badge(ui, rect, &format!("{name}'s screen"), None);
+		let enabled = self.can_watch(state, channel, streamer);
+		let font = egui::FontId::new(14.0, design::medium_family(ui.ctx()));
+		let label = "Watch Stream";
+		let galley = ui
+			.painter()
+			.layout_no_wrap(label.to_owned(), font, egui::Color32::WHITE);
+		let icon = 18.0;
+		let size = egui::vec2(galley.size().x + icon + 8.0 + 32.0, 36.0);
+		let button = egui::Rect::from_center_size(
+			egui::pos2(rect.center().x, avatar_rect.bottom() + 16.0 + size.y * 0.5),
+			size,
+		);
+		if !rect.contains_rect(button) {
+			return false;
+		}
+		let response = ui.interact(
+			button,
+			ui.scope_id().with(("voice-watch-stream", streamer)),
+			if enabled {
+				egui::Sense::click()
+			} else {
+				egui::Sense::hover()
+			},
+		);
+		let fill = if !enabled {
+			egui::Color32::from_white_alpha(24)
+		} else if response.hovered() || response.has_focus() {
+			egui::Color32::from_white_alpha(56)
+		} else {
+			egui::Color32::from_white_alpha(36)
+		};
+		ui.painter().rect_filled(button, 8, fill);
+		let text = if enabled {
+			egui::Color32::WHITE
+		} else {
+			STAGE_MUTED
+		};
+		let left = button.center().x - (galley.size().x + icon + 8.0) * 0.5;
+		crate::icons::paint(
+			ui.painter(),
+			crate::icons::Icon::ScreenShare,
+			egui::Rect::from_min_size(
+				egui::pos2(left, button.center().y - icon * 0.5),
+				egui::Vec2::splat(icon),
+			),
+			text,
+		);
+		ui.painter().galley(
+			egui::pos2(left + icon + 8.0, button.center().y - galley.size().y * 0.5),
+			galley,
+			text,
+		);
+		response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
+		enabled && response.clicked()
 	}
 
 	fn stream_audio_controls(&mut self, ui: &mut egui::Ui) {
@@ -1422,34 +1587,6 @@ impl MessagingUi {
 			);
 		} else {
 			name_badge(ui, rect, name, silenced.filter(|_| video.is_some()));
-		}
-		// Watching is an explicit click, never automatic.
-		if entry.participant.streaming
-			&& !own && let Some(call) = call
-			&& matches!(call.phase, Phase::Connected | Phase::Waiting)
-		{
-			let watching = call.watching == Some(entry.participant.user);
-			let (label, fill, hint) = if watching {
-				(
-					"Watching",
-					egui::Color32::from_black_alpha(170),
-					"Stop receiving this screen share",
-				)
-			} else {
-				(
-					"Watch stream",
-					colors.accent,
-					"Receive this participant's screen share",
-				)
-			};
-			let hover = if watching {
-				colors.danger
-			} else {
-				colors.accent.gamma_multiply(1.2)
-			};
-			if tile_button(ui, rect, label, fill, hover, hint).clicked() {
-				self.watch_request = Some((!watching).then_some(entry.participant.user));
-			}
 		}
 	}
 
@@ -2974,11 +3111,13 @@ impl MessagingUi {
 			"Share your screen"
 		};
 		let color = if self.screen.busy {
-			design::palette(ui).accent
+			egui::Color32::WHITE
 		} else {
 			STAGE_TEXT
 		};
-		if control(
+		// While sharing, the button sits on a filled accent plate like Discord's live state.
+		let plate = ui.painter().add(egui::Shape::Noop);
+		let response = control(
 			ui,
 			crate::icons::Icon::ScreenShare,
 			48.0,
@@ -2996,9 +3135,20 @@ impl MessagingUi {
 			} else {
 				"Screen sharing requires a connected call and video permission on a supported desktop."
 			},
-		)
-		.clicked()
-		{
+		);
+		if self.screen.busy {
+			let accent = design::palette(ui).accent;
+			let fill = if response.hovered() || response.has_focus() {
+				accent.gamma_multiply(1.15)
+			} else {
+				accent
+			};
+			ui.painter().set(
+				plate,
+				egui::Shape::rect_filled(response.rect.shrink(4.0), 8, fill),
+			);
+		}
+		if response.clicked() {
 			self.screen.launch(state);
 		}
 	}
