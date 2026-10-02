@@ -3584,13 +3584,13 @@ Compared baseline `69b7ad9b8d45ab544cb759f862f74e0ec500f27c` with source
 AMD Ryzen 5 7535U / 14 GiB RAM, pinned Rust 1.98.1. Both standard locked
 release packages include voice and disable default/demo features.
 
-| Metric / method | Baseline | After | Delta |
-| --- | ---: | ---: | ---: |
-| Stripped release executable | 80,195,504 B | 80,195,504 B | 0 B / 0% |
-| All 211 installed Debian file payloads, logical bytes | 84,643,561 B | 84,643,561 B | 0 B / 0% |
-| Compressed Debian distribution | 40,326,056 B | 40,326,284 B | +228 B / +0.0006% |
-| 100,000 legacy URL admissions, median | 72.159942 ms | 70.750168 ms | -1.409774 ms / -1.95% |
-| Message-scoped URLs admitted per 100,000 attempts | 0 | 100,000 | Newly supported form |
+| Metric | Baseline | After | Delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| Stripped release executable | 80,195,504 B | 80,195,504 B | 0 B / 0% | Logical file size of each package's `dist/serein` |
+| All 211 installed Debian file payloads, logical bytes | 84,643,561 B | 84,643,561 B | 0 B / 0% | `dpkg-deb --extract`, then sum regular-file sizes |
+| Compressed Debian distribution | 40,326,056 B | 40,326,284 B | +228 B / +0.0006% | Logical file size of each `.deb` |
+| 100,000 legacy URL admissions, median | 72.159942 ms | 70.750168 ms | -1.409774 ms / -1.95% | Release component harness; `Instant`, one warmup, five batches |
+| Message-scoped URLs admitted per 100,000 attempts | 0 | 100,000 | Newly supported form | Count successful admissions in each component batch |
 
 Both `cargo xtask package` runs passed the native Debian smoke check, including
 installed contents and host shared-library closure. Payload bytes exclude filesystem
