@@ -2261,6 +2261,44 @@ Rejected after measurement: a zstd raw-RGBA Twemoji atlas would save 929 KB but 
 44.5 ms against 24.3 ms for the PNG at startup. Writing zlib output straight into the
 growing buffer saved 0.3 ms per 8 MiB. No live Discord session was used.
 
+## Interface zoom down to 50% (October 2, 2026)
+
+Source `8fc9d4df7c6819d77828ceb83a7c279fd87603b9` has the same application runtime
+as `9f0126b7`; its additional assertions exercise the real SDK host. Parent
+`47a81035` is runtime-identical to the preserved `ef9cd5d1` baseline. Both native
+binaries use pinned Rust 1.98.1, repository fat LTO, default features plus `demo`;
+the standard package separately includes voice with no default features.
+
+On Apple M1/macOS 27.0 (26A428), 16 GiB, native Metal and 2× display scale, both
+apps opened `--demo --demo-settings=appearance` at the unchanged 100% default.
+All other builds/apps were paused. Each sequential sample used a five-second
+warmup and ten one-second macOS `ps` CPU/RSS readings (15.22 seconds total),
+then stopped by SIGINT. Settled RSS is the last-five median.
+
+| Metric | Parent | After | Delta |
+| --- | ---: | ---: | ---: |
+| Native median CPU | 0% | 0% | 0 percentage points |
+| Sampled peak RSS | 132,336 KiB | 132,432 KiB | +96 KiB (+0.073%) |
+| Settled RSS | 132,288 KiB | 132,384 KiB | +96 KiB (+0.073%) |
+| Standard executable | 62,088,304 B | 62,088,304 B | 0 B |
+| Full installed package | 68,098,733 B | 68,098,733 B | 0 B |
+| Compressed distribution | 43,286,187 B | 43,286,963 B | +776 B (+0.0018%) |
+| Default + demo fat executable | 63,988,160 B | 63,988,160 B | 0 B |
+
+Standard packages contain 206 regular files; ZIPs use the same
+`ditto -c -k --sequesterRsrc` method without an enclosing directory. The small
+RSS difference is noise, with no improvement/regression claim. This idle check
+does not time changing zoom or establish frame/startup latency. Actual native
+matched chat captures separately show 80% before and 50% after; all temporary
+instrumentation is removed. No live account or audio device was used.
+
+Fresh full checks, the constrained old-schema migration/reopen/default INSERT,
+focused model/UI/settings checks, all tutorial/catalog builds/tests/lints and
+real committed/rebuilt SDK host boundary checks pass. The nineteen-page authoring
+wiki is published from `8fc9d4df` as preview, not released. Raw samples, hashes,
+source comparisons and screenshot provenance are in
+[zoom measurements](pr-evidence/smaller-interface-zoom/measurements.json).
+
 ## Windows WebM container admission - September 25, 2026
 
 Baseline: `7bdf862`. Windows x86_64, Rust 1.98.1. Both standard release packages include
