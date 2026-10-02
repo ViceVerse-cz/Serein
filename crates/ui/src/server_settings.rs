@@ -1436,7 +1436,7 @@ const SYSTEM_MESSAGES: [(u64, &str); 4] = [
 const PICKER_WIDTH: f32 = 240.0;
 
 fn engagement(ui: &mut egui::Ui, state: &State, draft: &mut Settings) {
-	ui.set_max_width(850.0);
+	ui.set_max_width(ui.available_width().min(850.0));
 	design::page_header(
 		ui,
 		"server-settings-engagement-engagement",
@@ -1577,7 +1577,7 @@ const CONTENT_FILTERS: [&str; 3] = [
 ];
 
 fn safety(ui: &mut egui::Ui, draft: &mut Settings) {
-	ui.set_max_width(850.0);
+	ui.set_max_width(ui.available_width().min(850.0));
 	design::page_header(
 		ui,
 		"server-settings-page-safety",

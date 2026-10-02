@@ -148,9 +148,10 @@ impl InvitesUi {
 				|_| {},
 			);
 			ui.add_space(-8.0);
+			// Wraps onto further rows when even one line of actions is too wide.
 			ui.allocate_ui_with_layout(
 				Vec2::new(width, design::BUTTON_HEIGHT),
-				egui::Layout::right_to_left(egui::Align::Min),
+				egui::Layout::right_to_left(egui::Align::Min).with_main_wrap(true),
 				header_actions,
 			);
 			ui.add_space(16.0);

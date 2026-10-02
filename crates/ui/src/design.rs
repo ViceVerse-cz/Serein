@@ -2264,12 +2264,17 @@ pub fn page_header(
 	let title = crate::i18n::translate_if_key(title);
 	let subtitle = subtitle.map(crate::i18n::translate_if_key);
 	let p = palette(ui);
-	ui.horizontal_top(|ui| {
-		let actions_width = (ui.available_width() * 0.45).min(360.0);
+	// Actions take only their natural width from the right; with none, the title and
+	// subtitle get the whole row.
+	ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+		ui.spacing_mut().item_spacing.x = 8.0;
+		actions(ui);
+		let width = ui.available_width();
 		ui.allocate_ui_with_layout(
-			egui::vec2(ui.available_width() - actions_width, 0.0),
+			egui::vec2(width, 0.0),
 			egui::Layout::top_down(egui::Align::Min),
 			|ui| {
+				ui.set_width(width);
 				ui.spacing_mut().item_spacing.y = 4.0;
 				ui.add(egui::Label::new(semibold(ui, title, 20.0).color(p.text_strong)).wrap());
 				if let Some(subtitle) = subtitle {
@@ -2279,10 +2284,6 @@ pub fn page_header(
 				}
 			},
 		);
-		ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-			ui.spacing_mut().item_spacing.x = 8.0;
-			actions(ui);
-		});
 	});
 	ui.add_space(20.0);
 }
