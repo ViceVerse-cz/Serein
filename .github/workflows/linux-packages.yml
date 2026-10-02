@@ -25,6 +25,10 @@ jobs:
           - distribution: ubuntu-26.04
             image: ubuntu:26.04
             format: deb
+          - distribution: ubuntu-26.04
+            image: ubuntu:26.04
+            format: deb
+            runner: ubuntu-24.04-arm
           - distribution: fedora-43
             image: fedora:43
             format: rpm
@@ -37,7 +41,7 @@ jobs:
           - distribution: arch
             image: archlinux:base
             format: arch
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner || 'ubuntu-latest' }}
     container: ${{ matrix.image }}
     timeout-minutes: 90
     steps:
@@ -87,7 +91,7 @@ jobs:
           done
       - uses: actions/upload-artifact@v7.0.1
         with:
-          name: serein-linux-${{ matrix.distribution }}
+          name: serein-linux-${{ matrix.distribution }}-${{ runner.arch }}
           path: release-assets/*
           if-no-files-found: error
           retention-days: 14
