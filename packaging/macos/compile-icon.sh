@@ -3,6 +3,8 @@
 set -eu
 resources="$1"
 mkdir -p "$resources"
+# actool caches relative output arguments across worktrees; give it a unique path.
+resources="$(cd "$resources" && pwd -P)"
 xcrun actool packaging/macos/Serein.icon \
   --compile "$resources" --platform macosx --target-device mac \
   --minimum-deployment-target 13.0 --app-icon Serein \
