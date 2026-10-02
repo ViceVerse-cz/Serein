@@ -3214,7 +3214,11 @@ No compiler options, application dependencies or runtime code changed. CPU, RSS,
 frame latency and native Arch startup were not measured. The manual AUR build
 repackages an existing binary; it does not compile Rust.
 
-## Voice session ownership — October 2, 2026
+## Voice session ownership — initial historical comparison, October 2, 2026
+
+This comparison covers the initial implementation before transport-confirmed
+negotiation and scoped queue-pressure review corrections. The corrected aggregate
+comparison below supersedes it; these original measurements remain historical.
 
 Baseline `eab1961` and the call-takeover change were measured on the same macOS
 27.0 (26A428), Apple M1 MacBookAir10,1 / 16 GiB machine, Rust 1.98.1 and locked
@@ -3251,6 +3255,58 @@ The Gateway retains one owner-session identity, at most 2 KiB in a redacted,
 zeroizing secret, and one latest `(channel, request)` watch value. Takeover drops
 local media and the matching initial ring worker without sending an account-wide
 hangup. No new persistent cache, queue or background worker was added.
+
+
+## Voice session ownership — corrected aggregate, October 2, 2026
+
+Runtime source `3f96877f553bbe50eab91d31611cd97ad94b64b8` normally integrates
+main `2118f7d9`. Its comparator is preserved GIF source
+`43e1215cce0e69ee10a9998b9aaba8cfcf179c96`, whose application runtime source is
+byte-identical to that main revision. Later main `8e177c3b` and `456fdc1f` add
+other features and are not relabeled as this baseline. macOS 27.0 (26A428),
+Apple M1 MacBookAir10,1 / 16 GiB, Rust 1.98.1, locked dependencies, voice included.
+Raw samples and binary hashes:
+[`voice-call-takeover/final-measurements.json`](pr-evidence/voice-call-takeover/final-measurements.json).
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Standard desktop executable | 62,137,600 B | 62,154,064 B | +16,464 B / +0.0265% |
+| Installed package, 206 regular files | 68,148,029 B | 68,164,493 B | +16,464 B / +0.0242% |
+| Distribution ZIP, ditto | 43,310,944 B | 43,321,311 B | +10,367 B / +0.0239% |
+| Optimized native CPU, ten-sample median | 0.0% | 0.0% | 0 percentage points |
+| Optimized native peak RSS | 124,720 KiB | 124,640 KiB | −80 KiB / −0.064% |
+| Optimized settled RSS, last-five median | 124,672 KiB | 124,592 KiB | −80 KiB / −0.064% |
+| Reducer 100,000 events, alternating-five-pair median | 53.559125 ms | 53.624750 ms | +0.065625 ms / +0.123% |
+| Estimated retained timeline, 500 records | 331,992–332,477 B | 331,992–332,477 B | unchanged |
+
+Actual standard `cargo xtask package` passed; its standard build uses
+`cargo build --release --locked -p serein --no-default-features`, including voice. Deep/strict ad-hoc signature
+verification passed. ZIP used `ditto -c -k --sequesterRsrc`, without an enclosing directory.
+All 206 regular paths match, 203 SHA-256 hashes are identical, and all 199 bundled
+license/notice files are unchanged. Only the executable, regenerated Assets.car
+and ad-hoc CodeResources differ. Native icon compilation now receives a canonical
+Resources path so actool cannot reuse another worktree's relative destination.
+
+Both optimized native executables use the default release profile (FAT LTO,
+codegen-units=1), `--features demo` and identical `--demo --demo-chat`, 1120×760
+logical viewport at 2× scale, Metal. Samples use 5-second warmup plus ten one-second
+macOS ps readings. Both apps stopped before reducer measurement; all compilers,
+tests and other native apps remained stopped during the team-confirmed quiet
+window. One reducer warmup per immutable binary preceded five alternating pairs.
+Baseline range 52.855959–54.114708 ms and after 52.966000–54.040583 ms overlap.
+The 80 KiB RSS difference is tiny noise; no improvement is claimed. These workloads
+do not measure UI frame latency, GPU, session replacement or live media performance.
+No live account, service call, microphone, camera or OS picker was used.
+
+Negotiation retains one replaceable validated credential candidate and a scoped
+u64 revision under the original 30-second deadline. Media/ringing readiness waits
+for an exact transport confirmation and Gateway acknowledgement. An unconfirmed
+attempt abandons locally; confirmed replacement clears the old local scope without
+an account-wide hangup. Existing eight-slot control admission now retains one
+fixed-metadata pending Abandon under pressure; a new Join cannot overtake cleanup,
+and an unsent full-queue Join fails only its own attempt. No persistent cache or
+new background worker is introduced. Server acceptance establishes a submitted
+candidate, not a physical-client identity.
 
 
 ## Account GIF favorite synchronization (October 2, 2026)

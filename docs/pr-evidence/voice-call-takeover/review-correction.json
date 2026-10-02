@@ -27,7 +27,7 @@
   },
   "capture_hooks": "apply/reapply/remove exact-byte round-trip verified; removed from production source",
   "final_full_check": "cargo xtask check passed, exit0: workspace tests, strict all-target Clippy, formatting and policy checks",
-  "final_aggregate_package_performance": "queued; original ddb/eab measurements remain historical, not current aggregate head",
+  "final_aggregate_package_performance": "Completed on exact3f; see final-measurements.json for current standard,matched FAT native and alternating reducer results. Earlier comparisons remain historical.",
   "limitations": [
     "No live Discord, microphone, audio device, camera or OS share actions.",
     "Server acceptance establishes a submitted candidate; protocol does not prove physical actor identity."
@@ -39,6 +39,6 @@
     "full_check": "cargo xtask check passed, exit0, on the exact corrected source: workspace tests, strict all-target Clippy, formatting and policy checks",
     "regression": "Full8 control queue; stale/current scope; pending release FIFO; immediately queued Join at capacity emits scoped failure and clears only unsent tuple; later Join follows Abandon; closed queue delegates Gateway termination.",
     "scope": "Ordinary mute/camera/leave queue behavior unchanged; no live account, service call or devices used.",
-    "delivery": "Fresh aggregate standard package, optimized native CPU/RSS/reducer measurements and remote CI/review still pending."
+    "delivery": "Exact3f standard/default+demo/reducer builds and globally quiet matched native/reducer measurements completed; all9 CI checks pass,final evidence publication/review status pending."
   }
 }
