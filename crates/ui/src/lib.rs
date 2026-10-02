@@ -3536,6 +3536,42 @@ impl MessagingUi {
 
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
 		crate::scroll::apply_preferences(ui.ctx(), self.reading_preferences);
+		let diagnostics_chord = self
+			.keybinds
+			.chord(model::KeybindAction::CopyIssueDiagnostics);
+		let diagnostics_function_key = diagnostics_chord
+			.key
+			.strip_prefix('F')
+			.and_then(|number| number.parse::<u8>().ok())
+			.is_some_and(|number| (1..=35).contains(&number));
+		let diagnostics_allowed_in_context = diagnostics_function_key
+			|| diagnostics_chord.modifiers
+				& (model::keybinds::PRIMARY | model::keybinds::CTRL | model::keybinds::ALT)
+				!= 0 || (!ui.ctx().egui_wants_keyboard_input()
+			&& !ui.input(|input| {
+				input
+					.events
+					.iter()
+					.any(|event| matches!(event, egui::Event::Text(_) | egui::Event::Paste(_)))
+			}));
+		if self.keybind_capture.is_none()
+			&& !self.ime_active
+			&& diagnostics_allowed_in_context
+			&& ui.input(|input| {
+				input.focused
+					&& !input
+						.events
+						.iter()
+						.any(|event| matches!(event, egui::Event::Ime(_)))
+			}) && ui.input_mut(|input| {
+			crate::keybinds::pressed_exact(
+				input,
+				self.keybinds
+					.chord(model::KeybindAction::CopyIssueDiagnostics),
+			)
+		}) {
+			self.copy_diagnostic_info(ui.ctx());
+		}
 		crate::i18n::set_current(self.language);
 		let language = self.language;
 		if let Some(status) = state.take_user_action_status() {
@@ -3899,7 +3935,7 @@ impl MessagingUi {
 			)
 		}) && let Some(channel) = state.selected
 		{
-			self.search.focus_conversation(channel);
+			self.search.focus_conversation(channel, state);
 		}
 		self.search.sync(&ctx, state, &mut commands);
 		let search_open =
@@ -4890,6 +4926,114 @@ mod composer_tests {
 			!commands
 				.iter()
 				.any(|command| matches!(command, Command::Send { .. } | Command::Edit { .. }))
+		);
+	}
+
+	#[test]
+	fn diagnostics_shortcut_copies_existing_report_and_respects_key_capture() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let mut view = MessagingUi::default();
+		let event = || egui::Event::Key {
+			key: egui::Key::F12,
+			physical_key: None,
+			pressed: true,
+			repeat: false,
+			modifiers: egui::Modifiers::NONE,
+		};
+		for (assigned, capturing, composing, copies) in [
+			(false, false, false, false),
+			(true, false, false, true),
+			(true, true, false, false),
+			(true, false, true, false),
+		] {
+			view.keybinds.copy_issue_diagnostics =
+				model::KeyChord::new(if assigned { "F12" } else { "" }, 0);
+			view.keybind_capture = capturing.then_some(model::KeybindAction::ToggleMute);
+			view.ime_active = composing;
+			let expected = view.diagnostic_info(&ctx);
+			let output = ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					events: vec![
+						egui::Event::Key {
+							key: egui::Key::F12,
+							physical_key: None,
+							pressed: false,
+							repeat: false,
+							modifiers: egui::Modifiers::NONE,
+						},
+						event(),
+					],
+					..Default::default()
+				},
+				|ui| {
+					assert!(!view.show(ui, &mut state).iter().any(|command| matches!(
+						command,
+						Command::Send { .. } | Command::Edit { .. }
+					)));
+				},
+			);
+			assert_eq!(
+				output.platform_output.commands.iter().any(
+					|command| matches!(command, egui::OutputCommand::CopyText(text) if text == &expected)
+				),
+				copies
+			);
+			output.drop_without_applying_deltas();
+		}
+	}
+
+	#[test]
+	fn an_unmodified_diagnostics_key_does_not_replace_the_clipboard_while_typing() {
+		let ctx = egui::Context::default();
+		let mut state = edit_state();
+		state.demo = true;
+		let mut view = MessagingUi::default();
+		view.keybinds.copy_issue_diagnostics = model::KeyChord::new("C", 0);
+		for events in [
+			vec![],
+			vec![egui::Event::Text("seed".into())],
+			vec![
+				egui::Event::Key {
+					key: egui::Key::C,
+					physical_key: None,
+					pressed: true,
+					repeat: false,
+					modifiers: egui::Modifiers::NONE,
+				},
+				egui::Event::Text("c".into()),
+			],
+		] {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					events,
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 600.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					view.show(ui, &mut state);
+				},
+			);
+			assert!(
+				!output
+					.platform_output
+					.commands
+					.iter()
+					.any(|command| matches!(command, egui::OutputCommand::CopyText(_)))
+			);
+			output.drop_without_applying_deltas();
+		}
+		assert!(
+			state
+				.selected
+				.and_then(|channel| state.drafts.get(&channel))
+				.is_some_and(|draft| draft.ends_with('c')),
+			"the diagnostic shortcut leaves normal typing intact"
 		);
 	}
 

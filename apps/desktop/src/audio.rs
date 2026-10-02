@@ -865,20 +865,45 @@ fn check_large_attachment_admission() {
 		status: Status::default(),
 	};
 	attachment.size = 24 * 1024 * 1024;
-	assert_eq!(
-		audio.start(attachment.clone(), runtime.handle(), &context, false),
-		Ok(())
-	);
-	assert_eq!(audio.status.state, State::Loading);
-	{
-		let published = receiver.borrow();
-		let request = published.as_ref().expect("large attachment admitted");
-		assert_eq!(request.expected, attachment.size as usize);
-		assert_eq!(request.url, crate::downloads::original_url(&attachment));
-		assert!(audio.gate.current(request.generation));
+	for (filename, kind) in [
+		("voice-message.ogg", "audio/ogg"),
+		("synthetic.wav", "audio/wav"),
+		("synthetic.mp3", "audio/mpeg"),
+	] {
+		attachment.filename = filename.into();
+		attachment.content_type = Some(kind.into());
+		if filename != "voice-message.ogg" {
+			attachment.duration_ms = None;
+			attachment.waveform.clear();
+		}
+		for host in ["cdn.discordapp.com", "media.discordapp.net"] {
+			for path in [
+				format!("attachments/20/{}/{filename}", attachment.id),
+				format!("attachments/20/499/{}/{filename}", attachment.id),
+			] {
+				attachment.media.url =
+					Some(format!("https://{host}/{path}?ex=123&is=123&hm=synthetic&"));
+				assert_eq!(
+					audio.start(attachment.clone(), runtime.handle(), &context, false),
+					Ok(()),
+					"{host}/{path}"
+				);
+				assert_eq!(audio.status.state, State::Loading);
+				{
+					let published = receiver.borrow();
+					let request = published.as_ref().expect("large attachment admitted");
+					assert_eq!(request.expected, attachment.size as usize);
+					assert_eq!(
+						request.url.as_ref().unwrap().as_str(),
+						format!("https://cdn.discordapp.com/{path}?ex=123&is=123&hm=synthetic&")
+					);
+					assert!(audio.gate.current(request.generation));
+				}
+				audio.stop();
+				assert!(receiver.borrow().is_none());
+			}
+		}
 	}
-	audio.stop();
-	assert!(receiver.borrow().is_none());
 	for size in [0, 100 * 1024 * 1024 + 1] {
 		attachment.size = size;
 		assert!(

@@ -59,6 +59,14 @@ pub(super) fn show(
 		bindings,
 		capturing,
 	);
+	section(
+		ui,
+		"Development",
+		"Copy build and environment information for an issue report.",
+		&[KeybindAction::CopyIssueDiagnostics],
+		bindings,
+		capturing,
+	);
 	show_voice(ui, bindings, capturing, global_status);
 }
 
@@ -447,6 +455,7 @@ fn shortcut_button(
 
 fn display_key(name: &str) -> String {
 	match name {
+		"" => "Unassigned".into(),
 		"ArrowUp" => "↑".into(),
 		"ArrowDown" => "↓".into(),
 		"ArrowLeft" => "←".into(),

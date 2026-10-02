@@ -1397,6 +1397,43 @@ were discarded after external input changed the scene. Startup latency and p95
 frame latency remain unmeasured. Standard executable/installed/compressed package
 sizes are recorded in the task PR, using the built packages.
 
+## Selected-channel search shortcut (October 2, 2026)
+
+Opening search with Ctrl+F/Command+F now retains the selected server channel as
+an exact wire filter while presenting a readable label. Reopening retains query
+and results; DM scope and explicit submission remain unchanged. Six actual egui
+search tests, the fresh full `cargo xtask check`, and the standard voice-inclusive
+release package passed. Runtime source `073b1859` includes parent `47a81035`;
+packaged source `24669edc` differs only by the absolute macOS icon output path.
+
+Measured on macOS 27 / Apple M1 / 16 GiB with the pinned toolchain and lockfile.
+Parent package runtime `ef9cd5d1` is identical to parent main `47a81035`.
+Both standard packages use the repository fat-LTO release profile, locally ad-hoc
+signed, no development features, and 206 regular files.
+
+| Metric | Parent | After | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable, bytes | 62,088,304 | 62,088,304 | 0 |
+| Installed distribution, bytes | 68,098,733 | 68,098,733 | 0 |
+| Complete ZIP, bytes (`ditto`) | 43,286,187 | 43,286,472 | +285 (+0.0007%) |
+| Common demo-chat median process CPU | 0.0% | 0.0% | 0 percentage points |
+| Peak process RSS, KiB | 125,632 | 125,840 | +208 (+0.1656%) |
+| Settled process RSS, KiB | 125,584 | 125,776 | +192 (+0.1529%) |
+
+Native measurement binaries use matching process-only
+`CARGO_PROFILE_RELEASE_LTO=thin CARGO_BUILD_JOBS=2 cargo build --release --locked -p serein --features demo`
+on exact parent `47a81035` and source `24669edc`; neither contains capture hooks.
+The repository profile remains fat LTO. Both native Metal runs launch
+`--demo --demo-chat`, warm up five seconds, then take ten one-second macOS `ps`
+CPU/RSS samples. Settled RSS is the median of the last five. All other compilers,
+tests, helpers and native demos were stopped throughout both samples.
+This measures common idle overhead; opening-search/request latency, GPU memory,
+frame and startup latency are unmeasured. Small RSS differences and quantized
+idle CPU do not establish an improvement. Actual before/after framebuffer
+captures exercise focused egui shortcut handling, not physical OS routing or
+live Discord acceptance. Raw samples, build hashes and source identities:
+[`measurements.json`](pr-evidence/channel-search/measurements.json).
+
 ## Channel shortcut restore - September 13, 2026
 
 Baseline: `a90f0759ada23206809dc5374aef3e472875571a`. After: that revision plus
@@ -2481,6 +2518,29 @@ improvement from these short runs. The demo disables downloaded-image workers, s
 it controls for idle regressions rather than measuring the queue fix. System/GPU
 resources are not fully represented by process RSS. Frame/startup latency remains
 unmeasured; the frame diagnostic only confirmed matching viewport and scale.
+
+## Flatpak WebKit locale preflight (October 2, 2026)
+
+The Linux-only login/verification preflight checks the existing Flatpak marker
+and environment presence, then GLib's effective encoding after GTK initialization.
+It runs only on explicit window creation, before WebKit construction, and creates
+no worker, cache, retained payload, retry or persistent setting. Non-Flatpak paths
+retain their behavior. Existing synthetic authentication-handoff and four offline
+Flatpak preparation tests passed; a Linux-only subprocess test uses actual GLib
+encoding for native ASCII, Flatpak ASCII rejection, and Flatpak UTF-8 admission
+without GTK display, WebKit, credentials or global environment mutation. A
+separate display-backed regression repeats the cases after actual GTK
+initialization under Xvfb in the Linux native CI job; it constructs no WebKit.
+
+The development host is macOS 27 / Apple M1 / 16 GiB; this code is excluded from
+its compiled runtime; desktop error callers reuse the existing static
+`Failure::label()` mapper so the repair guidance remains visible. Native Linux
+Flatpak startup/CPU/RSS and affected Linux
+package deltas are unmeasured here, and no improvement is claimed. Linux CI and
+reporter confirmation remain required. The preserved exact-parent `1107d904`
+standard macOS package is 62,154,064 executable / 68,164,493 installed / 43,322,199
+ZIP bytes (206 files), a host baseline rather than a Linux comparison. Full source
+and standard-package checks are recorded in the task PR as they complete.
 
 ## Development data isolation (September 27, 2026)
 
@@ -3576,3 +3636,41 @@ variation. New motion (rail pill, icon morph, badges, switches, sidebar rows,
 page fade) uses egui's `animate_*` helpers, which request repaints only while a
 value is moving, so the idle result is the expected one. Active-animation frame
 time, p95 latency and the standard package size were not measured.
+
+## Attachment URL admission (October 2, 2026)
+
+Compared baseline `69b7ad9b8d45ab544cb759f862f74e0ec500f27c` with source
+`b93626b9b0269b4bf09d4f365180f1f146c6b07f` on Ubuntu 26.04.1 x86_64,
+AMD Ryzen 5 7535U / 14 GiB RAM, pinned Rust 1.98.1. Both standard locked
+release packages include voice and disable default/demo features.
+
+| Metric | Baseline | After | Delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| Stripped release executable | 80,195,504 B | 80,195,504 B | 0 B / 0% | Logical file size of each package's `dist/serein` |
+| All 211 installed Debian file payloads, logical bytes | 84,643,561 B | 84,643,561 B | 0 B / 0% | `dpkg-deb --extract`, then sum regular-file sizes |
+| Compressed Debian distribution | 40,326,056 B | 40,326,284 B | +228 B / +0.0006% | Logical file size of each `.deb` |
+| 100,000 legacy URL admissions, median | 72.159942 ms | 70.750168 ms | -1.409774 ms / -1.95% | Release component harness; `Instant`, one warmup, five batches |
+| Message-scoped URLs admitted per 100,000 attempts | 0 | 100,000 | Newly supported form | Count successful admissions in each component batch |
+
+Both `cargo xtask package` runs passed the native Debian smoke check, including
+installed contents and host shared-library closure. Payload bytes exclude filesystem
+allocation overhead. Package-size differences do not establish runtime memory use.
+
+The [component harness](pr-evidence/voice-attachment-playback/benchmark.py) snapshots
+the production validator and compiles it with `rustc -O` and the package build's
+release model/URL dependencies. It uses synthetic signed URLs and bounded voice
+metadata, `black_box`, one warmup and five measured 100,000-attempt batches per path.
+No compiler ran during measured batches. Legacy samples were
+71.737262/70.918062/72.180922/72.159942/72.627516 ms before and
+71.178538/70.598705/70.750168/70.412517/71.634009 ms after. The small difference
+on this shared workstation is noise, not a claimed speed improvement.
+
+The previously rejected message-scoped path took a 49.470710 ms median; after
+passing the additional admission guards it took 80.415707 ms. Those timings perform
+different work. This is URL admission, not network, rendering or playback latency.
+Native audio CPU/RSS, UI frame timing, device latency and live CDN behavior remain
+unmeasured. No audio device, account, microphone or live media request was used.
+
+Reproduce after packaging either revision, with the same `CARGO_TARGET_DIR` used
+for that build: `python3 docs/pr-evidence/voice-attachment-playback/benchmark.py`.
+The script also accepts a baseline-worktree path as its first argument.

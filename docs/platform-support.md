@@ -69,6 +69,21 @@ Windows/Linux local staging artifacts remain unsigned. These are not certified i
 
 The webview lives only during login: WKWebView on macOS, WebView2 on Windows, GTK/WebKitGTK on Linux. Linux uses a separate GTK authentication window and pumps it only while login is active. Voice is built in. Audio devices open only for explicit playback, device testing, or a call reaching required encrypted readiness. Popup-dependent authentication and third-party embedded challenges may not work; do not claim all Discord login methods without live tests.
 
+## Linux system appearance
+
+Appearance set to System reads the freedesktop Settings portal's color-scheme on
+the existing runtime, then listens for changes. Signals trigger a fresh property
+read so an older queued signal cannot replace a newer initial value. A closed or
+unavailable portal is reconnected after a three-second delay, with one connection
+and subscription active at a time. Reads have a three-second timeout; the latest
+known preference remains in effect during reconnection.
+
+When the initial portal attempt fails, a one-shot GNOME gsettings fallback has a
+two-second process limit and at most 256 output bytes. An explicit dark preference
+selects Dark; no preference selects Light. If detection fails entirely, the
+existing Dark fallback remains. Windows/macOS retain winit's system theme events.
+Real Linux desktop/portal rendering is unverified in this macOS repair session.
+
 ## Window transparency and blur
 
 Enable Transparency & blur in Appearance and restart to create an alpha-capable
@@ -109,7 +124,10 @@ Apple Color Emoji was visually checked with a synthetic moon status on September
 Outgoing in-call capture uses AVFoundation on macOS, Media Foundation and DirectShow on Windows,
 and V4L2 on Linux. The existing camera button becomes available after the voice
 server negotiates H264; capture starts only after an explicit click in a connected
-call. All adapters send 640×480 video at most 15 encoded frames/s.
+call. All adapters send 640×480 video at most 15 encoded frames/s. Native capture now
+selects the closest supported dimensions/rate within a 1280×720 input ceiling
+(DirectShow preserves its existing 1920×1080 fallback) and
+converts to the existing encoder size; hardware negotiation remains unverified.
 Windows needs desktop camera permission; Linux needs an accessible streaming
 `/dev/videoN` node supporting progressive YUYV or MJPEG. Linux portal-only camera
 access is not implemented. All three platforms have a device picker in settings and call controls,
