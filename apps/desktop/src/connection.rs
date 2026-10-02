@@ -217,6 +217,8 @@ impl Connection {
                 let mut upload:Option<AbortTask>=None;
                 let mut upload_cancel:Option<watch::Sender<bool>>=None;
                 let mut voice_request=None;
+                // One local release may wait for queue space; later joins cannot overtake it.
+                let mut pending_abandonment=None;
                 loop {
                     tokio::select! {
                         _=&mut gateway_task.0=>{break;}
@@ -225,6 +227,14 @@ impl Connection {
                             if changed.is_err() {break;}
                             recipient_scope_changed.borrow_and_update();
                             drop(recipient_ringing.take());
+                        }
+                        permit=voice_send.reserve(), if pending_abandonment.is_some()=> {
+                            if let Ok(permit)=permit {
+                                permit.send(pending_abandonment.take().expect("pending abandonment"));
+                            } else {
+                                // The Gateway task owns connection termination when its queue closes.
+                                pending_abandonment=None;
+                            }
                         }
                         changed=takeover_receive.changed()=> {
                             if changed.is_err() {break;}
@@ -421,14 +431,18 @@ impl Connection {
                                 use client_core::voice::{Command as V,Event as E};
                                 let (channel,request)=match control {V::AbandonSession{channel,request}|V::ConfirmSession{channel,request,..}|V::Join{channel,request,..}|V::Ring{channel,request}|V::Leave{channel,request}|V::SetMute{channel,request,..}|V::SetCamera{channel,request,..}=>(channel,request),V::Decline{channel}=>(channel,0),V::RingRecipient{..}|V::Sync{..}|V::StartStream{..}|V::StopStream{..}|V::WatchStream{..}|V::StopWatching{..}=>unreachable!("sync and stream actions routed above")};
                                 if let V::AbandonSession{channel,request}=control {
+                                    let owner=voice_request.map(|(channel,request,_)|(channel,request));
                                     if voice_request.is_some_and(|(id,r,_)|id==channel && r==request) {
                                         let _=takeover_send.send_replace(Some((channel,request)));
                                         let _=release_taken_over(&mut voice_request,Some((channel,request)));
                                         drop(ringing.take());drop(recipient_ringing.take());
                                         recipient_call.lock().map_err(|_|Failure::Protocol)?.active=None;
                                     }
-                                    voice_send.try_send(control).map_err(|_|Failure::Capacity)?;
+                                    queue_abandonment(&voice_send,&mut pending_abandonment,control,owner);
                                     continue;
+                                }
+                                if abandonment_blocks_join(pending_abandonment,control) {
+                                    emit(Event::Voice(E::Failed{channel,request,message:"Previous call is releasing locally; retry joining after it finishes"}))?;continue;
                                 }
                                 if !*voice_availability.borrow() {
                                     emit(Event::Voice(E::Failed{channel,request,message:"Voice is disconnected; no call was started"}))?;continue;
@@ -443,10 +457,16 @@ impl Connection {
                                     Err(())=>{emit(Event::Voice(E::Failed{channel,request,message:"Call action expired; no ringing request was sent"}))?;continue;}
                                 };
                                 if matches!(control,V::Join{..}) {
+                                    if let Some(error)=queue_join(&voice_send,control,(channel,request),&mut voice_request) {
+                                        recipient_call.lock().map_err(|_|Failure::Protocol)?.active=None;
+                                        emit(Event::Voice(error))?;
+                                        continue;
+                                    }
                                     let private=dm_channels.lock().map_err(|_|Failure::Protocol)?.contains_key(&channel);
                                     recipient_call.lock().map_err(|_|Failure::Protocol)?.join(channel,request,private);
+                                } else {
+                                    voice_send.try_send(control).map_err(|_|Failure::Capacity)?;
                                 }
-                                voice_send.try_send(control).map_err(|_|Failure::Capacity)?;
                                 if let Some((recipient,stop))=ring {
                                     drop(ringing.take());
                                     let api=api.clone();let emit=emit.clone();let voice_send=voice_send.clone();let finished=finished.clone();let ring_wake=wake.clone();
@@ -1261,6 +1281,60 @@ async fn wait_for_takeover(
 	}
 }
 
+// Queue pressure must not end text signaling or allow a fresh Join ahead of local cleanup.
+fn queue_abandonment(
+	sender: &mpsc::Sender<client_core::voice::Command>,
+	pending: &mut Option<client_core::voice::Command>,
+	control: client_core::voice::Command,
+	owner: Option<(model::Id, u64)>,
+) {
+	if let client_core::voice::Command::AbandonSession { channel, request } = control
+		&& owner.is_some_and(|scope| scope != (channel, request))
+	{
+		return;
+	}
+	debug_assert!(matches!(
+		control,
+		client_core::voice::Command::AbandonSession { .. }
+	));
+	if pending.is_some() {
+		// A new attempt is blocked until this first release is queued; stale releases cannot replace it.
+		return;
+	}
+	if let Err(mpsc::error::TrySendError::Full(control)) = sender.try_send(control) {
+		*pending = Some(control);
+	}
+}
+
+// A fresh Join can meet the still-full queue just after local release was queued.
+fn queue_join(
+	sender: &mpsc::Sender<client_core::voice::Command>,
+	control: client_core::voice::Command,
+	scope: (model::Id, u64),
+	owner: &mut Option<(model::Id, u64, bool)>,
+) -> Option<client_core::voice::Event> {
+	debug_assert!(matches!(control, client_core::voice::Command::Join { .. }));
+	let error = sender.try_send(control).err()?;
+	release_taken_over(owner, Some(scope));
+	Some(client_core::voice::Event::Failed {
+		channel: scope.0,
+		request: scope.1,
+		message: match error {
+			mpsc::error::TrySendError::Full(_) => "Call join was not sent; the voice queue is full",
+			mpsc::error::TrySendError::Closed(_) => {
+				"Call join was not sent; voice signaling is disconnected"
+			}
+		},
+	})
+}
+
+fn abandonment_blocks_join(
+	pending: Option<client_core::voice::Command>,
+	control: client_core::voice::Command,
+) -> bool {
+	pending.is_some() && matches!(control, client_core::voice::Command::Join { .. })
+}
+
 // Ring only after the media adapter confirms transport allocation, and only once per current call.
 fn ring_action(
 	control: client_core::voice::Command,
@@ -1546,6 +1620,99 @@ mod tests {
 				expected
 			);
 		}
+	}
+
+	#[tokio::test]
+	async fn abandonment_survives_a_full_queue_and_precedes_a_fresh_join() {
+		use client_core::voice::Command as V;
+		let (sender, mut receiver) = mpsc::channel(8);
+		for _ in 0..8 {
+			sender
+				.try_send(V::Sync {
+					channel: model::Id(20),
+				})
+				.unwrap();
+		}
+		let release = V::AbandonSession {
+			channel: model::Id(20),
+			request: 5,
+		};
+		let mut pending = None;
+		queue_abandonment(&sender, &mut pending, release, Some((model::Id(21), 6)));
+		assert!(pending.is_none()); // An older scope cannot displace the current owner’s later release.
+		queue_abandonment(&sender, &mut pending, release, Some((model::Id(20), 5)));
+		assert!(matches!(
+			pending,
+			Some(V::AbandonSession {
+				channel: model::Id(20),
+				request: 5
+			})
+		));
+		// A delayed stale release must not discard the cleanup that actually releases the old scope.
+		queue_abandonment(
+			&sender,
+			&mut pending,
+			V::AbandonSession {
+				channel: model::Id(20),
+				request: 4,
+			},
+			None,
+		);
+		assert!(matches!(
+			pending,
+			Some(V::AbandonSession {
+				channel: model::Id(20),
+				request: 5
+			})
+		));
+		let join = V::Join {
+			channel: model::Id(21),
+			request: 6,
+			ring: false,
+			mute: false,
+			deaf: false,
+		};
+		assert!(abandonment_blocks_join(pending, join));
+		assert!(receiver.recv().await.is_some());
+		sender
+			.reserve()
+			.await
+			.unwrap()
+			.send(pending.take().unwrap());
+		assert!(!abandonment_blocks_join(pending, join));
+		// The release used the only free slot: an immediately queued Join must fail locally.
+		let mut owner = Some((model::Id(21), 6, true));
+		assert!(matches!(
+			queue_join(&sender, join, (model::Id(21), 6), &mut owner),
+			Some(client_core::voice::Event::Failed {
+				channel: model::Id(21),
+				request: 6,
+				..
+			})
+		));
+		assert!(owner.is_none());
+		for _ in 0..7 {
+			assert!(matches!(receiver.recv().await, Some(V::Sync { .. })));
+		}
+		assert!(queue_join(&sender, join, (model::Id(21), 6), &mut owner).is_none());
+		assert!(matches!(
+			receiver.recv().await,
+			Some(V::AbandonSession {
+				channel: model::Id(20),
+				request: 5
+			})
+		));
+		assert!(matches!(
+			receiver.recv().await,
+			Some(V::Join {
+				channel: model::Id(21),
+				request: 6,
+				..
+			})
+		));
+		drop(receiver);
+		queue_abandonment(&sender, &mut pending, release, None);
+		assert!(pending.is_none()); // Closed queues are handled by the existing Gateway task.
 	}
 
 	#[test]

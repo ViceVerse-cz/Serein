@@ -55,7 +55,12 @@ before trying current credentials, preserve the original 30-second deadline, and
 not send another Join or a hangup. A failed unconfirmed candidate waits for changed
 credentials within that same deadline rather than repeatedly retrying it. Timeout,
 startup failure or scope loss abandons only this unconfirmed local negotiation;
-Gateway acknowledges its release without sending a service hangup.
+Gateway acknowledges its release without sending a service hangup. If its bounded
+control queue is full, one local release waits for queue space without ending text
+signaling; a fresh Join is rejected locally until the release is queued ahead of it.
+Stale release commands cannot displace cleanup for the current attempt. A later Join
+that encounters the still-full queue fails only that unsent attempt, keeping text
+signaling available.
 
 After confirmation, a different owner session in the same voice channel, or movement
 to another non-null channel/guild, clears the local call and closes media without
