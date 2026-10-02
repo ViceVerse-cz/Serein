@@ -480,7 +480,7 @@ rows, drafts and settings are retained; older binaries with a lower schema ceili
 reopen the upgraded cache. No unpublished reply-navigation metadata is included.
 
 Reading/layout settings use one application-wide SQLite singleton: integer display
-scale 80..150 percent, sidebar width 190..360 logical points, wide-layout People visibility,
+scale 50..150 percent, sidebar width 190..360 logical points, wide-layout People visibility,
 GIF animation, media-link hiding, external-link confirmation and smooth scrolling, plus
 scrolling speed (25–300 percent, default 100). Schema 24 adds the checked speed column
 transactionally; existing settings keep their prior speed.
@@ -1486,6 +1486,29 @@ Accepting Save or Remove pauses new REST client acquisition immediately, before
 the credential-store job completes. A failed deletion leaves routing paused; it
 does not resume stored credentials. In-flight requests retain their earlier
 snapshot. Rejected saves retain the credential draft until a valid job can start.
+
+## Native camera format selection
+
+Camera input selection is limited to 1280×720 except DirectShow, which preserves
+its existing bounded 1920×1080 fallback for virtual cameras, while
+encoded/preview output remains 640×480 at most 15 fps. macOS scans at most 256 native
+formats and 256 frame-rate ranges per format on its camera worker. Windows scans
+at most 256 native media types; DirectShow retains one callback frame of at most
+8,294,400 bytes and validates at most eight driver buffers of that size. Linux
+probes two pixel formats without starting capture, retains at most two candidates,
+and preserves its existing four 4-MiB mapping ceiling and 4-MiB JPEG decode limit.
+Nonmatching Linux pictures add at most 2,764,800 native RGB bytes, 921,600 fitted
+RGB bytes and 921,600 output RGB bytes. No camera files or persistent metadata
+are introduced. Native driver allocations remain outside these application limits.
+Linux system appearance retains one atomic preference and at most one portal
+connection/subscription (eight queued messages). Portal connect/read operations
+have three-second timeouts and reconnect attempts are separated by three seconds.
+The initial gsettings fallback runs once off rendering, with a two-second process
+limit and a 256-byte output cap; no preference history or diagnostics are stored.
+Reading zoom is constrained to 50–150%. Schema 26 rebuilds the fixed-size reading
+preferences table in the existing migration transaction, preserving all saved choices
+while widening the former 80% lower limit. Older clients reject schema 26 rather than
+loading a zoom value outside their supported range.
 
 ## Explicit public attachment hosting (October 2, 2026)
 

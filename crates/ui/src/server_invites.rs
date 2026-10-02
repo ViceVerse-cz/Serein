@@ -63,25 +63,6 @@ impl InvitesUi {
 	) {
 		let colors = design::palette(ui);
 		let mut action = None;
-		ui.horizontal(|ui| {
-			ui.label(design::semibold(
-				ui,
-				crate::i18n::translate("server-invites-show-invites"),
-				22.0,
-			));
-			if ui
-				.add_enabled(
-					!state.server_admin.pending,
-					egui::Button::new(crate::i18n::translate("server-invites-show-reload"))
-						.frame(false),
-				)
-				.on_hover_text(crate::i18n::translate("server-invites-show-reload-invites"))
-				.clicked()
-			{
-				action = Some(Action::Load);
-			}
-		});
-		ui.add_space(36.0);
 		let paused = state
 			.server_admin
 			.invites
@@ -92,48 +73,13 @@ impl InvitesUi {
 			&& !state.server_admin.needs_refresh
 			&& !state.server_action_pending();
 		let width = ui.available_width();
-		ui.horizontal_wrapped(|ui| {
-			let label_width = if width >= 550.0 { width - 312.0 } else { width };
-			ui.allocate_ui_with_layout(
-				Vec2::new(label_width, 38.0),
-				egui::Layout::left_to_right(egui::Align::Center),
-				|ui| {
-					ui.set_width(label_width);
-					ui.label(design::eyebrow(
-						ui,
-						crate::i18n::translate_if_key(if paused {
-							"server-invites-show-invite-links-paused"
-						} else {
-							"server-invites-show-active-invite-links"
-						}),
-						colors.muted,
-					));
-				},
-			);
-			if state.can_pause_guild_invites(guild)
-				&& ui
-					.add_enabled(
-						writable,
-						egui::Button::new(
-							RichText::new(crate::i18n::translate_if_key(if paused {
-								"server-invites-show-resume-invites"
-							} else {
-								"server-invites-show-pause-invites"
-							}))
-							.color(if paused { colors.text } else { colors.danger }),
-						)
-						.min_size(Vec2::new(136.0, 38.0)),
-					)
-					.clicked()
-			{
-				action = Some(Action::SetPaused { paused: !paused });
-			}
+		let header_actions = |ui: &mut egui::Ui| {
 			if state.invite_channel(guild).is_some()
 				&& ui
 					.add_enabled_ui(writable && !paused, |ui| {
 						design::button(
 							ui,
-							&crate::i18n::translate("server-invites-show-create-invite-link"),
+							"server-invites-show-create-invite-link",
 							design::ButtonKind::Primary,
 						)
 					})
@@ -146,7 +92,79 @@ impl InvitesUi {
 				dialog.open();
 				self.create = Some(dialog);
 			}
-		});
+			if state.can_pause_guild_invites(guild)
+				&& ui
+					.add_enabled_ui(writable, |ui| {
+						design::button(
+							ui,
+							if paused {
+								"server-invites-show-resume-invites"
+							} else {
+								"server-invites-show-pause-invites"
+							},
+							design::ButtonKind::Outline,
+						)
+					})
+					.inner
+					.clicked()
+			{
+				action = Some(Action::SetPaused { paused: !paused });
+			}
+			ui.add_space(4.0);
+			if ui
+				.add_enabled_ui(!state.server_admin.pending, |ui| {
+					// Centred on the header buttons' baseline.
+					egui::Frame::new()
+						.inner_margin(egui::Margin {
+							top: 5,
+							..Default::default()
+						})
+						.show(ui, |ui| {
+							design::text_action(ui, "server-invites-show-reload")
+						})
+						.inner
+				})
+				.inner
+				.on_hover_text(crate::i18n::translate("server-invites-show-reload-invites"))
+				.clicked()
+			{
+				action = Some(Action::Load);
+			}
+		};
+		// Three header actions only fit beside the title on wide pages; narrower pages give
+		// them their own right-aligned row under it.
+		if width >= 760.0 {
+			design::page_header(
+				ui,
+				"server-invites-show-invites",
+				Some("server-invites-header-subtitle"),
+				header_actions,
+			);
+		} else {
+			design::page_header(
+				ui,
+				"server-invites-show-invites",
+				Some("server-invites-header-subtitle"),
+				|_| {},
+			);
+			ui.add_space(-8.0);
+			// Wraps onto further rows when even one line of actions is too wide.
+			ui.allocate_ui_with_layout(
+				Vec2::new(width, design::BUTTON_HEIGHT),
+				egui::Layout::right_to_left(egui::Align::Min).with_main_wrap(true),
+				header_actions,
+			);
+			ui.add_space(16.0);
+		}
+		ui.label(design::eyebrow(
+			ui,
+			crate::i18n::translate_if_key(if paused {
+				"server-invites-show-invite-links-paused"
+			} else {
+				"server-invites-show-active-invite-links"
+			}),
+			colors.muted,
+		));
 		ui.add_space(18.0);
 		if let Some(error) = state.server_admin.error {
 			design::notice(ui, design::Level::Error, error);
@@ -174,17 +192,16 @@ impl InvitesUi {
 		}
 		if let Some(snapshot) = &state.server_admin.invites {
 			if snapshot.items.is_empty() {
-				ui.add_space(32.0);
-				ui.label(design::semibold(
+				design::empty_state(
 					ui,
-					crate::i18n::translate("server-invites-show-no-active-invite-links"),
-					18.0,
-				));
-				if state.invite_channel(guild).is_some() {
-					ui.weak(crate::i18n::translate(
-						"server-invites-show-create-an-invite-link-to-welcome-people-to-this-server",
-					));
-				}
+					icons::Icon::Link,
+					"server-invites-show-no-active-invite-links",
+					if state.invite_channel(guild).is_some() {
+						"server-invites-show-create-an-invite-link-to-welcome-people-to-this-server"
+					} else {
+						""
+					},
+				);
 			} else {
 				let now = time::OffsetDateTime::now_utc().unix_timestamp_nanos();
 				let mut ticking = false;

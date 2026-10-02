@@ -1713,9 +1713,11 @@ impl State {
 		} else {
 			self.drafts.get(&channel).map_or("", String::as_str)
 		};
-		if (content.trim().is_empty() && filenames.is_empty() && sticker.is_none())
-			|| content.chars().count() > MAX_CONTENT
-			|| self.pending.len() >= 64
+		if !model::message_options::valid(
+			content,
+			MAX_CONTENT,
+			!filenames.is_empty() || sticker.is_some(),
+		) || self.pending.len() >= 64
 			|| self.draft_bytes()
 				+ content.len()
 				+ filenames
@@ -4280,6 +4282,24 @@ mod tests {
 			..State::default()
 		};
 		assert!(state.prepare_send().is_none());
+		state.drafts.insert(Id(1), "@silent".into());
+		state.reply = Some(Reply::to(Id(7)));
+		assert!(state.prepare_send().is_none());
+		assert_eq!(state.drafts[&Id(1)], "@silent");
+		assert!(state.pending.is_empty() && state.reply.is_some());
+		let full = format!("@silent {}", "é".repeat(MAX_CONTENT));
+		state.drafts.insert(Id(1), full.clone());
+		assert!(
+			matches!(state.prepare_send(), Some(Command::Send { content, .. }) if content == full)
+		);
+		assert_eq!(state.pending[0].content, full);
+		state.pending.clear();
+		state
+			.drafts
+			.insert(Id(1), format!("@silent {}", "x".repeat(MAX_CONTENT + 1)));
+		assert!(state.prepare_send().is_none());
+		assert!(!state.drafts[&Id(1)].is_empty() && state.pending.is_empty());
+		state.drafts.clear();
 		for invalid in [
 			"",
 			" ",

@@ -514,8 +514,17 @@ Stop, source failure, permission loss, leaving and logout release the preview.
 These paths have synthetic coverage; native camera/screen capture and live Discord
 viewing still require owner-operated validation.
 
-AVFoundation on macOS, Media Foundation on Windows and V4L2 on Linux capture
-640×480 frames, capped at 15 encoded frames/second, encoded on a worker with a
+Native capture prefers the closest supported size to the 640×480 encoder, with
+a 1280×720 input ceiling (DirectShow preserves its existing 1920×1080 fallback).
+macOS and Windows rank native modes by dimension
+distance, then distance from 15 fps; macOS explicitly locks the device format
+and supported frame duration; AVFoundation aspect fitting preserves nonmatching
+native ratios with black bars before the callback. Windows drivers without
+frame-rate metadata retain their bounded fallback and rank after known rates at
+the same resolution. Linux probes each candidate with its effective
+V4L2 interval before ranking it and reapplies the selected interval after the final
+format change. Drivers without interval metadata rank last at the same resolution.
+Capture is converted to 640×480, capped at 15 encoded frames/second, encoded on a worker with a
 600 kbit/s target (not a measured bandwidth guarantee). The worker prefers the platform
 hardware H.264 encoder, the same VideoToolbox and Media Foundation encoders screen sharing
 uses, and VA-API or NVENC through a private GStreamer pipeline on Linux. OpenH264 remains
@@ -555,7 +564,8 @@ camera, joining a call, logout, or an error stops the preview. During a camera-e
 call, settings show the existing call preview. Demo mode never opens a camera.
 Physical capture and native permission behavior still require owner verification.
 
-Media Foundation devices use a native 640×480 mode convertible to RGB32.
+Media Foundation selects a native mode at or below 1280×720 and uses its
+video processor to resize/convert to 640×480 RGB32.
 DirectShow discovery/capture additionally covers virtual cameras such as OBS and
 NVIDIA Broadcast, which may not appear in Media Foundation enumeration.
 Its native input is limited to 1920×1080, converted to RGB24 and fitted into
@@ -567,10 +577,16 @@ Default selection falls back to DirectShow when Media Foundation lists no device
 Allow desktop camera access in Windows
 Settings > Privacy & security > Camera; Windows N may require the Media Feature
 Pack. Linux tries `/dev/video0` through `/dev/video63` and uses the first accessible
-progressive, single-plane 640×480 YUYV/MJPEG streaming camera. The session or sandbox
+progressive, single-plane YUYV/MJPEG streaming camera at or below 1280×720.
+Linux fits nonmatching frames into 640×480 with black bars; temporary RGB
+allocations are bounded by one 2,764,800-byte native image, one 921,600-byte
+fitted image and one 921,600-byte output image. The session or sandbox
 must already permit access to its device node; this implementation does not request
-camera access through a desktop portal or change device permissions. These fixed-mode
-adapters can reject cameras that only offer other resolutions or formats.
+camera access through a desktop portal or change device permissions. Cameras
+with no supported mode within the input ceiling are rejected before streaming.
+The device-free format-selection check is
+`cargo run --locked -p discord-voice --example camera_format`; native negotiation
+and performance still require owner-operated hardware validation.
 
 Frame waits time out after five seconds without a usable frame; stop is checked at
 most every 100 ms while waiting. Native driver initialization/teardown has no hard

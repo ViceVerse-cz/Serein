@@ -1130,6 +1130,34 @@ fn tracked_actions_and_extended_inputs_preserve_v1_wire_compatibility() {
 }
 
 #[test]
+fn local_settings_accept_smaller_zoom_and_reject_below_supported_range() {
+	for (zoom, valid) in [
+		(49, false),
+		(50, true),
+		(79, true),
+		(80, true),
+		(150, true),
+		(151, false),
+	] {
+		let patch = LocalSettingsPatch {
+			zoom_percent: Some(zoom),
+			..Default::default()
+		};
+		assert_eq!(patch.validate().is_ok(), valid);
+		let snapshot = LocalSettingsSnapshot {
+			zoom_percent: zoom,
+			sidebar_width: 236,
+			show_members: true,
+			animate_gifs: true,
+			hide_media_links: true,
+			smooth_scrolling: None,
+			scroll_speed_percent: None,
+		};
+		assert_eq!(snapshot.validate().is_ok(), valid);
+	}
+}
+
+#[test]
 fn app_action_patches_reject_invalid_ranges_conflicts_and_unbounded_text() {
 	for wire in [
 		r#"{"type":"send_message","channel_id":"0","content":"hello"}"#,
