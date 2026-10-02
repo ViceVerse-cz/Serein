@@ -3152,6 +3152,47 @@ repairs affect only synthetic development tests. Runtime CPU, RSS, frame/startup
 latency and live account/audio behavior were not measured. Flatpak source-preparation repairs
 and this measurement documentation do not change the native installed payload.
 
+
+## Public Catbox attachment hosting (October 2, 2026)
+
+Baseline `eab1961ae80d2822a49629fb5d182b2c8e18e9d1` and runtime source
+`ef9cd5d1d846335713af71f9f1d9cd895483d59d` used macOS 27.0 (26A428),
+Apple M1 (8 logical CPUs), 16 GiB RAM, Rust 1.98.1 and native Metal. Both
+standard voice-enabled `cargo xtask package` builds passed without command-line
+feature overrides. The xtask internally builds with `--no-default-features`;
+voice is included. Full installed bytes sum every regular file in the complete
+portable folder. ZIPs use `ditto -c -k --sequesterRsrc` over that folder without
+an enclosing directory; both packages contain 206 files.
+
+| Metric | Baseline | After | Absolute / percent delta |
+| --- | ---: | ---: | ---: |
+| Standard executable, bytes | 62,006,112 | 62,088,304 | +82,192 / +0.1326% |
+| Full installed payload, bytes | 68,016,541 | 68,098,733 | +82,192 / +0.1208% |
+| Complete ZIP, bytes | 43,252,563 | 43,286,187 | +33,624 / +0.0777% |
+| Release demo median process CPU | 0.0% | 0.0% | +0.0 percentage points |
+| Sampled peak process RSS, KiB | 123,584 | 123,872 | +288 / +0.2330% |
+| Settled process RSS, KiB | 123,536 | 123,856 | +320 / +0.2590% |
+
+Native process measurements use separate optimized builds of
+`cargo build --release --locked -p serein --features demo`, with default features
+enabled, launched `--demo --demo-chat`. Five seconds of warmup precede ten
+one-second macOS `ps` process CPU/RSS samples; settled RSS is the median of the
+last five samples. No other native demo was running, and no Cargo compilation
+was active during the after sample. Ambient compiler activity during baseline
+and after work can differ. This is one build/sample per revision; small size/RSS
+deltas and quantized 0.0% CPU readings are not improvement claims.
+
+The public-host transport streams at most 200,000,000 file bytes in 64 KiB chunks,
+bounds replies to 4 KiB, and retains one upload task/latest progress value.
+Those are admission/storage limits, not measured live transfer performance. No
+real file was uploaded to Catbox and no live Discord session or audio/device
+action was used. Active-upload throughput, GPU memory and frame/startup latency
+remain unmeasured. Native screenshots use actual synthetic app-owned Metal
+framebuffers; OS input routing and other-platform interaction remain unverified.
+Raw build sizes, hashes and process samples are retained in
+`docs/pr-evidence/external-upload/measurements.json`. The evidence-only follow-up
+changes no runtime source from the measured commit.
+
 ## AUR binary recipe payload (October 2, 2026)
 
 The local packaging pass used the published Arch x86_64 package from
@@ -3172,3 +3213,41 @@ verified release asset, not a new application build or runtime measurement.
 No compiler options, application dependencies or runtime code changed. CPU, RSS,
 frame latency and native Arch startup were not measured. The manual AUR build
 repackages an existing binary; it does not compile Rust.
+
+## Voice session ownership — October 2, 2026
+
+Baseline `eab1961` and the call-takeover change were measured on the same macOS
+27.0 (26A428), Apple M1 MacBookAir10,1 / 16 GiB machine, Rust 1.98.1 and locked
+dependencies. Voice remains in the standard package; no dependencies were added.
+Raw samples: [`voice-call-takeover/measurements.json`](pr-evidence/voice-call-takeover/measurements.json).
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Standard desktop executable | 62,006,112 B | 62,022,528 B | +16,416 B / +0.03% |
+| Complete installed package, 206 regular files | 68,016,541 B | 68,032,957 B | +16,416 B / +0.02% |
+| Distribution ZIP, `ditto -c -k --sequesterRsrc` | 43,252,563 B | 43,258,951 B | +6,388 B / +0.01% |
+| Native idle CPU, median 10 samples | 0.0% | 0.0% | 0 percentage points |
+| Native peak RSS | 123,584 KiB | 124,064 KiB | +480 KiB / +0.39% |
+| Native settled RSS, last-five median | 123,536 KiB | 124,016 KiB | +480 KiB / +0.39% |
+| Reducer 100,000 events, alternating-five-pair median | 53.328 ms | 52.654 ms | -0.674 ms / -1.26% |
+| Estimated retained timeline, 500 records | 331,992–332,477 B | 331,992–332,477 B | unchanged |
+
+Native samples used optimized `--features demo` builds, `--demo --demo-chat`,
+Metal, a 1120×760 logical native viewport at 2× display scale (2240×1520
+physical screenshot pixels), a 5-second warmup and ten 1-second
+macOS `ps` samples. Settled RSS is the last-five median; CPU is the process
+percentage, not GPU usage or frame latency. Compilation and other native demos
+were stopped. No microphone, camera or live account was used.
+
+Reducer measurements used the immutable baseline and changed release binaries,
+one warmup each and five alternating pairs. Baseline range 52.906–53.823 ms;
+after 52.444–54.572 ms. The earlier isolated baseline was 65.504 ms and the first
+after run 52.316 ms; the paired rerun demonstrates timing variation rather than
+a 20% improvement. The paired ranges overlap, and this ownership fix does not
+optimize message reduction; no speedup is claimed. Neither workload measures
+actual call takeover latency or live service behavior.
+
+The Gateway retains one owner-session identity, at most 2 KiB in a redacted,
+zeroizing secret, and one latest `(channel, request)` watch value. Takeover drops
+local media and the matching initial ring worker without sending an account-wide
+hangup. No new persistent cache, queue or background worker was added.

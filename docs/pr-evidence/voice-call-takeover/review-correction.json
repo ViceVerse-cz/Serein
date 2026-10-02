@@ -1,0 +1,35 @@
+{
+  "source_parent": "e01d89e84243309923c5efac458a4bd4773822a3",
+  "correction": "Join negotiation stays replaceable until exact current credential revision is accepted by local voice transport and acknowledged by Gateway; unconfirmed failures abandon locally without service hangup.",
+  "environment": {
+    "rust": "1.98.1",
+    "os": "macOS27.0 (26A428)",
+    "architecture": "aarch64",
+    "native": "Metal, 1120x760 logical at 2x"
+  },
+  "focused_checks": {
+    "core_voice": 5,
+    "gateway_voice": 11,
+    "desktop_voice": 15,
+    "desktop_dispatch": 14,
+    "local_gateway_discovery": 1
+  },
+  "native_after": {
+    "bytes": 499784,
+    "sha256": "479c1ae53a360b36ed05bb80238fcf7b77746918b1df57630aaaccdbdc003996",
+    "flags": [
+      "--demo",
+      "--demo-call"
+    ],
+    "fixture": "SEREIN_SYNTHETIC_TAKEOVER=1; actual scoped event and real notice helper offline",
+    "inspected": "call stage/panel cleared; actor-neutral notice readable, no clipping",
+    "source_note": "capture matches correction behavior/UI; binary precedes only equivalent Clippy match-guard rewrite"
+  },
+  "capture_hooks": "apply/reapply/remove exact-byte round-trip verified; removed from production source",
+  "final_full_check": "cargo xtask check passed, exit0: workspace tests, strict all-target Clippy, formatting and policy checks",
+  "final_aggregate_package_performance": "queued; original ddb/eab measurements remain historical, not current aggregate head",
+  "limitations": [
+    "No live Discord, microphone, audio device, camera or OS share actions.",
+    "Server acceptance establishes a submitted candidate; protocol does not prove physical actor identity."
+  ]
+}

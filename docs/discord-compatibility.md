@@ -2025,3 +2025,45 @@ Voter-name browsing and a custom-server-emoji creation picker are not included i
 Extension snapshots retain their existing unsupported poll contract. No live Discord account was
 used to verify normal-account interoperability. Use --demo --demo-polls for an offline preview
 and --demo --demo-check-polls for the focused synthetic debug check.
+
+## Public Catbox attachment links (October 2, 2026)
+
+Each staged message-composer file has a **Host file…** action. Selecting it shows
+per-file consent before an anonymous upload to Catbox; nothing happens automatically
+when Discord rejects a file. The original bytes are streamed without compression.
+Successful links remain in the dialog for **Copy link** or **Add to draft**, followed
+by the user's ordinary Send action. Adding preserves existing text and observes the
+composer's character, item and aggregate byte limits. A link can only be added to
+its original conversation. Navigation cancels an active upload; a completed link
+remains copyable until the dialog closes. Session/account reset clears the dialog.
+
+The independent credential-free client uses fixed
+`POST https://catbox.moe/user/api.php` with multipart `reqtype=fileupload` and
+`fileToUpload`, following [Catbox's API documentation](https://catbox.moe/tools.php).
+It disables redirects, retries, cookies and proxy discovery, caps each streamed
+chunk at 64 KiB, and accepts at most 4 KiB of response containing only a plain HTTPS
+`files.catbox.moe` file URL. No Discord token or channel/account metadata is sent.
+Sources reuse the existing regular-file, size/modified-time and open-descriptor
+checks, including revalidation before completing the multipart body and after the
+response. This cannot provide an immutable snapshot against a concurrent writer
+restoring identical metadata.
+
+The service [advertises 200 MB uploads](https://catbox.moe/); the
+[FAQ](https://catbox.moe/faq.php) rejects EXE/SCR/CPL/JAR and DOC-family extensions,
+and GIFs above 20 MB. Its current anonymous retention is two years of inactivity,
+not permanent account-associated storage. Files and their original embedded metadata
+are public to anyone with the link. No host account, userhash, automatic fallback,
+remote deletion or Litterbox integration is included. Cancellation, failed responses,
+logout and deleting a Discord message cannot remove already received hosted bytes.
+A successful upload removes only that staged file; errors retain its local selection.
+UI consent and transport use the same UI-neutral admission rules. Public-upload
+failures are typed outcomes, translated in English and Czech without displaying
+raw service responses.
+
+[SakuraCord's external-host flow](https://github.com/SakuraCordApp/SakuraCord/blob/main/App/Sources/SakuraCord/Services/ExternalAttachmentUploader.swift)
+was inspected for behavior; this implementation is original and follows the service's
+own documentation. This addresses the owner's external-host alternative to issue #128,
+whose original compression request is not implemented. Synthetic localhost tests and
+`--features demo -- --demo --demo-chat --demo-attachment=file --demo-external-upload`
+verify local behavior without any real hosted upload or Discord session. Live service
+acceptance, link embedding and other-platform native interaction remain unverified.

@@ -1484,3 +1484,52 @@ Accepting Save or Remove pauses new REST client acquisition immediately, before
 the credential-store job completes. A failed deletion leaves routing paused; it
 does not resume stored credentials. In-flight requests retain their earlier
 snapshot. Rejected saves retain the credential draft until a valid job can start.
+
+## Explicit public attachment hosting (October 2, 2026)
+
+Catbox consent and results retain one session-only filename (256 bytes), file index/key,
+size and conversation/session identifiers, plus one validated HTTPS link (host plus
+at most 256 path bytes). One active transfer holds one selected `Source`, one
+latest-value progress channel, a cancellation flag and one completion slot; it shares
+normal attachment admission, blocking another selection/upload until retirement.
+A file has at most 200,000,000 bytes, streamed in 64 KiB chunks. Multipart framing is
+under 1 KiB; response input is capped at 4 KiB. Existing encoded paste buffers, HTTP/TLS
+buffers and thumbnails are additional; no whole-file copy, temporary file, new cache,
+database schema or log is introduced. The 300-second overall, ten-second connection
+and 30-second read deadlines bound network lifetime. File reads and HTTP work occur
+outside rendering. Source paths and bytes never enter UI state or diagnostics.
+
+Successful public links stay copyable in their dialog; account/session reset releases
+them and cancels work. Explicit Add to draft uses ordinary account-isolated draft
+persistence, and later sent messages use ordinary bounded history persistence.
+Failed or cancelled transfers may leave remotely hosted data without a recoverable
+URL. Serein cannot delete anonymous hosted files or erase them on logout. The consent
+states public access, unchanged embedded metadata and the service's current two-year
+inactivity retention; these are remote-host policy, not application cleanup guarantees.
+
+## Voice session takeover identity
+
+The main Gateway retains at most one validated 2 KiB owner voice-session identity,
+in the existing redacted, zeroizing `voice::Secret` type. It is session-only, released
+on takeover, acknowledged hangup, channel invalidation or fresh Gateway login, and
+preserved during Gateway Resume for an active call. A pending manual departure temporarily owns the
+same identity so a replacement client session can release its old departure barrier.
+It is never written to diagnostics or persistent caches. A takeover
+notice contains only channel/request IDs, so it adds no credential payload to the UI.
+The desktop dispatcher retains one latest fixed channel/request invalidation in a
+watch, clears only the matching call ownership, and cancels its initial ring worker.
+Queued commands recheck this invalidation before dispatch; the worker also waits
+for it alongside HTTP so a takeover cancels the pending operation before the UI
+reduces it.
+Watch metadata is additional; no invalidation history or growing queue is retained.
+
+Negotiation confirmation retains one bounded Gateway server record (a redacted,
+zeroizing token of at most 2,048 bytes and an optional endpoint of at most 512 bytes)
+to deduplicate credential changes. One `u64` candidate revision covers the current
+session/token/endpoint and crosses only the existing bounded command/event queues;
+it is not a Discord session ID and has no persistence. Until scoped transport
+confirmation is acknowledged, the desktop keeps one extra pending credential set
+(session and token at most 2,048 bytes each, endpoint at most 512 bytes) for local
+replacement behind the existing audio retirement fence. It keeps the original
+30-second deadline and zeroizes that set on confirmation, cancellation or failure
+teardown. Failed candidates do not spawn retries until credentials actually change.

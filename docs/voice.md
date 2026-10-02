@@ -45,6 +45,35 @@ Reset levels, mute/deafen/PTT precedence and changing devices while custom level
 
 Start calls the selected existing DM; incoming calls require Answer or Decline. One active call is retained while navigating text conversations. Start rings once after Discord voice transport allocation is confirmed; Answer never rings. Required DAVE group readiness and native device readiness precede the connected-audio state. An allocation with no endpoint waits within the deadline; incompatible states fail visibly. Hangup closes local audio immediately and sends departure; another call waits for the service's departure acknowledgment. No uncertain ring write or failed main Gateway session automatically starts another call.
 
+Before the local voice transport authenticates, own-user voice state frames are
+replaceable negotiation candidates: an existing client's state can arrive before the
+acknowledgment of this device's Join. Session, token and endpoint changes revise one
+bounded candidate. Only validated voice Transport Ready for that exact candidate,
+followed by the main Gateway's scoped confirmation acknowledgment, establishes the
+local transport session and enables media/ringing. Replacements retire local devices
+before trying current credentials, preserve the original 30-second deadline, and do
+not send another Join or a hangup. A failed unconfirmed candidate waits for changed
+credentials within that same deadline rather than repeatedly retrying it. Timeout,
+startup failure or scope loss abandons only this unconfirmed local negotiation;
+Gateway acknowledges its release without sending a service hangup.
+
+After confirmation, a different owner session in the same voice channel, or movement
+to another non-null channel/guild, clears the local call and closes media without
+sending a hangup. A translated informational notice explains the move. Pending
+initial ringing is cancelled and queued old ring commands are rejected without
+disconnecting text signaling. Join explicitly after local device teardown to take the
+call back; no old-client departure acknowledgment is required. This applies to DM and
+guild calls. Secrets are bounded, redacted, zeroized and never persisted.
+
+The voice protocol does not document an equality with the main Gateway READY session
+ID or identify which physical client generated an own-user state frame. A server-accepted
+voice transport establishes only the submitted candidate: if an existing client's
+candidate authenticates before this device's newer Join acknowledgment arrives, its
+later replacement cannot be proven to be a different physical client's action. The
+informational notice describes an invalidated local transport, not verified actor
+identity. Synthetic ordering and confirmation transitions are tested; cross-client
+live takeover remains unverified.
+
 Opening a one-to-one or group DM also requests its existing call state. An ongoing call shows a
 **Call in progress** banner and **Join call**, even after ringing stops or this device leaves.
 Join uses the existing connection flow without ringing again; browsing never joins or opens
@@ -725,3 +754,9 @@ checks settings rendering and capture guards without opening devices. Physical l
 microphone permission prompts remain owner-verified behavior.
 
 Rapid mute/unmute invalidates partial callback PCM.
+
+Recipient ringing consumes the confirmed local call scope. Session replacement or
+local abandonment cancels initial and targeted ringing, clears dispatcher ownership
+and rejects queued actions from the previous request. Targeted HTTP work checks the
+latest ownership, membership revision and connection availability before polling
+the network future; already accepted service writes cannot be undone.

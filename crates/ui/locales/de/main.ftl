@@ -4356,3 +4356,5 @@ voice-recipient-ring = Erneut anrufen
 voice-recipient-stop-ringing = Klingeln beenden
 voice-recipient-ringing = Klingelt…
 voice-recipient-not-in-call = Nicht im Anruf
+
+voice-call-moved-to-another-client = Die Anrufsitzung dieses Geräts wurde ersetzt

@@ -4355,3 +4355,6 @@ voice-recipient-ring = Volver a llamar
 voice-recipient-stop-ringing = Dejar de llamar
 voice-recipient-ringing = Llamando…
 voice-recipient-not-in-call = Fuera de la llamada
+
+
+voice-call-moved-to-another-client = Se reemplazó la sesión de llamada de este dispositivo

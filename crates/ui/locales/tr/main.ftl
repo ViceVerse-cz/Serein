@@ -4344,3 +4344,6 @@ voice-recipient-ring = Yeniden ara
 voice-recipient-stop-ringing = Çalmayı durdur
 voice-recipient-ringing = Çalıyor…
 voice-recipient-not-in-call = Aramada değil
+
+
+voice-call-moved-to-another-client = Bu cihazın arama oturumu değiştirildi

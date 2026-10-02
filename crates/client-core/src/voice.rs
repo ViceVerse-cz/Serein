@@ -127,7 +127,7 @@ pub struct Call {
 #[derive(Default)]
 pub struct State {
 	pub active: Option<Call>,
-	/// Last service-confirmed departure, scoped to its local request.
+	/// Last released local request: service departure or local-only abandonment.
 	pub departed: Option<(Id, u64)>,
 	pub incoming: Option<Id>,
 	/// One explicit outgoing attempt, confirmed only by service ringing recipients.
@@ -156,6 +156,17 @@ impl State {
 }
 #[derive(Clone, Copy, Debug)]
 pub enum Command {
+	/// Retire an unconfirmed local negotiation without changing service voice state.
+	AbandonSession {
+		channel: Id,
+		request: u64,
+	},
+	/// Local transport accepted this Gateway negotiation candidate; never sent on the wire.
+	ConfirmSession {
+		channel: Id,
+		request: u64,
+		revision: u64,
+	},
 	Sync {
 		channel: Id,
 	},
@@ -217,6 +228,17 @@ pub enum Command {
 	},
 }
 pub enum Event {
+	/// Gateway accepted the current local transport candidate, scoped to its attempt.
+	SessionConfirmed {
+		channel: Id,
+		request: u64,
+		revision: u64,
+	},
+	/// The confirmed local voice session was replaced. No service hangup is needed.
+	TakenOver {
+		channel: Id,
+		request: u64,
+	},
 	Departed {
 		channel: Id,
 		request: u64,
@@ -249,6 +271,8 @@ pub enum Event {
 		channel: Option<Id>,
 		user: Id,
 		session: Option<Secret>,
+		/// Bounded Gateway candidate identity; not a Discord session identifier.
+		negotiation_revision: Option<u64>,
 		muted: bool,
 		deafened: bool,
 		video: bool,
@@ -257,6 +281,7 @@ pub enum Event {
 	Server {
 		request: u64,
 		channel: Id,
+		negotiation_revision: Option<u64>,
 		token: Option<Secret>,
 		endpoint: Option<String>,
 	},
@@ -637,6 +662,20 @@ impl ClientState {
 					self.voice.ring_error = Some((channel, request, message));
 				}
 			}
+			Event::TakenOver { channel, request } => {
+				if self
+					.voice
+					.active
+					.as_ref()
+					.is_some_and(|call| call.channel == channel && call.request == request)
+				{
+					self.voice.ring_error = None;
+					self.voice.active = None;
+					self.voice.outgoing = None;
+					self.voice.departed = Some((channel, request));
+					self.status = "This device's call session was replaced";
+				}
+			}
 			Event::Departed { channel, request } => {
 				self.voice.departed = Some((channel, request));
 			}
@@ -947,7 +986,10 @@ impl ClientState {
 					call.participants.clear();
 				}
 			}
-			Event::Server { .. } | Event::Stream { .. } | Event::Watch { .. } => {} // The desktop consumes negotiation material; core never retains it.
+			Event::SessionConfirmed { .. }
+			| Event::Server { .. }
+			| Event::Stream { .. }
+			| Event::Watch { .. } => {} // The desktop consumes negotiation material; core never retains it.
 		}
 	}
 	fn update_roster(&mut self, entry: RosterEntry) -> bool {
@@ -1139,6 +1181,38 @@ mod tests {
 		state
 	}
 
+	#[test]
+	fn takeover_clears_only_the_matching_call_and_allows_an_explicit_rejoin() {
+		let mut state = stream_preview_state();
+		state.start_call(Id(20), false).unwrap();
+		let request = state.voice.active.as_ref().unwrap().request;
+		state.apply_voice(Event::TakenOver {
+			channel: Id(20),
+			request: request + 1,
+		});
+		assert!(state.voice.active.is_some());
+		state.apply_voice(Event::TakenOver {
+			channel: Id(21),
+			request,
+		});
+		assert!(state.voice.active.is_some());
+		state.apply_voice(Event::TakenOver {
+			channel: Id(20),
+			request,
+		});
+		assert!(state.voice.active.is_none());
+		assert!(state.voice.outgoing.is_none());
+		assert_eq!(state.voice.departed, Some((Id(20), request)));
+		assert_eq!(state.status, "This device's call session was replaced");
+		assert!(state.start_call(Id(20), false).is_some());
+		let next = state.voice.active.as_ref().unwrap().request;
+		assert_ne!(request, next);
+		state.apply_voice(Event::TakenOver {
+			channel: Id(20),
+			request,
+		});
+		assert_eq!(state.voice.active.as_ref().unwrap().request, next);
+	}
 	#[test]
 	fn stream_preview_is_scoped_to_the_current_streamer_request() {
 		{
@@ -1356,6 +1430,7 @@ mod tests {
 				user: Id(2),
 				request: None,
 				session: None,
+				negotiation_revision: None,
 				member: None,
 				muted: false,
 				deafened: true,
@@ -1626,6 +1701,7 @@ mod tests {
 				user: Id(120),
 				request: None,
 				session: None,
+				negotiation_revision: None,
 				member: None,
 				muted: false,
 				deafened: false,
@@ -1992,6 +2068,7 @@ mod tests {
 				channel: None,
 				user: Id(3),
 				session: None,
+				negotiation_revision: None,
 				member: None,
 				muted: false,
 				deafened: false,
@@ -2011,6 +2088,7 @@ mod tests {
 				channel: Some(Id(2)),
 				user: Id(3),
 				session: None,
+				negotiation_revision: None,
 				member: None,
 				muted: true,
 				deafened: false,
@@ -2134,6 +2212,7 @@ mod tests {
 						channel: (end == "peer-state").then_some(Id(2)),
 						user: if end == "peer-state" { Id(3) } else { Id(1) },
 						session: None,
+						negotiation_revision: None,
 						muted: false,
 						deafened: false,
 						video: false,

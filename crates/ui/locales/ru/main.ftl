@@ -4360,3 +4360,5 @@ voice-recipient-ring = Позвонить снова
 voice-recipient-stop-ringing = Остановить звонок
 voice-recipient-ringing = Вызов…
 voice-recipient-not-in-call = Не в звонке
+
+voice-call-moved-to-another-client = Сеанс звонка на этом устройстве был заменён

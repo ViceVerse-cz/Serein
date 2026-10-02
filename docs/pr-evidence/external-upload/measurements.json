@@ -1,0 +1,186 @@
+{
+  "baseline_revision": "eab1961ae80d2822a49629fb5d182b2c8e18e9d1",
+  "runtime_revision": "ef9cd5d1d846335713af71f9f1d9cd895483d59d",
+  "environment": {
+    "os": "macOS 27.0 (26A428)",
+    "cpu": "Apple M1",
+    "ram_gib": 16,
+    "logical_cpus": 8,
+    "rust": "1.98.1",
+    "renderer": "native Metal"
+  },
+  "baseline": {
+    "standard_package": {
+      "commit": "eab1961",
+      "executable": 62006112,
+      "installed": 68016541,
+      "compressed": 43252563,
+      "files": 206
+    },
+    "native_release_demo": {
+      "binary": "target/issue-sweep/baseline/serein-release-demo",
+      "flags": [
+        "--demo",
+        "--demo-chat"
+      ],
+      "warmup_seconds": 5,
+      "interval_seconds": 1,
+      "samples": [
+        {
+          "seconds": 5.019,
+          "cpu_percent": 0.0,
+          "rss_kib": 123584
+        },
+        {
+          "seconds": 6.033,
+          "cpu_percent": 0.0,
+          "rss_kib": 123584
+        },
+        {
+          "seconds": 7.04,
+          "cpu_percent": 0.0,
+          "rss_kib": 123584
+        },
+        {
+          "seconds": 8.051,
+          "cpu_percent": 0.0,
+          "rss_kib": 123536
+        },
+        {
+          "seconds": 9.065,
+          "cpu_percent": 0.0,
+          "rss_kib": 123536
+        },
+        {
+          "seconds": 10.076,
+          "cpu_percent": 0.0,
+          "rss_kib": 123536
+        },
+        {
+          "seconds": 11.09,
+          "cpu_percent": 0.0,
+          "rss_kib": 123536
+        },
+        {
+          "seconds": 12.107,
+          "cpu_percent": 0.0,
+          "rss_kib": 123536
+        },
+        {
+          "seconds": 13.114,
+          "cpu_percent": 0.0,
+          "rss_kib": 123536
+        },
+        {
+          "seconds": 14.128,
+          "cpu_percent": 0.0,
+          "rss_kib": 123536
+        }
+      ],
+      "cpu_percent_median": 0.0,
+      "rss_peak_kib": 123584,
+      "rss_settled_kib": 123536,
+      "elapsed_seconds": 15.149,
+      "user_cpu_seconds": 0.208385,
+      "system_cpu_seconds": 0.37876499999999996,
+      "exit_code": -2,
+      "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo"
+    }
+  },
+  "after": {
+    "standard_package": {
+      "commit": "ef9cd5d1d846335713af71f9f1d9cd895483d59d",
+      "command": "cargo xtask package",
+      "features": "standard xtask package; voice included; xtask internally uses --no-default-features",
+      "executable": 62088304,
+      "installed": 68098733,
+      "compressed": 43286187,
+      "files": 206,
+      "executable_sha256": "acd232f6e3cd094b4e4b7bdfeb099ee336908a7653112d1de00103a604f87ffe",
+      "zip_method": "ditto -c -k --sequesterRsrc full standard-dist contents, without enclosing directory"
+    },
+    "demo_build": {
+      "commit": "ef9cd5d1d846335713af71f9f1d9cd895483d59d",
+      "command": "cargo build --release --locked -p serein --features demo",
+      "default_features": true,
+      "binary": "/Users/claw/Code/Serein/target/issue-sweep/external-upload/ef9cd5d1/serein-release-demo",
+      "size_bytes": 63988160,
+      "sha256": "66ca999430a2ff361d842d8bc297ae5cc4f4fe07f2e6138fe5e97f3605dc9430"
+    },
+    "native_release_demo": {
+      "binary": "/Users/claw/Code/Serein/target/issue-sweep/external-upload/ef9cd5d1/serein-release-demo",
+      "flags": [
+        "--demo",
+        "--demo-chat"
+      ],
+      "warmup_seconds": 5,
+      "interval_seconds": 1,
+      "samples": [
+        {
+          "seconds": 5.029,
+          "cpu_percent": 0.0,
+          "rss_kib": 123872
+        },
+        {
+          "seconds": 6.055,
+          "cpu_percent": 0.1,
+          "rss_kib": 123872
+        },
+        {
+          "seconds": 7.081,
+          "cpu_percent": 0.0,
+          "rss_kib": 123856
+        },
+        {
+          "seconds": 8.096,
+          "cpu_percent": 0.0,
+          "rss_kib": 123856
+        },
+        {
+          "seconds": 9.118,
+          "cpu_percent": 0.0,
+          "rss_kib": 123856
+        },
+        {
+          "seconds": 10.137,
+          "cpu_percent": 0.0,
+          "rss_kib": 123856
+        },
+        {
+          "seconds": 11.154,
+          "cpu_percent": 0.0,
+          "rss_kib": 123856
+        },
+        {
+          "seconds": 12.168,
+          "cpu_percent": 0.0,
+          "rss_kib": 123856
+        },
+        {
+          "seconds": 13.19,
+          "cpu_percent": 0.0,
+          "rss_kib": 123856
+        },
+        {
+          "seconds": 14.208,
+          "cpu_percent": 0.0,
+          "rss_kib": 123856
+        }
+      ],
+      "cpu_percent_median": 0.0,
+      "rss_peak_kib": 123872,
+      "rss_settled_kib": 123856,
+      "elapsed_seconds": 15.225,
+      "user_cpu_seconds": 0.20421499999999998,
+      "system_cpu_seconds": 0.189808,
+      "exit_code": -2,
+      "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo"
+    }
+  },
+  "limitations": [
+    "One build and sample per revision; baseline and after ambient compiler activity can differ.",
+    "No concurrent native app; no own Cargo compilation during after sampling.",
+    "Process ps CPU/RSS only; GPU memory, frame/startup latency and active-upload throughput were not measured.",
+    "No Catbox upload, live Discord session or audio/device action used."
+  ]
+}

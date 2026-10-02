@@ -141,6 +141,8 @@ impl Connection {
                 let (recipient_scope,mut recipient_scope_changed)=watch::channel(0u64);
                 let gateway_channels=dm_channels.clone();
                 let (voice_online,mut voice_availability)=watch::channel(false);
+                let (takeover_send,mut takeover_receive)=watch::channel(None);
+                let gateway_takeover=takeover_send.clone();
                 let gateway_api=api.clone();let gateway_emit=emit.clone();let terminal_send=finished.clone();
                 let gateway_wake=wake.clone();
                 let activity_wake=wake.clone();
@@ -153,7 +155,7 @@ impl Connection {
                         if matches!(&event,Event::Disconnected|Event::Resync) { gateway_api.interaction_session(None)?; }
                         if let Some((ready_user,_,channels))=event.ready_navigation() {
                             if ready_user.id!=user.id {return Err(Failure::InvalidCredential);}
-                            *gateway_channels.lock().map_err(|_|Failure::Protocol)?=channels.iter().filter(|c|private_call(c)).take(client_core::MAX_NAV).map(|c|(c.id,c.recipients.iter().map(|u|u.id).collect::<Vec<_>>())).collect();
+                            *gateway_channels.lock().map_err(|_|Failure::Protocol)?=channels.iter().filter(|c|private_call(c)).take(client_core::MAX_NAV).map(|c|(c.id,recipient_ids(c))).collect();
                         }
                         let invalidates_recipient = match &event {
                             Event::ChannelCreated(channel) => gateway_channels.lock().map_err(|_|Failure::Protocol)?.contains_key(&channel.id),
@@ -166,7 +168,7 @@ impl Connection {
                         if let Event::ChannelCreated(channel)=&event {
                             let mut channels=gateway_channels.lock().map_err(|_|Failure::Protocol)?;
                             channels.remove(&channel.id);
-                            if private_call(channel) && channels.len()<client_core::MAX_NAV {channels.insert(channel.id,channel.recipients.iter().map(|u|u.id).collect::<Vec<_>>());}
+                            if private_call(channel) && channels.len()<client_core::MAX_NAV {channels.insert(channel.id,recipient_ids(channel));}
                         }
                         if let Event::Unavailable(channel)=&event {gateway_channels.lock().map_err(|_|Failure::Protocol)?.remove(channel);}
                         if let Event::RecipientRemoved {channel,user:removed}=&event {
@@ -184,6 +186,7 @@ impl Connection {
 
                         if event.ready_navigation().is_some() || matches!(&event,Event::Resumed) {let _=voice_online.send(true);}
                         if matches!(&event,Event::Disconnected|Event::Resync) {let _=voice_online.send(false);}
+                        if let Event::Voice(client_core::voice::Event::TakenOver{channel,request})=&event {let _=gateway_takeover.send_replace(Some((*channel,*request)));}
                         gateway_emit(event)
                     }).await.err().unwrap_or(Failure::Network).protocol_at("Gateway connection: unsupported handshake or event");
                     gateway_api.stop();let _=terminal_send.send(Some(error));gateway_wake.request_repaint();
@@ -223,6 +226,10 @@ impl Connection {
                             recipient_scope_changed.borrow_and_update();
                             drop(recipient_ringing.take());
                         }
+                        changed=takeover_receive.changed()=> {
+                            if changed.is_err() {break;}
+                            if release_taken_over(&mut voice_request,*takeover_receive.borrow_and_update()) {drop(ringing.take());drop(recipient_ringing.take());}
+                        }
                         changed=voice_availability.changed()=> {
 							if changed.is_err() {break;}
 							if !*voice_availability.borrow_and_update() {drop(ringing.take());drop(recipient_ringing.take());drop(profile.take());drop(stream_preview.take());drop(search.take());voice_request=None;if let Some(cancel)=&upload_cancel {let _=cancel.send(true);}}
@@ -259,6 +266,8 @@ impl Connection {
                             })));
                         }
                         command=receive.recv()=>{
+                            // Select can admit a queued command before the changed-watch branch.
+                            if release_taken_over(&mut voice_request,*takeover_receive.borrow()) {drop(ringing.take());drop(recipient_ringing.take());}
                             let Some(command)=command else {break;};
                             if matches!(command,Command::CancelSearch) {drop(search.take());continue;}
                             if matches!(command,Command::CancelGifs) {drop(gifs.take());continue;}
@@ -368,6 +377,7 @@ impl Connection {
                             if let Command::Voice(client_core::voice::Command::RingRecipient{channel,request,recipient,stop})=&command {
                                 use client_core::voice::Event as E;
                                 let (channel,request,recipient,stop)=(*channel,*request,*recipient,*stop);
+                                let recipient_revision=*recipient_scope_changed.borrow();
                                 let eligible=recipient_action(channel,request,recipient,user.id,voice_request,dm_channels.lock().map_err(|_|Failure::Protocol)?.get(&channel).map(Vec::as_slice));
                                 let message=if !*voice_availability.borrow() {Some("Recipient ringing unavailable while disconnected")}
                                     else if !eligible {Some("Recipient ringing expired; no request was sent")}
@@ -376,8 +386,17 @@ impl Connection {
                                 if let Some(message)=message {emit(Event::Voice(E::RingFailed{channel,request,message}))?;continue;}
                                 drop(recipient_ringing.take());
                                 let api=api.clone();let emit=emit.clone();let finished=finished.clone();let ring_wake=wake.clone();
+                                let takeover=takeover_receive.clone();
+                                let members=recipient_scope_changed.clone();
+                                let available=voice_availability.clone();
                                 recipient_ringing=Some(AbortTask(tokio::spawn(async move {
-                                    if let Err(failure)=api.ring_call(channel,Some(recipient),stop).await {
+                                    let result=tokio::select! {
+                                        biased;
+                                        _=wait_for_takeover(takeover,(channel,request))=>return,
+                                        _=wait_for_recipient_invalidation(members,recipient_revision,available)=>return,
+                                        result=api.ring_call(channel,Some(recipient),stop)=>result,
+                                    };
+                                    if let Err(failure)=result {
                                         let _=emit(Event::Voice(E::RingFailed{channel,request,message:failure.label()}));
                                         if failure.ends_session(){api.stop();let _=finished.send(Some(failure));}
                                     }
@@ -387,11 +406,23 @@ impl Connection {
                             }
 							if let Command::Voice(control)=command {
                                 use client_core::voice::{Command as V,Event as E};
-                                let (channel,request)=match control {V::Join{channel,request,..}|V::Ring{channel,request}|V::Leave{channel,request}|V::SetMute{channel,request,..}|V::SetCamera{channel,request,..}=>(channel,request),V::Decline{channel}=>(channel,0),V::RingRecipient{..}|V::Sync{..}|V::StartStream{..}|V::StopStream{..}|V::WatchStream{..}|V::StopWatching{..}=>unreachable!("sync and stream actions routed above")};
+                                let (channel,request)=match control {V::AbandonSession{channel,request}|V::ConfirmSession{channel,request,..}|V::Join{channel,request,..}|V::Ring{channel,request}|V::Leave{channel,request}|V::SetMute{channel,request,..}|V::SetCamera{channel,request,..}=>(channel,request),V::Decline{channel}=>(channel,0),V::RingRecipient{..}|V::Sync{..}|V::StartStream{..}|V::StopStream{..}|V::WatchStream{..}|V::StopWatching{..}=>unreachable!("sync and stream actions routed above")};
+                                if let V::AbandonSession{channel,request}=control {
+                                    if voice_request.is_some_and(|(id,r,_)|id==channel && r==request) {
+                                        let _=takeover_send.send_replace(Some((channel,request)));
+                                        let _=release_taken_over(&mut voice_request,Some((channel,request)));
+                                        drop(ringing.take());drop(recipient_ringing.take());
+                                    }
+                                    voice_send.try_send(control).map_err(|_|Failure::Capacity)?;
+                                    continue;
+                                }
                                 if !*voice_availability.borrow() {
                                     emit(Event::Voice(E::Failed{channel,request,message:"Voice is disconnected; no call was started"}))?;continue;
                                 }
-                                if matches!(control,V::Join{..}) {drop(recipient_ringing.take());drop(ringing.take());}
+                                if join_taken_over(control,*takeover_receive.borrow()) {
+                                    emit(Event::Voice(E::Failed{channel,request,message:"Call attempt ended; join again to start a new attempt"}))?;continue;
+                                }
+                                if matches!(control,V::Join{..}) {drop(ringing.take());drop(recipient_ringing.take());}
                                 if let V::Leave{channel,request}=control && voice_request.is_some_and(|(id,r,_)|id==channel && r==request) {drop(ringing.take());drop(recipient_ringing.take());}
                                 let ring=match ring_action(control,user.id,&mut voice_request,dm_channels.lock().map_err(|_|Failure::Protocol)?.contains_key(&channel)) {
                                     Ok(action)=>action,
@@ -401,8 +432,14 @@ impl Connection {
                                 if let Some((recipient,stop))=ring {
                                     drop(ringing.take());
                                     let api=api.clone();let emit=emit.clone();let voice_send=voice_send.clone();let finished=finished.clone();let ring_wake=wake.clone();
+                                    let takeover=takeover_receive.clone();
                                     ringing=Some(AbortTask(tokio::spawn(async move {
-                                        if let Err(failure)=api.ring_call(channel,recipient,stop).await {
+                                        let result=tokio::select! {
+                                            biased;
+                                            _=wait_for_takeover(takeover,(channel,request))=>return,
+                                            result=api.ring_call(channel,recipient,stop)=>result,
+                                        };
+                                        if let Err(failure)=result {
                                             if !stop {let _=voice_send.try_send(V::Leave{channel,request});}
                                             let _=emit(Event::Voice(E::Failed{channel,request,message:failure.label()}));
                                             if failure.ends_session(){api.stop();let _=finished.send(Some(failure));ring_wake.request_repaint();}
@@ -849,6 +886,19 @@ fn private_call(channel: &model::Channel) -> bool {
 				&& channel.recipients.len() < client_core::voice::MAX_PARTICIPANTS))
 }
 
+// Reserve the fixed byte budget once; later member additions must not grow capacity.
+fn recipient_ids(channel: &model::Channel) -> Vec<model::Id> {
+	let mut recipients = Vec::with_capacity(client_core::voice::MAX_PARTICIPANTS);
+	recipients.extend(
+		channel
+			.recipients
+			.iter()
+			.take(client_core::voice::MAX_PARTICIPANTS - 1)
+			.map(|user| user.id),
+	);
+	recipients
+}
+
 // A recipient write never allocates media or changes the once-only initial ring state.
 fn recipient_action(
 	channel: model::Id,
@@ -865,6 +915,55 @@ fn recipient_action(
 		})
 }
 
+// Membership and connection changes cancel before the HTTP future is polled.
+async fn wait_for_recipient_invalidation(
+	mut members: watch::Receiver<u64>,
+	revision: u64,
+	mut available: watch::Receiver<bool>,
+) {
+	loop {
+		let changed = *members.borrow_and_update() != revision;
+		let online = *available.borrow_and_update();
+		if changed || !online {
+			return;
+		}
+		tokio::select! {
+			changed=members.changed()=>if changed.is_err() {return;},
+			changed=available.changed()=>if changed.is_err() {return;},
+		}
+	}
+}
+
+// Latest scoped invalidation is rechecked at dispatch, independent of select branch order.
+fn release_taken_over(
+	active: &mut Option<(model::Id, u64, bool)>,
+	latest: Option<(model::Id, u64)>,
+) -> bool {
+	if active.is_some_and(|(channel, request, _)| latest == Some((channel, request))) {
+		*active = None;
+		true
+	} else {
+		false
+	}
+}
+
+// A duplicate queued Join must not recreate the invalidated local request.
+fn join_taken_over(control: client_core::voice::Command, latest: Option<(model::Id, u64)>) -> bool {
+	matches!(control, client_core::voice::Command::Join { channel, request, .. } if latest == Some((channel, request)))
+}
+
+async fn wait_for_takeover(
+	mut takeover: watch::Receiver<Option<(model::Id, u64)>>,
+	scope: (model::Id, u64),
+) {
+	loop {
+		let matching = *takeover.borrow_and_update() == Some(scope);
+		if matching || takeover.changed().await.is_err() {
+			return;
+		}
+	}
+}
+
 // Ring only after the media adapter confirms transport allocation, and only once per current call.
 fn ring_action(
 	control: client_core::voice::Command,
@@ -873,6 +972,12 @@ fn ring_action(
 	dm: bool,
 ) -> Result<Option<(Option<model::Id>, bool)>, ()> {
 	use client_core::voice::Command as V;
+	if let V::AbandonSession { channel, request } = control {
+		if active.is_some_and(|(id, r, _)| id == channel && r == request) {
+			*active = None;
+		}
+		return Ok(None);
+	}
 	if let V::Leave { channel, request } = control {
 		if active.is_some_and(|(id, r, _)| id == channel && r == request) {
 			*active = None;
@@ -886,8 +991,18 @@ fn ring_action(
 			| V::RingRecipient { .. }
 			| V::Decline { .. }
 			| V::Join { ring: true, .. } => Err(()),
-			V::Sync { .. }
-			| V::Join { .. }
+			V::Join {
+				channel,
+				request,
+				ring: false,
+				..
+			} => {
+				*active = Some((channel, request, true));
+				Ok(None)
+			}
+			V::AbandonSession { .. }
+			| V::ConfirmSession { .. }
+			| V::Sync { .. }
 			| V::Leave { .. }
 			| V::SetMute { .. }
 			| V::SetCamera { .. }
@@ -919,7 +1034,9 @@ fn ring_action(
 		}
 		V::Decline { .. } => Ok(Some((Some(owner), true))),
 		V::RingRecipient { .. } => Err(()),
-		V::Sync { .. }
+		V::AbandonSession { .. }
+		| V::ConfirmSession { .. }
+		| V::Sync { .. }
 		| V::Leave { .. }
 		| V::SetMute { .. }
 		| V::SetCamera { .. }
@@ -959,6 +1076,160 @@ fn scope_history_failure(event: Event, channel: model::Id, request: u64) -> Even
 #[cfg(test)]
 mod tests {
 	#[test]
+	fn takeover_rejects_queued_initial_ringing_but_preserves_new_call_ownership() {
+		use client_core::voice::Command as V;
+		let channel = model::Id(22);
+		let mut active = Some((channel, 5, false));
+		let (send, receive) = watch::channel(None);
+		let _ = send.send_replace(Some((channel, 5)));
+		// The command is ready before the changed-watch select branch executes.
+		assert!(release_taken_over(&mut active, *receive.borrow()));
+		assert_eq!(active, None);
+		let old_join = V::Join {
+			channel,
+			request: 5,
+			ring: true,
+			mute: false,
+			deaf: false,
+		};
+		assert!(join_taken_over(old_join, *receive.borrow()));
+		assert!(
+			active.is_none(),
+			"rejected duplicate Join cannot repopulate ownership"
+		);
+		let new_join = V::Join {
+			channel,
+			request: 6,
+			ring: true,
+			mute: false,
+			deaf: false,
+		};
+		assert!(!join_taken_over(new_join, *receive.borrow()));
+		assert!(!join_taken_over(
+			V::Join {
+				channel: model::Id(23),
+				request: 5,
+				ring: true,
+				mute: false,
+				deaf: false
+			},
+			*receive.borrow()
+		));
+		assert_eq!(
+			ring_action(
+				V::Ring {
+					channel,
+					request: 5
+				},
+				model::Id(1),
+				&mut active,
+				true
+			),
+			Err(())
+		);
+		assert_eq!(
+			ring_action(
+				V::Join {
+					channel,
+					request: 6,
+					ring: true,
+					mute: false,
+					deaf: false
+				},
+				model::Id(1),
+				&mut active,
+				true
+			),
+			Ok(None)
+		);
+		assert!(!release_taken_over(&mut active, *receive.borrow()));
+		assert_eq!(
+			ring_action(
+				V::Ring {
+					channel,
+					request: 6
+				},
+				model::Id(1),
+				&mut active,
+				true
+			),
+			Ok(Some((None, false)))
+		);
+		assert!(!release_taken_over(&mut active, Some((model::Id(23), 6))));
+		assert_eq!(active, Some((channel, 6, true)));
+		// Moving from an unringed DM attempt to a guild replaces dispatcher ownership too.
+		active = Some((channel, 7, false));
+		let guild_channel = model::Id(30);
+		assert_eq!(
+			ring_action(
+				V::Join {
+					channel: guild_channel,
+					request: 8,
+					ring: false,
+					mute: false,
+					deaf: false
+				},
+				model::Id(1),
+				&mut active,
+				false
+			),
+			Ok(None)
+		);
+		assert_eq!(active, Some((guild_channel, 8, true)));
+		assert_eq!(
+			ring_action(
+				V::Ring {
+					channel,
+					request: 7
+				},
+				model::Id(1),
+				&mut active,
+				true
+			),
+			Err(())
+		);
+		assert!(release_taken_over(&mut active, Some((guild_channel, 8))));
+	}
+	#[test]
+	fn initial_ringing_wait_cancels_only_matching_takeover_or_connection_teardown() {
+		let runtime = tokio::runtime::Runtime::new().unwrap();
+		runtime.block_on(async {
+			let scope = (model::Id(22), 5);
+			let (send, receive) = watch::channel(Some((model::Id(22), 4)));
+			let task = tokio::spawn(wait_for_takeover(receive.clone(), scope));
+			tokio::task::yield_now().await;
+			assert!(!task.is_finished());
+			let _ = send.send_replace(Some(scope));
+			tokio::time::timeout(Duration::from_secs(1), task)
+				.await
+				.unwrap()
+				.unwrap();
+			// Match production biased selection with a synthetic HTTP future side effect.
+			let contacted = std::cell::Cell::new(false);
+			tokio::select! {
+				biased;
+				_=wait_for_takeover(receive.clone(), scope)=>{},
+				_=async {contacted.set(true);std::future::pending::<()>().await}=>unreachable!(),
+			}
+			assert!(
+				!contacted.get(),
+				"already invalidated ownership must never poll the HTTP write"
+			);
+			// A task spawned after the notification also cancels before its HTTP future.
+			let task = tokio::spawn(wait_for_takeover(receive.clone(), scope));
+			tokio::time::timeout(Duration::from_secs(1), task)
+				.await
+				.unwrap()
+				.unwrap();
+			let task = tokio::spawn(wait_for_takeover(receive, (model::Id(22), 6)));
+			drop(send);
+			tokio::time::timeout(Duration::from_secs(1), task)
+				.await
+				.unwrap()
+				.unwrap();
+		});
+	}
+	#[test]
 	fn stream_preview_capacity_is_local_but_auth_failures_end_the_session() {
 		for (failure, expected) in [
 			(Failure::Capacity, None),
@@ -980,6 +1251,49 @@ mod tests {
 		}
 	}
 
+	#[test]
+	fn abandoning_an_unconfirmed_attempt_clears_dispatch_without_an_http_hangup() {
+		use client_core::voice::Command as V;
+		let mut active = Some((model::Id(20), 5, false));
+		assert_eq!(
+			ring_action(
+				V::AbandonSession {
+					channel: model::Id(20),
+					request: 4
+				},
+				model::Id(1),
+				&mut active,
+				true
+			),
+			Ok(None)
+		);
+		assert_eq!(active, Some((model::Id(20), 5, false)));
+		assert_eq!(
+			ring_action(
+				V::AbandonSession {
+					channel: model::Id(20),
+					request: 5
+				},
+				model::Id(1),
+				&mut active,
+				true
+			),
+			Ok(None)
+		);
+		assert!(active.is_none());
+		assert_eq!(
+			ring_action(
+				V::Ring {
+					channel: model::Id(20),
+					request: 5
+				},
+				model::Id(1),
+				&mut active,
+				true
+			),
+			Err(())
+		);
+	}
 	#[tokio::test]
 	async fn activity_privacy_waits_for_opt_in_and_propagates_expired_session() {
 		let api = Arc::new(
@@ -1348,6 +1662,137 @@ mod tests {
 			Some(&oversized)
 		));
 	}
+	#[test]
+	fn recipient_dispatch_rejects_queued_writes_after_takeover_and_local_abandon() {
+		use client_core::voice::Command as V;
+		use model::Id;
+		let (channel, owner, recipient) = (Id(2), Id(1), Id(3));
+		let peers = [recipient];
+		let mut active = Some((channel, 7, true));
+		assert!(recipient_action(
+			channel,
+			7,
+			recipient,
+			owner,
+			active,
+			Some(&peers)
+		));
+		assert!(release_taken_over(&mut active, Some((channel, 7))));
+		assert!(!recipient_action(
+			channel,
+			7,
+			recipient,
+			owner,
+			active,
+			Some(&peers)
+		));
+		let join = |request| V::Join {
+			channel,
+			request,
+			ring: false,
+			mute: false,
+			deaf: false,
+		};
+		assert!(join_taken_over(join(7), Some((channel, 7))));
+		assert!(!join_taken_over(join(8), Some((channel, 7))));
+		assert_eq!(ring_action(join(8), owner, &mut active, true), Ok(None));
+		assert!(recipient_action(
+			channel,
+			8,
+			recipient,
+			owner,
+			active,
+			Some(&peers)
+		));
+		assert!(!release_taken_over(&mut active, Some((channel, 7))));
+		assert_eq!(
+			ring_action(
+				V::AbandonSession {
+					channel,
+					request: 7
+				},
+				owner,
+				&mut active,
+				true
+			),
+			Ok(None)
+		);
+		assert!(recipient_action(
+			channel,
+			8,
+			recipient,
+			owner,
+			active,
+			Some(&peers)
+		));
+		assert_eq!(
+			ring_action(
+				V::AbandonSession {
+					channel,
+					request: 8
+				},
+				owner,
+				&mut active,
+				true
+			),
+			Ok(None)
+		);
+		assert!(!recipient_action(
+			channel,
+			8,
+			recipient,
+			owner,
+			active,
+			Some(&peers)
+		));
+	}
+
+	#[tokio::test]
+	async fn recipient_http_wait_checks_membership_offline_and_abandon_before_network_poll() {
+		let (members, member_updates) = watch::channel(2u64);
+		let (online, availability) = watch::channel(true);
+		let scope = (model::Id(2), 7);
+		let (takeover, ownership) = watch::channel(None);
+		let task = tokio::spawn(wait_for_recipient_invalidation(
+			member_updates.clone(),
+			2,
+			availability.clone(),
+		));
+		tokio::task::yield_now().await;
+		assert!(!task.is_finished());
+		members.send_replace(3);
+		tokio::time::timeout(Duration::from_secs(1), task)
+			.await
+			.unwrap()
+			.unwrap();
+		for invalidation in 0..3 {
+			members.send_replace(if invalidation == 0 { 3 } else { 2 });
+			online.send_replace(invalidation != 1);
+			takeover.send_replace((invalidation == 2).then_some(scope));
+			let contacted = std::cell::Cell::new(false);
+			tokio::select! {
+				biased;
+				_=wait_for_takeover(ownership.clone(),scope)=>{},
+				_=wait_for_recipient_invalidation(member_updates.clone(),2,availability.clone())=>{},
+				_=async {contacted.set(true);std::future::pending::<()>().await}=>unreachable!(),
+			}
+			assert!(
+				!contacted.get(),
+				"invalidated recipient action must not poll HTTP"
+			);
+		}
+		// A task already pending when local Abandon publishes the same invalidation cancels.
+		takeover.send_replace(None);
+		let task = tokio::spawn(wait_for_takeover(ownership, scope));
+		tokio::task::yield_now().await;
+		assert!(!task.is_finished());
+		takeover.send_replace(Some(scope));
+		tokio::time::timeout(Duration::from_secs(1), task)
+			.await
+			.unwrap()
+			.unwrap();
+	}
+
 	#[test]
 	fn call_discovery_never_rings_or_changes_the_active_attempt() {
 		use client_core::voice::Command as V;

@@ -4345,3 +4345,5 @@ voice-recipient-ring = もう一度呼び出す
 voice-recipient-stop-ringing = 呼び出しを停止
 voice-recipient-ringing = 呼び出し中…
 voice-recipient-not-in-call = 通話に未参加
+
+voice-call-moved-to-another-client = このデバイスの通話セッションが置き換えられました
