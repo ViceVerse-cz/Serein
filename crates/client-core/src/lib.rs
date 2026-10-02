@@ -3237,8 +3237,12 @@ impl State {
 						self.status = "No messages returned after this boundary; use Jump to present to reload";
 					}
 				}
-				if r.is_ok() && self.gateway_connected {
-					self.freshness = Freshness::Fresh;
+				if r.is_ok() {
+					self.freshness = if self.gateway_connected {
+						Freshness::Fresh
+					} else {
+						Freshness::Stale
+					};
 				}
 				r
 			}
@@ -3506,9 +3510,11 @@ impl State {
 				// The voice socket is independent and a RESUME replays roster changes, so the call,
 				// roster and known DM calls all stay. Only a fresh READY invalidates the voice state.
 				self.voice.incoming = None;
-				self.gateway_connected = false;
-				self.cancel_history();
-				self.freshness = Freshness::Stale;
+				if std::mem::replace(&mut self.gateway_connected, false) {
+					self.cancel_history();
+					self.freshness = Freshness::Stale;
+				}
+				// Retry notifications must not invalidate a REST reload started during the outage.
 				self.status = "Reconnecting…";
 				Ok(())
 			}

@@ -26,6 +26,10 @@ mod channel_permissions;
 mod channel_welcome_tests;
 mod components;
 mod composer_text;
+#[cfg(any(test, all(debug_assertions, feature = "demo")))]
+mod recovery_demo;
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub use recovery_demo::check as debug_resume_send_check;
 pub mod design;
 mod embeds;
 mod extension_account_actions;
@@ -1791,6 +1795,14 @@ impl MessagingUi {
 					self.update_banner(ui);
 					divider(ui);
 				}
+				if !state.demo
+					&& state.auth == client_core::auth::AuthState::Authenticated
+					&& !state.gateway_connected
+				{
+					let first = !self.shows_update_banner();
+					self.reconnecting_banner(ui, first);
+					divider(ui);
+				}
 				if in_call {
 					self.voice_card_section(ui, state, commands);
 					divider(ui);
@@ -2203,29 +2215,35 @@ impl MessagingUi {
 									self.archive_parent = Some(c.id);
 								}
 							}
+							let can_reload = state.selected.is_some_and(|id| {
+								if state.is_forum(id) {
+									state.can_load_posts(id) && !state.posts.loading
+								} else {
+									state.freshness != Freshness::Loading
+										&& state.can_read_history(id)
+								}
+							});
+							let can_reconnect = state.auth
+								== client_core::auth::AuthState::Authenticated
+								&& !state.gateway_connected;
 							let reload = ui
-								.add_enabled_ui(
-									state.selected.is_some_and(|id| {
-										if state.is_forum(id) {
-											state.can_load_posts(id) && !state.posts.loading
-										} else {
-											state.freshness != Freshness::Loading
-												&& state.can_read_history(id)
-										}
-									}),
-									|ui| {
-										icons::button(
-											ui,
-											icons::Icon::Reload,
-											32.0,
-											&language.text("reload-history"),
-										)
-									},
-								)
+								.add_enabled_ui(can_reload || can_reconnect, |ui| {
+									icons::button(
+										ui,
+										icons::Icon::Reload,
+										32.0,
+										&language.text("reload-history"),
+									)
+								})
 								.inner;
 							if reload.clicked() {
-								commands.push(state.history(None));
-								self.timeline.follow_latest(state);
+								if can_reconnect {
+									self.reconnect_requested = true;
+								}
+								if can_reload {
+									commands.push(state.history(None));
+									self.timeline.follow_latest(state);
+								}
 							}
 						}
 						if let Some(channel) = state.selected.filter(|_| {

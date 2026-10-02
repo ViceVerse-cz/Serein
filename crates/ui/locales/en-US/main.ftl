@@ -4369,6 +4369,7 @@ voice-recipient-ring = Ring again
 voice-recipient-stop-ringing = Stop ringing
 voice-recipient-ringing = Ringing…
 voice-recipient-not-in-call = Not in call
+reconnect-now = Reconnect now
 
 # Explicit public attachment hosting
 public-upload-host-file = Host file…

@@ -4342,6 +4342,8 @@ voice-recipient-ringing = Çalıyor…
 voice-recipient-not-in-call = Aramada değil
 
 
+reconnect-now = Şimdi yeniden bağlan
+
 voice-call-moved-to-another-client = Bu cihazın arama oturumu değiştirildi
 
 server-settings-page-safety = Güvenlik Kurulumu

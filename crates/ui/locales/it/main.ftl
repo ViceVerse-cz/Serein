@@ -4352,6 +4352,7 @@ voice-recipient-ring = Richiama
 voice-recipient-stop-ringing = Interrompi squillo
 voice-recipient-ringing = Sta squillando…
 voice-recipient-not-in-call = Non nella chiamata
+reconnect-now = Riconnetti ora
 
 voice-call-moved-to-another-client = La sessione di chiamata di questo dispositivo è stata sostituita
 

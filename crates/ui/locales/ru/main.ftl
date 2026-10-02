@@ -4356,6 +4356,7 @@ voice-recipient-ring = Позвонить снова
 voice-recipient-stop-ringing = Перестать звонить
 voice-recipient-ringing = Вызов…
 voice-recipient-not-in-call = Не в звонке
+reconnect-now = Переподключиться
 
 voice-call-moved-to-another-client = Сеанс звонка на этом устройстве был заменён
 

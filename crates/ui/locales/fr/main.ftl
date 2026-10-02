@@ -4352,6 +4352,7 @@ voice-recipient-ring = Rappeler
 voice-recipient-stop-ringing = Arrêter la sonnerie
 voice-recipient-ringing = Sonnerie…
 voice-recipient-not-in-call = Absent de l’appel
+reconnect-now = Se reconnecter
 
 voice-call-moved-to-another-client = La session d’appel de cet appareil a été remplacée
 

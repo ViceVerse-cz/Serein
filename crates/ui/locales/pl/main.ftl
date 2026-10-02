@@ -4355,6 +4355,7 @@ voice-recipient-ring = Zadzwoń ponownie
 voice-recipient-stop-ringing = Zatrzymaj dzwonienie
 voice-recipient-ringing = Dzwoni…
 voice-recipient-not-in-call = Poza rozmową
+reconnect-now = Połącz ponownie
 
 voice-call-moved-to-another-client = Sesja połączenia na tym urządzeniu została zastąpiona
 

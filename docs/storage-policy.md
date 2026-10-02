@@ -1487,6 +1487,17 @@ the credential-store job completes. A failed deletion leaves routing paused; it
 does not resume stored credentials. In-flight requests retain their earlier
 snapshot. Rejected saves retain the credential draft until a valid job can start.
 
+Tray voice presentation retains one desired state and one successfully applied
+state. Windows keeps at most four owned 32×32 icons and one fixed 128-code-unit
+tooltip descriptor. Background voice/tray logic runs once per event tick; active
+calls request a 50 ms repaint. These ticks neither open audio devices nor create
+new network payloads.
+Bundled scalable emoji retain the existing 1,024-item / 16 MiB emoji texture LRU.
+Their local-only request keys select 64, 128 or 256-pixel renditions. Each SVG has
+a 64 KiB decompression/window limit and shares the media worker’s eight decode
+permits, 1,024-item bounded requests and 128-item / 128 MiB result queue. No runtime
+network or disk cache is used for this bundled artwork, including in offline demo.
+
 ## Native camera format selection
 
 Camera input selection is limited to 1280×720 except DirectShow, which preserves
@@ -1500,11 +1511,13 @@ and preserves its existing four 4-MiB mapping ceiling and 4-MiB JPEG decode limi
 Nonmatching Linux pictures add at most 2,764,800 native RGB bytes, 921,600 fitted
 RGB bytes and 921,600 output RGB bytes. No camera files or persistent metadata
 are introduced. Native driver allocations remain outside these application limits.
+
 Linux system appearance retains one atomic preference and at most one portal
 connection/subscription (eight queued messages). Portal connect/read operations
 have three-second timeouts and reconnect attempts are separated by three seconds.
 The initial gsettings fallback runs once off rendering, with a two-second process
 limit and a 256-byte output cap; no preference history or diagnostics are stored.
+
 Reading zoom is constrained to 50–150%. Schema 26 rebuilds the fixed-size reading
 preferences table in the existing migration transaction, preserving all saved choices
 while widening the former 80% lower limit. Older clients reject schema 26 rather than

@@ -4371,6 +4371,7 @@ voice-recipient-ring = Znovu zavolat
 voice-recipient-stop-ringing = Zastavit vyzvánění
 voice-recipient-ringing = Vyzvání…
 voice-recipient-not-in-call = Není v hovoru
+reconnect-now = Znovu připojit
 
 # Explicit public attachment hosting
 public-upload-host-file = Hostovat soubor…

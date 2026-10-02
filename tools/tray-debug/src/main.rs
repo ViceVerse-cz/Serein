@@ -97,6 +97,14 @@ mod linux {
 			.build()
 			.await?;
 		let tray = start();
+		for state in [
+			tray::VoiceState::Unmuted,
+			tray::VoiceState::Speaking,
+			tray::VoiceState::Muted,
+			tray::VoiceState::Deafened,
+		] {
+			tray.set_voice_state(state);
+		}
 		registration.changed().await?;
 		while !tray.is_available() {
 			wake.notified().await;

@@ -4353,6 +4353,8 @@ voice-recipient-ringing = Llamando…
 voice-recipient-not-in-call = Fuera de la llamada
 
 
+reconnect-now = Reconectar ahora
+
 voice-call-moved-to-another-client = Se reemplazó la sesión de llamada de este dispositivo
 
 server-settings-page-safety = Configuración de seguridad

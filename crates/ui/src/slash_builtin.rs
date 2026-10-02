@@ -468,10 +468,22 @@ mod tests {
 
 		state.demo = false;
 		state.gateway_connected = false;
+		state
+			.drafts
+			.insert(origin, "/spoiler send during recovery".into());
+		assert!(ui.handle_builtin_slash(&mut state, origin, &ctx, &mut commands));
+		assert!(
+			matches!(&commands[0], Command::Send { content, channel, .. }
+			if content == "||send during recovery||" && *channel == origin)
+		);
+		assert!(!state.drafts.contains_key(&origin));
+		commands.clear();
+		state.auth = client_core::auth::AuthState::Expired;
 		state.drafts.insert(origin, "/spoiler keep me".into());
 		assert!(ui.handle_builtin_slash(&mut state, origin, &ctx, &mut commands));
 		assert_eq!(state.drafts[&origin], "/spoiler keep me");
 		assert!(commands.is_empty());
+		state.auth = client_core::auth::AuthState::Authenticated;
 		state.demo = true;
 
 		ui.preview_attachment("keep.txt", 1, None);

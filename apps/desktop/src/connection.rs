@@ -44,6 +44,8 @@ pub struct Connection {
 	pub activity_sharing: watch::Receiver<Result<Option<bool>, Failure>>,
 	pub activity_sharing_request: mpsc::Sender<bool>,
 	typing_channel: Arc<AtomicU64>,
+	reconnect: Arc<tokio::sync::Notify>,
+	send_recovery_pending: std::cell::Cell<bool>,
 	task: JoinHandle<()>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,6 +99,20 @@ impl Drop for AbortTask {
 	}
 }
 impl Connection {
+	/// Coalesce explicit recovery requests without restarting REST writes or authentication.
+	pub fn reconnect(&self) {
+		self.reconnect.notify_one();
+	}
+	/// Automatic send recovery wakes one attempt per outage, so rapid sends cannot
+	/// repeatedly abandon a dial already in progress. Manual recovery remains explicit.
+	pub fn recover_send(&self) {
+		if !self.send_recovery_pending.replace(true) {
+			self.reconnect();
+		}
+	}
+	pub fn gateway_recovered(&self) {
+		self.send_recovery_pending.set(false);
+	}
 	pub fn set_typing_channel(&self, channel: Option<model::Id>) {
 		self.typing_channel
 			.store(channel.map_or(0, |id| id.0), Ordering::Relaxed);
@@ -137,6 +153,8 @@ impl Connection {
 		let typing_channel = Arc::new(AtomicU64::new(0));
 		let active_typing = typing_channel.clone();
 		let typing_gate = Mutex::new(TypingGate::default());
+		let reconnect = Arc::new(tokio::sync::Notify::new());
+		let gateway_reconnect = reconnect.clone();
 		let status_changed = Arc::new(tokio::sync::Notify::new());
 		let status_refresh = status_changed.clone();
 		let task=runtime.spawn(async move {
@@ -191,7 +209,7 @@ impl Connection {
                 let gateway_wake=wake.clone();
                 let activity_wake=wake.clone();
                 let mut gateway_task=AbortTask(tokio::spawn(async move {
-                    let error=discord_gateway::run_with_activity(secret,gateway,member_receive,voice_receive,(activity_receive,presence_receive,member_query_receive,spotify_receive),move |observation| {
+                    let error=discord_gateway::run_with_activity_recovery(secret,gateway,member_receive,voice_receive,gateway_reconnect,(activity_receive,presence_receive,member_query_receive,spotify_receive),move |observation| {
                         if activity_observed.send_if_modified(|current| { if *current == observation { false } else { *current = observation; true } }) { activity_wake.request_repaint(); }
                         Ok(())
                     },|event|{
@@ -631,6 +649,8 @@ impl Connection {
 			activity_sharing,
 			activity_sharing_request,
 			typing_channel,
+			reconnect,
+			send_recovery_pending: std::cell::Cell::new(false),
 			task,
 		}
 	}

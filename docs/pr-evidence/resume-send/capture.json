@@ -1,0 +1,203 @@
+{
+  "before_build": {
+    "source": "71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35",
+    "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein-target-root-delivery CARGO_BUILD_JOBS=2 cargo build --locked -p serein --features demo",
+    "capture_instrumentation": true,
+    "fixture": "Pure MessagingUi rendering of synthetic disconnected state; desktop remains fixture-only with no account/network/media workers; temporary demo flag restored before Desktop dispatch",
+    "bytes": 264179000,
+    "sha256": "9c2314e15c8a784b59c7d20302d6620f2f6c94f7131de8a61672f91878c88917",
+    "all12_runtime_crates_fresh": {
+      "model": true,
+      "session-cache": true,
+      "client-core": true,
+      "discord-protocol": true,
+      "discord-api": true,
+      "discord-gateway": true,
+      "discord-voice": true,
+      "extensions": true,
+      "local-store": true,
+      "platform": true,
+      "ui": true,
+      "serein": true
+    }
+  },
+  "after_build": {
+    "source": "d6bf2c8cb6077fd5c45b1348ab0cfcf46508f8c8",
+    "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein-target-root-delivery CARGO_BUILD_JOBS=2 cargo build --locked -p serein --features demo",
+    "capture_instrumentation": true,
+    "fixture": "Identical pure MessagingUi synthetic outage fixture as baseline71; desktop remains fixture-only; demo flag restored before dispatch",
+    "bytes": 264679864,
+    "sha256": "b0af391e69ad36a8f4999ac5ecb7cb214462f3385af87613f155632e060bfbb8",
+    "all12_runtime_crates_fresh": {
+      "model": true,
+      "session-cache": true,
+      "client-core": true,
+      "discord-protocol": true,
+      "discord-api": true,
+      "discord-gateway": true,
+      "discord-voice": true,
+      "extensions": true,
+      "local-store": true,
+      "platform": true,
+      "ui": true,
+      "serein": true
+    },
+    "build_log_sha256": "58ee80e057636044071d2215323aad285b68bb005b41b90431074fb3c5058f18"
+  },
+  "images": [
+    {
+      "file": "before.png",
+      "source": "71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35",
+      "bytes": 566762,
+      "sha256": "23319910833af4ddd1bff8aa8c71bcbc142d412f513eacc60da06b8226275784",
+      "pixels": [
+        2240,
+        1520
+      ],
+      "flags": [
+        "--demo",
+        "--demo-chat"
+      ],
+      "synthetic_recovery": true,
+      "synthetic_narrow": false,
+      "inspected": true
+    },
+    {
+      "file": "before-light.png",
+      "source": "71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35",
+      "bytes": 520100,
+      "sha256": "e9c1ee6aa5ff5ead28645519a59a831a228871273faf52d738b439d9a1b38775",
+      "pixels": [
+        2240,
+        1520
+      ],
+      "flags": [
+        "--demo",
+        "--demo-chat",
+        "--demo-light"
+      ],
+      "synthetic_recovery": true,
+      "synthetic_narrow": false,
+      "inspected": true
+    },
+    {
+      "file": "before-narrow.png",
+      "source": "71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35",
+      "bytes": 524419,
+      "sha256": "bf74cef8d4d4351db2a1106ec588969ec2af10435a674f0dc2bbd3f050e1ef15",
+      "pixels": [
+        1520,
+        1520
+      ],
+      "flags": [
+        "--demo",
+        "--demo-chat"
+      ],
+      "synthetic_recovery": true,
+      "synthetic_narrow": true,
+      "inspected": true
+    },
+    {
+      "file": "before-narrow-light.png",
+      "source": "71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35",
+      "bytes": 485317,
+      "sha256": "a60ff4228b286c0cad4d24c5d5e2d8a07663bdeb6134ce53fe5726aad8a714e7",
+      "pixels": [
+        1520,
+        1520
+      ],
+      "flags": [
+        "--demo",
+        "--demo-chat",
+        "--demo-light"
+      ],
+      "synthetic_recovery": true,
+      "synthetic_narrow": true,
+      "inspected": true
+    },
+    {
+      "file": "after.png",
+      "source": "d6bf2c8cb6077fd5c45b1348ab0cfcf46508f8c8",
+      "bytes": 593320,
+      "sha256": "5e75bd8c5b91d3499a185eeb3c441877c27215f3a6f594164eb1d263ec3c8c68",
+      "pixels": [
+        2240,
+        1520
+      ],
+      "flags": [
+        "--demo",
+        "--demo-chat"
+      ],
+      "synthetic_recovery": true,
+      "synthetic_narrow": false,
+      "inspected": true
+    },
+    {
+      "file": "after-light.png",
+      "source": "d6bf2c8cb6077fd5c45b1348ab0cfcf46508f8c8",
+      "bytes": 546052,
+      "sha256": "7d81143cec686533d84c05d9e6807976eb762754dca8057e44a8b785d9c32933",
+      "pixels": [
+        2240,
+        1520
+      ],
+      "flags": [
+        "--demo",
+        "--demo-chat",
+        "--demo-light"
+      ],
+      "synthetic_recovery": true,
+      "synthetic_narrow": false,
+      "inspected": true
+    },
+    {
+      "file": "after-narrow.png",
+      "source": "d6bf2c8cb6077fd5c45b1348ab0cfcf46508f8c8",
+      "bytes": 550226,
+      "sha256": "83a13ec6af188042ae96164a0f562c53f24069d7ed1f6c607ca5e9b91ac6bfb1",
+      "pixels": [
+        1520,
+        1520
+      ],
+      "flags": [
+        "--demo",
+        "--demo-chat"
+      ],
+      "synthetic_recovery": true,
+      "synthetic_narrow": true,
+      "inspected": true
+    },
+    {
+      "file": "after-narrow-light.png",
+      "source": "d6bf2c8cb6077fd5c45b1348ab0cfcf46508f8c8",
+      "bytes": 510677,
+      "sha256": "1c4a98aeb985875f96a9afc200fcfcfe5f526f74fc303647b07497761609873c",
+      "pixels": [
+        1520,
+        1520
+      ],
+      "flags": [
+        "--demo",
+        "--demo-chat",
+        "--demo-light"
+      ],
+      "synthetic_recovery": true,
+      "synthetic_narrow": true,
+      "inspected": true
+    }
+  ],
+  "renderer": "Native Apple M1 Metal, 2x display scale; wide1120x760 and narrow760x760 logical pixels",
+  "fixture": "Same bounded pure MessagingUi rendering fixture on both revisions: disconnected Gateway, stale history, Reconnecting status and synthetic kept draft. Desktop remains --demo fixture-only; temporary demo flag is restored before dispatch. No account/transport/cache/media worker is constructed.",
+  "temporary_helpers": {
+    "/tmp/serein-native-capture.py": "05b2ac7f519ca42d1114a8352a1e8d1a2b5489765e233d630bfa1dfcef35514e",
+    "/tmp/serein-recovery-capture.py": "1e274c82da5f54901dcdcc34d6d07c1149df3de52277f4d9ad9135f4cbbb3124"
+  },
+  "source_restored_byte_exact_sha256": {
+    "/tmp/serein-resume-baseline-71:apps/desktop/src/main.rs": "eb08ff76cdd130844ae67b187b998f564dda2a8f638ebce54eaea215f926a692",
+    "/tmp/serein-resume-baseline-71:crates/ui/src/lib.rs": "672fdb703f24f7a5758c10f5877769c585114b80fc7f4d703a3fbf4ecc5f3d88",
+    "/tmp/serein-resume-send:apps/desktop/src/main.rs": "bb68de6bb84bf724f1edef1e424594c6d128efd3490790dd8a1979f535ccbc41",
+    "/tmp/serein-resume-send:crates/ui/src/lib.rs": "9e3bd74d258fe6bc9afb3476c76207a1c0053d7a4faf11183f58b809438f6d2c"
+  },
+  "inspected": "All eight actual native images inspected for recovery row/hint/composer readability and clipping in both themes/widths. Before disabled Send and generic unavailable hint; after enabled Send, recovery hint and Reconnect now row.",
+  "limitations": "These synthetic views demonstrate pure UI state, not a live sleep/resume outage or successful message delivery. No Discord session, network upload, microphone, camera, system capture picker or live message was used."
+}
