@@ -204,9 +204,11 @@ def native_package(root, application_version, format):
         stage_payload(root, destination)
         print(f"Linux installation tree: {destination}")
         return
-    distro = platform.freedesktop_os_release()["ID"]
+    os_release = platform.freedesktop_os_release()
+    distro = os_release["ID"]
     if (format == "rpm" and distro not in {"fedora", "opensuse-tumbleweed"}
-            or format == "arch" and distro != "arch"):
+            or format == "arch" and distro != "arch"
+            and "arch" not in os_release.get("ID_LIKE", "").split()):
         raise ValueError(f"Build {format} natively on its supported distribution, not {distro}")
     if format == "arch" and os.getuid() == 0:
         raise ValueError("Run Arch builds as an unprivileged user; makepkg refuses root")

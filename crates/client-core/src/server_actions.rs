@@ -34,19 +34,44 @@ pub enum InviteStatus {
 	Sent,
 	Failed(Failure),
 }
+/// Sparse account-scoped preferences; no server-management permission is required.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct NotificationOptions {
+	pub level: Option<u8>,
+	pub muted: Option<bool>,
+	pub suppress_everyone: Option<bool>,
+	pub suppress_roles: Option<bool>,
+}
+impl NotificationOptions {
+	pub fn valid(self) -> bool {
+		self.level.is_none_or(|level| level <= 3)
+			&& (self.level.is_some()
+				|| self.muted.is_some()
+				|| self.suppress_everyone.is_some()
+				|| self.suppress_roles.is_some())
+	}
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
+	Notifications {
+		guild: Id,
+		options: NotificationOptions,
+	},
 	CreateInvite {
 		guild: Id,
 		channel: Id,
 		options: InviteOptions,
 	},
 	Leave(Id),
+	Delete(Id),
 }
 impl Action {
 	pub fn guild(self) -> Id {
 		match self {
-			Self::CreateInvite { guild, .. } | Self::Leave(guild) => guild,
+			Self::CreateInvite { guild, .. }
+			| Self::Notifications { guild, .. }
+			| Self::Leave(guild)
+			| Self::Delete(guild) => guild,
 		}
 	}
 }
@@ -81,6 +106,48 @@ impl Actions {
 	}
 }
 impl State {
+	pub fn can_update_server_notifications(&self, guild: Id) -> bool {
+		guild.0 != 0
+			&& self.guild(guild).is_some()
+			&& (self.demo || (self.auth == AuthState::Authenticated && self.gateway_connected))
+			&& !self.server_action_pending()
+			&& !self.server_invite_pending()
+	}
+	pub fn update_server_notifications(
+		&mut self,
+		guild: Id,
+		options: NotificationOptions,
+	) -> Option<Command> {
+		if !options.valid() || !self.can_update_server_notifications(guild) {
+			return None;
+		}
+		self.request_server_action(Action::Notifications { guild, options })
+	}
+	pub(crate) fn observe_server_notification_settings(
+		&mut self,
+		entries: &[crate::notifications::Setting],
+	) {
+		if let Some((Action::Notifications { guild, options }, _, observed)) =
+			&mut self.server_actions.pending
+		{
+			*observed |= entries
+				.iter()
+				.filter(|setting| setting.guild == Some(*guild))
+				.any(|setting| {
+					options
+						.level
+						.is_none_or(|value| setting.level == Some(value))
+						&& options.muted.is_none_or(|value| {
+							setting.muted == Some(value) && setting.mute_until.is_none()
+						}) && options
+						.suppress_everyone
+						.is_none_or(|value| setting.suppress_everyone == Some(value))
+						&& options
+							.suppress_roles
+							.is_none_or(|value| setting.suppress_roles == Some(value))
+				});
+		}
+	}
 	pub fn server_invite_pending(&self) -> bool {
 		self.server_actions.sending.is_some()
 	}
@@ -322,6 +389,42 @@ impl State {
 		}
 		self.request_server_action(Action::Leave(guild))
 	}
+	pub fn can_delete_server(&self, guild: Id) -> bool {
+		self.guild(guild).is_some()
+			&& self.user.as_ref().is_some_and(|user| {
+				self.permissions
+					.guilds
+					.get(&guild)
+					.and_then(|permissions| permissions.owner)
+					== Some(user.id)
+			})
+	}
+	pub fn delete_server_reason(&self, guild: Id) -> Option<&'static str> {
+		if !self.can_delete_server(guild) {
+			return Some("Only the server owner can delete this server");
+		}
+		if self.server_settings.pending
+			|| self.server_admin.pending
+			|| self.pending.iter().any(|pending| {
+				self.channel(pending.channel)
+					.is_some_and(|channel| channel.guild == Some(guild))
+			}) || self
+			.voice
+			.active
+			.as_ref()
+			.is_some_and(|call| call.guild == Some(guild))
+		{
+			return Some("Finish pending changes, messages and calls before deleting this server");
+		}
+		None
+	}
+	pub fn delete_server(&mut self, guild: Id) -> Option<Command> {
+		if let Some(reason) = self.delete_server_reason(guild) {
+			self.server_actions.status = Some((guild, reason));
+			return None;
+		}
+		self.request_server_action(Action::Delete(guild))
+	}
 	fn request_server_action(&mut self, action: Action) -> Option<Command> {
 		if self.server_action_pending() || self.server_invite_pending() {
 			return None;
@@ -393,7 +496,11 @@ impl State {
 			{
 				Ok(code)
 			}
-			Action::Leave(_) if code.is_none() => Ok(None),
+			Action::Leave(_) | Action::Delete(_) | Action::Notifications { .. }
+				if code.is_none() =>
+			{
+				Ok(None)
+			}
 			_ => Err(Failure::Ambiguous),
 		});
 		let status = match result {
@@ -404,6 +511,14 @@ impl State {
 				failure.label()
 			}
 			Ok(code) => match action {
+				Action::Notifications { guild, options } => {
+					if observed || self.guild(guild).is_none() {
+						"Request completed; latest notification settings shown"
+					} else {
+						self.confirm_server_notifications(guild, options)?;
+						"Notification settings saved"
+					}
+				}
 				Action::CreateInvite {
 					guild,
 					channel,
@@ -423,12 +538,16 @@ impl State {
 						"Invite created, but channel access changed; check Discord"
 					}
 				}
-				Action::Leave(guild) => {
+				Action::Leave(guild) | Action::Delete(guild) => {
 					if observed {
 						"Request completed; latest server membership shown"
 					} else {
 						self.remove_server(guild);
-						"Left server"
+						if matches!(action, Action::Delete(_)) {
+							"Deleted server"
+						} else {
+							"Left server"
+						}
 					}
 				}
 			},
@@ -472,6 +591,7 @@ mod tests {
 				discriminator: 0,
 			}),
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(2),
 				name: "Synthetic server".into(),
@@ -489,6 +609,7 @@ mod tests {
 				last_message: None,
 				icon: None,
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 			}],
 			selected: Some(Id(3)),
@@ -551,6 +672,104 @@ mod tests {
 			event,
 		});
 	}
+	#[test]
+	fn notification_writes_need_membership_not_admin_and_confirm_after_unrelated_events() {
+		let mut state = state();
+		state.permissions.guilds.clear(); // An ordinary member need not manage the guild.
+		let edit = NotificationOptions {
+			level: Some(1),
+			..Default::default()
+		};
+		assert!(state.update_server_notifications(Id(99), edit).is_none());
+		assert!(
+			state
+				.update_server_notifications(Id(2), NotificationOptions::default())
+				.is_none()
+		);
+		assert!(
+			state
+				.update_server_notifications(
+					Id(2),
+					NotificationOptions {
+						level: Some(4),
+						..edit
+					}
+				)
+				.is_none()
+		);
+		let first = state.update_server_notifications(Id(2), edit).unwrap();
+		assert!(state.update_server_notifications(Id(2), edit).is_none());
+		finish(&mut state, first, Err(Failure::Forbidden));
+		assert_eq!(state.server_notification_settings(Id(2)).level, None);
+		let first = state.update_server_notifications(Id(2), edit).unwrap();
+		finish(&mut state, first, Ok(None));
+		assert_eq!(state.server_notification_settings(Id(2)).level, Some(1));
+		let old = state.update_server_notifications(Id(2), edit).unwrap();
+		state
+			.apply_notification_preferences(crate::notifications::Event::Settings {
+				entries: vec![crate::notifications::Setting {
+					guild: Some(Id(2)),
+					level: Some(2),
+					suppress_roles: Some(true),
+					..Default::default()
+				}],
+				replace: false,
+			})
+			.unwrap();
+		finish(&mut state, old, Ok(None));
+		assert_eq!(state.server_notification_settings(Id(2)).level, Some(1));
+		assert_eq!(
+			state.server_notification_settings(Id(2)).suppress_roles,
+			Some(true)
+		);
+		state
+			.apply_notification_preferences(crate::notifications::Event::Settings {
+				entries: vec![crate::notifications::Setting {
+					guild: Some(Id(2)),
+					level: Some(2),
+					..Default::default()
+				}],
+				replace: false,
+			})
+			.unwrap();
+		assert_eq!(state.server_notification_settings(Id(2)).level, Some(2));
+		let old = state.update_server_notifications(Id(2), edit).unwrap();
+		state.cancel_server_action();
+		let newer = state
+			.update_server_notifications(
+				Id(2),
+				NotificationOptions {
+					level: Some(0),
+					..Default::default()
+				},
+			)
+			.unwrap();
+		finish(&mut state, old, Ok(None));
+		assert!(state.server_action_pending());
+		finish(&mut state, newer, Ok(None));
+		assert_eq!(state.server_notification_settings(Id(2)).level, Some(0));
+		state.gateway_connected = false;
+		assert!(!state.can_update_server_notifications(Id(2)));
+		assert!(state.update_server_notifications(Id(2), edit).is_none());
+		state.gateway_connected = true;
+		let Command::ServerAction { action, request } =
+			state.update_server_notifications(Id(2), edit).unwrap()
+		else {
+			panic!()
+		};
+		let generation = state.generation;
+		state.logout();
+		state.apply(Envelope {
+			generation,
+			event: CoreEvent::ServerAction(Event::Written {
+				action,
+				request,
+				result: Ok(None),
+			}),
+		});
+		assert_eq!(state.server_notification_settings(Id(2)).level, None);
+	}
+
 	#[test]
 	fn server_invites_options_friends_acknowledgement_and_cancellation() {
 		let mut state = state();
@@ -678,6 +897,14 @@ mod tests {
 	}
 	#[test]
 	fn server_actions_scope_permissions_and_confirmed_removal() {
+		let mut owner = state();
+		assert!(!owner.can_delete_server(Id(2)));
+		assert!(owner.delete_server(Id(2)).is_none());
+		owner.permissions.guilds.get_mut(&Id(2)).unwrap().owner = Some(Id(1));
+		assert!(owner.can_delete_server(Id(2)));
+		let delete = owner.delete_server(Id(2)).unwrap();
+		finish(&mut owner, delete, Ok(None));
+		assert!(owner.guild(Id(2)).is_none());
 		let mut state = state();
 		assert_eq!(state.invite_channel(Id(2)), Some(Id(3)));
 		assert_eq!(state.invite_channel(Id(8)), None);

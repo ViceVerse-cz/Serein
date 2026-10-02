@@ -1,5 +1,8 @@
 //! Native component controls; transport authorization and validation stay in client-core.
-use crate::{avatars::Avatars, design, dialog, markdown};
+use crate::{
+	avatars::{Avatars, Surface},
+	design, dialog, markdown,
+};
 use client_core::{Command, State};
 use model::{Component, Id, Message};
 
@@ -57,75 +60,6 @@ impl Components {
 			self.files.push((custom_id.to_owned(), files));
 		}
 	}
-	pub(crate) fn media_visible(
-		&mut self,
-		ui: &mut egui::Ui,
-		message: &Message,
-		generation: u64,
-	) -> bool {
-		if !crate::embeds::has_media_spoilers(message) {
-			return true;
-		}
-		let id =
-			egui::Id::unique(("private-media", generation, message.id, message.revision)).value();
-		if self.revealed.contains(&id) {
-			return true;
-		}
-		if ui.button("Reveal spoiler media").clicked() {
-			if self.revealed.len() >= 256 {
-				self.revealed.clear();
-			}
-			self.revealed.insert(id);
-			return true;
-		}
-		false
-	}
-	pub(crate) fn show_text(
-		&mut self,
-		ui: &mut egui::Ui,
-		message: &Message,
-		state: &State,
-		avatars: &mut Avatars,
-		opening: &mut Option<String>,
-	) {
-		let key = egui::Id::unique((
-			"private-body",
-			state.generation,
-			message.id,
-			message.revision,
-		))
-		.value();
-		if self.text_revealed.len() >= 256 && !self.text_revealed.contains_key(&key) {
-			self.text_revealed.clear();
-		}
-		let mut surface = crate::select::Surface::new(ui, "private-body");
-		let source = crate::mentions::MentionSource {
-			state,
-			channel: message.channel,
-		};
-		self.formatted
-			.get(message.id, &message.content)
-			.show_references(
-				ui,
-				opening,
-				&message.mentions,
-				Some(&source),
-				&mut None,
-				(
-					&state.channels,
-					&mut None,
-					&state.guilds,
-					crate::mentions::known_roles(state, message.channel),
-				),
-				(
-					avatars,
-					state.demo,
-					self.text_revealed.entry(key).or_default(),
-				),
-				&mut surface,
-			);
-		surface.finish(ui);
-	}
 	pub(crate) fn show(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -160,6 +94,8 @@ impl Components {
 			&& state.freshness == model::Freshness::Fresh
 			&& state.can_view(message.channel);
 		ui.push_id(identity, |ui| {
+			// Component trees keep Discord's message content width instead of the viewport.
+			ui.set_max_width(ui.available_width().min(COMPONENTS_MAX_WIDTH));
 			for (index, component) in message.components.iter().enumerate() {
 				self.show_component(
 					ui,
@@ -172,6 +108,7 @@ impl Components {
 					enabled,
 					&mut action,
 					media_ui,
+					design::MessageCardSurface::Conversation,
 				);
 			}
 		});
@@ -191,13 +128,25 @@ impl Components {
 		enabled: bool,
 		action: &mut Option<Action>,
 		media_ui: &mut MediaUi<'_>,
+		card_surface: design::MessageCardSurface,
 	) {
 		let colors = design::palette(ui);
+		// A container paints an opaque card even when its parent is translucent chat.
+		let card_surface = if c.kind == 17 {
+			design::MessageCardSurface::Opaque
+		} else {
+			card_surface
+		};
 		ui.push_id(id, |ui| {
 			if c.spoiler {
 				let revealed = self.revealed.contains(&id.value());
 				if !revealed {
-					if ui.button("Reveal spoiler component").clicked() {
+					if ui
+						.button(crate::i18n::translate(
+							"components-show-component-reveal-spoiler-component",
+						))
+						.clicked()
+					{
 						if self.revealed.len() >= 256 {
 							self.revealed.clear();
 						}
@@ -247,22 +196,43 @@ impl Components {
 										enabled,
 										action,
 										media_ui,
+										card_surface,
 									);
 								}
 							});
 						} else if c.kind == 9 {
-							ui.horizontal_top(|ui| {
+							// The accessory takes its natural width at the right edge first;
+							// the text column wraps in whatever remains.
+							ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
 								ui.spacing_mut().item_spacing.x = 16.0;
-								let thumbnail =
-									c.accessory.as_deref().is_some_and(|a| a.kind == 11);
-								let accessory_width =
-									if thumbnail { THUMBNAIL_SIZE } else { 110.0 }
-										.min(ui.available_width() * 0.4);
+								if let Some(accessory) = &c.accessory {
+									let thumbnail = accessory.kind == 11;
+									let accessory_width = if thumbnail {
+										THUMBNAIL_SIZE
+									} else {
+										(ui.available_width() * 0.45).max(40.0)
+									};
+									ui.scope(|ui| {
+										ui.set_max_width(accessory_width);
+										self.accessory = true;
+										self.show_component(
+											ui,
+											accessory,
+											id.with("accessory"),
+											message,
+											state,
+											avatars,
+											opening,
+											enabled,
+											action,
+											media_ui,
+											card_surface,
+										);
+										self.accessory = false;
+									});
+								}
 								ui.allocate_ui_with_layout(
-									egui::vec2(
-										(ui.available_width() - accessory_width - 16.0).max(40.0),
-										0.0,
-									),
+									egui::vec2(ui.available_width().max(40.0), 0.0),
 									egui::Layout::top_down(egui::Align::Min),
 									|ui| {
 										ui.spacing_mut().item_spacing.y = 8.0;
@@ -278,32 +248,11 @@ impl Components {
 												enabled,
 												action,
 												media_ui,
+												card_surface,
 											);
 										}
 									},
 								);
-								if let Some(accessory) = &c.accessory {
-									ui.allocate_ui_with_layout(
-										egui::vec2(accessory_width, 0.0),
-										egui::Layout::top_down(egui::Align::Min),
-										|ui| {
-											self.accessory = true;
-											self.show_component(
-												ui,
-												accessory,
-												id.with("accessory"),
-												message,
-												state,
-												avatars,
-												opening,
-												enabled,
-												action,
-												media_ui,
-											);
-											self.accessory = false;
-										},
-									);
-								}
 							});
 						} else {
 							for (index, child) in c.components.iter().enumerate() {
@@ -318,6 +267,7 @@ impl Components {
 									enabled,
 									action,
 									media_ui,
+									card_surface,
 								);
 							}
 						}
@@ -335,6 +285,7 @@ impl Components {
 								enabled,
 								action,
 								media_ui,
+								card_surface,
 							);
 						}
 					});
@@ -362,7 +313,11 @@ impl Components {
 					} else {
 						egui::Button::new(text)
 					}
-					.wrap_mode(egui::TextWrapMode::Extend)
+					.wrap_mode(if self.accessory {
+						egui::TextWrapMode::Truncate
+					} else {
+						egui::TextWrapMode::Extend
+					})
 					.min_size(egui::vec2(0.0, 32.0))
 					.corner_radius(6)
 					.stroke(egui::Stroke::new(1.0, colors.border));
@@ -421,8 +376,13 @@ impl Components {
 						let submit = if c.max_values.unwrap_or(1) == 1 {
 							changed && valid
 						} else {
-							ui.add_enabled(valid, egui::Button::new("Submit selection"))
-								.clicked()
+							ui.add_enabled(
+								valid,
+								egui::Button::new(crate::i18n::translate(
+									"components-show-component-submit-selection",
+								)),
+							)
+							.clicked()
 						};
 						if submit && let Some(custom_id) = &c.custom_id {
 							*action = Some((message.id, custom_id.clone(), values));
@@ -452,7 +412,7 @@ impl Components {
 							opening,
 							&message.mentions,
 							Some(&source),
-							&mut None,
+							&mut crate::profiles::ProfileSession::default(),
 							(
 								&state.channels,
 								&mut None,
@@ -461,6 +421,7 @@ impl Components {
 							),
 							(avatars, state.demo, revealed),
 							&mut surface,
+							card_surface,
 						);
 					surface.finish(ui);
 				}
@@ -479,6 +440,7 @@ impl Components {
 							media_ui,
 							&mut self.revealed,
 							thumbnail,
+							card_surface,
 						);
 					}
 				}
@@ -487,7 +449,12 @@ impl Components {
 						let key = id.with(("gallery", index));
 						let revealed = self.revealed.contains(&key.value());
 						if item.spoiler && !revealed {
-							if ui.button("Reveal spoiler media").clicked() {
+							if ui
+								.button(crate::i18n::translate(
+									"components-show-component-reveal-spoiler-media",
+								))
+								.clicked()
+							{
 								if self.revealed.len() >= 256 {
 									self.revealed.clear();
 								}
@@ -505,6 +472,7 @@ impl Components {
 								media_ui,
 								&mut self.revealed,
 								false,
+								card_surface,
 							);
 						}
 					}
@@ -522,6 +490,7 @@ impl Components {
 							media_ui,
 							&mut self.revealed,
 							false,
+							card_surface,
 						);
 					}
 				}
@@ -534,7 +503,13 @@ impl Components {
 				_ => {
 					ui.colored_label(
 						colors.muted,
-						format!("Unsupported component (type {})", c.kind),
+						format!(
+							"{} ({})",
+							crate::i18n::translate(
+								"components-show-component-unsupported-component-type"
+							),
+							c.kind
+						),
 					);
 				}
 			}
@@ -610,12 +585,14 @@ impl Components {
 					ui.colored_label(design::palette(ui).danger, error);
 				}
 				if busy {
-					ui.label("Submitting…");
+					ui.label(crate::i18n::translate("components-dialogs-submitting"));
 				}
 			});
 			dialog.footer(|ui| {
 				ui.add_enabled_ui(valid && !busy, |ui| {
-					submit = dialog::action(ui, "Submit", dialog::Action::Primary).clicked();
+					submit =
+						dialog::action(ui, "components-dialogs-submit", dialog::Action::Primary)
+							.clicked();
 				});
 			});
 		});
@@ -742,16 +719,24 @@ fn select(
 	egui::ComboBox::from_id_salt("selection")
 		.width(width)
 		.height(360.0)
-		.selected_text(if selected_text.is_empty() {
-			c.placeholder.as_deref().unwrap_or("Choose options")
-		} else {
-			&selected_text
-		})
+		.selected_text(crate::i18n::translate_if_key(
+			&(if selected_text.is_empty() {
+				crate::i18n::translate_if_key(
+					c.placeholder
+						.as_deref()
+						.unwrap_or("components-select-choose-options"),
+				)
+			} else {
+				selected_text.clone()
+			}),
+		))
 		.show_ui(ui, |ui| {
 			ui.set_min_width((width - 16.0).max(40.0));
 			if (c.min_values == Some(0) || !c.required)
 				&& !values.is_empty()
-				&& ui.button("Clear selection").clicked()
+				&& ui
+					.button(crate::i18n::translate("components-select-clear-selection"))
+					.clicked()
 			{
 				values.clear();
 				changed = true;
@@ -762,7 +747,7 @@ fn select(
 				&& ui
 					.add(
 						egui::TextEdit::singleline(query)
-							.hint_text("Search options")
+							.hint_text(crate::i18n::translate("components-select-search-options"))
 							.char_limit(64),
 					)
 					.changed()
@@ -887,14 +872,20 @@ fn select(
 				}
 			}
 			if options.is_empty() {
-				ui.label("No matching options loaded");
+				ui.label(crate::i18n::translate(
+					"components-select-no-matching-options-loaded",
+				));
 			}
 			if options.len() == 100 {
-				ui.small("Refine your search to see more results");
+				ui.small(crate::i18n::translate(
+					"components-select-refine-your-search-to-see-more-results",
+				));
 			}
 		});
 	if matches!(c.kind, 5..=8) {
-		ui.small("Type to search members; available roles and channels are listed");
+		ui.small(crate::i18n::translate(
+			"components-select-type-to-search-members-available-roles-and-channels-are-listed",
+		));
 	}
 	changed
 }
@@ -1034,7 +1025,9 @@ fn field(
 			23 => {
 				ui.checkbox(
 					c.checked.get_or_insert(false),
-					c.label.as_deref().unwrap_or("Confirm"),
+					c.label
+						.clone()
+						.unwrap_or_else(|| crate::i18n::translate("components-field-confirm")),
 				);
 				valid = true;
 			}
@@ -1055,18 +1048,26 @@ fn field(
 						opening,
 						&[],
 						Some(&source),
-						&mut None,
+						&mut crate::profiles::ProfileSession::default(),
 						(&state.channels, &mut None, &state.guilds, &[]),
 						(avatars, state.demo, revealed.entry(key).or_default()),
 						&mut surface,
+						crate::design::MessageCardSurface::Opaque,
 					);
 				surface.finish(ui);
 			}
 			19 => {
 				if !c.file_types.is_empty() {
-					ui.small(format!("Allowed files: {}", c.file_types.join(", ")));
+					ui.small(format!(
+						"{}: {}",
+						crate::i18n::translate("components-field-allowed-files"),
+						c.file_types.join(", ")
+					));
 				}
-				if ui.button("Choose files…").clicked() {
+				if ui
+					.button(crate::i18n::translate("components-field-choose-files"))
+					.clicked()
+				{
 					*file_request = c.custom_id.clone();
 				}
 				if let Some((_, selected)) = files
@@ -1086,7 +1087,11 @@ fn field(
 						&& c.values.len() <= usize::from(c.max_values.unwrap_or(1)));
 			}
 			_ => {
-				ui.label(format!("Unsupported form field (type {}).", c.kind));
+				ui.label(format!(
+					"{} ({}).",
+					crate::i18n::translate("components-field-unsupported-form-field-type"),
+					c.kind
+				));
 				valid = false;
 			}
 		}
@@ -1096,6 +1101,8 @@ fn field(
 #[allow(clippy::too_many_arguments)]
 /// Square side of a section thumbnail accessory, matching Discord's compact card art.
 const THUMBNAIL_SIZE: f32 = 80.0;
+/// Discord lays component trees out in the message content column, not across the viewport.
+const COMPONENTS_MAX_WIDTH: f32 = 520.0;
 
 #[allow(clippy::too_many_arguments)]
 fn show_media(
@@ -1109,6 +1116,7 @@ fn show_media(
 	media_ui: &mut MediaUi<'_>,
 	revealed: &mut std::collections::BTreeSet<u64>,
 	thumbnail: bool,
+	card_surface: design::MessageCardSurface,
 ) {
 	let url = resolve_media(&media.url, message);
 	if let Some(attachment) = message.attachments.iter().find(|attachment| {
@@ -1126,7 +1134,12 @@ fn show_media(
 		))
 		.value();
 		if attachment.spoiler && !revealed.contains(&reveal_id) {
-			if ui.button("Reveal spoiler attachment").clicked() {
+			if ui
+				.button(crate::i18n::translate(
+					"components-show-media-reveal-spoiler-attachment",
+				))
+				.clicked()
+			{
 				if revealed.len() >= 256 {
 					revealed.clear();
 				}
@@ -1148,6 +1161,7 @@ fn show_media(
 			media_ui.video,
 			demo,
 			&mut surface,
+			card_surface,
 		);
 		surface.finish(ui);
 		if *media_ui.viewing != previous_view
@@ -1176,23 +1190,38 @@ fn show_media(
 	};
 	if thumbnail {
 		let response = avatars
-			.show_embed(ui, &image, egui::vec2(THUMBNAIL_SIZE, THUMBNAIL_SIZE), demo)
+			.show_media(
+				ui,
+				&image,
+				egui::vec2(THUMBNAIL_SIZE, THUMBNAIL_SIZE),
+				demo,
+				Surface::Inline,
+			)
+			.response
 			.on_hover_cursor(egui::CursorIcon::PointingHand);
 		if response.clicked() {
 			*opening = resolve_media(&media.url, message).and_then(markdown::external_url);
 		}
 		return;
 	}
-	avatars.show_embed(
+	avatars.show_media(
 		ui,
 		&image,
-		egui::vec2(ui.available_width().min(420.0), 280.0),
+		egui::vec2(
+			ui.available_width()
+				.min(crate::avatars::media::MEDIA_MAX_WIDTH),
+			crate::avatars::media::MEDIA_MAX_HEIGHT,
+		),
 		demo,
+		Surface::Inline,
 	);
 	if let Some(description) = description {
 		ui.small(description);
 	}
-	if ui.small_button("Open media").clicked() {
+	if ui
+		.small_button(crate::i18n::translate("components-show-media-open-media"))
+		.clicked()
+	{
 		*opening = resolve_media(&media.url, message).and_then(markdown::external_url);
 	}
 }

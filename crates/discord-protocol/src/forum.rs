@@ -1,7 +1,208 @@
 //! Active forum posts from the thread search route; archived rows belong to the archive page.
 use crate::ChannelDto;
-use model::{Id, forum::Page};
-use serde::Deserialize;
+use model::{
+	Id, Patch,
+	forum::{Layout, MAX_APPLIED_TAGS, MAX_TAG_NAME, MAX_TAGS, Page, Sort, Starter, Tag, Tags},
+};
+use serde::{Deserialize, Deserializer, de::Visitor};
+
+/// Forum channel flag: every new post must carry at least one tag.
+const REQUIRE_TAG: u64 = 1 << 4;
+
+/// Keeps the first `N` entries of a list and skips the rest, so an oversized tag list never
+/// rejects the snapshot carrying it; null reads as empty.
+fn capped<'de, D: Deserializer<'de>, T: Deserialize<'de>, const N: usize>(
+	d: D,
+) -> Result<Vec<T>, D::Error> {
+	struct Capped<T, const N: usize>(std::marker::PhantomData<T>);
+	impl<'de, T: Deserialize<'de>, const N: usize> Visitor<'de> for Capped<T, N> {
+		type Value = Vec<T>;
+		fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+			f.write_str("a list of forum tags")
+		}
+		fn visit_unit<E>(self) -> Result<Self::Value, E> {
+			Ok(Vec::new())
+		}
+		fn visit_none<E>(self) -> Result<Self::Value, E> {
+			Ok(Vec::new())
+		}
+		fn visit_seq<A: serde::de::SeqAccess<'de>>(
+			self,
+			mut seq: A,
+		) -> Result<Self::Value, A::Error> {
+			let mut items = Vec::new();
+			while items.len() < N {
+				match seq.next_element()? {
+					Some(item) => items.push(item),
+					None => return Ok(items),
+				}
+			}
+			while seq.next_element::<serde::de::IgnoredAny>()?.is_some() {}
+			Ok(items)
+		}
+	}
+	d.deserialize_any(Capped::<T, N>(std::marker::PhantomData))
+}
+
+#[derive(Deserialize)]
+struct TagDto {
+	id: Id,
+	#[serde(default)]
+	name: String,
+	#[serde(default)]
+	moderated: bool,
+	#[serde(default)]
+	emoji_id: Option<Id>,
+	#[serde(default)]
+	emoji_name: Option<String>,
+}
+
+/// A forum's `available_tags`, bounded while decoding.
+pub struct TagList(Vec<TagDto>);
+impl<'de> Deserialize<'de> for TagList {
+	fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+		capped::<_, _, MAX_TAGS>(d).map(Self)
+	}
+}
+
+/// A post's `applied_tags`, bounded while decoding.
+pub struct AppliedTags(Vec<Id>);
+impl<'de> Deserialize<'de> for AppliedTags {
+	fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+		capped::<_, _, MAX_APPLIED_TAGS>(d).map(Self)
+	}
+}
+
+/// A forum's `default_reaction_emoji`.
+#[derive(Deserialize)]
+pub struct DefaultReaction {
+	#[serde(default)]
+	emoji_id: Option<Id>,
+	#[serde(default)]
+	emoji_name: Option<String>,
+}
+impl DefaultReaction {
+	fn into_model(self) -> Option<model::ReactionEmoji> {
+		let emoji = model::ReactionEmoji {
+			id: self.emoji_id.filter(|id| id.0 > 0),
+			name: self
+				.emoji_name
+				.map(|name| name.chars().take(32).collect::<String>())
+				.filter(|name| !name.is_empty()),
+		};
+		emoji.valid().then_some(emoji)
+	}
+}
+
+/// A forum's post defaults as they arrive on the wire.
+#[derive(Default)]
+pub(crate) struct Defaults {
+	pub reaction: Option<DefaultReaction>,
+	pub layout: Option<u8>,
+	pub sort: Option<u8>,
+	pub tag_setting: Option<String>,
+}
+
+/// Reduce wire tags to the model: containers keep what they offer, posts what they apply.
+pub(crate) fn tags(
+	kind: u8,
+	available: Option<TagList>,
+	applied: Option<AppliedTags>,
+	flags: u64,
+	defaults: Defaults,
+) -> Option<Box<Tags>> {
+	let mut tags = Tags::default();
+	if matches!(kind, 15 | 16) {
+		tags.reaction = defaults.reaction.and_then(DefaultReaction::into_model);
+		tags.layout = if defaults.layout == Some(2) {
+			Layout::Gallery
+		} else {
+			Layout::List
+		};
+		tags.sort = if defaults.sort == Some(1) {
+			Sort::Created
+		} else {
+			Sort::Activity
+		};
+		tags.match_all = defaults.tag_setting.as_deref() == Some("match_all");
+		for tag in available.map(|list| list.0).unwrap_or_default() {
+			if tag.id.0 == 0 || tags.available.iter().any(|known| known.id == tag.id) {
+				continue;
+			}
+			tags.available.push(Tag {
+				id: tag.id,
+				name: tag.name.trim().chars().take(MAX_TAG_NAME).collect(),
+				moderated: tag.moderated,
+				emoji_id: tag.emoji_id.filter(|id| id.0 > 0),
+				emoji_name: tag
+					.emoji_name
+					.map(|name| name.chars().take(32).collect::<String>())
+					.filter(|name| !name.is_empty()),
+			});
+		}
+		tags.required = flags & REQUIRE_TAG != 0;
+	} else if matches!(kind, 10..=12) {
+		for id in applied.map(|list| list.0).unwrap_or_default() {
+			if id.0 > 0 && !tags.applied.contains(&id) {
+				tags.applied.push(id);
+			}
+		}
+	}
+	(!tags.is_empty()).then(|| Box::new(tags))
+}
+
+/// Channel updates carry whole objects; any tag-bearing field replaces the known tags.
+pub(crate) fn patched_tags(
+	kind: Patch<u8>,
+	available: Patch<TagList>,
+	applied: Patch<AppliedTags>,
+	flags: &Patch<u64>,
+	defaults: Defaults,
+) -> Patch<Box<Tags>> {
+	let Patch::Value(kind) = kind else {
+		return Patch::Absent;
+	};
+	if matches!(available, Patch::Absent)
+		&& matches!(applied, Patch::Absent)
+		&& !matches!(flags, Patch::Value(_))
+	{
+		return Patch::Absent;
+	}
+	fn value<T>(patch: Patch<T>) -> Option<T> {
+		match patch {
+			Patch::Value(value) => Some(value),
+			_ => None,
+		}
+	}
+	let flags = match flags {
+		Patch::Value(flags) => *flags,
+		_ => 0,
+	};
+	tags(kind, value(available), value(applied), flags, defaults).map_or(Patch::Null, Patch::Value)
+}
+
+/// What a card shows of a starter: its first image (an attachment first, then an embed's
+/// artwork) and its reactions.
+fn preview(message: crate::MessageDto) -> Option<(Id, Starter)> {
+	let message = message.into_model();
+	let image = message
+		.attachments
+		.into_iter()
+		.find(|attachment| attachment.is_image() && !attachment.spoiler)
+		.map(|attachment| attachment.media)
+		.or_else(|| {
+			message
+				.embeds
+				.into_iter()
+				.find_map(|embed| embed.image.or(embed.thumbnail))
+		})
+		.filter(|media| media.valid() && (media.url.is_some() || media.proxy_url.is_some()));
+	let mut reactions = message.reactions.unwrap_or_default();
+	reactions.sort_by_key(|reaction| std::cmp::Reverse(reaction.count));
+	reactions.truncate(20);
+	let starter = Starter { image, reactions };
+	(!starter.is_empty() && starter.valid()).then_some((message.channel, starter))
+}
 pub const MAX_WIRE: usize = 512 * 1024;
 /// The guild-wide fallback lists every visible thread, so it needs the snapshot budget.
 pub const GUILD_MAX_WIRE: usize = 2 * 1024 * 1024;
@@ -12,6 +213,9 @@ pub struct Reply {
 	threads: Vec<Thread>,
 	#[serde(default)]
 	has_more: bool,
+	/// Unofficial: the starter message of each listed post, used for its card preview.
+	#[serde(default, deserialize_with = "capped::<_,_,25>")]
+	first_messages: Vec<crate::MessageDto>,
 }
 #[derive(Deserialize)]
 struct Thread {
@@ -40,9 +244,18 @@ impl Reply {
 			}
 			threads.push(crate::threads::into_thread(thread.channel, guild).map_err(|_| invalid)?);
 		}
+		let mut previews: Vec<(Id, Starter)> = Vec::new();
+		for (id, starter) in self.first_messages.into_iter().filter_map(preview) {
+			if threads.iter().any(|thread| thread.id == id)
+				&& !previews.iter().any(|(known, _)| *known == id)
+			{
+				previews.push((id, starter));
+			}
+		}
 		let page = Page {
 			threads,
 			more: self.has_more,
+			previews,
 		};
 		if !page.valid(parent, guild) {
 			return Err(invalid);
@@ -74,6 +287,7 @@ impl GuildActive {
 		let page = Page {
 			threads,
 			more: false,
+			previews: Vec::new(),
 		};
 		if !page.valid(parent, guild) {
 			return Err(invalid);

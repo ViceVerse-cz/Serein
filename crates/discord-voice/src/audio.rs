@@ -58,6 +58,8 @@ pub struct Gate {
 	stopped: AtomicBool,
 	failed_revision: AtomicU64,
 	input_failed_revision: AtomicU64,
+	/// A failed microphone is being retried; the warning stays up until the retry succeeds.
+	input_retrying: AtomicBool,
 	input_callbacks: AtomicU64,
 	revision: AtomicU64,
 	acknowledged_revision: AtomicU64,
@@ -78,6 +80,7 @@ impl Default for Gate {
 			stopped: AtomicBool::new(false),
 			failed_revision: AtomicU64::new(0),
 			input_failed_revision: AtomicU64::new(0),
+			input_retrying: AtomicBool::new(false),
 			input_callbacks: AtomicU64::new(0),
 			revision: AtomicU64::new(1),
 			acknowledged_revision: AtomicU64::new(0),
@@ -116,11 +119,15 @@ impl Gate {
 		open: impl FnOnce() -> Result<T, &'static str>,
 	) -> Result<T, &'static str> {
 		// Clear the previous failure before callbacks from the replacement can run.
+		let retrying = self.input_failed_revision.load(Ordering::Acquire) == revision;
+		self.input_retrying.store(retrying, Ordering::Release);
 		self.input_failed_revision.store(0, Ordering::Release);
-		open().inspect_err(|_| {
+		let result = open().inspect_err(|_| {
 			self.input_failed_revision
 				.fetch_max(revision, Ordering::AcqRel);
-		})
+		});
+		self.input_retrying.store(false, Ordering::Release);
+		result
 	}
 	fn capture(&self) -> bool {
 		self.is_ready()
@@ -470,8 +477,9 @@ impl Audio {
 	}
 	pub fn microphone_unavailable(&self) -> bool {
 		self.gate.input_enabled.load(Ordering::Acquire)
-			&& self.gate.input_failed_revision.load(Ordering::Acquire)
-				== self.gate.revision.load(Ordering::Acquire)
+			&& (self.gate.input_retrying.load(Ordering::Acquire)
+				|| self.gate.input_failed_revision.load(Ordering::Acquire)
+					== self.gate.revision.load(Ordering::Acquire))
 	}
 	pub fn set_controls(&self, muted: bool, deafened: bool) {
 		let mute_changed =
@@ -1361,25 +1369,6 @@ mod tests {
 	}
 
 	#[test]
-	fn stream_errors_distinguish_transient_glitches_from_fatal_disconnects() {
-		for non_fatal in [
-			cpal::ErrorKind::Xrun,
-			cpal::ErrorKind::RealtimeDenied,
-			cpal::ErrorKind::DeviceChanged,
-		] {
-			assert!(!is_fatal_error(&cpal::Error::from(non_fatal)));
-		}
-		for fatal in [
-			cpal::ErrorKind::DeviceNotAvailable,
-			cpal::ErrorKind::StreamInvalidated,
-			cpal::ErrorKind::PermissionDenied,
-			cpal::ErrorKind::DeviceBusy,
-		] {
-			assert!(is_fatal_error(&cpal::Error::from(fatal)));
-		}
-	}
-
-	#[test]
 	fn microphone_recovery_preserves_startup_failures() {
 		let audio = audio_without_devices();
 		audio.set_ready(true);
@@ -1389,6 +1378,17 @@ mod tests {
 		assert!(
 			gate.reopen_input::<()>(revision, || Err("unavailable"))
 				.is_err()
+		);
+		assert!(audio.microphone_unavailable());
+		assert!(
+			gate.reopen_input::<()>(revision, || {
+				assert!(
+					audio.microphone_unavailable(),
+					"A retry keeps the warning up"
+				);
+				Err("unavailable")
+			})
+			.is_err()
 		);
 		assert!(audio.microphone_unavailable());
 		// A successful open can still report a fatal error through its callback.
@@ -1401,5 +1401,23 @@ mod tests {
 		assert!(audio.microphone_unavailable());
 		gate.reopen_input(revision, || Ok(())).unwrap();
 		assert!(!audio.microphone_unavailable());
+
+		{
+			for non_fatal in [
+				cpal::ErrorKind::Xrun,
+				cpal::ErrorKind::RealtimeDenied,
+				cpal::ErrorKind::DeviceChanged,
+			] {
+				assert!(!is_fatal_error(&cpal::Error::from(non_fatal)));
+			}
+			for fatal in [
+				cpal::ErrorKind::DeviceNotAvailable,
+				cpal::ErrorKind::StreamInvalidated,
+				cpal::ErrorKind::PermissionDenied,
+				cpal::ErrorKind::DeviceBusy,
+			] {
+				assert!(is_fatal_error(&cpal::Error::from(fatal)));
+			}
+		}
 	}
 }

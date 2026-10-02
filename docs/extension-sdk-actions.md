@@ -1,0 +1,1212 @@
+# Extension SDK actions and panels
+
+> **Preview SDK — PR #411, not yet released.** The message, channel, server,
+> role, moderation and host-mediated media actions called out as preview below
+> require a host built from this branch.
+
+## Outputs and host actions
+
+A handler returns a result describing what Serein should display or do. Some
+fields update the plugin's local state immediately; a draft change or app action
+is a proposal that the user must approve. Capability consent and **Apply** are
+separate steps.
+
+This reference describes the SDK in this source revision. App capabilities need
+a supporting host; older hosts reject an unsupported manifest even when its
+`api_version` is `1`. The original `Invocation` and `Output` remain supported.
+
+### Choose the Rust result type
+
+Use `Output` for panels, draft proposals, storage and appearance. Use `AppOutput`
+when returning a `HostEffect`. Its `output` field contains the original `Output`,
+and its `effects` field contains the app proposal. For an `AppInvocation`, panel
+values and saved storage are under `input.invocation`.
+
+This complete handler proposes opening General settings. Declare a `panel`
+action named `open-settings` and the `navigation` capability in its manifest.
+
+```rust
+use serein_extension_sdk::{AppInvocation, AppOutput, AppView, HostEffect};
+
+fn handle(input: AppInvocation) -> AppOutput {
+    if input.app_event.is_some() || input.message_event.is_some() {
+        return AppOutput::default();
+    }
+    match input.invocation.action.as_str() {
+        "open-settings" => AppOutput {
+            effects: vec![HostEffect::OpenView { view: AppView::Settings }],
+            ..Default::default()
+        },
+        _ => AppOutput::default(),
+    }
+}
+
+serein_extension_sdk::export!(handle);
+```
+
+The Rust wrappers do **not** add JSON nesting. The SDK serializes that result as
+one flat object:
+
+```json
+{
+  "replacement": null,
+  "panel": [],
+  "storage": null,
+  "effects": [{"type": "open_view", "view": "settings"}]
+}
+```
+
+There is no `"output"` property on the wire. Likewise, input fields such as
+`action` and `values` are top-level JSON properties, not an `"invocation"` object.
+The complete serialized response must fit 256 KiB, including JSON escaping.
+The host rejects unknown output fields and invalid field types.
+
+### Every output field
+
+The Rust paths below are relative to `AppOutput`. When using the original
+`Output` directly, omit the `output.` prefix.
+
+| JSON field / Rust field | Value and required capability | When it takes effect |
+| --- | --- | --- |
+| `replacement` / `output.replacement` | Optional string; `composer`. The invocation must actually contain composer text. | **Apply to Draft** replaces the original, still-unchanged draft. It never sends a message. |
+| `rich_presence` / `RichPresenceOutput.rich_presence` | Optional `RichPresenceUpdate`; `rich_presence` grant. | Explicit panel/activation Set or Clear updates the contribution; omission leaves it unchanged. See [Custom Rich Presence](#custom-rich-presence). |
+| `panel` / `output.panel` | Array of native `Element` values; no separate panel capability. | A foreground result displays it. Message/app event handlers must return no elements. Activation does not display returned panels. |
+| `storage` / `output.storage` | Optional opaque UTF-8 string; `storage`. | A valid foreground or event result replaces the plugin's saved value before result approval. Activation can read storage but this build does not persist its returned storage. |
+| `appearance` / `output.appearance` | Optional `Theme` object; `appearance`. | An accepted result updates the plugin's appearance overlay immediately, including activation and event results. Preview `tick` results are eased from the currently displayed colors. No Apply button is involved. |
+| `preserve_deleted_messages` / `output.preserve_deleted_messages` | Boolean, default `false`; `deleted_messages` is required for `true`. | Only an `activation` action may enable host retention of already-loaded deleted messages. |
+| `image_sharing` / `output.image_sharing` | Boolean, default `false`; `image_sharing` is required for `true`. | Only an `activation` action may enable the host's fallback image attachment mode for emoji/stickers that cannot be sent natively. Enabling it does not send anything. |
+| `effects` / `effects` | Array containing at most one `HostEffect`; its capability is checked separately. | The native result describes the action. It runs only after its **Apply** button is clicked and current access is rechecked. |
+
+Closing a result discards its pending app/draft proposal. It does not undo
+storage or appearance updates already accepted from that invocation. A panel's
+own button runs another handler; it is different from the host's Apply button.
+
+### Missing, null and empty values
+
+| Field | Omitted or `null` | Explicit empty value |
+| --- | --- | --- |
+| `replacement` | No draft proposal. | `""` proposes clearing the draft; Apply is still required. |
+| `storage` | Leave the saved value unchanged. | `""` saves an empty string. It does not remove the value and is not valid JSON for `storage_json`. |
+| `appearance` | Leave this plugin's current overlay unchanged. | `{}` removes this plugin's overrides, exposing the underlying theme and other overlays. |
+| `panel` | Omitted means `[]`; `null` is invalid. | `[]` supplies no panel elements; it is not a command to close a foreground result. |
+| `effects` | Omitted means `[]`; `null` is invalid. | `[]` makes no app proposal. |
+| Activation booleans | Omitted means `false`; `null` is invalid. | `false` does not enable the feature in an activation result. These are not runtime toggle commands for other surfaces. |
+
+Every returned appearance object replaces the previous object from that plugin;
+it is not a patch to the plugin's old overlay. Omitted theme fields inherit from
+the underlying appearance. To save choices across account loads, store them in
+a normal action and restore the overlay from activation's storage input. See the
+[theme API](theme-api.md) for palette and style fields.
+
+The preview `tick` surface accepts only `appearance`; panels, storage writes,
+replacements, activation booleans, rich presence and host effects are rejected.
+
+A complete immediate appearance result with the `appearance` grant is:
+
+```json
+{"appearance":{"dark":{"colors":{"accent":"#55CBD7"}}}}
+```
+
+Draft proposals must also satisfy the client's ordinary draft rules at Apply:
+at most 2,000 characters and the account's bounded draft budget. If the account,
+conversation or original draft changed, rerun the composer action. A subsequent
+panel-button invocation does not receive the previous composer text and cannot
+return a replacement just because its manifest also requests `composer`.
+
+### Rules for every host action
+
+Only foreground `message`, `composer` and `panel` actions may return `effects`.
+An `activation`, `message_event` or `app_event` action cannot return them. Return
+at most one proposal, at most 8 KiB for the serialized `effects` array, and do not
+combine a proposal with a non-null `replacement` in the same result.
+
+The user sees the actual operation and values before applying it. Apply rechecks
+that the plugin is enabled, its capability is still granted, the account and
+originating conversation are unchanged, and that conversation is accessible.
+Each operation also has its own checks below. A stale proposal fails instead of
+following a later navigation or controlling a replacement call.
+
+All examples below are complete JSON output objects. Other output fields are
+optional. IDs such as `"20"` are illustrative: use real IDs from granted input.
+Channel, message and user IDs are strings of decimal digits representing nonzero
+`u64` values, at most 20 bytes, not JSON numbers or names.
+
+### HostEffect index
+
+Each operation requires the listed capability and the shared Apply checks above.
+Follow an operation for its fields, example and additional checks.
+
+| JSON `type` | Required capability | Operation |
+| --- | --- | --- |
+| `navigate` | `navigation` | [Open a known channel](extension-sdk-actions.md#open-conversations-profiles-and-search) |
+| `home` | `navigation` | [Return to Friends/Home](extension-sdk-actions.md#open-conversations-profiles-and-search) |
+| `open_view` | `navigation` | [Open a native view](extension-sdk-actions.md#all-18-appview-values) |
+| `open_profile` | `navigation` | [Open a known user's profile](extension-sdk-actions.md#open-conversations-profiles-and-search) |
+| `jump_to_message` | `navigation` | [Jump to a message](extension-sdk-actions.md#open-conversations-profiles-and-search) |
+| `search` | `navigation` | [Search the current conversation](extension-sdk-actions.md#open-conversations-profiles-and-search) |
+| `notice` | `local_notices` | [Show a local notice](extension-sdk-actions.md#show-a-local-notice-or-copy-text) |
+| `copy_text` | `clipboard_write` | [Copy text to the clipboard](extension-sdk-actions.md#show-a-local-notice-or-copy-text) |
+| `set_voice` | `voice_control` | [Set mute and deafen](extension-sdk-actions.md#control-the-current-call) |
+| `leave_voice` | `voice_control` | [Leave the current call](extension-sdk-actions.md#control-the-current-call) |
+| `set_local_settings` | `local_settings` | [Change reading preferences](extension-sdk-actions.md#change-local-reading-settings) |
+| `set_notification_settings` | `notification_settings` | [Change device notifications](extension-sdk-actions.md#change-device-local-notification-settings) |
+| `app_action` | Depends on nested action | [Messages, threads, accounts and media](extension-sdk-actions.md#app-actions) |
+| `tracked_app_action` | Nested action grant plus `action_feedback` | [Receive Apply admission results](extension-sdk-actions.md#tracked-actions) |
+
+### App actions
+
+`HostEffect::AppAction { action: AppAction }` proposes a typed operation through
+Serein's existing app controls. The outer `type` is `app_action`; the nested
+`action.type` selects the operation. Each operation has a separate write grant.
+Read-only grants never authorize writes. Most action grants do not disclose data;
+`account_control` also exposes own presence/activity preferences, and
+`audio_settings` also exposes current audio preferences. Other snapshot groups
+still require their respective read grants.
+All operations retain the one-proposal, foreground-only, 8 KiB limit and **Apply**.
+
+#### Queries and native editors
+
+These actions expose existing native paths. Query actions require `data_queries`;
+their latest bounded result appears in `ExtendedAppInvocation.queries` on the
+app-event handler. Settings and folders use their same-named capability.
+
+| Nested `type` / Rust variant | Fields | Grant and effect |
+| --- | --- | --- |
+| `request_message_search` / `RequestMessageSearch` | `query`; optional `before_id` | `data_queries`; search the selected readable conversation. |
+| `request_pins` / `RequestPins` | optional `before` cursor | `data_queries`; load the selected conversation's pins. |
+| `request_archives` / `RequestArchives` | `parent_id`, `kind`; optional `before` | `data_queries`; load public, private or joined-private archived threads. |
+| `request_member_search` / `RequestMemberSearch` | `channel_id`, `query` | `data_queries`; search members in the selected server channel. |
+| `request_profile` / `RequestProfile` | `user_id`; optional `guild_id` | `data_queries`; load a bounded profile for the current user, a friend or a user known in the selected conversation. |
+| `request_gifs` / `RequestGifs` | optional `query` | `data_queries`; load GIF categories or search results. |
+| `set_messaging_settings` / `SetMessagingSettings` | typed `change` | `messaging_settings`; update one loaded account privacy preference. |
+| `set_guild_folders` / `SetGuildFolders` | `base_version`; complete `folders` array | `guild_folders`; replace the loaded folder layout only if `base_version` still matches the snapshot. |
+| `open_join_server` / `OpenJoinServer` | `invite` | `server_control`; open the native invite review/CAPTCHA flow. |
+| `send_server_invite` / `SendServerInvite` | `guild_id`, `user_id` | `server_control`; send a server invite to a loaded friend. |
+| `open_server_admin` / `OpenServerAdmin` | `guild_id`, `page` | `server_control`; open `emoji`, `members`, `roles`, `invites` or `audit_log`. |
+| `open_group_editor` / `OpenGroupEditor` | `channel_id` | `channel_control`; open the native group-DM editor. |
+
+Query cursors are opaque strings. Reuse only the cursor from the current matching
+snapshot; stale or cross-query cursors are rejected. Integrations, webhooks and
+slash commands are deliberately absent.
+
+#### Tracked actions
+
+`HostEffect::TrackedAppAction` has `request_id` plus the same nested `action` as
+`app_action`. It additionally requires `action_feedback`, `app_events` and one
+`app_event` action. Decode that handler as `ExtendedAppInvocation` and inspect
+`action_result`:
+
+```json
+{"effects":[{"type":"tracked_app_action","request_id":"save-42","action":{"type":"set_activity_sharing","enabled":false}}]}
+```
+
+The result status is `accepted` or `rejected`; its code is `accepted`,
+`context_changed`, `unavailable`, `invalid`, `denied` or `failed`. This reports
+whether Apply entered the native path. A queued network operation can still fail
+later through the app's ordinary status UI.
+
+For example, a handler with `message_send` can propose:
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"send_message","channel_id":"20","content":"Hello from my tool"}}]}
+```
+
+Serein displays the destination and exact text. Nothing is sent until Apply.
+Apply rechecks the account, selected channel, access and normal sending limits.
+This sends the proposed text only: the user's existing draft, reply and selected
+attachments remain intact. It does not attach files or automatically mention a
+reply target. Normal service failures remain visible in Serein's pending-message UI.
+
+#### Messages and read markers
+
+All IDs below are nonzero decimal strings. Operations targeting an existing
+message require it to be loaded and accessible in the selected channel, plus
+the ordinary operation's permissions. Sending requires an eligible selected
+channel, not an existing message. Content must be nonblank, at most 2,000 characters and 8,000 UTF-8
+bytes, and still fit the complete 8 KiB escaped effect. Use existing snapshots
+to find IDs; these actions do not offer arbitrary message lookup.
+
+| Nested `type` / Rust variant | Fields | Grant and effect |
+| --- | --- | --- |
+| `send_message` / `SendMessage` | `channel_id`, `content`: strings | `message_send`; send explicit text in the selected conversation. |
+| `send_reply` / `SendReply` | `channel_id`, `message_id`, `content`: strings; `mention`: boolean | `message_send`; reply to a loaded message. `mention` controls whether the reply mentions its author. **Preview.** |
+| `send_sticker` / `SendSticker` | `channel_id`, `sticker_id`: IDs | `message_send`; send one sticker from the host's loaded sticker catalog. **Preview.** |
+| `forward_message` / `ForwardMessage` | `channel_id`, `message_id`: IDs; `target_channel_ids`: array of 1–5 distinct IDs; `note`: string | `message_send`; forward a loaded source message to the selected accessible destinations, optionally with a note. **Preview.** |
+| `open_attachment_picker` / `OpenAttachmentPicker` | `channel_id`: ID | `message_send`; open Serein's native attachment picker for the still-selected text conversation. The plugin receives no path or bytes and nothing is sent automatically. **Preview.** |
+| `edit_message` / `EditMessage` | `channel_id`, `message_id`, `content`: strings | `message_manage`; edit a loaded message authored by the current user. |
+| `delete_message` / `DeleteMessage` | `channel_id`, `message_id`: IDs | `message_manage`; delete an eligible loaded message. Requires ownership or native moderation permission. **Deletion cannot be undone.** |
+| `set_message_pinned` / `SetMessagePinned` | `channel_id`, `message_id`: IDs; `pinned`: boolean | `message_manage`; set the desired pin state using native permissions. |
+| `set_reaction` / `SetReaction` | `channel_id`, `message_id`: IDs; `emoji`: string; `add`: boolean | `reactions_control`; ensure your reaction is present or absent. Already matching state does nothing; this never blindly toggles. |
+| `mark_read` / `MarkRead` | `channel_id`, `message_id`: IDs | `read_state_control`; acknowledge a loaded boundary in the selected conversation. |
+| `mark_channel_read` / `MarkChannelRead` | `channel_id`: ID | `read_state_control`; acknowledge a known accessible channel using its current latest-message metadata. |
+| `mark_unread` / `MarkUnread` | `channel_id`, `message_id`: IDs | `read_state_control`; mark the loaded message boundary unread through the native marker path. |
+| `mark_guild_read` / `MarkGuildRead` | `guild_id`: ID | `read_state_control`; mark an eligible known server read. |
+| `jump_to_unread` / `JumpToUnread` | None | `navigation`; jump to the selected conversation's unread boundary. May load ordinary history. |
+
+`emoji` is a Unicode emoji or the custom-emoji wire form `name:id`. Custom IDs
+must be nonzero. Custom names use 2-32 ASCII letters, digits or underscores;
+the whole emoji string is at most 128 UTF-8 bytes with no controls. The host's
+ordinary reaction validation also applies. Unknown or
+pending reaction state may be unavailable; rerun after it loads.
+
+Reply and forward source messages must already be loaded in `channel_id`.
+`SendSticker` accepts only a sticker the native client has loaded for the current
+context; it does not turn an arbitrary asset ID into a fetch. Reply and forward
+notes use the same 2,000-character / 8,000-byte text bound as `SendMessage`.
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"send_reply","channel_id":"20","message_id":"200","content":"Thanks — fixed.","mention":true}}]}
+```
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"set_reaction","channel_id":"20","message_id":"200","emoji":"👍","add":true}}]}
+```
+
+#### Threads and forum posts
+
+These actions require `threads_control`. Names and titles are nonblank strings
+of at most 100 characters and 400 UTF-8 bytes, without control characters.
+Forum content follows the message-text limits above. Creating a thread/post is
+a Discord write, not a local preview. Normal channel access, ownership, thread
+permissions, loaded details and pending-operation checks apply again at Apply.
+
+| Nested `type` / Rust variant | Fields | Operation |
+| --- | --- | --- |
+| `create_thread` / `CreateThread` | `channel_id`, `name`; optional `message_id` | Create a thread, optionally from an eligible loaded starter message. Omit/null `message_id` for no starter. |
+| `create_forum_post` / `CreateForumPost` | `parent_id`, `title`, `content` | Create a text-only forum/media post in an eligible parent. |
+| `set_thread_archived` / `SetThreadArchived` | `channel_id`; `archived`: boolean | Set archived state. |
+| `set_thread_locked` / `SetThreadLocked` | `channel_id`; `locked`: boolean | Set locked state. |
+| `set_thread_followed` / `SetThreadFollowed` | `channel_id`; `followed`: boolean | Join/follow or leave/unfollow a thread. |
+| `set_thread_pinned` / `SetThreadPinned` | `channel_id`; `pinned`: boolean | Set a forum post's pin state. |
+| `rename_thread` / `RenameThread` | `channel_id`, `name` | Rename an eligible loaded thread/post. |
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"create_thread","channel_id":"20","name":"Release discussion","message_id":"200"}}]}
+```
+
+The [Conversation Actions example](../examples/extensions/app-actions/src/lib.rs)
+provides a complete native form, handler and manifest for these operations.
+It checks that its form's conversation still matches the current snapshot;
+Serein independently validates the resulting proposal.
+
+#### Channels, conversations and servers
+
+> **Preview SDK — PR #411, not yet released.**
+
+These operations reuse Serein's native channel, group, DM and server admission
+paths. `channel_control` covers channel administration and conversation-local
+settings. `server_control` is separate because invites and leaving a server have
+different scope and consequences. Apply rechecks the loaded target, access,
+native permissions and pending operations.
+
+| Nested `type` / Rust variant | Fields | Grant and effect |
+| --- | --- | --- |
+| `set_channel_mute` / `SetChannelMute` | `channel_id`: ID; `duration_seconds`: `null` or integer | `channel_control`; `null` unmutes, `0` mutes until changed, or use 900, 3600, 10800, 28800 or 86400 seconds. |
+| `set_channel_notifications` / `SetChannelNotifications` | `channel_id`: ID; `level`: integer 0–3 | `channel_control`; set the native notification level for a channel or post. |
+| `set_guild_hide_muted` / `SetGuildHideMuted` | `guild_id`: ID; `hide`: boolean | `channel_control`; show or hide muted channels in a loaded server. |
+| `create_channel` / `CreateChannel` | `guild_id`: ID; `name`: string; `kind`: `"text"`, `"voice"` or `"forum"` | `channel_control`; create a server channel through a currently manageable server channel. |
+| `create_category` / `CreateCategory` | `guild_id`: ID; `name`: string | `channel_control`; create a category. |
+| `duplicate_channel` / `DuplicateChannel` | `channel_id`: ID; `name`: string | `channel_control`; duplicate a manageable channel with the supplied name. |
+| `edit_channel` / `EditChannel` | `channel_id`: ID; `before`, `after`: `ChannelEditInput` | `channel_control`; apply an exact validated edit while preserving the native before/after conflict check. |
+| `delete_channel` / `DeleteChannel` | `channel_id`: ID | `channel_control`; delete a manageable channel. **This cannot be undone.** |
+| `move_channel` / `MoveChannel` | `channel_id`: ID; `parent_id`: ID or `null`; `position`: nonnegative integer; `lock_permissions`: boolean; `shifts`: up to 100 `ChannelPositionInput` rows | `channel_control`; move/reorder a channel using the native hierarchy action. |
+| `leave_group` / `LeaveGroup` | `channel_id`: ID | `channel_control`; leave a loaded group DM. |
+| `rename_group` / `RenameGroup` | `channel_id`: ID; `name`: string | `channel_control`; rename a loaded group DM. |
+| `close_dm` / `CloseDm` | `channel_id`: ID | `channel_control`; close a loaded one-to-one DM from the list. It does not delete message history. |
+| `set_conversation_muted` / `SetConversationMuted` | `channel_id`: ID; `muted`: boolean | `channel_control`; set the loaded DM/group mute state. |
+| `create_server_invite` / `CreateServerInvite` | `guild_id`: ID; `channel_id`: ID or `null`; `max_age`: 0–2592000; `max_uses`: 0–100; `temporary`: boolean | `server_control`; create an invite. A null channel lets the host choose its eligible native invite channel; zero duration/uses mean no limit. |
+| `leave_server` / `LeaveServer` | `guild_id`: ID | `server_control`; leave a loaded server. **This can remove access immediately.** |
+| `update_server_settings` / `UpdateServerSettings` | `guild_id`: ID; `settings`: `ServerSettingsPatch` | `server_control`; update already-loaded server settings through the native stale-state and permission checks. |
+| `rename_server_emoji` / `RenameServerEmoji` | `guild_id`, `emoji_id`: IDs; `name`: string | `server_control`; rename a server emoji to 2–32 ASCII letters, digits or underscores. |
+| `delete_server_emoji` / `DeleteServerEmoji` | `guild_id`, `emoji_id`: IDs | `server_control`; delete a server emoji. **This cannot be undone.** |
+
+`ChannelEditInput` is a complete object with `name: String`, `topic: String`,
+`slowmode: u32`, `nsfw: bool`, and `overwrites: Vec<PermissionOverwriteInput>`.
+Names are nonblank and limited to 100 characters / 400 bytes. Topics may be
+empty and are limited to 4,096 characters; slow mode is at most 21,600 seconds.
+Each permission overwrite has `id: String`, `kind: u8` (`0` role, `1` member),
+and decimal-string `allow` and `deny` masks that fit `u128`. At most 100 distinct
+`(id, kind)` rows are accepted. Supply the values the plugin observed as
+`before`; the host rejects a stale edit instead of overwriting a newer change.
+
+`ChannelPositionInput` has `channel_id: String` and a nonnegative `position: i32`.
+The `shifts` array is the bounded native reorder plan; IDs must be distinct.
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"create_channel","guild_id":"10","name":"release-notes","kind":"text"}}]}
+```
+
+`ServerSettingsPatch` rejects an empty patch. Omitted/null optional fields
+preserve their values. The host requires the matching server-settings model to
+remain loaded at Apply.
+
+| Patch field | Rust / JSON type | Meaning and bound |
+| --- | --- | --- |
+| `name` | `Option<String>` / string or null | Server name; nonblank, at most 100 characters. |
+| `banner_color` | `Option<u32>` / integer or null | 24-bit banner color, 0–16777215. |
+| `traits` | `Option<Vec<ServerTraitInput>>` / array or null | Replace traits with at most five rows. Each row has nonblank `label: String` (100 characters) and `emoji: Option<String>` (32 characters). An empty array clears the traits. |
+| `description` | `Option<String>` / string or null | Description, at most 300 characters; an empty string clears it. |
+| `system_channel_id` | `Option<String>` / ID or null | Set the system channel. Cannot accompany `clear_system_channel: true`. |
+| `clear_system_channel` | `bool` / boolean | Defaults to false; true clears the system channel. |
+| `system_channel_flags` | `Option<u64>` / integer or null | Replace the native system-channel flag bits. |
+| `activity_feed` | `Option<bool>` / boolean or null | Enable or disable the server activity feed. |
+| `default_message_notifications` | `Option<u8>` / 0, 1 or null | Set the native default notification level. |
+| `afk_channel_id` | `Option<String>` / ID or null | Set the AFK voice channel. Cannot accompany `clear_afk_channel: true`. |
+| `clear_afk_channel` | `bool` / boolean | Defaults to false; true clears the AFK channel. |
+| `afk_timeout` | `Option<u32>` / integer or null | AFK timeout: 60, 300, 900, 1800 or 3600 seconds. |
+
+Image/icon uploads are intentionally absent because Wasm receives no file paths
+or bytes.
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"update_server_settings","guild_id":"10","settings":{"name":"Serein Community","description":"Native client discussion","activity_feed":false}}}]}
+```
+
+#### Roles and moderation
+
+> **Preview SDK — PR #411, not yet released.**
+
+Role changes require `role_control`; member changes require
+`moderation_control`. All operations run through the native server-admin queue,
+so the guild, target, hierarchy, permissions, loaded state and pending-operation
+guards still apply.
+
+| Nested `type` / Rust variant | Fields | Grant and effect |
+| --- | --- | --- |
+| `create_role` / `CreateRole` | `guild_id`: ID; `role`: `RolePatch` | `role_control`; create a role with the supplied bounded fields. |
+| `edit_role` / `EditRole` | `guild_id`, `role_id`: IDs; `role`: `RolePatch` | `role_control`; patch a manageable loaded role. |
+| `delete_role` / `DeleteRole` | `guild_id`, `role_id`: IDs | `role_control`; delete a manageable role. **This cannot be undone.** |
+| `move_role` / `MoveRole` | `guild_id`, `role_id`: IDs; `position`: integer 1–4096 | `role_control`; move a manageable role within the native hierarchy. |
+| `set_member_role` / `SetMemberRole` | `guild_id`, `user_id`, `role_id`: IDs; `assigned`: boolean | `moderation_control`; assign or remove a manageable role. |
+| `set_member_nickname` / `SetMemberNickname` | `guild_id`, `user_id`: IDs; `nickname`: string | `moderation_control`; set a member nickname; empty clears it, otherwise at most 32 characters. |
+| `kick_member` / `KickMember` | `guild_id`, `user_id`: IDs | `moderation_control`; remove a member from the server. **This is destructive.** |
+| `prune_members` / `PruneMembers` | `guild_id`: ID; `days`: 1, 7 or 30; `execute`: boolean | `moderation_control`; `false` requests the native preview/count, `true` executes the prune. **Execution can remove many members.** |
+| `set_member_list_visible` / `SetMemberListVisible` | `guild_id`: ID; `enabled`: boolean | `moderation_control`; show/load or hide the server's native member list through its existing bounded path. |
+
+`RolePatch` rejects an empty patch. Omitted/null optional fields preserve the
+existing value.
+
+| Patch field | Rust / JSON type | Meaning and bound |
+| --- | --- | --- |
+| `name` | `Option<String>` / string or null | Nonblank role name, at most 100 characters. |
+| `primary_color` | `Option<u32>` / integer or null | Primary 24-bit role color. Supplying it enables the color patch. |
+| `secondary_color`, `tertiary_color` | `Option<u32>` / integer or null | Optional 24-bit companion colors. Either requires `primary_color` in the same patch. |
+| `permissions` | `Option<String>` / decimal string or null | Permission bits fitting `u128`. |
+| `permission_mask` | `Option<String>` / decimal string or null | Bits to replace. It requires `permissions` in the same patch; an omitted mask with permissions applies the full `u128` mask. |
+| `hoist` | `Option<bool>` / boolean or null | Set separate role display. |
+| `mentionable` | `Option<bool>` / boolean or null | Set whether the role can be mentioned. |
+| `unicode_emoji` | `Option<String>` / string or null | Role emoji, at most 32 characters. Cannot accompany `clear_unicode_emoji: true`. |
+| `clear_unicode_emoji` | `bool` / boolean | Defaults to false; true clears the role emoji. |
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"create_role","guild_id":"10","role":{"name":"Helpers","primary_color":1193046,"permissions":"8","mentionable":true}}}]}
+```
+
+#### Friends, notes and blocks
+
+These seven operations require `relationship_control`. IDs are `String` /
+nonzero decimal strings. They reuse native pending-operation and account checks;
+missing loaded data is an error, not permission to fetch or guess a target.
+
+| Nested `type` / Rust variant | Fields | Apply behavior |
+| --- | --- | --- |
+| `open_friend_dm` / `OpenFriendDm` | `user_id`: ID | Open a loaded friend's direct conversation, creating/loading it through the ordinary native path if needed. Unfinished server-settings edits can block navigation. |
+| `set_friend_nickname` / `SetFriendNickname` | `user_id`: ID; `text`: `String` | Set a loaded friend's nickname. At most 32 characters / 128 UTF-8 bytes; no controls. Empty clears it. |
+| `set_user_note` / `SetUserNote` | `user_id`: ID; `text`: `String` | Replace an already-loaded user note. At most 256 characters / 1,024 UTF-8 bytes; newline and tab are allowed. Empty clears it. This action does not load a missing note. |
+| `add_friend` / `AddFriend` | `username`: `String` | Send a friend request. Use 2-32 lowercase ASCII letters, digits, underscores or periods, with no consecutive periods. No leading `@`. Existing/pending requests can make it unavailable. |
+| `remove_friend` / `RemoveFriend` | `user_id`: ID | Remove an eligible loaded friend; native relationship/request/block readiness still applies. |
+| `resolve_friend_request` / `ResolveFriendRequest` | `user_id`: ID; `accept`: `bool` | Accept an incoming request, or decline/cancel an eligible existing request with `false`. |
+| `set_user_blocked` / `SetUserBlocked` | `user_id`: ID; `blocked`: `bool` | Set block state for a user known through loaded friends, restrictions, requests or the readable selected conversation. |
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"set_friend_nickname","user_id":"40","text":"Project partner"}}]}
+```
+
+These account writes are not plugin storage. Service errors and any required
+user-solved verification use Serein's ordinary native flow. A plugin receives no
+credentials or verification bypass.
+
+#### Own profile and presence
+
+`set_own_profile`, `set_own_presence` and `set_activity_sharing` require
+`account_control`. Profile/presence patches require at least one meaningful field;
+empty or all-null patches are rejected. Optional fields omitted or set to `null`
+mean unchanged. Clear flags are `bool`, default to `false` when omitted, and do
+not accept `null`. Invalid patches are rejected before changes are applied.
+
+`set_own_profile` / `SetOwnProfile` has one required `profile: OwnProfilePatch`
+object. The own profile must already be loaded and ready to save; the action does
+not fetch missing profile data or modify an avatar.
+
+| Patch field | Rust / JSON type | Meaning and bound |
+| --- | --- | --- |
+| `global_name` | `Option<String>` / string or null | Nonblank display name, at most 32 characters / 128 UTF-8 bytes, no controls. |
+| `clear_global_name` | `bool` / boolean | Explicitly clear the display name. Cannot accompany a `global_name` value. |
+| `bio` | `Option<String>` / string or null | Biography, at most 190 characters / 760 UTF-8 bytes. Newline, carriage return and tab allowed; empty clears it. |
+| `pronouns` | `Option<String>` / string or null | At most 40 characters / 160 UTF-8 bytes, no controls; empty clears it. |
+| `accent_color` | `Option<u32>` / integer or null | RGB integer from 0 through 16,777,215 (`0xffffff`). |
+| `clear_accent_color` | `bool` / boolean | Clear the custom accent. Cannot accompany an `accent_color` value. |
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"set_own_profile","profile":{"bio":"Building something small.","clear_accent_color":true}}}]}
+```
+
+`set_own_presence` / `SetOwnPresence` has one required
+`presence: OwnPresencePatch` object. Apply starts from current account presence
+preferences and uses the ordinary native update/persistence path.
+
+| Patch field | Rust / JSON type | Meaning and bound |
+| --- | --- | --- |
+| `status` | `Option<String>` / string or null | `online`, `idle`, `dnd` or `invisible`. |
+| `custom_status` | `Option<String>` / string or null | At most 128 characters / 512 UTF-8 bytes, no controls or surrounding whitespace. Empty clears the text and its expiry. |
+| `clear_after_seconds` | `Option<u32>` / integer or null | 0 through 86,400. Zero removes expiry; positive values start from Apply time. Omitted/null preserves existing expiry unless text is cleared. |
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"set_own_presence","presence":{"status":"dnd","custom_status":"Focusing","clear_after_seconds":3600}}}]}
+```
+
+`set_activity_sharing` / `SetActivitySharing` requires `enabled: bool`. It changes
+the native game-activity sharing preference; it does not submit an arbitrary
+activity payload. An accepted preference change is not proof that another
+Discord client displays public Rich Presence.
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"set_activity_sharing","enabled":false}}]}
+```
+
+#### Audio settings and local playback
+
+These operations require `audio_settings`. `set_audio_settings` /
+`SetAudioSettings` has a required `settings: AudioSettingsPatch` object. Optional
+fields omitted/null preserve current values at Apply time. The patch must contain
+at least one value or `open_microphone: true`; `{}` and all-null/default patches
+are invalid. `open_microphone` is a boolean defaulting to false, not an optional
+field, so JSON `null` is invalid.
+
+| Patch field | Rust / JSON type | Meaning and bound |
+| --- | --- | --- |
+| `input_percent` | `Option<u16>` / integer or null | Microphone gain, 0-200 percent. |
+| `output_percent` | `Option<u16>` / integer or null | Output gain, 0-200 percent. |
+| `push_to_talk` | `Option<bool>` / boolean or null | Set the native push-to-talk preference. |
+| `input_profile` | `Option<String>` / string or null | `voice_isolation`, `studio` or `custom`. |
+| `suppression` | `Option<String>` / string or null | `off`, `rnnoise` or `webrtc`. |
+| `suppression_level` | `Option<u8>` / integer or null | Suppression level, 0-3. |
+| `echo_cancellation` | `Option<bool>` / boolean or null | Enable/disable echo cancellation. |
+| `automatic_gain` | `Option<bool>` / boolean or null | Enable/disable automatic gain. |
+| `sensitivity_db` | `Option<i16>` / integer or null | Microphone gate threshold, -80 through 0 dB. |
+| `open_microphone` | `bool` / boolean | `true` clears the gate threshold. Cannot accompany a `sensitivity_db` value. This does not join a call, unmute it or start a microphone preview. |
+
+Changing a processing field switches to `custom`, starting from the visible
+values of the selected preset. If a patch supplies both `input_profile` and a
+processing field, the selected profile supplies those starting values and the
+result becomes custom. Gain/push-to-talk-only changes do not change the profile.
+Settings use native runtime/persistence handling; hardware support and the
+existing call's mute controls still apply.
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"set_audio_settings","settings":{"output_percent":80,"input_profile":"studio","sensitivity_db":-50}}}]}
+```
+
+| Nested `type` / Rust variant | Fields | Apply behavior |
+| --- | --- | --- |
+| `set_participant_audio` / `SetParticipantAudio` | `user_id`: ID; `volume_percent: Option<u16>`; `muted: Option<bool>` | Change local playback of a remote participant still in the current call. Volume is 0-200; mute preserves its configured gain for later unmute. Cannot target yourself. |
+| `set_stream_audio` / `SetStreamAudio` | `volume_percent: Option<u16>`; `muted: Option<bool>` | Change local playback of the currently watched stream. Volume is 0-200. Unavailable without a watched stream. |
+| `select_audio_devices` / `SelectAudioDevices` | `input_id`, `output_id`: string or null | Select at least one currently enumerated microphone/speaker by its exact host ID. Missing/null preserves that side. **Preview.** |
+| `refresh_media_devices` / `RefreshMediaDevices` | None | Ask the host to refresh its microphone, speaker and camera lists. It does not return those private lists to Wasm. **Preview.** |
+
+For participant and stream audio, optional values use JSON integer/boolean/null,
+and at least one must be supplied. Omitted/null fields preserve current values.
+They do not server-mute another person. The host rejects a changed/replaced call and a new
+participant mute when the 64-person local mute bound is full. A stream-volume
+proposal also fails if the watched stream changed before Apply.
+
+`select_audio_devices` also needs at least one non-null ID. Each ID is a string
+of at most 256 bytes without controls and must still be present in the matching
+host list at Apply. It changes host preferences; neither IDs nor device lists are
+returned by this action.
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"set_participant_audio","user_id":"40","volume_percent":75,"muted":false}}]}
+```
+
+#### Calls, streams and camera
+
+| Nested `type` / Rust variant | Fields | Required grant and Apply behavior |
+| --- | --- | --- |
+| `join_voice` / `JoinVoice` | `channel_id`: ID; `ring`, `muted`, `deafened`: `bool` | `voice_connect`; request joining/calling a native eligible channel with explicit ring and audio choices. Joining with an unmuted microphone can transmit audio. |
+| `decline_call` / `DeclineCall` | `channel_id`: ID | `voice_connect`; decline the currently incoming call only if it still targets this channel. |
+| `watch_stream` / `WatchStream` | `user_id`: ID | `voice_control`; watch an available remote participant stream in the current call. |
+| `stop_watching` / `StopWatching` | None | `voice_control`; stop watching the current stream. Unavailable when none is watched. |
+| `set_camera` / `SetCamera` | `enabled`: `bool` | `camera_control`; enable/disable camera transmission in the current call. Enabling requires available camera capture and shares video with participants. Already matching state does nothing. |
+| `select_camera_device` / `SelectCameraDevice` | `device_id`: string or null | `camera_control`; select a currently enumerated camera, or null to clear the selection. Device IDs are at most 256 bytes and remain host-local. **Preview.** |
+| `open_screen_share_picker` / `OpenScreenSharePicker` | None | `media_control`; open the native screen/window picker for the current call. The plugin receives no source list or frames. **Preview.** |
+| `stop_screen_share` / `StopScreenShare` | None | `media_control`; stop the current native screen share. **Preview.** |
+
+```json
+{"effects":[{"type":"app_action","action":{"type":"join_voice","channel_id":"20","ring":false,"muted":true,"deafened":false}}]}
+```
+
+Apply rechecks native call availability and the captured call identity. Switching
+away from an existing call still requires the native switch confirmation; the
+plugin cannot bypass it. Participant playback, stream watching and camera
+proposals are rejected if the original call has ended or been replaced. Stop-watching
+proposals also require the originally watched stream. Normal
+permission/device checks may reject otherwise well-formed proposals. These
+operations do not expose raw media to Wasm. Preview media actions only open or
+control native host UI; they do not disclose device names, identifiers, source
+lists, file paths, attachment bytes or captured frames to the plugin.
+
+### Open conversations, profiles and search
+
+These six action types require `navigation`. Read capabilities remain separate:
+request `channel_directory`, `app_context` or another read grant only when your
+handler needs the corresponding input data.
+
+| JSON `type` / Rust variant | Required fields | What Apply does |
+| --- | --- | --- |
+| `navigate` / `Navigate` | `channel_id`: string ID. | Opens a channel already known and readable in this session, using normal navigation. |
+| `home` / `Home` | None. | Opens Friends/Home and clears the current conversation selection. |
+| `open_view` / `OpenView` | `view`: one `AppView` string from the table below. | Opens the named native view. |
+| `open_profile` / `OpenProfile` | `user_id`: string ID. | Opens your profile, a known friend's profile, or a user known in the readable current conversation. Arbitrary unknown users are rejected. |
+| `jump_to_message` / `JumpToMessage` | `channel_id` and `message_id`: string IDs. | Uses normal message navigation in a known readable text channel. Requires a connected session; a known-deleted target is unavailable. |
+| `search` / `Search` | `query`: nonblank search string, at most 256 UTF-8 bytes, without control characters. | Runs the normal search in the current readable conversation when connected. Normal search syntax validation also applies. |
+
+Open a known channel:
+
+```json
+{"effects":[{"type":"navigate","channel_id":"20"}]}
+```
+
+Return Home:
+
+```json
+{"effects":[{"type":"home"}]}
+```
+
+Open Appearance settings:
+
+```json
+{"effects":[{"type":"open_view","view":"appearance"}]}
+```
+
+Open a known user's profile:
+
+```json
+{"effects":[{"type":"open_profile","user_id":"300"}]}
+```
+
+Jump to a message:
+
+```json
+{"effects":[{"type":"jump_to_message","channel_id":"20","message_id":"200"}]}
+```
+
+Search the active conversation:
+
+```json
+{"effects":[{"type":"search","query":"release notes"}]}
+```
+
+Navigation, profile and search views may load ordinary service data after Apply.
+They do not give Wasm a network API or a search-results callback. Channel/Home
+navigation also respects the native guard for unfinished server-settings edits.
+
+### All 18 AppView values
+
+Every row uses `open_view` and requires `navigation` plus a valid proposal context.
+The thirteen settings destinations simply open a page; they do not change its
+settings. Other views have the extra conditions described here.
+
+| JSON value / Rust variant | Native destination | Use conditions or effect |
+| --- | --- | --- |
+| `friends` / `Friends` | Friends / Home | Same behavior as `home`. |
+| `search` / `Search` | Conversation search | A readable active text conversation and connected session; opens the search controls, preserving an existing query for that conversation. |
+| `pins` / `Pins` | Pinned messages | A readable active text conversation and connected session; requests its pins. |
+| `members` / `Members` | People / member list | A readable active text conversation; opens the list, enables its wide-window visibility preference and uses normal member loading when available. |
+| `threads` / `Threads` | Threads / archived posts | An accessible selected guild text, announcement, forum or media parent channel; requires connection and history access. It cannot browse an arbitrary unselected parent. |
+| `settings` / `Settings` | General | Opens General settings. |
+| `account` / `Account` | My Account | Opens the current account's page. |
+| `profile_settings` / `ProfileSettings` | Profile | Opens your profile editor; does not submit edits. |
+| `appearance` / `Appearance` | Appearance | Opens appearance and reading controls. |
+| `messaging_permissions` / `MessagingPermissions` | Messaging Permissions | Opens messaging privacy controls. |
+| `notifications` / `Notifications` | Notifications | Opens notification preferences. |
+| `activity` / `Activity` | Registered Games | Opens activity sharing and Registered Games settings. |
+| `voice_settings` / `VoiceSettings` | Voice & Video | Opens device and voice settings; does not join a call or start media. |
+| `keybinds` / `Keybinds` | Keybinds | Opens keyboard shortcuts. |
+| `storage` / `Storage` | Data & Privacy | Opens local storage controls; does not clear data. |
+| `updates` / `Updates` | Updates | Opens update settings; does not install an update. |
+| `extensions` / `Extensions` | Extensions | Opens the plugin shop and installed plugins. |
+| `themes` / `Themes` | Themes | Opens the theme shop and installed themes. |
+
+`profile_settings` edits your own profile. `open_profile` instead opens a known
+user's profile card. The view named `storage` opens app settings; it is unrelated
+to the plugin `storage` output field.
+
+### Show a local notice or copy text
+
+| JSON `type` / Rust variant | Required fields | Capability and behavior |
+| --- | --- | --- |
+| `notice` / `Notice` | `text`: nonblank string, at most 1,024 UTF-8 bytes. | `local_notices`; shows an in-app toast prefixed by the plugin name after Apply. It is not an operating-system notification. |
+| `copy_text` / `CopyText` | `text`: string, at most 4,096 UTF-8 bytes; empty is allowed. | `clipboard_write`; replaces clipboard text after Apply. It never reads the clipboard. |
+
+```json
+{"effects":[{"type":"notice","text":"Your local review is ready."}]}
+```
+
+```json
+{"effects":[{"type":"copy_text","text":"Synthetic meeting notes\nReview the release checklist."}]}
+```
+
+These are alternatives: two effects in one output are invalid. Ask the user to
+run a separate action for each operation.
+
+### Control the current call
+
+Both action types require `voice_control`. The optional `voice_state` read grant
+lets a handler inspect the call first, but does not authorize changing it.
+
+| JSON `type` / Rust variant | Required fields | What Apply does |
+| --- | --- | --- |
+| `set_voice` / `SetVoice` | `muted`: boolean; `deafened`: boolean. Both must be supplied. | Sets the current call's local mute and deafen choices through the ordinary call controls. |
+| `leave_voice` / `LeaveVoice` | None. | Leaves the same call that was active when this invocation was created. |
+
+Mute without deafening:
+
+```json
+{"effects":[{"type":"set_voice","muted":true,"deafened":false}]}
+```
+
+Leave that call:
+
+```json
+{"effects":[{"type":"leave_voice"}]}
+```
+
+`muted: true` stops microphone transmission. `deafened: true` deafens the call and
+also mutes transmission, even if `muted` is `false`. `muted` remains the separate
+self-mute choice: to undeafen while staying muted, send `true, false`; to request
+both off, send `false, false`. These are explicit values, not toggles. Normal
+call availability and speaking permissions still apply; the host can retain a
+required mute and rejects an unavailable unmute.
+
+The host records both the call channel and its local request identity **before**
+running the plugin. If the call ends, switches channels, or is replaced by a new
+call on the same channel, Apply rejects the old proposal. The plugin cannot
+choose or forge that identity. There must already be a call: neither action can
+join a channel, start a call, enable a camera, share a screen or record media.
+
+### Change local reading settings
+
+`set_local_settings` / `HostEffect::SetLocalSettings` requires `local_settings`.
+Its required `settings` object is a `LocalSettingsPatch`: include only the fields
+you want to change. Apply reads the other preferences at that moment and preserves
+them.
+
+| Optional field | Type and allowed values | Meaning |
+| --- | --- | --- |
+| `zoom_percent` | Integer, 50 through 150 inclusive. | App zoom percentage. |
+| `sidebar_width` | Integer, 190 through 360 inclusive. | Channel/conversation sidebar width in logical pixels, before display scaling. |
+| `show_members` | Boolean. | Keep the People/member list open in wide windows. |
+| `animate_gifs` | Boolean. | Allow visible chat GIFs to animate automatically. |
+| `hide_media_links` | Boolean. | Hide standalone image/GIF links when their preview is shown. |
+| `smooth_scrolling` | Boolean. | Animate scrolling. |
+| `scroll_speed_percent` | Integer, 25 through 300 inclusive. | Scroll speed percentage; 100 is normal. |
+
+```json
+{
+  "effects": [{
+    "type": "set_local_settings",
+    "settings": {"zoom_percent": 110, "animate_gifs": false, "smooth_scrolling": true, "scroll_speed_percent": 125}
+  }]
+}
+```
+
+An omitted or `null` patch field means unchanged. At least one field must contain
+a value: `{}` or an all-null patch is invalid. `false` is a real boolean change,
+not an omitted value. A value equal to the current preference is allowed.
+Unknown fields and out-of-range values are rejected. Other preferences, including
+external-link confirmation, are outside this patch.
+
+### Change device-local notification settings
+
+`set_notification_settings` / `HostEffect::SetNotificationSettings` requires the
+separate `notification_settings` capability. Its required `settings` object is a
+`NotificationSettingsPatch`. Every field in
+[`NotificationSettingsSnapshot`](extension-sdk-reference.md#notificationsettingssnapshot-device-local-notifications)
+has a matching optional patch field: `Option<bool>` for the fourteen toggles and
+`Option<u8>` for `volume` (0 through 100 inclusive). JSON uses booleans and an
+integer respectively. `disable_sounds` is the master switch; it does not overwrite
+individual cue toggles. Zero volume also silences sounds.
+
+These are local preferences saved through the app's ordinary device-preference
+path. This action does not update Discord account/server/channel notification
+settings, play a sound, start a call or change microphone/camera state.
+
+As with reading settings, omitted or `null` fields preserve their **Apply-time**
+values, and at least one field must have a value. Empty/all-null patches, unknown
+fields and out-of-range values are rejected without applying any part of the
+patch. Foreground `message`, `composer` and `panel` actions may propose one effect;
+background activation/message/app events cannot change settings. The result shows
+the proposed values and requires **Apply**, which rechecks the plugin, grant and
+account/conversation context. Closing the result makes no change.
+
+#### Complete notification interaction
+
+Declare a `panel` action named `quiet` and request `notification_settings` in the
+manifest. This synthetic input supplies all fields of the current snapshot:
+
+```json
+{
+  "action": "quiet",
+  "values": {},
+  "app": {
+    "notification_settings": {
+      "new_message": true,
+      "current_channel": false,
+      "incoming_ring": true,
+      "outgoing_ring": true,
+      "disable_sounds": false,
+      "unread_badge": true,
+      "mute": true,
+      "unmute": true,
+      "deafen": true,
+      "undeafen": true,
+      "camera_on": true,
+      "screen_share_on": true,
+      "user_join": true,
+      "user_leave": true,
+      "volume": 75
+    }
+  }
+}
+```
+
+This complete SDK handler proposes silencing sounds only when the snapshot is
+available and sounds are currently enabled. It preserves the volume and every
+individual cue choice.
+
+```rust
+use serein_extension_sdk::{
+    AppInvocation, AppOutput, HostEffect, NotificationSettingsPatch,
+};
+
+fn handle(input: AppInvocation) -> AppOutput {
+    if input.app_event.is_some() || input.message_event.is_some()
+        || input.invocation.action != "quiet"
+    {
+        return AppOutput::default();
+    }
+    let Some(settings) = input.app.as_ref()
+        .and_then(|app| app.notification_settings.as_ref())
+    else {
+        return AppOutput::default();
+    };
+    if settings.disable_sounds {
+        return AppOutput::default();
+    }
+    AppOutput {
+        effects: vec![HostEffect::SetNotificationSettings {
+            settings: NotificationSettingsPatch {
+                disable_sounds: Some(true),
+                ..Default::default()
+            },
+        }],
+        ..Default::default()
+    }
+}
+
+serein_extension_sdk::export!(handle);
+```
+
+For the input above, the effect is:
+
+```json
+{
+  "effects": [{
+    "type": "set_notification_settings",
+    "settings": {"disable_sounds": true}
+  }]
+}
+```
+
+The host displays the proposal; returning this JSON alone changes nothing.
+After Apply, the current local sound preferences use the master disable while
+other values remain unchanged. Plugins observing `settings` events receive a
+fresh notification snapshot only with the matching grant. An older host rejects
+a manifest requesting `notification_settings`; support discovery cannot bypass
+that install-time check.
+
+### Custom Rich Presence
+
+> **Preview capability.** `rich_presence` requires a host built from this change;
+> it is not implied by ABI version 1. Live Discord compatibility is unverified.
+
+Declare `rich_presence` to contribute one account-scoped activity. Use the opt-in
+SDK `RichPresenceOutput { output: Output, rich_presence: Option<RichPresenceUpdate> }`.
+The wrapper flattens into the existing output JSON; the original `Output`,
+`Invocation`, `dispatch`, `export!` and compiled plugins keep their ABI. No new
+Wasm imports, persistent plugin instance or generic network access are added.
+Use `dispatch_typed` when testing the wrapper. Older hosts reject the unknown
+manifest capability before running the handler; current host discovery includes
+`rich_presence` among its supported names.
+
+`rich_presence` accepts these operations from an explicit `panel` action or the
+plugin's `activation` action only. Message, composer and reactive event actions
+cannot submit them. Declaring the capability still requires the user's grant.
+
+| JSON / Rust operation | Result |
+| --- | --- |
+| `{"type":"set","presence":{...}}` / `RichPresenceUpdate::Set { presence: Box<CustomRichPresence> }` | Replace this plugin's contribution with the validated configuration |
+| `{"type":"clear"}` / `RichPresenceUpdate::Clear` | Remove this plugin's contribution |
+| Missing or null `rich_presence` / `None` | Leave the contribution unchanged |
+
+The user must also enable Serein's activity-sharing preference. A saved Set is
+pending while sharing is off; the extension grant does not enable that preference.
+Account changes, revocation, disable and logout retire the contribution. Among
+enabled plugins with valid contributions, the first plugin in ascending ID order
+wins, within the existing eight-plugin limit. Custom presence takes priority over
+detected game/IPC activity; clearing it lets the current detected activity resume.
+Invisible/offline visibility and Gateway readiness still gate publication.
+The Gateway presence payload is capped at 4 KiB. If combining Spotify with the
+custom activity would exceed that bound, Spotify is omitted for that update while
+the custom activity and account status are preserved.
+
+#### CustomRichPresence fields
+
+All strings use UTF-8 byte bounds. Optional strings use `None`/null for absence,
+not an empty string. Required text must contain non-whitespace text and no control
+characters. Links must be HTTPS, at most 2,048 bytes, without credentials,
+whitespace, control characters or backslashes. SDK `validate()` supplies local
+form diagnostics; the host revalidates links with its URL parser and checks grants
+and the action surface. The complete serialized `CustomRichPresence` is limited
+to **3 KiB (3,072 bytes)**, including all fields and JSON escaping, even when each
+individual value fits its own limit. The resolved protocol activity has the same
+3-KiB ceiling. A successful validation is not a service acceptance result.
+
+| Field | Rust type | Meaning and bounds |
+| --- | --- | --- |
+| `application_id` | `String` | Required nonzero decimal application ID fitting `u64`, at most 20 bytes |
+| `name` | `String` | Required activity name, at most 128 bytes |
+| `kind` | `RichPresenceKind` | `Playing`, `Streaming`, `Listening`, `Watching`, `Competing`; JSON `playing`, `streaming`, `listening`, `watching`, `competing`; defaults to Playing |
+| `stream_url` | `Option<String>` | Required for Streaming and forbidden for other kinds; HTTPS link |
+| `details`, `state` | `Option<String>` | Each at most 128 bytes |
+| `details_url`, `state_url` | `Option<String>` | Optional clickable text links; each requires its corresponding text |
+| `large_image`, `small_image` | `Option<RichPresenceImage>` | Each has `key: String`, `text: Option<String>`, `url: Option<String>` |
+| Image `key` | `String` | Application asset key, at most 256 bytes without colon/slashes/backslashes, or an HTTPS image URL of at most 1,024 bytes |
+| Image `text` | `Option<String>` | Tooltip, at most 128 bytes |
+| Image `url` | `Option<String>` | HTTPS link for clicking the image |
+| `buttons` | `Vec<RichPresenceButton>` | At most two; each has required `label: String` (1–32 bytes, no control characters) and HTTPS `url: String` |
+| `party` | `Option<RichPresenceParty>` | `current: u32` and `max: u32`; `1 <= current <= max <= 9999` |
+| `timer` | `RichPresenceTimer` | Tagged object described below; defaults to None |
+
+Timer JSON uses `mode` as its tag. `None` is `{"mode":"none"}`, `Elapsed` is
+`{"mode":"elapsed"}`, and `LocalDay` is `{"mode":"local_day"}`. Elapsed time
+stays stable across ordinary field updates; changing timer mode, stopping custom
+presence, disabling sharing or starting a new connection restarts its origin.
+LocalDay uses midnight in the host's local timezone and refreshes after a day
+change on the host's one-minute maintenance check; unavailable or ambiguous local
+offsets produce an error instead of inventing a timestamp.
+
+`Custom { start: Option<u64>, end: Option<u64> }` serializes as
+`{"mode":"custom","start":1700000000000,"end":1700003600000}`. Values are Unix
+**milliseconds**, greater than zero and no later than `253402300799999` (year
+9999). At least one endpoint is required; when both are present, end must follow
+start. Start-only means elapsed time and end-only means a countdown.
+
+#### Native preview and persistence
+
+Return `Element::ActivityPreview { presence: Box::new(presence) }`, JSON
+`{"type":"activity_preview","presence":{...}}`, for a read-only native preview.
+It uses the same field validation and counts as one of the panel's 64 elements.
+The preview itself neither sets presence nor loads external images. A local card
+does not prove what another Discord client displays. Invalid drafts should return
+an explanatory panel and retain input values without an ActivityPreview or Set.
+
+Use the separate `storage` grant for saved settings. Save the applied configuration
+and an active flag on explicit Apply, and return Set from activation only when
+that saved flag is enabled. Stop should return Clear and save `active: false`
+while retaining the last applied fields. Disable is different: Serein removes the
+installed package and plugin data; re-enabling starts fresh. Do not use activation
+to save new storage: activation restores existing data.
+
+The host resolves application metadata and image assets outside rendering.
+External artwork URLs go through Discord's image proxy; Wasm and Serein do not
+fetch the caller's URL directly. Metadata or artwork failures clear the outgoing
+custom activity and report an error; users can revise and reapply. Button/text/
+image links and other rich fields depend on Discord's handling of this unofficial
+client. See the [Custom Rich Presence example](../extensions/plugins/custom-rpc).
+
+### API proxy (preview)
+
+Declare `api_proxy` and optionally `storage`; other capabilities and surfaces
+beyond `panel`/`activation` are rejected. This special plugin has a device-wide
+prelogin scope, survives account logout, and cannot access account data.
+
+Return `ApiProxyOutput { api_proxy: Some(ApiProxyConfig::Url { url }), ..Default::default() }`
+from an explicit Apply action, or restore the saved setting during activation.
+Its flattened `output: Output` field carries the usual panel/storage values;
+use `export!(handle)` for the Wasm exports.
+`ApiProxyConfig::Direct` removes proxy routing; `Automatic` selects environment proxy
+configuration (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, lowercase equivalents and
+`NO_PROXY`), with direct routing when none are configured. OS proxy settings and
+PAC discovery are unsupported. The wire shape is `{"api_proxy":{"mode":"url","url":"http://127.0.0.1:8080"}}`,
+`{"api_proxy":{"mode":"automatic"}}`, or `{"api_proxy":{"mode":"direct"}}`.
+Omitting `api_proxy` leaves the current routing unchanged. Use the SDK's
+`ApiProxyConfig::validate()` before returning user input. The host independently
+validates output and consent.
+
+Only the Discord REST API is affected. Gateway, CDN, media and calls keep their
+existing transports. Custom HTTP/HTTPS origins are capped at 2048 bytes and cannot
+contain credentials, a non-root path, a query or a fragment. HTTP Basic proxy authentication is configured separately in Serein's host-managed
+masked form and OS credential store; it never enters Wasm input or plugin storage.
+SOCKS and PAC are unsupported. Saved invalid configuration should trap during
+activation rather than silently return Direct; the host then blocks initial API
+routing and preserves an already configured route during reload.
+
+## Panels and storage
+
+A panel is a list of native controls returned by your handler. Serein renders
+those controls; the plugin does not run while they are drawn. Editing a field
+changes the panel's local form values. A **panel button** runs another declared
+action with those values. It does not automatically approve a host action that
+the next result proposes.
+
+### The ten element types
+
+Every element is a JSON object with a `type` tag. Supply every field listed in
+the middle column. The same names are fields of the corresponding Rust `Element`
+variant; unknown fields are rejected by the host.
+
+| JSON `type` / Rust variant | Fields | Display or input behavior |
+| --- | --- | --- |
+| `text` / `Text` | `text`: string, at most 4 KiB. | Plain wrapping text. It may be empty or contain newlines; it is not HTML or executable markup. |
+| `heading` / `Heading` | `text`: nonempty string, at most 128 bytes, no control characters. | A native heading. |
+| `separator` / `Separator` | None. | A visual divider. |
+| `row` / `Row` | `children`: array of elements. | Places children in a horizontal row that wraps when needed. |
+| `button` / `Button` | `id`: action ID; `label`: display text. | Invokes the manifest's `panel` action with this exact ID. |
+| `text_input` / `TextInput` | `id`, `label`, `value`: initial string, at most 4 KiB. | A single-line text field. The native editor limits typing to 1,024 characters; submitted values also have the 4 KiB byte limit. |
+| `checkbox` / `Checkbox` | `id`, `label`, `checked`: initial boolean. | Returns the string `"true"` or `"false"`. |
+| `select` / `Select` | `id`, `label`, `options`: string array; `value`: initial selected string. | A dropdown. `value` must exactly match one option. |
+| `slider` / `Slider` | `id`, `label`, `min`, `max`, `value`: signed 32-bit integers. | An integer slider with `min < max` and an initial value in the inclusive range. Returns a decimal string. |
+
+Control labels are nonempty, at most 128 UTF-8 bytes, and contain no control
+characters. Dropdowns have 1 through 32 unique nonempty options, each at most
+128 bytes without control characters. A label is what the user sees; an ID is
+what your code uses.
+
+`activity_preview` / `ActivityPreview { presence: Box<CustomRichPresence> }` renders a read-only native activity card. It requires `rich_presence`, validates the same bounded fields as publication, and never starts network work. See [Custom Rich Presence](#custom-rich-presence).
+
+### IDs and panel limits
+
+Give every button and input a unique ID across the **whole panel**, including
+nested rows. A button cannot reuse an input ID. IDs contain lowercase ASCII
+letters, digits and hyphens, begin with a letter or digit, and are at most 64
+bytes. Windows device names such as `con`, `nul`, `com1` and `lpt1` are reserved.
+Spaces, underscores and uppercase letters are not allowed.
+
+A button ID must also name a manifest action with `"surface": "panel"`.
+Input IDs do not need manifest actions. A plugin may declare at most 16 actions.
+Panels contain at most 64 elements in total, including rows and their children,
+with at most eight nested row levels. The full result still shares the 256 KiB
+serialized output budget. Byte limits count UTF-8 bytes, not visible letters.
+
+### How a button receives form values
+
+1. A user opens a foreground action, and its output supplies a panel.
+2. Serein initializes each input from `value` or `checked` and keeps edits locally.
+   Typing, selecting, dragging and checking do not call your handler.
+3. Clicking a button creates a fresh invocation whose `action` is the button ID.
+   Input IDs become keys in `values`; all values are strings. The button itself
+   does not add a value.
+4. The worker loads the latest granted storage and runs a fresh Wasm instance.
+   Panel callbacks have no previous `selected_message` or `composer` text.
+   App-aware callbacks receive a freshly rebuilt, separately granted snapshot.
+5. The next output replaces the displayed result and initializes its new form.
+   Storage and appearance can take effect immediately; an `effects` proposal
+   still waits for the host's Apply button.
+
+For example, checking `enabled` and setting `limit` to 4 before clicking `save`
+produces an invocation like this (storage and other granted fields may be added):
+
+```json
+{"action":"save","values":{"enabled":"true","limit":"4"}}
+```
+
+Use `input.value("name")` to read `Option<&str>` without allocating. Use
+`input.parse_value::<bool>("enabled")` or `input.parse_value::<i32>("limit")`
+for typed inputs. `Ok(None)` means the ID was absent; `Ok(Some(value))` means
+parsing succeeded; `Err(_)` means malformed text. Boolean parsing accepts
+`"true"` and `"false"`, not `"1"`, `"yes"` or an empty string. Integer parsing
+does not enforce your slider range: check it in the handler too.
+
+The invocation allows at most 64 form entries, each with a valid ID and at most
+4 KiB of string data, within the shared 256 KiB input budget. Treat missing and
+invalid values explicitly; do not silently turn either into a saved preference.
+
+### Storage is one value, not a filesystem
+
+The `storage` capability gives this plugin one opaque UTF-8 string for the
+current account. Each non-null `output.storage` replaces the **whole** saved
+value. Omit it to leave storage alone. To store multiple settings, encode one
+JSON object yourself; Serein does not merge object fields for you.
+
+For example, this is a complete output that saves a JSON object inside the
+storage string:
+
+```json
+{"storage":"{\"enabled\":true,\"limit\":4}"}
+```
+
+`input.storage_json::<T>()` returns `Ok(None)` if there is no saved value,
+`Ok(Some(value))` for valid JSON of type `T`, and `Err(_)` for invalid or
+incompatible JSON. An empty stored string is an error, not missing storage.
+`output.set_storage_json(&value)` serializes into the same string field. If
+serialization fails, it leaves that output field unchanged; it does not itself
+write to disk. The host writes it only after accepting the complete result.
+
+Save from foreground actions or separately granted message/app event handlers.
+Activation receives saved storage for restoring settings, but this build ignores
+storage returned from activation. It also does not display an activation panel.
+An ordinary panel action is the appropriate place for a settings editor.
+
+The disk ceiling is 1 MiB per plugin, but storage also travels through the
+256 KiB invocation/output buffers alongside other fields. Nested JSON escaping
+counts toward that smaller practical limit; keep settings small. Each call gets
+a fresh instance, so globals are not persistent storage. Disabling or logging out
+clears the account's extension data; cleanup failures are reported and retried.
+Re-enabling starts fresh. Storage
+is ordinary local data, not encrypted secret storage; never put credentials in it.
+
+### Complete settings panel and Save handler
+
+This example stores **plugin preferences**, not Serein's reading settings. It
+requests only `storage`; changing the app's reading preferences instead requires
+a `local_settings` host proposal and Apply.
+
+Use this complete manifest:
+
+```json
+{
+  "api_version": 1,
+  "id": "panel-settings",
+  "name": "Panel Settings Example",
+  "version": "1.0.0",
+  "author": "Example Author",
+  "license": "MIT",
+  "source": "https://example.com/panel-settings",
+  "kind": "plugin",
+  "capabilities": ["storage"],
+  "actions": [
+    {"id":"show","label":"Open plugin settings","surface":"panel"},
+    {"id":"save","label":"Save plugin settings","surface":"panel"}
+  ]
+}
+```
+
+In a copied example workspace, add the plugin as a workspace member and use this
+`Cargo.toml`. The parent workspace already defines these two dependencies.
+
+```toml
+[package]
+name = "panel-settings"
+version = "1.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+serde.workspace = true
+serein-extension-sdk.workspace = true
+```
+
+Put this complete handler in `src/lib.rs`:
+
+```rust
+use serein_extension_sdk::{Element, Invocation, Output};
+
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct Settings {
+    enabled: bool,
+    limit: i32,
+}
+
+fn note(text: &str) -> Output {
+    Output {
+        panel: vec![Element::Text { text: text.into() }],
+        ..Default::default()
+    }
+}
+
+fn form(settings: &Settings) -> Output {
+    Output {
+        panel: vec![
+            Element::Checkbox {
+                id: "enabled".into(), label: "Enable summaries".into(),
+                checked: settings.enabled,
+            },
+            Element::Slider {
+                id: "limit".into(), label: "Maximum items".into(),
+                min: 0, max: 10, value: settings.limit,
+            },
+            Element::Button { id: "save".into(), label: "Save preferences".into() },
+        ],
+        ..Default::default()
+    }
+}
+
+fn handle(input: Invocation) -> Output {
+    match input.action.as_str() {
+        "show" => {
+            let settings = match input.storage_json::<Settings>() {
+                Ok(None) => Settings::default(),
+                Ok(Some(value)) if (0..=10).contains(&value.limit) => value,
+                _ => return note("Saved preferences are invalid; nothing was overwritten."),
+            };
+            form(&settings)
+        }
+        "save" => {
+            let enabled = match input.parse_value::<bool>("enabled") {
+                Ok(Some(value)) => value,
+                _ => return note("Choose whether summaries are enabled."),
+            };
+            let limit = match input.parse_value::<i32>("limit") {
+                Ok(Some(value)) if (0..=10).contains(&value) => value,
+                _ => return note("Choose a maximum from 0 through 10."),
+            };
+            let settings = Settings { enabled, limit };
+            let mut output = form(&settings);
+            if output.set_storage_json(&settings).is_err() {
+                return note("Preferences could not be encoded; nothing was saved.");
+            }
+            output.panel.push(Element::Text { text: "Preferences saved.".into() });
+            output
+        }
+        _ => Output::default(),
+    }
+}
+
+serein_extension_sdk::export!(handle);
+```
+
+Open **Open plugin settings**, edit the controls, then click **Save preferences**.
+The save action returns both the updated form and its new storage string. The
+host commits storage before presenting the returned success text; there is no
+extra Apply step for plugin storage. Opening the manifest's save action directly
+without form values shows a validation message instead of changing storage.
+Invalid saved data is reported on open, without an automatic reset or overwrite.
+
+Use the [local development commands](../examples/extensions/README.md#test-and-develop-locally)
+to test your copied example. Because adding a workspace member changes the
+lockfile, first run `cargo check -p panel-settings` from `examples/extensions/`
+in your development copy. Review and commit the updated `Cargo.lock`, then build
+and package this plugin from the same directory:
+
+```powershell
+cargo build --locked --release --target wasm32-unknown-unknown -p panel-settings
+python ../../extensions/pack.py panel-settings/manifest.json target/wasm32-unknown-unknown/release/panel_settings.wasm packages/panel-settings.serein-extension
+```
+
+For a larger working panel with app
+proposals, read [App Toolbox](../examples/extensions/app-toolbox/src/lib.rs).

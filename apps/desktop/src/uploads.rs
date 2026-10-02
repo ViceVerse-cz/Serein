@@ -53,41 +53,51 @@ fn apng_delay(delay: image::Delay) -> (u16, u16) {
 	(numerator as u16, denominator.max(1) as u16)
 }
 
-fn image_share_source(asset: model::ImageShare) -> Option<(String, String, image::ImageFormat)> {
+fn image_share_source(
+	asset: model::ImageShare,
+) -> Option<(String, String, image::ImageFormat, image::ImageFormat)> {
 	use model::ImageShare;
-	let (id, kind, host, extension, query) = match asset {
+	let (id, kind, host, source_extension, output_extension, query) = match asset {
 		ImageShare::Emoji { id, animated } => (
 			id,
 			"emoji",
 			"cdn.discordapp.com",
 			if animated { "gif" } else { "png" },
+			if animated { "gif" } else { "png" },
 			"?size=64",
 		),
-		ImageShare::Sticker {
-			id,
-			format_type: 1 | 2,
-		} => (id, "sticker", "cdn.discordapp.com", "png", ""),
+		ImageShare::Sticker { id, format_type: 1 } => {
+			(id, "sticker", "cdn.discordapp.com", "png", "png", "")
+		}
+		ImageShare::Sticker { id, format_type: 2 } => {
+			(id, "sticker", "cdn.discordapp.com", "png", "gif", "")
+		}
 		ImageShare::Sticker { id, format_type: 3 } => (
 			id,
 			"sticker",
 			"media.discordapp.net",
 			"png",
+			"png",
 			"?passthrough=false",
 		),
 		ImageShare::Sticker { id, format_type: 4 } => {
-			(id, "sticker", "media.discordapp.net", "gif", "")
+			(id, "sticker", "media.discordapp.net", "gif", "gif", "")
 		}
 		_ => return None,
 	};
+	let format = |extension| {
+		if extension == "gif" {
+			image::ImageFormat::Gif
+		} else {
+			image::ImageFormat::Png
+		}
+	};
 	(id.0 != 0).then(|| {
 		(
-			format!("https://{host}/{kind}s/{id}.{extension}{query}"),
-			format!("{kind}-{id}.{extension}"),
-			if extension == "gif" {
-				image::ImageFormat::Gif
-			} else {
-				image::ImageFormat::Png
-			},
+			format!("https://{host}/{kind}s/{id}.{source_extension}{query}"),
+			format!("{kind}-{id}.{output_extension}"),
+			format(source_extension),
+			format(output_extension),
 		)
 	})
 }
@@ -161,6 +171,7 @@ fn synthetic_share(format: image::ImageFormat) -> Result<Vec<u8>, &'static str> 
 fn compact_artwork(
 	bytes: &[u8],
 	format: image::ImageFormat,
+	output_format: image::ImageFormat,
 	edge: u32,
 	cancelled: &AtomicBool,
 ) -> Result<Vec<u8>, &'static str> {
@@ -175,7 +186,7 @@ fn compact_artwork(
 	let (width, height) = reader
 		.into_dimensions()
 		.map_err(|_| "Could not inspect this artwork safely")?;
-	if width <= edge && height <= edge {
+	if format == output_format && width <= edge && height <= edge {
 		return Ok(bytes.to_vec());
 	}
 	let resize = |frames: image::Frames<'_>| -> Result<Vec<image::Frame>, &'static str> {
@@ -200,8 +211,8 @@ fn compact_artwork(
 			.ok_or("Artwork animation has no frames")
 	};
 	let mut output = Vec::new();
-	match format {
-		image::ImageFormat::Gif => {
+	match (format, output_format) {
+		(image::ImageFormat::Gif, image::ImageFormat::Gif) => {
 			let mut decoder = image::codecs::gif::GifDecoder::new(std::io::Cursor::new(bytes))
 				.map_err(|_| "Could not decode this artwork safely")?;
 			decoder
@@ -214,7 +225,37 @@ fn compact_artwork(
 				.and_then(|()| encoder.encode_frames(frames))
 				.map_err(|_| "Could not resize this artwork")?;
 		}
-		image::ImageFormat::Png => {
+		(image::ImageFormat::Png, image::ImageFormat::Gif) => {
+			let mut decoder = image::codecs::png::PngDecoder::new(std::io::Cursor::new(bytes))
+				.map_err(|_| "Could not decode this artwork safely")?;
+			decoder
+				.set_limits(limits)
+				.map_err(|_| "Artwork animation is too large to prepare safely")?;
+			let frames = if decoder
+				.is_apng()
+				.map_err(|_| "Could not inspect this artwork safely")?
+			{
+				resize(
+					decoder
+						.apng()
+						.map_err(|_| "Could not decode this artwork safely")?
+						.into_frames(),
+				)?
+			} else {
+				vec![image::Frame::new(
+					image::DynamicImage::from_decoder(decoder)
+						.map_err(|_| "Could not decode this artwork safely")?
+						.thumbnail(edge, edge)
+						.into_rgba8(),
+				)]
+			};
+			let mut encoder = image::codecs::gif::GifEncoder::new(&mut output);
+			encoder
+				.set_repeat(image::codecs::gif::Repeat::Infinite)
+				.and_then(|()| encoder.encode_frames(frames))
+				.map_err(|_| "Could not resize this artwork")?;
+		}
+		(image::ImageFormat::Png, image::ImageFormat::Png) => {
 			let mut decoder = image::codecs::png::PngDecoder::new(std::io::Cursor::new(bytes))
 				.map_err(|_| "Could not decode this artwork safely")?;
 			decoder
@@ -270,7 +311,7 @@ fn previewable(filename: &str) -> bool {
 	filename.rsplit_once('.').is_some_and(|(_, extension)| {
 		matches!(
 			extension.to_ascii_lowercase().as_str(),
-			"png" | "jpg" | "jpeg" | "gif" | "webp"
+			"png" | "jpg" | "jpeg" | "gif" | "webp" | "heic" | "heif"
 		)
 	})
 }
@@ -286,6 +327,18 @@ async fn preview(source: &Source) -> Option<egui::ColorImage> {
 		.flatten()
 }
 fn decode_preview(bytes: &[u8]) -> Option<egui::ColorImage> {
+	if platform::heic::is_heic(bytes) {
+		let (width, height, rgba) =
+			platform::heic::decode(bytes, 8192, PREVIEW_ALLOC, PREVIEW_EDGE)?;
+		let image =
+			image::DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, rgba)?)
+				.thumbnail(PREVIEW_EDGE, PREVIEW_EDGE)
+				.into_rgba8();
+		return Some(egui::ColorImage::from_rgba_unmultiplied(
+			[image.width() as usize, image.height() as usize],
+			image.as_raw(),
+		));
+	}
 	let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
 		.with_guessed_format()
 		.ok()?;
@@ -309,8 +362,17 @@ struct Uploading {
 	cancel: watch::Sender<bool>,
 	cancelling: bool,
 }
+struct ExternalUploading {
+	result: mpsc::Receiver<Result<String, model::public_upload::Error>>,
+	progress: watch::Receiver<Status>,
+	cancel: watch::Sender<bool>,
+	generation: u64,
+	key: Option<u64>,
+}
 #[derive(Default)]
 pub struct Uploads {
+	external: Option<ExternalUploading>,
+	public_result: Option<Result<String, model::public_upload::Error>>,
 	auto_image: bool,
 	scope: Option<(u64, Id)>,
 	selected: Vec<Chosen>,
@@ -326,6 +388,82 @@ pub struct Uploads {
 	notice: Option<&'static str>,
 }
 impl Uploads {
+	#[allow(clippy::too_many_arguments)]
+	pub fn start_external(
+		&mut self,
+		index: usize,
+		key: Option<u64>,
+		generation: u64,
+		channel: Id,
+		filename: &str,
+		bytes: u64,
+		runtime: &tokio::runtime::Handle,
+		context: &egui::Context,
+		demo: bool,
+	) -> Result<(), model::public_upload::Error> {
+		if self.busy() {
+			return Err(model::public_upload::Error::Busy);
+		}
+		if !demo && self.scope != Some((generation, channel)) {
+			return Err(model::public_upload::Error::ConversationChanged);
+		}
+		let chosen = self.selected.get(index);
+		if !demo && (key.is_none() || chosen.map(|chosen| chosen.key) != key) {
+			return Err(model::public_upload::Error::SelectionChanged);
+		}
+		if chosen.is_some_and(|chosen| {
+			chosen.source.filename() != filename || chosen.source.size() != bytes
+		}) {
+			return Err(model::public_upload::Error::SelectionChanged);
+		}
+		let key = chosen.map(|chosen| chosen.key);
+		let source = chosen.map(|chosen| chosen.source.clone());
+		if !demo && source.is_none() {
+			return Err(model::public_upload::Error::MissingSelection);
+		}
+		let (updates, progress) = watch::channel(Status::Preparing);
+		let (cancel, cancelled) = watch::channel(false);
+		let (send, result) = mpsc::sync_channel(1);
+		let context = context.clone();
+		runtime.spawn(async move {
+			let result = if demo {
+				Ok("https://files.catbox.moe/offline-preview.png".to_owned())
+			} else if let Some(source) = source {
+				discord_api::upload::external::upload(source, updates, cancelled).await
+			} else {
+				Err(model::public_upload::Error::MissingSelection)
+			};
+			let _ = send.send(result);
+			context.request_repaint();
+		});
+		self.external = Some(ExternalUploading {
+			result,
+			progress,
+			cancel,
+			generation,
+			key,
+		});
+		Ok(())
+	}
+	pub fn public_selection_key(&self, index: usize) -> Option<u64> {
+		self.selected.get(index).map(|chosen| chosen.key)
+	}
+	pub fn take_public_result(&mut self) -> Option<Result<String, model::public_upload::Error>> {
+		self.public_result.take()
+	}
+	pub fn public_progress(&self) -> Option<(u64, u64)> {
+		self.external
+			.as_ref()
+			.and_then(|upload| match *upload.progress.borrow() {
+				Status::Uploading { sent, total } => Some((sent, total)),
+				_ => None,
+			})
+	}
+	pub fn cancel_public(&mut self) {
+		if let Some(upload) = &self.external {
+			upload.cancel.send_replace(true);
+		}
+	}
 	/// A picker click authorizes one image send after preparation.
 	#[allow(clippy::too_many_arguments)]
 	pub fn start_image_share(
@@ -343,7 +481,7 @@ impl Uploads {
 		if !self.selected.is_empty() {
 			return Err("Send or remove existing attachments before selecting an image");
 		}
-		let (url, filename, format) =
+		let (url, filename, format, output_format) =
 			image_share_source(asset).ok_or("Unsupported emoji or sticker artwork")?;
 		let cancelled = Arc::new(AtomicBool::new(false));
 		let flag = cancelled.clone();
@@ -372,7 +510,8 @@ impl Uploads {
 					} else {
 						STICKER_EDGE
 					};
-					let bytes = compact_artwork(&bytes, format, edge, &prepare_flag)?;
+					let bytes =
+						compact_artwork(&bytes, format, output_format, edge, &prepare_flag)?;
 					let thumbnail =
 						decode_preview(&bytes).ok_or("Could not decode this image safely")?;
 					let source = Source::image_bytes(filename, bytes)?;
@@ -554,6 +693,28 @@ impl Uploads {
 		context: &egui::Context,
 	) {
 		self.revalidate_scope(generation, channel, allowed);
+		if let Some(upload) = &self.external {
+			let result = match upload.result.try_recv() {
+				Ok(result) => Some(result),
+				Err(mpsc::TryRecvError::Disconnected) => {
+					Some(Err(model::public_upload::Error::Interrupted))
+				}
+				Err(mpsc::TryRecvError::Empty) => None,
+			};
+			if let Some(result) = result {
+				let upload = self.external.take().unwrap();
+				if upload.generation == generation {
+					if result.is_ok()
+						&& let Some(key) = upload.key
+					{
+						self.selected.retain(|chosen| chosen.key != key);
+						self.previewing
+							.retain(|(preview_key, _)| *preview_key != key);
+					}
+					self.public_result = Some(result);
+				}
+			}
+		}
 		if let Some(choosing) = &self.choosing {
 			let result = match choosing.result.try_recv() {
 				Ok(result) => Some(result),
@@ -684,7 +845,7 @@ impl Uploads {
 		self.selected.iter().map(|c| c.preview.clone()).collect()
 	}
 	pub fn busy(&self) -> bool {
-		self.choosing.is_some() || self.uploading.is_some()
+		self.choosing.is_some() || self.uploading.is_some() || self.external.is_some()
 	}
 	pub fn has_unsent(&self) -> bool {
 		!self.selected.is_empty() || self.busy()
@@ -708,6 +869,7 @@ impl Uploads {
 		self.last = None;
 	}
 	pub fn cancel(&mut self) {
+		self.cancel_public();
 		self.auto_image = false;
 		if let Some(choosing) = &self.choosing {
 			choosing.cancelled.store(true, Ordering::Release);
@@ -757,6 +919,134 @@ impl Drop for Uploads {
 mod tests {
 	use super::*;
 	#[tokio::test]
+	async fn public_host_consent_matches_selection_and_completion_is_session_scoped() {
+		let context = egui::Context::default();
+		let runtime = tokio::runtime::Handle::current();
+		let mut uploads = Uploads::default();
+		uploads.scope = Some((7, Id(1)));
+		uploads.push(Source::pasted_png(vec![1]).unwrap(), None);
+		assert!(
+			uploads
+				.start_external(
+					0,
+					Some(0),
+					7,
+					Id(1),
+					"other-file.png",
+					1,
+					&runtime,
+					&context,
+					true
+				)
+				.is_err()
+		);
+		assert!(
+			uploads
+				.start_external(
+					0,
+					Some(0),
+					8,
+					Id(1),
+					"pasted-image.png",
+					1,
+					&runtime,
+					&context,
+					false
+				)
+				.is_err()
+		);
+		uploads.selected[0].key = 1;
+		uploads.selected[0].source = Source::pasted_png(vec![2]).unwrap();
+		assert!(
+			uploads
+				.start_external(
+					0,
+					Some(0),
+					7,
+					Id(1),
+					"pasted-image.png",
+					1,
+					&runtime,
+					&context,
+					false
+				)
+				.is_err()
+		);
+		uploads
+			.start_external(
+				0,
+				Some(0),
+				7,
+				Id(1),
+				"pasted-image.png",
+				1,
+				&runtime,
+				&context,
+				true,
+			)
+			.unwrap();
+		assert!(uploads.busy());
+		assert!(uploads.take_source(7, Id(1)).is_none());
+		for _ in 0..8 {
+			tokio::task::yield_now().await;
+		}
+		uploads.poll(7, Some(Id(2)), true, &context);
+		assert!(!uploads.busy());
+		assert!(
+			uploads
+				.take_public_result()
+				.unwrap()
+				.unwrap()
+				.contains("offline-preview")
+		);
+		assert!(uploads.selection().is_none());
+		uploads
+			.start_external(
+				0,
+				Some(0),
+				7,
+				Id(1),
+				"synthetic.png",
+				1,
+				&runtime,
+				&context,
+				true,
+			)
+			.unwrap();
+		for _ in 0..8 {
+			tokio::task::yield_now().await;
+		}
+		uploads.poll(8, Some(Id(1)), true, &context);
+		assert!(uploads.take_public_result().is_none());
+	}
+	#[test]
+	fn public_cancellation_keeps_the_slot_until_worker_finishes() {
+		let mut uploads = Uploads::default();
+		uploads.scope = Some((1, Id(1)));
+		let key = uploads.push(Source::pasted_png(vec![1]).unwrap(), None);
+		let (send, result) = mpsc::sync_channel(1);
+		let (_updates, progress) = watch::channel(Status::Preparing);
+		let (cancel, requested) = watch::channel(false);
+		uploads.external = Some(ExternalUploading {
+			result,
+			progress,
+			cancel,
+			generation: 1,
+			key: Some(key),
+		});
+		uploads.cancel_public();
+		assert!(*requested.borrow());
+		uploads.poll(1, Some(Id(1)), true, &egui::Context::default());
+		assert!(uploads.busy());
+		send.send(Err(model::public_upload::Error::Cancelled))
+			.unwrap();
+		uploads.poll(1, Some(Id(1)), true, &egui::Context::default());
+		assert!(!uploads.busy());
+		assert!(uploads.selection().is_some());
+		assert!(uploads.take_public_result().unwrap().is_err());
+	}
+
+	#[tokio::test]
 	async fn image_sharing_stages_bounded_artwork_and_cancels_on_navigation() {
 		let context = egui::Context::default();
 		let runtime = tokio::runtime::Handle::current();
@@ -769,6 +1059,7 @@ mod tests {
 			image_share_source(asset).unwrap().0,
 			"https://cdn.discordapp.com/stickers/7.png"
 		);
+		assert_eq!(image_share_source(asset).unwrap().1, "sticker-7.gif");
 		assert_eq!(
 			image_share_source(model::ImageShare::Sticker {
 				id: Id(7),
@@ -888,6 +1179,7 @@ mod tests {
 		let still = compact_artwork(
 			still.get_ref(),
 			image::ImageFormat::Png,
+			image::ImageFormat::Png,
 			EMOJI_EDGE,
 			&cancelled,
 		)
@@ -920,13 +1212,14 @@ mod tests {
 		let animated_png = compact_artwork(
 			&animated_png,
 			image::ImageFormat::Png,
+			image::ImageFormat::Gif,
 			STICKER_EDGE,
 			&cancelled,
 		)
 		.unwrap();
 		let decoder =
-			image::codecs::png::PngDecoder::new(std::io::Cursor::new(animated_png)).unwrap();
-		assert_eq!(decoder.apng().unwrap().into_frames().count(), 2);
+			image::codecs::gif::GifDecoder::new(std::io::Cursor::new(animated_png)).unwrap();
+		assert_eq!(decoder.into_frames().count(), 2);
 
 		let mut animated_gif = Vec::new();
 		{
@@ -944,6 +1237,7 @@ mod tests {
 		}
 		let animated_gif = compact_artwork(
 			&animated_gif,
+			image::ImageFormat::Gif,
 			image::ImageFormat::Gif,
 			STICKER_EDGE,
 			&cancelled,
@@ -1078,6 +1372,8 @@ mod tests {
 		let (send, result) = mpsc::sync_channel(1);
 		let cancelled = Arc::new(AtomicBool::new(false));
 		let mut uploads = Uploads {
+			external: None,
+			public_result: None,
 			auto_image: false,
 			scope: Some((1, Id(2))),
 			choosing: Some(Choosing {
@@ -1122,4 +1418,37 @@ mod tests {
 		assert!(!uploads.busy());
 		assert_eq!(uploads.take_notice(), None);
 	}
+}
+
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub(crate) fn debug_heic_check() {
+	#[cfg(target_os = "windows")]
+	{
+		let fixture = include_bytes!("../tests/fixtures/heic-large.heic");
+		let pixels = decode_preview(fixture)
+			.expect("synthetic HEIC must decode with installed HEIF/HEVC codecs");
+		assert_eq!(pixels.size, [320, 213]);
+		assert!(pixels.pixels.len() * 4 < PREVIEW_ALLOC as usize);
+		println!(
+			"WIC thumbnail first pixel: {:?}",
+			pixels.pixels[0].to_array()
+		);
+		for pixel in pixels.pixels.iter().step_by(1000) {
+			for (actual, expected) in pixel.to_array().into_iter().zip([64, 128, 192, 255]) {
+				assert!(actual.abs_diff(expected) <= 4, "{actual} != {expected}");
+			}
+		}
+		let (width, height, rgba) = platform::heic::decode(fixture, 8192, 128 * 1024 * 1024, 8192)
+			.expect("full-size WIC conversion");
+		assert_eq!((width, height), (6000, 4000));
+		assert_eq!(rgba.len(), 6000 * 4000 * 4);
+		assert_eq!(rgba[3], 255);
+		assert!(platform::heic::decode(fixture, 8192, PREVIEW_ALLOC, 8192).is_none());
+		assert!(platform::heic::decode(fixture, 1024, PREVIEW_ALLOC, 320).is_none());
+		assert!(platform::heic::decode(fixture, 8192, 100, 320).is_none());
+	}
+
+	assert!(previewable("photo.HEIC"));
+	assert!(previewable("photo.heif"));
+	assert!(decode_preview(b"\x00\x00\x00\x10ftypheic\x00\x00\x00\x00").is_none());
 }

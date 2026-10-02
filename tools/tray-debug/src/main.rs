@@ -78,7 +78,7 @@ mod linux {
 		let wake = Arc::new(Notify::new());
 		let start = || {
 			let wake = wake.clone();
-			Tray::new(move || wake.notify_one()).unwrap()
+			Tray::new(move || wake.notify_one(), || {}).unwrap()
 		};
 		let missing = start();
 		event(&missing, &wake, Event::Unavailable).await;
@@ -97,6 +97,14 @@ mod linux {
 			.build()
 			.await?;
 		let tray = start();
+		for state in [
+			tray::VoiceState::Unmuted,
+			tray::VoiceState::Speaking,
+			tray::VoiceState::Muted,
+			tray::VoiceState::Deafened,
+		] {
+			tray.set_voice_state(state);
+		}
 		registration.changed().await?;
 		while !tray.is_available() {
 			wake.notified().await;
@@ -175,6 +183,7 @@ fn check_window() {
 	use egui::{ViewportCommand as Cmd, ViewportId};
 	let ctx = egui::Context::default();
 	let mut state = tray_window::State::default();
+	let _restore = state.restorer();
 	let mut close = egui::RawInput::default();
 	close
 		.viewports

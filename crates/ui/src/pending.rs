@@ -29,12 +29,13 @@ const MAX_WIDTH: f32 = 432.0;
 pub fn show(
 	ui: &mut egui::Ui,
 	pending: &Pending,
-	compact: bool,
+	// Whether the row continues a group, and the gap above a new group.
+	(compact, gap, irc): (bool, i8, bool),
 	state: &State,
 	media: (
 		&mut crate::avatars::Avatars,
 		&mut Option<String>,
-		&mut Option<model::User>,
+		&mut crate::profiles::ProfileSession,
 		&mut Option<model::Id>,
 		&mut crate::markdown::FormatCache,
 	),
@@ -43,27 +44,71 @@ pub fn show(
 ) {
 	let colors = design::palette(ui);
 	let (avatars, opening, profile, channel, formats) = media;
+	let compact = compact || irc;
 	let upload = upload.filter(|upload| upload.nonce == pending.nonce);
 	let sending = pending.delivery == Delivery::Sending;
 	let artwork = pending.attachments.len() == 1
 		&& attachments::artwork_edge(&pending.attachments[0]).is_some();
-	let status = match pending.delivery {
-		Delivery::Sending => "Sending…",
-		Delivery::Ambiguous => "Delivery unknown",
-		Delivery::Rejected => "Not sent",
-		Delivery::Confirmed => "Sent",
-	};
+	let status = crate::i18n::translate(match pending.delivery {
+		Delivery::Sending => "pending-status-sending",
+		Delivery::Ambiguous => "pending-status-unknown",
+		Delivery::Rejected => "pending-status-not-sent",
+		Delivery::Confirmed => "pending-status-sent",
+	});
 	egui::Frame::NONE
 		.inner_margin(egui::Margin {
 			left: 16,
 			right: 16,
-			top: if compact { 1 } else { 14 },
+			top: if irc {
+				3
+			} else if compact {
+				1
+			} else {
+				gap
+			},
 			bottom: 1,
 		})
 		.show(ui, |ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(16.0, 4.0);
 			ui.horizontal_top(|ui| {
-				if compact {
+				if irc {
+					// Match a compact timeline row: a time-wide slot, the author, then the body.
+					let body_spacing = ui.spacing().item_spacing.x;
+					ui.spacing_mut().item_spacing.x = 8.0;
+					let time = ui.painter().layout_no_wrap(
+						"00:00".into(),
+						egui::FontId::proportional(12.0),
+						colors.muted,
+					);
+					ui.allocate_exact_size(
+						egui::vec2(time.size().x, crate::timeline::MESSAGE_LINE),
+						egui::Sense::hover(),
+					);
+					let width = crate::timeline::compact_author_width(ui.available_width());
+					ui.allocate_ui_with_layout(
+						egui::vec2(width, crate::timeline::MESSAGE_LINE),
+						egui::Layout::left_to_right(egui::Align::Center),
+						|ui| {
+							ui.set_max_width(width);
+							ui.add(
+								egui::Label::new(
+									design::medium(
+										ui,
+										state.user.as_ref().map_or_else(
+											|| crate::i18n::translate("pending-show-you"),
+											|u| u.name.clone(),
+										),
+										15.5,
+									)
+									.color(colors.muted),
+								)
+								.truncate()
+								.selectable(false),
+							);
+						},
+					);
+					ui.spacing_mut().item_spacing.x = body_spacing;
+				} else if compact {
 					ui.allocate_exact_size(
 						egui::vec2(40.0, crate::timeline::MESSAGE_LINE),
 						egui::Sense::hover(),
@@ -90,13 +135,16 @@ pub fn show(
 								ui.label(
 									design::medium(
 										ui,
-										state.user.as_ref().map_or("You", |u| &u.name),
+										state.user.as_ref().map_or_else(
+											|| crate::i18n::translate("pending-show-you"),
+											|u| u.name.clone(),
+										),
 										15.5,
 									)
 									.color(colors.muted),
 								);
 							}
-							ui.label(RichText::new(status).size(12.0).color(
+							ui.label(RichText::new(&status).size(12.0).color(
 								if pending.delivery == Delivery::Rejected {
 									colors.danger
 								} else {
@@ -148,6 +196,7 @@ pub fn show(
 										),
 										(avatars, state.demo, &mut revealed),
 										&mut surface,
+										crate::design::MessageCardSurface::Conversation,
 									);
 								})
 								.response
@@ -186,17 +235,21 @@ pub fn show(
 					} else if pending.delivery != Delivery::Confirmed {
 						if pending.delivery == Delivery::Ambiguous {
 							ui.label(
-								RichText::new("Check the conversation before sending again.")
-									.small()
-									.color(colors.muted),
+								RichText::new(crate::i18n::translate(
+									"pending-show-check-the-conversation-before-sending-again",
+								))
+								.small()
+								.color(colors.muted),
 							);
 						}
 						if ui
-							.button(if pending.sticker.is_some() {
-								"Dismiss"
-							} else {
-								"Restore to composer"
-							})
+							.button(crate::i18n::translate_if_key(
+								&(if pending.sticker.is_some() {
+									crate::i18n::translate("pending-show-dismiss")
+								} else {
+									crate::i18n::translate("pending-show-restore-to-composer")
+								}),
+							))
 							.clicked()
 						{
 							*restore = Some(pending.nonce.clone());
@@ -342,11 +395,16 @@ fn upload_strip(ui: &mut egui::Ui, pending: &Pending, upload: Option<&Upload>, c
 				ui.spacing_mut().item_spacing.x = 8.0;
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					if upload.is_some()
-						&& icons::button(ui, icons::Icon::Close, 24.0, "Cancel upload")
-							.on_hover_text(
-								"The message may already have reached Discord. Check the conversation before sending again.",
-							)
-							.clicked()
+						&& icons::button(
+							ui,
+							icons::Icon::Close,
+							24.0,
+							&crate::i18n::translate("pending-upload-strip-cancel-upload"),
+						)
+						.on_hover_text(crate::i18n::translate(
+							"pending-upload-strip-the-message-may-already-have-reached-discord-check-the-conversation",
+						))
+						.clicked()
 					{
 						*cancel = true;
 					}
@@ -371,10 +429,8 @@ fn upload_strip(ui: &mut egui::Ui, pending: &Pending, upload: Option<&Upload>, c
 					});
 				});
 			});
-			let (bar, _) = ui.allocate_exact_size(
-				egui::vec2(ui.available_width(), 6.0),
-				egui::Sense::hover(),
-			);
+			let (bar, _) =
+				ui.allocate_exact_size(egui::vec2(ui.available_width(), 6.0), egui::Sense::hover());
 			ui.painter().rect_filled(bar, 3, colors.hover);
 			if fraction > 0.0 {
 				let fill = egui::Rect::from_min_size(
@@ -451,6 +507,7 @@ mod tests {
 			pending.delivery = delivery;
 			upload.progress = progress;
 			let mut painted = String::new();
+			let mut profile = crate::profiles::ProfileSession::default();
 			for _ in 0..2 {
 				let output = ctx.run_ui(
 					egui::RawInput {
@@ -464,12 +521,12 @@ mod tests {
 						show(
 							ui,
 							&pending,
-							true,
+							(true, 10, false),
 							&state,
 							(
 								&mut crate::avatars::Avatars::default(),
 								&mut None,
-								&mut None,
+								&mut profile,
 								&mut None,
 								&mut crate::markdown::FormatCache::default(),
 							),

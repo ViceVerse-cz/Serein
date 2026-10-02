@@ -21,6 +21,16 @@ impl Default for State {
 }
 
 impl State {
+	/// Restores the window from any thread. Hyprland sends no frames to a parked window, so
+	/// events that must show it cannot wait for the UI to run.
+	pub fn restorer(&self) -> impl Fn() + Send + Sync + 'static {
+		let compositor = self.compositor.clone();
+		move || {
+			if let Some(compositor) = &compositor {
+				compositor.show();
+			}
+		}
+	}
 	pub fn show(&mut self, ctx: &egui::Context) {
 		self.hidden = false;
 		if let Some(compositor) = &self.compositor {

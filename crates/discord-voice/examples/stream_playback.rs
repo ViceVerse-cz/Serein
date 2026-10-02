@@ -4,10 +4,10 @@
 #[path = "../src/stream_playout.rs"]
 mod stream_playout;
 #[path = "../src/video_receive.rs"]
-mod video_receive;
+pub(crate) mod video_receive;
 type Frame = [f32; 960];
 
-fn main() {
+pub(crate) fn main() {
 	for fps in [15, 30, 60] {
 		let settings = client_core::screen::Settings {
 			source: client_core::screen::SourceId::Display(1),
@@ -58,6 +58,35 @@ fn main() {
 	video.remove(1);
 	assert!(video.restore_rtx(200, &mut repaired).is_none());
 
+	// Stream snapshots retire old SSRC/RTX state without resetting an unchanged picture.
+	video.announce(1, 100).unwrap();
+	video.announce_rtx(100, 200).unwrap();
+	video.announce(1, 110).unwrap();
+	video.announce_rtx(110, 210).unwrap();
+	video.announce(2, 300).unwrap();
+	assert!(video.push(110, 1, 90, false, &[0x7c, 0x85, 1]).is_none());
+	video.retain_user_sources(1, &[110]);
+	assert!(video.restore_rtx(200, &mut repaired).is_none());
+	assert_eq!(
+		video.keyframe_requests().collect::<Vec<_>>(),
+		vec![110, 300]
+	);
+	assert_eq!(
+		video.push(110, 2, 90, true, &[0x7c, 0x45, 2]),
+		Some((1, vec![0, 0, 0, 1, 0x65, 1, 2]))
+	);
+	let mut previous = 110;
+	for ssrc in 1000..1100 {
+		video.retain_user_sources(1, &[ssrc]);
+		video.announce(1, ssrc).unwrap();
+		assert!(video.push(previous, 3, 180, true, &[0x65, 3]).is_none());
+		assert_eq!(video.keyframe_requests().count(), 2);
+		previous = ssrc;
+	}
+	assert!(video.push(300, 1, 90, true, &[0x65, 4]).is_some());
+	video.retain_user_sources(1, &[]);
+	assert_eq!(video.keyframe_requests().collect::<Vec<_>>(), vec![300]);
+
 	#[cfg(target_os = "macos")]
 	{
 		use std::sync::{
@@ -87,6 +116,6 @@ fn main() {
 		assert_eq!(pictures.load(Ordering::Relaxed), 9);
 	}
 	println!(
-		"PASS: stream volume, mute, bounded backlog, packet reordering/RTX and native video decode."
+		"PASS: stream volume, mute, bounded backlog, packet reordering/RTX, SSRC replacement and native video decode."
 	);
 }

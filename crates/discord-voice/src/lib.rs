@@ -9,6 +9,7 @@ mod jitter;
 mod mixer;
 pub mod screen;
 mod stream_playout;
+mod timer;
 mod transport;
 mod video;
 // Linux has no shared hardware encoder, but the camera's GStreamer encoder still takes the

@@ -41,7 +41,10 @@ fn frame(
 					state,
 					&mut None,
 					&mut None,
-					(&mut crate::avatars::Avatars::default(), &mut None),
+					(
+						&mut crate::avatars::Avatars::default(),
+						&mut crate::profiles::ProfileSession::default(),
+					),
 					None,
 				);
 				assert!(ui.min_rect().right() <= ui.max_rect().right() + 1.0);
@@ -66,6 +69,7 @@ fn welcomes(painted: &[(String, Rect)]) -> bool {
 #[test]
 fn welcome_tracks_confirmed_empty_history_messages_and_pending_delivery() {
 	let mut state = test_support::empty_channel_demo_state(false);
+	state.set_preserve_deleted_messages(true);
 	let channel = state.selected.unwrap();
 	let ctx = Context::default();
 	let mut view = TimelineView::default();
@@ -84,13 +88,19 @@ fn welcome_tracks_confirmed_empty_history_messages_and_pending_delivery() {
 			id: Id(600),
 		},
 	});
-	assert!(state.timeline.display_iter().next().is_none());
+	assert!(state.timeline.get(Id(600)).is_none());
+	assert!(
+		state
+			.timeline
+			.display_iter()
+			.any(|message| message.id == Id(600))
+	);
 	assert_ne!(
 		state.timeline.row_count(),
 		0,
 		"Deletion retains a tombstone"
 	);
-	assert!(welcomes(&frame(&ctx, &mut view, &mut state, 700.0)));
+	assert!(!welcomes(&frame(&ctx, &mut view, &mut state, 700.0)));
 	state
 		.drafts
 		.insert(channel, "Synthetic first message".into());
@@ -100,7 +110,7 @@ fn welcome_tracks_confirmed_empty_history_messages_and_pending_delivery() {
 		assert!(!welcomes(&frame(&ctx, &mut view, &mut state, 700.0)));
 	}
 	state.pending[0].channel = Id(999);
-	assert!(welcomes(&frame(&ctx, &mut view, &mut state, 700.0)));
+	assert!(!welcomes(&frame(&ctx, &mut view, &mut state, 700.0)));
 }
 
 #[test]

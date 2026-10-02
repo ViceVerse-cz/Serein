@@ -3,8 +3,8 @@
 use model::{Attachment, Id, Message};
 
 const CORNER: u8 = 8;
-const MAX_WIDTH: f32 = 420.0;
-const MAX_HEIGHT: f32 = 320.0;
+const MAX_WIDTH: f32 = crate::avatars::media::MEDIA_MAX_WIDTH;
+const MAX_HEIGHT: f32 = crate::avatars::media::MEDIA_MAX_HEIGHT;
 const BAR_HEIGHT: f32 = 60.0;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -44,7 +44,7 @@ pub struct VideoUi {
 	/// Keep the viewport's previous mode so leaving playback restores the window.
 	fullscreen: Option<(egui::Context, bool, egui::Id)>,
 	/// Native window transition for the desktop to apply after this UI frame.
-	fullscreen_request: Option<bool>,
+	pub(super) fullscreen_request: Option<bool>,
 }
 impl Default for VideoUi {
 	fn default() -> Self {
@@ -77,7 +77,7 @@ impl VideoUi {
 		self.seen = false;
 		self.command = Some(VideoCommand::Stop);
 	}
-	fn exit_fullscreen(&mut self) {
+	pub(super) fn exit_fullscreen(&mut self) {
 		if let Some((ctx, previous, focus)) = self.fullscreen.take() {
 			self.fullscreen_request = Some(previous);
 			ctx.memory_mut(|memory| memory.request_focus(focus));
@@ -245,14 +245,14 @@ impl VideoUi {
 		if active && self.is_fullscreen() && !fullscreen {
 			return response;
 		}
-		let label = match state {
-			VideoState::Loading => "Cancel",
-			VideoState::Playing => "Pause",
-			VideoState::Paused => "Resume",
-			VideoState::Ended => "Replay",
-			VideoState::Failed(_) => "Retry",
-			VideoState::Idle => "Play",
-		};
+		let label = crate::i18n::translate_if_key(match state {
+			VideoState::Loading => "video-show-player-cancel",
+			VideoState::Playing => "video-show-player-pause",
+			VideoState::Paused => "video-show-player-resume",
+			VideoState::Ended => "video-show-player-replay",
+			VideoState::Failed(_) => "video-show-player-retry",
+			VideoState::Idle => "video-show-player-play",
+		});
 		let painter = ui.painter().with_clip_rect(stage);
 		painter.rect_filled(stage, CORNER, egui::Color32::BLACK);
 		if let Some(texture) = self.texture.as_ref().filter(|_| active) {
@@ -287,7 +287,11 @@ impl VideoUi {
 			egui::WidgetInfo::labeled(
 				egui::Role::Button,
 				ui.is_enabled(),
-				format!("{label} video {}", attachment.filename),
+				format!(
+					"{label} {} {}",
+					crate::i18n::translate("video-show-player-video"),
+					attachment.filename
+				),
 			)
 		});
 		let center = if show_controls {
@@ -456,10 +460,19 @@ impl VideoUi {
 							.show_value(false)
 							.trailing_fill(true),
 					);
-					seek.widget_info(|| egui::WidgetInfo::slider(can_seek, position, "Seek video"));
+					seek.widget_info(|| {
+						egui::WidgetInfo::slider(
+							can_seek,
+							position,
+							crate::i18n::translate("video-show-player-seek-video"),
+						)
+					});
 					controls_focused |= seek.has_focus();
 					response |= seek.clone();
-					if seek.on_hover_text("Seek video").changed() && !context_click {
+					if seek
+						.on_hover_text(crate::i18n::translate("video-show-player-seek-video"))
+						.changed() && !context_click
+					{
 						self.command = Some(VideoCommand::Seek(position));
 					}
 					ui.horizontal(|ui| {
@@ -549,17 +562,12 @@ impl VideoUi {
 									white,
 								);
 							} else {
-								for (x, y) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
-									let corner = rect.center() + egui::vec2(x * 7.0, y * 7.0);
-									ui.painter().add(egui::Shape::line(
-										vec![
-											corner - egui::vec2(x * 5.0, 0.0),
-											corner,
-											corner - egui::vec2(0.0, y * 5.0),
-										],
-										egui::Stroke::new(1.5, white),
-									));
-								}
+								crate::icons::paint(
+									ui.painter(),
+									crate::icons::Icon::Fullscreen,
+									rect.shrink(1.0),
+									white,
+								);
 							}
 							controls_focused |= button.has_focus();
 							if button.has_focus() {
@@ -603,7 +611,12 @@ impl VideoUi {
 							});
 							controls_focused |= volume.has_focus();
 							response |= volume.clone();
-							if volume.on_hover_text("Video volume").changed() && !context_click {
+							if volume
+								.on_hover_text(crate::i18n::translate(
+									"video-show-player-video-volume",
+								))
+								.changed() && !context_click
+							{
 								self.volume = volume_value;
 								self.command = Some(VideoCommand::Volume(self.volume));
 							}
@@ -642,11 +655,11 @@ impl VideoUi {
 						)
 					})
 					.inner
-					.on_disabled_hover_text(if demo {
-						"Downloads are disabled for synthetic attachments"
+					.on_disabled_hover_text(crate::i18n::translate_if_key(if demo {
+						"video-show-player-downloads-are-disabled-for-synthetic-attachments"
 					} else {
-						"A download is already active"
-					})
+						"video-show-player-a-download-is-already-active"
+					}))
 					.clicked()
 				{
 					download.request = Some(attachment.clone());
@@ -691,12 +704,20 @@ impl Drop for VideoUi {
 	}
 }
 fn stage_size(attachment: &Attachment, width: f32) -> egui::Vec2 {
-	let ratio = if attachment.media.width > 0 && attachment.media.height > 0 {
-		attachment.media.width as f32 / attachment.media.height as f32
+	let width = width.clamp(1.0, MAX_WIDTH);
+	let (native_width, native_height) = if attachment.media.width > 0 && attachment.media.height > 0
+	{
+		(
+			attachment.media.width as f32,
+			attachment.media.height as f32,
+		)
 	} else {
-		16.0 / 9.0
+		(16.0, 9.0)
 	};
-	egui::vec2(width, (width / ratio.clamp(0.5, 3.0)).min(MAX_HEIGHT))
+	let scale = (width / native_width)
+		.min(MAX_HEIGHT / native_height)
+		.min(1.0);
+	(egui::vec2(native_width, native_height) * scale).max(egui::vec2(1.0, 1.0))
 }
 /// Stage plus the spacing after each attachment; all controls are overlays or menu actions.
 pub(super) fn estimated_height(attachment: &Attachment, width: f32) -> f32 {
@@ -766,6 +787,7 @@ mod tests {
 							video,
 							false,
 							&mut crate::select::Surface::new(ui, "attachment-test"),
+							crate::design::MessageCardSurface::Conversation,
 						);
 						assert!(ui.min_rect().width() <= width + 2.0);
 						// Only the stage and attachment spacing drive the layout estimate;

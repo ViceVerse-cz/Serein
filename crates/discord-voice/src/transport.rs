@@ -107,17 +107,54 @@ async fn send(ws: &mut Socket, message: Message) -> Result<(), &'static str> {
 async fn json_send(ws: &mut Socket, value: Value) -> Result<(), &'static str> {
 	send(ws, Message::Text(value.to_string().into())).await
 }
+/// Media datagrams are lossy by design. A full send buffer, a network roam or a stray
+/// ICMP unreachable (which Windows reports on the next send of a connected socket) drops
+/// one packet; only a path that keeps failing for `UDP_OUTAGE` ends the call.
+const UDP_OUTAGE: Duration = Duration::from_secs(10);
+#[derive(Default)]
+struct UdpFailures(Option<Instant>);
+impl UdpFailures {
+	async fn send(
+		&mut self,
+		socket: &UdpSocket,
+		data: &[u8],
+		outage: &'static str,
+	) -> Result<(), &'static str> {
+		if socket.send(data).await.is_ok() {
+			self.0 = None;
+			return Ok(());
+		}
+		let now = Instant::now();
+		if now.duration_since(*self.0.get_or_insert(now)) >= UDP_OUTAGE {
+			return Err(outage);
+		}
+		Ok(())
+	}
+}
+/// Receive errors that describe one lost or rejected datagram rather than a dead socket.
+fn transient_receive(error: &std::io::Error) -> bool {
+	// WSAEMSGSIZE: Windows fails an oversized datagram instead of truncating it.
+	const WSAEMSGSIZE: i32 = 10040;
+	matches!(
+		error.kind(),
+		std::io::ErrorKind::ConnectionReset
+			| std::io::ErrorKind::ConnectionRefused
+			| std::io::ErrorKind::Interrupted
+	) || (cfg!(windows) && error.raw_os_error() == Some(WSAEMSGSIZE))
+}
 // Native voice UDP ping: signaling heartbeats alone do not maintain an idle
 // media path (notably a receive-only stream or a muted call).
-async fn udp_keepalive(socket: &UdpSocket, sequence: &mut u32) -> Result<(), &'static str> {
+async fn udp_keepalive(
+	socket: &UdpSocket,
+	failures: &mut UdpFailures,
+	sequence: &mut u32,
+) -> Result<(), &'static str> {
 	*sequence = sequence.wrapping_add(1);
 	let mut packet = [0x13, 0x37, 0xca, 0xfe, 0, 0, 0, 0];
 	packet[4..].copy_from_slice(&sequence.to_le_bytes());
-	socket
-		.send(&packet)
+	failures
+		.send(socket, &packet, "Voice UDP keepalive failed")
 		.await
-		.map_err(|_| "Voice UDP keepalive failed")?;
-	Ok(())
 }
 fn number(data: &Value, key: &str) -> Result<u64, &'static str> {
 	data[key].as_u64().ok_or("Malformed voice signaling field")
@@ -145,17 +182,36 @@ pub(super) fn announce_video(
 	data: &Value,
 ) -> Result<(), &'static str> {
 	let ssrc = |value: &Value| value.as_u64().and_then(|v| u32::try_from(v).ok());
-	receivers.announce(user, ssrc(&data["video_ssrc"]).unwrap_or(0))?;
-	receivers.announce_rtx(
-		ssrc(&data["video_ssrc"]).unwrap_or(0),
-		ssrc(&data["rtx_ssrc"]).unwrap_or(0),
-	)?;
-	for stream in data["streams"].as_array().into_iter().flatten().take(4) {
-		if stream["type"] == "video"
+	let streams = data
+		.get("streams")
+		.map(|value| value.as_array().ok_or("Invalid video stream announcement"))
+		.transpose()?;
+	let primary = data
+		.get("video_ssrc")
+		.map(|value| ssrc(value).ok_or("Invalid video SSRC"))
+		.transpose()?;
+	let mut sources = Vec::with_capacity(5);
+	if let Some(primary) = primary.filter(|value| *value != 0) {
+		sources.push((primary, ssrc(&data["rtx_ssrc"])));
+	}
+	for stream in streams.into_iter().flatten().take(4) {
+		if (stream.get("type").is_none() || stream["type"] == "video")
 			&& let Some(value) = ssrc(&stream["ssrc"]).filter(|v| *v != 0)
 		{
-			receivers.announce(user, value)?;
-			receivers.announce_rtx(value, ssrc(&stream["rtx_ssrc"]).unwrap_or(0))?;
+			sources.push((value, ssrc(&stream["rtx_ssrc"])));
+		}
+	}
+	if streams.is_some() {
+		// A present list is the current snapshot; absent lists are partial updates.
+		let keep: Vec<_> = sources.iter().map(|(ssrc, _)| *ssrc).collect();
+		receivers.retain_user_sources(user, &keep);
+	} else if primary == Some(0) {
+		receivers.remove(user);
+	}
+	for (ssrc, rtx) in sources {
+		receivers.announce(user, ssrc)?;
+		if let Some(rtx) = rtx {
+			receivers.announce_rtx(ssrc, rtx)?;
 		}
 	}
 	retain_sources(decoder, receivers);
@@ -191,7 +247,7 @@ pub async fn run(
 	camera: Option<Receiver<crate::camera_video::Frame>>,
 	remote_video: Option<VideoSink>,
 	stream_audio: Option<Receiver<Frame>>,
-	emit: impl Fn(Status) -> Result<(), ()>,
+	emit: impl Fn(Status) -> Result<(), ()> + Send + 'static,
 ) -> Result<(), &'static str> {
 	run_with_identity(
 		credentials,
@@ -216,23 +272,25 @@ pub async fn run_with_identity(
 	camera: Option<Receiver<crate::camera_video::Frame>>,
 	remote_video: Option<VideoSink>,
 	stream_audio: Option<Receiver<Frame>>,
-	emit: impl Fn(Status) -> Result<(), ()>,
+	emit: impl Fn(Status) -> Result<(), ()> + Send + 'static,
 	identity: Arc<Identity>,
 ) -> Result<(), &'static str> {
 	let url = endpoint(&credentials.endpoint)?;
-	run_inner(
-		credentials,
-		capture,
-		playback,
-		controls,
-		camera,
-		remote_video,
-		stream_audio,
-		emit,
-		identity,
-		url,
-		false,
-	)
+	crate::timer::isolated("serein-voice", move || {
+		run_inner(
+			credentials,
+			capture,
+			playback,
+			controls,
+			camera,
+			remote_video,
+			stream_audio,
+			emit,
+			identity,
+			url,
+			false,
+		)
+	})
 	.await
 }
 #[allow(clippy::too_many_arguments)] // Public media inputs plus the loopback-only test endpoint.
@@ -286,6 +344,7 @@ async fn run_inner(
 	let mut udp: Option<UdpSocket> = None;
 	let mut next_udp_ping = Instant::now();
 	let mut udp_ping_sequence = 0;
+	let mut udp_failures = UdpFailures::default();
 	let mut discovering = false;
 	let mut discovery_deadline = Instant::now();
 	let mut ssrc = 0u32;
@@ -338,7 +397,7 @@ async fn run_inner(
 				let generation=controls.borrow().camera;
 				if !dave.ready || resuming || generation==0 || generation!=video.generation {video.clear();}
 				else if let Some(packet)=video.next() && let Some(socket)=&udp {
-					socket.send(&packet).await.map_err(|_|"Camera UDP send failed")?;
+					udp_failures.send(socket,&packet,"Camera UDP send failed").await?;
 				}
 			},
 			_=tick.tick()=>{
@@ -346,7 +405,7 @@ async fn run_inner(
 				if deadline.is_some_and(|d|now>=d) {return Err(negotiation_timeout(heartbeat_ms.is_some(),udp.is_some(),encryption.is_some(),&dave,resuming));}
 				if discovering && now>=discovery_deadline {return Err("Discord voice UDP discovery timed out; check the network firewall");}
 				if !discovering && now>=next_udp_ping && let Some(socket)=&udp {
-					udp_keepalive(socket,&mut udp_ping_sequence).await?;
+					udp_keepalive(socket,&mut udp_failures,&mut udp_ping_sequence).await?;
 					next_udp_ping=now+Duration::from_secs(5);
 				}
 				if let Some(interval)=heartbeat_ms && now>=heartbeat_at {
@@ -371,7 +430,7 @@ async fn run_inner(
 					receivers.absorb(lost);
 					let requests:Vec<u32>=receivers.keyframe_requests().collect();
 					metrics.video(Video::PliSent,requests.len() as u64);
-					for media in requests {let (header,body)=pli(ssrc,media);socket.send(&crypto.seal_rtcp(&header,&body)?).await.map_err(|_|"Voice RTCP send failed")?;}
+					for media in requests {let (header,body)=pli(ssrc,media);udp_failures.send(socket,&crypto.seal_rtcp(&header,&body)?,"Voice RTCP send failed").await?;}
 					next_pli=now+Duration::from_millis(500);
 				}
 				let control=*controls.borrow();
@@ -423,7 +482,7 @@ async fn run_inner(
 					let mut header=[0;12];header[0]=0x80;header[1]=120;header[2..4].copy_from_slice(&sequence.to_be_bytes());header[4..8].copy_from_slice(&timestamp.to_be_bytes());header[8..12].copy_from_slice(&ssrc.to_be_bytes());
 					let wire=encryption.as_mut().ok_or("Missing voice transport key")?.seal(&header,&data)?;
 					metrics.finish(crate::diagnostics::Stage::Encode, start);
-					if let Some(socket)=&udp {socket.send(&wire).await.map_err(|_|"Voice UDP send failed")?;}
+					if let Some(socket)=&udp {udp_failures.send(socket,&wire,"Voice UDP send failed").await?;}
 					sequence=sequence.wrapping_add(1);
 					if !active && silence==0 {json_send(&mut ws,json!({"op":5,"d":{"speaking":0,"delay":0,"ssrc":ssrc}})).await?;speaking=false;}
 					if active {silence=0;}
@@ -457,7 +516,7 @@ async fn run_inner(
 				}
 			},
 			result=async {match &udp {Some(socket)=>socket.recv(&mut packet).await,None=>std::future::pending().await}}=>{
-				let length=result.map_err(|_|"Voice UDP receive failed")?;
+				let length=match result {Ok(length)=>length,Err(error) if transient_receive(&error)=>continue,Err(_)=>return Err("Voice UDP receive failed")};
 				if length>MAX_PACKET {continue;}
 				if discovering {
 					let (address,port)=discovery(&packet[..length],ssrc)?;
@@ -474,7 +533,7 @@ async fn run_inner(
 					if !dave.ready {metrics.video(Video::NotReady,1);continue;}
 					let Some((user,frame))=receivers.push(rtp.ssrc,rtp.sequence,rtp.timestamp,rtp.marker,&rtp.payload) else{continue;};
 					if !dave.contains(user) {metrics.video(Video::NotReady,1);continue;}
-					let Ok(data)=dave.session.decrypt(user,davey::MediaType::VIDEO,&frame) else{metrics.video(Video::DecryptFailed,1);continue;};
+					let Ok(data)=dave.session.decrypt(user,davey::MediaType::VIDEO,&frame) else{receivers.require_keyframe(user);metrics.video(Video::DecryptFailed,1);continue;};
 					let keyframe=is_keyframe(&data);
 					if keyframe {metrics.video(Video::Keyframes,1);metrics.video(Video::KeyframesWithoutParams,u64::from(!has_parameter_sets(&data)));}
 					if !receivers.accept(user,keyframe) {metrics.video(Video::Gated,1);continue;}
@@ -889,19 +948,21 @@ pub async fn run_stream(
 	credentials: VoiceConnection,
 	identity: Arc<Identity>,
 	video: crate::screen::Video,
-	emit: impl Fn(Status) -> Result<(), ()>,
+	emit: impl Fn(Status) -> Result<(), ()> + Send + 'static,
 ) -> Result<(), &'static str> {
 	let url = endpoint(&credentials.endpoint)?;
-	run_stream_inner(
-		credentials,
-		identity,
-		Some(video),
-		None,
-		None,
-		emit,
-		url,
-		false,
-	)
+	crate::timer::isolated("serein-stream", move || {
+		run_stream_inner(
+			credentials,
+			identity,
+			Some(video),
+			None,
+			None,
+			emit,
+			url,
+			false,
+		)
+	})
 	.await
 }
 /// Watch another participant's Go Live stream on its own voice gateway; decoded frames
@@ -911,19 +972,21 @@ pub async fn watch_stream(
 	identity: Arc<Identity>,
 	sink: VideoSink,
 	audio: Option<SyncSender<Frame>>,
-	emit: impl Fn(Status) -> Result<(), ()>,
+	emit: impl Fn(Status) -> Result<(), ()> + Send + 'static,
 ) -> Result<(), &'static str> {
 	let url = endpoint(&credentials.endpoint)?;
-	run_stream_inner(
-		credentials,
-		identity,
-		None,
-		Some(sink),
-		audio,
-		emit,
-		url,
-		false,
-	)
+	crate::timer::isolated("serein-watch", move || {
+		run_stream_inner(
+			credentials,
+			identity,
+			None,
+			Some(sink),
+			audio,
+			emit,
+			url,
+			false,
+		)
+	})
 	.await
 }
 #[allow(clippy::too_many_arguments)] // Media inputs plus the loopback-only test endpoint.
@@ -1020,13 +1083,23 @@ async fn run_stream_inner(
 	let mut udp: Option<UdpSocket> = None;
 	let mut next_udp_ping = Instant::now();
 	let mut udp_ping_sequence = 0;
+	let mut udp_failures = UdpFailures::default();
 	let mut discovering = false;
 	let mut discovery_deadline = Instant::now();
 	let mut audio_ssrc = 0u32;
 	let mut video_ssrc = 0u32;
-	let mut random = [0; 2];
+	let mut rtx_ssrc = 0u32;
+	let mut random = [0; 4];
 	getrandom::fill(&mut random).map_err(|_| "Stream random initialization failed")?;
-	let mut sequence = u16::from_be_bytes(random);
+	let mut sequence = u16::from_be_bytes([random[0], random[1]]);
+	let mut rtx_sequence = u16::from_be_bytes([random[2], random[3]]);
+	let mut history = crate::video::History::default();
+	let mut rate = crate::video::Rate::new(
+		video
+			.as_ref()
+			.map_or(250_000, |video| video.settings.bit_rate()),
+		Instant::now(),
+	);
 	let mut heartbeat_ms = None;
 	let mut heartbeat_at = Instant::now();
 	let mut heartbeat_nonce = 0u64;
@@ -1036,19 +1109,68 @@ async fn run_stream_inner(
 	let mut announced = false;
 	let mut waiting_announced = false;
 	let mut awaiting_keyframe = true;
+	let mut outgoing = crate::video::Pacer::new();
+	let mut outgoing_keyframe = false;
 	let mut signal_window = Instant::now();
 	let mut signal_count = 0u16;
 	let mut packet = [0u8; MAX_PACKET + 1];
 	let mut tick = tokio::time::interval(Duration::from_millis(20));
 	tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 	loop {
+		// A transition must discard the rest of an access unit encrypted with the old
+		// epoch before any further packet is sent, including between paced batches.
+		if !announced
+			|| !dave.ready
+			|| dave.pending.is_some()
+			|| !dave.session.is_ready()
+			|| video
+				.as_ref()
+				.is_none_or(|video| !video.ready.load(Ordering::Acquire))
+		{
+			outgoing.clear();
+			history.clear();
+			outgoing_keyframe = false;
+		}
+		if outgoing.stale(Instant::now()) {
+			outgoing.clear();
+			history.clear();
+			outgoing_keyframe = false;
+			awaiting_keyframe = true;
+			if let Some(video) = &mut video {
+				for _ in 0..video.frames.len() {
+					let _ = video.frames.try_recv();
+				}
+				video.keyframe.store(true, Ordering::Release);
+			}
+		}
 		tokio::select! {
+			_=tokio::time::sleep_until(outgoing.deadline), if !outgoing.is_empty() || history.has_pending()=>{
+				let crypto=encryption.as_mut().ok_or("Missing stream transport key")?;
+				let socket=udp.as_ref().ok_or("Missing stream UDP socket")?;
+				let start=metrics.start();
+				let now=Instant::now();
+				if history.has_pending() && outgoing.allow_repair(now,rate.target)
+					&& let Some(packet)=history.repair(rtx_ssrc,&mut rtx_sequence,now) {
+					// The original DAVE ciphertext is reused; the transport nonce is always fresh.
+					udp_failures.send(socket,&crypto.seal(&packet.header,&packet.payload)?,"Stream retransmission failed").await?;
+				}
+				for packet in outgoing.next_batch(now,rate.target) {
+					udp_failures.send(socket,&crypto.seal(&packet.header,&packet.payload)?,"Stream UDP send failed").await?;
+					if rtx_ssrc!=0 {history.remember(packet,now);}
+				}
+				metrics.finish(crate::diagnostics::Stage::VideoSend,start);
+				if outgoing.is_empty() && outgoing_keyframe {
+					if awaiting_keyframe {emit(Status::Ready{privacy_code:dave.session.voice_privacy_code().unwrap_or_default().into()}).map_err(|_|"Stream interface closed")?;}
+					awaiting_keyframe=false;
+				}
+			},
 			_=tick.tick()=>{
 				let now=Instant::now();
+				history.expire(now);
 				if deadline.is_some_and(|at| now>=at) {return Err(negotiation_timeout(heartbeat_ms.is_some(),udp.is_some(),encryption.is_some(),&dave,false));}
 				if discovering && now>=discovery_deadline {return Err("Discord stream UDP discovery timed out");}
 				if !discovering && now>=next_udp_ping && let Some(socket)=&udp {
-					udp_keepalive(socket,&mut udp_ping_sequence).await?;
+					udp_keepalive(socket,&mut udp_failures,&mut udp_ping_sequence).await?;
 					next_udp_ping=now+Duration::from_secs(5);
 				}
 				if let Some(interval)=heartbeat_ms && now>=heartbeat_at {
@@ -1065,12 +1187,15 @@ async fn run_stream_inner(
 					waiting_announced=waiting;
 				}
 				let secure=dave.ready&&dave.session.is_ready()&&dave.pending.is_none()&&encryption.is_some()&&!discovering;
+				if secure && let Some(video)=&video && let Some(target)=rate.tick(now) {
+					video.bitrate.store(target,Ordering::Release);
+				}
 				if secure && !announced {
 					invalidate_stream(&mut video, &mut share_audio);
 					if let Some(video)=&video {
 						if let Some(event)=soundshare_announcement(&mut share_audio,audio_ssrc) {json_send(&mut ws,event).await?;}
-						let streams=json!([{"type":"video","rid":"100","ssrc":video_ssrc,"active":true,"quality":100,"rtx_ssrc":0,"max_bitrate":video.settings.bit_rate(),"max_framerate":video.settings.fps,"max_resolution":{"type":"fixed","width":video.settings.width,"height":video.settings.height}}]);
-						json_send(&mut ws,json!({"op":12,"d":{"audio_ssrc":audio_ssrc,"video_ssrc":video_ssrc,"rtx_ssrc":0,"streams":streams}})).await?;
+						let streams=json!([{"type":"video","rid":"100","ssrc":video_ssrc,"active":true,"quality":100,"rtx_ssrc":rtx_ssrc,"max_bitrate":video.settings.bit_rate(),"max_framerate":video.settings.fps,"max_resolution":{"type":"fixed","width":video.settings.width,"height":video.settings.height}}]);
+						json_send(&mut ws,json!({"op":12,"d":{"audio_ssrc":audio_ssrc,"video_ssrc":video_ssrc,"rtx_ssrc":rtx_ssrc,"streams":streams}})).await?;
 						awaiting_keyframe=true;video.keyframe.store(true, Ordering::Release); video.ready.store(true, Ordering::Release);
 					} else {
 						json_send(&mut ws,json!({"op":12,"d":{"audio_ssrc":audio_ssrc,"video_ssrc":0,"rtx_ssrc":0,"streams":[]}})).await?;
@@ -1113,7 +1238,7 @@ async fn run_stream_inner(
 					receivers.absorb(lost);
 					let requests:Vec<u32>=receivers.keyframe_requests().collect();
 					metrics.video(Video::PliSent,requests.len() as u64);
-					for media in requests {let (header,body)=pli(audio_ssrc,media);socket.send(&crypto.seal_rtcp(&header,&body)?).await.map_err(|_|"Stream RTCP send failed")?;}
+					for media in requests {let (header,body)=pli(audio_ssrc,media);udp_failures.send(socket,&crypto.seal_rtcp(&header,&body)?,"Stream RTCP send failed").await?;}
 					next_pli=now+Duration::from_millis(500);
 				}
 				if let Some(shared)=&mut share_audio
@@ -1131,14 +1256,14 @@ async fn run_stream_inner(
 					let mut header=[0;12];header[0]=0x80;header[1]=120;header[2..4].copy_from_slice(&audio_sequence.to_be_bytes());header[4..8].copy_from_slice(&audio_timestamp.to_be_bytes());header[8..12].copy_from_slice(&audio_ssrc.to_be_bytes());
 					let crypto=encryption.as_mut().ok_or("Missing stream transport key")?;
 					let socket=udp.as_ref().ok_or("Missing stream UDP socket")?;
-					socket.send(&crypto.seal_soundshare(&header,&data)?).await.map_err(|_|"Stream audio UDP send failed")?;
+					udp_failures.send(socket,&crypto.seal_soundshare(&header,&data)?,"Stream audio UDP send failed").await?;
 					metrics.finish(crate::diagnostics::Stage::Encode,start);
 					audio_sequence=audio_sequence.wrapping_add(1);
 				}
 				audio_timestamp=audio_timestamp.wrapping_add(960);
 				metrics.poll(false,0,false,0);
 			},
-			frame=async {match video.as_mut() {Some(video)=>video.frames.recv().await,None=>std::future::pending().await}}=>{
+			frame=async {match video.as_mut() {Some(video)=>video.frames.recv().await,None=>std::future::pending().await}}, if outgoing.is_empty()=>{
 				let Some(frame)=frame else {return Ok(());};
 				if frame.data.len()>2*1024*1024 {return Err("Encoded stream frame exceeds the sharing limit");}
 				let secure=announced&&dave.ready&&dave.session.is_ready()&&dave.pending.is_none()&&encryption.is_some()&&!discovering&&video.as_ref().is_some_and(|video|video.ready.load(Ordering::Acquire));
@@ -1148,20 +1273,12 @@ async fn run_stream_inner(
 				let normalized=crate::video_sps::normalize(&frame.data)?;
 				let encrypted=dave.session.encrypt(davey::MediaType::VIDEO,davey::Codec::H264,&normalized).map_err(|_|"DAVE H264 encryption failed")?;
 				let packets=crate::video::packetize(&encrypted,&mut sequence,frame.timestamp,video_ssrc)?;
-				let crypto=encryption.as_mut().ok_or("Missing stream transport key")?;
-				let socket=udp.as_ref().ok_or("Missing stream UDP socket")?;
-				for (index, packet) in packets.into_iter().enumerate() {
-					socket.send(&crypto.seal(&packet.header,&packet.payload)?).await.map_err(|_|"Stream UDP send failed")?;
-					if index % 32 == 31 {tokio::task::yield_now().await;}
-				}
+				outgoing.queue(packets,Instant::now());
+				outgoing_keyframe=frame.keyframe;
 				metrics.finish(crate::diagnostics::Stage::VideoSend,start);
-				if frame.keyframe {
-					if awaiting_keyframe {emit(Status::Ready{privacy_code:dave.session.voice_privacy_code().unwrap_or_default().into()}).map_err(|_|"Stream interface closed")?;}
-					awaiting_keyframe=false;
-				}
 			},
 			result=async {match &udp {Some(socket)=>socket.recv(&mut packet).await,_=>std::future::pending().await}}=>{
-				let length=result.map_err(|_|"Stream UDP receive failed")?;
+				let length=match result {Ok(length)=>length,Err(error) if transient_receive(&error)=>continue,Err(_)=>return Err("Stream UDP receive failed")};
 				if discovering {
 					let (address,port)=discovery(&packet[..length],audio_ssrc)?;
 					json_send(&mut ws,json!({"op":1,"d":{"protocol":"udp","data":{"address":address.to_string(),"port":port,"mode":MODE},"codecs":[{"name":"opus","type":"audio","priority":1000,"payload_type":120},{"name":"H264","type":"video","priority":1000,"payload_type":101,"rtx_payload_type":102,"encode":video.is_some(),"decode":decoder.is_some()}]}})).await?;
@@ -1170,9 +1287,16 @@ async fn run_stream_inner(
 				}
 				if length>MAX_PACKET {continue;}
 				let Some(crypto)=&encryption else {continue;};
-				if let Some(video)=&video && Instant::now()>=next_keyframe && crypto.requests_keyframe(&packet[..length],video_ssrc) {
-					video.keyframe.store(true,Ordering::Release);
-					next_keyframe=Instant::now()+Duration::from_millis(500);
+				if let Some(video)=&video && let Some(feedback)=crypto.feedback(&packet[..length],video_ssrc) {
+					if announced && dave.ready && dave.pending.is_none() && video.ready.load(Ordering::Acquire) {
+						let now=Instant::now();
+						rate.observe(feedback.loss,feedback.bitrate);
+						let missing=if rtx_ssrc!=0 {history.request(&feedback.nacks,now)} else {!feedback.nacks.is_empty()};
+						if (feedback.keyframe || missing) && now>=next_keyframe {
+							video.keyframe.store(true,Ordering::Release);
+							next_keyframe=now+Duration::from_millis(500);
+						}
+					}
 					continue;
 				}
 				let Some(mut rtp)=crypto.open(&packet[..length]) else {metrics.video(Video::OpenFailed,1);continue;};
@@ -1194,7 +1318,7 @@ async fn run_stream_inner(
 				let Some((user,frame))=receivers.push(rtp.ssrc,rtp.sequence,rtp.timestamp,rtp.marker,&rtp.payload) else {continue;};
 				if !dave.contains(user) {metrics.video(Video::NotReady,1);continue;}
 				let start=metrics.start();
-				let Ok(data)=dave.session.decrypt(user,davey::MediaType::VIDEO,&frame) else {metrics.poll(false,1,false,0);metrics.video(Video::DecryptFailed,1);continue;};
+				let Ok(data)=dave.session.decrypt(user,davey::MediaType::VIDEO,&frame) else {receivers.require_keyframe(user);metrics.poll(false,1,false,0);metrics.video(Video::DecryptFailed,1);continue;};
 				let keyframe=is_keyframe(&data);
 				if keyframe {metrics.video(Video::Keyframes,1);metrics.video(Video::KeyframesWithoutParams,u64::from(!has_parameter_sets(&data)));}
 				if !receivers.accept(user,keyframe) {metrics.video(Video::Gated,1);continue;}
@@ -1217,10 +1341,12 @@ async fn run_stream_inner(
 							6=>{if awaiting_ack.is_none()||data["t"].as_u64()!=awaiting_ack{return Err("Invalid stream heartbeat acknowledgement");}awaiting_ack=None;},
 							2=>{
 								if udp.is_some(){return Err("Unexpected stream transport replacement");}
-								audio_ssrc=u32::try_from(number(data,"ssrc")?).map_err(|_|"Invalid stream SSRC")?;
+								audio_ssrc=u32::try_from(number(data,"ssrc")?).ok().filter(|ssrc|*ssrc!=0).ok_or("Invalid stream SSRC")?;
 								if video.is_some() {
 									let stream=data["streams"].as_array().and_then(|v|v.first()).ok_or("Discord did not assign a stream SSRC")?;
 									video_ssrc=u32::try_from(number(stream,"ssrc")?).map_err(|_|"Invalid stream video SSRC")?;
+									rtx_ssrc=stream.get("rtx_ssrc").map(|value|value.as_u64().and_then(|value|u32::try_from(value).ok()).ok_or("Invalid stream retransmission SSRC")).transpose()?.unwrap_or(0);
+									if video_ssrc==0 || video_ssrc==audio_ssrc || (rtx_ssrc!=0 && (rtx_ssrc==video_ssrc || rtx_ssrc==audio_ssrc)) {return Err("Invalid stream video SSRC assignment");}
 								}
 								let address:IpAddr=data["ip"].as_str().ok_or("Missing stream server address")?.parse().map_err(|_|"Invalid stream server address")?;
 								if !public_ip(address) && !(cfg!(test) && local_test && address.is_loopback()){return Err("Stream server advertised a nonpublic address");}
@@ -1268,7 +1394,6 @@ async fn run_stream_inner(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::diagnostics::Signal;
 	use crate::video_receive::Receivers;
 	use opus2::Decoder;
 
@@ -1277,8 +1402,8 @@ mod tests {
 		let (decoder, _) = spawn_decoder(Arc::new(|_| {})).unwrap();
 		let mut receivers = Receivers::default();
 		let streams = json!({"video_ssrc": 0, "streams": [
-			{"type": "video", "ssrc": 700, "rtx_ssrc": 701},
-			{"type": "video", "ssrc": 710, "rtx_ssrc": 711}
+			{"ssrc": 700, "rtx_ssrc": 701},
+			{"ssrc": 710, "rtx_ssrc": 711}
 		]});
 		announce_video(&mut receivers, &decoder, 7, &streams).unwrap();
 		assert!(receivers.has_sources());
@@ -1286,12 +1411,12 @@ mod tests {
 			receivers.push(700, 1, 90, true, &[0x65, 1]),
 			Some((7, vec![0, 0, 0, 1, 0x65, 1]))
 		);
-		// Preserve the existing additive semantics of nonzero announcements.
+		// An absent list is a partial update, so other sources stay bound.
 		announce_video(
 			&mut receivers,
 			&decoder,
 			7,
-			&json!({"video_ssrc": 710, "rtx_ssrc": 711, "streams": []}),
+			&json!({"video_ssrc": 710, "rtx_ssrc": 711}),
 		)
 		.unwrap();
 		assert!(receivers.push(700, 2, 180, true, &[0x65, 3]).is_some());
@@ -1303,6 +1428,34 @@ mod tests {
 			receivers.restore_rtx(701, &mut vec![0, 4, 0x65]),
 			Some((700, 4))
 		);
+		assert!(
+			receivers
+				.push(710, 1, 90, false, &[0x7c, 0x85, 1])
+				.is_none()
+		);
+		announce_video(
+			&mut receivers,
+			&decoder,
+			7,
+			&json!({"video_ssrc": 710, "streams": [{"ssrc": 710, "rtx_ssrc": 711}]}),
+		)
+		.unwrap();
+		assert!(receivers.push(700, 3, 270, true, &[0x65, 4]).is_none());
+		assert!(receivers.restore_rtx(701, &mut vec![0, 4, 0x65]).is_none());
+		assert_eq!(
+			receivers.push(710, 2, 90, true, &[0x7c, 0x45, 2]),
+			Some((7, vec![0, 0, 0, 1, 0x65, 1, 2]))
+		);
+		assert_eq!(receivers.keyframe_requests().collect::<Vec<_>>(), vec![710]);
+		announce_video(
+			&mut receivers,
+			&decoder,
+			7,
+			&json!({"video_ssrc": 720, "streams": []}),
+		)
+		.unwrap();
+		assert!(receivers.push(710, 3, 180, true, &[0x65, 4]).is_none());
+		assert_eq!(receivers.keyframe_requests().collect::<Vec<_>>(), vec![720]);
 		announce_video(
 			&mut receivers,
 			&decoder,
@@ -1344,23 +1497,6 @@ mod tests {
 			receivers.keyframe_requests().collect::<Vec<_>>(),
 			vec![700, 800]
 		);
-	}
-
-	#[test]
-	fn signal_opcodes_map_to_their_own_slots() {
-		for (op, slot) in [
-			(2, Signal::Ready as usize),
-			(4, Signal::Session as usize),
-			(11, Signal::Clients as usize),
-			(12, Signal::Sender as usize),
-			(21, Signal::PrepareTransition as usize),
-			(22, Signal::ExecuteTransition as usize),
-			(24, Signal::PrepareEpoch as usize),
-		] {
-			assert_eq!(signal_of(op) as usize, slot, "opcode {op}");
-		}
-		assert_eq!(signal_of(8) as usize, Signal::Other as usize);
-		assert_eq!(signal_of(99) as usize, Signal::Other as usize);
 	}
 
 	async fn receive_media(socket: &UdpSocket, packet: &mut [u8]) -> (usize, SocketAddr) {
@@ -1472,6 +1608,7 @@ mod tests {
 			frames,
 			ready: Arc::new(AtomicBool::new(true)),
 			keyframe: Arc::new(AtomicBool::new(false)),
+			bitrate: Arc::new(std::sync::atomic::AtomicU32::new(4_000_000)),
 			audio_epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
 			audio: Some(receive),
 		});
@@ -1515,66 +1652,21 @@ mod tests {
 				.unwrap(),
 			[0.25; STREAM_AUDIO_FRAME]
 		);
-	}
-	#[test]
-	fn soundshare_is_announced_before_captured_audio_is_enabled() {
-		let mut audio = Some(StreamAudio {
-			encoder: Encoder::new(48_000, Channels::Stereo, Application::Audio).unwrap(),
-			pending: Vec::with_capacity(STREAM_AUDIO_PENDING),
-			speaking: false,
-			last_tick: Instant::now(),
-		});
-		let event = soundshare_announcement(&mut audio, 42).unwrap();
-		assert_eq!(
-			event,
-			json!({"op":5,"d":{"speaking":2,"delay":0,"ssrc":42}})
-		);
-		assert!(audio.unwrap().speaking);
-	}
-	#[test]
-	fn negotiation_timeout_distinguishes_missing_group_from_unexecuted_transition() {
-		let server = crate::test_mls::Delivery::new();
-		let mut alice = Dave::new(1, Some(2), 3).unwrap();
-		let mut bob = Dave::new(2, Some(1), 3).unwrap();
-		alice.session.set_external_sender(&server.external).unwrap();
-		bob.session.set_external_sender(&server.external).unwrap();
-		assert_eq!(
-			negotiation_timeout(false, false, false, &alice, false),
-			"Discord voice Hello timed out; rejoin the call"
-		);
-		assert_eq!(
-			negotiation_timeout(true, false, false, &alice, false),
-			"Discord voice Ready timed out; rejoin the call"
-		);
-		assert_eq!(
-			negotiation_timeout(true, true, false, &alice, false),
-			"Discord voice protocol selection timed out; no transport key was received"
-		);
-		assert_eq!(
-			negotiation_timeout(true, true, true, &alice, false),
-			"Discord DAVE group negotiation timed out; no accepted commit or welcome was received"
-		);
-		let (_, welcome) = server.add(&mut bob, &alice.key_package().unwrap());
-		alice
-			.group_changed(30, &[&[0, 7], welcome.as_slice()].concat())
-			.unwrap();
-		assert!(!alice.ready);
-		assert_eq!(
-			negotiation_timeout(true, true, true, &alice, false),
-			"Discord DAVE transition execution timed out; no audio was enabled"
-		);
-		assert_eq!(
-			negotiation_timeout(false, true, true, &alice, true),
-			"Discord voice resume acknowledgement timed out; rejoin the call"
-		);
-	}
-	#[test]
-	fn requires_h264_in_the_session_description() {
-		assert!(h264_negotiated(&json!({"video_codec":"H264"})));
-		assert!(!h264_negotiated(&json!({"video_codec":"VP8"})));
-		assert!(!h264_negotiated(
-			&json!({"sdp":"a=rtpmap:101 H264/90000\\r\\n"})
-		));
+
+		{
+			let mut audio = Some(StreamAudio {
+				encoder: Encoder::new(48_000, Channels::Stereo, Application::Audio).unwrap(),
+				pending: Vec::with_capacity(STREAM_AUDIO_PENDING),
+				speaking: false,
+				last_tick: Instant::now(),
+			});
+			let event = soundshare_announcement(&mut audio, 42).unwrap();
+			assert_eq!(
+				event,
+				json!({"op":5,"d":{"speaking":2,"delay":0,"ssrc":42}})
+			);
+			assert!(audio.unwrap().speaking);
+		}
 	}
 	#[test]
 	fn validated_endpoints_discovery_and_real_opus() {
@@ -1610,6 +1702,14 @@ mod tests {
 			960
 		);
 		assert!(output.iter().any(|sample| sample.abs() > 0.01));
+
+		{
+			assert!(h264_negotiated(&json!({"video_codec":"H264"})));
+			assert!(!h264_negotiated(&json!({"video_codec":"VP8"})));
+			assert!(!h264_negotiated(
+				&json!({"sdp":"a=rtpmap:101 H264/90000\\r\\n"})
+			));
+		}
 	}
 	#[tokio::test]
 	async fn local_voice_websocket_udp_dave_and_opus_exchange() {

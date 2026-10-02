@@ -36,6 +36,8 @@ fn snapshot(state: &State, guild: Id) -> Settings {
 			.map(|channel| channel.id),
 		default_message_notifications: 1,
 		activity_feed: Some(true),
+		verification_level: 1,
+		explicit_content_filter: 2,
 		features: vec![
 			"COMMUNITY".into(),
 			model::server_settings::ACTIVITY_ENABLED.into(),
@@ -73,7 +75,9 @@ pub fn execute_admin(
 	request: u64,
 	action: model::server_admin::Action,
 ) -> Event {
-	use model::server_admin::{Action, Emoji, Emojis, Member, Members, Result as Outcome, Role};
+	use model::server_admin::{
+		Action, Emoji, Emojis, Member, Members, Result as Outcome, Role, Sticker, Stickers,
+	};
 	assert!(
 		action.valid(),
 		"synthetic admin action must satisfy wire bounds"
@@ -132,6 +136,81 @@ pub fn execute_admin(
 				_ => {}
 			}
 			Outcome::Emojis(page)
+		}
+		Action::LoadStickers
+		| Action::CreateSticker { .. }
+		| Action::EditSticker { .. }
+		| Action::DeleteSticker { .. } => {
+			let mut page = state
+				.server_admin
+				.stickers
+				.clone()
+				.unwrap_or_else(|| Stickers {
+					items: [
+						(9101, "Wave", "hello,wave"),
+						(9102, "Smile", "smile,happy"),
+						(9103, "Celebrate", "party,celebrate"),
+					]
+					.into_iter()
+					.map(|(id, name, tags)| Sticker {
+						sticker: model::Sticker {
+							id: Id(id),
+							name: name.into(),
+							description: "Original synthetic sticker artwork".into(),
+							tags: tags.into(),
+							format_type: 1,
+							guild_id: Some(guild),
+							pack_id: None,
+							available: true,
+						},
+						uploader: Some(owner.clone()),
+					})
+					.collect(),
+					limit: Some(5),
+				});
+			match action {
+				Action::CreateSticker {
+					name,
+					description,
+					tags,
+					..
+				} => {
+					let id = Id(page
+						.items
+						.iter()
+						.map(|row| row.sticker.id.0)
+						.max()
+						.unwrap_or(9100) + 1);
+					page.items.push(Sticker {
+						sticker: model::Sticker {
+							id,
+							name,
+							description,
+							tags,
+							format_type: 1,
+							guild_id: Some(guild),
+							pack_id: None,
+							available: true,
+						},
+						uploader: Some(owner.clone()),
+					});
+				}
+				Action::EditSticker {
+					id,
+					name,
+					description,
+					tags,
+				} => {
+					if let Some(row) = page.items.iter_mut().find(|row| row.sticker.id == id) {
+						row.sticker.name = name;
+						row.sticker.description = description;
+						row.sticker.tags = tags;
+					}
+				}
+				Action::DeleteSticker { id } => page.items.retain(|row| row.sticker.id != id),
+				_ => {}
+			}
+			Outcome::Stickers(page)
 		}
 		Action::LoadMembers(query) => {
 			let mut page = {
@@ -528,7 +607,7 @@ pub fn execute_action(
 			}
 			Some(code)
 		}
-		Action::Leave(_) => None,
+		Action::Leave(_) | Action::Delete(_) | Action::Notifications { .. } => None,
 	};
 	Event::ServerAction(client_core::server_actions::Event::Written {
 		action,
@@ -627,6 +706,7 @@ fn execute_integrations(
 		.id;
 	let mut page = state.server_admin.integrations.clone().unwrap_or(Snapshot {
 		guild,
+		channel: None,
 		integrations: None,
 		webhooks: None,
 	});
@@ -693,10 +773,25 @@ fn execute_integrations(
 		);
 	}
 	match action {
+		Action::CopyWebhookUrl {
+			webhook, channel, ..
+		} => {
+			return model::server_admin::Result::WebhookUrl(
+				model::server_integrations::WebhookUrl::new(
+					guild,
+					webhook,
+					channel,
+					"SYNTHETIC_DEMO_WEBHOOK_TOKEN",
+				)
+				.expect("valid synthetic URL"),
+			);
+		}
 		Action::Load {
+			channel,
 			integrations,
 			webhooks,
 		} => {
+			page.channel = channel;
 			if !integrations {
 				page.integrations = None;
 			}
@@ -704,7 +799,12 @@ fn execute_integrations(
 				page.webhooks = None;
 			}
 		}
-		Action::CreateWebhook { channel, name } => {
+		Action::CreateWebhook {
+			channel,
+			name,
+			scope,
+		} => {
+			page.channel = scope;
 			let items = page.webhooks.as_mut().unwrap();
 			let id = Id(items.iter().map(|item| item.id.0).max().unwrap_or(9900) + 1);
 			items.push(Webhook {
@@ -722,10 +822,12 @@ fn execute_integrations(
 			page.integrations = None;
 		}
 		Action::EditWebhook {
+			scope,
 			webhook,
 			channel,
 			name,
 		} => {
+			page.channel = scope;
 			let hook = page
 				.webhooks
 				.as_mut()
@@ -737,7 +839,8 @@ fn execute_integrations(
 			hook.name = Some(name);
 			page.integrations = None;
 		}
-		Action::DeleteWebhook { webhook } => {
+		Action::DeleteWebhook { webhook, scope } => {
+			page.channel = scope;
 			page.webhooks
 				.as_mut()
 				.unwrap()
@@ -751,6 +854,11 @@ fn execute_integrations(
 				.retain(|item| item.id != integration);
 			page.webhooks = None;
 		}
+	}
+	if let Some(channel) = page.channel
+		&& let Some(hooks) = &mut page.webhooks
+	{
+		hooks.retain(|hook| hook.channel == Some(channel));
 	}
 	model::server_admin::Result::Integrations(page)
 }

@@ -140,6 +140,7 @@ mod tests {
 			last_message: None,
 			icon: None,
 			member_list_id: None,
+			tags: None,
 			message_count: None,
 		};
 		let mut state = State {
@@ -154,6 +155,7 @@ mod tests {
 			}),
 			guilds: vec![
 				Guild {
+					default_message_notifications: None,
 					stickers: None,
 					emojis: None,
 					id: Id(1),
@@ -161,6 +163,7 @@ mod tests {
 					icon: None,
 				},
 				Guild {
+					default_message_notifications: None,
 					stickers: None,
 					emojis: None,
 					id: Id(2),
@@ -257,6 +260,7 @@ mod tests {
 			assert_eq!(state.freshness, Freshness::Fresh);
 		}
 		let mut message = Message {
+			poll: None,
 			sticker_items: Vec::new(),
 			id: Id(500),
 			channel: Id(100),
@@ -284,6 +288,7 @@ mod tests {
 			reply_to: None,
 			kind: 0,
 			reply_deleted: false,
+			interaction: None,
 			forwarded: false,
 			unsupported: false,
 			components: vec![],
@@ -393,6 +398,7 @@ mod tests {
 			last_message: None,
 			icon: None,
 			member_list_id: None,
+			tags: None,
 			message_count: None,
 		};
 		let original = vec![
@@ -429,6 +435,7 @@ mod tests {
 		] {
 			let mut state = State {
 				guilds: vec![Guild {
+					default_message_notifications: None,
 					stickers: None,
 					emojis: None,
 					id: Id(1),
@@ -479,6 +486,7 @@ mod tests {
 				guilds: [1, 2]
 					.into_iter()
 					.map(|id| Guild {
+						default_message_notifications: None,
 						stickers: None,
 						id: Id(id),
 						name: "Synthetic".into(),

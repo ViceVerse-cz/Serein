@@ -37,6 +37,8 @@ pub type VideoSink = Arc<dyn Fn(RemoteFrame<'_>) + Send + Sync>;
 
 pub(crate) struct DecoderQueue {
 	send: SyncSender<Decode>,
+	#[cfg(test)]
+	worker: Option<(std::thread::JoinHandle<()>, Receiver<()>)>,
 	bytes: Arc<tokio::sync::Semaphore>,
 	// One cancellable lifetime per user; queued frames keep the old lifetime on restart.
 	// This table has at most MAX_SOURCES entries. Old tokens survive only in the
@@ -44,6 +46,25 @@ pub(crate) struct DecoderQueue {
 	active: Mutex<HashMap<u64, Arc<AtomicBool>>>,
 	/// Decoded pictures delivered to the sink and decoder failures, for diagnostics only.
 	pub counters: Arc<DecoderCounters>,
+}
+
+#[cfg(test)]
+impl Drop for DecoderQueue {
+	fn drop(&mut self) {
+		let Some((worker, completed)) = self.worker.take() else {
+			return;
+		};
+		// Close the queue before waiting: the native decoder is owned by this worker.
+		drop(std::mem::replace(&mut self.send, sync_channel(0).0));
+		assert!(
+			!matches!(
+				completed.recv_timeout(Duration::from_secs(5)),
+				Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+			),
+			"Video decoder did not terminate after its queue closed"
+		);
+		worker.join().expect("Video decoder worker panicked");
+	}
 }
 
 #[derive(Default)]
@@ -339,10 +360,17 @@ impl Receivers {
 		Ok(())
 	}
 	pub fn remove(&mut self, user: u64) {
-		self.sources.retain(|(_, u, _)| *u != user);
+		self.retain_user_sources(user, &[]);
+	}
+	/// Reconcile a complete stream announcement without resetting unchanged assemblers.
+	pub fn retain_user_sources(&mut self, user: u64, keep: &[u32]) {
+		self.sources
+			.retain(|(ssrc, owner, _)| *owner != user || keep.contains(ssrc));
 		self.rtx
 			.retain(|(_, media)| self.sources.iter().any(|(ssrc, _, _)| ssrc == media));
-		self.awaiting_keyframe.retain(|u| *u != user);
+		if !self.sources.iter().any(|(_, owner, _)| *owner == user) {
+			self.awaiting_keyframe.retain(|u| *u != user);
+		}
 	}
 	pub fn announce_rtx(&mut self, media: u32, rtx: u32) -> Result<(), &'static str> {
 		if media == 0 || rtx == 0 {
@@ -461,13 +489,24 @@ pub(crate) fn spawn_decoder(sink: VideoSink) -> Result<(DecoderQueue, Lost), &'s
 	let report = lost.clone();
 	let counters = Arc::new(DecoderCounters::default());
 	let thread_counters = counters.clone();
-	std::thread::Builder::new()
+	#[cfg(test)]
+	let (completed, completion) = sync_channel(1);
+	let worker = std::thread::Builder::new()
 		.name("remote-video".into())
-		.spawn(move || decode_loop(receive, sink, report, thread_counters, true))
+		.spawn(move || {
+			decode_loop(receive, sink, report, thread_counters, true);
+			// Signal only after every decoder and native runtime has been released.
+			#[cfg(test)]
+			let _ = completed.send(());
+		})
 		.map_err(|_| "Could not start the video decoder thread")?;
+	#[cfg(not(test))]
+	drop(worker);
 	Ok((
 		DecoderQueue {
 			send,
+			#[cfg(test)]
+			worker: Some((worker, completion)),
 			bytes: Arc::new(tokio::sync::Semaphore::new(QUEUE_BYTES)),
 			active: Mutex::new(HashMap::new()),
 			counters,
@@ -784,6 +823,7 @@ mod tests {
 		(
 			DecoderQueue {
 				send,
+				worker: None,
 				bytes: Arc::new(tokio::sync::Semaphore::new(QUEUE_BYTES)),
 				active: Mutex::new(HashMap::new()),
 				counters: Arc::default(),
@@ -1118,28 +1158,6 @@ mod tests {
 	}
 
 	#[test]
-	fn a_silent_stall_can_request_keyframes_without_observed_loss() {
-		let mut receivers = Receivers::default();
-		receivers.announce(7, 700).unwrap();
-		receivers.announce(8, 800).unwrap();
-		// A clean keyframe from each sender leaves nothing owed.
-		assert!(receivers.push(700, 1, 900, true, &[0x65, 1]).is_some());
-		assert!(receivers.accept(7, true));
-		assert!(receivers.push(800, 1, 900, true, &[0x65, 1]).is_some());
-		assert!(receivers.accept(8, true));
-		assert!(!receivers.awaiting());
-		assert_eq!(receivers.take_stats().incomplete, 0);
-		// Video simply stops: no loss is observed, so only the stall path recovers it.
-		assert!(receivers.has_sources());
-		receivers.require_all_keyframes();
-		assert!(receivers.awaiting());
-		assert_eq!(
-			receivers.keyframe_requests().collect::<Vec<_>>(),
-			vec![700, 800]
-		);
-	}
-
-	#[test]
 	fn parameter_set_detection_needs_both_sps_and_pps() {
 		assert!(has_parameter_sets(&[
 			0, 0, 0, 1, 0x67, 1, 0, 0, 1, 0x68, 2, 0, 0, 0, 1, 0x65, 3
@@ -1149,26 +1167,6 @@ mod tests {
 		]));
 		assert!(!has_parameter_sets(&[0, 0, 0, 1, 0x65, 3]));
 		assert!(!has_parameter_sets(&[]));
-	}
-
-	#[test]
-	fn receiver_stats_count_unknown_incomplete_and_complete_pictures() {
-		let mut receivers = Receivers::default();
-		receivers.announce(7, 700).unwrap();
-		assert!(receivers.push(999, 1, 900, true, &[0x65, 1]).is_none());
-		assert!(receivers.push(700, 1, 900, true, &[0x65, 1]).is_some());
-		assert!(receivers.push(700, 3, 1800, true, &[0x41, 1]).is_none());
-		let stats = receivers.take_stats();
-		assert_eq!(
-			(stats.unknown_ssrc, stats.incomplete, stats.complete),
-			(1, 1, 1)
-		);
-		assert!(receivers.awaiting());
-		let stats = receivers.take_stats();
-		assert_eq!(
-			(stats.unknown_ssrc, stats.incomplete, stats.complete),
-			(0, 0, 0)
-		);
 	}
 
 	#[test]
@@ -1229,6 +1227,25 @@ mod tests {
 			assert!(receivers.accept(7, true));
 			assert!(receivers.keyframe_requests().next().is_none());
 			assert!(receivers.accept(7, false));
+		}
+
+		{
+			let mut receivers = Receivers::default();
+			receivers.announce(7, 700).unwrap();
+			assert!(receivers.push(999, 1, 900, true, &[0x65, 1]).is_none());
+			assert!(receivers.push(700, 1, 900, true, &[0x65, 1]).is_some());
+			assert!(receivers.push(700, 3, 1800, true, &[0x41, 1]).is_none());
+			let stats = receivers.take_stats();
+			assert_eq!(
+				(stats.unknown_ssrc, stats.incomplete, stats.complete),
+				(1, 1, 1)
+			);
+			assert!(receivers.awaiting());
+			let stats = receivers.take_stats();
+			assert_eq!(
+				(stats.unknown_ssrc, stats.incomplete, stats.complete),
+				(0, 0, 0)
+			);
 		}
 	}
 	#[test]

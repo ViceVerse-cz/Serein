@@ -66,7 +66,10 @@ pub fn gif_page(query: Option<&str>) -> model::GifPage {
 				"Thank you",
 			]
 			.into_iter()
-			.map(str::to_owned)
+			.map(|name| model::GifCategory {
+				name: name.to_owned(),
+				preview: None,
+			})
 			.collect()
 		} else {
 			Vec::new()
@@ -88,6 +91,7 @@ pub fn message(id: u64, channel: Id) -> Message {
 		content = format!("Hey <@2> — see <#21>. {content}");
 	}
 	Message {
+		poll: None,
 		reactions: Some(if id == 500 {
 			vec![Reaction {
 				emoji: ReactionEmoji {
@@ -131,6 +135,7 @@ pub fn message(id: u64, channel: Id) -> Message {
 		reply_to: None,
 		kind: 0,
 		reply_deleted: false,
+		interaction: None,
 		forwarded: false,
 		unsupported: false,
 		components: vec![],
@@ -248,6 +253,36 @@ fn demo_embeds(id: u64) -> Vec<Embed> {
         ..Default::default()
     }]
 }
+/// Synthetic tags offered by the fixture forum, one moderated and one with an emoji.
+fn forum_tags() -> model::forum::Tags {
+	let tag = |id: u64, name: &str, emoji: Option<&str>, moderated: bool| model::forum::Tag {
+		id: Id(id),
+		name: name.into(),
+		moderated,
+		emoji_id: None,
+		emoji_name: emoji.map(Into::into),
+	};
+	model::forum::Tags {
+		available: vec![
+			tag(2601, "Announcement", Some("📣"), true),
+			tag(2602, "Feature request", None, false),
+			tag(2603, "Performance", Some("⚡"), false),
+			tag(2604, "Mobile", None, false),
+			tag(2605, "Discussion", None, false),
+			model::forum::Tag {
+				emoji_id: Some(Id(9002)),
+				..tag(2606, "Bug", Some("serein_spark"), false)
+			},
+			tag(2607, "Accessibility", None, false),
+		],
+		reaction: Some(model::ReactionEmoji {
+			id: None,
+			name: Some("❤️".into()),
+		}),
+		..Default::default()
+	}
+}
+
 pub fn demo_state() -> State {
 	let mut state = State {
 		demo: true,
@@ -267,6 +302,7 @@ pub fn demo_state() -> State {
 				name: "You (synthetic)".into(),
 			},
 			guilds: vec![Guild {
+				default_message_notifications: None,
 				stickers: None,
 				emojis: Some(vec![
 					model::CustomEmoji {
@@ -302,6 +338,7 @@ pub fn demo_state() -> State {
 					recipients: vec![],
 					icon: None,
 					member_list_id: Some("everyone".into()),
+					tags: None,
 					message_count: None,
 				},
 				Channel {
@@ -315,6 +352,7 @@ pub fn demo_state() -> State {
 					recipients: vec![],
 					icon: None,
 					member_list_id: Some("everyone".into()),
+					tags: None,
 					message_count: None,
 				},
 				Channel {
@@ -328,6 +366,7 @@ pub fn demo_state() -> State {
 					recipients: vec![message(1, Id(22)).author],
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				},
 				Channel {
@@ -341,6 +380,7 @@ pub fn demo_state() -> State {
 					recipients: vec![],
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				},
 				Channel {
@@ -362,6 +402,7 @@ pub fn demo_state() -> State {
 					last_message: None,
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				},
 				Channel {
@@ -383,6 +424,7 @@ pub fn demo_state() -> State {
 					last_message: Some(Id(900)),
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				},
 				Channel {
@@ -407,6 +449,7 @@ pub fn demo_state() -> State {
 					last_message: None,
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				},
 				Channel {
@@ -420,6 +463,7 @@ pub fn demo_state() -> State {
 					recipients: vec![],
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				},
 				Channel {
@@ -433,6 +477,7 @@ pub fn demo_state() -> State {
 					recipients: vec![],
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				},
 				Channel {
@@ -446,6 +491,7 @@ pub fn demo_state() -> State {
 					last_message: None,
 					icon: None,
 					member_list_id: None,
+					tags: Some(Box::new(forum_tags())),
 					message_count: None,
 				},
 				Channel {
@@ -459,6 +505,10 @@ pub fn demo_state() -> State {
 					last_message: Some(Id(1_542_322_755_993_600_000)),
 					icon: None,
 					member_list_id: None,
+					tags: Some(Box::new(model::forum::Tags {
+						applied: vec![Id(2601)],
+						..Default::default()
+					})),
 					message_count: Some(10),
 				},
 				Channel {
@@ -472,6 +522,10 @@ pub fn demo_state() -> State {
 					last_message: Some(Id(1_546_671_410_380_800_000)),
 					icon: None,
 					member_list_id: None,
+					tags: Some(Box::new(model::forum::Tags {
+						applied: vec![Id(2602), Id(2603), Id(2604), Id(2605)],
+						..Default::default()
+					})),
 					message_count: Some(0),
 				},
 				Channel {
@@ -485,6 +539,10 @@ pub fn demo_state() -> State {
 					last_message: Some(Id(1_547_722_335_191_040_000)),
 					icon: None,
 					member_list_id: None,
+					tags: Some(Box::new(model::forum::Tags {
+						applied: vec![Id(2603), Id(2602)],
+						..Default::default()
+					})),
 					message_count: Some(6),
 				},
 				Channel {
@@ -498,6 +556,7 @@ pub fn demo_state() -> State {
 					last_message: Some(Id(1_547_722_335_191_040_000)),
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: Some(4),
 				},
 			],
@@ -507,9 +566,36 @@ pub fn demo_state() -> State {
 		.permissions
 		.replace(permission_snapshot(&state))
 		.unwrap();
+	// Offline starters for the fixture posts; the demo painter draws a synthetic grid.
+	for (post, image, count) in [(27, Some(710), 12), (41, None, 3), (42, Some(711), 321)] {
+		state.posts.remember_preview(
+			Id(post),
+			model::forum::Starter {
+				image: image.map(|image| EmbedMedia {
+					url: Some(format!(
+						"https://cdn.discordapp.com/attachments/26/{image}/synthetic-preview.png"
+					)),
+					width: 320,
+					height: 320,
+					..Default::default()
+				}),
+				reactions: vec![model::Reaction {
+					emoji: model::ReactionEmoji {
+						id: None,
+						name: Some(if post == 42 { "🔥" } else { "❤️" }.into()),
+					},
+					count,
+					me: post == 27,
+					me_burst: false,
+				}],
+			},
+		);
+	}
 	state
 		.apply_notification_preferences(client_core::notifications::Event::Settings {
 			entries: vec![client_core::notifications::Setting {
+				overrides_known: true,
+				mute_until: None,
 				guild: Some(Id(10)),
 				muted: Some(false),
 				level: Some(3),
@@ -651,6 +737,7 @@ pub fn voice_demo_state() -> State {
 		recipients: vec![],
 		icon: None,
 		member_list_id: None,
+		tags: None,
 		message_count: None,
 		last_message: None,
 	});
@@ -687,6 +774,7 @@ pub fn voice_demo_state() -> State {
 			status: None,
 			custom_status: None,
 			activities: vec![],
+			clients: model::ClientPlatforms::default(),
 		}),
 	})
 	.collect();
@@ -700,6 +788,7 @@ pub fn voice_demo_state() -> State {
 		request: 0,
 		phase: Phase::Connected,
 		connected_at: Some(Instant::now() - Duration::from_secs(3663)),
+		channel_started_at: Some(Instant::now() - Duration::from_secs(3663)),
 		muted: false,
 		deafened: false,
 		server_muted: false,
@@ -741,6 +830,7 @@ pub fn call_demo_state() -> State {
 		request: 0,
 		phase: Phase::Connected,
 		connected_at: Some(Instant::now() - Duration::from_secs(754)),
+		channel_started_at: None,
 		muted: false,
 		deafened: false,
 		server_muted: false,
@@ -866,6 +956,7 @@ pub fn seed_access_marks(state: &mut State) {
 		recipients: vec![],
 		icon: None,
 		member_list_id: None,
+		tags: None,
 		message_count: None,
 	};
 	state.channels.extend([
@@ -923,6 +1014,8 @@ pub fn seed_access_marks(state: &mut State) {
 	state
 		.apply_notification_preferences(client_core::notifications::Event::Settings {
 			entries: vec![client_core::notifications::Setting {
+				overrides_known: true,
+				mute_until: None,
 				guild: Some(GUILD),
 				muted: Some(false),
 				level: Some(3),
@@ -946,6 +1039,7 @@ pub fn seed_demo_folder_mosaic(state: &mut State) {
 	];
 	for (id, name, hash) in EXTRA {
 		state.guilds.push(Guild {
+			default_message_notifications: None,
 			stickers: None,
 			emojis: None,
 			id: Id(id),
@@ -1109,6 +1203,7 @@ pub fn permission_snapshot(state: &State) -> model::permissions::Snapshot {
 		| 1 // CREATE_INSTANT_INVITE, synthetic demo only.
 		| p::READ_MESSAGE_HISTORY
 		| p::SEND_MESSAGES
+        | p::SEND_POLLS
 		| p::SEND_MESSAGES_IN_THREADS
 		| p::ATTACH_FILES
 		| p::ADD_REACTIONS
@@ -1335,6 +1430,7 @@ pub fn friends_demo_state() -> State {
 						model::Patch::Null
 					},
 					activities: model::Patch::Value(Vec::new()),
+					clients: model::Patch::Absent,
 				})
 				.collect(),
 		),
@@ -1496,6 +1592,8 @@ mod tests {
 			(Some(Id(490)), 491, 500),
 		] {
 			let mut state = demo_state();
+			// A loaded boundary scrolls locally; this covers the paged path.
+			state.timeline.clear();
 			state
 				.apply_read_state(client_core::read_state::Event::Snapshot {
 					entries: Some(vec![(Id(20), marker, 0)]),
@@ -1574,6 +1672,8 @@ mod tests {
 		state
 			.apply_notification_preferences(n::Event::Settings {
 				entries: vec![n::Setting {
+					overrides_known: true,
+					mute_until: None,
 					channel_mute_until: vec![],
 					guild: None,
 					muted: Some(false),
@@ -1689,6 +1789,8 @@ mod tests {
 			.unwrap()
 			.clone();
 		let setting = n::Setting {
+			overrides_known: true,
+			mute_until: None,
 			channel_mute_until: vec![],
 			guild: channel.guild,
 			muted: Some(false),
@@ -1771,6 +1873,8 @@ mod tests {
 		state
 			.apply_notification_preferences(n::Event::Settings {
 				entries: vec![n::Setting {
+					overrides_known: true,
+					mute_until: None,
 					channel_mute_until: vec![],
 					guild: None,
 					muted: Some(false),
@@ -1797,6 +1901,8 @@ mod tests {
 		state
 			.apply_notification_preferences(n::Event::Settings {
 				entries: vec![n::Setting {
+					overrides_known: true,
+					mute_until: None,
 					channel_mute_until: vec![],
 					guild: None,
 					muted: Some(false),
@@ -1817,6 +1923,8 @@ mod tests {
 		state
 			.apply_notification_preferences(n::Event::Settings {
 				entries: vec![n::Setting {
+					overrides_known: true,
+					mute_until: None,
 					channel_mute_until: vec![],
 					guild: None,
 					muted: Some(false),
@@ -1865,6 +1973,7 @@ mod tests {
 					id: Id(id),
 					channel: Id(20),
 					author: crate::message(1, Id(20)).author,
+					mentions: vec![],
 					excerpt: "pin".into(),
 					attachments: vec![],
 					embeds: vec![],
@@ -1988,6 +2097,120 @@ mod tests {
 		assert!(state.request_pins().is_none());
 	}
 	#[test]
+	fn numbered_search_pages_preserve_scope_retry_and_bound_retained_results() {
+		use client_core::{Command, auth::Failure, search::Outcome};
+		let mut state = demo_state();
+		let page = |id, total| {
+			Outcome::Page(SearchPage {
+				hits: vec![SearchHit {
+					id: Id(id),
+					channel: Id(20),
+					author: crate::message(1, Id(20)).author,
+					mentions: vec![],
+					excerpt: "synthetic match".into(),
+					attachments: vec![],
+					embeds: vec![],
+				}],
+				total,
+				partial: false,
+				pin_cursor: None,
+			})
+		};
+		assert!(state.request_search_page(0).is_none());
+		let query = "synthetic before_id:500";
+		let Command::Search {
+			request, offset: 0, ..
+		} = state.request_search(query.into(), None).unwrap()
+		else {
+			panic!()
+		};
+		assert!(state.request_search_page(0).is_none());
+		state.apply_search(Id(20), request, Err(Failure::Network));
+		assert_eq!(state.search.as_ref().unwrap().page_count(), 1);
+		assert!(state.request_search_page(1).is_none());
+		let Command::Search { request, .. } = state.request_search_page(0).unwrap() else {
+			panic!()
+		};
+		state.apply_search(Id(20), request, Ok(page(499, 51)));
+		assert_eq!(state.search.as_ref().unwrap().page_count(), 3);
+		assert!(state.request_search_page(3).is_none());
+		let Command::Search {
+			request: next,
+			channel,
+			guild,
+			query: retained_query,
+			before,
+			offset,
+		} = state.request_search_page(2).unwrap()
+		else {
+			panic!()
+		};
+		assert_eq!(
+			(channel, guild, before, offset),
+			(Id(20), Some(Id(10)), None, 50)
+		);
+		assert_eq!(retained_query, query);
+		assert!(state.search.as_ref().unwrap().page.is_none());
+		assert_eq!(state.search.as_ref().unwrap().total, Some(51));
+		state.apply_search(Id(20), request, Ok(page(499, 100)));
+		assert!(state.search.as_ref().unwrap().loading);
+		state.apply_search(Id(20), next, Err(Failure::Network));
+		assert_eq!(state.search.as_ref().unwrap().page_count(), 3);
+		let Command::Search {
+			request,
+			offset: 50,
+			..
+		} = state.request_search_page(2).unwrap()
+		else {
+			panic!()
+		};
+		state.apply_search(Id(20), request, Ok(page(449, 51)));
+		assert_eq!(
+			state
+				.search
+				.as_ref()
+				.unwrap()
+				.page
+				.as_ref()
+				.unwrap()
+				.hits
+				.len(),
+			1
+		);
+		let Command::Search {
+			request, offset: 0, ..
+		} = state.request_search_page(0).unwrap()
+		else {
+			panic!()
+		};
+		state.apply_search(Id(20), request, Ok(page(499, 51)));
+		// The legacy cursor API starts a new subquery; numbered pages retain that cursor.
+		let Command::Search {
+			request, offset: 0, ..
+		} = state.request_search(query.into(), Some(Id(499))).unwrap()
+		else {
+			panic!()
+		};
+		state.apply_search(Id(20), request, Ok(page(498, u64::MAX)));
+		assert_eq!(state.search.as_ref().unwrap().page_count(), 400);
+		assert!(state.request_search_page(400).is_none());
+		assert!(state.request_search_page(u32::MAX).is_none());
+		let Command::Search {
+			request,
+			before: Some(Id(499)),
+			offset: model::MAX_SEARCH_OFFSET,
+			..
+		} = state.request_search_page(399).unwrap()
+		else {
+			panic!()
+		};
+		state.apply_search(Id(20), request, Ok(page(1, u64::MAX)));
+		state.request_pins().unwrap();
+		assert!(state.request_search_page(0).is_none());
+		state.select(Id(22));
+		assert!(state.request_search_page(0).is_none());
+	}
+	#[test]
 	fn search_pages_reject_late_results_and_open_only_revalidated_history() {
 		use client_core::{Command, auth::Failure, search::Outcome};
 		let mut state = demo_state();
@@ -1997,6 +2220,7 @@ mod tests {
 					id: Id(499),
 					channel: Id(20),
 					author: crate::message(1, Id(20)).author,
+					mentions: vec![],
 					excerpt: "index text".into(),
 					attachments: vec![],
 					embeds: vec![],

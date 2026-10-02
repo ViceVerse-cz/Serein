@@ -19,6 +19,36 @@ pub(super) fn x11_session() -> bool {
 		&& std::env::var_os("DISPLAY").is_some_and(|value| !value.is_empty())
 }
 
+fn niri_desktop(desktop: &str) -> bool {
+	desktop
+		.split(':')
+		.any(|name| name.eq_ignore_ascii_case("niri"))
+}
+
+/// Niri 26.04 leaves SPA header PTS at zero, which GstBaseSrc preserves (plus
+/// its startup offset) even with do-timestamp=true. Both videorate branches then
+/// discard subsequent pictures. Timestamp at arrival, before either branch.
+/// Only buffer metadata is made writable; pixel memory remains shared.
+pub(super) fn timestamp_niri_frames(source: &gst::Element) -> Result<(), &'static str> {
+	let weak = source.downgrade();
+	source
+		.static_pad("src")
+		.ok_or("Screen capture source has no output")?
+		.add_probe(gst::PadProbeType::BUFFER, move |_, info| {
+			if let Some(time) = weak
+				.upgrade()
+				.and_then(|source| source.current_running_time())
+				&& let Some(gst::PadProbeData::Buffer(buffer)) = &mut info.data
+			{
+				let buffer = buffer.make_mut();
+				buffer.set_pts(time);
+				buffer.set_dts(time);
+			}
+			gst::PadProbeReturn::Ok
+		});
+	Ok(())
+}
+
 fn note(event: &str, value: &str) {
 	if std::env::var_os("SEREIN_VOICE_DIAGNOSTICS").is_some_and(|set| set == "1") {
 		eprintln!("[Serein voice Screen] {event}={value}");
@@ -31,7 +61,7 @@ use std::{
 	os::fd::AsRawFd,
 	sync::{
 		Arc, Mutex,
-		atomic::{AtomicBool, AtomicU64, Ordering},
+		atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
 	},
 	time::{Duration, Instant},
 };
@@ -52,6 +82,7 @@ pub(super) fn run(
 	stop: Arc<AtomicBool>,
 	ready: Arc<AtomicBool>,
 	keyframe: Arc<AtomicBool>,
+	bitrate: Arc<AtomicU32>,
 	send: tokio::sync::mpsc::Sender<EncodedFrame>,
 	audio_send: Option<tokio::sync::mpsc::Sender<AudioChunk>>,
 	audio_epoch: Arc<AtomicU64>,
@@ -90,7 +121,9 @@ pub(super) fn run(
 					audio_linux::Worker::start(send, stop.clone(), ready.clone(), audio_epoch)
 				})
 				.transpose()?;
-			for mode in Mode::ALL {
+			let mut mode_index = 0;
+			while let Some(&mode) = Mode::ALL.get(mode_index) {
+				mode_index += 1;
 				if stop.load(Ordering::Acquire) || send.is_closed() {
 					return Ok(());
 				}
@@ -116,6 +149,11 @@ pub(super) fn run(
 						source.set_property("path", portal.node_id.to_string());
 					}
 					source.set_property("do-timestamp", true);
+					if std::env::var("XDG_CURRENT_DESKTOP")
+						.is_ok_and(|desktop| niri_desktop(&desktop))
+					{
+						timestamp_niri_frames(&source)?;
+					}
 					// Damage-driven desktops still need a fresh IDR when a viewer joins an idle screen.
 					source.set_property("keepalive-time", 1000i32);
 					source.set_property("min-buffers", 2i32);
@@ -126,9 +164,13 @@ pub(super) fn run(
 				};
 				let capacity = send.clone();
 				keyframe.store(true, Ordering::Release);
+				let mut active_bitrate = bitrate
+					.load(Ordering::Acquire)
+					.clamp(250_000, settings.bit_rate());
 				let Ok(pipeline) = Capture::new(
 					settings,
 					mode,
+					active_bitrate,
 					source,
 					stop.clone(),
 					ready.clone(),
@@ -169,6 +211,28 @@ pub(super) fn run(
 					}
 					if pipeline.failed() {
 						break;
+					}
+					let target = bitrate
+						.load(Ordering::Acquire)
+						.clamp(250_000, settings.bit_rate());
+					// Let startup/recovery reach its existing deadline: changing targets must
+					// not repeatedly restart a failing encoder before fallback can run.
+					if target != active_bitrate && !waiting_keyframe {
+						if mode != Mode::Software && pipeline.set_bitrate(target) {
+							active_bitrate = target;
+						} else if crate::screen::software_rate_change(active_bitrate, target) {
+							// Restarts cost an IDR, so only large moves apply. Older plugins
+							// cannot change rate while playing: reopen the same mode with a
+							// fresh PipeWire remote, keeping the approved portal.
+							if mode != Mode::Software {
+								mode_index -= 1;
+								break;
+							}
+							software = None;
+							waiting_keyframe = true;
+							keyframe.store(true, Ordering::Release);
+							active_bitrate = target;
+						}
 					}
 					// Counted per pass: whether a picture was taken, and whether one was left
 					// in the pipeline because the transport had not drained the last.
@@ -216,7 +280,7 @@ pub(super) fn run(
 						// pressure reaches the encoder instead of breaking its reference chain,
 						// and this iteration still reaches the await below. Skipping the await
 						// here would spin the worker and starve the portal on this runtime.
-						let room = mode != Mode::Software || send.capacity() > 0;
+						let room = send.capacity() > 0;
 						withheld = u64::from(!room);
 						if room
 							&& let Some(sample) =
@@ -232,7 +296,7 @@ pub(super) fn run(
 								}
 								if software.is_none() {
 									software = Some((
-										encoder(settings)?,
+										encoder(settings, active_bitrate)?,
 										YUVBuffer::new(
 											settings.width as usize,
 											settings.height as usize,
@@ -326,9 +390,19 @@ pub(super) fn run(
 						pictures_second = 0;
 						withheld_second = 0;
 					}
-					pipeline.changed().await;
+					if withheld > 0 {
+						// Draining the transport does not notify the appsink. Wake on capacity,
+						// retaining changed()'s 100 ms bound for cancellation and portal checks.
+						tokio::select! {
+							_ = send.reserve() => {},
+							_ = pipeline.changed() => {},
+						}
+					} else {
+						pipeline.changed().await;
+					}
 				}
-				// One bounded pass through alternatives, always destroying the old pipeline first.
+				// Failed encoders advance through the bounded alternatives; rate changes retry
+				// the current encoder. Always destroy the old pipeline before opening another.
 				drop(pipeline);
 				drop(remote);
 			}
@@ -345,4 +419,17 @@ pub(super) fn run(
 		drop(audio);
 		result
 	})
+}
+
+#[cfg(test)]
+mod tests {
+	#[test]
+	fn niri_detection_preserves_other_desktops() {
+		for desktop in ["niri", "Niri", "GNOME:niri"] {
+			assert!(super::niri_desktop(desktop));
+		}
+		for desktop in ["", "GNOME", "KDE", "sway", "Hyprland", "not-niri"] {
+			assert!(!super::niri_desktop(desktop));
+		}
+	}
 }

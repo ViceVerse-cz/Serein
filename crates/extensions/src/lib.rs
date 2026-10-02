@@ -5,6 +5,24 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod runtime;
 pub use runtime::invoke;
+mod rich_presence;
+pub use rich_presence::*;
+mod discovery;
+pub use discovery::*;
+mod conversation_activity;
+pub use conversation_activity::*;
+mod message_content;
+pub use message_content::*;
+mod forum_data;
+pub use forum_data::*;
+mod channel_metadata;
+pub use channel_metadata::*;
+mod member_details;
+pub use member_details::*;
+mod app;
+pub use app::*;
+mod extended;
+pub use extended::*;
 
 pub const API_VERSION: u32 = 1;
 pub const MAX_PACKAGE_BYTES: usize = 16 * 1024 * 1024;
@@ -13,9 +31,13 @@ pub const MAX_BACKGROUND_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_PREVIEW_BYTES: usize = 256 * 1024;
 pub const MAX_CATALOG_BYTES: usize = 1024 * 1024;
 pub const MAX_IO_BYTES: usize = 256 * 1024;
+pub const MAX_EVENT_CONTENT_BYTES: usize = 16 * 1024;
 pub const MAX_STORAGE_BYTES: usize = 1024 * 1024;
 pub const MAX_PLUGINS: usize = 8;
 pub const MAX_PANEL_ELEMENTS: usize = 64;
+pub const MAX_CAPABILITIES: usize = 64;
+/// Minimum delay between completed host-scheduled appearance ticks.
+pub const TICK_MIN_INTERVAL_MS: u64 = 250;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -29,9 +51,31 @@ pub enum Error {
 	Capability,
 	#[error("Invalid or unsupported WebAssembly module")]
 	Module,
-	#[error("Extension execution failed or exhausted its budget")]
+	#[error("Extension execution could not start; check its Wasm exports and runtime requirements")]
 	Execution,
-	#[error("Extension returned an invalid response")]
+	#[error("Extension exhausted its execution fuel; reduce handler work or requested data")]
+	Fuel,
+	#[error(
+		"Extension memory or table allocation failed; reduce allocations within the sandbox limits"
+	)]
+	Memory,
+	#[error("Extension exhausted its call stack; reduce recursion and stack allocations")]
+	Stack,
+	#[error(
+		"Extension handler trapped; check for panics, invalid memory access or arithmetic errors"
+	)]
+	Trap,
+	#[error("Extension input is invalid; check the action and input field schema")]
+	Input,
+	#[error(
+		"Extension input exceeds its limits; reduce requested data, form values or saved storage"
+	)]
+	InputLimit,
+	#[error("Extension response exceeds its limits; reduce panel elements, text or saved storage")]
+	OutputLimit,
+	#[error("Extension returned no response; check SDK input decoding and output serialization")]
+	Handler,
+	#[error("Extension returned an invalid response; check the output JSON schema and ABI buffer")]
 	Output,
 }
 
@@ -45,12 +89,61 @@ pub enum ExtensionKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+	ApiProxy,
+	RichPresence,
+	RelationshipControl,
+	AccountControl,
+	AudioSettings,
+	VoiceConnect,
+	CameraControl,
+
+	MessageSend,
+	MessageManage,
+	ReactionsControl,
+	ReadStateControl,
+	ThreadsControl,
+	ChannelControl,
+	ServerControl,
+	RoleControl,
+	ModerationControl,
+	MediaControl,
+	ActionFeedback,
+	DataQueries,
+	MessagingSettings,
+	GuildFolders,
+
+	MessageContent,
+	ForumData,
+	ConversationActivity,
+	ChannelMetadata,
+	MemberDetails,
 	SelectedMessage,
 	Composer,
 	Storage,
 	DeletedMessages,
 	ImageSharing,
 	Appearance,
+	MessageEvents,
+	AppContext,
+	ChannelDirectory,
+	Timeline,
+	Members,
+	Presence,
+	VoiceState,
+	ReadState,
+	LocalSettings,
+	NotificationSettings,
+	Navigation,
+	LocalNotices,
+	ClipboardWrite,
+	VoiceControl,
+	AppEvents,
+	AccountProfile,
+	GuildDirectory,
+	ChannelDetails,
+	DataEvents,
+	MessageDetails,
+	Relationships,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +153,10 @@ pub enum Surface {
 	Composer,
 	Panel,
 	Activation,
+	MessageEvent,
+	AppEvent,
+	/// Host-scheduled appearance update. Each call is a fresh Wasm invocation.
+	Tick,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -181,7 +278,9 @@ pub struct ThemeStyle {
 	pub transparency: Option<u8>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub blur: Option<u8>,
-	#[serde(skip_serializing_if = "Option::is_none")]
+	/// Legacy switch: transparency now always covers every surface. Older themes that still
+	/// set it keep parsing; the value is ignored and never written back.
+	#[serde(skip_serializing)]
 	pub transparent_all: Option<bool>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub body_size: Option<u8>,
@@ -277,11 +376,145 @@ pub struct Invocation {
 	pub storage: Option<String>,
 	#[serde(default)]
 	pub values: BTreeMap<String, String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message_event: Option<Box<MessageEvent>>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub app: Option<Box<AppSnapshot>>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub app_event: Option<AppEventKind>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub action_result: Option<ActionResult>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub queries: Option<Box<QuerySnapshot>>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub messaging_settings: Option<Box<MessagingSettingsSnapshot>>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub guild_folders: Option<Box<GuildFoldersSnapshot>>,
+	/// Milliseconds elapsed since this plugin was enabled for the current session.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub tick_ms: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageEventKind {
+	Create,
+	Update,
+	Delete,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MessageEvent {
+	pub kind: MessageEventKind,
+	pub channel_id: String,
+	pub message_id: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub author_id: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub content: Option<String>,
+}
+
+impl MessageEvent {
+	pub fn validate(&self) -> Result<(), Error> {
+		for id in [&self.channel_id, &self.message_id]
+			.into_iter()
+			.chain(self.author_id.iter())
+		{
+			app::entity_id(id)?;
+		}
+		if self
+			.content
+			.as_ref()
+			.is_some_and(|content| content.len() > MAX_EVENT_CONTENT_BYTES)
+		{
+			return Err(Error::Limit);
+		}
+		match self.kind {
+			MessageEventKind::Create if self.author_id.is_none() || self.content.is_none() => {
+				Err(Error::Invalid)
+			}
+			MessageEventKind::Delete if self.author_id.is_some() || self.content.is_some() => {
+				Err(Error::Invalid)
+			}
+			_ => Ok(()),
+		}
+	}
+}
+
+/// Connection-scoped REST API routing. No credentials or account data are exposed.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ApiProxyConfig {
+	#[default]
+	Direct,
+	Automatic,
+	Url {
+		url: String,
+	},
+}
+impl<'de> Deserialize<'de> for ApiProxyConfig {
+	fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+		#[derive(Deserialize)]
+		#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
+		enum Wire {
+			Direct {},
+			Automatic {},
+			Url { url: String },
+		}
+		Ok(match Wire::deserialize(deserializer)? {
+			Wire::Direct {} => Self::Direct,
+			Wire::Automatic {} => Self::Automatic,
+			Wire::Url { url } => Self::Url { url },
+		})
+	}
+}
+impl ApiProxyConfig {
+	pub fn validate(&self) -> Result<(), Error> {
+		if let Self::Url { url } = self {
+			if url.contains('@')
+				|| url.contains('\\')
+				|| url.len() > 2048
+				|| url
+					.chars()
+					.any(|c| c.is_control() || c.is_ascii_whitespace())
+			{
+				return Err(Error::Invalid);
+			}
+			let authority = url
+				.split_once("://")
+				.map(|(_, tail)| tail)
+				.ok_or(Error::Invalid)?;
+			if authority
+				.strip_suffix('/')
+				.unwrap_or(authority)
+				.contains('/')
+			{
+				return Err(Error::Invalid);
+			}
+			let parsed = url::Url::parse(url).map_err(|_| Error::Invalid)?;
+			if !matches!(parsed.scheme(), "http" | "https")
+				|| parsed.host_str().is_none()
+				|| !parsed.username().is_empty()
+				|| parsed.password().is_some()
+				|| parsed.path() != "/"
+				|| parsed.query().is_some()
+				|| parsed.fragment().is_some()
+			{
+				return Err(Error::Invalid);
+			}
+		}
+		Ok(())
+	}
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Output {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub api_proxy: Option<ApiProxyConfig>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub rich_presence: Option<RichPresenceUpdate>,
 	#[serde(default)]
 	pub image_sharing: bool,
 	#[serde(default)]
@@ -294,11 +527,16 @@ pub struct Output {
 	pub panel: Vec<Element>,
 	#[serde(default)]
 	pub storage: Option<String>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub effects: Vec<HostEffect>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Element {
+	ActivityPreview {
+		presence: Box<CustomRichPresence>,
+	},
 	Text {
 		text: String,
 	},
@@ -389,20 +627,63 @@ impl Manifest {
 				return Err(Error::Invalid);
 			}
 		}
-		if self.capabilities.len() > 4 || self.actions.len() > 16 {
+		if self.capabilities.len() > MAX_CAPABILITIES || self.actions.len() > 16 {
 			return Err(Error::Limit);
+		}
+		if self.capabilities.contains(&Capability::ApiProxy)
+			&& (self.kind != ExtensionKind::Plugin
+				|| self
+					.capabilities
+					.iter()
+					.any(|cap| !matches!(cap, Capability::ApiProxy | Capability::Storage))
+				|| self
+					.actions
+					.iter()
+					.any(|action| !matches!(action.surface, Surface::Activation | Surface::Panel)))
+		{
+			return Err(Error::Capability);
 		}
 		let mut capabilities = BTreeSet::new();
 		if self.capabilities.iter().any(|c| !capabilities.insert(*c)) {
 			return Err(Error::Invalid);
 		}
-		if self
-			.actions
-			.iter()
-			.filter(|a| a.surface == Surface::Activation)
-			.count() > 1
+		if capabilities.contains(&Capability::DataEvents)
+			&& !capabilities.contains(&Capability::AppEvents)
 		{
-			return Err(Error::Invalid);
+			return Err(Error::Capability);
+		}
+		if capabilities.contains(&Capability::ActionFeedback)
+			&& (!capabilities.contains(&Capability::AppEvents)
+				|| !self
+					.actions
+					.iter()
+					.any(|action| action.surface == Surface::AppEvent))
+		{
+			return Err(Error::Capability);
+		}
+		if capabilities.contains(&Capability::DataQueries)
+			&& (!capabilities.contains(&Capability::AppEvents)
+				|| !self
+					.actions
+					.iter()
+					.any(|action| action.surface == Surface::AppEvent))
+		{
+			return Err(Error::Capability);
+		}
+		for surface in [
+			Surface::Activation,
+			Surface::MessageEvent,
+			Surface::AppEvent,
+			Surface::Tick,
+		] {
+			if self
+				.actions
+				.iter()
+				.filter(|action| action.surface == surface)
+				.count() > 1
+			{
+				return Err(Error::Invalid);
+			}
 		}
 		let mut ids = BTreeSet::new();
 		for action in &self.actions {
@@ -419,6 +700,9 @@ impl Manifest {
 				Surface::Composer => Some(Capability::Composer),
 				Surface::Panel => None,
 				Surface::Activation => None,
+				Surface::MessageEvent => Some(Capability::MessageEvents),
+				Surface::AppEvent => Some(Capability::AppEvents),
+				Surface::Tick => Some(Capability::Appearance),
 			};
 			if required.is_some_and(|c| !capabilities.contains(&c)) {
 				return Err(Error::Capability);
@@ -478,7 +762,6 @@ impl Theme {
 			.or(self.style.transparency_blur);
 		self.style.transparency = other.style.transparency.or(self.style.transparency);
 		self.style.blur = other.style.blur.or(self.style.blur);
-		self.style.transparent_all = other.style.transparent_all.or(self.style.transparent_all);
 		self.style.heading_size = other.style.heading_size.or(self.style.heading_size);
 		self.style.button_size = other.style.button_size.or(self.style.button_size);
 		self.style.small_size = other.style.small_size.or(self.style.small_size);
@@ -674,6 +957,66 @@ impl Invocation {
 			.iter()
 			.find(|a| a.id == self.action)
 			.ok_or(Error::Invalid)?;
+		if let Some(snapshot) = &self.app {
+			snapshot.validate(manifest)?;
+		}
+		if action.surface == Surface::AppEvent {
+			if !manifest.capabilities.contains(&Capability::AppEvents)
+				|| self.selected_message.is_some()
+				|| self.composer.is_some()
+				|| !self.values.is_empty()
+			{
+				return Err(Error::Capability);
+			}
+			self.app_event.ok_or(Error::Invalid)?.validate(manifest)?;
+		} else if self.app_event.is_some() {
+			return Err(Error::Capability);
+		}
+		if let Some(result) = &self.action_result {
+			if action.surface != Surface::AppEvent
+				|| self.app_event != Some(AppEventKind::Context)
+				|| !manifest.capabilities.contains(&Capability::ActionFeedback)
+			{
+				return Err(Error::Capability);
+			}
+			result.validate()?;
+		}
+		if let Some(queries) = &self.queries {
+			if !manifest.capabilities.contains(&Capability::DataQueries) {
+				return Err(Error::Capability);
+			}
+			queries.validate()?;
+		}
+		if let Some(settings) = &self.messaging_settings {
+			if !manifest
+				.capabilities
+				.contains(&Capability::MessagingSettings)
+			{
+				return Err(Error::Capability);
+			}
+			settings.validate()?;
+		}
+		if let Some(folders) = &self.guild_folders {
+			if !manifest.capabilities.contains(&Capability::GuildFolders) {
+				return Err(Error::Capability);
+			}
+			folders.validate()?;
+		}
+		if action.surface == Surface::MessageEvent {
+			if !manifest.capabilities.contains(&Capability::MessageEvents)
+				|| self.selected_message.is_some()
+				|| self.composer.is_some()
+				|| !self.values.is_empty()
+			{
+				return Err(Error::Capability);
+			}
+			self.message_event
+				.as_ref()
+				.ok_or(Error::Invalid)?
+				.validate()?;
+		} else if self.message_event.is_some() {
+			return Err(Error::Capability);
+		}
 		for (data, capability) in [
 			(&self.selected_message, Capability::SelectedMessage),
 			(&self.composer, Capability::Composer),
@@ -690,6 +1033,20 @@ impl Invocation {
 		}
 		if self.selected_message.is_some() && action.surface != Surface::Message
 			|| self.composer.is_some() && action.surface != Surface::Composer
+			|| self.tick_ms.is_some() && action.surface != Surface::Tick
+			|| self.tick_ms.is_none() && action.surface == Surface::Tick
+		{
+			return Err(Error::Capability);
+		}
+		if action.surface == Surface::Tick
+			&& (!self.values.is_empty()
+				|| self.message_event.is_some()
+				|| self.app.is_some()
+				|| self.app_event.is_some()
+				|| self.action_result.is_some()
+				|| self.queries.is_some()
+				|| self.messaging_settings.is_some()
+				|| self.guild_folders.is_some())
 		{
 			return Err(Error::Capability);
 		}
@@ -707,6 +1064,54 @@ impl Invocation {
 
 impl Output {
 	pub fn validate(&self, manifest: &Manifest, input: &Invocation) -> Result<(), Error> {
+		let surface = manifest
+			.actions
+			.iter()
+			.find(|action| action.id == input.action)
+			.ok_or(Error::Invalid)?
+			.surface;
+		if surface == Surface::Tick
+			&& (self.rich_presence.is_some()
+				|| self.image_sharing
+				|| self.preserve_deleted_messages
+				|| self.replacement.is_some()
+				|| !self.panel.is_empty()
+				|| self.storage.is_some()
+				|| !self.effects.is_empty())
+		{
+			return Err(Error::Capability);
+		}
+		if let Some(config) = &self.api_proxy {
+			if !manifest.capabilities.contains(&Capability::ApiProxy)
+				|| !matches!(surface, Surface::Activation | Surface::Panel)
+			{
+				return Err(Error::Capability);
+			}
+			config.validate()?;
+		}
+		if let Some(update) = &self.rich_presence {
+			if !manifest.capabilities.contains(&Capability::RichPresence)
+				|| !matches!(surface, Surface::Activation | Surface::Panel)
+			{
+				return Err(Error::Capability);
+			}
+			if let RichPresenceUpdate::Set { presence } = update {
+				presence.validate()?;
+			}
+		}
+		if !self.panel.is_empty() && matches!(surface, Surface::MessageEvent | Surface::AppEvent) {
+			return Err(Error::Capability);
+		}
+		if !self.effects.is_empty() {
+			if self.replacement.is_some()
+				|| matches!(
+					surface,
+					Surface::Activation | Surface::MessageEvent | Surface::AppEvent
+				) {
+				return Err(Error::Capability);
+			}
+			app::validate_effects(&self.effects, manifest)?;
+		}
 		if let Some(appearance) = &self.appearance {
 			if !manifest.capabilities.contains(&Capability::Appearance) {
 				return Err(Error::Capability);
@@ -772,6 +1177,10 @@ fn validate_elements(
 			return Err(Error::Limit);
 		}
 		let (id, label) = match element {
+			Element::ActivityPreview { presence } => {
+				presence.validate()?;
+				continue;
+			}
 			Element::Text { text } => {
 				if text.len() > 4096 {
 					return Err(Error::Limit);

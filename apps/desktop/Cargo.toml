@@ -5,7 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-default = []
+default = ["development-data"]
+development-data = ["local-store/development-data", "platform/development-data"]
 # No-op: token sign-in used to require this flag; it is now always built in.
 # Kept only so `--features developer-session` in older scripts keeps building.
 developer-session = []
@@ -33,9 +34,9 @@ local-store.workspace = true
 winit.workspace = true
 reqwest.workspace = true
 rasterlottie.workspace = true
-dirs.workspace = true
 getrandom.workspace = true
 url.workspace = true
+time = { workspace = true, features = ["local-offset"] }
 sha2 = "=0.10.9"
 md4 = "=0.10.2"
 semver = "=1.0.28"
@@ -46,13 +47,20 @@ symphonia = { version = "=0.6.1", default-features = false, features = ["mp3", "
 opus2 = { version = "=0.4.0", default-features = false, features = ["backend-libopus", "static", "bundled"] }
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 png = "=0.18.1"
+# Only trusted bundled path/shape SVGs; no text, font discovery, raster images or SVGZ.
+resvg = { version = "=0.48.1", default-features = false }
 arboard = "=3.6.1"
+# Serein never installs a `log` logger, so dependency log calls (wgpu, winit, reqwest, ...)
+# are dead code; this feature compiles them out of release builds instead of shipping them.
+log = { version = "=0.4.34", features = ["release_max_level_off"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Use Adwaita decorations when the Wayland compositor does not provide a frame (GNOME).
 winit = { workspace = true, features = ["wayland-csd-adwaita"] }
 # Native Wayland clipboard so copied files paste without an XWayland bridge.
 arboard = { version = "=3.6.1", features = ["wayland-data-control"] }
+# Media playback sizes PulseAudio buffers itself; voice already selects this host.
+cpal = { version = "=0.18.2", default-features = false, features = ["pulseaudio"] }
 
 [build-dependencies]
 find-msvc-tools = "=0.1.12"

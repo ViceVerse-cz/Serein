@@ -6,7 +6,8 @@ use client_core::{
 	voice::{self, Command, Participant, RosterEntry, Secret},
 };
 use discord_protocol::{
-	CallDto, GuildDto, UserDto, VoiceMemberDto, VoiceServerDto, VoiceStateDto, decode, stream,
+	CallDto, ChannelInfoDto, GuildDto, UserDto, VoiceChannelStartTimeDto, VoiceMemberDto,
+	VoiceServerDto, VoiceStateDto, decode, stream,
 };
 use model::{Id, Member, User};
 use serde_json::json;
@@ -38,11 +39,18 @@ pub(super) struct Calls {
 	pub(super) allowed: BTreeMap<Id, Option<Id>>,
 	pub(super) active: Option<(Id, u64)>,
 	active_guild: Option<Id>,
+	// One validated, redacted/zeroizing candidate; ownership requires transport confirmation.
+	active_session: Option<Secret>,
+	// A candidate is replaceable until this device authenticates its voice transport.
+	session_confirmed: bool,
+	negotiation_revision: u64,
+	negotiation_server: Option<(Secret, Option<String>)>,
 	muted: bool,
 	deafened: bool,
 	camera: bool,
 	departing: Option<(Id, u64)>,
 	departing_guild: Option<Id>,
+	departing_session: Option<Secret>,
 	pub(super) departure_deadline: Option<Instant>,
 	stream: Option<StreamAttempt>,
 	watch: Option<WatchAttempt>,
@@ -55,6 +63,7 @@ impl Calls {
 	/// and its mute flags survive; only an unacknowledged hangup is abandoned.
 	pub(super) fn disconnected(&mut self) {
 		self.departing = None;
+		self.departing_session = None;
 		self.departure_deadline = None;
 		self.users.clear();
 	}
@@ -62,10 +71,14 @@ impl Calls {
 	pub(super) fn session_reset(&mut self) {
 		self.active = None;
 		self.active_guild = None;
+		self.active_session = None;
+		self.negotiation_server = None;
+		self.session_confirmed = false;
 		self.muted = false;
 		self.deafened = false;
 		self.camera = false;
 		self.departing = None;
+		self.departing_session = None;
 		self.departure_deadline = None;
 		self.stream = None;
 		self.watch = None;
@@ -76,6 +89,9 @@ impl Calls {
 		if self.active.is_some_and(|(active, _)| active == channel) {
 			self.active = None;
 			self.active_guild = None;
+			self.active_session = None;
+			self.negotiation_server = None;
+			self.session_confirmed = false;
 			self.stream = None;
 			self.watch = None;
 			self.camera = false;
@@ -145,6 +161,7 @@ impl Calls {
 			status: None,
 			custom_status: None,
 			activities: vec![],
+			clients: model::ClientPlatforms::default(),
 		})
 	}
 	pub(super) fn snapshot(&self, guild: &mut GuildDto, partial: bool) -> Result<Event, Failure> {
@@ -235,6 +252,30 @@ impl Calls {
 		}
 		Ok(())
 	}
+	pub(super) fn confirm_session(
+		&mut self,
+		channel: Id,
+		request: u64,
+		revision: u64,
+	) -> Option<Event> {
+		if self.active != Some((channel, request))
+			|| self.allowed.get(&channel) != Some(&self.active_guild)
+			|| self.active_session.is_none()
+			|| self
+				.negotiation_server
+				.as_ref()
+				.is_none_or(|(_, endpoint)| endpoint.is_none())
+			|| self.negotiation_revision != revision
+		{
+			return None;
+		}
+		self.session_confirmed = true;
+		Some(Event::Voice(voice::Event::SessionConfirmed {
+			channel,
+			request,
+			revision,
+		}))
+	}
 	pub(super) fn packet(&mut self, command: Command) -> Result<Option<Frame>, Failure> {
 		let (channel, guild) = match command {
 			Command::Sync { channel } => {
@@ -261,16 +302,38 @@ impl Calls {
 				}
 				self.active = Some((channel, request));
 				self.active_guild = guild;
+				self.active_session = None;
+				self.negotiation_server = None;
+				self.session_confirmed = false;
 				self.muted = mute || deaf;
 				self.deafened = deaf;
 				self.camera = false;
 				(Some(channel), guild)
+			}
+			Command::AbandonSession { channel, request } => {
+				if self.active == Some((channel, request)) {
+					self.active = None;
+					self.active_guild = None;
+					self.active_session = None;
+					self.negotiation_server = None;
+					self.session_confirmed = false;
+					self.stream = None;
+					self.watch = None;
+					self.camera = false;
+				}
+				return Ok(None);
 			}
 			Command::Leave { channel, request } => {
 				if self.active != Some((channel, request)) {
 					return Ok(None);
 				}
 				self.departing = self.active.take();
+				self.departing_session = self
+					.active_session
+					.take()
+					.filter(|_| self.session_confirmed);
+				self.session_confirmed = false;
+				self.negotiation_server = None;
 				self.departing_guild = self.active_guild;
 				self.departure_deadline = Some(Instant::now() + Duration::from_secs(10));
 				self.stream = None;
@@ -310,14 +373,47 @@ impl Calls {
 				self.camera = enabled;
 				(Some(channel), self.active_guild)
 			}
-			Command::StartStream { .. }
+			Command::ConfirmSession { .. }
+			| Command::StartStream { .. }
 			| Command::StopStream { .. }
 			| Command::WatchStream { .. }
 			| Command::StopWatching { .. }
 			| Command::Decline { .. }
-			| Command::Ring { .. } => return Ok(None),
+			| Command::Ring { .. }
+			| Command::RingRecipient { .. } => return Ok(None),
 		};
 		Ok(Some(Frame::Text(json!({"op":4,"d":{"guild_id":guild,"channel_id":channel,"self_mute":self.muted,"self_deaf":self.deafened,"self_video":self.camera}}).to_string().into())))
+	}
+	pub(super) fn channel_info_packet(&self, channel: Id) -> Option<Frame> {
+		let guild = self.active_guild?;
+		(self.active.is_some_and(|(active, _)| active == channel)
+			&& self.allowed.get(&channel) == Some(&Some(guild)))
+		.then(|| {
+			Frame::Text(
+				json!({"op":43,"d":{"guild_id":guild,"fields":["voice_start_time"]}})
+					.to_string()
+					.into(),
+			)
+		})
+	}
+	fn channel_started(
+		&self,
+		guild: Id,
+		channel: Id,
+		unix_seconds: Option<u64>,
+		emit: &impl Fn(Event) -> Result<(), Failure>,
+	) -> Result<(), Failure> {
+		if self.active.is_some_and(|(active, _)| active == channel)
+			&& self.active_guild == Some(guild)
+			&& self.allowed.get(&channel) == Some(&Some(guild))
+		{
+			emit(Event::Voice(voice::Event::ChannelStarted {
+				guild,
+				channel,
+				unix_seconds,
+			}))?;
+		}
+		Ok(())
 	}
 	pub(super) fn stream_packet(
 		&mut self,
@@ -686,8 +782,20 @@ impl Calls {
 		let session = state.session_id.take().map(Zeroizing::new);
 		let own = owner == Some(state.user_id);
 		if own && self.departing.is_some() {
-			if state.guild_id == self.departing_guild && state.channel_id.is_none() {
+			let departure_session = session
+				.as_ref()
+				.map(|session| Secret::new(session.to_string()))
+				.transpose()?;
+			let replaced = state.guild_id == self.departing_guild
+				&& state.channel_id.is_some()
+				&& departure_session.as_ref().is_some_and(|session| {
+					self.departing_session
+						.as_ref()
+						.is_some_and(|previous| previous.expose() != session.expose())
+				});
+			if state.guild_id == self.departing_guild && (state.channel_id.is_none() || replaced) {
 				let (channel, request) = self.departing.take().expect("departing call");
+				self.departing_session = None;
 				self.departure_deadline = None;
 				emit(Event::Voice(voice::Event::Departed { channel, request }))?;
 			}
@@ -702,25 +810,65 @@ impl Calls {
 		if !allowed && !own {
 			return Ok(());
 		}
-		let request = self.active.and_then(|(_, request)| {
-			(own || self.active_guild == state.guild_id).then_some(request)
-		});
 		let matches_active = allowed
 			&& self
 				.active
 				.is_some_and(|(channel, _)| state.channel_id == Some(channel))
 			&& self.active_guild == state.guild_id;
+		if own
+			&& allowed
+			&& state.channel_id.is_some()
+			&& self.active.is_some()
+			&& !matches_active
+			&& !self.session_confirmed
+		{
+			// A previous-channel update cannot invalidate a newly submitted, unconfirmed Join.
+			return Ok(());
+		}
 		let secret = if own && matches_active {
 			session.map(|s| Secret::new(s.to_string())).transpose()?
 		} else {
 			None
 		};
+		let moved = self.session_confirmed && state.channel_id.is_some() && !matches_active;
+		let changed_session = self.session_confirmed
+			&& matches_active
+			&& secret.as_ref().is_some_and(|session| {
+				self.active_session
+					.as_ref()
+					.is_some_and(|previous| previous.expose() != session.expose())
+			});
+		let taken_over = own && (moved || changed_session);
+		if taken_over {
+			let (channel, request) = self.active.take().expect("confirmed active call");
+			self.active_guild = None;
+			self.active_session = None;
+			self.negotiation_server = None;
+			self.session_confirmed = false;
+			self.stream = None;
+			self.watch = None;
+			self.camera = false;
+			emit(Event::Voice(voice::Event::TakenOver { channel, request }))?;
+		} else if let Some(session) = &secret
+			&& self
+				.active_session
+				.as_ref()
+				.is_none_or(|old| old.expose() != session.expose())
+		{
+			self.negotiation_revision = self.negotiation_revision.wrapping_add(1);
+			self.active_session = Some(Secret::new(session.expose().to_owned())?);
+		}
+		let request = self.active.and_then(|(_, request)| {
+			(own || self.active_guild == state.guild_id).then_some(request)
+		});
+		let secret = secret.filter(|_| !taken_over);
 		let participant = participant(&state);
 		emit(Event::Voice(voice::Event::State {
 			request,
 			guild: state.guild_id,
 			channel: state.channel_id.filter(|_| allowed),
 			user: state.user_id,
+			negotiation_revision: secret.as_ref().map(|_| self.negotiation_revision),
 			session: secret,
 			member: state
 				.member
@@ -737,6 +885,9 @@ impl Calls {
 		if own && self.active.is_some() && !matches_active {
 			self.active = None;
 			self.active_guild = None;
+			self.active_session = None;
+			self.negotiation_server = None;
+			self.session_confirmed = false;
 			self.stream = None;
 			self.watch = None;
 			self.camera = false;
@@ -765,6 +916,7 @@ impl Calls {
 						.is_some_and(|(channel, _)| channel == call.channel_id)
 					{
 						let (channel, request) = self.departing.take().expect("departing call");
+						self.departing_session = None;
 						self.departure_deadline = None;
 						emit(Event::Voice(voice::Event::Departed { channel, request }))?;
 					}
@@ -774,6 +926,9 @@ impl Calls {
 					{
 						self.active = None;
 						self.active_guild = None;
+						self.active_session = None;
+						self.negotiation_server = None;
+						self.session_confirmed = false;
 						self.stream = None;
 						self.watch = None;
 						self.camera = false;
@@ -816,6 +971,25 @@ impl Calls {
 				owner,
 				emit,
 			)?,
+			"CHANNEL_INFO" => {
+				let info: ChannelInfoDto = decode(data).map_err(|_| Failure::Protocol)?;
+				if info.channels.len() > client_core::MAX_NAV {
+					return Err(Failure::Capacity);
+				}
+				if let Some((channel, unix_seconds)) = info
+					.channels
+					.into_iter()
+					.find(|channel| self.active.is_some_and(|(active, _)| active == channel.id))
+					.map(|channel| (channel.id, channel.voice_start_time))
+				{
+					self.channel_started(info.guild_id, channel, unix_seconds, emit)?;
+				}
+			}
+			"VOICE_CHANNEL_START_TIME_UPDATE" => {
+				let update: VoiceChannelStartTimeDto =
+					decode(data).map_err(|_| Failure::Protocol)?;
+				self.channel_started(update.guild_id, update.id, update.voice_start_time, emit)?;
+			}
 			"VOICE_SERVER_UPDATE" => {
 				let mut server: VoiceServerDto = decode(data).map_err(|_| Failure::Protocol)?;
 				let token = Zeroizing::new(std::mem::take(&mut server.token));
@@ -831,10 +1005,24 @@ impl Calls {
 				if server.endpoint.as_ref().is_some_and(|s| s.len() > 512) {
 					return Err(Failure::Capacity);
 				}
+				let token = Secret::new(token.to_string())?;
+				if self
+					.negotiation_server
+					.as_ref()
+					.is_none_or(|(old, endpoint)| {
+						old.expose() != token.expose() || *endpoint != server.endpoint
+					}) {
+					self.negotiation_revision = self.negotiation_revision.wrapping_add(1);
+					self.negotiation_server = Some((
+						Secret::new(token.expose().to_owned())?,
+						server.endpoint.clone(),
+					));
+				}
 				emit(Event::Voice(voice::Event::Server {
 					request,
 					channel,
-					token: Some(Secret::new(token.to_string())?),
+					negotiation_revision: Some(self.negotiation_revision),
+					token: Some(token),
 					endpoint: server.endpoint,
 				}))?;
 			}
@@ -901,126 +1089,275 @@ mod tests {
 	use std::sync::Mutex;
 	#[test]
 	fn optional_login_users_are_bounded_without_rejecting_the_session() {
-		let user = |id, name: &str| UserDto {
-			premium_type: model::Patch::Absent,
-			primary_guild: None,
-			clan: None,
-			id: Id(id),
-			username: name.into(),
-			global_name: None,
-			bot: false,
-			avatar: None,
-			discriminator: String::new(),
-		};
-		let mut calls = Calls::default();
-		calls.remember_users((1..=5000).map(|id| user(id, "Short")).collect());
-		assert_eq!(calls.users.len(), voice::MAX_ROSTER);
-		let long = "\u{754c}".repeat(128);
-		calls.remember_users((1..=3000).map(|id| user(id, &long)).collect());
-		assert!(!calls.users.is_empty());
-		assert!(calls.users.len() < 3000);
-		assert!(
-			calls
-				.users
-				.values()
-				.map(|u| size_of::<User>() + u.heap_bytes())
-				.sum::<usize>()
-				<= voice::MAX_ROSTER_BYTES
-		);
-		let mut users: Vec<_> = (0..5000).map(|_| user(1, &long)).collect();
-		users.push(user(0, "Invalid"));
-		users.push(user(2, "Other"));
-		calls.remember_users(users);
-		assert_eq!(calls.users.len(), 2);
-		assert_eq!(calls.users[&Id(2)].name, "Other");
-		calls.disconnected();
-		assert!(calls.users.is_empty());
-		calls.remember_users(vec![user(1, "Again")]);
-		calls.session_reset();
-		assert!(calls.users.is_empty());
-	}
-
-	#[test]
-	fn optional_members_overflow_keeps_voice_participants_and_filters_ineligible_states() {
-		let mut calls = Calls::default();
-		calls.allowed.insert(Id(20), Some(Id(10)));
-		let member = |id: u64, name: &str| {
-			decode::<VoiceMemberDto>(
-				json!({"user":{"id":id.to_string(),"username":name}})
-					.to_string()
-					.as_bytes(),
-			)
-			.unwrap()
-		};
-		let mut guild: GuildDto = decode(br#"{"id":"10"}"#).unwrap();
-		guild.members = (1..=5000u64).map(|id| member(id, "Short")).collect();
-		guild.voice_states = (0..5000)
-			.map(|_| decode(br#"{"channel_id":null,"user_id":"1"}"#).unwrap())
-			.collect();
-		guild
-			.voice_states
-			.push(decode(br#"{"channel_id":"999","user_id":"2"}"#).unwrap());
-		guild
-			.voice_states
-			.push(decode(br#"{"channel_id":"20","user_id":"5000"}"#).unwrap());
-		let Event::Voice(voice::Event::Snapshot { participants, .. }) =
-			calls.snapshot(&mut guild, true).unwrap()
-		else {
-			panic!()
-		};
-		assert_eq!(participants.len(), 1);
-		assert!(participants[0].member.is_none());
-		let long = "\u{754c}".repeat(128);
-		let retained = calls.members((1..=3000u64).map(|id| member(id, &long)).collect());
-		assert!(!retained.is_empty());
-		assert!(retained.len() < 3000);
-		assert!(retained.values().map(Member::bytes).sum::<usize>() <= voice::MAX_ROSTER_BYTES);
-		let retained = calls.members(
-			(0..5000)
-				.map(|_| member(1u64, &long))
-				.chain([member(2u64, "Other")])
-				.collect(),
-		);
-		assert_eq!(retained.len(), 2);
+		{
+			let user = |id, name: &str| UserDto {
+				premium_type: model::Patch::Absent,
+				primary_guild: None,
+				clan: None,
+				id: Id(id),
+				username: name.into(),
+				global_name: None,
+				bot: false,
+				public_flags: 0,
+				flags: 0,
+				avatar: None,
+				discriminator: String::new(),
+			};
+			let mut calls = Calls::default();
+			calls.remember_users((1..=5000).map(|id| user(id, "Short")).collect());
+			assert_eq!(calls.users.len(), voice::MAX_ROSTER);
+			let long = "\u{754c}".repeat(128);
+			calls.remember_users((1..=3000).map(|id| user(id, &long)).collect());
+			assert!(!calls.users.is_empty());
+			assert!(calls.users.len() < 3000);
+			assert!(
+				calls
+					.users
+					.values()
+					.map(|u| size_of::<User>() + u.heap_bytes())
+					.sum::<usize>() <= voice::MAX_ROSTER_BYTES
+			);
+			let mut users: Vec<_> = (0..5000).map(|_| user(1, &long)).collect();
+			users.push(user(0, "Invalid"));
+			users.push(user(2, "Other"));
+			calls.remember_users(users);
+			assert_eq!(calls.users.len(), 2);
+			assert_eq!(calls.users[&Id(2)].name, "Other");
+			calls.disconnected();
+			assert!(calls.users.is_empty());
+			calls.remember_users(vec![user(1, "Again")]);
+			calls.session_reset();
+			assert!(calls.users.is_empty());
+		}
+		{
+			let mut calls = Calls::default();
+			calls.allowed.insert(Id(20), Some(Id(10)));
+			let member = |id: u64, name: &str| {
+				decode::<VoiceMemberDto>(
+					json!({"user":{"id":id.to_string(),"username":name}})
+						.to_string()
+						.as_bytes(),
+				)
+				.unwrap()
+			};
+			let mut guild: GuildDto = decode(br#"{"id":"10"}"#).unwrap();
+			guild.members = (1..=5000u64).map(|id| member(id, "Short")).collect();
+			guild.voice_states = (0..5000)
+				.map(|_| decode(br#"{"channel_id":null,"user_id":"1"}"#).unwrap())
+				.collect();
+			guild
+				.voice_states
+				.push(decode(br#"{"channel_id":"999","user_id":"2"}"#).unwrap());
+			guild
+				.voice_states
+				.push(decode(br#"{"channel_id":"20","user_id":"5000"}"#).unwrap());
+			let Event::Voice(voice::Event::Snapshot { participants, .. }) =
+				calls.snapshot(&mut guild, true).unwrap()
+			else {
+				panic!()
+			};
+			assert_eq!(participants.len(), 1);
+			assert!(participants[0].member.is_none());
+			let long = "\u{754c}".repeat(128);
+			let retained = calls.members((1..=3000u64).map(|id| member(id, &long)).collect());
+			assert!(!retained.is_empty());
+			assert!(retained.len() < 3000);
+			assert!(retained.values().map(Member::bytes).sum::<usize>() <= voice::MAX_ROSTER_BYTES);
+			let retained = calls.members(
+				(0..5000)
+					.map(|_| member(1u64, &long))
+					.chain([member(2u64, "Other")])
+					.collect(),
+			);
+			assert_eq!(retained.len(), 2);
+		}
 	}
 
 	#[test]
 	fn sync_discovers_only_admitted_dm_calls_without_joining() {
-		let mut calls = Calls::default();
-		calls.allowed.insert(Id(2), None);
-		calls.allowed.insert(Id(20), Some(Id(10)));
-		for channel in [Id(9), Id(20)] {
-			assert!(calls.packet(Command::Sync { channel }).unwrap().is_none());
-		}
-		let Some(Frame::Text(packet)) = calls.packet(Command::Sync { channel: Id(2) }).unwrap()
-		else {
-			panic!("expected call discovery packet");
-		};
-		assert_eq!(
-			serde_json::from_str::<serde_json::Value>(&packet).unwrap(),
-			json!({"op":13,"d":{"channel_id":"2"}})
-		);
-		assert!(calls.active.is_none());
-		assert!(calls.departing.is_none());
-		calls
-			.packet(Command::Join {
-				channel: Id(20),
-				request: 7,
-				ring: false,
-				mute: false,
-				deaf: false,
-			})
-			.unwrap();
-		calls.packet(Command::Sync { channel: Id(2) }).unwrap();
-		assert_eq!(calls.active, Some((Id(20), 7)));
-		assert_eq!(calls.active_guild, Some(Id(10)));
-		calls.invalidate(Id(2));
-		assert!(
+		{
+			let mut calls = Calls::default();
+			calls.allowed.insert(Id(2), None);
+			calls.allowed.insert(Id(20), Some(Id(10)));
+			for channel in [Id(9), Id(20)] {
+				assert!(calls.packet(Command::Sync { channel }).unwrap().is_none());
+			}
+			let Some(Frame::Text(packet)) = calls.packet(Command::Sync { channel: Id(2) }).unwrap()
+			else {
+				panic!("expected call discovery packet");
+			};
+			assert_eq!(
+				serde_json::from_str::<serde_json::Value>(&packet).unwrap(),
+				json!({"op":13,"d":{"channel_id":"2"}})
+			);
+			assert!(calls.active.is_none());
+			assert!(calls.departing.is_none());
 			calls
-				.packet(Command::Sync { channel: Id(2) })
+				.packet(Command::Join {
+					channel: Id(20),
+					request: 7,
+					ring: false,
+					mute: false,
+					deaf: false,
+				})
+				.unwrap();
+			calls.packet(Command::Sync { channel: Id(2) }).unwrap();
+			assert_eq!(calls.active, Some((Id(20), 7)));
+			assert_eq!(calls.active_guild, Some(Id(10)));
+			calls.invalidate(Id(2));
+			assert!(
+				calls
+					.packet(Command::Sync { channel: Id(2) })
+					.unwrap()
+					.is_none()
+			);
+		}
+		{
+			let mut calls = Calls::default();
+			calls.allowed.insert(Id(2), None);
+			let events = Mutex::new(Vec::new());
+			let emit = |event| {
+				events.lock().unwrap().push(event);
+				Ok(())
+			};
+			calls
+				.dispatch(
+					"CALL_CREATE",
+					br#"{"channel_id":"2","ringing":["1"],"voice_states":[]}"#,
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			assert!(calls.active.is_none());
+			assert!(
+				calls
+					.packet(Command::Join {
+						channel: Id(9),
+						request: 1,
+						ring: true,
+						mute: false,
+						deaf: false,
+					})
+					.is_err()
+			);
+			let Frame::Text(text) = calls
+				.packet(Command::Join {
+					channel: Id(2),
+					request: 7,
+					ring: false,
+					mute: false,
+					deaf: false,
+				})
 				.unwrap()
-				.is_none()
-		);
+				.unwrap()
+			else {
+				panic!("expected control")
+			};
+			let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+			assert_eq!(value["op"], 4);
+			assert!(value["d"]["guild_id"].is_null());
+			assert_eq!(value["d"]["channel_id"], "2");
+			calls.dispatch("VOICE_SERVER_UPDATE",br#"{"channel_id":"9","token":"synthetic-token","endpoint":"voice.discord.media:443"}"#,Some(Id(1)),&emit).unwrap();
+			calls
+				.dispatch(
+					"VOICE_SERVER_UPDATE",
+					br#"{"token":"synthetic-token","endpoint":"voice.discord.media:443"}"#,
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			assert_eq!(events.lock().unwrap().len(), 1);
+			calls
+				.dispatch(
+					"VOICE_STATE_UPDATE",
+					br#"{"user_id":"1","channel_id":"2","session_id":"synthetic-session"}"#,
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			calls.dispatch("VOICE_SERVER_UPDATE",br#"{"channel_id":"2","token":"synthetic-token","endpoint":"voice.discord.media:443"}"#,Some(Id(1)),&emit).unwrap();
+			assert!(
+				matches!(&events.lock().unwrap()[1],Event::Voice(voice::Event::State{request:Some(7),session:Some(secret),..}) if secret.expose()=="synthetic-session")
+			);
+			assert!(
+				matches!(&events.lock().unwrap()[2],Event::Voice(voice::Event::Server{request:7,token:Some(secret),..}) if secret.expose()=="synthetic-token")
+			);
+			assert!(
+				calls
+					.packet(Command::Leave {
+						channel: Id(2),
+						request: 6
+					})
+					.unwrap()
+					.is_none()
+			);
+			assert!(calls.active.is_some());
+			let Frame::Text(text) = calls
+				.packet(Command::Leave {
+					channel: Id(2),
+					request: 7,
+				})
+				.unwrap()
+				.unwrap()
+			else {
+				panic!("expected leave")
+			};
+			let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+			assert!(value["d"]["channel_id"].is_null());
+			calls.dispatch("VOICE_SERVER_UPDATE",br#"{"channel_id":"2","token":"synthetic-token","endpoint":"voice.discord.media:443"}"#,Some(Id(1)),&emit).unwrap();
+			assert_eq!(events.lock().unwrap().len(), 3);
+			assert!(
+				calls
+					.packet(Command::Join {
+						channel: Id(2),
+						request: 8,
+						ring: false,
+						mute: false,
+						deaf: false,
+					})
+					.is_err()
+			);
+			assert!(calls.departure_expired().is_some());
+			assert!(
+				calls
+					.packet(Command::Join {
+						channel: Id(2),
+						request: 8,
+						ring: false,
+						mute: false,
+						deaf: false,
+					})
+					.is_err()
+			);
+			calls
+				.dispatch(
+					"VOICE_STATE_UPDATE",
+					br#"{"channel_id":null,"user_id":"1","session_id":"synthetic-old-session"}"#,
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			assert!(calls.departing.is_none());
+			assert_eq!(events.lock().unwrap().len(), 4);
+			assert!(matches!(
+				events.lock().unwrap().last(),
+				Some(Event::Voice(voice::Event::Departed {
+					channel: Id(2),
+					request: 7
+				}))
+			)); // never retagged to request 8
+			calls
+				.packet(Command::Join {
+					channel: Id(2),
+					request: 8,
+					ring: false,
+					mute: false,
+					deaf: false,
+				})
+				.unwrap();
+			calls.dispatch("VOICE_STATE_UPDATE",br#"{"guild_id":"9","channel_id":"10","user_id":"1","session_id":"synthetic-session"}"#,Some(Id(1)),&emit).unwrap();
+			assert!(calls.active.is_none());
+		}
 	}
 	#[test]
 	fn camera_controls_preserve_mute_and_reject_stale_or_revoked_enable() {
@@ -1097,368 +1434,802 @@ mod tests {
 		);
 		assert!(!calls.camera);
 	}
-	#[test]
-	fn revoked_voice_denies_mute_and_server_secrets_but_allows_departure() {
-		let mut calls = Calls::default();
-		calls.allowed.insert(Id(20), Some(Id(10)));
+	fn confirm_transport(calls: &mut Calls, emit: &impl Fn(Event) -> Result<(), Failure>) {
+		let (channel, request) = calls.active.unwrap();
+		let server = serde_json::to_vec(&json!({ "guild_id":calls.active_guild, "channel_id":channel, "token":"synthetic-token", "endpoint":"synthetic.discord.media" })).unwrap();
 		calls
-			.packet(Command::Join {
-				channel: Id(20),
-				request: 1,
-				ring: false,
-				mute: false,
-				deaf: false,
-			})
+			.dispatch("VOICE_SERVER_UPDATE", &server, Some(Id(1)), emit)
 			.unwrap();
-		calls.allowed.remove(&Id(20));
-		assert!(matches!(
-			calls.packet(Command::SetMute {
-				channel: Id(20),
-				request: 1,
-				mute: false,
-				deaf: false
-			}),
-			Err(Failure::Forbidden)
-		));
+		assert!(
+			calls
+				.confirm_session(channel, request, calls.negotiation_revision)
+				.is_some()
+		);
+	}
+	#[test]
+	fn join_candidates_remain_replaceable_until_the_exact_local_transport_is_confirmed() {
+		for guild in [None, Some(Id(10))] {
+			for server_first in [false, true] {
+				let mut calls = Calls::default();
+				calls.allowed.insert(Id(20), guild);
+				let events = Mutex::new(Vec::new());
+				let emit = |event| {
+					events.lock().unwrap().push(event);
+					Ok(())
+				};
+				calls
+					.packet(Command::Join {
+						channel: Id(20),
+						request: 5,
+						ring: true,
+						mute: false,
+						deaf: false,
+					})
+					.unwrap();
+				assert!(calls.confirm_session(Id(20), 5, 0).is_none());
+				let state = |session| {
+					serde_json::to_vec(
+						&json!({ "guild_id":guild, "channel_id":Id(20), "user_id":Id(1), "session_id":session }),
+					)
+					.unwrap()
+				};
+				let server = serde_json::to_vec(&json!({ "guild_id":guild, "channel_id":Id(20), "token":"synthetic-token", "endpoint":"synthetic.discord.media" })).unwrap();
+				if server_first {
+					calls
+						.dispatch("VOICE_SERVER_UPDATE", &server, Some(Id(1)), &emit)
+						.unwrap();
+				}
+				// The other client's existing state can arrive before this device's Join acknowledgement.
+				calls
+					.dispatch(
+						"VOICE_STATE_UPDATE",
+						&state("existing-client"),
+						Some(Id(1)),
+						&emit,
+					)
+					.unwrap();
+				let old_revision = calls.negotiation_revision;
+				if !server_first {
+					calls
+						.dispatch("VOICE_SERVER_UPDATE", &server, Some(Id(1)), &emit)
+						.unwrap();
+				}
+				calls
+					.dispatch(
+						"VOICE_STATE_UPDATE",
+						&state("this-local-candidate"),
+						Some(Id(1)),
+						&emit,
+					)
+					.unwrap();
+				let revision = calls.negotiation_revision;
+				assert_ne!(old_revision, revision);
+				assert_eq!(calls.active, Some((Id(20), 5))); // Never mistake Join acknowledgement for takeover.
+				assert!(!calls.session_confirmed);
+				assert!(
+					!events
+						.lock()
+						.unwrap()
+						.iter()
+						.any(|event| matches!(event, Event::Voice(voice::Event::TakenOver { .. })))
+				);
+				// Late TransportReady/confirmation from the superseded candidate cannot establish ownership.
+				assert!(calls.confirm_session(Id(20), 5, old_revision).is_none());
+				assert!(calls.confirm_session(Id(20), 4, revision).is_none());
+				assert!(calls.confirm_session(Id(21), 5, revision).is_none());
+				assert!(!calls.session_confirmed);
+				assert!(
+					matches!(calls.confirm_session(Id(20), 5, revision), Some(Event::Voice(voice::Event::SessionConfirmed { channel:Id(20), request:5, revision: confirmed })) if confirmed == revision)
+				);
+				assert!(calls.session_confirmed);
+				calls
+					.dispatch(
+						"VOICE_STATE_UPDATE",
+						&state("this-local-candidate"),
+						Some(Id(1)),
+						&emit,
+					)
+					.unwrap();
+				assert_eq!(calls.negotiation_revision, revision); // Duplicate state does not invalidate the handshake.
+				events.lock().unwrap().clear();
+				calls
+					.dispatch(
+						"VOICE_STATE_UPDATE",
+						&state("replacement-client"),
+						Some(Id(1)),
+						&emit,
+					)
+					.unwrap();
+				assert!(matches!(
+					events.lock().unwrap()[0],
+					Event::Voice(voice::Event::TakenOver {
+						channel: Id(20),
+						request: 5
+					})
+				));
+				assert!(calls.confirm_session(Id(20), 5, revision).is_none());
+				assert!(
+					calls
+						.packet(Command::Leave {
+							channel: Id(20),
+							request: 5
+						})
+						.unwrap()
+						.is_none()
+				);
+				assert!(calls.departing.is_none());
+			}
+		}
+	}
+	#[test]
+	fn current_server_credentials_are_part_of_confirmation_and_abandon_sends_no_hangup() {
+		let mut calls = Calls::default();
+		calls.allowed.insert(Id(20), None);
 		let events = Mutex::new(Vec::new());
 		let emit = |event| {
 			events.lock().unwrap().push(event);
 			Ok(())
 		};
-		calls.dispatch("VOICE_SERVER_UPDATE", br#"{"guild_id":"10","token":"synthetic-revoked-secret","endpoint":"voice.discord.media:443"}"#, Some(Id(1)), &emit).unwrap();
-		assert!(events.lock().unwrap().is_empty());
-		assert!(
-			calls
-				.packet(Command::Leave {
-					channel: Id(20),
-					request: 1
-				})
-				.unwrap()
-				.is_some()
-		);
+		let join = |request| Command::Join {
+			channel: Id(20),
+			request,
+			ring: false,
+			mute: false,
+			deaf: false,
+		};
+		calls.packet(join(5)).unwrap();
 		calls
 			.dispatch(
 				"VOICE_STATE_UPDATE",
-				br#"{"guild_id":"10","channel_id":null,"user_id":"1"}"#,
+				br#"{"channel_id":"20","user_id":"1","session_id":"synthetic-session"}"#,
 				Some(Id(1)),
 				&emit,
 			)
 			.unwrap();
-		assert!(calls.active.is_none());
-		assert!(calls.departing.is_none());
-		calls.allowed.insert(Id(20), Some(Id(10)));
-		calls
-			.packet(Command::Join {
-				channel: Id(20),
-				request: 2,
-				ring: false,
-				mute: false,
-				deaf: false,
-			})
-			.unwrap();
-		calls.allowed.remove(&Id(20));
-		calls.dispatch("VOICE_STATE_UPDATE", br#"{"guild_id":"10","channel_id":"20","user_id":"1","session_id":"synthetic-revoked-session"}"#, Some(Id(1)), &emit).unwrap();
-		assert!(calls.active.is_none());
-		assert!(matches!(
-			events.lock().unwrap().last(),
-			Some(Event::Voice(voice::Event::State {
-				channel: None,
-				session: None,
-				request: Some(2),
-				..
-			}))
-		));
-	}
-	#[test]
-	fn guild_join_roster_and_departure_are_scoped_and_bounded() {
-		let mut calls = Calls::default();
-		calls.allowed.insert(Id(20), Some(Id(10)));
-		calls.allowed.insert(Id(21), Some(Id(10)));
-		let events = Mutex::new(Vec::new());
-		let emit = |event| {
-			events.lock().unwrap().push(event);
-			Ok(())
-		};
-		let mut guild: GuildDto = decode(br#"{"id":"10","voice_states":[{"channel_id":"20","user_id":"2","mute":true,"deaf":true}],"members":[{"user":{"id":"2","username":"Synthetic","avatar":"0123456789abcdef0123456789abcdef"},"nick":"Room member"}]}"#).unwrap();
-		let Event::Voice(voice::Event::Snapshot { participants, .. }) =
-			calls.snapshot(&mut guild, false).unwrap()
-		else {
-			panic!("roster");
-		};
-		assert_eq!(
-			participants[0].member.as_ref().unwrap().nick.as_deref(),
-			Some("Room member")
-		);
-		assert!(participants[0].participant.muted && participants[0].participant.deafened);
 		assert!(
-			participants[0].participant.server_muted && participants[0].participant.server_deafened
+			calls
+				.confirm_session(Id(20), 5, calls.negotiation_revision)
+				.is_none()
 		);
-		assert!(calls.active.is_none());
-		let Frame::Text(join) = calls
-			.packet(Command::Join {
-				channel: Id(20),
-				request: 5,
-				ring: false,
-				mute: true,
-				deaf: true,
-			})
-			.unwrap()
-			.unwrap()
-		else {
-			panic!("join");
+		let server = |token, endpoint| {
+			serde_json::to_vec(&json!({ "channel_id":Id(20), "token":token, "endpoint":endpoint }))
+				.unwrap()
 		};
-		let join: serde_json::Value = serde_json::from_str(&join).unwrap();
-		assert_eq!(join["d"]["guild_id"], "10");
-		assert_eq!(join["d"]["self_mute"], true);
-		assert_eq!(join["d"]["self_deaf"], true);
+		let mut previous = calls.negotiation_revision;
+		for (token, endpoint) in [
+			("token-1", Some("a.discord.media")),
+			("token-2", Some("a.discord.media")),
+			("token-2", Some("b.discord.media")),
+			("token-2", None),
+		] {
+			calls
+				.dispatch(
+					"VOICE_SERVER_UPDATE",
+					&server(token, endpoint),
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			let current = calls.negotiation_revision;
+			assert_ne!(previous, current);
+			assert!(calls.confirm_session(Id(20), 5, previous).is_none());
+			calls
+				.dispatch(
+					"VOICE_SERVER_UPDATE",
+					&server(token, endpoint),
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			assert_eq!(calls.negotiation_revision, current); // Identical credentials are deduplicated.
+			if endpoint.is_none() {
+				assert!(calls.confirm_session(Id(20), 5, current).is_none());
+			}
+			previous = current;
+		}
+		assert!(
+			calls
+				.packet(Command::AbandonSession {
+					channel: Id(20),
+					request: 4
+				})
+				.unwrap()
+				.is_none()
+		);
+		assert_eq!(calls.active, Some((Id(20), 5))); // Stale local cancellation cannot clear a newer attempt.
+		assert!(
+			calls
+				.packet(Command::AbandonSession {
+					channel: Id(20),
+					request: 5
+				})
+				.unwrap()
+				.is_none()
+		);
+		assert!(
+			!calls.has_call()
+				&& calls.active_session.is_none()
+				&& calls.negotiation_server.is_none()
+		);
+		assert!(calls.departing.is_none() && calls.departure_deadline.is_none());
+		events.lock().unwrap().clear();
 		calls
 			.dispatch(
-				"VOICE_SERVER_UPDATE",
-				br#"{"guild_id":"99","token":"synthetic","endpoint":"voice.discord.media:443"}"#,
-				Some(Id(1)),
-				&emit,
-			)
-			.unwrap();
-		assert!(events.lock().unwrap().is_empty());
-		calls
-			.dispatch(
-				"VOICE_SERVER_UPDATE",
-				br#"{"guild_id":"10","token":"synthetic","endpoint":"voice.discord.media:443"}"#,
+				"VOICE_STATE_UPDATE",
+				br#"{"channel_id":"20","user_id":"1","session_id":"late-session"}"#,
 				Some(Id(1)),
 				&emit,
 			)
 			.unwrap();
 		assert!(matches!(
 			events.lock().unwrap()[0],
-			Event::Voice(voice::Event::Server {
-				channel: Id(20),
-				request: 5,
-				..
-			})
-		));
-		calls.dispatch("VOICE_STATE_UPDATE", br#"{"guild_id":"10","channel_id":"20","user_id":"1","session_id":"synthetic-session","suppress":true}"#, Some(Id(1)), &emit).unwrap();
-		assert!(matches!(
-			events.lock().unwrap()[1],
 			Event::Voice(voice::Event::State {
-				request: Some(5),
-				server_muted: true,
-				muted: true,
+				request: None,
+				session: None,
 				..
 			})
 		));
-		let Frame::Text(leave) = calls
-			.packet(Command::Leave {
+		assert!(calls.confirm_session(Id(20), 5, previous).is_none());
+		assert!(calls.packet(join(6)).unwrap().is_some());
+	}
+	#[test]
+	fn another_client_takes_over_without_a_hangup_or_stale_departure_barrier() {
+		for guild in [None, Some(Id(10))] {
+			let mut calls = Calls::default();
+			calls.allowed.insert(Id(20), guild);
+			let events = Mutex::new(Vec::new());
+			let emit = |event| {
+				events.lock().unwrap().push(event);
+				Ok(())
+			};
+			let join = |request| Command::Join {
 				channel: Id(20),
-				request: 5,
-			})
-			.unwrap()
-			.unwrap()
-		else {
-			panic!("leave");
-		};
-		let leave: serde_json::Value = serde_json::from_str(&leave).unwrap();
-		assert_eq!(leave["d"]["guild_id"], "10");
-		assert!(leave["d"]["channel_id"].is_null());
-		calls
-			.dispatch(
-				"VOICE_STATE_UPDATE",
-				br#"{"guild_id":"99","channel_id":null,"user_id":"1"}"#,
-				Some(Id(1)),
-				&emit,
-			)
-			.unwrap();
-		assert!(calls.departing.is_some());
-		calls
-			.dispatch(
-				"VOICE_STATE_UPDATE",
-				br#"{"guild_id":"10","channel_id":null,"user_id":"1"}"#,
-				Some(Id(1)),
-				&emit,
-			)
-			.unwrap();
-		assert!(calls.departing.is_none());
-		calls
-			.packet(Command::Join {
-				channel: Id(21),
-				request: 6,
+				request,
 				ring: false,
 				mute: false,
 				deaf: false,
-			})
-			.unwrap();
-		calls
-			.passive(
-				decode(br#"{"guild_id":"10","removed_voice_states":["1"]}"#).unwrap(),
-				Some(Id(1)),
-				&emit,
-			)
-			.unwrap();
-		assert!(calls.active.is_none());
-		assert!(matches!(
-			events.lock().unwrap().last(),
-			Some(Event::Voice(voice::Event::State {
-				request: Some(6),
-				channel: None,
-				..
-			}))
-		));
-		guild.voice_states = (0..=voice::MAX_ROSTER)
-			.map(|_| decode(br#"{"channel_id":"20","user_id":"2"}"#).unwrap())
-			.collect();
-		assert!(matches!(
-			calls.snapshot(&mut guild, false),
-			Err(Failure::CapacityAt(
-				"Voice roster participant limit exceeded"
-			))
-		));
+			};
+			calls.packet(join(5)).unwrap();
+			let state = |user, session: Option<&str>| {
+				serde_json::to_vec(&json!({
+					"guild_id": guild, "channel_id": Id(20), "user_id": Id(user), "session_id": session
+				}))
+				.unwrap()
+			};
+			for (user, session) in [
+				(1, Some("this-device")),
+				(1, Some("this-device")),
+				(2, Some("peer-device")),
+				(1, None),
+			] {
+				calls
+					.dispatch(
+						"VOICE_STATE_UPDATE",
+						&state(user, session),
+						Some(Id(1)),
+						&emit,
+					)
+					.unwrap();
+				assert_eq!(calls.active, Some((Id(20), 5)));
+			}
+			confirm_transport(&mut calls, &emit);
+			assert_eq!(
+				format!("{:?}", calls.active_session.as_ref().unwrap()),
+				"VoiceSecret([REDACTED])"
+			);
+			assert!(
+				!events
+					.lock()
+					.unwrap()
+					.iter()
+					.any(|event| matches!(event, Event::Voice(voice::Event::TakenOver { .. })))
+			);
+			events.lock().unwrap().clear();
+			calls
+				.dispatch(
+					"VOICE_STATE_UPDATE",
+					&state(1, Some("other-client")),
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			assert!(matches!(
+				events.lock().unwrap()[0],
+				Event::Voice(voice::Event::TakenOver {
+					channel: Id(20),
+					request: 5
+				})
+			));
+			assert!(matches!(
+				events.lock().unwrap()[1],
+				Event::Voice(voice::Event::State {
+					request: None,
+					session: None,
+					..
+				})
+			));
+			assert!(calls.active_session.is_none() && !calls.has_call());
+			assert!(
+				calls
+					.packet(Command::Leave {
+						channel: Id(20),
+						request: 5
+					})
+					.unwrap()
+					.is_none()
+			);
+			assert!(calls.departing.is_none() && calls.departure_deadline.is_none());
+			// Explicitly taking the call back is an ordinary Join; no null voice-state ack needed.
+			assert!(calls.packet(join(6)).unwrap().is_some());
+			calls
+				.dispatch(
+					"VOICE_STATE_UPDATE",
+					&state(1, Some("new-local-session")),
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			assert_eq!(calls.active, Some((Id(20), 6)));
+			assert!(
+				calls
+					.packet(Command::Leave {
+						channel: Id(20),
+						request: 5
+					})
+					.unwrap()
+					.is_none()
+			);
+			assert_eq!(calls.active, Some((Id(20), 6)));
+			calls.disconnected();
+			assert!(
+				calls.active_session.is_some(),
+				"Resume preserves the active session identity"
+			);
+			calls.session_reset();
+			assert!(calls.active_session.is_none() && !calls.has_call());
+		}
+	}
+	#[test]
+	fn a_changed_session_acknowledges_an_old_manual_departure_without_a_null_state() {
+		for guild in [None, Some(Id(10))] {
+			let mut calls = Calls::default();
+			calls.allowed.insert(Id(20), guild);
+			let events = Mutex::new(Vec::new());
+			let emit = |event| {
+				events.lock().unwrap().push(event);
+				Ok(())
+			};
+			let update = |session: &str| {
+				serde_json::to_vec(
+					&json!({ "guild_id": guild, "channel_id": Id(20), "user_id": Id(1), "session_id": session }),
+				)
+				.unwrap()
+			};
+			calls
+				.packet(Command::Join {
+					channel: Id(20),
+					request: 5,
+					ring: false,
+					mute: false,
+					deaf: false,
+				})
+				.unwrap();
+			calls
+				.dispatch(
+					"VOICE_STATE_UPDATE",
+					&update("old-local"),
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			confirm_transport(&mut calls, &emit);
+			calls
+				.packet(Command::Leave {
+					channel: Id(20),
+					request: 5,
+				})
+				.unwrap();
+			calls
+				.dispatch(
+					"VOICE_STATE_UPDATE",
+					&update("old-local"),
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			assert!(calls.departing.is_some());
+			events.lock().unwrap().clear();
+			calls
+				.dispatch(
+					"VOICE_STATE_UPDATE",
+					&update("other-client"),
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			assert!(!calls.has_call());
+			assert!(calls.departing_session.is_none() && calls.departure_deadline.is_none());
+			assert!(matches!(
+				events.lock().unwrap()[0],
+				Event::Voice(voice::Event::Departed {
+					channel: Id(20),
+					request: 5
+				})
+			));
+			assert!(
+				calls
+					.packet(Command::Join {
+						channel: Id(20),
+						request: 6,
+						ring: false,
+						mute: false,
+						deaf: false
+					})
+					.unwrap()
+					.is_some()
+			);
+		}
 	}
 
 	#[test]
-	fn signaling_is_dm_scoped_secret_bounded_and_never_auto_joins() {
-		let mut calls = Calls::default();
-		calls.allowed.insert(Id(2), None);
-		let events = Mutex::new(Vec::new());
-		let emit = |event| {
-			events.lock().unwrap().push(event);
-			Ok(())
-		};
-		calls
-			.dispatch(
-				"CALL_CREATE",
-				br#"{"channel_id":"2","ringing":["1"],"voice_states":[]}"#,
-				Some(Id(1)),
-				&emit,
-			)
-			.unwrap();
-		assert!(calls.active.is_none());
-		assert!(
-			calls
-				.packet(Command::Join {
-					channel: Id(9),
-					request: 1,
-					ring: true,
-					mute: false,
-					deaf: false,
-				})
-				.is_err()
-		);
-		let Frame::Text(text) = calls
-			.packet(Command::Join {
-				channel: Id(2),
-				request: 7,
+	fn an_owner_move_to_another_channel_releases_the_original_intent_and_identity() {
+		for (old_guild, new_guild) in [
+			(None, None),
+			(Some(Id(10)), Some(Id(10))),
+			(Some(Id(10)), Some(Id(11))),
+			(None, Some(Id(11))),
+			(Some(Id(10)), None),
+		] {
+			let mut calls = Calls::default();
+			calls.allowed.insert(Id(20), old_guild);
+			calls.allowed.insert(Id(21), new_guild);
+			let events = Mutex::new(Vec::new());
+			let emit = |event| {
+				events.lock().unwrap().push(event);
+				Ok(())
+			};
+			let join = |channel, request| Command::Join {
+				channel,
+				request,
 				ring: false,
 				mute: false,
 				deaf: false,
-			})
-			.unwrap()
-			.unwrap()
-		else {
-			panic!("expected control")
-		};
-		let value: serde_json::Value = serde_json::from_str(&text).unwrap();
-		assert_eq!(value["op"], 4);
-		assert!(value["d"]["guild_id"].is_null());
-		assert_eq!(value["d"]["channel_id"], "2");
-		calls.dispatch("VOICE_SERVER_UPDATE",br#"{"channel_id":"9","token":"synthetic-token","endpoint":"voice.discord.media:443"}"#,Some(Id(1)),&emit).unwrap();
-		calls
-			.dispatch(
-				"VOICE_SERVER_UPDATE",
-				br#"{"token":"synthetic-token","endpoint":"voice.discord.media:443"}"#,
-				Some(Id(1)),
-				&emit,
-			)
-			.unwrap();
-		assert_eq!(events.lock().unwrap().len(), 1);
-		calls
-			.dispatch(
-				"VOICE_STATE_UPDATE",
-				br#"{"user_id":"1","channel_id":"2","session_id":"synthetic-session"}"#,
-				Some(Id(1)),
-				&emit,
-			)
-			.unwrap();
-		calls.dispatch("VOICE_SERVER_UPDATE",br#"{"channel_id":"2","token":"synthetic-token","endpoint":"voice.discord.media:443"}"#,Some(Id(1)),&emit).unwrap();
-		assert!(
-			matches!(&events.lock().unwrap()[1],Event::Voice(voice::Event::State{request:Some(7),session:Some(secret),..}) if secret.expose()=="synthetic-session")
-		);
-		assert!(
-			matches!(&events.lock().unwrap()[2],Event::Voice(voice::Event::Server{request:7,token:Some(secret),..}) if secret.expose()=="synthetic-token")
-		);
-		assert!(
+			};
+			let update = |guild, channel, session| {
+				serde_json::to_vec(
+					&json!({"guild_id":guild,"channel_id":channel,"user_id":Id(1),"session_id":session}),
+				)
+				.unwrap()
+			};
+			calls.packet(join(Id(20), 5)).unwrap();
 			calls
-				.packet(Command::Leave {
-					channel: Id(2),
-					request: 6
+				.dispatch(
+					"VOICE_STATE_UPDATE",
+					&update(old_guild, Id(20), "old-local"),
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			confirm_transport(&mut calls, &emit);
+			events.lock().unwrap().clear();
+			calls
+				.dispatch(
+					"VOICE_STATE_UPDATE",
+					&update(new_guild, Id(21), "other-client"),
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			assert!(!calls.has_call() && calls.active_session.is_none());
+			assert!(matches!(
+				events.lock().unwrap()[0],
+				Event::Voice(voice::Event::TakenOver {
+					channel: Id(20),
+					request: 5
+				})
+			));
+			assert!(matches!(
+				events.lock().unwrap()[1],
+				Event::Voice(voice::Event::State {
+					channel: Some(Id(21)),
+					request: None,
+					session: None,
+					..
+				})
+			));
+			assert!(
+				calls
+					.packet(Command::Leave {
+						channel: Id(20),
+						request: 5
+					})
+					.unwrap()
+					.is_none()
+			);
+			assert!(calls.departing.is_none());
+			assert!(calls.packet(join(Id(21), 6)).unwrap().is_some());
+			events.lock().unwrap().clear();
+			// An older channel frame arriving before the new handshake stays outside its scope.
+			calls
+				.dispatch(
+					"VOICE_STATE_UPDATE",
+					&update(old_guild, Id(20), "old-local"),
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			assert_eq!(calls.active, Some((Id(21), 6)));
+			assert!(events.lock().unwrap().is_empty());
+			calls
+				.dispatch(
+					"VOICE_STATE_UPDATE",
+					&update(new_guild, Id(21), "new-local"),
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			assert_eq!(calls.active, Some((Id(21), 6)));
+			assert_eq!(calls.active_session.as_ref().unwrap().expose(), "new-local");
+			assert!(
+				!events
+					.lock()
+					.unwrap()
+					.iter()
+					.any(|event| matches!(event, Event::Voice(voice::Event::TakenOver { .. })))
+			);
+			assert!(
+				calls
+					.packet(Command::Leave {
+						channel: Id(20),
+						request: 5
+					})
+					.unwrap()
+					.is_none()
+			);
+			assert_eq!(calls.active, Some((Id(21), 6)));
+		}
+	}
+
+	#[test]
+	fn guild_join_roster_and_departure_are_scoped_and_bounded() {
+		{
+			let mut calls = Calls::default();
+			calls.allowed.insert(Id(20), Some(Id(10)));
+			calls.allowed.insert(Id(21), Some(Id(10)));
+			let events = Mutex::new(Vec::new());
+			let emit = |event| {
+				events.lock().unwrap().push(event);
+				Ok(())
+			};
+			let mut guild: GuildDto = decode(br#"{"id":"10","voice_states":[{"channel_id":"20","user_id":"2","mute":true,"deaf":true}],"members":[{"user":{"id":"2","username":"Synthetic","avatar":"0123456789abcdef0123456789abcdef"},"nick":"Room member"}]}"#).unwrap();
+			let Event::Voice(voice::Event::Snapshot { participants, .. }) =
+				calls.snapshot(&mut guild, false).unwrap()
+			else {
+				panic!("roster");
+			};
+			assert_eq!(
+				participants[0].member.as_ref().unwrap().nick.as_deref(),
+				Some("Room member")
+			);
+			assert!(participants[0].participant.muted && participants[0].participant.deafened);
+			assert!(
+				participants[0].participant.server_muted
+					&& participants[0].participant.server_deafened
+			);
+			assert!(calls.active.is_none());
+			let Frame::Text(join) = calls
+				.packet(Command::Join {
+					channel: Id(20),
+					request: 5,
+					ring: false,
+					mute: true,
+					deaf: true,
 				})
 				.unwrap()
-				.is_none()
-		);
-		assert!(calls.active.is_some());
-		let Frame::Text(text) = calls
-			.packet(Command::Leave {
-				channel: Id(2),
-				request: 7,
-			})
-			.unwrap()
-			.unwrap()
-		else {
-			panic!("expected leave")
-		};
-		let value: serde_json::Value = serde_json::from_str(&text).unwrap();
-		assert!(value["d"]["channel_id"].is_null());
-		calls.dispatch("VOICE_SERVER_UPDATE",br#"{"channel_id":"2","token":"synthetic-token","endpoint":"voice.discord.media:443"}"#,Some(Id(1)),&emit).unwrap();
-		assert_eq!(events.lock().unwrap().len(), 3);
-		assert!(
+				.unwrap()
+			else {
+				panic!("join");
+			};
+			let join: serde_json::Value = serde_json::from_str(&join).unwrap();
+			assert_eq!(join["d"]["guild_id"], "10");
+			assert_eq!(join["d"]["self_mute"], true);
+			assert_eq!(join["d"]["self_deaf"], true);
+			let Frame::Text(info) = calls.channel_info_packet(Id(20)).unwrap() else {
+				panic!("channel info");
+			};
+			let info: serde_json::Value = serde_json::from_str(&info).unwrap();
+			assert_eq!(
+				info,
+				json!({"op":43,"d":{"guild_id":"10","fields":["voice_start_time"]}})
+			);
+			calls
+				.dispatch(
+					"CHANNEL_INFO",
+					br#"{"guild_id":"10","channels":[{"id":"20","voice_start_time":1700000000}]}"#,
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			assert!(matches!(
+				events.lock().unwrap()[0],
+				Event::Voice(voice::Event::ChannelStarted {
+					guild: Id(10),
+					channel: Id(20),
+					unix_seconds: Some(1_700_000_000)
+				})
+			));
+			calls
+				.dispatch(
+					"VOICE_SERVER_UPDATE",
+					br#"{"guild_id":"99","token":"synthetic","endpoint":"voice.discord.media:443"}"#,
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			assert_eq!(events.lock().unwrap().len(), 1);
+			calls
+				.dispatch(
+					"VOICE_SERVER_UPDATE",
+					br#"{"guild_id":"10","token":"synthetic","endpoint":"voice.discord.media:443"}"#,
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			assert!(matches!(
+				events.lock().unwrap()[1],
+				Event::Voice(voice::Event::Server {
+					channel: Id(20),
+					request: 5,
+					..
+				})
+			));
+			calls.dispatch("VOICE_STATE_UPDATE", br#"{"guild_id":"10","channel_id":"20","user_id":"1","session_id":"synthetic-session","suppress":true}"#, Some(Id(1)), &emit).unwrap();
+			assert!(matches!(
+				events.lock().unwrap()[2],
+				Event::Voice(voice::Event::State {
+					request: Some(5),
+					server_muted: true,
+					muted: true,
+					..
+				})
+			));
+			let Frame::Text(leave) = calls
+				.packet(Command::Leave {
+					channel: Id(20),
+					request: 5,
+				})
+				.unwrap()
+				.unwrap()
+			else {
+				panic!("leave");
+			};
+			let leave: serde_json::Value = serde_json::from_str(&leave).unwrap();
+			assert_eq!(leave["d"]["guild_id"], "10");
+			assert!(leave["d"]["channel_id"].is_null());
+			calls
+				.dispatch(
+					"VOICE_STATE_UPDATE",
+					br#"{"guild_id":"99","channel_id":null,"user_id":"1"}"#,
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			assert!(calls.departing.is_some());
+			calls
+				.dispatch(
+					"VOICE_STATE_UPDATE",
+					br#"{"guild_id":"10","channel_id":null,"user_id":"1"}"#,
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			assert!(calls.departing.is_none());
 			calls
 				.packet(Command::Join {
-					channel: Id(2),
-					request: 8,
+					channel: Id(21),
+					request: 6,
 					ring: false,
 					mute: false,
 					deaf: false,
 				})
-				.is_err()
-		);
-		assert!(calls.departure_expired().is_some());
-		assert!(
+				.unwrap();
+			calls
+				.passive(
+					decode(br#"{"guild_id":"10","removed_voice_states":["1"]}"#).unwrap(),
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			assert!(calls.active.is_none());
+			assert!(matches!(
+				events.lock().unwrap().last(),
+				Some(Event::Voice(voice::Event::State {
+					request: Some(6),
+					channel: None,
+					..
+				}))
+			));
+			guild.voice_states = (0..=voice::MAX_ROSTER)
+				.map(|_| decode(br#"{"channel_id":"20","user_id":"2"}"#).unwrap())
+				.collect();
+			assert!(matches!(
+				calls.snapshot(&mut guild, false),
+				Err(Failure::CapacityAt(
+					"Voice roster participant limit exceeded"
+				))
+			));
+		}
+		{
+			let mut calls = Calls::default();
+			calls.allowed.insert(Id(20), Some(Id(10)));
 			calls
 				.packet(Command::Join {
-					channel: Id(2),
-					request: 8,
+					channel: Id(20),
+					request: 1,
 					ring: false,
 					mute: false,
 					deaf: false,
 				})
-				.is_err()
-		);
-		calls
-			.dispatch(
-				"VOICE_STATE_UPDATE",
-				br#"{"channel_id":null,"user_id":"1","session_id":"synthetic-old-session"}"#,
-				Some(Id(1)),
-				&emit,
-			)
-			.unwrap();
-		assert!(calls.departing.is_none());
-		assert_eq!(events.lock().unwrap().len(), 4);
-		assert!(matches!(
-			events.lock().unwrap().last(),
-			Some(Event::Voice(voice::Event::Departed {
-				channel: Id(2),
-				request: 7
-			}))
-		)); // never retagged to request 8
-		calls
-			.packet(Command::Join {
-				channel: Id(2),
-				request: 8,
-				ring: false,
-				mute: false,
-				deaf: false,
-			})
-			.unwrap();
-		calls.dispatch("VOICE_STATE_UPDATE",br#"{"guild_id":"9","channel_id":"10","user_id":"1","session_id":"synthetic-session"}"#,Some(Id(1)),&emit).unwrap();
-		assert!(calls.active.is_none());
+				.unwrap();
+			calls.allowed.remove(&Id(20));
+			assert!(matches!(
+				calls.packet(Command::SetMute {
+					channel: Id(20),
+					request: 1,
+					mute: false,
+					deaf: false
+				}),
+				Err(Failure::Forbidden)
+			));
+			let events = Mutex::new(Vec::new());
+			let emit = |event| {
+				events.lock().unwrap().push(event);
+				Ok(())
+			};
+			calls.dispatch("VOICE_SERVER_UPDATE", br#"{"guild_id":"10","token":"synthetic-revoked-secret","endpoint":"voice.discord.media:443"}"#, Some(Id(1)), &emit).unwrap();
+			assert!(events.lock().unwrap().is_empty());
+			assert!(
+				calls
+					.packet(Command::Leave {
+						channel: Id(20),
+						request: 1
+					})
+					.unwrap()
+					.is_some()
+			);
+			calls
+				.dispatch(
+					"VOICE_STATE_UPDATE",
+					br#"{"guild_id":"10","channel_id":null,"user_id":"1"}"#,
+					Some(Id(1)),
+					&emit,
+				)
+				.unwrap();
+			assert!(calls.active.is_none());
+			assert!(calls.departing.is_none());
+			calls.allowed.insert(Id(20), Some(Id(10)));
+			calls
+				.packet(Command::Join {
+					channel: Id(20),
+					request: 2,
+					ring: false,
+					mute: false,
+					deaf: false,
+				})
+				.unwrap();
+			calls.allowed.remove(&Id(20));
+			calls.dispatch("VOICE_STATE_UPDATE", br#"{"guild_id":"10","channel_id":"20","user_id":"1","session_id":"synthetic-revoked-session"}"#, Some(Id(1)), &emit).unwrap();
+			assert!(calls.active.is_none());
+			assert!(matches!(
+				events.lock().unwrap().last(),
+				Some(Event::Voice(voice::Event::State {
+					channel: None,
+					session: None,
+					request: Some(2),
+					..
+				}))
+			));
+		}
 	}
 
 	#[test]

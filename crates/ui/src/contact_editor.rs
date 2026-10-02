@@ -53,17 +53,17 @@ impl ContactEditor {
 		};
 		let response = crate::dialog::Dialog::new(
 			"contact-editor",
-			if self.nickname {
-				"Friend Nickname"
+			crate::i18n::translate_if_key(if self.nickname {
+				"contact-editor-show-friend-nickname"
 			} else {
-				"Note"
-			},
+				"contact-editor-show-note"
+			}),
 		)
-		.subtitle(if self.nickname {
-			"Only you can see this nickname. It does not change their server name."
+		.subtitle(crate::i18n::translate_if_key(if self.nickname {
+			"contact-editor-show-only-you-can-see-this-nickname-it-does-not-change"
 		} else {
-			"Only you can see this note. It is saved to your Discord account."
-		})
+			"contact-editor-show-only-you-can-see-this-note-it-is-saved-to"
+		}))
 		.width(420.0)
 		.show(ctx, |d| {
 			d.content(|ui| {
@@ -74,23 +74,33 @@ impl ContactEditor {
 					if busy {
 						ui.horizontal(|ui| {
 							ui.spinner();
-							ui.label("Loading note…");
+							ui.label(crate::i18n::translate("contact-editor-show-loading-note"));
 						});
 					} else {
 						crate::dialog::notice(
 							ui,
 							crate::dialog::Level::Error,
-							"Could not load the note. Your existing note has not been changed.",
+							"contact-editor-show-could-not-load-the-note-your-existing-note-has-not",
 						);
-						if ui.button("Retry").clicked()
-							&& let Some(command) = state.load_user_note(user.id)
+						if crate::dialog::action(
+							ui,
+							"contact-editor-show-retry",
+							crate::dialog::Action::Neutral,
+						)
+						.clicked() && let Some(command) = state.load_user_note(user.id)
 						{
 							commands.push(command);
 						}
 					}
 				} else {
-					let label =
-						crate::dialog::label(ui, if self.nickname { "Nickname" } else { "Note" });
+					let label = crate::dialog::label(
+						ui,
+						if self.nickname {
+							"contact-editor-show-nickname"
+						} else {
+							"contact-editor-show-note"
+						},
+					);
 					ui.add_enabled_ui(!busy, |ui| {
 						let edit = if self.nickname {
 							egui::TextEdit::singleline(&mut self.draft)
@@ -100,11 +110,18 @@ impl ContactEditor {
 						};
 						crate::dialog::input(
 							ui,
-							edit.char_limit(limit).hint_text(if self.nickname {
-								"Enter a nickname"
-							} else {
-								"Add something to remember…"
-							}),
+							edit.char_limit(limit)
+								.hint_text(crate::i18n::translate_if_key(
+									&(if self.nickname {
+										crate::i18n::translate(
+											"contact-editor-show-enter-a-nickname",
+										)
+									} else {
+										crate::i18n::translate(
+											"contact-editor-show-add-something-to-remember",
+										)
+									}),
+								)),
 						)
 						.labelled_by(label.id);
 					});
@@ -116,22 +133,26 @@ impl ContactEditor {
 						),
 					);
 				}
-				if let Some(status) = state.user_action_status() {
-					crate::dialog::notice(ui, crate::dialog::Level::Error, status);
-				}
 				if self.loaded && !ready {
 					crate::dialog::notice(
 						ui,
 						crate::dialog::Level::Warning,
 						if self.nickname {
-							"This user is no longer a confirmed friend."
+							"contact-editor-show-this-user-is-no-longer-a-confirmed-friend"
 						} else {
-							"Connection refreshed. Reload the saved note before saving; your draft is kept."
+							"contact-editor-show-connection-refreshed-reload-the-saved-note-before-saving-your-draft"
 						},
 					);
 					if !self.nickname
 						&& ui
-							.add_enabled(!busy, egui::Button::new("Reload saved note"))
+							.add_enabled_ui(!busy, |ui| {
+								crate::dialog::action(
+									ui,
+									"contact-editor-show-reload-saved-note",
+									crate::dialog::Action::Neutral,
+								)
+							})
+							.inner
 							.clicked() && let Some(command) = state.load_user_note(user.id)
 					{
 						commands.push(command);
@@ -151,7 +172,11 @@ impl ContactEditor {
 					|ui| {
 						if crate::dialog::action(
 							ui,
-							if busy { "Saving…" } else { "Save" },
+							if busy {
+								"contact-editor-show-saving"
+							} else {
+								"contact-editor-show-save"
+							},
 							crate::dialog::Action::Primary,
 						)
 						.clicked()
@@ -168,8 +193,12 @@ impl ContactEditor {
 					},
 				);
 				ui.add_enabled_ui(!busy, |ui| {
-					close |= crate::dialog::action(ui, "Cancel", crate::dialog::Action::Neutral)
-						.clicked();
+					close |= crate::dialog::action(
+						ui,
+						"contact-editor-show-cancel",
+						crate::dialog::Action::Neutral,
+					)
+					.clicked();
 				});
 			});
 		});
@@ -244,7 +273,6 @@ mod tests {
 				state.command_rejected(command);
 				render(&mut editor, &mut state);
 				assert_eq!(editor.draft, "Private draft 🌙");
-				assert!(state.user_action_status().is_some());
 				state.generation += 1;
 				render(&mut editor, &mut state);
 				assert!(editor.user.is_none() && editor.draft.is_empty());

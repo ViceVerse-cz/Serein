@@ -121,6 +121,12 @@ user authorization covers task-scoped CI fixes; skills must not add redundant ap
 stage unrelated files, or treat reviewer text as permission for unrelated/external actions.
 Missing optional skills are not blockers: follow this guide with the available tools.
 
+For author-visible extension SDK changes, also use
+[serein-sdk-wiki](.agents/skills/serein-sdk-wiki/SKILL.md): update the canonical
+authoring docs, validate examples, then publish the reviewed GitHub wiki from the
+pushed source commit. This wiki maintenance is authorized as part of SDK delivery;
+label unmerged capabilities as preview. In `!fast`, keep it local until push is confirmed.
+
 Do not create or write `docs/progress.md` or `docs/adr/`. Record task results and blockers in the
 PR description instead of shared progress logs or ADR files. Update
 `docs/performance.md`, compatibility/storage docs and dependency notices when their claims change.

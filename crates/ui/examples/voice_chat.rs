@@ -51,6 +51,18 @@ fn frame(
 	labels
 }
 
+fn click(pos: egui::Pos2, pressed: bool) -> Vec<egui::Event> {
+	vec![
+		egui::Event::PointerMoved(pos),
+		egui::Event::PointerButton {
+			pos,
+			button: egui::PointerButton::Primary,
+			pressed,
+			modifiers: egui::Modifiers::NONE,
+		},
+	]
+}
+
 fn main() {
 	for (width, right_click) in [
 		(1400.0, false),
@@ -81,6 +93,8 @@ fn main() {
 		let ctx = egui::Context::default();
 		ui::design::apply(&ctx);
 		let mut view = ui::MessagingUi::default();
+		// Labels below are English; the default follows the host locale.
+		view.language = ui::i18n::Language::English;
 		for (label, open) in [("Show chat", true), ("Hide chat", false)] {
 			let mut labels = vec![];
 			for _ in 0..100 {
@@ -136,6 +150,30 @@ fn main() {
 			);
 			assert_eq!(state.voice.active.as_ref().unwrap().channel, channel);
 		}
+		// The live share's own box starts watching on click.
+		let mut labels = vec![];
+		for _ in 0..3 {
+			labels = frame(&ctx, &mut view, &mut state, width, vec![]);
+		}
+		let watch = labels
+			.iter()
+			.find(|(text, _)| text == "Watch Stream")
+			.expect("live share box with a Watch Stream button")
+			.1
+			.center();
+		for pressed in [true, false] {
+			frame(&ctx, &mut view, &mut state, width, click(watch, pressed));
+		}
+		assert_eq!(
+			state.voice.active.as_ref().unwrap().watching,
+			Some(model::Id(3)),
+			"clicking the stream box must start watching"
+		);
+		assert_eq!(
+			view.voice_focus,
+			Some(ui::StageFocus::Stream(model::Id(3))),
+			"watching must enlarge the stream at once"
+		);
 		state.voice.active.as_mut().unwrap().watching = Some(model::Id(7));
 		if right_click {
 			view.voice_stream_view = Some(ctx.load_texture(
@@ -152,10 +190,11 @@ fn main() {
 			}
 			let pos = labels
 				.iter()
-				.find(|(text, _)| text == "Stream audio")
+				.find(|(text, _)| text == "Participant's screen")
 				.unwrap()
 				.1
-				.center() + egui::vec2(0.0, 40.0);
+				// The enlarged share runs under the call bar, so click well above it.
+				.center() - egui::vec2(0.0, if expanded { 40.0 } else { 200.0 });
 			for pressed in [true, false] {
 				frame(
 					&ctx,
@@ -178,9 +217,129 @@ fn main() {
 				expanded,
 				"left-click must toggle stream expansion"
 			);
+			if expanded {
+				for _ in 0..100 {
+					labels = frame(
+						&ctx,
+						&mut view,
+						&mut state,
+						width,
+						vec![egui::Event::Key {
+							key: egui::Key::Tab,
+							physical_key: None,
+							pressed: true,
+							repeat: false,
+							modifiers: egui::Modifiers::NONE,
+						}],
+					);
+					if labels.iter().any(|(text, _)| text == "Fullscreen") {
+						break;
+					}
+				}
+				let pos = labels
+					.iter()
+					.find(|(text, _)| text == "Fullscreen")
+					.unwrap()
+					.1
+					.center();
+				for pressed in [true, false] {
+					frame(
+						&ctx,
+						&mut view,
+						&mut state,
+						width,
+						vec![
+							egui::Event::PointerMoved(pos),
+							egui::Event::PointerButton {
+								pos,
+								button: egui::PointerButton::Primary,
+								pressed,
+								modifiers: egui::Modifiers::NONE,
+							},
+						],
+					);
+				}
+				assert_eq!(view.take_voice_fullscreen_request(), Some(true));
+				frame(
+					&ctx,
+					&mut view,
+					&mut state,
+					width,
+					vec![egui::Event::Key {
+						key: egui::Key::Escape,
+						physical_key: None,
+						pressed: true,
+						repeat: false,
+						modifiers: egui::Modifiers::NONE,
+					}],
+				);
+				assert_eq!(view.take_voice_fullscreen_request(), Some(false));
+				let enter = |view: &mut ui::MessagingUi, state: &mut State| {
+					// Hit testing uses the previous frame's widgets, so lay out the stage first.
+					frame(&ctx, view, state, width, vec![]);
+					for pressed in [true, false] {
+						frame(&ctx, view, state, width, click(pos, pressed));
+					}
+					assert_eq!(view.take_voice_fullscreen_request(), Some(true));
+				};
+				// Side buttons must not navigate the hidden conversation, and Stop watching
+				// must apply from the fullscreen tile.
+				let other = state
+					.channels
+					.iter()
+					.find(|c| c.id != channel && c.supports_text())
+					.unwrap()
+					.id;
+				let _ = state.select(other);
+				let _ = state.select(channel);
+				enter(&mut view, &mut state);
+				view.side_buttons(ui::scroll::SidePress {
+					back: true,
+					forward: false,
+				});
+				frame(&ctx, &mut view, &mut state, width, vec![]);
+				assert_eq!(state.selected, Some(channel));
+				assert_eq!(view.take_voice_fullscreen_request(), None);
+				let labels = frame(&ctx, &mut view, &mut state, width, vec![]);
+				let stop = labels
+					.iter()
+					.find(|(text, _)| text == "Stop watching")
+					.unwrap()
+					.1
+					.center();
+				for pressed in [true, false] {
+					frame(&ctx, &mut view, &mut state, width, click(stop, pressed));
+				}
+				assert_eq!(state.voice.active.as_ref().unwrap().watching, None);
+				assert_eq!(view.take_voice_fullscreen_request(), Some(false));
+				// A share that ends while fullscreen restores the window on its own.
+				state.voice.active.as_mut().unwrap().watching = Some(model::Id(7));
+				view.voice_focus = Some(ui::StageFocus::Stream(model::Id(7)));
+				frame(&ctx, &mut view, &mut state, width, vec![]);
+				enter(&mut view, &mut state);
+				state.voice.active.as_mut().unwrap().watching = None;
+				frame(&ctx, &mut view, &mut state, width, vec![]);
+				assert_eq!(view.take_voice_fullscreen_request(), Some(false));
+				state.voice.active.as_mut().unwrap().watching = Some(model::Id(7));
+				view.voice_focus = Some(ui::StageFocus::Stream(model::Id(7)));
+				// Signing out while fullscreen still hands the desktop a restore request.
+				enter(&mut view, &mut state);
+				view.clear();
+				assert_eq!(view.take_voice_fullscreen_request(), Some(false));
+				view.language = ui::i18n::Language::English;
+				view.voice_focus = Some(ui::StageFocus::Stream(model::Id(7)));
+				if right_click {
+					view.voice_stream_view = Some(ctx.load_texture(
+						"synthetic stream",
+						egui::ColorImage::filled([320, 180], egui::Color32::GRAY),
+						egui::TextureOptions::LINEAR,
+					));
+				}
+			}
 		}
+		// Stream audio lives in the share's context menu outside the enlarged view.
 		for (label, expected_volume) in [
-			("Stream audio", 100),
+			("Participant's screen", 100),
 			("Mute stream audio", 0),
 			("Mute stream audio", 100),
 		] {
@@ -188,14 +347,13 @@ fn main() {
 			for _ in 0..3 {
 				labels = frame(&ctx, &mut view, &mut state, width, vec![]);
 			}
-			let mut pos = labels
+			let pos = labels
 				.iter()
 				.find(|(text, _)| text == label)
 				.unwrap()
 				.1
 				.center();
-			let button = if right_click && label == "Stream audio" {
-				pos.y += 40.0;
+			let button = if label == "Participant's screen" {
 				egui::PointerButton::Secondary
 			} else {
 				egui::PointerButton::Primary
@@ -240,6 +398,6 @@ fn main() {
 		assert!(!state.can_compose(channel) && !state.can_read_history(channel));
 	}
 	println!(
-		"PASS: voice chat history, wide/narrow stream audio button and right-click menus, stream mute, independent user volume, permission gates (offline egui)."
+		"PASS: voice chat history, wide/narrow screen-share fullscreen and audio controls, stream mute, independent user volume, permission gates (offline egui)."
 	);
 }

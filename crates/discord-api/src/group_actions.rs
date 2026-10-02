@@ -90,6 +90,7 @@ impl DiscordApi {
 			position: Patch::Absent,
 			kind: Patch::Absent,
 			message_count: Patch::Absent,
+			tags: Patch::Absent,
 		}))
 	}
 }

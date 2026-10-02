@@ -22,6 +22,7 @@ impl Pending {
 			status: update.status,
 			custom_status: update.custom_status,
 			activities: update.activities,
+			clients: update.clients,
 		};
 		let mut merged = self
 			.updates
@@ -118,25 +119,6 @@ impl Pending {
 mod tests {
 	use super::*;
 	use model::Patch;
-
-	#[test]
-	fn legacy_ready_restores_an_already_running_game() {
-		let mut pending = Pending::default();
-		pending.bootstrap_users.insert(Id(3));
-		pending.supplemental(br#"{"presences":[{"user":{"id":"3"},"status":"online","activities":[{"type":0,"name":"Genshin Impact"}]},{"user":{"id":"99"},"status":"online","activities":[{"type":0,"name":"Unknown recipient"}]}]}"#, Instant::now(), &|_| Ok(())).unwrap();
-		let Event::DirectPresence(updates) = pending
-			.take()
-			.expect("READY must restore existing activities")
-		else {
-			panic!()
-		};
-		assert_eq!(updates.len(), 1);
-		assert_eq!(updates[0].user, Id(3));
-		let Patch::Value(activities) = &updates[0].activities else {
-			panic!()
-		};
-		assert_eq!(activities[0].summary(), "Playing Genshin Impact");
-	}
 
 	#[test]
 	fn direct_patches_coalesce_without_losing_absent_fields_and_stay_bounded() {

@@ -20,8 +20,8 @@ discord-gateway = { path = "crates/discord-gateway" }
 session-cache = { path = "crates/session-cache" }
 ui = { path = "crates/ui" }
 test-support = { path = "crates/test-support" }
-eframe = { git = "https://github.com/emilk/egui", rev = "99df44a801749aee958295ed96fccad8dfecb289", default-features = false, features = ["wgpu", "default_fonts", "system_fonts", "accesskit", "wayland", "x11", "links"] }
-egui = { git = "https://github.com/emilk/egui", rev = "99df44a801749aee958295ed96fccad8dfecb289", default-features = false, features = ["default_fonts"] }
+eframe = { git = "https://github.com/emilk/egui", rev = "fe6d63efa4a4df6f56ceab814d4f3a6efab69b88", default-features = false, features = ["wgpu", "default_fonts", "system_fonts", "accesskit", "wayland", "x11", "links"] }
+egui = { git = "https://github.com/emilk/egui", rev = "fe6d63efa4a4df6f56ceab814d4f3a6efab69b88", default-features = false, features = ["default_fonts"] }
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "fs"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
@@ -87,6 +87,29 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.num-complex]
+opt-level = 3
+
+# Picker and timeline GIF/WebP decoding runs every frame through these codecs and the
+# resize filter; unoptimized, one animated preview takes seconds instead of milliseconds.
+[profile.dev.package.image]
+opt-level = 3
+
+[profile.dev.package.image-webp]
+opt-level = 3
+
+[profile.dev.package.gif]
+opt-level = 3
+
+[profile.dev.package.weezl]
+opt-level = 3
+
+[profile.dev.package.png]
+opt-level = 3
+
+[profile.dev.package.fdeflate]
+opt-level = 3
+
+[profile.dev.package.zune-jpeg]
 opt-level = 3
 
 [profile.dev.package.generic_singleton]

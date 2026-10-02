@@ -1,0 +1,44 @@
+{
+  "source_parent": "e01d89e84243309923c5efac458a4bd4773822a3",
+  "correction": "Join negotiation stays replaceable until exact current credential revision is accepted by local voice transport and acknowledged by Gateway; unconfirmed failures abandon locally without service hangup.",
+  "environment": {
+    "rust": "1.98.1",
+    "os": "macOS27.0 (26A428)",
+    "architecture": "aarch64",
+    "native": "Metal, 1120x760 logical at 2x"
+  },
+  "focused_checks": {
+    "core_voice": 5,
+    "gateway_voice": 11,
+    "desktop_voice": 15,
+    "desktop_dispatch": 14,
+    "local_gateway_discovery": 1
+  },
+  "native_after": {
+    "bytes": 499784,
+    "sha256": "479c1ae53a360b36ed05bb80238fcf7b77746918b1df57630aaaccdbdc003996",
+    "flags": [
+      "--demo",
+      "--demo-call"
+    ],
+    "fixture": "SEREIN_SYNTHETIC_TAKEOVER=1; actual scoped event and real notice helper offline",
+    "inspected": "call stage/panel cleared; actor-neutral notice readable, no clipping",
+    "source_note": "capture matches correction behavior/UI; binary precedes only equivalent Clippy match-guard rewrite"
+  },
+  "capture_hooks": "apply/reapply/remove exact-byte round-trip verified; removed from production source",
+  "final_full_check": "cargo xtask check passed, exit0: workspace tests, strict all-target Clippy, formatting and policy checks",
+  "final_aggregate_package_performance": "Completed on exact3f; see final-measurements.json for current standard,matched FAT native and alternating reducer results. Earlier comparisons remain historical.",
+  "limitations": [
+    "No live Discord, microphone, audio device, camera or OS share actions.",
+    "Server acceptance establishes a submitted candidate; protocol does not prove physical actor identity."
+  ],
+  "queue_pressure_followup": {
+    "source_parent": "c3bb31c91e857955098c54521bdf698328fff158",
+    "correction": "One bounded pending local Abandon survives a full 8-slot control queue; stale scopes cannot displace it and fresh Join cannot overtake cleanup. A Join meeting the still-full queue after cleanup is enqueued fails only that unsent attempt and releases its dispatcher tuple.",
+    "desktop_dispatch_tests_passed": 15,
+    "full_check": "cargo xtask check passed, exit0, on the exact corrected source: workspace tests, strict all-target Clippy, formatting and policy checks",
+    "regression": "Full8 control queue; stale/current scope; pending release FIFO; immediately queued Join at capacity emits scoped failure and clears only unsent tuple; later Join follows Abandon; closed queue delegates Gateway termination.",
+    "scope": "Ordinary mute/camera/leave queue behavior unchanged; no live account, service call or devices used.",
+    "delivery": "Exact3f standard/default+demo/reducer builds and globally quiet matched native/reducer measurements completed; all9 CI checks pass,final evidence publication/review status pending."
+  }
+}

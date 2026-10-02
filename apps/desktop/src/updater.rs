@@ -22,6 +22,9 @@ const RELEASES: &str = "https://api.github.com/repos/ViceVerse-cz/Serein/release
 const MAX_METADATA: usize = 2 * 1024 * 1024;
 const MAX_DOWNLOAD: u64 = 512 * 1024 * 1024;
 const CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
+const LOG_RELEASES: usize = 30;
+const LOG_NOTES: usize = 16 * 1024;
+const LOG_ITEMS: usize = 60;
 
 #[derive(Clone, Deserialize)]
 struct Asset {
@@ -35,6 +38,10 @@ struct Release {
 	draft: bool,
 	prerelease: bool,
 	assets: Vec<Asset>,
+	#[serde(default)]
+	published_at: Option<String>,
+	#[serde(default)]
+	body: Option<String>,
 }
 #[derive(Clone)]
 struct Package {
@@ -50,7 +57,7 @@ struct Staged {
 	installation: PathBuf,
 }
 enum Outcome {
-	Checked(Option<Package>),
+	Checked(Option<Package>, Vec<ui::updates::LogEntry>),
 	Downloaded(Staged),
 	Prepared(install::Prepared),
 	Cleaned,
@@ -77,6 +84,7 @@ pub struct Updater {
 	auto_download: bool,
 	demo_available: bool,
 	demo_ready: bool,
+	log: Option<Vec<ui::updates::LogEntry>>,
 }
 impl Updater {
 	pub fn new(demo: bool) -> Self {
@@ -96,6 +104,7 @@ impl Updater {
 			auto_download: false,
 			demo_available: false,
 			demo_ready: false,
+			log: None,
 		}
 	}
 
@@ -118,6 +127,7 @@ impl Updater {
 			self.channel = Some(view.nightly);
 			if check {
 				self.demo_available = true;
+				view.log = demo_log();
 				self.status =
 					"Synthetic preview: Serein 99.0.0 is available. No network request was made."
 						.into();
@@ -139,7 +149,8 @@ impl Updater {
 			view.supported = true;
 			return false;
 		}
-		let supported = cfg!(any(target_os = "macos", windows)) || install::appimage_session();
+		let supported = (cfg!(any(target_os = "macos", windows)) && !install::nix_session())
+			|| install::appimage_session();
 		view.supported = supported;
 		view.flatpak = install::flatpak_session();
 		view.linux_update_cmd = install::linux_package_manager_update_command().map(str::to_owned);
@@ -171,6 +182,7 @@ impl Updater {
 			self.next_check = Instant::now();
 			self.last_check = None;
 			self.status = "Updates have not been checked on this channel yet.".into();
+			view.log.clear();
 		}
 		if let Some(job) = &self.job {
 			match job.receiver.try_recv() {
@@ -189,13 +201,19 @@ impl Updater {
 						}
 					} else {
 						match result {
-							Ok(Outcome::Checked(package)) => {
+							Ok(Outcome::Checked(package, log)) => {
+								self.log = Some(log);
 								self.status = package.as_ref().map_or_else(
 									|| "Serein is up to date on this channel.".into(),
 									|p| {
 										if install::flatpak_session() {
 											format!(
 												"Serein {} is available. Update with `flatpak update` or your Software center.",
+												p.version,
+											)
+										} else if install::nix_session() {
+											format!(
+												"Serein {} is available. Update it through Nix.",
 												p.version,
 											)
 										} else if let Some(cmd) =
@@ -305,7 +323,9 @@ impl Updater {
 					self.next_check = Instant::now() + CHECK_INTERVAL;
 					let nightly = view.nightly;
 					self.start(runtime, ctx, 0, move |cancel, _| async move {
-						check_release(nightly, cancel).await.map(Outcome::Checked)
+						check_release(nightly, cancel)
+							.await
+							.map(|(package, log)| Outcome::Checked(package, log))
 					});
 					self.status = "Checking for updates…".into();
 				}
@@ -320,6 +340,9 @@ impl Updater {
 			|| self.job.as_ref().is_some_and(|job| job.total > 0);
 		view.ready = self.staged.is_some() && self.job.is_none();
 		view.status.clone_from(&self.status);
+		if let Some(log) = self.log.take() {
+			view.log = log;
+		}
 		if self.job.is_some() {
 			ctx.request_repaint_after(Duration::from_millis(200));
 		} else if self.staged.is_none() {
@@ -527,6 +550,95 @@ fn asset_name(tag: &str) -> Option<String> {
 	};
 	Some(format!("serein-{tag}-{os}-{arch}.zip"))
 }
+fn on_channel(release: &Release, version: &semver::Version, nightly: bool) -> bool {
+	let is_nightly = version.pre.as_str().starts_with("nightly.");
+	!release.draft
+		&& ((nightly && release.prerelease && is_nightly)
+			|| (!nightly && !release.prerelease && version.pre.is_empty()))
+}
+/// Releases between the running build and the newest one, notes reduced to plain bullets.
+fn release_log(
+	releases: &[Release],
+	nightly: bool,
+	current: &semver::Version,
+) -> Vec<ui::updates::LogEntry> {
+	let mut entries = releases
+		.iter()
+		.filter_map(|release| {
+			let version = release_version(&release.tag_name)?;
+			(version > *current && on_channel(release, &version, nightly))
+				.then_some((version, release))
+		})
+		.collect::<Vec<_>>();
+	entries.sort_by(|a, b| b.0.cmp(&a.0));
+	entries
+		.into_iter()
+		.take(LOG_RELEASES)
+		.map(|(version, release)| ui::updates::LogEntry {
+			version: version.to_string(),
+			date: release
+				.published_at
+				.as_deref()
+				.and_then(|date| date.get(..10))
+				.filter(|date| date.bytes().all(|b| b.is_ascii_digit() || b == b'-'))
+				.unwrap_or_default()
+				.to_owned(),
+			sections: release_notes(release.body.as_deref().unwrap_or_default()),
+		})
+		.collect()
+}
+/// Release-please markdown to `(heading, bullets)`: links keep their text, commit hashes go.
+fn release_notes(body: &str) -> Vec<(String, Vec<String>)> {
+	let body = body
+		.get(..body.floor_char_boundary(LOG_NOTES))
+		.unwrap_or(body);
+	let mut sections: Vec<(String, Vec<String>)> = Vec::new();
+	let mut items = 0;
+	for line in body.lines().map(str::trim) {
+		if let Some(heading) = line.strip_prefix("### ") {
+			sections.push((plain_markdown(heading), Vec::new()));
+		} else if let Some(item) = line.strip_prefix("* ").or_else(|| line.strip_prefix("- ")) {
+			let item = plain_markdown(item);
+			if item.is_empty() || items == LOG_ITEMS {
+				continue;
+			}
+			items += 1;
+			if sections.is_empty() {
+				sections.push((String::new(), Vec::new()));
+			}
+			sections.last_mut().expect("pushed").1.push(item);
+		}
+	}
+	sections.retain(|(_, items)| !items.is_empty());
+	sections
+}
+fn plain_markdown(text: &str) -> String {
+	let mut out = String::with_capacity(text.len());
+	let mut rest = text;
+	while let Some(open) = rest.find('[') {
+		let Some(mid) = rest[open..].find("](").map(|i| open + i) else {
+			break;
+		};
+		let Some(close) = rest[mid..].find(')').map(|i| mid + i) else {
+			break;
+		};
+		out.push_str(&rest[..open]);
+		out.push_str(&rest[open + 1..mid]);
+		rest = &rest[close + 1..];
+	}
+	out.push_str(rest);
+	let mut out = out.replace("**", "").replace('`', "");
+	// Release-please closes every bullet with its commit, ` (abc1234)` once unlinked.
+	if out.ends_with(')')
+		&& let Some(start) = out.rfind(" (")
+		&& out[start + 2..out.len() - 1]
+			.bytes()
+			.all(|b| b.is_ascii_hexdigit())
+	{
+		out.truncate(start);
+	}
+	out.trim().to_owned()
+}
 fn select_release(
 	releases: Vec<Release>,
 	nightly: bool,
@@ -539,11 +651,7 @@ fn select_release(
 		.into_iter()
 		.filter_map(|release| {
 			let version = release_version(&release.tag_name)?;
-			let is_nightly = version.pre.as_str().starts_with("nightly.");
-			(!release.draft
-				&& ((nightly && release.prerelease && is_nightly)
-					|| (!nightly && !release.prerelease && version.pre.is_empty())))
-			.then_some((version, release))
+			on_channel(&release, &version, nightly).then_some((version, release))
 		})
 		.max_by(|a, b| a.0.cmp(&b.0));
 	let Some((version, release)) = candidate else {
@@ -604,7 +712,10 @@ fn select_release(
 		zsync,
 	}))
 }
-async fn check_release(nightly: bool, cancel: Arc<AtomicBool>) -> Result<Option<Package>, String> {
+async fn check_release(
+	nightly: bool,
+	cancel: Arc<AtomicBool>,
+) -> Result<(Option<Package>, Vec<ui::updates::LogEntry>), String> {
 	let client = client()?;
 	let endpoint = if nightly {
 		format!("{RELEASES}?per_page=100")
@@ -620,7 +731,40 @@ async fn check_release(nightly: bool, cancel: Arc<AtomicBool>) -> Result<Option<
 	.map_err(|_| "GitHub returned invalid release metadata.".to_owned())?;
 	let current = semver::Version::parse(env!("CARGO_PKG_VERSION"))
 		.map_err(|_| "This build has an invalid version.".to_owned())?;
-	select_release(releases, nightly, &current)
+	let log = release_log(&releases, nightly, &current);
+	select_release(releases, nightly, &current).map(|package| (package, log))
+}
+fn demo_log() -> Vec<ui::updates::LogEntry> {
+	[
+		(
+			"99.0.0",
+			"2026-09-30",
+			"Message search filters",
+			"Fixed voice reconnects after sleep",
+		),
+		(
+			"98.2.0",
+			"2026-09-20",
+			"Forum gallery view",
+			"Reply previews keep their attachment icon",
+		),
+	]
+	.into_iter()
+	.map(|(version, date, feature, fix)| ui::updates::LogEntry {
+		version: version.into(),
+		date: date.into(),
+		sections: vec![
+			(
+				"Features".into(),
+				vec![format!("Synthetic preview: {feature}")],
+			),
+			(
+				"Bug Fixes".into(),
+				vec![format!("Synthetic preview: {fix}")],
+			),
+		],
+	})
+	.collect()
 }
 fn checksum(body: &[u8], name: &str) -> Result<[u8; 32], String> {
 	let body = std::str::from_utf8(body).map_err(|_| "The checksum file is invalid.".to_owned())?;
@@ -804,6 +948,16 @@ pub fn debug_check() -> Result<(), String> {
 		.is_ok()
 	{
 		return Err("Checksum validation failed.".into());
+	}
+	let notes = release_notes(
+		"## [1.0.0](https://x) (2026-09-28)\n\n### Features\n\n* **voice:** add preview by [@a](https://x) in [#457](https://x) ([f15eac0](https://x))\n",
+	);
+	if notes
+		!= [(
+			"Features".to_owned(),
+			vec!["voice: add preview by @a in #457".to_owned()],
+		)] {
+		return Err(format!("Release notes parsed as {notes:?}."));
 	}
 	install::debug_check()
 }

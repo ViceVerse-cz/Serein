@@ -287,6 +287,7 @@ mod tests {
 				position: 0,
 				recipients: vec![],
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 			}],
 			..State::default()
@@ -302,6 +303,7 @@ mod tests {
 			position: Patch::Absent,
 			kind: Patch::Absent,
 			message_count: Patch::Absent,
+			tags: Patch::Absent,
 		}
 	}
 	fn finish(state: &mut State, command: Command, result: Result<Option<ChannelPatch>, Failure>) {
@@ -318,75 +320,76 @@ mod tests {
 		});
 	}
 	#[test]
-	fn group_icon_only_edits_preserve_generated_names_and_require_an_actual_change() {
-		let mut state = state();
-		let name = "A long recipient name, ".repeat(8);
-		state.channels[0].name = name.clone();
-		state.channels[0].icon = Some("0123456789abcdef0123456789abcdef".into());
-		assert!(state.edit_group(Id(10), None, Patch::Absent).is_none());
-		let edit = state.edit_group(Id(10), None, Patch::Null).unwrap();
-		let mut response = patch("unused");
-		response.name = Patch::Absent;
-		finish(&mut state, edit, Ok(Some(response)));
-		assert_eq!(state.channels[0].name, name);
-		assert!(state.channels[0].icon.is_none());
-		let rename = state
-			.edit_group(Id(10), Some("Renamed".into()), Patch::Absent)
-			.unwrap();
-		let mut response = patch("unused");
-		response.name = Patch::Absent;
-		finish(&mut state, rename, Ok(Some(response)));
-		assert_eq!(state.group_action_completed(Id(10), 2), Some(false));
-		assert_eq!(state.channels[0].name, name);
-	}
-	#[test]
 	fn group_actions_confirm_writes_keep_drafts_and_respect_newer_service_state() {
-		let mut state = state();
-		assert!(state.close_dm(Id(10)).is_none());
-		assert!(state.set_dm_muted(Id(10), true).is_some());
-		assert!(
-			state
-				.edit_group(Id(10), Some(" ".into()), Patch::Absent)
-				.is_none()
-		);
-		assert!(
-			state
-				.edit_group(Id(10), Some("x".repeat(101)), Patch::Absent)
-				.is_none()
-		);
-		let edit = state
-			.edit_group(Id(10), Some("New name".into()), Patch::Absent)
-			.unwrap();
-		assert_eq!(state.channel(Id(10)).unwrap().name, "Group");
-		assert!(state.leave_group(Id(10)).is_none());
-		finish(&mut state, edit, Err(Failure::Forbidden));
-		assert_eq!(state.group_action_completed(Id(10), 1), Some(false));
-		assert_eq!(state.channel(Id(10)).unwrap().name, "Group");
-		let edit = state
-			.edit_group(Id(10), Some("New name".into()), Patch::Absent)
-			.unwrap();
-		finish(&mut state, edit, Ok(Some(patch("New name"))));
-		assert_eq!(state.channel(Id(10)).unwrap().name, "New name");
-		assert_eq!(state.group_action_completed(Id(10), 2), Some(true));
-		let edit = state
-			.edit_group(Id(10), Some("Older".into()), Patch::Absent)
-			.unwrap();
-		state.apply(Envelope {
-			generation: state.generation,
-			event: CoreEvent::ChannelChanged(patch("Latest")),
-		});
-		finish(&mut state, edit, Ok(Some(patch("Older"))));
-		assert_eq!(state.channel(Id(10)).unwrap().name, "Latest");
-		let stale = state.leave_group(Id(10)).unwrap();
-		state.cancel_group_action();
-		let current = state.leave_group(Id(10)).unwrap();
-		finish(&mut state, stale, Ok(None));
-		assert!(state.group_action_pending());
-		state.drafts.insert(Id(10), "Keep draft".into());
-		finish(&mut state, current, Ok(None));
-		assert!(state.channel(Id(10)).is_none());
-		assert_eq!(state.selected, None);
-		assert_eq!(state.drafts[&Id(10)], "Keep draft");
+		{
+			let mut state = state();
+			assert!(state.close_dm(Id(10)).is_none());
+			assert!(state.set_dm_muted(Id(10), true).is_some());
+			assert!(
+				state
+					.edit_group(Id(10), Some(" ".into()), Patch::Absent)
+					.is_none()
+			);
+			assert!(
+				state
+					.edit_group(Id(10), Some("x".repeat(101)), Patch::Absent)
+					.is_none()
+			);
+			let edit = state
+				.edit_group(Id(10), Some("New name".into()), Patch::Absent)
+				.unwrap();
+			assert_eq!(state.channel(Id(10)).unwrap().name, "Group");
+			assert!(state.leave_group(Id(10)).is_none());
+			finish(&mut state, edit, Err(Failure::Forbidden));
+			assert_eq!(state.group_action_completed(Id(10), 1), Some(false));
+			assert_eq!(state.channel(Id(10)).unwrap().name, "Group");
+			let edit = state
+				.edit_group(Id(10), Some("New name".into()), Patch::Absent)
+				.unwrap();
+			finish(&mut state, edit, Ok(Some(patch("New name"))));
+			assert_eq!(state.channel(Id(10)).unwrap().name, "New name");
+			assert_eq!(state.group_action_completed(Id(10), 2), Some(true));
+			let edit = state
+				.edit_group(Id(10), Some("Older".into()), Patch::Absent)
+				.unwrap();
+			state.apply(Envelope {
+				generation: state.generation,
+				event: CoreEvent::ChannelChanged(patch("Latest")),
+			});
+			finish(&mut state, edit, Ok(Some(patch("Older"))));
+			assert_eq!(state.channel(Id(10)).unwrap().name, "Latest");
+			let stale = state.leave_group(Id(10)).unwrap();
+			state.cancel_group_action();
+			let current = state.leave_group(Id(10)).unwrap();
+			finish(&mut state, stale, Ok(None));
+			assert!(state.group_action_pending());
+			state.drafts.insert(Id(10), "Keep draft".into());
+			finish(&mut state, current, Ok(None));
+			assert!(state.channel(Id(10)).is_none());
+			assert_eq!(state.selected, None);
+			assert_eq!(state.drafts[&Id(10)], "Keep draft");
+		}
+		{
+			let mut state = state();
+			let name = "A long recipient name, ".repeat(8);
+			state.channels[0].name = name.clone();
+			state.channels[0].icon = Some("0123456789abcdef0123456789abcdef".into());
+			assert!(state.edit_group(Id(10), None, Patch::Absent).is_none());
+			let edit = state.edit_group(Id(10), None, Patch::Null).unwrap();
+			let mut response = patch("unused");
+			response.name = Patch::Absent;
+			finish(&mut state, edit, Ok(Some(response)));
+			assert_eq!(state.channels[0].name, name);
+			assert!(state.channels[0].icon.is_none());
+			let rename = state
+				.edit_group(Id(10), Some("Renamed".into()), Patch::Absent)
+				.unwrap();
+			let mut response = patch("unused");
+			response.name = Patch::Absent;
+			finish(&mut state, rename, Ok(Some(response)));
+			assert_eq!(state.group_action_completed(Id(10), 2), Some(false));
+			assert_eq!(state.channels[0].name, name);
+		}
 	}
 	#[test]
 	fn group_leave_guards_rejoined_channel_pending_messages_and_session_reset() {

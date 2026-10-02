@@ -33,6 +33,7 @@ fn ready(state: &mut State) {
 					recipients: vec![],
 					last_message: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 					icon: None,
 				})
@@ -109,6 +110,7 @@ pub fn run(duration: Duration) {
 			apply(
 				&mut state,
 				Event::Patch(MessagePatch {
+					poll: model::Patch::Absent,
 					sticker_items: Patch::Absent,
 					id: Id(base + 2),
 					channel,

@@ -1,6 +1,6 @@
 # Linux packages
 
-Release builds target native packages for Ubuntu 26.04 (`apt`), Fedora 43/44 (`dnf`),
+Release builds target native packages for Ubuntu 26.04 (`apt`, x86_64 and ARM64), Fedora 43/44 (`dnf`),
 openSUSE Tumbleweed (`zypper`) and Arch (`pacman`), plus a
 [Flatpak bundle](../flatpak/README.md) for distributions with a compatible Flatpak runtime.
 The [AppImage](../appimage/README.md) supports in-app updates on Linux x86_64 with
@@ -23,7 +23,9 @@ unsigned; package-manager signature policy may require an operator-signed packag
 The [signed repository setup](../repositories/README.md) prepares apt, dnf/zypper
 and pacman repositories for normal package-manager upgrades. Hosting and signing
 credentials must be configured before those repository URLs are usable. Serein is
-not listed in distribution archives, AUR or Flathub by this change.
+not listed in distribution archives or Flathub by this change. An optional
+[AUR binary recipe](../aur/README.md) is prepared in this repository for maintainer
+submission; it does not configure a pacman repository or claim AUR publication.
 
 Native DEB, RPM and Arch packages require the GStreamer Good plugin set, which
 provides `autoaudiosink` used by WebKit. Package-manager installation pulls it in
@@ -50,7 +52,11 @@ Native screen capture and installation of the updated packages remain unverified
 Build on the target distribution; converting an Ubuntu binary to RPM or Arch does
 not make its shared libraries compatible. The release workflow builds each format
 inside its matching distribution container, as an unprivileged user. CI currently
-targets x86_64; native Debian/RPM staging also validates aarch64 ELF headers.
+targets x86_64 for every distribution and additionally ARM64 for Ubuntu 26.04,
+on a native `ubuntu-24.04-arm` runner with an Ubuntu 26.04 container. Both builds
+include voice. Download the Ubuntu asset ending in `_arm64.deb` for ARM64;
+`_amd64.deb` is for x86_64. Other Linux ARM architectures and ARM AppImage/Flatpak
+are not built by this workflow. Native ARM desktop behavior remains unverified.
 
 ```sh
 cargo xtask package --format deb    # Debian/Ubuntu; also the default Linux format
@@ -59,6 +65,10 @@ cargo xtask package --format arch   # Arch; makepkg must run without root
 cargo xtask package --format dir    # dist/linux-root/usr, for the Flatpak SDK build
 cargo xtask package --format appimage # requires packaging/appimage/install-tools.sh first
 ```
+
+Arch packaging also accepts derivatives such as CachyOS and EndeavourOS when their
+`/etc/os-release` lists `arch` in `ID_LIKE`. Packages use the build host's installed
+dependency versions; this does not guarantee compatibility with other Arch derivatives.
 
 `install-build-deps.sh` installs build dependencies as root on the explicitly
 supported CI distributions. It is intended for fresh build containers. Normal

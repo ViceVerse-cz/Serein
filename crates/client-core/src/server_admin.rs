@@ -5,7 +5,7 @@ use crate::{
 };
 use model::{
 	Id, permissions as p,
-	server_admin::{Action, Emojis, Members, Query, Result as Outcome},
+	server_admin::{Action, Emojis, Members, Query, Result as Outcome, Stickers},
 };
 
 pub struct Event {
@@ -16,6 +16,7 @@ pub struct Event {
 
 #[derive(Default)]
 pub struct View {
+	webhook_url: Option<model::server_integrations::WebhookUrl>,
 	pub audit_log: Option<model::server_audit_log::Page>,
 	pub audit_query: Option<model::server_audit_log::Query>,
 	pub audit_limit_reached: bool,
@@ -26,6 +27,7 @@ pub struct View {
 	pub member_role_filter: Option<Id>,
 	pub guild: Option<Id>,
 	pub emojis: Option<Emojis>,
+	pub stickers: Option<Stickers>,
 	pub members: Option<Members>,
 	pub query: Query,
 	pub pending: bool,
@@ -76,6 +78,7 @@ impl View {
 			}
 		};
 		if relevant {
+			self.webhook_url = None;
 			self.permission_revision = self.permission_revision.wrapping_add(1);
 		}
 	}
@@ -88,6 +91,17 @@ impl View {
 	}
 }
 impl State {
+	pub(crate) fn can_retain_channel_integrations(&self, guild: Id) -> bool {
+		let scope = match &self.server_admin.action {
+			Some(Action::Integrations(action)) => action.scope(),
+			_ => self
+				.server_admin
+				.integrations
+				.as_ref()
+				.and_then(|page| page.channel),
+		};
+		scope.is_some_and(|channel| self.can_manage_webhook_channel(guild, channel))
+	}
 	pub fn can_open_invite_settings(&self, guild: Id) -> bool {
 		self.can_manage_guild(guild)
 	}
@@ -157,6 +171,33 @@ impl State {
 						.as_ref()
 						.zip(self.user.as_ref())
 						.is_some_and(|(uploader, user)| uploader.id == user.id)))
+	}
+	pub fn can_open_sticker_settings(&self, guild: Id) -> bool {
+		self.guild_permission(guild, p::MANAGE_GUILD_EXPRESSIONS)
+			|| self.guild_permission(guild, p::CREATE_GUILD_EXPRESSIONS)
+	}
+	pub fn can_create_guild_sticker(&self, guild: Id) -> bool {
+		self.guild_permission(guild, p::CREATE_GUILD_EXPRESSIONS)
+	}
+	pub fn can_edit_guild_sticker(&self, guild: Id, id: Id) -> bool {
+		if self.server_admin.guild != Some(guild) {
+			return false;
+		}
+		let Some(row) = self
+			.server_admin
+			.stickers
+			.as_ref()
+			.and_then(|page| page.items.iter().find(|row| row.sticker.id == id))
+		else {
+			return false;
+		};
+		self.guild_permission(guild, p::MANAGE_GUILD_EXPRESSIONS)
+			|| (self.can_create_guild_sticker(guild)
+				&& row
+					.uploader
+					.as_ref()
+					.zip(self.user.as_ref())
+					.is_some_and(|(uploader, user)| uploader.id == user.id))
 	}
 	pub fn can_open_member_settings(&self, guild: Id) -> bool {
 		self.can_manage_guild(guild)
@@ -312,6 +353,11 @@ impl State {
 			Action::RenameEmoji { id, .. } | Action::DeleteEmoji { id } => {
 				self.can_edit_guild_emoji(guild, *id)
 			}
+			Action::LoadStickers => self.can_open_sticker_settings(guild),
+			Action::CreateSticker { .. } => self.can_create_guild_sticker(guild),
+			Action::EditSticker { id, .. } | Action::DeleteSticker { id } => {
+				self.can_edit_guild_sticker(guild, *id)
+			}
 			Action::LoadMembers(_) => self.can_open_member_settings(guild),
 			Action::SetRole { user, role, .. } => self.can_edit_member_role(guild, *user, *role),
 			Action::SetNickname { user, .. } => self.can_edit_guild_nickname(guild, *user),
@@ -337,6 +383,31 @@ impl State {
 				image.shrink_to_fit();
 			}
 			Action::RenameEmoji { name, .. } => name.shrink_to_fit(),
+			Action::CreateSticker {
+				name,
+				description,
+				tags,
+				filename,
+				content_type,
+				file,
+			} => {
+				name.shrink_to_fit();
+				description.shrink_to_fit();
+				tags.shrink_to_fit();
+				filename.shrink_to_fit();
+				content_type.shrink_to_fit();
+				file.shrink_to_fit();
+			}
+			Action::EditSticker {
+				name,
+				description,
+				tags,
+				..
+			} => {
+				name.shrink_to_fit();
+				description.shrink_to_fit();
+				tags.shrink_to_fit();
+			}
 			_ => {}
 		}
 		if self.server_admin.pending
@@ -365,6 +436,7 @@ impl State {
 			self.server_admin.query = query.clone();
 			self.server_admin.member_role_filter = *role;
 		}
+		self.server_admin.webhook_url = None;
 		self.server_admin.guild = Some(guild);
 		self.server_admin.sequence = self.server_admin.sequence.wrapping_add(1);
 		self.server_admin.pending = true;
@@ -374,6 +446,9 @@ impl State {
 		let mut retained = action.clone();
 		if let Action::CreateEmoji { image, .. } = &mut retained {
 			*image = String::new();
+		} else if let Action::CreateSticker { file, .. } = &mut retained {
+			file.clear();
+			file.shrink_to_fit();
 		} else if let Action::Roles(
 			model::server_roles::Action::Create(edit)
 			| model::server_roles::Action::Edit { edit, .. },
@@ -394,12 +469,44 @@ impl State {
 			&& self.server_admin.pending
 			&& self.server_admin_action_allowed(guild, action)
 	}
+	/// Consume a ready URL only while the same permission-scoped settings remain open.
+	pub fn take_webhook_url(
+		&mut self,
+		guild: Id,
+		scope: Option<Id>,
+	) -> Option<model::server_integrations::WebhookUrl> {
+		let url = self.server_admin.webhook_url.take()?;
+		let action = model::server_integrations::Action::CopyWebhookUrl {
+			scope,
+			webhook: url.webhook,
+			channel: url.channel,
+		};
+		(url.guild == guild
+			&& (self.demo || (self.auth == AuthState::Authenticated && self.gateway_connected))
+			&& self.integration_action_allowed(guild, &action))
+		.then_some(url)
+	}
+	/// Fence an in-flight copy without discarding the integration metadata.
+	pub fn clear_webhook_url(&mut self) {
+		self.server_admin.webhook_url = None;
+		if matches!(
+			self.server_admin.action,
+			Some(Action::Integrations(
+				model::server_integrations::Action::CopyWebhookUrl { .. }
+			))
+		) {
+			self.server_admin.action = None;
+			self.server_admin.pending = false;
+			self.server_admin.sequence = self.server_admin.sequence.wrapping_add(1);
+		}
+	}
 	pub fn close_server_admin(&mut self) {
 		if !self.server_admin.saving {
 			self.server_admin.reset();
 		}
 	}
 	pub(crate) fn cancel_server_admin(&mut self) {
+		self.server_admin.webhook_url = None;
 		if self.server_admin.pending {
 			self.server_admin.needs_refresh |= self.server_admin.saving;
 			self.server_admin.error = Some(if self.server_admin.saving {
@@ -438,6 +545,15 @@ impl State {
 					) && !self.can_open_member_settings(event.guild)
 			} else if action.emoji() {
 				!self.can_open_emoji_settings(event.guild)
+			} else if action.sticker() {
+				!match action {
+					Action::LoadStickers => self.can_open_sticker_settings(event.guild),
+					Action::CreateSticker { .. } => self.can_create_guild_sticker(event.guild),
+					Action::EditSticker { id, .. } | Action::DeleteSticker { id } => {
+						self.can_edit_guild_sticker(event.guild, *id)
+					}
+					_ => false,
+				}
 			} else {
 				!self.can_open_member_settings(event.guild)
 			}
@@ -508,6 +624,14 @@ impl State {
 				| (Some(Action::Prune { .. }), Outcome::Pruned(_))
 				| (Some(Action::ShowMembers { .. }), Outcome::ChannelList(_))
 		) || match (&action, &result) {
+			(
+				Some(Action::Integrations(model::server_integrations::Action::CopyWebhookUrl {
+					webhook,
+					channel,
+					..
+				})),
+				Outcome::WebhookUrl(url),
+			) => url.guild == event.guild && url.webhook == *webhook && url.channel == *channel,
 			(Some(Action::AuditLog(query)), Outcome::AuditLog(page)) => {
 				page.guild == event.guild && page.matches_query(query)
 			}
@@ -556,6 +680,39 @@ impl State {
 				Outcome::Member(member),
 			) => *user == member.user.id,
 			(Some(Action::Kick { user }), Outcome::Kicked(id)) => user == id,
+			(Some(action), Outcome::Stickers(page)) if action.sticker() => {
+				page.items
+					.iter()
+					.all(|row| row.sticker.guild_id == Some(event.guild))
+					&& match action {
+						Action::LoadStickers => true,
+						Action::CreateSticker {
+							name,
+							description,
+							tags,
+							..
+						} => page.items.iter().any(|row| {
+							row.sticker.name == *name
+								&& row.sticker.description == *description
+								&& row.sticker.tags == *tags
+						}),
+						Action::EditSticker {
+							id,
+							name,
+							description,
+							tags,
+						} => page.items.iter().any(|row| {
+							row.sticker.id == *id
+								&& row.sticker.name == *name
+								&& row.sticker.description == *description
+								&& row.sticker.tags == *tags
+						}),
+						Action::DeleteSticker { id } => {
+							page.items.iter().all(|row| row.sticker.id != *id)
+						}
+						_ => false,
+					}
+			}
 			_ => false,
 		};
 		if !expected {
@@ -565,6 +722,7 @@ impl State {
 			return Ok(());
 		}
 		match result {
+			Outcome::WebhookUrl(url) => self.server_admin.webhook_url = Some(url),
 			Outcome::AuditLog(page) => self.apply_audit_log(page),
 			Outcome::Integrations(snapshot) => {
 				if let Some(Action::Integrations(action)) = &action {
@@ -590,6 +748,16 @@ impl State {
 					},
 				});
 				self.server_admin.emojis = Some(page);
+			}
+			Outcome::Stickers(page) => {
+				self.apply(crate::Envelope {
+					generation: self.generation,
+					event: crate::Event::GuildStickers {
+						guild: event.guild,
+						stickers: page.items.iter().map(|row| row.sticker.clone()).collect(),
+					},
+				});
+				self.server_admin.stickers = Some(page);
 			}
 			Outcome::Members(page) => {
 				if let Some(enabled) = page.show_in_channel_list {
@@ -684,6 +852,7 @@ impl State {
 			action,
 			Some(
 				Action::LoadEmojis
+					| Action::LoadStickers
 					| Action::Invites(model::server_invites::Action::Load)
 					| Action::Integrations(model::server_integrations::Action::Load { .. })
 					| Action::LoadMembers(_)
@@ -735,6 +904,7 @@ mod invite_tests {
 				webhook: false,
 			}),
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(2),
 				name: "Synthetic".into(),
@@ -778,93 +948,242 @@ mod invite_tests {
 	}
 	#[test]
 	fn invites_stale_requests_and_permission_loss_do_not_restore_codes() {
-		let mut state = state();
-		assert!(!state.can_revoke_guild_invite(Id(2), "unknown"));
-		let Command::ServerAdmin { guild, request, .. } = state
-			.request_server_admin(Id(2), Action::Invites(InviteAction::Load))
-			.unwrap()
-		else {
-			panic!()
-		};
-		deliver(&mut state, guild, request + 1, Ok(Outcome::Invites(page())));
-		assert!(state.server_admin.pending);
-		state.close_server_admin();
-		deliver(&mut state, guild, request, Ok(Outcome::Invites(page())));
-		assert!(state.server_admin.invites.is_none());
-		let Command::ServerAdmin { guild, request, .. } = state
-			.request_server_admin(Id(2), Action::Invites(InviteAction::Load))
-			.unwrap()
-		else {
-			panic!()
-		};
-		let mut role = state
-			.permissions
-			.guilds
-			.get(&guild)
-			.unwrap()
-			.roles
-			.as_ref()
-			.unwrap()[0]
-			.clone();
-		role.bits = p::MANAGE_ROLES;
-		state.apply(Envelope {
-			generation: state.generation,
-			event: CoreEvent::Permissions(crate::permissions::Event::Role { guild, role }),
-		});
-		assert!(!state.can_open_invite_settings(guild));
-		deliver(&mut state, guild, request, Ok(Outcome::Invites(page())));
-		assert!(state.server_admin.invites.is_none());
-	}
-	#[test]
-	fn invites_revoke_and_pause_require_confirmed_results_and_explicit_reload_after_ambiguity() {
-		let mut state = state();
-		let revoke = Action::Invites(InviteAction::Revoke {
-			code: "synthetic_code".into(),
-		});
-		let Command::ServerAdmin { guild, request, .. } =
-			state.request_server_admin(Id(2), revoke.clone()).unwrap()
-		else {
-			panic!()
-		};
-		deliver(&mut state, guild, request, Err(Failure::Ambiguous));
-		assert!(state.server_admin.needs_refresh);
-		assert!(state.request_server_admin(guild, revoke.clone()).is_none());
-		let Command::ServerAdmin { request, .. } = state
-			.request_server_admin(guild, Action::Invites(InviteAction::Load))
-			.unwrap()
-		else {
-			panic!()
-		};
-		deliver(&mut state, guild, request, Ok(Outcome::Invites(page())));
-		assert!(!state.server_admin.needs_refresh);
-		let Command::ServerAdmin { request, .. } =
-			state.request_server_admin(guild, revoke).unwrap()
-		else {
-			panic!()
-		};
-		let mut empty = page();
-		empty.items.clear();
-		deliver(&mut state, guild, request, Ok(Outcome::Invites(empty)));
-		assert!(
-			state
-				.server_admin
-				.invites
-				.as_ref()
+		{
+			let mut state = state();
+			assert!(!state.can_revoke_guild_invite(Id(2), "unknown"));
+			let Command::ServerAdmin { guild, request, .. } = state
+				.request_server_admin(Id(2), Action::Invites(InviteAction::Load))
 				.unwrap()
-				.items
-				.is_empty()
-		);
-		let Command::ServerAdmin { request, .. } = state
-			.request_server_admin(
-				guild,
-				Action::Invites(InviteAction::SetPaused { paused: true }),
-			)
-			.unwrap()
-		else {
-			panic!()
+			else {
+				panic!()
+			};
+			deliver(&mut state, guild, request + 1, Ok(Outcome::Invites(page())));
+			assert!(state.server_admin.pending);
+			state.close_server_admin();
+			deliver(&mut state, guild, request, Ok(Outcome::Invites(page())));
+			assert!(state.server_admin.invites.is_none());
+			let Command::ServerAdmin { guild, request, .. } = state
+				.request_server_admin(Id(2), Action::Invites(InviteAction::Load))
+				.unwrap()
+			else {
+				panic!()
+			};
+			let mut role = state
+				.permissions
+				.guilds
+				.get(&guild)
+				.unwrap()
+				.roles
+				.as_ref()
+				.unwrap()[0]
+				.clone();
+			role.bits = p::MANAGE_ROLES;
+			state.apply(Envelope {
+				generation: state.generation,
+				event: CoreEvent::Permissions(crate::permissions::Event::Role { guild, role }),
+			});
+			assert!(!state.can_open_invite_settings(guild));
+			deliver(&mut state, guild, request, Ok(Outcome::Invites(page())));
+			assert!(state.server_admin.invites.is_none());
+		}
+		{
+			let mut state = state();
+			let revoke = Action::Invites(InviteAction::Revoke {
+				code: "synthetic_code".into(),
+			});
+			let Command::ServerAdmin { guild, request, .. } =
+				state.request_server_admin(Id(2), revoke.clone()).unwrap()
+			else {
+				panic!()
+			};
+			deliver(&mut state, guild, request, Err(Failure::Ambiguous));
+			assert!(state.server_admin.needs_refresh);
+			assert!(state.request_server_admin(guild, revoke.clone()).is_none());
+			let Command::ServerAdmin { request, .. } = state
+				.request_server_admin(guild, Action::Invites(InviteAction::Load))
+				.unwrap()
+			else {
+				panic!()
+			};
+			deliver(&mut state, guild, request, Ok(Outcome::Invites(page())));
+			assert!(!state.server_admin.needs_refresh);
+			let Command::ServerAdmin { request, .. } =
+				state.request_server_admin(guild, revoke).unwrap()
+			else {
+				panic!()
+			};
+			let mut empty = page();
+			empty.items.clear();
+			deliver(&mut state, guild, request, Ok(Outcome::Invites(empty)));
+			assert!(
+				state
+					.server_admin
+					.invites
+					.as_ref()
+					.unwrap()
+					.items
+					.is_empty()
+			);
+			let Command::ServerAdmin { request, .. } = state
+				.request_server_admin(
+					guild,
+					Action::Invites(InviteAction::SetPaused { paused: true }),
+				)
+				.unwrap()
+			else {
+				panic!()
+			};
+			deliver(&mut state, guild, request, Ok(Outcome::Invites(page())));
+			assert!(state.server_admin.needs_refresh);
+			assert!(!state.server_admin.invites.as_ref().unwrap().paused());
+		}
+	}
+}
+
+#[cfg(test)]
+mod sticker_tests {
+	use super::*;
+
+	fn user(id: u64, name: &str) -> model::User {
+		model::User {
+			primary_guild: None,
+			id: Id(id),
+			name: name.into(),
+			avatar: None,
+			discriminator: 0,
+			kind: Default::default(),
+			webhook: false,
+		}
+	}
+	fn row(id: u64, name: &str, uploader: u64) -> model::server_admin::Sticker {
+		model::server_admin::Sticker {
+			sticker: model::Sticker {
+				id: Id(id),
+				name: name.into(),
+				description: "A friendly wave".into(),
+				tags: "wave".into(),
+				format_type: 1,
+				guild_id: Some(Id(2)),
+				pack_id: None,
+				available: true,
+			},
+			uploader: Some(user(uploader, "Uploader")),
+		}
+	}
+	fn state(bits: u128) -> State {
+		let mut state = State {
+			auth: AuthState::Authenticated,
+			gateway_connected: true,
+			user: Some(user(1, "Synthetic")),
+			guilds: vec![model::Guild {
+				default_message_notifications: None,
+				id: Id(2),
+				name: "Synthetic".into(),
+				icon: None,
+				emojis: None,
+				stickers: None,
+			}],
+			..Default::default()
 		};
-		deliver(&mut state, guild, request, Ok(Outcome::Invites(page())));
-		assert!(state.server_admin.needs_refresh);
-		assert!(!state.server_admin.invites.as_ref().unwrap().paused());
+		state.permissions.guilds.insert(
+			Id(2),
+			p::Guild {
+				id: Id(2),
+				owner: Some(Id(99)),
+				member: Some(p::Member {
+					roles: vec![],
+					timeout_until: None,
+				}),
+				roles: Some(vec![p::Role {
+					id: Id(2),
+					name: "@everyone".into(),
+					bits,
+					color: 0,
+					position: 0,
+					hoist: false,
+				}]),
+			},
+		);
+		state.server_admin.guild = Some(Id(2));
+		state.server_admin.stickers = Some(model::server_admin::Stickers {
+			items: vec![row(4, "Wave", 1), row(5, "Other", 7)],
+			limit: Some(5),
+		});
+		state
+	}
+
+	#[test]
+	fn sticker_permissions_follow_creator_and_manager_rules() {
+		{
+			let mut state = state(p::CREATE_GUILD_EXPRESSIONS);
+			assert!(state.can_open_sticker_settings(Id(2)));
+			assert!(state.can_create_guild_sticker(Id(2)));
+			assert!(state.can_edit_guild_sticker(Id(2), Id(4)));
+			assert!(!state.can_edit_guild_sticker(Id(2), Id(5)));
+
+			state
+				.permissions
+				.guilds
+				.get_mut(&Id(2))
+				.unwrap()
+				.roles
+				.as_mut()
+				.unwrap()[0]
+				.bits = p::MANAGE_GUILD_EXPRESSIONS;
+			state.permissions.clear_cache();
+			assert!(!state.can_create_guild_sticker(Id(2)));
+			assert!(state.can_edit_guild_sticker(Id(2), Id(5)));
+		}
+		{
+			let mut state = state(p::CREATE_GUILD_EXPRESSIONS);
+			let action = Action::CreateSticker {
+				name: "New Sticker".into(),
+				description: "A friendly wave".into(),
+				tags: "wave".into(),
+				filename: "wave.png".into(),
+				content_type: "image/png".into(),
+				file: vec![1, 2, 3],
+			};
+			let Command::ServerAdmin {
+				request, action, ..
+			} = state.request_server_admin(Id(2), action).unwrap()
+			else {
+				panic!()
+			};
+			assert!(
+				matches!(*action, Action::CreateSticker { ref file, .. } if file == &[1, 2, 3])
+			);
+			assert!(
+				matches!(state.server_admin.action, Some(Action::CreateSticker { ref file, .. }) if file.is_empty())
+			);
+
+			let page = model::server_admin::Stickers {
+				items: vec![row(6, "New Sticker", 1)],
+				limit: Some(5),
+			};
+			state
+				.apply_server_admin(Event {
+					guild: Id(2),
+					request,
+					result: Ok(Outcome::Stickers(page)),
+				})
+				.unwrap();
+			assert!(
+				state.guild(Id(2)).unwrap().stickers.is_some(),
+				"status={} admin={:?}",
+				state.status,
+				state.server_admin.error
+			);
+			assert_eq!(
+				state.guild(Id(2)).unwrap().stickers.as_ref().unwrap()[0].id,
+				Id(6)
+			);
+			assert_eq!(
+				state.server_admin.stickers.as_ref().unwrap().items[0]
+					.sticker
+					.id,
+				Id(6)
+			);
+		}
 	}
 }

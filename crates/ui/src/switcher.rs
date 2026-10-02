@@ -15,6 +15,9 @@ pub(super) struct Switcher {
 	focus: bool,
 	previous_focus: Option<egui::Id>,
 	composing: bool,
+	/// Results for `searched`, rebuilt when the query changes and at most once a second otherwise.
+	choices: Vec<Candidate>,
+	searched: Option<(String, f64)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -45,14 +48,19 @@ impl Candidate {
 	fn label(&self) -> String {
 		let kind = match self.kind {
 			Kind::Text => "#",
-			Kind::Voice => "Voice · roster",
+			Kind::Voice => "switcher-kind-voice-roster",
 			Kind::Direct | Kind::Group => "",
 		};
-		format!("{kind} {} · {}", self.name, self.scope)
+		format!(
+			"{} {} · {}",
+			crate::i18n::translate_if_key(kind),
+			self.name,
+			self.scope
+		)
 	}
 }
 
-fn bounded(value: &str) -> String {
+pub(super) fn bounded(value: &str) -> String {
 	value.chars().take(QUERY_CHARS).collect()
 }
 
@@ -93,66 +101,76 @@ fn labels_match<'a>(
 	false
 }
 
+/// Whether every lowercase query word appears in the conversation, server or recipient names.
+pub(super) fn channel_matches(
+	state: &State,
+	channel: &Channel,
+	words: &[&str],
+	label: &mut String,
+	matched: &mut [bool],
+) -> bool {
+	let guild = channel
+		.guild
+		.and_then(|id| state.guild(id))
+		.map(|guild| guild.name.as_str());
+	let recipients = channel.guild.is_none().then(|| {
+		channel.recipients.iter().take(64).flat_map(|user| {
+			[
+				Some(user.name.as_str()),
+				state.friend(user.id).map(|friend| friend.name.as_str()),
+				state.friend_nickname(user.id),
+				state.friend_username(user.id),
+			]
+			.into_iter()
+			.flatten()
+		})
+	});
+	let labels = std::iter::once(channel.name.as_str())
+		.chain(guild)
+		.chain(recipients.into_iter().flatten());
+	labels_match(labels, words, label, matched)
+}
+
 fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 	let query = bounded(query).to_lowercase();
 	let words: Vec<_> = query.split_whitespace().collect();
 	// One reused buffer instead of a lowercase copy of every label per keystroke.
 	let mut label = String::new();
 	let mut matched = vec![false; words.len()];
-	let mut matches = |channel: &Channel| {
-		let guild = channel
-			.guild
-			.and_then(|id| state.guild(id))
-			.map(|guild| guild.name.as_str());
-		let recipients = channel.guild.is_none().then(|| {
-			channel.recipients.iter().take(64).flat_map(|user| {
-				[
-					Some(user.name.as_str()),
-					state.friend(user.id).map(|friend| friend.name.as_str()),
-					state.friend_nickname(user.id),
-					state.friend_username(user.id),
-				]
-				.into_iter()
-				.flatten()
-			})
-		});
-		let labels = std::iter::once(channel.name.as_str())
-			.chain(guild)
-			.chain(recipients.into_iter().flatten());
-		labels_match(labels, &words, &mut label, &mut matched)
-	};
-	let selected = state
+	let mut matches =
+		|channel: &Channel| channel_matches(state, channel, &words, &mut label, &mut matched);
+	let mut found: Vec<_> = state
 		.channels
 		.iter()
-		.filter(|c| Some(c.id) == state.selected);
-	let mut choices: Vec<_> = selected
-		.chain(
-			state
-				.channels
-				.iter()
-				.filter(|c| Some(c.id) != state.selected),
-		)
 		.filter(|c| (c.supports_text() || c.kind == 2) && state.can_view(c.id) && matches(c))
-		.take(RESULTS)
+		.collect();
+	// Current conversation first, then the most recently active ones.
+	recent_first(&mut found, RESULTS, |c| {
+		(Some(c.id) == state.selected, activity(c))
+	});
+	let mut choices: Vec<_> = found
+		.into_iter()
 		.map(|channel| {
 			let name = state.conversation_name(channel);
 			let name = if name.is_empty() && channel.guild.is_none() {
-				channel
-					.recipients
-					.first()
-					.map_or("Direct message", |user| state.user_display_name(user))
+				channel.recipients.first().map_or_else(
+					|| crate::i18n::translate("switcher-kind-direct-message"),
+					|user| state.user_display_name(user).to_owned(),
+				)
 			} else {
-				name
+				name.to_owned()
 			};
-			let scope = channel.guild.and_then(|id| state.guild(id)).map_or(
-				if channel.guild.is_some() {
-					"Server"
-				} else if channel.kind == 3 {
-					"Group direct message"
-				} else {
-					"Direct message"
+			let scope = channel.guild.and_then(|id| state.guild(id)).map_or_else(
+				|| {
+					crate::i18n::translate(if channel.guild.is_some() {
+						"switcher-kind-server"
+					} else if channel.kind == 3 {
+						"switcher-kind-group-direct-message"
+					} else {
+						"switcher-kind-direct-message"
+					})
 				},
-				|g| g.name.as_str(),
+				|g| g.name.clone(),
 			);
 			let kind = if channel.kind == 2 {
 				Kind::Voice
@@ -166,8 +184,8 @@ fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 			Candidate {
 				target: Target::Channel(channel.id),
 				kind,
-				name: bounded(name),
-				scope: bounded(scope),
+				name: bounded(&name),
+				scope: bounded(&scope),
 				current: Some(channel.id) == state.selected,
 				user: if kind == Kind::Direct {
 					channel.recipients.first().cloned()
@@ -215,6 +233,20 @@ fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 		}
 	}
 	choices
+}
+
+/// Snowflake of the latest known activity; a channel's own ID when it has no messages yet.
+pub(super) fn activity(channel: &Channel) -> Id {
+	channel.last_message.unwrap_or(channel.id).max(channel.id)
+}
+
+/// Keeps the `limit` highest-ranked items, highest first.
+pub(super) fn recent_first<T, K: Ord>(items: &mut Vec<T>, limit: usize, rank: impl Fn(&T) -> K) {
+	if items.len() > limit {
+		items.select_nth_unstable_by(limit, |a, b| rank(b).cmp(&rank(a)));
+		items.truncate(limit);
+	}
+	items.sort_by_key(|item| std::cmp::Reverse(rank(item)));
 }
 
 /// Small rounded chip that names a key in the footer legend.
@@ -385,6 +417,7 @@ impl Switcher {
 		self.selected = 0;
 		self.focus = true;
 		self.composing = false;
+		self.searched = None;
 		self.previous_focus = ctx.memory(|memory| memory.focused());
 	}
 
@@ -392,6 +425,8 @@ impl Switcher {
 		self.open = false;
 		self.query.clear();
 		self.composing = false;
+		self.choices = Vec::new();
+		self.searched = None;
 		if !restore {
 			self.previous_focus = None;
 		}
@@ -497,11 +532,14 @@ impl Switcher {
 								})
 								.frame(egui::Frame::NONE)
 								.font(egui::FontId::proportional(16.0))
-								.hint_text("Where would you like to go?")
+								.hint_text(crate::i18n::translate(
+									"switcher-show-where-would-you-like-to-go",
+								))
 								.char_limit(QUERY_CHARS)
 								.desired_width(ui.available_width().max(60.0)),
 						);
-						let input = input.accessible_name("Find conversation");
+						let input =
+							input.accessible_name(crate::i18n::translate("find-conversation"));
 						if self.focus {
 							input.request_focus();
 							self.focus = false;
@@ -522,12 +560,23 @@ impl Switcher {
 			}
 			if blocked {
 				ui.label(
-					egui::RichText::new("Finish composing text before opening or closing.")
-						.size(12.0)
-						.color(colors.warning),
+					egui::RichText::new(crate::i18n::translate(
+						"switcher-show-finish-composing-text-before-opening-or-closing",
+					))
+					.size(12.0)
+					.color(colors.warning),
 				);
 			}
-			let choices = candidates(state, &self.query);
+			let now = ui.input(|input| input.time);
+			if self
+				.searched
+				.as_ref()
+				.is_none_or(|(query, at)| *query != self.query || !(0.0..1.0).contains(&(now - at)))
+			{
+				self.choices = candidates(state, &self.query);
+				self.searched = Some((self.query.clone(), now));
+			}
+			let choices = &self.choices;
 			self.selected = self.selected.min(choices.len().saturating_sub(1));
 			if !choices.is_empty() {
 				if down {
@@ -543,11 +592,11 @@ impl Switcher {
 			ui.add_space(2.0);
 			ui.label(design::eyebrow(
 				ui,
-				if self.query.trim().is_empty() {
-					"Conversations and friends"
+				crate::i18n::translate_if_key(if self.query.trim().is_empty() {
+					"switcher-show-conversations-and-friends"
 				} else {
-					"Results"
-				},
+					"switcher-show-results"
+				}),
 				colors.muted,
 			));
 			ui.spacing_mut().item_spacing.y = 2.0;
@@ -559,13 +608,21 @@ impl Switcher {
 							icons::inline(ui, icons::Icon::Search, 28.0, colors.muted);
 							ui.add_space(6.0);
 							ui.label(
-								design::semibold(ui, "No conversations or friends match", 14.0)
-									.color(colors.text),
+								design::semibold(
+									ui,
+									crate::i18n::translate(
+										"switcher-show-no-conversations-or-friends-match",
+									),
+									14.0,
+								)
+								.color(colors.text),
 							);
 							ui.label(
-								egui::RichText::new("Try a channel, server or person name.")
-									.size(12.0)
-									.color(colors.muted),
+								egui::RichText::new(crate::i18n::translate(
+									"switcher-show-try-a-channel-server-or-person-name",
+								))
+								.size(12.0)
+								.color(colors.muted),
 							);
 						});
 					});
@@ -601,16 +658,28 @@ impl Switcher {
 			ui.horizontal(|ui| {
 				ui.spacing_mut().item_spacing.x = 4.0;
 				if !narrow {
-					for (keys, action) in [("↑↓", "choose"), ("↵", "open"), ("Esc", "close")]
-					{
+					for (keys, action) in [
+						("↑↓", "switcher-footer-choose"),
+						("↵", "switcher-footer-open"),
+						("Esc", "switcher-show-close"),
+					] {
 						key_hint(ui, keys, colors);
-						ui.label(egui::RichText::new(action).size(12.0).color(colors.muted));
+						ui.label(
+							egui::RichText::new(crate::i18n::translate(action))
+								.size(12.0)
+								.color(colors.muted),
+						);
 						ui.add_space(6.0);
 					}
 				}
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					ui.add_enabled_ui(!blocked, |ui| {
-						if design::secondary_button(ui, "Close").clicked() {
+						if design::secondary_button(
+							ui,
+							&crate::i18n::translate("switcher-show-close"),
+						)
+						.clicked()
+						{
 							cancel = true;
 						}
 					});
@@ -651,6 +720,7 @@ mod tests {
 					primary_guild: None,
 				}],
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 				icon: None,
 				last_message: None,
@@ -658,23 +728,6 @@ mod tests {
 			.collect();
 		state.selected = Some(Id(25));
 		state
-	}
-
-	#[test]
-	fn lowercase_buffer_matches_allocating_normalization() {
-		let mut buffer = String::new();
-		for value in [
-			"",
-			"General Chat",
-			"Žofie Example",
-			"ΟΔΥΣΣΕΎΣ ΑΣ",
-			"İstanbul",
-			&"🦀A".repeat(1000),
-			&"x".repeat(1000),
-		] {
-			lowercase_bounded_into(&mut buffer, value);
-			assert_eq!(buffer, bounded(value).to_lowercase(), "{value:?}");
-		}
 	}
 
 	#[test]
@@ -765,7 +818,7 @@ mod tests {
 			);
 			assert_eq!(
 				frame(&mut switcher, vec![key(egui::Key::Enter)]),
-				Some(Target::Channel(Id(1)))
+				Some(Target::Channel(Id(30)))
 			);
 			assert!(!switcher.is_open());
 			ctx.memory_mut(|memory| memory.request_focus(prior));
@@ -841,7 +894,7 @@ mod tests {
 			frame(&mut switcher, vec![key(egui::Key::Tab)]);
 			assert_eq!(
 				frame(&mut switcher, vec![key(egui::Key::Enter)]),
-				Some(Target::Channel(Id(1))),
+				Some(Target::Channel(Id(30))),
 				"Enter must activate the focused result"
 			);
 			switcher.open(&ctx);

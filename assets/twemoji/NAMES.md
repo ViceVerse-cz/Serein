@@ -18,3 +18,14 @@ English name; retain `fully-qualified` and `component` statuses whose sequence
 matches `index.tsv` after removing U+FE0F; write the original sequence, a tab,
 and the lowercased name. Keep source order. No runtime network lookup or new
 runtime dependency is needed.
+
+`discord-shortcodes.tsv` keeps that same order and adds Discord's primary name
+and comma-separated colon aliases. It was generated from the public Discord
+Canary client map captured September 23, 2026
+(`vnd-emoji.ca4ac71ece8afd45`, map timestamp
+`2026-09-23T09:04:12.310152+00:00`) through
+<https://static.emzi0767.com/misc/discordEmojiMap.min.json>. The downloaded map
+SHA-256 was
+`be71a1013f29ea33ede02b3bf4e1ea649bfa28336d5e791dea78dd6577d42421`.
+It covers 3,781 bundled sequences; the 172 Unicode 17 sequences absent from
+that Discord client map retain normalized CLDR names until Discord names them.

@@ -13,7 +13,6 @@ const MAX_LIST: usize = 24 * 1024 * 1024;
 const MAX_GAMES: usize = 65_536;
 const MAX_EXECUTABLES: usize = 16;
 const MAX_NAME: usize = 128;
-const MAX_EXECUTABLE: usize = 256;
 
 /// One detectable game reduced to what matching needs: never store URLs, hashes or SKUs.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -44,16 +43,7 @@ struct WireExecutable {
 
 /// Executables are compared as path suffixes, so both sides use one normal form.
 pub fn normalize(name: &str) -> Option<String> {
-	let name = name.trim().trim_start_matches('>');
-	if name.is_empty() || name.len() > MAX_EXECUTABLE || name.chars().any(char::is_control) {
-		return None;
-	}
-	let name = name
-		.to_lowercase()
-		.replace('\\', "/")
-		.trim_matches('/')
-		.to_owned();
-	(!name.is_empty()).then_some(name)
+	model::registered_games::normalize(name)
 }
 
 /// Returns the raw list; decoding several megabytes of JSON belongs off the async runtime.
@@ -164,27 +154,32 @@ impl Index {
 	/// Match a running executable path. Longer suffixes win, so
 	/// `steamapps/common/game/game.exe` beats a bare `game.exe` from another title.
 	pub fn find(&self, path: &str) -> Option<(Id, String)> {
-		let path = path.to_lowercase().replace('\\', "/");
-		let parts: Vec<&str> = path
-			.split('/')
+		let path = path.to_lowercase();
+		let mut parts = [""; 8];
+		let mut count = 0;
+		for (index, part) in path
+			.rsplit(['/', '\\'])
 			.filter(|part| !part.is_empty())
-			.rev()
-			.take(8)
-			.collect();
-		for size in (1..=parts.len()).rev() {
-			let suffix = parts[..size]
-				.iter()
-				.rev()
-				.copied()
-				.collect::<Vec<_>>()
-				.join("/");
-			if let Some(found) = self.0.get(&suffix) {
+			.take(parts.len())
+			.enumerate()
+		{
+			parts[index] = part;
+			count = index + 1;
+		}
+		let parts = &mut parts[..count];
+		parts.reverse();
+		let suffix = parts.join("/");
+		let mut candidate = suffix.as_str();
+		while !candidate.is_empty() {
+			if let Some(found) = self.0.get(candidate) {
 				return Some(found.clone());
 			}
+			candidate = candidate.split_once('/').map_or("", |(_, rest)| rest);
 		}
 		// macOS entries name the bundle, which sits above the executable inside it.
 		parts
 			.iter()
+			.rev()
 			.filter(|part| part.ends_with(".app"))
 			.find_map(|part| self.0.get(*part).cloned())
 	}
@@ -193,6 +188,96 @@ impl Index {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	#[ignore = "release process matcher benchmark; one warmup and five measured batches"]
+	fn process_matcher_benchmark() {
+		const PROCESSES: usize = 4096;
+		const SCANS: usize = 100;
+		let games: Vec<Game> = (0..PROCESSES / 4)
+			.map(|game| Game {
+				id: Id(game as u64 + 1),
+				name: format!("Synthetic game {game}"),
+				executables: vec![
+					format!("game-{game}.exe"),
+					format!("steamapps/common/game-{game}/bin/play.exe"),
+					format!("synthetic {game}.app"),
+				],
+			})
+			.collect();
+		let index = Index::new(&games);
+		let paths: Vec<String> = (0..PROCESSES)
+			.map(|process| {
+				let game = process / 4;
+				match process % 4 {
+					0 => format!("/opt/synthetic/tools/{game}/unmatched.exe"),
+					1 => format!(r"C:\Games\Slot{game}\game-{game}.exe"),
+					2 => format!(r"C:\Steam\steamapps\common\game-{game}\bin\play.exe"),
+					_ => format!("/Applications/Synthetic {game}.app/Contents/MacOS/main"),
+				}
+			})
+			.collect();
+		let mut samples = [0.0; 5];
+		for batch in 0..=samples.len() {
+			let started = std::time::Instant::now();
+			let mut hits = 0;
+			for _ in 0..SCANS {
+				for path in &paths {
+					hits += usize::from(
+						std::hint::black_box(index.find(std::hint::black_box(path))).is_some(),
+					);
+				}
+			}
+			let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+			assert_eq!(hits, PROCESSES / 4 * 3 * SCANS);
+			if batch > 0 {
+				samples[batch - 1] = elapsed_ms;
+			}
+		}
+		eprintln!(
+			"Synthetic process matcher: {SCANS} scans of {PROCESSES} paths; batch ms {samples:?}"
+		);
+		samples.sort_by(f64::total_cmp);
+		eprintln!(
+			"Median {:.3} ms per batch, {:.3} ms per scan; matching only, excluding process enumeration.",
+			samples[2],
+			samples[2] / SCANS as f64,
+		);
+	}
+
+	#[test]
+	fn suffix_matching_preserves_component_limits_and_bundle_priority() {
+		let games: Vec<Game> = [
+			(1, "game.exe"),
+			(2, "a/b/game.exe"),
+			(3, "outer.app"),
+			(4, "inner.app"),
+			(5, "b/c/d/e/f/g/h/game.exe"),
+			(6, "a/b/c/d/e/f/g/h/game.exe"),
+			(7, "ος"),
+		]
+		.into_iter()
+		.map(|(id, executable)| Game {
+			id: Id(id),
+			name: executable.into(),
+			executables: vec![executable.into()],
+		})
+		.collect();
+		let index = Index::new(&games);
+		for (path, expected) in [
+			(r"C:\\A//B\\GAME.EXE/", Some(Id(2))),
+			("/a/b/c/d/e/f/g/h/game.exe", Some(Id(5))),
+			("/outer.app/inner.app/Contents/MacOS/main", Some(Id(4))),
+			("/outer.app/Contents/MacOS/game.exe", Some(Id(1))),
+			("/outer.app/a/b/c/d/e/f/g/main", None),
+			("/usr/bin/mygame.exe", None),
+			("/usr/bin/ΟΣ", Some(Id(7))),
+			("////", None),
+			("", None),
+		] {
+			assert_eq!(index.find(path).map(|(id, _)| id), expected, "{path}");
+		}
+	}
 
 	#[test]
 	fn list_drops_launchers_and_matches_the_longest_path_suffix() {
@@ -260,7 +345,7 @@ mod tests {
 				.is_err()
 		);
 		assert!(normalize("  ").is_none());
-		assert!(normalize(&"x".repeat(MAX_EXECUTABLE + 1)).is_none());
+		assert!(normalize(&"x".repeat(model::registered_games::MAX_EXECUTABLE + 1)).is_none());
 		assert_eq!(
 			normalize(r"\Game\Game.EXE").as_deref(),
 			Some("game/game.exe")

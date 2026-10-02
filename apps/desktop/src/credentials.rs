@@ -152,6 +152,9 @@ pub fn loaded_status(result: &Result<Option<SessionSecret>, CredentialError>) ->
 		Ok(Some(_)) => "Saved login found; connecting to Discord",
 		Ok(None) => "No saved login found. Sign in with Discord to save one.",
 		Err(CredentialError::Invalid) => "Saved login is invalid. Sign in with Discord again.",
+		Err(CredentialError::NoStore) => {
+			"No OS keyring found; sign in each launch. Install GNOME Keyring or KWallet to stay signed in."
+		}
 		Err(CredentialError::Unavailable) => {
 			"Saved login unavailable; sign in with Discord. No plaintext fallback."
 		}

@@ -10,6 +10,9 @@ use model::{
 	},
 };
 
+const MAX_CHANNEL_REFERENCE_NAMES: usize = 64;
+const MAX_CHANNEL_REFERENCE_NAME_BYTES: usize = 8 * 1024;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Edit {
 	pub name: String,
@@ -17,10 +20,74 @@ pub struct Edit {
 	pub slowmode: u32,
 	pub nsfw: bool,
 	pub overwrites: Vec<model::permissions::Overwrite>,
+	/// Forum and media channel settings; None for every other channel type.
+	pub forum: Option<Box<ForumEdit>>,
+}
+/// Discord's forum tag name limit.
+pub const TAG_NAME_LIMIT: usize = 20;
+/// "Hide After Inactivity" choices, in minutes.
+pub const HIDE_AFTER: [u32; 4] = [60, 1440, 4320, 10080];
+/// Forum channel flag: new posts must carry a tag.
+pub const REQUIRE_TAG: u64 = 1 << 4;
+
+/// Forum and media channel settings, loaded and saved with the rest of the channel.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ForumEdit {
+	/// Tags in display order; `Id(0)` marks one the service has not created yet.
+	pub tags: Vec<model::forum::Tag>,
+	pub require_tag: bool,
+	pub reaction: Option<model::ReactionEmoji>,
+	/// Slowmode for messages inside posts (`default_thread_rate_limit_per_user`).
+	pub message_slowmode: u32,
+	pub layout: model::forum::Layout,
+	pub sort: model::forum::Sort,
+	pub match_all: bool,
+	/// Minutes of inactivity before new posts hide (`default_auto_archive_duration`).
+	pub hide_after: u32,
+	/// Channel flags other than [`REQUIRE_TAG`], preserved on save.
+	pub flags: u64,
+}
+impl ForumEdit {
+	pub fn valid(&self) -> bool {
+		self.tags.len() <= model::forum::MAX_TAGS
+			&& self.tags.iter().enumerate().all(|(index, tag)| {
+				valid_tag_name(&tag.name)
+					&& tag.emoji_name.as_ref().is_none_or(|name| name.len() <= 128)
+					&& (tag.id.0 == 0 || !self.tags[..index].iter().any(|other| other.id == tag.id))
+			}) && self
+			.reaction
+			.as_ref()
+			.is_none_or(model::ReactionEmoji::valid)
+			&& self.message_slowmode <= 21600
+			&& HIDE_AFTER.contains(&self.hide_after)
+			&& self.flags & REQUIRE_TAG == 0
+	}
+	pub fn bytes(&self) -> usize {
+		size_of::<Self>()
+			+ self.tags.capacity() * size_of::<model::forum::Tag>()
+			+ self
+				.tags
+				.iter()
+				.map(|tag| {
+					tag.name.capacity() + tag.emoji_name.as_ref().map_or(0, String::capacity)
+				})
+				.sum::<usize>()
+			+ self
+				.reaction
+				.as_ref()
+				.and_then(|emoji| emoji.name.as_ref())
+				.map_or(0, String::capacity)
+	}
+}
+pub fn valid_tag_name(name: &str) -> bool {
+	!name.trim().is_empty()
+		&& name.chars().count() <= TAG_NAME_LIMIT
+		&& !name.chars().any(char::is_control)
 }
 impl Edit {
 	pub fn valid(&self) -> bool {
-		valid_name(&self.name)
+		self.forum.as_deref().is_none_or(ForumEdit::valid)
+			&& valid_name(&self.name)
 			&& self.name.capacity() <= 400
 			&& self.topic.chars().count() <= 4096
 			&& self.topic.capacity() <= 16384
@@ -39,6 +106,7 @@ impl Edit {
 		self.name.capacity()
 			+ self.topic.capacity()
 			+ self.overwrites.capacity() * size_of::<model::permissions::Overwrite>()
+			+ self.forum.as_deref().map_or(0, ForumEdit::bytes)
 	}
 }
 pub fn valid_name(name: &str) -> bool {
@@ -69,6 +137,7 @@ pub enum CreateKind {
 	#[default]
 	Text,
 	Voice,
+	Announcement,
 	Forum,
 }
 impl CreateKind {
@@ -76,6 +145,7 @@ impl CreateKind {
 		match self {
 			Self::Text => 0,
 			Self::Voice => 2,
+			Self::Announcement => 5,
 			Self::Forum => 15,
 		}
 	}
@@ -208,6 +278,7 @@ pub struct Actions {
 	details: Option<(Id, Edit)>,
 	post: Option<(Id, PostDetails)>,
 	status: Option<(Id, &'static str, bool)>,
+	reference_names: Vec<(Id, Box<str>)>,
 }
 impl Actions {
 	pub(crate) fn reset(&mut self) {
@@ -272,6 +343,10 @@ impl State {
 	}
 	pub fn can_open_channel_settings(&self, channel: Id) -> bool {
 		self.can_manage_channel(channel)
+			|| self
+				.channel(channel)
+				.and_then(|channel| channel.guild)
+				.is_some_and(|guild| self.can_manage_webhook_channel(guild, channel))
 	}
 	fn channel_move_allowed(
 		&self,
@@ -410,7 +485,7 @@ impl State {
 				}
 			}
 		}
-		self.can_open_channel_settings(channel)
+		self.can_manage_channel(channel)
 	}
 	pub fn channel_action_pending(&self) -> bool {
 		self.channel_actions.pending.is_some()
@@ -578,6 +653,46 @@ impl State {
 			request,
 			action,
 		})
+	}
+	pub fn channel_reference_name(&self, id: Id) -> Option<&str> {
+		self.channel(id)
+			.filter(|channel| {
+				channel.guild.is_some() && matches!(channel.kind, 0 | 5 | 10..=12 | 15 | 16)
+			})
+			.map(|channel| channel.name.as_str())
+			.or_else(|| {
+				self.channel_actions
+					.reference_names
+					.iter()
+					.find(|(known, _)| *known == id)
+					.map(|(_, name)| name.as_ref())
+			})
+	}
+	fn remember_channel_reference_name(&mut self, channel: &model::Channel) {
+		self.forget_channel_reference_name(channel.id);
+		if channel.name.len() > MAX_CHANNEL_REFERENCE_NAME_BYTES {
+			return;
+		}
+		while self.channel_actions.reference_names.len() >= MAX_CHANNEL_REFERENCE_NAMES
+			|| self
+				.channel_actions
+				.reference_names
+				.iter()
+				.map(|(_, name)| name.len())
+				.sum::<usize>()
+				+ channel.name.len()
+				> MAX_CHANNEL_REFERENCE_NAME_BYTES
+		{
+			self.channel_actions.reference_names.remove(0);
+		}
+		self.channel_actions
+			.reference_names
+			.push((channel.id, channel.name.clone().into_boxed_str()));
+	}
+	pub(crate) fn forget_channel_reference_name(&mut self, id: Id) {
+		self.channel_actions
+			.reference_names
+			.retain(|(known, _)| *known != id);
 	}
 	pub(crate) fn cancel_channel_action(&mut self) {
 		if let Some((_, channel, _, action, _)) = self.channel_actions.pending.take() {
@@ -790,6 +905,7 @@ impl State {
 								position: Patch::Absent,
 								kind: Patch::Absent,
 								message_count: Patch::Absent,
+								tags: Patch::Absent,
 							}),
 						});
 					}
@@ -881,12 +997,16 @@ impl State {
 					!observed
 				}) {
 					let target = updated.id;
+					if reference {
+						self.remember_channel_reference_name(&updated);
+					}
 					self.apply(crate::Envelope {
 						generation: self.generation,
 						event: crate::Event::ChannelCreated(*updated),
 					});
 					if reference {
 						if self.channel(target).is_none() {
+							self.forget_channel_reference_name(target);
 							self.channel_actions.status =
 								Some((channel, "Thread could not be loaded", false));
 							return Ok(());
@@ -954,6 +1074,7 @@ impl State {
 							position: Patch::Value(position),
 							kind: Patch::Absent,
 							message_count: Patch::Absent,
+							tags: Patch::Absent,
 						}),
 					});
 					for (shift_id, shift_pos) in shifts {
@@ -968,6 +1089,7 @@ impl State {
 								position: Patch::Value(shift_pos),
 								kind: Patch::Absent,
 								message_count: Patch::Absent,
+								tags: Patch::Absent,
 							}),
 						});
 					}
@@ -1026,6 +1148,7 @@ mod tests {
 				discriminator: 0,
 			}),
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(2),
 				name: "Synthetic guild".into(),
@@ -1043,6 +1166,7 @@ mod tests {
 				last_message: None,
 				icon: None,
 				member_list_id: None,
+				tags: None,
 				message_count: None,
 			}],
 			..State::default()
@@ -1087,165 +1211,166 @@ mod tests {
 	}
 	#[test]
 	fn creation_checks_kind_name_and_permissions() {
-		for kind in [CreateKind::Text, CreateKind::Voice, CreateKind::Forum] {
-			for response_kind in [kind.wire_kind(), 4] {
-				let mut state = state();
-				assert!(
-					state
-						.request_channel_action(
-							Id(3),
-							Action::Create {
-								name: " ".into(),
-								kind,
-							}
-						)
-						.is_none()
-				);
-				let action = Action::Create {
-					name: "new".into(),
-					kind,
-				};
-				let command = state.request_channel_action(Id(3), action.clone()).unwrap();
-				let mut created = state.channels[0].clone();
-				created.id = Id(4);
-				created.kind = response_kind;
-				finish(
-					&mut state,
-					command,
-					Ok(Outcome::Channel {
-						channel: Box::new(created),
-						permissions: None,
-					}),
-				);
-				assert_eq!(
-					state.channel(Id(4)).is_some(),
-					response_kind == kind.wire_kind()
-				);
-				assert_eq!(
-					state.channel_action_succeeded(Id(3)),
-					response_kind == kind.wire_kind()
-				);
-				state.permissions.guilds.get_mut(&Id(2)).unwrap().owner = Some(Id(9));
-				state.permissions.clear_cache();
-				assert!(state.request_channel_action(Id(3), action).is_none());
+		{
+			for kind in [CreateKind::Text, CreateKind::Voice, CreateKind::Forum] {
+				for response_kind in [kind.wire_kind(), 4] {
+					let mut state = state();
+					assert!(
+						state
+							.request_channel_action(
+								Id(3),
+								Action::Create {
+									name: " ".into(),
+									kind,
+								}
+							)
+							.is_none()
+					);
+					let action = Action::Create {
+						name: "new".into(),
+						kind,
+					};
+					let command = state.request_channel_action(Id(3), action.clone()).unwrap();
+					let mut created = state.channels[0].clone();
+					created.id = Id(4);
+					created.kind = response_kind;
+					finish(
+						&mut state,
+						command,
+						Ok(Outcome::Channel {
+							channel: Box::new(created),
+							permissions: None,
+						}),
+					);
+					assert_eq!(
+						state.channel(Id(4)).is_some(),
+						response_kind == kind.wire_kind()
+					);
+					assert_eq!(
+						state.channel_action_succeeded(Id(3)),
+						response_kind == kind.wire_kind()
+					);
+					state.permissions.guilds.get_mut(&Id(2)).unwrap().owner = Some(Id(9));
+					state.permissions.clear_cache();
+					assert!(state.request_channel_action(Id(3), action).is_none());
+				}
 			}
 		}
-	}
-	#[test]
-	fn category_settings_preserve_overwrites_and_separate_edit_permissions() {
-		let mut state = state();
-		state.channels[0].kind = 4;
-		let before = Edit {
-			name: "Category".into(),
-			overwrites: vec![model::permissions::Overwrite {
+		{
+			let mut state = state();
+			state.channels[0].kind = 4;
+			let before = Edit {
+				name: "Category".into(),
+				overwrites: vec![model::permissions::Overwrite {
+					id: Id(2),
+					kind: 0,
+					allow: 1 << 100,
+					deny: 0,
+				}],
+				..Edit::default()
+			};
+			let load = state.request_channel_action(Id(3), Action::Load).unwrap();
+			finish(&mut state, load, Ok(Outcome::Details(before.clone())));
+			let after = Edit {
+				name: "Renamed".into(),
+				..before.clone()
+			};
+			assert!(
+				state
+					.request_channel_action(
+						Id(3),
+						Action::Edit {
+							before: before.clone(),
+							after
+						}
+					)
+					.is_some()
+			);
+			state.cancel_channel_action();
+			let load = state.request_channel_action(Id(3), Action::Load).unwrap();
+			finish(&mut state, load, Ok(Outcome::Details(before.clone())));
+			assert_eq!(
+				state.channel_details(Id(3)).unwrap().overwrites,
+				before.overwrites
+			);
+			let guild = state.permissions.guilds.get_mut(&Id(2)).unwrap();
+			guild.owner = Some(Id(99));
+			guild.roles = Some(vec![model::permissions::Role {
 				id: Id(2),
-				kind: 0,
-				allow: 1 << 100,
-				deny: 0,
-			}],
-			..Edit::default()
-		};
-		let load = state.request_channel_action(Id(3), Action::Load).unwrap();
-		finish(&mut state, load, Ok(Outcome::Details(before.clone())));
-		let after = Edit {
-			name: "Renamed".into(),
-			..before.clone()
-		};
-		assert!(
+				name: String::new(),
+				color: 0,
+				position: 0,
+				hoist: false,
+				bits: VIEW_CHANNEL | MANAGE_ROLES,
+			}]);
+			guild.member = Some(model::permissions::Member {
+				roles: vec![],
+				timeout_until: None,
+			});
+			state.permissions.clear_cache();
+			assert!(!state.can_manage_channel(Id(3)));
+			assert!(!state.can_open_channel_settings(Id(3)));
+			assert!(!state.can_edit_channel_permission(Id(3), VIEW_CHANNEL));
 			state
-				.request_channel_action(
-					Id(3),
-					Action::Edit {
-						before: before.clone(),
-						after
-					}
-				)
-				.is_some()
-		);
-		state.cancel_channel_action();
-		let load = state.request_channel_action(Id(3), Action::Load).unwrap();
-		finish(&mut state, load, Ok(Outcome::Details(before.clone())));
-		assert_eq!(
-			state.channel_details(Id(3)).unwrap().overwrites,
-			before.overwrites
-		);
-		let guild = state.permissions.guilds.get_mut(&Id(2)).unwrap();
-		guild.owner = Some(Id(99));
-		guild.roles = Some(vec![model::permissions::Role {
-			id: Id(2),
-			name: String::new(),
-			color: 0,
-			position: 0,
-			hoist: false,
-			bits: VIEW_CHANNEL | MANAGE_ROLES,
-		}]);
-		guild.member = Some(model::permissions::Member {
-			roles: vec![],
-			timeout_until: None,
-		});
-		state.permissions.clear_cache();
-		assert!(!state.can_manage_channel(Id(3)));
-		assert!(!state.can_open_channel_settings(Id(3)));
-		assert!(!state.can_edit_channel_permission(Id(3), VIEW_CHANNEL));
-		state
-			.permissions
-			.guilds
-			.get_mut(&Id(2))
-			.unwrap()
-			.roles
-			.as_mut()
-			.unwrap()[0]
-			.bits |= MANAGE_CHANNELS;
-		state.permissions.clear_cache();
-		assert!(state.can_open_channel_settings(Id(3)));
-		assert!(state.can_edit_channel_permission(Id(3), VIEW_CHANNEL));
-		assert!(state.can_edit_channel_permission(Id(3), 0));
-		assert!(!state.can_edit_channel_permission(Id(3), model::permissions::MANAGE_GUILD));
-		let mut after = before.clone();
-		after.topic = "Unsupported category topic".into();
-		assert!(
-			state
-				.request_channel_action(
-					Id(3),
-					Action::Edit {
-						before: before.clone(),
-						after
-					}
-				)
-				.is_none()
-		);
-		let mut after = before.clone();
-		after.overwrites[0].deny |= VIEW_CHANNEL;
-		assert!(
-			state
-				.request_channel_action(
-					Id(3),
-					Action::Edit {
-						before: before.clone(),
-						after: after.clone()
-					}
-				)
-				.is_some()
-		);
-		state.cancel_channel_action();
-		let load = state.request_channel_action(Id(3), Action::Load).unwrap();
-		finish(&mut state, load, Ok(Outcome::Details(before.clone())));
-		let mut stale = before.clone();
-		stale.overwrites[0].allow = 0;
-		assert!(
-			state
-				.request_channel_action(
-					Id(3),
-					Action::Edit {
-						before: stale,
-						after
-					}
-				)
-				.is_none()
-		);
-		let mut invalid = before;
-		invalid.overwrites.push(invalid.overwrites[0]);
-		assert!(!invalid.valid());
+				.permissions
+				.guilds
+				.get_mut(&Id(2))
+				.unwrap()
+				.roles
+				.as_mut()
+				.unwrap()[0]
+				.bits |= MANAGE_CHANNELS;
+			state.permissions.clear_cache();
+			assert!(state.can_open_channel_settings(Id(3)));
+			assert!(state.can_edit_channel_permission(Id(3), VIEW_CHANNEL));
+			assert!(state.can_edit_channel_permission(Id(3), 0));
+			assert!(!state.can_edit_channel_permission(Id(3), model::permissions::MANAGE_GUILD));
+			let mut after = before.clone();
+			after.topic = "Unsupported category topic".into();
+			assert!(
+				state
+					.request_channel_action(
+						Id(3),
+						Action::Edit {
+							before: before.clone(),
+							after
+						}
+					)
+					.is_none()
+			);
+			let mut after = before.clone();
+			after.overwrites[0].deny |= VIEW_CHANNEL;
+			assert!(
+				state
+					.request_channel_action(
+						Id(3),
+						Action::Edit {
+							before: before.clone(),
+							after: after.clone()
+						}
+					)
+					.is_some()
+			);
+			state.cancel_channel_action();
+			let load = state.request_channel_action(Id(3), Action::Load).unwrap();
+			finish(&mut state, load, Ok(Outcome::Details(before.clone())));
+			let mut stale = before.clone();
+			stale.overwrites[0].allow = 0;
+			assert!(
+				state
+					.request_channel_action(
+						Id(3),
+						Action::Edit {
+							before: stale,
+							after
+						}
+					)
+					.is_none()
+			);
+			let mut invalid = before;
+			invalid.overwrites.push(invalid.overwrites[0]);
+			assert!(!invalid.valid());
+		}
 	}
 
 	#[test]
@@ -1276,13 +1401,24 @@ mod tests {
 					last_message: None,
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				}),
 				permissions: None,
 			}),
 		);
 		assert_eq!(valid.channel(Id(4)).unwrap().name, "Synthetic thread");
+		assert_eq!(
+			valid.channel_reference_name(Id(4)),
+			Some("Synthetic thread")
+		);
 		assert_eq!(valid.archived_thread, Some(Id(4)));
+		valid.retire_archived_thread(None);
+		assert!(valid.channel(Id(4)).is_none());
+		assert_eq!(
+			valid.channel_reference_name(Id(4)),
+			Some("Synthetic thread")
+		);
 
 		let mut state = state();
 		state.selected = Some(Id(3));
@@ -1302,6 +1438,7 @@ mod tests {
 					last_message: None,
 					icon: None,
 					member_list_id: None,
+					tags: None,
 					message_count: None,
 				}),
 				permissions: None,
@@ -1387,88 +1524,90 @@ mod tests {
 	}
 	#[test]
 	fn channel_moves_require_a_manageable_category_and_apply_the_confirmed_position() {
-		let mut state = state();
-		let mut category = state.channels[0].clone();
-		category.id = Id(4);
-		category.kind = 4;
-		category.name = "projects".into();
-		state.channels.push(category);
-		state.permissions.channels.insert(
-			Id(4),
-			model::permissions::Channel {
-				id: Id(4),
-				guild: Id(2),
-				overwrites: Some(vec![]),
-			},
-		);
-		state.permissions.clear_cache();
-		let action = Action::Move {
-			parent: Some(Id(4)),
-			position: 2,
-			lock_permissions: true,
-			shifts: vec![(Id(4), 1)],
-		};
-		let command = state.request_channel_action(Id(3), action).unwrap();
-		finish(&mut state, command, Ok(Outcome::Moved));
-		assert_eq!(state.channel(Id(3)).unwrap().parent_id, Some(Id(4)));
-		assert_eq!(state.channel(Id(3)).unwrap().position, 2);
-		assert_eq!(state.channel(Id(4)).unwrap().position, 1);
-	}
-	#[test]
-	fn delete_ack_after_rename_removes_channel_but_late_edit_does_not_resurrect_it() {
-		let mut state = state();
-		let pending = state.request_channel_action(Id(3), Action::Delete).unwrap();
-		let mut renamed = state.channels[0].clone();
-		renamed.name = "renamed".into();
-		state.observe_channel_action(&CoreEvent::ChannelChanged(model::ChannelPatch {
-			id: Id(3),
-			name: Patch::Value("renamed".into()),
-			icon: Patch::Absent,
-			last_message: Patch::Absent,
-			parent_id: Patch::Absent,
-			position: Patch::Absent,
-			kind: Patch::Absent,
-			message_count: Patch::Absent,
-		}));
-		finish(&mut state, pending, Ok(Outcome::Deleted));
-		assert!(state.channel(Id(3)).is_none());
-		assert!(state.channel_action_succeeded(Id(3)));
-		let mut state = self::state();
-		state.channel_actions.details = Some((
-			Id(3),
-			Edit {
-				name: "general".into(),
-				..Edit::default()
-			},
-		));
-		let pending = state
-			.request_channel_action(
-				Id(3),
-				Action::Edit {
-					before: Edit {
-						name: "general".into(),
-						..Edit::default()
-					},
-					after: Edit {
-						name: "rename".into(),
-						..Edit::default()
-					},
+		{
+			let mut state = state();
+			let mut category = state.channels[0].clone();
+			category.id = Id(4);
+			category.kind = 4;
+			category.name = "projects".into();
+			state.channels.push(category);
+			state.permissions.channels.insert(
+				Id(4),
+				model::permissions::Channel {
+					id: Id(4),
+					guild: Id(2),
+					overwrites: Some(vec![]),
 				},
-			)
-			.unwrap();
-		state.apply(Envelope {
-			generation: state.generation,
-			event: CoreEvent::Unavailable(Id(3)),
-		});
-		finish(
-			&mut state,
-			pending,
-			Ok(Outcome::Channel {
-				channel: Box::new(renamed),
-				permissions: None,
-			}),
-		);
-		assert!(state.channel(Id(3)).is_none());
+			);
+			state.permissions.clear_cache();
+			let action = Action::Move {
+				parent: Some(Id(4)),
+				position: 2,
+				lock_permissions: true,
+				shifts: vec![(Id(4), 1)],
+			};
+			let command = state.request_channel_action(Id(3), action).unwrap();
+			finish(&mut state, command, Ok(Outcome::Moved));
+			assert_eq!(state.channel(Id(3)).unwrap().parent_id, Some(Id(4)));
+			assert_eq!(state.channel(Id(3)).unwrap().position, 2);
+			assert_eq!(state.channel(Id(4)).unwrap().position, 1);
+		}
+		{
+			let mut state = state();
+			let pending = state.request_channel_action(Id(3), Action::Delete).unwrap();
+			let mut renamed = state.channels[0].clone();
+			renamed.name = "renamed".into();
+			state.observe_channel_action(&CoreEvent::ChannelChanged(model::ChannelPatch {
+				id: Id(3),
+				name: Patch::Value("renamed".into()),
+				icon: Patch::Absent,
+				last_message: Patch::Absent,
+				parent_id: Patch::Absent,
+				position: Patch::Absent,
+				kind: Patch::Absent,
+				message_count: Patch::Absent,
+				tags: Patch::Absent,
+			}));
+			finish(&mut state, pending, Ok(Outcome::Deleted));
+			assert!(state.channel(Id(3)).is_none());
+			assert!(state.channel_action_succeeded(Id(3)));
+			let mut state = self::state();
+			state.channel_actions.details = Some((
+				Id(3),
+				Edit {
+					name: "general".into(),
+					..Edit::default()
+				},
+			));
+			let pending = state
+				.request_channel_action(
+					Id(3),
+					Action::Edit {
+						before: Edit {
+							name: "general".into(),
+							..Edit::default()
+						},
+						after: Edit {
+							name: "rename".into(),
+							..Edit::default()
+						},
+					},
+				)
+				.unwrap();
+			state.apply(Envelope {
+				generation: state.generation,
+				event: CoreEvent::Unavailable(Id(3)),
+			});
+			finish(
+				&mut state,
+				pending,
+				Ok(Outcome::Channel {
+					channel: Box::new(renamed),
+					permissions: None,
+				}),
+			);
+			assert!(state.channel(Id(3)).is_none());
+		}
 	}
 	#[test]
 	fn timed_mutes_expire_for_delivery_and_matching_gateway_echo_preserves_timer() {

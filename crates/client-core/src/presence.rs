@@ -1,5 +1,5 @@
 use crate::{Freshness, Id, State};
-use model::{MemberPresence, Patch, RichActivity};
+use model::{ClientPlatforms, MemberPresence, Patch, RichActivity};
 
 pub const MAX_DIRECT_PRESENCES: usize = 256;
 pub const MAX_DIRECT_PRESENCE_BYTES: usize = 512 * 1024;
@@ -12,6 +12,7 @@ pub struct Update {
 	pub status: Patch<String>,
 	pub custom_status: Patch<String>,
 	pub activities: Patch<Vec<RichActivity>>,
+	pub clients: Patch<ClientPlatforms>,
 }
 impl Update {
 	pub fn heap_bytes(&self) -> usize {
@@ -32,6 +33,7 @@ impl Update {
 		{
 			newer.activities = Patch::Null;
 			newer.custom_status = Patch::Null;
+			newer.clients = Patch::Null;
 		}
 		if !matches!(newer.status, Patch::Absent) {
 			self.status = newer.status;
@@ -41,6 +43,9 @@ impl Update {
 		}
 		if !matches!(newer.activities, Patch::Absent) {
 			self.activities = newer.activities;
+		}
+		if !matches!(newer.clients, Patch::Absent) {
+			self.clients = newer.clients;
 		}
 	}
 	pub fn resolve(&self, previous: Option<&MemberPresence>) -> MemberPresence {
@@ -70,6 +75,15 @@ impl Update {
 					Patch::Value(activities) => activities.clone(),
 				}
 			},
+			clients: if offline {
+				ClientPlatforms::default()
+			} else {
+				match self.clients {
+					Patch::Absent => previous.map_or_default(|p| p.clients),
+					Patch::Null => ClientPlatforms::default(),
+					Patch::Value(clients) => clients,
+				}
+			},
 			status,
 		}
 	}
@@ -91,6 +105,7 @@ pub fn projected_row_bytes(row: &model::Member, update: &MemberPresence) -> usiz
 	if row.status == update.status
 		&& row.custom_status == update.custom_status
 		&& row.activities == update.activities
+		&& row.clients == update.clients
 	{
 		return row.bytes();
 	}
@@ -234,17 +249,29 @@ impl State {
 			&& list.freshness == Freshness::Fresh
 		{
 			let mut bytes = list
-				.rows
+				.slots
 				.iter()
 				.flatten()
+				.filter_map(|slot| match slot {
+					model::MemberSlot::Person(m) => Some(m),
+					_ => None,
+				})
 				.map(model::Member::bytes)
 				.sum::<usize>();
-			for row in list.rows.iter_mut().flatten() {
+			for row in list
+				.slots
+				.iter_mut()
+				.flatten()
+				.filter_map(|slot| match slot {
+					model::MemberSlot::Person(m) => Some(m),
+					_ => None,
+				}) {
 				let presence = self.direct_presences.iter().find(|p| p.user == row.user.id);
 				if let Some(presence) = presence {
 					if row.status == presence.status
 						&& row.custom_status == presence.custom_status
 						&& row.activities == presence.activities
+						&& row.clients == presence.clients
 					{
 						continue;
 					}
@@ -261,6 +288,7 @@ impl State {
 				row.status = presence.and_then(|p| p.status.clone());
 				row.custom_status = presence.and_then(|p| p.custom_status.clone());
 				row.activities = presence.map_or_else(Vec::new, |p| p.activities.clone());
+				row.clients = presence.map_or_default(|p| p.clients);
 			}
 		}
 	}
@@ -318,9 +346,13 @@ impl State {
 		};
 		// ponytail: at most 100 loaded rows and updates; index only if the pane cap grows.
 		let projected_bytes = list
-			.rows
+			.slots
 			.iter()
 			.flatten()
+			.filter_map(|slot| match slot {
+				model::MemberSlot::Person(m) => Some(m),
+				_ => None,
+			})
 			.map(|row| {
 				let Some(update) = updates.iter().find(|update| update.user == row.user.id) else {
 					return row.bytes();
@@ -331,7 +363,15 @@ impl State {
 		if projected_bytes > 128 * 1024 {
 			return;
 		}
-		for row in list.rows.iter_mut().flatten() {
+		let mut changed = false;
+		for row in list
+			.slots
+			.iter_mut()
+			.flatten()
+			.filter_map(|slot| match slot {
+				model::MemberSlot::Person(m) => Some(m),
+				_ => None,
+			}) {
 			if let Some(update) = updates.iter().find(|update| update.user == row.user.id)
 				&& (row.status != update.status
 					|| row.custom_status != update.custom_status
@@ -340,7 +380,13 @@ impl State {
 				row.status = update.status.clone();
 				row.custom_status = update.custom_status.clone();
 				row.activities = update.activities.clone();
+				changed = true;
 			}
+		}
+		if changed && list.lazy {
+			// The sidebar paints cached chunks before the live subscription rows.
+			self.member_chunks.merge(list);
+			self.member_chunks.evict(&list.ranges);
 		}
 	}
 }
@@ -349,7 +395,7 @@ impl State {
 mod tests {
 	use super::*;
 	use crate::{Envelope, Event, auth::AuthState};
-	use model::{Channel, Guild, Member, MemberList, MemberPresence, User};
+	use model::{Channel, Guild, Member, MemberList, MemberPresence, MemberSlot, User};
 
 	fn state() -> State {
 		let user = User {
@@ -368,6 +414,7 @@ mod tests {
 			freshness: Freshness::Fresh,
 			selected: Some(Id(1)),
 			guilds: vec![Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(10),
 				name: "Synthetic".into(),
@@ -384,6 +431,7 @@ mod tests {
 				recipients: vec![],
 				icon: None,
 				member_list_id: Some("everyone".into()),
+				tags: None,
 				message_count: None,
 				last_message: None,
 			}],
@@ -391,18 +439,23 @@ mod tests {
 				guild: Some(Id(10)),
 				channel: Id(1),
 				request: 7,
-				rows: vec![
-					Some(Member {
+				start: 0,
+				slots: vec![
+					Some(MemberSlot::Person(Member {
 						roles: vec![],
 						user,
 						nick: None,
 						status: Some("online".into()),
 						custom_status: None,
 						activities: vec![],
-					}),
+						clients: ClientPlatforms::default(),
+					})),
 					None,
 				],
 				total: 200,
+				lazy: false,
+				groups: vec![],
+				ranges: vec![],
 				freshness: Freshness::Fresh,
 			}),
 			..State::default()
@@ -433,11 +486,26 @@ mod tests {
 			status: status.map(str::to_owned),
 			custom_status: custom.map(str::to_owned),
 			activities: vec![],
+			clients: ClientPlatforms::default(),
+		}
+	}
+
+	fn person(slot: &Option<MemberSlot>) -> &Member {
+		match slot.as_ref().unwrap() {
+			MemberSlot::Person(member) => member,
+			_ => panic!("expected person slot"),
+		}
+	}
+
+	fn person_mut(slot: &mut Option<MemberSlot>) -> &mut Member {
+		match slot.as_mut().unwrap() {
+			MemberSlot::Person(member) => member,
+			_ => panic!("expected person slot"),
 		}
 	}
 
 	fn row(state: &State) -> &Member {
-		state.members.as_ref().unwrap().rows[0].as_ref().unwrap()
+		person(&state.members.as_ref().unwrap().slots[0])
 	}
 
 	#[test]
@@ -520,74 +588,189 @@ mod tests {
 
 	#[test]
 	fn complete_presence_values_preserve_replace_and_clear_without_timeline_churn() {
-		let mut state = state();
-		state.members.as_mut().unwrap().rows[0]
-			.as_mut()
-			.unwrap()
-			.custom_status = Some("Old custom status".into());
-		let revision = state.revision;
-		let resident = (
-			state.resident_history_rows(),
-			state.resident_history_bytes(),
-		);
-		// Gateway resolves an absent activity field before delivering this complete record.
-		apply(
-			&mut state,
-			event(vec![update(2, Some("idle"), Some("Old custom status"))]),
-		);
-		assert_eq!(row(&state).status.as_deref(), Some("idle"));
-		assert_eq!(
-			row(&state).custom_status.as_deref(),
-			Some("Old custom status")
-		);
-		apply(
-			&mut state,
-			event(vec![
-				update(2, Some("idle"), Some("\u{1f642} Synthetic status")),
-				update(3, Some("online"), Some("Unloaded row")),
-			]),
-		);
-		assert_eq!(
-			row(&state).custom_status.as_deref(),
-			Some("\u{1f642} Synthetic status")
-		);
-		let allocation = row(&state).custom_status.as_ref().unwrap().as_ptr();
-		apply(
-			&mut state,
-			event(vec![update(
-				2,
-				Some("idle"),
-				Some("\u{1f642} Synthetic status"),
-			)]),
-		);
-		assert_eq!(
-			row(&state).custom_status.as_ref().unwrap().as_ptr(),
-			allocation
-		);
-		let list = state.members.as_ref().unwrap();
-		assert_eq!(list.total, 200);
-		assert_eq!(list.rows.len(), 2);
-		assert!(list.rows[1].is_none());
-		apply(
-			&mut state,
-			event(vec![update(2, None, Some("\u{1f642} Synthetic status"))]),
-		);
-		assert!(row(&state).status.is_none());
-		assert_eq!(
-			row(&state).custom_status.as_deref(),
-			Some("\u{1f642} Synthetic status")
-		);
-		apply(&mut state, event(vec![update(2, Some("offline"), None)]));
-		assert_eq!(row(&state).status.as_deref(), Some("offline"));
-		assert!(row(&state).custom_status.is_none());
-		assert_eq!(state.revision, revision);
-		assert_eq!(
-			(
+		{
+			let mut state = state();
+			person_mut(&mut state.members.as_mut().unwrap().slots[0]).custom_status =
+				Some("Old custom status".into());
+			let revision = state.revision;
+			let resident = (
 				state.resident_history_rows(),
-				state.resident_history_bytes()
-			),
-			resident
-		);
+				state.resident_history_bytes(),
+			);
+			// Gateway resolves an absent activity field before delivering this complete record.
+			apply(
+				&mut state,
+				event(vec![update(2, Some("idle"), Some("Old custom status"))]),
+			);
+			assert_eq!(row(&state).status.as_deref(), Some("idle"));
+			assert_eq!(
+				row(&state).custom_status.as_deref(),
+				Some("Old custom status")
+			);
+			apply(
+				&mut state,
+				event(vec![
+					update(2, Some("idle"), Some("\u{1f642} Synthetic status")),
+					update(3, Some("online"), Some("Unloaded row")),
+				]),
+			);
+			assert_eq!(
+				row(&state).custom_status.as_deref(),
+				Some("\u{1f642} Synthetic status")
+			);
+			let allocation = row(&state).custom_status.as_ref().unwrap().as_ptr();
+			apply(
+				&mut state,
+				event(vec![update(
+					2,
+					Some("idle"),
+					Some("\u{1f642} Synthetic status"),
+				)]),
+			);
+			assert_eq!(
+				row(&state).custom_status.as_ref().unwrap().as_ptr(),
+				allocation
+			);
+			let list = state.members.as_ref().unwrap();
+			assert_eq!(list.total, 200);
+			assert_eq!(list.slots.len(), 2);
+			assert!(list.slots[1].is_none());
+			apply(
+				&mut state,
+				event(vec![update(2, None, Some("\u{1f642} Synthetic status"))]),
+			);
+			assert!(row(&state).status.is_none());
+			assert_eq!(
+				row(&state).custom_status.as_deref(),
+				Some("\u{1f642} Synthetic status")
+			);
+			apply(&mut state, event(vec![update(2, Some("offline"), None)]));
+			assert_eq!(row(&state).status.as_deref(), Some("offline"));
+			assert!(row(&state).custom_status.is_none());
+			assert_eq!(state.revision, revision);
+			assert_eq!(
+				(
+					state.resident_history_rows(),
+					state.resident_history_bytes()
+				),
+				resident
+			);
+		}
+		{
+			let mut state = direct_state();
+			let revision = state.revision;
+			let initial_epoch = state.direct_presence_epoch();
+			let playing = || {
+				direct_update(
+					2,
+					Patch::Value("online".into()),
+					Patch::Value(vec![activity()]),
+				)
+			};
+			apply(&mut state, Event::DirectPresence(vec![playing()]));
+			assert!(state.direct_presence_epoch() > initial_epoch);
+			let online_epoch = state.direct_presence_epoch();
+			let presence = state.presence_for(Id(2)).unwrap();
+			assert_eq!(presence.activities, vec![activity()]);
+			let allocation = presence.activities.as_ptr();
+			apply(&mut state, Event::DirectPresence(vec![playing()]));
+			assert_eq!(
+				state.presence_for(Id(2)).unwrap().activities.as_ptr(),
+				allocation
+			);
+			apply(
+				&mut state,
+				Event::DirectPresence(vec![direct_update(
+					2,
+					Patch::Value("idle".into()),
+					Patch::Absent,
+				)]),
+			);
+			assert_eq!(
+				state.presence_for(Id(2)).unwrap().activities,
+				vec![activity()]
+			);
+			apply(
+				&mut state,
+				Event::DirectPresence(vec![direct_update(
+					999,
+					Patch::Value("online".into()),
+					Patch::Value(vec![activity()]),
+				)]),
+			);
+			assert_eq!(state.direct_presences.len(), 1);
+			assert_eq!(state.revision, revision);
+			assert_eq!(state.direct_presence_epoch(), online_epoch);
+			state.request_members();
+			assert_eq!(row(&state).activities, vec![activity()]);
+			for clear in [Patch::Null, Patch::Value(vec![])] {
+				apply(
+					&mut state,
+					Event::DirectPresence(vec![direct_update(2, Patch::Absent, clear)]),
+				);
+				assert!(state.presence_for(Id(2)).unwrap().activities.is_empty());
+				assert!(row(&state).activities.is_empty());
+				apply(&mut state, Event::DirectPresence(vec![playing()]));
+				assert_eq!(state.direct_presence_epoch(), online_epoch);
+			}
+			for status in [Patch::Value("offline".into()), Patch::Null] {
+				let previous_epoch = state.direct_presence_epoch();
+				apply(
+					&mut state,
+					Event::DirectPresence(vec![direct_update(2, status, Patch::Absent)]),
+				);
+				assert!(state.presence_for(Id(2)).unwrap().activities.is_empty());
+				assert!(state.direct_presence_epoch() > previous_epoch);
+				let offline_epoch = state.direct_presence_epoch();
+				apply(
+					&mut state,
+					Event::DirectPresence(vec![direct_update(
+						2,
+						Patch::Value("online".into()),
+						Patch::Absent,
+					)]),
+				);
+				assert!(state.presence_for(Id(2)).unwrap().activities.is_empty());
+				assert!(state.direct_presence_epoch() > offline_epoch);
+				apply(&mut state, Event::DirectPresence(vec![playing()]));
+			}
+			let connected_epoch = state.direct_presence_epoch();
+			apply(&mut state, Event::Disconnected);
+			assert!(state.presence_for(Id(2)).is_none());
+			assert_eq!(state.direct_presences[0].activities, vec![activity()]);
+			apply(&mut state, Event::Resumed);
+			assert_eq!(state.direct_presence_epoch(), connected_epoch);
+			assert_eq!(
+				state.presence_for(Id(2)).unwrap().activities,
+				vec![activity()]
+			);
+			apply(
+				&mut state,
+				Event::DirectPresence(vec![direct_update(
+					2,
+					Patch::Value("idle".into()),
+					Patch::Absent,
+				)]),
+			);
+			assert_eq!(
+				state.presence_for(Id(2)).unwrap().activities,
+				vec![activity()]
+			);
+			for transition in [Event::Resync, Event::Failure(crate::auth::Failure::Expired)] {
+				let mut state = direct_state();
+				apply(&mut state, Event::DirectPresence(vec![playing()]));
+				let epoch = state.direct_presence_epoch();
+				apply(&mut state, transition);
+				assert!(state.direct_presences.is_empty());
+				assert!(state.direct_presence_epoch() > epoch);
+			}
+			state.logout();
+			state.apply(crate::Envelope {
+				generation: state.generation - 1,
+				event: Event::DirectPresence(vec![playing()]),
+			});
+			assert!(state.direct_presences.is_empty());
+		}
 	}
 
 	#[test]
@@ -606,6 +789,7 @@ mod tests {
 					status: Some(status),
 					custom_status: None,
 					activities: vec![],
+					clients: ClientPlatforms::default(),
 				}]
 			},
 			{
@@ -616,6 +800,7 @@ mod tests {
 					status: None,
 					custom_status: Some(custom),
 					activities: vec![],
+					clients: ClientPlatforms::default(),
 				}]
 			},
 			{
@@ -660,72 +845,99 @@ mod tests {
 
 	#[test]
 	fn projected_row_budget_counts_custom_text_and_retained_equal_allocations() {
-		let mut state = state();
-		let first = state.members.as_mut().unwrap().rows[0].as_mut().unwrap();
-		first.custom_status = Some(String::with_capacity(1024));
-		first.custom_status.as_mut().unwrap().push_str("Same text");
-		let mut second = first.clone();
-		second.user.id = Id(3);
-		second.custom_status = None;
-		let spare = 128 * 1024 - first.bytes() - second.bytes();
-		first.nick = Some("x".repeat(spare));
-		state.members.as_mut().unwrap().rows[1] = Some(second);
-		assert_eq!(
-			state
-				.members
-				.as_ref()
-				.unwrap()
-				.rows
-				.iter()
-				.flatten()
-				.map(Member::bytes)
-				.sum::<usize>(),
-			128 * 1024
-		);
-		// Equal updates retain their existing capacity; they cannot manufacture room for another row.
-		apply(
-			&mut state,
-			event(vec![
-				update(2, Some("online"), Some("Same text")),
-				update(3, Some("online"), Some("x")),
-			]),
-		);
-		assert!(
-			state.members.as_ref().unwrap().rows[1]
-				.as_ref()
-				.unwrap()
-				.custom_status
-				.is_none()
-		);
-		// Replacing the first value releases its old allocation and admits the complete batch.
-		apply(
-			&mut state,
-			event(vec![
-				update(2, Some("idle"), Some("Replacement")),
-				update(3, Some("online"), Some("x")),
-			]),
-		);
-		assert_eq!(row(&state).custom_status.as_deref(), Some("Replacement"));
-		assert_eq!(
-			state.members.as_ref().unwrap().rows[1]
-				.as_ref()
-				.unwrap()
-				.custom_status
-				.as_deref(),
-			Some("x")
-		);
-		assert!(
-			state
-				.members
-				.as_ref()
-				.unwrap()
-				.rows
-				.iter()
-				.flatten()
-				.map(Member::bytes)
-				.sum::<usize>()
-				<= 128 * 1024
-		);
+		{
+			let mut state = state();
+			let first = person_mut(&mut state.members.as_mut().unwrap().slots[0]);
+			first.custom_status = Some(String::with_capacity(1024));
+			first.custom_status.as_mut().unwrap().push_str("Same text");
+			let mut second = first.clone();
+			second.user.id = Id(3);
+			second.custom_status = None;
+			let spare = 128 * 1024 - first.bytes() - second.bytes();
+			first.nick = Some("x".repeat(spare));
+			state.members.as_mut().unwrap().slots[1] = Some(MemberSlot::Person(second));
+			assert_eq!(
+				state
+					.members
+					.as_ref()
+					.unwrap()
+					.slots
+					.iter()
+					.flatten()
+					.filter_map(|slot| match slot {
+						model::MemberSlot::Person(m) => Some(m),
+						_ => None,
+					})
+					.map(Member::bytes)
+					.sum::<usize>(),
+				128 * 1024
+			);
+			// Equal updates retain their existing capacity; they cannot manufacture room for another row.
+			apply(
+				&mut state,
+				event(vec![
+					update(2, Some("online"), Some("Same text")),
+					update(3, Some("online"), Some("x")),
+				]),
+			);
+			assert!(
+				person(&state.members.as_ref().unwrap().slots[1])
+					.custom_status
+					.is_none()
+			);
+			// Replacing the first value releases its old allocation and admits the complete batch.
+			apply(
+				&mut state,
+				event(vec![
+					update(2, Some("idle"), Some("Replacement")),
+					update(3, Some("online"), Some("x")),
+				]),
+			);
+			assert_eq!(row(&state).custom_status.as_deref(), Some("Replacement"));
+			assert_eq!(
+				person(&state.members.as_ref().unwrap().slots[1])
+					.custom_status
+					.as_deref(),
+				Some("x")
+			);
+			assert!(
+				state
+					.members
+					.as_ref()
+					.unwrap()
+					.slots
+					.iter()
+					.flatten()
+					.filter_map(|slot| match slot {
+						model::MemberSlot::Person(m) => Some(m),
+						_ => None,
+					})
+					.map(Member::bytes)
+					.sum::<usize>() <= 128 * 1024
+			);
+		}
+		{
+			let mut state = state();
+			let row = person_mut(&mut state.members.as_mut().unwrap().slots[0]);
+			let mut activity = activity();
+			let mut path = String::from("external/synthetic-hash-01/https/example.com/art.png");
+			path.reserve(2048);
+			activity.image = Some(model::ActivityImage::Proxy(path));
+			let mut small_path =
+				String::from("external/synthetic-small/https/example.com/badge.png");
+			small_path.reserve(1024);
+			activity.small_image = Some(model::ActivityImage::Proxy(small_path));
+			let update = MemberPresence {
+				user: row.user.id,
+				status: row.status.clone(),
+				custom_status: row.custom_status.clone(),
+				activities: vec![activity],
+				clients: row.clients,
+			};
+			let projected = projected_row_bytes(row, &update);
+			row.activities = update.activities.clone();
+			assert_eq!(projected, row.bytes());
+		}
 	}
 
 	#[test]
@@ -816,7 +1028,45 @@ mod tests {
 			status,
 			activities,
 			custom_status: Patch::Absent,
+			clients: Patch::Absent,
 		}
+	}
+	#[test]
+	fn client_platform_patches_preserve_replace_and_clear_offline() {
+		let mut state = direct_state();
+		let clients = ClientPlatforms {
+			mobile: true,
+			..Default::default()
+		};
+		apply(
+			&mut state,
+			Event::DirectPresence(vec![Update {
+				user: Id(2),
+				status: Patch::Value("online".into()),
+				custom_status: Patch::Absent,
+				activities: Patch::Absent,
+				clients: Patch::Value(clients),
+			}]),
+		);
+		assert_eq!(state.presence_for(Id(2)).unwrap().clients, clients);
+		apply(
+			&mut state,
+			Event::DirectPresence(vec![direct_update(
+				2,
+				Patch::Value("idle".into()),
+				Patch::Absent,
+			)]),
+		);
+		assert_eq!(state.presence_for(Id(2)).unwrap().clients, clients);
+		apply(
+			&mut state,
+			Event::DirectPresence(vec![direct_update(
+				2,
+				Patch::Value("offline".into()),
+				Patch::Absent,
+			)]),
+		);
+		assert!(!state.presence_for(Id(2)).unwrap().clients.any());
 	}
 	fn activity() -> RichActivity {
 		RichActivity {
@@ -830,195 +1080,114 @@ mod tests {
 			started_at: None,
 		}
 	}
+
 	#[test]
-	fn activity_artwork_is_included_in_projected_member_bytes() {
-		let mut state = state();
-		let row = state.members.as_mut().unwrap().rows[0].as_mut().unwrap();
-		let mut activity = activity();
-		let mut path = String::from("external/synthetic-hash-01/https/example.com/art.png");
-		path.reserve(2048);
-		activity.image = Some(model::ActivityImage::Proxy(path));
-		let mut small_path = String::from("external/synthetic-small/https/example.com/badge.png");
-		small_path.reserve(1024);
-		activity.small_image = Some(model::ActivityImage::Proxy(small_path));
-		let update = MemberPresence {
-			user: row.user.id,
-			status: row.status.clone(),
-			custom_status: row.custom_status.clone(),
-			activities: vec![activity],
-		};
-		let projected = projected_row_bytes(row, &update);
-		row.activities = update.activities.clone();
-		assert_eq!(projected, row.bytes());
-	}
-	#[test]
-	fn direct_activity_patches_are_scoped_clearable_and_do_not_churn_timeline() {
-		let mut state = direct_state();
-		let revision = state.revision;
-		let initial_epoch = state.direct_presence_epoch();
-		let playing = || {
-			direct_update(
-				2,
-				Patch::Value("online".into()),
-				Patch::Value(vec![activity()]),
-			)
-		};
-		apply(&mut state, Event::DirectPresence(vec![playing()]));
-		assert!(state.direct_presence_epoch() > initial_epoch);
-		let online_epoch = state.direct_presence_epoch();
-		let presence = state.presence_for(Id(2)).unwrap();
-		assert_eq!(presence.activities, vec![activity()]);
-		let allocation = presence.activities.as_ptr();
-		apply(&mut state, Event::DirectPresence(vec![playing()]));
-		assert_eq!(
-			state.presence_for(Id(2)).unwrap().activities.as_ptr(),
-			allocation
-		);
-		apply(
-			&mut state,
-			Event::DirectPresence(vec![direct_update(
-				2,
-				Patch::Value("idle".into()),
-				Patch::Absent,
-			)]),
-		);
-		assert_eq!(
-			state.presence_for(Id(2)).unwrap().activities,
-			vec![activity()]
-		);
-		apply(
-			&mut state,
-			Event::DirectPresence(vec![direct_update(
-				999,
-				Patch::Value("online".into()),
-				Patch::Value(vec![activity()]),
-			)]),
-		);
-		assert_eq!(state.direct_presences.len(), 1);
-		assert_eq!(state.revision, revision);
-		assert_eq!(state.direct_presence_epoch(), online_epoch);
-		state.request_members();
-		assert_eq!(row(&state).activities, vec![activity()]);
-		for clear in [Patch::Null, Patch::Value(vec![])] {
-			apply(
-				&mut state,
-				Event::DirectPresence(vec![direct_update(2, Patch::Absent, clear)]),
-			);
-			assert!(state.presence_for(Id(2)).unwrap().activities.is_empty());
-			assert!(row(&state).activities.is_empty());
-			apply(&mut state, Event::DirectPresence(vec![playing()]));
-			assert_eq!(state.direct_presence_epoch(), online_epoch);
-		}
-		for status in [Patch::Value("offline".into()), Patch::Null] {
-			let previous_epoch = state.direct_presence_epoch();
-			apply(
-				&mut state,
-				Event::DirectPresence(vec![direct_update(2, status, Patch::Absent)]),
-			);
-			assert!(state.presence_for(Id(2)).unwrap().activities.is_empty());
-			assert!(state.direct_presence_epoch() > previous_epoch);
-			let offline_epoch = state.direct_presence_epoch();
+	fn direct_presence_epoch_rejects_invalid_updates_and_clears_at_ready() {
+		{
+			let mut state = direct_state();
+			for status in [Patch::Null, Patch::Value("offline".into())] {
+				apply(
+					&mut state,
+					Event::DirectPresence(vec![direct_update(2, status, Patch::Absent)]),
+				);
+				assert_eq!(state.direct_presence_epoch(), 0);
+			}
 			apply(
 				&mut state,
 				Event::DirectPresence(vec![direct_update(
 					2,
-					Patch::Value("online".into()),
+					Patch::Value("dnd".into()),
 					Patch::Absent,
 				)]),
 			);
-			assert!(state.presence_for(Id(2)).unwrap().activities.is_empty());
-			assert!(state.direct_presence_epoch() > offline_epoch);
-			apply(&mut state, Event::DirectPresence(vec![playing()]));
-		}
-		let connected_epoch = state.direct_presence_epoch();
-		apply(&mut state, Event::Disconnected);
-		assert!(state.presence_for(Id(2)).is_none());
-		assert_eq!(state.direct_presences[0].activities, vec![activity()]);
-		apply(&mut state, Event::Resumed);
-		assert_eq!(state.direct_presence_epoch(), connected_epoch);
-		assert_eq!(
-			state.presence_for(Id(2)).unwrap().activities,
-			vec![activity()]
-		);
-		apply(
-			&mut state,
-			Event::DirectPresence(vec![direct_update(
-				2,
-				Patch::Value("idle".into()),
-				Patch::Absent,
-			)]),
-		);
-		assert_eq!(
-			state.presence_for(Id(2)).unwrap().activities,
-			vec![activity()]
-		);
-		for transition in [Event::Resync, Event::Failure(crate::auth::Failure::Expired)] {
-			let mut state = direct_state();
-			apply(&mut state, Event::DirectPresence(vec![playing()]));
 			let epoch = state.direct_presence_epoch();
-			apply(&mut state, transition);
-			assert!(state.direct_presences.is_empty());
-			assert!(state.direct_presence_epoch() > epoch);
-		}
-		state.logout();
-		state.apply(crate::Envelope {
-			generation: state.generation - 1,
-			event: Event::DirectPresence(vec![playing()]),
-		});
-		assert!(state.direct_presences.is_empty());
-	}
-
-	#[test]
-	fn direct_presence_epoch_rejects_invalid_updates_and_clears_at_ready() {
-		let mut state = direct_state();
-		for status in [Patch::Null, Patch::Value("offline".into())] {
+			for user in [2, 999] {
+				apply(
+					&mut state,
+					Event::DirectPresence(vec![direct_update(
+						user,
+						Patch::Value("invalid".into()),
+						Patch::Absent,
+					)]),
+				);
+				assert_eq!(state.direct_presence_epoch(), epoch);
+			}
+			state.apply(Envelope {
+				generation: state.generation + 1,
+				event: Event::DirectPresence(vec![direct_update(2, Patch::Null, Patch::Absent)]),
+			});
+			assert_eq!(state.direct_presence_epoch(), epoch);
+			let user = state.user.clone().unwrap();
+			let channels = state.channels.clone();
 			apply(
 				&mut state,
-				Event::DirectPresence(vec![direct_update(2, status, Patch::Absent)]),
+				Event::Ready {
+					permissions: Default::default(),
+					user,
+					guilds: vec![],
+					channels,
+				},
 			);
-			assert_eq!(state.direct_presence_epoch(), 0);
+			assert!(state.direct_presence_epoch() > epoch);
+			assert!(state.direct_presences.is_empty());
+			let epoch = state.direct_presence_epoch();
+			state.clear_direct_presences();
+			assert_eq!(state.direct_presence_epoch(), epoch);
 		}
-		apply(
-			&mut state,
-			Event::DirectPresence(vec![direct_update(
-				2,
-				Patch::Value("dnd".into()),
-				Patch::Absent,
-			)]),
-		);
-		let epoch = state.direct_presence_epoch();
-		for user in [2, 999] {
+		{
+			let mut state = direct_state();
+			let channel = state.channels[0].clone();
+			for id in 3..=300 {
+				let mut channel = channel.clone();
+				channel.id = Id(1000 + id);
+				channel.recipients[0].id = Id(id);
+				state.channels.push(channel);
+			}
+			for id in 2..=300 {
+				apply(
+					&mut state,
+					Event::DirectPresence(vec![direct_update(
+						id,
+						Patch::Value("online".into()),
+						Patch::Value(vec![activity()]),
+					)]),
+				);
+			}
+			assert_eq!(state.direct_presences.len(), MAX_DIRECT_PRESENCES);
+			assert!(
+				state
+					.direct_presences
+					.iter()
+					.map(MemberPresence::heap_bytes)
+					.sum::<usize>() + state.direct_presences.capacity() * size_of::<MemberPresence>()
+					<= MAX_DIRECT_PRESENCE_BYTES
+			);
+			assert!(state.presence_for(Id(2)).is_none());
+			let epoch = state.direct_presence_epoch();
 			apply(
 				&mut state,
 				Event::DirectPresence(vec![direct_update(
-					user,
-					Patch::Value("invalid".into()),
+					2,
+					Patch::Value("offline".into()),
 					Patch::Absent,
 				)]),
 			);
-			assert_eq!(state.direct_presence_epoch(), epoch);
+			assert!(
+				state.direct_presence_epoch() > epoch,
+				"offline insertion evicts an online entry at the item cap"
+			);
+			let epoch = state.direct_presence_epoch();
+			apply(
+				&mut state,
+				Event::RecipientRemoved {
+					channel: Id(1300),
+					user: Id(300),
+				},
+			);
+			assert!(state.presence_for(Id(300)).is_none());
+			assert!(!state.direct_presences.iter().any(|p| p.user == Id(300)));
+			assert!(state.direct_presence_epoch() > epoch);
 		}
-		state.apply(Envelope {
-			generation: state.generation + 1,
-			event: Event::DirectPresence(vec![direct_update(2, Patch::Null, Patch::Absent)]),
-		});
-		assert_eq!(state.direct_presence_epoch(), epoch);
-		let user = state.user.clone().unwrap();
-		let channels = state.channels.clone();
-		apply(
-			&mut state,
-			Event::Ready {
-				permissions: Default::default(),
-				user,
-				guilds: vec![],
-				channels,
-			},
-		);
-		assert!(state.direct_presence_epoch() > epoch);
-		assert!(state.direct_presences.is_empty());
-		let epoch = state.direct_presence_epoch();
-		state.clear_direct_presences();
-		assert_eq!(state.direct_presence_epoch(), epoch);
 	}
 
 	#[test]
@@ -1069,62 +1238,5 @@ mod tests {
 		assert!(state.direct_presence_epoch() > epoch);
 		assert!(state.presence_for(Id(2)).is_none());
 		assert_eq!(state.revision, revision);
-	}
-
-	#[test]
-	fn direct_presence_capacity_and_recipient_removal_retire_cached_activity() {
-		let mut state = direct_state();
-		let channel = state.channels[0].clone();
-		for id in 3..=300 {
-			let mut channel = channel.clone();
-			channel.id = Id(1000 + id);
-			channel.recipients[0].id = Id(id);
-			state.channels.push(channel);
-		}
-		for id in 2..=300 {
-			apply(
-				&mut state,
-				Event::DirectPresence(vec![direct_update(
-					id,
-					Patch::Value("online".into()),
-					Patch::Value(vec![activity()]),
-				)]),
-			);
-		}
-		assert_eq!(state.direct_presences.len(), MAX_DIRECT_PRESENCES);
-		assert!(
-			state
-				.direct_presences
-				.iter()
-				.map(MemberPresence::heap_bytes)
-				.sum::<usize>()
-				+ state.direct_presences.capacity() * size_of::<MemberPresence>()
-				<= MAX_DIRECT_PRESENCE_BYTES
-		);
-		assert!(state.presence_for(Id(2)).is_none());
-		let epoch = state.direct_presence_epoch();
-		apply(
-			&mut state,
-			Event::DirectPresence(vec![direct_update(
-				2,
-				Patch::Value("offline".into()),
-				Patch::Absent,
-			)]),
-		);
-		assert!(
-			state.direct_presence_epoch() > epoch,
-			"offline insertion evicts an online entry at the item cap"
-		);
-		let epoch = state.direct_presence_epoch();
-		apply(
-			&mut state,
-			Event::RecipientRemoved {
-				channel: Id(1300),
-				user: Id(300),
-			},
-		);
-		assert!(state.presence_for(Id(300)).is_none());
-		assert!(!state.direct_presences.iter().any(|p| p.user == Id(300)));
-		assert!(state.direct_presence_epoch() > epoch);
 	}
 }

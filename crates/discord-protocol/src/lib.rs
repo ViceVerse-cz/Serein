@@ -1,19 +1,25 @@
 //! Discord wire DTOs. JSON values never become application state.
 pub mod activity_sessions;
 pub mod activity_sharing;
+pub mod application_commands;
 pub mod archives;
 mod attachments;
+mod diagnostics;
 mod embeds;
 mod extra_content;
 pub mod forum;
+pub mod gif_favorites;
 pub mod gifs;
 pub mod group_actions;
 pub mod guild_folders;
 pub mod invites;
+mod lossy;
 pub mod messaging_permissions;
 pub mod notifications;
+pub mod onboarding;
 pub mod permissions;
 pub mod pins;
+pub mod polls;
 pub mod presence;
 pub mod profile;
 mod reactions;
@@ -28,6 +34,8 @@ pub mod server_integrations;
 pub mod server_invites;
 pub mod server_roles;
 pub mod server_settings;
+pub mod settings_update;
+pub mod spotify;
 pub mod stickers;
 pub mod stream;
 pub mod thread_members;
@@ -82,11 +90,15 @@ pub struct UserDto {
 	pub username: String,
 	#[serde(default)]
 	pub global_name: Option<String>,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub bot: bool,
+	#[serde(default, deserialize_with = "lossy::null_default")]
+	pub public_flags: u64,
+	#[serde(default, deserialize_with = "lossy::null_default")]
+	pub flags: u64,
 	#[serde(default)]
 	pub avatar: Option<String>,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub discriminator: String,
 	#[serde(default)]
 	pub primary_guild: Option<PrimaryGuildDto>,
@@ -126,7 +138,9 @@ impl UserDto {
 			.or_else(|| self.clan.and_then(PrimaryGuildDto::into_model))
 			.map(Box::new);
 		User {
-			kind: if self.bot {
+			kind: if self.bot && (self.public_flags | self.flags) & (1 << 16) != 0 {
+				model::AccountKind::VerifiedBot
+			} else if self.bot {
 				model::AccountKind::Bot
 			} else {
 				model::AccountKind::Human
@@ -154,7 +168,7 @@ impl UserDto {
 pub struct ChannelDto {
 	#[serde(default)]
 	pub icon: Option<String>,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub flags: u64,
 	#[serde(default)]
 	pub last_message_id: Option<Id>,
@@ -163,22 +177,35 @@ pub struct ChannelDto {
 	pub guild_id: Option<Id>,
 	#[serde(default)]
 	pub parent_id: Option<Id>,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub position: i32,
 	#[serde(default)]
 	pub name: Option<String>,
 	#[serde(rename = "type")]
 	pub kind: u8,
-	#[serde(default)]
+	/// An unreadable recipient is dropped without losing the conversation.
+	#[serde(default, deserialize_with = "lossy::recipients")]
 	pub recipients: Vec<UserDto>,
 	#[serde(default)]
 	pub permission_overwrites: Option<Vec<Overwrite>>,
 	#[serde(default)]
 	pub message_count: Option<u32>,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub is_message_request: bool,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub is_spam: bool,
+	#[serde(default)]
+	pub available_tags: Option<forum::TagList>,
+	#[serde(default)]
+	pub applied_tags: Option<forum::AppliedTags>,
+	#[serde(default)]
+	pub default_reaction_emoji: Option<forum::DefaultReaction>,
+	#[serde(default)]
+	pub default_forum_layout: Option<u8>,
+	#[serde(default)]
+	pub default_sort_order: Option<u8>,
+	#[serde(default)]
+	pub default_tag_setting: Option<String>,
 }
 const CHANNEL_FLAG_SPAM: u64 = 1 << 5;
 impl ChannelDto {
@@ -219,6 +246,18 @@ impl ChannelDto {
 					.collect::<Vec<_>>()
 					.join(", ")
 			}),
+			tags: forum::tags(
+				self.kind,
+				self.available_tags,
+				self.applied_tags,
+				self.flags,
+				forum::Defaults {
+					reaction: self.default_reaction_emoji,
+					layout: self.default_forum_layout,
+					sort: self.default_sort_order,
+					tag_setting: self.default_tag_setting,
+				},
+			),
 			kind: self.kind,
 			recipients,
 			member_list_id: None,
@@ -251,6 +290,18 @@ pub struct ChannelPatchDto {
 	pub is_message_request: Patch<bool>,
 	#[serde(default)]
 	pub is_spam: Patch<bool>,
+	#[serde(default)]
+	pub available_tags: Patch<forum::TagList>,
+	#[serde(default)]
+	pub applied_tags: Patch<forum::AppliedTags>,
+	#[serde(default)]
+	pub default_reaction_emoji: Option<forum::DefaultReaction>,
+	#[serde(default)]
+	pub default_forum_layout: Option<u8>,
+	#[serde(default)]
+	pub default_sort_order: Option<u8>,
+	#[serde(default)]
+	pub default_tag_setting: Option<String>,
 }
 impl ChannelPatchDto {
 	pub fn is_obfuscated(&self) -> bool {
@@ -323,6 +374,18 @@ impl ChannelPatchDto {
 			name: self.name,
 			parent_id: self.parent_id,
 			position: self.position,
+			tags: forum::patched_tags(
+				self.kind.clone(),
+				self.available_tags,
+				self.applied_tags,
+				&self.flags,
+				forum::Defaults {
+					reaction: self.default_reaction_emoji,
+					layout: self.default_forum_layout,
+					sort: self.default_sort_order,
+					tag_setting: self.default_tag_setting,
+				},
+			),
 			kind: self.kind,
 			message_count: self.message_count,
 		}
@@ -333,36 +396,68 @@ mod channel_tests {
 	use super::*;
 	#[test]
 	fn group_icon_hash_and_patches_keep_absent_null_and_value_distinct() {
-		let channel = decode::<ChannelDto>(
-			br#"{"id":"3","type":3,"icon":"0123456789abcdef0123456789abcdef"}"#,
-		)
-		.unwrap()
-		.into_model();
-		assert_eq!(
-			channel.icon.as_deref(),
-			Some("0123456789abcdef0123456789abcdef")
-		);
-		assert!(matches!(
-			decode::<ChannelPatchDto>(br#"{"id":"3"}"#)
+		{
+			let channel = decode::<ChannelDto>(
+				br#"{"id":"3","type":3,"icon":"0123456789abcdef0123456789abcdef"}"#,
+			)
+			.unwrap()
+			.into_model();
+			assert_eq!(
+				channel.icon.as_deref(),
+				Some("0123456789abcdef0123456789abcdef")
+			);
+			assert!(matches!(
+				decode::<ChannelPatchDto>(br#"{"id":"3"}"#)
+					.unwrap()
+					.into_model()
+					.icon,
+				Patch::Absent
+			));
+			assert!(matches!(
+				decode::<ChannelPatchDto>(br#"{"id":"3","icon":null}"#)
+					.unwrap()
+					.into_model()
+					.icon,
+				Patch::Null
+			));
+			assert!(matches!(
+				decode::<ChannelPatchDto>(br#"{"id":"3","icon":"../invalid"}"#)
+					.unwrap()
+					.into_model()
+					.icon,
+				Patch::Null
+			));
+		}
+		{
+			let channel = decode::<ChannelDto>(
+				br#"{"id":"3","guild_id":"1","type":0,"name":"general","position":12,"parent_id":"2"}"#,
+			)
+			.unwrap()
+			.into_model();
+			assert_eq!(channel.parent_id, Some(Id(2)));
+			assert_eq!(channel.position, 12);
+			assert!(channel.supports_text());
+			let category =
+				decode::<ChannelDto>(br#"{"id":"2","guild_id":"1","type":4,"name":"Category"}"#)
+					.unwrap()
+					.into_model();
+			assert!(!category.supports_text());
+			let patch = decode::<ChannelPatchDto>(br#"{"id":"3","position":0,"parent_id":null}"#)
 				.unwrap()
-				.into_model()
-				.icon,
-			Patch::Absent
-		));
-		assert!(matches!(
-			decode::<ChannelPatchDto>(br#"{"id":"3","icon":null}"#)
-				.unwrap()
-				.into_model()
-				.icon,
-			Patch::Null
-		));
-		assert!(matches!(
-			decode::<ChannelPatchDto>(br#"{"id":"3","icon":"../invalid"}"#)
-				.unwrap()
-				.into_model()
-				.icon,
-			Patch::Null
-		));
+				.into_model();
+			assert_eq!(patch.parent_id, Patch::Null);
+			assert_eq!(patch.position, Patch::Value(0));
+			assert_eq!(patch.name, Patch::Absent);
+			assert_eq!(patch.kind, Patch::Absent);
+			assert_eq!(
+				decode::<ChannelPatchDto>(br#"{"id":"3"}"#)
+					.unwrap()
+					.into_model()
+					.parent_id,
+				Patch::Absent
+			);
+			assert!(decode::<ChannelDto>(br#"{"id":"3","type":0,"position":4294967296}"#).is_err());
+		}
 	}
 	#[test]
 	fn ready_omits_obfuscated_channels_and_their_threads_without_inventing_child_permissions() {
@@ -392,46 +487,17 @@ mod channel_tests {
 		assert!(!flags.is_obfuscated());
 		let payload = serde_json::json!({"user":{"id":"9","username":"Synthetic"},"session_id":"s","resume_gateway_url":"wss://gateway.discord.gg","guilds":[{"id":"1","channels":[{"id":"2","type":0,"flags":131072},{"id":"2","type":0}]}]});
 		let mut ready: Ready = decode(&serde_json::to_vec(&payload).unwrap()).unwrap();
+		let (_, channels) = ready.navigation().unwrap();
 		assert!(
-			ready.navigation().is_err(),
-			"Filtering must not bypass duplicate identity validation"
+			ready.skipped && channels.is_empty(),
+			"A duplicate never replaces the first (hidden) channel"
 		);
-	}
-
-	#[test]
-	fn category_metadata_and_partial_channel_updates() {
-		let channel = decode::<ChannelDto>(
-			br#"{"id":"3","guild_id":"1","type":0,"name":"general","position":12,"parent_id":"2"}"#,
-		)
-		.unwrap()
-		.into_model();
-		assert_eq!(channel.parent_id, Some(Id(2)));
-		assert_eq!(channel.position, 12);
-		assert!(channel.supports_text());
-		let category =
-			decode::<ChannelDto>(br#"{"id":"2","guild_id":"1","type":4,"name":"Category"}"#)
-				.unwrap()
-				.into_model();
-		assert!(!category.supports_text());
-		let patch = decode::<ChannelPatchDto>(br#"{"id":"3","position":0,"parent_id":null}"#)
-			.unwrap()
-			.into_model();
-		assert_eq!(patch.parent_id, Patch::Null);
-		assert_eq!(patch.position, Patch::Value(0));
-		assert_eq!(patch.name, Patch::Absent);
-		assert_eq!(patch.kind, Patch::Absent);
-		assert_eq!(
-			decode::<ChannelPatchDto>(br#"{"id":"3"}"#)
-				.unwrap()
-				.into_model()
-				.parent_id,
-			Patch::Absent
-		);
-		assert!(decode::<ChannelDto>(br#"{"id":"3","type":0,"position":4294967296}"#).is_err());
 	}
 }
 #[derive(Deserialize)]
 pub struct GuildDto {
+	#[serde(default)]
+	pub default_message_notifications: Patch<u8>,
 	#[serde(default)]
 	pub stickers: Option<stickers::Catalog>,
 	#[serde(default)]
@@ -454,8 +520,33 @@ pub struct GuildDto {
 	#[serde(default)]
 	pub members: Vec<VoiceMemberDto>,
 }
+impl GuildDto {
+	pub fn default_notification_level(&self) -> Option<u8> {
+		match self.default_notification_patch() {
+			Patch::Value(level) => Some(level),
+			Patch::Absent | Patch::Null => None,
+		}
+	}
+	pub fn default_notification_patch(&self) -> Patch<u8> {
+		let value = match self
+			.properties
+			.as_ref()
+			.map(|p| &p.default_message_notifications)
+		{
+			Some(Patch::Value(level)) => Patch::Value(*level),
+			Some(Patch::Null) => Patch::Null,
+			_ => self.default_message_notifications.clone(),
+		};
+		match value {
+			Patch::Value(level) if level > 1 => Patch::Null,
+			other => other,
+		}
+	}
+}
 #[derive(Deserialize)]
 pub struct GuildProperties {
+	#[serde(default)]
+	pub default_message_notifications: Patch<u8>,
 	#[serde(default)]
 	pub name: Patch<String>,
 	#[serde(default)]
@@ -470,6 +561,7 @@ pub struct GuildPatchDto {
 impl GuildPatchDto {
 	pub fn into_model(self) -> model::GuildPatch {
 		model::GuildPatch {
+			default_message_notifications: self.properties.default_message_notifications,
 			id: self.id,
 			name: self.properties.name,
 			icon: self.properties.icon,
@@ -499,6 +591,9 @@ pub struct Ready {
 	pub guilds: Vec<GuildDto>,
 	#[serde(default)]
 	pub private_channels: Vec<ChannelDto>,
+	/// Set when decoding or [`Ready::navigation`] dropped malformed or conflicting entries.
+	#[serde(skip)]
+	pub skipped: bool,
 }
 impl Ready {
 	pub fn navigation(&mut self) -> Result<(Vec<Guild>, Vec<Channel>), DecodeError> {
@@ -512,30 +607,33 @@ impl Ready {
 		if incoming > threads::MAX_ITEMS {
 			return Err(DecodeError);
 		}
-		let mut guild_ids = std::collections::BTreeSet::new();
-		if self.user.id.0 == 0
-			|| self.guilds.iter().any(|g| {
-				g.id.0 == 0
-					|| !guild_ids.insert(g.id)
-					|| g.channels
-						.iter()
-						.chain(&g.threads)
-						.any(|c| c.guild_id.is_some_and(|id| id != g.id))
-			}) {
+		if self.user.id.0 == 0 {
 			return Err(DecodeError);
 		}
+		// Zero, repeated or cross-server entries are dropped individually; the first one wins.
+		let mut skipped = false;
+		let mut guild_ids = std::collections::BTreeSet::new();
+		self.guilds.retain(|g| {
+			let keep = g.id.0 != 0 && guild_ids.insert(g.id);
+			skipped |= !keep;
+			keep
+		});
 		let mut ids = std::collections::BTreeSet::new();
-		if self
-			.private_channels
-			.iter()
-			.chain(
-				self.guilds
-					.iter()
-					.flat_map(|g| g.channels.iter().chain(&g.threads)),
-			)
-			.any(|c| c.id.0 == 0 || !ids.insert(c.id))
-		{
-			return Err(DecodeError);
+		self.private_channels.retain(|c| {
+			let keep = c.id.0 != 0 && ids.insert(c.id);
+			skipped |= !keep;
+			keep
+		});
+		for g in &mut self.guilds {
+			let guild = g.id;
+			for list in [&mut g.channels, &mut g.threads] {
+				list.retain(|c| {
+					let keep =
+						c.id.0 != 0 && c.guild_id.is_none_or(|id| id == guild) && ids.insert(c.id);
+					skipped |= !keep;
+					keep
+				});
+			}
 		}
 		drop(ids);
 		let mut channels: Vec<_> = std::mem::take(&mut self.private_channels)
@@ -549,6 +647,13 @@ impl Ready {
 				// Normal-user READY may wrap guild identity in `properties`; public bot objects
 				// are flat. The nested values override only fields actually present there.
 				if let Some(properties) = g.properties {
+					match properties.default_message_notifications {
+						Patch::Value(level) => {
+							g.default_message_notifications = Patch::Value(level)
+						}
+						Patch::Null => g.default_message_notifications = Patch::Null,
+						Patch::Absent => {}
+					}
 					match properties.name {
 						Patch::Value(name) => g.name = name,
 						Patch::Null => g.name.clear(),
@@ -597,20 +702,29 @@ impl Ready {
 					{
 						continue;
 					}
-					channels.push(threads::into_thread(thread, g.id)?);
+					match threads::into_thread(thread, g.id) {
+						Ok(thread) => channels.push(thread),
+						Err(_) => skipped = true,
+					}
 				}
-				Ok(Guild {
+				Guild {
+					default_message_notifications: match g.default_message_notifications {
+						Patch::Value(level) if level <= 1 => Some(level),
+						_ => None,
+					},
 					emojis: g.emojis.map(|emojis| emojis.0),
-					stickers: g
-						.stickers
-						.map(|list| stickers::guild_catalog(list.0, g.id))
-						.transpose()?,
+					stickers: g.stickers.and_then(|list| {
+						let stickers = stickers::guild_catalog(list.0, g.id).ok();
+						skipped |= stickers.is_none();
+						stickers
+					}),
 					id: g.id,
 					name: g.name.chars().take(128).collect(),
 					icon: g.icon.filter(|hash| model::valid_avatar_hash(hash)),
-				})
+				}
 			})
-			.collect::<Result<Vec<_>, DecodeError>>()?;
+			.collect::<Vec<_>>();
+		self.skipped |= skipped;
 		let bytes = channels.iter().map(Channel::bytes).sum::<usize>()
 			+ guilds.iter().map(Guild::bytes).sum::<usize>();
 		if channels.len() + guilds.len() > threads::MAX_ITEMS || bytes > model::account::MAX_BYTES {
@@ -653,7 +767,7 @@ pub struct MessageDto {
 	#[serde(default)]
 	pub webhook_id: Option<Id>,
 	#[serde(default)]
-	pub poll: Option<extra_content::Object>,
+	pub poll: Option<polls::PollDto>,
 	#[serde(default)]
 	pub sticker_items: Patch<stickers::MessageStickers>,
 	#[serde(default)]
@@ -681,6 +795,11 @@ pub struct MessageDto {
 	pub nonce: Option<Nonce>,
 	#[serde(default)]
 	pub message_reference: Option<Reference>,
+	/// Legacy invocation summary; still the only field carrying the command name.
+	#[serde(default)]
+	pub interaction: Option<InteractionDto>,
+	#[serde(default)]
+	pub interaction_metadata: Option<InteractionDto>,
 	#[serde(default)]
 	pub message_snapshots: Snapshots,
 	#[serde(default)]
@@ -706,6 +825,29 @@ pub struct MessageMemberDto {
 pub enum Nonce {
 	Text(String),
 	Number(u64),
+}
+#[derive(Deserialize)]
+pub struct InteractionDto {
+	#[serde(rename = "type", default)]
+	pub kind: u8,
+	#[serde(default)]
+	pub name: Option<String>,
+	#[serde(default)]
+	pub user: Option<UserDto>,
+}
+impl InteractionDto {
+	/// Application command invocations only (type 2); components and modals show no header.
+	fn into_model(self, name: Option<String>) -> Option<model::Interaction> {
+		if self.kind != 2 {
+			return None;
+		}
+		let user = self.user?.into_model();
+		let command = name
+			.or(self.name)
+			.map(|name| name.trim().chars().take(64).collect())
+			.unwrap_or_default();
+		Some(model::Interaction { user, command })
+	}
 }
 #[derive(Deserialize)]
 pub struct Reference {
@@ -759,7 +901,7 @@ struct SnapshotBody {
 	#[serde(default)]
 	flags: u64,
 	#[serde(default)]
-	poll: Option<extra_content::Object>,
+	poll: Option<polls::PollDto>,
 	#[serde(default)]
 	sticker_items: Patch<stickers::MessageStickers>,
 	#[serde(default)]
@@ -804,6 +946,15 @@ impl MessageDto {
 			self.message_reference.is_some() && reply_to.is_none() && !forwarded;
 		let reply_deleted =
 			reply_to.is_some() && matches!(self.referenced_message, model::Patch::Null);
+		let interaction = match (self.interaction.take(), self.interaction_metadata.take()) {
+			(Some(legacy), Some(metadata)) if metadata.user.is_some() => {
+				metadata.into_model(legacy.name)
+			}
+			(Some(legacy), _) => legacy.into_model(None),
+			(None, Some(metadata)) => metadata.into_model(None),
+			(None, None) => None,
+		}
+		.map(Box::new);
 		let mut author = self.author.into_model();
 		author.webhook = self.webhook_id.is_some();
 		if self.application_id.is_some()
@@ -811,11 +962,13 @@ impl MessageDto {
 		{
 			author.kind = model::AccountKind::App;
 		}
+		let has_poll = self.poll.is_some();
 		Message {
+			poll: self.poll.and_then(|poll| poll.0),
 			flags: self.flags,
 			ephemeral: self.flags & (1 << 6) != 0,
 			extra_content: model::ExtraContent {
-				poll: self.poll.is_some(),
+				poll: has_poll,
 				sticker_items: matches!(&self.sticker_items, Patch::Value(a) if a.1),
 				stickers: matches!(&self.stickers, Patch::Value(a) if a.1),
 				components: self.components.as_ref().is_some_and(|a| !a.0.is_empty()),
@@ -859,6 +1012,7 @@ impl MessageDto {
 			reply_to,
 			reply_deleted,
 			forwarded,
+			interaction,
 			unsupported: !matches!(self.kind, 0 | 19 | 20 | 23) || unsupported_reference,
 			attachments: self.attachments.0,
 			embeds: embeds::bounded(self.embeds.0),
@@ -871,7 +1025,7 @@ pub struct PatchDto {
 	#[serde(default)]
 	pub application_id: Patch<Id>,
 	#[serde(default)]
-	pub poll: Patch<extra_content::Object>,
+	pub poll: Patch<polls::PollDto>,
 	#[serde(default)]
 	pub sticker_items: Patch<stickers::MessageStickers>,
 	#[serde(default)]
@@ -898,11 +1052,20 @@ pub struct PatchDto {
 impl PatchDto {
 	pub fn into_model(self) -> MessagePatch {
 		MessagePatch {
+			poll: match &self.poll {
+				Patch::Absent => Patch::Absent,
+				Patch::Null => Patch::Null,
+				Patch::Value(poll) => Patch::Value(poll.0.clone()),
+			},
 			sticker_items: stickers::items_patch(&self.sticker_items, &self.stickers),
 			flags: self.flags.clone(),
 			application_id: self.application_id,
 			extra_content: model::ExtraContentPatch {
-				poll: extra_content::object_patch(self.poll),
+				poll: match self.poll {
+					Patch::Absent => Patch::Absent,
+					Patch::Null => Patch::Null,
+					Patch::Value(_) => Patch::Value(true),
+				},
 				sticker_items: match &self.sticker_items {
 					Patch::Absent => Patch::Absent,
 					Patch::Null => Patch::Null,
@@ -977,6 +1140,17 @@ pub struct BulkDeleted {
 	pub ids: Vec<Id>,
 	pub channel_id: Id,
 }
+/// Redacted decode cause of a whole Gateway packet, for a user-copyable failure report.
+pub fn diagnose_packet(bytes: &[u8]) -> String {
+	if bytes.len() > MAX_GATEWAY_WIRE {
+		return format!(
+			"Gateway packet is {} bytes; limit is {MAX_GATEWAY_WIRE}",
+			bytes.len()
+		);
+	}
+	diagnostics::trace::<GatewayPacket>("packet", bytes)
+		.unwrap_or_else(|| "Gateway packet decoded; a later check failed".into())
+}
 #[derive(Deserialize)]
 pub struct GatewayPacket {
 	pub op: u8,
@@ -1011,261 +1185,330 @@ mod tests {
 	use super::*;
 	#[test]
 	fn webhook_authors_require_explicit_message_metadata() {
-		let mut wire = serde_json::json!({"id":"100","channel_id":"2","author":{"id":"3","username":"Synthetic webhook","bot":true},"content":"webhook"});
-		let read =
-			|wire: &serde_json::Value| decode::<MessageDto>(&serde_json::to_vec(wire).unwrap());
-		assert!(!read(&wire).unwrap().into_model().author.webhook);
-		wire["webhook_id"] = serde_json::json!("3");
-		let author = read(&wire).unwrap().into_model().author;
-		assert!(author.webhook);
-		assert_eq!(author.name, "Synthetic webhook");
-		wire["webhook_id"] = serde_json::Value::Null;
-		assert!(!read(&wire).unwrap().into_model().author.webhook);
-		wire["webhook_id"] = serde_json::json!("invalid");
-		assert!(read(&wire).is_err());
-	}
-	#[test]
-	fn account_badges_follow_bot_and_application_provenance() {
-		let mut wire = serde_json::json!({"id":"100","channel_id":"2","author":{"id":"3","username":"BOT WEBHOOK APP"},"content":"synthetic"});
-		let label = |wire: &serde_json::Value| {
-			decode::<MessageDto>(&serde_json::to_vec(wire).unwrap())
-				.unwrap()
-				.into_model()
-				.author
-				.account_label()
-		};
-		assert_eq!(label(&wire), None, "Names are not account metadata");
-		wire["author"]["bot"] = serde_json::json!(true);
-		assert_eq!(label(&wire), Some("BOT"));
-		wire["webhook_id"] = serde_json::json!("3");
-		assert_eq!(label(&wire), Some("WEBHOOK"));
-		wire["application_id"] = serde_json::json!("4");
-		assert_eq!(label(&wire), Some("APP"));
-		wire["webhook_id"] = serde_json::Value::Null;
-		assert_eq!(label(&wire), Some("APP"));
-		wire["author"]["bot"] = serde_json::json!(false);
-		assert_eq!(
-			label(&wire),
-			None,
-			"Human rich-presence/game messages are not apps"
-		);
-		let user: UserDto =
-			decode(br#"{"id":"3","username":"Synthetic member","bot":true}"#).unwrap();
-		assert_eq!(user.into_model().account_label(), Some("BOT"));
+		{
+			let mut wire = serde_json::json!({"id":"100","channel_id":"2","author":{"id":"3","username":"Synthetic webhook","bot":true},"content":"webhook"});
+			let read =
+				|wire: &serde_json::Value| decode::<MessageDto>(&serde_json::to_vec(wire).unwrap());
+			assert!(!read(&wire).unwrap().into_model().author.webhook);
+			wire["webhook_id"] = serde_json::json!("3");
+			let author = read(&wire).unwrap().into_model().author;
+			assert!(author.webhook);
+			assert_eq!(author.name, "Synthetic webhook");
+			wire["webhook_id"] = serde_json::Value::Null;
+			assert!(!read(&wire).unwrap().into_model().author.webhook);
+			wire["webhook_id"] = serde_json::json!("invalid");
+			assert!(read(&wire).is_err());
+		}
+		{
+			let mut wire = serde_json::json!({"id":"100","channel_id":"2","author":{"id":"3","username":"BOT WEBHOOK APP"},"content":"synthetic"});
+			let label = |wire: &serde_json::Value| {
+				decode::<MessageDto>(&serde_json::to_vec(wire).unwrap())
+					.unwrap()
+					.into_model()
+					.author
+					.account_label()
+			};
+			assert_eq!(label(&wire), None, "Names are not account metadata");
+			wire["author"]["bot"] = serde_json::json!(true);
+			assert_eq!(label(&wire), Some("BOT"));
+			wire["author"]["public_flags"] = serde_json::json!(1 << 16);
+			assert_eq!(label(&wire), Some("APP"));
+			wire["author"]["public_flags"] = serde_json::json!(0);
+			wire["author"]["flags"] = serde_json::json!(1 << 16);
+			assert_eq!(label(&wire), Some("APP"));
+			wire["webhook_id"] = serde_json::json!("3");
+			assert_eq!(label(&wire), Some("WEBHOOK"));
+			wire["application_id"] = serde_json::json!("4");
+			assert_eq!(label(&wire), Some("APP"));
+			wire["webhook_id"] = serde_json::Value::Null;
+			assert_eq!(label(&wire), Some("APP"));
+			wire["author"]["bot"] = serde_json::json!(false);
+			assert_eq!(
+				label(&wire),
+				None,
+				"Human rich-presence/game messages are not apps"
+			);
+			let user: UserDto =
+				decode(br#"{"id":"3","username":"Synthetic member","bot":true}"#).unwrap();
+			assert_eq!(user.into_model().account_label(), Some("BOT"));
+		}
 	}
 	#[test]
 	fn message_nickname_is_bounded_and_keeps_global_identity() {
-		let mut message = decode::<MessageDto>(
-			&serde_json::to_vec(&serde_json::json!({
-				"id":"100", "channel_id":"20", "author":{"id":"3","username":"Global"},
-				"member":{"nick":"界".repeat(200)}
-			}))
-			.unwrap(),
-		)
-		.unwrap()
-		.into_model();
-		assert_eq!(message.author.name, "Global");
-		assert_eq!(
-			message.author_nick.as_deref(),
-			Some("界".repeat(128).as_str())
-		);
-		let bytes = message.bytes();
-		let nick = message.author_nick.take().unwrap();
-		assert_eq!(bytes - message.bytes(), nick.capacity());
-	}
-	#[test]
-	fn message_author_roles_are_bounded_and_session_only() {
-		let mut wire = serde_json::json!({
-			"id":"100", "channel_id":"20", "author":{"id":"3","username":"Synthetic"},
-			"member":{"roles":["12", "11"]}
-		});
-		let read =
-			|value: &serde_json::Value| decode::<MessageDto>(&serde_json::to_vec(value).unwrap());
-		let mut message = read(&wire).unwrap().into_model();
-		assert_eq!(message.author_roles, vec![Id(11), Id(12)]);
-		let bytes = message.bytes();
-		let roles = std::mem::take(&mut message.author_roles);
-		assert_eq!(bytes - message.bytes(), roles.capacity() * size_of::<Id>());
-		for roles in [
-			serde_json::json!(["0"]),
-			serde_json::json!(["11", "11"]),
-			serde_json::json!(
-				(1..=model::permissions::MAX_MEMBER_ROLES + 1)
-					.map(|id| id.to_string())
-					.collect::<Vec<_>>()
-			),
-		] {
-			wire["member"]["roles"] = roles;
-			assert!(read(&wire).is_err());
+		{
+			let mut message = decode::<MessageDto>(
+				&serde_json::to_vec(&serde_json::json!({
+					"id":"100", "channel_id":"20", "author":{"id":"3","username":"Global"},
+					"member":{"nick":"界".repeat(200)}
+				}))
+				.unwrap(),
+			)
+			.unwrap()
+			.into_model();
+			assert_eq!(message.author.name, "Global");
+			assert_eq!(
+				message.author_nick.as_deref(),
+				Some("界".repeat(128).as_str())
+			);
+			let bytes = message.bytes();
+			let nick = message.author_nick.take().unwrap();
+			assert_eq!(bytes - message.bytes(), nick.capacity());
 		}
-		wire["member"] = serde_json::Value::Null;
-		assert!(read(&wire).unwrap().into_model().author_roles.is_empty());
+		{
+			let mut wire = serde_json::json!({
+				"id":"100", "channel_id":"20", "author":{"id":"3","username":"Synthetic"},
+				"member":{"roles":["12", "11"]}
+			});
+			let read = |value: &serde_json::Value| {
+				decode::<MessageDto>(&serde_json::to_vec(value).unwrap())
+			};
+			let mut message = read(&wire).unwrap().into_model();
+			assert_eq!(message.author_roles, vec![Id(11), Id(12)]);
+			let bytes = message.bytes();
+			let roles = std::mem::take(&mut message.author_roles);
+			assert_eq!(bytes - message.bytes(), roles.capacity() * size_of::<Id>());
+			for roles in [
+				serde_json::json!(["0"]),
+				serde_json::json!(["11", "11"]),
+				serde_json::json!(
+					(1..=model::permissions::MAX_MEMBER_ROLES + 1)
+						.map(|id| id.to_string())
+						.collect::<Vec<_>>()
+				),
+			] {
+				wire["member"]["roles"] = roles;
+				assert!(read(&wire).is_err());
+			}
+			wire["member"] = serde_json::Value::Null;
+			assert!(read(&wire).unwrap().into_model().author_roles.is_empty());
+		}
 	}
 	#[test]
 	fn notification_metadata_is_service_derived_and_role_mentions_are_bounded() {
-		let wire = || {
-			serde_json::json!({
-				"id":"100", "channel_id":"2", "author":{"id":"3","username":"Synthetic"},
-				"content":"@everyone <@&4>",
-			})
-		};
-		let read =
-			|value: &serde_json::Value| decode::<MessageDto>(&serde_json::to_vec(value).unwrap());
-		let plain = read(&wire()).unwrap().into_model();
-		assert!(plain.mention_roles.is_empty());
-		assert!(!plain.mention_everyone && !plain.suppress_notifications);
-		let mut value = wire();
-		value["mention_roles"] = serde_json::json!(["4", "5"]);
-		value["mention_everyone"] = true.into();
-		value["flags"] = (4096 | 4 | 32768).into();
-		let message = read(&value).unwrap().into_model();
-		assert_eq!(message.mention_roles, vec![Id(4), Id(5)]);
-		assert!(message.mention_everyone && message.suppress_notifications);
-		assert!(message.embeds_suppressed && message.extra_content.components_v2);
-		assert!(model::valid_mention_roles(&message.mention_roles));
-		let bytes = message.bytes();
-		let role_bytes = message.mention_roles.capacity() * size_of::<Id>();
-		let mut without_roles = message;
-		without_roles.mention_roles = Vec::new();
-		assert_eq!(bytes - without_roles.bytes(), role_bytes);
-		value["mention_roles"] = (1..=100)
-			.map(|id| id.to_string())
-			.collect::<Vec<_>>()
-			.into();
-		assert!(model::valid_mention_roles(
-			&read(&value).unwrap().into_model().mention_roles
-		));
-		for roles in [
-			serde_json::json!(null),
-			serde_json::json!({}),
-			serde_json::json!(["0"]),
-			serde_json::json!([1]),
-			serde_json::json!(["4", "4"]),
-			serde_json::json!((1..=101).map(|id| id.to_string()).collect::<Vec<_>>()),
-		] {
-			value["mention_roles"] = roles;
+		{
+			let wire = || {
+				serde_json::json!({
+					"id":"100", "channel_id":"2", "author":{"id":"3","username":"Synthetic"},
+					"content":"@everyone <@&4>",
+				})
+			};
+			let read = |value: &serde_json::Value| {
+				decode::<MessageDto>(&serde_json::to_vec(value).unwrap())
+			};
+			let plain = read(&wire()).unwrap().into_model();
+			assert!(plain.mention_roles.is_empty());
+			assert!(!plain.mention_everyone && !plain.suppress_notifications);
+			let mut value = wire();
+			value["mention_roles"] = serde_json::json!(["4", "5"]);
+			value["mention_everyone"] = true.into();
+			value["flags"] = (4096 | 4 | 32768).into();
+			let message = read(&value).unwrap().into_model();
+			assert_eq!(message.mention_roles, vec![Id(4), Id(5)]);
+			assert!(message.mention_everyone && message.suppress_notifications);
+			assert!(message.embeds_suppressed && message.extra_content.components_v2);
+			assert!(model::valid_mention_roles(&message.mention_roles));
+			let bytes = message.bytes();
+			let role_bytes = message.mention_roles.capacity() * size_of::<Id>();
+			let mut without_roles = message;
+			without_roles.mention_roles = Vec::new();
+			assert_eq!(bytes - without_roles.bytes(), role_bytes);
+			value["mention_roles"] = (1..=100)
+				.map(|id| id.to_string())
+				.collect::<Vec<_>>()
+				.into();
+			assert!(model::valid_mention_roles(
+				&read(&value).unwrap().into_model().mention_roles
+			));
+			for roles in [
+				serde_json::json!(null),
+				serde_json::json!({}),
+				serde_json::json!(["0"]),
+				serde_json::json!([1]),
+				serde_json::json!(["4", "4"]),
+				serde_json::json!((1..=101).map(|id| id.to_string()).collect::<Vec<_>>()),
+			] {
+				value["mention_roles"] = roles;
+				assert!(read(&value).is_err());
+			}
+			value["mention_roles"] = serde_json::json!([]);
+			value["mention_everyone"] = serde_json::json!("true");
 			assert!(read(&value).is_err());
 		}
-		value["mention_roles"] = serde_json::json!([]);
-		value["mention_everyone"] = serde_json::json!("true");
-		assert!(read(&value).is_err());
+		{
+			let message=decode::<MessageDto>(br#"{"id":"1","channel_id":"2","author":{"id":"3","username":"author"},"content":"<@4>","mentions":[{"id":"4","username":"user","global_name":"Display name"}]}"#).unwrap().into_model();
+			assert_eq!(message.mentions[0].id, Id(4));
+			assert_eq!(message.mentions[0].name, "Display name");
+			assert!(matches!(
+				decode::<PatchDto>(br#"{"id":"1","channel_id":"2"}"#)
+					.unwrap()
+					.into_model()
+					.mentions,
+				Patch::Absent
+			));
+			assert!(matches!(
+				decode::<PatchDto>(br#"{"id":"1","channel_id":"2","mentions":null}"#)
+					.unwrap()
+					.into_model()
+					.mentions,
+				Patch::Null
+			));
+			let large = serde_json::json!({"id":"1","channel_id":"2","mentions":(1..=101).map(|id|serde_json::json!({"id":id.to_string(),"username":"synthetic"})).collect::<Vec<_>>()});
+			assert!(decode::<PatchDto>(&serde_json::to_vec(&large).unwrap()).is_err());
+		}
 	}
 	#[test]
 	fn forwarded_snapshot_uses_bounded_audio_body_and_outer_identity() {
-		let mut wire = serde_json::json!({
-			"id":"100", "channel_id":"2", "author":{"id":"3","username":"Forwarder"},
-			"type":0, "content":"", "message_reference":{"type":1,"channel_id":"99","message_id":"50"},
-			"message_snapshots":[{"message":{"type":0,"content":"Frozen text", "mention_everyone":true,
-				"attachments":[{"id":"60","filename":"Samsung.mp3","size":3850000,"content_type":"audio/mpeg", "url":"https://cdn.discordapp.com/attachments/99/60/Samsung.mp3"}],
-				"embeds":[{"type":"rich","title":"Snapshot embed"}]}}]
-		});
-		let read = |wire: &serde_json::Value| {
-			decode::<MessageDto>(&serde_json::to_vec(wire).unwrap())
-				.unwrap()
-				.into_model()
-		};
-		let message = read(&wire);
-		assert!(message.forwarded && !message.unsupported);
-		assert_eq!(message.content, "Frozen text");
-		assert_eq!(message.author.id, Id(3));
-		assert_eq!(message.channel, Id(2));
-		assert_eq!(message.id, Id(100));
-		assert!(message.reply_to.is_none() && !message.mention_everyone);
-		assert!(message.attachments[0].is_audio());
-		assert_eq!(message.embeds[0].title.as_deref(), Some("Snapshot embed"));
-		let snapshot = wire["message_snapshots"][0].clone();
-		for snapshots in [
-			serde_json::json!([]),
-			serde_json::json!([snapshot.clone(), snapshot]),
-		] {
-			wire["message_snapshots"] = snapshots;
+		{
+			let mut wire = serde_json::json!({
+				"id":"100", "channel_id":"2", "author":{"id":"3","username":"Forwarder"},
+				"type":0, "content":"", "message_reference":{"type":1,"channel_id":"99","message_id":"50"},
+				"message_snapshots":[{"message":{"type":0,"content":"Frozen text", "mention_everyone":true,
+					"attachments":[{"id":"60","filename":"Samsung.mp3","size":3850000,"content_type":"audio/mpeg", "url":"https://cdn.discordapp.com/attachments/99/60/Samsung.mp3"}],
+					"embeds":[{"type":"rich","title":"Snapshot embed"}]}}]
+			});
+			let read = |wire: &serde_json::Value| {
+				decode::<MessageDto>(&serde_json::to_vec(wire).unwrap())
+					.unwrap()
+					.into_model()
+			};
 			let message = read(&wire);
-			assert!(!message.forwarded && message.unsupported && message.attachments.is_empty());
+			assert!(message.forwarded && !message.unsupported);
+			assert_eq!(message.content, "Frozen text");
+			assert_eq!(message.author.id, Id(3));
+			assert_eq!(message.channel, Id(2));
+			assert_eq!(message.id, Id(100));
+			assert!(message.reply_to.is_none() && !message.mention_everyone);
+			assert!(message.attachments[0].is_audio());
+			assert_eq!(message.embeds[0].title.as_deref(), Some("Snapshot embed"));
+			let snapshot = wire["message_snapshots"][0].clone();
+			for snapshots in [
+				serde_json::json!([]),
+				serde_json::json!([snapshot.clone(), snapshot]),
+			] {
+				wire["message_snapshots"] = snapshots;
+				let message = read(&wire);
+				assert!(
+					!message.forwarded && message.unsupported && message.attachments.is_empty()
+				);
+			}
+		}
+		{
+			let wire = || {
+				serde_json::json!({
+					"id":"100", "channel_id":"2", "author":{"id":"3","username":"Synthetic"},
+					"type":19, "message_reference":{"message_id":"50","channel_id":"2"}
+				})
+			};
+			let read = |value: serde_json::Value| {
+				decode::<MessageDto>(&serde_json::to_vec(&value).unwrap())
+					.unwrap()
+					.into_model()
+			};
+			let unknown = read(wire());
+			assert_eq!(unknown.reply_to, Some(Id(50)));
+			assert!(!unknown.reply_deleted && !unknown.unsupported);
+			for kind in [19, 23] {
+				let mut value = wire();
+				value["type"] = kind.into();
+				value["referenced_message"] = serde_json::Value::Null;
+				let deleted = read(value);
+				assert_eq!(deleted.reply_to, Some(Id(50)));
+				assert!(deleted.reply_deleted && !deleted.unsupported);
+			}
+			let mut value = wire();
+			// Nested bodies are deliberately discarded, never rendered or cached as another message.
+			value["referenced_message"] = serde_json::json!({"content":"nested secret marker", "referenced_message":{"content":"nested"}});
+			let resolved = read(value);
+			assert!(!resolved.reply_deleted);
+			assert!(resolved.content.is_empty());
+			for invalid in 0..9 {
+				let mut value = wire();
+				value["referenced_message"] = serde_json::Value::Null;
+				match invalid {
+					0 => {
+						value["message_reference"]["channel_id"] = "9".into();
+					}
+					1 => {
+						value["message_reference"]
+							.as_object_mut()
+							.unwrap()
+							.remove("channel_id");
+					}
+					2 => {
+						value["message_reference"]["type"] = 1.into();
+					}
+					3 => {
+						value["message_reference"]["type"] = 999.into();
+					}
+					4 => {
+						value["message_reference"]["message_id"] = "0".into();
+						assert!(
+							decode::<MessageDto>(&serde_json::to_vec(&value).unwrap()).is_err()
+						);
+						continue;
+					}
+					5 => {
+						value["message_reference"]["message_id"] = "100".into();
+					}
+					6 => {
+						value["message_reference"]["message_id"] = "101".into();
+					}
+					7 => {
+						value["type"] = 21.into();
+					}
+					_ => {
+						value["flags"] = 2.into();
+					}
+				}
+				let message = read(value);
+				assert!(
+					message.reply_to.is_none() && !message.reply_deleted && message.unsupported
+				);
+			}
+			for invalid in [
+				serde_json::json!([]),
+				serde_json::json!("invalid"),
+				serde_json::Value::Object(
+					(0..65)
+						.map(|i| (i.to_string(), serde_json::Value::Null))
+						.collect(),
+				),
+			] {
+				let mut value = wire();
+				value["referenced_message"] = invalid;
+				assert!(decode::<MessageDto>(&serde_json::to_vec(&value).unwrap()).is_err());
+			}
 		}
 	}
 	#[test]
-	fn reply_references_require_same_channel_and_distinguish_deleted_from_unknown() {
-		let wire = || {
-			serde_json::json!({
-				"id":"100", "channel_id":"2", "author":{"id":"3","username":"Synthetic"},
-				"type":19, "message_reference":{"message_id":"50","channel_id":"2"}
-			})
-		};
+	fn command_responses_keep_bounded_invoker_and_command_name() {
 		let read = |value: serde_json::Value| {
 			decode::<MessageDto>(&serde_json::to_vec(&value).unwrap())
 				.unwrap()
 				.into_model()
 		};
-		let unknown = read(wire());
-		assert_eq!(unknown.reply_to, Some(Id(50)));
-		assert!(!unknown.reply_deleted && !unknown.unsupported);
-		for kind in [19, 23] {
-			let mut value = wire();
-			value["type"] = kind.into();
-			value["referenced_message"] = serde_json::Value::Null;
-			let deleted = read(value);
-			assert_eq!(deleted.reply_to, Some(Id(50)));
-			assert!(deleted.reply_deleted && !deleted.unsupported);
-		}
-		let mut value = wire();
-		// Nested bodies are deliberately discarded, never rendered or cached as another message.
-		value["referenced_message"] = serde_json::json!({"content":"nested secret marker", "referenced_message":{"content":"nested"}});
-		let resolved = read(value);
-		assert!(!resolved.reply_deleted);
-		assert!(resolved.content.is_empty());
-		for invalid in 0..9 {
-			let mut value = wire();
-			value["referenced_message"] = serde_json::Value::Null;
-			match invalid {
-				0 => {
-					value["message_reference"]["channel_id"] = "9".into();
-				}
-				1 => {
-					value["message_reference"]
-						.as_object_mut()
-						.unwrap()
-						.remove("channel_id");
-				}
-				2 => {
-					value["message_reference"]["type"] = 1.into();
-				}
-				3 => {
-					value["message_reference"]["type"] = 999.into();
-				}
-				4 => {
-					value["message_reference"]["message_id"] = "0".into();
-					assert!(decode::<MessageDto>(&serde_json::to_vec(&value).unwrap()).is_err());
-					continue;
-				}
-				5 => {
-					value["message_reference"]["message_id"] = "100".into();
-				}
-				6 => {
-					value["message_reference"]["message_id"] = "101".into();
-				}
-				7 => {
-					value["type"] = 21.into();
-				}
-				_ => {
-					value["flags"] = 2.into();
-				}
-			}
-			let message = read(value);
-			assert!(message.reply_to.is_none() && !message.reply_deleted && message.unsupported);
-		}
-		for invalid in [
-			serde_json::json!([]),
-			serde_json::json!("invalid"),
-			serde_json::Value::Object(
-				(0..65)
-					.map(|i| (i.to_string(), serde_json::Value::Null))
-					.collect(),
-			),
-		] {
-			let mut value = wire();
-			value["referenced_message"] = invalid;
-			assert!(decode::<MessageDto>(&serde_json::to_vec(&value).unwrap()).is_err());
-		}
+		let mut wire = serde_json::json!({
+			"id":"100", "channel_id":"2", "type":20, "application_id":"7",
+			"author":{"id":"3","username":"Synthetic bot","bot":true},
+			"interaction":{"id":"90","type":2,"name":"ping","user":{"id":"4","username":"Invoker"}},
+			"interaction_metadata":{"id":"90","type":2,"user":{"id":"4","username":"Invoker","avatar":"a1b2c3d4e5f60718293a4b5c6d7e8f90"}}
+		});
+		let message = read(wire.clone());
+		let interaction = message.interaction.as_deref().unwrap();
+		assert_eq!(interaction.command, "ping");
+		assert_eq!(interaction.user.id, Id(4));
+		assert_eq!(
+			interaction.user.avatar.as_deref(),
+			Some("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+		);
+		wire["interaction"]["name"] = "x".repeat(500).into();
+		assert_eq!(read(wire.clone()).interaction.unwrap().command.len(), 64);
+		wire.as_object_mut().unwrap().remove("interaction");
+		assert_eq!(read(wire.clone()).interaction.unwrap().command, "");
+		wire["interaction_metadata"]["type"] = 3.into();
+		assert!(read(wire.clone()).interaction.is_none());
+		wire.as_object_mut().unwrap().remove("interaction_metadata");
+		assert!(read(wire).interaction.is_none());
 	}
 	#[test]
 	fn system_types_keep_original_content_and_describe_known_events() {
@@ -1331,28 +1574,6 @@ mod tests {
 		assert!(decode::<MessageDto>(&serde_json::to_vec(&invalid).unwrap()).is_err());
 	}
 	#[test]
-	fn bounded_message_mentions_and_patch_presence() {
-		let message=decode::<MessageDto>(br#"{"id":"1","channel_id":"2","author":{"id":"3","username":"author"},"content":"<@4>","mentions":[{"id":"4","username":"user","global_name":"Display name"}]}"#).unwrap().into_model();
-		assert_eq!(message.mentions[0].id, Id(4));
-		assert_eq!(message.mentions[0].name, "Display name");
-		assert!(matches!(
-			decode::<PatchDto>(br#"{"id":"1","channel_id":"2"}"#)
-				.unwrap()
-				.into_model()
-				.mentions,
-			Patch::Absent
-		));
-		assert!(matches!(
-			decode::<PatchDto>(br#"{"id":"1","channel_id":"2","mentions":null}"#)
-				.unwrap()
-				.into_model()
-				.mentions,
-			Patch::Null
-		));
-		let large = serde_json::json!({"id":"1","channel_id":"2","mentions":(1..=101).map(|id|serde_json::json!({"id":id.to_string(),"username":"synthetic"})).collect::<Vec<_>>()});
-		assert!(decode::<PatchDto>(&serde_json::to_vec(&large).unwrap()).is_err());
-	}
-	#[test]
 	fn precision_patches_and_hostile_payloads() {
 		let id: Id = decode(br#""18446744073709551615""#).unwrap();
 		assert_eq!(id.0, u64::MAX);
@@ -1369,12 +1590,15 @@ mod tests {
 #[derive(Deserialize)]
 pub struct RoleDto {
 	pub id: Id,
+	#[serde(deserialize_with = "lossy::text_or_number")]
 	pub permissions: String,
 }
 #[derive(Deserialize)]
 pub struct Overwrite {
 	pub id: Id,
+	#[serde(deserialize_with = "lossy::text_or_number")]
 	pub allow: String,
+	#[serde(deserialize_with = "lossy::text_or_number")]
 	pub deny: String,
 }
 fn member_list_id(everyone: u128, overwrites: &[Overwrite]) -> Option<String> {
@@ -1402,79 +1626,277 @@ pub struct MemberDto {
 	#[serde(default)]
 	pub nick: Option<String>,
 	#[serde(default)]
-	pub presence: Option<PresenceDto>,
+	pub presence: Patch<PresenceDto>,
+}
+/// Re-parse shape for a member row whose strict decode failed: its presence can no longer
+/// fail the row, only be dropped.
+#[derive(Deserialize)]
+struct LenientMemberDto {
+	#[serde(default, deserialize_with = "permissions::member_roles")]
+	roles: Vec<Id>,
+	user: UserDto,
+	#[serde(default)]
+	nick: Option<String>,
+	#[serde(default, deserialize_with = "lenient_presence")]
+	presence: Patch<PresenceDto>,
+}
+/// Unrepresentable activities cost the presence its details; an unreadable status drops it.
+pub(crate) fn lenient_presence<'de, D: serde::Deserializer<'de>>(
+	d: D,
+) -> Result<Patch<PresenceDto>, D::Error> {
+	#[derive(Deserialize)]
+	struct Status {
+		status: String,
+		#[serde(default, deserialize_with = "lenient_activities")]
+		activities: presence::Activities,
+		#[serde(default)]
+		client_status: presence::ClientStatus,
+	}
+	let raw = Box::<RawValue>::deserialize(d)?;
+	if raw.get() == "null" {
+		return Ok(Patch::Null);
+	}
+	Ok(serde_json::from_str(raw.get()).map_or(
+		Patch::Absent,
+		|Status {
+		     status,
+		     activities,
+		     client_status,
+		 }| {
+			Patch::Value(PresenceDto {
+				status,
+				activities,
+				client_status,
+			})
+		},
+	))
+}
+fn lenient_activities<'de, D: serde::Deserializer<'de>>(
+	d: D,
+) -> Result<presence::Activities, D::Error> {
+	let raw = Box::<RawValue>::deserialize(d)?;
+	Ok(serde_json::from_str(raw.get()).unwrap_or_default())
 }
 #[derive(Deserialize)]
 pub struct PresenceDto {
 	pub status: String,
 	#[serde(default)]
 	pub activities: presence::Activities,
+	#[serde(default)]
+	client_status: presence::ClientStatus,
 }
 impl PresenceDto {
 	/// The same bounded custom-status normalization is used for snapshots and updates.
 	pub fn custom_status(&self) -> Option<String> {
 		self.activities.0.clone()
 	}
+	pub fn clients(&self) -> model::ClientPlatforms {
+		self.client_status.platforms()
+	}
 }
-#[derive(Deserialize)]
-#[serde(untagged)]
 pub enum MemberItem {
-	Member { member: Box<MemberDto> },
-	Group { group: MemberGroup },
+	Member {
+		member: Box<MemberDto>,
+		presence: Patch<PresenceDto>,
+	},
+	Group {
+		group: MemberGroup,
+	},
+	/// A row this client cannot decode. It still occupies its list position so later
+	/// indexed operations stay aligned; one unusual member must not reject the whole list.
+	Unreadable,
+}
+impl<'de> Deserialize<'de> for MemberItem {
+	fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+		#[derive(Deserialize)]
+		struct Row {
+			member: Box<MemberDto>,
+			#[serde(default)]
+			presence: Patch<PresenceDto>,
+		}
+		#[derive(Deserialize)]
+		struct Header {
+			group: MemberGroup,
+		}
+		#[derive(Deserialize)]
+		struct LenientRow {
+			member: LenientMemberDto,
+			#[serde(default, deserialize_with = "lenient_presence")]
+			presence: Patch<PresenceDto>,
+		}
+		let raw = Box::<RawValue>::deserialize(d)?;
+		// Rows are almost always well formed; only a failed row pays for the lenient re-parse.
+		if let Ok(Row { member, presence }) = serde_json::from_str(raw.get()) {
+			return Ok(Self::Member { member, presence });
+		}
+		if let Ok(Header { group }) = serde_json::from_str(raw.get()) {
+			return Ok(Self::Group { group });
+		}
+		let Ok(LenientRow { member, presence }) = serde_json::from_str(raw.get()) else {
+			return Ok(Self::Unreadable);
+		};
+		let member = Box::new(MemberDto {
+			roles: member.roles,
+			user: member.user,
+			nick: member.nick,
+			presence: member.presence,
+		});
+		Ok(Self::Member { member, presence })
+	}
 }
 #[derive(Deserialize)]
 pub struct MemberGroup {
 	pub id: String,
 }
 impl MemberItem {
+	pub fn preserve_presence(&mut self, previous: &model::Member) {
+		if let Self::Member { member, presence } = self
+			&& member.user.id == previous.user.id
+			&& matches!(member.presence, Patch::Absent)
+			&& matches!(presence, Patch::Absent)
+			&& let Some(status) = &previous.status
+		{
+			member.presence = Patch::Value(PresenceDto {
+				status: status.clone(),
+				activities: presence::Activities(
+					previous.custom_status.clone(),
+					previous.activities.clone(),
+				),
+				client_status: presence::ClientStatus::from(previous.clients),
+			});
+		}
+	}
 	pub fn into_model(self) -> Option<model::Member> {
+		match self.into_slot()? {
+			model::MemberSlot::Person(member) => Some(member),
+			model::MemberSlot::Group(_) => None,
+		}
+	}
+	pub fn into_slot(self) -> Option<model::MemberSlot> {
 		match self {
-			Self::Group { .. } => None,
-			Self::Member { member: mut m } => Some(model::Member {
-				roles: m.roles,
-				user: m.user.into_model(),
-				nick: m.nick.map(|n| n.chars().take(128).collect()),
-				custom_status: m
-					.presence
-					.as_ref()
-					.filter(|p| p.status != "offline")
-					.and_then(PresenceDto::custom_status),
-				activities: m
-					.presence
-					.as_mut()
-					.filter(|p| p.status != "offline")
-					.map_or_else(Vec::new, |p| std::mem::take(&mut p.activities.1)),
-				status: m.presence.and_then(|p| match p.status.as_str() {
-					"online" | "idle" | "dnd" | "offline" => Some(p.status),
+			Self::Unreadable => None,
+			Self::Group { group } => {
+				if group.id.is_empty() || group.id.len() > 32 {
+					return None;
+				}
+				Some(model::MemberSlot::Group(group.id))
+			}
+			Self::Member {
+				member: m,
+				presence,
+			} => {
+				let presence = match presence {
+					Patch::Absent => m.presence,
+					other => other,
+				};
+				let mut presence = match presence {
+					Patch::Value(value) => Some(value),
 					_ => None,
-				}),
-			}),
+				};
+				let mut member = model::Member {
+					roles: m.roles,
+					user: m.user.into_model(),
+					nick: m.nick.map(|n| n.chars().take(128).collect()),
+					custom_status: presence
+						.as_ref()
+						.filter(|p| p.status != "offline")
+						.and_then(PresenceDto::custom_status),
+					activities: presence
+						.as_mut()
+						.filter(|p| p.status != "offline")
+						.map_or_else(Vec::new, |p| std::mem::take(&mut p.activities.1)),
+					clients: presence
+						.as_ref()
+						.filter(|p| p.status != "offline")
+						.map_or_default(PresenceDto::clients),
+					status: presence.and_then(|p| match p.status.as_str() {
+						"online" | "idle" | "dnd" | "offline" => Some(p.status),
+						_ => None,
+					}),
+				};
+				member.sanitize_presence();
+				Some(model::MemberSlot::Person(member))
+			}
 		}
 	}
 }
-#[derive(Deserialize)]
-#[serde(tag = "op")]
 pub enum MemberOp {
-	#[serde(rename = "SYNC")]
 	Sync {
 		range: [usize; 2],
 		items: Vec<MemberItem>,
 	},
-	#[serde(rename = "INVALIDATE")]
-	Invalidate { range: [usize; 2] },
-	#[serde(rename = "UPDATE")]
-	Update { index: usize, item: MemberItem },
-	#[serde(rename = "INSERT")]
-	Insert { index: usize, item: MemberItem },
-	#[serde(rename = "DELETE")]
-	Delete { index: usize },
+	Invalidate {
+		range: [usize; 2],
+	},
+	Update {
+		index: usize,
+		item: MemberItem,
+	},
+	Insert {
+		index: usize,
+		item: MemberItem,
+	},
+	Delete {
+		index: usize,
+	},
+	/// An operation name this client does not know; it carries no position change.
+	Unknown,
 }
+impl<'de> Deserialize<'de> for MemberOp {
+	fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+		// Flat rather than internally tagged: serde's buffered tag dispatch cannot carry
+		// the raw rows that keep member decoding isolated per item.
+		#[derive(Deserialize)]
+		struct Wire {
+			op: String,
+			#[serde(default)]
+			range: Option<[usize; 2]>,
+			#[serde(default)]
+			index: Option<usize>,
+			#[serde(default)]
+			items: Option<Vec<MemberItem>>,
+			#[serde(default)]
+			item: Option<MemberItem>,
+		}
+		let wire = Wire::deserialize(d)?;
+		let missing = || serde::de::Error::custom("Incomplete member-list operation");
+		Ok(match wire.op.as_str() {
+			"SYNC" => Self::Sync {
+				range: wire.range.ok_or_else(missing)?,
+				items: wire.items.unwrap_or_default(),
+			},
+			"INVALIDATE" => Self::Invalidate {
+				range: wire.range.ok_or_else(missing)?,
+			},
+			"UPDATE" => Self::Update {
+				index: wire.index.ok_or_else(missing)?,
+				item: wire.item.unwrap_or(MemberItem::Unreadable),
+			},
+			"INSERT" => Self::Insert {
+				index: wire.index.ok_or_else(missing)?,
+				item: wire.item.unwrap_or(MemberItem::Unreadable),
+			},
+			"DELETE" => Self::Delete {
+				index: wire.index.ok_or_else(missing)?,
+			},
+			_ => Self::Unknown,
+		})
+	}
+}
+#[derive(Deserialize)]
+pub struct MemberGroupCount {
+	pub id: String,
+	#[serde(default)]
+	pub count: u64,
+}
+
 #[derive(Deserialize)]
 pub struct MemberUpdate {
 	pub guild_id: Id,
 	pub id: String,
-	pub member_count: u64,
+	pub member_count: Option<u64>,
 	pub ops: Vec<MemberOp>,
+	pub groups: Option<Vec<MemberGroupCount>>,
 }
 
 #[cfg(test)]
@@ -1482,21 +1904,75 @@ mod member_tests {
 	use super::*;
 	#[test]
 	fn member_roles_are_retained_sorted_and_bounded_before_list_admission() {
-		let member: MemberItem =
-			decode(br#"{"member":{"user":{"id":"5","username":"Synthetic"},"roles":["12","11"]}}"#)
-				.unwrap();
-		let mut member = member.into_model().unwrap();
-		assert_eq!(member.roles, vec![Id(11), Id(12)]);
-		let bytes = member.bytes();
-		member.roles.reserve(100);
-		assert!(member.bytes() >= bytes + 100 * size_of::<Id>());
-		for roles in [
-			serde_json::json!(["0"]),
-			serde_json::json!(["11", "11"]),
-			serde_json::json!((1..=513).map(|id| id.to_string()).collect::<Vec<_>>()),
-		] {
-			let value = serde_json::json!({"member":{"user":{"id":"5","username":"Synthetic"},"roles":roles}});
-			assert!(decode::<MemberItem>(&serde_json::to_vec(&value).unwrap()).is_err());
+		{
+			let member: MemberItem = decode(
+				br#"{"member":{"user":{"id":"5","username":"Synthetic"},"roles":["12","11"]}}"#,
+			)
+			.unwrap();
+			let mut member = member.into_model().unwrap();
+			assert_eq!(member.roles, vec![Id(11), Id(12)]);
+			let bytes = member.bytes();
+			member.roles.reserve(100);
+			assert!(member.bytes() >= bytes + 100 * size_of::<Id>());
+			for roles in [
+				serde_json::json!(["0"]),
+				serde_json::json!(["11", "11"]),
+				serde_json::json!((1..=513).map(|id| id.to_string()).collect::<Vec<_>>()),
+			] {
+				let value = serde_json::json!({"member":{"user":{"id":"5","username":"Synthetic"},"roles":roles}});
+				// The row is rejected alone; its list position survives as a placeholder.
+				let item = decode::<MemberItem>(&serde_json::to_vec(&value).unwrap()).unwrap();
+				assert!(matches!(item, MemberItem::Unreadable));
+			}
+		}
+		{
+			let update: MemberUpdate = decode(
+				serde_json::json!({"guild_id":"1","id":"everyone","ops":[
+					{"op":"SYNC","range":[0,99],"items":[
+						{"group":{"id":"online","count":3}},
+						{"member":{"user":{"id":"2","username":"Readable"}},"presence":{"status":"online","activities":[{"type":0,"name":"Game","timestamps":{"start":"not a number"}}]}},
+						{"member":{"user":{"id":"0","username":"Bad identity"}}},
+						{"member":{"user":{"id":"4","username":"Kept"},"presence":{"status":"idle","activities":[]}}}
+					]},
+					{"op":"FUTURE_OPERATION","index":1},
+					{"op":"UPDATE","index":3}
+				]})
+				.to_string()
+				.as_bytes(),
+			)
+			.unwrap();
+			let [
+				MemberOp::Sync { items, .. },
+				MemberOp::Unknown,
+				MemberOp::Update {
+					item: MemberItem::Unreadable,
+					..
+				},
+			] = <[MemberOp; 3]>::try_from(update.ops).ok().unwrap()
+			else {
+				panic!("operations keep their order and shape");
+			};
+			let slots: Vec<_> = items.into_iter().map(MemberItem::into_slot).collect();
+			assert!(matches!(&slots[0], Some(model::MemberSlot::Group(id)) if id == "online"));
+			// An unrepresentable activity is dropped, never the member or its status.
+			let Some(model::MemberSlot::Person(readable)) = &slots[1] else {
+				panic!("readable member stays");
+			};
+			assert_eq!(readable.user.id, Id(2));
+			assert_eq!(readable.status.as_deref(), Some("online"));
+			assert!(readable.activities.is_empty());
+			assert!(slots[2].is_none(), "an unreadable row keeps its position");
+			let Some(model::MemberSlot::Person(kept)) = &slots[3] else {
+				panic!("later rows keep their index");
+			};
+			assert_eq!(kept.status.as_deref(), Some("idle"));
+			assert!(
+				decode::<MemberUpdate>(
+					br#"{"guild_id":"1","id":"everyone","ops":[{"op":"DELETE"}]}"#
+				)
+				.is_err(),
+				"a position change without a position cannot be applied"
+			);
 		}
 	}
 
@@ -1650,19 +2126,19 @@ pub struct VoiceStateDto {
 	pub user_id: Id,
 	#[serde(default)]
 	pub session_id: Option<String>,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub self_mute: bool,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub self_deaf: bool,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub mute: bool,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub deaf: bool,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub suppress: bool,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub self_video: bool,
-	#[serde(default)]
+	#[serde(default, deserialize_with = "lossy::null_default")]
 	pub self_stream: bool,
 	#[serde(default)]
 	pub member: Option<VoiceMemberDto>,
@@ -1675,6 +2151,26 @@ pub struct VoiceServerDto {
 	pub channel_id: Option<Id>,
 	pub token: String,
 	pub endpoint: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ChannelInfoDto {
+	pub guild_id: Id,
+	#[serde(default)]
+	pub channels: Vec<ChannelInfoChannelDto>,
+}
+#[derive(Deserialize)]
+pub struct ChannelInfoChannelDto {
+	pub id: Id,
+	#[serde(default)]
+	pub voice_start_time: Option<u64>,
+}
+#[derive(Deserialize)]
+pub struct VoiceChannelStartTimeDto {
+	pub id: Id,
+	pub guild_id: Id,
+	#[serde(default)]
+	pub voice_start_time: Option<u64>,
 }
 
 /// READY_SUPPLEMENTAL member identities can reference the READY users array.

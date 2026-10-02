@@ -3,7 +3,7 @@
 
 mod directshow;
 
-use super::{FRAME_INTERVAL, HEIGHT, Shared, WIDTH};
+use super::{FRAME_INTERVAL, HEIGHT, Shared, WIDTH, format};
 use std::{
 	marker::PhantomData,
 	rc::Rc,
@@ -156,7 +156,7 @@ pub(super) fn run(
 			.SetUnknown(&MF_SOURCE_READER_ASYNC_CALLBACK, &callback)
 			.map_err(|_| UNAVAILABLE)?;
 		attributes
-			.SetUINT32(&MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, 1)
+			.SetUINT32(&MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, 1)
 			.map_err(|_| UNAVAILABLE)?;
 		let reader =
 			MFCreateSourceReaderFromMediaSource(&source.0, &attributes).map_err(|_| UNAVAILABLE)?;
@@ -164,24 +164,28 @@ pub(super) fn run(
 			.SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS.0 as u32, false)
 			.map_err(|_| UNAVAILABLE)?;
 		// Native dimensions are selected first to bound upstream decoder input.
-		let mut selected = false;
+		let mut choices = Vec::new();
 		for index in 0..256 {
 			let Ok(native) = reader.GetNativeMediaType(VIDEO, index) else {
 				break;
 			};
-			if native.GetUINT64(&MF_MT_FRAME_SIZE).ok() != Some(frame_size()) {
-				continue;
-			}
-			if reader.SetCurrentMediaType(VIDEO, None, &native).is_ok() {
-				selected = true;
-				break;
+			let size = native.GetUINT64(&MF_MT_FRAME_SIZE).unwrap_or(0);
+			let rate = native.GetUINT64(&MF_MT_FRAME_RATE).unwrap_or(0);
+			let fps = ((rate >> 32) != 0 && rate as u32 != 0)
+				.then(|| (rate >> 32) as f64 / (rate as u32) as f64);
+			if let Some(mut rank) = format::rank(
+				(size >> 32) as usize,
+				(size as u32) as usize,
+				fps.unwrap_or(f64::from(format::FPS)),
+			) {
+				// Some drivers omit timing; preserve their existing bounded fallback.
+				if fps.is_none() {
+					rank.1 = u64::MAX;
+				}
+				choices.push((rank, native));
 			}
 		}
-		if !selected {
-			return Err(
-				"The selected Windows camera does not offer a supported 640×480 capture mode",
-			);
-		}
+		choices.sort_by_key(|(rank, _)| *rank);
 		let output = MFCreateMediaType().map_err(|_| INVALID)?;
 		output
 			.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)
@@ -192,10 +196,30 @@ pub(super) fn run(
 		output
 			.SetUINT64(&MF_MT_FRAME_SIZE, frame_size())
 			.map_err(|_| INVALID)?;
-		reader
-			.SetCurrentMediaType(VIDEO, None, &output)
-			.map_err(|_| "Windows could not convert this camera to RGB video")?;
-		stride.store(output_stride(&reader)?, Ordering::Release);
+		// Output negotiation may otherwise select a different capture mode. Pin
+		// each bounded native mode on the source before adding RGB conversion.
+		let native_reader = reader
+			.cast::<IMFSourceReaderEx>()
+			.map_err(|_| UNAVAILABLE)?;
+		let mut converted_stride = None;
+		for (_, native) in choices {
+			if native_reader.SetNativeMediaType(VIDEO, &native).is_err()
+				|| reader.SetCurrentMediaType(VIDEO, None, &output).is_err()
+			{
+				continue;
+			}
+			// Select only after the complete bounded output layout is usable.
+			if let Ok(value) = output_stride(&reader) {
+				converted_stride = Some(value);
+				break;
+			}
+		}
+		stride.store(
+			converted_stride.ok_or(
+				"Windows could not convert a supported camera mode up to 1280×720 to bounded RGB video",
+			)?,
+			Ordering::Release,
+		);
 		reader
 			.SetStreamSelection(VIDEO, true)
 			.map_err(|_| UNAVAILABLE)?;

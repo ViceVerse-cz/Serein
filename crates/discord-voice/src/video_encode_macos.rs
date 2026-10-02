@@ -174,6 +174,20 @@ impl Encoder {
 		Ok(())
 	}
 
+	pub(crate) fn set_bitrate(&mut self, bitrate: u32) -> Result<(), &'static str> {
+		let target = CFNumber::new_i32(i32::try_from(bitrate).map_err(|_| FAILED)?);
+		let bytes = CFNumber::new_i32(i32::try_from(bitrate / 8 * 3 / 2).map_err(|_| FAILED)?);
+		let second = CFNumber::new_f64(1.0);
+		let limits = CFArray::from_objects(&[&*bytes, &*second]);
+		// SAFETY: Exported property keys; values use the same types as initial setup.
+		unsafe {
+			self.set(kVTCompressionPropertyKey_AverageBitRate, &target)?;
+			let _ = self.set(kVTCompressionPropertyKey_DataRateLimits, limits.as_opaque());
+		}
+		self.config.bit_rate = bitrate;
+		Ok(())
+	}
+
 	fn set(&self, key: &CFString, value: &CFType) -> Result<(), &'static str> {
 		// SAFETY: A compression session is a VTSession; the key and value are valid CF objects
 		// of the documented types for each property.
@@ -527,35 +541,34 @@ mod tests {
 		}
 		assert!(saw_keyframe && saw_delta);
 		assert!(encoder.encode(&pixels[..1000], (1280, 720), false).is_err());
-	}
 
-	#[test]
-	fn encodes_packed_rgb_camera_pictures_as_independent_keyframes() {
-		let Ok(mut encoder) = Encoder::new(CAMERA, SourceFormat::Rgb) else {
-			return;
-		};
-		let mut pixels = vec![0u8; 640 * 480 * 3];
-		for (index, pixel) in pixels.as_chunks_mut::<3>().0.iter_mut().enumerate() {
-			*pixel = [(index % 251) as u8, (index / 640 % 253) as u8, 60];
-		}
-		// The camera sender drops to the latest frame, so every picture must stand alone.
-		for _ in 0..4 {
-			let (data, keyframe) = encoder
-				.encode(&pixels, (640, 480), true)
-				.expect("hardware encode");
-			if data.is_empty() {
-				continue;
+		{
+			let Ok(mut encoder) = Encoder::new(CAMERA, SourceFormat::Rgb) else {
+				return;
+			};
+			let mut pixels = vec![0u8; 640 * 480 * 3];
+			for (index, pixel) in pixels.as_chunks_mut::<3>().0.iter_mut().enumerate() {
+				*pixel = [(index % 251) as u8, (index / 640 % 253) as u8, 60];
 			}
-			assert!(keyframe && crate::video_receive::is_keyframe(&data));
-			assert!(crate::video_receive::has_parameter_sets(&data));
-			crate::video::validate_source(&data).expect("valid Annex B");
-			assert!(data.len() <= CAMERA.max_bytes);
+			// The camera sender drops to the latest frame, so every picture must stand alone.
+			for _ in 0..4 {
+				let (data, keyframe) = encoder
+					.encode(&pixels, (640, 480), true)
+					.expect("hardware encode");
+				if data.is_empty() {
+					continue;
+				}
+				assert!(keyframe && crate::video_receive::is_keyframe(&data));
+				assert!(crate::video_receive::has_parameter_sets(&data));
+				crate::video::validate_source(&data).expect("valid Annex B");
+				assert!(data.len() <= CAMERA.max_bytes);
+			}
+			// A BGRA-sized buffer is rejected against the packed RGB stride.
+			assert!(
+				encoder
+					.encode(&vec![0; 640 * 480 * 4], (640, 480), true)
+					.is_err()
+			);
 		}
-		// A BGRA-sized buffer is rejected against the packed RGB stride.
-		assert!(
-			encoder
-				.encode(&vec![0; 640 * 480 * 4], (640, 480), true)
-				.is_err()
-		);
 	}
 }

@@ -1,3 +1,8 @@
 [alias]
 xtask = "run -p xtask --"
 replay = "run --release -p replay-bench --"
+
+[env]
+# The local store uses plain tables only; drop libsqlite3-sys' default full-text, R-tree,
+# dbstat, soundex and STAT4 extensions from the bundled SQLite.
+LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_FTS3 -USQLITE_ENABLE_FTS3_PARENTHESIS -USQLITE_ENABLE_FTS5 -USQLITE_ENABLE_RTREE -USQLITE_ENABLE_DBSTAT_VTAB -USQLITE_ENABLE_STAT4 -USQLITE_SOUNDEX"

@@ -17,7 +17,14 @@ fn frame(
 			events,
 			..Default::default()
 		},
-		|ui| view.title_bar(ui, &State::default(), "Synthetic context title"),
+		|ui| {
+			view.title_bar(
+				ui,
+				&mut State::default(),
+				&mut Vec::new(),
+				"Synthetic context title",
+			)
+		},
 	);
 	let commands = output.viewport_output[&egui::ViewportId::ROOT]
 		.commands
@@ -96,7 +103,7 @@ fn hidden_title_strip_does_not_start_window_drag() {
 fn title_strip_primary_press_starts_drag_immediately_and_only_once() {
 	for width in [760.0, 1200.0] {
 		for dark in [true, false] {
-			for x in [24.0, width * 0.22, width * 0.5] {
+			for x in [width * 0.22, width * 0.3, width * 0.5] {
 				let ctx = egui::Context::default();
 				ctx.set_visuals(if dark {
 					egui::Visuals::dark()

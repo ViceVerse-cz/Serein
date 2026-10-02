@@ -9,6 +9,9 @@ mod audio_windows;
 #[cfg(not(target_os = "linux"))]
 #[path = "screen/capture.rs"]
 mod capture;
+#[cfg(any(test, not(target_os = "linux")))]
+#[path = "screen/convert.rs"]
+mod convert;
 #[cfg(target_os = "linux")]
 #[path = "screen/gstreamer.rs"]
 mod gstreamer;
@@ -25,11 +28,11 @@ use openh264::{
 		BitRate, Complexity, Encoder, EncoderConfig, FrameRate, FrameType, IntraFramePeriod,
 		RateControlMode, UsageType,
 	},
-	formats::{BgraSliceU8, YUVBuffer},
+	formats::{BgraSliceU8, YUVBuffer, YUVSource},
 };
 use std::sync::{
 	Arc, Mutex,
-	atomic::{AtomicBool, AtomicU64, Ordering},
+	atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
 	mpsc,
 };
 
@@ -67,6 +70,8 @@ pub struct Video {
 	pub frames: tokio::sync::mpsc::Receiver<EncodedFrame>,
 	pub ready: Arc<AtomicBool>,
 	pub keyframe: Arc<AtomicBool>,
+	/// Transport feedback target in bits per second, bounded by the selected quality.
+	pub bitrate: Arc<AtomicU32>,
 	/// Interleaved 48 kHz stereo system audio, present only when the share requested it.
 	pub audio: Option<tokio::sync::mpsc::Receiver<AudioChunk>>,
 	pub audio_epoch: Arc<AtomicU64>,
@@ -128,6 +133,8 @@ impl Worker {
 		let audio_epoch = Arc::new(AtomicU64::new(0));
 		let worker_audio_epoch = audio_epoch.clone();
 		let keyframe = Arc::new(AtomicBool::new(true));
+		let bitrate = Arc::new(AtomicU32::new(settings.bit_rate()));
+		let worker_bitrate = bitrate.clone();
 		let preview = Arc::new(Mutex::new(None));
 		let worker_preview = preview.clone();
 		#[cfg(target_os = "linux")]
@@ -159,6 +166,7 @@ impl Worker {
 					worker_stop,
 					worker_ready,
 					worker_keyframe,
+					worker_bitrate,
 					send,
 					audio_send,
 					worker_audio_epoch,
@@ -173,6 +181,7 @@ impl Worker {
 					worker_stop,
 					worker_ready,
 					worker_keyframe,
+					worker_bitrate,
 					send,
 					audio_send,
 					worker_audio_epoch,
@@ -208,6 +217,7 @@ impl Worker {
 				frames,
 				ready,
 				keyframe,
+				bitrate,
 				audio,
 				audio_epoch,
 			},
@@ -254,6 +264,7 @@ fn encode_loop(
 	stop: Arc<AtomicBool>,
 	ready: Arc<AtomicBool>,
 	keyframe: Arc<AtomicBool>,
+	bitrate: Arc<AtomicU32>,
 	send: tokio::sync::mpsc::Sender<EncodedFrame>,
 	audio: Option<tokio::sync::mpsc::Sender<AudioChunk>>,
 	audio_epoch: Arc<AtomicU64>,
@@ -278,6 +289,7 @@ fn encode_loop(
 		audio_epoch,
 		raw_pending.clone(),
 	)?;
+	// The worker's stop also reaches a pending macOS picker, so call teardown closes it now.
 	#[cfg(not(target_os = "windows"))]
 	let _native = capture::Capture::start(
 		settings,
@@ -286,6 +298,7 @@ fn encode_loop(
 		capture_stop.clone(),
 		ready.clone(),
 		audio_epoch,
+		stop.clone(),
 	)?;
 	let mut encoding = None;
 	let mut first_frame_deadline = Some(Instant::now() + Duration::from_secs(15));
@@ -363,26 +376,39 @@ fn encode_loop(
 		if send.capacity() == 0 {
 			continue;
 		}
+		let target = bitrate
+			.load(Ordering::Acquire)
+			.clamp(250_000, settings.bit_rate());
 		if encoding.is_none() {
-			encoding = Some(ScreenEncoder::new(settings)?);
+			encoding = Some(ScreenEncoder::new(settings, target)?);
 		}
-		let pixels = fit_frame(
-			latest_frame.take().expect("latest screen frame"),
-			settings.width,
-			settings.height,
-		)?;
+		if encoding
+			.as_mut()
+			.expect("secure screen encoder")
+			.set_bitrate(target)?
+		{
+			keyframe.store(true, Ordering::Release);
+		}
 		// Retain one current source snapshot, never encoded media, for a viewer's keyframe
-		// request on an unchanged desktop. Replacing it with fitted pixels avoids a copy.
-		latest_frame = Some(RawFrame {
-			width: settings.width,
-			height: settings.height,
-			stride: settings.width as usize * 4,
-			data: pixels,
-		});
+		// request on an unchanged desktop. VideoToolbox takes packed BGRA at the stream size
+		// (ScreenCaptureKit already scales); other encoders convert the source in one pass.
+		#[cfg(target_os = "macos")]
+		{
+			let pixels = fit_frame(
+				latest_frame.take().expect("latest screen frame"),
+				settings.width,
+				settings.height,
+			)?;
+			latest_frame = Some(RawFrame {
+				width: settings.width,
+				height: settings.height,
+				stride: settings.width as usize * 4,
+				data: pixels,
+			});
+		}
 		let force_keyframe = keyframe.swap(false, Ordering::AcqRel);
 		let (data, is_keyframe) = encoding.as_mut().expect("secure screen encoder").encode(
-			&latest_frame.as_ref().expect("fitted screen frame").data,
-			(settings.width as usize, settings.height as usize),
+			latest_frame.as_ref().expect("latest screen frame"),
 			force_keyframe,
 		)?;
 		if force_keyframe && (data.is_empty() || !is_keyframe) {
@@ -429,19 +455,21 @@ fn retain_screen_frame(
 struct ScreenEncoder {
 	diagnostics: crate::diagnostics::EncoderRegistration,
 	software: Option<Encoder>,
-	yuv: YUVBuffer,
+	/// Reused I420 picture for openh264.
+	i420: Vec<u8>,
 	hardware: Option<crate::video_encode::hardware::Encoder>,
 	settings: Settings,
+	bitrate: u32,
 }
 
 #[cfg(not(target_os = "linux"))]
 impl ScreenEncoder {
-	fn new(settings: Settings) -> Result<Self, &'static str> {
+	fn new(settings: Settings, bitrate: u32) -> Result<Self, &'static str> {
 		let config = crate::video_encode::Config {
 			width: settings.width,
 			height: settings.height,
 			fps: settings.fps,
-			bit_rate: settings.bit_rate(),
+			bit_rate: bitrate,
 			max_bytes: MAX_ENCODED_BYTES,
 			profile: crate::video_encode::Profile::Main,
 		};
@@ -454,52 +482,101 @@ impl ScreenEncoder {
 		#[cfg(target_os = "windows")]
 		let hardware = crate::video_encode::hardware::Encoder::new(config).ok();
 		let software = if hardware.is_none() {
-			Some(encoder(settings)?)
+			Some(encoder(settings, bitrate)?)
 		} else {
 			None
 		};
 		Ok(Self {
 			diagnostics: crate::diagnostics::EncoderRegistration::new(true, hardware.is_some()),
 			software,
-			yuv: YUVBuffer::new(settings.width as usize, settings.height as usize),
+			i420: Vec::new(),
 			hardware,
 			settings,
+			bitrate,
 		})
+	}
+
+	fn set_bitrate(&mut self, bitrate: u32) -> Result<bool, &'static str> {
+		if self.bitrate == bitrate {
+			return Ok(false);
+		}
+		if self
+			.hardware
+			.as_mut()
+			.is_some_and(|encoder| encoder.set_bitrate(bitrate).is_ok())
+		{
+			self.bitrate = bitrate;
+			return Ok(false);
+		}
+		if self.hardware.is_none() {
+			// OpenH264 exposes no safe runtime bitrate setter, and a restart costs an IDR:
+			// follow only large moves so gradual recovery cannot cause a keyframe per second.
+			if !software_rate_change(self.bitrate, bitrate) {
+				return Ok(false);
+			}
+			self.software = Some(encoder(self.settings, bitrate)?);
+			self.bitrate = bitrate;
+		} else {
+			// Reopen native encoders that refuse a live rate change at the target rate.
+			// Release scarce hardware sessions before requesting their replacement.
+			self.hardware = None;
+			*self = Self::new(self.settings, bitrate)?;
+		}
+		Ok(true)
 	}
 
 	fn encode(
 		&mut self,
-		pixels: &[u8],
-		dimensions: (usize, usize),
+		frame: &RawFrame,
 		force_keyframe: bool,
 	) -> Result<(Vec<u8>, bool), &'static str> {
+		let (width, height) = (self.settings.width as usize, self.settings.height as usize);
 		let mut software_force = force_keyframe;
 		if let Some(hardware) = self.hardware.as_mut() {
 			#[cfg(target_os = "macos")]
-			let encoded = hardware.encode(pixels, dimensions, force_keyframe);
+			let encoded = hardware.encode(&frame.data, (width, height), force_keyframe);
 			#[cfg(target_os = "windows")]
-			let encoded = {
-				use openh264::formats::YUVSource;
-				self.yuv.read_bgra8(BgraSliceU8::new(pixels, dimensions));
-				hardware.encode(self.yuv.y(), self.yuv.u(), self.yuv.v(), force_keyframe)
-			};
+			let encoded = hardware.encode_with(width * height * 3 / 2, force_keyframe, |picture| {
+				convert::bgra_to_yuv420(frame, width, height, convert::Chroma::Interleaved, picture)
+			});
 			if let Ok(encoded) = encoded {
 				return Ok(encoded);
 			}
 			// The viewer must restart from a keyframe once the software encoder takes over.
 			self.hardware = None;
 			self.diagnostics.set(None);
-			self.software = Some(encoder(self.settings)?);
+			self.software = Some(encoder(self.settings, self.bitrate)?);
 			self.diagnostics.set(Some(false));
 			software_force = true;
 		}
-		self.yuv.read_bgra8(BgraSliceU8::new(pixels, dimensions));
+		self.i420.resize(width * height * 3 / 2, 0);
+		convert::bgra_to_yuv420(
+			frame,
+			width,
+			height,
+			convert::Chroma::Planar,
+			&mut self.i420,
+		)?;
+		let (y, chroma) = self.i420.split_at(width * height);
+		let (u, v) = chroma.split_at(width * height / 4);
 		encode_yuv(
 			self.software.as_mut().expect("software screen encoder"),
-			&self.yuv,
+			&openh264::formats::YUVSlices::new(
+				(y, u, v),
+				(width, height),
+				(width, width / 2, width / 2),
+			),
 			software_force,
 		)
 	}
+}
+
+/// Whether a software encoder should restart for a new transport target.
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+pub(crate) fn software_rate_change(current: u32, target: u32) -> bool {
+	// Always honor congestion cuts of at least 15%; grow in 25% steps.
+	u64::from(target) * 100 <= u64::from(current) * 85
+		|| u64::from(target) * 100 >= u64::from(current) * 125
 }
 
 #[cfg(any(target_os = "windows", test))]
@@ -524,9 +601,11 @@ pub(crate) fn i420_to_nv12(
 	Ok(())
 }
 
-pub(super) fn encoder(settings: Settings) -> Result<Encoder, &'static str> {
+pub(super) fn encoder(settings: Settings, bitrate: u32) -> Result<Encoder, &'static str> {
 	let config = EncoderConfig::new()
-		.bitrate(BitRate::from_bps(settings.bit_rate()))
+		.bitrate(BitRate::from_bps(
+			bitrate.clamp(250_000, settings.bit_rate()),
+		))
 		.max_frame_rate(FrameRate::from_hz(settings.fps as f32))
 		.usage_type(UsageType::ScreenContentRealTime)
 		.rate_control_mode(RateControlMode::Bitrate)
@@ -559,7 +638,7 @@ pub(super) fn encode_pixels(
 
 fn encode_yuv(
 	encoder: &mut Encoder,
-	yuv: &YUVBuffer,
+	yuv: &impl YUVSource,
 	force_keyframe: bool,
 ) -> Result<(Vec<u8>, bool), &'static str> {
 	if force_keyframe {
@@ -634,7 +713,7 @@ pub(super) fn preview_frame(frame: &RawFrame) -> Result<image::RgbaImage, &'stat
 	}))
 }
 
-#[cfg(any(test, not(target_os = "linux")))]
+#[cfg(any(test, target_os = "macos"))]
 fn fit_frame(frame: RawFrame, width: u32, height: u32) -> Result<Vec<u8>, &'static str> {
 	let (row_bytes, required) = validate_frame(&frame)?;
 
@@ -769,7 +848,7 @@ mod tests {
 			cursor: true,
 			audio: false,
 		};
-		let mut encoder = encoder(settings).unwrap();
+		let mut encoder = encoder(settings, settings.bit_rate()).unwrap();
 		let mut yuv = YUVBuffer::new(1280, 720);
 		let (encoded, keyframe) =
 			encode_pixels(&mut encoder, &mut yuv, &pixels, (1280, 720), true).unwrap();

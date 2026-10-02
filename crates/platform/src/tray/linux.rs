@@ -12,12 +12,17 @@ struct Events {
 	// Pending -> ready, or permanently unavailable until this registration is replaced.
 	availability: AtomicU8,
 	wake: Box<dyn Fn() + Send + Sync>,
+	restore: Box<dyn Fn() + Send + Sync>,
 }
 
 impl Events {
 	fn push(&self, event: Event) {
 		if event == Event::Unavailable {
 			self.availability.store(2, Ordering::Release);
+		}
+		// A hidden window may receive no frames, so the UI would never see this event.
+		if event != Event::Minimize {
+			(self.restore)();
 		}
 		if self.bits.fetch_or(event as u8, Ordering::Relaxed) & event as u8 == 0 {
 			(self.wake)();
@@ -32,13 +37,18 @@ pub struct Tray {
 }
 
 impl Tray {
-	pub fn new(wake: impl Fn() + Send + Sync + 'static) -> Result<Self, &'static str> {
+	/// `restore` runs on the tray worker for events that need a visible window, before `wake`.
+	pub fn new(
+		wake: impl Fn() + Send + Sync + 'static,
+		restore: impl Fn() + Send + Sync + 'static,
+	) -> Result<Self, &'static str> {
 		let runtime = tokio::runtime::Handle::try_current()
 			.map_err(|_| "The tray requires the application runtime.")?;
 		let events = Arc::new(Events {
 			bits: AtomicU8::new(0),
 			availability: AtomicU8::new(0),
 			wake: Box::new(wake),
+			restore: Box::new(restore),
 		});
 		let (stop, mut stopped) = oneshot::channel();
 		let worker_events = events.clone();
@@ -100,6 +110,8 @@ impl Tray {
 	pub fn is_available(&self) -> bool {
 		self.events.availability.load(Ordering::Acquire) == 1
 	}
+
+	pub fn set_voice_state(&self, _state: super::VoiceState) {}
 
 	pub fn take_event(&self) -> Option<Event> {
 		[

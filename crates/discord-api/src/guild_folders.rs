@@ -24,12 +24,18 @@ impl DiscordApi {
 			.map(|response| response.settings)
 	}
 
-	pub async fn save_guild_folders(&self, settings: Settings) -> Result<Settings, Failure> {
+	/// Saves only if Discord still has `base`'s folders. The data version also moves for
+	/// status and every other account setting, so it only guards the read-to-write window.
+	pub async fn save_guild_folders(
+		&self,
+		base: Settings,
+		settings: Settings,
+	) -> Result<Settings, Failure> {
 		if !settings.valid() {
 			return Err(Failure::Protocol);
 		}
 		let current = self.read_guild_folders().await?;
-		if current.settings.version != settings.version {
+		if current.settings.folders != base.folders {
 			return Err(Failure::ProtocolAt(
 				"Server folders changed elsewhere; refresh folders and try again",
 			));
@@ -41,7 +47,7 @@ impl DiscordApi {
 				Method::PATCH,
 				"/users/@me/settings-proto/1",
 				Some(
-					serde_json::json!({"settings": patch, "required_data_version": settings.version}),
+					serde_json::json!({"settings": patch, "required_data_version": current.settings.version}),
 				),
 				MAX_SETTINGS_RESPONSE,
 			)

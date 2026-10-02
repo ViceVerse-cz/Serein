@@ -1,4 +1,4 @@
-//! GPU adapter selection for the window surface.
+//! GPU adapter selection and device configuration for the window surface.
 //!
 //! wgpu's `LowPower` hint ranks the integrated GPU above the discrete one on every platform,
 //! but the display is usually wired to the discrete card. On Wayland that combination fails
@@ -10,6 +10,25 @@
 
 use eframe::wgpu;
 use model::GpuPreference;
+
+/// Keep eframe's adapter-specific requirements while reducing DX12 allocation reserves.
+pub fn setup() -> eframe::egui_wgpu::WgpuSetupCreateNew {
+	let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle();
+	let device_descriptor = setup.device_descriptor;
+	setup.device_descriptor = std::sync::Arc::new(move |adapter| {
+		let mut descriptor = device_descriptor(adapter);
+		configure_memory(adapter.get_info().backend, &mut descriptor);
+		descriptor
+	});
+	setup
+}
+
+fn configure_memory(backend: wgpu::Backend, descriptor: &mut wgpu::DeviceDescriptor<'_>) {
+	if backend == wgpu::Backend::Dx12 {
+		// Smaller allocation blocks, not a cap on texture sizes or total memory.
+		descriptor.memory_hints = wgpu::MemoryHints::MemoryUsage;
+	}
+}
 
 /// Sort key for an adapter; lower is better.
 fn rank(info: &wgpu::AdapterInfo, prefer_integrated: bool) -> (u8, u8) {
@@ -76,6 +95,42 @@ pub fn select(
 mod tests {
 	use super::*;
 
+	#[test]
+	fn memory_policy_preserves_device_requirements_and_other_backends() {
+		let inherited = wgpu::DeviceDescriptor {
+			label: Some("inherited device"),
+			required_features: wgpu::Features::TEXTURE_COMPRESSION_BC,
+			required_limits: wgpu::Limits {
+				max_texture_dimension_2d: 8192,
+				max_bind_groups: 3,
+				..Default::default()
+			},
+			memory_hints: wgpu::MemoryHints::Manual {
+				suballocated_device_memory_block_size: 16 * 1024 * 1024..48 * 1024 * 1024,
+			},
+			..Default::default()
+		};
+		for backend in wgpu::Backend::ALL {
+			let mut descriptor = inherited.clone();
+			configure_memory(backend, &mut descriptor);
+			assert_eq!(descriptor.label, inherited.label);
+			assert_eq!(descriptor.required_features, inherited.required_features);
+			assert_eq!(descriptor.required_limits, inherited.required_limits);
+			if backend == wgpu::Backend::Dx12 {
+				assert!(matches!(
+					descriptor.memory_hints,
+					wgpu::MemoryHints::MemoryUsage
+				));
+			} else {
+				assert!(matches!(
+					descriptor.memory_hints,
+					wgpu::MemoryHints::Manual { suballocated_device_memory_block_size }
+						if suballocated_device_memory_block_size == (16 * 1024 * 1024..48 * 1024 * 1024)
+				));
+			}
+		}
+	}
+
 	fn info(device_type: wgpu::DeviceType, backend: wgpu::Backend) -> wgpu::AdapterInfo {
 		wgpu::AdapterInfo::new(device_type, backend)
 	}
@@ -86,29 +141,21 @@ mod tests {
 		let integrated = info(wgpu::DeviceType::IntegratedGpu, wgpu::Backend::Vulkan);
 		assert!(rank(&discrete, false) < rank(&integrated, false));
 		assert!(!prefer_integrated(GpuPreference::HighPerformance));
-	}
 
-	#[test]
-	fn power_saving_prefers_integrated() {
-		let discrete = info(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Vulkan);
-		let integrated = info(wgpu::DeviceType::IntegratedGpu, wgpu::Backend::Vulkan);
-		assert!(prefer_integrated(GpuPreference::PowerSaving));
-		assert!(rank(&integrated, true) < rank(&discrete, true));
-	}
+		{
+			let discrete = info(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Vulkan);
+			let integrated = info(wgpu::DeviceType::IntegratedGpu, wgpu::Backend::Vulkan);
+			assert!(prefer_integrated(GpuPreference::PowerSaving));
+			assert!(rank(&integrated, true) < rank(&discrete, true));
+		}
 
-	#[test]
-	fn software_and_gl_adapters_come_last() {
-		let vulkan = info(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Vulkan);
-		let gl = info(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Gl);
-		let llvmpipe = info(wgpu::DeviceType::Cpu, wgpu::Backend::Vulkan);
-		assert!(rank(&vulkan, false) < rank(&gl, false));
-		assert!(rank(&gl, false) < rank(&llvmpipe, false));
-		assert!(rank(&gl, true) < rank(&llvmpipe, true));
-	}
-
-	#[test]
-	fn describes_adapters_for_bug_reports() {
-		let described = describe(&info(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Vulkan));
-		assert!(described.ends_with("(Vulkan)"), "{described}");
+		{
+			let vulkan = info(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Vulkan);
+			let gl = info(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Gl);
+			let llvmpipe = info(wgpu::DeviceType::Cpu, wgpu::Backend::Vulkan);
+			assert!(rank(&vulkan, false) < rank(&gl, false));
+			assert!(rank(&gl, false) < rank(&llvmpipe, false));
+			assert!(rank(&gl, true) < rank(&llvmpipe, true));
+		}
 	}
 }

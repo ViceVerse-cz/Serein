@@ -12,7 +12,8 @@ pub struct Gif {
 	pub title: String,
 	/// Provider page address; this is the text sent when the GIF is chosen.
 	pub url: String,
-	/// Preview on an allowed media host; only its first frame is displayed.
+	/// Allowed image preview or retained video source.
+	/// Video sources paint a placeholder in the picker; they are never guessed or downloaded.
 	pub preview: String,
 	pub width: u32,
 	pub height: u32,
@@ -34,9 +35,10 @@ impl Gif {
 			&& self.title.len() <= 256
 			&& !self.title.chars().any(char::is_control)
 			&& valid_gif_url(&self.url)
-			&& valid_gif_preview(&self.preview)
+			&& (valid_gif_preview(&self.preview) || valid_gif_video_source(&self.preview))
 			&& (1..=4096).contains(&self.width)
 			&& (1..=4096).contains(&self.height)
+			&& self.bytes() <= 2048
 	}
 }
 
@@ -81,11 +83,43 @@ pub fn valid_gif_preview(url: &str) -> bool {
 			.any(|extension| url.ends_with(extension)))
 }
 
+/// Retain synchronized video metadata without enabling network preview decoding.
+pub fn valid_gif_video_source(url: &str) -> bool {
+	plain_https_path(
+		url,
+		&[
+			"media.tenor.com",
+			"c.tenor.com",
+			"static.klipy.com",
+			"static1.klipy.com",
+			"static2.klipy.com",
+		],
+	) && [".mp4", ".webm", ".mov"]
+		.iter()
+		.any(|extension| url.ends_with(extension))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GifCategory {
+	/// Opens a search for this name.
+	pub name: String,
+	/// Artwork on an allowed media host, shown behind the name.
+	pub preview: Option<String>,
+}
+impl GifCategory {
+	pub fn valid(&self) -> bool {
+		(1..=64).contains(&self.name.len())
+			&& !self.name.trim().is_empty()
+			&& !self.name.chars().any(char::is_control)
+			&& self.preview.as_deref().is_none_or(valid_gif_preview)
+	}
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct GifPage {
 	pub gifs: Vec<Gif>,
-	/// Trending category names; each opens a search for that name.
-	pub categories: Vec<String>,
+	/// Trending categories, shown as tiles on the picker home.
+	pub categories: Vec<GifCategory>,
 }
 impl GifPage {
 	pub fn bytes(&self) -> usize {
@@ -95,8 +129,14 @@ impl GifPage {
 				.iter()
 				.map(|gif| gif.bytes() - size_of::<Gif>())
 				.sum::<usize>()
-			+ self.categories.capacity() * size_of::<String>()
-			+ self.categories.iter().map(String::capacity).sum::<usize>()
+			+ self.categories.capacity() * size_of::<GifCategory>()
+			+ self
+				.categories
+				.iter()
+				.map(|category| {
+					category.name.capacity() + category.preview.as_ref().map_or(0, String::capacity)
+				})
+				.sum::<usize>()
 	}
 	pub fn valid(&self) -> bool {
 		self.gifs.len() <= GIF_PAGE_SIZE
@@ -108,11 +148,7 @@ impl GifPage {
 				.iter()
 				.enumerate()
 				.all(|(i, gif)| self.gifs[..i].iter().all(|other| other.id != gif.id))
-			&& self.categories.iter().all(|name| {
-				(1..=64).contains(&name.len())
-					&& !name.trim().is_empty()
-					&& !name.chars().any(char::is_control)
-			})
+			&& self.categories.iter().all(GifCategory::valid)
 	}
 }
 
@@ -174,7 +210,12 @@ mod tests {
 
 		let page = GifPage {
 			gifs: (0..GIF_PAGE_SIZE).map(|i| gif(&format!("g{i}"))).collect(),
-			categories: vec!["happy".into(), "dance".into()],
+			categories: ["happy", "dance"]
+				.map(|name| GifCategory {
+					name: name.into(),
+					preview: Some(format!("https://static.klipy.com/synthetic/{name}.gif")),
+				})
+				.into(),
 		};
 		assert!(page.valid());
 		assert!(page.bytes() <= MAX_GIF_BYTES);
@@ -185,7 +226,27 @@ mod tests {
 		oversized.gifs.push(gif("extra"));
 		assert!(!oversized.valid());
 		let mut blank = page.clone();
-		blank.categories.push("   ".into());
+		blank.categories.push(GifCategory {
+			name: "   ".into(),
+			preview: None,
+		});
 		assert!(!blank.valid());
+		let mut foreign = page.clone();
+		foreign.categories[0].preview = Some("https://example.com/x.gif".into());
+		assert!(!foreign.valid());
+	}
+	#[test]
+	fn video_favorite_metadata_is_bounded_and_never_admitted_as_an_image_preview() {
+		let mut favorite = gif("discord-video");
+		favorite.preview = "https://media.tenor.com/synthetic/video.mp4".into();
+		assert!(favorite.valid());
+		assert!(!valid_gif_preview(&favorite.preview));
+		favorite.preview = "https://media.tenor.com.evil.invalid/synthetic/video.mp4".into();
+		assert!(!favorite.valid());
+		favorite.preview.clear();
+		assert!(!favorite.valid());
+		favorite = gif("bounded");
+		favorite.title.reserve(8192);
+		assert!(!favorite.valid());
 	}
 }

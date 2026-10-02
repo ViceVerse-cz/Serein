@@ -129,6 +129,7 @@ impl Search {
 				.into_iter()
 				.filter_map(|member| {
 					MemberItem::Member {
+						presence: model::Patch::Absent,
 						member: Box::new(member),
 					}
 					.into_model()

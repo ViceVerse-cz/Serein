@@ -74,53 +74,74 @@ fn main() {
 		let ready = Arc::new(AtomicBool::new(false));
 		let keyframe = Arc::new(AtomicBool::new(true));
 		let source = gst::ElementFactory::make("videotestsrc").property("is-live", true).build().unwrap();
-		let pipeline = Capture::new(settings, mode, source, stop.clone(), ready.clone(), keyframe.clone(), || true).unwrap();
+		// Niri 26.04 leaves SPA header PTS at zero. GstBaseSrc adds a constant
+		// startup offset but does not replace that valid (stuck) presentation time.
+		if std::env::args().any(|arg| arg == "--niri-timestamps") {
+			source.static_pad("src").unwrap().add_probe(gst::PadProbeType::BUFFER, |_, info| {
+				if let Some(gst::PadProbeData::Buffer(buffer)) = &mut info.data {
+					buffer.make_mut().set_pts(gst::ClockTime::ZERO);
+				}
+				gst::PadProbeReturn::Ok
+			});
+			linux::timestamp_niri_frames(&source).unwrap();
+		}
+		let pipeline = Capture::new(settings, mode, settings.bit_rate(), source, stop.clone(), ready.clone(), keyframe.clone(), || true).unwrap();
 		let deadline = Instant::now() + Duration::from_secs(5);
-		let mut saw_preview = false;
-		while Instant::now() < deadline && !saw_preview {
+		let mut previews = 0;
+		let mut last_preview_pts = None;
+		while Instant::now() < deadline && previews < 3 {
 			assert!(!pipeline.failed());
 			assert!(pipeline.frames.try_pull_sample(gst::ClockTime::ZERO).is_none(), "must not encode before secure readiness");
 			if let Some(sample) = pipeline.preview.try_pull_sample(gst::ClockTime::ZERO) {
 				let raw = gstreamer::raw(&sample).unwrap();
 				assert_eq!((raw.width, raw.height), (640, 360));
 				assert_eq!(preview_frame(&raw).unwrap().as_raw().len(), 640 * 360 * 4);
-				saw_preview = true;
+				let pts = sample.buffer().unwrap().pts().expect("preview timestamp");
+				assert!(last_preview_pts.is_none_or(|last| pts > last), "preview must keep advancing");
+				last_preview_pts = Some(pts);
+				previews += 1;
 			}
 			pipeline.changed().await;
 		}
-		assert!(saw_preview, "synthetic preview did not arrive");
+		assert_eq!(previews, 3, "synthetic preview did not keep advancing");
 		ready.store(true, Ordering::Release);
 		let deadline = Instant::now() + Duration::from_secs(5);
-		let mut encoded = false;
-		while Instant::now() < deadline && !encoded {
+		let mut encoded = 0;
+		let mut last_pts = None;
+		let mut decoder = openh264::decoder::Decoder::new().unwrap();
+		while Instant::now() < deadline && encoded < 5 {
 			assert!(!pipeline.failed());
 			if let Some(sample) = pipeline.frames.try_pull_sample(gst::ClockTime::ZERO) {
+				let pts = sample.buffer().unwrap().pts().expect("frame timestamp");
+				assert!(last_pts.is_none_or(|last| pts > last), "frames must keep advancing");
+				last_pts = Some(pts);
 				if mode == Mode::VaLegacy {
 					let buffer = sample.buffer().unwrap();
 					let data = buffer.map_readable().unwrap();
 					video::validate_source(&data).unwrap();
-					assert!(!buffer.flags().contains(gst::BufferFlags::DELTA_UNIT));
-					assert!(video_receive::is_keyframe(&data));
-					assert!(video_receive::has_parameter_sets(&data));
-					let mut decoder = openh264::decoder::Decoder::new().unwrap();
+					if encoded == 0 {
+						assert!(!buffer.flags().contains(gst::BufferFlags::DELTA_UNIT));
+						assert!(video_receive::is_keyframe(&data));
+						assert!(video_receive::has_parameter_sets(&data));
+					}
 					let picture = decoder.decode(&data).unwrap().expect("decodable legacy H.264");
 					use openh264::formats::YUVSource;
 					assert_eq!(picture.dimensions(), (1280, 720));
-					encoded = true;
+					encoded += 1;
 					continue;
 				}
 				let raw = gstreamer::raw(&sample).unwrap();
 				assert_eq!((raw.width, raw.height), (1280, 720));
-				let mut encoder = encoder(settings).unwrap();
+				let mut encoder = encoder(settings, settings.bit_rate()).unwrap();
 				let mut yuv = openh264::formats::YUVBuffer::new(1280, 720);
 				let (data, keyframe) = encode_pixels(&mut encoder, &mut yuv, &raw.data, (1280, 720), true).unwrap();
 				assert!(keyframe);
 				video::validate_source(&data).unwrap();
-				encoded = true;
+				encoded += 1;
 			}
 			pipeline.changed().await;
 		}
-		assert!(encoded, "synthetic frame did not encode");
+		assert_eq!(encoded, 5, "synthetic frames did not keep encoding");
 		ready.store(false, Ordering::Release);
 		let (send, _receive) = tokio::sync::mpsc::channel(4);
 		let epoch = Arc::new(AtomicU64::new(0));

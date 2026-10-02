@@ -1,0 +1,46 @@
+{
+  "api_version": 1,
+  "id": "custom-rpc",
+  "name": "Custom Rich Presence",
+  "version": "1.0.0",
+  "author": "Serein contributors",
+  "license": "MIT OR Apache-2.0",
+  "source": "https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/custom-rpc",
+  "kind": "plugin",
+  "capabilities": [
+    "rich_presence",
+    "storage"
+  ],
+  "actions": [
+    {
+      "id": "open",
+      "label": "Edit rich presence",
+      "surface": "panel"
+    },
+    {
+      "id": "preview",
+      "label": "Preview changes",
+      "surface": "panel"
+    },
+    {
+      "id": "apply",
+      "label": "Apply presence",
+      "surface": "panel"
+    },
+    {
+      "id": "stop",
+      "label": "Stop presence",
+      "surface": "panel"
+    },
+    {
+      "id": "reset",
+      "label": "Reset draft",
+      "surface": "panel"
+    },
+    {
+      "id": "activate",
+      "label": "Restore saved presence",
+      "surface": "activation"
+    }
+  ]
+}

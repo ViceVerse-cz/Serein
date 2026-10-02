@@ -8,7 +8,21 @@ pub struct Settings {
 }
 
 impl Settings {
+	pub fn from_preferences(value: Result<AppPreferences, local_store::StoreError>) -> Self {
+		let mut settings = Self {
+			loaded: value.is_ok(),
+			current: value.unwrap_or_default(),
+			..Self::default()
+		};
+		settings.state.failed = !settings.loaded;
+		settings
+	}
 	pub fn save(&mut self, cache: Option<&crate::cache::Cache>, generation: u64) -> bool {
+		// Never replace an unread preference row with startup defaults after a read failure.
+		if !self.loaded {
+			self.state.failed = true;
+			return false;
+		}
 		if !self.state.dirty || self.state.saving {
 			return false;
 		}
@@ -27,18 +41,19 @@ impl Settings {
 	}
 	pub fn observe(&mut self, ui: &ui::MessagingUi) {
 		let value = AppPreferences {
+			language: ui.language.preference().map(str::to_owned),
 			notifications_enabled: ui.notifications_enabled,
 			auto_update: ui.updates.auto_update,
 			update_nightly: ui.updates.nightly,
 			notification_options: ui.notification_options,
 			show_hidden_channels: ui.show_hidden_channels,
 			hide_title_bar: ui.hide_title_bar,
+			hide_window_decorations: ui.hide_window_decorations,
 			gpu_preference: ui.gpu_preference,
 			primary_color: ui.primary_color,
 			transparency_blur: ui.transparency_blur,
 			transparency: ui.transparency,
 			blur: ui.blur,
-			transparent_all: ui.transparent_all,
 			voice_noise_suppression: ui.voice_processing.effective().suppression
 				!= model::voice_settings::NoiseSuppression::Off,
 			voice_processing: Some(ui.voice_processing),
@@ -65,18 +80,20 @@ impl Settings {
 	}
 	pub fn apply(&self, ui: &mut ui::MessagingUi) {
 		let value = &self.current;
+		ui.language = ui::i18n::Language::from_preference(value.language.as_deref());
+		ui::i18n::set_current(ui.language);
 		ui.notifications_enabled = value.notifications_enabled;
 		ui.updates.auto_update = value.auto_update;
 		ui.updates.nightly = value.update_nightly;
 		ui.notification_options = value.notification_options;
 		ui.show_hidden_channels = value.show_hidden_channels;
 		ui.hide_title_bar = value.hide_title_bar;
+		ui.hide_window_decorations = value.hide_window_decorations;
 		ui.gpu_preference = value.gpu_preference;
 		ui.primary_color = value.primary_color;
 		ui.transparency_blur = value.transparency_blur;
 		ui.transparency = value.transparency;
 		ui.blur = value.blur;
-		ui.transparent_all = value.transparent_all;
 		ui.voice_processing = value.voice_processing.unwrap_or_else(|| {
 			model::voice_settings::VoiceProcessing::from_legacy(value.voice_noise_suppression)
 		});
@@ -113,10 +130,12 @@ mod tests {
 		);
 		assert!(!settings.state.dirty);
 
+		settings.current.language = Some("cs".into());
 		settings.current.notification_options.current_channel = true;
 		settings.loaded = true;
 		settings.apply(&mut ui);
 		settings.observe(&ui);
+		assert_eq!(ui.language, ui::i18n::Language::Czech);
 		assert!(ui.notification_options.current_channel);
 		assert!(!settings.state.touched);
 		assert!(!settings.state.dirty);

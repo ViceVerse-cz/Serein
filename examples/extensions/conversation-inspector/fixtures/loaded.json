@@ -1,0 +1,97 @@
+{
+  "action": "show",
+  "host": {
+    "api_version": 1,
+    "sdk_revision": 1,
+    "capabilities": [
+      "message_content",
+      "forum_data",
+      "conversation_activity",
+      "app_events",
+      "data_events"
+    ],
+    "app_events": [
+      "typing",
+      "pins"
+    ]
+  },
+  "app": {
+    "message_content": {
+      "channel_id": "20",
+      "items": [
+        {
+          "id": "100",
+          "embeds": [
+            {
+              "kind": "rich",
+              "title": "Synthetic release note",
+              "description": "An offline example embed.",
+              "author": "Example author",
+              "footer": "Example footer",
+              "color": 3368601,
+              "fields": [
+                {
+                  "name": "Version",
+                  "value": "1.0",
+                  "inline": true
+                }
+              ],
+              "fields_truncated": false,
+              "has_image": true,
+              "has_thumbnail": false,
+              "has_video": false,
+              "limited": false
+            }
+          ],
+          "embeds_truncated": false,
+          "embeds_suppressed": false,
+          "stickers": [
+            {
+              "id": "200",
+              "name": "Wave",
+              "format_type": 1
+            }
+          ],
+          "stickers_truncated": false,
+          "reference": {
+            "message_id": "99",
+            "deleted": false,
+            "forwarded": false
+          },
+          "poll": "unsupported"
+        }
+      ],
+      "truncated": true
+    },
+    "forum_data": {
+      "channel_id": "20",
+      "guild_id": "10",
+      "parent_id": "19",
+      "posts": [
+        {
+          "id": "20",
+          "name": "Synthetic topic",
+          "kind": 11,
+          "message_count": 3,
+          "owner_id": "1",
+          "archived": false,
+          "locked": null,
+          "pinned": true,
+          "followed": false
+        }
+      ],
+      "truncated": true
+    },
+    "conversation_activity": {
+      "channel_id": "20",
+      "typing_user_ids": [
+        "1",
+        "2"
+      ],
+      "pinned_message_ids": [
+        "100"
+      ],
+      "pins_truncated": false
+    }
+  }
+}

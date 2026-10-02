@@ -42,7 +42,7 @@ impl DiscordApi {
 		let bytes = self
 			.request_limited(Method::GET, &path, None, profile::MAX_PROFILE_WIRE)
 			.await?;
-		let saved = profile::decode_profile(&bytes, None).map_err(|_| Failure::Protocol)?;
+		let saved = profile::decode_profile(&bytes, None, false).map_err(|_| Failure::Protocol)?;
 		if saved.user.id != user || saved.limited || saved.guild.is_some() {
 			return Err(Failure::ProtocolAt(
 				"Full account profile is unavailable; reload before editing",
@@ -89,7 +89,7 @@ mod tests {
 	const PATCH: &str = "PATCH /users/@me";
 	const USER: &str =
 		r#"{"id":"1","username":"synthetic","global_name":null,"avatar":null,"discriminator":"0"}"#;
-	const PROFILE: &str = r#"{"user":{"id":"1","username":"synthetic","global_name":null,"avatar":null,"discriminator":"0"},"user_profile":{"bio":"hello","pronouns":"","accent_color":null}}"#;
+	const PROFILE: &str = r#"{"user":{"id":"1","username":"synthetic","global_name":null,"avatar":null,"discriminator":"0"},"user_profile":{"bio":"hello","pronouns":"","accent_color":null},"mutual_guilds":null,"mutual_friends":null}"#;
 
 	async fn respond(
 		listener: &TcpListener,

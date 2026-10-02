@@ -17,24 +17,41 @@ mod credentials;
 mod dm_demo;
 mod downloads;
 mod emoji_upload;
+mod extension_app;
 mod extension_bridge;
+mod extension_data_events;
+mod extension_events;
+mod extension_forum_data;
+mod extension_member_details;
+mod extension_message_content;
 mod extensions;
+mod font_import;
 mod game_activity;
 mod gpu;
 mod group_icon;
 mod interaction_uploads;
 mod notification_runtime;
 mod notification_sounds;
+#[cfg(feature = "demo")]
+mod onboarding_demo;
 mod pointer;
 #[cfg(feature = "demo")]
+mod polls_demo;
+#[cfg(feature = "demo")]
 mod post_menu_demo;
+mod proxy_auth;
 mod reading_settings;
+mod registered_games;
 #[cfg(feature = "demo")]
 mod rendering_demo;
 mod screen;
 #[cfg(feature = "demo")]
 mod server_settings_demo;
+#[cfg(feature = "demo")]
+mod slash_demo;
+mod spotify;
 mod startup;
+mod sticker_upload;
 mod toggle_setting;
 mod tray_window;
 mod updater;
@@ -58,7 +75,74 @@ const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 	60.0
 };
 
+/// Run explicit offline checks before native startup, or launch the configured desktop client.
 fn main() -> eframe::Result {
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-voice-preferences")
+	{
+		cache::debug_voice_preferences_check();
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-heic")
+	{
+		avatars::debug_heic_check();
+		uploads::debug_heic_check();
+		println!(
+			"Offline HEIC check passed: brand recognition, malformed rejection, upload preview admission, decoded aspect ratio and 4096px original viewer routing. Valid synthetic 6000x4000 HEIC decoding and scaling checked on Windows; owner photos unverified."
+		);
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-resume-send")
+	{
+		discord_gateway::debug_recovery_check();
+		ui::debug_resume_send_check(test_support::demo_state());
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-audio")
+	{
+		audio::debug_voice_message_check();
+		println!(
+			"Offline audio check passed: 24 MiB admission and complete range decoding, bounded buffering."
+		);
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-call-cues")
+	{
+		voice::debug_call_cues_check();
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-customization")
+	{
+		font_import::debug_check();
+		let mut state = test_support::chat_demo_state();
+		let mut permissions = test_support::permission_snapshot(&state);
+		for guild in &mut permissions.guilds {
+			guild.owner = state.user.as_ref().map(|user| user.id);
+		}
+		state.permissions.replace(permissions).unwrap();
+		ui::debug_channel_creation(state);
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-spotify")
+	{
+		spotify::debug_check();
+		discord_api::spotify::debug_check();
+		discord_gateway::debug_spotify_check();
+		return Ok(());
+	}
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-forward")
@@ -238,6 +322,11 @@ fn main() -> eframe::Result {
 			})
 		});
 	#[cfg(feature = "demo")]
+	if demo && std::env::args().any(|arg| arg == "--demo-check-polls") {
+		polls_demo::check();
+		return Ok(());
+	}
+	#[cfg(feature = "demo")]
 	if demo && std::env::args().any(|arg| arg == "--demo-check-access-marks") {
 		access_marks_demo::check();
 		return Ok(());
@@ -245,6 +334,11 @@ fn main() -> eframe::Result {
 	#[cfg(feature = "demo")]
 	if demo && std::env::args().any(|arg| arg == "--demo-check-switcher") {
 		dm_demo::check();
+		return Ok(());
+	}
+	#[cfg(feature = "demo")]
+	if demo && std::env::args().any(|arg| arg == "--demo-check-slash-commands") {
+		slash_demo::check();
 		return Ok(());
 	}
 	#[cfg(feature = "demo")]
@@ -263,14 +357,21 @@ fn main() -> eframe::Result {
 		return Ok(());
 	}
 	// Native GPU/window capabilities are selected before the first window exists.
-	let (gpu_preference, transparency_available) = if demo {
-		(model::GpuPreference::default(), false)
+	let preferences = if demo {
+		Ok(local_store::AppPreferences::default())
 	} else {
-		local_store::LocalStore::open_default()
-			.and_then(|store| store.app_preferences())
-			.map(|preferences| (preferences.gpu_preference, preferences.transparency_blur))
-			.unwrap_or_default()
+		local_store::LocalStore::open_default().and_then(|store| store.app_preferences())
 	};
+	let (gpu_preference, transparency_available, hide_window_decorations) = preferences
+		.as_ref()
+		.map(|value| {
+			(
+				value.gpu_preference,
+				value.transparency_blur,
+				value.hide_window_decorations,
+			)
+		})
+		.unwrap_or_default();
 	#[cfg(feature = "demo")]
 	let transparency_available =
 		transparency_available || demo && std::env::args().any(|arg| arg == "--demo-transparency");
@@ -291,13 +392,18 @@ fn main() -> eframe::Result {
 				.with_icon(eframe::icon_data::from_png_bytes(icon).expect("bundled app icon"));
 			if cfg!(target_os = "macos") {
 				// Discord-style inline title bar: traffic lights sit over the app's own strip.
+				// eframe swaps in the egui logo when no icon is set; an empty icon keeps the
+				// bundle's Serein.icns in the Dock and app switcher.
 				builder
+					.with_icon(egui::IconData::default())
 					.with_title_shown(false)
 					.with_titlebar_shown(false)
 					.with_fullsize_content_view(true)
 			} else if cfg!(target_os = "windows") {
 				// The app paints its own caption strip and buttons; see `ui::design::window_controls`.
 				builder.with_decorations(false)
+			} else if cfg!(target_os = "linux") {
+				builder.with_decorations(!hide_window_decorations)
 			} else {
 				builder
 			}
@@ -308,10 +414,20 @@ fn main() -> eframe::Result {
 				eframe::egui_wgpu::WgpuSetupCreateNew {
 					// Avoid Intel Vulkan driver startup crashes; keep the diagnostic override.
 					#[cfg(target_os = "windows")]
-					instance_descriptor: eframe::wgpu::InstanceDescriptor {
-						backends: eframe::wgpu::Backends::from_env()
-							.unwrap_or(eframe::wgpu::Backends::DX12),
-						..eframe::wgpu::InstanceDescriptor::new_without_display_handle_from_env()
+					instance_descriptor: {
+						let mut descriptor =
+							eframe::wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+						descriptor.backends = eframe::wgpu::Backends::from_env()
+							.unwrap_or(eframe::wgpu::Backends::DX12);
+						// An HWND swapchain is always opaque; only a DirectComposition one carries
+						// alpha to the desktop and its acrylic backdrop. The env override still wins.
+						if transparency_available
+							&& eframe::wgpu::Dx12SwapchainKind::from_env().is_none()
+						{
+							descriptor.backend_options.dx12.presentation_system =
+								eframe::wgpu::Dx12SwapchainKind::DxgiFromVisual;
+						}
+						descriptor
 					},
 					// Only adapters that can present to this window are eligible; the saved
 					// preference just orders them. A power hint alone picks GPUs the display is
@@ -322,7 +438,7 @@ fn main() -> eframe::Result {
 							gpu::select(gpu_preference, adapters, surface)
 						},
 					)),
-					..eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle()
+					..gpu::setup()
 				},
 			),
 			// Keep cursor-driven redraws synchronized even where AutoVsync selects FifoRelaxed.
@@ -340,7 +456,8 @@ fn main() -> eframe::Result {
 		"Serein",
 		options,
 		Box::new(move |cc| {
-			let desktop = Desktop::new(cc, demo, frame_sample, transparency_available)?;
+			let desktop =
+				Desktop::new(cc, demo, frame_sample, transparency_available, preferences)?;
 			if start_minimized {
 				cc.egui_ctx
 					.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
@@ -367,6 +484,7 @@ fn demo_check_updates() {
 	messaging.updates.check_requested = true;
 	assert!(!updater.sync(&ctx, &runtime, &mut messaging.updates, false));
 	assert!(messaging.updates.available && !messaging.updates.ready);
+	assert!(!messaging.updates.log.is_empty());
 	messaging.updates.download_requested = true;
 	assert!(!updater.sync(&ctx, &runtime, &mut messaging.updates, false));
 	assert!(messaging.updates.ready);
@@ -407,12 +525,11 @@ fn demo_check_updates() {
 /// One offline debug path through the shipped Wasm, reducer, and egui rows.
 #[cfg(feature = "demo")]
 fn demo_check_extensions() {
-	let enabled =
-		extensions::demo_check_examples().expect("starter packages activate with consent");
+	let _ = extensions::demo_check_examples().expect("starter packages activate with consent");
 	let mut state = test_support::demo_state();
+	state.set_preserve_deleted_messages(true);
 	let channel = state.selected.expect("demo conversation");
 	state.timeline.clear();
-	state.set_preserve_deleted_messages(enabled);
 	let mut message = test_support::message(600, channel);
 	message.content = "A useful message stays readable".into();
 	message.attachments.clear();
@@ -504,11 +621,12 @@ fn demo_check_extensions() {
 		saw_deleted && saw_author && saw_avatar,
 		"retained row renders red text ({saw_deleted}), author ({saw_author}), and a normal 40-pixel avatar ({saw_avatar})"
 	);
-	state.set_preserve_deleted_messages(false);
+	state.discard_preserved_deleted(message.id);
 	assert!(
 		state.timeline.get_display(message.id).is_none(),
-		"disabling releases preserved text"
+		"local remove drops the retained payload"
 	);
+	state.set_preserve_deleted_messages(false);
 	let next = test_support::message(601, channel);
 	state.timeline.insert(next.clone(), true, false).unwrap();
 	state.apply(Envelope {
@@ -520,10 +638,11 @@ fn demo_check_extensions() {
 	});
 	assert!(
 		state.timeline.get_display(next.id).is_none(),
-		"default deletion still removes the payload"
+		"loaded deletes disappear with the extension disabled"
 	);
+	assert!(state.timeline.get(next.id).is_none());
 	println!(
-		"Extension debug check passed: one Wasm protector, five themes, consent, red deleted row, stale-history rejection and disable cleanup."
+		"Extension debug check passed: starter packages, consent, retained deleted row, stale-history rejection and local remove."
 	);
 }
 
@@ -700,6 +819,8 @@ impl SessionEnd {
 	}
 }
 struct Desktop {
+	proxy_auth: proxy_auth::Authentication,
+	api_proxy: tokio::sync::watch::Sender<Option<discord_api::proxy::ApiProxy>>,
 	extensions: extension_bridge::Bridge,
 	extension_close_pending: bool,
 	login: Option<platform::LoginView>,
@@ -720,11 +841,13 @@ struct Desktop {
 	uploads: uploads::Uploads,
 	interaction_files: interaction_uploads::Files,
 	group_icon: group_icon::GroupIcon,
+	create_server_icon: group_icon::GroupIcon,
 	profile_avatar: group_icon::GroupIcon,
 	server_icon: group_icon::GroupIcon,
 	role_icon: group_icon::GroupIcon,
 	role_icon_scope: Option<(u64, model::Id, model::Id, u64)>,
 	emoji_upload: emoji_upload::EmojiUpload,
+	sticker_upload: sticker_upload::StickerUpload,
 	clipboard: Option<clipboard::Paste>,
 	download_close_pending: bool,
 	window: Arc<winit::window::Window>,
@@ -752,12 +875,16 @@ struct Desktop {
 	window_transparent: bool,
 	reading: reading_settings::ReadingSettings,
 	app_settings: app_settings::Settings,
+	font_picker: Option<std::sync::mpsc::Receiver<font_import::Selected>>,
 	updater: updater::Updater,
 	game_activity: toggle_setting::Settings,
+	registered_games: registered_games::Registered,
 	tray_setting: toggle_setting::Settings,
 	startup: startup::Startup,
 	tray: Option<platform::tray::Tray>,
 	hotkeys: platform::hotkeys::Hotkeys,
+	/// Linux desktop light/dark preference; winit reports it everywhere else.
+	system_theme: platform::system_theme::SystemTheme,
 	tray_error: Option<&'static str>,
 	tray_window: tray_window::State,
 	/// `--demo-reply`: keeps two synthetic typists active on the selected fixture channel.
@@ -776,6 +903,8 @@ struct Desktop {
 	/// Saved account awaiting the owner's confirmation before it is forgotten.
 	confirming_forget: Option<model::Id>,
 	credential_status: &'static str,
+	/// Until when the sign-in failure copy button reads "Copied".
+	sign_in_copied: Option<f64>,
 	forgetting: bool,
 	confirming_close: bool,
 	confirming_logout: bool,
@@ -866,6 +995,19 @@ fn access_candidates(state: &State, event: &Event) -> Vec<model::Id> {
 		})
 		.map(|c| c.id)
 		.collect()
+}
+fn user_action_notice(event: &Event) -> Option<(ui::design::Level, &'static str)> {
+	let Event::UserAction(client_core::user_actions::Event::Written { action, result, .. }) = event
+	else {
+		return None;
+	};
+	Some(match result {
+		Ok(()) if matches!(action, client_core::user_actions::Action::OpenDm(_)) => {
+			(ui::design::Level::Error, action.completion_label())
+		}
+		Ok(()) => (ui::design::Level::Success, action.completion_label()),
+		Err(failure) => (ui::design::Level::Error, failure.label()),
+	})
 }
 fn queue_channel_preferences(
 	cache: Option<&cache::Cache>,
@@ -1018,7 +1160,12 @@ fn changes_active_history(state: &State, event: &Event) -> bool {
 }
 /// Synthetic People rows with presence; never a Discord member directory.
 #[cfg(feature = "demo")]
-fn demo_members(guild: Option<model::Id>, channel: model::Id, request: u64) -> model::MemberList {
+fn demo_members(
+	state: &State,
+	guild: Option<model::Id>,
+	channel: model::Id,
+	request: u64,
+) -> model::MemberList {
 	let mut members = vec![
 		model::Member {
 			user: test_support::message(2, channel).author,
@@ -1030,6 +1177,7 @@ fn demo_members(guild: Option<model::Id>, channel: model::Id, request: u64) -> m
 			},
 			status: Some("idle".into()),
 			custom_status: None,
+			clients: model::ClientPlatforms::default(),
 			activities: vec![],
 		},
 		model::Member {
@@ -1042,6 +1190,7 @@ fn demo_members(guild: Option<model::Id>, channel: model::Id, request: u64) -> m
 			},
 			status: Some("online".into()),
 			custom_status: Some("🌙 semifluent in synthetic data".into()),
+			clients: model::ClientPlatforms::default(),
 			activities: vec![model::RichActivity {
 				kind: 0,
 				name: "Stardew Valley".into(),
@@ -1057,7 +1206,37 @@ fn demo_members(guild: Option<model::Id>, channel: model::Id, request: u64) -> m
 			}],
 		},
 	];
-	if guild.is_some() {
+	if guild.is_none() {
+		let mut users = state
+			.channel(channel)
+			.map(|channel| channel.recipients.clone())
+			.unwrap_or_default();
+		if let Some(user) = &state.user
+			&& !users.iter().any(|recipient| recipient.id == user.id)
+		{
+			users.push(user.clone());
+		}
+		members = users
+			.into_iter()
+			.map(|user| {
+				let mut member = members
+					.iter()
+					.find(|member| member.user.id == user.id)
+					.cloned()
+					.unwrap_or(model::Member {
+						user: user.clone(),
+						nick: None,
+						roles: vec![],
+						status: None,
+						custom_status: None,
+						clients: model::ClientPlatforms::default(),
+						activities: vec![],
+					});
+				member.user = user;
+				member
+			})
+			.collect();
+	} else {
 		for (id, name, status) in [
 			(9003, "Alex (synthetic)", "online"),
 			(9004, "Sam (synthetic)", "offline"),
@@ -1065,6 +1244,11 @@ fn demo_members(guild: Option<model::Id>, channel: model::Id, request: u64) -> m
 			let mut member = members[0].clone();
 			member.user.id = model::Id(id);
 			member.user.name = name.into();
+			member.user.kind = if id == 9003 {
+				model::AccountKind::VerifiedBot
+			} else {
+				model::AccountKind::Bot
+			};
 			member.roles.clear();
 			member.status = Some(status.into());
 			members.push(member);
@@ -1075,7 +1259,14 @@ fn demo_members(guild: Option<model::Id>, channel: model::Id, request: u64) -> m
 		channel,
 		request,
 		total: members.len() as u64,
-		rows: members.into_iter().map(Some).collect(),
+		start: 0,
+		slots: members
+			.into_iter()
+			.map(|m| Some(model::MemberSlot::Person(m)))
+			.collect(),
+		lazy: false,
+		groups: vec![],
+		ranges: vec![],
 		freshness: model::Freshness::Fresh,
 	}
 }
@@ -1094,6 +1285,7 @@ impl Desktop {
 		demo: bool,
 		frame_sample: Option<(Duration, Duration)>,
 		transparency_available: bool,
+		preferences: Result<local_store::AppPreferences, local_store::StoreError>,
 	) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
 		ui::fonts::install(&cc.egui_ctx);
 		ui::emoji::install(&cc.egui_ctx)?;
@@ -1130,7 +1322,11 @@ impl Desktop {
 		#[cfg(feature = "demo")]
 		if demo {
 			state = {
-				if std::env::args().any(|arg| arg == "--demo-components") {
+				if std::env::args().any(|arg| arg == "--demo-slash-commands") {
+					slash_demo::preview()
+				} else if std::env::args().any(|arg| arg == "--demo-polls") {
+					polls_demo::preview()
+				} else if std::env::args().any(|arg| arg == "--demo-components") {
 					components_demo::preview()
 				} else if std::env::args().any(|arg| arg == "--demo-forwarded") {
 					test_support::forwarded_demo_state()
@@ -1186,6 +1382,11 @@ impl Desktop {
 			};
 		}
 		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-group-dm") {
+			// Existing synthetic group conversation; no account or call is opened.
+			let _ = state.select(model::Id(29));
+		}
+		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-voice-failed") {
 			let call = state
 				.voice
@@ -1218,16 +1419,21 @@ impl Desktop {
 		#[cfg(feature = "demo")]
 		if demo {
 			if !std::env::args().any(|arg| arg == "--demo-friends") {
-				let fixture = demo_members(None, model::Id(22), 0);
+				let fixture = demo_members(&state, None, model::Id(22), 0);
 				state.direct_presences = fixture
-					.rows
+					.slots
 					.into_iter()
 					.flatten()
+					.filter_map(|slot| match slot {
+						model::MemberSlot::Person(member) => Some(member),
+						_ => None,
+					})
 					.filter(|member| member.user.id != model::Id(1))
 					.map(|member| model::MemberPresence {
 						user: member.user.id,
 						status: member.status,
 						custom_status: member.custom_status,
+						clients: member.clients,
 						activities: member.activities,
 					})
 					.collect();
@@ -1283,18 +1489,7 @@ impl Desktop {
 			)
 		});
 		cache_pending += usize::from(presence_load_pending);
-		let mut app_settings = app_settings::Settings::default();
-		if cache.as_ref().is_some_and(|cache| {
-			cache.queue(
-				state.generation,
-				model::Id(0),
-				cache::Operation::LoadAppPreferences,
-			)
-		}) {
-			cache_pending += 1;
-		} else if !demo {
-			app_settings.state.failed = true;
-		}
+		let mut app_settings = app_settings::Settings::from_preferences(preferences);
 		let mut reading = reading_settings::ReadingSettings::default();
 		let mut game_activity = toggle_setting::Settings::default();
 		let mut tray_setting = toggle_setting::Settings::with_default(true);
@@ -1338,10 +1533,23 @@ impl Desktop {
 			.last()
 			.map_or(10_000, |m| m.id.0.max(10_000));
 		let mut messaging = ui::MessagingUi::default();
-		let preference_defaults = local_store::AppPreferences::default();
-		messaging.notifications_enabled = preference_defaults.notifications_enabled;
-		messaging.transparency = preference_defaults.transparency;
-		messaging.blur = preference_defaults.blur;
+		if !demo {
+			messaging.custom_font.busy = cache.as_ref().is_some_and(|cache| {
+				cache.queue(
+					state.generation,
+					model::Id(0),
+					cache::Operation::LoadCustomFont,
+				)
+			});
+			cache_pending += usize::from(messaging.custom_font.busy);
+			messaging.custom_font.status = if messaging.custom_font.busy {
+				"Loading saved font…"
+			} else {
+				"Could not load the saved font."
+			};
+		}
+		messaging.minimize_to_tray = tray_setting.enabled;
+		app_settings.apply(&mut messaging);
 		#[cfg(feature = "demo")]
 		if demo {
 			messaging.transparency_blur = transparency_available;
@@ -1407,7 +1615,10 @@ impl Desktop {
 					}
 				}
 			}
-			let _ = state.watch_stream(peer);
+			// Watching enlarges the share, as a click on Watch Stream does.
+			if state.watch_stream(peer).is_some() {
+				messaging.voice_focus = Some(ui::StageFocus::Stream(peer));
+			}
 			let (width, height) = (640usize, 360usize);
 			let pixels = (0..width * height)
 				.map(|i| {
@@ -1551,7 +1762,7 @@ impl Desktop {
 			// Presence for the fixture card comes from the same synthetic People rows.
 			let _ = state.request_members();
 			if let Some(list) = &state.members {
-				state.members = Some(demo_members(list.guild, list.channel, list.request));
+				state.members = Some(demo_members(&state, list.guild, list.channel, list.request));
 			}
 			let user = if messaging.share_game_activity {
 				state.user.clone().expect("demo has a current user")
@@ -1636,6 +1847,18 @@ impl Desktop {
 			// Non-image variant: exercises the file-kind glyph and extension badge.
 			messaging.preview_attachment("quarterly-report.pdf", 1_482_311, None);
 			state.status = "Offline fixture · synthetic file attachment staged in the composer";
+			if std::env::args().any(|arg| arg == "--demo-external-upload")
+				&& let Some(channel) = state.selected
+			{
+				messaging.external_upload.open(
+					state.generation,
+					channel,
+					0,
+					None,
+					"quarterly-report.pdf".into(),
+					1_482_311,
+				);
+			}
 		} else if demo
 			&& std::env::args()
 				.any(|arg| arg == "--demo-attachment" || arg == "--demo-attachment=multi")
@@ -1776,11 +1999,26 @@ impl Desktop {
 			if rest == "failed" {
 				state.auth = AuthState::Failed;
 				state.status = "Synthetic fixture failure · Discord was not contacted";
+				state.failure_detail =
+					Some("guilds[3].channels[12].permission_overwrites[0].allow: invalid type: null, expected a string".into());
 			}
+		}
+		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg.starts_with("--demo-onboarding")) {
+			onboarding_demo::open(&mut state);
 		}
 		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-server-settings") {
 			server_settings_demo::open(&mut state, &mut messaging);
+		}
+		#[cfg(feature = "demo")]
+		if demo
+			&& std::env::args().any(|arg| arg == "--demo-server-notifications")
+			&& let Some(guild) = state.guilds.first().map(|g| g.id)
+		{
+			// The new editor fixture includes a known server default: mentions only.
+			state.guilds[0].default_message_notifications = Some(1);
+			messaging.preview_server_notifications(&mut state, guild);
 		}
 		let mut hotkeys = platform::hotkeys::Hotkeys::new({
 			let ctx = cc.egui_ctx.clone();
@@ -1789,15 +2027,28 @@ impl Desktop {
 		if !demo {
 			hotkeys.sync(&messaging.keybinds, &runtime);
 		}
+		let system_theme = platform::system_theme::SystemTheme::watch(&runtime, {
+			let ctx = cc.egui_ctx.clone();
+			move || ctx.request_repaint()
+		});
 		let window = cc
 			.winit_window()
 			.ok_or("Native window unavailable")?
 			.clone();
+		messaging.hide_window_decorations = cfg!(target_os = "linux") && !window.is_decorated();
+		app_settings.current.hide_window_decorations = messaging.hide_window_decorations;
 		#[cfg(target_os = "windows")]
-		align_undecorated_surface(&window);
+		{
+			use winit::platform::windows::{CornerPreference, WindowExtWindows as _};
+			window.set_corner_preference(CornerPreference::Round);
+			align_undecorated_surface(&window);
+		}
 		// The GPU surface and X11 visual are selected at startup. Opaque launches
 		// keep the same native/compositor path as builds without window effects.
+		let tray_window = tray_window::State::default();
 		Ok(Self {
+			proxy_auth: proxy_auth::Authentication::default(),
+			api_proxy: tokio::sync::watch::channel(None).0,
 			extensions: extension_bridge::Bridge::default(),
 			extension_close_pending: false,
 			login: None,
@@ -1820,16 +2071,21 @@ impl Desktop {
 			notification_runtime: Default::default(),
 			notifications: {
 				let wake = cc.egui_ctx.clone();
-				platform::notifications::Notifications::new(move || wake.request_repaint())
+				platform::notifications::Notifications::new(
+					move || wake.request_repaint(),
+					tray_window.restorer(),
+				)
 			},
 			uploads: uploads::Uploads::default(),
 			interaction_files: Default::default(),
 			group_icon: group_icon::GroupIcon::default(),
+			create_server_icon: group_icon::GroupIcon::default(),
 			profile_avatar: group_icon::GroupIcon::default(),
 			server_icon: group_icon::GroupIcon::default(),
 			role_icon: group_icon::GroupIcon::default(),
 			role_icon_scope: None,
 			emoji_upload: emoji_upload::EmojiUpload::default(),
+			sticker_upload: sticker_upload::StickerUpload::default(),
 			clipboard: None,
 			download_close_pending: false,
 			window_blur: transparency_available
@@ -1859,13 +2115,20 @@ impl Desktop {
 			window_transparent: transparency_available,
 			reading,
 			app_settings,
+			font_picker: None,
 			updater: updater::Updater::new(demo),
 			game_activity,
+			registered_games: if demo {
+				registered_games::Registered::default()
+			} else {
+				registered_games::Registered::load()
+			},
 			tray_setting,
 			startup,
 			tray: None,
-			tray_window: tray_window::State::default(),
+			tray_window,
 			hotkeys,
+			system_theme,
 			tray_error: None,
 			#[cfg(feature = "demo")]
 			demo_typing,
@@ -1878,8 +2141,9 @@ impl Desktop {
 			presence_authoritative: false,
 			presence_saved: None,
 			confirming_forget: sign_in_forget,
+			sign_in_copied: None,
 			credential_status: if demo {
-				"Fixture mode never opens the credential store or network"
+				"Fixture mode skips saved login; extensions use public GitHub downloads"
 			} else if loading_saved {
 				"Checking saved login…"
 			} else {
@@ -1913,9 +2177,11 @@ impl Desktop {
 		self.role_icon.cancel();
 		self.role_icon_scope = None;
 		self.group_icon.cancel();
+		self.create_server_icon.cancel();
 		self.profile_avatar.cancel();
 		self.server_icon.cancel();
 		self.emoji_upload.cancel();
+		self.sticker_upload.cancel();
 		if let Some(store) = &mut self.store {
 			store.cancel_load();
 		}
@@ -1931,6 +2197,7 @@ impl Desktop {
 			.disconnect_voice("Discord login session changed; start a new call");
 		self.uploads.cancel();
 		self.login = None;
+		self.state.interrupt_gif_favorites();
 		self.connection = None;
 		if let Some(worker) = self.avatars.take() {
 			self.avatar_cleanup = Some(worker.shutdown());
@@ -1962,6 +2229,7 @@ impl Desktop {
 		self.messaging.draft_restore_pending = false;
 		self.state.auth = AuthState::Authenticating;
 		self.state.status = "Connecting to Discord…";
+		self.state.failure_detail = None;
 		let secret = Arc::new(secret);
 		self.pending_save = save.then(|| secret.clone());
 		self.pending_account_save = Some(secret.clone());
@@ -1971,6 +2239,7 @@ impl Desktop {
 			self.state.generation,
 			self.state.user.as_ref().map(|u| u.id),
 			self.account_presences.clone(),
+			self.api_proxy.subscribe(),
 			ctx.clone(),
 		));
 	}
@@ -1988,9 +2257,11 @@ impl Desktop {
 		self.role_icon.cancel();
 		self.role_icon_scope = None;
 		self.group_icon.cancel();
+		self.create_server_icon.cancel();
 		self.profile_avatar.cancel();
 		self.server_icon.cancel();
 		self.emoji_upload.cancel();
+		self.sticker_upload.cancel();
 		self.notifications.clear();
 		self.uploads.cancel();
 		if let Some(store) = &mut self.store {
@@ -2039,6 +2310,7 @@ impl Desktop {
 		let _ = ui::emoji::install(ctx);
 		ui::design::apply(ctx);
 		ctx.set_theme(self.appearance);
+		self.sync_system_theme(ctx);
 		self.messaging
 			.apply_reading_preferences(ctx, self.reading.current);
 		ctx.clear_animations();
@@ -2082,6 +2354,7 @@ impl Desktop {
 			|| self.state.server_settings.pending
 			|| self.state.server_admin.pending
 			|| self.uploads.has_unsent()
+			|| self.messaging.external_upload.has_unsent()
 		{
 			self.end_intent = intent;
 			self.confirming_logout = true;
@@ -2229,6 +2502,65 @@ impl Desktop {
 				.save(self.cache.as_ref(), self.state.generation),
 		);
 	}
+	fn accept_font(&mut self, ctx: &egui::Context, result: &font_import::Selected) {
+		self.messaging.custom_font.busy = false;
+		match result {
+			Ok(font) => {
+				ui::fonts::apply_custom(ctx, font.as_ref());
+				self.messaging.custom_font.name = font.as_ref().map(|font| font.name.clone());
+				self.messaging.custom_font.status = "";
+			}
+			Err(error) => self.messaging.custom_font.status = error,
+		}
+	}
+	fn save_font(&mut self, ctx: &egui::Context, font: Option<ui::fonts::CustomFont>) {
+		if self.fixture_only || self.state.demo {
+			self.accept_font(ctx, &Ok(font));
+			self.messaging.custom_font.status = "Preview only; this font is not saved.";
+		} else {
+			self.messaging.custom_font.busy =
+				self.queue_cache_for(model::Id(0), cache::Operation::SaveCustomFont(font));
+			self.messaging.custom_font.status = if self.messaging.custom_font.busy {
+				"Saving font…"
+			} else {
+				"Could not save the font. Try again."
+			};
+		}
+	}
+	fn sync_fonts(&mut self, ctx: &egui::Context) {
+		if let Some(picker) = &self.font_picker {
+			let result = match picker.try_recv() {
+				Ok(result) => Some(result),
+				Err(std::sync::mpsc::TryRecvError::Empty) => None,
+				Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+					Some(Err("Font import interrupted. Try again."))
+				}
+			};
+			if let Some(result) = result {
+				self.font_picker = None;
+				self.messaging.custom_font.busy = false;
+				self.messaging.custom_font.status = "";
+				match result {
+					Ok(Some(font)) => self.save_font(ctx, Some(font)),
+					Ok(None) => {}
+					Err(error) => self.messaging.custom_font.status = error,
+				}
+			}
+		}
+		if let Some(action) = self.messaging.custom_font.request.take()
+			&& !self.messaging.custom_font.busy
+		{
+			match action {
+				ui::fonts::Action::Import => {
+					self.font_picker =
+						Some(font_import::choose(&self.runtime, ctx, self.window.clone()));
+					self.messaging.custom_font.busy = true;
+					self.messaging.custom_font.status = "Choosing font…";
+				}
+				ui::fonts::Action::Reset => self.save_font(ctx, None),
+			}
+		}
+	}
 	fn save_reading_preferences(&mut self, ctx: &egui::Context) {
 		if self.fixture_only {
 			return;
@@ -2277,17 +2609,17 @@ impl Desktop {
 			self.tray_setting.failed = !accepted && !self.fixture_only && !self.state.demo;
 			self.cache_pending += usize::from(accepted);
 		}
-		if !self.tray_setting.enabled {
-			self.tray = None;
-			self.tray_error = None;
-		} else if self.tray_error.is_some() {
+		if self.tray_error.is_some() {
 			self.tray = None;
 		} else if self.tray.is_none() {
 			let wake = ctx.clone();
 			#[cfg(target_os = "linux")]
 			let tray = {
 				let _runtime = self.runtime.enter();
-				platform::tray::Tray::new(move || wake.request_repaint())
+				platform::tray::Tray::new(
+					move || wake.request_repaint(),
+					self.tray_window.restorer(),
+				)
 			};
 			#[cfg(not(target_os = "linux"))]
 			let tray = platform::tray::Tray::new(self.window.clone(), move || wake.request_repaint());
@@ -2296,9 +2628,41 @@ impl Desktop {
 				Err(error) => self.tray_error = Some(error),
 			}
 		}
+		if let Some(tray) = &self.tray {
+			let deafened = self.messaging.voice_deafened
+				|| self
+					.state
+					.voice
+					.active
+					.as_ref()
+					.is_some_and(|c| c.deafened || c.server_deafened);
+			let muted = self.messaging.voice_muted
+				|| self
+					.state
+					.voice
+					.active
+					.as_ref()
+					.is_some_and(|c| c.muted || c.server_muted);
+			let speaking = self
+				.state
+				.user
+				.as_ref()
+				.is_some_and(|own| self.messaging.voice_speaking.contains(&own.id));
+			let voice_state = if deafened {
+				platform::tray::VoiceState::Deafened
+			} else if muted {
+				platform::tray::VoiceState::Muted
+			} else if speaking {
+				platform::tray::VoiceState::Speaking
+			} else {
+				platform::tray::VoiceState::Unmuted
+			};
+			tray.set_voice_state(voice_state);
+		}
 		if self.tray_window.hidden && !self.tray_available() {
 			self.tray_window.show(ctx);
 		}
+		// The icon remains registered independently of minimize-on-close.
 		self.messaging.tray_status = self
 			.tray_error
 			.unwrap_or_else(|| self.tray_setting.status());
@@ -2343,6 +2707,21 @@ impl Desktop {
 		}
 		self.messaging.adopt_account_presence(remote);
 		self.presence_authoritative = true;
+	}
+	/// egui resolves System through `fallback_theme` when winit reports no system theme, as on
+	/// Wayland and X11. A reported system theme still takes precedence on Windows and macOS.
+	fn sync_system_theme(&self, ctx: &egui::Context) {
+		let Some(dark) = self.system_theme.dark() else {
+			return;
+		};
+		let theme = if dark {
+			egui::Theme::Dark
+		} else {
+			egui::Theme::Light
+		};
+		if ctx.options(|options| options.fallback_theme) != theme {
+			ctx.options_mut(|options| options.fallback_theme = theme);
+		}
 	}
 	fn persist_account_presence(&mut self) {
 		if !self.presence_authoritative || self.state.demo || self.fixture_only {
@@ -2449,9 +2828,31 @@ impl Desktop {
 				.share_game_activity
 				.then(game_activity::demo_activity);
 			self.messaging.own_game = activity.as_ref().map(model::RichActivity::summary);
+			self.messaging.running_game = self
+				.messaging
+				.share_game_activity
+				.then(|| {
+					let renamed = self
+						.messaging
+						.registered_games
+						.iter()
+						.find(|game| game.executable == "osu!.exe");
+					model::registered_games::RunningGame {
+						executable: "osu!.exe".into(),
+						name: renamed.map_or_else(|| "osu!".into(), |game| game.name.clone()),
+						application: Some(model::Id(367_827_983_903_490_050)),
+						renamed: renamed.is_some(),
+					}
+				})
+				.filter(|_| {
+					!self
+						.messaging
+						.registered_games
+						.iter()
+						.any(|game| game.executable == "osu!.exe" && game.hidden)
+				});
 			let changed = self.state.set_local_game_activity(activity);
-			self.messaging.game_activity_status =
-				"Offline preview: synthetic activity, never shared or saved.";
+			self.messaging.game_activity_status = "settings-activity-status-offline-preview";
 			if changed
 				|| previous
 					!= (
@@ -2465,6 +2866,8 @@ impl Desktop {
 		if self.fixture_only {
 			return;
 		}
+		self.registered_games.sync(&mut self.messaging, ctx);
+		self.messaging.running_game = None;
 		self.game_activity
 			.observe(self.messaging.share_game_activity);
 		if self.game_activity.dirty && !self.game_activity.saving {
@@ -2488,6 +2891,26 @@ impl Desktop {
 		let mut own_activity = None;
 		self.messaging.game_activity_status = self.game_activity.status();
 		if let Some(connection) = &self.connection {
+			let custom_changed = self.extensions.take_rich_presence_change();
+			let custom = self.extensions.rich_presence();
+			connection.custom_rich_presence.send_if_modified(|current| {
+				if !custom_changed && current.as_ref() == custom {
+					return false;
+				}
+				*current = custom.cloned();
+				true
+			});
+			let registered = self.registered_games.games();
+			connection.registered_games.send_if_modified(|current| {
+				if current.as_slice() == registered {
+					return false;
+				}
+				*current = registered.to_vec();
+				true
+			});
+			if self.game_activity.enabled && self.state.gateway_connected {
+				self.messaging.running_game = connection.running_game.borrow().clone();
+			}
 			connection.share_activity.send_if_modified(|enabled| {
 				if *enabled == self.game_activity.enabled {
 					return false;
@@ -2514,22 +2937,14 @@ impl Desktop {
 								.activity_observation
 								.borrow()
 							{
-								Observation::Unconfirmed => {
-									"Local preview only. Waiting for Discord to confirm sharing."
-								}
-								Observation::ServerReceived => {
-									"Discord received your game, but has not listed it publicly."
-								}
-								Observation::ServerListed => {
-									"Discord lists your game. Server and friend privacy settings still apply."
-								}
+								Observation::Unconfirmed => "settings-activity-status-unconfirmed",
+								Observation::ServerReceived => "settings-activity-status-received",
+								Observation::ServerListed => "settings-activity-status-listed",
 								Observation::ServerHidden => {
 									self.messaging.discord_activity_sharing_retry = true;
-									"Discord is hiding your game. Check Registered Games and Activity Sharing in Discord."
+									"settings-activity-status-hidden"
 								}
-								Observation::ServerMissing => {
-									"Discord did not list your game publicly. Check its Registered Games and server sharing controls."
-								}
+								Observation::ServerMissing => "settings-activity-status-missing",
 							};
 						}
 					}
@@ -2545,11 +2960,11 @@ impl Desktop {
 							match value {
 								Some(false) => {
 									self.messaging.game_activity_status =
-										"Discord's account-wide activity sharing is off."
+										"settings-activity-status-sharing-off"
 								}
 								None => {
 									self.messaging.game_activity_status =
-										"Checking Discord's activity sharing setting..."
+										"settings-activity-status-checking"
 								}
 								Some(true) => {}
 							}
@@ -2559,22 +2974,38 @@ impl Desktop {
 						self.messaging.discord_activity_sharing_retry = true;
 						if !self.game_activity.needs_attention() {
 							self.messaging.game_activity_status =
-								"Could not check or change Discord's activity sharing setting.";
+								"settings-activity-status-check-failed";
 						}
 					}
 				}
 				if let Some(enable) = sharing_request {
 					if connection.activity_sharing_request.try_send(enable).is_ok() {
 						self.messaging.discord_activity_sharing_busy = true;
-						self.messaging.game_activity_status =
-							"Updating Discord's activity sharing setting...";
+						self.messaging.game_activity_status = "settings-activity-status-updating";
 					} else {
 						self.messaging.discord_activity_sharing_retry = true;
 						self.messaging.game_activity_status =
-							"Could not request the setting change. Try again.";
+							"settings-activity-status-request-failed";
 					}
 				}
 			}
+		}
+		// Detected games join Added Games so a wrong detection can be hidden later.
+		let now_ms = std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.unwrap_or_default()
+			.as_millis()
+			.min(u128::from(u64::MAX)) as u64;
+		self.registered_games.record(&mut self.messaging, now_ms);
+		// Keep the existing game preview; Spotify fills the activity card while no game is active.
+		if own_activity.is_none() && self.state.gateway_connected {
+			own_activity = self.connection.as_ref().and_then(|connection| {
+				connection
+					.spotify_activity
+					.borrow()
+					.as_ref()
+					.map(|activity| activity.display())
+			});
 		}
 		let changed = self.state.set_local_game_activity(own_activity);
 		if changed
@@ -2669,6 +3100,13 @@ impl Desktop {
 	}
 	/// Dispatches one queued command to the demo or live transport.
 	fn command(&mut self, command: Command) {
+		if !self.state.gateway_connected
+			&& self.state.auth == AuthState::Authenticated
+			&& matches!(command, Command::Send { .. })
+			&& let Some(connection) = &self.connection
+		{
+			connection.recover_send();
+		}
 		if matches!(&command, Command::Interaction(client_core::interactions::Request {data:client_core::interactions::Data::Modal{components,..},..}) if interaction_uploads::has_files(components))
 		{
 			self.interaction_upload(command);
@@ -2682,6 +3120,12 @@ impl Desktop {
 			&& !self
 				.state
 				.server_admin_command_allowed(*guild, *request, action)
+		{
+			self.state.command_rejected(command);
+			return;
+		}
+		if let Command::Onboarding { guild, request, .. } = &command
+			&& !self.state.onboarding_command_allowed(*guild, *request)
 		{
 			self.state.command_rejected(command);
 			return;
@@ -2875,7 +3319,23 @@ impl Desktop {
 		#[cfg(feature = "demo")]
 		if self.state.demo {
 			let event = match command {
+				Command::ApplicationCommands {
+					channel,
+					guild,
+					request,
+				} => Event::ApplicationCommands {
+					channel,
+					request,
+					result: Ok(slash_demo::catalog(guild)),
+				},
 				Command::Interaction(request) => {
+					if matches!(
+						&request.data,
+						client_core::interactions::Data::ApplicationCommand { .. }
+					) {
+						slash_demo::respond(&mut self.state, request);
+						return;
+					}
 					if std::env::args().any(|arg| arg == "--demo-components") {
 						self.state.apply(Envelope {
 							generation: self.state.generation,
@@ -2892,19 +3352,28 @@ impl Desktop {
 				}
 				Command::MemberSearch(request) => {
 					let query = request.query.to_lowercase();
-					let rows = demo_members(Some(request.guild), request.channel, request.nonce)
-						.rows
-						.into_iter()
-						.flatten()
-						.filter(|member| {
-							member.user.name.to_lowercase().contains(&query)
-								|| member
-									.nick
-									.as_ref()
-									.is_some_and(|name| name.to_lowercase().contains(&query))
-								|| member.user.id.to_string() == query
-						})
-						.collect();
+					let rows = demo_members(
+						&self.state,
+						Some(request.guild),
+						request.channel,
+						request.nonce,
+					)
+					.slots
+					.into_iter()
+					.flatten()
+					.filter_map(|slot| match slot {
+						model::MemberSlot::Person(member) => Some(member),
+						_ => None,
+					})
+					.filter(|member| {
+						member.user.name.to_lowercase().contains(&query)
+							|| member
+								.nick
+								.as_ref()
+								.is_some_and(|name| name.to_lowercase().contains(&query))
+							|| member.user.id.to_string() == query
+					})
+					.collect();
 					Event::MemberSearch {
 						request,
 						result: Ok(rows),
@@ -2936,9 +3405,14 @@ impl Desktop {
 					request,
 					edit,
 				} => server_settings_demo::execute(&self.state, guild, request, edit),
-				Command::GuildFolders(settings) => {
-					Event::GuildFolders(Ok(settings.unwrap_or_default()))
-				}
+				Command::Onboarding {
+					guild,
+					request,
+					action,
+				} => onboarding_demo::execute(guild, request, action),
+				Command::GuildFolders(settings) => Event::GuildFolders(Ok(settings
+					.map(|(_, settings)| settings)
+					.unwrap_or_default())),
 				Command::SendServerInvite {
 					guild,
 					user,
@@ -3012,6 +3486,7 @@ impl Desktop {
 							position: Patch::Absent,
 							kind: Patch::Absent,
 							message_count: Patch::Absent,
+							tags: Patch::Absent,
 						}),
 					};
 					Event::GroupAction(GroupEvent::Written {
@@ -3037,6 +3512,9 @@ impl Desktop {
 						request,
 						result: Ok(()),
 					})
+				}
+				Command::Polls(request) => {
+					polls_demo::respond(&self.state, request, &mut self.synthetic_id)
 				}
 				Command::Reactions(command) => {
 					use client_core::reactions::{Command as R, Event as E};
@@ -3135,6 +3613,7 @@ impl Desktop {
 					parent,
 					guild,
 					title,
+					tags,
 					request,
 					..
 				} => {
@@ -3153,6 +3632,12 @@ impl Desktop {
 							recipients: vec![],
 							last_message: None,
 							member_list_id: None,
+							tags: (!tags.is_empty()).then(|| {
+								Box::new(model::forum::Tags {
+									applied: tags,
+									..Default::default()
+								})
+							}),
 							message_count: Some(0),
 						}),
 					}
@@ -3203,6 +3688,7 @@ impl Desktop {
 							recipients: vec![],
 							last_message: None,
 							member_list_id: None,
+							tags: None,
 							message_count: None,
 						})
 						.collect();
@@ -3241,6 +3727,7 @@ impl Desktop {
 								message.content.chars().take(200).collect::<String>()
 							),
 							author: message.author,
+							mentions: message.mentions,
 							attachments: message.attachments,
 							embeds: message.embeds,
 						}
@@ -3261,6 +3748,7 @@ impl Desktop {
 					channel,
 					query,
 					before,
+					offset,
 					request,
 					..
 				} => {
@@ -3270,11 +3758,17 @@ impl Desktop {
 						Ok(terms) => terms,
 						Err(_) => return,
 					};
+					// Fixture IDs repeat per channel, so an offline search reads one channel.
+					let source = filters
+						.iter()
+						.find_map(|(key, value)| (*key == "channel_id").then(|| value.parse().ok()))
+						.flatten()
+						.map_or(channel, model::Id);
 					for id in (1..=500)
 						.rev()
 						.filter(|id| before.is_none_or(|b| *id < b.0))
 					{
-						let message = test_support::message(id, channel);
+						let message = test_support::message(id, source);
 						if message
 							.content
 							.to_lowercase()
@@ -3283,6 +3777,7 @@ impl Desktop {
 								filters.iter().filter(|(key, _)| key == group).any(
 									|(key, value)| match *key {
 										"author_id" => message.author.id.to_string() == *value,
+										"channel_id" => source.to_string() == *value,
 										"mentions" => message
 											.mentions
 											.iter()
@@ -3294,7 +3789,7 @@ impl Desktop {
 											value.parse::<u64>().is_ok_and(|max| message.id.0 < max)
 										}
 										"pinned" => {
-											self.state.is_pinned(channel, message.id)
+											self.state.is_pinned(source, message.id)
 												== (value == "true")
 										}
 										"author_type" => match value.as_str() {
@@ -3327,11 +3822,12 @@ impl Desktop {
 								)
 							}) {
 							total += 1;
-							if hits.len() < model::SEARCH_PAGE_SIZE {
+							if total > u64::from(offset) && hits.len() < model::SEARCH_PAGE_SIZE {
 								hits.push(model::SearchHit {
 									id: message.id,
-									channel,
+									channel: source,
 									author: message.author,
+									mentions: message.mentions,
 									excerpt: message.content.clone(),
 									attachments: message.attachments,
 									embeds: message.embeds,
@@ -3355,6 +3851,14 @@ impl Desktop {
 					result: Ok(test_support::gif_page(query.as_deref())),
 				},
 				Command::CancelGifs => return,
+				Command::GifFavorites { request, .. } => Event::GifFavorites {
+					request,
+					result: Ok(self.state.gifs.favorites.clone()),
+				},
+				Command::CreateGuild { sequence, .. } => Event::GuildCreated {
+					sequence,
+					result: Err(Failure::ProtocolAt("Server creation unavailable offline")),
+				},
 				Command::JoinInvite { request, .. } => Event::JoinInvite {
 					request,
 					result: Err(Failure::ProtocolAt("Server joining unavailable offline")),
@@ -3367,11 +3871,26 @@ impl Desktop {
 					user,
 					guild,
 					request,
+					..
 				} => Event::Profile {
 					user,
 					guild,
 					request,
 					result: Err(Failure::Protocol),
+				},
+				Command::StreamPreview {
+					guild,
+					channel,
+					user,
+					request,
+				} => Event::StreamPreview {
+					guild,
+					channel,
+					user,
+					request,
+					result: Ok(format!(
+						"https://cdn.discordapp.com/streams/guild:{guild}:{channel}:{user}/0123456789abcdef.png"
+					)),
 				},
 				Command::EditProfile {
 					user,
@@ -3432,7 +3951,7 @@ impl Desktop {
 					let Some(channel) = channel else {
 						return;
 					};
-					Event::Members(demo_members(guild, channel, request))
+					Event::Members(demo_members(&self.state, guild, channel, request))
 				}
 				Command::ForumPosts { .. } | Command::ForumSummaries { .. } => return,
 				Command::History { before, after, .. } => {
@@ -3575,11 +4094,13 @@ impl Desktop {
 	}
 	/// Boot stage while a saved login is being restored, so launch shows progress
 	/// instead of a welcome card the user cannot act on yet.
-	fn restoring(&self) -> Option<&'static str> {
+	fn restoring(&self) -> Option<String> {
 		// Fixture-only preview of the restore screen, e.g. `--demo --demo-restoring`.
 		#[cfg(feature = "demo")]
 		if self.fixture_only && std::env::args().any(|arg| arg == "--demo-restoring") {
-			return Some("Checking your saved login");
+			return Some(ui::i18n::translate(
+				"main-restoring-checking-your-saved-login",
+			));
 		}
 		if self.fixture_only
 			|| self.state.demo
@@ -3596,13 +4117,17 @@ impl Desktop {
 			.as_ref()
 			.is_some_and(|store| store.remaining(std::time::Instant::now()).is_some())
 		{
-			return Some("Checking your saved login");
+			return Some(ui::i18n::translate(
+				"main-restoring-checking-your-saved-login",
+			));
 		}
-		self.connection.is_some().then_some("Connecting to Discord")
+		self.connection
+			.is_some()
+			.then(|| ui::i18n::translate("main-restoring-connecting-to-discord"))
 	}
 	/// Restore screen for returning accounts: no sign-in controls, just the stage,
 	/// an indeterminate bar and a way out to the welcome screen.
-	fn restoring_screen(&mut self, ui: &mut egui::Ui, stage: &'static str) {
+	fn restoring_screen(&mut self, ui: &mut egui::Ui, stage: &str) {
 		let p = ui::design::palette(ui);
 		egui::CentralPanel::default()
 			.frame(egui::Frame::NONE.fill(ui::design::window_palette(ui).canvas))
@@ -3626,7 +4151,14 @@ impl Desktop {
 					})
 					.show(ui, |ui| {
 						ui.horizontal(|ui| {
-							ui.label(ui::design::semibold(ui, "Serein", 16.0).color(p.muted));
+							ui.label(
+								ui::design::semibold(
+									ui,
+									ui::i18n::translate("main-restoring-screen-serein"),
+									16.0,
+								)
+								.color(p.muted),
+							);
 							ui.with_layout(
 								egui::Layout::right_to_left(egui::Align::Center),
 								|ui| {
@@ -3659,7 +4191,14 @@ impl Desktop {
 						p.accent_text,
 					);
 					ui.add_space(18.0);
-					ui.label(ui::design::semibold(ui, "Welcome back", 24.0).color(p.text_strong));
+					ui.label(
+						ui::design::semibold(
+							ui,
+							ui::i18n::translate("main-restoring-screen-welcome-back"),
+							24.0,
+						)
+						.color(p.text_strong),
+					);
 					ui.add_space(6.0);
 					ui.label(
 						egui::RichText::new(format!("{stage}…"))
@@ -3691,7 +4230,13 @@ impl Desktop {
 						egui::vec2(220.0, 0.0),
 						egui::Layout::top_down(egui::Align::Center),
 						|ui| {
-							if ui::design::secondary_button(ui, "Use a different account").clicked()
+							if ui::design::secondary_button(
+								ui,
+								&ui::i18n::translate(
+									"main-restoring-screen-use-a-different-account",
+								),
+							)
+							.clicked()
 							{
 								if let Some(store) = &mut self.store {
 									store.cancel_load();
@@ -3741,7 +4286,14 @@ impl Desktop {
 								p.accent_text,
 							);
 							ui.add_space(8.0);
-							ui.label(ui::design::semibold(ui, "Serein", 16.0).color(p.text_strong));
+							ui.label(
+								ui::design::semibold(
+									ui,
+									ui::i18n::translate("main-sign-in-screen-serein"),
+									16.0,
+								)
+								.color(p.text_strong),
+							);
 							ui.add_space(8.0);
 							// Painted rather than framed: the pill must hug the text, not the row height.
 							let stage = ui.painter().layout_no_wrap(
@@ -3790,7 +4342,7 @@ impl Desktop {
 										};
 									egui::containers::menu::MenuButton::from_button(quiet(
 										ui,
-										"Appearance",
+										&ui::i18n::translate("page-appearance"),
 										p.muted,
 									))
 									.config(sticky())
@@ -3798,17 +4350,18 @@ impl Desktop {
 									ui.add_space(8.0);
 									let updates = &self.messaging.updates;
 									let (label, color) = if updates.ready {
-										("Restart to update", p.link)
+										("updates-shows-update-banner-restart-to-update", p.link)
 									} else if updates.busy {
-										("Updating…", p.muted)
+										("updates-shows-update-banner-updating", p.muted)
 									} else if updates.available {
-										("Update available", p.link)
+										("updates-shows-update-banner-update-available", p.link)
 									} else {
-										("Updates", p.muted)
+										("page-updates", p.muted)
 									};
+									let label = ui::i18n::translate(label);
 									let demo = self.fixture_only || self.state.demo;
 									egui::containers::menu::MenuButton::from_button(quiet(
-										ui, label, color,
+										ui, &label, color,
 									))
 									.config(sticky())
 									.ui(ui, |ui| self.messaging.updates_menu(ui, demo));
@@ -3842,9 +4395,9 @@ impl Desktop {
 							);
 							ui.add_space(18.0);
 							ui.label(
-								egui::RichText::new(
-									"Independent and open source. Not affiliated with Discord.",
-								)
+								egui::RichText::new(ui::i18n::translate(
+									"main-sign-in-screen-independent-and-open-source-not-affiliated-with-discord",
+								))
 								.size(12.0)
 								.color(p.muted),
 							);
@@ -3919,10 +4472,9 @@ impl Desktop {
 							self.state.auth = AuthState::Authenticating;
 							self.state.status = "Waiting for Discord login";
 						}
-						Err(_) => {
+						Err(error) => {
 							self.state.auth = AuthState::Failed;
-							self.state.status =
-								"Platform login webview unavailable; see platform-support.md";
+							self.state.status = error.label();
 						}
 					}
 				}
@@ -3957,11 +4509,11 @@ impl Desktop {
 			ui.label(
 				ui::design::semibold(
 					ui,
-					if returning {
-						"Welcome back"
+					ui::i18n::translate_if_key(if returning {
+						"main-sign-in-header-welcome-back"
 					} else {
-						"Welcome to Serein"
-					},
+						"main-sign-in-header-welcome-to-serein"
+					}),
 					22.0,
 				)
 				.color(p.text_strong),
@@ -3969,11 +4521,11 @@ impl Desktop {
 			ui.add_space(5.0);
 			ui.add(
 				egui::Label::new(
-					egui::RichText::new(if returning {
-						"Continue with a saved account, or sign in with another one."
+					egui::RichText::new(ui::i18n::translate_if_key(if returning {
+						"main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another"
 					} else {
-						"Sign in with your Discord account to get started."
-					})
+						"main-sign-in-header-sign-in-with-your-discord-account-to-get-started"
+					}))
 					.size(14.0)
 					.color(p.muted),
 				)
@@ -3984,7 +4536,11 @@ impl Desktop {
 	/// Accounts already signed in on this device: one tap restores their saved login.
 	fn sign_in_accounts(&mut self, ui: &mut egui::Ui, enabled: bool) {
 		let p = ui::design::palette(ui);
-		ui.label(ui::design::eyebrow(ui, "Saved accounts", p.muted));
+		ui.label(ui::design::eyebrow(
+			ui,
+			ui::i18n::translate("main-sign-in-accounts-saved-accounts"),
+			p.muted,
+		));
 		ui.add_space(6.0);
 		let saved: Vec<(model::Id, String, String)> = self
 			.messaging
@@ -4077,15 +4633,21 @@ impl Desktop {
 				ui.set_width(ui.available_width());
 				ui.checkbox(
 					&mut self.authorized,
-					ui::design::medium(ui, "I own this account and authorize this session.", 13.0)
-						.color(p.text_strong),
+					ui::design::medium(
+						ui,
+						ui::i18n::translate(
+							"main-sign-in-consent-i-own-this-account-and-authorize-this-session",
+						),
+						13.0,
+					)
+					.color(p.text_strong),
 				);
 				ui.add_space(4.0);
 				ui.add(
 					egui::Label::new(
-						egui::RichText::new(
-							"Passwords and 2FA stay on Discord's own login page; only the session token is kept, in your OS credential store.",
-						)
+						egui::RichText::new(ui::i18n::translate(
+							"main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page",
+						))
 						.size(12.0)
 						.color(p.muted),
 					)
@@ -4155,6 +4717,9 @@ impl Desktop {
 								.wrap(),
 							);
 						}
+						if attention {
+							self.sign_in_failure_details(ui, p.muted);
+						}
 						if !self.fixture_only && !self.credential_status.is_empty() {
 							ui.add(
 								egui::Label::new(
@@ -4179,6 +4744,44 @@ impl Desktop {
 					});
 				});
 			});
+	}
+	/// Redacted decode cause plus a copyable report users can attach to a bug report.
+	fn sign_in_failure_details(&mut self, ui: &mut egui::Ui, muted: egui::Color32) {
+		if let Some(detail) = &self.state.failure_detail {
+			ui.add(
+				egui::Label::new(egui::RichText::new(&**detail).size(12.0).color(muted))
+					.wrap()
+					.selectable(true),
+			);
+		}
+		ui.add_space(4.0);
+		let now = ui.input(|i| i.time);
+		let copied = self.sign_in_copied.is_some_and(|until| now < until);
+		if ui::design::button(
+			ui,
+			if copied {
+				"updates-update-settings-copied"
+			} else {
+				"main-sign-in-status-copy-failure-details"
+			},
+			ui::design::ButtonKind::Outline,
+		)
+		.clicked()
+		{
+			let report = format!(
+				"### Sign-in failure\n- **Reason:** {}\n- **Cause:** {}\n{}",
+				self.state.status,
+				self.state
+					.failure_detail
+					.as_deref()
+					.unwrap_or("No decode detail recorded"),
+				self.messaging.diagnostic_info(ui.ctx())
+			);
+			ui.ctx().copy_text(report);
+			self.sign_in_copied = Some(now + 2.5);
+			ui.ctx()
+				.request_repaint_after(std::time::Duration::from_secs(3));
+		}
 	}
 	/// Fixture-only entry into the offline preview, kept visually secondary to signing in.
 	#[cfg(feature = "demo")]
@@ -4214,7 +4817,12 @@ impl Desktop {
 			ui.allocate_space(egui::vec2(width, 16.0));
 		});
 		ui.add_space(14.0);
-		if ui::design::secondary_button(ui, "Explore the offline preview").clicked() {
+		if ui::design::secondary_button(
+			ui,
+			&ui::i18n::translate("main-sign-in-preview-explore-the-offline-preview"),
+		)
+		.clicked()
+		{
 			if let Some(store) = &mut self.store {
 				store.cancel_load();
 			}
@@ -4232,16 +4840,24 @@ impl Desktop {
 		ui.add_space(8.0);
 		ui.vertical_centered(|ui| {
 			ui.label(
-				egui::RichText::new("Sample conversations. No Discord connection.")
-					.size(12.0)
-					.color(p.muted),
+				egui::RichText::new(&ui::i18n::translate(
+					"main-sign-in-preview-sample-conversations-no-discord-connection",
+				))
+				.size(12.0)
+				.color(p.muted),
 			);
 		});
 	}
 	/// Secondary panels: what this client is, and the owner's own session token.
 	fn sign_in_disclosures(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
 		let p = ui::design::palette(ui);
-		if ui::design::disclosure(ui, "About Serein", self.about_open).clicked() {
+		if ui::design::disclosure(
+			ui,
+			&ui::i18n::translate("main-sign-in-disclosures-about-serein"),
+			self.about_open,
+		)
+		.clicked()
+		{
 			self.about_open = !self.about_open;
 		}
 		if self.about_open {
@@ -4269,7 +4885,7 @@ impl Desktop {
 					}
 					if !self.fixture_only {
 						ui.add_space(2.0);
-						if ui::design::button(ui, "Forget saved login", ui::design::ButtonKind::Outline)
+						if ui::design::button(ui, &ui::i18n::translate("main-sign-in-disclosures-forget-saved-login"), ui::design::ButtonKind::Outline)
 							.clicked()
 						{
 							self.logout(ctx);
@@ -4277,7 +4893,13 @@ impl Desktop {
 					}
 				});
 		}
-		if ui::design::disclosure(ui, "Sign in with a session token", self.token_open).clicked() {
+		if ui::design::disclosure(
+			ui,
+			&ui::i18n::translate("main-sign-in-disclosures-sign-in-with-a-session-token"),
+			self.token_open,
+		)
+		.clicked()
+		{
 			self.token_open = !self.token_open;
 		}
 		if self.token_open {
@@ -4292,9 +4914,9 @@ impl Desktop {
 				.show(ui, |ui| {
 					ui.add(
 						egui::Label::new(
-							egui::RichText::new(
-								"For owners who already hold a valid Discord session token, for example from another signed-in Serein install. Passwords and 2FA are never used here; this bypasses Discord's hosted login page entirely.",
-							)
+							egui::RichText::new(ui::i18n::translate(
+								"main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token",
+							))
 							.size(12.0)
 							.color(p.muted),
 						)
@@ -4306,14 +4928,18 @@ impl Desktop {
 						egui::TextEdit::singleline(&mut *self.token_input)
 							.password(true)
 							.char_limit(2048)
-							.hint_text("Session token"),
+							.hint_text(ui::i18n::translate(
+								"main-sign-in-disclosures-session-token",
+							)),
 					);
 					ui.add_space(8.0);
 					let connect = ui
 						.add_enabled_ui(self.authorized && !self.token_input.is_empty(), |ui| {
 							ui::design::button(
 								ui,
-								"Connect with this token",
+								&ui::i18n::translate(
+									"main-sign-in-disclosures-connect-with-this-token",
+								),
 								ui::design::ButtonKind::Primary,
 							)
 						})
@@ -4383,7 +5009,7 @@ impl Desktop {
 				}
 			}
 		}
-		if self.fixture_only || self.state.demo || self.state.auth != AuthState::Authenticated {
+		if !self.fixture_only && !self.state.demo && self.state.auth != AuthState::Authenticated {
 			if let Some(worker) = self.avatars.take() {
 				self.avatar_cleanup = Some(worker.shutdown());
 			}
@@ -4394,7 +5020,11 @@ impl Desktop {
 			&& self.avatar_cleanup.is_none()
 			&& let Some(user) = &self.state.user
 		{
-			match avatars::AvatarWorker::start(&self.runtime, user.id, ctx.clone()) {
+			match if self.fixture_only || self.state.demo {
+				avatars::AvatarWorker::start_bundled(&self.runtime, ctx.clone())
+			} else {
+				avatars::AvatarWorker::start(&self.runtime, user.id, ctx.clone())
+			} {
 				Ok(worker) => {
 					self.messaging.clear_avatars();
 					self.avatars = Some(worker);
@@ -4407,7 +5037,7 @@ impl Desktop {
 			}
 		}
 		if let Some(worker) = &mut self.avatars {
-			for _ in 0..8 {
+			for _ in 0..32 {
 				let Some(result) = worker.poll() else {
 					break;
 				};
@@ -4415,10 +5045,13 @@ impl Desktop {
 					self.cache_error = true;
 					self.cache_status = error;
 				}
+				let stage = result.stage;
 				self.messaging
 					.accept_avatar(ctx, result.key.clone(), result.image);
-				self.messaging
-					.accept_gif_animation(result.key, result.frames);
+				if stage == avatars::DecodeStage::Settled {
+					self.messaging
+						.accept_gif_animation(result.key, result.frames);
+				}
 			}
 		}
 	}
@@ -4438,6 +5071,11 @@ impl Desktop {
 				match cache.receive.try_recv() {
 					Ok(value) => cached.push(value),
 					Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+						if self.messaging.custom_font.busy && self.font_picker.is_none() {
+							self.messaging.custom_font.busy = false;
+							self.messaging.custom_font.status =
+								"Local storage worker stopped. Restart Serein to save fonts.";
+						}
 						if self.messaging.channel_preferences_reload
 							|| self.messaging.channel_preferences_load_pending
 						{
@@ -4460,17 +5098,8 @@ impl Desktop {
 			self.cache_pending = self.cache_pending.saturating_sub(1);
 			// Settings are global; account removal/write failures still matter after logout.
 			match &outcome {
-				cache::Outcome::AppPreferences(result) => {
-					self.app_settings.loaded = result.is_ok();
-					if !self.app_settings.state.touched {
-						match result {
-							Ok(value) => self.app_settings.current = value.as_ref().clone(),
-							Err(_) => self.app_settings.state.failed = true,
-						}
-						if !self.state.demo && !self.fixture_only {
-							self.app_settings.apply(&mut self.messaging);
-						}
-					}
+				cache::Outcome::CustomFont(result) => {
+					self.accept_font(ctx, result);
 					continue;
 				}
 				cache::Outcome::AppPreferencesSaved(result) => {
@@ -4663,7 +5292,7 @@ impl Desktop {
 					}
 				}
 				cache::Outcome::Appearance(..)
-				| cache::Outcome::AppPreferences(_)
+				| cache::Outcome::CustomFont(_)
 				| cache::Outcome::AppPreferencesSaved(_)
 				| cache::Outcome::MinimizeToTray(_)
 				| cache::Outcome::MinimizeToTraySaved(_)
@@ -4733,7 +5362,7 @@ impl Desktop {
 								has_token: true,
 							},
 						);
-					} else {
+					} else if result != Err(platform::CredentialError::NoStore) {
 						self.credential_status =
 							"Could not save this account for the switcher; sign in again to retry";
 					}
@@ -4741,12 +5370,18 @@ impl Desktop {
 				credentials::Outcome::Saved(Ok(())) => {
 					self.credential_status = "Login saved in the OS credential store"
 				}
+				credentials::Outcome::Saved(Err(platform::CredentialError::NoStore)) => {
+					self.messaging.toasts.push(
+						ui::design::Level::Warning,
+						"No OS keyring found, so you will need to sign in again next launch",
+					);
+				}
 				credentials::Outcome::Saved(Err(_)) => {
 					self.credential_status =
 						"Could not save login; this session will not restore automatically"
 				}
 				credentials::Outcome::AccountForgotten(result) => {
-					if result.is_err() {
+					if result.is_err_and(|error| error != platform::CredentialError::NoStore) {
 						self.messaging.toasts.push(
 							ui::design::Level::Error,
 							"Could not remove that account's saved login from the OS credential store",
@@ -4755,10 +5390,13 @@ impl Desktop {
 				}
 				credentials::Outcome::Forgotten(result) => {
 					self.forgetting = false;
-					self.credential_status = if result.is_ok() {
-						"Saved login removed"
-					} else {
-						"Could not remove saved login; remove cz.viceverse.serein / discord-session in your OS credential manager"
+					self.credential_status = match result {
+						Ok(()) => "Saved login removed",
+						// Nothing could have been saved without a credential store.
+						Err(platform::CredentialError::NoStore) => "",
+						Err(_) => {
+							"Could not remove the Serein saved login in your OS credential manager"
+						}
 					};
 				}
 			}
@@ -4783,6 +5421,14 @@ impl Desktop {
 			}
 			let typing_count = events.len() - reliable_count;
 			events.rotate_right(typing_count);
+			// A local candidate failure must remain deliverable when reliable account
+			// events are full. Apply queued signaling first; observe rechecks its scope.
+			if let Some(failure) = connection::take_confirmation_failure(
+				&mut connection.confirmation_failure,
+				&connection.events,
+			) {
+				events.push(failure);
+			}
 			terminal = *connection.terminal.borrow();
 		}
 		let mut persist_timeline = false;
@@ -4792,32 +5438,9 @@ impl Desktop {
 			if event.generation != self.state.generation {
 				continue;
 			}
-			let friend_request_notice =
-				if let Event::UserAction(client_core::user_actions::Event::Written {
-					action,
-					result,
-					..
-				}) = &event.event
-				{
-					let success = match action {
-						client_core::user_actions::Action::AddFriend { .. }
-						| client_core::user_actions::Action::ProfileFriend {
-							friend: true, ..
-						} => Some("Friend request sent"),
-						client_core::user_actions::Action::ResolveFriend {
-							accept: false, ..
-						} => Some("Friend request removed"),
-						_ => None,
-					};
-					success.map(|success| match result {
-						Ok(()) => (ui::design::Level::Success, success),
-						Err(failure) => (ui::design::Level::Error, failure.label()),
-					})
-				} else {
-					None
-				};
-			let friend_request_was_pending =
-				friend_request_notice.is_some() && self.state.user_action_pending();
+			let user_action_notice = user_action_notice(&event.event);
+			let user_action_was_pending =
+				user_action_notice.is_some() && self.state.user_action_pending();
 			self.delete_cached_messages(&event.event);
 			match &event.event {
 				Event::Delete { channel, id } => {
@@ -4829,9 +5452,15 @@ impl Desktop {
 				}
 				_ => {}
 			}
+			let takeover_notice = voice::takeover_notice(&self.state, &event.event);
 			let voice_failure = self.voice.observe(&self.state, &mut event.event);
 			let ready = event.event.ready_navigation().is_some();
 			let resumed = matches!(event.event, Event::Resumed);
+			if (ready || resumed)
+				&& let Some(connection) = &self.connection
+			{
+				connection.gateway_recovered();
+			}
 			let confirmed_channel = confirmed_recovery_channel(&self.state, &event.event);
 			let deleted_shortcut = match &event.event {
 				Event::Unavailable(channel)
@@ -4902,10 +5531,36 @@ impl Desktop {
 				)) {
 				self.notifications.dismiss();
 			}
+			let data_changes = extension_data_events::Changes::capture(&self.state, &event);
+			let extension_events = if self.extensions.has_message_events(&self.state) {
+				extension_events::capture(&self.state, &event.event)
+			} else {
+				Vec::new()
+			};
+			if event.generation == self.state.generation
+				&& (event.event.changes_access()
+					|| matches!(event.event, Event::Disconnected)
+					|| matches!(&event.event, Event::HistoryFailed { channel, request, failure: Failure::Forbidden }
+						if Some(*channel) == self.state.selected && *request == self.state.request && self.state.history_pending))
+			{
+				self.extensions.access_changed(&mut self.messaging);
+			}
 			self.state.apply(event);
-			if friend_request_was_pending
+			if let Some(message) = takeover_notice {
+				self.messaging
+					.toasts
+					.push(ui::design::Level::Info, ui::i18n::translate(message));
+			}
+			self.extensions.data_changed(data_changes);
+			self.extensions.cancel_stale_message_events(&self.state);
+			for candidate in extension_events {
+				if let Some(event) = candidate.admit(&self.state) {
+					self.extensions.message_event(&self.state, event);
+				}
+			}
+			if user_action_was_pending
 				&& !self.state.user_action_pending()
-				&& let Some((level, text)) = friend_request_notice
+				&& let Some((level, text)) = user_action_notice
 			{
 				self.messaging.toasts.push(level, text);
 			}
@@ -5042,9 +5697,13 @@ impl Desktop {
 					);
 				}
 			}
+			self.state.interrupt_gif_favorites();
 			self.connection = None;
 			self.pending_save = None;
 			self.pending_account_save = None;
+			self.voice.stop();
+			self.messaging.camera_test_requested = false;
+			self.messaging.camera_test_texture = None;
 			self.state.apply(Envelope {
 				generation: self.state.generation,
 				event: Event::Failure(failure),
@@ -5112,10 +5771,9 @@ impl Desktop {
 			self.transparency_available,
 			self.messaging.transparency,
 			self.messaging.blur,
-			self.messaging.transparent_all,
 		);
 		if effects != ui::design::default_window_effects() {
-			ui::design::set_window_effects(effects.0, effects.1, effects.2, effects.3);
+			ui::design::set_window_effects(effects.0, effects.1, effects.2);
 			ui::design::apply(ctx);
 			ctx.request_repaint();
 		}
@@ -5130,9 +5788,8 @@ impl Desktop {
 			self.window.set_transparent(transparent);
 			self.window_transparent = transparent;
 		}
-		let blur = transparent && effects.2 > 0;
 		if let Some(window_blur) = &mut self.window_blur {
-			window_blur.set_enabled(blur);
+			window_blur.set_enabled(transparent && effects.2 > 0);
 		}
 	}
 	/// Frame period of the display the window is on; egui otherwise assumes 60 Hz.
@@ -5148,12 +5805,10 @@ impl Desktop {
 }
 impl eframe::App for Desktop {
 	fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
-		if !self.transparency_available {
-			// Match eframe's default clear color on the ordinary opaque surface.
-			egui::Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32()
-		} else if self.window_transparent {
+		if self.window_transparent {
 			egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
 		} else {
+			// Opaque windows need opaque pixels too, including uncovered panel corners.
 			visuals.panel_fill.to_opaque().to_normalized_gamma_f32()
 		}
 	}
@@ -5161,6 +5816,8 @@ impl eframe::App for Desktop {
 		false
 	}
 	fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+		// Before the pass begins, so the whole frame resolves System to the same theme.
+		self.sync_system_theme(ctx);
 		// Viewport position/scale comes from native events; avoid an OS monitor query on paints.
 		if let Some(viewport) = raw_input.viewports.get(&raw_input.viewport_id) {
 			let geometry = (viewport.outer_rect, viewport.native_pixels_per_point);
@@ -5173,9 +5830,13 @@ impl eframe::App for Desktop {
 			raw_input.predicted_dt = period.as_secs_f32();
 		}
 		let track = self.messaging.tracking_pointer();
-		let intercepted =
-			self.pointer
-				.intercept(raw_input, &self.window, ctx.pixels_per_point(), track);
+		let intercepted = self.pointer.intercept(
+			raw_input,
+			&self.window,
+			ctx.pixels_per_point(),
+			track,
+			self.messaging.wants_mouse_buttons(),
+		);
 		self.messaging.middle_button(intercepted.middle);
 		self.messaging.side_buttons(intercepted.side);
 		if track
@@ -5213,9 +5874,9 @@ impl eframe::App for Desktop {
 		);
 		self.messaging.sync_reading_zoom(ctx);
 		self.poll(ctx);
+		self.sync_fonts(ctx);
 		self.hotkeys.sync(&self.messaging.keybinds, &self.runtime);
 		self.messaging.global_keybind_status = self.hotkeys.status();
-		self.hotkeys.poll();
 		let voice_toggles = self.hotkeys.take_toggle_pending()
 			| self
 				.messaging
@@ -5297,6 +5958,23 @@ impl eframe::App for Desktop {
 			&self.window,
 			self.fixture_only,
 		);
+		if self.extensions.api_proxy_ready() {
+			let route = self.proxy_auth.tick(
+				self.extensions.api_proxy(),
+				&mut self.messaging.extensions.proxy_auth,
+				&self.runtime,
+				ctx,
+				self.fixture_only,
+			);
+			self.api_proxy.send_if_modified(|current| {
+				if *current == route {
+					false
+				} else {
+					*current = route;
+					true
+				}
+			});
+		}
 		self.sync_customization(ctx);
 		#[cfg(feature = "demo")]
 		if self.demo_typing
@@ -5344,6 +6022,7 @@ impl eframe::App for Desktop {
 					}
 				}
 				platform::tray::Event::Unavailable => {
+					self.tray = None;
 					self.tray_error = Some(if cfg!(target_os = "linux") {
 						"Tray unavailable. Start a StatusNotifier host, then toggle the tray off/on."
 					} else {
@@ -5428,6 +6107,15 @@ impl eframe::App for Desktop {
 			&& (self.messaging.push_to_talk_down(ctx) || self.hotkeys.push_to_talk_down());
 		self.messaging.voice_ptm_active = self.state.voice.active.is_some()
 			&& (self.messaging.push_to_mute_down(ctx) || self.hotkeys.push_to_mute_down());
+		if self.state.auth == AuthState::Authenticated || self.state.demo {
+			self.poll_voice(ctx);
+		} else {
+			self.voice.stop();
+		}
+		self.sync_tray(ctx);
+		if self.state.voice.active.is_some() {
+			ctx.request_repaint_after(std::time::Duration::from_millis(50));
+		}
 	}
 	fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
 		let ctx = ui.ctx().clone();
@@ -5546,6 +6234,12 @@ impl eframe::App for Desktop {
 			self.messaging.attachment_previews = self.uploads.previews();
 			self.messaging.attachment_files = self.uploads.files();
 		}
+		self.messaging
+			.external_upload
+			.progress(self.uploads.public_progress());
+		if let Some(result) = self.uploads.take_public_result() {
+			self.messaging.external_upload.complete(result);
+		}
 		self.messaging.upload_busy = self.uploads.busy() || self.clipboard.is_some();
 		if let Some(notice) = self.uploads.take_notice() {
 			self.messaging.toasts.push(ui::design::Level::Error, notice);
@@ -5598,6 +6292,13 @@ impl eframe::App for Desktop {
 			self.messaging.accept_group_icon(&ctx, scope, result);
 		}
 		if let Some((scope, result)) = self
+			.create_server_icon
+			.poll_scoped(self.state.generation, |_| true)
+		{
+			self.messaging
+				.accept_create_server_icon(&ctx, scope, result);
+		}
+		if let Some((scope, result)) = self
 			.profile_avatar
 			.poll_scoped(self.state.generation, |user| {
 				self.state.user.as_ref().is_some_and(|own| own.id == user)
@@ -5623,6 +6324,12 @@ impl eframe::App for Desktop {
 		}) {
 			self.messaging.accept_server_emojis(&ctx, scope, result);
 		}
+		if let Some((scope, result)) = self.sticker_upload.poll(self.state.generation, |guild| {
+			self.state.server_admin.guild == Some(guild)
+				&& self.state.can_create_guild_sticker(guild)
+		}) {
+			self.messaging.accept_server_sticker(&ctx, scope, result);
+		}
 		self.messaging.voice_available = true;
 		if close_requested
 			&& !self.close_approved
@@ -5638,6 +6345,7 @@ impl eframe::App for Desktop {
 				|| self.state.server_settings.pending
 				|| self.state.server_admin.pending
 				|| self.uploads.has_unsent()
+				|| self.messaging.external_upload.has_unsent()
 				|| self.forgetting
 				|| self.messaging.startup_busy
 				|| self.avatar_cleanup.is_some()
@@ -5680,13 +6388,17 @@ impl eframe::App for Desktop {
 						ui.vertical(|ui| {
 							ui.spacing_mut().item_spacing.y = 1.0;
 							ui.label(
-								ui::design::semibold(ui, "Sign in to Discord", 15.0)
-									.color(p.text_strong),
+								ui::design::semibold(
+									ui,
+									ui::i18n::translate("main-ui-sign-in-to-discord"),
+									15.0,
+								)
+								.color(p.text_strong),
 							);
 							ui.label(
-								egui::RichText::new(
-									"discord.com · temporary login window · passwords and 2FA never leave the page",
-								)
+								egui::RichText::new(ui::i18n::translate(
+									"main-ui-discord-com-temporary-login-window-passwords-and-2fa-never-leave",
+								))
 								.size(12.0)
 								.color(p.muted),
 							);
@@ -5698,7 +6410,12 @@ impl eframe::App for Desktop {
 							if ui
 								.add(
 									egui::Button::new(
-										ui::design::medium(ui, "Cancel", 13.0).color(p.text_strong),
+										ui::design::medium(
+											ui,
+											ui::i18n::translate("main-ui-cancel"),
+											13.0,
+										)
+										.color(p.text_strong),
 									)
 									.fill(p.raised)
 									.stroke(egui::Stroke::new(1.0, p.border))
@@ -5717,7 +6434,10 @@ impl eframe::App for Desktop {
 				.frame(egui::Frame::NONE.fill(p.canvas))
 				.show(ui, |ui| {
 					ui.centered_and_justified(|ui| {
-						ui.label(egui::RichText::new("Loading discord.com…").color(p.muted));
+						ui.label(
+							egui::RichText::new(ui::i18n::translate("main-ui-loading-discord-com"))
+								.color(p.muted),
+						);
 					});
 				});
 			if let Some(login) = &self.login {
@@ -5730,6 +6450,7 @@ impl eframe::App for Desktop {
 				self.messaging.notification_sound_status = "Could not save device notification settings. Changes apply only until restart.";
 			}
 			let mut commands = self.messaging.show(ui, &mut self.state);
+			self.extensions.cancel_stale_message_events(&self.state);
 			self.choose_interaction_files(&ctx);
 			if let Some(command) = self.captcha.sync(
 				&mut self.state,
@@ -5803,13 +6524,6 @@ impl eframe::App for Desktop {
 					self.fixture_only || self.state.demo,
 				);
 			}
-			if let Some(fullscreen) = player.take_fullscreen_request() {
-				self.window.set_fullscreen(
-					fullscreen.then(|| {
-						winit::window::Fullscreen::Borderless(self.window.current_monitor())
-					}),
-				);
-			}
 			self.notifications.set_enabled(
 				self.messaging.notifications_enabled
 					&& (!self.fixture_only || self.messaging.notification_test_available),
@@ -5829,6 +6543,55 @@ impl eframe::App for Desktop {
 				self.state.can_attach(channel) || self.state.can_attach_post(channel)
 			}) {
 				self.uploads.cancel();
+			}
+			if let Some(index) = self.messaging.host_attachment_requested.take()
+				&& let Some(channel) = self.state.selected
+				&& self.state.can_send(channel)
+				&& !self.uploads.busy()
+				&& let Some((filename, bytes)) = self.messaging.attachment_files.get(index).cloned()
+			{
+				self.messaging.external_upload.open(
+					self.state.generation,
+					channel,
+					index,
+					self.uploads.public_selection_key(index),
+					filename,
+					bytes,
+				);
+			}
+			if std::mem::take(&mut self.messaging.external_upload.cancel_requested) {
+				self.uploads.cancel_public();
+			}
+			if let Some(ui::external_upload::Request {
+				generation,
+				channel,
+				index,
+				key,
+				filename,
+				bytes,
+			}) = self.messaging.external_upload.request.take()
+			{
+				let result = if generation != self.state.generation
+					|| self.state.selected != Some(channel)
+					|| !self.state.can_send(channel)
+				{
+					Err(model::public_upload::Error::ConversationChanged)
+				} else {
+					self.uploads.start_external(
+						index,
+						key,
+						generation,
+						channel,
+						&filename,
+						bytes,
+						self.runtime.handle(),
+						&ctx,
+						self.state.demo,
+					)
+				};
+				if let Err(error) = result {
+					self.messaging.external_upload.complete(Err(error));
+				}
 			}
 			if let Some(index) = self.messaging.remove_attachment_index.take() {
 				self.uploads.remove_at(index);
@@ -5973,6 +6736,24 @@ impl eframe::App for Desktop {
 					self.messaging.accept_group_icon(&ctx, scope, Err(error));
 				}
 			}
+			if let Some(scope) = self.messaging.take_create_server_icon_request() {
+				let result = if scope.0 != self.state.generation || scope.1 != model::Id(0) {
+					Err("This server draft is no longer available")
+				} else {
+					self.create_server_icon.start(
+						scope,
+						self.runtime.handle(),
+						&ctx,
+						self.window.clone(),
+						"Choose server icon",
+						256,
+					)
+				};
+				if let Err(error) = result {
+					self.messaging
+						.accept_create_server_icon(&ctx, scope, Err(error));
+				}
+			}
 			if let Some(scope) = self.messaging.take_server_role_icon_request() {
 				let result = if scope.0 != self.state.generation
 					|| !self.state.can_edit_role_icon(scope.1, scope.2)
@@ -6034,6 +6815,26 @@ impl eframe::App for Desktop {
 					self.messaging.accept_server_emojis(&ctx, scope, Err(error));
 				}
 			}
+			if let Some((generation, guild, request)) = self.messaging.take_server_sticker_request()
+			{
+				let scope = (generation, guild, request);
+				let result = if generation != self.state.generation
+					|| !self.state.can_create_guild_sticker(guild)
+				{
+					Err("You can no longer upload stickers to this server")
+				} else {
+					self.sticker_upload.start(
+						scope,
+						self.runtime.handle(),
+						&ctx,
+						self.window.clone(),
+					)
+				};
+				if let Err(error) = result {
+					self.messaging
+						.accept_server_sticker(&ctx, scope, Err(error));
+				}
+			}
 			for key in self.messaging.take_avatar_requests() {
 				if !self
 					.avatars
@@ -6043,16 +6844,23 @@ impl eframe::App for Desktop {
 					self.messaging.accept_avatar(&ctx, key, None);
 				}
 			}
-			if self.messaging.reconnect_requested {
-				if let Some(store) = &mut self.store {
-					store.cancel_load();
-				}
-				self.messaging.reconnect_requested = false;
-				let wake = ctx.clone();
-				match platform::LoginView::open(self.window.clone(), move || wake.request_repaint())
-				{
-					Ok(login) => self.login = Some(login),
-					Err(_) => self.state.status = "Platform login webview unavailable",
+			if std::mem::take(&mut self.messaging.reconnect_requested) {
+				if self.state.auth == AuthState::Authenticated {
+					if let Some(connection) = &self.connection {
+						connection.reconnect();
+						self.state.status = "Reconnecting to Discord…";
+					}
+				} else {
+					if let Some(store) = &mut self.store {
+						store.cancel_load();
+					}
+					let wake = ctx.clone();
+					match platform::LoginView::open(self.window.clone(), move || {
+						wake.request_repaint()
+					}) {
+						Ok(login) => self.login = Some(login),
+						Err(error) => self.state.status = error.label(),
+					}
 				}
 			}
 			let draft_changes = std::mem::take(&mut self.messaging.draft_changes);
@@ -6066,24 +6874,40 @@ impl eframe::App for Desktop {
 				self.clear_avatars(&ctx);
 				self.queue_cache(cache::Operation::ClearHistory);
 			}
+			if let Some(command) = self.state.take_gif_favorites_command() {
+				commands.push(command);
+			}
 			for command in commands {
 				self.command(command);
 			}
-			self.poll_voice(&ctx);
 			if self.messaging.logout_requested {
 				self.messaging.logout_requested = false;
 				self.request_session_end(&ctx, SessionEnd::Logout);
 			}
 		} else if let Some(stage) = self.restoring() {
-			self.restoring_screen(ui, stage);
+			self.restoring_screen(ui, &stage);
 		} else {
 			self.sign_in_screen(ui);
+		}
+		// Outside the signed-in branch so leaving an account still restores the window mode.
+		let video = self.messaging.video().take_fullscreen_request();
+		let voice = self.messaging.take_voice_fullscreen_request();
+		for fullscreen in [video, voice].into_iter().flatten() {
+			self.window.set_fullscreen(
+				fullscreen
+					.then(|| winit::window::Fullscreen::Borderless(self.window.current_monitor())),
+			);
 		}
 		#[cfg(feature = "demo")]
 		if let Some(diagnostic) = &self.rendering_demo {
 			diagnostic.show(&ctx, &self.window);
 		}
 		let appearance = ctx.options(|options| options.theme_preference);
+		#[cfg(target_os = "linux")]
+		if self.window.is_decorated() == self.messaging.hide_window_decorations {
+			self.window
+				.set_decorations(!self.messaging.hide_window_decorations);
+		}
 		#[cfg(target_os = "windows")]
 		if self.window.is_decorated() != self.messaging.hide_title_bar {
 			self.window.set_decorations(self.messaging.hide_title_bar);
@@ -6108,7 +6932,6 @@ impl eframe::App for Desktop {
 			&mut self.messaging,
 			self.fixture_only || self.state.demo,
 		);
-		self.sync_tray(&ctx);
 		if appearance != self.appearance {
 			self.appearance = appearance;
 			self.appearance_changed = true;
@@ -6180,7 +7003,15 @@ impl eframe::App for Desktop {
 		self.sync_account_roster();
 		self.confirm_forget_dialog(&ctx);
 		if self.confirming_close || self.confirming_logout {
+			let public_upload_note = self
+				.messaging
+				.external_upload
+				.has_unsent()
+				.then(|| ui::i18n::translate("public-upload-leave"));
 			let mut notes: Vec<&str> = Vec::new();
+			if let Some(note) = public_upload_note.as_deref() {
+				notes.push(note);
+			}
 			if self.messaging.extensions.theme_editor_dirty() {
 				notes.push("Unsaved theme changes will be discarded.");
 			}
@@ -6264,6 +7095,63 @@ impl eframe::App for Desktop {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[cfg(feature = "demo")]
+	#[test]
+	fn demo_group_members_preserve_recipients_and_deduplicate_current_account() {
+		let mut state = test_support::demo_state();
+		let channel = model::Id(29);
+		state.selected = Some(channel);
+		let recipient = state.channel(channel).unwrap().recipients[1].clone();
+		for include_current in [false, true] {
+			if include_current {
+				let current = state.user.clone().unwrap();
+				state
+					.channels
+					.iter_mut()
+					.find(|c| c.id == channel)
+					.unwrap()
+					.recipients = vec![current, recipient.clone()];
+			}
+			let Some(Command::Members { guild, request, .. }) = state.request_members() else {
+				panic!("synthetic group member request");
+			};
+			let expected = state.members.as_ref().unwrap().clone();
+			let response = demo_members(&state, guild, channel, request);
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Members(response),
+			});
+			let list = state.members.as_ref().unwrap();
+			assert_eq!(list.total, if include_current { 2 } else { 3 });
+			assert_eq!(list.total, expected.total);
+			let users = |list: &model::MemberList| {
+				list.slots
+					.iter()
+					.filter_map(|slot| match slot {
+						Some(model::MemberSlot::Person(member)) => Some(member.user.clone()),
+						_ => None,
+					})
+					.collect::<Vec<_>>()
+			};
+			assert!(users(list) == users(&expected));
+			assert!(users(list).contains(&recipient));
+		}
+	}
+
+	#[test]
+	fn user_action_results_use_toasts() {
+		let success = Event::UserAction(client_core::user_actions::Event::Written {
+			action: client_core::user_actions::Action::Nickname {
+				user: model::Id(2),
+				text: "Synthetic".into(),
+			},
+			request: 1,
+			result: Ok(()),
+		});
+		let (level, text) = user_action_notice(&success).unwrap();
+		assert!(matches!(level, ui::design::Level::Success));
+		assert_eq!(text, "Nickname saved");
+	}
 	#[test]
 	fn frame_sample_is_bounded_demo_only_and_excludes_warmup() {
 		for (demo, value) in [

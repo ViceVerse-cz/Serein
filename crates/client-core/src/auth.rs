@@ -74,7 +74,13 @@ impl Failure {
 pub struct SessionSecret(Zeroizing<String>);
 impl SessionSecret {
 	pub fn from_owner_input(value: String) -> Result<Self, Failure> {
-		let value = Zeroizing::new(value);
+		let input = Zeroizing::new(value);
+		// Browser storage shows the token JSON-quoted; pasting it verbatim would be rejected as expired.
+		let trimmed = input.trim();
+		let value = trimmed
+			.strip_prefix('"')
+			.and_then(|inner| inner.strip_suffix('"'))
+			.unwrap_or(trimmed);
 		if value.len() < 16
 			|| value.len() > 2048
 			|| value.starts_with("Bot ")
@@ -83,7 +89,7 @@ impl SessionSecret {
 		{
 			return Err(Failure::InvalidCredential);
 		}
-		Ok(Self(value))
+		Ok(Self(Zeroizing::new(value.to_owned())))
 	}
 	pub fn expose(&self) -> &str {
 		&self.0
@@ -121,6 +127,10 @@ mod tests {
 		}
 		let secret = SessionSecret::from_owner_input("SYNTHETIC_SECRET_MARKER".into()).unwrap();
 		assert!(!format!("{secret:?}").contains("SYNTHETIC"));
+		for pasted in ["\"SYNTHETIC_SECRET_MARKER\"", " SYNTHETIC_SECRET_MARKER\n"] {
+			let secret = SessionSecret::from_owner_input(pasted.into()).unwrap();
+			assert_eq!(secret.expose(), "SYNTHETIC_SECRET_MARKER");
+		}
 		for value in [
 			"Bot SYNTHETIC_SECRET",
 			"Bearer SYNTHETIC_SECRET",

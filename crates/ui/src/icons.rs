@@ -120,13 +120,17 @@ pub enum Icon {
 	Sliders,
 	SortArrows,
 	Thread,
+	DeviceMobile,
+	/// Stacked servers, for mutual-server counts.
+	Servers,
+	Fullscreen,
 	/// Horizontally mirrored reply glyph from the shared atlas.
 	Forward,
 }
 
 impl Icon {
 	/// Canonical atlas cells; Forward reuses the mirrored Reply cell.
-	pub const ALL: [Icon; 104] = [
+	pub const ALL: [Icon; 107] = [
 		Icon::ChevronDown,
 		Icon::ChevronRight,
 		Icon::Gear,
@@ -231,6 +235,9 @@ impl Icon {
 		Icon::Sliders,
 		Icon::SortArrows,
 		Icon::Thread,
+		Icon::DeviceMobile,
+		Icon::Servers,
+		Icon::Fullscreen,
 	];
 	/// Upstream icon name recorded in `index.tsv`.
 	fn asset(self) -> &'static str {
@@ -339,6 +346,9 @@ impl Icon {
 			Icon::EyeSlash => "eye-slash",
 			Icon::Sliders => "sliders-horizontal",
 			Icon::SortArrows => "arrows-down-up",
+			Icon::DeviceMobile => "device-mobile",
+			Icon::Servers => "hard-drives",
+			Icon::Fullscreen => "corners-out",
 		}
 	}
 	fn cell(self) -> usize {
@@ -364,15 +374,14 @@ impl Icon {
 	}
 }
 
-fn decoded() -> &'static egui::ColorImage {
-	static IMAGE: OnceLock<egui::ColorImage> = OnceLock::new();
-	IMAGE.get_or_init(|| {
-		let image = image::load_from_memory_with_format(ATLAS, image::ImageFormat::Png)
-			.expect("bundled icon atlas")
-			.into_rgba8();
-		let size = [image.width() as usize, image.height() as usize];
-		egui::ColorImage::from_rgba_unmultiplied(size, &image)
-	})
+/// Decoded per upload rather than cached: the texture owns the pixels afterwards, and a
+/// retained copy would keep 1.7 MB alive for the whole session.
+fn decoded() -> egui::ColorImage {
+	let image = image::load_from_memory_with_format(ATLAS, image::ImageFormat::Png)
+		.expect("bundled icon atlas")
+		.into_rgba8();
+	let size = [image.width() as usize, image.height() as usize];
+	egui::ColorImage::from_rgba_unmultiplied(size, &image)
 }
 
 /// Upload the atlas for `ctx` during application creation, outside the render callback.
@@ -387,7 +396,7 @@ fn texture(ctx: &egui::Context) -> TextureHandle {
 	}
 	let texture = ctx.load_texture(
 		"Phosphor Icons 2.1.1",
-		decoded().clone(),
+		decoded(),
 		egui::TextureOptions {
 			mipmap_mode: Some(egui::TextureFilter::Linear),
 			..egui::TextureOptions::LINEAR
@@ -419,8 +428,29 @@ pub fn paint(painter: &egui::Painter, icon: Icon, rect: Rect, color: Color32) {
 	painter.image(texture.id(), rect.expand(size * 4.0 / 56.0), uv, color);
 }
 
+/// `icon` as an atom, so widgets built from atoms (buttons, combo boxes) can show it beside text.
+pub fn atom(icon: Icon, size: f32, color: Color32) -> egui::Atom<'static> {
+	egui::Atom::paint(Vec2::splat(size), move |ui, args| {
+		paint(ui.painter(), icon, args.rect, color);
+	})
+}
+
+/// Glyph for a channel row: threads, forums, voice, announcements and direct messages.
+pub fn channel(kind: u8) -> Icon {
+	match kind {
+		1 => Icon::Profile,
+		3 => Icon::People,
+		2 | 13 => Icon::Speaker,
+		5 => Icon::Megaphone,
+		10..=12 => Icon::Threads,
+		15 | 16 => Icon::Forum,
+		_ => Icon::Hash,
+	}
+}
+
 /// Square icon button that highlights on hover and exposes `label` to accessibility.
 pub fn button(ui: &mut egui::Ui, icon: Icon, size: f32, label: &str) -> Response {
+	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
 	if response.hovered() || response.has_focus() {
@@ -434,12 +464,13 @@ pub fn button(ui: &mut egui::Ui, icon: Icon, size: f32, label: &str) -> Response
 		colors.muted
 	};
 	paint(ui.painter(), icon, rect.shrink(size * 0.2), color);
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
-	response.on_hover_text(label)
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
+	response.on_hover_text(&label)
 }
 
 /// Toggleable variant: `active` keeps the icon in the strong text colour.
 pub fn toggle(ui: &mut egui::Ui, icon: Icon, size: f32, active: bool, label: &str) -> Response {
+	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
 	if response.hovered() || response.has_focus() {
@@ -452,9 +483,9 @@ pub fn toggle(ui: &mut egui::Ui, icon: Icon, size: f32, active: bool, label: &st
 	};
 	paint(ui.painter(), icon, rect.shrink(size * 0.2), color);
 	response.widget_info(|| {
-		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), active, label)
+		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), active, &label)
 	});
-	response.on_hover_text(label)
+	response.on_hover_text(&label)
 }
 
 /// Inline glyph used beside labels (channel kinds, section headers).

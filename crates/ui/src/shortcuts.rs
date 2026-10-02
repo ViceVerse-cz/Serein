@@ -48,7 +48,7 @@ impl Scope {
 	}
 }
 
-/// Typed heading rows. `label` is the exact user-facing string.
+/// Typed heading rows. `key` identifies the localized user-facing string.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Heading {
 	Pinned,
@@ -57,11 +57,11 @@ pub(crate) enum Heading {
 }
 
 impl Heading {
-	pub fn label(self) -> &'static str {
+	pub fn key(self) -> &'static str {
 		match self {
-			Self::Pinned => "Pinned",
-			Self::DirectMessages => "Direct Messages",
-			Self::Favorites => "Favorites",
+			Self::Pinned => "channel-list-heading-pinned",
+			Self::DirectMessages => "channel-list-heading-direct-messages",
+			Self::Favorites => "channel-list-heading-favorites",
 		}
 	}
 

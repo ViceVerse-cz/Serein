@@ -20,12 +20,14 @@ struct Activation {
 	generation: u64,
 	channel: Option<model::Id>,
 	wake: Arc<dyn Fn() + Send + Sync>,
+	restore: Arc<dyn Fn() + Send + Sync>,
 }
 impl Activation {
 	fn clicked(&self) {
 		if let Some(channel) = self.channel
 			&& self.send.try_send((self.generation, channel)).is_ok()
 		{
+			(self.restore)();
 			(self.wake)();
 		}
 	}
@@ -99,10 +101,16 @@ pub struct Notifications {
 	generation: Arc<AtomicU64>,
 	status: Arc<AtomicU64>,
 	wake: Arc<dyn Fn() + Send + Sync>,
+	restore: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl Notifications {
-	pub fn new(wake: impl Fn() + Send + Sync + 'static) -> Self {
+	/// `restore` runs on the notification thread when a click needs the window shown; a hidden
+	/// window may receive no frames until then.
+	pub fn new(
+		wake: impl Fn() + Send + Sync + 'static,
+		restore: impl Fn() + Send + Sync + 'static,
+	) -> Self {
 		let (activation_send, activated) = mpsc::sync_channel(QUEUE_ITEMS);
 		Self {
 			activated,
@@ -111,6 +119,7 @@ impl Notifications {
 			generation: Arc::new(AtomicU64::new(0)),
 			status: Arc::new(AtomicU64::new(0)),
 			wake: Arc::new(wake),
+			restore: Arc::new(restore),
 		}
 	}
 
@@ -136,10 +145,11 @@ impl Notifications {
 			let current = Arc::clone(&self.generation);
 			let status = Arc::clone(&self.status);
 			let wake = Arc::clone(&self.wake);
+			let restore = Arc::clone(&self.restore);
 			let activated = self.activation_send.clone();
 			if std::thread::Builder::new()
 				.name("serein-notifications".into())
-				.spawn(move || worker(receive, current, status, wake, activated))
+				.spawn(move || worker(receive, current, status, wake, restore, activated))
 				.is_err()
 			{
 				self.status
@@ -296,6 +306,7 @@ fn worker(
 	current: Arc<AtomicU64>,
 	status: Arc<AtomicU64>,
 	wake: Arc<dyn Fn() + Send + Sync>,
+	restore: Arc<dyn Fn() + Send + Sync>,
 	activated: SyncSender<(u64, model::Id)>,
 ) {
 	let mut generation = 0;
@@ -359,6 +370,7 @@ fn worker(
 			generation,
 			channel: command.channel,
 			wake: Arc::clone(&wake),
+			restore: Arc::clone(&restore),
 		};
 		outcome = match show(command.alert.as_ref().expect("checked above"), activation) {
 			Ok(handle) => {
@@ -542,13 +554,14 @@ fn close(outstanding: &mut Option<NotificationHandle>) {
 /// Synthetic handoff check: never sends an OS notification or starts a worker.
 #[cfg(debug_assertions)]
 pub fn debug_activation_check(channel: model::Id) -> model::Id {
-	let mut notifications = Notifications::new(|| {});
+	let mut notifications = Notifications::new(|| {}, || {});
 	notifications.generation.store(1, Ordering::Release);
 	let click = Activation {
 		send: notifications.activation_send.clone(),
 		generation: 1,
 		channel: Some(channel),
 		wake: Arc::clone(&notifications.wake),
+		restore: Arc::clone(&notifications.restore),
 	};
 	click.clicked();
 	let selected = notifications
@@ -610,7 +623,7 @@ mod tests {
 		});
 		assert_eq!(alert.summary, "Serein");
 		assert_eq!(alert.body, "You have a new message.");
-		let mut notifications = Notifications::new(|| {});
+		let mut notifications = Notifications::new(|| {}, || {});
 		assert_eq!(notifications.status(), Status::Disabled);
 		assert!(notifications.send.is_none());
 		assert!(!notifications.notify());
@@ -653,20 +666,24 @@ mod tests {
 		publish(&notifications.status, 1, Status::Unavailable);
 		assert_eq!(notifications.status.load(Ordering::Acquire), active_status);
 		assert_eq!(notifications.status(), Status::Disabled);
-	}
-	#[test]
-	fn message_alert_payload_is_bounded_and_retains_preview() {
-		let mut notifications = Notifications::new(|| {});
-		let (send, receive) = mpsc::sync_channel(QUEUE_ITEMS);
-		notifications.send = Some(send);
-		notifications.generation.store(1, Ordering::Release);
-		notifications
-			.status
-			.store(encoded(1, Status::Ready), Ordering::Release);
-		assert!(notifications.notify_message("A sender".into(), "Hello there".into(), None));
-		let alert = receive.try_recv().unwrap().alert.unwrap();
-		assert_eq!((&*alert.title, &*alert.body), ("A sender", "Hello there"));
-		assert!(!notifications.notify_message("x".repeat(TITLE_BYTES + 1), "Message".into(), None));
-		assert!(receive.try_recv().is_err());
+
+		{
+			let mut notifications = Notifications::new(|| {}, || {});
+			let (send, receive) = mpsc::sync_channel(QUEUE_ITEMS);
+			notifications.send = Some(send);
+			notifications.generation.store(1, Ordering::Release);
+			notifications
+				.status
+				.store(encoded(1, Status::Ready), Ordering::Release);
+			assert!(notifications.notify_message("A sender".into(), "Hello there".into(), None));
+			let alert = receive.try_recv().unwrap().alert.unwrap();
+			assert_eq!((&*alert.title, &*alert.body), ("A sender", "Hello there"));
+			assert!(!notifications.notify_message(
+				"x".repeat(TITLE_BYTES + 1),
+				"Message".into(),
+				None
+			));
+			assert!(receive.try_recv().is_err());
+		}
 	}
 }

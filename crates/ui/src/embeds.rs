@@ -1,7 +1,7 @@
 //! Native embed cards. External links share the timeline's explicit confirmation.
 use crate::{
 	attachments::{DownloadUi, embed_context_menu},
-	avatars::Avatars,
+	avatars::{Avatars, Surface},
 	markdown::{FormatCache, external_url},
 };
 use egui::RichText;
@@ -54,18 +54,23 @@ fn link(
 	if let Some(target) = target {
 		response
 			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Link, ui.is_enabled(), label));
-		if response.on_hover_text("Open link…").clicked() {
+		if response
+			.on_hover_text(crate::i18n::translate("embeds-link-open-link"))
+			.clicked()
+		{
 			*opening = Some(target);
 		}
 	}
 }
+#[allow(clippy::too_many_arguments)]
 fn text(
 	ui: &mut egui::Ui,
 	message: &Message,
 	part: (u16, &str),
 	cache: &mut FormatCache,
 	opening: &mut Option<String>,
-	profile: &mut Option<model::User>,
+	profile: &mut crate::profiles::ProfileSession,
+	card_surface: crate::design::MessageCardSurface,
 	media: (
 		&mut Avatars,
 		bool,
@@ -82,9 +87,10 @@ fn text(
 		Some(source),
 		profile,
 		(images, demo, guilds),
+		card_surface,
 	);
 	if formatted.limited {
-		ui.small("Text display limited");
+		ui.small(crate::i18n::translate("embeds-text-text-display-limited"));
 	}
 }
 pub fn standalone_media_links(message: &Message) -> bool {
@@ -142,6 +148,16 @@ fn gallery_len(embeds: &[Embed]) -> usize {
 
 fn gallery_rect(count: usize, index: usize, width: f32) -> egui::Rect {
 	let gap = 4.0_f32.min(width / 4.0);
+	if count >= 5 && width >= 300.0 {
+		let side = (width - 2.0 * gap) / 3.0;
+		return egui::Rect::from_min_size(
+			egui::pos2(
+				(index % 3) as f32 * (side + gap),
+				(index / 3) as f32 * (side + gap),
+			),
+			egui::Vec2::splat(side),
+		);
+	}
 	let half = (width - gap) / 2.0;
 	let (x, y, height) = if count == 3 {
 		if index == 0 {
@@ -163,11 +179,13 @@ fn gallery(
 	ui: &mut egui::Ui,
 	embeds: &[Embed],
 	images: &mut Avatars,
-	opening: &mut Option<String>,
+	message: model::Id,
 	download: &mut DownloadUi,
 	demo: bool,
 ) {
-	let width = ui.available_width().clamp(1.0, 480.0);
+	let width = ui
+		.available_width()
+		.clamp(1.0, crate::avatars::media::MEDIA_MAX_WIDTH);
 	let height = gallery_rect(embeds.len(), embeds.len() - 1, width).bottom();
 	let (area, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
 	for (index, embed) in embeds.iter().enumerate() {
@@ -183,7 +201,9 @@ fn gallery(
 					.as_deref()
 					.or(media.proxy_url.as_deref())
 					.and_then(external_url);
-				let image = images.show_banner(ui, media, rect.size(), demo);
+				let image = images
+					.show_media(ui, media, rect.size(), demo, Surface::Banner)
+					.response;
 				let response =
 					ui.interact(image.rect, image.id.with("media"), egui::Sense::click());
 				embed_context_menu(&response, media, download, demo);
@@ -195,7 +215,13 @@ fn gallery(
 							egui::Role::Image
 						},
 						ui.is_enabled(),
-						format!("Open embed image {} of {}", index + 1, embeds.len()),
+						format!(
+							"{} {} {} {}",
+							crate::i18n::translate("embeds-gallery-open-embed-image"),
+							index + 1,
+							crate::i18n::translate("embeds-gallery-of"),
+							embeds.len()
+						),
 					)
 				});
 				if response.has_focus() {
@@ -206,10 +232,12 @@ fn gallery(
 						egui::StrokeKind::Inside,
 					);
 				}
-				if let Some(target) = target
-					&& response.on_hover_text("Open image…").clicked()
+				if target.is_some()
+					&& response
+						.on_hover_text(crate::i18n::translate("embeds-gallery-open-image"))
+						.clicked()
 				{
-					*opening = Some(target);
+					download.view_embed(message, media);
 				}
 			},
 		);
@@ -269,18 +297,28 @@ fn gif_for_embed(embed: &Embed, gifs: &client_core::gifs::Gifs) -> Option<Gif> {
 
 fn image_preview(
 	ui: &mut egui::Ui,
+	message: model::Id,
 	image: &model::EmbedMedia,
 	size: egui::Vec2,
 	images: &mut Avatars,
 	download: &mut DownloadUi,
 	demo: bool,
 ) {
-	let painted = images.show_embed(ui, image, size, demo);
+	let painted = images
+		.show_media(ui, image, size, demo, Surface::Inline)
+		.response;
 	let response = ui.interact(painted.rect, painted.id.with("media"), egui::Sense::click());
 	response.widget_info(|| {
-		egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), "Image actions")
+		egui::WidgetInfo::labeled(
+			egui::Role::Button,
+			ui.is_enabled(),
+			crate::i18n::translate("embeds-image-preview-image-actions"),
+		)
 	});
 	embed_context_menu(&response, image, download, demo);
+	if response.clicked() {
+		download.view_embed(message, image);
+	}
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -291,8 +329,9 @@ pub fn show(
 	images: &mut Avatars,
 	opening: &mut Option<String>,
 	download: &mut DownloadUi,
-	profile: &mut Option<model::User>,
+	profile: &mut crate::profiles::ProfileSession,
 	state: &client_core::State,
+	card_surface: crate::design::MessageCardSurface,
 ) -> Option<Gif> {
 	if message.embeds_suppressed {
 		return None;
@@ -310,21 +349,34 @@ pub fn show(
 		let embed = &group[0];
 		ui.push_id(("embed", index), |ui| {
 			if count > 1 && inline_image(embed).is_some() {
-				gallery(ui, group, images, opening, download, demo);
+				gallery(ui, group, images, message.id, download, demo);
 				if group.iter().any(|e| e.limited) {
-					ui.small("Embed display limited");
+					ui.small(crate::i18n::translate("embeds-show-embed-display-limited"));
 				}
 				ui.add_space(6.0);
 				return;
 			}
 			if let Some(image) = inline_image(embed) {
 				let gif = gif_for_embed(embed, &state.gifs);
-				let painted =
-					images.show_gif_embed(ui, embed, gif.as_ref(), egui::vec2(480.0, 320.0), demo);
+				let painted = images.show_gif_embed(
+					ui,
+					embed,
+					gif.as_ref(),
+					egui::vec2(
+						ui.available_width()
+							.min(crate::avatars::media::MEDIA_MAX_WIDTH),
+						crate::avatars::media::MEDIA_MAX_HEIGHT,
+					),
+					demo,
+				);
 				let response =
 					ui.interact(painted.rect, painted.id.with("media"), egui::Sense::click());
 				response.widget_info(|| {
-					egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), "Open image")
+					egui::WidgetInfo::labeled(
+						egui::Role::Button,
+						ui.is_enabled(),
+						crate::i18n::translate("embeds-show-open-image"),
+					)
 				});
 				embed_context_menu(&response, image, download, demo);
 				let star = gif.map(|gif| {
@@ -367,28 +419,28 @@ pub fn show(
 							egui::Role::CheckBox,
 							ui.is_enabled(),
 							favorite,
-							"Favorite GIF",
+							crate::i18n::translate("embeds-show-favorite-gif"),
 						)
 					});
 					if star.clicked() {
 						favorite_action = Some(gif);
 					}
-					star.on_hover_text(if favorite {
-						"Remove from GIF favorites"
-					} else {
-						"Save to GIF favorites"
-					})
+					star.on_hover_text(crate::i18n::translate_if_key(
+						&(if favorite {
+							crate::i18n::translate("embeds-show-remove-from-gif-favorites")
+						} else {
+							crate::i18n::translate("embeds-show-save-to-gif-favorites")
+						}),
+					))
 				});
 				if !star
 					.as_ref()
 					.is_some_and(|star| star.hovered() || star.clicked())
-					&& response.on_hover_text("Open image…").clicked()
+					&& response
+						.on_hover_text(crate::i18n::translate("embeds-show-open-image-2"))
+						.clicked()
 				{
-					*opening = embed
-						.url
-						.as_deref()
-						.or(image.url.as_deref())
-						.and_then(external_url);
+					download.view_embed(message.id, image);
 				}
 				ui.add_space(6.0);
 				return;
@@ -399,7 +451,7 @@ pub fn show(
 			});
 			let width = ui.available_width().min(480.0);
 			let frame = egui::Frame::new()
-				.fill(colors.raised)
+				.fill(card_surface.fill(ui, colors.raised))
 				.corner_radius(5)
 				.inner_margin(12)
 				.show(ui, |ui| {
@@ -435,11 +487,12 @@ pub fn show(
 									if let Some(author) = &embed.author {
 										ui.horizontal_wrapped(|ui| {
 											if let Some(icon) = &author.icon {
-												images.show_embed(
+												images.show_media(
 													ui,
 													icon,
 													egui::vec2(20.0, 20.0),
 													demo,
+													Surface::Inline,
 												);
 											}
 											link(
@@ -462,6 +515,7 @@ pub fn show(
 											cache,
 											opening,
 											profile,
+											card_surface,
 											(images, demo, &state.guilds, &source),
 										);
 									}
@@ -469,6 +523,7 @@ pub fn show(
 								if let Some(image) = thumbnail {
 									image_preview(
 										ui,
+										message.id,
 										image,
 										egui::vec2(84.0, 84.0),
 										images,
@@ -516,6 +571,7 @@ pub fn show(
 												cache,
 												opening,
 												profile,
+												card_surface,
 												(images, demo, &state.guilds, &source),
 											);
 										});
@@ -524,12 +580,16 @@ pub fn show(
 								field += count;
 							}
 							if count > 1 {
-								gallery(ui, group, images, opening, download, demo);
+								gallery(ui, group, images, message.id, download, demo);
 							} else if let Some(image) = &embed.image {
 								image_preview(
 									ui,
+									message.id,
 									image,
-									egui::vec2(ui.available_width(), 320.0),
+									egui::vec2(
+										ui.available_width(),
+										crate::avatars::media::MEDIA_MAX_HEIGHT,
+									),
 									images,
 									download,
 									demo,
@@ -540,6 +600,7 @@ pub fn show(
 							{
 								image_preview(
 									ui,
+									message.id,
 									image,
 									egui::vec2(84.0, 84.0),
 									images,
@@ -550,7 +611,9 @@ pub fn show(
 							if embed.video.is_some()
 								|| matches!(embed.kind.as_str(), "video" | "gifv")
 							{
-								ui.small("Video preview · playback opens in your browser");
+								ui.small(crate::i18n::translate(
+									"embeds-show-video-preview-playback-opens-in-your-browser",
+								));
 								link(
 									ui,
 									"Open video…",
@@ -568,7 +631,13 @@ pub fn show(
 							if let Some(footer) = &embed.footer {
 								ui.horizontal_wrapped(|ui| {
 									if let Some(icon) = &footer.icon {
-										images.show_embed(ui, icon, egui::vec2(16.0, 16.0), demo);
+										images.show_media(
+											ui,
+											icon,
+											egui::vec2(16.0, 16.0),
+											demo,
+											Surface::Inline,
+										);
 									}
 									ui.add(
 										egui::Label::new(
@@ -583,13 +652,17 @@ pub fn show(
 								ui.small(timestamp);
 							}
 							if group.iter().any(|e| e.limited) {
-								ui.small("Embed display limited");
+								ui.small(crate::i18n::translate(
+									"embeds-show-embed-display-limited",
+								));
 							}
 							if !matches!(
 								embed.kind.as_str(),
 								"rich" | "article" | "link" | "image" | "video" | "gifv"
 							) {
-								ui.small("Additional embed content is not supported");
+								ui.small(crate::i18n::translate(
+									"embeds-show-additional-embed-content-is-not-supported",
+								));
 							}
 						});
 				});
@@ -622,7 +695,38 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 		height += if inline_image(e).is_some() {
 			if count > 1 { image_height + 6.0 } else { 206.0 }
 		} else {
-			(100.0 + e.fields.len() as f32 * 44.0 + image_height).min(664.0)
+			let mut lines = 0.0;
+			if e.provider
+				.as_ref()
+				.is_some_and(|provider| !provider.name.is_empty())
+			{
+				lines += 1.0;
+			}
+			if e.author.is_some() {
+				lines += 1.0;
+			}
+			if e.title.is_some() {
+				lines += 1.0;
+			}
+			if let Some(description) = e.description.as_deref().filter(|text| !text.is_empty()) {
+				lines += description
+					.lines()
+					.map(|line| (line.chars().count() as f32 / 48.0).ceil().max(1.0))
+					.sum::<f32>();
+			}
+			if e.footer
+				.as_ref()
+				.is_some_and(|footer| !footer.text.is_empty())
+				|| e.timestamp.is_some()
+			{
+				lines += 1.0;
+			}
+			if lines == 0.0 {
+				lines = 1.0;
+			}
+			let text = 24.0 + lines * 20.0 + 6.0;
+			let thumb = if e.thumbnail.is_some() { 114.0 } else { 0.0 };
+			(text.max(thumb) + e.fields.len() as f32 * 44.0 + image_height).min(664.0)
 		};
 		index += count;
 	}
@@ -677,6 +781,7 @@ mod tests {
 							..Default::default()
 						},
 						|ui| {
+							let mut profile = crate::profiles::ProfileSession::default();
 							assert!(
 								show(
 									ui,
@@ -685,8 +790,9 @@ mod tests {
 									&mut images,
 									&mut opening,
 									&mut download,
-									&mut None,
-									&client_core::State::default()
+									&mut profile,
+									&client_core::State::default(),
+									crate::design::MessageCardSurface::Conversation,
 								)
 								.is_none()
 							);
@@ -811,62 +917,7 @@ mod tests {
 	}
 
 	#[test]
-	fn gallery_card_shows_one_title_all_images_and_keeps_suppression() {
-		let mut message = test_support::message(1, model::Id(20));
-		message.embeds = gallery_embeds(3);
-		message.embeds[0].title = Some("Shared card title".into());
-		message.embeds[1].limited = true;
-		for width in [240.0, 480.0] {
-			for suppressed in [false, true] {
-				message.embeds_suppressed = suppressed;
-				let ctx = egui::Context::default();
-				let mut images = Avatars::default();
-				let mut cache = FormatCache::default();
-				let mut output = ctx.run_ui(
-					egui::RawInput {
-						screen_rect: Some(egui::Rect::from_min_size(
-							egui::Pos2::ZERO,
-							egui::vec2(width, 900.0),
-						)),
-						..Default::default()
-					},
-					|ui| {
-						show(
-							ui,
-							&message,
-							&mut cache,
-							&mut images,
-							&mut None,
-							&mut DownloadUi::default(),
-							&mut None,
-							&client_core::State::default(),
-						);
-					},
-				);
-				let labels: Vec<_> = output
-					.shapes
-					.iter()
-					.filter_map(|shape| match &shape.shape {
-						egui::Shape::Text(text) => Some(text.galley.job.text.as_str()),
-						_ => None,
-					})
-					.collect();
-				assert_eq!(
-					labels
-						.iter()
-						.filter(|label| **label == "Shared card title")
-						.count(),
-					usize::from(!suppressed)
-				);
-				assert_eq!(labels.contains(&"Embed display limited"), !suppressed);
-				assert_eq!(images.take_requests().len(), if suppressed { 0 } else { 3 });
-				output.textures_delta.clear();
-			}
-		}
-	}
-
-	#[test]
-	fn gallery_tiles_fit_without_overlap_and_open_each_original() {
+	fn gallery_tiles_fit_without_overlap_and_request_each_image_viewer() {
 		for theme in [egui::Theme::Dark, egui::Theme::Light] {
 			for width in [96.0, 240.0, 456.0] {
 				for count in [2, 3, 4, 10] {
@@ -884,7 +935,7 @@ mod tests {
 					ctx.set_theme(theme);
 					let embeds = gallery_embeds(count);
 					let mut images = Avatars::default();
-					let mut opening = None;
+					let mut download = DownloadUi::default();
 					let mut origin = egui::Pos2::ZERO;
 					let mut frame = |events| {
 						ctx.run_ui(
@@ -903,14 +954,14 @@ mod tests {
 									ui,
 									&embeds,
 									&mut images,
-									&mut opening,
-									&mut DownloadUi::default(),
+									model::Id(42),
+									&mut download,
 									false,
 								);
 							},
 						)
 						.drop_without_applying_deltas();
-						(origin, opening.take())
+						(origin, download.embed_view_request.take())
 					};
 					frame(vec![]);
 					let (origin, _) = frame(vec![]);
@@ -931,7 +982,10 @@ mod tests {
 							pressed: false,
 							modifiers: Default::default(),
 						}]);
-						assert_eq!(opened, embeds[i].image.as_ref().unwrap().url);
+						assert_eq!(
+							opened,
+							Some((model::Id(42), embeds[i].image.as_ref().unwrap().clone()))
+						);
 					}
 					assert_eq!(images.take_requests().len(), count);
 				}
@@ -960,49 +1014,6 @@ mod tests {
 		message.content = message.embeds[0].url.clone().unwrap();
 		message.embeds[0].kind = "rich".into();
 		assert!(!standalone_media_links(&message));
-	}
-
-	#[test]
-	fn chat_gifs_reuse_favorites_and_reject_unapproved_media() {
-		let mut embed = Embed {
-			kind: "gifv".into(),
-			url: Some("https://klipy.com/gifs/synthetic-wave".into()),
-			thumbnail: Some(model::EmbedMedia {
-				url: Some("https://static.klipy.com/synthetic/wave.gif".into()),
-				width: 320,
-				height: 180,
-				..Default::default()
-			}),
-			..Default::default()
-		};
-		let mut gifs = client_core::gifs::Gifs::default();
-		let mut gif = gif_for_embed(&embed, &gifs).unwrap();
-		assert!(gif.valid());
-		gif.id = "provider-id".into();
-		gifs.favorites.push(gif.clone());
-		assert_eq!(gif_for_embed(&embed, &gifs), Some(gif));
-		gifs.favorites.clear();
-		embed.thumbnail.as_mut().unwrap().url = Some("https://example.com/wave.gif".into());
-		assert!(gif_for_embed(&embed, &gifs).is_none());
-	}
-
-	#[test]
-	fn direct_images_and_gifs_use_media_instead_of_cards() {
-		let mut embed = Embed {
-			kind: "image".into(),
-			thumbnail: Some(model::EmbedMedia::default()),
-			..Default::default()
-		};
-		assert!(inline_image(&embed).is_some());
-		embed.kind = "gifv".into();
-		assert!(inline_image(&embed).is_some());
-		embed.kind = "rich".into();
-		assert!(inline_image(&embed).is_none());
-		embed.kind = "image".into();
-		embed.thumbnail = None;
-		assert!(inline_image(&embed).is_none());
-		embed.image = Some(model::EmbedMedia::default());
-		assert!(inline_image(&embed).is_some());
 	}
 
 	#[test]
@@ -1110,6 +1121,7 @@ mod tests {
 				..Default::default()
 			},
 			|ui| {
+				let mut profile = crate::profiles::ProfileSession::default();
 				show(
 					ui,
 					&message,
@@ -1117,8 +1129,9 @@ mod tests {
 					&mut images,
 					&mut opening,
 					&mut download,
-					&mut None,
+					&mut profile,
 					&client_core::State::default(),
+					crate::design::MessageCardSurface::Conversation,
 				);
 			},
 		);

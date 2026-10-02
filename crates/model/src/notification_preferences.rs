@@ -16,6 +16,7 @@ pub struct Device {
 	pub screen_share_on: bool,
 	pub user_join: bool,
 	pub user_leave: bool,
+	pub volume: u8,
 }
 impl Default for Device {
 	fn default() -> Self {
@@ -34,6 +35,7 @@ impl Default for Device {
 			screen_share_on: true,
 			user_join: true,
 			user_leave: true,
+			volume: 75,
 		}
 	}
 }
@@ -55,6 +57,7 @@ pub enum Sound {
 impl Device {
 	pub fn allows(self, sound: Sound) -> bool {
 		!self.disable_sounds
+			&& self.volume > 0
 			&& match sound {
 				Sound::Message => self.new_message,
 				Sound::CurrentChannel => self.current_channel,
@@ -135,6 +138,10 @@ mod tests {
 			assert!(!settings.allows(sound));
 		}
 		settings.disable_sounds = false;
+		settings.volume = 0;
+		assert!(!settings.allows(Sound::CurrentChannel));
+		assert!(!settings.allows(Sound::IncomingRing));
+		settings.volume = 75;
 		assert!(settings.allows(Sound::CurrentChannel));
 		assert!(!settings.allows(Sound::Message));
 	}

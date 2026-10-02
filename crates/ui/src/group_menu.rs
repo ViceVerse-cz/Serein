@@ -1,6 +1,6 @@
 //! Group-only menus and one session-scoped editor. Selecting an image never sends it.
 use crate::shortcuts::{Intent, ShortcutView};
-use crate::{avatars::Avatars, design, icons};
+use crate::{MessagingUi, avatars::Avatars, design, icons};
 use client_core::{Command, State};
 use model::{Channel, Id, Patch, Shortcut};
 
@@ -27,7 +27,7 @@ pub(super) struct GroupMenu {
 	pub icon_request: Option<IconRequest>,
 }
 impl GroupMenu {
-	fn open(&mut self, state: &State, channel: &Channel, edit: bool) {
+	pub(super) fn open(&mut self, state: &State, channel: &Channel, edit: bool) {
 		self.generation = state.generation;
 		self.revision = self.revision.wrapping_add(1);
 		self.icon_request = None;
@@ -62,10 +62,20 @@ impl GroupMenu {
 		let pinned = view.contains(Shortcut::Pinned, channel.id);
 		if ui
 			.add_enabled_ui(view.available(), |ui| {
-				row(ui, if pinned { "Unpin DM" } else { "Pin DM" }, colors.text)
+				row(
+					ui,
+					if pinned {
+						"group-menu-menu-unpin-dm"
+					} else {
+						"group-menu-menu-pin-dm"
+					},
+					colors.text,
+				)
 			})
 			.inner
-			.on_hover_text("Pinned direct messages are saved on this device.")
+			.on_hover_text(crate::i18n::translate(
+				"group-menu-menu-pinned-direct-messages-are-saved-on-this-device",
+			))
 			.clicked()
 		{
 			self.pin_requested = Some(view.toggle(Shortcut::Pinned, channel.id));
@@ -73,7 +83,7 @@ impl GroupMenu {
 		}
 		ui.separator();
 		ui.add_enabled_ui(enabled, |ui| {
-			if row(ui, "Edit Group", colors.text).clicked() {
+			if row(ui, "group-menu-menu-edit-group", colors.text).clicked() {
 				self.open(state, channel, true);
 				ui.close();
 			}
@@ -82,26 +92,30 @@ impl GroupMenu {
 			if row(
 				ui,
 				if muted {
-					"Unmute Conversation"
+					"group-menu-menu-unmute-conversation"
 				} else {
-					"Mute Conversation"
+					"group-menu-menu-mute-conversation"
 				},
 				colors.text,
 			)
-			.on_hover_text("Mute notifications until you unmute this conversation.")
+			.on_hover_text(crate::i18n::translate(
+				"group-menu-menu-mute-notifications-until-you-unmute-this-conversation",
+			))
 			.clicked()
 			{
 				self.mute = Some((channel.id, !muted));
 				ui.close();
 			}
 			ui.separator();
-			if row(ui, "Leave Group", colors.danger).clicked() {
+			if row(ui, "group-menu-menu-leave-group", colors.danger).clicked() {
 				self.open(state, channel, false);
 				ui.close();
 			}
 		});
 		if !enabled {
-			ui.small("Group actions unavailable while disconnected or busy.");
+			ui.small(crate::i18n::translate(
+				"group-menu-menu-group-actions-unavailable-while-disconnected-or-busy",
+			));
 		}
 	}
 	pub fn context(
@@ -121,7 +135,12 @@ impl GroupMenu {
 		channel: &Channel,
 		view: ShortcutView<'_>,
 	) {
-		let response = icons::button(ui, icons::Icon::More, 28.0, "Group menu");
+		let response = icons::button(
+			ui,
+			icons::Icon::More,
+			28.0,
+			&crate::i18n::translate("group-menu-dropdown-group-menu"),
+		);
 		egui::Popup::menu(&response)
 			.id(response.id.with((state.generation, channel.id)))
 			.show(|ui| self.menu(ui, state, channel, view));
@@ -200,18 +219,21 @@ impl GroupMenu {
 		let busy = dialog.submitted.is_some() || state.group_action_pending();
 		let mut builder = crate::dialog::Dialog::new(
 			"group-editor",
-			if dialog.edit {
-				"Edit Group"
+			crate::i18n::translate_if_key(if dialog.edit {
+				"group-menu-show-edit-group"
 			} else {
-				"Leave Group?"
-			},
+				"group-menu-show-leave-group"
+			}),
 		)
 		.width(440.0);
 		builder = if dialog.edit {
-			builder.subtitle("Give this group a name and an icon everyone will recognise.")
+			builder.subtitle(crate::i18n::translate(
+				"group-menu-show-give-this-group-a-name-and-an-icon-everyone-will",
+			))
 		} else {
 			builder.danger().subtitle(format!(
-				"You will need an invitation to rejoin {}.",
+				"{} {}.",
+				crate::i18n::translate("group-menu-show-you-will-need-an-invitation-to-rejoin"),
 				dialog.name
 			))
 		};
@@ -259,10 +281,15 @@ impl GroupMenu {
 								egui::WidgetInfo::labeled(
 									egui::Role::Button,
 									ui.is_enabled(),
-									"Change group icon",
+									crate::i18n::translate("group-menu-show-change-group-icon"),
 								)
 							});
-							if response.on_hover_text("Change group icon").clicked() {
+							if response
+								.on_hover_text(crate::i18n::translate(
+									"group-menu-show-change-group-icon",
+								))
+								.clicked()
+							{
 								dialog.choosing = true;
 								dialog.error = None;
 								self.icon_request =
@@ -270,7 +297,7 @@ impl GroupMenu {
 							}
 						});
 						if dialog.choosing {
-							ui.label("Choosing image…");
+							ui.label(crate::i18n::translate("group-menu-show-choosing-image"));
 						}
 						if (dialog.preview.is_some()
 							|| state
@@ -278,10 +305,13 @@ impl GroupMenu {
 								.is_some_and(|c| c.icon.is_some()))
 							&& !matches!(dialog.icon, Patch::Null)
 							&& ui
-								.add_enabled(
-									!busy && !dialog.choosing,
-									egui::Button::new("Remove icon").frame(false),
-								)
+								.add_enabled_ui(!busy && !dialog.choosing, |ui| {
+									crate::design::text_action(
+										ui,
+										&crate::i18n::translate("group-menu-show-remove-icon"),
+									)
+								})
+								.inner
 								.clicked()
 						{
 							dialog.icon = Patch::Null;
@@ -290,12 +320,12 @@ impl GroupMenu {
 					});
 					ui.add_space(10.0);
 					ui.add_enabled_ui(!busy, |ui| {
-						let label = crate::dialog::label(ui, "Group name");
+						let label = crate::dialog::label(ui, "group-menu-show-group-name");
 						let response = crate::dialog::input(
 							ui,
 							egui::TextEdit::singleline(&mut dialog.name)
 								.char_limit(100)
-								.hint_text("Group name")
+								.hint_text(crate::i18n::translate("group-menu-show-group-name"))
 								.id(egui::Id::unique(("group-name", self.revision))),
 						)
 						.labelled_by(label.id);
@@ -311,7 +341,7 @@ impl GroupMenu {
 					crate::dialog::notice(ui, crate::dialog::Level::Error, error);
 				}
 				if state.demo {
-					crate::dialog::hint(ui, "Offline preview · no group changes");
+					crate::dialog::hint(ui, "group-menu-show-offline-preview-no-group-changes");
 				}
 			});
 			d.footer(|ui| {
@@ -324,14 +354,14 @@ impl GroupMenu {
 				};
 				let label = if busy {
 					if dialog.edit {
-						"Saving…"
+						"group-menu-action-saving"
 					} else {
-						"Leaving…"
+						"group-menu-action-leaving"
 					}
 				} else if dialog.edit {
-					"Save"
+					"group-menu-action-save"
 				} else {
-					"Leave Group"
+					"group-menu-menu-leave-group"
 				};
 				let kind = if dialog.edit {
 					crate::dialog::Action::Primary
@@ -360,8 +390,12 @@ impl GroupMenu {
 						}
 					}
 				});
-				close |=
-					crate::dialog::action(ui, "Cancel", crate::dialog::Action::Neutral).clicked();
+				close |= crate::dialog::action(
+					ui,
+					"group-menu-show-cancel",
+					crate::dialog::Action::Neutral,
+				)
+				.clicked();
 			});
 		});
 		if close || response.close {
@@ -370,7 +404,24 @@ impl GroupMenu {
 		}
 	}
 }
+
+impl MessagingUi {
+	pub(crate) fn preview_group_editor(
+		&mut self,
+		state: &State,
+		channel: Id,
+	) -> Result<(), String> {
+		let channel = state
+			.channel(channel)
+			.filter(|channel| channel.guild.is_none() && channel.kind == 3)
+			.cloned()
+			.ok_or_else(|| "Group conversation is unavailable".to_owned())?;
+		self.group_menu.open(state, &channel, true);
+		Ok(())
+	}
+}
 fn row(ui: &mut egui::Ui, label: &str, color: egui::Color32) -> egui::Response {
+	let label = crate::i18n::translate_if_key(label);
 	ui.add_sized(
 		[ui.available_width(), 40.0],
 		egui::Button::new(())
@@ -424,7 +475,10 @@ mod tests {
 				..Default::default()
 			},
 			|ui| {
-				let row = ui.add_sized([220.0, 40.0], egui::Button::new("Synthetic group"));
+				let row = ui.add_sized(
+					[220.0, 40.0],
+					egui::Button::new(crate::i18n::translate("group-menu-frame-synthetic-group")),
+				);
 				let known = state.channel(channel).unwrap().clone();
 				let preferences = model::ChannelPreferences::default();
 				menu.context(&row, state, &known, ShortcutView::new(&preferences, true));

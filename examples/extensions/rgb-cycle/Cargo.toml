@@ -1,0 +1,13 @@
+[package]
+name = "rgb-cycle"
+version = "1.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+serein-extension-sdk.workspace = true
+serde.workspace = true
+serde_json.workspace = true

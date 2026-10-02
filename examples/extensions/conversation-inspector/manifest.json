@@ -1,0 +1,29 @@
+{
+  "api_version": 1,
+  "id": "conversation-inspector",
+  "name": "Conversation Inspector",
+  "version": "1.0.0",
+  "author": "Serein contributors",
+  "license": "MIT OR Apache-2.0",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/examples/extensions/conversation-inspector",
+  "kind": "plugin",
+  "capabilities": [
+    "message_content",
+    "forum_data",
+    "conversation_activity",
+    "app_events",
+    "data_events"
+  ],
+  "actions": [
+    {
+      "id": "show",
+      "label": "Inspect loaded conversation",
+      "surface": "panel"
+    },
+    {
+      "id": "on-app",
+      "label": "Observe conversation changes",
+      "surface": "app_event"
+    }
+  ]
+}

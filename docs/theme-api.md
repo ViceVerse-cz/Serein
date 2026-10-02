@@ -3,24 +3,23 @@
 A `.serein-extension` theme package contains a version 1 manifest with
 `"kind": "theme"`, empty capabilities/actions, and a `theme` object. There is no
 Wasm module. Import the package from Settings > Themes to try it locally.
-The existing packages in [`extensions`](../extensions) are complete examples.
+The packages in [`extensions/themes`](../extensions/themes) are complete examples.
 
 Theme package IDs are normalized to ASCII lowercase when parsed, so an imported
 `Golden-Theme` uses the same identity as `golden-theme`. Other ID restrictions
 (including path separators, non-ASCII characters and reserved device names) still
 apply. Plugin IDs and reviewed catalog manifests remain strictly lowercase.
 
-The official theme catalog and packages live in
-[Serein-extensions](https://github.com/ViceVerse-cz/Serein-extensions), including Forest
-Piano and Soft White Theme. The catalog pins each package to a source commit,
-SHA-256 and exact byte length. See that repository's README for publishing.
+The official theme catalog and packages live in [`extensions/`](../extensions/README.md),
+including Forest Piano and Soft White Theme. The catalog pins each package to a source
+commit, SHA-256 and exact byte length. See that README for publishing.
 Normal builds fetch catalog metadata when Themes opens; installation and updates
 remain explicit. Installed themes and the last valid catalog work offline.
 Local edits/imports are preserved, and updating an inactive theme does not change
 the current selection. Removing a listing never uninstalls it from a device.
 The eight-installed-theme limit remains unchanged.
-The packages retained under this client's `extensions/` are offline test/demo
-fixtures and are not embedded in normal builds.
+Offline test/demo fixtures read those canonical packages from `extensions/`; they are
+not embedded in normal builds.
 
 The `light` and `dark` objects each accept `colors`, an optional `backdrop`,
 and optional `background` image settings.
@@ -47,7 +46,6 @@ font sizes are whole logical pixels, before the user's display scale.
 | `transparency_blur` | `true` (requires Appearance opt-in) | `true` or `false` |
 | `transparency` | user Appearance setting | 0–100 |
 | `blur` | user Appearance setting | 0–100 |
-| `transparent_all` | user Appearance setting | `true` or `false` |
 | `body_size` | 15 | 10–28 |
 | `heading_size` | 20 | 12–40 |
 | `button_size` | 14 | 10–28 |
@@ -89,11 +87,14 @@ native window and GPU surface, with no blur or transparency compositor requests.
 Themes cannot enable window effects while this switch is off. Once enabled, the
 optional theme `transparency_blur` value can disable effects for that theme;
 omitting it permits effects. Theme percentages override the Appearance defaults.
-`transparency` controls how much desktop shows through the conversation;
-`transparent_all` extends it to sidebars, the server rail, headers and composer.
+`transparency` controls how much desktop shows through every surface: the server rail,
+sidebars, headers, conversation and composer. The retired `transparent_all` field is
+still accepted for older themes and ignored.
 These values and theme overrides update live within an enabled session.
-`blur` at zero disables native compositor blur; nonzero values request it, but the
-compositor chooses the exact radius. Systems without native blur keep translucency.
+`blur` at zero disables native compositor blur; nonzero values request it. Every
+supported compositor (macOS, Windows 11 acrylic, KDE and Wayland blur) applies its own
+fixed radius, so Appearance and the theme editor show blur as a switch. Systems without
+native blur keep translucency.
 Setting transparency to zero disables blur and restores the native opaque-window
 hint where supported; only restarting with the Appearance switch off releases the
 alpha-capable GPU surface. X11 cannot change its native hint after window creation.
@@ -160,11 +161,13 @@ copies of installed themes, can be edited and saved with their existing ID. Impo
 and catalog themes must be duplicated before saving, so their package is preserved.
 
 ```json
-"background": {
-  "opacity": 100, "fit": "cover", "target": "window",
-  "sections": {
-    "top_bar": 85, "server_list": 85, "channel_list": 85,
-    "message_list": 75, "member_list": 85, "composer": 90
+{
+  "background": {
+    "opacity": 100, "fit": "cover", "target": "window",
+    "sections": {
+      "top_bar": 85, "server_list": 85, "channel_list": 85,
+      "message_list": 75, "member_list": 85, "composer": 90
+    }
   }
 }
 ```
@@ -183,6 +186,10 @@ A missing setting inherits the
 underlying image settings. A supplied background object replaces those settings
 when an appearance plugin overlays the selected theme. Plugins cannot supply bytes,
 open an image file, or fetch an image URL.
+
+Preview `tick` actions may replace a plugin's appearance overlay over time. The host
+eases shared hex color keys from the currently displayed value; background settings,
+style metrics and keys present on only one side change immediately.
 
 Images are decoded on the extension worker, with at most 4,096 pixels per edge,
 4,000,000 pixels, and 32 MiB decoder allocation. Only a static decoded image is used.

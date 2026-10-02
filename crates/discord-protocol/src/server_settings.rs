@@ -19,6 +19,10 @@ struct Guild {
 	default_message_notifications: u8,
 	afk_channel_id: Option<Id>,
 	afk_timeout: u32,
+	#[serde(default)]
+	verification_level: u8,
+	#[serde(default)]
+	explicit_content_filter: u8,
 }
 #[derive(Deserialize)]
 struct Profile {
@@ -111,6 +115,8 @@ pub fn decode_settings(
 		default_message_notifications: metadata.default_message_notifications,
 		afk_channel_id: metadata.afk_channel_id,
 		afk_timeout: metadata.afk_timeout,
+		verification_level: metadata.verification_level,
+		explicit_content_filter: metadata.explicit_content_filter,
 		features: metadata.features,
 	};
 	if !settings.valid() {
@@ -121,7 +127,7 @@ pub fn decode_settings(
 
 /// Both bodies are partial. Unknown guild flags and features come from a fresh GET.
 pub fn encode_edit(edit: &Edit, latest: &Settings) -> Result<(Value, Value), DecodeError> {
-	if !edit.valid() || !latest.valid() {
+	if !edit.valid() || !latest.valid() || !edit.keeps_community_requirements(latest) {
 		return Err(DecodeError);
 	}
 	let mut profile = Map::new();
@@ -165,6 +171,12 @@ pub fn encode_edit(edit: &Edit, latest: &Settings) -> Result<(Value, Value), Dec
 	if let Some(value) = edit.afk_timeout {
 		guild.insert("afk_timeout".into(), json!(value));
 	}
+	if let Some(value) = edit.verification_level {
+		guild.insert("verification_level".into(), json!(value));
+	}
+	if let Some(value) = edit.explicit_content_filter {
+		guild.insert("explicit_content_filter".into(), json!(value));
+	}
 	if let Some(value) = edit.activity_feed {
 		let mut features: Vec<&str> = latest
 			.features
@@ -202,4 +214,42 @@ pub fn confirm_guild(bytes: &[u8], guild: Id) -> Result<(), DecodeError> {
 		return Err(DecodeError);
 	}
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	const GUILD: &[u8] = br#"{"id":"10","system_channel_id":null,"system_channel_flags":0,"features":["COMMUNITY"],"default_message_notifications":1,"afk_channel_id":null,"afk_timeout":300,"verification_level":2,"explicit_content_filter":2}"#;
+	const PROFILE: &[u8] = br#"{"id":"10","name":"Synthetic","icon_hash":null,"description":null,"brand_color_primary":null,"traits":[],"online_count":1,"member_count":2}"#;
+
+	#[test]
+	fn safety_levels_round_trip_and_keep_community_requirements() {
+		let settings = decode_settings(Id(10), GUILD, PROFILE).unwrap();
+		assert_eq!(settings.verification_level, 2);
+		assert_eq!(settings.explicit_content_filter, 2);
+		assert!(settings.community());
+
+		let mut draft = settings.clone();
+		draft.verification_level = 4;
+		let (profile, guild) = encode_edit(&Edit::between(&settings, &draft), &settings).unwrap();
+		assert_eq!(profile, json!({}));
+		assert_eq!(guild, json!({"verification_level": 4}));
+
+		draft.verification_level = 0;
+		assert!(encode_edit(&Edit::between(&settings, &draft), &settings).is_err());
+		draft.verification_level = 1;
+		draft.explicit_content_filter = 1;
+		assert!(encode_edit(&Edit::between(&settings, &draft), &settings).is_err());
+
+		let mut plain = settings.clone();
+		plain.features.clear();
+		let (_, guild) = encode_edit(&Edit::between(&plain, &draft), &plain).unwrap();
+		assert_eq!(
+			guild,
+			json!({"verification_level": 1, "explicit_content_filter": 1})
+		);
+		draft.verification_level = 5;
+		assert!(!Edit::between(&plain, &draft).valid());
+	}
 }

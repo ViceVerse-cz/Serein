@@ -3,12 +3,15 @@ pub mod badge;
 pub mod captcha;
 pub mod compositor;
 pub mod game_activity;
+pub mod heic;
 pub mod hotkeys;
 pub mod notifications;
 pub mod pointer;
 pub mod processes;
+pub mod proxy_credentials;
 pub mod save;
 pub mod startup;
+pub mod system_theme;
 pub mod tray;
 pub mod video;
 #[cfg(target_os = "macos")]
@@ -34,9 +37,14 @@ pub use login_linux::LoginView;
 /// Logical height of the native header the desktop app draws above the login webview.
 pub const LOGIN_HEADER_HEIGHT: f32 = 56.0;
 const SERVICE: &str = "cz.viceverse.serein";
+#[cfg(not(feature = "development-data"))]
 const ACCOUNT: &str = "discord-session";
+#[cfg(feature = "development-data")]
+const ACCOUNT: &str = "discord-session.development";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CredentialError {
+	/// No OS credential store exists (e.g. Linux without a Secret Service provider).
+	NoStore,
 	Unavailable,
 	Invalid,
 	TimedOut,
@@ -53,6 +61,85 @@ pub(crate) fn ensure_gtk_application_id() {
 		}
 		std::mem::forget(app);
 	});
+}
+
+/// Check GTK's effective encoding before WebKit starts Flatpak subprocesses.
+#[cfg(target_os = "linux")]
+pub(crate) fn ensure_webkit_locale() -> Result<(), &'static str> {
+	let flatpak = std::path::Path::new("/.flatpak-info").is_file()
+		|| std::env::var_os("FLATPAK_ID").is_some();
+	if flatpak && !gtk4::glib::charset().0 {
+		return Err(
+			"Serein Flatpak login/verification requires a UTF-8 locale. Repair runtime languages and restart Serein; see Flatpak troubleshooting.",
+		);
+	}
+	Ok(())
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod flatpak_locale_tests {
+	#[test]
+	fn non_utf8_webkit_preflight_is_local_to_flatpak() {
+		const CHILD: &str = "SEREIN_TEST_WEBKIT_LOCALE_CHILD";
+		if let Some(mode) = std::env::var_os(CHILD) {
+			// Fresh processes avoid GLib's cached encoding. Only the explicitly display-backed
+			// regression initializes GTK; neither test constructs WebKit or authenticates.
+			if std::env::var_os("SEREIN_TEST_WEBKIT_INITIALIZE_GTK").is_some() {
+				gtk4::init().expect("display-backed GTK initialization");
+			}
+			assert_eq!(gtk4::glib::charset().0, mode == "utf8");
+			assert_eq!(super::ensure_webkit_locale().is_err(), mode == "flatpak");
+			assert_eq!(
+				std::env::var_os("LC_ALL").as_deref(),
+				Some(std::ffi::OsStr::new("C"))
+			);
+			return;
+		}
+		check_encoding_cases(false);
+	}
+
+	#[test]
+	#[ignore = "requires a Linux display; explicitly exercised under Xvfb in native CI"]
+	fn post_gtk_flatpak_encoding_preflight() {
+		check_encoding_cases(true);
+	}
+
+	fn check_encoding_cases(initialize_gtk: bool) {
+		const CHILD: &str = "SEREIN_TEST_WEBKIT_LOCALE_CHILD";
+		for mode in ["native", "flatpak", "utf8"] {
+			if mode == "native" && std::path::Path::new("/.flatpak-info").is_file() {
+				continue; // A real sandbox marker cannot be removed to simulate a native app.
+			}
+			let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+			child
+				.args([
+					"--exact",
+					"flatpak_locale_tests::non_utf8_webkit_preflight_is_local_to_flatpak",
+				])
+				.env(CHILD, mode)
+				.env("LC_ALL", "C")
+				.env("CHARSET", if mode == "utf8" { "UTF-8" } else { "US-ASCII" })
+				.env_remove("FLATPAK_ID")
+				.env_remove("SEREIN_TEST_WEBKIT_INITIALIZE_GTK");
+			if initialize_gtk {
+				child.env("SEREIN_TEST_WEBKIT_INITIALIZE_GTK", "1");
+			}
+			if mode != "native" {
+				child.env("FLATPAK_ID", "cz.viceverse.serein");
+			}
+			let output = child.output().unwrap();
+			assert!(
+				output.status.success(),
+				"{mode}: {}",
+				String::from_utf8_lossy(&output.stderr)
+			);
+			assert!(
+				String::from_utf8(output.stdout)
+					.unwrap()
+					.contains("running 1 test")
+			);
+		}
+	}
 }
 
 /// The entry restored on launch. Switching accounts rewrites it from the per-account entry.
@@ -81,9 +168,14 @@ pub fn save_account_session(
 pub fn forget_account_session(account: model::Id) -> Result<(), CredentialError> {
 	forget_entry(&account_entry(account))
 }
+fn entry(name: &str) -> Result<keyring::Entry, CredentialError> {
+	keyring::Entry::new(SERVICE, name).map_err(|error| match error {
+		keyring::Error::NoDefaultStore => CredentialError::NoStore,
+		_ => CredentialError::Unavailable,
+	})
+}
 fn load_entry(name: &str) -> Result<Option<SessionSecret>, CredentialError> {
-	let entry = keyring::Entry::new(SERVICE, name).map_err(|_| CredentialError::Unavailable)?;
-	match entry.get_password() {
+	match entry(name)?.get_password() {
 		Ok(value) => SessionSecret::from_owner_input(value)
 			.map(Some)
 			.map_err(|_| CredentialError::Invalid),
@@ -92,12 +184,12 @@ fn load_entry(name: &str) -> Result<Option<SessionSecret>, CredentialError> {
 	}
 }
 fn save_entry(name: &str, secret: &SessionSecret) -> Result<(), CredentialError> {
-	keyring::Entry::new(SERVICE, name)
-		.and_then(|entry| entry.set_password(secret.expose()))
+	entry(name)?
+		.set_password(secret.expose())
 		.map_err(|_| CredentialError::Unavailable)
 }
 fn forget_entry(name: &str) -> Result<(), CredentialError> {
-	match keyring::Entry::new(SERVICE, name).and_then(|entry| entry.delete_credential()) {
+	match entry(name)?.delete_credential() {
 		Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
 		Err(_) => Err(CredentialError::Unavailable),
 	}
@@ -197,6 +289,14 @@ fn bounds(parent: &winit::window::Window) -> wry::Rect {
 mod tests {
 	use super::*;
 	#[test]
+	fn credential_account_names_are_profile_scoped() {
+		#[cfg(feature = "development-data")]
+		assert_eq!(ACCOUNT, "discord-session.development");
+		#[cfg(not(feature = "development-data"))]
+		assert_eq!(ACCOUNT, "discord-session");
+		assert_eq!(account_entry(model::Id(7)), format!("{ACCOUNT}.7"));
+	}
+	#[test]
 	fn handoff_accepts_only_our_discord_origin() {
 		assert!(discord_origin("https://discord.com/login"));
 		for value in [
@@ -211,11 +311,11 @@ mod tests {
 		let script = include_str!("login-handoff.js");
 		assert!(!script.contains("localStorage"));
 		assert!(!script.contains("password"));
-	}
-	#[test]
-	fn login_allows_hcaptcha_frames_only_over_https() {
-		assert!(login_navigation("https://newassets.hcaptcha.com/captcha/"));
-		assert!(!login_navigation("http://hcaptcha.com/"));
-		assert!(!login_navigation("https://hcaptcha.com.evil.test/"));
+
+		{
+			assert!(login_navigation("https://newassets.hcaptcha.com/captcha/"));
+			assert!(!login_navigation("http://hcaptcha.com/"));
+			assert!(!login_navigation("https://hcaptcha.com.evil.test/"));
+		}
 	}
 }

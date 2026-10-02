@@ -15,7 +15,7 @@ fn title(text: &str) -> String {
 	}
 	emoji_picker::standard()
 		.iter()
-		.find(|(value, _)| {
+		.position(|(value, _)| {
 			value
 				.chars()
 				.filter(|c| *c != '\u{fe0f}')
@@ -23,7 +23,7 @@ fn title(text: &str) -> String {
 		})
 		.map_or_else(
 			|| text.to_owned(),
-			|(_, name)| emoji_picker::shortcode(name),
+			|index| emoji_picker::shortcodes()[index].clone(),
 		)
 }
 
@@ -91,20 +91,29 @@ pub(crate) fn show(
 						.wrap(),
 					);
 					if custom.is_some() {
-						ui.label("A custom emoji.");
+						ui.label(crate::i18n::translate("emoji-details-show-a-custom-emoji"));
 						if let Some((guild, _)) = source {
-							ui.add(egui::Label::new(format!("From {}", guild.name)).wrap());
+							ui.add(
+								egui::Label::new(format!(
+									"{} {}",
+									crate::i18n::translate("emoji-details-show-from"),
+									guild.name
+								))
+								.wrap(),
+							);
 						} else {
 							ui.add(
-								egui::Label::new("Source server unavailable in this session.")
-									.wrap(),
+								egui::Label::new(crate::i18n::translate(
+									"emoji-details-show-source-server-unavailable-in-this-session",
+								))
+								.wrap(),
 							);
 						}
 					} else {
 						ui.add(
-							egui::Label::new(
-								"A default emoji. You can use this emoji everywhere on Discord.",
-							)
+							egui::Label::new(crate::i18n::translate(
+								"emoji-details-show-a-default-emoji-you-can-use-this-emoji-everywhere-on",
+							))
 							.wrap(),
 						);
 					}
@@ -112,7 +121,10 @@ pub(crate) fn show(
 			});
 		});
 	response.context_menu(|ui| {
-		if ui.button("Copy emoji").clicked() {
+		if ui
+			.button(crate::i18n::translate("emoji-details-show-copy-emoji"))
+			.clicked()
+		{
 			ui.ctx().copy_text(text.to_owned());
 			ui.close();
 		}

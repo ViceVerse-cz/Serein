@@ -119,6 +119,7 @@ async fn exchange() {
 		frames,
 		ready: ready.clone(),
 		keyframe: keyframe.clone(),
+		bitrate: Arc::new(std::sync::atomic::AtomicU32::new(4_000_000)),
 		audio: Some(audio),
 		audio_epoch: epoch.clone(),
 	};

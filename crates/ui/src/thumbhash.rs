@@ -165,15 +165,14 @@ mod tests {
 		assert!(decode(&SUNSET[..4]).is_none());
 		assert!(decode(&SUNSET[..8]).is_none());
 		assert!(decode(&SUNSET[..20]).is_none());
-	}
 
-	#[test]
-	fn never_panics_on_arbitrary_bytes() {
-		for seed in 0..512u32 {
-			let bytes: Vec<u8> = (0..(seed % 40) as u8)
-				.map(|i| (seed.wrapping_mul(2654435761) >> (i % 24)) as u8)
-				.collect();
-			let _ = decode(&bytes);
+		{
+			for seed in 0..512u32 {
+				let bytes: Vec<u8> = (0..(seed % 40) as u8)
+					.map(|i| (seed.wrapping_mul(2654435761) >> (i % 24)) as u8)
+					.collect();
+				let _ = decode(&bytes);
+			}
 		}
 	}
 }

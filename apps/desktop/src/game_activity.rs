@@ -8,7 +8,10 @@ use discord_api::{
 use discord_protocol::rpc::{self, Activity, Request};
 use eframe::egui;
 use futures_util::{SinkExt, StreamExt};
-use model::{Id, User};
+use model::{
+	Id, User,
+	registered_games::{RegisteredGame, RunningGame},
+};
 use std::{future::Future, io, net::Ipv4Addr, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
 	io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
@@ -25,6 +28,8 @@ use tokio_tungstenite::{
 		protocol::WebSocketConfig,
 	},
 };
+
+mod custom;
 
 pub type Detection = Result<Option<model::RichActivity>, &'static str>;
 const MAX_CLIENTS: usize = 8;
@@ -63,19 +68,28 @@ trait Applications: Clone + Send + Sync + 'static {
 	fn detectable(&self) -> impl Future<Output = Result<Vec<Game>, &'static str>> + Send;
 }
 
-/// One HTTP client and one shared rate-limit cooldown for a whole sharing session.
+/// One routed REST adapter and one shared rate-limit cooldown for a sharing session.
 #[derive(Clone)]
 struct Service {
-	client: reqwest::Client,
 	cooldown: Arc<tokio::sync::Mutex<Instant>>,
 	api: Arc<discord_api::DiscordApi>,
 }
 impl Applications for Service {
 	async fn metadata(&self, id: Id) -> Result<Metadata, &'static str> {
-		discord_api::rpc::metadata(&self.client, &mut *self.cooldown.lock().await, id).await
+		let client = self
+			.api
+			.rest_client()
+			.await
+			.map_err(|_| "Game application lookup is unavailable.")?;
+		discord_api::rpc::metadata(&client, &mut *self.cooldown.lock().await, id).await
 	}
 	async fn assets(&self, id: Id) -> Result<Vec<discord_api::rpc::Asset>, &'static str> {
-		discord_api::rpc::assets(&self.client, &mut *self.cooldown.lock().await, id).await
+		let client = self
+			.api
+			.rest_client()
+			.await
+			.map_err(|_| "Game artwork lookup is unavailable.")?;
+		discord_api::rpc::assets(&client, &mut *self.cooldown.lock().await, id).await
 	}
 	async fn external(&self, id: Id, urls: &[String]) -> Result<Vec<String>, &'static str> {
 		self.api
@@ -84,8 +98,13 @@ impl Applications for Service {
 			.map_err(|_| "Discord could not prepare the game's artwork.")
 	}
 	async fn detectable(&self) -> Result<Vec<Game>, &'static str> {
+		let client = self
+			.api
+			.rest_client()
+			.await
+			.map_err(|_| "Game detection is unavailable.")?;
 		let bytes =
-			discord_api::detectable::download_list(&self.client, &mut *self.cooldown.lock().await)
+			discord_api::detectable::download_list(&client, &mut *self.cooldown.lock().await)
 				.await?;
 		// Several megabytes of JSON must never be parsed on a runtime worker.
 		tokio::task::spawn_blocking(move || discord_api::detectable::decode(&bytes))
@@ -94,9 +113,19 @@ impl Applications for Service {
 	}
 }
 
+/// The user's registered games in, and the scanned "Current Game" out.
+pub struct Registered {
+	pub games: watch::Receiver<Vec<RegisteredGame>>,
+	pub current: watch::Sender<Option<RunningGame>>,
+}
+
 /// Sharing owns the listeners and all clients. Dropping it cancels every pending operation.
 pub async fn run(
-	enabled: watch::Receiver<bool>,
+	sharing: (
+		watch::Receiver<bool>,
+		watch::Receiver<Option<extensions::CustomRichPresence>>,
+		Registered,
+	),
 	activity: watch::Sender<Option<Activity>>,
 	report: watch::Sender<Detection>,
 	invites: watch::Sender<Option<(u64, String)>>,
@@ -104,13 +133,67 @@ pub async fn run(
 	user: User,
 	api: Arc<discord_api::DiscordApi>,
 ) {
+	let (enabled, custom_requests, registered) = sharing;
+	let registered = &registered;
 	run_enabled(enabled, &activity, &report, &ctx, || async {
+		let _clear = ClearCurrent(&registered.current);
 		let service = Service {
-			client: discord_api::rpc::client()?,
 			cooldown: Arc::new(tokio::sync::Mutex::new(Instant::now())),
 			api: api.clone(),
 		};
-		listen(&activity, &report, &invites, &ctx, &user, &service).await
+		let (detected_send, mut detected) = watch::channel(None);
+		let (detected_report_send, mut detected_report) = watch::channel(Ok(None));
+		let (custom_send, mut custom_report) = watch::channel(Ok(None));
+		let _custom = Abort(tokio::spawn(custom::run(
+			custom_requests.clone(),
+			custom_send,
+			service.clone(),
+		)));
+		let listener = listen(
+			&detected_send,
+			&detected_report_send,
+			&invites,
+			&ctx,
+			&user,
+			&service,
+			registered,
+		);
+		tokio::pin!(listener);
+		let mut listening = true;
+		loop {
+			tokio::select! {
+				result = &mut listener, if listening => {
+					listening = false;
+					detected_send.send_replace(None);
+					let _ = detected_report_send.send_replace(result.map(|()| None));
+				}
+				result = detected.changed() => { if result.is_err() { return Ok(()); } }
+				result = detected_report.changed() => { if result.is_err() { return Ok(()); } }
+				result = custom_report.changed() => { if result.is_err() { return Ok(()); } }
+			}
+			let custom = custom_report.borrow_and_update().clone();
+			let (latest, display) = match custom {
+				Ok(Some(value)) => {
+					let display = display_activity(&value);
+					(Some(value), Ok(Some(display)))
+				}
+				Ok(None) => (
+					detected.borrow_and_update().clone(),
+					detected_report.borrow_and_update().clone(),
+				),
+				Err(error) => (None, Err(error)),
+			};
+			activity.send_if_modified(|current| {
+				if *current == latest {
+					false
+				} else {
+					*current = latest;
+					true
+				}
+			});
+			let _ = report.send_replace(display);
+			ctx.request_repaint();
+		}
 	})
 	.await;
 }
@@ -154,6 +237,14 @@ async fn run_enabled<F, Fut>(
 	}
 }
 
+/// A stopped scanner no longer knows what runs, so the settings page must not claim it.
+struct ClearCurrent<'a>(&'a watch::Sender<Option<RunningGame>>);
+impl Drop for ClearCurrent<'_> {
+	fn drop(&mut self) {
+		self.0.send_replace(None);
+	}
+}
+
 /// Aborts the scanner when the sharing session ends or the toggle is turned off.
 struct Abort(tokio::task::JoinHandle<()>);
 impl Drop for Abort {
@@ -169,6 +260,7 @@ async fn listen<A: Applications>(
 	ctx: &egui::Context,
 	user: &User,
 	service: &A,
+	registered: &Registered,
 ) -> Result<(), &'static str> {
 	let mut listener = platform::game_activity::Listener::bind().map_err(
 		|_| "Game activity is unavailable. Close other Discord clients, then turn sharing off and on.",
@@ -185,7 +277,13 @@ async fn listen<A: Applications>(
 	let mut next_accept_ipc = Instant::now();
 	let mut next_accept_web = Instant::now();
 	let mut invite_count = 0;
-	let _scanner = Abort(tokio::spawn(scan(service.clone(), scan_send)));
+	let _scanner = Abort(tokio::spawn(scan(
+		service.clone(),
+		scan_send,
+		registered.games.clone(),
+		registered.current.clone(),
+		ctx.clone(),
+	)));
 	loop {
 		tokio::select! {
 			// An admission interval also bounds credential-free metadata requests (two per client).
@@ -326,27 +424,29 @@ fn display_activity(activity: &Activity) -> model::RichActivity {
 		.and_then(image);
 	// Discord shows the application icon in the large slot when no large image resolves;
 	// the small image stays the corner badge and never becomes the artwork.
-	let primary = large
-		.clone()
-		.unwrap_or(model::ActivityImage::Application(activity.application_id));
+	// A user-added game has no application, so nothing to show beyond its name.
+	let application = (activity.application_id.0 != 0)
+		.then_some(model::ActivityImage::Application(activity.application_id));
+	let primary = large.clone().or_else(|| application.clone());
 	let small_image = small
 		.or_else(|| {
-			(large.is_some() && assets.is_some_and(|assets| assets.small_image.is_none()))
-				.then_some(model::ActivityImage::Application(activity.application_id))
+			application
+				.clone()
+				.filter(|_| large.is_some() && assets.is_some_and(|a| a.small_image.is_none()))
 		})
-		.filter(|small| *small != primary);
+		.filter(|small| Some(small) != primary.as_ref());
 	model::RichActivity {
 		kind: activity.kind,
 		name: activity.name.trim().to_owned(),
 		details: text(&activity.details),
 		state: text(&activity.state),
-		image: Some(primary),
+		image: primary,
 		small_image,
 		ends_at: activity.timestamps.as_ref().and_then(|timestamps| {
-			let start = timestamps.start?;
-			timestamps
-				.end
-				.filter(|end| *end > start && *end <= model::MAX_ACTIVITY_TIMESTAMP)
+			timestamps.end.filter(|end| {
+				*end <= model::MAX_ACTIVITY_TIMESTAMP
+					&& timestamps.start.is_none_or(|start| *end > start)
+			})
 		}),
 		started_at: activity
 			.timestamps
@@ -434,9 +534,11 @@ impl<'a, A: Applications> Session<'a, A> {
 		}
 		if assets.large_image.is_none() {
 			assets.large_text = None;
+			assets.large_url = None;
 		}
 		if assets.small_image.is_none() {
 			assets.small_text = None;
+			assets.small_url = None;
 		}
 		assets
 	}
@@ -681,20 +783,28 @@ async fn serve<C: Channel, A: Applications>(
 }
 
 /// Detection for games that never speak RPC. Publishes only the public application identity.
-async fn scan<A: Applications>(service: A, send: mpsc::Sender<Option<Activity>>) {
-	let Some(games) = detectable(&service).await else {
-		return;
-	};
-	let games = Index::new(&games);
-	let mut current: Option<(Id, u64)> = None;
+async fn scan<A: Applications>(
+	service: A,
+	send: mpsc::Sender<Option<Activity>>,
+	mut registered: watch::Receiver<Vec<RegisteredGame>>,
+	report: watch::Sender<Option<RunningGame>>,
+	ctx: egui::Context,
+) {
+	// A failed list download still leaves the user's own games detectable.
+	let games = Index::new(&detectable(&service).await.unwrap_or_default());
+	let mut current: Option<(RunningGame, u64)> = None;
 	loop {
 		let paths = tokio::task::spawn_blocking(platform::processes::running).await;
-		let found = paths
-			.ok()
-			.and_then(Result::ok)
-			.and_then(|paths| choose(&games, &paths, current.map(|(id, _)| id)));
-		let started = match (found.as_ref(), current) {
-			(Some((id, _)), Some((previous, at))) if *id == previous => at,
+		let found = paths.ok().and_then(Result::ok).and_then(|paths| {
+			choose(
+				&games,
+				&registered.borrow_and_update(),
+				&paths,
+				current.as_ref().map(|(game, _)| game.executable.as_str()),
+			)
+		});
+		let started = match (found.as_ref(), current.as_ref()) {
+			(Some(game), Some((previous, at))) if game.executable == previous.executable => *at,
 			(Some(_), _) => std::time::SystemTime::now()
 				.duration_since(std::time::UNIX_EPOCH)
 				.unwrap_or_default()
@@ -702,36 +812,75 @@ async fn scan<A: Applications>(service: A, send: mpsc::Sender<Option<Activity>>)
 				.min(u64::MAX as u128) as u64,
 			(None, _) => 0,
 		};
-		let next = found.as_ref().map(|(id, _)| (*id, started));
+		let next = found.map(|game| (game, started));
 		if next != current {
 			current = next;
-			let value = found.and_then(|(id, name)| {
+			let value = current.as_ref().and_then(|(game, started)| {
 				rpc::ActivityFields {
 					timestamps: Some(rpc::Timestamps {
-						start: Some(started),
+						start: Some(*started),
 						end: None,
 					}),
 					..Default::default()
 				}
-				.into_activity(id, name)
+				.into_activity(game.application.unwrap_or(Id(0)), game.name.clone())
 				.ok()
 			});
+			report.send_replace(current.as_ref().map(|(game, _)| game.clone()));
+			ctx.request_repaint();
 			if send.send(value).await.is_err() {
 				return;
 			}
 		}
-		tokio::time::sleep(SCAN_INTERVAL).await;
+		// An edit on the Registered Games page applies now rather than on the next tick.
+		tokio::select! {
+			_ = tokio::time::sleep(SCAN_INTERVAL) => {}
+			changed = registered.changed() => if changed.is_err() { return },
+		}
 	}
 }
 
-/// Keeping the running match stable avoids flapping between two matching processes.
-fn choose(games: &Index, paths: &[String], previous: Option<Id>) -> Option<(Id, String)> {
+/// Registered games outrank Discord's list, removed ones are never reported, and keeping the
+/// running match stable avoids flapping between two matching processes.
+fn choose(
+	games: &Index,
+	registered: &[RegisteredGame],
+	paths: &[String],
+	previous: Option<&str>,
+) -> Option<RunningGame> {
 	let mut first = None;
 	for path in paths {
-		let Some(found) = games.find(path) else {
+		let Some(executable) = discord_api::detectable::normalize(path) else {
 			continue;
 		};
-		if Some(found.0) == previous {
+		let own = registered.iter().find(|game| game.executable == executable);
+		let found = match own {
+			Some(game) if game.hidden => continue,
+			// Recorded detections are registered too; only a changed name counts as renamed.
+			Some(game) => RunningGame {
+				renamed: game.application.is_none()
+					|| games.find(path).is_none_or(|(_, name)| name != game.name),
+				executable,
+				name: game.name.clone(),
+				application: game.application,
+			},
+			None => {
+				let Some((id, name)) = games.find(path) else {
+					continue;
+				};
+				let named = registered.iter().find(|game| game.application == Some(id));
+				if named.is_some_and(|game| game.hidden) {
+					continue;
+				}
+				RunningGame {
+					executable,
+					name: named.map_or(name, |game| game.name.clone()),
+					application: Some(id),
+					renamed: named.is_some(),
+				}
+			}
+		};
+		if Some(found.executable.as_str()) == previous {
 			return Some(found);
 		}
 		first.get_or_insert(found);
@@ -744,7 +893,9 @@ const LIST_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_CACHED_LIST: u64 = 8 * 1024 * 1024;
 
 fn list_path() -> Option<PathBuf> {
-	dirs::data_local_dir().map(|root| root.join("serein").join("detectable.json"))
+	local_store::data_dir()
+		.ok()
+		.map(|root| root.join("detectable.json"))
 }
 
 async fn detectable<A: Applications>(service: &A) -> Option<Vec<Game>> {
@@ -976,6 +1127,7 @@ mod tests {
 			large_text: Some("Cover".into()),
 			small_image: Some("map".into()),
 			small_text: Some("Rank".into()),
+			..Default::default()
 		};
 		let activity = session
 			.activity(rpc::ActivityFields {
@@ -1230,14 +1382,58 @@ mod tests {
 			.unwrap(),
 		);
 		let paths = ["/usr/bin/other".to_owned(), "/opt/scanned".to_owned()];
+		let id = |found: Option<RunningGame>| found.unwrap().application;
 		// Without a previous match the first running process wins.
-		assert_eq!(choose(&games, &paths, None).unwrap().0, model::Id(8));
+		assert_eq!(id(choose(&games, &[], &paths, None)), Some(model::Id(8)));
 		// With one, the running match is kept so the presence does not flap.
 		assert_eq!(
-			choose(&games, &paths, Some(model::Id(7))).unwrap().0,
-			model::Id(7)
+			id(choose(&games, &[], &paths, Some("opt/scanned"))),
+			Some(model::Id(7))
 		);
-		assert!(choose(&games, &["/usr/bin/none".to_owned()], None).is_none());
+		assert!(choose(&games, &[], &["/usr/bin/none".to_owned()], None).is_none());
+		// Removing a detected game hides it; a renamed one keeps its application.
+		let own = |executable: &str, name: &str, application, hidden| RegisteredGame {
+			executable: executable.into(),
+			name: name.into(),
+			application,
+			hidden,
+			last_played: None,
+		};
+		let hidden = [own("usr/bin/other", "Other game", Some(model::Id(8)), true)];
+		assert_eq!(
+			id(choose(&games, &hidden, &paths, None)),
+			Some(model::Id(7))
+		);
+		let renamed = [own(
+			"elsewhere/scanned",
+			"Renamed",
+			Some(model::Id(7)),
+			false,
+		)];
+		let found = choose(&games, &renamed, &paths[1..], None).unwrap();
+		assert_eq!((found.name.as_str(), found.renamed), ("Renamed", true));
+		// A recorded detection keeps Discord's name and is still not "renamed".
+		let mut recorded = vec![];
+		let scanned = choose(&games, &recorded, &paths[1..], None).unwrap();
+		model::registered_games::record(&mut recorded, &scanned, 1);
+		let found = choose(&games, &recorded, &paths[1..], None).unwrap();
+		assert_eq!(found, scanned);
+		recorded[0].hidden = true;
+		assert!(choose(&games, &recorded, &paths[1..], None).is_none());
+		// A manually added executable is detected under its own name, without an application.
+		let added = [own("opt/tools/mine.x86_64", "My game", None, false)];
+		let found = choose(&games, &added, &["/opt/tools/Mine.x86_64".to_owned()], None).unwrap();
+		assert_eq!((found.name.as_str(), found.application), ("My game", None));
+		let activity = rpc::ActivityFields::default()
+			.into_activity(Id(0), found.name)
+			.unwrap();
+		assert!(
+			serde_json::to_value(&activity)
+				.unwrap()
+				.get("application_id")
+				.is_none()
+		);
+		assert_eq!(display_activity(&activity).image, None);
 
 		let (activity, _) = watch::channel(None);
 		let (report, _) = watch::channel(Ok(None));
@@ -1278,113 +1474,73 @@ mod tests {
 			&egui::Context::default(),
 		);
 		assert_eq!(*activity.borrow(), Some(scanned));
-	}
 
-	#[test]
-	fn latest_game_falls_back_and_clears_without_polling() {
-		let (activity, _) = watch::channel(None);
-		let (report, _) = watch::channel(Ok(None));
-		let mut values = std::array::from_fn(|_| None);
-		let first = rpc::ActivityFields::default()
-			.into_activity(model::Id(7), "First game".into())
-			.unwrap();
-		let second = rpc::ActivityFields::default()
-			.into_activity(model::Id(8), "Second game".into())
-			.unwrap();
-		values[0] = Some((Instant::now(), first.clone()));
-		values[1] = Some((Instant::now() + Duration::from_millis(1), second.clone()));
-		publish(
-			&values,
-			&None,
-			&activity,
-			&report,
-			&egui::Context::default(),
-		);
-		assert_eq!(*activity.borrow(), Some(second));
-		values[1] = None;
-		publish(
-			&values,
-			&None,
-			&activity,
-			&report,
-			&egui::Context::default(),
-		);
-		assert_eq!(*activity.borrow(), Some(first));
-		let first = values[0].as_mut().unwrap();
-		first.1.details = Some("  Next beatmap  ".into());
-		first.1.state = Some(" ".into());
-		first.1.assets = Some(rpc::Assets {
-			large_image: Some("99".into()),
-			..Default::default()
-		});
-		publish(
-			&values,
-			&None,
-			&activity,
-			&report,
-			&egui::Context::default(),
-		);
-		let display = report.borrow().as_ref().unwrap().clone().unwrap();
-		assert!(display.valid());
-		assert_eq!(display.summary(), "Playing First game");
-		assert_eq!(display.details.as_deref(), Some("Next beatmap"));
-		assert!(display.state.is_none());
-		assert_eq!(
-			display.image,
-			Some(model::ActivityImage::Asset {
-				application: model::Id(7),
-				asset: model::Id(99),
-			})
-		);
-		values[0] = None;
-		publish(
-			&values,
-			&None,
-			&activity,
-			&report,
-			&egui::Context::default(),
-		);
-		assert!(activity.borrow().is_none());
-		assert_eq!(*report.borrow(), Ok(None));
-	}
-
-	#[test]
-	fn a_small_badge_never_becomes_the_artwork() {
-		let activity = |assets: rpc::Assets| {
-			rpc::ActivityFields {
-				assets: Some(assets),
+		{
+			let (activity, _) = watch::channel(None);
+			let (report, _) = watch::channel(Ok(None));
+			let mut values = std::array::from_fn(|_| None);
+			let first = rpc::ActivityFields::default()
+				.into_activity(model::Id(7), "First game".into())
+				.unwrap();
+			let second = rpc::ActivityFields::default()
+				.into_activity(model::Id(8), "Second game".into())
+				.unwrap();
+			values[0] = Some((Instant::now(), first.clone()));
+			values[1] = Some((Instant::now() + Duration::from_millis(1), second.clone()));
+			publish(
+				&values,
+				&None,
+				&activity,
+				&report,
+				&egui::Context::default(),
+			);
+			assert_eq!(*activity.borrow(), Some(second));
+			values[1] = None;
+			publish(
+				&values,
+				&None,
+				&activity,
+				&report,
+				&egui::Context::default(),
+			);
+			assert_eq!(*activity.borrow(), Some(first));
+			let first = values[0].as_mut().unwrap();
+			first.1.details = Some("  Next beatmap  ".into());
+			first.1.state = Some(" ".into());
+			first.1.assets = Some(rpc::Assets {
+				large_image: Some("99".into()),
 				..Default::default()
-			}
-			.into_activity(model::Id(7), "A game".into())
-			.unwrap()
-		};
-		// The reported failure: only the badge resolved, so it was shown as the cover.
-		let badge_only = display_activity(&activity(rpc::Assets {
-			small_image: Some("42".into()),
-			..Default::default()
-		}));
-		assert_eq!(
-			badge_only.image,
-			Some(model::ActivityImage::Application(model::Id(7)))
-		);
-		assert_eq!(
-			badge_only.small_image,
-			Some(model::ActivityImage::Asset {
-				application: model::Id(7),
-				asset: model::Id(42),
-			})
-		);
-		let proxied = display_activity(&activity(rpc::Assets {
-			large_image: Some("mp:external/hash-01/https/example.com/cover.png".into()),
-			..Default::default()
-		}));
-		assert_eq!(
-			proxied.image,
-			Some(model::ActivityImage::Proxy(
-				"external/hash-01/https/example.com/cover.png".into()
-			))
-		);
-		assert!(proxied.valid());
+			});
+			publish(
+				&values,
+				&None,
+				&activity,
+				&report,
+				&egui::Context::default(),
+			);
+			let display = report.borrow().as_ref().unwrap().clone().unwrap();
+			assert!(display.valid());
+			assert_eq!(display.summary(), "Playing First game");
+			assert_eq!(display.details.as_deref(), Some("Next beatmap"));
+			assert!(display.state.is_none());
+			assert_eq!(
+				display.image,
+				Some(model::ActivityImage::Asset {
+					application: model::Id(7),
+					asset: model::Id(99),
+				})
+			);
+			values[0] = None;
+			publish(
+				&values,
+				&None,
+				&activity,
+				&report,
+				&egui::Context::default(),
+			);
+			assert!(activity.borrow().is_none());
+			assert_eq!(*report.borrow(), Ok(None));
+		}
 	}
 
 	#[tokio::test]
@@ -1473,5 +1629,76 @@ mod tests {
 		settings.dirty = false;
 		settings.observe(false);
 		assert!(settings.dirty && settings.saving && !settings.enabled);
+	}
+
+	#[tokio::test]
+	async fn custom_presence_cancels_stale_artwork_and_stop_clears() {
+		let service = Offline {
+			release: Some(Arc::new(Notify::new())),
+			..Offline::default()
+		};
+		let started = service.started.clone();
+		let mut request = extensions::CustomRichPresence {
+			application_id: "7".into(),
+			name: "Custom game".into(),
+			large_image: Some(extensions::RichPresenceImage {
+				key: "map".into(),
+				text: None,
+				url: None,
+			}),
+			..Default::default()
+		};
+		let (send, receive) = watch::channel(Some(request.clone()));
+		let (output, mut results) = watch::channel(Ok(None));
+		let worker = tokio::spawn(custom::run(receive, output, service));
+		timeout(Duration::from_secs(2), started.notified())
+			.await
+			.unwrap();
+		// Metadata never completes: a newer request must cancel it and publish without artwork.
+		request.large_image = None;
+		request.name = "Latest custom game".into();
+		send.send_replace(Some(request));
+		timeout(Duration::from_secs(2), results.changed())
+			.await
+			.unwrap()
+			.unwrap();
+		assert_eq!(
+			results
+				.borrow_and_update()
+				.as_ref()
+				.unwrap()
+				.as_ref()
+				.unwrap()
+				.name,
+			"Latest custom game"
+		);
+		send.send_replace(None);
+		timeout(Duration::from_secs(2), results.changed())
+			.await
+			.unwrap()
+			.unwrap();
+		assert_eq!(*results.borrow_and_update(), Ok(None));
+		drop(send);
+		timeout(Duration::from_secs(2), worker)
+			.await
+			.unwrap()
+			.unwrap();
+	}
+
+	#[test]
+	fn end_only_activity_retains_its_countdown() {
+		let activity = rpc::ActivityFields {
+			timestamps: Some(rpc::Timestamps {
+				start: None,
+				end: Some(1_700_000_000_000),
+			}),
+			..Default::default()
+		}
+		.into_activity(model::Id(7), "Countdown".into())
+		.unwrap();
+		let display = display_activity(&activity);
+		assert_eq!(display.started_at, None);
+		assert_eq!(display.ends_at, Some(1_700_000_000_000));
+		assert!(display.valid());
 	}
 }

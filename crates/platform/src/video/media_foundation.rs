@@ -134,13 +134,14 @@ impl Decoder {
 		source.seek(SeekFrom::Start(0)).map_err(|_| INVALID)?;
 		let mut header = [0_u8; 8];
 		source.read_exact(&mut header).map_err(|_| INVALID)?;
-		// Only the MPEG-4/MOV source is supported. Its documented source cannot
-		// resolve external tracks: media must live in mdat boxes. No base URL is supplied.
-		if length < 8
-			|| !matches!(
-				&header[4..],
-				b"ftyp" | b"moov" | b"mdat" | b"free" | b"skip" | b"wide"
-			) {
+		// Admit only the native MPEG-4/MOV and WebM/Matroska sources. Neither can resolve
+		// external tracks because Media Foundation receives no base URL.
+		let mp4 = matches!(
+			&header[4..],
+			b"ftyp" | b"moov" | b"mdat" | b"free" | b"skip" | b"wide"
+		);
+		let ebml = header[..4] == [0x1a, 0x45, 0xdf, 0xa3];
+		if length < 8 || (!mp4 && !ebml) {
 			return Err(UNSUPPORTED);
 		}
 		source.seek(SeekFrom::Start(0)).map_err(|_| INVALID)?;
@@ -1005,45 +1006,45 @@ mod tests {
 			panic!("Missing portrait frame");
 		};
 		assert_eq!((width, height, rgba.len()), (180, 320, 180 * 320 * 4));
-	}
-	#[test]
-	fn bounded_stream_cursors_and_video_rows() {
-		let stream: IStream = ReadStream {
-			source: Arc::new(Mutex::new(Box::new(std::io::Cursor::new(vec![1, 2, 3, 4])))),
-			position: Mutex::new(0),
-			length: 4,
+
+		{
+			let stream: IStream = ReadStream {
+				source: Arc::new(Mutex::new(Box::new(std::io::Cursor::new(vec![1, 2, 3, 4])))),
+				position: Mutex::new(0),
+				length: 4,
+			}
+			.into();
+			unsafe {
+				let clone = stream.Clone().unwrap();
+				stream.Seek(2, STREAM_SEEK_SET, None).unwrap();
+				let mut bytes = [0_u8; 4];
+				let mut count = 0;
+				assert_eq!(
+					stream.Read(bytes.as_mut_ptr().cast(), 4, Some(&mut count)),
+					S_FALSE
+				);
+				assert_eq!((&bytes[..2], count), (&[3, 4][..], 2));
+				assert_eq!(
+					clone.Read(bytes.as_mut_ptr().cast(), 4, Some(&mut count)),
+					S_OK
+				);
+				assert_eq!(bytes, [1, 2, 3, 4]);
+				assert!(stream.Seek(-5, STREAM_SEEK_SET, None).is_err());
+				assert_eq!(
+					stream.Read(bytes.as_mut_ptr().cast(), MAX_BYTES as u32 + 1, None),
+					E_INVALIDARG
+				);
+			}
+			let input = [1, 2, 3, 0, 4, 5, 6, 0];
+			assert_eq!(
+				rgba_frame(&input, 1, 2, -4, 0, 2, (0, 0)).unwrap(),
+				[6, 5, 4, 255, 3, 2, 1, 255]
+			);
+			assert_eq!(
+				rgba_frame(&input, 1, 2, 4, 90, 2, (0, 0)).unwrap(),
+				[6, 5, 4, 255, 3, 2, 1, 255]
+			);
+			assert!(rgba_frame(&input[..4], 1, 2, 4, 0, 2, (0, 0)).is_err());
 		}
-		.into();
-		unsafe {
-			let clone = stream.Clone().unwrap();
-			stream.Seek(2, STREAM_SEEK_SET, None).unwrap();
-			let mut bytes = [0_u8; 4];
-			let mut count = 0;
-			assert_eq!(
-				stream.Read(bytes.as_mut_ptr().cast(), 4, Some(&mut count)),
-				S_FALSE
-			);
-			assert_eq!((&bytes[..2], count), (&[3, 4][..], 2));
-			assert_eq!(
-				clone.Read(bytes.as_mut_ptr().cast(), 4, Some(&mut count)),
-				S_OK
-			);
-			assert_eq!(bytes, [1, 2, 3, 4]);
-			assert!(stream.Seek(-5, STREAM_SEEK_SET, None).is_err());
-			assert_eq!(
-				stream.Read(bytes.as_mut_ptr().cast(), MAX_BYTES as u32 + 1, None),
-				E_INVALIDARG
-			);
-		}
-		let input = [1, 2, 3, 0, 4, 5, 6, 0];
-		assert_eq!(
-			rgba_frame(&input, 1, 2, -4, 0, 2, (0, 0)).unwrap(),
-			[6, 5, 4, 255, 3, 2, 1, 255]
-		);
-		assert_eq!(
-			rgba_frame(&input, 1, 2, 4, 90, 2, (0, 0)).unwrap(),
-			[6, 5, 4, 255, 3, 2, 1, 255]
-		);
-		assert!(rgba_frame(&input[..4], 1, 2, 4, 0, 2, (0, 0)).is_err());
 	}
 }

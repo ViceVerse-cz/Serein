@@ -1,6 +1,8 @@
 use crate::Id;
 
 pub const SEARCH_PAGE_SIZE: usize = 25;
+/// Maximum offset accepted by the unofficial normal-client search route.
+pub const MAX_SEARCH_OFFSET: u32 = 9_975;
 pub const MAX_SEARCH_BYTES: usize = 256 * 1024;
 pub fn valid_search_query(query: &str) -> bool {
 	!query.trim().is_empty()
@@ -23,13 +25,18 @@ pub fn search_terms(query: &str) -> Result<SearchTerms, &'static str> {
 			continue;
 		};
 		let parameter = match key {
-			"from" | "mentions" | "before_id" | "after_id" => {
+			"from" | "mentions" | "in" | "before_id" | "after_id" => {
 				if value.parse::<u64>().ok().is_none_or(|id| id == 0) {
-					return Err("Choose a user or enter a valid numeric ID.");
+					return Err(if key == "in" {
+						"Choose a channel from the suggestions."
+					} else {
+						"Choose a user or enter a valid numeric ID."
+					});
 				}
 				match key {
 					"from" => "author_id",
 					"mentions" => "mentions",
+					"in" => "channel_id",
 					"before_id" => "max_id",
 					_ => "min_id",
 				}
@@ -76,6 +83,7 @@ pub struct SearchHit {
 	pub id: Id,
 	pub channel: Id,
 	pub author: crate::User,
+	pub mentions: Vec<crate::User>,
 	pub excerpt: String,
 	/// Media shown under the excerpt, bounded like message attachments.
 	pub attachments: Vec<crate::Attachment>,
@@ -96,6 +104,7 @@ impl SearchPage {
 				.iter()
 				.map(|h| {
 					h.author.heap_bytes()
+						+ crate::mention_bytes(&h.mentions)
 						+ h.excerpt.capacity()
 						+ h.attachments.capacity() * size_of::<crate::Attachment>()
 						+ h.attachments
@@ -106,20 +115,26 @@ impl SearchPage {
 				})
 				.sum::<usize>()
 	}
-	pub fn valid(&self, channel: Id, before: Option<Id>) -> bool {
-		self.valid_pins(channel)
+	/// `channel` is `None` for a server-wide search, whose hits may come from any channel.
+	pub fn valid(&self, channel: Option<Id>, before: Option<Id>) -> bool {
+		self.valid_hits(channel)
 			&& self.pin_cursor.is_none()
 			&& self.hits.iter().all(|h| before.is_none_or(|b| h.id < b))
 			&& self.hits.windows(2).all(|w| w[0].id > w[1].id)
 	}
 	/// Pin order follows pin time, not message creation time.
 	pub fn valid_pins(&self, channel: Id) -> bool {
+		self.valid_hits(Some(channel))
+	}
+	fn valid_hits(&self, channel: Option<Id>) -> bool {
 		self.hits.len() <= SEARCH_PAGE_SIZE
 			&& self.bytes() <= MAX_SEARCH_BYTES
 			&& self.hits.iter().all(|h| {
 				h.id.0 > 0
-					&& h.channel == channel
+					&& h.channel.0 > 0
+					&& channel.is_none_or(|channel| h.channel == channel)
 					&& h.author.name.len() <= 512
+					&& crate::valid_mentions(&h.mentions)
 					&& h.attachments.len() <= crate::MAX_ATTACHMENTS
 					&& h.embeds.len() <= crate::MAX_EMBEDS
 					&& h.excerpt.len() <= 8192

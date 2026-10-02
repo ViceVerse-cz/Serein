@@ -6,10 +6,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Message;
 
-/// One replaceable game, one bounded custom status, and their last attempted values.
+/// One replaceable game, linked Spotify playback, custom status, and last attempted values.
 /// Five seconds between attempts is stricter than the documented 5 updates/20 seconds.
 pub(super) struct Pending {
 	current: Option<Activity>,
+	spotify: Option<discord_protocol::spotify::Activity>,
+	sent_spotify: Option<Option<discord_protocol::spotify::Activity>>,
 	own_presence: OwnPresence,
 	sent_presence: Option<OwnPresence>,
 	idle_since: Option<u64>,
@@ -21,6 +23,8 @@ impl Default for Pending {
 	fn default() -> Self {
 		Self {
 			current: None,
+			spotify: None,
+			sent_spotify: None,
 			own_presence: OwnPresence::default(),
 			sent_presence: None,
 			idle_since: None,
@@ -66,8 +70,19 @@ impl Pending {
 	}
 	pub fn reconnect(&mut self) {
 		self.sent = None;
+		self.sent_spotify = None;
 		self.sent_presence = None;
 		self.observation = Observation::Unconfirmed;
+	}
+	pub fn update_spotify(
+		&mut self,
+		activity: &Option<discord_protocol::spotify::Activity>,
+	) -> Result<(), Failure> {
+		if let Some(activity) = activity {
+			activity.validate().map_err(|_| Failure::Protocol)?;
+		}
+		self.spotify.clone_from(activity);
+		Ok(())
 	}
 	pub fn observe(&mut self, bytes: &[u8], session: &str) {
 		if self.sent.as_ref() != Some(&self.current)
@@ -87,6 +102,7 @@ impl Pending {
 	}
 	pub fn deadline(&self) -> Option<Instant> {
 		(self.sent.as_ref() != Some(&self.current)
+			|| self.sent_spotify.as_ref() != Some(&self.spotify)
 			|| self.sent_presence.as_ref() != Some(&self.own_presence))
 		.then_some(self.next_send)
 	}
@@ -101,16 +117,34 @@ impl Pending {
 				.iter()
 				.map(|activity| serde_json::json!(activity))
 				.collect();
+			if let Some(spotify) = &self.spotify {
+				activities.push(serde_json::json!(spotify));
+			}
 			if !self.own_presence.custom_status.is_empty() {
 				activities.push(
 					serde_json::json!({"name":"Custom Status","type":4,"state":self.own_presence.custom_status}),
 				);
 			}
 			payload["activities"] = serde_json::json!(activities);
+			// Keep the requested game/custom presence and status inside Discord's 4-KiB event
+			// budget. Linked listening is secondary when their combined payload is too large.
+			if serde_json::json!({"op":3,"d":&payload}).to_string().len() > 4096
+				&& self.spotify.is_some()
+			{
+				payload["activities"]
+					.as_array_mut()
+					.expect("activity array")
+					.retain(|activity| activity.get("sync_id").is_none());
+			}
+		}
+		if self.sent.as_ref() != Some(&self.current)
+			|| self.sent_presence.as_ref() != Some(&self.own_presence)
+		{
+			self.observation = Observation::Unconfirmed;
 		}
 		self.sent = Some(self.current.clone());
+		self.sent_spotify = Some(self.spotify.clone());
 		self.sent_presence = Some(self.own_presence.clone());
-		self.observation = Observation::Unconfirmed;
 		// Charge attempts too: a failed write may have reached Discord.
 		self.next_send = now + Duration::from_secs(5);
 		Some(Message::Text(
@@ -119,6 +153,99 @@ impl Pending {
 				.into(),
 		))
 	}
+}
+
+#[cfg(debug_assertions)]
+pub fn debug_spotify_check() {
+	use serde_json::{Value, json};
+	let now_ms = 1_800_000_000_000_u64;
+	let wire = json!({
+		"is_playing":true,"device":{"is_private_session":false},
+		"progress_ms":30_000,"currently_playing_type":"track",
+		"item":{"id":"0123456789abcdefghijkl","type":"track","is_local":false,
+			"name":"Synthetic track","duration_ms":180_000,
+			"artists":[{"name":"Synthetic artist"}],
+			"album":{"name":"Synthetic album","images":[{"url":
+				"https://i.scdn.co/image/ab67616d0000b2730123456789abcdef01234567"}]}}
+	});
+	let decode = |wire: &Value| {
+		discord_protocol::spotify::decode_playback(
+			&serde_json::to_vec(wire).unwrap(),
+			model::Id(1),
+			now_ms,
+		)
+	};
+	let spotify = decode(&wire).unwrap().unwrap();
+	assert!(spotify.display().valid());
+	assert!(spotify.display().image.is_some());
+	assert_eq!(spotify.timestamps.end, Some(now_ms + 150_000));
+	for (pointer, value) in [
+		("/is_playing", json!(false)),
+		("/device/is_private_session", json!(true)),
+		("/device", Value::Null),
+		("/item/is_local", json!(true)),
+		("/currently_playing_type", json!("ad")),
+		("/item/id", json!("../invalid")),
+		("/progress_ms", json!(180_000)),
+	] {
+		let mut hidden = wire.clone();
+		*hidden.pointer_mut(pointer).unwrap() = value;
+		assert!(decode(&hidden).unwrap().is_none(), "{pointer}");
+	}
+	assert!(
+		discord_protocol::spotify::decode_playback(
+			&vec![b' '; discord_protocol::spotify::MAX_PLAYBACK_BYTES + 1],
+			model::Id(1),
+			now_ms,
+		)
+		.is_err()
+	);
+	let mut pending = Pending::default();
+	let game = discord_protocol::rpc::ActivityFields::default()
+		.into_activity(model::Id(42), "Synthetic game".into())
+		.unwrap();
+	pending.update(&Some(game)).unwrap();
+	let mut presence = OwnPresence {
+		custom_status: "Synthetic status".into(),
+		..Default::default()
+	};
+	pending.update_presence(&presence).unwrap();
+	pending.update_spotify(&Some(spotify.clone())).unwrap();
+	let now = Instant::now();
+	let packet =
+		|message: Message| serde_json::from_str::<Value>(message.to_text().unwrap()).unwrap();
+	let sent = packet(pending.packet(now).unwrap());
+	assert_eq!(sent["d"]["activities"].as_array().unwrap().len(), 3);
+	assert_eq!(sent["d"]["activities"][1]["sync_id"], spotify.sync_id);
+	assert_eq!(sent["d"]["activities"][1]["party"]["id"], "spotify:1");
+	assert_eq!(sent["d"]["activities"][1]["flags"], 48);
+	assert_eq!(sent["d"]["activities"][2]["type"], 4);
+	pending.update_spotify(&None).unwrap();
+	assert!(pending.packet(now + Duration::from_secs(4)).is_none());
+	let cleared = packet(pending.packet(now + Duration::from_secs(5)).unwrap());
+	assert_eq!(cleared["d"]["activities"].as_array().unwrap().len(), 2);
+	assert_eq!(cleared["d"]["activities"][0]["name"], "Synthetic game");
+	pending.update_spotify(&Some(spotify)).unwrap();
+	presence.status = PresenceStatus::Invisible;
+	pending.update_presence(&presence).unwrap();
+	assert_eq!(
+		packet(pending.packet(now + Duration::from_secs(10)).unwrap())["d"]["activities"],
+		json!([])
+	);
+	presence.status = PresenceStatus::Online;
+	pending.update_presence(&presence).unwrap();
+	pending.reconnect();
+	assert!(pending.packet(now + Duration::from_secs(14)).is_none());
+	assert_eq!(
+		packet(pending.packet(now + Duration::from_secs(15)).unwrap())["d"]["activities"]
+			.as_array()
+			.unwrap()
+			.len(),
+		3
+	);
+	println!(
+		"Spotify playback decoding, privacy, publication, clearing and reconnect passed (offline)."
+	);
 }
 
 #[cfg(test)]
@@ -143,6 +270,37 @@ mod tests {
 		}
 		.into_activity(Id(42), name.into())
 		.unwrap()
+	}
+
+	#[test]
+	fn combined_custom_activity_keeps_gateway_payload_within_four_kib() {
+		let mut pending = Pending::default();
+		let mut custom = game("Synthetic");
+		custom.details = Some("d".repeat(128));
+		custom.state = Some("s".repeat(128));
+		custom.assets = Some(Assets {
+			large_image: Some("a".repeat(1000)),
+			small_image: Some("b".repeat(1000)),
+			..Default::default()
+		});
+		pending.update(&Some(custom)).unwrap();
+		let wire = serde_json::json!({
+            "is_playing":true,"device":{"is_private_session":false},"progress_ms":1000,
+            "currently_playing_type":"track","item":{"id":"0123456789abcdefghijkl","type":"track","is_local":false,
+            "name":"\u{1f680}".repeat(128),"duration_ms":180000,"artists":[{"name":"\u{1f680}".repeat(128)}],
+            "album":{"name":"\u{1f680}".repeat(128),"images":[{"url":"https://i.scdn.co/image/ab67616d0000b2730123456789abcdef01234567"}]}}});
+		let spotify = discord_protocol::spotify::decode_playback(
+			&serde_json::to_vec(&wire).unwrap(),
+			Id(1),
+			1_800_000_000_000,
+		)
+		.unwrap();
+		pending.update_spotify(&spotify).unwrap();
+		let packet = pending.packet(Instant::now()).unwrap();
+		assert!(packet.to_text().unwrap().len() <= 4096);
+		assert!(packet.to_text().unwrap().contains("Synthetic"));
+		assert!(!packet.to_text().unwrap().contains("sync_id"));
+		assert!(pending.deadline().is_none());
 	}
 
 	#[test]
@@ -226,6 +384,50 @@ mod tests {
 		pending.update(&None).unwrap();
 		pending.observe(listed, "own");
 		assert_eq!(pending.observation, Observation::Unconfirmed);
+	}
+
+	#[test]
+	fn unverified_game_is_published_like_discord_and_confirmed_by_name() {
+		// A user-added game has no application: Discord's client sends only name, type and start.
+		let added = ActivityFields {
+			timestamps: Some(Timestamps {
+				start: Some(1_700_000_000_000),
+				end: None,
+			}),
+			..Default::default()
+		}
+		.into_activity(Id(0), "My synthetic game".into())
+		.unwrap();
+		let mut pending = Pending::default();
+		pending
+			.update_presence(&OwnPresence {
+				custom_status: "Synthetic status".into(),
+				..Default::default()
+			})
+			.unwrap();
+		pending.update(&Some(added)).unwrap();
+		let sent: serde_json::Value =
+			serde_json::from_str(pending.packet(Instant::now()).unwrap().to_text().unwrap())
+				.unwrap();
+		assert_eq!(sent["op"], 3);
+		assert_eq!(
+			sent["d"]["activities"],
+			serde_json::json!([
+				{"name":"My synthetic game","type":0,"timestamps":{"start":1_700_000_000_000_u64}},
+				{"name":"Custom Status","type":4,"state":"Synthetic status"}
+			])
+		);
+		// Discord lists it back without an application id; that still confirms the game.
+		pending.observe(
+			br#"[{"session_id":"all","activities":[{"name":"My synthetic game","type":0,"created_at":1},{"name":"Custom Status","type":4}]}]"#,
+			"own",
+		);
+		assert_eq!(pending.observation, Observation::ServerListed);
+		pending.observe(
+			br#"[{"session_id":"own","activities":[{"name":"My synthetic game","type":0}]}]"#,
+			"own",
+		);
+		assert_eq!(pending.observation, Observation::ServerReceived);
 	}
 
 	#[test]

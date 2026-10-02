@@ -2,6 +2,9 @@
 use eframe::egui;
 #[path = "../src/server_settings_demo.rs"]
 mod server_settings_demo;
+#[allow(dead_code)] // The shared fixture's CLI check is called by the desktop binary.
+#[path = "../src/slash_demo.rs"]
+mod slash_demo;
 use std::{
 	path::PathBuf,
 	sync::{
@@ -13,11 +16,15 @@ use std::{
 };
 
 struct Preview {
+	interactive: bool,
+	smoke: bool,
 	messaging: ui::MessagingUi,
 	state: client_core::State,
 	output: PathBuf,
 	thumbnail: bool,
 	frames: u8,
+	/// Wheel distance and pointer position injected over the first frames, for pages below the fold.
+	scroll: Option<(f32, egui::Pos2)>,
 	requested: bool,
 	screenshot: Option<std::sync::mpsc::Receiver<Arc<egui::ColorImage>>>,
 	writer: Option<JoinHandle<Result<(), String>>>,
@@ -30,12 +37,37 @@ impl eframe::App for Preview {
 		false
 	}
 
+	fn raw_input_hook(&mut self, _: &egui::Context, raw_input: &mut egui::RawInput) {
+		if let Some((distance, at)) = self.scroll.filter(|_| (1..=3).contains(&self.frames)) {
+			raw_input.events.push(egui::Event::PointerMoved(at));
+			raw_input.events.push(egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				phase: egui::TouchPhase::Move,
+				delta: egui::vec2(0.0, -distance / 3.0),
+				modifiers: egui::Modifiers::NONE,
+			});
+		}
+	}
+
 	fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
 		let ctx = ui.ctx().clone();
 		ui::design::paint_backdrop(&ctx);
 		// Only synthetic fixtures execute these commands; no service adapters exist here.
 		for command in self.messaging.show(ui, &mut self.state) {
 			let event = match command {
+				client_core::Command::ApplicationCommands {
+					channel,
+					guild,
+					request,
+				} => client_core::Event::ApplicationCommands {
+					channel,
+					request,
+					result: Ok(slash_demo::catalog(guild)),
+				},
+				client_core::Command::Interaction(request) => {
+					slash_demo::respond(&mut self.state, request);
+					continue;
+				}
 				client_core::Command::ServerAdmin {
 					guild,
 					request,
@@ -49,6 +81,21 @@ impl eframe::App for Preview {
 				client_core::Command::ServerAction { action, request } => {
 					server_settings_demo::execute_action(&mut self.state, action, request)
 				}
+				client_core::Command::ChannelAction {
+					guild,
+					channel,
+					request,
+					action: client_core::channel_actions::Action::Load,
+				} => client_core::Event::ChannelAction(
+					client_core::channel_actions::Event::Finished {
+						guild,
+						channel,
+						request,
+						result: Ok(client_core::channel_actions::Outcome::Details(
+							channel_settings(&self.state, channel),
+						)),
+					},
+				),
 				_ => continue,
 			};
 			self.state.apply(client_core::Envelope {
@@ -62,6 +109,19 @@ impl eframe::App for Preview {
 				ui::design::set_background_image(&ctx, image);
 				ui::design::apply(&ctx);
 			}
+		}
+		if self.interactive {
+			return;
+		}
+		if self.smoke {
+			self.frames += 1;
+			if self.frames >= 5 {
+				self.saved.store(true, Ordering::Release);
+				println!("Offline UI smoke run completed; no screenshot captured.");
+				ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+			}
+			ctx.request_repaint();
+			return;
 		}
 		if self.requested && self.writer.is_none() {
 			let screenshot = self
@@ -148,6 +208,47 @@ fn prime_profile(state: &mut client_core::State) {
 	}
 }
 
+/// Several synthetic Rich Presence entries for the first friend and the message author.
+fn prime_activities(state: &mut client_core::State) {
+	let activity =
+		|kind, name: &str, details: Option<&str>, state: Option<&str>| model::RichActivity {
+			kind,
+			name: name.into(),
+			details: details.map(Into::into),
+			state: state.map(Into::into),
+			image: None,
+			small_image: None,
+			ends_at: None,
+			started_at: Some(1_700_000_000_000),
+		};
+	let activities = vec![
+		activity(
+			0,
+			"Synthetic Quest",
+			Some("Exploring the hollow"),
+			Some("Chapter 3"),
+		),
+		activity(2, "Spotify", Some("Quiet Harbor"), Some("The Offline Band")),
+		activity(3, "Harbor Stories", None, None),
+	];
+	let author = test_support::message(1, model::Id(20)).author.id;
+	state.apply(client_core::Envelope {
+		generation: state.generation,
+		event: client_core::Event::DirectPresence(
+			[model::Id(1001), author]
+				.into_iter()
+				.map(|user| client_core::presence::Update {
+					user,
+					status: model::Patch::Value("online".into()),
+					custom_status: model::Patch::Absent,
+					activities: model::Patch::Value(activities.clone()),
+					clients: model::Patch::Absent,
+				})
+				.collect(),
+		),
+	});
+}
+
 fn prime_extension_chat(state: &mut client_core::State) {
 	let channel = state.selected.expect("selected fixture channel");
 	let messages = [
@@ -187,27 +288,75 @@ fn extension_fixture(
 	),
 	Box<dyn std::error::Error>,
 > {
+	let external = std::env::var_os("SEREIN_PREVIEW_PACKAGE")
+		.map(std::fs::read)
+		.transpose()?;
 	let bytes: &[u8] = match id {
-		"serein-ocean" => include_bytes!("../../../extensions/ocean.serein-extension"),
+		"custom-rpc" | "api-proxy" => external
+			.as_deref()
+			.ok_or("Set SEREIN_PREVIEW_PACKAGE to the external plugin package")?,
+		"serein-ocean" => {
+			include_bytes!("../../../extensions/themes/ocean.serein-extension")
+		}
 		"message-delete-protector" => include_bytes!(
-			"../../../examples/extensions/packages/message-delete-protector.serein-extension"
+			"../../../extensions/plugins/packages/message-delete-protector.serein-extension"
 		),
-		"serein-midnight" => include_bytes!("../../../extensions/midnight.serein-extension"),
-		"serein-rose" => include_bytes!("../../../extensions/rose.serein-extension"),
-		"serein-forest" => include_bytes!("../../../extensions/forest.serein-extension"),
-		"serein-latte" => include_bytes!("../../../extensions/latte.serein-extension"),
-		"golden-theme" => include_bytes!("../../../extensions/golden.serein-extension"),
-		"black-theme" => include_bytes!("../../../extensions/katana.serein-extension"),
-		"obsidian-theme" => include_bytes!("../../../extensions/obsidian.serein-extension"),
-		"teal-theme" => include_bytes!("../../../extensions/teal.serein-extension"),
+		"serein-midnight" => {
+			include_bytes!("../../../extensions/themes/midnight.serein-extension")
+		}
+		"serein-rose" => {
+			include_bytes!("../../../extensions/themes/rose.serein-extension")
+		}
+		"serein-forest" => {
+			include_bytes!("../../../extensions/themes/forest.serein-extension")
+		}
+		"serein-latte" => {
+			include_bytes!("../../../extensions/themes/latte.serein-extension")
+		}
+		"golden-theme" => {
+			include_bytes!("../../../extensions/themes/golden.serein-extension")
+		}
+		"black-theme" => {
+			include_bytes!("../../../extensions/themes/katana.serein-extension")
+		}
+		"obsidian-theme" => {
+			include_bytes!("../../../extensions/themes/obsidian.serein-extension")
+		}
+		"teal-theme" => {
+			include_bytes!("../../../extensions/themes/teal.serein-extension")
+		}
 		"emoji-sticker-images" => include_bytes!(
-			"../../../examples/extensions/packages/emoji-sticker-images.serein-extension"
+			"../../../extensions/plugins/packages/emoji-sticker-images.serein-extension"
 		),
 		_ => return Err("Unknown fixture extension".into()),
 	};
 	let package = extensions::parse_package(bytes)?;
 	let invocation = extensions::Invocation {
-		action: "activate".into(),
+		action: if id == "custom-rpc" {
+			"preview"
+		} else if id == "api-proxy" {
+			"open"
+		} else {
+			"activate"
+		}
+		.into(),
+		values: if id == "custom-rpc" {
+			[
+				("application-id", "123456789"),
+				("name", "Stargazing"),
+				("details", "Exploring the night sky"),
+				("state", "In the observatory"),
+				("button1-label", "Visit the observatory"),
+				("button1-url", "https://example.com/observatory"),
+				("party-current", "2"),
+				("party-max", "4"),
+			]
+			.into_iter()
+			.map(|(k, v)| (k.into(), v.into()))
+			.collect()
+		} else {
+			Default::default()
+		},
 		..Default::default()
 	};
 	let output = if package.theme.is_none() {
@@ -222,27 +371,27 @@ fn seed_catalog(extensions: &mut ui::ExtensionUi, themes: bool) {
 	if themes {
 		let packages: [(&[u8], &str); 6] = [
 			(
-				include_bytes!("../../../extensions/ocean.serein-extension"),
+				include_bytes!("../../../extensions/themes/ocean.serein-extension"),
 				"",
 			),
 			(
-				include_bytes!("../../../extensions/obsidian.serein-extension"),
+				include_bytes!("../../../extensions/themes/obsidian.serein-extension"),
 				"Obsidian violet surfaces and lavender accents.",
 			),
 			(
-				include_bytes!("../../../extensions/forest.serein-extension"),
+				include_bytes!("../../../extensions/themes/forest.serein-extension"),
 				"Calm forest greens and fresh leafy accents.",
 			),
 			(
-				include_bytes!("../../../extensions/latte.serein-extension"),
+				include_bytes!("../../../extensions/themes/latte.serein-extension"),
 				"Warm coffee tones and a creamy caramel accent.",
 			),
 			(
-				include_bytes!("../../../extensions/rose.serein-extension"),
+				include_bytes!("../../../extensions/themes/rose.serein-extension"),
 				"Soft rose accents.",
 			),
 			(
-				include_bytes!("../../../extensions/midnight.serein-extension"),
+				include_bytes!("../../../extensions/themes/midnight.serein-extension"),
 				"Deep, quiet surfaces.",
 			),
 		];
@@ -319,36 +468,102 @@ fn seed_catalog(extensions: &mut ui::ExtensionUi, themes: bool) {
 	}
 }
 
+/// Synthetic settings for a fixture channel, including a forum's tags and post defaults.
+fn channel_settings(
+	state: &client_core::State,
+	channel: model::Id,
+) -> client_core::channel_actions::Edit {
+	let source = state.channel(channel).expect("fixture channel");
+	let tags = source.tags.as_deref().cloned().unwrap_or_default();
+	client_core::channel_actions::Edit {
+		name: source.name.clone(),
+		topic: "Share one idea per post. Search first, and tag what the idea is about.".into(),
+		forum: matches!(source.kind, 15 | 16).then(|| {
+			Box::new(client_core::channel_actions::ForumEdit {
+				tags: tags.available,
+				require_tag: tags.required,
+				reaction: tags.reaction,
+				layout: tags.layout,
+				sort: tags.sort,
+				match_all: tags.match_all,
+				hide_after: 4320,
+				..Default::default()
+			})
+		}),
+		..Default::default()
+	}
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo --output=PATH.png [--page=stickers|profile|profile-card|member-tags|dm-tags|account|appearance|general|extensions] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--light]".into());
+		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|profile-card|member-tags|dm-tags|account|appearance|general|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--scroll=PIXELS] [--light]".into());
 	}
-	let output = PathBuf::from(value("--output=").ok_or("Missing --output=PATH.png")?);
+	let smoke = args.iter().any(|arg| arg == "--smoke");
+	let interactive = args.iter().any(|arg| arg == "--interactive");
+	let output = PathBuf::from(
+		value("--output=")
+			.or((smoke || interactive).then_some(""))
+			.ok_or("Missing --output=PATH.png")?,
+	);
 	let page = value("--page=").unwrap_or("profile").to_owned();
 	if !matches!(
 		page.as_str(),
 		"profile"
 			| "stickers"
+			| "slash-commands"
+			| "slash-command-search"
+			| "slash-command-options"
 			| "profile-card"
 			| "member-tags"
 			| "dm-tags"
 			| "account"
 			| "appearance"
 			| "general"
+			| "keybinds"
 			| "extensions"
 			| "server"
 			| "server-engagement"
+			| "server-stickers"
+			| "server-safety"
+			| "server-emoji"
+			| "server-members"
+			| "server-roles"
+			| "server-invites"
+			| "server-integrations"
+			| "server-audit-log"
+			| "forum" | "forum-post"
+			| "forum-gallery"
+			| "forum-settings"
+			| "friends"
 	) {
-		return Err("Page must be profile, profile-card, member-tags, dm-tags, account, appearance, general, extensions, server or server-engagement".into());
+		return Err("Page must be profile, profile-card, member-tags, dm-tags, account, appearance, general, keybinds, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement, server-safety, server-emoji, server-stickers, server-members, server-roles, server-invites, server-integrations or server-audit-log".into());
+	}
+	let slash_command = value("--command=").unwrap_or("help").to_owned();
+	if !matches!(slash_command.as_str(), "help" | "weather") {
+		return Err("Command fixture must be help or weather".into());
 	}
 	let width: f32 = value("--width=").unwrap_or("1120").parse()?;
 	let height: f32 = value("--height=").unwrap_or("760").parse()?;
+	let scroll = value("--scroll=")
+		.map(str::parse::<f32>)
+		.transpose()?
+		.map(|distance| (distance, egui::pos2(width * 0.6, height * 0.5)));
 	if !(500.0..=1920.0).contains(&width) || !(520.0..=1200.0).contains(&height) {
 		return Err("Viewport must be 500-1920 by 520-1200".into());
 	}
+	let forum_tags: Vec<_> = value("--tags=")
+		.map(|list| {
+			list.split(',')
+				.filter_map(|id| id.parse().ok())
+				.map(model::Id)
+				.collect()
+		})
+		.unwrap_or_default();
 	let light = args.iter().any(|arg| arg == "--light");
+	let activities = args.iter().any(|arg| arg == "--activities");
+	let friends_tab = value("--tab=").unwrap_or("online").to_owned();
 	let theme_editor = value("--theme-editor=").map(str::to_owned);
 	let theme_preview = args.iter().any(|arg| arg == "--theme-preview");
 	let thumbnail = args.iter().any(|arg| arg == "--thumbnail");
@@ -368,13 +583,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		},
 		Box::new(move |cc| {
 			ui::fonts::install(&cc.egui_ctx);
+			let _ = ui::emoji::install(&cc.egui_ctx);
 			ui::design::apply(&cc.egui_ctx);
 			cc.egui_ctx.set_theme(if light {
 				egui::ThemePreference::Light
 			} else {
 				egui::ThemePreference::Dark
 			});
-			let mut state = test_support::demo_state();
+			let mut state = if matches!(
+				page.as_str(),
+				"slash-commands" | "slash-command-search" | "slash-command-options"
+			) {
+				slash_demo::preview()
+			} else if page == "friends" {
+				test_support::friends_demo_state()
+			} else {
+				test_support::demo_state()
+			};
+			if activities {
+				prime_activities(&mut state);
+			}
 			if page == "profile" {
 				prime_profile(&mut state);
 			}
@@ -385,45 +613,133 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					guild: Some(model::Id(10)),
 					request: 0,
 					total: 1,
+					lazy: false,
+					groups: vec![],
+					ranges: vec![],
 					freshness: model::Freshness::Fresh,
-					rows: vec![Some(model::Member {
+					start: 0,
+					slots: vec![Some(model::MemberSlot::Person(model::Member {
 						user,
 						nick: None,
 						roles: vec![],
 						status: Some("online".into()),
 						custom_status: Some("Building a quieter place".into()),
 						activities: vec![],
-					})],
+						clients: model::ClientPlatforms {
+							mobile: true,
+							..Default::default()
+						},
+					}))],
 				});
 			} else if page == "dm-tags" {
 				let _ = state.select(model::Id(22));
+			} else if page.starts_with("forum") {
+				state.gateway_connected = true;
+				state.auth = client_core::auth::AuthState::Authenticated;
+				let _ = state.select(model::Id(26));
 			}
 			let mut messaging = ui::MessagingUi::default();
 			messaging.tray_available = platform::tray::supported();
 			messaging.startup_available = platform::startup::available();
 			messaging.startup_enabled = args.iter().any(|arg| arg == "--startup-enabled");
 			messaging.startup_minimized = args.iter().any(|arg| arg == "--startup-minimized");
-			if matches!(page.as_str(), "member-tags" | "dm-tags") {
+			if page == "friends" {
+				messaging.preview_friends_tab(&friends_tab);
+			} else if page == "forum" {
+				messaging.preview_forum(model::Id(26), &forum_tags, None);
+			} else if page == "forum-gallery" {
+				messaging.preview_forum(model::Id(26), &[], None);
+				messaging.preview_forum_layout(model::forum::Layout::Gallery);
+			} else if page == "forum-settings" {
+				messaging.preview_channel_settings(model::Id(26), state.generation);
+			} else if page == "forum-post" {
+				messaging.preview_forum(
+					model::Id(26),
+					&[model::Id(2603)],
+					Some("Faster startup on older phones"),
+				);
+			} else if matches!(page.as_str(), "member-tags" | "dm-tags") {
 				// State is primed above; the normal offline messaging surface renders the list.
+			} else if page == "slash-commands" {
+				messaging.preview_slash_commands();
+			} else if page == "slash-command-search" {
+				// A partial name: the flat "commands matching" list with per-row icons.
+				let channel = state.selected.expect("synthetic command conversation");
+				state
+					.drafts
+					.insert(channel, format!("/{}", &slash_command[..2]));
+				messaging.preview_slash_commands();
+			} else if page == "slash-command-options" {
+				let channel = state.selected.expect("synthetic command conversation");
+				state.drafts.insert(channel, format!("/{slash_command}"));
+				messaging.preview_slash_command_options(&mut state);
 			} else if page == "stickers" {
 				test_support::seed_stickers(&mut state);
 				messaging.preview_sticker_picker();
 			} else if page == "profile-card" {
 				state.demo = false;
-				messaging.preview_profile(test_support::message(1, model::Id(20)).author);
-			} else if let Some((package, _invocation, result)) = fixture {
+				state.gateway_connected = true;
+				let user = test_support::message(1, model::Id(20)).author;
+				state.members = Some(model::MemberList {
+					channel: model::Id(20),
+					guild: Some(model::Id(10)),
+					request: 0,
+					total: 1,
+					start: 0,
+					lazy: false,
+					groups: vec![],
+					ranges: vec![],
+					freshness: model::Freshness::Fresh,
+					slots: vec![Some(model::MemberSlot::Person(model::Member {
+						user: user.clone(),
+						nick: None,
+						roles: vec![],
+						status: Some("online".into()),
+						custom_status: None,
+						activities: vec![],
+						clients: model::ClientPlatforms {
+							mobile: true,
+							..Default::default()
+						},
+					}))],
+				});
+				messaging.preview_profile(user);
+			} else if let Some((package, invocation, result)) = fixture {
 				prime_extension_chat(&mut state);
 				if let Some(theme) = package.theme.as_ref() {
 					ui::design::set_extension_theme(Some(theme));
 					ui::design::apply(&cc.egui_ctx);
 				}
 				if let Some(output) = result {
+					if matches!(package.manifest.id.as_str(), "custom-rpc" | "api-proxy") {
+						messaging.extensions.set_entries(vec![ui::ExtensionEntry {
+							description: package.manifest.name.clone(),
+							preview: None,
+							theme_preview: None,
+							cover_image: None,
+							local_theme: false,
+							manifest: package.manifest.clone(),
+							reviewed: true,
+							sha256: String::new(),
+							download_bytes: 0,
+							enabled: true,
+							cleanup_pending: false,
+							update_available: false,
+							update_manifest: None,
+						}]);
+						messaging.extensions.present_output(
+							package.manifest.id.clone(),
+							invocation,
+							ui::ExtensionContext::panel(&state),
+							output.clone(),
+							&state,
+						);
+					}
 					messaging.image_sharing_enabled = output.image_sharing;
 					if output.image_sharing {
 						test_support::seed_stickers(&mut state);
 						messaging.preview_sticker_picker();
 					}
-					state.set_preserve_deleted_messages(output.preserve_deleted_messages);
 					if output.preserve_deleted_messages {
 						let channel = state.selected.unwrap();
 						state.apply(client_core::Envelope {
@@ -439,6 +755,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				server_settings_demo::open(&mut state, &mut messaging);
 				if page == "server-engagement" {
 					messaging.preview_server_engagement();
+				} else if page == "server-safety" {
+					messaging.preview_server_safety();
+				} else if page != "server"
+					&& let Some(client_core::Command::ServerAdmin {
+						guild,
+						request,
+						action,
+					}) = messaging.preview_server_admin(
+						&mut state,
+						model::Id(10),
+						page.trim_start_matches("server-"),
+					) {
+					let event =
+						server_settings_demo::execute_admin(&state, guild, request, *action);
+					state.apply(client_core::Envelope {
+						generation: state.generation,
+						event,
+					});
 				}
 			} else {
 				messaging.preview_settings(
@@ -459,7 +793,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					if theme_preview {
 						prime_extension_chat(&mut state);
 						let package = extensions::parse_package(include_bytes!(
-							"../../../extensions/katana.serein-extension"
+							"../../../extensions/themes/katana.serein-extension"
 						))?;
 						messaging.extensions.receive_theme_edit(
 							Box::new(package),
@@ -471,7 +805,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					}
 					if let Some(tab) = &theme_editor {
 						let mut package = extensions::parse_package(include_bytes!(
-							"../../../extensions/ocean.serein-extension"
+							"../../../extensions/themes/ocean.serein-extension"
 						))
 						.expect("valid theme fixture");
 						package.manifest.name = "My ocean".into();
@@ -499,11 +833,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				}
 			}
 			Ok(Box::new(Preview {
+				interactive,
+				smoke,
 				messaging,
 				state,
 				output,
 				thumbnail,
 				frames: 0,
+				scroll,
 				requested: false,
 				screenshot: None,
 				writer: None,
@@ -512,8 +849,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			}))
 		}),
 	)?;
-	if !saved.load(Ordering::Acquire) {
+	if !interactive && !saved.load(Ordering::Acquire) {
 		return Err("No screenshot saved".into());
 	}
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	#[test]
+	fn non_theme_catalog_loads_community_preview() {
+		super::seed_catalog(&mut ui::ExtensionUi::default(), false);
+	}
 }

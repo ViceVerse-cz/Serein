@@ -19,7 +19,7 @@ A process-wide `Variant` recolours the whole application on top of egui's light/
 
 | Preset | Surfaces |
 |---|---|
-| Serein | House neutrals: dark (`#0d1016` / `#12161f` / `#161b25` / `#1d2431`) or light (`#dde3ec` / `#eef1f7` / white), following System/Light/Dark |
+| Serein | House neutral greys: dark (`#0e0e10` / `#141416` / `#18181b` / `#202023`) or light (`#e4e4e7` / `#f2f2f4` / white), following System/Light/Dark |
 | Eclipse | Deep black surfaces for OLED displays |
 | Slate | Lighter blue-grey surfaces (`#1b1f2a` / `#262b38` / `#2c3140`) |
 | Nightfall, Ember, Verdant, Afterglow | Gradient backdrop painted under translucent dark surfaces |
@@ -31,6 +31,11 @@ to the light/dark appearance; unknown keys fall back to Serein. The keys written
 builds (`onyx`, `ash`, `midnight-blurple`, `crimson-moon`, `forest`, `sunset`) still resolve to
 their renamed presets, so a stored preference survives the rename. `--demo --demo-theme=<key>` and
 `--demo-light` open fixtures in a preset for screenshots.
+
+Message cards use a thin tint only on the conversation surface when chat is translucent.
+Search previews, profile code blocks, component modals and opaque component containers keep
+their normal card/code fills. Pending upload cards and their preview wells retain their
+palette surfaces in both message and forum composers, independently of chat transparency.
 
 ## Brand mark and server rail
 
@@ -54,6 +59,12 @@ channel names and uppercase 12px eyebrows. Body is 15px, small 12px. Until `font
 marks a context, the weight families resolve to the default face so headless tests never
 reference an unknown family.
 
+Appearance → Typography can import one TTF or OTF file up to 8 MiB, apply it immediately,
+or reset to Inter. The selected face leads all proportional families; variable fonts use
+400/500/600 weights while static fonts retain their supplied weight. Code stays monospace,
+and bundled/system missing-glyph fallbacks remain available. A bounded local copy survives
+restart and logout; import and persistence failures leave the current font in use.
+
 Text is rasterized by egui on the CPU as grayscale coverage, not by DirectWrite or Core Text.
 That cannot reproduce ClearType. `design::apply` turns TrueType hinting off and sub-pixel
 binning on. Dark mode remaps coverage with `FontColorTransferFunction::Gamma(0.5)`. Light
@@ -63,9 +74,11 @@ The bundled faces remain upstream's hinted TrueType builds. See `assets/README.m
 ## Layout
 
 - 36px title strip (`base`): hidden native title bar on macOS with traffic lights inline, centred
-  context title, session status text and an OFFLINE PREVIEW / EXPERIMENTAL pill. Windows and macOS Appearance
+  context title, session status text and an OFFLINE PREVIEW / EXPERIMENTAL pill. Windows and macOS General
   settings can hide the app strip and use native window decorations instead. Linux always omits
-  the app strip and uses system decorations, with the Adwaita Wayland fallback on GNOME.
+  the app strip and defaults to system decorations, with the Adwaita Wayland fallback on GNOME.
+  General → Window can hide Linux decorations immediately for tiling window managers; the
+  device preference also applies at startup.
 - 72px server rail (`base`): 48px home button and server icons (circle, rounded square when
   hovered/selected), white edge pill (8px unread, 20px hover, 40px selected), red mention badges.
 - The lists and conversation share one rounded surface beside the rail. Channel sidebar
@@ -81,7 +94,8 @@ The bundled faces remain upstream's hinted TrueType builds. See `assets/README.m
   divider, floating hover toolbar (react, reply, edit, more) overlapping the row above.
 - Composer: rounded `raised` bar with attach (+), placeholder `Message #channel`, emoji picker
   and send icons; a character counter appears within 200 characters of the limit.
-- Member list (240px): ONLINE/OFFLINE eyebrows with counts (DMs show MEMBERS), 42px rows with
+- Member list (240px): ONLINE/OFFLINE eyebrows with counts; group DMs show a localized
+  Members — N heading including the current account, updated with participant changes. 42px rows with
   presence dots, custom status and hover fill; opens a Members window on narrow layouts.
 
 Confirmed empty guild text, announcement and thread histories show a welcome above the
@@ -118,3 +132,26 @@ The empty-channel welcome was inspected natively on Ubuntu 26.04.1 at 1120×760
 and at 760×520 with a long Unicode name in light/dark mode. The committed pair
 uses an isolated Xvfb display; the offline composer was also exercised by typing
 and pressing Enter, which replaced the welcome with the synthetic message.
+
+Server Notification Settings are available from the server dropdown and server
+icon context menu, independently of administrative Server Settings. The shared
+modal uses four radio choices, mute and mention-suppression switches, and an
+explicit Save changes action. The content scrolls in short/narrow viewports while
+the footer remains accessible. `--demo --demo-chat --demo-server-notifications`
+with `--features demo` opens the synthetic editor without contacting Discord.
+
+Poll cards follow the desktop layout shown in Discord's
+[Polls FAQ](https://support.discord.com/hc/en-us/articles/22163184112407-Polls-FAQ):
+a question above stacked, left-aligned answer rows, right-edge selection circles
+and checkmarks, separate vote counts and percentages, and a compact vote/expiry
+footer. The card spans up to 472px including padding. Long answers wrap while
+their selection markers stay aligned; narrow result rows put tallies beneath the
+answer. Colors continue to resolve from the active Serein palette.
+
+Open poll creation from Create a poll in the composer's `+` menu.
+The creation dialog uses uppercase field labels, inset question/answer fields,
+answer removal icons, a duration row and a separate footer with multiple-choice
+and Post controls. Its content scrolls while the footer remains available. Escape,
+the close icon and a backdrop click dismiss an idle editor; a pending submission
+keeps it open. Unknown results and expired but unfinalized polls retain explicit
+status text. `--features demo -- --demo --demo-polls` previews the fixture offline.

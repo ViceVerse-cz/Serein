@@ -4,10 +4,16 @@
 
 #[path = "../src/crypto.rs"]
 mod crypto;
+#[path = "support/stream_feedback.rs"]
+mod stream_feedback;
+mod stream_playback;
 #[path = "../src/test_mls.rs"]
 mod test_mls;
+#[path = "../src/video.rs"]
+mod video;
 #[path = "../src/video_sps.rs"]
 mod video_sps;
+type Frame = [f32; 960];
 
 fn main() {
 	// Synthetic Baseline SPS: 320x240, one reference picture, POC type 2.
@@ -97,11 +103,91 @@ fn main() {
 	assert_eq!(decrypted.as_slice(), normalized.as_ref());
 	let mut decoder = openh264::decoder::Decoder::new().unwrap();
 	assert!(decoder.decode(&decrypted).unwrap().is_some());
+	// Exercise paced RTP, transport authentication and reassembly.
+	// A tiny payload would hide a whole-frame burst; use a bounded, noisy keyframe too.
+	let mut noisy = vec![0, 0, 0, 1, 0x65, 0xb8];
+	noisy.resize(120_000, 7);
+	// Windows' default 15.6 ms tick must cost latency, never throughput.
+	for tick in [1, 2, 16] {
+		let tick = std::time::Duration::from_millis(tick);
+		let mut sequence = u16::MAX - 2;
+		let mut pacer = video::Pacer::new();
+		let now = tokio::time::Instant::now();
+		let packets = video::packetize(&noisy, &mut sequence, 90_000, 42).unwrap();
+		let total = packets.len();
+		pacer.queue(packets, now);
+		let mut sent = 0;
+		let mut receiver = stream_playback::video_receive::Receivers::default();
+		receiver.announce(1, 42).unwrap();
+		let mut transport = crypto::Encryption::new(&[9; 32]);
+		let mut restored = None;
+		let mut due = now;
+		while !pacer.is_empty() {
+			assert!(due < now + std::time::Duration::from_millis(60));
+			let batch: Vec<_> = pacer.next_batch(due, 16_000_000).collect();
+			assert!(batch.len() < total);
+			for packet in batch {
+				sent += 1;
+				let wire = transport.seal(&packet.header, &packet.payload).unwrap();
+				assert!(wire.len() <= 1200);
+				let rtp = transport.open(&wire).unwrap();
+				if let Some((_, frame)) = receiver.push(
+					rtp.ssrc,
+					rtp.sequence,
+					rtp.timestamp,
+					rtp.marker,
+					&rtp.payload,
+				) {
+					restored = Some(frame);
+				}
+			}
+			let wait = pacer.deadline.duration_since(now).as_micros();
+			due = now + tick * wait.div_ceil(tick.as_micros()).max(1) as u32;
+		}
+		assert_eq!(sent, total);
+		assert_eq!(restored.unwrap(), noisy);
+		pacer.queue(
+			video::packetize(&encrypted, &mut sequence, 93_000, 42).unwrap(),
+			now,
+		);
+		pacer.clear(); // Rekey/cancellation must discard every pending encrypted fragment.
+		assert!(pacer.is_empty());
+		assert_eq!(pacer.next_batch(pacer.deadline, 16_000_000).count(), 0);
+	}
+	let encrypted = alice
+		.session
+		.encrypt(davey::MediaType::VIDEO, davey::Codec::H264, &normalized)
+		.unwrap();
+	let mut receiver = stream_playback::video_receive::Receivers::default();
+	receiver.announce(1, 42).unwrap();
+	let mut transport = crypto::Encryption::new(&[8; 32]);
+	let mut sequence = 0;
+	let mut received = None;
+	for packet in video::packetize(&encrypted, &mut sequence, 90_000, 42).unwrap() {
+		let wire = transport.seal(&packet.header, &packet.payload).unwrap();
+		let rtp = transport.open(&wire).unwrap();
+		if let Some((user, frame)) = receiver.push(
+			rtp.ssrc,
+			rtp.sequence,
+			rtp.timestamp,
+			rtp.marker,
+			&rtp.payload,
+		) {
+			received = Some(
+				bob.session
+					.decrypt(user, davey::MediaType::VIDEO, &frame)
+					.unwrap(),
+			);
+		}
+	}
+	assert!(decoder.decode(&received.unwrap()).unwrap().is_some());
+	stream_playback::main();
+	stream_feedback::run();
 	for invalid in [&[][..], &[0, 0, 1, 0x67], &[0, 0, 1, 0x67, 0xff]] {
 		assert!(video_sps::normalize(invalid).is_err());
 	}
 	assert!(video_sps::normalize(&vec![0; 2 * 1024 * 1024 + 1]).is_err());
 	println!(
-		"SPS rewrite authentication failure reproduced; normalized DAVE video decrypts and decodes."
+		"PASS: SPS authentication, paced bounded RTP, cancellation, DAVE round trip and H264 decode."
 	);
 }

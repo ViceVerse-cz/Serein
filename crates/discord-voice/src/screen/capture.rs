@@ -58,6 +58,7 @@ impl Capture {
 		_stop: Arc<AtomicBool>,
 		_ready: Arc<AtomicBool>,
 		_audio_epoch: Arc<std::sync::atomic::AtomicU64>,
+		_teardown: Arc<AtomicBool>,
 	) -> Result<Self, &'static str> {
 		Err("Screen sharing is supported only on macOS and Windows")
 	}

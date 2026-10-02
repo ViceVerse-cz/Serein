@@ -46,6 +46,14 @@ pub struct Rtp {
 	pub payload_type: u8,
 	pub payload: Vec<u8>,
 }
+/// Feedback for our video SSRC, returned only after the whole compound packet validates.
+#[derive(Default)]
+pub(crate) struct Feedback {
+	pub keyframe: bool,
+	pub nacks: Vec<u16>,
+	pub loss: Option<u8>,
+	pub bitrate: Option<u32>,
+}
 impl Encryption {
 	pub fn new(key: &[u8; 32]) -> Self {
 		Self {
@@ -105,13 +113,20 @@ impl Encryption {
 	}
 	/// Authenticate RTCP feedback before honoring a PLI for our video SSRC.
 	/// As with `seal_rtcp`, only the first eight bytes remain clear on the wire.
+	#[cfg(test)]
 	pub fn requests_keyframe(&self, packet: &[u8], video_ssrc: u32) -> bool {
+		self.feedback(packet, video_ssrc)
+			.is_some_and(|feedback| feedback.keyframe)
+	}
+	/// Parse authenticated RFC 3550 reports, RFC 4585 PLI/NACK, and WebRTC REMB.
+	/// Invalid trailing packets discard all preceding feedback; NACKs are bounded to 128.
+	pub fn feedback(&self, packet: &[u8], video_ssrc: u32) -> Option<Feedback> {
 		if video_ssrc == 0
-			|| !(32..=MAX_PACKET).contains(&packet.len())
+			|| !(28..=MAX_PACKET).contains(&packet.len())
 			|| packet[0] >> 6 != 2
 			|| !(192..=223).contains(&packet[1])
 		{
-			return false;
+			return None;
 		}
 		let mut nonce = [0; 24];
 		nonce[..4].copy_from_slice(&packet[packet.len() - 4..]);
@@ -122,39 +137,114 @@ impl Encryption {
 				aad: &packet[..8],
 			},
 		) else {
-			return false;
+			return None;
 		};
 		let mut compound = Vec::with_capacity(8 + body.len());
 		compound.extend_from_slice(&packet[..8]);
 		compound.extend_from_slice(&body);
 		let mut remaining = compound.as_slice();
-		let mut requested = false;
+		let mut feedback = Feedback::default();
 		while !remaining.is_empty() {
-			if remaining.len() < 4 || remaining[0] >> 6 != 2 {
-				return false;
+			if remaining.len() < 4 || remaining[0] >> 6 != 2 || !(192..=223).contains(&remaining[1])
+			{
+				return None;
 			}
 			let size = (usize::from(u16::from_be_bytes([remaining[2], remaining[3]])) + 1) * 4;
 			if size > remaining.len() {
-				return false;
+				return None;
 			}
 			let mut content = &remaining[..size];
 			if content[0] & 0x20 != 0 {
 				let padding = usize::from(content[size - 1]);
 				if size != remaining.len() || padding == 0 || padding > size - 4 {
-					return false;
+					return None;
 				}
 				content = &content[..size - padding];
 			}
-			// RFC 4585: PSFB/FMT=1 has a media SSRC and no FCI payload.
-			if content[1] == 206 && content[0] & 0x1f == 1 {
-				if content.len() != 12 {
-					return false;
+			let count = usize::from(content[0] & 0x1f);
+			match content[1] {
+				200 | 201 => {
+					let start = if content[1] == 200 { 28 } else { 8 };
+					let end = start + count * 24;
+					if content.len() < end || !content.len().is_multiple_of(4) {
+						return None;
+					}
+					for report in content[start..end].as_chunks::<24>().0 {
+						if report[..4] == video_ssrc.to_be_bytes() {
+							feedback.loss =
+								Some(feedback.loss.map_or(report[4], |loss| loss.max(report[4])));
+						}
+					}
 				}
-				requested |= content[8..12] == video_ssrc.to_be_bytes();
+				205 | 206 => {
+					if content.len() < 12 || !content.len().is_multiple_of(4) {
+						return None;
+					}
+					let matching = content[8..12] == video_ssrc.to_be_bytes();
+					match (content[1], count) {
+						(206, 1) => {
+							if content.len() != 12 {
+								return None;
+							}
+							feedback.keyframe |= matching;
+						}
+						(205, 1) => {
+							if content.len() == 12 {
+								return None;
+							}
+							if matching {
+								for nack in content[12..].as_chunks::<4>().0 {
+									let pid = u16::from_be_bytes([nack[0], nack[1]]);
+									let mask = u16::from_be_bytes([nack[2], nack[3]]);
+									for offset in 0..=16 {
+										if offset == 0 || mask & (1 << (offset - 1)) != 0 {
+											let sequence = pid.wrapping_add(offset);
+											if feedback.nacks.len() < 128
+												&& !feedback.nacks.contains(&sequence)
+											{
+												feedback.nacks.push(sequence);
+											}
+										}
+									}
+								}
+							}
+						}
+						(206, 15) if content.get(12..16) == Some(b"REMB") => {
+							if content.len() < 20
+								|| content.len() != 20 + usize::from(content[16]) * 4
+							{
+								return None;
+							}
+							let exponent = u32::from(content[17] >> 2);
+							let mantissa = (u32::from(content[17] & 3) << 16)
+								| (u32::from(content[18]) << 8)
+								| u32::from(content[19]);
+							let bitrate = if mantissa == 0 {
+								0
+							} else {
+								if exponent >= 32 || mantissa > (u32::MAX >> exponent) {
+									return None;
+								}
+								mantissa << exponent
+							};
+							if content[20..]
+								.as_chunks::<4>()
+								.0
+								.iter()
+								.any(|ssrc| *ssrc == video_ssrc.to_be_bytes())
+							{
+								feedback.bitrate =
+									Some(feedback.bitrate.map_or(bitrate, |old| old.min(bitrate)));
+							}
+						}
+						_ => {}
+					}
+				}
+				_ => {}
 			}
 			remaining = &remaining[size..];
 		}
-		requested
+		Some(feedback)
 	}
 	/// Authenticate and decrypt one Opus (120), H264 (101) or H264 RTX (102) RTP packet.
 	pub fn open(&self, packet: &[u8]) -> Option<Rtp> {
@@ -612,6 +702,73 @@ mod tests {
 		padded[15] = 13; // Padding may not consume the RTCP header.
 		let packet = sealed(&mut crypto, &padded);
 		assert!(!crypto.requests_keyframe(&packet, 42));
+	}
+	#[test]
+	fn compound_feedback_authenticates_targets_bounds_and_validates_the_entire_packet() {
+		fn rtcp(kind: u8, count: u8, body: &[u8]) -> Vec<u8> {
+			let mut clear = vec![0x80 | count, kind];
+			clear.extend_from_slice(&((body.len() / 4) as u16).to_be_bytes());
+			clear.extend_from_slice(body);
+			clear
+		}
+		fn sealed(crypto: &mut Encryption, clear: &[u8]) -> Vec<u8> {
+			crypto
+				.seal_rtcp(clear[..8].try_into().unwrap(), &clear[8..])
+				.unwrap()
+		}
+		let mut crypto = Encryption::new(&[7; 32]);
+		let mut report = vec![0; 24];
+		report[..4].copy_from_slice(&42u32.to_be_bytes());
+		report[4] = 32;
+		let mut compound = rtcp(201, 1, &[&9u32.to_be_bytes()[..], &report].concat());
+		report[4] = 64;
+		compound.extend(rtcp(200, 1, &[&[0; 24][..], &report].concat()));
+		compound.extend(rtcp(
+			206,
+			1,
+			&[&9u32.to_be_bytes()[..], &42u32.to_be_bytes()].concat(),
+		));
+		let mut nack = vec![0, 0, 0, 9, 0, 0, 0, 42];
+		nack.extend([0xff, 0xff, 0, 3, 0, 0, 0, 1]); // 65535, 0, 1; duplicate 0/1.
+		compound.extend(rtcp(205, 1, &nack));
+		let mut remb = vec![0, 0, 0, 9, 0, 0, 0, 0];
+		remb.extend(b"REMB");
+		remb.extend([1, 8, 0, 250, 0, 0, 0, 42]); // 250 << 2 = 1000 bps.
+		compound.extend(rtcp(206, 15, &remb));
+		remb[15] = 125;
+		compound.extend(rtcp(206, 15, &remb));
+		let packet = sealed(&mut crypto, &compound);
+		let feedback = crypto.feedback(&packet, 42).unwrap();
+		assert!(feedback.keyframe);
+		assert_eq!(feedback.nacks, [65535, 0, 1]);
+		assert_eq!(feedback.loss, Some(64));
+		assert_eq!(feedback.bitrate, Some(500));
+		let unrelated = crypto.feedback(&packet, 43).unwrap();
+		assert!(!unrelated.keyframe && unrelated.nacks.is_empty());
+		assert!(unrelated.loss.is_none() && unrelated.bitrate.is_none());
+		for i in 0..packet.len() {
+			let mut corrupt = packet.clone();
+			corrupt[i] ^= 1;
+			assert!(crypto.feedback(&corrupt, 42).is_none());
+			assert!(crypto.feedback(&packet[..i], 42).is_none());
+		}
+		// A matching PLI cannot hide a truncated report block later in the compound.
+		compound.extend(rtcp(201, 1, &[0; 4]));
+		let packet = sealed(&mut crypto, &compound);
+		assert!(crypto.feedback(&packet, 42).is_none());
+		remb[13] = 0xfc; // Unrepresentable nonzero REMB exponent.
+		let packet = sealed(&mut crypto, &rtcp(206, 15, &remb));
+		assert!(crypto.feedback(&packet, 42).is_none());
+		nack.truncate(8);
+		for pid in (0u16..340).step_by(17) {
+			nack.extend(pid.to_be_bytes());
+			nack.extend([255, 255]);
+		}
+		let packet = sealed(&mut crypto, &rtcp(205, 1, &nack));
+		assert_eq!(
+			crypto.feedback(&packet, 42).unwrap().nacks,
+			(0..128).collect::<Vec<_>>()
+		);
 	}
 	#[test]
 	fn soundshare_extension_is_authenticated_encrypted_and_stripped_before_dave() {

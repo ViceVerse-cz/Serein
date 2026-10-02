@@ -1,6 +1,16 @@
 //! Device update preferences and host-owned status. No transport or filesystem work lives here.
 use crate::{MessagingUi, design, icons};
 
+/// One release in the update log, already reduced to plain text by the host.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LogEntry {
+	pub version: String,
+	/// `YYYY-MM-DD`, empty when the release has no publish date.
+	pub date: String,
+	/// Section headings ("Features", "Bug Fixes") with their bullet points.
+	pub sections: Vec<(String, Vec<String>)>,
+}
+
 pub struct Updates {
 	pub auto_update: bool,
 	pub nightly: bool,
@@ -19,6 +29,8 @@ pub struct Updates {
 	pub copied_command: Option<f64>,
 	/// Ready flag the sidebar banner was dismissed at, so a later stage prompts again.
 	pub banner_dismissed: Option<bool>,
+	/// Recent releases on the selected channel, newest first.
+	pub log: Vec<LogEntry>,
 }
 impl Default for Updates {
 	fn default() -> Self {
@@ -39,6 +51,7 @@ impl Default for Updates {
 			copied_diagnostics: None,
 			copied_command: None,
 			banner_dismissed: None,
+			log: Vec::new(),
 		}
 	}
 }
@@ -63,15 +76,25 @@ impl MessagingUi {
 		let ready = self.updates.ready;
 		let colors = design::palette(ui);
 		let (label, icon) = if ready {
-			("Restart to update", icons::Icon::Reload)
+			(
+				"updates-shows-update-banner-restart-to-update",
+				icons::Icon::Reload,
+			)
 		} else if self.updates.busy {
-			("Updating…", icons::Icon::Download)
+			(
+				"updates-shows-update-banner-updating",
+				icons::Icon::Download,
+			)
 		} else {
-			("Update available", icons::Icon::Download)
+			(
+				"updates-shows-update-banner-update-available",
+				icons::Icon::Download,
+			)
 		};
+		let label = crate::i18n::translate_if_key(label);
 		let status = self.updates.status.clone();
 		// Reserve the row and interact with it *before* the dismiss button below is added, so
-		// that button (registered after, "on top") keeps first claim on an overlapping click.
+		// that button (registered after, "updates-shows-update-banner-on-top") keeps first claim on an overlapping click.
 		let (rect, response) =
 			ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::click());
 		let hovered = response.hovered() || response.has_focus();
@@ -97,22 +120,87 @@ impl MessagingUi {
 		let (mark, _) = ui.allocate_exact_size(egui::vec2(15.0, 15.0), egui::Sense::hover());
 		icons::paint(ui.painter(), icon, mark, colors.accent);
 		ui.add(
-			egui::Label::new(design::medium(ui, label, 12.0).color(colors.accent))
+			egui::Label::new(design::medium(ui, &label, 12.0).color(colors.accent))
 				.truncate()
 				.selectable(false),
 		);
 		let mut dismiss = false;
 		ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-			dismiss = icons::button(ui, icons::Icon::Close, 18.0, "Dismiss update").clicked();
+			dismiss = icons::button(
+				ui,
+				icons::Icon::Close,
+				18.0,
+				&crate::i18n::translate("updates-update-banner-dismiss-update"),
+			)
+			.clicked();
 		});
 		response
-			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
-		let open = !dismiss && response.on_hover_text(status).clicked();
+			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
+		let open = !dismiss
+			&& response
+				.on_hover_text(crate::i18n::translate_if_key(&status))
+				.clicked();
 		if dismiss {
 			self.updates.banner_dismissed = Some(ready);
 		}
 		if open {
 			self.open_update_settings();
+		}
+	}
+
+	/// Gateway-recovery notice stacked into the account card, styled like the update banner but
+	/// tinted with the warning colour. The whole row requests an immediate reconnect.
+	pub(super) fn reconnecting_banner(&mut self, ui: &mut egui::Ui, first: bool) {
+		let colors = design::palette(ui);
+		let label = crate::i18n::translate("reconnecting");
+		let action = crate::i18n::translate("reconnect-now");
+		let (rect, response) =
+			ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::click());
+		let hovered = response.hovered() || response.has_focus();
+		let top = if first { 8 } else { 0 };
+		ui.painter().rect_filled(
+			rect,
+			egui::CornerRadius {
+				nw: top,
+				ne: top,
+				sw: 0,
+				se: 0,
+			},
+			colors
+				.warning
+				.gamma_multiply(if hovered { 0.18 } else { 0.12 }),
+		);
+		let mut content = ui.new_child(
+			egui::UiBuilder::new()
+				.max_rect(rect.shrink2(egui::vec2(10.0, 0.0)))
+				.layout(egui::Layout::left_to_right(egui::Align::Center)),
+		);
+		let ui = &mut content;
+		ui.spacing_mut().item_spacing.x = 8.0;
+		let (mark, _) = ui.allocate_exact_size(egui::vec2(15.0, 15.0), egui::Sense::hover());
+		icons::paint(ui.painter(), icons::Icon::Reload, mark, colors.warning);
+		ui.add(
+			egui::Label::new(design::medium(ui, &label, 12.0).color(colors.warning))
+				.truncate()
+				.selectable(false),
+		);
+		ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+			let color = if hovered {
+				colors.warning
+			} else {
+				colors.warning.gamma_multiply(0.75)
+			};
+			ui.add(
+				egui::Label::new(design::medium(ui, &action, 11.0).color(color))
+					.truncate()
+					.selectable(false),
+			);
+		});
+		response.widget_info(|| {
+			egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &action)
+		});
+		if response.clicked() {
+			self.reconnect_requested = true;
 		}
 	}
 
@@ -237,16 +325,26 @@ impl MessagingUi {
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					if self.updates.ready {
 						ui.add_enabled_ui(!self.updates.busy, |ui| {
-							if design::button(ui, "Restart to update", design::ButtonKind::Primary)
-								.clicked()
+							if design::button(
+								ui,
+								&crate::i18n::translate(
+									"updates-update-settings-restart-to-update",
+								),
+								design::ButtonKind::Primary,
+							)
+							.clicked()
 							{
 								self.updates.restart_requested = true;
 							}
 						});
 					} else if self.updates.available && self.updates.supported {
 						ui.add_enabled_ui(!self.updates.busy, |ui| {
-							if design::button(ui, "Download update", design::ButtonKind::Primary)
-								.clicked()
+							if design::button(
+								ui,
+								&crate::i18n::translate("updates-update-settings-download-update"),
+								design::ButtonKind::Primary,
+							)
+							.clicked()
 							{
 								self.updates.download_requested = true;
 							}
@@ -254,13 +352,21 @@ impl MessagingUi {
 					} else {
 						let allowed = (!cfg!(debug_assertions) || demo) && !self.updates.busy;
 						ui.add_enabled_ui(allowed, |ui| {
-							if design::button(ui, "Check for updates", design::ButtonKind::Outline)
-								.on_disabled_hover_text(if cfg!(debug_assertions) && !demo {
-									"Update checks are disabled in debug builds."
+							if design::button(
+								ui,
+								&crate::i18n::translate(
+									"updates-update-settings-check-for-updates",
+								),
+								design::ButtonKind::Outline,
+							)
+							.on_disabled_hover_text(crate::i18n::translate_if_key(
+								if cfg!(debug_assertions) && !demo {
+									"updates-update-settings-update-checks-are-disabled-in-debug-builds"
 								} else {
-									"Finish the current update before checking again."
-								})
-								.clicked()
+									"updates-update-settings-finish-the-current-update-before-checking-again"
+								},
+							))
+							.clicked()
 							{
 								self.updates.check_requested = true;
 							}
@@ -285,110 +391,142 @@ impl MessagingUi {
 				design::notice(
 					ui,
 					design::Level::Warning,
-					"Could not load or save update preferences. Changes may not survive restart.",
+					&crate::i18n::translate(
+						"updates-update-settings-could-not-load-or-save-update-preferences-changes-may-not",
+					),
 				);
 			}
 		});
-		design::group(ui, "Preferences", |ui| {
-			ui.add_enabled_ui(self.updates.supported || demo, |ui| {
-				design::switch(
-					ui,
-					"Auto update",
-					Some("Download updates in the background. Restart when you are ready. Serein still checks at startup and periodically when this is off."),
-					&mut self.updates.auto_update,
-				);
-			});
-			design::card_divider(ui);
-			design::row(
-				ui,
-				"Release channel",
-				Some(if self.updates.nightly {
-					"Early builds with the newest changes. Nightly releases can be less reliable."
-				} else {
-					"Published stable releases. Switching channels never installs an older version."
-				}),
-				|ui| {
-					egui::ComboBox::from_id_salt("update-release-channel")
-						.selected_text(if self.updates.nightly {
-							"Nightly"
-						} else {
-							"Production"
-						})
-						.width(ui.available_width().min(160.0))
-						.show_ui(ui, |ui| {
-							ui.selectable_value(&mut self.updates.nightly, false, "Production");
-							ui.selectable_value(&mut self.updates.nightly, true, "Nightly");
-						});
-				},
-			);
-			if !demo {
-				if self.updates.flatpak {
-					design::hint(
+		self.update_log(ui);
+		design::group(
+			ui,
+			&crate::i18n::translate("updates-update-settings-preferences"),
+			|ui| {
+				ui.add_enabled_ui(self.updates.supported || demo, |ui| {
+					design::switch(
 						ui,
-						"Flatpak manages updates via its repository. Run `flatpak update` or use GNOME Software / KDE Discover to install new releases.",
+						"updates-update-settings-auto-update",
+						Some(
+							"updates-update-settings-download-updates-in-the-background-restart-when-you-are-ready",
+						),
+						&mut self.updates.auto_update,
 					);
-				} else if !self.updates.supported {
-					if let Some(cmd) = &self.updates.linux_update_cmd {
-						design::card_divider(ui);
-						let copied_cmd = self
-							.updates
-							.copied_command
-							.is_some_and(|until| ui.input(|i| i.time) < until);
-						let cmd = cmd.clone();
-						design::row(
-							ui,
-							"Package manager updates",
-							Some(
-								"Serein was installed via your distribution. Run this in a terminal to update.",
-							),
-							|ui| {
-								if design::button(
-									ui,
-									if copied_cmd { "Copied" } else { "Copy command" },
-									design::ButtonKind::Outline,
-								)
-								.clicked()
-								{
-									ui.ctx().copy_text(cmd.clone());
-									self.updates.copied_command = Some(ui.input(|i| i.time) + 2.5);
-									ui.ctx()
-										.request_repaint_after(std::time::Duration::from_secs(3));
-								}
-							},
-						);
-						ui.add_space(6.0);
-						egui::Frame::new()
-							.fill(colors.base)
-							.corner_radius(6)
-							.inner_margin(egui::Margin::symmetric(10, 6))
-							.show(ui, |ui| {
-								ui.set_width(ui.available_width());
-								ui.monospace(&cmd);
-							});
+				});
+				design::card_divider(ui);
+				design::row(
+					ui,
+					"updates-update-settings-release-channel",
+					Some(if self.updates.nightly {
+						"updates-update-settings-early-builds-with-the-newest-changes-nightly-releases-can-be"
 					} else {
+						"updates-update-settings-published-stable-releases-switching-channels-never-installs-an-older-ver"
+					}),
+					|ui| {
+						egui::ComboBox::from_id_salt("update-release-channel")
+							.selected_text(crate::i18n::translate_if_key(
+								&(if self.updates.nightly {
+									crate::i18n::translate("updates-update-settings-nightly")
+								} else {
+									crate::i18n::translate("updates-update-settings-production")
+								}),
+							))
+							.width(ui.available_width().min(160.0))
+							.show_ui(ui, |ui| {
+								ui.selectable_value(
+									&mut self.updates.nightly,
+									false,
+									crate::i18n::translate("updates-update-settings-production"),
+								);
+								ui.selectable_value(
+									&mut self.updates.nightly,
+									true,
+									crate::i18n::translate("updates-update-settings-nightly"),
+								);
+							});
+					},
+				);
+				if !demo {
+					if self.updates.flatpak {
 						design::hint(
 							ui,
-							"In-app installation requires a macOS or Windows release package, or a Linux x86-64 AppImage. Other Linux installations use their package manager.",
+							&crate::i18n::translate(
+								"updates-update-settings-flatpak-manages-updates-via-its-repository-run-flatpak-update-or",
+							),
 						);
+					} else if !self.updates.supported {
+						if let Some(cmd) = &self.updates.linux_update_cmd {
+							design::card_divider(ui);
+							let copied_cmd = self
+								.updates
+								.copied_command
+								.is_some_and(|until| ui.input(|i| i.time) < until);
+							let cmd = cmd.clone();
+							design::row(
+								ui,
+								"updates-update-settings-package-manager-updates",
+								Some(
+									"updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a",
+								),
+								|ui| {
+									if design::button(
+										ui,
+										&crate::i18n::translate_if_key(if copied_cmd {
+											"updates-update-settings-copied"
+										} else {
+											"updates-update-settings-copy-command"
+										}),
+										design::ButtonKind::Outline,
+									)
+									.clicked()
+									{
+										ui.ctx().copy_text(cmd.clone());
+										self.updates.copied_command =
+											Some(ui.input(|i| i.time) + 2.5);
+										ui.ctx().request_repaint_after(
+											std::time::Duration::from_secs(3),
+										);
+									}
+								},
+							);
+							ui.add_space(6.0);
+							egui::Frame::new()
+								.fill(colors.base)
+								.corner_radius(6)
+								.inner_margin(egui::Margin::symmetric(10, 6))
+								.show(ui, |ui| {
+									ui.set_width(ui.available_width());
+									ui.monospace(&cmd);
+								});
+						} else {
+							design::hint(
+								ui,
+								&crate::i18n::translate(
+									"updates-update-settings-in-app-installation-requires-a-macos-or-windows-release-package",
+								),
+							);
+						}
 					}
 				}
-			}
-		});
-		design::group(ui, "Support & diagnostics", |ui| {
-			let copied = self
-				.updates
-				.copied_diagnostics
-				.is_some_and(|until| ui.input(|i| i.time) < until);
-			if design::row(
+			},
+		);
+		design::group(
+			ui,
+			&crate::i18n::translate("updates-update-settings-support-diagnostics"),
+			|ui| {
+				let copied = self
+					.updates
+					.copied_diagnostics
+					.is_some_and(|until| ui.input(|i| i.time) < until);
+				if design::row(
 				ui,
-				"Issue diagnostics",
+				"updates-update-settings-issue-diagnostics",
 				Some(
-					"Copy system and client environment details formatted for GitHub issue reports.",
+					"updates-update-settings-copy-system-and-client-environment-details-formatted-for-github-issue",
 				),
 				|ui| {
 					design::button(
 						ui,
-						if copied { "Copied" } else { "Copy" },
+						&crate::i18n::translate_if_key(if copied { "updates-update-settings-copied" } else { "updates-update-settings-copy" }),
 						design::ButtonKind::Outline,
 					)
 				},
@@ -396,6 +534,53 @@ impl MessagingUi {
 			.clicked()
 			{
 				self.copy_diagnostic_info(ui.ctx());
+			}
+			},
+		);
+	}
+}
+
+impl MessagingUi {
+	/// What changed between the running build and the newest release; hidden when up to date.
+	fn update_log(&self, ui: &mut egui::Ui) {
+		if self.updates.log.is_empty() {
+			return;
+		}
+		let colors = design::palette(ui);
+		design::group(ui, &crate::i18n::translate("updates-update-log"), |ui| {
+			for (index, entry) in self.updates.log.iter().enumerate() {
+				if index > 0 {
+					design::card_divider(ui);
+				}
+				let title = format!("Serein {}", entry.version);
+				egui::CollapsingHeader::new(
+					design::semibold(ui, &title, 14.0).color(colors.text_strong),
+				)
+				.id_salt(("update-log", &entry.version))
+				.default_open(index == 0)
+				.show(ui, |ui| {
+					if !entry.date.is_empty() {
+						ui.label(
+							egui::RichText::new(&entry.date)
+								.size(12.0)
+								.color(colors.muted),
+						);
+					}
+					for (heading, items) in &entry.sections {
+						if !heading.is_empty() {
+							ui.add_space(4.0);
+							ui.label(design::semibold(ui, heading, 13.0).color(colors.text_strong));
+						}
+						for item in items {
+							ui.horizontal_top(|ui| {
+								ui.label(egui::RichText::new("•").size(13.0).color(colors.muted));
+								ui.add(
+									egui::Label::new(egui::RichText::new(item).size(13.0)).wrap(),
+								);
+							});
+						}
+					}
+				});
 			}
 		});
 	}

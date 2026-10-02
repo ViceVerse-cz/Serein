@@ -28,6 +28,9 @@ pub struct ExtensionContext {
 	pub generation: u64,
 	pub channel: Option<Id>,
 	pub draft: Option<String>,
+	/// The call at invocation time; only voice proposals use this guard.
+	pub voice_request: Option<(Id, u64)>,
+	pub watched_stream: Option<Id>,
 }
 impl ExtensionContext {
 	pub fn capture(state: &State, composer: bool) -> Self {
@@ -35,6 +38,12 @@ impl ExtensionContext {
 			app_wide: false,
 			generation: state.generation,
 			channel: state.selected,
+			watched_stream: state.voice.active.as_ref().and_then(|call| call.watching),
+			voice_request: state
+				.voice
+				.active
+				.as_ref()
+				.map(|call| (call.channel, call.request)),
 			draft: composer.then(|| {
 				state
 					.selected
@@ -103,6 +112,11 @@ pub enum ExtensionRequest {
 		invocation: Invocation,
 		context: ExtensionContext,
 	},
+	ActionResult {
+		id: String,
+		result: extensions::ActionResult,
+		context: ExtensionContext,
+	},
 }
 
 #[derive(Clone)]
@@ -141,6 +155,7 @@ struct PreviewImage {
 }
 #[derive(Default)]
 pub struct ExtensionUi {
+	pub proxy_auth: crate::proxy_auth::Form,
 	pub active_theme: Option<String>,
 	pub entries: Vec<ExtensionEntry>,
 	pub status: String,
@@ -350,18 +365,22 @@ impl ExtensionUi {
 							ui.spacing_mut().item_spacing.y = 1.0;
 							ui.label(design::eyebrow(
 								ui,
-								if gallery.is_some() {
-									"Previewing theme"
+								crate::i18n::translate_if_key(if gallery.is_some() {
+									"extensions-ui-theme-preview-bar-previewing-theme"
 								} else {
-									"Theme preview"
-								},
+									"extensions-ui-theme-preview-bar-theme-preview"
+								}),
 								colors.muted,
 							));
 							ui.add(
 								egui::Label::new(
 									design::semibold(
 										ui,
-										gallery.as_deref().unwrap_or("Changes are not saved yet"),
+										gallery.clone().unwrap_or_else(|| {
+											crate::i18n::translate(
+												"extensions-ui-theme-preview-bar-changes-are-not-saved-yet",
+											)
+										}),
 										14.0,
 									)
 									.color(colors.text_strong),
@@ -374,18 +393,23 @@ impl ExtensionUi {
 						ui.spacing_mut().item_spacing.x = 8.0;
 						back = design::button(
 							ui,
-							if gallery.is_some() {
-								"Back to themes"
+							&crate::i18n::translate_if_key(if gallery.is_some() {
+								"extensions-ui-theme-preview-bar-back-to-themes"
 							} else {
-								"Back to theme editor"
-							},
+								"extensions-ui-theme-preview-bar-back-to-theme-editor"
+							}),
 							design::ButtonKind::Primary,
 						)
 						.clicked();
 						if gallery.is_some() {
-							customize =
-								design::button(ui, "Customize", design::ButtonKind::Outline)
-									.clicked();
+							customize = design::button(
+								ui,
+								&crate::i18n::translate(
+									"extensions-ui-theme-preview-bar-customize",
+								),
+								design::ButtonKind::Outline,
+							)
+							.clicked();
 						}
 					});
 				});
@@ -592,11 +616,19 @@ impl ExtensionUi {
 				egui::WidgetInfo::labeled(
 					egui::Role::Button,
 					true,
-					format!("Preview {}", entry.manifest.name),
+					format!(
+						"{} {}",
+						crate::i18n::translate("extensions-ui-preview-image-preview"),
+						entry.manifest.name
+					),
 				)
 			});
 			if response
-				.on_hover_text(format!("Preview {}", entry.manifest.name))
+				.on_hover_text(format!(
+					"{} {}",
+					crate::i18n::translate("extensions-ui-preview-image-preview"),
+					entry.manifest.name
+				))
 				.clicked()
 			{
 				self.open_preview(ui.ctx(), entry);
@@ -673,10 +705,19 @@ impl ExtensionUi {
 					egui::WidgetInfo::labeled(
 						egui::Role::Button,
 						true,
-						format!("Preview {}", entry.manifest.name),
+						format!(
+							"{} {}",
+							crate::i18n::translate("extensions-ui-preview-image-preview"),
+							entry.manifest.name
+						),
 					)
 				});
-				if response.on_hover_text("View preview").clicked() {
+				if response
+					.on_hover_text(crate::i18n::translate(
+						"extensions-ui-preview-image-view-preview",
+					))
+					.clicked()
+				{
 					self.open_preview(ui.ctx(), entry);
 				}
 				return;
@@ -727,52 +768,71 @@ impl ExtensionUi {
 			self.enlarged = None;
 			return;
 		}
+		let pad = crate::dialog::PAD * 2.0;
+		// Room left for the shared header, captions and footer strip around the artwork.
+		let available = ctx.content_rect().size() - egui::vec2(64.0 + pad, 240.0);
+		let artwork = if native {
+			let width = available
+				.x
+				.clamp(1.0, 800.0)
+				.min((available.y * 16.0 / 9.0).max(1.0));
+			egui::vec2(width, width * 9.0 / 16.0)
+		} else if let Some(texture) = texture {
+			let source = texture.size_vec2().max(egui::vec2(1.0, 1.0));
+			let bounds = available.max(egui::vec2(1.0, 1.0));
+			source * (bounds.x / source.x).min(bounds.y / source.y)
+		} else {
+			egui::Vec2::ZERO
+		};
 		let mut close = false;
-		let modal = egui::Modal::new(egui::Id::unique("extension-preview-modal")).show(ctx, |ui| {
-			ui.label(design::semibold(ui, &entry.manifest.name, 20.0));
-			let available = ctx.content_rect().size() - egui::vec2(64.0, 140.0);
-			if native {
-				let width = available
-					.x
-					.clamp(1.0, 800.0)
-					.min((available.y * 16.0 / 9.0).max(1.0));
-				let (rect, _) = ui.allocate_exact_size(
-					egui::vec2(width, width * 9.0 / 16.0),
-					egui::Sense::hover(),
-				);
-				draw_native_preview(ui, rect, entry, egui::CornerRadius::same(8));
-				if entry.manifest.kind != ExtensionKind::Theme {
-					ui.weak(
-						if entry
-							.manifest
-							.capabilities
-							.contains(&Capability::ImageSharing)
-						{
-							"Selecting artwork sends it as an image attachment."
-						} else {
-							"Example deleted-message appearance"
-						},
-					);
-				}
-			} else if let Some(texture) = texture {
-				ui.add(
-					egui::Image::new(texture)
-						.max_size(available.max(egui::vec2(1.0, 1.0)))
-						.corner_radius(8),
-				);
-				if entry.manifest.kind != ExtensionKind::Theme {
-					ui.weak("Creator preview");
-				}
-			}
-			if entry.manifest.kind == ExtensionKind::Theme {
-				ui.weak(format!("by {}", entry.manifest.author));
-				if !entry.description.is_empty() {
-					ui.add(egui::Label::new(&entry.description).wrap());
-				}
-			}
-			close = ui.button("Close preview").clicked();
-		});
-		if close || modal.should_close() {
+		let response = crate::dialog::Dialog::new("extension-preview-modal", &entry.manifest.name)
+			.width((artwork.x + pad).max(320.0))
+			.show(ctx, |d| {
+				d.content(|ui| {
+					if native {
+						let (rect, _) = ui.allocate_exact_size(artwork, egui::Sense::hover());
+						draw_native_preview(ui, rect, entry, egui::CornerRadius::same(8));
+						if entry.manifest.kind != ExtensionKind::Theme {
+							crate::dialog::hint(
+								ui,
+								if entry
+									.manifest
+									.capabilities
+									.contains(&Capability::ImageSharing)
+								{
+									"extensions-ui-preview-modal-unavailable-artwork-falls-back-to-images"
+								} else {
+									"extensions-ui-preview-modal-example-deleted-message-appearance"
+								},
+							);
+						}
+					} else if let Some(texture) = texture {
+						ui.add(
+							egui::Image::new(texture)
+								.fit_to_exact_size(artwork)
+								.corner_radius(8),
+						);
+						if entry.manifest.kind != ExtensionKind::Theme {
+							crate::dialog::hint(ui, "extensions-ui-preview-modal-creator-preview");
+						}
+					}
+					if entry.manifest.kind == ExtensionKind::Theme {
+						crate::dialog::hint(ui, &format!("by {}", entry.manifest.author));
+						if !entry.description.is_empty() {
+							ui.add(egui::Label::new(&entry.description).wrap());
+						}
+					}
+				});
+				d.footer(|ui| {
+					close = crate::dialog::action(
+						ui,
+						"extensions-ui-preview-modal-close-preview",
+						crate::dialog::Action::Neutral,
+					)
+					.clicked();
+				});
+			});
+		if close || response.close {
 			self.enlarged = None;
 		}
 	}
@@ -827,6 +887,7 @@ impl ExtensionUi {
 			return;
 		}
 		invocation.storage = None;
+		invocation.app = None;
 		output.storage = None;
 		self.result = Some(ResultPanel {
 			id,
@@ -895,37 +956,42 @@ impl ExtensionUi {
 					.manifest
 					.actions
 					.iter()
-					.any(|action| matches!(action.surface, Surface::Composer | Surface::Panel))
+					.any(|action| action.surface == Surface::Composer)
 		}) {
 			return;
 		}
 		let mut selected = None;
-		ui.menu_button("Tools", |ui| {
-			for entry in self.entries.iter().filter(|entry| entry.enabled) {
-				for action in
-					entry.manifest.actions.iter().filter(|action| {
-						matches!(action.surface, Surface::Composer | Surface::Panel)
-					}) {
-					if ui
-						.add_enabled(
-							!self.busy,
-							egui::Button::new(format!(
-								"{} · {}",
-								entry.manifest.name, action.label
-							)),
-						)
-						.clicked()
+		ui.menu_button(
+			crate::i18n::translate("extensions-ui-composer-menu-tools"),
+			|ui| {
+				for entry in self.entries.iter().filter(|entry| entry.enabled) {
+					for action in entry
+						.manifest
+						.actions
+						.iter()
+						.filter(|action| action.surface == Surface::Composer)
 					{
-						selected = Some((
-							entry.manifest.id.clone(),
-							action.id.clone(),
-							action.surface == Surface::Composer,
-						));
-						ui.close();
+						if ui
+							.add_enabled(
+								!self.busy,
+								egui::Button::new(format!(
+									"{} · {}",
+									entry.manifest.name, action.label
+								)),
+							)
+							.clicked()
+						{
+							selected = Some((
+								entry.manifest.id.clone(),
+								action.id.clone(),
+								action.surface == Surface::Composer,
+							));
+							ui.close();
+						}
 					}
 				}
-			}
-		});
+			},
+		);
 		if let Some((id, action, composer)) = selected {
 			let context = if composer {
 				ExtensionContext::capture(state, true)
@@ -979,22 +1045,34 @@ impl ExtensionUi {
 							24.0 * f32::from(u8::from(working) + u8::from(!self.query.is_empty()));
 						ui.add(
 							egui::TextEdit::singleline(&mut self.query)
-								.hint_text(if self.themes {
-									"Search themes"
-								} else {
-									"Search extensions"
-								})
+								.hint_text(crate::i18n::translate_if_key(
+									&(if self.themes {
+										crate::i18n::translate(
+											"extensions-ui-toolbar-search-themes",
+										)
+									} else {
+										crate::i18n::translate(
+											"extensions-ui-toolbar-search-extensions",
+										)
+									}),
+								))
 								.char_limit(128)
 								.frame(egui::Frame::NONE)
 								.desired_width((ui.available_width() - trailing).max(60.0)),
 						);
 						if working {
 							ui.add(egui::Spinner::new().size(16.0).color(colors.muted))
-								.on_hover_text(if self.catalog_refreshing {
-									"Checking for packages and updates"
-								} else {
-									"Working on your last action"
-								});
+								.on_hover_text(crate::i18n::translate_if_key(
+									&(if self.catalog_refreshing {
+										crate::i18n::translate(
+											"extensions-ui-toolbar-checking-for-packages-and-updates",
+										)
+									} else {
+										crate::i18n::translate(
+											"extensions-ui-toolbar-working-on-your-last-action",
+										)
+									}),
+								));
 						}
 						if !self.query.is_empty() {
 							let (rect, response) = ui
@@ -1009,7 +1087,12 @@ impl ExtensionUi {
 									colors.muted
 								},
 							);
-							if response.on_hover_text("Clear search").clicked() {
+							if response
+								.on_hover_text(crate::i18n::translate(
+									"extensions-ui-toolbar-clear-search",
+								))
+								.clicked()
+							{
 								self.query.clear();
 							}
 						}
@@ -1034,7 +1117,12 @@ impl ExtensionUi {
 				egui::Popup::menu(&more).show(|ui| {
 					ui.set_min_width(176.0);
 					if ui
-						.add_enabled(!self.busy, egui::Button::new("Import theme…"))
+						.add_enabled(
+							!self.busy,
+							egui::Button::new(crate::i18n::translate(
+								"extensions-ui-toolbar-import-theme",
+							)),
+						)
 						.clicked()
 					{
 						self.status.clear();
@@ -1042,7 +1130,12 @@ impl ExtensionUi {
 						ui.close();
 					}
 					if ui
-						.add_enabled(!self.busy, egui::Button::new("Refresh catalog"))
+						.add_enabled(
+							!self.busy,
+							egui::Button::new(crate::i18n::translate(
+								"extensions-ui-toolbar-refresh-catalog",
+							)),
+						)
 						.clicked()
 					{
 						self.previews.clear();
@@ -1061,7 +1154,9 @@ impl ExtensionUi {
 				egui::vec2(92.0, height),
 				colors,
 			)
-			.on_hover_text("Look for new packages and updates. Nothing installs on its own.")
+			.on_hover_text(crate::i18n::translate(
+				"extensions-ui-toolbar-look-for-new-packages-and-updates-nothing-installs-on-its",
+			))
 			.clicked()
 			{
 				self.previews.clear();
@@ -1076,7 +1171,9 @@ impl ExtensionUi {
 				egui::vec2(150.0, height),
 				colors,
 			)
-			.on_hover_text("Open a package file from this computer.")
+			.on_hover_text(crate::i18n::translate(
+				"extensions-ui-toolbar-open-a-package-file-from-this-computer",
+			))
 			.clicked()
 			{
 				self.status.clear();
@@ -1118,7 +1215,9 @@ impl ExtensionUi {
 								colors.muted
 							},
 						);
-						dismiss = response.on_hover_text("Dismiss").clicked();
+						dismiss = response
+							.on_hover_text(crate::i18n::translate("extensions-ui-toolbar-dismiss"))
+							.clicked();
 					});
 				});
 			if dismiss {
@@ -1299,22 +1398,26 @@ impl ExtensionUi {
 						ui.label(
 							design::semibold(
 								ui,
-								match (query.is_empty(), self.themes) {
-									(false, _) => "No matches",
-									(true, true) => "No themes yet",
-									(true, false) => "No extensions yet",
-								},
+								crate::i18n::translate_if_key(
+									match (query.is_empty(), self.themes) {
+										(false, _) => "extensions-ui-settings-no-matches",
+										(true, true) => "extensions-ui-settings-no-themes-yet",
+										(true, false) => "extensions-ui-settings-no-extensions-yet",
+									},
+								),
 								17.0,
 							)
 							.color(colors.text_strong),
 						);
 						ui.add_space(3.0);
 						ui.label(
-							egui::RichText::new(if query.is_empty() {
-								"Refresh the catalog or import a creator's package to get started."
-							} else {
-								"Try a different name or creator."
-							})
+							egui::RichText::new(crate::i18n::translate_if_key(
+								if query.is_empty() {
+									"extensions-ui-settings-refresh-the-catalog-or-import-a-creator-s-package-to"
+								} else {
+									"extensions-ui-settings-try-a-different-name-or-creator"
+								},
+							))
 							.size(13.0)
 							.color(colors.muted),
 						);
@@ -1363,26 +1466,33 @@ impl ExtensionUi {
 					if entry.cleanup_pending {
 						badge(
 							ui,
-							"Cleanup pending",
+							&crate::i18n::translate("extensions-ui-card-body-cleanup-pending"),
 							colors.warning,
 							design::mix(colors.raised, colors.warning, 0.16),
 						);
 					} else if entry.enabled && active {
-						badge(ui, "Active", colors.accent_text, colors.accent);
+						badge(
+							ui,
+							&crate::i18n::translate("extensions-ui-card-body-active"),
+							colors.accent_text,
+							colors.accent,
+						);
 					} else if entry.enabled && entry.update_available {
 						update_requested = ui
 							.add_enabled(
 								!self.busy,
 								egui::Button::new(
-									egui::RichText::new("Update")
-										.size(11.5)
-										.color(colors.accent),
+									egui::RichText::new(crate::i18n::translate(
+										"extensions-ui-card-body-update",
+									))
+									.size(11.5)
+									.color(colors.accent),
 								)
 								.frame(false),
 							)
-							.on_hover_text(
-								"Review the new release before it replaces this version.",
-							)
+							.on_hover_text(crate::i18n::translate(
+								"extensions-ui-card-body-review-the-new-release-before-it-replaces-this-version",
+							))
 							.clicked();
 					}
 					ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -1406,10 +1516,17 @@ impl ExtensionUi {
 						&& !entry.cleanup_pending
 						&& ui
 							.add_enabled_ui(!self.busy, |ui| {
-								quiet_action(ui, "Remove", colors.muted, colors.danger)
+								quiet_action(
+									ui,
+									"extensions-ui-card-body-remove",
+									colors.muted,
+									colors.danger,
+								)
 							})
 							.inner
-							.on_hover_text("Remove this theme and delete its local data.")
+							.on_hover_text(crate::i18n::translate(
+								"extensions-ui-card-body-remove-this-theme-and-delete-its-local-data",
+							))
 							.clicked()
 					{
 						*disable = Some(entry.manifest.id.clone());
@@ -1417,9 +1534,13 @@ impl ExtensionUi {
 					ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
 						ui.add(
 							egui::Label::new(
-								egui::RichText::new(format!("by {}", entry.manifest.author))
-									.size(12.0)
-									.color(colors.muted),
+								egui::RichText::new(format!(
+									"{} {}",
+									crate::i18n::translate("extensions-ui-card-body-by"),
+									entry.manifest.author
+								))
+								.size(12.0)
+								.color(colors.muted),
 							)
 							.truncate(),
 						)
@@ -1429,27 +1550,31 @@ impl ExtensionUi {
 			});
 		} else {
 			ui.horizontal(|ui| {
-				ui.label(design::eyebrow(ui, "Plugin", colors.muted));
+				ui.label(design::eyebrow(
+					ui,
+					crate::i18n::translate("extensions-ui-card-body-plugin"),
+					colors.muted,
+				));
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					ui.spacing_mut().item_spacing.x = 6.0;
 					if entry.cleanup_pending {
 						badge(
 							ui,
-							"Cleanup pending",
+							&crate::i18n::translate("extensions-ui-card-body-cleanup-pending"),
 							colors.warning,
 							design::mix(colors.raised, colors.warning, 0.16),
 						);
 					} else if entry.enabled {
 						badge(
 							ui,
-							"Enabled",
+							&crate::i18n::translate("extensions-ui-card-body-enabled"),
 							colors.positive,
 							design::mix(colors.raised, colors.positive, 0.16),
 						);
 						if entry.update_available {
 							badge(
 								ui,
-								"Update",
+								&crate::i18n::translate("extensions-ui-card-body-update"),
 								colors.accent,
 								design::mix(colors.raised, colors.accent, 0.2),
 							);
@@ -1466,9 +1591,13 @@ impl ExtensionUi {
 			ui.spacing_mut().item_spacing.y = 2.0;
 			ui.add(
 				egui::Label::new(
-					egui::RichText::new(format!("by {}", entry.manifest.author))
-						.size(12.0)
-						.color(colors.muted),
+					egui::RichText::new(format!(
+						"{} {}",
+						crate::i18n::translate("extensions-ui-card-body-by"),
+						entry.manifest.author
+					))
+					.size(12.0)
+					.color(colors.muted),
 				)
 				.truncate(),
 			)
@@ -1510,7 +1639,9 @@ impl ExtensionUi {
 					outline,
 					colors.text_strong,
 				)
-				.on_hover_text("Finish removing this extension and its local data.")
+				.on_hover_text(crate::i18n::translate(
+					"extensions-ui-card-body-finish-removing-this-extension-and-its-local-data",
+				))
 				.clicked()
 				{
 					*disable = Some(entry.manifest.id.clone());
@@ -1558,7 +1689,7 @@ impl ExtensionUi {
 						.add_enabled_ui(!self.busy && self.theme_editor.is_none(), |ui| {
 							card_button(
 								ui,
-								"Customize",
+								"extensions-ui-theme-preview-bar-customize",
 								egui::vec2(ui.available_width().max(1.0), FOOTER_HEIGHT),
 								colors.raised,
 								outline,
@@ -1599,7 +1730,9 @@ impl ExtensionUi {
 							)
 						})
 						.inner
-						.on_hover_text("Apply this installed theme to the app.")
+						.on_hover_text(crate::i18n::translate(
+							"extensions-ui-card-body-apply-this-installed-theme-to-the-app",
+						))
 						.clicked()
 					{
 						self.queue(
@@ -1618,7 +1751,7 @@ impl ExtensionUi {
 								if entry.local_theme {
 									"Edit theme"
 								} else {
-									"Customize"
+									"extensions-ui-theme-preview-bar-customize"
 								},
 								egui::vec2(ui.available_width().max(1.0), FOOTER_HEIGHT),
 								if active { neutral } else { colors.raised },
@@ -1661,13 +1794,15 @@ impl ExtensionUi {
 					.add_enabled_ui(!self.busy, |ui| {
 						card_button(
 							ui,
-							"Update",
+							"extensions-ui-card-body-update",
 							egui::vec2(each, FOOTER_HEIGHT),
 							colors.accent,
 							egui::Stroke::NONE,
 							colors.accent_text,
 						)
-						.on_hover_text("Review the new release before it replaces this version.")
+						.on_hover_text(crate::i18n::translate(
+							"extensions-ui-card-body-review-the-new-release-before-it-replaces-this-version",
+						))
 					})
 					.inner
 					.clicked()
@@ -1687,17 +1822,20 @@ impl ExtensionUi {
 					visuals.widgets.active.weak_bg_fill = neutral.gamma_multiply(0.85);
 					visuals.widgets.open.weak_bg_fill = neutral.linear_multiply(1.12);
 					ui.spacing_mut().button_padding.x = (each / 2.0 - 30.0).max(6.0);
-					ui.menu_button("Open tool", |ui| {
-						for action in &panel_actions {
-							if ui
-								.add_enabled(!self.busy, egui::Button::new(&action.label))
-								.clicked()
-							{
-								*invoke = Some((entry.manifest.id.clone(), action.id.clone()));
-								ui.close();
+					ui.menu_button(
+						crate::i18n::translate("extensions-ui-card-body-open-tool"),
+						|ui| {
+							for action in &panel_actions {
+								if ui
+									.add_enabled(!self.busy, egui::Button::new(&action.label))
+									.clicked()
+								{
+									*invoke = Some((entry.manifest.id.clone(), action.id.clone()));
+									ui.close();
+								}
 							}
-						}
-					});
+						},
+					);
 				});
 			}
 			if card_button(
@@ -1708,7 +1846,9 @@ impl ExtensionUi {
 				outline,
 				colors.text_strong,
 			)
-			.on_hover_text("Removes this extension and deletes its local data.")
+			.on_hover_text(crate::i18n::translate(
+				"extensions-ui-card-body-removes-this-extension-and-deletes-its-local-data",
+			))
 			.clicked()
 			{
 				*disable = Some(entry.manifest.id.clone());
@@ -1728,13 +1868,15 @@ impl ExtensionUi {
 				});
 		let response = crate::dialog::Dialog::new(
 			"extension-consent",
-			if theme {
-				"Enable this theme"
+			crate::i18n::translate_if_key(if theme {
+				"extensions-ui-consent-modal-enable-this-theme"
 			} else {
-				"Enable this extension"
-			},
+				"extensions-ui-consent-modal-enable-this-extension"
+			}),
 		)
-		.subtitle("Everything it may touch is listed below.")
+		.subtitle(crate::i18n::translate(
+			"extensions-ui-consent-modal-everything-it-may-touch-is-listed-below",
+		))
 		.width(460.0)
 		.show(ctx, |d| {
 			d.scroll(260.0, |ui| {
@@ -1782,7 +1924,10 @@ impl ExtensionUi {
 								ui.add(
 									egui::Label::new(
 										egui::RichText::new(format!(
-											"by {}",
+											"{} {}",
+											crate::i18n::translate(
+												"extensions-ui-consent-modal-by"
+											),
 											consent.entry.manifest.author
 										))
 										.size(12.0)
@@ -1795,14 +1940,18 @@ impl ExtensionUi {
 									if consent.entry.reviewed {
 										badge(
 											ui,
-											"Reviewed",
+											&crate::i18n::translate(
+												"extensions-ui-consent-modal-reviewed",
+											),
 											colors.positive,
 											design::mix(colors.raised, colors.positive, 0.16),
 										);
 									} else {
 										badge(
 											ui,
-											"Unreviewed",
+											&crate::i18n::translate(
+												"extensions-ui-consent-modal-unreviewed",
+											),
 											colors.warning,
 											design::mix(colors.raised, colors.warning, 0.16),
 										);
@@ -1831,7 +1980,10 @@ impl ExtensionUi {
 								});
 								if !consent.entry.manifest.source.is_empty() {
 									ui.hyperlink_to(
-										egui::RichText::new("View source").size(12.0),
+										egui::RichText::new(crate::i18n::translate(
+											"extensions-ui-consent-modal-view-source",
+										))
+										.size(12.0),
 										&consent.entry.manifest.source,
 									);
 								}
@@ -1858,9 +2010,9 @@ impl ExtensionUi {
 									colors.warning,
 								);
 								ui.label(
-									egui::RichText::new(
-										"Unreviewed package — its source has not been reviewed for the catalog.",
-									)
+									egui::RichText::new(crate::i18n::translate(
+										"extensions-ui-consent-modal-unreviewed-package-its-source-has-not-been-reviewed-for-the",
+									))
 									.size(12.5)
 									.color(colors.text),
 								);
@@ -1888,44 +2040,28 @@ impl ExtensionUi {
 									colors.positive,
 								);
 								ui.label(
-									egui::RichText::new(
-										"No access to conversations or composer text.",
-									)
+									egui::RichText::new(crate::i18n::translate(
+										"extensions-ui-consent-modal-no-access-to-conversations-or-composer-text",
+									))
 									.size(13.0)
 									.color(colors.text),
 								);
 							});
 						});
 				} else {
-					ui.label(design::eyebrow(ui, "Allow this extension to", colors.muted));
+					ui.label(design::eyebrow(
+						ui,
+						crate::i18n::translate(
+							"extensions-ui-consent-modal-allow-this-extension-to",
+						),
+						colors.muted,
+					));
 					ui.spacing_mut().item_spacing.y = 8.0;
 					for capability in &consent.entry.manifest.capabilities {
 						let mut granted = consent.grants.contains(capability);
-						let changed = egui::Frame::new()
-							.fill(colors.raised)
-							.corner_radius(10)
-							.stroke(egui::Stroke::new(
-								1.0,
-								if granted {
-									colors.accent
-								} else {
-									colors.border
-								},
-							))
-							.inner_margin(12)
-							.show(ui, |ui| {
-								ui.set_width((ui.available_width() - 26.0).max(1.0));
-								ui.spacing_mut().icon_width = 20.0;
-								ui.spacing_mut().icon_spacing = 10.0;
-								ui.visuals_mut().widgets.inactive.bg_stroke =
-									egui::Stroke::new(1.0, colors.muted);
-								ui.checkbox(
-									&mut granted,
-									egui::RichText::new(capability_label(*capability)).size(13.5),
-								)
-								.changed()
-							})
-							.inner;
+						let changed =
+							design::switch(ui, capability_label(*capability), None, &mut granted)
+								.changed();
 						if changed {
 							if granted {
 								consent.grants.push(*capability);
@@ -1936,9 +2072,9 @@ impl ExtensionUi {
 					}
 				}
 				ui.label(
-					egui::RichText::new(
-						"Disabling removes the extension and its local data. Re-enabling starts fresh.",
-					)
+					egui::RichText::new(crate::i18n::translate(
+						"extensions-ui-consent-modal-disabling-removes-the-extension-and-its-local-data-re-enabling",
+					))
 					.size(12.0)
 					.color(colors.muted),
 				);
@@ -1952,11 +2088,17 @@ impl ExtensionUi {
 					.all(|capability| consent.grants.contains(capability));
 				let enable = ui
 					.add_enabled_ui(ready && !self.busy, |ui| {
-						crate::dialog::action(ui, "Enable", crate::dialog::Action::Primary)
+						crate::dialog::action(
+							ui,
+							"extensions-ui-consent-modal-enable",
+							crate::dialog::Action::Primary,
+						)
 					})
 					.inner;
 				if !ready {
-					enable.on_hover_text("Allow every listed permission to continue.");
+					enable.on_hover_text(crate::i18n::translate(
+						"extensions-ui-consent-modal-allow-every-listed-permission-to-continue",
+					));
 				} else if enable.clicked() {
 					self.queue(
 						ctx,
@@ -1969,8 +2111,12 @@ impl ExtensionUi {
 					);
 					close = true;
 				}
-				close |=
-					crate::dialog::action(ui, "Cancel", crate::dialog::Action::Neutral).clicked();
+				close |= crate::dialog::action(
+					ui,
+					"extensions-ui-consent-modal-cancel",
+					crate::dialog::Action::Neutral,
+				)
+				.clicked();
 			});
 		});
 		if !close && !response.close {
@@ -2020,33 +2166,44 @@ impl ExtensionUi {
 		state: &mut State,
 		changes: &mut Vec<Id>,
 		editing: bool,
-	) {
+		avatars: &mut crate::avatars::Avatars,
+		activity_status: (&str, bool),
+	) -> Option<crate::extension_app::ConfirmedEffect> {
 		if let Some(message) = self.error.take() {
 			let mut dismissed = false;
-			let response = crate::dialog::Dialog::new("extension-error", "Extension error")
-				.width(400.0)
-				.show(ctx, |d| {
-					d.content(|ui| {
-						crate::dialog::notice(ui, crate::dialog::Level::Error, &message);
-					});
-					d.footer(|ui| {
-						dismissed =
-							crate::dialog::action(ui, "Dismiss", crate::dialog::Action::Primary)
-								.clicked();
-					});
+			let response = crate::dialog::Dialog::new(
+				"extension-error",
+				crate::i18n::translate("extensions-ui-show-result-extension-error"),
+			)
+			.width(400.0)
+			.show(ctx, |d| {
+				d.content(|ui| {
+					crate::dialog::notice(ui, crate::dialog::Level::Error, &message);
 				});
+				d.footer(|ui| {
+					dismissed = crate::dialog::action(
+						ui,
+						"extensions-ui-show-result-dismiss",
+						crate::dialog::Action::Primary,
+					)
+					.clicked();
+				});
+			});
 			if !dismissed && !response.close {
 				self.error = Some(message);
 			}
 		}
 		let Some(mut result) = self.result.take() else {
-			return;
+			self.proxy_auth.clear_draft();
+			return None;
 		};
 		if !result.context.is_current(state) {
+			self.proxy_auth.clear_draft();
 			self.status = "Result discarded because the conversation or draft changed.".into();
-			return;
+			return None;
 		}
 		let mut applied = false;
+		let mut confirmed = None;
 		let mut action = None;
 		let title = self
 			.entries
@@ -2054,14 +2211,37 @@ impl ExtensionUi {
 			.find(|entry| entry.manifest.id == result.id)
 			.map_or("Extension tool", |entry| entry.manifest.name.as_str())
 			.to_owned();
+		let rich = self.entries.iter().any(|entry| {
+			entry.manifest.id == result.id
+				&& entry
+					.manifest
+					.capabilities
+					.contains(&Capability::RichPresence)
+		});
+		let proxy = self.entries.iter().any(|entry| {
+			entry.manifest.id == result.id
+				&& entry.manifest.capabilities.contains(&Capability::ApiProxy)
+		});
+		if !proxy {
+			self.proxy_auth.clear_draft();
+		}
 		let mut close = false;
 		let response = crate::dialog::Dialog::new("extension-result", title)
-			.subtitle("Output from this extension. Nothing is applied until you choose to.")
-			.width(520.0)
+			.subtitle(if rich {
+				"Create your activity, preview it, then apply when ready.".into()
+			} else {
+				crate::i18n::translate(
+					"extensions-ui-show-result-review-the-result-app-actions-and-draft-changes-need-your",
+				)
+			})
+			.width(if rich { 820.0 } else { 520.0 })
 			.show(ctx, |d| {
-				d.scroll(240.0, |ui| {
+				d.scroll(if rich { 200.0 } else { 240.0 }, |ui| {
 					if let Some(replacement) = &result.output.replacement {
-						crate::dialog::label(ui, "Proposed composer text");
+						crate::dialog::label(
+							ui,
+							"extensions-ui-show-result-proposed-composer-text",
+						);
 						let colors = crate::design::palette(ui);
 						egui::Frame::new()
 							.fill(colors.base)
@@ -2074,14 +2254,67 @@ impl ExtensionUi {
 							});
 						ui.add_space(10.0);
 					}
+					if let Some(effect) = result.output.effects.first() {
+						crate::dialog::label(ui, "extensions-ui-show-result-proposed-app-action");
+						ui.add(
+							egui::Label::new(crate::extension_app::effect_description(effect))
+								.wrap(),
+						);
+						ui.add_space(10.0);
+					}
+					if rich {
+						ui.add_enabled_ui(!self.busy, |ui| {
+							crate::rich_presence::editor(
+								ui,
+								&result.output.panel,
+								&mut result.values,
+								&mut action,
+								avatars,
+								state,
+								activity_status,
+							);
+						});
+						return;
+					}
 					render_elements(ui, &result.output.panel, &mut result.values, &mut action);
+					if proxy {
+						ui.separator();
+						self.proxy_auth.show(
+							ui,
+							result.values.get("url").map_or("", String::as_str),
+							result.values.get("mode").is_some_and(|mode| mode == "URL"),
+						);
+					}
 				});
 				d.footer(|ui| {
+					if rich {
+						crate::rich_presence::actions(
+							ui,
+							&result.output.panel,
+							&mut action,
+							self.busy,
+						);
+					}
+					if let Some(effect) = result.output.effects.first()
+						&& crate::dialog::action(
+							ui,
+							crate::extension_app::effect_button(effect),
+							crate::dialog::Action::Primary,
+						)
+						.clicked()
+					{
+						confirmed = Some(crate::extension_app::ConfirmedEffect {
+							plugin: result.id.clone(),
+							context: result.context.clone(),
+							effect: effect.clone(),
+						});
+						applied = true;
+					}
 					if let Some(replacement) = result.output.replacement.clone() {
 						ui.add_enabled_ui(!editing && result.context.draft.is_some(), |ui| {
 							if crate::dialog::action(
 								ui,
-								"Apply to Draft",
+								"extensions-ui-show-result-apply-to-draft",
 								crate::dialog::Action::Primary,
 							)
 							.clicked()
@@ -2099,8 +2332,12 @@ impl ExtensionUi {
 							}
 						});
 					}
-					close |= crate::dialog::action(ui, "Close", crate::dialog::Action::Neutral)
-						.clicked();
+					close |= crate::dialog::action(
+						ui,
+						"extensions-ui-show-result-close",
+						crate::dialog::Action::Neutral,
+					)
+					.clicked();
 				});
 			});
 		if let Some(action) = action {
@@ -2120,7 +2357,10 @@ impl ExtensionUi {
 		}
 		if !close && !response.close && !applied {
 			self.result = Some(result);
+		} else {
+			self.proxy_auth.clear_draft();
 		}
+		confirmed
 	}
 }
 fn request_bytes(request: &ExtensionRequest) -> usize {
@@ -2152,21 +2392,35 @@ fn request_bytes(request: &ExtensionRequest) -> usize {
 			} => {
 				id.len()
 					+ invocation.action.len()
-					+ [
-						&invocation.selected_message,
-						&invocation.composer,
-						&invocation.storage,
-						&context.draft,
-					]
-					.into_iter()
-					.flatten()
-					.map(String::len)
-					.sum::<usize>() + invocation
+					+ invocation.app.as_ref().map_or(0, |app| {
+						std::mem::size_of::<extensions::AppSnapshot>()
+							+ app.bytes().unwrap_or(4 * extensions::MAX_IO_BYTES)
+					}) + invocation.message_event.as_ref().map_or(0, |event| {
+					std::mem::size_of::<extensions::MessageEvent>()
+						+ event.channel_id.len()
+						+ event.message_id.len()
+						+ event.author_id.as_ref().map_or(0, String::len)
+						+ event.content.as_ref().map_or(0, String::len)
+				}) + [
+					&invocation.selected_message,
+					&invocation.composer,
+					&invocation.storage,
+					&context.draft,
+				]
+				.into_iter()
+				.flatten()
+				.map(String::len)
+				.sum::<usize>() + invocation
 					.values
 					.iter()
 					.map(|(key, value)| key.len() + value.len())
 					.sum::<usize>()
 			}
+			ExtensionRequest::ActionResult {
+				id,
+				result,
+				context,
+			} => id.len() + result.request_id.len() + context.draft.as_ref().map_or(0, String::len),
 		}
 }
 
@@ -2350,6 +2604,7 @@ fn paint_button(
 	text: egui::Color32,
 	enabled: bool,
 ) -> egui::Response {
+	let label = crate::i18n::translate_if_key(label);
 	let (rect, response) = ui.allocate_exact_size(
 		size,
 		if enabled {
@@ -2358,7 +2613,7 @@ fn paint_button(
 			egui::Sense::hover()
 		},
 	);
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &label));
 	let fill = if !enabled {
 		fill.gamma_multiply(0.5)
 	} else if response.is_pointer_button_down_on() {
@@ -2376,7 +2631,7 @@ fn paint_button(
 	let painter = ui.painter();
 	painter.rect(rect, 8, fill, stroke, egui::StrokeKind::Inside);
 	let galley = painter.layout_no_wrap(
-		label.to_owned(),
+		label,
 		egui::FontId::new(13.5, design::medium_family(ui.ctx())),
 		text,
 	);
@@ -2417,6 +2672,7 @@ fn quiet_action(
 	color: egui::Color32,
 	hover: egui::Color32,
 ) -> egui::Response {
+	let label = crate::i18n::translate_if_key(label);
 	let galley = ui.painter().layout_no_wrap(
 		label.to_owned(),
 		egui::FontId::new(12.0, design::medium_family(ui.ctx())),
@@ -2424,7 +2680,7 @@ fn quiet_action(
 	);
 	let (rect, response) =
 		ui.allocate_exact_size(galley.size() + egui::vec2(8.0, 4.0), egui::Sense::click());
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
 	let enabled = ui.is_enabled();
 	let hot = enabled && (response.hovered() || response.has_focus());
 	let color = if !enabled {
@@ -2464,17 +2720,102 @@ fn badge(ui: &mut egui::Ui, text: &str, foreground: egui::Color32, background: e
 
 fn capability_label(capability: Capability) -> &'static str {
 	match capability {
+		Capability::ApiProxy => {
+			"Route the Discord REST API through a proxy across accounts (not calls or media)"
+		}
+		Capability::RichPresence => "Publish custom activity while activity sharing is enabled",
 		Capability::ImageSharing => "Enable explicit emoji and sticker image attachment selection",
 		Capability::Appearance => "Customize app colors, typography and control styling",
+		Capability::MessageEvents => "Read live message events and text in the active conversation",
 		Capability::SelectedMessage => "Read the message I choose for an action",
 		Capability::Composer => "Read my draft and propose text changes",
 		Capability::Storage => "Store up to 1 MiB of local data for this account",
+		Capability::AppContext => "Read my account and current conversation details",
+		Capability::AccountProfile => "Read my loaded profile, including biography and pronouns",
+		Capability::GuildDirectory => "Read my loaded server names and identifiers",
+		Capability::ChannelDetails => "Read current channel metadata, recipients and permissions",
+		Capability::DataEvents => {
+			"Receive changes to separately granted account and conversation data"
+		}
+		Capability::MessageContent => {
+			"Read loaded embed text, stickers and message reference metadata"
+		}
+		Capability::ForumData => "Read loaded forum and thread summaries",
+		Capability::ConversationActivity => {
+			"Read current typing users and loaded pins; observe reactions"
+		}
+		Capability::ChannelMetadata => {
+			"Read loaded channel topics, categories, thread details and permissions"
+		}
+		Capability::MemberDetails => "Read loaded server members, roles and server profiles",
+		Capability::ChannelDirectory => "Read the list of loaded, readable conversations",
+		Capability::MessageDetails => {
+			"Read loaded message replies, mentions, attachment metadata and reactions"
+		}
+		Capability::Relationships => "Read my loaded friends, requests, blocked and ignored users",
+		Capability::Timeline => "Read loaded messages in the active conversation",
+		Capability::Members => "Read loaded members of the active conversation",
+		Capability::Presence => "Read loaded user presence status",
+		Capability::VoiceState => "Read current call state and participant identifiers",
+		Capability::ReadState => "Read unread and mention counts in the active conversation",
+		Capability::LocalSettings => "Read local reading settings and propose changes for approval",
+		Capability::NotificationSettings => {
+			"Read local sound and notification settings and propose changes for approval"
+		}
+		Capability::MessageSend => "Propose sending messages for approval",
+		Capability::MessageManage => "Propose editing, deleting or pinning messages for approval",
+		Capability::ReactionsControl => "Propose adding or removing my reactions for approval",
+		Capability::ReadStateControl => "Propose marking conversations read or unread for approval",
+		Capability::ThreadsControl => {
+			"Propose creating and managing threads or forum posts for approval"
+		}
+		Capability::ChannelControl => {
+			"Propose channel, category, group conversation and mute changes for approval"
+		}
+		Capability::ServerControl => {
+			"Propose server settings, invites, emoji and membership changes for approval"
+		}
+		Capability::RoleControl => "Propose server role changes for approval",
+		Capability::ModerationControl => {
+			"Propose member role, nickname, kick and prune actions for approval"
+		}
+		Capability::MediaControl => {
+			"Propose camera, screen-share and local media-device changes for approval"
+		}
+		Capability::ActionFeedback => {
+			"Receive whether a confirmed app action was accepted by Serein"
+		}
+		Capability::DataQueries => {
+			"Request and read bounded search, pin, thread, member, profile and GIF results"
+		}
+		Capability::MessagingSettings => {
+			"Read and propose account messaging privacy changes for approval"
+		}
+		Capability::GuildFolders => "Read and propose server-folder changes for approval",
+		Capability::RelationshipControl => {
+			"Propose friend, block, nickname and note changes for approval"
+		}
+		Capability::AccountControl => {
+			"Read own presence and activity-sharing preferences; propose account changes for approval"
+		}
+		Capability::AudioSettings => {
+			"Read audio preferences; propose audio settings, participant and stream volume changes for approval"
+		}
+		Capability::VoiceConnect => "Propose joining, ringing or declining calls for approval",
+		Capability::CameraControl => "Propose enabling or disabling my camera for approval",
+		Capability::Navigation => "Propose opening conversations, profiles, search and app views",
+		Capability::LocalNotices => "Propose local notices for approval",
+		Capability::ClipboardWrite => "Propose clipboard text for approval",
+		Capability::VoiceControl => {
+			"Propose call mute/deafen, leaving or watching a stream for approval"
+		}
+		Capability::AppEvents => "Receive app lifecycle and navigation events while enabled",
 		Capability::DeletedMessages => {
-			"Keep already-loaded deleted messages in memory until disabled or evicted"
+			"Keep loaded deleted messages in session memory while enabled"
 		}
 	}
 }
-fn render_elements(
+pub(crate) fn render_elements(
 	ui: &mut egui::Ui,
 	elements: &[Element],
 	values: &mut BTreeMap<String, String>,
@@ -2482,6 +2823,9 @@ fn render_elements(
 ) {
 	for element in elements {
 		match element {
+			Element::ActivityPreview { presence } => {
+				crate::rich_presence::summary(ui, presence);
+			}
 			Element::Text { text } => {
 				ui.add(egui::Label::new(text).wrap());
 			}
@@ -2592,6 +2936,65 @@ fn apply_proposal(state: &mut State, context: &ExtensionContext, replacement: &s
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn app_snapshot_payloads_are_bounded_before_ui_queueing() {
+		let ctx = egui::Context::default();
+		let state = test_support::demo_state();
+		let mut shop = ExtensionUi::default();
+		let oversized = extensions::AppSnapshot {
+			context: Some(extensions::AppContextSnapshot {
+				connected: true,
+				user: Some(extensions::UserSnapshot {
+					id: "1".into(),
+					name: "x".repeat(extensions::MAX_APP_SNAPSHOT_BYTES),
+				}),
+				channel: None,
+			}),
+			..Default::default()
+		};
+		shop.queue(
+			&ctx,
+			ExtensionRequest::Invoke {
+				id: "synthetic.app".into(),
+				invocation: Invocation {
+					app: Some(Box::new(oversized)),
+					..Default::default()
+				},
+				context: ExtensionContext::capture(&state, false),
+			},
+		);
+		assert!(shop.requests.is_empty());
+	}
+
+	#[test]
+	fn result_drops_private_snapshot_but_keeps_invocation_call_identity() {
+		let mut state = test_support::call_demo_state();
+		let context = ExtensionContext::capture(&state, false);
+		let invocation = Invocation {
+			app: Some(Box::new(extensions::AppSnapshot::default())),
+			storage: Some("private local state".into()),
+			..Default::default()
+		};
+		state.voice.active.as_mut().unwrap().request += 1;
+		let mut shop = ExtensionUi::default();
+		shop.present_output(
+			"synthetic.app".into(),
+			invocation,
+			context.clone(),
+			Output::default(),
+			&state,
+		);
+		let result = shop.result.as_ref().unwrap();
+		assert!(result.invocation.app.is_none());
+		assert!(result.invocation.storage.is_none());
+		assert_eq!(result.context.voice_request, context.voice_request);
+		assert_ne!(
+			result.context.voice_request,
+			ExtensionContext::capture(&state, false).voice_request
+		);
+	}
+
 	fn entry() -> ExtensionEntry {
 		ExtensionEntry {
 			cover_image: None,
@@ -2662,200 +3065,6 @@ mod tests {
 		);
 	}
 
-	#[test]
-	fn original_theme_customization_and_gallery_preview_return() {
-		for action in ["Back to themes", "Customize"] {
-			let ctx = egui::Context::default();
-			let mut shop = ExtensionUi {
-				themes: true,
-				..Default::default()
-			};
-			let package = crate::theme_editor::ThemeEditor::new().package;
-			let original_id = package.manifest.id.clone();
-			let mut original = entry();
-			original.manifest = package.manifest.clone();
-			original.theme_preview = package.theme.clone();
-			shop.set_entries(vec![original.clone()]);
-			frame(&ctx, &mut shop, 900.0, vec![]);
-			let labels = frame(&ctx, &mut shop, 900.0, vec![]);
-			click(&ctx, &mut shop, 900.0, &labels, "Customize");
-			assert!(matches!(
-				shop.requests.pop(),
-				Some(ExtensionRequest::EditTheme { preview: false, .. })
-			));
-			shop.open_preview(&ctx, &original);
-			assert!(shop.enlarged.is_none());
-			assert!(matches!(
-				shop.requests.pop(),
-				Some(ExtensionRequest::EditTheme { preview: true, .. })
-			));
-			shop.receive_theme_edit(package, None, None, false, true);
-			assert!(shop.begin_gallery_preview(&ctx));
-			assert!(!shop.begin_gallery_preview(&ctx));
-			assert!(matches!(
-				shop.requests.pop(),
-				Some(ExtensionRequest::PreviewTheme { theme: Some(_), .. })
-			));
-			frame(&ctx, &mut shop, 900.0, vec![]);
-			let labels = frame(&ctx, &mut shop, 900.0, vec![]);
-			click(&ctx, &mut shop, 900.0, &labels, action);
-			assert!(!shop.previewing_theme());
-			assert!(shop.gallery_preview.is_none());
-			assert!(matches!(
-				shop.requests.pop(),
-				Some(ExtensionRequest::PreviewTheme { theme: None, .. })
-			));
-			if action == "Customize" {
-				let editor = shop.theme_editor.as_ref().unwrap();
-				assert_ne!(editor.package.manifest.id, original_id);
-				assert!(editor.dirty);
-			} else {
-				assert!(shop.theme_editor.is_none());
-			}
-		}
-	}
-	#[test]
-	fn local_theme_opens_for_edit_and_cover_replaces_palette_preview() {
-		let ctx = egui::Context::default();
-		let mut shop = ExtensionUi {
-			themes: true,
-			..Default::default()
-		};
-		let mut local = entry();
-		local.manifest.kind = ExtensionKind::Theme;
-		local.manifest.id = "local-cover".into();
-		local.manifest.name = "Local cover".into();
-		local.enabled = true;
-		local.local_theme = true;
-		local.theme_preview = Some(extensions::Theme::default());
-		local.cover_image = Some(Arc::new(egui::ColorImage::filled(
-			[16, 9],
-			egui::Color32::GREEN,
-		)));
-		shop.set_entries(vec![local.clone()]);
-		frame(&ctx, &mut shop, 900.0, vec![]);
-		let labels = frame(&ctx, &mut shop, 900.0, vec![]);
-		assert!(labels.iter().any(|(text, _)| text == "Edit theme"));
-		assert!(
-			shop.previews
-				.get("local-cover")
-				.is_some_and(|preview| preview.texture.is_some()),
-			"custom cover should create a card texture"
-		);
-		let mut replaced = local.clone();
-		replaced.cover_image = Some(Arc::new(egui::ColorImage::filled(
-			[16, 9],
-			egui::Color32::BLUE,
-		)));
-		shop.set_entries(vec![replaced]);
-		assert!(!shop.previews.contains_key("local-cover"));
-		click(&ctx, &mut shop, 900.0, &labels, "Edit theme");
-		assert!(shop.requests.iter().any(
-			|request| matches!(request, ExtensionRequest::EditTheme { id, .. } if id == "local-cover")
-		));
-
-		let mut package = crate::theme_editor::ThemeEditor::new().package;
-		package.manifest.id = "local-cover".into();
-		shop.receive_theme_edit(
-			package.clone(),
-			None,
-			local.cover_image.clone(),
-			true,
-			false,
-		);
-		assert_eq!(
-			shop.theme_editor.as_ref().unwrap().package.manifest.id,
-			"local-cover"
-		);
-		assert!(!shop.theme_editor.as_ref().unwrap().dirty);
-		shop.theme_editor = None;
-		shop.receive_theme_edit(package, None, local.cover_image.clone(), false, false);
-		assert_ne!(
-			shop.theme_editor.as_ref().unwrap().package.manifest.id,
-			"local-cover"
-		);
-	}
-	#[test]
-	fn theme_card_keeps_use_and_edit_side_by_side() {
-		for width in [320.0, 900.0] {
-			let ctx = egui::Context::default();
-			let mut shop = ExtensionUi {
-				themes: true,
-				..Default::default()
-			};
-			let mut theme = entry();
-			theme.manifest.kind = ExtensionKind::Theme;
-			theme.manifest.id = "local-card".into();
-			theme.enabled = true;
-			theme.local_theme = true;
-			theme.update_available = true;
-			theme.theme_preview = Some(extensions::Theme::default());
-			shop.set_entries(vec![theme]);
-			frame(&ctx, &mut shop, width, vec![]);
-			let labels = frame(&ctx, &mut shop, width, vec![]);
-			let edit = labels
-				.iter()
-				.find(|(text, _)| text == "Edit theme")
-				.unwrap()
-				.1;
-			let use_theme = labels
-				.iter()
-				.find(|(text, _)| text == "Use theme")
-				.unwrap()
-				.1;
-			assert!(
-				use_theme.right() < edit.left()
-					&& (use_theme.center().y - edit.center().y).abs() < 4.0,
-				"apply and edit share the footer row"
-			);
-			let remove = labels.iter().find(|(text, _)| text == "Remove").unwrap().1;
-			assert!(
-				remove.bottom() < use_theme.top() && remove.right() <= width,
-				"remove stays a quiet link above the footer"
-			);
-			shop.busy = true;
-			click(&ctx, &mut shop, width, &labels, "Use theme");
-			assert!(shop.requests.is_empty());
-			shop.busy = false;
-			let labels = frame(&ctx, &mut shop, width, vec![]);
-			click(&ctx, &mut shop, width, &labels, "Use theme");
-			assert!(
-				matches!(shop.requests.pop(), Some(ExtensionRequest::SelectTheme { id: Some(id) }) if id == "local-card")
-			);
-			// The desktop confirms selection only after the existing persistence job succeeds.
-			shop.active_theme = Some("local-card".into());
-			let labels = frame(&ctx, &mut shop, width, vec![]);
-			assert!(labels.iter().any(|(text, _)| text == "Active"));
-			assert!(!labels.iter().any(|(text, _)| text == "Use theme"));
-			assert!(
-				!labels
-					.iter()
-					.any(|(text, _)| text == "Disable & delete data"
-						|| text == "THEME" || text
-						== "Give your conversations a different look.")
-			);
-			click(&ctx, &mut shop, width, &labels, "More");
-			let menu = frame(&ctx, &mut shop, width, vec![]);
-			assert!(menu.iter().any(|(text, _)| text == "Import theme…"));
-			assert!(
-				!menu
-					.iter()
-					.any(|(text, _)| text == "Use built-in appearance"),
-				"built-in presets live in Appearance, not the gallery menu"
-			);
-			click(&ctx, &mut shop, width, &menu, "Refresh catalog");
-			assert!(matches!(
-				shop.requests.as_slice(),
-				[ExtensionRequest::RefreshCatalog]
-			));
-			shop.requests.clear();
-			let labels = frame(&ctx, &mut shop, width, vec![]);
-			click(&ctx, &mut shop, width, &labels, "Remove");
-			assert!(shop.requests.iter().any(
-				|request| matches!(request, ExtensionRequest::Disable { id } if id == "local-card")
-			));
-		}
-	}
 	fn frame(
 		ctx: &egui::Context,
 		extensions: &mut ExtensionUi,
@@ -3000,59 +3209,6 @@ mod tests {
 	}
 
 	#[test]
-	fn status_banner_wraps_and_clears_on_refresh() {
-		for width in [320.0, 900.0] {
-			let ctx = egui::Context::default();
-			let mut extensions = ExtensionUi::default();
-			extensions.set_entries(vec![entry()]);
-			extensions.status = "Disabled. Downloaded code and extension data were removed.".into();
-			let labels = frame(&ctx, &mut extensions, width, vec![]);
-			assert!(
-				labels
-					.iter()
-					.any(|(text, rect)| text.starts_with("Disabled.") && rect.right() <= width),
-				"the status banner must stay inside the page at {width}"
-			);
-			click(&ctx, &mut extensions, width, &labels, "Refresh");
-			assert!(
-				extensions.status.is_empty()
-					&& matches!(
-						extensions.requests.as_slice(),
-						[ExtensionRequest::RefreshCatalog]
-					),
-				"refreshing clears the previous status instead of reporting itself"
-			);
-		}
-	}
-
-	#[test]
-	fn image_sharing_plugin_has_local_card_and_enlarged_preview() {
-		for width in [320.0, 900.0] {
-			let ctx = egui::Context::default();
-			let mut shop = ExtensionUi::default();
-			let mut plugin = entry();
-			plugin.manifest.capabilities = vec![Capability::ImageSharing];
-			shop.set_entries(vec![plugin.clone()]);
-			for _ in 0..2 {
-				frame(&ctx, &mut shop, width, vec![]);
-			}
-			let labels = frame(&ctx, &mut shop, width, vec![]);
-			assert!(labels.iter().any(|(text, _)| text == "Image attachment"));
-			assert!(!labels.iter().any(|(text, _)| text == "Preview unavailable"));
-			shop.open_preview(&ctx, &plugin);
-			frame(&ctx, &mut shop, width, vec![]);
-			assert_eq!(shop.enlarged.as_deref(), Some(plugin.manifest.id.as_str()));
-			assert!(shop.previews.is_empty());
-			assert!(
-				!shop
-					.requests
-					.iter()
-					.any(|r| matches!(r, ExtensionRequest::Preview { .. }))
-			);
-		}
-	}
-
-	#[test]
 	fn shop_previews_load_visible_cards_once_and_evict_with_metadata() {
 		for width in [320.0, 900.0] {
 			let ctx = egui::Context::default();
@@ -3115,27 +3271,47 @@ mod tests {
 			assert!(labels.iter().any(|(text, _)| text == "No matches"));
 			assert!(shop.previews.is_empty());
 		}
-	}
 
-	#[test]
-	fn tall_shop_keeps_visible_previews_without_repeated_downloads() {
-		let ctx = egui::Context::default();
-		let mut shop = ExtensionUi::default();
-		shop.set_entries(
-			(0..20)
-				.map(|i| {
-					let mut entry = entry();
-					entry.manifest.id = format!("plugin-{i}");
-					entry.preview = Some(extensions::Preview {
-						url: "https://example.com/image.png".into(),
-						sha256: "a".repeat(64),
-						download_bytes: 123,
-					});
-					entry
-				})
-				.collect(),
-		);
-		for _ in 0..5 {
+		{
+			let ctx = egui::Context::default();
+			let mut shop = ExtensionUi::default();
+			shop.set_entries(
+				(0..20)
+					.map(|i| {
+						let mut entry = entry();
+						entry.manifest.id = format!("plugin-{i}");
+						entry.preview = Some(extensions::Preview {
+							url: "https://example.com/image.png".into(),
+							sha256: "a".repeat(64),
+							download_bytes: 123,
+						});
+						entry
+					})
+					.collect(),
+			);
+			for _ in 0..5 {
+				ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(900.0, 8000.0),
+						)),
+						..Default::default()
+					},
+					|ui| shop.settings(ui, &State::default()),
+				)
+				.drop_without_applying_deltas();
+				for request in std::mem::take(&mut shop.requests) {
+					if let ExtensionRequest::Preview { id } = request {
+						shop.receive_preview(
+							id,
+							Some(egui::ColorImage::filled([1, 1], egui::Color32::BLUE)),
+						);
+					}
+				}
+			}
+			let retained: Vec<_> = shop.previews.keys().cloned().collect();
+			assert_eq!(retained.len(), 20, "every visible card keeps its thumbnail");
 			ctx.run_ui(
 				egui::RawInput {
 					screen_rect: Some(egui::Rect::from_min_size(
@@ -3147,38 +3323,17 @@ mod tests {
 				|ui| shop.settings(ui, &State::default()),
 			)
 			.drop_without_applying_deltas();
-			for request in std::mem::take(&mut shop.requests) {
-				if let ExtensionRequest::Preview { id } = request {
-					shop.receive_preview(
-						id,
-						Some(egui::ColorImage::filled([1, 1], egui::Color32::BLUE)),
-					);
-				}
-			}
+			assert!(shop.requests.is_empty());
+			shop.receive_preview(
+				"plugin-19".into(),
+				Some(egui::ColorImage::filled([1, 1], egui::Color32::BLUE)),
+			);
+			assert_eq!(
+				shop.previews.keys().cloned().collect::<Vec<_>>(),
+				retained,
+				"late offscreen images cannot evict visible previews"
+			);
 		}
-		let retained: Vec<_> = shop.previews.keys().cloned().collect();
-		assert_eq!(retained.len(), 20, "every visible card keeps its thumbnail");
-		ctx.run_ui(
-			egui::RawInput {
-				screen_rect: Some(egui::Rect::from_min_size(
-					egui::Pos2::ZERO,
-					egui::vec2(900.0, 8000.0),
-				)),
-				..Default::default()
-			},
-			|ui| shop.settings(ui, &State::default()),
-		)
-		.drop_without_applying_deltas();
-		assert!(shop.requests.is_empty());
-		shop.receive_preview(
-			"plugin-19".into(),
-			Some(egui::ColorImage::filled([1, 1], egui::Color32::BLUE)),
-		);
-		assert_eq!(
-			shop.previews.keys().cloned().collect::<Vec<_>>(),
-			retained,
-			"late offscreen images cannot evict visible previews"
-		);
 	}
 
 	#[test]

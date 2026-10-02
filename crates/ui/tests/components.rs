@@ -8,10 +8,22 @@ struct Preview {
 	labels: Vec<(String, egui::Pos2)>,
 	commands: Vec<Command>,
 	time: f64,
+	width: f32,
 }
 
 impl Preview {
 	fn new(component: Component) -> Self {
+		Self::with_tree(
+			vec![Component {
+				kind: 1,
+				components: vec![component],
+				..Default::default()
+			}],
+			false,
+		)
+	}
+
+	fn with_tree(components: Vec<Component>, v2: bool) -> Self {
 		let ctx = egui::Context::default();
 		ui::design::apply(&ctx);
 		let mut state = test_support::demo_state();
@@ -19,15 +31,16 @@ impl Preview {
 		state.gateway_connected = true;
 		state.freshness = Freshness::Fresh;
 		let mut message = test_support::message(999, state.selected.unwrap());
-		message.content = "Synthetic component test".into();
+		message.content = if v2 {
+			String::new()
+		} else {
+			"Synthetic component test".into()
+		};
 		message.embeds.clear();
 		message.application_id = Some(Id(123));
 		message.extra_content.components = true;
-		message.components = vec![Component {
-			kind: 1,
-			components: vec![component],
-			..Default::default()
-		}];
+		message.extra_content.components_v2 = v2;
+		message.components = components;
 		state.timeline.clear();
 		state.timeline.insert(message, true, false).unwrap();
 		let mut preview = Self {
@@ -37,6 +50,7 @@ impl Preview {
 			labels: vec![],
 			commands: vec![],
 			time: 0.0,
+			width: 1120.0,
 		};
 		preview.settle();
 		preview
@@ -48,7 +62,7 @@ impl Preview {
 			egui::RawInput {
 				screen_rect: Some(egui::Rect::from_min_size(
 					egui::Pos2::ZERO,
-					egui::vec2(1120.0, 900.0),
+					egui::vec2(self.width, 900.0),
 				)),
 				time: Some(self.time),
 				focused: true,

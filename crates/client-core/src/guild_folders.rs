@@ -13,6 +13,7 @@ impl State {
 			return None;
 		}
 		self.folders_error = None;
+		self.folders_stale = false;
 		if self.demo {
 			self.guild_folders.get_or_insert_with(Settings::default);
 			return None;
@@ -37,7 +38,8 @@ impl State {
 			return None;
 		}
 		self.folders_error = None;
-		if self.guild_folders.as_ref() == Some(&settings) {
+		let base = self.guild_folders.clone()?;
+		if base == settings {
 			return None;
 		}
 		if self.demo {
@@ -46,7 +48,7 @@ impl State {
 			return None;
 		}
 		self.folders_pending = true;
-		Some(Command::GuildFolders(Some(settings)))
+		Some(Command::GuildFolders(Some((base, settings))))
 	}
 
 	pub fn apply_guild_folders(&mut self, result: Result<Settings, Failure>) {
