@@ -3442,3 +3442,63 @@ GPU memory, frame/startup latency and real-account interoperability remain
 unmeasured. Raw source identities, binary hashes, sizes and all samples are in
 `docs/pr-evidence/gif-favorite-sync/measurements.json`. This evidence follow-up
 changes no measured runtime source.
+
+
+## DM recipient ringing controls (October 2, 2026)
+
+Runtime `8a4272d606465eba1cc4513e39cd7b905a8d733f` was compared with the
+immutable confirmation-pressure dependency `9cdad91c`. Its standard package uses
+production source `5724cf5b`; the later `9cd` changes are cfg(test)-only and leave
+production code unchanged. Both feature sources use the recorded main110 base;
+these measurements are not labeled as a later aggregate main revision.
+Environment: macOS 27.0 (26A428), Apple M1 (8 logical CPUs), 16 GiB RAM,
+Rust 1.98.1, aarch64-apple-darwin, native Metal at 2× scale.
+
+Current source passed focused metadata/worker regressions and fresh
+`cargo xtask check` (178 desktop and 354 UI tests, plus unchanged ignored
+workloads), strict lint/format/policy, the standard voice-inclusive package,
+default-plus-demo optimized build and reducer build. Standard release workspace
+artifacts were removed by package name across all worktree PackageIDs; all 12
+runtime workspace crates freshly compiled. The optimized demo immediately
+followed that unchanged same worktree. All five reducer workspace crates then
+freshly compiled; no capture hooks were present in these release builds.
+
+| Metric | Confirmation-pressure baseline | Ring controls | Absolute / percent delta |
+| --- | ---: | ---: | ---: |
+| Standard executable, bytes | 62,154,064 | 62,219,840 | +65,776 / +0.1058% |
+| Installed payload, bytes | 68,164,493 | 68,230,269 | +65,776 / +0.0965% |
+| Complete ZIP, bytes | 43,321,986 | 43,346,860 | +24,874 / +0.0574% |
+| Median process CPU | 0.1% | 0.1% | 0.0 percentage points |
+| Sampled peak process RSS, KiB | 127,248 | 127,344 | +96 / +0.0754% |
+| Settled process RSS, KiB | 127,200 | 127,296 | +96 / +0.0755% |
+| 100,000-event reducer median, ms | 53.315542 | 53.678583 | +0.363041 / +0.6809% |
+| Retained timeline estimate, bytes | 331,992–332,477 | 331,992–332,477 | 0; 500 records |
+
+Both standard packages use the xtask's release `--no-default-features` path,
+including voice. Installed size sums all 206 regular files; complete portable
+ZIPs use identical `ditto -c -k --sequesterRsrc` without an enclosing directory.
+All paths match, 203 file hashes match, and all 199 license/notice files remain
+unchanged. Deep/strict local ad-hoc signatures verify; packages are not notarized.
+
+Both native binaries use the unchanged release profile (FAT LTO,
+codegen-units=1), default features plus demo, and identical `--demo --demo-call`.
+The viewport is 1120×760 logical at 2× scale. A 5-second warmup precedes ten
+one-second macOS ps readings; settled RSS is the median of the last five.
+Root, UI and External agents explicitly held all builds/tests/native apps during
+sampling. Both measured apps stopped before one reducer warmup per binary and
+five alternating pairs. Baseline reducer range 53.011416–53.704667 ms and after
+53.145250–54.971958 ms overlap. The 96 KiB RSS difference and small timing
+differences are noise; no improvement is claimed. GPU memory, frame/startup
+latency and live ringing permissions, delivery or latency remain unverified.
+No Discord account, HTTP call-control write or media device was used.
+
+Recipient dispatch retains one targeted HTTP worker, 64 observed calls and one
+active record. Each record owns two bounded 64-ID vectors: 66,560 allocated
+ID-buffer bytes total. This figure excludes the fixed 64-entry
+Option<RecipientCall> Vec, active record headers and Arc/Mutex metadata. Core
+ringing metadata is bounded to 64 calls × 64 IDs (32 KiB); the bounded membership
+map uses MAX_NAV channels × 64 allocated IDs (512 bytes/channel). Current scope,
+service metadata, membership and worker revision are revalidated; no persistent
+cache, retry loop or schema is added. Raw source IDs, hashes, samples and build
+provenance are recorded in
+`docs/pr-evidence/dm-ring-controls/measurements.json`.
