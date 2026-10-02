@@ -2295,6 +2295,45 @@ the untouched baseline's offline demo does not compile: existing fixtures omit t
 `Member.clients` field and a demo-only slider check is not exported to the binary. The
 standard authenticated build was not launched for evidence. No performance change is claimed.
 
+## Short initial-history pagination (October 2, 2026)
+
+Runtime source `9a5c7a0f8b0224a7ee168fba47325c7dc5168933` integrates parent
+`456fdc1ff3925b9a84cae1295e5605b3c60a34b5`. Explicit upward input over a short
+message page can request older history; idle/downward input does not drain pages.
+Pending frames retain browsing intent, and an arriving older page preserves the
+existing message's rendered position. Final scroll offsets remain nonnegative.
+
+Fresh `cargo xtask check`, the standard voice-enabled release package and the
+normal fat-LTO default+demo build passed. The real egui regression covers input,
+pending frames, an actual older history event and rendered message restoration
+within 2px; it also proves intentional return-to-latest still works. No UI design
+change is illustrated with an unrelated screenshot.
+
+| Metric | Comparator 343c6d48 | Changed 9a5c7a0f | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 62,137,600 B | 62,137,616 B | +16 B |
+| Installed package, 206 regular files | 68,148,029 B | 68,148,045 B | +16 B |
+| Same-method ZIP | 43,311,255 B | 43,311,312 B | +57 B |
+| Normal fat-LTO default+demo executable | 64,037,760 B | 64,037,760 B | 0 B |
+| Native idle CPU median | 0% | 0% | 0 percentage points |
+| Native sampled peak RSS | 124,624 KiB | 124,480 KiB | -144 KiB (-0.116%) |
+| Native settled RSS | 124,592 KiB | 124,416 KiB | -176 KiB (-0.141%) |
+
+The preserved comparator is the Control-click source 343c6d48. Parent 456fdc1f
+additionally includes PR #513 active-server emoji ordering. The only runtime source
+differences from the comparator are that additive emoji-picker change and this
+fix, verified by a scoped diff; the picker is closed in this workload. These are
+honest starting-comparator measurements, not isolated per-feature cost figures.
+
+Both instrument-free builds use identical normal release flags and
+`--demo --demo-chat` on Apple M1/macOS 27, 16 GiB, native Metal. All task owners paused
+compilers/apps for the pair: five-second warmup, ten one-second process CPU/RSS
+samples, settled RSS from the final five samples, intentional SIGINT termination.
+The small RSS difference is noise and is not an improvement claim. Active history
+request/response latency, p95 frames, GPU memory and live service behavior are
+unmeasured. Raw samples, hashes and provenance are in
+`docs/pr-evidence/short-history-pagination/measurements.json`.
+
 ## History copies and decoded-image backpressure — September 26, 2026
 
 Baseline `dad3c26c`, compared with this PR on macOS 27.0 (26A428), Apple M1 Pro,
