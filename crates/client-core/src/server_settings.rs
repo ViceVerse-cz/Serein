@@ -123,7 +123,10 @@ impl State {
 		else {
 			return false;
 		};
-		if !self.can_manage_guild(guild) || !edit.valid() {
+		if !self.can_manage_guild(guild)
+			|| !edit.valid()
+			|| !edit.keeps_community_requirements(snapshot)
+		{
 			return false;
 		}
 		for (patch, voice) in [

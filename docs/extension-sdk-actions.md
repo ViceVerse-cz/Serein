@@ -704,7 +704,7 @@ them.
 
 | Optional field | Type and allowed values | Meaning |
 | --- | --- | --- |
-| `zoom_percent` | Integer, 80 through 150 inclusive. | App zoom percentage. |
+| `zoom_percent` | Integer, 50 through 150 inclusive. | App zoom percentage. |
 | `sidebar_width` | Integer, 190 through 360 inclusive. | Channel/conversation sidebar width in logical pixels, before display scaling. |
 | `show_members` | Boolean. | Keep the People/member list open in wide windows. |
 | `animate_gifs` | Boolean. | Allow visible chat GIFs to animate automatically. |

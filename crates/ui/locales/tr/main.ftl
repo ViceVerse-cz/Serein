@@ -2458,8 +2458,6 @@ server-admin-emojis-image = Resim
 # Context: emojis
 server-admin-emojis-name = İsim
 # Context: emojis
-server-admin-emojis-none = HİÇBİRİ
-# Context: emojis
 server-admin-emojis-preparing-emoji-images = Emoji görselleri hazırlanıyor...
 # Context: emojis
 server-admin-emojis-remove = Kaldırmak
@@ -2553,8 +2551,6 @@ server-admin-members-recent-members = Son Üyeler
 server-admin-members-search-by-username-or-id = Kullanıcı adına veya kimliğe göre arayın
 # Context: members
 server-admin-members-server-members = Sunucu Üyeleri
-# Context: members
-server-admin-members-show-members-in-channel-list = Üyeleri Kanal Listesinde Göster
 # Context: members
 server-admin-members-show-the-members-page-in-the-channel-list-to-quickly = En son katılımları ve olağandışı etkinlik nedeniyle işaretlenen üyeleri hızlı bir şekilde görmek için kanal listesinde üyeler sayfasını gösterin.
 # Context: members
@@ -4342,3 +4338,83 @@ lib-composer-onboarding-incomplete = Daha fazla kanalın kilidini açmak için s
 lib-composer-onboarding-complete = Tanıtımı tamamla
 
 voice-call-moved-to-another-client = Bu cihazın arama oturumu değiştirildi
+
+server-settings-page-safety = Güvenlik Kurulumu
+
+server-settings-nav-title = Sunucu Ayarları
+
+server-settings-safety-subtitle = Bu sunucuda kimlerin sohbet edebileceğine ve Discord'un hangi medyaları müstehcen içerik için tarayacağına karar verin.
+
+server-settings-safety-community-note = Topluluk sunucuları en az Düşük doğrulama gerektirir ve tüm üyelerin medyasını taramalıdır.
+
+server-settings-safety-verification = Doğrulama Seviyesi
+
+server-settings-safety-verification-help = Üyeler metin kanallarında mesaj göndermeden veya doğrudan mesaj başlatmadan önce bu ölçütleri karşılamalıdır.
+
+server-settings-safety-verification-none = Yok
+
+server-settings-safety-verification-none-detail = Kısıtlama yok
+
+server-settings-safety-verification-low = Düşük
+
+server-settings-safety-verification-low-detail = Discord hesabında doğrulanmış bir e-posta olmalıdır.
+
+server-settings-safety-verification-medium = Orta
+
+server-settings-safety-verification-medium-detail = Ayrıca 5 dakikadan uzun süredir Discord'a kayıtlı olmalıdır.
+
+server-settings-safety-verification-high = Yüksek
+
+server-settings-safety-verification-high-detail = Ayrıca 10 dakikadan uzun süredir bu sunucunun üyesi olmalıdır.
+
+server-settings-safety-verification-highest = En yüksek
+
+server-settings-safety-verification-highest-detail = Discord hesabında doğrulanmış bir telefon olmalıdır.
+
+server-settings-safety-filter = Müstehcen Medya İçeriği Filtresi
+
+server-settings-safety-filter-help = Bu sunucuda gönderilen ve müstehcen içerik barındırabilecek medyayı otomatik olarak algıla ve engelle.
+
+server-settings-safety-filter-disabled = Hiçbir medyayı tarama
+
+server-settings-safety-filter-no-roles = Rolü olmayan üyelerin medyasını tara
+
+server-settings-safety-filter-all = Tüm üyelerin medyasını tara
+
+server-settings-profile-form-banner-custom = Özel renk
+
+server-settings-profile-form-banner-custom-help = Yukarıdan bir ön ayar ya da afiş için herhangi bir renk seçin.
+
+server-settings-profile-server-id = Sunucu Kimliği
+
+server-settings-profile-server-id-help = Bu kimliği botlar, moderasyon araçları ve destek talepleri için kullanın.
+
+server-settings-profile-copy-id = Kimliği Kopyala
+
+server-settings-engagement-system-welcome = Biri bu sunucuya katıldığında rastgele bir hoş geldin mesajı gönder.
+
+server-settings-engagement-system-welcome-sticker = Üyeleri hoş geldin mesajlarına çıkartmayla yanıt vermeye teşvik et.
+
+server-settings-engagement-system-boost = Biri bu sunucuya takviye yaptığında mesaj gönder.
+
+server-settings-engagement-system-tips = Sunucu kurulumu için faydalı ipuçları gönder.
+
+server-invites-header-subtitle = İnsanların bu sunucuya katılmasını sağlayan bağlantılar paylaşın.
+
+server-audit-log-header-subtitle = Bu sunucudaki moderasyon işlemlerinin ve ayar değişikliklerinin kaydı.
+
+server-audit-log-empty-detail = Başka bir kullanıcı ya da işlem deneyin veya yeni olaylar için yeniden yükleyin.
+
+server-members-header-subtitle = Bu sunucudaki kişileri görüntüleyin, arayın ve yönetin.
+
+server-members-show-in-channel-list = Üyeleri kanal listesinde göster
+
+server-emoji-section-static = Sabit Emojiler
+
+server-emoji-empty-static = Henüz emoji yok
+
+server-emoji-empty-animated = Henüz hareketli emoji yok
+
+server-emoji-empty-detail = Eklemek için bir görsel yükleyin. GIF'ler hareketli emoji olur.
+
+server-stickers-empty-detail = İlk çıkartmanızı eklemek için bir görsel yükleyin.

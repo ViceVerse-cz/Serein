@@ -411,6 +411,13 @@ impl MessagingUi {
 							))
 							.auto_shrink([false, false])
 							.show(ui, |ui| {
+								crate::dialog::page_fade(
+									ui,
+									egui::Id::unique((
+										"settings-content",
+										self.settings.page as u8,
+									)),
+								);
 								let scroll_padding = if self.settings.page == Page::Profile {
 									8.0
 								} else {
@@ -1256,19 +1263,32 @@ pub(super) fn nav_item(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::
 		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), selected, &label)
 	});
 	let hot = response.hovered() || response.has_focus();
-	if selected {
-		ui.painter().rect_filled(rect, 8, colors.selected);
+	// Hover and selection ease in instead of snapping; idle rows cost no repaint.
+	let time = ui.style().animation_time;
+	let lit = ui
+		.ctx()
+		.animate_bool_with_time(response.id.with("nav-hover"), hot, time);
+	let chosen =
+		ui.ctx()
+			.animate_bool_with_time(response.id.with("nav-selected"), selected, time * 1.5);
+	if chosen > 0.0 || lit > 0.0 {
+		let fill = colors
+			.hover
+			.gamma_multiply(lit.max(chosen))
+			.lerp_to_gamma(colors.selected, chosen);
+		ui.painter().rect_filled(rect, 8, fill);
+	}
+	if chosen > 0.0 {
 		// Discord marks the open page with an accent rail at the left edge.
+		let height = 16.0 * egui::emath::easing::cubic_out(chosen);
 		ui.painter().rect_filled(
 			egui::Rect::from_min_size(
-				egui::pos2(rect.left(), rect.center().y - 8.0),
-				egui::vec2(3.0, 16.0),
+				egui::pos2(rect.left(), rect.center().y - height * 0.5),
+				egui::vec2(3.0, height),
 			),
 			2,
 			colors.accent,
 		);
-	} else if hot {
-		ui.painter().rect_filled(rect, 8, colors.hover);
 	}
 	if response.has_focus() {
 		ui.painter().rect_stroke(

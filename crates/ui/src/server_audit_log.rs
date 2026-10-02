@@ -38,42 +38,35 @@ impl AuditLogUi {
 		let mut query = self.query.clone();
 		query.before = None;
 		let width = ui.available_width();
-
-		let wide = width >= 580.0;
-		let picker_width = if wide {
-			(width * 0.32).min(240.0)
-		} else {
-			(width - 12.0) / 2.0
-		};
-		let (header, _) = ui.allocate_exact_size(
-			Vec2::new(width, if wide { 58.0 } else { 104.0 }),
-			egui::Sense::hover(),
+		let mut reload = false;
+		design::page_header(
+			ui,
+			"server-audit-log-show-audit-log",
+			Some("server-audit-log-header-subtitle"),
+			|ui| {
+				if ui
+					.add_enabled_ui(available, |ui| {
+						// Centred on the header buttons' baseline.
+						egui::Frame::new()
+							.inner_margin(egui::Margin {
+								top: 5,
+								..Default::default()
+							})
+							.show(ui, |ui| {
+								design::text_action(ui, "server-audit-log-show-reload")
+							})
+							.inner
+					})
+					.inner
+					.clicked()
+				{
+					reload = true;
+				}
+			},
 		);
-		let heading_width = if wide {
-			width - picker_width * 2.0 - 24.0
-		} else {
-			width
-		};
-		let mut heading = ui.new_child(
-			egui::UiBuilder::new()
-				.id_salt("audit-heading")
-				.max_rect(egui::Rect::from_min_size(
-					header.min,
-					Vec2::new(heading_width, if wide { 58.0 } else { 36.0 }),
-				))
-				.layout(egui::Layout::left_to_right(egui::Align::Center)),
-		);
-		heading.label(design::semibold(
-			&heading,
-			crate::i18n::translate("server-audit-log-show-audit-log"),
-			20.0,
-		));
-		let filter_start = header.min
-			+ if wide {
-				Vec2::new(heading_width + 12.0, 0.0)
-			} else {
-				Vec2::new(0.0, 46.0)
-			};
+		let picker_width = ((width - 12.0) / 2.0).min(280.0);
+		let filter_start = ui.cursor().min;
+		ui.allocate_exact_size(Vec2::new(width, 58.0), egui::Sense::hover());
 		{
 			let mut child = ui.new_child(
 				egui::UiBuilder::new()
@@ -87,11 +80,7 @@ impl AuditLogUi {
 			if !available {
 				ui.disable();
 			}
-			ui.label(design::medium(
-				ui,
-				crate::i18n::translate("server-audit-log-show-filter-by-user"),
-				14.0,
-			));
+			design::label(ui, "server-audit-log-show-filter-by-user");
 			let selected = query
 				.user
 				.map(|id| user_name(state.server_admin.audit_log.as_ref(), id))
@@ -130,11 +119,7 @@ impl AuditLogUi {
 			if !available {
 				ui.disable();
 			}
-			ui.label(design::medium(
-				ui,
-				crate::i18n::translate("server-audit-log-show-filter-by-action"),
-				14.0,
-			));
+			design::label(ui, "server-audit-log-show-filter-by-action");
 			let selected = query
 				.action
 				.map(|action| crate::i18n::translate_if_key(action_text(action)))
@@ -158,32 +143,20 @@ impl AuditLogUi {
 					}
 				});
 		}
-		ui.add_space(16.0);
-		ui.separator();
-		ui.add_space(16.0);
-		let mut requested = if query != self.query {
+		ui.add_space(20.0);
+		let mut requested = if query != self.query || reload {
 			Some(query.clone())
 		} else {
 			None
 		};
-		ui.horizontal(|ui| {
-			if ui
-				.add_enabled(
-					available,
-					egui::Button::new(crate::i18n::translate("server-audit-log-show-reload"))
-						.frame(false),
-				)
-				.clicked()
-			{
-				requested = Some(query.clone());
-			}
-			if state.server_admin.pending {
+		if state.server_admin.pending {
+			ui.horizontal(|ui| {
 				ui.spinner();
 				ui.weak(crate::i18n::translate(
 					"server-audit-log-show-loading-audit-log",
 				));
-			}
-		});
+			});
+		}
 		if let Some(error) = state.server_admin.error {
 			crate::dialog::notice(ui, crate::dialog::Level::Error, error);
 		}
@@ -197,10 +170,12 @@ impl AuditLogUi {
 				self.preview_expand = false;
 			}
 			if page.entries.is_empty() && !state.server_admin.pending {
-				ui.add_space(24.0);
-				ui.weak(crate::i18n::translate(
+				design::empty_state(
+					ui,
+					crate::icons::Icon::Search,
 					"server-audit-log-show-no-audit-log-entries-match-these-filters",
-				));
+					"server-audit-log-empty-detail",
+				);
 			}
 			// The list is the page's only scroller: it takes the remaining height and keeps
 			// the paging controls pinned below it.

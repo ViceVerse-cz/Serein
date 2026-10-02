@@ -263,7 +263,7 @@ the existing UI path. Navigation/search may then load ordinary service data, but
 the plugin never receives a generic Discord command API. Clipboard writes never
 read the clipboard; local notices are in-app toasts, not OS notifications.
 
-Supported local preference patches are zoom 80–150%, sidebar width 190–360 logical
+Supported local preference patches are zoom 50–150%, sidebar width 190–360 logical
 pixels, member-list visibility, GIF animation, hiding media links, smooth scrolling
 and scroll speed 25 through 300%. The separate `notification_settings` grant exposes
 device-local notification toggles and sound volume 0 through 100%; it does not change

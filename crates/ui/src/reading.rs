@@ -26,7 +26,7 @@ impl MessagingUi {
 		if std::mem::take(&mut self.reading_zoom_pending) {
 			return;
 		}
-		let percent = (ctx.zoom_factor() * 100.0).round().clamp(80.0, 150.0) as u16;
+		let percent = (ctx.zoom_factor() * 100.0).round().clamp(50.0, 150.0) as u16;
 		self.reading_preferences.zoom_percent = percent;
 		let zoom = f32::from(percent) / 100.0;
 		if (ctx.zoom_factor() - zoom).abs() > 0.001 {
@@ -42,7 +42,7 @@ impl MessagingUi {
 			"reading-zoom-row-zoom",
 			Some("reading-zoom-row-scales-text-and-controls-across-the-app"),
 			&mut zoom,
-			80..=150,
+			50..=150,
 			"%",
 		);
 		// Applying zoom rescales this slider under the pointer, so commit only
@@ -260,6 +260,25 @@ impl MessagingUi {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn smaller_zoom_applies_and_survives_native_zoom_synchronization() {
+		let ctx = egui::Context::default();
+		let mut view = MessagingUi::default();
+		view.apply_reading_preferences(
+			&ctx,
+			ReadingPreferences {
+				zoom_percent: 50,
+				..ReadingPreferences::default()
+			},
+		);
+		ctx.run_ui(egui::RawInput::default(), |_| {})
+			.drop_without_applying_deltas();
+		view.sync_reading_zoom(&ctx);
+		view.sync_reading_zoom(&ctx);
+		assert_eq!(view.reading_preferences.zoom_percent, 50);
+		assert!((ctx.zoom_factor() - 0.5).abs() < 0.001);
+	}
 
 	#[test]
 	fn reading_controls_reset_retry_and_preserve_session_notification_opt_in() {
