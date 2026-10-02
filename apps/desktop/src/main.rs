@@ -1829,6 +1829,18 @@ impl Desktop {
 			// Non-image variant: exercises the file-kind glyph and extension badge.
 			messaging.preview_attachment("quarterly-report.pdf", 1_482_311, None);
 			state.status = "Offline fixture · synthetic file attachment staged in the composer";
+			if std::env::args().any(|arg| arg == "--demo-external-upload")
+				&& let Some(channel) = state.selected
+			{
+				messaging.external_upload.open(
+					state.generation,
+					channel,
+					0,
+					None,
+					"quarterly-report.pdf".into(),
+					1_482_311,
+				);
+			}
 		} else if demo
 			&& std::env::args()
 				.any(|arg| arg == "--demo-attachment" || arg == "--demo-attachment=multi")
@@ -2167,6 +2179,7 @@ impl Desktop {
 			.disconnect_voice("Discord login session changed; start a new call");
 		self.uploads.cancel();
 		self.login = None;
+		self.state.interrupt_gif_favorites();
 		self.connection = None;
 		if let Some(worker) = self.avatars.take() {
 			self.avatar_cleanup = Some(worker.shutdown());
@@ -2323,6 +2336,7 @@ impl Desktop {
 			|| self.state.server_settings.pending
 			|| self.state.server_admin.pending
 			|| self.uploads.has_unsent()
+			|| self.messaging.external_upload.has_unsent()
 		{
 			self.end_intent = intent;
 			self.confirming_logout = true;
@@ -3783,6 +3797,10 @@ impl Desktop {
 					result: Ok(test_support::gif_page(query.as_deref())),
 				},
 				Command::CancelGifs => return,
+				Command::GifFavorites { request, .. } => Event::GifFavorites {
+					request,
+					result: Ok(self.state.gifs.favorites.clone()),
+				},
 				Command::CreateGuild { sequence, .. } => Event::GuildCreated {
 					sequence,
 					result: Err(Failure::ProtocolAt("Server creation unavailable offline")),
@@ -5383,6 +5401,7 @@ impl Desktop {
 				}
 				_ => {}
 			}
+			let takeover_notice = voice::takeover_notice(&self.state, &event.event);
 			let voice_failure = self.voice.observe(&self.state, &mut event.event);
 			let ready = event.event.ready_navigation().is_some();
 			let resumed = matches!(event.event, Event::Resumed);
@@ -5471,6 +5490,11 @@ impl Desktop {
 				self.extensions.access_changed(&mut self.messaging);
 			}
 			self.state.apply(event);
+			if let Some(message) = takeover_notice {
+				self.messaging
+					.toasts
+					.push(ui::design::Level::Info, ui::i18n::translate(message));
+			}
 			self.extensions.data_changed(data_changes);
 			self.extensions.cancel_stale_message_events(&self.state);
 			for candidate in extension_events {
@@ -5617,6 +5641,7 @@ impl Desktop {
 					);
 				}
 			}
+			self.state.interrupt_gif_favorites();
 			self.connection = None;
 			self.pending_save = None;
 			self.pending_account_save = None;
@@ -6134,6 +6159,12 @@ impl eframe::App for Desktop {
 			self.messaging.attachment_previews = self.uploads.previews();
 			self.messaging.attachment_files = self.uploads.files();
 		}
+		self.messaging
+			.external_upload
+			.progress(self.uploads.public_progress());
+		if let Some(result) = self.uploads.take_public_result() {
+			self.messaging.external_upload.complete(result);
+		}
 		self.messaging.upload_busy = self.uploads.busy() || self.clipboard.is_some();
 		if let Some(notice) = self.uploads.take_notice() {
 			self.messaging.toasts.push(ui::design::Level::Error, notice);
@@ -6239,6 +6270,7 @@ impl eframe::App for Desktop {
 				|| self.state.server_settings.pending
 				|| self.state.server_admin.pending
 				|| self.uploads.has_unsent()
+				|| self.messaging.external_upload.has_unsent()
 				|| self.forgetting
 				|| self.messaging.startup_busy
 				|| self.avatar_cleanup.is_some()
@@ -6436,6 +6468,55 @@ impl eframe::App for Desktop {
 				self.state.can_attach(channel) || self.state.can_attach_post(channel)
 			}) {
 				self.uploads.cancel();
+			}
+			if let Some(index) = self.messaging.host_attachment_requested.take()
+				&& let Some(channel) = self.state.selected
+				&& self.state.can_send(channel)
+				&& !self.uploads.busy()
+				&& let Some((filename, bytes)) = self.messaging.attachment_files.get(index).cloned()
+			{
+				self.messaging.external_upload.open(
+					self.state.generation,
+					channel,
+					index,
+					self.uploads.public_selection_key(index),
+					filename,
+					bytes,
+				);
+			}
+			if std::mem::take(&mut self.messaging.external_upload.cancel_requested) {
+				self.uploads.cancel_public();
+			}
+			if let Some(ui::external_upload::Request {
+				generation,
+				channel,
+				index,
+				key,
+				filename,
+				bytes,
+			}) = self.messaging.external_upload.request.take()
+			{
+				let result = if generation != self.state.generation
+					|| self.state.selected != Some(channel)
+					|| !self.state.can_send(channel)
+				{
+					Err(model::public_upload::Error::ConversationChanged)
+				} else {
+					self.uploads.start_external(
+						index,
+						key,
+						generation,
+						channel,
+						&filename,
+						bytes,
+						self.runtime.handle(),
+						&ctx,
+						self.state.demo,
+					)
+				};
+				if let Err(error) = result {
+					self.messaging.external_upload.complete(Err(error));
+				}
 			}
 			if let Some(index) = self.messaging.remove_attachment_index.take() {
 				self.uploads.remove_at(index);
@@ -6711,6 +6792,9 @@ impl eframe::App for Desktop {
 				self.clear_avatars(&ctx);
 				self.queue_cache(cache::Operation::ClearHistory);
 			}
+			if let Some(command) = self.state.take_gif_favorites_command() {
+				commands.push(command);
+			}
 			for command in commands {
 				self.command(command);
 			}
@@ -6839,7 +6923,15 @@ impl eframe::App for Desktop {
 		self.sync_account_roster();
 		self.confirm_forget_dialog(&ctx);
 		if self.confirming_close || self.confirming_logout {
+			let public_upload_note = self
+				.messaging
+				.external_upload
+				.has_unsent()
+				.then(|| ui::i18n::translate("public-upload-leave"));
 			let mut notes: Vec<&str> = Vec::new();
+			if let Some(note) = public_upload_note.as_deref() {
+				notes.push(note);
+			}
 			if self.messaging.extensions.theme_editor_dirty() {
 				notes.push("Unsaved theme changes will be discarded.");
 			}

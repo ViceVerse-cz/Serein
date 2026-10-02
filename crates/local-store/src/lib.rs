@@ -2663,6 +2663,18 @@ mod tests {
 			.unwrap();
 		let mut store = LocalStore::initialize(store.0).unwrap();
 		assert_eq!(store.gif_favorites(Id(1)).unwrap(), vec![gif]);
+		let video = model::Gif {
+			id: "discord-video".into(),
+			title: String::new(),
+			url: "https://tenor.com/view/synthetic-video".into(),
+			preview: "https://media.tenor.com/synthetic/video.mp4".into(),
+			width: 300,
+			height: 200,
+		};
+		store
+			.save_gif_favorites(Id(1), std::slice::from_ref(&video))
+			.unwrap();
+		assert_eq!(store.gif_favorites(Id(1)).unwrap(), vec![video]);
 		assert!(store.gif_favorites(Id(2)).unwrap().is_empty());
 		store.save_gif_favorites(Id(1), &[]).unwrap();
 		assert!(store.gif_favorites(Id(1)).unwrap().is_empty());

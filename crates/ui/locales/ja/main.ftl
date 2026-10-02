@@ -4340,3 +4340,5 @@ lib-composer-onboarding-rules-pending = チャットを始めるには、この�
 lib-composer-onboarding-incomplete = 参加を完了すると、さらにチャンネルが開放されます。
 # Context: composer
 lib-composer-onboarding-complete = オンボーディングを完了
+
+voice-call-moved-to-another-client = このデバイスの通話セッションが置き換えられました

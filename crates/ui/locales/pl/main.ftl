@@ -4354,3 +4354,5 @@ lib-composer-onboarding-rules-pending = Zaakceptuj zasady tego serwera, aby zacz
 lib-composer-onboarding-incomplete = Dokończ dołączanie do serwera, aby odblokować więcej kanałów.
 # Context: composer
 lib-composer-onboarding-complete = Dokończ wprowadzenie
+
+voice-call-moved-to-another-client = Sesja połączenia na tym urządzeniu została zastąpiona

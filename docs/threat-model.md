@@ -30,3 +30,15 @@ Open risks: unofficial Discord account policy; third-party login page or platfor
 Do not report secrets or raw HTTP/Gateway payloads. Error UI uses fixed categories. Default tests use synthetic markers and local transports. No live network account testing in CI.
 
 Strict cargo-audit currently blocks release on transitive Linux GTK/glib advisory warnings: RUSTSEC-2024-0370 and RUSTSEC-2024-0429. No ignore list is configured. See the dependency audit.
+
+Explicit public attachment hosting adds Catbox as a third-party recipient of one
+user-selected file only after per-file consent. Anyone with its returned link can
+read the unchanged file and embedded metadata; there is no private-hosting or remote
+erasure guarantee. The independent fixed-origin credential-free transport refuses
+redirects/retries, bounds streams/responses and validates returned file URLs. Consent
+binds the stable selection key, filename/size and original session/conversation;
+replaced selections and stale sessions cannot silently upload another file or
+insert into another draft.
+A concurrent writer restoring identical metadata remains outside observable file
+change detection. The dialog offers explicit Copy/Add actions and never sends a
+Discord message automatically. Cancellation can leave remote bytes without a link.
