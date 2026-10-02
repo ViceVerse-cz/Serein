@@ -1807,6 +1807,46 @@ or extra draw passes; it exits window-effect synchronization before theme lookup
 No helper processes were present. Frame callback timing is unmeasured because an
 idle event-driven window did not produce enough callbacks for a useful comparison.
 
+## Scalable bundled jumbo emoji — October 2, 2026
+
+The isolated comparison is parent `47a81035` (runtime-identical to the preserved
+`ef9cd5d1` package) versus vector runtime `f7b8a99c` / packaging-only icon-path
+repair `173477ec`. Final aggregate `6afe8190` normally integrates main `66cc09d2`.
+The complete source and raw samples are in
+[the evidence record](pr-evidence/scalable-jumbo-emoji/measurements.json).
+
+| Metric / method | Parent47 | Vector173 | Delta |
+| --- | ---: | ---: | ---: |
+| Standard voice executable | 62,088,304 B | 66,948,784 B | +4,860,480 B (+7.828%) |
+| Installed standard package | 68,098,733 B | 73,031,808 B | +4,933,075 B (+7.244%) |
+| ZIP, same ditto method | 43,286,187 B | 47,500,504 B | +4,214,317 B (+9.736%) |
+| Package files | 206 | 220 | +14 license files |
+| Native thin-LTO demo executable | 66,727,920 B | 71,628,704 B | +4,900,784 B |
+| Idle process CPU, median | 0% | 0% | 0 percentage points |
+| Sampled peak RSS | 125,664 KiB | 125,472 KiB | −192 KiB (−0.153%) |
+| Settled RSS | 125,616 KiB | 125,424 KiB | −192 KiB (−0.153%) |
+
+Native samples used macOS 27.0, Apple M1, 16 GiB RAM, Metal, 2× display scale,
+the same `--demo --demo-chat`, five-second warmup and ten one-second `ps` samples.
+All team compilers/apps paused and the unrelated host build finished. Both samples
+used the identical process-only thin-LTO override; standard shipping packages
+retain normal fat LTO. Settled RSS is the median of the final five samples.
+The small RSS difference is noise, without an improvement claim.
+
+The final aggregate standard package passed: executable 67,113,232 B,
+installed 73,196,256 B, ZIP 47,575,522 B, 220 files.
+These aggregate bytes include unrelated incoming work; the isolated table above
+reports the vector change separately. Fresh full workspace checks passed on both
+isolated and aggregate sources; the final actual native frame was inspected.
+
+The trusted compressed SVG bundle is 4,244,356 B. Rasterization runs off-thread
+at 64/128/256 physical pixels with a 64 KiB expansion/window limit, eight shared
+decode permits and the existing 1,024-item / 16 MiB emoji texture cache. There is
+no runtime artwork download or SVG external image resolver. All 4,009 cells pass
+synthetic rasterization. The idle sample does not add the jumbo screenshot
+fixture; active decode/frame/startup latency and GPU memory remain unmeasured.
+No live service or Windows/Linux native appearance was tested.
+
 ## Unicode mathematical-letter fallback — September 20, 2026
 
 Package baseline: `4c3c53a`. After: this branch. The idle sample compared
