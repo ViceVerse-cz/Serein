@@ -475,6 +475,9 @@ impl Avatars {
 		gif: &model::Gif,
 		demo: bool,
 	) -> Option<(egui::TextureId, [usize; 2])> {
+		if !model::valid_gif_preview(&gif.preview) {
+			return None;
+		}
 		#[cfg(any(test, feature = "demo"))]
 		if demo && gif.preview.contains("/synthetic/") {
 			let key = self.preview_key(&gif.preview);

@@ -1,5 +1,38 @@
 # Discord compatibility — checked 2026-09-10
 
+
+## GIF favorite synchronization — October 2, 2026
+
+Opening the GIF picker lazily reads account favorites through the unofficial
+`GET /users/@me/settings-proto/2` route. After a successful read, explicit star
+changes save one URL using a fresh read and `required_data_version`. Failed,
+conflicting or unconfirmed writes are never automatically retried; Refresh from
+Discord restores synchronization. Existing local favorites remain a bounded
+fallback and are never uploaded in bulk. Previously loaded remote favorites that
+disappear on refresh are removed locally. The native list displays at most 100
+entries; writes preserve unseen entries rather than replacing the list with that
+projection.
+
+The [primary FrecencyUserSettings schema](https://github.com/dolfies/discord-protos/blob/f5c06d6f5764a66302f7eede675fd703c31be08a/discord_protos/discord_users/v1/FrecencyUserSettings.proto)
+establishes the URL-keyed favorite map, source, format, dimensions and order.
+The [maintainer's endpoint reference](https://docs.discord.food/resources/user-settings-proto#modify-user-settings-proto)
+specifies replacement of a supplied top-level subtree, so the complete raw
+favorites subtree, tooltip setting and unknown entry fields survive each edit.
+Returned saves must confirm the changed entry and unchanged other entries.
+Service normalization may conservatively report an unconfirmed save; inspect via
+Refresh before a deliberate new change.
+
+Supported Tenor/KLIPY image sources reuse native previews. Video-only sources are
+retained verbatim and show a placeholder, without converting or downloading an
+invented image URL. Unsupported hosts/formats remain untouched on the server and
+are omitted from the native projection. The native projection shows highest wire order first with URL tie-breaking;
+a new entry receives the highest order plus one. Distinct local fallback entries
+reserve space before remote entries when the combined list exceeds 100. A late
+initial cache is skipped after an explicit star or removal-history overflow so it
+cannot undo newer actions. Same-account reconnect clears interrupted requests and
+requires a fresh read before another explicit server write. Cross-client ordering and normal-account service acceptance remain
+unverified. No live account or service write was used for verification.
+
 ## Custom Rich Presence - September 28, 2026
 
 The **Custom Rich Presence** catalog plugin adds an independent native implementation of

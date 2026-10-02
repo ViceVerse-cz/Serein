@@ -3251,3 +3251,50 @@ The Gateway retains one owner-session identity, at most 2 KiB in a redacted,
 zeroizing secret, and one latest `(channel, request)` watch value. Takeover drops
 local media and the matching initial ring worker without sending an account-wide
 hangup. No new persistent cache, queue or background worker was added.
+
+
+## Account GIF favorite synchronization (October 2, 2026)
+
+Runtime source `43e1215cce0e69ee10a9998b9aaba8cfcf179c96` was compared with
+parent `47a81035047695fe1d81edc4cb7efe46c14d87a8` on macOS 27.0 (26A428),
+Apple M1 (8 logical CPUs), 16 GiB RAM, Rust 1.98.1 and native Metal at 2× scale.
+The parent's app, crate, asset, tool, lockfile and toolchain sources are identical
+to measured Catbox source `ef9cd5d1d846335713af71f9f1d9cd895483d59d`; its
+preserved package and optimized demo binary provide the size/native baseline.
+Reducer replay was freshly compiled from the actual parent, after cleaning only
+its affected workspace packages. The changed build passed `cargo xtask check`,
+standard voice-inclusive `cargo xtask package`, default-plus-demo optimized build,
+and `cargo replay`.
+
+| Metric | Parent baseline | After | Absolute / percent delta |
+| --- | ---: | ---: | ---: |
+| Standard executable, bytes | 62,088,304 | 62,137,600 | +49,296 / +0.0794% |
+| Full installed payload, bytes | 68,098,733 | 68,148,029 | +49,296 / +0.0724% |
+| Complete ZIP, bytes | 43,286,187 | 43,310,944 | +24,757 / +0.0572% |
+| Favorites picker median process CPU | 0.0% | 0.0% | +0.0 percentage points |
+| Sampled peak process RSS, KiB | 129,968 | 130,544 | +576 / +0.4432% |
+| Settled process RSS, KiB | 129,920 | 130,496 | +576 / +0.4433% |
+| 100,000-event reducer median, ms | 53.028459 | 52.678375 | -0.350084 / -0.6602% |
+| Retained timeline estimate, bytes | 331,992–332,477 | 331,992–332,477 | 0; 500 records |
+
+Standard packages use the xtask's normal `--no-default-features` voice build;
+both contain 206 regular files and are locally ad-hoc signed, not notarized.
+Installed bytes sum all regular files; ZIP uses identical
+`ditto -c -k --sequesterRsrc` over the complete portable contents without an
+enclosing directory. Native binaries use
+`cargo build --release --locked -p serein --features demo`, default features and
+the unchanged fat-LTO release profile. Both launch
+`--demo --demo-gifs=favorites` with five synthetic favorites. Five seconds of
+warmup precede ten one-second macOS `ps` CPU/RSS samples; settled RSS is the
+median of the last five. No compiler, other native demo or helper child process
+was active during sampling.
+
+Replay uses one warmup and five measured runs per revision, alternating revision
+order. Parent elapsed samples span 52.816708–56.014250 ms; changed samples span
+52.631750–54.123583 ms. Their ranges overlap; the small timing/RSS differences
+and quantized idle CPU are not improvement claims. Replay measures a bounded
+synthetic reducer, not GIF network synchronization, process RSS or UI latency.
+GPU memory, frame/startup latency and real-account interoperability remain
+unmeasured. Raw source identities, binary hashes, sizes and all samples are in
+`docs/pr-evidence/gif-favorite-sync/measurements.json`. This evidence follow-up
+changes no measured runtime source.
