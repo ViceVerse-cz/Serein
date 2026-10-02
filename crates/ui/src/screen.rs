@@ -351,24 +351,27 @@ impl ScreenUi {
 			);
 			let text_left = rect.left() + 46.0;
 			let text_width = (rect.right() - 36.0 - text_left).max(40.0);
+			let source_name = if source.id == SourceId::SystemPicker {
+				crate::i18n::translate("screen-macos-system-picker")
+			} else {
+				source.name.clone()
+			};
 			let name = ui.painter().layout(
-				if source.id == SourceId::SystemPicker {
-					crate::i18n::translate("screen-macos-system-picker")
-				} else {
-					source.name.clone()
-				},
+				source_name.clone(),
 				egui::FontId::new(14.0, crate::design::medium_family(ui.ctx())),
 				colors.text_strong,
 				text_width,
 			);
 			let kind = ui.painter().layout_no_wrap(
 				match source.id {
-					SourceId::Display(_) | SourceId::X11Desktop => "Screen",
-					SourceId::Window(_) => "Window",
+					SourceId::Display(_) | SourceId::X11Desktop => "Screen".to_owned(),
+					SourceId::Window(_) => "Window".to_owned(),
+					SourceId::SystemPicker => {
+						crate::i18n::translate("screen-macos-system-picker-kind")
+					}
 					#[allow(unreachable_patterns)] // Portal may be absent outside Linux.
-					_ => "System permission dialog",
-				}
-				.to_owned(),
+					_ => "System permission dialog".to_owned(),
+				},
 				egui::FontId::proportional(11.0),
 				colors.muted,
 			);
@@ -391,7 +394,7 @@ impl ScreenUi {
 				);
 			}
 			response.widget_info(|| {
-				egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, &source.name)
+				egui::WidgetInfo::selected(egui::Role::RadioButton, true, selected, &source_name)
 			});
 			if response.clicked() {
 				self.selected = Some(source.id);

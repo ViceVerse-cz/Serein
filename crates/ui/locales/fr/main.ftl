@@ -4437,3 +4437,5 @@ server-emoji-empty-detail = Importez une image pour en ajouter un. Les GIF devie
 server-stickers-empty-detail = Importez une image pour ajouter votre premier autocollant.
 
 screen-macos-system-picker = Choisir avec le sélecteur système macOS
+
+screen-macos-system-picker-kind = Sélecteur de contenu système

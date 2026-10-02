@@ -4500,3 +4500,5 @@ server-emoji-empty-detail = Nahrajte obrázek a přidejte ho. Z GIFů se stanou 
 server-stickers-empty-detail = Nahrajte obrázek a přidejte svou první nálepku.
 
 screen-macos-system-picker = Vybrat systémovým dialogem macOS
+
+screen-macos-system-picker-kind = Systémový výběr obsahu

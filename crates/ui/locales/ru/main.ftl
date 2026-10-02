@@ -4441,3 +4441,5 @@ server-emoji-empty-detail = Загрузите изображение, чтоб�
 server-stickers-empty-detail = Загрузите изображение, чтобы добавить первый стикер.
 
 screen-macos-system-picker = Выбрать через системное окно macOS
+
+screen-macos-system-picker-kind = Системный выбор содержимого

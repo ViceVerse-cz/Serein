@@ -4437,3 +4437,5 @@ server-emoji-empty-detail = Carica un'immagine per aggiungerne una. Le GIF diven
 server-stickers-empty-detail = Carica un'immagine per aggiungere il tuo primo sticker.
 
 screen-macos-system-picker = Scegli con il selettore di macOS
+
+screen-macos-system-picker-kind = Selettore dei contenuti di sistema

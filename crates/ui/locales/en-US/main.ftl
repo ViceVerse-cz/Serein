@@ -4498,3 +4498,5 @@ server-emoji-empty-detail = Upload an image to add one. GIFs become animated emo
 server-stickers-empty-detail = Upload artwork to add your first sticker.
 
 screen-macos-system-picker = Choose with the macOS system picker
+
+screen-macos-system-picker-kind = System content picker

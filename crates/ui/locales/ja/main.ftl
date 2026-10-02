@@ -4426,3 +4426,5 @@ server-emoji-empty-detail = 画像をアップロードして追加します。G
 server-stickers-empty-detail = 画像をアップロードして最初のスタンプを追加しましょう。
 
 screen-macos-system-picker = macOSのシステム選択画面で選ぶ
+
+screen-macos-system-picker-kind = システムのコンテンツ選択

@@ -4440,3 +4440,5 @@ server-emoji-empty-detail = Prześlij obraz, aby je dodać. Pliki GIF stają si�
 server-stickers-empty-detail = Prześlij obraz, aby dodać swoją pierwszą naklejkę.
 
 screen-macos-system-picker = Wybierz w systemowym oknie macOS
+
+screen-macos-system-picker-kind = Systemowy wybór treści
