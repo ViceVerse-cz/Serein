@@ -89,7 +89,10 @@ pub(crate) struct ThemeEditor {
 	pub cover: Option<Arc<egui::ColorImage>>,
 	pub dirty: bool,
 	pub preview: bool,
+	/// Which palette the editor changes; both are saved and applied per appearance.
 	dark: bool,
+	/// A newly opened editor starts on the palette the app is currently showing.
+	dark_pending: bool,
 	tab: EditorTab,
 	region: ImageRegion,
 	discard: bool,
@@ -153,6 +156,7 @@ impl ThemeEditor {
 			dirty: false,
 			preview: false,
 			dark: true,
+			dark_pending: true,
 			tab: EditorTab::Basics,
 			region: ImageRegion::MessageList,
 			discard: false,
@@ -222,6 +226,11 @@ impl ThemeEditor {
 	}
 	pub fn tab_key(&self) -> u8 {
 		self.tab as u8
+	}
+	fn follow_appearance(&mut self, ui: &egui::Ui) {
+		if std::mem::take(&mut self.dark_pending) {
+			self.dark = ui.visuals().dark_mode;
+		}
 	}
 	fn ready_to_save(&self) -> bool {
 		let manifest = &self.package.manifest;
@@ -342,6 +351,7 @@ impl ThemeEditor {
 		busy: bool,
 		requests: &mut Vec<ExtensionRequest>,
 	) -> bool {
+		self.follow_appearance(ui);
 		let mut close = false;
 		ui.add_enabled_ui(!busy, |ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
@@ -450,6 +460,7 @@ impl ThemeEditor {
 		busy: bool,
 		requests: &mut Vec<ExtensionRequest>,
 	) -> bool {
+		self.follow_appearance(ui);
 		let mut changed = false;
 		ui.add_enabled_ui(!busy, |ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
@@ -1990,5 +2001,17 @@ mod tests {
 			toolbar_click(&ctx, &mut editor, "Save and apply").as_slice(),
 			[ExtensionRequest::SaveTheme { .. }]
 		));
+	}
+
+	#[test]
+	fn editor_opens_on_the_active_appearance_and_keeps_the_chosen_palette() {
+		let ctx = egui::Context::default();
+		ctx.set_theme(egui::ThemePreference::Light);
+		let mut editor = ThemeEditor::new();
+		assert!(toolbar_click(&ctx, &mut editor, "Colors").is_empty());
+		assert!(!editor.dark);
+		assert!(toolbar_click(&ctx, &mut editor, "Dark").is_empty());
+		toolbar_frame(&ctx, &mut editor, vec![]);
+		assert!(editor.dark);
 	}
 }

@@ -51,6 +51,8 @@ fn settings_edit(value: ServerSettingsPatch) -> Result<server_settings::Edit, St
 		default_message_notifications: value.default_message_notifications,
 		afk_channel_id: optional_id(value.afk_channel_id, value.clear_afk_channel)?,
 		afk_timeout: value.afk_timeout,
+		verification_level: None,
+		explicit_content_filter: None,
 	})
 }
 

@@ -1,0 +1,348 @@
+{
+  "source": "3f96877f553bbe50eab91d31611cd97ad94b64b8",
+  "baseline_runtime_source": "43e1215cce0e69ee10a9998b9aaba8cfcf179c96",
+  "baseline_note": "Runtime source byte-identical to main2118f7d9; scoped comparison against feature source3f. Main8e/456 subsequently add active-server emoji/Control-click selection; neither is relabeled as this measured baseline.",
+  "environment": {
+    "rust": "1.98.1",
+    "os": "macOS27.0 (26A428)",
+    "machine": "Apple M1 MacBookAir10,1 /16GiB",
+    "architecture": "aarch64",
+    "locked": true,
+    "voice_included": true,
+    "compiler_jobs": 2
+  },
+  "verification": {
+    "full_check": "cargo xtask check passed on exact3f",
+    "focused_dispatch_tests": 15,
+    "standard_package": "cargo xtask package passed; codesign --verify --deep --strict passed"
+  },
+  "package": {
+    "baseline": {
+      "commit": "43e1215cce0e69ee10a9998b9aaba8cfcf179c96",
+      "command": "cargo xtask package",
+      "features": "standard no-default-features package; voice included",
+      "executable": 62137600,
+      "installed": 68148029,
+      "compressed": 43310944,
+      "files": 206,
+      "executable_sha256": "93737163ae956e68987d60ef7b0ac4dd3e4dc8089fdfc8cc034bae43ec73dd3c",
+      "zip_method": "ditto -c -k --sequesterRsrc full standard-dist contents without enclosing directory"
+    },
+    "after": {
+      "executable_bytes": 62154064,
+      "installed_bytes": 68164493,
+      "regular_files": 206,
+      "distribution_zip_bytes": 43321311,
+      "method": "standard cargo xtask package, including voice and notices; sum regular files; ditto -c -k --sequesterRsrc",
+      "source": "3f96877f553bbe50eab91d31611cd97ad94b64b8",
+      "baseline_runtime_source": "43e1215cce0e69ee10a9998b9aaba8cfcf179c96",
+      "executable_sha256": "ccb4a8df960442cd851754c63e60e0d5c35cc8b31be29020db1b48b30e29fee6",
+      "ad_hoc_signature_verified": true
+    },
+    "file_comparison": {
+      "baseline_runtime_source": "43e1215cce0e69ee10a9998b9aaba8cfcf179c96",
+      "baseline_runtime_identical_to_main": "2118f7d9",
+      "feature_source": "3f96877f553bbe50eab91d31611cd97ad94b64b8",
+      "regular_paths_identical": 206,
+      "unchanged_sha256_files": 203,
+      "changed_files": [
+        "Serein.app/Contents/_CodeSignature/CodeResources",
+        "Serein.app/Contents/MacOS/serein",
+        "Serein.app/Contents/Resources/Assets.car"
+      ],
+      "all_license_notice_files_identical": 199
+    }
+  },
+  "native": {
+    "baseline": {
+      "binary": "/Users/claw/Code/Serein/target/issue-sweep/gif-sync/43e1215c/serein-release-demo",
+      "flags": [
+        "--demo",
+        "--demo-chat"
+      ],
+      "warmup_seconds": 5,
+      "interval_seconds": 1,
+      "samples": [
+        {
+          "seconds": 5.027,
+          "cpu_percent": 0.0,
+          "rss_kib": 124720
+        },
+        {
+          "seconds": 6.053,
+          "cpu_percent": 0.0,
+          "rss_kib": 124672
+        },
+        {
+          "seconds": 7.078,
+          "cpu_percent": 0.0,
+          "rss_kib": 124672
+        },
+        {
+          "seconds": 8.104,
+          "cpu_percent": 0.0,
+          "rss_kib": 124672
+        },
+        {
+          "seconds": 9.13,
+          "cpu_percent": 0.0,
+          "rss_kib": 124672
+        },
+        {
+          "seconds": 10.155,
+          "cpu_percent": 0.0,
+          "rss_kib": 124672
+        },
+        {
+          "seconds": 11.173,
+          "cpu_percent": 0.0,
+          "rss_kib": 124672
+        },
+        {
+          "seconds": 12.194,
+          "cpu_percent": 0.0,
+          "rss_kib": 124672
+        },
+        {
+          "seconds": 13.22,
+          "cpu_percent": 0.0,
+          "rss_kib": 124672
+        },
+        {
+          "seconds": 14.246,
+          "cpu_percent": 0.0,
+          "rss_kib": 124672
+        }
+      ],
+      "cpu_percent_median": 0.0,
+      "rss_peak_kib": 124720,
+      "rss_settled_kib": 124672,
+      "elapsed_seconds": 15.281,
+      "user_cpu_seconds": 0.187528,
+      "system_cpu_seconds": 0.128782,
+      "exit_code": -2,
+      "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo",
+      "sha256": "1f535e5c022eb7eadf37102dbdcf8ca238a74e3883b0269d0fbbdebf68b0b01c"
+    },
+    "after": {
+      "binary": "/Users/claw/Code/Serein/target/issue-sweep/voice-takeover-final/3f96877f/serein-release-demo",
+      "flags": [
+        "--demo",
+        "--demo-chat"
+      ],
+      "warmup_seconds": 5,
+      "interval_seconds": 1,
+      "samples": [
+        {
+          "seconds": 5.031,
+          "cpu_percent": 0.0,
+          "rss_kib": 124640
+        },
+        {
+          "seconds": 6.055,
+          "cpu_percent": 0.0,
+          "rss_kib": 124640
+        },
+        {
+          "seconds": 7.081,
+          "cpu_percent": 0.0,
+          "rss_kib": 124640
+        },
+        {
+          "seconds": 8.104,
+          "cpu_percent": 0.0,
+          "rss_kib": 124592
+        },
+        {
+          "seconds": 9.13,
+          "cpu_percent": 0.0,
+          "rss_kib": 124592
+        },
+        {
+          "seconds": 10.138,
+          "cpu_percent": 0.0,
+          "rss_kib": 124592
+        },
+        {
+          "seconds": 11.152,
+          "cpu_percent": 0.0,
+          "rss_kib": 124592
+        },
+        {
+          "seconds": 12.177,
+          "cpu_percent": 0.0,
+          "rss_kib": 124592
+        },
+        {
+          "seconds": 13.204,
+          "cpu_percent": 0.0,
+          "rss_kib": 124592
+        },
+        {
+          "seconds": 14.23,
+          "cpu_percent": 0.0,
+          "rss_kib": 124592
+        }
+      ],
+      "cpu_percent_median": 0.0,
+      "rss_peak_kib": 124640,
+      "rss_settled_kib": 124592,
+      "elapsed_seconds": 15.262,
+      "user_cpu_seconds": 0.21137899999999998,
+      "system_cpu_seconds": 0.13551,
+      "exit_code": -2,
+      "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo",
+      "sha256": "fd82a5374c24514b21bb186980eed50ed84e7daf55318eb1ae6f83cdd2194ed6"
+    },
+    "viewport": "1120x760 logical,2x scale,Metal",
+    "build": "release --locked -p serein --features demo; default release profile FAT LTO/codegen-units1; no profile overrides",
+    "quiet": "All compilers,tests and other native apps stopped; team quiet handoff verified."
+  },
+  "reducer": {
+    "method": "One warmup per binary, five alternating pairs; 100000 synthetic reducer events. No compiler or native demo active. Not process RSS, UI latency or live compatibility.",
+    "pair_order": [
+      [
+        "baseline",
+        "after"
+      ],
+      [
+        "after",
+        "baseline"
+      ],
+      [
+        "baseline",
+        "after"
+      ],
+      [
+        "after",
+        "baseline"
+      ],
+      [
+        "baseline",
+        "after"
+      ]
+    ],
+    "results": {
+      "baseline": {
+        "binary": "/Users/claw/Code/Serein/target/issue-sweep/gif-sync/43e1215c/replay-bench",
+        "sha256": "f1220fbacb59d56e64916dd89426b50bd4d13656189b15234edd9acf9df6408f",
+        "warmup": {
+          "elapsed_ms": 54.253541,
+          "retained_min_bytes": 331992,
+          "retained_max_bytes": 332477,
+          "records": 500,
+          "stdout": "Synthetic reducer replay: 100000 events in 54.253541ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+        },
+        "samples": [
+          {
+            "elapsed_ms": 52.855959,
+            "retained_min_bytes": 331992,
+            "retained_max_bytes": 332477,
+            "records": 500,
+            "stdout": "Synthetic reducer replay: 100000 events in 52.855959ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+          },
+          {
+            "elapsed_ms": 53.463042,
+            "retained_min_bytes": 331992,
+            "retained_max_bytes": 332477,
+            "records": 500,
+            "stdout": "Synthetic reducer replay: 100000 events in 53.463042ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+          },
+          {
+            "elapsed_ms": 53.853083,
+            "retained_min_bytes": 331992,
+            "retained_max_bytes": 332477,
+            "records": 500,
+            "stdout": "Synthetic reducer replay: 100000 events in 53.853083ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+          },
+          {
+            "elapsed_ms": 53.559125,
+            "retained_min_bytes": 331992,
+            "retained_max_bytes": 332477,
+            "records": 500,
+            "stdout": "Synthetic reducer replay: 100000 events in 53.559125ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+          },
+          {
+            "elapsed_ms": 54.114708,
+            "retained_min_bytes": 331992,
+            "retained_max_bytes": 332477,
+            "records": 500,
+            "stdout": "Synthetic reducer replay: 100000 events in 54.114708ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+          }
+        ],
+        "median_elapsed_ms": 53.559125,
+        "elapsed_range_ms": [
+          52.855959,
+          54.114708
+        ],
+        "retained_range_bytes": [
+          331992,
+          332477
+        ]
+      },
+      "after": {
+        "binary": "/Users/claw/Code/Serein/target/issue-sweep/voice-takeover-final/3f96877f/replay-bench",
+        "sha256": "0a50633cde2e853ac6835d2bd5576f064af9369c6800f22df111e055f1872ac3",
+        "warmup": {
+          "elapsed_ms": 104.283667,
+          "retained_min_bytes": 331992,
+          "retained_max_bytes": 332477,
+          "records": 500,
+          "stdout": "Synthetic reducer replay: 100000 events in 104.283667ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+        },
+        "samples": [
+          {
+            "elapsed_ms": 53.220833,
+            "retained_min_bytes": 331992,
+            "retained_max_bytes": 332477,
+            "records": 500,
+            "stdout": "Synthetic reducer replay: 100000 events in 53.220833ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+          },
+          {
+            "elapsed_ms": 52.966,
+            "retained_min_bytes": 331992,
+            "retained_max_bytes": 332477,
+            "records": 500,
+            "stdout": "Synthetic reducer replay: 100000 events in 52.966ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+          },
+          {
+            "elapsed_ms": 53.62475,
+            "retained_min_bytes": 331992,
+            "retained_max_bytes": 332477,
+            "records": 500,
+            "stdout": "Synthetic reducer replay: 100000 events in 53.62475ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+          },
+          {
+            "elapsed_ms": 53.822625,
+            "retained_min_bytes": 331992,
+            "retained_max_bytes": 332477,
+            "records": 500,
+            "stdout": "Synthetic reducer replay: 100000 events in 53.822625ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+          },
+          {
+            "elapsed_ms": 54.040583,
+            "retained_min_bytes": 331992,
+            "retained_max_bytes": 332477,
+            "records": 500,
+            "stdout": "Synthetic reducer replay: 100000 events in 54.040583ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+          }
+        ],
+        "median_elapsed_ms": 53.62475,
+        "elapsed_range_ms": [
+          52.966,
+          54.040583
+        ],
+        "retained_range_bytes": [
+          331992,
+          332477
+        ]
+      }
+    }
+  },
+  "limitations": [
+    "Synthetic/offline only; no Discord account,service writes,microphone,camera,OS picker or live call.",
+    "Native idle CPU/RSS does not measure session replacement latency,UI frame time,GPU or device performance.",
+    "Accepted transport establishes a submitted candidate,not a physical client identity.",
+    "Original ddb/eab and a6/ef9 comparisons are historical and are not current3f aggregate measurements."
+  ]
+}

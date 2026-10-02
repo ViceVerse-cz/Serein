@@ -444,12 +444,11 @@ impl State {
 		tags: &[Id],
 	) -> Option<Command> {
 		let title = title.trim();
-		let content = content.trim();
+		let content = model::message_options::starter(content);
 		if !self.can_create_post(parent)
 			|| title.is_empty()
 			|| title.chars().count() > MAX_TITLE
-			|| (content.is_empty() && filenames.is_empty())
-			|| content.chars().count() > MAX_CONTENT
+			|| !model::message_options::valid(content, MAX_CONTENT, !filenames.is_empty())
 		{
 			return None;
 		}
@@ -830,6 +829,25 @@ mod tests {
 		assert!(state.create_post(Id(10), "Title", "Body").is_none());
 		assert!(state.create_post(Id(20), "", "Body").is_none());
 		assert!(state.create_post(Id(20), "Title", " ").is_none());
+		assert!(state.create_post(Id(20), "Title", "@silent ").is_none());
+		assert!(state.posting.pending.is_none());
+		let formatted = "@silent\n    code\n  ";
+		let quiet = state.create_post(Id(20), "Title", formatted).unwrap();
+		assert!(matches!(&quiet, Command::CreatePost { content, .. } if content == formatted));
+		state.command_rejected(quiet);
+		let full = format!("@silent {}", "x".repeat(MAX_CONTENT));
+		let quiet = state.create_post(Id(20), "Title", &full).unwrap();
+		assert!(matches!(&quiet, Command::CreatePost { content, .. } if content == &full));
+		state.command_rejected(quiet);
+		assert!(
+			state
+				.create_post(
+					Id(20),
+					"Title",
+					&format!("@silent {}", "x".repeat(MAX_CONTENT + 1))
+				)
+				.is_none()
+		);
 		let Some(Command::CreatePost { request, .. }) =
 			state.create_post(Id(20), " Title ", "Body")
 		else {

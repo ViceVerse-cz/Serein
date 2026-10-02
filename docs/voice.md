@@ -45,6 +45,40 @@ Reset levels, mute/deafen/PTT precedence and changing devices while custom level
 
 Start calls the selected existing DM; incoming calls require Answer or Decline. One active call is retained while navigating text conversations. Start rings once after Discord voice transport allocation is confirmed; Answer never rings. Required DAVE group readiness and native device readiness precede the connected-audio state. An allocation with no endpoint waits within the deadline; incompatible states fail visibly. Hangup closes local audio immediately and sends departure; another call waits for the service's departure acknowledgment. No uncertain ring write or failed main Gateway session automatically starts another call.
 
+Before the local voice transport authenticates, own-user voice state frames are
+replaceable negotiation candidates: an existing client's state can arrive before the
+acknowledgment of this device's Join. Session, token and endpoint changes revise one
+bounded candidate. Only validated voice Transport Ready for that exact candidate,
+followed by the main Gateway's scoped confirmation acknowledgment, establishes the
+local transport session and enables media/ringing. Replacements retire local devices
+before trying current credentials, preserve the original 30-second deadline, and do
+not send another Join or a hangup. A failed unconfirmed candidate waits for changed
+credentials within that same deadline rather than repeatedly retrying it. Timeout,
+startup failure or scope loss abandons only this unconfirmed local negotiation;
+Gateway acknowledges its release without sending a service hangup. If its bounded
+control queue is full, one local release waits for queue space without ending text
+signaling; a fresh Join is rejected locally until the release is queued ahead of it.
+Stale release commands cannot displace cleanup for the current attempt. A later Join
+that encounters the still-full queue fails only that unsent attempt, keeping text
+signaling available.
+
+After confirmation, a different owner session in the same voice channel, or movement
+to another non-null channel/guild, clears the local call and closes media without
+sending a hangup. A translated informational notice explains the move. Pending
+initial ringing is cancelled and queued old ring commands are rejected without
+disconnecting text signaling. Join explicitly after local device teardown to take the
+call back; no old-client departure acknowledgment is required. This applies to DM and
+guild calls. Secrets are bounded, redacted, zeroized and never persisted.
+
+The voice protocol does not document an equality with the main Gateway READY session
+ID or identify which physical client generated an own-user state frame. A server-accepted
+voice transport establishes only the submitted candidate: if an existing client's
+candidate authenticates before this device's newer Join acknowledgment arrives, its
+later replacement cannot be proven to be a different physical client's action. The
+informational notice describes an invalidated local transport, not verified actor
+identity. Synthetic ordering and confirmation transitions are tested; cross-client
+live takeover remains unverified.
+
 Opening a one-to-one or group DM also requests its existing call state. An ongoing call shows a
 **Call in progress** banner and **Join call**, even after ringing stops or this device leaves.
 Join uses the existing connection flow without ringing again; browsing never joins or opens
@@ -461,8 +495,17 @@ Stop, source failure, permission loss, leaving and logout release the preview.
 These paths have synthetic coverage; native camera/screen capture and live Discord
 viewing still require owner-operated validation.
 
-AVFoundation on macOS, Media Foundation on Windows and V4L2 on Linux capture
-640×480 frames, capped at 15 encoded frames/second, encoded on a worker with a
+Native capture prefers the closest supported size to the 640×480 encoder, with
+a 1280×720 input ceiling (DirectShow preserves its existing 1920×1080 fallback).
+macOS and Windows rank native modes by dimension
+distance, then distance from 15 fps; macOS explicitly locks the device format
+and supported frame duration; AVFoundation aspect fitting preserves nonmatching
+native ratios with black bars before the callback. Windows drivers without
+frame-rate metadata retain their bounded fallback and rank after known rates at
+the same resolution. Linux probes each candidate with its effective
+V4L2 interval before ranking it and reapplies the selected interval after the final
+format change. Drivers without interval metadata rank last at the same resolution.
+Capture is converted to 640×480, capped at 15 encoded frames/second, encoded on a worker with a
 600 kbit/s target (not a measured bandwidth guarantee). The worker prefers the platform
 hardware H.264 encoder, the same VideoToolbox and Media Foundation encoders screen sharing
 uses, and VA-API or NVENC through a private GStreamer pipeline on Linux. OpenH264 remains
@@ -502,7 +545,8 @@ camera, joining a call, logout, or an error stops the preview. During a camera-e
 call, settings show the existing call preview. Demo mode never opens a camera.
 Physical capture and native permission behavior still require owner verification.
 
-Media Foundation devices use a native 640×480 mode convertible to RGB32.
+Media Foundation selects a native mode at or below 1280×720 and uses its
+video processor to resize/convert to 640×480 RGB32.
 DirectShow discovery/capture additionally covers virtual cameras such as OBS and
 NVIDIA Broadcast, which may not appear in Media Foundation enumeration.
 Its native input is limited to 1920×1080, converted to RGB24 and fitted into
@@ -514,10 +558,16 @@ Default selection falls back to DirectShow when Media Foundation lists no device
 Allow desktop camera access in Windows
 Settings > Privacy & security > Camera; Windows N may require the Media Feature
 Pack. Linux tries `/dev/video0` through `/dev/video63` and uses the first accessible
-progressive, single-plane 640×480 YUYV/MJPEG streaming camera. The session or sandbox
+progressive, single-plane YUYV/MJPEG streaming camera at or below 1280×720.
+Linux fits nonmatching frames into 640×480 with black bars; temporary RGB
+allocations are bounded by one 2,764,800-byte native image, one 921,600-byte
+fitted image and one 921,600-byte output image. The session or sandbox
 must already permit access to its device node; this implementation does not request
-camera access through a desktop portal or change device permissions. These fixed-mode
-adapters can reject cameras that only offer other resolutions or formats.
+camera access through a desktop portal or change device permissions. Cameras
+with no supported mode within the input ceiling are rejected before streaming.
+The device-free format-selection check is
+`cargo run --locked -p discord-voice --example camera_format`; native negotiation
+and performance still require owner-operated hardware validation.
 
 Frame waits time out after five seconds without a usable frame; stop is checked at
 most every 100 ms while waiting. Native driver initialization/teardown has no hard

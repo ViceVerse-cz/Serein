@@ -8,12 +8,22 @@ const NAMES: &str = include_str!("../../../assets/twemoji/names.tsv");
 const DISCORD_NAMES: &str = include_str!("../../../assets/twemoji/discord-shortcodes.tsv");
 const CELL: f32 = 40.0;
 
+pub(crate) fn composer_limit(draft: &str, editing: bool) -> usize {
+	client_core::MAX_CONTENT
+		+ if !editing && model::message_options::content(draft).1 {
+			model::message_options::PREFIX_ALLOWANCE
+		} else {
+			0
+		}
+}
+
 /// Replace the composer's scalar-index selection without exceeding its character or RAM budget.
 pub(crate) fn insert(
 	draft: &mut String,
 	text: &str,
 	range: Option<egui::text::CCursorRange>,
 	remaining: usize,
+	editing: bool,
 ) -> Option<usize> {
 	let count = draft.chars().count();
 	let (start, end) = range.map_or((count, count), |range| {
@@ -21,7 +31,7 @@ pub(crate) fn insert(
 		(range.start.0.min(count), range.end.0.min(count))
 	});
 	let inserted = text.chars().count();
-	if count - (end - start) + inserted > client_core::MAX_CONTENT {
+	if count - (end - start) + inserted > composer_limit(draft, editing) {
 		return None;
 	}
 	let byte_start = draft
@@ -58,6 +68,7 @@ pub(crate) fn complete_shortcode(
 	draft: &mut String,
 	cursor: usize,
 	remaining: usize,
+	editing: bool,
 ) -> Option<usize> {
 	let end = draft
 		.char_indices()
@@ -95,6 +106,7 @@ pub(crate) fn complete_shortcode(
 			egui::text::CCursor::new(cursor),
 		)),
 		remaining,
+		editing,
 	)
 }
 
@@ -160,6 +172,7 @@ enum Target {
 }
 
 enum GifAction {
+	Refresh,
 	Toggle(model::Gif),
 	Send(String),
 }
@@ -183,6 +196,15 @@ impl GifMode {
 }
 
 const CUSTOM_LIMIT: usize = model::MAX_GUILD_EMOJIS;
+
+/// Move the current conversation's server to the front without copying or reordering catalogs.
+fn server_rail_index(row: usize, current: Option<usize>) -> usize {
+	match current {
+		Some(current) if row == 0 => current,
+		Some(current) if row <= current => row - 1,
+		_ => row,
+	}
+}
 
 /// Case-insensitive substring test against an already lowercased `needle`. ASCII names
 /// (Discord permits only `[A-Za-z0-9_]`) compare in place; only non-ASCII server names allocate.
@@ -288,6 +310,9 @@ pub(crate) struct Picker {
 	channel: Option<Id>,
 	generation: u64,
 	server: Option<Id>,
+	rail_guild: Option<Id>,
+	#[cfg(test)]
+	rail_scroll: Option<egui::Id>,
 	query: String,
 	matches: Vec<usize>,
 	custom: CustomMatches,
@@ -312,6 +337,9 @@ impl Default for Picker {
 			channel: None,
 			generation: 0,
 			server: None,
+			rail_guild: None,
+			#[cfg(test)]
+			rail_scroll: None,
 			query: String::new(),
 			matches: (0..standard().len()).collect(),
 			custom: CustomMatches::default(),
@@ -829,6 +857,10 @@ impl Picker {
 		}
 		let colors = crate::design::palette(ui);
 		let demo = state.demo;
+		let current_server = state
+			.channel(channel)
+			.and_then(|channel| channel.guild)
+			.and_then(|guild| state.guilds.iter().position(|server| server.id == guild));
 		if self
 			.server
 			.is_some_and(|id| !state.guilds.iter().any(|guild| guild.id == id))
@@ -885,6 +917,12 @@ impl Picker {
 		}
 		// Remote requests happen before the popout borrows navigation state immutably.
 		let gif_mode = self.gif_mode(ui);
+		if gifs_tab
+			&& !state.gifs.sync_attempted
+			&& let Some(command) = state.request_gif_favorites()
+		{
+			commands.push(command);
+		}
 		if gifs_tab
 			&& let Some(query) = gif_mode.wanted()
 			&& let Some(command) = state.request_gifs(query)
@@ -1191,7 +1229,18 @@ impl Picker {
 										self.query.clear();
 										self.filter();
 									}
-									egui::ScrollArea::vertical()
+									let current_guild =
+										current_server.map(|index| state.guilds[index].id);
+									if self.rail_guild != current_guild {
+										egui::scroll_area::State::default().store(
+											ui.ctx(),
+											ui.make_persistent_id(egui::IdSalt::new(
+												"emoji-server-rail",
+											)),
+										);
+										self.rail_guild = current_guild;
+									}
+									let rail = egui::ScrollArea::vertical()
 										.id_salt("emoji-server-rail")
 										.scroll_bar_visibility(
 											egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
@@ -1199,7 +1248,8 @@ impl Picker {
 										.max_height(ui.available_height())
 										.show_rows(ui, 32.0, state.guilds.len(), |ui, rows| {
 											for index in rows {
-												let guild = &state.guilds[index];
+												let guild = &state.guilds
+													[server_rail_index(index, current_server)];
 												let active = self.server == Some(guild.id);
 												let response = ui
 													.push_id(guild.id, |ui| {
@@ -1252,6 +1302,12 @@ impl Picker {
 												}
 											}
 										});
+									#[cfg(test)]
+									{
+										self.rail_scroll = Some(rail.id);
+									}
+									#[cfg(not(test))]
+									let _ = rail;
 								},
 							);
 
@@ -1643,6 +1699,11 @@ impl Picker {
 			self.record(text);
 		}
 		match gif_action {
+			Some(GifAction::Refresh) => {
+				if let Some(command) = state.request_gif_favorites() {
+					commands.push(command);
+				}
+			}
 			Some(GifAction::Toggle(gif)) => {
 				state.toggle_gif_favorite(&gif);
 			}
@@ -1719,6 +1780,34 @@ impl Picker {
 				let heading = match mode {
 					GifMode::Home | GifMode::Waiting => None,
 					GifMode::Favorites => {
+						ui.horizontal_wrapped(|ui| {
+							if state.gifs.sync_pending.is_some() {
+								ui.add(egui::Spinner::new().size(12.0));
+								ui.label(crate::i18n::translate("gif-favorites-sync-loading"));
+							} else {
+								let key =
+									state.gifs.sync_error.unwrap_or(if state.gifs.sync_ready {
+										"gif-favorites-sync-ready"
+									} else {
+										"gif-favorites-sync-local"
+									});
+								ui.label(crate::i18n::translate(key));
+								if ui
+									.add_enabled(
+										state.can_browse_gifs(),
+										egui::Button::new(crate::i18n::translate(
+											"gif-favorites-sync-refresh",
+										)),
+									)
+									.clicked()
+								{
+									action = Some(GifAction::Refresh);
+								}
+							}
+						})
+						.response
+						.on_hover_text(crate::i18n::translate("gif-favorites-sync-help"));
+						ui.add_space(8.0);
 						Some(crate::i18n::translate("emoji-picker-gif-body-favorites"))
 					}
 					GifMode::Remote(None) => Some(crate::i18n::translate(
@@ -1753,7 +1842,7 @@ impl Picker {
 								),
 							);
 						} else {
-							action = gif_grid(
+							let grid_action = gif_grid(
 								ui,
 								"favorites",
 								&state.gifs.favorites,
@@ -1763,6 +1852,9 @@ impl Picker {
 								demo,
 								hovered,
 							);
+							if grid_action.is_some() {
+								action = grid_action;
+							}
 						}
 					}
 					GifMode::Waiting => {
@@ -2083,7 +2175,7 @@ fn gif_grid(
 				if !ui.is_rect_visible(rect) {
 					continue;
 				}
-				let id = ui.scope_id().with(("gif", &gif.id));
+				let id = ui.scope_id().with(("gif", &gif.url));
 				let response = ui.interact(rect, id, egui::Sense::click());
 				let star_rect = egui::Rect::from_min_size(
 					egui::pos2(rect.right() - 32.0, rect.top() + 6.0),
@@ -2092,7 +2184,15 @@ fn gif_grid(
 				let favorite = state.is_gif_favorite(gif);
 				let lifted = response.hovered() || response.has_focus();
 				let star = if lifted || favorite {
-					Some(ui.interact(star_rect, id.with("star"), egui::Sense::click()))
+					Some(ui.interact(
+						star_rect,
+						id.with("star"),
+						if state.gifs.sync_pending.is_none() {
+							egui::Sense::click()
+						} else {
+							egui::Sense::hover()
+						},
+					))
 				} else {
 					None
 				};
@@ -2137,7 +2237,7 @@ fn gif_grid(
 					star.widget_info(|| {
 						egui::WidgetInfo::selected(
 							egui::Role::CheckBox,
-							true,
+							state.gifs.sync_pending.is_none(),
 							favorite,
 							crate::i18n::translate("emoji-picker-gif-grid-favorite"),
 						)
@@ -2243,6 +2343,200 @@ fn cell(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn gif_favorite_loading_is_single_flight_and_video_placeholders_never_request_media() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		let video = model::Gif {
+			id: "discord-video".into(),
+			title: "Synthetic video favorite".into(),
+			url: "https://tenor.com/view/synthetic-video".into(),
+			preview: "https://media.tenor.com/synthetic/video.mp4".into(),
+			width: 300,
+			height: 200,
+		};
+		state.restore_gif_favorites(vec![video.clone()]);
+		let mut picker = Picker {
+			open: true,
+			channel: Some(channel),
+			generation: state.generation,
+			tab: Tab::Gifs,
+			gif_section: GifSection::Favorites,
+			..Default::default()
+		};
+		let mut avatars = Avatars::default();
+		let mut commands = Vec::new();
+		for _ in 0..3 {
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(800.0, 800.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					picker.show(ui, &mut state, channel, &mut avatars, &mut commands);
+				},
+			)
+			.drop_without_applying_deltas();
+		}
+		assert!(matches!(
+			&commands[..],
+			[Command::GifFavorites { change: None, .. }]
+		));
+		assert!(avatars.take_requests().is_empty());
+		assert!(!state.toggle_gif_favorite(&video));
+		assert!(state.is_gif_favorite(&video));
+		assert!(avatars.gif_texture(&ctx, &video, false).is_none());
+		assert!(avatars.take_requests().is_empty());
+	}
+
+	#[test]
+	fn server_rail_prioritizes_current_server_and_preserves_other_servers() {
+		for current in [None, Some(0), Some(2), Some(4)] {
+			let order: Vec<_> = (0..5).map(|row| server_rail_index(row, current)).collect();
+			let mut expected: Vec<_> = (0..5).filter(|index| Some(*index) != current).collect();
+			if let Some(current) = current {
+				expected.insert(0, current);
+			}
+			assert_eq!(order, expected);
+		}
+	}
+
+	#[test]
+	fn current_server_is_the_first_clickable_picker_rail_entry() {
+		let ctx = egui::Context::default();
+		ctx.enable_accesskit();
+		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		let mut second = state.guilds[0].clone();
+		second.id = Id(777);
+		second.name = "Current synthetic server".into();
+		state.guilds[0].name = "Other synthetic server".into();
+		state.guilds.push(second);
+		state
+			.channels
+			.iter_mut()
+			.find(|known| known.id == channel)
+			.unwrap()
+			.guild = Some(Id(777));
+		let order: Vec<_> = state.guilds.iter().map(|guild| guild.id).collect();
+		let mut picker = Picker {
+			open: true,
+			..Default::default()
+		};
+		let mut avatars = Avatars::default();
+		let mut frame = |picker: &mut Picker, state: &mut State, events| {
+			ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					ui.add_space(620.0);
+					let trigger = ui.button("Synthetic picker trigger");
+					let mut commands = Vec::new();
+					picker.popup(
+						ui,
+						state,
+						channel,
+						&mut avatars,
+						&mut commands,
+						&trigger,
+						None,
+					);
+					assert!(commands.is_empty());
+				},
+			)
+		};
+		for _ in 0..3 {
+			frame(&mut picker, &mut state, vec![]).drop_without_applying_deltas();
+		}
+		let output = frame(&mut picker, &mut state, vec![]);
+		let nodes = &output
+			.platform_output
+			.accesskit_update
+			.as_ref()
+			.unwrap()
+			.nodes;
+		let position = |name| {
+			nodes
+				.iter()
+				.find_map(|(_, node)| {
+					(node.label() == Some(name))
+						.then(|| node.bounds())
+						.flatten()
+				})
+				.expect("server rail entry")
+		};
+		let current = position("Current synthetic server");
+		let other = position("Other synthetic server");
+		assert!(current.y0 < other.y0);
+		let pos = egui::pos2(
+			((current.x0 + current.x1) * 0.5) as f32,
+			((current.y0 + current.y1) * 0.5) as f32,
+		);
+		output.drop_without_applying_deltas();
+		for pressed in [true, false] {
+			frame(
+				&mut picker,
+				&mut state,
+				vec![
+					egui::Event::PointerMoved(pos),
+					egui::Event::PointerButton {
+						pos,
+						button: egui::PointerButton::Primary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					},
+				],
+			)
+			.drop_without_applying_deltas();
+		}
+		assert_eq!(picker.server, Some(Id(777)));
+		assert_eq!(
+			state
+				.guilds
+				.iter()
+				.map(|guild| guild.id)
+				.collect::<Vec<_>>(),
+			order
+		);
+		for number in 0..40 {
+			let mut guild = state.guilds[0].clone();
+			guild.id = Id(2000 + number);
+			guild.name = format!("Additional synthetic {number}");
+			state.guilds.push(guild);
+		}
+		frame(&mut picker, &mut state, vec![]).drop_without_applying_deltas();
+		let rail = picker.rail_scroll.unwrap();
+		let mut scrolled = egui::scroll_area::State::load(&ctx, rail).unwrap();
+		scrolled.offset.y = 600.0;
+		scrolled.store(&ctx, rail);
+		frame(&mut picker, &mut state, vec![]).drop_without_applying_deltas();
+		assert!(egui::scroll_area::State::load(&ctx, rail).unwrap().offset.y > 100.0);
+		state
+			.channels
+			.iter_mut()
+			.find(|known| known.id == channel)
+			.unwrap()
+			.guild = Some(Id(2039));
+		for _ in 0..2 {
+			frame(&mut picker, &mut state, vec![]).drop_without_applying_deltas();
+		}
+		assert_eq!(
+			egui::scroll_area::State::load(&ctx, rail).unwrap().offset.y,
+			0.0
+		);
+		assert_eq!(picker.rail_guild, Some(Id(2039)));
+	}
 
 	#[test]
 	#[ignore = "release picker frame benchmark; ten warmup frames and one warmup/five measured batches"]
@@ -2984,15 +3278,45 @@ mod tests {
 	}
 
 	#[test]
+	fn quiet_insertions_keep_full_payload_limit_without_extending_literal_edits() {
+		let mut quiet = format!("@silent {}", "x".repeat(client_core::MAX_CONTENT - 1));
+		assert!(insert(&mut quiet, "🙂", None, 64, false).is_some());
+		assert!(model::message_options::valid(
+			&quiet,
+			client_core::MAX_CONTENT,
+			false
+		));
+		let full = quiet.clone();
+		assert!(insert(&mut quiet, "x", None, 64, false).is_none());
+		assert_eq!(quiet, full);
+		let mut literal = format!("@silent {}", "x".repeat(client_core::MAX_CONTENT - 8));
+		let original = literal.clone();
+		assert!(insert(&mut literal, "🙂", None, 64, true).is_none());
+		assert_eq!(literal, original);
+		let mut shortcode = format!(
+			"@silent {} :heart:",
+			"x".repeat(client_core::MAX_CONTENT - 8)
+		);
+		let cursor = shortcode.chars().count();
+		assert!(complete_shortcode(&mut shortcode, cursor, 64, false).is_some());
+		assert!(shortcode.ends_with("❤️"));
+		assert!(model::message_options::valid(
+			&shortcode,
+			client_core::MAX_CONTENT,
+			false
+		));
+	}
+
+	#[test]
 	fn insertion_replaces_unicode_selection_and_respects_character_and_capacity_budgets() {
 		use egui::text::{CCursor, CCursorRange};
 		let mut draft = "前👩🏽‍💻後".to_owned();
 		let selection = Some(CCursorRange::two(CCursor::new(5), CCursor::new(1)));
-		assert_eq!(insert(&mut draft, "❤️", selection, 0), Some(3));
+		assert_eq!(insert(&mut draft, "❤️", selection, 0, true), Some(3));
 		assert_eq!(draft, "前❤️後");
 		let markup = "<a:party_blob:123456789>";
 		assert_eq!(
-			insert(&mut draft, markup, None, 100),
+			insert(&mut draft, markup, None, 100, true),
 			Some(4 + markup.len())
 		);
 		assert_eq!(draft, format!("前❤️後{markup}"));
@@ -3002,22 +3326,23 @@ mod tests {
 				&mut draft,
 				"😀",
 				Some(CCursorRange::one(CCursor::new(usize::MAX))),
-				100
+				100,
+				true
 			),
 			Some(end + 1)
 		);
 		assert!(draft.ends_with("😀"));
 
 		let mut draft = "a".repeat(client_core::MAX_CONTENT);
-		assert_eq!(insert(&mut draft, "😀", None, 100), None);
+		assert_eq!(insert(&mut draft, "😀", None, 100, true), None);
 		assert_eq!(draft.len(), client_core::MAX_CONTENT);
 		let mut draft = String::new();
-		assert_eq!(insert(&mut draft, "😀", None, 3), None);
+		assert_eq!(insert(&mut draft, "😀", None, 3, true), None);
 		assert!(draft.is_empty());
-		assert_eq!(insert(&mut draft, "😀", None, 4), Some(1));
+		assert_eq!(insert(&mut draft, "😀", None, 4, true), Some(1));
 		assert_eq!(draft.capacity(), 4);
 		let selection = Some(CCursorRange::two(CCursor::new(0), CCursor::new(1)));
-		assert_eq!(insert(&mut draft, "👍", selection, 0), Some(1));
+		assert_eq!(insert(&mut draft, "👍", selection, 0, true), Some(1));
 		assert_eq!(draft, "👍");
 		assert_eq!(draft.capacity(), 4);
 	}

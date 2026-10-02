@@ -127,15 +127,30 @@ impl StickersUi {
 			self.request_started = false;
 		}
 
-		ui.label(design::semibold(
+		design::page_header(
 			ui,
-			crate::i18n::translate("server-stickers-show-stickers"),
-			22.0,
-		));
-		ui.label(crate::i18n::translate(
-			"server-stickers-show-add-custom-stickers-for-members-to-use-in-this-server",
-		));
-		ui.add_space(14.0);
+			"server-stickers-show-stickers",
+			Some("server-stickers-show-add-custom-stickers-for-members-to-use-in-this-server"),
+			|ui| {
+				if state.can_create_guild_sticker(guild)
+					&& ui
+						.add_enabled_ui(
+							!self.choosing && self.upload.is_none() && !state.server_admin.pending,
+							|ui| {
+								design::button(
+									ui,
+									"server-stickers-show-upload-sticker",
+									design::ButtonKind::Primary,
+								)
+							},
+						)
+						.inner
+						.clicked()
+				{
+					self.choose();
+				}
+			},
+		);
 		if let Some(error) = state.server_admin.error.or(self.error) {
 			design::notice(ui, design::Level::Error, error);
 			if ui
@@ -164,25 +179,11 @@ impl StickersUi {
 		}
 
 		if state.can_create_guild_sticker(guild) {
-			if ui
-				.add_enabled_ui(
-					!self.choosing && self.upload.is_none() && !state.server_admin.pending,
-					|ui| {
-						design::button(
-							ui,
-							&crate::i18n::translate("server-stickers-show-upload-sticker"),
-							design::ButtonKind::Primary,
-						)
-					},
-				)
-				.inner
-				.clicked()
-			{
-				self.choose();
-			}
-			ui.small(crate::i18n::translate(
+			design::hint(
+				ui,
 				"server-stickers-show-static-png-jpeg-and-webp-artwork-is-supported-up-to",
-			));
+			);
+			ui.add_space(12.0);
 		}
 		if self.choosing {
 			ui.weak(crate::i18n::translate(
@@ -190,126 +191,116 @@ impl StickersUi {
 			));
 		}
 		if let Some(upload) = &mut self.upload {
-			let colors = design::palette(ui);
 			let mut cancel_upload = false;
-			egui::Frame::new()
-				.stroke(egui::Stroke::new(1.0, colors.border))
-				.corner_radius(10)
-				.inner_margin(14)
-				.show(ui, |ui| {
-					ui.label(design::semibold(
-						ui,
-						crate::i18n::translate("server-stickers-show-review-sticker"),
-						16.0,
-					));
-					ui.horizontal(|ui| {
+			design::group(ui, "server-stickers-show-review-sticker", |ui| {
+				ui.horizontal(|ui| {
+					ui.add(
+						egui::Image::from_texture(&upload.texture)
+							.fit_to_exact_size(egui::Vec2::splat(96.0)),
+					);
+					ui.vertical(|ui| {
+						crate::dialog::label(ui, "server-stickers-show-name");
+						ui.add(egui::TextEdit::singleline(&mut upload.name).char_limit(30));
+						crate::dialog::label(ui, "server-stickers-show-related-emoji");
 						ui.add(
-							egui::Image::from_texture(&upload.texture)
-								.fit_to_exact_size(egui::Vec2::splat(96.0)),
+							egui::TextEdit::singleline(&mut upload.tags)
+								.hint_text(crate::i18n::translate(
+									"server-stickers-show-for-example",
+								))
+								.char_limit(200),
 						);
-						ui.vertical(|ui| {
-							crate::dialog::label(ui, "server-stickers-show-name");
-							ui.add(egui::TextEdit::singleline(&mut upload.name).char_limit(30));
-							crate::dialog::label(ui, "server-stickers-show-related-emoji");
-							ui.add(
-								egui::TextEdit::singleline(&mut upload.tags)
-									.hint_text(crate::i18n::translate(
-										"server-stickers-show-for-example",
-									))
-									.char_limit(200),
-							);
-						});
-					});
-					crate::dialog::label(ui, "server-stickers-show-description-optional");
-					ui.add(egui::TextEdit::singleline(&mut upload.description).char_limit(100));
-					let valid = valid_fields(&upload.name, &upload.description, &upload.tags);
-					if !valid {
-						design::notice(
-							ui,
-							design::Level::Error,
-							&crate::i18n::translate(
-								"server-stickers-show-use-a-230-character-name-an-optional-description-up-to",
-							),
-						);
-					}
-					ui.horizontal(|ui| {
-						if ui
-							.add_enabled(
-								valid && !state.server_admin.pending,
-								egui::Button::new(crate::i18n::translate(
-									"server-stickers-show-upload",
-								)),
-							)
-							.clicked() && let Some(command) = state.request_server_admin(
-							guild,
-							Action::CreateSticker {
-								name: upload.name.trim().to_owned(),
-								description: upload.description.trim().to_owned(),
-								tags: upload.tags.trim().to_owned(),
-								filename: upload.filename.clone(),
-								content_type: "image/png".into(),
-								file: upload.file.clone(),
-							},
-						) {
-							self.submitted_upload = true;
-							commands.push(command);
-						}
-						if ui
-							.add_enabled(
-								!state.server_admin.pending,
-								egui::Button::new(crate::i18n::translate(
-									"server-stickers-show-cancel",
-								)),
-							)
-							.clicked()
-						{
-							cancel_upload = true;
-						}
 					});
 				});
+				crate::dialog::label(ui, "server-stickers-show-description-optional");
+				ui.add(egui::TextEdit::singleline(&mut upload.description).char_limit(100));
+				let valid = valid_fields(&upload.name, &upload.description, &upload.tags);
+				if !valid {
+					design::notice(
+						ui,
+						design::Level::Error,
+						&crate::i18n::translate(
+							"server-stickers-show-use-a-230-character-name-an-optional-description-up-to",
+						),
+					);
+				}
+				ui.horizontal(|ui| {
+					if ui
+						.add_enabled_ui(valid && !state.server_admin.pending, |ui| {
+							design::button(
+								ui,
+								"server-stickers-show-upload",
+								design::ButtonKind::Primary,
+							)
+						})
+						.inner
+						.clicked() && let Some(command) = state.request_server_admin(
+						guild,
+						Action::CreateSticker {
+							name: upload.name.trim().to_owned(),
+							description: upload.description.trim().to_owned(),
+							tags: upload.tags.trim().to_owned(),
+							filename: upload.filename.clone(),
+							content_type: "image/png".into(),
+							file: upload.file.clone(),
+						},
+					) {
+						self.submitted_upload = true;
+						commands.push(command);
+					}
+					if ui
+						.add_enabled_ui(!state.server_admin.pending, |ui| {
+							design::button(
+								ui,
+								"server-stickers-show-cancel",
+								design::ButtonKind::Neutral,
+							)
+						})
+						.inner
+						.clicked()
+					{
+						cancel_upload = true;
+					}
+				});
+			});
 			if cancel_upload {
 				self.upload = None;
 			}
 		}
 
-		ui.add_space(22.0);
-		ui.separator();
-		ui.add_space(18.0);
+		ui.add_space(24.0);
 		let Some(catalog) = state.server_admin.stickers.as_ref() else {
 			return;
 		};
 		let count = catalog.items.len();
-		ui.horizontal(|ui| {
-			ui.label(design::semibold(
-				ui,
-				crate::i18n::translate("server-stickers-show-your-stickers"),
-				18.0,
-			));
-			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-				ui.weak(catalog.limit.map_or_else(
-					|| {
-						format!(
-							"{count} {}",
-							crate::i18n::translate("server-stickers-show-stickers-2")
-						)
-					},
-					|limit| {
-						format!(
-							"{} {} {limit} {}",
-							count.min(limit),
-							crate::i18n::translate("server-stickers-show-of"),
-							crate::i18n::translate("server-stickers-show-slots-used")
-						)
-					},
-				));
-			});
-		});
-		ui.add_space(10.0);
+		let usage = catalog.limit.map_or_else(
+			|| {
+				format!(
+					"{count} {}",
+					crate::i18n::translate("server-stickers-show-stickers-2")
+				)
+			},
+			|limit| {
+				format!(
+					"{} {} {limit} {}",
+					count.min(limit),
+					crate::i18n::translate("server-stickers-show-of"),
+					crate::i18n::translate("server-stickers-show-slots-used")
+				)
+			},
+		);
+		design::section(ui, "server-stickers-show-your-stickers", Some(&usage));
 		if catalog.items.is_empty() {
-			ui.vertical_centered(|ui| {
-				ui.weak(crate::i18n::translate(
+			design::card(ui, |ui| {
+				design::empty_state(
+					ui,
+					icons::Icon::Smile,
 					"server-stickers-show-no-custom-stickers-yet",
-				))
+					if state.can_create_guild_sticker(guild) {
+						"server-stickers-empty-detail"
+					} else {
+						""
+					},
+				);
 			});
 		} else {
 			let available = ui.available_width();
@@ -321,7 +312,7 @@ impl StickersUi {
 					for (index, row) in catalog.items.iter().enumerate() {
 						ui.push_id(row.sticker.id, |ui| {
 							egui::Frame::new()
-								.fill(design::palette(ui).surface)
+								.fill(design::palette(ui).raised)
 								.stroke(egui::Stroke::new(1.0, design::palette(ui).border))
 								.corner_radius(10)
 								.inner_margin(10)
@@ -342,16 +333,25 @@ impl StickersUi {
 											egui::Label::new(design::medium(
 												ui,
 												&row.sticker.name,
-												13.0,
+												14.0,
 											))
 											.truncate(),
 										);
 										if let Some(user) = &row.uploader {
-											ui.weak(format!(
-												"{} {}",
-												crate::i18n::translate("server-stickers-show-by"),
-												user.name
-											));
+											ui.add(
+												egui::Label::new(
+													RichText::new(format!(
+														"{} {}",
+														crate::i18n::translate(
+															"server-stickers-show-by"
+														),
+														user.name
+													))
+													.size(12.0)
+													.color(design::palette(ui).muted),
+												)
+												.truncate(),
+											);
 										}
 										if state.can_edit_guild_sticker(guild, row.sticker.id) {
 											let button = icons::button(

@@ -2458,8 +2458,6 @@ server-admin-emojis-image = 画像
 # Context: emojis
 server-admin-emojis-name = 名前
 # Context: emojis
-server-admin-emojis-none = なし
-# Context: emojis
 server-admin-emojis-preparing-emoji-images = 絵文字画像を準備しています...
 # Context: emojis
 server-admin-emojis-remove = 取り除く
@@ -2553,8 +2551,6 @@ server-admin-members-recent-members = 最近のメンバー
 server-admin-members-search-by-username-or-id = ユーザー名またはIDで検索
 # Context: members
 server-admin-members-server-members = サーバーメンバー
-# Context: members
-server-admin-members-show-members-in-channel-list = チャンネルリストにメンバーを表示
 # Context: members
 server-admin-members-show-the-members-page-in-the-channel-list-to-quickly = チャンネル リストのメンバー ページを表示すると、最近の参加や異常なアクティビティのフラグが立てられたメンバーをすぐに確認できます。
 # Context: members
@@ -4343,3 +4339,85 @@ lib-composer-onboarding-complete = オンボーディングを完了
 
 reconnect-now = 今すぐ再接続
 connection-recovering-send = Discord に再接続しています。メッセージの送信は試せますが、ネットワークが復旧するまで配信に失敗する場合があります。
+
+voice-call-moved-to-another-client = このデバイスの通話セッションが置き換えられました
+
+server-settings-page-safety = 安全設定
+
+server-settings-nav-title = サーバー設定
+
+server-settings-safety-subtitle = このサーバーでチャットできる人と、Discordが不適切なコンテンツをスキャンするメディアを決めます。
+
+server-settings-safety-community-note = コミュニティサーバーでは、認証レベルを「低」以上にし、すべてのメンバーのメディアをスキャンする必要があります。
+
+server-settings-safety-verification = 認証レベル
+
+server-settings-safety-verification-help = メンバーがテキストチャンネルで発言したりダイレクトメッセージを始めたりする前に、これらの条件を満たす必要があります。
+
+server-settings-safety-verification-none = なし
+
+server-settings-safety-verification-none-detail = 制限なし
+
+server-settings-safety-verification-low = 低
+
+server-settings-safety-verification-low-detail = Discordアカウントのメールアドレスが認証済みである必要があります。
+
+server-settings-safety-verification-medium = 中
+
+server-settings-safety-verification-medium-detail = さらにDiscordに登録してから5分以上経過している必要があります。
+
+server-settings-safety-verification-high = 高
+
+server-settings-safety-verification-high-detail = さらにこのサーバーのメンバーになってから10分以上経過している必要があります。
+
+server-settings-safety-verification-highest = 最高
+
+server-settings-safety-verification-highest-detail = Discordアカウントの電話番号が認証済みである必要があります。
+
+server-settings-safety-filter = 不適切なメディアコンテンツフィルター
+
+server-settings-safety-filter-help = このサーバーに送信された、不適切な内容を含む可能性のあるメディアを自動で検出してブロックします。
+
+server-settings-safety-filter-disabled = メディアをスキャンしない
+
+server-settings-safety-filter-no-roles = ロールのないメンバーのメディアをスキャン
+
+server-settings-safety-filter-all = すべてのメンバーのメディアをスキャン
+
+server-settings-profile-form-banner-custom = カスタムカラー
+
+server-settings-profile-form-banner-custom-help = 上のプリセットか、バナーに使う任意の色を選びます。
+
+server-settings-profile-server-id = サーバーID
+
+server-settings-profile-server-id-help = このIDはボット、モデレーションツール、サポートへの問い合わせに使います。
+
+server-settings-profile-copy-id = IDをコピー
+
+server-settings-engagement-system-welcome = 誰かがサーバーに参加したときにランダムな歓迎メッセージを送信する。
+
+server-settings-engagement-system-welcome-sticker = 歓迎メッセージにスタンプで返信するようメンバーに促す。
+
+server-settings-engagement-system-boost = 誰かがこのサーバーをブーストしたときにメッセージを送信する。
+
+server-settings-engagement-system-tips = サーバー設定に役立つヒントを送信する。
+
+server-invites-header-subtitle = このサーバーに参加できるリンクを共有します。
+
+server-audit-log-header-subtitle = このサーバーのモデレーションと設定変更の記録です。
+
+server-audit-log-empty-detail = 別のユーザーや操作を選ぶか、再読み込みして新しいイベントを確認してください。
+
+server-members-header-subtitle = このサーバーのメンバーを表示、検索、管理します。
+
+server-members-show-in-channel-list = チャンネルリストにメンバーを表示
+
+server-emoji-section-static = 静止画の絵文字
+
+server-emoji-empty-static = 絵文字はまだありません
+
+server-emoji-empty-animated = アニメーション絵文字はまだありません
+
+server-emoji-empty-detail = 画像をアップロードして追加します。GIFはアニメーション絵文字になります。
+
+server-stickers-empty-detail = 画像をアップロードして最初のスタンプを追加しましょう。

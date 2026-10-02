@@ -1,5 +1,38 @@
 # Discord compatibility — checked 2026-09-10
 
+
+## GIF favorite synchronization — October 2, 2026
+
+Opening the GIF picker lazily reads account favorites through the unofficial
+`GET /users/@me/settings-proto/2` route. After a successful read, explicit star
+changes save one URL using a fresh read and `required_data_version`. Failed,
+conflicting or unconfirmed writes are never automatically retried; Refresh from
+Discord restores synchronization. Existing local favorites remain a bounded
+fallback and are never uploaded in bulk. Previously loaded remote favorites that
+disappear on refresh are removed locally. The native list displays at most 100
+entries; writes preserve unseen entries rather than replacing the list with that
+projection.
+
+The [primary FrecencyUserSettings schema](https://github.com/dolfies/discord-protos/blob/f5c06d6f5764a66302f7eede675fd703c31be08a/discord_protos/discord_users/v1/FrecencyUserSettings.proto)
+establishes the URL-keyed favorite map, source, format, dimensions and order.
+The [maintainer's endpoint reference](https://docs.discord.food/resources/user-settings-proto#modify-user-settings-proto)
+specifies replacement of a supplied top-level subtree, so the complete raw
+favorites subtree, tooltip setting and unknown entry fields survive each edit.
+Returned saves must confirm the changed entry and unchanged other entries.
+Service normalization may conservatively report an unconfirmed save; inspect via
+Refresh before a deliberate new change.
+
+Supported Tenor/KLIPY image sources reuse native previews. Video-only sources are
+retained verbatim and show a placeholder, without converting or downloading an
+invented image URL. Unsupported hosts/formats remain untouched on the server and
+are omitted from the native projection. The native projection shows highest wire order first with URL tie-breaking;
+a new entry receives the highest order plus one. Distinct local fallback entries
+reserve space before remote entries when the combined list exceeds 100. A late
+initial cache is skipped after an explicit star or removal-history overflow so it
+cannot undo newer actions. Same-account reconnect clears interrupted requests and
+requires a fresh read before another explicit server write. Cross-client ordering and normal-account service acceptance remain
+unverified. No live account or service write was used for verification.
+
 ## Custom Rich Presence - September 28, 2026
 
 The **Custom Rich Presence** catalog plugin adds an independent native implementation of
@@ -326,6 +359,13 @@ These routes are wired for normal-account use but live interoperability remains
 unverified. The offline server-settings preview changes synthetic RAM only.
 Selected icons are prepared off the render thread; only Save uploads them.
 
+Safety Setup (also Manage Server) edits the documented `verification_level`
+(0–4) and `explicit_content_filter` (0–2) fields through the same guild route.
+Servers with the `COMMUNITY` feature cannot choose verification None or partial
+media scanning; the editor disables those choices and the reducer and encoder
+reject such edits before any request. The banner color also accepts any
+`#RRGGBB` value besides the presets. Live interoperability remains unverified.
+
 The permission-gated Stickers page loads the guild sticker catalog and supports
 creating, editing and deleting stickers through Discord's documented
 [guild sticker routes](https://docs.discord.com/developers/resources/sticker#guild-sticker-resource).
@@ -413,6 +453,10 @@ September 13: Windows settings and call controls now enumerate/select cameras,
 including DirectShow-only virtual sources. A read-only native enumeration test
 found three registered virtual cameras on the Windows test machine; it did not
 activate any source. Actual capture and Discord delivery remain unverified.
+October 2: camera capture now selects formats near the existing 640×480,
+15 fps stream, with a 1280×720 native input ceiling and the existing bounded
+1920×1080 DirectShow fallback. Device-format/rate
+selection does not change Discord signaling or establish live interoperability.
 Native limits, platform requirements and the owner-operated validation gate are in
 [Camera in calls](voice.md#camera-in-calls-macos-windows-and-linux). Receiving video
 and recording remain unsupported. This section supersedes older camera-exclusion
@@ -749,6 +793,17 @@ Read-state continuation (September 10): channel read cursors and latest-message 
 Outgoing mark-unread and guild acknowledgement (September 16): Mark Unread ACKs the previous snowflake with `manual: true`, matching unofficial [discord.py-self `ack_message`](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py). Server Mark As Read uses `POST /guilds/{guild_id}/ack` from the same source. A manual unread in a DM or group sends `mention_count` for the loaded messages now past the cursor, because Discord does not calculate that badge. Mark Unread in a guild channel sends `mention_count` for loaded pings in that range. Server Mark As Read still omits it. Live Discord acceptance is unverified. A legacy acknowledgement token, if supplied, is capped at 2048 bytes in zeroized session memory; the response body is capped at 4096 bytes. Neither cursors nor acknowledgement tokens are written to SQLite. The linked primary client implementation supplies unofficial wire evidence; local HTTP/WebSocket fixtures do not establish Discord acceptance.
 
 Search continuation (September 10): guild conversations use the guild search route with an exact channel filter; DMs use the channel route. Search content is percent-encoded, with timestamp-descending order and bounded offset pagination. Query date boundaries remain fixed across numbered pages. One replaceable task uses existing REST permits, deadlines and cooldowns. Indexing responses require another deliberate Search action after the service delay; no automatic polling, broad account search, advanced filters, NSFW override or search-result persistence is implemented. Service totals and partial-index status are displayed as supplied, not asserted complete. Opening a result fetches up to 50 history messages ending at that ID and positions the timeline there; unavailable results are reported. Existing reload returns to latest history. Search snapshots are cleared on relevant edits/deletes, navigation, disconnect, permission invalidation and logout. Original-client sources supply wire evidence only; no source-code blocks were copied and no authenticated service request was used as validation.
+
+Flatpak locale containment (October 2, 2026): after GTK initialization, Linux login
+and invite-verification webviews reject a non-UTF-8 effective encoding inside
+Flatpak before constructing WebKit. The existing error surface provides runtime
+language/restart guidance; sign-in and reconnect preserve the fixed local error
+label instead of replacing it with a generic webview error. No environment/global locale, sandbox permission,
+authentication handoff or storage setting is modified. This contains the known
+C-locale subprocess-start failure; it does not repair missing runtime locales or
+establish successful sign-in. The guard intentionally also blocks ASCII-only
+Flatpak setups that might otherwise happen to work. Native non-Flatpak webview admission
+is unchanged. See [Flatpak troubleshooting](../packaging/flatpak/README.md#loginverification-locale-troubleshooting).
 
 Login compatibility correction (September 10): READY read_state accepts both the legacy array and the versioned entries/version/partial object, under the same 4000-entry bound. Serein's Identify does not request the versioned_read_states capability; rejecting the legacy shape previously rejected the entire login payload. The capability's effect is described in the original [discord.py-self capability definitions](https://github.com/dolfies/discord.py-self/blob/master/discord/flags.py), rechecked September 10. Partial snapshots leave omitted channels unknown. Identify capabilities remain unchanged. Static error labels distinguish account verification, Gateway discovery, READY decoding and connection setup without exposing payloads, credentials or remote error text. Synthetic regression and loopback evidence do not establish actual account login success.
 
@@ -1925,8 +1980,10 @@ only; neither is proof of live Discord interoperability.
 ## Search navigation — September 29, 2026
 
 Ctrl+F (Command+F on macOS) opens and focuses search for the current conversation.
-The search field shows the selected channel or DM name; repeated use preserves the
-query and current result page. The shortcut can be remapped in Keybinds. It does not
+In a server channel, the shortcut prefills a readable `in:` filter for the current
+channel and leaves the caret ready for search text. DMs retain their implicit
+conversation scope. Repeated use preserves the query and current result page. The shortcut can be remapped
+in Keybinds. It does not
 interrupt settings, modal dialogs, or active IME composition.
 
 Previous/next controls and a page-number field replace the older/newest-only pager.
@@ -1967,6 +2024,19 @@ through the same bounded range reader; no decoder, cache or queue is changed.
 The issue #485 error occurs before networking or native decoding when attachment
 URL/metadata admission fails. A media-host URL was one reproducible rejected form;
 the reporter's exact URL and native Linux/Windows playback remain unverified.
+
+### Message-scoped attachment paths (October 2, 2026)
+
+Audio, video and explicit downloads also accept
+`/attachments/{channel_id}/{message_id}/{attachment_id}/{filename}`, alongside the
+legacy path without a message ID. The additional form is described by the
+[maintained unofficial CDN reference](https://github.com/discord-userdoccers/discord-userdoccers/blob/2e13ae4fb04253a9e9e8d345ec0be2e2950af2b3/pages/reference.mdx#L875).
+Previously, it failed admission before audio decoding with “Audio attachment unavailable”.
+Both source IDs must be valid nonzero Discord IDs; the attachment ID must still match
+the received attachment. Source channel/message IDs can differ from a forwarded
+message's outer identity. Signed paths and queries remain intact, and the existing
+origin, metadata, file-size and transformation guards remain enforced. Synthetic
+checks cover both forms and both hosts; the reported live message remains unverified.
 
 ## Optional REST API proxy plugin (preview)
 
@@ -2054,3 +2124,72 @@ waits without opening a network connection or audio device. Workspace tests also
 use a local synthetic WebSocket to check late recovery requests and preserved
 RESUME session/cursor state. macOS sleep/wake and live Discord RESUME/delivery
 remain unverified in this Linux fast pass.
+
+## Quiet messages (`@silent`)
+
+Start a new message with `@silent` followed by whitespace to request a quiet send.
+The marker and exactly one separating whitespace character are removed; remaining
+indentation, line breaks and trailing whitespace are preserved. The documented
+[`SUPPRESS_NOTIFICATIONS` message flag](https://docs.discord.com/developers/resources/message#message-object-message-flags)
+(4096) is set. Discord describes this as suppressing push/desktop notifications while
+retaining notification badges. Existing mention selection and reply-mention preferences
+still apply. Ordinary text, replies, attachment captions, sticker captions and forum
+starter messages share this behavior. An attachment or sticker can use `@silent` alone;
+a text-only empty message is rejected. Embedded occurrences, `@silently`, escaped/code
+text and edits remain literal. The prefix is case-sensitive.
+
+Pending/recovery text retains the typed prefix until service confirmation so a failed
+send can be reviewed and deliberately retried with the same intent. Writes are never
+automatically replayed. The flag is documented in Discord's developer API; normal-account
+interoperability remains unofficial and live-unverified. Loopback tests inspect the
+actual outgoing JSON and do not contact Discord.
+
+Quiet-message admission is shared by the composer, forum editor, core state and
+transport. A marker-only text draft is rejected before it or its reply is consumed;
+attachment/sticker-only messages may carry the marker. New-message editors have an
+eight-scalar marker allowance while the effective outgoing text retains its full
+2,000-scalar limit. The allowance is separately bounded; edits treat the marker
+literally. Existing per-draft byte ceilings and the session input budget remain
+in force. A quiet forwarding note affects only that separately sent note.
+
+## Public Catbox attachment links (October 2, 2026)
+
+Each staged message-composer file has a **Host file…** action. Selecting it shows
+per-file consent before an anonymous upload to Catbox; nothing happens automatically
+when Discord rejects a file. The original bytes are streamed without compression.
+Successful links remain in the dialog for **Copy link** or **Add to draft**, followed
+by the user's ordinary Send action. Adding preserves existing text and observes the
+composer's character, item and aggregate byte limits. A link can only be added to
+its original conversation. Navigation cancels an active upload; a completed link
+remains copyable until the dialog closes. Session/account reset clears the dialog.
+
+The independent credential-free client uses fixed
+`POST https://catbox.moe/user/api.php` with multipart `reqtype=fileupload` and
+`fileToUpload`, following [Catbox's API documentation](https://catbox.moe/tools.php).
+It disables redirects, retries, cookies and proxy discovery, caps each streamed
+chunk at 64 KiB, and accepts at most 4 KiB of response containing only a plain HTTPS
+`files.catbox.moe` file URL. No Discord token or channel/account metadata is sent.
+Sources reuse the existing regular-file, size/modified-time and open-descriptor
+checks, including revalidation before completing the multipart body and after the
+response. This cannot provide an immutable snapshot against a concurrent writer
+restoring identical metadata.
+
+The service [advertises 200 MB uploads](https://catbox.moe/); the
+[FAQ](https://catbox.moe/faq.php) rejects EXE/SCR/CPL/JAR and DOC-family extensions,
+and GIFs above 20 MB. Its current anonymous retention is two years of inactivity,
+not permanent account-associated storage. Files and their original embedded metadata
+are public to anyone with the link. No host account, userhash, automatic fallback,
+remote deletion or Litterbox integration is included. Cancellation, failed responses,
+logout and deleting a Discord message cannot remove already received hosted bytes.
+A successful upload removes only that staged file; errors retain its local selection.
+UI consent and transport use the same UI-neutral admission rules. Public-upload
+failures are typed outcomes, translated in English and Czech without displaying
+raw service responses.
+
+[SakuraCord's external-host flow](https://github.com/SakuraCordApp/SakuraCord/blob/main/App/Sources/SakuraCord/Services/ExternalAttachmentUploader.swift)
+was inspected for behavior; this implementation is original and follows the service's
+own documentation. This addresses the owner's external-host alternative to issue #128,
+whose original compression request is not implemented. Synthetic localhost tests and
+`--features demo -- --demo --demo-chat --demo-attachment=file --demo-external-upload`
+verify local behavior without any real hosted upload or Discord session. Live service
+acceptance, link embedding and other-platform native interaction remain unverified.

@@ -25,8 +25,16 @@ class SetupTest(unittest.TestCase):
             ("manjaro", "26", "", "y", fingerprint, 1, False),
             ("cachyos", "rolling", "arch", "n", fingerprint, 0, False),
         ]
-        for distro, version, id_like, answer, key, expected_status, installed in cases:
-            with self.subTest(distro=distro, version=version, answer=answer, key=key), tempfile.TemporaryDirectory() as directory:
+        cases = [(*case, "x86_64") for case in cases]
+        cases.extend([
+            ("ubuntu", "26.04", "debian", "n", fingerprint, 0, False, "aarch64"),
+            ("ubuntu", "26.04", "debian", "n", fingerprint, 0, False, "arm64"),
+            ("ubuntu", "26.04", "debian", "n", fingerprint, 0, False, "x86_64"),
+            ("ubuntu", "24.04", "debian", "n", fingerprint, 1, False, "aarch64"),
+            ("fedora", "44", "", "n", fingerprint, 1, False, "aarch64"),
+        ])
+        for distro, version, id_like, answer, key, expected_status, installed, architecture in cases:
+            with self.subTest(distro=distro, version=version, architecture=architecture, answer=answer, key=key), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 release = root / "os-release"
                 release.write_text(f'ID={distro}\nVERSION_ID={version}\nID_LIKE="{id_like}"\n')
@@ -34,13 +42,14 @@ class SetupTest(unittest.TestCase):
                 setup.write_text(Path(__file__).with_name("setup.sh").read_text().replace("/etc/os-release", str(release)))
                 commands = {
                     "id": "echo 0",
-                    "uname": "echo x86_64",
+                    "uname": f"echo {architecture}",
+                    "apt-get": ":",
                     "curl": 'printf "DOWNLOAD %s\\n" "$5"; printf "fixture\\n" > "$7"',
                     "gpg": f'printf "fpr:::::::::{key}:\\n"',
                     "rpm": 'echo "SIMULATED WRITE rpm $*"',
                     "install": 'echo "SIMULATED WRITE install $*"',
                     "pacman-key": 'echo "SIMULATED WRITE pacman-key $*"',
-                    "tee": 'echo "SIMULATED WRITE tee $*"',
+                    "tee": 'cat > "$(dirname "$0")/source-list"; echo "SIMULATED WRITE tee $*"',
                     "dnf": '[ -t 0 ] || exit 20; printf "Key import [y/N]: "; read -r key_answer; '
                            '[ "$key_answer" = y ] || exit 21; echo "SIMULATED INSTALL"',
                 }
@@ -87,7 +96,13 @@ class SetupTest(unittest.TestCase):
                 self.assertEqual(os.waitstatus_to_exitcode(status), expected_status, output)
                 self.assertEqual("SIMULATED INSTALL" in output, installed, output)
                 self.assertNotIn(r"\033[", output)
-                if expected_status == 0:
+                if expected_status == 0 and distro == "ubuntu":
+                    deb_arch = "amd64" if architecture == "x86_64" else "arm64"
+                    self.assertIn(f"/ubuntu-26.04/{deb_arch}/apt/serein.asc", output)
+                    source = (root / "source-list").read_text()
+                    self.assertIn(f"arch={deb_arch} ", source)
+                    self.assertIn(f"/ubuntu-26.04/{deb_arch}/apt ./", source)
+                elif expected_status == 0:
                     path = (
                         "/arch/x86_64/arch/serein.asc"
                         if id_like == "arch"
