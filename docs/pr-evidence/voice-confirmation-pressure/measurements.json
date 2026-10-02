@@ -2,7 +2,7 @@
   "source": "9cdad91c86139543a370f3658e5f92257a9064fe",
   "application_source": "5724cf5be34f17a62ee1b5fc07f2cd2653be3d79",
   "baseline_source": "1107d9045fb9d98980d6d8e9987c96a362b4f9ab",
-  "source_note": "The standard feature package was built from 5724; 9cd adds only cfg(test) live-negotiation coverage. Optimized feature demo and reducer were built from 9cd. Later main features are outside this recorded comparison.",
+  "source_note": "HISTORICAL PRE-WATCH COMPARISON: the standard feature package was built from 5724; 9cd adds only cfg(test) live-negotiation coverage. These native/reducer/package measurements exclude later main integration and the reliable confirmation-failure watch correction 5ecd. Current aggregate correction package and verification are recorded separately below.",
   "environment": {
     "os": "macOS 27.0 (26A428)",
     "architecture": "ARM64",
@@ -402,7 +402,6 @@
       }
     }
   },
-  "bounds": "Confirmation failure carries a channel ID, two u64 values, and a fixed static diagnostic through the existing bounded event queue. No allocated payload, pending retry slot, new cache or worker is added; original 30-second negotiation deadline unchanged.",
   "limitations": "Idle CPU/RSS and bounded synthetic reducer regression checks do not measure queue latency, UI frames/GPU, live Discord interoperability, or physical media performance. No live account, service call, microphone, camera or OS picker was used. Tiny differences are noise; no improvement claim.",
   "build_provenance": {
     "baseline": {
@@ -445,5 +444,73 @@
       "optimized_demo_log_sha256": "f95689eb30b281430bf630fb0fdab3af654ae0dd22c7f65a6db14595bc76014d",
       "transition": "Optimized demo immediately followed the standard package in the same unchanged production worktree. Reused release dependencies came from that freshly compiled standard source; only demo-affected packages were rebuilt."
     }
+  },
+  "historical_pre_watch_bounds": "Confirmation failure carries a channel ID, two u64 values, and a fixed static diagnostic through the existing bounded event queue. No allocated payload, pending retry slot, new cache or worker is added; original 30-second negotiation deadline unchanged.",
+  "current_watch_correction": {
+    "source": "5ecd04f7fb495a1d574197eb85ad6006b4fdb5a3",
+    "production_changed": true,
+    "bounds": "One optional fixed Copy report containing generation/channel/request/revision and static diagnostic, at most 64 bytes plus fixed watch synchronization metadata. No allocated payload or credentials, account-event item/byte usage, retry worker or new command slot. Report stays unseen until reliable FIFO drains; closed-publisher report delivered exactly once; original 30-second deadline unchanged.",
+    "verification": {
+      "focus": "9 passed including actual 4,008 event items + 32 MiB budget + 8 controls, replacement/ACK beyond frame batch, closed publisher once-only, dormantLive retirement",
+      "strict_desktop_all_target_clippy": "PASS",
+      "full": "PASS174 Desktop / 6 existing ignored; 367 UI / 5 existing ignored, all workspace tests/format/strict/policy",
+      "focus_log_sha256": "1be5ed218e0e970bea9f830b19f5ea4631431e19e06dcbd5c53acd39d2d833c0",
+      "strict_log_sha256": "d8f12336e8458aab1bd94822d3698a3426ddbe3cf666bdd9177b82b003db2e83",
+      "full_log_sha256": "24285d4a682c7ad9427df777af740c9867c75ff501280f936a75913a3dd57bf2",
+      "durable_logs": [
+        {
+          "path": "docs/pr-evidence/voice-confirmation-pressure/logs/watch-focus-retry.log",
+          "bytes": 6790,
+          "sha256": "1be5ed218e0e970bea9f830b19f5ea4631431e19e06dcbd5c53acd39d2d833c0",
+          "source": "Exact frozen four-path source committed as5ecd; actual offline verification log, not a new run"
+        },
+        {
+          "path": "docs/pr-evidence/voice-confirmation-pressure/logs/watch-clippy.log",
+          "bytes": 7069,
+          "sha256": "d8f12336e8458aab1bd94822d3698a3426ddbe3cf666bdd9177b82b003db2e83",
+          "source": "Exact frozen four-path source committed as5ecd; actual offline verification log, not a new run"
+        },
+        {
+          "path": "docs/pr-evidence/voice-confirmation-pressure/logs/watch-full-check.log",
+          "bytes": 130502,
+          "sha256": "24285d4a682c7ad9427df777af740c9867c75ff501280f936a75913a3dd57bf2",
+          "source": "Exact frozen four-path source committed as5ecd; actual offline verification log, not a new run"
+        }
+      ]
+    },
+    "standard_build": {
+      "source": "5ecd04f7fb495a1d574197eb85ad6006b4fdb5a3",
+      "source_clean": true,
+      "capture_hooks": false,
+      "package": {
+        "executable_bytes": 62269504,
+        "installed_bytes": 68279933,
+        "regular_files": 206,
+        "distribution_zip_bytes": 43364502,
+        "method": "standard cargo xtask package, including voice and notices; sum regular files; ditto -c -k --sequesterRsrc"
+      },
+      "executable_sha256": "f1b041ec415bed6deb9731abd585a0a008487c0ede2c5613be4d3e56e8462f91",
+      "fresh_runtime_workspace_crates": [
+        "model",
+        "session-cache",
+        "client-core",
+        "discord-protocol",
+        "discord-voice",
+        "platform",
+        "extensions",
+        "serein",
+        "ui",
+        "discord-api",
+        "local-store",
+        "discord-gateway"
+      ],
+      "standard_log_sha256": "9b8783d755a02a0148c29110a1c6d7556f3dcb9095d46d2eca34b22b0809146c",
+      "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein-target-voice-delivery CARGO_BUILD_JOBS=2 cargo xtask package",
+      "features": "xtask internally uses --no-default-features; voice included; repository FAT-LTO unchanged",
+      "signing": "deep/strict ad-hoc signature verification passed, not notarized",
+      "elapsed": "11m46s",
+      "scope": "Fresh aggregate correction source contains intervening main features; no isolated watch-package delta and no old idle/reducer measurements relabeled"
+    },
+    "unchanged_ui": "No widget/layout change; existing candidate-error UI reused. Earlier native/reducer samples remain historical and are not claimed for corrected watch source."
   }
 }

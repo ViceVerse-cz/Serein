@@ -3676,9 +3676,9 @@ cache, retry loop or schema is added. Raw source IDs, hashes, samples and build
 provenance are recorded in
 `docs/pr-evidence/dm-ring-controls/measurements.json`.
 
-## Voice confirmation queue admission — October 2, 2026
+## Voice confirmation queue admission — historical pre-watch comparison (October 2, 2026)
 
-Feature source `9cdad91c86139543a370f3658e5f92257a9064fe` is compared with
+Historical pre-watch feature source `9cdad91c86139543a370f3658e5f92257a9064fe` is compared with
 main `1107d9045fb9d98980d6d8e9987c96a362b4f9ab`. The standard feature package
 was built from `5724cf5be34f17a62ee1b5fc07f2cd2653be3d79`; `9cd` adds only
 `cfg(test)` live-negotiation coverage and leaves production source unchanged.
@@ -3723,10 +3723,36 @@ applies only to the pure reducer, not the application or UI. Baseline samples sp
 52.768833–53.726709 ms; after samples span 52.405167–54.155959 ms. The ranges overlap.
 These checks measure neither queue latency nor UI frames, GPU or live media.
 
-The new local failure event retains only a channel ID, two `u64` values and a
-fixed static diagnostic in the existing bounded event queue. No allocated payload,
-retry slot, cache or worker is added; the original 30-second negotiation deadline
-remains. No live account, service call, microphone, camera or OS picker was used.
+Those samples describe the older event-queue implementation only. Current
+correction `5ecd04f7fb495a1d574197eb85ad6006b4fdb5a3` changes production delivery
+to one optional fixed-size failure watch, independent of reliable account-event
+capacity. The report retains generation, channel, request, revision and a static
+diagnostic: at most 64 bytes plus fixed watch synchronization metadata. It has
+no allocated payload or credentials, retry worker or additional command slot.
+Reports remain unseen until the reliable FIFO drains; a final report survives
+publisher shutdown and is consumed once. The original 30-second negotiation
+deadline remains.
+
+The corrected source passed nine focused pressure/FIFO/closed-publisher/retirement
+regressions, strict desktop all-target lint and the full workspace check
+(174 desktop / 367 UI tests; six / five existing ignored). Its fresh standard
+package compiled all 12 runtime workspace crates after all-worktree-ID release
+invalidation, passed in 11m46s, and passed deep/strict ad-hoc signature verification.
+It contains intervening main features, so these are aggregate package sizes,
+not an isolated watch correction delta:
+
+| Current aggregate metric | Corrected source 5ecd |
+| --- | ---: |
+| Standard executable | 62,269,504 B |
+| Installed package | 68,279,933 B / 206 files |
+| Full distribution ZIP | 43,364,502 B |
+
+Old native/reducer values above are not measurements of this corrected source.
+No new layout changed, so no new screenshots were required; the existing local
+candidate-error component is used. Queue latency and physical/live media remain
+unmeasured. Current source, hashes, verification and bounds are recorded separately
+in the same measurements JSON. No live account, service call, microphone, camera
+or OS picker was used.
 
 
 ## Server settings polish and rail motion (October 2, 2026)
