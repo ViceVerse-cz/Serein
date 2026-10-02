@@ -635,6 +635,89 @@ fn execute(
 	})
 }
 
+/// Offline restart check; uses only synthetic device preferences and opens no audio devices.
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub fn debug_voice_preferences_check() {
+	let root = std::env::temp_dir().join(format!(
+		"serein-voice-preferences-{}-{}",
+		std::process::id(),
+		std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.unwrap()
+			.as_nanos()
+	));
+	std::fs::create_dir(&root).unwrap();
+	let path = root.join("client.sqlite3");
+	let (send, commands) = mpsc::sync_channel(16);
+	let (_, receive) = mpsc::sync_channel(16);
+	let cache = Cache {
+		send,
+		receive,
+		budget: Arc::new(Budget::default()),
+		history: Arc::new(HistorySafety::default()),
+	};
+	let mut settings =
+		crate::app_settings::Settings::from_preferences(Ok(local_store::AppPreferences::default()));
+	let mut view = ui::MessagingUi::default();
+	settings.apply(&mut view);
+	view.set_voice_user_volume_overrides(&[(7, 35), (9, 150)]);
+	view.set_voice_user_mutes(&[9]);
+	settings.observe(&view);
+	{
+		let mut store = Ok(local_store::LocalStore::open(&path).unwrap());
+		assert!(settings.save(Some(&cache), 0));
+		let (_, account, epoch, operation, _reservation) = commands.try_recv().unwrap();
+		assert!(matches!(
+			execute(&mut store, &cache.history, account, epoch, operation),
+			Outcome::AppPreferencesSaved(Ok(()))
+		));
+	}
+	let mut restored = crate::app_settings::Settings::from_preferences(
+		local_store::LocalStore::open(&path)
+			.unwrap()
+			.app_preferences(),
+	);
+	let mut restarted = ui::MessagingUi::default();
+	restored.apply(&mut restarted);
+	assert!(restored.loaded);
+	assert!(restarted.voice_user_volumes().contains(&(7, 35)));
+	assert!(restarted.voice_user_volumes().contains(&(9, 0)));
+	assert_eq!(
+		restarted.voice_user_volume_overrides(),
+		vec![(7, 35), (9, 150)]
+	);
+	restored.observe(&restarted);
+	assert!(!restored.state.touched && !restored.state.dirty);
+	restarted.notifications_enabled = !restarted.notifications_enabled;
+	restored.observe(&restarted);
+	assert_eq!(restored.current.user_volumes, vec![(7, 35), (9, 150)]);
+	assert_eq!(restored.current.muted_users, vec![9]);
+	let mut failed =
+		crate::app_settings::Settings::from_preferences(Err(local_store::StoreError::Unavailable));
+	failed.apply(&mut restarted);
+	restarted.notifications_enabled = !restarted.notifications_enabled;
+	failed.observe(&restarted);
+	assert!(!failed.save(Some(&cache), 0));
+	assert!(matches!(
+		commands.try_recv(),
+		Err(mpsc::TryRecvError::Empty)
+	));
+	assert!(failed.state.failed && !failed.state.saving);
+	assert_eq!(
+		local_store::LocalStore::open(&path)
+			.unwrap()
+			.app_preferences()
+			.unwrap()
+			.user_volumes,
+		vec![(7, 35), (9, 150)]
+	);
+	std::fs::remove_file(path).unwrap();
+	std::fs::remove_dir(root).unwrap();
+	println!(
+		"Voice preferences debug check passed: SQLite reopen, startup restore, independent local mute and subsequent preference edits. No Discord or audio devices accessed."
+	);
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -752,6 +835,7 @@ mod tests {
 			let mut store = Ok(LocalStore::open(&path).unwrap());
 			let mut settings = crate::app_settings::Settings {
 				current: store.as_ref().unwrap().app_preferences().unwrap(),
+				loaded: true,
 				..Default::default()
 			};
 			let mut view = ui::MessagingUi::default();

@@ -18,6 +18,11 @@ impl Settings {
 		settings
 	}
 	pub fn save(&mut self, cache: Option<&crate::cache::Cache>, generation: u64) -> bool {
+		// Never replace an unread preference row with startup defaults after a read failure.
+		if !self.loaded {
+			self.state.failed = true;
+			return false;
+		}
 		if !self.state.dirty || self.state.saving {
 			return false;
 		}
@@ -104,56 +109,6 @@ impl Settings {
 		ui.set_voice_user_volume_overrides(&value.user_volumes);
 		ui.set_voice_user_mutes(&value.muted_users);
 	}
-}
-
-/// Offline restart check; uses only synthetic device preferences and opens no audio devices.
-#[cfg(all(debug_assertions, feature = "demo"))]
-pub fn debug_voice_preferences_check() {
-	let root = std::env::temp_dir().join(format!(
-		"serein-voice-preferences-{}-{}",
-		std::process::id(),
-		std::time::SystemTime::now()
-			.duration_since(std::time::UNIX_EPOCH)
-			.unwrap()
-			.as_nanos()
-	));
-	std::fs::create_dir(&root).unwrap();
-	let path = root.join("client.sqlite3");
-	let mut settings = Settings::from_preferences(Ok(AppPreferences::default()));
-	let mut view = ui::MessagingUi::default();
-	settings.apply(&mut view);
-	view.set_voice_user_volume_overrides(&[(7, 35), (9, 150)]);
-	view.set_voice_user_mutes(&[9]);
-	settings.observe(&view);
-	{
-		let store = local_store::LocalStore::open(&path).unwrap();
-		store.save_app_preferences(&settings.current).unwrap();
-	}
-	let mut restored = Settings::from_preferences(
-		local_store::LocalStore::open(&path)
-			.unwrap()
-			.app_preferences(),
-	);
-	let mut restarted = ui::MessagingUi::default();
-	restored.apply(&mut restarted);
-	assert!(restored.loaded);
-	assert!(restarted.voice_user_volumes().contains(&(7, 35)));
-	assert!(restarted.voice_user_volumes().contains(&(9, 0)));
-	assert_eq!(
-		restarted.voice_user_volume_overrides(),
-		vec![(7, 35), (9, 150)]
-	);
-	restored.observe(&restarted);
-	assert!(!restored.state.touched && !restored.state.dirty);
-	restarted.notifications_enabled = !restarted.notifications_enabled;
-	restored.observe(&restarted);
-	assert_eq!(restored.current.user_volumes, vec![(7, 35), (9, 150)]);
-	assert_eq!(restored.current.muted_users, vec![9]);
-	std::fs::remove_file(path).unwrap();
-	std::fs::remove_dir(root).unwrap();
-	println!(
-		"Voice preferences debug check passed: SQLite reopen, startup restore, independent local mute and subsequent preference edits. No Discord or audio devices accessed."
-	);
 }
 
 #[cfg(test)]

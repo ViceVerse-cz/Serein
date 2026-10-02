@@ -81,7 +81,7 @@ fn main() -> eframe::Result {
 	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-voice-preferences")
 	{
-		app_settings::debug_voice_preferences_check();
+		cache::debug_voice_preferences_check();
 		return Ok(());
 	}
 	#[cfg(all(debug_assertions, feature = "demo"))]
