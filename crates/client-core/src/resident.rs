@@ -241,6 +241,7 @@ mod tests {
 
 	fn message(channel: u64, id: u64) -> Message {
 		Message {
+			poll: None,
 			sticker_items: Vec::new(),
 			id: Id(id),
 			channel: Id(channel),
@@ -336,6 +337,7 @@ mod tests {
 	}
 	fn patch(channel: u64) -> MessagePatch {
 		MessagePatch {
+			poll: model::Patch::Absent,
 			sticker_items: model::Patch::Absent,
 			channel: Id(channel),
 			id: Id(channel * 1000 + 1),

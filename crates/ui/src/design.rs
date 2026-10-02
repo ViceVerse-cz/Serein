@@ -547,6 +547,33 @@ pub fn chat_alpha(ui: &egui::Ui) -> u8 {
 	section_surface(ui, window_palette(ui).chat, ImageSection::MessageList).a()
 }
 
+/// Message cards sit on an already-painted chat surface. Use only a thin tint on
+/// translucent chat so nested cards and answer rows do not cover the background again.
+pub fn message_card_fill(ui: &egui::Ui, color: Color32) -> Color32 {
+	let alpha = chat_alpha(ui);
+	color.gamma_multiply(if alpha == 255 {
+		1.0
+	} else {
+		f32::from(alpha) / (255.0 * 8.0)
+	})
+}
+
+/// Surface underneath a message card or fenced code block.
+#[derive(Clone, Copy)]
+pub(crate) enum MessageCardSurface {
+	Opaque,
+	Conversation,
+}
+
+impl MessageCardSurface {
+	pub(crate) fn fill(self, ui: &egui::Ui, color: Color32) -> Color32 {
+		match self {
+			Self::Opaque => color,
+			Self::Conversation => message_card_fill(ui, color),
+		}
+	}
+}
+
 /// Controls floating on a see-through conversation become frosted glass with a hairline
 /// edge: always denser than the surface behind them, so text stays legible at any setting.
 pub fn glass(ui: &egui::Ui, color: Color32) -> (Color32, Stroke) {
@@ -2051,7 +2078,8 @@ pub fn switch(
 }
 
 /// Height of every inline [`button`].
-const BUTTON_HEIGHT: f32 = 38.0;
+/// Height of every [`button`]; dialog footers size their action row from it.
+pub const BUTTON_HEIGHT: f32 = 38.0;
 
 /// Visual weight of an inline [`button`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -2214,6 +2242,14 @@ pub fn divider(ui: &mut egui::Ui) {
 	ui.add_space(24.0);
 }
 
+/// Heading at the top of a settings page, matching the server and channel settings pages.
+pub fn page_title(ui: &mut egui::Ui, title: &str) {
+	let title = crate::i18n::translate_if_key(title);
+	let p = palette(ui);
+	ui.add(egui::Label::new(semibold(ui, title, 20.0).color(p.text_strong)).wrap());
+	ui.add_space(12.0);
+}
+
 /// Title of a settings group, with an optional supporting line under it.
 pub fn section(ui: &mut egui::Ui, title: &str, help: Option<&str>) {
 	let title = crate::i18n::translate_if_key(title);
@@ -2298,12 +2334,14 @@ pub fn save_bar(
 		ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 			let save = ui
 				.add_enabled_ui(can_save, |ui| {
-					button(ui, "Save Changes", ButtonKind::Primary)
+					button(ui, "design-save-bar-save-changes", ButtonKind::Primary)
 				})
 				.inner
 				.clicked();
 			let reset = ui
-				.add_enabled_ui(can_reset, |ui| button(ui, "Reset", ButtonKind::Neutral))
+				.add_enabled_ui(can_reset, |ui| {
+					button(ui, "design-save-bar-reset", ButtonKind::Neutral)
+				})
 				.inner
 				.clicked();
 			ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {

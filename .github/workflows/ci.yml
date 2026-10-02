@@ -32,9 +32,8 @@ jobs:
         with:
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Check production build without community fixtures
+      - name: Check production build without development fixtures
         run: cargo check --locked -p serein --bin serein --no-default-features
-      - run: git submodule update --init
       - run: cargo xtask check
       - uses: oven-sh/setup-bun@v2.2.0
         with:
@@ -57,7 +56,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          submodules: true
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@1.98.1
         with:
@@ -70,14 +68,22 @@ jobs:
           workspaces: |
             . -> target
             examples/extensions -> target
+            extensions -> target
+      - name: Validate catalog packages, manifests and previews (offline)
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 extensions/test_catalog.py
+          python3 extensions/catalog.py --validate
       - run: cargo fmt --manifest-path examples/extensions/Cargo.toml --all -- --check
       - run: cargo test --manifest-path examples/extensions/Cargo.toml --workspace --locked
       - run: cargo test --locked -p extensions --test app_contract --example manifest_check
       - run: cargo clippy --manifest-path examples/extensions/Cargo.toml --workspace --all-targets --locked -- -D warnings
       - run: cargo build --manifest-path examples/extensions/Cargo.toml --workspace --locked --release --target wasm32-unknown-unknown
-      - run: cargo build --manifest-path community-extensions/plugins/Cargo.toml --locked --release --target wasm32-unknown-unknown -p message-delete-protector -p emoji-sticker-images
+      - run: cargo fmt --manifest-path extensions/Cargo.toml --all -- --check
+      - run: cargo test --manifest-path extensions/Cargo.toml --workspace --locked
+      - run: cargo clippy --manifest-path extensions/Cargo.toml --workspace --all-targets --locked -- -D warnings
+      - run: cargo build --manifest-path extensions/Cargo.toml --workspace --locked --release --target wasm32-unknown-unknown
       - name: Check existing and rebuilt plugins in the host sandbox (offline)
-        run: cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release community-extensions/plugins/target/wasm32-unknown-unknown/release
+        run: cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release extensions/target/wasm32-unknown-unknown/release
       - run: cargo run --locked --release -p extensions --example legacy_sdk_check
   security:
     if: github.event_name == 'push' || github.event.pull_request.draft == false

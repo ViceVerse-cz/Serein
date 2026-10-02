@@ -8,17 +8,15 @@ and other app operations; the user reviews and applies each operation in Serein.
 
 ## Install and remove
 
-Themes and plugins are published together in
-[Serein-extensions](https://github.com/ViceVerse-cz/Serein-extensions).
-Opening Settings > Themes or Extensions checks that repository's shared catalog
+Themes and plugins are published together from [`extensions/`](../extensions/README.md)
+in this repository. Opening Settings > Themes or Extensions checks its shared catalog
 on the existing worker. Normal builds embed no package payloads; bundled examples
 remain available only as demo/test fixtures. Demo catalog refresh, previews and
 selected catalog installs use the same public repository downloads as normal builds.
 An identical bundled fixture with the approved ID and hash is reused without a download.
-Catalog packages, source and previews have one canonical copy in the pinned
-`community-extensions` Git submodule, backed by `Serein-extensions`. Initialize it
-with `git submodule update --init` before running tests or building demos. Runtime
-catalog refresh still reads the external repository's current catalog.
+Catalog packages, plugin source and previews have one canonical copy in `extensions/`;
+tests and demos read it directly. Runtime catalog refresh reads the catalog published
+from `main`.
 The last valid catalog and installed packages remain available offline. Refresh
 retries immediately. Catalog changes add/remove available choices and mark
 installed updates; they never install, update or delete packages automatically.
@@ -47,7 +45,8 @@ preference. There is no periodic background polling or automatic package update.
 ## Creator workflow
 
 1. Keep source and license in a public Git repository. Use the standalone Rust
-   [Message Delete Protector source](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/message-delete-protector) and its small SDK.
+   [Message Delete Protector source](../extensions/plugins/message-delete-protector/src/lib.rs) and the
+   [SDK](../extensions/sdk).
    The [SDK authoring guide](../examples/extensions/README.md#test-and-develop-locally)
    covers native handler tests, typed panel values and JSON storage helpers; the v1
    exports and existing plugin source remain compatible. For reactive plugins,
@@ -61,16 +60,16 @@ preference. There is no periodic background polling or automatic package update.
 3. Package the manifest and Wasm bytes (or declarative theme) as a single JSON
    file. Test through Import with synthetic `--demo` conversations first; catalog browsing
    may download public GitHub content.
-4. Add the package and reproducible source/build instructions to `Serein-extensions`.
-   Commit the package first, then regenerate that repository's `catalog.json` with
-   the package commit. Its publishing script records immutable package URLs,
-   byte lengths and SHA-256 hashes. See the repository README for exact commands.
+4. Add the package and reproducible source/build instructions under `extensions/`
+   in a pull request; CI validates it. After merge, a workflow pins `catalog.json`
+   to the merged commit, recording immutable package URLs, byte lengths and SHA-256
+   hashes. See the [extensions README](../extensions/README.md) for exact commands.
 5. Maintainers review each listed version, its capabilities and the source to
    artifact relationship. A catalog checksum identifies reviewed bytes; it is
    not a signature or a guarantee that code is harmless. Updates need review too.
 
-The in-app catalog reads `Serein-extensions/main/catalog.json`. A new catalog entry
-is not available through that endpoint until it reaches that repository's main branch. Empty catalogs
+The in-app catalog reads `extensions/catalog.json` from this repository's `main`
+branch. A new entry is listed only after it is merged and the catalog is pinned. Empty catalogs
 are valid; imports allow development before a release is listed.
 
 ## Shop previews
@@ -189,7 +188,7 @@ supports 53 capabilities, with at most 64 distinct declarations per manifest.
 
 ### Custom Rich Presence
 
-The preview [Custom Rich Presence plugin](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/custom-rpc)
+The preview [Custom Rich Presence plugin](../extensions/plugins/custom-rpc)
 provides a native editor with validated fields and a local preview. It covers
 activity type, application ID/name, details/state and links, large/small artwork,
 two buttons, party size and timers. **Preview changes** is local; **Apply presence**

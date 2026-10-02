@@ -1,0 +1,43 @@
+{
+  "manifest": {
+    "api_version": 1,
+    "id": "black-theme",
+    "name": "BlackTheme",
+    "version": "1.1.0",
+    "author": "a1.lol",
+    "license": "MIT",
+    "source": "https://github.com/ViceVerse-cz/Serein",
+    "kind": "theme"
+  },
+  "theme": {
+    "dark": {
+      "colors": {
+        "base": "#0B0B0E",
+        "sidebar": "#111116",
+        "chat": "#16161D",
+        "raised": "#1E1E26",
+        "hover": "#282833",
+        "selected": "#323240",
+        "border": "#2A2A36",
+        "text_strong": "#FFFFFF",
+        "text": "#E1E4EA",
+        "muted": "#8A8F9E",
+        "accent": "#E63946",
+        "accent_text": "#FFFFFF",
+        "link": "#FF4D5E",
+        "positive": "#2ECC71",
+        "warning": "#F1C40F",
+        "danger": "#E74C3C"
+      },
+      "backdrop": ["#08080A", "#14141C"]
+    },
+    "style": {
+      "body_size": 15,
+      "heading_size": 20,
+      "widget_radius": 8,
+      "window_radius": 12,
+      "menu_radius": 10,
+      "control_height": 34
+    }
+  }
+}

@@ -1,5 +1,5 @@
 //! Demand-driven, bounded attachment reads; demuxers never see unbounded metadata.
-use super::{Gate, INVALID, MAX_ENCODED, NO_SEEK, Request, TOO_LARGE};
+use super::{Gate, INVALID, NO_SEEK, Request};
 use std::{
 	io::{self, Cursor, Read, Seek, SeekFrom},
 	sync::{Arc, atomic::Ordering},
@@ -12,6 +12,7 @@ const CHUNK: usize = 16 * 1024;
 const RANGE_UNSUPPORTED: &str =
 	"Audio server does not support buffering; download to play externally";
 
+/// Open a cancellable range reader and bound metadata before handing the stream to a demuxer.
 pub(super) fn source(
 	request: &Request,
 	gate: Arc<Gate>,
@@ -19,8 +20,8 @@ pub(super) fn source(
 	runtime: Handle,
 ) -> Result<Box<dyn MediaSource>, &'static str> {
 	let raw = if let Some(url) = &request.url {
-		if request.expected == 0 || request.expected > MAX_ENCODED {
-			return Err(TOO_LARGE);
+		if request.expected == 0 {
+			return Err(INVALID);
 		}
 		Raw {
 			input: Input::Http {
@@ -234,6 +235,7 @@ struct Sanitized {
 	ogg: Option<Ogg>,
 }
 impl Sanitized {
+	/// Validate format headers and expose only bounded metadata and forward-only audio payloads.
 	fn new(mut raw: Raw) -> io::Result<Self> {
 		let mut header = [0; 12];
 		raw.read_exact(&mut header)?;
@@ -260,8 +262,10 @@ impl Sanitized {
 			if &header[8..12] != b"WAVE" {
 				return Err(invalid());
 			}
-			let end =
-				u32::from_le_bytes(header[4..8].try_into().map_err(|_| invalid())?) as usize + 8;
+			let end = (u32::from_le_bytes(header[4..8].try_into().map_err(|_| invalid())?)
+				as usize)
+				.checked_add(8)
+				.ok_or_else(invalid)?;
 			if end > result.raw.len {
 				return Err(invalid());
 			}
@@ -281,7 +285,9 @@ impl Sanitized {
 				let len =
 					u32::from_le_bytes(chunk[4..8].try_into().map_err(|_| invalid())?) as usize;
 				let next = position
-					.checked_add(8 + len + len % 2)
+					.checked_add(8)
+					.and_then(|next| next.checked_add(len))
+					.and_then(|next| next.checked_add(len % 2))
 					.filter(|next| *next <= end)
 					.ok_or_else(invalid)?;
 				if &chunk[..4] == b"fmt " {
@@ -511,6 +517,7 @@ impl Ogg {
 }
 
 #[cfg(all(debug_assertions, feature = "demo"))]
+/// Verify bounded reads, malformed metadata rejection and complete oversized WAV decoding offline.
 pub(super) fn debug_check() {
 	use std::{io::Write, sync::atomic::AtomicUsize};
 	let bytes = super::demo_wav();
@@ -555,7 +562,13 @@ pub(super) fn debug_check() {
 	assert!(source.raw.bytes_read < 64, "ID3 payload is never fetched");
 
 	// The same source against a synthetic local server: tiny demuxer reads share one range.
-	let fixture = super::demo_wav();
+	// A valid WAV above the old file-size ceiling still uses tiny bounded ranges.
+	let mut fixture = super::demo_wav();
+	fixture.resize(24 * 1024 * 1024, 0);
+	let riff_size = (fixture.len() - 8) as u32;
+	let data_size = (fixture.len() - 44) as u32;
+	fixture[4..8].copy_from_slice(&riff_size.to_le_bytes());
+	fixture[40..44].copy_from_slice(&data_size.to_le_bytes());
 	let expected = fixture.len();
 	let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
 	let url = url::Url::parse(&format!(
@@ -566,25 +579,44 @@ pub(super) fn debug_check() {
 	let requests = Arc::new(AtomicUsize::new(0));
 	let observed = requests.clone();
 	let server = std::thread::spawn(move || {
-		for (index, start) in [0, CHUNK, 0].into_iter().enumerate() {
-			let (mut socket, _) = listener.accept().unwrap();
-			socket
-				.set_read_timeout(Some(Duration::from_secs(2)))
-				.unwrap();
-			let mut header = Vec::new();
-			while !header.ends_with(b"\r\n\r\n") {
-				assert!(header.len() < 8192);
-				let mut byte = [0];
-				socket.read_exact(&mut byte).unwrap();
-				header.push(byte[0]);
-			}
-			let header = String::from_utf8(header).unwrap().to_ascii_lowercase();
-			assert!(header.contains(&format!("range: bytes={start}-{}\r\n", start + CHUNK - 1)));
+		let mut probes = 0;
+		for (index, start) in [0, CHUNK, 0]
+			.into_iter()
+			.chain((0..expected).step_by(CHUNK))
+			.enumerate()
+		{
+			let (mut socket, header) = loop {
+				let (mut socket, _) = listener.accept().unwrap();
+				socket
+					.set_read_timeout(Some(Duration::from_secs(2)))
+					.unwrap();
+				let mut header = Vec::new();
+				while !header.ends_with(b"\r\n\r\n") {
+					assert!(header.len() < 8192);
+					let mut byte = [0];
+					socket.read_exact(&mut byte).unwrap();
+					header.push(byte[0]);
+				}
+				let header = String::from_utf8(header).unwrap().to_ascii_lowercase();
+				// Some development hosts probe listening ports; these are not range reads.
+				if header.starts_with("head / http/1.1\r\n") {
+					probes += 1;
+					assert!(probes <= 8, "too many unrelated local port probes");
+					let _ =
+						socket.write_all(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n");
+					continue;
+				}
+				break (socket, header);
+			};
+			assert!(
+				header.contains(&format!("range: bytes={start}-{}\r\n", start + CHUNK - 1)),
+				"unexpected synthetic range request #{index}"
+			);
 			assert!(!header.contains("authorization:"));
 			observed.fetch_add(1, Ordering::Release);
 			let total = expected + usize::from(index == 2);
 			write!(socket, "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {start}-{}/{total}\r\nContent-Length: {CHUNK}\r\nConnection: close\r\n\r\n", start + CHUNK - 1).unwrap();
-			// The final malformed header is rejected before its body is consumed.
+			// The third malformed header is rejected before its body is consumed.
 			let result = socket.write_all(&fixture[start..start + CHUNK]);
 			if index != 2 {
 				result.unwrap();
@@ -625,6 +657,31 @@ pub(super) fn debug_check() {
 	assert_eq!(requests.load(Ordering::Acquire), 1);
 	remote.read_exact(&mut [0; CHUNK]).unwrap();
 	assert_eq!(requests.load(Ordering::Acquire), 2);
-	assert!(self::source(&request, gate, wake, runtime.handle().clone()).is_err());
+	assert!(
+		self::source(
+			&request,
+			gate.clone(),
+			wake.clone(),
+			runtime.handle().clone()
+		)
+		.is_err()
+	);
+	let remote = self::source(&request, gate, wake, runtime.handle().clone()).unwrap();
+	let mut samples = 0;
+	super::decode_stream(remote, &|| true, &mut |packet, channels, rate, _| {
+		assert_eq!((channels, rate), (1, 24000));
+		samples += packet.len();
+		Ok(())
+	})
+	.unwrap();
+	assert_eq!(
+		samples,
+		(expected - 44) / 2,
+		"decode the entire WAV payload"
+	);
+	assert_eq!(
+		requests.load(Ordering::Acquire),
+		3 + expected.div_ceil(CHUNK)
+	);
 	server.join().unwrap();
 }

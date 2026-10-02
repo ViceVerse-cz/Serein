@@ -26,14 +26,8 @@ app; return the appropriate output or host action instead.
 
 ## Before you start
 
-Initialize the pinned community package sources and offline fixtures:
-
-```sh
-git submodule update --init
-```
-
-Published catalog plugins live in `community-extensions/plugins`, a checkout of
-`Serein-extensions`; this workspace retains SDK authoring examples only.
+Published catalog plugins live in [`extensions/plugins`](../../extensions/plugins) and
+build against this SDK; this workspace holds the SDK and its authoring examples.
 
 You need a Serein source checkout, Rust installed through `rustup`, and Python 3
 available as `python`. Run commands in that checkout so Rust uses its pinned
@@ -67,18 +61,20 @@ may not be available in a released build.
 | [Guild Inspector](guild-inspector/src/lib.rs) | Loaded channel/thread permissions, member nicknames, roles and server profiles |
 | [Conversation Inspector](conversation-inspector/src/lib.rs) | Rich summaries, forum flags, typing/pins and host discovery |
 | [Message Counter](message-counter/src/lib.rs) | Reactive events, saved counters and a reset button |
-| [Message Delete Protector](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/message-delete-protector/src/lib.rs) | Opt-in activation enabling host-managed message retention |
-| [Emoji & Sticker Images](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/emoji-sticker-images/src/lib.rs) | Activation enabling image attachment fallback |
+| [Message Delete Protector](../../extensions/plugins/message-delete-protector/src/lib.rs) | Opt-in activation enabling host-managed message retention |
+| [Emoji & Sticker Images](../../extensions/plugins/emoji-sticker-images/src/lib.rs) | Activation enabling image attachment fallback |
 | [RGB Cycle](rgb-cycle/src/lib.rs) | Host-scheduled, smoothly eased appearance updates with saved settings |
-| [Custom Rich Presence](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/custom-rpc) | Native activity editor/preview, saved Apply/Stop controls and activation restore through the bounded `rich_presence` capability |
+| [Custom Rich Presence](../../extensions/plugins/custom-rpc) | Native activity editor/preview, saved Apply/Stop controls and activation restore through the bounded `rich_presence` capability |
 
 For this tutorial, use `app-toolbox/` in a development copy. Keep its `Cargo.toml`,
 and replace `manifest.json` and `src/lib.rs` with the examples below. The Cargo
 package stays named `app-toolbox`; the manifest gives the installed plugin its identity.
 
-For a separate repository, also copy `sdk/`, `pack.py`, and this directory's
-workspace `Cargo.toml` and `Cargo.lock`. Keep the relative directory layout and
-remove unused plugin members. Dependencies inherit from that workspace.
+For a separate repository, also copy [`extensions/sdk`](../../extensions/sdk) as `sdk/`,
+[`extensions/pack.py`](../../extensions/pack.py) as `pack.py`, and this directory's
+workspace `Cargo.toml` and `Cargo.lock`. In the copied `Cargo.toml`, add `"sdk"` to
+`members` and set `serein-extension-sdk = { path = "sdk" }`. Remove unused plugin
+members. Dependencies inherit from that workspace.
 After changing workspace members or dependencies, run `cargo check --workspace`
 once in the copied workspace to update its lockfile. Review and commit that
 `Cargo.lock`, then use `--locked` for reproducible builds.
@@ -256,7 +252,7 @@ Step 3: open a terminal in `examples/extensions/` and run:
 ```powershell
 rustup target add wasm32-unknown-unknown
 cargo build --locked --release --target wasm32-unknown-unknown -p app-toolbox
-python pack.py app-toolbox/manifest.json target/wasm32-unknown-unknown/release/app_toolbox.wasm packages/hello-context.serein-extension
+python ../../extensions/pack.py app-toolbox/manifest.json target/wasm32-unknown-unknown/release/app_toolbox.wasm packages/hello-context.serein-extension
 ```
 
 The build creates `target/wasm32-unknown-unknown/release/app_toolbox.wasm`.
@@ -328,8 +324,8 @@ For the **unchanged repository examples**, also run:
 
 ```powershell
 cargo build --manifest-path examples/extensions/Cargo.toml --workspace --locked --release --target wasm32-unknown-unknown
-cargo build --manifest-path community-extensions/plugins/Cargo.toml --locked --release --target wasm32-unknown-unknown -p message-delete-protector -p emoji-sticker-images
-cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release community-extensions/plugins/target/wasm32-unknown-unknown/release
+cargo build --manifest-path extensions/Cargo.toml --workspace --locked --release --target wasm32-unknown-unknown
+cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release extensions/target/wasm32-unknown-unknown/release
 ```
 
 `sdk_check` runs committed packages and rebuilt modules through the offline host
@@ -379,7 +375,7 @@ From `examples/extensions`, build and package it:
 ```powershell
 cargo test --locked -p app-actions
 cargo build --locked --release --target wasm32-unknown-unknown -p app-actions
-python pack.py app-actions/manifest.json target/wasm32-unknown-unknown/release/app_actions.wasm packages/app-actions.serein-extension
+python ../../extensions/pack.py app-actions/manifest.json target/wasm32-unknown-unknown/release/app_actions.wasm packages/app-actions.serein-extension
 ```
 
 Use synthetic `--demo` data to check rendering and proposal validation. A demo
@@ -443,7 +439,7 @@ and [Panels and storage](../../docs/extension-sdk-actions.md#panels-and-storage)
 
 ## Activation examples
 
-[Message delete protector](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/message-delete-protector/src/lib.rs) is an opt-in
+[Message delete protector](../../extensions/plugins/message-delete-protector/src/lib.rs) is an opt-in
 activation plugin whose handler sets `preserve_deleted_messages` on activation. The host
 interprets successful activation with the `deleted_messages` grant as consent to keep
 loaded deleted messages in bounded session memory while enabled. The handler does
@@ -469,19 +465,19 @@ Authors package compiled bytes; Serein never runs their build scripts.
 
 ## Custom Rich Presence example
 
-The [Custom Rich Presence editor](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/custom-rpc) is a complete preview SDK
+The [Custom Rich Presence editor](../../extensions/plugins/custom-rpc) is a complete preview SDK
 example. It declares `rich_presence` and `storage`, returns `RichPresenceOutput`,
 and uses `Element::ActivityPreview` alongside native form controls. Preview and
 draft edits do not publish; Apply returns Set and saves the applied fields. Stop
 returns Clear and saves an inactive flag while keeping those fields. Activation
 restores only a saved active configuration. Extension Disable deletes its data.
 
-Build from `plugins` in Serein-extensions:
+Build from `extensions/`:
 
 ```sh
 cargo test --locked -p custom-rpc
 cargo build --locked --release --target wasm32-unknown-unknown -p custom-rpc
-python pack.py custom-rpc/manifest.json target/wasm32-unknown-unknown/release/custom_rpc.wasm packages/custom-rpc.serein-extension
+python pack.py plugins/custom-rpc/manifest.json target/wasm32-unknown-unknown/release/custom_rpc.wasm plugins/packages/custom-rpc.serein-extension
 ```
 
 Import the package into an offline `--demo` host first. A synthetic preview does

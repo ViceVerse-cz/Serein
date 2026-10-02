@@ -293,7 +293,10 @@ impl MessagingUi {
 		let dragging = response
 			.ctx
 			.input(|input| input.pointer.is_decidedly_dragging());
+		// Its own id: the default `response.id.with("popup")` is the right-click menu's, and one
+		// area cannot be a tooltip and a menu in the same frame.
 		egui::Popup::from_response(response)
+			.id(response.id.with("voice-rail-name"))
 			.kind(egui::PopupKind::Tooltip)
 			.align(egui::RectAlign::RIGHT)
 			.open(

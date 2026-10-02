@@ -152,8 +152,11 @@ impl State {
 			&& self.history_before.is_none()
 			&& self.history_after.is_none()
 			&& !self.history_pending
-			&& !self.timeline.is_empty()
-			&& self.timeline.iter().all(|message| message.id <= marker)
+			&& self
+				.timeline
+				.iter()
+				.next_back()
+				.is_some_and(|message| message.id <= marker)
 		{
 			return Some(false);
 		}
@@ -239,13 +242,13 @@ impl State {
 			return self
 				.timeline
 				.iter()
-				.last()
+				.next_back()
 				.is_some_and(|newest| newest.id == latest)
 				.then_some(latest);
 		}
 		self.timeline
 			.iter()
-			.last()
+			.next_back()
 			.is_none_or(|newest| newest.id <= latest)
 			.then_some(latest)
 	}
@@ -284,7 +287,7 @@ impl State {
 	fn forward_cursor(&self) -> Option<Id> {
 		self.timeline
 			.iter()
-			.last()
+			.next_back()
 			.map(|m| m.id)
 			.max(self.newer_cursor)
 	}
@@ -836,6 +839,7 @@ mod navigation_tests {
 	use model::{Channel, Message, User};
 	fn message(id: u64) -> Message {
 		Message {
+			poll: None,
 			sticker_items: Vec::new(),
 			id: Id(id),
 			channel: Id(1),
@@ -910,6 +914,104 @@ mod navigation_tests {
 		state.drafts.insert(Id(1), "Preserve draft".into());
 		state.reply = Some(Reply::to(Id(500)));
 		state
+	}
+	#[test]
+	fn newest_live_cursor_skips_deleted_tail_payloads_and_placeholders() {
+		for preserve in [false, true] {
+			let mut state = state(Some(Id(100)));
+			state.timeline.clear();
+			state.set_preserve_deleted_messages(preserve);
+			for id in 1..=500 {
+				state.timeline.insert(message(id), false, false).unwrap();
+			}
+			for id in [Id(499), Id(500)] {
+				state.timeline.delete(id).unwrap();
+			}
+			assert_eq!(state.timeline.get_display(Id(500)).is_some(), preserve);
+			assert_eq!(state.forward_cursor(), Some(Id(498)));
+			// Recent history may acknowledge metadata for an already deleted latest row.
+			assert_eq!(state.live_edge_latest(), Some(Id(500)));
+			state.history_before = Some(Id(1));
+			assert_eq!(state.live_edge_latest(), None);
+			state.channels[0].last_message = Some(Id(498));
+			assert_eq!(state.live_edge_latest(), Some(Id(498)));
+			state.newer_cursor = Some(Id(501));
+			assert_eq!(state.forward_cursor(), Some(Id(501)));
+			state.newer_cursor = None;
+			for id in 1..=498 {
+				state.timeline.delete(Id(id)).unwrap();
+			}
+			assert_eq!(state.forward_cursor(), None);
+			assert_eq!(state.live_edge_latest(), None);
+			state.history_before = None;
+			assert_eq!(state.live_edge_latest(), Some(Id(498)));
+		}
+	}
+	#[test]
+	fn unread_tail_check_preserves_partial_markers_and_deleted_only_histories() {
+		for preserve in [false, true] {
+			let mut state = state(Some(Id(497)));
+			state.timeline.clear();
+			state.set_preserve_deleted_messages(preserve);
+			for id in 1..=500 {
+				state.timeline.insert(message(id), false, false).unwrap();
+			}
+			for id in [Id(499), Id(500)] {
+				state.timeline.delete(id).unwrap();
+			}
+			assert_eq!(state.unread(Id(1)), Some(true));
+			state.read_state.entries.get_mut(&Id(1)).unwrap().0 = Some(Id(498));
+			assert_eq!(state.unread(Id(1)), Some(false));
+			for id in 1..=498 {
+				state.timeline.delete(Id(id)).unwrap();
+			}
+			// Deleted-only history cannot establish that every unread row is loaded.
+			assert_eq!(state.unread(Id(1)), Some(true));
+		}
+	}
+	#[test]
+	#[ignore = "synthetic release workload; run directly after building"]
+	fn timeline_cursor_workload() {
+		use std::{hint::black_box, time::Instant};
+		for deleted_tail in [false, true] {
+			let mut state = state(Some(Id(500)));
+			state.channels[0].last_message = Some(Id(501));
+			state.timeline.clear();
+			state.set_preserve_deleted_messages(true);
+			for id in 1..=500 {
+				state.timeline.insert(message(id), false, false).unwrap();
+			}
+			if deleted_tail {
+				for id in 491..=500 {
+					state.timeline.delete(Id(id)).unwrap();
+				}
+			}
+			let expected = Some(Id(if deleted_tail { 490 } else { 500 }));
+			assert_eq!(state.forward_cursor(), expected);
+			assert_eq!(state.live_edge_latest(), Some(Id(501)));
+			assert_eq!(state.unread(Id(1)), Some(false));
+			let mut times = Vec::with_capacity(5);
+			for batch in 0..6 {
+				let started = Instant::now();
+				for _ in 0..100_000 {
+					black_box(black_box(&state).live_edge_latest());
+					black_box(black_box(&state).forward_cursor());
+					black_box(black_box(&state).unread(Id(1)));
+				}
+				let elapsed = started.elapsed();
+				if batch != 0 {
+					times.push(elapsed);
+				}
+			}
+			let range = (*times.iter().min().unwrap(), *times.iter().max().unwrap());
+			times.sort_unstable();
+			println!(
+				"Synthetic timeline cursors: 100000 live-edge/forward/unread query triples, 500 rows, read marker 500/latest metadata 501, retained deleted tail {deleted_tail}; median {:?}, range {:?}; {} estimated timeline bytes. Excludes rendering, process RSS and live compatibility.",
+				times[2],
+				range,
+				state.timeline.retained_bytes()
+			);
+		}
 	}
 	#[test]
 	fn marking_a_dm_or_group_unread_restores_the_badge_count() {

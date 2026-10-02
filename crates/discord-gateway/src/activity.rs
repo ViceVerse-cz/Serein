@@ -387,6 +387,50 @@ mod tests {
 	}
 
 	#[test]
+	fn unverified_game_is_published_like_discord_and_confirmed_by_name() {
+		// A user-added game has no application: Discord's client sends only name, type and start.
+		let added = ActivityFields {
+			timestamps: Some(Timestamps {
+				start: Some(1_700_000_000_000),
+				end: None,
+			}),
+			..Default::default()
+		}
+		.into_activity(Id(0), "My synthetic game".into())
+		.unwrap();
+		let mut pending = Pending::default();
+		pending
+			.update_presence(&OwnPresence {
+				custom_status: "Synthetic status".into(),
+				..Default::default()
+			})
+			.unwrap();
+		pending.update(&Some(added)).unwrap();
+		let sent: serde_json::Value =
+			serde_json::from_str(pending.packet(Instant::now()).unwrap().to_text().unwrap())
+				.unwrap();
+		assert_eq!(sent["op"], 3);
+		assert_eq!(
+			sent["d"]["activities"],
+			serde_json::json!([
+				{"name":"My synthetic game","type":0,"timestamps":{"start":1_700_000_000_000_u64}},
+				{"name":"Custom Status","type":4,"state":"Synthetic status"}
+			])
+		);
+		// Discord lists it back without an application id; that still confirms the game.
+		pending.observe(
+			br#"[{"session_id":"all","activities":[{"name":"My synthetic game","type":0,"created_at":1},{"name":"Custom Status","type":4}]}]"#,
+			"own",
+		);
+		assert_eq!(pending.observation, Observation::ServerListed);
+		pending.observe(
+			br#"[{"session_id":"own","activities":[{"name":"My synthetic game","type":0}]}]"#,
+			"own",
+		);
+		assert_eq!(pending.observation, Observation::ServerReceived);
+	}
+
+	#[test]
 	fn activity_coalesces_clears_reconnects_and_bounds_utf8() {
 		let mut pending = Pending::default();
 		let now = Instant::now();

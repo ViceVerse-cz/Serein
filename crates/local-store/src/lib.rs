@@ -1178,6 +1178,7 @@ impl LocalStore {
 				_ => return Err(StoreError::Incompatible),
 			};
 			let message = Message {
+				poll: None,
 				sticker_items: serde_json::from_str::<
 					model::StickerList<{ model::MAX_MESSAGE_STICKERS }>,
 				>(
@@ -3128,6 +3129,7 @@ mod tests {
 		);
 		for channel in 1..=30 {
 			let mut message = Message {
+				poll: None,
 				flags: 0,
 				sticker_items: vec![],
 				components: vec![],

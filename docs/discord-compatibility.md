@@ -2,7 +2,7 @@
 
 ## Custom Rich Presence - September 28, 2026
 
-The **Custom Rich Presence** plugin in Serein-extensions adds an independent native implementation of
+The **Custom Rich Presence** catalog plugin adds an independent native implementation of
 [Vencord CustomRPC](https://vencord.dev/plugins/CustomRPC). Enable it in Extensions, open its
 editor, enter a nonzero Discord application ID and name, then Preview or Apply. Playing,
 Streaming, Listening, Watching and Competing support details/state links, two artwork slots,
@@ -658,7 +658,7 @@ describes schemas; normal-account submission and modal Gateway events are unoffi
 This is not full Discord component parity: premium purchases are unavailable, and
 synthetic checks do not verify live application responses, modal uploads or purchases.
 Normal-account interoperability and Windows/Linux visual equivalence remain unverified.
-Polls and stickers still retain presence markers and an Open in Discord fallback.
+Stickers and unsupported future poll layouts retain presence markers and an Open in Discord fallback. Supported polls now have native cards, as described below.
 Old cached component markers acquire controls only after normal history refresh.
 
 Run the offline native component preview with:
@@ -1167,6 +1167,15 @@ available for unsupported formats and clips exceeding preview limits. There is n
 new Discord endpoint or voice protocol. The synthetic demo generates a WAV tone even
 for its MP3-labeled card; a separate original MP3 fixture checks real MP3 decoding.
 Live CDN/account interoperability and native output on other OSes remain unverified.
+
+The streaming player no longer rejects encoded attachments above 20 MiB. It reads
+validated 16 KiB HTTP ranges into a one-second PCM queue instead of retaining the
+file. The shared original-attachment validator still admits at most 100 MiB.
+The separate 64 MiB cumulative decoded-audio and ten-minute limits remain;
+servers without range support require external playback. The offline
+`--demo --demo-check-audio` debug command checks public admission and decodes an entire
+24 MiB WAV over synthetic local HTTP ranges, without retaining the decoded clip,
+opening an audio device or contacting Discord.
 
 ### Unknown Gateway variants (September 10, 2026)
 
@@ -1990,3 +1999,29 @@ credential-bearing environment URLs. Live authentication remains unverified.
 HTTP Basic credentials on an HTTP proxy cross an unencrypted proxy connection,
 even when Discord destination TLS is preserved. The credential form displays
 this warning for HTTP endpoints; HTTPS proxies encrypt the proxy connection.
+
+
+## Native polls (September 30, 2026)
+
+Poll messages now retain bounded questions, up to ten answers, optional emoji, expiry,
+single/multiple choice and supplied results. Native cards use Serein surfaces and accent
+colors with Discord-style answer rows, selection checkmarks, result fills and a vote footer.
+The composer `+` menu's Create a poll option opens a creation dialog (300-character question, 55-character
+answers, Unicode emoji and the usual 1h/4h/8h/1d/3d/1w durations). Readers can vote,
+remove their vote, explicitly refresh results, and confirm ending their own poll.
+
+Schemas and creation/end routes follow the [official poll reference](https://docs.discord.com/developers/resources/poll).
+Normal-account voting uses the [unofficial first-hand message reference](https://docs.discord.food/resources/message#vote-on-poll):
+PUT /channels/{channel}/polls/{message}/answers/@me with answer_ids; an empty array removes votes.
+Writes are never automatically replayed. Voting reads back the exact message through history;
+Gateway vote events update loaded results and invalidate inactive resident windows. Missing
+results remain unknown or preserve matching earlier results; finalized tallies are authoritative.
+While a poll is running, service counts may be approximate. Multiselect totals count selections.
+Poll content is limited to 8 KiB retained and 128 KiB wire, and one action may be pending.
+
+Typed poll data is currently session-only; the local history database keeps its existing presence
+marker until ordinary history refresh. Forwarded/deleted/private-response polls are read-only.
+Voter-name browsing and a custom-server-emoji creation picker are not included in this fast slice.
+Extension snapshots retain their existing unsupported poll contract. No live Discord account was
+used to verify normal-account interoperability. Use --demo --demo-polls for an offline preview
+and --demo --demo-check-polls for the focused synthetic debug check.

@@ -14,7 +14,7 @@ page-appearance = Aussehen
 page-chat = Chatten
 page-messaging-permissions = Nachrichtenberechtigungen
 page-notifications = Benachrichtigungen
-page-activity = Spielaktivität
+page-registered-games = Registrierte Spiele
 page-voice = Sprache und Video
 page-keybinds = Tastenkombinationen
 page-storage = Daten & Datenschutz
@@ -28,7 +28,7 @@ description-appearance = Thema, Farben, Fenstereffekte und Layout.
 description-chat = Wie sich Nachrichten, Medien, Links und Scrollen verhalten.
 description-messaging-permissions = Steuern Sie, wer Sie kontaktieren kann und wie Nachrichten gefiltert werden.
 description-notifications = Wählen Sie aus, welche Benachrichtigungen Sie erhalten und wie diese angezeigt werden.
-description-activity = Zeigen Sie anderen, was Sie spielen.
+description-registered-games = Teile, was du spielst, und korrigiere oder ergänze die Spiele, die Serein erkennt.
 description-voice = Mikrofon, Lautsprecher, Kamera und Sprachverarbeitung.
 description-keybinds = Tastaturkürzel für Serein.
 description-storage = Was Serein auf diesem Gerät speichert.
@@ -103,6 +103,7 @@ no-conversations = Hier sind keine Gespräche verfügbar.
 open-in-discord = Im Discord öffnen
 new = Neu
 members-count = Mitglieder
+members-heading = Mitglieder
 no-conversation-selected = Keine Konversation ausgewählt
 select-conversation = Wählen Sie einen Kanal oder eine Direktnachricht aus der Liste aus.
 friends-online = Online
@@ -733,6 +734,8 @@ design-account-row-with-remove-forget-this-account-on-this-device = Vergessen Si
 design-color-edit-hex-color-rrggbb-click-to-type-or-paste = Hex-Farbe: #RRGGBB. Klicken Sie, um etwas einzugeben oder einzufügen.
 # Context: save_bar
 design-save-bar-careful-you-have-unsaved-changes = Vorsicht – Sie haben nicht gespeicherte Änderungen!
+design-save-bar-save-changes = Änderungen speichern
+design-save-bar-reset = Zurücksetzen
 
 ## crates/ui/src/dialog.rs
 # Context: header
@@ -1545,6 +1548,8 @@ lib-ime-updates-text-clear-this-draft = Löschen Sie diesen Entwurf
 # Context: ime_updates_text
 lib-ime-updates-text-copy-edit-text = Kopieren Sie den Bearbeitungstext
 # Context: ime_updates_text
+lib-ime-updates-text-create-a-poll = Umfrage erstellen
+# Context: ime_updates_text
 lib-ime-updates-text-draft-budget-full-clear-an-existing-draft-to-continue = Haushaltsentwurf voll. Löschen Sie einen vorhandenen Entwurf, um fortzufahren.
 # Context: ime_updates_text
 lib-ime-updates-text-drop-files-to-attach = Legen Sie Dateien zum Anhängen ab
@@ -1785,6 +1790,86 @@ pending-show-you = Du
 pending-upload-strip-cancel-upload = Hochladen abbrechen
 # Context: upload_strip
 pending-upload-strip-the-message-may-already-have-reached-discord-check-the-conversation = Möglicherweise hat die Nachricht Discord bereits erreicht. Überprüfen Sie das Gespräch, bevor Sie es erneut senden.
+
+## crates/ui/src/polls.rs
+# Context: card
+polls-card-ended = Umfrage beendet
+# Context: card
+polls-card-select-many = Wählen Sie eine oder mehrere Antworten
+# Context: card
+polls-card-select-one = Wählen Sie eine Antwort
+# Context: card
+polls-card-final-results = Endergebnis
+# Context: card
+polls-card-awaiting-results = Warten auf das Endergebnis
+# Context: card
+polls-card-hours-left = noch { $hours } Std.
+# Context: card
+polls-card-minutes-left = noch { $minutes } Min.
+# Context: card
+polls-card-in-progress = Läuft
+# Context: card
+polls-card-vote-count-one = { $count } Stimme
+# Context: card
+polls-card-vote-count-many = { $count } Stimmen
+# Context: card
+polls-card-results-not-loaded = Ergebnisse nicht geladen
+# Context: card
+polls-card-back-to-voting = Zurück zur Abstimmung
+# Context: card
+polls-card-refresh-results = Ergebnisse aktualisieren
+# Context: card
+polls-card-show-results = Ergebnisse anzeigen
+# Context: card
+polls-card-remove-vote = Stimme entfernen
+# Context: card
+polls-card-vote = Abstimmen
+# Context: card
+polls-card-end-confirm = Diese Umfrage für alle beenden?
+# Context: card
+polls-card-end-now = Jetzt beenden
+# Context: card
+polls-card-end-poll = Umfrage beenden
+# Context: creator
+polls-creator-title = Umfrage erstellen
+# Context: creator
+polls-creator-question = Frage
+# Context: creator
+polls-creator-question-hint = Welche Frage möchten Sie stellen?
+# Context: creator
+polls-creator-answers = Antworten
+# Context: creator
+polls-creator-answer-hint = Antwort { $number }
+# Context: creator
+polls-creator-add-emoji = Emoji hinzufügen
+# Context: creator
+polls-creator-change-emoji = Emoji ändern
+# Context: creator
+polls-creator-remove-answer = Antwort entfernen
+# Context: creator
+polls-creator-add-answer = Weitere Antwort hinzufügen
+# Context: creator
+polls-creator-duration = Dauer
+# Context: creator
+polls-creator-multiple-answers = Mehrere Antworten erlauben
+# Context: creator
+polls-creator-post = Posten
+# Context: creator
+polls-creator-posting = Wird gepostet…
+# Context: duration_label
+polls-duration-1-hour = 1 Stunde
+# Context: duration_label
+polls-duration-4-hours = 4 Stunden
+# Context: duration_label
+polls-duration-8-hours = 8 Stunden
+# Context: duration_label
+polls-duration-24-hours = 24 Stunden
+# Context: duration_label
+polls-duration-3-days = 3 Tage
+# Context: duration_label
+polls-duration-1-week = 1 Woche
+# Context: duration_label
+polls-duration-hours = { $hours } Stunden
 
 ## crates/ui/src/post_menu.rs
 # Context: context
@@ -3232,6 +3317,92 @@ settings-account-page-signed-in-with-your-discord-account = Mit Ihrem Discord-Ko
 settings-activity-settings-detect-running-games-and-ask-discord-to-share-them-as = Erkennen Sie laufende Spiele und bitten Sie Discord, sie als Aktivität zu teilen.
 # Context: activity_settings
 settings-activity-settings-share-game-activity = Spielaktivitäten teilen
+# Context: activity_settings
+settings-activity-enable-on-discord = Auf Discord aktivieren
+# Context: activity_settings
+settings-activity-check-again = Erneut prüfen
+# Context: activity_settings
+settings-activity-sharing-is-off = Aktivitätsfreigabe ist aus
+# Context: activity_settings
+settings-activity-sharing-your-game = Dein Spiel wird geteilt
+# Context: activity_settings
+settings-activity-looking = Suche nach einem laufenden Spiel
+# Context: activity_settings
+settings-activity-demo-detail = Synthetische Aktivität, wird nie geteilt oder gespeichert.
+# Context: activity_settings
+settings-activity-status-offline-preview = Offline-Vorschau: synthetische Aktivität, wird nie geteilt oder gespeichert.
+# Context: activity_settings
+settings-activity-status-unconfirmed = Nur lokale Vorschau. Warte darauf, dass Discord die Freigabe bestätigt.
+# Context: activity_settings
+settings-activity-status-received = Discord hat dein Spiel empfangen, zeigt es aber nicht öffentlich an.
+# Context: activity_settings
+settings-activity-status-listed = Discord zeigt dein Spiel an. Server- und Freundes-Privatsphäreeinstellungen gelten weiterhin.
+# Context: activity_settings
+settings-activity-status-hidden = Discord verbirgt dein Spiel. Prüfe in Discord „Registrierte Spiele“ und „Aktivitätsfreigabe“.
+# Context: activity_settings
+settings-activity-status-missing = Discord hat dein Spiel nicht öffentlich angezeigt. Prüfe dort „Registrierte Spiele“ und die Freigabe für Server.
+# Context: activity_settings
+settings-activity-status-sharing-off = Die kontoweite Aktivitätsfreigabe von Discord ist aus.
+# Context: activity_settings
+settings-activity-status-checking = Discords Einstellung zur Aktivitätsfreigabe wird geprüft …
+# Context: activity_settings
+settings-activity-status-check-failed = Discords Einstellung zur Aktivitätsfreigabe konnte nicht geprüft oder geändert werden.
+# Context: activity_settings
+settings-activity-status-updating = Discords Einstellung zur Aktivitätsfreigabe wird aktualisiert …
+# Context: activity_settings
+settings-activity-status-request-failed = Die Änderung konnte nicht angefordert werden. Versuche es erneut.
+# Context: activity_settings
+settings-activity-current-game = Aktuelles Spiel
+# Context: activity_settings
+settings-activity-now-playing = Spielt gerade!
+# Context: activity_settings
+settings-activity-stop-detecting-current = Nicht dieses Spiel? Erkennung beenden.
+# Context: activity_settings
+settings-activity-reported-by-game = Vom Spiel über Rich Presence gemeldet.
+# Context: activity_settings
+settings-activity-no-game-detected = Kein Spiel erkannt
+# Context: activity_settings
+settings-activity-turn-on-sharing = Aktiviere oben „Spielaktivitäten teilen“, um Spiele zu erkennen.
+# Context: activity_settings
+settings-activity-not-seeing-your-game = Dein Spiel fehlt?
+# Context: activity_settings
+settings-activity-add-it = Füge es hinzu!
+# Context: activity_settings
+settings-activity-added-games = Hinzugefügte Spiele
+# Context: activity_settings
+settings-activity-no-games-added = Keine Spiele hinzugefügt
+# Context: activity_settings
+settings-activity-hidden = Ausgeblendet. Serein erkennt dieses Spiel nicht mehr.
+# Context: activity_settings
+settings-activity-detected = Automatisch erkannt
+# Context: activity_settings
+settings-activity-last-played-today = Zuletzt heute gespielt
+# Context: activity_settings
+settings-activity-last-played-yesterday = Zuletzt gestern gespielt
+# Context: activity_settings
+settings-activity-last-played = Zuletzt gespielt am { $date }
+# Context: activity_settings
+settings-activity-restore = Wiederherstellen
+# Context: activity_settings
+settings-activity-restore-hint = Dieses Spiel wieder erkennen.
+# Context: activity_settings
+settings-activity-stop-detecting = Dieses Spiel nicht mehr erkennen
+# Context: activity_settings
+settings-activity-remove-game = Dieses Spiel entfernen
+# Context: activity_settings
+settings-activity-click-to-rename = Zum Umbenennen klicken
+# Context: activity_settings
+settings-activity-add-a-game = Spiel hinzufügen
+# Context: activity_settings
+settings-activity-choose-program = Wähle ein laufendes Programm. Serein zeigt es als dein Spiel an, sobald es läuft.
+# Context: activity_settings
+settings-activity-search-programs = Laufende Programme durchsuchen
+# Context: activity_settings
+settings-activity-reading-programs = Laufende Programme werden gelesen …
+# Context: activity_settings
+settings-activity-no-matching-programs = Es laufen keine passenden Programme.
+# Context: activity_settings
+settings-activity-add-game = Spiel hinzufügen
 # Context: appearance_menu
 settings-appearance-menu-display = Anzeige
 # Context: appearance_menu
@@ -3595,7 +3766,13 @@ timeline-message-actions-view-reactions = Reaktionen ansehen
 # Context: present_control
 timeline-present-control-jump-to-present = Zur Gegenwart springen
 # Context: present_control
-timeline-present-control-new-messages-below-jump-to-present = Neue Nachrichten unten · Zur Präsentation springen
+timeline-present-control-new-messages-below-jump-to-present = Neue Nachrichten unten · zur Gegenwart springen
+# Context: present_control
+timeline-present-control-new-messages =
+    { $count ->
+        [one] { $count } neue Nachricht
+       *[other] { $count } neue Nachrichten
+    }
 # Context: show_system
 timeline-show-system-open-this-channels-threads = Öffne die Threads dieses Kanals
 # Context: show_system
@@ -3642,6 +3819,10 @@ timeline-show-with-scroll-you-cannot-view-this-conversation = Sie können diese 
 timeline-starter-row-thread-started-from-this-message = Der Thread wurde mit dieser Nachricht gestartet
 # Context: unread_banner
 timeline-unread-banner-unread-messages = Ungelesene Nachrichten
+# Context: unread_banner
+timeline-unread-banner-mark-as-read = Als gelesen markieren
+# Context: unread_banner
+timeline-unread-banner-jump-to-unread = Zu Ungelesenem springen
 
 ## crates/ui/src/toasts.rs
 # Context: show
@@ -3704,6 +3885,8 @@ updates-update-settings-restart-to-update = Zum Aktualisieren neu starten
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein wurde über Ihre Distribution installiert. Führen Sie dies in einem Terminal aus, um es zu aktualisieren.
 # Context: update_settings
 updates-update-settings-support-diagnostics = Support & Diagnose
+# Context: update_log
+updates-update-log = Update-Verlauf
 # Context: update_settings
 updates-update-settings-update-checks-are-disabled-in-debug-builds = Update-Prüfungen sind in Debug-Builds deaktiviert.
 
@@ -4053,6 +4236,10 @@ profiles-remove-friend-message = Möchtest du { $user } wirklich aus deinen Freu
 channel-menu-dialog-category-settings = Kategorieeinstellungen
 channel-menu-dialog-channel-settings = Kanaleinstellungen
 channel-menu-dialog-settings-subtitle = Passe Einstellungen und Berechtigungen an.
+channel-menu-discard-title = Nicht gespeicherte Änderungen verwerfen?
+channel-menu-discard-message = Deine nicht gespeicherten Änderungen an diesem Kanal gehen verloren.
+channel-menu-discard-confirm = Änderungen verwerfen
+channel-menu-discard-keep = Weiter bearbeiten
 channel-menu-dialog-duplicate-subtitle = Kopiert Einstellungen und Berechtigungen. Nachrichten werden nicht kopiert.
 channel-menu-dialog-create-channel-subtitle = Wähle einen Kanaltyp und einen Namen.
 channel-menu-dialog-create-category-subtitle = Kategorien ordnen zusammengehörige Kanäle.
@@ -4108,8 +4295,16 @@ search-page-previous-short = Zurück
 search-page-next-short = Weiter
 search-result-today-at = Heute um { $time }
 search-result-yesterday-at = Gestern um { $time }
-timeline-unread-banner-one-new-since = 1 neue Nachricht seit { $time }
-timeline-unread-banner-many-new-since = { $count } neue Nachrichten seit { $time }
+timeline-unread-banner-new-since =
+    { $count ->
+        [one] { $count } neue Nachricht seit { $time }
+       *[other] { $count } neue Nachrichten seit { $time }
+    }
+timeline-unread-banner-new-since-more =
+    { $count ->
+        [one] { $count }+ neue Nachricht seit { $time }
+       *[other] { $count }+ neue Nachrichten seit { $time }
+    }
 
 ## crates/ui/src/onboarding.rs
 # Context: show

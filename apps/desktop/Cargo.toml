@@ -57,6 +57,8 @@ log = { version = "=0.4.34", features = ["release_max_level_off"] }
 winit = { workspace = true, features = ["wayland-csd-adwaita"] }
 # Native Wayland clipboard so copied files paste without an XWayland bridge.
 arboard = { version = "=3.6.1", features = ["wayland-data-control"] }
+# Media playback sizes PulseAudio buffers itself; voice already selects this host.
+cpal = { version = "=0.18.2", default-features = false, features = ["pulseaudio"] }
 
 [build-dependencies]
 find-msvc-tools = "=0.1.12"

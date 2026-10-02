@@ -14,7 +14,7 @@ page-appearance = Появление
 page-chat = Чат
 page-messaging-permissions = Разрешения на обмен сообщениями
 page-notifications = Уведомления
-page-activity = Игровая активность
+page-registered-games = Зарегистрированные игры
 page-voice = Голос и видео
 page-keybinds = Сочетания клавиш
 page-storage = Данные и конфиденциальность
@@ -28,7 +28,7 @@ description-appearance = Тема, цвета, оконные эффекты и 
 description-chat = Как ведут себя сообщения, медиа, ссылки и прокрутка.
 description-messaging-permissions = Контролируйте, кто может связаться с вами и как фильтруются сообщения.
 description-notifications = Выберите, какие уведомления вы будете получать и как они будут отображаться.
-description-activity = Покажите другим, во что вы играете.
+description-registered-games = Делитесь тем, во что играете, и исправляйте или добавляйте игры, найденные Serein.
 description-voice = Микрофон, динамики, камера и обработка голоса.
 description-keybinds = Сочетания клавиш для Серейн.
 description-storage = Что Серейн хранит на этом устройстве.
@@ -103,6 +103,7 @@ no-conversations = Здесь нет доступных разговоров.
 open-in-discord = Открыть в Discord
 new = Новый
 members-count = Члены
+members-heading = Члены
 no-conversation-selected = Ни один разговор не выбран
 select-conversation = Выберите канал или прямое сообщение из списка.
 friends-online = Онлайн
@@ -734,6 +735,8 @@ design-account-row-with-remove-forget-this-account-on-this-device = Забыть
 design-color-edit-hex-color-rrggbb-click-to-type-or-paste = Шестнадцатеричный цвет: #RRGGBB. Нажмите, чтобы ввести или вставить.
 # Context: save_bar
 design-save-bar-careful-you-have-unsaved-changes = Осторожно — у вас есть несохраненные изменения!
+design-save-bar-save-changes = Сохранить изменения
+design-save-bar-reset = Сбросить
 
 ## crates/ui/src/dialog.rs
 # Context: header
@@ -1546,6 +1549,8 @@ lib-ime-updates-text-clear-this-draft = Очистить этот чернови
 # Context: ime_updates_text
 lib-ime-updates-text-copy-edit-text = Копировать текст редактирования
 # Context: ime_updates_text
+lib-ime-updates-text-create-a-poll = Создать опрос
+# Context: ime_updates_text
 lib-ime-updates-text-draft-budget-full-clear-an-existing-draft-to-continue = Проект бюджета полный. Чтобы продолжить, удалите существующий черновик.
 # Context: ime_updates_text
 lib-ime-updates-text-drop-files-to-attach = Перетащите файлы, чтобы прикрепить
@@ -1786,6 +1791,86 @@ pending-show-you = Ты
 pending-upload-strip-cancel-upload = Отменить загрузку
 # Context: upload_strip
 pending-upload-strip-the-message-may-already-have-reached-discord-check-the-conversation = Возможно, сообщение уже достигло Discord. Проверьте разговор перед повторной отправкой.
+
+## crates/ui/src/polls.rs
+# Context: card
+polls-card-ended = Опрос завершён
+# Context: card
+polls-card-select-many = Выберите один или несколько ответов
+# Context: card
+polls-card-select-one = Выберите один ответ
+# Context: card
+polls-card-final-results = Итоговые результаты
+# Context: card
+polls-card-awaiting-results = Ожидание итоговых результатов
+# Context: card
+polls-card-hours-left = осталось { $hours } ч
+# Context: card
+polls-card-minutes-left = осталось { $minutes } мин
+# Context: card
+polls-card-in-progress = Идёт
+# Context: card
+polls-card-vote-count-one = { $count } голос
+# Context: card
+polls-card-vote-count-many = Голосов: { $count }
+# Context: card
+polls-card-results-not-loaded = Результаты не загружены
+# Context: card
+polls-card-back-to-voting = Вернуться к голосованию
+# Context: card
+polls-card-refresh-results = Обновить результаты
+# Context: card
+polls-card-show-results = Показать результаты
+# Context: card
+polls-card-remove-vote = Отменить голос
+# Context: card
+polls-card-vote = Голосовать
+# Context: card
+polls-card-end-confirm = Завершить этот опрос для всех?
+# Context: card
+polls-card-end-now = Завершить сейчас
+# Context: card
+polls-card-end-poll = Завершить опрос
+# Context: creator
+polls-creator-title = Создать опрос
+# Context: creator
+polls-creator-question = Вопрос
+# Context: creator
+polls-creator-question-hint = Какой вопрос вы хотите задать?
+# Context: creator
+polls-creator-answers = Ответы
+# Context: creator
+polls-creator-answer-hint = Ответ { $number }
+# Context: creator
+polls-creator-add-emoji = Добавить эмодзи
+# Context: creator
+polls-creator-change-emoji = Изменить эмодзи
+# Context: creator
+polls-creator-remove-answer = Удалить ответ
+# Context: creator
+polls-creator-add-answer = Добавить ещё ответ
+# Context: creator
+polls-creator-duration = Длительность
+# Context: creator
+polls-creator-multiple-answers = Разрешить несколько ответов
+# Context: creator
+polls-creator-post = Опубликовать
+# Context: creator
+polls-creator-posting = Публикация…
+# Context: duration_label
+polls-duration-1-hour = 1 час
+# Context: duration_label
+polls-duration-4-hours = 4 часа
+# Context: duration_label
+polls-duration-8-hours = 8 часов
+# Context: duration_label
+polls-duration-24-hours = 24 часа
+# Context: duration_label
+polls-duration-3-days = 3 дня
+# Context: duration_label
+polls-duration-1-week = 1 неделя
+# Context: duration_label
+polls-duration-hours = Часов: { $hours }
 
 ## crates/ui/src/post_menu.rs
 # Context: context
@@ -3233,6 +3318,92 @@ settings-account-page-signed-in-with-your-discord-account = Вошли в сво
 settings-activity-settings-detect-running-games-and-ask-discord-to-share-them-as = Обнаруживайте запущенные игры и попросите Discord поделиться ими как активностью.
 # Context: activity_settings
 settings-activity-settings-share-game-activity = Делитесь игровой активностью
+# Context: activity_settings
+settings-activity-enable-on-discord = Включить в Discord
+# Context: activity_settings
+settings-activity-check-again = Проверить снова
+# Context: activity_settings
+settings-activity-sharing-is-off = Показ активности выключен
+# Context: activity_settings
+settings-activity-sharing-your-game = Ваша игра показывается
+# Context: activity_settings
+settings-activity-looking = Поиск запущенной игры
+# Context: activity_settings
+settings-activity-demo-detail = Синтетическая активность, никогда не публикуется и не сохраняется.
+# Context: activity_settings
+settings-activity-status-offline-preview = Офлайн-просмотр: синтетическая активность, никогда не публикуется и не сохраняется.
+# Context: activity_settings
+settings-activity-status-unconfirmed = Только локальный просмотр. Ожидание подтверждения от Discord.
+# Context: activity_settings
+settings-activity-status-received = Discord получил вашу игру, но не показывает её публично.
+# Context: activity_settings
+settings-activity-status-listed = Discord показывает вашу игру. Настройки приватности серверов и друзей по-прежнему действуют.
+# Context: activity_settings
+settings-activity-status-hidden = Discord скрывает вашу игру. Проверьте в Discord «Зарегистрированные игры» и «Показ активности».
+# Context: activity_settings
+settings-activity-status-missing = Discord не показал вашу игру публично. Проверьте там «Зарегистрированные игры» и настройки показа на серверах.
+# Context: activity_settings
+settings-activity-status-sharing-off = Показ активности для всего аккаунта Discord выключен.
+# Context: activity_settings
+settings-activity-status-checking = Проверка настройки показа активности в Discord…
+# Context: activity_settings
+settings-activity-status-check-failed = Не удалось проверить или изменить настройку показа активности в Discord.
+# Context: activity_settings
+settings-activity-status-updating = Обновление настройки показа активности в Discord…
+# Context: activity_settings
+settings-activity-status-request-failed = Не удалось запросить изменение настройки. Попробуйте ещё раз.
+# Context: activity_settings
+settings-activity-current-game = Текущая игра
+# Context: activity_settings
+settings-activity-now-playing = Сейчас играете!
+# Context: activity_settings
+settings-activity-stop-detecting-current = Не та игра? Перестаньте её обнаруживать.
+# Context: activity_settings
+settings-activity-reported-by-game = Сообщено игрой через Rich Presence.
+# Context: activity_settings
+settings-activity-no-game-detected = Игра не обнаружена
+# Context: activity_settings
+settings-activity-turn-on-sharing = Включите выше «Делитесь игровой активностью», чтобы обнаруживать игры.
+# Context: activity_settings
+settings-activity-not-seeing-your-game = Не видите свою игру?
+# Context: activity_settings
+settings-activity-add-it = Добавьте её!
+# Context: activity_settings
+settings-activity-added-games = Добавленные игры
+# Context: activity_settings
+settings-activity-no-games-added = Нет добавленных игр
+# Context: activity_settings
+settings-activity-hidden = Скрыто. Serein не будет обнаруживать эту игру.
+# Context: activity_settings
+settings-activity-detected = Обнаружено автоматически
+# Context: activity_settings
+settings-activity-last-played-today = Последний запуск сегодня
+# Context: activity_settings
+settings-activity-last-played-yesterday = Последний запуск вчера
+# Context: activity_settings
+settings-activity-last-played = Последний запуск { $date }
+# Context: activity_settings
+settings-activity-restore = Восстановить
+# Context: activity_settings
+settings-activity-restore-hint = Снова обнаруживать эту игру.
+# Context: activity_settings
+settings-activity-stop-detecting = Не обнаруживать эту игру
+# Context: activity_settings
+settings-activity-remove-game = Удалить эту игру
+# Context: activity_settings
+settings-activity-click-to-rename = Нажмите, чтобы переименовать
+# Context: activity_settings
+settings-activity-add-a-game = Добавить игру
+# Context: activity_settings
+settings-activity-choose-program = Выберите запущенную программу. Serein будет показывать её как вашу игру, когда она запущена.
+# Context: activity_settings
+settings-activity-search-programs = Поиск запущенных программ
+# Context: activity_settings
+settings-activity-reading-programs = Чтение запущенных программ…
+# Context: activity_settings
+settings-activity-no-matching-programs = Подходящие программы не запущены.
+# Context: activity_settings
+settings-activity-add-game = Добавить игру
 # Context: appearance_menu
 settings-appearance-menu-display = Отображать
 # Context: appearance_menu
@@ -3594,9 +3765,16 @@ timeline-message-actions-unpin-message = Открепить сообщение
 # Context: message_actions
 timeline-message-actions-view-reactions = Посмотреть реакции
 # Context: present_control
-timeline-present-control-jump-to-present = Перейти к презентации
+timeline-present-control-jump-to-present = Перейти к последним
 # Context: present_control
-timeline-present-control-new-messages-below-jump-to-present = Новые сообщения ниже · перейти к представлению
+timeline-present-control-new-messages-below-jump-to-present = Новые сообщения ниже · перейти к последним
+# Context: present_control
+timeline-present-control-new-messages =
+    { $count ->
+        [one] { $count } новое сообщение
+        [few] { $count } новых сообщения
+       *[other] { $count } новых сообщений
+    }
 # Context: show_system
 timeline-show-system-open-this-channels-threads = Откройте темы этого канала
 # Context: show_system
@@ -3643,6 +3821,10 @@ timeline-show-with-scroll-you-cannot-view-this-conversation = Вы не може
 timeline-starter-row-thread-started-from-this-message = Тема началась с этого сообщения
 # Context: unread_banner
 timeline-unread-banner-unread-messages = Непрочитанные сообщения
+# Context: unread_banner
+timeline-unread-banner-mark-as-read = Отметить как прочитанное
+# Context: unread_banner
+timeline-unread-banner-jump-to-unread = К непрочитанным
 
 ## crates/ui/src/toasts.rs
 # Context: show
@@ -3705,6 +3887,8 @@ updates-update-settings-restart-to-update = Перезапустите, чтоб
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein был установлен через ваш дистрибутив. Запустите это в терминале для обновления.
 # Context: update_settings
 updates-update-settings-support-diagnostics = Поддержка и диагностика
+# Context: update_log
+updates-update-log = Журнал обновлений
 # Context: update_settings
 updates-update-settings-update-checks-are-disabled-in-debug-builds = Проверки обновлений отключены в отладочных сборках.
 
@@ -4054,6 +4238,10 @@ profiles-remove-friend-message = Удалить пользователя { $user
 channel-menu-dialog-category-settings = Настройки категории
 channel-menu-dialog-channel-settings = Настройки канала
 channel-menu-dialog-settings-subtitle = Настройте параметры и разрешения.
+channel-menu-discard-title = Отменить несохраненные изменения?
+channel-menu-discard-message = Несохраненные изменения этого канала будут потеряны.
+channel-menu-discard-confirm = Отменить изменения
+channel-menu-discard-keep = Продолжить редактирование
 channel-menu-dialog-duplicate-subtitle = Копирует настройки и разрешения. Сообщения не копируются.
 channel-menu-dialog-create-channel-subtitle = Выберите тип и название канала.
 channel-menu-dialog-create-category-subtitle = Категории упорядочивают связанные каналы.
@@ -4109,8 +4297,18 @@ search-page-previous-short = Назад
 search-page-next-short = Далее
 search-result-today-at = Сегодня в { $time }
 search-result-yesterday-at = Вчера в { $time }
-timeline-unread-banner-one-new-since = 1 новое сообщение с { $time }
-timeline-unread-banner-many-new-since = Новые сообщения с { $time }: { $count }
+timeline-unread-banner-new-since =
+    { $count ->
+        [one] { $count } новое сообщение с { $time }
+        [few] { $count } новых сообщения с { $time }
+       *[other] { $count } новых сообщений с { $time }
+    }
+timeline-unread-banner-new-since-more =
+    { $count ->
+        [one] { $count }+ новое сообщение с { $time }
+        [few] { $count }+ новых сообщения с { $time }
+       *[other] { $count }+ новых сообщений с { $time }
+    }
 
 ## crates/ui/src/onboarding.rs
 # Context: show

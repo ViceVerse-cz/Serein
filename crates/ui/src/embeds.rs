@@ -62,6 +62,7 @@ fn link(
 		}
 	}
 }
+#[allow(clippy::too_many_arguments)]
 fn text(
 	ui: &mut egui::Ui,
 	message: &Message,
@@ -69,6 +70,7 @@ fn text(
 	cache: &mut FormatCache,
 	opening: &mut Option<String>,
 	profile: &mut crate::profiles::ProfileSession,
+	card_surface: crate::design::MessageCardSurface,
 	media: (
 		&mut Avatars,
 		bool,
@@ -85,6 +87,7 @@ fn text(
 		Some(source),
 		profile,
 		(images, demo, guilds),
+		card_surface,
 	);
 	if formatted.limited {
 		ui.small(crate::i18n::translate("embeds-text-text-display-limited"));
@@ -314,6 +317,7 @@ pub fn show(
 	download: &mut DownloadUi,
 	profile: &mut crate::profiles::ProfileSession,
 	state: &client_core::State,
+	card_surface: crate::design::MessageCardSurface,
 ) -> Option<Gif> {
 	if message.embeds_suppressed {
 		return None;
@@ -437,7 +441,7 @@ pub fn show(
 			});
 			let width = ui.available_width().min(480.0);
 			let frame = egui::Frame::new()
-				.fill(colors.raised)
+				.fill(card_surface.fill(ui, colors.raised))
 				.corner_radius(5)
 				.inner_margin(12)
 				.show(ui, |ui| {
@@ -501,6 +505,7 @@ pub fn show(
 											cache,
 											opening,
 											profile,
+											card_surface,
 											(images, demo, &state.guilds, &source),
 										);
 									}
@@ -555,6 +560,7 @@ pub fn show(
 												cache,
 												opening,
 												profile,
+												card_surface,
 												(images, demo, &state.guilds, &source),
 											);
 										});
@@ -772,7 +778,8 @@ mod tests {
 									&mut opening,
 									&mut download,
 									&mut profile,
-									&client_core::State::default()
+									&client_core::State::default(),
+									crate::design::MessageCardSurface::Conversation,
 								)
 								.is_none()
 							);
@@ -1108,6 +1115,7 @@ mod tests {
 					&mut download,
 					&mut profile,
 					&client_core::State::default(),
+					crate::design::MessageCardSurface::Conversation,
 				);
 			},
 		);

@@ -1389,6 +1389,7 @@ mod tests {
 			discriminator: 0,
 		};
 		Message {
+			poll: None,
 			sticker_items: Vec::new(),
 			kind: 0,
 			id: Id(id),

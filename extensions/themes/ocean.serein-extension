@@ -1,0 +1,42 @@
+{
+  "manifest": {
+    "api_version": 1,
+    "id": "serein-ocean",
+    "name": "Ocean",
+    "version": "1.0.0",
+    "author": "Serein contributors",
+    "license": "MIT OR Apache-2.0",
+    "source": "https://github.com/ViceVerse-cz/rustcord",
+    "kind": "theme"
+  },
+  "theme": {
+    "dark": {
+      "colors": {
+        "base": "#101C28",
+        "sidebar": "#142432",
+        "chat": "#192C3C",
+        "raised": "#20384A",
+        "hover": "#29465A",
+        "selected": "#34576E",
+        "border": "#3B576B",
+        "accent": "#57CEE3",
+        "accent_text": "#10202B",
+        "link": "#8DE6F2"
+      }
+    },
+    "light": {
+      "colors": {
+        "base": "#DCEFF5",
+        "sidebar": "#E8F4F8",
+        "chat": "#F4FBFD",
+        "raised": "#FFFFFF",
+        "hover": "#DCECF2",
+        "selected": "#C6E2EC",
+        "border": "#A8C7D3",
+        "accent": "#126B82",
+        "accent_text": "#FFFFFF",
+        "link": "#126B82"
+      }
+    }
+  }
+}

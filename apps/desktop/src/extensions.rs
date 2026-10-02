@@ -20,8 +20,9 @@ use extensions::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+/// Generated from `extensions/` and pinned to a merged commit by the catalog workflow.
 const CATALOG_URL: &str =
-	"https://raw.githubusercontent.com/ViceVerse-cz/Serein-extensions/main/catalog.json";
+	"https://raw.githubusercontent.com/ViceVerse-cz/Serein/main/extensions/catalog.json";
 const MAX_PACKAGE: usize = 16 * 1024 * 1024;
 const MAX_RECORD: usize = MAX_PACKAGE + 64 * 1024;
 const MAX_CATALOG: usize = 1024 * 1024;
@@ -119,60 +120,60 @@ pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 		#[cfg(any(test, feature = "demo"))]
 		(
 			include_bytes!(
-				"../../../community-extensions/plugins/packages/message-delete-protector.serein-extension"
+				"../../../extensions/plugins/packages/message-delete-protector.serein-extension"
 			),
 			"Keep messages already seen in this session visible in red after deletion. Cleared when disabled or signed out.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
 			include_bytes!(
-				"../../../community-extensions/plugins/packages/emoji-sticker-images.serein-extension"
+				"../../../extensions/plugins/packages/emoji-sticker-images.serein-extension"
 			),
 			"While enabled, custom emoji and stickers fall back to image attachments only when native sending is unavailable.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
-			include_bytes!("../../../community-extensions/themes/ocean.serein-extension"),
+			include_bytes!("../../../extensions/themes/ocean.serein-extension"),
 			"Deep blue surfaces with a bright ocean accent.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
-			include_bytes!("../../../community-extensions/themes/midnight.serein-extension"),
+			include_bytes!("../../../extensions/themes/midnight.serein-extension"),
 			"Inky midnight surfaces with a vivid violet accent.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
-			include_bytes!("../../../community-extensions/themes/rose.serein-extension"),
+			include_bytes!("../../../extensions/themes/rose.serein-extension"),
 			"Soft rose surfaces with a warm pink accent.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
-			include_bytes!("../../../community-extensions/themes/forest.serein-extension"),
+			include_bytes!("../../../extensions/themes/forest.serein-extension"),
 			"Calm forest greens and fresh leafy accents.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
-			include_bytes!("../../../community-extensions/themes/latte.serein-extension"),
+			include_bytes!("../../../extensions/themes/latte.serein-extension"),
 			"Warm coffee tones and a creamy caramel accent.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
-			include_bytes!("../../../community-extensions/themes/golden.serein-extension"),
+			include_bytes!("../../../extensions/themes/golden.serein-extension"),
 			"Warm charcoal and gold, with rounded, roomy controls.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
-			include_bytes!("../../../community-extensions/themes/katana.serein-extension"),
+			include_bytes!("../../../extensions/themes/katana.serein-extension"),
 			"Katana's dark charcoal surfaces and sharp red accents. Light mode uses built-in colors.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
-			include_bytes!("../../../community-extensions/themes/obsidian.serein-extension"),
+			include_bytes!("../../../extensions/themes/obsidian.serein-extension"),
 			"Obsidian violet surfaces and lavender accents in light and dark.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
-			include_bytes!("../../../community-extensions/themes/teal.serein-extension"),
+			include_bytes!("../../../extensions/themes/teal.serein-extension"),
 			"Cool blue-green surfaces with fresh teal accents.",
 		),
 	];
@@ -1865,7 +1866,7 @@ mod tests {
 		}
 		assert!(!root.exists(), "preview must not install a theme");
 		let original = extensions::parse_package(include_bytes!(
-			"../../../community-extensions/themes/ocean.serein-extension"
+			"../../../extensions/themes/ocean.serein-extension"
 		))
 		.unwrap();
 		let directory = root.join("themes").join(&original.manifest.id);
@@ -1980,8 +1981,7 @@ mod tests {
 		let profile = Profile::new();
 		let root = profile.0.join("extensions");
 		let mut package = theme("local-cover");
-		package.cover_image =
-			include_bytes!("../../../community-extensions/previews/ocean.png").to_vec();
+		package.cover_image = include_bytes!("../../../extensions/previews/ocean.png").to_vec();
 		let Event::Enabled(first) = run(
 			&root,
 			Job::SaveTheme {
@@ -2080,7 +2080,7 @@ mod tests {
 	#[test]
 	fn catalog_cache_is_bounded_and_does_not_change_installed_themes() {
 		let profile = Profile::new();
-		let bytes = include_bytes!("../../../community-extensions/catalog.json");
+		let bytes = include_bytes!("../../../extensions/catalog.json");
 		let catalog = cache_catalog(&profile.0, bytes, &gate()).unwrap();
 		let entries = catalog.entries.len();
 		assert!(entries > 0);

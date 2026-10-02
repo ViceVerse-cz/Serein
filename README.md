@@ -1,9 +1,5 @@
 # Serein
 
-Development checkouts need `git submodule update --init` before tests or demo
-builds. The pinned `community-extensions` submodule supplies canonical catalog
-packages and previews from `Serein-extensions` without maintaining local copies.
-
 <p align="center">
   <a href="https://github.com/ViceVerse-cz/rustcord">
     <img src="docs/preview.png" alt="Serein Native Discord Client" width="900" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);" />

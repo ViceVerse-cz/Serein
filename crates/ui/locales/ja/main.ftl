@@ -14,7 +14,7 @@ page-appearance = 外観
 page-chat = チャット
 page-messaging-permissions = メッセージング権限
 page-notifications = 通知
-page-activity = ゲームアクティビティ
+page-registered-games = 登録済みのゲーム
 page-voice = 音声とビデオ
 page-keybinds = キーバインド
 page-storage = データとプライバシー
@@ -28,7 +28,7 @@ description-appearance = テーマ、色、ウィンドウ効果、レイアウ�
 description-chat = メッセージ、メディア、リンク、スクロールの動作。
 description-messaging-permissions = 誰があなたに連絡できるか、そしてメッセージをどのようにフィルタリングするかを制御します。
 description-notifications = 受信する通知とその表示方法を選択します。
-description-activity = あなたがプレイしているものを他の人に見せてください。
+description-registered-games = プレイ中のゲームを共有し、Serein が検出したゲームを修正・追加します。
 description-voice = マイク、スピーカー、カメラ、音声処理。
 description-keybinds = セレインのキーボード ショートカット。
 description-storage = Serein がこのデバイスに保存しているもの。
@@ -103,6 +103,7 @@ no-conversations = ここでは会話ができません。
 open-in-discord = Discordで開く
 new = 新しい
 members-count = メンバー
+members-heading = メンバー
 no-conversation-selected = 会話が選択されていません
 select-conversation = リストからチャンネルまたはダイレクトメッセージを選択します。
 friends-online = オンライン
@@ -734,6 +735,8 @@ design-account-row-with-remove-forget-this-account-on-this-device = このデバ
 design-color-edit-hex-color-rrggbb-click-to-type-or-paste = 16 進カラー: #RRGGBB。クリックして入力または貼り付けます。
 # Context: save_bar
 design-save-bar-careful-you-have-unsaved-changes = 注意してください。保存されていない変更があります。
+design-save-bar-save-changes = 変更を保存
+design-save-bar-reset = リセット
 
 ## crates/ui/src/dialog.rs
 # Context: header
@@ -1546,6 +1549,8 @@ lib-ime-updates-text-clear-this-draft = このドラフトをクリアする
 # Context: ime_updates_text
 lib-ime-updates-text-copy-edit-text = 編集テキストをコピーする
 # Context: ime_updates_text
+lib-ime-updates-text-create-a-poll = 投票を作成
+# Context: ime_updates_text
 lib-ime-updates-text-draft-budget-full-clear-an-existing-draft-to-continue = 予算案は満席です。続行するには、既存の下書きをクリアします。
 # Context: ime_updates_text
 lib-ime-updates-text-drop-files-to-attach = ファイルをドロップして添付する
@@ -1786,6 +1791,86 @@ pending-show-you = あなた
 pending-upload-strip-cancel-upload = アップロードをキャンセルする
 # Context: upload_strip
 pending-upload-strip-the-message-may-already-have-reached-discord-check-the-conversation = メッセージはすでに Discord に届いている可能性があります。再度送信する前に会話を確認してください。
+
+## crates/ui/src/polls.rs
+# Context: card
+polls-card-ended = 投票は終了しました
+# Context: card
+polls-card-select-many = 1つ以上の回答を選択
+# Context: card
+polls-card-select-one = 回答を1つ選択
+# Context: card
+polls-card-final-results = 最終結果
+# Context: card
+polls-card-awaiting-results = 最終結果を待っています
+# Context: card
+polls-card-hours-left = 残り{ $hours }時間
+# Context: card
+polls-card-minutes-left = 残り{ $minutes }分
+# Context: card
+polls-card-in-progress = 進行中
+# Context: card
+polls-card-vote-count-one = { $count }票
+# Context: card
+polls-card-vote-count-many = { $count }票
+# Context: card
+polls-card-results-not-loaded = 結果が読み込まれていません
+# Context: card
+polls-card-back-to-voting = 投票に戻る
+# Context: card
+polls-card-refresh-results = 結果を更新
+# Context: card
+polls-card-show-results = 結果を表示
+# Context: card
+polls-card-remove-vote = 投票を取り消す
+# Context: card
+polls-card-vote = 投票する
+# Context: card
+polls-card-end-confirm = この投票を全員に対して終了しますか？
+# Context: card
+polls-card-end-now = 今すぐ終了
+# Context: card
+polls-card-end-poll = 投票を終了
+# Context: creator
+polls-creator-title = 投票を作成
+# Context: creator
+polls-creator-question = 質問
+# Context: creator
+polls-creator-question-hint = 何を質問しますか？
+# Context: creator
+polls-creator-answers = 回答
+# Context: creator
+polls-creator-answer-hint = 回答 { $number }
+# Context: creator
+polls-creator-add-emoji = 絵文字を追加
+# Context: creator
+polls-creator-change-emoji = 絵文字を変更
+# Context: creator
+polls-creator-remove-answer = 回答を削除
+# Context: creator
+polls-creator-add-answer = 回答を追加
+# Context: creator
+polls-creator-duration = 期間
+# Context: creator
+polls-creator-multiple-answers = 複数回答を許可
+# Context: creator
+polls-creator-post = 投稿
+# Context: creator
+polls-creator-posting = 投稿中…
+# Context: duration_label
+polls-duration-1-hour = 1時間
+# Context: duration_label
+polls-duration-4-hours = 4時間
+# Context: duration_label
+polls-duration-8-hours = 8時間
+# Context: duration_label
+polls-duration-24-hours = 24時間
+# Context: duration_label
+polls-duration-3-days = 3日
+# Context: duration_label
+polls-duration-1-week = 1週間
+# Context: duration_label
+polls-duration-hours = { $hours }時間
 
 ## crates/ui/src/post_menu.rs
 # Context: context
@@ -3233,6 +3318,92 @@ settings-account-page-signed-in-with-your-discord-account = Discord アカウン
 settings-activity-settings-detect-running-games-and-ask-discord-to-share-them-as = 実行中のゲームを検出し、アクティビティとして共有するように Discord に依頼します。
 # Context: activity_settings
 settings-activity-settings-share-game-activity = ゲームアクティビティを共有する
+# Context: activity_settings
+settings-activity-enable-on-discord = Discord で有効にする
+# Context: activity_settings
+settings-activity-check-again = もう一度確認
+# Context: activity_settings
+settings-activity-sharing-is-off = アクティビティの共有はオフです
+# Context: activity_settings
+settings-activity-sharing-your-game = ゲームを共有しています
+# Context: activity_settings
+settings-activity-looking = 実行中のゲームを探しています
+# Context: activity_settings
+settings-activity-demo-detail = サンプルのアクティビティです。共有も保存もされません。
+# Context: activity_settings
+settings-activity-status-offline-preview = オフラインプレビュー: サンプルのアクティビティです。共有も保存もされません。
+# Context: activity_settings
+settings-activity-status-unconfirmed = ローカルプレビューのみです。Discord が共有を確認するのを待っています。
+# Context: activity_settings
+settings-activity-status-received = Discord はゲームを受信しましたが、公開表示していません。
+# Context: activity_settings
+settings-activity-status-listed = Discord がゲームを表示しています。サーバーとフレンドのプライバシー設定は引き続き適用されます。
+# Context: activity_settings
+settings-activity-status-hidden = Discord がゲームを非表示にしています。Discord の「登録済みのゲーム」と「アクティビティの共有」を確認してください。
+# Context: activity_settings
+settings-activity-status-missing = Discord はゲームを公開表示しませんでした。Discord の「登録済みのゲーム」とサーバーの共有設定を確認してください。
+# Context: activity_settings
+settings-activity-status-sharing-off = Discord のアカウント全体のアクティビティ共有はオフです。
+# Context: activity_settings
+settings-activity-status-checking = Discord のアクティビティ共有設定を確認しています…
+# Context: activity_settings
+settings-activity-status-check-failed = Discord のアクティビティ共有設定を確認または変更できませんでした。
+# Context: activity_settings
+settings-activity-status-updating = Discord のアクティビティ共有設定を更新しています…
+# Context: activity_settings
+settings-activity-status-request-failed = 設定の変更をリクエストできませんでした。もう一度お試しください。
+# Context: activity_settings
+settings-activity-current-game = 現在のゲーム
+# Context: activity_settings
+settings-activity-now-playing = プレイ中!
+# Context: activity_settings
+settings-activity-stop-detecting-current = このゲームではありませんか?検出を停止します。
+# Context: activity_settings
+settings-activity-reported-by-game = ゲームが Rich Presence で報告しています。
+# Context: activity_settings
+settings-activity-no-game-detected = ゲームが検出されていません
+# Context: activity_settings
+settings-activity-turn-on-sharing = ゲームを検出するには、上の「ゲームアクティビティを共有する」をオンにしてください。
+# Context: activity_settings
+settings-activity-not-seeing-your-game = ゲームが見つかりませんか?
+# Context: activity_settings
+settings-activity-add-it = 追加しましょう!
+# Context: activity_settings
+settings-activity-added-games = 追加済みのゲーム
+# Context: activity_settings
+settings-activity-no-games-added = 追加されたゲームはありません
+# Context: activity_settings
+settings-activity-hidden = 非表示。Serein はこのゲームを検出しません。
+# Context: activity_settings
+settings-activity-detected = 自動検出
+# Context: activity_settings
+settings-activity-last-played-today = 最終プレイ: 今日
+# Context: activity_settings
+settings-activity-last-played-yesterday = 最終プレイ: 昨日
+# Context: activity_settings
+settings-activity-last-played = 最終プレイ: { $date }
+# Context: activity_settings
+settings-activity-restore = 復元
+# Context: activity_settings
+settings-activity-restore-hint = このゲームを再び検出します。
+# Context: activity_settings
+settings-activity-stop-detecting = このゲームの検出を停止
+# Context: activity_settings
+settings-activity-remove-game = このゲームを削除
+# Context: activity_settings
+settings-activity-click-to-rename = クリックして名前を変更
+# Context: activity_settings
+settings-activity-add-a-game = ゲームを追加
+# Context: activity_settings
+settings-activity-choose-program = 実行中のプログラムを選んでください。実行されるたびに Serein がゲームとして表示します。
+# Context: activity_settings
+settings-activity-search-programs = 実行中のプログラムを検索
+# Context: activity_settings
+settings-activity-reading-programs = 実行中のプログラムを読み込んでいます…
+# Context: activity_settings
+settings-activity-no-matching-programs = 一致するプログラムは実行されていません。
+# Context: activity_settings
+settings-activity-add-game = ゲームを追加
 # Context: appearance_menu
 settings-appearance-menu-display = 画面
 # Context: appearance_menu
@@ -3596,7 +3767,9 @@ timeline-message-actions-view-reactions = 反応を見る
 # Context: present_control
 timeline-present-control-jump-to-present = 現在へジャンプ
 # Context: present_control
-timeline-present-control-new-messages-below-jump-to-present = 新しいメッセージは以下にあります · 現在のメッセージにジャンプします
+timeline-present-control-new-messages-below-jump-to-present = 新しいメッセージがあります · 現在へジャンプ
+# Context: present_control
+timeline-present-control-new-messages = 新着メッセージ { $count } 件
 # Context: show_system
 timeline-show-system-open-this-channels-threads = このチャンネルのスレッドを開く
 # Context: show_system
@@ -3643,6 +3816,10 @@ timeline-show-with-scroll-you-cannot-view-this-conversation = この会話は表
 timeline-starter-row-thread-started-from-this-message = このメッセージからスレッドが開始されました
 # Context: unread_banner
 timeline-unread-banner-unread-messages = 未読メッセージ
+# Context: unread_banner
+timeline-unread-banner-mark-as-read = 既読にする
+# Context: unread_banner
+timeline-unread-banner-jump-to-unread = 未読へジャンプ
 
 ## crates/ui/src/toasts.rs
 # Context: show
@@ -3705,6 +3882,8 @@ updates-update-settings-restart-to-update = 更新するには再起動してく
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein はディストリビューション経由でインストールされました。ターミナルでこれを実行して更新します。
 # Context: update_settings
 updates-update-settings-support-diagnostics = サポートと診断
+# Context: update_log
+updates-update-log = 更新履歴
 # Context: update_settings
 updates-update-settings-update-checks-are-disabled-in-debug-builds = デバッグ ビルドでは更新チェックが無効になります。
 
@@ -4054,6 +4233,10 @@ profiles-remove-friend-message = { $user } をフレンドから削除します�
 channel-menu-dialog-category-settings = カテゴリ設定
 channel-menu-dialog-channel-settings = チャンネル設定
 channel-menu-dialog-settings-subtitle = 設定と権限をカスタマイズします。
+channel-menu-discard-title = 保存されていない変更を破棄しますか？
+channel-menu-discard-message = このチャンネルへの保存されていない変更は失われます。
+channel-menu-discard-confirm = 変更を破棄
+channel-menu-discard-keep = 編集を続ける
 channel-menu-dialog-duplicate-subtitle = 設定と権限をコピーします。メッセージはコピーされません。
 channel-menu-dialog-create-channel-subtitle = チャンネルの種類と名前を選択します。
 channel-menu-dialog-create-category-subtitle = カテゴリで関連するチャンネルを整理します。
@@ -4109,8 +4292,8 @@ search-page-previous-short = 前へ
 search-page-next-short = 次へ
 search-result-today-at = 今日 { $time }
 search-result-yesterday-at = 昨日 { $time }
-timeline-unread-banner-one-new-since = { $time } 以降の新着メッセージ 1 件
-timeline-unread-banner-many-new-since = { $time } 以降の新着メッセージ { $count } 件
+timeline-unread-banner-new-since = { $time } 以降の新着メッセージ { $count } 件
+timeline-unread-banner-new-since-more = { $time } 以降の新着メッセージ { $count }+ 件
 
 ## crates/ui/src/onboarding.rs
 # Context: show

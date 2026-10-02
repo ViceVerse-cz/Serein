@@ -1,5 +1,25 @@
 # Local storage policy and audit
 
+## Image decoder lifetime and stream frame reuse (October 2, 2026)
+
+Each image worker still admits eight loads. Blocking image decoders now share
+eight process-wide slots across worker/account replacement. A slot belongs to
+the actual blocking closure until it finishes, even if its async waiter is
+aborted. Waiting admission is cancellable and releases its captured input.
+This includes Lottie, still, animation and native thumbnail decoding; it does
+not change download concurrency, decoder byte budgets or the result queue.
+Encoded input, completed results, UI textures and driver memory remain additional.
+Eight slots are an admission ceiling, not a whole-process RAM limit.
+
+Screen watching reuses only the latest undisplayed CPU image. Upload still moves
+that image out of the slot, so no extra CPU frame remains after upload. Resize
+growth requests exact pixel capacity; an allocation over 1 MiB that exceeds four
+times the new pixel count is replaced. Incoming transport frames remain limited
+to 1920 pixels per side and 1920×1080 total pixels. Debug conversion adds at most
+64 KiB scratch; release conversion writes directly into the reused pixel vector.
+The borrowed decoder RGBA input and pending egui uploads are additional. Nothing
+is persisted, and stop/account teardown releases the slot as before.
+
 ## Image decoding and edited-field allocations (September 28, 2026)
 
 Already-sized RGBA8 still images decode directly into their final egui pixel
@@ -890,21 +910,26 @@ retain up to 8 MiB, in addition to renderer/font-atlas overhead. Cache queue res
 include font payload bytes. Demo imports stay in memory and do not read or write this row.
 
 
-### Inline MP3/WAV preview (September 11, 2026)
+### Inline audio streaming (October 1, 2026)
 
 A deliberate Play action starts one lazy output-only worker. One replaceable request
 retains bounded validated attachment URL metadata; no account credential is sent.
-The credential-free downloader refuses redirects and content encoding and requires
-the declared length, capped at 20 MiB with a 60-second deadline. Audio stays in RAM:
-at most 64 MiB of decoded f32 samples and ten minutes, mono/stereo at 8?96 kHz,
-plus bounded decoder/transport buffers. PCM vector reallocation may temporarily
-retain old and new allocations (up to roughly 128 MiB combined), separately from
-the encoded buffer, decoder, audio device and process overhead. MP3 ID3 tags are skipped without decoding;
-WAV metadata is removed before demuxing. No media files or playback preferences
+The credential-free reader refuses redirects and content encoding and validates
+each response against the declared attachment length. The player has no separate
+20 MiB encoded-file ceiling; the shared original-attachment URL validator still
+requires at most 100 MiB, and nonzero lengths must fit the platform's address space. Reads
+use one 16 KiB HTTP range cache with a 15-second request timeout. The server must
+support ranges for files larger than that cache. Audio stays in RAM: one second
+of stereo f32 PCM (at most 768,000 bytes), bounded decoder/transport buffers,
+an Ogg header prefix of at most 256 KiB and packets of at most 1 MiB. The existing
+64 MiB cumulative decoded-sample and ten-minute limits remain, mono/stereo at
+8–96 kHz; these do not allocate a whole decoded clip. MP3 ID3 tags are skipped
+without decoding; WAV metadata is removed before demuxing. No media files or playback preferences
 are persisted. Playback stops when its card leaves view, the attachment changes,
 the conversation changes, the window is minimized/occluded, or the session ends.
 An atomic generation gate mutes obsolete output; the single worker releases its
-stream/buffers on cancellation. Pausing retains the current bounded decoded clip.
+stream/buffers on cancellation. Pausing retains only bounded buffered audio;
+seeking replays decoding from the start instead of retaining the file.
 
 ## Screen sharing
 

@@ -458,6 +458,12 @@ fn is_standalone_global_key(name: &str) -> bool {
 			| "F7" | "F8"
 			| "F9" | "F10"
 			| "F11" | "F12"
+			| "F13" | "F14"
+			| "F15" | "F16"
+			| "F17" | "F18"
+			| "F19" | "F20"
+			| "F21" | "F22"
+			| "F23" | "F24"
 	)
 }
 
@@ -557,6 +563,18 @@ fn code_name(name: &str) -> Option<&'static str> {
 		"F10" => Some("F10"),
 		"F11" => Some("F11"),
 		"F12" => Some("F12"),
+		"F13" => Some("F13"),
+		"F14" => Some("F14"),
+		"F15" => Some("F15"),
+		"F16" => Some("F16"),
+		"F17" => Some("F17"),
+		"F18" => Some("F18"),
+		"F19" => Some("F19"),
+		"F20" => Some("F20"),
+		"F21" => Some("F21"),
+		"F22" => Some("F22"),
+		"F23" => Some("F23"),
+		"F24" => Some("F24"),
 		_ => None,
 	}
 }
@@ -584,6 +602,8 @@ mod tests {
 		assert!(native_hotkey(&KeyChord::new("PageUp", 0)).is_some());
 		assert!(native_hotkey(&KeyChord::new("Insert", 0)).is_some());
 		assert!(native_hotkey(&KeyChord::new("F12", 0)).is_some());
+		assert!(native_hotkey(&KeyChord::new("F13", 0)).is_some());
+		assert!(native_hotkey(&KeyChord::new("F24", 0)).is_some());
 	}
 
 	#[test]

@@ -1,0 +1,58 @@
+{
+  "manifest": {
+    "api_version": 1,
+    "id": "serein-rose",
+    "name": "Rose",
+    "version": "1.0.0",
+    "author": "Serein contributors",
+    "license": "MIT OR Apache-2.0",
+    "source": "https://github.com/ViceVerse-cz/rustcord",
+    "kind": "theme"
+  },
+  "theme": {
+    "dark": {
+      "colors": {
+        "base": "#21151E",
+        "sidebar": "#2A1C28",
+        "chat": "#352332",
+        "raised": "#422C3D",
+        "hover": "#50364A",
+        "selected": "#63455B",
+        "border": "#715068",
+        "text_strong": "#FCEEF6",
+        "text": "#EFD6E6",
+        "muted": "#C7A7BC",
+        "accent": "#F1A9CF",
+        "accent_text": "#35162A",
+        "link": "#F8BDDA",
+        "mention_bg": "#653653",
+        "mention_text": "#FFE2F0",
+        "positive": "#80D2A0",
+        "warning": "#F0C674",
+        "danger": "#FF9797"
+      }
+    },
+    "light": {
+      "colors": {
+        "base": "#F0DFE8",
+        "sidebar": "#F7EAF0",
+        "chat": "#FFF6FA",
+        "raised": "#FFFFFF",
+        "hover": "#F1DFE8",
+        "selected": "#EACDDE",
+        "border": "#CFAABB",
+        "text_strong": "#482B3C",
+        "text": "#654154",
+        "muted": "#866274",
+        "accent": "#A23670",
+        "accent_text": "#FFFFFF",
+        "link": "#962B64",
+        "mention_bg": "#F7D5E7",
+        "mention_text": "#812856",
+        "positive": "#237C48",
+        "warning": "#966500",
+        "danger": "#B83039"
+      }
+    }
+  }
+}

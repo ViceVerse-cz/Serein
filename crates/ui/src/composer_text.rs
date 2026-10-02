@@ -556,6 +556,7 @@ mod tests {
 					None,
 					&mut crate::profiles::ProfileSession::default(),
 					(&mut avatars, false, &[]),
+					crate::design::MessageCardSurface::Opaque,
 				);
 				let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width| {
 					layout.galley(

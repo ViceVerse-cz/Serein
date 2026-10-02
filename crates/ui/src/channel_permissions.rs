@@ -264,6 +264,9 @@ impl PermissionsUi {
 		let key = self.selected.unwrap_or((0, guild));
 		let can_add = rows.len() < p::MAX_OVERWRITES || rows.iter().any(|o| (o.kind, o.id) == key);
 		let colors = design::palette(ui);
+		let row_width = ui.available_width();
+		// Rows set their own rhythm; the dialog's item spacing doubled every gap.
+		ui.spacing_mut().item_spacing.y = 0.0;
 		for (group, values) in [
 			(
 				if channel.kind == 4 {
@@ -428,8 +431,9 @@ impl PermissionsUi {
 			{
 				continue;
 			}
-			ui.add_space(12.0);
+			ui.add_space(20.0);
 			design::section(ui, group, None);
+			ui.add_space(6.0);
 			for &(bit, label, help) in values {
 				ui.push_id(bit, |ui| {
 					let label = crate::i18n::translate_if_key(label);
@@ -445,58 +449,54 @@ impl PermissionsUi {
 					});
 					let before = value;
 					let enabled = can_add && state.can_edit_channel_permission(channel.id, bit);
+					// Every row splits the same measured width into a text column and a
+					// fixed toggle column, so the toggles share one right edge. Sizing the
+					// text from the row's own available width let a few pixels of toggle
+					// overflow widen the column, shifting each following row further right.
+					let text_width = (row_width - TRI_STATE_WIDTH - 16.0).max(65.0);
 					ui.horizontal_top(|ui| {
-						let width = (ui.available_width() - 118.0).max(65.0);
-						ui.allocate_ui_with_layout(
-							egui::vec2(width, 0.0),
+						ui.spacing_mut().item_spacing.x = 0.0;
+						let text = ui.allocate_ui_with_layout(
+							egui::vec2(text_width, 0.0),
 							egui::Layout::top_down(egui::Align::Min),
 							|ui| {
-								ui.set_width(width);
-								ui.label(design::medium(ui, &label, 15.0));
-								dialog::hint(ui, help);
+								ui.set_width(text_width);
+								ui.spacing_mut().item_spacing.y = 2.0;
+								ui.add(
+									egui::Label::new(
+										design::medium(ui, &label, 15.0).color(colors.text_strong),
+									)
+									.wrap(),
+								);
+								ui.add(
+									egui::Label::new(
+										egui::RichText::new(crate::i18n::translate_if_key(help))
+											.size(13.0)
+											.color(colors.muted),
+									)
+									.wrap(),
+								);
 							},
 						);
-						ui.add_enabled_ui(enabled, |ui| {
-							ui.spacing_mut().item_spacing.x = 0.0;
-							for (choice, glyph, name, color) in [
-								(-1, "×", "channel-permissions-add-deny", colors.danger),
-								(0, "/", "channel-permissions-add-inherit", colors.muted),
-								(1, "✓", "channel-permissions-add-allow", colors.positive),
-							] {
-								let response = ui.add(
-									egui::Button::new(
-										egui::RichText::new(glyph).size(20.0).color(color),
-									)
-									.selected(value == choice)
-									.min_size(egui::vec2(34.0, 30.0))
-									.corner_radius(3),
-								);
-								let accessible =
-									format!("{} {label}", crate::i18n::translate_if_key(name));
-								response.widget_info(|| {
-									egui::WidgetInfo::selected(
-										egui::Role::RadioButton,
-										ui.is_enabled(),
-										value == choice,
-										&accessible,
-									)
-								});
-								if response.on_hover_text(accessible).clicked() {
-									value = choice;
-								}
-							}
+						ui.add_space((row_width - text_width - TRI_STATE_WIDTH).max(0.0));
+						let offset = ((text.response.rect.height() - TRI_STATE_CELL.y) / 2.0)
+							.clamp(0.0, 8.0);
+						ui.vertical(|ui| {
+							ui.add_space(offset);
+							ui.add_enabled_ui(enabled, |ui| tri_state(ui, &mut value, &label));
 						});
 					});
 					if value != before {
 						set_permission(rows, key, bit, value);
 					}
-					ui.add_space(8.0);
-					ui.separator();
-					ui.add_space(8.0);
+					ui.add_space(6.0);
+					design::card_divider(ui);
+					ui.add_space(6.0);
 				});
 			}
 		}
 		if key != (0, guild) {
+			ui.add_space(12.0);
 			let editable = rows
 				.iter()
 				.find(|o| (o.kind, o.id) == key)
@@ -515,6 +515,92 @@ impl PermissionsUi {
 			{
 				rows.retain(|o| (o.kind, o.id) != key);
 			}
+		}
+	}
+}
+
+/// One cell of the deny / inherit / allow control.
+const TRI_STATE_CELL: egui::Vec2 = egui::vec2(36.0, 30.0);
+/// The whole control has a fixed width so every permission row lines it up on one edge.
+const TRI_STATE_WIDTH: f32 = TRI_STATE_CELL.x * 3.0;
+
+/// Discord-style connected deny / inherit / allow switch. The size never depends on the
+/// glyphs' font metrics, so rows cannot drift apart.
+fn tri_state(ui: &mut egui::Ui, value: &mut i8, label: &str) {
+	let colors = design::palette(ui);
+	let (group, _) = ui.allocate_exact_size(
+		egui::vec2(TRI_STATE_WIDTH, TRI_STATE_CELL.y),
+		egui::Sense::hover(),
+	);
+	let enabled = ui.is_enabled();
+	let fade = |color: egui::Color32| {
+		if enabled {
+			color
+		} else {
+			color.gamma_multiply(0.45)
+		}
+	};
+	ui.painter().rect(
+		group,
+		6,
+		colors.base,
+		egui::Stroke::new(1.0, colors.border),
+		egui::StrokeKind::Inside,
+	);
+	for (index, (choice, glyph, name, tint)) in [
+		(-1, "×", "channel-permissions-add-deny", colors.danger),
+		(0, "/", "channel-permissions-add-inherit", colors.muted),
+		(1, "✓", "channel-permissions-add-allow", colors.positive),
+	]
+	.into_iter()
+	.enumerate()
+	{
+		let cell = egui::Rect::from_min_size(
+			group.min + egui::vec2(TRI_STATE_CELL.x * index as f32, 0.0),
+			TRI_STATE_CELL,
+		);
+		let response = ui.interact(cell, ui.scope_id().with(choice), egui::Sense::click());
+		let selected = *value == choice;
+		let accessible = format!("{} {label}", crate::i18n::translate_if_key(name));
+		response.widget_info(|| {
+			egui::WidgetInfo::selected(egui::Role::RadioButton, enabled, selected, &accessible)
+		});
+		let radius = egui::CornerRadius {
+			nw: if index == 0 { 6 } else { 0 },
+			sw: if index == 0 { 6 } else { 0 },
+			ne: if index == 2 { 6 } else { 0 },
+			se: if index == 2 { 6 } else { 0 },
+		};
+		let fill = if selected {
+			fade(tint)
+		} else if response.hovered() || response.has_focus() {
+			colors.hover
+		} else {
+			egui::Color32::TRANSPARENT
+		};
+		ui.painter().rect_filled(cell.shrink(1.0), radius, fill);
+		if response.has_focus() {
+			ui.painter().rect_stroke(
+				cell,
+				radius,
+				egui::Stroke::new(2.0, colors.accent),
+				egui::StrokeKind::Inside,
+			);
+		}
+		let color = if selected {
+			egui::Color32::WHITE
+		} else {
+			fade(tint)
+		};
+		ui.painter().text(
+			cell.center(),
+			egui::Align2::CENTER_CENTER,
+			glyph,
+			egui::FontId::proportional(18.0),
+			color,
+		);
+		if response.on_hover_text(accessible).clicked() {
+			*value = choice;
 		}
 	}
 }

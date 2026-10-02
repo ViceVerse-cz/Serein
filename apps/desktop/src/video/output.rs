@@ -110,13 +110,14 @@ pub fn open(rate: u32, controls: Controls) -> Result<Output, &'static str> {
 	if !(8000..=96000).contains(&rate) {
 		return Err("Unsupported video audio sample rate");
 	}
-	let device = cpal::default_host()
+	let host = cpal::default_host();
+	let device = host
 		.default_output_device()
 		.ok_or("No audio output device")?;
 	let supported = device
 		.default_output_config()
 		.map_err(|_| "Audio output unavailable")?;
-	let config = supported.config();
+	let config = crate::audio::playback_config(host.id(), supported.config());
 	if !(1..=8).contains(&config.channels) || !(8000..=192000).contains(&config.sample_rate) {
 		return Err("Unsupported audio output format");
 	}

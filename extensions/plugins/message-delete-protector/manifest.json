@@ -1,0 +1,20 @@
+{
+  "api_version": 1,
+  "id": "message-delete-protector",
+  "name": "Message delete protector",
+  "version": "1.0.0",
+  "author": "Serein contributors",
+  "license": "MIT OR Apache-2.0",
+  "source": "https://github.com/ViceVerse-cz/Serein",
+  "kind": "plugin",
+  "capabilities": [
+    "deleted_messages"
+  ],
+  "actions": [
+    {
+      "id": "activate",
+      "label": "Protect loaded messages",
+      "surface": "activation"
+    }
+  ]
+}

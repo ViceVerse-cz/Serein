@@ -153,6 +153,7 @@ mod tests {
 
 	fn message(kind: u8) -> Message {
 		Message {
+			poll: None,
 			flags: 0,
 			sticker_items: vec![],
 			components: vec![],

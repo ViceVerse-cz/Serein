@@ -1,5 +1,5 @@
 //! One permission-checked, session-only server settings draft.
-use crate::{MessagingUi, avatars::Avatars, design, dialog, settings::close_control};
+use crate::{MessagingUi, avatars::Avatars, design, dialog};
 use client_core::{Command, State};
 use egui::Color32;
 use model::{
@@ -464,189 +464,37 @@ impl Editor {
 				self.revision = state.server_settings.revision;
 			}
 		}
-		let colors = design::palette_for(ctx);
-		let size = ctx.content_rect().size();
-		let width = (size.x - 32.0).clamp(260.0, 1160.0);
-		let height = (size.y - 32.0).max(220.0);
-		let wide = width >= 720.0;
-		let mut close = false;
 		let invite_overlay = self.invites.overlay_open() || self.integrations.overlay_open();
-		let modal = egui::Modal::new(egui::Id::unique("server-settings"))
-			.backdrop_color(dialog::backdrop(ctx))
-			.frame(
-				egui::Frame::new()
-					.fill(colors.chat.to_opaque())
-					.stroke(egui::Stroke::new(1.0, colors.border))
-					.corner_radius(dialog::RADIUS)
-					.shadow(ctx.style_of(ctx.theme()).visuals.window_shadow)
-					.inner_margin(0),
-			)
-			.show(ctx, |ui| {
-				ui.set_width(width);
-				ui.set_height(height);
-				ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
-				ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
-				if wide {
-					egui::Panel::left("server-settings-navigation")
-						.exact_size(220.0)
-						.resizable(false)
-						.show_separator_line(false)
-						.frame(
-							egui::Frame::new()
-								.fill(colors.sidebar.to_opaque())
-								.corner_radius(egui::CornerRadius {
-									nw: dialog::RADIUS,
-									sw: dialog::RADIUS,
-									ne: 0,
-									se: 0,
-								})
-								.inner_margin(egui::Margin::symmetric(12, 28)),
-						)
-						.show(ui, |ui| {
-							if self.page == Page::Roles && self.roles.editing() {
-								self.roles.navigation(ui, state, guild, commands);
-								return;
-							}
-							let name = state
-								.guild(guild)
-								.map_or("Server", |known| known.name.as_str());
-							ui.label(design::eyebrow(ui, name, colors.muted));
-							ui.add_space(12.0);
-							for page in [
-								Page::Profile,
-								Page::Engagement,
-								Page::Emoji,
-								Page::Stickers,
-								Page::Members,
-								Page::Roles,
-								Page::Invites,
-								Page::Integrations,
-								Page::AuditLog,
-							] {
-								if !page.allowed(state, guild) {
-									continue;
-								}
-								if page == Page::Emoji
-									|| (page == Page::Stickers
-										&& !Page::Emoji.allowed(state, guild))
-									|| matches!(
-										page,
-										Page::Members | Page::Integrations | Page::AuditLog
-									) || (page == Page::Roles
-									&& !Page::Members.allowed(state, guild))
-								{
-									ui.add_space(16.0);
-									ui.separator();
-									ui.add_space(12.0);
-									ui.label(design::eyebrow(
-										ui,
-										crate::i18n::translate_if_key(if page == Page::AuditLog {
-											"server-settings-show-moderation"
-										} else if page == Page::Integrations {
-											"server-settings-show-apps"
-										} else if matches!(page, Page::Emoji | Page::Stickers) {
-											"server-settings-show-expression"
-										} else {
-											"server-settings-show-people"
-										}),
-										colors.muted,
-									));
-								}
-								if crate::settings::nav_item(ui, page.label(), self.page == page)
-									.clicked()
-								{
-									self.page = page;
-								}
-							}
-							if state.can_delete_server(guild) {
-								ui.add_space(16.0);
-								ui.separator();
-								ui.add_space(12.0);
-								if delete_server_button(ui).clicked() {
-									state.clear_server_action_result(guild);
-									self.delete = true;
-									self.delete_name.clear();
-								}
-							}
-						});
+		let settings_bar = self.dirty() || state.server_settings.saving;
+		let roles_bar = self.page == Page::Roles && self.roles.has_changes();
+		let close = dialog::SettingsShell::new("server-settings")
+			.save_bar(settings_bar || roles_bar)
+			.show(ctx, |ui, region| match region {
+				dialog::ShellRegion::Navigation { compact } => {
+					self.navigation(ui, state, guild, compact, commands);
 				}
-				egui::CentralPanel::default()
-					.frame(egui::Frame::new().inner_margin(egui::Margin {
-						left: if wide { 32 } else { 16 },
-						right: if wide { 64 } else { 16 },
-						top: 40,
-						bottom: 24,
-					}))
-					.show(ui, |ui| {
-						if wide {
-							let rect = egui::Rect::from_min_size(
-								ui.max_rect().right_top() + egui::vec2(16.0, 0.0),
-								egui::vec2(40.0, 64.0),
-							);
-							let mut close_ui = ui.new_child(
-								egui::UiBuilder::new()
-									.id_salt("server-close")
-									.max_rect(rect),
-							);
-							close = close_control(&mut close_ui).clicked();
-						}
-						if !wide {
-							ui.horizontal_wrapped(|ui| {
-								for page in [
-									Page::Profile,
-									Page::Engagement,
-									Page::Emoji,
-									Page::Stickers,
-									Page::Members,
-									Page::Roles,
-									Page::Invites,
-									Page::Integrations,
-									Page::AuditLog,
-								] {
-									if !page.allowed(state, guild) {
-										continue;
-									}
-									ui.selectable_value(
-										&mut self.page,
-										page,
-										crate::i18n::translate_if_key(page.label()),
-									);
-								}
-								close = close_control(ui).clicked();
-							});
-							if state.can_delete_server(guild) && delete_server_button(ui).clicked()
-							{
-								state.clear_server_action_result(guild);
-								self.delete = true;
-								self.delete_name.clear();
-							}
-						}
-						if self.dirty() || state.server_settings.saving {
-							egui::Panel::bottom("server-settings-save")
-								.frame(save_bar_frame(ctx, colors))
-								.show(ui, |ui| self.save_bar(ui, state, commands));
-						}
-						if self.page == Page::Roles && self.roles.has_changes() {
-							egui::Panel::bottom("role-settings-save")
-								.frame(save_bar_frame(ctx, colors))
-								.show(ui, |ui| self.roles.save_bar(ui, state, guild, commands));
-						}
-						// Pages that virtualize their own list own the only vertical scrollbar;
-						// wrapping them again would nest two scroll areas over one list.
-						if self.scrolling_page() {
-							ui.set_width(ui.available_width());
-							self.page_body(ui, state, guild, avatars, profile, commands);
-						} else {
-							egui::ScrollArea::vertical()
-								.id_salt(("server-settings-content", self.page as u8))
-								.auto_shrink([false, false])
-								.show(ui, |ui| {
-									ui.set_width(ui.available_width());
-									self.page_body(ui, state, guild, avatars, profile, commands);
-									ui.add_space(24.0);
-								});
-						}
+				dialog::ShellRegion::SaveBar => {
+					if settings_bar {
+						dialog::save_bar_frame(ctx)
+							.show(ui, |ui| self.save_bar(ui, state, commands));
+					}
+					if roles_bar {
+						dialog::save_bar_frame(ctx)
+							.show(ui, |ui| self.roles.save_bar(ui, state, guild, commands));
+					}
+				}
+				// Pages that virtualize their own list own the only vertical scrollbar;
+				// wrapping them again would nest two scroll areas over one list.
+				dialog::ShellRegion::Body if self.scrolling_page() => {
+					dialog::fixed_width(ui, |ui| {
+						self.page_body(ui, state, guild, avatars, profile, commands);
 					});
+				}
+				dialog::ShellRegion::Body => {
+					dialog::settings_page(ui, ("server-settings-content", self.page as u8), |ui| {
+						self.page_body(ui, state, guild, avatars, profile, commands);
+					});
+				}
 			});
 		if self.page == Page::Invites {
 			self.invites.overlays(ctx, state, guild, avatars, commands);
@@ -654,7 +502,7 @@ impl Editor {
 		if self.page == Page::Integrations {
 			self.integrations.overlays(ctx, state, guild, commands);
 		}
-		if !invite_overlay && (close || modal.should_close()) {
+		if !invite_overlay && close {
 			if self.dirty()
 				|| state.server_settings.saving
 				|| self.admin.has_changes()
@@ -706,6 +554,96 @@ impl Editor {
 		}
 		if self.delete {
 			self.delete_dialog(ctx, state, guild, commands);
+		}
+	}
+
+	/// The page list: a sidebar when `compact` is off, inline tabs above the page otherwise.
+	fn navigation(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		guild: Id,
+		compact: bool,
+		commands: &mut Vec<Command>,
+	) {
+		const PAGES: [Page; 9] = [
+			Page::Profile,
+			Page::Engagement,
+			Page::Emoji,
+			Page::Stickers,
+			Page::Members,
+			Page::Roles,
+			Page::Invites,
+			Page::Integrations,
+			Page::AuditLog,
+		];
+		let colors = design::palette(ui);
+		if compact {
+			ui.horizontal_wrapped(|ui| {
+				for page in PAGES {
+					if page.allowed(state, guild) {
+						ui.selectable_value(
+							&mut self.page,
+							page,
+							crate::i18n::translate_if_key(page.label()),
+						);
+					}
+				}
+			});
+		} else {
+			if self.page == Page::Roles && self.roles.editing() {
+				self.roles.navigation(ui, state, guild, commands);
+				return;
+			}
+			let name = state
+				.guild(guild)
+				.map_or("Server", |known| known.name.as_str());
+			ui.label(design::eyebrow(ui, name, colors.muted));
+			ui.add_space(12.0);
+			for page in PAGES {
+				if !page.allowed(state, guild) {
+					continue;
+				}
+				if page == Page::Emoji
+					|| (page == Page::Stickers && !Page::Emoji.allowed(state, guild))
+					|| matches!(page, Page::Members | Page::Integrations | Page::AuditLog)
+					|| (page == Page::Roles && !Page::Members.allowed(state, guild))
+				{
+					ui.add_space(16.0);
+					ui.separator();
+					ui.add_space(12.0);
+					ui.label(design::eyebrow(
+						ui,
+						crate::i18n::translate_if_key(if page == Page::AuditLog {
+							"server-settings-show-moderation"
+						} else if page == Page::Integrations {
+							"server-settings-show-apps"
+						} else if matches!(page, Page::Emoji | Page::Stickers) {
+							"server-settings-show-expression"
+						} else {
+							"server-settings-show-people"
+						}),
+						colors.muted,
+					));
+				}
+				if crate::settings::nav_item(ui, page.label(), self.page == page).clicked() {
+					self.page = page;
+				}
+			}
+		}
+		if state.can_delete_server(guild) {
+			if !compact {
+				ui.add_space(16.0);
+				ui.separator();
+				ui.add_space(12.0);
+			}
+			if dialog::danger_nav_item(ui, "server-settings-delete-server-button-delete-server")
+				.clicked()
+			{
+				state.clear_server_action_result(guild);
+				self.delete = true;
+				self.delete_name.clear();
+			}
 		}
 	}
 
@@ -1546,49 +1484,4 @@ fn timeout_picker(ui: &mut egui::Ui, timeout: &mut u32) {
 				);
 			}
 		});
-}
-
-fn delete_server_button(ui: &mut egui::Ui) -> egui::Response {
-	let label = crate::i18n::translate("server-settings-delete-server-button-delete-server");
-	let colors = design::palette(ui);
-	let (rect, response) =
-		ui.allocate_exact_size(egui::vec2(ui.available_width(), 34.0), egui::Sense::click());
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
-	if response.hovered() || response.has_focus() {
-		ui.painter()
-			.rect_filled(rect, 8, colors.danger.gamma_multiply(0.16));
-	}
-	ui.painter().text(
-		egui::pos2(rect.left() + 12.0, rect.center().y),
-		egui::Align2::LEFT_CENTER,
-		&label,
-		egui::FontId::new(15.0, design::medium_family(ui.ctx())),
-		colors.danger,
-	);
-	crate::icons::paint(
-		ui.painter(),
-		crate::icons::Icon::Trash,
-		egui::Rect::from_center_size(
-			egui::pos2(rect.right() - 17.0, rect.center().y),
-			egui::Vec2::splat(18.0),
-		),
-		colors.danger,
-	);
-	response
-}
-
-/// Floating "unsaved changes" strip Discord pins over the settings content.
-fn save_bar_frame(ctx: &egui::Context, colors: design::Palette) -> egui::Frame {
-	egui::Frame::new()
-		.fill(colors.base.to_opaque())
-		.stroke(egui::Stroke::new(1.0, colors.border))
-		.corner_radius(10)
-		.shadow(ctx.style_of(ctx.theme()).visuals.window_shadow)
-		.inner_margin(egui::Margin::symmetric(14, 12))
-		.outer_margin(egui::Margin {
-			left: 0,
-			right: 0,
-			top: 8,
-			bottom: 8,
-		})
 }

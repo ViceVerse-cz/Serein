@@ -1,0 +1,58 @@
+{
+  "manifest": {
+    "api_version": 1,
+    "id": "serein-midnight",
+    "name": "Midnight",
+    "version": "1.0.0",
+    "author": "Serein contributors",
+    "license": "MIT OR Apache-2.0",
+    "source": "https://github.com/ViceVerse-cz/rustcord",
+    "kind": "theme"
+  },
+  "theme": {
+    "dark": {
+      "colors": {
+        "base": "#11131F",
+        "sidebar": "#171A2B",
+        "chat": "#202438",
+        "raised": "#292E46",
+        "hover": "#333A55",
+        "selected": "#414B6D",
+        "border": "#4A5576",
+        "text_strong": "#F2F3FF",
+        "text": "#D8DDF1",
+        "muted": "#A8B2D0",
+        "accent": "#A8B8FF",
+        "accent_text": "#171C36",
+        "link": "#BAC7FF",
+        "mention_bg": "#35416B",
+        "mention_text": "#E0E6FF",
+        "positive": "#80D2A0",
+        "warning": "#F0C674",
+        "danger": "#FF9797"
+      }
+    },
+    "light": {
+      "colors": {
+        "base": "#DFE4F4",
+        "sidebar": "#E9EDF8",
+        "chat": "#F5F7FF",
+        "raised": "#FFFFFF",
+        "hover": "#E1E7F6",
+        "selected": "#CFD9F0",
+        "border": "#B4C0DB",
+        "text_strong": "#202943",
+        "text": "#36425F",
+        "muted": "#596782",
+        "accent": "#4C5CB8",
+        "accent_text": "#FFFFFF",
+        "link": "#4052AE",
+        "mention_bg": "#DCE3FF",
+        "mention_text": "#35478D",
+        "positive": "#237C48",
+        "warning": "#966500",
+        "danger": "#B83039"
+      }
+    }
+  }
+}

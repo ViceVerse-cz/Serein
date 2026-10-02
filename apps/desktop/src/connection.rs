@@ -33,6 +33,8 @@ pub struct Connection {
 	pub account_presence: watch::Receiver<Option<model::OwnPresence>>,
 	pub presence_error: watch::Receiver<Option<&'static str>>,
 	pub game_activity: watch::Receiver<crate::game_activity::Detection>,
+	pub registered_games: watch::Sender<Vec<model::registered_games::RegisteredGame>>,
+	pub running_game: watch::Receiver<Option<model::registered_games::RunningGame>>,
 	pub spotify_activity: watch::Receiver<Option<discord_protocol::spotify::Activity>>,
 	/// A local Rich Presence client asked the client to show an invite: counter and code.
 	pub rpc_invite: watch::Receiver<Option<(u64, String)>>,
@@ -80,6 +82,8 @@ impl Connection {
 		let (presence_error_send, presence_error) = watch::channel(None);
 		let presence_send = own_presence.clone();
 		let (game_report, game_activity) = watch::channel(Ok(None));
+		let (registered_games, registered_receive) = watch::channel(Vec::new());
+		let (running_send, running_game) = watch::channel(None);
 		let (spotify_send, spotify_activity) = watch::channel(None);
 		let spotify_receive = spotify_activity.clone();
 		let (invite_send, rpc_invite) = watch::channel(None);
@@ -131,7 +135,7 @@ impl Connection {
 				let (activity_send,activity_receive)=watch::channel(None);
 				let (member_query_send, member_query_receive) = watch::channel([None, None]);
 				let _sharing_task=AbortTask(tokio::spawn(run_activity_sharing(api.clone(),share_receive.clone(),sharing_requests,sharing_report,finished.clone(),wake.clone())));
-				let _activity_task=AbortTask(tokio::spawn(crate::game_activity::run((share_receive,custom_receive),activity_send,game_report,invite_send,wake.clone(),user.clone(),api.clone())));
+				let _activity_task=AbortTask(tokio::spawn(crate::game_activity::run((share_receive,custom_receive,crate::game_activity::Registered{games:registered_receive,current:running_send}),activity_send,game_report,invite_send,wake.clone(),user.clone(),api.clone())));
 				let _spotify_task=AbortTask(tokio::spawn(crate::spotify::run(api.clone(),user.id,presence_receive.clone(),spotify_send,wake.clone())));
                 let dm_channels=Arc::new(Mutex::new(BTreeSet::new()));
                 let gateway_channels=dm_channels.clone();
@@ -445,6 +449,8 @@ impl Connection {
 			account_presence,
 			presence_error,
 			game_activity,
+			registered_games,
+			running_game,
 			custom_rich_presence,
 			spotify_activity,
 			rpc_invite,

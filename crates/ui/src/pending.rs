@@ -152,6 +152,7 @@ pub fn show(
 										),
 										(avatars, state.demo, &mut revealed),
 										&mut surface,
+										crate::design::MessageCardSurface::Conversation,
 									);
 								})
 								.response

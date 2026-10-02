@@ -1,6 +1,16 @@
 //! Device update preferences and host-owned status. No transport or filesystem work lives here.
 use crate::{MessagingUi, design, icons};
 
+/// One release in the update log, already reduced to plain text by the host.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LogEntry {
+	pub version: String,
+	/// `YYYY-MM-DD`, empty when the release has no publish date.
+	pub date: String,
+	/// Section headings ("Features", "Bug Fixes") with their bullet points.
+	pub sections: Vec<(String, Vec<String>)>,
+}
+
 pub struct Updates {
 	pub auto_update: bool,
 	pub nightly: bool,
@@ -19,6 +29,8 @@ pub struct Updates {
 	pub copied_command: Option<f64>,
 	/// Ready flag the sidebar banner was dismissed at, so a later stage prompts again.
 	pub banner_dismissed: Option<bool>,
+	/// Recent releases on the selected channel, newest first.
+	pub log: Vec<LogEntry>,
 }
 impl Default for Updates {
 	fn default() -> Self {
@@ -39,6 +51,7 @@ impl Default for Updates {
 			copied_diagnostics: None,
 			copied_command: None,
 			banner_dismissed: None,
+			log: Vec::new(),
 		}
 	}
 }
@@ -328,6 +341,7 @@ impl MessagingUi {
 				);
 			}
 		});
+		self.update_log(ui);
 		design::group(
 			ui,
 			&crate::i18n::translate("updates-update-settings-preferences"),
@@ -467,6 +481,52 @@ impl MessagingUi {
 			}
 			},
 		);
+	}
+}
+
+impl MessagingUi {
+	/// What changed between the running build and the newest release; hidden when up to date.
+	fn update_log(&self, ui: &mut egui::Ui) {
+		if self.updates.log.is_empty() {
+			return;
+		}
+		let colors = design::palette(ui);
+		design::group(ui, &crate::i18n::translate("updates-update-log"), |ui| {
+			for (index, entry) in self.updates.log.iter().enumerate() {
+				if index > 0 {
+					design::card_divider(ui);
+				}
+				let title = format!("Serein {}", entry.version);
+				egui::CollapsingHeader::new(
+					design::semibold(ui, &title, 14.0).color(colors.text_strong),
+				)
+				.id_salt(("update-log", &entry.version))
+				.default_open(index == 0)
+				.show(ui, |ui| {
+					if !entry.date.is_empty() {
+						ui.label(
+							egui::RichText::new(&entry.date)
+								.size(12.0)
+								.color(colors.muted),
+						);
+					}
+					for (heading, items) in &entry.sections {
+						if !heading.is_empty() {
+							ui.add_space(4.0);
+							ui.label(design::semibold(ui, heading, 13.0).color(colors.text_strong));
+						}
+						for item in items {
+							ui.horizontal_top(|ui| {
+								ui.label(egui::RichText::new("•").size(13.0).color(colors.muted));
+								ui.add(
+									egui::Label::new(egui::RichText::new(item).size(13.0)).wrap(),
+								);
+							});
+						}
+					}
+				});
+			}
+		});
 	}
 }
 

@@ -12,6 +12,7 @@ pub(super) struct Settings {
 	pub(super) editor: crate::profile_edit::Editor,
 	pub(super) notifications: crate::notification_settings::Navigation,
 	pub(super) messaging_permissions: crate::messaging_permissions::Navigation,
+	pub(super) games: crate::registered_games::Page,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -24,6 +25,7 @@ enum Page {
 	Chat,
 	MessagingPermissions,
 	Notifications,
+	/// Discord's Registered Games: activity sharing, the current game and Added Games.
 	Activity,
 	Voice,
 	Keybinds,
@@ -86,7 +88,7 @@ impl Page {
 			Self::Chat => "page-chat",
 			Self::MessagingPermissions => "page-messaging-permissions",
 			Self::Notifications => "page-notifications",
-			Self::Activity => "page-activity",
+			Self::Activity => "page-registered-games",
 			Self::Voice => "page-voice",
 			Self::Keybinds => "page-keybinds",
 			Self::Storage => "page-storage",
@@ -107,7 +109,7 @@ impl Page {
 			Self::Chat => "description-chat",
 			Self::MessagingPermissions => "description-messaging-permissions",
 			Self::Notifications => "description-notifications",
-			Self::Activity => "description-activity",
+			Self::Activity => "description-registered-games",
 			Self::Voice => "description-voice",
 			Self::Keybinds => "description-keybinds",
 			Self::Storage => "description-storage",
@@ -138,7 +140,9 @@ impl Page {
 			Self::Notifications => {
 				"notifications desktop system alerts overview sounds badges message ring"
 			}
-			Self::Activity => "game activity playing osu status presence sharing",
+			Self::Activity => {
+				"game activity playing osu status presence sharing registered games added current game detection detected process program executable rename wrong add hide last played"
+			}
 			Self::Voice => {
 				"voice video camera preview audio microphone speakers devices volume gain noise suppression push to talk"
 			}
@@ -275,12 +279,20 @@ impl MessagingUi {
 	/// Fixture-only entry point for the native offline settings preview.
 	pub fn preview_settings(&mut self, page: &str) {
 		self.settings.open = true;
-		if let Some(page) = Page::ALL.into_iter().find(|candidate| {
-			candidate
-				.label(Language::English)
-				.to_lowercase()
-				.contains(page)
-		}) {
+		// A label wins; keywords still reach pages that were merged or renamed ("activity").
+		if let Some(page) = Page::ALL
+			.into_iter()
+			.find(|candidate| {
+				candidate
+					.label(Language::English)
+					.to_lowercase()
+					.contains(page)
+			})
+			.or_else(|| {
+				Page::ALL
+					.into_iter()
+					.find(|candidate| candidate.matches(page, Language::English))
+			}) {
 			self.settings.page = page;
 		}
 	}
@@ -1127,33 +1139,28 @@ impl MessagingUi {
 				&mut self.share_game_activity,
 			);
 			design::card_divider(ui);
-			let game = self
-				.own_game
-				.as_deref()
-				.filter(|_| self.share_game_activity);
+			let playing = self.own_game.is_some() || self.running_game.is_some();
 			let action = if self.share_game_activity && state.gateway_connected && !state.demo {
 				if self.discord_activity_sharing == Some(false) {
-					Some(("Enable on Discord", true))
+					Some(("settings-activity-enable-on-discord", true))
 				} else if self.discord_activity_sharing_retry {
-					Some(("Check again", false))
+					Some(("settings-activity-check-again", false))
 				} else {
 					None
 				}
 			} else {
 				None
 			};
-			let title = game.map_or_else(
-				|| {
-					if self.share_game_activity {
-						"Looking for a running game"
-					} else {
-						"Activity sharing is off"
-					}
-				},
-				|game| game,
-			);
+			// The game itself is shown under Current Game; this row is about sharing it.
+			let title = if !self.share_game_activity {
+				"settings-activity-sharing-is-off"
+			} else if playing {
+				"settings-activity-sharing-your-game"
+			} else {
+				"settings-activity-looking"
+			};
 			let detail = if state.demo {
-				"Synthetic activity, never shared or saved."
+				"settings-activity-demo-detail"
 			} else {
 				self.game_activity_status
 			};
@@ -1167,6 +1174,8 @@ impl MessagingUi {
 				}
 			});
 		});
+		ui.add_space(24.0);
+		self.registered_games_settings(ui, state.demo);
 	}
 
 	fn storage_page(&mut self, ui: &mut egui::Ui, state: &State) {

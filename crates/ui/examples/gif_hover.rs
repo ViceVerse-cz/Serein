@@ -152,6 +152,7 @@ fn member_row() {
 		status: Some("online".into()),
 		custom_status: None,
 		activities: vec![],
+		clients: Default::default(),
 	}))];
 	state.demo = false;
 	let mut view = ui::MessagingUi::default();

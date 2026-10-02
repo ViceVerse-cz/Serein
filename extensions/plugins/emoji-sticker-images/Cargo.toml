@@ -1,0 +1,11 @@
+[package]
+name = "emoji-sticker-images"
+version = "1.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+serein-extension-sdk.workspace = true

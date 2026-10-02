@@ -1355,6 +1355,7 @@ impl SearchUi {
 		self.previews
 			.entry(hit.id)
 			.or_insert_with(|| model::Message {
+				poll: None,
 				sticker_items: Vec::new(),
 				flags: 0,
 				ephemeral: false,
@@ -1530,6 +1531,7 @@ impl SearchUi {
 							(avatars, state.demo, &mut revealed),
 							&mut surface,
 							query,
+							crate::design::MessageCardSurface::Opaque,
 						);
 						if revealed != 0 {
 							ui.data_mut(|data| data.insert_temp(id, revealed));
@@ -1558,6 +1560,7 @@ impl SearchUi {
 										media.download,
 										profile,
 										state,
+										crate::design::MessageCardSurface::Opaque,
 									);
 								}
 								if !preview.attachments.is_empty() {
@@ -1572,6 +1575,7 @@ impl SearchUi {
 										media.video,
 										state.demo,
 										&mut surface,
+										crate::design::MessageCardSurface::Opaque,
 									);
 								}
 							}

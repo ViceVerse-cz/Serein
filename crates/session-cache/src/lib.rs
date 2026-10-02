@@ -226,6 +226,9 @@ impl Timeline {
 			return Ok(());
 		}
 		if let Some(previous) = self.get(message.id) {
+			if let (Some(next), Some(old)) = (&mut message.poll, &previous.poll) {
+				next.retain_results(old);
+			}
 			if previous
 				.edited_at
 				.is_some_and(|old| message.edited_at.is_none_or(|new| new < old))
@@ -239,7 +242,8 @@ impl Timeline {
 			);
 			message.revision = previous.revision
 				+ u64::from(
-					previous.content != message.content
+					previous.poll != message.poll
+						|| previous.content != message.content
 						|| previous.mentions != message.mentions
 						|| previous.reactions != message.reactions
 						|| previous.edited != message.edited
@@ -276,6 +280,7 @@ impl Timeline {
 	/// Shared admission check for an atomic history page and a single message.
 	pub fn valid_message(message: &Message) -> bool {
 		message.bytes() <= MAX_BYTES
+			&& message.poll.as_ref().is_none_or(|poll| poll.valid())
 			&& (!message.reply_deleted
 				|| (matches!(message.kind, 19 | 23)
 					&& message
@@ -368,7 +373,8 @@ impl Timeline {
 		if self.deleted.contains(&patch.id) {
 			return Ok(());
 		}
-		if matches!(&patch.content, Patch::Value(s) if s.len() > 64 * 1024)
+		if matches!(&patch.poll, Patch::Value(Some(poll)) if !poll.valid())
+			|| matches!(&patch.content, Patch::Value(s) if s.len() > 64 * 1024)
 			|| matches!(&patch.reactions, Patch::Value(r) if !model::valid_reactions(r))
 			|| matches!(&patch.mentions, Patch::Value(users) if !model::valid_mentions(users))
 			|| matches!(&patch.application_id, Patch::Value(id) if id.0 == 0)
@@ -401,6 +407,9 @@ impl Timeline {
 				.get(&patch.id)
 				.cloned()
 				.unwrap_or_else(|| patch.clone());
+			if !matches!(patch.poll, Patch::Absent) {
+				merged.poll = patch.poll;
+			}
 			if !matches!(patch.flags, Patch::Absent) {
 				merged.flags = patch.flags;
 			}
@@ -522,7 +531,10 @@ fn patch_bytes(patch: &MessagePatch) -> usize {
 		_ => 0,
 	};
 	size_of::<MessagePatch>()
-		+ content
+		+ match &patch.poll {
+			Patch::Value(Some(poll)) => poll.bytes(),
+			_ => 0,
+		} + content
 		+ match &patch.sticker_items {
 			Patch::Value(s) => model::sticker_bytes(s),
 			_ => 0,
@@ -597,6 +609,17 @@ pub fn apply_patch(message: &mut Message, patch: &MessagePatch) {
 		message.revision += 1;
 		return;
 	}
+	match &patch.poll {
+		Patch::Absent => {}
+		Patch::Null => message.poll = None,
+		Patch::Value(value) => {
+			let mut value = value.clone();
+			if let (Some(next), Some(previous)) = (&mut value, &message.poll) {
+				next.retain_results(previous);
+			}
+			message.poll = value;
+		}
+	}
 	match &patch.sticker_items {
 		Patch::Value(s) => clone_compact_vec(&mut message.sticker_items, s),
 		Patch::Null => message.sticker_items = Vec::new(),
@@ -658,6 +681,7 @@ mod tests {
 	use super::*;
 	fn empty_patch(id: u64) -> MessagePatch {
 		MessagePatch {
+			poll: model::Patch::Absent,
 			id: Id(id),
 			channel: Id(1),
 			sticker_items: Patch::Absent,
@@ -835,6 +859,7 @@ mod tests {
 		timeline.insert(original.clone(), false, false).unwrap();
 		timeline
 			.patch(MessagePatch {
+				poll: model::Patch::Absent,
 				flags: Patch::Absent,
 				sticker_items: Patch::Absent,
 				components: Patch::Absent,
@@ -968,6 +993,7 @@ mod tests {
 		content.push_str("Pending patch");
 		timeline
 			.patch(MessagePatch {
+				poll: model::Patch::Absent,
 				flags: Patch::Absent,
 				sticker_items: Patch::Absent,
 				components: Patch::Absent,
@@ -1040,6 +1066,7 @@ mod tests {
 			assert_eq!(timeline.bytes(), retained_bytes);
 			timeline
 				.patch(MessagePatch {
+					poll: model::Patch::Absent,
 					flags: Patch::Absent,
 					sticker_items: Patch::Absent,
 					components: Patch::Absent,
@@ -1187,6 +1214,7 @@ mod tests {
 		}
 		{
 			let update = |extra_content| MessagePatch {
+				poll: model::Patch::Absent,
 				flags: Patch::Absent,
 				sticker_items: Patch::Absent,
 				components: Patch::Absent,
@@ -1383,6 +1411,7 @@ mod tests {
 		timeline.insert(original.clone(), false, false).unwrap();
 		let before = timeline.bytes;
 		let patch = MessagePatch {
+			poll: model::Patch::Absent,
 			flags: Patch::Absent,
 			sticker_items: Patch::Absent,
 			components: Patch::Absent,
@@ -1409,6 +1438,7 @@ mod tests {
 	}
 	fn message(id: u64) -> Message {
 		Message {
+			poll: None,
 			flags: 0,
 			sticker_items: vec![],
 			components: vec![],
@@ -1502,6 +1532,7 @@ mod tests {
 			for (at, content) in [(20, "new edit"), (10, "old edit")] {
 				timeline
 					.patch(MessagePatch {
+						poll: model::Patch::Absent,
 						flags: Patch::Absent,
 						sticker_items: Patch::Absent,
 						components: Patch::Absent,
@@ -1544,6 +1575,7 @@ mod tests {
 				..Default::default()
 			};
 			let update = |embeds| MessagePatch {
+				poll: model::Patch::Absent,
 				flags: Patch::Absent,
 				sticker_items: Patch::Absent,
 				components: Patch::Absent,
@@ -1635,6 +1667,7 @@ mod tests {
 				spoiler: false,
 			};
 			let update = |attachments| MessagePatch {
+				poll: model::Patch::Absent,
 				flags: Patch::Absent,
 				sticker_items: Patch::Absent,
 				components: Patch::Absent,
@@ -1715,6 +1748,7 @@ mod tests {
 		t.begin_page(false);
 		t.delete(Id(1)).unwrap();
 		t.patch(MessagePatch {
+			poll: model::Patch::Absent,
 			flags: Patch::Absent,
 			sticker_items: Patch::Absent,
 			components: Patch::Absent,
@@ -1735,6 +1769,7 @@ mod tests {
 		assert!(t.get(Id(1)).is_none());
 		assert!(t.get_display(Id(1)).is_none());
 		t.patch(MessagePatch {
+			poll: model::Patch::Absent,
 			flags: Patch::Absent,
 			sticker_items: Patch::Absent,
 			components: Patch::Absent,

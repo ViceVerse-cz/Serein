@@ -157,6 +157,7 @@ mod tests {
 
 	fn patch(id: u64, content: Patch<String>, edited: Patch<i128>) -> MessagePatch {
 		MessagePatch {
+			poll: model::Patch::Absent,
 			id: Id(id),
 			channel: Id(20),
 			content,

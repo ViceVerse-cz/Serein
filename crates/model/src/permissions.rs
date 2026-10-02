@@ -3,6 +3,7 @@
 use crate::Id;
 use std::collections::{BTreeMap, BTreeSet};
 
+pub const SEND_POLLS: u128 = 1 << 49;
 pub const ADMINISTRATOR: u128 = 1 << 3;
 pub const KICK_MEMBERS: u128 = 1 << 1;
 pub const MANAGE_GUILD_EXPRESSIONS: u128 = 1 << 30;

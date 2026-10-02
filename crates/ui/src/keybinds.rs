@@ -549,6 +549,18 @@ const KEYS: &[(Key, &str)] = &[
 	(Key::F10, "F10"),
 	(Key::F11, "F11"),
 	(Key::F12, "F12"),
+	(Key::F13, "F13"),
+	(Key::F14, "F14"),
+	(Key::F15, "F15"),
+	(Key::F16, "F16"),
+	(Key::F17, "F17"),
+	(Key::F18, "F18"),
+	(Key::F19, "F19"),
+	(Key::F20, "F20"),
+	(Key::F21, "F21"),
+	(Key::F22, "F22"),
+	(Key::F23, "F23"),
+	(Key::F24, "F24"),
 ];
 
 #[cfg(test)]
@@ -609,6 +621,8 @@ mod tests {
 		assert_eq!(display_key("PageUp"), "PgUp");
 		assert_eq!(display_key("Insert"), "Ins");
 		assert_eq!(key_name_to_egui("PageDown"), Some(Key::PageDown));
+		assert_eq!(key_name(Key::F13), Some("F13"));
+		assert_eq!(key_name_to_egui("F24"), Some(Key::F24));
 	}
 
 	#[test]

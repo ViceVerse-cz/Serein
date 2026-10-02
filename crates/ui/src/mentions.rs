@@ -1373,6 +1373,7 @@ pub fn debug_role_mentions_check(state: &mut State) {
 		author.id = Id(user.id.0.wrapping_add(1));
 		author.name = "Other".into();
 		let message = model::Message {
+			poll: None,
 			sticker_items: vec![],
 			id: Id(2),
 			channel,
@@ -1605,6 +1606,7 @@ pub fn debug_role_mentions_check(state: &mut State) {
 				(&state.channels, &mut None, &state.guilds, roles),
 				(&mut avatars, true, &mut 0),
 				&mut surface,
+				crate::design::MessageCardSurface::Opaque,
 			);
 			surface.finish(ui);
 			assert!(profile.open_user().is_none());

@@ -1,0 +1,58 @@
+{
+  "manifest": {
+    "api_version": 1,
+    "id": "serein-latte",
+    "name": "Latte",
+    "version": "1.0.0",
+    "author": "Serein contributors",
+    "license": "MIT OR Apache-2.0",
+    "source": "https://github.com/ViceVerse-cz/rustcord",
+    "kind": "theme"
+  },
+  "theme": {
+    "dark": {
+      "colors": {
+        "base": "#211B17",
+        "sidebar": "#2A231D",
+        "chat": "#352C24",
+        "raised": "#43372D",
+        "hover": "#514237",
+        "selected": "#665344",
+        "border": "#75614F",
+        "text_strong": "#F9EFE0",
+        "text": "#E9D8C2",
+        "muted": "#C5B097",
+        "accent": "#E2B984",
+        "accent_text": "#332214",
+        "link": "#F2CCA0",
+        "mention_bg": "#60492D",
+        "mention_text": "#FBE6C7",
+        "positive": "#80D2A0",
+        "warning": "#F0C674",
+        "danger": "#FF9797"
+      }
+    },
+    "light": {
+      "colors": {
+        "base": "#EAE0D0",
+        "sidebar": "#F2EADB",
+        "chat": "#FCF7ED",
+        "raised": "#FFFFFA",
+        "hover": "#ECE1CE",
+        "selected": "#DFCEB5",
+        "border": "#C8B596",
+        "text_strong": "#453729",
+        "text": "#614E39",
+        "muted": "#7D6952",
+        "accent": "#875B32",
+        "accent_text": "#FFFFFF",
+        "link": "#825126",
+        "mention_bg": "#EFD9B8",
+        "mention_text": "#69431F",
+        "positive": "#237C48",
+        "warning": "#966500",
+        "danger": "#B83039"
+      }
+    }
+  }
+}

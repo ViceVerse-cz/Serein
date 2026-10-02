@@ -1,0 +1,73 @@
+{
+  "manifest": {
+    "api_version": 1,
+    "id": "obsidian-theme",
+    "name": "Obsidian Theme",
+    "version": "1.0.0",
+    "author": "a1.lol",
+    "license": "MIT",
+    "source": "https://github.com/ViceVerse-cz/Serein",
+    "kind": "theme"
+  },
+  "theme": {
+    "dark": {
+      "colors": {
+        "base": "#0B090E",
+        "sidebar": "#110E16",
+        "chat": "#17131E",
+        "raised": "#201B2A",
+        "hover": "#2C2539",
+        "selected": "#393049",
+        "border": "#31293F",
+        "text_strong": "#FFFFFF",
+        "text": "#E2DCEC",
+        "muted": "#8C829E",
+        "accent": "#C084FC",
+        "accent_text": "#0F0A18",
+        "link": "#D8B4FE",
+        "positive": "#34D399",
+        "warning": "#FBBF24",
+        "danger": "#F87171",
+        "mention_bg": "#3B1C52",
+        "mention_text": "#E9D5FF"
+      },
+      "backdrop": ["#060408", "#1E132A"]
+    },
+    "light": {
+      "colors": {
+        "base": "#FAF8FC",
+        "sidebar": "#F1ECF7",
+        "chat": "#FFFFFF",
+        "raised": "#FFFFFF",
+        "hover": "#E5DCF0",
+        "selected": "#D5C7E6",
+        "border": "#C4B2DA",
+        "text_strong": "#1A1325",
+        "text": "#312642",
+        "muted": "#75668C",
+        "accent": "#9333EA",
+        "accent_text": "#FFFFFF",
+        "link": "#7E22CE",
+        "positive": "#059669",
+        "warning": "#D97706",
+        "danger": "#DC2626",
+        "mention_bg": "#F3E8FF",
+        "mention_text": "#6B21A8"
+      },
+      "backdrop": ["#ECE4F5", "#FFFFFF"]
+    },
+    "style": {
+      "body_size": 15,
+      "heading_size": 22,
+      "button_size": 14,
+      "small_size": 12,
+      "monospace_size": 14,
+      "item_spacing": [10, 10],
+      "button_padding": [16, 8],
+      "control_height": 38,
+      "widget_radius": 8,
+      "window_radius": 14,
+      "menu_radius": 10
+    }
+  }
+}

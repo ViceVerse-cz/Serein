@@ -79,9 +79,11 @@ pub mod dialog;
 mod join_server;
 mod keybinds;
 mod onboarding;
+mod polls;
 mod profile_edit;
 mod reactions;
 mod reading;
+mod registered_games;
 pub mod screen;
 pub mod scroll;
 mod search;
@@ -104,6 +106,8 @@ mod settings;
 mod shortcuts;
 mod switcher;
 mod thumbhash;
+#[cfg(feature = "demo")]
+pub use polls::debug_poll_check;
 mod timeline;
 #[cfg(test)]
 mod title_bar_tests;
@@ -190,6 +194,7 @@ fn thread_member_rows<'a>(
 
 #[derive(Default)]
 pub struct MessagingUi {
+	poll_creator: polls::Creator,
 	pub language: i18n::Language,
 	forwarding: forwarding::ForwardDialog,
 	pub image_sharing_enabled: bool,
@@ -286,6 +291,13 @@ pub struct MessagingUi {
 	pub share_game_activity: bool,
 	pub own_game: Option<String>,
 	pub game_activity_status: &'static str,
+	/// Edited on the Registered Games page; the desktop app persists and applies the list.
+	pub registered_games: Vec<model::registered_games::RegisteredGame>,
+	/// The game the local process scan reports while activity sharing is on.
+	pub running_game: Option<model::registered_games::RunningGame>,
+	/// Set by "Add it!"; the desktop app answers in `running_processes`.
+	pub running_processes_request: bool,
+	pub running_processes: Option<Vec<String>>,
 	reading_sidebar_applied: Option<u16>,
 	reading_sidebar_constrained: bool,
 	reading_zoom_pending: bool,
@@ -1246,6 +1258,23 @@ impl MessagingUi {
 			return;
 		};
 		let has_entry = list.slots.iter().any(|slot| slot.is_some()) || cached;
+		if list.guild.is_none()
+			&& state
+				.channel(list.channel)
+				.is_some_and(|channel| channel.kind == 3)
+			&& (list.freshness == Freshness::Fresh || has_entry)
+		{
+			let text = format!("{} — {}", language.text("members-heading"), list.total);
+			egui::Frame::new()
+				.inner_margin(egui::Margin::same(8))
+				.show(ui, |ui| {
+					ui.add(
+						egui::Label::new(design::medium(ui, &text, 12.0).color(colors.muted))
+							.truncate(),
+					)
+					.on_hover_text(&text);
+				});
+		}
 		if !has_entry {
 			ui.add_space(8.0);
 			if list.freshness != Freshness::Fresh {
@@ -2866,6 +2895,8 @@ impl MessagingUi {
 			&& state.can_attach(channel)
 			&& !self.upload_busy
 			&& self.attachment_files.len() < 10;
+		let can_create_poll =
+			!editing_here && self.slash_commands.active.is_none() && state.can_create_poll(channel);
 		let application_command = !editing_here && self.slash_commands.active.is_some();
 		let can_send = if let Some((edit_channel, message)) = editing_key {
 			state.freshness == Freshness::Fresh
@@ -2907,15 +2938,39 @@ impl MessagingUi {
                         None
                     } else {
                         Some(ui
-                            .add_enabled_ui(can_attach, |ui| {
+                            .add_enabled_ui(can_attach || can_create_poll, |ui| {
                                 icons::button(ui, icons::Icon::Attach, 28.0, &crate::i18n::translate("lib-ime-updates-text-attach-files"))
                             })
                             .inner
                             .on_hover_text(crate::i18n::translate("lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up")))
                     };
-                    if !editing_here { self.extensions.composer_menu(ui, state); }
-                    if attach.is_some_and(|attach| attach.clicked()) {
-                        self.attach_requested = true;
+                    if !editing_here {
+                        self.extensions.composer_menu(ui, state);
+                    }
+                    if let Some(attach) = attach {
+                        egui::Popup::menu(&attach)
+                            .id(attach.id.with(("composer-add", state.generation, channel)))
+                            .show(|ui| {
+                                ui.set_min_width(200.0);
+                                ui.spacing_mut().button_padding = egui::vec2(8.0, 6.0);
+                                // Discord-style rows: the glyph follows the row's text colour, so it dims when disabled.
+                                let item = |icon: icons::Icon, key: &str| {
+                                    egui::Button::new((
+                                        egui::Atom::paint(egui::Vec2::splat(18.0), move |ui, args| {
+                                            icons::paint(ui.painter(), icon, args.rect, args.fallback_text_color);
+                                        }),
+                                        crate::i18n::translate(key),
+                                    ))
+                                };
+                                if ui.add_enabled(can_attach, item(icons::Icon::File, "lib-ime-updates-text-attach-files")).clicked() {
+                                    self.attach_requested = true;
+                                    ui.close();
+                                }
+                                if ui.add_enabled(can_create_poll, item(icons::Icon::ChartBar, "lib-ime-updates-text-create-a-poll")).clicked() {
+                                    self.poll_creator.open(state, channel);
+                                    ui.close();
+                                }
+                            });
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 4.0;
@@ -2953,7 +3008,7 @@ impl MessagingUi {
                                 self.reaction_picker.record(&text);
                                 Some(text)
                             },
-                            Some(emoji_picker::Pick::React(_, _)) => None,
+                            Some(emoji_picker::Pick::React(_, _) | emoji_picker::Pick::Choose(_)) => None,
                             Some(emoji_picker::Pick::Image(asset)) => {
                                 if editing_here { state.status = "Finish or cancel the edit before attaching an image."; }
                                 else if self.upload_busy { state.status = "Wait for the upload before attaching an image."; }
@@ -3479,6 +3534,13 @@ impl MessagingUi {
 		self.timeline.video.seen = false;
 		let side = self.drain_side_press();
 		let mut commands = Vec::new();
+		// A server joined from an invite opens as soon as the Gateway delivers it.
+		commands.extend(state.navigate_after_join());
+		if let Some(action) = self.poll_creator.show(ui.ctx(), state, &mut self.avatars)
+			&& let Some(command) = state.prepare_poll(None, action)
+		{
+			commands.push(command);
+		}
 		if side.back || side.forward {
 			self.navigate_history(state, &mut commands, side.back);
 		}
@@ -4136,6 +4198,11 @@ impl MessagingUi {
 							self.pending_upload.as_ref(),
 							&mut self.scroll,
 						);
+						if let Some((id, action)) = self.timeline.poll_action.take()
+							&& let Some(command) = state.prepare_poll(Some(id), action)
+						{
+							commands.push(command);
+						}
 						if let Some(id) = self.timeline.sticker_request.take() {
 							if let Some(command) = state.request_sticker(id) {
 								commands.push(command);
@@ -4774,6 +4841,7 @@ mod composer_tests {
 			.timeline
 			.insert(
 				model::Message {
+					poll: None,
 					sticker_items: vec![],
 					id: Id(20),
 					channel: Id(10),
@@ -6614,6 +6682,95 @@ mod composer_tests {
 			"Offscreen members must not upload textures"
 		);
 		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn group_dm_member_count_tracks_participants_and_unavailable_states() {
+		fn collect(shape: &egui::Shape, labels: &mut Vec<String>) {
+			match shape {
+				egui::Shape::Text(text) => labels.push(text.galley.job.text.clone()),
+				egui::Shape::Vec(shapes) => {
+					for shape in shapes {
+						collect(shape, labels);
+					}
+				}
+				_ => {}
+			}
+		}
+		let mut state = test_support::demo_state();
+		let channel = Id(29);
+		state.selected = Some(channel);
+		let _ = state.request_members();
+		let ctx = egui::Context::default();
+		let mut view = MessagingUi::default();
+		let render = |view: &mut MessagingUi, state: &mut State, width| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(width, 400.0),
+					)),
+					..Default::default()
+				},
+				|ui| view.member_rows(ui, state, &mut vec![]),
+			);
+			let mut labels = vec![];
+			for shape in &output.shapes {
+				collect(&shape.shape, &mut labels);
+			}
+			output.drop_without_applying_deltas();
+			labels
+		};
+		assert_eq!(state.channel(channel).unwrap().recipients.len(), 2);
+		assert!(render(&mut view, &mut state, 240.0).contains(&"Members — 3".into()));
+		view.language = i18n::Language::Czech;
+		assert!(render(&mut view, &mut state, 240.0).contains(&"Členové — 3".into()));
+		view.language = i18n::Language::English;
+		let mut user = test_support::message(9, channel).author;
+		user.id = Id(90001);
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::RecipientAdded {
+				channel,
+				user: user.clone(),
+			},
+		});
+		assert!(render(&mut view, &mut state, 340.0).contains(&"Members — 4".into()));
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::RecipientRemoved {
+				channel,
+				user: user.id,
+			},
+		});
+		assert!(render(&mut view, &mut state, 240.0).contains(&"Members — 3".into()));
+		// A recipient snapshot containing the current account must not count it twice.
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::RecipientAdded {
+				channel,
+				user: state.user.clone().unwrap(),
+			},
+		});
+		assert!(render(&mut view, &mut state, 240.0).contains(&"Members — 3".into()));
+		for freshness in [Freshness::Loading, Freshness::Unavailable, Freshness::Fresh] {
+			let list = state.members.as_mut().unwrap();
+			list.slots.clear();
+			list.total = 0;
+			list.freshness = freshness;
+			let labels = render(&mut view, &mut state, 240.0);
+			assert_eq!(
+				labels.contains(&"Members — 0".into()),
+				freshness == Freshness::Fresh
+			);
+		}
+		state.selected = Some(Id(22)); // A one-to-one DM keeps its existing presentation.
+		let _ = state.request_members();
+		assert!(
+			!render(&mut view, &mut state, 240.0)
+				.iter()
+				.any(|label| label.starts_with("Members —"))
+		);
 	}
 
 	#[test]

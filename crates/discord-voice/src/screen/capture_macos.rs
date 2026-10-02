@@ -184,13 +184,17 @@ impl SCStreamOutputTrait for Handler {
 			self.stop.store(true, Ordering::Release);
 			return;
 		};
-		let (width, height) = (guard.width(), guard.height());
+		let (buffer_width, buffer_height) = (guard.width(), guard.height());
+		// ScreenCaptureKit draws a window of another shape into the corner of the configured
+		// picture; keep only that content so the encoder letterboxes it centered.
+		let (left, top, width, height) =
+			content_pixels(sample.content_rect(), buffer_width, buffer_height);
 		let Some(row_bytes) = width.checked_mul(4) else {
 			self.stop.store(true, Ordering::Release);
 			return;
 		};
 		let stride = guard.bytes_per_row();
-		let Some(source_len) = stride.checked_mul(height) else {
+		let Some(source_len) = stride.checked_mul(buffer_height) else {
 			self.stop.store(true, Ordering::Release);
 			return;
 		};
@@ -200,9 +204,9 @@ impl SCStreamOutputTrait for Handler {
 		};
 		if width == 0
 			|| height == 0
-			|| width > MAX_FRAME_WIDTH as usize
-			|| height > MAX_FRAME_HEIGHT as usize
-			|| stride < row_bytes
+			|| buffer_width > MAX_FRAME_WIDTH as usize
+			|| buffer_height > MAX_FRAME_HEIGHT as usize
+			|| stride < buffer_width * 4
 			|| source_len > MAX_RAW_BYTES
 			|| data_len > MAX_RAW_BYTES
 		{
@@ -220,14 +224,18 @@ impl SCStreamOutputTrait for Handler {
 			self.stop.store(true, Ordering::Release);
 			return;
 		}
+		let mut data = Vec::with_capacity(data_len);
+		for row in source[..source_len]
+			.chunks_exact(stride)
+			.skip(top)
+			.take(height)
+		{
+			data.extend_from_slice(&row[left * 4..][..row_bytes]);
+		}
 		let (Ok(width), Ok(height)) = (u32::try_from(width), u32::try_from(height)) else {
 			self.stop.store(true, Ordering::Release);
 			return;
 		};
-		let mut data = Vec::with_capacity(data_len);
-		for row in source[..source_len].chunks_exact(stride) {
-			data.extend_from_slice(&row[..row_bytes]);
-		}
 		let _ = self.frames.try_send(RawFrame {
 			width,
 			height,
@@ -235,6 +243,45 @@ impl SCStreamOutputTrait for Handler {
 			data,
 		});
 	}
+}
+
+/// The frame's content rectangle in buffer pixels: left, top, width, height. Its units are
+/// points, but `scalesToFit` makes the content span the picture along one axis, which gives
+/// the points-to-pixels factor without trusting a separate display-scale attachment.
+fn content_pixels(
+	rect: Option<screencapturekit::cg::CGRect>,
+	width: usize,
+	height: usize,
+) -> (usize, usize, usize, usize) {
+	let full = (0, 0, width, height);
+	let Some(rect) = rect else {
+		return full;
+	};
+	let (x, y, w, h) = (
+		rect.origin.x,
+		rect.origin.y,
+		rect.size.width,
+		rect.size.height,
+	);
+	if width == 0
+		|| height == 0
+		|| ![x, y, w, h].iter().all(|value| value.is_finite())
+		|| x < 0.0
+		|| y < 0.0
+		|| w <= 0.0
+		|| h <= 0.0
+	{
+		return full;
+	}
+	let scale = (width as f64 / (x + w)).min(height as f64 / (y + h));
+	let left = ((x * scale).round() as usize).min(width - 1);
+	let top = ((y * scale).round() as usize).min(height - 1);
+	(
+		left,
+		top,
+		((w * scale).round() as usize).clamp(1, width - left),
+		((h * scale).round() as usize).clamp(1, height - top),
+	)
 }
 
 struct Delegate(Arc<AtomicBool>);
@@ -312,6 +359,7 @@ impl Capture {
 			.with_height(settings.height)
 			.with_pixel_format(PixelFormat::BGRA)
 			.with_preserves_aspect_ratio(true)
+			.with_scales_to_fit(true)
 			.with_shows_cursor(settings.cursor)
 			.with_fps(settings.fps)
 			.with_queue_depth(3);
@@ -364,5 +412,32 @@ impl Capture {
 impl Drop for Capture {
 	fn drop(&mut self) {
 		let _ = self.stream.stop_capture();
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::content_pixels;
+	use screencapturekit::cg::CGRect;
+
+	#[test]
+	fn content_rect_maps_to_buffer_pixels_in_any_unit() {
+		// A portrait window fitted into 1920x1080 at the corner, in Retina points and pixels.
+		for (rect, expected) in [
+			(CGRect::new(0.0, 0.0, 270.0, 540.0), (0, 0, 540, 1080)),
+			(CGRect::new(0.0, 0.0, 540.0, 1080.0), (0, 0, 540, 1080)),
+			// Already centered content keeps its offset.
+			(CGRect::new(345.0, 0.0, 270.0, 540.0), (690, 0, 540, 1080)),
+			(CGRect::new(0.0, 0.0, 960.0, 300.0), (0, 0, 1920, 600)),
+		] {
+			assert_eq!(content_pixels(Some(rect), 1920, 1080), expected);
+		}
+		for rect in [
+			None,
+			Some(CGRect::new(0.0, 0.0, 0.0, 10.0)),
+			Some(CGRect::new(f64::NAN, 0.0, 1.0, 1.0)),
+		] {
+			assert_eq!(content_pixels(rect, 1920, 1080), (0, 0, 1920, 1080));
+		}
 	}
 }

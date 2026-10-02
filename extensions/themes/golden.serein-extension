@@ -1,0 +1,72 @@
+{
+  "manifest": {
+    "api_version": 1,
+    "id": "golden-theme",
+    "name": "Golden Theme",
+    "version": "1.0.0",
+    "author": "a1.lol",
+    "license": "MIT",
+    "source": "https://github.com/ViceVerse-cz/Serein",
+    "kind": "theme"
+  },
+  "theme": {
+    "dark": {
+      "colors": {
+        "base": "#100F0E",
+        "sidebar": "#161514",
+        "chat": "#1C1B19",
+        "raised": "#252321",
+        "hover": "#302E2B",
+        "selected": "#3C3A36",
+        "border": "#36332F",
+        "text_strong": "#F5EFE6",
+        "text": "#D9D2C5",
+        "muted": "#968E82",
+        "accent": "#F3A712",
+        "accent_text": "#1A1405",
+        "link": "#E8C373",
+        "positive": "#A3BE8C",
+        "warning": "#EBCB8B",
+        "danger": "#BF616A",
+        "mention_bg": "#332612",
+        "mention_text": "#F3D899"
+      },
+      "backdrop": ["#0A0909", "#1A1816"]
+    },
+    "light": {
+      "colors": {
+        "base": "#FDFBF7",
+        "sidebar": "#F4F1E9",
+        "chat": "#FFFFFF",
+        "raised": "#FFFFFF",
+        "hover": "#EAE5DA",
+        "selected": "#DCD5C6",
+        "border": "#CFC6B3",
+        "text_strong": "#2B261C",
+        "text": "#4A4335",
+        "muted": "#8A8170",
+        "accent": "#B67B0F",
+        "accent_text": "#FFFFFF",
+        "link": "#996306",
+        "positive": "#4F8A4B",
+        "warning": "#B88A00",
+        "danger": "#A42C36",
+        "mention_bg": "#FCEBC4",
+        "mention_text": "#825505"
+      }
+    },
+    "style": {
+      "body_size": 16,
+      "heading_size": 24,
+      "button_size": 15,
+      "small_size": 13,
+      "monospace_size": 14,
+      "item_spacing": [10, 14],
+      "button_padding": [18, 10],
+      "control_height": 40,
+      "widget_radius": 12,
+      "window_radius": 16,
+      "menu_radius": 12
+    }
+  }
+}

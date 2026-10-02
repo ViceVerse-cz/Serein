@@ -10,7 +10,7 @@ use std::{
 	io::{self, Cursor, Read, Write},
 	path::{Path, PathBuf},
 	sync::{
-		Arc,
+		Arc, LazyLock,
 		atomic::{AtomicBool, AtomicU64, Ordering},
 		mpsc,
 	},
@@ -960,6 +960,22 @@ fn job_urls(key: &str) -> Option<MediaUrls> {
 }
 
 const JOBS: usize = 8;
+// Blocking decoders outlive an aborted async waiter. Share admission across
+// worker/account replacements and retain each permit in the actual decoder.
+static DECODE_SLOTS: LazyLock<Arc<Semaphore>> = LazyLock::new(|| Arc::new(Semaphore::new(JOBS)));
+
+async fn bounded_decode<T: Send + 'static>(
+	slots: Arc<Semaphore>,
+	decode: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, tokio::task::JoinError> {
+	let permit = slots.acquire_owned().await.expect("decode slots stay open");
+	tokio::task::spawn_blocking(move || {
+		let _permit = permit;
+		decode()
+	})
+	.await
+}
+
 struct Job {
 	key: String,
 	url: String,
@@ -1073,7 +1089,7 @@ async fn decode_blocking(
 	early: Option<ResultSender>,
 ) -> (Option<egui::ColorImage>, ui::GifFrames, Option<Vec<u8>>) {
 	let key = key.to_owned();
-	tokio::task::spawn_blocking(move || {
+	bounded_decode(DECODE_SLOTS.clone(), move || {
 		let Some(bytes) = (if lottie {
 			render_lottie(&bytes)
 		} else {
@@ -1621,6 +1637,68 @@ impl Disk {
 
 #[cfg(test)]
 mod tests {
+	#[tokio::test]
+	async fn decoder_slots_follow_running_closures_after_waiter_abort() {
+		let slots = Arc::new(Semaphore::new(1));
+		let (started, ready) = tokio::sync::oneshot::channel();
+		let (release, finish) = mpsc::channel();
+		let retired = tokio::spawn(bounded_decode(slots.clone(), move || {
+			started.send(()).unwrap();
+			finish.recv_timeout(Duration::from_secs(5)).unwrap();
+		}));
+		tokio::time::timeout(Duration::from_secs(5), ready)
+			.await
+			.unwrap()
+			.unwrap();
+		retired.abort();
+		assert!(retired.await.unwrap_err().is_cancelled());
+		assert!(slots.try_acquire().is_err());
+		let mut replacement = tokio::spawn(bounded_decode(slots.clone(), || 42));
+		assert!(
+			tokio::time::timeout(Duration::from_millis(20), &mut replacement)
+				.await
+				.is_err()
+		);
+		release.send(()).unwrap();
+		assert_eq!(
+			tokio::time::timeout(Duration::from_secs(5), replacement)
+				.await
+				.unwrap()
+				.unwrap()
+				.unwrap(),
+			42
+		);
+		assert_eq!(slots.available_permits(), 1);
+	}
+
+	#[tokio::test]
+	async fn cancelled_decoder_admission_drops_queued_work() {
+		struct Pending(Arc<AtomicBool>);
+		impl Drop for Pending {
+			fn drop(&mut self) {
+				self.0.store(true, Ordering::Release);
+			}
+		}
+		let slots = Arc::new(Semaphore::new(JOBS));
+		let occupied = slots.clone().acquire_many_owned(JOBS as u32).await.unwrap();
+		let dropped = Arc::new(AtomicBool::new(false));
+		let pending = Pending(dropped.clone());
+		let mut queued = tokio::spawn(bounded_decode(slots.clone(), move || {
+			drop(pending);
+			42
+		}));
+		assert!(
+			tokio::time::timeout(Duration::from_millis(20), &mut queued)
+				.await
+				.is_err()
+		);
+		queued.abort();
+		assert!(queued.await.unwrap_err().is_cancelled());
+		assert!(dropped.load(Ordering::Acquire));
+		drop(occupied);
+		assert_eq!(slots.available_permits(), JOBS);
+	}
+
 	// Exact pre-optimization decoder, retained only as a pixel/limit and RSS comparator.
 	fn legacy_decode(bytes: &[u8], budget: &Budget) -> Option<egui::ColorImage> {
 		if bytes.len() > budget.encoded {

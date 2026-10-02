@@ -1,0 +1,58 @@
+{
+  "manifest": {
+    "api_version": 1,
+    "id": "serein-forest",
+    "name": "Forest",
+    "version": "1.0.0",
+    "author": "Serein contributors",
+    "license": "MIT OR Apache-2.0",
+    "source": "https://github.com/ViceVerse-cz/rustcord",
+    "kind": "theme"
+  },
+  "theme": {
+    "dark": {
+      "colors": {
+        "base": "#131D18",
+        "sidebar": "#192820",
+        "chat": "#22342A",
+        "raised": "#2D4335",
+        "hover": "#38523F",
+        "selected": "#46644E",
+        "border": "#52715B",
+        "text_strong": "#ECF7EF",
+        "text": "#D0E4D5",
+        "muted": "#A4C1AC",
+        "accent": "#9BD6AB",
+        "accent_text": "#132E1D",
+        "link": "#B2E9BF",
+        "mention_bg": "#355B40",
+        "mention_text": "#D8F6DF",
+        "positive": "#80D2A0",
+        "warning": "#F0C674",
+        "danger": "#FF9797"
+      }
+    },
+    "light": {
+      "colors": {
+        "base": "#DDEADF",
+        "sidebar": "#E8F1E8",
+        "chat": "#F5FAF3",
+        "raised": "#FFFFFF",
+        "hover": "#DCEBDB",
+        "selected": "#CCE0CB",
+        "border": "#AFC6AF",
+        "text_strong": "#233D2C",
+        "text": "#395440",
+        "muted": "#607866",
+        "accent": "#2E7147",
+        "accent_text": "#FFFFFF",
+        "link": "#286B40",
+        "mention_bg": "#D2EBD5",
+        "mention_text": "#28593A",
+        "positive": "#237C48",
+        "warning": "#966500",
+        "danger": "#B83039"
+      }
+    }
+  }
+}

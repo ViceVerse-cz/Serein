@@ -506,12 +506,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		(
 			"message-delete-protector",
 			include_bytes!(
-				"../../../community-extensions/plugins/packages/message-delete-protector.serein-extension"
+				"../../../extensions/plugins/packages/message-delete-protector.serein-extension"
 			)
 			.as_slice(),
-			include_str!(
-				"../../../community-extensions/plugins/message-delete-protector/manifest.json"
-			),
+			include_str!("../../../extensions/plugins/message-delete-protector/manifest.json"),
 			"message_delete_protector.wasm",
 			Output {
 				preserve_deleted_messages: true,
@@ -521,12 +519,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		(
 			"emoji-sticker-images",
 			include_bytes!(
-				"../../../community-extensions/plugins/packages/emoji-sticker-images.serein-extension"
+				"../../../extensions/plugins/packages/emoji-sticker-images.serein-extension"
 			)
 			.as_slice(),
-			include_str!(
-				"../../../community-extensions/plugins/emoji-sticker-images/manifest.json"
-			),
+			include_str!("../../../extensions/plugins/emoji-sticker-images/manifest.json"),
 			"emoji_sticker_images.wasm",
 			Output {
 				image_sharing: true,
@@ -540,6 +536,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			&format!("{name}/rebuilt"),
 			&serde_json::to_vec(&rebuilt)?,
 			&expected,
+		);
+	}
+	// Editor plugins have no fixed activation output; their rebuilt panel must still validate.
+	for (name, manifest, wasm_file) in [
+		(
+			"custom-rpc",
+			include_str!("../../../extensions/plugins/custom-rpc/manifest.json"),
+			"custom_rpc.wasm",
+		),
+		(
+			"api-proxy",
+			include_str!("../../../extensions/plugins/api-proxy/manifest.json"),
+			"api_proxy.wasm",
+		),
+	] {
+		let package = rebuilt(manifest, &catalog_wasm_dir.join(wasm_file))?;
+		package.validate()?;
+		let output = invoke(
+			&package,
+			&Invocation {
+				action: "open".into(),
+				..Default::default()
+			},
+		)?;
+		assert!(
+			!output.panel.is_empty(),
+			"{name}/rebuilt: editor panel is empty"
+		);
+		println!(
+			"{name}/rebuilt: {} Wasm bytes; editor panel validated",
+			package.wasm.len()
 		);
 	}
 	check_message_counter(

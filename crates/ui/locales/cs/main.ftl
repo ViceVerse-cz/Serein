@@ -14,7 +14,7 @@ page-appearance = Vzhled
 page-chat = Chat
 page-messaging-permissions = Oprávnění zpráv
 page-notifications = Oznámení
-page-activity = Herní aktivita
+page-registered-games = Registrované hry
 page-voice = Hlas a video
 page-keybinds = Klávesové zkratky
 page-storage = Data a soukromí
@@ -28,7 +28,7 @@ description-appearance = Motiv, barvy, efekty okna a rozvržení.
 description-chat = Chování zpráv, médií, odkazů a posouvání.
 description-messaging-permissions = Určete, kdo vás může kontaktovat a jak se filtrují zprávy.
 description-notifications = Zvolte, která oznámení dostáváte a jak se zobrazují.
-description-activity = Ukažte ostatním, co hrajete.
+description-registered-games = Sdílejte, co hrajete, a opravte nebo přidejte hry, které Serein rozpozná.
 description-voice = Mikrofon, reproduktory, kamera a zpracování hlasu.
 description-keybinds = Klávesové zkratky aplikace Serein.
 description-storage = Co Serein uchovává na tomto zařízení.
@@ -103,6 +103,7 @@ no-conversations = Nejsou zde dostupné žádné konverzace.
 open-in-discord = Otevřít v Discordu
 new = Nové
 members-count = členů
+members-heading = Členové
 no-conversation-selected = Není vybrána žádná konverzace
 select-conversation = Vyberte kanál nebo přímou zprávu ze seznamu.
 friends-online = Online
@@ -733,6 +734,8 @@ design-account-row-with-remove-forget-this-account-on-this-device = Zapomenout t
 design-color-edit-hex-color-rrggbb-click-to-type-or-paste = Barva hex: #RRGGBB. Klepnutím zadejte nebo vložte.
 # Context: save_bar
 design-save-bar-careful-you-have-unsaved-changes = Pozor – máte neuložené změny!
+design-save-bar-save-changes = Uložit změny
+design-save-bar-reset = Obnovit
 
 ## crates/ui/src/dialog.rs
 # Context: header
@@ -1545,6 +1548,8 @@ lib-ime-updates-text-clear-this-draft = Vymazat tento koncept
 # Context: ime_updates_text
 lib-ime-updates-text-copy-edit-text = Kopírovat upravit text
 # Context: ime_updates_text
+lib-ime-updates-text-create-a-poll = Vytvořit anketu
+# Context: ime_updates_text
 lib-ime-updates-text-draft-budget-full-clear-an-existing-draft-to-continue = Návrh rozpočtu je plný. Chcete-li pokračovat, vymažte existující koncept.
 # Context: ime_updates_text
 lib-ime-updates-text-drop-files-to-attach = Přetáhněte soubory, které chcete připojit
@@ -1785,6 +1790,86 @@ pending-show-you = Vy
 pending-upload-strip-cancel-upload = Zrušit nahrávání
 # Context: upload_strip
 pending-upload-strip-the-message-may-already-have-reached-discord-check-the-conversation = Zpráva již možná dorazila do Discordu. Před dalším odesláním konverzaci zkontrolujte.
+
+## crates/ui/src/polls.rs
+# Context: card
+polls-card-ended = Anketa skončila
+# Context: card
+polls-card-select-many = Vyberte jednu nebo více odpovědí
+# Context: card
+polls-card-select-one = Vyberte jednu odpověď
+# Context: card
+polls-card-final-results = Konečné výsledky
+# Context: card
+polls-card-awaiting-results = Čeká se na konečné výsledky
+# Context: card
+polls-card-hours-left = zbývá { $hours } h
+# Context: card
+polls-card-minutes-left = zbývá { $minutes } min
+# Context: card
+polls-card-in-progress = Probíhá
+# Context: card
+polls-card-vote-count-one = { $count } hlas
+# Context: card
+polls-card-vote-count-many = Hlasů: { $count }
+# Context: card
+polls-card-results-not-loaded = Výsledky nejsou načteny
+# Context: card
+polls-card-back-to-voting = Zpět k hlasování
+# Context: card
+polls-card-refresh-results = Obnovit výsledky
+# Context: card
+polls-card-show-results = Zobrazit výsledky
+# Context: card
+polls-card-remove-vote = Odebrat hlas
+# Context: card
+polls-card-vote = Hlasovat
+# Context: card
+polls-card-end-confirm = Ukončit tuto anketu pro všechny?
+# Context: card
+polls-card-end-now = Ukončit nyní
+# Context: card
+polls-card-end-poll = Ukončit anketu
+# Context: creator
+polls-creator-title = Vytvořit anketu
+# Context: creator
+polls-creator-question = Otázka
+# Context: creator
+polls-creator-question-hint = Na co se chcete zeptat?
+# Context: creator
+polls-creator-answers = Odpovědi
+# Context: creator
+polls-creator-answer-hint = Odpověď { $number }
+# Context: creator
+polls-creator-add-emoji = Přidat emoji
+# Context: creator
+polls-creator-change-emoji = Změnit emoji
+# Context: creator
+polls-creator-remove-answer = Odebrat odpověď
+# Context: creator
+polls-creator-add-answer = Přidat další odpověď
+# Context: creator
+polls-creator-duration = Doba trvání
+# Context: creator
+polls-creator-multiple-answers = Povolit více odpovědí
+# Context: creator
+polls-creator-post = Zveřejnit
+# Context: creator
+polls-creator-posting = Zveřejňování…
+# Context: duration_label
+polls-duration-1-hour = 1 hodina
+# Context: duration_label
+polls-duration-4-hours = 4 hodiny
+# Context: duration_label
+polls-duration-8-hours = 8 hodin
+# Context: duration_label
+polls-duration-24-hours = 24 hodin
+# Context: duration_label
+polls-duration-3-days = 3 dny
+# Context: duration_label
+polls-duration-1-week = 1 týden
+# Context: duration_label
+polls-duration-hours = Hodin: { $hours }
 
 ## crates/ui/src/post_menu.rs
 # Context: context
@@ -3232,6 +3317,92 @@ settings-account-page-signed-in-with-your-discord-account = Přihlášeni pomoc�
 settings-activity-settings-detect-running-games-and-ask-discord-to-share-them-as = Zjistěte běžící hry a požádejte Discord, aby je sdílel jako aktivitu.
 # Context: activity_settings
 settings-activity-settings-share-game-activity = Sdílejte herní aktivitu
+# Context: activity_settings
+settings-activity-enable-on-discord = Zapnout na Discordu
+# Context: activity_settings
+settings-activity-check-again = Zkontrolovat znovu
+# Context: activity_settings
+settings-activity-sharing-is-off = Sdílení aktivity je vypnuté
+# Context: activity_settings
+settings-activity-sharing-your-game = Sdílíte svou hru
+# Context: activity_settings
+settings-activity-looking = Hledání spuštěné hry
+# Context: activity_settings
+settings-activity-demo-detail = Ukázková aktivita, nikdy se nesdílí ani neukládá.
+# Context: activity_settings
+settings-activity-status-offline-preview = Offline náhled: ukázková aktivita, nikdy se nesdílí ani neukládá.
+# Context: activity_settings
+settings-activity-status-unconfirmed = Pouze místní náhled. Čeká se, až Discord sdílení potvrdí.
+# Context: activity_settings
+settings-activity-status-received = Discord vaši hru přijal, ale veřejně ji nezobrazuje.
+# Context: activity_settings
+settings-activity-status-listed = Discord vaši hru zobrazuje. Nastavení soukromí serverů a přátel stále platí.
+# Context: activity_settings
+settings-activity-status-hidden = Discord vaši hru skrývá. Zkontrolujte v Discordu Registrované hry a Sdílení aktivity.
+# Context: activity_settings
+settings-activity-status-missing = Discord vaši hru veřejně nezobrazil. Zkontrolujte jeho Registrované hry a nastavení sdílení na serverech.
+# Context: activity_settings
+settings-activity-status-sharing-off = Sdílení aktivity pro celý účet Discord je vypnuté.
+# Context: activity_settings
+settings-activity-status-checking = Kontroluje se nastavení sdílení aktivity na Discordu…
+# Context: activity_settings
+settings-activity-status-check-failed = Nastavení sdílení aktivity na Discordu se nepodařilo zkontrolovat ani změnit.
+# Context: activity_settings
+settings-activity-status-updating = Aktualizuje se nastavení sdílení aktivity na Discordu…
+# Context: activity_settings
+settings-activity-status-request-failed = Změnu nastavení se nepodařilo vyžádat. Zkuste to znovu.
+# Context: activity_settings
+settings-activity-current-game = Aktuální hra
+# Context: activity_settings
+settings-activity-now-playing = Právě hrajete!
+# Context: activity_settings
+settings-activity-stop-detecting-current = Není to tato hra? Přestaňte ji rozpoznávat.
+# Context: activity_settings
+settings-activity-reported-by-game = Hlášeno hrou přes Rich Presence.
+# Context: activity_settings
+settings-activity-no-game-detected = Žádná hra nebyla rozpoznána
+# Context: activity_settings
+settings-activity-turn-on-sharing = Pro rozpoznávání her zapněte výše Sdílet herní aktivitu.
+# Context: activity_settings
+settings-activity-not-seeing-your-game = Nevidíte svou hru?
+# Context: activity_settings
+settings-activity-add-it = Přidejte ji!
+# Context: activity_settings
+settings-activity-added-games = Přidané hry
+# Context: activity_settings
+settings-activity-no-games-added = Žádné přidané hry
+# Context: activity_settings
+settings-activity-hidden = Skryto. Serein tuto hru nebude rozpoznávat.
+# Context: activity_settings
+settings-activity-detected = Rozpoznáno automaticky
+# Context: activity_settings
+settings-activity-last-played-today = Naposledy hráno dnes
+# Context: activity_settings
+settings-activity-last-played-yesterday = Naposledy hráno včera
+# Context: activity_settings
+settings-activity-last-played = Naposledy hráno { $date }
+# Context: activity_settings
+settings-activity-restore = Obnovit
+# Context: activity_settings
+settings-activity-restore-hint = Znovu tuto hru rozpoznávat.
+# Context: activity_settings
+settings-activity-stop-detecting = Přestat rozpoznávat tuto hru
+# Context: activity_settings
+settings-activity-remove-game = Odebrat tuto hru
+# Context: activity_settings
+settings-activity-click-to-rename = Kliknutím přejmenujete
+# Context: activity_settings
+settings-activity-add-a-game = Přidat hru
+# Context: activity_settings
+settings-activity-choose-program = Vyberte spuštěný program. Serein ho zobrazí jako vaši hru, kdykoli poběží.
+# Context: activity_settings
+settings-activity-search-programs = Hledat spuštěné programy
+# Context: activity_settings
+settings-activity-reading-programs = Načítání spuštěných programů…
+# Context: activity_settings
+settings-activity-no-matching-programs = Neběží žádné odpovídající programy.
+# Context: activity_settings
+settings-activity-add-game = Přidat hru
 # Context: appearance_menu
 settings-appearance-menu-display = Zobrazit
 # Context: appearance_menu
@@ -3596,6 +3767,13 @@ timeline-message-actions-view-reactions = Zobrazit reakce
 timeline-present-control-jump-to-present = Přejít do současnosti
 # Context: present_control
 timeline-present-control-new-messages-below-jump-to-present = Níže jsou nové zprávy · přejít na nejnovější
+# Context: present_control
+timeline-present-control-new-messages =
+    { $count ->
+        [one] { $count } nová zpráva
+        [few] { $count } nové zprávy
+       *[other] { $count } nových zpráv
+    }
 # Context: show_system
 timeline-show-system-open-this-channels-threads = Otevřít vlákna tohoto kanálu
 # Context: show_system
@@ -3642,6 +3820,10 @@ timeline-show-with-scroll-you-cannot-view-this-conversation = Tuto konverzaci ne
 timeline-starter-row-thread-started-from-this-message = Vlákno začalo od této zprávy
 # Context: unread_banner
 timeline-unread-banner-unread-messages = Nepřečtené zprávy
+# Context: unread_banner
+timeline-unread-banner-mark-as-read = Označit jako přečtené
+# Context: unread_banner
+timeline-unread-banner-jump-to-unread = Přejít na nepřečtené
 
 ## crates/ui/src/toasts.rs
 # Context: show
@@ -3704,6 +3886,8 @@ updates-update-settings-restart-to-update = Pro aktualizaci restartujte
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein byl nainstalován prostřednictvím vaší distribuce. Spusťte to v terminálu pro aktualizaci.
 # Context: update_settings
 updates-update-settings-support-diagnostics = Podpora a diagnostika
+# Context: update_log
+updates-update-log = Historie aktualizací
 # Context: update_settings
 updates-update-settings-update-checks-are-disabled-in-debug-builds = Kontroly aktualizací jsou v ladicích sestaveních zakázány.
 
@@ -4053,6 +4237,10 @@ profiles-remove-friend-message = Opravdu chcete odebrat uživatele { $user } z p
 channel-menu-dialog-category-settings = Nastavení kategorie
 channel-menu-dialog-channel-settings = Nastavení kanálu
 channel-menu-dialog-settings-subtitle = Upravte nastavení a oprávnění tohoto místa.
+channel-menu-discard-title = Zahodit neuložené změny?
+channel-menu-discard-message = Neuložené změny tohoto kanálu budou ztraceny.
+channel-menu-discard-confirm = Zahodit změny
+channel-menu-discard-keep = Pokračovat v úpravách
 channel-menu-dialog-duplicate-subtitle = Zkopíruje nastavení a oprávnění. Zprávy se nekopírují.
 channel-menu-dialog-create-channel-subtitle = Zvolte typ a název kanálu.
 channel-menu-dialog-create-category-subtitle = Kategorie uspořádávají související kanály.
@@ -4124,8 +4312,18 @@ search-page-previous-short = Předchozí
 search-page-next-short = Další
 search-result-today-at = Dnes v { $time }
 search-result-yesterday-at = Včera v { $time }
-timeline-unread-banner-one-new-since = 1 nová zpráva od { $time }
-timeline-unread-banner-many-new-since = Nové zprávy od { $time }: { $count }
+timeline-unread-banner-new-since =
+    { $count ->
+        [one] { $count } nová zpráva od { $time }
+        [few] { $count } nové zprávy od { $time }
+       *[other] { $count } nových zpráv od { $time }
+    }
+timeline-unread-banner-new-since-more =
+    { $count ->
+        [one] { $count }+ nová zpráva od { $time }
+        [few] { $count }+ nové zprávy od { $time }
+       *[other] { $count }+ nových zpráv od { $time }
+    }
 
 ## crates/ui/src/onboarding.rs
 # Context: show

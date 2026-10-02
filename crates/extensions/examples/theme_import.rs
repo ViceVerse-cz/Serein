@@ -3,7 +3,7 @@ use std::io::Read;
 
 fn main() {
 	let mut document: serde_json::Value = serde_json::from_slice(include_bytes!(
-		"../../../community-extensions/themes/ocean.serein-extension"
+		"../../../extensions/themes/ocean.serein-extension"
 	))
 	.unwrap();
 	document["manifest"]["id"] = "Mixed-Case-Theme".into();

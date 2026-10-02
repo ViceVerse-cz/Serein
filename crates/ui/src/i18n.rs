@@ -112,7 +112,20 @@ impl Language {
 	}
 
 	fn text_with_args(self, key: &str, values: &[(&'static str, &str)]) -> String {
-		let mut args = FluentArgs::with_capacity(values.len());
+		self.text_with_count(key, None, values)
+	}
+
+	/// `$count` is passed as a number, so catalogs can select their plural forms on it.
+	fn text_with_count(
+		self,
+		key: &str,
+		count: Option<usize>,
+		values: &[(&'static str, &str)],
+	) -> String {
+		let mut args = FluentArgs::with_capacity(values.len() + 1);
+		if let Some(count) = count {
+			args.set("count", count);
+		}
 		for &(name, value) in values {
 			args.set(name, value);
 		}
@@ -229,6 +242,11 @@ pub fn translate_args(key: &str, values: &[(&'static str, &str)]) -> String {
 	current().text_with_args(key, values)
 }
 
+/// Like [`translate_args`], with a numeric `$count` for plural selection.
+pub fn translate_count(key: &str, count: usize, values: &[(&'static str, &str)]) -> String {
+	current().text_with_count(key, Some(count), values)
+}
+
 /// Translate a semantic key while leaving service- or user-provided text untouched.
 pub fn translate_if_key(value: &str) -> String {
 	current()
@@ -304,6 +322,54 @@ mod tests {
 			),
 			"Delete \u{2068}General\u{2069}? Its channels will remain in the server. This cannot be undone."
 		);
+	}
+
+	#[test]
+	fn counts_select_plural_forms() {
+		let since = |language: Language, count| {
+			language
+				.text_with_count(
+					"timeline-unread-banner-new-since",
+					Some(count),
+					&[("time", "23:21")],
+				)
+				.replace(['\u{2068}', '\u{2069}'], "")
+		};
+		assert_eq!(since(Language::English, 1), "1 new message since 23:21");
+		assert_eq!(since(Language::English, 57), "57 new messages since 23:21");
+		assert_eq!(since(Language::Czech, 1), "1 nová zpráva od 23:21");
+		assert_eq!(since(Language::Czech, 3), "3 nové zprávy od 23:21");
+		assert_eq!(since(Language::Czech, 57), "57 nových zpráv od 23:21");
+		assert_eq!(since(Language::Russian, 21), "21 новое сообщение с 23:21");
+		assert_eq!(since(Language::Russian, 12), "12 новых сообщений с 23:21");
+		assert_eq!(since(Language::Polish, 22), "22 nowe wiadomości od 23:21");
+		assert_eq!(since(Language::Polish, 12), "12 nowych wiadomości od 23:21");
+		for language in Language::ALL {
+			for count in [1, 2, 5, 22, 1000] {
+				for key in [
+					"timeline-unread-banner-new-since",
+					"timeline-unread-banner-new-since-more",
+				] {
+					let text = language
+						.text_with_count(key, Some(count), &[("time", "23:21")])
+						.replace(['\u{2068}', '\u{2069}'], "");
+					assert!(
+						text.contains(&count.to_string()) && text.contains("23:21"),
+						"{language:?} {key} {count}: {text}"
+					);
+				}
+				let text = language.text_with_count(
+					"timeline-present-control-new-messages",
+					Some(count),
+					&[],
+				);
+				assert!(
+					text.replace(['\u{2068}', '\u{2069}'], "")
+						.contains(&count.to_string()),
+					"{language:?} {count}: {text}"
+				);
+			}
+		}
 	}
 
 	#[test]

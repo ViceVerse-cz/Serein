@@ -146,6 +146,17 @@ pub(crate) enum Pick {
 	/// Send this GIF address as its own message right away, like Discord.
 	Send(String),
 	React(Id, model::ReactionEmoji),
+	/// A form field's new emoji, such as a poll answer's; `None` clears it.
+	Choose(Option<model::ReactionEmoji>),
+}
+
+/// Where a picked emoji goes when the popout is not inserting into the composer.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum Target {
+	/// Toggle a reaction on this message.
+	React(Id),
+	/// Hand the emoji back to a form field; `clearable` offers removing the current one.
+	Choose { clearable: bool },
 }
 
 enum GifAction {
@@ -268,7 +279,7 @@ impl CustomMatches {
 pub(crate) struct Picker {
 	pub image_sharing_enabled: bool,
 	stickers: crate::stickers::Browser,
-	reaction: Option<(Id, egui::Rect, egui::Id)>,
+	reaction: Option<(Target, egui::Rect, egui::Id)>,
 	// ponytail: session-only Unicode usage; persist if cross-launch favorites are needed.
 	frequent: Vec<(usize, u32)>,
 	open: bool,
@@ -535,7 +546,7 @@ impl Picker {
 			return;
 		};
 		self.sync(state, Some(channel));
-		self.reaction = Some((message, anchor, trigger));
+		self.reaction = Some((Target::React(message), anchor, trigger));
 		self.open = true;
 		self.focus = true;
 		self.tab = Tab::Emoji;
@@ -556,7 +567,9 @@ impl Picker {
 			return;
 		};
 		self.sync(state, Some(channel));
-		let Some((message, anchor, trigger_id)) = self.reaction.filter(|_| self.open) else {
+		let Some((Target::React(message), anchor, trigger_id)) =
+			self.reaction.filter(|_| self.open)
+		else {
 			return;
 		};
 		if !state
@@ -583,6 +596,51 @@ impl Picker {
 			&& let Some(command) = state.prepare_reaction(message, emoji)
 		{
 			commands.push(command);
+		}
+	}
+
+	/// Opens the emoji tab to choose an emoji for a form field such as a poll answer.
+	/// `clearable` adds a control that removes the field's current emoji.
+	pub(crate) fn open_choice(
+		&mut self,
+		state: &State,
+		channel: Id,
+		trigger: &egui::Response,
+		clearable: bool,
+	) {
+		self.sync(state, Some(channel));
+		self.reaction = Some((Target::Choose { clearable }, trigger.rect, trigger.id));
+		self.open = true;
+		self.focus = true;
+		self.tab = Tab::Emoji;
+		self.server = None;
+		self.query.clear();
+		self.filter();
+	}
+
+	/// Whether a form-field choice opened by [`Self::open_choice`] is showing.
+	pub(crate) fn choosing(&self) -> bool {
+		self.open && matches!(self.reaction, Some((Target::Choose { .. }, _, _)))
+	}
+
+	/// Shows an open choice anchored to `trigger`. `Some(None)` clears the field's emoji.
+	pub(crate) fn show_choice(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		channel: Id,
+		avatars: &mut Avatars,
+		trigger: &egui::Response,
+	) -> Option<Option<model::ReactionEmoji>> {
+		self.sync(state, Some(channel));
+		if !self.choosing() {
+			return None;
+		}
+		// The emoji tab never requests GIFs or stickers, so no command can be produced.
+		let mut commands = Vec::new();
+		match self.popup(ui, state, channel, avatars, &mut commands, trigger, None) {
+			Some(Pick::Choose(emoji)) => Some(emoji),
+			_ => None,
 		}
 	}
 
@@ -649,7 +707,8 @@ impl Picker {
 			});
 		}
 		match self.reaction {
-			Some((message, _, _)) => Pick::React(message, emoji),
+			Some((Target::React(message), _, _)) => Pick::React(message, emoji),
+			Some((Target::Choose { .. }, _, _)) => Pick::Choose(Some(emoji)),
 			None => Pick::Insert(text),
 		}
 	}
@@ -677,10 +736,10 @@ impl Picker {
 				.is_some_and(|channel| state.can_send(channel) && state.can_attach(channel));
 		}
 		match self.reaction {
-			Some((message, _, _)) => {
+			Some((Target::React(message), _, _)) => {
 				!state.reactions.busy() && state.can_react(message, Some(emoji), true)
 			}
-			None => {
+			Some((Target::Choose { .. }, _, _)) | None => {
 				emoji.id.is_none()
 					|| custom.is_some_and(|(guild, emoji)| {
 						self.channel.is_some_and(|channel| {
@@ -779,11 +838,34 @@ impl Picker {
 		let bounds = ui.ctx().content_rect().shrink(8.0);
 		let width = WIDTH.min(bounds.width());
 		let height = HEIGHT.min(bounds.height());
-		// Anchor above the composer with the right edge on the trigger, like a Discord popout.
-		let x = (trigger.rect.right() - width)
-			.min(bounds.right() - width)
-			.max(bounds.left());
-		let y = (trigger.rect.top() - 8.0 - height).max(bounds.top());
+		let clearable = match self.reaction {
+			Some((Target::Choose { clearable }, _, _)) => Some(clearable),
+			_ => None,
+		};
+		let (x, y) = if clearable.is_some() {
+			// Form fields open the popout beside the field, below it when there is room.
+			let below = trigger.rect.bottom() + 8.0;
+			(
+				trigger
+					.rect
+					.left()
+					.min(bounds.right() - width)
+					.max(bounds.left()),
+				if below + height <= bounds.bottom() {
+					below
+				} else {
+					(trigger.rect.top() - 8.0 - height).max(bounds.top())
+				},
+			)
+		} else {
+			// Anchor above the composer with the right edge on the trigger, like a Discord popout.
+			(
+				(trigger.rect.right() - width)
+					.min(bounds.right() - width)
+					.max(bounds.left()),
+				(trigger.rect.top() - 8.0 - height).max(bounds.top()),
+			)
+		};
 		let mut selected: Option<Pick> = None;
 		let mut used = None;
 		let mut gif_action: Option<GifAction> = None;
@@ -810,7 +892,7 @@ impl Picker {
 			commands.push(command);
 		}
 		let popup_id =
-			egui::Id::unique(("emoji-picker", self.reaction.map(|(message, _, _)| message)));
+			egui::Id::unique(("emoji-picker", self.reaction.map(|(target, _, _)| target)));
 		let area = egui::Area::new(popup_id)
 			.kind(egui::UiKind::Popup)
 			.enabled(ui.is_enabled())
@@ -963,13 +1045,16 @@ impl Picker {
 									self.gif_changed_at = None;
 									self.focus = true;
 								}
+								let remove = clearable == Some(true);
 								egui::Frame::new()
 									.fill(colors.raised)
 									.corner_radius(6)
 									.stroke(egui::Stroke::new(1.0, colors.border))
 									.inner_margin(egui::Margin::symmetric(10, 0))
 									.show(ui, |ui| {
-										ui.set_width(ui.available_width());
+										ui.set_width(
+											ui.available_width() - if remove { 38.0 } else { 0.0 },
+										);
 										ui.set_height(30.0);
 										ui.horizontal_centered(|ui| {
 											ui.spacing_mut().item_spacing.x = 8.0;
@@ -1011,7 +1096,12 @@ impl Picker {
 											);
 											if self.focus {
 												search.request_focus();
-												self.focus = false;
+												// Above a dialog, a form field's just-opened popout is
+												// ordered (and focusable) only from its second frame.
+												self.focus = clearable.is_some()
+													&& !ui.ctx().memory(|memory| {
+														memory.allows_interaction(ui.layer_id())
+													});
 											}
 											if search.changed() {
 												if gifs_tab {
@@ -1023,6 +1113,17 @@ impl Picker {
 											}
 										});
 									});
+								if remove
+									&& crate::icons::button(
+										ui,
+										crate::icons::Icon::Trash,
+										30.0,
+										"emoji-picker-unicode-button-with-remove-emoji",
+									)
+									.clicked()
+								{
+									selected = Some(Pick::Choose(None));
+								}
 							},
 						);
 
@@ -1532,6 +1633,10 @@ impl Picker {
 						);
 					});
 			});
+		if clearable.is_some() && ui.layer_id().order == area.response.layer_id.order {
+			// Keep a form field's popout above the dialog that opened it.
+			ui.ctx().set_sublayer(ui.layer_id(), area.response.layer_id);
+		}
 		if self.reaction.is_some()
 			&& let Some(text) = used
 		{
@@ -2474,10 +2579,27 @@ mod tests {
 			Pick::Insert(_)
 		));
 		picker.image_sharing_enabled = true;
-		picker.reaction = Some((Id(500), egui::Rect::NOTHING, egui::Id::unique("reaction")));
+		picker.reaction = Some((
+			Target::React(Id(500)),
+			egui::Rect::NOTHING,
+			egui::Id::unique("reaction"),
+		));
+		assert!(matches!(
+			picker.pick(&state, emoji.clone(), "<a:wave:999>".into()),
+			Pick::React(Id(500), _)
+		));
+		// Form fields such as poll answers get the emoji itself, never an image share.
+		picker.reaction = Some((
+			Target::Choose { clearable: false },
+			egui::Rect::NOTHING,
+			egui::Id::unique("choose"),
+		));
 		assert!(matches!(
 			picker.pick(&state, emoji, "<a:wave:999>".into()),
-			Pick::React(Id(500), _)
+			Pick::Choose(Some(model::ReactionEmoji {
+				id: Some(Id(999)),
+				..
+			}))
 		));
 
 		picker.reaction = None;
