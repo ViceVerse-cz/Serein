@@ -20,6 +20,7 @@ pub mod gifs;
 mod graphics;
 pub use graphics::GpuPreference;
 pub mod guild_folders;
+pub mod message_options;
 pub mod permissions;
 mod reading_preferences;
 pub mod server_admin;

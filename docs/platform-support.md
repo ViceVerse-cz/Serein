@@ -69,6 +69,21 @@ Windows/Linux local staging artifacts remain unsigned. These are not certified i
 
 The webview lives only during login: WKWebView on macOS, WebView2 on Windows, GTK/WebKitGTK on Linux. Linux uses a separate GTK authentication window and pumps it only while login is active. Voice is built in. Audio devices open only for explicit playback, device testing, or a call reaching required encrypted readiness. Popup-dependent authentication and third-party embedded challenges may not work; do not claim all Discord login methods without live tests.
 
+## Linux system appearance
+
+Appearance set to System reads the freedesktop Settings portal's color-scheme on
+the existing runtime, then listens for changes. Signals trigger a fresh property
+read so an older queued signal cannot replace a newer initial value. A closed or
+unavailable portal is reconnected after a three-second delay, with one connection
+and subscription active at a time. Reads have a three-second timeout; the latest
+known preference remains in effect during reconnection.
+
+When the initial portal attempt fails, a one-shot GNOME gsettings fallback has a
+two-second process limit and at most 256 output bytes. An explicit dark preference
+selects Dark; no preference selects Light. If detection fails entirely, the
+existing Dark fallback remains. Windows/macOS retain winit's system theme events.
+Real Linux desktop/portal rendering is unverified in this macOS repair session.
+
 ## Window transparency and blur
 
 Enable Transparency & blur in Appearance and restart to create an alpha-capable
