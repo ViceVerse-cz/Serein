@@ -1490,6 +1490,11 @@ state. Windows keeps at most four owned 32×32 icons and one fixed 128-code-unit
 tooltip descriptor. Background voice/tray logic runs once per event tick; active
 calls request a 50 ms repaint. These ticks neither open audio devices nor create
 new network payloads.
+Bundled scalable emoji retain the existing 1,024-item / 16 MiB emoji texture LRU.
+Their local-only request keys select 64, 128 or 256-pixel renditions. Each SVG has
+a 64 KiB decompression/window limit and shares the media worker’s eight decode
+permits, 1,024-item bounded requests and 128-item / 128 MiB result queue. No runtime
+network or disk cache is used for this bundled artwork, including in offline demo.
 
 ## Native camera format selection
 
