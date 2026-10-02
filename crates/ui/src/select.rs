@@ -263,9 +263,6 @@ struct Pointer {
 /// Remember the button chosen on press: Control may be released before the mouse button.
 #[cfg(any(target_os = "macos", test))]
 fn normalize_control_click(input: &mut RawInput, control_primary: &mut bool) {
-	if !input.focused {
-		*control_primary = false;
-	}
 	for event in &mut input.events {
 		if let Event::PointerButton {
 			button,
@@ -284,6 +281,10 @@ fn normalize_control_click(input: &mut RawInput, control_primary: &mut bool) {
 				*control_primary = false;
 			}
 		}
+	}
+	// Process a delivered release before abandoning an interrupted gesture.
+	if !input.focused {
+		*control_primary = false;
 	}
 }
 
@@ -675,6 +676,49 @@ mod tests {
 				matches!(input.events[0], Event::PointerButton { button, .. } if button == expected)
 			);
 		}
+		assert!(!held);
+	}
+
+	#[test]
+	fn control_click_release_matches_press_in_an_unfocused_frame() {
+		let event = |pressed| Event::PointerButton {
+			pos: egui::pos2(10.0, 10.0),
+			button: PointerButton::Primary,
+			pressed,
+			modifiers: egui::Modifiers {
+				ctrl: pressed,
+				..Default::default()
+			},
+		};
+		let mut held = false;
+		let mut press = RawInput {
+			focused: true,
+			events: vec![event(true)],
+			..Default::default()
+		};
+		normalize_control_click(&mut press, &mut held);
+		assert!(held);
+		let mut release = RawInput {
+			focused: false,
+			events: vec![event(false)],
+			..Default::default()
+		};
+		normalize_control_click(&mut release, &mut held);
+		assert!(matches!(
+			release.events[0],
+			Event::PointerButton {
+				button: PointerButton::Secondary,
+				pressed: false,
+				..
+			}
+		));
+		assert!(!held);
+		let mut focus_loss = RawInput {
+			focused: false,
+			..Default::default()
+		};
+		held = true;
+		normalize_control_click(&mut focus_loss, &mut held);
 		assert!(!held);
 	}
 
