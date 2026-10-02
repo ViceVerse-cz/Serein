@@ -1879,6 +1879,16 @@ native frame was inspected. These package checks and measurements retain that
 exact runtime identity after later integrations. Documentation-only evidence
 commits do not change the measured runtime.
 
+Later normal integration `2d754e25` (main `dc7e9f00`) passed fresh full checks
+with 369 UI tests and cross-worktree-ID workspace cache pruning. Its standard
+voice package passed: executable 67,113,568 B, installed 73,196,592 B,
+ZIP 47,577,622 B, 220 files. These latest aggregate bytes include unrelated
+incoming work; the isolated vector comparison above retains its original source.
+An independently captured and inspected current native frame is byte-identical
+to the prior `6afe8190` frame (SHA-256 `6d8c4d00ae8b793e…`); hooks were removed
+byte-exactly. Saved build logs show all twelve runtime workspace crates compiling
+fresh from the exact worktree for each recorded baseline/vector release build.
+
 The trusted compressed SVG bundle is 4,244,356 B. Rasterization runs off-thread
 at 64/128/256 physical pixels with a 64 KiB expansion/window limit, eight shared
 decode permits and the existing 1,024-item / 16 MiB emoji texture cache. There is
