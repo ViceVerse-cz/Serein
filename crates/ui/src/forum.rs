@@ -744,6 +744,7 @@ impl ForumUi {
 									&text,
 									None,
 									MAX_CONTENT,
+									false,
 								);
 							}
 							ui.with_layout(

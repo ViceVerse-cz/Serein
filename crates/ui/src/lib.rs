@@ -3100,7 +3100,7 @@ impl MessagingUi {
                             &mut new_draft
                         };
 						let mut mention_changed = false;
-						match self.apply_pending_mention(ctx, composer_id, draft, remaining) {
+						match self.apply_pending_mention(ctx, composer_id, draft, remaining, editing_here) {
 							None => {}
 							Some(MentionWrite::Inserted) => mention_changed = true,
 							Some(MentionWrite::DidNotFit) => {
@@ -3111,7 +3111,7 @@ impl MessagingUi {
                             let mut edit_state =
                                 egui::text_edit::TextEditState::load(ctx, composer_id).unwrap_or_default();
                             let range = edit_state.cursor.char_range();
-                            if let Some(cursor) = emoji_picker::insert(draft, &pick, range, remaining) {
+                            if let Some(cursor) = emoji_picker::insert(draft, &pick, range, remaining, editing_here) {
                                 edit_state
                                     .cursor
                                     .set_char_range(Some(egui::text::CCursorRange::one(
@@ -3132,7 +3132,7 @@ impl MessagingUi {
                             mention_changed = true;
                         }
                         if let Some(pick) = mention_pick
-                            && let Some(cursor) = mentions::insert(draft, pick)
+                            && let Some(cursor) = mentions::insert(draft, pick, editing_here)
                         {
                             let mut edit_state =
                                 egui::text_edit::TextEditState::load(ctx, composer_id).unwrap_or_default();
@@ -3147,7 +3147,7 @@ impl MessagingUi {
 						if mention_enabled
 							&& let Some(cursor) = cursor
 							&& let Some(cursor) =
-								emoji_picker::complete_shortcode(draft, cursor, remaining)
+								emoji_picker::complete_shortcode(draft, cursor, remaining, editing_here)
 						{
 							let mut edit_state = egui::text_edit::TextEditState::load(ctx, composer_id)
 								.unwrap_or_default();
@@ -3166,7 +3166,7 @@ impl MessagingUi {
                             let mut edit_state =
                                 egui::text_edit::TextEditState::load(ctx, composer_id).unwrap_or_default();
                             let range = edit_state.cursor.char_range();
-                            if let Some(range) = formatting::apply(draft, style, range, remaining) {
+                            if let Some(range) = formatting::apply(draft, style, range, remaining, editing_here) {
                                 edit_state.cursor.set_char_range(Some(range));
                                 edit_state.store(ctx, composer_id);
                                 mention_changed = true;
@@ -3248,7 +3248,7 @@ impl MessagingUi {
                         self.mention_menu
                             .refresh(state, channel, draft, mention_cursor, &mention_users);
                         if let Some(pick) = self.mention_menu.show(ui, composer_anchor, &mut self.avatars, demo)
-                            && let Some(cursor) = mentions::insert(draft, pick)
+                            && let Some(cursor) = mentions::insert(draft, pick, editing_here)
                         {
                             output
                                 .state
@@ -3396,6 +3396,7 @@ impl MessagingUi {
 		composer_id: egui::Id,
 		draft: &mut String,
 		remaining: usize,
+		editing: bool,
 	) -> Option<MentionWrite> {
 		let user_id = self.pending_mention.take()?;
 		if user_id == Id(0) {
@@ -3427,7 +3428,7 @@ impl MessagingUi {
 				.is_some_and(|c| !c.is_whitespace());
 		let token = mentions::user_mention_token(user_id);
 		let token = if glue { format!(" {token}") } else { token };
-		let Some(cursor) = emoji_picker::insert(draft, &token, range, remaining) else {
+		let Some(cursor) = emoji_picker::insert(draft, &token, range, remaining, editing) else {
 			return Some(MentionWrite::DidNotFit);
 		};
 		edit_state
@@ -4923,8 +4924,10 @@ mod composer_tests {
 	#[test]
 	fn quiet_composer_paste_allows_full_payload_and_marker_only_enter_preserves_draft() {
 		let ctx = egui::Context::default();
-		let mut view = MessagingUi::default();
-		view.focus_switched_composer = true;
+		let mut view = MessagingUi {
+			focus_switched_composer: true,
+			..Default::default()
+		};
 		let mut state = edit_state();
 		let channel = state.selected.unwrap();
 		state.drafts.insert(channel, "@silent".into());
