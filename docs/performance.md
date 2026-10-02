@@ -1399,40 +1399,42 @@ sizes are recorded in the task PR, using the built packages.
 
 ## Selected-channel search shortcut (October 2, 2026)
 
-Opening search with Ctrl+F/Command+F now retains the selected server channel as
-an exact wire filter while presenting a readable label. Reopening retains query
-and results; DM scope and explicit submission remain unchanged. Six actual egui
-search tests, the fresh full `cargo xtask check`, and the standard voice-inclusive
-release package passed. Runtime source `073b1859` includes parent `47a81035`;
-packaged source `24669edc` differs only by the absolute macOS icon output path.
+Eight actual egui search tests and fresh full checks passed on corrected source
+`e94640f5`, including cross-guild numeric submission and remembered-channel
+eligibility changes. Actual native captures use exact parent `47a81035` and
+corrected source `e94640f5`; the temporary synthetic Command+F fixture is excluded
+from shipping and measurement builds.
 
-Measured on macOS 27 / Apple M1 / 16 GiB with the pinned toolchain and lockfile.
-Parent package runtime `ef9cd5d1` is identical to parent main `47a81035`.
-Both standard packages use the repository fat-LTO release profile, locally ad-hoc
-signed, no development features, and 206 regular files.
+Measured on macOS 27, Apple M1 / 16 GiB, Rust 1.98.1 and locked dependencies.
+The standard voice-inclusive packages use unchanged fat LTO, no development
+features, and local ad-hoc signatures. Parent package source `ef9cd5d1` is
+application-identical to parent `47a81035`; installed bytes sum regular files,
+and ZIP uses `ditto -c -k --sequesterRsrc` over the complete distribution.
+Both standard packages passed; these are isolated feature revisions, not the
+newer main aggregate containing unrelated features.
 
 | Metric | Parent | After | Delta |
 | --- | ---: | ---: | ---: |
 | Standard executable, bytes | 62,088,304 | 62,088,304 | 0 |
 | Installed distribution, bytes | 68,098,733 | 68,098,733 | 0 |
-| Complete ZIP, bytes (`ditto`) | 43,286,187 | 43,286,472 | +285 (+0.0007%) |
-| Common demo-chat median process CPU | 0.0% | 0.0% | 0 percentage points |
-| Peak process RSS, KiB | 125,632 | 125,840 | +208 (+0.1656%) |
-| Settled process RSS, KiB | 125,584 | 125,776 | +192 (+0.1529%) |
+| Complete ZIP, bytes | 43,286,187 | 43,286,492 | +305 (+0.0007%) |
+| Common native median process CPU | 0.0% | 0.0% | 0 percentage points |
+| Peak process RSS, KiB | 125,552 | 125,664 | +112 |
+| Settled process RSS, KiB | 125,504 | 125,616 | +112 |
 
-Native measurement binaries use matching process-only
-`CARGO_PROFILE_RELEASE_LTO=thin CARGO_BUILD_JOBS=2 cargo build --release --locked -p serein --features demo`
-on exact parent `47a81035` and source `24669edc`; neither contains capture hooks.
-The repository profile remains fat LTO. Both native Metal runs launch
-`--demo --demo-chat`, warm up five seconds, then take ten one-second macOS `ps`
-CPU/RSS samples. Settled RSS is the median of the last five. All other compilers,
-tests, helpers and native demos were stopped throughout both samples.
-This measures common idle overhead; opening-search/request latency, GPU memory,
-frame and startup latency are unmeasured. Small RSS differences and quantized
-idle CPU do not establish an improvement. Actual before/after framebuffer
-captures exercise focused egui shortcut handling, not physical OS routing or
-live Discord acceptance. Raw samples, build hashes and source identities:
-[`measurements.json`](pr-evidence/channel-search/measurements.json).
+Both optimized native binaries use matching process-only thin LTO:
+`CARGO_PROFILE_RELEASE_LTO=thin CARGO_BUILD_JOBS=2 cargo build --release --locked -p serein --features demo`.
+This does not change the repository fat-LTO profile. All runtime workspace
+dependencies compiled from the intended worktree; binaries contain no capture
+hooks. Both runs use identical flags recorded in the raw evidence, a 1120×760
+logical viewport at 2× scale and Metal. A five-second warmup precedes ten
+one-second macOS `ps` samples; settled RSS is the final-five median. All other
+compilers, tests, helpers and native demos were paused during the paired sample.
+Small RSS differences and quantized idle CPU are noise, with no improvement claim.
+Action/request latency, GPU memory and frame/startup latency remain unmeasured.
+Native synthetic input proves application handling, not physical OS routing or
+live Discord compatibility. Source identities, hashes, package sizes, capture
+metadata and all samples: [channel-search/measurements.json](pr-evidence/channel-search/measurements.json).
 
 ## Channel shortcut restore - September 13, 2026
 
@@ -2335,6 +2337,45 @@ real committed/rebuilt SDK host boundary checks pass. The nineteen-page authorin
 wiki is published from `8fc9d4df` as preview, not released. Raw samples, hashes,
 source comparisons and screenshot provenance are in
 [zoom measurements](pr-evidence/smaller-interface-zoom/measurements.json).
+
+## Optional diagnostics shortcut (October 2, 2026)
+
+Focused diagnostics, composer-typing and preference compatibility tests plus
+fresh full checks passed on runtime source `9275aad5`. Package source `ec22a013`
+adds only the absolute macOS icon output path and leaves application code unchanged.
+Actual native captures compare exact parent `47a81035` with runtime `9275aad5`,
+using the same keybinds window and synthetic scroll to the bottom.
+
+Measured on macOS 27, Apple M1 / 16 GiB, Rust 1.98.1 and locked dependencies.
+The standard voice-inclusive packages use unchanged fat LTO, no development
+features, and local ad-hoc signatures. Parent package source `ef9cd5d1` is
+application-identical to parent `47a81035`; installed bytes sum regular files,
+and ZIP uses `ditto -c -k --sequesterRsrc` over the complete distribution.
+Both standard packages passed; these are isolated feature revisions, not the
+newer main aggregate containing unrelated features.
+
+| Metric | Parent | After | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable, bytes | 62,088,304 | 62,088,304 | 0 |
+| Installed distribution, bytes | 68,098,733 | 68,098,733 | 0 |
+| Complete ZIP, bytes | 43,286,187 | 43,289,301 | +3,114 (+0.0072%) |
+| Common native median process CPU | 0.0% | 0.0% | 0 percentage points |
+| Peak process RSS, KiB | 128,944 | 128,880 | -64 |
+| Settled process RSS, KiB | 128,896 | 128,832 | -64 |
+
+Both optimized native binaries use matching process-only thin LTO:
+`CARGO_PROFILE_RELEASE_LTO=thin CARGO_BUILD_JOBS=2 cargo build --release --locked -p serein --features demo`.
+This does not change the repository fat-LTO profile. All runtime workspace
+dependencies compiled from the intended worktree; binaries contain no capture
+hooks. Both runs use identical flags recorded in the raw evidence, a 1120×760
+logical viewport at 2× scale and Metal. A five-second warmup precedes ten
+one-second macOS `ps` samples; settled RSS is the final-five median. All other
+compilers, tests, helpers and native demos were paused during the paired sample.
+Small RSS differences and quantized idle CPU are noise, with no improvement claim.
+Action/request latency, GPU memory and frame/startup latency remain unmeasured.
+Native synthetic input proves application handling, not physical OS routing or
+live Discord compatibility. Source identities, hashes, package sizes, capture
+metadata and all samples: [issue-diagnostics-shortcut/measurements.json](pr-evidence/issue-diagnostics-shortcut/measurements.json).
 
 ## Windows WebM container admission - September 25, 2026
 

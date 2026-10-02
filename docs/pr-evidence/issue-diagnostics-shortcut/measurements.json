@@ -14,7 +14,9 @@
   },
   "source": {
     "baseline": "47a81035047695fe1d81edc4cb7efe46c14d87a8",
-    "after": "e94640f5ccdc54c6835284362632238fbc577aae"
+    "after": "ec22a0136ab7aeefc7e08e326e6312c47fea03ce",
+    "runtime_after": "9275aad507b6fcb1cfb1633d4543a2f33e23a1b6",
+    "after_followup": "Packaging-only absolute icon output path; application code is byte-identical to fully checked9275."
   },
   "before_build": {
     "commit": "47a81035047695fe1d81edc4cb7efe46c14d87a8",
@@ -25,20 +27,21 @@
     "native_instrumentation": false
   },
   "after_build": {
-    "commit": "e94640f5ccdc54c6835284362632238fbc577aae",
+    "source": "ec22a0136ab7aeefc7e08e326e6312c47fea03ce",
+    "runtime_source": "9275aad507b6fcb1cfb1633d4543a2f33e23a1b6",
+    "path": "/Users/claw/Code/Serein/target/issue-sweep/diagnostics/ec22a013/serein-release-demo-thin",
+    "bytes": 66727936,
+    "sha256": "5f576ef1987c50efa803a1a66684ded3bcb1723366bd6555b8b4f58419002b5f",
     "command": "CARGO_PROFILE_RELEASE_LTO=thin CARGO_BUILD_JOBS=2 cargo build --release --locked -p serein --features demo",
-    "bytes": 66727920,
-    "sha256": "bfe7e81ff7372f6b4ba4c99ce362c757e3dca4aff2d3c9cdee90d0a4cb09de45",
-    "profile_override": "process-only thin LTO; repository release profile unchanged",
-    "native_instrumentation": false,
-    "elapsed": "16m11s",
-    "verification": "All 17 workspace release packages invalidated before build; main.rs matches the committed source after removable capture hooks were restored; no source edits during build."
+    "profile_override": "process-only thin LTO; repository fat profile unchanged",
+    "native_instrumentation": false
   },
   "before_samples": {
     "binary": "/Users/claw/Code/Serein/target/issue-sweep/ui-thin-baseline-47a/serein-release-demo",
     "flags": [
       "--demo",
-      "--demo-chat"
+      "--demo-chat",
+      "--demo-settings=keybinds"
     ],
     "warmup_seconds": 5,
     "interval_seconds": 1,
@@ -46,129 +49,130 @@
       {
         "seconds": 5.029,
         "cpu_percent": 0.0,
-        "rss_kib": 125552
+        "rss_kib": 128944
       },
       {
         "seconds": 6.053,
         "cpu_percent": 0.0,
-        "rss_kib": 125504
+        "rss_kib": 128896
       },
       {
-        "seconds": 7.08,
+        "seconds": 7.079,
         "cpu_percent": 0.0,
-        "rss_kib": 125504
+        "rss_kib": 128896
       },
       {
-        "seconds": 8.102,
+        "seconds": 8.107,
         "cpu_percent": 0.0,
-        "rss_kib": 125504
+        "rss_kib": 128896
       },
       {
-        "seconds": 9.115,
+        "seconds": 9.125,
         "cpu_percent": 0.0,
-        "rss_kib": 125504
+        "rss_kib": 128896
       },
       {
-        "seconds": 10.127,
+        "seconds": 10.142,
         "cpu_percent": 0.0,
-        "rss_kib": 125504
+        "rss_kib": 128896
       },
       {
-        "seconds": 11.151,
+        "seconds": 11.167,
         "cpu_percent": 0.0,
-        "rss_kib": 125504
+        "rss_kib": 128896
       },
       {
-        "seconds": 12.175,
+        "seconds": 12.184,
         "cpu_percent": 0.0,
-        "rss_kib": 125504
+        "rss_kib": 128896
       },
       {
-        "seconds": 13.2,
+        "seconds": 13.207,
         "cpu_percent": 0.0,
-        "rss_kib": 125504
+        "rss_kib": 128896
       },
       {
-        "seconds": 14.227,
+        "seconds": 14.234,
         "cpu_percent": 0.0,
-        "rss_kib": 125504
+        "rss_kib": 128896
       }
     ],
     "cpu_percent_median": 0.0,
-    "rss_peak_kib": 125552,
-    "rss_settled_kib": 125504,
-    "elapsed_seconds": 15.252,
-    "user_cpu_seconds": 0.174193,
-    "system_cpu_seconds": 0.105491,
+    "rss_peak_kib": 128944,
+    "rss_settled_kib": 128896,
+    "elapsed_seconds": 15.265,
+    "user_cpu_seconds": 0.24970099999999998,
+    "system_cpu_seconds": 0.295271,
     "exit_code": -2,
     "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo"
   },
   "after_samples": {
-    "binary": "/Users/claw/Code/Serein/target/issue-sweep/channel-search/e94640f5/serein-release-demo-thin",
+    "binary": "/Users/claw/Code/Serein/target/issue-sweep/diagnostics/ec22a013/serein-release-demo-thin",
     "flags": [
       "--demo",
-      "--demo-chat"
+      "--demo-chat",
+      "--demo-settings=keybinds"
     ],
     "warmup_seconds": 5,
     "interval_seconds": 1,
     "samples": [
       {
-        "seconds": 5.029,
+        "seconds": 5.028,
         "cpu_percent": 0.0,
-        "rss_kib": 125664
+        "rss_kib": 128880
       },
       {
-        "seconds": 6.055,
-        "cpu_percent": 0.1,
-        "rss_kib": 125664
+        "seconds": 6.054,
+        "cpu_percent": 0.0,
+        "rss_kib": 128880
       },
       {
-        "seconds": 7.082,
+        "seconds": 7.08,
         "cpu_percent": 0.0,
-        "rss_kib": 125664
+        "rss_kib": 128832
       },
       {
-        "seconds": 8.104,
+        "seconds": 8.105,
         "cpu_percent": 0.0,
-        "rss_kib": 125616
+        "rss_kib": 128832
       },
       {
-        "seconds": 9.13,
+        "seconds": 9.125,
         "cpu_percent": 0.0,
-        "rss_kib": 125616
+        "rss_kib": 128832
       },
       {
-        "seconds": 10.156,
+        "seconds": 10.152,
         "cpu_percent": 0.0,
-        "rss_kib": 125616
+        "rss_kib": 128832
       },
       {
-        "seconds": 11.177,
+        "seconds": 11.176,
         "cpu_percent": 0.0,
-        "rss_kib": 125616
+        "rss_kib": 128832
       },
       {
         "seconds": 12.202,
         "cpu_percent": 0.0,
-        "rss_kib": 125616
+        "rss_kib": 128832
       },
       {
-        "seconds": 13.224,
+        "seconds": 13.227,
         "cpu_percent": 0.0,
-        "rss_kib": 125616
+        "rss_kib": 128832
       },
       {
-        "seconds": 14.249,
+        "seconds": 14.244,
         "cpu_percent": 0.0,
-        "rss_kib": 125616
+        "rss_kib": 128832
       }
     ],
     "cpu_percent_median": 0.0,
-    "rss_peak_kib": 125664,
-    "rss_settled_kib": 125616,
-    "elapsed_seconds": 15.283,
-    "user_cpu_seconds": 0.210698,
-    "system_cpu_seconds": 0.14765999999999999,
+    "rss_peak_kib": 128880,
+    "rss_settled_kib": 128832,
+    "elapsed_seconds": 15.266,
+    "user_cpu_seconds": 0.29516899999999996,
+    "system_cpu_seconds": 0.166505,
     "exit_code": -2,
     "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo"
   },
@@ -194,14 +198,14 @@
       "zip_method": "ditto -c -k --sequesterRsrc full standard-dist contents, without enclosing directory"
     },
     "after": {
-      "commit": "e94640f5ccdc54c6835284362632238fbc577aae",
+      "commit": "ec22a0136ab7aeefc7e08e326e6312c47fea03ce",
       "command": "cargo xtask package",
       "features": "standard xtask package; voice included; xtask internally uses --no-default-features",
       "executable": 62088304,
       "installed": 68098733,
-      "compressed": 43286492,
+      "compressed": 43289301,
       "files": 206,
-      "executable_sha256": "d7dcabd3053be963be9515d56dd41330b848b194c20fea4a1c9b60ab7b71b87d",
+      "executable_sha256": "7f31e31dcb484e117344580ac585ded985f0d84d8963b2d629a56f5d41882664",
       "zip_method": "ditto -c -k --sequesterRsrc full standard-dist contents, without enclosing directory"
     },
     "baseline_identity": "ef9cd5d1 application source is byte-identical to recorded parent47a81035",
@@ -209,25 +213,26 @@
     "build_provenance": "All runtime workspace crates compiled from the intended worktree. Changed builds invalidate all workspace-name artifacts across worktree PackageIDs while preserving third-party dependencies."
   },
   "verification": {
-    "full_check": "passed on corrected sourcee946",
+    "full_check": "passed on runtime source9275",
     "native_capture": "actual native WGPU images inspected; removable hooks excluded from measurement and shipping source",
     "build_provenance": "Both changed thin build logs show every runtime workspace dependency rebuilt from the exact intended worktree; no stale worktree package reused."
   },
   "native_capture": {
     "baseline": "47a81035047695fe1d81edc4cb7efe46c14d87a8",
-    "after": "e94640f5ccdc54c6835284362632238fbc577aae",
-    "command": "serein --demo --demo-chat",
-    "synthetic_input": "channel-search",
+    "after_runtime": "9275aad507b6fcb1cfb1633d4543a2f33e23a1b6",
+    "command": "serein --demo --demo-chat --demo-settings=keybinds",
+    "synthetic_input": "keybinds-bottom; identical -2000 point scroll at frame4",
     "native": true,
     "temporary_capture_hooks_removed_exactly": true,
+    "viewport": "1120x760 logical, 2x, Metal",
     "images": {
-      "before": {
-        "bytes": 625915,
-        "sha256": "bbe65f56548b19868ff64c7c5877c4c02fc0a501e3a0389055cbcd3a10e884d7"
+      "before.png": {
+        "bytes": 687231,
+        "sha256": "57c47b427cebda4e6038b5308951e8421388b17759d9c708a285ba694a5a1eb6"
       },
-      "after": {
-        "bytes": 630429,
-        "sha256": "280e891f78ad910bb8481681b4f5a0e215440ba6b2c95003c41eb43c0b4a4af8"
+      "after.png": {
+        "bytes": 695225,
+        "sha256": "e6d4df04c8c1d672fec40ee9657136fb3e7cd80d3be357c1588b0e76d3416b87"
       }
     }
   }
