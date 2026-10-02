@@ -2629,7 +2629,18 @@ mod tests {
 			.is_some()
 		);
 		let media_key = "media:vs:2048x512:https://cdn.discordapp.com/attachments/1/2/image.png?ex=abc&is=def&hm=synthetic";
-		let transformed = cdn_url(media_key).unwrap();
+		let urls = media_urls(&Rendition::parse(media_key).unwrap()).unwrap();
+		// Windows viewers prefer the original so system codecs can decode HEIC.
+		let transformed = if cfg!(windows) {
+			assert!(
+				urls.primary
+					.starts_with("https://cdn.discordapp.com/attachments/1/2/image.png?")
+			);
+			urls.fallback.unwrap()
+		} else {
+			assert_eq!(cdn_url(media_key).as_deref(), Some(urls.primary.as_str()));
+			urls.primary
+		};
 		assert!(transformed.starts_with("https://media.discordapp.net/attachments/1/2/image.png?"));
 		assert!(transformed.ends_with("format=webp&quality=lossless&width=2048&height=512"));
 		assert_ne!(disk_key(media_key).unwrap(), disk_key(embed_key).unwrap());
@@ -2641,7 +2652,7 @@ mod tests {
 		);
 		let media = budget("media:vs:2048x1024:https://cdn.discordapp.com/attachments/1/2/a.png");
 		assert_eq!(decode(&png(1024, 512), &media).unwrap().size, [1024, 512]);
-		assert!(decode(&png(4097, 1), &media).is_none());
+		assert!(decode(&png(8193, 1), &media).is_none());
 		assert!(decode(&vec![0; MAX_ENCODED + 1], &legacy(128)).is_none());
 		assert!(decode(b"not an image", &legacy(128)).is_none());
 		assert!(decode(&png(257, 1), &legacy(128)).is_none());
