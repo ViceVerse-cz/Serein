@@ -4354,7 +4354,7 @@ server-settings-page-safety = Configuration de la sécurité
 
 server-settings-nav-title = Paramètres du serveur
 
-server-settings-safety-subtitle = Choisis qui peut discuter sur ce serveur et quels médias Discord analyse pour détecter le contenu explicite.
+server-settings-safety-subtitle = Choisissez qui peut discuter sur ce serveur et quels médias Discord analyse pour détecter le contenu explicite.
 
 server-settings-safety-community-note = Les serveurs communautaires exigent au moins une vérification faible et doivent analyser les médias de tous les membres.
 
@@ -4394,11 +4394,11 @@ server-settings-safety-filter-all = Analyser les médias de tous les membres
 
 server-settings-profile-form-banner-custom = Couleur personnalisée
 
-server-settings-profile-form-banner-custom-help = Choisis un préréglage ci-dessus ou n'importe quelle couleur pour la bannière.
+server-settings-profile-form-banner-custom-help = Choisissez un préréglage ci-dessus ou n'importe quelle couleur pour la bannière.
 
 server-settings-profile-server-id = Identifiant du serveur
 
-server-settings-profile-server-id-help = Utilise cet identifiant avec les bots, les outils de modération et les demandes d'assistance.
+server-settings-profile-server-id-help = Utilisez cet identifiant avec les bots, les outils de modération et les demandes d'assistance.
 
 server-settings-profile-copy-id = Copier l'identifiant
 
@@ -4410,13 +4410,13 @@ server-settings-engagement-system-boost = Envoyer un message quand quelqu'un boo
 
 server-settings-engagement-system-tips = Envoyer des astuces utiles pour configurer le serveur.
 
-server-invites-header-subtitle = Partage des liens qui permettent de rejoindre ce serveur.
+server-invites-header-subtitle = Partagez des liens qui permettent de rejoindre ce serveur.
 
 server-audit-log-header-subtitle = Un historique des actions de modération et des changements de paramètres sur ce serveur.
 
-server-audit-log-empty-detail = Essaie un autre utilisateur ou une autre action, ou recharge pour voir les nouveaux événements.
+server-audit-log-empty-detail = Essayez un autre utilisateur ou une autre action, ou rechargez pour voir les nouveaux événements.
 
-server-members-header-subtitle = Consulte, recherche et gère les membres de ce serveur.
+server-members-header-subtitle = Consultez, recherchez et gérez les membres de ce serveur.
 
 server-members-show-in-channel-list = Afficher les membres dans la liste des salons
 
@@ -4426,6 +4426,6 @@ server-emoji-empty-static = Aucun émoji pour l'instant
 
 server-emoji-empty-animated = Aucun émoji animé pour l'instant
 
-server-emoji-empty-detail = Importe une image pour en ajouter un. Les GIF deviennent des émojis animés.
+server-emoji-empty-detail = Importez une image pour en ajouter un. Les GIF deviennent des émojis animés.
 
-server-stickers-empty-detail = Importe une image pour ajouter ton premier autocollant.
+server-stickers-empty-detail = Importez une image pour ajouter votre premier autocollant.

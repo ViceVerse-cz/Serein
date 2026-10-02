@@ -4343,7 +4343,7 @@ server-settings-page-safety = Güvenlik Kurulumu
 
 server-settings-nav-title = Sunucu Ayarları
 
-server-settings-safety-subtitle = Bu sunucuda kimlerin sohbet edebileceğine ve Discord'un hangi medyaları müstehcen içerik için tarayacağına karar ver.
+server-settings-safety-subtitle = Bu sunucuda kimlerin sohbet edebileceğine ve Discord'un hangi medyaları müstehcen içerik için tarayacağına karar verin.
 
 server-settings-safety-community-note = Topluluk sunucuları en az Düşük doğrulama gerektirir ve tüm üyelerin medyasını taramalıdır.
 
@@ -4383,11 +4383,11 @@ server-settings-safety-filter-all = Tüm üyelerin medyasını tara
 
 server-settings-profile-form-banner-custom = Özel renk
 
-server-settings-profile-form-banner-custom-help = Yukarıdan bir ön ayar ya da afiş için herhangi bir renk seç.
+server-settings-profile-form-banner-custom-help = Yukarıdan bir ön ayar ya da afiş için herhangi bir renk seçin.
 
 server-settings-profile-server-id = Sunucu Kimliği
 
-server-settings-profile-server-id-help = Bu kimliği botlar, moderasyon araçları ve destek talepleri için kullan.
+server-settings-profile-server-id-help = Bu kimliği botlar, moderasyon araçları ve destek talepleri için kullanın.
 
 server-settings-profile-copy-id = Kimliği Kopyala
 
@@ -4399,13 +4399,13 @@ server-settings-engagement-system-boost = Biri bu sunucuya takviye yaptığında
 
 server-settings-engagement-system-tips = Sunucu kurulumu için faydalı ipuçları gönder.
 
-server-invites-header-subtitle = İnsanların bu sunucuya katılmasını sağlayan bağlantılar paylaş.
+server-invites-header-subtitle = İnsanların bu sunucuya katılmasını sağlayan bağlantılar paylaşın.
 
 server-audit-log-header-subtitle = Bu sunucudaki moderasyon işlemlerinin ve ayar değişikliklerinin kaydı.
 
-server-audit-log-empty-detail = Başka bir kullanıcı ya da işlem dene veya yeni olaylar için yeniden yükle.
+server-audit-log-empty-detail = Başka bir kullanıcı ya da işlem deneyin veya yeni olaylar için yeniden yükleyin.
 
-server-members-header-subtitle = Bu sunucudaki kişileri görüntüle, ara ve yönet.
+server-members-header-subtitle = Bu sunucudaki kişileri görüntüleyin, arayın ve yönetin.
 
 server-members-show-in-channel-list = Üyeleri kanal listesinde göster
 
@@ -4415,6 +4415,6 @@ server-emoji-empty-static = Henüz emoji yok
 
 server-emoji-empty-animated = Henüz hareketli emoji yok
 
-server-emoji-empty-detail = Eklemek için bir görsel yükle. GIF'ler hareketli emoji olur.
+server-emoji-empty-detail = Eklemek için bir görsel yükleyin. GIF'ler hareketli emoji olur.
 
-server-stickers-empty-detail = İlk çıkartmanı eklemek için bir görsel yükle.
+server-stickers-empty-detail = İlk çıkartmanızı eklemek için bir görsel yükleyin.

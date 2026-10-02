@@ -4350,11 +4350,11 @@ lib-composer-onboarding-complete = Einführung abschließen
 
 voice-call-moved-to-another-client = Die Anrufsitzung dieses Geräts wurde ersetzt
 
-server-settings-page-safety = Sicherheitseinrichtung
+server-settings-page-safety = Sicherheitseinstellungen
 
 server-settings-nav-title = Servereinstellungen
 
-server-settings-safety-subtitle = Lege fest, wer auf diesem Server schreiben darf und welche Medien Discord auf anstößige Inhalte prüft.
+server-settings-safety-subtitle = Legen Sie fest, wer auf diesem Server schreiben darf und welche Medien Discord auf explizite Inhalte prüft.
 
 server-settings-safety-community-note = Community-Server benötigen mindestens die Verifizierungsstufe Niedrig und müssen Medien aller Mitglieder prüfen.
 
@@ -4382,9 +4382,9 @@ server-settings-safety-verification-highest = Am höchsten
 
 server-settings-safety-verification-highest-detail = Muss eine verifizierte Telefonnummer im Discord-Konto haben.
 
-server-settings-safety-filter = Filter für anstößige Medieninhalte
+server-settings-safety-filter = Filter für explizite Medieninhalte
 
-server-settings-safety-filter-help = Medien auf diesem Server, die anstößige Inhalte enthalten könnten, automatisch erkennen und blockieren.
+server-settings-safety-filter-help = Medien auf diesem Server, die explizite Inhalte enthalten könnten, automatisch erkennen und blockieren.
 
 server-settings-safety-filter-disabled = Keine Medieninhalte prüfen
 
@@ -4394,11 +4394,11 @@ server-settings-safety-filter-all = Medieninhalte aller Mitglieder prüfen
 
 server-settings-profile-form-banner-custom = Eigene Farbe
 
-server-settings-profile-form-banner-custom-help = Wähle oben eine Vorlage oder eine beliebige Farbe für das Banner.
+server-settings-profile-form-banner-custom-help = Wählen Sie oben eine Vorlage oder eine beliebige Farbe für das Banner.
 
 server-settings-profile-server-id = Server-ID
 
-server-settings-profile-server-id-help = Verwende diese ID für Bots, Moderationstools und Supportanfragen.
+server-settings-profile-server-id-help = Verwenden Sie diese ID für Bots, Moderationstools und Supportanfragen.
 
 server-settings-profile-copy-id = ID kopieren
 
@@ -4410,11 +4410,11 @@ server-settings-engagement-system-boost = Eine Nachricht senden, wenn jemand die
 
 server-settings-engagement-system-tips = Hilfreiche Tipps zur Servereinrichtung senden.
 
-server-invites-header-subtitle = Teile Links, über die Leute diesem Server beitreten können.
+server-invites-header-subtitle = Teilen Sie Links, über die andere diesem Server beitreten können.
 
 server-audit-log-header-subtitle = Ein Protokoll der Moderations- und Einstellungsänderungen auf diesem Server.
 
-server-audit-log-empty-detail = Versuche einen anderen Benutzer oder eine andere Aktion oder lade neu, um nach neuen Ereignissen zu suchen.
+server-audit-log-empty-detail = Versuchen Sie einen anderen Benutzer oder eine andere Aktion oder laden Sie neu, um nach neuen Ereignissen zu suchen.
 
 server-members-header-subtitle = Personen auf diesem Server ansehen, suchen und verwalten.
 
@@ -4426,6 +4426,6 @@ server-emoji-empty-static = Noch keine Emojis
 
 server-emoji-empty-animated = Noch keine animierten Emojis
 
-server-emoji-empty-detail = Lade ein Bild hoch, um eines hinzuzufügen. GIFs werden zu animierten Emojis.
+server-emoji-empty-detail = Laden Sie ein Bild hoch, um eines hinzuzufügen. GIFs werden zu animierten Emojis.
 
-server-stickers-empty-detail = Lade ein Bild hoch, um deinen ersten Sticker hinzuzufügen.
+server-stickers-empty-detail = Laden Sie ein Bild hoch, um Ihren ersten Sticker hinzuzufügen.
