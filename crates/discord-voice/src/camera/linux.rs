@@ -257,7 +257,9 @@ fn configure(file: File) -> Result<Capture, &'static str> {
 		}
 		// SAFETY: CAPTURE selects the pixels member, including driver adjustments.
 		if let Ok(pixels) = validate_format(unsafe { request.data.pixels }) {
-			let fps = configure_interval(&file)?;
+			let Ok(fps) = configure_interval(&file) else {
+				continue;
+			};
 			if let Some(mut rank) = format::rank(
 				pixels.width as usize,
 				pixels.height as usize,
@@ -278,8 +280,11 @@ fn configure(file: File) -> Result<Capture, &'static str> {
 			// SAFETY: CAPTURE selects the pixels member, including driver adjustments.
 			negotiated = validate_format(unsafe { request.data.pixels });
 			if negotiated.is_ok() {
-				// S_FMT may reset timing. Reapply only after selecting the final native format.
-				configure_interval(&file)?;
+				// S_FMT may reset timing. A rejected rate invalidates only this candidate.
+				if let Err(error) = configure_interval(&file) {
+					negotiated = Err(error);
+					continue;
+				}
 				break;
 			}
 		}

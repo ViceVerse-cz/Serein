@@ -186,14 +186,6 @@ pub(super) fn run(
 			}
 		}
 		choices.sort_by_key(|(rank, _)| *rank);
-		if !choices
-			.into_iter()
-			.any(|(_, native)| reader.SetCurrentMediaType(VIDEO, None, &native).is_ok())
-		{
-			return Err(
-				"The selected Windows camera does not offer a supported capture mode up to 1280×720",
-			);
-		}
 		let output = MFCreateMediaType().map_err(|_| INVALID)?;
 		output
 			.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)
@@ -204,10 +196,25 @@ pub(super) fn run(
 		output
 			.SetUINT64(&MF_MT_FRAME_SIZE, frame_size())
 			.map_err(|_| INVALID)?;
-		reader
-			.SetCurrentMediaType(VIDEO, None, &output)
-			.map_err(|_| "Windows could not convert this camera to RGB video")?;
-		stride.store(output_stride(&reader)?, Ordering::Release);
+		let mut converted_stride = None;
+		for (_, native) in choices {
+			if reader.SetCurrentMediaType(VIDEO, None, &native).is_err()
+				|| reader.SetCurrentMediaType(VIDEO, None, &output).is_err()
+			{
+				continue;
+			}
+			// Select only after the complete bounded output layout is usable.
+			if let Ok(value) = output_stride(&reader) {
+				converted_stride = Some(value);
+				break;
+			}
+		}
+		stride.store(
+			converted_stride.ok_or(
+				"Windows could not convert a supported camera mode up to 1280×720 to bounded RGB video",
+			)?,
+			Ordering::Release,
+		);
 		reader
 			.SetStreamSelection(VIDEO, true)
 			.map_err(|_| UNAVAILABLE)?;
