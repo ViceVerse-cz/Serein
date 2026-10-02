@@ -283,6 +283,7 @@ pub struct AvatarWorker {
 	cancel: watch::Sender<bool>,
 	clear: Arc<AtomicBool>,
 	cleanup: Option<Cleanup>,
+	bundled_only: bool,
 }
 impl AvatarWorker {
 	pub fn start(
@@ -300,6 +301,20 @@ impl AvatarWorker {
 		root: Option<PathBuf>,
 		ctx: egui::Context,
 	) -> Result<Self, &'static str> {
+		Self::start_inner(runtime, root, ctx, false)
+	}
+	pub fn start_bundled(
+		runtime: &tokio::runtime::Runtime,
+		ctx: egui::Context,
+	) -> Result<Self, &'static str> {
+		Self::start_inner(runtime, None, ctx, true)
+	}
+	fn start_inner(
+		runtime: &tokio::runtime::Runtime,
+		root: Option<PathBuf>,
+		ctx: egui::Context,
+		bundled_only: bool,
+	) -> Result<Self, &'static str> {
 		let (requests, receive) = async_mpsc::channel(1024);
 		let (send, results) = result_channel(ctx.clone());
 		let wake = ctx.clone();
@@ -311,8 +326,8 @@ impl AvatarWorker {
 		std::thread::Builder::new()
 			.name("avatar-cache".into())
 			.spawn(move || {
-				handle.block_on(run(root.as_deref(), receive, send, cancelled));
-				let result = if cleanup_flag.load(Ordering::Acquire) {
+				handle.block_on(run(root.as_deref(), receive, send, cancelled, bundled_only));
+				let result = if cleanup_flag.load(Ordering::Acquire) && !bundled_only {
 					clear_directory(root.as_deref())
 				} else {
 					Ok(())
@@ -328,10 +343,12 @@ impl AvatarWorker {
 			cancel,
 			clear,
 			cleanup: Some(cleanup),
+			bundled_only,
 		})
 	}
 	pub fn request(&self, key: String) -> bool {
-		cdn_url(&key).is_some() && self.requests.try_send(key).is_ok()
+		(ui::emoji::bundled_svg(&key).is_some() || (!self.bundled_only && cdn_url(&key).is_some()))
+			&& self.requests.try_send(key).is_ok()
 	}
 	pub fn poll(&mut self) -> Option<AvatarResult> {
 		let result = self.results.try_recv().ok()?;
@@ -846,17 +863,22 @@ async fn run(
 	mut requests: async_mpsc::Receiver<String>,
 	results: ResultSender,
 	mut cancelled: watch::Receiver<bool>,
+	bundled_only: bool,
 ) {
 	let mut disk = root.and_then(|root| Disk::open(root.to_owned()).ok());
-	let client = reqwest::Client::builder()
-		.https_only(true)
-		.no_proxy()
-		.redirect(reqwest::redirect::Policy::none())
-		.timeout(Duration::from_secs(15))
-		.connect_timeout(Duration::from_secs(5))
-		.pool_max_idle_per_host(1)
-		.build()
-		.ok();
+	let client = (!bundled_only)
+		.then(|| {
+			reqwest::Client::builder()
+				.https_only(true)
+				.no_proxy()
+				.redirect(reqwest::redirect::Policy::none())
+				.timeout(Duration::from_secs(15))
+				.connect_timeout(Duration::from_secs(5))
+				.pool_max_idle_per_host(1)
+				.build()
+				.ok()
+		})
+		.flatten();
 	let mut cooldown = Instant::now();
 	// Eight bounded loads overlap; each downloads and decodes off this loop, which owns the disk.
 	let mut jobs = tokio::task::JoinSet::new();
@@ -866,6 +888,27 @@ async fn run(
 			&& !*cancelled.borrow()
 			&& let Some(key) = viewer.pop_front().or_else(|| inline.pop_front())
 		{
+			if let Some((source, edge)) = ui::emoji::bundled_svg(&key) {
+				jobs.spawn(async move {
+					let image =
+						bounded_decode(DECODE_SLOTS.clone(), move || rasterize_emoji(source, edge))
+							.await
+							.ok()
+							.flatten();
+					Loaded {
+						key,
+						fetched: None,
+						image,
+						frames: Vec::new(),
+						error: None,
+						until: Instant::now(),
+					}
+				});
+				continue;
+			}
+			if bundled_only {
+				continue;
+			}
 			let Some(MediaUrls { primary, fallback }) = job_urls(&key) else {
 				continue;
 			};
@@ -947,6 +990,34 @@ async fn run(
 		}
 	}
 	jobs.abort_all();
+}
+
+fn rasterize_emoji(source: &[u8], edge: u32) -> Option<egui::ColorImage> {
+	if !matches!(edge, 64 | 128 | 256) {
+		return None;
+	}
+	let svg = ui::emoji::decode_bundled_svg(source)?;
+	let options = resvg::usvg::Options {
+		image_href_resolver: resvg::usvg::ImageHrefResolver {
+			resolve_data: Box::new(|_, _, _| None),
+			resolve_string: Box::new(|_, _| None),
+		},
+		..Default::default()
+	};
+	let tree = resvg::usvg::Tree::from_data(&svg, &options).ok()?;
+	let mut pixels = resvg::tiny_skia::Pixmap::new(edge, edge)?;
+	let padding = edge as f32 / 32.0;
+	let scale = (edge as f32 - padding * 2.0) / tree.size().width().max(tree.size().height());
+	let transform = resvg::tiny_skia::Transform::from_row(scale, 0.0, 0.0, scale, padding, padding);
+	resvg::render(&tree, transform, &mut pixels.as_mut());
+	Some(egui::ColorImage::new(
+		[edge as usize, edge as usize],
+		pixels
+			.data()
+			.chunks_exact(4)
+			.map(|p| egui::Color32::from_rgba_premultiplied(p[0], p[1], p[2], p[3]))
+			.collect(),
+	))
 }
 
 fn job_urls(key: &str) -> Option<MediaUrls> {
@@ -1729,6 +1800,51 @@ mod tests {
 	}
 
 	#[test]
+	fn scalable_emoji_uses_bundled_shapes_and_preserves_transparency() {
+		for cell in [0, 1000, 2000, 3000, 4008] {
+			for edge in [64, 128, 256] {
+				let (svg, _) =
+					ui::emoji::bundled_svg(&format!("emoji-unicode-{cell}-{edge}")).unwrap();
+				let image = super::rasterize_emoji(svg, edge).unwrap();
+				assert_eq!(image.size, [edge as usize; 2]);
+				assert_eq!(image.pixels[0], egui::Color32::TRANSPARENT);
+				assert!(image.pixels.iter().any(|pixel| pixel.a() > 0));
+			}
+		}
+		assert!(super::rasterize_emoji(b"invalid", 64).is_none());
+		assert!(super::rasterize_emoji(b"invalid", 1024).is_none());
+	}
+	#[test]
+	fn offline_emoji_worker_rejects_network_requests() {
+		let runtime = tokio::runtime::Runtime::new().unwrap();
+		let mut worker =
+			super::AvatarWorker::start_bundled(&runtime, egui::Context::default()).unwrap();
+		assert!(!worker.request("emoji-9001".into()));
+		assert!(!worker.request("1-01234567890123456789012345678901".into()));
+		assert!(worker.request("emoji-unicode-0-128".into()));
+		let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+		let result = loop {
+			if let Some(result) = worker.poll() {
+				break result;
+			}
+			assert!(
+				std::time::Instant::now() < deadline,
+				"bundled worker did not finish"
+			);
+			std::thread::sleep(std::time::Duration::from_millis(5));
+		};
+		assert_eq!(result.key, "emoji-unicode-0-128");
+		assert_eq!(result.image.unwrap().size, [128, 128]);
+		assert!(result.error.is_none());
+		assert!(
+			worker
+				.shutdown()
+				.recv_timeout(std::time::Duration::from_secs(5))
+				.unwrap()
+				.is_ok()
+		);
+	}
+	#[test]
 	fn direct_image_decode_preserves_pixels_formats_and_resize() {
 		let rgba = image::RgbaImage::from_fn(256, 67, |x, y| {
 			image::Rgba([x as u8, (255 - x) as u8, (y * 83) as u8, x as u8])
@@ -1929,6 +2045,7 @@ mod tests {
 			cancel,
 			clear: Arc::new(AtomicBool::new(false)),
 			cleanup: None,
+			bundled_only: false,
 		};
 		let mut oversized = queued_image(1);
 		oversized

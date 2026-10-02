@@ -258,3 +258,30 @@ uses the existing bundled OpenH264 notices above.
 
 Wayland global voice keybinds use **ashpd 0.13.13** (MIT) to access the desktop
 GlobalShortcuts portal. Its license is bundled under `assets/licenses/dependencies`.
+
+Scalable bundled Twemoji artwork uses **resvg 0.48.1** and **usvg 0.48.1**
+(MIT OR Apache-2.0), with default features disabled: no text shaping, font discovery,
+raster image decoding or SVGZ. The integration denies image-href resolution.
+New resolved dependencies are data-url 0.3.2 (MIT OR Apache-2.0), float-cmp 0.9.0
+(MIT), imagesize 0.15.0 (MIT), pico-args 0.5.0 (MIT), rgb 0.8.53 (MIT), simplecss
+0.2.2 (MIT OR Apache-2.0), and svgtypes 0.16.1 (MIT OR Apache-2.0).
+Existing tiny-skia, kurbo, roxmltree and ruzstd are reused. Registry archive checksums
+are in Cargo.lock; all unmodified upstream license texts are retained under
+`assets/licenses/files` and copied by the existing package workflow. Twemoji SVGs
+retain the same CC BY 4.0 attribution and license as the atlas, as described in
+[assets/twemoji/README.md](assets/twemoji/README.md).
+
+- `resvg-0.48.1-LICENSE-APACHE`: SHA-256 `a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9`; unmodified registry `resvg-0.48.1`/LICENSE-APACHE.
+- `resvg-0.48.1-LICENSE-MIT`: SHA-256 `f5d934dc281b44e0003ee461ac740b18b6629a454decd872c774d34e4ee0b21d`; unmodified registry `resvg-0.48.1`/LICENSE-MIT.
+- `usvg-0.48.1-LICENSE-APACHE`: SHA-256 `a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9`; unmodified registry `usvg-0.48.1`/LICENSE-APACHE.
+- `usvg-0.48.1-LICENSE-MIT`: SHA-256 `f5d934dc281b44e0003ee461ac740b18b6629a454decd872c774d34e4ee0b21d`; unmodified registry `usvg-0.48.1`/LICENSE-MIT.
+- `data-url-0.3.2-LICENSE-APACHE`: SHA-256 `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2`; unmodified registry `data-url-0.3.2`/LICENSE-APACHE.
+- `data-url-0.3.2-LICENSE-MIT`: SHA-256 `b38f11f6096706e6de553dabe2a7ed142d59b6fa8c97e290c67496154745cdd5`; unmodified registry `data-url-0.3.2`/LICENSE-MIT.
+- `float-cmp-0.9.0-LICENSE`: SHA-256 `40be1e77825d7e49485a2e43d89bed29dfff29f8f529e71d3c683656021f0d08`; unmodified registry `float-cmp-0.9.0`/LICENSE.
+- `imagesize-0.15.0-LICENSE`: SHA-256 `fa0d694967d5c279e70a5c7b7e4b9929e4c1c8c1b8506998e66fc2f1547b200a`; unmodified registry `imagesize-0.15.0`/LICENSE.
+- `pico-args-0.5.0-LICENSE`: SHA-256 `f71452d91682fdae0ca948b18cfed53a953d1237740dd80371c76a5c1c7bbe91`; unmodified registry `pico-args-0.5.0`/LICENSE.
+- `rgb-0.8.53-LICENSE`: SHA-256 `457b464bc0fba8a3d67d2458569104f5611869f0c1563a1a12d9c51a0bca9261`; unmodified registry `rgb-0.8.53`/LICENSE.
+- `simplecss-0.2.2-LICENSE-APACHE`: SHA-256 `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2`; unmodified registry `simplecss-0.2.2`/LICENSE-APACHE.
+- `simplecss-0.2.2-LICENSE-MIT`: SHA-256 `0b5f24524360e15bcf9fb79bca875f5aa62f01f94f2988e23238c7ec0e6e8784`; unmodified registry `simplecss-0.2.2`/LICENSE-MIT.
+- `svgtypes-0.16.1-LICENSE-APACHE`: SHA-256 `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2`; unmodified registry `svgtypes-0.16.1`/LICENSE-APACHE.
+- `svgtypes-0.16.1-LICENSE-MIT`: SHA-256 `f3c9fe731c701ed77fd5fbaac573872af04dc5869385eb9bd5e3c73c42713814`; unmodified registry `svgtypes-0.16.1`/LICENSE-MIT.

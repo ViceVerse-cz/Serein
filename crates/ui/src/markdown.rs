@@ -1788,6 +1788,9 @@ impl Formatted {
 					text: cluster.to_owned(),
 					custom: custom.map(|(id, _)| id),
 					image: cell.and_then(|cell| {
+						if let Some(image) = images.unicode_image(ui.ctx(), cell, size) {
+							return Some(image.alt_text(cluster));
+						}
 						atlas
 							.get_or_insert_with(|| crate::emoji::atlas(ui.ctx()))
 							.map(|atlas| crate::emoji::image_cell(atlas, cluster, cell, size))

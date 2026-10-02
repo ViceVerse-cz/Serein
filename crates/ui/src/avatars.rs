@@ -303,6 +303,8 @@ impl Avatars {
 			|| key.starts_with("member-banner-")
 		{
 			EMBED_EDGE as usize
+		} else if key.starts_with("emoji-unicode-") {
+			256
 		} else {
 			128
 		};
@@ -354,6 +356,33 @@ impl Avatars {
 		self.clock += 1;
 		self.revision += 1;
 		textures.insert(key, (self.clock, texture));
+	}
+	pub(crate) fn unicode_image(
+		&mut self,
+		ctx: &egui::Context,
+		cell: usize,
+		size: f32,
+	) -> Option<egui::Image<'static>> {
+		let physical = size * ctx.pixels_per_point();
+		if !physical.is_finite() || physical <= 30.0 {
+			return None;
+		}
+		let edge = if physical <= 64.0 {
+			64
+		} else if physical <= 128.0 {
+			128
+		} else {
+			256
+		};
+		let key = format!("emoji-unicode-{cell}-{edge}");
+		if let Some(entry) = self.emoji_textures.get_mut(&key) {
+			self.clock += 1;
+			entry.0 = self.clock;
+			Some(egui::Image::new(&entry.1).fit_to_exact_size(egui::Vec2::splat(size)))
+		} else {
+			self.request(key);
+			None
+		}
 	}
 	pub(crate) fn custom_image(
 		&mut self,
