@@ -2457,8 +2457,6 @@ server-admin-emojis-image = Immagine
 # Context: emojis
 server-admin-emojis-name = Nome
 # Context: emojis
-server-admin-emojis-none = NESSUNO
-# Context: emojis
 server-admin-emojis-preparing-emoji-images = Preparazione delle immagini emoji...
 # Context: emojis
 server-admin-emojis-remove = Rimuovere
@@ -2552,8 +2550,6 @@ server-admin-members-recent-members = Membri recenti
 server-admin-members-search-by-username-or-id = Cerca per nome utente o ID
 # Context: members
 server-admin-members-server-members = Membri del server
-# Context: members
-server-admin-members-show-members-in-channel-list = Mostra membri nell'elenco dei canali
 # Context: members
 server-admin-members-show-the-members-page-in-the-channel-list-to-quickly = Mostra la pagina dei membri nell'elenco dei canali per visualizzare rapidamente le iscrizioni recenti e i membri contrassegnati per attività insolite.
 # Context: members
@@ -4353,3 +4349,83 @@ lib-composer-onboarding-incomplete = Completa l'accesso a questo server per sblo
 lib-composer-onboarding-complete = Completa l'accoglienza
 
 voice-call-moved-to-another-client = La sessione di chiamata di questo dispositivo è stata sostituita
+
+server-settings-page-safety = Configurazione sicurezza
+
+server-settings-nav-title = Impostazioni server
+
+server-settings-safety-subtitle = Decidi chi può scrivere in questo server e quali contenuti multimediali Discord analizza alla ricerca di contenuti espliciti.
+
+server-settings-safety-community-note = I server community richiedono almeno la verifica bassa e devono analizzare i contenuti multimediali di tutti i membri.
+
+server-settings-safety-verification = Livello di verifica
+
+server-settings-safety-verification-help = I membri devono soddisfare questi criteri prima di poter scrivere nei canali testuali o avviare un messaggio diretto.
+
+server-settings-safety-verification-none = Nessuno
+
+server-settings-safety-verification-none-detail = Nessuna restrizione
+
+server-settings-safety-verification-low = Basso
+
+server-settings-safety-verification-low-detail = Deve avere un'email verificata sull'account Discord.
+
+server-settings-safety-verification-medium = Medio
+
+server-settings-safety-verification-medium-detail = Deve anche essere registrato su Discord da più di 5 minuti.
+
+server-settings-safety-verification-high = Alto
+
+server-settings-safety-verification-high-detail = Deve anche essere membro di questo server da più di 10 minuti.
+
+server-settings-safety-verification-highest = Massimo
+
+server-settings-safety-verification-highest-detail = Deve avere un telefono verificato sull'account Discord.
+
+server-settings-safety-filter = Filtro contenuti multimediali espliciti
+
+server-settings-safety-filter-help = Rileva e blocca automaticamente i contenuti multimediali inviati in questo server che potrebbero essere espliciti.
+
+server-settings-safety-filter-disabled = Non analizzare alcun contenuto multimediale
+
+server-settings-safety-filter-no-roles = Analizza i contenuti multimediali dei membri senza ruolo
+
+server-settings-safety-filter-all = Analizza i contenuti multimediali di tutti i membri
+
+server-settings-profile-form-banner-custom = Colore personalizzato
+
+server-settings-profile-form-banner-custom-help = Scegli un colore predefinito qui sopra o qualsiasi colore per il banner.
+
+server-settings-profile-server-id = ID server
+
+server-settings-profile-server-id-help = Usa questo ID con bot, strumenti di moderazione e richieste di supporto.
+
+server-settings-profile-copy-id = Copia ID
+
+server-settings-engagement-system-welcome = Invia un messaggio di benvenuto casuale quando qualcuno entra in questo server.
+
+server-settings-engagement-system-welcome-sticker = Invita i membri a rispondere ai messaggi di benvenuto con uno sticker.
+
+server-settings-engagement-system-boost = Invia un messaggio quando qualcuno potenzia questo server.
+
+server-settings-engagement-system-tips = Invia consigli utili per configurare il server.
+
+server-invites-header-subtitle = Condividi link che permettono alle persone di entrare in questo server.
+
+server-audit-log-header-subtitle = Un registro delle azioni di moderazione e delle modifiche alle impostazioni di questo server.
+
+server-audit-log-empty-detail = Prova un altro utente o un'altra azione, oppure ricarica per vedere nuovi eventi.
+
+server-members-header-subtitle = Visualizza, cerca e gestisci le persone in questo server.
+
+server-members-show-in-channel-list = Mostra i membri nell'elenco dei canali
+
+server-emoji-section-static = Emoji statiche
+
+server-emoji-empty-static = Ancora nessuna emoji
+
+server-emoji-empty-animated = Ancora nessuna emoji animata
+
+server-emoji-empty-detail = Carica un'immagine per aggiungerne una. Le GIF diventano emoji animate.
+
+server-stickers-empty-detail = Carica un'immagine per aggiungere il tuo primo sticker.

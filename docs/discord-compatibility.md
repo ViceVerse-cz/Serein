@@ -359,6 +359,13 @@ These routes are wired for normal-account use but live interoperability remains
 unverified. The offline server-settings preview changes synthetic RAM only.
 Selected icons are prepared off the render thread; only Save uploads them.
 
+Safety Setup (also Manage Server) edits the documented `verification_level`
+(0–4) and `explicit_content_filter` (0–2) fields through the same guild route.
+Servers with the `COMMUNITY` feature cannot choose verification None or partial
+media scanning; the editor disables those choices and the reducer and encoder
+reject such edits before any request. The banner color also accepts any
+`#RRGGBB` value besides the presets. Live interoperability remains unverified.
+
 The permission-gated Stickers page loads the guild sticker catalog and supports
 creating, editing and deleting stickers through Discord's documented
 [guild sticker routes](https://docs.discord.com/developers/resources/sticker#guild-sticker-resource).

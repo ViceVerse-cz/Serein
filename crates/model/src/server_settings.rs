@@ -6,6 +6,12 @@ pub const MAX_ICON_DATA_URI: usize = 22 + 4 * (256_usize * 1024).div_ceil(3);
 pub const SYSTEM_MESSAGE_MASK: u64 = 0b1111;
 pub const ACTIVITY_ENABLED: &str = "ACTIVITY_FEED_ENABLED_BY_USER";
 pub const ACTIVITY_DISABLED: &str = "ACTIVITY_FEED_DISABLED_BY_USER";
+/// Community servers must keep a verification level of at least low and scan every member.
+pub const COMMUNITY: &str = "COMMUNITY";
+/// Highest documented guild verification level ("very high": verified phone).
+pub const MAX_VERIFICATION_LEVEL: u8 = 4;
+/// Highest documented explicit content filter level ("all members").
+pub const MAX_CONTENT_FILTER: u8 = 2;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Trait {
@@ -39,6 +45,8 @@ pub struct Settings {
 	pub default_message_notifications: u8,
 	pub afk_channel_id: Option<Id>,
 	pub afk_timeout: u32,
+	pub verification_level: u8,
+	pub explicit_content_filter: u8,
 	pub features: Vec<String>,
 }
 impl Default for Settings {
@@ -58,6 +66,8 @@ impl Default for Settings {
 			default_message_notifications: 0,
 			afk_channel_id: None,
 			afk_timeout: 300,
+			verification_level: 0,
+			explicit_content_filter: 0,
 			features: vec![],
 		}
 	}
@@ -70,6 +80,9 @@ impl Settings {
 			+ trait_bytes(&self.traits)
 			+ self.features.capacity() * size_of::<String>()
 			+ self.features.iter().map(String::capacity).sum::<usize>()
+	}
+	pub fn community(&self) -> bool {
+		self.features.iter().any(|feature| feature == COMMUNITY)
 	}
 	pub fn valid(&self) -> bool {
 		self.guild.0 != 0
@@ -85,6 +98,8 @@ impl Settings {
 			&& self.traits.iter().all(Trait::valid)
 			&& self.default_message_notifications <= 1
 			&& valid_timeout(self.afk_timeout)
+			&& self.verification_level <= MAX_VERIFICATION_LEVEL
+			&& self.explicit_content_filter <= MAX_CONTENT_FILTER
 			&& self.system_channel_id.is_none_or(|id| id.0 != 0)
 			&& self.afk_channel_id.is_none_or(|id| id.0 != 0)
 			&& self.features.len() <= 256
@@ -111,6 +126,8 @@ pub struct Edit {
 	pub default_message_notifications: Option<u8>,
 	pub afk_channel_id: Patch<Id>,
 	pub afk_timeout: Option<u32>,
+	pub verification_level: Option<u8>,
+	pub explicit_content_filter: Option<u8>,
 }
 impl Edit {
 	pub fn between(before: &Settings, after: &Settings) -> Self {
@@ -138,6 +155,11 @@ impl Edit {
 				.then_some(after.default_message_notifications),
 			afk_channel_id: changed_id(before.afk_channel_id, after.afk_channel_id),
 			afk_timeout: (before.afk_timeout != after.afk_timeout).then_some(after.afk_timeout),
+			verification_level: (before.verification_level != after.verification_level)
+				.then_some(after.verification_level),
+			explicit_content_filter: (before.explicit_content_filter
+				!= after.explicit_content_filter)
+				.then_some(after.explicit_content_filter),
 		}
 	}
 	pub fn is_empty(&self) -> bool {
@@ -158,6 +180,12 @@ impl Edit {
 			.default_message_notifications
 			.is_none_or(|value| value <= 1)
 			&& self.afk_timeout.is_none_or(valid_timeout)
+			&& self
+				.verification_level
+				.is_none_or(|value| value <= MAX_VERIFICATION_LEVEL)
+			&& self
+				.explicit_content_filter
+				.is_none_or(|value| value <= MAX_CONTENT_FILTER)
 			&& !matches!(self.system_channel_id, Patch::Value(Id(0)))
 			&& !matches!(self.afk_channel_id, Patch::Value(Id(0)))
 			&& match &self.icon {
@@ -218,6 +246,20 @@ impl Edit {
 		if let Some(value) = self.afk_timeout {
 			settings.afk_timeout = value;
 		}
+		if let Some(value) = self.verification_level {
+			settings.verification_level = value;
+		}
+		if let Some(value) = self.explicit_content_filter {
+			settings.explicit_content_filter = value;
+		}
+	}
+	/// Community servers reject a verification level of none and partial content scanning.
+	pub fn keeps_community_requirements(&self, latest: &Settings) -> bool {
+		!latest.community()
+			|| self.verification_level.is_none_or(|value| value >= 1)
+				&& self
+					.explicit_content_filter
+					.is_none_or(|value| value == MAX_CONTENT_FILTER)
 	}
 }
 fn changed_id(before: Option<Id>, after: Option<Id>) -> Patch<Id> {

@@ -3516,3 +3516,24 @@ GPU memory, frame/startup latency and real-account interoperability remain
 unmeasured. Raw source identities, binary hashes, sizes and all samples are in
 `docs/pr-evidence/gif-favorite-sync/measurements.json`. This evidence follow-up
 changes no measured runtime source.
+
+## Server settings polish and rail motion (October 2, 2026)
+
+Baseline `eab1961` and this branch were built separately with
+`cargo build --release --locked -p serein --features demo` on an Apple M1 (16 GB,
+macOS 27.0, Metal). Each was launched once with `--demo --demo-friends`, no
+interaction was injected, and after a ten-second warmup `ps -p PID -o %cpu=,rss=`
+sampled the process 20 times at one-second intervals. Settled RSS is the median
+of the final five samples. No child processes were found.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release demo executable, bytes | 63,905,488 | 64,004,752 | +99,264 / +0.16% |
+| Median idle CPU | 0.0% | 0.0% | Unchanged |
+| Peak / settled RSS, KiB | 122,448 / 122,448 | 123,120 / 123,120 | +672 / +0.55% |
+
+The RSS difference is one launch each and within normal allocator/launch
+variation. New motion (rail pill, icon morph, badges, switches, sidebar rows,
+page fade) uses egui's `animate_*` helpers, which request repaints only while a
+value is moving, so the idle result is the expected one. Active-animation frame
+time, p95 latency and the standard package size were not measured.

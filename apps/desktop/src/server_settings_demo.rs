@@ -36,6 +36,8 @@ fn snapshot(state: &State, guild: Id) -> Settings {
 			.map(|channel| channel.id),
 		default_message_notifications: 1,
 		activity_feed: Some(true),
+		verification_level: 1,
+		explicit_content_filter: 2,
 		features: vec![
 			"COMMUNITY".into(),
 			model::server_settings::ACTIVITY_ENABLED.into(),

@@ -2046,7 +2046,14 @@ pub fn switch(
 		egui::pos2(rect.right() - 20.0, rect.top() + 8.0 + title.size().y / 2.0),
 		egui::vec2(40.0, 24.0),
 	);
-	let mut fill = if *enabled { p.accent } else { p.base };
+	// The knob slides and the track tints over `animation_time`; settled switches are static.
+	let on = ui.ctx().animate_bool_with_time_and_easing(
+		response.id.with("switch"),
+		*enabled,
+		ui.style().animation_time * 2.0,
+		egui::emath::easing::cubic_out,
+	);
+	let mut fill = p.base.lerp_to_gamma(p.accent, on);
 	if !ui.is_enabled() {
 		fill = fill.gamma_multiply(0.4);
 	}
@@ -2054,15 +2061,11 @@ pub fn switch(
 	painter.rect_stroke(
 		pill,
 		12,
-		Stroke::new(1.0, if *enabled { fill } else { p.border }),
+		Stroke::new(1.0, p.border.lerp_to_gamma(fill, on)),
 		egui::StrokeKind::Inside,
 	);
 	let knob = egui::pos2(
-		if *enabled {
-			pill.right() - 12.0
-		} else {
-			pill.left() + 12.0
-		},
+		egui::lerp((pill.left() + 12.0)..=(pill.right() - 12.0), on),
 		pill.center().y,
 	);
 	painter.circle_filled(knob, 9.0, Color32::WHITE);
@@ -2248,6 +2251,40 @@ pub fn page_title(ui: &mut egui::Ui, title: &str) {
 	let p = palette(ui);
 	ui.add(egui::Label::new(semibold(ui, title, 20.0).color(p.text_strong)).wrap());
 	ui.add_space(12.0);
+}
+
+/// Top of a settings page: title and supporting line on the left, optional `actions` laid out
+/// right-to-left on the same row. Every server and channel settings page opens with this.
+pub fn page_header(
+	ui: &mut egui::Ui,
+	title: &str,
+	subtitle: Option<&str>,
+	actions: impl FnOnce(&mut egui::Ui),
+) {
+	let title = crate::i18n::translate_if_key(title);
+	let subtitle = subtitle.map(crate::i18n::translate_if_key);
+	let p = palette(ui);
+	ui.horizontal_top(|ui| {
+		let actions_width = (ui.available_width() * 0.45).min(360.0);
+		ui.allocate_ui_with_layout(
+			egui::vec2(ui.available_width() - actions_width, 0.0),
+			egui::Layout::top_down(egui::Align::Min),
+			|ui| {
+				ui.spacing_mut().item_spacing.y = 4.0;
+				ui.add(egui::Label::new(semibold(ui, title, 20.0).color(p.text_strong)).wrap());
+				if let Some(subtitle) = subtitle {
+					ui.add(
+						egui::Label::new(RichText::new(subtitle).size(14.0).color(p.muted)).wrap(),
+					);
+				}
+			},
+		);
+		ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+			ui.spacing_mut().item_spacing.x = 8.0;
+			actions(ui);
+		});
+	});
+	ui.add_space(20.0);
 }
 
 /// Title of a settings group, with an optional supporting line under it.

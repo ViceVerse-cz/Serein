@@ -855,7 +855,7 @@ impl Avatars {
 		demo: bool,
 		radius: u8,
 	) {
-		self.paint_guild_face(ui, guild, rect, demo, false, radius);
+		self.paint_guild_face(ui, guild, rect, demo, 0.0, radius);
 	}
 	pub fn show_guild_sized(
 		&mut self,
@@ -879,7 +879,31 @@ impl Avatars {
 		let (rect, response) =
 			ui.allocate_exact_size(egui::Vec2::splat(size), egui::Sense::click_and_drag());
 		let highlight = selected || response.hovered() || response.has_focus();
-		self.paint_guild_face(ui, guild, rect, demo, highlight, (size * 0.29) as u8);
+		let squircle = size * 0.29;
+		// Only the rail animates; settings previews and drag previews keep the static squircle.
+		if hover_name || !ui.is_rect_visible(rect) {
+			self.paint_guild_face(ui, guild, rect, demo, f32::from(highlight), squircle as u8);
+		} else {
+			let time = crate::notifications::rail_motion(ui);
+			let lit = ui.ctx().animate_bool_with_time_and_easing(
+				response.id.with("rail-morph"),
+				highlight,
+				time,
+				egui::emath::easing::cubic_out,
+			);
+			let pressed = response.is_pointer_button_down_on()
+				&& !ui.input(|input| input.pointer.is_decidedly_dragging());
+			let press = ui.ctx().animate_bool_with_time(
+				response.id.with("rail-press"),
+				pressed,
+				time * 0.5,
+			);
+			let face =
+				egui::Rect::from_center_size(rect.center(), rect.size() * (1.0 - 0.05 * press));
+			// Rests rounder and morphs to the squircle when hovered or selected, like Discord.
+			let radius = egui::lerp(size * 0.4..=squircle, lit).round() as u8;
+			self.paint_guild_face(ui, guild, face, demo, lit, radius);
+		}
 		response.widget_info(|| {
 			egui::WidgetInfo::selected(
 				egui::Role::Button,
@@ -900,7 +924,7 @@ impl Avatars {
 		guild: &model::Guild,
 		rect: egui::Rect,
 		demo: bool,
-		highlight: bool,
+		highlight: f32,
 		radius: u8,
 	) {
 		// The rail is not virtualized; skip initials layout for scrolled-out servers.
@@ -948,22 +972,14 @@ impl Avatars {
 			ui.painter().rect_filled(
 				rect,
 				radius,
-				if highlight {
-					colors.accent
-				} else {
-					colors.raised
-				},
+				colors.raised.lerp_to_gamma(colors.accent, highlight),
 			);
 			ui.painter().text(
 				rect.center(),
 				egui::Align2::CENTER_CENTER,
 				short,
 				egui::FontId::new(initials_size, crate::design::medium_family(ui.ctx())),
-				if highlight {
-					colors.accent_text
-				} else {
-					colors.text
-				},
+				colors.text.lerp_to_gamma(colors.accent_text, highlight),
 			);
 		}
 	}
