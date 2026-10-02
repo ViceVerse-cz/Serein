@@ -45,6 +45,9 @@ mod threads;
 mod trail;
 #[doc(hidden)]
 pub use trail::Trail;
+pub mod soundboard;
+#[cfg(test)]
+mod soundboard_tests;
 pub mod typing;
 pub mod user_actions;
 mod verification;
@@ -67,6 +70,7 @@ pub const EVENT_SLOTS: usize = 8; // UI drain batch; reliable events share a 32 
 pub const COMMAND_SLOTS: usize = 16; // ordinary commands <=16 KiB; bulk DM settings <=33 KiB; channel edit <=128 KiB; group icon <=350 KiB
 
 pub enum Command {
+	Soundboard(soundboard::Request),
 	Polls(polls::Request),
 	StickerPacks,
 	Sticker(Id),
@@ -408,6 +412,7 @@ fn prepare_navigation(
 	Ok(permission_state)
 }
 pub enum Event {
+	Soundboard(soundboard::Event),
 	Polls(polls::Event),
 	StickerEntitlement {
 		user: Id,
@@ -706,6 +711,7 @@ pub struct State {
 	pub invite_join: invites::Join,
 	pub guild_creation: guild_creation::Creation,
 	pub voice: voice::State,
+	pub soundboard: soundboard::Soundboard,
 	pub generation: u64,
 	pub auth: auth::AuthState,
 	pub user: Option<User>,
@@ -916,6 +922,7 @@ impl Default for State {
 			invite_join: Default::default(),
 			guild_creation: Default::default(),
 			voice: voice::State::default(),
+			soundboard: Default::default(),
 			generation: 1,
 			auth: auth::AuthState::Unauthenticated,
 			user: None,
@@ -1765,6 +1772,14 @@ impl State {
 	}
 	/// Reports a command the transport could not accept as a bounded outcome error.
 	pub fn command_rejected(&mut self, command: Command) {
+		if let Command::Soundboard(request) = command {
+			self.apply_soundboard(soundboard::Event {
+				scope: request.scope,
+				request: request.request,
+				result: Err(auth::Failure::Capacity),
+			});
+			return;
+		}
 		if let Command::Polls(request) = command {
 			let _ = self.apply_poll(polls::Event::Result {
 				channel: request.channel,
@@ -2621,6 +2636,10 @@ impl State {
 				Ok(())
 			}
 			Event::Polls(event) => self.apply_poll(event),
+			Event::Soundboard(event) => {
+				self.apply_soundboard(event);
+				Ok(())
+			}
 			Event::Reactions(event) => self.apply_reactions(event),
 			Event::InviteChallenge { request, challenge } => {
 				self.apply_invite_challenge(request, *challenge);
@@ -3546,6 +3565,7 @@ impl State {
 				Ok(())
 			}
 		};
+		self.revalidate_soundboard();
 		// Older-page retention can evict the live tail, including an arrival racing the
 		// page. Once detached, later live messages must not bridge the missing range.
 		if result.is_ok()
@@ -3831,6 +3851,7 @@ impl Event {
 		size_of::<Self>()
 			+ match self {
 				Self::Interaction(event) => event.bytes(),
+				Self::Soundboard(event) => event.bytes(),
 				Self::ApplicationCommands { result, .. } => result.as_ref().map_or(0, |commands| {
 					commands.capacity() * size_of::<model::application_commands::Command>()
 						+ commands

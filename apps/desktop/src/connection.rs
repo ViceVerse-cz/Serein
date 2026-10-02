@@ -24,6 +24,8 @@ pub struct Connection {
 	pub events: ReliableEvents,
 	pub typing: mpsc::Receiver<Envelope>,
 	pub terminal: watch::Receiver<Option<Failure>>,
+	/// One fixed-size candidate failure, independent of the account event queue.
+	pub confirmation_failure: watch::Receiver<Option<ConfirmationFailure>>,
 	pub share_activity: watch::Sender<bool>,
 	pub custom_rich_presence: watch::Sender<Option<extensions::CustomRichPresence>>,
 	pub own_presence: watch::Sender<model::OwnPresence>,
@@ -41,8 +43,48 @@ pub struct Connection {
 	pub activity_observation: watch::Receiver<discord_gateway::ActivityObservation>,
 	pub activity_sharing: watch::Receiver<Result<Option<bool>, Failure>>,
 	pub activity_sharing_request: mpsc::Sender<bool>,
+	pub soundboard_access: watch::Sender<Option<client_core::soundboard::Scope>>,
 	typing_channel: Arc<AtomicU64>,
 	task: JoinHandle<()>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ConfirmationFailure {
+	generation: u64,
+	channel: model::Id,
+	request: u64,
+	revision: u64,
+	message: &'static str,
+}
+impl ConfirmationFailure {
+	fn envelope(self) -> Envelope {
+		Envelope {
+			generation: self.generation,
+			event: Event::Voice(client_core::voice::Event::SessionConfirmationFailed {
+				channel: self.channel,
+				request: self.request,
+				revision: self.revision,
+				message: self.message,
+			}),
+		}
+	}
+}
+pub fn take_confirmation_failure(
+	receiver: &mut watch::Receiver<Option<ConfirmationFailure>>,
+	events: &ReliableEvents,
+) -> Option<Envelope> {
+	// A replacement candidate/ACK may still be behind this frame's reliable batch.
+	// Keep the report unseen until preceding signaling is consumed; the original
+	// negotiation deadline still bounds failure if sustained events never drain.
+	if !events.receive.is_empty() {
+		return None;
+	}
+	// Ref::has_changed preserves an unread final version after publisher shutdown.
+	// Release its read lock before handing the report to the event consumer.
+	let failure = {
+		let report = receiver.borrow_and_update();
+		report.has_changed().then_some(*report).flatten()
+	};
+	failure.map(ConfirmationFailure::envelope)
 }
 impl Drop for Connection {
 	fn drop(&mut self) {
@@ -74,6 +116,7 @@ impl Connection {
 		let (send, events) = reliable_events(ctx.clone());
 		let (typing_send, typing) = mpsc::channel(8);
 		let (finished, terminal) = watch::channel(None);
+		let (confirmation_report, confirmation_failure) = watch::channel(None);
 		let (share_activity, share_receive) = watch::channel(false);
 		let (custom_rich_presence, custom_receive) = watch::channel(None);
 		let (own_presence, presence_receive) = watch::channel(model::OwnPresence::default());
@@ -91,6 +134,7 @@ impl Connection {
 			watch::channel(discord_gateway::ActivityObservation::Unconfirmed);
 		let (sharing_report, activity_sharing) = watch::channel(Ok(None));
 		let (activity_sharing_request, sharing_requests) = mpsc::channel(1);
+		let (soundboard_access, mut soundboard_authorized) = watch::channel(None);
 		let wake = ctx.clone();
 		let typing_channel = Arc::new(AtomicU64::new(0));
 		let active_typing = typing_channel.clone();
@@ -200,6 +244,8 @@ impl Connection {
                 let mut voice_request=None;
                 // One local release may wait for queue space; later joins cannot overtake it.
                 let mut pending_abandonment=None;
+                let mut soundboard:Option<(client_core::soundboard::Scope,AbortTask)>=None;
+                let mut last_soundboard_play:Option<(client_core::soundboard::Scope,Instant)>=None;
                 loop {
                     tokio::select! {
                         _=&mut gateway_task.0=>{break;}
@@ -214,11 +260,17 @@ impl Connection {
                         }
                         changed=takeover_receive.changed()=> {
                             if changed.is_err() {break;}
-                            if release_taken_over(&mut voice_request,*takeover_receive.borrow_and_update()) {drop(ringing.take());}
+                            if release_taken_over(&mut voice_request,*takeover_receive.borrow_and_update()) {drop(ringing.take());drop(soundboard.take());last_soundboard_play=None;}
                         }
                         changed=voice_availability.changed()=> {
 							if changed.is_err() {break;}
-							if !*voice_availability.borrow_and_update() {drop(ringing.take());drop(profile.take());drop(stream_preview.take());drop(search.take());voice_request=None;if let Some(cancel)=&upload_cancel {let _=cancel.send(true);}}
+                            if !*voice_availability.borrow_and_update() {drop(ringing.take());drop(profile.take());drop(stream_preview.take());drop(search.take());drop(soundboard.take());last_soundboard_play=None;voice_request=None;if let Some(cancel)=&upload_cancel {let _=cancel.send(true);}}
+                        }
+                        changed=soundboard_authorized.changed()=> {
+                            if changed.is_err() {break;}
+                            let current=*soundboard_authorized.borrow_and_update();
+                            if soundboard.as_ref().is_some_and(|(scope,_)|Some(*scope)!=current) {drop(soundboard.take());}
+                            if last_soundboard_play.is_some_and(|(scope,_)|Some(scope)!=current) {last_soundboard_play=None;}
                         }
                         request=upload_receive.recv()=>{
                             let Some(request)=request else {break;};
@@ -253,8 +305,34 @@ impl Connection {
                         }
                         command=receive.recv()=>{
                             // Select can admit a queued command before the changed-watch branch.
-                            if release_taken_over(&mut voice_request,*takeover_receive.borrow()) {drop(ringing.take());}
+                            if release_taken_over(&mut voice_request,*takeover_receive.borrow()) {drop(ringing.take());drop(soundboard.take());last_soundboard_play=None;}
                             let Some(command)=command else {break;};
+                            if let Command::Soundboard(request)=command {
+                                use client_core::soundboard::{Action,Event as E};
+                                let busy=soundboard.as_ref().is_some_and(|(_,job)|!job.0.is_finished());
+                                let throttled=matches!(request.action,Action::Play(_)) && last_soundboard_play.is_some_and(|(scope,last)|scope==request.scope && last.elapsed()<Duration::from_secs(1));
+                                if !soundboard_dispatch_allowed(request,voice_request,*soundboard_authorized.borrow(),*voice_availability.borrow(),busy) || throttled {
+                                    emit(Event::Soundboard(E{scope:request.scope,request:request.request,result:Err(Failure::ProtocolAt("Soundboard action expired or busy; open it again to retry"))}))?;
+                                    continue;
+                                }
+                                if matches!(request.action,Action::Play(_)) {last_soundboard_play=Some((request.scope,Instant::now()));}
+                                drop(soundboard.take());
+                                let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
+                                let authorized=soundboard_authorized.clone();let online=voice_availability.clone();let takeover=takeover_receive.clone();
+                                soundboard=Some((request.scope,AbortTask(tokio::spawn(async move {
+                                    let event=tokio::select! {
+                                        biased;
+                                        _=wait_for_takeover(takeover,(request.scope.channel,request.scope.call_request))=>return,
+                                        _=wait_for_soundboard_invalidation(request.scope,authorized,online)=>return,
+                                        event=api.execute(Command::Soundboard(request))=>event,
+                                    };
+                                    let auth_failure=match &event {Event::Soundboard(E{result:Err(f),..}) if matches!(f,Failure::Expired|Failure::InvalidCredential|Failure::Challenged)=>Some(*f),_=>None};
+                                    let error=emit(event).err().or(auth_failure);
+                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    wake.request_repaint();
+                                }))));
+                                continue;
+                            }
                             if matches!(command,Command::CancelSearch) {drop(search.take());continue;}
                             if matches!(command,Command::CancelGifs) {drop(gifs.take());continue;}
                             if matches!(command,Command::GifFavorites{..}) {
@@ -381,8 +459,13 @@ impl Connection {
                                         let _=takeover_send.send_replace(Some((channel,request)));
                                         let _=release_taken_over(&mut voice_request,Some((channel,request)));
                                         drop(ringing.take());
+                                        drop(soundboard.take());last_soundboard_play=None;
                                     }
                                     queue_abandonment(&voice_send,&mut pending_abandonment,control,owner);
+                                    continue;
+                                }
+                                if matches!(control,V::ConfirmSession{..}) {
+                                    if let Some(error)=queue_confirmation(&voice_send,control,voice_request,*voice_availability.borrow()) {report_confirmation_failure(&confirmation_report,generation,error,voice_request,&wake);}
                                     continue;
                                 }
                                 if abandonment_blocks_join(pending_abandonment,control) {
@@ -400,6 +483,7 @@ impl Connection {
                                     Ok(action)=>action,
                                     Err(())=>{emit(Event::Voice(E::Failed{channel,request,message:"Call action expired; no ringing request was sent"}))?;continue;}
                                 };
+                                if matches!(control,V::Join{..}) || matches!(control,V::Leave{channel,request} if soundboard.as_ref().is_some_and(|(scope,_)|scope.channel==channel&&scope.call_request==request)) {drop(soundboard.take());last_soundboard_play=None;}
                                 if matches!(control,V::Join{..}) {
                                     if let Some(error)=queue_join(&voice_send,control,(channel,request),&mut voice_request) {
                                         emit(Event::Voice(error))?;
@@ -505,6 +589,7 @@ impl Connection {
 			events,
 			typing,
 			terminal,
+			confirmation_failure,
 			share_activity,
 			own_presence,
 			presence_edits,
@@ -519,6 +604,7 @@ impl Connection {
 			activity_observation,
 			activity_sharing,
 			activity_sharing_request,
+			soundboard_access,
 			typing_channel,
 			task,
 		}
@@ -920,6 +1006,84 @@ fn queue_abandonment(
 	}
 }
 
+// A stale candidate cannot fail its replacement: the desktop rechecks the tagged revision.
+fn report_confirmation_failure(
+	sender: &watch::Sender<Option<ConfirmationFailure>>,
+	generation: u64,
+	event: client_core::voice::Event,
+	owner: Option<(model::Id, u64, bool)>,
+	wake: &egui::Context,
+) {
+	let client_core::voice::Event::SessionConfirmationFailed {
+		channel,
+		request,
+		revision,
+		message,
+	} = event
+	else {
+		unreachable!("only candidate confirmation failures use this report");
+	};
+	if !owner.is_some_and(|(id, attempt, _)| (id, attempt) == (channel, request)) {
+		return;
+	}
+	let failure = ConfirmationFailure {
+		generation,
+		channel,
+		request,
+		revision,
+		message,
+	};
+	if sender.send_if_modified(|current| {
+		if current.is_some_and(|old| {
+			(old.generation, old.channel, old.request) == (generation, channel, request)
+				&& old.revision >= revision
+		}) {
+			return false;
+		}
+		*current = Some(failure);
+		true
+	}) {
+		wake.request_repaint();
+	}
+}
+
+fn queue_confirmation(
+	sender: &mpsc::Sender<client_core::voice::Command>,
+	control: client_core::voice::Command,
+	owner: Option<(model::Id, u64, bool)>,
+	online: bool,
+) -> Option<client_core::voice::Event> {
+	let client_core::voice::Command::ConfirmSession {
+		channel,
+		request,
+		revision,
+	} = control
+	else {
+		unreachable!("only local transport confirmations use this admission path");
+	};
+	let message = if !online {
+		"Call confirmation was not sent; voice signaling is disconnected"
+	} else if !owner.is_some_and(|(id, attempt, _)| (id, attempt) == (channel, request)) {
+		"Call confirmation expired; no action was sent"
+	} else {
+		match sender.try_send(control) {
+			Ok(()) => return None,
+			Err(mpsc::error::TrySendError::Full(_)) => {
+				"Call confirmation was not sent; the voice queue is full"
+			}
+			Err(mpsc::error::TrySendError::Closed(_)) => {
+				"Call confirmation was not sent; voice signaling is disconnected"
+			}
+		}
+	};
+	Some(client_core::voice::Event::SessionConfirmationFailed {
+		channel,
+		request,
+		revision,
+		message,
+	})
+}
+
 // A fresh Join can meet the still-full queue just after local release was queued.
 fn queue_join(
 	sender: &mpsc::Sender<client_core::voice::Command>,
@@ -947,6 +1111,38 @@ fn abandonment_blocks_join(
 	control: client_core::voice::Command,
 ) -> bool {
 	pending.is_some() && matches!(control, client_core::voice::Command::Join { .. })
+}
+
+/// Observe latest authorization before the worker first polls HTTP, then cancel on loss.
+async fn wait_for_soundboard_invalidation(
+	scope: client_core::soundboard::Scope,
+	mut authorized: watch::Receiver<Option<client_core::soundboard::Scope>>,
+	mut online: watch::Receiver<bool>,
+) {
+	loop {
+		if *authorized.borrow_and_update() != Some(scope) || !*online.borrow_and_update() {
+			return;
+		}
+		tokio::select! {
+			changed = authorized.changed() => if changed.is_err() { return; },
+			changed = online.changed() => if changed.is_err() { return; },
+		}
+	}
+}
+
+fn soundboard_dispatch_allowed(
+	request: client_core::soundboard::Request,
+	active: Option<(model::Id, u64, bool)>,
+	authorized: Option<client_core::soundboard::Scope>,
+	online: bool,
+	busy: bool,
+) -> bool {
+	online
+		&& !busy
+		&& authorized == Some(request.scope)
+		&& active.is_some_and(|(channel, call_request, _)| {
+			channel == request.scope.channel && call_request == request.scope.call_request
+		})
 }
 
 // Ring only after the media adapter confirms transport allocation, and only once per current call.
@@ -1056,6 +1252,124 @@ fn scope_history_failure(event: Event, channel: model::Id, request: u64) -> Even
 
 #[cfg(test)]
 mod tests {
+	#[tokio::test]
+	async fn soundboard_worker_rechecks_latest_access_before_http_and_cancels_on_loss() {
+		use client_core::soundboard::Scope;
+		let scope = Scope {
+			generation: 1,
+			channel: model::Id(20),
+			guild: model::Id(10),
+			call_request: 7,
+		};
+		for (access, available, taken) in [
+			(None, true, None),
+			(Some(scope), false, None),
+			(Some(scope), true, Some((scope.channel, scope.call_request))),
+		] {
+			let (_access, authorized) = watch::channel(access);
+			let (_online, online) = watch::channel(available);
+			let (_takeover, takeover) = watch::channel(taken);
+			let polled = std::sync::atomic::AtomicBool::new(false);
+			tokio::select! {
+				biased;
+				_ = wait_for_takeover(takeover, (scope.channel, scope.call_request)) => {},
+				_ = wait_for_soundboard_invalidation(scope, authorized, online) => {},
+				_ = async { polled.store(true, Ordering::Relaxed); } => panic!("expired worker polled HTTP"),
+			}
+			assert!(!polled.load(Ordering::Relaxed));
+		}
+		for change_access in [true, false] {
+			let (access, authorized) = watch::channel(Some(scope));
+			let (availability, online) = watch::channel(true);
+			let worker = wait_for_soundboard_invalidation(scope, authorized, online);
+			tokio::pin!(worker);
+			assert!(
+				tokio::time::timeout(Duration::from_millis(1), &mut worker)
+					.await
+					.is_err()
+			);
+			if change_access {
+				access.send_replace(Some(Scope {
+					call_request: 8,
+					..scope
+				}));
+			} else {
+				availability.send_replace(false);
+			}
+			tokio::time::timeout(Duration::from_secs(1), worker)
+				.await
+				.unwrap();
+		}
+	}
+	#[test]
+	fn soundboard_dispatch_requires_current_online_authorized_call_and_free_slot() {
+		use client_core::soundboard::{Action, Request, Scope};
+		let scope = Scope {
+			generation: 1,
+			channel: model::Id(20),
+			guild: model::Id(10),
+			call_request: 7,
+		};
+		let request = Request {
+			scope,
+			request: 1,
+			action: Action::Play(model::Id(99)),
+		};
+		assert!(soundboard_dispatch_allowed(
+			request,
+			Some((scope.channel, 7, true)),
+			Some(scope),
+			true,
+			false
+		));
+		for (active, authorized, online, busy) in [
+			(None, Some(scope), true, false),
+			(Some((scope.channel, 8, true)), Some(scope), true, false),
+			(Some((model::Id(21), 7, true)), Some(scope), true, false),
+			(Some((scope.channel, 7, true)), None, true, false),
+			(
+				Some((scope.channel, 7, true)),
+				Some(Scope {
+					generation: 2,
+					..scope
+				}),
+				true,
+				false,
+			),
+			(Some((scope.channel, 7, true)), Some(scope), false, false),
+			(Some((scope.channel, 7, true)), Some(scope), true, true),
+		] {
+			assert!(!soundboard_dispatch_allowed(
+				request, active, authorized, online, busy
+			));
+		}
+		let mut active = None;
+		assert!(
+			ring_action(
+				client_core::voice::Command::Join {
+					channel: scope.channel,
+					request: 7,
+					ring: false,
+					mute: false,
+					deaf: false
+				},
+				model::Id(1),
+				&mut active,
+				false
+			)
+			.unwrap()
+			.is_none()
+		);
+		assert_eq!(active, Some((scope.channel, 7, true)));
+		assert!(release_taken_over(&mut active, Some((scope.channel, 7))));
+		assert!(!soundboard_dispatch_allowed(
+			request,
+			active,
+			Some(scope),
+			true,
+			false
+		));
+	}
 	#[test]
 	fn takeover_rejects_queued_initial_ringing_but_preserves_new_call_ownership() {
 		use client_core::voice::Command as V;
@@ -1230,6 +1544,294 @@ mod tests {
 				expected
 			);
 		}
+	}
+
+	#[tokio::test]
+	async fn confirmation_report_waits_for_replacement_signaling_beyond_one_frame_batch() {
+		use client_core::voice::Event as E;
+		let ctx = egui::Context::default();
+		let (reliable, mut events) = reliable_events(ctx.clone());
+		let (typing, _) = mpsc::channel(8);
+		for id in 1..=EVENT_SLOTS as u64 {
+			emit_event(&reliable, &typing, queued_channel(id), &ctx).unwrap();
+		}
+		for event in [
+			E::Server {
+				channel: model::Id(20),
+				request: 5,
+				negotiation_revision: Some(3),
+				token: Some(client_core::voice::Secret::new("synthetic-token".into()).unwrap()),
+				endpoint: Some("synthetic.discord.media".into()),
+			},
+			E::SessionConfirmed {
+				channel: model::Id(20),
+				request: 5,
+				revision: 3,
+			},
+		] {
+			emit_event(
+				&reliable,
+				&typing,
+				Envelope {
+					generation: 7,
+					event: Event::Voice(event),
+				},
+				&ctx,
+			)
+			.unwrap();
+		}
+		let (report, mut failure) = watch::channel(None);
+		report_confirmation_failure(
+			&report,
+			7,
+			E::SessionConfirmationFailed {
+				channel: model::Id(20),
+				request: 5,
+				revision: 2,
+				message: "old candidate queue full",
+			},
+			Some((model::Id(20), 5, false)),
+			&ctx,
+		);
+		drop(report);
+		for _ in 0..EVENT_SLOTS {
+			assert!(matches!(
+				events.try_recv().unwrap().event,
+				Event::ChannelCreated(_)
+			));
+		}
+		assert!(take_confirmation_failure(&mut failure, &events).is_none());
+		assert!(failure.borrow().has_changed());
+		assert!(matches!(
+			events.try_recv().unwrap().event,
+			Event::Voice(E::Server {
+				negotiation_revision: Some(3),
+				..
+			})
+		));
+		assert!(take_confirmation_failure(&mut failure, &events).is_none());
+		assert!(failure.borrow().has_changed());
+		assert!(matches!(
+			events.try_recv().unwrap().event,
+			Event::Voice(E::SessionConfirmed { revision: 3, .. })
+		));
+		let error = take_confirmation_failure(&mut failure, &events).unwrap();
+		assert!(matches!(
+			error.event,
+			Event::Voice(E::SessionConfirmationFailed { revision: 2, .. })
+		));
+		assert!(take_confirmation_failure(&mut failure, &events).is_none());
+	}
+
+	#[tokio::test]
+	async fn closed_confirmation_report_is_delivered_once_without_repeating_each_frame() {
+		use client_core::voice::Event as E;
+		let ctx = egui::Context::default();
+		let (report, mut receiver) = watch::channel(None);
+		let (_, events) = reliable_events(ctx.clone());
+		assert!(take_confirmation_failure(&mut receiver, &events).is_none());
+		report_confirmation_failure(
+			&report,
+			7,
+			E::SessionConfirmationFailed {
+				channel: model::Id(20),
+				request: 5,
+				revision: 3,
+				message: "confirmation queue full",
+			},
+			Some((model::Id(20), 5, false)),
+			&ctx,
+		);
+		drop(report);
+		assert!(receiver.has_changed().is_err());
+		let envelope = take_confirmation_failure(&mut receiver, &events)
+			.expect("final unseen report survives publisher shutdown");
+		assert_eq!(envelope.generation, 7);
+		assert!(matches!(
+			envelope.event,
+			Event::Voice(E::SessionConfirmationFailed {
+				channel: model::Id(20),
+				request: 5,
+				revision: 3,
+				..
+			})
+		));
+		assert!(take_confirmation_failure(&mut receiver, &events).is_none());
+	}
+
+	#[tokio::test]
+	async fn confirmation_failure_bypasses_full_account_events_and_keeps_latest_candidate() {
+		use client_core::voice::{Command as V, Event as E};
+		let ctx = egui::Context::default();
+		let (reliable, mut events) = reliable_events(ctx.clone());
+		let (typing, _) = mpsc::channel(8);
+		for id in 1..=RELIABLE_ITEMS as u64 {
+			emit_event(&reliable, &typing, queued_channel(id), &ctx).unwrap();
+		}
+		// Both the item and byte budgets are exhausted; candidate delivery uses neither.
+		let remaining = reliable.bytes.available_permits() as u32;
+		let held = reliable
+			.bytes
+			.clone()
+			.try_acquire_many_owned(remaining)
+			.unwrap();
+		let (controls, mut control_receive) = mpsc::channel(8);
+		for _ in 0..8 {
+			controls
+				.try_send(V::Sync {
+					channel: model::Id(20),
+				})
+				.unwrap();
+		}
+		let owner = Some((model::Id(20), 5, false));
+		let control = V::ConfirmSession {
+			channel: model::Id(20),
+			request: 5,
+			revision: 3,
+		};
+		let (report, mut failure) = watch::channel(None);
+		let error = queue_confirmation(&controls, control, owner, true).unwrap();
+		report_confirmation_failure(&report, 7, error, owner, &ctx);
+		assert!(failure.has_changed().unwrap());
+		let current = (*failure.borrow()).unwrap();
+		assert!(take_confirmation_failure(&mut failure, &events).is_none());
+		assert!(failure.has_changed().unwrap());
+		let envelope = current.envelope();
+		assert_eq!(envelope.generation, 7);
+		assert!(matches!(
+			envelope.event,
+			Event::Voice(E::SessionConfirmationFailed {
+				channel: model::Id(20),
+				request: 5,
+				revision: 3,
+				..
+			})
+		));
+		assert_eq!(reliable.send.capacity(), 0);
+		assert_eq!(reliable.bytes.available_permits(), 0);
+		assert_eq!(control_receive.len(), 8);
+		for (request, revision) in [(5, 2), (5, 3), (4, 9)] {
+			report_confirmation_failure(
+				&report,
+				7,
+				E::SessionConfirmationFailed {
+					channel: model::Id(20),
+					request,
+					revision,
+					message: "stale",
+				},
+				owner,
+				&ctx,
+			);
+			assert!(failure.has_changed().unwrap());
+			assert_eq!(*failure.borrow(), Some(current));
+		}
+		drop(held);
+		for id in 1..=RELIABLE_ITEMS as u64 {
+			let Event::ChannelCreated(channel) = events.try_recv().unwrap().event else {
+				panic!("queued account event lost");
+			};
+			assert_eq!(channel.id, model::Id(id));
+		}
+		assert!(events.try_recv().is_err());
+		let envelope = take_confirmation_failure(&mut failure, &events).unwrap();
+		assert!(take_confirmation_failure(&mut failure, &events).is_none());
+		let mut state = client_core::State {
+			generation: 7,
+			auth: client_core::auth::AuthState::Authenticated,
+			..Default::default()
+		};
+		state.apply(envelope);
+		assert_eq!(state.auth, client_core::auth::AuthState::Authenticated);
+		for _ in 0..8 {
+			assert!(matches!(control_receive.try_recv(), Ok(V::Sync { .. })));
+		}
+		report_confirmation_failure(
+			&report,
+			7,
+			E::SessionConfirmationFailed {
+				channel: model::Id(20),
+				request: 6,
+				revision: 1,
+				message: "new attempt",
+			},
+			Some((model::Id(20), 6, false)),
+			&ctx,
+		);
+		assert!(failure.has_changed().unwrap());
+		assert_eq!(failure.borrow_and_update().unwrap().request, 6);
+		assert!(size_of::<Option<ConfirmationFailure>>() <= 64);
+	}
+
+	#[tokio::test]
+	async fn confirmation_queue_pressure_is_revision_scoped_and_preserves_queued_controls() {
+		use client_core::voice::{Command as V, Event as E};
+		let (sender, mut receiver) = mpsc::channel(8);
+		for _ in 0..8 {
+			sender
+				.try_send(V::Sync {
+					channel: model::Id(20),
+				})
+				.unwrap();
+		}
+		let confirmation = V::ConfirmSession {
+			channel: model::Id(20),
+			request: 5,
+			revision: 2,
+		};
+		let owner = Some((model::Id(20), 5, false));
+		assert!(matches!(
+			queue_confirmation(&sender, confirmation, owner, true),
+			Some(E::SessionConfirmationFailed {
+				channel: model::Id(20),
+				request: 5,
+				revision: 2,
+				message: "Call confirmation was not sent; the voice queue is full"
+			})
+		));
+		assert_eq!(receiver.len(), 8);
+		for _ in 0..8 {
+			assert!(matches!(
+				receiver.recv().await,
+				Some(V::Sync {
+					channel: model::Id(20)
+				})
+			));
+		}
+		for (active, online) in [
+			(None, true),
+			(Some((model::Id(20), 6, false)), true),
+			(owner, false),
+		] {
+			assert!(matches!(
+				queue_confirmation(&sender, confirmation, active, online),
+				Some(E::SessionConfirmationFailed {
+					request: 5,
+					revision: 2,
+					..
+				})
+			));
+			assert!(receiver.try_recv().is_err());
+		}
+		assert!(queue_confirmation(&sender, confirmation, owner, true).is_none());
+		assert!(matches!(
+			receiver.recv().await,
+			Some(V::ConfirmSession {
+				request: 5,
+				revision: 2,
+				..
+			})
+		));
+		drop(receiver);
+		assert!(matches!(
+			queue_confirmation(&sender, confirmation, owner, true),
+			Some(E::SessionConfirmationFailed {
+				request: 5,
+				revision: 2,
+				message: "Call confirmation was not sent; voice signaling is disconnected",
+				..
+			})
+		));
 	}
 
 	#[tokio::test]

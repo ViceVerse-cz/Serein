@@ -4339,6 +4339,28 @@ lib-composer-onboarding-complete = Tanıtımı tamamla
 
 voice-call-moved-to-another-client = Bu cihazın arama oturumu değiştirildi
 
+soundboard-open = Ses paneli
+soundboard-heading = Ses paneli
+soundboard-subtitle = Bağlı ses kanalındaki herkes için bir ses çal
+soundboard-channel = Bağlı kanal: { $channel }
+soundboard-offline = Çevrimdışı önizleme · sesler çalınmaz
+soundboard-default = Varsayılan sesler
+soundboard-guild = Geçerli sunucu
+soundboard-pending = Discord bekleniyor…
+soundboard-empty = Ses panelinde kullanılabilir ses yok
+soundboard-play = Bu sesi geçerli ses kanalında çal
+soundboard-unavailable = Bu ses Discord’da kullanılamıyor
+soundboard-close = Kapat
+soundboard-refresh = Sesleri yenile
+soundboard-error-permission = Discord bu ses paneli işlemini reddetti; ses izinlerini kontrol edin
+soundboard-error-rate = Ses paneli istek sınırına ulaştı; yeniden denemeden önce bekleyin
+soundboard-error-ambiguous = Ses zaten çalınmış olabilir; yeniden denemeden önce aramayı kontrol edin
+soundboard-error-network = Ses paneli işlemi için Discord’a ulaşılamadı
+soundboard-error-response = Discord işlemi reddetti veya desteklenmeyen ses paneli verileri döndürdü
+soundboard-error-unavailable = Bu işlem kullanılamıyor; yeniden denemek için seçim penceresini tekrar açın
+soundboard-error-capacity = Ses paneli yanıtı güvenli sınırı aştı
+soundboard-error-session = Ses paneli için etkin bir oturum gerekir; yeniden bağlanın
+
 server-settings-page-safety = Güvenlik Kurulumu
 
 server-settings-nav-title = Sunucu Ayarları

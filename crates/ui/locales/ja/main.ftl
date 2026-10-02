@@ -4339,6 +4339,28 @@ lib-composer-onboarding-complete = オンボーディングを完了
 
 voice-call-moved-to-another-client = このデバイスの通話セッションが置き換えられました
 
+soundboard-open = サウンドボード
+soundboard-heading = サウンドボード
+soundboard-subtitle = 接続中のボイスチャンネルにいる全員に音を再生します
+soundboard-channel = 接続中のチャンネル: { $channel }
+soundboard-offline = オフラインプレビュー · 音は再生されません
+soundboard-default = 既定のサウンド
+soundboard-guild = 現在のサーバー
+soundboard-pending = Discord の応答を待っています…
+soundboard-empty = 利用できるサウンドボードの音はありません
+soundboard-play = この音を現在のボイスチャンネルで再生
+soundboard-unavailable = この音は Discord で利用できません
+soundboard-close = 閉じる
+soundboard-refresh = サウンドを更新
+soundboard-error-permission = Discord がこのサウンドボード操作を拒否しました。ボイス権限を確認してください
+soundboard-error-rate = サウンドボードのリクエスト上限に達しました。しばらく待ってから再試行してください
+soundboard-error-ambiguous = 音がすでに再生された可能性があります。再試行する前に通話を確認してください
+soundboard-error-network = サウンドボード操作のために Discord に接続できませんでした
+soundboard-error-response = Discord が操作を拒否したか、未対応のサウンドボードデータを返しました
+soundboard-error-unavailable = この操作は利用できません。選択画面を開き直して再試行してください
+soundboard-error-capacity = サウンドボードの応答が安全上の上限を超えました
+soundboard-error-session = サウンドボードには有効なセッションが必要です。再接続してください
+
 server-settings-page-safety = 安全設定
 
 server-settings-nav-title = サーバー設定

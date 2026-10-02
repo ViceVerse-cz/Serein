@@ -4350,6 +4350,28 @@ lib-composer-onboarding-complete = Completar bienvenida
 
 voice-call-moved-to-another-client = Se reemplazó la sesión de llamada de este dispositivo
 
+soundboard-open = Panel de sonidos
+soundboard-heading = Panel de sonidos
+soundboard-subtitle = Reproducir un sonido para todos en el canal de voz conectado
+soundboard-channel = Canal conectado: { $channel }
+soundboard-offline = Vista previa sin conexión · no se reproducen sonidos
+soundboard-default = Sonidos predeterminados
+soundboard-guild = Servidor actual
+soundboard-pending = Esperando a Discord…
+soundboard-empty = No hay sonidos disponibles en el panel
+soundboard-play = Reproducir este sonido en el canal de voz actual
+soundboard-unavailable = Este sonido no está disponible en Discord
+soundboard-close = Cerrar
+soundboard-refresh = Actualizar sonidos
+soundboard-error-permission = Discord denegó esta acción del panel de sonidos; comprueba los permisos de voz
+soundboard-error-rate = El panel de sonidos alcanzó el límite de solicitudes; espera antes de volver a intentarlo
+soundboard-error-ambiguous = Es posible que el sonido ya se haya reproducido; comprueba la llamada antes de volver a intentarlo
+soundboard-error-network = No se pudo conectar con Discord para esta acción del panel de sonidos
+soundboard-error-response = Discord rechazó la acción o devolvió datos del panel de sonidos no compatibles
+soundboard-error-unavailable = Esta acción no está disponible; vuelve a abrir el selector para intentarlo de nuevo
+soundboard-error-capacity = La respuesta del panel de sonidos superó su límite seguro
+soundboard-error-session = El panel de sonidos necesita una sesión activa; vuelve a conectarte
+
 server-settings-page-safety = Configuración de seguridad
 
 server-settings-nav-title = Ajustes del servidor

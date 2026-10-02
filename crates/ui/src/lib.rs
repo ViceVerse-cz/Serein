@@ -6,6 +6,7 @@ mod archives;
 mod audio;
 mod forwarding;
 pub use audio::{AudioCommand, AudioState, AudioUi};
+pub mod soundboard;
 mod video;
 pub use video::{VideoCommand, VideoState, VideoUi};
 mod attachments;
@@ -195,6 +196,7 @@ fn thread_member_rows<'a>(
 
 #[derive(Default)]
 pub struct MessagingUi {
+	pub soundboard: soundboard::SoundboardUi,
 	poll_creator: polls::Creator,
 	pub language: i18n::Language,
 	forwarding: forwarding::ForwardDialog,
@@ -4422,6 +4424,7 @@ impl MessagingUi {
 			.show(&ctx, state, &mut self.draft_changes);
 		self.search
 			.overlays(&ctx, state, &mut self.avatars, &mut commands);
+		self.soundboard.show(&ctx, state, &mut commands);
 		if state.invite_challenge().is_none() {
 			self.join_server
 				.show(&ctx, state, &mut self.avatars, &mut commands);

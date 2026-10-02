@@ -325,6 +325,56 @@ mod tests {
 	}
 
 	#[test]
+	fn soundboard_labels_and_errors_resolve_in_every_supported_catalog() {
+		for language in Language::ALL {
+			for key in [
+				"soundboard-open",
+				"soundboard-heading",
+				"soundboard-subtitle",
+				"soundboard-offline",
+				"soundboard-default",
+				"soundboard-guild",
+				"soundboard-pending",
+				"soundboard-empty",
+				"soundboard-play",
+				"soundboard-unavailable",
+				"soundboard-close",
+				"soundboard-refresh",
+				"soundboard-error-permission",
+				"soundboard-error-rate",
+				"soundboard-error-ambiguous",
+				"soundboard-error-network",
+				"soundboard-error-response",
+				"soundboard-error-unavailable",
+				"soundboard-error-capacity",
+				"soundboard-error-session",
+			] {
+				let text = language.try_text(key);
+				assert!(
+					text.is_some_and(|value| !value.trim().is_empty()),
+					"{language:?} {key}"
+				);
+			}
+			if !matches!(language, Language::System | Language::English) {
+				for key in ["soundboard-subtitle", "soundboard-error-network"] {
+					assert_ne!(
+						language.text(key),
+						Language::English.text(key),
+						"{language:?}: {key}"
+					);
+				}
+			}
+			let channel =
+				language.text_with_args("soundboard-channel", &[("channel", "Synthetic voice")]);
+			assert!(
+				channel.contains("Synthetic voice")
+					&& !channel.contains("Unknown localization key"),
+				"{language:?}: {channel}"
+			);
+		}
+	}
+
+	#[test]
 	fn counts_select_plural_forms() {
 		let since = |language: Language, count| {
 			language

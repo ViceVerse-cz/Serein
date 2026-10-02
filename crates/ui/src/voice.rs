@@ -3347,6 +3347,9 @@ impl MessagingUi {
 					self.voice_camera_status = "";
 					commands.push(command);
 				}
+				if ui.add_enabled_ui(crate::soundboard::SoundboardUi::available(state),|ui| {
+					crate::design::button(ui,"soundboard-open",crate::design::ButtonKind::Neutral)
+				}).inner.clicked() {self.soundboard.open(state,commands);}
 				if share_clicked {
 					self.screen.launch(state);
 				}

@@ -3710,6 +3710,86 @@ unmeasured. Raw source identities, binary hashes, sizes and all samples are in
 `docs/pr-evidence/gif-favorite-sync/measurements.json`. This evidence follow-up
 changes no measured runtime source.
 
+
+## Voice confirmation queue admission — historical pre-watch comparison (October 2, 2026)
+
+Historical pre-watch feature source `9cdad91c86139543a370f3658e5f92257a9064fe` is compared with
+main `1107d9045fb9d98980d6d8e9987c96a362b4f9ab`. The standard feature package
+was built from `5724cf5be34f17a62ee1b5fc07f2cd2653be3d79`; `9cd` adds only
+`cfg(test)` live-negotiation coverage and leaves production source unchanged.
+Later main features are outside this recorded comparison. Environment: macOS
+27.0 (26A428), Apple M1 MacBookAir10,1 / 16 GiB, Rust 1.98.1, locked dependencies.
+Raw samples, source identities, binary hashes and the reducer identity proof:
+[`voice-confirmation-pressure/measurements.json`](pr-evidence/voice-confirmation-pressure/measurements.json).
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 62,154,064 B | 62,154,064 B | unchanged |
+| Installed package, 206 regular files | 68,164,493 B | 68,164,493 B | unchanged |
+| Full distribution ZIP | 43,322,199 B | 43,321,986 B | −213 B / −0.0005% |
+| Optimized native CPU, ten-sample median | 0.0% | 0.0% | 0 percentage points |
+| Optimized native peak RSS | 123,888 KiB | 124,768 KiB | +880 KiB / +0.710% |
+| Optimized settled RSS, last-five median | 123,856 KiB | 124,720 KiB | +864 KiB / +0.698% |
+| Reducer 100,000 events, alternating-five-pair median | 53.379833 ms | 52.975458 ms | −0.404375 ms / −0.758% |
+| Estimated retained timeline, 500 records | 331,992–332,477 B | 331,992–332,477 B | unchanged |
+
+Both actual standard `cargo xtask package` builds passed, including voice and
+bundled notices. The xtask internally uses `--no-default-features`; the repository
+release profile is unchanged. Deep/strict ad-hoc signature verification passed.
+Installed bytes sum regular files; ZIP uses `ditto -c -k --sequesterRsrc` over the
+complete contents without an enclosing directory. All 206 paths match, 203 hashes
+and all 199 bundled license/notice files are identical. Only the executable, regenerated
+Assets.car and ad-hoc signature metadata differ.
+
+Both optimized native executables use default-plus-demo features, FAT LTO,
+codegen-units=1 and identical `--demo --demo-chat`, with no capture hooks. Native
+Metal uses a 1120×760 logical viewport at 2× scale. A 5-second warmup precedes ten
+one-second macOS `ps` samples; settled RSS is the final-five median. All team
+compilers, tests and other native apps were paused during the matched pair, and
+both apps stopped before reducer replay. The 864 KiB settled RSS difference is
+small idle variation; no performance improvement is claimed.
+
+Reducer replay uses one warmup per binary and five alternating pairs. The
+preserved baseline was built from `3f96877f`; all 96 tracked files in its complete
+model, client-core, session-cache, test-support and replay-bench trees plus
+workspace manifests, lockfile, toolchain and Cargo configuration are byte-identical
+to main `1107d904`. Features and release profile also match. This equivalence
+applies only to the pure reducer, not the application or UI. Baseline samples span
+52.768833–53.726709 ms; after samples span 52.405167–54.155959 ms. The ranges overlap.
+These checks measure neither queue latency nor UI frames, GPU or live media.
+
+Those samples describe the older event-queue implementation only. Current
+correction `5ecd04f7fb495a1d574197eb85ad6006b4fdb5a3` changes production delivery
+to one optional fixed-size failure watch, independent of reliable account-event
+capacity. The report retains generation, channel, request, revision and a static
+diagnostic: at most 64 bytes plus fixed watch synchronization metadata. It has
+no allocated payload or credentials, retry worker or additional command slot.
+Reports remain unseen until the reliable FIFO drains; a final report survives
+publisher shutdown and is consumed once. The original 30-second negotiation
+deadline remains.
+
+The corrected source passed nine focused pressure/FIFO/closed-publisher/retirement
+regressions, strict desktop all-target lint and the full workspace check
+(174 desktop / 367 UI tests; six / five existing ignored). Its fresh standard
+package compiled all 12 runtime workspace crates after all-worktree-ID release
+invalidation, passed in 11m46s, and passed deep/strict ad-hoc signature verification.
+It contains intervening main features, so these are aggregate package sizes,
+not an isolated watch correction delta:
+
+| Current aggregate metric | Corrected source 5ecd |
+| --- | ---: |
+| Standard executable | 62,269,504 B |
+| Installed package | 68,279,933 B / 206 files |
+| Full distribution ZIP | 43,364,502 B |
+
+Old native/reducer values above are not measurements of this corrected source.
+No new layout changed, so no new screenshots were required; the existing local
+candidate-error component is used. Queue latency and physical/live media remain
+unmeasured. Current source, hashes, verification and bounds are recorded separately
+in the same measurements JSON. No live account, service call, microphone, camera
+or OS picker was used.
+
+
 ## Server settings polish and rail motion (October 2, 2026)
 
 Baseline `eab1961` and this branch were built separately with
@@ -3768,3 +3848,98 @@ unmeasured. No audio device, account, microphone or live media request was used.
 Reproduce after packaging either revision, with the same `CARGO_TARGET_DIR` used
 for that build: `python3 docs/pr-evidence/voice-attachment-playback/benchmark.py`.
 The script also accepts a baseline-worktree path as its first argument.
+
+
+## Guild Soundboard selection and explicit send — October 2, 2026
+
+Source `df0a7930da67c3d8b99e4366a03c8b860f2e387d` includes main 66 and the independently checked
+voice-confirmation queue fix #537. It is compared with main `1107d9045fb9d98980d6d8e9987c96a362b4f9ab`;
+this is an aggregate change, not isolated Soundboard cost. The actual native
+before/after preview images compare parent 3f with 5391; later nine-language
+translations keep rendering and English/Czech catalogs unchanged. Raw samples,
+commands, source identities, binary hashes and limits are in
+[`soundboard/measurements.json`](pr-evidence/soundboard/measurements.json).
+
+Environment: macOS 27.0 (26A428), Apple M1 MacBookAir10,1 / 16 GiB,
+Rust 1.98.1, locked dependencies, two build jobs.
+
+| Metric / method | Main 110 baseline | Aggregate df0a | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable, bytes | 62,154,064 | 62,367,808 | +213,744 / +0.3439% |
+| Installed package, bytes | 68,164,493 | 68,378,237 | +213,744 / +0.3136% |
+| Distribution ZIP, bytes | 43,322,199 | 43,390,880 | +68,681 / +0.1585% |
+| Native idle CPU, ten-sample median | 0.0% | 0.0% | 0 percentage points |
+| Sampled peak RSS, KiB | 122,720 | 123,184 | +464 / +0.3781% |
+| Settled RSS, KiB | 122,656 | 123,168 | +512 / +0.4174% |
+| Synthetic reducer, five-run median, ms | 53.931958 | 53.510000 | -0.421958 / -0.7824% |
+
+Both standard packages include voice and use the default FAT release profile.
+The xtask internally uses `--no-default-features` to omit development data.
+Both have 206 regular files and unchanged license/notice payloads. Installed
+size sums regular files; ZIP uses identical `ditto -c -k --sequesterRsrc`
+over complete contents without an enclosing directory. Deep/strict local
+ad-hoc signature verification passed. Owned workspace artifacts across all
+worktree IDs were inspected and cleared; all twelve runtime crates compiled
+fresh from df0a. The same unchanged worktree then built default-plus-demo FAT
+and the reducer; no other release worktree intervened.
+
+The native pair runs identical `--demo --demo-voice` at 1120×760 logical pixels,
+2× display scale, Metal. A five-second warmup precedes ten one-second process
+`ps` samples; settled RSS is the last-five median. All team compilers, tests,
+replays, heavy IO and other apps were held. Both apps stopped after sampling.
+The +512 KiB settled difference is small idle variation, not an improvement
+or a sound playback latency measurement. No sound was played or downloaded.
+
+Reducer source 3f is reused only after proving all 96 tracked files across the
+workspace manifest, lockfile, toolchain/config and relevant model/core/cache/
+fixture/replay crates byte-identical to main 110. No application/media identity
+is inferred. Each reducer has one warmup and five alternating measured pairs
+of 100,000 synthetic events. Baseline range is 53.584292–55.589208 ms;
+after is 53.306667–53.529875 ms. This short cached run does
+not establish a general speed improvement. Both retain 331,992–332,477 estimated
+timeline bytes / 500 records; this is not process RSS, UI or voice timing.
+
+Soundboard admits 128 combined catalog items / 64 KiB retained, 64 KiB per HTTP
+response, 2–32 Unicode scalars / 128 UTF-8 bytes per name, finite volume 0–1,
+nonzero IDs and bounded emoji. Retention counts actual capacities. One pending
+session-scoped operation, one-second explicit-play interval, current guild/
+channel/call/generation and authorization guards prevent stale results/sends.
+Catalogs are session-only. Incoming effect playback, external-guild catalogs,
+creation and local preview downloads are outside this slice. No live account,
+Discord message/call/effect, microphone, camera or upload was used. GPU frame
+latency, real-account interoperability and audible playback remain unmeasured.
+
+
+### Current Soundboard confirmation-watch integration (October 2, 2026)
+
+The separately tested and packaged source `2ed16b090fd344d31d858290a7f9fd124e44e27f`
+includes the fixed-size confirmation-failure watch from #537. Metadata merge
+`472f70272b8e5db2b3eda04d60d8ec55ed7ee3bc` adds only corrected parent documentation
+and bounded offline logs; complete application, manifest, asset, vendor and
+packaging inputs remain byte-identical to 2ed. Earlier df0a native and reducer
+measurements above keep their original source identities.
+
+Current source passes eleven Soundboard and nine confirmation-focused tests,
+the full workspace check (176 desktop / 370 UI), formatting, strict Clippy and
+policy checks. Its standard voice-enabled package compiled all twelve runtime
+workspace crates fresh after inspected workspace-name cache invalidation across
+worktree IDs, finished in 11m02s, and passed deep/strict local ad-hoc signing.
+Both standard packages use repository FAT-LTO and the xtask command that omits
+development data while retaining voice. Exact main71 is the comparison baseline.
+
+| Current aggregate shipping metric | Exact main71 | Source 2ed | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 62,269,488 B | 62,368,144 B | +98,656 B / +0.1584% |
+| Installed package | 68,279,917 B | 68,378,573 B | +98,656 B / +0.1445% |
+| Distribution ZIP | 43,363,423 B | 43,397,986 B | +34,563 B / +0.0797% |
+
+Both packages contain 206 regular files with 203 unchanged hashes; existing
+license and notice payloads are unchanged. These are aggregate Soundboard plus
+inherited confirmation-pressure correction deltas, not isolated feature cost.
+The actual full-queue byte/item-pressure, unread-publisher-shutdown, preceding
+replacement signaling and dormant live-transport retirement regressions verify
+the changed admission path without a service request or physical audio device.
+No fresh GPU, queue-latency, active sound-effect or native/reducer performance
+measurement is claimed for the corrected source. Current hashes, baseline
+provenance, package inventory and source scope are recorded separately in
+[`soundboard/measurements.json`](pr-evidence/soundboard/measurements.json).

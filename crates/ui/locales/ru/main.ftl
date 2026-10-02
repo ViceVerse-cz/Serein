@@ -4354,6 +4354,28 @@ lib-composer-onboarding-complete = Завершить знакомство
 
 voice-call-moved-to-another-client = Сеанс звонка на этом устройстве был заменён
 
+soundboard-open = Звуковая панель
+soundboard-heading = Звуковая панель
+soundboard-subtitle = Воспроизвести звук для всех участников подключённого голосового канала
+soundboard-channel = Подключённый канал: { $channel }
+soundboard-offline = Автономный просмотр · звуки не воспроизводятся
+soundboard-default = Стандартные звуки
+soundboard-guild = Текущий сервер
+soundboard-pending = Ожидание ответа Discord…
+soundboard-empty = Нет доступных звуков для звуковой панели
+soundboard-play = Воспроизвести этот звук в текущем голосовом канале
+soundboard-unavailable = Этот звук недоступен в Discord
+soundboard-close = Закрыть
+soundboard-refresh = Обновить звуки
+soundboard-error-permission = Discord отклонил это действие звуковой панели; проверьте голосовые разрешения
+soundboard-error-rate = Звуковая панель достигла лимита запросов; подождите перед повторной попыткой
+soundboard-error-ambiguous = Звук уже мог быть воспроизведён; проверьте звонок перед повторной попыткой
+soundboard-error-network = Не удалось связаться с Discord для выполнения этого действия звуковой панели
+soundboard-error-response = Discord отклонил действие или вернул неподдерживаемые данные звуковой панели
+soundboard-error-unavailable = Это действие недоступно; откройте окно выбора звука заново для повторной попытки
+soundboard-error-capacity = Ответ звуковой панели превысил безопасный лимит
+soundboard-error-session = Для звуковой панели нужна активная сессия; подключитесь заново
+
 server-settings-page-safety = Настройка безопасности
 
 server-settings-nav-title = Настройки сервера

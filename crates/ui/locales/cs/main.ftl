@@ -4413,6 +4413,28 @@ gif-favorites-sync-failed = Synchronizace selhala; místní oblíbené zůstáva
 gif-favorites-sync-unsupported = Oblíbené na Discordu nejsou podporované nebo překračují bezpečný limit.
 gif-favorites-sync-unconfirmed = Změna nebyla potvrzena. Před opakováním obnovte seznam.
 
+soundboard-open = Soundboard
+soundboard-heading = Soundboard
+soundboard-subtitle = Přehrát zvuk všem v připojeném hlasovém kanálu
+soundboard-channel = Připojený kanál: { $channel }
+soundboard-offline = Offline náhled · zvuky se nepřehrávají
+soundboard-default = Výchozí zvuky
+soundboard-guild = Aktuální server
+soundboard-pending = Čekání na Discord…
+soundboard-empty = Nejsou dostupné žádné zvuky soundboardu
+soundboard-play = Přehrát tento zvuk v aktuálním hlasovém kanálu
+soundboard-unavailable = Tento zvuk je na Discordu nedostupný
+soundboard-close = Zavřít
+soundboard-refresh = Obnovit zvuky
+soundboard-error-permission = Discord odmítl akci soundboardu; zkontrolujte hlasová oprávnění
+soundboard-error-rate = Soundboard překročil limit požadavků; před dalším pokusem počkejte
+soundboard-error-ambiguous = Zvuk se již mohl přehrát; před dalším pokusem zkontrolujte hovor
+soundboard-error-network = Akce soundboardu se nemohla spojit s Discordem
+soundboard-error-response = Discord odmítl akci nebo vrátil nepodporovaná data soundboardu
+soundboard-error-unavailable = Akce soundboardu je nedostupná; pro další pokus znovu otevřete výběr
+soundboard-error-capacity = Odpověď soundboardu překročila bezpečný limit
+soundboard-error-session = Soundboard potřebuje aktivní relaci; znovu se připojte
+
 server-settings-page-safety = Bezpečnost
 
 server-settings-nav-title = Nastavení serveru

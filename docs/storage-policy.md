@@ -1569,3 +1569,33 @@ confirmation is acknowledged, the desktop keeps one extra pending credential set
 replacement behind the existing audio retirement fence. It keeps the original
 30-second deadline and zeroizes that set on confirmation, cancellation or failure
 teardown. Failed candidates do not spawn retries until credentials actually change.
+
+Local voice-confirmation admission failures carry one generation, channel ID,
+attempt and candidate revision plus a fixed static diagnostic through a dedicated
+latest-report watch. Its optional payload is at most 64 bytes, plus fixed watch
+synchronization metadata; it allocates no payload buffer and retains no credentials.
+It uses no reliable account-event item or byte capacity. Only the current owner
+scope can publish, and older revisions cannot overwrite a newer report for that
+scope. A report stays unseen until the reliable FIFO drains, so a preceding
+replacement or confirmation beyond the current frame's batch is applied first.
+The original negotiation deadline remains bounded during sustained event load.
+The desktop consumes only the matching current unconfirmed candidate;
+existing bounded local abandonment handles release after failure. There is no new
+retry worker or pending command slot.
+
+## Connected guild soundboard metadata (October 2, 2026)
+
+Soundboard catalogs are session-only, attached to one generation, guild, channel
+and current call request. The combined catalog has at most 128 items and 64 KiB
+of retained allocations, including vector spare capacity and each name/emoji
+string capacity. Each HTTP response is capped at 64 KiB before parsing; list decoding
+uses the existing bounded sequence visitor. No sound bytes, creator records,
+thumbnail, temporary file, database table or cross-guild cache is introduced.
+
+One metadata load or play is pending at a time, with a single bounded connection
+job and latest-value authorization scope watch. Names are bounded to 128 bytes/32
+scalars and emoji text to 128 bytes/32 scalars. POST bodies contain only a decimal
+sound ID. The adapter uses the existing fixed Discord origin, redacted active
+credential, REST admission and connection/request deadlines, without implicit retry.
+Leaving, switching calls, logout, gateway loss or soundboard permission loss clears
+metadata and cancels the job. Received successful sound effects cannot be undone.

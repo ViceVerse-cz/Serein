@@ -219,6 +219,13 @@ pub enum Event {
 		request: u64,
 		revision: u64,
 	},
+	/// Local confirmation admission failed; only the exact unconfirmed candidate may consume it.
+	SessionConfirmationFailed {
+		channel: Id,
+		request: u64,
+		revision: u64,
+		message: &'static str,
+	},
 	/// The confirmed local voice session was replaced. No service hangup is needed.
 	TakenOver {
 		channel: Id,
@@ -523,6 +530,7 @@ impl ClientState {
 		}))
 	}
 	pub fn leave_call(&mut self) -> Option<crate::Command> {
+		self.soundboard.clear();
 		self.voice.outgoing = None;
 		let call = self.voice.active.take()?;
 		self.voice.departed = None;
@@ -915,10 +923,12 @@ impl ClientState {
 				}
 			}
 			Event::SessionConfirmed { .. }
+			| Event::SessionConfirmationFailed { .. }
 			| Event::Server { .. }
 			| Event::Stream { .. }
 			| Event::Watch { .. } => {} // The desktop consumes negotiation material; core never retains it.
 		}
+		self.revalidate_soundboard();
 	}
 	fn update_roster(&mut self, entry: RosterEntry) -> bool {
 		if !self.can_view(entry.channel)
@@ -1020,6 +1030,7 @@ impl ClientState {
 		}
 	}
 	pub fn disconnect_voice(&mut self, reason: &'static str) {
+		self.soundboard.clear();
 		self.voice.outgoing = None;
 		self.voice.dm_calls.clear();
 		self.voice.dm_participants.clear();

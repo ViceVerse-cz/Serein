@@ -4350,6 +4350,28 @@ lib-composer-onboarding-complete = Concluir integração
 
 voice-call-moved-to-another-client = A sessão de chamada deste dispositivo foi substituída
 
+soundboard-open = Painel de sons
+soundboard-heading = Painel de sons
+soundboard-subtitle = Reproduzir um som para todos no canal de voz conectado
+soundboard-channel = Canal conectado: { $channel }
+soundboard-offline = Prévia offline · os sons não são reproduzidos
+soundboard-default = Sons padrão
+soundboard-guild = Servidor atual
+soundboard-pending = Aguardando o Discord…
+soundboard-empty = Nenhum som disponível no painel
+soundboard-play = Reproduzir este som no canal de voz atual
+soundboard-unavailable = Este som não está disponível no Discord
+soundboard-close = Fechar
+soundboard-refresh = Atualizar sons
+soundboard-error-permission = O Discord negou esta ação do painel de sons; verifique as permissões de voz
+soundboard-error-rate = O painel de sons atingiu o limite de solicitações; aguarde antes de tentar novamente
+soundboard-error-ambiguous = O som pode já ter sido reproduzido; verifique a chamada antes de tentar novamente
+soundboard-error-network = Não foi possível acessar o Discord para esta ação do painel de sons
+soundboard-error-response = O Discord recusou a ação ou retornou dados do painel de sons não compatíveis
+soundboard-error-unavailable = Esta ação não está disponível; reabra o seletor para tentar novamente
+soundboard-error-capacity = A resposta do painel de sons excedeu o limite seguro
+soundboard-error-session = O painel de sons precisa de uma sessão ativa; conecte-se novamente
+
 server-settings-page-safety = Configuração de segurança
 
 server-settings-nav-title = Configurações do servidor

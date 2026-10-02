@@ -4350,6 +4350,28 @@ lib-composer-onboarding-complete = Terminer l'accueil
 
 voice-call-moved-to-another-client = La session d’appel de cet appareil a été remplacée
 
+soundboard-open = Tableau de sons
+soundboard-heading = Tableau de sons
+soundboard-subtitle = Jouer un son pour tous les participants du salon vocal connecté
+soundboard-channel = Salon connecté : { $channel }
+soundboard-offline = Aperçu hors ligne · aucun son n’est joué
+soundboard-default = Sons par défaut
+soundboard-guild = Serveur actuel
+soundboard-pending = En attente de Discord…
+soundboard-empty = Aucun son disponible dans le tableau
+soundboard-play = Jouer ce son dans le salon vocal actuel
+soundboard-unavailable = Ce son n’est pas disponible sur Discord
+soundboard-close = Fermer
+soundboard-refresh = Actualiser les sons
+soundboard-error-permission = Discord a refusé cette action du tableau de sons ; vérifiez les permissions vocales
+soundboard-error-rate = Le tableau de sons a atteint la limite de requêtes ; attendez avant de réessayer
+soundboard-error-ambiguous = Le son a peut-être déjà été joué ; vérifiez l’appel avant de réessayer
+soundboard-error-network = Impossible de joindre Discord pour cette action du tableau de sons
+soundboard-error-response = Discord a refusé l’action ou renvoyé des données de tableau de sons non prises en charge
+soundboard-error-unavailable = Cette action est indisponible ; rouvrez le sélecteur pour réessayer
+soundboard-error-capacity = La réponse du tableau de sons dépasse sa limite de sécurité
+soundboard-error-session = Le tableau de sons nécessite une session active ; reconnectez-vous
+
 server-settings-page-safety = Configuration de la sécurité
 
 server-settings-nav-title = Paramètres du serveur

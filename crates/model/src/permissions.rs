@@ -27,6 +27,7 @@ pub const MENTION_EVERYONE: u128 = 1 << 17;
 pub const USE_EXTERNAL_EMOJIS: u128 = 1 << 18;
 pub const CONNECT: u128 = 1 << 20;
 pub const SPEAK: u128 = 1 << 21;
+pub const USE_SOUNDBOARD: u128 = 1 << 42;
 pub const MUTE_MEMBERS: u128 = 1 << 22;
 pub const DEAFEN_MEMBERS: u128 = 1 << 23;
 pub const MOVE_MEMBERS: u128 = 1 << 24;

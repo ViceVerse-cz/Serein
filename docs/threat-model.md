@@ -42,3 +42,14 @@ insert into another draft.
 A concurrent writer restoring identical metadata remains outside observable file
 change detection. The dialog offers explicit Copy/Add actions and never sends a
 Discord message automatically. Cancellation can leave remote bytes without a link.
+
+The guild soundboard sends one user-selected effect to the connected Discord voice
+channel. It is an audible shared action, so opening/browsing a catalog never plays
+a sound. Only default and current-guild metadata is admitted, and no CDN sound
+preview is downloaded. Exact generation/call scopes, connected guild channel kind,
+SPEAK/USE_SOUNDBOARD permission, mute/deaf checks and a latest authorization watch
+prevent stale picker actions from crossing sessions or calls. One pending job and
+one-second play admission limit local repeats; writes are never automatically
+retried. Cancellation cannot retract a sound already accepted by Discord. Live
+normal-account acceptance is unverified and synthetic fixtures prove only local
+validation and lifecycle behavior.

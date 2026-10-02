@@ -4350,6 +4350,28 @@ lib-composer-onboarding-complete = Einführung abschließen
 
 voice-call-moved-to-another-client = Die Anrufsitzung dieses Geräts wurde ersetzt
 
+soundboard-open = Soundboard
+soundboard-heading = Soundboard
+soundboard-subtitle = Einen Sound für alle im verbundenen Sprachkanal abspielen
+soundboard-channel = Verbundener Kanal: { $channel }
+soundboard-offline = Offline-Vorschau · es werden keine Sounds abgespielt
+soundboard-default = Standardsounds
+soundboard-guild = Aktueller Server
+soundboard-pending = Auf Discord warten…
+soundboard-empty = Keine Soundboard-Sounds verfügbar
+soundboard-play = Diesen Sound im aktuellen Sprachkanal abspielen
+soundboard-unavailable = Dieser Sound ist auf Discord nicht verfügbar
+soundboard-close = Schließen
+soundboard-refresh = Sounds aktualisieren
+soundboard-error-permission = Discord hat diese Soundboard-Aktion abgelehnt; Sprachberechtigungen prüfen
+soundboard-error-rate = Das Soundboard hat das Anfragelimit erreicht; vor einem weiteren Versuch warten
+soundboard-error-ambiguous = Der Sound wurde möglicherweise bereits abgespielt; vor einem weiteren Versuch den Anruf prüfen
+soundboard-error-network = Discord konnte für die Soundboard-Aktion nicht erreicht werden
+soundboard-error-response = Discord hat die Aktion abgelehnt oder nicht unterstützte Soundboard-Daten zurückgegeben
+soundboard-error-unavailable = Die Soundboard-Aktion ist nicht verfügbar; die Auswahl für einen weiteren Versuch erneut öffnen
+soundboard-error-capacity = Die Soundboard-Antwort hat das sichere Limit überschritten
+soundboard-error-session = Das Soundboard benötigt eine aktive Sitzung; erneut verbinden
+
 server-settings-page-safety = Sicherheitseinstellungen
 
 server-settings-nav-title = Servereinstellungen

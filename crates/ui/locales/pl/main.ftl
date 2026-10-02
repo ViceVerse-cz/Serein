@@ -4353,6 +4353,28 @@ lib-composer-onboarding-complete = Dokończ wprowadzenie
 
 voice-call-moved-to-another-client = Sesja połączenia na tym urządzeniu została zastąpiona
 
+soundboard-open = Tablica dźwięków
+soundboard-heading = Tablica dźwięków
+soundboard-subtitle = Odtwórz dźwięk dla wszystkich na połączonym kanale głosowym
+soundboard-channel = Połączony kanał: { $channel }
+soundboard-offline = Podgląd offline · dźwięki nie są odtwarzane
+soundboard-default = Domyślne dźwięki
+soundboard-guild = Bieżący serwer
+soundboard-pending = Oczekiwanie na Discorda…
+soundboard-empty = Brak dostępnych dźwięków w tablicy
+soundboard-play = Odtwórz ten dźwięk na bieżącym kanale głosowym
+soundboard-unavailable = Ten dźwięk jest niedostępny na Discordzie
+soundboard-close = Zamknij
+soundboard-refresh = Odśwież dźwięki
+soundboard-error-permission = Discord odrzucił tę akcję tablicy dźwięków; sprawdź uprawnienia głosowe
+soundboard-error-rate = Tablica dźwięków osiągnęła limit żądań; zaczekaj przed ponowną próbą
+soundboard-error-ambiguous = Dźwięk mógł już zostać odtworzony; sprawdź połączenie głosowe przed ponowną próbą
+soundboard-error-network = Nie udało się połączyć z Discordem w celu wykonania tej akcji tablicy dźwięków
+soundboard-error-response = Discord odrzucił akcję lub zwrócił nieobsługiwane dane tablicy dźwięków
+soundboard-error-unavailable = Ta akcja jest niedostępna; otwórz ponownie wybór dźwięków, aby spróbować jeszcze raz
+soundboard-error-capacity = Odpowiedź tablicy dźwięków przekroczyła bezpieczny limit
+soundboard-error-session = Tablica dźwięków wymaga aktywnej sesji; połącz się ponownie
+
 server-settings-page-safety = Konfiguracja bezpieczeństwa
 
 server-settings-nav-title = Ustawienia serwera

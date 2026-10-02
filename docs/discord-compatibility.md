@@ -2164,3 +2164,39 @@ whose original compression request is not implemented. Synthetic localhost tests
 `--features demo -- --demo --demo-chat --demo-attachment=file --demo-external-upload`
 verify local behavior without any real hosted upload or Discord session. Live service
 acceptance, link embedding and other-platform native interaction remain unverified.
+
+## Guild voice soundboard (October 2, 2026)
+
+A separate **Soundboard** action in the connected-call card opens a native picker
+for Discord's default sounds and the current guild's sounds. Opening it explicitly
+loads metadata; choosing an available sound explicitly sends it to everyone in
+that connected voice channel. There is no local preview download/playback, sound
+creation, other-guild catalog, Nitro/external-sound selection or automatic replay.
+The existing waveform control still toggles local noise suppression. This slice
+does not add incoming VOICE_CHANNEL_EFFECT_SEND rendering or effect-file downloads;
+local receipt/audibility is unverified.
+
+The endpoints and objects are documented in [Discord's Soundboard resource](https://docs.discord.com/developers/resources/soundboard):
+`GET /soundboard-default-sounds`, `GET /guilds/{id}/soundboard-sounds`, and
+`POST /channels/{id}/send-soundboard-sound` with only `sound_id`. [Discord Userdoccers](https://docs.discord.food/resources/soundboard)
+specifies an empty 204 send response and normal-user behavior; actual normal-account
+interoperability remains unverified. All local tests use synthetic records or localhost HTTP fixtures.
+
+Each catalog response and combined retained catalog is bounded to 64 KiB, with at
+most 128 combined sounds. IDs, source guild, names (2–32 Unicode scalars and at
+most 128 bytes), finite volume in 0–1, optional emoji metadata and duplicate IDs
+are validated. Omitted guild IDs are supplied only from the fixed current-guild
+route; conflicting IDs are rejected. Creator/user fields are ignored.
+
+Actions require an authenticated, online, exact connected guild voice call, channel
+kind 2, SPEAK and USE_SOUNDBOARD permissions, and no server mute/suppression, server deaf or
+self-deaf. Stage and private channels are excluded. A generation/channel/call-request
+scope and latest authorization watch cancel pending work on departure, call switch,
+logout, disconnected signaling or access loss. There is one pending load/play, a
+one-second local play interval, and no implicit HTTP retry. Service, permission,
+capacity and ambiguous-write failures stay in the picker and do not tear down a
+call; authentication failures still end the session. English/Czech feedback warns
+that an ambiguous write might already have played.
+
+`--features demo -- --demo --demo-soundboard` opens a synthetic native preview with
+play controls disabled. It never starts a call, opens a microphone or contacts Discord.

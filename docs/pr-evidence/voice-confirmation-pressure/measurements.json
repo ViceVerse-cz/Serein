@@ -1,0 +1,516 @@
+{
+  "source": "9cdad91c86139543a370f3658e5f92257a9064fe",
+  "application_source": "5724cf5be34f17a62ee1b5fc07f2cd2653be3d79",
+  "baseline_source": "1107d9045fb9d98980d6d8e9987c96a362b4f9ab",
+  "source_note": "HISTORICAL PRE-WATCH COMPARISON: the standard feature package was built from 5724; 9cd adds only cfg(test) live-negotiation coverage. These native/reducer/package measurements exclude later main integration and the reliable confirmation-failure watch correction 5ecd. Current aggregate correction package and verification are recorded separately below.",
+  "environment": {
+    "os": "macOS 27.0 (26A428)",
+    "architecture": "ARM64",
+    "machine": "Apple M1 MacBookAir10,1",
+    "ram_gib": 16,
+    "rust": "1.98.1",
+    "dependencies": "Cargo.lock; --locked",
+    "jobs": 2
+  },
+  "standard": {
+    "baseline": {
+      "commit": "1107d9045fb9d98980d6d8e9987c96a362b4f9ab",
+      "command": "cargo xtask package",
+      "features": "standard xtask package; voice included; xtask internally uses --no-default-features",
+      "executable": 62154064,
+      "installed": 68164493,
+      "compressed": 43322199,
+      "files": 206,
+      "executable_sha256": "7eeb3fdda0cd6f27024f42623e6752048dcb2cdbbbe71516625752dc80c6fe08",
+      "zip_method": "ditto -c -k --sequesterRsrc full standard-dist contents, without enclosing directory"
+    },
+    "after": {
+      "executable_bytes": 62154064,
+      "installed_bytes": 68164493,
+      "regular_files": 206,
+      "distribution_zip_bytes": 43321986,
+      "method": "standard cargo xtask package, including voice and notices; sum regular files; ditto -c -k --sequesterRsrc"
+    },
+    "file_comparison": {
+      "source": "5724cf5be34f17a62ee1b5fc07f2cd2653be3d79",
+      "baseline_source": "1107d9045fb9d98980d6d8e9987c96a362b4f9ab",
+      "same_paths": true,
+      "files": 206,
+      "unchanged_hashes": 203,
+      "changed_paths": [
+        "Serein.app/Contents/_CodeSignature/CodeResources",
+        "Serein.app/Contents/MacOS/serein",
+        "Serein.app/Contents/Resources/Assets.car"
+      ],
+      "executable_sha256": "54f6843122127536998904fbe94987dcbdc90c295962542f540547b0c1a394fe",
+      "method": "SHA256 regular non-symlink files after locally ad-hoc signed standard packages; source-locked cargo xtask package, including voice; ditto ZIP",
+      "all_license_notice_files_identical": 199
+    },
+    "production_identity": {
+      "unchanged_production_voice_prefix_sha256": "5a6c72654bc209479fc99a5737af57aaf4bbeeac6f14eac8514e549e242eea12",
+      "compiled_production_before_test_module_unchanged": true,
+      "package_source": "5724cf5be34f17a62ee1b5fc07f2cd2653be3d79",
+      "followup": "Adds only a cfg(test) live.negotiation regression; no production API or behavior change",
+      "focused_tests": 5,
+      "focus_log": "/tmp/serein-confirmation-pressure-live-focus.log"
+    },
+    "method": "cargo xtask package internally uses release --no-default-features; voice included. Locally ad-hoc signed; deep/strict codesign verification passed. Installed bytes sum 206 regular files; ditto -c -k --sequesterRsrc archives full contents without enclosing directory."
+  },
+  "native": {
+    "baseline_build": {
+      "commit": "1107d9045fb9d98980d6d8e9987c96a362b4f9ab",
+      "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein-target-root-delivery CARGO_BUILD_JOBS=2 cargo build --release --locked -p serein --features demo",
+      "profile": "repository default fat LTO; no profile override",
+      "features": "default+demo; voice included",
+      "native_instrumentation": false,
+      "source_clean": true,
+      "bytes": 64070816,
+      "sha256": "8cb2c76afea62c3b6c82c10a09ffc5aaee0a10316d16c73534dd61d495c3ba77",
+      "elapsed": "11m09s"
+    },
+    "after_build": {
+      "source": "9cdad91c86139543a370f3658e5f92257a9064fe",
+      "application_source": "5724cf5be34f17a62ee1b5fc07f2cd2653be3d79",
+      "source_note": "9cd adds only cfg(test) live-negotiation coverage; production source unchanged from 5724 standard package. No capture hooks.",
+      "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein-target-voice-delivery CARGO_BUILD_JOBS=2 cargo build --release --locked -p serein --features demo",
+      "profile": "repository release profile unchanged; FAT LTO; codegen-units=1; default+demo features; voice included",
+      "build_seconds": 1086,
+      "binary": "/Users/claw/Code/Serein/target/issue-sweep/voice-confirmation-pressure/9cdad91c/serein-release-demo",
+      "bytes": 64070816,
+      "sha256": "b8d15907a8b1b2e5f6032764bafadc36e2b53b7b401cc00abbb257286e6378b3"
+    },
+    "baseline": {
+      "binary": "/Users/claw/Code/Serein/target/issue-sweep/baseline-main110/1107d904/serein-release-demo",
+      "flags": [
+        "--demo",
+        "--demo-chat"
+      ],
+      "warmup_seconds": 5,
+      "interval_seconds": 1,
+      "samples": [
+        {
+          "seconds": 5.03,
+          "cpu_percent": 0.0,
+          "rss_kib": 123888
+        },
+        {
+          "seconds": 6.052,
+          "cpu_percent": 0.1,
+          "rss_kib": 123888
+        },
+        {
+          "seconds": 7.078,
+          "cpu_percent": 0.0,
+          "rss_kib": 123856
+        },
+        {
+          "seconds": 8.104,
+          "cpu_percent": 0.0,
+          "rss_kib": 123856
+        },
+        {
+          "seconds": 9.125,
+          "cpu_percent": 0.0,
+          "rss_kib": 123856
+        },
+        {
+          "seconds": 10.15,
+          "cpu_percent": 0.0,
+          "rss_kib": 123856
+        },
+        {
+          "seconds": 11.177,
+          "cpu_percent": 0.0,
+          "rss_kib": 123856
+        },
+        {
+          "seconds": 12.204,
+          "cpu_percent": 0.0,
+          "rss_kib": 123856
+        },
+        {
+          "seconds": 13.231,
+          "cpu_percent": 0.0,
+          "rss_kib": 123856
+        },
+        {
+          "seconds": 14.257,
+          "cpu_percent": 0.0,
+          "rss_kib": 123856
+        }
+      ],
+      "cpu_percent_median": 0.0,
+      "rss_peak_kib": 123888,
+      "rss_settled_kib": 123856,
+      "elapsed_seconds": 15.284,
+      "user_cpu_seconds": 0.20782599999999998,
+      "system_cpu_seconds": 0.19728099999999998,
+      "exit_code": -2,
+      "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo"
+    },
+    "after": {
+      "binary": "/Users/claw/Code/Serein/target/issue-sweep/voice-confirmation-pressure/9cdad91c/serein-release-demo",
+      "flags": [
+        "--demo",
+        "--demo-chat"
+      ],
+      "warmup_seconds": 5,
+      "interval_seconds": 1,
+      "samples": [
+        {
+          "seconds": 5.03,
+          "cpu_percent": 0.0,
+          "rss_kib": 124768
+        },
+        {
+          "seconds": 6.053,
+          "cpu_percent": 0.1,
+          "rss_kib": 124768
+        },
+        {
+          "seconds": 7.078,
+          "cpu_percent": 0.0,
+          "rss_kib": 124720
+        },
+        {
+          "seconds": 8.101,
+          "cpu_percent": 0.0,
+          "rss_kib": 124720
+        },
+        {
+          "seconds": 9.123,
+          "cpu_percent": 0.0,
+          "rss_kib": 124720
+        },
+        {
+          "seconds": 10.145,
+          "cpu_percent": 0.0,
+          "rss_kib": 124720
+        },
+        {
+          "seconds": 11.17,
+          "cpu_percent": 0.0,
+          "rss_kib": 124720
+        },
+        {
+          "seconds": 12.19,
+          "cpu_percent": 0.0,
+          "rss_kib": 124720
+        },
+        {
+          "seconds": 13.206,
+          "cpu_percent": 0.0,
+          "rss_kib": 124720
+        },
+        {
+          "seconds": 14.231,
+          "cpu_percent": 0.0,
+          "rss_kib": 124720
+        }
+      ],
+      "cpu_percent_median": 0.0,
+      "rss_peak_kib": 124768,
+      "rss_settled_kib": 124720,
+      "elapsed_seconds": 15.243,
+      "user_cpu_seconds": 0.20204899999999998,
+      "system_cpu_seconds": 0.132611,
+      "exit_code": -2,
+      "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo"
+    },
+    "viewport": "1120x760 logical, 2x scale, Metal",
+    "method": "Default-plus-demo repository release profile with FAT LTO and codegen-units=1; identical --demo --demo-chat. Five-second warmup, ten one-second macOS ps samples; settled RSS is median of final five. All team compilers/tests/other native apps stopped during samples. Both apps stopped before reducer replay."
+  },
+  "reducer": {
+    "baseline_build": {
+      "source": "3f96877f553bbe50eab91d31611cd97ad94b64b8",
+      "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein-target-voice-delivery CARGO_BUILD_JOBS=2 cargo build --release --locked -p replay-bench",
+      "bytes": 1246112,
+      "sha256": "0a50633cde2e853ac6835d2bd5576f064af9369c6800f22df111e055f1872ac3",
+      "exit_code": 0,
+      "build_elapsed_seconds": 30.28,
+      "profile": "default release, FAT LTO/codegen-units=1; no overrides"
+    },
+    "after_build": {
+      "source": "9cdad91c86139543a370f3658e5f92257a9064fe",
+      "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein-target-voice-delivery CARGO_BUILD_JOBS=2 cargo build --release --locked -p replay-bench",
+      "profile": "default repository release, FAT LTO/codegen-units1, no overrides or added features",
+      "binary": "/Users/claw/Code/Serein/target/issue-sweep/voice-confirmation-pressure/9cdad91c/replay-bench",
+      "bytes": 1246112,
+      "sha256": "5a9d5ebff36a4ee7a96c445611fa88aed193b736c97d81e85535cc8877ea11f5",
+      "exit_code": 0,
+      "build_elapsed_seconds": 41.58
+    },
+    "baseline_identity": {
+      "baseline_build_source": "3f96877f553bbe50eab91d31611cd97ad94b64b8",
+      "equivalent_reducer_source": "1107d9045fb9d98980d6d8e9987c96a362b4f9ab",
+      "scope": "Pure reducer only: no application/UI/media equivalence claimed.",
+      "verified_tracked_paths": [
+        "Cargo.toml",
+        "Cargo.lock",
+        "rust-toolchain.toml",
+        ".cargo",
+        "crates/model",
+        "crates/client-core",
+        "crates/test-support",
+        "crates/session-cache",
+        "tools/replay-bench"
+      ],
+      "tracked_tree_listing_sha256": "841079a1c75d44b5421d1fc83d0cc0f04055a3092c2c2989351a672739d55ba1",
+      "tracked_files": 96,
+      "byte_identical_git_objects": true,
+      "feature_configuration": "Existing 3f command cargo build --release --locked -p replay-bench, no feature/profile/environment overrides except dedicated target and jobs=2; root 110 same intended command. Workspace manifests/lock/toolchain/config plus complete relevant crate trees byte-identical."
+    },
+    "paired": {
+      "method": "One warmup per binary, five alternating pairs; 100000 synthetic reducer events. No compiler or native demo active. Not process RSS, UI latency or live compatibility.",
+      "pair_order": [
+        [
+          "baseline",
+          "after"
+        ],
+        [
+          "after",
+          "baseline"
+        ],
+        [
+          "baseline",
+          "after"
+        ],
+        [
+          "after",
+          "baseline"
+        ],
+        [
+          "baseline",
+          "after"
+        ]
+      ],
+      "results": {
+        "baseline": {
+          "binary": "/Users/claw/Code/Serein/target/issue-sweep/voice-takeover-final/3f96877f/replay-bench",
+          "sha256": "0a50633cde2e853ac6835d2bd5576f064af9369c6800f22df111e055f1872ac3",
+          "warmup": {
+            "elapsed_ms": 53.661583,
+            "retained_min_bytes": 331992,
+            "retained_max_bytes": 332477,
+            "records": 500,
+            "stdout": "Synthetic reducer replay: 100000 events in 53.661583ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+          },
+          "samples": [
+            {
+              "elapsed_ms": 53.049625,
+              "retained_min_bytes": 331992,
+              "retained_max_bytes": 332477,
+              "records": 500,
+              "stdout": "Synthetic reducer replay: 100000 events in 53.049625ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+            },
+            {
+              "elapsed_ms": 53.379833,
+              "retained_min_bytes": 331992,
+              "retained_max_bytes": 332477,
+              "records": 500,
+              "stdout": "Synthetic reducer replay: 100000 events in 53.379833ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+            },
+            {
+              "elapsed_ms": 53.635125,
+              "retained_min_bytes": 331992,
+              "retained_max_bytes": 332477,
+              "records": 500,
+              "stdout": "Synthetic reducer replay: 100000 events in 53.635125ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+            },
+            {
+              "elapsed_ms": 53.726709,
+              "retained_min_bytes": 331992,
+              "retained_max_bytes": 332477,
+              "records": 500,
+              "stdout": "Synthetic reducer replay: 100000 events in 53.726709ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+            },
+            {
+              "elapsed_ms": 52.768833,
+              "retained_min_bytes": 331992,
+              "retained_max_bytes": 332477,
+              "records": 500,
+              "stdout": "Synthetic reducer replay: 100000 events in 52.768833ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+            }
+          ],
+          "median_elapsed_ms": 53.379833,
+          "elapsed_range_ms": [
+            52.768833,
+            53.726709
+          ],
+          "retained_range_bytes": [
+            331992,
+            332477
+          ]
+        },
+        "after": {
+          "binary": "/Users/claw/Code/Serein/target/issue-sweep/voice-confirmation-pressure/9cdad91c/replay-bench",
+          "sha256": "5a9d5ebff36a4ee7a96c445611fa88aed193b736c97d81e85535cc8877ea11f5",
+          "warmup": {
+            "elapsed_ms": 92.592375,
+            "retained_min_bytes": 331992,
+            "retained_max_bytes": 332477,
+            "records": 500,
+            "stdout": "Synthetic reducer replay: 100000 events in 92.592375ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+          },
+          "samples": [
+            {
+              "elapsed_ms": 52.405167,
+              "retained_min_bytes": 331992,
+              "retained_max_bytes": 332477,
+              "records": 500,
+              "stdout": "Synthetic reducer replay: 100000 events in 52.405167ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+            },
+            {
+              "elapsed_ms": 52.563958,
+              "retained_min_bytes": 331992,
+              "retained_max_bytes": 332477,
+              "records": 500,
+              "stdout": "Synthetic reducer replay: 100000 events in 52.563958ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+            },
+            {
+              "elapsed_ms": 52.975458,
+              "retained_min_bytes": 331992,
+              "retained_max_bytes": 332477,
+              "records": 500,
+              "stdout": "Synthetic reducer replay: 100000 events in 52.975458ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+            },
+            {
+              "elapsed_ms": 53.170958,
+              "retained_min_bytes": 331992,
+              "retained_max_bytes": 332477,
+              "records": 500,
+              "stdout": "Synthetic reducer replay: 100000 events in 53.170958ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+            },
+            {
+              "elapsed_ms": 54.155959,
+              "retained_min_bytes": 331992,
+              "retained_max_bytes": 332477,
+              "records": 500,
+              "stdout": "Synthetic reducer replay: 100000 events in 54.155959ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+            }
+          ],
+          "median_elapsed_ms": 52.975458,
+          "elapsed_range_ms": [
+            52.405167,
+            54.155959
+          ],
+          "retained_range_bytes": [
+            331992,
+            332477
+          ]
+        }
+      }
+    }
+  },
+  "limitations": "Idle CPU/RSS and bounded synthetic reducer regression checks do not measure queue latency, UI frames/GPU, live Discord interoperability, or physical media performance. No live account, service call, microphone, camera or OS picker was used. Tiny differences are noise; no improvement claim.",
+  "build_provenance": {
+    "baseline": {
+      "standard_log_sha256": "88b09725865a29e4c00a7968284a4b395d6cbf7e1e8ab3b8cd0cf4110ad74860",
+      "fresh_runtime_workspace_crates": [
+        "model",
+        "session-cache",
+        "client-core",
+        "discord-protocol",
+        "discord-voice",
+        "platform",
+        "extensions",
+        "serein",
+        "ui",
+        "discord-api",
+        "local-store",
+        "discord-gateway"
+      ],
+      "worktree": "/private/tmp/serein-main-110-baseline",
+      "optimized_demo_log_sha256": "200c61430234f93fe3fdc410b41c1c4bbd1cdf8c6bd181864e9a3e01a867d5f0",
+      "transition": "Optimized demo immediately followed the standard package in the same unchanged production worktree. Reused release dependencies came from that freshly compiled standard source; only demo-affected packages were rebuilt."
+    },
+    "after": {
+      "standard_log_sha256": "d46851114083cba2607122c8f30044551489b73029588a03290cacb3a0daa425",
+      "fresh_runtime_workspace_crates": [
+        "model",
+        "session-cache",
+        "client-core",
+        "discord-protocol",
+        "discord-voice",
+        "platform",
+        "extensions",
+        "serein",
+        "ui",
+        "discord-api",
+        "local-store",
+        "discord-gateway"
+      ],
+      "worktree": "/private/tmp/serein-confirmation-pressure",
+      "optimized_demo_log_sha256": "f95689eb30b281430bf630fb0fdab3af654ae0dd22c7f65a6db14595bc76014d",
+      "transition": "Optimized demo immediately followed the standard package in the same unchanged production worktree. Reused release dependencies came from that freshly compiled standard source; only demo-affected packages were rebuilt."
+    }
+  },
+  "historical_pre_watch_bounds": "Confirmation failure carries a channel ID, two u64 values, and a fixed static diagnostic through the existing bounded event queue. No allocated payload, pending retry slot, new cache or worker is added; original 30-second negotiation deadline unchanged.",
+  "current_watch_correction": {
+    "source": "5ecd04f7fb495a1d574197eb85ad6006b4fdb5a3",
+    "production_changed": true,
+    "bounds": "One optional fixed Copy report containing generation/channel/request/revision and static diagnostic, at most 64 bytes plus fixed watch synchronization metadata. No allocated payload or credentials, account-event item/byte usage, retry worker or new command slot. Report stays unseen until reliable FIFO drains; closed-publisher report delivered exactly once; original 30-second deadline unchanged.",
+    "verification": {
+      "focus": "9 passed including actual 4,008 event items + 32 MiB budget + 8 controls, replacement/ACK beyond frame batch, closed publisher once-only, dormantLive retirement",
+      "strict_desktop_all_target_clippy": "PASS",
+      "full": "PASS174 Desktop / 6 existing ignored; 367 UI / 5 existing ignored, all workspace tests/format/strict/policy",
+      "focus_log_sha256": "1be5ed218e0e970bea9f830b19f5ea4631431e19e06dcbd5c53acd39d2d833c0",
+      "strict_log_sha256": "d8f12336e8458aab1bd94822d3698a3426ddbe3cf666bdd9177b82b003db2e83",
+      "full_log_sha256": "24285d4a682c7ad9427df777af740c9867c75ff501280f936a75913a3dd57bf2",
+      "durable_logs": [
+        {
+          "path": "docs/pr-evidence/voice-confirmation-pressure/logs/watch-focus-retry.log",
+          "bytes": 6790,
+          "sha256": "1be5ed218e0e970bea9f830b19f5ea4631431e19e06dcbd5c53acd39d2d833c0",
+          "source": "Exact frozen four-path source committed as5ecd; actual offline verification log, not a new run"
+        },
+        {
+          "path": "docs/pr-evidence/voice-confirmation-pressure/logs/watch-clippy.log",
+          "bytes": 7069,
+          "sha256": "d8f12336e8458aab1bd94822d3698a3426ddbe3cf666bdd9177b82b003db2e83",
+          "source": "Exact frozen four-path source committed as5ecd; actual offline verification log, not a new run"
+        },
+        {
+          "path": "docs/pr-evidence/voice-confirmation-pressure/logs/watch-full-check.log",
+          "bytes": 130502,
+          "sha256": "24285d4a682c7ad9427df777af740c9867c75ff501280f936a75913a3dd57bf2",
+          "source": "Exact frozen four-path source committed as5ecd; actual offline verification log, not a new run"
+        }
+      ]
+    },
+    "standard_build": {
+      "source": "5ecd04f7fb495a1d574197eb85ad6006b4fdb5a3",
+      "source_clean": true,
+      "capture_hooks": false,
+      "package": {
+        "executable_bytes": 62269504,
+        "installed_bytes": 68279933,
+        "regular_files": 206,
+        "distribution_zip_bytes": 43364502,
+        "method": "standard cargo xtask package, including voice and notices; sum regular files; ditto -c -k --sequesterRsrc"
+      },
+      "executable_sha256": "f1b041ec415bed6deb9731abd585a0a008487c0ede2c5613be4d3e56e8462f91",
+      "fresh_runtime_workspace_crates": [
+        "model",
+        "session-cache",
+        "client-core",
+        "discord-protocol",
+        "discord-voice",
+        "platform",
+        "extensions",
+        "serein",
+        "ui",
+        "discord-api",
+        "local-store",
+        "discord-gateway"
+      ],
+      "standard_log_sha256": "9b8783d755a02a0148c29110a1c6d7556f3dcb9095d46d2eca34b22b0809146c",
+      "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein-target-voice-delivery CARGO_BUILD_JOBS=2 cargo xtask package",
+      "features": "xtask internally uses --no-default-features; voice included; repository FAT-LTO unchanged",
+      "signing": "deep/strict ad-hoc signature verification passed, not notarized",
+      "elapsed": "11m46s",
+      "scope": "Fresh aggregate correction source contains intervening main features; no isolated watch-package delta and no old idle/reducer measurements relabeled"
+    },
+    "unchanged_ui": "No widget/layout change; existing candidate-error UI reused. Earlier native/reducer samples remain historical and are not claimed for corrected watch source."
+  }
+}

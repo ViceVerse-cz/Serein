@@ -1323,7 +1323,10 @@ impl Desktop {
 				} else if std::env::args().any(|arg| {
 					matches!(
 						arg.as_str(),
-						"--demo-voice" | "--demo-voice-failed" | "--demo-voice-video"
+						"--demo-voice"
+							| "--demo-voice-failed"
+							| "--demo-voice-video"
+							| "--demo-soundboard"
 					)
 				}) {
 					test_support::voice_demo_state()
@@ -1515,6 +1518,11 @@ impl Desktop {
 			.last()
 			.map_or(10_000, |m| m.id.0.max(10_000));
 		let mut messaging = ui::MessagingUi::default();
+		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-soundboard") {
+			messaging.soundboard.open(&mut state, &mut Vec::new());
+		}
+
 		if !demo {
 			messaging.custom_font.busy = cache.as_ref().is_some_and(|cache| {
 				cache.queue(
@@ -3080,8 +3088,29 @@ impl Desktop {
 			self.request_history_clear(account);
 		}
 	}
+	fn sync_soundboard_access(&self) {
+		if let Some(connection) = &self.connection {
+			let scope = self.state.soundboard_scope();
+			connection.soundboard_access.send_if_modified(|current| {
+				if *current == scope {
+					false
+				} else {
+					*current = scope;
+					true
+				}
+			});
+		}
+	}
 	/// Dispatches one queued command to the demo or live transport.
 	fn command(&mut self, command: Command) {
+		self.sync_soundboard_access();
+		if let Command::Soundboard(request) = &command
+			&& (self.state.soundboard_scope() != Some(request.scope)
+				|| self.state.soundboard.pending != Some((request.scope, request.request)))
+		{
+			self.state.command_rejected(command);
+			return;
+		}
 		if matches!(&command, Command::Interaction(client_core::interactions::Request {data:client_core::interactions::Data::Modal{components,..},..}) if interaction_uploads::has_files(components))
 		{
 			self.interaction_upload(command);
@@ -3488,6 +3517,11 @@ impl Desktop {
 						result: Ok(()),
 					})
 				}
+				Command::Soundboard(request) => Event::Soundboard(client_core::soundboard::Event {
+					scope: request.scope,
+					request: request.request,
+					result: Err(Failure::Forbidden),
+				}),
 				Command::Polls(request) => {
 					polls_demo::respond(&self.state, request, &mut self.synthetic_id)
 				}
@@ -5410,6 +5444,14 @@ impl Desktop {
 			}
 			let typing_count = events.len() - reliable_count;
 			events.rotate_right(typing_count);
+			// A local candidate failure must remain deliverable when reliable account
+			// events are full. Apply queued signaling first; observe rechecks its scope.
+			if let Some(failure) = connection::take_confirmation_failure(
+				&mut connection.confirmation_failure,
+				&connection.events,
+			) {
+				events.push(failure);
+			}
 			terminal = *connection.terminal.borrow();
 		}
 		let mut persist_timeline = false;
@@ -5846,6 +5888,7 @@ impl eframe::App for Desktop {
 		);
 		self.messaging.sync_reading_zoom(ctx);
 		self.poll(ctx);
+		self.sync_soundboard_access();
 		self.sync_fonts(ctx);
 		self.hotkeys.sync(&self.messaging.keybinds, &self.runtime);
 		self.messaging.global_keybind_status = self.hotkeys.status();

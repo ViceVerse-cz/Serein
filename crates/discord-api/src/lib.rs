@@ -24,6 +24,7 @@ mod server_integrations;
 mod server_invites;
 mod server_roles;
 mod server_settings;
+mod soundboard;
 pub mod spotify;
 pub mod upload;
 mod user_actions;
@@ -71,7 +72,12 @@ struct ProxyState {
 
 enum RequestContent {
 	Json(serde_json::Value),
-	Multipart { content_type: String, body: Vec<u8> },
+	/// A documented write acknowledgement must be exactly 204 No Content.
+	JsonNoContent(serde_json::Value),
+	Multipart {
+		content_type: String,
+		body: Vec<u8>,
+	},
 }
 
 fn stream_preview_url(bytes: &[u8], key: &str) -> Result<String, Failure> {
@@ -359,6 +365,7 @@ impl DiscordApi {
 		#[cfg(test)]
 		let base = &self.base;
 		let write = method != Method::GET;
+		let require_no_content = matches!(&body, Some(RequestContent::JsonNoContent(_)));
 		let mut request = self
 			.rest_client()
 			.await?
@@ -384,7 +391,9 @@ impl DiscordApi {
 		}
 		if let Some(body) = body {
 			request = match body {
-				RequestContent::Json(body) => request.json(&body),
+				RequestContent::Json(body) | RequestContent::JsonNoContent(body) => {
+					request.json(&body)
+				}
 				RequestContent::Multipart { content_type, body } => request
 					.header(
 						CONTENT_TYPE,
@@ -491,6 +500,9 @@ impl DiscordApi {
 			} else {
 				Failure::Protocol
 			});
+		}
+		if require_no_content && (status != StatusCode::NO_CONTENT || !bytes.is_empty()) {
+			return Err(Failure::Ambiguous);
 		}
 		Ok(std::mem::take(&mut *bytes))
 	}
@@ -640,6 +652,11 @@ impl DiscordApi {
 	/// Runs one typed command and returns its typed event.
 	pub async fn execute(&self, command: Command) -> Event {
 		match command {
+			Command::Soundboard(request) => Event::Soundboard(client_core::soundboard::Event {
+				scope: request.scope,
+				request: request.request,
+				result: self.soundboard(request).await,
+			}),
 			Command::ApplicationCommands {
 				channel,
 				guild,
