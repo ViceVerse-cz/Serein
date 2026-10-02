@@ -3134,6 +3134,42 @@ is unavailable on this host. Raw package/build hashes, ten-sample records, scree
 metadata and limits are in
 [the task measurements](pr-evidence/macos-control-click/measurements.json).
 
+## Chat paste, mention recency and image galleries (October 2, 2026)
+
+Runtime source `5193f09e0a0aceb0955101407371ea7a299bc47f` includes this task and a normal merge of main
+`71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35`. Its original parent comparator is
+`47a81035047695fe1d81edc4cb7efe46c14d87a8`. These are aggregate measurements:
+incoming quiet/GIF, voice, diagnostics/search, zoom, camera, Linux appearance,
+media and Flatpak changes are included, so the deltas do not isolate gallery cost.
+
+On Apple M1/macOS 27/16 GiB/Metal at 2× scale, instrument-free default+demo releases
+used identical process-only thin-LTO flags; the shipping package kept normal
+fat-LTO. After inspected workspace-name cache invalidation across worktree IDs,
+all twelve runtime crates freshly compiled from the exact source. Both builds
+passed, and the preserved standard app passed strict signature verification.
+Parent47 and the preserved standard comparator `ef9cd5d1` have identical runtime,
+notices and macOS packaging sources; Linux packaging differences are excluded.
+
+| Metric / method | Parent47 | Aggregate5193 | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable, bytes | 62,088,304 | 62,269,488 | +181,184 (+0.292%) |
+| Installed contents, bytes | 68,098,733 | 68,279,917 | +181,184 (+0.266%) |
+| ZIP, same ditto method, bytes | 43,286,187 | 43,366,411 | +80,224 (+0.185%) |
+| Idle CPU, median 10×1s after 5s warmup | 0% | 0% | 0 percentage points |
+| Sampled peak RSS, KiB | 125,136 | 125,168 | +32 |
+| Settled RSS, median last 5, KiB | 125,088 | 125,120 | +32 |
+
+The native pair used the same ordinary `--demo --demo-chat` fixture, with all team
+compilers/native apps and heavy IO held. Both processes stopped after sampling.
+The small RSS difference is noise; no improvement is claimed. Gallery screenshots
+use a separate opt-in bounded five-image fixture. Eight actual WGPU before/after
+frames cover wide/narrow and dark/light layouts; temporary hooks were removed
+byte-for-byte. Actual egui pointer tests cover embed entry/lifecycle and row heights.
+Fresh full checks passed 373 UI/168 desktop tests plus all workspace strict/policy
+checks. Frame timing, active decode, native OS paste routing, Linux/Windows native
+rendering and live Discord interoperability remain unmeasured. Raw source/build,
+sample and capture records are in `docs/pr-evidence/chat-parity/`.
+
 ## Complete large-guild subscriptions — September 29, 2026
 
 Baseline: `400ac8cb060757b6b775284356324f22e5968158`; after: this
