@@ -1283,12 +1283,11 @@ impl MessagingUi {
 		} else {
 			(size.y * 0.42).clamp(48.0, 128.0)
 		};
-		// Keep the absent peer's name and status clear of its frameless avatar.
-		let avatar_size = if inactive && frameless && !compact {
-			avatar_size.min((size.y - 68.0).max(48.0))
-		} else {
-			avatar_size
-		};
+		let ringing = inactive
+			&& state
+				.voice
+				.ringing(entry.channel)
+				.contains(&entry.participant.user);
 		let offset = if compact {
 			0.0
 		} else if frameless {
@@ -1303,6 +1302,12 @@ impl MessagingUi {
 		let mut avatar_ui = ui.new_child(egui::UiBuilder::new().max_rect(avatar_rect));
 		if video.is_some() {
 			avatar_ui.set_opacity(0.0);
+		} else if inactive && !ringing {
+			// Absent peers fade like Discord's empty call seats.
+			avatar_ui.set_opacity(0.45);
+		}
+		if ringing && video.is_none() {
+			ringing_pulse(ui, avatar_rect);
 		}
 		let avatar = if let Some(user) = user {
 			self.avatars
@@ -1356,33 +1361,24 @@ impl MessagingUi {
 		}
 		self.voice_participant_menu(&avatar, state, entry);
 		if inactive {
-			let ringing = state
-				.voice
-				.ringing(entry.channel)
-				.contains(&entry.participant.user);
 			let label = crate::i18n::translate(if ringing {
 				"voice-recipient-ringing"
 			} else {
 				"voice-recipient-not-in-call"
 			});
-			let label_top = if frameless && !compact {
-				avatar_rect.bottom() + 28.0
-			} else {
-				rect.top() + 6.0
-			};
-			let label_rect = egui::Rect::from_min_size(
-				egui::pos2(rect.left() + 8.0, label_top),
-				egui::vec2((size.x - 16.0).max(16.0), 18.0),
-			);
-			ui.put(
-				label_rect,
-				egui::Label::new(RichText::new(label).size(10.0).color(if ringing {
-					colors.accent
-				} else {
-					STAGE_MUTED
-				}))
-				.truncate(),
-			);
+			let status = format!("{name} · {label}");
+			avatar.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &status));
+			avatar.clone().on_hover_text(status);
+			// Plates keep a small corner status; the frameless DM stage relies on the ring.
+			if !frameless && !compact {
+				ui.put(
+					egui::Rect::from_min_size(
+						rect.left_top() + egui::vec2(8.0, 6.0),
+						egui::vec2((size.x - 16.0).max(16.0), 18.0),
+					),
+					egui::Label::new(RichText::new(label).size(11.0).color(STAGE_MUTED)).truncate(),
+				);
+			}
 		}
 		if let Some(user) = user {
 			self.profile.person_click(ui, &avatar, None, user);
@@ -1419,7 +1415,7 @@ impl MessagingUi {
 			ui.painter().galley(
 				egui::pos2(
 					rect.center().x - galley.size().x * 0.5,
-					avatar_rect.bottom() + 20.0 - galley.size().y * 0.5,
+					avatar_rect.bottom() + 24.0 - galley.size().y * 0.5,
 				),
 				galley,
 				STAGE_TEXT,
@@ -3027,7 +3023,7 @@ impl MessagingUi {
 			let height = if stage {
 				(ui.available_height() * 0.74).clamp(320.0, 900.0)
 			} else {
-				(ui.available_height() * 0.5).clamp(300.0, 440.0)
+				(ui.available_height() * 0.36).clamp(240.0, 320.0)
 			};
 			// Dragging the bottom edge resizes the call; video and voice-only keep separate sizes.
 			// The conversation and composer below always keep at least 160 points.
@@ -3687,12 +3683,36 @@ fn tile_button(
 	response.on_hover_text(hint)
 }
 
+/// Discord's ringing seat: a steady grey ring with a second one breathing outward.
+fn ringing_pulse(ui: &egui::Ui, avatar: egui::Rect) {
+	const PERIOD: f64 = 1.6;
+	let phase = (ui.input(|input| input.time) % PERIOD / PERIOD) as f32;
+	let center = avatar.center();
+	let radius = avatar.width() * 0.5 + 7.0;
+	let painter = ui.painter();
+	painter.circle_stroke(
+		center,
+		radius + 3.0 + phase * 10.0,
+		egui::Stroke::new(3.0, STAGE_MUTED.gamma_multiply(0.9 * (1.0 - phase))),
+	);
+	painter.circle_filled(
+		center,
+		radius + 3.0,
+		egui::Color32::from_rgb(0x5c, 0x5e, 0x66),
+	);
+	painter.circle_filled(center, radius - 3.0, STAGE_FILL);
+	// The pulse only needs a smooth 30 fps while someone is being rung.
+	ui.ctx()
+		.request_repaint_after(std::time::Duration::from_millis(33));
+}
+
 fn speaking_avatar(ui: &egui::Ui, avatar: &egui::Response, name: &str) {
 	let colors = design::palette(ui);
+	// A small dark gap separates the ring from the avatar, as on Discord.
 	ui.painter().circle_stroke(
 		avatar.rect.center(),
-		avatar.rect.width() * 0.5 + 2.0,
-		egui::Stroke::new(2.0, colors.positive),
+		avatar.rect.width() * 0.5 + 4.0,
+		egui::Stroke::new(3.0, colors.positive),
 	);
 	let label = format!("{name} · Speaking");
 	avatar.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &label));
