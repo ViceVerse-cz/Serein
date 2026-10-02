@@ -3710,6 +3710,145 @@ unmeasured. Raw source identities, binary hashes, sizes and all samples are in
 `docs/pr-evidence/gif-favorite-sync/measurements.json`. This evidence follow-up
 changes no measured runtime source.
 
+
+## DM recipient ringing controls (October 2, 2026)
+
+Runtime `8a4272d606465eba1cc4513e39cd7b905a8d733f` was compared with the
+immutable confirmation-pressure dependency `9cdad91c`. Its standard package uses
+production source `5724cf5b`; the later `9cd` changes are cfg(test)-only and leave
+production code unchanged. Both feature sources use the recorded main110 base;
+these measurements are not labeled as a later aggregate main revision.
+Environment: macOS 27.0 (26A428), Apple M1 (8 logical CPUs), 16 GiB RAM,
+Rust 1.98.1, aarch64-apple-darwin, native Metal at 2× scale.
+
+Current source passed focused metadata/worker regressions and fresh
+`cargo xtask check` (178 desktop and 354 UI tests, plus unchanged ignored
+workloads), strict lint/format/policy, the standard voice-inclusive package,
+default-plus-demo optimized build and reducer build. Standard release workspace
+artifacts were removed by package name across all worktree PackageIDs; all 12
+runtime workspace crates freshly compiled. The optimized demo immediately
+followed that unchanged same worktree. All five reducer workspace crates then
+freshly compiled; no capture hooks were present in these release builds.
+
+| Metric | Confirmation-pressure baseline | Ring controls | Absolute / percent delta |
+| --- | ---: | ---: | ---: |
+| Standard executable, bytes | 62,154,064 | 62,219,840 | +65,776 / +0.1058% |
+| Installed payload, bytes | 68,164,493 | 68,230,269 | +65,776 / +0.0965% |
+| Complete ZIP, bytes | 43,321,986 | 43,346,860 | +24,874 / +0.0574% |
+| Median process CPU | 0.1% | 0.1% | 0.0 percentage points |
+| Sampled peak process RSS, KiB | 127,248 | 127,344 | +96 / +0.0754% |
+| Settled process RSS, KiB | 127,200 | 127,296 | +96 / +0.0755% |
+| 100,000-event reducer median, ms | 53.315542 | 53.678583 | +0.363041 / +0.6809% |
+| Retained timeline estimate, bytes | 331,992–332,477 | 331,992–332,477 | 0; 500 records |
+
+Both standard packages use the xtask's release `--no-default-features` path,
+including voice. Installed size sums all 206 regular files; complete portable
+ZIPs use identical `ditto -c -k --sequesterRsrc` without an enclosing directory.
+All paths match, 203 file hashes match, and all 199 license/notice files remain
+unchanged. Deep/strict local ad-hoc signatures verify; packages are not notarized.
+
+Both native binaries use the unchanged release profile (FAT LTO,
+codegen-units=1), default features plus demo, and identical `--demo --demo-call`.
+The viewport is 1120×760 logical at 2× scale. A 5-second warmup precedes ten
+one-second macOS ps readings; settled RSS is the median of the last five.
+Root, UI and External agents explicitly held all builds/tests/native apps during
+sampling. Both measured apps stopped before one reducer warmup per binary and
+five alternating pairs. Baseline reducer range 53.011416–53.704667 ms and after
+53.145250–54.971958 ms overlap. The 96 KiB RSS difference and small timing
+differences are noise; no improvement is claimed. GPU memory, frame/startup
+latency and live ringing permissions, delivery or latency remain unverified.
+No Discord account, HTTP call-control write or media device was used.
+
+Recipient dispatch retains one targeted HTTP worker, 64 observed calls and one
+active record. Each record owns two bounded 64-ID vectors: 66,560 allocated
+ID-buffer bytes total. This figure excludes the fixed 64-entry
+Option<RecipientCall> Vec, active record headers and Arc/Mutex metadata. Core
+ringing metadata is bounded to 64 calls × 64 IDs (32 KiB); the bounded membership
+map uses MAX_NAV channels × 64 allocated IDs (512 bytes/channel). Current scope,
+service metadata, membership and worker revision are revalidated; no persistent
+cache, retry loop or schema is added. Raw source IDs, hashes, samples and build
+provenance are recorded in
+`docs/pr-evidence/dm-ring-controls/measurements.json`.
+
+## Voice confirmation queue admission — historical pre-watch comparison (October 2, 2026)
+
+Historical pre-watch feature source `9cdad91c86139543a370f3658e5f92257a9064fe` is compared with
+main `1107d9045fb9d98980d6d8e9987c96a362b4f9ab`. The standard feature package
+was built from `5724cf5be34f17a62ee1b5fc07f2cd2653be3d79`; `9cd` adds only
+`cfg(test)` live-negotiation coverage and leaves production source unchanged.
+Later main features are outside this recorded comparison. Environment: macOS
+27.0 (26A428), Apple M1 MacBookAir10,1 / 16 GiB, Rust 1.98.1, locked dependencies.
+Raw samples, source identities, binary hashes and the reducer identity proof:
+[`voice-confirmation-pressure/measurements.json`](pr-evidence/voice-confirmation-pressure/measurements.json).
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 62,154,064 B | 62,154,064 B | unchanged |
+| Installed package, 206 regular files | 68,164,493 B | 68,164,493 B | unchanged |
+| Full distribution ZIP | 43,322,199 B | 43,321,986 B | −213 B / −0.0005% |
+| Optimized native CPU, ten-sample median | 0.0% | 0.0% | 0 percentage points |
+| Optimized native peak RSS | 123,888 KiB | 124,768 KiB | +880 KiB / +0.710% |
+| Optimized settled RSS, last-five median | 123,856 KiB | 124,720 KiB | +864 KiB / +0.698% |
+| Reducer 100,000 events, alternating-five-pair median | 53.379833 ms | 52.975458 ms | −0.404375 ms / −0.758% |
+| Estimated retained timeline, 500 records | 331,992–332,477 B | 331,992–332,477 B | unchanged |
+
+Both actual standard `cargo xtask package` builds passed, including voice and
+bundled notices. The xtask internally uses `--no-default-features`; the repository
+release profile is unchanged. Deep/strict ad-hoc signature verification passed.
+Installed bytes sum regular files; ZIP uses `ditto -c -k --sequesterRsrc` over the
+complete contents without an enclosing directory. All 206 paths match, 203 hashes
+and all 199 bundled license/notice files are identical. Only the executable, regenerated
+Assets.car and ad-hoc signature metadata differ.
+
+Both optimized native executables use default-plus-demo features, FAT LTO,
+codegen-units=1 and identical `--demo --demo-chat`, with no capture hooks. Native
+Metal uses a 1120×760 logical viewport at 2× scale. A 5-second warmup precedes ten
+one-second macOS `ps` samples; settled RSS is the final-five median. All team
+compilers, tests and other native apps were paused during the matched pair, and
+both apps stopped before reducer replay. The 864 KiB settled RSS difference is
+small idle variation; no performance improvement is claimed.
+
+Reducer replay uses one warmup per binary and five alternating pairs. The
+preserved baseline was built from `3f96877f`; all 96 tracked files in its complete
+model, client-core, session-cache, test-support and replay-bench trees plus
+workspace manifests, lockfile, toolchain and Cargo configuration are byte-identical
+to main `1107d904`. Features and release profile also match. This equivalence
+applies only to the pure reducer, not the application or UI. Baseline samples span
+52.768833–53.726709 ms; after samples span 52.405167–54.155959 ms. The ranges overlap.
+These checks measure neither queue latency nor UI frames, GPU or live media.
+
+Those samples describe the older event-queue implementation only. Current
+correction `5ecd04f7fb495a1d574197eb85ad6006b4fdb5a3` changes production delivery
+to one optional fixed-size failure watch, independent of reliable account-event
+capacity. The report retains generation, channel, request, revision and a static
+diagnostic: at most 64 bytes plus fixed watch synchronization metadata. It has
+no allocated payload or credentials, retry worker or additional command slot.
+Reports remain unseen until the reliable FIFO drains; a final report survives
+publisher shutdown and is consumed once. The original 30-second negotiation
+deadline remains.
+
+The corrected source passed nine focused pressure/FIFO/closed-publisher/retirement
+regressions, strict desktop all-target lint and the full workspace check
+(174 desktop / 367 UI tests; six / five existing ignored). Its fresh standard
+package compiled all 12 runtime workspace crates after all-worktree-ID release
+invalidation, passed in 11m46s, and passed deep/strict ad-hoc signature verification.
+It contains intervening main features, so these are aggregate package sizes,
+not an isolated watch correction delta:
+
+| Current aggregate metric | Corrected source 5ecd |
+| --- | ---: |
+| Standard executable | 62,269,504 B |
+| Installed package | 68,279,933 B / 206 files |
+| Full distribution ZIP | 43,364,502 B |
+
+Old native/reducer values above are not measurements of this corrected source.
+No new layout changed, so no new screenshots were required; the existing local
+candidate-error component is used. Queue latency and physical/live media remain
+unmeasured. Current source, hashes, verification and bounds are recorded separately
+in the same measurements JSON. No live account, service call, microphone, camera
+or OS picker was used.
+
+
 ## Server settings polish and rail motion (October 2, 2026)
 
 Baseline `eab1961` and this branch were built separately with
@@ -3768,3 +3907,61 @@ unmeasured. No audio device, account, microphone or live media request was used.
 Reproduce after packaging either revision, with the same `CARGO_TARGET_DIR` used
 for that build: `python3 docs/pr-evidence/voice-attachment-playback/benchmark.py`.
 The script also accepts a baseline-worktree path as its first argument.
+
+
+## Gateway outage recovery verification (October 2, 2026)
+
+Exact main `71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35` is compared with recovery
+runtime `d6bf2c8cb6077fd5c45b1348ab0cfcf46508f8c8`. The final evidence commit changes
+only documentation, screenshots and records. The pinned Rust 1.98.1 toolchain,
+lockfile and voice-inclusive standard packaging are unchanged. Both standard
+packages freshly compiled all twelve runtime crates after scoped invalidation
+across worktree PackageIDs and passed deep/strict local ad-hoc signing checks;
+they are not notarized releases. Current full workspace tests, formatting,
+strict Clippy and policy passed (368 UI / 168 desktop), including actual synthetic
+Refresh/Send/Reconnect input and local READY/RESUMED recovery regression checks.
+The synthetic authentication-handoff check also passed.
+
+| Standard default FAT package | Main71 | Recovery D6 | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 62,269,488 B | 62,285,936 B | +16,448 B (+0.0264%) |
+| Installed files | 68,279,917 B | 68,296,365 B | +16,448 B (+0.0241%) |
+| Complete ZIP | 43,363,423 B | 43,364,981 B | +1,558 B (+0.0036%) |
+| File count | 206 | 206 | 0 |
+
+A separate matched native pair uses instrument-free default-plus-demo builds on
+Apple M1/macOS 27/16 GiB/Metal, with the same process-only thin-LTO override and
+jobs2; other repository release settings are unchanged. All four build owners
+explicitly held compilers, native apps and heavy IO, and host process inspection
+confirmed the quiet window. Each ordinary `--demo --demo-chat` run used five
+seconds warmup and ten one-second `ps` samples, then stopped with SIGINT.
+
+| Quiet native idle | Main71 | Recovery D6 | Delta |
+| --- | ---: | ---: | ---: |
+| Median CPU | 0.0% | 0.0% | 0.0 percentage points |
+| Peak RSS | 125,920 KiB | 125,856 KiB | -64 KiB |
+| Settled RSS (last-five median) | 125,872 KiB | 125,808 KiB | -64 KiB (-0.0508%) |
+
+The same quiet window ran instrument-free default-FAT reducer binaries: one
+warmup each, then five alternating pairs of 100,000 synthetic events. Median
+elapsed time was 53.615000 to 53.792709 ms (+0.177709 ms); ranges
+53.371750–54.605125 and 53.614125–54.215333 ms overlap. Both retained
+331,992–332,477 estimated timeline bytes / 500 records. These are reducer
+regression observations, not RSS or UI timing. Idle quantization, the small RSS
+difference and overlapping reducer ranges support no performance improvement
+claim. The ordinary demo does not exercise a real outage. Queue latency, active
+frame/startup timing, GPU memory, physical sleep/wake, live RESUME and delivery
+remain unmeasured.
+
+Eight actual native Metal screenshots were inspected: exact before/after,
+dark/light and wide/narrow synthetic disconnected states with a kept draft.
+Temporary capture hooks were removed byte-exactly before standard/optimized
+builds. The pure UI fixture restores demo mode before desktop dispatch and
+constructs no account, transport, cache or media workers. No live account,
+message, upload, microphone, camera or system capture picker was used.
+Recovery retains one coalesced notification and one explicit-send pulse per
+outage; REST writes retain their existing bounds and are never automatically
+replayed after failed or ambiguous delivery. Raw samples, source/binary/image
+identities and seven bounded actual build/check logs are in
+[`resume-send/measurements.json`](pr-evidence/resume-send/measurements.json) and
+[`resume-send/capture.json`](pr-evidence/resume-send/capture.json).

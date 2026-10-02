@@ -1,0 +1,45 @@
+{
+  "source_parent": "a1855217b71c52913ef3a8c629e3ee063dfb4a88",
+  "ui_voice_sha256": "5a9bf61325713ae8073dfcadec946f50b0ef979e32041980fee72633639af2f0",
+  "build": {
+    "source_parent": "a1855217b71c52913ef3a8c629e3ee063dfb4a88",
+    "correction": "Inactive frameless peer status below its name; avatar space reserved to prevent overlap.",
+    "ui_voice_sha256": "5a9bf61325713ae8073dfcadec946f50b0ef979e32041980fee72633639af2f0",
+    "build_seconds": 9.1,
+    "build_exit": 0,
+    "hooks_removed_exactly": true,
+    "binary_sha256": "7028630758cc2cbb78a62305873bc6d47fc5f5136e0d826f645c7158761ed36d"
+  },
+  "fixtures": "--demo --demo-call; SEREIN_SYNTHETIC_RINGING=on/off sets absent peers and service ringing through actual core Call event; no actual media/network. Synthetic secondary click opens the real inert recipient menu.",
+  "screenshots": {
+    "after.png": {
+      "bytes": 467004,
+      "sha256": "fec975182b9843d025ecfea5c3696f621b7dd878d92969e53c87ee4caddf6707"
+    },
+    "stop-ringing-menu.png": {
+      "bytes": 705470,
+      "sha256": "7c15a58120579deacde1edd220c70f9fecfc4fd3bcf3ec600e7f38b8cbb38260"
+    },
+    "ring-again-menu.png": {
+      "bytes": 702960,
+      "sha256": "32f5b89ead9d1c79cd42d648a8165a8551e33e4d664073c6142b665ee7fc4def"
+    },
+    "narrow-dark.png": {
+      "bytes": 373851,
+      "sha256": "0d8c3abd478dcfa36ffc4e0acaa9584c913526be9aa6f86ddcf4f7a73a95e4f4"
+    },
+    "narrow-light.png": {
+      "bytes": 331564,
+      "sha256": "c912ccd4e8c1a50feb459b07b1a3ccf88eb51a2064f3d2e1197494958abf5b59"
+    }
+  },
+  "viewport": "wide1120x760/narrow760x760 logical,2x,Metal; same demo scene; --demo-light for light sample;350ms native-animation settle",
+  "inspected": "Absent tile/status clear; frameless status below name avoids avatar overlap; both labels visible in actual context menus; narrow/light/dark layout inspected. Menu action intentionally disabled in demo; actual eligibility exercised by offline state tests.",
+  "focused_ui_tests_passed": 20,
+  "strict_lint": "UI/desktop all-target Clippy passed",
+  "full_check": "cargo xtask check passed,exit0 on exact status-layout source:workspace tests,strict all-target Clippy,format and policy checks.",
+  "package_performance": "pending final standard/default+demo/reducer/native measurements; dependency baseline corrected5243f",
+  "runtime_source": "350e16f38a92632f48cc7df108efcacec3a06645",
+  "integrated_parent": "fc7de9e5574fbc7fc54673ed52c3d7ff24c3d84d",
+  "source_note": "Parent evidence merge changes documentation only; checked/captured UI hash and runtime source are unchanged."
+}

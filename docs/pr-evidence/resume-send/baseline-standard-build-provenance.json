@@ -1,0 +1,26 @@
+{
+  "source": "71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35",
+  "source_clean": true,
+  "capture_hooks": false,
+  "all_runtime_crates_fresh": {
+    "model": true,
+    "session-cache": true,
+    "client-core": true,
+    "discord-protocol": true,
+    "discord-api": true,
+    "discord-gateway": true,
+    "discord-voice": true,
+    "extensions": true,
+    "local-store": true,
+    "platform": true,
+    "ui": true,
+    "serein": true
+  },
+  "standard_log_sha256": "9b7bcc132d6e6c19587409b14e6f993da47c8488f5abd380298677898454c1ab",
+  "workspace_cache_prune_sha256": "c376c77f990a1e96ed553b23e34b512e31b6a8313e4205a196b45963ecbeadee",
+  "strict_deep_signature_verification": "passed; local ad-hoc, not notarized",
+  "profile": "Repository default FAT standard package, voice included, xtask internal --no-default-features",
+  "elapsed": [
+    "Finished `release` profile [optimized + debuginfo] target(s) in 12m 32s"
+  ]
+}

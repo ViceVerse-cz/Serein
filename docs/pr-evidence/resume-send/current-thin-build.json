@@ -1,0 +1,29 @@
+{
+  "source": "d6bf2c8cb6077fd5c45b1348ab0cfcf46508f8c8",
+  "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein-target-root-delivery CARGO_BUILD_JOBS=2 CARGO_PROFILE_RELEASE_LTO=thin cargo build --release --locked -p serein --features demo",
+  "profile_override": "Process-only thin LTO; repository FAT shipping profile unchanged; other release settings unchanged",
+  "features": "default+demo; voice included",
+  "native_instrumentation": false,
+  "application_source_matches_commit": true,
+  "path": "/Users/claw/Code/Serein/target/issue-sweep/resume-send/d6bf2c8c/serein-release-demo-thin",
+  "bytes": 66911328,
+  "sha256": "1c9834b4c36db3ac9d0f0e76a542ac167b306629167fbb7774c9470a62adbbfb",
+  "all12_runtime_crates_fresh": {
+    "model": true,
+    "session-cache": true,
+    "client-core": true,
+    "discord-protocol": true,
+    "discord-api": true,
+    "discord-gateway": true,
+    "discord-voice": true,
+    "extensions": true,
+    "local-store": true,
+    "platform": true,
+    "ui": true,
+    "serein": true
+  },
+  "build_log_sha256": "7d5cdb3ea0d7d759a0c3b5e6503df9eb0193c04f85015f2b1429fbe62d100f77",
+  "elapsed": [
+    "    Finished `release` profile [optimized + debuginfo] target(s) in 9m 20s"
+  ]
+}

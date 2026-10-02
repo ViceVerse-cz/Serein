@@ -148,6 +148,62 @@ impl MessagingUi {
 		}
 	}
 
+	/// Gateway-recovery notice stacked into the account card, styled like the update banner but
+	/// tinted with the warning colour. The whole row requests an immediate reconnect.
+	pub(super) fn reconnecting_banner(&mut self, ui: &mut egui::Ui, first: bool) {
+		let colors = design::palette(ui);
+		let label = crate::i18n::translate("reconnecting");
+		let action = crate::i18n::translate("reconnect-now");
+		let (rect, response) =
+			ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::click());
+		let hovered = response.hovered() || response.has_focus();
+		let top = if first { 8 } else { 0 };
+		ui.painter().rect_filled(
+			rect,
+			egui::CornerRadius {
+				nw: top,
+				ne: top,
+				sw: 0,
+				se: 0,
+			},
+			colors
+				.warning
+				.gamma_multiply(if hovered { 0.18 } else { 0.12 }),
+		);
+		let mut content = ui.new_child(
+			egui::UiBuilder::new()
+				.max_rect(rect.shrink2(egui::vec2(10.0, 0.0)))
+				.layout(egui::Layout::left_to_right(egui::Align::Center)),
+		);
+		let ui = &mut content;
+		ui.spacing_mut().item_spacing.x = 8.0;
+		let (mark, _) = ui.allocate_exact_size(egui::vec2(15.0, 15.0), egui::Sense::hover());
+		icons::paint(ui.painter(), icons::Icon::Reload, mark, colors.warning);
+		ui.add(
+			egui::Label::new(design::medium(ui, &label, 12.0).color(colors.warning))
+				.truncate()
+				.selectable(false),
+		);
+		ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+			let color = if hovered {
+				colors.warning
+			} else {
+				colors.warning.gamma_multiply(0.75)
+			};
+			ui.add(
+				egui::Label::new(design::medium(ui, &action, 11.0).color(color))
+					.truncate()
+					.selectable(false),
+			);
+		});
+		response.widget_info(|| {
+			egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &action)
+		});
+		if response.clicked() {
+			self.reconnect_requested = true;
+		}
+	}
+
 	/// Formats system and client environment details for GitHub issue reports.
 	pub fn diagnostic_info(&self, ctx: &egui::Context) -> String {
 		let os = std::env::consts::OS;
