@@ -4337,6 +4337,8 @@ lib-composer-onboarding-incomplete = Daha fazla kanalın kilidini açmak için s
 # Context: composer
 lib-composer-onboarding-complete = Tanıtımı tamamla
 
+message-preview-limit = Bu mesaj, yerel metin düzeni sınırını aşıyor.
+
 voice-call-moved-to-another-client = Bu cihazın arama oturumu değiştirildi
 
 server-settings-page-safety = Güvenlik Kurulumu

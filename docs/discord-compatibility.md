@@ -2164,3 +2164,27 @@ whose original compression request is not implemented. Synthetic localhost tests
 `--features demo -- --demo --demo-chat --demo-attachment=file --demo-external-upload`
 verify local behavior without any real hosted upload or Discord session. Live service
 acceptance, link embedding and other-platform native interaction remain unverified.
+
+### Arabic, Hebrew and mixed-direction message rendering
+
+Message paragraphs choose line breaks in logical order, apply Unicode bidi rules
+to each resulting line, and use the pinned native shaper's exact cluster ranges
+for painting and partial selection. Arabic joining/marks, Hebrew, Latin words,
+digits and inline objects share one bounded layout. Links, mentions, spoiler
+reveal, emoji details and search highlights retain their explicit native actions;
+unavailable custom artwork shows its bounded `:name:` label with original wire
+selection/copy, and offscreen runs do not request the image;
+copy, drafts, edits and stored service content keep logical text. No protocol
+capability or service endpoint changes. The vendored epaint patch exposes only
+opt-in direction and cluster metadata; ordinary native labels keep their default
+layout/selection behavior. macOS Control-click keeps logical RTL selection, and
+mapped context-menu Copy resolves current visible source before emitting text.
+Selection-popup drawing runs outside plugin locks; its button release keeps the
+menu open and its Copy action cannot reenter the rendering plugin.
+
+This slice covers rendered message text and search previews, not bidirectional
+TextEdit/IME, complete application RTL mirroring or screen-reader parity. An
+oversized or excessively narrow/multiline run shows the localized preview-limit
+notice within the limits documented in the storage policy. Native platform/font
+coverage still depends on the installed font fallback; synthetic evidence is not
+normal-account or every-platform validation.

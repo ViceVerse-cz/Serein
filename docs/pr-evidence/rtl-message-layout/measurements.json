@@ -1,0 +1,809 @@
+{
+  "source": "73aa31e1a81629d3eebf901eac70ed881a6dd462",
+  "baseline_sources": {
+    "standard_and_native": "1107d9045fb9d98980d6d8e9987c96a362b4f9ab",
+    "component_and_screenshots": "47a81035047695fe1d81edc4cb7efe46c14d87a8"
+  },
+  "environment": {
+    "os": "macOS 27.0 (26A428)",
+    "architecture": "ARM64",
+    "machine": "Apple M1 MacBookAir10,1",
+    "ram_gib": 16,
+    "rust": "1.98.1",
+    "dependencies": "Cargo.lock; --locked",
+    "jobs": 2
+  },
+  "standard": {
+    "baseline": {
+      "commit": "1107d9045fb9d98980d6d8e9987c96a362b4f9ab",
+      "command": "cargo xtask package",
+      "features": "standard xtask package; voice included; xtask internally uses --no-default-features",
+      "executable": 62154064,
+      "installed": 68164493,
+      "compressed": 43322199,
+      "files": 206,
+      "executable_sha256": "7eeb3fdda0cd6f27024f42623e6752048dcb2cdbbbe71516625752dc80c6fe08",
+      "zip_method": "ditto -c -k --sequesterRsrc full standard-dist contents, without enclosing directory"
+    },
+    "after": {
+      "commit": "73aa31e1a81629d3eebf901eac70ed881a6dd462",
+      "command": "cargo xtask package",
+      "features": "standard xtask package; voice included; xtask internally uses --no-default-features",
+      "executable": 62252688,
+      "installed": 68266274,
+      "compressed": 43388480,
+      "files": 207,
+      "executable_sha256": "ff9f73f8ab111c331accfb4f59e0571e3b9706473d5cb6ea53c72f02de9fbe10",
+      "zip_method": "ditto -c -k --sequesterRsrc full standard-dist contents, without enclosing directory",
+      "zip_sha256": "6c058cca090afde94ed6ac205b018bf4913e35867816a57a4a18c797bb0b4c11"
+    },
+    "method": "Standard cargo xtask package, including voice, unchanged default FAT release profile. Internal build uses --no-default-features to omit development data. Locally ad-hoc signed; deep/strict verification passed. Installed bytes sum regular files; ditto -c -k --sequesterRsrc archives complete contents without enclosing directory.",
+    "build_provenance": {
+      "source": "73aa31e1a81629d3eebf901eac70ed881a6dd462",
+      "all_runtime_workspace_crates_fresh": {
+        "model": true,
+        "session-cache": true,
+        "client-core": true,
+        "discord-protocol": true,
+        "discord-api": true,
+        "discord-gateway": true,
+        "discord-voice": true,
+        "extensions": true,
+        "local-store": true,
+        "platform": true,
+        "ui": true,
+        "serein": true
+      },
+      "standard_log_sha256": "59a31a0869a3ad0fe22837c3bc9e83e9f7897c3812aec25ddf2101558df4a77d",
+      "workspace_release_prune_sha256": "92d6772c0c35643b35b1d7ec7c24b8aa2155d171d4fd7f9f80486759d523104b",
+      "method": "Owned workspace release artifacts across all worktree PackageIDs were inspected and invalidated; third-party dependencies and immutable issue-sweep preserved. Full default-FAT standard package compiled from corrected source; strict ad-hoc signature verification passed."
+    }
+  },
+  "native": {
+    "baseline_build": {
+      "commit": "1107d9045fb9d98980d6d8e9987c96a362b4f9ab",
+      "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein-target-root-delivery CARGO_BUILD_JOBS=2 cargo build --release --locked -p serein --features demo",
+      "profile": "repository default fat LTO; no profile override",
+      "features": "default+demo; voice included",
+      "native_instrumentation": false,
+      "source_clean": true,
+      "bytes": 64070816,
+      "sha256": "8cb2c76afea62c3b6c82c10a09ffc5aaee0a10316d16c73534dd61d495c3ba77",
+      "elapsed": "11m09s"
+    },
+    "after_build": {
+      "source": "5eb13e077ce206bd5e3597e02dc85c075b4f9988",
+      "evidence_head": "4083e099606cc270d5f557eb5bf69e2b6ef63e97",
+      "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein-target-rtl-delivery CARGO_BUILD_JOBS=2 cargo build --release --locked -p serein --features demo",
+      "profile": "default FAT LTO; default features plus demo; no profile overrides",
+      "capture_hooks": false,
+      "bytes": 64153552,
+      "sha256": "a5e34a5e02f6f3e99d130c70421d6c98d6cbe255200a6198db80337bdf2f1bb3",
+      "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01) (Homebrew)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n"
+    },
+    "baseline": {
+      "binary": "/Users/claw/Code/Serein/target/issue-sweep/baseline-main110/1107d904/serein-release-demo",
+      "flags": [
+        "--demo",
+        "--demo-chat"
+      ],
+      "warmup_seconds": 5,
+      "interval_seconds": 1,
+      "samples": [
+        {
+          "seconds": 5.026,
+          "cpu_percent": 0.0,
+          "rss_kib": 124464
+        },
+        {
+          "seconds": 6.046,
+          "cpu_percent": 0.0,
+          "rss_kib": 124464
+        },
+        {
+          "seconds": 7.065,
+          "cpu_percent": 0.0,
+          "rss_kib": 124416
+        },
+        {
+          "seconds": 8.091,
+          "cpu_percent": 0.0,
+          "rss_kib": 124416
+        },
+        {
+          "seconds": 9.116,
+          "cpu_percent": 0.0,
+          "rss_kib": 124416
+        },
+        {
+          "seconds": 10.135,
+          "cpu_percent": 0.0,
+          "rss_kib": 124416
+        },
+        {
+          "seconds": 11.162,
+          "cpu_percent": 0.0,
+          "rss_kib": 124416
+        },
+        {
+          "seconds": 12.178,
+          "cpu_percent": 0.0,
+          "rss_kib": 124416
+        },
+        {
+          "seconds": 13.205,
+          "cpu_percent": 0.0,
+          "rss_kib": 124416
+        },
+        {
+          "seconds": 14.232,
+          "cpu_percent": 0.0,
+          "rss_kib": 124416
+        }
+      ],
+      "cpu_percent_median": 0.0,
+      "rss_peak_kib": 124464,
+      "rss_settled_kib": 124416,
+      "elapsed_seconds": 15.249,
+      "user_cpu_seconds": 0.186968,
+      "system_cpu_seconds": 0.116536,
+      "exit_code": -2,
+      "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo"
+    },
+    "after": {
+      "binary": "/Users/claw/Code/Serein/target/issue-sweep/rtl/5eb13e07/serein-release-demo",
+      "flags": [
+        "--demo",
+        "--demo-chat"
+      ],
+      "warmup_seconds": 5,
+      "interval_seconds": 1,
+      "samples": [
+        {
+          "seconds": 5.029,
+          "cpu_percent": 0.0,
+          "rss_kib": 124832
+        },
+        {
+          "seconds": 6.056,
+          "cpu_percent": 0.0,
+          "rss_kib": 124832
+        },
+        {
+          "seconds": 7.076,
+          "cpu_percent": 0.0,
+          "rss_kib": 124784
+        },
+        {
+          "seconds": 8.089,
+          "cpu_percent": 0.0,
+          "rss_kib": 124784
+        },
+        {
+          "seconds": 9.094,
+          "cpu_percent": 0.0,
+          "rss_kib": 124784
+        },
+        {
+          "seconds": 10.107,
+          "cpu_percent": 0.0,
+          "rss_kib": 124784
+        },
+        {
+          "seconds": 11.13,
+          "cpu_percent": 0.0,
+          "rss_kib": 124784
+        },
+        {
+          "seconds": 12.156,
+          "cpu_percent": 0.0,
+          "rss_kib": 124784
+        },
+        {
+          "seconds": 13.183,
+          "cpu_percent": 0.0,
+          "rss_kib": 124784
+        },
+        {
+          "seconds": 14.197,
+          "cpu_percent": 0.0,
+          "rss_kib": 124784
+        }
+      ],
+      "cpu_percent_median": 0.0,
+      "rss_peak_kib": 124832,
+      "rss_settled_kib": 124784,
+      "elapsed_seconds": 15.232,
+      "user_cpu_seconds": 0.17583,
+      "system_cpu_seconds": 0.108488,
+      "exit_code": -2,
+      "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo"
+    },
+    "method": "Repository default FAT release profile, default-plus-demo features, unchanged codegen-units=1; no capture hooks. Identical --demo --demo-chat. Metal, 1120x760 logical viewport, 2x scale. Five-second warmup, ten one-second macOS ps samples; settled RSS is last-five median. All team compilers, tests, replays and other native apps explicitly held. Both apps stopped before release.",
+    "scope": "Inactive English/common chat overhead. The measured after binary is source 5eb13e07, before the nine other-language limit notices in 73aa31e1. Runtime renderer/i18n code and English/Czech catalogs remain identical; this does not claim complete binary or RSS equivalence for other languages.",
+    "renderer_equivalence": {
+      "before_source": "5eb13e077ce206bd5e3597e02dc85c075b4f9988",
+      "after_source": "73aa31e1a81629d3eebf901eac70ed881a6dd462",
+      "scope": "Runtime i18n prefix, common renderer/selection source and English/Czech catalogs byte-identical; nine other-language limit notices and a cfg(test) regression are the only runtime/test correction. No claim that the complete binaries are identical.",
+      "byte_identical_files": {
+        "crates/ui/src/i18n.rs": "fb2c3eff7a049bf1ac899b7972e9d18381239f6734ab3de6dd90833f6e3e6ff5",
+        "crates/ui/src/markdown.rs": "fa0feab0c03565c0b6f27191275bb3e9819f0e953d2f4f8c4d4ad09f74970a48",
+        "crates/ui/src/rtl.rs": "8aaf608634b3b52ae8d67959daea2089d18db74cb8cf9c8b80f9c4f2ce41170b",
+        "crates/ui/src/select.rs": "1a6ee0142b8cb00089351f9e2283c2d04b1c366eb77571691e655532f3b8373f",
+        "crates/ui/src/select/mapped.rs": "42fe1f89c47c377ecc2c0d81ba145100b3c7d29ba3337c51e39af519d9993f4e",
+        "crates/ui/locales/en-US/main.ftl": "e851f0fdb6dcfe53e464e1d0d114a71f4b0ce7a00d97fffb20d686a223af0b8e",
+        "crates/ui/locales/cs/main.ftl": "240d74e10a60bbd71b65a0707dad6101b4f8be176ca8acca90428a57db2b5cd2"
+      }
+    },
+    "current_native_pixels": {
+      "source": "73aa31e1a81629d3eebf901eac70ed881a6dd462",
+      "files": {
+        "after.png": {
+          "bytes": 694075,
+          "sha256": "8f67d2e3fcf912b00ae0169891e0a1fd0f082ebb3c69e7c97cedc1682afd1ad7",
+          "byte_identical_to_reviewed_5eb_capture": true
+        },
+        "after-light-narrow.png": {
+          "bytes": 567253,
+          "sha256": "bde78ab4792bb3670cec0bf43161a3c7135298d13c639a6527e69d5c63436cfe",
+          "byte_identical_to_reviewed_5eb_capture": true
+        }
+      },
+      "hooks_removed": true,
+      "main_sha256": "70b9f6cfdcdc85a42465a935bdc906c750d9b47793c9075e7b4c37088cdb6727"
+    },
+    "build_provenance": {
+      "source": "5eb13e077ce206bd5e3597e02dc85c075b4f9988",
+      "standard_compiled_all_runtime_workspace_dependencies": {
+        "model": true,
+        "session-cache": true,
+        "client-core": true,
+        "discord-protocol": true,
+        "discord-api": true,
+        "discord-gateway": true,
+        "discord-voice": true,
+        "extensions": true,
+        "local-store": true,
+        "platform": true,
+        "ui": true,
+        "serein": true
+      },
+      "demo_same_worktree_immediately_after_standard": true,
+      "intervening_release_worktree_builds": false,
+      "intervening_builds": "Soundboard dev only, separately cleaned dev profile; no release mutation",
+      "standard_log": "/tmp/serein-rtl-main110-package.log",
+      "demo_log": "/tmp/serein-rtl-main110-fat-demo-build.log"
+    }
+  },
+  "component": {
+    "method": "Exact ignored CPU layout test on matched process-only thin-LTO release harnesses; five messages, widths 360/900, ten warmup frames and five measured 200-frame batches at each width; parsing/setup outside timing. No compiler, native app or GPU renderer active.",
+    "order": [
+      "before",
+      "after"
+    ],
+    "results": {
+      "before": {
+        "build": {
+          "source": "47a81035047695fe1d81edc4cb7efe46c14d87a8",
+          "worktree": "/tmp/serein-rtl-benchmark-baseline",
+          "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein-target-rtl-delivery CARGO_BUILD_JOBS=2 CARGO_PROFILE_RELEASE_LTO=thin cargo test --release --locked --offline -p ui --lib --no-run --message-format=json",
+          "profile": "process-only thin LTO override; other release settings unchanged; jobs=2; test harness, not shipping app",
+          "binary": "/Users/claw/Code/Serein/target/issue-sweep/rtl/baseline47a-component/ui-component-test-thin",
+          "bytes": 39789040,
+          "sha256": "4184feb741c91f24cbab2fcab22a3d9466ad005b1cf34d5b4fc20cb31bf9f6d2",
+          "benchmark_function_sha256": "84a246bf25a840dcea103a64b54ddf56935691bbe2ef95a8a14fcb05f1c35846",
+          "compiler_profile": {
+            "opt_level": "3",
+            "debuginfo": "line-tables-only",
+            "debug_assertions": false,
+            "overflow_checks": false,
+            "test": true
+          },
+          "source_patch": "diff --git a/crates/ui/src/markdown.rs b/crates/ui/src/markdown.rs\nindex 17254d21..7a7ecea4 100644\n--- a/crates/ui/src/markdown.rs\n+++ b/crates/ui/src/markdown.rs\n@@ -4122,4 +4122,71 @@ mod tests {\n \t\tassert_eq!(cache.entries.len(), 500);\n \t\tassert!(cache.bytes <= 1024 * 1024);\n \t}\n+\t#[test]\n+\t#[ignore = \"release-only complete message layout workload\"]\n+\tfn rtl_message_layout_benchmark() {\n+\t\tfor width in [360.0, 900.0] {\n+\t\t\tlet ctx = egui::Context::default();\n+\t\t\tcrate::fonts::install(&ctx);\n+\t\t\tlet messages = [\n+\t\t\t\tFormatted::parse(\n+\t\t\t\t\t&\"\u0645\u0631\u062d\u0628\u0627 \u0628\u0627\u0644\u0639\u0627\u0644\u0645 \u0647\u0630\u0647 \u0631\u0633\u0627\u0644\u0629 \u0639\u0631\u0628\u064a\u0629 \u0644\u0627\u062e\u062a\u0628\u0627\u0631 \u062a\u0631\u062a\u064a\u0628 \u0627\u0644\u0643\u0644\u0645\u0627\u062a \u0648\u0627\u0644\u062a\u0641\u0627\u0641 \u0627\u0644\u0633\u0637\u0648\u0631. \"\n+\t\t\t\t\t\t.repeat(4),\n+\t\t\t\t),\n+\t\t\t\tFormatted::parse(\n+\t\t\t\t\t\"\u0627\u0644\u0639\u0631\u0628\u064a\u0629 \u0645\u0639 English 123 \u0648[\u0631\u0627\u0628\u0637 \u062a\u062c\u0631\u064a\u0628\u064a](https://example.com) \u0648**\u0646\u0635 \u0639\u0631\u064a\u0636** \u062b\u0645 \u0646\u0647\u0627\u064a\u0629\",\n+\t\t\t\t),\n+\t\t\t\tFormatted::parse(\"\u05e9\u05dc\u05d5\u05dd \u05e2\u05d5\u05dc\u05dd mixed English 123 \u05e1\u05d5\u05e3 \u05d4\u05e9\u05d5\u05e8\u05d4\"),\n+\t\t\t\tFormatted::parse(\"\u0644\u064e\u0627 \u0644\u064e\u0625\u0650 \u0628\u064e \u0628\u0650 \u0628\u064f\\nEnglish prefix: \u0627\u0644\u0639\u0631\u0628\u064a\u0629 123 \u062b\u0645 \u0627\u0644\u0646\u0647\u0627\u064a\u0629\"),\n+\t\t\t\tFormatted::parse(&\"**Bold** plain *italic* `code` \".repeat(40)),\n+\t\t\t];\n+\t\t\tlet mut images = crate::avatars::Avatars::default();\n+\t\t\tlet mut profile = crate::profiles::ProfileSession::default();\n+\t\t\tlet mut frame = || {\n+\t\t\t\tctx.run_ui(\n+\t\t\t\t\tegui::RawInput {\n+\t\t\t\t\t\tscreen_rect: Some(egui::Rect::from_min_size(\n+\t\t\t\t\t\t\tegui::Pos2::ZERO,\n+\t\t\t\t\t\t\tegui::vec2(width, 1600.0),\n+\t\t\t\t\t\t)),\n+\t\t\t\t\t\t..Default::default()\n+\t\t\t\t\t},\n+\t\t\t\t\t|ui| {\n+\t\t\t\t\t\tfor (index, message) in messages.iter().enumerate() {\n+\t\t\t\t\t\t\tlet mut surface =\n+\t\t\t\t\t\t\t\tcrate::select::Surface::new(ui, (\"rtl-layout-bench\", index));\n+\t\t\t\t\t\t\tmessage.show_search(\n+\t\t\t\t\t\t\t\tui,\n+\t\t\t\t\t\t\t\t&mut None,\n+\t\t\t\t\t\t\t\t&[],\n+\t\t\t\t\t\t\t\tNone,\n+\t\t\t\t\t\t\t\t&mut profile,\n+\t\t\t\t\t\t\t\t(&[], &mut None, &[], &[]),\n+\t\t\t\t\t\t\t\t(&mut images, true, &mut 0),\n+\t\t\t\t\t\t\t\t&mut surface,\n+\t\t\t\t\t\t\t\t\"\",\n+\t\t\t\t\t\t\t\tcrate::design::MessageCardSurface::Opaque,\n+\t\t\t\t\t\t\t);\n+\t\t\t\t\t\t\tsurface.finish(ui);\n+\t\t\t\t\t\t}\n+\t\t\t\t\t},\n+\t\t\t\t)\n+\t\t\t\t.drop_without_applying_deltas();\n+\t\t\t};\n+\t\t\tfor _ in 0..10 {\n+\t\t\t\tframe();\n+\t\t\t}\n+\t\t\tlet mut samples = Vec::new();\n+\t\t\tfor _ in 0..5 {\n+\t\t\t\tlet start = std::time::Instant::now();\n+\t\t\t\tfor _ in 0..200 {\n+\t\t\t\t\tframe();\n+\t\t\t\t}\n+\t\t\t\tsamples.push(start.elapsed().as_secs_f64() * 1000.0);\n+\t\t\t}\n+\t\t\tprintln!(\n+\t\t\t\t\"RTL_MESSAGE_LAYOUT_BENCH {{\\\"width\\\":{width},\\\"warmup_frames\\\":10,\\\"frames_per_sample\\\":200,\\\"messages_per_frame\\\":5,\\\"samples_ms\\\":{samples:?}}}\"\n+\t\t\t);\n+\t\t}\n+\t}\n }\n"
+        },
+        "command": [
+          "/Users/claw/Code/Serein/target/issue-sweep/rtl/baseline47a-component/ui-component-test-thin",
+          "markdown::tests::rtl_message_layout_benchmark",
+          "--exact",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.285,
+        "widths": [
+          {
+            "width": 360,
+            "warmup_frames": 10,
+            "frames_per_sample": 200,
+            "messages_per_frame": 5,
+            "samples_ms": [
+              27.43175,
+              27.298334,
+              27.361875,
+              27.268334000000003,
+              27.210917000000002
+            ],
+            "median_batch_ms": 27.298334,
+            "median_frame_ms": 0.13649167,
+            "range_batch_ms": [
+              27.210917000000002,
+              27.43175
+            ]
+          },
+          {
+            "width": 900,
+            "warmup_frames": 10,
+            "frames_per_sample": 200,
+            "messages_per_frame": 5,
+            "samples_ms": [
+              26.678542,
+              26.689584,
+              26.639375,
+              26.608459,
+              26.708417
+            ],
+            "median_batch_ms": 26.678542,
+            "median_frame_ms": 0.13339271,
+            "range_batch_ms": [
+              26.608459,
+              26.708417
+            ]
+          }
+        ]
+      },
+      "after": {
+        "build": {
+          "source": "73aa31e1a81629d3eebf901eac70ed881a6dd462",
+          "worktree": "/tmp/serein-rtl-messages",
+          "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein-target-rtl-delivery CARGO_BUILD_JOBS=2 CARGO_PROFILE_RELEASE_LTO=thin cargo test --release --locked --offline -p ui --lib --no-run --message-format=json",
+          "profile": "process-only thin LTO override; other release settings unchanged; jobs=2; test harness, not shipping app",
+          "binary": "/Users/claw/Code/Serein/target/issue-sweep/rtl/73aa31e1/ui-component-test-thin",
+          "bytes": 40037600,
+          "sha256": "8a6399a4007fdef695d9cc113401800c3247ba25a958bf87b0cb404e3f42ad8b",
+          "benchmark_function_sha256": "84a246bf25a840dcea103a64b54ddf56935691bbe2ef95a8a14fcb05f1c35846",
+          "compiler_profile": {
+            "opt_level": "3",
+            "debuginfo": "line-tables-only",
+            "debug_assertions": false,
+            "overflow_checks": false,
+            "test": true
+          },
+          "source_patch": ""
+        },
+        "command": [
+          "/Users/claw/Code/Serein/target/issue-sweep/rtl/73aa31e1/ui-component-test-thin",
+          "markdown::tests::rtl_message_layout_benchmark",
+          "--exact",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.278,
+        "widths": [
+          {
+            "width": 360,
+            "warmup_frames": 10,
+            "frames_per_sample": 200,
+            "messages_per_frame": 5,
+            "samples_ms": [
+              25.947582999999998,
+              26.043625000000002,
+              26.075708,
+              26.033583,
+              25.998
+            ],
+            "median_batch_ms": 26.033583,
+            "median_frame_ms": 0.130167915,
+            "range_batch_ms": [
+              25.947582999999998,
+              26.075708
+            ]
+          },
+          {
+            "width": 900,
+            "warmup_frames": 10,
+            "frames_per_sample": 200,
+            "messages_per_frame": 5,
+            "samples_ms": [
+              25.596833,
+              25.557,
+              25.681292000000003,
+              25.596833,
+              25.55675
+            ],
+            "median_batch_ms": 25.596833,
+            "median_frame_ms": 0.127984165,
+            "range_batch_ms": [
+              25.55675,
+              25.681292000000003
+            ]
+          }
+        ]
+      }
+    },
+    "comparison": [
+      {
+        "width": 360,
+        "baseline_batch_ms": 27.298334,
+        "after_batch_ms": 26.033583,
+        "delta_batch_ms": -1.2647510000000004,
+        "delta_percent": -4.63307028187141
+      },
+      {
+        "width": 900,
+        "baseline_batch_ms": 26.678542,
+        "after_batch_ms": 25.596833,
+        "delta_batch_ms": -1.081709,
+        "delta_percent": -4.0546031338594135
+      }
+    ]
+  },
+  "limits": {
+    "source_bytes": 8192,
+    "spans": 512,
+    "lines": 128,
+    "cache_entries": 32,
+    "cache_bytes": 8388608,
+    "cache_entry_bytes": 4194304,
+    "current_pass_selection_references": 4096,
+    "current_pass_selection_reference_bytes": 4194304,
+    "copy_bytes": 4194304,
+    "accounting": "Retained Vec/String capacities, layout/galleys and shared current-pass references are counted; references drop after the pass. Explicit localized preview limit on admission failure; logical stored message/draft/edit source is unchanged."
+  },
+  "limitations": "CPU component layout timing excludes parsing/setup, cold layout, GPU frame latency and pointer/clipboard interactions. Native idle CPU/RSS is not affected Arabic layout latency. Small cached-workload differences are not a general speed/memory improvement claim. No live account, service upload, message, call, microphone or camera was used.",
+  "integration_verification": {
+    "source": "c36b585d8e4868b50194aec90ec202b59238f6f9",
+    "main": "71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35",
+    "merge_note": "Only performance-doc conflict; both independent sections preserved. Unrelated incoming runtime changes are included. Existing feature measurements retain their original source pins.",
+    "cargo_xtask_check": "passed;383 UI tests/6 ignored,168 desktop tests/6 ignored;workspace tests/fmt/strict Clippy/policy passed",
+    "standard": {
+      "commit": "c36b585d8e4868b50194aec90ec202b59238f6f9",
+      "command": "cargo xtask package",
+      "features": "standard xtask package; voice included; internal --no-default-features omits development data",
+      "executable": 62368128,
+      "installed": 68381714,
+      "compressed": 43429267,
+      "files": 207,
+      "executable_sha256": "9d6e114a321d66e0e96a549986937f14c7fa6dfbb9c0972273db93f0e6ca78ab",
+      "zip_sha256": "6b9a8717a79ec2422b0dbda99def65311bd8a816e5ececce02cfd714d1a5640e",
+      "zip_method": "ditto -c -k --sequesterRsrc full standard-dist contents without enclosing directory"
+    },
+    "build_provenance": {
+      "source": "c36b585d8e4868b50194aec90ec202b59238f6f9",
+      "all_runtime_workspace_crates_fresh": {
+        "model": true,
+        "session-cache": true,
+        "client-core": true,
+        "discord-protocol": true,
+        "discord-api": true,
+        "discord-gateway": true,
+        "discord-voice": true,
+        "extensions": true,
+        "local-store": true,
+        "platform": true,
+        "ui": true,
+        "serein": true
+      },
+      "standard_log_sha256": "589efae8611fae85c7a79acf9a1133f63696f46dec86dfc0991a51a429ba2d97",
+      "workspace_release_prune_sha256": "5b86376814f75212229ffa8449682bb3c9c592890705684e7c1adc77be82a36c",
+      "method": "Fresh current aggregate standard on owned all-ID release-pruned cache; default FAT profile, voice included; strict local ad-hoc signature verification passed. Historic feature measurements remain source-pinned separately."
+    },
+    "rtl_renderer_and_configuration_byte_identical_to_measured73": {
+      "Cargo.toml": "00c3c2a00ea4ce8259fc0619898b17f1801807f160d9691497628a9b14a75648",
+      "Cargo.lock": "de5e1270c42774dbd1ded633e652f6839f6d99be61021a0d02ad76474960d062",
+      "crates/ui/src/rtl.rs": "8aaf608634b3b52ae8d67959daea2089d18db74cb8cf9c8b80f9c4f2ce41170b",
+      "crates/ui/src/markdown.rs": "fa0feab0c03565c0b6f27191275bb3e9819f0e953d2f4f8c4d4ad09f74970a48",
+      "crates/ui/src/select.rs": "1a6ee0142b8cb00089351f9e2283c2d04b1c366eb77571691e655532f3b8373f",
+      "crates/ui/src/select/mapped.rs": "42fe1f89c47c377ecc2c0d81ba145100b3c7d29ba3337c51e39af519d9993f4e",
+      "crates/ui/src/fonts.rs": "617fc1ce680d68d70be9c6afa73e9dc176ecf19cc675681a3b8487622fb08b71"
+    },
+    "scope": "Current main71 versus integrated RTL package comparison, separate from source73 standard and source5eb native/source73 thin component measurements. No additional optimized native/component run is inferred from the integration.",
+    "baseline_standard": {
+      "commit": "71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35",
+      "command": "cargo xtask package",
+      "features": "standard xtask package; voice included; xtask internally uses --no-default-features",
+      "executable": 62269488,
+      "installed": 68279917,
+      "compressed": 43363423,
+      "files": 206,
+      "executable_sha256": "c6b3b2ac3f9d801cdd81f91ba36a68200e96f072d7fd18e3bb3707a919e50988",
+      "zip_method": "ditto -c -k --sequesterRsrc full standard-dist contents, without enclosing directory"
+    },
+    "baseline_build_provenance": {
+      "source": "71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35",
+      "source_clean": true,
+      "capture_hooks": false,
+      "all_runtime_crates_fresh": {
+        "model": true,
+        "session-cache": true,
+        "client-core": true,
+        "discord-protocol": true,
+        "discord-api": true,
+        "discord-gateway": true,
+        "discord-voice": true,
+        "extensions": true,
+        "local-store": true,
+        "platform": true,
+        "ui": true,
+        "serein": true
+      },
+      "standard_log_sha256": "9b7bcc132d6e6c19587409b14e6f993da47c8488f5abd380298677898454c1ab",
+      "workspace_cache_prune_sha256": "c376c77f990a1e96ed553b23e34b512e31b6a8313e4205a196b45963ecbeadee",
+      "strict_deep_signature_verification": "passed; local ad-hoc, not notarized",
+      "profile": "Repository default FAT standard package, voice included, xtask internal --no-default-features",
+      "elapsed": [
+        "Finished `release` profile [optimized + debuginfo] target(s) in 12m 32s"
+      ]
+    },
+    "package_deltas_bytes": {
+      "executable": 98640,
+      "installed": 101797,
+      "compressed": 65844
+    },
+    "package_file_comparison": {
+      "baseline_files": 206,
+      "after_files": 207,
+      "added_paths": [
+        "Serein.app/Contents/Resources/licenses/dependencies/epaint-SEREIN-PATCH.md"
+      ],
+      "removed_paths": [],
+      "unchanged_hash_files": 200,
+      "existing_dependency_provenance_changed": [
+        "Serein.app/Contents/Resources/licenses/dependencies/PROVENANCE.md"
+      ],
+      "existing_license_texts_unchanged": true,
+      "notice_note": "PROVENANCE.md gains the intentional epaint minimal-vendor patch/source entry; epaint-SEREIN-PATCH.md is added. Existing license texts remain byte-identical."
+    }
+  },
+  "current_vector_integration": {
+    "source": "4a7e92ef7fab758a6550b14826629ef567d76e81",
+    "integrated_main": "e74d510798b8f2a78ccc17ad4005fa422c775a79",
+    "comparison_scope": "Current RTL plus incoming scalable-emoji SVG worker/dependencies/assets versus exact main71. Aggregate shipping deltas, not isolated RTL cost. Historical 73/c36 standard and 5eb native/component source pins remain separate.",
+    "baseline_standard": {
+      "commit": "71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35",
+      "command": "cargo xtask package",
+      "features": "standard xtask package; voice included; xtask internally uses --no-default-features",
+      "executable": 62269488,
+      "installed": 68279917,
+      "compressed": 43363423,
+      "files": 206,
+      "executable_sha256": "c6b3b2ac3f9d801cdd81f91ba36a68200e96f072d7fd18e3bb3707a919e50988",
+      "zip_method": "ditto -c -k --sequesterRsrc full standard-dist contents, without enclosing directory"
+    },
+    "baseline_build_provenance": {
+      "source": "71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35",
+      "source_clean": true,
+      "capture_hooks": false,
+      "all_runtime_crates_fresh": {
+        "model": true,
+        "session-cache": true,
+        "client-core": true,
+        "discord-protocol": true,
+        "discord-api": true,
+        "discord-gateway": true,
+        "discord-voice": true,
+        "extensions": true,
+        "local-store": true,
+        "platform": true,
+        "ui": true,
+        "serein": true
+      },
+      "standard_log_sha256": "9b7bcc132d6e6c19587409b14e6f993da47c8488f5abd380298677898454c1ab",
+      "workspace_cache_prune_sha256": "c376c77f990a1e96ed553b23e34b512e31b6a8313e4205a196b45963ecbeadee",
+      "strict_deep_signature_verification": "passed; local ad-hoc, not notarized",
+      "profile": "Repository default FAT standard package, voice included, xtask internal --no-default-features",
+      "elapsed": [
+        "Finished `release` profile [optimized + debuginfo] target(s) in 12m 32s"
+      ]
+    },
+    "standard": {
+      "commit": "4a7e92ef7fab758a6550b14826629ef567d76e81",
+      "command": "cargo xtask package",
+      "features": "standard xtask package; voice included; internal --no-default-features omits development data",
+      "executable": 67212176,
+      "installed": 73298357,
+      "compressed": 47633110,
+      "files": 221,
+      "executable_sha256": "6600010d98ccfddc7a7a318c963776b2518474e53dbd0fb2c8ced8284154a608",
+      "zip_sha256": "6db2de53dd565f6e796b0e2b7f096e461d97534abdcb5449ae23f1db903a03ce",
+      "zip_method": "ditto -c -k --sequesterRsrc full standard-dist contents without enclosing directory"
+    },
+    "build_provenance": {
+      "source": "4a7e92ef7fab758a6550b14826629ef567d76e81",
+      "all_runtime_workspace_crates_fresh": {
+        "model": true,
+        "session-cache": true,
+        "client-core": true,
+        "discord-protocol": true,
+        "discord-api": true,
+        "discord-gateway": true,
+        "discord-voice": true,
+        "extensions": true,
+        "local-store": true,
+        "platform": true,
+        "ui": true,
+        "serein": true
+      },
+      "standard_log_sha256": "6afdefeeb1c3d6e8f7d710a92929269003b328d3edbcd20372e4e77d3895a5f3",
+      "workspace_release_prune_sha256": "802358c883aa92074685644e5dd53b6acbcbf2a537258bfba27281d181298224",
+      "full_check_log_sha256": "24b83bccdafc6db195672c34c17e32230d01d05774ea543adab854e1c4dd23da",
+      "method": "Inspected owned release workspace artifacts across all worktree PackageIDs invalidated; dependencies/evidence preserved. Current aggregate main e74d+RTL standard default FAT profile, voice included; no capture hooks; clean source. Deep/strict local ad-hoc signature verification passed. Historical source73/5eb/c36 performance remains separately pinned.",
+      "build_elapsed": [
+        "Finished `release` profile [optimized + debuginfo] target(s) in 11m 42s"
+      ],
+      "full_check": "PASS:385 UI/170 desktop;workspace/fmt/strict/policy"
+    },
+    "package_deltas_bytes": {
+      "executable": 4942688,
+      "installed": 5018440,
+      "compressed": 4269687
+    },
+    "package_deltas_percent": {
+      "executable": 7.937576104688704,
+      "installed": 7.34980389621739,
+      "compressed": 9.846286811813727
+    },
+    "package_inventory": {
+      "baseline_regular_files": 206,
+      "after_regular_files": 221,
+      "unchanged_hash_files": 200,
+      "added_paths": [
+        "Serein.app/Contents/Resources/licenses/dependencies/epaint-SEREIN-PATCH.md",
+        "Serein.app/Contents/Resources/licenses/files/data-url-0.3.2-LICENSE-APACHE",
+        "Serein.app/Contents/Resources/licenses/files/data-url-0.3.2-LICENSE-MIT",
+        "Serein.app/Contents/Resources/licenses/files/float-cmp-0.9.0-LICENSE",
+        "Serein.app/Contents/Resources/licenses/files/imagesize-0.15.0-LICENSE",
+        "Serein.app/Contents/Resources/licenses/files/pico-args-0.5.0-LICENSE",
+        "Serein.app/Contents/Resources/licenses/files/resvg-0.48.1-LICENSE-APACHE",
+        "Serein.app/Contents/Resources/licenses/files/resvg-0.48.1-LICENSE-MIT",
+        "Serein.app/Contents/Resources/licenses/files/rgb-0.8.53-LICENSE",
+        "Serein.app/Contents/Resources/licenses/files/simplecss-0.2.2-LICENSE-APACHE",
+        "Serein.app/Contents/Resources/licenses/files/simplecss-0.2.2-LICENSE-MIT",
+        "Serein.app/Contents/Resources/licenses/files/svgtypes-0.16.1-LICENSE-APACHE",
+        "Serein.app/Contents/Resources/licenses/files/svgtypes-0.16.1-LICENSE-MIT",
+        "Serein.app/Contents/Resources/licenses/files/usvg-0.48.1-LICENSE-APACHE",
+        "Serein.app/Contents/Resources/licenses/files/usvg-0.48.1-LICENSE-MIT"
+      ],
+      "removed_paths": [],
+      "changed_existing_paths": [
+        "Serein.app/Contents/MacOS/serein",
+        "Serein.app/Contents/Resources/Assets.car",
+        "Serein.app/Contents/Resources/THIRD_PARTY_NOTICES.md",
+        "Serein.app/Contents/Resources/licenses/dependencies/PROVENANCE.md",
+        "Serein.app/Contents/_CodeSignature/CodeResources",
+        "THIRD_PARTY_NOTICES.md"
+      ],
+      "existing_license_texts_unchanged": true,
+      "notice_scope": "Added incoming SVG dependencies/license payloads and RTL epaint patch notice; dependency PROVENANCE and THIRD_PARTY_NOTICES include those reviewed incoming/new source entries."
+    },
+    "runtime_or_package_input_changes_vs_baseline": [
+      "Cargo.lock",
+      "Cargo.toml",
+      "THIRD_PARTY_NOTICES.md",
+      "apps/desktop/Cargo.toml",
+      "apps/desktop/src/avatars.rs",
+      "apps/desktop/src/main.rs",
+      "assets/licenses/dependencies/PROVENANCE.md",
+      "assets/licenses/dependencies/epaint-SEREIN-PATCH.md",
+      "assets/licenses/files/data-url-0.3.2-LICENSE-APACHE",
+      "assets/licenses/files/data-url-0.3.2-LICENSE-MIT",
+      "assets/licenses/files/float-cmp-0.9.0-LICENSE",
+      "assets/licenses/files/imagesize-0.15.0-LICENSE",
+      "assets/licenses/files/pico-args-0.5.0-LICENSE",
+      "assets/licenses/files/resvg-0.48.1-LICENSE-APACHE",
+      "assets/licenses/files/resvg-0.48.1-LICENSE-MIT",
+      "assets/licenses/files/rgb-0.8.53-LICENSE",
+      "assets/licenses/files/simplecss-0.2.2-LICENSE-APACHE",
+      "assets/licenses/files/simplecss-0.2.2-LICENSE-MIT",
+      "assets/licenses/files/svgtypes-0.16.1-LICENSE-APACHE",
+      "assets/licenses/files/svgtypes-0.16.1-LICENSE-MIT",
+      "assets/licenses/files/usvg-0.48.1-LICENSE-APACHE",
+      "assets/licenses/files/usvg-0.48.1-LICENSE-MIT",
+      "assets/twemoji/README.md",
+      "assets/twemoji/vectors.bin",
+      "crates/ui/locales/cs/main.ftl",
+      "crates/ui/locales/de/main.ftl",
+      "crates/ui/locales/en-US/main.ftl",
+      "crates/ui/locales/es/main.ftl",
+      "crates/ui/locales/fr/main.ftl",
+      "crates/ui/locales/it/main.ftl",
+      "crates/ui/locales/ja/main.ftl",
+      "crates/ui/locales/pl/main.ftl",
+      "crates/ui/locales/pt-BR/main.ftl",
+      "crates/ui/locales/ru/main.ftl",
+      "crates/ui/locales/tr/main.ftl",
+      "crates/ui/src/avatars.rs",
+      "crates/ui/src/emoji.rs",
+      "crates/ui/src/i18n.rs",
+      "crates/ui/src/lib.rs",
+      "crates/ui/src/markdown.rs",
+      "crates/ui/src/rtl.rs",
+      "crates/ui/src/select.rs",
+      "crates/ui/src/select/mapped.rs",
+      "tools/generate-twemoji.py",
+      "vendor/epaint/Cargo.toml",
+      "vendor/epaint/Cargo.toml.orig",
+      "vendor/epaint/LICENSE-APACHE",
+      "vendor/epaint/LICENSE-MIT",
+      "vendor/epaint/README.md",
+      "vendor/epaint/SEREIN-PATCH.md",
+      "vendor/epaint/src/brush.rs",
+      "vendor/epaint/src/color.rs",
+      "vendor/epaint/src/corner_radius.rs",
+      "vendor/epaint/src/corner_radius_f32.rs",
+      "vendor/epaint/src/direction.rs",
+      "vendor/epaint/src/image.rs",
+      "vendor/epaint/src/lib.rs",
+      "vendor/epaint/src/margin.rs",
+      "vendor/epaint/src/margin_f32.rs",
+      "vendor/epaint/src/mesh.rs",
+      "vendor/epaint/src/mutex.rs",
+      "vendor/epaint/src/rounded_rect.rs",
+      "vendor/epaint/src/shadow.rs",
+      "vendor/epaint/src/shape_transform.rs",
+      "vendor/epaint/src/shapes/band_shape.rs",
+      "vendor/epaint/src/shapes/bezier_shape.rs",
+      "vendor/epaint/src/shapes/circle_shape.rs",
+      "vendor/epaint/src/shapes/ellipse_shape.rs",
+      "vendor/epaint/src/shapes/mod.rs",
+      "vendor/epaint/src/shapes/paint_callback.rs",
+      "vendor/epaint/src/shapes/path_shape.rs",
+      "vendor/epaint/src/shapes/rect_shape.rs",
+      "vendor/epaint/src/shapes/shape.rs",
+      "vendor/epaint/src/shapes/text_shape.rs",
+      "vendor/epaint/src/stats.rs",
+      "vendor/epaint/src/stroke.rs",
+      "vendor/epaint/src/tessellator.rs",
+      "vendor/epaint/src/text/cursor.rs",
+      "vendor/epaint/src/text/face_store.rs",
+      "vendor/epaint/src/text/family.rs",
+      "vendor/epaint/src/text/font_data.rs",
+      "vendor/epaint/src/text/font_definitions.rs",
+      "vendor/epaint/src/text/font_face.rs",
+      "vendor/epaint/src/text/font_id.rs",
+      "vendor/epaint/src/text/font_provider.rs",
+      "vendor/epaint/src/text/font_tweak.rs",
+      "vendor/epaint/src/text/fonts.rs",
+      "vendor/epaint/src/text/galley_cache.rs",
+      "vendor/epaint/src/text/glyph_atlas.rs",
+      "vendor/epaint/src/text/glyph_rasterizer.rs",
+      "vendor/epaint/src/text/index.rs",
+      "vendor/epaint/src/text/mod.rs",
+      "vendor/epaint/src/text/styled_metrics.rs",
+      "vendor/epaint/src/text/text_layout.rs",
+      "vendor/epaint/src/text/text_layout_types.rs",
+      "vendor/epaint/src/text/unicode.rs",
+      "vendor/epaint/src/texture_atlas.rs",
+      "vendor/epaint/src/texture_handle.rs",
+      "vendor/epaint/src/textures.rs",
+      "vendor/epaint/src/util/mod.rs",
+      "vendor/epaint/src/viewport.rs"
+    ],
+    "affected_rtl_source_equivalence": {
+      "current": "4a7e92ef7fab758a6550b14826629ef567d76e81",
+      "historical_renderer": "73aa31e1a81629d3eebf901eac70ed881a6dd462",
+      "byte_identical": {
+        "crates/ui/src/rtl.rs": "8aaf608634b3b52ae8d67959daea2089d18db74cb8cf9c8b80f9c4f2ce41170b",
+        "crates/ui/src/select.rs": "1a6ee0142b8cb00089351f9e2283c2d04b1c366eb77571691e655532f3b8373f",
+        "crates/ui/src/select/mapped.rs": "42fe1f89c47c377ecc2c0d81ba145100b3c7d29ba3337c51e39af519d9993f4e",
+        "crates/ui/src/fonts.rs": "617fc1ce680d68d70be9c6afa73e9dc176ecf19cc675681a3b8487622fb08b71",
+        "vendor/epaint/src/text/fonts.rs": "33edfbc5edb8af50157dc4c004d480baf7d036a6763643db4a91f346c3b3c544",
+        "vendor/epaint/src/text/mod.rs": "1e5a8fcc42219f6028177b77425585d46fcf90489b462ccb6e86e9f46cd9d76e",
+        "vendor/epaint/src/text/text_layout.rs": "f5f8caa55c6198547c37c2530b7e6ad04820a40d92797028c7def3febbdfd0ab",
+        "crates/ui/src/markdown.rs::show_rtl": "5ddf118313ab74424f408308520c456625ec626a3c336a4673066674caefc33a"
+      },
+      "additional_coverage": "Actual 2x-DPI mixed Arabic/Hebrew messages keep atlas and queue no Unicode vector request; standalone emoji retains merged522 jumbo vector request. Full385UI/170Desktop and focused RTL15/selection7/vector1 passed."
+    },
+    "verification": {
+      "focused_rtl_passed": 15,
+      "focused_selection_passed": 7,
+      "high_dpi_inline_vs_jumbo_test_passed": 1,
+      "workspace_check": "PASS:385 UI/170 Desktop;workspace/fmt/strict/policy",
+      "signature": "deep/strict local ad-hoc PASS;not notarized",
+      "new_native_or_component_measurement": false,
+      "scope": "All seven RTL/shaper/selection/font files and the complete show_rtl method are byte-identical to historical source 73. Actual 2x-DPI mixed Arabic/Hebrew messages preserve inline atlas/no SVG requests; standalone emoji retains incoming jumbo SVG request. No fresh native/GPU/component performance is inferred."
+    }
+  }
+}

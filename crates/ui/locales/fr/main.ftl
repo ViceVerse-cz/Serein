@@ -4348,6 +4348,8 @@ lib-composer-onboarding-incomplete = Termine de rejoindre ce serveur pour déblo
 # Context: composer
 lib-composer-onboarding-complete = Terminer l'accueil
 
+message-preview-limit = Ce message dépasse la limite de mise en page du texte natif.
+
 voice-call-moved-to-another-client = La session d’appel de cet appareil a été remplacée
 
 server-settings-page-safety = Configuration de la sécurité

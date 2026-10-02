@@ -1,0 +1,314 @@
+{
+  "source": "https://github.com/emilk/egui",
+  "revision": "fe6d63efa4a4df6f56ceab814d4f3a6efab69b88",
+  "component": "crates/epaint/src",
+  "files": [
+    {
+      "path": "brush.rs",
+      "upstream_sha256": "cfefc5f28bd387c822e4be248495dbbe093f918691eb4aad8a0a22392a75e1db",
+      "task_sha256": "cfefc5f28bd387c822e4be248495dbbe093f918691eb4aad8a0a22392a75e1db",
+      "changed": false
+    },
+    {
+      "path": "color.rs",
+      "upstream_sha256": "572519077dfb856d574cb11fcb24a2824c10a59f8cf430cac5cf9c14e27422b0",
+      "task_sha256": "572519077dfb856d574cb11fcb24a2824c10a59f8cf430cac5cf9c14e27422b0",
+      "changed": false
+    },
+    {
+      "path": "corner_radius.rs",
+      "upstream_sha256": "5ee87d4b0142cfeb02b7a80e9e9494ee5a634988b922bcae8a47fe2055479a9d",
+      "task_sha256": "5ee87d4b0142cfeb02b7a80e9e9494ee5a634988b922bcae8a47fe2055479a9d",
+      "changed": false
+    },
+    {
+      "path": "corner_radius_f32.rs",
+      "upstream_sha256": "49f3f9e6b3821cb55f0939ce027e632be6cd353e546c9658143685ee18e5cfe9",
+      "task_sha256": "49f3f9e6b3821cb55f0939ce027e632be6cd353e546c9658143685ee18e5cfe9",
+      "changed": false
+    },
+    {
+      "path": "direction.rs",
+      "upstream_sha256": "ffa0aa03693216f5e0b4876168c3abd7c6f9923124d8df76d13f3eeb3a4a299d",
+      "task_sha256": "ffa0aa03693216f5e0b4876168c3abd7c6f9923124d8df76d13f3eeb3a4a299d",
+      "changed": false
+    },
+    {
+      "path": "image.rs",
+      "upstream_sha256": "cfc3f543acd155530c6a18b291666615083c345abcf09edfc038351f08337246",
+      "task_sha256": "cfc3f543acd155530c6a18b291666615083c345abcf09edfc038351f08337246",
+      "changed": false
+    },
+    {
+      "path": "lib.rs",
+      "upstream_sha256": "77a80e5d9500184284a0a496cf7879e7143c48a66ab582c59a5ffd1f7cc20dfb",
+      "task_sha256": "77a80e5d9500184284a0a496cf7879e7143c48a66ab582c59a5ffd1f7cc20dfb",
+      "changed": false
+    },
+    {
+      "path": "margin.rs",
+      "upstream_sha256": "290022f90bb8bf1e9ad0a757877ee243170b14010ae48cc1533b24982a37258d",
+      "task_sha256": "290022f90bb8bf1e9ad0a757877ee243170b14010ae48cc1533b24982a37258d",
+      "changed": false
+    },
+    {
+      "path": "margin_f32.rs",
+      "upstream_sha256": "9f68a013e53568bc328ab08bbfa30902e8623a1b844e161f9382df6b3df1d686",
+      "task_sha256": "9f68a013e53568bc328ab08bbfa30902e8623a1b844e161f9382df6b3df1d686",
+      "changed": false
+    },
+    {
+      "path": "mesh.rs",
+      "upstream_sha256": "c2d6f86a759bd2157b5b787ab03e8eae981b243988ecf4e19c45312c8d9ee3ef",
+      "task_sha256": "c2d6f86a759bd2157b5b787ab03e8eae981b243988ecf4e19c45312c8d9ee3ef",
+      "changed": false
+    },
+    {
+      "path": "mutex.rs",
+      "upstream_sha256": "8296a2a9528fa0ab5025786087bfdbcccc86b9a35af2bf1781a2d5ff5c0fe1b8",
+      "task_sha256": "8296a2a9528fa0ab5025786087bfdbcccc86b9a35af2bf1781a2d5ff5c0fe1b8",
+      "changed": false
+    },
+    {
+      "path": "rounded_rect.rs",
+      "upstream_sha256": "8199ce43645b30d0ab9a578c838ec53aee9270aef0b92faae088fca8f7f4a114",
+      "task_sha256": "8199ce43645b30d0ab9a578c838ec53aee9270aef0b92faae088fca8f7f4a114",
+      "changed": false
+    },
+    {
+      "path": "shadow.rs",
+      "upstream_sha256": "f721610ce7295d90ce9113c12bf5935d96420cc56accb6220acc9958ddf20735",
+      "task_sha256": "f721610ce7295d90ce9113c12bf5935d96420cc56accb6220acc9958ddf20735",
+      "changed": false
+    },
+    {
+      "path": "shape_transform.rs",
+      "upstream_sha256": "f0c248e7fe3246d559c776078f9aa0c8e8f8049f5f1f4f13d00416562be274b7",
+      "task_sha256": "f0c248e7fe3246d559c776078f9aa0c8e8f8049f5f1f4f13d00416562be274b7",
+      "changed": false
+    },
+    {
+      "path": "shapes/band_shape.rs",
+      "upstream_sha256": "52d6a45389ecedfcba4e6c2a4173069fafa8035f743c28e454fd580816150b60",
+      "task_sha256": "52d6a45389ecedfcba4e6c2a4173069fafa8035f743c28e454fd580816150b60",
+      "changed": false
+    },
+    {
+      "path": "shapes/bezier_shape.rs",
+      "upstream_sha256": "f1fc2271b099114bd9a33a9906f25e2dd295e23de8d48dd8460963852eb9d3e5",
+      "task_sha256": "f1fc2271b099114bd9a33a9906f25e2dd295e23de8d48dd8460963852eb9d3e5",
+      "changed": false
+    },
+    {
+      "path": "shapes/circle_shape.rs",
+      "upstream_sha256": "e227a8c5830667373aa524e4752682ca40b901f2376215a88a3657e89a8f6269",
+      "task_sha256": "e227a8c5830667373aa524e4752682ca40b901f2376215a88a3657e89a8f6269",
+      "changed": false
+    },
+    {
+      "path": "shapes/ellipse_shape.rs",
+      "upstream_sha256": "c5714b9fbab50012c23c0590a10826367e6c5a52c8e0a6648d36834d2b892043",
+      "task_sha256": "c5714b9fbab50012c23c0590a10826367e6c5a52c8e0a6648d36834d2b892043",
+      "changed": false
+    },
+    {
+      "path": "shapes/mod.rs",
+      "upstream_sha256": "f832083fafcc38fd9f34369a67acb0a70de7b456167d17cc57c6b9abc1497781",
+      "task_sha256": "f832083fafcc38fd9f34369a67acb0a70de7b456167d17cc57c6b9abc1497781",
+      "changed": false
+    },
+    {
+      "path": "shapes/paint_callback.rs",
+      "upstream_sha256": "cb0e2706a76cf92e41e9602b3bba5b78aeb2323a6a66bf4d0f1961bbf8c32920",
+      "task_sha256": "cb0e2706a76cf92e41e9602b3bba5b78aeb2323a6a66bf4d0f1961bbf8c32920",
+      "changed": false
+    },
+    {
+      "path": "shapes/path_shape.rs",
+      "upstream_sha256": "9e72a22427ea493065d7e4094181d3bb3b94f26e3e4738257908688cf8fa26c9",
+      "task_sha256": "9e72a22427ea493065d7e4094181d3bb3b94f26e3e4738257908688cf8fa26c9",
+      "changed": false
+    },
+    {
+      "path": "shapes/rect_shape.rs",
+      "upstream_sha256": "13534055eff7e24b68aae1352a86048ab798f4fb48a671a55c83827c49b30ceb",
+      "task_sha256": "13534055eff7e24b68aae1352a86048ab798f4fb48a671a55c83827c49b30ceb",
+      "changed": false
+    },
+    {
+      "path": "shapes/shape.rs",
+      "upstream_sha256": "ee2a7b3d5b9b0f633cd401d54f47c0c9da8fbf411574f6684663ef7e14215854",
+      "task_sha256": "ee2a7b3d5b9b0f633cd401d54f47c0c9da8fbf411574f6684663ef7e14215854",
+      "changed": false
+    },
+    {
+      "path": "shapes/text_shape.rs",
+      "upstream_sha256": "fe342c549db9a589c0ddd9446ffd24b63a23377798b312bd8ef88e0972151047",
+      "task_sha256": "fe342c549db9a589c0ddd9446ffd24b63a23377798b312bd8ef88e0972151047",
+      "changed": false
+    },
+    {
+      "path": "stats.rs",
+      "upstream_sha256": "b09368d5b1c6d8eace91f7dc3805a08a0a49970684017148b8e8ebf0fa16a5d4",
+      "task_sha256": "b09368d5b1c6d8eace91f7dc3805a08a0a49970684017148b8e8ebf0fa16a5d4",
+      "changed": false
+    },
+    {
+      "path": "stroke.rs",
+      "upstream_sha256": "1381f056e252f4ecdef7378a155d82b719819a67da3ee2c54f75c8856f810b58",
+      "task_sha256": "1381f056e252f4ecdef7378a155d82b719819a67da3ee2c54f75c8856f810b58",
+      "changed": false
+    },
+    {
+      "path": "tessellator.rs",
+      "upstream_sha256": "f7724bcea31037a8647fe247c62a0d98de869af2847fff3df3b6e206f3e0ecfb",
+      "task_sha256": "f7724bcea31037a8647fe247c62a0d98de869af2847fff3df3b6e206f3e0ecfb",
+      "changed": false
+    },
+    {
+      "path": "text/cursor.rs",
+      "upstream_sha256": "67e6493c382cde5657cec4d4f9b93971d9ea410a50a4e74cdc0d7c0f8d9b2a2c",
+      "task_sha256": "67e6493c382cde5657cec4d4f9b93971d9ea410a50a4e74cdc0d7c0f8d9b2a2c",
+      "changed": false
+    },
+    {
+      "path": "text/face_store.rs",
+      "upstream_sha256": "dd9c066f8f18fffb35476953af1ec8714e4ef3c3264530455484a11779a8ebf2",
+      "task_sha256": "dd9c066f8f18fffb35476953af1ec8714e4ef3c3264530455484a11779a8ebf2",
+      "changed": false
+    },
+    {
+      "path": "text/family.rs",
+      "upstream_sha256": "55c9ce2bc9878ba162cdd84518cc6127070c4fc2d29627baf1f8f1e0bd2b3fab",
+      "task_sha256": "55c9ce2bc9878ba162cdd84518cc6127070c4fc2d29627baf1f8f1e0bd2b3fab",
+      "changed": false
+    },
+    {
+      "path": "text/font_data.rs",
+      "upstream_sha256": "19347675fee40ab89061fce32fc43c4a7d07e93453cc24abf3563a93c687130e",
+      "task_sha256": "19347675fee40ab89061fce32fc43c4a7d07e93453cc24abf3563a93c687130e",
+      "changed": false
+    },
+    {
+      "path": "text/font_definitions.rs",
+      "upstream_sha256": "ea645e1bce029e717cb46c3c22813a11a0998277110c1f61547d54f3b70f074b",
+      "task_sha256": "ea645e1bce029e717cb46c3c22813a11a0998277110c1f61547d54f3b70f074b",
+      "changed": false
+    },
+    {
+      "path": "text/font_face.rs",
+      "upstream_sha256": "a1cba3ceea3e39de7be0db1b1ab14c59915634890e5bbf2d61b20dcc72e2c316",
+      "task_sha256": "a1cba3ceea3e39de7be0db1b1ab14c59915634890e5bbf2d61b20dcc72e2c316",
+      "changed": false
+    },
+    {
+      "path": "text/font_id.rs",
+      "upstream_sha256": "b8c6c5ef19a87b89cfd1759cc5cb6363fd26d85db3781645f8dad65f5aa97c5b",
+      "task_sha256": "b8c6c5ef19a87b89cfd1759cc5cb6363fd26d85db3781645f8dad65f5aa97c5b",
+      "changed": false
+    },
+    {
+      "path": "text/font_provider.rs",
+      "upstream_sha256": "b6b9e4e38e6a1692b00174631be31a009a5eb7f691e693760a26b4164d5f482b",
+      "task_sha256": "b6b9e4e38e6a1692b00174631be31a009a5eb7f691e693760a26b4164d5f482b",
+      "changed": false
+    },
+    {
+      "path": "text/font_tweak.rs",
+      "upstream_sha256": "5fe3178cb2f219a87326ed7363394ca0e8b5075e73760281e78b4373939bb2f0",
+      "task_sha256": "5fe3178cb2f219a87326ed7363394ca0e8b5075e73760281e78b4373939bb2f0",
+      "changed": false
+    },
+    {
+      "path": "text/fonts.rs",
+      "upstream_sha256": "a1264f372487ece8f1183170a17efd478564669b9f769d6876cedca2e3828d69",
+      "task_sha256": "33edfbc5edb8af50157dc4c004d480baf7d036a6763643db4a91f346c3b3c544",
+      "changed": true
+    },
+    {
+      "path": "text/galley_cache.rs",
+      "upstream_sha256": "64723095fdbcba379b4270b901c869beb1d8595b09f704cbaecbd228b841b001",
+      "task_sha256": "64723095fdbcba379b4270b901c869beb1d8595b09f704cbaecbd228b841b001",
+      "changed": false
+    },
+    {
+      "path": "text/glyph_atlas.rs",
+      "upstream_sha256": "47e0f86a263255a3c1381f113f01e45bd66223e432f07dba3595948b5bdd7392",
+      "task_sha256": "47e0f86a263255a3c1381f113f01e45bd66223e432f07dba3595948b5bdd7392",
+      "changed": false
+    },
+    {
+      "path": "text/glyph_rasterizer.rs",
+      "upstream_sha256": "de4abb93d064f96c00c707a14507a71ab424b2557128521ace83607ae74c7442",
+      "task_sha256": "de4abb93d064f96c00c707a14507a71ab424b2557128521ace83607ae74c7442",
+      "changed": false
+    },
+    {
+      "path": "text/index.rs",
+      "upstream_sha256": "7328065322c01027f46d307ed8c92772985faccc9ecddb1118ab0e098119d1bb",
+      "task_sha256": "7328065322c01027f46d307ed8c92772985faccc9ecddb1118ab0e098119d1bb",
+      "changed": false
+    },
+    {
+      "path": "text/mod.rs",
+      "upstream_sha256": "a82ae20a0f1ada88ee07acdaef1267d9838ac981da43463d614f2bbce2bb9c05",
+      "task_sha256": "1e5a8fcc42219f6028177b77425585d46fcf90489b462ccb6e86e9f46cd9d76e",
+      "changed": true
+    },
+    {
+      "path": "text/styled_metrics.rs",
+      "upstream_sha256": "05191198bfec169d677102e8572225fd02950280bb7fa345baa9bf003af7724a",
+      "task_sha256": "05191198bfec169d677102e8572225fd02950280bb7fa345baa9bf003af7724a",
+      "changed": false
+    },
+    {
+      "path": "text/text_layout.rs",
+      "upstream_sha256": "22f6a7ef545e23e175605e3e38e6944758553709e01481aae15db050ca6b3f9f",
+      "task_sha256": "f5f8caa55c6198547c37c2530b7e6ad04820a40d92797028c7def3febbdfd0ab",
+      "changed": true
+    },
+    {
+      "path": "text/text_layout_types.rs",
+      "upstream_sha256": "71e9e87ca7bcdf143288963bf56bb1166d54159b01c9b36cccd8620e846383d1",
+      "task_sha256": "71e9e87ca7bcdf143288963bf56bb1166d54159b01c9b36cccd8620e846383d1",
+      "changed": false
+    },
+    {
+      "path": "text/unicode.rs",
+      "upstream_sha256": "53665735f4db81915da0ea4d621854faecf2d38a18d5e8fa4ac57e22c8aa2194",
+      "task_sha256": "53665735f4db81915da0ea4d621854faecf2d38a18d5e8fa4ac57e22c8aa2194",
+      "changed": false
+    },
+    {
+      "path": "texture_atlas.rs",
+      "upstream_sha256": "25d90783fc1b217b9e43a8077443956c4101facdca7009c6a0dd45d0228e603e",
+      "task_sha256": "25d90783fc1b217b9e43a8077443956c4101facdca7009c6a0dd45d0228e603e",
+      "changed": false
+    },
+    {
+      "path": "texture_handle.rs",
+      "upstream_sha256": "24594a572ba4b72d303d9c9860cc5a1bd5d2b63642b9803112821dc6187e3c71",
+      "task_sha256": "24594a572ba4b72d303d9c9860cc5a1bd5d2b63642b9803112821dc6187e3c71",
+      "changed": false
+    },
+    {
+      "path": "textures.rs",
+      "upstream_sha256": "ef2ccc4ceb221c49e65f702a11efb0980a55d2073ddb4d89d1e3f9bb637f9e62",
+      "task_sha256": "ef2ccc4ceb221c49e65f702a11efb0980a55d2073ddb4d89d1e3f9bb637f9e62",
+      "changed": false
+    },
+    {
+      "path": "util/mod.rs",
+      "upstream_sha256": "4d24b78f50b3f089276071cc58b4affdf28722e12cb469b8269203749f9bb28f",
+      "task_sha256": "4d24b78f50b3f089276071cc58b4affdf28722e12cb469b8269203749f9bb28f",
+      "changed": false
+    },
+    {
+      "path": "viewport.rs",
+      "upstream_sha256": "e9aa21f945ff4982934565edbb8bdb47b0c6ca3a0ede9068525b7402dcb6b47f",
+      "task_sha256": "e9aa21f945ff4982934565edbb8bdb47b0c6ca3a0ede9068525b7402dcb6b47f",
+      "changed": false
+    }
+  ],
+  "extra_source_files": []
+}

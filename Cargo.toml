@@ -197,3 +197,7 @@ opt-level = 3
 
 [profile.dev.package.sonora-agc2]
 opt-level = 3
+
+# Keep the native shaper, while exposing exact cluster mapping to the bounded RTL view.
+[patch."https://github.com/emilk/egui"]
+epaint = { path = "vendor/epaint" }

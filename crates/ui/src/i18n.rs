@@ -325,6 +325,29 @@ mod tests {
 	}
 
 	#[test]
+	fn rtl_preview_limit_resolves_in_every_supported_catalog() {
+		for language in Language::ALL {
+			let notice = language.try_text("message-preview-limit");
+			assert!(
+				notice.is_some_and(|value| !value.trim().is_empty()),
+				"{language:?}: missing native layout limit notice"
+			);
+			assert!(
+				!language
+					.text("message-preview-limit")
+					.contains("Unknown localization key")
+			);
+			if !matches!(language, Language::System | Language::English) {
+				assert_ne!(
+					language.text("message-preview-limit"),
+					Language::English.text("message-preview-limit"),
+					"{language:?}: untranslated native layout limit notice"
+				);
+			}
+		}
+	}
+
+	#[test]
 	fn counts_select_plural_forms() {
 		let since = |language: Language, count| {
 			language

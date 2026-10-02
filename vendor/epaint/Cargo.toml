@@ -1,0 +1,54 @@
+# Exact pinned epaint; see SEREIN-PATCH.md.
+[workspace]
+
+[package]
+name = "epaint"
+version = "0.36.2"
+authors = ["Emil Ernerfeldt <emil.ernerfeldt@gmail.com>"]
+description = "Minimal 2D graphics library for GUI work"
+edition = "2024"
+rust-version = "1.95"
+homepage = "https://github.com/emilk/egui/tree/main/crates/epaint"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/emilk/egui/tree/main/crates/epaint"
+categories = ["graphics", "gui"]
+keywords = ["graphics", "gui", "egui"]
+include = ["LICENSE-APACHE", "LICENSE-MIT", "**/*.rs", "Cargo.toml", "SEREIN-PATCH.md"]
+
+[features]
+default = []
+bytemuck = ["dep:bytemuck", "emath/bytemuck", "ecolor/bytemuck"]
+cint = ["ecolor/cint"]
+color-hex = ["ecolor/color-hex"]
+color_fonts = ["vello_cpu/png", "vello_cpu/text"]
+default_fonts = ["epaint_default_fonts"]
+mint = ["emath/mint"]
+monochrome_emoji_fonts = ["default_fonts", "epaint_default_fonts/monochrome_emoji_fonts"]
+rayon = ["dep:rayon"]
+serde = ["dep:serde", "ahash/serde", "ecolor/serde", "emath/serde", "font-types/serde", "smallvec/serde"]
+unity = []
+_override_unity = []
+
+[dependencies]
+emath = { version = "0.36.2", default-features = false, git = "https://github.com/emilk/egui", rev = "fe6d63efa4a4df6f56ceab814d4f3a6efab69b88" }
+ecolor = { version = "0.36.2", default-features = false, git = "https://github.com/emilk/egui", rev = "fe6d63efa4a4df6f56ceab814d4f3a6efab69b88" }
+ahash = { version = "0.8.12", default-features = false, features = ["no-rng", "std"] }
+font-types = { version = "0.12.4", default-features = false, features = ["std"] }
+harfrust = { version = "0.12.0" }
+log = { version = "0.4.34", features = ["std"] }
+nohash-hasher = { version = "0.2.0" }
+parking_lot = { version = "0.12.5" }
+profiling = { version = "1.0", default-features = false }
+self_cell = { version = "1.3" }
+skrifa = { version = "0.44.0", default-features = false, features = ["std", "autohint_shaping"] }
+smallvec = { version = "1.16" }
+unicode-general-category = { version = "1.1" }
+unicode-properties = { version = "0.1.4", default-features = false, features = ["emoji"] }
+unicode-segmentation = { version = "1.13" }
+vello_cpu = { version = "0.2.0", default-features = false, features = ["std", "u8_pipeline", "f32_pipeline"] }
+bytemuck = { version = "1.25", optional = true, features = ["derive"] }
+document-features = { version = "0.2.12", optional = true }
+rayon = { version = "1.12", optional = true }
+serde = { version = "1.0", optional = true, features = ["derive", "rc"] }
+epaint_default_fonts = { version = "0.36.2", git = "https://github.com/emilk/egui", rev = "fe6d63efa4a4df6f56ceab814d4f3a6efab69b88", optional = true }

@@ -4348,6 +4348,8 @@ lib-composer-onboarding-incomplete = Completa l'accesso a questo server per sblo
 # Context: composer
 lib-composer-onboarding-complete = Completa l'accoglienza
 
+message-preview-limit = Questo messaggio supera il limite del layout di testo nativo.
+
 voice-call-moved-to-another-client = La sessione di chiamata di questo dispositivo è stata sostituita
 
 server-settings-page-safety = Configurazione sicurezza
