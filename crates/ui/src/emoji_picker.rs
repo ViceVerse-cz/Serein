@@ -297,6 +297,9 @@ pub(crate) struct Picker {
 	channel: Option<Id>,
 	generation: u64,
 	server: Option<Id>,
+	rail_guild: Option<Id>,
+	#[cfg(test)]
+	rail_scroll: Option<egui::Id>,
 	query: String,
 	matches: Vec<usize>,
 	custom: CustomMatches,
@@ -321,6 +324,9 @@ impl Default for Picker {
 			channel: None,
 			generation: 0,
 			server: None,
+			rail_guild: None,
+			#[cfg(test)]
+			rail_scroll: None,
 			query: String::new(),
 			matches: (0..standard().len()).collect(),
 			custom: CustomMatches::default(),
@@ -1204,7 +1210,18 @@ impl Picker {
 										self.query.clear();
 										self.filter();
 									}
-									egui::ScrollArea::vertical()
+									let current_guild =
+										current_server.map(|index| state.guilds[index].id);
+									if self.rail_guild != current_guild {
+										egui::scroll_area::State::default().store(
+											ui.ctx(),
+											ui.make_persistent_id(egui::IdSalt::new(
+												"emoji-server-rail",
+											)),
+										);
+										self.rail_guild = current_guild;
+									}
+									let rail = egui::ScrollArea::vertical()
 										.id_salt("emoji-server-rail")
 										.scroll_bar_visibility(
 											egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
@@ -1266,6 +1283,12 @@ impl Picker {
 												}
 											}
 										});
+									#[cfg(test)]
+									{
+										self.rail_scroll = Some(rail.id);
+									}
+									#[cfg(not(test))]
+									let _ = rail;
 								},
 							);
 
@@ -2374,6 +2397,33 @@ mod tests {
 				.collect::<Vec<_>>(),
 			order
 		);
+		for number in 0..40 {
+			let mut guild = state.guilds[0].clone();
+			guild.id = Id(2000 + number);
+			guild.name = format!("Additional synthetic {number}");
+			state.guilds.push(guild);
+		}
+		frame(&mut picker, &mut state, vec![]).drop_without_applying_deltas();
+		let rail = picker.rail_scroll.unwrap();
+		let mut scrolled = egui::scroll_area::State::load(&ctx, rail).unwrap();
+		scrolled.offset.y = 600.0;
+		scrolled.store(&ctx, rail);
+		frame(&mut picker, &mut state, vec![]).drop_without_applying_deltas();
+		assert!(egui::scroll_area::State::load(&ctx, rail).unwrap().offset.y > 100.0);
+		state
+			.channels
+			.iter_mut()
+			.find(|known| known.id == channel)
+			.unwrap()
+			.guild = Some(Id(2039));
+		for _ in 0..2 {
+			frame(&mut picker, &mut state, vec![]).drop_without_applying_deltas();
+		}
+		assert_eq!(
+			egui::scroll_area::State::load(&ctx, rail).unwrap().offset.y,
+			0.0
+		);
+		assert_eq!(picker.rail_guild, Some(Id(2039)));
 	}
 
 	#[test]
