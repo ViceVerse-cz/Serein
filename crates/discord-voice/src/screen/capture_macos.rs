@@ -93,13 +93,15 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 	Ok(sources)
 }
 
+/// Wait for the picker until it answers, the deadline passes or any `stops` flag is set.
 fn await_picker<T>(
 	receiver: mpsc::Receiver<Result<T, &'static str>>,
-	stop: &AtomicBool,
+	stops: &[&AtomicBool],
 	deadline: std::time::Instant,
 ) -> Result<T, &'static str> {
+	let stopped = || stops.iter().any(|stop| stop.load(Ordering::Acquire));
 	loop {
-		if stop.load(Ordering::Acquire) {
+		if stopped() {
 			return Err("Screen sharing cancelled");
 		}
 		let remaining = deadline.saturating_duration_since(std::time::Instant::now());
@@ -108,7 +110,7 @@ fn await_picker<T>(
 		}
 		match receiver.recv_timeout(remaining.min(std::time::Duration::from_millis(20))) {
 			Ok(result) => {
-				return if stop.load(Ordering::Acquire) {
+				return if stopped() {
 					Err("Screen sharing cancelled")
 				} else {
 					result
@@ -122,7 +124,10 @@ fn await_picker<T>(
 	}
 }
 
-fn choose_with_system_picker(stop: &AtomicBool) -> Result<SCContentFilter, &'static str> {
+fn choose_with_system_picker(
+	stop: &AtomicBool,
+	teardown: &AtomicBool,
+) -> Result<SCContentFilter, &'static str> {
 	let mut config = SCContentSharingPickerConfiguration::try_new()
 		.ok_or("The macOS sharing picker requires macOS 14 or newer")?;
 	config.set_allowed_picker_modes(&[
@@ -141,7 +146,7 @@ fn choose_with_system_picker(stop: &AtomicBool) -> Result<SCContentFilter, &'sta
 	});
 	let result = await_picker(
 		receive,
-		stop,
+		&[stop, teardown],
 		std::time::Instant::now() + std::time::Duration::from_secs(120),
 	);
 	if result.is_err() {
@@ -396,6 +401,7 @@ impl Capture {
 		stop: Arc<AtomicBool>,
 		ready: Arc<AtomicBool>,
 		audio_epoch: Arc<std::sync::atomic::AtomicU64>,
+		teardown: Arc<AtomicBool>,
 	) -> Result<Self, &'static str> {
 		initialize();
 		if settings.width == 0
@@ -409,7 +415,7 @@ impl Capture {
 		// Own the picker before selection so every later error/cancellation deactivates it.
 		let system_picker = PickerSession(settings.source == SourceId::SystemPicker);
 		let filter = match settings.source {
-			SourceId::SystemPicker => choose_with_system_picker(&stop)?,
+			SourceId::SystemPicker => choose_with_system_picker(&stop, &teardown)?,
 			SourceId::Display(id) => {
 				let content =
 					SCShareableContent::get().map_err(|_| "Screen recording permission denied")?;
@@ -535,7 +541,7 @@ mod tests {
 		assert_eq!(
 			await_picker(
 				receive,
-				&AtomicBool::new(false),
+				&[&AtomicBool::new(false)],
 				Instant::now() + Duration::from_secs(1)
 			),
 			Ok(42)
@@ -545,14 +551,24 @@ mod tests {
 		assert_eq!(
 			await_picker(
 				receive,
-				&AtomicBool::new(true),
+				&[&AtomicBool::new(true)],
 				Instant::now() + Duration::from_secs(1)
+			),
+			Err("Screen sharing cancelled")
+		);
+		// Call teardown cancels a pending picker even while capture itself is still running.
+		let (_send, receive) = mpsc::sync_channel::<Result<(), &'static str>>(1);
+		assert_eq!(
+			await_picker(
+				receive,
+				&[&AtomicBool::new(false), &AtomicBool::new(true)],
+				Instant::now() + Duration::from_secs(60)
 			),
 			Err("Screen sharing cancelled")
 		);
 		let (_send, receive) = mpsc::sync_channel::<Result<(), &'static str>>(1);
 		assert_eq!(
-			await_picker(receive, &AtomicBool::new(false), Instant::now()),
+			await_picker(receive, &[&AtomicBool::new(false)], Instant::now()),
 			Err("Screen sharing picker timed out; share again to retry")
 		);
 		let (send, receive) = mpsc::sync_channel::<Result<(), &'static str>>(1);
@@ -560,7 +576,7 @@ mod tests {
 		assert_eq!(
 			await_picker(
 				receive,
-				&AtomicBool::new(false),
+				&[&AtomicBool::new(false)],
 				Instant::now() + Duration::from_secs(1)
 			),
 			Err("Screen sharing picker stopped")

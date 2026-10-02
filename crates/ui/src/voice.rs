@@ -720,11 +720,21 @@ impl MessagingUi {
 		let Some((channel, user)) = self.stream_preview_watch else {
 			return;
 		};
-		if !state.voice.roster.iter().any(|entry| {
+		// DM calls have no guild roster entry; their live shares come from the call itself.
+		let live = state.voice.roster.iter().any(|entry| {
 			entry.channel == channel
 				&& entry.participant.user == user
 				&& entry.participant.streaming
-		}) {
+		}) || state.voice.active.as_ref().is_some_and(|call| {
+			call.channel == channel
+				&& call.guild.is_none()
+				&& matches!(call.phase, Phase::Connected | Phase::Waiting)
+				&& call
+					.participants
+					.iter()
+					.any(|participant| participant.user == user && participant.streaming)
+		});
+		if !live {
 			self.stream_preview_watch = None;
 			state.status = "This stream is no longer live";
 			return;
