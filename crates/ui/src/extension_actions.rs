@@ -471,7 +471,19 @@ mod tests {
 		);
 		state.selected = Some(Id(22));
 		state.gateway_connected = false;
+		view.apply_extension_app_action(&mut state, action(), &mut commands)
+			.unwrap();
+		assert!(matches!(
+			&commands[1],
+			Command::Send {
+				channel: Id(22),
+				..
+			}
+		));
+		assert_eq!(state.drafts[&Id(22)], "Unrelated draft");
+		state.auth = client_core::auth::AuthState::Expired;
 		assert!(state.prepare_text_send("Denied").is_none());
+		state.auth = client_core::auth::AuthState::Authenticated;
 		state.gateway_connected = true;
 		for invalid in [" ".into(), "x".repeat(client_core::MAX_CONTENT + 1)] {
 			assert!(state.prepare_text_send(&invalid).is_none());
@@ -480,9 +492,9 @@ mod tests {
 			.drafts
 			.insert(Id(20), "x".repeat(client_core::MAX_DRAFT_BYTES));
 		assert!(state.prepare_text_send("Over budget").is_none());
-		assert_eq!(state.pending.len(), 1);
+		assert_eq!(state.pending.len(), 2);
 		assert_eq!(state.reply, Some(client_core::Reply::to(Id(700))));
-		assert_eq!(commands.len(), 1);
+		assert_eq!(commands.len(), 2);
 	}
 
 	#[test]

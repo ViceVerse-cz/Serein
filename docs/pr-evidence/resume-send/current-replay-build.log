@@ -1,0 +1,6 @@
+   Compiling model v0.1.0 (/private/tmp/serein-resume-send/crates/model)
+   Compiling session-cache v0.1.0 (/private/tmp/serein-resume-send/crates/session-cache)
+   Compiling client-core v0.1.0 (/private/tmp/serein-resume-send/crates/client-core)
+   Compiling test-support v0.1.0 (/private/tmp/serein-resume-send/crates/test-support)
+   Compiling replay-bench v0.1.0 (/private/tmp/serein-resume-send/tools/replay-bench)
+    Finished `release` profile [optimized + debuginfo] target(s) in 39.70s

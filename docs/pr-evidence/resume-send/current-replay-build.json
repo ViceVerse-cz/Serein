@@ -1,0 +1,23 @@
+{
+  "source": "d6bf2c8cb6077fd5c45b1348ab0cfcf46508f8c8",
+  "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein-target-root-delivery CARGO_BUILD_JOBS=2 cargo build --release --locked -p replay-bench",
+  "profile": "Repository default FAT release; no profile overrides",
+  "application_source_matches_commit": true,
+  "capture_hooks": false,
+  "bytes": 1246112,
+  "sha256": "fca8c0af51fa0165eda3a5a112d6dc4d91df3c1b7cc8555ec99c27c94b53e56c",
+  "binary": "/Users/claw/Code/Serein/target/issue-sweep/resume-send/d6bf2c8c/replay-bench",
+  "source_build_proof": {
+    "model": "replay-build",
+    "session-cache": "replay-build",
+    "client-core": "replay-build",
+    "test-support": "replay-build",
+    "replay-bench": "replay-build"
+  },
+  "source_unchanged_since_standard": true,
+  "standard_log_sha256": "41e65068a5b1e9bdeabd59f55b8efd7cc8b29c532e8bd58156e66821fe5b210e",
+  "build_log_sha256": "06e9ab82f03bea80701b9eefde6c2a58c7c0ea7e98b3667c80a732fbade84a19",
+  "elapsed": [
+    "    Finished `release` profile [optimized + debuginfo] target(s) in 39.70s"
+  ]
+}

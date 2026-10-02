@@ -4367,6 +4367,12 @@ lib-composer-onboarding-incomplete = Dokonči připojení k serveru a odemkni da
 # Context: composer
 lib-composer-onboarding-complete = Dokončit uvítání
 
+voice-recipient-ring = Znovu zavolat
+voice-recipient-stop-ringing = Zastavit vyzvánění
+voice-recipient-ringing = Vyzvání…
+voice-recipient-not-in-call = Není v hovoru
+reconnect-now = Znovu připojit
+
 # Explicit public attachment hosting
 public-upload-host-file = Hostovat soubor…
 public-upload-heading = Nahrát na Catbox

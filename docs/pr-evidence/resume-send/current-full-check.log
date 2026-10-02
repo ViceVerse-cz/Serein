@@ -1,0 +1,1768 @@
+   Compiling model v0.1.0 (/private/tmp/serein-resume-send/crates/model)
+   Compiling session-cache v0.1.0 (/private/tmp/serein-resume-send/crates/session-cache)
+   Compiling client-core v0.1.0 (/private/tmp/serein-resume-send/crates/client-core)
+   Compiling test-support v0.1.0 (/private/tmp/serein-resume-send/crates/test-support)
+   Compiling xtask v0.1.0 (/private/tmp/serein-resume-send/tools/xtask)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.83s
+     Running `/Users/claw/Code/Serein-target-root-delivery/debug/xtask check`
+    Checking model v0.1.0 (/private/tmp/serein-resume-send/crates/model)
+    Checking extensions v0.1.0 (/private/tmp/serein-resume-send/crates/extensions)
+    Checking session-cache v0.1.0 (/private/tmp/serein-resume-send/crates/session-cache)
+    Checking client-core v0.1.0 (/private/tmp/serein-resume-send/crates/client-core)
+    Checking test-support v0.1.0 (/private/tmp/serein-resume-send/crates/test-support)
+   Compiling wry v0.57.0 (/private/tmp/serein-resume-send/vendor/wry)
+    Checking ui v0.1.0 (/private/tmp/serein-resume-send/crates/ui)
+warning: unexpected `cfg` condition name: `macos_12_unavailable`
+   --> vendor/wry/src/wkwebview/class/wry_web_view_ui_delegate.rs:129:13
+    |
+129 |         #[cfg(not(macos_12_unavailable))]
+    |                   ^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: expected names are: `docsrs`, `feature`, `gtk`, `linux`, and `test` and 32 more
+    = help: consider using a Cargo feature instead
+    = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+             [lints.rust]
+             unexpected_cfgs = { level = "warn", check-cfg = ['cfg(macos_12_unavailable)'] }
+    = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(macos_12_unavailable)");` to the top of the `build.rs`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: requested on the command line with `-W unexpected-cfgs`
+
+warning: use of deprecated static `objc2_app_kit::NSFilenamesPboardType`: Create multiple pasteboard items with NSPasteboardTypeFileURL or kUTTypeFileURL instead
+  --> vendor/wry/src/wkwebview/drag_drop.rs:11:54
+   |
+11 | use objc2_app_kit::{NSDragOperation, NSDraggingInfo, NSFilenamesPboardType};
+   |                                                      ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated static `objc2_app_kit::NSFilenamesPboardType`: Create multiple pasteboard items with NSPasteboardTypeFileURL or kUTTypeFileURL instead
+  --> vendor/wry/src/wkwebview/drag_drop.rs:21:39
+   |
+21 |     let types = NSArray::arrayWithObject(NSFilenamesPboardType);
+   |                                          ^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSFilenamesPboardType`: Create multiple pasteboard items with NSPasteboardTypeFileURL or kUTTypeFileURL instead
+  --> vendor/wry/src/wkwebview/drag_drop.rs:24:38
+   |
+24 |         let paths = pb.propertyListForType(NSFilenamesPboardType).unwrap();
+   |                                            ^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSAlternateKeyMask`
+ --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:2:2
+  |
+2 |     NSAlternateKeyMask, NSCommandKeyMask, NSControlKeyMask, NSEvent, NSEventType, NSShiftKeyMask,
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSCommandKeyMask`
+ --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:2:22
+  |
+2 |     NSAlternateKeyMask, NSCommandKeyMask, NSControlKeyMask, NSEvent, NSEventType, NSShiftKeyMask,
+  |                         ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSControlKeyMask`
+ --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:2:40
+  |
+2 |     NSAlternateKeyMask, NSCommandKeyMask, NSControlKeyMask, NSEvent, NSEventType, NSShiftKeyMask,
+  |                                           ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSShiftKeyMask`
+ --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:2:80
+  |
+2 |     NSAlternateKeyMask, NSCommandKeyMask, NSControlKeyMask, NSEvent, NSEventType, NSShiftKeyMask,
+  |                                                                                   ^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSControlKeyMask`
+   --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:116:34
+    |
+116 |         ctrl_key = mods_flags.contains(NSControlKeyMask),
+    |                                        ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSAlternateKeyMask`
+   --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:117:33
+    |
+117 |         alt_key = mods_flags.contains(NSAlternateKeyMask),
+    |                                       ^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSShiftKeyMask`
+   --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:118:35
+    |
+118 |         shift_key = mods_flags.contains(NSShiftKeyMask),
+    |                                         ^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSCommandKeyMask`
+   --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:119:34
+    |
+119 |         meta_key = mods_flags.contains(NSCommandKeyMask),
+    |                                        ^^^^^^^^^^^^^^^^
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/drag_drop.rs:40:20
+   |
+40 |     let dl: NSPoint = unsafe { drag_info.draggingLocation() };
+   |                       ^^^^^^ unnecessary `unsafe` block
+   |
+   = note: `#[warn(unused_unsafe)]` (part of `#[warn(unused)]`) on by default
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/drag_drop.rs:57:20
+   |
+57 |     let dl: NSPoint = unsafe { drag_info.draggingLocation() };
+   |                       ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/drag_drop.rs:85:20
+   |
+85 |     let dl: NSPoint = unsafe { drag_info.draggingLocation() };
+   |                       ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/class/wry_web_view_parent.rs:33:4
+   |
+33 |             unsafe {
+   |             ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/class/wry_web_view_ui_delegate.rs:43:3
+   |
+43 |         unsafe {
+   |         ^^^^^^ unnecessary `unsafe` block
+
+warning: `wry` (lib) generated 17 warnings
+    Checking hpke-rs v0.6.1 (/private/tmp/serein-resume-send/vendor/hpke-rs)
+    Checking platform v0.1.0 (/private/tmp/serein-resume-send/crates/platform)
+    Checking openmls_rust_crypto v0.5.1
+   Compiling discord-voice v0.1.0 (/private/tmp/serein-resume-send/crates/discord-voice)
+    Checking davey v0.1.4 (/private/tmp/serein-resume-send/vendor/davey)
+    Checking objc2-av-foundation v0.3.2
+    Checking discord-protocol v0.1.0 (/private/tmp/serein-resume-send/crates/discord-protocol)
+   Compiling serein v0.1.0 (/private/tmp/serein-resume-send/apps/desktop)
+    Checking local-store v0.1.0 (/private/tmp/serein-resume-send/crates/local-store)
+    Checking serein-extension-sdk v0.1.0 (/private/tmp/serein-resume-send/extensions/sdk)
+    Checking discord-gateway v0.1.0 (/private/tmp/serein-resume-send/crates/discord-gateway)
+    Checking discord-api v0.1.0 (/private/tmp/serein-resume-send/crates/discord-api)
+    Checking tray-debug v0.1.0 (/private/tmp/serein-resume-send/tools/tray-debug)
+    Checking xtask v0.1.0 (/private/tmp/serein-resume-send/tools/xtask)
+    Checking replay-bench v0.1.0 (/private/tmp/serein-resume-send/tools/replay-bench)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 57.42s
+   Compiling model v0.1.0 (/private/tmp/serein-resume-send/crates/model)
+   Compiling extensions v0.1.0 (/private/tmp/serein-resume-send/crates/extensions)
+   Compiling session-cache v0.1.0 (/private/tmp/serein-resume-send/crates/session-cache)
+   Compiling client-core v0.1.0 (/private/tmp/serein-resume-send/crates/client-core)
+   Compiling test-support v0.1.0 (/private/tmp/serein-resume-send/crates/test-support)
+   Compiling ui v0.1.0 (/private/tmp/serein-resume-send/crates/ui)
+   Compiling wry v0.57.0 (/private/tmp/serein-resume-send/vendor/wry)
+warning: unexpected `cfg` condition name: `macos_12_unavailable`
+   --> vendor/wry/src/wkwebview/class/wry_web_view_ui_delegate.rs:129:13
+    |
+129 |         #[cfg(not(macos_12_unavailable))]
+    |                   ^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: expected names are: `docsrs`, `feature`, `gtk`, `linux`, and `test` and 32 more
+    = help: consider using a Cargo feature instead
+    = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+             [lints.rust]
+             unexpected_cfgs = { level = "warn", check-cfg = ['cfg(macos_12_unavailable)'] }
+    = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(macos_12_unavailable)");` to the top of the `build.rs`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: requested on the command line with `-W unexpected-cfgs`
+
+warning: use of deprecated static `objc2_app_kit::NSFilenamesPboardType`: Create multiple pasteboard items with NSPasteboardTypeFileURL or kUTTypeFileURL instead
+  --> vendor/wry/src/wkwebview/drag_drop.rs:11:54
+   |
+11 | use objc2_app_kit::{NSDragOperation, NSDraggingInfo, NSFilenamesPboardType};
+   |                                                      ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated static `objc2_app_kit::NSFilenamesPboardType`: Create multiple pasteboard items with NSPasteboardTypeFileURL or kUTTypeFileURL instead
+  --> vendor/wry/src/wkwebview/drag_drop.rs:21:39
+   |
+21 |     let types = NSArray::arrayWithObject(NSFilenamesPboardType);
+   |                                          ^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSFilenamesPboardType`: Create multiple pasteboard items with NSPasteboardTypeFileURL or kUTTypeFileURL instead
+  --> vendor/wry/src/wkwebview/drag_drop.rs:24:38
+   |
+24 |         let paths = pb.propertyListForType(NSFilenamesPboardType).unwrap();
+   |                                            ^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSAlternateKeyMask`
+ --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:2:2
+  |
+2 |     NSAlternateKeyMask, NSCommandKeyMask, NSControlKeyMask, NSEvent, NSEventType, NSShiftKeyMask,
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSCommandKeyMask`
+ --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:2:22
+  |
+2 |     NSAlternateKeyMask, NSCommandKeyMask, NSControlKeyMask, NSEvent, NSEventType, NSShiftKeyMask,
+  |                         ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSControlKeyMask`
+ --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:2:40
+  |
+2 |     NSAlternateKeyMask, NSCommandKeyMask, NSControlKeyMask, NSEvent, NSEventType, NSShiftKeyMask,
+  |                                           ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSShiftKeyMask`
+ --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:2:80
+  |
+2 |     NSAlternateKeyMask, NSCommandKeyMask, NSControlKeyMask, NSEvent, NSEventType, NSShiftKeyMask,
+  |                                                                                   ^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSControlKeyMask`
+   --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:116:34
+    |
+116 |         ctrl_key = mods_flags.contains(NSControlKeyMask),
+    |                                        ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSAlternateKeyMask`
+   --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:117:33
+    |
+117 |         alt_key = mods_flags.contains(NSAlternateKeyMask),
+    |                                       ^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSShiftKeyMask`
+   --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:118:35
+    |
+118 |         shift_key = mods_flags.contains(NSShiftKeyMask),
+    |                                         ^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSCommandKeyMask`
+   --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:119:34
+    |
+119 |         meta_key = mods_flags.contains(NSCommandKeyMask),
+    |                                        ^^^^^^^^^^^^^^^^
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/drag_drop.rs:40:20
+   |
+40 |     let dl: NSPoint = unsafe { drag_info.draggingLocation() };
+   |                       ^^^^^^ unnecessary `unsafe` block
+   |
+   = note: `#[warn(unused_unsafe)]` (part of `#[warn(unused)]`) on by default
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/drag_drop.rs:57:20
+   |
+57 |     let dl: NSPoint = unsafe { drag_info.draggingLocation() };
+   |                       ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/drag_drop.rs:85:20
+   |
+85 |     let dl: NSPoint = unsafe { drag_info.draggingLocation() };
+   |                       ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/class/wry_web_view_parent.rs:33:4
+   |
+33 |             unsafe {
+   |             ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/class/wry_web_view_ui_delegate.rs:43:3
+   |
+43 |         unsafe {
+   |         ^^^^^^ unnecessary `unsafe` block
+
+warning: `wry` (lib) generated 17 warnings
+   Compiling hpke-rs v0.6.1 (/private/tmp/serein-resume-send/vendor/hpke-rs)
+   Compiling platform v0.1.0 (/private/tmp/serein-resume-send/crates/platform)
+   Compiling openmls_rust_crypto v0.5.1
+   Compiling discord-voice v0.1.0 (/private/tmp/serein-resume-send/crates/discord-voice)
+   Compiling davey v0.1.4 (/private/tmp/serein-resume-send/vendor/davey)
+   Compiling discord-protocol v0.1.0 (/private/tmp/serein-resume-send/crates/discord-protocol)
+   Compiling objc2-av-foundation v0.3.2
+   Compiling discord-gateway v0.1.0 (/private/tmp/serein-resume-send/crates/discord-gateway)
+   Compiling serein-extension-sdk v0.1.0 (/private/tmp/serein-resume-send/extensions/sdk)
+   Compiling discord-api v0.1.0 (/private/tmp/serein-resume-send/crates/discord-api)
+   Compiling local-store v0.1.0 (/private/tmp/serein-resume-send/crates/local-store)
+   Compiling serein v0.1.0 (/private/tmp/serein-resume-send/apps/desktop)
+   Compiling tray-debug v0.1.0 (/private/tmp/serein-resume-send/tools/tray-debug)
+   Compiling replay-bench v0.1.0 (/private/tmp/serein-resume-send/tools/replay-bench)
+   Compiling xtask v0.1.0 (/private/tmp/serein-resume-send/tools/xtask)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6m 05s
+     Running unittests src/lib.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/client_core-148c08f651080b26)
+
+running 138 tests
+test auth::tests::secret_is_redacted_and_header_injection_rejected ... ok
+test archives::tests::thread_of_matches_flagged_starter_messages_and_named_system_rows ... ok
+test channel_actions::tests::channel_writes_check_access_bounds_queue_failure_and_stale_completions ... ok
+test application_commands::tests::guild_index_survives_sibling_channels_and_access_events ... ok
+test channel_actions::tests::channel_moves_require_a_manageable_category_and_apply_the_confirmed_position ... ok
+test archives::tests::archive_and_search_reads_require_current_permissions ... ok
+test application_commands::tests::command_permissions_filter_defaults_overrides_threads_and_submission ... ok
+test channel_actions::tests::thread_references_reuse_channel_loading_and_require_a_viewable_parent ... ok
+test fingerprint::tests::nonce_is_a_decimal_snowflake ... ok
+test channel_actions::tests::timed_mutes_expire_for_delivery_and_matching_gateway_echo_preserves_timer ... ok
+test fingerprint::tests::properties_are_valid_json_and_consistent_with_user_agent ... ok
+test channel_actions::tests::creation_checks_kind_name_and_permissions ... ok
+test forum::tests::forum_title_replacement_updates_budget_and_preserves_original_when_full ... ok
+test forum::tests::forum_posts_load_on_demand_page_forward_and_reload_after_a_sync ... ok
+test forum::tests::header_reload_refreshes_forum_posts_without_leaving_the_channel ... ok
+test forum::tests::posts_are_created_once_validated_and_opened_by_the_ui ... ok
+test gifs::tests::gif_favorites_host_shutdown_unblocks_offline_local_stars_without_replaying_writes ... ok
+test gifs::tests::failed_favorite_sync_retains_local_state_and_requires_explicit_refresh_before_more_writes ... ok
+test gifs::tests::gif_favorites_session_reset_releases_reads_and_writes_and_rejects_old_results ... ok
+test gifs::tests::gif_requests_are_single_flight_and_results_match_the_live_request ... ok
+test gifs::tests::late_cache_restoration_keeps_remote_favorites_and_cannot_undo_explicit_stars ... ok
+test gifs::tests::pre_cache_removal_history_is_bounded_and_overflow_cannot_restore_stale_records ... ok
+test gifs::tests::synchronized_favorites_keep_local_fallback_drop_remote_removals_and_match_live_requests ... ok
+test group_actions::tests::group_actions_confirm_writes_keep_drafts_and_respect_newer_service_state ... ok
+test gifs::tests::favorites_are_bounded_deduplicated_and_restored_only_when_untouched ... ok
+test guild_folders::tests::folder_writes_wait_for_ack_and_rejection_preserves_the_layout ... ok
+test group_actions::tests::group_leave_guards_rejoined_channel_pending_messages_and_session_reset ... ok
+test invites::tests::explicit_preview_works_without_a_channel_but_keeps_session_and_cache_guards ... ok
+test messaging_permissions::tests::acknowledged_changes_reject_stale_responses_and_demo_stays_offline ... ok
+test invites::join_tests::invite_challenge_is_single_use_scoped_expiring_and_redacted ... ok
+test notifications::tests::existing_channel_controls_preserve_complete_server_defaults ... ok
+test notifications::tests::guild_defaults_controls_timers_and_unknown_preferences ... ok
+test notifications::tests::inherited_dm_preferences_keep_default_delivery_and_mute ... ok
+test notifications::tests::confirmed_dm_mute_and_block_suppress_notifications ... ok
+test notifications::tests::marking_unread_badges_guild_mentions_inside_the_new_range ... ok
+test notifications::tests::sparse_local_writes_cannot_claim_unknown_overrides_are_empty ... ok
+test notifications::tests::supplied_group_mentions_respect_membership_suppression_and_count_once ... ok
+test onboarding::tests::open_member_is_not_prompted_after_join ... ok
+test onboarding::tests::pending_member_is_prompted_after_join_and_unlocked_on_approval ... ok
+test gifs::tests::full_remote_projection_reserves_local_fallback_in_both_cache_arrival_orders ... ok
+test permissions::tests::decisions_expire_at_timeout_and_recompute_after_clock_rollback ... ok
+test permissions_tests::cross_server_emoji_checks_destination_and_known_source_roles ... ok
+test permissions_tests::history_freshness_does_not_disable_authorized_sending ... ok
+test permissions_tests::deleting_an_unassigned_role_prunes_its_overwrites_and_invalidates_cached_decisions ... ok
+test notifications::tests::unknown_deletes_and_empty_recounts_never_admit_channel_state ... ok
+test permissions_tests::malformed_snapshots_are_atomic_and_rejected_permission_events_fail_closed ... ok
+test permissions_tests::member_requests_survive_guild_hydration_and_follow_current_permissions ... ok
+test permissions_tests::message_deletion_uses_manage_messages_without_granting_edit_or_requiring_send ... ok
+test permissions_tests::new_custom_reactions_require_eligibility_but_existing_and_removal_stay_separate ... ok
+test permissions_tests::optimistic_edits_and_pins_roll_back_without_overwriting_newer_content ... ok
+test permissions_tests::role_rest_catalog_and_self_membership_revoke_selected_history_immediately ... ok
+test permissions_tests::revoked_view_cannot_return_through_stale_gateway_content_or_old_history ... ok
+test permissions_tests::thread_members_load_without_parent_list_and_reject_retired_replies ... ok
+test presence::tests::client_platform_patches_preserve_replace_and_clear_offline ... ok
+test presence::tests::complete_presence_values_preserve_replace_and_clear_without_timeline_churn ... ok
+test presence::tests::friend_presence_without_a_dm_is_retained_but_strangers_are_not ... ok
+test notifications::tests::queued_role_alerts_recheck_membership_and_payload_capacity_at_delivery ... ok
+test presence::tests::local_game_activity_is_bounded_coalesced_and_cleared_at_session_boundaries ... ok
+test presence::tests::invalid_batches_are_rejected_atomically_including_allocation_bounds ... ok
+test presence::tests::projected_row_budget_counts_custom_text_and_retained_equal_allocations ... ok
+test presence::tests::stale_scope_disconnect_and_access_loss_cannot_change_presence ... ok
+test profile::tests::profiles_require_explicit_request_and_reject_late_views ... ok
+test presence::tests::activity_only_byte_eviction_invalidates_online_membership ... ok
+test reactions::tests::live_reaction_deltas_preserve_counts_echoes_and_history_races ... ok
+test reactions::tests::reaction_permissions_distinguish_existing_emoji_and_late_reads ... ok
+test profile::tests::own_profile_demo_is_explicit_and_profile_results_charge_heap_capacity ... ok
+test reactions::tests::reaction_users_are_paged_deduplicated_and_session_only ... ok
+test profile::tests::own_profile_requires_loaded_account_and_confirms_only_current_bounded_responses ... ok
+test read_state::navigation_tests::deleted_pages_and_unknown_latest_keep_a_forward_cursor_without_resurrecting_messages ... ok
+test read_state::navigation_tests::historical_sends_confirm_without_splicing_a_live_tail_in_either_order ... ok
+test profile::tests::own_profile_does_not_request_mutuals ... ok
+test read_state::navigation_tests::timeline_cursor_workload ... ignored, synthetic release workload; run directly after building
+test read_state::navigation_tests::marking_a_dm_or_group_unread_restores_the_badge_count ... ok
+test read_state::navigation_tests::read_failure_is_scoped_and_service_ack_resolves_it_in_either_order ... ok
+test replies::tests::accepted_deletion_effects_are_scoped_bounded_and_reset_on_rejected_generation ... ok
+test read_state::navigation_tests::unread_tail_check_preserves_partial_markers_and_deleted_only_histories ... ok
+test read_state::navigation_tests::newest_live_cursor_skips_deleted_tail_payloads_and_placeholders ... ok
+test replies::tests::chat_links_reject_invalid_unavailable_and_forbidden_targets_before_navigation ... ok
+test replies::tests::chat_links_select_same_server_other_server_and_dm_without_joining_voice ... ok
+test replies::tests::explicit_reference_deletion_retires_composer_and_loaded_target ... ok
+test replies::tests::explicit_reply_send_preserves_composer_state_and_requires_a_loaded_safe_target ... ok
+test replies::tests::loaded_reply_target_only_scrolls_and_preserves_composer_work ... ok
+test replies::tests::reply_targets_require_a_current_scoped_reference_and_safe_state ... ok
+test replies::tests::search_and_pin_target_windows_preserve_prior_deletions ... ok
+test replies::tests::send_deletion_requires_correlation_and_handles_gateway_first_without_replacing_text ... ok
+test resident::tests::deletion_only_windows_survive_promotion_and_reject_old_page_bodies ... ok
+test resident::tests::reselecting_current_channel_preserves_history_request_and_composer ... ok
+test resident::tests::revoked_dormant_guild_history_is_pruned_while_selected_dm_stays_visible ... ok
+test archives::tests::opened_archives_are_single_transients_until_gateway_adoption ... ok
+test resident::tests::search_targets_and_transient_archive_windows_are_not_parked ... ok
+test server_actions::tests::notification_writes_need_membership_not_admin_and_confirm_after_unrelated_events ... ok
+test server_actions::tests::server_actions_reject_stale_sessions_and_keep_rejoined_guilds ... ok
+test server_actions::tests::server_actions_scope_permissions_and_confirmed_removal ... ok
+test server_actions::tests::server_invites_options_friends_acknowledgement_and_cancellation ... ok
+test resident::tests::inactive_mutations_evict_only_the_affected_window_and_ignore_old_generations ... ok
+test server_admin::invite_tests::invites_stale_requests_and_permission_loss_do_not_restore_codes ... ok
+test server_audit_log::tests::audit_filters_pagination_stale_results_and_permission_loss ... ok
+test server_admin::sticker_tests::sticker_permissions_follow_creator_and_manager_rules ... ok
+test server_integrations::tests::integrations_permissions_scope_stale_responses_and_uncertain_writes ... ok
+test server_integrations::tests::webhook_url_copy_is_one_shot_and_fenced_on_close_permissions_and_disconnect ... ok
+test server_roles::tests::role_edit_gates_hierarchy_defaults_entitlements_and_new_grants ... ok
+test server_roles::tests::role_members_completion_requires_current_directory_permission ... ok
+test server_roles::tests::role_gateway_move_delete_and_stale_catalog_cannot_restore_permissions ... ok
+test stickers::tests::sticker_send_preserves_draft_and_failed_send_is_explicit ... ok
+test tests::attachment_only_sends_are_bounded_and_keep_existing_confirmation ... ok
+test tests::guild_lookup_benchmark ... ignored, manual release timing; run with --release --ignored --nocapture
+test tests::guild_identity_patches_preserve_omitted_fields_and_change_icon_keys ... ok
+test tests::members_reject_late_requests_and_permission_invalidations ... ok
+test tests::reaction_readback_coalesces_races_and_never_replays_uncertain_writes ... ok
+test tests::rejected_sends_do_not_invalidate_a_healthy_conversation ... ok
+test tests::ready_replacement_and_removed_reload_cannot_restore_unavailable_history ... ok
+test tests::voice_navigation_survives_ready_but_revocation_ends_the_call_before_restoration ... ok
+test tests::server_selection_restores_viewed_channels_and_revalidates_access ... ok
+test threads::tests::thread_snapshots_preserve_other_scopes_and_cancel_removed_history ... ok
+test presence::tests::direct_presence_epoch_rejects_invalid_updates_and_clears_at_ready ... ok
+test server_audit_log::tests::audit_history_stops_at_retained_limit_and_close_invalidates_response ... ok
+test typing::tests::expiry_uses_wire_age_and_monotonic_deadline_without_mutating_queries ... ok
+test typing::tests::incoming_typing_does_not_invalidate_timeline_residents_or_revision ... ok
+test typing::tests::navigation_session_and_permission_transitions_clear_typing ... ok
+test tests::guild_emoji_updates_replace_catalog_and_reject_stale_or_oversized_data ... ok
+test user_actions::tests::fresh_ready_does_not_reuse_an_outstanding_write_request ... ok
+test user_actions::tests::friend_captcha_is_scoped_single_use_and_resumes_the_same_write ... ok
+test typing::tests::bounded_flood_refresh_and_out_of_order_signals_have_fixed_storage ... ok
+test user_actions::tests::personal_edits_are_bounded_confirmed_and_reconcile_newer_service_state ... ok
+test user_actions::tests::restricted_profiles_replace_update_and_clear_with_the_session ... ok
+test view_revisions::tests::local_changes_explicit_invalidation_and_unclassified_events_refresh_all_keys ... ok
+test view_revisions::tests::message_churn_preserves_catalogs_and_guild_rows_but_updates_dm_order_and_badges ... ok
+test voice::tests::dm_calls_require_gesture_and_reject_late_states ... ok
+test user_actions::tests::relationship_view_tracks_all_friend_inputs_and_failed_mutations ... ok
+test voice::tests::guild_roster_moves_mutes_limits_and_selection_never_join_implicitly ... ok
+test user_actions::tests::friend_requests_validate_bound_and_reconcile_without_duplicate_writes ... ok
+test voice::tests::outgoing_ring_requires_explicit_intent_and_service_confirmation ... ok
+test voice::tests::takeover_clears_only_the_matching_call_and_allows_an_explicit_rejoin ... ok
+test voice::tests::stream_preview_is_scoped_to_the_current_streamer_request ... ok
+test resident::tests::lru_and_aggregate_row_budget_evict_whole_windows ... ok
+test threads::tests::invalid_thread_snapshots_leave_navigation_and_drafts_unchanged ... ok
+test tests::channel_mutations_preserve_partial_metadata_and_remove_deleted_categories ... ok
+test permissions_tests::large_startup_retains_permissions_read_state_and_subsequent_channel_threads ... ok
+
+test result: ok. 136 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 2.81s
+
+     Running unittests src/lib.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/discord_api-adf584d37e85a427)
+
+running 58 tests
+test channel_actions::tests::thread_references_require_the_requested_guild_id_and_parent ... ok
+test channel_actions::tests::duplication_keeps_voice_and_forum_fields_and_rejects_missing_overwrites ... ok
+test channel_actions::tests::post_details_validate_thread_scope_and_member_flags ... ok
+test detectable::tests::process_matcher_benchmark ... ignored, release process matcher benchmark; one warmup and five measured batches
+test external_assets::tests::only_absolute_https_urls_resolve_into_bounded_proxy_paths ... ok
+test detectable::tests::list_drops_launchers_and_matches_the_longest_path_suffix ... ok
+test detectable::tests::suffix_matching_preserves_component_limits_and_bundle_priority ... ok
+test detectable::tests::oversize_empty_and_malformed_lists_are_refused ... ok
+test interactions::tests::modal_submission_projects_input_values_without_schema_metadata ... ok
+test channel_actions::tests::channel_move_uses_the_guild_position_route ... ok
+test mention_tests::mass_mentions_and_explicit_users_are_allowed ... ok
+test archives::tests::archive_routes_are_read_only_scoped_and_encode_the_correct_cursor ... ok
+test forum::tests::forum_posts_are_scoped_paged_and_reject_foreign_rows ... ok
+test proxy::tests::accepts_only_bounded_credential_free_http_proxy_addresses ... ok
+test activity_sharing::tests::sharing_reads_fresh_preserves_status_and_never_retries_unconfirmed_writes ... ok
+test message_options::tests::quiet_messages_set_flags_preserve_mentions_and_reject_empty_text ... ok
+test group_actions::tests::group_routes_validate_outcomes_and_never_retry_uncertain_writes ... ok
+test rpc::tests::application_identity_and_registered_assets_are_bounded ... ok
+test rpc::tests::lookup_rejects_redirects_oversize_and_honors_shared_cooldown ... ok
+test profile_edit::tests::profile_edits_send_only_changes_confirm_readback_and_do_not_retry ... ok
+test proxy_tests::waits_for_configuration_then_routes_future_requests_and_rejects_invalid_changes ... ok
+test server_admin::sticker_tests::sticker_multipart_keeps_fields_file_and_collision_free_boundary ... ok
+test server_actions::tests::friend_invites_scope_dm_and_confirm_message_without_retry ... ok
+test gif_favorites::tests::favorite_writes_read_fresh_preserve_hidden_entries_and_never_retry_ambiguous_results ... ok
+test server_integrations::tests::webhook_url_copy_uses_authenticated_get_and_rejects_wrong_scope ... ok
+test channel_actions::tests::channel_routes_preserve_permissions_scope_partial_edits_and_never_retry ... ok
+test proxy_tests::authenticated_connect_sends_only_proxy_credentials_and_never_falls_back ... ok
+test interactions::tests::slash_catalog_and_submission_use_typed_bounded_account_transport ... ok
+test proxy_tests::rejected_connect_does_not_expose_discord_token_or_fall_back_direct ... ok
+test server_roles::tests::role_edit_http_preserves_fresh_unknown_bits_and_reconciles ... ok
+test tests::guild_creation_posts_once_and_waits_for_gateway_state ... ok
+test tests::explicit_dm_ring_and_decline_use_only_scoped_routes ... ok
+test tests::profiles_are_scoped_capped_and_do_not_block_message_writes ... ok
+test tests::local_http_checks_redirect_expiry_rate_limits_and_response_cap ... ok
+test tests::invite_captcha_preserves_fatal_auth_and_malformed_challenges ... ok
+test tests::history_after_includes_zero_and_rejects_combined_cursors ... ok
+test tests::reaction_routes_encode_one_component_and_read_back_scoped_counts ... ok
+test tests::stream_preview_accepts_only_the_requested_discord_cdn_path ... ok
+test upload::external::tests::already_cancelled_upload_never_contacts_service ... ok
+test upload::external::tests::cancellation_retires_a_stalled_public_upload ... ok
+test tests::sticker_send_writes_one_id_and_preserves_reply ... ok
+test upload::external::tests::changed_local_source_is_rejected_before_networking ... ok
+test upload::external::tests::limits_and_public_url_admission ... ok
+test tests::single_message_delete_confirms_only_success_and_never_retries_ambiguity ... ok
+test upload::external::tests::local_source_changed_after_streaming_does_not_return_a_link ... ok
+test upload::external::tests::rejection_redirect_and_response_limits_do_not_return_links ... ok
+test tests::search_routes_are_encoded_scoped_and_indexing_never_auto_retries ... ok
+test upload::tests::image_sources_only_accept_bounded_generated_raster_names ... ok
+test upload::external::tests::synthetic_multipart_is_streamed_without_credentials ... ok
+test user_actions::tests::friend_request_captcha_surfaces_and_resumes_once_with_the_solution ... ok
+test user_actions::tests::notes_read_empty_missing_existing_and_forbidden_without_writes ... ok
+test upload::tests::staged_upload_streams_without_credentials_and_reconciles_message ... ok
+test user_actions::tests::account_and_friend_request_actions_use_scoped_routes_and_confirm_remote_outcomes ... ok
+test server_audit_log::tests::audit_log_http_filters_cursor_and_forbidden_without_retry ... ok
+test server_invites::tests::invites_http_pause_preserves_features_and_revoke_reconciles_without_retry ... ok
+test server_integrations::tests::integrations_http_permission_scopes_mutation_reconciliation_and_no_retry ... ok
+test upload::tests::upload_cancel_before_write_and_redirect_never_send_message ... ok
+test server_actions::tests::server_actions_routes_scope_and_uncertain_writes ... ok
+
+test result: ok. 57 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+     Running unittests src/lib.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/discord_gateway-a02839d6758a01e8)
+
+running 49 tests
+test activity::tests::server_observations_do_not_confirm_unsent_changed_or_cleared_games ... ok
+test activity::tests::unverified_game_is_published_like_discord_and_confirmed_by_name ... ok
+test activity::tests::own_presence_preserves_games_clears_and_restores_after_invisible ... ok
+test activity::tests::activity_coalesces_clears_reconnects_and_bounds_utf8 ... ok
+test channel_events::tests::obfuscation_revokes_and_restoration_preserves_partial_updates ... ok
+test activity::tests::combined_custom_activity_keeps_gateway_payload_within_four_kib ... ok
+test channel_events::tests::voice_admission_and_snapshots_exclude_hidden_and_unknown_guild_channels ... ok
+test login_tests::invalid_owner_identity_or_session_never_emits_startup ... ok
+test login_tests::oversized_frames_stop_login_during_and_after_hello ... ok
+test login_tests::ready_accepts_4097_referenced_users_without_voice ... ok
+test member_tests::custom_status_patches_preserve_replace_clear_and_coalesce ... ok
+test member_tests::diagnostics_are_opt_in_byte_bounded_redacted_and_tolerate_closed_output ... ok
+test compression::tests::large_fragmented_payload_releases_capacity_but_keeps_stream_dictionary ... ok
+test member_tests::member_sync_and_updates_replace_role_membership ... ok
+test member_tests::presence_coalesces_loaded_rows_at_a_fixed_deadline_and_snapshots_supersede_it ... ok
+test member_tests::rich_activity_patches_preserve_absence_and_clear_on_status_loss ... ok
+test presence::tests::direct_patches_coalesce_without_losing_absent_fields_and_stay_bounded ... ok
+test presence::tests::supplemental_filters_unknown_users_and_streams_more_than_one_batch ... ok
+test tests::explicit_dm_join_negotiation_and_leave_over_local_gateway ... ok
+test tests::full_channel_overrides_default_omissions_but_keep_null_unknown ... ok
+test tests::guild_mute_without_channel_overrides_and_full_defaults_are_retained ... ok
+test login_tests::supplemental_accepts_4097_members_without_voice ... ok
+test tests::local_category_create_move_permission_update_and_delete ... ok
+test member_tests::replies_follow_the_service_list_identity_until_synchronized ... ok
+test tests::local_ignored_dispatches_and_typing_keep_delivering_messages ... ok
+test tests::notification_settings_forward_explicit_mention_suppression ... ok
+test login_tests::ready_accepts_byte_heavy_referenced_users_without_voice ... ok
+test tests::reaction_dispatch_preserves_burst_and_falls_back_for_unsafe_details ... ok
+test tests::unjoined_dm_call_discovery_and_lifecycle_over_local_gateway ... ok
+test thread_events::tests::hidden_sync_revokes_a_transient_in_one_event_after_full_validation ... ok
+test thread_events::tests::thread_dispatch_rejects_malformed_scope_and_only_removes_the_owner ... ok
+test voice::tests::a_changed_session_acknowledges_an_old_manual_departure_without_a_null_state ... ok
+test voice::tests::an_owner_move_to_another_channel_releases_the_original_intent_and_identity ... ok
+test voice::tests::another_client_takes_over_without_a_hangup_or_stale_departure_barrier ... ok
+test voice::tests::camera_controls_preserve_mute_and_reject_stale_or_revoked_enable ... ok
+test voice::tests::current_server_credentials_are_part_of_confirmation_and_abandon_sends_no_hangup ... ok
+test voice::tests::deletion_reasons_map_to_messages_and_user_requests_stay_silent ... ok
+test voice::tests::guild_join_roster_and_departure_are_scoped_and_bounded ... ok
+test voice::tests::join_candidates_remain_replaceable_until_the_exact_local_transport_is_confirmed ... ok
+test tests::late_recovery_preserves_ready_and_resumed_sockets ... ok
+test voice::tests::screen_stream_matches_one_call_attempt_until_delete ... ok
+test voice::tests::sync_discovers_only_admitted_dm_calls_without_joining ... ok
+test voice::tests::optional_login_users_are_bounded_without_rejecting_the_session ... ok
+test login_tests::optional_metadata_faults_do_not_abort_large_login ... ok
+test login_tests::ready_between_4_and_64_mib_logs_in ... ok
+test compression::tests::split_payloads_share_the_dictionary_and_enforce_both_byte_limits ... ok
+test login_tests::large_accounts_keep_all_navigation_and_permissions ... ok
+test tests::local_socket_identify_ack_drop_resume_and_invalid_session ... ok
+test tests::outgoing_activity_waits_for_ready_coalesces_clears_and_resumes ... ok
+
+test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.60s
+
+     Running unittests src/lib.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/discord_protocol-5a129ac5d76f6e45)
+
+running 83 tests
+test diagnostics::tests::redacts_identifier_map_keys_and_keeps_missing_field_names ... ok
+test channel_tests::group_icon_hash_and_patches_keep_absent_null_and_value_distinct ... ok
+test channel_tests::ready_omits_obfuscated_channels_and_their_threads_without_inventing_child_permissions ... ok
+test activity_sessions::tests::aggregate_and_own_sessions_distinguish_received_hidden_and_missing ... ok
+test attachments::tests::image_only_messages_nullable_dimensions_spoilers_and_patch_semantics ... ok
+test diagnostics::tests::reports_schema_path_without_remote_values ... ok
+test archives::tests::archives_validate_scope_kind_metadata_cursor_order_and_capacity ... ok
+test extra_content::component_bounds::preserves_defaults_unknown_types_and_bounds_each_subtree ... ok
+test extra_content::tests::field_patches_preserve_absence_and_clear_only_explicit_sources ... ok
+test activity_sharing::tests::sharing_patch_preserves_status_unknown_fields_and_defaults ... ok
+test extra_content::tests::malformed_shapes_and_local_wire_limits_are_rejected ... ok
+test extra_content::tests::normal_messages_retain_presence_without_retaining_payloads ... ok
+test forum::tests::forum_pages_validate_scope_state_and_capacity ... ok
+test group_actions::tests::group_icon_encoding_is_bounded_and_requires_png_dimensions ... ok
+test gifs::tests::replies_skip_rejected_entries_and_truncate_long_lists ... ok
+test guild_folders::tests::folders_roundtrip_preserves_positions_and_rejects_truncation ... ok
+test guild_folders::tests::messy_large_layouts_are_normalized_instead_of_rejected ... ok
+test gif_favorites::tests::favorites_projection_keeps_newest_entries_after_plain_refresh ... ok
+test member_tests::avatars_recipients_and_permission_scoped_list_ids ... ok
+test lossy::tests::drops_only_malformed_elements_and_keeps_positions_in_slots ... ok
+test member_tests::member_roles_are_retained_sorted_and_bounded_before_list_admission ... ok
+test notifications::tests::defaults_apply_only_to_omitted_gateway_fields_not_rest_confirmation ... ok
+test notifications::tests::mention_suppression_settings_preserve_unknown_false_and_true ... ok
+test onboarding::tests::forms_decode_and_echo_answers ... ok
+test onboarding::tests::gates_come_from_properties_and_merged_self_member_rows ... ok
+test permissions::tests::member_owner_and_channel_updates_preserve_absent_null_and_explicit_empty ... ok
+test permissions::tests::role_display_metadata_accepts_modern_and_legacy_colors_with_bounded_names ... ok
+test gif_favorites::tests::favorites_preserve_unseen_unknown_and_video_records_during_single_url_changes ... ok
+test pins::tests::pins_preserve_pin_order_and_reject_wrong_scope_duplicates_and_capacity ... ok
+test embeds::tests::rich_embeds_partial_updates_and_limits ... ok
+test presence::tests::client_platforms_are_bounded_to_documented_active_sessions ... ok
+test presence::tests::custom_status_preserves_absence_and_clears_explicit_missing_activity ... ok
+test presence::tests::activity_artwork_selection_and_snapshot_updates_agree ... ok
+test presence::tests::malformed_activity_shapes_and_resource_overflows_are_rejected ... ok
+test presence::tests::matching_games_keep_the_richer_entry_in_snapshots_and_updates ... ok
+test attachments::tests::malformed_metadata_and_array_budget_keep_all_allowed_files_bounded ... ok
+test presence::tests::rich_activities_share_snapshot_normalization_types_and_patch_semantics ... ok
+test presence::tests::rich_activity_retention_and_wire_fields_are_bounded ... ok
+test presence::tests::partial_identity_and_status_patches_do_not_retain_unrelated_presence_data ... ok
+test presence::tests::snapshots_and_updates_share_bounded_unicode_custom_status_normalization ... ok
+test profile::tests::partial_profiles_preserve_identity_and_reject_malformed_lists ... ok
+test profile::tests::unrequested_null_mutuals_do_not_hide_real_profile_limits ... ok
+test reactions::tests::reaction_deltas_validate_type_identity_and_bounded_emoji ... ok
+test profile::tests::profile_metadata_is_bounded_and_guild_identity_is_checked ... ok
+test read_state::tests::ready_accepts_legacy_read_state_without_versioned_capability ... ok
+test ready::tests::guild_notification_defaults_survive_flat_nested_and_patch_payloads ... ok
+test guild_folders::tests::large_account_settings_reach_the_folder_decoder ... ok
+test ready::tests::malformed_entries_are_dropped_instead_of_rejecting_login ... ok
+test reactions::catalog_tests::guild_catalog_preserves_availability_roles_and_unknown_vs_empty ... ok
+test rpc::tests::custom_fields_are_bounded_and_use_gateway_button_metadata ... ok
+test rpc::tests::rich_activity_survives_without_secrets_or_actions ... ok
+test search::tests::search_hits_are_scoped_bounded_and_preserve_rich_text ... ok
+test server_admin::sticker_tests::guild_stickers_bind_scope_and_preserve_uploader ... ok
+test server_admin::sticker_tests::sticker_files_require_declared_type_size_and_320_square_dimensions ... ok
+test server_audit_log::tests::audit_log_changes_preserve_absent_null_roles_and_filters ... ok
+test server_audit_log::tests::audit_log_page_limits_order_and_budget ... ok
+test server_audit_log::tests::audit_log_redacts_nested_credentials_without_hiding_ordinary_urls ... ok
+test server_integrations::copy_tests::webhook_url_is_scoped_bounded_and_redacted ... ok
+test relationships::tests::relationships_decode_only_bounded_typed_account_state ... ok
+test server_integrations::tests::integrations_metadata_bounds_and_unknown_fields ... ok
+test server_roles::tests::role_edit_preserves_unknown_bits_and_omits_unchanged_colors ... ok
+test server_settings::tests::safety_levels_round_trip_and_keep_community_requirements ... ok
+test settings_update::tests::reports_status_and_folder_changes_only_for_preloaded_settings ... ok
+test stickers::tests::message_stickers_and_patches_preserve_payload_and_absence ... ok
+test stickers::tests::sticker_catalog_and_message_bounds ... ok
+test tests::command_responses_keep_bounded_invoker_and_command_name ... ok
+test tests::forwarded_snapshot_uses_bounded_audio_body_and_outer_identity ... ok
+test tests::message_nickname_is_bounded_and_keeps_global_identity ... ok
+test tests::notification_metadata_is_service_derived_and_role_mentions_are_bounded ... ok
+test tests::precision_patches_and_hostile_payloads ... ok
+test tests::system_types_keep_original_content_and_describe_known_events ... ok
+test tests::webhook_authors_require_explicit_message_metadata ... ok
+test server_invites::tests::invites_metadata_timestamps_roles_and_payload_bounds ... ok
+test threads::tests::ready_merges_threads_without_overwriting_guild_or_channel_identity ... ok
+test thread_members::tests::thread_members_validate_identity_scope_and_bounds ... ok
+test typing::tests::typing_retains_only_bounded_precise_identity_and_timestamp ... ok
+test gif_favorites::tests::favorites_reject_truncated_duplicate_and_oversized_catalogs_before_saving ... ok
+test ready::tests::diagnosis_names_the_failing_field_without_account_values ... ok
+test notifications::tests::bounded_preferences_and_unknown_presence_fail_closed ... ok
+test read_state::tests::bounded_snapshots_and_manual_zero_cursors ... ok
+test permissions::tests::supplemental_and_passive_select_only_self_without_member_fanout ... ok
+test threads::tests::snapshots_preserve_scope_and_reject_cross_guild_duplicates_and_limits ... ok
+test ready::tests::large_accounts_cross_old_navigation_permission_and_read_limits ... ok
+
+test result: ok. 83 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.20s
+
+     Running unittests src/lib.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/discord_voice-c293f44f41ee2b64)
+
+running 59 tests
+test camera::format::tests::native_modes_follow_stream_dimensions_then_actual_frame_rate ... ok
+test audio::tests::microphone_recovery_preserves_startup_failures ... ok
+test audio::tests::listen_only_keeps_playback_without_input_and_mute_does_not_reopen_devices ... ok
+test audio::tests::device_readiness_rejects_stale_open_and_fast_security_transitions ... ok
+test audio::tests::runtime_gain_updates_preserve_gates_and_discard_buffered_audio ... ok
+test audio::permission_macos::tests::permission_result_and_cancellation_never_open_devices ... ok
+test audio::tests::callback_gain_defaults_clamps_and_sanitizes_without_devices ... ok
+test camera::tests::camera_rejects_unbounded_or_nul_device_ids_before_starting_worker ... ok
+test crypto::tests::rtcp_keyframe_requests_require_authentication_and_matching_ssrc ... ok
+test camera_video::tests::camera_packetization_is_bounded_and_marks_only_the_last_fragment ... ok
+test crypto::tests::compound_feedback_authenticates_targets_bounds_and_validates_the_entire_packet ... ok
+test audio::tests::resampling_buffers_and_capture_gate_are_bounded_without_devices ... ok
+test crypto::tests::soundshare_extension_is_authenticated_encrypted_and_stripped_before_dave ... ok
+test jitter::tests::bounded_reordering_loss_duplicates_and_wrap ... ok
+test hpke_sha3::serein_shake256_security_backport ... ok
+test mixer::tests::synthetic_mix_workload ... ignored, synthetic release workload; run with --release --ignored --nocapture
+test mixer::tests::independent_streams_mix_on_one_clock_and_release_on_leave ... ok
+test screen::audio_windows::tests::loopback_samples_are_gated_sanitized_and_bounded ... ok
+test screen::capture::imp::tests::content_rect_maps_to_buffer_pixels_in_any_unit ... ok
+test screen::capture::tests::source_names_end_on_utf8_boundaries ... ok
+test mixer::tests::packet_loss_preserves_short_and_long_packet_timing ... ok
+test screen::tests::idle_screen_keyframe_uses_latest_snapshot_only_when_ready ... ok
+test screen::tests::interleaves_i420_chroma_for_windows_nv12 ... ok
+test screen::convert::tests::scales_letterboxes_and_matches_bt601_limited_range ... ok
+test screen::tests::local_preview_is_bounded_and_converts_padded_bgra_without_media_readiness ... ok
+test mixer::tests::short_packets_fill_realtime_ticks_without_silence_or_reorder_starvation ... ok
+test crypto::tests::rtp_authentication_bounds_and_nonce_exhaustion ... ok
+[OpenH264] this = 0x0x7cc680c390, Warning:ParamValidation(), AdaptiveQuant(1) is not supported yet for screen content, auto turned off
+[OpenH264] this = 0x0x7cc680c390, Warning:ParamValidation(), BackgroundDetection(1) is not supported yet for screen content, auto turned off
+test screen::tests::synthetic_frame_is_bounded_and_encodes_a_keyframe ... ok
+test crypto::tests::sole_member_departure_waiting_and_group_membership ... ok
+test transport::tests::a_stall_asks_every_announced_sender_for_a_keyframe ... ok
+test transport::tests::decoder_cleanup_announcement_preserves_streams_and_partial_updates ... ok
+test test_mls::welcome_cannot_add_an_unexpected_dm_peer ... ok
+test crypto::tests::proposals_before_local_group_are_ignored_without_weakening_later_validation ... ok
+test test_mls::dave_two_parties_encrypt_decrypt_reject_tampering_and_transition_gate ... ok
+test transport::tests::stream_audio_is_bounded_paced_and_cleared_on_rekey_or_stall ... ok
+test transport::tests::validated_endpoints_discovery_and_real_opus ... ok
+test video::tests::dave_h264_ciphertext_packetizes_without_extra_start_codes ... ok
+test video::tests::fragments_annex_b_h264_with_a_final_marker ... ok
+test test_mls::guild_welcome_requires_announced_members_and_rejects_duplicate_credentials ... ok
+test video_receive::tests::compare_alternating_software_decode ... ignored
+test video_receive::tests::compare_decoder_backends ... ignored
+test video_receive::tests::decoder_cleanup_full_queue_rapid_off_on_keeps_only_the_new_lifetime ... ok
+test video_receive::tests::decoder_cleanup_invalidates_full_queue_and_allows_restart ... ok
+test video_receive::tests::decoder_cleanup_releases_slots_for_another_participant ... ok
+test video_receive::tests::decoder_cleanup_tracks_all_sources_and_reassigned_owners ... ok
+test transport::tests::local_voice_peer_disconnect_enters_waiting_without_timeout ... ok
+test camera::tests::camera_frames_are_bounded_independently_decodable_and_stop_is_immediate ... ok
+test video_receive::tests::packet_loss_requests_a_keyframe_before_accepting_predictions ... ok
+test video_receive::tests::parameter_set_detection_needs_both_sps_and_pps ... ok
+test video_receive::tests::receivers_bind_ssrcs_to_users_within_the_source_limit ... ok
+test video_receive::tests::single_stap_and_fragmented_nal_units_rebuild_annex_b ... ok
+test video_receive::tests::software_decoders_reuse_scratch_across_alternating_resolutions ... ok
+test video_receive::tests::decoder_thread_rejects_garbage_and_ends_with_its_sender ... ok
+test video_encode::macos::tests::encodes_annex_b_keyframes_when_hardware_is_present ... ok
+test video_receive::tests::hardware_decoder_round_trips_an_openh264_keyframe ... ok
+test transport::tests::local_voice_websocket_udp_dave_and_opus_exchange ... ok
+test test_mls::guild_three_party_join_remove_and_empty_room_fail_closed ... ok
+test transport::tests::local_guild_voice_waiting_mixed_audio_and_resume ... ok
+test transport::test_stream::local_stream_sender_and_viewer_deliver_audio_and_video ... ok
+
+test result: ok. 56 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 5.31s
+
+     Running unittests src/lib.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/extensions-4fa200d782ac35b4)
+
+running 6 tests
+test message_content::tests::rich_message_contract_bounds_and_sdk_parity ... ok
+test member_details::tests::member_details_validate_bounds_and_sdk_wire ... ok
+test forum_data::tests::forum_wire_is_bounded_and_matches_sdk ... ok
+test rich_presence::tests::rich_presence_bounds_links_and_timer_are_validated ... ok
+test rich_presence::tests::rich_presence_is_opt_in_foreground_or_activation_and_sdk_wire_compatible ... ok
+test rich_presence::tests::rich_presence_total_budget_includes_all_fields_and_matches_sdk ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/api_proxy.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/api_proxy-bcfe07d118cafe22)
+
+running 3 tests
+test proxy_modes_reject_unknown_fields_in_host_and_sdk ... ok
+test sdk_proxy_wrapper_flattens_into_host_output ... ok
+test proxy_origin_and_capability_boundaries ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/app_contract.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/app_contract-d345646b7657fcc9)
+
+running 15 tests
+test app_events_are_unique_granted_and_have_no_direct_conversation_context ... ok
+test legacy_literals_and_wire_outputs_remain_unchanged ... ok
+test local_settings_accept_smaller_zoom_and_reject_below_supported_range ... ok
+test expanded_snapshots_bound_profile_hashes_and_collections ... ok
+test data_events_require_opt_in_and_the_matching_data_grant ... ok
+test discovery_is_forward_tolerant_and_does_not_change_legacy_input ... ok
+test message_details_and_relationships_bound_nested_data ... ok
+test sdk_manifests_round_trip_all_capabilities_and_surfaces_through_host_validation ... ok
+test preference_snapshots_are_bounded_and_old_hosts_can_omit_them ... ok
+test tracked_actions_and_extended_inputs_preserve_v1_wire_compatibility ... ok
+test local_effects_require_matching_grants_and_cannot_run_in_background ... ok
+test each_snapshot_group_requires_its_own_grant_and_typed_sdk_roundtrips ... ok
+test snapshot_and_proposal_limits_include_escaped_wire_bytes ... ok
+test app_action_patches_reject_invalid_ranges_conflicts_and_unbounded_text ... ok
+test app_actions_round_trip_and_require_foreground_granted_confirmation ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/sandbox.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/sandbox-b461a1b0d27e1c2f)
+
+running 15 tests
+test message_event_payloads_bound_ids_content_and_partial_fields ... ok
+test enforces_capabilities_and_restricts_context_to_action_surface ... ok
+test catalog_preview_metadata_is_optional_and_bounded ... ok
+test rejects_imports_start_and_excessive_memory ... ok
+test diagnostics_distinguish_safe_runtime_input_and_output_failures ... ok
+test message_events_require_a_unique_granted_surface_without_other_context ... ok
+test rejects_panel_complexity_duplicate_ids_and_unknown_actions ... ok
+test tick_requires_elapsed_time_and_only_returns_appearance ... ok
+test event_effects_allow_granted_storage_and_appearance_without_unsolicited_ui ... ok
+test validates_themes_catalog_and_path_safe_identifiers ... ok
+test rejects_oversized_or_invalid_pointers_and_json_responses ... ok
+test rgb_cycle_package_executes_through_the_real_abi ... ok
+test image_sharing_plugin_requires_activation_and_capability ... ok
+test custom_rpc_package_preserves_drafts_and_controls_presence ... ok
+test fuel_interrupts_infinite_loop_and_memory_growth_traps ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.72s
+
+     Running tests/sdk.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/sdk-81855ee51dfc65bf)
+
+running 2 tests
+test host_invocations_and_legacy_handlers_keep_the_v1_contract ... ok
+test every_sdk_panel_and_appearance_field_is_accepted_by_the_host ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/local_store-dc5cff0ef1ed981c)
+
+running 30 tests
+test tests::benchmark_changed_row_save ... ignored, manual release benchmark; synthetic in-memory SQLite, not disk or UI latency
+test tests::benchmark_channel_load ... ignored, manual release benchmark; synthetic in-memory SQLite, not disk or UI latency
+test tests::data_directory_override_is_absolute_and_never_falls_back ... ok
+test channel_preferences::tests::collapsed_categories_round_trip_are_bounded_and_cleared_only_for_the_account ... ok
+test tests::existing_data_directory_permissions_are_preserved ... ok
+test tests::channel_order_index_upgrades_existing_cache_and_preserves_unsigned_ids ... ok
+test tests::account_kinds_survive_cache_and_migrate_legacy_without_guessing ... ok
+test component_storage_tests::stickers_migrate_round_trip_and_reject_oversized_metadata ... ok
+test tests::account_isolation_draft_reopen_eviction_and_logout ... ok
+test tests::app_preferences_round_trip_and_reject_invalid_replacement ... ok
+test tests::forwarded_snapshot_survives_cache_reopen_and_upgrade ... ok
+test tests::gif_favorites_round_trip_and_remain_account_isolated ... ok
+test component_storage_tests::components_migrate_round_trip_and_never_persist_private_replies ... ok
+test tests::known_deletions_survive_reopen_and_preserve_other_channels_accounts_and_drafts ... ok
+test tests::reading_preferences_validate_storage_types_bounds_and_atomic_replacement ... ok
+test tests::older_zoom_constraint_migrates_without_losing_reading_settings ... ok
+test tests::minimize_to_tray_is_bounded_opt_out_surviving_restart_and_logout ... ok
+test tests::game_activity_defaults_migrates_reopens_and_survives_logout ... ok
+test tests::roster_upgrade_keeps_existing_accounts_switchable_without_rewriting_their_entries ... ok
+test tests::message_kind_migration_round_trip_and_bounds ... ok
+test tests::reply_deletion_schema_migrates_reopens_and_rejects_invalid_markers ... ok
+test tests::schema_five_mentions_round_trip_and_reject_oversized_metadata ... ok
+test tests::switcher_roster_orders_by_last_use_prunes_and_clears_with_the_account ... ok
+test tests::schema_four_attachment_migration_reopen_and_limits ... ok
+test tests::schema_six_marker_migration_preserves_rows_and_rejects_invalid_bits ... ok
+test tests::schema_three_and_untrusted_cached_embeds_remain_bounded ... ok
+test tests::webhook_author_survives_cache_and_legacy_migration ... ok
+test tests::union_migration_failure_rolls_back_columns_and_schema_version ... ok
+test tests::divergent_schema_seven_and_eight_preserve_union_after_reopen ... ok
+test tests::schema_seven_reading_preferences_migrate_reopen_reset_and_survive_logout ... ok
+
+test result: ok. 28 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 1.48s
+
+     Running unittests src/lib.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/model-9ff54de75687eb0a)
+
+running 28 tests
+test extra_content::tests::marker_bits_round_trip_and_independent_patches_merge ... ok
+test graphics::tests::round_trips_through_storage_keys ... ok
+test keybinds::tests::diagnostics_is_optional_without_relaxing_other_binding_validation ... ok
+test gifs::tests::video_favorite_metadata_is_bounded_and_never_admitted_as_an_image_preview ... ok
+test attachments::audio_tests::video_detection_uses_mime_and_case_insensitive_extension ... ok
+test components::tests::component_tree_limits_count_depth_and_owned_bytes ... ok
+test mentions::tests::timestamp_references_accept_only_known_styles ... ok
+test mentions::tests::exact_user_mentions_are_bounded_and_never_roles_or_everyone ... ok
+test message_options::tests::quiet_admission_counts_effective_text_and_bounds_marker_overhead ... ok
+test notification_preferences::tests::independent_sound_switches_and_master_mute ... ok
+test onboarding::tests::onboarding_respects_required_and_single_select_prompts ... ok
+test onboarding::tests::verification_requires_every_required_answer_and_known_kinds ... ok
+test notification_metadata_tests::role_mentions_bound_identity_count_and_reserved_allocation ... ok
+test permissions::tests::aggregate_role_precedence_member_overwrite_and_timeout_follow_discord ... ok
+test permissions::tests::member_list_identity_matches_wire_hash_and_bounds ... ok
+test permissions::tests::incomplete_invalid_and_oversized_metadata_remains_unknown ... ok
+test presence_tests::activity_image_keys_preserve_only_bounded_service_references ... ok
+test profile::banner_tests::banner_and_avatar_urls_resolve_static_and_animated ... ok
+test presence_tests::rich_presence_validates_retained_fields_and_accounts_for_allocations ... ok
+test presence_tests::own_presence_bounds_unicode_and_allows_explicit_clear ... ok
+test reading_preferences::tests::defaults_and_inclusive_bounds ... ok
+test gifs::tests::gif_hosts_and_pages_are_bounded ... ok
+test profile::edit_tests::profile_edit_bounds_unicode_clear_values_and_retained_bytes ... ok
+test registered_games::tests::names_and_entries_are_bounded ... ok
+test system_messages::tests::names_and_values_are_strong_and_clickable ... ok
+test registered_games::tests::detections_are_recorded_bounded_and_backward_compatible ... ok
+test system_messages::tests::newer_service_types_keep_names_actionable_and_missing_targets_honest ... ok
+test system_messages::tests::every_known_kind_describes_and_unknown_kinds_do_not ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/platform-6df6d81b96217706)
+
+running 23 tests
+test badge::tests::badge_has_transparent_corners_and_round_red_background ... ok
+test hotkeys::tests::native_events_reach_each_live_matching_input ... ok
+test processes::tests::windows_services_session_is_ignored ... ok
+test notifications::tests::disabled_is_lazy_and_fixed_queue_is_bounded_and_invalidated ... ok
+test hotkeys::tests::native_events_wake_and_fold_without_a_queue ... ok
+test hotkeys::tests::modifier_bindings_have_native_codes_and_plain_keys_stay_focused ... ok
+test processes::tests::cmdline_reads_are_bounded_and_only_accept_complete_first_paths ... ok
+test proxy_credentials::tests::credentials_are_bounded_and_debug_is_redacted ... ok
+test captcha::tests::ipc_is_restricted_to_the_local_verification_page ... ok
+test system_theme::tests::gnome_values_map_to_the_desktop_appearance ... ok
+test system_theme::tests::queued_signal_cannot_overwrite_the_current_property ... ok
+test tests::credential_account_names_are_profile_scoped ... ok
+test tests::handoff_accepts_only_our_discord_origin ... ok
+test tray::tests::clicks_coalesce_without_losing_quit_or_failure ... ok
+test video::mp4::tests::rejects_external_or_fragmented_files ... ok
+test video::live::tests::access_units_without_parameter_sets_are_rejected_and_nal_parsing_is_bounded ... ok
+test video::mp4::tests::fixture_tables_are_complete_and_bounded ... ok
+test save::tests::completed_files_publish_without_clobbering ... ok
+test video::tests::rotation_and_bounds ... ok
+test game_activity::native::tests::private_socket_roundtrip_contention_and_owned_cleanup ... ok
+test system_theme::tests::commands_are_bounded_by_time_and_output ... ok
+test video::apple::tests::native_mov_decodes_audio_video_and_seeks ... ok
+test system_theme::tests::closed_portal_stream_reconnects_without_repeating_fallback ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.01s
+
+     Running unittests src/main.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/replay_bench-0a2563d1322d4df0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/serein-26d4b62cebe36161)
+
+running 174 tests
+test audio::tests::callback_pause_seek_volume_end_and_generation_cancellation ... ok
+test avatars::tests::animated_banner_and_avatar_urls_and_keys ... ok
+test app_settings::tests::legacy_preferences_without_voice_settings_keep_suppression_disabled ... ok
+test app_settings::tests::startup_defaults_do_not_overwrite_pending_saved_preferences ... ok
+test avatars::tests::decoded_result_queue_workload ... ignored, synthetic paused-consumer memory workload; allocates up to 512 MiB
+test avatars::tests::apng_sticker_frames_preserve_pixels_and_delays ... ok
+test avatars::tests::decoded_result_budget_covers_consumption_and_cancellation ... ok
+test avatars::tests::decoded_results_reject_oversize_and_repaint_remaining_work ... ok
+test avatars::tests::direct_image_decode_preserves_rejection_limits ... ok
+test audio::tests::start_admits_large_attachments_and_rejects_invalid_sizes ... ok
+test avatars::tests::external_proxy_urls_accept_encoded_source_queries ... ok
+test avatars::tests::gif_animation_preserves_long_loop_with_bounded_frames ... ok
+test avatars::tests::cancelled_decoder_admission_drops_queued_work ... ok
+test avatars::tests::image_decode_memory_workload ... ignored, isolated large-image RSS workload; requires a prebuilt synthetic PNG fixture
+test avatars::tests::decoder_slots_follow_running_closures_after_waiter_abort ... ok
+test avatars::tests::role_icon_urls_are_confined_to_the_role_cdn_path ... ok
+test avatars::tests::lottie_sticker_renders_to_a_bounded_cached_png ... ok
+test avatars::tests::sticker_urls_and_decode_budgets_are_scoped ... ok
+test cache::tests::cleanup_acknowledgements_cross_generations_without_reopening_early ... ok
+test audio::tests::transfer_limits_and_cancel_stalled_response ... ok
+test avatars::tests::synthetic_download_limits_redirects_and_retry_delay ... ok
+test cache::tests::deletion_epoch_rejects_queued_saves_and_returning_loads ... ok
+test cache::tests::full_queue_blocks_history_until_scoped_cleanup_and_io_failure_stays_closed ... ok
+test avatars::tests::gif_frames_decode_with_timing_and_reject_invalid_data ... ok
+test clipboard::tests::native_copied_file_reads_as_paste_paths ... ignored, Explicit native check: replaces the system clipboard with a temp file
+test clipboard::tests::pasted_images_are_bounded_png_upload_sources ... ok
+test clipboard::tests::supplied_text_is_prepared_without_an_os_clipboard ... ok
+test clipboard::tests::uri_list_paths_lose_line_endings_and_localhost ... ok
+test connection::tests::abandoning_an_unconfirmed_attempt_clears_dispatch_without_an_http_hangup ... ok
+test connection::tests::abandonment_survives_a_full_queue_and_precedes_a_fresh_join ... ok
+test connection::tests::activity_privacy_waits_for_opt_in_and_propagates_expired_session ... ok
+test connection::tests::call_discovery_never_rings_or_changes_the_active_attempt ... ok
+test connection::tests::guild_join_mute_leave_never_ring_a_dm ... ok
+test connection::tests::initial_ringing_wait_cancels_only_matching_takeover_or_connection_teardown ... ok
+test cache::tests::shortcut_restore_waits_for_queue_space_without_losing_or_duplicating_the_request ... ok
+test connection::tests::reads_scope_permission_errors_but_expiry_stays_global ... ok
+test connection::tests::reliable_byte_budget_releases_on_receive_rejection_and_drop ... ok
+test connection::tests::reliable_navigation_burst_is_fifo_and_item_bounded ... ok
+test connection::tests::ringing_waits_for_transport_confirmation_and_rejects_old_requests ... ok
+test connection::tests::stream_preview_capacity_is_local_but_auth_failures_end_the_session ... ok
+test connection::tests::takeover_rejects_queued_initial_ringing_but_preserves_new_call_ownership ... ok
+test connection::tests::typing_burst_cannot_consume_reliable_message_slots ... ok
+test connection::tests::typing_wakeups_are_selected_bounded_and_coalesced ... ok
+test credentials::tests::saved_lookup_finishes_times_out_and_ignores_late_results ... ok
+test downloads::tests::cancelling_copy_cannot_restore_a_late_copied_status ... ok
+test cache::tests::notification_choice_survives_a_full_queue_and_database_reopen ... ok
+test downloads::tests::embedded_image_download_requires_bounded_png_length ... ok
+test cache::tests::minimize_to_tray_results_are_independent_of_account_history ... ok
+test downloads::tests::invalid_copy_admission_updates_visible_failure ... ok
+test downloads::tests::media_video_links_resolve_to_the_signed_original ... ok
+test downloads::tests::message_scoped_attachment_paths_keep_admission_guards ... ok
+test downloads::tests::native_media_clipboard_roundtrip ... ignored, Explicit native check: replaces the system clipboard with synthetic media
+test downloads::tests::explicit_download_stream_limits_cancel_and_atomic_replacement ... ok
+test extension_app::tests::extension_app_account_audio_snapshots_are_granted_and_track_preference_changes ... ok
+test extension_app::tests::extension_app_change_key_is_idle_until_meaningful_change ... ok
+test extension_app::tests::extension_app_message_metadata_and_relationships_are_scoped_and_bounded ... ok
+test extension_app::tests::extension_app_new_data_requires_grants_and_stays_bounded_and_current ... ok
+test downloads::tests::copied_images_decode_with_limits_and_temporary_files_are_removed ... ok
+test extension_app::tests::extension_app_timeline_excludes_private_deleted_and_oversized_rows ... ok
+test audio::tests::decode_bounded_audio_and_reject_malformed_headers ... ok
+test extension_bridge::tests::api_proxy_route_survives_pending_reload_and_plugin_errors ... ok
+test extension_bridge::tests::cancelled_import_cannot_replace_the_catalog_bytes_the_user_approved ... ok
+test extension_bridge::tests::catalog_refresh_is_once_per_open_delayed_when_busy ... ok
+test extension_bridge::tests::custom_presence_requires_capability_and_clears_with_disable_error_and_logout ... ok
+test extension_bridge::tests::data_events_are_opt_in_granted_and_coalesce_per_kind ... ok
+test extension_bridge::tests::extension_app_events_coalesce_and_share_message_queue_limits ... ok
+test extension_bridge::tests::message_event_queue_is_bounded_by_items_and_bytes ... ok
+test extension_bridge::tests::message_events_clear_when_conversation_session_or_access_changes ... ok
+test extension_bridge::tests::message_events_require_an_enabled_subscriber_in_the_current_scope ... ok
+test extension_bridge::tests::selected_read_changes_are_observed_without_an_envelope ... ok
+test extension_bridge::tests::tick_pending_tracks_the_current_job_and_color_blending_is_continuous ... ok
+test extension_data_events::tests::data_hints_require_current_generation_context_and_grants ... ok
+test extension_data_events::tests::local_profile_and_directory_mutations_use_scalar_invalidation_keys ... ok
+test extension_data_events::tests::message_details_hints_require_the_new_grant_and_loaded_readable_context ... ok
+test extension_data_events::tests::relationship_events_and_local_revision_require_the_relationship_grant ... ok
+test extension_data_events::tests::selected_message_metadata_is_invalidated_without_failed_send_or_other_channel_hints ... ok
+test extension_data_events::tests::thread_role_and_permission_hints_are_scoped_and_require_new_grants ... ok
+test extension_events::tests::accepted_patches_emit_current_content_while_stale_or_private_patches_do_not ... ok
+test extension_events::tests::deletions_only_reveal_loaded_public_ids_and_bulk_is_bounded ... ok
+test extension_events::tests::only_active_public_accepted_gateway_messages_are_admitted ... ok
+test extension_forum_data::tests::forum_data_contains_only_loaded_readable_children_and_known_flags ... ok
+test avatars::tests::direct_image_decode_preserves_pixels_formats_and_resize ... ok
+test extension_message_content::tests::rich_summaries_are_bounded_and_omit_media_payloads ... ok
+test extension_app::tests::extension_activity_distinguishes_unloaded_pins_and_live_typing ... ok
+test extensions::tests::byte_limits_and_private_download_destinations_fail_closed ... ok
+test extension_app::tests::extension_channel_metadata_exposes_only_loaded_topics_and_scoped_parents ... ok
+test extensions::tests::cleanup_retries_tombstones_and_accounts_remain_isolated ... ok
+test extensions::tests::extended_input_is_trimmed_after_storage_is_loaded ... ok
+test extensions::tests::invalid_package_remains_disableable_and_cancel_preserves_cleanup ... ok
+test extension_member_details::tests::member_details_are_current_scoped_and_byte_bounded ... ok
+test extensions::tests::message_event_jobs_validate_fields_and_count_payload_bytes_before_queueing ... ok
+test extensions::tests::local_theme_cover_survives_edit_without_another_copy ... ok
+test extension_app::tests::extension_app_snapshot_is_granted_current_and_byte_bounded ... ok
+test extensions::tests::public_repository_catalog_and_packages_match_pins ... ignored, Downloads public GitHub catalog/packages; no Discord account or traffic
+test avatars::tests::bounded_images_cache_reopen_eviction_and_cancelled_cleanup ... ok
+test extensions::tests::reviewed_theme_updates_preserve_selection_and_reject_local_collisions ... ok
+test extensions::tests::shop_preview_demo_catalog_and_images_are_local_and_hash_pinned ... ok
+test extensions::tests::proxy_plugins_are_prelogin_global_and_survive_account_logout ... ok
+test game_activity::custom::tests::elapsed_survives_updates_and_custom_is_exact_milliseconds ... ok
+test game_activity::tests::artwork_urls_are_proxied_once_and_late_uploads_still_resolve ... ok
+test game_activity::tests::choice_survives_late_load_and_failed_load_never_enables_sharing ... ok
+test game_activity::tests::custom_presence_cancels_stale_artwork_and_stop_clears ... ok
+test game_activity::tests::detection_fills_in_for_games_that_never_connect ... ok
+test game_activity::tests::disable_and_sender_close_cancel_the_session_and_clear_latest ... ok
+test game_activity::tests::disconnect_during_metadata_lookup_never_queues_activity ... ok
+test game_activity::tests::end_only_activity_retains_its_countdown ... ok
+test game_activity::tests::frames_bound_before_allocation_and_handle_partial_reads ... ok
+test extensions::tests::theme_install_select_disable_restart_and_checksum ... ok
+test extensions::tests::catalog_cache_is_bounded_and_does_not_change_installed_themes ... ok
+test gpu::tests::discrete_gpu_wins_by_default ... ok
+test gpu::tests::memory_policy_preserves_device_requirements_and_other_backends ... ok
+test extensions::tests::message_event_worker_requires_grants_serializes_storage_and_rejects_cancelled_jobs ... ok
+test group_icon::tests::stale_picker_retains_single_slot_until_completion_and_discards_result ... ok
+test notification_runtime::tests::ringtone_timer_repeats_each_cue_and_stops_on_clear ... ok
+test group_icon::tests::icon_decode_is_square_bounded_and_rejects_invalid_input ... ok
+test notification_sounds::tests::callback_drains_delayed_output_and_cancellation_is_request_local ... ok
+test proxy_auth::tests::changed_endpoint_waits_and_direct_discards_late_credentials ... ok
+test proxy_auth::tests::credential_removal_pauses_immediately_and_failed_deletion_stays_paused ... ok
+test reading_settings::tests::delayed_load_drag_coalescing_and_failure_do_not_lose_the_latest_choice ... ok
+test reading_settings::tests::explicit_default_reset_defeats_late_load_and_can_retry_after_failure ... ok
+test reading_settings::tests::untouched_restore_and_successful_write_settle_without_repaints ... ok
+test registered_games::tests::detected_games_are_recorded_once_per_play_session ... ok
+test registered_games::tests::picker_lists_each_user_program_once ... ok
+test registered_games::tests::stored_list_round_trips_and_rejects_oversize_files ... ok
+test screen::tests::startup_failure_and_permission_revocation_request_stream_cleanup ... ok
+test screen::tests::waiting_dm_and_guild_calls_can_request_sharing_without_opening_capture ... ok
+test startup::tests::startup_completion_rolls_back_errors_and_explicit_flag_minimizes ... ok
+test sticker_upload::tests::prepared_sticker_is_bounded_square_png ... ok
+test tests::cached_history_requires_current_readable_navigation_and_pending_request ... ok
+test tests::correlated_confirmation_preserves_other_pending_text_and_ignores_unrelated_events ... ok
+test tests::delayed_cache_results_cannot_hydrate_after_a_known_deletion ... ok
+test tests::disk_cache_does_not_replace_resident_previews_or_deleted_positions ... ok
+{"pixels_per_point":0.0,"serein_frame_sample":"start","viewport_size":null}
+{"callback_wall_us_buckets":[0,0,0,0,0,0,0,0],"callback_wall_us_limits":[1000,2000,4000,8000,16000,32000,64000],"callbacks":0,"elapsed_ms":15000,"max_callback_wall_us":0,"pixels_per_point":0.0,"search_focused":0,"serein_frame_sample":"complete","viewport_focused":0,"viewport_size":null,"without_input":0}
+test tests::frame_sample_is_bounded_demo_only_and_excludes_warmup ... ok
+test tests::user_action_results_use_toasts ... ok
+test game_activity::tests::websocket_requires_a_discord_origin_and_publishes_activity ... ok
+test uploads::tests::cancelled_chooser_and_upload_keep_the_single_slot_until_the_worker_finishes ... ok
+test uploads::tests::file_drop_is_bounded_scoped_selection_and_never_reads_handle_bytes ... ok
+test uploads::tests::artwork_uploads_are_resized_without_dropping_animation ... ok
+test uploads::tests::progress_distinguishes_streamed_bytes_from_message_confirmation ... ok
+test uploads::tests::public_cancellation_keeps_the_slot_until_worker_finishes ... ok
+test uploads::tests::public_host_consent_matches_selection_and_completion_is_session_scoped ... ok
+test uploads::tests::image_sharing_stages_bounded_artwork_and_cancels_on_navigation ... ok
+test video::source::tests::alternating_tracks_reuse_buffered_ranges ... ok
+test video::source::tests::cancellation_interrupts_a_stalled_range_body ... ok
+test video::source::tests::ranges_follow_reads_and_seeks_and_reject_changed_responses ... ok
+test voice::tests::audio_opening_has_a_deadline_that_clears_on_readiness_or_security_pause ... ok
+test voice::tests::call_cues_track_joins_and_departures_without_reconnect_noise ... ok
+test voice::tests::camera_discovery_updates_selection_without_starting_capture_and_demo_does_not_scan ... ok
+test voice::tests::group_negotiation_uses_the_voice_roster_and_preserves_one_to_one_peer_pinning ... ok
+test voice::tests::guild_negotiation_has_no_dm_peer_or_ringing_and_opens_no_devices ... ok
+test voice::tests::invalidation_leaves_service_but_never_sends_old_account_commands ... ok
+test voice::tests::local_camera_survives_peer_rekeys_but_requires_join_and_permission ... ok
+test voice::tests::microphone_requires_speak_and_focused_push_to_talk_without_vad ... ok
+test voice::tests::negotiation_requires_matching_request_owner_and_session_without_opening_devices ... ok
+test voice::tests::optimization_local_camera_reuses_the_latest_frame_buffer ... ok
+test voice::tests::optimization_remote_video_reuses_the_latest_frame_buffer ... ok
+test voice::tests::takeover_join_reconciles_both_credential_orders_and_rejects_stale_transport_readiness ... ok
+test voice::tests::takeover_notice_is_only_for_the_current_call_request ... ok
+test voice::tests::takeover_stops_local_negotiation_without_sending_a_service_hangup ... ok
+test voice::tests::unconfirmed_startup_failure_abandons_locally_and_established_failure_keeps_hangup ... ok
+test watch::tests::watch_frame_memory_workload ... ignored, synthetic release CPU/RSS workload; run with --release --ignored --nocapture
+test watch::tests::watch_invalid_frames_preserve_the_last_valid_picture ... ok
+test watch::tests::watch_preserves_pixels_owned_by_pending_egui_uploads ... ok
+test watch::tests::watch_releases_large_pixel_capacity_after_a_resolution_drop ... ok
+test watch::tests::watch_resolution_growth_does_not_double_the_pixel_capacity ... ok
+test watch::tests::watch_reused_pixels_match_egui_across_scratch_boundaries ... ok
+test watch::tests::watch_reuses_dropped_frames_and_delivers_only_updates ... ok
+test game_activity::tests::ipc_handshake_rich_update_clear_ping_and_disconnect ... ok
+test video::output::tests::video_pcm_clock_freezes_when_paused_cancelled_starved_or_ended ... ok
+test extensions::tests::shop_preview_checks_hash_size_format_and_decode_bounds ... ok
+test extensions::tests::bundled_themes_open_without_installing_and_preserve_preview_intent ... ok
+test connection::tests::large_startup_crosses_the_queue_atomically_and_keeps_ordinary_budgets ... ok
+test notification_sounds::tests::bundled_cues_decode_in_full_at_supported_rates_and_cancel ... ok
+test avatars::tests::gif_animation_decodes_full_size_and_partial_frames ... ok
+
+test result: ok. 168 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 9.98s
+
+     Running unittests src/lib.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/serein_extension_sdk-059b2dd56f15e8e3)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/authoring.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/authoring-dc1d8be894ae7363)
+
+running 6 tests
+test abi_rejects_empty_null_and_oversized_buffers_before_reading_memory ... ok
+test tick_context_is_opt_in_and_flattened ... ok
+test native_dispatch_preserves_v1_and_reports_bad_input ... ok
+test typed_values_and_storage_distinguish_missing_from_invalid ... ok
+test typed_event_dispatch_keeps_bounds_and_rejects_bad_json_before_the_handler ... ok
+test byte_limits_include_json_escaping_and_accept_exact_boundary ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running unittests src/lib.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/session_cache-f7269a49b3e60983)
+
+running 13 tests
+test tests::edited_message_capacity_workload ... ignored, synthetic release workload; run with --release --ignored --nocapture
+test tests::page_membership_benchmark ... ignored, synthetic release benchmark; run with --release --ignored --nocapture
+test tests::forwarded_snapshot_survives_outer_body_updates ... ok
+test tests::mention_patches_survive_stale_pages_and_release_replaced_users ... ok
+test tests::explicit_deleted_references_remove_targets_in_both_arrival_orders ... ok
+test tests::embed_only_mutations_merge_clear_and_survive_late_history ... ok
+test tests::retained_estimate_charges_rows_mutation_guards_and_pending_patch_capacity ... ok
+test tests::page_membership_preserves_original_and_explicit_values ... ok
+test tests::shrinking_patches_release_excess_capacity_and_preserve_budget_accounting ... ok
+test tests::same_channel_range_reset_keeps_only_bounded_deletion_guards ... ok
+test tests::pending_and_cancelled_older_pages_preserve_the_reading_window ... ok
+test tests::deleted_rows_keep_payloads_reject_late_content_and_hide_from_get ... ok
+test tests::mutations_win_over_late_history_and_memory_is_bounded ... ok
+
+test result: ok. 11 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running unittests src/lib.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/test_support-ccaca51bf07f3af8)
+
+running 11 tests
+test tests::guild_notification_levels_and_category_mutes_are_respected ... ok
+test tests::notification_preview_history_reaches_latest_and_clears_viewed_badge ... ok
+test tests::pin_snapshots_are_scoped_cancellable_and_open_revalidated_history ... ok
+test tests::notification_activity_deduplicates_and_preserves_partial_ack ... ok
+test tests::numbered_search_pages_preserve_scope_retry_and_bound_retained_results ... ok
+test tests::late_logout_events_and_duplicate_send_confirmations ... ok
+test tests::search_pages_reject_late_results_and_open_only_revalidated_history ... ok
+test tests::existing_dm_calls_survive_ringing_hangup_and_resume_but_not_deletion_or_logout ... ok
+test tests::read_markers_are_explicit_scoped_and_preserve_newer_service_updates ... ok
+test tests::unread_demo_pages_start_after_marker_and_advance_without_latest_substitution ... ok
+test tests::notifications_honor_unknown_preferences_mutes_dnd_and_queue_bounds ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running unittests src/main.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/tray_debug-09fea02ea5ed7e27)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/ui-55b092ab73599feb)
+
+running 373 tests
+test account_menu::tests::switcher_row_separates_switching_from_forgetting ... ok
+test account_badge::tests::verified_bot_adds_check_icon_to_app_badge ... ok
+test archives::tests::archive_search_distinguishes_no_matches_from_an_empty_page ... ok
+test account_menu::tests::switcher_lists_other_accounts_without_the_signed_in_one ... ok
+test archives::tests::archive_scope_disables_only_unavailable_kinds ... ok
+test attachments::context_tests::composer_upload_cards_keep_their_surface_at_every_chat_transparency ... ok
+test attachments::context_tests::media_menus_open_from_keyboard ... ok
+test archives::tests::forum_archive_is_keyboard_accessible_paginates_and_opens_only_history ... ok
+test attachments::context_tests::video_controls_still_handle_primary_clicks ... ok
+test attachments::tests::image_gallery_wraps_without_filenames_and_opens_each_attachment ... ok
+test attachments::tests::nonimage_download_requires_keyboard_action_and_respects_single_job_controls ... ok
+test attachments::tests::viewer_closes_on_click_away_but_not_on_image_or_controls ... ok
+test avatars::tests::animated_profile_avatar_and_banner_viewer_requests_anim_and_plays ... ok
+test avatars::tests::closing_the_viewer_releases_its_pixels_on_the_next_frame ... ok
+test avatars::tests::gif_picker_requests_animation_advances_frames_and_respects_setting ... ok
+test avatars::tests::gifv_falls_back_to_its_poster_when_the_clip_cannot_decode ... ok
+test avatars::tests::media_frame_benchmark ... ignored, release media workload; one warmup and five measured batches
+test audio::tests::waveform_seeks_while_buffering_and_commits_drags_on_release ... ok
+test avatars::tests::media_viewer_uses_cached_thumbnail_until_large_pixels_arrive ... ok
+test avatars::tests::pending_requests_survive_retry_and_capacity_until_resolved ... ok
+test avatars::tests::placeholder_paints_decoded_thumbhash_while_the_image_is_requested ... ok
+test avatars::tests::stickers_obey_animation_preferences_and_demo_stays_offline ... ok
+test audio::tests::audio_is_explicit_keyboard_operable_and_fits_narrow_cards ... ok
+test categories::tests::categories_without_visible_children_follow_hidden_visibility ... ok
+test categories::tests::category_drop_reorders_sibling_categories ... ok
+test categories::tests::channel_drop_reorders_and_syncs_new_category_permissions ... ok
+test categories::tests::channel_list_frame_benchmark ... ignored, release channel-list benchmark; ten warmup frames and one warmup/five measured batches
+test attachments::context_tests::image_video_and_viewer_context_menus_copy_or_save_the_attachment ... ok
+test attachments::context_tests::media_menus_open_from_active_video_controls ... ok
+test avatars::tests::media_keys_preserve_signed_queries_and_rendition_dimensions ... ok
+test avatars::tests::texture_requests_and_decoded_memory_stay_bounded ... ok
+test categories::tests::direct_and_group_messages_follow_activity_together ... ok
+test categories::tests::hidden_channels_are_opt_in ... ok
+test categories::tests::issue_341_visible_children_keep_category_heading ... ok
+test categories::tests::shortcuts_survive_collapsed_categories_without_duplicates_or_orphan_threads ... ok
+test categories::tests::channel_rows_scroll_continuously_past_voice_participants ... ok
+test categories::tests::unsupported_channel_opens_confirmation_by_keyboard_without_selecting ... ok
+test categories::tests::collapsed_categories_follow_service_order_selection_and_buttons ... ok
+test categories::tests::channel_rows_reuse_guild_messages_and_invalidate_on_navigation_changes ... ok
+test categories::tests::find_and_friends_stay_pinned_while_the_dm_list_scrolls ... ok
+test attachments::context_tests::search_preview_cards_keep_their_surface_while_chat_cards_use_tint ... ok
+test channel_welcome_tests::long_channel_welcome_wraps_within_narrow_light_and_dark_viewports ... ok
+test channel_menu::tests::channel_integrations_load_and_create_in_the_selected_channel ... ok
+test channel_welcome_tests::welcome_tracks_confirmed_empty_history_messages_and_pending_delivery ... ok
+test components::tests::modal_defaults_survive_nested_labels_without_replacing_explicit_values ... ok
+test account_menu::tests::account_menu_opens_applies_clears_and_closes_across_themes_and_sizes ... ok
+test channel_welcome_tests::welcome_requires_readable_complete_latest_guild_history ... ok
+test channel_menu::tests::create_channel_selects_type_before_submitting ... ok
+test composer_tests::an_unmodified_diagnostics_key_does_not_replace_the_clipboard_while_typing ... ok
+test composer_tests::composer_enter_dismissing_composition_does_not_send ... ok
+test composer_tests::attachment_only_enter_sends_once_and_busy_upload_blocks_resending ... ok
+test channel_menu::tests::context_menu_keyboard_mouse_permissions_and_delete_confirmation ... ok
+test composer_tests::conversation_shortcut_preserves_edits_and_drafts_and_never_sends ... ok
+test composer_tests::composer_enter_ignores_idle_linux_ime_updates ... ok
+test composer_tests::group_dm_member_count_tracks_participants_and_unavailable_states ... ok
+test composer_tests::download_cancel_remains_visible_without_a_text_composer ... ok
+test composer_tests::inline_edit_keeps_the_pending_draft_attachment_separate ... ok
+test composer_tests::incoming_custom_status_updates_people_and_open_profile_without_refetch ... ok
+test composer_tests::inline_edit_survives_navigation_blocks_invalid_saves_and_cancels_without_sending ... ok
+test composer_tests::joined_invite_cards_open_servers_without_joining_and_preserve_drafts ... ok
+test composer_tests::inline_edit_uses_mentions_ime_and_preserves_draft_with_optimistic_updates ... ok
+test composer_tests::member_pane_virtualizes_and_preview_never_requests_network ... ok
+test composer_tests::off_channel_deletion_releases_original_and_undo_without_touching_other_input ... ok
+test composer_tests::link_confirmation_escape_preserves_background_search_and_works_without_selection ... ok
+test channel_menu::tests::category_and_channel_permissions_load_edit_and_submit_a_preserved_snapshot ... ok
+test composer_tests::discord_chat_links_navigate_from_message_text_without_opening_a_browser ... ok
+test composer_tests::public_host_button_stays_below_attachment_card ... ok
+test composer_tests::diagnostics_shortcut_copies_existing_report_and_respects_key_capture ... ok
+test composer_tests::quiet_composer_paste_allows_full_payload_and_marker_only_enter_preserves_draft ... ok
+test attachments::context_tests::media_context_menus_disable_transfers_in_demo_and_while_busy ... ok
+test composer_tests::deleted_edit_target_keeps_user_changes_but_releases_untouched_original ... ok
+test composer_tests::startup_warning_is_visible_then_clears_on_ready_and_logout ... ok
+test composer_tests::rich_presence_reaches_lists_dm_header_and_profile_then_clears ... ok
+test composer_tests::profile_uses_open_conversation_not_browsed_sidebar_server ... ok
+test composer_tests::switcher_pointer_close_during_ime_cannot_commit_into_the_composer ... ok
+test composer_tests::webhook_profile_does_not_request_a_user_profile ... ok
+test composer_tests::rendering_does_not_hide_saved_drafts_and_clears_survive_hydration ... ok
+test composer_tests::pending_preview_waits_for_confirmation_and_restore_preserves_new_drafts ... ok
+test channel_menu::tests::settings_pages_keep_one_modal_size_and_align_permission_toggles ... ok
+test composer_tests::text_author_click_toggles_profile_like_voice ... ok
+test composer_text::tests::native_delete_undo_copy_and_ime_keep_wire_mentions ... ok
+test composer_text::tests::nonsquare_emoji_keep_aspect_in_messages_and_composer ... ok
+test composer_text::tests::mention_highlights_follow_theme_and_preserve_wire_text ... ok
+test design::debug_slider_check ... ok
+test composer_text::tests::artwork_keeps_wire_characters_and_cursor_geometry_across_wrapped_lines ... ok
+test design::sign_in_widget_tests::custom_themes_follow_the_resolved_system_appearance ... ok
+test design::sign_in_widget_tests::transparency_composes_with_background_images_and_section_opacity ... ok
+test design::sign_in_widget_tests::account_row_and_disclosure_click_and_label_themselves ... ok
+test design::tests::hex_colors_accept_pasted_values_without_applying_partial_or_invalid_input ... ok
+test design::tests::opaque_presets_keep_readable_text_and_keys_round_trip ... ok
+test design::tests::primary_color_preserves_readable_controls ... ok
+test design::tests::clickable_cursor_preserves_disabled_text_and_specialized_controls ... ok
+test composer_text::tests::emoji_slots_stay_large_and_never_use_font_artwork_while_loading ... ok
+test embeds::tests::gallery_groups_only_related_images_and_preserves_independent_content ... ok
+test embeds::tests::hide_media_links_requires_matching_visible_media_without_caption_or_spoiler ... ok
+test embeds::tests::adjacent_fields_do_not_share_widget_ids ... ok
+test embeds::tests::text_spoilers_do_not_hide_ordinary_media_but_keep_reply_previews_conservative ... ok
+test composer_text::tests::first_emoji_input_waits_for_its_own_galley_then_keeps_artwork ... ok
+test emoji::tests::custom_markup_is_bounded_and_never_an_arbitrary_url ... ok
+test emoji::tests::atlas_is_bounded_and_matches_complete_sequences ... ok
+test contact_editor::tests::editors_load_before_edit_keep_failed_drafts_and_clear_on_account_change ... ok
+test emoji_picker::tests::custom_match_cache_tracks_catalog_scope_and_reuses_unchanged_results ... ok
+test emoji_picker::tests::custom_picker_frame_benchmark ... ignored, release picker frame benchmark; ten warmup frames and one warmup/five measured batches
+test emoji_picker::tests::favorite_usage_is_ranked_deduplicated_and_bounded ... ok
+test emoji_picker::tests::gif_favorite_loading_is_single_flight_and_video_placeholders_never_request_media ... ok
+test emoji_picker::tests::current_server_is_the_first_clickable_picker_rail_entry ... ok
+test emoji_picker::tests::image_sharing_requires_enabled_plugin_and_never_changes_reactions ... ok
+test emoji_picker::tests::insertion_replaces_unicode_selection_and_respects_character_and_capacity_budgets ... ok
+test emoji_picker::tests::palette_search_preserves_complete_sequences_and_is_bounded ... ok
+test emoji_picker::tests::quiet_insertions_keep_full_payload_limit_without_extending_literal_edits ... ok
+test embeds::tests::image_previews_dispatch_copy_and_save_without_opening_links ... ok
+test embeds::tests::gallery_tiles_fit_without_overlap_and_open_each_original ... ok
+test emoji_picker::tests::resolved_custom_emoji_eligibility_preserves_native_and_fallback_permissions ... ok
+test emoji_picker::tests::gif_search_keeps_focus_when_the_back_button_appears ... ok
+test emoji_picker::tests::server_rail_prioritizes_current_server_and_preserves_other_servers ... ok
+test composer_tests::reply_controls_are_inert_when_deleted_loading_stale_or_unavailable ... ok
+test extension_account_actions::tests::account_writes_reuse_state_admission_and_do_not_fetch_missing_profiles ... ok
+test extension_account_actions::tests::audio_patch_uses_visible_preset_and_rejects_invalid_patch_atomically ... ok
+test extension_account_actions::tests::media_actions_only_select_current_host_devices ... ok
+test extension_account_actions::tests::participant_audio_preserves_muted_gain_and_rejects_absent_targets ... ok
+test composer_tests::unread_pages_and_return_to_present_preserve_drafts_without_automatic_ack ... ok
+test extension_account_actions::tests::presence_patch_preserves_omitted_values_and_clears_expiry_with_text ... ok
+test extension_actions::tests::desired_reaction_does_not_toggle_and_revalidates_pending_and_access ... ok
+test extension_actions::tests::explicit_send_preserves_composition_and_rejects_stale_scope_and_limits ... ok
+test extension_actions::tests::message_mutations_use_native_ownership_and_pending_guards ... ok
+test extension_actions::tests::query_and_account_settings_reuse_native_bounded_state ... ok
+test emoji_picker::tests::server_grid_only_requests_visible_images_and_resets_on_navigation ... ok
+test extension_actions::tests::reply_sticker_and_forward_reuse_native_bounded_send_paths ... ok
+test extension_actions::tests::thread_and_forum_creation_reuse_bounded_native_requests ... ok
+test extension_actions::tests::unread_actions_preserve_native_cursor_and_loaded_jump_behavior ... ok
+test extension_app::tests::app_actions_recheck_grants_and_replacement_streams_before_mutating ... ok
+test emoji::tests::direct_decode_preserves_every_premultiplied_pixel ... ok
+test extension_admin_actions::tests::channel_and_server_actions_use_native_admission ... ok
+test extension_admin_actions::tests::destructive_and_conversation_actions_keep_native_guards ... ok
+test extension_app::tests::current_call_controls_reuse_bounded_voice_commands ... ok
+test extension_app::tests::destructive_and_media_proposals_describe_the_actual_operation ... ok
+test extension_app::tests::navigation_uses_only_known_readable_channels_and_home_clears_selection ... ok
+test extension_app::tests::notification_patch_revalidates_grant_and_preserves_apply_time_values ... ok
+test extension_app::tests::preference_patch_preserves_other_values_and_rejects_invalid_range ... ok
+test extension_app::tests::search_and_threads_follow_the_current_channel_through_ui_sync ... ok
+test extension_server_actions::tests::patches_map_to_native_bounded_models ... ok
+test extension_server_actions::tests::unloaded_server_controls_are_rejected_by_native_admission ... ok
+test extension_app::tests::apply_rechecks_context_extension_and_grant ... ok
+test extensions_ui::tests::catalog_refresh_preserves_only_unchanged_reviewed_consent ... ok
+test extension_app::tests::voice_proposals_cannot_affect_a_replacement_call ... ok
+test extensions_ui::tests::proposal_requires_unchanged_account_conversation_and_draft ... ok
+test extensions_ui::tests::queued_actions_and_closed_results_are_bounded ... ok
+test extensions_ui::tests::app_snapshot_payloads_are_bounded_before_ui_queueing ... ok
+test extensions_ui::tests::result_drops_private_snapshot_but_keeps_invocation_call_identity ... ok
+test external_upload::tests::link_insertion_preserves_draft_and_limits ... ok
+test emoji_picker::tests::reaction_search_keyboard_selection_permissions_and_session_reset ... ok
+test extension_app::tests::host_action_waits_for_apply_and_close_discards_it ... ok
+test external_upload::tests::public_upload_requires_an_explicit_click_and_keeps_result_for_review ... ok
+test emoji_picker::tests::reaction_selection_never_focuses_a_missing_accesskit_node ... ok
+test fonts::tests::cjk_scan_reuses_immutable_jobs_without_retaining_their_text ... ok
+test fonts::tests::latin_faces_are_rasterized_without_truetype_hinting ... ok
+test extensions_ui::tests::shop_previews_load_visible_cards_once_and_evict_with_metadata ... ok
+test formatting::tests::budget_overflow_leaves_the_draft_unchanged ... ok
+test formatting::tests::empty_caret_inserts_markers_and_code_blocks_span_lines ... ok
+test formatting::tests::quiet_formatting_fits_full_payload_but_literal_edits_keep_their_limit ... ok
+test formatting::tests::wrapping_toggles_and_keeps_the_inner_selection ... ok
+test composer_tests::reply_original_buttons_navigate_locally_or_request_one_page_without_sending ... ok
+test forum::tests::post_composer_stages_images_and_sends_them_with_the_first_message ... ok
+test friends::tests::friends_cache_matches_uncached_across_relationship_and_session_changes ... ok
+test friends::tests::friends_cache_replaces_ready_rows_and_rolls_back_optimistic_blocks ... ok
+test group_menu::tests::group_context_does_not_follow_a_reordered_row ... ok
+test external_upload::tests::typed_public_upload_errors_have_english_and_czech_messages ... ok
+test guild_folders::tests::empty_and_left_server_folders_disappear_without_changing_settings ... ok
+test guild_folders::tests::folder_rows_reuse_the_catalog_during_message_churn ... ok
+test guild_folders::tests::server_icon_restores_channel_once_in_standalone_and_expanded_folder ... ok
+test guild_folders::tests::wide_drop_zones_and_order_preserve_folder_membership ... ok
+test highlight::tests::arbitrary_bytes_never_panic_and_stay_covered ... ok
+test highlight::tests::javascript_template_strings_span_lines_and_unterminated_quotes_stop_at_newline ... ok
+test highlight::tests::markup_and_config_languages ... ok
+test highlight::tests::rust_tokens_cover_keywords_macros_lifetimes_and_strings ... ok
+test forum::tests::forum_pane_lists_posts_and_creates_then_opens_one ... ok
+test i18n::tests::keeps_only_the_last_requested_catalog_loaded ... ok
+test i18n::tests::counts_select_plural_forms ... ok
+test i18n::tests::negotiates_supported_languages_and_falls_back_to_english ... ok
+test invites::tests::invite_urls_are_origin_and_path_checked ... ok
+test invites::tests::standalone_invites_accept_codes_without_turning_plain_messages_into_cards ... ok
+test icons::tests::atlas_covers_every_icon_once_and_paints_inside_its_rect ... ok
+test join_server::tests::add_server_flow_reaches_creation_and_preserves_the_draft_on_back ... ok
+test keybinds::tests::conflicting_keybind_leaves_binding_unchanged ... ok
+test keybinds::tests::default_push_to_talk_does_not_consume_typing ... ok
+test keybinds::tests::page_down_and_navigation_keys_are_supported ... ok
+test local_time::tests::formats_every_discord_timestamp_style ... ok
+test markdown::tests::an_unlabelled_code_block_floats_a_copy_control_above_its_text ... ok
+test markdown::tests::bidi_ascii_benchmark ... ignored, release-only BiDi microbenchmark; run with --ignored --nocapture
+test markdown::tests::bidi_runs_keep_each_script_logical_and_follow_paragraph_direction ... ok
+test group_menu::tests::group_menu_edit_mute_leave_and_stale_picker ... ok
+test markdown::tests::channel_references_keep_literals_bounded_and_offer_missing_channels ... ok
+test markdown::tests::code_blocks_render_a_framed_widget_with_copy_control ... ok
+test emoji_picker::tests::sticker_picker_search_keyboard_send_preserves_draft_and_resets_session ... ok
+test markdown::tests::concealed_regions_skip_actions_images_and_text_until_keyboard_or_pointer_reveal ... ok
+test markdown::tests::dragging_out_of_a_code_block_leaves_the_text_above_it_unselected ... ok
+test markdown::tests::discord_chat_links_validate_origin_route_and_ids ... ok
+test join_server::tests::join_dialog_checks_then_confirms_once_and_clears_on_session_change ... ok
+test extensions_ui::tests::consent_requires_explicit_grant_and_cleanup_stays_available ... ok
+test markdown::tests::fenced_blocks_record_language_and_discord_fence_shapes ... ok
+test markdown::tests::emoji_render_as_whole_images_but_code_and_source_stay_literal ... ok
+test markdown::tests::inline_links_preserve_markdown_and_activate_their_own_destinations ... ok
+test markdown::tests::inline_spoilers_preserve_crossing_styles_and_ignore_nonliteral_delimiters ... ok
+test markdown::tests::external_confirmation_requires_explicit_action_and_displays_emitted_target ... ok
+test markdown::tests::fenced_code_uses_its_actual_surface_instead_of_global_chat_transparency ... ok
+test markdown::tests::mass_mentions_render_as_pills_only_for_exact_plain_tokens ... ok
+test markdown::tests::quote_rails_span_every_wrapped_line_of_their_block ... ok
+test markdown::tests::selecting_across_a_concealed_region_cannot_copy_its_text ... ok
+test markdown::tests::mention_highlights_include_unknown_users_in_both_themes ... ok
+test markdown::tests::spoiler_limits_never_fall_back_to_visible_secret_text ... ok
+test markdown::tests::user_mentions_preserve_literals_and_open_native_profiles ... ok
+test mentions::tests::channel_references_scope_bound_and_insert_unicode_without_user_mentions ... ok
+test markdown::tests::timestamps_render_the_formatted_instant_not_the_raw_token ... ok
+test mentions::tests::cross_server_emoji_search_names_sources_bounds_and_account_reset ... ok
+test mentions::tests::emoji_shortcodes_need_two_characters_and_include_usable_server_emoji ... ok
+test mentions::tests::quiet_mention_replacement_uses_effective_budget_and_edits_remain_literal ... ok
+test mentions::tests::unicode_cursor_exact_insertion_bounded_choices_and_keyboard ... ok
+test mentions::tests::composer_enter_accepts_profile_channel_and_mass_mentions ... ok
+test notifications::tests::home_rail_opens_friends_from_a_guild_channel ... ok
+test notifications::tests::rail_cache_reuses_idle_rows_and_tracks_unread_ack_permissions_and_removal ... ok
+test markdown::tests::selecting_across_images_copies_unicode_and_custom_markup ... ok
+test pending::tests::pending_content_progress_and_failure_remain_visible ... ok
+test polls::tests::answer_rows_accept_keyboard_activation_and_results_are_read_only ... ok
+test notification_settings::tests::notification_controls_change_real_state_and_emit_preview_requests ... ok
+test polls::tests::bundled_emoji_artwork_fits_wrapped_answer_rows ... ok
+test polls::tests::answer_emoji_comes_from_the_picker_as_twemoji_and_can_be_cleared ... ok
+test polls::tests::poll_check_restores_window_effects_after_unwind ... ok
+test polls::tests::selection_preview_and_pending_cards_preserve_vote_actions ... ok
+test profile_edit::tests::draft_only_sends_changed_fields_and_can_clear_values ... ok
+test polls::tests::maximum_creator_draft_fits_short_narrow_windows_and_closes_on_navigation ... ok
+test profiles::tests::busy_gradient_profile_never_grows_past_the_viewport ... ok
+test profiles::tests::clicking_outside_closes_but_clicking_inside_keeps_the_popout ... ok
+test profiles::tests::countdown_takes_precedence_and_stops_at_zero ... ok
+test profiles::tests::dm_presence_does_not_use_a_visible_guild_snapshot ... ok
+test fonts::tests::startup_does_not_decode_cjk_but_on_demand_definitions_do ... ok
+test fonts::tests::cjk_arriving_after_settled_latin_frames_installs_the_fallback ... ok
+test profile_edit::tests::editor_saves_once_preserves_failed_draft_and_cancels_in_both_themes ... ok
+test profiles::tests::partial_profile_warning_preserves_identity_and_webhook_behavior ... ok
+test profiles::tests::profile_friend_button_requires_confirmation_and_tracks_relationships ... ok
+test proxy_auth::tests::rejected_save_keeps_the_draft_until_host_acceptance ... ok
+test proxy_auth::tests::clearing_password_cannot_restore_it_from_widget_undo_history ... ok
+test profiles::tests::popout_shows_selected_data_beside_anchor_and_closes_with_escape ... ok
+test profiles::tests::server_profile_shows_assigned_known_roles ... ok
+test reading::tests::sidebar_constraints_do_not_replace_saved_width_and_zoom_is_bounded ... ok
+test reading::tests::smaller_zoom_applies_and_survives_native_zoom_synchronization ... ok
+test reactions::tests::custom_reaction_button_loads_its_image ... ok
+test registered_games::tests::hiding_and_renaming_update_one_entry ... ok
+test rich_presence::tests::collapsed_fields_submit_defaults_and_keep_edits ... ok
+test screen::tests::settings_require_a_current_source_and_offer_high_quality_without_entitlements ... ok
+test search::tests::conversation_shortcut_prefills_channel_and_focuses_query_without_searching ... ok
+test search::tests::direct_message_shortcut_keeps_implicit_scope_and_does_not_interrupt_composition ... ok
+test search::tests::keyboard_search_is_explicit_and_ime_commit_does_not_submit ... ok
+test search::tests::numeric_channel_prefill_keeps_its_target_and_separator_after_submission ... ok
+test reading::tests::reading_controls_reset_retry_and_preserve_session_notification_opt_in ... ok
+test search::tests::remembered_channel_labels_do_not_override_another_guilds_typed_names ... ok
+test search::tests::remembered_channel_labels_require_current_text_and_history_access ... ok
+test recovery_demo::disconnected_refresh_and_send_preserve_independent_rest_work ... ok
+test search::tests::search_results_resolve_payload_mentions_and_queue_unknown_channels ... ok
+test search_navigation_tests::conversation_search_shortcut_focuses_from_composer_and_preserves_results ... ok
+test search_navigation_tests::result_jump_and_numeric_pager_keep_scope_and_allow_explicit_retry ... ok
+test select::tests::a_drag_across_rows_ends_under_the_pointer ... ok
+test select::tests::a_drag_inside_the_wrapped_row_stops_before_the_link_row ... ok
+test select::tests::a_drag_on_the_link_row_starts_where_the_pointer_is ... ok
+test select::tests::control_click_keeps_secondary_release_after_control_is_released ... ok
+test select::tests::control_click_release_matches_press_in_an_unfocused_frame ... ok
+test server_audit_log::tests::audit_details_preserve_absent_null_and_invite_values ... ok
+test search::tests::pins_reload_is_keyboard_operable_and_close_cancels_at_narrow_width ... ok
+test server_integrations::tests::draft_survives_failed_save_and_refresh_but_is_cleared_on_permission_loss ... ok
+test server_audit_log::tests::audit_layout_fits_and_entry_expansion_is_bounded ... ok
+test markdown::tests::emoji_click_shows_default_known_or_unknown_source_and_escape_closes ... ok
+test server_invites::tests::expiration_distinguishes_unlimited_unknown_expired_and_day_countdowns ... ok
+test server_invites::tests::invite_copy_and_confirmed_revoke_use_existing_command_lane ... ok
+test server_integrations::tests::webhook_cards_copy_once_in_both_settings_scopes_and_fit_small_widths ... ok
+test server_menu::tests::shared_server_items_hide_settings_without_access_and_leave_for_owners ... ok
+test polls::tests::maximum_poll_content_stays_inside_narrow_cards_in_each_state ... ok
+test reactions::tests::keyboard_reaction_toggle_and_disabled_refresh_emit_only_local_actions ... ok
+test server_invite::tests::invite_picker_search_send_settings_and_failure ... ok
+test server_notification_tests::notification_edits_require_save_and_submit_one_sparse_write ... ok
+test server_notification_tests::narrow_notification_dialog_keeps_footer_visible_and_scrolls_controls ... ok
+test server_stickers::tests::sticker_fields_are_bounded_and_require_related_emoji ... ok
+test settings::keybind_tests::keybinds_shortcut_opens_page_and_respects_ime ... ok
+test slash_builtin::tests::builtins_preserve_text_resolve_actions_and_reject_invalid_input ... ok
+test slash_builtin::tests::execution_sends_text_preserves_rejected_drafts_and_stages_direct_messages ... ok
+test server_roles::tests::role_list_selection_saves_partial_edit_and_revocation_discards_draft ... ok
+test stickers::tests::rail_target_after_five_hundred_stickers_is_reached ... ok
+test search_navigation_tests::conversation_search_shortcut_respects_guards_and_remapping ... ok
+test server_notification_tests::ordinary_members_open_notification_settings_from_header_and_rail ... ok
+test stickers::tests::sticker_details_open_and_view_more_keeps_pack_provenance ... ok
+test switcher::tests::search_is_bounded_scoped_and_matches_words_across_labels ... ok
+test slash_commands::tests::slash_picker_selects_before_sending_and_preserves_failed_fields ... ok
+test switcher::tests::switcher_requests_real_direct_user_avatars ... ok
+test theme_editor::tests::editor_opens_on_the_active_appearance_and_keeps_the_chosen_palette ... ok
+test thumbhash::tests::decodes_reference_hash_to_portrait_image ... ok
+test server_notification_tests::closing_or_changing_context_discards_unsaved_notification_edits ... ok
+test theme_editor::tests::tabs_and_save_keep_required_fields_easy_to_find ... ok
+test theme_editor::tests::map_selects_the_member_panel_and_save_points_to_required_basics ... ok
+test timeline::pending_tests::pending_failures_keep_restore_action_and_other_channels_stay_hidden ... ok
+test timeline::pending_tests::restore_processing_preserves_existing_drafts_and_ignores_late_confirmations ... ok
+test timeline::pending_tests::many_pending_rows_follow_the_last_row_and_prune_on_channel_switch ... ok
+test switcher::tests::keyboard_selection_composition_and_cancel_restore_focus ... ok
+test thumbhash::tests::rejects_truncated_hashes ... ok
+test timeline::tests::account_badges_render_in_chat_without_grouping_different_author_kinds ... ok
+test timeline::pending_tests::pending_full_body_turns_into_one_confirmed_row_in_either_arrival_order ... ok
+test timeline::tests::auto_read_requires_focused_latest_and_does_not_retry_failed_marker ... ok
+test timeline::tests::arrivals_at_a_focused_live_edge_are_read_without_a_banner ... ok
+test timeline::tests::channel_rename_invalidates_offscreen_reference_heights ... ok
+test timeline::tests::arriving_messages_keep_the_live_edge_in_view ... ok
+test timeline::tests::complete_short_channels_never_flash_banners_but_tall_unread_content_is_preserved ... ok
+test timeline::tests::deleted_only_timeline_keeps_content_without_service_actions ... ok
+test timeline::tests::divider_and_dismissed_banner_stay_put_when_messages_arrive_at_the_live_edge ... ok
+test timeline::tests::downward_wheel_at_pinned_target_loads_next_page ... ok
+test server_menu::tests::server_menu_requires_explicit_invite_and_leave_confirmation ... ok
+test timeline::tests::arrivals_while_scrolled_up_count_only_unseen_messages_and_offer_the_way_down ... ok
+test timeline::tests::grouping_respects_dates_replies_unread_and_five_minute_gaps ... ok
+test timeline::tests::embed_cards_conceal_spoilers_and_invalidate_reveals_on_embed_only_edits ... ok
+test timeline::pending_tests::sending_from_scrolled_history_returns_to_latest_without_resending ... ok
+test timeline::tests::extra_content_markers_update_layout_and_keep_supported_text ... ok
+test timeline::tests::forwarded_audio_keeps_sender_label_and_player_in_narrow_and_wide_rows ... ok
+test timeline::tests::leading_overscan_benchmark ... ignored, release performance workload
+test timeline::tests::initial_unread_join_waits_for_a_downward_reach ... ok
+test markdown::tests::bounded_formatting_and_inert_external_content ... ok
+test timeline::tests::macos_control_click_opens_the_existing_message_menu ... ok
+test timeline::tests::inline_reveals_are_independent_of_media_and_reset_on_edit_and_navigation ... ok
+test timeline::tests::mixed_height_virtualization_visits_only_viewport ... ok
+test timeline::tests::hover_actions_keep_layout_stable_and_support_keyboard_reply ... ok
+test timeline::tests::message_menu_allows_authorized_delete_without_exposing_other_authors_edit ... ok
+test timeline::tests::reply_target_browsing_waits_for_success_and_explicit_latest_before_acknowledging ... ok
+test timeline::tests::marking_read_resets_the_banner_and_later_arrivals_stay_read_at_the_bottom ... ok
+test timeline::tests::pending_rows_share_scroll_and_only_measure_near_viewport ... ok
+test timeline::tests::idle_bottom_message_positions_stay_put ... ok
+test timeline::tests::right_clicking_a_reaction_opens_its_details_without_the_message_menu ... ok
+test timeline::tests::short_continuations_use_one_line_and_keep_internal_breaks ... ok
+test timeline::tests::same_id_revision_reset_does_not_reuse_reveal_or_height ... ok
+test timeline::tests::server_switch_keeps_the_unread_banner_until_a_downward_scroll ... ok
+test timeline::tests::short_history_loads_older_only_after_explicit_upward_input ... ok
+test fonts::tests::bundled_fallbacks_cover_multilingual_text_with_a_fixed_asset_budget ... ok
+test timeline::tests::browsing_banner_waits_several_screens_and_click_survives_widget_order_changes ... ok
+test timeline::tests::thread_starter_renders_above_replies_once_history_is_exhausted ... ok
+test timeline::tests::underestimated_leading_row_does_not_hide_history_or_inflate_scroll_extent ... ok
+test timeline::tests::unread_banner_is_visible_as_soon_as_an_unread_channel_is_joined ... ok
+test timeline::tests::system_events_render_wrap_and_keep_unknown_fallbacks ... ok
+test timeline::tests::unsupported_message_fallback_only_requests_confirmation ... ok
+test title_bar_tests::secondary_press_and_content_press_do_not_drag ... ok
+test typing::tests::bounded_names_and_expiry_render_without_idle_repaints_or_scope_leaks ... ok
+test timeline::tests::leading_overscan_reuses_only_current_uninteracted_text_measurements ... ok
+test title_bar_tests::title_strip_primary_press_starts_drag_immediately_and_only_once ... ok
+test typing::tests::unknown_typist_uses_generic_label_and_composer_keeps_draft_without_commands ... ok
+test updates::tests::dismissing_the_banner_hides_it_until_the_update_is_ready ... ok
+test updates::tests::hidden_title_bar_moves_the_update_prompt_above_the_account_card ... ok
+test user_menu::tests::dm_row_and_avatar_open_menu_without_navigation_and_dispatch_once ... ok
+test timeline::tests::successive_deletes_keep_the_floor ... ok
+test verification::tests::friend_verification_uses_friend_copy_and_cancels_the_pending_write ... ok
+test video::tests::video_controls_are_explicit_bounded_and_keyboard_operable ... ok
+test voice::tests::camera_popup_selects_second_device_without_starting_capture ... ok
+test timeline::tests::switching_cached_chats_keeps_message_positions_stable ... ok
+test voice::tests::explicit_join_audio_waits_for_call_switch_and_survives_teardown ... ok
+test voice::tests::gain_sliders_accept_keyboard_input_and_reset_with_the_session ... ok
+test voice::tests::guild_voice_requires_explicit_keyboard_join_and_demo_never_emits_media ... ok
+test voice::tests::local_mutes_zero_one_speaker_and_keep_their_stored_volume ... ok
+test voice::tests::camera_settings_bound_layout_and_only_request_discovery_once ... ok
+test voice::tests::stream_preview_watch_clears_rejected_and_completed_intents ... ok
+test voice::tests::streaming_roster_click_still_opens_profile ... ok
+test user_menu::tests::user_menu_mouse_keyboard_and_actions_in_both_themes ... ok
+test voice::tests::streaming_roster_hover_has_preview_and_watch_action ... ok
+test voice::tests::solo_call_stages_show_both_local_previews_without_a_roster ... ok
+test voice::tests::voice_toggle_cues_follow_the_resulting_state_and_preferences ... ok
+test timeline::tests::resident_preview_renders_only_selected_rows_while_revalidating ... ok
+test verification::tests::verification_requires_a_click_fits_viewport_and_cancels_with_escape ... ok
+test voice::tests::viewing_an_incoming_call_never_answers_and_preview_cannot_call ... ok
+test voice::tests::voice_popup_keeps_device_selection_open_and_demo_controls_inert ... ok
+test timeline::tests::native_layout_virtualizes_preserves_anchor_and_jumps_after_scrolling ... ok
+test voice::tests::existing_dm_call_banner_joins_without_ringing_and_disables_unavailable_actions ... ok
+test timeline::tests::wheel_scrolling_keeps_visible_messages_stable_during_measurement ... ok
+
+test result: ok. 368 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 16.04s
+
+     Running tests/activity_sharing.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/activity_sharing-f8b839c653500965)
+
+running 2 tests
+test session_clear_keeps_window_preference_but_removes_account_sharing_actions ... ok
+test account_sharing_requires_an_explicit_action_and_disables_it_while_pending ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.94s
+
+     Running tests/components.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/components-fbfe69f6ff085931)
+
+running 3 tests
+test zero_minimum_message_select_can_submit_an_empty_selection ... ok
+test required_single_select_can_replace_its_default_at_capacity ... ok
+test optional_modal_select_can_clear_a_default_and_submit ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+
+     Running tests/registered_games.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/registered_games-258219d31d24d9e9)
+
+running 2 tests
+test one_page_shares_activity_and_lists_detected_games_that_can_be_hidden ... ok
+test current_game_can_be_renamed_and_running_programs_added ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+
+     Running tests/settings_modals.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/settings_modals-0970cbaf6590bd9c)
+
+running 1 test
+test server_settings_pages_share_one_modal_rect ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+
+     Running tests/startup.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/startup-b4e455c1f8dcc10d)
+
+running 2 tests
+test session_clear_preserves_device_startup_preferences_and_pending_status ... ok
+test startup_switches_require_availability_and_dependency_and_disable_while_pending ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.43s
+
+     Running tests/startup_memory.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/startup_memory-9d0d0a70612daa79)
+
+running 3 tests
+test emoji_install ... ignored, release component benchmark; one warmup and five measured installations
+test font_install ... ignored, release component benchmark; one warmup and five measured installations
+test settled_font_frames ... ignored, release component benchmark; one warmup and five measured frame batches
+
+test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (/Users/claw/Code/Serein-target-root-delivery/debug/deps/xtask-173885934601d111)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests client_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests discord_api
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests discord_gateway
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests discord_protocol
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests discord_voice
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests extensions
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests local_store
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests model
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests platform
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests serein_extension_sdk
+
+running 1 test
+test extensions/sdk/src/lib.rs - (line 4) ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+all doctests ran in 1.68s; merged doctests compilation took 1.48s
+   Doc-tests session_cache
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests test_support
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests ui
+
+running 1 test
+test crates/ui/src/dialog.rs - dialog (line 8) ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.61s; merged doctests compilation took 0.43s
+    Checking model v0.1.0 (/private/tmp/serein-resume-send/crates/model)
+warning: unexpected `cfg` condition name: `macos_12_unavailable`
+   --> vendor/wry/src/wkwebview/class/wry_web_view_ui_delegate.rs:129:13
+    |
+129 |         #[cfg(not(macos_12_unavailable))]
+    |                   ^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: expected names are: `docsrs`, `feature`, `gtk`, `linux`, and `test` and 32 more
+    = help: consider using a Cargo feature instead
+    = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+             [lints.rust]
+             unexpected_cfgs = { level = "warn", check-cfg = ['cfg(macos_12_unavailable)'] }
+    = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(macos_12_unavailable)");` to the top of the `build.rs`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: requested on the command line with `-W unexpected-cfgs`
+
+warning: use of deprecated static `objc2_app_kit::NSFilenamesPboardType`: Create multiple pasteboard items with NSPasteboardTypeFileURL or kUTTypeFileURL instead
+  --> vendor/wry/src/wkwebview/drag_drop.rs:11:54
+   |
+11 | use objc2_app_kit::{NSDragOperation, NSDraggingInfo, NSFilenamesPboardType};
+   |                                                      ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated static `objc2_app_kit::NSFilenamesPboardType`: Create multiple pasteboard items with NSPasteboardTypeFileURL or kUTTypeFileURL instead
+  --> vendor/wry/src/wkwebview/drag_drop.rs:21:39
+   |
+21 |     let types = NSArray::arrayWithObject(NSFilenamesPboardType);
+   |                                          ^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSFilenamesPboardType`: Create multiple pasteboard items with NSPasteboardTypeFileURL or kUTTypeFileURL instead
+  --> vendor/wry/src/wkwebview/drag_drop.rs:24:38
+   |
+24 |         let paths = pb.propertyListForType(NSFilenamesPboardType).unwrap();
+   |                                            ^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSAlternateKeyMask`
+ --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:2:2
+  |
+2 |     NSAlternateKeyMask, NSCommandKeyMask, NSControlKeyMask, NSEvent, NSEventType, NSShiftKeyMask,
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSCommandKeyMask`
+ --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:2:22
+  |
+2 |     NSAlternateKeyMask, NSCommandKeyMask, NSControlKeyMask, NSEvent, NSEventType, NSShiftKeyMask,
+  |                         ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSControlKeyMask`
+ --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:2:40
+  |
+2 |     NSAlternateKeyMask, NSCommandKeyMask, NSControlKeyMask, NSEvent, NSEventType, NSShiftKeyMask,
+  |                                           ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSShiftKeyMask`
+ --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:2:80
+  |
+2 |     NSAlternateKeyMask, NSCommandKeyMask, NSControlKeyMask, NSEvent, NSEventType, NSShiftKeyMask,
+  |                                                                                   ^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSControlKeyMask`
+   --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:116:34
+    |
+116 |         ctrl_key = mods_flags.contains(NSControlKeyMask),
+    |                                        ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSAlternateKeyMask`
+   --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:117:33
+    |
+117 |         alt_key = mods_flags.contains(NSAlternateKeyMask),
+    |                                       ^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSShiftKeyMask`
+   --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:118:35
+    |
+118 |         shift_key = mods_flags.contains(NSShiftKeyMask),
+    |                                         ^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSCommandKeyMask`
+   --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:119:34
+    |
+119 |         meta_key = mods_flags.contains(NSCommandKeyMask),
+    |                                        ^^^^^^^^^^^^^^^^
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/drag_drop.rs:40:20
+   |
+40 |     let dl: NSPoint = unsafe { drag_info.draggingLocation() };
+   |                       ^^^^^^ unnecessary `unsafe` block
+   |
+   = note: `#[warn(unused_unsafe)]` (part of `#[warn(unused)]`) on by default
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/drag_drop.rs:57:20
+   |
+57 |     let dl: NSPoint = unsafe { drag_info.draggingLocation() };
+   |                       ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/drag_drop.rs:85:20
+   |
+85 |     let dl: NSPoint = unsafe { drag_info.draggingLocation() };
+   |                       ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/class/wry_web_view_parent.rs:33:4
+   |
+33 |             unsafe {
+   |             ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/class/wry_web_view_ui_delegate.rs:43:3
+   |
+43 |         unsafe {
+   |         ^^^^^^ unnecessary `unsafe` block
+
+warning: `wry` (lib) generated 17 warnings
+    Checking extensions v0.1.0 (/private/tmp/serein-resume-send/crates/extensions)
+    Checking session-cache v0.1.0 (/private/tmp/serein-resume-send/crates/session-cache)
+    Checking client-core v0.1.0 (/private/tmp/serein-resume-send/crates/client-core)
+    Checking discord-protocol v0.1.0 (/private/tmp/serein-resume-send/crates/discord-protocol)
+    Checking platform v0.1.0 (/private/tmp/serein-resume-send/crates/platform)
+   Compiling serein v0.1.0 (/private/tmp/serein-resume-send/apps/desktop)
+    Checking discord-voice v0.1.0 (/private/tmp/serein-resume-send/crates/discord-voice)
+    Checking ui v0.1.0 (/private/tmp/serein-resume-send/crates/ui)
+    Checking discord-api v0.1.0 (/private/tmp/serein-resume-send/crates/discord-api)
+    Checking discord-gateway v0.1.0 (/private/tmp/serein-resume-send/crates/discord-gateway)
+    Checking local-store v0.1.0 (/private/tmp/serein-resume-send/crates/local-store)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 23.05s
+Policy checks passed: no eframe persistence, one renderer, no REST cookie jar, ephemeral login requested.

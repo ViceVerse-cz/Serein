@@ -2138,6 +2138,13 @@ impl State {
 
 		if let Command::Voice(control) = command {
 			match control {
+				voice::Command::RingRecipient {
+					channel, request, ..
+				} => self.apply_voice(voice::Event::RingFailed {
+					channel,
+					request,
+					message: "Recipient ringing was not sent; the work queue is full",
+				}),
 				voice::Command::Sync { .. } => {
 					self.status = "Call status could not refresh; reopen the DM to retry"
 				}
@@ -2964,6 +2971,11 @@ impl State {
 							participants.retain(|p| p.user != user);
 						}
 					}
+					for (id, ringing) in &mut self.voice.dm_ringing {
+						if *id == channel {
+							ringing.retain(|id| *id != user);
+						}
+					}
 					if let Some(call) = &mut self.voice.active
 						&& call.channel == channel
 					{
@@ -3113,6 +3125,8 @@ impl State {
 				self.voice.preview = None;
 				self.voice.dm_calls.clear();
 				self.voice.dm_participants.clear();
+				self.voice.dm_ringing.clear();
+				self.voice.ring_error = None;
 				self.members = None;
 				self.member_search = Default::default();
 				self.clear_profile();
@@ -3223,8 +3237,12 @@ impl State {
 						self.status = "No messages returned after this boundary; use Jump to present to reload";
 					}
 				}
-				if r.is_ok() && self.gateway_connected {
-					self.freshness = Freshness::Fresh;
+				if r.is_ok() {
+					self.freshness = if self.gateway_connected {
+						Freshness::Fresh
+					} else {
+						Freshness::Stale
+					};
 				}
 				r
 			}
@@ -3492,9 +3510,11 @@ impl State {
 				// The voice socket is independent and a RESUME replays roster changes, so the call,
 				// roster and known DM calls all stay. Only a fresh READY invalidates the voice state.
 				self.voice.incoming = None;
-				self.gateway_connected = false;
-				self.cancel_history();
-				self.freshness = Freshness::Stale;
+				if std::mem::replace(&mut self.gateway_connected, false) {
+					self.cancel_history();
+					self.freshness = Freshness::Stale;
+				}
+				// Retry notifications must not invalidate a REST reload started during the outage.
 				self.status = "Reconnecting…";
 				Ok(())
 			}

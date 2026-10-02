@@ -62,6 +62,20 @@ Stale release commands cannot displace cleanup for the current attempt. A later 
 that encounters the still-full queue fails only that unsent attempt, keeping text
 signaling available.
 
+If local transport confirmation cannot enter the bounded control queue, its
+channel, attempt and candidate revision accompany a local failure. The desktop
+receives it through one fixed-size latest-report watch, independent of the reliable
+account event queue and its byte budget. Old-scope reports cannot replace the
+current attempt's failure; an older candidate revision cannot replace a newer one.
+The watch remains unread until queued reliable signaling is drained, including
+replacement candidates or acknowledgments beyond the current frame's event batch.
+The original negotiation deadline still bounds local failure under sustained load.
+The desktop
+consumes it only for the exact current unconfirmed candidate within its original
+deadline, then abandons that negotiation through the existing local release path.
+Old-candidate failures do not fail a replacement or established call. Text
+authentication and signaling remain available.
+
 After confirmation, a different owner session in the same voice channel, or movement
 to another non-null channel/guild, clears the local call and closes media without
 sending a hangup. A translated informational notice explains the move. Pending
@@ -101,6 +115,18 @@ Mute/deafen, saved input/output selection and focused V push-to-talk are impleme
 One-to-one DM calls accept only their expected peer. Group DM and server calls support up to 64 total participants, with independent bounded decoder/jitter state and mixed mono playback. Only DAVE version 1 is accepted; encryption downgrades and group identities outside the authenticated participant roster fail closed. Stage channels and recording are unsupported. Outgoing screen sharing and macOS camera support is described below. Voice WebSocket resumption has a finite retry budget; failed resumption or main Gateway disconnect requires an explicit new call. Voice credentials, ephemeral DAVE identities and audio stay in bounded session memory. The displayed privacy code applies to the current group epoch; identities are not remembered across calls. Comparing codes does not establish long-term identity verification or text-message encryption.
 
 ## Group DM calls
+
+Connected one-to-one and group DM stages also show recipients who have not joined,
+with **Ringing…** or **Not in call** status rather than an invented microphone state.
+Right-click an absent recipient's avatar to **Stop ringing** that recipient or
+**Ring again** after ringing has stopped. These explicit actions target one current
+recipient of the joined call; they never join a conversation or start media.
+The initial call still rings only once after transport allocation. Recipient write
+failures remain visible in the stage while the call continues; no uncertain write
+automatically retries. Leaving, changing calls, disconnecting, and changes to DM
+membership cancel the one pending recipient write. Guild calls have no ringing
+controls. This uses the existing unofficial normal-user call HTTP routes; synthetic
+tests do not establish live Discord acceptance.
 
 Existing group conversations expose the same Start/Answer/Decline/Join controls, call stage,
 mute/deafen, audio device and gain controls, focused push-to-talk, noise suppression,
@@ -763,3 +789,21 @@ checks settings rendering and capture guards without opening devices. Physical l
 microphone permission prompts remain owner-verified behavior.
 
 Rapid mute/unmute invalidates partial callback PCM.
+
+Recipient ringing consumes the confirmed local call scope. Session replacement or
+local abandonment cancels initial and targeted ringing, clears dispatcher ownership
+and rejects queued actions from the previous request. Targeted HTTP work checks the
+latest ownership, membership revision and connection availability before polling
+the network future; already accepted service writes cannot be undone.
+
+Recipient actions also recheck latest validated service ringing and observed peer
+presence when dequeued: Ring again requires an absent, non-ringing peer; Stop
+ringing requires current service-confirmed ringing. Unknown ringing disables both
+actions until call metadata arrives; relevant target/scope changes cancel pending writes.
+
+Pending targeted ringing revalidates the requested recipient when call metadata
+changes. An unrelated participant’s mute/camera update preserves an eligible
+request; a target joining during a start, being removed, reaching the requested
+service state, or losing its current call scope cancels obsolete work. The UI
+continues to show service-confirmed state instead of reporting successful state
+changes as failures.
