@@ -1283,6 +1283,12 @@ impl MessagingUi {
 		} else {
 			(size.y * 0.42).clamp(48.0, 128.0)
 		};
+		// Keep the absent peer's name and status clear of its frameless avatar.
+		let avatar_size = if inactive && frameless && !compact {
+			avatar_size.min((size.y - 68.0).max(48.0))
+		} else {
+			avatar_size
+		};
 		let offset = if compact {
 			0.0
 		} else if frameless {
@@ -1359,8 +1365,13 @@ impl MessagingUi {
 			} else {
 				"voice-recipient-not-in-call"
 			});
+			let label_top = if frameless && !compact {
+				avatar_rect.bottom() + 28.0
+			} else {
+				rect.top() + 6.0
+			};
 			let label_rect = egui::Rect::from_min_size(
-				rect.left_top() + egui::vec2(8.0, 6.0),
+				egui::pos2(rect.left() + 8.0, label_top),
 				egui::vec2((size.x - 16.0).max(16.0), 18.0),
 			);
 			ui.put(
