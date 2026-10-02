@@ -1464,9 +1464,10 @@ mod tests {
 				height,
 				..media.clone()
 			};
+			// Unknown dimensions request the largest rendition instead of a thumbnail.
 			assert_eq!(
 				media_requests(&unknown, false, Surface::Viewer),
-				[format!("media:vs:e128:{canonical}")]
+				[format!("media:vs:e4096:{canonical}")]
 			);
 		}
 		let small = model::EmbedMedia {
