@@ -54,7 +54,6 @@ fn message_bytes(messages: &Vec<Message>) -> usize {
 pub enum Operation {
 	LoadCustomFont,
 	SaveCustomFont(Option<ui::fonts::CustomFont>),
-	LoadAppPreferences,
 	SaveAppPreferences(Box<local_store::AppPreferences>),
 	LoadAppearance,
 	SaveAppearance(Appearance),
@@ -105,7 +104,6 @@ pub enum Operation {
 #[allow(clippy::large_enum_variant)]
 pub enum Outcome {
 	CustomFont(Result<Option<ui::fonts::CustomFont>, &'static str>),
-	AppPreferences(Result<Box<local_store::AppPreferences>, StoreError>),
 	AppPreferencesSaved(Result<(), StoreError>),
 	/// Saved appearance plus the saved theme preset key, if any.
 	Appearance(Appearance, Option<String>),
@@ -457,12 +455,6 @@ fn execute(
 				pruned: Vec::new(),
 			};
 		}
-		Operation::LoadAppPreferences => {
-			return Outcome::AppPreferences(match store {
-				Ok(store) => store.app_preferences().map(Box::new),
-				Err(error) => Err(*error),
-			});
-		}
 		Operation::SaveAppPreferences(value) => {
 			return Outcome::AppPreferencesSaved(match store {
 				Ok(store) => store.save_app_preferences(value),
@@ -550,7 +542,6 @@ fn execute(
 		Operation::LoadChannel { .. } => "Could not read cached history",
 		Operation::LoadCustomFont
 		| Operation::SaveCustomFont(_)
-		| Operation::LoadAppPreferences
 		| Operation::LoadAccounts
 		| Operation::SaveAccount(_)
 		| Operation::SetAccountToken { .. }
@@ -570,7 +561,6 @@ fn execute(
 		Ok(store) => match operation {
 			Operation::LoadCustomFont
 			| Operation::SaveCustomFont(_)
-			| Operation::LoadAppPreferences
 			| Operation::LoadAccounts
 			| Operation::SaveAccount(_)
 			| Operation::SetAccountToken { .. }
@@ -662,7 +652,7 @@ mod tests {
 		let mut view = ui::MessagingUi::default();
 		view.channel_preferences_reload = true;
 		for _ in 0..16 {
-			assert!(cache.queue(7, Id(0), Operation::LoadAppPreferences));
+			assert!(cache.queue(7, Id(0), Operation::LoadAppearance));
 		}
 		assert!(!crate::queue_channel_preferences(
 			Some(&cache),
@@ -693,7 +683,7 @@ mod tests {
 		for _ in 0..15 {
 			assert!(matches!(
 				commands.try_recv().unwrap().3,
-				Operation::LoadAppPreferences
+				Operation::LoadAppearance
 			));
 		}
 		let (generation, account, epoch, operation, reservation) = commands.try_recv().unwrap();
@@ -769,7 +759,7 @@ mod tests {
 			view.notifications_enabled = enabled;
 			settings.observe(&view);
 			for _ in 0..16 {
-				assert!(cache.queue(1, Id(0), Operation::LoadAppPreferences));
+				assert!(cache.queue(1, Id(0), Operation::LoadAppearance));
 			}
 			assert!(!settings.save(Some(&cache), 1));
 			assert!(settings.state.needs_attention());

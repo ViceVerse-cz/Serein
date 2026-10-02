@@ -32,10 +32,11 @@ Right-click another participant's voice-row name, avatar, or stage card for
 **User volume**, from 0% to 200%, and **Reset volume** (100%). Keyboard users can focus
 an avatar/name and press Shift+F10. This changes only that person's voice playback before
 mixing; the global speaker level and deafen still apply. Speaking indicators remain based on
-the received signal. Screen-share audio has its own mix and is unaffected. Overrides carry
-across calls and device changes in the current session and clear on logout/preview reset.
+the received signal. Screen-share audio has its own mix and is unaffected. Overrides are saved
+in device preferences and restored before the first UI frame,
+so they carry across calls, device changes, restart and logout. Demo edits remain session-only.
 At most 64 custom levels are retained; a full table replaces its first retained entry.
-Nothing is sent to Discord or saved to disk. Boosting may clip; physical listening and
+Nothing is sent to Discord. Boosting may clip; physical listening and
 native slider interaction remain unverified.
 
 Device-free tests cover gain, clipping, invalid PCM, independent live changes and gates. Actual
