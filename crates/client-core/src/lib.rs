@@ -3137,6 +3137,7 @@ impl State {
 				self.channels = channels;
 				self.permissions = permission_state;
 				self.archived_thread = None;
+				self.interrupt_gif_favorites();
 				self.auth = auth::AuthState::Authenticated;
 				self.gateway_connected = true;
 				self.status = if unavailable {
@@ -3718,6 +3719,7 @@ impl State {
 		if failure.ends_session() {
 			self.application_commands.clear();
 			self.interrupt_stickers();
+			self.interrupt_gif_favorites();
 			self.invalidate_messaging_permissions(Some(failure));
 			self.interrupt_own_profile();
 			self.local_game_activity = Default::default();

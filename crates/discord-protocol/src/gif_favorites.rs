@@ -162,7 +162,7 @@ impl Decoded {
 		entries.sort_by(|a, b| {
 			(Some(b.url) == preferred)
 				.cmp(&(Some(a.url) == preferred))
-				.then_with(|| a.order.cmp(&b.order))
+				.then_with(|| b.order.cmp(&a.order))
 				.then_with(|| a.url.cmp(b.url))
 		});
 		let mut favorites = Vec::with_capacity(MAX_GIF_FAVORITES);
@@ -368,6 +368,21 @@ mod tests {
 		assert_eq!(fields.len(), 1);
 		assert_eq!(fields[0].number, 2);
 		decode_response(&response(fields[0].message().unwrap(), 8)).unwrap()
+	}
+	#[test]
+	fn favorites_projection_keeps_newest_entries_after_plain_refresh() {
+		let current = catalog(MAX_GIF_FAVORITES + 2);
+		let favorites = current.favorites().unwrap();
+		assert_eq!(favorites.len(), MAX_GIF_FAVORITES);
+		assert_eq!(favorites[0].url, gif(101).url);
+		assert!(!favorites.iter().any(|entry| entry.url == gif(0).url));
+		let added = gif(1000);
+		let saved = patched(&current, &added, true);
+		assert_eq!(saved.favorites().unwrap()[0].url, added.url);
+		assert_eq!(
+			saved.favorites_for(Some(&gif(3).url)).unwrap()[0].url,
+			gif(3).url
+		);
 	}
 	#[test]
 	fn favorites_preserve_unseen_unknown_and_video_records_during_single_url_changes() {

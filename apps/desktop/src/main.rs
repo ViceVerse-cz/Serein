@@ -2172,6 +2172,7 @@ impl Desktop {
 			.disconnect_voice("Discord login session changed; start a new call");
 		self.uploads.cancel();
 		self.login = None;
+		self.state.interrupt_gif_favorites();
 		self.connection = None;
 		if let Some(worker) = self.avatars.take() {
 			self.avatar_cleanup = Some(worker.shutdown());
@@ -5611,6 +5612,7 @@ impl Desktop {
 					);
 				}
 			}
+			self.state.interrupt_gif_favorites();
 			self.connection = None;
 			self.pending_save = None;
 			self.pending_account_save = None;

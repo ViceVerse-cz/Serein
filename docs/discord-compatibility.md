@@ -25,9 +25,12 @@ Refresh before a deliberate new change.
 Supported Tenor/KLIPY image sources reuse native previews. Video-only sources are
 retained verbatim and show a placeholder, without converting or downloading an
 invented image URL. Unsupported hosts/formats remain untouched on the server and
-are omitted from the native projection. Existing wire order is displayed in
-ascending order with URL tie-breaking; a new entry appends after the highest
-order. Cross-client ordering and normal-account service acceptance remain
+are omitted from the native projection. The native projection shows highest wire order first with URL tie-breaking;
+a new entry receives the highest order plus one. Distinct local fallback entries
+reserve space before remote entries when the combined list exceeds 100. A late
+initial cache is skipped after an explicit star or removal-history overflow so it
+cannot undo newer actions. Same-account reconnect clears interrupted requests and
+requires a fresh read before another explicit server write. Cross-client ordering and normal-account service acceptance remain
 unverified. No live account or service write was used for verification.
 
 ## Custom Rich Presence - September 28, 2026
