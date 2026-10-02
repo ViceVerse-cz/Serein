@@ -2,7 +2,10 @@
 use crate::{design, dialog};
 use client_core::{MAX_CONTENT, MAX_DRAFT_BYTES, State};
 use egui::{Context, RichText};
-use model::Id;
+use model::{
+	Id,
+	public_upload::{Error, eligible},
+};
 
 #[derive(Default)]
 pub struct ExternalUpload {
@@ -27,7 +30,7 @@ struct Prompt {
 	bytes: u64,
 	running: bool,
 	progress: Option<(u64, u64)>,
-	result: Option<Result<String, &'static str>>,
+	result: Option<Result<String, Error>>,
 	draft_full: bool,
 }
 impl ExternalUpload {
@@ -67,7 +70,7 @@ impl ExternalUpload {
 			prompt.progress = progress;
 		}
 	}
-	pub fn complete(&mut self, result: Result<String, &'static str>) {
+	pub fn complete(&mut self, result: Result<String, Error>) {
 		if let Some(prompt) = &mut self.prompt {
 			prompt.running = false;
 			prompt.result = Some(result);
@@ -130,7 +133,10 @@ impl ExternalUpload {
 							ui.label(RichText::new(link).color(colors.link));
 						}
 						Err(error) => {
-							ui.colored_label(colors.danger, *error);
+							ui.colored_label(
+								colors.danger,
+								crate::i18n::translate(error_key(*error)),
+							);
 						}
 					}
 				} else if prompt.running {
@@ -218,17 +224,23 @@ impl ExternalUpload {
 		}
 	}
 }
-// Kept in the UI to enable consent buttons without bringing the HTTP adapter into rendering.
-fn eligible(filename: &str, bytes: u64) -> bool {
-	let extension = filename
-		.rsplit_once('.')
-		.map_or("", |(_, ext)| ext)
-		.to_ascii_lowercase();
-	bytes > 0
-		&& bytes <= 200_000_000
-		&& !matches!(extension.as_str(), "exe" | "scr" | "cpl" | "jar")
-		&& !extension.starts_with("doc")
-		&& !(extension == "gif" && bytes > 20_000_000)
+fn error_key(error: Error) -> &'static str {
+	match error {
+		Error::Cancelled => "public-upload-error-cancelled",
+		Error::Prepare => "public-upload-error-prepare",
+		Error::Changed => "public-upload-error-changed",
+		Error::Unsupported => "public-upload-limits",
+		Error::Failed => "public-upload-error-failed",
+		Error::Rejected => "public-upload-error-rejected",
+		Error::Incomplete => "public-upload-error-incomplete",
+		Error::ResponseLimit => "public-upload-error-response-limit",
+		Error::Interrupted => "public-upload-error-interrupted",
+		Error::InvalidLink => "public-upload-error-invalid-link",
+		Error::Busy => "public-upload-error-busy",
+		Error::ConversationChanged => "public-upload-error-conversation",
+		Error::SelectionChanged => "public-upload-error-selection",
+		Error::MissingSelection => "public-upload-error-missing",
+	}
 }
 fn append_link(state: &mut State, channel: Id, link: &str) -> bool {
 	let draft = state.drafts.get(&channel).map_or("", String::as_str);
@@ -255,6 +267,52 @@ fn append_link(state: &mut State, channel: Id, link: &str) -> bool {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn typed_public_upload_errors_have_english_and_czech_messages() {
+		use crate::i18n::Language;
+		for error in [
+			Error::Cancelled,
+			Error::Prepare,
+			Error::Changed,
+			Error::Unsupported,
+			Error::Failed,
+			Error::Rejected,
+			Error::Incomplete,
+			Error::ResponseLimit,
+			Error::Interrupted,
+			Error::InvalidLink,
+			Error::Busy,
+			Error::ConversationChanged,
+			Error::SelectionChanged,
+			Error::MissingSelection,
+		] {
+			let key = error_key(error);
+			let english = Language::English.text(key);
+			let czech = Language::Czech.text(key);
+			assert!(!english.starts_with("Unknown localization"), "{error:?}");
+			assert!(!czech.starts_with("Unknown localization"), "{error:?}");
+			assert_ne!(english, czech, "{error:?}");
+		}
+		let ctx = Context::default();
+		let mut state = test_support::demo_state();
+		let mut view = ExternalUpload::default();
+		view.open(
+			state.generation,
+			state.selected.unwrap(),
+			0,
+			None,
+			"synthetic.pdf".into(),
+			1,
+		);
+		view.complete(Err(Error::InvalidLink));
+		let _ = frame(&ctx, &mut view, &mut state, vec![]);
+		let labels = frame(&ctx, &mut view, &mut state, vec![]);
+		assert!(
+			labels
+				.iter()
+				.any(|(label, _)| label == &Language::English.text(error_key(Error::InvalidLink)))
+		);
+	}
 	fn frame(
 		ctx: &Context,
 		view: &mut ExternalUpload,

@@ -2056,6 +2056,9 @@ are public to anyone with the link. No host account, userhash, automatic fallbac
 remote deletion or Litterbox integration is included. Cancellation, failed responses,
 logout and deleting a Discord message cannot remove already received hosted bytes.
 A successful upload removes only that staged file; errors retain its local selection.
+UI consent and transport use the same UI-neutral admission rules. Public-upload
+failures are typed outcomes, translated in English and Czech without displaying
+raw service responses.
 
 [SakuraCord's external-host flow](https://github.com/SakuraCordApp/SakuraCord/blob/main/App/Sources/SakuraCord/Services/ExternalAttachmentUploader.swift)
 was inspected for behavior; this implementation is original and follows the service's

@@ -351,7 +351,7 @@ struct Uploading {
 	cancelling: bool,
 }
 struct ExternalUploading {
-	result: mpsc::Receiver<Result<String, &'static str>>,
+	result: mpsc::Receiver<Result<String, model::public_upload::Error>>,
 	progress: watch::Receiver<Status>,
 	cancel: watch::Sender<bool>,
 	generation: u64,
@@ -360,7 +360,7 @@ struct ExternalUploading {
 #[derive(Default)]
 pub struct Uploads {
 	external: Option<ExternalUploading>,
-	public_result: Option<Result<String, &'static str>>,
+	public_result: Option<Result<String, model::public_upload::Error>>,
 	auto_image: bool,
 	scope: Option<(u64, Id)>,
 	selected: Vec<Chosen>,
@@ -388,26 +388,26 @@ impl Uploads {
 		runtime: &tokio::runtime::Handle,
 		context: &egui::Context,
 		demo: bool,
-	) -> Result<(), &'static str> {
+	) -> Result<(), model::public_upload::Error> {
 		if self.busy() {
-			return Err("Wait for the current attachment operation to finish");
+			return Err(model::public_upload::Error::Busy);
 		}
 		if !demo && self.scope != Some((generation, channel)) {
-			return Err("Return to the original conversation before uploading publicly");
+			return Err(model::public_upload::Error::ConversationChanged);
 		}
 		let chosen = self.selected.get(index);
 		if !demo && (key.is_none() || chosen.map(|chosen| chosen.key) != key) {
-			return Err("Selection changed; review the file again before uploading publicly");
+			return Err(model::public_upload::Error::SelectionChanged);
 		}
 		if chosen.is_some_and(|chosen| {
 			chosen.source.filename() != filename || chosen.source.size() != bytes
 		}) {
-			return Err("Selection changed; review the file again before uploading publicly");
+			return Err(model::public_upload::Error::SelectionChanged);
 		}
 		let key = chosen.map(|chosen| chosen.key);
 		let source = chosen.map(|chosen| chosen.source.clone());
 		if !demo && source.is_none() {
-			return Err("Select the file again before uploading publicly");
+			return Err(model::public_upload::Error::MissingSelection);
 		}
 		let (updates, progress) = watch::channel(Status::Preparing);
 		let (cancel, cancelled) = watch::channel(false);
@@ -419,7 +419,7 @@ impl Uploads {
 			} else if let Some(source) = source {
 				discord_api::upload::external::upload(source, updates, cancelled).await
 			} else {
-				Err("No selected file")
+				Err(model::public_upload::Error::MissingSelection)
 			};
 			let _ = send.send(result);
 			context.request_repaint();
@@ -436,7 +436,7 @@ impl Uploads {
 	pub fn public_selection_key(&self, index: usize) -> Option<u64> {
 		self.selected.get(index).map(|chosen| chosen.key)
 	}
-	pub fn take_public_result(&mut self) -> Option<Result<String, &'static str>> {
+	pub fn take_public_result(&mut self) -> Option<Result<String, model::public_upload::Error>> {
 		self.public_result.take()
 	}
 	pub fn public_progress(&self) -> Option<(u64, u64)> {
@@ -684,9 +684,9 @@ impl Uploads {
 		if let Some(upload) = &self.external {
 			let result = match upload.result.try_recv() {
 				Ok(result) => Some(result),
-				Err(mpsc::TryRecvError::Disconnected) => Some(Err(
-					"Public upload interrupted; received bytes may remain on Catbox",
-				)),
+				Err(mpsc::TryRecvError::Disconnected) => {
+					Some(Err(model::public_upload::Error::Interrupted))
+				}
 				Err(mpsc::TryRecvError::Empty) => None,
 			};
 			if let Some(result) = result {
@@ -1026,7 +1026,8 @@ mod tests {
 		assert!(*requested.borrow());
 		uploads.poll(1, Some(Id(1)), true, &egui::Context::default());
 		assert!(uploads.busy());
-		send.send(Err("Public upload cancelled")).unwrap();
+		send.send(Err(model::public_upload::Error::Cancelled))
+			.unwrap();
 		uploads.poll(1, Some(Id(1)), true, &egui::Context::default());
 		assert!(!uploads.busy());
 		assert!(uploads.selection().is_some());

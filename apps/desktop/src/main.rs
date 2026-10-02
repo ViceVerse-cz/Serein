@@ -6463,7 +6463,7 @@ impl eframe::App for Desktop {
 					|| self.state.selected != Some(channel)
 					|| !self.state.can_send(channel)
 				{
-					Err("Conversation changed; review the file again before uploading publicly")
+					Err(model::public_upload::Error::ConversationChanged)
 				} else {
 					self.uploads.start_external(
 						index,

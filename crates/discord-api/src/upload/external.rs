@@ -3,35 +3,23 @@ use super::{CHANGED, CHUNK_BYTES, Source, Status};
 use std::{io, time::Duration};
 use tokio::{io::AsyncReadExt, sync::watch};
 
-pub const MAX_BYTES: u64 = 200_000_000;
+pub use model::public_upload::{Error, MAX_BYTES, eligible};
 const RESPONSE_BYTES: usize = 4096;
 const ENDPOINT: &str = "https://catbox.moe/user/api.php";
 
-pub fn eligible(filename: &str, bytes: u64) -> bool {
-	let extension = filename
-		.rsplit_once('.')
-		.map_or("", |(_, extension)| extension);
-	let extension = extension.to_ascii_lowercase();
-	bytes > 0
-		&& bytes <= MAX_BYTES
-		&& !matches!(extension.as_str(), "exe" | "scr" | "cpl" | "jar")
-		&& !extension.starts_with("doc")
-		&& !(extension == "gif" && bytes > 20_000_000)
-}
-
-pub fn validated_link(value: &[u8]) -> Result<String, &'static str> {
+pub fn validated_link(value: &[u8]) -> Result<String, Error> {
 	if value.len() > RESPONSE_BYTES {
-		return Err("File host returned an invalid link");
+		return Err(Error::InvalidLink);
 	}
 	let value = std::str::from_utf8(value)
-		.map_err(|_| "File host returned an invalid link")?
+		.map_err(|_| Error::InvalidLink)?
 		.trim();
 	if !value.starts_with("https://files.catbox.moe/")
 		|| value.chars().any(|c| c.is_control() || c.is_whitespace())
 	{
-		return Err("File host returned an invalid link");
+		return Err(Error::InvalidLink);
 	}
-	let url = reqwest::Url::parse(value).map_err(|_| "File host returned an invalid link")?;
+	let url = reqwest::Url::parse(value).map_err(|_| Error::InvalidLink)?;
 	let filename = value
 		.strip_prefix("https://files.catbox.moe/")
 		.unwrap_or_default();
@@ -49,7 +37,7 @@ pub fn validated_link(value: &[u8]) -> Result<String, &'static str> {
 			.all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'-' | b'_'))
 		|| matches!(filename, "." | "..")
 	{
-		return Err("File host returned an invalid link");
+		return Err(Error::InvalidLink);
 	}
 	Ok(url.into())
 }
@@ -59,9 +47,9 @@ pub async fn upload(
 	source: Source,
 	progress: watch::Sender<Status>,
 	mut cancel: watch::Receiver<bool>,
-) -> Result<String, &'static str> {
+) -> Result<String, Error> {
 	if *cancel.borrow() {
-		return Err("Public upload cancelled; received bytes may remain on Catbox");
+		return Err(Error::Cancelled);
 	}
 	let client = reqwest::Client::builder()
 		.https_only(true)
@@ -73,7 +61,7 @@ pub async fn upload(
 		.read_timeout(Duration::from_secs(30))
 		.timeout(Duration::from_secs(300))
 		.build()
-		.map_err(|_| "Could not prepare public upload")?;
+		.map_err(|_| Error::Prepare)?;
 	attempt(&client, ENDPOINT, source, progress, &mut cancel).await
 }
 
@@ -83,10 +71,10 @@ async fn attempt(
 	source: Source,
 	progress: watch::Sender<Status>,
 	cancel: &mut watch::Receiver<bool>,
-) -> Result<String, &'static str> {
+) -> Result<String, Error> {
 	tokio::select! {
 		biased;
-		_ = super::cancelled(cancel) => Err("Public upload cancelled; received bytes may remain on Catbox"),
+		_ = super::cancelled(cancel) => Err(Error::Cancelled),
 		result = transfer(client, endpoint, source, progress) => result,
 	}
 }
@@ -96,24 +84,22 @@ async fn transfer(
 	endpoint: &str,
 	source: Source,
 	progress: watch::Sender<Status>,
-) -> Result<String, &'static str> {
+) -> Result<String, Error> {
 	if !eligible(source.filename(), source.size()) {
-		return Err(
-			"Catbox allows up to 200 MB; executable, DOC and large GIF files are unsupported",
-		);
+		return Err(Error::Unsupported);
 	}
-	source.validate().await.map_err(|_| CHANGED)?;
+	source.validate().await.map_err(|_| Error::Changed)?;
 	let (file, original): (Box<dyn tokio::io::AsyncRead + Send + Unpin>, _) =
 		if let Some(bytes) = &source.bytes {
 			(Box::new(io::Cursor::new(bytes.clone())), None)
 		} else {
 			let file = tokio::fs::File::open(&source.path)
 				.await
-				.map_err(|_| CHANGED)?;
-			if !source.matches(&file.metadata().await.map_err(|_| CHANGED)?) {
-				return Err(CHANGED);
+				.map_err(|_| Error::Changed)?;
+			if !source.matches(&file.metadata().await.map_err(|_| Error::Changed)?) {
+				return Err(Error::Changed);
 			}
-			let original = file.try_clone().await.map_err(|_| CHANGED)?;
+			let original = file.try_clone().await.map_err(|_| Error::Changed)?;
 			(Box::new(file), Some(std::sync::Arc::new(original)))
 		};
 	// Local filenames never form paths or headers without escaping quotes; controls were rejected at selection.
@@ -122,7 +108,7 @@ async fn transfer(
 		std::process::id(),
 		std::time::SystemTime::now()
 			.duration_since(std::time::SystemTime::UNIX_EPOCH)
-			.map_err(|_| "Could not prepare public upload")?
+			.map_err(|_| Error::Prepare)?
 			.as_nanos()
 	);
 	let name = source.filename().replace(['"', '\\'], "_");
@@ -184,39 +170,35 @@ async fn transfer(
 		.body(reqwest::Body::wrap_stream(stream))
 		.send()
 		.await
-		.map_err(|_| "Public upload failed; received bytes may remain on Catbox")?;
+		.map_err(|_| Error::Failed)?;
 	if !response.status().is_success() {
-		return Err("Catbox rejected the upload; no Discord message was sent");
+		return Err(Error::Rejected);
 	}
 	if !completed.load(std::sync::atomic::Ordering::Acquire)
 		|| *progress.borrow() != (Status::Uploading { sent: total, total })
 	{
-		return Err("Public upload incomplete; received bytes may remain on Catbox");
+		return Err(Error::Incomplete);
 	}
 	if response
 		.content_length()
 		.is_some_and(|length| length > RESPONSE_BYTES as u64)
 	{
-		return Err("File host response exceeded its limit");
+		return Err(Error::ResponseLimit);
 	}
 	let mut bytes = Vec::new();
-	while let Some(chunk) = response
-		.chunk()
-		.await
-		.map_err(|_| "File host response interrupted")?
-	{
+	while let Some(chunk) = response.chunk().await.map_err(|_| Error::Interrupted)? {
 		if chunk.len() > RESPONSE_BYTES - bytes.len() {
-			return Err("File host response exceeded its limit");
+			return Err(Error::ResponseLimit);
 		}
 		bytes.extend_from_slice(&chunk);
 	}
 	// Recheck after the response too: an early or delayed server reply must not conceal a
 	// changed source. Writers restoring identical metadata remain outside observable checks.
-	source.validate().await.map_err(|_| CHANGED)?;
+	source.validate().await.map_err(|_| Error::Changed)?;
 	if let Some(original) = original
-		&& !source.matches(&original.metadata().await.map_err(|_| CHANGED)?)
+		&& !source.matches(&original.metadata().await.map_err(|_| Error::Changed)?)
 	{
-		return Err(CHANGED);
+		return Err(Error::Changed);
 	}
 	validated_link(&bytes)
 }
@@ -305,8 +287,8 @@ mod tests {
 			.retry(reqwest::retry::never())
 			.build()
 			.unwrap();
-		let rejected = "Catbox rejected the upload; no Discord message was sent";
-		let exceeded = "File host response exceeded its limit";
+		let rejected = Error::Rejected;
+		let exceeded = Error::ResponseLimit;
 		for (response, expected) in [
 			(
 				"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n".to_owned(),
@@ -377,7 +359,7 @@ mod tests {
 			.await
 			.unwrap()
 			.unwrap();
-		assert!(result.unwrap_err().contains("cancelled"));
+		assert_eq!(result.unwrap_err(), Error::Cancelled);
 		server.await.unwrap();
 	}
 	#[tokio::test]
@@ -403,7 +385,7 @@ mod tests {
 			)
 			.await
 			.unwrap_err(),
-			CHANGED
+			Error::Changed
 		);
 		tokio::fs::remove_file(path).await.unwrap();
 	}
@@ -450,17 +432,17 @@ mod tests {
 		.await;
 		server.await.unwrap();
 		tokio::fs::remove_file(path).await.unwrap();
-		assert_eq!(result.unwrap_err(), CHANGED);
+		assert_eq!(result.unwrap_err(), Error::Changed);
 	}
 	#[tokio::test]
 	async fn already_cancelled_upload_never_contacts_service() {
 		let (progress, _) = watch::channel(Status::Preparing);
 		let (_sender, cancel) = watch::channel(true);
-		assert!(
+		assert_eq!(
 			upload(Source::pasted_png(vec![1]).unwrap(), progress, cancel)
 				.await
-				.unwrap_err()
-				.contains("cancelled")
+				.unwrap_err(),
+			Error::Cancelled
 		);
 	}
 
