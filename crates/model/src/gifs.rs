@@ -12,7 +12,8 @@ pub struct Gif {
 	pub title: String,
 	/// Provider page address; this is the text sent when the GIF is chosen.
 	pub url: String,
-	/// Preview on an allowed media host; only its first frame is displayed.
+	/// Allowed image preview or retained video source.
+	/// Video sources paint a placeholder in the picker; they are never guessed or downloaded.
 	pub preview: String,
 	pub width: u32,
 	pub height: u32,
@@ -34,9 +35,10 @@ impl Gif {
 			&& self.title.len() <= 256
 			&& !self.title.chars().any(char::is_control)
 			&& valid_gif_url(&self.url)
-			&& valid_gif_preview(&self.preview)
+			&& (valid_gif_preview(&self.preview) || valid_gif_video_source(&self.preview))
 			&& (1..=4096).contains(&self.width)
 			&& (1..=4096).contains(&self.height)
+			&& self.bytes() <= 2048
 	}
 }
 
@@ -79,6 +81,22 @@ pub fn valid_gif_preview(url: &str) -> bool {
 		) && [".png", ".gif", ".jpg", ".jpeg", ".webp"]
 			.iter()
 			.any(|extension| url.ends_with(extension)))
+}
+
+/// Retain synchronized video metadata without enabling network preview decoding.
+pub fn valid_gif_video_source(url: &str) -> bool {
+	plain_https_path(
+		url,
+		&[
+			"media.tenor.com",
+			"c.tenor.com",
+			"static.klipy.com",
+			"static1.klipy.com",
+			"static2.klipy.com",
+		],
+	) && [".mp4", ".webm", ".mov"]
+		.iter()
+		.any(|extension| url.ends_with(extension))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -216,5 +234,19 @@ mod tests {
 		let mut foreign = page.clone();
 		foreign.categories[0].preview = Some("https://example.com/x.gif".into());
 		assert!(!foreign.valid());
+	}
+	#[test]
+	fn video_favorite_metadata_is_bounded_and_never_admitted_as_an_image_preview() {
+		let mut favorite = gif("discord-video");
+		favorite.preview = "https://media.tenor.com/synthetic/video.mp4".into();
+		assert!(favorite.valid());
+		assert!(!valid_gif_preview(&favorite.preview));
+		favorite.preview = "https://media.tenor.com.evil.invalid/synthetic/video.mp4".into();
+		assert!(!favorite.valid());
+		favorite.preview.clear();
+		assert!(!favorite.valid());
+		favorite = gif("bounded");
+		favorite.title.reserve(8192);
+		assert!(!favorite.valid());
 	}
 }

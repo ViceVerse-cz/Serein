@@ -3760,6 +3760,10 @@ impl Desktop {
 					result: Ok(test_support::gif_page(query.as_deref())),
 				},
 				Command::CancelGifs => return,
+				Command::GifFavorites { request, .. } => Event::GifFavorites {
+					request,
+					result: Ok(self.state.gifs.favorites.clone()),
+				},
 				Command::CreateGuild { sequence, .. } => Event::GuildCreated {
 					sequence,
 					result: Err(Failure::ProtocolAt("Server creation unavailable offline")),
@@ -6685,6 +6689,9 @@ impl eframe::App for Desktop {
 				self.state.clear_cached_history();
 				self.clear_avatars(&ctx);
 				self.queue_cache(cache::Operation::ClearHistory);
+			}
+			if let Some(command) = self.state.take_gif_favorites_command() {
+				commands.push(command);
 			}
 			for command in commands {
 				self.command(command);

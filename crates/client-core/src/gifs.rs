@@ -1,4 +1,4 @@
-//! Tenor GIF browsing through the service relay plus a bounded local favorites list.
+//! Provider GIF browsing and bounded account favorites with an offline local fallback.
 use crate::{
 	Command, State,
 	auth::{AuthState, Failure},
@@ -37,8 +37,21 @@ pub struct Gifs {
 	pub view: Option<View>,
 	pub request: u64,
 	pub favorites: Vec<Gif>,
-	/// Set when favorites changed locally; the host persists them and clears it.
+	/// Set when displayed favorites changed; the host persists the bounded fallback and clears it.
 	pub favorites_changed: bool,
+	favorites_restored: bool,
+	favorites_edited: bool,
+	pub sync_attempted: bool,
+	pub sync_ready: bool,
+	pub sync_pending: Option<u64>,
+	pub sync_error: Option<&'static str>,
+	sync_loaded: bool,
+	sync_request: u64,
+	sync_command: Option<(Gif, bool)>,
+	sync_remote: Vec<String>,
+	// Until the initial cache arrives, remember removals instead of reintroducing them.
+	sync_removed_before_restore: Vec<String>,
+	sync_restore_ambiguous: bool,
 	cache: VecDeque<CachedPage>,
 	cache_bytes: usize,
 }
@@ -56,6 +69,15 @@ impl Gifs {
 				.and_then(|view| view.page.as_ref())
 				.map_or(0, GifPage::bytes)
 			+ self.cache_bytes
+			+ self.sync_command.as_ref().map_or(0, |(gif, _)| gif.bytes())
+			+ self.sync_remote.capacity() * size_of::<String>()
+			+ self.sync_remote.iter().map(String::capacity).sum::<usize>()
+			+ self.sync_removed_before_restore.capacity() * size_of::<String>()
+			+ self
+				.sync_removed_before_restore
+				.iter()
+				.map(String::capacity)
+				.sum::<usize>()
 	}
 	fn take_cached(&mut self, query: &Option<String>) -> Option<(GifPage, bool)> {
 		let index = self.cache.iter().position(|entry| &entry.query == query)?;
@@ -183,15 +205,104 @@ impl State {
 		}
 	}
 	pub fn is_gif_favorite(&self, gif: &Gif) -> bool {
-		self.gifs.favorites.iter().any(|known| known.id == gif.id)
+		self.gifs.favorites.iter().any(|known| known.url == gif.url)
+	}
+	pub fn request_gif_favorites(&mut self) -> Option<Command> {
+		if !self.can_browse_gifs() || self.gifs.sync_pending.is_some() {
+			return None;
+		}
+		self.gifs.sync_attempted = true;
+		self.gifs.sync_request = self.gifs.sync_request.wrapping_add(1);
+		self.gifs.sync_pending = Some(self.gifs.sync_request);
+		self.gifs.sync_error = None;
+		Some(Command::GifFavorites {
+			request: self.gifs.sync_request,
+			change: None,
+		})
+	}
+	/// One explicit star change, collected by the host after widgets have finished this frame.
+	pub fn take_gif_favorites_command(&mut self) -> Option<Command> {
+		self.gifs
+			.sync_command
+			.take()
+			.map(|change| Command::GifFavorites {
+				request: self.gifs.sync_request,
+				change: Some(change),
+			})
+	}
+	pub fn apply_gif_favorites(&mut self, request: u64, result: Result<Vec<Gif>, Failure>) {
+		if self.gifs.sync_pending != Some(request) {
+			return;
+		}
+		self.gifs.sync_pending = None;
+		self.gifs.sync_command = None;
+		match result {
+			Ok(favorites)
+				if favorites.len() <= MAX_GIF_FAVORITES
+					&& favorites.capacity() * size_of::<Gif>()
+						+ favorites
+							.iter()
+							.map(|gif| gif.bytes() - size_of::<Gif>())
+							.sum::<usize>() <= 192 * 1024
+					&& favorites.iter().all(Gif::valid)
+					&& favorites.iter().enumerate().all(|(i, gif)| {
+						favorites[..i].iter().all(|other| other.url != gif.url)
+					}) =>
+			{
+				let previous_remote = std::mem::replace(
+					&mut self.gifs.sync_remote,
+					favorites.iter().map(|gif| gif.url.clone()).collect(),
+				);
+				if !self.gifs.favorites_restored {
+					for url in &previous_remote {
+						if !self.gifs.sync_remote.contains(url)
+							&& !self.gifs.sync_removed_before_restore.contains(url)
+						{
+							if self.gifs.sync_removed_before_restore.len() == MAX_GIF_FAVORITES {
+								self.gifs.sync_restore_ambiguous = true;
+								break;
+							}
+							self.gifs.sync_removed_before_restore.push(url.clone());
+						}
+					}
+				}
+				let previous = std::mem::replace(&mut self.gifs.favorites, favorites);
+				for gif in previous {
+					if self.gifs.favorites.len() == MAX_GIF_FAVORITES {
+						break;
+					}
+					if !previous_remote.contains(&gif.url)
+						&& !self.gifs.favorites.iter().any(|other| other.url == gif.url)
+					{
+						self.gifs.favorites.push(gif);
+					}
+				}
+				self.gifs.favorites.shrink_to_fit();
+				self.gifs.sync_ready = true;
+				self.gifs.sync_loaded = true;
+				self.gifs.sync_error = None;
+				self.gifs.favorites_changed = true;
+			}
+			Err(failure) if failure.ends_session() && failure != Failure::Capacity => {
+				self.fail(failure)
+			}
+			_ => {
+				self.gifs.sync_ready = false;
+				self.gifs.sync_error = Some("gif-favorites-sync-failed");
+			}
+		}
 	}
 	/// Newest favorite first; the list is bounded and never holds rejected entries.
 	pub fn toggle_gif_favorite(&mut self, gif: &Gif) -> bool {
+		if !gif.valid() || self.gifs.sync_pending.is_some() {
+			return false;
+		}
+		let favorite = !self.is_gif_favorite(gif);
 		if let Some(index) = self
 			.gifs
 			.favorites
 			.iter()
-			.position(|known| known.id == gif.id)
+			.position(|known| known.url == gif.url)
 		{
 			self.gifs.favorites.remove(index);
 		} else if gif.valid() {
@@ -201,17 +312,47 @@ impl State {
 			return false;
 		}
 		self.gifs.favorites_changed = true;
+		self.gifs.favorites_edited = true;
+		if self.gifs.sync_ready && self.can_browse_gifs() {
+			self.gifs.sync_request = self.gifs.sync_request.wrapping_add(1);
+			self.gifs.sync_pending = Some(self.gifs.sync_request);
+			self.gifs.sync_command = Some((gif.clone(), favorite));
+			self.gifs.sync_error = None;
+		}
 		true
 	}
-	/// Saved favorites replace the in-memory list unless the user already changed it.
+	/// A late initial cache read merges with synchronized records, but cannot undo a user's star.
 	pub fn restore_gif_favorites(&mut self, favorites: Vec<Gif>) {
+		let removed = std::mem::take(&mut self.gifs.sync_removed_before_restore);
+		if std::mem::replace(&mut self.gifs.favorites_restored, true) || self.gifs.favorites_edited
+		{
+			return;
+		}
+		if self.gifs.sync_restore_ambiguous {
+			return;
+		}
+		if self.gifs.sync_loaded {
+			let previous_len = self.gifs.favorites.len();
+			for gif in favorites {
+				if self.gifs.favorites.len() == MAX_GIF_FAVORITES {
+					break;
+				}
+				if gif.valid() && !removed.contains(&gif.url) && !self.is_gif_favorite(&gif) {
+					self.gifs.favorites.push(gif);
+				}
+			}
+			self.gifs.favorites.shrink_to_fit();
+			self.gifs.favorites_changed |= self.gifs.favorites.len() != previous_len;
+			return;
+		}
 		if self.gifs.favorites_changed || !self.gifs.favorites.is_empty() {
 			return;
 		}
 		let mut restored: Vec<Gif> = Vec::with_capacity(favorites.len().min(MAX_GIF_FAVORITES));
 		for gif in favorites {
 			if gif.valid()
-				&& !restored.iter().any(|known| known.id == gif.id)
+				&& !removed.contains(&gif.url)
+				&& !restored.iter().any(|known| known.url == gif.url)
 				&& restored.len() < MAX_GIF_FAVORITES
 			{
 				restored.push(gif);
@@ -351,7 +492,7 @@ mod tests {
 		);
 		assert!(state.is_gif_favorite(&gif("f10")));
 		let mut invalid = gif("nope");
-		invalid.preview = "https://media.tenor.com/x/tenor.mp4".into();
+		invalid.preview = "https://untrusted.example/x/tenor.mp4".into();
 		assert!(!state.toggle_gif_favorite(&invalid));
 		state.restore_gif_favorites(vec![gif("late")]);
 		assert!(!state.is_gif_favorite(&gif("late")));
@@ -363,5 +504,180 @@ mod tests {
 			gateway_connected: true,
 			..State::default()
 		}
+	}
+	#[test]
+	fn late_cache_restoration_keeps_remote_favorites_and_cannot_undo_explicit_stars() {
+		let local = gif("local");
+		let remote = gif("remote");
+		let mut state = test_state();
+		let Some(Command::GifFavorites { request, .. }) = state.request_gif_favorites() else {
+			panic!("load");
+		};
+		state.apply_gif_favorites(request, Ok(vec![remote.clone()]));
+		std::mem::take(&mut state.gifs.favorites_changed);
+		state.restore_gif_favorites(vec![local.clone(), remote.clone()]);
+		assert!(state.is_gif_favorite(&local) && state.is_gif_favorite(&remote));
+		assert_eq!(state.gifs.favorites.len(), 2);
+		assert!(state.gifs.favorites_changed);
+		assert!(state.take_gif_favorites_command().is_none());
+
+		let mut state = test_state();
+		let Some(Command::GifFavorites { request, .. }) = state.request_gif_favorites() else {
+			panic!("load");
+		};
+		state.apply_gif_favorites(request, Ok(vec![remote.clone()]));
+		let Some(Command::GifFavorites { request, .. }) = state.request_gif_favorites() else {
+			panic!("failed refresh with retained remote");
+		};
+		state.apply_gif_favorites(request, Err(Failure::Network));
+		state.restore_gif_favorites(vec![local.clone()]);
+		assert!(state.is_gif_favorite(&local) && state.is_gif_favorite(&remote));
+		assert!(
+			!state.gifs.sync_ready,
+			"late fallback never reenables server writes"
+		);
+
+		for fail_later_refresh in [false, true] {
+			let mut state = test_state();
+			let Some(Command::GifFavorites { request, .. }) = state.request_gif_favorites() else {
+				panic!("load");
+			};
+			state.apply_gif_favorites(request, Ok(vec![remote.clone()]));
+			let Some(Command::GifFavorites { request, .. }) = state.request_gif_favorites() else {
+				panic!("refresh before initial cache");
+			};
+			state.apply_gif_favorites(request, Ok(vec![]));
+			if fail_later_refresh {
+				let Some(Command::GifFavorites { request, .. }) = state.request_gif_favorites()
+				else {
+					panic!("failed refresh");
+				};
+				state.apply_gif_favorites(request, Err(Failure::Network));
+				std::mem::take(&mut state.gifs.favorites_changed);
+			}
+			state.restore_gif_favorites(vec![remote.clone(), local.clone()]);
+			assert!(
+				!state.is_gif_favorite(&remote),
+				"late cache cannot undo an observed remote removal"
+			);
+			assert!(state.is_gif_favorite(&local));
+		}
+
+		let mut state = test_state();
+		assert!(state.toggle_gif_favorite(&local));
+		assert!(state.toggle_gif_favorite(&local));
+		std::mem::take(&mut state.gifs.favorites_changed);
+		state.restore_gif_favorites(vec![local]);
+		assert!(
+			state.gifs.favorites.is_empty(),
+			"late cache cannot re-add a removed star"
+		);
+	}
+	#[test]
+	fn pre_cache_removal_history_is_bounded_and_overflow_cannot_restore_stale_records() {
+		let mut state = test_state();
+		for batch in 0..3 {
+			let Some(Command::GifFavorites { request, .. }) = state.request_gif_favorites() else {
+				panic!("load");
+			};
+			state.apply_gif_favorites(
+				request,
+				Ok((0..50).map(|i| gif(&format!("batch{batch}-{i}"))).collect()),
+			);
+			let Some(Command::GifFavorites { request, .. }) = state.request_gif_favorites() else {
+				panic!("remove batch");
+			};
+			state.apply_gif_favorites(request, Ok(vec![]));
+		}
+		assert_eq!(
+			state.gifs.sync_removed_before_restore.len(),
+			MAX_GIF_FAVORITES
+		);
+		assert!(state.gifs.sync_restore_ambiguous);
+		assert!(state.gifs.bytes() < 64 * 1024);
+		state.restore_gif_favorites(vec![gif("batch2-0"), gif("local")]);
+		assert!(state.gifs.favorites.is_empty());
+		assert!(state.gifs.sync_removed_before_restore.is_empty());
+	}
+	#[test]
+	fn synchronized_favorites_keep_local_fallback_drop_remote_removals_and_match_live_requests() {
+		let mut state = test_state();
+		let local = gif("local");
+		let remote = gif("remote");
+		let added = gif("added");
+		state.restore_gif_favorites(vec![local.clone()]);
+		let Some(Command::GifFavorites {
+			request,
+			change: None,
+		}) = state.request_gif_favorites()
+		else {
+			panic!("load");
+		};
+		assert!(state.request_gif_favorites().is_none());
+		assert!(!state.toggle_gif_favorite(&added));
+		state.apply_gif_favorites(request.wrapping_sub(1), Err(Failure::Expired));
+		assert_eq!(state.auth, AuthState::Authenticated);
+		assert_eq!(state.gifs.sync_pending, Some(request));
+		state.apply_gif_favorites(request, Ok(vec![remote.clone()]));
+		assert!(state.is_gif_favorite(&local) && state.is_gif_favorite(&remote));
+		assert!(
+			state.take_gif_favorites_command().is_none(),
+			"local fallback is never uploaded implicitly"
+		);
+		let mut same_url = remote.clone();
+		same_url.id = "different-provider-id".into();
+		assert!(state.is_gif_favorite(&same_url));
+		assert!(state.toggle_gif_favorite(&added));
+		let Some(Command::GifFavorites {
+			request,
+			change: Some((target, true)),
+		}) = state.take_gif_favorites_command()
+		else {
+			panic!("explicit star");
+		};
+		assert_eq!(target.url, added.url);
+		assert!(state.take_gif_favorites_command().is_none());
+		assert!(!state.toggle_gif_favorite(&remote));
+		state.apply_gif_favorites(request, Ok(vec![added.clone(), remote.clone()]));
+		let Some(Command::GifFavorites { request, .. }) = state.request_gif_favorites() else {
+			panic!("refresh");
+		};
+		state.apply_gif_favorites(request, Ok(vec![added]));
+		assert!(!state.is_gif_favorite(&remote));
+		assert!(state.is_gif_favorite(&local));
+		assert!(state.gifs.bytes() <= 256 * 1024);
+	}
+	#[test]
+	fn failed_favorite_sync_retains_local_state_and_requires_explicit_refresh_before_more_writes() {
+		let mut state = test_state();
+		let local = gif("local");
+		state.restore_gif_favorites(vec![local.clone()]);
+		let Some(Command::GifFavorites { request, .. }) = state.request_gif_favorites() else {
+			panic!("load");
+		};
+		state.apply_gif_favorites(request, Ok(vec![]));
+		assert!(state.toggle_gif_favorite(&gif("new")));
+		let command = state.take_gif_favorites_command().unwrap();
+		state.command_rejected(command);
+		assert!(state.is_gif_favorite(&local) && state.is_gif_favorite(&gif("new")));
+		assert_eq!(state.auth, AuthState::Authenticated);
+		assert!(!state.gifs.sync_ready);
+		assert!(state.gifs.sync_error.is_some() && state.gifs.sync_pending.is_none());
+		assert!(state.toggle_gif_favorite(&gif("offline")));
+		assert!(state.take_gif_favorites_command().is_none());
+		assert!(state.gifs.sync_attempted, "no automatic read/write retry");
+		let Some(Command::GifFavorites { request, .. }) = state.request_gif_favorites() else {
+			panic!("explicit refresh");
+		};
+		state.apply_gif_favorites(
+			request,
+			Ok((0..=MAX_GIF_FAVORITES)
+				.map(|i| gif(&i.to_string()))
+				.collect()),
+		);
+		assert!(!state.gifs.sync_ready);
+		assert_eq!(state.auth, AuthState::Authenticated);
+		state.logout();
+		assert!(state.gifs.favorites.is_empty() && state.gifs.sync_remote.is_empty());
 	}
 }
