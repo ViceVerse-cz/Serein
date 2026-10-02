@@ -25,6 +25,10 @@ mod channel_permissions;
 mod channel_welcome_tests;
 mod components;
 mod composer_text;
+#[cfg(all(debug_assertions, feature = "demo"))]
+mod recovery_demo;
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub use recovery_demo::check as debug_resume_send_check;
 pub mod design;
 mod embeds;
 mod extension_account_actions;
@@ -1206,9 +1210,16 @@ impl MessagingUi {
 								));
 						}
 						if !state.demo
-							&& state.auth != client_core::auth::AuthState::Authenticated
+							&& (state.auth != client_core::auth::AuthState::Authenticated
+								|| !state.gateway_connected)
 							&& ui
-								.small_button(crate::i18n::translate("lib-title-bar-sign-in-again"))
+								.small_button(crate::i18n::translate(
+									if state.auth == client_core::auth::AuthState::Authenticated {
+										"reconnect-now"
+									} else {
+										"lib-title-bar-sign-in-again"
+									},
+								))
 								.clicked()
 						{
 							self.reconnect_requested = true;
@@ -2201,14 +2212,17 @@ impl MessagingUi {
 							}
 							let reload = ui
 								.add_enabled_ui(
-									state.selected.is_some_and(|id| {
-										if state.is_forum(id) {
-											state.can_load_posts(id) && !state.posts.loading
-										} else {
-											state.freshness != Freshness::Loading
-												&& state.can_read_history(id)
-										}
-									}),
+									(state.auth == client_core::auth::AuthState::Authenticated
+										&& !state.gateway_connected) || state.selected.is_some_and(
+										|id| {
+											if state.is_forum(id) {
+												state.can_load_posts(id) && !state.posts.loading
+											} else {
+												state.freshness != Freshness::Loading
+													&& state.can_read_history(id)
+											}
+										},
+									),
 									|ui| {
 										icons::button(
 											ui,
@@ -2220,8 +2234,14 @@ impl MessagingUi {
 								)
 								.inner;
 							if reload.clicked() {
-								commands.push(state.history(None));
-								self.timeline.follow_latest(state);
+								if !state.gateway_connected
+									&& state.auth == client_core::auth::AuthState::Authenticated
+								{
+									self.reconnect_requested = true;
+								} else {
+									commands.push(state.history(None));
+									self.timeline.follow_latest(state);
+								}
 							}
 						}
 						if let Some(channel) = state.selected.filter(|_| {
@@ -3329,6 +3349,8 @@ impl MessagingUi {
                     ui.weak(crate::i18n::translate("lib-ime-updates-text-sending-messages-is-unavailable-in-this-conversation-your-draft-is"));
                 } else if self.attachment.is_some() && !state.can_attach(channel) {
                     ui.weak(crate::i18n::translate("lib-ime-updates-text-attaching-files-is-unavailable-here-remove-the-attachment-to-send"));
+                } else if !state.gateway_connected && state.auth == client_core::auth::AuthState::Authenticated {
+                    ui.weak(crate::i18n::translate("connection-recovering-send"));
                 }
             });
 		if editing_here {

@@ -4368,3 +4368,6 @@ lib-composer-onboarding-rules-pending = Accept this server's rules to start chat
 lib-composer-onboarding-incomplete = Finish joining this server to unlock more channels.
 # Context: composer
 lib-composer-onboarding-complete = Complete Onboarding
+
+reconnect-now = Reconnect now
+connection-recovering-send = Reconnecting to Discord. You can still try sending messages; delivery may fail until the network recovers.

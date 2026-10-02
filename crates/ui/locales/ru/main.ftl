@@ -4355,3 +4355,6 @@ lib-composer-onboarding-rules-pending = Примите правила серве
 lib-composer-onboarding-incomplete = Завершите вступление, чтобы открыть больше каналов.
 # Context: composer
 lib-composer-onboarding-complete = Завершить знакомство
+
+reconnect-now = Переподключиться
+connection-recovering-send = Переподключение к Discord. Вы можете попробовать отправить сообщения; доставка может не работать до восстановления сети.

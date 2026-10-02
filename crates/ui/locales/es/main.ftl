@@ -4351,3 +4351,6 @@ lib-composer-onboarding-rules-pending = Acepta las reglas de este servidor para 
 lib-composer-onboarding-incomplete = Termina de unirte a este servidor para desbloquear más canales.
 # Context: composer
 lib-composer-onboarding-complete = Completar bienvenida
+
+reconnect-now = Reconectar ahora
+connection-recovering-send = Reconectando a Discord. Puedes intentar enviar mensajes; la entrega puede fallar hasta que se recupere la red.

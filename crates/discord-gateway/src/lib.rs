@@ -25,7 +25,7 @@ use std::{
 	time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
-	sync::{mpsc, watch},
+	sync::{Notify, mpsc, watch},
 	time::{Instant, interval_at, sleep, timeout},
 };
 use tokio_tungstenite::{
@@ -168,6 +168,76 @@ fn next_attempt(attempt: u32, ready_for: Option<Duration>) -> u32 {
 	} else {
 		attempt.saturating_add(1).min(6)
 	}
+}
+async fn recovery_signal(reconnect: Option<&Notify>) {
+	match reconnect {
+		Some(reconnect) => reconnect.notified().await,
+		None => std::future::pending().await,
+	}
+}
+/// Recovery cancels reads and delays, never a potentially accepted socket write.
+async fn recoverable_wait<T>(
+	operation: impl std::future::Future<Output = T>,
+	reconnect: Option<&Notify>,
+) -> Option<T> {
+	tokio::select! {
+		biased;
+		() = recovery_signal(reconnect) => None,
+		result = operation => Some(result),
+	}
+}
+/// Exercises recovery without a socket, account, or network request.
+#[cfg(debug_assertions)]
+pub fn debug_recovery_check() {
+	let runtime = tokio::runtime::Builder::new_current_thread()
+		.enable_time()
+		.build()
+		.unwrap();
+	runtime.block_on(async {
+		let reconnect = Arc::new(Notify::new());
+		for _ in 0..8 {
+			reconnect.notify_one();
+		}
+		assert!(
+			timeout(
+				Duration::from_secs(1),
+				recoverable_wait(sleep(Duration::from_secs(30)), Some(&reconnect)),
+			)
+			.await
+			.unwrap()
+			.is_none()
+		);
+		// All queued requests coalesce to one recovery, without a closed-channel spin.
+		assert_eq!(
+			recoverable_wait(async { 42 }, Some(&reconnect)).await,
+			Some(42)
+		);
+		let wake = reconnect.clone();
+		let sender = tokio::spawn(async move {
+			tokio::task::yield_now().await;
+			wake.notify_one();
+		});
+		assert!(
+			timeout(
+				Duration::from_secs(1),
+				recoverable_wait(std::future::pending::<()>(), Some(&reconnect)),
+			)
+			.await
+			.unwrap()
+			.is_none()
+		);
+		sender.await.unwrap();
+		reconnect.notify_one();
+		// Initial authentication keeps its bounded attempt limit and cannot be cancelled.
+		assert_eq!(recoverable_wait(async { 42 }, None).await, Some(42));
+		assert!(
+			recoverable_wait(std::future::pending::<()>(), Some(&reconnect))
+				.await
+				.is_none()
+		);
+		assert_eq!(next_attempt(5, None), 6);
+		assert_eq!(next_attempt(5, Some(Duration::from_secs(60))), 1);
+	});
 }
 fn jitter_ms(max: u64) -> u64 {
 	SystemTime::now()
@@ -959,6 +1029,43 @@ pub async fn run_with_activity(
 	)
 	.await
 }
+/// Runs the gateway with immediate recovery of an established session. The notification
+/// stores one pending request and preserves RESUME; writes and voice joins are never replayed.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+pub async fn run_with_activity_recovery(
+	secret: Arc<SessionSecret>,
+	initial_url: String,
+	subscriptions: watch::Receiver<Option<MemberSubscription>>,
+	controls: mpsc::Receiver<client_core::voice::Command>,
+	reconnect: Arc<Notify>,
+	activity: (
+		watch::Receiver<Option<discord_protocol::rpc::Activity>>,
+		watch::Receiver<model::OwnPresence>,
+		watch::Receiver<[Option<client_core::member_search::Request>; 2]>,
+		watch::Receiver<Option<discord_protocol::spotify::Activity>>,
+	),
+	observe: impl Fn(ActivityObservation) -> Result<(), Failure> + Sync,
+	emit: impl Fn(Event) -> Result<(), Failure>,
+) -> Result<(), Failure> {
+	run_recoverable(
+		secret,
+		initial_url,
+		subscriptions,
+		controls,
+		Some(ActivityInput {
+			receiver: activity.0,
+			own_presence: activity.1,
+			member_queries: activity.2,
+			spotify: activity.3,
+			observe: &observe,
+		}),
+		Some(&reconnect),
+		emit,
+		#[cfg(test)]
+		None,
+	)
+	.await
+}
 struct ActivityInput<'a> {
 	spotify: watch::Receiver<Option<discord_protocol::spotify::Activity>>,
 	member_queries: watch::Receiver<[Option<client_core::member_search::Request>; 2]>,
@@ -969,9 +1076,33 @@ struct ActivityInput<'a> {
 async fn run_inner(
 	secret: Arc<SessionSecret>,
 	initial_url: String,
+	subscriptions: watch::Receiver<Option<MemberSubscription>>,
+	voice_controls: mpsc::Receiver<client_core::voice::Command>,
+	activity: Option<ActivityInput<'_>>,
+	emit: impl Fn(Event) -> Result<(), Failure>,
+	#[cfg(test)] test_endpoint: Option<&str>,
+) -> Result<(), Failure> {
+	run_recoverable(
+		secret,
+		initial_url,
+		subscriptions,
+		voice_controls,
+		activity,
+		None,
+		emit,
+		#[cfg(test)]
+		test_endpoint,
+	)
+	.await
+}
+#[allow(clippy::too_many_arguments)]
+async fn run_recoverable(
+	secret: Arc<SessionSecret>,
+	initial_url: String,
 	mut subscriptions: watch::Receiver<Option<MemberSubscription>>,
 	mut voice_controls: mpsc::Receiver<client_core::voice::Command>,
 	activity: Option<ActivityInput<'_>>,
+	reconnect: Option<&Notify>,
 	emit: impl Fn(Event) -> Result<(), Failure>,
 	#[cfg(test)] test_endpoint: Option<&str>,
 ) -> Result<(), Failure> {
@@ -1018,16 +1149,22 @@ async fn run_inner(
 	let mut inbox = channel_events::Inbox::default();
 	let mut known_guilds = std::collections::BTreeSet::new();
 	let mut voice_open = true;
+	let mut skip_backoff = false;
 	// Initial login is bounded, but an established session must survive long outages.
 	while was_ready || attempt < 6 {
 		if attempt > 0 {
 			calls.disconnected();
 			while voice_controls.try_recv().is_ok() {}
 			emit(Event::Disconnected)?;
-			sleep(Duration::from_millis(
-				(1000_u64 << attempt.min(5)) + jitter_ms(1000),
-			))
-			.await;
+			if !std::mem::take(&mut skip_backoff) {
+				let _ = recoverable_wait(
+					sleep(Duration::from_millis(
+						(1000_u64 << attempt.min(5)) + jitter_ms(1000),
+					)),
+					if was_ready { reconnect } else { None },
+				)
+				.await;
+			}
 		}
 		let url = state.url.as_deref().unwrap_or(&initial_url);
 		// Compiled out of shipped builds. Tests replace only dialing, never URL validation.
@@ -1038,29 +1175,43 @@ async fn run_inner(
 			.max_frame_size(Some(MAX_GATEWAY_WIRE))
 			.write_buffer_size(0)
 			.max_write_buffer_size(64 * 1024);
-		let connection = timeout(
-			Duration::from_secs(15),
-			connect_async_with_config(url, Some(config), false),
+		let Some(connection) = recoverable_wait(
+			timeout(
+				Duration::from_secs(15),
+				connect_async_with_config(url, Some(config), false),
+			),
+			if was_ready { reconnect } else { None },
 		)
-		.await;
+		.await
+		else {
+			skip_backoff = true;
+			continue;
+		};
 		let Ok(Ok((mut socket, _))) = connection else {
 			attempt = next_attempt(attempt, None);
 			continue;
 		};
 		let mut compression = compression::Decoder::default();
-		let hello = timeout(Duration::from_secs(10), async {
-			while let Some(frame) = socket.next().await {
-				let frame = frame.map_err(socket_failure)?;
-				if let Some(frame) = compression.frame(frame)? {
-					match frame {
-						Frame::Ping(_) | Frame::Pong(_) => continue,
-						frame => return Ok(frame),
+		let Some(hello) = recoverable_wait(
+			timeout(Duration::from_secs(10), async {
+				while let Some(frame) = socket.next().await {
+					let frame = frame.map_err(socket_failure)?;
+					if let Some(frame) = compression.frame(frame)? {
+						match frame {
+							Frame::Ping(_) | Frame::Pong(_) => continue,
+							frame => return Ok(frame),
+						}
 					}
 				}
-			}
-			Err(Failure::Network)
-		})
-		.await;
+				Err(Failure::Network)
+			}),
+			if was_ready { reconnect } else { None },
+		)
+		.await
+		else {
+			skip_backoff = true;
+			continue;
+		};
 		if let Ok(Err(failure)) = hello
 			&& failure.ends_session()
 		{
@@ -1212,6 +1363,10 @@ async fn run_inner(
 				None
 			};
 			tokio::select! {
+				() = recovery_signal(reconnect), if was_ready => {
+					skip_backoff = true;
+					break;
+				}
 				changed = own_presence.changed(), if presence_open => {
 					presence_open = changed.is_ok();
 					outgoing_activity.update_presence(&own_presence.borrow_and_update())?;

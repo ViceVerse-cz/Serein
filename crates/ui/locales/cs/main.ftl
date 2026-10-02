@@ -4370,3 +4370,6 @@ lib-composer-onboarding-rules-pending = Přijmi pravidla tohoto serveru, abys mo
 lib-composer-onboarding-incomplete = Dokonči připojení k serveru a odemkni další kanály.
 # Context: composer
 lib-composer-onboarding-complete = Dokončit uvítání
+
+reconnect-now = Znovu připojit
+connection-recovering-send = Probíhá opětovné připojování k Discordu. Zprávy můžete zkusit odeslat; do obnovení sítě může doručení selhat.

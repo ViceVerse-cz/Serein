@@ -659,9 +659,10 @@ impl State {
 	pub fn can_read_history(&self, channel: Id) -> bool {
 		self.permission(channel, p::VIEW_CHANNEL | p::READ_MESSAGE_HISTORY) == Some(true)
 	}
+	/// An explicit REST send can proceed during a transient Gateway outage. Discord
+	/// remains authoritative over the last known channel permissions.
 	pub fn can_send(&self, channel: Id) -> bool {
 		self.auth == AuthState::Authenticated
-			&& self.gateway_connected
 			&& self.selected == Some(channel)
 			&& self.freshness != Freshness::Unavailable
 			&& self.can_compose(channel)
@@ -684,7 +685,9 @@ impl State {
 	}
 
 	pub fn can_attach(&self, channel: Id) -> bool {
-		self.can_send(channel) && self.permission(channel, p::ATTACH_FILES) == Some(true)
+		self.gateway_connected
+			&& self.can_send(channel)
+			&& self.permission(channel, p::ATTACH_FILES) == Some(true)
 	}
 	pub fn can_speak(&self, channel: Id) -> bool {
 		self.permission(channel, p::VIEW_CHANNEL | p::CONNECT | p::SPEAK) == Some(true)

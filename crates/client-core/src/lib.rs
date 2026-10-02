@@ -3201,8 +3201,12 @@ impl State {
 						self.status = "No messages returned after this boundary; use Jump to present to reload";
 					}
 				}
-				if r.is_ok() && self.gateway_connected {
-					self.freshness = Freshness::Fresh;
+				if r.is_ok() {
+					self.freshness = if self.gateway_connected {
+						Freshness::Fresh
+					} else {
+						Freshness::Stale
+					};
 				}
 				r
 			}

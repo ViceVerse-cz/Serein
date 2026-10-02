@@ -4340,3 +4340,6 @@ lib-composer-onboarding-rules-pending = チャットを始めるには、この�
 lib-composer-onboarding-incomplete = 参加を完了すると、さらにチャンネルが開放されます。
 # Context: composer
 lib-composer-onboarding-complete = オンボーディングを完了
+
+reconnect-now = 今すぐ再接続
+connection-recovering-send = Discord に再接続しています。メッセージの送信は試せますが、ネットワークが復旧するまで配信に失敗する場合があります。
