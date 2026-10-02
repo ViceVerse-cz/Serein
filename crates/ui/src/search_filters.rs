@@ -241,8 +241,9 @@ fn user_id(value: &str, state: &State, labels: &Labels) -> Option<Id> {
 
 fn channel_id(value: &str, state: &State, labels: &Labels) -> Option<Id> {
 	let value = value.strip_prefix('#').unwrap_or(value);
-	numeric(value)
-		.or_else(|| labels.id("channel", value))
+	labels
+		.id("channel", value)
+		.or_else(|| numeric(value))
 		.or_else(|| {
 			let value = value.to_lowercase();
 			channels(state)

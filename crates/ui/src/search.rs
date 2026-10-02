@@ -288,11 +288,15 @@ impl SearchUi {
 		Ok(query)
 	}
 	fn submit(&mut self, state: &mut State, commands: &mut Vec<Command>) {
+		let trailing_separator = self.query.ends_with(char::is_whitespace);
 		if let Ok(query) = self.wire(state)
 			&& let Some(command) = state.request_search(query.clone(), None)
 		{
 			commands.push(command);
 			self.query = filters::display(&query, state, &mut self.labels);
+			if trailing_separator {
+				self.query.push(' ');
+			}
 			self.filters_open = false;
 		}
 	}
@@ -1950,6 +1954,50 @@ mod tests {
 		view.focus_conversation(channel, &state);
 		assert_eq!(view.query, query);
 		assert_eq!(state.search.as_ref().unwrap().request, request);
+	}
+
+	#[test]
+	fn numeric_channel_prefill_keeps_its_target_and_separator_after_submission() {
+		let mut state = test_support::demo_state();
+		let entry = state
+			.channels
+			.iter_mut()
+			.find(|entry| entry.guild.is_some() && entry.supports_text())
+			.unwrap();
+		entry.name = "123".into();
+		let channel = entry.id;
+		assert_ne!(channel, Id(123));
+		state.selected = Some(channel);
+		let mut view = SearchUi::default();
+		view.focus_conversation(channel, &state);
+		assert_eq!(view.query, "in:123 ");
+		assert_eq!(view.wire(&state).unwrap(), format!("in:{channel}"));
+		let mut commands = Vec::new();
+		view.submit(&mut state, &mut commands);
+		assert!(
+			matches!(&commands[..], [Command::Search { query, .. }] if query == &format!("in:{channel}"))
+		);
+		let request = state.search.as_ref().unwrap().request;
+		view.focus_conversation(channel, &state);
+		assert_eq!(state.search.as_ref().unwrap().request, request);
+		let ctx = egui::Context::default();
+		for events in [vec![], vec![egui::Event::Text("weather".into())]] {
+			ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(800.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| view.header_input(ui, &mut state, &mut commands),
+			)
+			.drop_without_applying_deltas();
+		}
+		assert_eq!(view.query, "in:123 weather");
+		assert_eq!(view.wire(&state).unwrap(), format!("in:{channel} weather"));
 	}
 
 	#[test]
