@@ -255,7 +255,7 @@ impl Connection {
                 let mut sticker_detail:Option<AbortTask>=None;
                 let mut reaction_read:Option<AbortTask>=None;
                 let mut ringing:Option<AbortTask>=None;
-                let mut recipient_ringing:Option<AbortTask>=None;
+                let mut recipient_ringing:Option<(client_core::voice::Command,AbortTask)>=None;
                 let mut upload:Option<AbortTask>=None;
                 let mut upload_cancel:Option<watch::Sender<bool>>=None;
                 let mut voice_request=None;
@@ -268,7 +268,9 @@ impl Connection {
                         changed=recipient_scope_changed.changed()=> {
                             if changed.is_err() {break;}
                             recipient_scope_changed.borrow_and_update();
-                            drop(recipient_ringing.take());
+                            let channels=dm_channels.lock().map_err(|_|Failure::Protocol)?;
+                            let calls=recipient_call.lock().map_err(|_|Failure::Protocol)?;
+                            if recipient_ringing.as_ref().is_some_and(|(control,_)| !recipient_write_allowed(*control,&calls,&channels)) {drop(recipient_ringing.take());}
                         }
                         permit=voice_send.reserve(), if pending_abandonment.is_some()=> {
                             if let Ok(permit)=permit {
@@ -442,12 +444,12 @@ impl Connection {
                                 use client_core::voice::Event as E;
                                 let (channel,request,recipient,stop)=(*channel,*request,*recipient,*stop);
                                 // Consume prior invalidations before starting a write for the current revision.
-                                let recipient_revision=*recipient_scope_changed.borrow_and_update();
+                                recipient_scope_changed.borrow_and_update();
                                 let eligible=recipient_action(channel,request,recipient,user.id,voice_request,dm_channels.lock().map_err(|_|Failure::Protocol)?.get(&channel).map(Vec::as_slice))
                                     && recipient_call.lock().map_err(|_|Failure::Protocol)?.as_ref().is_some_and(|call|call.allows(channel,request,recipient,stop));
                                 let message=if !*voice_availability.borrow() {Some("Recipient ringing unavailable while disconnected")}
                                     else if !eligible {Some("Recipient ringing expired; no request was sent")}
-                                    else if recipient_ringing.as_ref().is_some_and(|job|!job.0.is_finished()) {Some("Recipient ringing is already pending; wait for the result")}
+                                    else if recipient_ringing.as_ref().is_some_and(|(_,job)|!job.0.is_finished()) {Some("Recipient ringing is already pending; wait for the result")}
                                     else {None};
                                 if let Some(message)=message {emit(Event::Voice(E::RingFailed{channel,request,message}))?;continue;}
                                 drop(recipient_ringing.take());
@@ -455,11 +457,13 @@ impl Connection {
                                 let takeover=takeover_receive.clone();
                                 let members=recipient_scope_changed.clone();
                                 let available=voice_availability.clone();
-                                recipient_ringing=Some(AbortTask(tokio::spawn(async move {
+                                let call_metadata=recipient_call.clone();let call_members=dm_channels.clone();
+                                let control=client_core::voice::Command::RingRecipient{channel,request,recipient,stop};
+                                recipient_ringing=Some((control,AbortTask(tokio::spawn(async move {
                                     let result=tokio::select! {
                                         biased;
                                         _=wait_for_takeover(takeover,(channel,request))=>return,
-                                        _=wait_for_recipient_invalidation(members,recipient_revision,available)=>return,
+                                        _=wait_for_recipient_invalidation(members,available,control,call_metadata,call_members)=>return,
                                         result=api.ring_call(channel,Some(recipient),stop)=>result,
                                     };
                                     if let Err(failure)=result {
@@ -467,7 +471,7 @@ impl Connection {
                                         if failure.ends_session(){api.stop();let _=finished.send(Some(failure));}
                                     }
                                     ring_wake.request_repaint();
-                                })));
+                                }))));
                                 continue;
                             }
 							if let Command::Voice(control)=command {
@@ -1297,16 +1301,48 @@ fn recipient_action(
 		})
 }
 
-// Membership and connection changes cancel before the HTTP future is polled.
+fn recipient_write_allowed(
+	control: client_core::voice::Command,
+	calls: &RecipientCalls,
+	channels: &BTreeMap<model::Id, Vec<model::Id>>,
+) -> bool {
+	let client_core::voice::Command::RingRecipient {
+		channel,
+		request,
+		recipient,
+		stop,
+	} = control
+	else {
+		return false;
+	};
+	channels.get(&channel).is_some_and(|ids| {
+		ids.len() < client_core::voice::MAX_PARTICIPANTS && ids.contains(&recipient)
+	}) && calls
+		.as_ref()
+		.is_some_and(|call| call.allows(channel, request, recipient, stop))
+}
+
+// Recheck the exact target on revisions; unrelated peer controls do not cancel HTTP.
 async fn wait_for_recipient_invalidation(
 	mut members: watch::Receiver<u64>,
-	revision: u64,
 	mut available: watch::Receiver<bool>,
+	control: client_core::voice::Command,
+	calls: Arc<Mutex<RecipientCalls>>,
+	channels: Arc<Mutex<BTreeMap<model::Id, Vec<model::Id>>>>,
 ) {
 	loop {
-		let changed = *members.borrow_and_update() != revision;
+		members.borrow_and_update();
 		let online = *available.borrow_and_update();
-		if changed || !online {
+		let allowed = {
+			let Ok(channels) = channels.lock() else {
+				return;
+			};
+			let Ok(calls) = calls.lock() else {
+				return;
+			};
+			recipient_write_allowed(control, &calls, &channels)
+		};
+		if !allowed || !online {
 			return;
 		}
 		tokio::select! {
@@ -2571,13 +2607,19 @@ mod tests {
 				unavailable: false,
 			})
 		};
-		let mut calls = RecipientCalls::default();
-		calls.observe(&call(first, vec![]), owner, &channels);
-		calls.observe(&call(second, vec![other]), owner, &channels);
-		assert_eq!(calls.observed.len(), 2);
-		assert!(calls.active.is_none());
-		calls.join(first, 7, true);
-		calls.observe(
+		let calls = Arc::new(Mutex::new(RecipientCalls::default()));
+		calls
+			.lock()
+			.unwrap()
+			.observe(&call(first, vec![]), owner, &channels);
+		calls
+			.lock()
+			.unwrap()
+			.observe(&call(second, vec![other]), owner, &channels);
+		assert_eq!(calls.lock().unwrap().observed.len(), 2);
+		assert!(calls.lock().unwrap().active.is_none());
+		calls.lock().unwrap().join(first, 7, true);
+		calls.lock().unwrap().observe(
 			&Event::Voice(V::SessionConfirmed {
 				channel: first,
 				request: 7,
@@ -2586,10 +2628,29 @@ mod tests {
 			owner,
 			&channels,
 		);
-		assert!(calls.as_ref().unwrap().allows(first, 7, recipient, false));
+		assert!(
+			calls
+				.lock()
+				.unwrap()
+				.as_ref()
+				.unwrap()
+				.allows(first, 7, recipient, false)
+		);
 		let (changes, updates) = watch::channel(0u64);
 		let (_online_send, online) = watch::channel(true);
-		let cancelled = wait_for_recipient_invalidation(updates, 0, online);
+		let control = client_core::voice::Command::RingRecipient {
+			channel: first,
+			request: 7,
+			recipient,
+			stop: false,
+		};
+		let cancelled = wait_for_recipient_invalidation(
+			updates,
+			online,
+			control,
+			calls.clone(),
+			Arc::new(Mutex::new(channels.clone())),
+		);
 		tokio::pin!(cancelled);
 		let unrelated_state = Event::Voice(V::State {
 			guild: None,
@@ -2614,25 +2675,51 @@ mod tests {
 				user: other,
 			},
 		] {
-			if calls.observe(&event, owner, &channels) {
+			if calls.lock().unwrap().observe(&event, owner, &channels) {
 				changes.send_modify(|revision| *revision += 1);
 			}
 		}
 		assert_eq!(*changes.borrow(), 0);
-		assert!(calls.as_ref().unwrap().allows(first, 7, recipient, false));
+		assert!(
+			calls
+				.lock()
+				.unwrap()
+				.as_ref()
+				.unwrap()
+				.allows(first, 7, recipient, false)
+		);
 		// A pending request survives unrelated updates; relevant updates still cancel it.
 		assert!(
 			tokio::time::timeout(Duration::from_millis(1), &mut cancelled)
 				.await
 				.is_err()
 		);
-		assert!(calls.observe(&call(first, vec![recipient]), owner, &channels));
+		assert!(
+			calls
+				.lock()
+				.unwrap()
+				.observe(&call(first, vec![recipient]), owner, &channels)
+		);
 		changes.send_modify(|revision| *revision += 1);
 		tokio::time::timeout(Duration::from_secs(1), cancelled)
 			.await
 			.unwrap();
-		assert!(!calls.as_ref().unwrap().allows(first, 7, recipient, false));
-		assert!(calls.as_ref().unwrap().allows(first, 7, recipient, true));
+		assert!(
+			!calls
+				.lock()
+				.unwrap()
+				.as_ref()
+				.unwrap()
+				.allows(first, 7, recipient, false)
+		);
+		assert!(
+			calls
+				.lock()
+				.unwrap()
+				.as_ref()
+				.unwrap()
+				.allows(first, 7, recipient, true)
+		);
 	}
 
 	#[tokio::test]
@@ -2658,8 +2745,8 @@ mod tests {
 				streaming: false,
 			})
 		};
-		let mut calls = RecipientCalls::default();
-		calls.observe(
+		let calls = Arc::new(Mutex::new(RecipientCalls::default()));
+		calls.lock().unwrap().observe(
 			&Event::Voice(V::Call {
 				channel,
 				ringing: Some(vec![]),
@@ -2669,13 +2756,13 @@ mod tests {
 			owner,
 			&channels,
 		);
-		calls.join(channel, 7, true);
-		calls.observe(
+		calls.lock().unwrap().join(channel, 7, true);
+		calls.lock().unwrap().observe(
 			&state(owner, Some(channel), None, false, false),
 			owner,
 			&channels,
 		);
-		calls.observe(
+		calls.lock().unwrap().observe(
 			&Event::Voice(V::SessionConfirmed {
 				channel,
 				request: 7,
@@ -2684,17 +2771,43 @@ mod tests {
 			owner,
 			&channels,
 		);
-		assert!(calls.as_ref().unwrap().allows(channel, 7, recipient, false));
+		assert!(
+			calls
+				.lock()
+				.unwrap()
+				.as_ref()
+				.unwrap()
+				.allows(channel, 7, recipient, false)
+		);
 		let (changes, updates) = watch::channel(0u64);
 		let (_online, available) = watch::channel(true);
-		let pending = wait_for_recipient_invalidation(updates.clone(), 0, available.clone());
+		let control = client_core::voice::Command::RingRecipient {
+			channel,
+			request: 7,
+			recipient,
+			stop: false,
+		};
+		let pending = wait_for_recipient_invalidation(
+			updates.clone(),
+			available.clone(),
+			control,
+			calls.clone(),
+			Arc::new(Mutex::new(channels.clone())),
+		);
 		tokio::pin!(pending);
 		for event in [
 			state(owner, Some(channel), None, true, false),
 			state(owner, Some(channel), None, false, true),
 		] {
-			assert!(!calls.observe(&event, owner, &channels));
-			assert!(calls.as_ref().unwrap().allows(channel, 7, recipient, false));
+			assert!(!calls.lock().unwrap().observe(&event, owner, &channels));
+			assert!(
+				calls
+					.lock()
+					.unwrap()
+					.as_ref()
+					.unwrap()
+					.allows(channel, 7, recipient, false)
+			);
 		}
 		assert!(
 			tokio::time::timeout(Duration::from_millis(1), &mut pending)
@@ -2702,22 +2815,47 @@ mod tests {
 				.is_err()
 		);
 		// Owner departure invalidates before any TakenOver/Departed event reaches dispatch.
-		assert!(calls.observe(&state(owner, None, None, false, false), owner, &channels));
+		assert!(calls.lock().unwrap().observe(
+			&state(owner, None, None, false, false),
+			owner,
+			&channels
+		));
 		changes.send_replace(1);
 		tokio::time::timeout(Duration::from_secs(1), pending)
 			.await
 			.unwrap();
-		assert!(!calls.as_ref().unwrap().allows(channel, 7, recipient, false));
-		assert!(!calls.as_ref().unwrap().allows(channel, 7, recipient, true));
+		assert!(
+			!calls
+				.lock()
+				.unwrap()
+				.as_ref()
+				.unwrap()
+				.allows(channel, 7, recipient, false)
+		);
+		assert!(
+			!calls
+				.lock()
+				.unwrap()
+				.as_ref()
+				.unwrap()
+				.allows(channel, 7, recipient, true)
+		);
 		// A newer explicit join requires its own confirmation, then can ring again.
-		calls.join(channel, 8, true);
-		calls.observe(
+		calls.lock().unwrap().join(channel, 8, true);
+		calls.lock().unwrap().observe(
 			&state(owner, Some(channel), None, false, false),
 			owner,
 			&channels,
 		);
-		assert!(!calls.as_ref().unwrap().allows(channel, 8, recipient, false));
-		calls.observe(
+		assert!(
+			!calls
+				.lock()
+				.unwrap()
+				.as_ref()
+				.unwrap()
+				.allows(channel, 8, recipient, false)
+		);
+		calls.lock().unwrap().observe(
 			&Event::Voice(V::SessionConfirmed {
 				channel,
 				request: 8,
@@ -2726,24 +2864,37 @@ mod tests {
 			owner,
 			&channels,
 		);
-		assert!(calls.as_ref().unwrap().allows(channel, 8, recipient, false));
+		assert!(
+			calls
+				.lock()
+				.unwrap()
+				.as_ref()
+				.unwrap()
+				.allows(channel, 8, recipient, false)
+		);
 		let mut attempt = 8;
 		for (target, guild) in [(Some(Id(4)), None), (Some(channel), Some(Id(5)))] {
-			assert!(calls.observe(&state(owner, target, guild, false, false), owner, &channels));
+			assert!(calls.lock().unwrap().observe(
+				&state(owner, target, guild, false, false),
+				owner,
+				&channels
+			));
 			assert!(
 				!calls
+					.lock()
+					.unwrap()
 					.as_ref()
 					.unwrap()
 					.allows(channel, attempt, recipient, false)
 			);
 			attempt += 1;
-			calls.join(channel, attempt, true);
-			calls.observe(
+			calls.lock().unwrap().join(channel, attempt, true);
+			calls.lock().unwrap().observe(
 				&state(owner, Some(channel), None, false, false),
 				owner,
 				&channels,
 			);
-			calls.observe(
+			calls.lock().unwrap().observe(
 				&Event::Voice(V::SessionConfirmed {
 					channel,
 					request: attempt,
@@ -2753,9 +2904,21 @@ mod tests {
 				&channels,
 			);
 		}
-		let pending = wait_for_recipient_invalidation(updates, 1, available);
+		let control = client_core::voice::Command::RingRecipient {
+			channel,
+			request: attempt,
+			recipient,
+			stop: false,
+		};
+		let pending = wait_for_recipient_invalidation(
+			updates,
+			available,
+			control,
+			calls.clone(),
+			Arc::new(Mutex::new(channels.clone())),
+		);
 		tokio::pin!(pending);
-		assert!(calls.observe(
+		assert!(calls.lock().unwrap().observe(
 			&state(recipient, Some(channel), None, false, false),
 			owner,
 			&channels
@@ -2766,6 +2929,8 @@ mod tests {
 			.unwrap();
 		assert!(
 			!calls
+				.lock()
+				.unwrap()
 				.as_ref()
 				.unwrap()
 				.allows(channel, attempt, recipient, false)
@@ -3122,25 +3287,185 @@ mod tests {
 		));
 	}
 
+	fn recipient_worker_fixture(
+		stop: bool,
+	) -> (
+		client_core::voice::Command,
+		RecipientCalls,
+		BTreeMap<model::Id, Vec<model::Id>>,
+	) {
+		let (channel, recipient) = (model::Id(2), model::Id(3));
+		let mut call = RecipientCall::new(channel, 7);
+		call.confirmed = true;
+		call.ringing = Some(if stop { vec![recipient] } else { vec![] });
+		let calls = RecipientCalls {
+			active: Some(call),
+			..Default::default()
+		};
+		(
+			client_core::voice::Command::RingRecipient {
+				channel,
+				request: 7,
+				recipient,
+				stop,
+			},
+			calls,
+			BTreeMap::from([(channel, vec![recipient, model::Id(4)])]),
+		)
+	}
+	#[tokio::test]
+	async fn recipient_worker_rechecks_target_and_preserves_unrelated_peer_controls() {
+		use client_core::voice::Event as V;
+		use model::Id;
+		assert!(size_of::<client_core::voice::Command>() <= 64);
+		let (control, calls, channels) = recipient_worker_fixture(false);
+		let calls = Arc::new(Mutex::new(calls));
+		let channels = Arc::new(Mutex::new(channels));
+		let (changes, updates) = watch::channel(0u64);
+		let (_online, available) = watch::channel(true);
+		let pending = wait_for_recipient_invalidation(
+			updates,
+			available,
+			control,
+			calls.clone(),
+			channels.clone(),
+		);
+		tokio::pin!(pending);
+		for (user, muted, video) in [
+			(Id(4), false, false),
+			(Id(4), true, false),
+			(Id(4), false, true),
+		] {
+			let event = Event::Voice(V::State {
+				guild: None,
+				channel: Some(Id(2)),
+				user,
+				request: None,
+				member: None,
+				session: None,
+				negotiation_revision: None,
+				server_muted: false,
+				server_deafened: false,
+				muted,
+				deafened: muted,
+				video,
+				streaming: false,
+			});
+			{
+				let channels = channels.lock().unwrap();
+				let mut calls = calls.lock().unwrap();
+				assert!(calls.observe(&event, Id(1), &channels));
+				assert!(
+					recipient_write_allowed(control, &calls, &channels),
+					"main-loop abort guard keeps the eligible target"
+				);
+			}
+			changes.send_modify(|revision| *revision += 1);
+			assert!(
+				tokio::time::timeout(Duration::from_millis(1), &mut pending)
+					.await
+					.is_err(),
+				"unrelated peer controls retain the pending worker"
+			);
+		}
+		// The requested recipient joining stops the obsolete start without a false error.
+		let event = Event::Voice(V::State {
+			guild: None,
+			channel: Some(Id(2)),
+			user: Id(3),
+			request: None,
+			member: None,
+			session: None,
+			negotiation_revision: None,
+			server_muted: false,
+			server_deafened: false,
+			muted: false,
+			deafened: false,
+			video: false,
+			streaming: false,
+		});
+		{
+			let channels = channels.lock().unwrap();
+			let mut calls = calls.lock().unwrap();
+			assert!(calls.observe(&event, Id(1), &channels));
+			assert!(!recipient_write_allowed(control, &calls, &channels));
+		}
+		changes.send_modify(|revision| *revision += 1);
+		tokio::time::timeout(Duration::from_secs(1), pending)
+			.await
+			.unwrap();
+	}
+	#[tokio::test]
+	async fn recipient_worker_stops_after_service_confirms_start_or_stop() {
+		for stop in [false, true] {
+			let (control, calls, channels) = recipient_worker_fixture(stop);
+			let calls = Arc::new(Mutex::new(calls));
+			let channels = Arc::new(Mutex::new(channels));
+			let (changes, updates) = watch::channel(0u64);
+			let (_online, available) = watch::channel(true);
+			let pending = wait_for_recipient_invalidation(
+				updates,
+				available,
+				control,
+				calls.clone(),
+				channels.clone(),
+			);
+			tokio::pin!(pending);
+			assert!(
+				tokio::time::timeout(Duration::from_millis(1), &mut pending)
+					.await
+					.is_err()
+			);
+			let event = Event::Voice(client_core::voice::Event::Call {
+				channel: model::Id(2),
+				ringing: Some(if stop { vec![] } else { vec![model::Id(3)] }),
+				participants: None,
+				unavailable: false,
+			});
+			{
+				let channels = channels.lock().unwrap();
+				let mut calls = calls.lock().unwrap();
+				assert!(calls.observe(&event, model::Id(1), &channels));
+				assert!(!recipient_write_allowed(control, &calls, &channels));
+			}
+			changes.send_modify(|revision| *revision += 1);
+			tokio::time::timeout(Duration::from_secs(1), pending)
+				.await
+				.unwrap();
+		}
+	}
+
 	#[tokio::test]
 	async fn recipient_http_wait_checks_membership_offline_and_abandon_before_network_poll() {
 		let (members, member_updates) = watch::channel(2u64);
 		let (online, availability) = watch::channel(true);
 		let scope = (model::Id(2), 7);
 		let (takeover, ownership) = watch::channel(None);
+		let (control, calls, channels) = recipient_worker_fixture(false);
+		let calls = Arc::new(Mutex::new(calls));
+		let channels = Arc::new(Mutex::new(channels));
 		let task = tokio::spawn(wait_for_recipient_invalidation(
 			member_updates.clone(),
-			2,
 			availability.clone(),
+			control,
+			calls.clone(),
+			channels.clone(),
 		));
 		tokio::task::yield_now().await;
 		assert!(!task.is_finished());
+		calls.lock().unwrap().active = None;
 		members.send_replace(3);
 		tokio::time::timeout(Duration::from_secs(1), task)
 			.await
 			.unwrap()
 			.unwrap();
 		for invalidation in 0..3 {
+			let (control, calls, channels) = recipient_worker_fixture(false);
+			let calls = Arc::new(Mutex::new(calls));
+			let channels = Arc::new(Mutex::new(channels));
+			if invalidation == 0 {
+				channels.lock().unwrap().clear();
+			}
 			members.send_replace(if invalidation == 0 { 3 } else { 2 });
 			online.send_replace(invalidation != 1);
 			takeover.send_replace((invalidation == 2).then_some(scope));
@@ -3148,7 +3473,7 @@ mod tests {
 			tokio::select! {
 				biased;
 				_=wait_for_takeover(ownership.clone(),scope)=>{},
-				_=wait_for_recipient_invalidation(member_updates.clone(),2,availability.clone())=>{},
+				_=wait_for_recipient_invalidation(member_updates.clone(),availability.clone(),control,calls.clone(),channels.clone())=>{},
 				_=async {contacted.set(true);std::future::pending::<()>().await}=>unreachable!(),
 			}
 			assert!(

@@ -799,4 +799,11 @@ the network future; already accepted service writes cannot be undone.
 Recipient actions also recheck latest validated service ringing and observed peer
 presence when dequeued: Ring again requires an absent, non-ringing peer; Stop
 ringing requires current service-confirmed ringing. Unknown ringing disables both
-actions until call metadata arrives; peer Call/State changes cancel pending writes.
+actions until call metadata arrives; relevant target/scope changes cancel pending writes.
+
+Pending targeted ringing revalidates the requested recipient when call metadata
+changes. An unrelated participant’s mute/camera update preserves an eligible
+request; a target joining during a start, being removed, reaching the requested
+service state, or losing its current call scope cancels obsolete work. The UI
+continues to show service-confirmed state instead of reporting successful state
+changes as failures.

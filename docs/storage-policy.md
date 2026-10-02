@@ -1578,3 +1578,10 @@ The original negotiation deadline remains bounded during sustained event load.
 The desktop consumes only the matching current unconfirmed candidate;
 existing bounded local abandonment handles release after failure. There is no new
 retry worker or pending command slot.
+
+Targeted-ring dispatch keeps one fixed command tuple (at most 64 bytes) beside
+its existing HTTP task. Main-loop and worker revision wakeups recheck the same
+confirmed call, recipient membership and current target eligibility; unrelated
+peer mute/camera state does not cancel an eligible target. Departure, replacement,
+access loss and target state changes retire obsolete work without an optimistic
+state or additional failure/retry queue.
