@@ -73,7 +73,6 @@ jobs:
             fuzz/Cargo.lock
             packaging/macos/Info.plist
             target/release-plan.json
-            nix/package.nix
           if-no-files-found: error
           retention-days: 14
 

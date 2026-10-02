@@ -93,7 +93,8 @@
 in
     rustPlatform.buildRustPackage (finalAttrs: {
         pname = "serein";
-        version = "1.0.0-nightly.20260928.49";
+        # Match `cargo build`: release automation versions Cargo.toml, not this file.
+        version = (lib.importTOML ../Cargo.toml).workspace.package.version;
 
         src = ../.;
 
@@ -131,7 +132,8 @@ in
                 swiftPackages.stdlib
             ];
 
-        runtimeDependencies = lib.optionals isLinux graphicsDeps;
+        # winit loads these libraries dynamically; retain them in the runtime RPATH.
+        runtimeDependencies = lib.optionals isLinux (graphicsDeps ++ windowingDeps);
 
         dontUseSwiftpmBuild = true;
         dontUseSwiftpmCheck = true;
@@ -153,26 +155,45 @@ in
             )
         '';
 
+        # Mirror `cargo xtask package`: notices, licenses and the corresponding
+        # MPL-2.0 hpke-rs source ship with every binary.
         postInstall =
-            lib.optionalString isLinux ''
-                install -Dm444 ${finalAttrs.src}/packaging/linux/serein.desktop \
-                  $out/share/applications/org.serein.desktop.desktop
-                substituteInPlace $out/share/applications/org.serein.desktop.desktop \
-                  --replace-fail "Exec=serein" "Exec=$out/bin/serein"
-
-                for icon in ${finalAttrs.src}/packaging/linux/hicolor/*/apps/*; do
-                  [ -f "$icon" ] || continue
-                  size=$(basename "$(dirname "$(dirname "$icon")")")
-                  install -Dm444 "$icon" \
-                    "$out/share/icons/hicolor/$size/apps/$(basename "$icon")"
-                done
+            ''
+                docs="$out/share/doc/serein"
             ''
             + lib.optionalString isDarwin ''
                 app="$out/Applications/Serein.app/Contents"
-                install -Dm444 ${finalAttrs.src}/packaging/macos/Info.plist "$app/Info.plist"
-                install -Dm444 ${finalAttrs.src}/packaging/macos/Serein.icns "$app/Resources/Serein.icns"
-                mkdir -p "$app/MacOS"
-                ln -s "$out/bin/serein" "$app/MacOS/serein"
+                docs="$app/Resources"
+            ''
+            + ''
+                mkdir -p "$docs/licenses" "$docs/source"
+                cp README.md LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.md "$docs/"
+                cp -R assets/licenses/. "$docs/licenses/"
+                cp assets/fonts/*-OFL.txt assets/fonts/*-LICENSE.txt "$docs/licenses/"
+                cp assets/sounds/README.md "$docs/licenses/notification-sounds.md"
+                cp assets/twemoji/LICENSE-GRAPHICS "$docs/licenses/Twemoji-CC-BY-4.0.txt"
+                cp assets/twemoji/LICENSE-UNICODE "$docs/licenses/Unicode-LICENSE.txt"
+                cp assets/icons/LICENSE "$docs/licenses/Phosphor-Icons-MIT.txt"
+                cp assets/icons/LICENSE-SIMPLE-ICONS "$docs/licenses/Simple-Icons-CC0.txt"
+                cp -R vendor/hpke-rs "$docs/source/"
+            ''
+            + lib.optionalString isLinux ''
+                install -Dm444 packaging/linux/serein.desktop \
+                  $out/share/applications/cz.viceverse.serein.desktop
+                substituteInPlace $out/share/applications/cz.viceverse.serein.desktop \
+                  --replace-fail "Exec=serein" "Exec=$out/bin/serein"
+                mkdir -p $out/share/icons
+                cp -R packaging/linux/hicolor $out/share/icons/
+            ''
+            # The executable lives inside the bundle so macOS resolves its Info.plist
+            # (privacy usage descriptions, identifier and icon) from the launched binary.
+            + lib.optionalString isDarwin ''
+                install -Dm444 packaging/macos/Info.plist "$app/Info.plist"
+                install -Dm444 packaging/macos/Serein.icns "$app/Resources/Serein.icns"
+                mkdir -p "$app/MacOS" "$out/share/doc"
+                mv "$out/bin/serein" "$app/MacOS/serein"
+                ln -s "$app/MacOS/serein" "$out/bin/serein"
+                ln -s "$app/Resources" "$out/share/doc/serein"
             '';
 
         meta = {

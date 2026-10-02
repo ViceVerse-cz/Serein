@@ -28,23 +28,14 @@ function updateCask() {
     .replace(/(^  sha256 ")[^"]+("$)/m, `$1${checksum}$2`));
 }
 
-// Nightlies publish from an immutable plan commit, so generated version pointers
-// are written back to main through the contents API instead of a branch commit.
-const nightlyPointers = [
-  { path: caskPath, description: 'Homebrew cask' },
-  { path: 'nix/package.nix', description: 'Nix package version' },
-];
-
-function commitNightlyPointers() {
-  for (const { path, description } of nightlyPointers) {
-    const sha = execFileSync('git', ['rev-parse', `HEAD:${path}`], { encoding: 'utf8' }).trim();
-    execFileSync('gh', [
-      'api', `repos/${process.env.GH_REPO}/contents/${path}`, '--method', 'PUT',
-      '--field', `message=chore(release): update ${description} for ${plan.version} [skip ci]`,
-      '--field', `content=${readFileSync(path).toString('base64')}`,
-      '--field', `sha=${sha}`, '--field', 'branch=main',
-    ], { stdio: 'inherit' });
-  }
+function commitNightlyCask() {
+  const sha = execFileSync('git', ['rev-parse', `HEAD:${caskPath}`], { encoding: 'utf8' }).trim();
+  execFileSync('gh', [
+    'api', `repos/${process.env.GH_REPO}/contents/${caskPath}`, '--method', 'PUT',
+    '--field', `message=chore(release): update Homebrew cask for ${plan.version} [skip ci]`,
+    '--field', `content=${readFileSync(caskPath).toString('base64')}`,
+    '--field', `sha=${sha}`, '--field', 'branch=main',
+  ], { stdio: 'inherit' });
 }
 if (plan) updateCask();
 const conventional = { preset: 'conventionalcommits' };
@@ -55,7 +46,7 @@ const plugins = [
 if (plan && channel === 'production') {
   plugins.push(
     [require.resolve('@semantic-release/git'), {
-      assets: ['Cargo.toml', 'Cargo.lock', 'fuzz/Cargo.lock', 'packaging/macos/Info.plist', caskPath, 'nix/package.nix'],
+      assets: ['Cargo.toml', 'Cargo.lock', 'fuzz/Cargo.lock', 'packaging/macos/Info.plist', caskPath],
       message: 'chore(release): ${nextRelease.version} [skip ci]',
     }],
     [require.resolve('@semantic-release/github'), {
@@ -109,6 +100,6 @@ if (mode === 'plan') {
     { stdio: 'inherit' });
     execFileSync('gh', ['release', 'edit', plan.gitTag, '--draft=false', '--prerelease', '--latest=false'],
     { stdio: 'inherit' });
-    commitNightlyPointers();
+    commitNightlyCask();
   }
 }

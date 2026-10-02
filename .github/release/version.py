@@ -47,13 +47,6 @@ def update(version):
     )
     assert count == 1, 'Cannot locate Mac version'
     plist.write_text(source)
-    nix = pathlib.Path('nix/package.nix')
-    source, count = re.subn(
-        r'(?m)^(\s*version = ")[^"]+(";)$',
-        lambda match: match[1] + version + match[2], nix.read_text(), count=1,
-    )
-    assert count == 1, 'Cannot locate Nix package version'
-    nix.write_text(source)
 
 
 if __name__ == '__main__':
