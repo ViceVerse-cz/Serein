@@ -4425,3 +4425,6 @@ server-emoji-empty-animated = Henüz hareketli emoji yok
 server-emoji-empty-detail = Eklemek için bir görsel yükleyin. GIF'ler hareketli emoji olur.
 
 server-stickers-empty-detail = İlk çıkartmanızı eklemek için bir görsel yükleyin.
+
+
+screen-macos-system-picker = macOS sistem seçicisiyle seç

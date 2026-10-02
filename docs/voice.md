@@ -394,7 +394,20 @@ In a connected call, select **Share your screen**, choose a display/window, 480p
 
 480p uses 854×480 pixels and a target video bitrate of 2 Mbps at 15/30 fps or 4 Mbps at 60 fps.
 
-Capture uses macOS 14+ ScreenCaptureKit (screen-recording permission in System Settings) or Windows Graphics Capture. Source discovery alone does not start streaming. Closing or minimizing a selected source may pause frames or end capture, according to the native API. The initial Windows adapter accepts source dimensions up to 3840×2160. Changes to screen-server metadata, lost video permission, leaving the call and logout stop sharing. The sender never starts itself after reconnection.
+Capture uses macOS 14+ ScreenCaptureKit or Windows Graphics Capture. On macOS,
+Share Screen offers the native `SCContentSharingPicker` to choose one display or
+window. Source discovery only advertises that choice; it does not enumerate private
+window titles, request screen-recording permission or open the picker. The owner
+confirms quality/audio, then explicitly shares to open the system picker. Cancel,
+call teardown and a two-minute choice deadline stop the pending request; no source
+is silently selected or retried. Legacy direct display/window filters retain their
+existing screen-recording permission requirements. When audio is enabled for a
+window, ScreenCaptureKit captures its owning application's audio, which may include
+other windows in that application; this is not isolation of one window's audio.
+Serein's own playback remains excluded. No microphone is captured by screen sharing.
+The native picker has not been opened during synthetic verification.
+
+Source discovery alone does not start streaming. Closing or minimizing a selected source may pause frames or end capture, according to the native API. The initial Windows adapter accepts source dimensions up to 3840×2160. Changes to screen-server metadata, lost video permission, leaving the call and logout stop sharing. The sender never starts itself after reconnection.
 
 Linux uses the desktop ScreenCast portal and PipeWire. Share Screen opens the system
 screen/window picker after the quality dialog; source discovery never opens that picker.

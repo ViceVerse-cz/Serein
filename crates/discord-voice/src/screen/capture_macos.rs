@@ -8,6 +8,10 @@ use super::{
 use crate::screen::{RawFrame, Settings, Source, SourceId};
 use screencapturekit::{
 	cm::{CMSampleBufferExt, CMSampleBufferSCExt},
+	content_sharing_picker::{
+		SCContentSharingPicker, SCContentSharingPickerConfiguration, SCContentSharingPickerMode,
+		SCPickerOutcome,
+	},
 	cv::CVPixelBufferLockFlags,
 	prelude::*,
 	stream::delegate_trait::SCStreamDelegateTrait,
@@ -15,7 +19,7 @@ use screencapturekit::{
 use std::sync::{
 	Arc,
 	atomic::{AtomicBool, Ordering},
-	mpsc::SyncSender,
+	mpsc::{self, SyncSender},
 };
 
 fn initialize() {
@@ -27,6 +31,12 @@ fn initialize() {
 }
 
 pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
+	if SCContentSharingPicker::is_available() {
+		return Ok(vec![Source {
+			id: SourceId::SystemPicker,
+			name: "Choose with the macOS system picker".into(),
+		}]);
+	}
 	initialize();
 	let content = SCShareableContent::get().map_err(
 		|_| "Screen sources are unavailable. Allow screen recording in System Settings, then refresh.",
@@ -81,6 +91,78 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 		}
 	}
 	Ok(sources)
+}
+
+fn await_picker<T>(
+	receiver: mpsc::Receiver<Result<T, &'static str>>,
+	stop: &AtomicBool,
+	deadline: std::time::Instant,
+) -> Result<T, &'static str> {
+	loop {
+		if stop.load(Ordering::Acquire) {
+			return Err("Screen sharing cancelled");
+		}
+		let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+		if remaining.is_zero() {
+			return Err("Screen sharing picker timed out; share again to retry");
+		}
+		match receiver.recv_timeout(remaining.min(std::time::Duration::from_millis(20))) {
+			Ok(result) => {
+				return if stop.load(Ordering::Acquire) {
+					Err("Screen sharing cancelled")
+				} else {
+					result
+				};
+			}
+			Err(mpsc::RecvTimeoutError::Timeout) => {}
+			Err(mpsc::RecvTimeoutError::Disconnected) => {
+				return Err("Screen sharing picker stopped");
+			}
+		}
+	}
+}
+
+fn choose_with_system_picker(stop: &AtomicBool) -> Result<SCContentFilter, &'static str> {
+	let mut config = SCContentSharingPickerConfiguration::try_new()
+		.ok_or("The macOS sharing picker requires macOS 14 or newer")?;
+	config.set_allowed_picker_modes(&[
+		SCContentSharingPickerMode::SingleDisplay,
+		SCContentSharingPickerMode::SingleWindow,
+	]);
+	config.set_allows_changing_selected_content(false);
+	let (send, receive) = mpsc::sync_channel(1);
+	SCContentSharingPicker::show(&config, move |outcome| {
+		let result = match outcome {
+			SCPickerOutcome::Picked(result) => Ok(result),
+			SCPickerOutcome::Cancelled => Err("Screen sharing cancelled"),
+			SCPickerOutcome::Error(_) => Err("Could not open the macOS sharing picker"),
+		};
+		let _ = send.try_send(result);
+	});
+	let result = await_picker(
+		receive,
+		stop,
+		std::time::Instant::now() + std::time::Duration::from_secs(120),
+	);
+	if result.is_err() {
+		SCContentSharingPicker::deactivate();
+	}
+	let picked = result?;
+	let (width, height) = picked.pixel_size();
+	let (points_width, points_height) = picked.size();
+	if width == 0
+		|| height == 0
+		|| width > MAX_SOURCE_WIDTH
+		|| height > MAX_SOURCE_HEIGHT
+		|| !points_width.is_finite()
+		|| !points_height.is_finite()
+		|| points_width <= 0.0
+		|| points_height <= 0.0
+	{
+		SCContentSharingPicker::deactivate();
+		return Err("Selected screen or window is unavailable or too large");
+	}
+	Ok(picked.filter())
 }
 
 struct Handler {
@@ -292,8 +374,18 @@ impl SCStreamDelegateTrait for Delegate {
 	}
 }
 
+struct PickerSession(bool);
+impl Drop for PickerSession {
+	fn drop(&mut self) {
+		if self.0 {
+			SCContentSharingPicker::deactivate();
+		}
+	}
+}
+
 pub(crate) struct Capture {
 	stream: SCStream,
+	_system_picker: PickerSession,
 }
 
 impl Capture {
@@ -314,10 +406,13 @@ impl Capture {
 		{
 			return Err("Invalid screen capture settings");
 		}
-		let content =
-			SCShareableContent::get().map_err(|_| "Screen recording permission denied")?;
+		// Own the picker before selection so every later error/cancellation deactivates it.
+		let system_picker = PickerSession(settings.source == SourceId::SystemPicker);
 		let filter = match settings.source {
+			SourceId::SystemPicker => choose_with_system_picker(&stop)?,
 			SourceId::Display(id) => {
+				let content =
+					SCShareableContent::get().map_err(|_| "Screen recording permission denied")?;
 				let display = content
 					.displays()
 					.into_iter()
@@ -332,6 +427,8 @@ impl Capture {
 					.build()
 			}
 			SourceId::Window(id) => {
+				let content =
+					SCShareableContent::get().map_err(|_| "Screen recording permission denied")?;
 				let window = content
 					.windows()
 					.into_iter()
@@ -374,6 +471,9 @@ impl Capture {
 		if !config.preserves_aspect_ratio() {
 			return Err("Screen sharing requires macOS 14 or newer");
 		}
+		if stop.load(Ordering::Acquire) {
+			return Err("Screen sharing cancelled");
+		}
 		let mut stream = SCStream::new_with_delegate(&filter, &config, Delegate(stop.clone()));
 		if stream
 			.add_output_handler(
@@ -402,10 +502,16 @@ impl Capture {
 		{
 			return Err("System audio callback could not be registered");
 		}
+		if stop.load(Ordering::Acquire) {
+			return Err("Screen sharing cancelled");
+		}
 		stream
 			.start_capture()
 			.map_err(|_| "Screen capture could not be started")?;
-		Ok(Self { stream })
+		Ok(Self {
+			stream,
+			_system_picker: system_picker,
+		})
 	}
 }
 
@@ -417,8 +523,49 @@ impl Drop for Capture {
 
 #[cfg(test)]
 mod tests {
-	use super::content_pixels;
+	use super::{await_picker, content_pixels};
 	use screencapturekit::cg::CGRect;
+	use std::sync::{atomic::AtomicBool, mpsc};
+	use std::time::{Duration, Instant};
+
+	#[test]
+	fn system_picker_wait_is_bounded_and_rejects_results_after_teardown() {
+		let (send, receive) = mpsc::sync_channel(1);
+		send.send(Ok(42u8)).unwrap();
+		assert_eq!(
+			await_picker(
+				receive,
+				&AtomicBool::new(false),
+				Instant::now() + Duration::from_secs(1)
+			),
+			Ok(42)
+		);
+		let (send, receive) = mpsc::sync_channel(1);
+		send.send(Ok(42u8)).unwrap();
+		assert_eq!(
+			await_picker(
+				receive,
+				&AtomicBool::new(true),
+				Instant::now() + Duration::from_secs(1)
+			),
+			Err("Screen sharing cancelled")
+		);
+		let (_send, receive) = mpsc::sync_channel::<Result<(), &'static str>>(1);
+		assert_eq!(
+			await_picker(receive, &AtomicBool::new(false), Instant::now()),
+			Err("Screen sharing picker timed out; share again to retry")
+		);
+		let (send, receive) = mpsc::sync_channel::<Result<(), &'static str>>(1);
+		drop(send);
+		assert_eq!(
+			await_picker(
+				receive,
+				&AtomicBool::new(false),
+				Instant::now() + Duration::from_secs(1)
+			),
+			Err("Screen sharing picker stopped")
+		);
+	}
 
 	#[test]
 	fn content_rect_maps_to_buffer_pixels_in_any_unit() {

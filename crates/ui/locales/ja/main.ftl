@@ -4424,3 +4424,5 @@ server-emoji-empty-animated = アニメーション絵文字はまだありま�
 server-emoji-empty-detail = 画像をアップロードして追加します。GIFはアニメーション絵文字になります。
 
 server-stickers-empty-detail = 画像をアップロードして最初のスタンプを追加しましょう。
+
+screen-macos-system-picker = macOSのシステム選択画面で選ぶ

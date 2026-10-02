@@ -4439,3 +4439,5 @@ server-emoji-empty-animated = Анимированных эмодзи пока �
 server-emoji-empty-detail = Загрузите изображение, чтобы добавить эмодзи. GIF станут анимированными эмодзи.
 
 server-stickers-empty-detail = Загрузите изображение, чтобы добавить первый стикер.
+
+screen-macos-system-picker = Выбрать через системное окно macOS

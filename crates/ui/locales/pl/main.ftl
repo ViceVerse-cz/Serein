@@ -4438,3 +4438,5 @@ server-emoji-empty-animated = Brak animowanych emoji
 server-emoji-empty-detail = Prześlij obraz, aby je dodać. Pliki GIF stają się animowanymi emoji.
 
 server-stickers-empty-detail = Prześlij obraz, aby dodać swoją pierwszą naklejkę.
+
+screen-macos-system-picker = Wybierz w systemowym oknie macOS

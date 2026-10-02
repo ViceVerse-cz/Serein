@@ -63,17 +63,24 @@ impl ScreenUi {
 		self.selected = None;
 		self.sources.clear();
 		if state.demo {
-			self.sources = vec![
-				Source {
-					id: SourceId::Display(1),
-					name: "Display 1 · Synthetic preview".into(),
-				},
-				Source {
-					id: SourceId::Window(2),
-					name: "Project notes · Synthetic window".into(),
-				},
-			];
-			self.selected = Some(SourceId::Display(1));
+			self.sources = if cfg!(target_os = "macos") {
+				vec![Source {
+					id: SourceId::SystemPicker,
+					name: "Choose with the macOS system picker".into(),
+				}]
+			} else {
+				vec![
+					Source {
+						id: SourceId::Display(1),
+						name: "Display 1 · Synthetic preview".into(),
+					},
+					Source {
+						id: SourceId::Window(2),
+						name: "Project notes · Synthetic window".into(),
+					},
+				]
+			};
+			self.selected = self.sources.first().map(|source| source.id);
 			self.status = "Offline preview · no screen is captured";
 		} else {
 			self.refresh_requested = true;
@@ -345,7 +352,11 @@ impl ScreenUi {
 			let text_left = rect.left() + 46.0;
 			let text_width = (rect.right() - 36.0 - text_left).max(40.0);
 			let name = ui.painter().layout(
-				source.name.clone(),
+				if source.id == SourceId::SystemPicker {
+					crate::i18n::translate("screen-macos-system-picker")
+				} else {
+					source.name.clone()
+				},
 				egui::FontId::new(14.0, crate::design::medium_family(ui.ctx())),
 				colors.text_strong,
 				text_width,

@@ -4435,3 +4435,5 @@ server-emoji-empty-animated = Aucun émoji animé pour l'instant
 server-emoji-empty-detail = Importez une image pour en ajouter un. Les GIF deviennent des émojis animés.
 
 server-stickers-empty-detail = Importez une image pour ajouter votre premier autocollant.
+
+screen-macos-system-picker = Choisir avec le sélecteur système macOS
