@@ -4348,6 +4348,12 @@ lib-composer-onboarding-incomplete = Completa l'accesso a questo server per sblo
 # Context: composer
 lib-composer-onboarding-complete = Completa l'accoglienza
 
+voice-recipient-ring = Richiama
+voice-recipient-stop-ringing = Interrompi squillo
+voice-recipient-ringing = Sta squillando…
+voice-recipient-not-in-call = Non nella chiamata
+reconnect-now = Riconnetti ora
+
 voice-call-moved-to-another-client = La sessione di chiamata di questo dispositivo è stata sostituita
 
 server-settings-page-safety = Configurazione sicurezza

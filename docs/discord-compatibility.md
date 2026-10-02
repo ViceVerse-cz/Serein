@@ -794,6 +794,17 @@ Outgoing mark-unread and guild acknowledgement (September 16): Mark Unread ACKs 
 
 Search continuation (September 10): guild conversations use the guild search route with an exact channel filter; DMs use the channel route. Search content is percent-encoded, with timestamp-descending order and bounded offset pagination. Query date boundaries remain fixed across numbered pages. One replaceable task uses existing REST permits, deadlines and cooldowns. Indexing responses require another deliberate Search action after the service delay; no automatic polling, broad account search, advanced filters, NSFW override or search-result persistence is implemented. Service totals and partial-index status are displayed as supplied, not asserted complete. Opening a result fetches up to 50 history messages ending at that ID and positions the timeline there; unavailable results are reported. Existing reload returns to latest history. Search snapshots are cleared on relevant edits/deletes, navigation, disconnect, permission invalidation and logout. Original-client sources supply wire evidence only; no source-code blocks were copied and no authenticated service request was used as validation.
 
+Flatpak locale containment (October 2, 2026): after GTK initialization, Linux login
+and invite-verification webviews reject a non-UTF-8 effective encoding inside
+Flatpak before constructing WebKit. The existing error surface provides runtime
+language/restart guidance; sign-in and reconnect preserve the fixed local error
+label instead of replacing it with a generic webview error. No environment/global locale, sandbox permission,
+authentication handoff or storage setting is modified. This contains the known
+C-locale subprocess-start failure; it does not repair missing runtime locales or
+establish successful sign-in. The guard intentionally also blocks ASCII-only
+Flatpak setups that might otherwise happen to work. Native non-Flatpak webview admission
+is unchanged. See [Flatpak troubleshooting](../packaging/flatpak/README.md#loginverification-locale-troubleshooting).
+
 Login compatibility correction (September 10): READY read_state accepts both the legacy array and the versioned entries/version/partial object, under the same 4000-entry bound. Serein's Identify does not request the versioned_read_states capability; rejecting the legacy shape previously rejected the entire login payload. The capability's effect is described in the original [discord.py-self capability definitions](https://github.com/dolfies/discord.py-self/blob/master/discord/flags.py), rechecked September 10. Partial snapshots leave omitted channels unknown. Identify capabilities remain unchanged. Static error labels distinguish account verification, Gateway discovery, READY decoding and connection setup without exposing payloads, credentials or remote error text. Synthetic regression and loopback evidence do not establish actual account login success.
 
 ## Reaction refresh and pinned messages - September 10
@@ -2084,6 +2095,35 @@ Voter-name browsing and a custom-server-emoji creation picker are not included i
 Extension snapshots retain their existing unsupported poll contract. No live Discord account was
 used to verify normal-account interoperability. Use --demo --demo-polls for an offline preview
 and --demo --demo-check-polls for the focused synthetic debug check.
+
+## Message sending during Gateway recovery — October 2, 2026
+
+A temporary Gateway outage no longer disables an explicit REST message send from
+an authenticated session with last known send permission. Discord still authorizes
+the request; an offline network, changed permissions or expired session can reject
+it. The existing bounded write queue, service cooldown, single-attempt policy and
+failed/ambiguous delivery states remain in use. Attachment uploads still require
+the Gateway to be connected. Nothing automatically replays uncertain writes.
+
+Refresh during reconnection, the Reconnect now button and an explicit message send
+wake the Gateway's current retry without waiting for its capped backoff. Recovery
+preserves the session/sequence for RESUME, does not reopen login or restart a REST
+write, and cannot extend the bounded initial-login attempt limit. Late recovery
+requests are consumed without interrupting an already READY/RESUMED socket.
+Reconnect now is available in the account card on every platform. Refresh also
+reloads readable message history through REST during an outage; repeated Gateway
+retry notifications preserve that request. A successful RESUME still revalidates
+the active history; a REST-only reload during an outage completes as stale rather
+than leaving Refresh disabled in Loading.
+
+The offline debug command is
+`cargo run --locked -p serein --features demo -- --demo --demo-check-resume-send`.
+It exercises synthetic composer/Refresh/Reconnect input, disconnected sending,
+terminal auth and access gates, uncertain-write preservation and coalesced recovery
+waits without opening a network connection or audio device. Workspace tests also
+use a local synthetic WebSocket to check late recovery requests and preserved
+RESUME session/cursor state. macOS sleep/wake and live Discord RESUME/delivery
+remain unverified in this Linux fast pass.
 
 ## Quiet messages (`@silent`)
 

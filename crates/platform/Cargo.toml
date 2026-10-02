@@ -21,6 +21,7 @@ url.workspace = true
 zeroize.workspace = true
 getrandom.workspace = true
 rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal", "wayland"] }
+image = { version = "=0.25.10", default-features = false, features = ["png"] }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 symphonia = { version = "=0.6.1", default-features = false, features = ["aac"] }
@@ -32,7 +33,6 @@ wayland-protocols = { version = "=0.32.13", features = ["client", "staging"] }
 x11-dl = "=2.21.0"
 ksni = "=0.3.6"
 zbus = { version = "=5.19.0", default-features = false, features = ["tokio"] }
-image = { version = "=0.25.10", default-features = false, features = ["png"] }
 ashpd = { version = "=0.13.13", default-features = false, features = ["tokio", "global_shortcuts", "settings"] }
 futures-util.workspace = true
 gtk4 = { version = "=0.11.4", features = ["v4_10"] }

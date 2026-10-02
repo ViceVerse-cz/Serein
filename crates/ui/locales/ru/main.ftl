@@ -4352,6 +4352,12 @@ lib-composer-onboarding-incomplete = Завершите вступление, ч
 # Context: composer
 lib-composer-onboarding-complete = Завершить знакомство
 
+voice-recipient-ring = Позвонить снова
+voice-recipient-stop-ringing = Перестать звонить
+voice-recipient-ringing = Вызов…
+voice-recipient-not-in-call = Не в звонке
+reconnect-now = Переподключиться
+
 voice-call-moved-to-another-client = Сеанс звонка на этом устройстве был заменён
 
 server-settings-page-safety = Настройка безопасности

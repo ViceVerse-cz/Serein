@@ -116,6 +116,18 @@ One-to-one DM calls accept only their expected peer. Group DM and server calls s
 
 ## Group DM calls
 
+Connected one-to-one and group DM stages also show recipients who have not joined,
+with **Ringing…** or **Not in call** status rather than an invented microphone state.
+Right-click an absent recipient's avatar to **Stop ringing** that recipient or
+**Ring again** after ringing has stopped. These explicit actions target one current
+recipient of the joined call; they never join a conversation or start media.
+The initial call still rings only once after transport allocation. Recipient write
+failures remain visible in the stage while the call continues; no uncertain write
+automatically retries. Leaving, changing calls, disconnecting, and changes to DM
+membership cancel the one pending recipient write. Guild calls have no ringing
+controls. This uses the existing unofficial normal-user call HTTP routes; synthetic
+tests do not establish live Discord acceptance.
+
 Existing group conversations expose the same Start/Answer/Decline/Join controls, call stage,
 mute/deafen, audio device and gain controls, focused push-to-talk, noise suppression,
 privacy code, camera, screen sharing and stream viewing as one-to-one calls. Opening the
@@ -777,3 +789,21 @@ checks settings rendering and capture guards without opening devices. Physical l
 microphone permission prompts remain owner-verified behavior.
 
 Rapid mute/unmute invalidates partial callback PCM.
+
+Recipient ringing consumes the confirmed local call scope. Session replacement or
+local abandonment cancels initial and targeted ringing, clears dispatcher ownership
+and rejects queued actions from the previous request. Targeted HTTP work checks the
+latest ownership, membership revision and connection availability before polling
+the network future; already accepted service writes cannot be undone.
+
+Recipient actions also recheck latest validated service ringing and observed peer
+presence when dequeued: Ring again requires an absent, non-ringing peer; Stop
+ringing requires current service-confirmed ringing. Unknown ringing disables both
+actions until call metadata arrives; relevant target/scope changes cancel pending writes.
+
+Pending targeted ringing revalidates the requested recipient when call metadata
+changes. An unrelated participant’s mute/camera update preserves an eligible
+request; a target joining during a start, being removed, reaching the requested
+service state, or losing its current call scope cancels obsolete work. The UI
+continues to show service-confirmed state instead of reporting successful state
+changes as failures.

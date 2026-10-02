@@ -1,0 +1,239 @@
+{
+  "date_utc": "2026-10-02",
+  "environment": {
+    "os": "macOS 27.0",
+    "cpu": "Apple M1",
+    "ram_gib": 16,
+    "rust": "1.98.1 pinned",
+    "renderer": "Metal",
+    "logical_viewport": [
+      1120,
+      760
+    ],
+    "scale": 2
+  },
+  "source": {
+    "baseline": "47a81035047695fe1d81edc4cb7efe46c14d87a8",
+    "after": "ec22a0136ab7aeefc7e08e326e6312c47fea03ce",
+    "runtime_after": "9275aad507b6fcb1cfb1633d4543a2f33e23a1b6",
+    "after_followup": "Packaging-only absolute icon output path; application code is byte-identical to fully checked 9275."
+  },
+  "before_build": {
+    "commit": "47a81035047695fe1d81edc4cb7efe46c14d87a8",
+    "command": "CARGO_PROFILE_RELEASE_LTO=thin CARGO_BUILD_JOBS=2 cargo build --release --locked -p serein --features demo",
+    "bytes": 66727920,
+    "sha256": "7442f289d9581af8a9e17b10505e27754a0beceaf473c7d1fbcad4726e85d834",
+    "profile_override": "process-only thin LTO; repository release profile unchanged",
+    "native_instrumentation": false
+  },
+  "after_build": {
+    "source": "ec22a0136ab7aeefc7e08e326e6312c47fea03ce",
+    "runtime_source": "9275aad507b6fcb1cfb1633d4543a2f33e23a1b6",
+    "path": "/Users/claw/Code/Serein/target/issue-sweep/diagnostics/ec22a013/serein-release-demo-thin",
+    "bytes": 66727936,
+    "sha256": "5f576ef1987c50efa803a1a66684ded3bcb1723366bd6555b8b4f58419002b5f",
+    "command": "CARGO_PROFILE_RELEASE_LTO=thin CARGO_BUILD_JOBS=2 cargo build --release --locked -p serein --features demo",
+    "profile_override": "process-only thin LTO; repository fat profile unchanged",
+    "native_instrumentation": false
+  },
+  "before_samples": {
+    "binary": "/Users/claw/Code/Serein/target/issue-sweep/ui-thin-baseline-47a/serein-release-demo",
+    "flags": [
+      "--demo",
+      "--demo-chat",
+      "--demo-settings=keybinds"
+    ],
+    "warmup_seconds": 5,
+    "interval_seconds": 1,
+    "samples": [
+      {
+        "seconds": 5.029,
+        "cpu_percent": 0.0,
+        "rss_kib": 128944
+      },
+      {
+        "seconds": 6.053,
+        "cpu_percent": 0.0,
+        "rss_kib": 128896
+      },
+      {
+        "seconds": 7.079,
+        "cpu_percent": 0.0,
+        "rss_kib": 128896
+      },
+      {
+        "seconds": 8.107,
+        "cpu_percent": 0.0,
+        "rss_kib": 128896
+      },
+      {
+        "seconds": 9.125,
+        "cpu_percent": 0.0,
+        "rss_kib": 128896
+      },
+      {
+        "seconds": 10.142,
+        "cpu_percent": 0.0,
+        "rss_kib": 128896
+      },
+      {
+        "seconds": 11.167,
+        "cpu_percent": 0.0,
+        "rss_kib": 128896
+      },
+      {
+        "seconds": 12.184,
+        "cpu_percent": 0.0,
+        "rss_kib": 128896
+      },
+      {
+        "seconds": 13.207,
+        "cpu_percent": 0.0,
+        "rss_kib": 128896
+      },
+      {
+        "seconds": 14.234,
+        "cpu_percent": 0.0,
+        "rss_kib": 128896
+      }
+    ],
+    "cpu_percent_median": 0.0,
+    "rss_peak_kib": 128944,
+    "rss_settled_kib": 128896,
+    "elapsed_seconds": 15.265,
+    "user_cpu_seconds": 0.24970099999999998,
+    "system_cpu_seconds": 0.295271,
+    "exit_code": -2,
+    "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo"
+  },
+  "after_samples": {
+    "binary": "/Users/claw/Code/Serein/target/issue-sweep/diagnostics/ec22a013/serein-release-demo-thin",
+    "flags": [
+      "--demo",
+      "--demo-chat",
+      "--demo-settings=keybinds"
+    ],
+    "warmup_seconds": 5,
+    "interval_seconds": 1,
+    "samples": [
+      {
+        "seconds": 5.028,
+        "cpu_percent": 0.0,
+        "rss_kib": 128880
+      },
+      {
+        "seconds": 6.054,
+        "cpu_percent": 0.0,
+        "rss_kib": 128880
+      },
+      {
+        "seconds": 7.08,
+        "cpu_percent": 0.0,
+        "rss_kib": 128832
+      },
+      {
+        "seconds": 8.105,
+        "cpu_percent": 0.0,
+        "rss_kib": 128832
+      },
+      {
+        "seconds": 9.125,
+        "cpu_percent": 0.0,
+        "rss_kib": 128832
+      },
+      {
+        "seconds": 10.152,
+        "cpu_percent": 0.0,
+        "rss_kib": 128832
+      },
+      {
+        "seconds": 11.176,
+        "cpu_percent": 0.0,
+        "rss_kib": 128832
+      },
+      {
+        "seconds": 12.202,
+        "cpu_percent": 0.0,
+        "rss_kib": 128832
+      },
+      {
+        "seconds": 13.227,
+        "cpu_percent": 0.0,
+        "rss_kib": 128832
+      },
+      {
+        "seconds": 14.244,
+        "cpu_percent": 0.0,
+        "rss_kib": 128832
+      }
+    ],
+    "cpu_percent_median": 0.0,
+    "rss_peak_kib": 128880,
+    "rss_settled_kib": 128832,
+    "elapsed_seconds": 15.266,
+    "user_cpu_seconds": 0.29516899999999996,
+    "system_cpu_seconds": 0.166505,
+    "exit_code": -2,
+    "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo"
+  },
+  "global_quiet": {
+    "root": "full checks complete; no compiler",
+    "ui": "full and optimized builds complete; explicitly held",
+    "voice": "optimized build complete; explicitly held",
+    "external": "focused tests complete; explicitly held",
+    "other_build": "independent build finished naturally; ps checked before sampling",
+    "native_apps": "four sequential launches, each stopped before the next"
+  },
+  "limitations": "Process-only matched thin LTO override; repository FAT profile unchanged. Common idle state controls regressions; action/search latency, GPU memory and frame/startup latency unmeasured. Small RSS variation is noise, not an improvement claim.",
+  "standard_package": {
+    "baseline": {
+      "commit": "ef9cd5d1d846335713af71f9f1d9cd895483d59d",
+      "command": "cargo xtask package",
+      "features": "standard xtask package; voice included; xtask internally uses --no-default-features",
+      "executable": 62088304,
+      "installed": 68098733,
+      "compressed": 43286187,
+      "files": 206,
+      "executable_sha256": "acd232f6e3cd094b4e4b7bdfeb099ee336908a7653112d1de00103a604f87ffe",
+      "zip_method": "ditto -c -k --sequesterRsrc full standard-dist contents, without enclosing directory"
+    },
+    "after": {
+      "commit": "ec22a0136ab7aeefc7e08e326e6312c47fea03ce",
+      "command": "cargo xtask package",
+      "features": "standard xtask package; voice included; xtask internally uses --no-default-features",
+      "executable": 62088304,
+      "installed": 68098733,
+      "compressed": 43289301,
+      "files": 206,
+      "executable_sha256": "7f31e31dcb484e117344580ac585ded985f0d84d8963b2d629a56f5d41882664",
+      "zip_method": "ditto -c -k --sequesterRsrc full standard-dist contents, without enclosing directory"
+    },
+    "baseline_identity": "ef9cd5d1 application source is byte-identical to recorded parent47a81035",
+    "method": "Unchanged repository fat-LTO profile; cargo xtask package including voice; regular installed files summed; complete ditto ZIP; locally ad-hoc signed.",
+    "build_provenance": "All runtime workspace crates compiled from the intended worktree. Changed builds invalidate all workspace-name artifacts across worktree PackageIDs while preserving third-party dependencies."
+  },
+  "verification": {
+    "full_check": "passed on runtime source 9275",
+    "native_capture": "actual native WGPU images inspected; removable hooks excluded from measurement and shipping source",
+    "build_provenance": "Both changed thin build logs show every runtime workspace dependency rebuilt from the exact intended worktree; no stale worktree package reused."
+  },
+  "native_capture": {
+    "baseline": "47a81035047695fe1d81edc4cb7efe46c14d87a8",
+    "after_runtime": "9275aad507b6fcb1cfb1633d4543a2f33e23a1b6",
+    "command": "serein --demo --demo-chat --demo-settings=keybinds",
+    "synthetic_input": "keybinds-bottom; identical -2000 point scroll at frame4",
+    "native": true,
+    "temporary_capture_hooks_removed_exactly": true,
+    "viewport": "1120x760 logical, 2x, Metal",
+    "images": {
+      "before.png": {
+        "bytes": 687231,
+        "sha256": "57c47b427cebda4e6038b5308951e8421388b17759d9c708a285ba694a5a1eb6"
+      },
+      "after.png": {
+        "bytes": 695225,
+        "sha256": "e6d4df04c8c1d672fec40ee9657136fb3e7cd80d3be357c1588b0e76d3416b87"
+      }
+    }
+  }
+}

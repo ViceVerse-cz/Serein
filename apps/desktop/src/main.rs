@@ -79,6 +79,14 @@ const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 fn main() -> eframe::Result {
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-resume-send")
+	{
+		discord_gateway::debug_recovery_check();
+		ui::debug_resume_send_check(test_support::demo_state());
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-audio")
 	{
 		audio::debug_voice_message_check();
@@ -2591,10 +2599,7 @@ impl Desktop {
 			self.tray_setting.failed = !accepted && !self.fixture_only && !self.state.demo;
 			self.cache_pending += usize::from(accepted);
 		}
-		if !self.tray_setting.enabled {
-			self.tray = None;
-			self.tray_error = None;
-		} else if self.tray_error.is_some() {
+		if self.tray_error.is_some() {
 			self.tray = None;
 		} else if self.tray.is_none() {
 			let wake = ctx.clone();
@@ -2613,9 +2618,41 @@ impl Desktop {
 				Err(error) => self.tray_error = Some(error),
 			}
 		}
+		if let Some(tray) = &self.tray {
+			let deafened = self.messaging.voice_deafened
+				|| self
+					.state
+					.voice
+					.active
+					.as_ref()
+					.is_some_and(|c| c.deafened || c.server_deafened);
+			let muted = self.messaging.voice_muted
+				|| self
+					.state
+					.voice
+					.active
+					.as_ref()
+					.is_some_and(|c| c.muted || c.server_muted);
+			let speaking = self
+				.state
+				.user
+				.as_ref()
+				.is_some_and(|own| self.messaging.voice_speaking.contains(&own.id));
+			let voice_state = if deafened {
+				platform::tray::VoiceState::Deafened
+			} else if muted {
+				platform::tray::VoiceState::Muted
+			} else if speaking {
+				platform::tray::VoiceState::Speaking
+			} else {
+				platform::tray::VoiceState::Unmuted
+			};
+			tray.set_voice_state(voice_state);
+		}
 		if self.tray_window.hidden && !self.tray_available() {
 			self.tray_window.show(ctx);
 		}
+		// The icon remains registered independently of minimize-on-close.
 		self.messaging.tray_status = self
 			.tray_error
 			.unwrap_or_else(|| self.tray_setting.status());
@@ -3053,6 +3090,13 @@ impl Desktop {
 	}
 	/// Dispatches one queued command to the demo or live transport.
 	fn command(&mut self, command: Command) {
+		if !self.state.gateway_connected
+			&& self.state.auth == AuthState::Authenticated
+			&& matches!(command, Command::Send { .. })
+			&& let Some(connection) = &self.connection
+		{
+			connection.recover_send();
+		}
 		if matches!(&command, Command::Interaction(client_core::interactions::Request {data:client_core::interactions::Data::Modal{components,..},..}) if interaction_uploads::has_files(components))
 		{
 			self.interaction_upload(command);
@@ -4418,10 +4462,9 @@ impl Desktop {
 							self.state.auth = AuthState::Authenticating;
 							self.state.status = "Waiting for Discord login";
 						}
-						Err(_) => {
+						Err(error) => {
 							self.state.auth = AuthState::Failed;
-							self.state.status =
-								"Platform login webview unavailable; see platform-support.md";
+							self.state.status = error.label();
 						}
 					}
 				}
@@ -4956,7 +4999,7 @@ impl Desktop {
 				}
 			}
 		}
-		if self.fixture_only || self.state.demo || self.state.auth != AuthState::Authenticated {
+		if !self.fixture_only && !self.state.demo && self.state.auth != AuthState::Authenticated {
 			if let Some(worker) = self.avatars.take() {
 				self.avatar_cleanup = Some(worker.shutdown());
 			}
@@ -4967,7 +5010,11 @@ impl Desktop {
 			&& self.avatar_cleanup.is_none()
 			&& let Some(user) = &self.state.user
 		{
-			match avatars::AvatarWorker::start(&self.runtime, user.id, ctx.clone()) {
+			match if self.fixture_only || self.state.demo {
+				avatars::AvatarWorker::start_bundled(&self.runtime, ctx.clone())
+			} else {
+				avatars::AvatarWorker::start(&self.runtime, user.id, ctx.clone())
+			} {
 				Ok(worker) => {
 					self.messaging.clear_avatars();
 					self.avatars = Some(worker);
@@ -5413,6 +5460,11 @@ impl Desktop {
 			let voice_failure = self.voice.observe(&self.state, &mut event.event);
 			let ready = event.event.ready_navigation().is_some();
 			let resumed = matches!(event.event, Event::Resumed);
+			if (ready || resumed)
+				&& let Some(connection) = &self.connection
+			{
+				connection.gateway_recovered();
+			}
 			let confirmed_channel = confirmed_recovery_channel(&self.state, &event.event);
 			let deleted_shortcut = match &event.event {
 				Event::Unavailable(channel)
@@ -5653,6 +5705,9 @@ impl Desktop {
 			self.connection = None;
 			self.pending_save = None;
 			self.pending_account_save = None;
+			self.voice.stop();
+			self.messaging.camera_test_requested = false;
+			self.messaging.camera_test_texture = None;
 			self.state.apply(Envelope {
 				generation: self.state.generation,
 				event: Event::Failure(failure),
@@ -5967,6 +6022,7 @@ impl eframe::App for Desktop {
 					}
 				}
 				platform::tray::Event::Unavailable => {
+					self.tray = None;
 					self.tray_error = Some(if cfg!(target_os = "linux") {
 						"Tray unavailable. Start a StatusNotifier host, then toggle the tray off/on."
 					} else {
@@ -6049,6 +6105,15 @@ impl eframe::App for Desktop {
 		self.messaging.voice_ptt_active = self.messaging.voice_push_to_talk
 			&& self.state.voice.active.is_some()
 			&& (self.messaging.push_to_talk_down(ctx) || self.hotkeys.push_to_talk_down());
+		if self.state.auth == AuthState::Authenticated || self.state.demo {
+			self.poll_voice(ctx);
+		} else {
+			self.voice.stop();
+		}
+		self.sync_tray(ctx);
+		if self.state.voice.active.is_some() {
+			ctx.request_repaint_after(std::time::Duration::from_millis(50));
+		}
 	}
 	fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
 		let ctx = ui.ctx().clone();
@@ -6777,16 +6842,23 @@ impl eframe::App for Desktop {
 					self.messaging.accept_avatar(&ctx, key, None);
 				}
 			}
-			if self.messaging.reconnect_requested {
-				if let Some(store) = &mut self.store {
-					store.cancel_load();
-				}
-				self.messaging.reconnect_requested = false;
-				let wake = ctx.clone();
-				match platform::LoginView::open(self.window.clone(), move || wake.request_repaint())
-				{
-					Ok(login) => self.login = Some(login),
-					Err(_) => self.state.status = "Platform login webview unavailable",
+			if std::mem::take(&mut self.messaging.reconnect_requested) {
+				if self.state.auth == AuthState::Authenticated {
+					if let Some(connection) = &self.connection {
+						connection.reconnect();
+						self.state.status = "Reconnecting to Discord…";
+					}
+				} else {
+					if let Some(store) = &mut self.store {
+						store.cancel_load();
+					}
+					let wake = ctx.clone();
+					match platform::LoginView::open(self.window.clone(), move || {
+						wake.request_repaint()
+					}) {
+						Ok(login) => self.login = Some(login),
+						Err(error) => self.state.status = error.label(),
+					}
 				}
 			}
 			let draft_changes = std::mem::take(&mut self.messaging.draft_changes);
@@ -6806,7 +6878,6 @@ impl eframe::App for Desktop {
 			for command in commands {
 				self.command(command);
 			}
-			self.poll_voice(&ctx);
 			if self.messaging.logout_requested {
 				self.messaging.logout_requested = false;
 				self.request_session_end(&ctx, SessionEnd::Logout);
@@ -6859,7 +6930,6 @@ impl eframe::App for Desktop {
 			&mut self.messaging,
 			self.fixture_only || self.state.demo,
 		);
-		self.sync_tray(&ctx);
 		if appearance != self.appearance {
 			self.appearance = appearance;
 			self.appearance_changed = true;
