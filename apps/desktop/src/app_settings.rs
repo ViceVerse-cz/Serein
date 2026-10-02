@@ -48,6 +48,7 @@ impl Settings {
 			voice_deafened: ui.voice_deafened,
 			voice_input: ui.voice_input.clone(),
 			voice_output: ui.voice_output.clone(),
+			media_output: ui.media_output.clone(),
 			input_percent: ui.voice_gain.input_percent,
 			output_percent: ui.voice_gain.output_percent,
 			keybinds: ui.keybinds.clone(),
@@ -88,6 +89,7 @@ impl Settings {
 		ui.voice_deafened = value.voice_deafened;
 		ui.voice_input.clone_from(&value.voice_input);
 		ui.voice_output.clone_from(&value.voice_output);
+		ui.media_output.clone_from(&value.media_output);
 		ui.voice_gain.input_percent = value.input_percent;
 		ui.voice_gain.output_percent = value.output_percent;
 		ui.keybinds = value.keybinds.clone();

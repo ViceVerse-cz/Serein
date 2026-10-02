@@ -4367,6 +4367,9 @@ lib-composer-onboarding-incomplete = Dokonči připojení k serveru a odemkni da
 # Context: composer
 lib-composer-onboarding-complete = Dokončit uvítání
 
+voice-media-output = Výstup médií
+voice-media-output-hint = Platí pro nově spuštěné audio/video a sledované streamy.
+
 # Explicit public attachment hosting
 public-upload-host-file = Hostovat soubor…
 public-upload-heading = Nahrát na Catbox

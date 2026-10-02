@@ -24,6 +24,8 @@ pub struct Connection {
 	pub events: ReliableEvents,
 	pub typing: mpsc::Receiver<Envelope>,
 	pub terminal: watch::Receiver<Option<Failure>>,
+	/// One fixed-size candidate failure, independent of the account event queue.
+	pub confirmation_failure: watch::Receiver<Option<ConfirmationFailure>>,
 	pub share_activity: watch::Sender<bool>,
 	pub custom_rich_presence: watch::Sender<Option<extensions::CustomRichPresence>>,
 	pub own_presence: watch::Sender<model::OwnPresence>,
@@ -43,6 +45,45 @@ pub struct Connection {
 	pub activity_sharing_request: mpsc::Sender<bool>,
 	typing_channel: Arc<AtomicU64>,
 	task: JoinHandle<()>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ConfirmationFailure {
+	generation: u64,
+	channel: model::Id,
+	request: u64,
+	revision: u64,
+	message: &'static str,
+}
+impl ConfirmationFailure {
+	fn envelope(self) -> Envelope {
+		Envelope {
+			generation: self.generation,
+			event: Event::Voice(client_core::voice::Event::SessionConfirmationFailed {
+				channel: self.channel,
+				request: self.request,
+				revision: self.revision,
+				message: self.message,
+			}),
+		}
+	}
+}
+pub fn take_confirmation_failure(
+	receiver: &mut watch::Receiver<Option<ConfirmationFailure>>,
+	events: &ReliableEvents,
+) -> Option<Envelope> {
+	// A replacement candidate/ACK may still be behind this frame's reliable batch.
+	// Keep the report unseen until preceding signaling is consumed; the original
+	// negotiation deadline still bounds failure if sustained events never drain.
+	if !events.receive.is_empty() {
+		return None;
+	}
+	// Ref::has_changed preserves an unread final version after publisher shutdown.
+	// Release its read lock before handing the report to the event consumer.
+	let failure = {
+		let report = receiver.borrow_and_update();
+		report.has_changed().then_some(*report).flatten()
+	};
+	failure.map(ConfirmationFailure::envelope)
 }
 impl Drop for Connection {
 	fn drop(&mut self) {
@@ -74,6 +115,7 @@ impl Connection {
 		let (send, events) = reliable_events(ctx.clone());
 		let (typing_send, typing) = mpsc::channel(8);
 		let (finished, terminal) = watch::channel(None);
+		let (confirmation_report, confirmation_failure) = watch::channel(None);
 		let (share_activity, share_receive) = watch::channel(false);
 		let (custom_rich_presence, custom_receive) = watch::channel(None);
 		let (own_presence, presence_receive) = watch::channel(model::OwnPresence::default());
@@ -385,6 +427,10 @@ impl Connection {
                                     queue_abandonment(&voice_send,&mut pending_abandonment,control,owner);
                                     continue;
                                 }
+                                if matches!(control,V::ConfirmSession{..}) {
+                                    if let Some(error)=queue_confirmation(&voice_send,control,voice_request,*voice_availability.borrow()) {report_confirmation_failure(&confirmation_report,generation,error,voice_request,&wake);}
+                                    continue;
+                                }
                                 if abandonment_blocks_join(pending_abandonment,control) {
                                     emit(Event::Voice(E::Failed{channel,request,message:"Previous call is releasing locally; retry joining after it finishes"}))?;continue;
                                 }
@@ -505,6 +551,7 @@ impl Connection {
 			events,
 			typing,
 			terminal,
+			confirmation_failure,
 			share_activity,
 			own_presence,
 			presence_edits,
@@ -920,6 +967,84 @@ fn queue_abandonment(
 	}
 }
 
+// A stale candidate cannot fail its replacement: the desktop rechecks the tagged revision.
+fn report_confirmation_failure(
+	sender: &watch::Sender<Option<ConfirmationFailure>>,
+	generation: u64,
+	event: client_core::voice::Event,
+	owner: Option<(model::Id, u64, bool)>,
+	wake: &egui::Context,
+) {
+	let client_core::voice::Event::SessionConfirmationFailed {
+		channel,
+		request,
+		revision,
+		message,
+	} = event
+	else {
+		unreachable!("only candidate confirmation failures use this report");
+	};
+	if !owner.is_some_and(|(id, attempt, _)| (id, attempt) == (channel, request)) {
+		return;
+	}
+	let failure = ConfirmationFailure {
+		generation,
+		channel,
+		request,
+		revision,
+		message,
+	};
+	if sender.send_if_modified(|current| {
+		if current.is_some_and(|old| {
+			(old.generation, old.channel, old.request) == (generation, channel, request)
+				&& old.revision >= revision
+		}) {
+			return false;
+		}
+		*current = Some(failure);
+		true
+	}) {
+		wake.request_repaint();
+	}
+}
+
+fn queue_confirmation(
+	sender: &mpsc::Sender<client_core::voice::Command>,
+	control: client_core::voice::Command,
+	owner: Option<(model::Id, u64, bool)>,
+	online: bool,
+) -> Option<client_core::voice::Event> {
+	let client_core::voice::Command::ConfirmSession {
+		channel,
+		request,
+		revision,
+	} = control
+	else {
+		unreachable!("only local transport confirmations use this admission path");
+	};
+	let message = if !online {
+		"Call confirmation was not sent; voice signaling is disconnected"
+	} else if !owner.is_some_and(|(id, attempt, _)| (id, attempt) == (channel, request)) {
+		"Call confirmation expired; no action was sent"
+	} else {
+		match sender.try_send(control) {
+			Ok(()) => return None,
+			Err(mpsc::error::TrySendError::Full(_)) => {
+				"Call confirmation was not sent; the voice queue is full"
+			}
+			Err(mpsc::error::TrySendError::Closed(_)) => {
+				"Call confirmation was not sent; voice signaling is disconnected"
+			}
+		}
+	};
+	Some(client_core::voice::Event::SessionConfirmationFailed {
+		channel,
+		request,
+		revision,
+		message,
+	})
+}
+
 // A fresh Join can meet the still-full queue just after local release was queued.
 fn queue_join(
 	sender: &mpsc::Sender<client_core::voice::Command>,
@@ -1230,6 +1355,294 @@ mod tests {
 				expected
 			);
 		}
+	}
+
+	#[tokio::test]
+	async fn confirmation_report_waits_for_replacement_signaling_beyond_one_frame_batch() {
+		use client_core::voice::Event as E;
+		let ctx = egui::Context::default();
+		let (reliable, mut events) = reliable_events(ctx.clone());
+		let (typing, _) = mpsc::channel(8);
+		for id in 1..=EVENT_SLOTS as u64 {
+			emit_event(&reliable, &typing, queued_channel(id), &ctx).unwrap();
+		}
+		for event in [
+			E::Server {
+				channel: model::Id(20),
+				request: 5,
+				negotiation_revision: Some(3),
+				token: Some(client_core::voice::Secret::new("synthetic-token".into()).unwrap()),
+				endpoint: Some("synthetic.discord.media".into()),
+			},
+			E::SessionConfirmed {
+				channel: model::Id(20),
+				request: 5,
+				revision: 3,
+			},
+		] {
+			emit_event(
+				&reliable,
+				&typing,
+				Envelope {
+					generation: 7,
+					event: Event::Voice(event),
+				},
+				&ctx,
+			)
+			.unwrap();
+		}
+		let (report, mut failure) = watch::channel(None);
+		report_confirmation_failure(
+			&report,
+			7,
+			E::SessionConfirmationFailed {
+				channel: model::Id(20),
+				request: 5,
+				revision: 2,
+				message: "old candidate queue full",
+			},
+			Some((model::Id(20), 5, false)),
+			&ctx,
+		);
+		drop(report);
+		for _ in 0..EVENT_SLOTS {
+			assert!(matches!(
+				events.try_recv().unwrap().event,
+				Event::ChannelCreated(_)
+			));
+		}
+		assert!(take_confirmation_failure(&mut failure, &events).is_none());
+		assert!(failure.borrow().has_changed());
+		assert!(matches!(
+			events.try_recv().unwrap().event,
+			Event::Voice(E::Server {
+				negotiation_revision: Some(3),
+				..
+			})
+		));
+		assert!(take_confirmation_failure(&mut failure, &events).is_none());
+		assert!(failure.borrow().has_changed());
+		assert!(matches!(
+			events.try_recv().unwrap().event,
+			Event::Voice(E::SessionConfirmed { revision: 3, .. })
+		));
+		let error = take_confirmation_failure(&mut failure, &events).unwrap();
+		assert!(matches!(
+			error.event,
+			Event::Voice(E::SessionConfirmationFailed { revision: 2, .. })
+		));
+		assert!(take_confirmation_failure(&mut failure, &events).is_none());
+	}
+
+	#[tokio::test]
+	async fn closed_confirmation_report_is_delivered_once_without_repeating_each_frame() {
+		use client_core::voice::Event as E;
+		let ctx = egui::Context::default();
+		let (report, mut receiver) = watch::channel(None);
+		let (_, events) = reliable_events(ctx.clone());
+		assert!(take_confirmation_failure(&mut receiver, &events).is_none());
+		report_confirmation_failure(
+			&report,
+			7,
+			E::SessionConfirmationFailed {
+				channel: model::Id(20),
+				request: 5,
+				revision: 3,
+				message: "confirmation queue full",
+			},
+			Some((model::Id(20), 5, false)),
+			&ctx,
+		);
+		drop(report);
+		assert!(receiver.has_changed().is_err());
+		let envelope = take_confirmation_failure(&mut receiver, &events)
+			.expect("final unseen report survives publisher shutdown");
+		assert_eq!(envelope.generation, 7);
+		assert!(matches!(
+			envelope.event,
+			Event::Voice(E::SessionConfirmationFailed {
+				channel: model::Id(20),
+				request: 5,
+				revision: 3,
+				..
+			})
+		));
+		assert!(take_confirmation_failure(&mut receiver, &events).is_none());
+	}
+
+	#[tokio::test]
+	async fn confirmation_failure_bypasses_full_account_events_and_keeps_latest_candidate() {
+		use client_core::voice::{Command as V, Event as E};
+		let ctx = egui::Context::default();
+		let (reliable, mut events) = reliable_events(ctx.clone());
+		let (typing, _) = mpsc::channel(8);
+		for id in 1..=RELIABLE_ITEMS as u64 {
+			emit_event(&reliable, &typing, queued_channel(id), &ctx).unwrap();
+		}
+		// Both the item and byte budgets are exhausted; candidate delivery uses neither.
+		let remaining = reliable.bytes.available_permits() as u32;
+		let held = reliable
+			.bytes
+			.clone()
+			.try_acquire_many_owned(remaining)
+			.unwrap();
+		let (controls, mut control_receive) = mpsc::channel(8);
+		for _ in 0..8 {
+			controls
+				.try_send(V::Sync {
+					channel: model::Id(20),
+				})
+				.unwrap();
+		}
+		let owner = Some((model::Id(20), 5, false));
+		let control = V::ConfirmSession {
+			channel: model::Id(20),
+			request: 5,
+			revision: 3,
+		};
+		let (report, mut failure) = watch::channel(None);
+		let error = queue_confirmation(&controls, control, owner, true).unwrap();
+		report_confirmation_failure(&report, 7, error, owner, &ctx);
+		assert!(failure.has_changed().unwrap());
+		let current = (*failure.borrow()).unwrap();
+		assert!(take_confirmation_failure(&mut failure, &events).is_none());
+		assert!(failure.has_changed().unwrap());
+		let envelope = current.envelope();
+		assert_eq!(envelope.generation, 7);
+		assert!(matches!(
+			envelope.event,
+			Event::Voice(E::SessionConfirmationFailed {
+				channel: model::Id(20),
+				request: 5,
+				revision: 3,
+				..
+			})
+		));
+		assert_eq!(reliable.send.capacity(), 0);
+		assert_eq!(reliable.bytes.available_permits(), 0);
+		assert_eq!(control_receive.len(), 8);
+		for (request, revision) in [(5, 2), (5, 3), (4, 9)] {
+			report_confirmation_failure(
+				&report,
+				7,
+				E::SessionConfirmationFailed {
+					channel: model::Id(20),
+					request,
+					revision,
+					message: "stale",
+				},
+				owner,
+				&ctx,
+			);
+			assert!(failure.has_changed().unwrap());
+			assert_eq!(*failure.borrow(), Some(current));
+		}
+		drop(held);
+		for id in 1..=RELIABLE_ITEMS as u64 {
+			let Event::ChannelCreated(channel) = events.try_recv().unwrap().event else {
+				panic!("queued account event lost");
+			};
+			assert_eq!(channel.id, model::Id(id));
+		}
+		assert!(events.try_recv().is_err());
+		let envelope = take_confirmation_failure(&mut failure, &events).unwrap();
+		assert!(take_confirmation_failure(&mut failure, &events).is_none());
+		let mut state = client_core::State {
+			generation: 7,
+			auth: client_core::auth::AuthState::Authenticated,
+			..Default::default()
+		};
+		state.apply(envelope);
+		assert_eq!(state.auth, client_core::auth::AuthState::Authenticated);
+		for _ in 0..8 {
+			assert!(matches!(control_receive.try_recv(), Ok(V::Sync { .. })));
+		}
+		report_confirmation_failure(
+			&report,
+			7,
+			E::SessionConfirmationFailed {
+				channel: model::Id(20),
+				request: 6,
+				revision: 1,
+				message: "new attempt",
+			},
+			Some((model::Id(20), 6, false)),
+			&ctx,
+		);
+		assert!(failure.has_changed().unwrap());
+		assert_eq!(failure.borrow_and_update().unwrap().request, 6);
+		assert!(size_of::<Option<ConfirmationFailure>>() <= 64);
+	}
+
+	#[tokio::test]
+	async fn confirmation_queue_pressure_is_revision_scoped_and_preserves_queued_controls() {
+		use client_core::voice::{Command as V, Event as E};
+		let (sender, mut receiver) = mpsc::channel(8);
+		for _ in 0..8 {
+			sender
+				.try_send(V::Sync {
+					channel: model::Id(20),
+				})
+				.unwrap();
+		}
+		let confirmation = V::ConfirmSession {
+			channel: model::Id(20),
+			request: 5,
+			revision: 2,
+		};
+		let owner = Some((model::Id(20), 5, false));
+		assert!(matches!(
+			queue_confirmation(&sender, confirmation, owner, true),
+			Some(E::SessionConfirmationFailed {
+				channel: model::Id(20),
+				request: 5,
+				revision: 2,
+				message: "Call confirmation was not sent; the voice queue is full"
+			})
+		));
+		assert_eq!(receiver.len(), 8);
+		for _ in 0..8 {
+			assert!(matches!(
+				receiver.recv().await,
+				Some(V::Sync {
+					channel: model::Id(20)
+				})
+			));
+		}
+		for (active, online) in [
+			(None, true),
+			(Some((model::Id(20), 6, false)), true),
+			(owner, false),
+		] {
+			assert!(matches!(
+				queue_confirmation(&sender, confirmation, active, online),
+				Some(E::SessionConfirmationFailed {
+					request: 5,
+					revision: 2,
+					..
+				})
+			));
+			assert!(receiver.try_recv().is_err());
+		}
+		assert!(queue_confirmation(&sender, confirmation, owner, true).is_none());
+		assert!(matches!(
+			receiver.recv().await,
+			Some(V::ConfirmSession {
+				request: 5,
+				revision: 2,
+				..
+			})
+		));
+		drop(receiver);
+		assert!(matches!(
+			queue_confirmation(&sender, confirmation, owner, true),
+			Some(E::SessionConfirmationFailed {
+				request: 5,
+				revision: 2,
+				message: "Call confirmation was not sent; voice signaling is disconnected",
+				..
+			})
+		));
 	}
 
 	#[tokio::test]

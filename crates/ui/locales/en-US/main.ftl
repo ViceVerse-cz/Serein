@@ -4365,6 +4365,9 @@ lib-composer-onboarding-incomplete = Finish joining this server to unlock more c
 # Context: composer
 lib-composer-onboarding-complete = Complete Onboarding
 
+voice-media-output = Media output
+voice-media-output-hint = Applies to new audio/video playback and watched streams.
+
 # Explicit public attachment hosting
 public-upload-host-file = Host file…
 public-upload-heading = Upload to Catbox

@@ -4348,6 +4348,8 @@ lib-composer-onboarding-incomplete = Schließe den Beitritt ab, um weitere Kanä
 # Context: composer
 lib-composer-onboarding-complete = Einführung abschließen
 
+voice-media-output = Medienausgabe
+voice-media-output-hint = Gilt für neu gestartete Audio-/Videowiedergabe und angesehene Streams.
 voice-call-moved-to-another-client = Die Anrufsitzung dieses Geräts wurde ersetzt
 
 server-settings-page-safety = Sicherheitseinstellungen

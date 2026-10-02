@@ -2289,6 +2289,18 @@ impl MessagingUi {
 			device(ui, true);
 			device(ui, false);
 		}
+		let media_label = ui.label(crate::i18n::translate("voice-media-output"));
+		device_combo(
+			ui,
+			"media-output",
+			&self.voice_outputs,
+			&mut self.media_output,
+		)
+		.labelled_by(media_label.id);
+		ui.label(
+			design::medium(ui, crate::i18n::translate("voice-media-output-hint"), 12.0)
+				.color(colors.muted),
+		);
 		gain_controls(ui, &mut self.voice_gain);
 		ui.horizontal(|ui| {
 			ui.spacing_mut().item_spacing.x = 4.0;

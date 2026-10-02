@@ -79,6 +79,7 @@ impl Gate {
 }
 #[derive(Clone)]
 struct Request {
+	output: Option<String>,
 	generation: u64,
 	url: Option<url::Url>,
 	expected: usize,
@@ -93,6 +94,7 @@ struct Worker {
 }
 #[derive(Default)]
 pub struct Audio {
+	pub output: Option<String>,
 	gate: Arc<Gate>,
 	worker: Option<Worker>,
 	status: Status,
@@ -167,6 +169,7 @@ impl Audio {
 			return Err("Audio worker stopped; restart Serein");
 		}
 		worker.requests.send_replace(Some(Request {
+			output: self.output.clone(),
 			generation,
 			url,
 			expected,
@@ -857,6 +860,7 @@ fn check_large_attachment_admission() {
 	let (_status, updates) = watch::channel((0, Status::default()));
 	let mut audio = Audio {
 		gate: Arc::new(Gate::default()),
+		output: None,
 		worker: Some(Worker {
 			requests,
 			status: updates,
@@ -928,6 +932,7 @@ pub fn debug_voice_message_check() {
 		.unwrap();
 	for voice_message in [false, true] {
 		let request = Request {
+			output: None,
 			generation: 0,
 			url: None,
 			expected: 1,

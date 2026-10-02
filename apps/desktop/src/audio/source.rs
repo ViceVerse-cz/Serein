@@ -638,6 +638,7 @@ pub(super) fn debug_check() {
 		resume_wake.notify_one();
 	});
 	let request = Request {
+		output: None,
 		duration: Duration::ZERO,
 		generation: 0,
 		url: Some(url),

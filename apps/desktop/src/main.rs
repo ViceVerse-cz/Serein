@@ -30,6 +30,7 @@ mod game_activity;
 mod gpu;
 mod group_icon;
 mod interaction_uploads;
+mod media_output;
 mod notification_runtime;
 mod notification_sounds;
 #[cfg(feature = "demo")]
@@ -5381,6 +5382,14 @@ impl Desktop {
 			}
 			let typing_count = events.len() - reliable_count;
 			events.rotate_right(typing_count);
+			// A local candidate failure must remain deliverable when reliable account
+			// events are full. Apply queued signaling first; observe rechecks its scope.
+			if let Some(failure) = connection::take_confirmation_failure(
+				&mut connection.confirmation_failure,
+				&connection.events,
+			) {
+				events.push(failure);
+			}
 			terminal = *connection.terminal.borrow();
 		}
 		let mut persist_timeline = false;
@@ -5994,6 +6003,7 @@ impl eframe::App for Desktop {
 		}
 		self.video.poll(self.messaging.video(), ctx);
 		let audio = self.audio.poll();
+		self.audio.output.clone_from(&self.messaging.media_output);
 		let player = self.messaging.audio();
 		player.position = audio.position.as_secs_f64();
 		player.duration = audio.duration.as_secs_f64();
@@ -6418,6 +6428,7 @@ impl eframe::App for Desktop {
 					ui::AudioCommand::Stop => self.audio.stop(),
 				}
 			}
+			self.video.output.clone_from(&self.messaging.media_output);
 			let player = self.messaging.video();
 			if self.state.demo
 				&& let Some(pause) = self.demo_video_autoplay

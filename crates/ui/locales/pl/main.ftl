@@ -4351,6 +4351,8 @@ lib-composer-onboarding-incomplete = Dokończ dołączanie do serwera, aby odblo
 # Context: composer
 lib-composer-onboarding-complete = Dokończ wprowadzenie
 
+voice-media-output = Wyjście multimediów
+voice-media-output-hint = Dotyczy nowego odtwarzania audio/wideo i oglądanych transmisji.
 voice-call-moved-to-another-client = Sesja połączenia na tym urządzeniu została zastąpiona
 
 server-settings-page-safety = Konfiguracja bezpieczeństwa

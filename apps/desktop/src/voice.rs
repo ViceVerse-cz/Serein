@@ -421,6 +421,35 @@ impl Voice {
 			}
 			return None;
 		}
+		if let voice::Event::SessionConfirmationFailed {
+			channel,
+			request,
+			revision,
+			message,
+		} = event
+		{
+			let pending = self.pending.as_ref().or_else(|| {
+				self.live
+					.as_ref()
+					.and_then(|live| live.negotiation.as_ref())
+			});
+			let current = pending.is_some_and(|pending| {
+				pending.generation == state.generation
+					&& pending.accepts_confirmation(*channel, *request, *revision)
+					&& state.can_call(*channel)
+					&& state.voice.active.as_ref().is_some_and(|call| {
+						(call.channel, call.request) == (*channel, *request)
+							&& matches!(
+								call.phase,
+								Phase::Connecting
+									| Phase::ConnectingTransport
+									| Phase::Discovering | Phase::Securing
+							)
+					})
+			});
+			// The caller uses fail/end_control; unconfirmed negotiation selects local Abandon.
+			return current.then_some(*message);
+		}
 		if let voice::Event::SessionConfirmed {
 			channel,
 			request,
@@ -712,7 +741,11 @@ impl Voice {
 			live.audio
 				.set_gain(ui.voice_gain.input_percent, ui.voice_gain.output_percent);
 			let user_volumes = ui.voice_user_volumes();
-			let stream_volume = ui.voice_stream_volume();
+			let stream_volume = if ui.media_output.is_some() {
+				0
+			} else {
+				ui.voice_stream_volume()
+			};
 			let activity_threshold_db = ui
 				.voice_processing
 				.effective()
@@ -1369,7 +1402,11 @@ impl Voice {
 			camera: 0,
 			deafened: false,
 			user_volumes: ui.voice_user_volumes(),
-			stream_volume: ui.voice_stream_volume(),
+			stream_volume: if ui.media_output.is_some() {
+				0
+			} else {
+				ui.voice_stream_volume()
+			},
 		});
 		let remote_video: Arc<std::sync::Mutex<RemotePictures>> =
 			Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -2033,6 +2070,239 @@ mod tests {
 		assert!(state.start_call(Id(22), false).is_some());
 		assert!(manager.begin(&state, false).is_ok());
 	}
+	#[test]
+	fn confirmation_failure_abandons_only_the_current_unconfirmed_candidate() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		state.gateway_connected = true;
+		state.start_call(Id(22), false).unwrap();
+		let request = state.voice.active.as_ref().unwrap().request;
+		let mut manager = Voice::default();
+		manager.begin(&state, false).unwrap();
+		let pending = manager.pending.as_mut().unwrap();
+		pending.session = Some(Secret::new("synthetic-session".into()).unwrap());
+		pending.server = Some((
+			Secret::new("synthetic-token".into()).unwrap(),
+			"synthetic.discord.media".into(),
+		));
+		pending.negotiation_revision = Some(2);
+		let started = pending.started;
+		let failure = |channel, attempt, revision| {
+			Event::Voice(voice::Event::SessionConfirmationFailed {
+				channel,
+				request: attempt,
+				revision,
+				message: "Call confirmation was not sent; the voice queue is full",
+			})
+		};
+		state.voice.active.as_mut().unwrap().phase = Phase::Securing;
+		for (channel, attempt, revision) in [
+			(Id(22), request, 1),
+			(Id(23), request, 2),
+			(Id(22), request + 1, 2),
+		] {
+			assert!(
+				manager
+					.observe(&state, &mut failure(channel, attempt, revision))
+					.is_none()
+			);
+			assert_eq!(manager.pending.as_ref().unwrap().started, started);
+		}
+		for phase in [
+			Phase::Connected,
+			Phase::Waiting,
+			Phase::Ringing,
+			Phase::OpeningAudio,
+			Phase::Failed,
+		] {
+			state.voice.active.as_mut().unwrap().phase = phase;
+			assert!(
+				manager
+					.observe(&state, &mut failure(Id(22), request, 2))
+					.is_none()
+			);
+		}
+		for phase in [
+			Phase::Connecting,
+			Phase::ConnectingTransport,
+			Phase::Discovering,
+			Phase::Securing,
+		] {
+			state.voice.active.as_mut().unwrap().phase = phase;
+			assert!(
+				manager
+					.observe(&state, &mut failure(Id(22), request, 2))
+					.is_some()
+			);
+		}
+		manager.pending.as_mut().unwrap().generation += 1;
+		assert!(
+			manager
+				.observe(&state, &mut failure(Id(22), request, 2))
+				.is_none()
+		);
+		manager.pending.as_mut().unwrap().generation = state.generation;
+		manager.pending.as_mut().unwrap().failed_candidate = true;
+		assert!(
+			manager
+				.observe(&state, &mut failure(Id(22), request, 2))
+				.is_none()
+		);
+		manager.pending.as_mut().unwrap().failed_candidate = false;
+		manager.pending.as_mut().unwrap().started = Instant::now() - Duration::from_secs(31);
+		assert!(
+			manager
+				.observe(&state, &mut failure(Id(22), request, 2))
+				.is_none()
+		);
+		manager.pending.as_mut().unwrap().started = started;
+		let auth = state.auth;
+		// Core cannot fail a candidate merely from its channel/request: revision lives in Desktop.
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: failure(Id(22), request, 1),
+		});
+		assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Securing);
+		let error = manager
+			.observe(&state, &mut failure(Id(22), request, 2))
+			.unwrap();
+		assert!(
+			matches!(manager.fail(&mut state, error), Some(Command::Voice(voice::Command::AbandonSession { channel: Id(22), request: attempt })) if attempt == request)
+		);
+		assert_eq!(state.auth, auth);
+		assert!(state.gateway_connected);
+		assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Failed);
+		assert!(manager.pending.is_none() && manager.live.is_none());
+		assert!(
+			manager
+				.observe(&state, &mut failure(Id(22), request, 2))
+				.is_none()
+		);
+	}
+
+	#[test]
+	fn confirmation_failure_stops_live_unconfirmed_transport_and_audio_worker() {
+		// The audio worker stays behind its initial ready=false gate throughout this test:
+		// it never enumerates/opens devices. The transport is only a pending local task.
+		let runtime = Runtime::new().unwrap();
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		state.gateway_connected = true;
+		state.start_call(Id(22), false).unwrap();
+		state.voice.active.as_mut().unwrap().phase = Phase::Securing;
+		let request = state.voice.active.as_ref().unwrap().request;
+		let auth = state.auth;
+		let mut manager = Voice::default();
+		manager.begin(&state, false).unwrap();
+		let mut pending = manager.pending.take().unwrap();
+		pending.session = Some(Secret::new("synthetic-session".into()).unwrap());
+		pending.server = Some((
+			Secret::new("synthetic-token".into()).unwrap(),
+			"synthetic.discord.media".into(),
+		));
+		pending.negotiation_revision = Some(2);
+		let (capture, _captured) = mpsc::sync_channel(8);
+		let (_playback, playback) = mpsc::sync_channel(8);
+		let (device_event, device_events) = mpsc::sync_channel(1);
+		let audio = Audio::start(Devices::default(), capture, playback, move |event| {
+			let _ = device_event.try_send(event);
+		})
+		.unwrap();
+		assert!(!audio.is_ready());
+		let gate = audio.gate.clone();
+		assert!(!gate.ready.load(std::sync::atomic::Ordering::Acquire));
+		struct OnDrop(Option<tokio::sync::oneshot::Sender<()>>);
+		impl Drop for OnDrop {
+			fn drop(&mut self) {
+				let _ = self.0.take().unwrap().send(());
+			}
+		}
+		let (started, running) = tokio::sync::oneshot::channel();
+		let (stopped, finished) = tokio::sync::oneshot::channel();
+		let task = runtime.spawn(async move {
+			let _on_drop = OnDrop(Some(stopped));
+			let _ = started.send(());
+			std::future::pending::<()>().await;
+		});
+		runtime.block_on(async {
+			tokio::time::timeout(Duration::from_secs(2), running)
+				.await
+				.unwrap()
+				.unwrap();
+		});
+		let transport = task.abort_handle();
+		let (controls, _control_events) = watch::channel(Controls::default());
+		let (_notices, events) = mpsc::sync_channel(8);
+		let (_speaking, speakers) = watch::channel([0; 64]);
+		let (camera_frames, _camera_frames) = mpsc::sync_channel(1);
+		let (stream_audio, _stream_audio) = mpsc::sync_channel(8);
+		manager.live = Some(Live {
+			generation: pending.generation,
+			channel: pending.channel,
+			request,
+			user: pending.user,
+			peer: pending.peer,
+			ring_pending: false,
+			cues: CallCues::default(),
+			session: Zeroizing::new("synthetic-session".into()),
+			negotiation_revision: 2,
+			negotiation: Some(pending),
+			media_ready: false,
+			waiting_for_peer: false,
+			identity: discord_voice::Identity::generate(),
+			audio,
+			controls,
+			events,
+			failure: Arc::new(OnceLock::new()),
+			speakers,
+			task,
+			devices: Devices::default(),
+			device_deadline: None,
+			camera_frames,
+			camera_negotiated: false,
+			camera_clock: Instant::now(),
+			remote_video: Arc::new(std::sync::Mutex::new(Vec::new())),
+			stream_audio,
+		});
+		let failure = |revision| {
+			Event::Voice(voice::Event::SessionConfirmationFailed {
+				channel: Id(22),
+				request,
+				revision,
+				message: "Call confirmation was not sent; the voice queue is full",
+			})
+		};
+		assert!(manager.observe(&state, &mut failure(1)).is_none());
+		assert!(manager.pending.is_none() && manager.live.is_some());
+		assert!(!transport.is_finished());
+		assert!(!manager.live.as_ref().unwrap().audio.is_stopped());
+		let error = manager.observe(&state, &mut failure(2)).unwrap();
+		assert!(matches!(
+			manager.fail(&mut state, error),
+			Some(Command::Voice(voice::Command::AbandonSession {
+				channel: Id(22), request: attempt
+			})) if attempt == request
+		));
+		assert!(manager.pending.is_none() && manager.live.is_none());
+		runtime.block_on(async {
+			tokio::time::timeout(Duration::from_secs(2), finished)
+				.await
+				.unwrap()
+				.unwrap();
+		});
+		manager
+			.retiring
+			.take()
+			.unwrap()
+			.recv_timeout(Duration::from_secs(2))
+			.unwrap();
+		assert!(!gate.ready.load(std::sync::atomic::Ordering::Acquire));
+		assert!(device_events.try_recv().is_err());
+		assert_eq!(state.auth, auth);
+		assert!(state.gateway_connected);
+		assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Failed);
+	}
+
 	#[test]
 	fn takeover_join_reconciles_both_credential_orders_and_rejects_stale_transport_readiness() {
 		for server_first in [false, true] {

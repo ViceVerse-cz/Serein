@@ -4348,6 +4348,8 @@ lib-composer-onboarding-incomplete = Termina de unirte a este servidor para desb
 # Context: composer
 lib-composer-onboarding-complete = Completar bienvenida
 
+voice-media-output = Salida multimedia
+voice-media-output-hint = Se aplica a nuevas reproducciones de audio/vídeo y a las transmisiones que ves.
 voice-call-moved-to-another-client = Se reemplazó la sesión de llamada de este dispositivo
 
 server-settings-page-safety = Configuración de seguridad

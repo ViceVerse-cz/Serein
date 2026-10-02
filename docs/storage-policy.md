@@ -1,5 +1,21 @@
 # Local storage policy and audit
 
+## Independent media output (October 2, 2026)
+
+The optional media output device ID joins device-local application preferences,
+bounded to 1,024 bytes and the existing 16 KiB preference record. It survives logout
+and restart; demo changes remain in memory. Attachment audio/video workers take
+one selected ID per playback request. A watched-stream routing worker retains at
+most eight mono 20 ms frames (30,720 bytes), one stereo output ring of at most
+2,880 sample pairs (23,040 bytes), and one frame being processed (3,840 bytes).
+The media callback and native driver buffers are additional. There is one worker
+per explicit watched stream, replaced and stopped with its owning watch context.
+A retiring worker must finish native output teardown before the next worker starts;
+rapid watch switches cannot accumulate output workers. Each drain pass examines
+at most eight frames even if incoming packets continue refilling the channel.
+Mute/deafen, device changes and stop clear the pending PCM; nothing is persisted,
+recorded, logged or sent anywhere beyond existing Discord transports.
+
 ## Image decoder lifetime and stream frame reuse (October 2, 2026)
 
 Each image worker still admits eight loads. Blocking image decoders now share
@@ -1562,3 +1578,16 @@ confirmation is acknowledged, the desktop keeps one extra pending credential set
 replacement behind the existing audio retirement fence. It keeps the original
 30-second deadline and zeroizes that set on confirmation, cancellation or failure
 teardown. Failed candidates do not spawn retries until credentials actually change.
+
+Local voice-confirmation admission failures carry one generation, channel ID,
+attempt and candidate revision plus a fixed static diagnostic through a dedicated
+latest-report watch. Its optional payload is at most 64 bytes, plus fixed watch
+synchronization metadata; it allocates no payload buffer and retains no credentials.
+It uses no reliable account-event item or byte capacity. Only the current owner
+scope can publish, and older revisions cannot overwrite a newer report for that
+scope. A report stays unseen until the reliable FIFO drains, so a preceding
+replacement or confirmation beyond the current frame's batch is applied first.
+The original negotiation deadline remains bounded during sustained event load.
+The desktop consumes only the matching current unconfirmed candidate;
+existing bounded local abandonment handles release after failure. There is no new
+retry worker or pending command slot.
