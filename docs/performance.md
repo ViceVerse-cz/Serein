@@ -3193,6 +3193,52 @@ Raw build sizes, hashes and process samples are retained in
 `docs/pr-evidence/external-upload/measurements.json`. The evidence-only follow-up
 changes no runtime source from the measured commit.
 
+## Active server in the emoji picker (October 2, 2026)
+
+Parent `47a81035047695fe1d81edc4cb7efe46c14d87a8` and runtime source
+`942bf21c92240d4fa0a8dbf2392ae9b159ed2fba` used pinned Rust 1.98.1 on
+macOS 27.0 (26A428), Apple M1 (8 logical CPUs), 16 GiB RAM and native Metal
+at 2× display scale. The preserved standard package at `ef9cd5d1` has identical
+runtime and host-build inputs to parent `47a81035`, verified across apps,
+crates, assets, tools, vendor, macOS packaging, Cargo files, notices, license
+and toolchain. Intervening Arch/repository recipes do not affect this host package.
+Both normal voice-enabled `cargo xtask package` builds passed without profile
+or feature overrides; xtask internally uses `--no-default-features`. Installed
+bytes sum all regular files; ZIPs use `ditto -c -k --sequesterRsrc` without an
+enclosing directory. Both packages contain 206 files.
+
+| Metric | Baseline | After | Absolute / percent delta |
+| --- | ---: | ---: | ---: |
+| Standard executable, bytes | 62,088,304 | 62,088,304 | 0 / 0% |
+| Full installed payload, bytes | 68,098,733 | 68,098,733 | 0 / 0% |
+| Complete ZIP, bytes | 43,286,187 | 43,286,600 | +413 / +0.000954% |
+| Release demo median process CPU | 0.0% | 0.0% | +0.0 percentage points |
+| Sampled peak process RSS, KiB | 131,360 | 131,504 | +144 / +0.1096% |
+| Settled process RSS, KiB | 131,312 | 131,472 | +160 / +0.1218% |
+
+The native process comparison uses matched
+`cargo build --release --locked -p serein --features demo` builds with the
+identical process-only `CARGO_PROFILE_RELEASE_LTO=thin` override and
+`CARGO_BUILD_JOBS=2`, in an independent cache. This changes no repository
+profile and is separate from the standard fat-LTO package comparison above.
+Both uninstrumented binaries run `--demo --demo-emoji`, with five seconds of
+warmup followed by ten one-second macOS `ps` CPU/RSS samples. Settled RSS is
+the median of the last five samples. All four build owners held compilation,
+and no other Serein demo ran during either sample. Both processes were stopped
+by intentional SIGINT after collection. One build/sample per revision, small
+RSS/ZIP differences and quantized 0.0% idle CPU do not establish an improvement.
+
+The performance workload opens the ordinary offline picker. Actual native
+before/after frames separately use the same temporary fixture inserting one
+server before the active server; instrumentation was removed before committing.
+The rail remaps visible indices without copying catalogs, and the regression
+clicks the displayed first guild and restores an actually scrolled 42-server
+rail to its top after the active guild changes. Active scrolling, GPU memory,
+frame/startup latency, OS input routing and live Discord behavior remain
+unmeasured. Raw hashes, package sizes and process samples are retained in
+`docs/pr-evidence/active-server-emoji/measurements.json`. The evidence-only
+follow-up changes no runtime source from the measured commit.
+
 ## AUR binary recipe payload (October 2, 2026)
 
 The local packaging pass used the published Arch x86_64 package from
