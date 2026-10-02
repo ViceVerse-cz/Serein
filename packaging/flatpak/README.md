@@ -89,7 +89,7 @@ credentials and account activity are not needed. Serein does not alter environme
 variables, global locale, sandbox permissions or runtime language configuration.
 UTF-8 encoding alone is not proof that the runtime or login is healthy. Share
 only the locale/version output and redacted startup errors, never credentials or
-raw network traffic. Native non-Flatpak installations retain their existing path.
+raw network traffic. Native non-Flatpak installations retain their existing window-startup path.
 
 ### Sandbox Permissions
 

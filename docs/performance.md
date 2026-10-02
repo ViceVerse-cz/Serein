@@ -2414,10 +2414,14 @@ no worker, cache, retained payload, retry or persistent setting. Non-Flatpak pat
 retain their behavior. Existing synthetic authentication-handoff and four offline
 Flatpak preparation tests passed; a Linux-only subprocess test uses actual GLib
 encoding for native ASCII, Flatpak ASCII rejection, and Flatpak UTF-8 admission
-without GTK display, WebKit, credentials or global environment mutation.
+without GTK display, WebKit, credentials or global environment mutation. A
+separate display-backed regression repeats the cases after actual GTK
+initialization under Xvfb in the Linux native CI job; it constructs no WebKit.
 
 The development host is macOS 27 / Apple M1 / 16 GiB; this code is excluded from
-its compiled runtime. Native Linux Flatpak startup/CPU/RSS and affected Linux
+its compiled runtime; desktop error callers reuse the existing static
+`Failure::label()` mapper so the repair guidance remains visible. Native Linux
+Flatpak startup/CPU/RSS and affected Linux
 package deltas are unmeasured here, and no improvement is claimed. Linux CI and
 reporter confirmation remain required. The preserved exact-parent `1107d904`
 standard macOS package is 62,154,064 executable / 68,164,493 installed / 43,322,199

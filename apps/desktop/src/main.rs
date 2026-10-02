@@ -4395,10 +4395,9 @@ impl Desktop {
 							self.state.auth = AuthState::Authenticating;
 							self.state.status = "Waiting for Discord login";
 						}
-						Err(_) => {
+						Err(error) => {
 							self.state.auth = AuthState::Failed;
-							self.state.status =
-								"Platform login webview unavailable; see platform-support.md";
+							self.state.status = error.label();
 						}
 					}
 				}
@@ -6753,7 +6752,7 @@ impl eframe::App for Desktop {
 				match platform::LoginView::open(self.window.clone(), move || wake.request_repaint())
 				{
 					Ok(login) => self.login = Some(login),
-					Err(_) => self.state.status = "Platform login webview unavailable",
+					Err(error) => self.state.status = error.label(),
 				}
 			}
 			let draft_changes = std::mem::take(&mut self.messaging.draft_changes);

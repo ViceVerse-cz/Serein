@@ -80,8 +80,11 @@ mod flatpak_locale_tests {
 	fn non_utf8_webkit_preflight_is_local_to_flatpak() {
 		const CHILD: &str = "SEREIN_TEST_WEBKIT_LOCALE_CHILD";
 		if let Some(mode) = std::env::var_os(CHILD) {
-			// Query the real GLib encoding in an isolated C-locale process, without GTK,
-			// a display, a WebKit subprocess, authentication, or global environment writes.
+			// Fresh processes avoid GLib's cached encoding. Only the explicitly display-backed
+			// regression initializes GTK; neither test constructs WebKit or authenticates.
+			if std::env::var_os("SEREIN_TEST_WEBKIT_INITIALIZE_GTK").is_some() {
+				gtk4::init().expect("display-backed GTK initialization");
+			}
 			assert_eq!(gtk4::glib::charset().0, mode == "utf8");
 			assert_eq!(super::ensure_webkit_locale().is_err(), mode == "flatpak");
 			assert_eq!(
@@ -90,6 +93,17 @@ mod flatpak_locale_tests {
 			);
 			return;
 		}
+		check_encoding_cases(false);
+	}
+
+	#[test]
+	#[ignore = "requires a Linux display; explicitly exercised under Xvfb in native CI"]
+	fn post_gtk_flatpak_encoding_preflight() {
+		check_encoding_cases(true);
+	}
+
+	fn check_encoding_cases(initialize_gtk: bool) {
+		const CHILD: &str = "SEREIN_TEST_WEBKIT_LOCALE_CHILD";
 		for mode in ["native", "flatpak", "utf8"] {
 			if mode == "native" && std::path::Path::new("/.flatpak-info").is_file() {
 				continue; // A real sandbox marker cannot be removed to simulate a native app.
@@ -103,12 +117,20 @@ mod flatpak_locale_tests {
 				.env(CHILD, mode)
 				.env("LC_ALL", "C")
 				.env("CHARSET", if mode == "utf8" { "UTF-8" } else { "US-ASCII" })
-				.env_remove("FLATPAK_ID");
+				.env_remove("FLATPAK_ID")
+				.env_remove("SEREIN_TEST_WEBKIT_INITIALIZE_GTK");
+			if initialize_gtk {
+				child.env("SEREIN_TEST_WEBKIT_INITIALIZE_GTK", "1");
+			}
 			if mode != "native" {
 				child.env("FLATPAK_ID", "cz.viceverse.serein");
 			}
 			let output = child.output().unwrap();
-			assert!(output.status.success());
+			assert!(
+				output.status.success(),
+				"{mode}: {}",
+				String::from_utf8_lossy(&output.stderr)
+			);
 			assert!(
 				String::from_utf8(output.stdout)
 					.unwrap()

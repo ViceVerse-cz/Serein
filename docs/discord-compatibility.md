@@ -786,11 +786,12 @@ Search continuation (September 10): guild conversations use the guild search rou
 Flatpak locale containment (October 2, 2026): after GTK initialization, Linux login
 and invite-verification webviews reject a non-UTF-8 effective encoding inside
 Flatpak before constructing WebKit. The existing error surface provides runtime
-language/restart guidance. No environment/global locale, sandbox permission,
+language/restart guidance; sign-in and reconnect preserve the fixed local error
+label instead of replacing it with a generic webview error. No environment/global locale, sandbox permission,
 authentication handoff or storage setting is modified. This contains the known
 C-locale subprocess-start failure; it does not repair missing runtime locales or
 establish successful sign-in. The guard intentionally also blocks ASCII-only
-Flatpak setups that might otherwise happen to work. Native non-Flatpak behavior
+Flatpak setups that might otherwise happen to work. Native non-Flatpak webview admission
 is unchanged. See [Flatpak troubleshooting](../packaging/flatpak/README.md#loginverification-locale-troubleshooting).
 
 Login compatibility correction (September 10): READY read_state accepts both the legacy array and the versioned entries/version/partial object, under the same 4000-entry bound. Serein's Identify does not request the versioned_read_states capability; rejecting the legacy shape previously rejected the entire login payload. The capability's effect is described in the original [discord.py-self capability definitions](https://github.com/dolfies/discord.py-self/blob/master/discord/flags.py), rechecked September 10. Partial snapshots leave omitted channels unknown. Identify capabilities remain unchanged. Static error labels distinguish account verification, Gateway discovery, READY decoding and connection setup without exposing payloads, credentials or remote error text. Synthetic regression and loopback evidence do not establish actual account login success.
