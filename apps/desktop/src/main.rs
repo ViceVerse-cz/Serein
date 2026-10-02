@@ -84,7 +84,7 @@ fn main() -> eframe::Result {
 		avatars::debug_heic_check();
 		uploads::debug_heic_check();
 		println!(
-			"Offline HEIC check passed: brand recognition, malformed rejection, upload preview admission and bounded decode routing. Real photos and installed codecs unverified."
+			"Offline HEIC check passed: brand recognition, malformed rejection, upload preview admission, decoded aspect ratio and 4096px original viewer routing. Real photos and installed codecs unverified."
 		);
 		return Ok(());
 	}

@@ -333,6 +333,11 @@ encoded, 8192 pixels per edge and 128 MiB RGBA). OS codec scratch allocations ar
 not controlled by Serein. Originals remain unchanged when uploaded, with image/heic
 or image/heif MIME types. Incoming attachments prefer Discord's existing image
 proxy; HEIC filenames can fall back to the validated original CDN attachment.
+On Windows, the HEIC viewer prefers that original, with the existing 4096-pixel
+longest-edge display limit; larger photos are downscaled. Missing service dimensions
+use decoded pixels for the aspect ratio and displayed resolution, so that resolution
+is the decoded rendition, not necessarily the full source photo. Original downloads
+remain unchanged.
 Missing codecs or corrupt/oversized files retain the existing failed-preview state.
 macOS and Linux have no local HEIC decoder in this implementation; proxy-provided
 PNG/JPEG/WebP renditions can still display. Live Discord and real HEIC photos remain

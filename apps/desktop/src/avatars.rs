@@ -650,6 +650,16 @@ fn media_urls(rendition: &Rendition) -> Option<MediaUrls> {
 			direct_gif(source, size),
 		),
 	};
+	#[cfg(target_os = "windows")]
+	if heic_source(source)
+		&& rendition.lane == Lane::Viewer
+		&& let Some(original) = fallback.clone()
+	{
+		return Some(MediaUrls {
+			primary: original,
+			fallback: primary,
+		});
+	}
 	match primary {
 		Some(primary) => Some(MediaUrls { primary, fallback }),
 		None => fallback.map(|primary| MediaUrls {
@@ -2857,6 +2867,7 @@ mod tests {
 
 #[cfg(all(debug_assertions, feature = "demo"))]
 pub(crate) fn debug_heic_check() {
+	ui::debug_heic_layout_check();
 	for (filename, content_type, image) in [
 		("shelf-christmas-decoration.heic", None, true),
 		("photo.HEIC", Some("application/octet-stream"), true),
@@ -2899,6 +2910,17 @@ pub(crate) fn debug_heic_check() {
 	.unwrap();
 	let urls = media_urls(&rendition).unwrap();
 	assert_eq!(budget(&rendition.key()).canvas, 8192);
+	#[cfg(target_os = "windows")]
+	{
+		let viewer = Rendition {
+			lane: Lane::Viewer,
+			..rendition.clone()
+		};
+		let urls = media_urls(&viewer).unwrap();
+		assert!(urls.primary.contains("cdn.discordapp.com") && !urls.primary.contains("format="));
+		assert!(urls.fallback.unwrap().contains("format=webp"));
+	}
+
 	assert!(urls.primary.contains("format=webp"));
 	assert_eq!(
 		urls.fallback.as_deref(),

@@ -823,17 +823,19 @@ pub fn viewer(
 				Rect::from_center_size(full.center(), egui::vec2(1.0, 1.0))
 			};
 			// Image, centered on the stage, sized from bounded metadata.
-			let original = if attachment.media.width > 0 && attachment.media.height > 0 {
-				egui::vec2(
-					attachment.media.width.min(16384) as f32,
-					attachment.media.height.min(16384) as f32,
-				)
-			} else {
-				egui::vec2(320.0, 180.0)
-			};
+			let dimensions = images.media_dimensions(&attachment.media);
+			let original = dimensions.map_or(egui::vec2(320.0, 180.0), |[width, height]| {
+				egui::vec2(width as f32, height as f32)
+			});
 			let scale = (stage.width() / original.x)
 				.min(stage.height() / original.y)
-				.min(1.0);
+				.min(
+					if attachment.media.width > 0 && attachment.media.height > 0 {
+						1.0
+					} else {
+						f32::INFINITY
+					},
+				);
 			let fitted = (original * scale).max(egui::vec2(1.0, 1.0));
 			let image_rect = Rect::from_center_size(stage.center(), fitted);
 			if let Some(pointer) = ui.input(|i| i.pointer.hover_pos())
@@ -989,11 +991,8 @@ pub fn viewer(
 						.selectable(false),
 					);
 					let mut meta = format_size(attachment.size);
-					if attachment.media.width > 0 && attachment.media.height > 0 {
-						meta = format!(
-							"{meta} · {}×{}",
-							attachment.media.width, attachment.media.height
-						);
+					if let Some([width, height]) = images.media_dimensions(&attachment.media) {
+						meta = format!("{meta} · {width}×{height}");
 					}
 					ui.add(
 						egui::Label::new(
