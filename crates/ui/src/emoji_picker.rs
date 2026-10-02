@@ -184,6 +184,15 @@ impl GifMode {
 
 const CUSTOM_LIMIT: usize = model::MAX_GUILD_EMOJIS;
 
+/// Move the current conversation's server to the front without copying or reordering catalogs.
+fn server_rail_index(row: usize, current: Option<usize>) -> usize {
+	match current {
+		Some(current) if row == 0 => current,
+		Some(current) if row <= current => row - 1,
+		_ => row,
+	}
+}
+
 /// Case-insensitive substring test against an already lowercased `needle`. ASCII names
 /// (Discord permits only `[A-Za-z0-9_]`) compare in place; only non-ASCII server names allocate.
 fn contains_ignore_case(haystack: &str, needle: &str) -> bool {
@@ -829,6 +838,10 @@ impl Picker {
 		}
 		let colors = crate::design::palette(ui);
 		let demo = state.demo;
+		let current_server = state
+			.channel(channel)
+			.and_then(|channel| channel.guild)
+			.and_then(|guild| state.guilds.iter().position(|server| server.id == guild));
 		if self
 			.server
 			.is_some_and(|id| !state.guilds.iter().any(|guild| guild.id == id))
@@ -1199,7 +1212,8 @@ impl Picker {
 										.max_height(ui.available_height())
 										.show_rows(ui, 32.0, state.guilds.len(), |ui, rows| {
 											for index in rows {
-												let guild = &state.guilds[index];
+												let guild = &state.guilds
+													[server_rail_index(index, current_server)];
 												let active = self.server == Some(guild.id);
 												let response = ui
 													.push_id(guild.id, |ui| {
@@ -2243,6 +2257,124 @@ fn cell(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn server_rail_prioritizes_current_server_and_preserves_other_servers() {
+		for current in [None, Some(0), Some(2), Some(4)] {
+			let order: Vec<_> = (0..5).map(|row| server_rail_index(row, current)).collect();
+			let mut expected: Vec<_> = (0..5).filter(|index| Some(*index) != current).collect();
+			if let Some(current) = current {
+				expected.insert(0, current);
+			}
+			assert_eq!(order, expected);
+		}
+	}
+
+	#[test]
+	fn current_server_is_the_first_clickable_picker_rail_entry() {
+		let ctx = egui::Context::default();
+		ctx.enable_accesskit();
+		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		let mut second = state.guilds[0].clone();
+		second.id = Id(777);
+		second.name = "Current synthetic server".into();
+		state.guilds[0].name = "Other synthetic server".into();
+		state.guilds.push(second);
+		state
+			.channels
+			.iter_mut()
+			.find(|known| known.id == channel)
+			.unwrap()
+			.guild = Some(Id(777));
+		let order: Vec<_> = state.guilds.iter().map(|guild| guild.id).collect();
+		let mut picker = Picker {
+			open: true,
+			..Default::default()
+		};
+		let mut avatars = Avatars::default();
+		let mut frame = |picker: &mut Picker, state: &mut State, events| {
+			ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					ui.add_space(620.0);
+					let trigger = ui.button("Synthetic picker trigger");
+					let mut commands = Vec::new();
+					picker.popup(
+						ui,
+						state,
+						channel,
+						&mut avatars,
+						&mut commands,
+						&trigger,
+						None,
+					);
+					assert!(commands.is_empty());
+				},
+			)
+		};
+		for _ in 0..3 {
+			frame(&mut picker, &mut state, vec![]).drop_without_applying_deltas();
+		}
+		let output = frame(&mut picker, &mut state, vec![]);
+		let nodes = &output
+			.platform_output
+			.accesskit_update
+			.as_ref()
+			.unwrap()
+			.nodes;
+		let position = |name| {
+			nodes
+				.iter()
+				.find_map(|(_, node)| {
+					(node.label() == Some(name))
+						.then(|| node.bounds())
+						.flatten()
+				})
+				.expect("server rail entry")
+		};
+		let current = position("Current synthetic server");
+		let other = position("Other synthetic server");
+		assert!(current.y0 < other.y0);
+		let pos = egui::pos2(
+			((current.x0 + current.x1) * 0.5) as f32,
+			((current.y0 + current.y1) * 0.5) as f32,
+		);
+		output.drop_without_applying_deltas();
+		for pressed in [true, false] {
+			frame(
+				&mut picker,
+				&mut state,
+				vec![
+					egui::Event::PointerMoved(pos),
+					egui::Event::PointerButton {
+						pos,
+						button: egui::PointerButton::Primary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					},
+				],
+			)
+			.drop_without_applying_deltas();
+		}
+		assert_eq!(picker.server, Some(Id(777)));
+		assert_eq!(
+			state
+				.guilds
+				.iter()
+				.map(|guild| guild.id)
+				.collect::<Vec<_>>(),
+			order
+		);
+	}
 
 	#[test]
 	#[ignore = "release picker frame benchmark; ten warmup frames and one warmup/five measured batches"]
