@@ -63,6 +63,7 @@ pub struct AppPreferences {
 	pub output_percent: u16,
 	/// Which GPU renders the window; applied on the next start.
 	pub gpu_preference: model::GpuPreference,
+	pub hardware_acceleration: model::HardwareAcceleration,
 	/// Device-local, account-independent keyboard bindings.
 	pub keybinds: model::Keybinds,
 	/// Expanded server folders, bounded so one device preference stays small.
@@ -97,6 +98,7 @@ impl Default for AppPreferences {
 			input_percent: 100,
 			output_percent: 100,
 			gpu_preference: Default::default(),
+			hardware_acceleration: Default::default(),
 			keybinds: Default::default(),
 			expanded_folders: Vec::new(),
 			user_volumes: Vec::new(),
@@ -2018,6 +2020,10 @@ mod tests {
 			voice_input: Some("synthetic microphone".into()),
 			output_percent: 75,
 			gpu_preference: model::GpuPreference::PowerSaving,
+			hardware_acceleration: model::HardwareAcceleration {
+				app: false,
+				screen_share: false,
+			},
 			..Default::default()
 		};
 		store.save_app_preferences(&value).unwrap();

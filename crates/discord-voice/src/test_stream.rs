@@ -1,6 +1,6 @@
 //! Device-free Go Live sender/viewer integration; no Discord connection or capture device.
 use super::*;
-use crate::screen::{AudioChunk, EncodedFrame, Settings, SourceId, Video};
+use crate::screen::{AudioChunk, Codec, EncodedFrame, Settings, SourceId, Video};
 use client_core::voice::Secret;
 use model::Id;
 use std::sync::atomic::AtomicU64;
@@ -33,6 +33,16 @@ async fn connect(
 	delivery: &crate::test_mls::Delivery,
 	user: u64,
 ) -> (TestSocket, UdpSocket, SocketAddr, Vec<u8>, bool) {
+	connect_codec(listener, delivery, user, Codec::H264, Codec::H264).await
+}
+
+async fn connect_codec(
+	listener: &TcpListener,
+	delivery: &crate::test_mls::Delivery,
+	user: u64,
+	available: Codec,
+	negotiated: Codec,
+) -> (TestSocket, UdpSocket, SocketAddr, Vec<u8>, bool) {
 	let (tcp, _) = listener.accept().await.unwrap();
 	let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
 	let identify = message(&mut ws).await;
@@ -54,15 +64,21 @@ async fn connect(
 	let selected = message(&mut ws).await;
 	let selected: Value = serde_json::from_str(selected.to_text().unwrap()).unwrap();
 	assert_eq!(selected["op"], 1);
-	assert_eq!(selected["d"]["codecs"][0]["payload_type"], 120);
-	assert_eq!(selected["d"]["codecs"][1]["payload_type"], 101);
+	let mut expected = vec![
+		json!({"name":"opus","type":"audio","priority":1000,"payload_type":120}),
+		json!({"name":"H264","type":"video","priority":1000,"payload_type":101,"rtx_payload_type":102,"encode":user==1,"decode":user==2}),
+	];
+	if available == Codec::Av1 {
+		expected.push(json!({"name":"AV1","type":"video","priority":2000,"payload_type":105,"rtx_payload_type":106,"encode":true,"decode":false}));
+	}
+	assert_eq!(selected["d"]["codecs"], Value::Array(expected));
 	ws.send(Message::Binary(
 		[&[0, 1, 25], delivery.external.as_slice()].concat().into(),
 	))
 	.await
 	.unwrap();
 	event(&mut ws, json!({"op":11,"d":{"user_ids":["1","2"]}})).await;
-	event(&mut ws, json!({"op":4,"d":{"mode":MODE,"secret_key":vec![7;32],"dave_protocol_version":1,"video_codec":"H264"}})).await;
+	event(&mut ws, json!({"op":4,"d":{"mode":MODE,"secret_key":vec![7;32],"dave_protocol_version":1,"video_codec":negotiated.name()}})).await;
 	let mut soundshare = false;
 	let package = loop {
 		match message(&mut ws).await {
@@ -108,6 +124,8 @@ async fn exchange() {
 	let keyframe = Arc::new(AtomicBool::new(true));
 	let epoch = Arc::new(AtomicU64::new(0));
 	let video = Video {
+		codec: tokio::sync::watch::channel(Some(Codec::H264)).1,
+		codec_selection: tokio::sync::watch::channel(None).0,
 		settings: Settings {
 			source: SourceId::Display(1),
 			width: 320,
@@ -293,7 +311,7 @@ async fn exchange() {
 				assert!(ready.load(Ordering::Acquire));
 				let samples = (0..STREAM_AUDIO_FRAME).map(|i| ((i/2) as f32 * if i%2 == 0 {0.06} else {0.1}).sin() * 0.3).collect();
 				let _ = audio_tx.try_send(AudioChunk { samples, epoch: epoch.load(Ordering::Acquire) });
-				let _ = frames_tx.try_send(EncodedFrame { data: encoded.clone(), timestamp, keyframe: true });
+				let _ = frames_tx.try_send(EncodedFrame { codec: Codec::H264, data: encoded.clone(), timestamp, keyframe: true });
 				timestamp += 1800;
 				while let Ok(frame) = playback_rx.try_recv() { heard |= frame.iter().any(|sample| sample.abs() > 0.01); }
 				if let Ok(frame) = picture_rx.try_recv() { picture = Some(frame); }
@@ -341,4 +359,285 @@ async fn exchange() {
 		viewer.await.unwrap(),
 		Err("Discord stream connection closed")
 	);
+}
+
+#[tokio::test]
+async fn local_av1_sender_negotiates_encrypts_and_delivers_valid_frame() {
+	timeout(Duration::from_secs(10), codec_sender(Codec::Av1))
+		.await
+		.expect("Synthetic AV1 sender timed out");
+}
+
+#[tokio::test]
+async fn local_av1_sender_waits_for_h264_encoder_on_server_fallback() {
+	timeout(Duration::from_secs(10), codec_sender(Codec::H264))
+		.await
+		.expect("Synthetic H264 fallback sender timed out");
+}
+
+/// Actual transport and MLS exchange, with a mock capture worker and a local peer.
+/// This never probes a GPU, captures a screen, or connects to Discord.
+async fn codec_sender(negotiated: Codec) {
+	let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+	let url = format!("ws://{}", listener.local_addr().unwrap());
+	let (codec_tx, codec) = tokio::sync::watch::channel(None);
+	let (codec_selection, mut selection) = tokio::sync::watch::channel(None);
+	let (frames_tx, frames) = tokio::sync::mpsc::channel(3);
+	let ready = Arc::new(AtomicBool::new(false));
+	let video = Video {
+		codec,
+		codec_selection,
+		settings: Settings {
+			source: SourceId::Display(1),
+			width: 64,
+			height: 64,
+			fps: 30,
+			cursor: false,
+			audio: false,
+		},
+		frames,
+		ready: ready.clone(),
+		keyframe: Arc::new(AtomicBool::new(true)),
+		bitrate: Arc::new(std::sync::atomic::AtomicU32::new(4_000_000)),
+		audio: None,
+		audio_epoch: Arc::new(AtomicU64::new(0)),
+	};
+	let sender = tokio::spawn(async move {
+		run_stream_inner(
+			credentials(1),
+			Identity::generate(),
+			Some(video),
+			None,
+			None,
+			|_| Ok(()),
+			url,
+			true,
+		)
+		.await
+	});
+	// Capability is supplied only after an encoder has passed its offline probe.
+	assert!(
+		timeout(Duration::from_millis(30), listener.accept())
+			.await
+			.is_err(),
+		"Transport started before validated encoder capability"
+	);
+	codec_tx.send_replace(Some(Codec::Av1));
+	let delivery = crate::test_mls::Delivery::new();
+	let (mut ws, udp, client, _, soundshare) =
+		connect_codec(&listener, &delivery, 1, Codec::Av1, negotiated).await;
+	assert!(!soundshare);
+	selection.wait_for(|codec| codec.is_some()).await.unwrap();
+	assert_eq!(*selection.borrow(), Some(negotiated));
+	// Hold the capture worker on a codec different from the service selection.
+	// AV1-capable workers must finish an H264 restart before fallback can send.
+	codec_tx.send_replace(Some(if negotiated == Codec::Av1 {
+		Codec::H264
+	} else {
+		Codec::Av1
+	}));
+	let mut peer = Dave::new(2, Some(1), 3).unwrap();
+	peer.session
+		.set_external_sender(&delivery.external)
+		.unwrap();
+	let mut creator = Dave::new(1, Some(2), 3).unwrap();
+	creator
+		.session
+		.set_external_sender(&delivery.external)
+		.unwrap();
+	let proposal = delivery.add_proposal(&creator, &peer.key_package().unwrap());
+	ws.send(Message::Binary(
+		[&[0, 2, 27], proposal.as_slice()].concat().into(),
+	))
+	.await
+	.unwrap();
+	let response = message(&mut ws).await.into_data();
+	let (commit, welcome) = crate::test_mls::Delivery::split(&response);
+	peer.group_changed(30, &[&[0, 0], welcome.as_slice()].concat())
+		.unwrap();
+	ws.send(Message::Binary(
+		[&[0, 3, 29, 0, 0], commit.as_slice()].concat().into(),
+	))
+	.await
+	.unwrap();
+	// Fence the commit handler before checking the independent encoder readiness gate.
+	ws.send(Message::Ping(b"secure".to_vec().into()))
+		.await
+		.unwrap();
+	assert!(matches!(message(&mut ws).await, Message::Pong(data) if data.as_ref()==b"secure"));
+	assert!(!ready.load(Ordering::Acquire));
+	frames_tx
+		.send(EncodedFrame {
+			codec: negotiated,
+			data: vec![1], // Must be discarded before parsing while codec readiness is false.
+			timestamp: 0,
+			keyframe: true,
+		})
+		.await
+		.unwrap();
+	let mut datagram = [0; MAX_PACKET + 1];
+	let silence = tokio::time::sleep(Duration::from_millis(60));
+	tokio::pin!(silence);
+	loop {
+		tokio::select! {
+			_ = &mut silence => break,
+			result = udp.recv_from(&mut datagram) => {
+				let (length,address)=result.unwrap();
+				assert_eq!(address,client);
+				assert_eq!(length,8,"Media sent before encoder matched selected codec");
+				assert_eq!(&datagram[..4],&[0x13,0x37,0xca,0xfe]);
+			},
+			unexpected = message(&mut ws) => panic!("Announced media before matching encoder: {unexpected:?}"),
+		}
+	}
+	assert!(!ready.load(Ordering::Acquire));
+	// Mock the capture worker finishing the exact service-selected encoder restart.
+	codec_tx.send_replace(Some(negotiated));
+	let announcement = message(&mut ws).await;
+	let announcement: Value = serde_json::from_str(announcement.to_text().unwrap()).unwrap();
+	assert_eq!(announcement["op"], 12);
+	assert_eq!(announcement["d"]["video_ssrc"], 51);
+	assert!(ready.load(Ordering::Acquire));
+	// A repeated session update must preserve the already selected encoder.
+	event(
+		&mut ws,
+		json!({"op":14,"d":{"video_codec":negotiated.name()}}),
+	)
+	.await;
+	ws.send(Message::Ping(b"same-codec".to_vec().into()))
+		.await
+		.unwrap();
+	assert!(matches!(message(&mut ws).await, Message::Pong(data) if data.as_ref()==b"same-codec"));
+	assert!(ready.load(Ordering::Acquire));
+	let encoded = match negotiated {
+		Codec::Av1 => {
+			// A real 64×64 libaom keyframe, encoded and decoded offline via GStreamer.
+			vec![
+				0x12, 0x00, 0x0a, 0x0b, 0x00, 0x00, 0x00, 0x02, 0xaf, 0xff, 0xf0, 0x36, 0xbe, 0x40,
+				0x10, 0x32, 0x10, 0x10, 0x80, 0x80, 0x01, 0x00, 0x00, 0xb4, 0x51, 0xb4, 0xf0, 0xa1,
+				0xf1, 0x97, 0xe0, 0x13, 0x24,
+			]
+		}
+		Codec::H264 => {
+			let mut encoder = openh264::encoder::Encoder::with_api_config(
+				openh264::OpenH264API::from_source(),
+				openh264::encoder::EncoderConfig::new(),
+			)
+			.unwrap();
+			let source = openh264::formats::YUVBuffer::new(64, 64);
+			let mut encoded = Vec::new();
+			encoder.encode(&source).unwrap().write_vec(&mut encoded);
+			encoded
+		}
+	};
+	let expected = match negotiated {
+		Codec::Av1 => crate::video_av1::normalize_source(&encoded).unwrap(),
+		Codec::H264 => crate::video_sps::normalize(&encoded).unwrap().into_owned(),
+	};
+	frames_tx
+		.send(EncodedFrame {
+			codec: negotiated,
+			data: encoded,
+			timestamp: 90_000,
+			keyframe: true,
+		})
+		.await
+		.unwrap();
+	let transport = Encryption::new(&[7; 32]);
+	let mut packets = Vec::new();
+	loop {
+		let (length, address) = udp.recv_from(&mut datagram).await.unwrap();
+		assert_eq!(address, client);
+		if length == 8 {
+			continue;
+		}
+		let rtp = transport
+			.open(&datagram[..length])
+			.expect("Authenticated RTP");
+		assert_eq!(rtp.payload_type, negotiated.payload_type());
+		assert_eq!(rtp.ssrc, 51);
+		assert_eq!(rtp.timestamp, 90_000);
+		if let Some(previous) = packets.last() {
+			let previous: &crate::crypto::Rtp = previous;
+			assert_eq!(rtp.sequence, previous.sequence.wrapping_add(1));
+		}
+		let marker = rtp.marker;
+		packets.push(rtp);
+		assert!(packets.len() <= crate::video::MAX_FRAGMENTS);
+		if marker {
+			break;
+		}
+	}
+	let frame = reconstruct_codec_frame(negotiated, &packets);
+	assert_eq!(
+		peer.session
+			.decrypt(1, davey::MediaType::VIDEO, &frame)
+			.unwrap(),
+		expected
+	);
+	// A later participant can require a different codec. End this share visibly
+	// rather than continuing to send a codec that the service no longer selected.
+	let changed = if negotiated == Codec::Av1 {
+		Codec::H264
+	} else {
+		Codec::Av1
+	};
+	event(&mut ws, json!({"op":14,"d":{"video_codec":changed.name()}})).await;
+	assert_eq!(
+		sender.await.unwrap(),
+		Err("Discord changed the screen-share codec; stop and start sharing again")
+	);
+	assert!(!ready.load(Ordering::Acquire));
+}
+
+fn reconstruct_codec_frame(codec: Codec, packets: &[crate::crypto::Rtp]) -> Vec<u8> {
+	let mut output = Vec::new();
+	if codec == Codec::H264 {
+		for packet in packets {
+			let payload = &packet.payload;
+			if payload[0] & 31 == 28 {
+				if payload[1] & 128 != 0 {
+					output.extend([0, 0, 0, 1, (payload[0] & 0xe0) | (payload[1] & 31)]);
+				}
+				output.extend_from_slice(&payload[2..]);
+			} else {
+				output.extend([0, 0, 0, 1]);
+				output.extend_from_slice(payload);
+			}
+		}
+		return output;
+	}
+	let mut obus = Vec::<Vec<u8>>::new();
+	let mut fragmented = false;
+	for packet in packets {
+		let header = packet.payload[0];
+		assert_eq!(header & 0x30, 0x10);
+		assert_eq!(header & 0x80 != 0, fragmented);
+		if !fragmented {
+			obus.push(Vec::new());
+		}
+		obus.last_mut()
+			.unwrap()
+			.extend_from_slice(&packet.payload[1..]);
+		fragmented = header & 0x40 != 0;
+	}
+	assert!(!fragmented);
+	for (index, obu) in obus.iter().enumerate() {
+		let last = index + 1 == obus.len();
+		let header_len = 1 + usize::from(obu[0] & 4 != 0);
+		output.push(obu[0] | if last { 0 } else { 2 });
+		output.extend_from_slice(&obu[1..header_len]);
+		if !last {
+			let mut size = obu.len() - header_len;
+			loop {
+				output.push((size & 127) as u8 | if size >= 128 { 128 } else { 0 });
+				size >>= 7;
+				if size == 0 {
+					break;
+				}
+			}
+		}
+		output.extend_from_slice(&obu[header_len..]);
+	}
+	output
 }

@@ -1,5 +1,5 @@
 //! Bounded capture/scale/encode pipeline; also exercised with an offline video source.
-use super::{MAX_ENCODED_BYTES, MAX_RAW_BYTES, RawFrame, Settings};
+use super::{Codec, MAX_ENCODED_BYTES, MAX_RAW_BYTES, RawFrame, Settings};
 use ::gstreamer as gst;
 use gst::prelude::*;
 use gstreamer_app as app;
@@ -15,6 +15,9 @@ const MAX_SOURCE_BYTES: usize = 7680 * 4320 * 4;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Mode {
+	VaAv1,
+	NvidiaAv1,
+	NvidiaAv1Copy,
 	Va,
 	VaLegacy,
 	Nvidia,
@@ -22,15 +25,43 @@ pub(super) enum Mode {
 	Software,
 }
 impl Mode {
-	pub(super) const ALL: [Self; 5] = [
+	const H264: [Self; 5] = [
 		Self::Va,
 		Self::VaLegacy,
 		Self::Nvidia,
 		Self::NvidiaCopy,
 		Self::Software,
 	];
+	const AV1: [Self; 3] = [Self::VaAv1, Self::NvidiaAv1, Self::NvidiaAv1Copy];
+	pub(super) fn candidates(acceleration: bool, codec: Codec) -> &'static [Self] {
+		match (acceleration, codec) {
+			(true, Codec::Av1) => &Self::AV1,
+			(true, Codec::H264) => &Self::H264,
+			(false, Codec::H264) => &[Self::Software],
+			(false, Codec::Av1) => &[],
+		}
+	}
+	pub(super) fn codec(self) -> Codec {
+		match self {
+			Self::VaAv1 | Self::NvidiaAv1 | Self::NvidiaAv1Copy => Codec::Av1,
+			_ => Codec::H264,
+		}
+	}
+	fn factory(self) -> &'static str {
+		match self {
+			Self::VaAv1 => "vaav1enc",
+			Self::NvidiaAv1 | Self::NvidiaAv1Copy => "nvav1enc",
+			Self::Va => "vah264enc",
+			Self::VaLegacy => "vaapih264enc",
+			Self::Nvidia | Self::NvidiaCopy => "nvh264enc",
+			Self::Software => "videoconvertscale",
+		}
+	}
 	pub(super) fn label(self) -> &'static str {
 		match self {
+			Self::VaAv1 => "AV1 · VA-API hardware encoding",
+			Self::NvidiaAv1 => "AV1 · NVENC hardware encoding",
+			Self::NvidiaAv1Copy => "AV1 · NVENC hardware encoding · CPU scaling",
 			Self::Va => "H.264 · VA-API hardware encoding",
 			Self::VaLegacy => "H.264 · VA-API hardware encoding · CPU scaling",
 			Self::Nvidia => "H.264 · NVENC hardware encoding",
@@ -42,11 +73,60 @@ impl Mode {
 	/// videoconvertscale only after GStreamer 1.29.2, and the GL mixer never does.
 	fn applies_crop(self) -> bool {
 		match self {
-			Self::Va => true,
-			Self::Nvidia => false,
-			Self::VaLegacy | Self::NvidiaCopy | Self::Software => gst::version() >= (1, 29, 3, 0),
+			Self::Va | Self::VaAv1 => true,
+			Self::Nvidia | Self::NvidiaAv1 => false,
+			Self::VaLegacy | Self::NvidiaCopy | Self::NvidiaAv1Copy | Self::Software => {
+				gst::version() >= (1, 29, 3, 0)
+			}
 		}
 	}
+}
+
+/// Test installed AV1 encoders with generated pixels, never screen or microphone access.
+/// Merely finding a plugin does not establish that its driver can encode AV1.
+pub(super) async fn probe_av1(settings: Settings, stop: &Arc<AtomicBool>) -> Option<Mode> {
+	for &mode in Mode::candidates(true, Codec::Av1) {
+		if stop.load(Ordering::Acquire) {
+			return None;
+		}
+		let Ok(source) = gst::ElementFactory::make("videotestsrc")
+			.property("is-live", true)
+			.build()
+		else {
+			return None;
+		};
+		let Ok(pipeline) = Capture::new(
+			settings,
+			mode,
+			settings.bit_rate(),
+			source,
+			stop.clone(),
+			Arc::new(AtomicBool::new(true)),
+			Arc::new(AtomicBool::new(true)),
+			|| true,
+		) else {
+			continue;
+		};
+		let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+		while std::time::Instant::now() < deadline
+			&& !stop.load(Ordering::Acquire)
+			&& !pipeline.failed()
+		{
+			// Both bounded sinks must drain even though only encoded video is inspected.
+			let _ = pipeline.preview.try_pull_sample(gst::ClockTime::ZERO);
+			if let Some(sample) = pipeline.frames.try_pull_sample(gst::ClockTime::ZERO)
+				&& let Some(buffer) = sample.buffer()
+				&& !buffer.flags().contains(gst::BufferFlags::DELTA_UNIT)
+				&& buffer.size() <= MAX_ENCODED_BYTES
+				&& let Ok(map) = buffer.map_readable()
+				&& crate::video_av1::validate_source(&map).is_ok()
+			{
+				return Some(mode);
+			}
+			pipeline.changed().await;
+		}
+	}
+	None
 }
 
 pub(super) struct Capture {
@@ -78,19 +158,22 @@ impl Capture {
 		if !settings.valid() {
 			return Err(INVALID);
 		}
+		if gst::ElementFactory::find(mode.factory()).is_none() {
+			return Err(UNAVAILABLE);
+		}
 		let bitrate = bitrate.clamp(250_000, settings.bit_rate());
 		let size = format!(
 			"width={},height={},pixel-aspect-ratio=1/1",
 			settings.width, settings.height
 		);
 		let (scale, preview_scale) = match mode {
-			Mode::Va => (
+			Mode::Va | Mode::VaAv1 => (
 				format!(
 					"vapostproc add-borders=true ! video/x-raw(memory:VAMemory),format=NV12,{size}"
 				),
 				"vapostproc add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
 			),
-			Mode::Nvidia => (
+			Mode::Nvidia | Mode::NvidiaAv1 => (
 				format!(
 					"glupload ! glcolorconvert ! glvideomixer name=fit background=black sink_0::sizing-policy=keep-aspect-ratio sink_0::width={width} sink_0::height={height} ! video/x-raw(memory:GLMemory),format=RGBA,{size}",
 					width = settings.width,
@@ -104,12 +187,22 @@ impl Capture {
 				format!("videoconvertscale add-borders=true ! video/x-raw,format=NV12,{size}"),
 				"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
 			),
-			Mode::NvidiaCopy | Mode::Software => (
+			Mode::NvidiaCopy | Mode::NvidiaAv1Copy | Mode::Software => (
 				format!("videoconvertscale add-borders=true ! video/x-raw,format=BGRA,{size}"),
 				"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
 			),
 		};
 		let encoder = match mode {
+			Mode::VaAv1 => format!(
+				"vaav1enc name=encoder rate-control=cbr bitrate={} key-int-max={} hierarchical-level=1 ref-frames=1",
+				bitrate / 1000,
+				settings.fps * 2
+			),
+			Mode::NvidiaAv1 | Mode::NvidiaAv1Copy => format!(
+				"nvav1enc name=encoder rc-mode=cbr bitrate={} gop-size={} bframes=0 rc-lookahead=0 zerolatency=true",
+				bitrate / 1000,
+				settings.fps * 2
+			),
 			Mode::Va => format!(
 				"vah264enc name=encoder rate-control=cbr bitrate={} key-int-max={} b-frames=0",
 				bitrate / 1000,
@@ -129,6 +222,10 @@ impl Capture {
 		};
 		let encode = if mode == Mode::Software {
 			String::new()
+		} else if mode.codec() == Codec::Av1 {
+			format!(
+				"{encoder} ! av1parse ! video/x-av1,stream-format=obu-stream,alignment=frame,profile=main !"
+			)
 		} else {
 			format!(
 				"{encoder} ! h264parse config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au,profile=constrained-baseline !"
@@ -370,4 +467,32 @@ pub(super) fn raw(sample: &gst::Sample) -> Result<RawFrame, &'static str> {
 		stride: row,
 		data: pixels,
 	})
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{Codec, Mode};
+
+	#[test]
+	fn acceleration_opt_out_excludes_every_hardware_encoder_and_av1() {
+		assert!(Mode::candidates(false, Codec::H264) == [Mode::Software]);
+		assert!(Mode::candidates(false, Codec::Av1).is_empty());
+	}
+
+	#[test]
+	fn replacements_preserve_the_negotiated_codec() {
+		for codec in [Codec::H264, Codec::Av1] {
+			assert!(
+				Mode::candidates(true, codec)
+					.iter()
+					.all(|mode| mode.codec() == codec)
+			);
+		}
+		assert!(
+			Mode::candidates(true, Codec::Av1)
+				.iter()
+				.all(|mode| *mode != Mode::Software)
+		);
+		assert!(Mode::candidates(true, Codec::H264).last() == Some(&Mode::Software));
+	}
 }

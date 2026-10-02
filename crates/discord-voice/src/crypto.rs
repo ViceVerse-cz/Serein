@@ -246,12 +246,12 @@ impl Encryption {
 		}
 		Some(feedback)
 	}
-	/// Authenticate and decrypt one Opus (120), H264 (101) or H264 RTX (102) RTP packet.
+	/// Authenticate bounded Opus, H264/RTX or AV1/RTX RTP packets.
 	pub fn open(&self, packet: &[u8]) -> Option<Rtp> {
 		if packet.len() < 32
 			|| packet.len() > MAX_PACKET
 			|| packet[0] >> 6 != 2
-			|| !matches!(packet[1] & 0x7f, 120 | 101 | 102)
+			|| !matches!(packet[1] & 0x7f, 120 | 101 | 102 | 105 | 106)
 		{
 			return None;
 		}

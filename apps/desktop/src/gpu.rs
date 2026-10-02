@@ -63,6 +63,7 @@ pub fn describe(info: &wgpu::AdapterInfo) -> String {
 /// Picks the adapter used for the window surface, or explains why none of them works.
 pub fn select(
 	preference: GpuPreference,
+	hardware_acceleration: bool,
 	adapters: &[wgpu::Adapter],
 	surface: Option<&wgpu::Surface<'_>>,
 ) -> Result<wgpu::Adapter, String> {
@@ -74,7 +75,13 @@ pub fn select(
 			surface.is_none_or(|surface| !surface.get_capabilities(adapter).formats.is_empty())
 		})
 		.collect();
-	usable.sort_by_key(|adapter| rank(&adapter.get_info(), prefer_integrated));
+	usable.sort_by_key(|adapter| {
+		acceleration_rank(
+			&adapter.get_info(),
+			prefer_integrated,
+			hardware_acceleration,
+		)
+	});
 	let Some(adapter) = usable.first() else {
 		let available = adapters
 			.iter()
@@ -88,7 +95,23 @@ pub fn select(
 		});
 	};
 	eprintln!("[Serein] GPU adapter: {}", describe(&adapter.get_info()));
+	if !hardware_acceleration && adapter.get_info().device_type != wgpu::DeviceType::Cpu {
+		eprintln!("[Serein] Software rendering is unavailable; using a compatible GPU");
+	}
 	Ok((*adapter).clone())
+}
+
+fn acceleration_rank(
+	info: &wgpu::AdapterInfo,
+	prefer_integrated: bool,
+	enabled: bool,
+) -> (u8, u8, u8) {
+	let (device, backend) = rank(info, prefer_integrated);
+	(
+		u8::from(!enabled && info.device_type != wgpu::DeviceType::Cpu),
+		device,
+		backend,
+	)
 }
 
 #[cfg(test)]
@@ -133,6 +156,20 @@ mod tests {
 
 	fn info(device_type: wgpu::DeviceType, backend: wgpu::Backend) -> wgpu::AdapterInfo {
 		wgpu::AdapterInfo::new(device_type, backend)
+	}
+
+	#[test]
+	fn disabled_acceleration_prefers_software_over_every_gpu() {
+		let cpu = info(wgpu::DeviceType::Cpu, wgpu::Backend::Vulkan);
+		for device in [
+			wgpu::DeviceType::DiscreteGpu,
+			wgpu::DeviceType::IntegratedGpu,
+			wgpu::DeviceType::VirtualGpu,
+		] {
+			let gpu = info(device, wgpu::Backend::Vulkan);
+			assert!(acceleration_rank(&cpu, false, false) < acceleration_rank(&gpu, false, false));
+			assert!(acceleration_rank(&gpu, false, true) < acceleration_rank(&cpu, false, true));
+		}
 	}
 
 	#[test]

@@ -1,4 +1,4 @@
-//! Explicitly selected, memory-only screen capture and H.264 encoding.
+//! Explicitly selected, memory-only screen capture and negotiated video encoding.
 pub use client_core::screen::{Settings, Source, SourceId};
 #[cfg(target_os = "linux")]
 #[path = "screen/audio_linux.rs"]
@@ -42,6 +42,33 @@ use std::time::{Duration, Instant};
 pub const MAX_RAW_BYTES: usize = 3840 * 2160 * 4;
 pub const MAX_ENCODED_BYTES: usize = 2 * 1024 * 1024;
 
+/// The encoder and encrypted RTP transport must agree on this for every picture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Codec {
+	H264,
+	Av1,
+}
+
+impl Codec {
+	pub const fn name(self) -> &'static str {
+		match self {
+			Self::H264 => "H264",
+			Self::Av1 => "AV1",
+		}
+	}
+
+	pub const fn payload_type(self) -> u8 {
+		match self {
+			Self::H264 => 101,
+			Self::Av1 => 105,
+		}
+	}
+
+	pub const fn rtx_payload_type(self) -> u8 {
+		self.payload_type() + 1
+	}
+}
+
 pub struct RawFrame {
 	pub width: u32,
 	pub height: u32,
@@ -50,6 +77,7 @@ pub struct RawFrame {
 }
 
 pub struct EncodedFrame {
+	pub codec: Codec,
 	pub data: Vec<u8>,
 	pub timestamp: u32,
 	pub keyframe: bool,
@@ -66,6 +94,10 @@ pub struct AudioChunk {
 }
 
 pub struct Video {
+	/// Startup encoder probe result; never infer the codec from the user's GPU model.
+	pub codec: tokio::sync::watch::Receiver<Option<Codec>>,
+	/// Service-selected fallback, applied before encrypted media becomes ready.
+	pub codec_selection: tokio::sync::watch::Sender<Option<Codec>>,
 	pub settings: Settings,
 	pub frames: tokio::sync::mpsc::Receiver<EncodedFrame>,
 	pub ready: Arc<AtomicBool>,
@@ -125,6 +157,14 @@ impl Worker {
 		settings: Settings,
 		wake: impl Fn() + Send + 'static,
 	) -> Result<(Self, Video), &'static str> {
+		Self::start_with_acceleration(settings, true, wake)
+	}
+
+	pub fn start_with_acceleration(
+		settings: Settings,
+		acceleration: bool,
+		wake: impl Fn() + Send + 'static,
+	) -> Result<(Self, Video), &'static str> {
 		if !settings.valid() || !supported() {
 			return Err("Screen sharing is unavailable for these settings or this platform");
 		}
@@ -147,6 +187,8 @@ impl Worker {
 		let worker_preview_visible = preview_visible.clone();
 		// A few frames of slack absorbs send jitter without forcing keyframes on every hiccup.
 		let (send, frames) = tokio::sync::mpsc::channel(3);
+		let (codec_send, codec) = tokio::sync::watch::channel(None);
+		let (codec_selection, selected_codec) = tokio::sync::watch::channel(None);
 		let (complete, done) = mpsc::sync_channel(1);
 		let (audio_send, audio) = if settings.audio && audio_supported() {
 			let (send, receive) = tokio::sync::mpsc::channel(4);
@@ -163,6 +205,9 @@ impl Worker {
 				#[cfg(target_os = "linux")]
 				let result = linux::run(
 					settings,
+					acceleration,
+					codec_send,
+					selected_codec,
 					worker_stop,
 					worker_ready,
 					worker_keyframe,
@@ -178,6 +223,9 @@ impl Worker {
 				#[cfg(not(target_os = "linux"))]
 				let result = encode_loop(
 					settings,
+					acceleration,
+					codec_send,
+					selected_codec,
 					worker_stop,
 					worker_ready,
 					worker_keyframe,
@@ -213,6 +261,8 @@ impl Worker {
 				preview_visible,
 			},
 			Video {
+				codec,
+				codec_selection,
 				settings,
 				frames,
 				ready,
@@ -261,6 +311,9 @@ impl Drop for Worker {
 #[allow(clippy::too_many_arguments)] // Media outputs of one explicitly started capture.
 fn encode_loop(
 	settings: Settings,
+	acceleration: bool,
+	codec: tokio::sync::watch::Sender<Option<Codec>>,
+	selected_codec: tokio::sync::watch::Receiver<Option<Codec>>,
 	stop: Arc<AtomicBool>,
 	ready: Arc<AtomicBool>,
 	keyframe: Arc<AtomicBool>,
@@ -274,6 +327,7 @@ fn encode_loop(
 	if stop.load(Ordering::Acquire) || send.is_closed() {
 		return Ok(());
 	}
+	codec.send_replace(Some(Codec::H264));
 	let origin = Instant::now();
 	let (raw_send, raw) = mpsc::sync_channel(1);
 	let capture_stop = Arc::new(AtomicBool::new(false));
@@ -305,6 +359,12 @@ fn encode_loop(
 	let mut latest_frame = None;
 
 	while !stop.load(Ordering::Acquire) && !send.is_closed() {
+		if selected_codec
+			.borrow()
+			.is_some_and(|codec| codec != Codec::H264)
+		{
+			return Err("The selected screen codec is unavailable on this platform");
+		}
 		#[cfg(target_os = "windows")]
 		if _native.failed() {
 			return Err(
@@ -378,7 +438,7 @@ fn encode_loop(
 			.load(Ordering::Acquire)
 			.clamp(250_000, settings.bit_rate());
 		if encoding.is_none() {
-			encoding = Some(ScreenEncoder::new(settings, target)?);
+			encoding = Some(ScreenEncoder::new(settings, target, acceleration)?);
 		}
 		if encoding
 			.as_mut()
@@ -419,6 +479,7 @@ fn encode_loop(
 			continue;
 		}
 		let frame = EncodedFrame {
+			codec: Codec::H264,
 			data,
 			timestamp: (origin.elapsed().as_micros() * 90 / 1000) as u32,
 			keyframe: is_keyframe,
@@ -458,11 +519,12 @@ struct ScreenEncoder {
 	hardware: Option<crate::video_encode::hardware::Encoder>,
 	settings: Settings,
 	bitrate: u32,
+	acceleration: bool,
 }
 
 #[cfg(not(target_os = "linux"))]
 impl ScreenEncoder {
-	fn new(settings: Settings, bitrate: u32) -> Result<Self, &'static str> {
+	fn new(settings: Settings, bitrate: u32, acceleration: bool) -> Result<Self, &'static str> {
 		let config = crate::video_encode::Config {
 			width: settings.width,
 			height: settings.height,
@@ -472,13 +534,18 @@ impl ScreenEncoder {
 			profile: crate::video_encode::Profile::Main,
 		};
 		#[cfg(target_os = "macos")]
-		let hardware = crate::video_encode::hardware::Encoder::new(
-			config,
-			crate::video_encode::SourceFormat::Bgra,
-		)
-		.ok();
+		let hardware = acceleration
+			.then(|| {
+				crate::video_encode::hardware::Encoder::new(
+					config,
+					crate::video_encode::SourceFormat::Bgra,
+				)
+			})
+			.and_then(Result::ok);
 		#[cfg(target_os = "windows")]
-		let hardware = crate::video_encode::hardware::Encoder::new(config).ok();
+		let hardware = acceleration
+			.then(|| crate::video_encode::hardware::Encoder::new(config))
+			.and_then(Result::ok);
 		let software = if hardware.is_none() {
 			Some(encoder(settings, bitrate)?)
 		} else {
@@ -491,6 +558,7 @@ impl ScreenEncoder {
 			hardware,
 			settings,
 			bitrate,
+			acceleration,
 		})
 	}
 
@@ -518,7 +586,7 @@ impl ScreenEncoder {
 			// Reopen native encoders that refuse a live rate change at the target rate.
 			// Release scarce hardware sessions before requesting their replacement.
 			self.hardware = None;
-			*self = Self::new(self.settings, bitrate)?;
+			*self = Self::new(self.settings, bitrate, self.acceleration)?;
 		}
 		Ok(true)
 	}
@@ -634,7 +702,7 @@ pub(super) fn encode_pixels(
 	encode_yuv(encoder, yuv, force_keyframe)
 }
 
-fn encode_yuv(
+pub(super) fn encode_yuv(
 	encoder: &mut Encoder,
 	yuv: &impl YUVSource,
 	force_keyframe: bool,

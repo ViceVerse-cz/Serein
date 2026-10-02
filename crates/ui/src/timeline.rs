@@ -1545,10 +1545,12 @@ impl TimelineView {
 			&& state.freshness == model::Freshness::Fresh
 			&& !state.history_pending
 			&& let Some(channel) = state.selected
-			&& let Some(unread) = state.unread(channel)
+			&& state.read_marker(channel).is_some()
 		{
+			// A known empty/omitted marker can have no unread answer yet. Finish the
+			// arrival check now so the first message watched here is not a new visit.
 			self.initial_read_checked = true;
-			if unread {
+			if state.unread(channel) == Some(true) {
 				self.mark_read = None;
 				let arrived_on_live_edge = self.following
 					&& state
@@ -6560,6 +6562,127 @@ mod tests {
 				false,
 			);
 		}
+	}
+
+	#[test]
+	fn first_server_arrival_after_a_known_read_page_does_not_become_an_unread_join() {
+		for empty in [true, false] {
+			let ctx = egui::Context::default();
+			let mut state = unread_servers();
+			state.selected = Some(Id(10));
+			state.freshness = model::Freshness::Fresh;
+			state.older_exhausted = true;
+			// A complete snapshot may omit a channel's marker. A new empty channel also
+			// has no latest ID, so neither case can yet answer `unread(channel)`.
+			state
+				.apply_read_state(client_core::read_state::Event::Snapshot {
+					entries: Some(if empty {
+						vec![(Id(10), None, 0)]
+					} else {
+						vec![]
+					}),
+					version: Some(2),
+					partial: false,
+				})
+				.unwrap();
+			if !empty {
+				for id in 11..=40 {
+					state
+						.timeline
+						.insert(test_support::message(id, Id(10)), false, false)
+						.unwrap();
+				}
+				state.channels[0].last_message = Some(Id(40));
+			}
+			assert_eq!(state.unread(Id(10)), None);
+			let mut view = TimelineView::default();
+			settle_banner(&ctx, &mut view, &mut state);
+			assert!(view.following && !view.hold_read_ack);
+			view.mark_read = None;
+			// Read-state confirmation and the first new arrival may share a UI frame.
+			if !empty {
+				state
+					.apply_read_state(client_core::read_state::Event::Snapshot {
+						entries: Some(vec![(Id(10), Some(Id(40)), 0)]),
+						version: Some(3),
+						partial: false,
+					})
+					.unwrap();
+			}
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::Message(test_support::message(41, Id(10))),
+			});
+			let labels = plain(&settle_banner(&ctx, &mut view, &mut state));
+			assert!(
+				!labels.iter().any(|text| text == "Mark as read"),
+				"first watched server arrival raised a banner (empty={empty}): {labels:?}"
+			);
+			assert!(!view.hold_read_ack);
+			assert_eq!(view.mark_read.take(), Some(Id(41)));
+		}
+	}
+
+	#[test]
+	fn server_arrivals_stay_read_at_the_bottom_until_the_reader_scrolls_up() {
+		let ctx = egui::Context::default();
+		let mut state = live_unread_channel(40);
+		let server = unread_servers();
+		state.user = server.user;
+		state.guilds = server.guilds;
+		state.permissions = server.permissions;
+		state.channels[0].guild = Some(Id(2));
+		state.channels[0].kind = 0;
+		let mut view = TimelineView::default();
+		settle_banner(&ctx, &mut view, &mut state);
+		let arrival = |state: &mut State, id| {
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::Message(test_support::message(id, Id(20))),
+			});
+		};
+		arrival(&mut state, 41);
+		let labels = plain(&settle_banner(&ctx, &mut view, &mut state));
+		assert!(!labels.iter().any(|text| text == "Mark as read"));
+		assert_eq!(view.mark_read.take(), Some(Id(41)));
+		let Some(client_core::Command::MarkRead { request, .. }) = state.prepare_mark_read(Id(41))
+		else {
+			panic!("the watched arrival must be eligible for acknowledgement");
+		};
+		// More arrivals remain watched while the service acknowledgement is pending.
+		arrival(&mut state, 42);
+		let labels = plain(&settle_banner(&ctx, &mut view, &mut state));
+		assert!(!labels.iter().any(|text| text == "Mark as read"));
+		assert!(view.mark_read.is_none());
+		state
+			.apply_read_state(client_core::read_state::Event::Result {
+				channel: Id(20),
+				message: Id(41),
+				request,
+				result: Ok(()),
+			})
+			.unwrap();
+		set_read_marker(&mut state, 42, 2);
+		settle_banner(&ctx, &mut view, &mut state);
+		for _ in 0..4 {
+			let total = view.rows.iter().map(|(_, height)| height).sum::<f32>();
+			let offset = (total - 1000.0).max(0.0);
+			let (index, _, top) = visible_range(&view.rows, offset, offset);
+			view.following = false;
+			view.jump = false;
+			view.anchor = Some((view.rows[index].0, offset - top));
+			view.revision = u64::MAX;
+			banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		}
+		assert!(!view.following);
+		arrival(&mut state, 43);
+		let labels = plain(&settle_banner(&ctx, &mut view, &mut state));
+		assert!(
+			labels.iter().any(|text| text == "Mark as read"),
+			"the scrolled-up server reader must keep unseen arrivals: {labels:?}"
+		);
+		assert_eq!(view.unread_boundary, Some(Id(43)));
+		assert!(view.mark_read.is_none());
 	}
 
 	#[test]

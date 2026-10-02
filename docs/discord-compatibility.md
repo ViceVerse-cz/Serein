@@ -531,13 +531,23 @@ failure flag. Portal responses are admitted at ≤64 KiB; signal queues hold one
 and the connection queue holds two, with zbus's separate 128-MiB wire-message ceiling.
 Cancellation is checked during portal waits every 50 ms and media waits within 100 ms;
 native driver startup/shutdown can still block, retaining the existing retirement barrier.
-Each of at most four encoder attempts gets a fresh PipeWire remote under the same
-approved session. No source, restore token, pixel buffer or stream is persisted.
+Each capture encoder attempt gets a fresh PipeWire remote under the same
+approved session; the selected codec has at most three AV1 modes or five H.264
+modes (one software mode when acceleration is disabled). No source, restore
+token, pixel buffer or stream is persisted.
 Native X11 now offers an explicitly selected whole-desktop source through GStreamer
 `ximagesrc`, reusing the bounded encoder/preview pipeline without a portal. It requires
 GStreamer Good and never activates after portal cancellation or failure. Individual
-X11 window selection and native/live validation remain outstanding. AV1/H.265 sending
-remains unsupported.
+X11 window selection and native/live validation remain outstanding. H.265 sending
+remains unsupported. Linux now offers AV1 sending when a bounded generated-video
+probe validates an installed VA-API/NVENC AV1 encoder. Codec-aware DAVE encryption,
+AV1 RTP fragmentation and RTX reuse the stream's existing transport and bounds.
+The server may select the offered H.264 fallback before readiness; active codec
+changes are rejected. This unofficial sender passes synthetic localhost negotiation
+and encrypted AV1 handoff tests, but live Discord AV1 acceptance remains unverified.
+Windows/macOS sending and Serein stream viewing remain H.264. General settings
+expose independent app/screen hardware acceleration switches; screen acceleration
+off uses software H.264 on the next share. See [the current screen-sharing behavior](voice.md#screen-sharing).
 The offline debug example does not establish native Linux capture, hardware acceleration,
 measured performance, packaging or live Discord interoperability.
 

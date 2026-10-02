@@ -338,9 +338,11 @@ Capture uses macOS 14+ ScreenCaptureKit (screen-recording permission in System S
 
 Linux uses the desktop ScreenCast portal and PipeWire. Share Screen opens the system
 screen/window picker after the quality dialog; source discovery never opens that picker.
-The default is 720p30. The worker tries modern VA-API, legacy VA-API with CPU scaling,
-NVENC with GPU scaling, NVENC with CPU scaling, then the existing OpenH264 software
-encoder. The call stage identifies the active encoder and software fallback.
+The default is 720p30. With acceleration enabled, the worker first probes AV1
+hardware encoding. If unavailable or the service selects H.264, it tries modern
+VA-API, legacy VA-API with CPU scaling, NVENC with GPU scaling, NVENC with CPU
+scaling, then the existing OpenH264 software encoder. The call stage identifies
+the active codec, encoder and software fallback.
 On Niri, portal frames receive pipeline running-time timestamps before frame-rate
 filtering. This handles Niri 26.04's constant presentation timestamps, which otherwise
 freeze the preview and prevent video from reaching a viewer who joins later. Detection
@@ -363,7 +365,44 @@ also offer an explicit “Entire X11 desktop · all monitors · no portal” sou
 GStreamer's `ximagesrc` (Good plugins). This shares the whole desktop, not an individual
 window; cancelling or failing the portal never selects it automatically. The existing
 7680×4320 source caps and bounded encoding/preview queues apply. Native X11 capture
-remains unverified. AV1/H.265 sending is not included.
+remains unverified. H.265 sending is not included.
+
+Settings → General → Graphics has separate hardware acceleration switches for the
+window renderer and screen sharing, both enabled by default. App rendering changes
+apply after restart; disabling it prefers a CPU adapter. If no presentable software
+adapter exists, Serein uses a compatible GPU and shows a fallback notice. Screen
+encoding changes apply to the next share, independently of the window renderer.
+Disabling screen acceleration selects software H.264 on all supported platforms.
+
+With screen acceleration enabled, Linux probes installed `vaav1enc` / `nvav1enc`
+encoders using generated pixels before advertising AV1. A validated AV1 encoder is
+preferred, with H.264 also offered for service-selected fallback. Failed AV1 probes
+retain the existing H.264 hardware/software selection. The selected codec must match
+the encoder before encrypted media readiness; replacement pipelines retain that
+codec. If all AV1 replacements fail after negotiation, sharing stops with a retry
+instruction instead of sending H.264 under AV1 negotiation. macOS/Windows sending
+and Serein's stream viewer still use H.264.
+
+AV1 sending uses bounded OBU-stream normalization, codec-aware DAVE encryption,
+[AOM AV1 RTP packetization](https://aomediacodec.github.io/av1-rtp-spec/v1.0.0.html)
+and AV1 RTX payloads. The final unsized OBU preserves the
+[DAVE authentication footer](https://github.com/discord/dave-protocol/blob/main/protocol.md#av1).
+Encoded frames remain capped at 2 MiB; parsing and packetization admit at most
+2,048 OBUs/packets, and RTP including transport overhead stays within 1,200 bytes.
+No codec libraries or system plugins are installed automatically. Synthetic
+localhost negotiation/encryption tests and AMD-generated-video checks establish
+local behavior; live Discord AV1 acceptance remains unverified.
+
+The offline example can explicitly exercise an installed AV1 hardware encoder:
+
+```sh
+cargo build --locked -p discord-voice -p serein --features demo --example linux_screen
+target/debug/examples/linux_screen --av1-vaapi
+# NVIDIA alternatives: --av1-nvenc or --av1-nvenc-copy
+```
+
+These modes fail if the requested encoder cannot start and never capture a screen,
+microphone or live Discord session.
 
 The legacy fallback requires an available `vaapih264enc` from GStreamer VAAPI;
 `vapostproc` alone does not supply it. It uploads CPU-scaled NV12 frames to the

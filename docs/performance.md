@@ -3172,3 +3172,64 @@ verified release asset, not a new application build or runtime measurement.
 No compiler options, application dependencies or runtime code changed. CPU, RSS,
 frame latency and native Arch startup were not measured. The manual AUR build
 repackages an existing binary; it does not compile Rust.
+
+
+## Acceleration controls and Linux AV1 sending (October 1, 2026)
+
+Baseline `2e959024` and `codex/hardware-acceleration-read-state` were built on
+the same CachyOS x86_64 host: Linux 7.2.8-1-cachyos, Ryzen 7 7800X3D, 32 GiB RAM,
+AMD RX 7800 XT (RADV NAVI32 / Vulkan), display scale 1, pinned Rust 1.98.1 and
+GStreamer 1.28.7. Each revision used the locked standard release package with
+voice and no default features (`cargo xtask package --format arch`). Separate
+checkout/dist directories retained the outputs; native Arch package smoke checks
+passed. Sizes were measured once, without installing either package.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable bytes | 79,839,096 | 79,887,736 | +48,640 (+0.0609%) |
+| Installed payload bytes (.PKGINFO) | 84,287,153 | 84,335,793 | +48,640 (+0.0577%) |
+| Compressed Arch package bytes | 44,398,307 | 44,423,855 | +25,548 (+0.0575%) |
+
+No dependency, lockfile or bundled notice changed. Compressed sizes include
+packaging metadata noise; they do not establish runtime performance.
+
+An isolated GPU encoder comparison ran generated 1280×720 NV12 video, 300 frames
+per process, nominal 30 fps, requested CBR 4 Mbps, key interval 60, with GPU
+scaling (`vapostproc`). The existing H.264 path used `vah264enc b-frames=0` and
+`h264parse` constrained-baseline/byte-stream/au caps; the AV1 path used
+`vaav1enc hierarchical-level=1 ref-frames=1` and `av1parse` main/obu-stream/frame
+caps. Both ended in `fakesink sync=false`, so this measures unpaced component
+throughput, not live capture cadence, transport, quality or end-to-end latency.
+Each encoder had one warmup and five measured processes. Python monotonic time
+and `wait4` measured elapsed time, process user+system CPU and peak RSS.
+
+| Component median | H.264 | AV1 | Delta |
+| --- | ---: | ---: | ---: |
+| Elapsed seconds | 1.295687 | 1.124884 | -0.170803 (-13.18%) |
+| Process CPU seconds | 0.378533 | 0.379126 | +0.000593 (+0.16%) |
+| Peak RSS KiB | 57,652 | 58,000 | +348 (+0.60%) |
+
+Elapsed samples were H.264: 1.295825, 1.294773, 1.296840, 1.295687, 1.295584
+seconds; AV1: 1.130401, 1.124668, 1.120091, 1.124884, 1.129533 seconds. Small CPU
+and RSS differences are noise, and throughput is specific to this driver/workload.
+The actual offline `linux_screen --av1-vaapi` example passed preview, readiness
+gating and five advancing encoded frames; `--niri-timestamps` passed software
+H.264. A separate generated 1080p60 AV1 encode/decode check passed, but the installed
+`av1dec` reported 1082 pixels high, so exact decoded 1080p dimensions are unverified.
+No real screen, microphone or Discord account was used.
+
+Supplemental native UI samples used matching **debug** `--features demo` builds
+at 1120×950, dark General settings, acceleration enabled. Each had an eight-second
+warmup and one 20-second sample with 21 `/proc` observations one second apart;
+CPU is process utime+stime divided by elapsed time, as percent of one logical
+core. Both had no child processes. Peak and settled (median final five samples)
+VmRSS were 270,372 KiB baseline and 275,984 KiB after (+5,612 KiB / +2.08%).
+CPU was 18.80% versus 3.55%. This single sample includes fixture/UI timer and focus
+noise and different page heights; it is not a release-runtime or improvement
+claim. Release UI CPU/RSS, startup/p95 frame latency, native capture resources
+and live Discord AV1 forwarding remain unmeasured.
+
+AV1 source frames retain the 2 MiB encoded cap and three-frame/6 MiB transport
+queue. Packetization permits at most 2,048 OBUs/packets, a DAVE frame at most
+2 MiB + 64 KiB, and 1,200-byte RTP including transport/RTX overhead. These are
+component limits, not whole-process/native-driver memory ceilings.

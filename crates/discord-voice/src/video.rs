@@ -298,7 +298,12 @@ impl History {
 			sent.retries += 1;
 			sent.last_retry = Some(now);
 			let mut header = sent.packet.header;
-			header[1] = (header[1] & 0x80) | 102;
+			let rtx = match header[1] & 0x7f {
+				101 => 102,
+				105 => 106,
+				_ => return None,
+			};
+			header[1] = (header[1] & 0x80) | rtx;
 			header[2..4].copy_from_slice(&sequence.to_be_bytes());
 			header[8..12].copy_from_slice(&ssrc.to_be_bytes());
 			*sequence = sequence.wrapping_add(1);
@@ -430,6 +435,34 @@ fn nalus(frame: &[u8]) -> Result<Vec<&[u8]>, &'static str> {
 mod tests {
 	use super::*;
 	use crate::{crypto::Dave, test_mls::Delivery};
+
+	#[test]
+	fn av1_repair_preserves_fragment_and_uses_av1_rtx_payload() {
+		let now = Instant::now();
+		let mut history = History::default();
+		let mut header = [0; 12];
+		header[0] = 0x80;
+		header[1] = 0x80 | 105;
+		header[2..4].copy_from_slice(&27u16.to_be_bytes());
+		header[4..8].copy_from_slice(&90_000u32.to_be_bytes());
+		header[8..12].copy_from_slice(&51u32.to_be_bytes());
+		history.remember(
+			Packet {
+				header,
+				payload: vec![0x90, 1, 2, 3],
+			},
+			now,
+		);
+		assert!(!history.request(&[27], now));
+		let mut sequence = 8;
+		let repair = history.repair(52, &mut sequence, now).unwrap();
+		assert_eq!(repair.header[1], 0x80 | 106);
+		assert_eq!(&repair.header[2..4], &8u16.to_be_bytes());
+		assert_eq!(&repair.header[4..8], &90_000u32.to_be_bytes());
+		assert_eq!(&repair.header[8..12], &52u32.to_be_bytes());
+		assert_eq!(repair.payload, [0, 27, 0x90, 1, 2, 3]);
+		assert_eq!(sequence, 9);
+	}
 
 	fn depacketize(packets: &[Packet]) -> Vec<u8> {
 		let mut frame = Vec::new();

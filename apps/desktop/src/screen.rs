@@ -44,6 +44,7 @@ struct Context {
 struct Pending {
 	context: Context,
 	settings: Settings,
+	hardware_acceleration: bool,
 	user: Id,
 	peer: Option<Id>,
 	session: Zeroizing<String>,
@@ -354,6 +355,7 @@ impl Screen {
 						self.pending = Some(Pending {
 							context,
 							settings,
+							hardware_acceleration: ui.hardware_acceleration.screen_share,
 							user: call.user,
 							peer: call.peer,
 							session: Zeroizing::new(call.session.to_owned()),
@@ -493,7 +495,11 @@ impl Screen {
 			request: pending.context.stream_request,
 		};
 		let wake = ctx.clone();
-		let (worker, video) = Worker::start(pending.settings, move || wake.request_repaint())?;
+		let (worker, video) = Worker::start_with_acceleration(
+			pending.settings,
+			pending.hardware_acceleration,
+			move || wake.request_repaint(),
+		)?;
 		let (send, events) = watch::channel(None);
 		let wake = ctx.clone();
 		let identity = pending.identity;
@@ -595,6 +601,7 @@ mod tests {
 		Pending {
 			context,
 			settings,
+			hardware_acceleration: true,
 			user: Id(1),
 			peer: None,
 			session: Zeroizing::new("synthetic-session".into()),

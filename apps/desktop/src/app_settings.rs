@@ -36,6 +36,7 @@ impl Settings {
 			hide_title_bar: ui.hide_title_bar,
 			hide_window_decorations: ui.hide_window_decorations,
 			gpu_preference: ui.gpu_preference,
+			hardware_acceleration: ui.hardware_acceleration,
 			primary_color: ui.primary_color,
 			transparency_blur: ui.transparency_blur,
 			transparency: ui.transparency,
@@ -76,6 +77,7 @@ impl Settings {
 		ui.hide_title_bar = value.hide_title_bar;
 		ui.hide_window_decorations = value.hide_window_decorations;
 		ui.gpu_preference = value.gpu_preference;
+		ui.hardware_acceleration = value.hardware_acceleration;
 		ui.primary_color = value.primary_color;
 		ui.transparency_blur = value.transparency_blur;
 		ui.transparency = value.transparency;
@@ -125,6 +127,26 @@ mod tests {
 		assert!(ui.notification_options.current_channel);
 		assert!(!settings.state.touched);
 		assert!(!settings.state.dirty);
+	}
+
+	#[test]
+	fn acceleration_defaults_migrate_and_changes_are_saved() {
+		let preferences: AppPreferences = serde_json::from_str("{}").unwrap();
+		assert!(preferences.hardware_acceleration.app);
+		assert!(preferences.hardware_acceleration.screen_share);
+		let mut settings = Settings::default();
+		let mut ui = ui::MessagingUi::default();
+		ui.hardware_acceleration.app = false;
+		ui.hardware_acceleration.screen_share = false;
+		settings.observe(&ui);
+		assert!(settings.state.dirty);
+		assert_eq!(
+			settings.current.hardware_acceleration,
+			ui.hardware_acceleration
+		);
+		let mut restored = ui::MessagingUi::default();
+		settings.apply(&mut restored);
+		assert_eq!(restored.hardware_acceleration, ui.hardware_acceleration);
 	}
 
 	#[test]

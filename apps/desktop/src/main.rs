@@ -331,20 +331,27 @@ fn main() -> eframe::Result {
 		return Ok(());
 	}
 	// Native GPU/window capabilities are selected before the first window exists.
-	let (gpu_preference, transparency_available, hide_window_decorations) = if demo {
-		(model::GpuPreference::default(), false, false)
-	} else {
-		local_store::LocalStore::open_default()
-			.and_then(|store| store.app_preferences())
-			.map(|preferences| {
-				(
-					preferences.gpu_preference,
-					preferences.transparency_blur,
-					preferences.hide_window_decorations,
-				)
-			})
-			.unwrap_or_default()
-	};
+	let (gpu_preference, hardware_acceleration, transparency_available, hide_window_decorations) =
+		if demo {
+			(
+				model::GpuPreference::default(),
+				model::HardwareAcceleration::default(),
+				false,
+				false,
+			)
+		} else {
+			local_store::LocalStore::open_default()
+				.and_then(|store| store.app_preferences())
+				.map(|preferences| {
+					(
+						preferences.gpu_preference,
+						preferences.hardware_acceleration,
+						preferences.transparency_blur,
+						preferences.hide_window_decorations,
+					)
+				})
+				.unwrap_or_default()
+		};
 	#[cfg(feature = "demo")]
 	let transparency_available =
 		transparency_available || demo && std::env::args().any(|arg| arg == "--demo-transparency");
@@ -408,7 +415,12 @@ fn main() -> eframe::Result {
 					native_adapter_selector: Some(std::sync::Arc::new(
 						move |adapters: &[eframe::wgpu::Adapter],
 						      surface: Option<&eframe::wgpu::Surface<'_>>| {
-							gpu::select(gpu_preference, adapters, surface)
+							gpu::select(
+								gpu_preference,
+								hardware_acceleration.app,
+								adapters,
+								surface,
+							)
 						},
 					)),
 					..gpu::setup()
@@ -429,7 +441,11 @@ fn main() -> eframe::Result {
 		"Serein",
 		options,
 		Box::new(move |cc| {
-			let desktop = Desktop::new(cc, demo, frame_sample, transparency_available)?;
+			let mut desktop = Desktop::new(cc, demo, frame_sample, transparency_available)?;
+			desktop.messaging.hardware_app_fallback = !hardware_acceleration.app
+				&& cc.wgpu_render_state.as_ref().is_some_and(|render| {
+					render.adapter.get_info().device_type != eframe::wgpu::DeviceType::Cpu
+				});
 			if start_minimized {
 				cc.egui_ctx
 					.send_viewport_cmd(egui::ViewportCommand::Minimized(true));

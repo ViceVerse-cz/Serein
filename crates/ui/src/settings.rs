@@ -873,6 +873,27 @@ impl MessagingUi {
 		});
 		let title = language.text("general-graphics");
 		design::group(ui, &title, |ui| {
+			let label = language.text("general-hardware-app");
+			let description = language.text("general-hardware-app-description");
+			design::switch(
+				ui,
+				&label,
+				Some(&description),
+				&mut self.hardware_acceleration.app,
+			);
+			if self.hardware_app_fallback {
+				design::hint(ui, &language.text("general-hardware-app-fallback"));
+			}
+			design::card_divider(ui);
+			let label = language.text("general-hardware-screen");
+			let description = language.text("general-hardware-screen-description");
+			design::switch(
+				ui,
+				&label,
+				Some(&description),
+				&mut self.hardware_acceleration.screen_share,
+			);
+			design::card_divider(ui);
 			let restart = language.text("general-gpu-restart");
 			let detail = if self.gpu_adapter.is_empty() {
 				restart
@@ -885,20 +906,22 @@ impl MessagingUi {
 				)
 			};
 			let label = language.text("general-render-with");
-			design::row(ui, &label, Some(&detail), |ui| {
-				egui::ComboBox::from_id_salt("gpu-preference")
-					.selected_text(gpu_label(language, self.gpu_preference))
-					.width(ui.available_width().min(220.0))
-					.show_ui(ui, |ui| {
-						for preference in model::GpuPreference::ALL {
-							ui.selectable_value(
-								&mut self.gpu_preference,
-								preference,
-								gpu_label(language, preference),
-							)
-							.on_hover_text(gpu_description(language, preference));
-						}
-					});
+			ui.add_enabled_ui(self.hardware_acceleration.app, |ui| {
+				design::row(ui, &label, Some(&detail), |ui| {
+					egui::ComboBox::from_id_salt("gpu-preference")
+						.selected_text(gpu_label(language, self.gpu_preference))
+						.width(ui.available_width().min(220.0))
+						.show_ui(ui, |ui| {
+							for preference in model::GpuPreference::ALL {
+								ui.selectable_value(
+									&mut self.gpu_preference,
+									preference,
+									gpu_label(language, preference),
+								)
+								.on_hover_text(gpu_description(language, preference));
+							}
+						});
+				});
 			});
 		});
 	}

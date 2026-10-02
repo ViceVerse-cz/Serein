@@ -12,6 +12,7 @@ mod stream_playout;
 mod timer;
 mod transport;
 mod video;
+mod video_av1;
 // Linux has no shared hardware encoder, but the camera's GStreamer encoder still takes the
 // same configuration, so the facade is compiled on every supported platform.
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]

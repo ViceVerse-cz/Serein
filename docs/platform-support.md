@@ -260,6 +260,16 @@ still depends on distribution packaging and drivers. The software fallback reuse
 OpenH264. Flatpak needs compatible plugins/GPU access inside its runtime; no extra sandbox
 permission or host socket access is added. Native Linux validation remains pending.
 
+Hardware acceleration settings are device-wide and default on. Disabling app
+acceleration prefers a presentable CPU renderer after restart; a visible GPU
+fallback is used if none exists. Disabling screen acceleration selects software
+H.264 for the next share. Linux AV1 sending additionally requires `av1parse` and a
+working `vaav1enc` or `nvav1enc`; a bounded generated-video probe runs before AV1
+is advertised, and H.264 remains available for negotiation fallback. Windows/macOS
+AV1 sending and AV1 viewing are not implemented. AMD RX 7800 XT generated-video
+encoding passed on GStreamer 1.28.7; native capture and Discord AV1 acceptance
+remain unverified. See [codec behavior and offline checks](voice.md#screen-sharing).
+
 Niri portal capture normalizes frame timestamps at arrival before frame-rate filtering,
 including on Niri 26.04 where presentation timestamps remain constant. This preserves
 the existing VA-API/NVENC/OpenH264 selection and bounded buffers. Other desktops and

@@ -1,5 +1,21 @@
 //! Device-local GPU selection; independent of Discord accounts.
 
+/// Device-local acceleration choices. Older saved settings keep acceleration enabled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct HardwareAcceleration {
+	pub app: bool,
+	pub screen_share: bool,
+}
+impl Default for HardwareAcceleration {
+	fn default() -> Self {
+		Self {
+			app: true,
+			screen_share: true,
+		}
+	}
+}
+
 /// Which GPU Serein renders on, mirroring the three choices desktop platforms already offer.
 ///
 /// A preference only orders the adapters that can actually present to the window, so it can

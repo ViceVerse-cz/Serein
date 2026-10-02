@@ -1,7 +1,7 @@
 //! Linux ownership: one portal session and one bounded media pipeline, no recorder.
 use super::{
-	AudioChunk, EncodedFrame, MAX_ENCODED_BYTES, Settings, SourceId, audio_linux, encode_pixels,
-	encoder,
+	AudioChunk, Codec, EncodedFrame, MAX_ENCODED_BYTES, Settings, SourceId, audio_linux,
+	encode_pixels, encoder,
 	gstreamer::{self as capture, Capture, Mode},
 	portal_linux::Portal,
 	preview_frame,
@@ -79,6 +79,9 @@ pub(super) fn x11_source(cursor: bool) -> Result<gst::Element, &'static str> {
 #[allow(clippy::too_many_arguments)] // The existing worker's bounded media outputs.
 pub(super) fn run(
 	settings: Settings,
+	acceleration: bool,
+	codec: tokio::sync::watch::Sender<Option<Codec>>,
+	selected_codec: tokio::sync::watch::Receiver<Option<Codec>>,
 	stop: Arc<AtomicBool>,
 	ready: Arc<AtomicBool>,
 	keyframe: Arc<AtomicBool>,
@@ -102,6 +105,19 @@ pub(super) fn run(
 		.build()
 		.map_err(|_| "Could not start the screen picker")?;
 	runtime.block_on(async {
+		let av1 = if acceleration {
+			capture::probe_av1(settings, &stop).await
+		} else {
+			None
+		};
+		if stop.load(Ordering::Acquire) || send.is_closed() {
+			return Ok(());
+		}
+		let mut active_codec = if av1.is_some() { Codec::Av1 } else { Codec::H264 };
+		if active_codec == Codec::H264 {
+			validate_software_encoder(settings)?;
+		}
+		codec.send_replace(Some(active_codec));
 		let mut portal = if direct {
 			None
 		} else {
@@ -121,8 +137,11 @@ pub(super) fn run(
 					audio_linux::Worker::start(send, stop.clone(), ready.clone(), audio_epoch)
 				})
 				.transpose()?;
-			let mut mode_index = 0;
-			while let Some(&mode) = Mode::ALL.get(mode_index) {
+			let mut mode_index = av1
+				.and_then(|probed| Mode::candidates(acceleration, active_codec).iter().position(|mode| *mode == probed))
+				.unwrap_or(0);
+			let mut codec_committed = false;
+			while let Some(&mode) = Mode::candidates(acceleration, active_codec).get(mode_index) {
 				mode_index += 1;
 				if stop.load(Ordering::Acquire) || send.is_closed() {
 					return Ok(());
@@ -199,6 +218,20 @@ pub(super) fn run(
 					}
 					if portal.as_mut().is_some_and(Portal::is_closed) {
 						return Err("The desktop stopped screen sharing");
+					}
+					let requested = *selected_codec.borrow();
+					codec_committed |= ready.load(Ordering::Acquire);
+					if let Some(requested) = requested.filter(|codec| *codec != active_codec) {
+						// The server may choose the offered H.264 fallback before media readiness.
+						// Once sending starts, every replacement pipeline keeps the agreed codec.
+						if codec_committed || requested != Codec::H264 {
+							return Err("Screen codec changed after media negotiation");
+						}
+						validate_software_encoder(settings)?;
+						active_codec = requested;
+						mode_index = 0;
+						codec.send_replace(Some(active_codec));
+						break;
 					}
 					// Application audio is an extra, not the share itself. If its worker stops,
 					// keep sending video and say so, rather than ending the screen share.
@@ -324,7 +357,10 @@ pub(super) fn run(
 								let map = buffer
 									.map_readable()
 									.map_err(|_| "Screen video could not be read")?;
-								crate::video::validate_source(&map)?;
+								match mode.codec() {
+									Codec::H264 => crate::video::validate_source(&map)?,
+									Codec::Av1 => crate::video_av1::validate_source(&map)?,
+								}
 								(
 									map.to_vec(),
 									!buffer.flags().contains(gst::BufferFlags::DELTA_UNIT),
@@ -338,6 +374,7 @@ pub(super) fn run(
 							});
 							if !data.is_empty() && (!waiting_keyframe || is_keyframe) {
 								let frame = EncodedFrame {
+									codec: mode.codec(),
 									data,
 									keyframe: is_keyframe,
 									timestamp: (origin.elapsed().as_micros() * 90 / 1000) as u32,
@@ -406,7 +443,10 @@ pub(super) fn run(
 				drop(pipeline);
 				drop(remote);
 			}
-			Err("No screen encoder could start; check PipeWire, portal and GStreamer plugins")
+			Err(match active_codec {
+				Codec::Av1 => "The negotiated AV1 screen encoder stopped; disable screen hardware acceleration to retry with H.264",
+				Codec::H264 => "No screen encoder could start; check PipeWire, portal and GStreamer plugins",
+			})
 		}
 		.await;
 		ready.store(false, Ordering::Release);
@@ -421,8 +461,31 @@ pub(super) fn run(
 	})
 }
 
+fn validate_software_encoder(settings: Settings) -> Result<(), &'static str> {
+	let mut encoder = encoder(settings, settings.bit_rate())?;
+	let yuv = YUVBuffer::new(settings.width as usize, settings.height as usize);
+	let (frame, keyframe) = super::encode_yuv(&mut encoder, &yuv, true)?;
+	if frame.is_empty() || !keyframe {
+		return Err("The H.264 screen encoder could not produce a keyframe");
+	}
+	crate::video::validate_source(&frame)
+}
+
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn software_fallback_probe_uses_only_generated_pixels() {
+		let settings = super::Settings {
+			source: super::SourceId::Display(1),
+			width: 854,
+			height: 480,
+			fps: 30,
+			cursor: false,
+			audio: false,
+		};
+		super::validate_software_encoder(settings).unwrap();
+	}
+
 	#[test]
 	fn niri_detection_preserves_other_desktops() {
 		for desktop in ["niri", "Niri", "GNOME:niri"] {
