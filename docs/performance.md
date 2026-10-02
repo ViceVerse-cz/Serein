@@ -3213,3 +3213,39 @@ verified release asset, not a new application build or runtime measurement.
 No compiler options, application dependencies or runtime code changed. CPU, RSS,
 frame latency and native Arch startup were not measured. The manual AUR build
 repackages an existing binary; it does not compile Rust.
+
+## Quiet-message prefix — October 2, 2026
+
+Runtime source `28eac6bb` on parent main `47a81035`; package source `462d7208`
+adds only the verified absolute macOS icon output path. The preserved parent
+package/native source `ef9cd5d1` is runtime-identical to `47a81035`. macOS 27,
+Apple M1, 16 GiB, native Metal at 2× scale; pinned toolchain/lockfile. Standard
+packages use no default development features and include voice; native binaries
+use default features plus demo and the unchanged optimized fat-LTO profile.
+
+| Metric | Parent | Quiet prefix | Delta |
+| --- | --- | --- | --- |
+| Signed standard executable bytes | 62,088,304 | 62,088,304 | 0 |
+| Installed package bytes, 206 regular files | 68,098,733 | 68,098,733 | 0 |
+| Distribution ZIP bytes, identical ditto method | 43,286,187 | 43,287,077 | +890 (+0.0021%) |
+| Common synthetic chat median process CPU | 0.0% | 0.0% | 0 percentage points |
+| Sampled peak process RSS, KiB | 128,768 | 128,592 | -176 (-0.1367%) |
+| Settled process RSS, KiB | 128,720 | 128,544 | -176 (-0.1367%) |
+| 100,000-event reducer median, ms | 53.308083 | 52.984917 | -0.323166 (-0.6062%) |
+| Retained timeline estimate, bytes / records | 331,992–332,477 / 500 | 331,992–332,477 / 500 | Unchanged |
+
+Both native binaries launch `--demo`: five seconds warmup, then ten one-second
+macOS `ps` CPU/RSS samples; settled RSS is the median of the last five. All
+compilers, tests and other native demos were stopped. This measures idle overhead
+in the common synthetic chat, not send latency or real notification suppression.
+Fresh parent/after replay binaries receive one warmup and five alternating runs;
+ranges overlap (parent 52.960291–54.733875 ms, after 52.482000–53.390875 ms).
+Small differences and quantized CPU are not improvement claims. Package ZIP
+changes include regenerated native icon/signature resources. No dependency,
+worker or retained-message copy is added; prefix handling borrows existing text.
+GPU memory and frame/startup latency remain unmeasured. Raw samples, hashes,
+source identities and methods are in
+`docs/pr-evidence/quiet-messages/measurements.json`; preserved artifacts are in
+`target/issue-sweep/silent/462d7208`. Local full workspace checks, standard package,
+optimized demo build and native/replay sampling passed. No live message,
+account, provider request, microphone or camera was used.
