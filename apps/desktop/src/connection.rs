@@ -441,6 +441,10 @@ impl Connection {
                                     queue_abandonment(&voice_send,&mut pending_abandonment,control,owner);
                                     continue;
                                 }
+                                if matches!(control,V::ConfirmSession{..}) {
+                                    if let Some(error)=queue_confirmation(&voice_send,control,voice_request,*voice_availability.borrow()) {emit(Event::Voice(error))?;}
+                                    continue;
+                                }
                                 if abandonment_blocks_join(pending_abandonment,control) {
                                     emit(Event::Voice(E::Failed{channel,request,message:"Previous call is releasing locally; retry joining after it finishes"}))?;continue;
                                 }
@@ -1306,6 +1310,44 @@ fn queue_abandonment(
 	}
 }
 
+// A stale candidate cannot fail its replacement: the desktop rechecks the tagged revision.
+fn queue_confirmation(
+	sender: &mpsc::Sender<client_core::voice::Command>,
+	control: client_core::voice::Command,
+	owner: Option<(model::Id, u64, bool)>,
+	online: bool,
+) -> Option<client_core::voice::Event> {
+	let client_core::voice::Command::ConfirmSession {
+		channel,
+		request,
+		revision,
+	} = control
+	else {
+		unreachable!("only local transport confirmations use this admission path");
+	};
+	let message = if !online {
+		"Call confirmation was not sent; voice signaling is disconnected"
+	} else if !owner.is_some_and(|(id, attempt, _)| (id, attempt) == (channel, request)) {
+		"Call confirmation expired; no action was sent"
+	} else {
+		match sender.try_send(control) {
+			Ok(()) => return None,
+			Err(mpsc::error::TrySendError::Full(_)) => {
+				"Call confirmation was not sent; the voice queue is full"
+			}
+			Err(mpsc::error::TrySendError::Closed(_)) => {
+				"Call confirmation was not sent; voice signaling is disconnected"
+			}
+		}
+	};
+	Some(client_core::voice::Event::SessionConfirmationFailed {
+		channel,
+		request,
+		revision,
+		message,
+	})
+}
+
 // A fresh Join can meet the still-full queue just after local release was queued.
 fn queue_join(
 	sender: &mpsc::Sender<client_core::voice::Command>,
@@ -1620,6 +1662,77 @@ mod tests {
 				expected
 			);
 		}
+	}
+
+	#[tokio::test]
+	async fn confirmation_queue_pressure_is_revision_scoped_and_preserves_queued_controls() {
+		use client_core::voice::{Command as V, Event as E};
+		let (sender, mut receiver) = mpsc::channel(8);
+		for _ in 0..8 {
+			sender
+				.try_send(V::Sync {
+					channel: model::Id(20),
+				})
+				.unwrap();
+		}
+		let confirmation = V::ConfirmSession {
+			channel: model::Id(20),
+			request: 5,
+			revision: 2,
+		};
+		let owner = Some((model::Id(20), 5, false));
+		assert!(matches!(
+			queue_confirmation(&sender, confirmation, owner, true),
+			Some(E::SessionConfirmationFailed {
+				channel: model::Id(20),
+				request: 5,
+				revision: 2,
+				message: "Call confirmation was not sent; the voice queue is full"
+			})
+		));
+		assert_eq!(receiver.len(), 8);
+		for _ in 0..8 {
+			assert!(matches!(
+				receiver.recv().await,
+				Some(V::Sync {
+					channel: model::Id(20)
+				})
+			));
+		}
+		for (active, online) in [
+			(None, true),
+			(Some((model::Id(20), 6, false)), true),
+			(owner, false),
+		] {
+			assert!(matches!(
+				queue_confirmation(&sender, confirmation, active, online),
+				Some(E::SessionConfirmationFailed {
+					request: 5,
+					revision: 2,
+					..
+				})
+			));
+			assert!(receiver.try_recv().is_err());
+		}
+		assert!(queue_confirmation(&sender, confirmation, owner, true).is_none());
+		assert!(matches!(
+			receiver.recv().await,
+			Some(V::ConfirmSession {
+				request: 5,
+				revision: 2,
+				..
+			})
+		));
+		drop(receiver);
+		assert!(matches!(
+			queue_confirmation(&sender, confirmation, owner, true),
+			Some(E::SessionConfirmationFailed {
+				request: 5,
+				revision: 2,
+				message: "Call confirmation was not sent; voice signaling is disconnected",
+				..
+			})
+		));
 	}
 
 	#[tokio::test]

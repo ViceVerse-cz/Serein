@@ -62,6 +62,13 @@ Stale release commands cannot displace cleanup for the current attempt. A later 
 that encounters the still-full queue fails only that unsent attempt, keeping text
 signaling available.
 
+If local transport confirmation cannot enter the bounded control queue, its
+channel, attempt and candidate revision accompany a local failure. The desktop
+consumes it only for the exact current unconfirmed candidate within its original
+deadline, then abandons that negotiation through the existing local release path.
+Old-candidate failures do not fail a replacement or established call. Text
+authentication and signaling remain available.
+
 After confirmation, a different owner session in the same voice channel, or movement
 to another non-null channel/guild, clears the local call and closes media without
 sending a hangup. A translated informational notice explains the move. Pending

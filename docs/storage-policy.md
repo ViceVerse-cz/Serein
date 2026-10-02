@@ -1542,3 +1542,9 @@ requires fresh confirmation; another channel replaces the record. Replacement,
 local release, disconnect and removed access clear it.
 Validated Call/State observations update it before dispatch and invalidate pending
 HTTP workers. Unknown ringing authorizes neither start nor stop.
+
+Local voice-confirmation admission failures carry one channel ID, attempt and
+candidate revision plus a fixed static diagnostic through the existing bounded
+event queue. They retain no credentials, allocate no payload buffers and add no
+pending/retry slot. The desktop consumes only the matching current unconfirmed
+candidate; existing bounded local abandonment handles release after failure.
