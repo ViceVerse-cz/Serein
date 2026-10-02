@@ -506,13 +506,13 @@ impl LocalStore {
 				zoom_percent INTEGER NOT NULL CHECK(typeof(zoom_percent)='integer' AND zoom_percent BETWEEN 50 AND 150),
 				sidebar_width INTEGER NOT NULL CHECK(typeof(sidebar_width)='integer' AND sidebar_width BETWEEN 190 AND 360),
 				show_members INTEGER NOT NULL CHECK(typeof(show_members)='integer' AND show_members IN (0,1)),
-				animate_gifs INTEGER NOT NULL CHECK(typeof(animate_gifs)='integer' AND animate_gifs IN (0,1)),
-				hide_media_links INTEGER NOT NULL CHECK(typeof(hide_media_links)='integer' AND hide_media_links IN (0,1)),
-				confirm_external_links INTEGER NOT NULL CHECK(typeof(confirm_external_links)='integer' AND confirm_external_links IN (0,1)),
-				smooth_scrolling INTEGER NOT NULL CHECK(typeof(smooth_scrolling)='integer' AND smooth_scrolling IN (0,1)),
-				scroll_speed_percent INTEGER NOT NULL CHECK(typeof(scroll_speed_percent)='integer' AND scroll_speed_percent BETWEEN 25 AND 300),
-				show_members_dms INTEGER NOT NULL CHECK(typeof(show_members_dms)='integer' AND show_members_dms IN (0,1)),
-				compact_messages INTEGER NOT NULL CHECK(typeof(compact_messages)='integer' AND compact_messages IN (0,1))
+				animate_gifs INTEGER NOT NULL DEFAULT 0 CHECK(typeof(animate_gifs)='integer' AND animate_gifs IN (0,1)),
+				hide_media_links INTEGER NOT NULL DEFAULT 1 CHECK(typeof(hide_media_links)='integer' AND hide_media_links IN (0,1)),
+				confirm_external_links INTEGER NOT NULL DEFAULT 1 CHECK(typeof(confirm_external_links)='integer' AND confirm_external_links IN (0,1)),
+				smooth_scrolling INTEGER NOT NULL DEFAULT 1 CHECK(typeof(smooth_scrolling)='integer' AND smooth_scrolling IN (0,1)),
+				scroll_speed_percent INTEGER NOT NULL DEFAULT 100 CHECK(typeof(scroll_speed_percent)='integer' AND scroll_speed_percent BETWEEN 25 AND 300),
+				show_members_dms INTEGER NOT NULL DEFAULT 1 CHECK(typeof(show_members_dms)='integer' AND show_members_dms IN (0,1)),
+				compact_messages INTEGER NOT NULL DEFAULT 0 CHECK(typeof(compact_messages)='integer' AND compact_messages IN (0,1))
 			); INSERT INTO reading_preferences_zoom SELECT singleton,zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links,smooth_scrolling,scroll_speed_percent,show_members_dms,compact_messages FROM reading_preferences;
 			DROP TABLE reading_preferences; ALTER TABLE reading_preferences_zoom RENAME TO reading_preferences;")?;
 		}
@@ -2691,10 +2691,15 @@ mod tests {
 		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
 		let preferences = ReadingPreferences {
 			zoom_percent: 80,
+			sidebar_width: 310,
 			show_members: false,
+			show_members_dms: false,
+			animate_gifs: true,
+			hide_media_links: false,
+			confirm_external_links: false,
+			smooth_scrolling: false,
 			compact_messages: true,
 			scroll_speed_percent: 140,
-			..ReadingPreferences::default()
 		};
 		store.save_reading_preferences(preferences).unwrap();
 		let sql: String = store
@@ -2709,6 +2714,22 @@ mod tests {
 			.replace("reading_preferences", "old_reading_preferences")
 			.replace("BETWEEN 50 AND 150", "BETWEEN 80 AND 150");
 		store.0.execute_batch(&format!("{old}; INSERT INTO old_reading_preferences SELECT * FROM reading_preferences; DROP TABLE reading_preferences; ALTER TABLE old_reading_preferences RENAME TO reading_preferences; PRAGMA user_version=25;")).unwrap();
+		assert!(
+			store
+				.0
+				.execute("UPDATE reading_preferences SET zoom_percent=50", [])
+				.is_err()
+		);
+		store.0.execute_batch("DELETE FROM reading_preferences; INSERT INTO reading_preferences(singleton,zoom_percent,sidebar_width,show_members) VALUES(1,80,236,1);").unwrap();
+		assert_eq!(
+			store.reading_preferences().unwrap(),
+			ReadingPreferences {
+				zoom_percent: 80,
+				animate_gifs: false,
+				..ReadingPreferences::default()
+			}
+		);
+		store.save_reading_preferences(preferences).unwrap();
 		let upgraded = LocalStore::initialize(store.0).unwrap();
 		assert_eq!(upgraded.reading_preferences().unwrap(), preferences);
 		let smaller = ReadingPreferences {
@@ -2718,6 +2739,15 @@ mod tests {
 		upgraded.save_reading_preferences(smaller).unwrap();
 		let reopened = LocalStore::initialize(upgraded.0).unwrap();
 		assert_eq!(reopened.reading_preferences().unwrap(), smaller);
+		reopened.0.execute_batch("DELETE FROM reading_preferences; INSERT INTO reading_preferences(singleton,zoom_percent,sidebar_width,show_members) VALUES(1,50,236,1);").unwrap();
+		assert_eq!(
+			reopened.reading_preferences().unwrap(),
+			ReadingPreferences {
+				zoom_percent: 50,
+				animate_gifs: false,
+				..ReadingPreferences::default()
+			}
+		);
 		assert!(
 			reopened
 				.0
