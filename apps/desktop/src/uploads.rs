@@ -350,8 +350,17 @@ struct Uploading {
 	cancel: watch::Sender<bool>,
 	cancelling: bool,
 }
+struct ExternalUploading {
+	result: mpsc::Receiver<Result<String, &'static str>>,
+	progress: watch::Receiver<Status>,
+	cancel: watch::Sender<bool>,
+	generation: u64,
+	key: Option<u64>,
+}
 #[derive(Default)]
 pub struct Uploads {
+	external: Option<ExternalUploading>,
+	public_result: Option<Result<String, &'static str>>,
 	auto_image: bool,
 	scope: Option<(u64, Id)>,
 	selected: Vec<Chosen>,
@@ -367,6 +376,82 @@ pub struct Uploads {
 	notice: Option<&'static str>,
 }
 impl Uploads {
+	#[allow(clippy::too_many_arguments)]
+	pub fn start_external(
+		&mut self,
+		index: usize,
+		key: Option<u64>,
+		generation: u64,
+		channel: Id,
+		filename: &str,
+		bytes: u64,
+		runtime: &tokio::runtime::Handle,
+		context: &egui::Context,
+		demo: bool,
+	) -> Result<(), &'static str> {
+		if self.busy() {
+			return Err("Wait for the current attachment operation to finish");
+		}
+		if !demo && self.scope != Some((generation, channel)) {
+			return Err("Return to the original conversation before uploading publicly");
+		}
+		let chosen = self.selected.get(index);
+		if !demo && (key.is_none() || chosen.map(|chosen| chosen.key) != key) {
+			return Err("Selection changed; review the file again before uploading publicly");
+		}
+		if chosen.is_some_and(|chosen| {
+			chosen.source.filename() != filename || chosen.source.size() != bytes
+		}) {
+			return Err("Selection changed; review the file again before uploading publicly");
+		}
+		let key = chosen.map(|chosen| chosen.key);
+		let source = chosen.map(|chosen| chosen.source.clone());
+		if !demo && source.is_none() {
+			return Err("Select the file again before uploading publicly");
+		}
+		let (updates, progress) = watch::channel(Status::Preparing);
+		let (cancel, cancelled) = watch::channel(false);
+		let (send, result) = mpsc::sync_channel(1);
+		let context = context.clone();
+		runtime.spawn(async move {
+			let result = if demo {
+				Ok("https://files.catbox.moe/offline-preview.png".to_owned())
+			} else if let Some(source) = source {
+				discord_api::upload::external::upload(source, updates, cancelled).await
+			} else {
+				Err("No selected file")
+			};
+			let _ = send.send(result);
+			context.request_repaint();
+		});
+		self.external = Some(ExternalUploading {
+			result,
+			progress,
+			cancel,
+			generation,
+			key,
+		});
+		Ok(())
+	}
+	pub fn public_selection_key(&self, index: usize) -> Option<u64> {
+		self.selected.get(index).map(|chosen| chosen.key)
+	}
+	pub fn take_public_result(&mut self) -> Option<Result<String, &'static str>> {
+		self.public_result.take()
+	}
+	pub fn public_progress(&self) -> Option<(u64, u64)> {
+		self.external
+			.as_ref()
+			.and_then(|upload| match *upload.progress.borrow() {
+				Status::Uploading { sent, total } => Some((sent, total)),
+				_ => None,
+			})
+	}
+	pub fn cancel_public(&mut self) {
+		if let Some(upload) = &self.external {
+			upload.cancel.send_replace(true);
+		}
+	}
 	/// A picker click authorizes one image send after preparation.
 	#[allow(clippy::too_many_arguments)]
 	pub fn start_image_share(
@@ -596,6 +681,28 @@ impl Uploads {
 		context: &egui::Context,
 	) {
 		self.revalidate_scope(generation, channel, allowed);
+		if let Some(upload) = &self.external {
+			let result = match upload.result.try_recv() {
+				Ok(result) => Some(result),
+				Err(mpsc::TryRecvError::Disconnected) => Some(Err(
+					"Public upload interrupted; received bytes may remain on Catbox",
+				)),
+				Err(mpsc::TryRecvError::Empty) => None,
+			};
+			if let Some(result) = result {
+				let upload = self.external.take().unwrap();
+				if upload.generation == generation {
+					if result.is_ok()
+						&& let Some(key) = upload.key
+					{
+						self.selected.retain(|chosen| chosen.key != key);
+						self.previewing
+							.retain(|(preview_key, _)| *preview_key != key);
+					}
+					self.public_result = Some(result);
+				}
+			}
+		}
 		if let Some(choosing) = &self.choosing {
 			let result = match choosing.result.try_recv() {
 				Ok(result) => Some(result),
@@ -726,7 +833,7 @@ impl Uploads {
 		self.selected.iter().map(|c| c.preview.clone()).collect()
 	}
 	pub fn busy(&self) -> bool {
-		self.choosing.is_some() || self.uploading.is_some()
+		self.choosing.is_some() || self.uploading.is_some() || self.external.is_some()
 	}
 	pub fn has_unsent(&self) -> bool {
 		!self.selected.is_empty() || self.busy()
@@ -750,6 +857,7 @@ impl Uploads {
 		self.last = None;
 	}
 	pub fn cancel(&mut self) {
+		self.cancel_public();
 		self.auto_image = false;
 		if let Some(choosing) = &self.choosing {
 			choosing.cancelled.store(true, Ordering::Release);
@@ -798,6 +906,133 @@ impl Drop for Uploads {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[tokio::test]
+	async fn public_host_consent_matches_selection_and_completion_is_session_scoped() {
+		let context = egui::Context::default();
+		let runtime = tokio::runtime::Handle::current();
+		let mut uploads = Uploads::default();
+		uploads.scope = Some((7, Id(1)));
+		uploads.push(Source::pasted_png(vec![1]).unwrap(), None);
+		assert!(
+			uploads
+				.start_external(
+					0,
+					Some(0),
+					7,
+					Id(1),
+					"other-file.png",
+					1,
+					&runtime,
+					&context,
+					true
+				)
+				.is_err()
+		);
+		assert!(
+			uploads
+				.start_external(
+					0,
+					Some(0),
+					8,
+					Id(1),
+					"pasted-image.png",
+					1,
+					&runtime,
+					&context,
+					false
+				)
+				.is_err()
+		);
+		uploads.selected[0].key = 1;
+		uploads.selected[0].source = Source::pasted_png(vec![2]).unwrap();
+		assert!(
+			uploads
+				.start_external(
+					0,
+					Some(0),
+					7,
+					Id(1),
+					"pasted-image.png",
+					1,
+					&runtime,
+					&context,
+					false
+				)
+				.is_err()
+		);
+		uploads
+			.start_external(
+				0,
+				Some(0),
+				7,
+				Id(1),
+				"pasted-image.png",
+				1,
+				&runtime,
+				&context,
+				true,
+			)
+			.unwrap();
+		assert!(uploads.busy());
+		assert!(uploads.take_source(7, Id(1)).is_none());
+		for _ in 0..8 {
+			tokio::task::yield_now().await;
+		}
+		uploads.poll(7, Some(Id(2)), true, &context);
+		assert!(!uploads.busy());
+		assert!(
+			uploads
+				.take_public_result()
+				.unwrap()
+				.unwrap()
+				.contains("offline-preview")
+		);
+		assert!(uploads.selection().is_none());
+		uploads
+			.start_external(
+				0,
+				Some(0),
+				7,
+				Id(1),
+				"synthetic.png",
+				1,
+				&runtime,
+				&context,
+				true,
+			)
+			.unwrap();
+		for _ in 0..8 {
+			tokio::task::yield_now().await;
+		}
+		uploads.poll(8, Some(Id(1)), true, &context);
+		assert!(uploads.take_public_result().is_none());
+	}
+	#[test]
+	fn public_cancellation_keeps_the_slot_until_worker_finishes() {
+		let mut uploads = Uploads::default();
+		uploads.scope = Some((1, Id(1)));
+		let key = uploads.push(Source::pasted_png(vec![1]).unwrap(), None);
+		let (send, result) = mpsc::sync_channel(1);
+		let (_updates, progress) = watch::channel(Status::Preparing);
+		let (cancel, requested) = watch::channel(false);
+		uploads.external = Some(ExternalUploading {
+			result,
+			progress,
+			cancel,
+			generation: 1,
+			key: Some(key),
+		});
+		uploads.cancel_public();
+		assert!(*requested.borrow());
+		uploads.poll(1, Some(Id(1)), true, &egui::Context::default());
+		assert!(uploads.busy());
+		send.send(Err("Public upload cancelled")).unwrap();
+		uploads.poll(1, Some(Id(1)), true, &egui::Context::default());
+		assert!(!uploads.busy());
+		assert!(uploads.selection().is_some());
+		assert!(uploads.take_public_result().unwrap().is_err());
+	}
+
 	#[tokio::test]
 	async fn image_sharing_stages_bounded_artwork_and_cancels_on_navigation() {
 		let context = egui::Context::default();
@@ -1124,6 +1359,8 @@ mod tests {
 		let (send, result) = mpsc::sync_channel(1);
 		let cancelled = Arc::new(AtomicBool::new(false));
 		let mut uploads = Uploads {
+			external: None,
+			public_result: None,
 			auto_image: false,
 			scope: Some((1, Id(2))),
 			choosing: Some(Choosing {

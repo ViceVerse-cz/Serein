@@ -4370,3 +4370,24 @@ lib-composer-onboarding-rules-pending = Přijmi pravidla tohoto serveru, abys mo
 lib-composer-onboarding-incomplete = Dokonči připojení k serveru a odemkni další kanály.
 # Context: composer
 lib-composer-onboarding-complete = Dokončit uvítání
+
+# Explicit public attachment hosting
+public-upload-host-file = Hostovat soubor…
+public-upload-heading = Nahrát na Catbox
+public-upload-subtitle = Sdílet veřejný odkaz místo přílohy Discordu
+public-upload-offline = Offline náhled · žádný soubor se nenahrává
+public-upload-size = { $size } MB · veřejné úložiště souborů
+public-upload-privacy = Kdokoli s odkazem má přístup k tomuto souboru. Původní soubor i jeho metadata se nahrají beze změny na Catbox, mimo Discord.
+public-upload-retention = Catbox nyní uvádí, že anonymní soubory mohou být odstraněny po dvou letech bez přístupu. Serein nemůže uložené soubory smazat; zrušení nahrávání ani smazání zprávy Discordu je neodstraní.
+public-upload-review = Odkaz zde zůstane ke kontrole. Zvolte Přidat do konceptu nebo Kopírovat odkaz a poté jej sami odešlete.
+public-upload-return = Pro přidání odkazu se vraťte do původní konverzace.
+public-upload-preparing = Příprava veřejného nahrávání…
+public-upload-limits = Nejvýše 200 MB (GIF: 20 MB). Soubory EXE, SCR, CPL, JAR a DOC nejsou podporovány.
+public-upload-add = Přidat do konceptu
+public-upload-copy = Kopírovat odkaz
+public-upload-close = Zavřít
+public-upload-cancel-upload = Zrušit nahrávání
+public-upload-upload = Veřejně nahrát na Catbox
+public-upload-cancel = Zrušit
+public-upload-draft-full = Koncept je plný; před zavřením zkopírujte veřejný odkaz
+public-upload-leave = Odchod zruší veřejné nahrávání a zahodí odkaz v dialogu. Již nahrané soubory mohou zůstat na Catboxu; před pokračováním zkopírujte odkaz.
