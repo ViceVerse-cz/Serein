@@ -1136,7 +1136,7 @@ them requires a separate `set_local_settings` proposal and the user's Apply.
 
 | Wire field | SDK Rust / JSON type | Meaning and range | Reading from `settings: &LocalSettingsSnapshot` |
 | --- | --- | --- | --- |
-| `zoom_percent` | `u16` / integer | App zoom percentage, 80 through 150 inclusive; `100` is normal zoom. | `settings.zoom_percent` |
+| `zoom_percent` | `u16` / integer | App zoom percentage, 50 through 150 inclusive; `100` is normal zoom. | `settings.zoom_percent` |
 | `sidebar_width` | `u16` / integer | Preferred channel/conversation sidebar width, 190 through 360 logical pixels. A narrow window can constrain actual width. | `settings.sidebar_width` |
 | `show_members` | `bool` / boolean | Keep the People/member list visible when the window is wide enough. Does not force a panel into a narrow window. | `settings.show_members` |
 | `animate_gifs` | `bool` / boolean | Automatically animate visible GIFs. | `settings.animate_gifs` |
