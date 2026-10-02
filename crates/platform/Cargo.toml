@@ -68,3 +68,6 @@ version = "=0.25.3"
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 wry.workspace = true
+
+[dev-dependencies]
+futures-util.workspace = true

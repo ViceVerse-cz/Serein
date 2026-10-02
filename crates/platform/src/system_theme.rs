@@ -38,7 +38,7 @@ const PORTAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 #[cfg(target_os = "linux")]
 const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 /// `gsettings get` prints one short quoted value; anything longer is not a theme name.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", all(test, unix)))]
 const MAX_OUTPUT: u64 = 256;
 
 #[cfg(target_os = "linux")]
@@ -62,11 +62,15 @@ impl SystemTheme {
 						wake();
 					}
 				};
-				if !portal(&publish).await
-					&& let Ok(Some(dark)) = tokio::task::spawn_blocking(gsettings_dark).await
-				{
-					publish(dark);
-				}
+				reconnect_portal(
+					|| portal(&publish),
+					|| async {
+						if let Ok(Some(dark)) = tokio::task::spawn_blocking(gsettings_dark).await {
+							publish(dark);
+						}
+					},
+				)
+				.await;
 			}
 		});
 		Self { state, task }
@@ -93,7 +97,6 @@ impl Drop for SystemTheme {
 #[cfg(target_os = "linux")]
 async fn portal(publish: &impl Fn(bool)) -> bool {
 	use ashpd::desktop::settings::Settings;
-	use futures_util::StreamExt;
 	use tokio::time::timeout;
 	let Ok(Ok(settings)) = timeout(PORTAL_TIMEOUT, async {
 		let connection = ashpd::zbus::connection::Builder::session()?
@@ -111,15 +114,62 @@ async fn portal(publish: &impl Fn(bool)) -> bool {
 	else {
 		return false;
 	};
-	let Ok(Ok(scheme)) = timeout(PORTAL_TIMEOUT, settings.color_scheme()).await else {
+	follow_theme_changes(
+		changes,
+		|| async {
+			timeout(PORTAL_TIMEOUT, settings.color_scheme())
+				.await
+				.ok()?
+				.ok()
+				.map(portal_dark)
+		},
+		publish,
+	)
+	.await
+}
+
+// A queued signal can predate the initial read. Treat signals as invalidations
+// and read the current property rather than publishing possibly stale payloads.
+#[cfg(any(target_os = "linux", test))]
+async fn follow_theme_changes<S, R, F>(changes: S, mut read: R, publish: &impl Fn(bool)) -> bool
+where
+	S: futures_util::Stream,
+	R: FnMut() -> F,
+	F: std::future::Future<Output = Option<bool>>,
+{
+	use futures_util::StreamExt;
+	let Some(current) = read().await else {
 		return false;
 	};
-	publish(portal_dark(scheme));
+	publish(current);
 	let mut changes = std::pin::pin!(changes);
-	while let Some(scheme) = changes.next().await {
-		publish(portal_dark(scheme));
+	while changes.next().await.is_some() {
+		let Some(current) = read().await else {
+			break;
+		};
+		publish(current);
 	}
 	true
+}
+
+// One connection and one subscription at a time; reconnect after a closed stream
+// or unavailable portal, retaining the latest preference during the bounded delay.
+#[cfg(any(target_os = "linux", test))]
+async fn reconnect_portal<C, F, B, BF>(mut connect: C, mut fallback: B)
+where
+	C: FnMut() -> F,
+	F: std::future::Future<Output = bool>,
+	B: FnMut() -> BF,
+	BF: std::future::Future<Output = ()>,
+{
+	let mut fallback_checked = false;
+	loop {
+		if !connect().await && !fallback_checked {
+			fallback().await;
+		}
+		fallback_checked = true;
+		tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+	}
 }
 
 /// GNOME reports its Light style as "no preference", and the Adwaita window frame, GTK and
@@ -169,7 +219,7 @@ fn unquote(output: &str) -> &str {
 }
 
 /// Runs `command` and returns its stdout, or `None` on failure, excess output or `timeout`.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", all(test, unix)))]
 fn bounded_output(
 	command: &mut std::process::Command,
 	timeout: std::time::Duration,
@@ -210,6 +260,62 @@ fn bounded_output(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[tokio::test]
+	async fn queued_signal_cannot_overwrite_the_current_property() {
+		let published = std::cell::RefCell::new(Vec::new());
+		// A stale dark signal is already queued while the property now says light.
+		assert!(
+			follow_theme_changes(
+				futures_util::stream::iter([true]),
+				|| std::future::ready(Some(false)),
+				&|current| published.borrow_mut().push(current),
+			)
+			.await
+		);
+		assert_eq!(*published.borrow(), [false, false]);
+	}
+
+	#[tokio::test]
+	async fn closed_portal_stream_reconnects_without_repeating_fallback() {
+		use std::sync::atomic::{AtomicUsize, Ordering};
+		let attempts = AtomicUsize::new(0);
+		let fallback = AtomicUsize::new(0);
+		let third_connection = tokio::sync::Notify::new();
+		let watch = reconnect_portal(
+			|| {
+				let attempt = attempts.fetch_add(1, Ordering::Relaxed);
+				if attempt == 2 {
+					third_connection.notify_one();
+				}
+				async move {
+					if attempt == 0 {
+						return false;
+					}
+					follow_theme_changes(
+						futures_util::stream::empty::<bool>(),
+						|| std::future::ready(Some(false)),
+						&|_| {},
+					)
+					.await
+				}
+			},
+			|| {
+				fallback.fetch_add(1, Ordering::Relaxed);
+				std::future::ready(())
+			},
+		);
+		tokio::time::timeout(std::time::Duration::from_secs(10), async {
+			tokio::select! {
+				_ = watch => panic!("watcher must keep reconnecting"),
+				_ = third_connection.notified() => {},
+			}
+		})
+		.await
+		.expect("a closed healthy stream must reconnect");
+		assert_eq!(attempts.load(Ordering::Relaxed), 3);
+		assert_eq!(fallback.load(Ordering::Relaxed), 1);
+	}
 
 	#[test]
 	fn gnome_values_map_to_the_desktop_appearance() {
