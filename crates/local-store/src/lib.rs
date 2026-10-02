@@ -2015,6 +2015,19 @@ mod tests {
 			serde_json::from_str(r#"{"voice_noise_suppression":true}"#).unwrap();
 		assert!(legacy.voice_processing.is_none());
 		assert!(legacy.voice_noise_suppression);
+		// Existing serialized bindings omit the newly optional diagnostics shortcut.
+		let mut old_bindings = serde_json::to_value(model::Keybinds::default()).unwrap();
+		old_bindings
+			.as_object_mut()
+			.unwrap()
+			.remove("copy_issue_diagnostics");
+		let restored: model::Keybinds = serde_json::from_value(old_bindings).unwrap();
+		assert!(restored.is_valid());
+		assert_eq!(restored.copy_issue_diagnostics, model::KeyChord::new("", 0));
+		assert_eq!(
+			restored.send_message,
+			model::Keybinds::default().send_message
+		);
 		let mut value = AppPreferences {
 			language: Some("cs".into()),
 			notifications_enabled: true,

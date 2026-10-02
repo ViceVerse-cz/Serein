@@ -60,10 +60,11 @@ pub enum KeybindAction {
 	PushToTalk,
 	ToggleMute,
 	ToggleDeafen,
+	CopyIssueDiagnostics,
 }
 
 impl KeybindAction {
-	pub const ALL: [Self; 17] = [
+	pub const ALL: [Self; 18] = [
 		Self::ShowShortcuts,
 		Self::SwitchConversation,
 		Self::SearchConversation,
@@ -81,6 +82,7 @@ impl KeybindAction {
 		Self::PushToTalk,
 		Self::ToggleMute,
 		Self::ToggleDeafen,
+		Self::CopyIssueDiagnostics,
 	];
 
 	pub const fn label(self) -> &'static str {
@@ -102,6 +104,7 @@ impl KeybindAction {
 			Self::PushToTalk => "Push to Talk",
 			Self::ToggleMute => "Toggle Mute",
 			Self::ToggleDeafen => "Toggle Deafen",
+			Self::CopyIssueDiagnostics => "Copy Issue Diagnostics",
 		}
 	}
 
@@ -134,6 +137,8 @@ pub struct Keybinds {
 	pub push_to_talk: KeyChord,
 	pub toggle_mute: KeyChord,
 	pub toggle_deafen: KeyChord,
+	/// Unassigned by default; the empty key is valid only for this optional action.
+	pub copy_issue_diagnostics: KeyChord,
 }
 
 impl Default for Keybinds {
@@ -157,6 +162,7 @@ impl Default for Keybinds {
 			push_to_talk: KeyChord::new("V", 0),
 			toggle_mute: KeyChord::new("M", PRIMARY | SHIFT),
 			toggle_deafen: KeyChord::new("D", PRIMARY | SHIFT),
+			copy_issue_diagnostics: KeyChord::new("", 0),
 		}
 	}
 }
@@ -181,6 +187,7 @@ impl Keybinds {
 			KeybindAction::PushToTalk => &self.push_to_talk,
 			KeybindAction::ToggleMute => &self.toggle_mute,
 			KeybindAction::ToggleDeafen => &self.toggle_deafen,
+			KeybindAction::CopyIssueDiagnostics => &self.copy_issue_diagnostics,
 		}
 	}
 
@@ -203,12 +210,35 @@ impl Keybinds {
 			KeybindAction::PushToTalk => &mut self.push_to_talk,
 			KeybindAction::ToggleMute => &mut self.toggle_mute,
 			KeybindAction::ToggleDeafen => &mut self.toggle_deafen,
+			KeybindAction::CopyIssueDiagnostics => &mut self.copy_issue_diagnostics,
 		}
 	}
 
 	pub fn is_valid(&self) -> bool {
-		KeybindAction::ALL
-			.into_iter()
-			.all(|action| self.chord(action).is_valid())
+		KeybindAction::ALL.into_iter().all(|action| {
+			let chord = self.chord(action);
+			chord.is_valid()
+				|| (action == KeybindAction::CopyIssueDiagnostics
+					&& chord.key.is_empty()
+					&& chord.modifiers == 0)
+		})
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	#[test]
+	fn diagnostics_is_optional_without_relaxing_other_binding_validation() {
+		let mut bindings = Keybinds::default();
+		assert!(bindings.is_valid());
+		assert!(bindings.copy_issue_diagnostics.key.is_empty());
+		assert!(!KeybindAction::CopyIssueDiagnostics.is_global());
+		bindings.copy_issue_diagnostics.modifiers = CTRL;
+		assert!(!bindings.is_valid());
+		bindings.copy_issue_diagnostics = KeyChord::new("D", CTRL | SHIFT);
+		assert!(bindings.is_valid());
+		bindings.send_message = KeyChord::new("", 0);
+		assert!(!bindings.is_valid());
 	}
 }

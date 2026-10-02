@@ -1264,7 +1264,7 @@ pub(super) fn nav_item(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::
 	});
 	let hot = response.hovered() || response.has_focus();
 	// Hover and selection ease in instead of snapping; idle rows cost no repaint.
-	let time = ui.style().animation_time * 1.5;
+	let time = ui.style().animation_time;
 	let lit = ui
 		.ctx()
 		.animate_bool_with_time(response.id.with("nav-hover"), hot, time);

@@ -1491,6 +1491,26 @@ tooltip descriptor. Background voice/tray logic runs once per event tick; active
 calls request a 50 ms repaint. These ticks neither open audio devices nor create
 new network payloads.
 
+## Native camera format selection
+
+Camera input selection is limited to 1280×720 except DirectShow, which preserves
+its existing bounded 1920×1080 fallback for virtual cameras, while
+encoded/preview output remains 640×480 at most 15 fps. macOS scans at most 256 native
+formats and 256 frame-rate ranges per format on its camera worker. Windows scans
+at most 256 native media types; DirectShow retains one callback frame of at most
+8,294,400 bytes and validates at most eight driver buffers of that size. Linux
+probes two pixel formats without starting capture, retains at most two candidates,
+and preserves its existing four 4-MiB mapping ceiling and 4-MiB JPEG decode limit.
+Nonmatching Linux pictures add at most 2,764,800 native RGB bytes, 921,600 fitted
+RGB bytes and 921,600 output RGB bytes. No camera files or persistent metadata
+are introduced. Native driver allocations remain outside these application limits.
+
+Linux system appearance retains one atomic preference and at most one portal
+connection/subscription (eight queued messages). Portal connect/read operations
+have three-second timeouts and reconnect attempts are separated by three seconds.
+The initial gsettings fallback runs once off rendering, with a two-second process
+limit and a 256-byte output cap; no preference history or diagnostics are stored.
+
 Reading zoom is constrained to 50–150%. Schema 26 rebuilds the fixed-size reading
 preferences table in the existing migration transaction, preserving all saved choices
 while widening the former 80% lower limit. Older clients reject schema 26 rather than

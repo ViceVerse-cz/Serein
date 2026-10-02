@@ -118,12 +118,15 @@ fn badge_scaled(ui: &egui::Ui, center: egui::Pos2, count: u32, ring: Color32, sc
 		Color32::WHITE,
 	);
 }
-/// Duration of rail hover/selection motion; follows `animation_time`, so 0 disables it.
+/// Duration of rail hover/selection motion: egui's `animation_time` (1/12 s by default),
+/// so 0 disables it. Hover feedback must feel immediate; longer reads as lag.
 pub(super) fn rail_motion(ui: &egui::Ui) -> f32 {
-	ui.style().animation_time * 2.0
+	ui.style().animation_time
 }
 /// Rail pill on the window edge: short for unread, taller on hover, full when selected.
-/// Its height eases between states under `id`; idle frames only read the stored value.
+/// Each state eases on wall-clock time under `id`, so slow frames never stretch the motion
+/// (egui's `animate_value` advances at most one frame step per frame); idle frames only
+/// read the stored values.
 pub(super) fn rail_indicator(
 	ui: &egui::Ui,
 	id: egui::Id,
@@ -136,18 +139,18 @@ pub(super) fn rail_indicator(
 	if !ui.is_rect_visible(rect.expand2(egui::vec2(16.0, 0.0))) {
 		return;
 	}
-	let target = if selected {
-		40.0
-	} else if hovered {
-		20.0
-	} else if unread {
-		8.0
-	} else {
-		0.0
+	let time = rail_motion(ui);
+	let ease = |key: &str, on: bool| {
+		ui.ctx().animate_bool_with_time_and_easing(
+			id.with(key),
+			on,
+			time,
+			egui::emath::easing::cubic_out,
+		)
 	};
-	let height = ui
-		.ctx()
-		.animate_value_with_time(id.with("rail-pill"), target, rail_motion(ui));
+	let height = (40.0 * ease("rail-pill-selected", selected))
+		.max(20.0 * ease("rail-pill-hover", hovered))
+		.max(8.0 * ease("rail-pill-unread", unread));
 	if height < 0.5 {
 		return;
 	}
@@ -166,7 +169,7 @@ pub(super) fn rail_badge(ui: &egui::Ui, id: egui::Id, rect: egui::Rect, count: u
 	let shown = ui.ctx().animate_bool_with_time_and_easing(
 		id.with("rail-badge"),
 		count > 0,
-		rail_motion(ui),
+		rail_motion(ui) * 1.5,
 		egui::emath::easing::back_out,
 	);
 	if count == 0 || shown <= 0.0 {
