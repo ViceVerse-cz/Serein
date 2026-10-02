@@ -24,7 +24,9 @@ python3 packaging/repositories/build.py \
   --key "$SIGNING_FINGERPRINT" --base-url "$REPOSITORY_BASE_URL"
 ```
 
-The output is `site/nightly/ubuntu-26.04/amd64/apt/`. Other combinations are
+The output is `site/nightly/ubuntu-26.04/amd64/apt/`. Ubuntu ARM64 uses
+`ubuntu-26.04/arm64/apt`; the workflow selects each architecture separately from
+the release assets. Other combinations are
 `fedora-43/x86_64/rpm`, `fedora-44/x86_64/rpm`, `opensuse-tumbleweed/x86_64/rpm`
 and `arch/x86_64/arch`.
 Production uses a separate `production/` path. The current deployment replaces the
@@ -57,7 +59,9 @@ and republish before expiry even when the application version has not changed.
 Run the automatic repository setup script to detect your distribution, verify the
 GPG signing key fingerprint, and configure the repository. Native setup accepts
 Ubuntu 26.04, Fedora 43/44, openSUSE Tumbleweed, Arch Linux and distributions that
-declare `ID_LIKE=arch`. Other versions and derivatives must use the Flatpak bundle
+declare `ID_LIKE=arch`. Ubuntu 26.04 accepts x86_64 and ARM64 (`aarch64`/`arm64`);
+the other native repositories remain x86_64 only. ARM64 requires a new release
+containing the ARM64 build and matching signed apt repository. Other versions and derivatives must use the Flatpak bundle
 instead of incompatible native packages:
 
 ```sh
