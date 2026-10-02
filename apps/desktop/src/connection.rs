@@ -139,7 +139,7 @@ impl Connection {
 				let _spotify_task=AbortTask(tokio::spawn(crate::spotify::run(api.clone(),user.id,presence_receive.clone(),spotify_send,wake.clone())));
                 let dm_channels=Arc::new(Mutex::new(BTreeMap::new()));
                 let (recipient_scope,mut recipient_scope_changed)=watch::channel(0u64);
-                let recipient_call=Arc::new(Mutex::new(None::<RecipientCall>));
+                let recipient_call=Arc::new(Mutex::new(RecipientCalls::default()));
                 let gateway_recipient_call=recipient_call.clone();
                 let gateway_channels=dm_channels.clone();
                 let (voice_online,mut voice_availability)=watch::channel(false);
@@ -159,13 +159,6 @@ impl Connection {
                             if ready_user.id!=user.id {return Err(Failure::InvalidCredential);}
                             *gateway_channels.lock().map_err(|_|Failure::Protocol)?=channels.iter().filter(|c|private_call(c)).take(client_core::MAX_NAV).map(|c|(c.id,recipient_ids(c))).collect();
                         }
-                        let invalidates_recipient = match &event {
-                            Event::ChannelCreated(channel) => gateway_channels.lock().map_err(|_|Failure::Protocol)?.contains_key(&channel.id),
-                            Event::ChannelChanged(patch) => gateway_channels.lock().map_err(|_|Failure::Protocol)?.contains_key(&patch.id),
-                            Event::Unavailable(channel) => gateway_channels.lock().map_err(|_|Failure::Protocol)?.contains_key(channel),
-                            Event::RecipientRemoved{..}|Event::RecipientAdded{..}|Event::Voice(client_core::voice::Event::Call{..}|client_core::voice::Event::State{..}|client_core::voice::Event::Deleted{..}|client_core::voice::Event::Departed{..}|client_core::voice::Event::TakenOver{..}) => true,
-                            _ => event.ready_navigation().is_some(),
-                        };
                         if let Event::ChannelCreated(channel)=&event {
                             let mut channels=gateway_channels.lock().map_err(|_|Failure::Protocol)?;
                             channels.remove(&channel.id);
@@ -180,11 +173,11 @@ impl Connection {
                         if let Event::RecipientAdded {channel,user:added}=&event && let Some(recipients)=gateway_channels.lock().map_err(|_|Failure::Protocol)?.get_mut(channel) && !recipients.contains(&added.id) {
                             if recipients.len()+1<client_core::voice::MAX_PARTICIPANTS {recipients.push(added.id);} else {recipients.clear();}
                         }
-                        {
+                        let invalidates_recipient = {
                             let channels=gateway_channels.lock().map_err(|_|Failure::Protocol)?;
-                            let mut active=gateway_recipient_call.lock().map_err(|_|Failure::Protocol)?;
-                            RecipientCall::observe(&mut active,&event,user.id,&channels);
-                        }
+                            let mut calls=gateway_recipient_call.lock().map_err(|_|Failure::Protocol)?;
+                            calls.observe(&event,user.id,&channels)
+                        };
                         if invalidates_recipient {
                             recipient_scope.send_modify(|revision|*revision=revision.wrapping_add(1));
                         }
@@ -234,11 +227,11 @@ impl Connection {
                         }
                         changed=takeover_receive.changed()=> {
                             if changed.is_err() {break;}
-                            if release_taken_over(&mut voice_request,*takeover_receive.borrow_and_update()) {drop(ringing.take());drop(recipient_ringing.take());*recipient_call.lock().map_err(|_|Failure::Protocol)?=None;}
+                            if release_taken_over(&mut voice_request,*takeover_receive.borrow_and_update()) {drop(ringing.take());drop(recipient_ringing.take());recipient_call.lock().map_err(|_|Failure::Protocol)?.active=None;}
                         }
                         changed=voice_availability.changed()=> {
 							if changed.is_err() {break;}
-							if !*voice_availability.borrow_and_update() {drop(ringing.take());drop(recipient_ringing.take());drop(profile.take());drop(stream_preview.take());drop(search.take());voice_request=None;*recipient_call.lock().map_err(|_|Failure::Protocol)?=None;if let Some(cancel)=&upload_cancel {let _=cancel.send(true);}}
+							if !*voice_availability.borrow_and_update() {drop(ringing.take());drop(recipient_ringing.take());drop(profile.take());drop(stream_preview.take());drop(search.take());voice_request=None;recipient_call.lock().map_err(|_|Failure::Protocol)?.active=None;if let Some(cancel)=&upload_cancel {let _=cancel.send(true);}}
                         }
                         request=upload_receive.recv()=>{
                             let Some(request)=request else {break;};
@@ -273,7 +266,7 @@ impl Connection {
                         }
                         command=receive.recv()=>{
                             // Select can admit a queued command before the changed-watch branch.
-                            if release_taken_over(&mut voice_request,*takeover_receive.borrow()) {drop(ringing.take());drop(recipient_ringing.take());*recipient_call.lock().map_err(|_|Failure::Protocol)?=None;}
+                            if release_taken_over(&mut voice_request,*takeover_receive.borrow()) {drop(ringing.take());drop(recipient_ringing.take());recipient_call.lock().map_err(|_|Failure::Protocol)?.active=None;}
                             let Some(command)=command else {break;};
                             if matches!(command,Command::CancelSearch) {drop(search.take());continue;}
                             if matches!(command,Command::CancelGifs) {drop(gifs.take());continue;}
@@ -419,7 +412,7 @@ impl Connection {
                                         let _=takeover_send.send_replace(Some((channel,request)));
                                         let _=release_taken_over(&mut voice_request,Some((channel,request)));
                                         drop(ringing.take());drop(recipient_ringing.take());
-                                        *recipient_call.lock().map_err(|_|Failure::Protocol)?=None;
+                                        recipient_call.lock().map_err(|_|Failure::Protocol)?.active=None;
                                     }
                                     voice_send.try_send(control).map_err(|_|Failure::Capacity)?;
                                     continue;
@@ -431,14 +424,14 @@ impl Connection {
                                     emit(Event::Voice(E::Failed{channel,request,message:"Call attempt ended; join again to start a new attempt"}))?;continue;
                                 }
                                 if matches!(control,V::Join{..}) {drop(ringing.take());drop(recipient_ringing.take());}
-                                if let V::Leave{channel,request}=control && voice_request.is_some_and(|(id,r,_)|id==channel && r==request) {drop(ringing.take());drop(recipient_ringing.take());*recipient_call.lock().map_err(|_|Failure::Protocol)?=None;}
+                                if let V::Leave{channel,request}=control && voice_request.is_some_and(|(id,r,_)|id==channel && r==request) {drop(ringing.take());drop(recipient_ringing.take());recipient_call.lock().map_err(|_|Failure::Protocol)?.active=None;}
                                 let ring=match ring_action(control,user.id,&mut voice_request,dm_channels.lock().map_err(|_|Failure::Protocol)?.contains_key(&channel)) {
                                     Ok(action)=>action,
                                     Err(())=>{emit(Event::Voice(E::Failed{channel,request,message:"Call action expired; no ringing request was sent"}))?;continue;}
                                 };
                                 if matches!(control,V::Join{..}) {
                                     let private=dm_channels.lock().map_err(|_|Failure::Protocol)?.contains_key(&channel);
-                                    RecipientCall::join(&mut *recipient_call.lock().map_err(|_|Failure::Protocol)?,channel,request,private);
+                                    recipient_call.lock().map_err(|_|Failure::Protocol)?.join(channel,request,private);
                                 }
                                 voice_send.try_send(control).map_err(|_|Failure::Capacity)?;
                                 if let Some((recipient,stop))=ring {
@@ -898,6 +891,107 @@ fn private_call(channel: &model::Channel) -> bool {
 				&& channel.recipients.len() < client_core::voice::MAX_PARTICIPANTS))
 }
 
+// Match the core's 64-call discovery cache, plus one explicitly joined attempt.
+// Each record owns two <=64-ID buffers: 65 KiB (66,560 bytes) of IDs total.
+// Also bounded: observed Vec capacity * size_of::<Option<RecipientCall>>(),
+// the active/Vec header in RecipientCalls, and the shared Arc/Mutex metadata.
+struct RecipientCalls {
+	active: Option<RecipientCall>,
+	observed: Vec<Option<RecipientCall>>,
+}
+impl Default for RecipientCalls {
+	fn default() -> Self {
+		Self {
+			active: None,
+			observed: Vec::with_capacity(client_core::voice::MAX_DM_CALLS),
+		}
+	}
+}
+impl RecipientCalls {
+	fn as_ref(&self) -> Option<&RecipientCall> {
+		self.active.as_ref()
+	}
+	fn join(&mut self, channel: model::Id, request: u64, private: bool) {
+		if self
+			.active
+			.as_ref()
+			.is_none_or(|call| call.channel != channel)
+		{
+			self.active = self
+				.observed
+				.iter()
+				.flatten()
+				.find(|call| call.channel == channel)
+				.map(RecipientCall::snapshot);
+		}
+		RecipientCall::join(&mut self.active, channel, request, private);
+	}
+	// Only events affecting the current action invalidate its HTTP worker.
+	fn observe(
+		&mut self,
+		event: &Event,
+		owner: model::Id,
+		channels: &BTreeMap<model::Id, Vec<model::Id>>,
+	) -> bool {
+		use client_core::voice::Event as V;
+		let invalidates = self.active.as_ref().is_some_and(|call| {
+			event.ready_navigation().is_some()
+				|| !channels.contains_key(&call.channel)
+				|| match event {
+					Event::Disconnected | Event::Resync => true,
+					Event::ChannelCreated(channel) => channel.id == call.channel,
+					Event::ChannelChanged(patch) => patch.id == call.channel,
+					Event::Unavailable(channel)
+					| Event::RecipientAdded { channel, .. }
+					| Event::RecipientRemoved { channel, .. }
+					| Event::Voice(V::Call { channel, .. } | V::Deleted { channel }) => *channel == call.channel,
+					Event::Voice(
+						V::TakenOver { channel, request } | V::Departed { channel, request },
+					) => (*channel, Some(*request)) == (call.channel, call.request),
+					Event::Voice(V::State { channel, user, .. }) => {
+						*channel == Some(call.channel) || call.joined.contains(user)
+					}
+					_ => false,
+				}
+		});
+		if event.ready_navigation().is_some()
+			|| matches!(event, Event::Disconnected | Event::Resync)
+		{
+			self.active = None;
+			self.observed.clear();
+			return invalidates;
+		}
+		if self.active.is_some() {
+			RecipientCall::observe(&mut self.active, event, owner, channels);
+		}
+		for call in &mut self.observed {
+			RecipientCall::observe(call, event, owner, channels);
+		}
+		self.observed.retain(Option::is_some);
+		if let Event::Voice(V::Call {
+			channel,
+			unavailable: false,
+			..
+		}) = event && channels.contains_key(channel)
+			&& !self
+				.observed
+				.iter()
+				.flatten()
+				.any(|call| call.channel == *channel)
+		{
+			let mut call = None;
+			RecipientCall::observe(&mut call, event, owner, channels);
+			if call.is_some() {
+				if self.observed.len() == client_core::voice::MAX_DM_CALLS {
+					self.observed.remove(0);
+				}
+				self.observed.push(call);
+			}
+		}
+		invalidates
+	}
+}
+
 // One observed/current DM call retains metadata: two 64-ID buffers (1024 bytes).
 struct RecipientCall {
 	channel: model::Id,
@@ -915,6 +1009,39 @@ impl RecipientCall {
 			ringing: None,
 			joined: Vec::with_capacity(client_core::voice::MAX_PARTICIPANTS),
 		}
+	}
+	fn valid_call(event: &Event, owner: model::Id, members: &[model::Id]) -> bool {
+		let Event::Voice(client_core::voice::Event::Call {
+			ringing,
+			participants,
+			..
+		}) = event
+		else {
+			return true;
+		};
+		ringing.as_ref().is_none_or(|ids| {
+			ids.len() <= client_core::voice::MAX_PARTICIPANTS
+				&& ids.iter().enumerate().all(|(index, id)| {
+					(*id == owner || members.contains(id)) && !ids[..index].contains(id)
+				})
+		}) && participants.as_ref().is_none_or(|peers| {
+			peers.len() <= client_core::voice::MAX_PARTICIPANTS
+				&& peers.iter().enumerate().all(|(index, peer)| {
+					(peer.user == owner || members.contains(&peer.user))
+						&& !peers[..index].iter().any(|old| old.user == peer.user)
+				})
+		})
+	}
+	fn snapshot(&self) -> Self {
+		let mut copy = Self::new(self.channel, 0);
+		copy.request = None;
+		copy.joined.extend(&self.joined);
+		if let Some(ids) = &self.ringing {
+			let mut retained = Vec::with_capacity(client_core::voice::MAX_PARTICIPANTS);
+			retained.extend(ids);
+			copy.ringing = Some(retained);
+		}
+		copy
 	}
 	fn join(active: &mut Option<Self>, channel: model::Id, request: u64, private: bool) {
 		let retained = active.take().filter(|call| call.channel == channel);
@@ -952,10 +1079,10 @@ impl RecipientCall {
 			channel,
 			unavailable: false,
 			..
-		}) = event && channels.contains_key(channel)
-			&& active
-				.as_ref()
-				.is_none_or(|call| call.request.is_none() && call.channel != *channel)
+		}) = event && channels
+			.get(channel)
+			.is_some_and(|members| Self::valid_call(event, owner, members))
+			&& active.is_none()
 		{
 			let mut call = Self::new(*channel, 0);
 			call.request = None;
@@ -968,12 +1095,7 @@ impl RecipientCall {
 			*active = None;
 			return;
 		};
-		let valid = |ids: &[model::Id]| {
-			ids.len() <= client_core::voice::MAX_PARTICIPANTS
-				&& ids.iter().enumerate().all(|(index, id)| {
-					(*id == owner || members.contains(id)) && !ids[..index].contains(id)
-				})
-		};
+
 		match event {
 			Event::Voice(V::SessionConfirmed {
 				channel, request, ..
@@ -1000,14 +1122,7 @@ impl RecipientCall {
 					*active = None;
 					return;
 				}
-				if ringing.as_ref().is_some_and(|ids| !valid(ids))
-					|| participants.as_ref().is_some_and(|peers| {
-						peers.len() > client_core::voice::MAX_PARTICIPANTS
-							|| peers.iter().enumerate().any(|(index, peer)| {
-								(peer.user != owner && !members.contains(&peer.user))
-									|| peers[..index].iter().any(|old| old.user == peer.user)
-							})
-					}) {
+				if !Self::valid_call(event, owner, members) {
 					return;
 				}
 				if let Some(ids) = ringing {
@@ -1831,6 +1946,133 @@ mod tests {
 			Some(&oversized)
 		));
 	}
+	#[tokio::test]
+	async fn multiple_prejoin_calls_preserve_target_and_unrelated_events_do_not_cancel_write() {
+		use client_core::voice::Event as V;
+		use model::Id;
+		let (owner, first, second, recipient, other) = (Id(1), Id(2), Id(4), Id(3), Id(5));
+		let channels = BTreeMap::from([(first, vec![recipient]), (second, vec![other])]);
+		let call = |channel, ringing| {
+			Event::Voice(V::Call {
+				channel,
+				ringing: Some(ringing),
+				participants: Some(vec![]),
+				unavailable: false,
+			})
+		};
+		let mut calls = RecipientCalls::default();
+		calls.observe(&call(first, vec![]), owner, &channels);
+		calls.observe(&call(second, vec![other]), owner, &channels);
+		assert_eq!(calls.observed.len(), 2);
+		assert!(calls.active.is_none());
+		calls.join(first, 7, true);
+		calls.observe(
+			&Event::Voice(V::SessionConfirmed {
+				channel: first,
+				request: 7,
+				revision: 1,
+			}),
+			owner,
+			&channels,
+		);
+		assert!(calls.as_ref().unwrap().allows(first, 7, recipient, false));
+		let (changes, updates) = watch::channel(0u64);
+		let (_online_send, online) = watch::channel(true);
+		let cancelled = wait_for_recipient_invalidation(updates, 0, online);
+		tokio::pin!(cancelled);
+		let unrelated_state = Event::Voice(V::State {
+			guild: None,
+			channel: Some(second),
+			user: other,
+			request: None,
+			member: None,
+			session: None,
+			negotiation_revision: None,
+			server_muted: false,
+			server_deafened: false,
+			muted: false,
+			deafened: false,
+			video: false,
+			streaming: false,
+		});
+		for event in [
+			unrelated_state,
+			call(second, vec![]),
+			Event::RecipientRemoved {
+				channel: second,
+				user: other,
+			},
+		] {
+			if calls.observe(&event, owner, &channels) {
+				changes.send_modify(|revision| *revision += 1);
+			}
+		}
+		assert_eq!(*changes.borrow(), 0);
+		assert!(calls.as_ref().unwrap().allows(first, 7, recipient, false));
+		// A pending request survives unrelated updates; relevant updates still cancel it.
+		assert!(
+			tokio::time::timeout(Duration::from_millis(1), &mut cancelled)
+				.await
+				.is_err()
+		);
+		assert!(calls.observe(&call(first, vec![recipient]), owner, &channels));
+		changes.send_modify(|revision| *revision += 1);
+		tokio::time::timeout(Duration::from_secs(1), cancelled)
+			.await
+			.unwrap();
+		assert!(!calls.as_ref().unwrap().allows(first, 7, recipient, false));
+		assert!(calls.as_ref().unwrap().allows(first, 7, recipient, true));
+	}
+
+	#[test]
+	fn discovered_recipient_metadata_has_fixed_item_and_allocated_id_byte_limits() {
+		use client_core::voice::{Event as V, MAX_DM_CALLS, MAX_PARTICIPANTS};
+		use model::Id;
+		let mut calls = RecipientCalls::default();
+		let mut channels = BTreeMap::new();
+		for index in 0..MAX_DM_CALLS + 1 {
+			let channel = Id(index as u64 + 10);
+			channels.insert(channel, vec![Id(2)]);
+			calls.observe(
+				&Event::Voice(V::Call {
+					channel,
+					ringing: Some(vec![Id(2)]),
+					participants: Some(vec![]),
+					unavailable: false,
+				}),
+				Id(1),
+				&channels,
+			);
+		}
+		assert_eq!(calls.observed.len(), MAX_DM_CALLS);
+		assert_eq!(calls.observed.capacity(), MAX_DM_CALLS);
+		assert!(
+			calls
+				.observed
+				.iter()
+				.flatten()
+				.all(|call| call.channel != Id(10))
+		);
+		calls.join(Id(11), 7, true);
+		let bytes = calls
+			.observed
+			.iter()
+			.flatten()
+			.chain(calls.active.iter())
+			.map(|call| {
+				(call.joined.capacity() + call.ringing.as_ref().map_or(0, Vec::capacity))
+					* size_of::<Id>()
+			})
+			.sum::<usize>();
+		assert_eq!(
+			bytes,
+			(MAX_DM_CALLS + 1) * MAX_PARTICIPANTS * 2 * size_of::<Id>()
+		);
+		assert!(calls.observe(&Event::Disconnected, Id(1), &channels));
+		assert!(calls.active.is_none());
+		assert!(calls.observed.is_empty());
+	}
+
 	#[test]
 	fn existing_call_metadata_survives_join_with_only_state_and_confirmation_afterward() {
 		use client_core::voice::Event as V;

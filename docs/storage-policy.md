@@ -1535,7 +1535,7 @@ replacement behind the existing audio retirement fence. It keeps the original
 teardown. Failed candidates do not spawn retries until credentials actually change.
 
 Targeted-ring dispatch additionally retains one observed/current DM call record: a channel/request/confirmation tuple and two 64-ID vectors for joined
-and service-ringing peers (at most 1,024 allocated ID bytes). Same-channel Join preserves service observations, replaces its local request and
+and service-ringing peers (at most 1,024 allocated ID bytes per record). The dispatcher retains at most 64 discovered DM records in FIFO discovery order, matching the core call limit, plus one active attempt: at most 66,560 allocated ID bytes. Additional retained metadata is bounded by the observed Vec capacity (64) × `size_of::<Option<RecipientCall>>()`, the active record/Vec header in `RecipientCalls`, and its fixed shared `Arc<Mutex<_>>` allocation/control block; allocator bookkeeping is not included in the ID-byte bound. Unrelated DM events update their discovered record without cancelling the current recipient write. Same-channel Join preserves service observations, replaces its local request and
 requires fresh confirmation; another channel replaces the record. Replacement,
 local release, disconnect and removed access clear it.
 Validated Call/State observations update it before dispatch and invalidate pending
