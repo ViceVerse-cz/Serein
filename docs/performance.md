@@ -1415,12 +1415,12 @@ newer main aggregate containing unrelated features.
 
 | Metric | Parent | After | Delta |
 | --- | ---: | ---: | ---: |
-| Standard executable, bytes | 62,088,304 | 62,088,304 | 0 |
-| Installed distribution, bytes | 68,098,733 | 68,098,733 | 0 |
+| Standard executable, bytes | 62,088,304 | 62,088,304 | 0 (0%) |
+| Installed distribution, bytes | 68,098,733 | 68,098,733 | 0 (0%) |
 | Complete ZIP, bytes | 43,286,187 | 43,286,492 | +305 (+0.0007%) |
 | Common native median process CPU | 0.0% | 0.0% | 0 percentage points |
-| Peak process RSS, KiB | 125,552 | 125,664 | +112 |
-| Settled process RSS, KiB | 125,504 | 125,616 | +112 |
+| Peak process RSS, KiB | 125,552 | 125,664 | +112 (+0.089%) |
+| Settled process RSS, KiB | 125,504 | 125,616 | +112 (+0.089%) |
 
 Both optimized native binaries use matching process-only thin LTO:
 `CARGO_PROFILE_RELEASE_LTO=thin CARGO_BUILD_JOBS=2 cargo build --release --locked -p serein --features demo`.
@@ -2356,12 +2356,12 @@ newer main aggregate containing unrelated features.
 
 | Metric | Parent | After | Delta |
 | --- | ---: | ---: | ---: |
-| Standard executable, bytes | 62,088,304 | 62,088,304 | 0 |
-| Installed distribution, bytes | 68,098,733 | 68,098,733 | 0 |
+| Standard executable, bytes | 62,088,304 | 62,088,304 | 0 (0%) |
+| Installed distribution, bytes | 68,098,733 | 68,098,733 | 0 (0%) |
 | Complete ZIP, bytes | 43,286,187 | 43,289,301 | +3,114 (+0.0072%) |
 | Common native median process CPU | 0.0% | 0.0% | 0 percentage points |
-| Peak process RSS, KiB | 128,944 | 128,880 | -64 |
-| Settled process RSS, KiB | 128,896 | 128,832 | -64 |
+| Peak process RSS, KiB | 128,944 | 128,880 | -64 (-0.050%) |
+| Settled process RSS, KiB | 128,896 | 128,832 | -64 (-0.050%) |
 
 Both optimized native binaries use matching process-only thin LTO:
 `CARGO_PROFILE_RELEASE_LTO=thin CARGO_BUILD_JOBS=2 cargo build --release --locked -p serein --features demo`.
@@ -3384,8 +3384,8 @@ use default features plus demo and the unchanged optimized fat-LTO profile.
 
 | Metric | Parent | Quiet prefix | Delta |
 | --- | --- | --- | --- |
-| Signed standard executable bytes | 62,088,304 | 62,088,304 | 0 |
-| Installed package bytes, 206 regular files | 68,098,733 | 68,098,733 | 0 |
+| Signed standard executable bytes | 62,088,304 | 62,088,304 | 0 (0%) |
+| Installed package bytes, 206 regular files | 68,098,733 | 68,098,733 | 0 (0%) |
 | Distribution ZIP bytes, identical ditto method | 43,286,187 | 43,287,077 | +890 (+0.0021%) |
 | Common synthetic chat median process CPU | 0.0% | 0.0% | 0 percentage points |
 | Sampled peak process RSS, KiB | 128,768 | 128,592 | -176 (-0.1367%) |

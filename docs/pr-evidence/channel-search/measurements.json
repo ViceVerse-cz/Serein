@@ -1,7 +1,7 @@
 {
   "date_utc": "2026-10-02",
   "environment": {
-    "os": "macOS27",
+    "os": "macOS 27.0",
     "cpu": "Apple M1",
     "ram_gib": 16,
     "rust": "1.98.1 pinned",
@@ -209,7 +209,7 @@
     "build_provenance": "All runtime workspace crates compiled from the intended worktree. Changed builds invalidate all workspace-name artifacts across worktree PackageIDs while preserving third-party dependencies."
   },
   "verification": {
-    "full_check": "passed on corrected sourcee946",
+    "full_check": "passed on corrected source e946",
     "native_capture": "actual native WGPU images inspected; removable hooks excluded from measurement and shipping source",
     "build_provenance": "Both changed thin build logs show every runtime workspace dependency rebuilt from the exact intended worktree; no stale worktree package reused."
   },
