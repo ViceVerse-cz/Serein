@@ -61,6 +61,63 @@ pub(crate) fn ensure_gtk_application_id() {
 	});
 }
 
+/// Check GTK's effective encoding before WebKit starts Flatpak subprocesses.
+#[cfg(target_os = "linux")]
+pub(crate) fn ensure_webkit_locale() -> Result<(), &'static str> {
+	let flatpak = std::path::Path::new("/.flatpak-info").is_file()
+		|| std::env::var_os("FLATPAK_ID").is_some();
+	if flatpak && !gtk4::glib::charset().0 {
+		return Err(
+			"Serein Flatpak login/verification requires a UTF-8 locale. Repair runtime languages and restart Serein; see Flatpak troubleshooting.",
+		);
+	}
+	Ok(())
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod flatpak_locale_tests {
+	#[test]
+	fn non_utf8_webkit_preflight_is_local_to_flatpak() {
+		const CHILD: &str = "SEREIN_TEST_WEBKIT_LOCALE_CHILD";
+		if let Some(mode) = std::env::var_os(CHILD) {
+			// Query the real GLib encoding in an isolated C-locale process, without GTK,
+			// a display, a WebKit subprocess, authentication, or global environment writes.
+			assert_eq!(gtk4::glib::charset().0, mode == "utf8");
+			assert_eq!(super::ensure_webkit_locale().is_err(), mode == "flatpak");
+			assert_eq!(
+				std::env::var_os("LC_ALL").as_deref(),
+				Some(std::ffi::OsStr::new("C"))
+			);
+			return;
+		}
+		for mode in ["native", "flatpak", "utf8"] {
+			if mode == "native" && std::path::Path::new("/.flatpak-info").is_file() {
+				continue; // A real sandbox marker cannot be removed to simulate a native app.
+			}
+			let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+			child
+				.args([
+					"--exact",
+					"flatpak_locale_tests::non_utf8_webkit_preflight_is_local_to_flatpak",
+				])
+				.env(CHILD, mode)
+				.env("LC_ALL", "C")
+				.env("CHARSET", if mode == "utf8" { "UTF-8" } else { "US-ASCII" })
+				.env_remove("FLATPAK_ID");
+			if mode != "native" {
+				child.env("FLATPAK_ID", "cz.viceverse.serein");
+			}
+			let output = child.output().unwrap();
+			assert!(output.status.success());
+			assert!(
+				String::from_utf8(output.stdout)
+					.unwrap()
+					.contains("running 1 test")
+			);
+		}
+	}
+}
+
 /// The entry restored on launch. Switching accounts rewrites it from the per-account entry.
 pub fn load_session() -> Result<Option<SessionSecret>, CredentialError> {
 	load_entry(ACCOUNT)

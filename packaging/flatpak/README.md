@@ -57,6 +57,40 @@ flatpak run cz.viceverse.serein
 flatpak uninstall --user cz.viceverse.serein
 ```
 
+### Login/verification locale troubleshooting
+
+If GTK reports `Locale not supported by C library`, falls back to `C`, and
+`flatpak-spawn` reports `Invalid byte sequence in conversion input`, WebKit's
+subprocess can abort before the authentication window opens. This signature is
+also reported in Flatpak's [mixed-locale issue](https://github.com/flatpak/flatpak/issues/5497)
+and [runtime-locale update issue](https://github.com/flatpak/flatpak/issues/5398).
+Serein now checks GTK's effective encoding after GTK initialization and, inside
+Flatpak only, reports a non-UTF-8 locale before constructing WebKit. This contains
+that known failure state; it does not repair runtime locales or guarantee every
+WebKit subprocess will start.
+
+Fully close and restart Serein after updating the runtime. To inspect the sandbox
+without signing in:
+
+```sh
+flatpak --version
+flatpak run --command=sh cz.viceverse.serein -c 'locale; locale -a'
+```
+
+Check that all locale categories your desktop selects are installed in Flatpak's
+GNOME runtime, including mixed-language categories. As a one-run diagnostic:
+
+```sh
+flatpak run --env=LC_ALL=C.UTF-8 --env=RUST_BACKTRACE=1 cz.viceverse.serein
+```
+
+The override applies only to that run. Stop at opening the authorization window;
+credentials and account activity are not needed. Serein does not alter environment
+variables, global locale, sandbox permissions or runtime language configuration.
+UTF-8 encoding alone is not proof that the runtime or login is healthy. Share
+only the locale/version output and redacted startup errors, never credentials or
+raw network traffic. Native non-Flatpak installations retain their existing path.
+
 ### Sandbox Permissions
 
 The sandbox grants network, graphics, Wayland and X11 access, audio and

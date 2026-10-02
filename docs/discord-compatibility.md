@@ -783,6 +783,16 @@ Outgoing mark-unread and guild acknowledgement (September 16): Mark Unread ACKs 
 
 Search continuation (September 10): guild conversations use the guild search route with an exact channel filter; DMs use the channel route. Search content is percent-encoded, with timestamp-descending order and bounded offset pagination. Query date boundaries remain fixed across numbered pages. One replaceable task uses existing REST permits, deadlines and cooldowns. Indexing responses require another deliberate Search action after the service delay; no automatic polling, broad account search, advanced filters, NSFW override or search-result persistence is implemented. Service totals and partial-index status are displayed as supplied, not asserted complete. Opening a result fetches up to 50 history messages ending at that ID and positions the timeline there; unavailable results are reported. Existing reload returns to latest history. Search snapshots are cleared on relevant edits/deletes, navigation, disconnect, permission invalidation and logout. Original-client sources supply wire evidence only; no source-code blocks were copied and no authenticated service request was used as validation.
 
+Flatpak locale containment (October 2, 2026): after GTK initialization, Linux login
+and invite-verification webviews reject a non-UTF-8 effective encoding inside
+Flatpak before constructing WebKit. The existing error surface provides runtime
+language/restart guidance. No environment/global locale, sandbox permission,
+authentication handoff or storage setting is modified. This contains the known
+C-locale subprocess-start failure; it does not repair missing runtime locales or
+establish successful sign-in. The guard intentionally also blocks ASCII-only
+Flatpak setups that might otherwise happen to work. Native non-Flatpak behavior
+is unchanged. See [Flatpak troubleshooting](../packaging/flatpak/README.md#loginverification-locale-troubleshooting).
+
 Login compatibility correction (September 10): READY read_state accepts both the legacy array and the versioned entries/version/partial object, under the same 4000-entry bound. Serein's Identify does not request the versioned_read_states capability; rejecting the legacy shape previously rejected the entire login payload. The capability's effect is described in the original [discord.py-self capability definitions](https://github.com/dolfies/discord.py-self/blob/master/discord/flags.py), rechecked September 10. Partial snapshots leave omitted channels unknown. Identify capabilities remain unchanged. Static error labels distinguish account verification, Gateway discovery, READY decoding and connection setup without exposing payloads, credentials or remote error text. Synthetic regression and loopback evidence do not establish actual account login success.
 
 ## Reaction refresh and pinned messages - September 10

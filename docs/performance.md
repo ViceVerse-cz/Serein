@@ -2405,6 +2405,25 @@ it controls for idle regressions rather than measuring the queue fix. System/GPU
 resources are not fully represented by process RSS. Frame/startup latency remains
 unmeasured; the frame diagnostic only confirmed matching viewport and scale.
 
+## Flatpak WebKit locale preflight (October 2, 2026)
+
+The Linux-only login/verification preflight checks the existing Flatpak marker
+and environment presence, then GLib's effective encoding after GTK initialization.
+It runs only on explicit window creation, before WebKit construction, and creates
+no worker, cache, retained payload, retry or persistent setting. Non-Flatpak paths
+retain their behavior. Existing synthetic authentication-handoff and four offline
+Flatpak preparation tests passed; a Linux-only subprocess test uses actual GLib
+encoding for native ASCII, Flatpak ASCII rejection, and Flatpak UTF-8 admission
+without GTK display, WebKit, credentials or global environment mutation.
+
+The development host is macOS 27 / Apple M1 / 16 GiB; this code is excluded from
+its compiled runtime. Native Linux Flatpak startup/CPU/RSS and affected Linux
+package deltas are unmeasured here, and no improvement is claimed. Linux CI and
+reporter confirmation remain required. The preserved exact-parent `1107d904`
+standard macOS package is 62,154,064 executable / 68,164,493 installed / 43,322,199
+ZIP bytes (206 files), a host baseline rather than a Linux comparison. Full source
+and standard-package checks are recorded in the task PR as they complete.
+
 ## Development data isolation (September 27, 2026)
 
 Windows x86_64 package measurements compare clean `672ee68` with
