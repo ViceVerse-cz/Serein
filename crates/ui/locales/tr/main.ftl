@@ -4340,3 +4340,7 @@ lib-composer-onboarding-rules-pending = Sohbete başlamak için bu sunucunun kur
 lib-composer-onboarding-incomplete = Daha fazla kanalın kilidini açmak için sunucuya katılımı tamamla.
 # Context: composer
 lib-composer-onboarding-complete = Tanıtımı tamamla
+voice-recipient-ring = Yeniden ara
+voice-recipient-stop-ringing = Çalmayı durdur
+voice-recipient-ringing = Çalıyor…
+voice-recipient-not-in-call = Aramada değil

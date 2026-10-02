@@ -2124,6 +2124,13 @@ impl State {
 
 		if let Command::Voice(control) = command {
 			match control {
+				voice::Command::RingRecipient {
+					channel, request, ..
+				} => self.apply_voice(voice::Event::RingFailed {
+					channel,
+					request,
+					message: "Recipient ringing was not sent; the work queue is full",
+				}),
 				voice::Command::Sync { .. } => {
 					self.status = "Call status could not refresh; reopen the DM to retry"
 				}
@@ -2943,6 +2950,11 @@ impl State {
 							participants.retain(|p| p.user != user);
 						}
 					}
+					for (id, ringing) in &mut self.voice.dm_ringing {
+						if *id == channel {
+							ringing.retain(|id| *id != user);
+						}
+					}
 					if let Some(call) = &mut self.voice.active
 						&& call.channel == channel
 					{
@@ -3092,6 +3104,8 @@ impl State {
 				self.voice.preview = None;
 				self.voice.dm_calls.clear();
 				self.voice.dm_participants.clear();
+				self.voice.dm_ringing.clear();
+				self.voice.ring_error = None;
 				self.members = None;
 				self.member_search = Default::default();
 				self.clear_profile();

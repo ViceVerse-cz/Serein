@@ -4355,3 +4355,8 @@ lib-composer-onboarding-rules-pending = Примите правила серве
 lib-composer-onboarding-incomplete = Завершите вступление, чтобы открыть больше каналов.
 # Context: composer
 lib-composer-onboarding-complete = Завершить знакомство
+
+voice-recipient-ring = Позвонить снова
+voice-recipient-stop-ringing = Остановить звонок
+voice-recipient-ringing = Вызов…
+voice-recipient-not-in-call = Не в звонке

@@ -68,6 +68,18 @@ One-to-one DM calls accept only their expected peer. Group DM and server calls s
 
 ## Group DM calls
 
+Connected one-to-one and group DM stages also show recipients who have not joined,
+with **Ringing…** or **Not in call** status rather than an invented microphone state.
+Right-click an absent recipient's avatar to **Stop ringing** that recipient or
+**Ring again** after ringing has stopped. These explicit actions target one current
+recipient of the joined call; they never join a conversation or start media.
+The initial call still rings only once after transport allocation. Recipient write
+failures remain visible in the stage while the call continues; no uncertain write
+automatically retries. Leaving, changing calls, disconnecting, and changes to DM
+membership cancel the one pending recipient write. Guild calls have no ringing
+controls. This uses the existing unofficial normal-user call HTTP routes; synthetic
+tests do not establish live Discord acceptance.
+
 Existing group conversations expose the same Start/Answer/Decline/Join controls, call stage,
 mute/deafen, audio device and gain controls, focused push-to-talk, noise suppression,
 privacy code, camera, screen sharing and stream viewing as one-to-one calls. Opening the

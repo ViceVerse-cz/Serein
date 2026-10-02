@@ -4340,3 +4340,8 @@ lib-composer-onboarding-rules-pending = チャットを始めるには、この�
 lib-composer-onboarding-incomplete = 参加を完了すると、さらにチャンネルが開放されます。
 # Context: composer
 lib-composer-onboarding-complete = オンボーディングを完了
+
+voice-recipient-ring = もう一度呼び出す
+voice-recipient-stop-ringing = 呼び出しを停止
+voice-recipient-ringing = 呼び出し中…
+voice-recipient-not-in-call = 通話に未参加

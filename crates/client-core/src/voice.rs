@@ -136,6 +136,9 @@ pub struct State {
 	pub(crate) dm_calls: Vec<Id>,
 	/// Last reported members of each known DM call, so answering or joining shows them at once.
 	pub(crate) dm_participants: Vec<(Id, Vec<Participant>)>,
+	/// Service-confirmed ringing, at most 64 calls with 64 recipient IDs each.
+	pub(crate) dm_ringing: Vec<(Id, Vec<Id>)>,
+	pub ring_error: Option<(Id, u64, &'static str)>,
 	pub roster: Vec<RosterEntry>,
 	pub preview: Option<StreamPreview>,
 	sequence: u64,
@@ -143,6 +146,12 @@ pub struct State {
 impl State {
 	pub fn has_dm_call(&self, channel: Id) -> bool {
 		self.dm_calls.contains(&channel)
+	}
+	pub fn ringing(&self, channel: Id) -> &[Id] {
+		self.dm_ringing
+			.iter()
+			.find(|(id, _)| *id == channel)
+			.map_or(&[], |(_, recipients)| recipients)
 	}
 }
 #[derive(Clone, Copy, Debug)]
@@ -153,6 +162,12 @@ pub enum Command {
 	Ring {
 		channel: Id,
 		request: u64,
+	},
+	RingRecipient {
+		channel: Id,
+		request: u64,
+		recipient: Id,
+		stop: bool,
 	},
 	Join {
 		channel: Id,
@@ -251,6 +266,12 @@ pub enum Event {
 		phase: Phase,
 	},
 	Failed {
+		channel: Id,
+		request: u64,
+		message: &'static str,
+	},
+	/// A recipient action failed; the joined call and its media remain active.
+	RingFailed {
 		channel: Id,
 		request: u64,
 		message: &'static str,
@@ -470,6 +491,7 @@ impl ClientState {
 		self.voice.sequence = self.voice.sequence.wrapping_add(1);
 		let request = self.voice.sequence;
 		self.voice.outgoing = ring.then_some((channel, request, false));
+		self.voice.ring_error = None;
 		self.voice.active = Some(Call {
 			channel,
 			guild,
@@ -500,10 +522,38 @@ impl ClientState {
 	pub fn leave_call(&mut self) -> Option<crate::Command> {
 		self.voice.outgoing = None;
 		let call = self.voice.active.take()?;
+		self.voice.ring_error = None;
 		self.voice.departed = None;
 		Some(crate::Command::Voice(Command::Leave {
 			channel: call.channel,
 			request: call.request,
+		}))
+	}
+	pub fn ring_recipient(
+		&self,
+		channel: Id,
+		request: u64,
+		recipient: Id,
+		stop: bool,
+	) -> Option<crate::Command> {
+		let call = self.voice.active.as_ref()?;
+		if call.channel != channel
+			|| call.request != request
+			|| call.guild.is_some()
+			|| !matches!(call.phase, Phase::Connected | Phase::Waiting)
+			|| !self.can_call(channel)
+			|| self.user.as_ref().is_none_or(|own| own.id == recipient)
+			|| !self.dm_call_participant(channel, recipient)
+			|| (!stop && call.participants.iter().any(|p| p.user == recipient))
+			|| self.voice.ringing(channel).contains(&recipient) != stop
+		{
+			return None;
+		}
+		Some(crate::Command::Voice(Command::RingRecipient {
+			channel,
+			request,
+			recipient,
+			stop,
 		}))
 	}
 	pub fn set_call_mute(&mut self, muted: bool, deafened: bool) -> Option<crate::Command> {
@@ -572,6 +622,21 @@ impl ClientState {
 	}
 	pub fn apply_voice(&mut self, event: Event) {
 		match event {
+			Event::RingFailed {
+				channel,
+				request,
+				message,
+			} => {
+				if self
+					.voice
+					.active
+					.as_ref()
+					.is_some_and(|call| call.channel == channel && call.request == request)
+				{
+					self.status = message;
+					self.voice.ring_error = Some((channel, request, message));
+				}
+			}
 			Event::Departed { channel, request } => {
 				self.voice.departed = Some((channel, request));
 			}
@@ -619,8 +684,9 @@ impl ClientState {
 				}
 				if ringing.as_ref().is_some_and(|r| {
 					r.len() > MAX_PARTICIPANTS
-						|| r.iter()
-							.any(|user| !self.dm_call_participant(channel, *user))
+						|| r.iter().enumerate().any(|(index, user)| {
+							!self.dm_call_participant(channel, *user) || r[..index].contains(user)
+						})
 				}) || participants.as_ref().is_some_and(|p| {
 					p.len() > MAX_PARTICIPANTS
 						|| p.iter().enumerate().any(|(index, participant)| {
@@ -643,6 +709,7 @@ impl ClientState {
 						// ponytail: oldest call metadata is evicted; viewing that DM queries it again.
 						let evicted = self.voice.dm_calls.remove(0);
 						self.voice.dm_participants.retain(|(id, _)| *id != evicted);
+						self.voice.dm_ringing.retain(|(id, _)| *id != evicted);
 					}
 					self.voice.dm_calls.push(channel);
 				}
@@ -681,6 +748,10 @@ impl ClientState {
 					} else if self.voice.incoming == Some(channel) {
 						self.voice.incoming = None;
 					}
+					self.voice.dm_ringing.retain(|(id, _)| *id != channel);
+					let mut retained = Vec::with_capacity(MAX_PARTICIPANTS);
+					retained.extend(ringing);
+					self.voice.dm_ringing.push((channel, retained));
 				}
 				if let Some(mut participants) = participants {
 					participants.shrink_to_fit();
@@ -956,7 +1027,15 @@ impl ClientState {
 			self.voice.outgoing = None;
 		}
 		self.voice.dm_calls.retain(|id| *id != channel);
+		if self
+			.voice
+			.ring_error
+			.is_some_and(|(id, _, _)| id == channel)
+		{
+			self.voice.ring_error = None;
+		}
 		self.voice.dm_participants.retain(|(id, _)| *id != channel);
+		self.voice.dm_ringing.retain(|(id, _)| *id != channel);
 		self.voice.roster.retain(|r| r.channel != channel);
 		if self
 			.voice
@@ -982,6 +1061,8 @@ impl ClientState {
 		self.voice.outgoing = None;
 		self.voice.dm_calls.clear();
 		self.voice.dm_participants.clear();
+		self.voice.dm_ringing.clear();
+		self.voice.ring_error = None;
 		self.voice.roster.clear();
 		self.voice.preview = None;
 		self.voice.incoming = None;
@@ -1611,6 +1692,107 @@ mod tests {
 			..ClientState::default()
 		}
 	}
+	#[test]
+	fn ringing_metadata_has_fixed_call_and_byte_budgets() {
+		let mut state = dm_state();
+		let template = state.channels[0].clone();
+		for id in 100..100 + MAX_DM_CALLS as u64 + 1 {
+			let mut channel = template.clone();
+			channel.id = Id(id);
+			state.channels.push(channel);
+			state.apply_voice(Event::Call {
+				channel: Id(id),
+				ringing: Some(vec![Id(3)]),
+				participants: None,
+				unavailable: false,
+			});
+		}
+		assert_eq!(state.voice.dm_ringing.len(), MAX_DM_CALLS);
+		assert!(state.voice.ringing(Id(100)).is_empty());
+		let bytes: usize = state
+			.voice
+			.dm_ringing
+			.iter()
+			.map(|(_, ids)| ids.capacity() * size_of::<Id>())
+			.sum();
+		assert_eq!(bytes, MAX_DM_CALLS * MAX_PARTICIPANTS * size_of::<Id>());
+		state.disconnect_voice("Offline");
+		assert!(state.voice.dm_ringing.is_empty());
+	}
+	#[test]
+	fn targeted_ringing_is_scoped_and_service_confirmed_without_ending_media() {
+		let mut state = dm_state();
+		state.start_call(Id(2), false).unwrap();
+		let call = state.voice.active.as_mut().unwrap();
+		call.phase = Phase::Waiting;
+		let request = call.request;
+		assert!(matches!(
+			state.ring_recipient(Id(2), request, Id(3), false),
+			Some(crate::Command::Voice(Command::RingRecipient {
+				recipient: Id(3),
+				stop: false,
+				..
+			}))
+		));
+		assert!(state.ring_recipient(Id(2), request, Id(3), true).is_none());
+		for (channel, req, user) in [
+			(Id(9), request, Id(3)),
+			(Id(2), request + 1, Id(3)),
+			(Id(2), request, Id(1)),
+			(Id(2), request, Id(99)),
+		] {
+			assert!(state.ring_recipient(channel, req, user, false).is_none());
+		}
+		service_ring(&mut state, &[Id(3)]);
+		assert_eq!(state.voice.ringing(Id(2)), &[Id(3)]);
+		assert!(state.ring_recipient(Id(2), request, Id(3), false).is_none());
+		let stop = state.ring_recipient(Id(2), request, Id(3), true).unwrap();
+		state.command_rejected(stop);
+		assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Waiting);
+		assert_eq!(state.voice.ringing(Id(2)), &[Id(3)]);
+		state.apply_voice(Event::RingFailed {
+			channel: Id(2),
+			request,
+			message: "Recipient write failed",
+		});
+		assert_eq!(state.status, "Recipient write failed");
+		assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Waiting);
+		state.apply_voice(Event::RingFailed {
+			channel: Id(2),
+			request: request + 1,
+			message: "Stale failure",
+		});
+		assert_eq!(state.status, "Recipient write failed");
+		service_ring(&mut state, &[Id(3), Id(3)]);
+		assert_eq!(
+			state.voice.ringing(Id(2)),
+			&[Id(3)],
+			"duplicate event rejected"
+		);
+		service_ring(&mut state, &[]);
+		assert!(state.ring_recipient(Id(2), request, Id(3), false).is_some());
+		state
+			.voice
+			.active
+			.as_mut()
+			.unwrap()
+			.participants
+			.push(Participant {
+				user: Id(3),
+				muted: false,
+				deafened: false,
+				server_muted: false,
+				server_deafened: false,
+				video: false,
+				streaming: false,
+			});
+		assert!(state.ring_recipient(Id(2), request, Id(3), false).is_none());
+		state.voice.active.as_mut().unwrap().guild = Some(Id(10));
+		assert!(state.ring_recipient(Id(2), request, Id(3), true).is_none());
+		state.end_voice_channel(Id(2));
+		assert!(state.voice.ringing(Id(2)).is_empty());
+	}
+
 	#[test]
 	fn dm_calls_require_gesture_and_reject_late_states() {
 		{

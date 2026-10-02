@@ -377,6 +377,7 @@ pub struct MessagingUi {
 	pub voice_chat_open: bool,
 	/// Tile click to start (`Some(user)`) or stop (`None`) watching, applied by the stage.
 	watch_request: Option<Option<Id>>,
+	ring_request: Option<(Id, u64, Id, bool)>,
 	stream_preview_open: Option<((Id, Id, Id), u64)>,
 	stream_preview_request: Option<(Id, Id, Id)>,
 	stream_preview_watch: Option<(Id, Id)>,
@@ -4765,6 +4766,7 @@ impl MessagingUi {
 			}
 		}
 		self.show_call_switch(&ctx, state, &mut commands);
+		self.apply_ring_request(state, &mut commands);
 		self.verification.show(&ctx, state);
 		self.onboarding.show(&ctx, state, &mut commands);
 		self.scroll.clear_if_unbound(&ctx);

@@ -236,7 +236,41 @@ impl MessagingUi {
 			.show(|ui| {
 				ui.set_width(220.0);
 				let id = entry.participant.user.0;
-				if state.user.as_ref().is_some_and(|own| own.id.0 != id) {
+				if let Some(call) = state
+					.voice
+					.active
+					.as_ref()
+					.filter(|call| call.channel == entry.channel && call.guild.is_none())
+					&& state.user.as_ref().is_some_and(|own| own.id.0 != id)
+					&& !call.participants.iter().any(|p| p.user.0 == id)
+				{
+					let stop = state
+						.voice
+						.ringing(call.channel)
+						.contains(&entry.participant.user);
+					let enabled = state
+						.ring_recipient(call.channel, call.request, entry.participant.user, stop)
+						.is_some();
+					if ui
+						.add_enabled(
+							enabled,
+							egui::Button::new(crate::i18n::translate(if stop {
+								"voice-recipient-stop-ringing"
+							} else {
+								"voice-recipient-ring"
+							})),
+						)
+						.clicked()
+					{
+						self.ring_request =
+							Some((call.channel, call.request, entry.participant.user, stop));
+						ui.close();
+					}
+					ui.separator();
+				}
+				if state.user.as_ref().is_some_and(|own| own.id.0 != id)
+					&& !inactive_recipient(state, entry.channel, entry.participant.user)
+				{
 					let muted = self.voice_user_locally_muted(entry.participant.user);
 					if ui
 						.button(crate::i18n::translate_if_key(
@@ -291,7 +325,8 @@ impl MessagingUi {
 	}
 
 	fn is_speaking(&self, state: &State, channel: Id, participant: &Participant) -> bool {
-		!self.voice_user_locally_muted(participant.user)
+		!inactive_recipient(state, channel, participant.user)
+			&& !self.voice_user_locally_muted(participant.user)
 			&& !participant.muted
 			&& !participant.deafened
 			&& !participant.server_muted
@@ -1192,6 +1227,14 @@ impl MessagingUi {
 			None => {}
 		}
 	}
+	pub(super) fn apply_ring_request(&mut self, state: &mut State, commands: &mut Vec<Command>) {
+		if let Some((channel, request, recipient, stop)) = self.ring_request.take()
+			&& let Some(command) = state.ring_recipient(channel, request, recipient, stop)
+		{
+			state.voice.ring_error = None;
+			commands.push(command);
+		}
+	}
 
 	fn participant_tile(
 		&mut self,
@@ -1214,6 +1257,7 @@ impl MessagingUi {
 			.active
 			.as_ref()
 			.filter(|call| call.channel == entry.channel && call.phase != Phase::Failed);
+		let inactive = inactive_recipient(state, entry.channel, entry.participant.user);
 		// The local preview is mirrored like a webcam; remote cameras fill the tile edge to edge.
 		let video = if own && call.is_some_and(|call| call.camera) {
 			self.voice_camera_preview
@@ -1261,7 +1305,9 @@ impl MessagingUi {
 			design::avatar(&mut avatar_ui, name, avatar_size)
 		};
 		// Mute state reads as Discord's red ring plus the matching slashed glyph.
-		let silenced = if entry.participant.deafened || entry.participant.server_deafened {
+		let silenced = if inactive {
+			None
+		} else if entry.participant.deafened || entry.participant.server_deafened {
 			Some(crate::icons::Icon::HeadphonesSlash)
 		} else if entry.participant.muted || entry.participant.server_muted {
 			Some(crate::icons::Icon::MicrophoneSlash)
@@ -1303,6 +1349,30 @@ impl MessagingUi {
 			}
 		}
 		self.voice_participant_menu(&avatar, state, entry);
+		if inactive {
+			let ringing = state
+				.voice
+				.ringing(entry.channel)
+				.contains(&entry.participant.user);
+			let label = crate::i18n::translate(if ringing {
+				"voice-recipient-ringing"
+			} else {
+				"voice-recipient-not-in-call"
+			});
+			let label_rect = egui::Rect::from_min_size(
+				rect.left_top() + egui::vec2(8.0, 6.0),
+				egui::vec2((size.x - 16.0).max(16.0), 18.0),
+			);
+			ui.put(
+				label_rect,
+				egui::Label::new(RichText::new(label).size(10.0).color(if ringing {
+					colors.accent
+				} else {
+					STAGE_MUTED
+				}))
+				.truncate(),
+			);
+		}
 		if let Some(user) = user {
 			self.profile.person_click(ui, &avatar, None, user);
 		}
@@ -1379,6 +1449,13 @@ impl MessagingUi {
 	fn stage_notices(&self, state: &State, channel: Id, connected: bool) -> Vec<(String, bool)> {
 		let mut notices = Vec::new();
 		if let Some(call) = state.voice.active.as_ref().filter(|c| c.channel == channel) {
+			if let Some((_, _, error)) = state
+				.voice
+				.ring_error
+				.filter(|(id, request, _)| *id == channel && *request == call.request)
+			{
+				notices.push((error.into(), true));
+			}
 			if self.screen.context == Some((state.generation, channel, call.request)) {
 				let status = self.screen.capture_status.unwrap_or(self.screen.status);
 				if !status.is_empty() {
@@ -3794,6 +3871,36 @@ fn stage_participants(state: &State, channel: Id) -> Vec<RosterEntry> {
 			.cloned()
 			.collect()
 	};
+	if call.is_some_and(|call| call.guild.is_none() && call.phase != Phase::Failed)
+		&& let Some(conversation) = state.channel(channel)
+	{
+		for user in conversation
+			.recipients
+			.iter()
+			.take(client_core::voice::MAX_PARTICIPANTS - 1)
+		{
+			if entries.len() < client_core::voice::MAX_PARTICIPANTS
+				&& !entries
+					.iter()
+					.any(|entry| entry.participant.user == user.id)
+			{
+				entries.push(RosterEntry {
+					guild: Id(0),
+					channel,
+					member: None,
+					participant: Participant {
+						user: user.id,
+						muted: false,
+						deafened: false,
+						server_muted: false,
+						server_deafened: false,
+						video: false,
+						streaming: false,
+					},
+				});
+			}
+		}
+	}
 	if let Some(call) = call.filter(|call| call.phase != Phase::Failed)
 		&& let Some(user) = &state.user
 	{
@@ -3823,6 +3930,18 @@ fn stage_participants(state: &State, channel: Id) -> Vec<RosterEntry> {
 		}
 	}
 	entries
+}
+
+fn inactive_recipient(state: &State, channel: Id, user: Id) -> bool {
+	state.voice.active.as_ref().is_some_and(|call| {
+		call.channel == channel
+			&& call.guild.is_none()
+			&& state.user.as_ref().is_some_and(|own| own.id != user)
+			&& !call
+				.participants
+				.iter()
+				.any(|participant| participant.user == user)
+	})
 }
 
 fn resolve_member<'a>(
@@ -4234,6 +4353,43 @@ mod tests {
 	}
 
 	#[test]
+	fn dm_stage_includes_absent_recipients_without_speaking_or_mute_state() {
+		let mut state = test_support::call_demo_state();
+		let call = state.voice.active.as_mut().unwrap();
+		let channel = call.channel;
+		let request = call.request;
+		call.participants.retain(|p| p.user == Id(1));
+		let entries = stage_participants(&state, channel);
+		assert_eq!(entries.len(), 2);
+		assert_eq!(entries[0].participant.user, Id(1));
+		let peer = entries
+			.iter()
+			.find(|entry| entry.participant.user == Id(2))
+			.unwrap();
+		assert!(inactive_recipient(&state, channel, Id(2)));
+		assert!(!peer.participant.muted);
+		let mut view = MessagingUi::default();
+		view.voice_speaking.push(Id(2));
+		assert!(!view.is_speaking(&state, channel, &peer.participant));
+		state.voice.ring_error = Some((channel, request, "Synthetic recipient error"));
+		assert!(
+			view.stage_notices(&state, channel, true)
+				.contains(&("Synthetic recipient error".into(), true))
+		);
+		state.voice.ring_error = Some((channel, request + 1, "Stale recipient error"));
+		assert!(
+			!view
+				.stage_notices(&state, channel, true)
+				.iter()
+				.any(|(text, _)| text == "Stale recipient error")
+		);
+		view.ring_request = Some((channel, request + 1, Id(2), false));
+		let mut commands = vec![];
+		view.apply_ring_request(&mut state, &mut commands);
+		assert!(commands.is_empty());
+		assert!(view.ring_request.is_none());
+	}
+	#[test]
 	fn solo_call_stages_show_both_local_previews_without_a_roster() {
 		fn textures(shape: &egui::Shape, ids: &mut Vec<egui::TextureId>) {
 			match shape {
@@ -4283,7 +4439,10 @@ mod tests {
 					messaging.screen.preview = Some(screen);
 					messaging.screen.busy = true;
 					messaging.screen.context = Some((state.generation, channel, request));
-					assert_eq!(stage_participants(&state, channel).len(), 1);
+					assert_eq!(
+						stage_participants(&state, channel).len(),
+						if guild { 1 } else { 2 }
+					);
 					let mut commands = vec![];
 					for phase in [Phase::Waiting, Phase::Connected, Phase::Failed] {
 						state.voice.active.as_mut().unwrap().phase = phase;

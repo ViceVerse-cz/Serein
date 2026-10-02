@@ -4368,3 +4368,8 @@ lib-composer-onboarding-rules-pending = Accept this server's rules to start chat
 lib-composer-onboarding-incomplete = Finish joining this server to unlock more channels.
 # Context: composer
 lib-composer-onboarding-complete = Complete Onboarding
+
+voice-recipient-ring = Ring again
+voice-recipient-stop-ringing = Stop ringing
+voice-recipient-ringing = Ringing…
+voice-recipient-not-in-call = Not in call

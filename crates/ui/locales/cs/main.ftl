@@ -4370,3 +4370,8 @@ lib-composer-onboarding-rules-pending = Přijmi pravidla tohoto serveru, abys mo
 lib-composer-onboarding-incomplete = Dokonči připojení k serveru a odemkni další kanály.
 # Context: composer
 lib-composer-onboarding-complete = Dokončit uvítání
+
+voice-recipient-ring = Znovu zavolat
+voice-recipient-stop-ringing = Zastavit vyzvánění
+voice-recipient-ringing = Vyzvání…
+voice-recipient-not-in-call = Není v hovoru

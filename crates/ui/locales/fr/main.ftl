@@ -4351,3 +4351,8 @@ lib-composer-onboarding-rules-pending = Accepte les règles de ce serveur pour c
 lib-composer-onboarding-incomplete = Termine de rejoindre ce serveur pour débloquer plus de salons.
 # Context: composer
 lib-composer-onboarding-complete = Terminer l'accueil
+
+voice-recipient-ring = Rappeler
+voice-recipient-stop-ringing = Arrêter la sonnerie
+voice-recipient-ringing = Sonnerie…
+voice-recipient-not-in-call = Absent de l’appel

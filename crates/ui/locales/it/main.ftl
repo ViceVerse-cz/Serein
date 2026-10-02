@@ -4351,3 +4351,8 @@ lib-composer-onboarding-rules-pending = Accetta le regole di questo server per i
 lib-composer-onboarding-incomplete = Completa l'accesso a questo server per sbloccare altri canali.
 # Context: composer
 lib-composer-onboarding-complete = Completa l'accoglienza
+
+voice-recipient-ring = Richiama
+voice-recipient-stop-ringing = Interrompi squillo
+voice-recipient-ringing = Sta squillando…
+voice-recipient-not-in-call = Non nella chiamata

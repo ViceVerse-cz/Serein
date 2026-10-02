@@ -5,7 +5,7 @@ use client_core::{
 use discord_api::DiscordApi;
 use eframe::egui;
 use std::{
-	collections::{BTreeMap, BTreeSet},
+	collections::BTreeMap,
 	sync::{
 		Arc, Mutex,
 		atomic::{AtomicU64, Ordering},
@@ -137,7 +137,8 @@ impl Connection {
 				let _sharing_task=AbortTask(tokio::spawn(run_activity_sharing(api.clone(),share_receive.clone(),sharing_requests,sharing_report,finished.clone(),wake.clone())));
 				let _activity_task=AbortTask(tokio::spawn(crate::game_activity::run((share_receive,custom_receive,crate::game_activity::Registered{games:registered_receive,current:running_send}),activity_send,game_report,invite_send,wake.clone(),user.clone(),api.clone())));
 				let _spotify_task=AbortTask(tokio::spawn(crate::spotify::run(api.clone(),user.id,presence_receive.clone(),spotify_send,wake.clone())));
-                let dm_channels=Arc::new(Mutex::new(BTreeSet::new()));
+                let dm_channels=Arc::new(Mutex::new(BTreeMap::new()));
+                let (recipient_scope,mut recipient_scope_changed)=watch::channel(0u64);
                 let gateway_channels=dm_channels.clone();
                 let (voice_online,mut voice_availability)=watch::channel(false);
                 let gateway_api=api.clone();let gateway_emit=emit.clone();let terminal_send=finished.clone();
@@ -152,15 +153,33 @@ impl Connection {
                         if matches!(&event,Event::Disconnected|Event::Resync) { gateway_api.interaction_session(None)?; }
                         if let Some((ready_user,_,channels))=event.ready_navigation() {
                             if ready_user.id!=user.id {return Err(Failure::InvalidCredential);}
-                            *gateway_channels.lock().map_err(|_|Failure::Protocol)?=channels.iter().filter(|c|private_call(c)).map(|c|c.id).collect();
+                            *gateway_channels.lock().map_err(|_|Failure::Protocol)?=channels.iter().filter(|c|private_call(c)).take(client_core::MAX_NAV).map(|c|(c.id,c.recipients.iter().map(|u|u.id).collect::<Vec<_>>())).collect();
                         }
+                        let invalidates_recipient = match &event {
+                            Event::ChannelCreated(channel) => gateway_channels.lock().map_err(|_|Failure::Protocol)?.contains_key(&channel.id),
+                            Event::ChannelChanged(patch) => gateway_channels.lock().map_err(|_|Failure::Protocol)?.contains_key(&patch.id),
+                            Event::Unavailable(channel) => gateway_channels.lock().map_err(|_|Failure::Protocol)?.contains_key(channel),
+                            Event::RecipientRemoved{..}|Event::RecipientAdded{..}|Event::Voice(client_core::voice::Event::Deleted{..}|client_core::voice::Event::Departed{..}) => true,
+                            Event::Voice(client_core::voice::Event::State{user:owner,..}) => *owner==user.id,
+                            _ => event.ready_navigation().is_some(),
+                        };
                         if let Event::ChannelCreated(channel)=&event {
                             let mut channels=gateway_channels.lock().map_err(|_|Failure::Protocol)?;
                             channels.remove(&channel.id);
-                            if private_call(channel) && channels.len()<client_core::MAX_NAV {channels.insert(channel.id);}
+                            if private_call(channel) && channels.len()<client_core::MAX_NAV {channels.insert(channel.id,channel.recipients.iter().map(|u|u.id).collect::<Vec<_>>());}
                         }
                         if let Event::Unavailable(channel)=&event {gateway_channels.lock().map_err(|_|Failure::Protocol)?.remove(channel);}
-                        if let Event::RecipientRemoved {channel,user:removed}=&event && *removed==user.id {gateway_channels.lock().map_err(|_|Failure::Protocol)?.remove(channel);}
+                        if let Event::RecipientRemoved {channel,user:removed}=&event {
+                            let mut channels=gateway_channels.lock().map_err(|_|Failure::Protocol)?;
+                            if *removed==user.id {channels.remove(channel);}
+                            else if let Some(recipients)=channels.get_mut(channel) {recipients.retain(|id|id!=removed);}
+                        }
+                        if let Event::RecipientAdded {channel,user:added}=&event && let Some(recipients)=gateway_channels.lock().map_err(|_|Failure::Protocol)?.get_mut(channel) && !recipients.contains(&added.id) {
+                            if recipients.len()+1<client_core::voice::MAX_PARTICIPANTS {recipients.push(added.id);} else {recipients.clear();}
+                        }
+                        if invalidates_recipient {
+                            recipient_scope.send_modify(|revision|*revision=revision.wrapping_add(1));
+                        }
                         if let Event::ChannelChanged(patch)=&event && let model::Patch::Value(kind)=patch.kind && !matches!(kind,1|3) {gateway_channels.lock().map_err(|_|Failure::Protocol)?.remove(&patch.id);}
 
                         if event.ready_navigation().is_some() || matches!(&event,Event::Resumed) {let _=voice_online.send(true);}
@@ -191,6 +210,7 @@ impl Connection {
                 let mut sticker_detail:Option<AbortTask>=None;
                 let mut reaction_read:Option<AbortTask>=None;
                 let mut ringing:Option<AbortTask>=None;
+                let mut recipient_ringing:Option<AbortTask>=None;
                 let mut upload:Option<AbortTask>=None;
                 let mut upload_cancel:Option<watch::Sender<bool>>=None;
                 let mut voice_request=None;
@@ -198,9 +218,14 @@ impl Connection {
                     tokio::select! {
                         _=&mut gateway_task.0=>{break;}
                         _=&mut writes.0=>{break;}
+                        changed=recipient_scope_changed.changed()=> {
+                            if changed.is_err() {break;}
+                            recipient_scope_changed.borrow_and_update();
+                            drop(recipient_ringing.take());
+                        }
                         changed=voice_availability.changed()=> {
 							if changed.is_err() {break;}
-							if !*voice_availability.borrow_and_update() {drop(ringing.take());drop(profile.take());drop(stream_preview.take());drop(search.take());voice_request=None;if let Some(cancel)=&upload_cancel {let _=cancel.send(true);}}
+							if !*voice_availability.borrow_and_update() {drop(ringing.take());drop(recipient_ringing.take());drop(profile.take());drop(stream_preview.take());drop(search.take());voice_request=None;if let Some(cancel)=&upload_cancel {let _=cancel.send(true);}}
                         }
                         request=upload_receive.recv()=>{
                             let Some(request)=request else {break;};
@@ -299,7 +324,7 @@ impl Connection {
                                 continue;
                             }
 							if let Command::Voice(control @ client_core::voice::Command::Sync { channel }) = &command {
-								if *voice_availability.borrow() && dm_channels.lock().map_err(|_|Failure::Protocol)?.contains(channel) {
+								if *voice_availability.borrow() && dm_channels.lock().map_err(|_|Failure::Protocol)?.contains_key(channel) {
 									voice_send.try_send(*control).map_err(|_|Failure::Capacity)?;
 								}
 								continue;
@@ -340,14 +365,35 @@ impl Connection {
 								}
 								continue;
 							}
+                            if let Command::Voice(client_core::voice::Command::RingRecipient{channel,request,recipient,stop})=&command {
+                                use client_core::voice::Event as E;
+                                let (channel,request,recipient,stop)=(*channel,*request,*recipient,*stop);
+                                let eligible=recipient_action(channel,request,recipient,user.id,voice_request,dm_channels.lock().map_err(|_|Failure::Protocol)?.get(&channel).map(Vec::as_slice));
+                                let message=if !*voice_availability.borrow() {Some("Recipient ringing unavailable while disconnected")}
+                                    else if !eligible {Some("Recipient ringing expired; no request was sent")}
+                                    else if recipient_ringing.as_ref().is_some_and(|job|!job.0.is_finished()) {Some("Recipient ringing is already pending; wait for the result")}
+                                    else {None};
+                                if let Some(message)=message {emit(Event::Voice(E::RingFailed{channel,request,message}))?;continue;}
+                                drop(recipient_ringing.take());
+                                let api=api.clone();let emit=emit.clone();let finished=finished.clone();let ring_wake=wake.clone();
+                                recipient_ringing=Some(AbortTask(tokio::spawn(async move {
+                                    if let Err(failure)=api.ring_call(channel,Some(recipient),stop).await {
+                                        let _=emit(Event::Voice(E::RingFailed{channel,request,message:failure.label()}));
+                                        if failure.ends_session(){api.stop();let _=finished.send(Some(failure));}
+                                    }
+                                    ring_wake.request_repaint();
+                                })));
+                                continue;
+                            }
 							if let Command::Voice(control)=command {
                                 use client_core::voice::{Command as V,Event as E};
-                                let (channel,request)=match control {V::Join{channel,request,..}|V::Ring{channel,request}|V::Leave{channel,request}|V::SetMute{channel,request,..}|V::SetCamera{channel,request,..}=>(channel,request),V::Decline{channel}=>(channel,0),V::Sync{..}|V::StartStream{..}|V::StopStream{..}|V::WatchStream{..}|V::StopWatching{..}=>unreachable!("sync and stream actions routed above")};
+                                let (channel,request)=match control {V::Join{channel,request,..}|V::Ring{channel,request}|V::Leave{channel,request}|V::SetMute{channel,request,..}|V::SetCamera{channel,request,..}=>(channel,request),V::Decline{channel}=>(channel,0),V::RingRecipient{..}|V::Sync{..}|V::StartStream{..}|V::StopStream{..}|V::WatchStream{..}|V::StopWatching{..}=>unreachable!("sync and stream actions routed above")};
                                 if !*voice_availability.borrow() {
                                     emit(Event::Voice(E::Failed{channel,request,message:"Voice is disconnected; no call was started"}))?;continue;
                                 }
-                                if let V::Leave{channel,request}=control && voice_request.is_some_and(|(id,r,_)|id==channel && r==request) {drop(ringing.take());}
-                                let ring=match ring_action(control,user.id,&mut voice_request,dm_channels.lock().map_err(|_|Failure::Protocol)?.contains(&channel)) {
+                                if matches!(control,V::Join{..}) {drop(recipient_ringing.take());drop(ringing.take());}
+                                if let V::Leave{channel,request}=control && voice_request.is_some_and(|(id,r,_)|id==channel && r==request) {drop(ringing.take());drop(recipient_ringing.take());}
+                                let ring=match ring_action(control,user.id,&mut voice_request,dm_channels.lock().map_err(|_|Failure::Protocol)?.contains_key(&channel)) {
                                     Ok(action)=>action,
                                     Err(())=>{emit(Event::Voice(E::Failed{channel,request,message:"Call action expired; no ringing request was sent"}))?;continue;}
                                 };
@@ -803,6 +849,22 @@ fn private_call(channel: &model::Channel) -> bool {
 				&& channel.recipients.len() < client_core::voice::MAX_PARTICIPANTS))
 }
 
+// A recipient write never allocates media or changes the once-only initial ring state.
+fn recipient_action(
+	channel: model::Id,
+	request: u64,
+	recipient: model::Id,
+	owner: model::Id,
+	active: Option<(model::Id, u64, bool)>,
+	recipients: Option<&[model::Id]>,
+) -> bool {
+	recipient != owner
+		&& active.is_some_and(|(id, r, _)| id == channel && r == request)
+		&& recipients.is_some_and(|ids| {
+			ids.len() < client_core::voice::MAX_PARTICIPANTS && ids.contains(&recipient)
+		})
+}
+
 // Ring only after the media adapter confirms transport allocation, and only once per current call.
 fn ring_action(
 	control: client_core::voice::Command,
@@ -820,7 +882,10 @@ fn ring_action(
 	}
 	if !dm {
 		return match control {
-			V::Ring { .. } | V::Decline { .. } | V::Join { ring: true, .. } => Err(()),
+			V::Ring { .. }
+			| V::RingRecipient { .. }
+			| V::Decline { .. }
+			| V::Join { ring: true, .. } => Err(()),
 			V::Sync { .. }
 			| V::Join { .. }
 			| V::Leave { .. }
@@ -853,6 +918,7 @@ fn ring_action(
 			Ok(Some((None, false)))
 		}
 		V::Decline { .. } => Ok(Some((Some(owner), true))),
+		V::RingRecipient { .. } => Err(()),
 		V::Sync { .. }
 		| V::Leave { .. }
 		| V::SetMute { .. }
@@ -1242,6 +1308,46 @@ mod tests {
 		assert!(!gate.accept(signal, 11, now));
 	}
 	use super::*;
+	#[test]
+	fn recipient_writes_reject_stale_self_and_removed_members() {
+		use model::Id;
+		let scope = Some((Id(2), 7, true));
+		let peers = [Id(3), Id(4)];
+		assert!(recipient_action(
+			Id(2),
+			7,
+			Id(3),
+			Id(1),
+			scope,
+			Some(&peers)
+		));
+		for (channel, request, recipient, active, members) in [
+			(Id(2), 6, Id(3), scope, Some(peers.as_slice())),
+			(Id(9), 7, Id(3), scope, Some(peers.as_slice())),
+			(Id(2), 7, Id(1), scope, Some(peers.as_slice())),
+			(Id(2), 7, Id(8), scope, Some(peers.as_slice())),
+			(Id(2), 7, Id(3), None, Some(peers.as_slice())),
+			(Id(2), 7, Id(3), scope, None),
+		] {
+			assert!(!recipient_action(
+				channel,
+				request,
+				recipient,
+				Id(1),
+				active,
+				members
+			));
+		}
+		let oversized = [Id(3); client_core::voice::MAX_PARTICIPANTS];
+		assert!(!recipient_action(
+			Id(2),
+			7,
+			Id(3),
+			Id(1),
+			scope,
+			Some(&oversized)
+		));
+	}
 	#[test]
 	fn call_discovery_never_rings_or_changes_the_active_attempt() {
 		use client_core::voice::Command as V;
