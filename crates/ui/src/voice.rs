@@ -4353,6 +4353,40 @@ mod tests {
 	}
 
 	#[test]
+	fn existing_call_can_offer_recipient_action_after_prejoin_metadata_and_confirmation() {
+		let mut state = test_support::existing_call_demo_state();
+		state.demo = false;
+		state.apply_voice(client_core::voice::Event::Call {
+			channel: Id(22),
+			ringing: Some(vec![]),
+			participants: Some(vec![]),
+			unavailable: false,
+		});
+		assert!(state.start_call(Id(22), false).is_some());
+		let call = state.voice.active.as_mut().unwrap();
+		let request = call.request;
+		// Synthetic confirmed media phase; this test never starts a transport/device.
+		call.phase = Phase::Waiting;
+		let mut view = MessagingUi {
+			voice_available: true,
+			..Default::default()
+		};
+		view.ring_request = Some((Id(22), request, Id(2), false));
+		let mut commands = vec![];
+		view.apply_ring_request(&mut state, &mut commands);
+		assert!(matches!(
+			commands.as_slice(),
+			[Command::Voice(client_core::voice::Command::RingRecipient {
+				channel: Id(22),
+				recipient: Id(2),
+				stop: false,
+				..
+			})]
+		));
+		assert!(inactive_recipient(&state, Id(22), Id(2)));
+	}
+
+	#[test]
 	fn dm_stage_includes_absent_recipients_without_speaking_or_mute_state() {
 		let mut state = test_support::call_demo_state();
 		let call = state.voice.active.as_mut().unwrap();

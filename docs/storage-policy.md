@@ -1533,3 +1533,10 @@ confirmation is acknowledged, the desktop keeps one extra pending credential set
 replacement behind the existing audio retirement fence. It keeps the original
 30-second deadline and zeroizes that set on confirmation, cancellation or failure
 teardown. Failed candidates do not spawn retries until credentials actually change.
+
+Targeted-ring dispatch additionally retains one observed/current DM call record: a channel/request/confirmation tuple and two 64-ID vectors for joined
+and service-ringing peers (at most 1,024 allocated ID bytes). Same-channel Join preserves service observations, replaces its local request and
+requires fresh confirmation; another channel replaces the record. Replacement,
+local release, disconnect and removed access clear it.
+Validated Call/State observations update it before dispatch and invalidate pending
+HTTP workers. Unknown ringing authorizes neither start nor stop.

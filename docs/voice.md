@@ -760,3 +760,8 @@ local abandonment cancels initial and targeted ringing, clears dispatcher owners
 and rejects queued actions from the previous request. Targeted HTTP work checks the
 latest ownership, membership revision and connection availability before polling
 the network future; already accepted service writes cannot be undone.
+
+Recipient actions also recheck latest validated service ringing and observed peer
+presence when dequeued: Ring again requires an absent, non-ringing peer; Stop
+ringing requires current service-confirmed ringing. Unknown ringing disables both
+actions until call metadata arrives; peer Call/State changes cancel pending writes.

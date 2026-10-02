@@ -570,6 +570,7 @@ impl ClientState {
 			|| self.user.as_ref().is_none_or(|own| own.id == recipient)
 			|| !self.dm_call_participant(channel, recipient)
 			|| (!stop && call.participants.iter().any(|p| p.user == recipient))
+			|| !self.voice.dm_ringing.iter().any(|(id, _)| *id == channel)
 			|| self.voice.ringing(channel).contains(&recipient) != stop
 		{
 			return None;
@@ -1802,6 +1803,8 @@ mod tests {
 		let call = state.voice.active.as_mut().unwrap();
 		call.phase = Phase::Waiting;
 		let request = call.request;
+		assert!(state.ring_recipient(Id(2), request, Id(3), false).is_none());
+		service_ring(&mut state, &[]);
 		assert!(matches!(
 			state.ring_recipient(Id(2), request, Id(3), false),
 			Some(crate::Command::Voice(Command::RingRecipient {
