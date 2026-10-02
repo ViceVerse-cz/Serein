@@ -241,9 +241,16 @@ fn user_id(value: &str, state: &State, labels: &Labels) -> Option<Id> {
 
 fn channel_id(value: &str, state: &State, labels: &Labels) -> Option<Id> {
 	let value = value.strip_prefix('#').unwrap_or(value);
+	let current_guild = guild(state);
 	labels
 		.id("channel", value)
-		.or_else(|| numeric(value))
+		.filter(|id| {
+			state.channel(*id).is_some_and(|channel| {
+				channel.guild == current_guild
+					&& channel.supports_text()
+					&& state.can_read_history(channel.id)
+			})
+		})
 		.or_else(|| {
 			let value = value.to_lowercase();
 			channels(state)
@@ -251,6 +258,7 @@ fn channel_id(value: &str, state: &State, labels: &Labels) -> Option<Id> {
 				.find(|channel| label(&channel.name).to_lowercase() == value)
 				.map(|channel| channel.id)
 		})
+		.or_else(|| numeric(value))
 }
 
 /// The query Discord receives: readable labels and dates become IDs.

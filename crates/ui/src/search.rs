@@ -2001,6 +2001,103 @@ mod tests {
 	}
 
 	#[test]
+	fn remembered_channel_labels_do_not_override_another_guilds_typed_names() {
+		let mut state = test_support::demo_state();
+		let mut original = state
+			.channels
+			.iter()
+			.find(|entry| entry.guild.is_some() && entry.supports_text())
+			.unwrap()
+			.clone();
+		original.name = "123".into();
+		let mut labels = filters::Labels::default();
+		labels.remember("channel", "123", original.id);
+		let other_old = state
+			.channels
+			.iter()
+			.find(|entry| entry.guild == original.guild && entry.id != original.id)
+			.unwrap()
+			.id;
+		labels.remember("channel", "old-only", other_old);
+		let mut selected = original.clone();
+		selected.id = Id(800);
+		selected.guild = Some(Id(700));
+		selected.name = "other".into();
+		let mut target = selected.clone();
+		target.id = Id(801);
+		target.name = "123".into();
+		state.selected = Some(selected.id);
+		state.channels.push(selected);
+		state.channels.push(target);
+		let mut guild = state.guilds[0].clone();
+		guild.id = Id(700);
+		state.guilds.push(guild);
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		// The old label remains remembered when the user manually types in another guild.
+		let mut view = SearchUi {
+			labels,
+			query: "in:123 weather".into(),
+			..Default::default()
+		};
+		assert_eq!(view.wire(&state).unwrap(), "in:801 weather");
+		let mut commands = Vec::new();
+		view.submit(&mut state, &mut commands);
+		assert!(
+			matches!(&commands[..], [Command::Search { query, .. }] if query == "in:801 weather")
+		);
+		assert!(filters::wire("in:old-only", &state, &view.labels).is_err());
+		assert_eq!(
+			filters::wire("in:9999", &state, &view.labels).unwrap(),
+			"in:9999"
+		);
+	}
+
+	#[test]
+	fn remembered_channel_labels_require_current_text_and_history_access() {
+		let mut state = test_support::demo_state();
+		let original = state
+			.channels
+			.iter()
+			.find(|entry| entry.guild.is_some() && entry.supports_text())
+			.unwrap()
+			.clone();
+		let mut target = original.clone();
+		target.id = Id(801);
+		target.name = "123".into();
+		state.selected = Some(target.id);
+		state.channels.push(target);
+		let mut labels = filters::Labels::default();
+		labels.remember("channel", "123", original.id);
+		for denied_history in [false, true] {
+			state
+				.channels
+				.iter_mut()
+				.find(|entry| entry.id == original.id)
+				.unwrap()
+				.kind = if denied_history { original.kind } else { 4 };
+			let mut snapshot = test_support::permission_snapshot(&state);
+			if denied_history {
+				let channel = snapshot
+					.channels
+					.iter_mut()
+					.find(|entry| entry.id == original.id)
+					.unwrap();
+				channel.overwrites = Some(vec![model::permissions::Overwrite {
+					id: original.guild.unwrap(),
+					kind: 0,
+					allow: 0,
+					deny: model::permissions::READ_MESSAGE_HISTORY,
+				}]);
+			}
+			state.permissions.replace(snapshot).unwrap();
+			assert_eq!(filters::wire("in:123", &state, &labels).unwrap(), "in:801");
+		}
+	}
+
+	#[test]
 	fn direct_message_shortcut_keeps_implicit_scope_and_does_not_interrupt_composition() {
 		let state = test_support::demo_state();
 		let channel = state
