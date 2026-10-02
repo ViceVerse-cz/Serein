@@ -1533,12 +1533,14 @@ impl DiscordApi {
 		attachment: Option<Vec<serde_json::Value>>,
 		sticker: Option<model::Id>,
 	) -> Result<model::Message, Failure> {
-		let (content, silent) = message_options::content(content);
-		if (content.trim().is_empty() && attachment.is_none() && sticker.is_none())
-			|| content.chars().count() > client_core::MAX_CONTENT
-		{
+		if !message_options::valid(
+			content,
+			client_core::MAX_CONTENT,
+			attachment.as_ref().is_some_and(|items| !items.is_empty()) || sticker.is_some(),
+		) {
 			return Err(Failure::Capacity);
 		}
+		let (content, silent) = message_options::content(content);
 		if sticker.is_some_and(|id| id.0 == 0) {
 			return Err(Failure::Protocol);
 		}
@@ -1583,15 +1585,17 @@ impl DiscordApi {
 		attachments: Option<Vec<serde_json::Value>>,
 	) -> Result<model::Channel, Failure> {
 		let title = title.trim();
-		let (content, silent) = message_options::content(content);
 		if title.is_empty()
 			|| title.chars().count() > client_core::forum::MAX_TITLE
 			|| tags.len() > model::forum::MAX_APPLIED_TAGS
-			|| (content.trim().is_empty() && attachments.is_none())
-			|| content.chars().count() > client_core::MAX_CONTENT
-		{
+			|| !message_options::valid(
+				content,
+				client_core::MAX_CONTENT,
+				attachments.as_ref().is_some_and(|items| !items.is_empty()),
+			) {
 			return Err(Failure::Capacity);
 		}
+		let (content, silent) = message_options::content(content);
 		let mut message = serde_json::json!({
 			"content": content,
 			"allowed_mentions": allowed_mentions(content, None),

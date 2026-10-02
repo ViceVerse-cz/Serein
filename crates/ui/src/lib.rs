@@ -2808,7 +2808,14 @@ impl MessagingUi {
 		} else {
 			state.drafts.get(&channel).map_or("", String::as_str)
 		};
-		let count_before = composer_content.chars().count();
+		let effective = if editing_here {
+			composer_content
+		} else {
+			model::message_options::content(composer_content).0
+		};
+		let count_before = effective.chars().count();
+		let new_content_valid =
+			model::message_options::valid(composer_content, MAX_CONTENT, self.attachment.is_some());
 		// Suggestion rows can take focus on press; keep the editor alive until release
 		// so the shared member/channel/emoji popup can finish the click.
 		let suggestion_pointer = self.mention_menu.pointer_interacting(ctx, channel)
@@ -2909,7 +2916,7 @@ impl MessagingUi {
 				&& (self.attachment.is_none() || state.can_attach(channel))
 				&& !self.upload_busy
 				&& !(state.demo && self.attachment.is_some())
-				&& (count_before > 0 || self.attachment.is_some())
+				&& new_content_valid
 		};
 		if cap_top.is_some() {
 			// The cap and the input form one block: undo the automatic vertical item gap.
@@ -3214,7 +3221,7 @@ impl MessagingUi {
                                         horizontal_arrows: true, vertical_arrows: true, escape: editing_here,
                                         ..Default::default()
                                     })
-                                    .char_limit(MAX_CONTENT)
+                                    .char_limit(MAX_CONTENT + if editing_here { 0 } else { model::message_options::PREFIX_ALLOWANCE })
                                     .desired_rows(1)
                                     .desired_width(f32::INFINITY)
                                     // Horizontal layouts reserve the interaction height, including around icons.
@@ -4911,6 +4918,52 @@ mod composer_tests {
 			repeat: false,
 			modifiers: egui::Modifiers::NONE,
 		}
+	}
+
+	#[test]
+	fn quiet_composer_paste_allows_full_payload_and_marker_only_enter_preserves_draft() {
+		let ctx = egui::Context::default();
+		let mut view = MessagingUi::default();
+		view.focus_switched_composer = true;
+		let mut state = edit_state();
+		let channel = state.selected.unwrap();
+		state.drafts.insert(channel, "@silent".into());
+		for _ in 0..2 {
+			edit_frame(&ctx, &mut view, &mut state, vec![]);
+		}
+		let command = edit_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			vec![edit_key(egui::Key::Enter)],
+		);
+		assert!(!command.iter().any(|c| matches!(c, Command::Send { .. })));
+		assert_eq!(state.drafts[&channel], "@silent");
+		assert!(state.pending.is_empty());
+		state.drafts.insert(channel, String::new());
+		let full = format!("@silent {}", "x".repeat(MAX_CONTENT));
+		edit_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			vec![egui::Event::Paste(full.clone())],
+		);
+		let clipboard = view.attachment_paste_requested.take().unwrap();
+		view.pasted_text = Some((channel, clipboard.target, clipboard.text.unwrap()));
+		view.upload_busy = false;
+		edit_frame(&ctx, &mut view, &mut state, vec![]);
+		assert_eq!(state.drafts[&channel], full);
+		let command = edit_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			vec![edit_key(egui::Key::Enter)],
+		);
+		assert!(
+			command
+				.iter()
+				.any(|c| matches!(c, Command::Send { content, .. } if content == &full))
+		);
 	}
 
 	#[test]

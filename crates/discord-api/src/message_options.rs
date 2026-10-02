@@ -1,14 +1,7 @@
 //! Composer syntax shared by text, replies, uploads, stickers and forum starters.
 pub(super) const SUPPRESS_NOTIFICATIONS: u32 = 1 << 12;
 
-pub(super) fn content(value: &str) -> (&str, bool) {
-	match value.strip_prefix("@silent") {
-		Some(rest) if rest.is_empty() || rest.starts_with(char::is_whitespace) => {
-			(rest.trim_start(), true)
-		}
-		_ => (value, false),
-	}
-}
+pub(super) use model::message_options::{content, valid};
 
 #[cfg(test)]
 mod tests {
@@ -36,6 +29,7 @@ mod tests {
 			let server = tokio::spawn(async move {
 				for (expected, silent, attachments, sticker, forum) in [
 					("hello <@7>", true, false, false, false),
+					("\n    indented\n  ", true, false, false, false),
 					("hello", false, false, false, false),
 					("@silently hello", false, false, false, false),
 					("", true, true, false, false),
@@ -85,8 +79,13 @@ mod tests {
 				}
 			});
 			assert!(matches!(api.send_message(Id(2), "@silent \n", "local", None, None, None).await, Err(Failure::Capacity)));
+			assert!(matches!(api.send_message(Id(2), "@silent", "local", None, Some(vec![]), None).await, Err(Failure::Capacity)));
+			for attachments in [None, Some(vec![])] {
+				assert!(matches!(api.create_post(Id(2), Id(1), ("Synthetic post", &[]), "@silent", attachments).await, Err(Failure::Capacity)));
+			}
 			for (text, reply, attachment, sticker) in [
 				("@silent hello <@7>", Some(Reply::to(Id(50))), None, None),
+				("@silent \n    indented\n  ", None, None, None),
 				("hello", None, None, None),
 				("@silently hello", None, None, None),
 				("@silent", None, Some(vec![serde_json::json!({"id":"0","filename":"synthetic.txt","uploaded_filename":"synthetic"})]), None),

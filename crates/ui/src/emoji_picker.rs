@@ -21,7 +21,13 @@ pub(crate) fn insert(
 		(range.start.0.min(count), range.end.0.min(count))
 	});
 	let inserted = text.chars().count();
-	if count - (end - start) + inserted > client_core::MAX_CONTENT {
+	if count - (end - start) + inserted
+		> client_core::MAX_CONTENT
+			+ if model::message_options::content(draft).1 {
+				model::message_options::PREFIX_ALLOWANCE
+			} else {
+				0
+			} {
 		return None;
 	}
 	let byte_start = draft

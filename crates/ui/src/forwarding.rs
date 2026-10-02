@@ -231,7 +231,9 @@ impl ForwardDialog {
 							.hint_text(crate::i18n::translate(
 								"forwarding-show-add-an-optional-message",
 							))
-							.char_limit(client_core::MAX_CONTENT)
+							.char_limit(
+								client_core::MAX_CONTENT + model::message_options::PREFIX_ALLOWANCE,
+							)
 							.desired_width(f32::INFINITY),
 					)
 				});

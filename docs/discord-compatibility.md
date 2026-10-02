@@ -2029,7 +2029,8 @@ and --demo --demo-check-polls for the focused synthetic debug check.
 ## Quiet messages (`@silent`)
 
 Start a new message with `@silent` followed by whitespace to request a quiet send.
-The prefix is removed from the outgoing content and the documented
+The marker and exactly one separating whitespace character are removed; remaining
+indentation, line breaks and trailing whitespace are preserved. The documented
 [`SUPPRESS_NOTIFICATIONS` message flag](https://docs.discord.com/developers/resources/message#message-object-message-flags)
 (4096) is set. Discord describes this as suppressing push/desktop notifications while
 retaining notification badges. Existing mention selection and reply-mention preferences
@@ -2043,3 +2044,11 @@ send can be reviewed and deliberately retried with the same intent. Writes are n
 automatically replayed. The flag is documented in Discord's developer API; normal-account
 interoperability remains unofficial and live-unverified. Loopback tests inspect the
 actual outgoing JSON and do not contact Discord.
+
+Quiet-message admission is shared by the composer, forum editor, core state and
+transport. A marker-only text draft is rejected before it or its reply is consumed;
+attachment/sticker-only messages may carry the marker. New-message editors have an
+eight-scalar marker allowance while the effective outgoing text retains its full
+2,000-scalar limit. The allowance is separately bounded; edits treat the marker
+literally. Existing per-draft byte ceilings and the session input budget remain
+in force. A quiet forwarding note affects only that separately sent note.

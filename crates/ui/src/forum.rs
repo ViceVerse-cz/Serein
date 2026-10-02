@@ -634,7 +634,9 @@ impl ForumUi {
 								}
 								let body = ui.add(
 									egui::TextEdit::multiline(&mut draft.body)
-										.char_limit(MAX_CONTENT)
+										.char_limit(
+											MAX_CONTENT + model::message_options::PREFIX_ALLOWANCE,
+										)
 										.frame(egui::Frame::NONE)
 										.hint_text(
 											RichText::new(crate::i18n::translate(
@@ -749,10 +751,11 @@ impl ForumUi {
 								|ui| {
 									let ready = state.can_create_post(forum)
 										&& !draft.title.trim().is_empty()
-										&& (!draft.body.trim().is_empty()
-											|| !staged.files.is_empty()) && (!draft
-										.tags
-										.is_empty()
+										&& model::message_options::valid(
+											model::message_options::starter(&draft.body),
+											MAX_CONTENT,
+											!staged.files.is_empty(),
+										) && (!draft.tags.is_empty()
 										|| !state.forum_requires_tag(forum));
 									let post = ui.add_enabled(
 										ready && !draft.submitted && !posting,
@@ -784,7 +787,12 @@ impl ForumUi {
 										RichText::new(format!(
 											"{}/{MAX_TITLE} · {}/{MAX_CONTENT}",
 											draft.title.chars().count(),
-											draft.body.chars().count()
+											model::message_options::content(
+												model::message_options::starter(&draft.body)
+											)
+											.0
+											.chars()
+											.count()
 										))
 										.size(11.0)
 										.color(colors.muted),
