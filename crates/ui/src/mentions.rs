@@ -127,6 +127,14 @@ pub fn known_users(state: &State, channel: Id) -> Vec<User> {
 			add(user);
 		}
 	}
+	for message in state.timeline.iter().rev() {
+		if message.channel == channel {
+			add(&message.author);
+			for user in &message.mentions {
+				add(user);
+			}
+		}
+	}
 	if let Some(members) = state.members.as_ref().filter(|m| m.channel == channel) {
 		for member in members
 			.slots
@@ -139,15 +147,38 @@ pub fn known_users(state: &State, channel: Id) -> Vec<User> {
 			add(&member.user);
 		}
 	}
-	for message in state.timeline.iter() {
-		if message.channel == channel {
-			add(&message.author);
-			for user in &message.mentions {
-				add(user);
+
+	users
+}
+
+// Compute all candidate recencies in one scan of the already-loaded bounded conversation.
+fn recent_user_ranks(
+	state: &State,
+	channel: Id,
+	users: &[User],
+) -> std::collections::HashMap<Id, u64> {
+	let mut ranks: std::collections::HashMap<_, _> = users
+		.iter()
+		.take(256)
+		.map(|user| (user.id, u64::MAX))
+		.collect();
+	for message in state
+		.timeline
+		.iter()
+		.rev()
+		.filter(|message| message.channel == channel)
+	{
+		for user in
+			std::iter::once(message.author.id).chain(message.mentions.iter().map(|user| user.id))
+		{
+			if let Some(rank) = ranks.get_mut(&user)
+				&& *rank == u64::MAX
+			{
+				*rank = u64::MAX - message.id.0;
 			}
 		}
 	}
-	users
+	ranks
 }
 
 pub struct MentionSource<'a> {
@@ -444,6 +475,7 @@ impl Menu {
 			.and_then(|c| c.guild);
 		let mut ranked: Vec<Ranked> = match kind {
 			Kind::User => {
+				let recency = recent_user_ranks(state, channel, users);
 				let mut ranked = users
 					.iter()
 					.filter_map(|user| {
@@ -464,7 +496,7 @@ impl Menu {
 							})
 							.map(|r| {
 								(
-									(r, 0, 0),
+									(r, 0, recency.get(&user.id).copied().unwrap_or(u64::MAX)),
 									Candidate::User {
 										user: user.clone(),
 										name: name.to_owned(),
@@ -864,6 +896,30 @@ fn row(
 mod tests {
 	use super::*;
 	use model::Channel;
+
+	#[test]
+	fn mention_matches_prefer_recent_conversation_users_after_match_quality() {
+		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		let old = user(40001, "AlexOlder");
+		let recent = user(40002, "BAlexRecent");
+		for (id, author) in [(40001, old.clone()), (40002, recent.clone())] {
+			let mut message = test_support::message(id, channel);
+			message.author = author;
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		let mut menu = Menu::default();
+		menu.refresh(
+			&state,
+			channel,
+			"@lex",
+			Some(4),
+			&[old.clone(), recent.clone()],
+		);
+		assert_eq!(menu.candidates[0].id(), recent.id);
+		menu.refresh(&state, channel, "@Al", Some(3), &[recent, old.clone()]);
+		assert_eq!(menu.candidates[0].id(), old.id);
+	}
 
 	#[test]
 	fn cross_server_emoji_search_names_sources_bounds_and_account_reset() {

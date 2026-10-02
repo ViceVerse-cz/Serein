@@ -122,6 +122,7 @@ pub struct TimelineView {
 	// revealing edits, without cloning payloads. Pruned with the active window: at most 500 records.
 	revealed: BTreeMap<Id, Revealed>,
 	pub(super) viewing: Option<(Id, Id)>,
+	embed_viewing: Option<(Id, u64, model::Attachment)>,
 	/// Fixture-only: viewer to open once its message has arrived in the timeline.
 	pending_viewer: Option<(Id, Id)>,
 	pub(super) download: crate::attachments::DownloadUi,
@@ -2764,6 +2765,7 @@ impl TimelineView {
 													);
 													if self.viewing != previous_view {
 														self.component_viewing = None;
+														self.embed_viewing = None;
 													}
 												}
 											}
@@ -3622,7 +3624,7 @@ impl TimelineView {
 		let fade_height = if see_through && self.following {
 			0.0
 		} else if typing.is_some() {
-			crate::typing::OVERLAY_HEIGHT + 52.0
+			crate::typing::OVERLAY_HEIGHT + 8.0
 		} else {
 			20.0
 		};
@@ -3774,9 +3776,57 @@ impl TimelineView {
 			&& state.timeline.get(message_id).is_some()
 		{
 			self.pending_viewer = None;
+			self.embed_viewing = None;
 			self.viewing = Some((message_id, attachment_id));
 		}
 		self.show_fullscreen_video(ui.ctx(), state);
+		if let Some((message, media)) = self.download.embed_view_request.take()
+			&& let Some(source) = display_message(state, message)
+		{
+			self.viewing = None;
+			self.component_viewing = None;
+			self.embed_viewing = Some((
+				message,
+				Revealed::fingerprint(source),
+				model::Attachment {
+					id: Id(0),
+					filename: "Embed image.png".into(),
+					description: None,
+					content_type: Some("image/png".into()),
+					size: 0,
+					media,
+					spoiler: false,
+					duration_ms: None,
+					waveform: Vec::new(),
+				},
+			));
+		}
+		if let Some((message, fingerprint, image)) = &self.embed_viewing {
+			let allowed = !state.timeline.is_deleted(*message)
+				&& display_message(state, *message).is_some_and(|source| {
+					!source.embeds_suppressed
+						&& Revealed::fingerprint(source) == *fingerprint
+						&& (!crate::embeds::has_media_spoilers(source)
+							|| self
+								.revealed
+								.get(message)
+								.is_some_and(|reveal| reveal.media && reveal.matches(source)))
+				});
+			if !allowed
+				|| crate::attachments::viewer(
+					ui,
+					std::slice::from_ref(image),
+					image.id,
+					avatars,
+					&mut self.download,
+					&mut self.opening,
+					state.demo,
+				)
+				.is_none()
+			{
+				self.embed_viewing = None;
+			}
+		}
 		if let Some((message_id, attachment_id)) = self.viewing {
 			let message = state
 				.timeline
@@ -4113,6 +4163,100 @@ mod tests {
 			state.timeline.insert(message, false, false).unwrap();
 		}
 		state
+	}
+
+	#[test]
+	fn embed_lightbox_reuses_viewer_and_closes_when_source_is_hidden_or_changed() {
+		for reason in [0, 1, 2] {
+			let mut state = loading_unread_channel(false);
+			state.freshness = model::Freshness::Fresh;
+			state.history_pending = false;
+			let mut message = text_message(20);
+			let media = model::EmbedMedia {
+				url: Some("https://cdn.discordapp.com/attachments/1/2/synthetic.png".into()),
+				width: 100,
+				height: 100,
+				..Default::default()
+			};
+			message.embeds.push(model::Embed {
+				kind: "image".into(),
+				image: Some(media.clone()),
+				description: (reason == 2).then(|| "||Synthetic spoiler||".into()),
+				..Default::default()
+			});
+			message.attachments.push(model::Attachment {
+				id: Id(10),
+				filename: "Synthetic image.png".into(),
+				description: None,
+				content_type: Some("image/png".into()),
+				size: 64,
+				media: media.clone(),
+				spoiler: false,
+				duration_ms: None,
+				waveform: vec![],
+			});
+			state
+				.timeline
+				.insert(message.clone(), false, false)
+				.unwrap();
+			let ctx = egui::Context::default();
+			let mut view = TimelineView::default();
+			for _ in 0..4 {
+				banner_frame(&ctx, &mut view, &mut state, vec![], false);
+			}
+			if reason == 2 {
+				view.download.view_embed(message.id, &media);
+				banner_frame(&ctx, &mut view, &mut state, vec![], false);
+				assert!(view.embed_viewing.is_none(), "unrevealed media never opens");
+				view.revealed
+					.insert(message.id, Revealed::new(&message, 0, true));
+			}
+			view.download.view_embed(message.id, &media);
+			banner_frame(&ctx, &mut view, &mut state, vec![], false);
+			assert!(view.embed_viewing.is_some());
+			assert!(view.opening.is_none() && view.download.request.is_none());
+			view.pending_viewer = Some((message.id, Id(10)));
+			banner_frame(&ctx, &mut view, &mut state, vec![], false);
+			assert!(
+				view.embed_viewing.is_none() && view.viewing == Some((message.id, Id(10))),
+				"an ordinary attachment replaces the embed viewer"
+			);
+			view.download.view_embed(message.id, &media);
+			banner_frame(&ctx, &mut view, &mut state, vec![], false);
+			assert!(
+				view.embed_viewing.is_some() && view.viewing.is_none(),
+				"an embed replaces the ordinary attachment viewer"
+			);
+			if reason == 1 {
+				message.embeds_suppressed = true;
+			} else {
+				message.content.push_str(" edited");
+			}
+			state.timeline.insert(message.clone(), true, false).unwrap();
+			banner_frame(&ctx, &mut view, &mut state, vec![], false);
+			assert!(view.embed_viewing.is_none());
+			if reason == 2 {
+				view.download.view_embed(message.id, &media);
+				banner_frame(&ctx, &mut view, &mut state, vec![], false);
+				assert!(
+					view.embed_viewing.is_none(),
+					"editing invalidates previous spoiler permission"
+				);
+			} else if reason == 0 {
+				view.download.view_embed(message.id, &media);
+				banner_frame(&ctx, &mut view, &mut state, vec![], false);
+				assert!(view.embed_viewing.is_some());
+				let mut channel = state.channels[0].clone();
+				channel.id = Id(21);
+				state.channels.push(channel);
+				state.selected = Some(Id(21));
+				banner_frame(&ctx, &mut view, &mut state, vec![], false);
+				assert!(
+					view.embed_viewing.is_none(),
+					"channel navigation resets the embed viewer"
+				);
+			}
+		}
 	}
 
 	#[test]

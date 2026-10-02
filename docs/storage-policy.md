@@ -1482,3 +1482,9 @@ Accepting Save or Remove pauses new REST client acquisition immediately, before
 the credential-store job completes. A failed deletion leaves routing paused; it
 does not resume stored credentials. In-flight requests retain their earlier
 snapshot. Rejected saves retain the credential draft until a valid job can start.
+
+The embed image lightbox retains one cloned, validated media reference (at most
+8 KiB), reuses the existing bounded attachment viewer/media working set, and
+discards its reference when the source message is removed or changed or its
+spoiler consent no longer matches. Mention recency is calculated from the
+already-loaded timeline for at most 256 candidates and is not persisted.

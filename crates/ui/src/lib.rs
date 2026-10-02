@@ -2682,11 +2682,22 @@ impl MessagingUi {
 			&& !egui::Popup::is_any_open(ctx)
 			&& ctx.memory(|m| m.focused().is_none())
 			&& ctx.input(|i| {
-				!i.modifiers.command
-					&& !i.modifiers.ctrl
-					&& i.events.iter().any(|event| {
-						matches!(event, egui::Event::Text(text) if text.chars().any(|c| !c.is_control() && !c.is_whitespace()))
-					})
+				i.events.iter().any(|event| match event {
+					egui::Event::Paste(_) | egui::Event::PasteImage(_) => true,
+					egui::Event::Key {
+						key: egui::Key::V,
+						pressed: false,
+						modifiers,
+						..
+					} => !modifiers.shift && (modifiers.ctrl || modifiers.command),
+					egui::Event::Text(text) => {
+						!i.modifiers.command
+							&& !i.modifiers.ctrl && text
+							.chars()
+							.any(|c| !c.is_control() && !c.is_whitespace())
+					}
+					_ => false,
+				})
 			});
 		if focus_composer || typed {
 			ctx.memory_mut(|m| m.request_focus(composer_id));
@@ -4782,6 +4793,72 @@ impl MessagingUi {
 #[cfg(test)]
 mod composer_tests {
 	use super::*;
+
+	#[test]
+	fn paste_into_an_idle_conversation_focuses_composer_without_sending() {
+		let ctx = egui::Context::default();
+		let mut state = edit_state();
+		let mut view = MessagingUi::default();
+		let frame = |view: &mut MessagingUi, state: &mut State, events| {
+			let mut commands = Vec::new();
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(1000.0, 700.0),
+					)),
+					events,
+					focused: true,
+					..Default::default()
+				},
+				|ui| {
+					commands = view.show(ui, state);
+				},
+			);
+			output.drop_without_applying_deltas();
+			commands
+		};
+		for _ in 0..3 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		ctx.memory_mut(|memory| {
+			if let Some(id) = memory.focused() {
+				memory.surrender_focus(id);
+			}
+		});
+		let channel = state.selected.unwrap();
+		state.drafts.remove(&channel);
+		let commands = frame(
+			&mut view,
+			&mut state,
+			vec![egui::Event::Paste("Pasted offline text".into())],
+		);
+		let request = view
+			.attachment_paste_requested
+			.take()
+			.expect("idle paste is admitted to the existing bounded clipboard worker");
+		assert!(ctx.memory(|memory| memory.has_focus(request.target)));
+		assert!(request.image.is_none());
+		let text = request.text.unwrap();
+		assert_eq!(text, "Pasted offline text");
+		view.upload_busy = false;
+		view.pasted_text = Some((channel, request.target, text));
+		let completion_commands = frame(&mut view, &mut state, vec![]);
+		assert_eq!(
+			state.drafts.get(&channel).map(String::as_str),
+			Some("Pasted offline text")
+		);
+		assert!(
+			completion_commands
+				.iter()
+				.all(|command| !matches!(command, Command::Send { .. } | Command::Edit { .. }))
+		);
+		assert!(
+			!commands
+				.iter()
+				.any(|command| matches!(command, Command::Send { .. } | Command::Edit { .. }))
+		);
+	}
 
 	#[test]
 	fn download_cancel_remains_visible_without_a_text_composer() {
