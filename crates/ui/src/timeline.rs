@@ -3585,10 +3585,9 @@ impl TimelineView {
 		if !reflow {
 			self.consecutive_reflows = 0;
 		}
-		// A user scroll near the top requests one page; a short initial view never drains history.
-		self.load_older = !self.following
-			&& spare == 0.0
-			&& output.state.offset.y < 160.0
+		// Explicit upward input requests one page even when a short view cannot scroll.
+		// Idle layout still never drains history merely to fill the viewport.
+		self.load_older = output.state.offset.y < 160.0
 			&& ui.input(|i| {
 				scroll_delta > 0.0
 					&& (session.holding()
@@ -3596,6 +3595,10 @@ impl TimelineView {
 							.hover_pos()
 							.is_some_and(|pos| output.inner_rect.contains(pos)))
 			}) && state.can_load_older();
+		if self.load_older {
+			self.following = false;
+			self.jump = false;
+		}
 		// Discord-style overlays: an unread strip hangs from the top edge, the typing indicator
 		// floats in the reserved strip above the composer, and a round control offers the way
 		// back to the live edge. They are painted after the scroll area so they sit above the
@@ -4004,6 +4007,52 @@ mod pending_tests;
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn short_history_loads_older_only_after_explicit_upward_input() {
+		let mut state = loading_unread_channel(false);
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		state
+			.timeline
+			.insert(text_message(20), false, false)
+			.unwrap();
+		assert!(state.can_load_older());
+		let ctx = egui::Context::default();
+		let mut view = TimelineView::default();
+		for _ in 0..5 {
+			banner_frame(&ctx, &mut view, &mut state, vec![], false);
+			assert!(
+				!view.load_older,
+				"idle short history must not drain older pages"
+			);
+		}
+		let wheel = |delta| {
+			vec![
+				egui::Event::PointerMoved(egui::pos2(400.0, 300.0)),
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Point,
+					phase: egui::TouchPhase::Move,
+					delta: egui::vec2(0.0, delta),
+					modifiers: egui::Modifiers::NONE,
+				},
+			]
+		};
+		banner_frame(&ctx, &mut view, &mut state, wheel(-60.0), false);
+		assert!(!view.load_older);
+		banner_frame(&ctx, &mut view, &mut state, wheel(120.0), false);
+		assert!(
+			view.load_older,
+			"upward scroll must reach history even when rows fit in one view"
+		);
+		assert!(!view.following);
+		assert!(state.older_history().is_some());
+		banner_frame(&ctx, &mut view, &mut state, wheel(120.0), false);
+		assert!(
+			!view.load_older,
+			"pending history must suppress duplicate requests"
+		);
+	}
 
 	// Synthetic regressions: no transport or acknowledgement worker is running.
 	fn banner_frame(
