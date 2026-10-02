@@ -3384,8 +3384,8 @@ use default features plus demo and the unchanged optimized fat-LTO profile.
 
 | Metric | Parent | Quiet prefix | Delta |
 | --- | --- | --- | --- |
-| Signed standard executable bytes | 62,088,304 | 62,088,304 | 0 (0%) |
-| Installed package bytes, 206 regular files | 68,098,733 | 68,098,733 | 0 (0%) |
+| Signed standard executable bytes | 62,088,304 | 62,088,304 | 0 |
+| Installed package bytes, 206 regular files | 68,098,733 | 68,098,733 | 0 |
 | Distribution ZIP bytes, identical ditto method | 43,286,187 | 43,287,077 | +890 (+0.0021%) |
 | Common synthetic chat median process CPU | 0.0% | 0.0% | 0 percentage points |
 | Sampled peak process RSS, KiB | 128,768 | 128,592 | -176 (-0.1367%) |
