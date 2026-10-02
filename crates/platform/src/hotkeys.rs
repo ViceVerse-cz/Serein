@@ -740,10 +740,12 @@ mod mouse {
 		}
 	}
 
+	/// Mirrors egui's `matches_logically` for focused input: extra Shift or Alt still
+	/// match, while Ctrl must agree so Ctrl+button stays a distinct binding.
 	fn modifiers_match(modifiers: u8) -> bool {
 		key_down(VK_CONTROL) == (modifiers & (PRIMARY | CTRL) != 0)
-			&& key_down(VK_SHIFT) == (modifiers & SHIFT != 0)
-			&& key_down(VK_MENU) == (modifiers & ALT != 0)
+			&& (modifiers & SHIFT == 0 || key_down(VK_SHIFT))
+			&& (modifiers & ALT == 0 || key_down(VK_MENU))
 	}
 
 	#[allow(unsafe_code)]
