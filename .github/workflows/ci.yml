@@ -37,7 +37,7 @@ jobs:
       - run: cargo xtask check
       - name: Flatpak encoding after GTK initialization (synthetic)
         if: runner.os == 'Linux'
-        run: xvfb-run -a cargo test --locked -p platform --lib flatpak_locale_tests::post_gtk_flatpak_encoding_preflight -- --exact --ignored
+        run: xvfb-run -a cargo test --locked -p platform --features winit/x11,winit/wayland --lib flatpak_locale_tests::post_gtk_flatpak_encoding_preflight -- --exact --ignored
       - uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: 1.4.2
