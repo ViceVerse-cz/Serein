@@ -2261,6 +2261,44 @@ Rejected after measurement: a zstd raw-RGBA Twemoji atlas would save 929 KB but 
 44.5 ms against 24.3 ms for the PNG at startup. Writing zlib output straight into the
 growing buffer saved 0.3 ms per 8 MiB. No live Discord session was used.
 
+## Interface zoom down to 50% (October 2, 2026)
+
+Source `8fc9d4df7c6819d77828ceb83a7c279fd87603b9` has the same application runtime
+as `9f0126b7`; its additional assertions exercise the real SDK host. Parent
+`47a81035` is runtime-identical to the preserved `ef9cd5d1` baseline. Both native
+binaries use pinned Rust 1.98.1, repository fat LTO, default features plus `demo`;
+the standard package separately includes voice with no default features.
+
+On Apple M1/macOS 27.0 (26A428), 16 GiB, native Metal and 2× display scale, both
+apps opened `--demo --demo-settings=appearance` at the unchanged 100% default.
+All other builds/apps were paused. Each sequential sample used a five-second
+warmup and ten one-second macOS `ps` CPU/RSS readings (15.22 seconds total),
+then stopped by SIGINT. Settled RSS is the last-five median.
+
+| Metric | Parent | After | Delta |
+| --- | ---: | ---: | ---: |
+| Native median CPU | 0% | 0% | 0 percentage points |
+| Sampled peak RSS | 132,336 KiB | 132,432 KiB | +96 KiB (+0.073%) |
+| Settled RSS | 132,288 KiB | 132,384 KiB | +96 KiB (+0.073%) |
+| Standard executable | 62,088,304 B | 62,088,304 B | 0 B |
+| Full installed package | 68,098,733 B | 68,098,733 B | 0 B |
+| Compressed distribution | 43,286,187 B | 43,286,963 B | +776 B (+0.0018%) |
+| Default + demo fat executable | 63,988,160 B | 63,988,160 B | 0 B |
+
+Standard packages contain 206 regular files; ZIPs use the same
+`ditto -c -k --sequesterRsrc` method without an enclosing directory. The small
+RSS difference is noise, with no improvement/regression claim. This idle check
+does not time changing zoom or establish frame/startup latency. Actual native
+matched chat captures separately show 80% before and 50% after; all temporary
+instrumentation is removed. No live account or audio device was used.
+
+Fresh full checks, the constrained old-schema migration/reopen/default INSERT,
+focused model/UI/settings checks, all tutorial/catalog builds/tests/lints and
+real committed/rebuilt SDK host boundary checks pass. The nineteen-page authoring
+wiki is published from `8fc9d4df` as preview, not released. Raw samples, hashes,
+source comparisons and screenshot provenance are in
+[zoom measurements](pr-evidence/smaller-interface-zoom/measurements.json).
+
 ## Windows WebM container admission - September 25, 2026
 
 Baseline: `7bdf862`. Windows x86_64, Rust 1.98.1. Both standard release packages include
@@ -2294,6 +2332,45 @@ Native UI CPU, memory, frame timing and before/after screenshots remain unmeasur
 the untouched baseline's offline demo does not compile: existing fixtures omit the new
 `Member.clients` field and a demo-only slider check is not exported to the binary. The
 standard authenticated build was not launched for evidence. No performance change is claimed.
+
+## Short initial-history pagination (October 2, 2026)
+
+Runtime source `9a5c7a0f8b0224a7ee168fba47325c7dc5168933` integrates parent
+`456fdc1ff3925b9a84cae1295e5605b3c60a34b5`. Explicit upward input over a short
+message page can request older history; idle/downward input does not drain pages.
+Pending frames retain browsing intent, and an arriving older page preserves the
+existing message's rendered position. Final scroll offsets remain nonnegative.
+
+Fresh `cargo xtask check`, the standard voice-enabled release package and the
+normal fat-LTO default+demo build passed. The real egui regression covers input,
+pending frames, an actual older history event and rendered message restoration
+within 2px; it also proves intentional return-to-latest still works. No UI design
+change is illustrated with an unrelated screenshot.
+
+| Metric | Comparator 343c6d48 | Changed 9a5c7a0f | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 62,137,600 B | 62,137,616 B | +16 B |
+| Installed package, 206 regular files | 68,148,029 B | 68,148,045 B | +16 B |
+| Same-method ZIP | 43,311,255 B | 43,311,312 B | +57 B |
+| Normal fat-LTO default+demo executable | 64,037,760 B | 64,037,760 B | 0 B |
+| Native idle CPU median | 0% | 0% | 0 percentage points |
+| Native sampled peak RSS | 124,624 KiB | 124,480 KiB | -144 KiB (-0.116%) |
+| Native settled RSS | 124,592 KiB | 124,416 KiB | -176 KiB (-0.141%) |
+
+The preserved comparator is the Control-click source 343c6d48. Parent 456fdc1f
+additionally includes PR #513 active-server emoji ordering. The only runtime source
+differences from the comparator are that additive emoji-picker change and this
+fix, verified by a scoped diff; the picker is closed in this workload. These are
+honest starting-comparator measurements, not isolated per-feature cost figures.
+
+Both instrument-free builds use identical normal release flags and
+`--demo --demo-chat` on Apple M1/macOS 27, 16 GiB, native Metal. All task owners paused
+compilers/apps for the pair: five-second warmup, ten one-second process CPU/RSS
+samples, settled RSS from the final five samples, intentional SIGINT termination.
+The small RSS difference is noise and is not an improvement claim. Active history
+request/response latency, p95 frames, GPU memory and live service behavior are
+unmeasured. Raw samples, hashes and provenance are in
+`docs/pr-evidence/short-history-pagination/measurements.json`.
 
 ## History copies and decoded-image backpressure — September 26, 2026
 
@@ -2955,6 +3032,48 @@ input and narrow light/dark pager layouts, but do not validate OS input routing.
 Screenshots contain only synthetic app content and are development evidence,
 not bundled assets. No live-account or audio-device workload was run.
 
+## macOS Control-click context menus (October 2, 2026)
+
+Measured runtime `343c6d48` against exact parent `2118f7d9`. Parent runtime is identical
+to preserved GIF-sync `43e1215c` across application/crate/assets/tool/vendor sources,
+macOS packaging, Cargo manifests/lockfile, toolchain and licenses (`git diff --quiet`
+passed). This reuses its immutable standard package and optimized default-plus-demo
+binary, with recorded hashes verified before sampling.
+
+The input plugin maps macOS Control-primary presses to secondary presses and remembers
+the chosen button through release, even when Control is released first. It adds one
+state flag and a scan over the existing native input event list; no cache, queue or
+background worker is introduced.
+
+| Metric / method | Parent | Changed | Delta |
+| --- | ---: | ---: | ---: |
+| Standard voice-enabled executable | 62,137,600 B | 62,137,600 B | 0 B (0%) |
+| Full installed macOS package, 206 regular files | 68,148,029 B | 68,148,029 B | 0 B (0%) |
+| Distribution ZIP, `ditto -c -k --sequesterRsrc`, no enclosing directory | 43,310,944 B | 43,311,255 B | +311 B (+0.000718%) |
+| Native idle process CPU, sample median | 0% | 0% | 0 percentage points |
+| Native sampled peak process RSS | 124,880 KiB | 124,576 KiB | −304 KiB (−0.2434%) |
+| Native settled process RSS, median of final five samples | 124,832 KiB | 124,528 KiB | −304 KiB (−0.2435%) |
+
+Both optimized native binaries use the normal repository fat-LTO release profile,
+default features plus `demo`, and identical `--demo --demo-chat` arguments. Neither
+contains capture instrumentation. macOS 27.0 (26A428), Apple M1 (eight logical CPUs,
+16 GiB RAM), native Metal renderer, 2× display scale, 1120×760-point window. Five-second
+warmup followed by ten one-second `ps` samples, one process at a time, with all other
+agent builds/native apps paused. SIGINT/exit −2 ends each successful sample intentionally.
+One build and one sample per revision: quantized zero CPU and the small RSS difference
+are not evidence of a performance improvement. Event-handling latency, p95 frame time,
+startup, GPU memory and live Discord behavior are unmeasured.
+
+The fresh full `cargo xtask check`, standard `cargo xtask package`, and optimized demo
+build passed. Actual native before/after WGPU images show the existing message menu
+opening after injected Control-click; before source `47a81035` precedes additive GIF
+changes outside this visible scene. The after image waits 500 ms for the actual popup
+fade to finish. Native capture hooks were removed byte-exactly before release builds.
+Synthetic egui input is not proof of macOS OS event routing; Accessibility automation
+is unavailable on this host. Raw package/build hashes, ten-sample records, screenshot
+metadata and limits are in
+[the task measurements](pr-evidence/macos-control-click/measurements.json).
+
 ## Complete large-guild subscriptions — September 29, 2026
 
 Baseline: `400ac8cb060757b6b775284356324f22e5968158`; after: this
@@ -3153,6 +3272,42 @@ latency and live account/audio behavior were not measured. Flatpak source-prepar
 and this measurement documentation do not change the native installed payload.
 
 
+## Quiet-message prefix — October 2, 2026
+
+Runtime source `28eac6bb` on parent main `47a81035`; package source `462d7208`
+adds only the verified absolute macOS icon output path. The preserved parent
+package/native source `ef9cd5d1` is runtime-identical to `47a81035`. macOS 27,
+Apple M1, 16 GiB, native Metal at 2× scale; pinned toolchain/lockfile. Standard
+packages use no default development features and include voice; native binaries
+use default features plus demo and the unchanged optimized fat-LTO profile.
+
+| Metric | Parent | Quiet prefix | Delta |
+| --- | --- | --- | --- |
+| Signed standard executable bytes | 62,088,304 | 62,088,304 | 0 |
+| Installed package bytes, 206 regular files | 68,098,733 | 68,098,733 | 0 |
+| Distribution ZIP bytes, identical ditto method | 43,286,187 | 43,287,077 | +890 (+0.0021%) |
+| Common synthetic chat median process CPU | 0.0% | 0.0% | 0 percentage points |
+| Sampled peak process RSS, KiB | 128,768 | 128,592 | -176 (-0.1367%) |
+| Settled process RSS, KiB | 128,720 | 128,544 | -176 (-0.1367%) |
+| 100,000-event reducer median, ms | 53.308083 | 52.984917 | -0.323166 (-0.6062%) |
+| Retained timeline estimate, bytes / records | 331,992–332,477 / 500 | 331,992–332,477 / 500 | Unchanged |
+
+Both native binaries launch `--demo`: five seconds warmup, then ten one-second
+macOS `ps` CPU/RSS samples; settled RSS is the median of the last five. All
+compilers, tests and other native demos were stopped. This measures idle overhead
+in the common synthetic chat, not send latency or real notification suppression.
+Fresh parent/after replay binaries receive one warmup and five alternating runs;
+ranges overlap (parent 52.960291–54.733875 ms, after 52.482000–53.390875 ms).
+Small differences and quantized CPU are not improvement claims. Package ZIP
+changes include regenerated native icon/signature resources. No dependency,
+worker or retained-message copy is added; prefix handling borrows existing text.
+GPU memory and frame/startup latency remain unmeasured. Raw samples, hashes,
+source identities and methods are in
+`docs/pr-evidence/quiet-messages/measurements.json`; preserved artifacts are in
+`target/issue-sweep/silent/462d7208`. Local full workspace checks, standard package,
+optimized demo build and native/replay sampling passed. No live message,
+account, provider request, microphone or camera was used.
+
 ## Public Catbox attachment hosting (October 2, 2026)
 
 Baseline `eab1961ae80d2822a49629fb5d182b2c8e18e9d1` and runtime source
@@ -3193,6 +3348,52 @@ Raw build sizes, hashes and process samples are retained in
 `docs/pr-evidence/external-upload/measurements.json`. The evidence-only follow-up
 changes no runtime source from the measured commit.
 
+## Active server in the emoji picker (October 2, 2026)
+
+Parent `47a81035047695fe1d81edc4cb7efe46c14d87a8` and runtime source
+`942bf21c92240d4fa0a8dbf2392ae9b159ed2fba` used pinned Rust 1.98.1 on
+macOS 27.0 (26A428), Apple M1 (8 logical CPUs), 16 GiB RAM and native Metal
+at 2× display scale. The preserved standard package at `ef9cd5d1` has identical
+runtime and host-build inputs to parent `47a81035`, verified across apps,
+crates, assets, tools, vendor, macOS packaging, Cargo files, notices, license
+and toolchain. Intervening Arch/repository recipes do not affect this host package.
+Both normal voice-enabled `cargo xtask package` builds passed without profile
+or feature overrides; xtask internally uses `--no-default-features`. Installed
+bytes sum all regular files; ZIPs use `ditto -c -k --sequesterRsrc` without an
+enclosing directory. Both packages contain 206 files.
+
+| Metric | Baseline | After | Absolute / percent delta |
+| --- | ---: | ---: | ---: |
+| Standard executable, bytes | 62,088,304 | 62,088,304 | 0 / 0% |
+| Full installed payload, bytes | 68,098,733 | 68,098,733 | 0 / 0% |
+| Complete ZIP, bytes | 43,286,187 | 43,286,600 | +413 / +0.000954% |
+| Release demo median process CPU | 0.0% | 0.0% | +0.0 percentage points |
+| Sampled peak process RSS, KiB | 131,360 | 131,504 | +144 / +0.1096% |
+| Settled process RSS, KiB | 131,312 | 131,472 | +160 / +0.1218% |
+
+The native process comparison uses matched
+`cargo build --release --locked -p serein --features demo` builds with the
+identical process-only `CARGO_PROFILE_RELEASE_LTO=thin` override and
+`CARGO_BUILD_JOBS=2`, in an independent cache. This changes no repository
+profile and is separate from the standard fat-LTO package comparison above.
+Both uninstrumented binaries run `--demo --demo-emoji`, with five seconds of
+warmup followed by ten one-second macOS `ps` CPU/RSS samples. Settled RSS is
+the median of the last five samples. All four build owners held compilation,
+and no other Serein demo ran during either sample. Both processes were stopped
+by intentional SIGINT after collection. One build/sample per revision, small
+RSS/ZIP differences and quantized 0.0% idle CPU do not establish an improvement.
+
+The performance workload opens the ordinary offline picker. Actual native
+before/after frames separately use the same temporary fixture inserting one
+server before the active server; instrumentation was removed before committing.
+The rail remaps visible indices without copying catalogs, and the regression
+clicks the displayed first guild and restores an actually scrolled 42-server
+rail to its top after the active guild changes. Active scrolling, GPU memory,
+frame/startup latency, OS input routing and live Discord behavior remain
+unmeasured. Raw hashes, package sizes and process samples are retained in
+`docs/pr-evidence/active-server-emoji/measurements.json`. The evidence-only
+follow-up changes no runtime source from the measured commit.
+
 ## AUR binary recipe payload (October 2, 2026)
 
 The local packaging pass used the published Arch x86_64 package from
@@ -3213,3 +3414,165 @@ verified release asset, not a new application build or runtime measurement.
 No compiler options, application dependencies or runtime code changed. CPU, RSS,
 frame latency and native Arch startup were not measured. The manual AUR build
 repackages an existing binary; it does not compile Rust.
+
+## Voice session ownership — initial historical comparison, October 2, 2026
+
+This comparison covers the initial implementation before transport-confirmed
+negotiation and scoped queue-pressure review corrections. The corrected aggregate
+comparison below supersedes it; these original measurements remain historical.
+
+Baseline `eab1961` and the call-takeover change were measured on the same macOS
+27.0 (26A428), Apple M1 MacBookAir10,1 / 16 GiB machine, Rust 1.98.1 and locked
+dependencies. Voice remains in the standard package; no dependencies were added.
+Raw samples: [`voice-call-takeover/measurements.json`](pr-evidence/voice-call-takeover/measurements.json).
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Standard desktop executable | 62,006,112 B | 62,022,528 B | +16,416 B / +0.03% |
+| Complete installed package, 206 regular files | 68,016,541 B | 68,032,957 B | +16,416 B / +0.02% |
+| Distribution ZIP, `ditto -c -k --sequesterRsrc` | 43,252,563 B | 43,258,951 B | +6,388 B / +0.01% |
+| Native idle CPU, median 10 samples | 0.0% | 0.0% | 0 percentage points |
+| Native peak RSS | 123,584 KiB | 124,064 KiB | +480 KiB / +0.39% |
+| Native settled RSS, last-five median | 123,536 KiB | 124,016 KiB | +480 KiB / +0.39% |
+| Reducer 100,000 events, alternating-five-pair median | 53.328 ms | 52.654 ms | -0.674 ms / -1.26% |
+| Estimated retained timeline, 500 records | 331,992–332,477 B | 331,992–332,477 B | unchanged |
+
+Native samples used optimized `--features demo` builds, `--demo --demo-chat`,
+Metal, a 1120×760 logical native viewport at 2× display scale (2240×1520
+physical screenshot pixels), a 5-second warmup and ten 1-second
+macOS `ps` samples. Settled RSS is the last-five median; CPU is the process
+percentage, not GPU usage or frame latency. Compilation and other native demos
+were stopped. No microphone, camera or live account was used.
+
+Reducer measurements used the immutable baseline and changed release binaries,
+one warmup each and five alternating pairs. Baseline range 52.906–53.823 ms;
+after 52.444–54.572 ms. The earlier isolated baseline was 65.504 ms and the first
+after run 52.316 ms; the paired rerun demonstrates timing variation rather than
+a 20% improvement. The paired ranges overlap, and this ownership fix does not
+optimize message reduction; no speedup is claimed. Neither workload measures
+actual call takeover latency or live service behavior.
+
+The Gateway retains one owner-session identity, at most 2 KiB in a redacted,
+zeroizing secret, and one latest `(channel, request)` watch value. Takeover drops
+local media and the matching initial ring worker without sending an account-wide
+hangup. No new persistent cache, queue or background worker was added.
+
+
+## Voice session ownership — corrected aggregate, October 2, 2026
+
+Runtime source `3f96877f553bbe50eab91d31611cd97ad94b64b8` normally integrates
+main `2118f7d9`. Its comparator is preserved GIF source
+`43e1215cce0e69ee10a9998b9aaba8cfcf179c96`, whose application runtime source is
+byte-identical to that main revision. Later main `8e177c3b` and `456fdc1f` add
+other features and are not relabeled as this baseline. macOS 27.0 (26A428),
+Apple M1 MacBookAir10,1 / 16 GiB, Rust 1.98.1, locked dependencies, voice included.
+Raw samples and binary hashes:
+[`voice-call-takeover/final-measurements.json`](pr-evidence/voice-call-takeover/final-measurements.json).
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Standard desktop executable | 62,137,600 B | 62,154,064 B | +16,464 B / +0.0265% |
+| Installed package, 206 regular files | 68,148,029 B | 68,164,493 B | +16,464 B / +0.0242% |
+| Distribution ZIP, ditto | 43,310,944 B | 43,321,311 B | +10,367 B / +0.0239% |
+| Optimized native CPU, ten-sample median | 0.0% | 0.0% | 0 percentage points |
+| Optimized native peak RSS | 124,720 KiB | 124,640 KiB | −80 KiB / −0.064% |
+| Optimized settled RSS, last-five median | 124,672 KiB | 124,592 KiB | −80 KiB / −0.064% |
+| Reducer 100,000 events, alternating-five-pair median | 53.559125 ms | 53.624750 ms | +0.065625 ms / +0.123% |
+| Estimated retained timeline, 500 records | 331,992–332,477 B | 331,992–332,477 B | unchanged |
+
+Actual standard `cargo xtask package` passed; its standard build uses
+`cargo build --release --locked -p serein --no-default-features`, including voice. Deep/strict ad-hoc signature
+verification passed. ZIP used `ditto -c -k --sequesterRsrc`, without an enclosing directory.
+All 206 regular paths match, 203 SHA-256 hashes are identical, and all 199 bundled
+license/notice files are unchanged. Only the executable, regenerated Assets.car
+and ad-hoc CodeResources differ. Native icon compilation now receives a canonical
+Resources path so actool cannot reuse another worktree's relative destination.
+
+Both optimized native executables use the default release profile (FAT LTO,
+codegen-units=1), `--features demo` and identical `--demo --demo-chat`, 1120×760
+logical viewport at 2× scale, Metal. Samples use 5-second warmup plus ten one-second
+macOS ps readings. Both apps stopped before reducer measurement; all compilers,
+tests and other native apps remained stopped during the team-confirmed quiet
+window. One reducer warmup per immutable binary preceded five alternating pairs.
+Baseline range 52.855959–54.114708 ms and after 52.966000–54.040583 ms overlap.
+The 80 KiB RSS difference is tiny noise; no improvement is claimed. These workloads
+do not measure UI frame latency, GPU, session replacement or live media performance.
+No live account, service call, microphone, camera or OS picker was used.
+
+Negotiation retains one replaceable validated credential candidate and a scoped
+u64 revision under the original 30-second deadline. Media/ringing readiness waits
+for an exact transport confirmation and Gateway acknowledgement. An unconfirmed
+attempt abandons locally; confirmed replacement clears the old local scope without
+an account-wide hangup. Existing eight-slot control admission now retains one
+fixed-metadata pending Abandon under pressure; a new Join cannot overtake cleanup,
+and an unsent full-queue Join fails only its own attempt. No persistent cache or
+new background worker is introduced. Server acceptance establishes a submitted
+candidate, not a physical-client identity.
+
+
+## Account GIF favorite synchronization (October 2, 2026)
+
+Runtime source `43e1215cce0e69ee10a9998b9aaba8cfcf179c96` was compared with
+parent `47a81035047695fe1d81edc4cb7efe46c14d87a8` on macOS 27.0 (26A428),
+Apple M1 (8 logical CPUs), 16 GiB RAM, Rust 1.98.1 and native Metal at 2× scale.
+The parent's app, crate, asset, tool, lockfile and toolchain sources are identical
+to measured Catbox source `ef9cd5d1d846335713af71f9f1d9cd895483d59d`; its
+preserved package and optimized demo binary provide the size/native baseline.
+Reducer replay was freshly compiled from the actual parent, after cleaning only
+its affected workspace packages. The changed build passed `cargo xtask check`,
+standard voice-inclusive `cargo xtask package`, default-plus-demo optimized build,
+and `cargo replay`.
+
+| Metric | Parent baseline | After | Absolute / percent delta |
+| --- | ---: | ---: | ---: |
+| Standard executable, bytes | 62,088,304 | 62,137,600 | +49,296 / +0.0794% |
+| Full installed payload, bytes | 68,098,733 | 68,148,029 | +49,296 / +0.0724% |
+| Complete ZIP, bytes | 43,286,187 | 43,310,944 | +24,757 / +0.0572% |
+| Favorites picker median process CPU | 0.0% | 0.0% | +0.0 percentage points |
+| Sampled peak process RSS, KiB | 129,968 | 130,544 | +576 / +0.4432% |
+| Settled process RSS, KiB | 129,920 | 130,496 | +576 / +0.4433% |
+| 100,000-event reducer median, ms | 53.028459 | 52.678375 | -0.350084 / -0.6602% |
+| Retained timeline estimate, bytes | 331,992–332,477 | 331,992–332,477 | 0; 500 records |
+
+Standard packages use the xtask's normal `--no-default-features` voice build;
+both contain 206 regular files and are locally ad-hoc signed, not notarized.
+Installed bytes sum all regular files; ZIP uses identical
+`ditto -c -k --sequesterRsrc` over the complete portable contents without an
+enclosing directory. Native binaries use
+`cargo build --release --locked -p serein --features demo`, default features and
+the unchanged fat-LTO release profile. Both launch
+`--demo --demo-gifs=favorites` with five synthetic favorites. Five seconds of
+warmup precede ten one-second macOS `ps` CPU/RSS samples; settled RSS is the
+median of the last five. No compiler, other native demo or helper child process
+was active during sampling.
+
+Replay uses one warmup and five measured runs per revision, alternating revision
+order. Parent elapsed samples span 52.816708–56.014250 ms; changed samples span
+52.631750–54.123583 ms. Their ranges overlap; the small timing/RSS differences
+and quantized idle CPU are not improvement claims. Replay measures a bounded
+synthetic reducer, not GIF network synchronization, process RSS or UI latency.
+GPU memory, frame/startup latency and real-account interoperability remain
+unmeasured. Raw source identities, binary hashes, sizes and all samples are in
+`docs/pr-evidence/gif-favorite-sync/measurements.json`. This evidence follow-up
+changes no measured runtime source.
+
+## Server settings polish and rail motion (October 2, 2026)
+
+Baseline `eab1961` and this branch were built separately with
+`cargo build --release --locked -p serein --features demo` on an Apple M1 (16 GB,
+macOS 27.0, Metal). Each was launched once with `--demo --demo-friends`, no
+interaction was injected, and after a ten-second warmup `ps -p PID -o %cpu=,rss=`
+sampled the process 20 times at one-second intervals. Settled RSS is the median
+of the final five samples. No child processes were found.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release demo executable, bytes | 63,905,488 | 64,004,752 | +99,264 / +0.16% |
+| Median idle CPU | 0.0% | 0.0% | Unchanged |
+| Peak / settled RSS, KiB | 122,448 / 122,448 | 123,120 / 123,120 | +672 / +0.55% |
+
+The RSS difference is one launch each and within normal allocator/launch
+variation. New motion (rail pill, icon morph, badges, switches, sidebar rows,
+page fade) uses egui's `animate_*` helpers, which request repaints only while a
+value is moving, so the idle result is the expected one. Active-animation frame
+time, p95 latency and the standard package size were not measured.

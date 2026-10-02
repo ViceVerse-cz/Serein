@@ -1,0 +1,272 @@
+{
+  "baseline_commit": "eab1961",
+  "environment": {
+    "os": "macOS27.0 (26A428)",
+    "machine": "AppleM1 MacBookAir10,1",
+    "ram_gib": 16,
+    "rust": "1.98.1",
+    "renderer": "Metal",
+    "demo_flags": [
+      "--demo",
+      "--demo-chat"
+    ],
+    "native_metric": "macOS ps %CPU and RSS;5-second warmup,ten1-second samples;compiler stopped",
+    "native_viewport_logical": [
+      1120,
+      760
+    ],
+    "captured_physical_pixels": [
+      2240,
+      1520
+    ],
+    "native_display_scale": 2
+  },
+  "baseline_package": {
+    "commit": "eab1961",
+    "executable": 62006112,
+    "installed": 68016541,
+    "compressed": 43252563,
+    "files": 206
+  },
+  "after_package": {
+    "executable_bytes": 62022528,
+    "installed_bytes": 68032957,
+    "regular_files": 206,
+    "distribution_zip_bytes": 43258951,
+    "method": "standard cargo xtask package, including voice and notices; sum regular files; ditto -c -k --sequesterRsrc"
+  },
+  "baseline_native": {
+    "binary": "target/issue-sweep/baseline/serein-release-demo",
+    "flags": [
+      "--demo",
+      "--demo-chat"
+    ],
+    "warmup_seconds": 5,
+    "interval_seconds": 1,
+    "samples": [
+      {
+        "seconds": 5.019,
+        "cpu_percent": 0.0,
+        "rss_kib": 123584
+      },
+      {
+        "seconds": 6.033,
+        "cpu_percent": 0.0,
+        "rss_kib": 123584
+      },
+      {
+        "seconds": 7.04,
+        "cpu_percent": 0.0,
+        "rss_kib": 123584
+      },
+      {
+        "seconds": 8.051,
+        "cpu_percent": 0.0,
+        "rss_kib": 123536
+      },
+      {
+        "seconds": 9.065,
+        "cpu_percent": 0.0,
+        "rss_kib": 123536
+      },
+      {
+        "seconds": 10.076,
+        "cpu_percent": 0.0,
+        "rss_kib": 123536
+      },
+      {
+        "seconds": 11.09,
+        "cpu_percent": 0.0,
+        "rss_kib": 123536
+      },
+      {
+        "seconds": 12.107,
+        "cpu_percent": 0.0,
+        "rss_kib": 123536
+      },
+      {
+        "seconds": 13.114,
+        "cpu_percent": 0.0,
+        "rss_kib": 123536
+      },
+      {
+        "seconds": 14.128,
+        "cpu_percent": 0.0,
+        "rss_kib": 123536
+      }
+    ],
+    "cpu_percent_median": 0.0,
+    "rss_peak_kib": 123584,
+    "rss_settled_kib": 123536,
+    "elapsed_seconds": 15.149,
+    "user_cpu_seconds": 0.208385,
+    "system_cpu_seconds": 0.37876499999999996,
+    "exit_code": -2,
+    "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo"
+  },
+  "after_native": {
+    "binary": "/Users/claw/Code/Serein/target/issue-sweep/voice-takeover/serein-release-demo",
+    "flags": [
+      "--demo",
+      "--demo-chat"
+    ],
+    "warmup_seconds": 5,
+    "interval_seconds": 1,
+    "samples": [
+      {
+        "seconds": 5.029,
+        "cpu_percent": 0.0,
+        "rss_kib": 124064
+      },
+      {
+        "seconds": 6.055,
+        "cpu_percent": 0.1,
+        "rss_kib": 124064
+      },
+      {
+        "seconds": 7.081,
+        "cpu_percent": 0.0,
+        "rss_kib": 124016
+      },
+      {
+        "seconds": 8.106,
+        "cpu_percent": 0.0,
+        "rss_kib": 124016
+      },
+      {
+        "seconds": 9.131,
+        "cpu_percent": 0.0,
+        "rss_kib": 124016
+      },
+      {
+        "seconds": 10.158,
+        "cpu_percent": 0.0,
+        "rss_kib": 124016
+      },
+      {
+        "seconds": 11.181,
+        "cpu_percent": 0.0,
+        "rss_kib": 124016
+      },
+      {
+        "seconds": 12.208,
+        "cpu_percent": 0.0,
+        "rss_kib": 124016
+      },
+      {
+        "seconds": 13.235,
+        "cpu_percent": 0.0,
+        "rss_kib": 124016
+      },
+      {
+        "seconds": 14.261,
+        "cpu_percent": 0.0,
+        "rss_kib": 124016
+      }
+    ],
+    "cpu_percent_median": 0.0,
+    "rss_peak_kib": 124064,
+    "rss_settled_kib": 124016,
+    "elapsed_seconds": 15.286,
+    "user_cpu_seconds": 0.209478,
+    "system_cpu_seconds": 0.18850699999999998,
+    "exit_code": -2,
+    "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo"
+  },
+  "replay_alternating_pairs": {
+    "baseline_commit": "eab1961",
+    "method": "one warmup each, five alternating preserved baseline/after release-binary pairs, 100000 synthetic events, compiler and native app stopped",
+    "warmup": {
+      "baseline": {
+        "output": "Synthetic reducer replay: 100000 events in 55.102417ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "milliseconds": 55.102417
+      },
+      "after": {
+        "output": "Synthetic reducer replay: 100000 events in 53.071667ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "milliseconds": 53.071667
+      }
+    },
+    "pairs": [
+      {
+        "baseline": {
+          "output": "Synthetic reducer replay: 100000 events in 53.822959ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+          "milliseconds": 53.822959
+        },
+        "after": {
+          "output": "Synthetic reducer replay: 100000 events in 52.443625ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+          "milliseconds": 52.443625
+        }
+      },
+      {
+        "baseline": {
+          "output": "Synthetic reducer replay: 100000 events in 53.46375ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+          "milliseconds": 53.46375
+        },
+        "after": {
+          "output": "Synthetic reducer replay: 100000 events in 54.572458ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+          "milliseconds": 54.572458
+        }
+      },
+      {
+        "baseline": {
+          "output": "Synthetic reducer replay: 100000 events in 53.3275ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+          "milliseconds": 53.3275
+        },
+        "after": {
+          "output": "Synthetic reducer replay: 100000 events in 52.653583ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+          "milliseconds": 52.653583
+        }
+      },
+      {
+        "baseline": {
+          "output": "Synthetic reducer replay: 100000 events in 53.325958ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+          "milliseconds": 53.325958
+        },
+        "after": {
+          "output": "Synthetic reducer replay: 100000 events in 52.832833ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+          "milliseconds": 52.832833
+        }
+      },
+      {
+        "baseline": {
+          "output": "Synthetic reducer replay: 100000 events in 52.905791ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+          "milliseconds": 52.905791
+        },
+        "after": {
+          "output": "Synthetic reducer replay: 100000 events in 52.492333ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+          "milliseconds": 52.492333
+        }
+      }
+    ],
+    "baseline_median_milliseconds": 53.3275,
+    "after_median_milliseconds": 52.653583
+  },
+  "replay_initial_after": {
+    "binary": "/Users/claw/Code/Serein/target/issue-sweep/voice-takeover/replay-bench",
+    "warmup": "Synthetic reducer replay: 100000 events in 100.961208ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+    "runs": [
+      "Synthetic reducer replay: 100000 events in 52.316083ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 52.476792ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 52.14ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 52.185791ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 52.581667ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+    ],
+    "median_milliseconds": 52.316083,
+    "samples": 5,
+    "method": "release binary, 100000 synthetic reducer events, one warmup and five runs; retained range is estimated timeline bytes, not RSS/UI/live compatibility"
+  },
+  "baseline_replay_recorded": {
+    "baseline": "eab1961",
+    "warmup": "Synthetic reducer replay: 100000 events in 67.361ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+    "runs": [
+      "Synthetic reducer replay: 100000 events in 65.117584ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 65.866542ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 65.184583ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 65.503875ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 65.549792ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+    ],
+    "median_milliseconds": 65.503875,
+    "samples": 5,
+    "method": "release binary, 100000 synthetic reducer events, one warmup and five runs; retained range is estimated timeline bytes, not RSS/UI/live compatibility"
+  }
+}

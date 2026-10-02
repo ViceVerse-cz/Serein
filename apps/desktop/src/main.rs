@@ -2172,6 +2172,7 @@ impl Desktop {
 			.disconnect_voice("Discord login session changed; start a new call");
 		self.uploads.cancel();
 		self.login = None;
+		self.state.interrupt_gif_favorites();
 		self.connection = None;
 		if let Some(worker) = self.avatars.take() {
 			self.avatar_cleanup = Some(worker.shutdown());
@@ -3773,6 +3774,10 @@ impl Desktop {
 					result: Ok(test_support::gif_page(query.as_deref())),
 				},
 				Command::CancelGifs => return,
+				Command::GifFavorites { request, .. } => Event::GifFavorites {
+					request,
+					result: Ok(self.state.gifs.favorites.clone()),
+				},
 				Command::CreateGuild { sequence, .. } => Event::GuildCreated {
 					sequence,
 					result: Err(Failure::ProtocolAt("Server creation unavailable offline")),
@@ -5373,6 +5378,7 @@ impl Desktop {
 				}
 				_ => {}
 			}
+			let takeover_notice = voice::takeover_notice(&self.state, &event.event);
 			let voice_failure = self.voice.observe(&self.state, &mut event.event);
 			let ready = event.event.ready_navigation().is_some();
 			let resumed = matches!(event.event, Event::Resumed);
@@ -5461,6 +5467,11 @@ impl Desktop {
 				self.extensions.access_changed(&mut self.messaging);
 			}
 			self.state.apply(event);
+			if let Some(message) = takeover_notice {
+				self.messaging
+					.toasts
+					.push(ui::design::Level::Info, ui::i18n::translate(message));
+			}
 			self.extensions.data_changed(data_changes);
 			self.extensions.cancel_stale_message_events(&self.state);
 			for candidate in extension_events {
@@ -5607,6 +5618,7 @@ impl Desktop {
 					);
 				}
 			}
+			self.state.interrupt_gif_favorites();
 			self.connection = None;
 			self.pending_save = None;
 			self.pending_account_save = None;
@@ -6754,6 +6766,9 @@ impl eframe::App for Desktop {
 				self.state.clear_cached_history();
 				self.clear_avatars(&ctx);
 				self.queue_cache(cache::Operation::ClearHistory);
+			}
+			if let Some(command) = self.state.take_gif_favorites_command() {
+				commands.push(command);
 			}
 			for command in commands {
 				self.command(command);

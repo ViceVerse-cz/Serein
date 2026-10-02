@@ -480,7 +480,7 @@ rows, drafts and settings are retained; older binaries with a lower schema ceili
 reopen the upgraded cache. No unpublished reply-navigation metadata is included.
 
 Reading/layout settings use one application-wide SQLite singleton: integer display
-scale 80..150 percent, sidebar width 190..360 logical points, wide-layout People visibility,
+scale 50..150 percent, sidebar width 190..360 logical points, wide-layout People visibility,
 GIF animation, media-link hiding, external-link confirmation and smooth scrolling, plus
 scrolling speed (25–300 percent, default 100). Schema 24 adds the checked speed column
 transactionally; existing settings keep their prior speed.
@@ -693,8 +693,10 @@ GIF search and trending results retain at most eight session-memory pages / 768 
 minutes. Reopening a fresh query reuses its page without a REST request; least-recently-used
 pages are evicted first and logout clears the cache. This cache is account-session scoped and
 is not written to SQLite. GIF favorites remain account-isolated SQLite metadata, capped at 100
-entries; their validated preview images reuse the account image disk cache described above and
+entries, with each GIF limited to 2 KiB of allocated metadata; their validated image previews reuse the account image disk cache described above and
 are removed by the same clear-cache/logout paths.
+
+GIF favorite synchronization retains one account-scoped request and at most one 2-KiB star change. A fresh REST read accepts at most 6 MiB of JSON/base64; the complete raw favorite subtree is limited to 512 KiB, 2,048 entries, and 4 KiB per wire entry. Unsafe/truncated/duplicate or over-budget catalogs cannot be patched. The raw subtree exists only in the worker during the request, never in SQLite or rendering. At most 100 safe remote favorites (192 KiB admitted allocated projection) reach the UI. Merging the retained local fallback reserves its distinct entries before filling remote slots and keeps the existing 100-item and 2-KiB-per-item bounds; up to 100 prior remote URL keys, each at most 512 bytes, distinguish server removals from pre-existing local favorites. Until the initial local-cache read completes, up to 100 additional removed URL keys prevent delayed cache data from undoing an observed removal; overflow skips that late merge rather than retaining more history. Saves preserve all unseen raw entries and unknown metadata. A dedicated abortable worker keeps settings HTTP away from rendering and message writes; session generation and request matching reject stale results. Terminal session failures and accepted READY clear pending reads/writes and disable synchronization until a fresh read; retained account-local metadata and the monotonic request counter survive same-account reconnect. Interrupted star writes are never replayed. An initial cache arriving after an explicit star or removal-history overflow is conservatively skipped to avoid undoing user actions. There is no polling or automatic write retry. Video source metadata may be cached but never requests an image preview; logout clears synchronization state and the existing account cache.
 
 Custom server emoji catalogs live only in session navigation memory: at most 1,000 entries
 and 256 KiB allocated data per server, including names and role lists, within the shared
@@ -1489,6 +1491,11 @@ discards its reference when the source message is removed or changed or its
 spoiler consent no longer matches. Mention recency is calculated from the
 already-loaded timeline for at most 256 candidates and is not persisted.
 
+Reading zoom is constrained to 50–150%. Schema 26 rebuilds the fixed-size reading
+preferences table in the existing migration transaction, preserving all saved choices
+while widening the former 80% lower limit. Older clients reject schema 26 rather than
+loading a zoom value outside their supported range.
+
 ## Explicit public attachment hosting (October 2, 2026)
 
 Catbox consent and results retain one session-only filename (256 bytes), file index/key,
@@ -1510,3 +1517,30 @@ Failed or cancelled transfers may leave remotely hosted data without a recoverab
 URL. Serein cannot delete anonymous hosted files or erase them on logout. The consent
 states public access, unchanged embedded metadata and the service's current two-year
 inactivity retention; these are remote-host policy, not application cleanup guarantees.
+
+## Voice session takeover identity
+
+The main Gateway retains at most one validated 2 KiB owner voice-session identity,
+in the existing redacted, zeroizing `voice::Secret` type. It is session-only, released
+on takeover, acknowledged hangup, channel invalidation or fresh Gateway login, and
+preserved during Gateway Resume for an active call. A pending manual departure temporarily owns the
+same identity so a replacement client session can release its old departure barrier.
+It is never written to diagnostics or persistent caches. A takeover
+notice contains only channel/request IDs, so it adds no credential payload to the UI.
+The desktop dispatcher retains one latest fixed channel/request invalidation in a
+watch, clears only the matching call ownership, and cancels its initial ring worker.
+Queued commands recheck this invalidation before dispatch; the worker also waits
+for it alongside HTTP so a takeover cancels the pending operation before the UI
+reduces it.
+Watch metadata is additional; no invalidation history or growing queue is retained.
+
+Negotiation confirmation retains one bounded Gateway server record (a redacted,
+zeroizing token of at most 2,048 bytes and an optional endpoint of at most 512 bytes)
+to deduplicate credential changes. One `u64` candidate revision covers the current
+session/token/endpoint and crosses only the existing bounded command/event queues;
+it is not a Discord session ID and has no persistence. Until scoped transport
+confirmation is acknowledged, the desktop keeps one extra pending credential set
+(session and token at most 2,048 bytes each, endpoint at most 512 bytes) for local
+replacement behind the existing audio retirement fence. It keeps the original
+30-second deadline and zeroizes that set on confirmation, cancellation or failure
+teardown. Failed candidates do not spawn retries until credentials actually change.

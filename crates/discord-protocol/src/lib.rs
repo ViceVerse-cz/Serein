@@ -8,6 +8,7 @@ mod diagnostics;
 mod embeds;
 mod extra_content;
 pub mod forum;
+pub mod gif_favorites;
 pub mod gifs;
 pub mod group_actions;
 pub mod guild_folders;

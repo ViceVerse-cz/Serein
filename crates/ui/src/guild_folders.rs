@@ -1,7 +1,7 @@
 use crate::{
 	MessagingUi, design,
 	icons::{self, Icon},
-	notifications::{badge, rail_indicator, voice_badge},
+	notifications::{rail_badge, rail_indicator, rail_motion, voice_badge},
 };
 use client_core::{Command, State};
 use egui::{Color32, Sense};
@@ -409,6 +409,7 @@ impl MessagingUi {
 							let (unread, count) = self.rail_cache.guild_badge(id);
 							rail_indicator(
 								ui,
+								response.id,
 								response.rect,
 								self.guild == Some(id),
 								response.hovered() || response.has_focus(),
@@ -417,14 +418,7 @@ impl MessagingUi {
 							if call_guild == Some(id) || self.rail_cache.guild_voice(id) {
 								voice_badge(ui, response.rect, call_guild == Some(id));
 							}
-							if count > 0 {
-								badge(
-									ui,
-									response.rect.right_bottom() - egui::vec2(8.0, 8.0),
-									count,
-									colors.base,
-								);
-							}
+							rail_badge(ui, response.id, response.rect, count, colors.base);
 							self.guild_rail_name(&response, state, guild);
 							if response.clicked() {
 								self.guild = Some(id);
@@ -459,11 +453,16 @@ impl MessagingUi {
 									tint,
 								);
 							} else {
-								let fill = if response.hovered() || response.has_focus() {
-									tint.lerp_to_gamma(Color32::WHITE, 0.1)
+								let hover = if ui.is_rect_visible(rect) {
+									ui.ctx().animate_bool_with_time(
+										response.id.with("rail-hover"),
+										response.hovered() || response.has_focus(),
+										rail_motion(ui),
+									)
 								} else {
-									tint
+									0.0
 								};
+								let fill = tint.lerp_to_gamma(Color32::WHITE, 0.1 * hover);
 								paint_folder_tile(
 									ui,
 									&mut self.avatars,
@@ -481,15 +480,15 @@ impl MessagingUi {
 							let count = folder.guild_ids.iter().fold(0u32, |sum, g| {
 								sum.saturating_add(self.rail_cache.guild_badge(*g).1)
 							});
-							if !open {
-								rail_indicator(
-									ui,
-									rect,
-									false,
-									response.hovered() || response.has_focus(),
-									unread,
-								);
-							}
+							// Always tracked so the pill shrinks away when the folder opens.
+							rail_indicator(
+								ui,
+								response.id,
+								rect,
+								false,
+								!open && (response.hovered() || response.has_focus()),
+								!open && unread,
+							);
 							if !open {
 								let own = call_guild.is_some_and(|g| folder.guild_ids.contains(&g));
 								if own
@@ -501,14 +500,13 @@ impl MessagingUi {
 									voice_badge(ui, rect, own);
 								}
 							}
-							if !open && count > 0 {
-								badge(
-									ui,
-									rect.right_bottom() - egui::vec2(8.0, 8.0),
-									count,
-									colors.base,
-								);
-							}
+							rail_badge(
+								ui,
+								response.id,
+								rect,
+								if open { 0 } else { count },
+								colors.base,
+							);
 							let name = folder.name.as_deref().unwrap_or("Server folder");
 							response.widget_info(|| {
 								egui::WidgetInfo::labeled(

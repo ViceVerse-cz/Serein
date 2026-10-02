@@ -2458,8 +2458,6 @@ server-admin-emojis-image = Image
 # Context: emojis
 server-admin-emojis-name = Name
 # Context: emojis
-server-admin-emojis-none = NONE
-# Context: emojis
 server-admin-emojis-preparing-emoji-images = Preparing emoji images...
 # Context: emojis
 server-admin-emojis-remove = Remove
@@ -2553,8 +2551,6 @@ server-admin-members-recent-members = Recent Members
 server-admin-members-search-by-username-or-id = Search by username or ID
 # Context: members
 server-admin-members-server-members = Server Members
-# Context: members
-server-admin-members-show-members-in-channel-list = Show Members In Channel List
 # Context: members
 server-admin-members-show-the-members-page-in-the-channel-list-to-quickly = Show the members page in the channel list to quickly see recent joins and members flagged for unusual activity.
 # Context: members
@@ -4402,3 +4398,95 @@ public-upload-error-busy = Wait for the current attachment operation to finish
 public-upload-error-conversation = Return to the original conversation and review the file again before uploading publicly
 public-upload-error-selection = Selection changed; review the file again before uploading publicly
 public-upload-error-missing = Select the file again before uploading publicly
+
+voice-call-moved-to-another-client = This device's call session was replaced
+
+# Synchronized favorite GIFs (unofficial account settings).
+gif-favorites-sync-loading = Syncing favorites…
+gif-favorites-sync-ready = Discord and local favorites
+gif-favorites-sync-local = Local favorites
+gif-favorites-sync-refresh = Refresh from Discord
+gif-favorites-sync-help = Existing local favorites stay local until you change their star. New star changes sync after loading. Video-only favorites keep a preview placeholder. At most 100 favorites are displayed; saves preserve the other server favorites.
+gif-favorites-sync-failed = Sync failed; local favorites are kept. Refresh before trying another synced change.
+gif-favorites-sync-unsupported = Discord favorites are unsupported or exceed the safe limit.
+gif-favorites-sync-unconfirmed = Favorite change was not confirmed. Refresh before retrying.
+
+server-settings-page-safety = Safety Setup
+
+server-settings-nav-title = Server Settings
+
+server-settings-safety-subtitle = Decide who can chat in this server and which media Discord scans for explicit content.
+
+server-settings-safety-community-note = Community servers need at least Low verification and must scan media from all members.
+
+server-settings-safety-verification = Verification Level
+
+server-settings-safety-verification-help = Members must meet these criteria before they can send messages in text channels or start a direct message.
+
+server-settings-safety-verification-none = None
+
+server-settings-safety-verification-none-detail = Unrestricted
+
+server-settings-safety-verification-low = Low
+
+server-settings-safety-verification-low-detail = Must have a verified email on their Discord account.
+
+server-settings-safety-verification-medium = Medium
+
+server-settings-safety-verification-medium-detail = Must also be registered on Discord for longer than 5 minutes.
+
+server-settings-safety-verification-high = High
+
+server-settings-safety-verification-high-detail = Must also be a member of this server for longer than 10 minutes.
+
+server-settings-safety-verification-highest = Highest
+
+server-settings-safety-verification-highest-detail = Must have a verified phone on their Discord account.
+
+server-settings-safety-filter = Explicit Media Content Filter
+
+server-settings-safety-filter-help = Automatically detect and block media sent in this server that may contain explicit content.
+
+server-settings-safety-filter-disabled = Don't scan any media content
+
+server-settings-safety-filter-no-roles = Scan media content from members without a role
+
+server-settings-safety-filter-all = Scan media content from all members
+
+server-settings-profile-form-banner-custom = Custom color
+
+server-settings-profile-form-banner-custom-help = Pick a preset above or any color for the banner.
+
+server-settings-profile-server-id = Server ID
+
+server-settings-profile-server-id-help = Use this ID with bots, moderation tools and support requests.
+
+server-settings-profile-copy-id = Copy ID
+
+server-settings-engagement-system-welcome = Send a random welcome message when someone joins this server.
+
+server-settings-engagement-system-welcome-sticker = Prompt members to reply to welcome messages with a sticker.
+
+server-settings-engagement-system-boost = Send a message when someone boosts this server.
+
+server-settings-engagement-system-tips = Send helpful tips for server setup.
+
+server-invites-header-subtitle = Share links that let people join this server.
+
+server-audit-log-header-subtitle = A record of moderation and settings changes in this server.
+
+server-audit-log-empty-detail = Try a different user or action, or reload to check for new events.
+
+server-members-header-subtitle = View, search and manage the people in this server.
+
+server-members-show-in-channel-list = Show members in channel list
+
+server-emoji-section-static = Static Emoji
+
+server-emoji-empty-static = No emoji yet
+
+server-emoji-empty-animated = No animated emoji yet
+
+server-emoji-empty-detail = Upload an image to add one. GIFs become animated emoji.
+
+server-stickers-empty-detail = Upload artwork to add your first sticker.

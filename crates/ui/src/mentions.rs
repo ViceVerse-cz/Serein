@@ -358,7 +358,7 @@ fn query(draft: &str, cursor: usize) -> Option<(Range<usize>, &str, Kind)> {
 	}
 	Some((start..end, query, kind))
 }
-pub fn insert(draft: &mut String, pick: Pick) -> Option<usize> {
+pub fn insert(draft: &mut String, pick: Pick, editing: bool) -> Option<usize> {
 	if pick.range.end > draft.len()
 		|| !draft.is_char_boundary(pick.range.start)
 		|| !draft.is_char_boundary(pick.range.end)
@@ -367,7 +367,7 @@ pub fn insert(draft: &mut String, pick: Pick) -> Option<usize> {
 	}
 	let token = pick.candidate.token();
 	if draft.chars().count() - draft[pick.range.clone()].chars().count() + token.chars().count()
-		> client_core::MAX_CONTENT
+		> crate::emoji_picker::composer_limit(draft, editing)
 	{
 		return None;
 	}
@@ -1069,7 +1069,7 @@ mod tests {
 			ids
 		);
 		let mut draft = ":same".into();
-		insert(&mut draft, menu.pick(0).unwrap()).unwrap();
+		insert(&mut draft, menu.pick(0).unwrap(), true).unwrap();
 		assert_eq!(draft, "<a:same_wave:10001> ");
 		menu.refresh(&state, Id(2), ":source20", Some(9), &[]);
 		assert_eq!(menu.candidates[0].id(), Id(20001));
@@ -1196,6 +1196,33 @@ mod tests {
 			assert!(view.draft_changes.contains(&Id(1)));
 		}
 	}
+	#[test]
+	fn quiet_mention_replacement_uses_effective_budget_and_edits_remain_literal() {
+		for editing in [false, true] {
+			let mut draft = format!("@silent {}@s", "x".repeat(client_core::MAX_CONTENT - 5));
+			let original = draft.clone();
+			let start = draft.len() - 2;
+			let pick = Pick {
+				range: start..draft.len(),
+				candidate: Candidate::User {
+					user: user(7, "Sam"),
+					name: "Sam".into(),
+				},
+			};
+			assert_eq!(insert(&mut draft, pick, editing).is_some(), !editing);
+			if editing {
+				assert_eq!(draft, original);
+			} else {
+				assert!(draft.ends_with("<@7> "));
+				assert!(model::message_options::valid(
+					&draft,
+					client_core::MAX_CONTENT,
+					false
+				));
+			}
+		}
+	}
+
 	fn user(id: u64, name: &str) -> User {
 		User {
 			id: Id(id),
@@ -1248,7 +1275,7 @@ mod tests {
 		);
 		output.textures_delta.clear();
 		let mut draft = "čau @Zo".into();
-		assert_eq!(insert(&mut draft, chosen.unwrap()), Some(9));
+		assert_eq!(insert(&mut draft, chosen.unwrap(), true), Some(9));
 		assert_eq!(draft, "čau <@2> ");
 		let users = (1..=1000).map(|id| user(id, "User")).collect::<Vec<_>>();
 		menu.refresh(&State::default(), Id(1), "@", Some(1), &users);
@@ -1318,7 +1345,7 @@ mod tests {
 		)
 		.drop_without_applying_deltas();
 		let mut draft = "čau #Žl".into();
-		assert_eq!(insert(&mut draft, pick.unwrap()), Some(9));
+		assert_eq!(insert(&mut draft, pick.unwrap(), true), Some(9));
 		assert_eq!(draft, "čau <#6> ");
 		menu.refresh(&state, Id(3), "#", Some(1), &[]);
 		assert!(menu.candidates.is_empty());
@@ -1330,7 +1357,7 @@ mod tests {
 		assert!(menu.candidates.iter().all(|c| c.token().len() <= 40));
 		let mut full = format!("{} #", "x".repeat(client_core::MAX_CONTENT - 2));
 		menu.refresh(&state, Id(1), &full, Some(client_core::MAX_CONTENT), &[]);
-		assert!(insert(&mut full, menu.pick(0).unwrap()).is_none());
+		assert!(insert(&mut full, menu.pick(0).unwrap(), true).is_none());
 	}
 	#[test]
 	fn emoji_shortcodes_need_two_characters_and_include_usable_server_emoji() {
@@ -1392,7 +1419,7 @@ mod tests {
 				.any(|c| matches!(c, Candidate::Unicode { code, .. } if *code == ":heart:"))
 		);
 		let mut draft = "hi :he".to_owned();
-		assert_eq!(insert(&mut draft, menu.pick(0).unwrap()), Some(31));
+		assert_eq!(insert(&mut draft, menu.pick(0).unwrap(), true), Some(31));
 		assert_eq!(draft, "hi <a:heart_hands_custom:9001> ");
 		let unicode = menu
 			.candidates
@@ -1400,7 +1427,7 @@ mod tests {
 			.position(|c| matches!(c, Candidate::Unicode { code, .. } if *code == ":heart:"))
 			.unwrap();
 		let mut draft = "hi :he".to_owned();
-		insert(&mut draft, menu.pick(unicode).unwrap()).unwrap();
+		insert(&mut draft, menu.pick(unicode).unwrap(), true).unwrap();
 		assert_eq!(draft, "hi ❤️ ");
 		menu.refresh(&state, Id(1), ":+1", Some(3), &[]);
 		assert!(menu.candidates.iter().any(|candidate| matches!(
@@ -1422,7 +1449,7 @@ pub(crate) fn debug_member_search_check(state: &State, channel: Id) {
 		.pick(0)
 		.expect("remote nickname must appear in mentions");
 	let mut draft = "@Outside".to_owned();
-	insert(&mut draft, pick).unwrap();
+	insert(&mut draft, pick, true).unwrap();
 	assert_eq!(draft, "<@987654321> ");
 }
 
@@ -1593,7 +1620,7 @@ pub fn debug_role_mentions_check(state: &mut State) {
 			assert!(
 				matches!(&menu.candidates[0], Candidate::User { name, .. } if name == expected)
 			);
-			insert(&mut draft, menu.pick(0).unwrap()).unwrap();
+			insert(&mut draft, menu.pick(0).unwrap(), true).unwrap();
 			assert_eq!(draft, user_mention_token(user.id));
 			let original = format!("@{}", user.name.split_whitespace().next().unwrap());
 			menu.refresh(
@@ -1664,7 +1691,7 @@ pub fn debug_role_mentions_check(state: &mut State) {
 			..Default::default()
 		},
 		|_| {
-			insert(&mut draft, menu.keys(&ctx).expect("role completion")).unwrap();
+			insert(&mut draft, menu.keys(&ctx).expect("role completion"), true).unwrap();
 		},
 	)
 	.drop_without_applying_deltas();
@@ -1695,7 +1722,12 @@ pub fn debug_role_mentions_check(state: &mut State) {
 		Some(thread_draft.chars().count()),
 		&[],
 	);
-	insert(&mut thread_draft, menu.pick(0).expect("thread with spaces")).unwrap();
+	insert(
+		&mut thread_draft,
+		menu.pick(0).expect("thread with spaces"),
+		true,
+	)
+	.unwrap();
 	assert_eq!(thread_draft, "<#1549042875830898709> ");
 	menu.refresh(state, channel, "#1549042875830898710", Some(20), &[]);
 	assert_eq!(
