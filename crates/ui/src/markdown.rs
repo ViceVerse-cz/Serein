@@ -1520,6 +1520,7 @@ impl Formatted {
 								spans,
 								ui,
 								true,
+								self.jumbo,
 								render.images,
 								render.demo,
 								render.guilds,
@@ -1543,6 +1544,7 @@ impl Formatted {
 							spans,
 							ui,
 							false,
+							self.jumbo,
 							render.images,
 							render.demo,
 							render.guilds,
@@ -1722,6 +1724,7 @@ impl Formatted {
 		spans: &[(String, Style)],
 		ui: &mut egui::Ui,
 		link: bool,
+		jumbo: bool,
 		images: &mut crate::avatars::Avatars,
 		demo: bool,
 		guilds: &[model::Guild],
@@ -1788,7 +1791,7 @@ impl Formatted {
 					text: cluster.to_owned(),
 					custom: custom.map(|(id, _)| id),
 					image: cell.and_then(|cell| {
-						if let Some(image) = images.unicode_image(ui.ctx(), cell, size) {
+						if jumbo && let Some(image) = images.unicode_image(ui.ctx(), cell, size) {
 							return Some(image.alt_text(cluster));
 						}
 						atlas
@@ -3365,6 +3368,46 @@ mod tests {
 				.drop_without_applying_deltas();
 				assert!(!egui::Popup::is_any_open(&ctx));
 			}
+		}
+	}
+
+	#[test]
+	fn high_dpi_inline_emoji_keep_the_atlas_while_jumbo_requests_vectors() {
+		for (source, expected_vector) in [("Inline 🙂", false), ("🙂", true)] {
+			let ctx = egui::Context::default();
+			crate::design::apply(&ctx);
+			let parsed = Formatted::parse(source);
+			let mut images = crate::avatars::Avatars::default();
+			let mut raw = egui::RawInput::default();
+			raw.viewports
+				.get_mut(&egui::ViewportId::ROOT)
+				.unwrap()
+				.native_pixels_per_point = Some(2.0);
+			ctx.run_ui(raw, |ui| {
+				if parsed.jumbo() {
+					crate::design::jumbo_emoji(ui);
+				}
+				let mut surface = crate::select::Surface::new(ui, "vector-presentation-test");
+				parsed.show_search(
+					ui,
+					&mut None,
+					&[],
+					None,
+					&mut crate::profiles::ProfileSession::default(),
+					(&[], &mut None, &[], &[]),
+					(&mut images, true, &mut 0),
+					&mut surface,
+					"",
+					crate::design::MessageCardSurface::Conversation,
+				);
+			})
+			.drop_without_applying_deltas();
+			assert_eq!(ctx.pixels_per_point(), 2.0);
+			let requests = images.take_requests();
+			assert_eq!(
+				requests.iter().any(|key| key.starts_with("emoji-unicode-")),
+				expected_vector
+			);
 		}
 	}
 

@@ -1014,7 +1014,9 @@ fn rasterize_emoji(source: &[u8], edge: u32) -> Option<egui::ColorImage> {
 		[edge as usize, edge as usize],
 		pixels
 			.data()
-			.chunks_exact(4)
+			.as_chunks::<4>()
+			.0
+			.iter()
 			.map(|p| egui::Color32::from_rgba_premultiplied(p[0], p[1], p[2], p[3]))
 			.collect(),
 	))
@@ -1801,6 +1803,17 @@ mod tests {
 
 	#[test]
 	fn scalable_emoji_uses_bundled_shapes_and_preserves_transparency() {
+		for cell in 0..4009 {
+			let (svg, _) = ui::emoji::bundled_svg(&format!("emoji-unicode-{cell}-64")).unwrap();
+			let image =
+				super::rasterize_emoji(svg, 64).unwrap_or_else(|| panic!("artwork cell {cell}"));
+			assert_eq!(image.size, [64; 2]);
+			assert_eq!(image.pixels[0], egui::Color32::TRANSPARENT);
+			assert!(
+				image.pixels.iter().any(|pixel| pixel.a() > 0),
+				"artwork cell {cell}"
+			);
+		}
 		for cell in [0, 1000, 2000, 3000, 4008] {
 			for edge in [64, 128, 256] {
 				let (svg, _) =
