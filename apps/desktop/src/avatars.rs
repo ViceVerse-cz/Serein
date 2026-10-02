@@ -151,6 +151,7 @@ fn budget(key: &str) -> Budget {
 			fit: longest,
 			encoded: media_encoded(&rendition),
 			canvas: match rendition.size {
+				_ if heic_source(rendition.source.as_str()) => 8192,
 				Size::Exact { .. } => (longest * 2).min(8192),
 				Size::Longest(_) => 8192,
 			},
@@ -600,6 +601,16 @@ struct MediaUrls {
 	fallback: Option<String>,
 }
 
+fn heic_source(source: &str) -> bool {
+	source
+		.split(['?', '#'])
+		.next()
+		.and_then(|path| path.rsplit_once('.'))
+		.is_some_and(|(_, ext)| {
+			ext.eq_ignore_ascii_case("heic") || ext.eq_ignore_ascii_case("heif")
+		})
+}
+
 fn media_urls(rendition: &Rendition) -> Option<MediaUrls> {
 	let source = rendition.source.as_str();
 	let size = rendition.size;
@@ -617,7 +628,17 @@ fn media_urls(rendition: &Rendition) -> Option<MediaUrls> {
 		{
 			(proxy_base(source).map(String::from), None)
 		}
-		Motion::Still => (proxy_url(source, size, ProxyFormat::LosslessWebp), None),
+		Motion::Still => (
+			proxy_url(source, size, ProxyFormat::LosslessWebp),
+			heic_source(source).then_some(()).and_then(|_| {
+				let mut original = proxy_base(source)?;
+				if !original.path().starts_with("/attachments/") {
+					return None;
+				}
+				original.set_host(Some("cdn.discordapp.com")).ok()?;
+				Some(original.into())
+			}),
+		),
 		Motion::Animated if let Some(video) = motion_video_source(source) => (Some(video), None),
 		Motion::Animated if provider => (Some(source.to_owned()), None),
 		Motion::Animated if webp => (
@@ -1286,6 +1307,14 @@ async fn download(
 fn decode(bytes: &[u8], budget: &Budget) -> Option<egui::ColorImage> {
 	if bytes.len() > budget.encoded {
 		return None;
+	}
+	if platform::heic::is_heic(bytes) {
+		let (width, height, rgba) = platform::heic::decode(bytes, budget.canvas, budget.alloc)?;
+		let image = resize_to(image::RgbaImage::from_raw(width, height, rgba)?, budget.fit);
+		return Some(egui::ColorImage::from_rgba_unmultiplied(
+			[image.width() as usize, image.height() as usize],
+			image.as_raw(),
+		));
 	}
 	// Provider previews can be GIF/JPEG/WebP; decode only the first frame, within limits.
 	let mut reader = image::ImageReader::new(Cursor::new(bytes))
@@ -2824,4 +2853,28 @@ mod tests {
 		);
 		assert_eq!(cooldown, retry_at);
 	}
+}
+
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub(crate) fn debug_heic_check() {
+	let heic = b"\x00\x00\x00\x18ftypmif1\x00\x00\x00\x00heicmif1";
+	assert!(platform::heic::is_heic(heic));
+	for len in 0..heic.len() {
+		assert!(!platform::heic::is_heic(&heic[..len]));
+	}
+	assert!(!platform::heic::is_heic(
+		b"\x00\x00\x00\x10ftypavif\x00\x00\x00\x00"
+	));
+	assert!(decode(heic, &Budget::legacy(256)).is_none());
+	let rendition = Rendition::parse(
+		"media:is:e512:https://cdn.discordapp.com/attachments/1/2/photo.HEIC?ex=abc&hm=def",
+	)
+	.unwrap();
+	let urls = media_urls(&rendition).unwrap();
+	assert_eq!(budget(&rendition.key()).canvas, 8192);
+	assert!(urls.primary.contains("format=webp"));
+	assert_eq!(
+		urls.fallback.as_deref(),
+		Some("https://cdn.discordapp.com/attachments/1/2/photo.HEIC?ex=abc&hm=def")
+	);
 }

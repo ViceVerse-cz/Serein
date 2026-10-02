@@ -318,3 +318,22 @@ continue to use their installed native codecs. This optional fallback is not bun
 in release packages; actual codec coverage depends on the local FFmpeg build.
 Windows passes MPEG-4/MOV and WebM/Matroska attachments to Media Foundation; a recognized
 container can still fail when its video or audio codec is not installed.
+
+## HEIC still images
+
+Windows HEIC/HEIF attachment previews and composer thumbnails use Windows Imaging
+Component (WIC) and its installed HEIF/HEVC codecs. Install the Microsoft HEIF
+Image Extensions and an applicable HEVC codec if decoding is unavailable. No codec
+library, installer or DLL is bundled; only the existing `windows` crate gains its
+Imaging bindings. Executable/package size changes have not been measured.
+
+Only the primary still frame is decoded, on existing blocking workers, within the
+existing encoded-byte, dimension and RGBA allocation limits (also capped at 32 MiB
+encoded, 8192 pixels per edge and 128 MiB RGBA). OS codec scratch allocations are
+not controlled by Serein. Originals remain unchanged when uploaded, with image/heic
+or image/heif MIME types. Incoming attachments prefer Discord's existing image
+proxy; HEIC filenames can fall back to the validated original CDN attachment.
+Missing codecs or corrupt/oversized files retain the existing failed-preview state.
+macOS and Linux have no local HEIC decoder in this implementation; proxy-provided
+PNG/JPEG/WebP renditions can still display. Live Discord and real HEIC photos remain
+unverified in the fast pass.

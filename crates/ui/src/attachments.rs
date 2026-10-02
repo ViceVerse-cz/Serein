@@ -37,7 +37,8 @@ pub fn file_kind(filename: &str, content_type: Option<&str>) -> FileKind {
 		})
 		.unwrap_or_default();
 	match extension.as_str() {
-		"png" | "jpg" | "jpeg" | "gif" | "webp" | "avif" | "bmp" | "tiff" | "heic" | "svg" => {
+		"png" | "jpg" | "jpeg" | "gif" | "webp" | "avif" | "bmp" | "tiff" | "heic" | "heif"
+		| "svg" => {
 			return FileKind::Image;
 		}
 		"pdf" => return FileKind::Pdf,

@@ -311,7 +311,7 @@ fn previewable(filename: &str) -> bool {
 	filename.rsplit_once('.').is_some_and(|(_, extension)| {
 		matches!(
 			extension.to_ascii_lowercase().as_str(),
-			"png" | "jpg" | "jpeg" | "gif" | "webp"
+			"png" | "jpg" | "jpeg" | "gif" | "webp" | "heic" | "heif"
 		)
 	})
 }
@@ -327,6 +327,17 @@ async fn preview(source: &Source) -> Option<egui::ColorImage> {
 		.flatten()
 }
 fn decode_preview(bytes: &[u8]) -> Option<egui::ColorImage> {
+	if platform::heic::is_heic(bytes) {
+		let (width, height, rgba) = platform::heic::decode(bytes, 8192, PREVIEW_ALLOC)?;
+		let image =
+			image::DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, rgba)?)
+				.thumbnail(PREVIEW_EDGE, PREVIEW_EDGE)
+				.into_rgba8();
+		return Some(egui::ColorImage::from_rgba_unmultiplied(
+			[image.width() as usize, image.height() as usize],
+			image.as_raw(),
+		));
+	}
 	let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
 		.with_guessed_format()
 		.ok()?;
@@ -1406,4 +1417,11 @@ mod tests {
 		assert!(!uploads.busy());
 		assert_eq!(uploads.take_notice(), None);
 	}
+}
+
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub(crate) fn debug_heic_check() {
+	assert!(previewable("photo.HEIC"));
+	assert!(previewable("photo.heif"));
+	assert!(decode_preview(b"\x00\x00\x00\x10ftypheic\x00\x00\x00\x00").is_none());
 }
