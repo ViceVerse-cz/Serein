@@ -1,5 +1,5 @@
 //! Offline ABI compatibility and timing check after building the standalone SDK examples.
-//! `cargo run --locked --release -p extensions --example sdk_check -- <wasm-directory>`
+//! `cargo run --locked --release -p extensions --example sdk_check -- <wasm-directory> <catalog-wasm-directory>`
 use extensions::{
 	Element, Invocation, MAX_MODULE_BYTES, MessageEvent, MessageEventKind, Output, Package, invoke,
 	parse_package,
@@ -304,6 +304,24 @@ fn check_app_toolbox(name: &str, package: &Package) {
 		);
 		assert!(output.panel.is_empty());
 	}
+	// Exercise the rebuilt and committed Wasm through host validation, including
+	// the expanded lower zoom range and both rejected out-of-range values.
+	for zoom in ["50", "79", "150"] {
+		input.values.insert("zoom".into(), zoom.into());
+		let output = invoke(package, &input).expect("small zoom proposal validates in Wasm");
+		assert!(
+			matches!(&output.effects[..], [extensions::HostEffect::SetLocalSettings { settings }] if settings.zoom_percent == zoom.parse::<u16>().ok())
+		);
+	}
+	for zoom in ["49", "151"] {
+		input.values.insert("zoom".into(), zoom.into());
+		assert!(
+			invoke(package, &input)
+				.expect("invalid zoom is reported by the example")
+				.effects
+				.is_empty()
+		);
+	}
 	input.action = "notifications".into();
 	input.values = serde_json::from_value(json!({"sound-volume":"35","disable-sounds":"false","unread-badge":"true","current-channel":"true"})).unwrap();
 	let output = invoke(package, &input).expect("notification proposal validates in Wasm");
@@ -490,7 +508,14 @@ fn check_app_actions(package: &Package) {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mut args = std::env::args_os().skip(1);
 	let wasm_dir = PathBuf::from(args.next().expect("usage: sdk_check <wasm-directory>"));
-	assert!(args.next().is_none(), "usage: sdk_check <wasm-directory>");
+	let catalog_wasm_dir = PathBuf::from(
+		args.next()
+			.expect("usage: sdk_check <wasm-directory> <catalog-wasm-directory>"),
+	);
+	assert!(
+		args.next().is_none(),
+		"usage: sdk_check <wasm-directory> <catalog-wasm-directory>"
+	);
 	check_app_actions(&rebuilt(
 		include_str!("../../../examples/extensions/app-actions/manifest.json"),
 		&wasm_dir.join("app_actions.wasm"),
@@ -499,10 +524,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		(
 			"message-delete-protector",
 			include_bytes!(
-				"../../../examples/extensions/packages/message-delete-protector.serein-extension"
+				"../../../extensions/plugins/packages/message-delete-protector.serein-extension"
 			)
 			.as_slice(),
-			include_str!("../../../examples/extensions/message-delete-protector/manifest.json"),
+			include_str!("../../../extensions/plugins/message-delete-protector/manifest.json"),
 			"message_delete_protector.wasm",
 			Output {
 				preserve_deleted_messages: true,
@@ -512,10 +537,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		(
 			"emoji-sticker-images",
 			include_bytes!(
-				"../../../examples/extensions/packages/emoji-sticker-images.serein-extension"
+				"../../../extensions/plugins/packages/emoji-sticker-images.serein-extension"
 			)
 			.as_slice(),
-			include_str!("../../../examples/extensions/emoji-sticker-images/manifest.json"),
+			include_str!("../../../extensions/plugins/emoji-sticker-images/manifest.json"),
 			"emoji_sticker_images.wasm",
 			Output {
 				image_sharing: true,
@@ -524,17 +549,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		),
 	] {
 		check(&format!("{name}/committed"), committed, &expected);
-		let rebuilt = rebuilt(manifest, &wasm_dir.join(wasm_file))?;
-		// The shipped legacy protector returns true; its current source uses no-op activation.
-		let expected = if name == "message-delete-protector" {
-			Output::default()
-		} else {
-			expected
-		};
+		let rebuilt = rebuilt(manifest, &catalog_wasm_dir.join(wasm_file))?;
 		check(
 			&format!("{name}/rebuilt"),
 			&serde_json::to_vec(&rebuilt)?,
 			&expected,
+		);
+	}
+	// Editor plugins have no fixed activation output; their rebuilt panel must still validate.
+	for (name, manifest, wasm_file) in [
+		(
+			"custom-rpc",
+			include_str!("../../../extensions/plugins/custom-rpc/manifest.json"),
+			"custom_rpc.wasm",
+		),
+		(
+			"api-proxy",
+			include_str!("../../../extensions/plugins/api-proxy/manifest.json"),
+			"api_proxy.wasm",
+		),
+	] {
+		let package = rebuilt(manifest, &catalog_wasm_dir.join(wasm_file))?;
+		package.validate()?;
+		let output = invoke(
+			&package,
+			&Invocation {
+				action: "open".into(),
+				..Default::default()
+			},
+		)?;
+		assert!(
+			!output.panel.is_empty(),
+			"{name}/rebuilt: editor panel is empty"
+		);
+		println!(
+			"{name}/rebuilt: {} Wasm bytes; editor panel validated",
+			package.wasm.len()
 		);
 	}
 	check_message_counter(

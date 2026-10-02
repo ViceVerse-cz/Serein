@@ -37,7 +37,7 @@ The examples in this table use `i: &Invocation`. For a wrapper, set
 | `action` | `String` / string | Required manifest action ID, such as `show` or `format-draft`. It is not the action's display label. | `i.action == "show"` |
 | `selected_message` | `Option<String>` / string or null | Text of the message chosen by the user. Requires `selected_message` and a `message` action. It contains no message ID or author object. | `i.selected_message.as_deref()` |
 | `composer` | `Option<String>` / string or null | The current draft for a `composer` action with the `composer` grant. An empty draft is `Some("")`, not `None`. | `i.composer.as_deref()` |
-| `storage` | `Option<String>` / string or null | The plugin's last saved opaque UTF-8 value for this account. Requires `storage`; absent when nothing has been saved. The worker reloads it before execution. | `i.storage_json::<u64>()` if your plugin stores a JSON number |
+| `storage` | `Option<String>` / string or null | The plugin's last saved opaque UTF-8 value for this account (device-wide for the narrow `api_proxy` plugin). Requires `storage`; absent when nothing has been saved. The worker reloads it before execution. | `i.storage_json::<u64>()` if your plugin stores a JSON number |
 | `values` | `BTreeMap<String, String>` / object of string values | Current form values when a panel button invokes an action. Keys are input element IDs. Initial tool/panel opens normally have an empty map; reactive events always do. | `i.value("name")` or `i.parse_value::<bool>("enabled")` |
 
 `values` holds strings even for typed controls: a checkbox supplies `"true"` or
@@ -1136,7 +1136,7 @@ them requires a separate `set_local_settings` proposal and the user's Apply.
 
 | Wire field | SDK Rust / JSON type | Meaning and range | Reading from `settings: &LocalSettingsSnapshot` |
 | --- | --- | --- | --- |
-| `zoom_percent` | `u16` / integer | App zoom percentage, 80 through 150 inclusive; `100` is normal zoom. | `settings.zoom_percent` |
+| `zoom_percent` | `u16` / integer | App zoom percentage, 50 through 150 inclusive; `100` is normal zoom. | `settings.zoom_percent` |
 | `sidebar_width` | `u16` / integer | Preferred channel/conversation sidebar width, 190 through 360 logical pixels. A narrow window can constrain actual width. | `settings.sidebar_width` |
 | `show_members` | `bool` / boolean | Keep the People/member list visible when the window is wide enough. Does not force a panel into a narrow window. | `settings.show_members` |
 | `animate_gifs` | `bool` / boolean | Automatically animate visible GIFs. | `settings.animate_gifs` |
@@ -1286,3 +1286,14 @@ fn handle(input: AppInvocation) -> AppOutput {
 
 serein_extension_sdk::export!(handle);
 ```
+
+## Connection output (preview)
+
+| Wire field | SDK Rust / JSON type | Meaning |
+| --- | --- | --- |
+| `api_proxy` | `ApiProxyOutput.api_proxy: Option<ApiProxyConfig>` / tagged object | Configure REST-only routing from a granted panel/activation action; omit to preserve routing. Modes: `Direct`, `Automatic`, `Url { url }`. See [API proxy](extension-sdk-actions.md#api-proxy-preview). |
+
+The wrapper flattens its `output: Output` field into the same response document
+and keeps existing `Output` struct literals and compiled ABI v1 plugins compatible.
+Use `export!(handle)` for this handler.
+It does not grant proxy capability or account access implicitly.

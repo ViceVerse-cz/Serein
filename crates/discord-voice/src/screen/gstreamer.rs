@@ -38,6 +38,15 @@ impl Mode {
 			Self::Software => "H.264 · software encoding (higher CPU use)",
 		}
 	}
+	/// Whether the scaler applies PipeWire's crop rectangle: vapostproc always does,
+	/// videoconvertscale only after GStreamer 1.29.2, and the GL mixer never does.
+	fn applies_crop(self) -> bool {
+		match self {
+			Self::Va => true,
+			Self::Nvidia => false,
+			Self::VaLegacy | Self::NvidiaCopy | Self::Software => gst::version() >= (1, 29, 3, 0),
+		}
+	}
 }
 
 pub(super) struct Capture {
@@ -162,6 +171,9 @@ impl Capture {
 			.add_many([&source, bin.upcast_ref()])
 			.map_err(|_| UNAVAILABLE)?;
 		source.link(&bin).map_err(|_| UNAVAILABLE)?;
+		if mode.applies_crop() {
+			match_crop_aspect(&source.static_pad("src").ok_or(UNAVAILABLE)?);
+		}
 		let frames = sink(&bin, "frames")?;
 		let preview = sink(&bin, "preview")?;
 		let preview_gate = bin.by_name("preview-gate").ok_or(UNAVAILABLE)?;
@@ -263,6 +275,53 @@ fn sink(bin: &gst::Bin, name: &str) -> Result<app::AppSink, &'static str> {
 	bin.by_name(name)
 		.and_then(|element| element.downcast().ok())
 		.ok_or(UNAVAILABLE)
+}
+/// Window casts may keep the stream size and mark the window with a crop rectangle. Scalers
+/// that apply it still place borders by the caps' aspect ratio, stretching the window, so
+/// declare the (square) source pixels in a shape that gives the caps the crop's aspect ratio.
+fn match_crop_aspect(pad: &gst::Pad) {
+	pad.add_probe(gst::PadProbeType::BUFFER, |pad, info| {
+		let (Some(buffer), Some(caps)) = (info.buffer(), pad.current_caps()) else {
+			return gst::PadProbeReturn::Ok;
+		};
+		let Some((width, height)) = caps.structure(0).and_then(|structure| {
+			Some((
+				structure.get::<i32>("width").ok()?,
+				structure.get::<i32>("height").ok()?,
+			))
+		}) else {
+			return gst::PadProbeReturn::Ok;
+		};
+		let aspect = buffer
+			.meta::<video::VideoCropMeta>()
+			.and_then(|crop| {
+				let (x, y, crop_width, crop_height) = crop.rect();
+				let (crop_width, crop_height) = (
+					i32::try_from(crop_width).ok()?,
+					i32::try_from(crop_height).ok()?,
+				);
+				(crop_width > 0
+					&& crop_height > 0
+					&& i64::from(x) + i64::from(crop_width) <= i64::from(width)
+					&& i64::from(y) + i64::from(crop_height) <= i64::from(height))
+				.then_some(())?;
+				Some(gst::Fraction::new(
+					i32::try_from(i64::from(crop_width) * i64::from(height)).ok()?,
+					i32::try_from(i64::from(crop_height) * i64::from(width)).ok()?,
+				))
+			})
+			.unwrap_or(gst::Fraction::new(1, 1));
+		let current = caps
+			.structure(0)
+			.and_then(|structure| structure.get::<gst::Fraction>("pixel-aspect-ratio").ok())
+			.unwrap_or(gst::Fraction::new(1, 1));
+		if current != aspect {
+			let mut caps = caps.copy();
+			caps.make_mut().set("pixel-aspect-ratio", aspect);
+			pad.push_event(gst::event::Caps::new(&caps));
+		}
+		gst::PadProbeReturn::Ok
+	});
 }
 fn bound(pad: &gst::Pad, bytes: usize, failed: Arc<AtomicBool>) {
 	pad.add_probe(gst::PadProbeType::BUFFER, move |_, info| {

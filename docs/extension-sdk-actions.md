@@ -630,7 +630,7 @@ settings. Other views have the extra conditions described here.
 | `appearance` / `Appearance` | Appearance | Opens appearance and reading controls. |
 | `messaging_permissions` / `MessagingPermissions` | Messaging Permissions | Opens messaging privacy controls. |
 | `notifications` / `Notifications` | Notifications | Opens notification preferences. |
-| `activity` / `Activity` | Game Activity | Opens activity settings. |
+| `activity` / `Activity` | Registered Games | Opens activity sharing and Registered Games settings. |
 | `voice_settings` / `VoiceSettings` | Voice & Video | Opens device and voice settings; does not join a call or start media. |
 | `keybinds` / `Keybinds` | Keybinds | Opens keyboard shortcuts. |
 | `storage` / `Storage` | Data & Privacy | Opens local storage controls; does not clear data. |
@@ -704,7 +704,7 @@ them.
 
 | Optional field | Type and allowed values | Meaning |
 | --- | --- | --- |
-| `zoom_percent` | Integer, 80 through 150 inclusive. | App zoom percentage. |
+| `zoom_percent` | Integer, 50 through 150 inclusive. | App zoom percentage. |
 | `sidebar_width` | Integer, 190 through 360 inclusive. | Channel/conversation sidebar width in logical pixels, before display scaling. |
 | `show_members` | Boolean. | Keep the People/member list open in wide windows. |
 | `animate_gifs` | Boolean. | Allow visible chat GIFs to animate automatically. |
@@ -934,7 +934,34 @@ External artwork URLs go through Discord's image proxy; Wasm and Serein do not
 fetch the caller's URL directly. Metadata or artwork failures clear the outgoing
 custom activity and report an error; users can revise and reapply. Button/text/
 image links and other rich fields depend on Discord's handling of this unofficial
-client. See the [Custom Rich Presence example](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/custom-rpc).
+client. See the [Custom Rich Presence example](../extensions/plugins/custom-rpc).
+
+### API proxy (preview)
+
+Declare `api_proxy` and optionally `storage`; other capabilities and surfaces
+beyond `panel`/`activation` are rejected. This special plugin has a device-wide
+prelogin scope, survives account logout, and cannot access account data.
+
+Return `ApiProxyOutput { api_proxy: Some(ApiProxyConfig::Url { url }), ..Default::default() }`
+from an explicit Apply action, or restore the saved setting during activation.
+Its flattened `output: Output` field carries the usual panel/storage values;
+use `export!(handle)` for the Wasm exports.
+`ApiProxyConfig::Direct` removes proxy routing; `Automatic` selects environment proxy
+configuration (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, lowercase equivalents and
+`NO_PROXY`), with direct routing when none are configured. OS proxy settings and
+PAC discovery are unsupported. The wire shape is `{"api_proxy":{"mode":"url","url":"http://127.0.0.1:8080"}}`,
+`{"api_proxy":{"mode":"automatic"}}`, or `{"api_proxy":{"mode":"direct"}}`.
+Omitting `api_proxy` leaves the current routing unchanged. Use the SDK's
+`ApiProxyConfig::validate()` before returning user input. The host independently
+validates output and consent.
+
+Only the Discord REST API is affected. Gateway, CDN, media and calls keep their
+existing transports. Custom HTTP/HTTPS origins are capped at 2048 bytes and cannot
+contain credentials, a non-root path, a query or a fragment. HTTP Basic proxy authentication is configured separately in Serein's host-managed
+masked form and OS credential store; it never enters Wasm input or plugin storage.
+SOCKS and PAC are unsupported. Saved invalid configuration should trap during
+activation rather than silently return Direct; the host then blocks initial API
+routing and preserves an already configured route during reload.
 
 ## Panels and storage
 
@@ -1178,7 +1205,7 @@ and package this plugin from the same directory:
 
 ```powershell
 cargo build --locked --release --target wasm32-unknown-unknown -p panel-settings
-python pack.py panel-settings/manifest.json target/wasm32-unknown-unknown/release/panel_settings.wasm packages/panel-settings.serein-extension
+python ../../extensions/pack.py panel-settings/manifest.json target/wasm32-unknown-unknown/release/panel_settings.wasm packages/panel-settings.serein-extension
 ```
 
 For a larger working panel with app

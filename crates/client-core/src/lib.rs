@@ -22,6 +22,7 @@ pub mod member_search;
 pub mod message_actions;
 pub mod messaging_permissions;
 pub mod notifications;
+pub mod polls;
 pub mod presence;
 pub mod profile;
 pub mod reactions;
@@ -29,6 +30,7 @@ pub mod read_state;
 mod replies;
 pub use replies::{Reply, ReplyDeletions};
 pub mod group_actions;
+pub mod onboarding;
 pub mod resident;
 pub mod screen;
 pub mod search;
@@ -65,6 +67,7 @@ pub const EVENT_SLOTS: usize = 8; // UI drain batch; reliable events share a 32 
 pub const COMMAND_SLOTS: usize = 16; // ordinary commands <=16 KiB; bulk DM settings <=33 KiB; channel edit <=128 KiB; group icon <=350 KiB
 
 pub enum Command {
+	Polls(polls::Request),
 	StickerPacks,
 	Sticker(Id),
 	Interaction(interactions::Request),
@@ -93,6 +96,11 @@ pub enum Command {
 		guild: Id,
 		request: u64,
 		edit: Option<Box<model::server_settings::Edit>>,
+	},
+	Onboarding {
+		guild: Id,
+		request: u64,
+		action: onboarding::Action,
 	},
 	SendServerInvite {
 		guild: Id,
@@ -187,6 +195,10 @@ pub enum Command {
 		request: u64,
 	},
 	CancelGifs,
+	GifFavorites {
+		request: u64,
+		change: Option<(model::Gif, bool)>,
+	},
 	MarkRead {
 		channel: Id,
 		message: Id,
@@ -396,6 +408,7 @@ fn prepare_navigation(
 	Ok(permission_state)
 }
 pub enum Event {
+	Polls(polls::Event),
 	StickerEntitlement {
 		user: Id,
 		premium_type: Patch<u8>,
@@ -434,6 +447,7 @@ pub enum Event {
 	ChannelAction(channel_actions::Event),
 	ServerAdmin(server_admin::Event),
 	ServerSettings(server_settings::Event),
+	Onboarding(onboarding::Event),
 	JoinInvite {
 		request: u64,
 		result: Result<Id, auth::Failure>,
@@ -489,6 +503,10 @@ pub enum Event {
 	Gifs {
 		request: u64,
 		result: Result<model::GifPage, auth::Failure>,
+	},
+	GifFavorites {
+		request: u64,
+		result: Result<Vec<model::Gif>, auth::Failure>,
 	},
 	ReadState(read_state::Event),
 	NotificationPreferences(notifications::Event),
@@ -650,6 +668,7 @@ pub struct State {
 	pub server_actions: server_actions::Actions,
 	pub channel_actions: channel_actions::Actions,
 	pub server_settings: server_settings::Editor,
+	pub onboarding: onboarding::Onboarding,
 	pub server_admin: server_admin::View,
 	pub server_members_shortcuts: BTreeMap<Id, bool>,
 	pub group_actions: group_actions::Actions,
@@ -666,6 +685,7 @@ pub struct State {
 	/// A pin changed in this channel; the pins view should be reloaded once.
 	pub pins_changed: Option<Id>,
 	pub message_actions: message_actions::MessageActions,
+	pub polls: polls::Polls,
 	pub search_target: Option<Id>,
 	/// The next consumed `search_target` restores a saved inset instead of centering.
 	pub restore_scroll: bool,
@@ -862,6 +882,7 @@ impl Default for State {
 			server_actions: server_actions::Actions::default(),
 			channel_actions: channel_actions::Actions::default(),
 			server_settings: server_settings::Editor::default(),
+			onboarding: onboarding::Onboarding::default(),
 			server_admin: server_admin::View::default(),
 			server_members_shortcuts: BTreeMap::new(),
 			group_actions: group_actions::Actions::default(),
@@ -877,6 +898,7 @@ impl Default for State {
 			gifs: gifs::Gifs::default(),
 			pins_changed: None,
 			message_actions: Default::default(),
+			polls: Default::default(),
 			search_target: None,
 			restore_scroll: false,
 			history_targeted: false,
@@ -1113,6 +1135,14 @@ impl State {
 		self.select(channel)
 	}
 	pub fn select(&mut self, channel: Id) -> Option<Command> {
+		// Choosing another server's channel while a join is pending cancels its navigation.
+		if let Some((_, guild)) = self.invite_join.navigate
+			&& self
+				.channel(channel)
+				.is_some_and(|c| c.guild != Some(guild))
+		{
+			self.invite_join.navigate = None;
+		}
 		// Keep the current conversation intact, but allow a restored channel to load again.
 		if self.selected == Some(channel) && self.freshness != Freshness::Unavailable {
 			return None;
@@ -1173,6 +1203,7 @@ impl State {
 		self.search_target = None;
 		self.restore_scroll = false;
 		self.reactions.reset();
+		self.polls.reset();
 		self.interactions.reset();
 		let scope = self.application_command_scope(channel);
 		self.application_commands.retain(scope);
@@ -1484,6 +1515,12 @@ impl State {
 		})
 	}
 	pub fn history(&mut self, before: Option<Id>) -> Command {
+		if let Some(parent) = self.selected.filter(|id| self.is_forum(*id)) {
+			self.reload_forum_posts(parent);
+			return self
+				.request_forum_posts(parent, false)
+				.unwrap_or(Command::CancelSearch);
+		}
 		self.history_range(before, None)
 	}
 	fn open_scrolled_window(&mut self, message: Id) -> Option<Command> {
@@ -1676,9 +1713,11 @@ impl State {
 		} else {
 			self.drafts.get(&channel).map_or("", String::as_str)
 		};
-		if (content.trim().is_empty() && filenames.is_empty() && sticker.is_none())
-			|| content.chars().count() > MAX_CONTENT
-			|| self.pending.len() >= 64
+		if !model::message_options::valid(
+			content,
+			MAX_CONTENT,
+			!filenames.is_empty() || sticker.is_some(),
+		) || self.pending.len() >= 64
 			|| self.draft_bytes()
 				+ content.len()
 				+ filenames
@@ -1726,6 +1765,15 @@ impl State {
 	}
 	/// Reports a command the transport could not accept as a bounded outcome error.
 	pub fn command_rejected(&mut self, command: Command) {
+		if let Command::Polls(request) = command {
+			let _ = self.apply_poll(polls::Event::Result {
+				channel: request.channel,
+				message: request.message,
+				request: request.request,
+				result: Err(auth::Failure::Capacity),
+			});
+			return;
+		}
 		match &command {
 			Command::ApplicationCommands {
 				channel, request, ..
@@ -1780,6 +1828,23 @@ impl State {
 				request,
 				result: Err(auth::Failure::ProtocolAt(
 					"Server administration was not queued; try again",
+				)),
+			});
+			return;
+		}
+		if let Command::Onboarding { guild, request, .. } = command {
+			let _ = self.apply_onboarding(onboarding::Event::Loaded {
+				guild,
+				request,
+				result: Err(auth::Failure::ProtocolAt(
+					"Server onboarding was not queued; try again",
+				)),
+			});
+			let _ = self.apply_onboarding(onboarding::Event::Submitted {
+				guild,
+				request,
+				result: Err(auth::Failure::ProtocolAt(
+					"Server onboarding was not queued; try again",
 				)),
 			});
 			return;
@@ -1927,6 +1992,10 @@ impl State {
 			self.apply_gifs(request, Err(auth::Failure::Capacity));
 			return;
 		}
+		if let Command::GifFavorites { request, .. } = command {
+			self.apply_gif_favorites(request, Err(auth::Failure::Capacity));
+			return;
+		}
 		if let Command::Edit {
 			channel,
 			message,
@@ -2069,10 +2138,20 @@ impl State {
 
 		if let Command::Voice(control) = command {
 			match control {
+				voice::Command::RingRecipient {
+					channel, request, ..
+				} => self.apply_voice(voice::Event::RingFailed {
+					channel,
+					request,
+					message: "Recipient ringing was not sent; the work queue is full",
+				}),
 				voice::Command::Sync { .. } => {
 					self.status = "Call status could not refresh; reopen the DM to retry"
 				}
 				voice::Command::Join {
+					channel, request, ..
+				}
+				| voice::Command::ConfirmSession {
 					channel, request, ..
 				}
 				| voice::Command::Ring { channel, request } => self.apply_voice(voice::Event::Failed {
@@ -2338,7 +2417,7 @@ impl State {
 			&envelope.event,
 			Event::History { .. } | Event::Message(_) | Event::Patch(_) | Event::SendResult { .. }
 		)
-		.then(|| self.timeline.iter().last().map(|message| message.id))
+		.then(|| self.timeline.iter().next_back().map(|message| message.id))
 		.flatten();
 		let incoming_tail = match &envelope.event {
 			Event::Message(message)
@@ -2516,6 +2595,10 @@ impl State {
 				self.apply_gifs(request, result);
 				Ok(())
 			}
+			Event::GifFavorites { request, result } => {
+				self.apply_gif_favorites(request, result);
+				Ok(())
+			}
 			Event::ReadState(event) => self.apply_read_state(event),
 			Event::NotificationPreferences(event) => self.apply_notification_preferences(event),
 			Event::MessagingPermissions { request, result } => {
@@ -2526,6 +2609,7 @@ impl State {
 			Event::ServerAction(event) => self.apply_server_action(event),
 			Event::ChannelAction(event) => self.apply_channel_action(event),
 			Event::ServerSettings(event) => self.apply_server_settings(event),
+			Event::Onboarding(event) => self.apply_onboarding(event),
 			Event::ServerAdmin(event) => self.apply_server_admin(event),
 			Event::GroupAction(event) => self.apply_group_action(event),
 			Event::ThreadsSync {
@@ -2543,6 +2627,7 @@ impl State {
 				self.apply_application_commands(channel, request, result);
 				Ok(())
 			}
+			Event::Polls(event) => self.apply_poll(event),
 			Event::Reactions(event) => self.apply_reactions(event),
 			Event::InviteChallenge { request, challenge } => {
 				self.apply_invite_challenge(request, *challenge);
@@ -2886,6 +2971,11 @@ impl State {
 							participants.retain(|p| p.user != user);
 						}
 					}
+					for (id, ringing) in &mut self.voice.dm_ringing {
+						if *id == channel {
+							ringing.retain(|id| *id != user);
+						}
+					}
 					if let Some(call) = &mut self.voice.active
 						&& call.channel == channel
 					{
@@ -3035,6 +3125,8 @@ impl State {
 				self.voice.preview = None;
 				self.voice.dm_calls.clear();
 				self.voice.dm_participants.clear();
+				self.voice.dm_ringing.clear();
+				self.voice.ring_error = None;
 				self.members = None;
 				self.member_search = Default::default();
 				self.clear_profile();
@@ -3045,6 +3137,7 @@ impl State {
 				self.cancel_server_action();
 				self.cancel_channel_action();
 				self.cancel_server_settings();
+				self.cancel_onboarding();
 				self.cancel_server_admin();
 				self.cancel_group_action();
 				self.cancel_invite_join();
@@ -3053,6 +3146,7 @@ impl State {
 				self.server_actions.reset();
 				self.channel_actions.reset();
 				self.server_settings.reset();
+				self.reset_onboarding();
 				self.server_admin.reset();
 				self.server_members_shortcuts.clear();
 				self.group_actions.reset();
@@ -3062,6 +3156,7 @@ impl State {
 				self.channels = channels;
 				self.permissions = permission_state;
 				self.archived_thread = None;
+				self.interrupt_gif_favorites();
 				self.auth = auth::AuthState::Authenticated;
 				self.gateway_connected = true;
 				self.status = if unavailable {
@@ -3142,8 +3237,12 @@ impl State {
 						self.status = "No messages returned after this boundary; use Jump to present to reload";
 					}
 				}
-				if r.is_ok() && self.gateway_connected {
-					self.freshness = Freshness::Fresh;
+				if r.is_ok() {
+					self.freshness = if self.gateway_connected {
+						Freshness::Fresh
+					} else {
+						Freshness::Stale
+					};
 				}
 				r
 			}
@@ -3401,6 +3500,7 @@ impl State {
 				self.cancel_server_action();
 				self.cancel_channel_action();
 				self.cancel_server_settings();
+				self.cancel_onboarding();
 				self.cancel_server_admin();
 				self.cancel_group_action();
 				self.cancel_invite_join();
@@ -3410,9 +3510,11 @@ impl State {
 				// The voice socket is independent and a RESUME replays roster changes, so the call,
 				// roster and known DM calls all stay. Only a fresh READY invalidates the voice state.
 				self.voice.incoming = None;
-				self.gateway_connected = false;
-				self.cancel_history();
-				self.freshness = Freshness::Stale;
+				if std::mem::replace(&mut self.gateway_connected, false) {
+					self.cancel_history();
+					self.freshness = Freshness::Stale;
+				}
+				// Retry notifications must not invalidate a REST reload started during the outage.
 				self.status = "Reconnecting…";
 				Ok(())
 			}
@@ -3430,6 +3532,7 @@ impl State {
 				self.cancel_server_action();
 				self.cancel_channel_action();
 				self.cancel_server_settings();
+				self.cancel_onboarding();
 				self.cancel_server_admin();
 				self.cancel_group_action();
 				self.cancel_invite_join();
@@ -3473,7 +3576,7 @@ impl State {
 			&& self
 				.timeline
 				.iter()
-				.last()
+				.next_back()
 				.is_none_or(|message| message.id < tail)
 		{
 			self.history_targeted = true;
@@ -3641,6 +3744,7 @@ impl State {
 		if failure.ends_session() {
 			self.application_commands.clear();
 			self.interrupt_stickers();
+			self.interrupt_gif_favorites();
 			self.invalidate_messaging_permissions(Some(failure));
 			self.interrupt_own_profile();
 			self.local_game_activity = Default::default();
@@ -3653,6 +3757,7 @@ impl State {
 			self.cancel_server_action();
 			self.cancel_channel_action();
 			self.cancel_server_settings();
+			self.cancel_onboarding();
 			self.cancel_server_admin();
 			self.cancel_group_action();
 			self.cancel_invite_join();
@@ -3674,6 +3779,7 @@ impl State {
 	fn cancel_history(&mut self) {
 		self.typing.clear();
 		self.reactions.reset();
+		self.polls.reset();
 		self.interactions.reset();
 		self.search_target = None;
 		self.request += 1;
@@ -3780,6 +3886,7 @@ impl Event {
 						size_of::<model::server_settings::Settings>() + value.heap_bytes()
 					})
 				}
+				Self::Onboarding(event) => event.bytes(),
 				Self::ServerAdmin(event) => event
 					.result
 					.as_ref()
@@ -3888,6 +3995,16 @@ impl Event {
 				Self::Gifs {
 					result: Ok(page), ..
 				} => page.bytes(),
+				Self::GifFavorites {
+					result: Ok(favorites),
+					..
+				} => {
+					favorites.capacity() * size_of::<model::Gif>()
+						+ favorites
+							.iter()
+							.map(|gif| gif.bytes() - size_of::<model::Gif>())
+							.sum::<usize>()
+				}
 				Self::ReadState(read_state::Event::Snapshot { entries, .. }) => entries
 					.as_ref()
 					.map_or(0, |e| e.capacity() * size_of::<(Id, Option<Id>, u32)>()),
@@ -3992,6 +4109,9 @@ impl Event {
 				}
 				Self::RecipientAdded { user, .. } => user.heap_bytes(),
 				Self::History { messages, .. } => messages.iter().map(Message::bytes).sum(),
+				Self::Polls(polls::Event::Result { result, .. }) => {
+					result.as_ref().map_or(0, |message| message.bytes())
+				}
 				Self::Message(m) => m.bytes(),
 				Self::Patch(p) => {
 					let content = match &p.content {
@@ -3999,10 +4119,13 @@ impl Event {
 						_ => 0,
 					};
 					content
-						+ match &p.sticker_items {
-							Patch::Value(stickers) => model::sticker_bytes(stickers),
+						+ match &p.poll {
+							Patch::Value(Some(poll)) => poll.bytes(),
 							_ => 0,
-						} + match &p.reactions {
+						} + match &p.sticker_items {
+						Patch::Value(stickers) => model::sticker_bytes(stickers),
+						_ => 0,
+					} + match &p.reactions {
 						Patch::Value(r) => model::reaction_bytes(r),
 						_ => 0,
 					} + match &p.mentions {
@@ -4165,6 +4288,24 @@ mod tests {
 			..State::default()
 		};
 		assert!(state.prepare_send().is_none());
+		state.drafts.insert(Id(1), "@silent".into());
+		state.reply = Some(Reply::to(Id(7)));
+		assert!(state.prepare_send().is_none());
+		assert_eq!(state.drafts[&Id(1)], "@silent");
+		assert!(state.pending.is_empty() && state.reply.is_some());
+		let full = format!("@silent {}", "é".repeat(MAX_CONTENT));
+		state.drafts.insert(Id(1), full.clone());
+		assert!(
+			matches!(state.prepare_send(), Some(Command::Send { content, .. }) if content == full)
+		);
+		assert_eq!(state.pending[0].content, full);
+		state.pending.clear();
+		state
+			.drafts
+			.insert(Id(1), format!("@silent {}", "x".repeat(MAX_CONTENT + 1)));
+		assert!(state.prepare_send().is_none());
+		assert!(!state.drafts[&Id(1)].is_empty() && state.pending.is_empty());
+		state.drafts.clear();
 		for invalid in [
 			"",
 			" ",
@@ -4319,7 +4460,21 @@ mod tests {
 					..
 				})
 			));
+			// A joined server opens once delivered; choosing another server cancels that.
+			state.invite_join.navigate = Some((std::time::Instant::now(), Id(2)));
+			assert!(state.navigate_after_join().is_some());
+			assert_eq!(
+				state
+					.selected
+					.and_then(|id| state.channel(id))
+					.and_then(|c| c.guild),
+				Some(Id(2))
+			);
+			assert!(state.navigate_after_join().is_none());
+			state.invite_join.navigate = Some((std::time::Instant::now(), Id(2)));
 			state.select(Id(11));
+			assert!(state.navigate_after_join().is_none());
+			assert_eq!(state.selected, Some(Id(11)));
 			state.select(Id(20));
 			assert!(matches!(
 				state.select_guild(Id(1)),
@@ -5278,6 +5433,7 @@ mod tests {
 	}
 	pub(super) fn message(id: u64) -> Message {
 		Message {
+			poll: None,
 			sticker_items: Vec::new(),
 			reactions: Some(vec![]),
 			id: Id(id),

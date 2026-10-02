@@ -547,6 +547,33 @@ pub fn chat_alpha(ui: &egui::Ui) -> u8 {
 	section_surface(ui, window_palette(ui).chat, ImageSection::MessageList).a()
 }
 
+/// Message cards sit on an already-painted chat surface. Use only a thin tint on
+/// translucent chat so nested cards and answer rows do not cover the background again.
+pub fn message_card_fill(ui: &egui::Ui, color: Color32) -> Color32 {
+	let alpha = chat_alpha(ui);
+	color.gamma_multiply(if alpha == 255 {
+		1.0
+	} else {
+		f32::from(alpha) / (255.0 * 8.0)
+	})
+}
+
+/// Surface underneath a message card or fenced code block.
+#[derive(Clone, Copy)]
+pub(crate) enum MessageCardSurface {
+	Opaque,
+	Conversation,
+}
+
+impl MessageCardSurface {
+	pub(crate) fn fill(self, ui: &egui::Ui, color: Color32) -> Color32 {
+		match self {
+			Self::Opaque => color,
+			Self::Conversation => message_card_fill(ui, color),
+		}
+	}
+}
+
 /// Controls floating on a see-through conversation become frosted glass with a hairline
 /// edge: always denser than the surface behind them, so text stays legible at any setting.
 pub fn glass(ui: &egui::Ui, color: Color32) -> (Color32, Stroke) {
@@ -2019,7 +2046,14 @@ pub fn switch(
 		egui::pos2(rect.right() - 20.0, rect.top() + 8.0 + title.size().y / 2.0),
 		egui::vec2(40.0, 24.0),
 	);
-	let mut fill = if *enabled { p.accent } else { p.base };
+	// The knob slides and the track tints over `animation_time`; settled switches are static.
+	let on = ui.ctx().animate_bool_with_time_and_easing(
+		response.id.with("switch"),
+		*enabled,
+		ui.style().animation_time * 1.25,
+		egui::emath::easing::cubic_out,
+	);
+	let mut fill = p.base.lerp_to_gamma(p.accent, on);
 	if !ui.is_enabled() {
 		fill = fill.gamma_multiply(0.4);
 	}
@@ -2027,15 +2061,11 @@ pub fn switch(
 	painter.rect_stroke(
 		pill,
 		12,
-		Stroke::new(1.0, if *enabled { fill } else { p.border }),
+		Stroke::new(1.0, p.border.lerp_to_gamma(fill, on)),
 		egui::StrokeKind::Inside,
 	);
 	let knob = egui::pos2(
-		if *enabled {
-			pill.right() - 12.0
-		} else {
-			pill.left() + 12.0
-		},
+		egui::lerp((pill.left() + 12.0)..=(pill.right() - 12.0), on),
 		pill.center().y,
 	);
 	painter.circle_filled(knob, 9.0, Color32::WHITE);
@@ -2051,7 +2081,8 @@ pub fn switch(
 }
 
 /// Height of every inline [`button`].
-const BUTTON_HEIGHT: f32 = 38.0;
+/// Height of every [`button`]; dialog footers size their action row from it.
+pub const BUTTON_HEIGHT: f32 = 38.0;
 
 /// Visual weight of an inline [`button`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -2214,6 +2245,49 @@ pub fn divider(ui: &mut egui::Ui) {
 	ui.add_space(24.0);
 }
 
+/// Heading at the top of a settings page, matching the server and channel settings pages.
+pub fn page_title(ui: &mut egui::Ui, title: &str) {
+	let title = crate::i18n::translate_if_key(title);
+	let p = palette(ui);
+	ui.add(egui::Label::new(semibold(ui, title, 20.0).color(p.text_strong)).wrap());
+	ui.add_space(12.0);
+}
+
+/// Top of a settings page: title and supporting line on the left, optional `actions` laid out
+/// right-to-left on the same row. Every server and channel settings page opens with this.
+pub fn page_header(
+	ui: &mut egui::Ui,
+	title: &str,
+	subtitle: Option<&str>,
+	actions: impl FnOnce(&mut egui::Ui),
+) {
+	let title = crate::i18n::translate_if_key(title);
+	let subtitle = subtitle.map(crate::i18n::translate_if_key);
+	let p = palette(ui);
+	// Actions take only their natural width from the right; with none, the title and
+	// subtitle get the whole row.
+	ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+		ui.spacing_mut().item_spacing.x = 8.0;
+		actions(ui);
+		let width = ui.available_width();
+		ui.allocate_ui_with_layout(
+			egui::vec2(width, 0.0),
+			egui::Layout::top_down(egui::Align::Min),
+			|ui| {
+				ui.set_width(width);
+				ui.spacing_mut().item_spacing.y = 4.0;
+				ui.add(egui::Label::new(semibold(ui, title, 20.0).color(p.text_strong)).wrap());
+				if let Some(subtitle) = subtitle {
+					ui.add(
+						egui::Label::new(RichText::new(subtitle).size(14.0).color(p.muted)).wrap(),
+					);
+				}
+			},
+		);
+	});
+	ui.add_space(20.0);
+}
+
 /// Title of a settings group, with an optional supporting line under it.
 pub fn section(ui: &mut egui::Ui, title: &str, help: Option<&str>) {
 	let title = crate::i18n::translate_if_key(title);
@@ -2298,12 +2372,14 @@ pub fn save_bar(
 		ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 			let save = ui
 				.add_enabled_ui(can_save, |ui| {
-					button(ui, "Save Changes", ButtonKind::Primary)
+					button(ui, "design-save-bar-save-changes", ButtonKind::Primary)
 				})
 				.inner
 				.clicked();
 			let reset = ui
-				.add_enabled_ui(can_reset, |ui| button(ui, "Reset", ButtonKind::Neutral))
+				.add_enabled_ui(can_reset, |ui| {
+					button(ui, "design-save-bar-reset", ButtonKind::Neutral)
+				})
 				.inner
 				.clicked();
 			ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -3052,6 +3128,30 @@ mod sign_in_widget_tests {
 		}
 		set_extension_theme(None);
 		set_window_effects(false, 15, 50);
+	}
+
+	#[test]
+	fn custom_themes_follow_the_resolved_system_appearance() {
+		let mut theme = extensions::Theme::default();
+		theme.light.colors.insert("chat".into(), "#fafaf0".into());
+		theme.dark.colors.insert("chat".into(), "#101820".into());
+		set_extension_theme(Some(&theme));
+		let ctx = egui::Context::default();
+		apply(&ctx);
+		ctx.set_theme(egui::ThemePreference::System);
+		for (detected, chat) in [
+			(egui::Theme::Light, rgb(0xfafaf0)),
+			(egui::Theme::Dark, rgb(0x101820)),
+		] {
+			// Wayland and X11 report no system theme; the desktop's detected preference lands here.
+			ctx.options_mut(|options| options.fallback_theme = detected);
+			ctx.run_ui(egui::RawInput::default(), |ui| {
+				assert_eq!(ui.ctx().theme(), detected);
+				assert_eq!(palette(ui).chat, chat);
+			})
+			.drop_without_applying_deltas();
+		}
+		set_extension_theme(None);
 	}
 
 	/// The sign-in screen depends on these two: a row that reports a click and shows both

@@ -2,12 +2,16 @@
 pub mod account;
 pub mod application_commands;
 mod image_sharing;
+pub mod polls;
+pub mod public_upload;
+pub mod registered_games;
 pub use image_sharing::ImageShare;
 pub mod archives;
 mod channel_preferences;
 pub mod keybinds;
 pub mod messaging_permissions;
 pub mod notification_preferences;
+pub mod onboarding;
 pub mod voice_settings;
 pub use channel_preferences::{ChannelPreferences, PreferenceEdit, Shortcut};
 pub use keybinds::{KeyChord, KeybindAction, Keybinds};
@@ -16,6 +20,7 @@ pub mod gifs;
 mod graphics;
 pub use graphics::GpuPreference;
 pub mod guild_folders;
+pub mod message_options;
 pub mod permissions;
 mod reading_preferences;
 pub mod server_admin;
@@ -324,6 +329,7 @@ impl Interaction {
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct Message {
+	pub poll: Option<Box<polls::Poll>>,
 	pub sticker_items: Vec<Sticker>,
 	/// Original outer message flags, retained for interaction submissions.
 	pub flags: u64,
@@ -392,6 +398,7 @@ impl Message {
 
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>()
+			+ self.poll.as_ref().map_or(0, |poll| poll.bytes())
 			+ self.reactions.as_ref().map_or(0, |r| {
 				reaction_bytes(r) + r.capacity().saturating_sub(r.len()) * size_of::<Reaction>()
 			}) + self.content.capacity()
@@ -438,6 +445,7 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Patch<T> {
 }
 #[derive(Clone)]
 pub struct MessagePatch {
+	pub poll: Patch<Option<Box<polls::Poll>>>,
 	pub sticker_items: Patch<Vec<Sticker>>,
 	pub flags: Patch<u64>,
 	pub components: Patch<Vec<Component>>,

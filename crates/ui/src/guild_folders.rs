@@ -1,7 +1,7 @@
 use crate::{
 	MessagingUi, design,
 	icons::{self, Icon},
-	notifications::{badge, rail_indicator, voice_badge},
+	notifications::{rail_badge, rail_indicator, rail_motion, voice_badge},
 };
 use client_core::{Command, State};
 use egui::{Color32, Sense};
@@ -50,6 +50,9 @@ impl FolderUi {
 			self.expanded
 				.retain(|id| settings.folders.iter().any(|f| f.id == Some(*id)));
 			for folder in &settings.folders {
+				if !folder.guild_ids.iter().any(|&id| state.guild(id).is_some()) {
+					continue;
+				}
 				if let Some(id) = folder.id {
 					rows.push((
 						Item::Folder(id),
@@ -290,7 +293,10 @@ impl MessagingUi {
 		let dragging = response
 			.ctx
 			.input(|input| input.pointer.is_decidedly_dragging());
+		// Its own id: the default `response.id.with("popup")` is the right-click menu's, and one
+		// area cannot be a tooltip and a menu in the same frame.
 		egui::Popup::from_response(response)
+			.id(response.id.with("voice-rail-name"))
 			.kind(egui::PopupKind::Tooltip)
 			.align(egui::RectAlign::RIGHT)
 			.open(
@@ -403,6 +409,7 @@ impl MessagingUi {
 							let (unread, count) = self.rail_cache.guild_badge(id);
 							rail_indicator(
 								ui,
+								response.id,
 								response.rect,
 								self.guild == Some(id),
 								response.hovered() || response.has_focus(),
@@ -411,14 +418,7 @@ impl MessagingUi {
 							if call_guild == Some(id) || self.rail_cache.guild_voice(id) {
 								voice_badge(ui, response.rect, call_guild == Some(id));
 							}
-							if count > 0 {
-								badge(
-									ui,
-									response.rect.right_bottom() - egui::vec2(8.0, 8.0),
-									count,
-									colors.base,
-								);
-							}
+							rail_badge(ui, response.id, response.rect, count, colors.base);
 							self.guild_rail_name(&response, state, guild);
 							if response.clicked() {
 								self.guild = Some(id);
@@ -453,11 +453,16 @@ impl MessagingUi {
 									tint,
 								);
 							} else {
-								let fill = if response.hovered() || response.has_focus() {
-									tint.lerp_to_gamma(Color32::WHITE, 0.1)
+								let hover = if ui.is_rect_visible(rect) {
+									ui.ctx().animate_bool_with_time(
+										response.id.with("rail-hover"),
+										response.hovered() || response.has_focus(),
+										rail_motion(ui),
+									)
 								} else {
-									tint
+									0.0
 								};
+								let fill = tint.lerp_to_gamma(Color32::WHITE, 0.1 * hover);
 								paint_folder_tile(
 									ui,
 									&mut self.avatars,
@@ -475,15 +480,15 @@ impl MessagingUi {
 							let count = folder.guild_ids.iter().fold(0u32, |sum, g| {
 								sum.saturating_add(self.rail_cache.guild_badge(*g).1)
 							});
-							if !open {
-								rail_indicator(
-									ui,
-									rect,
-									false,
-									response.hovered() || response.has_focus(),
-									unread,
-								);
-							}
+							// Always tracked so the pill shrinks away when the folder opens.
+							rail_indicator(
+								ui,
+								response.id,
+								rect,
+								false,
+								!open && (response.hovered() || response.has_focus()),
+								!open && unread,
+							);
 							if !open {
 								let own = call_guild.is_some_and(|g| folder.guild_ids.contains(&g));
 								if own
@@ -495,14 +500,13 @@ impl MessagingUi {
 									voice_badge(ui, rect, own);
 								}
 							}
-							if !open && count > 0 {
-								badge(
-									ui,
-									rect.right_bottom() - egui::vec2(8.0, 8.0),
-									count,
-									colors.base,
-								);
-							}
+							rail_badge(
+								ui,
+								response.id,
+								rect,
+								if open { 0 } else { count },
+								colors.base,
+							);
 							let name = folder.name.as_deref().unwrap_or("Server folder");
 							response.widget_info(|| {
 								egui::WidgetInfo::labeled(
@@ -943,6 +947,71 @@ mod tests {
 					);
 				}
 			}
+		}
+	}
+
+	#[test]
+	fn empty_and_left_server_folders_disappear_without_changing_settings() {
+		for expanded in [false, true] {
+			let mut state = test_support::demo_state();
+			state.guild_folders = Some(Settings {
+				folders: vec![
+					Folder {
+						id: Some(7),
+						..Default::default()
+					},
+					Folder {
+						id: Some(8),
+						guild_ids: vec![Id(999)],
+						..Default::default()
+					},
+					Folder {
+						id: Some(9),
+						guild_ids: vec![Id(10), Id(9999)],
+						..Default::default()
+					},
+				],
+				..Default::default()
+			});
+			let settings = state.guild_folders.clone();
+			let mut folders = FolderUi::default();
+			if expanded {
+				folders.expanded.extend([7, 8, 9]);
+			}
+			assert!(folders.sync_rows(&state));
+			assert!(
+				!folders
+					.rows
+					.iter()
+					.any(|(item, _)| matches!(item, Item::Folder(7 | 8)))
+			);
+			assert!(
+				folders
+					.rows
+					.iter()
+					.any(|(item, _)| *item == Item::Folder(9))
+			);
+			let guild = state.guild(Id(10)).unwrap().clone();
+			state.guilds.retain(|guild| guild.id != Id(10));
+			state.invalidate_navigation();
+			assert!(folders.sync_rows(&state));
+			assert!(
+				!folders
+					.rows
+					.iter()
+					.any(|(item, _)| matches!(item, Item::Folder(_)))
+			);
+			assert_eq!(state.guild_folders, settings);
+			// A temporarily missing guild can return without losing its folder layout.
+			state.guilds.push(guild);
+			state.invalidate_navigation();
+			assert!(folders.sync_rows(&state));
+			assert!(
+				folders
+					.rows
+					.iter()
+					.any(|(item, _)| *item == Item::Folder(9))
+			);
 		}
 	}
 

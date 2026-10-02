@@ -47,6 +47,7 @@ fn own_profile_and_server_member_render_local_updates_and_clear_without_changing
 							status: Some("idle".into()),
 							custom_status: Some("Custom status".into()),
 							activities: vec![game(name)],
+							clients: Default::default(),
 						}))
 					})
 					.collect(),

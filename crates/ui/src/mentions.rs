@@ -127,6 +127,7 @@ pub fn known_users(state: &State, channel: Id) -> Vec<User> {
 			add(user);
 		}
 	}
+
 	if let Some(members) = state.members.as_ref().filter(|m| m.channel == channel) {
 		for member in members
 			.slots
@@ -139,7 +140,7 @@ pub fn known_users(state: &State, channel: Id) -> Vec<User> {
 			add(&member.user);
 		}
 	}
-	for message in state.timeline.iter() {
+	for message in state.timeline.iter().rev() {
 		if message.channel == channel {
 			add(&message.author);
 			for user in &message.mentions {
@@ -147,7 +148,38 @@ pub fn known_users(state: &State, channel: Id) -> Vec<User> {
 			}
 		}
 	}
+
 	users
+}
+
+// Compute all candidate recencies in one scan of the already-loaded bounded conversation.
+fn recent_user_ranks(
+	state: &State,
+	channel: Id,
+	users: &[User],
+) -> std::collections::HashMap<Id, u64> {
+	let mut ranks: std::collections::HashMap<_, _> = users
+		.iter()
+		.take(256)
+		.map(|user| (user.id, u64::MAX))
+		.collect();
+	for message in state
+		.timeline
+		.iter()
+		.rev()
+		.filter(|message| message.channel == channel)
+	{
+		for user in
+			std::iter::once(message.author.id).chain(message.mentions.iter().map(|user| user.id))
+		{
+			if let Some(rank) = ranks.get_mut(&user)
+				&& *rank == u64::MAX
+			{
+				*rank = u64::MAX - message.id.0;
+			}
+		}
+	}
+	ranks
 }
 
 pub struct MentionSource<'a> {
@@ -326,7 +358,7 @@ fn query(draft: &str, cursor: usize) -> Option<(Range<usize>, &str, Kind)> {
 	}
 	Some((start..end, query, kind))
 }
-pub fn insert(draft: &mut String, pick: Pick) -> Option<usize> {
+pub fn insert(draft: &mut String, pick: Pick, editing: bool) -> Option<usize> {
 	if pick.range.end > draft.len()
 		|| !draft.is_char_boundary(pick.range.start)
 		|| !draft.is_char_boundary(pick.range.end)
@@ -335,7 +367,7 @@ pub fn insert(draft: &mut String, pick: Pick) -> Option<usize> {
 	}
 	let token = pick.candidate.token();
 	if draft.chars().count() - draft[pick.range.clone()].chars().count() + token.chars().count()
-		> client_core::MAX_CONTENT
+		> crate::emoji_picker::composer_limit(draft, editing)
 	{
 		return None;
 	}
@@ -444,6 +476,7 @@ impl Menu {
 			.and_then(|c| c.guild);
 		let mut ranked: Vec<Ranked> = match kind {
 			Kind::User => {
+				let recency = recent_user_ranks(state, channel, users);
 				let mut ranked = users
 					.iter()
 					.filter_map(|user| {
@@ -464,7 +497,7 @@ impl Menu {
 							})
 							.map(|r| {
 								(
-									(r, 0, 0),
+									(r, 0, recency.get(&user.id).copied().unwrap_or(u64::MAX)),
 									Candidate::User {
 										user: user.clone(),
 										name: name.to_owned(),
@@ -866,6 +899,123 @@ mod tests {
 	use model::Channel;
 
 	#[test]
+	fn loaded_members_remain_suggested_and_admitted_beyond_the_candidate_cap() {
+		let mut state = test_support::demo_state();
+		// Synthetic authenticated reducer state; no transport consumes these commands.
+		state.demo = false;
+		state.auth = client_core::auth::AuthState::Authenticated;
+		state.gateway_connected = true;
+		let channel = state.selected.unwrap();
+		let guild = state.channel(channel).unwrap().guild;
+		let make_member = |id| model::Member {
+			user: user(id, &format!("Member{id}")),
+			roles: vec![],
+			nick: None,
+			status: None,
+			custom_status: None,
+			activities: vec![],
+			clients: Default::default(),
+		};
+		let target = Id(20199);
+		state.members = Some(model::MemberList {
+			guild,
+			channel,
+			request: 1,
+			start: 0,
+			total: 200,
+			lazy: false,
+			freshness: model::Freshness::Fresh,
+			groups: vec![],
+			ranges: vec![],
+			slots: (20000..20200)
+				.map(|id| Some(model::MemberSlot::Person(make_member(id))))
+				.collect(),
+		});
+		for id in 30000..30256 {
+			let mut message = test_support::message(id, channel);
+			message.author = user(id, "Synthetic recent speaker");
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		let users = known_users(&state, channel);
+		assert!(
+			users.iter().any(|user| user.id == target),
+			"recent authors cannot displace loaded members"
+		);
+		let mut menu = Menu::default();
+		menu.refresh(&state, channel, "@Member20199", Some(12), &users);
+		assert!(
+			menu.candidates
+				.iter()
+				.any(|candidate| candidate.id() == target)
+		);
+		// Search results and the member window together can exceed the candidate cap.
+		state.member_search[0].request = Some(client_core::member_search::Request {
+			guild: guild.unwrap(),
+			channel,
+			query: "Member".into(),
+			users: vec![],
+			nonce: 1,
+			slot: 0,
+		});
+		state.member_search[0].rows = (40000..40100).map(make_member).collect();
+		assert_eq!(known_users(&state, channel).len(), 256);
+		assert!(
+			!known_users(&state, channel)
+				.iter()
+				.any(|user| user.id == target)
+		);
+		let mut view = crate::MessagingUi::default();
+		let mut commands = vec![];
+		view.apply_extension_app_action(
+			&mut state,
+			extensions::AppAction::RequestProfile {
+				user_id: target.to_string(),
+				guild_id: None,
+			},
+			&mut commands,
+		)
+		.unwrap();
+		assert!(!commands.is_empty());
+		commands.clear();
+		view.apply_extension_account_action(
+			&mut state,
+			extensions::AppAction::SetUserBlocked {
+				user_id: target.to_string(),
+				blocked: true,
+			},
+			&mut commands,
+		)
+		.unwrap();
+		assert!(
+			matches!(&commands[..], [client_core::Command::UserAction { action: client_core::user_actions::Action::Block { user, blocked: true }, .. }] if *user == target)
+		);
+	}
+
+	#[test]
+	fn mention_matches_prefer_recent_conversation_users_after_match_quality() {
+		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		let old = user(40001, "AlexOlder");
+		let recent = user(40002, "BAlexRecent");
+		for (id, author) in [(40001, old.clone()), (40002, recent.clone())] {
+			let mut message = test_support::message(id, channel);
+			message.author = author;
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		let mut menu = Menu::default();
+		menu.refresh(
+			&state,
+			channel,
+			"@lex",
+			Some(4),
+			&[old.clone(), recent.clone()],
+		);
+		assert_eq!(menu.candidates[0].id(), recent.id);
+		menu.refresh(&state, channel, "@Al", Some(3), &[recent, old.clone()]);
+		assert_eq!(menu.candidates[0].id(), old.id);
+	}
+
+	#[test]
 	fn cross_server_emoji_search_names_sources_bounds_and_account_reset() {
 		let mut state = State {
 			channels: vec![channel(1, None, 1, "DM"), channel(2, None, 3, "Group DM")],
@@ -919,7 +1069,7 @@ mod tests {
 			ids
 		);
 		let mut draft = ":same".into();
-		insert(&mut draft, menu.pick(0).unwrap()).unwrap();
+		insert(&mut draft, menu.pick(0).unwrap(), true).unwrap();
 		assert_eq!(draft, "<a:same_wave:10001> ");
 		menu.refresh(&state, Id(2), ":source20", Some(9), &[]);
 		assert_eq!(menu.candidates[0].id(), Id(20001));
@@ -1046,6 +1196,33 @@ mod tests {
 			assert!(view.draft_changes.contains(&Id(1)));
 		}
 	}
+	#[test]
+	fn quiet_mention_replacement_uses_effective_budget_and_edits_remain_literal() {
+		for editing in [false, true] {
+			let mut draft = format!("@silent {}@s", "x".repeat(client_core::MAX_CONTENT - 5));
+			let original = draft.clone();
+			let start = draft.len() - 2;
+			let pick = Pick {
+				range: start..draft.len(),
+				candidate: Candidate::User {
+					user: user(7, "Sam"),
+					name: "Sam".into(),
+				},
+			};
+			assert_eq!(insert(&mut draft, pick, editing).is_some(), !editing);
+			if editing {
+				assert_eq!(draft, original);
+			} else {
+				assert!(draft.ends_with("<@7> "));
+				assert!(model::message_options::valid(
+					&draft,
+					client_core::MAX_CONTENT,
+					false
+				));
+			}
+		}
+	}
+
 	fn user(id: u64, name: &str) -> User {
 		User {
 			id: Id(id),
@@ -1098,7 +1275,7 @@ mod tests {
 		);
 		output.textures_delta.clear();
 		let mut draft = "čau @Zo".into();
-		assert_eq!(insert(&mut draft, chosen.unwrap()), Some(9));
+		assert_eq!(insert(&mut draft, chosen.unwrap(), true), Some(9));
 		assert_eq!(draft, "čau <@2> ");
 		let users = (1..=1000).map(|id| user(id, "User")).collect::<Vec<_>>();
 		menu.refresh(&State::default(), Id(1), "@", Some(1), &users);
@@ -1168,7 +1345,7 @@ mod tests {
 		)
 		.drop_without_applying_deltas();
 		let mut draft = "čau #Žl".into();
-		assert_eq!(insert(&mut draft, pick.unwrap()), Some(9));
+		assert_eq!(insert(&mut draft, pick.unwrap(), true), Some(9));
 		assert_eq!(draft, "čau <#6> ");
 		menu.refresh(&state, Id(3), "#", Some(1), &[]);
 		assert!(menu.candidates.is_empty());
@@ -1180,7 +1357,7 @@ mod tests {
 		assert!(menu.candidates.iter().all(|c| c.token().len() <= 40));
 		let mut full = format!("{} #", "x".repeat(client_core::MAX_CONTENT - 2));
 		menu.refresh(&state, Id(1), &full, Some(client_core::MAX_CONTENT), &[]);
-		assert!(insert(&mut full, menu.pick(0).unwrap()).is_none());
+		assert!(insert(&mut full, menu.pick(0).unwrap(), true).is_none());
 	}
 	#[test]
 	fn emoji_shortcodes_need_two_characters_and_include_usable_server_emoji() {
@@ -1242,7 +1419,7 @@ mod tests {
 				.any(|c| matches!(c, Candidate::Unicode { code, .. } if *code == ":heart:"))
 		);
 		let mut draft = "hi :he".to_owned();
-		assert_eq!(insert(&mut draft, menu.pick(0).unwrap()), Some(31));
+		assert_eq!(insert(&mut draft, menu.pick(0).unwrap(), true), Some(31));
 		assert_eq!(draft, "hi <a:heart_hands_custom:9001> ");
 		let unicode = menu
 			.candidates
@@ -1250,7 +1427,7 @@ mod tests {
 			.position(|c| matches!(c, Candidate::Unicode { code, .. } if *code == ":heart:"))
 			.unwrap();
 		let mut draft = "hi :he".to_owned();
-		insert(&mut draft, menu.pick(unicode).unwrap()).unwrap();
+		insert(&mut draft, menu.pick(unicode).unwrap(), true).unwrap();
 		assert_eq!(draft, "hi ❤️ ");
 		menu.refresh(&state, Id(1), ":+1", Some(3), &[]);
 		assert!(menu.candidates.iter().any(|candidate| matches!(
@@ -1272,7 +1449,7 @@ pub(crate) fn debug_member_search_check(state: &State, channel: Id) {
 		.pick(0)
 		.expect("remote nickname must appear in mentions");
 	let mut draft = "@Outside".to_owned();
-	insert(&mut draft, pick).unwrap();
+	insert(&mut draft, pick, true).unwrap();
 	assert_eq!(draft, "<@987654321> ");
 }
 
@@ -1373,6 +1550,7 @@ pub fn debug_role_mentions_check(state: &mut State) {
 		author.id = Id(user.id.0.wrapping_add(1));
 		author.name = "Other".into();
 		let message = model::Message {
+			poll: None,
 			sticker_items: vec![],
 			id: Id(2),
 			channel,
@@ -1442,7 +1620,7 @@ pub fn debug_role_mentions_check(state: &mut State) {
 			assert!(
 				matches!(&menu.candidates[0], Candidate::User { name, .. } if name == expected)
 			);
-			insert(&mut draft, menu.pick(0).unwrap()).unwrap();
+			insert(&mut draft, menu.pick(0).unwrap(), true).unwrap();
 			assert_eq!(draft, user_mention_token(user.id));
 			let original = format!("@{}", user.name.split_whitespace().next().unwrap());
 			menu.refresh(
@@ -1513,7 +1691,7 @@ pub fn debug_role_mentions_check(state: &mut State) {
 			..Default::default()
 		},
 		|_| {
-			insert(&mut draft, menu.keys(&ctx).expect("role completion")).unwrap();
+			insert(&mut draft, menu.keys(&ctx).expect("role completion"), true).unwrap();
 		},
 	)
 	.drop_without_applying_deltas();
@@ -1544,7 +1722,12 @@ pub fn debug_role_mentions_check(state: &mut State) {
 		Some(thread_draft.chars().count()),
 		&[],
 	);
-	insert(&mut thread_draft, menu.pick(0).expect("thread with spaces")).unwrap();
+	insert(
+		&mut thread_draft,
+		menu.pick(0).expect("thread with spaces"),
+		true,
+	)
+	.unwrap();
 	assert_eq!(thread_draft, "<#1549042875830898709> ");
 	menu.refresh(state, channel, "#1549042875830898710", Some(20), &[]);
 	assert_eq!(
@@ -1605,6 +1788,7 @@ pub fn debug_role_mentions_check(state: &mut State) {
 				(&state.channels, &mut None, &state.guilds, roles),
 				(&mut avatars, true, &mut 0),
 				&mut surface,
+				crate::design::MessageCardSurface::Opaque,
 			);
 			surface.finish(ui);
 			assert!(profile.open_user().is_none());

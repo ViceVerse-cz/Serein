@@ -213,8 +213,32 @@ pub struct Join {
 	pub result: Option<Result<model::Id, Failure>>,
 	sequence: u64,
 	challenge: Option<(Instant, crate::captcha::Challenge)>,
+	/// The joined server to open once the Gateway delivers it, like Discord does.
+	pub(crate) navigate: Option<(Instant, model::Id)>,
 }
+/// Gateway membership normally arrives within seconds; a stale join never steals focus.
+const NAVIGATE_WITHIN: Duration = Duration::from_secs(60);
 impl State {
+	/// Opens a just-joined server once it and a viewable channel are loaded.
+	/// Returns the channel load command, if any; call once per frame.
+	pub fn navigate_after_join(&mut self) -> Option<Command> {
+		let (at, guild) = self.invite_join.navigate?;
+		if at.elapsed() >= NAVIGATE_WITHIN {
+			self.invite_join.navigate = None;
+			return None;
+		}
+		self.guild(guild)?;
+		let command = self.select_guild(guild);
+		if self
+			.selected
+			.and_then(|id| self.channel(id))
+			.is_some_and(|channel| channel.guild == Some(guild))
+		{
+			self.invite_join.navigate = None;
+		}
+		command
+	}
+
 	pub fn can_join_invite(&self, code: &str) -> bool {
 		!self.demo
 			&& self.auth == crate::auth::AuthState::Authenticated
@@ -261,11 +285,13 @@ impl State {
 		self.invite_join.challenge = None;
 		self.invite_join.result = Some(result);
 		self.status = match result {
-			Ok(_) => {
-				"Invite accepted · waiting for server access; complete any server rules in Discord"
-			}
+			Ok(_) => "Invite accepted · waiting for server access",
 			Err(f) => f.label(),
 		};
+		if let Ok(guild) = result {
+			self.watch_onboarding(guild);
+			self.invite_join.navigate = Some((Instant::now(), guild));
+		}
 		if let Err(f) = result
 			&& f.ends_session()
 		{

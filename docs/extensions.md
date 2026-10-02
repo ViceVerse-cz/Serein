@@ -8,11 +8,15 @@ and other app operations; the user reviews and applies each operation in Serein.
 
 ## Install and remove
 
-Themes and plugins are published together in
-[Serein-extensions](https://github.com/ViceVerse-cz/Serein-extensions).
-Opening Settings > Themes or Extensions checks that repository's shared catalog
+Themes and plugins are published together from [`extensions/`](../extensions/README.md)
+in this repository. Opening Settings > Themes or Extensions checks its shared catalog
 on the existing worker. Normal builds embed no package payloads; bundled examples
-remain available only in offline demo/test builds.
+remain available only as demo/test fixtures. Demo catalog refresh, previews and
+selected catalog installs use the same public repository downloads as normal builds.
+An identical bundled fixture with the approved ID and hash is reused without a download.
+Catalog packages, plugin source and previews have one canonical copy in `extensions/`;
+tests and demos read it directly. Runtime catalog refresh reads the catalog published
+from `main`.
 The last valid catalog and installed packages remain available offline. Refresh
 retries immediately. Catalog changes add/remove available choices and mark
 installed updates; they never install, update or delete packages automatically.
@@ -33,14 +37,16 @@ importing the package again and starts with fresh extension settings. Serein
 never deletes the creator's Git repository, the user's imported original, or an
 exported theme/image source.
 
-Plugin grants and data belong to the signed-in account. Logout invalidates
+Plugin grants and data belong to the signed-in account, except the narrow
+`api_proxy` connection plugin described below. Logout invalidates
 plugin results, drains bounded in-flight work and clears that account's extension data. Theme selection is a device
 preference. There is no periodic background polling or automatic package update.
 
 ## Creator workflow
 
 1. Keep source and license in a public Git repository. Use the standalone Rust
-   example under `examples/extensions/message-delete-protector` and its small SDK.
+   [Message Delete Protector source](../extensions/plugins/message-delete-protector/src/lib.rs) and the
+   [SDK](../extensions/sdk).
    The [SDK authoring guide](../examples/extensions/README.md#test-and-develop-locally)
    covers native handler tests, typed panel values and JSON storage helpers; the v1
    exports and existing plugin source remain compatible. For reactive plugins,
@@ -52,17 +58,18 @@ preference. There is no periodic background polling or automatic package update.
    No native binary, installer, Git hook or build script runs on an end user's
    computer. Other languages can implement the same Wasm buffer/JSON contract.
 3. Package the manifest and Wasm bytes (or declarative theme) as a single JSON
-   file. Test through Import with an offline `--demo` build first.
-4. Add the package and reproducible source/build instructions to `Serein-extensions`.
-   Commit the package first, then regenerate that repository's `catalog.json` with
-   the package commit. Its publishing script records immutable package URLs,
-   byte lengths and SHA-256 hashes. See the repository README for exact commands.
+   file. Test through Import with synthetic `--demo` conversations first; catalog browsing
+   may download public GitHub content.
+4. Add the package and reproducible source/build instructions under `extensions/`
+   in a pull request; CI validates it. After merge, a workflow pins `catalog.json`
+   to the merged commit, recording immutable package URLs, byte lengths and SHA-256
+   hashes. See the [extensions README](../extensions/README.md) for exact commands.
 5. Maintainers review each listed version, its capabilities and the source to
    artifact relationship. A catalog checksum identifies reviewed bytes; it is
    not a signature or a guarantee that code is harmless. Updates need review too.
 
-The in-app catalog reads `Serein-extensions/main/catalog.json`. A new catalog entry
-is not available through that endpoint until it reaches that repository's main branch. Empty catalogs
+The in-app catalog reads `extensions/catalog.json` from this repository's `main`
+branch. A new entry is listed only after it is merged and the catalog is pinned. Empty catalogs
 are valid; imports allow development before a release is listed.
 
 ## Shop previews
@@ -120,7 +127,7 @@ Unknown API versions and invalid packages are rejected before installation.
 
 Each capability is independent and requires user consent. An update requests
 renewed consent; adding a read grant does not grant commands. The SDK currently
-supports 52 capabilities, with at most 64 distinct declarations per manifest.
+supports 53 capabilities, with at most 64 distinct declarations per manifest.
 
 > **Preview SDK — PR #411, not yet released.** `channel_control`,
 > `server_control`, `role_control`, `moderation_control` and `media_control`, plus
@@ -132,6 +139,7 @@ supports 52 capabilities, with at most 64 distinct declarations per manifest.
 | `selected_message` | Read selected message text | A user-invoked `message` action only |
 | `composer` | Read the current draft and propose replacement | A `composer` action; replacement requires Apply |
 | `storage` | Read/replace one opaque local UTF-8 value | Per-account/plugin; 1 MiB disk limit and 256 KiB invocation budget |
+| `api_proxy` | Configure the Discord REST API HTTP/HTTPS proxy | Preview; device-wide, available before login; only `storage` may accompany this grant; no account data, Gateway, CDN or calls |
 | `rich_presence` | Contribute one bounded custom activity and restore it during activation | Preview; explicit panel/activation actions only; separate activity-sharing preference; revoked on disable/account change |
 | `deleted_messages` | Enable host retention of already-loaded deleted messages | Activation only; bounded session memory, no deleted text sent to Wasm |
 | `image_sharing` | Enable host emoji/sticker image attachment fallback | Activation only; unavailable native picker selections authorize sending, Wasm receives no image bytes |
@@ -180,7 +188,7 @@ supports 52 capabilities, with at most 64 distinct declarations per manifest.
 
 ### Custom Rich Presence
 
-The preview [Custom Rich Presence plugin](https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/custom-rpc)
+The preview [Custom Rich Presence plugin](../extensions/plugins/custom-rpc)
 provides a native editor with validated fields and a local preview. It covers
 activity type, application ID/name, details/state and links, large/small artwork,
 two buttons, party size and timers. **Preview changes** is local; **Apply presence**
@@ -255,7 +263,7 @@ the existing UI path. Navigation/search may then load ordinary service data, but
 the plugin never receives a generic Discord command API. Clipboard writes never
 read the clipboard; local notices are in-app toasts, not OS notifications.
 
-Supported local preference patches are zoom 80–150%, sidebar width 190–360 logical
+Supported local preference patches are zoom 50–150%, sidebar width 190–360 logical
 pixels, member-list visibility, GIF animation, hiding media links, smooth scrolling
 and scroll speed 25 through 300%. The separate `notification_settings` grant exposes
 device-local notification toggles and sound volume 0 through 100%; it does not change
@@ -465,7 +473,7 @@ invocation input/output, panel complexity, queues and plugin storage.
 | Execution fuel | 10,000,000 | Shared by parsing and execution; a valid-sized input can still exhaust it. |
 | Wasm call depth / interpreter stack | 128 calls / 256 KiB | Avoid deep recursion. |
 | Serialized input and output | 256 KiB each | Count UTF-8 and JSON escaping, including nested storage JSON. |
-| Manifest actions / capabilities | 16 / 64 distinct | Only the 52 supported capability names are currently accepted. |
+| Manifest actions / capabilities | 16 / 64 distinct | Only the 53 supported capability names are currently accepted. |
 | Panel | 64 elements / 8 row levels | Includes nested children; text and input values are at most 4 KiB each. |
 | Plugin storage on disk | 1 MiB | Its practical size must also fit the smaller invocation/output budget. |
 | App snapshot | 64 KiB | Individual lists have smaller budgets; see the [data reference](extension-sdk-reference.md#app-data). |
@@ -492,3 +500,31 @@ a separate bounded temporary `serein-extension-demo` profile; it can import loca
 fixtures and browse the embedded starter catalog/previews but cannot download a
 catalog, preview or package. `Ctrl+Shift+F12` resets a
 community theme if its colors make controls difficult to read.
+
+## API proxy plugin (preview)
+
+The optional API Proxy plugin uses the native extension panel to select Direct,
+Automatic (environment variables), or a custom HTTP/HTTPS proxy origin. An explicit Apply action changes
+REST routing and saves its configuration with the separately granted `storage`
+capability. No calls, voice sockets, Gateway WebSockets, CDN/media fetches or
+external extension downloads are proxied by this capability.
+
+This is a connection plugin, available in Settings > Extensions before login.
+Consent applies across accounts on this device. Its package and bounded local
+storage live in `extensions/proxy-plugins`, survive account switching/logout, and
+are removed when explicitly disabled. Other plugins keep their account isolation.
+A manifest requesting `api_proxy` must be a plugin with only `api_proxy` and
+optional `storage`, and only panel/activation actions. It receives no account data,
+tokens or requests and has no networking API.
+
+Custom proxy origins must use HTTP or HTTPS, have a host, and be at most 2048 bytes.
+Credentials, paths beyond `/`, queries and fragments are rejected. Serein can attach HTTP Basic proxy credentials from its host-managed masked form
+and OS credential store. Credentials are never passed to Wasm or saved in plugin data.
+SOCKS and PAC are unsupported. REST requests keep TLS certificate verification.
+A failed configured proxy has no direct fallback. Invalid plugin configuration
+blocks initial API routing; reload/handler errors retain the previous valid route
+until the plugin is repaired or explicitly disabled.
+
+Automatic reads `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and their lowercase
+equivalents, respecting `NO_PROXY`. With none configured it connects directly.
+OS/browser proxy settings and PAC discovery are unsupported.

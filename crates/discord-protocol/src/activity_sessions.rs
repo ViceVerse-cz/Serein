@@ -64,6 +64,9 @@ fn contains(bytes: &RawValue, current: &Activity) -> Result<bool, DecodeError> {
 		application_id: Option<Id>,
 		#[serde(rename = "type")]
 		kind: u8,
+		/// Only an unverified game is identified by name; the session list is already bounded.
+		#[serde(default)]
+		name: Option<String>,
 	}
 	let values: Entries<'_> = serde_json::from_str(bytes.get()).map_err(|_| DecodeError)?;
 	let mut found = false;
@@ -72,8 +75,15 @@ fn contains(bytes: &RawValue, current: &Activity) -> Result<bool, DecodeError> {
 			return Err(DecodeError);
 		}
 		let identity: Identity = serde_json::from_str(value.get()).map_err(|_| DecodeError)?;
-		found |= identity.application_id == Some(current.application_id)
-			&& identity.kind == current.kind;
+		// A user-added game is published without an application, so Discord lists it without
+		// one too; matching on the absent id alone would never confirm it.
+		let application = identity.application_id.filter(|id| id.0 != 0);
+		found |= identity.kind == current.kind
+			&& if current.application_id.0 == 0 {
+				application.is_none() && identity.name.as_deref() == Some(current.name.as_str())
+			} else {
+				application == Some(current.application_id)
+			};
 	}
 	Ok(found)
 }
@@ -140,7 +150,7 @@ pub fn observe(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use serde_json::json;
+	use serde_json::{Value, json};
 
 	#[test]
 	fn aggregate_and_own_sessions_distinguish_received_hidden_and_missing() {
@@ -200,6 +210,37 @@ mod tests {
 				&game
 			)
 			.is_err()
+		);
+		// An unverified game is listed without an application id and is matched by its name.
+		let unverified = crate::rpc::ActivityFields::default()
+			.into_activity(Id(0), "My game".into())
+			.unwrap();
+		let listed = |activity: Value| {
+			observe(
+				&serde_json::to_vec(
+					&json!([{"session_id":"all","activities":[activity],"hidden_activities":[]}]),
+				)
+				.unwrap(),
+				"own",
+				&unverified,
+			)
+			.unwrap()
+		};
+		assert_eq!(
+			listed(json!({"name":"My game","type":0,"created_at":1})),
+			Observation::ServerListed
+		);
+		assert_eq!(
+			listed(json!({"name":"Other game","type":0})),
+			Observation::ServerMissing
+		);
+		assert_eq!(
+			listed(json!({"name":"My game","type":0,"application_id":"42"})),
+			Observation::ServerMissing
+		);
+		assert_eq!(
+			observe_value(json!([{"session_id":"all","activities":[{"name":"osu!","type":0}]}])),
+			Observation::ServerMissing
 		);
 		for malformed in [
 			br#"[{"session_id":"all"},{"session_id":"all"}]"#.as_slice(),

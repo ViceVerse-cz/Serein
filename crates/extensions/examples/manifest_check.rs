@@ -2,7 +2,7 @@
 use extensions::Manifest;
 use std::{error::Error, fs::File, io::Read};
 
-// Matches the standalone manifest limit in examples/extensions/pack.py.
+// Matches the standalone manifest limit in extensions/pack.py.
 const MAX_MANIFEST_BYTES: usize = 16 * 1024;
 
 fn check(reader: impl Read) -> Result<Manifest, Box<dyn Error>> {

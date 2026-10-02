@@ -49,6 +49,7 @@ impl MessageActions {
 }
 impl State {
 	pub(crate) fn cancel_message_actions(&mut self) {
+		self.polls.reset();
 		for ((channel, message), edit) in std::mem::take(&mut self.message_actions.edits) {
 			self.resident.remove(channel);
 			if !edit.observed
@@ -255,8 +256,9 @@ impl State {
 		self.revision += 1;
 	}
 }
-fn content_patch(channel: Id, id: Id, content: String) -> MessagePatch {
+pub(crate) fn content_patch(channel: Id, id: Id, content: String) -> MessagePatch {
 	MessagePatch {
+		poll: model::Patch::Absent,
 		sticker_items: Patch::Absent,
 		channel,
 		id,

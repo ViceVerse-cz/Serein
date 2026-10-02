@@ -256,7 +256,13 @@ impl JoinDialog {
 				}
 			});
 		});
-		if close || response.close {
+		// Like Discord, a successful join lands in the server; the dialog has done its job.
+		let joined = matches!(state.invite_join.result, Some(Ok(guild))
+			if state.selected.and_then(|id| state.channel(id)).is_some_and(|c| c.guild == Some(guild)));
+		if close
+			|| response.close
+			|| joined && input_code(&self.input).as_deref() == Some(state.invite_join.code.as_str())
+		{
 			*self = Self::default();
 		}
 	}

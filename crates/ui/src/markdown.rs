@@ -511,6 +511,7 @@ struct Render<'a> {
 	query: &'a str,
 	/// Row height reserved for artwork, so emoji and text share one baseline.
 	line: Option<f32>,
+	card_surface: crate::design::MessageCardSurface,
 }
 
 fn channel_reference_name<'a>(
@@ -1078,8 +1079,10 @@ impl Formatted {
 			None,
 			profile,
 			(&mut crate::avatars::Avatars::default(), true, &[]),
+			crate::design::MessageCardSurface::Opaque,
 		);
 	}
+	#[allow(clippy::too_many_arguments)]
 	pub fn show_with_images(
 		&self,
 		ui: &mut egui::Ui,
@@ -1088,6 +1091,7 @@ impl Formatted {
 		source: Option<&crate::mentions::MentionSource<'_>>,
 		profile: &mut crate::profiles::ProfileSession,
 		media: (&mut crate::avatars::Avatars, bool, &[model::Guild]),
+		card_surface: crate::design::MessageCardSurface,
 	) {
 		let (images, demo, guilds) = media;
 		let mut revealed = u32::MAX;
@@ -1101,6 +1105,7 @@ impl Formatted {
 			(&[], &mut None, guilds, &[]),
 			(images, demo, &mut revealed),
 			&mut surface,
+			card_surface,
 		);
 		surface.finish(ui);
 	}
@@ -1120,9 +1125,19 @@ impl Formatted {
 		),
 		media: (&mut crate::avatars::Avatars, bool, &mut u32),
 		surface: &mut crate::select::Surface,
+		card_surface: crate::design::MessageCardSurface,
 	) {
 		self.show_search(
-			ui, opening, users, source, profile, references, media, surface, "",
+			ui,
+			opening,
+			users,
+			source,
+			profile,
+			references,
+			media,
+			surface,
+			"",
+			card_surface,
 		);
 	}
 	#[allow(clippy::too_many_arguments)]
@@ -1142,6 +1157,7 @@ impl Formatted {
 		media: (&mut crate::avatars::Avatars, bool, &mut u32),
 		surface: &mut crate::select::Surface,
 		query: &str,
+		card_surface: crate::design::MessageCardSurface,
 	) {
 		let (channels, channel, guilds, roles) = references;
 		let (images, demo, revealed) = media;
@@ -1174,6 +1190,7 @@ impl Formatted {
 			surface,
 			query,
 			line,
+			card_surface,
 		};
 		self.show_run(ui, &self.spans, &mut render, false);
 	}
@@ -1394,6 +1411,7 @@ impl Formatted {
 							&self.blocks[usize::from(block)],
 							block,
 							render.surface,
+							render.card_surface,
 						);
 						ui.end_row();
 						render.surface.exclude(code_rect);
@@ -1502,6 +1520,7 @@ impl Formatted {
 								spans,
 								ui,
 								true,
+								self.jumbo,
 								render.images,
 								render.demo,
 								render.guilds,
@@ -1525,6 +1544,7 @@ impl Formatted {
 							spans,
 							ui,
 							false,
+							self.jumbo,
 							render.images,
 							render.demo,
 							render.guilds,
@@ -1544,6 +1564,7 @@ impl Formatted {
 		block: &CodeBlock,
 		index: u8,
 		surface: &mut crate::select::Surface,
+		card_surface: crate::design::MessageCardSurface,
 	) -> egui::Rect {
 		let colors = crate::design::palette(ui);
 		let code_colors = crate::design::code_colors(ui);
@@ -1570,7 +1591,7 @@ impl Formatted {
 				ui.set_width(width);
 				ui.add_space(4.0);
 				let frame = egui::Frame::new()
-					.fill(ui.visuals().code_bg_color)
+					.fill(card_surface.fill(ui, ui.visuals().code_bg_color))
 					.stroke(Stroke::new(1.0, colors.border))
 					.corner_radius(6)
 					.inner_margin(egui::Margin::symmetric(10, 8));
@@ -1703,6 +1724,7 @@ impl Formatted {
 		spans: &[(String, Style)],
 		ui: &mut egui::Ui,
 		link: bool,
+		jumbo: bool,
 		images: &mut crate::avatars::Avatars,
 		demo: bool,
 		guilds: &[model::Guild],
@@ -1769,6 +1791,9 @@ impl Formatted {
 					text: cluster.to_owned(),
 					custom: custom.map(|(id, _)| id),
 					image: cell.and_then(|cell| {
+						if jumbo && let Some(image) = images.unicode_image(ui.ctx(), cell, size) {
+							return Some(image.alt_text(cluster));
+						}
 						atlas
 							.get_or_insert_with(|| crate::emoji::atlas(ui.ctx()))
 							.map(|atlas| crate::emoji::image_cell(atlas, cluster, cell, size))
@@ -2805,6 +2830,7 @@ mod tests {
 							(&[], &mut channel, &[], &[]),
 							(&mut images, false, mask),
 							&mut surface,
+							crate::design::MessageCardSurface::Opaque,
 						);
 						surface.finish(ui);
 					},
@@ -2907,6 +2933,7 @@ mod tests {
 						(&[], &mut None, &[], &[]),
 						(&mut images, false, &mut mask),
 						&mut surface,
+						crate::design::MessageCardSurface::Opaque,
 					);
 					surface.finish(ui);
 				},
@@ -3071,6 +3098,7 @@ mod tests {
 							(&channels, &mut channel, &[], &[]),
 							(&mut crate::avatars::Avatars::default(), true, &mut revealed),
 							&mut surface,
+							crate::design::MessageCardSurface::Opaque,
 						);
 						surface.finish(ui);
 					},
@@ -3112,6 +3140,7 @@ mod tests {
 						None,
 						&mut profile,
 						(&mut avatars, true, &[]),
+						crate::design::MessageCardSurface::Opaque,
 					)
 				},
 			)
@@ -3277,6 +3306,7 @@ mod tests {
 								None,
 								&mut profile,
 								(&mut images, true, &state.guilds),
+								crate::design::MessageCardSurface::Opaque,
 							)
 						},
 					)
@@ -3338,6 +3368,46 @@ mod tests {
 				.drop_without_applying_deltas();
 				assert!(!egui::Popup::is_any_open(&ctx));
 			}
+		}
+	}
+
+	#[test]
+	fn high_dpi_inline_emoji_keep_the_atlas_while_jumbo_requests_vectors() {
+		for (source, expected_vector) in [("Inline 🙂", false), ("🙂", true)] {
+			let ctx = egui::Context::default();
+			crate::design::apply(&ctx);
+			let parsed = Formatted::parse(source);
+			let mut images = crate::avatars::Avatars::default();
+			let mut raw = egui::RawInput::default();
+			raw.viewports
+				.get_mut(&egui::ViewportId::ROOT)
+				.unwrap()
+				.native_pixels_per_point = Some(2.0);
+			ctx.run_ui(raw, |ui| {
+				if parsed.jumbo() {
+					crate::design::jumbo_emoji(ui);
+				}
+				let mut surface = crate::select::Surface::new(ui, "vector-presentation-test");
+				parsed.show_search(
+					ui,
+					&mut None,
+					&[],
+					None,
+					&mut crate::profiles::ProfileSession::default(),
+					(&[], &mut None, &[], &[]),
+					(&mut images, true, &mut 0),
+					&mut surface,
+					"",
+					crate::design::MessageCardSurface::Conversation,
+				);
+			})
+			.drop_without_applying_deltas();
+			assert_eq!(ctx.pixels_per_point(), 2.0);
+			let requests = images.take_requests();
+			assert_eq!(
+				requests.iter().any(|key| key.starts_with("emoji-unicode-")),
+				expected_vector
+			);
 		}
 	}
 
@@ -3430,6 +3500,82 @@ mod tests {
 		let many = "```\nx\n```\n".repeat(MAX_BLOCKS + 4);
 		let parsed = Formatted::parse(&many);
 		assert!(parsed.blocks.len() <= MAX_BLOCKS);
+	}
+	#[test]
+	fn fenced_code_uses_its_actual_surface_instead_of_global_chat_transparency() {
+		let original = crate::design::default_window_effects();
+		let parsed = Formatted::parse("```rust\nfn main() {}\n```");
+		for light in [false, true] {
+			for transparency in [0, 15, 50, 100] {
+				crate::design::set_window_effects(true, transparency, 0);
+				let ctx = egui::Context::default();
+				ctx.set_visuals(if light {
+					egui::Visuals::light()
+				} else {
+					egui::Visuals::dark()
+				});
+				for (background, search) in [
+					(crate::design::MessageCardSurface::Opaque, false),
+					(crate::design::MessageCardSurface::Opaque, true),
+					(crate::design::MessageCardSurface::Conversation, false),
+				] {
+					let mut expected = egui::Color32::TRANSPARENT;
+					let output = ctx.run_ui(Default::default(), |ui| {
+						expected = background.fill(ui, ui.visuals().code_bg_color);
+						let mut profile = crate::profiles::ProfileSession::default();
+						let mut images = crate::avatars::Avatars::default();
+						if search {
+							let mut surface = crate::select::Surface::new(ui, "search-code");
+							parsed.show_search(
+								ui,
+								&mut None,
+								&[],
+								None,
+								&mut profile,
+								(&[], &mut None, &[], &[]),
+								(&mut images, true, &mut 0),
+								&mut surface,
+								"main",
+								background,
+							);
+							surface.finish(ui);
+						} else {
+							parsed.show_with_images(
+								ui,
+								&mut None,
+								&[],
+								None,
+								&mut profile,
+								(&mut images, true, &[]),
+								background,
+							);
+						}
+					});
+					assert!(
+						output.shapes.iter().any(|shape| matches!(
+							&shape.shape,
+							egui::Shape::Rect(rect) if rect.corner_radius == egui::CornerRadius::same(6)
+								&& rect.stroke.width == 1.0 && rect.fill == expected
+						)),
+						"missing framed code surface at transparency {transparency}"
+					);
+					match background {
+						crate::design::MessageCardSurface::Opaque => {
+							assert_eq!(expected, ctx.global_style().visuals.code_bg_color)
+						}
+						crate::design::MessageCardSurface::Conversation if transparency == 100 => {
+							assert_eq!(expected.a(), 0)
+						}
+						crate::design::MessageCardSurface::Conversation if transparency > 0 => {
+							assert!(expected.a() <= 32)
+						}
+						_ => {}
+					}
+					output.drop_without_applying_deltas();
+				}
+			}
+		}
+		crate::design::set_window_effects(original.0, original.1, original.2);
 	}
 	#[test]
 	fn code_blocks_render_a_framed_widget_with_copy_control() {

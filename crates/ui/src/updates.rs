@@ -1,6 +1,16 @@
 //! Device update preferences and host-owned status. No transport or filesystem work lives here.
 use crate::{MessagingUi, design, icons};
 
+/// One release in the update log, already reduced to plain text by the host.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LogEntry {
+	pub version: String,
+	/// `YYYY-MM-DD`, empty when the release has no publish date.
+	pub date: String,
+	/// Section headings ("Features", "Bug Fixes") with their bullet points.
+	pub sections: Vec<(String, Vec<String>)>,
+}
+
 pub struct Updates {
 	pub auto_update: bool,
 	pub nightly: bool,
@@ -19,6 +29,8 @@ pub struct Updates {
 	pub copied_command: Option<f64>,
 	/// Ready flag the sidebar banner was dismissed at, so a later stage prompts again.
 	pub banner_dismissed: Option<bool>,
+	/// Recent releases on the selected channel, newest first.
+	pub log: Vec<LogEntry>,
 }
 impl Default for Updates {
 	fn default() -> Self {
@@ -39,6 +51,7 @@ impl Default for Updates {
 			copied_diagnostics: None,
 			copied_command: None,
 			banner_dismissed: None,
+			log: Vec::new(),
 		}
 	}
 }
@@ -132,6 +145,62 @@ impl MessagingUi {
 		}
 		if open {
 			self.open_update_settings();
+		}
+	}
+
+	/// Gateway-recovery notice stacked into the account card, styled like the update banner but
+	/// tinted with the warning colour. The whole row requests an immediate reconnect.
+	pub(super) fn reconnecting_banner(&mut self, ui: &mut egui::Ui, first: bool) {
+		let colors = design::palette(ui);
+		let label = crate::i18n::translate("reconnecting");
+		let action = crate::i18n::translate("reconnect-now");
+		let (rect, response) =
+			ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::click());
+		let hovered = response.hovered() || response.has_focus();
+		let top = if first { 8 } else { 0 };
+		ui.painter().rect_filled(
+			rect,
+			egui::CornerRadius {
+				nw: top,
+				ne: top,
+				sw: 0,
+				se: 0,
+			},
+			colors
+				.warning
+				.gamma_multiply(if hovered { 0.18 } else { 0.12 }),
+		);
+		let mut content = ui.new_child(
+			egui::UiBuilder::new()
+				.max_rect(rect.shrink2(egui::vec2(10.0, 0.0)))
+				.layout(egui::Layout::left_to_right(egui::Align::Center)),
+		);
+		let ui = &mut content;
+		ui.spacing_mut().item_spacing.x = 8.0;
+		let (mark, _) = ui.allocate_exact_size(egui::vec2(15.0, 15.0), egui::Sense::hover());
+		icons::paint(ui.painter(), icons::Icon::Reload, mark, colors.warning);
+		ui.add(
+			egui::Label::new(design::medium(ui, &label, 12.0).color(colors.warning))
+				.truncate()
+				.selectable(false),
+		);
+		ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+			let color = if hovered {
+				colors.warning
+			} else {
+				colors.warning.gamma_multiply(0.75)
+			};
+			ui.add(
+				egui::Label::new(design::medium(ui, &action, 11.0).color(color))
+					.truncate()
+					.selectable(false),
+			);
+		});
+		response.widget_info(|| {
+			egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &action)
+		});
+		if response.clicked() {
+			self.reconnect_requested = true;
 		}
 	}
 
@@ -328,6 +397,7 @@ impl MessagingUi {
 				);
 			}
 		});
+		self.update_log(ui);
 		design::group(
 			ui,
 			&crate::i18n::translate("updates-update-settings-preferences"),
@@ -467,6 +537,52 @@ impl MessagingUi {
 			}
 			},
 		);
+	}
+}
+
+impl MessagingUi {
+	/// What changed between the running build and the newest release; hidden when up to date.
+	fn update_log(&self, ui: &mut egui::Ui) {
+		if self.updates.log.is_empty() {
+			return;
+		}
+		let colors = design::palette(ui);
+		design::group(ui, &crate::i18n::translate("updates-update-log"), |ui| {
+			for (index, entry) in self.updates.log.iter().enumerate() {
+				if index > 0 {
+					design::card_divider(ui);
+				}
+				let title = format!("Serein {}", entry.version);
+				egui::CollapsingHeader::new(
+					design::semibold(ui, &title, 14.0).color(colors.text_strong),
+				)
+				.id_salt(("update-log", &entry.version))
+				.default_open(index == 0)
+				.show(ui, |ui| {
+					if !entry.date.is_empty() {
+						ui.label(
+							egui::RichText::new(&entry.date)
+								.size(12.0)
+								.color(colors.muted),
+						);
+					}
+					for (heading, items) in &entry.sections {
+						if !heading.is_empty() {
+							ui.add_space(4.0);
+							ui.label(design::semibold(ui, heading, 13.0).color(colors.text_strong));
+						}
+						for item in items {
+							ui.horizontal_top(|ui| {
+								ui.label(egui::RichText::new("•").size(13.0).color(colors.muted));
+								ui.add(
+									egui::Label::new(egui::RichText::new(item).size(13.0)).wrap(),
+								);
+							});
+						}
+					}
+				});
+			}
+		});
 	}
 }
 

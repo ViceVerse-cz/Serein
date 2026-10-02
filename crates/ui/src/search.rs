@@ -58,12 +58,20 @@ pub struct SearchUi {
 
 impl SearchUi {
 	/// Refocus the current query without dropping its page or scroll position.
-	pub fn focus_conversation(&mut self, channel: Id) {
+	pub fn focus_conversation(&mut self, channel: Id, state: &State) {
 		if self.open && (self.composing || self.filter_draft.is_some() || self.viewing.is_some()) {
 			return;
 		}
 		if self.channel != Some(channel) || !self.open || self.pins {
 			self.query.clear();
+			if state
+				.channel(channel)
+				.is_some_and(|entry| entry.guild.is_some())
+			{
+				self.query = filters::display(&format!("in:{channel}"), state, &mut self.labels);
+				self.query.push(' ');
+			}
+			self.relabel = false;
 		}
 		self.channel = Some(channel);
 		self.open = true;
@@ -280,11 +288,15 @@ impl SearchUi {
 		Ok(query)
 	}
 	fn submit(&mut self, state: &mut State, commands: &mut Vec<Command>) {
+		let trailing_separator = self.query.ends_with(char::is_whitespace);
 		if let Ok(query) = self.wire(state)
 			&& let Some(command) = state.request_search(query.clone(), None)
 		{
 			commands.push(command);
 			self.query = filters::display(&query, state, &mut self.labels);
+			if trailing_separator {
+				self.query.push(' ');
+			}
 			self.filters_open = false;
 		}
 	}
@@ -1355,6 +1367,7 @@ impl SearchUi {
 		self.previews
 			.entry(hit.id)
 			.or_insert_with(|| model::Message {
+				poll: None,
 				sticker_items: Vec::new(),
 				flags: 0,
 				ephemeral: false,
@@ -1530,6 +1543,7 @@ impl SearchUi {
 							(avatars, state.demo, &mut revealed),
 							&mut surface,
 							query,
+							crate::design::MessageCardSurface::Opaque,
 						);
 						if revealed != 0 {
 							ui.data_mut(|data| data.insert_temp(id, revealed));
@@ -1558,6 +1572,7 @@ impl SearchUi {
 										media.download,
 										profile,
 										state,
+										crate::design::MessageCardSurface::Opaque,
 									);
 								}
 								if !preview.attachments.is_empty() {
@@ -1572,6 +1587,7 @@ impl SearchUi {
 										media.video,
 										state.demo,
 										&mut surface,
+										crate::design::MessageCardSurface::Opaque,
 									);
 								}
 							}
@@ -1891,6 +1907,215 @@ fn channel_heading(ui: &mut egui::Ui, state: &State, channel: &model::Channel) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn conversation_shortcut_prefills_channel_and_focuses_query_without_searching() {
+		let mut state = test_support::demo_state();
+		let channel = state
+			.channels
+			.iter()
+			.find(|entry| entry.guild.is_some() && entry.supports_text())
+			.unwrap()
+			.id;
+		state.selected = Some(channel);
+		let mut view = SearchUi::default();
+		view.focus_conversation(channel, &state);
+		assert!(view.query.starts_with("in:"));
+		assert!(view.query.ends_with(' '));
+		assert_eq!(view.wire(&state).unwrap(), format!("in:{channel}"));
+		let ctx = egui::Context::default();
+		let mut commands = Vec::new();
+		for events in [vec![], vec![egui::Event::Text("weather".into())]] {
+			ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(800.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					view.sync(&ctx, &mut state, &mut commands);
+					view.header_input(ui, &mut state, &mut commands);
+				},
+			)
+			.drop_without_applying_deltas();
+		}
+		assert_eq!(view.wire(&state).unwrap(), format!("in:{channel} weather"));
+		assert!(commands.is_empty());
+		view.submit(&mut state, &mut commands);
+		assert!(
+			matches!(&commands[..], [Command::Search { query, .. }] if query == &format!("in:{channel} weather"))
+		);
+		let request = state.search.as_ref().unwrap().request;
+		let query = view.query.clone();
+		view.focus_conversation(channel, &state);
+		assert_eq!(view.query, query);
+		assert_eq!(state.search.as_ref().unwrap().request, request);
+	}
+
+	#[test]
+	fn numeric_channel_prefill_keeps_its_target_and_separator_after_submission() {
+		let mut state = test_support::demo_state();
+		let entry = state
+			.channels
+			.iter_mut()
+			.find(|entry| entry.guild.is_some() && entry.supports_text())
+			.unwrap();
+		entry.name = "123".into();
+		let channel = entry.id;
+		assert_ne!(channel, Id(123));
+		state.selected = Some(channel);
+		let mut view = SearchUi::default();
+		view.focus_conversation(channel, &state);
+		assert_eq!(view.query, "in:123 ");
+		assert_eq!(view.wire(&state).unwrap(), format!("in:{channel}"));
+		let mut commands = Vec::new();
+		view.submit(&mut state, &mut commands);
+		assert!(
+			matches!(&commands[..], [Command::Search { query, .. }] if query == &format!("in:{channel}"))
+		);
+		let request = state.search.as_ref().unwrap().request;
+		view.focus_conversation(channel, &state);
+		assert_eq!(state.search.as_ref().unwrap().request, request);
+		let ctx = egui::Context::default();
+		for events in [vec![], vec![egui::Event::Text("weather".into())]] {
+			ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(800.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| view.header_input(ui, &mut state, &mut commands),
+			)
+			.drop_without_applying_deltas();
+		}
+		assert_eq!(view.query, "in:123 weather");
+		assert_eq!(view.wire(&state).unwrap(), format!("in:{channel} weather"));
+	}
+
+	#[test]
+	fn remembered_channel_labels_do_not_override_another_guilds_typed_names() {
+		let mut state = test_support::demo_state();
+		let mut original = state
+			.channels
+			.iter()
+			.find(|entry| entry.guild.is_some() && entry.supports_text())
+			.unwrap()
+			.clone();
+		original.name = "123".into();
+		let mut labels = filters::Labels::default();
+		labels.remember("channel", "123", original.id);
+		let other_old = state
+			.channels
+			.iter()
+			.find(|entry| entry.guild == original.guild && entry.id != original.id)
+			.unwrap()
+			.id;
+		labels.remember("channel", "old-only", other_old);
+		let mut selected = original.clone();
+		selected.id = Id(800);
+		selected.guild = Some(Id(700));
+		selected.name = "other".into();
+		let mut target = selected.clone();
+		target.id = Id(801);
+		target.name = "123".into();
+		state.selected = Some(selected.id);
+		state.channels.push(selected);
+		state.channels.push(target);
+		let mut guild = state.guilds[0].clone();
+		guild.id = Id(700);
+		state.guilds.push(guild);
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		// The old label remains remembered when the user manually types in another guild.
+		let mut view = SearchUi {
+			labels,
+			query: "in:123 weather".into(),
+			..Default::default()
+		};
+		assert_eq!(view.wire(&state).unwrap(), "in:801 weather");
+		let mut commands = Vec::new();
+		view.submit(&mut state, &mut commands);
+		assert!(
+			matches!(&commands[..], [Command::Search { query, .. }] if query == "in:801 weather")
+		);
+		assert!(filters::wire("in:old-only", &state, &view.labels).is_err());
+		assert_eq!(
+			filters::wire("in:9999", &state, &view.labels).unwrap(),
+			"in:9999"
+		);
+	}
+
+	#[test]
+	fn remembered_channel_labels_require_current_text_and_history_access() {
+		let mut state = test_support::demo_state();
+		let original = state
+			.channels
+			.iter()
+			.find(|entry| entry.guild.is_some() && entry.supports_text())
+			.unwrap()
+			.clone();
+		let mut target = original.clone();
+		target.id = Id(801);
+		target.name = "123".into();
+		state.selected = Some(target.id);
+		state.channels.push(target);
+		let mut labels = filters::Labels::default();
+		labels.remember("channel", "123", original.id);
+		for denied_history in [false, true] {
+			state
+				.channels
+				.iter_mut()
+				.find(|entry| entry.id == original.id)
+				.unwrap()
+				.kind = if denied_history { original.kind } else { 4 };
+			let mut snapshot = test_support::permission_snapshot(&state);
+			if denied_history {
+				let channel = snapshot
+					.channels
+					.iter_mut()
+					.find(|entry| entry.id == original.id)
+					.unwrap();
+				channel.overwrites = Some(vec![model::permissions::Overwrite {
+					id: original.guild.unwrap(),
+					kind: 0,
+					allow: 0,
+					deny: model::permissions::READ_MESSAGE_HISTORY,
+				}]);
+			}
+			state.permissions.replace(snapshot).unwrap();
+			assert_eq!(filters::wire("in:123", &state, &labels).unwrap(), "in:801");
+		}
+	}
+
+	#[test]
+	fn direct_message_shortcut_keeps_implicit_scope_and_does_not_interrupt_composition() {
+		let state = test_support::demo_state();
+		let channel = state
+			.channels
+			.iter()
+			.find(|entry| entry.guild.is_none() && entry.kind == 1)
+			.unwrap()
+			.id;
+		let mut view = SearchUi::default();
+		view.focus_conversation(channel, &state);
+		assert!(view.open && view.focus && view.query.is_empty());
+		view.query = "existing draft".into();
+		view.composing = true;
+		view.focus = false;
+		view.focus_conversation(channel, &state);
+		assert_eq!(view.query, "existing draft");
+		assert!(!view.focus);
+	}
 	fn run(ui: &mut egui::Ui, view: &mut SearchUi, state: &mut State, commands: &mut Vec<Command>) {
 		view.sync(ui.ctx(), state, commands);
 		if view.open {

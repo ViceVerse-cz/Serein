@@ -444,12 +444,11 @@ impl State {
 		tags: &[Id],
 	) -> Option<Command> {
 		let title = title.trim();
-		let content = content.trim();
+		let content = model::message_options::starter(content);
 		if !self.can_create_post(parent)
 			|| title.is_empty()
 			|| title.chars().count() > MAX_TITLE
-			|| (content.is_empty() && filenames.is_empty())
-			|| content.chars().count() > MAX_CONTENT
+			|| !model::message_options::valid(content, MAX_CONTENT, !filenames.is_empty())
 		{
 			return None;
 		}
@@ -608,6 +607,46 @@ mod tests {
 	}
 
 	#[test]
+	fn header_reload_refreshes_forum_posts_without_leaving_the_channel() {
+		for kind in [15, 16] {
+			let mut state = state();
+			state.channels[1].kind = kind;
+			assert!(state.select(Id(20)).is_none());
+			state.request_forum_posts(Id(20), false).unwrap();
+			let previous = state.posts.request;
+			state.apply_forum_posts(
+				Id(20),
+				previous,
+				Ok(model::forum::Page {
+					threads: vec![channel(21, Some(Id(20)), 11)],
+					more: true,
+					previews: Vec::new(),
+				}),
+			);
+			assert!(matches!(
+				state.history(None),
+				Command::ForumPosts { parent: Id(20), offset: 0, request, .. }
+					if request > previous
+			));
+			assert_eq!(state.selected, Some(Id(20)));
+			assert_eq!(state.freshness, model::Freshness::Fresh);
+			assert!(!state.history_pending);
+			assert!(state.posts.loading);
+			let request = state.posts.request;
+			assert!(matches!(state.history(None), Command::CancelSearch));
+			assert_eq!(state.posts.request, request);
+			assert_eq!(state.selected, Some(Id(20)));
+			assert!(matches!(
+				state.select(Id(21)),
+				Some(Command::History {
+					channel: Id(21),
+					..
+				})
+			));
+		}
+	}
+
+	#[test]
 	fn forum_title_replacement_updates_budget_and_preserves_original_when_full() {
 		let mut state = state();
 		let before = state.navigation_bytes();
@@ -741,6 +780,7 @@ mod tests {
 			let posts: Vec<_> = state.forum_posts(Id(20)).iter().map(|c| c.id).collect();
 			assert_eq!(posts, vec![Id(22), Id(21)]);
 			let message = model::Message {
+				poll: None,
 				sticker_items: Vec::new(),
 				reactions: Some(vec![]),
 				id: Id(600),
@@ -789,6 +829,25 @@ mod tests {
 		assert!(state.create_post(Id(10), "Title", "Body").is_none());
 		assert!(state.create_post(Id(20), "", "Body").is_none());
 		assert!(state.create_post(Id(20), "Title", " ").is_none());
+		assert!(state.create_post(Id(20), "Title", "@silent ").is_none());
+		assert!(state.posting.pending.is_none());
+		let formatted = "@silent\n    code\n  ";
+		let quiet = state.create_post(Id(20), "Title", formatted).unwrap();
+		assert!(matches!(&quiet, Command::CreatePost { content, .. } if content == formatted));
+		state.command_rejected(quiet);
+		let full = format!("@silent {}", "x".repeat(MAX_CONTENT));
+		let quiet = state.create_post(Id(20), "Title", &full).unwrap();
+		assert!(matches!(&quiet, Command::CreatePost { content, .. } if content == &full));
+		state.command_rejected(quiet);
+		assert!(
+			state
+				.create_post(
+					Id(20),
+					"Title",
+					&format!("@silent {}", "x".repeat(MAX_CONTENT + 1))
+				)
+				.is_none()
+		);
 		let Some(Command::CreatePost { request, .. }) =
 			state.create_post(Id(20), " Title ", "Body")
 		else {

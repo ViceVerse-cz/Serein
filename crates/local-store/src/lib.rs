@@ -11,8 +11,8 @@ use std::{
 
 const MAX_MEDIA_JSON: usize = 256 * 1024;
 const MAX_WINDOW_BYTES: usize = 4 * 1024 * 1024;
-const NATIVE_SCHEMA: u32 = 25;
-const READABLE_SCHEMA: u32 = 25;
+const NATIVE_SCHEMA: u32 = 26;
+const READABLE_SCHEMA: u32 = 26;
 #[derive(serde::Deserialize)]
 struct CachedMentions(#[serde(deserialize_with = "model::deserialize_mentions")] Vec<User>);
 fn parse_author_roles(raw: &str) -> std::result::Result<Vec<Id>, StoreError> {
@@ -409,7 +409,7 @@ impl LocalStore {
 		}
 		transaction.execute_batch("CREATE TABLE IF NOT EXISTS reading_preferences(
                 singleton INTEGER PRIMARY KEY CHECK(singleton=1),
-                zoom_percent INTEGER NOT NULL CHECK(typeof(zoom_percent)='integer' AND zoom_percent BETWEEN 80 AND 150),
+                zoom_percent INTEGER NOT NULL CHECK(typeof(zoom_percent)='integer' AND zoom_percent BETWEEN 50 AND 150),
                 sidebar_width INTEGER NOT NULL CHECK(typeof(sidebar_width)='integer' AND sidebar_width BETWEEN 190 AND 360),
                 show_members INTEGER NOT NULL CHECK(typeof(show_members)='integer' AND show_members IN (0,1))
             );
@@ -497,6 +497,24 @@ impl LocalStore {
 		)?;
 		if !has_compact_messages {
 			transaction.execute_batch("ALTER TABLE reading_preferences ADD COLUMN compact_messages INTEGER NOT NULL DEFAULT 0 CHECK(typeof(compact_messages)='integer' AND compact_messages IN (0,1));")?;
+		}
+		if version < 26 {
+			// SQLite cannot alter a CHECK constraint. Preserve all fixed-size settings
+			// in the same transaction that upgrades the schema.
+			transaction.execute_batch("CREATE TABLE reading_preferences_zoom(
+				singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+				zoom_percent INTEGER NOT NULL CHECK(typeof(zoom_percent)='integer' AND zoom_percent BETWEEN 50 AND 150),
+				sidebar_width INTEGER NOT NULL CHECK(typeof(sidebar_width)='integer' AND sidebar_width BETWEEN 190 AND 360),
+				show_members INTEGER NOT NULL CHECK(typeof(show_members)='integer' AND show_members IN (0,1)),
+				animate_gifs INTEGER NOT NULL DEFAULT 0 CHECK(typeof(animate_gifs)='integer' AND animate_gifs IN (0,1)),
+				hide_media_links INTEGER NOT NULL DEFAULT 1 CHECK(typeof(hide_media_links)='integer' AND hide_media_links IN (0,1)),
+				confirm_external_links INTEGER NOT NULL DEFAULT 1 CHECK(typeof(confirm_external_links)='integer' AND confirm_external_links IN (0,1)),
+				smooth_scrolling INTEGER NOT NULL DEFAULT 1 CHECK(typeof(smooth_scrolling)='integer' AND smooth_scrolling IN (0,1)),
+				scroll_speed_percent INTEGER NOT NULL DEFAULT 100 CHECK(typeof(scroll_speed_percent)='integer' AND scroll_speed_percent BETWEEN 25 AND 300),
+				show_members_dms INTEGER NOT NULL DEFAULT 1 CHECK(typeof(show_members_dms)='integer' AND show_members_dms IN (0,1)),
+				compact_messages INTEGER NOT NULL DEFAULT 0 CHECK(typeof(compact_messages)='integer' AND compact_messages IN (0,1))
+			); INSERT INTO reading_preferences_zoom SELECT singleton,zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links,smooth_scrolling,scroll_speed_percent,show_members_dms,compact_messages FROM reading_preferences;
+			DROP TABLE reading_preferences; ALTER TABLE reading_preferences_zoom RENAME TO reading_preferences;")?;
 		}
 		let has_author_roles: bool = transaction.query_row(
 			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='author_roles')",
@@ -663,7 +681,7 @@ impl LocalStore {
 						row.get_ref(9)?,
 					) {
 						(
-							ValueRef::Integer(zoom @ 80..=150),
+							ValueRef::Integer(zoom @ 50..=150),
 							ValueRef::Integer(width @ 190..=360),
 							ValueRef::Integer(members @ 0..=1),
 							ValueRef::Integer(animate_gifs @ 0..=1),
@@ -1178,6 +1196,7 @@ impl LocalStore {
 				_ => return Err(StoreError::Incompatible),
 			};
 			let message = Message {
+				poll: None,
 				sticker_items: serde_json::from_str::<
 					model::StickerList<{ model::MAX_MESSAGE_STICKERS }>,
 				>(
@@ -1996,6 +2015,19 @@ mod tests {
 			serde_json::from_str(r#"{"voice_noise_suppression":true}"#).unwrap();
 		assert!(legacy.voice_processing.is_none());
 		assert!(legacy.voice_noise_suppression);
+		// Existing serialized bindings omit the newly optional diagnostics shortcut.
+		let mut old_bindings = serde_json::to_value(model::Keybinds::default()).unwrap();
+		old_bindings
+			.as_object_mut()
+			.unwrap()
+			.remove("copy_issue_diagnostics");
+		let restored: model::Keybinds = serde_json::from_value(old_bindings).unwrap();
+		assert!(restored.is_valid());
+		assert_eq!(restored.copy_issue_diagnostics, model::KeyChord::new("", 0));
+		assert_eq!(
+			restored.send_message,
+			model::Keybinds::default().send_message
+		);
 		let mut value = AppPreferences {
 			language: Some("cs".into()),
 			notifications_enabled: true,
@@ -2662,15 +2694,97 @@ mod tests {
 			.unwrap();
 		let mut store = LocalStore::initialize(store.0).unwrap();
 		assert_eq!(store.gif_favorites(Id(1)).unwrap(), vec![gif]);
+		let video = model::Gif {
+			id: "discord-video".into(),
+			title: String::new(),
+			url: "https://tenor.com/view/synthetic-video".into(),
+			preview: "https://media.tenor.com/synthetic/video.mp4".into(),
+			width: 300,
+			height: 200,
+		};
+		store
+			.save_gif_favorites(Id(1), std::slice::from_ref(&video))
+			.unwrap();
+		assert_eq!(store.gif_favorites(Id(1)).unwrap(), vec![video]);
 		assert!(store.gif_favorites(Id(2)).unwrap().is_empty());
 		store.save_gif_favorites(Id(1), &[]).unwrap();
 		assert!(store.gif_favorites(Id(1)).unwrap().is_empty());
 	}
 
 	#[test]
+	fn older_zoom_constraint_migrates_without_losing_reading_settings() {
+		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+		let preferences = ReadingPreferences {
+			zoom_percent: 80,
+			sidebar_width: 310,
+			show_members: false,
+			show_members_dms: false,
+			animate_gifs: true,
+			hide_media_links: false,
+			confirm_external_links: false,
+			smooth_scrolling: false,
+			compact_messages: true,
+			scroll_speed_percent: 140,
+		};
+		store.save_reading_preferences(preferences).unwrap();
+		let sql: String = store
+			.0
+			.query_row(
+				"SELECT sql FROM sqlite_schema WHERE name='reading_preferences'",
+				[],
+				|row| row.get(0),
+			)
+			.unwrap();
+		let old = sql
+			.replace("reading_preferences", "old_reading_preferences")
+			.replace("BETWEEN 50 AND 150", "BETWEEN 80 AND 150");
+		store.0.execute_batch(&format!("{old}; INSERT INTO old_reading_preferences SELECT * FROM reading_preferences; DROP TABLE reading_preferences; ALTER TABLE old_reading_preferences RENAME TO reading_preferences; PRAGMA user_version=25;")).unwrap();
+		assert!(
+			store
+				.0
+				.execute("UPDATE reading_preferences SET zoom_percent=50", [])
+				.is_err()
+		);
+		store.0.execute_batch("DELETE FROM reading_preferences; INSERT INTO reading_preferences(singleton,zoom_percent,sidebar_width,show_members) VALUES(1,80,236,1);").unwrap();
+		assert_eq!(
+			store.reading_preferences().unwrap(),
+			ReadingPreferences {
+				zoom_percent: 80,
+				animate_gifs: false,
+				..ReadingPreferences::default()
+			}
+		);
+		store.save_reading_preferences(preferences).unwrap();
+		let upgraded = LocalStore::initialize(store.0).unwrap();
+		assert_eq!(upgraded.reading_preferences().unwrap(), preferences);
+		let smaller = ReadingPreferences {
+			zoom_percent: 50,
+			..preferences
+		};
+		upgraded.save_reading_preferences(smaller).unwrap();
+		let reopened = LocalStore::initialize(upgraded.0).unwrap();
+		assert_eq!(reopened.reading_preferences().unwrap(), smaller);
+		reopened.0.execute_batch("DELETE FROM reading_preferences; INSERT INTO reading_preferences(singleton,zoom_percent,sidebar_width,show_members) VALUES(1,50,236,1);").unwrap();
+		assert_eq!(
+			reopened.reading_preferences().unwrap(),
+			ReadingPreferences {
+				zoom_percent: 50,
+				animate_gifs: false,
+				..ReadingPreferences::default()
+			}
+		);
+		assert!(
+			reopened
+				.0
+				.execute("UPDATE reading_preferences SET zoom_percent=49", [])
+				.is_err()
+		);
+	}
+
+	#[test]
 	fn reading_preferences_validate_storage_types_bounds_and_atomic_replacement() {
 		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
-		for (zoom_percent, sidebar_width) in [(80, 190), (150, 360)] {
+		for (zoom_percent, sidebar_width) in [(50, 190), (80, 190), (150, 360)] {
 			for show_members in [false, true] {
 				let preferences = ReadingPreferences {
 					zoom_percent,
@@ -2691,7 +2805,7 @@ mod tests {
 		let previous = store.reading_preferences().unwrap();
 		for (zoom_percent, sidebar_width) in [
 			(0, 236),
-			(79, 236),
+			(49, 236),
 			(151, 236),
 			(u16::MAX, 236),
 			(100, 189),
@@ -2753,7 +2867,7 @@ mod tests {
 			.execute_batch("PRAGMA ignore_check_constraints=ON;")
 			.unwrap();
 		for invalid in [
-			"zoom_percent=79",
+			"zoom_percent=49",
 			"zoom_percent=151",
 			"zoom_percent=-1",
 			"zoom_percent=65536",
@@ -3128,6 +3242,7 @@ mod tests {
 		);
 		for channel in 1..=30 {
 			let mut message = Message {
+				poll: None,
 				flags: 0,
 				sticker_items: vec![],
 				components: vec![],

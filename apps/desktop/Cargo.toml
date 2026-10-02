@@ -47,6 +47,8 @@ symphonia = { version = "=0.6.1", default-features = false, features = ["mp3", "
 opus2 = { version = "=0.4.0", default-features = false, features = ["backend-libopus", "static", "bundled"] }
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 png = "=0.18.1"
+# Only trusted bundled path/shape SVGs; no text, font discovery, raster images or SVGZ.
+resvg = { version = "=0.48.1", default-features = false }
 arboard = "=3.6.1"
 # Serein never installs a `log` logger, so dependency log calls (wgpu, winit, reqwest, ...)
 # are dead code; this feature compiles them out of release builds instead of shipping them.
@@ -57,6 +59,8 @@ log = { version = "=0.4.34", features = ["release_max_level_off"] }
 winit = { workspace = true, features = ["wayland-csd-adwaita"] }
 # Native Wayland clipboard so copied files paste without an XWayland bridge.
 arboard = { version = "=3.6.1", features = ["wayland-data-control"] }
+# Media playback sizes PulseAudio buffers itself; voice already selects this host.
+cpal = { version = "=0.18.2", default-features = false, features = ["pulseaudio"] }
 
 [build-dependencies]
 find-msvc-tools = "=0.1.12"

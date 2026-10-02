@@ -89,6 +89,7 @@ pub enum ExtensionKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+	ApiProxy,
 	RichPresence,
 	RelationshipControl,
 	AccountControl,
@@ -441,9 +442,77 @@ impl MessageEvent {
 	}
 }
 
+/// Connection-scoped REST API routing. No credentials or account data are exposed.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ApiProxyConfig {
+	#[default]
+	Direct,
+	Automatic,
+	Url {
+		url: String,
+	},
+}
+impl<'de> Deserialize<'de> for ApiProxyConfig {
+	fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+		#[derive(Deserialize)]
+		#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
+		enum Wire {
+			Direct {},
+			Automatic {},
+			Url { url: String },
+		}
+		Ok(match Wire::deserialize(deserializer)? {
+			Wire::Direct {} => Self::Direct,
+			Wire::Automatic {} => Self::Automatic,
+			Wire::Url { url } => Self::Url { url },
+		})
+	}
+}
+impl ApiProxyConfig {
+	pub fn validate(&self) -> Result<(), Error> {
+		if let Self::Url { url } = self {
+			if url.contains('@')
+				|| url.contains('\\')
+				|| url.len() > 2048
+				|| url
+					.chars()
+					.any(|c| c.is_control() || c.is_ascii_whitespace())
+			{
+				return Err(Error::Invalid);
+			}
+			let authority = url
+				.split_once("://")
+				.map(|(_, tail)| tail)
+				.ok_or(Error::Invalid)?;
+			if authority
+				.strip_suffix('/')
+				.unwrap_or(authority)
+				.contains('/')
+			{
+				return Err(Error::Invalid);
+			}
+			let parsed = url::Url::parse(url).map_err(|_| Error::Invalid)?;
+			if !matches!(parsed.scheme(), "http" | "https")
+				|| parsed.host_str().is_none()
+				|| !parsed.username().is_empty()
+				|| parsed.password().is_some()
+				|| parsed.path() != "/"
+				|| parsed.query().is_some()
+				|| parsed.fragment().is_some()
+			{
+				return Err(Error::Invalid);
+			}
+		}
+		Ok(())
+	}
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Output {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub api_proxy: Option<ApiProxyConfig>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub rich_presence: Option<RichPresenceUpdate>,
 	#[serde(default)]
@@ -560,6 +629,19 @@ impl Manifest {
 		}
 		if self.capabilities.len() > MAX_CAPABILITIES || self.actions.len() > 16 {
 			return Err(Error::Limit);
+		}
+		if self.capabilities.contains(&Capability::ApiProxy)
+			&& (self.kind != ExtensionKind::Plugin
+				|| self
+					.capabilities
+					.iter()
+					.any(|cap| !matches!(cap, Capability::ApiProxy | Capability::Storage))
+				|| self
+					.actions
+					.iter()
+					.any(|action| !matches!(action.surface, Surface::Activation | Surface::Panel)))
+		{
+			return Err(Error::Capability);
 		}
 		let mut capabilities = BTreeSet::new();
 		if self.capabilities.iter().any(|c| !capabilities.insert(*c)) {
@@ -998,6 +1080,14 @@ impl Output {
 				|| !self.effects.is_empty())
 		{
 			return Err(Error::Capability);
+		}
+		if let Some(config) = &self.api_proxy {
+			if !manifest.capabilities.contains(&Capability::ApiProxy)
+				|| !matches!(surface, Surface::Activation | Surface::Panel)
+			{
+				return Err(Error::Capability);
+			}
+			config.validate()?;
 		}
 		if let Some(update) = &self.rich_presence {
 			if !manifest.capabilities.contains(&Capability::RichPresence)

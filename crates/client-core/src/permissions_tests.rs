@@ -271,6 +271,7 @@ fn channel(id: u64, kind: u8, parent: Option<Id>) -> Channel {
 }
 fn message(id: u64, channel: Id) -> Message {
 	Message {
+		poll: None,
 		sticker_items: Vec::new(),
 		id: Id(id),
 		channel,
@@ -968,6 +969,7 @@ fn revoked_view_cannot_return_through_stale_gateway_content_or_old_history() {
 			apply(
 				&mut state,
 				Event::Patch(MessagePatch {
+					poll: model::Patch::Absent,
 					sticker_items: model::Patch::Absent,
 					components: model::Patch::Absent,
 					flags: model::Patch::Absent,
@@ -1463,7 +1465,7 @@ fn history_freshness_does_not_disable_authorized_sending() {
 	assert_eq!(state.freshness, Freshness::Loading);
 	assert!(state.can_send(Id(20)) && state.can_attach(Id(20)));
 	state.gateway_connected = false;
-	assert!(!state.can_send(Id(20)));
+	assert!(state.can_send(Id(20)) && !state.can_attach(Id(20)));
 	state.gateway_connected = true;
 	state.freshness = Freshness::Stale;
 	assert!(state.can_send(Id(20)));

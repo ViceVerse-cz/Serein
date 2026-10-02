@@ -1,15 +1,21 @@
-// Direct, origin-fixed REST adapter. No cookies, redirects, logging, persistence or bot SDK.
+// Origin-fixed REST adapter. No cookies, redirects, logging, persistence or bot SDK.
 mod activity_sharing;
 mod archives;
 mod channel_actions;
 pub mod detectable;
 pub mod external_assets;
 mod forum;
+mod gif_favorites;
 mod group_actions;
 mod guild_folders;
 mod interactions;
+mod message_options;
 mod messaging_permissions;
+mod onboarding;
 mod profile_edit;
+pub mod proxy;
+#[cfg(test)]
+mod proxy_tests;
 pub mod rpc;
 mod server_actions;
 mod server_admin;
@@ -26,7 +32,7 @@ use client_core::{
 	auth::{AuthProvider, Failure, SessionSecret},
 };
 use discord_protocol::*;
-use model::User;
+use model::{Id, User};
 use reqwest::{
 	Client, Method, StatusCode,
 	header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue},
@@ -47,6 +53,7 @@ pub struct DiscordApi {
 	interaction_session: std::sync::Mutex<Option<zeroize::Zeroizing<String>>>,
 	ack_token: Mutex<zeroize::Zeroizing<Option<String>>>,
 	client: Client,
+	proxy: Mutex<ProxyState>,
 	upload_client: tokio::sync::OnceCell<Client>,
 	secret: Arc<SessionSecret>,
 	cooldown: Mutex<Instant>,
@@ -57,6 +64,11 @@ pub struct DiscordApi {
 	#[cfg(test)]
 	upload_origin: Option<std::net::SocketAddr>,
 }
+struct ProxyState {
+	receiver: tokio::sync::watch::Receiver<Option<proxy::ApiProxy>>,
+	cached: Option<(proxy::ApiProxy, Client)>,
+}
+
 enum RequestContent {
 	Json(serde_json::Value),
 	Multipart { content_type: String, body: Vec<u8> },
@@ -160,24 +172,43 @@ fn fingerprint_headers() -> Result<reqwest::header::HeaderMap, Failure> {
 	);
 	Ok(headers)
 }
+fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
+	let builder = Client::builder()
+		.redirect(reqwest::redirect::Policy::none())
+		// Keep writes single-attempt, including attachment slot allocation.
+		.retry(reqwest::retry::never())
+		.timeout(Duration::from_secs(20))
+		.connect_timeout(Duration::from_secs(10))
+		.user_agent(client_core::fingerprint::user_agent())
+		.default_headers(fingerprint_headers()?);
+	route
+		.client_builder(builder)
+		.map_err(Failure::ProtocolAt)?
+		.build()
+		.map_err(|_| Failure::ProtocolAt("API proxy connection unavailable"))
+}
 impl DiscordApi {
 	pub fn new(secret: Arc<SessionSecret>) -> Result<Self, Failure> {
-		let client = Client::builder()
-			.redirect(reqwest::redirect::Policy::none())
-			// Keep writes single-attempt, including attachment slot allocation.
-			.retry(reqwest::retry::never())
-			.no_proxy()
-			.timeout(Duration::from_secs(20))
-			.connect_timeout(Duration::from_secs(10))
-			.user_agent(client_core::fingerprint::user_agent())
-			.default_headers(fingerprint_headers()?)
-			.build()
-			.map_err(|_| Failure::Network)?;
+		Self::with_proxy(
+			secret,
+			tokio::sync::watch::channel(Some(proxy::ApiProxy::Direct)).1,
+		)
+	}
+	/// None waits for extension configuration; requests never race ahead using a direct route.
+	pub fn with_proxy(
+		secret: Arc<SessionSecret>,
+		receiver: tokio::sync::watch::Receiver<Option<proxy::ApiProxy>>,
+	) -> Result<Self, Failure> {
+		let client = api_client(&proxy::ApiProxy::Direct)?;
 		Ok(Self {
 			interaction_session: std::sync::Mutex::new(None),
 			upload_client: tokio::sync::OnceCell::new(),
 			ack_token: Mutex::new(zeroize::Zeroizing::new(None)),
 			client,
+			proxy: Mutex::new(ProxyState {
+				receiver,
+				cached: None,
+			}),
 			secret,
 			cooldown: Mutex::new(Instant::now()),
 			requests: Semaphore::new(4),
@@ -187,6 +218,36 @@ impl DiscordApi {
 			#[cfg(test)]
 			upload_origin: None,
 		})
+	}
+	/// Credential-free client snapshot for Discord REST; authorization is added per request.
+	pub async fn rest_client(&self) -> Result<Client, Failure> {
+		let mut state = self.proxy.lock().await;
+		let route = loop {
+			let current = state.receiver.borrow_and_update().clone();
+			if let Some(route) = current {
+				break route;
+			}
+			state.cached = None;
+			state
+				.receiver
+				.changed()
+				.await
+				.map_err(|_| Failure::ProtocolAt("API proxy configuration unavailable"))?;
+		};
+		if let Some((previous, client)) = &state.cached
+			&& previous == &route
+		{
+			return Ok(client.clone());
+		}
+		// Drop the old route first: invalid configuration must never reuse a direct connection.
+		state.cached = None;
+		let client = if route == proxy::ApiProxy::Direct {
+			self.client.clone()
+		} else {
+			api_client(&route)?
+		};
+		state.cached = Some((route, client.clone()));
+		Ok(client)
 	}
 	pub fn stop(&self) {
 		self.stopped.store(true, Ordering::Release);
@@ -299,7 +360,8 @@ impl DiscordApi {
 		let base = &self.base;
 		let write = method != Method::GET;
 		let mut request = self
-			.client
+			.rest_client()
+			.await?
 			.request(method, format!("{base}{path}"))
 			.header(AUTHORIZATION, authorization);
 		if let Some(retry) = retry {
@@ -607,6 +669,11 @@ impl DiscordApi {
 				request,
 				edit,
 			} => Event::ServerSettings(self.server_settings(guild, request, edit).await),
+			Command::Onboarding {
+				guild,
+				request,
+				action,
+			} => Event::Onboarding(self.onboarding(guild, request, action).await),
 			Command::SendServerInvite {
 				guild,
 				user,
@@ -824,6 +891,10 @@ impl DiscordApi {
 				result: self.gifs(query.as_deref()).await,
 			},
 			Command::CancelGifs => Event::Failure(Failure::Protocol),
+			Command::GifFavorites { request, change } => Event::GifFavorites {
+				request,
+				result: self.gif_favorites(change).await,
+			},
 			Command::MarkRead {
 				channel,
 				message,
@@ -847,6 +918,108 @@ impl DiscordApi {
 					guild,
 					request,
 					result,
+				})
+			}
+			Command::Polls(command) => {
+				use client_core::polls::{Action, Event as E};
+				let channel = command.channel;
+				let message = command.message;
+				let result = async {
+					if channel == Id(0) {
+						return Err(Failure::Protocol);
+					}
+					let bytes = match command.action {
+						Action::Create(create) => {
+							if message.is_some() || !create.valid() {
+								return Err(Failure::Protocol);
+							}
+							let answers: Vec<_> = create
+								.answers
+								.iter()
+								.map(|a| {
+									let emoji = a.emoji.as_ref().map(|e| match e.id {
+										Some(id) => serde_json::json!({"id": id.to_string()}),
+										None => serde_json::json!({"name": e.name}),
+									});
+									let mut media = serde_json::json!({"text":a.text});
+									if let Some(emoji) = emoji {
+										media["emoji"] = emoji;
+									}
+									serde_json::json!({"poll_media":media})
+								})
+								.collect();
+							self.request(
+								Method::POST,
+								&format!("/channels/{channel}/messages"),
+								Some(serde_json::json!({
+									"poll":{"question":{"text":create.question},"answers":answers,"duration":create.duration,
+									"allow_multiselect":create.multiselect,"layout_type":1}, "nonce":command.nonce,
+									"allowed_mentions":{"parse":[],"replied_user":false}
+								})),
+							)
+							.await?
+						}
+						action => {
+							let id = message.filter(|id| *id != Id(0)).ok_or(Failure::Protocol)?;
+							match action {
+								Action::End => {
+									return self
+										.request(
+											Method::POST,
+											&format!("/channels/{channel}/polls/{id}/expire"),
+											None,
+										)
+										.await
+										.and_then(|bytes| {
+											decode::<MessageDto>(&bytes)
+												.map(MessageDto::into_model)
+												.map_err(|_| Failure::Protocol)
+										});
+								}
+								Action::Vote(answers) => {
+									if answers.len() > model::polls::MAX_ANSWERS
+										|| answers
+											.iter()
+											.enumerate()
+											.any(|(i, a)| *a == 0 || answers[..i].contains(a))
+									{
+										return Err(Failure::Protocol);
+									}
+									self.request(
+										Method::PUT,
+										&format!("/channels/{channel}/polls/{id}/answers/@me"),
+										Some(serde_json::json!({"answer_ids":answers})),
+									)
+									.await?;
+								}
+								Action::Read => {}
+								Action::Create(_) => unreachable!(),
+							}
+							let bytes = self
+								.request(
+									Method::GET,
+									&format!("/channels/{channel}/messages?limit=1&around={id}"),
+									None,
+								)
+								.await?;
+							let [dto] =
+								decode::<[MessageDto; 1]>(&bytes).map_err(|_| Failure::Protocol)?;
+							if dto.id != id || dto.channel_id != channel {
+								return Err(Failure::Protocol);
+							}
+							return Ok(dto.into_model());
+						}
+					};
+					decode::<MessageDto>(&bytes)
+						.map(MessageDto::into_model)
+						.map_err(|_| Failure::Protocol)
+				}
+				.await;
+				Event::Polls(E::Result {
+					channel,
+					message,
+					request: command.request,
+					result: result.map(Box::new),
 				})
 			}
 			Command::Reactions(command) => {
@@ -1365,15 +1538,21 @@ impl DiscordApi {
 		attachment: Option<Vec<serde_json::Value>>,
 		sticker: Option<model::Id>,
 	) -> Result<model::Message, Failure> {
-		if (content.trim().is_empty() && attachment.is_none() && sticker.is_none())
-			|| content.chars().count() > client_core::MAX_CONTENT
-		{
+		if !message_options::valid(
+			content,
+			client_core::MAX_CONTENT,
+			attachment.as_ref().is_some_and(|items| !items.is_empty()) || sticker.is_some(),
+		) {
 			return Err(Failure::Capacity);
 		}
+		let (content, silent) = message_options::content(content);
 		if sticker.is_some_and(|id| id.0 == 0) {
 			return Err(Failure::Protocol);
 		}
 		let mut body = serde_json::json!({"content":content,"nonce":nonce,"allowed_mentions":allowed_mentions(content, reply)});
+		if silent {
+			body["flags"] = serde_json::json!(message_options::SUPPRESS_NOTIFICATIONS);
+		}
 		if let Some(sticker) = sticker {
 			body["sticker_ids"] = serde_json::json!([sticker]);
 		}
@@ -1414,15 +1593,21 @@ impl DiscordApi {
 		if title.is_empty()
 			|| title.chars().count() > client_core::forum::MAX_TITLE
 			|| tags.len() > model::forum::MAX_APPLIED_TAGS
-			|| (content.trim().is_empty() && attachments.is_none())
-			|| content.chars().count() > client_core::MAX_CONTENT
-		{
+			|| !message_options::valid(
+				content,
+				client_core::MAX_CONTENT,
+				attachments.as_ref().is_some_and(|items| !items.is_empty()),
+			) {
 			return Err(Failure::Capacity);
 		}
+		let (content, silent) = message_options::content(content);
 		let mut message = serde_json::json!({
 			"content": content,
 			"allowed_mentions": allowed_mentions(content, None),
 		});
+		if silent {
+			message["flags"] = serde_json::json!(message_options::SUPPRESS_NOTIFICATIONS);
+		}
 		if let Some(attachments) = attachments {
 			message["attachments"] = serde_json::json!(attachments);
 		}

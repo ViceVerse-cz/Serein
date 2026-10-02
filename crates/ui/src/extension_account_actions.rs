@@ -109,9 +109,12 @@ impl MessagingUi {
 						.selected
 						.filter(|channel| state.can_read_history(*channel))
 						.is_some_and(|channel| {
-							crate::mentions::known_users(state, channel)
-								.iter()
-								.any(|person| person.id == user)
+							crate::mentions::find_user(
+								user,
+								&[],
+								Some(&crate::mentions::MentionSource { state, channel }),
+							)
+							.is_some()
 						});
 				if !known {
 					return Err("This user is not available in the current session".into());

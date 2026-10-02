@@ -55,6 +55,14 @@ impl Envelope<'_> {
 			self.user.id,
 		)
 	}
+	/// Rules screening and onboarding gates; unreadable rows only leave a server ungated.
+	pub fn onboarding(&self) -> Vec<model::onboarding::GuildGate> {
+		crate::onboarding::ready(
+			self.guilds.get().as_bytes(),
+			self.merged_members.map(|m| m.get().as_bytes()),
+			self.user.id,
+		)
+	}
 	pub fn navigation(self) -> Result<(Ready, Warnings), DecodeError> {
 		let mut warnings = Warnings::default();
 		let guilds: Guilds = crate::decode_gateway(self.guilds.get().as_bytes())?;

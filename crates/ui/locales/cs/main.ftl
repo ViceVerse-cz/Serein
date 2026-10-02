@@ -14,7 +14,7 @@ page-appearance = Vzhled
 page-chat = Chat
 page-messaging-permissions = Oprávnění zpráv
 page-notifications = Oznámení
-page-activity = Herní aktivita
+page-registered-games = Registrované hry
 page-voice = Hlas a video
 page-keybinds = Klávesové zkratky
 page-storage = Data a soukromí
@@ -28,7 +28,7 @@ description-appearance = Motiv, barvy, efekty okna a rozvržení.
 description-chat = Chování zpráv, médií, odkazů a posouvání.
 description-messaging-permissions = Určete, kdo vás může kontaktovat a jak se filtrují zprávy.
 description-notifications = Zvolte, která oznámení dostáváte a jak se zobrazují.
-description-activity = Ukažte ostatním, co hrajete.
+description-registered-games = Sdílejte, co hrajete, a opravte nebo přidejte hry, které Serein rozpozná.
 description-voice = Mikrofon, reproduktory, kamera a zpracování hlasu.
 description-keybinds = Klávesové zkratky aplikace Serein.
 description-storage = Co Serein uchovává na tomto zařízení.
@@ -103,6 +103,7 @@ no-conversations = Nejsou zde dostupné žádné konverzace.
 open-in-discord = Otevřít v Discordu
 new = Nové
 members-count = členů
+members-heading = Členové
 no-conversation-selected = Není vybrána žádná konverzace
 select-conversation = Vyberte kanál nebo přímou zprávu ze seznamu.
 friends-online = Online
@@ -733,6 +734,8 @@ design-account-row-with-remove-forget-this-account-on-this-device = Zapomenout t
 design-color-edit-hex-color-rrggbb-click-to-type-or-paste = Barva hex: #RRGGBB. Klepnutím zadejte nebo vložte.
 # Context: save_bar
 design-save-bar-careful-you-have-unsaved-changes = Pozor – máte neuložené změny!
+design-save-bar-save-changes = Uložit změny
+design-save-bar-reset = Obnovit
 
 ## crates/ui/src/dialog.rs
 # Context: header
@@ -1501,7 +1504,7 @@ join-server-show-join-enter-an-invite-below-to-join-an-existing-server = Níže 
 # Context: show_join
 join-server-show-join-join-a-server = Připojte se k serveru
 # Context: body
-join-server-status-invite-accepted = Pozvánka přijata. Čekání na přístup k serveru; vyplňte všechna pravidla serveru v Discordu.
+join-server-status-invite-accepted = Pozvánka přijata. Čekání na přístup k serveru.
 # Context: body
 join-server-status-offline-preview = Offline náhled — připojení k serverům je zakázáno.
 
@@ -1544,6 +1547,8 @@ lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = Vyberte, 
 lib-ime-updates-text-clear-this-draft = Vymazat tento koncept
 # Context: ime_updates_text
 lib-ime-updates-text-copy-edit-text = Kopírovat upravit text
+# Context: ime_updates_text
+lib-ime-updates-text-create-a-poll = Vytvořit anketu
 # Context: ime_updates_text
 lib-ime-updates-text-draft-budget-full-clear-an-existing-draft-to-continue = Návrh rozpočtu je plný. Chcete-li pokračovat, vymažte existující koncept.
 # Context: ime_updates_text
@@ -1785,6 +1790,86 @@ pending-show-you = Vy
 pending-upload-strip-cancel-upload = Zrušit nahrávání
 # Context: upload_strip
 pending-upload-strip-the-message-may-already-have-reached-discord-check-the-conversation = Zpráva již možná dorazila do Discordu. Před dalším odesláním konverzaci zkontrolujte.
+
+## crates/ui/src/polls.rs
+# Context: card
+polls-card-ended = Anketa skončila
+# Context: card
+polls-card-select-many = Vyberte jednu nebo více odpovědí
+# Context: card
+polls-card-select-one = Vyberte jednu odpověď
+# Context: card
+polls-card-final-results = Konečné výsledky
+# Context: card
+polls-card-awaiting-results = Čeká se na konečné výsledky
+# Context: card
+polls-card-hours-left = zbývá { $hours } h
+# Context: card
+polls-card-minutes-left = zbývá { $minutes } min
+# Context: card
+polls-card-in-progress = Probíhá
+# Context: card
+polls-card-vote-count-one = { $count } hlas
+# Context: card
+polls-card-vote-count-many = Hlasů: { $count }
+# Context: card
+polls-card-results-not-loaded = Výsledky nejsou načteny
+# Context: card
+polls-card-back-to-voting = Zpět k hlasování
+# Context: card
+polls-card-refresh-results = Obnovit výsledky
+# Context: card
+polls-card-show-results = Zobrazit výsledky
+# Context: card
+polls-card-remove-vote = Odebrat hlas
+# Context: card
+polls-card-vote = Hlasovat
+# Context: card
+polls-card-end-confirm = Ukončit tuto anketu pro všechny?
+# Context: card
+polls-card-end-now = Ukončit nyní
+# Context: card
+polls-card-end-poll = Ukončit anketu
+# Context: creator
+polls-creator-title = Vytvořit anketu
+# Context: creator
+polls-creator-question = Otázka
+# Context: creator
+polls-creator-question-hint = Na co se chcete zeptat?
+# Context: creator
+polls-creator-answers = Odpovědi
+# Context: creator
+polls-creator-answer-hint = Odpověď { $number }
+# Context: creator
+polls-creator-add-emoji = Přidat emoji
+# Context: creator
+polls-creator-change-emoji = Změnit emoji
+# Context: creator
+polls-creator-remove-answer = Odebrat odpověď
+# Context: creator
+polls-creator-add-answer = Přidat další odpověď
+# Context: creator
+polls-creator-duration = Doba trvání
+# Context: creator
+polls-creator-multiple-answers = Povolit více odpovědí
+# Context: creator
+polls-creator-post = Zveřejnit
+# Context: creator
+polls-creator-posting = Zveřejňování…
+# Context: duration_label
+polls-duration-1-hour = 1 hodina
+# Context: duration_label
+polls-duration-4-hours = 4 hodiny
+# Context: duration_label
+polls-duration-8-hours = 8 hodin
+# Context: duration_label
+polls-duration-24-hours = 24 hodin
+# Context: duration_label
+polls-duration-3-days = 3 dny
+# Context: duration_label
+polls-duration-1-week = 1 týden
+# Context: duration_label
+polls-duration-hours = Hodin: { $hours }
 
 ## crates/ui/src/post_menu.rs
 # Context: context
@@ -2372,8 +2457,6 @@ server-admin-emojis-image = Obrázek
 # Context: emojis
 server-admin-emojis-name = Jméno
 # Context: emojis
-server-admin-emojis-none = ŽÁDNÝ
-# Context: emojis
 server-admin-emojis-preparing-emoji-images = Příprava obrázků emodži...
 # Context: emojis
 server-admin-emojis-remove = Odstranit
@@ -2467,8 +2550,6 @@ server-admin-members-recent-members = Nedávní členové
 server-admin-members-search-by-username-or-id = Vyhledávejte podle uživatelského jména nebo ID
 # Context: members
 server-admin-members-server-members = Členové serveru
-# Context: members
-server-admin-members-show-members-in-channel-list = Zobrazit členy v seznamu kanálů
 # Context: members
 server-admin-members-show-the-members-page-in-the-channel-list-to-quickly = Zobrazte stránku členů v seznamu kanálů, abyste rychle viděli poslední připojení a členy označené kvůli neobvyklé aktivitě.
 # Context: members
@@ -3232,6 +3313,92 @@ settings-account-page-signed-in-with-your-discord-account = Přihlášeni pomoc�
 settings-activity-settings-detect-running-games-and-ask-discord-to-share-them-as = Zjistěte běžící hry a požádejte Discord, aby je sdílel jako aktivitu.
 # Context: activity_settings
 settings-activity-settings-share-game-activity = Sdílejte herní aktivitu
+# Context: activity_settings
+settings-activity-enable-on-discord = Zapnout na Discordu
+# Context: activity_settings
+settings-activity-check-again = Zkontrolovat znovu
+# Context: activity_settings
+settings-activity-sharing-is-off = Sdílení aktivity je vypnuté
+# Context: activity_settings
+settings-activity-sharing-your-game = Sdílíte svou hru
+# Context: activity_settings
+settings-activity-looking = Hledání spuštěné hry
+# Context: activity_settings
+settings-activity-demo-detail = Ukázková aktivita, nikdy se nesdílí ani neukládá.
+# Context: activity_settings
+settings-activity-status-offline-preview = Offline náhled: ukázková aktivita, nikdy se nesdílí ani neukládá.
+# Context: activity_settings
+settings-activity-status-unconfirmed = Pouze místní náhled. Čeká se, až Discord sdílení potvrdí.
+# Context: activity_settings
+settings-activity-status-received = Discord vaši hru přijal, ale veřejně ji nezobrazuje.
+# Context: activity_settings
+settings-activity-status-listed = Discord vaši hru zobrazuje. Nastavení soukromí serverů a přátel stále platí.
+# Context: activity_settings
+settings-activity-status-hidden = Discord vaši hru skrývá. Zkontrolujte v Discordu Registrované hry a Sdílení aktivity.
+# Context: activity_settings
+settings-activity-status-missing = Discord vaši hru veřejně nezobrazil. Zkontrolujte jeho Registrované hry a nastavení sdílení na serverech.
+# Context: activity_settings
+settings-activity-status-sharing-off = Sdílení aktivity pro celý účet Discord je vypnuté.
+# Context: activity_settings
+settings-activity-status-checking = Kontroluje se nastavení sdílení aktivity na Discordu…
+# Context: activity_settings
+settings-activity-status-check-failed = Nastavení sdílení aktivity na Discordu se nepodařilo zkontrolovat ani změnit.
+# Context: activity_settings
+settings-activity-status-updating = Aktualizuje se nastavení sdílení aktivity na Discordu…
+# Context: activity_settings
+settings-activity-status-request-failed = Změnu nastavení se nepodařilo vyžádat. Zkuste to znovu.
+# Context: activity_settings
+settings-activity-current-game = Aktuální hra
+# Context: activity_settings
+settings-activity-now-playing = Právě hrajete!
+# Context: activity_settings
+settings-activity-stop-detecting-current = Není to tato hra? Přestaňte ji rozpoznávat.
+# Context: activity_settings
+settings-activity-reported-by-game = Hlášeno hrou přes Rich Presence.
+# Context: activity_settings
+settings-activity-no-game-detected = Žádná hra nebyla rozpoznána
+# Context: activity_settings
+settings-activity-turn-on-sharing = Pro rozpoznávání her zapněte výše Sdílet herní aktivitu.
+# Context: activity_settings
+settings-activity-not-seeing-your-game = Nevidíte svou hru?
+# Context: activity_settings
+settings-activity-add-it = Přidejte ji!
+# Context: activity_settings
+settings-activity-added-games = Přidané hry
+# Context: activity_settings
+settings-activity-no-games-added = Žádné přidané hry
+# Context: activity_settings
+settings-activity-hidden = Skryto. Serein tuto hru nebude rozpoznávat.
+# Context: activity_settings
+settings-activity-detected = Rozpoznáno automaticky
+# Context: activity_settings
+settings-activity-last-played-today = Naposledy hráno dnes
+# Context: activity_settings
+settings-activity-last-played-yesterday = Naposledy hráno včera
+# Context: activity_settings
+settings-activity-last-played = Naposledy hráno { $date }
+# Context: activity_settings
+settings-activity-restore = Obnovit
+# Context: activity_settings
+settings-activity-restore-hint = Znovu tuto hru rozpoznávat.
+# Context: activity_settings
+settings-activity-stop-detecting = Přestat rozpoznávat tuto hru
+# Context: activity_settings
+settings-activity-remove-game = Odebrat tuto hru
+# Context: activity_settings
+settings-activity-click-to-rename = Kliknutím přejmenujete
+# Context: activity_settings
+settings-activity-add-a-game = Přidat hru
+# Context: activity_settings
+settings-activity-choose-program = Vyberte spuštěný program. Serein ho zobrazí jako vaši hru, kdykoli poběží.
+# Context: activity_settings
+settings-activity-search-programs = Hledat spuštěné programy
+# Context: activity_settings
+settings-activity-reading-programs = Načítání spuštěných programů…
+# Context: activity_settings
+settings-activity-no-matching-programs = Neběží žádné odpovídající programy.
+# Context: activity_settings
+settings-activity-add-game = Přidat hru
 # Context: appearance_menu
 settings-appearance-menu-display = Zobrazit
 # Context: appearance_menu
@@ -3596,6 +3763,13 @@ timeline-message-actions-view-reactions = Zobrazit reakce
 timeline-present-control-jump-to-present = Přejít do současnosti
 # Context: present_control
 timeline-present-control-new-messages-below-jump-to-present = Níže jsou nové zprávy · přejít na nejnovější
+# Context: present_control
+timeline-present-control-new-messages =
+    { $count ->
+        [one] { $count } nová zpráva
+        [few] { $count } nové zprávy
+       *[other] { $count } nových zpráv
+    }
 # Context: show_system
 timeline-show-system-open-this-channels-threads = Otevřít vlákna tohoto kanálu
 # Context: show_system
@@ -3642,6 +3816,10 @@ timeline-show-with-scroll-you-cannot-view-this-conversation = Tuto konverzaci ne
 timeline-starter-row-thread-started-from-this-message = Vlákno začalo od této zprávy
 # Context: unread_banner
 timeline-unread-banner-unread-messages = Nepřečtené zprávy
+# Context: unread_banner
+timeline-unread-banner-mark-as-read = Označit jako přečtené
+# Context: unread_banner
+timeline-unread-banner-jump-to-unread = Přejít na nepřečtené
 
 ## crates/ui/src/toasts.rs
 # Context: show
@@ -3704,6 +3882,8 @@ updates-update-settings-restart-to-update = Pro aktualizaci restartujte
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein byl nainstalován prostřednictvím vaší distribuce. Spusťte to v terminálu pro aktualizaci.
 # Context: update_settings
 updates-update-settings-support-diagnostics = Podpora a diagnostika
+# Context: update_log
+updates-update-log = Historie aktualizací
 # Context: update_settings
 updates-update-settings-update-checks-are-disabled-in-debug-builds = Kontroly aktualizací jsou v ladicích sestaveních zakázány.
 
@@ -4053,6 +4233,10 @@ profiles-remove-friend-message = Opravdu chcete odebrat uživatele { $user } z p
 channel-menu-dialog-category-settings = Nastavení kategorie
 channel-menu-dialog-channel-settings = Nastavení kanálu
 channel-menu-dialog-settings-subtitle = Upravte nastavení a oprávnění tohoto místa.
+channel-menu-discard-title = Zahodit neuložené změny?
+channel-menu-discard-message = Neuložené změny tohoto kanálu budou ztraceny.
+channel-menu-discard-confirm = Zahodit změny
+channel-menu-discard-keep = Pokračovat v úpravách
 channel-menu-dialog-duplicate-subtitle = Zkopíruje nastavení a oprávnění. Zprávy se nekopírují.
 channel-menu-dialog-create-channel-subtitle = Zvolte typ a název kanálu.
 channel-menu-dialog-create-category-subtitle = Kategorie uspořádávají související kanály.
@@ -4124,5 +4308,193 @@ search-page-previous-short = Předchozí
 search-page-next-short = Další
 search-result-today-at = Dnes v { $time }
 search-result-yesterday-at = Včera v { $time }
-timeline-unread-banner-one-new-since = 1 nová zpráva od { $time }
-timeline-unread-banner-many-new-since = Nové zprávy od { $time }: { $count }
+timeline-unread-banner-new-since =
+    { $count ->
+        [one] { $count } nová zpráva od { $time }
+        [few] { $count } nové zprávy od { $time }
+       *[other] { $count } nových zpráv od { $time }
+    }
+timeline-unread-banner-new-since-more =
+    { $count ->
+        [one] { $count }+ nová zpráva od { $time }
+        [few] { $count }+ nové zprávy od { $time }
+       *[other] { $count }+ nových zpráv od { $time }
+    }
+
+## crates/ui/src/onboarding.rs
+# Context: show
+onboarding-show-title = Vítej na serveru { $server }
+# Context: show
+onboarding-show-subtitle = Odpověz na pár otázek a přijmi pravidla, abys mohl(a) začít psát.
+# Context: show
+onboarding-show-try-again = Zkusit znovu
+# Context: show
+onboarding-show-close = Zavřít
+# Context: show
+onboarding-show-please-wait = Počkej prosím…
+# Context: show
+onboarding-show-finish = Dokončit
+# Context: show
+onboarding-show-not-now = Teď ne
+# Context: show
+onboarding-show-this-server = tento server
+# Context: body
+onboarding-body-submitted = Žádost odeslána. Moderátor ji posoudí; psát budeš moct po schválení.
+# Context: body
+onboarding-body-rejected = Tento server žádost zamítl.
+# Context: body
+onboarding-body-loading = Načítání uvítání serveru…
+# Context: body
+onboarding-body-all-set = Vše hotovo. Tady už nic nezbývá doplnit.
+# Context: prompt
+onboarding-prompt-pick-one = Vyber jednu možnost
+# Context: prompt
+onboarding-prompt-pick-any = Vyber všechny, které platí
+# Context: rules
+onboarding-rules-heading = Pravidla serveru
+# Context: rules
+onboarding-rules-review = Než budeš moct psát, moderátor tyto odpovědi zkontroluje.
+# Context: field
+onboarding-field-unsupported = Tento server klade otázku, kterou Serein zatím neumí zobrazit. Dokonči připojení v aplikaci Discord.
+# Context: field
+onboarding-field-agree = Přečetl(a) jsem si pravidla a souhlasím s nimi
+
+## crates/ui/src/lib.rs
+# Context: composer
+lib-composer-onboarding-rules-pending = Přijmi pravidla tohoto serveru, abys mohl(a) začít psát.
+# Context: composer
+lib-composer-onboarding-incomplete = Dokonči připojení k serveru a odemkni další kanály.
+# Context: composer
+lib-composer-onboarding-complete = Dokončit uvítání
+
+voice-recipient-ring = Znovu zavolat
+voice-recipient-stop-ringing = Zastavit vyzvánění
+voice-recipient-ringing = Vyzvání…
+voice-recipient-not-in-call = Není v hovoru
+reconnect-now = Znovu připojit
+
+# Explicit public attachment hosting
+public-upload-host-file = Hostovat soubor…
+public-upload-heading = Nahrát na Catbox
+public-upload-subtitle = Sdílet veřejný odkaz místo přílohy Discordu
+public-upload-offline = Offline náhled · žádný soubor se nenahrává
+public-upload-size = { $size } MB · veřejné úložiště souborů
+public-upload-privacy = Kdokoli s odkazem má přístup k tomuto souboru. Původní soubor i jeho metadata se nahrají beze změny na Catbox, mimo Discord.
+public-upload-retention = Catbox nyní uvádí, že anonymní soubory mohou být odstraněny po dvou letech bez přístupu. Serein nemůže uložené soubory smazat; zrušení nahrávání ani smazání zprávy Discordu je neodstraní.
+public-upload-review = Odkaz zde zůstane ke kontrole. Zvolte Přidat do konceptu nebo Kopírovat odkaz a poté jej sami odešlete.
+public-upload-return = Pro přidání odkazu se vraťte do původní konverzace.
+public-upload-preparing = Příprava veřejného nahrávání…
+public-upload-limits = Nejvýše 200 MB (GIF: 20 MB). Soubory EXE, SCR, CPL, JAR a DOC nejsou podporovány.
+public-upload-add = Přidat do konceptu
+public-upload-copy = Kopírovat odkaz
+public-upload-close = Zavřít
+public-upload-cancel-upload = Zrušit nahrávání
+public-upload-upload = Veřejně nahrát na Catbox
+public-upload-cancel = Zrušit
+public-upload-draft-full = Koncept je plný; před zavřením zkopírujte veřejný odkaz
+public-upload-leave = Odchod zruší veřejné nahrávání a zahodí odkaz v dialogu. Již nahrané soubory mohou zůstat na Catboxu; před pokračováním zkopírujte odkaz.
+public-upload-error-cancelled = Veřejné nahrávání zrušeno; přijatá data mohou zůstat na Catboxu
+public-upload-error-prepare = Veřejné nahrávání se nepodařilo připravit
+public-upload-error-changed = Soubor se změnil nebo je nedostupný; vyberte jej znovu
+public-upload-error-failed = Veřejné nahrávání selhalo; přijatá data mohou zůstat na Catboxu
+public-upload-error-rejected = Catbox odmítl nahrávání; žádná zpráva Discordu nebyla odeslána
+public-upload-error-incomplete = Veřejné nahrávání je neúplné; přijatá data mohou zůstat na Catboxu
+public-upload-error-response-limit = Odpověď úložiště souborů překročila limit
+public-upload-error-interrupted = Veřejné nahrávání přerušeno; přijatá data mohou zůstat na Catboxu
+public-upload-error-invalid-link = Úložiště souborů vrátilo neplatný odkaz
+public-upload-error-busy = Počkejte na dokončení aktuální operace s přílohou
+public-upload-error-conversation = Před veřejným nahráním se vraťte do původní konverzace a znovu zkontrolujte soubor
+public-upload-error-selection = Výběr se změnil; před veřejným nahráním znovu zkontrolujte soubor
+public-upload-error-missing = Před veřejným nahráním znovu vyberte soubor
+
+voice-call-moved-to-another-client = Relace hovoru na tomto zařízení byla nahrazena
+
+# Synchronizované oblíbené GIFy (neoficiální nastavení účtu).
+gif-favorites-sync-loading = Synchronizuji oblíbené…
+gif-favorites-sync-ready = Oblíbené z Discordu a místní
+gif-favorites-sync-local = Místní oblíbené
+gif-favorites-sync-refresh = Obnovit z Discordu
+gif-favorites-sync-help = Místní oblíbené zůstávají místní, dokud nezměníte jejich hvězdičku. Nové změny se po načtení synchronizují. Video GIFy mají náhradní náhled. Zobrazí se nejvýše 100 oblíbených; ostatní se při ukládání zachovají.
+gif-favorites-sync-failed = Synchronizace selhala; místní oblíbené zůstávají. Před další změnou obnovte seznam.
+gif-favorites-sync-unsupported = Oblíbené na Discordu nejsou podporované nebo překračují bezpečný limit.
+gif-favorites-sync-unconfirmed = Změna nebyla potvrzena. Před opakováním obnovte seznam.
+
+server-settings-page-safety = Bezpečnost
+
+server-settings-nav-title = Nastavení serveru
+
+server-settings-safety-subtitle = Určete, kdo může na tomto serveru psát a která média Discord kontroluje kvůli explicitnímu obsahu.
+
+server-settings-safety-community-note = Komunitní servery vyžadují alespoň nízkou úroveň ověření a kontrolu médií od všech členů.
+
+server-settings-safety-verification = Úroveň ověření
+
+server-settings-safety-verification-help = Členové musí splnit tato kritéria, než budou moci psát do textových kanálů nebo zahájit přímou zprávu.
+
+server-settings-safety-verification-none = Žádná
+
+server-settings-safety-verification-none-detail = Bez omezení
+
+server-settings-safety-verification-low = Nízká
+
+server-settings-safety-verification-low-detail = Musí mít na účtu Discord ověřený e-mail.
+
+server-settings-safety-verification-medium = Střední
+
+server-settings-safety-verification-medium-detail = Musí být také registrováni na Discordu déle než 5 minut.
+
+server-settings-safety-verification-high = Vysoká
+
+server-settings-safety-verification-high-detail = Musí být také členy tohoto serveru déle než 10 minut.
+
+server-settings-safety-verification-highest = Nejvyšší
+
+server-settings-safety-verification-highest-detail = Musí mít na účtu Discord ověřený telefon.
+
+server-settings-safety-filter = Filtr explicitního obsahu médií
+
+server-settings-safety-filter-help = Automaticky rozpoznávat a blokovat média na tomto serveru, která mohou obsahovat explicitní obsah.
+
+server-settings-safety-filter-disabled = Nekontrolovat žádná média
+
+server-settings-safety-filter-no-roles = Kontrolovat média od členů bez role
+
+server-settings-safety-filter-all = Kontrolovat média od všech členů
+
+server-settings-profile-form-banner-custom = Vlastní barva
+
+server-settings-profile-form-banner-custom-help = Vyberte předvolbu výše nebo libovolnou barvu banneru.
+
+server-settings-profile-server-id = ID serveru
+
+server-settings-profile-server-id-help = Toto ID použijte s boty, moderačními nástroji a žádostmi o podporu.
+
+server-settings-profile-copy-id = Kopírovat ID
+
+server-settings-engagement-system-welcome = Poslat náhodnou uvítací zprávu, když se někdo připojí k serveru.
+
+server-settings-engagement-system-welcome-sticker = Vyzvat členy, aby na uvítací zprávy odpověděli nálepkou.
+
+server-settings-engagement-system-boost = Poslat zprávu, když někdo boostne tento server.
+
+server-settings-engagement-system-tips = Posílat užitečné tipy k nastavení serveru.
+
+server-invites-header-subtitle = Sdílejte odkazy, přes které se lidé mohou připojit k tomuto serveru.
+
+server-audit-log-header-subtitle = Záznam moderačních zásahů a změn nastavení na tomto serveru.
+
+server-audit-log-empty-detail = Zkuste jiného uživatele nebo akci, nebo obnovte a zkontrolujte nové události.
+
+server-members-header-subtitle = Prohlížejte, vyhledávejte a spravujte lidi na tomto serveru.
+
+server-members-show-in-channel-list = Zobrazit členy v seznamu kanálů
+
+server-emoji-section-static = Statické emoji
+
+server-emoji-empty-static = Zatím žádné emoji
+
+server-emoji-empty-animated = Zatím žádné animované emoji
+
+server-emoji-empty-detail = Nahrajte obrázek a přidejte ho. Z GIFů se stanou animované emoji.
+
+server-stickers-empty-detail = Nahrajte obrázek a přidejte svou první nálepku.

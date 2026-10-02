@@ -897,7 +897,13 @@ fn discovery_is_forward_tolerant_and_does_not_change_legacy_input() {
 		serde_json::from_value(serde_json::json!({"action":"run"})).unwrap();
 	assert!(old.host.is_none());
 	let caps = HostInfo::current().capabilities.to_vec();
-	let mut supported = test_manifest(caps.clone());
+	// Connection plugins cannot combine account grants or reactive surfaces.
+	let mut supported = test_manifest(
+		caps.iter()
+			.copied()
+			.filter(|cap| *cap != Capability::ApiProxy)
+			.collect(),
+	);
 	supported.actions.push(Action {
 		id: "events".into(),
 		label: "Events".into(),
@@ -905,9 +911,10 @@ fn discovery_is_forward_tolerant_and_does_not_change_legacy_input() {
 	});
 	supported.validate().unwrap();
 	assert!(host.supports("rich_presence"));
-	assert_eq!(caps.len(), 52);
+	assert!(host.supports("api_proxy"));
+	assert_eq!(caps.len(), 53);
 	assert_eq!(HostInfo::current().app_events.len(), 21);
-	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 52);
+	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 53);
 }
 
 #[test]
@@ -1120,6 +1127,34 @@ fn tracked_actions_and_extended_inputs_preserve_v1_wire_compatibility() {
 		truncated: true,
 	};
 	assert!(matches!(oversized.validate(), Err(Error::Limit)));
+}
+
+#[test]
+fn local_settings_accept_smaller_zoom_and_reject_below_supported_range() {
+	for (zoom, valid) in [
+		(49, false),
+		(50, true),
+		(79, true),
+		(80, true),
+		(150, true),
+		(151, false),
+	] {
+		let patch = LocalSettingsPatch {
+			zoom_percent: Some(zoom),
+			..Default::default()
+		};
+		assert_eq!(patch.validate().is_ok(), valid);
+		let snapshot = LocalSettingsSnapshot {
+			zoom_percent: zoom,
+			sidebar_width: 236,
+			show_members: true,
+			animate_gifs: true,
+			hide_media_links: true,
+			smooth_scrolling: None,
+			scroll_speed_percent: None,
+		};
+		assert_eq!(snapshot.validate().is_ok(), valid);
+	}
 }
 
 #[test]

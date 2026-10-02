@@ -2,9 +2,10 @@
 use std::io::Read;
 
 fn main() {
-	let mut document: serde_json::Value =
-		serde_json::from_slice(include_bytes!("../../../extensions/ocean.serein-extension"))
-			.unwrap();
+	let mut document: serde_json::Value = serde_json::from_slice(include_bytes!(
+		"../../../extensions/themes/ocean.serein-extension"
+	))
+	.unwrap();
 	document["manifest"]["id"] = "Mixed-Case-Theme".into();
 	let bytes = serde_json::to_vec(&document).unwrap();
 	let package = extensions::parse_package(&bytes).unwrap();

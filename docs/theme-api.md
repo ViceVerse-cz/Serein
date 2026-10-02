@@ -3,24 +3,23 @@
 A `.serein-extension` theme package contains a version 1 manifest with
 `"kind": "theme"`, empty capabilities/actions, and a `theme` object. There is no
 Wasm module. Import the package from Settings > Themes to try it locally.
-The existing packages in [`extensions`](../extensions) are complete examples.
+The packages in [`extensions/themes`](../extensions/themes) are complete examples.
 
 Theme package IDs are normalized to ASCII lowercase when parsed, so an imported
 `Golden-Theme` uses the same identity as `golden-theme`. Other ID restrictions
 (including path separators, non-ASCII characters and reserved device names) still
 apply. Plugin IDs and reviewed catalog manifests remain strictly lowercase.
 
-The official theme catalog and packages live in
-[Serein-extensions](https://github.com/ViceVerse-cz/Serein-extensions), including Forest
-Piano and Soft White Theme. The catalog pins each package to a source commit,
-SHA-256 and exact byte length. See that repository's README for publishing.
+The official theme catalog and packages live in [`extensions/`](../extensions/README.md),
+including Forest Piano and Soft White Theme. The catalog pins each package to a source
+commit, SHA-256 and exact byte length. See that README for publishing.
 Normal builds fetch catalog metadata when Themes opens; installation and updates
 remain explicit. Installed themes and the last valid catalog work offline.
 Local edits/imports are preserved, and updating an inactive theme does not change
 the current selection. Removing a listing never uninstalls it from a device.
 The eight-installed-theme limit remains unchanged.
-The packages retained under this client's `extensions/` are offline test/demo
-fixtures and are not embedded in normal builds.
+Offline test/demo fixtures read those canonical packages from `extensions/`; they are
+not embedded in normal builds.
 
 The `light` and `dark` objects each accept `colors`, an optional `backdrop`,
 and optional `background` image settings.

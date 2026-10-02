@@ -14,7 +14,7 @@ page-appearance = Wygląd
 page-chat = Pogawędzić
 page-messaging-permissions = Uprawnienia do przesyłania wiadomości
 page-notifications = Powiadomienia
-page-activity = Aktywność w grze
+page-registered-games = Zarejestrowane gry
 page-voice = Głos i wideo
 page-keybinds = Skróty klawiszowe
 page-storage = Dane i prywatność
@@ -28,7 +28,7 @@ description-appearance = Motyw, kolory, efekty okienne i układ.
 description-chat = Jak zachowują się wiadomości, multimedia, linki i przewijanie.
 description-messaging-permissions = Kontroluj, kto może się z Tobą kontaktować i w jaki sposób wiadomości są filtrowane.
 description-notifications = Wybierz, jakie powiadomienia chcesz otrzymywać i jak mają się wyświetlać.
-description-activity = Pokaż innym w co grasz.
+description-registered-games = Udostępniaj, w co grasz, oraz poprawiaj lub dodawaj gry wykryte przez Serein.
 description-voice = Mikrofon, głośniki, kamera i przetwarzanie głosu.
 description-keybinds = Skróty klawiaturowe dla Serein.
 description-storage = Co Serein przechowuje na tym urządzeniu.
@@ -103,6 +103,7 @@ no-conversations = Brak dostępnych rozmów.
 open-in-discord = Otwórz w Discord
 new = Nowy
 members-count = Członkowie
+members-heading = Członkowie
 no-conversation-selected = Nie wybrano żadnej rozmowy
 select-conversation = Wybierz kanał lub wiadomość bezpośrednią z listy.
 friends-online = W Internecie
@@ -733,6 +734,8 @@ design-account-row-with-remove-forget-this-account-on-this-device = Zapomnij to 
 design-color-edit-hex-color-rrggbb-click-to-type-or-paste = Kolor szesnastkowy: #RRGGBB. Kliknij, aby wpisać lub wkleić.
 # Context: save_bar
 design-save-bar-careful-you-have-unsaved-changes = Uważaj — masz niezapisane zmiany!
+design-save-bar-save-changes = Zapisz zmiany
+design-save-bar-reset = Resetuj
 
 ## crates/ui/src/dialog.rs
 # Context: header
@@ -1501,7 +1504,7 @@ join-server-show-join-enter-an-invite-below-to-join-an-existing-server = Wpisz p
 # Context: show_join
 join-server-show-join-join-a-server = Dołącz do serwera
 # Context: body
-join-server-status-invite-accepted = Zaproszenie zaakceptowane. Oczekiwanie na dostęp do serwera; uzupełnij dowolne zasady serwera na Discordzie.
+join-server-status-invite-accepted = Zaproszenie zaakceptowane. Oczekiwanie na dostęp do serwera.
 # Context: body
 join-server-status-offline-preview = Podgląd offline — dołączanie do serwerów jest wyłączone.
 
@@ -1544,6 +1547,8 @@ lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = Wybierz, 
 lib-ime-updates-text-clear-this-draft = Wyczyść tę wersję roboczą
 # Context: ime_updates_text
 lib-ime-updates-text-copy-edit-text = Skopiuj tekst edycji
+# Context: ime_updates_text
+lib-ime-updates-text-create-a-poll = Utwórz ankietę
 # Context: ime_updates_text
 lib-ime-updates-text-draft-budget-full-clear-an-existing-draft-to-continue = Projekt budżetu pełny. Aby kontynuować, wyczyść istniejącą wersję roboczą.
 # Context: ime_updates_text
@@ -1785,6 +1790,86 @@ pending-show-you = Ty
 pending-upload-strip-cancel-upload = Anuluj przesyłanie
 # Context: upload_strip
 pending-upload-strip-the-message-may-already-have-reached-discord-check-the-conversation = Wiadomość mogła już dotrzeć do Discorda. Sprawdź rozmowę przed ponownym wysłaniem.
+
+## crates/ui/src/polls.rs
+# Context: card
+polls-card-ended = Ankieta zakończona
+# Context: card
+polls-card-select-many = Wybierz jedną lub więcej odpowiedzi
+# Context: card
+polls-card-select-one = Wybierz jedną odpowiedź
+# Context: card
+polls-card-final-results = Wyniki końcowe
+# Context: card
+polls-card-awaiting-results = Oczekiwanie na wyniki końcowe
+# Context: card
+polls-card-hours-left = pozostało { $hours } godz.
+# Context: card
+polls-card-minutes-left = pozostało { $minutes } min
+# Context: card
+polls-card-in-progress = W toku
+# Context: card
+polls-card-vote-count-one = { $count } głos
+# Context: card
+polls-card-vote-count-many = Głosy: { $count }
+# Context: card
+polls-card-results-not-loaded = Wyniki nie zostały wczytane
+# Context: card
+polls-card-back-to-voting = Wróć do głosowania
+# Context: card
+polls-card-refresh-results = Odśwież wyniki
+# Context: card
+polls-card-show-results = Pokaż wyniki
+# Context: card
+polls-card-remove-vote = Usuń głos
+# Context: card
+polls-card-vote = Głosuj
+# Context: card
+polls-card-end-confirm = Zakończyć tę ankietę dla wszystkich?
+# Context: card
+polls-card-end-now = Zakończ teraz
+# Context: card
+polls-card-end-poll = Zakończ ankietę
+# Context: creator
+polls-creator-title = Utwórz ankietę
+# Context: creator
+polls-creator-question = Pytanie
+# Context: creator
+polls-creator-question-hint = O co chcesz zapytać?
+# Context: creator
+polls-creator-answers = Odpowiedzi
+# Context: creator
+polls-creator-answer-hint = Odpowiedź { $number }
+# Context: creator
+polls-creator-add-emoji = Dodaj emoji
+# Context: creator
+polls-creator-change-emoji = Zmień emoji
+# Context: creator
+polls-creator-remove-answer = Usuń odpowiedź
+# Context: creator
+polls-creator-add-answer = Dodaj kolejną odpowiedź
+# Context: creator
+polls-creator-duration = Czas trwania
+# Context: creator
+polls-creator-multiple-answers = Zezwalaj na wiele odpowiedzi
+# Context: creator
+polls-creator-post = Opublikuj
+# Context: creator
+polls-creator-posting = Publikowanie…
+# Context: duration_label
+polls-duration-1-hour = 1 godzina
+# Context: duration_label
+polls-duration-4-hours = 4 godziny
+# Context: duration_label
+polls-duration-8-hours = 8 godzin
+# Context: duration_label
+polls-duration-24-hours = 24 godziny
+# Context: duration_label
+polls-duration-3-days = 3 dni
+# Context: duration_label
+polls-duration-1-week = 1 tydzień
+# Context: duration_label
+polls-duration-hours = Godziny: { $hours }
 
 ## crates/ui/src/post_menu.rs
 # Context: context
@@ -2372,8 +2457,6 @@ server-admin-emojis-image = Obraz
 # Context: emojis
 server-admin-emojis-name = Nazwa
 # Context: emojis
-server-admin-emojis-none = NIC
-# Context: emojis
 server-admin-emojis-preparing-emoji-images = Przygotowywanie obrazów emoji...
 # Context: emojis
 server-admin-emojis-remove = Usunąć
@@ -2467,8 +2550,6 @@ server-admin-members-recent-members = Niedawni członkowie
 server-admin-members-search-by-username-or-id = Szukaj według nazwy użytkownika lub identyfikatora
 # Context: members
 server-admin-members-server-members = Członkowie serwera
-# Context: members
-server-admin-members-show-members-in-channel-list = Pokaż członków na liście kanałów
 # Context: members
 server-admin-members-show-the-members-page-in-the-channel-list-to-quickly = Wyświetl stronę członków na liście kanałów, aby szybko zobaczyć ostatnie dołączenia i członków oznaczonych za nietypową aktywność.
 # Context: members
@@ -3232,6 +3313,92 @@ settings-account-page-signed-in-with-your-discord-account = Zalogowano się na s
 settings-activity-settings-detect-running-games-and-ask-discord-to-share-them-as = Wykryj uruchomione gry i poproś Discorda o udostępnienie ich jako aktywności.
 # Context: activity_settings
 settings-activity-settings-share-game-activity = Udostępnij aktywność w grze
+# Context: activity_settings
+settings-activity-enable-on-discord = Włącz na Discordzie
+# Context: activity_settings
+settings-activity-check-again = Sprawdź ponownie
+# Context: activity_settings
+settings-activity-sharing-is-off = Udostępnianie aktywności jest wyłączone
+# Context: activity_settings
+settings-activity-sharing-your-game = Udostępniasz swoją grę
+# Context: activity_settings
+settings-activity-looking = Szukanie uruchomionej gry
+# Context: activity_settings
+settings-activity-demo-detail = Przykładowa aktywność, nigdy nie jest udostępniana ani zapisywana.
+# Context: activity_settings
+settings-activity-status-offline-preview = Podgląd offline: przykładowa aktywność, nigdy nie jest udostępniana ani zapisywana.
+# Context: activity_settings
+settings-activity-status-unconfirmed = Tylko podgląd lokalny. Oczekiwanie na potwierdzenie udostępniania przez Discorda.
+# Context: activity_settings
+settings-activity-status-received = Discord otrzymał Twoją grę, ale nie pokazuje jej publicznie.
+# Context: activity_settings
+settings-activity-status-listed = Discord pokazuje Twoją grę. Ustawienia prywatności serwerów i znajomych nadal obowiązują.
+# Context: activity_settings
+settings-activity-status-hidden = Discord ukrywa Twoją grę. Sprawdź w Discordzie Zarejestrowane gry i Udostępnianie aktywności.
+# Context: activity_settings
+settings-activity-status-missing = Discord nie pokazał Twojej gry publicznie. Sprawdź tam Zarejestrowane gry i ustawienia udostępniania na serwerach.
+# Context: activity_settings
+settings-activity-status-sharing-off = Udostępnianie aktywności dla całego konta Discord jest wyłączone.
+# Context: activity_settings
+settings-activity-status-checking = Sprawdzanie ustawienia udostępniania aktywności na Discordzie…
+# Context: activity_settings
+settings-activity-status-check-failed = Nie udało się sprawdzić ani zmienić ustawienia udostępniania aktywności na Discordzie.
+# Context: activity_settings
+settings-activity-status-updating = Aktualizowanie ustawienia udostępniania aktywności na Discordzie…
+# Context: activity_settings
+settings-activity-status-request-failed = Nie udało się zażądać zmiany ustawienia. Spróbuj ponownie.
+# Context: activity_settings
+settings-activity-current-game = Bieżąca gra
+# Context: activity_settings
+settings-activity-now-playing = Grasz teraz!
+# Context: activity_settings
+settings-activity-stop-detecting-current = To nie ta gra? Przestań ją wykrywać.
+# Context: activity_settings
+settings-activity-reported-by-game = Zgłoszone przez grę przez Rich Presence.
+# Context: activity_settings
+settings-activity-no-game-detected = Nie wykryto żadnej gry
+# Context: activity_settings
+settings-activity-turn-on-sharing = Włącz powyżej Udostępnij aktywność w grze, aby wykrywać gry.
+# Context: activity_settings
+settings-activity-not-seeing-your-game = Nie widzisz swojej gry?
+# Context: activity_settings
+settings-activity-add-it = Dodaj ją!
+# Context: activity_settings
+settings-activity-added-games = Dodane gry
+# Context: activity_settings
+settings-activity-no-games-added = Brak dodanych gier
+# Context: activity_settings
+settings-activity-hidden = Ukryta. Serein nie będzie wykrywać tej gry.
+# Context: activity_settings
+settings-activity-detected = Wykryto automatycznie
+# Context: activity_settings
+settings-activity-last-played-today = Ostatnio grano dzisiaj
+# Context: activity_settings
+settings-activity-last-played-yesterday = Ostatnio grano wczoraj
+# Context: activity_settings
+settings-activity-last-played = Ostatnio grano { $date }
+# Context: activity_settings
+settings-activity-restore = Przywróć
+# Context: activity_settings
+settings-activity-restore-hint = Ponownie wykrywaj tę grę.
+# Context: activity_settings
+settings-activity-stop-detecting = Przestań wykrywać tę grę
+# Context: activity_settings
+settings-activity-remove-game = Usuń tę grę
+# Context: activity_settings
+settings-activity-click-to-rename = Kliknij, aby zmienić nazwę
+# Context: activity_settings
+settings-activity-add-a-game = Dodaj grę
+# Context: activity_settings
+settings-activity-choose-program = Wybierz uruchomiony program. Serein pokaże go jako Twoją grę, gdy tylko będzie działać.
+# Context: activity_settings
+settings-activity-search-programs = Szukaj uruchomionych programów
+# Context: activity_settings
+settings-activity-reading-programs = Odczytywanie uruchomionych programów…
+# Context: activity_settings
+settings-activity-no-matching-programs = Nie działają żadne pasujące programy.
+# Context: activity_settings
+settings-activity-add-game = Dodaj grę
 # Context: appearance_menu
 settings-appearance-menu-display = Wyświetlacz
 # Context: appearance_menu
@@ -3593,9 +3760,16 @@ timeline-message-actions-unpin-message = Odepnij wiadomość
 # Context: message_actions
 timeline-message-actions-view-reactions = Zobacz reakcje
 # Context: present_control
-timeline-present-control-jump-to-present = Przejdź do teraźniejszości
+timeline-present-control-jump-to-present = Przejdź do najnowszych
 # Context: present_control
-timeline-present-control-new-messages-below-jump-to-present = Nowe wiadomości poniżej · przejdź do prezentacji
+timeline-present-control-new-messages-below-jump-to-present = Nowe wiadomości poniżej · przejdź do najnowszych
+# Context: present_control
+timeline-present-control-new-messages =
+    { $count ->
+        [one] { $count } nowa wiadomość
+        [few] { $count } nowe wiadomości
+       *[other] { $count } nowych wiadomości
+    }
 # Context: show_system
 timeline-show-system-open-this-channels-threads = Otwórz wątki tego kanału
 # Context: show_system
@@ -3642,6 +3816,10 @@ timeline-show-with-scroll-you-cannot-view-this-conversation = Nie możesz wyświ
 timeline-starter-row-thread-started-from-this-message = Wątek rozpoczął się od tej wiadomości
 # Context: unread_banner
 timeline-unread-banner-unread-messages = Nieprzeczytane wiadomości
+# Context: unread_banner
+timeline-unread-banner-mark-as-read = Oznacz jako przeczytane
+# Context: unread_banner
+timeline-unread-banner-jump-to-unread = Przejdź do nieprzeczytanych
 
 ## crates/ui/src/toasts.rs
 # Context: show
@@ -3704,6 +3882,8 @@ updates-update-settings-restart-to-update = Uruchom ponownie, aby zaktualizować
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein został zainstalowany poprzez twoją dystrybucję. Uruchom to w terminalu, aby zaktualizować.
 # Context: update_settings
 updates-update-settings-support-diagnostics = Wsparcie i diagnostyka
+# Context: update_log
+updates-update-log = Dziennik aktualizacji
 # Context: update_settings
 updates-update-settings-update-checks-are-disabled-in-debug-builds = Sprawdzanie aktualizacji jest wyłączone w kompilacjach debugowania.
 
@@ -4053,6 +4233,10 @@ profiles-remove-friend-message = Czy na pewno chcesz usunąć użytkownika { $us
 channel-menu-dialog-category-settings = Ustawienia kategorii
 channel-menu-dialog-channel-settings = Ustawienia kanału
 channel-menu-dialog-settings-subtitle = Dostosuj ustawienia i uprawnienia.
+channel-menu-discard-title = Odrzucić niezapisane zmiany?
+channel-menu-discard-message = Niezapisane zmiany tego kanału zostaną utracone.
+channel-menu-discard-confirm = Odrzuć zmiany
+channel-menu-discard-keep = Kontynuuj edycję
 channel-menu-dialog-duplicate-subtitle = Kopiuje ustawienia i uprawnienia. Wiadomości nie są kopiowane.
 channel-menu-dialog-create-channel-subtitle = Wybierz typ kanału i nazwę.
 channel-menu-dialog-create-category-subtitle = Kategorie porządkują powiązane kanały.
@@ -4108,5 +4292,149 @@ search-page-previous-short = Poprzednia
 search-page-next-short = Następna
 search-result-today-at = Dzisiaj o { $time }
 search-result-yesterday-at = Wczoraj o { $time }
-timeline-unread-banner-one-new-since = 1 nowa wiadomość od { $time }
-timeline-unread-banner-many-new-since = Nowe wiadomości od { $time }: { $count }
+timeline-unread-banner-new-since =
+    { $count ->
+        [one] { $count } nowa wiadomość od { $time }
+        [few] { $count } nowe wiadomości od { $time }
+       *[other] { $count } nowych wiadomości od { $time }
+    }
+timeline-unread-banner-new-since-more =
+    { $count ->
+        [one] { $count }+ nowa wiadomość od { $time }
+        [few] { $count }+ nowe wiadomości od { $time }
+       *[other] { $count }+ nowych wiadomości od { $time }
+    }
+
+## crates/ui/src/onboarding.rs
+# Context: show
+onboarding-show-title = Witaj na { $server }
+# Context: show
+onboarding-show-subtitle = Odpowiedz na kilka pytań i zaakceptuj zasady, aby zacząć rozmawiać.
+# Context: show
+onboarding-show-try-again = Spróbuj ponownie
+# Context: show
+onboarding-show-close = Zamknij
+# Context: show
+onboarding-show-please-wait = Proszę czekać…
+# Context: show
+onboarding-show-finish = Zakończ
+# Context: show
+onboarding-show-not-now = Nie teraz
+# Context: show
+onboarding-show-this-server = ten serwer
+# Context: body
+onboarding-body-submitted = Zgłoszenie wysłane. Moderator je sprawdzi; po zatwierdzeniu będziesz mógł pisać.
+# Context: body
+onboarding-body-rejected = Ten serwer odrzucił zgłoszenie.
+# Context: body
+onboarding-body-loading = Wczytywanie wprowadzenia serwera…
+# Context: body
+onboarding-body-all-set = Wszystko gotowe. Nie ma tu już nic do uzupełnienia.
+# Context: prompt
+onboarding-prompt-pick-one = Wybierz jedną opcję
+# Context: prompt
+onboarding-prompt-pick-any = Wybierz wszystkie pasujące
+# Context: rules
+onboarding-rules-heading = Zasady serwera
+# Context: rules
+onboarding-rules-review = Moderator sprawdza te odpowiedzi, zanim będziesz mógł pisać.
+# Context: field
+onboarding-field-unsupported = Ten serwer zadaje pytanie, którego Serein nie potrafi jeszcze wyświetlić. Dokończ dołączanie w aplikacji Discord.
+# Context: field
+onboarding-field-agree = Przeczytałem(-am) i akceptuję zasady
+
+## crates/ui/src/lib.rs
+# Context: composer
+lib-composer-onboarding-rules-pending = Zaakceptuj zasady tego serwera, aby zacząć rozmawiać.
+# Context: composer
+lib-composer-onboarding-incomplete = Dokończ dołączanie do serwera, aby odblokować więcej kanałów.
+# Context: composer
+lib-composer-onboarding-complete = Dokończ wprowadzenie
+
+voice-recipient-ring = Zadzwoń ponownie
+voice-recipient-stop-ringing = Zatrzymaj dzwonienie
+voice-recipient-ringing = Dzwoni…
+voice-recipient-not-in-call = Poza rozmową
+reconnect-now = Połącz ponownie
+
+voice-call-moved-to-another-client = Sesja połączenia na tym urządzeniu została zastąpiona
+
+server-settings-page-safety = Konfiguracja bezpieczeństwa
+
+server-settings-nav-title = Ustawienia serwera
+
+server-settings-safety-subtitle = Zdecyduj, kto może pisać na tym serwerze i które multimedia Discord skanuje pod kątem treści dla dorosłych.
+
+server-settings-safety-community-note = Serwery społeczności wymagają co najmniej niskiego poziomu weryfikacji i skanowania multimediów od wszystkich członków.
+
+server-settings-safety-verification = Poziom weryfikacji
+
+server-settings-safety-verification-help = Członkowie muszą spełnić te kryteria, zanim będą mogli pisać na kanałach tekstowych lub rozpocząć wiadomość prywatną.
+
+server-settings-safety-verification-none = Brak
+
+server-settings-safety-verification-none-detail = Bez ograniczeń
+
+server-settings-safety-verification-low = Niski
+
+server-settings-safety-verification-low-detail = Musi mieć zweryfikowany adres e-mail na koncie Discord.
+
+server-settings-safety-verification-medium = Średni
+
+server-settings-safety-verification-medium-detail = Musi też być zarejestrowany na Discordzie dłużej niż 5 minut.
+
+server-settings-safety-verification-high = Wysoki
+
+server-settings-safety-verification-high-detail = Musi też być członkiem tego serwera dłużej niż 10 minut.
+
+server-settings-safety-verification-highest = Najwyższy
+
+server-settings-safety-verification-highest-detail = Musi mieć zweryfikowany numer telefonu na koncie Discord.
+
+server-settings-safety-filter = Filtr treści multimedialnych dla dorosłych
+
+server-settings-safety-filter-help = Automatycznie wykrywaj i blokuj multimedia wysyłane na tym serwerze, które mogą zawierać treści dla dorosłych.
+
+server-settings-safety-filter-disabled = Nie skanuj żadnych multimediów
+
+server-settings-safety-filter-no-roles = Skanuj multimedia od członków bez roli
+
+server-settings-safety-filter-all = Skanuj multimedia od wszystkich członków
+
+server-settings-profile-form-banner-custom = Własny kolor
+
+server-settings-profile-form-banner-custom-help = Wybierz gotowy kolor powyżej lub dowolny kolor banera.
+
+server-settings-profile-server-id = ID serwera
+
+server-settings-profile-server-id-help = Używaj tego ID z botami, narzędziami moderacji i w zgłoszeniach do pomocy technicznej.
+
+server-settings-profile-copy-id = Kopiuj ID
+
+server-settings-engagement-system-welcome = Wyślij losową wiadomość powitalną, gdy ktoś dołączy do tego serwera.
+
+server-settings-engagement-system-welcome-sticker = Zachęcaj członków do odpowiadania na powitania naklejką.
+
+server-settings-engagement-system-boost = Wyślij wiadomość, gdy ktoś wzmocni ten serwer.
+
+server-settings-engagement-system-tips = Wysyłaj przydatne wskazówki dotyczące konfiguracji serwera.
+
+server-invites-header-subtitle = Udostępniaj linki, dzięki którym inni mogą dołączyć do tego serwera.
+
+server-audit-log-header-subtitle = Rejestr działań moderacyjnych i zmian ustawień na tym serwerze.
+
+server-audit-log-empty-detail = Wybierz innego użytkownika lub działanie albo odśwież, aby sprawdzić nowe zdarzenia.
+
+server-members-header-subtitle = Przeglądaj, wyszukuj i zarządzaj osobami na tym serwerze.
+
+server-members-show-in-channel-list = Pokaż członków na liście kanałów
+
+server-emoji-section-static = Emoji statyczne
+
+server-emoji-empty-static = Brak emoji
+
+server-emoji-empty-animated = Brak animowanych emoji
+
+server-emoji-empty-detail = Prześlij obraz, aby je dodać. Pliki GIF stają się animowanymi emoji.
+
+server-stickers-empty-detail = Prześlij obraz, aby dodać swoją pierwszą naklejkę.

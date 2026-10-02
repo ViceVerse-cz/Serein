@@ -197,8 +197,11 @@ impl DiscordApi {
 				.await
 				.map(|_| ()),
 			Action::Mute { channel, muted } => {
+				// Unmuting clears the config; a leftover "forever" window keeps the mute on the service.
+				let mute_config =
+					muted.then(|| json!({"end_time": null, "selected_time_window": -1}));
 				let bytes = self.request(Method::PATCH, "/users/@me/guilds/@me/settings",
-					Some(json!({"channel_overrides": {channel.to_string(): {"muted": muted, "mute_config": {"end_time": null, "selected_time_window": -1}}}}))).await?;
+					Some(json!({"channel_overrides": {channel.to_string(): {"muted": muted, "mute_config": mute_config}}}))).await?;
 				let setting: discord_protocol::notifications::Setting =
 					discord_protocol::decode(&bytes).map_err(|_| Failure::Protocol)?;
 				if setting.guild_id.is_some()
@@ -468,9 +471,7 @@ mod tests {
 					muted: false,
 				},
 				"PATCH /users/@me/guilds/@me/settings",
-				Some(
-					json!({"channel_overrides":{"10":{"muted":false,"mute_config":{"end_time":null,"selected_time_window":-1}}}}),
-				),
+				Some(json!({"channel_overrides":{"10":{"muted":false,"mute_config":null}}})),
 				200,
 				r#"{"guild_id":null,"channel_overrides":[{"channel_id":"11","muted":false}]}"#,
 				Err(Failure::ProtocolAt(

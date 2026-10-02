@@ -121,6 +121,8 @@ impl Tray {
 	pub fn take_event(&self) -> Option<Event> {
 		self.target.ivars().events.take()
 	}
+
+	pub fn set_voice_state(&self, _state: super::VoiceState) {}
 }
 
 impl Drop for Tray {

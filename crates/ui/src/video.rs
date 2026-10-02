@@ -787,6 +787,7 @@ mod tests {
 							video,
 							false,
 							&mut crate::select::Surface::new(ui, "attachment-test"),
+							crate::design::MessageCardSurface::Conversation,
 						);
 						assert!(ui.min_rect().width() <= width + 2.0);
 						// Only the stage and attachment spacing drive the layout estimate;

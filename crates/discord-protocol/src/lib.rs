@@ -8,6 +8,7 @@ mod diagnostics;
 mod embeds;
 mod extra_content;
 pub mod forum;
+pub mod gif_favorites;
 pub mod gifs;
 pub mod group_actions;
 pub mod guild_folders;
@@ -15,8 +16,10 @@ pub mod invites;
 mod lossy;
 pub mod messaging_permissions;
 pub mod notifications;
+pub mod onboarding;
 pub mod permissions;
 pub mod pins;
+pub mod polls;
 pub mod presence;
 pub mod profile;
 mod reactions;
@@ -764,7 +767,7 @@ pub struct MessageDto {
 	#[serde(default)]
 	pub webhook_id: Option<Id>,
 	#[serde(default)]
-	pub poll: Option<extra_content::Object>,
+	pub poll: Option<polls::PollDto>,
 	#[serde(default)]
 	pub sticker_items: Patch<stickers::MessageStickers>,
 	#[serde(default)]
@@ -898,7 +901,7 @@ struct SnapshotBody {
 	#[serde(default)]
 	flags: u64,
 	#[serde(default)]
-	poll: Option<extra_content::Object>,
+	poll: Option<polls::PollDto>,
 	#[serde(default)]
 	sticker_items: Patch<stickers::MessageStickers>,
 	#[serde(default)]
@@ -959,11 +962,13 @@ impl MessageDto {
 		{
 			author.kind = model::AccountKind::App;
 		}
+		let has_poll = self.poll.is_some();
 		Message {
+			poll: self.poll.and_then(|poll| poll.0),
 			flags: self.flags,
 			ephemeral: self.flags & (1 << 6) != 0,
 			extra_content: model::ExtraContent {
-				poll: self.poll.is_some(),
+				poll: has_poll,
 				sticker_items: matches!(&self.sticker_items, Patch::Value(a) if a.1),
 				stickers: matches!(&self.stickers, Patch::Value(a) if a.1),
 				components: self.components.as_ref().is_some_and(|a| !a.0.is_empty()),
@@ -1020,7 +1025,7 @@ pub struct PatchDto {
 	#[serde(default)]
 	pub application_id: Patch<Id>,
 	#[serde(default)]
-	pub poll: Patch<extra_content::Object>,
+	pub poll: Patch<polls::PollDto>,
 	#[serde(default)]
 	pub sticker_items: Patch<stickers::MessageStickers>,
 	#[serde(default)]
@@ -1047,11 +1052,20 @@ pub struct PatchDto {
 impl PatchDto {
 	pub fn into_model(self) -> MessagePatch {
 		MessagePatch {
+			poll: match &self.poll {
+				Patch::Absent => Patch::Absent,
+				Patch::Null => Patch::Null,
+				Patch::Value(poll) => Patch::Value(poll.0.clone()),
+			},
 			sticker_items: stickers::items_patch(&self.sticker_items, &self.stickers),
 			flags: self.flags.clone(),
 			application_id: self.application_id,
 			extra_content: model::ExtraContentPatch {
-				poll: extra_content::object_patch(self.poll),
+				poll: match self.poll {
+					Patch::Absent => Patch::Absent,
+					Patch::Null => Patch::Null,
+					Patch::Value(_) => Patch::Value(true),
+				},
 				sticker_items: match &self.sticker_items {
 					Patch::Absent => Patch::Absent,
 					Patch::Null => Patch::Null,

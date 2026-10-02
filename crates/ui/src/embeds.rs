@@ -62,6 +62,7 @@ fn link(
 		}
 	}
 }
+#[allow(clippy::too_many_arguments)]
 fn text(
 	ui: &mut egui::Ui,
 	message: &Message,
@@ -69,6 +70,7 @@ fn text(
 	cache: &mut FormatCache,
 	opening: &mut Option<String>,
 	profile: &mut crate::profiles::ProfileSession,
+	card_surface: crate::design::MessageCardSurface,
 	media: (
 		&mut Avatars,
 		bool,
@@ -85,6 +87,7 @@ fn text(
 		Some(source),
 		profile,
 		(images, demo, guilds),
+		card_surface,
 	);
 	if formatted.limited {
 		ui.small(crate::i18n::translate("embeds-text-text-display-limited"));
@@ -145,6 +148,16 @@ fn gallery_len(embeds: &[Embed]) -> usize {
 
 fn gallery_rect(count: usize, index: usize, width: f32) -> egui::Rect {
 	let gap = 4.0_f32.min(width / 4.0);
+	if count >= 5 && width >= 300.0 {
+		let side = (width - 2.0 * gap) / 3.0;
+		return egui::Rect::from_min_size(
+			egui::pos2(
+				(index % 3) as f32 * (side + gap),
+				(index / 3) as f32 * (side + gap),
+			),
+			egui::Vec2::splat(side),
+		);
+	}
 	let half = (width - gap) / 2.0;
 	let (x, y, height) = if count == 3 {
 		if index == 0 {
@@ -166,7 +179,7 @@ fn gallery(
 	ui: &mut egui::Ui,
 	embeds: &[Embed],
 	images: &mut Avatars,
-	opening: &mut Option<String>,
+	message: model::Id,
 	download: &mut DownloadUi,
 	demo: bool,
 ) {
@@ -219,12 +232,12 @@ fn gallery(
 						egui::StrokeKind::Inside,
 					);
 				}
-				if let Some(target) = target
+				if target.is_some()
 					&& response
 						.on_hover_text(crate::i18n::translate("embeds-gallery-open-image"))
 						.clicked()
 				{
-					*opening = Some(target);
+					download.view_embed(message, media);
 				}
 			},
 		);
@@ -284,6 +297,7 @@ fn gif_for_embed(embed: &Embed, gifs: &client_core::gifs::Gifs) -> Option<Gif> {
 
 fn image_preview(
 	ui: &mut egui::Ui,
+	message: model::Id,
 	image: &model::EmbedMedia,
 	size: egui::Vec2,
 	images: &mut Avatars,
@@ -302,6 +316,9 @@ fn image_preview(
 		)
 	});
 	embed_context_menu(&response, image, download, demo);
+	if response.clicked() {
+		download.view_embed(message, image);
+	}
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -314,6 +331,7 @@ pub fn show(
 	download: &mut DownloadUi,
 	profile: &mut crate::profiles::ProfileSession,
 	state: &client_core::State,
+	card_surface: crate::design::MessageCardSurface,
 ) -> Option<Gif> {
 	if message.embeds_suppressed {
 		return None;
@@ -331,7 +349,7 @@ pub fn show(
 		let embed = &group[0];
 		ui.push_id(("embed", index), |ui| {
 			if count > 1 && inline_image(embed).is_some() {
-				gallery(ui, group, images, opening, download, demo);
+				gallery(ui, group, images, message.id, download, demo);
 				if group.iter().any(|e| e.limited) {
 					ui.small(crate::i18n::translate("embeds-show-embed-display-limited"));
 				}
@@ -422,11 +440,7 @@ pub fn show(
 						.on_hover_text(crate::i18n::translate("embeds-show-open-image-2"))
 						.clicked()
 				{
-					*opening = embed
-						.url
-						.as_deref()
-						.or(image.url.as_deref())
-						.and_then(external_url);
+					download.view_embed(message.id, image);
 				}
 				ui.add_space(6.0);
 				return;
@@ -437,7 +451,7 @@ pub fn show(
 			});
 			let width = ui.available_width().min(480.0);
 			let frame = egui::Frame::new()
-				.fill(colors.raised)
+				.fill(card_surface.fill(ui, colors.raised))
 				.corner_radius(5)
 				.inner_margin(12)
 				.show(ui, |ui| {
@@ -501,6 +515,7 @@ pub fn show(
 											cache,
 											opening,
 											profile,
+											card_surface,
 											(images, demo, &state.guilds, &source),
 										);
 									}
@@ -508,6 +523,7 @@ pub fn show(
 								if let Some(image) = thumbnail {
 									image_preview(
 										ui,
+										message.id,
 										image,
 										egui::vec2(84.0, 84.0),
 										images,
@@ -555,6 +571,7 @@ pub fn show(
 												cache,
 												opening,
 												profile,
+												card_surface,
 												(images, demo, &state.guilds, &source),
 											);
 										});
@@ -563,10 +580,11 @@ pub fn show(
 								field += count;
 							}
 							if count > 1 {
-								gallery(ui, group, images, opening, download, demo);
+								gallery(ui, group, images, message.id, download, demo);
 							} else if let Some(image) = &embed.image {
 								image_preview(
 									ui,
+									message.id,
 									image,
 									egui::vec2(
 										ui.available_width(),
@@ -582,6 +600,7 @@ pub fn show(
 							{
 								image_preview(
 									ui,
+									message.id,
 									image,
 									egui::vec2(84.0, 84.0),
 									images,
@@ -772,7 +791,8 @@ mod tests {
 									&mut opening,
 									&mut download,
 									&mut profile,
-									&client_core::State::default()
+									&client_core::State::default(),
+									crate::design::MessageCardSurface::Conversation,
 								)
 								.is_none()
 							);
@@ -897,7 +917,7 @@ mod tests {
 	}
 
 	#[test]
-	fn gallery_tiles_fit_without_overlap_and_open_each_original() {
+	fn gallery_tiles_fit_without_overlap_and_request_each_image_viewer() {
 		for theme in [egui::Theme::Dark, egui::Theme::Light] {
 			for width in [96.0, 240.0, 456.0] {
 				for count in [2, 3, 4, 10] {
@@ -915,7 +935,7 @@ mod tests {
 					ctx.set_theme(theme);
 					let embeds = gallery_embeds(count);
 					let mut images = Avatars::default();
-					let mut opening = None;
+					let mut download = DownloadUi::default();
 					let mut origin = egui::Pos2::ZERO;
 					let mut frame = |events| {
 						ctx.run_ui(
@@ -934,14 +954,14 @@ mod tests {
 									ui,
 									&embeds,
 									&mut images,
-									&mut opening,
-									&mut DownloadUi::default(),
+									model::Id(42),
+									&mut download,
 									false,
 								);
 							},
 						)
 						.drop_without_applying_deltas();
-						(origin, opening.take())
+						(origin, download.embed_view_request.take())
 					};
 					frame(vec![]);
 					let (origin, _) = frame(vec![]);
@@ -962,7 +982,10 @@ mod tests {
 							pressed: false,
 							modifiers: Default::default(),
 						}]);
-						assert_eq!(opened, embeds[i].image.as_ref().unwrap().url);
+						assert_eq!(
+							opened,
+							Some((model::Id(42), embeds[i].image.as_ref().unwrap().clone()))
+						);
 					}
 					assert_eq!(images.take_requests().len(), count);
 				}
@@ -1108,6 +1131,7 @@ mod tests {
 					&mut download,
 					&mut profile,
 					&client_core::State::default(),
+					crate::design::MessageCardSurface::Conversation,
 				);
 			},
 		);

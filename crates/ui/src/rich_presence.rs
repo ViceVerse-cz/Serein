@@ -260,7 +260,7 @@ fn preview_card(
 			crate::dialog::notice(
 				ui,
 				crate::dialog::Level::Warning,
-				"Activity sharing is off. Enable it in Settings > Game Activity to publish your presence.",
+				"Activity sharing is off. Enable it in Settings > Registered Games to publish your presence.",
 			);
 		} else if !activity_status.0.is_empty() {
 			design::hint(ui, activity_status.0);
@@ -273,7 +273,7 @@ fn preview_card(
 		} else if !state.gateway_connected {
 			"Offline. Your saved activity will wait for a connection."
 		} else {
-			"Enable activity sharing in Settings > Game Activity. Invisible hides your activity."
+			"Enable activity sharing in Settings > Registered Games. Invisible hides your activity."
 		},
 	);
 }

@@ -88,13 +88,14 @@ fn open_output(
 	gate: Arc<Gate>,
 	generation: u64,
 ) -> Result<cpal::Stream, &'static str> {
-	let device = cpal::default_host()
+	let host = cpal::default_host();
+	let device = host
 		.default_output_device()
 		.ok_or("No audio output device")?;
 	let supported = device
 		.default_output_config()
 		.map_err(|_| "Audio output unavailable")?;
-	let config = supported.config();
+	let config = playback_config(host.id(), supported.config());
 	if !(1..=8).contains(&config.channels) || !(8000..=192000).contains(&config.sample_rate) {
 		return Err("Unsupported audio output format");
 	}

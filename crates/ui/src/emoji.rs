@@ -1,10 +1,52 @@
-//! Bundled Twemoji. One fixed atlas, no runtime requests or per-message image cache.
+//! Bundled Twemoji: an inline atlas and bounded scalable artwork decoded by the media worker.
 use egui::{Context, Image, TextureHandle};
 use image::ImageDecoder;
 use std::sync::OnceLock;
 
 const ATLAS: &[u8] = include_bytes!("../../../assets/twemoji/atlas.png");
 const INDEX: &str = include_str!("../../../assets/twemoji/index.tsv");
+const VECTORS: &[u8] = include_bytes!("../../../assets/twemoji/vectors.bin");
+const VECTOR_COUNT: usize = 4009;
+const VECTOR_HEADER: usize = (VECTOR_COUNT + 1) * 4;
+
+/// Parse only bounded local artwork keys. No URL or filesystem input is accepted.
+pub fn bundled_svg(key: &str) -> Option<(&'static [u8], u32)> {
+	if key.len() > 64 {
+		return None;
+	}
+	let (cell, edge) = key.strip_prefix("emoji-unicode-")?.split_once('-')?;
+	let cell = cell.parse::<usize>().ok()?;
+	let edge = edge.parse::<u32>().ok()?;
+	if cell >= VECTOR_COUNT || !matches!(edge, 64 | 128 | 256) {
+		return None;
+	}
+	let offset = |index| {
+		Some(u32::from_le_bytes(VECTORS.get(index * 4..index * 4 + 4)?.try_into().ok()?) as usize)
+	};
+	let start = offset(cell)?;
+	let end = offset(cell + 1)?;
+	if start >= end || end - start > 65536 {
+		return None;
+	}
+	Some((
+		VECTORS.get(VECTOR_HEADER + start..VECTOR_HEADER + end)?,
+		edge,
+	))
+}
+
+/// Call outside rendering. Individual trusted SVGs have a 64 KiB expansion/window limit.
+pub fn decode_bundled_svg(source: &[u8]) -> Option<Vec<u8>> {
+	use std::io::Read;
+	if source.is_empty() || source.len() > 65536 {
+		return None;
+	}
+	let decoder =
+		ruzstd::decoding::StreamingDecoder::new_with_max_window_size(source, 65536).ok()?;
+	let mut svg = Vec::new();
+	decoder.take(65537).read_to_end(&mut svg).ok()?;
+	(svg.len() <= 65536).then_some(svg)
+}
+
 static ENTRIES: OnceLock<Vec<(&'static str, usize)>> = OnceLock::new();
 
 fn entries() -> &'static [(&'static str, usize)] {
@@ -166,6 +208,30 @@ pub(crate) fn custom_prefix(text: &str) -> Option<(model::Id, usize)> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn vector_artwork_keys_and_decompression_are_bounded() {
+		for edge in [64, 128, 256] {
+			let (source, parsed) = bundled_svg(&format!("emoji-unicode-0-{edge}")).unwrap();
+			assert_eq!(parsed, edge);
+			let svg = decode_bundled_svg(source).unwrap();
+			assert!(svg.starts_with(b"<svg"));
+			assert!(svg.len() <= 65536);
+		}
+		for key in [
+			"emoji-unicode-4009-64",
+			"emoji-unicode-0-4096",
+			"emoji-unicode-../0-64",
+			"emoji-unicode-0-64?url=x",
+			"emoji-9001",
+		] {
+			assert!(bundled_svg(key).is_none(), "{key}");
+		}
+		assert!(decode_bundled_svg(b"not compressed svg").is_none());
+		for cell in 0..VECTOR_COUNT {
+			let (source, _) = bundled_svg(&format!("emoji-unicode-{cell}-64")).unwrap();
+			assert!(decode_bundled_svg(source).is_some(), "cell {cell}");
+		}
+	}
 	#[test]
 	fn custom_markup_is_bounded_and_never_an_arbitrary_url() {
 		for token in ["<:serein_wave:9001>", "<a:serein_party:9001>"] {

@@ -14,7 +14,7 @@ page-appearance = 外観
 page-chat = チャット
 page-messaging-permissions = メッセージング権限
 page-notifications = 通知
-page-activity = ゲームアクティビティ
+page-registered-games = 登録済みのゲーム
 page-voice = 音声とビデオ
 page-keybinds = キーバインド
 page-storage = データとプライバシー
@@ -28,7 +28,7 @@ description-appearance = テーマ、色、ウィンドウ効果、レイアウ�
 description-chat = メッセージ、メディア、リンク、スクロールの動作。
 description-messaging-permissions = 誰があなたに連絡できるか、そしてメッセージをどのようにフィルタリングするかを制御します。
 description-notifications = 受信する通知とその表示方法を選択します。
-description-activity = あなたがプレイしているものを他の人に見せてください。
+description-registered-games = プレイ中のゲームを共有し、Serein が検出したゲームを修正・追加します。
 description-voice = マイク、スピーカー、カメラ、音声処理。
 description-keybinds = セレインのキーボード ショートカット。
 description-storage = Serein がこのデバイスに保存しているもの。
@@ -103,6 +103,7 @@ no-conversations = ここでは会話ができません。
 open-in-discord = Discordで開く
 new = 新しい
 members-count = メンバー
+members-heading = メンバー
 no-conversation-selected = 会話が選択されていません
 select-conversation = リストからチャンネルまたはダイレクトメッセージを選択します。
 friends-online = オンライン
@@ -734,6 +735,8 @@ design-account-row-with-remove-forget-this-account-on-this-device = このデバ
 design-color-edit-hex-color-rrggbb-click-to-type-or-paste = 16 進カラー: #RRGGBB。クリックして入力または貼り付けます。
 # Context: save_bar
 design-save-bar-careful-you-have-unsaved-changes = 注意してください。保存されていない変更があります。
+design-save-bar-save-changes = 変更を保存
+design-save-bar-reset = リセット
 
 ## crates/ui/src/dialog.rs
 # Context: header
@@ -1502,7 +1505,7 @@ join-server-show-join-enter-an-invite-below-to-join-an-existing-server = 既存�
 # Context: show_join
 join-server-show-join-join-a-server = サーバーに参加する
 # Context: body
-join-server-status-invite-accepted = 招待が受け入れられました。サーバーアクセスを待機しています。 Discord のサーバー ルールを完了します。
+join-server-status-invite-accepted = 招待を承認しました。サーバーへのアクセスを待っています。
 # Context: body
 join-server-status-offline-preview = オフライン プレビュー — サーバーへの参加は無効になっています。
 
@@ -1545,6 +1548,8 @@ lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = ファイ
 lib-ime-updates-text-clear-this-draft = このドラフトをクリアする
 # Context: ime_updates_text
 lib-ime-updates-text-copy-edit-text = 編集テキストをコピーする
+# Context: ime_updates_text
+lib-ime-updates-text-create-a-poll = 投票を作成
 # Context: ime_updates_text
 lib-ime-updates-text-draft-budget-full-clear-an-existing-draft-to-continue = 予算案は満席です。続行するには、既存の下書きをクリアします。
 # Context: ime_updates_text
@@ -1786,6 +1791,86 @@ pending-show-you = あなた
 pending-upload-strip-cancel-upload = アップロードをキャンセルする
 # Context: upload_strip
 pending-upload-strip-the-message-may-already-have-reached-discord-check-the-conversation = メッセージはすでに Discord に届いている可能性があります。再度送信する前に会話を確認してください。
+
+## crates/ui/src/polls.rs
+# Context: card
+polls-card-ended = 投票は終了しました
+# Context: card
+polls-card-select-many = 1つ以上の回答を選択
+# Context: card
+polls-card-select-one = 回答を1つ選択
+# Context: card
+polls-card-final-results = 最終結果
+# Context: card
+polls-card-awaiting-results = 最終結果を待っています
+# Context: card
+polls-card-hours-left = 残り{ $hours }時間
+# Context: card
+polls-card-minutes-left = 残り{ $minutes }分
+# Context: card
+polls-card-in-progress = 進行中
+# Context: card
+polls-card-vote-count-one = { $count }票
+# Context: card
+polls-card-vote-count-many = { $count }票
+# Context: card
+polls-card-results-not-loaded = 結果が読み込まれていません
+# Context: card
+polls-card-back-to-voting = 投票に戻る
+# Context: card
+polls-card-refresh-results = 結果を更新
+# Context: card
+polls-card-show-results = 結果を表示
+# Context: card
+polls-card-remove-vote = 投票を取り消す
+# Context: card
+polls-card-vote = 投票する
+# Context: card
+polls-card-end-confirm = この投票を全員に対して終了しますか？
+# Context: card
+polls-card-end-now = 今すぐ終了
+# Context: card
+polls-card-end-poll = 投票を終了
+# Context: creator
+polls-creator-title = 投票を作成
+# Context: creator
+polls-creator-question = 質問
+# Context: creator
+polls-creator-question-hint = 何を質問しますか？
+# Context: creator
+polls-creator-answers = 回答
+# Context: creator
+polls-creator-answer-hint = 回答 { $number }
+# Context: creator
+polls-creator-add-emoji = 絵文字を追加
+# Context: creator
+polls-creator-change-emoji = 絵文字を変更
+# Context: creator
+polls-creator-remove-answer = 回答を削除
+# Context: creator
+polls-creator-add-answer = 回答を追加
+# Context: creator
+polls-creator-duration = 期間
+# Context: creator
+polls-creator-multiple-answers = 複数回答を許可
+# Context: creator
+polls-creator-post = 投稿
+# Context: creator
+polls-creator-posting = 投稿中…
+# Context: duration_label
+polls-duration-1-hour = 1時間
+# Context: duration_label
+polls-duration-4-hours = 4時間
+# Context: duration_label
+polls-duration-8-hours = 8時間
+# Context: duration_label
+polls-duration-24-hours = 24時間
+# Context: duration_label
+polls-duration-3-days = 3日
+# Context: duration_label
+polls-duration-1-week = 1週間
+# Context: duration_label
+polls-duration-hours = { $hours }時間
 
 ## crates/ui/src/post_menu.rs
 # Context: context
@@ -2373,8 +2458,6 @@ server-admin-emojis-image = 画像
 # Context: emojis
 server-admin-emojis-name = 名前
 # Context: emojis
-server-admin-emojis-none = なし
-# Context: emojis
 server-admin-emojis-preparing-emoji-images = 絵文字画像を準備しています...
 # Context: emojis
 server-admin-emojis-remove = 取り除く
@@ -2468,8 +2551,6 @@ server-admin-members-recent-members = 最近のメンバー
 server-admin-members-search-by-username-or-id = ユーザー名またはIDで検索
 # Context: members
 server-admin-members-server-members = サーバーメンバー
-# Context: members
-server-admin-members-show-members-in-channel-list = チャンネルリストにメンバーを表示
 # Context: members
 server-admin-members-show-the-members-page-in-the-channel-list-to-quickly = チャンネル リストのメンバー ページを表示すると、最近の参加や異常なアクティビティのフラグが立てられたメンバーをすぐに確認できます。
 # Context: members
@@ -3233,6 +3314,92 @@ settings-account-page-signed-in-with-your-discord-account = Discord アカウン
 settings-activity-settings-detect-running-games-and-ask-discord-to-share-them-as = 実行中のゲームを検出し、アクティビティとして共有するように Discord に依頼します。
 # Context: activity_settings
 settings-activity-settings-share-game-activity = ゲームアクティビティを共有する
+# Context: activity_settings
+settings-activity-enable-on-discord = Discord で有効にする
+# Context: activity_settings
+settings-activity-check-again = もう一度確認
+# Context: activity_settings
+settings-activity-sharing-is-off = アクティビティの共有はオフです
+# Context: activity_settings
+settings-activity-sharing-your-game = ゲームを共有しています
+# Context: activity_settings
+settings-activity-looking = 実行中のゲームを探しています
+# Context: activity_settings
+settings-activity-demo-detail = サンプルのアクティビティです。共有も保存もされません。
+# Context: activity_settings
+settings-activity-status-offline-preview = オフラインプレビュー: サンプルのアクティビティです。共有も保存もされません。
+# Context: activity_settings
+settings-activity-status-unconfirmed = ローカルプレビューのみです。Discord が共有を確認するのを待っています。
+# Context: activity_settings
+settings-activity-status-received = Discord はゲームを受信しましたが、公開表示していません。
+# Context: activity_settings
+settings-activity-status-listed = Discord がゲームを表示しています。サーバーとフレンドのプライバシー設定は引き続き適用されます。
+# Context: activity_settings
+settings-activity-status-hidden = Discord がゲームを非表示にしています。Discord の「登録済みのゲーム」と「アクティビティの共有」を確認してください。
+# Context: activity_settings
+settings-activity-status-missing = Discord はゲームを公開表示しませんでした。Discord の「登録済みのゲーム」とサーバーの共有設定を確認してください。
+# Context: activity_settings
+settings-activity-status-sharing-off = Discord のアカウント全体のアクティビティ共有はオフです。
+# Context: activity_settings
+settings-activity-status-checking = Discord のアクティビティ共有設定を確認しています…
+# Context: activity_settings
+settings-activity-status-check-failed = Discord のアクティビティ共有設定を確認または変更できませんでした。
+# Context: activity_settings
+settings-activity-status-updating = Discord のアクティビティ共有設定を更新しています…
+# Context: activity_settings
+settings-activity-status-request-failed = 設定の変更をリクエストできませんでした。もう一度お試しください。
+# Context: activity_settings
+settings-activity-current-game = 現在のゲーム
+# Context: activity_settings
+settings-activity-now-playing = プレイ中!
+# Context: activity_settings
+settings-activity-stop-detecting-current = このゲームではありませんか?検出を停止します。
+# Context: activity_settings
+settings-activity-reported-by-game = ゲームが Rich Presence で報告しています。
+# Context: activity_settings
+settings-activity-no-game-detected = ゲームが検出されていません
+# Context: activity_settings
+settings-activity-turn-on-sharing = ゲームを検出するには、上の「ゲームアクティビティを共有する」をオンにしてください。
+# Context: activity_settings
+settings-activity-not-seeing-your-game = ゲームが見つかりませんか?
+# Context: activity_settings
+settings-activity-add-it = 追加しましょう!
+# Context: activity_settings
+settings-activity-added-games = 追加済みのゲーム
+# Context: activity_settings
+settings-activity-no-games-added = 追加されたゲームはありません
+# Context: activity_settings
+settings-activity-hidden = 非表示。Serein はこのゲームを検出しません。
+# Context: activity_settings
+settings-activity-detected = 自動検出
+# Context: activity_settings
+settings-activity-last-played-today = 最終プレイ: 今日
+# Context: activity_settings
+settings-activity-last-played-yesterday = 最終プレイ: 昨日
+# Context: activity_settings
+settings-activity-last-played = 最終プレイ: { $date }
+# Context: activity_settings
+settings-activity-restore = 復元
+# Context: activity_settings
+settings-activity-restore-hint = このゲームを再び検出します。
+# Context: activity_settings
+settings-activity-stop-detecting = このゲームの検出を停止
+# Context: activity_settings
+settings-activity-remove-game = このゲームを削除
+# Context: activity_settings
+settings-activity-click-to-rename = クリックして名前を変更
+# Context: activity_settings
+settings-activity-add-a-game = ゲームを追加
+# Context: activity_settings
+settings-activity-choose-program = 実行中のプログラムを選んでください。実行されるたびに Serein がゲームとして表示します。
+# Context: activity_settings
+settings-activity-search-programs = 実行中のプログラムを検索
+# Context: activity_settings
+settings-activity-reading-programs = 実行中のプログラムを読み込んでいます…
+# Context: activity_settings
+settings-activity-no-matching-programs = 一致するプログラムは実行されていません。
+# Context: activity_settings
+settings-activity-add-game = ゲームを追加
 # Context: appearance_menu
 settings-appearance-menu-display = 画面
 # Context: appearance_menu
@@ -3596,7 +3763,9 @@ timeline-message-actions-view-reactions = 反応を見る
 # Context: present_control
 timeline-present-control-jump-to-present = 現在へジャンプ
 # Context: present_control
-timeline-present-control-new-messages-below-jump-to-present = 新しいメッセージは以下にあります · 現在のメッセージにジャンプします
+timeline-present-control-new-messages-below-jump-to-present = 新しいメッセージがあります · 現在へジャンプ
+# Context: present_control
+timeline-present-control-new-messages = 新着メッセージ { $count } 件
 # Context: show_system
 timeline-show-system-open-this-channels-threads = このチャンネルのスレッドを開く
 # Context: show_system
@@ -3643,6 +3812,10 @@ timeline-show-with-scroll-you-cannot-view-this-conversation = この会話は表
 timeline-starter-row-thread-started-from-this-message = このメッセージからスレッドが開始されました
 # Context: unread_banner
 timeline-unread-banner-unread-messages = 未読メッセージ
+# Context: unread_banner
+timeline-unread-banner-mark-as-read = 既読にする
+# Context: unread_banner
+timeline-unread-banner-jump-to-unread = 未読へジャンプ
 
 ## crates/ui/src/toasts.rs
 # Context: show
@@ -3705,6 +3878,8 @@ updates-update-settings-restart-to-update = 更新するには再起動してく
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein はディストリビューション経由でインストールされました。ターミナルでこれを実行して更新します。
 # Context: update_settings
 updates-update-settings-support-diagnostics = サポートと診断
+# Context: update_log
+updates-update-log = 更新履歴
 # Context: update_settings
 updates-update-settings-update-checks-are-disabled-in-debug-builds = デバッグ ビルドでは更新チェックが無効になります。
 
@@ -4054,6 +4229,10 @@ profiles-remove-friend-message = { $user } をフレンドから削除します�
 channel-menu-dialog-category-settings = カテゴリ設定
 channel-menu-dialog-channel-settings = チャンネル設定
 channel-menu-dialog-settings-subtitle = 設定と権限をカスタマイズします。
+channel-menu-discard-title = 保存されていない変更を破棄しますか？
+channel-menu-discard-message = このチャンネルへの保存されていない変更は失われます。
+channel-menu-discard-confirm = 変更を破棄
+channel-menu-discard-keep = 編集を続ける
 channel-menu-dialog-duplicate-subtitle = 設定と権限をコピーします。メッセージはコピーされません。
 channel-menu-dialog-create-channel-subtitle = チャンネルの種類と名前を選択します。
 channel-menu-dialog-create-category-subtitle = カテゴリで関連するチャンネルを整理します。
@@ -4109,5 +4288,139 @@ search-page-previous-short = 前へ
 search-page-next-short = 次へ
 search-result-today-at = 今日 { $time }
 search-result-yesterday-at = 昨日 { $time }
-timeline-unread-banner-one-new-since = { $time } 以降の新着メッセージ 1 件
-timeline-unread-banner-many-new-since = { $time } 以降の新着メッセージ { $count } 件
+timeline-unread-banner-new-since = { $time } 以降の新着メッセージ { $count } 件
+timeline-unread-banner-new-since-more = { $time } 以降の新着メッセージ { $count }+ 件
+
+## crates/ui/src/onboarding.rs
+# Context: show
+onboarding-show-title = { $server } へようこそ
+# Context: show
+onboarding-show-subtitle = いくつかの質問に答えてルールに同意すると、チャットを始められます。
+# Context: show
+onboarding-show-try-again = 再試行
+# Context: show
+onboarding-show-close = 閉じる
+# Context: show
+onboarding-show-please-wait = お待ちください…
+# Context: show
+onboarding-show-finish = 完了
+# Context: show
+onboarding-show-not-now = あとで
+# Context: show
+onboarding-show-this-server = このサーバー
+# Context: body
+onboarding-body-submitted = 申請を送信しました。モデレーターの承認後にチャットできます。
+# Context: body
+onboarding-body-rejected = このサーバーは申請を却下しました。
+# Context: body
+onboarding-body-loading = サーバーのオンボーディングを読み込み中…
+# Context: body
+onboarding-body-all-set = 準備完了です。ここで完了することは残っていません。
+# Context: prompt
+onboarding-prompt-pick-one = 1つ選択
+# Context: prompt
+onboarding-prompt-pick-any = 当てはまるものをすべて選択
+# Context: rules
+onboarding-rules-heading = サーバールール
+# Context: rules
+onboarding-rules-review = チャットする前に、モデレーターがこれらの回答を確認します。
+# Context: field
+onboarding-field-unsupported = このサーバーには Serein がまだ表示できない質問があります。Discord アプリで参加を完了してください。
+# Context: field
+onboarding-field-agree = ルールを読み、同意します
+
+## crates/ui/src/lib.rs
+# Context: composer
+lib-composer-onboarding-rules-pending = チャットを始めるには、このサーバーのルールに同意してください。
+# Context: composer
+lib-composer-onboarding-incomplete = 参加を完了すると、さらにチャンネルが開放されます。
+# Context: composer
+lib-composer-onboarding-complete = オンボーディングを完了
+
+voice-recipient-ring = もう一度呼び出す
+voice-recipient-stop-ringing = 呼び出しを停止
+voice-recipient-ringing = 呼び出し中…
+voice-recipient-not-in-call = 通話に未参加
+reconnect-now = 今すぐ再接続
+
+voice-call-moved-to-another-client = このデバイスの通話セッションが置き換えられました
+
+server-settings-page-safety = 安全設定
+
+server-settings-nav-title = サーバー設定
+
+server-settings-safety-subtitle = このサーバーでチャットできる人と、Discordが不適切なコンテンツをスキャンするメディアを決めます。
+
+server-settings-safety-community-note = コミュニティサーバーでは、認証レベルを「低」以上にし、すべてのメンバーのメディアをスキャンする必要があります。
+
+server-settings-safety-verification = 認証レベル
+
+server-settings-safety-verification-help = メンバーがテキストチャンネルで発言したりダイレクトメッセージを始めたりする前に、これらの条件を満たす必要があります。
+
+server-settings-safety-verification-none = なし
+
+server-settings-safety-verification-none-detail = 制限なし
+
+server-settings-safety-verification-low = 低
+
+server-settings-safety-verification-low-detail = Discordアカウントのメールアドレスが認証済みである必要があります。
+
+server-settings-safety-verification-medium = 中
+
+server-settings-safety-verification-medium-detail = さらにDiscordに登録してから5分以上経過している必要があります。
+
+server-settings-safety-verification-high = 高
+
+server-settings-safety-verification-high-detail = さらにこのサーバーのメンバーになってから10分以上経過している必要があります。
+
+server-settings-safety-verification-highest = 最高
+
+server-settings-safety-verification-highest-detail = Discordアカウントの電話番号が認証済みである必要があります。
+
+server-settings-safety-filter = 不適切なメディアコンテンツフィルター
+
+server-settings-safety-filter-help = このサーバーに送信された、不適切な内容を含む可能性のあるメディアを自動で検出してブロックします。
+
+server-settings-safety-filter-disabled = メディアをスキャンしない
+
+server-settings-safety-filter-no-roles = ロールのないメンバーのメディアをスキャン
+
+server-settings-safety-filter-all = すべてのメンバーのメディアをスキャン
+
+server-settings-profile-form-banner-custom = カスタムカラー
+
+server-settings-profile-form-banner-custom-help = 上のプリセットか、バナーに使う任意の色を選びます。
+
+server-settings-profile-server-id = サーバーID
+
+server-settings-profile-server-id-help = このIDはボット、モデレーションツール、サポートへの問い合わせに使います。
+
+server-settings-profile-copy-id = IDをコピー
+
+server-settings-engagement-system-welcome = 誰かがサーバーに参加したときにランダムな歓迎メッセージを送信する。
+
+server-settings-engagement-system-welcome-sticker = 歓迎メッセージにスタンプで返信するようメンバーに促す。
+
+server-settings-engagement-system-boost = 誰かがこのサーバーをブーストしたときにメッセージを送信する。
+
+server-settings-engagement-system-tips = サーバー設定に役立つヒントを送信する。
+
+server-invites-header-subtitle = このサーバーに参加できるリンクを共有します。
+
+server-audit-log-header-subtitle = このサーバーのモデレーションと設定変更の記録です。
+
+server-audit-log-empty-detail = 別のユーザーや操作を選ぶか、再読み込みして新しいイベントを確認してください。
+
+server-members-header-subtitle = このサーバーのメンバーを表示、検索、管理します。
+
+server-members-show-in-channel-list = チャンネルリストにメンバーを表示
+
+server-emoji-section-static = 静止画の絵文字
+
+server-emoji-empty-static = 絵文字はまだありません
+
+server-emoji-empty-animated = アニメーション絵文字はまだありません
+
+server-emoji-empty-detail = 画像をアップロードして追加します。GIFはアニメーション絵文字になります。
+
+server-stickers-empty-detail = 画像をアップロードして最初のスタンプを追加しましょう。

@@ -108,6 +108,7 @@ impl Components {
 					enabled,
 					&mut action,
 					media_ui,
+					design::MessageCardSurface::Conversation,
 				);
 			}
 		});
@@ -127,8 +128,15 @@ impl Components {
 		enabled: bool,
 		action: &mut Option<Action>,
 		media_ui: &mut MediaUi<'_>,
+		card_surface: design::MessageCardSurface,
 	) {
 		let colors = design::palette(ui);
+		// A container paints an opaque card even when its parent is translucent chat.
+		let card_surface = if c.kind == 17 {
+			design::MessageCardSurface::Opaque
+		} else {
+			card_surface
+		};
 		ui.push_id(id, |ui| {
 			if c.spoiler {
 				let revealed = self.revealed.contains(&id.value());
@@ -188,6 +196,7 @@ impl Components {
 										enabled,
 										action,
 										media_ui,
+										card_surface,
 									);
 								}
 							});
@@ -217,6 +226,7 @@ impl Components {
 											enabled,
 											action,
 											media_ui,
+											card_surface,
 										);
 										self.accessory = false;
 									});
@@ -238,6 +248,7 @@ impl Components {
 												enabled,
 												action,
 												media_ui,
+												card_surface,
 											);
 										}
 									},
@@ -256,6 +267,7 @@ impl Components {
 									enabled,
 									action,
 									media_ui,
+									card_surface,
 								);
 							}
 						}
@@ -273,6 +285,7 @@ impl Components {
 								enabled,
 								action,
 								media_ui,
+								card_surface,
 							);
 						}
 					});
@@ -408,6 +421,7 @@ impl Components {
 							),
 							(avatars, state.demo, revealed),
 							&mut surface,
+							card_surface,
 						);
 					surface.finish(ui);
 				}
@@ -426,6 +440,7 @@ impl Components {
 							media_ui,
 							&mut self.revealed,
 							thumbnail,
+							card_surface,
 						);
 					}
 				}
@@ -457,6 +472,7 @@ impl Components {
 								media_ui,
 								&mut self.revealed,
 								false,
+								card_surface,
 							);
 						}
 					}
@@ -474,6 +490,7 @@ impl Components {
 							media_ui,
 							&mut self.revealed,
 							false,
+							card_surface,
 						);
 					}
 				}
@@ -1035,6 +1052,7 @@ fn field(
 						(&state.channels, &mut None, &state.guilds, &[]),
 						(avatars, state.demo, revealed.entry(key).or_default()),
 						&mut surface,
+						crate::design::MessageCardSurface::Opaque,
 					);
 				surface.finish(ui);
 			}
@@ -1098,6 +1116,7 @@ fn show_media(
 	media_ui: &mut MediaUi<'_>,
 	revealed: &mut std::collections::BTreeSet<u64>,
 	thumbnail: bool,
+	card_surface: design::MessageCardSurface,
 ) {
 	let url = resolve_media(&media.url, message);
 	if let Some(attachment) = message.attachments.iter().find(|attachment| {
@@ -1142,6 +1161,7 @@ fn show_media(
 			media_ui.video,
 			demo,
 			&mut surface,
+			card_surface,
 		);
 		surface.finish(ui);
 		if *media_ui.viewing != previous_view

@@ -191,6 +191,62 @@ impl Admin {
 				self.uploading = false;
 			}
 		}
+		if members {
+			design::page_header(
+				ui,
+				"server-admin-members-server-members",
+				Some("server-members-header-subtitle"),
+				|ui| {
+					if state.can_prune_guild(guild)
+						&& ui
+							.add_enabled_ui(
+								!state.server_admin.pending && !state.server_admin.needs_refresh,
+								|ui| {
+									design::button(
+										ui,
+										"server-admin-members-prune",
+										design::ButtonKind::Outline,
+									)
+								},
+							)
+							.inner
+							.clicked()
+					{
+						self.dialog = Some(Dialog::Prune {
+							days: 7,
+							counted: None,
+						});
+					}
+				},
+			);
+		} else {
+			design::page_header(
+				ui,
+				"server-admin-emojis-emoji",
+				Some("server-admin-emojis-add-custom-emoji-that-anyone-can-use-in-this-server"),
+				|ui| {
+					if state.can_create_guild_emoji(guild)
+						&& ui
+							.add_enabled_ui(
+								!self.preparing()
+									&& self.uploads.is_empty() && !state.server_admin.pending
+									&& !state.server_admin.needs_refresh,
+								|ui| {
+									design::button(
+										ui,
+										"server-admin-emojis-upload-emoji",
+										design::ButtonKind::Primary,
+									)
+								},
+							)
+							.inner
+							.clicked()
+					{
+						self.queue_files(Vec::new());
+					}
+				},
+			);
+		}
 		if let Some(error) = state.server_admin.error.or(self.error) {
 			design::notice(ui, design::Level::Error, error);
 			if ui
@@ -240,36 +296,12 @@ impl Admin {
 		profile: &mut crate::profiles::ProfileSession,
 	) {
 		let colors = design::palette(ui);
-		ui.label(design::semibold(
-			ui,
-			crate::i18n::translate("server-admin-emojis-emoji"),
-			22.0,
-		));
-		ui.label(crate::i18n::translate(
-			"server-admin-emojis-add-custom-emoji-that-anyone-can-use-in-this-server",
-		));
-		ui.add_space(14.0);
 		if state.can_create_guild_emoji(guild) {
-			if ui
-				.add_enabled_ui(
-					!self.preparing() && self.uploads.is_empty() && !state.server_admin.pending,
-					|ui| {
-						design::button(
-							ui,
-							&crate::i18n::translate("server-admin-emojis-upload-emoji"),
-							design::ButtonKind::Primary,
-						)
-					},
-				)
-				.inner
-				.clicked()
-			{
-				self.queue_files(Vec::new());
-			}
-			ui.add_space(18.0);
-			ui.small(crate::i18n::translate(
+			design::hint(
+				ui,
 				"server-admin-emojis-drag-and-drop-up-to-10-images-onto-this-page",
-			));
+			);
+			ui.add_space(12.0);
 		}
 		if self.preparing {
 			ui.weak(crate::i18n::translate(
@@ -277,110 +309,97 @@ impl Admin {
 			));
 		}
 		if !self.uploads.is_empty() {
-			egui::Frame::new()
-				.stroke(egui::Stroke::new(1.0, colors.border))
-				.corner_radius(8)
-				.inner_margin(12)
-				.show(ui, |ui| {
-					ui.label(design::semibold(
-						ui,
-						crate::i18n::translate("server-admin-emojis-review-uploads"),
-						16.0,
-					));
-					let mut remove = None;
-					for (index, upload) in self.uploads.iter_mut().enumerate() {
-						ui.push_id(index, |ui| {
-							ui.horizontal(|ui| {
-								ui.add(
-									egui::Image::from_texture(&upload.texture)
-										.fit_to_exact_size(egui::Vec2::splat(32.0)),
-								);
-								ui.add_enabled(
-									!self.uploading,
-									egui::TextEdit::singleline(&mut upload.name)
-										.desired_width((ui.available_width() - 130.0).max(60.0))
-										.char_limit(32),
-								)
-								.on_hover_text(crate::i18n::translate(
-									"server-admin-emojis-emoji-name-232-letters-numbers-or-underscores",
-								));
-								ui.weak(crate::i18n::translate_if_key(if upload.animated {
-									"server-admin-emojis-animated"
-								} else {
-									"server-admin-emojis-static"
-								}));
-								if ui
-									.add_enabled(
-										!self.uploading,
-										egui::Button::new(crate::i18n::translate(
-											"server-admin-emojis-remove",
-										)),
-									)
-									.clicked()
-								{
-									remove = Some(index);
-								}
-							});
-						});
-					}
-					if let Some(index) = remove {
-						self.uploads.remove(index);
-					}
-					let valid = self
-						.uploads
-						.iter()
-						.all(|upload| model::server_admin::valid_emoji_name(&upload.name));
-					if !valid {
-						design::notice(
-							ui,
-							design::Level::Error,
-							&crate::i18n::translate(
-								"server-admin-emojis-emoji-names-must-use-232-letters-numbers-or-underscores",
-							),
-						);
-					}
-					ui.horizontal(|ui| {
-						if ui
-							.add_enabled(
-								valid && !self.uploading && !state.server_admin.pending,
-								egui::Button::new(crate::i18n::translate(
-									"server-admin-emojis-upload",
-								)),
-							)
-							.clicked()
-						{
-							self.uploading = true;
-						}
-						if ui
-							.add_enabled(
+			design::group(ui, "server-admin-emojis-review-uploads", |ui| {
+				let mut remove = None;
+				for (index, upload) in self.uploads.iter_mut().enumerate() {
+					ui.push_id(index, |ui| {
+						ui.horizontal(|ui| {
+							ui.add(
+								egui::Image::from_texture(&upload.texture)
+									.fit_to_exact_size(egui::Vec2::splat(32.0)),
+							);
+							ui.add_enabled(
 								!self.uploading,
-								egui::Button::new(crate::i18n::translate(
-									"server-admin-emojis-cancel",
-								)),
+								egui::TextEdit::singleline(&mut upload.name)
+									.desired_width((ui.available_width() - 130.0).max(60.0))
+									.char_limit(32),
 							)
-							.clicked()
-						{
-							self.uploads.clear();
-						}
+							.on_hover_text(crate::i18n::translate(
+								"server-admin-emojis-emoji-name-232-letters-numbers-or-underscores",
+							));
+							ui.weak(crate::i18n::translate_if_key(if upload.animated {
+								"server-admin-emojis-animated"
+							} else {
+								"server-admin-emojis-static"
+							}));
+							if ui
+								.add_enabled(
+									!self.uploading,
+									egui::Button::new(crate::i18n::translate(
+										"server-admin-emojis-remove",
+									)),
+								)
+								.clicked()
+							{
+								remove = Some(index);
+							}
+						});
 					});
+				}
+				if let Some(index) = remove {
+					self.uploads.remove(index);
+				}
+				let valid = self
+					.uploads
+					.iter()
+					.all(|upload| model::server_admin::valid_emoji_name(&upload.name));
+				if !valid {
+					design::notice(
+						ui,
+						design::Level::Error,
+						&crate::i18n::translate(
+							"server-admin-emojis-emoji-names-must-use-232-letters-numbers-or-underscores",
+						),
+					);
+				}
+				ui.horizontal(|ui| {
+					if ui
+						.add_enabled_ui(
+							valid && !self.uploading && !state.server_admin.pending,
+							|ui| {
+								design::button(
+									ui,
+									"server-admin-emojis-upload",
+									design::ButtonKind::Primary,
+								)
+							},
+						)
+						.inner
+						.clicked()
+					{
+						self.uploading = true;
+					}
+					if ui
+						.add_enabled_ui(!self.uploading, |ui| {
+							design::button(
+								ui,
+								"server-admin-emojis-cancel",
+								design::ButtonKind::Neutral,
+							)
+						})
+						.inner
+						.clicked()
+					{
+						self.uploads.clear();
+					}
 				});
+			});
 		}
-		ui.add_space(24.0);
-		ui.separator();
 		ui.add_space(24.0);
 		let Some(catalog) = state.server_admin.emojis.as_ref() else {
 			return;
 		};
 		for animated in [false, true] {
-			ui.label(design::semibold(
-				ui,
-				crate::i18n::translate_if_key(if animated {
-					"server-admin-emojis-animated-emoji"
-				} else {
-					"server-admin-emojis-emoji"
-				}),
-				21.0,
-			));
 			let count = catalog
 				.items
 				.iter()
@@ -391,7 +410,7 @@ impl Admin {
 			} else {
 				catalog.static_limit
 			};
-			ui.label(limit.map_or_else(
+			let available = limit.map_or_else(
 				|| {
 					format!(
 						"{count} {}",
@@ -405,121 +424,127 @@ impl Admin {
 						crate::i18n::translate("server-admin-emojis-slots-available")
 					)
 				},
-			));
-			ui.add_space(12.0);
+			);
+			design::section(
+				ui,
+				if animated {
+					"server-admin-emojis-animated-emoji"
+				} else {
+					"server-emoji-section-static"
+				},
+				Some(&available),
+			);
 			if count == 0 {
-				ui.add_space(8.0);
-				ui.vertical_centered(|ui| {
-					ui.label(
-						RichText::new(crate::i18n::translate("server-admin-emojis-none"))
-							.size(18.0)
-							.color(colors.muted),
+				design::card(ui, |ui| {
+					design::empty_state(
+						ui,
+						icons::Icon::Smile,
+						if animated {
+							"server-emoji-empty-animated"
+						} else {
+							"server-emoji-empty-static"
+						},
+						if state.can_create_guild_emoji(guild) {
+							"server-emoji-empty-detail"
+						} else {
+							""
+						},
 					);
 				});
 			} else {
-				egui::Frame::new()
-					.stroke(egui::Stroke::new(1.0, colors.border))
-					.corner_radius(12)
-					.inner_margin(12)
-					.show(ui, |ui| {
-						let width = ui.available_width();
-						let name_width = ((width - 116.0) * 0.47).max(60.0);
-						let by_width = (width - name_width - 116.0).max(40.0);
-						ui.horizontal(|ui| {
-							cell_text(ui, "server-admin-emojis-image", 44.0, true);
-							cell_text(ui, "server-admin-emojis-name", name_width, true);
-							cell_text(ui, "server-admin-emojis-uploaded-by", by_width, true);
-						});
-						ui.separator();
-						for row in catalog
-							.items
-							.iter()
-							.filter(|row| row.emoji.animated == animated)
-						{
-							ui.push_id(row.emoji.id, |ui| {
-								ui.horizontal(|ui| {
-									ui.allocate_ui_with_layout(
-										egui::vec2(44.0, 44.0),
-										egui::Layout::left_to_right(egui::Align::Center),
-										|ui| {
-											if let Some(image) = avatars.custom_image(
-												ui.ctx(),
-												row.emoji.id,
-												36.0,
-												state.demo,
-											) {
-												ui.add(image);
-											}
-										},
-									);
-									cell_text(
-										ui,
-										&format!(":{}:", row.emoji.name),
-										name_width,
-										false,
-									);
-									ui.allocate_ui_with_layout(
-										egui::vec2(by_width, 44.0),
-										egui::Layout::left_to_right(egui::Align::Center),
-										|ui| {
-											ui.set_max_width(by_width);
-											if let Some(user) = &row.uploader {
-												let avatar =
-													avatars.show(ui, user, 24.0, state.demo);
-												profile.person_click(ui, &avatar, None, user);
-												ui.add(egui::Label::new(&user.name).truncate());
-											} else {
-												ui.weak(crate::i18n::translate(
-													"server-admin-emojis-unknown",
-												));
-											}
-										},
-									);
-									if state.can_edit_guild_emoji(guild, row.emoji.id) {
-										let button = icons::button(
-											ui,
-											icons::Icon::More,
-											24.0,
-											&crate::i18n::translate(
-												"server-admin-emojis-emoji-actions",
-											),
-										);
-										egui::Popup::menu(&button).show(|ui| {
-											if ui
-												.button(crate::i18n::translate(
-													"server-admin-emojis-rename",
-												))
-												.clicked()
-											{
-												self.dialog = Some(Dialog::Rename {
-													id: row.emoji.id,
-													name: row.emoji.name.clone(),
-												});
-												ui.close();
-											}
-											if ui
-												.button(
-													RichText::new(crate::i18n::translate(
-														"server-admin-emojis-delete-emoji",
-													))
-													.color(colors.danger),
-												)
-												.clicked()
-											{
-												self.dialog = Some(Dialog::Delete {
-													id: row.emoji.id,
-													name: row.emoji.name.clone(),
-												});
-												ui.close();
-											}
-										});
-									}
-								});
-							});
-						}
+				design::card(ui, |ui| {
+					let width = ui.available_width();
+					let name_width = ((width - 116.0) * 0.47).max(60.0);
+					let by_width = (width - name_width - 116.0).max(40.0);
+					ui.horizontal(|ui| {
+						cell_text(ui, "server-admin-emojis-image", 44.0, true);
+						cell_text(ui, "server-admin-emojis-name", name_width, true);
+						cell_text(ui, "server-admin-emojis-uploaded-by", by_width, true);
 					});
+					ui.separator();
+					for row in catalog
+						.items
+						.iter()
+						.filter(|row| row.emoji.animated == animated)
+					{
+						ui.push_id(row.emoji.id, |ui| {
+							ui.horizontal(|ui| {
+								ui.allocate_ui_with_layout(
+									egui::vec2(44.0, 44.0),
+									egui::Layout::left_to_right(egui::Align::Center),
+									|ui| {
+										if let Some(image) = avatars.custom_image(
+											ui.ctx(),
+											row.emoji.id,
+											36.0,
+											state.demo,
+										) {
+											ui.add(image);
+										}
+									},
+								);
+								cell_text(ui, &format!(":{}:", row.emoji.name), name_width, false);
+								ui.allocate_ui_with_layout(
+									egui::vec2(by_width, 44.0),
+									egui::Layout::left_to_right(egui::Align::Center),
+									|ui| {
+										ui.set_max_width(by_width);
+										if let Some(user) = &row.uploader {
+											let avatar = avatars.show(ui, user, 24.0, state.demo);
+											profile.person_click(ui, &avatar, None, user);
+											ui.add(egui::Label::new(&user.name).truncate());
+										} else {
+											ui.weak(crate::i18n::translate(
+												"server-admin-emojis-unknown",
+											));
+										}
+									},
+								);
+								if state.can_edit_guild_emoji(guild, row.emoji.id) {
+									let button = icons::button(
+										ui,
+										icons::Icon::More,
+										24.0,
+										&crate::i18n::translate(
+											"server-admin-emojis-emoji-actions",
+										),
+									);
+									egui::Popup::menu(&button).show(|ui| {
+										if ui
+											.button(crate::i18n::translate(
+												"server-admin-emojis-rename",
+											))
+											.clicked()
+										{
+											self.dialog = Some(Dialog::Rename {
+												id: row.emoji.id,
+												name: row.emoji.name.clone(),
+											});
+											ui.close();
+										}
+										if ui
+											.button(
+												RichText::new(crate::i18n::translate(
+													"server-admin-emojis-delete-emoji",
+												))
+												.color(colors.danger),
+											)
+											.clicked()
+										{
+											self.dialog = Some(Dialog::Delete {
+												id: row.emoji.id,
+												name: row.emoji.name.clone(),
+											});
+											ui.close();
+										}
+									});
+								}
+							});
+						});
+					}
+				});
 			}
-			ui.add_space(36.0);
+			ui.add_space(24.0);
 		}
 	}
 	fn members(
@@ -532,12 +557,6 @@ impl Admin {
 		commands: &mut Vec<Command>,
 	) {
 		let colors = design::palette(ui);
-		ui.label(design::semibold(
-			ui,
-			crate::i18n::translate("server-admin-members-server-members"),
-			22.0,
-		));
-		ui.add_space(20.0);
 		let mut action = None;
 		if let Some(mut enabled) = state
 			.server_admin
@@ -546,27 +565,25 @@ impl Admin {
 			.and_then(|members| members.show_in_channel_list)
 			&& state.can_show_members_in_channel_list(guild)
 		{
-			ui.add_enabled_ui(!state.server_admin.pending, |ui| {
-				if design::switch(
-					ui,
-					"server-admin-members-show-members-in-channel-list",
-					Some(
-						"server-admin-members-show-the-members-page-in-the-channel-list-to-quickly",
-					),
-					&mut enabled,
-				)
-				.changed()
-				{
-					action = Some(Action::ShowMembers { enabled });
-				}
+			design::card(ui, |ui| {
+				ui.add_enabled_ui(!state.server_admin.pending, |ui| {
+					if design::switch(
+						ui,
+						"server-members-show-in-channel-list",
+						Some(
+							"server-admin-members-show-the-members-page-in-the-channel-list-to-quickly",
+						),
+						&mut enabled,
+					)
+					.changed()
+					{
+						action = Some(Action::ShowMembers { enabled });
+					}
+				});
 			});
 			ui.add_space(24.0);
 		}
-		ui.label(design::semibold(
-			ui,
-			crate::i18n::translate("server-admin-members-recent-members"),
-			15.0,
-		));
+		design::section(ui, "server-admin-members-recent-members", None);
 		let search_width = (ui.available_width() - 44.0).clamp(100.0, 260.0);
 		ui.horizontal_wrapped(|ui| {
 			ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
@@ -595,9 +612,6 @@ impl Admin {
 						}
 					});
 				});
-		});
-		ui.horizontal_wrapped(|ui| {
-			ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
 			let before = self.query.sort;
 			let sorts = [
 				crate::i18n::translate("server-admin-members-newest-members"),
@@ -617,33 +631,17 @@ impl Admin {
 				self.query.after = None;
 				self.query_changed = Some(0.0);
 			}
-			if state.can_prune_guild(guild)
-				&& ui
-					.add_enabled(
-						!state.server_admin.pending,
-						egui::Button::new(
-							RichText::new(crate::i18n::translate("server-admin-members-prune"))
-								.color(colors.danger),
-						),
-					)
-					.clicked()
+			if ui
+				.checkbox(
+					&mut self.query.recent,
+					crate::i18n::translate("server-admin-members-joined-in-the-last-7-days"),
+				)
+				.changed()
 			{
-				self.dialog = Some(Dialog::Prune {
-					days: 7,
-					counted: None,
-				});
+				self.query.after = None;
+				self.query_changed = Some(0.0);
 			}
 		});
-		if ui
-			.checkbox(
-				&mut self.query.recent,
-				crate::i18n::translate("server-admin-members-joined-in-the-last-7-days"),
-			)
-			.changed()
-		{
-			self.query.after = None;
-			self.query_changed = Some(0.0);
-		}
 		if self
 			.query_changed
 			.is_some_and(|at| ui.input(|input| input.time) - at >= 0.3)
@@ -847,6 +845,14 @@ impl Admin {
 					}
 				});
 			}
+			if members.items.is_empty() {
+				design::empty_state(
+					ui,
+					icons::Icon::Search,
+					"server-admin-members-no-members-match-this-search",
+					"",
+				);
+			}
 			ui.horizontal_wrapped(|ui| {
 				ui.weak(format!(
 					"{} {} {} {}",
@@ -882,11 +888,6 @@ impl Admin {
 					action = Some(Action::LoadMembers(self.query.clone()));
 				}
 			});
-			if members.items.is_empty() {
-				ui.weak(crate::i18n::translate(
-					"server-admin-members-no-members-match-this-search",
-				));
-			}
 		}
 		if let Some(action) = action
 			&& let Some(command) = state.request_server_admin(guild, action)

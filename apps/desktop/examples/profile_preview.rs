@@ -278,23 +278,41 @@ fn extension_fixture(
 		.map(std::fs::read)
 		.transpose()?;
 	let bytes: &[u8] = match id {
-		"custom-rpc" => external
+		"custom-rpc" | "api-proxy" => external
 			.as_deref()
-			.ok_or("Set SEREIN_PREVIEW_PACKAGE to the external Custom RPC package")?,
-		"serein-ocean" => include_bytes!("../../../extensions/ocean.serein-extension"),
+			.ok_or("Set SEREIN_PREVIEW_PACKAGE to the external plugin package")?,
+		"serein-ocean" => {
+			include_bytes!("../../../extensions/themes/ocean.serein-extension")
+		}
 		"message-delete-protector" => include_bytes!(
-			"../../../examples/extensions/packages/message-delete-protector.serein-extension"
+			"../../../extensions/plugins/packages/message-delete-protector.serein-extension"
 		),
-		"serein-midnight" => include_bytes!("../../../extensions/midnight.serein-extension"),
-		"serein-rose" => include_bytes!("../../../extensions/rose.serein-extension"),
-		"serein-forest" => include_bytes!("../../../extensions/forest.serein-extension"),
-		"serein-latte" => include_bytes!("../../../extensions/latte.serein-extension"),
-		"golden-theme" => include_bytes!("../../../extensions/golden.serein-extension"),
-		"black-theme" => include_bytes!("../../../extensions/katana.serein-extension"),
-		"obsidian-theme" => include_bytes!("../../../extensions/obsidian.serein-extension"),
-		"teal-theme" => include_bytes!("../../../extensions/teal.serein-extension"),
+		"serein-midnight" => {
+			include_bytes!("../../../extensions/themes/midnight.serein-extension")
+		}
+		"serein-rose" => {
+			include_bytes!("../../../extensions/themes/rose.serein-extension")
+		}
+		"serein-forest" => {
+			include_bytes!("../../../extensions/themes/forest.serein-extension")
+		}
+		"serein-latte" => {
+			include_bytes!("../../../extensions/themes/latte.serein-extension")
+		}
+		"golden-theme" => {
+			include_bytes!("../../../extensions/themes/golden.serein-extension")
+		}
+		"black-theme" => {
+			include_bytes!("../../../extensions/themes/katana.serein-extension")
+		}
+		"obsidian-theme" => {
+			include_bytes!("../../../extensions/themes/obsidian.serein-extension")
+		}
+		"teal-theme" => {
+			include_bytes!("../../../extensions/themes/teal.serein-extension")
+		}
 		"emoji-sticker-images" => include_bytes!(
-			"../../../examples/extensions/packages/emoji-sticker-images.serein-extension"
+			"../../../extensions/plugins/packages/emoji-sticker-images.serein-extension"
 		),
 		_ => return Err("Unknown fixture extension".into()),
 	};
@@ -302,6 +320,8 @@ fn extension_fixture(
 	let invocation = extensions::Invocation {
 		action: if id == "custom-rpc" {
 			"preview"
+		} else if id == "api-proxy" {
+			"open"
 		} else {
 			"activate"
 		}
@@ -337,27 +357,27 @@ fn seed_catalog(extensions: &mut ui::ExtensionUi, themes: bool) {
 	if themes {
 		let packages: [(&[u8], &str); 6] = [
 			(
-				include_bytes!("../../../extensions/ocean.serein-extension"),
+				include_bytes!("../../../extensions/themes/ocean.serein-extension"),
 				"",
 			),
 			(
-				include_bytes!("../../../extensions/obsidian.serein-extension"),
+				include_bytes!("../../../extensions/themes/obsidian.serein-extension"),
 				"Obsidian violet surfaces and lavender accents.",
 			),
 			(
-				include_bytes!("../../../extensions/forest.serein-extension"),
+				include_bytes!("../../../extensions/themes/forest.serein-extension"),
 				"Calm forest greens and fresh leafy accents.",
 			),
 			(
-				include_bytes!("../../../extensions/latte.serein-extension"),
+				include_bytes!("../../../extensions/themes/latte.serein-extension"),
 				"Warm coffee tones and a creamy caramel accent.",
 			),
 			(
-				include_bytes!("../../../extensions/rose.serein-extension"),
+				include_bytes!("../../../extensions/themes/rose.serein-extension"),
 				"Soft rose accents.",
 			),
 			(
-				include_bytes!("../../../extensions/midnight.serein-extension"),
+				include_bytes!("../../../extensions/themes/midnight.serein-extension"),
 				"Deep, quiet surfaces.",
 			),
 		];
@@ -464,7 +484,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|profile-card|member-tags|dm-tags|account|appearance|general|extensions|server|server-engagement|server-stickers] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--light]".into());
+		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|profile-card|member-tags|dm-tags|account|appearance|general|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--light]".into());
 	}
 	let smoke = args.iter().any(|arg| arg == "--smoke");
 	let interactive = args.iter().any(|arg| arg == "--interactive");
@@ -491,12 +511,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "server"
 			| "server-engagement"
 			| "server-stickers"
+			| "server-safety"
+			| "server-emoji"
+			| "server-members"
+			| "server-roles"
+			| "server-invites"
+			| "server-integrations"
+			| "server-audit-log"
 			| "forum" | "forum-post"
 			| "forum-gallery"
 			| "forum-settings"
 			| "friends"
 	) {
-		return Err("Page must be profile, profile-card, member-tags, dm-tags, account, appearance, general, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement or server-stickers".into());
+		return Err("Page must be profile, profile-card, member-tags, dm-tags, account, appearance, general, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement, server-safety, server-emoji, server-stickers, server-members, server-roles, server-invites, server-integrations or server-audit-log".into());
 	}
 	let slash_command = value("--command=").unwrap_or("help").to_owned();
 	if !matches!(slash_command.as_str(), "help" | "weather") {
@@ -665,9 +692,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					ui::design::apply(&cc.egui_ctx);
 				}
 				if let Some(output) = result {
-					if package.manifest.id == "custom-rpc" {
+					if matches!(package.manifest.id.as_str(), "custom-rpc" | "api-proxy") {
 						messaging.extensions.set_entries(vec![ui::ExtensionEntry {
-							description: "Custom activity editor".into(),
+							description: package.manifest.name.clone(),
 							preview: None,
 							theme_preview: None,
 							cover_image: None,
@@ -682,7 +709,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 							update_manifest: None,
 						}]);
 						messaging.extensions.present_output(
-							"custom-rpc".into(),
+							package.manifest.id.clone(),
 							invocation,
 							ui::ExtensionContext::panel(&state),
 							output.clone(),
@@ -709,13 +736,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				server_settings_demo::open(&mut state, &mut messaging);
 				if page == "server-engagement" {
 					messaging.preview_server_engagement();
-				} else if page == "server-stickers"
+				} else if page == "server-safety" {
+					messaging.preview_server_safety();
+				} else if page != "server"
 					&& let Some(client_core::Command::ServerAdmin {
 						guild,
 						request,
 						action,
-					}) = messaging.preview_server_admin(&mut state, model::Id(10), "stickers")
-				{
+					}) = messaging.preview_server_admin(
+						&mut state,
+						model::Id(10),
+						page.trim_start_matches("server-"),
+					) {
 					let event =
 						server_settings_demo::execute_admin(&state, guild, request, *action);
 					state.apply(client_core::Envelope {
@@ -742,7 +774,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					if theme_preview {
 						prime_extension_chat(&mut state);
 						let package = extensions::parse_package(include_bytes!(
-							"../../../extensions/katana.serein-extension"
+							"../../../extensions/themes/katana.serein-extension"
 						))?;
 						messaging.extensions.receive_theme_edit(
 							Box::new(package),
@@ -754,7 +786,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					}
 					if let Some(tab) = &theme_editor {
 						let mut package = extensions::parse_package(include_bytes!(
-							"../../../extensions/ocean.serein-extension"
+							"../../../extensions/themes/ocean.serein-extension"
 						))
 						.expect("valid theme fixture");
 						package.manifest.name = "My ocean".into();
@@ -801,4 +833,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		return Err("No screenshot saved".into());
 	}
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	#[test]
+	fn non_theme_catalog_loads_community_preview() {
+		super::seed_catalog(&mut ui::ExtensionUi::default(), false);
+	}
 }

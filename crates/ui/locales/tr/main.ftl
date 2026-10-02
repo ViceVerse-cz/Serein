@@ -14,7 +14,7 @@ page-appearance = Dış görünüş
 page-chat = Sohbet
 page-messaging-permissions = Mesajlaşma İzinleri
 page-notifications = Bildirimler
-page-activity = Oyun Etkinliği
+page-registered-games = Kayıtlı Oyunlar
 page-voice = Ses ve Video
 page-keybinds = Tuş bağlantıları
 page-storage = Veri ve Gizlilik
@@ -28,7 +28,7 @@ description-appearance = Tema, renkler, pencere efektleri ve düzen.
 description-chat = Mesajların, medyanın, bağlantıların ve kaydırmanın nasıl davrandığı.
 description-messaging-permissions = Sizinle kimlerin iletişim kurabileceğini ve mesajların nasıl filtreleneceğini kontrol edin.
 description-notifications = Hangi bildirimleri alacağınızı ve bunların nasıl görüneceğini seçin.
-description-activity = Başkalarına ne oynadığınızı gösterin.
+description-registered-games = Ne oynadığınızı paylaşın, Serein'in algıladığı oyunları düzeltin veya ekleyin.
 description-voice = Mikrofon, hoparlörler, kamera ve ses işleme.
 description-keybinds = Serein için klavye kısayolları.
 description-storage = Serein'in bu cihazda sakladıkları.
@@ -103,6 +103,7 @@ no-conversations = Burada sohbet mevcut değil.
 open-in-discord = Discord'da aç
 new = Yeni
 members-count = Üyeler
+members-heading = Üyeler
 no-conversation-selected = Hiçbir görüşme seçilmedi
 select-conversation = Listeden bir kanal veya doğrudan mesaj seçin.
 friends-online = Çevrimiçi
@@ -734,6 +735,8 @@ design-account-row-with-remove-forget-this-account-on-this-device = Bu hesabı b
 design-color-edit-hex-color-rrggbb-click-to-type-or-paste = Altıgen rengi: #RRGGBB. Yazmak veya yapıştırmak için tıklayın.
 # Context: save_bar
 design-save-bar-careful-you-have-unsaved-changes = Dikkatli olun; kaydedilmemiş değişiklikleriniz var!
+design-save-bar-save-changes = Değişiklikleri Kaydet
+design-save-bar-reset = Sıfırla
 
 ## crates/ui/src/dialog.rs
 # Context: header
@@ -1502,7 +1505,7 @@ join-server-show-join-enter-an-invite-below-to-join-an-existing-server = Mevcut 
 # Context: show_join
 join-server-show-join-join-a-server = Bir Sunucuya Katılın
 # Context: body
-join-server-status-invite-accepted = Davet kabul edildi. Sunucu erişimi bekleniyor; Discord'daki tüm sunucu kurallarını tamamlayın.
+join-server-status-invite-accepted = Davet kabul edildi. Sunucu erişimi bekleniyor.
 # Context: body
 join-server-status-offline-preview = Çevrimdışı önizleme — sunuculara katılma devre dışı bırakıldı.
 
@@ -1545,6 +1548,8 @@ lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = Dosyalar�
 lib-ime-updates-text-clear-this-draft = Bu taslağı temizle
 # Context: ime_updates_text
 lib-ime-updates-text-copy-edit-text = Düzenleme metnini kopyala
+# Context: ime_updates_text
+lib-ime-updates-text-create-a-poll = Anket oluştur
 # Context: ime_updates_text
 lib-ime-updates-text-draft-budget-full-clear-an-existing-draft-to-continue = Taslak bütçe doldu. Devam etmek için mevcut bir taslağı temizleyin.
 # Context: ime_updates_text
@@ -1786,6 +1791,86 @@ pending-show-you = Sen
 pending-upload-strip-cancel-upload = Yüklemeyi iptal et
 # Context: upload_strip
 pending-upload-strip-the-message-may-already-have-reached-discord-check-the-conversation = Mesaj zaten Discord'a ulaşmış olabilir. Tekrar göndermeden önce konuşmayı kontrol edin.
+
+## crates/ui/src/polls.rs
+# Context: card
+polls-card-ended = Anket sona erdi
+# Context: card
+polls-card-select-many = Bir veya daha fazla yanıt seçin
+# Context: card
+polls-card-select-one = Bir yanıt seçin
+# Context: card
+polls-card-final-results = Kesin sonuçlar
+# Context: card
+polls-card-awaiting-results = Kesin sonuçlar bekleniyor
+# Context: card
+polls-card-hours-left = { $hours } sa kaldı
+# Context: card
+polls-card-minutes-left = { $minutes } dk kaldı
+# Context: card
+polls-card-in-progress = Devam ediyor
+# Context: card
+polls-card-vote-count-one = { $count } oy
+# Context: card
+polls-card-vote-count-many = { $count } oy
+# Context: card
+polls-card-results-not-loaded = Sonuçlar yüklenmedi
+# Context: card
+polls-card-back-to-voting = Oylamaya dön
+# Context: card
+polls-card-refresh-results = Sonuçları yenile
+# Context: card
+polls-card-show-results = Sonuçları göster
+# Context: card
+polls-card-remove-vote = Oyu kaldır
+# Context: card
+polls-card-vote = Oy ver
+# Context: card
+polls-card-end-confirm = Bu anket herkes için sonlandırılsın mı?
+# Context: card
+polls-card-end-now = Şimdi sonlandır
+# Context: card
+polls-card-end-poll = Anketi sonlandır
+# Context: creator
+polls-creator-title = Anket oluştur
+# Context: creator
+polls-creator-question = Soru
+# Context: creator
+polls-creator-question-hint = Ne sormak istiyorsunuz?
+# Context: creator
+polls-creator-answers = Yanıtlar
+# Context: creator
+polls-creator-answer-hint = Yanıt { $number }
+# Context: creator
+polls-creator-add-emoji = Emoji ekle
+# Context: creator
+polls-creator-change-emoji = Emojiyi değiştir
+# Context: creator
+polls-creator-remove-answer = Yanıtı kaldır
+# Context: creator
+polls-creator-add-answer = Başka bir yanıt ekle
+# Context: creator
+polls-creator-duration = Süre
+# Context: creator
+polls-creator-multiple-answers = Birden fazla yanıta izin ver
+# Context: creator
+polls-creator-post = Paylaş
+# Context: creator
+polls-creator-posting = Paylaşılıyor…
+# Context: duration_label
+polls-duration-1-hour = 1 saat
+# Context: duration_label
+polls-duration-4-hours = 4 saat
+# Context: duration_label
+polls-duration-8-hours = 8 saat
+# Context: duration_label
+polls-duration-24-hours = 24 saat
+# Context: duration_label
+polls-duration-3-days = 3 gün
+# Context: duration_label
+polls-duration-1-week = 1 hafta
+# Context: duration_label
+polls-duration-hours = { $hours } saat
 
 ## crates/ui/src/post_menu.rs
 # Context: context
@@ -2373,8 +2458,6 @@ server-admin-emojis-image = Resim
 # Context: emojis
 server-admin-emojis-name = İsim
 # Context: emojis
-server-admin-emojis-none = HİÇBİRİ
-# Context: emojis
 server-admin-emojis-preparing-emoji-images = Emoji görselleri hazırlanıyor...
 # Context: emojis
 server-admin-emojis-remove = Kaldırmak
@@ -2468,8 +2551,6 @@ server-admin-members-recent-members = Son Üyeler
 server-admin-members-search-by-username-or-id = Kullanıcı adına veya kimliğe göre arayın
 # Context: members
 server-admin-members-server-members = Sunucu Üyeleri
-# Context: members
-server-admin-members-show-members-in-channel-list = Üyeleri Kanal Listesinde Göster
 # Context: members
 server-admin-members-show-the-members-page-in-the-channel-list-to-quickly = En son katılımları ve olağandışı etkinlik nedeniyle işaretlenen üyeleri hızlı bir şekilde görmek için kanal listesinde üyeler sayfasını gösterin.
 # Context: members
@@ -3233,6 +3314,92 @@ settings-account-page-signed-in-with-your-discord-account = Discord hesabınızl
 settings-activity-settings-detect-running-games-and-ask-discord-to-share-them-as = Çalışan oyunları tespit edin ve Discord'dan bunları etkinlik olarak paylaşmasını isteyin.
 # Context: activity_settings
 settings-activity-settings-share-game-activity = Oyun etkinliğini paylaş
+# Context: activity_settings
+settings-activity-enable-on-discord = Discord'da etkinleştir
+# Context: activity_settings
+settings-activity-check-again = Tekrar kontrol et
+# Context: activity_settings
+settings-activity-sharing-is-off = Etkinlik paylaşımı kapalı
+# Context: activity_settings
+settings-activity-sharing-your-game = Oyununuz paylaşılıyor
+# Context: activity_settings
+settings-activity-looking = Çalışan bir oyun aranıyor
+# Context: activity_settings
+settings-activity-demo-detail = Sentetik etkinlik; asla paylaşılmaz veya kaydedilmez.
+# Context: activity_settings
+settings-activity-status-offline-preview = Çevrimdışı önizleme: sentetik etkinlik; asla paylaşılmaz veya kaydedilmez.
+# Context: activity_settings
+settings-activity-status-unconfirmed = Yalnızca yerel önizleme. Discord'un paylaşımı onaylaması bekleniyor.
+# Context: activity_settings
+settings-activity-status-received = Discord oyununuzu aldı ancak herkese açık olarak listelemedi.
+# Context: activity_settings
+settings-activity-status-listed = Discord oyununuzu listeliyor. Sunucu ve arkadaş gizlilik ayarları yine geçerlidir.
+# Context: activity_settings
+settings-activity-status-hidden = Discord oyununuzu gizliyor. Discord'da Kayıtlı Oyunlar ve Etkinlik Paylaşımı ayarlarını kontrol edin.
+# Context: activity_settings
+settings-activity-status-missing = Discord oyununuzu herkese açık olarak listelemedi. Oradaki Kayıtlı Oyunlar ve sunucu paylaşım ayarlarını kontrol edin.
+# Context: activity_settings
+settings-activity-status-sharing-off = Discord'un hesap genelindeki etkinlik paylaşımı kapalı.
+# Context: activity_settings
+settings-activity-status-checking = Discord'un etkinlik paylaşımı ayarı kontrol ediliyor…
+# Context: activity_settings
+settings-activity-status-check-failed = Discord'un etkinlik paylaşımı ayarı kontrol edilemedi veya değiştirilemedi.
+# Context: activity_settings
+settings-activity-status-updating = Discord'un etkinlik paylaşımı ayarı güncelleniyor…
+# Context: activity_settings
+settings-activity-status-request-failed = Ayar değişikliği istenemedi. Tekrar deneyin.
+# Context: activity_settings
+settings-activity-current-game = Mevcut Oyun
+# Context: activity_settings
+settings-activity-now-playing = Şimdi Oynuyor!
+# Context: activity_settings
+settings-activity-stop-detecting-current = Bu oyun değil mi? Algılamayı durdurun.
+# Context: activity_settings
+settings-activity-reported-by-game = Oyun tarafından Rich Presence ile bildirildi.
+# Context: activity_settings
+settings-activity-no-game-detected = Oyun algılanmadı
+# Context: activity_settings
+settings-activity-turn-on-sharing = Oyunları algılamak için yukarıdan Oyun etkinliğini paylaş seçeneğini açın.
+# Context: activity_settings
+settings-activity-not-seeing-your-game = Oyununuzu göremiyor musunuz?
+# Context: activity_settings
+settings-activity-add-it = Ekleyin!
+# Context: activity_settings
+settings-activity-added-games = Eklenen Oyunlar
+# Context: activity_settings
+settings-activity-no-games-added = Eklenmiş oyun yok
+# Context: activity_settings
+settings-activity-hidden = Gizlendi. Serein bu oyunu algılamayacak.
+# Context: activity_settings
+settings-activity-detected = Otomatik algılandı
+# Context: activity_settings
+settings-activity-last-played-today = Son oynama: bugün
+# Context: activity_settings
+settings-activity-last-played-yesterday = Son oynama: dün
+# Context: activity_settings
+settings-activity-last-played = Son oynama: { $date }
+# Context: activity_settings
+settings-activity-restore = Geri yükle
+# Context: activity_settings
+settings-activity-restore-hint = Bu oyunu yeniden algıla.
+# Context: activity_settings
+settings-activity-stop-detecting = Bu oyunu algılamayı durdur
+# Context: activity_settings
+settings-activity-remove-game = Bu oyunu kaldır
+# Context: activity_settings
+settings-activity-click-to-rename = Yeniden adlandırmak için tıklayın
+# Context: activity_settings
+settings-activity-add-a-game = Oyun ekle
+# Context: activity_settings
+settings-activity-choose-program = Çalışan bir program seçin. Serein, çalıştığı her zaman onu oyununuz olarak gösterir.
+# Context: activity_settings
+settings-activity-search-programs = Çalışan programlarda ara
+# Context: activity_settings
+settings-activity-reading-programs = Çalışan programlar okunuyor…
+# Context: activity_settings
+settings-activity-no-matching-programs = Eşleşen çalışan program yok.
+# Context: activity_settings
+settings-activity-add-game = Oyun Ekle
 # Context: appearance_menu
 settings-appearance-menu-display = Görüntülemek
 # Context: appearance_menu
@@ -3594,9 +3761,11 @@ timeline-message-actions-unpin-message = Mesajın sabitlemesini kaldır
 # Context: message_actions
 timeline-message-actions-view-reactions = Tepkileri görüntüle
 # Context: present_control
-timeline-present-control-jump-to-present = Sunuma atla
+timeline-present-control-jump-to-present = En yeniye git
 # Context: present_control
-timeline-present-control-new-messages-below-jump-to-present = Yeni mesajlar aşağıda · sunuma atla
+timeline-present-control-new-messages-below-jump-to-present = Yeni mesajlar aşağıda · en yeniye git
+# Context: present_control
+timeline-present-control-new-messages = { $count } yeni mesaj
 # Context: show_system
 timeline-show-system-open-this-channels-threads = Bu kanalın konularını aç
 # Context: show_system
@@ -3643,6 +3812,10 @@ timeline-show-with-scroll-you-cannot-view-this-conversation = Bu konuşmayı gö
 timeline-starter-row-thread-started-from-this-message = Konu bu mesajdan başlatıldı
 # Context: unread_banner
 timeline-unread-banner-unread-messages = Okunmamış mesajlar
+# Context: unread_banner
+timeline-unread-banner-mark-as-read = Okundu olarak işaretle
+# Context: unread_banner
+timeline-unread-banner-jump-to-unread = Okunmamışlara git
 
 ## crates/ui/src/toasts.rs
 # Context: show
@@ -3705,6 +3878,8 @@ updates-update-settings-restart-to-update = Güncellemek için yeniden başlatı
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein dağıtımınız aracılığıyla kuruldu. Güncellemek için bunu bir terminalde çalıştırın.
 # Context: update_settings
 updates-update-settings-support-diagnostics = Destek ve teşhis
+# Context: update_log
+updates-update-log = Güncelleme günlüğü
 # Context: update_settings
 updates-update-settings-update-checks-are-disabled-in-debug-builds = Hata ayıklama yapılarında güncelleme kontrolleri devre dışı bırakılır.
 
@@ -4054,6 +4229,10 @@ profiles-remove-friend-message = { $user } kullanıcısını arkadaşlarından k
 channel-menu-dialog-category-settings = Kategori ayarları
 channel-menu-dialog-channel-settings = Kanal ayarları
 channel-menu-dialog-settings-subtitle = Ayarları ve izinleri özelleştir.
+channel-menu-discard-title = Kaydedilmemiş değişiklikler atılsın mı?
+channel-menu-discard-message = Bu kanalda kaydedilmemiş değişiklikleriniz kaybolacak.
+channel-menu-discard-confirm = Değişiklikleri At
+channel-menu-discard-keep = Düzenlemeye Devam Et
 channel-menu-dialog-duplicate-subtitle = Ayarları ve izinleri kopyalar. Mesajlar kopyalanmaz.
 channel-menu-dialog-create-channel-subtitle = Bir kanal türü ve ad seç.
 channel-menu-dialog-create-category-subtitle = Kategoriler ilgili kanalları düzenler.
@@ -4109,5 +4288,140 @@ search-page-previous-short = Önceki
 search-page-next-short = Sonraki
 search-result-today-at = Bugün { $time }
 search-result-yesterday-at = Dün { $time }
-timeline-unread-banner-one-new-since = { $time } itibarıyla 1 yeni mesaj
-timeline-unread-banner-many-new-since = { $time } itibarıyla { $count } yeni mesaj
+timeline-unread-banner-new-since = { $time } itibarıyla { $count } yeni mesaj
+timeline-unread-banner-new-since-more = { $time } itibarıyla { $count }+ yeni mesaj
+
+## crates/ui/src/onboarding.rs
+# Context: show
+onboarding-show-title = { $server } sunucusuna hoş geldin
+# Context: show
+onboarding-show-subtitle = Sohbete başlamak için birkaç soruyu yanıtla ve kuralları kabul et.
+# Context: show
+onboarding-show-try-again = Tekrar dene
+# Context: show
+onboarding-show-close = Kapat
+# Context: show
+onboarding-show-please-wait = Lütfen bekle…
+# Context: show
+onboarding-show-finish = Bitir
+# Context: show
+onboarding-show-not-now = Şimdi değil
+# Context: show
+onboarding-show-this-server = bu sunucu
+# Context: body
+onboarding-body-submitted = Başvuru gönderildi. Bir moderatör inceleyecek; onaylandığında sohbet edebilirsin.
+# Context: body
+onboarding-body-rejected = Bu sunucu başvuruyu reddetti.
+# Context: body
+onboarding-body-loading = Sunucu tanıtımı yükleniyor…
+# Context: body
+onboarding-body-all-set = Her şey hazır. Burada tamamlanacak bir şey kalmadı.
+# Context: prompt
+onboarding-prompt-pick-one = Birini seç
+# Context: prompt
+onboarding-prompt-pick-any = Uygun olanların hepsini seç
+# Context: rules
+onboarding-rules-heading = Sunucu kuralları
+# Context: rules
+onboarding-rules-review = Sohbet edebilmen için bir moderatör bu yanıtları inceler.
+# Context: field
+onboarding-field-unsupported = Bu sunucu, Serein'in henüz gösteremediği bir soru soruyor. Katılımı Discord uygulamasında tamamla.
+# Context: field
+onboarding-field-agree = Kuralları okudum ve kabul ediyorum
+
+## crates/ui/src/lib.rs
+# Context: composer
+lib-composer-onboarding-rules-pending = Sohbete başlamak için bu sunucunun kurallarını kabul et.
+# Context: composer
+lib-composer-onboarding-incomplete = Daha fazla kanalın kilidini açmak için sunucuya katılımı tamamla.
+# Context: composer
+lib-composer-onboarding-complete = Tanıtımı tamamla
+voice-recipient-ring = Yeniden ara
+voice-recipient-stop-ringing = Çalmayı durdur
+voice-recipient-ringing = Çalıyor…
+voice-recipient-not-in-call = Aramada değil
+
+
+reconnect-now = Şimdi yeniden bağlan
+
+voice-call-moved-to-another-client = Bu cihazın arama oturumu değiştirildi
+
+server-settings-page-safety = Güvenlik Kurulumu
+
+server-settings-nav-title = Sunucu Ayarları
+
+server-settings-safety-subtitle = Bu sunucuda kimlerin sohbet edebileceğine ve Discord'un hangi medyaları müstehcen içerik için tarayacağına karar verin.
+
+server-settings-safety-community-note = Topluluk sunucuları en az Düşük doğrulama gerektirir ve tüm üyelerin medyasını taramalıdır.
+
+server-settings-safety-verification = Doğrulama Seviyesi
+
+server-settings-safety-verification-help = Üyeler metin kanallarında mesaj göndermeden veya doğrudan mesaj başlatmadan önce bu ölçütleri karşılamalıdır.
+
+server-settings-safety-verification-none = Yok
+
+server-settings-safety-verification-none-detail = Kısıtlama yok
+
+server-settings-safety-verification-low = Düşük
+
+server-settings-safety-verification-low-detail = Discord hesabında doğrulanmış bir e-posta olmalıdır.
+
+server-settings-safety-verification-medium = Orta
+
+server-settings-safety-verification-medium-detail = Ayrıca 5 dakikadan uzun süredir Discord'a kayıtlı olmalıdır.
+
+server-settings-safety-verification-high = Yüksek
+
+server-settings-safety-verification-high-detail = Ayrıca 10 dakikadan uzun süredir bu sunucunun üyesi olmalıdır.
+
+server-settings-safety-verification-highest = En yüksek
+
+server-settings-safety-verification-highest-detail = Discord hesabında doğrulanmış bir telefon olmalıdır.
+
+server-settings-safety-filter = Müstehcen Medya İçeriği Filtresi
+
+server-settings-safety-filter-help = Bu sunucuda gönderilen ve müstehcen içerik barındırabilecek medyayı otomatik olarak algıla ve engelle.
+
+server-settings-safety-filter-disabled = Hiçbir medyayı tarama
+
+server-settings-safety-filter-no-roles = Rolü olmayan üyelerin medyasını tara
+
+server-settings-safety-filter-all = Tüm üyelerin medyasını tara
+
+server-settings-profile-form-banner-custom = Özel renk
+
+server-settings-profile-form-banner-custom-help = Yukarıdan bir ön ayar ya da afiş için herhangi bir renk seçin.
+
+server-settings-profile-server-id = Sunucu Kimliği
+
+server-settings-profile-server-id-help = Bu kimliği botlar, moderasyon araçları ve destek talepleri için kullanın.
+
+server-settings-profile-copy-id = Kimliği Kopyala
+
+server-settings-engagement-system-welcome = Biri bu sunucuya katıldığında rastgele bir hoş geldin mesajı gönder.
+
+server-settings-engagement-system-welcome-sticker = Üyeleri hoş geldin mesajlarına çıkartmayla yanıt vermeye teşvik et.
+
+server-settings-engagement-system-boost = Biri bu sunucuya takviye yaptığında mesaj gönder.
+
+server-settings-engagement-system-tips = Sunucu kurulumu için faydalı ipuçları gönder.
+
+server-invites-header-subtitle = İnsanların bu sunucuya katılmasını sağlayan bağlantılar paylaşın.
+
+server-audit-log-header-subtitle = Bu sunucudaki moderasyon işlemlerinin ve ayar değişikliklerinin kaydı.
+
+server-audit-log-empty-detail = Başka bir kullanıcı ya da işlem deneyin veya yeni olaylar için yeniden yükleyin.
+
+server-members-header-subtitle = Bu sunucudaki kişileri görüntüleyin, arayın ve yönetin.
+
+server-members-show-in-channel-list = Üyeleri kanal listesinde göster
+
+server-emoji-section-static = Sabit Emojiler
+
+server-emoji-empty-static = Henüz emoji yok
+
+server-emoji-empty-animated = Henüz hareketli emoji yok
+
+server-emoji-empty-detail = Eklemek için bir görsel yükleyin. GIF'ler hareketli emoji olur.
+
+server-stickers-empty-detail = İlk çıkartmanızı eklemek için bir görsel yükleyin.

@@ -16,6 +16,8 @@ pub struct Activity {
 	#[serde(flatten)]
 	pub extra: ActivityExtra,
 	pub name: String,
+	/// Zero for a user-added game Discord does not know; Discord then omits the field too.
+	#[serde(skip_serializing_if = "unverified")]
 	pub application_id: Id,
 	#[serde(rename = "type")]
 	pub kind: u8,
@@ -107,10 +109,19 @@ fn text_valid(value: &str, limit: usize) -> bool {
 	value.len() <= limit && !value.chars().any(char::is_control)
 }
 
+fn unverified(id: &Id) -> bool {
+	id.0 == 0
+}
+
 impl Activity {
 	/// Every string, list and number is bounded before Gateway publication.
 	pub fn validate(&self) -> Result<(), DecodeError> {
-		if self.application_id.0 == 0 || self.name.trim().is_empty() || !text_valid(&self.name, 128)
+		if self.name.trim().is_empty() || !text_valid(&self.name, 128) {
+			return Err(DecodeError);
+		}
+		// Artwork and links resolve through an application, so an unverified game has neither.
+		if unverified(&self.application_id)
+			&& (self.kind != 0 || self.assets.is_some() || self.extra != ActivityExtra::default())
 		{
 			return Err(DecodeError);
 		}

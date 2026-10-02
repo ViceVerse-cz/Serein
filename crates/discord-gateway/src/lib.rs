@@ -25,7 +25,7 @@ use std::{
 	time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
-	sync::{mpsc, watch},
+	sync::{Notify, mpsc, watch},
 	time::{Instant, interval_at, sleep, timeout},
 };
 use tokio_tungstenite::{
@@ -168,6 +168,76 @@ fn next_attempt(attempt: u32, ready_for: Option<Duration>) -> u32 {
 	} else {
 		attempt.saturating_add(1).min(6)
 	}
+}
+async fn recovery_signal(reconnect: Option<&Notify>) {
+	match reconnect {
+		Some(reconnect) => reconnect.notified().await,
+		None => std::future::pending().await,
+	}
+}
+/// Recovery cancels reads and delays, never a potentially accepted socket write.
+async fn recoverable_wait<T>(
+	operation: impl std::future::Future<Output = T>,
+	reconnect: Option<&Notify>,
+) -> Option<T> {
+	tokio::select! {
+		biased;
+		() = recovery_signal(reconnect) => None,
+		result = operation => Some(result),
+	}
+}
+/// Exercises recovery without a socket, account, or network request.
+#[cfg(debug_assertions)]
+pub fn debug_recovery_check() {
+	let runtime = tokio::runtime::Builder::new_current_thread()
+		.enable_time()
+		.build()
+		.unwrap();
+	runtime.block_on(async {
+		let reconnect = Arc::new(Notify::new());
+		for _ in 0..8 {
+			reconnect.notify_one();
+		}
+		assert!(
+			timeout(
+				Duration::from_secs(1),
+				recoverable_wait(sleep(Duration::from_secs(30)), Some(&reconnect)),
+			)
+			.await
+			.unwrap()
+			.is_none()
+		);
+		// All queued requests coalesce to one recovery, without a closed-channel spin.
+		assert_eq!(
+			recoverable_wait(async { 42 }, Some(&reconnect)).await,
+			Some(42)
+		);
+		let wake = reconnect.clone();
+		let sender = tokio::spawn(async move {
+			tokio::task::yield_now().await;
+			wake.notify_one();
+		});
+		assert!(
+			timeout(
+				Duration::from_secs(1),
+				recoverable_wait(std::future::pending::<()>(), Some(&reconnect)),
+			)
+			.await
+			.unwrap()
+			.is_none()
+		);
+		sender.await.unwrap();
+		reconnect.notify_one();
+		// Initial authentication keeps its bounded attempt limit and cannot be cancelled.
+		assert_eq!(recoverable_wait(async { 42 }, None).await, Some(42));
+		assert!(
+			recoverable_wait(std::future::pending::<()>(), Some(&reconnect))
+				.await
+				.is_none()
+		);
+		assert_eq!(next_attempt(5, None), 6);
+		assert_eq!(next_attempt(5, Some(Duration::from_secs(60))), 1);
+	});
 }
 fn jitter_ms(max: u64) -> u64 {
 	SystemTime::now()
@@ -959,6 +1029,43 @@ pub async fn run_with_activity(
 	)
 	.await
 }
+/// Runs the gateway with immediate recovery of an established session. The notification
+/// stores one pending request and preserves RESUME; writes and voice joins are never replayed.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+pub async fn run_with_activity_recovery(
+	secret: Arc<SessionSecret>,
+	initial_url: String,
+	subscriptions: watch::Receiver<Option<MemberSubscription>>,
+	controls: mpsc::Receiver<client_core::voice::Command>,
+	reconnect: Arc<Notify>,
+	activity: (
+		watch::Receiver<Option<discord_protocol::rpc::Activity>>,
+		watch::Receiver<model::OwnPresence>,
+		watch::Receiver<[Option<client_core::member_search::Request>; 2]>,
+		watch::Receiver<Option<discord_protocol::spotify::Activity>>,
+	),
+	observe: impl Fn(ActivityObservation) -> Result<(), Failure> + Sync,
+	emit: impl Fn(Event) -> Result<(), Failure>,
+) -> Result<(), Failure> {
+	run_recoverable(
+		secret,
+		initial_url,
+		subscriptions,
+		controls,
+		Some(ActivityInput {
+			receiver: activity.0,
+			own_presence: activity.1,
+			member_queries: activity.2,
+			spotify: activity.3,
+			observe: &observe,
+		}),
+		Some(&reconnect),
+		emit,
+		#[cfg(test)]
+		None,
+	)
+	.await
+}
 struct ActivityInput<'a> {
 	spotify: watch::Receiver<Option<discord_protocol::spotify::Activity>>,
 	member_queries: watch::Receiver<[Option<client_core::member_search::Request>; 2]>,
@@ -969,9 +1076,33 @@ struct ActivityInput<'a> {
 async fn run_inner(
 	secret: Arc<SessionSecret>,
 	initial_url: String,
+	subscriptions: watch::Receiver<Option<MemberSubscription>>,
+	voice_controls: mpsc::Receiver<client_core::voice::Command>,
+	activity: Option<ActivityInput<'_>>,
+	emit: impl Fn(Event) -> Result<(), Failure>,
+	#[cfg(test)] test_endpoint: Option<&str>,
+) -> Result<(), Failure> {
+	run_recoverable(
+		secret,
+		initial_url,
+		subscriptions,
+		voice_controls,
+		activity,
+		None,
+		emit,
+		#[cfg(test)]
+		test_endpoint,
+	)
+	.await
+}
+#[allow(clippy::too_many_arguments)]
+async fn run_recoverable(
+	secret: Arc<SessionSecret>,
+	initial_url: String,
 	mut subscriptions: watch::Receiver<Option<MemberSubscription>>,
 	mut voice_controls: mpsc::Receiver<client_core::voice::Command>,
 	activity: Option<ActivityInput<'_>>,
+	reconnect: Option<&Notify>,
 	emit: impl Fn(Event) -> Result<(), Failure>,
 	#[cfg(test)] test_endpoint: Option<&str>,
 ) -> Result<(), Failure> {
@@ -1018,16 +1149,22 @@ async fn run_inner(
 	let mut inbox = channel_events::Inbox::default();
 	let mut known_guilds = std::collections::BTreeSet::new();
 	let mut voice_open = true;
+	let mut skip_backoff = false;
 	// Initial login is bounded, but an established session must survive long outages.
 	while was_ready || attempt < 6 {
 		if attempt > 0 {
 			calls.disconnected();
 			while voice_controls.try_recv().is_ok() {}
 			emit(Event::Disconnected)?;
-			sleep(Duration::from_millis(
-				(1000_u64 << attempt.min(5)) + jitter_ms(1000),
-			))
-			.await;
+			if !std::mem::take(&mut skip_backoff) {
+				let _ = recoverable_wait(
+					sleep(Duration::from_millis(
+						(1000_u64 << attempt.min(5)) + jitter_ms(1000),
+					)),
+					if was_ready { reconnect } else { None },
+				)
+				.await;
+			}
 		}
 		let url = state.url.as_deref().unwrap_or(&initial_url);
 		// Compiled out of shipped builds. Tests replace only dialing, never URL validation.
@@ -1038,29 +1175,43 @@ async fn run_inner(
 			.max_frame_size(Some(MAX_GATEWAY_WIRE))
 			.write_buffer_size(0)
 			.max_write_buffer_size(64 * 1024);
-		let connection = timeout(
-			Duration::from_secs(15),
-			connect_async_with_config(url, Some(config), false),
+		let Some(connection) = recoverable_wait(
+			timeout(
+				Duration::from_secs(15),
+				connect_async_with_config(url, Some(config), false),
+			),
+			if was_ready { reconnect } else { None },
 		)
-		.await;
+		.await
+		else {
+			skip_backoff = true;
+			continue;
+		};
 		let Ok(Ok((mut socket, _))) = connection else {
 			attempt = next_attempt(attempt, None);
 			continue;
 		};
 		let mut compression = compression::Decoder::default();
-		let hello = timeout(Duration::from_secs(10), async {
-			while let Some(frame) = socket.next().await {
-				let frame = frame.map_err(socket_failure)?;
-				if let Some(frame) = compression.frame(frame)? {
-					match frame {
-						Frame::Ping(_) | Frame::Pong(_) => continue,
-						frame => return Ok(frame),
+		let Some(hello) = recoverable_wait(
+			timeout(Duration::from_secs(10), async {
+				while let Some(frame) = socket.next().await {
+					let frame = frame.map_err(socket_failure)?;
+					if let Some(frame) = compression.frame(frame)? {
+						match frame {
+							Frame::Ping(_) | Frame::Pong(_) => continue,
+							frame => return Ok(frame),
+						}
 					}
 				}
-			}
-			Err(Failure::Network)
-		})
-		.await;
+				Err(Failure::Network)
+			}),
+			if was_ready { reconnect } else { None },
+		)
+		.await
+		else {
+			skip_backoff = true;
+			continue;
+		};
 		if let Ok(Err(failure)) = hello
 			&& failure.ends_session()
 		{
@@ -1212,6 +1363,14 @@ async fn run_inner(
 				None
 			};
 			tokio::select! {
+				() = recovery_signal(reconnect), if was_ready => {
+					// READY/RESUMED can reach the transport before the UI drains its events.
+					// Consume a late recovery request without dropping that healthy socket.
+					if ready_at.is_none() {
+						skip_backoff = true;
+						break;
+					}
+				}
 				changed = own_presence.changed(), if presence_open => {
 					presence_open = changed.is_ok();
 					outgoing_activity.update_presence(&own_presence.borrow_and_update())?;
@@ -1237,6 +1396,10 @@ async fn run_inner(
 				}
 				command=voice_controls.recv(), if voice_open && ready_at.is_some() => {
 					let Some(command)=command else {voice_open=false;continue;};
+					if let client_core::voice::Command::ConfirmSession {channel,request,revision}=command {
+						if let Some(event)=calls.confirm_session(channel,request,revision) {emit(event)?;}
+						continue;
+					}
 					let connect=if let client_core::voice::Command::Join{channel,..}=command {Some(channel)}else{None};
 					let stream=matches!(command,client_core::voice::Command::StartStream{..}|client_core::voice::Command::StopStream{..}|client_core::voice::Command::WatchStream{..}|client_core::voice::Command::StopWatching{..});
 					let packet=match if stream {calls.stream_packet(command,owner_id)} else {calls.packet(command)} {
@@ -1251,7 +1414,7 @@ async fn run_inner(
 							continue;
 						}
 					};
-					if let client_core::voice::Command::Leave { channel, request } = command
+					if let client_core::voice::Command::Leave { channel, request } | client_core::voice::Command::AbandonSession { channel, request } = command
 						&& packet.is_none() && !calls.has_call() {
 						emit(Event::Voice(client_core::voice::Event::Departed { channel, request }))?;
 					}
@@ -1359,10 +1522,10 @@ async fn run_inner(
 					match frame {
 						Some(Ok(Frame::Text(text))) => {
 							let packet: GatewayPacket = decode_gateway(text.as_bytes()).map_err(|_| diagnosed(&emit, Failure::Protocol, diagnose_packet(text.as_bytes())))?;
-							// Reaction counts are additive: do not apply a repeated dispatch or
+							// Reaction and poll vote counts are additive: do not apply a repeated dispatch or
 							// move the resume cursor backwards when one is replayed.
 							if packet.op == 0
-								&& matches!(packet.t.as_deref(), Some("MESSAGE_REACTION_ADD" | "MESSAGE_REACTION_REMOVE" | "MESSAGE_REACTION_REMOVE_ALL" | "MESSAGE_REACTION_REMOVE_EMOJI"))
+								&& matches!(packet.t.as_deref(), Some("MESSAGE_POLL_VOTE_ADD" | "MESSAGE_POLL_VOTE_REMOVE" | "MESSAGE_REACTION_ADD" | "MESSAGE_REACTION_REMOVE" | "MESSAGE_REACTION_REMOVE_ALL" | "MESSAGE_REACTION_REMOVE_EMOJI"))
 								&& packet.s.zip(state.sequence).is_some_and(|(next, last)| next <= last)
 							{ continue; }
 							if let Some(sequence) = packet.s { state.sequence = Some(sequence); }
@@ -1388,6 +1551,7 @@ async fn run_inner(
 										let envelope = ready::decode(packet.d.get().as_bytes()).map_err(|_| diagnosed(&emit, Failure::ProtocolAt("Gateway login: invalid READY identity or relationships"), ready::diagnose(packet.d.get().as_bytes())))?;
 										if envelope.user.bot { return Err(Failure::InvalidCredential); }
 										let permissions = envelope.permissions().map_err(|_| diagnosed(&emit, Failure::ProtocolAt("Gateway login: invalid permission metadata"), ready::diagnose(packet.d.get().as_bytes())))?;
+										let gates = envelope.onboarding();
 										let (mut ready, mut warnings) = envelope.navigation().map_err(|_| diagnosed(&emit, Failure::ProtocolAt("Gateway login: invalid READY guild or channel metadata"), ready::diagnose(packet.d.get().as_bytes())))?;
 										owner_id=Some(ready.user.id);
 										if ready.user.username.is_empty() || ready.user.username.len() > 128 || ready.user.username.chars().any(char::is_control) || ready.session_id.is_empty() || ready.session_id.chars().any(char::is_control) {
@@ -1448,6 +1612,7 @@ async fn run_inner(
 										// A new session does not replay settings changed while disconnected.
 										if was_ready { emit(Event::AccountSettings { status: true, folders: true })?; }
 										was_ready = true;
+										emit(Event::Onboarding(client_core::onboarding::Event::Gates { snapshot: true, gates }))?;
 
 										let nicknames = ready.relationships.as_ref().map(|s| s.nicknames());
 										let spam_requests = ready.relationships.as_ref().map(|s| s.spam_incoming_ids());
@@ -1620,6 +1785,12 @@ async fn run_inner(
 										calls.passive(update,owner_id,&emit)?;
 										emit(Event::ReadState(client_core::read_state::Event::Latest(latest.into_iter().map(|c|(c.id,c.last_message_id)).collect())))?;
 									}
+									"MESSAGE_POLL_VOTE_ADD" | "MESSAGE_POLL_VOTE_REMOVE" => {
+										let vote: discord_protocol::polls::Vote = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;
+										if vote.channel_id.0 == 0 || vote.message_id.0 == 0 || vote.user_id.0 == 0 || vote.answer_id == 0 { return Err(Failure::Protocol); }
+										if packet.s.is_some() { emit(Event::Polls(client_core::polls::Event::Vote { channel: vote.channel_id, message: vote.message_id,
+											user: vote.user_id, answer: vote.answer_id, add: packet.t.as_deref() == Some("MESSAGE_POLL_VOTE_ADD") }))?; }
+									}
 									"MESSAGE_UPDATE" => emit(Event::Patch(decode::<PatchDto>(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?.into_model()))?,
 									"MESSAGE_REACTION_ADD" | "MESSAGE_REACTION_REMOVE" | "MESSAGE_REACTION_REMOVE_ALL" | "MESSAGE_REACTION_REMOVE_EMOJI" => {
 										emit(Event::Reactions(reaction_event(packet.t.as_deref().unwrap_or(""), packet.d.get().as_bytes(), packet.s.is_some())?))?;
@@ -1687,6 +1858,7 @@ async fn run_inner(
 									emit(Event::GuildChanged(model::GuildPatch { id: guild.id, name: model::Patch::Absent, icon: model::Patch::Absent, default_message_notifications: guild.default_notification_patch() }))?;
 
 										if let Some(permissions)=permissions {emit(Event::Permissions(client_core::permissions::Event::Snapshot(permissions)))?;}
+										if let Some(gate)=owner_id.and_then(|owner|onboarding::guild(packet.d.get().as_bytes(),owner)) {emit(Event::Onboarding(client_core::onboarding::Event::Gates { snapshot: false, gates: vec![gate] }))?;}
 										let hidden:std::collections::BTreeSet<_>=guild.channels.iter().filter(|c|c.is_obfuscated()).map(|c|c.id).collect();
 										for mut channel in std::mem::take(&mut guild.channels) {
 											channel.guild_id = Some(guild.id);
@@ -1706,11 +1878,13 @@ async fn run_inner(
 										let owner=permissions::owner(packet.d.get().as_bytes()).map_err(|_|Failure::Protocol)?;
 										emit(Event::GuildChanged(decode::<GuildPatchDto>(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?.into_model()))?;
 										if let Some((guild,owner))=owner {emit(Event::Permissions(client_core::permissions::Event::Owner {guild,owner}))?;}
+										if let Some(gate)=owner_id.and_then(|owner|onboarding::guild(packet.d.get().as_bytes(),owner)) {emit(Event::Onboarding(client_core::onboarding::Event::Gates { snapshot: false, gates: vec![gate] }))?;}
 									}
 									"GUILD_MEMBER_UPDATE" => {
 										if let Some(owner)=owner_id && let Some((guild,roles,timeout_until))=permissions::member(packet.d.get().as_bytes(),owner).map_err(|_|Failure::Protocol)? {
 											emit(Event::Permissions(client_core::permissions::Event::Member {guild,roles,timeout_until}))?;
 										}
+										if let Some(gate)=owner_id.and_then(|owner|onboarding::member(packet.d.get().as_bytes(),owner)) {emit(Event::Onboarding(client_core::onboarding::Event::Gates { snapshot: false, gates: vec![gate] }))?;}
 									}
 									"GUILD_DELETE" => {
 										let guild: GuildDto = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;
@@ -1904,6 +2078,109 @@ mod tests {
 			"user":{"id":"1","username":"synthetic"}, "session_id":session,
 			"resume_gateway_url":"wss://gateway.discord.gg/", "guilds":[], "private_channels":[]
 		}})
+	}
+
+	#[tokio::test]
+	async fn late_recovery_preserves_ready_and_resumed_sockets() {
+		timeout(Duration::from_secs(10), async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let endpoint = format!("ws://{}/", listener.local_addr().unwrap());
+			let reconnect = Notify::new();
+			let events = std::sync::Mutex::new(Vec::new());
+			let (client_finished, terminal_observed) = tokio::sync::oneshot::channel();
+			let server = async {
+				let (stream, _) = listener.accept().await.unwrap();
+				let mut socket = accept_async(stream).await.unwrap();
+				send(
+					&mut socket,
+					json!({"op":10,"d":{"heartbeat_interval":1000}}),
+				)
+				.await;
+				assert_eq!(packet(&mut socket).await["op"], 2);
+				send(&mut socket, ready(41, "synthetic-recovery-session")).await;
+				acknowledge(&mut socket, 41).await;
+				// The READY callback queues recovery while the UI would still be disconnected.
+				// Keep the established socket alive while that notification is consumed.
+				assert!(
+					timeout(Duration::from_millis(100), listener.accept())
+						.await
+						.is_err()
+				);
+				acknowledge(&mut socket, 41).await;
+				send(&mut socket, json!({"op":7,"d":null})).await;
+				// Disconnected queues another recovery request. It must still skip the >=2s backoff.
+				let (stream, _) = timeout(Duration::from_millis(1500), listener.accept())
+					.await
+					.unwrap()
+					.unwrap();
+				drop(socket);
+				let mut socket = accept_async(stream).await.unwrap();
+				send(
+					&mut socket,
+					json!({"op":10,"d":{"heartbeat_interval":1000}}),
+				)
+				.await;
+				let handshake = packet(&mut socket).await;
+				assert_eq!(handshake["op"], 6);
+				assert_eq!(handshake["d"]["session_id"], "synthetic-recovery-session");
+				assert_eq!(handshake["d"]["seq"], 41);
+				send(&mut socket, json!({"op":0,"t":"RESUMED","s":42,"d":{}})).await;
+				acknowledge(&mut socket, 42).await;
+				// A late send/Refresh pulse after RESUMED must also preserve the healthy socket.
+				assert!(
+					timeout(Duration::from_millis(100), listener.accept())
+						.await
+						.is_err()
+				);
+				acknowledge(&mut socket, 42).await;
+				socket
+					.send(Frame::Close(Some(CloseFrame {
+						code: CloseCode::from(4004),
+						reason: "synthetic expiration".into(),
+					})))
+					.await
+					.unwrap();
+				// Retain TCP until the terminal close is consumed, even if a heartbeat races it.
+				terminal_observed.await.unwrap();
+			};
+			let client = async {
+				let result = run_recoverable(
+					Arc::new(
+						SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap(),
+					),
+					"wss://gateway.discord.gg/".into(),
+					watch::channel(None).1,
+					mpsc::channel(1).1,
+					None,
+					Some(&reconnect),
+					|event| {
+						let label = match event {
+							Event::Startup(_) => "ready",
+							Event::Disconnected => "disconnected",
+							Event::Resumed => "resumed",
+							_ => return Ok(()),
+						};
+						let mut events = events.lock().unwrap();
+						assert!(events.len() < 4, "recovery must not cycle a healthy socket");
+						events.push(label);
+						reconnect.notify_one();
+						Ok(())
+					},
+					Some(&endpoint),
+				)
+				.await;
+				let _ = client_finished.send(());
+				result
+			};
+			let ((), result) = tokio::join!(server, client);
+			assert_eq!(result, Err(Failure::Expired));
+			assert_eq!(
+				events.into_inner().unwrap(),
+				vec!["ready", "disconnected", "resumed"]
+			);
+		})
+		.await
+		.unwrap();
 	}
 
 	#[test]
@@ -2463,6 +2740,14 @@ mod tests {
 								return Ok(());
 							}
 							Event::Startup(_) => "ready",
+							Event::Onboarding(client_core::onboarding::Event::Gates {
+								snapshot,
+								gates,
+							}) => {
+								assert!(snapshot);
+								assert!(gates.is_empty());
+								"onboarding"
+							}
 							Event::Resumed => "resumed",
 							Event::DirectPresence(_) => "presence",
 							Event::Resync => "resync",
@@ -2544,7 +2829,14 @@ mod tests {
 						.filter(|event| *event != "disconnected")
 						.collect::<Vec<_>>(),
 					[
-						"ready", "resumed", "presence", "resync", "ready", "settings"
+						"ready",
+						"onboarding",
+						"resumed",
+						"presence",
+						"resync",
+						"ready",
+						"settings",
+						"onboarding"
 					]
 				);
 			})
@@ -2599,6 +2891,7 @@ mod tests {
 			let (controls, receive) = mpsc::channel(8);
 			let (deleted, mut deletion) = watch::channel(false);
 			let observed = std::sync::Mutex::new(Vec::new());
+			let (client_finished, terminal_observed) = tokio::sync::oneshot::channel();
 			let server = async {
 				let (stream, _) = listener.accept().await.unwrap();
 				let mut socket = accept_async(stream).await.unwrap();
@@ -2629,7 +2922,10 @@ mod tests {
 						}
 					}
 				}
-				socket.close(Some(CloseFrame { code: CloseCode::Library(4004), reason: "synthetic stop".into() })).await.unwrap();
+				socket.send(Frame::Close(Some(CloseFrame { code: CloseCode::Library(4004), reason: "synthetic stop".into() }))).await.unwrap();
+				// Keep TCP alive until the terminal frame is consumed: unread heartbeats can
+				// otherwise reset the socket on drop and discard Close on Windows ARM.
+				terminal_observed.await.unwrap();
 			};
 			let client = run_inner(
 				Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),
@@ -2650,6 +2946,7 @@ mod tests {
 					Ok(())
 				}, Some(&endpoint),
 			);
+			let client = async { let result = client.await; let _ = client_finished.send(()); result };
 			let ((), result) = tokio::join!(server, client);
 			assert_eq!(result, Err(Failure::Expired));
 			assert_eq!(*observed.lock().unwrap(), ["create", "update", "state", "delete"]);

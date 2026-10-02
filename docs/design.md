@@ -32,6 +32,11 @@ builds (`onyx`, `ash`, `midnight-blurple`, `crimson-moon`, `forest`, `sunset`) s
 their renamed presets, so a stored preference survives the rename. `--demo --demo-theme=<key>` and
 `--demo-light` open fixtures in a preset for screenshots.
 
+Message cards use a thin tint only on the conversation surface when chat is translucent.
+Search previews, profile code blocks, component modals and opaque component containers keep
+their normal card/code fills. Pending upload cards and their preview wells retain their
+palette surfaces in both message and forum composers, independently of chat transparency.
+
 ## Brand mark and server rail
 
 The application mark is the Serein chat-wave (`assets/brand/`), not a third-party logo. Its
@@ -89,7 +94,8 @@ The bundled faces remain upstream's hinted TrueType builds. See `assets/README.m
   divider, floating hover toolbar (react, reply, edit, more) overlapping the row above.
 - Composer: rounded `raised` bar with attach (+), placeholder `Message #channel`, emoji picker
   and send icons; a character counter appears within 200 characters of the limit.
-- Member list (240px): ONLINE/OFFLINE eyebrows with counts (DMs show MEMBERS), 42px rows with
+- Member list (240px): ONLINE/OFFLINE eyebrows with counts; group DMs show a localized
+  Members — N heading including the current account, updated with participant changes. 42px rows with
   presence dots, custom status and hover fill; opens a Members window on narrow layouts.
 
 Confirmed empty guild text, announcement and thread histories show a welcome above the
@@ -133,3 +139,19 @@ modal uses four radio choices, mute and mention-suppression switches, and an
 explicit Save changes action. The content scrolls in short/narrow viewports while
 the footer remains accessible. `--demo --demo-chat --demo-server-notifications`
 with `--features demo` opens the synthetic editor without contacting Discord.
+
+Poll cards follow the desktop layout shown in Discord's
+[Polls FAQ](https://support.discord.com/hc/en-us/articles/22163184112407-Polls-FAQ):
+a question above stacked, left-aligned answer rows, right-edge selection circles
+and checkmarks, separate vote counts and percentages, and a compact vote/expiry
+footer. The card spans up to 472px including padding. Long answers wrap while
+their selection markers stay aligned; narrow result rows put tallies beneath the
+answer. Colors continue to resolve from the active Serein palette.
+
+Open poll creation from Create a poll in the composer's `+` menu.
+The creation dialog uses uppercase field labels, inset question/answer fields,
+answer removal icons, a duration row and a separate footer with multiple-choice
+and Post controls. Its content scrolls while the footer remains available. Escape,
+the close icon and a backdrop click dismiss an idle editor; a pending submission
+keeps it open. Unknown results and expired but unfinalized polls retain explicit
+status text. `--features demo -- --demo --demo-polls` previews the fixture offline.

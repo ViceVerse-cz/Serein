@@ -22,12 +22,14 @@ use symphonia::core::{
 };
 use tokio::sync::{Notify, watch};
 
-const MAX_ENCODED: usize = 20 * 1024 * 1024;
+// Whole-file fixture helpers are bounded separately from the streaming player.
+#[cfg(any(test, all(debug_assertions, feature = "demo")))]
+const MAX_FIXTURE_BYTES: usize = 20 * 1024 * 1024;
 const MAX_SAMPLES: usize = 64 * 1024 * 1024 / size_of::<f32>();
 const MAX_SECONDS: u64 = 600;
 const NO_SEEK: u64 = u64::MAX;
 const INVALID: &str = "Unsupported or damaged audio; download to play externally";
-const TOO_LARGE: &str = "Audio preview limit: 20 MiB file, 64 MiB decoded, 10 minutes";
+const TOO_LARGE: &str = "Audio preview limit: 64 MiB decoded, 10 minutes";
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum State {
@@ -96,6 +98,7 @@ pub struct Audio {
 	status: Status,
 }
 impl Audio {
+	/// Replace playback with a validated attachment; fetching and output stay on the worker.
 	pub fn start(
 		&mut self,
 		attachment: Attachment,
@@ -110,6 +113,7 @@ impl Audio {
 		}
 		result
 	}
+	/// Admit a nonempty attachment through the shared CDN validator and publish one request.
 	fn start_inner(
 		&mut self,
 		attachment: Attachment,
@@ -117,9 +121,10 @@ impl Audio {
 		context: &eframe::egui::Context,
 		demo: bool,
 	) -> Result<(), &'static str> {
-		if attachment.size == 0 || attachment.size > MAX_ENCODED as u64 {
-			return Err(TOO_LARGE);
-		}
+		let expected = usize::try_from(attachment.size)
+			.ok()
+			.filter(|size| *size > 0)
+			.ok_or("Audio attachment size is invalid")?;
 		let url = if demo {
 			None
 		} else {
@@ -164,7 +169,7 @@ impl Audio {
 		worker.requests.send_replace(Some(Request {
 			generation,
 			url,
-			expected: attachment.size as usize,
+			expected,
 			#[cfg(feature = "demo")]
 			voice_message: attachment.is_voice_message(),
 			duration: Duration::from_millis(u64::from(attachment.duration_ms.unwrap_or(0))),
@@ -206,10 +211,13 @@ impl Audio {
 		}
 	}
 	pub fn seek(&mut self, position: Duration) {
-		self.gate.seek_millis.store(
-			position.min(Duration::from_secs(MAX_SECONDS)).as_millis() as u64,
-			Ordering::Release,
-		);
+		let millis = position.min(Duration::from_secs(MAX_SECONDS)).as_millis() as u64;
+		// Show the target while decoding restarts; output callbacks are muted until it resumes.
+		let rate = u64::from(self.gate.sample_rate.load(Ordering::Acquire));
+		self.gate
+			.position_frames
+			.store(millis * rate / 1000, Ordering::Release);
+		self.gate.seek_millis.store(millis, Ordering::Release);
 		if let Some(worker) = &self.worker {
 			worker.wake.notify_one();
 		}
@@ -237,6 +245,26 @@ impl Drop for Audio {
 	fn drop(&mut self) {
 		self.stop();
 	}
+}
+
+/// PulseAudio (including pipewire-pulse) otherwise applies its ~2 s server-default buffer: the
+/// first callback queues that much silence, and the callback clock behind progress, seeking and
+/// A/V sync runs that far ahead of what is audible.
+pub(crate) fn playback_config(
+	host: cpal::HostId,
+	config: cpal::StreamConfig,
+) -> cpal::StreamConfig {
+	#[cfg(target_os = "linux")]
+	if host == cpal::HostId::PulseAudio {
+		// 40 ms periods; cpal double-buffers, so about 80 ms reach the server.
+		return cpal::StreamConfig {
+			buffer_size: cpal::BufferSize::Fixed(config.sample_rate / 25),
+			..config
+		};
+	}
+	#[cfg(not(target_os = "linux"))]
+	let _ = host;
+	config
 }
 
 fn worker(
@@ -275,6 +303,7 @@ fn worker(
 }
 
 #[cfg(test)]
+/// Fetch a bounded whole-file fixture; production playback uses the demand-driven range source.
 async fn fetch(
 	url: url::Url,
 	expected: usize,
@@ -282,7 +311,7 @@ async fn fetch(
 	generation: u64,
 	wake: &Notify,
 ) -> Result<Vec<u8>, &'static str> {
-	if expected == 0 || expected > MAX_ENCODED {
+	if expected == 0 || expected > MAX_FIXTURE_BYTES {
 		return Err(TOO_LARGE);
 	}
 	let client = reqwest::Client::builder()
@@ -349,11 +378,12 @@ struct Pcm {
 }
 
 #[cfg(any(test, all(debug_assertions, feature = "demo")))]
+/// Decode small offline fixtures into retained PCM, independently of streaming admission.
 fn decode(mut bytes: Vec<u8>, current: &impl Fn() -> bool) -> Result<Pcm, &'static str> {
 	if !current() {
 		return Err("Cancelled");
 	}
-	if bytes.is_empty() || bytes.len() > MAX_ENCODED {
+	if bytes.is_empty() || bytes.len() > MAX_FIXTURE_BYTES {
 		return Err(TOO_LARGE);
 	}
 	if bytes.starts_with(b"OggS") {
@@ -384,6 +414,7 @@ fn decode(mut bytes: Vec<u8>, current: &impl Fn() -> bool) -> Result<Pcm, &'stat
 	Ok(pcm)
 }
 
+/// Emit bounded PCM packets while enforcing cumulative sample, duration and cancellation limits.
 pub(super) fn decode_stream(
 	source: Box<dyn MediaSource>,
 	current: &impl Fn() -> bool,
@@ -813,8 +844,82 @@ fn demo_wav() -> Vec<u8> {
 	bytes
 }
 
+/// Exercise public admission with a passive worker, without network or audio-device access.
+#[cfg(any(test, all(debug_assertions, feature = "demo")))]
+fn check_large_attachment_admission() {
+	let runtime = tokio::runtime::Builder::new_current_thread()
+		.build()
+		.unwrap();
+	let context = eframe::egui::Context::default();
+	let state = test_support::audio_demo_state();
+	let mut attachment = state.timeline.iter().next().unwrap().attachments[0].clone();
+	let (requests, receiver) = watch::channel(None);
+	let (_status, updates) = watch::channel((0, Status::default()));
+	let mut audio = Audio {
+		gate: Arc::new(Gate::default()),
+		worker: Some(Worker {
+			requests,
+			status: updates,
+			wake: Arc::new(Notify::new()),
+		}),
+		status: Status::default(),
+	};
+	attachment.size = 24 * 1024 * 1024;
+	for (filename, kind) in [
+		("voice-message.ogg", "audio/ogg"),
+		("synthetic.wav", "audio/wav"),
+		("synthetic.mp3", "audio/mpeg"),
+	] {
+		attachment.filename = filename.into();
+		attachment.content_type = Some(kind.into());
+		if filename != "voice-message.ogg" {
+			attachment.duration_ms = None;
+			attachment.waveform.clear();
+		}
+		for host in ["cdn.discordapp.com", "media.discordapp.net"] {
+			for path in [
+				format!("attachments/20/{}/{filename}", attachment.id),
+				format!("attachments/20/499/{}/{filename}", attachment.id),
+			] {
+				attachment.media.url =
+					Some(format!("https://{host}/{path}?ex=123&is=123&hm=synthetic&"));
+				assert_eq!(
+					audio.start(attachment.clone(), runtime.handle(), &context, false),
+					Ok(()),
+					"{host}/{path}"
+				);
+				assert_eq!(audio.status.state, State::Loading);
+				{
+					let published = receiver.borrow();
+					let request = published.as_ref().expect("large attachment admitted");
+					assert_eq!(request.expected, attachment.size as usize);
+					assert_eq!(
+						request.url.as_ref().unwrap().as_str(),
+						format!("https://cdn.discordapp.com/{path}?ex=123&is=123&hm=synthetic&")
+					);
+					assert!(audio.gate.current(request.generation));
+				}
+				audio.stop();
+				assert!(receiver.borrow().is_none());
+			}
+		}
+	}
+	for size in [0, 100 * 1024 * 1024 + 1] {
+		attachment.size = size;
+		assert!(
+			audio
+				.start(attachment.clone(), runtime.handle(), &context, false)
+				.is_err()
+		);
+		assert!(matches!(audio.status.state, State::Failed(_)));
+		assert!(receiver.borrow().is_none());
+	}
+}
+
 #[cfg(all(debug_assertions, feature = "demo"))]
+/// Exercise streaming, decoding and playback buffering with synthetic data and no output device.
 pub fn debug_voice_message_check() {
+	check_large_attachment_admission();
 	source::debug_check();
 	streaming::debug_check();
 	let runtime = tokio::runtime::Builder::new_current_thread()
@@ -943,6 +1048,27 @@ impl Playback {
 mod tests {
 	use super::*;
 	#[test]
+	fn start_admits_large_attachments_and_rejects_invalid_sizes() {
+		check_large_attachment_admission();
+	}
+	#[cfg(target_os = "linux")]
+	#[test]
+	fn pulseaudio_playback_avoids_the_server_default_buffer() {
+		let config = cpal::StreamConfig {
+			channels: 2,
+			sample_rate: 48000,
+			buffer_size: cpal::BufferSize::Default,
+		};
+		assert_eq!(
+			playback_config(cpal::HostId::PulseAudio, config).buffer_size,
+			cpal::BufferSize::Fixed(1920)
+		);
+		assert_eq!(
+			playback_config(cpal::HostId::Alsa, config).buffer_size,
+			cpal::BufferSize::Default
+		);
+	}
+	#[test]
 	fn decode_bounded_audio_and_reject_malformed_headers() {
 		let pcm = decode(demo_wav(), &|| true).unwrap();
 		assert_eq!(
@@ -959,7 +1085,7 @@ mod tests {
 		assert!(!pcm.samples.is_empty());
 		assert!(pcm.samples.iter().any(|sample| sample.abs() > 0.01));
 		assert!(decode(demo_wav(), &|| false).is_err());
-		assert!(decode(vec![0; MAX_ENCODED + 1], &|| true).is_err());
+		assert!(decode(vec![0; MAX_FIXTURE_BYTES + 1], &|| true).is_err());
 		for field in [22, 40] {
 			let mut bytes = demo_wav();
 			bytes[field..field + 2].copy_from_slice(&u16::MAX.to_le_bytes());
@@ -1061,7 +1187,7 @@ mod tests {
 		cancel.await.unwrap();
 		server.abort();
 		assert_eq!(
-			fetch(url, MAX_ENCODED + 1, &gate, 1, &wake).await,
+			fetch(url, MAX_FIXTURE_BYTES + 1, &gate, 1, &wake).await,
 			Err(TOO_LARGE)
 		);
 	}

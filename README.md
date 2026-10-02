@@ -223,7 +223,7 @@ Rust **1.98.1** is pinned. Ensure you have the standard C/C++ toolchain and CMak
 ### Running Locally
 
 ```sh
-# 1. Opt in to the offline synthetic demo (no network, no storage)
+# 1. Run synthetic conversations; extension browsing uses public GitHub downloads
 cargo run --locked --features demo -- --demo
 
 # 2. Launch standard client with voice (uses saved login or official webview)

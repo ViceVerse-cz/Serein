@@ -32,13 +32,6 @@ impl<'de> Deserialize<'de> for Object {
 	}
 }
 
-pub fn object_patch(value: model::Patch<Object>) -> model::Patch<bool> {
-	match value {
-		model::Patch::Absent => model::Patch::Absent,
-		model::Patch::Null => model::Patch::Null,
-		model::Patch::Value(_) => model::Patch::Value(true),
-	}
-}
 #[cfg(test)]
 mod tests {
 	use crate::{MessageDto, PatchDto, decode};

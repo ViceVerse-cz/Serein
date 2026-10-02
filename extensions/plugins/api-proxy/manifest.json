@@ -1,0 +1,31 @@
+{
+  "api_version": 1,
+  "id": "api-proxy",
+  "name": "API Proxy",
+  "version": "1.0.0",
+  "author": "Serein contributors",
+  "license": "MIT OR Apache-2.0",
+  "source": "https://github.com/ViceVerse-cz/Serein-extensions/tree/main/plugins/api-proxy",
+  "kind": "plugin",
+  "capabilities": [
+    "api_proxy",
+    "storage"
+  ],
+  "actions": [
+    {
+      "id": "open",
+      "label": "Configure API proxy",
+      "surface": "panel"
+    },
+    {
+      "id": "apply",
+      "label": "Apply API proxy",
+      "surface": "panel"
+    },
+    {
+      "id": "activate",
+      "label": "Restore API proxy",
+      "surface": "activation"
+    }
+  ]
+}

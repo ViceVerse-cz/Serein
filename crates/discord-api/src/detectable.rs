@@ -13,7 +13,6 @@ const MAX_LIST: usize = 24 * 1024 * 1024;
 const MAX_GAMES: usize = 65_536;
 const MAX_EXECUTABLES: usize = 16;
 const MAX_NAME: usize = 128;
-const MAX_EXECUTABLE: usize = 256;
 
 /// One detectable game reduced to what matching needs: never store URLs, hashes or SKUs.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -44,16 +43,7 @@ struct WireExecutable {
 
 /// Executables are compared as path suffixes, so both sides use one normal form.
 pub fn normalize(name: &str) -> Option<String> {
-	let name = name.trim().trim_start_matches('>');
-	if name.is_empty() || name.len() > MAX_EXECUTABLE || name.chars().any(char::is_control) {
-		return None;
-	}
-	let name = name
-		.to_lowercase()
-		.replace('\\', "/")
-		.trim_matches('/')
-		.to_owned();
-	(!name.is_empty()).then_some(name)
+	model::registered_games::normalize(name)
 }
 
 /// Returns the raw list; decoding several megabytes of JSON belongs off the async runtime.
@@ -355,7 +345,7 @@ mod tests {
 				.is_err()
 		);
 		assert!(normalize("  ").is_none());
-		assert!(normalize(&"x".repeat(MAX_EXECUTABLE + 1)).is_none());
+		assert!(normalize(&"x".repeat(model::registered_games::MAX_EXECUTABLE + 1)).is_none());
 		assert_eq!(
 			normalize(r"\Game\Game.EXE").as_deref(),
 			Some("game/game.exe")

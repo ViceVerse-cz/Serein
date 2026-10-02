@@ -204,8 +204,12 @@ impl AudioUi {
 					}
 					let mut position = if active { self.position } else { 0.0 };
 					ui.spacing_mut().slider_width = ui.available_width().max(24.0);
-					let can_seek =
-						duration > 0.0 && matches!(state, AudioState::Playing | AudioState::Paused);
+					// Buffering after a seek reports Loading; stay seekable so clicks are not dropped.
+					let can_seek = duration > 0.0
+						&& matches!(
+							state,
+							AudioState::Playing | AudioState::Paused | AudioState::Loading
+						);
 					if voice {
 						if waveform(
 							ui,
@@ -335,12 +339,15 @@ fn waveform(
 		},
 	);
 	let before = *position;
+	let mut seek = false;
 	if enabled {
-		if (response.clicked() || response.dragged())
+		// Dragging only previews; each seek restarts decoding, so commit on click or release.
+		if (response.clicked() || response.dragged() || response.drag_stopped())
 			&& let Some(pointer) = response.interact_pointer_pos()
 		{
 			*position =
 				f64::from(((pointer.x - rect.left()) / rect.width()).clamp(0.0, 1.0)) * duration;
+			seek = !response.dragged();
 		}
 		if response.has_focus() {
 			ui.input_mut(|input| {
@@ -352,6 +359,7 @@ fn waveform(
 				] {
 					if input.consume_key(egui::Modifiers::NONE, key) {
 						*position = value.clamp(0.0, duration);
+						seek = true;
 					}
 				}
 			});
@@ -397,7 +405,7 @@ fn waveform(
 		)
 	});
 	response.on_hover_text(crate::i18n::translate("audio-waveform-seek-voice-message"));
-	*position != before
+	seek && *position != before
 }
 
 fn timestamp(seconds: f64) -> String {
@@ -462,6 +470,7 @@ mod tests {
 							&mut crate::video::VideoUi::default(),
 							false,
 							&mut crate::select::Surface::new(ui, "attachment-test"),
+							crate::design::MessageCardSurface::Conversation,
 						);
 						assert!(ui.min_rect().width() <= width + 2.0);
 					},
@@ -503,5 +512,74 @@ mod tests {
 			assert!(matches!(audio.command, Some(AudioCommand::Stop)));
 		}
 		assert_eq!(timestamp(125.4), "2:05");
+	}
+
+	#[test]
+	fn waveform_seeks_while_buffering_and_commits_drags_on_release() {
+		let state = test_support::audio_demo_state();
+		let message = state.timeline.iter().next().unwrap().clone();
+		let file = message.attachments[0].clone();
+		assert!(file.is_voice_message());
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut audio = AudioUi {
+			active: Some((message.channel, message.id, file.clone())),
+			// A seek or network stall reports Loading until output resumes.
+			state: AudioState::Loading,
+			..Default::default()
+		};
+		let frame = |audio: &mut AudioUi, events: Vec<egui::Event>| {
+			let mut card = egui::Rect::NOTHING;
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(400.0, 200.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| card = audio.show(ui, &message, &file).rect,
+			)
+			.drop_without_applying_deltas();
+			card
+		};
+		let card = frame(&mut audio, Vec::new());
+		// Border plus padding, then the 32-point play button and row spacing.
+		let (left, right) = (card.left() + 55.0, card.right() - 13.0);
+		let at = |fraction: f32| egui::pos2(left + (right - left) * fraction, card.top() + 29.0);
+		let button = |pos, pressed| egui::Event::PointerButton {
+			pos,
+			button: egui::PointerButton::Primary,
+			pressed,
+			modifiers: egui::Modifiers::NONE,
+		};
+		let seek = |audio: &mut AudioUi| match audio.command.take() {
+			Some(AudioCommand::Seek(seconds)) => Some(seconds),
+			None => None,
+			_ => panic!("unexpected audio command"),
+		};
+		frame(
+			&mut audio,
+			vec![egui::Event::PointerMoved(at(0.5)), button(at(0.5), true)],
+		);
+		frame(&mut audio, vec![button(at(0.5), false)]);
+		let seconds = seek(&mut audio).expect("click seeks while buffering");
+		assert!((seconds - 1.5).abs() < 0.15, "{seconds}");
+		frame(
+			&mut audio,
+			vec![egui::Event::PointerMoved(at(0.25)), button(at(0.25), true)],
+		);
+		for fraction in [0.4, 0.6, 0.75] {
+			frame(&mut audio, vec![egui::Event::PointerMoved(at(fraction))]);
+			assert_eq!(
+				seek(&mut audio),
+				None,
+				"dragging previews without restarting"
+			);
+		}
+		frame(&mut audio, vec![button(at(0.75), false)]);
+		let seconds = seek(&mut audio).expect("release commits the drag");
+		assert!((seconds - 2.25).abs() < 0.15, "{seconds}");
 	}
 }

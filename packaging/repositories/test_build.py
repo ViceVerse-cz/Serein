@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import unittest
 
-from build import validate
+from build import input_packages, validate
 from verify_downloads import verify
 
 
@@ -46,6 +46,27 @@ class RepositoryInputs(unittest.TestCase):
             flatpak_entry = hashlib.sha256(flatpak_pkg.read_bytes()).hexdigest() + "  ./serein.flatpak\n"
             manifest.write_text(flatpak_entry)
             verify(root)
+
+    def test_mixed_release_packages_are_selected_per_distribution_and_architecture(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            names = [
+                "serein-v1.0.0-Linux-ubuntu-26.04-serein_1.0.0_arm64.deb",
+                "serein-v1.0.0-Linux-ubuntu-26.04-serein_1.0.0_amd64.deb",
+                "serein-v1.0.0-Linux-ubuntu-24.04-serein_1.0.0_arm64.deb",
+                "serein-v1.0.0-Linux-fedora-44-serein-1.0.0.x86_64.rpm",
+                "serein-v1.0.0-Linux-x86_64.flatpak",
+                "SHA256SUMS.txt",
+            ]
+            for name in names:
+                (root / name).write_bytes(b"synthetic release package")
+            for arch, index in [("arm64", 0), ("amd64", 1)]:
+                selected = input_packages(root, "deb", "ubuntu-26.04", arch)
+                self.assertEqual(selected, [root / names[index]])
+            self.assertEqual(input_packages(root, "rpm", "fedora-44", "x86_64"), [root / names[3]])
+            with self.assertRaisesRegex(ValueError, "1–100 packages"):
+                input_packages(root, "deb", "ubuntu-26.04", "armhf")
+            self.assertEqual(len(input_packages(root, "deb")), 3)
 
     def test_rejects_unsafe_paths_keys_and_urls(self):
         good = dict(distribution="ubuntu-26.04", architecture="amd64",

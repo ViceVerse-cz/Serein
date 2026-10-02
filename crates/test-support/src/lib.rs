@@ -91,6 +91,7 @@ pub fn message(id: u64, channel: Id) -> Message {
 		content = format!("Hey <@2> — see <#21>. {content}");
 	}
 	Message {
+		poll: None,
 		reactions: Some(if id == 500 {
 			vec![Reaction {
 				emoji: ReactionEmoji {
@@ -1202,6 +1203,7 @@ pub fn permission_snapshot(state: &State) -> model::permissions::Snapshot {
 		| 1 // CREATE_INSTANT_INVITE, synthetic demo only.
 		| p::READ_MESSAGE_HISTORY
 		| p::SEND_MESSAGES
+        | p::SEND_POLLS
 		| p::SEND_MESSAGES_IN_THREADS
 		| p::ATTACH_FILES
 		| p::ADD_REACTIONS

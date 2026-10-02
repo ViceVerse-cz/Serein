@@ -14,7 +14,7 @@ page-appearance = Appearance
 page-chat = Chat
 page-messaging-permissions = Messaging Permissions
 page-notifications = Notifications
-page-activity = Game Activity
+page-registered-games = Registered Games
 page-voice = Voice & Video
 page-keybinds = Keybinds
 page-storage = Data & Privacy
@@ -28,7 +28,7 @@ description-appearance = Theme, colours, window effects and layout.
 description-chat = How messages, media, links and scrolling behave.
 description-messaging-permissions = Control who can contact you and how messages are filtered.
 description-notifications = Choose which notifications you receive and how they appear.
-description-activity = Show others what you are playing.
+description-registered-games = Share what you play, and fix or add the games Serein detects.
 description-voice = Microphone, speakers, camera and voice processing.
 description-keybinds = Keyboard shortcuts for Serein.
 description-storage = What Serein keeps on this device.
@@ -103,6 +103,7 @@ no-conversations = No conversations available here.
 open-in-discord = Open in Discord
 new = New
 members-count = Members
+members-heading = Members
 no-conversation-selected = No conversation selected
 select-conversation = Pick a channel or direct message from the list.
 friends-online = Online
@@ -734,6 +735,8 @@ design-account-row-with-remove-forget-this-account-on-this-device = Forget this 
 design-color-edit-hex-color-rrggbb-click-to-type-or-paste = Hex color: #RRGGBB. Click to type or paste.
 # Context: save_bar
 design-save-bar-careful-you-have-unsaved-changes = Careful — you have unsaved changes!
+design-save-bar-save-changes = Save Changes
+design-save-bar-reset = Reset
 
 ## crates/ui/src/dialog.rs
 # Context: header
@@ -1502,7 +1505,7 @@ join-server-show-join-enter-an-invite-below-to-join-an-existing-server = Enter a
 # Context: show_join
 join-server-show-join-join-a-server = Join a Server
 # Context: body
-join-server-status-invite-accepted = Invite accepted. Waiting for server access; complete any server rules in Discord.
+join-server-status-invite-accepted = Invite accepted. Waiting for server access.
 # Context: body
 join-server-status-offline-preview = Offline preview — joining servers is disabled.
 
@@ -1545,6 +1548,8 @@ lib-ime-updates-text-choose-drop-or-paste-files-ctrl-cmd-option-v-up = Choose, d
 lib-ime-updates-text-clear-this-draft = Clear this draft
 # Context: ime_updates_text
 lib-ime-updates-text-copy-edit-text = Copy edit text
+# Context: ime_updates_text
+lib-ime-updates-text-create-a-poll = Create a poll
 # Context: ime_updates_text
 lib-ime-updates-text-draft-budget-full-clear-an-existing-draft-to-continue = Draft budget full. Clear an existing draft to continue.
 # Context: ime_updates_text
@@ -1786,6 +1791,86 @@ pending-show-you = You
 pending-upload-strip-cancel-upload = Cancel upload
 # Context: upload_strip
 pending-upload-strip-the-message-may-already-have-reached-discord-check-the-conversation = The message may already have reached Discord. Check the conversation before sending again.
+
+## crates/ui/src/polls.rs
+# Context: card
+polls-card-ended = Poll ended
+# Context: card
+polls-card-select-many = Select one or more answers
+# Context: card
+polls-card-select-one = Select one answer
+# Context: card
+polls-card-final-results = Final results
+# Context: card
+polls-card-awaiting-results = Awaiting final results
+# Context: card
+polls-card-hours-left = { $hours }h left
+# Context: card
+polls-card-minutes-left = { $minutes }m left
+# Context: card
+polls-card-in-progress = In progress
+# Context: card
+polls-card-vote-count-one = { $count } vote
+# Context: card
+polls-card-vote-count-many = { $count } votes
+# Context: card
+polls-card-results-not-loaded = Results not loaded
+# Context: card
+polls-card-back-to-voting = Back to voting
+# Context: card
+polls-card-refresh-results = Refresh results
+# Context: card
+polls-card-show-results = Show results
+# Context: card
+polls-card-remove-vote = Remove Vote
+# Context: card
+polls-card-vote = Vote
+# Context: card
+polls-card-end-confirm = End this poll for everyone?
+# Context: card
+polls-card-end-now = End now
+# Context: card
+polls-card-end-poll = End Poll
+# Context: creator
+polls-creator-title = Create a Poll
+# Context: creator
+polls-creator-question = Question
+# Context: creator
+polls-creator-question-hint = What question do you want to ask?
+# Context: creator
+polls-creator-answers = Answers
+# Context: creator
+polls-creator-answer-hint = Answer { $number }
+# Context: creator
+polls-creator-add-emoji = Add emoji
+# Context: creator
+polls-creator-change-emoji = Change emoji
+# Context: creator
+polls-creator-remove-answer = Remove answer
+# Context: creator
+polls-creator-add-answer = Add another answer
+# Context: creator
+polls-creator-duration = Duration
+# Context: creator
+polls-creator-multiple-answers = Allow Multiple Answers
+# Context: creator
+polls-creator-post = Post
+# Context: creator
+polls-creator-posting = Posting…
+# Context: duration_label
+polls-duration-1-hour = 1 hour
+# Context: duration_label
+polls-duration-4-hours = 4 hours
+# Context: duration_label
+polls-duration-8-hours = 8 hours
+# Context: duration_label
+polls-duration-24-hours = 24 hours
+# Context: duration_label
+polls-duration-3-days = 3 days
+# Context: duration_label
+polls-duration-1-week = 1 week
+# Context: duration_label
+polls-duration-hours = { $hours } hours
 
 ## crates/ui/src/post_menu.rs
 # Context: context
@@ -2373,8 +2458,6 @@ server-admin-emojis-image = Image
 # Context: emojis
 server-admin-emojis-name = Name
 # Context: emojis
-server-admin-emojis-none = NONE
-# Context: emojis
 server-admin-emojis-preparing-emoji-images = Preparing emoji images...
 # Context: emojis
 server-admin-emojis-remove = Remove
@@ -2468,8 +2551,6 @@ server-admin-members-recent-members = Recent Members
 server-admin-members-search-by-username-or-id = Search by username or ID
 # Context: members
 server-admin-members-server-members = Server Members
-# Context: members
-server-admin-members-show-members-in-channel-list = Show Members In Channel List
 # Context: members
 server-admin-members-show-the-members-page-in-the-channel-list-to-quickly = Show the members page in the channel list to quickly see recent joins and members flagged for unusual activity.
 # Context: members
@@ -3233,6 +3314,92 @@ settings-account-page-signed-in-with-your-discord-account = Signed in with your 
 settings-activity-settings-detect-running-games-and-ask-discord-to-share-them-as = Detect running games and ask Discord to share them as activity.
 # Context: activity_settings
 settings-activity-settings-share-game-activity = Share game activity
+# Context: activity_settings
+settings-activity-enable-on-discord = Enable on Discord
+# Context: activity_settings
+settings-activity-check-again = Check again
+# Context: activity_settings
+settings-activity-sharing-is-off = Activity sharing is off
+# Context: activity_settings
+settings-activity-sharing-your-game = Sharing your game
+# Context: activity_settings
+settings-activity-looking = Looking for a running game
+# Context: activity_settings
+settings-activity-demo-detail = Synthetic activity, never shared or saved.
+# Context: activity_settings
+settings-activity-status-offline-preview = Offline preview: synthetic activity, never shared or saved.
+# Context: activity_settings
+settings-activity-status-unconfirmed = Local preview only. Waiting for Discord to confirm sharing.
+# Context: activity_settings
+settings-activity-status-received = Discord received your game, but has not listed it publicly.
+# Context: activity_settings
+settings-activity-status-listed = Discord lists your game. Server and friend privacy settings still apply.
+# Context: activity_settings
+settings-activity-status-hidden = Discord is hiding your game. Check Registered Games and Activity Sharing in Discord.
+# Context: activity_settings
+settings-activity-status-missing = Discord did not list your game publicly. Check its Registered Games and server sharing controls.
+# Context: activity_settings
+settings-activity-status-sharing-off = Discord's account-wide activity sharing is off.
+# Context: activity_settings
+settings-activity-status-checking = Checking Discord's activity sharing setting…
+# Context: activity_settings
+settings-activity-status-check-failed = Could not check or change Discord's activity sharing setting.
+# Context: activity_settings
+settings-activity-status-updating = Updating Discord's activity sharing setting…
+# Context: activity_settings
+settings-activity-status-request-failed = Could not request the setting change. Try again.
+# Context: activity_settings
+settings-activity-current-game = Current Game
+# Context: activity_settings
+settings-activity-now-playing = Now Playing!
+# Context: activity_settings
+settings-activity-stop-detecting-current = Not this game? Stop detecting it.
+# Context: activity_settings
+settings-activity-reported-by-game = Reported by the game through Rich Presence.
+# Context: activity_settings
+settings-activity-no-game-detected = No game detected
+# Context: activity_settings
+settings-activity-turn-on-sharing = Turn on Share game activity above to detect games.
+# Context: activity_settings
+settings-activity-not-seeing-your-game = Not seeing your game?
+# Context: activity_settings
+settings-activity-add-it = Add it!
+# Context: activity_settings
+settings-activity-added-games = Added Games
+# Context: activity_settings
+settings-activity-no-games-added = No games added
+# Context: activity_settings
+settings-activity-hidden = Hidden. Serein will not detect this game.
+# Context: activity_settings
+settings-activity-detected = Detected automatically
+# Context: activity_settings
+settings-activity-last-played-today = Last played today
+# Context: activity_settings
+settings-activity-last-played-yesterday = Last played yesterday
+# Context: activity_settings
+settings-activity-last-played = Last played { $date }
+# Context: activity_settings
+settings-activity-restore = Restore
+# Context: activity_settings
+settings-activity-restore-hint = Detect this game again.
+# Context: activity_settings
+settings-activity-stop-detecting = Stop detecting this game
+# Context: activity_settings
+settings-activity-remove-game = Remove this game
+# Context: activity_settings
+settings-activity-click-to-rename = Click to rename
+# Context: activity_settings
+settings-activity-add-a-game = Add a game
+# Context: activity_settings
+settings-activity-choose-program = Choose a running program. Serein shows it as your game whenever it runs.
+# Context: activity_settings
+settings-activity-search-programs = Search running programs
+# Context: activity_settings
+settings-activity-reading-programs = Reading running programs…
+# Context: activity_settings
+settings-activity-no-matching-programs = No matching programs are running.
+# Context: activity_settings
+settings-activity-add-game = Add Game
 # Context: appearance_menu
 settings-appearance-menu-display = Display
 # Context: appearance_menu
@@ -3597,6 +3764,12 @@ timeline-message-actions-view-reactions = View reactions
 timeline-present-control-jump-to-present = Jump to present
 # Context: present_control
 timeline-present-control-new-messages-below-jump-to-present = New messages below · jump to present
+# Context: present_control
+timeline-present-control-new-messages =
+    { $count ->
+        [one] { $count } new message
+       *[other] { $count } new messages
+    }
 # Context: show_system
 timeline-show-system-open-this-channels-threads = Open this channel’s threads
 # Context: show_system
@@ -3643,6 +3816,10 @@ timeline-show-with-scroll-you-cannot-view-this-conversation = You cannot view th
 timeline-starter-row-thread-started-from-this-message = Thread started from this message
 # Context: unread_banner
 timeline-unread-banner-unread-messages = Unread messages
+# Context: unread_banner
+timeline-unread-banner-mark-as-read = Mark as read
+# Context: unread_banner
+timeline-unread-banner-jump-to-unread = Jump to unread
 
 ## crates/ui/src/toasts.rs
 # Context: show
@@ -3705,6 +3882,8 @@ updates-update-settings-restart-to-update = Restart to update
 updates-update-settings-serein-was-installed-via-your-distribution-run-this-in-a = Serein was installed via your distribution. Run this in a terminal to update.
 # Context: update_settings
 updates-update-settings-support-diagnostics = Support & diagnostics
+# Context: update_log
+updates-update-log = Update log
 # Context: update_settings
 updates-update-settings-update-checks-are-disabled-in-debug-builds = Update checks are disabled in debug builds.
 
@@ -4054,6 +4233,10 @@ profiles-remove-friend-message = Are you sure you want to remove { $user } from 
 channel-menu-dialog-category-settings = Category Settings
 channel-menu-dialog-channel-settings = Channel Settings
 channel-menu-dialog-settings-subtitle = Customize settings and who can do what here.
+channel-menu-discard-title = Discard unsaved changes?
+channel-menu-discard-message = Your unsaved changes to this channel will be lost.
+channel-menu-discard-confirm = Discard Changes
+channel-menu-discard-keep = Keep Editing
 channel-menu-dialog-duplicate-subtitle = Copies settings and permissions. Messages are not copied.
 channel-menu-dialog-create-channel-subtitle = Choose a channel type and name.
 channel-menu-dialog-create-category-subtitle = Categories organize related channels.
@@ -4125,5 +4308,191 @@ search-page-previous-short = Previous
 search-page-next-short = Next
 search-result-today-at = Today at { $time }
 search-result-yesterday-at = Yesterday at { $time }
-timeline-unread-banner-one-new-since = 1 new message since { $time }
-timeline-unread-banner-many-new-since = { $count } new messages since { $time }
+timeline-unread-banner-new-since =
+    { $count ->
+        [one] { $count } new message since { $time }
+       *[other] { $count } new messages since { $time }
+    }
+timeline-unread-banner-new-since-more =
+    { $count ->
+        [one] { $count }+ new message since { $time }
+       *[other] { $count }+ new messages since { $time }
+    }
+
+## crates/ui/src/onboarding.rs
+# Context: show
+onboarding-show-title = Welcome to { $server }
+# Context: show
+onboarding-show-subtitle = Answer a few questions and accept the rules to start chatting.
+# Context: show
+onboarding-show-try-again = Try Again
+# Context: show
+onboarding-show-close = Close
+# Context: show
+onboarding-show-please-wait = Please wait…
+# Context: show
+onboarding-show-finish = Finish
+# Context: show
+onboarding-show-not-now = Not Now
+# Context: show
+onboarding-show-this-server = this server
+# Context: body
+onboarding-body-submitted = Application submitted. A moderator will review it; you can chat once it is approved.
+# Context: body
+onboarding-body-rejected = This server declined the application.
+# Context: body
+onboarding-body-loading = Loading server onboarding…
+# Context: body
+onboarding-body-all-set = You're all set. Nothing is left to complete here.
+# Context: prompt
+onboarding-prompt-pick-one = Pick one
+# Context: prompt
+onboarding-prompt-pick-any = Pick any that apply
+# Context: rules
+onboarding-rules-heading = Server rules
+# Context: rules
+onboarding-rules-review = A moderator reviews these answers before you can chat.
+# Context: field
+onboarding-field-unsupported = This server asks a question Serein can't show yet. Finish joining in the Discord app.
+# Context: field
+onboarding-field-agree = I have read and agree to the rules
+
+## crates/ui/src/lib.rs
+# Context: composer
+lib-composer-onboarding-rules-pending = Accept this server's rules to start chatting.
+# Context: composer
+lib-composer-onboarding-incomplete = Finish joining this server to unlock more channels.
+# Context: composer
+lib-composer-onboarding-complete = Complete Onboarding
+
+voice-recipient-ring = Ring again
+voice-recipient-stop-ringing = Stop ringing
+voice-recipient-ringing = Ringing…
+voice-recipient-not-in-call = Not in call
+reconnect-now = Reconnect now
+
+# Explicit public attachment hosting
+public-upload-host-file = Host file…
+public-upload-heading = Upload to Catbox
+public-upload-subtitle = Share a public link instead of a Discord attachment
+public-upload-offline = Offline preview · no file is uploaded
+public-upload-size = { $size } MB · public file host
+public-upload-privacy = Anyone with the link can access this file. The original file and its metadata are uploaded unchanged to Catbox, outside Discord.
+public-upload-retention = Catbox currently says anonymous files may be removed after two years without access. Serein cannot delete hosted files; cancelling or deleting a Discord message does not remove them.
+public-upload-review = The link stays here for review. Choose Add to draft or Copy link, then send it yourself.
+public-upload-return = Return to the original conversation to add its link.
+public-upload-preparing = Preparing public upload…
+public-upload-limits = Maximum 200 MB (GIF: 20 MB). EXE, SCR, CPL, JAR and DOC files are unsupported.
+public-upload-add = Add to draft
+public-upload-copy = Copy link
+public-upload-close = Close
+public-upload-cancel-upload = Cancel upload
+public-upload-upload = Upload publicly to Catbox
+public-upload-cancel = Cancel
+public-upload-draft-full = Draft is full; copy the public link before closing
+public-upload-leave = Leaving cancels public uploads and discards the dialog's link. Already uploaded files may remain on Catbox; copy the link before continuing.
+public-upload-error-cancelled = Public upload cancelled; received bytes may remain on Catbox
+public-upload-error-prepare = Could not prepare public upload
+public-upload-error-changed = File changed or became unavailable; select it again
+public-upload-error-failed = Public upload failed; received bytes may remain on Catbox
+public-upload-error-rejected = Catbox rejected the upload; no Discord message was sent
+public-upload-error-incomplete = Public upload incomplete; received bytes may remain on Catbox
+public-upload-error-response-limit = File host response exceeded its limit
+public-upload-error-interrupted = Public upload interrupted; received bytes may remain on Catbox
+public-upload-error-invalid-link = File host returned an invalid link
+public-upload-error-busy = Wait for the current attachment operation to finish
+public-upload-error-conversation = Return to the original conversation and review the file again before uploading publicly
+public-upload-error-selection = Selection changed; review the file again before uploading publicly
+public-upload-error-missing = Select the file again before uploading publicly
+
+voice-call-moved-to-another-client = This device's call session was replaced
+
+# Synchronized favorite GIFs (unofficial account settings).
+gif-favorites-sync-loading = Syncing favorites…
+gif-favorites-sync-ready = Discord and local favorites
+gif-favorites-sync-local = Local favorites
+gif-favorites-sync-refresh = Refresh from Discord
+gif-favorites-sync-help = Existing local favorites stay local until you change their star. New star changes sync after loading. Video-only favorites keep a preview placeholder. At most 100 favorites are displayed; saves preserve the other server favorites.
+gif-favorites-sync-failed = Sync failed; local favorites are kept. Refresh before trying another synced change.
+gif-favorites-sync-unsupported = Discord favorites are unsupported or exceed the safe limit.
+gif-favorites-sync-unconfirmed = Favorite change was not confirmed. Refresh before retrying.
+
+server-settings-page-safety = Safety Setup
+
+server-settings-nav-title = Server Settings
+
+server-settings-safety-subtitle = Decide who can chat in this server and which media Discord scans for explicit content.
+
+server-settings-safety-community-note = Community servers need at least Low verification and must scan media from all members.
+
+server-settings-safety-verification = Verification Level
+
+server-settings-safety-verification-help = Members must meet these criteria before they can send messages in text channels or start a direct message.
+
+server-settings-safety-verification-none = None
+
+server-settings-safety-verification-none-detail = Unrestricted
+
+server-settings-safety-verification-low = Low
+
+server-settings-safety-verification-low-detail = Must have a verified email on their Discord account.
+
+server-settings-safety-verification-medium = Medium
+
+server-settings-safety-verification-medium-detail = Must also be registered on Discord for longer than 5 minutes.
+
+server-settings-safety-verification-high = High
+
+server-settings-safety-verification-high-detail = Must also be a member of this server for longer than 10 minutes.
+
+server-settings-safety-verification-highest = Highest
+
+server-settings-safety-verification-highest-detail = Must have a verified phone on their Discord account.
+
+server-settings-safety-filter = Explicit Media Content Filter
+
+server-settings-safety-filter-help = Automatically detect and block media sent in this server that may contain explicit content.
+
+server-settings-safety-filter-disabled = Don't scan any media content
+
+server-settings-safety-filter-no-roles = Scan media content from members without a role
+
+server-settings-safety-filter-all = Scan media content from all members
+
+server-settings-profile-form-banner-custom = Custom color
+
+server-settings-profile-form-banner-custom-help = Pick a preset above or any color for the banner.
+
+server-settings-profile-server-id = Server ID
+
+server-settings-profile-server-id-help = Use this ID with bots, moderation tools and support requests.
+
+server-settings-profile-copy-id = Copy ID
+
+server-settings-engagement-system-welcome = Send a random welcome message when someone joins this server.
+
+server-settings-engagement-system-welcome-sticker = Prompt members to reply to welcome messages with a sticker.
+
+server-settings-engagement-system-boost = Send a message when someone boosts this server.
+
+server-settings-engagement-system-tips = Send helpful tips for server setup.
+
+server-invites-header-subtitle = Share links that let people join this server.
+
+server-audit-log-header-subtitle = A record of moderation and settings changes in this server.
+
+server-audit-log-empty-detail = Try a different user or action, or reload to check for new events.
+
+server-members-header-subtitle = View, search and manage the people in this server.
+
+server-members-show-in-channel-list = Show members in channel list
+
+server-emoji-section-static = Static Emoji
+
+server-emoji-empty-static = No emoji yet
+
+server-emoji-empty-animated = No animated emoji yet
+
+server-emoji-empty-detail = Upload an image to add one. GIFs become animated emoji.
+
+server-stickers-empty-detail = Upload artwork to add your first sticker.
