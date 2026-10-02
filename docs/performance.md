@@ -3576,3 +3576,41 @@ variation. New motion (rail pill, icon morph, badges, switches, sidebar rows,
 page fade) uses egui's `animate_*` helpers, which request repaints only while a
 value is moving, so the idle result is the expected one. Active-animation frame
 time, p95 latency and the standard package size were not measured.
+
+## Attachment URL admission (October 2, 2026)
+
+Compared baseline `69b7ad9b8d45ab544cb759f862f74e0ec500f27c` with source
+`b93626b9b0269b4bf09d4f365180f1f146c6b07f` on Ubuntu 26.04.1 x86_64,
+AMD Ryzen 5 7535U / 14 GiB RAM, pinned Rust 1.98.1. Both standard locked
+release packages include voice and disable default/demo features.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Stripped release executable | 80,195,504 B | 80,195,504 B | 0 B / 0% |
+| All 211 installed Debian file payloads, logical bytes | 84,643,561 B | 84,643,561 B | 0 B / 0% |
+| Compressed Debian distribution | 40,326,056 B | 40,326,284 B | +228 B / +0.0006% |
+| 100,000 legacy URL admissions, median | 72.159942 ms | 70.750168 ms | -1.409774 ms / -1.95% |
+| Message-scoped URLs admitted per 100,000 attempts | 0 | 100,000 | Newly supported form |
+
+Both `cargo xtask package` runs passed the native Debian smoke check, including
+installed contents and host shared-library closure. Payload bytes exclude filesystem
+allocation overhead. Package-size differences do not establish runtime memory use.
+
+The [component harness](pr-evidence/voice-attachment-playback/benchmark.py) snapshots
+the production validator and compiles it with `rustc -O` and the package build's
+release model/URL dependencies. It uses synthetic signed URLs and bounded voice
+metadata, `black_box`, one warmup and five measured 100,000-attempt batches per path.
+No compiler ran during measured batches. Legacy samples were
+71.737262/70.918062/72.180922/72.159942/72.627516 ms before and
+71.178538/70.598705/70.750168/70.412517/71.634009 ms after. The small difference
+on this shared workstation is noise, not a claimed speed improvement.
+
+The previously rejected message-scoped path took a 49.470710 ms median; after
+passing the additional admission guards it took 80.415707 ms. Those timings perform
+different work. This is URL admission, not network, rendering or playback latency.
+Native audio CPU/RSS, UI frame timing, device latency and live CDN behavior remain
+unmeasured. No audio device, account, microphone or live media request was used.
+
+Reproduce after packaging either revision, with the same `CARGO_TARGET_DIR` used
+for that build: `python3 docs/pr-evidence/voice-attachment-playback/benchmark.py`.
+The script also accepts a baseline-worktree path as its first argument.
