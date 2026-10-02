@@ -2857,6 +2857,33 @@ mod tests {
 
 #[cfg(all(debug_assertions, feature = "demo"))]
 pub(crate) fn debug_heic_check() {
+	for (filename, content_type, image) in [
+		("shelf-christmas-decoration.heic", None, true),
+		("photo.HEIC", Some("application/octet-stream"), true),
+		("photo.heif", Some("image/heif"), true),
+		("Attachment", Some("image/heic"), true),
+		("photo.heic.exe", Some("application/octet-stream"), false),
+		("photo.heic", Some("audio/wav"), false),
+		("photo.heic", Some("video/mp4"), false),
+	] {
+		let message = serde_json::json!({
+			"id": "1", "channel_id": "2", "author": {"id": "3", "username": "Synthetic"},
+			"attachments": [{"id": "4", "filename": filename, "content_type": content_type,
+				"size": 1380000, "url": "https://cdn.discordapp.com/attachments/2/4/photo.heic"}]
+		});
+		let message = discord_protocol::decode::<discord_protocol::MessageDto>(
+			message.to_string().as_bytes(),
+		)
+		.unwrap()
+		.into_model();
+		assert_eq!(
+			message.attachments[0].is_image(),
+			image,
+			"{filename} / {content_type:?}"
+		);
+		assert_eq!(message.attachments[0].media.width, 0);
+		assert_eq!(message.attachments[0].media.height, 0);
+	}
 	let heic = b"\x00\x00\x00\x18ftypmif1\x00\x00\x00\x00heicmif1";
 	assert!(platform::heic::is_heic(heic));
 	for len in 0..heic.len() {
