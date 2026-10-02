@@ -1,0 +1,160 @@
+focused-tests.log (selected actual output)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.02s
+test mixer::tests::synthetic_mix_workload ... ignored, synthetic release workload; run with --release --ignored --nocapture
+test video_receive::tests::compare_alternating_software_decode ... ignored
+test video_receive::tests::compare_decoder_backends ... ignored
+test result: ok. 60 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 35.23s
+
+non-ui-tests.log (selected actual output)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.85s
+test read_state::navigation_tests::timeline_cursor_workload ... ignored, synthetic release workload; run directly after building
+test tests::guild_lookup_benchmark ... ignored, manual release timing; run with --release --ignored --nocapture
+test result: ok. 138 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 1.41s
+test detectable::tests::process_matcher_benchmark ... ignored, release process matcher benchmark; one warmup and five measured batches
+test result: ok. 57 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.07s
+test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.39s
+test result: ok. 83 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.97s
+test mixer::tests::synthetic_mix_workload ... ignored, synthetic release workload; run with --release --ignored --nocapture
+test video_receive::tests::compare_alternating_software_decode ... ignored
+test video_receive::tests::compare_decoder_backends ... ignored
+test result: ok. 60 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 35.22s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.36s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test tests::benchmark_changed_row_save ... ignored, manual release benchmark; synthetic in-memory SQLite, not disk or UI latency
+test tests::benchmark_channel_load ... ignored, manual release benchmark; synthetic in-memory SQLite, not disk or UI latency
+test result: ok. 28 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 1.15s
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 24 filtered out; finished in 0.00s
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test avatars::tests::decoded_result_queue_workload ... ignored, synthetic paused-consumer memory workload; allocates up to 512 MiB
+test avatars::tests::image_decode_memory_workload ... ignored, isolated large-image RSS workload; requires a prebuilt synthetic PNG fixture
+test clipboard::tests::native_copied_file_reads_as_paste_paths ... ignored, Explicit native check: replaces the system clipboard with a temp file
+test downloads::tests::native_media_clipboard_roundtrip ... ignored, Explicit native check: replaces the system clipboard with synthetic media
+test extensions::tests::public_repository_catalog_and_packages_match_pins ... ignored, Downloads public GitHub catalog/packages; no Discord account or traffic
+test watch::tests::watch_frame_memory_workload ... ignored, synthetic release CPU/RSS workload; run with --release --ignored --nocapture
+test result: ok. 186 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 6.78s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test tests::edited_message_capacity_workload ... ignored, synthetic release workload; run with --release --ignored --nocapture
+test tests::page_membership_benchmark ... ignored, synthetic release benchmark; run with --release --ignored --nocapture
+test result: ok. 11 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+workspace-check.log (selected actual output)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.30s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.98s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 41.15s
+test read_state::navigation_tests::timeline_cursor_workload ... ignored, synthetic release workload; run directly after building
+test tests::guild_lookup_benchmark ... ignored, manual release timing; run with --release --ignored --nocapture
+test result: ok. 138 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 1.45s
+test detectable::tests::process_matcher_benchmark ... ignored, release process matcher benchmark; one warmup and five measured batches
+test result: ok. 57 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.06s
+test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.37s
+test result: ok. 83 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.01s
+test mixer::tests::synthetic_mix_workload ... ignored, synthetic release workload; run with --release --ignored --nocapture
+test video_receive::tests::compare_alternating_software_decode ... ignored
+test video_receive::tests::compare_decoder_backends ... ignored
+test result: ok. 60 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 35.22s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.36s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test tests::benchmark_changed_row_save ... ignored, manual release benchmark; synthetic in-memory SQLite, not disk or UI latency
+test tests::benchmark_channel_load ... ignored, manual release benchmark; synthetic in-memory SQLite, not disk or UI latency
+test result: ok. 28 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 1.16s
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 24 filtered out; finished in 0.00s
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test avatars::tests::decoded_result_queue_workload ... ignored, synthetic paused-consumer memory workload; allocates up to 512 MiB
+test avatars::tests::image_decode_memory_workload ... ignored, isolated large-image RSS workload; requires a prebuilt synthetic PNG fixture
+test clipboard::tests::native_copied_file_reads_as_paste_paths ... ignored, Explicit native check: replaces the system clipboard with a temp file
+test downloads::tests::native_media_clipboard_roundtrip ... ignored, Explicit native check: replaces the system clipboard with synthetic media
+test extensions::tests::public_repository_catalog_and_packages_match_pins ... ignored, Downloads public GitHub catalog/packages; no Discord account or traffic
+test watch::tests::watch_frame_memory_workload ... ignored, synthetic release CPU/RSS workload; run with --release --ignored --nocapture
+test result: ok. 186 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 6.70s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+test tests::edited_message_capacity_workload ... ignored, synthetic release workload; run with --release --ignored --nocapture
+test tests::page_membership_benchmark ... ignored, synthetic release benchmark; run with --release --ignored --nocapture
+test result: ok. 11 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.04s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test attachments::context_tests::media_context_menus_disable_transfers_in_demo_and_while_busy ... FAILED
+test archives::tests::archive_search_distinguishes_no_matches_from_an_empty_page ... FAILED
+test attachments::context_tests::image_video_and_viewer_context_menus_copy_or_save_the_attachment ... FAILED
+test attachments::context_tests::media_menus_open_from_active_video_controls ... FAILED
+test account_menu::tests::account_menu_opens_applies_clears_and_closes_across_themes_and_sizes ... FAILED
+test attachments::context_tests::media_menus_open_from_keyboard ... FAILED
+test account_menu::tests::switcher_lists_other_accounts_without_the_signed_in_one ... FAILED
+test avatars::tests::media_frame_benchmark ... ignored, release media workload; one warmup and five measured batches
+test categories::tests::channel_list_frame_benchmark ... ignored, release channel-list benchmark; ten warmup frames and one warmup/five measured batches
+test categories::tests::find_and_friends_stay_pinned_while_the_dm_list_scrolls ... FAILED
+test channel_menu::tests::category_and_channel_permissions_load_edit_and_submit_a_preserved_snapshot ... FAILED
+test channel_welcome_tests::long_channel_welcome_wraps_within_narrow_light_and_dark_viewports ... FAILED
+test channel_menu::tests::channel_integrations_load_and_create_in_the_selected_channel ... FAILED
+test channel_menu::tests::create_channel_selects_type_before_submitting ... FAILED
+test channel_welcome_tests::welcome_tracks_confirmed_empty_history_messages_and_pending_delivery ... FAILED
+test channel_menu::tests::context_menu_keyboard_mouse_permissions_and_delete_confirmation ... FAILED
+test channel_menu::tests::settings_pages_keep_one_modal_size_and_align_permission_toggles ... FAILED
+test channel_welcome_tests::welcome_requires_readable_complete_latest_guild_history ... FAILED
+test composer_tests::group_dm_member_count_tracks_participants_and_unavailable_states ... FAILED
+thread 'composer_tests::download_cancel_remains_visible_without_a_text_composer' (38607341) panicked at crates/ui/src/lib.rs:5187:13:
+assertion failed: output.shapes.iter().any(|shape|
+thread 'composer_tests::download_cancel_remains_visible_without_a_text_composer' (38607341) panicked at /Users/lynx/.cargo/git/checkouts/egui-9c90d2f9798966b7/fe6d63e/crates/epaint/src/textures.rs:337:9:
+thread 'composer_tests::download_cancel_remains_visible_without_a_text_composer' (38607341) panicked at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/panicking.rs:233:5:
+error: test failed, to rerun pass `-p ui --lib`
+  process didn't exit successfully: `/Users/lynx/Code/rust/rustcord/target/debug/deps/ui-2265a1991aa0c8e4` (signal: 6, SIGABRT: process abort signal)
+cargo test --workspace --locked failed
+
+baseline-ui-check.log (selected actual output)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 24.16s
+thread 'composer_tests::download_cancel_remains_visible_without_a_text_composer' (38611482) panicked at crates/ui/src/lib.rs:5187:13:
+assertion failed: output.shapes.iter().any(|shape|
+thread 'composer_tests::download_cancel_remains_visible_without_a_text_composer' (38611482) panicked at /Users/lynx/.cargo/git/checkouts/egui-9c90d2f9798966b7/fe6d63e/crates/epaint/src/textures.rs:337:9:
+thread 'composer_tests::download_cancel_remains_visible_without_a_text_composer' (38611482) panicked at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/panicking.rs:233:5:
+error: test failed, to rerun pass `-p ui --lib`
+  process didn't exit successfully: `/Users/lynx/Code/rust/rustcord/target/debug/deps/ui-f5e7bf3912b7e374 'composer_tests::download_cancel_remains_visible_without_a_text_composer' --exact` (signal: 6, SIGABRT: process abort signal)
+
+baseline-rekey-test.log (selected actual output)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 30.27s
+thread 'transport::test_stream::established_streams_bound_missing_rekey_execution_and_welcome' (38587351) panicked at crates/discord-voice/src/test_stream.rs:106:10:
+test transport::test_stream::established_streams_bound_missing_rekey_execution_and_welcome ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 61 filtered out; finished in 45.01s
+error: test failed, to rerun pass `-p discord-voice --lib`
+
+no-default-check.log (selected actual output)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.41s
+
+policy.log (selected actual output)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+Policy checks passed: no eframe persistence, one renderer, no REST cookie jar, ephemeral login requested.
+
+Final formatting: cargo fmt --all -- --check, exit 0
+
+after-package.log (selected actual output)
+    Finished `release` profile [optimized + debuginfo] target(s) in 6m 20s
+Locally ad-hoc signed (not notarized) package executable: dist/Serein.app/Contents/MacOS/serein (67245024 bytes)
+
+Final Linux harness lint (agent-reported streamed result):
+docker exec -w /audit serein-native-gst-audit cargo clippy --locked --release -j2 --all-targets -- -D warnings
+exit 0; Finished release profile [optimized] target(s) in 8.64s

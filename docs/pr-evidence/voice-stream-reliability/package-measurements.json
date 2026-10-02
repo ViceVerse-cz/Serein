@@ -1,0 +1,28 @@
+{
+  "baseline": {
+    "revision": "074ba3a158b72ddb9b7bc327fba64ca4b93975e2",
+    "executable_bytes": 67261440,
+    "installed_bytes": 73345536,
+    "zip_bytes": 47536458,
+    "files": 220
+  },
+  "after": {
+    "executable_bytes": 67245024,
+    "installed_bytes": 73329120,
+    "zip_bytes": 47535475,
+    "files": 220
+  },
+  "after_runtime_source_sha256": {
+    "crates/discord-voice/src/jitter.rs": "81bad4a89c6682c5ab777d77dbb6c83cc4f1f91b99c1e49b9530f1640fd2cc84",
+    "crates/discord-voice/src/transport.rs": "d4fc99cbe366c7f1a23180c80c32443f59922a9dac3b9aa8e9b3e405d9f47dc6",
+    "crates/platform/src/video/live_gst.rs": "5b6eb0bd3293203d027ffdefd61b742a5b1163c1886ebe445a7e5ae932d85de7"
+  },
+  "environment": {
+    "host": "macOS 27 / Darwin 27.0 arm64",
+    "cpu": "Apple M1 Pro",
+    "ram_bytes": 17179869184,
+    "rust": "1.98.1",
+    "features": "standard package; voice always included; no demo/developer-session",
+    "method": "cargo xtask package, sorted regular files, sum stat size, Python ZipFile ZIP_DEFLATED compresslevel=6; local ad-hoc signature, not notarized"
+  }
+}

@@ -4042,3 +4042,56 @@ replayed after failed or ambiguous delivery. Raw samples, source/binary/image
 identities and seven bounded actual build/check logs are in
 [`resume-send/measurements.json`](pr-evidence/resume-send/measurements.json) and
 [`resume-send/capture.json`](pr-evidence/resume-send/capture.json).
+
+## Voice and streaming reliability audit (October 3, 2026)
+
+Baseline `074ba3a158b72ddb9b7bc327fba64ca4b93975e2` is compared with the
+runtime source hashes in
+[`voice-stream-reliability/package-measurements.json`](pr-evidence/voice-stream-reliability/package-measurements.json).
+Both freshly built standard packages include voice, use pinned Rust 1.98.1 and
+the unchanged lockfile, and pass local ad-hoc signing. They are not notarized.
+Host: macOS 27 / Darwin 27.0 arm64, Apple M1 Pro, 16 GiB RAM; no demo or
+developer-session features. Installed bytes sum all regular package files;
+complete ZIPs use sorted paths and Python `ZIP_DEFLATED`, compression level six.
+
+| Standard package metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 67,261,440 B | 67,245,024 B | −16,416 B (−0.0244%) |
+| Installed files | 73,345,536 B | 73,329,120 B | −16,416 B (−0.0224%) |
+| Complete ZIP | 47,536,458 B | 47,535,475 B | −983 B (−0.0021%) |
+| File count | 220 | 220 | 0 |
+
+A separate release harness compiles the exact baseline/current Linux native
+decoder modules with the same surrounding type/limit shims. Linux aarch64,
+Debian 12, GStreamer 1.22.0, Rust 1.98.1; container limited to two CPUs and 2 GiB.
+One warmup runs five native tests; five serial measured runs offer 32 Annex-B
+filler access units, each 2,162,688 bytes, to a paused native pipeline.
+
+| Median stalled native queue | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Retained compressed payload | 69,206,016 B | 8,650,752 B | −60,555,264 B (−87.5%) |
+| Queued access units | 32 | 4 | −28 (−87.5%) |
+
+Every sample produced the same counts. The old nonblocking appsrc admitted all
+offered units despite `max-bytes`; the new admission check enforces four units
+and 8,650,752 bytes before copying. This is native queue accounting under pressure,
+not process RSS, decoded/GPU memory, throughput or a live-latency improvement.
+The outer worker queue and buffers already consumed by the pipeline are separate.
+The older-than-1.20 software fallback was reviewed and guarded in tests but not
+executed on an old native runtime. No runtime dependency was added or upgraded.
+
+Reproduce using the commands and small harness script in the
+[evidence README](pr-evidence/voice-stream-reliability/README.md); raw runs and
+source/runtime identities are in
+[`release-summary.json`](pr-evidence/voice-stream-reliability/release-summary.json).
+Focused voice tests pass (60 tests), as do non-UI workspace tests, strict Clippy,
+formatting, policy and production checks. `cargo xtask check` is blocked by UI
+failures, including an abort reproduced on unchanged baseline main; the PR stays
+draft. Standard packaging succeeds before and after.
+
+Ordinary offline demo idle sampling does not exercise these media paths. Active
+CPU/RSS, callback timing, sender-clock A/V sync and live Linux portal/GPU behavior
+remain unmeasured. No account, microphone, camera or desktop capture was used.
+Synthetic delivery and bounded recovery do not prove resolution of intermittent
+official-client error 2012. Very large keyframes at low feedback bitrates still
+need owner-controlled investigation; no automatic resolution adaptation was added.

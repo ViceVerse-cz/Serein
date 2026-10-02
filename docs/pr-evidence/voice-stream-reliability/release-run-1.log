@@ -1,0 +1,10 @@
+    Finished `release` profile [optimized] target(s) in 0.03s
+     Running unittests src/lib.rs (target/release/deps/native_gst_audit-e4eb3d9323cd0774)
+
+running 2 tests
+test after::retention_measurement::queue_retention ... AFTER accepted=4 items=4 bytes=8650752
+ok
+test baseline::retention_measurement::queue_retention ... BASELINE accepted=32 items=32 bytes=69206016
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.02s

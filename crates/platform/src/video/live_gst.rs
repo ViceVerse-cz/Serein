@@ -12,6 +12,9 @@ use std::sync::{
 	atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
+const MAX_QUEUED_UNITS: u64 = 4;
+const MAX_QUEUED_BYTES: u64 = MAX_QUEUED_UNITS * MAX_ACCESS_UNIT as u64;
+
 /// Decoder for one sender; pictures arrive through the sink from GStreamer's thread.
 pub struct H264Decoder {
 	pipeline: gst::Pipeline,
@@ -43,7 +46,12 @@ impl H264Decoder {
 		appsrc.set_format(gst::Format::Time);
 		appsrc.set_is_live(true);
 		appsrc.set_do_timestamp(true);
-		appsrc.set_max_bytes((4 * MAX_ACCESS_UNIT) as u64);
+		// Item accounting needs GStreamer 1.20; older installations use the caller's
+		// bounded software fallback rather than accepting an unbounded native queue.
+		if appsrc.find_property("current-level-buffers").is_none() {
+			return Err(UNSUPPORTED);
+		}
+		appsrc.set_max_bytes(MAX_QUEUED_BYTES);
 		appsrc.set_block(false);
 		let parse = make("h264parse")?;
 		let decodebin = make("decodebin")?;
@@ -135,6 +143,17 @@ impl H264Decoder {
 		if access_unit.len() > MAX_ACCESS_UNIT {
 			return Err(INVALID);
 		}
+		// max-bytes only emits enough-data when block=false; it does not reject pushes.
+		// This decoder has one producer and native consumption can only lower these levels.
+		if self.appsrc.property::<u64>("current-level-buffers") >= MAX_QUEUED_UNITS
+			|| self
+				.appsrc
+				.current_level_bytes()
+				.saturating_add(access_unit.len() as u64)
+				> MAX_QUEUED_BYTES
+		{
+			return Err(INVALID);
+		}
 		if self.failed.load(Ordering::Acquire) {
 			return Err(INVALID);
 		}
@@ -147,7 +166,7 @@ impl H264Decoder {
 		self.pictures += 1;
 		let mut buffer = gst::Buffer::from_slice(access_unit.to_vec());
 		buffer.get_mut().ok_or(INVALID)?.set_offset(self.pictures);
-		// A full queue drops the picture; the caller waits for the next keyframe.
+		// Rejections invalidate the reference chain; the caller requests a keyframe.
 		match self.appsrc.push_buffer(buffer) {
 			Ok(_) => Ok(()),
 			Err(gst::FlowError::Flushing) => Err(INVALID),
@@ -207,6 +226,50 @@ fn picture(sample: &gst::Sample) -> Result<Frame, &'static str> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn stalled_native_queue_rejects_pressure_at_item_and_byte_limits() {
+		gst::init().expect("GStreamer runtime");
+		for length in [16, MAX_ACCESS_UNIT] {
+			let pipeline = gst::Pipeline::new();
+			let appsrc = gst_app::AppSrc::builder().is_live(true).build();
+			if appsrc.find_property("current-level-buffers").is_none() {
+				assert_eq!(H264Decoder::new(Box::new(|_| {})).err(), Some(UNSUPPORTED));
+				return;
+			}
+			appsrc.set_max_bytes(MAX_QUEUED_BYTES);
+			pipeline.add(&appsrc).unwrap();
+			let mut decoder = H264Decoder {
+				pipeline,
+				appsrc,
+				failed: Arc::default(),
+				delivered: Arc::default(),
+				pictures: 0,
+			};
+			// A live appsrc consumes only while Playing. Null would flush it and reject
+			// pushes for a lifecycle reason instead of exercising the actual queue limit.
+			decoder.pipeline.set_state(gst::State::Paused).unwrap();
+			// A bounded Annex-B filler NAL; no capture or hardware input is opened.
+			let mut unit = vec![0xff; length];
+			unit[..5].copy_from_slice(&[0, 0, 0, 1, 0x0c]);
+			unit[length - 1] = 0x80;
+			for _ in 0..MAX_QUEUED_UNITS {
+				decoder.decode(&unit).unwrap();
+			}
+			for _ in 0..32 {
+				assert_eq!(decoder.decode(&unit), Err(INVALID));
+			}
+			assert_eq!(decoder.pictures, MAX_QUEUED_UNITS);
+			assert_eq!(
+				decoder.appsrc.property::<u64>("current-level-buffers"),
+				MAX_QUEUED_UNITS
+			);
+			assert_eq!(
+				decoder.appsrc.current_level_bytes(),
+				MAX_QUEUED_UNITS * length as u64
+			);
+		}
+	}
+
 	#[test]
 	fn rejects_oversized_access_units() {
 		let mut decoder = match H264Decoder::new(Box::new(|_| {})) {

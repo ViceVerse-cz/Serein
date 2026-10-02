@@ -224,6 +224,37 @@ reopen devices. Lost VIEW_CHANNEL drops the stored roster and hides participant 
 when no call is active; late updates cannot repopulate an inaccessible channel.
 
 
+## Stream lag and viewer timeouts (October 3, 2026)
+
+Discord identifies error 2012 as a [video viewer timeout](https://support.discord.com/hc/en-us/articles/30952914470807-Discord-Audio-and-Video-Error-Codes-Troubleshooting-Guide),
+which does not identify whether capture, encoding, forwarding or viewer decoding failed.
+The Linux-focused code audit corrected these reproducible failures:
+
+- Call, camera and stream UDP writes never wait for socket capacity. A congested
+  socket drops the current datagram; continuous send errors retain the existing
+  ten-second failure policy. Signaling, audio ticks and feedback can keep running.
+- An established stream that loses DAVE transition execution or its new group
+  response gets a 30-second recovery deadline. Heartbeat acknowledgments cannot
+  keep a stalled rekey waiting forever. Authenticated sole-member waiting remains
+  unlimited; a pending transition is not treated as idle waiting.
+- Audio resumes at the nearest buffered packet after three concealment packets,
+  preserving valid successors across larger loss bursts and sequence wraparound.
+  A call tick delayed by at least 80 ms discards old decoded audio, as stream
+  playback already did.
+- The Linux native video decoder admits at most four compressed access units /
+  8,650,752 bytes before the native pipeline. Overflow enters the existing keyframe
+  recovery path. GStreamer older than 1.20 uses the bounded software fallback.
+
+Offline checks reproduce the old lost recovery packets, uncapped native queue,
+indefinite rekey wait and successful fixed behavior. They do not establish that
+Linux-to-official-client error 2012 is resolved. Native portal/GPU behavior and
+physical or live media still require owner-controlled verification. A large
+keyframe at a very low feedback bitrate can still take seconds to drain; the
+current controller does not adapt resolution or implement sender-clock A/V sync.
+Use the existing opt-in diagnostics on a deliberate failed attempt to distinguish
+capture stalls, decoder failures, loss and transport timing before changing those
+policies. No automatic capture, account test or diagnostic logging was added.
+
 ## Diagnosing a call that never opens audio
 
 Windows call playback uses the selected speaker's default shared-mode mix format,
