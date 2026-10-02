@@ -196,9 +196,14 @@ pub(super) fn run(
 		output
 			.SetUINT64(&MF_MT_FRAME_SIZE, frame_size())
 			.map_err(|_| INVALID)?;
+		// Output negotiation may otherwise select a different capture mode. Pin
+		// each bounded native mode on the source before adding RGB conversion.
+		let native_reader = reader
+			.cast::<IMFSourceReaderEx>()
+			.map_err(|_| UNAVAILABLE)?;
 		let mut converted_stride = None;
 		for (_, native) in choices {
-			if reader.SetCurrentMediaType(VIDEO, None, &native).is_err()
+			if native_reader.SetNativeMediaType(VIDEO, &native).is_err()
 				|| reader.SetCurrentMediaType(VIDEO, None, &output).is_err()
 			{
 				continue;
