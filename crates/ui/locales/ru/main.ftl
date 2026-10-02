@@ -4357,7 +4357,7 @@ lib-composer-onboarding-incomplete = Завершите вступление, ч
 lib-composer-onboarding-complete = Завершить знакомство
 
 voice-recipient-ring = Позвонить снова
-voice-recipient-stop-ringing = Остановить звонок
+voice-recipient-stop-ringing = Перестать звонить
 voice-recipient-ringing = Вызов…
 voice-recipient-not-in-call = Не в звонке
 

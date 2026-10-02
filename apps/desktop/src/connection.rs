@@ -399,7 +399,8 @@ impl Connection {
                             if let Command::Voice(client_core::voice::Command::RingRecipient{channel,request,recipient,stop})=&command {
                                 use client_core::voice::Event as E;
                                 let (channel,request,recipient,stop)=(*channel,*request,*recipient,*stop);
-                                let recipient_revision=*recipient_scope_changed.borrow();
+                                // Consume prior invalidations before starting a write for the current revision.
+                                let recipient_revision=*recipient_scope_changed.borrow_and_update();
                                 let eligible=recipient_action(channel,request,recipient,user.id,voice_request,dm_channels.lock().map_err(|_|Failure::Protocol)?.get(&channel).map(Vec::as_slice))
                                     && recipient_call.lock().map_err(|_|Failure::Protocol)?.as_ref().is_some_and(|call|call.allows(channel,request,recipient,stop));
                                 let message=if !*voice_availability.borrow() {Some("Recipient ringing unavailable while disconnected")}
@@ -985,8 +986,18 @@ impl RecipientCalls {
 					Event::Voice(
 						V::TakenOver { channel, request } | V::Departed { channel, request },
 					) => (*channel, Some(*request)) == (call.channel, call.request),
-					Event::Voice(V::State { channel, user, .. }) => {
-						*channel == Some(call.channel) || call.joined.contains(user)
+					Event::Voice(V::State {
+						guild,
+						channel,
+						user,
+						..
+					}) => {
+						if *user == owner {
+							call.joined.contains(user)
+								&& (guild.is_some() || *channel != Some(call.channel))
+						} else {
+							*channel == Some(call.channel) || call.joined.contains(user)
+						}
 					}
 					_ => false,
 				}
@@ -1180,6 +1191,13 @@ impl RecipientCall {
 				user,
 				..
 			}) => {
+				if *user == owner
+					&& call.joined.contains(user)
+					&& (guild.is_some() || *channel != Some(call.channel))
+				{
+					// Reject already queued recipient actions before departure is acknowledged.
+					call.confirmed = false;
+				}
 				call.joined.retain(|peer| peer != user);
 				if guild.is_none()
 					&& *channel == Some(call.channel)
@@ -2315,6 +2333,143 @@ mod tests {
 			.unwrap();
 		assert!(!calls.as_ref().unwrap().allows(first, 7, recipient, false));
 		assert!(calls.as_ref().unwrap().allows(first, 7, recipient, true));
+	}
+
+	#[tokio::test]
+	async fn recipient_worker_survives_owner_controls_but_departure_rejects_queued_actions() {
+		use client_core::voice::Event as V;
+		use model::Id;
+		let (owner, channel, recipient) = (Id(1), Id(2), Id(3));
+		let channels = BTreeMap::from([(channel, vec![recipient])]);
+		let state = |user, target, guild, muted, video| {
+			Event::Voice(V::State {
+				guild,
+				channel: target,
+				user,
+				request: None,
+				member: None,
+				session: None,
+				negotiation_revision: None,
+				server_muted: false,
+				server_deafened: false,
+				muted,
+				deafened: muted,
+				video,
+				streaming: false,
+			})
+		};
+		let mut calls = RecipientCalls::default();
+		calls.observe(
+			&Event::Voice(V::Call {
+				channel,
+				ringing: Some(vec![]),
+				participants: Some(vec![]),
+				unavailable: false,
+			}),
+			owner,
+			&channels,
+		);
+		calls.join(channel, 7, true);
+		calls.observe(
+			&state(owner, Some(channel), None, false, false),
+			owner,
+			&channels,
+		);
+		calls.observe(
+			&Event::Voice(V::SessionConfirmed {
+				channel,
+				request: 7,
+				revision: 1,
+			}),
+			owner,
+			&channels,
+		);
+		assert!(calls.as_ref().unwrap().allows(channel, 7, recipient, false));
+		let (changes, updates) = watch::channel(0u64);
+		let (_online, available) = watch::channel(true);
+		let pending = wait_for_recipient_invalidation(updates.clone(), 0, available.clone());
+		tokio::pin!(pending);
+		for event in [
+			state(owner, Some(channel), None, true, false),
+			state(owner, Some(channel), None, false, true),
+		] {
+			assert!(!calls.observe(&event, owner, &channels));
+			assert!(calls.as_ref().unwrap().allows(channel, 7, recipient, false));
+		}
+		assert!(
+			tokio::time::timeout(Duration::from_millis(1), &mut pending)
+				.await
+				.is_err()
+		);
+		// Owner departure invalidates before any TakenOver/Departed event reaches dispatch.
+		assert!(calls.observe(&state(owner, None, None, false, false), owner, &channels));
+		changes.send_replace(1);
+		tokio::time::timeout(Duration::from_secs(1), pending)
+			.await
+			.unwrap();
+		assert!(!calls.as_ref().unwrap().allows(channel, 7, recipient, false));
+		assert!(!calls.as_ref().unwrap().allows(channel, 7, recipient, true));
+		// A newer explicit join requires its own confirmation, then can ring again.
+		calls.join(channel, 8, true);
+		calls.observe(
+			&state(owner, Some(channel), None, false, false),
+			owner,
+			&channels,
+		);
+		assert!(!calls.as_ref().unwrap().allows(channel, 8, recipient, false));
+		calls.observe(
+			&Event::Voice(V::SessionConfirmed {
+				channel,
+				request: 8,
+				revision: 2,
+			}),
+			owner,
+			&channels,
+		);
+		assert!(calls.as_ref().unwrap().allows(channel, 8, recipient, false));
+		let mut attempt = 8;
+		for (target, guild) in [(Some(Id(4)), None), (Some(channel), Some(Id(5)))] {
+			assert!(calls.observe(&state(owner, target, guild, false, false), owner, &channels));
+			assert!(
+				!calls
+					.as_ref()
+					.unwrap()
+					.allows(channel, attempt, recipient, false)
+			);
+			attempt += 1;
+			calls.join(channel, attempt, true);
+			calls.observe(
+				&state(owner, Some(channel), None, false, false),
+				owner,
+				&channels,
+			);
+			calls.observe(
+				&Event::Voice(V::SessionConfirmed {
+					channel,
+					request: attempt,
+					revision: attempt,
+				}),
+				owner,
+				&channels,
+			);
+		}
+		let pending = wait_for_recipient_invalidation(updates, 1, available);
+		tokio::pin!(pending);
+		assert!(calls.observe(
+			&state(recipient, Some(channel), None, false, false),
+			owner,
+			&channels
+		));
+		changes.send_replace(2);
+		tokio::time::timeout(Duration::from_secs(1), pending)
+			.await
+			.unwrap();
+		assert!(
+			!calls
+				.as_ref()
+				.unwrap()
+				.allows(channel, attempt, recipient, false)
+		);
 	}
 
 	#[test]
