@@ -4349,7 +4349,6 @@ lib-composer-onboarding-incomplete = Termine de rejoindre ce serveur pour déblo
 lib-composer-onboarding-complete = Terminer l'accueil
 
 reconnect-now = Se reconnecter
-connection-recovering-send = Reconnexion à Discord. Vous pouvez essayer d’envoyer des messages ; leur livraison peut échouer tant que le réseau n’est pas rétabli.
 
 voice-call-moved-to-another-client = La session d’appel de cet appareil a été remplacée
 

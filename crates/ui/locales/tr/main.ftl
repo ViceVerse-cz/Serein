@@ -4338,7 +4338,6 @@ lib-composer-onboarding-incomplete = Daha fazla kanalın kilidini açmak için s
 lib-composer-onboarding-complete = Tanıtımı tamamla
 
 reconnect-now = Şimdi yeniden bağlan
-connection-recovering-send = Discord’a yeniden bağlanılıyor. Mesaj göndermeyi deneyebilirsiniz; ağ düzelene kadar teslimat başarısız olabilir.
 
 voice-call-moved-to-another-client = Bu cihazın arama oturumu değiştirildi
 

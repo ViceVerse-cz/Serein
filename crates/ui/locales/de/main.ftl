@@ -4349,7 +4349,6 @@ lib-composer-onboarding-incomplete = Schließe den Beitritt ab, um weitere Kanä
 lib-composer-onboarding-complete = Einführung abschließen
 
 reconnect-now = Jetzt neu verbinden
-connection-recovering-send = Verbindung zu Discord wird wiederhergestellt. Du kannst versuchen, Nachrichten zu senden; die Zustellung kann bis zur Wiederherstellung des Netzwerks fehlschlagen.
 
 voice-call-moved-to-another-client = Die Anrufsitzung dieses Geräts wurde ersetzt
 

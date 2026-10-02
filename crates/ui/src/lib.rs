@@ -1798,22 +1798,8 @@ impl MessagingUi {
 					&& state.auth == client_core::auth::AuthState::Authenticated
 					&& !state.gateway_connected
 				{
-					egui::Frame::new()
-						.inner_margin(egui::Margin::symmetric(8, 6))
-						.show(ui, |ui| {
-							ui.horizontal(|ui| {
-								ui.weak(language.text("reconnecting"));
-								ui.with_layout(
-									egui::Layout::right_to_left(egui::Align::Center),
-									|ui| {
-										if ui.small_button(language.text("reconnect-now")).clicked()
-										{
-											self.reconnect_requested = true;
-										}
-									},
-								);
-							});
-						});
+					let first = !self.shows_update_banner();
+					self.reconnecting_banner(ui, first);
 					divider(ui);
 				}
 				if in_call {
@@ -3371,8 +3357,6 @@ impl MessagingUi {
                     ui.weak(crate::i18n::translate("lib-ime-updates-text-sending-messages-is-unavailable-in-this-conversation-your-draft-is"));
                 } else if self.attachment.is_some() && !state.can_attach(channel) {
                     ui.weak(crate::i18n::translate("lib-ime-updates-text-attaching-files-is-unavailable-here-remove-the-attachment-to-send"));
-                } else if !state.gateway_connected && state.auth == client_core::auth::AuthState::Authenticated {
-                    ui.weak(crate::i18n::translate("connection-recovering-send"));
                 }
             });
 		if editing_here {

@@ -4353,7 +4353,6 @@ lib-composer-onboarding-incomplete = Завершите вступление, ч
 lib-composer-onboarding-complete = Завершить знакомство
 
 reconnect-now = Переподключиться
-connection-recovering-send = Переподключение к Discord. Вы можете попробовать отправить сообщения; доставка может не работать до восстановления сети.
 
 voice-call-moved-to-another-client = Сеанс звонка на этом устройстве был заменён
 

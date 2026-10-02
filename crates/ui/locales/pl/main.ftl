@@ -4352,7 +4352,6 @@ lib-composer-onboarding-incomplete = Dokończ dołączanie do serwera, aby odblo
 lib-composer-onboarding-complete = Dokończ wprowadzenie
 
 reconnect-now = Połącz ponownie
-connection-recovering-send = Ponowne łączenie z Discordem. Możesz spróbować wysłać wiadomości; dostarczenie może się nie udać do czasu przywrócenia sieci.
 
 voice-call-moved-to-another-client = Sesja połączenia na tym urządzeniu została zastąpiona
 

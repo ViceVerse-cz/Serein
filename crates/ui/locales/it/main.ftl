@@ -4349,7 +4349,6 @@ lib-composer-onboarding-incomplete = Completa l'accesso a questo server per sblo
 lib-composer-onboarding-complete = Completa l'accoglienza
 
 reconnect-now = Riconnetti ora
-connection-recovering-send = Riconnessione a Discord. Puoi provare a inviare messaggi; la consegna potrebbe non riuscire finché la rete non si ripristina.
 
 voice-call-moved-to-another-client = La sessione di chiamata di questo dispositivo è stata sostituita
 

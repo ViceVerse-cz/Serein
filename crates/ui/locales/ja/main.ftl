@@ -4338,7 +4338,6 @@ lib-composer-onboarding-incomplete = 参加を完了すると、さらにチャ�
 lib-composer-onboarding-complete = オンボーディングを完了
 
 reconnect-now = 今すぐ再接続
-connection-recovering-send = Discord に再接続しています。メッセージの送信は試せますが、ネットワークが復旧するまで配信に失敗する場合があります。
 
 voice-call-moved-to-another-client = このデバイスの通話セッションが置き換えられました
 

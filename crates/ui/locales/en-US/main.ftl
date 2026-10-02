@@ -4366,7 +4366,6 @@ lib-composer-onboarding-incomplete = Finish joining this server to unlock more c
 lib-composer-onboarding-complete = Complete Onboarding
 
 reconnect-now = Reconnect now
-connection-recovering-send = Reconnecting to Discord. You can still try sending messages; delivery may fail until the network recovers.
 
 # Explicit public attachment hosting
 public-upload-host-file = Host file…

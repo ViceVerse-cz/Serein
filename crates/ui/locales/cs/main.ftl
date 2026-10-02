@@ -4368,7 +4368,6 @@ lib-composer-onboarding-incomplete = Dokonči připojení k serveru a odemkni da
 lib-composer-onboarding-complete = Dokončit uvítání
 
 reconnect-now = Znovu připojit
-connection-recovering-send = Probíhá opětovné připojování k Discordu. Zprávy můžete zkusit odeslat; do obnovení sítě může doručení selhat.
 
 # Explicit public attachment hosting
 public-upload-host-file = Hostovat soubor…

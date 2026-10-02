@@ -4349,7 +4349,6 @@ lib-composer-onboarding-incomplete = Termina de unirte a este servidor para desb
 lib-composer-onboarding-complete = Completar bienvenida
 
 reconnect-now = Reconectar ahora
-connection-recovering-send = Reconectando a Discord. Puedes intentar enviar mensajes; la entrega puede fallar hasta que se recupere la red.
 
 voice-call-moved-to-another-client = Se reemplazó la sesión de llamada de este dispositivo
 
