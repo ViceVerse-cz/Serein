@@ -1397,6 +1397,43 @@ were discarded after external input changed the scene. Startup latency and p95
 frame latency remain unmeasured. Standard executable/installed/compressed package
 sizes are recorded in the task PR, using the built packages.
 
+## Selected-channel search shortcut (October 2, 2026)
+
+Opening search with Ctrl+F/Command+F now retains the selected server channel as
+an exact wire filter while presenting a readable label. Reopening retains query
+and results; DM scope and explicit submission remain unchanged. Six actual egui
+search tests, the fresh full `cargo xtask check`, and the standard voice-inclusive
+release package passed. Runtime source `073b1859` includes parent `47a81035`;
+packaged source `24669edc` differs only by the absolute macOS icon output path.
+
+Measured on macOS 27 / Apple M1 / 16 GiB with the pinned toolchain and lockfile.
+Parent package runtime `ef9cd5d1` is identical to parent main `47a81035`.
+Both standard packages use the repository fat-LTO release profile, locally ad-hoc
+signed, no development features, and 206 regular files.
+
+| Metric | Parent | After | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable, bytes | 62,088,304 | 62,088,304 | 0 |
+| Installed distribution, bytes | 68,098,733 | 68,098,733 | 0 |
+| Complete ZIP, bytes (`ditto`) | 43,286,187 | 43,286,472 | +285 (+0.0007%) |
+| Common demo-chat median process CPU | 0.0% | 0.0% | 0 percentage points |
+| Peak process RSS, KiB | 125,632 | 125,840 | +208 (+0.1656%) |
+| Settled process RSS, KiB | 125,584 | 125,776 | +192 (+0.1529%) |
+
+Native measurement binaries use matching process-only
+`CARGO_PROFILE_RELEASE_LTO=thin CARGO_BUILD_JOBS=2 cargo build --release --locked -p serein --features demo`
+on exact parent `47a81035` and source `24669edc`; neither contains capture hooks.
+The repository profile remains fat LTO. Both native Metal runs launch
+`--demo --demo-chat`, warm up five seconds, then take ten one-second macOS `ps`
+CPU/RSS samples. Settled RSS is the median of the last five. All other compilers,
+tests, helpers and native demos were stopped throughout both samples.
+This measures common idle overhead; opening-search/request latency, GPU memory,
+frame and startup latency are unmeasured. Small RSS differences and quantized
+idle CPU do not establish an improvement. Actual before/after framebuffer
+captures exercise focused egui shortcut handling, not physical OS routing or
+live Discord acceptance. Raw samples, build hashes and source identities:
+[`measurements.json`](pr-evidence/channel-search/measurements.json).
+
 ## Channel shortcut restore - September 13, 2026
 
 Baseline: `a90f0759ada23206809dc5374aef3e472875571a`. After: that revision plus
@@ -1836,8 +1873,11 @@ The small RSS difference is noise, without an improvement claim.
 The final aggregate standard package passed: executable 67,113,232 B,
 installed 73,196,256 B, ZIP 47,575,522 B, 220 files.
 These aggregate bytes include unrelated incoming work; the isolated table above
-reports the vector change separately. Fresh full workspace checks passed on both
-isolated and aggregate sources; the final actual native frame was inspected.
+reports the vector change separately. Fresh full workspace checks passed on the
+isolated sources and measured aggregate revision `6afe8190`; its final actual
+native frame was inspected. These package checks and measurements retain that
+exact runtime identity after later integrations. Documentation-only evidence
+commits do not change the measured runtime.
 
 The trusted compressed SVG bundle is 4,244,356 B. Rasterization runs off-thread
 at 64/128/256 physical pixels with a 64 KiB expansion/window limit, eight shared

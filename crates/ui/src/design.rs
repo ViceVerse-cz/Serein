@@ -2050,7 +2050,7 @@ pub fn switch(
 	let on = ui.ctx().animate_bool_with_time_and_easing(
 		response.id.with("switch"),
 		*enabled,
-		ui.style().animation_time * 2.0,
+		ui.style().animation_time * 1.25,
 		egui::emath::easing::cubic_out,
 	);
 	let mut fill = p.base.lerp_to_gamma(p.accent, on);
@@ -3128,6 +3128,30 @@ mod sign_in_widget_tests {
 		}
 		set_extension_theme(None);
 		set_window_effects(false, 15, 50);
+	}
+
+	#[test]
+	fn custom_themes_follow_the_resolved_system_appearance() {
+		let mut theme = extensions::Theme::default();
+		theme.light.colors.insert("chat".into(), "#fafaf0".into());
+		theme.dark.colors.insert("chat".into(), "#101820".into());
+		set_extension_theme(Some(&theme));
+		let ctx = egui::Context::default();
+		apply(&ctx);
+		ctx.set_theme(egui::ThemePreference::System);
+		for (detected, chat) in [
+			(egui::Theme::Light, rgb(0xfafaf0)),
+			(egui::Theme::Dark, rgb(0x101820)),
+		] {
+			// Wayland and X11 report no system theme; the desktop's detected preference lands here.
+			ctx.options_mut(|options| options.fallback_theme = detected);
+			ctx.run_ui(egui::RawInput::default(), |ui| {
+				assert_eq!(ui.ctx().theme(), detected);
+				assert_eq!(palette(ui).chat, chat);
+			})
+			.drop_without_applying_deltas();
+		}
+		set_extension_theme(None);
 	}
 
 	/// The sign-in screen depends on these two: a row that reports a click and shows both

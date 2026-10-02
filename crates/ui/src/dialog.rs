@@ -438,7 +438,7 @@ pub fn settings_page<R>(
 pub fn page_fade(ui: &mut egui::Ui, page: egui::Id) {
 	let ctx = ui.ctx().clone();
 	let now = ctx.input(|input| input.time);
-	let duration = f64::from(ui.style().animation_time) * 2.0;
+	let duration = f64::from(ui.style().animation_time) * 1.5;
 	let start = ctx.data_mut(|data| {
 		let slot = data.get_temp_mut_or_insert_with(egui::Id::unique("settings-page-fade"), || {
 			(page, f64::NEG_INFINITY)

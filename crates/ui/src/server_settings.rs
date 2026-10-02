@@ -1301,7 +1301,7 @@ fn banner_swatch(
 	let lift = ui.ctx().animate_bool_with_time(
 		response.id.with("lift"),
 		response.hovered() || response.has_focus(),
-		ui.style().animation_time * 1.5,
+		ui.style().animation_time,
 	);
 	gradient(ui, rect.shrink(2.0 * (1.0 - lift)), color, 8);
 	if selected || response.has_focus() {
