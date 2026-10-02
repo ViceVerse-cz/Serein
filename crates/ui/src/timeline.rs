@@ -4129,6 +4129,61 @@ mod tests {
 		);
 	}
 
+	#[cfg(target_os = "macos")]
+	#[test]
+	fn macos_control_click_opens_the_existing_message_menu() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = loading_unread_channel(false);
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		state
+			.timeline
+			.insert(text_message(20), false, false)
+			.unwrap();
+		let mut view = TimelineView::default();
+		let mut labels = Vec::new();
+		for _ in 0..5 {
+			labels = banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		}
+		let pos = labels
+			.iter()
+			.find(|(label, _)| label.contains("Synthetic text"))
+			.expect("visible message")
+			.1
+			.center();
+		for pressed in [true, false] {
+			labels = banner_frame(
+				&ctx,
+				&mut view,
+				&mut state,
+				vec![
+					egui::Event::PointerMoved(pos),
+					egui::Event::PointerButton {
+						pos,
+						button: egui::PointerButton::Primary,
+						pressed,
+						modifiers: egui::Modifiers {
+							ctrl: pressed,
+							..Default::default()
+						},
+					},
+				],
+				false,
+			);
+		}
+		for _ in 0..3 {
+			labels = banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		}
+		assert!(
+			labels
+				.iter()
+				.any(|(label, _)| label == &crate::i18n::translate("message-menu-copy")),
+			"Control-click must open the message menu: {labels:?}"
+		);
+		assert!(!view.reply_started && state.reply.is_none());
+	}
+
 	// Synthetic regressions: no transport or acknowledgement worker is running.
 	fn banner_frame(
 		ctx: &egui::Context,

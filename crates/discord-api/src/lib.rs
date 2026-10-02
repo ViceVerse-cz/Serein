@@ -5,6 +5,7 @@ mod channel_actions;
 pub mod detectable;
 pub mod external_assets;
 mod forum;
+mod gif_favorites;
 mod group_actions;
 mod guild_folders;
 mod interactions;
@@ -889,6 +890,10 @@ impl DiscordApi {
 				result: self.gifs(query.as_deref()).await,
 			},
 			Command::CancelGifs => Event::Failure(Failure::Protocol),
+			Command::GifFavorites { request, change } => Event::GifFavorites {
+				request,
+				result: self.gif_favorites(change).await,
+			},
 			Command::MarkRead {
 				channel,
 				message,
