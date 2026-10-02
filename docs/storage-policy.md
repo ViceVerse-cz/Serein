@@ -1487,3 +1487,25 @@ Reading zoom is constrained to 50–150%. Schema 26 rebuilds the fixed-size read
 preferences table in the existing migration transaction, preserving all saved choices
 while widening the former 80% lower limit. Older clients reject schema 26 rather than
 loading a zoom value outside their supported range.
+
+## Explicit public attachment hosting (October 2, 2026)
+
+Catbox consent and results retain one session-only filename (256 bytes), file index/key,
+size and conversation/session identifiers, plus one validated HTTPS link (host plus
+at most 256 path bytes). One active transfer holds one selected `Source`, one
+latest-value progress channel, a cancellation flag and one completion slot; it shares
+normal attachment admission, blocking another selection/upload until retirement.
+A file has at most 200,000,000 bytes, streamed in 64 KiB chunks. Multipart framing is
+under 1 KiB; response input is capped at 4 KiB. Existing encoded paste buffers, HTTP/TLS
+buffers and thumbnails are additional; no whole-file copy, temporary file, new cache,
+database schema or log is introduced. The 300-second overall, ten-second connection
+and 30-second read deadlines bound network lifetime. File reads and HTTP work occur
+outside rendering. Source paths and bytes never enter UI state or diagnostics.
+
+Successful public links stay copyable in their dialog; account/session reset releases
+them and cancels work. Explicit Add to draft uses ordinary account-isolated draft
+persistence, and later sent messages use ordinary bounded history persistence.
+Failed or cancelled transfers may leave remotely hosted data without a recoverable
+URL. Serein cannot delete anonymous hosted files or erase them on logout. The consent
+states public access, unchanged embedded metadata and the service's current two-year
+inactivity retention; these are remote-host policy, not application cleanup guarantees.

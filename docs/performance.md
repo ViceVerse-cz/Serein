@@ -3151,3 +3151,65 @@ patch changes build-time string construction; Gateway, voice teardown and fuzz
 repairs affect only synthetic development tests. Runtime CPU, RSS, frame/startup
 latency and live account/audio behavior were not measured. Flatpak source-preparation repairs
 and this measurement documentation do not change the native installed payload.
+
+
+## Public Catbox attachment hosting (October 2, 2026)
+
+Baseline `eab1961ae80d2822a49629fb5d182b2c8e18e9d1` and runtime source
+`ef9cd5d1d846335713af71f9f1d9cd895483d59d` used macOS 27.0 (26A428),
+Apple M1 (8 logical CPUs), 16 GiB RAM, Rust 1.98.1 and native Metal. Both
+standard voice-enabled `cargo xtask package` builds passed without command-line
+feature overrides. The xtask internally builds with `--no-default-features`;
+voice is included. Full installed bytes sum every regular file in the complete
+portable folder. ZIPs use `ditto -c -k --sequesterRsrc` over that folder without
+an enclosing directory; both packages contain 206 files.
+
+| Metric | Baseline | After | Absolute / percent delta |
+| --- | ---: | ---: | ---: |
+| Standard executable, bytes | 62,006,112 | 62,088,304 | +82,192 / +0.1326% |
+| Full installed payload, bytes | 68,016,541 | 68,098,733 | +82,192 / +0.1208% |
+| Complete ZIP, bytes | 43,252,563 | 43,286,187 | +33,624 / +0.0777% |
+| Release demo median process CPU | 0.0% | 0.0% | +0.0 percentage points |
+| Sampled peak process RSS, KiB | 123,584 | 123,872 | +288 / +0.2330% |
+| Settled process RSS, KiB | 123,536 | 123,856 | +320 / +0.2590% |
+
+Native process measurements use separate optimized builds of
+`cargo build --release --locked -p serein --features demo`, with default features
+enabled, launched `--demo --demo-chat`. Five seconds of warmup precede ten
+one-second macOS `ps` process CPU/RSS samples; settled RSS is the median of the
+last five samples. No other native demo was running, and no Cargo compilation
+was active during the after sample. Ambient compiler activity during baseline
+and after work can differ. This is one build/sample per revision; small size/RSS
+deltas and quantized 0.0% CPU readings are not improvement claims.
+
+The public-host transport streams at most 200,000,000 file bytes in 64 KiB chunks,
+bounds replies to 4 KiB, and retains one upload task/latest progress value.
+Those are admission/storage limits, not measured live transfer performance. No
+real file was uploaded to Catbox and no live Discord session or audio/device
+action was used. Active-upload throughput, GPU memory and frame/startup latency
+remain unmeasured. Native screenshots use actual synthetic app-owned Metal
+framebuffers; OS input routing and other-platform interaction remain unverified.
+Raw build sizes, hashes and process samples are retained in
+`docs/pr-evidence/external-upload/measurements.json`. The evidence-only follow-up
+changes no runtime source from the measured commit.
+
+## AUR binary recipe payload (October 2, 2026)
+
+The local packaging pass used the published Arch x86_64 package from
+`v1.0.0-nightly.20261001.53`, verified against that release's `SHA256SUMS.txt`
+(`5efa3f71216cced0da707753b96007add5efc9bad256c390ecc020c5a238dfc5`).
+The recipe's `package()` function copied its extracted `usr` payload on this macOS
+host without installing or launching Serein. SHA-256 comparison verified all 211
+original files remained byte-identical. This is a packaging comparison against a
+verified release asset, not a new application build or runtime measurement.
+
+| Metric | Published Arch payload | AUR recipe payload | Delta / method |
+| --- | --- | --- | --- |
+| Installed regular-file bytes | 84,480,993 | 84,492,467 | +11,474 bytes (+0.0136%); sum of file sizes |
+| Regular files | 211 | 213 | +2 license copies under `usr/share/licenses/serein-bin` |
+| Executable | Existing released binary | Byte-identical | 0 bytes; SHA-256 comparison |
+| Compressed distribution | 46,847,463 bytes | Unmeasured locally | Native `makepkg` archive creation is delegated to Arch CI |
+
+No compiler options, application dependencies or runtime code changed. CPU, RSS,
+frame latency and native Arch startup were not measured. The manual AUR build
+repackages an existing binary; it does not compile Rust.
