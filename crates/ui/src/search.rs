@@ -58,12 +58,20 @@ pub struct SearchUi {
 
 impl SearchUi {
 	/// Refocus the current query without dropping its page or scroll position.
-	pub fn focus_conversation(&mut self, channel: Id) {
+	pub fn focus_conversation(&mut self, channel: Id, state: &State) {
 		if self.open && (self.composing || self.filter_draft.is_some() || self.viewing.is_some()) {
 			return;
 		}
 		if self.channel != Some(channel) || !self.open || self.pins {
 			self.query.clear();
+			if state
+				.channel(channel)
+				.is_some_and(|entry| entry.guild.is_some())
+			{
+				self.query = filters::display(&format!("in:{channel}"), state, &mut self.labels);
+				self.query.push(' ');
+			}
+			self.relabel = false;
 		}
 		self.channel = Some(channel);
 		self.open = true;
@@ -1895,6 +1903,74 @@ fn channel_heading(ui: &mut egui::Ui, state: &State, channel: &model::Channel) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn conversation_shortcut_prefills_channel_and_focuses_query_without_searching() {
+		let mut state = test_support::demo_state();
+		let channel = state
+			.channels
+			.iter()
+			.find(|entry| entry.guild.is_some() && entry.supports_text())
+			.unwrap()
+			.id;
+		state.selected = Some(channel);
+		let mut view = SearchUi::default();
+		view.focus_conversation(channel, &state);
+		assert!(view.query.starts_with("in:"));
+		assert!(view.query.ends_with(' '));
+		assert_eq!(view.wire(&state).unwrap(), format!("in:{channel}"));
+		let ctx = egui::Context::default();
+		let mut commands = Vec::new();
+		for events in [vec![], vec![egui::Event::Text("weather".into())]] {
+			ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(800.0, 600.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					view.sync(&ctx, &mut state, &mut commands);
+					view.header_input(ui, &mut state, &mut commands);
+				},
+			)
+			.drop_without_applying_deltas();
+		}
+		assert_eq!(view.wire(&state).unwrap(), format!("in:{channel} weather"));
+		assert!(commands.is_empty());
+		view.submit(&mut state, &mut commands);
+		assert!(
+			matches!(&commands[..], [Command::Search { query, .. }] if query == &format!("in:{channel} weather"))
+		);
+		let request = state.search.as_ref().unwrap().request;
+		let query = view.query.clone();
+		view.focus_conversation(channel, &state);
+		assert_eq!(view.query, query);
+		assert_eq!(state.search.as_ref().unwrap().request, request);
+	}
+
+	#[test]
+	fn direct_message_shortcut_keeps_implicit_scope_and_does_not_interrupt_composition() {
+		let state = test_support::demo_state();
+		let channel = state
+			.channels
+			.iter()
+			.find(|entry| entry.guild.is_none() && entry.kind == 1)
+			.unwrap()
+			.id;
+		let mut view = SearchUi::default();
+		view.focus_conversation(channel, &state);
+		assert!(view.open && view.focus && view.query.is_empty());
+		view.query = "existing draft".into();
+		view.composing = true;
+		view.focus = false;
+		view.focus_conversation(channel, &state);
+		assert_eq!(view.query, "existing draft");
+		assert!(!view.focus);
+	}
 	fn run(ui: &mut egui::Ui, view: &mut SearchUi, state: &mut State, commands: &mut Vec<Command>) {
 		view.sync(ui.ctx(), state, commands);
 		if view.open {

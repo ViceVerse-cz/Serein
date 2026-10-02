@@ -1925,8 +1925,10 @@ only; neither is proof of live Discord interoperability.
 ## Search navigation — September 29, 2026
 
 Ctrl+F (Command+F on macOS) opens and focuses search for the current conversation.
-The search field shows the selected channel or DM name; repeated use preserves the
-query and current result page. The shortcut can be remapped in Keybinds. It does not
+In a server channel, the shortcut prefills a readable `in:` filter for the current
+channel and leaves the caret ready for search text. DMs retain their implicit
+conversation scope. Repeated use preserves the query and current result page. The shortcut can be remapped
+in Keybinds. It does not
 interrupt settings, modal dialogs, or active IME composition.
 
 Previous/next controls and a page-number field replace the older/newest-only pager.

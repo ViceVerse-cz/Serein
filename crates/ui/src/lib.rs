@@ -3857,7 +3857,7 @@ impl MessagingUi {
 			)
 		}) && let Some(channel) = state.selected
 		{
-			self.search.focus_conversation(channel);
+			self.search.focus_conversation(channel, state);
 		}
 		self.search.sync(&ctx, state, &mut commands);
 		let search_open =
