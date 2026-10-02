@@ -90,6 +90,9 @@ impl ExternalUpload {
 		if !same_channel && prompt.running {
 			self.cancel_requested = true;
 		}
+		if prompt.running {
+			ctx.request_repaint_after(std::time::Duration::from_millis(250));
+		}
 		let mut close = false;
 		let modal = dialog::Dialog::new(
 			"public-attachment-upload",
