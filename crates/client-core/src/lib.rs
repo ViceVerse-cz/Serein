@@ -3474,9 +3474,11 @@ impl State {
 				// The voice socket is independent and a RESUME replays roster changes, so the call,
 				// roster and known DM calls all stay. Only a fresh READY invalidates the voice state.
 				self.voice.incoming = None;
-				self.gateway_connected = false;
-				self.cancel_history();
-				self.freshness = Freshness::Stale;
+				if std::mem::replace(&mut self.gateway_connected, false) {
+					self.cancel_history();
+					self.freshness = Freshness::Stale;
+				}
+				// Retry notifications must not invalidate a REST reload started during the outage.
 				self.status = "Reconnecting…";
 				Ok(())
 			}

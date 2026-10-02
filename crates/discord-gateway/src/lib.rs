@@ -1364,8 +1364,12 @@ async fn run_recoverable(
 			};
 			tokio::select! {
 				() = recovery_signal(reconnect), if was_ready => {
-					skip_backoff = true;
-					break;
+					// READY/RESUMED can reach the transport before the UI drains its events.
+					// Consume a late recovery request without dropping that healthy socket.
+					if ready_at.is_none() {
+						skip_backoff = true;
+						break;
+					}
 				}
 				changed = own_presence.changed(), if presence_open => {
 					presence_open = changed.is_ok();
@@ -2070,6 +2074,109 @@ mod tests {
 			"user":{"id":"1","username":"synthetic"}, "session_id":session,
 			"resume_gateway_url":"wss://gateway.discord.gg/", "guilds":[], "private_channels":[]
 		}})
+	}
+
+	#[tokio::test]
+	async fn late_recovery_preserves_ready_and_resumed_sockets() {
+		timeout(Duration::from_secs(10), async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let endpoint = format!("ws://{}/", listener.local_addr().unwrap());
+			let reconnect = Notify::new();
+			let events = std::sync::Mutex::new(Vec::new());
+			let (client_finished, terminal_observed) = tokio::sync::oneshot::channel();
+			let server = async {
+				let (stream, _) = listener.accept().await.unwrap();
+				let mut socket = accept_async(stream).await.unwrap();
+				send(
+					&mut socket,
+					json!({"op":10,"d":{"heartbeat_interval":1000}}),
+				)
+				.await;
+				assert_eq!(packet(&mut socket).await["op"], 2);
+				send(&mut socket, ready(41, "synthetic-recovery-session")).await;
+				acknowledge(&mut socket, 41).await;
+				// The READY callback queues recovery while the UI would still be disconnected.
+				// Keep the established socket alive while that notification is consumed.
+				assert!(
+					timeout(Duration::from_millis(100), listener.accept())
+						.await
+						.is_err()
+				);
+				acknowledge(&mut socket, 41).await;
+				send(&mut socket, json!({"op":7,"d":null})).await;
+				// Disconnected queues another recovery request. It must still skip the >=2s backoff.
+				let (stream, _) = timeout(Duration::from_millis(1500), listener.accept())
+					.await
+					.unwrap()
+					.unwrap();
+				drop(socket);
+				let mut socket = accept_async(stream).await.unwrap();
+				send(
+					&mut socket,
+					json!({"op":10,"d":{"heartbeat_interval":1000}}),
+				)
+				.await;
+				let handshake = packet(&mut socket).await;
+				assert_eq!(handshake["op"], 6);
+				assert_eq!(handshake["d"]["session_id"], "synthetic-recovery-session");
+				assert_eq!(handshake["d"]["seq"], 41);
+				send(&mut socket, json!({"op":0,"t":"RESUMED","s":42,"d":{}})).await;
+				acknowledge(&mut socket, 42).await;
+				// A late send/Refresh pulse after RESUMED must also preserve the healthy socket.
+				assert!(
+					timeout(Duration::from_millis(100), listener.accept())
+						.await
+						.is_err()
+				);
+				acknowledge(&mut socket, 42).await;
+				socket
+					.send(Frame::Close(Some(CloseFrame {
+						code: CloseCode::from(4004),
+						reason: "synthetic expiration".into(),
+					})))
+					.await
+					.unwrap();
+				// Retain TCP until the terminal close is consumed, even if a heartbeat races it.
+				terminal_observed.await.unwrap();
+			};
+			let client = async {
+				let result = run_recoverable(
+					Arc::new(
+						SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap(),
+					),
+					"wss://gateway.discord.gg/".into(),
+					watch::channel(None).1,
+					mpsc::channel(1).1,
+					None,
+					Some(&reconnect),
+					|event| {
+						let label = match event {
+							Event::Startup(_) => "ready",
+							Event::Disconnected => "disconnected",
+							Event::Resumed => "resumed",
+							_ => return Ok(()),
+						};
+						let mut events = events.lock().unwrap();
+						assert!(events.len() < 4, "recovery must not cycle a healthy socket");
+						events.push(label);
+						reconnect.notify_one();
+						Ok(())
+					},
+					Some(&endpoint),
+				)
+				.await;
+				let _ = client_finished.send(());
+				result
+			};
+			let ((), result) = tokio::join!(server, client);
+			assert_eq!(result, Err(Failure::Expired));
+			assert_eq!(
+				events.into_inner().unwrap(),
+				vec!["ready", "disconnected", "resumed"]
+			);
+		})
+		.await
+		.unwrap();
 	}
 
 	#[test]

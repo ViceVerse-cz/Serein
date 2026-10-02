@@ -25,7 +25,7 @@ mod channel_permissions;
 mod channel_welcome_tests;
 mod components;
 mod composer_text;
-#[cfg(all(debug_assertions, feature = "demo"))]
+#[cfg(any(test, all(debug_assertions, feature = "demo")))]
 mod recovery_demo;
 #[cfg(all(debug_assertions, feature = "demo"))]
 pub use recovery_demo::check as debug_resume_send_check;
@@ -1210,16 +1210,9 @@ impl MessagingUi {
 								));
 						}
 						if !state.demo
-							&& (state.auth != client_core::auth::AuthState::Authenticated
-								|| !state.gateway_connected)
+							&& state.auth != client_core::auth::AuthState::Authenticated
 							&& ui
-								.small_button(crate::i18n::translate(
-									if state.auth == client_core::auth::AuthState::Authenticated {
-										"reconnect-now"
-									} else {
-										"lib-title-bar-sign-in-again"
-									},
-								))
+								.small_button(crate::i18n::translate("lib-title-bar-sign-in-again"))
 								.clicked()
 						{
 							self.reconnect_requested = true;
@@ -1798,6 +1791,28 @@ impl MessagingUi {
 					self.update_banner(ui);
 					divider(ui);
 				}
+				if !state.demo
+					&& state.auth == client_core::auth::AuthState::Authenticated
+					&& !state.gateway_connected
+				{
+					egui::Frame::new()
+						.inner_margin(egui::Margin::symmetric(8, 6))
+						.show(ui, |ui| {
+							ui.horizontal(|ui| {
+								ui.weak(language.text("reconnecting"));
+								ui.with_layout(
+									egui::Layout::right_to_left(egui::Align::Center),
+									|ui| {
+										if ui.small_button(language.text("reconnect-now")).clicked()
+										{
+											self.reconnect_requested = true;
+										}
+									},
+								);
+							});
+						});
+					divider(ui);
+				}
 				if in_call {
 					self.voice_card_section(ui, state, commands);
 					divider(ui);
@@ -2210,35 +2225,32 @@ impl MessagingUi {
 									self.archive_parent = Some(c.id);
 								}
 							}
+							let can_reload = state.selected.is_some_and(|id| {
+								if state.is_forum(id) {
+									state.can_load_posts(id) && !state.posts.loading
+								} else {
+									state.freshness != Freshness::Loading
+										&& state.can_read_history(id)
+								}
+							});
+							let can_reconnect = state.auth
+								== client_core::auth::AuthState::Authenticated
+								&& !state.gateway_connected;
 							let reload = ui
-								.add_enabled_ui(
-									(state.auth == client_core::auth::AuthState::Authenticated
-										&& !state.gateway_connected) || state.selected.is_some_and(
-										|id| {
-											if state.is_forum(id) {
-												state.can_load_posts(id) && !state.posts.loading
-											} else {
-												state.freshness != Freshness::Loading
-													&& state.can_read_history(id)
-											}
-										},
-									),
-									|ui| {
-										icons::button(
-											ui,
-											icons::Icon::Reload,
-											32.0,
-											&language.text("reload-history"),
-										)
-									},
-								)
+								.add_enabled_ui(can_reload || can_reconnect, |ui| {
+									icons::button(
+										ui,
+										icons::Icon::Reload,
+										32.0,
+										&language.text("reload-history"),
+									)
+								})
 								.inner;
 							if reload.clicked() {
-								if !state.gateway_connected
-									&& state.auth == client_core::auth::AuthState::Authenticated
-								{
+								if can_reconnect {
 									self.reconnect_requested = true;
-								} else {
+								}
+								if can_reload {
 									commands.push(state.history(None));
 									self.timeline.follow_latest(state);
 								}

@@ -118,19 +118,44 @@ pub fn check(mut state: State) {
 	ctx.enable_accesskit();
 	let mut view = MessagingUi {
 		language: crate::i18n::Language::English,
+		hide_title_bar: true,
 		..Default::default()
 	};
 	for _ in 0..3 {
 		frame(&ctx, &mut view, &mut state, vec![]);
 	}
-	// Refresh must wake Gateway recovery without leaving another history request Loading.
+	// Recovery remains reachable even on platforms without a custom title bar.
+	let commands = click(&ctx, &mut view, &mut state, "Reconnect now");
+	assert!(view.reconnect_requested && commands.is_empty());
+	view.reconnect_requested = false;
+	// Refresh wakes Gateway recovery and independently reloads readable REST history.
 	let commands = click(&ctx, &mut view, &mut state, "Reload history");
 	assert!(view.reconnect_requested);
+	let histories: Vec<_> = commands
+		.iter()
+		.filter(|command| matches!(command, Command::History { .. }))
+		.collect();
+	assert_eq!(histories.len(), 1);
+	assert!(matches!(histories[0], Command::History { channel: id, .. } if *id == channel));
+	let request = state.request;
+	assert_eq!(state.freshness, Freshness::Loading);
+	let commands = click(&ctx, &mut view, &mut state, "Reload history");
 	assert!(
 		!commands
 			.iter()
-			.any(|command| matches!(command, Command::History { .. } | Command::Send { .. }))
+			.any(|command| matches!(command, Command::History { .. }))
 	);
+	assert_eq!(
+		state.request, request,
+		"Refresh must not replace an in-flight REST request"
+	);
+	apply(&mut state, Event::Disconnected);
+	assert!(state.history_pending);
+	assert_eq!(
+		state.request, request,
+		"Gateway retries must preserve the REST reload"
+	);
+	assert_eq!(state.freshness, Freshness::Loading);
 	view.reconnect_requested = false;
 	state
 		.drafts
@@ -161,9 +186,7 @@ pub fn check(mut state: State) {
 		},
 	);
 	assert_eq!(state.pending[0].delivery, Delivery::Ambiguous);
-	// An independent REST reload during the outage finishes as Stale, never stuck Loading.
-	state.history(None);
-	let request = state.request;
+	// The Refresh REST response finishes as Stale, never stuck Loading during an outage.
 	apply(
 		&mut state,
 		Event::History {
@@ -203,6 +226,11 @@ pub fn check(mut state: State) {
 	apply(&mut state, Event::Failure(Failure::Expired));
 	assert!(!state.can_send(channel));
 	println!(
-		"Offline recovery passed: Refresh requests reconnection, explicit send during Gateway outage, stale history completion, auth/access gates and no ambiguous-write replay."
+		"Offline recovery passed: cross-platform reconnection, independent Refresh history, explicit send during Gateway outage, stale history completion, auth/access gates and no ambiguous-write replay."
 	);
+}
+
+#[test]
+fn disconnected_refresh_and_send_preserve_independent_rest_work() {
+	check(test_support::demo_state());
 }
