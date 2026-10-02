@@ -2458,8 +2458,6 @@ server-admin-emojis-image = Изображение
 # Context: emojis
 server-admin-emojis-name = Имя
 # Context: emojis
-server-admin-emojis-none = НИКТО
-# Context: emojis
 server-admin-emojis-preparing-emoji-images = Подготовка изображений эмодзи...
 # Context: emojis
 server-admin-emojis-remove = Удалять
@@ -2553,8 +2551,6 @@ server-admin-members-recent-members = Недавние участники
 server-admin-members-search-by-username-or-id = Поиск по имени пользователя или идентификатору
 # Context: members
 server-admin-members-server-members = Члены сервера
-# Context: members
-server-admin-members-show-members-in-channel-list = Показать участников в списке каналов
 # Context: members
 server-admin-members-show-the-members-page-in-the-channel-list-to-quickly = Покажите страницу участников в списке каналов, чтобы быстро увидеть последние присоединения и участников, помеченных за необычную активность.
 # Context: members
@@ -4355,3 +4351,85 @@ lib-composer-onboarding-rules-pending = Примите правила серве
 lib-composer-onboarding-incomplete = Завершите вступление, чтобы открыть больше каналов.
 # Context: composer
 lib-composer-onboarding-complete = Завершить знакомство
+
+voice-call-moved-to-another-client = Сеанс звонка на этом устройстве был заменён
+
+server-settings-page-safety = Настройка безопасности
+
+server-settings-nav-title = Настройки сервера
+
+server-settings-safety-subtitle = Решите, кто может общаться на этом сервере и какие медиафайлы Discord проверяет на откровенный контент.
+
+server-settings-safety-community-note = Серверам сообщества нужен как минимум низкий уровень проверки и проверка медиафайлов всех участников.
+
+server-settings-safety-verification = Уровень проверки
+
+server-settings-safety-verification-help = Участники должны соответствовать этим требованиям, прежде чем смогут писать в текстовых каналах или начинать личные сообщения.
+
+server-settings-safety-verification-none = Нет
+
+server-settings-safety-verification-none-detail = Без ограничений
+
+server-settings-safety-verification-low = Низкий
+
+server-settings-safety-verification-low-detail = Должен иметь подтверждённый адрес эл. почты в аккаунте Discord.
+
+server-settings-safety-verification-medium = Средний
+
+server-settings-safety-verification-medium-detail = Также должен быть зарегистрирован в Discord более 5 минут.
+
+server-settings-safety-verification-high = Высокий
+
+server-settings-safety-verification-high-detail = Также должен состоять на этом сервере более 10 минут.
+
+server-settings-safety-verification-highest = Наивысший
+
+server-settings-safety-verification-highest-detail = Должен иметь подтверждённый номер телефона в аккаунте Discord.
+
+server-settings-safety-filter = Фильтр откровенного медиаконтента
+
+server-settings-safety-filter-help = Автоматически распознавать и блокировать медиафайлы на этом сервере, которые могут содержать откровенный контент.
+
+server-settings-safety-filter-disabled = Не проверять медиафайлы
+
+server-settings-safety-filter-no-roles = Проверять медиафайлы участников без ролей
+
+server-settings-safety-filter-all = Проверять медиафайлы всех участников
+
+server-settings-profile-form-banner-custom = Свой цвет
+
+server-settings-profile-form-banner-custom-help = Выберите готовый цвет выше или любой цвет для баннера.
+
+server-settings-profile-server-id = ID сервера
+
+server-settings-profile-server-id-help = Используйте этот ID с ботами, инструментами модерации и в обращениях в поддержку.
+
+server-settings-profile-copy-id = Копировать ID
+
+server-settings-engagement-system-welcome = Отправлять случайное приветствие, когда кто-то присоединяется к серверу.
+
+server-settings-engagement-system-welcome-sticker = Предлагать участникам отвечать на приветствия стикером.
+
+server-settings-engagement-system-boost = Отправлять сообщение, когда кто-то бустит этот сервер.
+
+server-settings-engagement-system-tips = Отправлять полезные советы по настройке сервера.
+
+server-invites-header-subtitle = Делитесь ссылками, по которым можно присоединиться к этому серверу.
+
+server-audit-log-header-subtitle = Журнал действий модерации и изменений настроек на этом сервере.
+
+server-audit-log-empty-detail = Выберите другого пользователя или действие либо обновите, чтобы проверить новые события.
+
+server-members-header-subtitle = Просматривайте, ищите участников этого сервера и управляйте ими.
+
+server-members-show-in-channel-list = Показывать участников в списке каналов
+
+server-emoji-section-static = Статичные эмодзи
+
+server-emoji-empty-static = Эмодзи пока нет
+
+server-emoji-empty-animated = Анимированных эмодзи пока нет
+
+server-emoji-empty-detail = Загрузите изображение, чтобы добавить эмодзи. GIF станут анимированными эмодзи.
+
+server-stickers-empty-detail = Загрузите изображение, чтобы добавить первый стикер.

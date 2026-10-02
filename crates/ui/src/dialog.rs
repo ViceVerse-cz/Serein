@@ -336,7 +336,14 @@ impl SettingsShell {
 								})
 								.inner_margin(egui::Margin::symmetric(12, 28)),
 						)
-						.show(ui, |ui| add(ui, ShellRegion::Navigation { compact: false }));
+						.show(ui, |ui| {
+							// Long page lists (and short windows) scroll instead of clipping
+							// the destructive entry at the bottom.
+							egui::ScrollArea::vertical()
+								.id_salt(id.with("navigation-scroll"))
+								.auto_shrink([false, false])
+								.show(ui, |ui| add(ui, ShellRegion::Navigation { compact: false }));
+						});
 				}
 				egui::CentralPanel::default()
 					.frame(egui::Frame::new().inner_margin(egui::Margin {
@@ -409,10 +416,12 @@ pub fn settings_page<R>(
 	id_salt: impl std::hash::Hash + std::fmt::Debug,
 	add: impl FnOnce(&mut egui::Ui) -> R,
 ) -> R {
+	let page = egui::Id::unique(&id_salt);
 	egui::ScrollArea::vertical()
 		.id_salt(id_salt)
 		.auto_shrink([false, false])
 		.show(ui, |ui| {
+			page_fade(ui, page);
 			fixed_width(ui, |ui| {
 				let inner = add(ui);
 				ui.add_space(24.0);
@@ -420,6 +429,32 @@ pub fn settings_page<R>(
 			})
 		})
 		.inner
+}
+
+/// Fades a settings page in when `page` differs from the page shown last frame.
+/// Only one settings layer is visible at a time, so one shared slot is enough; the first
+/// page of a freshly opened layer appears immediately. Follows `animation_time`, so a zero
+/// animation time disables the motion.
+pub fn page_fade(ui: &mut egui::Ui, page: egui::Id) {
+	let ctx = ui.ctx().clone();
+	let now = ctx.input(|input| input.time);
+	let duration = f64::from(ui.style().animation_time) * 2.0;
+	let start = ctx.data_mut(|data| {
+		let slot = data.get_temp_mut_or_insert_with(egui::Id::unique("settings-page-fade"), || {
+			(page, f64::NEG_INFINITY)
+		});
+		if slot.0 != page {
+			*slot = (page, now);
+		}
+		slot.1
+	});
+	if duration <= 0.0 || now - start >= duration {
+		return;
+	}
+	let t = ((now - start) / duration).clamp(0.0, 1.0) as f32;
+	// Opacity only: the layout never moves, so click targets stay put while it settles.
+	ui.multiply_opacity(egui::lerp(0.35..=1.0, egui::emath::easing::cubic_out(t)));
+	ctx.request_repaint();
 }
 
 /// Destructive entry at the bottom of a settings sidebar, such as "Delete Server".

@@ -304,6 +304,24 @@ fn check_app_toolbox(name: &str, package: &Package) {
 		);
 		assert!(output.panel.is_empty());
 	}
+	// Exercise the rebuilt and committed Wasm through host validation, including
+	// the expanded lower zoom range and both rejected out-of-range values.
+	for zoom in ["50", "79", "150"] {
+		input.values.insert("zoom".into(), zoom.into());
+		let output = invoke(package, &input).expect("small zoom proposal validates in Wasm");
+		assert!(
+			matches!(&output.effects[..], [extensions::HostEffect::SetLocalSettings { settings }] if settings.zoom_percent == zoom.parse::<u16>().ok())
+		);
+	}
+	for zoom in ["49", "151"] {
+		input.values.insert("zoom".into(), zoom.into());
+		assert!(
+			invoke(package, &input)
+				.expect("invalid zoom is reported by the example")
+				.effects
+				.is_empty()
+		);
+	}
 	input.action = "notifications".into();
 	input.values = serde_json::from_value(json!({"sound-volume":"35","disable-sounds":"false","unread-badge":"true","current-channel":"true"})).unwrap();
 	let output = invoke(package, &input).expect("notification proposal validates in Wasm");

@@ -195,6 +195,10 @@ pub enum Command {
 		request: u64,
 	},
 	CancelGifs,
+	GifFavorites {
+		request: u64,
+		change: Option<(model::Gif, bool)>,
+	},
 	MarkRead {
 		channel: Id,
 		message: Id,
@@ -499,6 +503,10 @@ pub enum Event {
 	Gifs {
 		request: u64,
 		result: Result<model::GifPage, auth::Failure>,
+	},
+	GifFavorites {
+		request: u64,
+		result: Result<Vec<model::Gif>, auth::Failure>,
 	},
 	ReadState(read_state::Event),
 	NotificationPreferences(notifications::Event),
@@ -1705,9 +1713,11 @@ impl State {
 		} else {
 			self.drafts.get(&channel).map_or("", String::as_str)
 		};
-		if (content.trim().is_empty() && filenames.is_empty() && sticker.is_none())
-			|| content.chars().count() > MAX_CONTENT
-			|| self.pending.len() >= 64
+		if !model::message_options::valid(
+			content,
+			MAX_CONTENT,
+			!filenames.is_empty() || sticker.is_some(),
+		) || self.pending.len() >= 64
 			|| self.draft_bytes()
 				+ content.len()
 				+ filenames
@@ -1982,6 +1992,10 @@ impl State {
 			self.apply_gifs(request, Err(auth::Failure::Capacity));
 			return;
 		}
+		if let Command::GifFavorites { request, .. } = command {
+			self.apply_gif_favorites(request, Err(auth::Failure::Capacity));
+			return;
+		}
 		if let Command::Edit {
 			channel,
 			message,
@@ -2128,6 +2142,9 @@ impl State {
 					self.status = "Call status could not refresh; reopen the DM to retry"
 				}
 				voice::Command::Join {
+					channel, request, ..
+				}
+				| voice::Command::ConfirmSession {
 					channel, request, ..
 				}
 				| voice::Command::Ring { channel, request } => self.apply_voice(voice::Event::Failed {
@@ -2569,6 +2586,10 @@ impl State {
 			}
 			Event::Gifs { request, result } => {
 				self.apply_gifs(request, result);
+				Ok(())
+			}
+			Event::GifFavorites { request, result } => {
+				self.apply_gif_favorites(request, result);
 				Ok(())
 			}
 			Event::ReadState(event) => self.apply_read_state(event),
@@ -3121,6 +3142,7 @@ impl State {
 				self.channels = channels;
 				self.permissions = permission_state;
 				self.archived_thread = None;
+				self.interrupt_gif_favorites();
 				self.auth = auth::AuthState::Authenticated;
 				self.gateway_connected = true;
 				self.status = if unavailable {
@@ -3702,6 +3724,7 @@ impl State {
 		if failure.ends_session() {
 			self.application_commands.clear();
 			self.interrupt_stickers();
+			self.interrupt_gif_favorites();
 			self.invalidate_messaging_permissions(Some(failure));
 			self.interrupt_own_profile();
 			self.local_game_activity = Default::default();
@@ -3952,6 +3975,16 @@ impl Event {
 				Self::Gifs {
 					result: Ok(page), ..
 				} => page.bytes(),
+				Self::GifFavorites {
+					result: Ok(favorites),
+					..
+				} => {
+					favorites.capacity() * size_of::<model::Gif>()
+						+ favorites
+							.iter()
+							.map(|gif| gif.bytes() - size_of::<model::Gif>())
+							.sum::<usize>()
+				}
 				Self::ReadState(read_state::Event::Snapshot { entries, .. }) => entries
 					.as_ref()
 					.map_or(0, |e| e.capacity() * size_of::<(Id, Option<Id>, u32)>()),
@@ -4235,6 +4268,24 @@ mod tests {
 			..State::default()
 		};
 		assert!(state.prepare_send().is_none());
+		state.drafts.insert(Id(1), "@silent".into());
+		state.reply = Some(Reply::to(Id(7)));
+		assert!(state.prepare_send().is_none());
+		assert_eq!(state.drafts[&Id(1)], "@silent");
+		assert!(state.pending.is_empty() && state.reply.is_some());
+		let full = format!("@silent {}", "é".repeat(MAX_CONTENT));
+		state.drafts.insert(Id(1), full.clone());
+		assert!(
+			matches!(state.prepare_send(), Some(Command::Send { content, .. }) if content == full)
+		);
+		assert_eq!(state.pending[0].content, full);
+		state.pending.clear();
+		state
+			.drafts
+			.insert(Id(1), format!("@silent {}", "x".repeat(MAX_CONTENT + 1)));
+		assert!(state.prepare_send().is_none());
+		assert!(!state.drafts[&Id(1)].is_empty() && state.pending.is_empty());
+		state.drafts.clear();
 		for invalid in [
 			"",
 			" ",

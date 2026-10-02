@@ -1,0 +1,226 @@
+{
+  "runtime_source": "9a5c7a0f8b0224a7ee168fba47325c7dc5168933",
+  "integrated_parent": "456fdc1ff3925b9a84cae1295e5605b3c60a34b5",
+  "environment": {
+    "os": "macOS 27.0 (26A428)",
+    "cpu": "Apple M1, 8 logical CPUs",
+    "ram_gib": 16,
+    "rust": "1.98.1",
+    "renderer": "native Metal",
+    "display_scale": 2
+  },
+  "standard_package": {
+    "baseline": {
+      "commit": "343c6d489809c9bc109043afd74c06b63c17c28c",
+      "command": "cargo xtask package",
+      "features": "standard xtask package; voice included; xtask internally uses --no-default-features",
+      "executable": 62137600,
+      "installed": 68148029,
+      "compressed": 43311255,
+      "files": 206,
+      "executable_sha256": "ba0a7c0d18a82e6f52857f8c2441ca5895aff9f2cff901b44b0353e2aef1be95",
+      "zip_method": "ditto -c -k --sequesterRsrc full standard-dist contents, without enclosing directory"
+    },
+    "after": {
+      "commit": "9a5c7a0f8b0224a7ee168fba47325c7dc5168933",
+      "command": "cargo xtask package",
+      "features": "standard xtask package; voice included; xtask internally uses --no-default-features",
+      "executable": 62137616,
+      "installed": 68148045,
+      "compressed": 43311312,
+      "files": 206,
+      "executable_sha256": "22bceedb0cd78ad09a235941c142cb2c7c6ab262ca9edfb2f6b64db1a7bba99f",
+      "zip_method": "ditto -c -k --sequesterRsrc full standard-dist contents, without enclosing directory"
+    },
+    "comparison_scope": "Comparator 343c6d48 is the preserved macOS Control-click source. The integrated parent 456fdc1f also includes PR #513 active-server emoji ordering. The only runtime source differences between343c6d48 and9a5c7a0f are that additive emoji-picker change and this timeline fix (git diff stat verified). The emoji picker is closed in the common demo-chat workload. This is a disclosed starting comparator, not an exact-parent or isolated per-feature cost measurement.",
+    "delta_bytes": {
+      "executable": 16,
+      "installed": 16,
+      "compressed": 57
+    }
+  },
+  "native": {
+    "baseline_build": {
+      "commit": "343c6d489809c9bc109043afd74c06b63c17c28c",
+      "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein/target CARGO_BUILD_JOBS=2 cargo build --release --locked -p serein --features demo",
+      "default_features": true,
+      "lto": "repository normal fat-LTO, no profile override",
+      "binary": "/Users/claw/Code/Serein/target/issue-sweep/macos-control-click/343c6d48/serein-release-demo",
+      "size_bytes": 64037760,
+      "sha256": "60e33cb6fd369cda9b1b28b2cdd0364ddc5f0c37594e6a451b2b8e67c49176a6"
+    },
+    "after_build": {
+      "source_commit": "9a5c7a0f8b0224a7ee168fba47325c7dc5168933",
+      "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein/target CARGO_BUILD_JOBS=2 cargo build --release --locked -p serein --features demo",
+      "profile": "normal release fat LTO, default shipping voice plus demo fixtures",
+      "instrumentation": "none",
+      "bytes": 64037760,
+      "sha256": "1f73d2b0c8a3363d48a91da7eef915a2a724cea2bb519c10ad0a5e1286c073a5",
+      "build_log": "/tmp/serein-short-history-release-demo.log",
+      "finish": "Finished `release` profile [optimized + debuginfo] target(s) in 8m 28s"
+    },
+    "baseline": {
+      "binary": "/Users/claw/Code/Serein/target/issue-sweep/macos-control-click/343c6d48/serein-release-demo",
+      "flags": [
+        "--demo",
+        "--demo-chat"
+      ],
+      "warmup_seconds": 5,
+      "interval_seconds": 1,
+      "samples": [
+        {
+          "seconds": 5.03,
+          "cpu_percent": 0.0,
+          "rss_kib": 124624
+        },
+        {
+          "seconds": 6.056,
+          "cpu_percent": 0.0,
+          "rss_kib": 124592
+        },
+        {
+          "seconds": 7.081,
+          "cpu_percent": 0.0,
+          "rss_kib": 124592
+        },
+        {
+          "seconds": 8.106,
+          "cpu_percent": 0.0,
+          "rss_kib": 124592
+        },
+        {
+          "seconds": 9.121,
+          "cpu_percent": 0.0,
+          "rss_kib": 124592
+        },
+        {
+          "seconds": 10.146,
+          "cpu_percent": 0.0,
+          "rss_kib": 124592
+        },
+        {
+          "seconds": 11.172,
+          "cpu_percent": 0.0,
+          "rss_kib": 124592
+        },
+        {
+          "seconds": 12.197,
+          "cpu_percent": 0.0,
+          "rss_kib": 124592
+        },
+        {
+          "seconds": 13.223,
+          "cpu_percent": 0.0,
+          "rss_kib": 124592
+        },
+        {
+          "seconds": 14.248,
+          "cpu_percent": 0.0,
+          "rss_kib": 124592
+        }
+      ],
+      "cpu_percent_median": 0.0,
+      "rss_peak_kib": 124624,
+      "rss_settled_kib": 124592,
+      "elapsed_seconds": 15.277,
+      "user_cpu_seconds": 0.186523,
+      "system_cpu_seconds": 0.132,
+      "exit_code": -2,
+      "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo"
+    },
+    "after": {
+      "binary": "/Users/claw/Code/Serein/target/issue-sweep/short-history-pagination/9a5c7a0f/serein-release-demo",
+      "flags": [
+        "--demo",
+        "--demo-chat"
+      ],
+      "warmup_seconds": 5,
+      "interval_seconds": 1,
+      "samples": [
+        {
+          "seconds": 5.026,
+          "cpu_percent": 0.0,
+          "rss_kib": 124480
+        },
+        {
+          "seconds": 6.052,
+          "cpu_percent": 0.0,
+          "rss_kib": 124480
+        },
+        {
+          "seconds": 7.073,
+          "cpu_percent": 0.0,
+          "rss_kib": 124416
+        },
+        {
+          "seconds": 8.09,
+          "cpu_percent": 0.0,
+          "rss_kib": 124416
+        },
+        {
+          "seconds": 9.116,
+          "cpu_percent": 0.0,
+          "rss_kib": 124416
+        },
+        {
+          "seconds": 10.142,
+          "cpu_percent": 0.0,
+          "rss_kib": 124416
+        },
+        {
+          "seconds": 11.167,
+          "cpu_percent": 0.0,
+          "rss_kib": 124416
+        },
+        {
+          "seconds": 12.186,
+          "cpu_percent": 0.0,
+          "rss_kib": 124416
+        },
+        {
+          "seconds": 13.21,
+          "cpu_percent": 0.0,
+          "rss_kib": 124416
+        },
+        {
+          "seconds": 14.236,
+          "cpu_percent": 0.0,
+          "rss_kib": 124416
+        }
+      ],
+      "cpu_percent_median": 0.0,
+      "rss_peak_kib": 124480,
+      "rss_settled_kib": 124416,
+      "elapsed_seconds": 15.248,
+      "user_cpu_seconds": 0.217917,
+      "system_cpu_seconds": 0.13539199999999998,
+      "exit_code": -2,
+      "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo"
+    },
+    "comparison_scope": "Comparator 343c6d48 is the preserved macOS Control-click source. The integrated parent 456fdc1f also includes PR #513 active-server emoji ordering. The only runtime source differences between343c6d48 and9a5c7a0f are that additive emoji-picker change and this timeline fix (git diff stat verified). The emoji picker is closed in the common demo-chat workload. This is a disclosed starting comparator, not an exact-parent or isolated per-feature cost measurement.",
+    "delta": {
+      "cpu_percent_median": 0.0,
+      "rss_peak_kib": -144,
+      "rss_settled_kib": -176,
+      "rss_peak_percent": -0.115547567081782,
+      "rss_settled_percent": -0.14126107615256195
+    },
+    "globally_quiet": "All active UI, Voice and External task owners explicitly held builds/native apps. Voice finished its own pair and replay before handing the native slot directly to UI. Both sequential UI samples ran with no concurrent compiler or native app; read-only ps after sampling confirmed no residual process. Both child processes stopped with intentional SIGINT/exit-2.",
+    "interpretation": "One build and one idle sample per revision. CPU quantized to 0%; small RSS changes are sampling noise, without an improvement claim. Helper child user/system CPU includes ps invocations and is not an application latency metric."
+  },
+  "verification": {
+    "full": "Fresh cargo xtask check passed on integrated 9a5c7a0f after all runtime workspace dev packages were invalidated; includes workspace tests, strict Clippy and policy checks.",
+    "focused": "Actual synthetic timeline regression passed with idle/down/up gestures, duplicate suppression, pending frames, a real older History event, actual message Y restoration within 2px and intentional latest navigation. It failed against the original request predicate. Mixed-height virtualization regression also passed.",
+    "standard_package": "cargo xtask package passed with normal voice-enabled release flags;206 regular files.",
+    "optimized_demo": "Normal repository fat-LTO default+demo release build passed in 8m28s; no instrumentation or profile override."
+  },
+  "screenshots": {
+    "applicable": false,
+    "reason": "No UI design change: the existing upward gesture gains a history request and preserves reading position. The actual rendered-message regression exercises gesture and response; no unrelated synthetic screenshot is presented as a reproduction."
+  },
+  "limitations": [
+    "No live account, service pagination, network or microphone validation.",
+    "The common idle demo-chat process sample does not measure active history request or response latency, p95 frame timing, startup or GPU memory.",
+    "The comparator differs from the exact integrated parent by unrelated active-server emoji picker ordering, disclosed above."
+  ]
+}
