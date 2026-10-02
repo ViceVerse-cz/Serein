@@ -4368,3 +4368,37 @@ lib-composer-onboarding-rules-pending = Accept this server's rules to start chat
 lib-composer-onboarding-incomplete = Finish joining this server to unlock more channels.
 # Context: composer
 lib-composer-onboarding-complete = Complete Onboarding
+
+# Explicit public attachment hosting
+public-upload-host-file = Host file…
+public-upload-heading = Upload to Catbox
+public-upload-subtitle = Share a public link instead of a Discord attachment
+public-upload-offline = Offline preview · no file is uploaded
+public-upload-size = { $size } MB · public file host
+public-upload-privacy = Anyone with the link can access this file. The original file and its metadata are uploaded unchanged to Catbox, outside Discord.
+public-upload-retention = Catbox currently says anonymous files may be removed after two years without access. Serein cannot delete hosted files; cancelling or deleting a Discord message does not remove them.
+public-upload-review = The link stays here for review. Choose Add to draft or Copy link, then send it yourself.
+public-upload-return = Return to the original conversation to add its link.
+public-upload-preparing = Preparing public upload…
+public-upload-limits = Maximum 200 MB (GIF: 20 MB). EXE, SCR, CPL, JAR and DOC files are unsupported.
+public-upload-add = Add to draft
+public-upload-copy = Copy link
+public-upload-close = Close
+public-upload-cancel-upload = Cancel upload
+public-upload-upload = Upload publicly to Catbox
+public-upload-cancel = Cancel
+public-upload-draft-full = Draft is full; copy the public link before closing
+public-upload-leave = Leaving cancels public uploads and discards the dialog's link. Already uploaded files may remain on Catbox; copy the link before continuing.
+public-upload-error-cancelled = Public upload cancelled; received bytes may remain on Catbox
+public-upload-error-prepare = Could not prepare public upload
+public-upload-error-changed = File changed or became unavailable; select it again
+public-upload-error-failed = Public upload failed; received bytes may remain on Catbox
+public-upload-error-rejected = Catbox rejected the upload; no Discord message was sent
+public-upload-error-incomplete = Public upload incomplete; received bytes may remain on Catbox
+public-upload-error-response-limit = File host response exceeded its limit
+public-upload-error-interrupted = Public upload interrupted; received bytes may remain on Catbox
+public-upload-error-invalid-link = File host returned an invalid link
+public-upload-error-busy = Wait for the current attachment operation to finish
+public-upload-error-conversation = Return to the original conversation and review the file again before uploading publicly
+public-upload-error-selection = Selection changed; review the file again before uploading publicly
+public-upload-error-missing = Select the file again before uploading publicly

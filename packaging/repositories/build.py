@@ -37,12 +37,31 @@ def sign(path, key, clear=False, armor=False):
     return output
 
 
+def input_packages(directory, format, distribution=None, architecture=None):
+    """Select one repository's bounded package set from local or release artifacts."""
+    suffix = {"deb": ".deb", "rpm": ".rpm", "arch": ".pkg.tar.zst"}[format]
+    packages = []
+    for package in directory.iterdir():
+        if not package.name.endswith(suffix):
+            continue
+        if distribution is not None:
+            if f"-Linux-{distribution}-" not in package.name:
+                continue
+            if format == "deb" and not package.name.endswith(f"_{architecture}.deb"):
+                continue
+        packages.append(package)
+        if len(packages) > 100:
+            raise ValueError("input must contain 1–100 packages of the selected format")
+    if not packages:
+        raise ValueError("input must contain 1–100 packages of the selected format")
+    return sorted(packages)
+
+
 def build(args):
     validate(args)
-    suffix = {"deb": ".deb", "rpm": ".rpm", "arch": ".pkg.tar.zst"}[args.format]
-    packages = sorted(args.input.glob("*" + suffix))
-    if not packages or len(packages) > 100:
-        raise ValueError("input must contain 1–100 packages of the selected format")
+    packages = input_packages(args.input, args.format,
+                              args.distribution if args.release_assets else None,
+                              args.architecture if args.release_assets else None)
     for package in packages:
         if (package.is_symlink() or not package.is_file()
                 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.+~-]*", package.name)
@@ -161,6 +180,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--generate-index", type=Path, help="Generate landing index.html into directory")
     parser.add_argument("--input", type=Path)
+    parser.add_argument("--release-assets", action="store_true",
+                        help="Select distribution/architecture from a mixed release download directory")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--channel", choices=("nightly", "production"))
     parser.add_argument("--distribution")
