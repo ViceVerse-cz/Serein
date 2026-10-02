@@ -138,18 +138,7 @@ jobs:
           test -n "$PACKAGE_SIGNING_KEY" && test -n "$FINGERPRINT"
           printf '%s' "$PACKAGE_SIGNING_KEY" | gpg --batch --import
           unset PACKAGE_SIGNING_KEY
-          mkdir selected
-          for package in packages/*-Linux-"$DISTRIBUTION"-*; do
-            test -f "$package" || continue
-            if [ "$FORMAT" = deb ]; then
-              case "$package" in
-                *_"$ARCHITECTURE".deb) ;;
-                *) continue ;;
-              esac
-            fi
-            cp "$package" selected/
-          done
-          python3 packaging/repositories/build.py --input selected --output site \
+          python3 packaging/repositories/build.py --input packages --release-assets --output site \
             --channel "$CHANNEL" --distribution "$DISTRIBUTION" --format "$FORMAT" \
             --architecture "$ARCHITECTURE" --key "$FINGERPRINT" --base-url "$BASE_URL"
       - uses: actions/upload-artifact@v7.0.1
