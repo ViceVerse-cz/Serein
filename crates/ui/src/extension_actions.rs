@@ -105,9 +105,12 @@ impl MessagingUi {
 					|| state.friend(user).is_some()
 					|| state.selected.is_some_and(|channel| {
 						state.can_view(channel)
-							&& crate::mentions::known_users(state, channel)
-								.into_iter()
-								.any(|known| known.id == user)
+							&& crate::mentions::find_user(
+								user,
+								&[],
+								Some(&crate::mentions::MentionSource { state, channel }),
+							)
+							.is_some()
 					});
 				if !known {
 					return Err("This user is not known in the current session".into());

@@ -127,14 +127,7 @@ pub fn known_users(state: &State, channel: Id) -> Vec<User> {
 			add(user);
 		}
 	}
-	for message in state.timeline.iter().rev() {
-		if message.channel == channel {
-			add(&message.author);
-			for user in &message.mentions {
-				add(user);
-			}
-		}
-	}
+
 	if let Some(members) = state.members.as_ref().filter(|m| m.channel == channel) {
 		for member in members
 			.slots
@@ -145,6 +138,14 @@ pub fn known_users(state: &State, channel: Id) -> Vec<User> {
 				_ => None,
 			}) {
 			add(&member.user);
+		}
+	}
+	for message in state.timeline.iter().rev() {
+		if message.channel == channel {
+			add(&message.author);
+			for user in &message.mentions {
+				add(user);
+			}
 		}
 	}
 
@@ -896,6 +897,99 @@ fn row(
 mod tests {
 	use super::*;
 	use model::Channel;
+
+	#[test]
+	fn loaded_members_remain_suggested_and_admitted_beyond_the_candidate_cap() {
+		let mut state = test_support::demo_state();
+		// Synthetic authenticated reducer state; no transport consumes these commands.
+		state.demo = false;
+		state.auth = client_core::auth::AuthState::Authenticated;
+		state.gateway_connected = true;
+		let channel = state.selected.unwrap();
+		let guild = state.channel(channel).unwrap().guild;
+		let make_member = |id| model::Member {
+			user: user(id, &format!("Member{id}")),
+			roles: vec![],
+			nick: None,
+			status: None,
+			custom_status: None,
+			activities: vec![],
+			clients: Default::default(),
+		};
+		let target = Id(20199);
+		state.members = Some(model::MemberList {
+			guild,
+			channel,
+			request: 1,
+			start: 0,
+			total: 200,
+			lazy: false,
+			freshness: model::Freshness::Fresh,
+			groups: vec![],
+			ranges: vec![],
+			slots: (20000..20200)
+				.map(|id| Some(model::MemberSlot::Person(make_member(id))))
+				.collect(),
+		});
+		for id in 30000..30256 {
+			let mut message = test_support::message(id, channel);
+			message.author = user(id, "Synthetic recent speaker");
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		let users = known_users(&state, channel);
+		assert!(
+			users.iter().any(|user| user.id == target),
+			"recent authors cannot displace loaded members"
+		);
+		let mut menu = Menu::default();
+		menu.refresh(&state, channel, "@Member20199", Some(12), &users);
+		assert!(
+			menu.candidates
+				.iter()
+				.any(|candidate| candidate.id() == target)
+		);
+		// Search results and the member window together can exceed the candidate cap.
+		state.member_search[0].request = Some(client_core::member_search::Request {
+			guild: guild.unwrap(),
+			channel,
+			query: "Member".into(),
+			users: vec![],
+			nonce: 1,
+			slot: 0,
+		});
+		state.member_search[0].rows = (40000..40100).map(make_member).collect();
+		assert_eq!(known_users(&state, channel).len(), 256);
+		assert!(
+			!known_users(&state, channel)
+				.iter()
+				.any(|user| user.id == target)
+		);
+		let mut view = crate::MessagingUi::default();
+		let mut commands = vec![];
+		view.apply_extension_app_action(
+			&mut state,
+			extensions::AppAction::RequestProfile {
+				user_id: target.to_string(),
+				guild_id: None,
+			},
+			&mut commands,
+		)
+		.unwrap();
+		assert!(!commands.is_empty());
+		commands.clear();
+		view.apply_extension_account_action(
+			&mut state,
+			extensions::AppAction::SetUserBlocked {
+				user_id: target.to_string(),
+				blocked: true,
+			},
+			&mut commands,
+		)
+		.unwrap();
+		assert!(
+			matches!(&commands[..], [client_core::Command::UserAction { action: client_core::user_actions::Action::Block { user, blocked: true }, .. }] if *user == target)
+		);
+	}
 
 	#[test]
 	fn mention_matches_prefer_recent_conversation_users_after_match_quality() {
