@@ -195,6 +195,10 @@ pub enum Command {
 		request: u64,
 	},
 	CancelGifs,
+	GifFavorites {
+		request: u64,
+		change: Option<(model::Gif, bool)>,
+	},
 	MarkRead {
 		channel: Id,
 		message: Id,
@@ -499,6 +503,10 @@ pub enum Event {
 	Gifs {
 		request: u64,
 		result: Result<model::GifPage, auth::Failure>,
+	},
+	GifFavorites {
+		request: u64,
+		result: Result<Vec<model::Gif>, auth::Failure>,
 	},
 	ReadState(read_state::Event),
 	NotificationPreferences(notifications::Event),
@@ -1982,6 +1990,10 @@ impl State {
 			self.apply_gifs(request, Err(auth::Failure::Capacity));
 			return;
 		}
+		if let Command::GifFavorites { request, .. } = command {
+			self.apply_gif_favorites(request, Err(auth::Failure::Capacity));
+			return;
+		}
 		if let Command::Edit {
 			channel,
 			message,
@@ -2571,6 +2583,10 @@ impl State {
 				self.apply_gifs(request, result);
 				Ok(())
 			}
+			Event::GifFavorites { request, result } => {
+				self.apply_gif_favorites(request, result);
+				Ok(())
+			}
 			Event::ReadState(event) => self.apply_read_state(event),
 			Event::NotificationPreferences(event) => self.apply_notification_preferences(event),
 			Event::MessagingPermissions { request, result } => {
@@ -3121,6 +3137,7 @@ impl State {
 				self.channels = channels;
 				self.permissions = permission_state;
 				self.archived_thread = None;
+				self.interrupt_gif_favorites();
 				self.auth = auth::AuthState::Authenticated;
 				self.gateway_connected = true;
 				self.status = if unavailable {
@@ -3702,6 +3719,7 @@ impl State {
 		if failure.ends_session() {
 			self.application_commands.clear();
 			self.interrupt_stickers();
+			self.interrupt_gif_favorites();
 			self.invalidate_messaging_permissions(Some(failure));
 			self.interrupt_own_profile();
 			self.local_game_activity = Default::default();
@@ -3952,6 +3970,16 @@ impl Event {
 				Self::Gifs {
 					result: Ok(page), ..
 				} => page.bytes(),
+				Self::GifFavorites {
+					result: Ok(favorites),
+					..
+				} => {
+					favorites.capacity() * size_of::<model::Gif>()
+						+ favorites
+							.iter()
+							.map(|gif| gif.bytes() - size_of::<model::Gif>())
+							.sum::<usize>()
+				}
 				Self::ReadState(read_state::Event::Snapshot { entries, .. }) => entries
 					.as_ref()
 					.map_or(0, |e| e.capacity() * size_of::<(Id, Option<Id>, u32)>()),

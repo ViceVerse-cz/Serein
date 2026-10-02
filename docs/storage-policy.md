@@ -693,8 +693,10 @@ GIF search and trending results retain at most eight session-memory pages / 768 
 minutes. Reopening a fresh query reuses its page without a REST request; least-recently-used
 pages are evicted first and logout clears the cache. This cache is account-session scoped and
 is not written to SQLite. GIF favorites remain account-isolated SQLite metadata, capped at 100
-entries; their validated preview images reuse the account image disk cache described above and
+entries, with each GIF limited to 2 KiB of allocated metadata; their validated image previews reuse the account image disk cache described above and
 are removed by the same clear-cache/logout paths.
+
+GIF favorite synchronization retains one account-scoped request and at most one 2-KiB star change. A fresh REST read accepts at most 6 MiB of JSON/base64; the complete raw favorite subtree is limited to 512 KiB, 2,048 entries, and 4 KiB per wire entry. Unsafe/truncated/duplicate or over-budget catalogs cannot be patched. The raw subtree exists only in the worker during the request, never in SQLite or rendering. At most 100 safe remote favorites (192 KiB admitted allocated projection) reach the UI. Merging the retained local fallback reserves its distinct entries before filling remote slots and keeps the existing 100-item and 2-KiB-per-item bounds; up to 100 prior remote URL keys, each at most 512 bytes, distinguish server removals from pre-existing local favorites. Until the initial local-cache read completes, up to 100 additional removed URL keys prevent delayed cache data from undoing an observed removal; overflow skips that late merge rather than retaining more history. Saves preserve all unseen raw entries and unknown metadata. A dedicated abortable worker keeps settings HTTP away from rendering and message writes; session generation and request matching reject stale results. Terminal session failures and accepted READY clear pending reads/writes and disable synchronization until a fresh read; retained account-local metadata and the monotonic request counter survive same-account reconnect. Interrupted star writes are never replayed. An initial cache arriving after an explicit star or removal-history overflow is conservatively skipped to avoid undoing user actions. There is no polling or automatic write retry. Video source metadata may be cached but never requests an image preview; logout clears synchronization state and the existing account cache.
 
 Custom server emoji catalogs live only in session navigation memory: at most 1,000 entries
 and 256 KiB allocated data per server, including names and role lists, within the shared
@@ -1488,3 +1490,25 @@ state. Windows keeps at most four owned 32×32 icons and one fixed 128-code-unit
 tooltip descriptor. Background voice/tray logic runs once per event tick; active
 calls request a 50 ms repaint. These ticks neither open audio devices nor create
 new network payloads.
+
+## Explicit public attachment hosting (October 2, 2026)
+
+Catbox consent and results retain one session-only filename (256 bytes), file index/key,
+size and conversation/session identifiers, plus one validated HTTPS link (host plus
+at most 256 path bytes). One active transfer holds one selected `Source`, one
+latest-value progress channel, a cancellation flag and one completion slot; it shares
+normal attachment admission, blocking another selection/upload until retirement.
+A file has at most 200,000,000 bytes, streamed in 64 KiB chunks. Multipart framing is
+under 1 KiB; response input is capped at 4 KiB. Existing encoded paste buffers, HTTP/TLS
+buffers and thumbnails are additional; no whole-file copy, temporary file, new cache,
+database schema or log is introduced. The 300-second overall, ten-second connection
+and 30-second read deadlines bound network lifetime. File reads and HTTP work occur
+outside rendering. Source paths and bytes never enter UI state or diagnostics.
+
+Successful public links stay copyable in their dialog; account/session reset releases
+them and cancels work. Explicit Add to draft uses ordinary account-isolated draft
+persistence, and later sent messages use ordinary bounded history persistence.
+Failed or cancelled transfers may leave remotely hosted data without a recoverable
+URL. Serein cannot delete anonymous hosted files or erase them on logout. The consent
+states public access, unchanged embedded metadata and the service's current two-year
+inactivity retention; these are remote-host policy, not application cleanup guarantees.
