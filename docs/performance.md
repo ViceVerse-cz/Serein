@@ -3674,3 +3674,61 @@ unmeasured. No audio device, account, microphone or live media request was used.
 Reproduce after packaging either revision, with the same `CARGO_TARGET_DIR` used
 for that build: `python3 docs/pr-evidence/voice-attachment-playback/benchmark.py`.
 The script also accepts a baseline-worktree path as its first argument.
+
+
+## Gateway outage recovery verification (October 2, 2026)
+
+Exact main `71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35` is compared with recovery
+runtime `d6bf2c8cb6077fd5c45b1348ab0cfcf46508f8c8`. The final evidence commit changes
+only documentation, screenshots and records. The pinned Rust 1.98.1 toolchain,
+lockfile and voice-inclusive standard packaging are unchanged. Both standard
+packages freshly compiled all twelve runtime crates after scoped invalidation
+across worktree PackageIDs and passed deep/strict local ad-hoc signing checks;
+they are not notarized releases. Current full workspace tests, formatting,
+strict Clippy and policy passed (368 UI / 168 desktop), including actual synthetic
+Refresh/Send/Reconnect input and local READY/RESUMED recovery regression checks.
+The synthetic authentication-handoff check also passed.
+
+| Standard default FAT package | Main71 | Recovery D6 | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 62,269,488 B | 62,285,936 B | +16,448 B (+0.0264%) |
+| Installed files | 68,279,917 B | 68,296,365 B | +16,448 B (+0.0241%) |
+| Complete ZIP | 43,363,423 B | 43,364,981 B | +1,558 B (+0.0036%) |
+| File count | 206 | 206 | 0 |
+
+A separate matched native pair uses instrument-free default-plus-demo builds on
+Apple M1/macOS 27/16 GiB/Metal, with the same process-only thin-LTO override and
+jobs2; other repository release settings are unchanged. All four build owners
+explicitly held compilers, native apps and heavy IO, and host process inspection
+confirmed the quiet window. Each ordinary `--demo --demo-chat` run used five
+seconds warmup and ten one-second `ps` samples, then stopped with SIGINT.
+
+| Quiet native idle | Main71 | Recovery D6 | Delta |
+| --- | ---: | ---: | ---: |
+| Median CPU | 0.0% | 0.0% | 0.0 percentage points |
+| Peak RSS | 125,920 KiB | 125,856 KiB | -64 KiB |
+| Settled RSS (last-five median) | 125,872 KiB | 125,808 KiB | -64 KiB (-0.0508%) |
+
+The same quiet window ran instrument-free default-FAT reducer binaries: one
+warmup each, then five alternating pairs of 100,000 synthetic events. Median
+elapsed time was 53.615000 to 53.792709 ms (+0.177709 ms); ranges
+53.371750–54.605125 and 53.614125–54.215333 ms overlap. Both retained
+331,992–332,477 estimated timeline bytes / 500 records. These are reducer
+regression observations, not RSS or UI timing. Idle quantization, the small RSS
+difference and overlapping reducer ranges support no performance improvement
+claim. The ordinary demo does not exercise a real outage. Queue latency, active
+frame/startup timing, GPU memory, physical sleep/wake, live RESUME and delivery
+remain unmeasured.
+
+Eight actual native Metal screenshots were inspected: exact before/after,
+dark/light and wide/narrow synthetic disconnected states with a kept draft.
+Temporary capture hooks were removed byte-exactly before standard/optimized
+builds. The pure UI fixture restores demo mode before desktop dispatch and
+constructs no account, transport, cache or media workers. No live account,
+message, upload, microphone, camera or system capture picker was used.
+Recovery retains one coalesced notification and one explicit-send pulse per
+outage; REST writes retain their existing bounds and are never automatically
+replayed after failed or ambiguous delivery. Raw samples, source/binary/image
+identities and seven bounded actual build/check logs are in
+[`resume-send/measurements.json`](pr-evidence/resume-send/measurements.json) and
+[`resume-send/capture.json`](pr-evidence/resume-send/capture.json).

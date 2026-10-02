@@ -1,0 +1,156 @@
+   Compiling model v0.1.0 (/private/tmp/serein-resume-send/crates/model)
+   Compiling wry v0.57.0 (/private/tmp/serein-resume-send/vendor/wry)
+warning: unexpected `cfg` condition name: `macos_12_unavailable`
+   --> vendor/wry/src/wkwebview/class/wry_web_view_ui_delegate.rs:129:13
+    |
+129 |         #[cfg(not(macos_12_unavailable))]
+    |                   ^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: expected names are: `docsrs`, `feature`, `gtk`, `linux`, and `test` and 32 more
+    = help: consider using a Cargo feature instead
+    = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+             [lints.rust]
+             unexpected_cfgs = { level = "warn", check-cfg = ['cfg(macos_12_unavailable)'] }
+    = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(macos_12_unavailable)");` to the top of the `build.rs`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: requested on the command line with `-W unexpected-cfgs`
+
+warning: unused import: `NSObject`
+  --> vendor/wry/src/wkwebview/mod.rs:38:23
+   |
+38 |     runtime::{AnyObject, NSObject, ProtocolObject},
+   |                          ^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: use of deprecated static `objc2_app_kit::NSFilenamesPboardType`: Create multiple pasteboard items with NSPasteboardTypeFileURL or kUTTypeFileURL instead
+  --> vendor/wry/src/wkwebview/drag_drop.rs:11:54
+   |
+11 | use objc2_app_kit::{NSDragOperation, NSDraggingInfo, NSFilenamesPboardType};
+   |                                                      ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated static `objc2_app_kit::NSFilenamesPboardType`: Create multiple pasteboard items with NSPasteboardTypeFileURL or kUTTypeFileURL instead
+  --> vendor/wry/src/wkwebview/drag_drop.rs:21:39
+   |
+21 |     let types = NSArray::arrayWithObject(NSFilenamesPboardType);
+   |                                          ^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSFilenamesPboardType`: Create multiple pasteboard items with NSPasteboardTypeFileURL or kUTTypeFileURL instead
+  --> vendor/wry/src/wkwebview/drag_drop.rs:24:38
+   |
+24 |         let paths = pb.propertyListForType(NSFilenamesPboardType).unwrap();
+   |                                            ^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSAlternateKeyMask`
+ --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:2:2
+  |
+2 |     NSAlternateKeyMask, NSCommandKeyMask, NSControlKeyMask, NSEvent, NSEventType, NSShiftKeyMask,
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSCommandKeyMask`
+ --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:2:22
+  |
+2 |     NSAlternateKeyMask, NSCommandKeyMask, NSControlKeyMask, NSEvent, NSEventType, NSShiftKeyMask,
+  |                         ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSControlKeyMask`
+ --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:2:40
+  |
+2 |     NSAlternateKeyMask, NSCommandKeyMask, NSControlKeyMask, NSEvent, NSEventType, NSShiftKeyMask,
+  |                                           ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSShiftKeyMask`
+ --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:2:80
+  |
+2 |     NSAlternateKeyMask, NSCommandKeyMask, NSControlKeyMask, NSEvent, NSEventType, NSShiftKeyMask,
+  |                                                                                   ^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSControlKeyMask`
+   --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:116:34
+    |
+116 |         ctrl_key = mods_flags.contains(NSControlKeyMask),
+    |                                        ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSAlternateKeyMask`
+   --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:117:33
+    |
+117 |         alt_key = mods_flags.contains(NSAlternateKeyMask),
+    |                                       ^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSShiftKeyMask`
+   --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:118:35
+    |
+118 |         shift_key = mods_flags.contains(NSShiftKeyMask),
+    |                                         ^^^^^^^^^^^^^^
+
+warning: use of deprecated static `objc2_app_kit::NSCommandKeyMask`
+   --> vendor/wry/src/wkwebview/synthetic_mouse_events.rs:119:34
+    |
+119 |         meta_key = mods_flags.contains(NSCommandKeyMask),
+    |                                        ^^^^^^^^^^^^^^^^
+
+warning: unused variable: `error`
+   --> vendor/wry/src/wkwebview/download.rs:106:2
+    |
+106 |     error: &NSError,
+    |     ^^^^^ help: if this is intentional, prefix it with an underscore: `_error`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/drag_drop.rs:40:20
+   |
+40 |     let dl: NSPoint = unsafe { drag_info.draggingLocation() };
+   |                       ^^^^^^ unnecessary `unsafe` block
+   |
+   = note: `#[warn(unused_unsafe)]` (part of `#[warn(unused)]`) on by default
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/drag_drop.rs:57:20
+   |
+57 |     let dl: NSPoint = unsafe { drag_info.draggingLocation() };
+   |                       ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/drag_drop.rs:85:20
+   |
+85 |     let dl: NSPoint = unsafe { drag_info.draggingLocation() };
+   |                       ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/class/wry_web_view_parent.rs:33:4
+   |
+33 |             unsafe {
+   |             ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+  --> vendor/wry/src/wkwebview/class/wry_web_view_ui_delegate.rs:43:3
+   |
+43 |         unsafe {
+   |         ^^^^^^ unnecessary `unsafe` block
+
+warning: `wry` (lib) generated 19 warnings (run `cargo fix --lib -p wry` to apply 2 suggestions)
+   Compiling session-cache v0.1.0 (/private/tmp/serein-resume-send/crates/session-cache)
+   Compiling client-core v0.1.0 (/private/tmp/serein-resume-send/crates/client-core)
+   Compiling discord-protocol v0.1.0 (/private/tmp/serein-resume-send/crates/discord-protocol)
+   Compiling discord-voice v0.1.0 (/private/tmp/serein-resume-send/crates/discord-voice)
+   Compiling platform v0.1.0 (/private/tmp/serein-resume-send/crates/platform)
+   Compiling extensions v0.1.0 (/private/tmp/serein-resume-send/crates/extensions)
+   Compiling serein v0.1.0 (/private/tmp/serein-resume-send/apps/desktop)
+   Compiling ui v0.1.0 (/private/tmp/serein-resume-send/crates/ui)
+   Compiling discord-api v0.1.0 (/private/tmp/serein-resume-send/crates/discord-api)
+   Compiling local-store v0.1.0 (/private/tmp/serein-resume-send/crates/local-store)
+   Compiling discord-gateway v0.1.0 (/private/tmp/serein-resume-send/crates/discord-gateway)
+   Compiling test-support v0.1.0 (/private/tmp/serein-resume-send/crates/test-support)
+warning: function `check` is never used
+  --> apps/desktop/src/components_demo.rs:74:8
+   |
+74 | pub fn check() {
+   |        ^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `serein` (bin "serein") generated 1 warning
+    Finished `release` profile [optimized + debuginfo] target(s) in 9m 20s
