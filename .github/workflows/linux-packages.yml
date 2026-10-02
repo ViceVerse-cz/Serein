@@ -80,6 +80,7 @@ jobs:
               diff -u .SRCINFO "$aur_metadata"
               rm "$aur_metadata"
               makepkg --verifysource
+              bash check-dependencies.sh
               makepkg --nodeps --noconfirm
             fi
           BUILD

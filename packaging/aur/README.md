@@ -13,6 +13,7 @@ Review `PKGBUILD`, then run on an up-to-date Arch host as an unprivileged user:
 ```sh
 cd packaging/aur
 makepkg --verifysource
+bash check-dependencies.sh
 makepkg -si
 ```
 
@@ -29,6 +30,10 @@ in `pkgver`, and never replace the checksum with `SKIP`. Generate and review
 `.SRCINFO` with `makepkg --printsrcinfo > .SRCINFO` before submitting. Publishing
 requires a maintainer-controlled AUR account and package name; this repository's
 GitHub push/release automation does not publish to the AUR.
+
+`check-dependencies.sh` compares the downloaded release's `.PKGINFO` with the
+recipe's exact dependency entries, including duplicate names and version floors.
+CI runs it after checksum verification and rejects dependency drift.
 
 [Arch's PKGBUILD reference](https://man.archlinux.org/man/PKGBUILD.5.en) documents
 checksum, metadata and package-function behavior. Native Arch makepkg validation
