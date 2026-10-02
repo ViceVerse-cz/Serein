@@ -1608,7 +1608,10 @@ impl Desktop {
 					}
 				}
 			}
-			let _ = state.watch_stream(peer);
+			// Watching enlarges the share, as a click on Watch Stream does.
+			if state.watch_stream(peer).is_some() {
+				messaging.voice_focus = Some(ui::StageFocus::Stream(peer));
+			}
 			let (width, height) = (640usize, 360usize);
 			let pixels = (0..width * height)
 				.map(|i| {
