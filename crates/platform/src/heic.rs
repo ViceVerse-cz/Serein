@@ -15,7 +15,13 @@ pub fn is_heic(bytes: &[u8]) -> bool {
 		return false;
 	}
 	std::iter::once(&header[8..12])
-		.chain(bytes[16..size].chunks_exact(4))
+		.chain(
+			bytes[16..size]
+				.as_chunks::<4>()
+				.0
+				.iter()
+				.map(<[u8; 4]>::as_slice),
+		)
 		.any(|brand| matches!(brand, b"heic" | b"heix" | b"heim" | b"heis"))
 }
 
