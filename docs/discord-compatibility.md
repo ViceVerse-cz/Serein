@@ -2008,6 +2008,19 @@ The issue #485 error occurs before networking or native decoding when attachment
 URL/metadata admission fails. A media-host URL was one reproducible rejected form;
 the reporter's exact URL and native Linux/Windows playback remain unverified.
 
+### Message-scoped attachment paths (October 2, 2026)
+
+Audio, video and explicit downloads also accept
+`/attachments/{channel_id}/{message_id}/{attachment_id}/{filename}`, alongside the
+legacy path without a message ID. The additional form is described by the
+[maintained unofficial CDN reference](https://github.com/discord-userdoccers/discord-userdoccers/blob/2e13ae4fb04253a9e9e8d345ec0be2e2950af2b3/pages/reference.mdx#L875).
+Previously, it failed admission before audio decoding with “Audio attachment unavailable”.
+Both source IDs must be valid nonzero Discord IDs; the attachment ID must still match
+the received attachment. Source channel/message IDs can differ from a forwarded
+message's outer identity. Signed paths and queries remain intact, and the existing
+origin, metadata, file-size and transformation guards remain enforced. Synthetic
+checks cover both forms and both hosts; the reported live message remains unverified.
+
 ## Optional REST API proxy plugin (preview)
 
 The API Proxy community plugin can select an HTTP/HTTPS CONNECT proxy
