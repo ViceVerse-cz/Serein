@@ -160,6 +160,7 @@ enum Target {
 }
 
 enum GifAction {
+	Refresh,
 	Toggle(model::Gif),
 	Send(String),
 }
@@ -885,6 +886,12 @@ impl Picker {
 		}
 		// Remote requests happen before the popout borrows navigation state immutably.
 		let gif_mode = self.gif_mode(ui);
+		if gifs_tab
+			&& !state.gifs.sync_attempted
+			&& let Some(command) = state.request_gif_favorites()
+		{
+			commands.push(command);
+		}
 		if gifs_tab
 			&& let Some(query) = gif_mode.wanted()
 			&& let Some(command) = state.request_gifs(query)
@@ -1643,6 +1650,11 @@ impl Picker {
 			self.record(text);
 		}
 		match gif_action {
+			Some(GifAction::Refresh) => {
+				if let Some(command) = state.request_gif_favorites() {
+					commands.push(command);
+				}
+			}
 			Some(GifAction::Toggle(gif)) => {
 				state.toggle_gif_favorite(&gif);
 			}
@@ -1719,6 +1731,34 @@ impl Picker {
 				let heading = match mode {
 					GifMode::Home | GifMode::Waiting => None,
 					GifMode::Favorites => {
+						ui.horizontal_wrapped(|ui| {
+							if state.gifs.sync_pending.is_some() {
+								ui.add(egui::Spinner::new().size(12.0));
+								ui.label(crate::i18n::translate("gif-favorites-sync-loading"));
+							} else {
+								let key =
+									state.gifs.sync_error.unwrap_or(if state.gifs.sync_ready {
+										"gif-favorites-sync-ready"
+									} else {
+										"gif-favorites-sync-local"
+									});
+								ui.label(crate::i18n::translate(key));
+								if ui
+									.add_enabled(
+										state.can_browse_gifs(),
+										egui::Button::new(crate::i18n::translate(
+											"gif-favorites-sync-refresh",
+										)),
+									)
+									.clicked()
+								{
+									action = Some(GifAction::Refresh);
+								}
+							}
+						})
+						.response
+						.on_hover_text(crate::i18n::translate("gif-favorites-sync-help"));
+						ui.add_space(8.0);
 						Some(crate::i18n::translate("emoji-picker-gif-body-favorites"))
 					}
 					GifMode::Remote(None) => Some(crate::i18n::translate(
@@ -1753,7 +1793,7 @@ impl Picker {
 								),
 							);
 						} else {
-							action = gif_grid(
+							let grid_action = gif_grid(
 								ui,
 								"favorites",
 								&state.gifs.favorites,
@@ -1763,6 +1803,9 @@ impl Picker {
 								demo,
 								hovered,
 							);
+							if grid_action.is_some() {
+								action = grid_action;
+							}
 						}
 					}
 					GifMode::Waiting => {
@@ -2083,7 +2126,7 @@ fn gif_grid(
 				if !ui.is_rect_visible(rect) {
 					continue;
 				}
-				let id = ui.scope_id().with(("gif", &gif.id));
+				let id = ui.scope_id().with(("gif", &gif.url));
 				let response = ui.interact(rect, id, egui::Sense::click());
 				let star_rect = egui::Rect::from_min_size(
 					egui::pos2(rect.right() - 32.0, rect.top() + 6.0),
@@ -2092,7 +2135,15 @@ fn gif_grid(
 				let favorite = state.is_gif_favorite(gif);
 				let lifted = response.hovered() || response.has_focus();
 				let star = if lifted || favorite {
-					Some(ui.interact(star_rect, id.with("star"), egui::Sense::click()))
+					Some(ui.interact(
+						star_rect,
+						id.with("star"),
+						if state.gifs.sync_pending.is_none() {
+							egui::Sense::click()
+						} else {
+							egui::Sense::hover()
+						},
+					))
 				} else {
 					None
 				};
@@ -2137,7 +2188,7 @@ fn gif_grid(
 					star.widget_info(|| {
 						egui::WidgetInfo::selected(
 							egui::Role::CheckBox,
-							true,
+							state.gifs.sync_pending.is_none(),
 							favorite,
 							crate::i18n::translate("emoji-picker-gif-grid-favorite"),
 						)
@@ -2243,6 +2294,55 @@ fn cell(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn gif_favorite_loading_is_single_flight_and_video_placeholders_never_request_media() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		let video = model::Gif {
+			id: "discord-video".into(),
+			title: "Synthetic video favorite".into(),
+			url: "https://tenor.com/view/synthetic-video".into(),
+			preview: "https://media.tenor.com/synthetic/video.mp4".into(),
+			width: 300,
+			height: 200,
+		};
+		state.restore_gif_favorites(vec![video.clone()]);
+		let mut picker = Picker {
+			open: true,
+			channel: Some(channel),
+			generation: state.generation,
+			tab: Tab::Gifs,
+			gif_section: GifSection::Favorites,
+			..Default::default()
+		};
+		let mut avatars = Avatars::default();
+		let mut commands = Vec::new();
+		for _ in 0..3 {
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(800.0, 800.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					picker.show(ui, &mut state, channel, &mut avatars, &mut commands);
+				},
+			)
+			.drop_without_applying_deltas();
+		}
+		assert!(matches!(
+			&commands[..],
+			[Command::GifFavorites { change: None, .. }]
+		));
+		assert!(avatars.take_requests().is_empty());
+		assert!(!state.toggle_gif_favorite(&video));
+		assert!(state.is_gif_favorite(&video));
+		assert!(avatars.gif_texture(&ctx, &video, false).is_none());
+		assert!(avatars.take_requests().is_empty());
+	}
 
 	#[test]
 	#[ignore = "release picker frame benchmark; ten warmup frames and one warmup/five measured batches"]

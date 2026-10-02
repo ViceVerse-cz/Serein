@@ -1,5 +1,7 @@
 //! User-selected files, staged to Discord's signed storage target before message creation.
 //! Paths, signed URLs and file bytes are never serialized into diagnostics or retained as drafts.
+pub mod external;
+
 use crate::{DiscordApi, Failure};
 use client_core::{Command, Event};
 use reqwest::{Method, Url};

@@ -80,6 +80,11 @@ jobs:
             image: ubuntu:26.04
             format: deb
             architecture: amd64
+          - distribution: ubuntu-26.04
+            image: ubuntu:26.04
+            format: deb
+            architecture: arm64
+            runner: ubuntu-24.04-arm
           - distribution: fedora-43
             image: fedora:43
             format: rpm
@@ -96,7 +101,7 @@ jobs:
             image: archlinux:base
             format: arch
             architecture: x86_64
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner || 'ubuntu-latest' }}
     container: ${{ matrix.image }}
     timeout-minutes: 15
     steps:
@@ -133,17 +138,12 @@ jobs:
           test -n "$PACKAGE_SIGNING_KEY" && test -n "$FINGERPRINT"
           printf '%s' "$PACKAGE_SIGNING_KEY" | gpg --batch --import
           unset PACKAGE_SIGNING_KEY
-          mkdir selected
-          for package in packages/*-Linux-"$DISTRIBUTION"-*; do
-            test -f "$package" || continue
-            cp "$package" selected/
-          done
-          python3 packaging/repositories/build.py --input selected --output site \
+          python3 packaging/repositories/build.py --input packages --release-assets --output site \
             --channel "$CHANNEL" --distribution "$DISTRIBUTION" --format "$FORMAT" \
             --architecture "$ARCHITECTURE" --key "$FINGERPRINT" --base-url "$BASE_URL"
       - uses: actions/upload-artifact@v7.0.1
         with:
-          name: signed-repository-${{ matrix.distribution }}
+          name: signed-repository-${{ matrix.distribution }}-${{ matrix.architecture }}
           path: site/
           if-no-files-found: error
           retention-days: 14
