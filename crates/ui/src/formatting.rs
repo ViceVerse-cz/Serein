@@ -59,6 +59,7 @@ pub fn apply(
 	style: Style,
 	range: Option<CCursorRange>,
 	remaining: usize,
+	editing: bool,
 ) -> Option<CCursorRange> {
 	let (prefix, suffix) = style.markers();
 	let count = draft.chars().count();
@@ -103,7 +104,7 @@ pub fn apply(
 
 	let wrapped = format!("{prefix}{selected}{suffix}");
 	let range = Some(CCursorRange::two(CCursor::new(start), CCursor::new(end)));
-	crate::emoji_picker::insert(draft, &wrapped, range, remaining)?;
+	crate::emoji_picker::insert(draft, &wrapped, range, remaining, editing)?;
 	let inner_start = start + prefix_len;
 	Some(CCursorRange::two(
 		CCursor::new(inner_start),
@@ -122,39 +123,57 @@ mod tests {
 	#[test]
 	fn wrapping_toggles_and_keeps_the_inner_selection() {
 		let mut draft = "say hi there".to_owned();
-		let range = apply(&mut draft, Style::Bold, selection(4, 6), 100).unwrap();
+		let range = apply(&mut draft, Style::Bold, selection(4, 6), 100, true).unwrap();
 		assert_eq!(draft, "say **hi** there");
 		assert_eq!(range.as_sorted_char_range().start.0, 6);
 		assert_eq!(range.as_sorted_char_range().end.0, 8);
-		let range = apply(&mut draft, Style::Bold, Some(range), 100).unwrap();
+		let range = apply(&mut draft, Style::Bold, Some(range), 100, true).unwrap();
 		assert_eq!(draft, "say hi there");
 		assert_eq!(range.as_sorted_char_range().start.0, 4);
 		assert_eq!(range.as_sorted_char_range().end.0, 6);
 		let mut draft = "**hi**".to_owned();
-		assert!(apply(&mut draft, Style::Bold, selection(0, 6), 100).is_some());
+		assert!(apply(&mut draft, Style::Bold, selection(0, 6), 100, true).is_some());
 		assert_eq!(draft, "hi");
 	}
 
 	#[test]
 	fn empty_caret_inserts_markers_and_code_blocks_span_lines() {
 		let mut draft = "ab".to_owned();
-		let range = apply(&mut draft, Style::Italic, selection(1, 1), 100).unwrap();
+		let range = apply(&mut draft, Style::Italic, selection(1, 1), 100, true).unwrap();
 		assert_eq!(draft, "a**b");
 		assert!(range.is_empty());
 		assert_eq!(range.primary.index.0, 2);
 		let mut draft = "console.log(\"hi\")".to_owned();
 		let end = draft.chars().count();
-		let range = apply(&mut draft, Style::CodeBlock, selection(0, end), 100).unwrap();
+		let range = apply(&mut draft, Style::CodeBlock, selection(0, end), 100, true).unwrap();
 		assert_eq!(draft, "```\nconsole.log(\"hi\")\n```");
 		assert_eq!(range.as_sorted_char_range().start.0, 4);
 		assert_eq!(range.as_sorted_char_range().end.0, 4 + end);
 	}
 
 	#[test]
+	fn quiet_formatting_fits_full_payload_but_literal_edits_keep_their_limit() {
+		let mut quiet = format!("@silent {}", "x".repeat(client_core::MAX_CONTENT - 4));
+		let end = quiet.chars().count();
+		assert!(apply(&mut quiet, Style::Bold, selection(end - 1, end), 64, false).is_some());
+		assert!(model::message_options::valid(
+			&quiet,
+			client_core::MAX_CONTENT,
+			false
+		));
+		assert_eq!(quiet.chars().count(), client_core::MAX_CONTENT + 8);
+		let mut literal = format!("@silent {}", "x".repeat(client_core::MAX_CONTENT - 8));
+		let original = literal.clone();
+		let end = literal.chars().count();
+		assert!(apply(&mut literal, Style::Bold, selection(end - 1, end), 64, true).is_none());
+		assert_eq!(literal, original);
+	}
+
+	#[test]
 	fn budget_overflow_leaves_the_draft_unchanged() {
 		let mut draft = "x".to_owned();
 		draft.shrink_to_fit();
-		assert!(apply(&mut draft, Style::Bold, selection(0, 1), 0).is_none());
+		assert!(apply(&mut draft, Style::Bold, selection(0, 1), 0, true).is_none());
 		assert_eq!(draft, "x");
 	}
 }

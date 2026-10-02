@@ -328,6 +328,42 @@ impl RolesUi {
 	) {
 		self.sync(state, guild);
 		ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
+		if self.selected.is_none() {
+			design::page_header(
+				ui,
+				"server-roles-list-roles",
+				Some(
+					"server-roles-list-use-roles-to-group-your-server-members-and-assign-permissions",
+				),
+				|ui| {
+					if state.can_create_guild_role(guild)
+						&& ui
+							.add_enabled_ui(
+								!state.server_admin.pending && !state.server_admin.needs_refresh,
+								|ui| {
+									design::button(
+										ui,
+										"server-roles-list-create-role",
+										design::ButtonKind::Primary,
+									)
+								},
+							)
+							.inner
+							.clicked()
+					{
+						self.creating = Self::dispatch(
+							state,
+							guild,
+							Action::Create(Edit {
+								name: Some("new role".into()),
+								..Edit::default()
+							}),
+							commands,
+						);
+					}
+				},
+			);
+		}
 		if let Some(error) = state.server_admin.error.or(self.error) {
 			design::notice(ui, design::Level::Error, error);
 			if ui
@@ -377,72 +413,23 @@ impl RolesUi {
 		commands: &mut Vec<Command>,
 	) {
 		let colors = design::palette(ui);
-		ui.label(design::semibold(
-			ui,
-			crate::i18n::translate("server-roles-list-roles"),
-			22.0,
-		));
-		ui.label(crate::i18n::translate(
-			"server-roles-list-use-roles-to-group-your-server-members-and-assign-permissions",
-		));
-		ui.add_space(20.0);
 		let width = ui.available_width();
-		if ui
-			.add_sized(
-				[width, 76.0],
-				egui::Button::new(
-					RichText::new(crate::i18n::translate(
-						"server-roles-list-default-permissions-everyone-applies-to-all-server-members",
-					))
-					.size(16.0),
-				)
-				.right_text("›")
-				.fill(colors.raised)
-				.corner_radius(10),
-			)
-			.clicked()
-		{
+		if default_permissions_card(ui, width).clicked() {
 			self.switch(Some(guild), guild);
 		}
 		ui.add_space(24.0);
-		ui.horizontal(|ui| {
-			ui.add(
-				egui::TextEdit::singleline(&mut self.search)
-					.hint_text(crate::i18n::translate("server-roles-list-search-roles"))
-					.char_limit(100)
-					.desired_width((width - 128.0).max(60.0))
-					.margin(egui::vec2(12.0, 10.0)),
-			);
-			if state.can_create_guild_role(guild)
-				&& ui
-					.add_enabled_ui(
-						!state.server_admin.pending && !state.server_admin.needs_refresh,
-						|ui| {
-							design::button(
-								ui,
-								&crate::i18n::translate("server-roles-list-create-role"),
-								design::ButtonKind::Primary,
-							)
-						},
-					)
-					.inner
-					.clicked()
-			{
-				self.creating = Self::dispatch(
-					state,
-					guild,
-					Action::Create(Edit {
-						name: Some("new role".into()),
-						..Edit::default()
-					}),
-					commands,
-				);
-			}
-		});
-		ui.label(crate::i18n::translate(
+		ui.add(
+			egui::TextEdit::singleline(&mut self.search)
+				.hint_text(crate::i18n::translate("server-roles-list-search-roles"))
+				.char_limit(100)
+				.desired_width(width)
+				.margin(egui::vec2(12.0, 10.0)),
+		);
+		design::hint(
+			ui,
 			"server-roles-list-members-use-the-color-of-the-highest-role-they-have",
-		));
-		ui.add_space(28.0);
+		);
+		ui.add_space(20.0);
 		let Some(catalog) = &state.server_admin.roles else {
 			return;
 		};
@@ -1624,6 +1611,60 @@ fn permissions(
 			);
 		}
 	}
+}
+
+/// The @everyone entry above the role list: a raised card with a title, muted detail and a
+/// chevron, clickable as one button.
+fn default_permissions_card(ui: &mut egui::Ui, width: f32) -> egui::Response {
+	let text = crate::i18n::translate(
+		"server-roles-list-default-permissions-everyone-applies-to-all-server-members",
+	);
+	let (title, detail) = text
+		.split_once('\n')
+		.map_or((text.trim(), ""), |(title, detail)| {
+			(title.trim(), detail.trim())
+		});
+	let p = design::palette(ui);
+	let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 68.0), egui::Sense::click());
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &text));
+	let hot = response.hovered() || response.has_focus();
+	let painter = ui.painter();
+	painter.rect(
+		rect,
+		8,
+		if hot { p.hover } else { p.raised },
+		egui::Stroke::new(1.0, if hot { p.accent } else { p.border }),
+		egui::StrokeKind::Inside,
+	);
+	let icon = egui::Rect::from_center_size(
+		rect.left_center() + egui::vec2(32.0, 0.0),
+		egui::Vec2::splat(20.0),
+	);
+	icons::paint(painter, icons::Icon::People, icon, p.muted);
+	let text_width = (width - 112.0).max(40.0);
+	let title = painter.layout(
+		title.to_owned(),
+		egui::FontId::new(15.0, design::medium_family(ui.ctx())),
+		p.text_strong,
+		text_width,
+	);
+	let detail = painter.layout(
+		detail.to_owned(),
+		egui::FontId::proportional(13.0),
+		p.muted,
+		text_width,
+	);
+	let top = rect.center().y - (title.size().y + 2.0 + detail.size().y) / 2.0;
+	let left = rect.left() + 60.0;
+	let title_height = title.size().y;
+	painter.galley(egui::pos2(left, top), title, p.text_strong);
+	painter.galley(egui::pos2(left, top + title_height + 2.0), detail, p.muted);
+	let chevron = egui::Rect::from_center_size(
+		rect.right_center() - egui::vec2(28.0, 0.0),
+		egui::Vec2::splat(16.0),
+	);
+	icons::paint(painter, icons::Icon::ChevronRight, chevron, p.muted);
+	response
 }
 
 #[cfg(test)]

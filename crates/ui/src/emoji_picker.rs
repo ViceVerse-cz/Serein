@@ -8,12 +8,22 @@ const NAMES: &str = include_str!("../../../assets/twemoji/names.tsv");
 const DISCORD_NAMES: &str = include_str!("../../../assets/twemoji/discord-shortcodes.tsv");
 const CELL: f32 = 40.0;
 
+pub(crate) fn composer_limit(draft: &str, editing: bool) -> usize {
+	client_core::MAX_CONTENT
+		+ if !editing && model::message_options::content(draft).1 {
+			model::message_options::PREFIX_ALLOWANCE
+		} else {
+			0
+		}
+}
+
 /// Replace the composer's scalar-index selection without exceeding its character or RAM budget.
 pub(crate) fn insert(
 	draft: &mut String,
 	text: &str,
 	range: Option<egui::text::CCursorRange>,
 	remaining: usize,
+	editing: bool,
 ) -> Option<usize> {
 	let count = draft.chars().count();
 	let (start, end) = range.map_or((count, count), |range| {
@@ -21,7 +31,7 @@ pub(crate) fn insert(
 		(range.start.0.min(count), range.end.0.min(count))
 	});
 	let inserted = text.chars().count();
-	if count - (end - start) + inserted > client_core::MAX_CONTENT {
+	if count - (end - start) + inserted > composer_limit(draft, editing) {
 		return None;
 	}
 	let byte_start = draft
@@ -58,6 +68,7 @@ pub(crate) fn complete_shortcode(
 	draft: &mut String,
 	cursor: usize,
 	remaining: usize,
+	editing: bool,
 ) -> Option<usize> {
 	let end = draft
 		.char_indices()
@@ -95,6 +106,7 @@ pub(crate) fn complete_shortcode(
 			egui::text::CCursor::new(cursor),
 		)),
 		remaining,
+		editing,
 	)
 }
 
@@ -3266,15 +3278,45 @@ mod tests {
 	}
 
 	#[test]
+	fn quiet_insertions_keep_full_payload_limit_without_extending_literal_edits() {
+		let mut quiet = format!("@silent {}", "x".repeat(client_core::MAX_CONTENT - 1));
+		assert!(insert(&mut quiet, "🙂", None, 64, false).is_some());
+		assert!(model::message_options::valid(
+			&quiet,
+			client_core::MAX_CONTENT,
+			false
+		));
+		let full = quiet.clone();
+		assert!(insert(&mut quiet, "x", None, 64, false).is_none());
+		assert_eq!(quiet, full);
+		let mut literal = format!("@silent {}", "x".repeat(client_core::MAX_CONTENT - 8));
+		let original = literal.clone();
+		assert!(insert(&mut literal, "🙂", None, 64, true).is_none());
+		assert_eq!(literal, original);
+		let mut shortcode = format!(
+			"@silent {} :heart:",
+			"x".repeat(client_core::MAX_CONTENT - 8)
+		);
+		let cursor = shortcode.chars().count();
+		assert!(complete_shortcode(&mut shortcode, cursor, 64, false).is_some());
+		assert!(shortcode.ends_with("❤️"));
+		assert!(model::message_options::valid(
+			&shortcode,
+			client_core::MAX_CONTENT,
+			false
+		));
+	}
+
+	#[test]
 	fn insertion_replaces_unicode_selection_and_respects_character_and_capacity_budgets() {
 		use egui::text::{CCursor, CCursorRange};
 		let mut draft = "前👩🏽‍💻後".to_owned();
 		let selection = Some(CCursorRange::two(CCursor::new(5), CCursor::new(1)));
-		assert_eq!(insert(&mut draft, "❤️", selection, 0), Some(3));
+		assert_eq!(insert(&mut draft, "❤️", selection, 0, true), Some(3));
 		assert_eq!(draft, "前❤️後");
 		let markup = "<a:party_blob:123456789>";
 		assert_eq!(
-			insert(&mut draft, markup, None, 100),
+			insert(&mut draft, markup, None, 100, true),
 			Some(4 + markup.len())
 		);
 		assert_eq!(draft, format!("前❤️後{markup}"));
@@ -3284,22 +3326,23 @@ mod tests {
 				&mut draft,
 				"😀",
 				Some(CCursorRange::one(CCursor::new(usize::MAX))),
-				100
+				100,
+				true
 			),
 			Some(end + 1)
 		);
 		assert!(draft.ends_with("😀"));
 
 		let mut draft = "a".repeat(client_core::MAX_CONTENT);
-		assert_eq!(insert(&mut draft, "😀", None, 100), None);
+		assert_eq!(insert(&mut draft, "😀", None, 100, true), None);
 		assert_eq!(draft.len(), client_core::MAX_CONTENT);
 		let mut draft = String::new();
-		assert_eq!(insert(&mut draft, "😀", None, 3), None);
+		assert_eq!(insert(&mut draft, "😀", None, 3, true), None);
 		assert!(draft.is_empty());
-		assert_eq!(insert(&mut draft, "😀", None, 4), Some(1));
+		assert_eq!(insert(&mut draft, "😀", None, 4, true), Some(1));
 		assert_eq!(draft.capacity(), 4);
 		let selection = Some(CCursorRange::two(CCursor::new(0), CCursor::new(1)));
-		assert_eq!(insert(&mut draft, "👍", selection, 0), Some(1));
+		assert_eq!(insert(&mut draft, "👍", selection, 0, true), Some(1));
 		assert_eq!(draft, "👍");
 		assert_eq!(draft.capacity(), 4);
 	}

@@ -2457,8 +2457,6 @@ server-admin-emojis-image = Obrázek
 # Context: emojis
 server-admin-emojis-name = Jméno
 # Context: emojis
-server-admin-emojis-none = ŽÁDNÝ
-# Context: emojis
 server-admin-emojis-preparing-emoji-images = Příprava obrázků emodži...
 # Context: emojis
 server-admin-emojis-remove = Odstranit
@@ -2552,8 +2550,6 @@ server-admin-members-recent-members = Nedávní členové
 server-admin-members-search-by-username-or-id = Vyhledávejte podle uživatelského jména nebo ID
 # Context: members
 server-admin-members-server-members = Členové serveru
-# Context: members
-server-admin-members-show-members-in-channel-list = Zobrazit členy v seznamu kanálů
 # Context: members
 server-admin-members-show-the-members-page-in-the-channel-list-to-quickly = Zobrazte stránku členů v seznamu kanálů, abyste rychle viděli poslední připojení a členy označené kvůli neobvyklé aktivitě.
 # Context: members
@@ -4405,6 +4401,8 @@ public-upload-error-conversation = Před veřejným nahráním se vraťte do pů
 public-upload-error-selection = Výběr se změnil; před veřejným nahráním znovu zkontrolujte soubor
 public-upload-error-missing = Před veřejným nahráním znovu vyberte soubor
 
+voice-call-moved-to-another-client = Relace hovoru na tomto zařízení byla nahrazena
+
 # Synchronizované oblíbené GIFy (neoficiální nastavení účtu).
 gif-favorites-sync-loading = Synchronizuji oblíbené…
 gif-favorites-sync-ready = Oblíbené z Discordu a místní
@@ -4414,3 +4412,83 @@ gif-favorites-sync-help = Místní oblíbené zůstávají místní, dokud nezm�
 gif-favorites-sync-failed = Synchronizace selhala; místní oblíbené zůstávají. Před další změnou obnovte seznam.
 gif-favorites-sync-unsupported = Oblíbené na Discordu nejsou podporované nebo překračují bezpečný limit.
 gif-favorites-sync-unconfirmed = Změna nebyla potvrzena. Před opakováním obnovte seznam.
+
+server-settings-page-safety = Bezpečnost
+
+server-settings-nav-title = Nastavení serveru
+
+server-settings-safety-subtitle = Určete, kdo může na tomto serveru psát a která média Discord kontroluje kvůli explicitnímu obsahu.
+
+server-settings-safety-community-note = Komunitní servery vyžadují alespoň nízkou úroveň ověření a kontrolu médií od všech členů.
+
+server-settings-safety-verification = Úroveň ověření
+
+server-settings-safety-verification-help = Členové musí splnit tato kritéria, než budou moci psát do textových kanálů nebo zahájit přímou zprávu.
+
+server-settings-safety-verification-none = Žádná
+
+server-settings-safety-verification-none-detail = Bez omezení
+
+server-settings-safety-verification-low = Nízká
+
+server-settings-safety-verification-low-detail = Musí mít na účtu Discord ověřený e-mail.
+
+server-settings-safety-verification-medium = Střední
+
+server-settings-safety-verification-medium-detail = Musí být také registrováni na Discordu déle než 5 minut.
+
+server-settings-safety-verification-high = Vysoká
+
+server-settings-safety-verification-high-detail = Musí být také členy tohoto serveru déle než 10 minut.
+
+server-settings-safety-verification-highest = Nejvyšší
+
+server-settings-safety-verification-highest-detail = Musí mít na účtu Discord ověřený telefon.
+
+server-settings-safety-filter = Filtr explicitního obsahu médií
+
+server-settings-safety-filter-help = Automaticky rozpoznávat a blokovat média na tomto serveru, která mohou obsahovat explicitní obsah.
+
+server-settings-safety-filter-disabled = Nekontrolovat žádná média
+
+server-settings-safety-filter-no-roles = Kontrolovat média od členů bez role
+
+server-settings-safety-filter-all = Kontrolovat média od všech členů
+
+server-settings-profile-form-banner-custom = Vlastní barva
+
+server-settings-profile-form-banner-custom-help = Vyberte předvolbu výše nebo libovolnou barvu banneru.
+
+server-settings-profile-server-id = ID serveru
+
+server-settings-profile-server-id-help = Toto ID použijte s boty, moderačními nástroji a žádostmi o podporu.
+
+server-settings-profile-copy-id = Kopírovat ID
+
+server-settings-engagement-system-welcome = Poslat náhodnou uvítací zprávu, když se někdo připojí k serveru.
+
+server-settings-engagement-system-welcome-sticker = Vyzvat členy, aby na uvítací zprávy odpověděli nálepkou.
+
+server-settings-engagement-system-boost = Poslat zprávu, když někdo boostne tento server.
+
+server-settings-engagement-system-tips = Posílat užitečné tipy k nastavení serveru.
+
+server-invites-header-subtitle = Sdílejte odkazy, přes které se lidé mohou připojit k tomuto serveru.
+
+server-audit-log-header-subtitle = Záznam moderačních zásahů a změn nastavení na tomto serveru.
+
+server-audit-log-empty-detail = Zkuste jiného uživatele nebo akci, nebo obnovte a zkontrolujte nové události.
+
+server-members-header-subtitle = Prohlížejte, vyhledávejte a spravujte lidi na tomto serveru.
+
+server-members-show-in-channel-list = Zobrazit členy v seznamu kanálů
+
+server-emoji-section-static = Statické emoji
+
+server-emoji-empty-static = Zatím žádné emoji
+
+server-emoji-empty-animated = Zatím žádné animované emoji
+
+server-emoji-empty-detail = Nahrajte obrázek a přidejte ho. Z GIFů se stanou animované emoji.
+
+server-stickers-empty-detail = Nahrajte obrázek a přidejte svou první nálepku.

@@ -5407,6 +5407,7 @@ impl Desktop {
 				}
 				_ => {}
 			}
+			let takeover_notice = voice::takeover_notice(&self.state, &event.event);
 			let voice_failure = self.voice.observe(&self.state, &mut event.event);
 			let ready = event.event.ready_navigation().is_some();
 			let resumed = matches!(event.event, Event::Resumed);
@@ -5495,6 +5496,11 @@ impl Desktop {
 				self.extensions.access_changed(&mut self.messaging);
 			}
 			self.state.apply(event);
+			if let Some(message) = takeover_notice {
+				self.messaging
+					.toasts
+					.push(ui::design::Level::Info, ui::i18n::translate(message));
+			}
 			self.extensions.data_changed(data_changes);
 			self.extensions.cancel_stale_message_events(&self.state);
 			for candidate in extension_events {

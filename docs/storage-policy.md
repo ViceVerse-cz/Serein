@@ -480,7 +480,7 @@ rows, drafts and settings are retained; older binaries with a lower schema ceili
 reopen the upgraded cache. No unpublished reply-navigation metadata is included.
 
 Reading/layout settings use one application-wide SQLite singleton: integer display
-scale 80..150 percent, sidebar width 190..360 logical points, wide-layout People visibility,
+scale 50..150 percent, sidebar width 190..360 logical points, wide-layout People visibility,
 GIF animation, media-link hiding, external-link confirmation and smooth scrolling, plus
 scrolling speed (25–300 percent, default 100). Schema 24 adds the checked speed column
 transactionally; existing settings keep their prior speed.
@@ -1491,6 +1491,11 @@ tooltip descriptor. Background voice/tray logic runs once per event tick; active
 calls request a 50 ms repaint. These ticks neither open audio devices nor create
 new network payloads.
 
+Reading zoom is constrained to 50–150%. Schema 26 rebuilds the fixed-size reading
+preferences table in the existing migration transaction, preserving all saved choices
+while widening the former 80% lower limit. Older clients reject schema 26 rather than
+loading a zoom value outside their supported range.
+
 ## Explicit public attachment hosting (October 2, 2026)
 
 Catbox consent and results retain one session-only filename (256 bytes), file index/key,
@@ -1512,3 +1517,30 @@ Failed or cancelled transfers may leave remotely hosted data without a recoverab
 URL. Serein cannot delete anonymous hosted files or erase them on logout. The consent
 states public access, unchanged embedded metadata and the service's current two-year
 inactivity retention; these are remote-host policy, not application cleanup guarantees.
+
+## Voice session takeover identity
+
+The main Gateway retains at most one validated 2 KiB owner voice-session identity,
+in the existing redacted, zeroizing `voice::Secret` type. It is session-only, released
+on takeover, acknowledged hangup, channel invalidation or fresh Gateway login, and
+preserved during Gateway Resume for an active call. A pending manual departure temporarily owns the
+same identity so a replacement client session can release its old departure barrier.
+It is never written to diagnostics or persistent caches. A takeover
+notice contains only channel/request IDs, so it adds no credential payload to the UI.
+The desktop dispatcher retains one latest fixed channel/request invalidation in a
+watch, clears only the matching call ownership, and cancels its initial ring worker.
+Queued commands recheck this invalidation before dispatch; the worker also waits
+for it alongside HTTP so a takeover cancels the pending operation before the UI
+reduces it.
+Watch metadata is additional; no invalidation history or growing queue is retained.
+
+Negotiation confirmation retains one bounded Gateway server record (a redacted,
+zeroizing token of at most 2,048 bytes and an optional endpoint of at most 512 bytes)
+to deduplicate credential changes. One `u64` candidate revision covers the current
+session/token/endpoint and crosses only the existing bounded command/event queues;
+it is not a Discord session ID and has no persistence. Until scoped transport
+confirmation is acknowledged, the desktop keeps one extra pending credential set
+(session and token at most 2,048 bytes each, endpoint at most 512 bytes) for local
+replacement behind the existing audio retirement fence. It keeps the original
+30-second deadline and zeroizes that set on confirmation, cancellation or failure
+teardown. Failed candidates do not spawn retries until credentials actually change.
