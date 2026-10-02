@@ -1,7 +1,7 @@
 //! Native V4L2 single-plane streaming; no capture helper process or recording.
 #![allow(unsafe_code)]
 
-use super::{DeviceList, FRAME_INTERVAL, HEIGHT, Shared, WIDTH};
+use super::{DeviceList, FRAME_INTERVAL, HEIGHT, Shared, WIDTH, format};
 use image::{ImageDecoder, codecs::jpeg::JpegDecoder};
 use std::{
 	fs::{File, OpenOptions},
@@ -51,6 +51,17 @@ struct Pixels {
 	ycbcr: u32,
 	quantization: u32,
 	transfer: u32,
+}
+
+// v4l2_streamparm: type followed by the 200-byte capture/output union.
+#[repr(C)]
+struct StreamParameters {
+	kind: u32,
+	capability: u32,
+	mode: u32,
+	numerator: u32,
+	denominator: u32,
+	rest: [u32; 46],
 }
 
 #[repr(C)]
@@ -158,18 +169,24 @@ impl Drop for Capture {
 }
 
 fn validate_format(pixels: Pixels) -> Result<Pixels, &'static str> {
-	if pixels.width != WIDTH as u32
-		|| pixels.height != HEIGHT as u32
+	if format::rank(
+		pixels.width as usize,
+		pixels.height as usize,
+		f64::from(format::FPS),
+	)
+	.is_none()
 		|| pixels.field != 1
 		|| pixels.size == 0
 		|| pixels.size as usize > MAX_FRAME_BYTES
 	{
-		return Err("Camera does not support bounded progressive 640×480 capture");
+		return Err("Camera does not support bounded progressive capture up to 1280×720");
 	}
 	match pixels.format {
 		MJPEG => {}
-		YUYV if (WIDTH * 2..=WIDTH * 2 + 4096).contains(&(pixels.stride as usize))
-			&& pixels.stride as usize * HEIGHT <= pixels.size as usize
+		YUYV if pixels.width.is_multiple_of(2)
+			&& (pixels.width as usize * 2..=pixels.width as usize * 2 + 4096)
+				.contains(&(pixels.stride as usize))
+			&& pixels.stride as usize * pixels.height as usize <= pixels.size as usize
 			&& matches!(pixels.ycbcr, 0..=2)
 			&& (pixels.ycbcr != 0 || matches!(pixels.colorspace, 0 | 1 | 3 | 7 | 8))
 			&& matches!(pixels.quantization, 0..=2) => {}
@@ -192,9 +209,36 @@ fn capabilities(file: &File) -> Result<Capability, &'static str> {
 	Ok(capabilities)
 }
 
+/// Ask the driver for its closest rate; read its effective interval on fixed-rate devices.
+fn configure_interval(file: &File) -> Result<Option<f64>, &'static str> {
+	let mut timing = StreamParameters {
+		kind: CAPTURE,
+		capability: 0,
+		mode: 0,
+		numerator: 1,
+		denominator: format::FPS,
+		rest: [0; 46],
+	};
+	if let Err(error) = control(file, 22, &mut timing) {
+		if !matches!(error.raw_os_error(), Some(libc::EINVAL | libc::ENOTTY)) {
+			return Err("Camera frame rate could not be configured");
+		}
+		timing.numerator = 0;
+		timing.denominator = 0;
+		if control(file, 21, &mut timing).is_err() {
+			return Ok(None);
+		}
+	}
+	Ok(effective_fps(timing.numerator, timing.denominator))
+}
+
+fn effective_fps(numerator: u32, denominator: u32) -> Option<f64> {
+	(numerator != 0 && denominator != 0).then(|| f64::from(denominator) / f64::from(numerator))
+}
+
 fn configure(file: File) -> Result<Capture, &'static str> {
 	capabilities(&file)?;
-	let mut negotiated = Err("Camera does not support 640×480 YUYV or MJPEG capture");
+	let mut choices = Vec::with_capacity(2);
 	for format in [YUYV, MJPEG] {
 		let mut request = Format {
 			kind: CAPTURE,
@@ -208,10 +252,34 @@ fn configure(file: File) -> Result<Capture, &'static str> {
 			colorspace: 1,
 			..Pixels::default()
 		};
+		if control(&file, 64, &mut request).is_err() || control(&file, 5, &mut request).is_err() {
+			continue;
+		}
+		// SAFETY: CAPTURE selects the pixels member, including driver adjustments.
+		if let Ok(pixels) = validate_format(unsafe { request.data.pixels }) {
+			let fps = configure_interval(&file)?;
+			if let Some(mut rank) = format::rank(
+				pixels.width as usize,
+				pixels.height as usize,
+				fps.unwrap_or(f64::from(format::FPS)),
+			) {
+				// Drivers without interval metadata rank after measured rates at the same size.
+				if fps.is_none() {
+					rank.1 = u64::MAX;
+				}
+				choices.push((rank, request));
+			}
+		}
+	}
+	choices.sort_by_key(|(rank, _)| *rank);
+	let mut negotiated = Err("Camera does not support YUYV or MJPEG capture up to 1280×720");
+	for (_, mut request) in choices {
 		if control(&file, 5, &mut request).is_ok() {
-			// SAFETY: CAPTURE selects the pixels member of v4l2_format.
+			// SAFETY: CAPTURE selects the pixels member, including driver adjustments.
 			negotiated = validate_format(unsafe { request.data.pixels });
 			if negotiated.is_ok() {
+				// S_FMT may reset timing. Reapply only after selecting the final native format.
+				configure_interval(&file)?;
 				break;
 			}
 		}
@@ -424,32 +492,33 @@ pub(super) fn run(
 
 fn decode(bytes: &[u8], pixels: Pixels) -> Result<Vec<u8>, &'static str> {
 	validate_format(pixels)?;
+	let (width, height) = (pixels.width as usize, pixels.height as usize);
 	if bytes.is_empty() || bytes.len() > MAX_FRAME_BYTES || bytes.len() > pixels.size as usize {
 		return Err("Camera frame exceeds bounds");
 	}
 	if pixels.format == MJPEG {
 		let mut decoder =
 			JpegDecoder::new(Cursor::new(bytes)).map_err(|_| "Camera JPEG header is invalid")?;
-		if decoder.dimensions() != (WIDTH as u32, HEIGHT as u32)
+		if decoder.dimensions() != (pixels.width, pixels.height)
 			|| decoder.color_type() != image::ColorType::Rgb8
 		{
-			return Err("Camera JPEG is not a 640×480 RGB image");
+			return Err("Camera JPEG does not match the negotiated RGB dimensions");
 		}
 		let mut limits = image::Limits::default();
-		limits.max_image_width = Some(WIDTH as u32);
-		limits.max_image_height = Some(HEIGHT as u32);
+		limits.max_image_width = Some(pixels.width);
+		limits.max_image_height = Some(pixels.height);
 		limits.max_alloc = Some(MAX_FRAME_BYTES as u64);
 		decoder
 			.set_limits(limits)
 			.map_err(|_| "Camera JPEG exceeds decode bounds")?;
-		let mut rgb = vec![0; WIDTH * HEIGHT * 3];
+		let mut rgb = vec![0; width * height * 3];
 		decoder
 			.read_image(&mut rgb)
 			.map_err(|_| "Camera JPEG could not be decoded")?;
-		return Ok(rgb);
+		return fit_rgb(rgb, pixels);
 	}
 	let stride = pixels.stride as usize;
-	if bytes.len() < stride * (HEIGHT - 1) + WIDTH * 2 {
+	if bytes.len() < stride * (height - 1) + width * 2 {
 		return Err("Camera YUYV frame is truncated");
 	}
 	let rec709 = pixels.ycbcr == 2 || (pixels.ycbcr == 0 && pixels.colorspace == 3);
@@ -460,12 +529,9 @@ fn decode(bytes: &[u8], pixels: Pixels) -> Result<Vec<u8>, &'static str> {
 		(false, true) => (256, 0, 359, 88, 183, 454),
 		(true, true) => (256, 0, 403, 48, 120, 475),
 	};
-	let mut rgb = vec![0; WIDTH * HEIGHT * 3];
-	for (source, target) in bytes
-		.chunks(stride)
-		.zip(rgb.as_chunks_mut::<{ WIDTH * 3 }>().0)
-	{
-		for (pair, output) in source[..WIDTH * 2]
+	let mut rgb = vec![0; width * height * 3];
+	for (source, target) in bytes.chunks(stride).zip(rgb.chunks_exact_mut(width * 3)) {
+		for (pair, output) in source[..width * 2]
 			.as_chunks::<4>()
 			.0
 			.iter()
@@ -484,7 +550,26 @@ fn decode(bytes: &[u8], pixels: Pixels) -> Result<Vec<u8>, &'static str> {
 			}
 		}
 	}
-	Ok(rgb)
+	fit_rgb(rgb, pixels)
+}
+
+fn fit_rgb(rgb: Vec<u8>, pixels: Pixels) -> Result<Vec<u8>, &'static str> {
+	if pixels.width == WIDTH as u32 && pixels.height == HEIGHT as u32 {
+		return Ok(rgb);
+	}
+	let source = image::RgbImage::from_raw(pixels.width, pixels.height, rgb)
+		.ok_or("Camera RGB dimensions are invalid")?;
+	let fitted = image::DynamicImage::ImageRgb8(source)
+		.thumbnail(WIDTH as u32, HEIGHT as u32)
+		.into_rgb8();
+	let mut output = image::RgbImage::new(WIDTH as u32, HEIGHT as u32);
+	image::imageops::replace(
+		&mut output,
+		&fitted,
+		i64::from((WIDTH as u32 - fitted.width()) / 2),
+		i64::from((HEIGHT as u32 - fitted.height()) / 2),
+	);
+	Ok(output.into_raw())
 }
 
 #[cfg(test)]
@@ -580,8 +665,34 @@ mod tests {
 	}
 
 	#[test]
+	fn native_intervals_and_nonmatching_frames_stay_bounded() {
+		assert_eq!(effective_fps(1, 15), Some(15.0));
+		assert_eq!(effective_fps(1001, 30000), Some(30000.0 / 1001.0));
+		assert_eq!(effective_fps(0, 15), None);
+		assert_eq!(effective_fps(1, 0), None);
+		let pixels = Pixels {
+			width: 1280,
+			height: 720,
+			format: MJPEG,
+			field: 1,
+			size: MAX_FRAME_BYTES as u32,
+			..Pixels::default()
+		};
+		assert!(validate_format(pixels).is_ok());
+		let rgb = fit_rgb(vec![255; 1280 * 720 * 3], pixels).unwrap();
+		assert_eq!(rgb.len(), WIDTH * HEIGHT * 3);
+		// 16:9 input is centered in the 4:3 encoder, keeping black bars above/below.
+		assert_eq!(&rgb[..WIDTH * 3], vec![0; WIDTH * 3]);
+		assert_eq!(
+			&rgb[(HEIGHT / 2) * WIDTH * 3..(HEIGHT / 2 + 1) * WIDTH * 3],
+			vec![255; WIDTH * 3]
+		);
+	}
+
+	#[test]
 	fn native_uapi_layouts_match_linux_headers() {
 		assert_eq!(std::mem::size_of::<Capability>(), 104);
+		assert_eq!(std::mem::size_of::<StreamParameters>(), 204);
 		assert_eq!(std::mem::size_of::<RequestBuffers>(), 20);
 		assert_eq!(std::mem::size_of::<Pixels>(), 48);
 		if cfg!(target_pointer_width = "64") {

@@ -1482,3 +1482,17 @@ Accepting Save or Remove pauses new REST client acquisition immediately, before
 the credential-store job completes. A failed deletion leaves routing paused; it
 does not resume stored credentials. In-flight requests retain their earlier
 snapshot. Rejected saves retain the credential draft until a valid job can start.
+
+## Native camera format selection
+
+Camera input selection is limited to 1280×720 except DirectShow, which preserves
+its existing bounded 1920×1080 fallback for virtual cameras, while
+encoded/preview output remains 640×480 at most 15 fps. macOS scans at most 256 native
+formats and 256 frame-rate ranges per format on its camera worker. Windows scans
+at most 256 native media types; DirectShow retains one callback frame of at most
+8,294,400 bytes and validates at most eight driver buffers of that size. Linux
+probes two pixel formats without starting capture, retains at most two candidates,
+and preserves its existing four 4-MiB mapping ceiling and 4-MiB JPEG decode limit.
+Nonmatching Linux pictures add at most 2,764,800 native RGB bytes, 921,600 fitted
+RGB bytes and 921,600 output RGB bytes. No camera files or persistent metadata
+are introduced. Native driver allocations remain outside these application limits.
