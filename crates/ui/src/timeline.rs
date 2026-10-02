@@ -298,11 +298,13 @@ fn anchor_offset(rows: &[(Id, f32)], id: Id, inset: f32) -> f32 {
 		.partition_point(|(row, _)| *row < id)
 		.min(rows.len() - 1);
 	let within = if rows[index].0 == id {
-		inset.clamp(0.0, rows[index].1.max(0.0))
+		// A short bottom-aligned page stores leading space as a negative inset.
+		// Keep that space when older rows arrive; only the final scroll offset is nonnegative.
+		inset.min(rows[index].1.max(0.0))
 	} else {
 		0.0
 	};
-	rows[..index].iter().map(|(_, height)| *height).sum::<f32>() + within
+	(rows[..index].iter().map(|(_, height)| *height).sum::<f32>() + within).max(0.0)
 }
 fn layout_key(message: &Message) -> u64 {
 	// A layout fingerprint only; spoiler visibility uses exact text instead.
@@ -4012,10 +4014,19 @@ mod tests {
 		let mut state = loading_unread_channel(false);
 		state.freshness = model::Freshness::Fresh;
 		state.history_pending = false;
+		let current_id = ((1_788_998_580_000u64 - 1_420_070_400_000) << 22) | 1;
+		let mut current = text_message(current_id);
+		current.content = "Existing synthetic message".into();
+		state.channels[0].last_message = Some(Id(current_id));
+		let older_id = current_id - (86_400_000u64 << 22);
 		state
-			.timeline
-			.insert(text_message(20), false, false)
+			.apply_read_state(client_core::read_state::Event::Snapshot {
+				entries: Some(vec![(Id(20), Some(Id(older_id)), 0)]),
+				version: Some(2),
+				partial: false,
+			})
 			.unwrap();
+		state.timeline.insert(current, false, false).unwrap();
 		assert!(state.can_load_older());
 		let ctx = egui::Context::default();
 		let mut view = TimelineView::default();
@@ -4026,6 +4037,13 @@ mod tests {
 				"idle short history must not drain older pages"
 			);
 		}
+		let initial = banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		let initial_y = initial
+			.iter()
+			.find(|(text, _)| text == "Existing synthetic message")
+			.unwrap()
+			.1
+			.top();
 		let wheel = |delta| {
 			vec![
 				egui::Event::PointerMoved(egui::pos2(400.0, 300.0)),
@@ -4058,7 +4076,23 @@ mod tests {
 			!view.load_older,
 			"pending history must suppress duplicate requests"
 		);
-		let mut older = text_message(19);
+		// End the gesture before the response so buffered wheel motion is not
+		// mistaken for history restoration. The unread boundary also stays on
+		// the existing message, rather than changing its row's chrome.
+		banner_frame(
+			&ctx,
+			&mut view,
+			&mut state,
+			vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				phase: egui::TouchPhase::End,
+				delta: egui::Vec2::ZERO,
+				modifiers: egui::Modifiers::NONE,
+			}],
+			false,
+		);
+		assert!(!view.following && view.target_browsing);
+		let mut older = text_message(older_id);
 		older.content = "Synthetic older text\n\n".repeat(40);
 		state.apply(client_core::Envelope {
 			generation: state.generation,
@@ -4077,6 +4111,17 @@ mod tests {
 				"an arriving older page must not jump to the live edge"
 			);
 		}
+		let restored = banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		let restored_y = restored
+			.iter()
+			.find(|(text, _)| text == "Existing synthetic message")
+			.unwrap()
+			.1
+			.top();
+		assert!(
+			(initial_y - restored_y).abs() <= 2.0,
+			"older history preserves the message position: {initial_y} -> {restored_y}"
+		);
 		view.follow_latest(&state);
 		assert!(
 			view.following && !view.target_browsing,
@@ -7616,6 +7661,8 @@ mod tests {
 		assert_eq!(anchor_offset(&neighbors, Id(2), 25.0), 40.0);
 		assert_eq!(anchor_offset(&neighbors, Id(5), 25.0), 140.0);
 		assert_eq!(anchor_offset(&neighbors, Id(3), 25.0), 65.0);
+		assert_eq!(anchor_offset(&neighbors, Id(3), -25.0), 15.0);
+		assert_eq!(anchor_offset(&neighbors, Id(3), -100.0), 0.0);
 		assert_eq!(anchor_offset(&neighbors, Id(3), 200.0), 140.0);
 		assert_eq!(anchor_offset(&[], Id(2), 25.0), 0.0);
 	}
