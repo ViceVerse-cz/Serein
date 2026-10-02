@@ -2,7 +2,7 @@ name: Linux packages
 
 on:
   pull_request:
-    paths: ['packaging/linux/**', 'packaging/appimage/**', 'packaging/flatpak/**', 'packaging/repositories/**', 'tools/xtask/**', '.github/workflows/linux-packages.yml', '.github/workflows/package-repositories.yml']
+    paths: ['packaging/aur/**', 'packaging/linux/**', 'packaging/appimage/**', 'packaging/flatpak/**', 'packaging/repositories/**', 'tools/xtask/**', '.github/workflows/linux-packages.yml', '.github/workflows/package-repositories.yml']
   workflow_call:
     inputs:
       release:
@@ -73,6 +73,15 @@ jobs:
             rustup show active-toolchain
             PYTHONDONTWRITEBYTECODE=1 python3 packaging/linux/test_package.py --format "$FORMAT"
             cargo xtask package --format "$FORMAT"
+            if [ "$FORMAT" = arch ]; then
+              cd packaging/aur
+              aur_metadata=$(mktemp)
+              makepkg --printsrcinfo > "$aur_metadata"
+              diff -u .SRCINFO "$aur_metadata"
+              rm "$aur_metadata"
+              makepkg --verifysource
+              makepkg --nodeps --noconfirm
+            fi
           BUILD
       - name: Collect distribution-labelled package
         env:

@@ -3151,3 +3151,24 @@ patch changes build-time string construction; Gateway, voice teardown and fuzz
 repairs affect only synthetic development tests. Runtime CPU, RSS, frame/startup
 latency and live account/audio behavior were not measured. Flatpak source-preparation repairs
 and this measurement documentation do not change the native installed payload.
+
+## AUR binary recipe payload (October 2, 2026)
+
+The local packaging pass used the published Arch x86_64 package from
+`v1.0.0-nightly.20261001.53`, verified against that release's `SHA256SUMS.txt`
+(`5efa3f71216cced0da707753b96007add5efc9bad256c390ecc020c5a238dfc5`).
+The recipe's `package()` function copied its extracted `usr` payload on this macOS
+host without installing or launching Serein. SHA-256 comparison verified all 211
+original files remained byte-identical. This is a packaging comparison against a
+verified release asset, not a new application build or runtime measurement.
+
+| Metric | Published Arch payload | AUR recipe payload | Delta / method |
+| --- | --- | --- | --- |
+| Installed regular-file bytes | 84,480,993 | 84,492,467 | +11,474 bytes (+0.0136%); sum of file sizes |
+| Regular files | 211 | 213 | +2 license copies under `usr/share/licenses/serein-bin` |
+| Executable | Existing released binary | Byte-identical | 0 bytes; SHA-256 comparison |
+| Compressed distribution | 46,847,463 bytes | Unmeasured locally | Native `makepkg` archive creation is delegated to Arch CI |
+
+No compiler options, application dependencies or runtime code changed. CPU, RSS,
+frame latency and native Arch startup were not measured. The manual AUR build
+repackages an existing binary; it does not compile Rust.

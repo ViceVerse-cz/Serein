@@ -23,7 +23,9 @@ unsigned; package-manager signature policy may require an operator-signed packag
 The [signed repository setup](../repositories/README.md) prepares apt, dnf/zypper
 and pacman repositories for normal package-manager upgrades. Hosting and signing
 credentials must be configured before those repository URLs are usable. Serein is
-not listed in distribution archives, AUR or Flathub by this change.
+not listed in distribution archives or Flathub by this change. An optional
+[AUR binary recipe](../aur/README.md) is prepared in this repository for maintainer
+submission; it does not configure a pacman repository or claim AUR publication.
 
 Native DEB, RPM and Arch packages require the GStreamer Good plugin set, which
 provides `autoaudiosink` used by WebKit. Package-manager installation pulls it in
