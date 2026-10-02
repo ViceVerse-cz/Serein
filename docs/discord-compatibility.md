@@ -2025,3 +2025,21 @@ Voter-name browsing and a custom-server-emoji creation picker are not included i
 Extension snapshots retain their existing unsupported poll contract. No live Discord account was
 used to verify normal-account interoperability. Use --demo --demo-polls for an offline preview
 and --demo --demo-check-polls for the focused synthetic debug check.
+
+## Quiet messages (`@silent`)
+
+Start a new message with `@silent` followed by whitespace to request a quiet send.
+The prefix is removed from the outgoing content and the documented
+[`SUPPRESS_NOTIFICATIONS` message flag](https://docs.discord.com/developers/resources/message#message-object-message-flags)
+(4096) is set. Discord describes this as suppressing push/desktop notifications while
+retaining notification badges. Existing mention selection and reply-mention preferences
+still apply. Ordinary text, replies, attachment captions, sticker captions and forum
+starter messages share this behavior. An attachment or sticker can use `@silent` alone;
+a text-only empty message is rejected. Embedded occurrences, `@silently`, escaped/code
+text and edits remain literal. The prefix is case-sensitive.
+
+Pending/recovery text retains the typed prefix until service confirmation so a failed
+send can be reviewed and deliberately retried with the same intent. Writes are never
+automatically replayed. The flag is documented in Discord's developer API; normal-account
+interoperability remains unofficial and live-unverified. Loopback tests inspect the
+actual outgoing JSON and do not contact Discord.
