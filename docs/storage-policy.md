@@ -1491,6 +1491,12 @@ discards its reference when the source message is removed or changed or its
 spoiler consent no longer matches. Mention recency is calculated from the
 already-loaded timeline for at most 256 candidates and is not persisted.
 
+Bundled scalable emoji retain the existing 1,024-item / 16 MiB emoji texture LRU.
+Their local-only request keys select 64, 128 or 256-pixel renditions. Each SVG has
+a 64 KiB decompression/window limit and shares the media worker’s eight decode
+permits, 1,024-item bounded requests and 128-item / 128 MiB result queue. No runtime
+network or disk cache is used for this bundled artwork, including in offline demo.
+
 ## Native camera format selection
 
 Camera input selection is limited to 1280×720 except DirectShow, which preserves
