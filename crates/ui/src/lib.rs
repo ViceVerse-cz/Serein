@@ -9,6 +9,7 @@ pub use audio::{AudioCommand, AudioState, AudioUi};
 mod video;
 pub use video::{VideoCommand, VideoState, VideoUi};
 mod attachments;
+pub mod external_upload;
 pub use attachments::DownloadUi;
 mod avatars;
 pub use avatars::media::{Lane, MAX_FRAMES, Motion, Rendition, Size, fit_edge, is_motion_video};
@@ -330,6 +331,7 @@ pub struct MessagingUi {
 	/// GPU copies of `attachment_previews`, keyed by the pixel buffer they were uploaded from.
 	attachment_textures: Vec<Option<(usize, egui::TextureHandle)>>,
 	pub attach_requested: bool,
+	pub host_attachment_requested: Option<usize>,
 	pub attachment_paste_requested: Option<AttachmentPaste>,
 	pub pasted_text: Option<(Id, egui::Id, String)>,
 	paste_key_handled: bool,
@@ -337,6 +339,7 @@ pub struct MessagingUi {
 	pub remove_attachment_requested: bool,
 	pub cancel_upload_requested: bool,
 	pub upload_busy: bool,
+	pub external_upload: external_upload::ExternalUpload,
 	/// Transient problem and progress notices. Nothing here outlives its deadline.
 	pub toasts: toasts::Toasts,
 	pending_upload: Option<pending::Upload>,
@@ -2940,7 +2943,7 @@ impl MessagingUi {
                     egui::pos2(ui.max_rect().right() + 10.0, ui.max_rect().top()),
                 );
                 if !editing_here && self.attachment.is_some() {
-                    self.attachment_tray(ui);
+                    self.attachment_tray(ui, state.can_send(channel));
                 }
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
@@ -3359,7 +3362,7 @@ impl MessagingUi {
 		}
 	}
 	/// Selected-file cards above the composer input, in the style of Discord's upload tray.
-	fn attachment_tray(&mut self, ui: &mut egui::Ui) {
+	fn attachment_tray(&mut self, ui: &mut egui::Ui, can_host: bool) {
 		let colors = design::palette(ui);
 		let textures = self.attachment_textures(ui.ctx());
 		ui.add_space(4.0);
@@ -3371,15 +3374,35 @@ impl MessagingUi {
 					ui.spacing_mut().item_spacing.x = 12.0;
 					for (index, (filename, bytes)) in files.iter().enumerate() {
 						ui.push_id(index, |ui| {
-							if attachments::pending_card(
-								ui,
-								filename,
-								*bytes,
-								textures.get(index).and_then(Option::as_ref),
-								!self.upload_busy,
-							) {
-								self.remove_attachment_index = Some(index);
-							}
+							ui.vertical(|ui| {
+								if ui
+									.scope(|ui| {
+										attachments::pending_card(
+											ui,
+											filename,
+											*bytes,
+											textures.get(index).and_then(Option::as_ref),
+											!self.upload_busy,
+										)
+									})
+									.inner
+								{
+									self.remove_attachment_index = Some(index);
+								}
+								if ui
+									.add_enabled_ui(!self.upload_busy && can_host, |ui| {
+										design::button(
+											ui,
+											"public-upload-host-file",
+											design::ButtonKind::Neutral,
+										)
+									})
+									.inner
+									.clicked()
+								{
+									self.host_attachment_requested = Some(index);
+								}
+							});
 						});
 					}
 				});
@@ -4362,6 +4385,8 @@ impl MessagingUi {
 		{
 			commands.push(command);
 		}
+		self.external_upload
+			.show(&ctx, state, &mut self.draft_changes);
 		self.search
 			.overlays(&ctx, state, &mut self.avatars, &mut commands);
 		if state.invite_challenge().is_none() {
@@ -4858,6 +4883,30 @@ mod composer_tests {
 				.iter()
 				.any(|command| matches!(command, Command::Send { .. } | Command::Edit { .. }))
 		);
+	}
+
+	#[test]
+	fn public_host_button_stays_below_attachment_card() {
+		let ctx = egui::Context::default();
+		let mut view = MessagingUi::default();
+		view.preview_attachment("synthetic.pdf", 100, None);
+		for _ in 0..2 {
+			let output = ctx.run_ui(Default::default(), |ui| view.attachment_tray(ui, true));
+			let text_rect = |label: &str| {
+				output
+					.shapes
+					.iter()
+					.find_map(|shape| match &shape.shape {
+						egui::Shape::Text(text) if text.galley.text() == label => {
+							Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
+						}
+						_ => None,
+					})
+					.unwrap()
+			};
+			assert!(text_rect("Host file…").top() > text_rect("synthetic.pdf").bottom());
+			output.drop_without_applying_deltas();
+		}
 	}
 
 	#[test]
