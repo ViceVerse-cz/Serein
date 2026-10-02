@@ -2,16 +2,21 @@
 use crate::Frame;
 use std::sync::mpsc::Receiver;
 
-#[derive(Default)]
-pub(crate) struct CapturePacer {
+pub(crate) struct CapturePacer<T = Frame> {
 	// One frame of lookahead absorbs callback/worker jitter. The input channel
-	// remains capped at eight frames: at most nine frames / 34,560 PCM bytes total.
-	pending: Option<Frame>,
+	// remains capped at eight frames: at most nine frames; at most 70 KiB for fixed stereo-capable CapturedFrame payloads.
+	pending: Option<T>,
 }
 
-impl CapturePacer {
+impl<T> Default for CapturePacer<T> {
+	fn default() -> Self {
+		Self { pending: None }
+	}
+}
+
+impl<T> CapturePacer<T> {
 	/// Local detection while alone: consume audio without retaining it for transmission.
-	pub fn preview(&mut self, input: &Receiver<Frame>) -> Option<Frame> {
+	pub fn preview(&mut self, input: &Receiver<T>) -> Option<T> {
 		self.pending = None;
 		let mut latest = None;
 		for _ in 0..8 {
@@ -23,7 +28,7 @@ impl CapturePacer {
 		latest
 	}
 
-	pub fn next(&mut self, input: &Receiver<Frame>, enabled: bool, stalled: bool) -> Option<Frame> {
+	pub fn next(&mut self, input: &Receiver<T>, enabled: bool, stalled: bool) -> Option<T> {
 		if !enabled || stalled {
 			self.pending = None;
 			for _ in 0..8 {

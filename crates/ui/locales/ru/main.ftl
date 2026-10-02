@@ -4352,6 +4352,8 @@ lib-composer-onboarding-incomplete = Завершите вступление, ч
 # Context: composer
 lib-composer-onboarding-complete = Завершить знакомство
 
+voice-stereo-input = Стереомикрофон
+voice-stereo-input-warning = Требуется двухканальный вход. Первые два канала передаются без шумоподавления, эхоподавления, автоматического усиления и порога чувствительности. Используйте наушники.
 voice-call-moved-to-another-client = Сеанс звонка на этом устройстве был заменён
 
 server-settings-page-safety = Настройка безопасности

@@ -2289,6 +2289,17 @@ impl MessagingUi {
 			device(ui, true);
 			device(ui, false);
 		}
+		ui.checkbox(
+			&mut self.voice_stereo_input,
+			crate::i18n::translate("voice-stereo-input"),
+		);
+		if self.voice_stereo_input {
+			design::notice(
+				ui,
+				design::Level::Warning,
+				&crate::i18n::translate("voice-stereo-input-warning"),
+			);
+		}
 		gain_controls(ui, &mut self.voice_gain);
 		ui.horizontal(|ui| {
 			ui.spacing_mut().item_spacing.x = 4.0;

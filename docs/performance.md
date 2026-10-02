@@ -3710,6 +3710,86 @@ unmeasured. Raw source identities, binary hashes, sizes and all samples are in
 `docs/pr-evidence/gif-favorite-sync/measurements.json`. This evidence follow-up
 changes no measured runtime source.
 
+
+## Voice confirmation queue admission — historical pre-watch comparison (October 2, 2026)
+
+Historical pre-watch feature source `9cdad91c86139543a370f3658e5f92257a9064fe` is compared with
+main `1107d9045fb9d98980d6d8e9987c96a362b4f9ab`. The standard feature package
+was built from `5724cf5be34f17a62ee1b5fc07f2cd2653be3d79`; `9cd` adds only
+`cfg(test)` live-negotiation coverage and leaves production source unchanged.
+Later main features are outside this recorded comparison. Environment: macOS
+27.0 (26A428), Apple M1 MacBookAir10,1 / 16 GiB, Rust 1.98.1, locked dependencies.
+Raw samples, source identities, binary hashes and the reducer identity proof:
+[`voice-confirmation-pressure/measurements.json`](pr-evidence/voice-confirmation-pressure/measurements.json).
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 62,154,064 B | 62,154,064 B | unchanged |
+| Installed package, 206 regular files | 68,164,493 B | 68,164,493 B | unchanged |
+| Full distribution ZIP | 43,322,199 B | 43,321,986 B | −213 B / −0.0005% |
+| Optimized native CPU, ten-sample median | 0.0% | 0.0% | 0 percentage points |
+| Optimized native peak RSS | 123,888 KiB | 124,768 KiB | +880 KiB / +0.710% |
+| Optimized settled RSS, last-five median | 123,856 KiB | 124,720 KiB | +864 KiB / +0.698% |
+| Reducer 100,000 events, alternating-five-pair median | 53.379833 ms | 52.975458 ms | −0.404375 ms / −0.758% |
+| Estimated retained timeline, 500 records | 331,992–332,477 B | 331,992–332,477 B | unchanged |
+
+Both actual standard `cargo xtask package` builds passed, including voice and
+bundled notices. The xtask internally uses `--no-default-features`; the repository
+release profile is unchanged. Deep/strict ad-hoc signature verification passed.
+Installed bytes sum regular files; ZIP uses `ditto -c -k --sequesterRsrc` over the
+complete contents without an enclosing directory. All 206 paths match, 203 hashes
+and all 199 bundled license/notice files are identical. Only the executable, regenerated
+Assets.car and ad-hoc signature metadata differ.
+
+Both optimized native executables use default-plus-demo features, FAT LTO,
+codegen-units=1 and identical `--demo --demo-chat`, with no capture hooks. Native
+Metal uses a 1120×760 logical viewport at 2× scale. A 5-second warmup precedes ten
+one-second macOS `ps` samples; settled RSS is the final-five median. All team
+compilers, tests and other native apps were paused during the matched pair, and
+both apps stopped before reducer replay. The 864 KiB settled RSS difference is
+small idle variation; no performance improvement is claimed.
+
+Reducer replay uses one warmup per binary and five alternating pairs. The
+preserved baseline was built from `3f96877f`; all 96 tracked files in its complete
+model, client-core, session-cache, test-support and replay-bench trees plus
+workspace manifests, lockfile, toolchain and Cargo configuration are byte-identical
+to main `1107d904`. Features and release profile also match. This equivalence
+applies only to the pure reducer, not the application or UI. Baseline samples span
+52.768833–53.726709 ms; after samples span 52.405167–54.155959 ms. The ranges overlap.
+These checks measure neither queue latency nor UI frames, GPU or live media.
+
+Those samples describe the older event-queue implementation only. Current
+correction `5ecd04f7fb495a1d574197eb85ad6006b4fdb5a3` changes production delivery
+to one optional fixed-size failure watch, independent of reliable account-event
+capacity. The report retains generation, channel, request, revision and a static
+diagnostic: at most 64 bytes plus fixed watch synchronization metadata. It has
+no allocated payload or credentials, retry worker or additional command slot.
+Reports remain unseen until the reliable FIFO drains; a final report survives
+publisher shutdown and is consumed once. The original 30-second negotiation
+deadline remains.
+
+The corrected source passed nine focused pressure/FIFO/closed-publisher/retirement
+regressions, strict desktop all-target lint and the full workspace check
+(174 desktop / 367 UI tests; six / five existing ignored). Its fresh standard
+package compiled all 12 runtime workspace crates after all-worktree-ID release
+invalidation, passed in 11m46s, and passed deep/strict ad-hoc signature verification.
+It contains intervening main features, so these are aggregate package sizes,
+not an isolated watch correction delta:
+
+| Current aggregate metric | Corrected source 5ecd |
+| --- | ---: |
+| Standard executable | 62,269,504 B |
+| Installed package | 68,279,933 B / 206 files |
+| Full distribution ZIP | 43,364,502 B |
+
+Old native/reducer values above are not measurements of this corrected source.
+No new layout changed, so no new screenshots were required; the existing local
+candidate-error component is used. Queue latency and physical/live media remain
+unmeasured. Current source, hashes, verification and bounds are recorded separately
+in the same measurements JSON. No live account, service call, microphone, camera
+or OS picker was used.
+
+
 ## Server settings polish and rail motion (October 2, 2026)
 
 Baseline `eab1961` and this branch were built separately with
@@ -3768,3 +3848,45 @@ unmeasured. No audio device, account, microphone or live media request was used.
 Reproduce after packaging either revision, with the same `CARGO_TARGET_DIR` used
 for that build: `python3 docs/pr-evidence/voice-attachment-playback/benchmark.py`.
 The script also accepts a baseline-worktree path as its first argument.
+
+
+## Stereo microphone input: isolated native verification (October 2, 2026)
+
+Measured source `36d26757fc69b87f2d67fdb1e3e44336c3748284` uses recorded main110 and the
+confirmation-pressure dependency `9cdad91c86139543a370f3658e5f92257a9064fe`. Its
+standard comparator uses `5724cf5be34f17a62ee1b5fc07f2cd2653be3d79`; 9cd changes
+only cfg(test) coverage. These measurements precede later main integration and
+the reliable confirmation-failure watch correction 5ecd; they are historical
+feature evidence, not measurements of the current aggregate head.
+
+On macOS 27.0 (26A428), Apple M1 / 16 GiB, Rust 1.98.1 and locked dependencies,
+the feature passed the full workspace check (170 desktop/352 UI),
+strict lint/format/policy and the standard voice-inclusive package. All 12
+runtime workspace crates were freshly compiled after all-worktree-ID release
+invalidation. The optimized default-plus-demo build immediately followed the
+same unchanged source, with normal FAT-LTO, jobs 2 and no capture hooks.
+Both packages retain 206 paths, 203 unchanged hashes and 199 unchanged notices.
+
+| Metric / method | Baseline | Feature | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 62,154,064 B | 62,170,496 B | +16,432 B /+0.0264% |
+| Installed package | 68,164,493 B | 68,180,925 B | +16,432 B /+0.0241% |
+| Distribution ZIP | 43,321,986 B | 43,333,434 B | +11,448 B /+0.0264% |
+| Idle median process CPU | 0.0 % | 0.0 % | +0.0 % |
+| Peak process RSS | 124,496 KiB | 124,736 KiB | +240 KiB /+0.1928% |
+| Settled process RSS | 124,448 KiB | 124,688 KiB | +240 KiB /+0.1929% |
+
+Native Metal at 2× scale used the same `--demo --demo-chat` workload, 5-second
+warmup and ten 1-second `ps` CPU/RSS samples per revision. Settled RSS is the
+median of the final five. All other agent compilers, native apps and heavy IO
+were held. Both apps stopped with SIGINT. Idle CPU quantization and small RSS
+differences are noise; no improvement is claimed. GPU memory, frame/startup
+latency, physical device routing/capture and normal-account compatibility are
+unmeasured. No account, microphone or output device was used.
+
+Wide and narrow native voice-settings screenshots were inspected; temporary
+capture hooks were removed byte-exactly. These demonstrate layout only; offline
+controls are disabled. Pure reducer trees and configuration are unchanged, so
+no new reducer benchmark was warranted. Actual samples, source/blob proofs,
+image/binary hashes and resource bounds are preserved in
+[`stereo-microphone/measurements.json`](pr-evidence/stereo-microphone/measurements.json).

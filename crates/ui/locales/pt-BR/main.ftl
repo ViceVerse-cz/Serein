@@ -4348,6 +4348,8 @@ lib-composer-onboarding-incomplete = Conclua a entrada neste servidor para desbl
 # Context: composer
 lib-composer-onboarding-complete = Concluir integração
 
+voice-stereo-input = Microfone estéreo
+voice-stereo-input-warning = Requer entrada de dois canais. Usa os dois primeiros sem supressão de ruído, cancelamento de eco, ganho automático ou controles de sensibilidade. Use fones de ouvido.
 voice-call-moved-to-another-client = A sessão de chamada deste dispositivo foi substituída
 
 server-settings-page-safety = Configuração de segurança

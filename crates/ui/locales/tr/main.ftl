@@ -4337,6 +4337,8 @@ lib-composer-onboarding-incomplete = Daha fazla kanalın kilidini açmak için s
 # Context: composer
 lib-composer-onboarding-complete = Tanıtımı tamamla
 
+voice-stereo-input = Stereo mikrofon
+voice-stereo-input-warning = İki kanallı giriş gerektirir. İlk iki kanalı gürültü bastırma, yankı giderme, otomatik kazanç ve hassasiyet olmadan kullanır. Kulaklık kullanın.
 voice-call-moved-to-another-client = Bu cihazın arama oturumu değiştirildi
 
 server-settings-page-safety = Güvenlik Kurulumu

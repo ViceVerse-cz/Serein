@@ -2,6 +2,35 @@
 
 The standard build implements native audio calls in existing one-to-one and group Discord DMs and guild voice channels. It uses the owner's existing account, Discord signaling/voice servers, Opus and DAVE version 1. There is no bot, project relay, separate account, recording service or webview call UI. **Live Discord interoperability and physical microphone/speaker behavior have not been tested; milestone 4 has not passed.**
 
+### Stereo microphone/source input
+
+Settings → Voice & Video offers a device-local **Stereo microphone** option.
+Mono remains the default. Stereo requires a native input format with at least two
+channels, preserves the first two channels with independent 48 kHz resampling,
+and sends 20 ms stereo Opus packets at 128 kbps through the existing encrypted
+voice transport. No account plugin, bot, alternate service or encryption change
+is involved. A mono-only input is unavailable in stereo mode; choose a two-channel
+source or turn stereo off. The call's listener output remains connected.
+
+Stereo bypasses the mono speech processing chain: noise suppression, echo
+cancellation, automatic gain and manual sensitivity are off. Microphone gain,
+mute/deafen, push-to-talk, permissions and security readiness still apply. Use
+headphones; the UI warns about this behavior. The saved processing profile is
+retained and resumes when returning to mono. Changing the option reopens the
+input on its worker. The local test meter measures both channels, but its existing
+loopback output and received participant voice playback remain mixed mono.
+
+Capture uses an eight-frame native stereo ring (61,440 PCM bytes), a fixed tagged
+frame channel capped at eight frames plus one pacer lookahead (less than 70 KiB),
+and fixed resampling/codec scratch. Queues and partial PCM are invalidated by mute,
+security transitions and teardown. There is no recording or unbounded buffering.
+Offline checks cover opposite-phase channels, 44.1/48/96 kHz resampling, partial
+frame reset, mute, Opus channel separation and mono packet compatibility. They do
+not prove hardware routing or normal-account live Discord interoperability.
+Discord's [voice transport documentation](https://docs.discord.com/developers/topics/voice-connections)
+describes the shared Opus/RTP/DAVE transport; normal-account behavior remains
+unofficial and subject to the same live verification gate as the rest of voice.
+
 ```sh
 cargo run --locked
 cargo run --locked -- --demo  # offline UI; calling/device access disabled
@@ -61,6 +90,20 @@ signaling; a fresh Join is rejected locally until the release is queued ahead of
 Stale release commands cannot displace cleanup for the current attempt. A later Join
 that encounters the still-full queue fails only that unsent attempt, keeping text
 signaling available.
+
+If local transport confirmation cannot enter the bounded control queue, its
+channel, attempt and candidate revision accompany a local failure. The desktop
+receives it through one fixed-size latest-report watch, independent of the reliable
+account event queue and its byte budget. Old-scope reports cannot replace the
+current attempt's failure; an older candidate revision cannot replace a newer one.
+The watch remains unread until queued reliable signaling is drained, including
+replacement candidates or acknowledgments beyond the current frame's event batch.
+The original negotiation deadline still bounds local failure under sustained load.
+The desktop
+consumes it only for the exact current unconfirmed candidate within its original
+deadline, then abandons that negotiation through the existing local release path.
+Old-candidate failures do not fail a replacement or established call. Text
+authentication and signaling remain available.
 
 After confirmation, a different owner session in the same voice channel, or movement
 to another non-null channel/guild, clears the local call and closes media without
@@ -322,7 +365,8 @@ the newest frame each network tick. One 20 ms lookahead frame smooths normal
 callback/worker scheduling variation. Mute, deafen, encryption pauses and a
 transport stall of at least 80 ms discard queued capture rather than replaying
 stale speech. The existing eight-frame capture channel plus lookahead retains
-at most nine frames (34,560 PCM bytes). This adds 20 ms of intentional buffering.
+at most nine fixed stereo-capable frames (under 70 KiB). This adds 20 ms of
+intentional buffering.
 The offline echo example also checks alternating two-frame/no-frame arrivals
 and mute/stall flushing; physical cutout resolution still needs a listening check.
 

@@ -386,6 +386,7 @@ pub struct MessagingUi {
 	pub voice_inputs: Vec<(String, String)>,
 	pub voice_outputs: Vec<(String, String)>,
 	pub voice_input: Option<String>,
+	pub voice_stereo_input: bool,
 	pub voice_output: Option<String>,
 	pub voice_gain: VoiceGain,
 	voice_user_volumes: Option<Box<[(u64, u16); 64]>>,

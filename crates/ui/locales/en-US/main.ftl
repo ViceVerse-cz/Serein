@@ -4365,6 +4365,9 @@ lib-composer-onboarding-incomplete = Finish joining this server to unlock more c
 # Context: composer
 lib-composer-onboarding-complete = Complete Onboarding
 
+voice-stereo-input = Stereo microphone
+voice-stereo-input-warning = Requires a two-channel input. Uses the first two channels and bypasses noise suppression, echo cancellation, automatic gain and sensitivity. Use headphones.
+
 # Explicit public attachment hosting
 public-upload-host-file = Host file…
 public-upload-heading = Upload to Catbox

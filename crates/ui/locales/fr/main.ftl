@@ -4348,6 +4348,8 @@ lib-composer-onboarding-incomplete = Termine de rejoindre ce serveur pour déblo
 # Context: composer
 lib-composer-onboarding-complete = Terminer l'accueil
 
+voice-stereo-input = Microphone stéréo
+voice-stereo-input-warning = Nécessite une entrée à deux canaux. Utilise les deux premiers sans réduction du bruit, annulation de l’écho, gain automatique ni sensibilité. Utilisez un casque.
 voice-call-moved-to-another-client = La session d’appel de cet appareil a été remplacée
 
 server-settings-page-safety = Configuration de la sécurité

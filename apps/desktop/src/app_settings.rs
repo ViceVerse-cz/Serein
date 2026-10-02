@@ -47,6 +47,7 @@ impl Settings {
 			voice_muted: ui.voice_muted,
 			voice_deafened: ui.voice_deafened,
 			voice_input: ui.voice_input.clone(),
+			voice_stereo_input: ui.voice_stereo_input,
 			voice_output: ui.voice_output.clone(),
 			input_percent: ui.voice_gain.input_percent,
 			output_percent: ui.voice_gain.output_percent,
@@ -87,6 +88,7 @@ impl Settings {
 		ui.voice_muted = value.voice_muted;
 		ui.voice_deafened = value.voice_deafened;
 		ui.voice_input.clone_from(&value.voice_input);
+		ui.voice_stereo_input = value.voice_stereo_input;
 		ui.voice_output.clone_from(&value.voice_output);
 		ui.voice_gain.input_percent = value.input_percent;
 		ui.voice_gain.output_percent = value.output_percent;

@@ -1,5 +1,20 @@
 # Local storage policy and audit
 
+## Optional stereo input (October 2, 2026)
+
+The stereo microphone preference is one device-local Boolean in the existing
+16 KiB application preference record; older records default to mono. Stereo input
+retains at most eight 1,920-sample frames (61,440 bytes) in its callback ring. Mono
+input still uses its existing eight-frame ring; the unused opposite-format ring
+has one slot (3,840 bytes for stereo mode, 7,680 bytes for mono mode). The transport
+uses fixed tagged frames with at most eight channel slots plus one pacer frame,
+bounded to 70 KiB including tags. Native resampler state retains one partial stereo
+frame (7,680 bytes), two previous samples and scalar counters, plus the existing
+unused mono converter’s partial frame (3,840 bytes) and scalar state in stereo mode. Codec PCM scratch is 7,680 bytes
+and encoded output remains 1,275 bytes. Native driver buffers and Opus state are
+additional. Capture is gated by the existing permissions, explicit call/test,
+mute/deafen and encryption lifecycle. No audio is persisted, logged or recorded.
+
 ## Image decoder lifetime and stream frame reuse (October 2, 2026)
 
 Each image worker still admits eight loads. Blocking image decoders now share
@@ -1562,3 +1577,16 @@ confirmation is acknowledged, the desktop keeps one extra pending credential set
 replacement behind the existing audio retirement fence. It keeps the original
 30-second deadline and zeroizes that set on confirmation, cancellation or failure
 teardown. Failed candidates do not spawn retries until credentials actually change.
+
+Local voice-confirmation admission failures carry one generation, channel ID,
+attempt and candidate revision plus a fixed static diagnostic through a dedicated
+latest-report watch. Its optional payload is at most 64 bytes, plus fixed watch
+synchronization metadata; it allocates no payload buffer and retains no credentials.
+It uses no reliable account-event item or byte capacity. Only the current owner
+scope can publish, and older revisions cannot overwrite a newer report for that
+scope. A report stays unseen until the reliable FIFO drains, so a preceding
+replacement or confirmation beyond the current frame's batch is applied first.
+The original negotiation deadline remains bounded during sustained event load.
+The desktop consumes only the matching current unconfirmed candidate;
+existing bounded local abandonment handles release after failure. There is no new
+retry worker or pending command slot.

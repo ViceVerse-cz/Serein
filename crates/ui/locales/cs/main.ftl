@@ -4367,6 +4367,9 @@ lib-composer-onboarding-incomplete = Dokonči připojení k serveru a odemkni da
 # Context: composer
 lib-composer-onboarding-complete = Dokončit uvítání
 
+voice-stereo-input = Stereo mikrofon
+voice-stereo-input-warning = Vyžaduje dvoukanálový vstup. Používá první dva kanály bez potlačení šumu, echa, automatické hlasitosti a citlivosti. Použijte sluchátka.
+
 # Explicit public attachment hosting
 public-upload-host-file = Hostovat soubor…
 public-upload-heading = Nahrát na Catbox

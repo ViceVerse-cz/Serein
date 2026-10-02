@@ -24,6 +24,29 @@ pub use video_receive::{RemoteFrame, VideoSink};
 pub mod camera_video;
 
 pub type Frame = [f32; 960];
+/// One 20 ms microphone frame; stereo is interleaved left/right at 48 kHz.
+pub type StereoFrame = [f32; 1920];
+#[derive(Clone, Copy)]
+pub struct CapturedFrame {
+	pcm: StereoFrame,
+	stereo: bool,
+}
+impl CapturedFrame {
+	pub fn mono(frame: Frame) -> Self {
+		let mut pcm = [0.0; 1920];
+		pcm[..960].copy_from_slice(&frame);
+		Self { pcm, stereo: false }
+	}
+	pub fn stereo(pcm: StereoFrame) -> Self {
+		Self { pcm, stereo: true }
+	}
+	pub fn samples(&self) -> &[f32] {
+		&self.pcm[..960 * self.channels()]
+	}
+	pub fn channels(&self) -> usize {
+		if self.stereo { 2 } else { 1 }
+	}
+}
 #[derive(Clone, Copy)]
 pub struct Controls {
 	pub muted: bool,
