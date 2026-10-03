@@ -256,7 +256,7 @@ mod tests {
 				decoder.decode(&unit).unwrap();
 			}
 			for _ in 0..32 {
-				assert_eq!(decoder.decode(&unit), Err(INVALID));
+				assert_eq!(decoder.decode(&unit), Err(BUSY));
 			}
 			assert_eq!(decoder.pictures, MAX_QUEUED_UNITS);
 			assert_eq!(

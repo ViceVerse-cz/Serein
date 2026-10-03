@@ -2305,8 +2305,10 @@ mod tests {
 							activities.push(json!({"name":"Custom Status","type":4,"state":if name == Some("osu!") { "Synthetic focus" } else { "On a break" }}));
 	                        assert_eq!(value["d"], json!({"since":null,"status":"dnd","afk":false,"activities":activities}));
 	                        let now = Instant::now();
+	                        // Receipt times include scheduling delay before the previous read,
+	                        // which can only shorten the observed gap below the 5 s client pacing.
 	                        if let Some(previous) = previous {
-	                            assert!(now.duration_since(previous) >= Duration::from_millis(4900));
+	                            assert!(now.duration_since(previous) >= Duration::from_millis(4500));
 	                        }
 	                        previous = Some(now);
 	                        match name {
