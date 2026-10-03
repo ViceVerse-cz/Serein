@@ -5830,9 +5830,13 @@ impl eframe::App for Desktop {
 			raw_input.predicted_dt = period.as_secs_f32();
 		}
 		let track = self.messaging.tracking_pointer();
-		let intercepted =
-			self.pointer
-				.intercept(raw_input, &self.window, ctx.pixels_per_point(), track);
+		let intercepted = self.pointer.intercept(
+			raw_input,
+			&self.window,
+			ctx.pixels_per_point(),
+			track,
+			self.messaging.wants_mouse_buttons(),
+		);
 		self.messaging.middle_button(intercepted.middle);
 		self.messaging.side_buttons(intercepted.side);
 		if track
@@ -6101,6 +6105,8 @@ impl eframe::App for Desktop {
 		self.messaging.voice_ptt_active = self.messaging.voice_push_to_talk
 			&& self.state.voice.active.is_some()
 			&& (self.messaging.push_to_talk_down(ctx) || self.hotkeys.push_to_talk_down());
+		self.messaging.voice_ptm_active = self.state.voice.active.is_some()
+			&& (self.messaging.push_to_mute_down(ctx) || self.hotkeys.push_to_mute_down());
 		if self.state.auth == AuthState::Authenticated || self.state.demo {
 			self.poll_voice(ctx);
 		} else {
@@ -6140,6 +6146,31 @@ impl eframe::App for Desktop {
 				&& !self.messaging.has_edit_in(self.state.selected)
 			{
 				match result {
+					Ok(clipboard::Content::Text(text))
+						if upload_allowed && can_attach && {
+							let draft = self
+								.state
+								.drafts
+								.get(&paste.channel)
+								.map_or("", String::as_str);
+							model::message_options::content(draft).0.chars().count()
+								+ text.chars().count() > self.state.content_limit()
+						} =>
+					{
+						// Text that cannot fit one message is attached as `message.txt`, like Discord.
+						if let Err(error) =
+							discord_api::upload::Source::pasted_text(text).and_then(|source| {
+								self.uploads.select_pasted(
+									paste.generation,
+									paste.channel,
+									vec![source],
+									self.runtime.handle(),
+									&ctx,
+								)
+							}) {
+							self.messaging.toasts.push(ui::design::Level::Error, error);
+						}
+					}
 					Ok(clipboard::Content::Text(text)) => {
 						self.messaging.pasted_text = Some((paste.channel, paste.target, text));
 					}
@@ -6563,6 +6594,7 @@ impl eframe::App for Desktop {
 				key,
 				filename,
 				bytes,
+				host,
 			}) = self.messaging.external_upload.request.take()
 			{
 				let result = if generation != self.state.generation
@@ -6578,6 +6610,7 @@ impl eframe::App for Desktop {
 						channel,
 						&filename,
 						bytes,
+						host,
 						self.runtime.handle(),
 						&ctx,
 						self.state.demo,

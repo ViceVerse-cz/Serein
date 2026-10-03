@@ -1604,7 +1604,7 @@ async fn run_recoverable(
 											notification_preferences(entries, replace)
 										});
 										emit(Event::Startup(Box::new(client_core::Startup {
-											external_stickers: matches!(ready.user.premium_type, model::Patch::Value(2 | 3)),
+											premium_type: match ready.user.premium_type { model::Patch::Value(kind) => kind, _ => 0 },
 											user: ready.user.into_model(), guilds, channels, permissions,
 											read_state: client_core::read_state::Event::Snapshot {entries:read_entries,version:read_version,partial},
 											notifications, session_dnd: ready.sessions.as_ref().and_then(|s| s.dnd()), warnings,
@@ -2305,8 +2305,10 @@ mod tests {
 							activities.push(json!({"name":"Custom Status","type":4,"state":if name == Some("osu!") { "Synthetic focus" } else { "On a break" }}));
 	                        assert_eq!(value["d"], json!({"since":null,"status":"dnd","afk":false,"activities":activities}));
 	                        let now = Instant::now();
+	                        // Receipt times include scheduling delay before the previous read,
+	                        // which can only shorten the observed gap below the 5 s client pacing.
 	                        if let Some(previous) = previous {
-	                            assert!(now.duration_since(previous) >= Duration::from_millis(4900));
+	                            assert!(now.duration_since(previous) >= Duration::from_millis(4500));
 	                        }
 	                        previous = Some(now);
 	                        match name {

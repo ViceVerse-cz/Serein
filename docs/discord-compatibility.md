@@ -464,6 +464,19 @@ statements in the historical voice/screen-sharing notes below.
 
 ## Outgoing screen sharing — September 11, 2026
 
+October 3 reliability audit: UDP media sends drop on local socket pressure without
+waiting inside the media loop. Established stream rekeys now retain a 30-second
+response/execution deadline, including when WebSocket heartbeats continue.
+The shared Opus reorder buffer preserves received successors after larger loss
+bursts. Linux incoming native decoding enforces four queued access units and
+8,650,752 payload bytes; GStreamer before 1.20 falls back to software decoding.
+Synthetic pressure and encrypted local-socket tests verify those corrections.
+They do not establish resolution of the reported intermittent Linux outgoing
+lag or official-client error 2012. Capture/GPU/network/viewer conditions and
+low-bitrate large-keyframe latency still need owner-controlled evidence; see
+[the audit notes](voice.md#stream-lag-and-viewer-timeouts-october-3-2026).
+
+
 September 21 interoperability correction: camera and screen-share H.264 SPS metadata
 is normalized before DAVE encryption to specify no frame reordering and bounded
 decoder buffering. The [WebRTC receiver rewrites unsuitable SPS metadata](https://github.com/webrtc-mirror/webrtc/blob/main/modules/rtp_rtcp/source/video_rtp_depacketizer_h264.cc)

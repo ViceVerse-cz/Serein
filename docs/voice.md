@@ -111,7 +111,7 @@ For the owner-controlled live gate, leave the peer connected in a private DM cal
 DM in Serein, wait for the banner, then explicitly Join. Verify no new ring, actual two-way
 audio, leaving/rejoining while the peer stays, and disappearance after the peer ends the call.
 
-Mute/deafen, saved input/output selection and focused V push-to-talk are implemented. Remappable mute and deafen bindings use global native registration when supported and when a modifier is present; they fall back to focused input on Wayland or when registration is unavailable. Settings → Keybinds offers **Enable global keybinds**, saved on this device and enabled by default. Turning it off unregisters global voice shortcuts; mute, deafen and push-to-talk still work while Serein is focused, with the existing text-entry guards. Push-to-talk releases when focus is lost and is disabled while text entry has focus. It remains focused-only by default. Devices are initialized only following an explicit call with authenticated empty-room waiting or encrypted readiness, or an explicit local microphone test; no microphone test runs at startup. Acoustic echo cancellation follows the selected input profile; see below for its limits. A microphone that fails to open or start, reports a fatal callback error, or delivers no audio callbacks for five seconds is disabled with a visible warning. The call and speaker playback remain connected, and the client periodically retries microphone setup in the background while selecting another input immediately retries. Transient buffer discontinuities and non-fatal stream glitches do not disable the microphone. Ordinary silence does not trigger the warning. Selected speaker failures can fall back to the default output; an unusable output can still fail the call.
+Mute/deafen, saved input/output selection and focused V push-to-talk are implemented. Remappable mute and deafen bindings use global native registration when supported and when a modifier is present; they fall back to focused input on Wayland or when registration is unavailable. Settings → Keybinds offers **Enable global keybinds**, saved on this device and enabled by default. Turning it off unregisters global voice shortcuts; mute, deafen and push-to-talk still work while Serein is focused, with the existing text-entry guards. Push-to-talk releases when focus is lost and is disabled while text entry has focus. It remains focused-only by default. Push to Mute is unassigned by default; once bound, holding it mutes the microphone during a call and releasing it restores the previous state, and it registers globally like push-to-talk. Voice and other remappable actions can also use mouse 3, 4 or 5, optionally with modifiers; left and right click cancel recording instead. A bound mouse button no longer starts middle-click autoscroll or back/forward navigation. Mouse bindings work while Serein is focused on every platform and, with global keybinds enabled, are polled globally on Windows only; macOS, X11 and the Wayland portal have no global mouse-button registration. Devices are initialized only following an explicit call with authenticated empty-room waiting or encrypted readiness, or an explicit local microphone test; no microphone test runs at startup. Acoustic echo cancellation follows the selected input profile; see below for its limits. A microphone that fails to open or start, reports a fatal callback error, or delivers no audio callbacks for five seconds is disabled with a visible warning. The call and speaker playback remain connected, and the client periodically retries microphone setup in the background while selecting another input immediately retries. Transient buffer discontinuities and non-fatal stream glitches do not disable the microphone. Ordinary silence does not trigger the warning. Selected speaker failures can fall back to the default output; an unusable output can still fail the call.
 
 One-to-one DM calls accept only their expected peer. Group DM and server calls support up to 64 total participants, with independent bounded decoder/jitter state and mixed mono playback. Only DAVE version 1 is accepted; encryption downgrades and group identities outside the authenticated participant roster fail closed. Stage channels and recording are unsupported. Outgoing screen sharing and macOS camera support is described below. Voice WebSocket resumption has a finite retry budget; failed resumption or main Gateway disconnect requires an explicit new call. Voice credentials, ephemeral DAVE identities and audio stay in bounded session memory. The displayed privacy code applies to the current group epoch; identities are not remembered across calls. Comparing codes does not establish long-term identity verification or text-message encryption.
 
@@ -223,6 +223,37 @@ SPEAK prepares input under the current encryption and mute/PTT gates; mute/PTT a
 reopen devices. Lost VIEW_CHANNEL drops the stored roster and hides participant rows, including
 when no call is active; late updates cannot repopulate an inaccessible channel.
 
+
+## Stream lag and viewer timeouts (October 3, 2026)
+
+Discord identifies error 2012 as a [video viewer timeout](https://support.discord.com/hc/en-us/articles/30952914470807-Discord-Audio-and-Video-Error-Codes-Troubleshooting-Guide),
+which does not identify whether capture, encoding, forwarding or viewer decoding failed.
+The Linux-focused code audit corrected these reproducible failures:
+
+- Call, camera and stream UDP writes never wait for socket capacity. A congested
+  socket drops the current datagram; continuous send errors retain the existing
+  ten-second failure policy. Signaling, audio ticks and feedback can keep running.
+- An established stream that loses DAVE transition execution or its new group
+  response gets a 30-second recovery deadline. Heartbeat acknowledgments cannot
+  keep a stalled rekey waiting forever. Authenticated sole-member waiting remains
+  unlimited; a pending transition is not treated as idle waiting.
+- Audio resumes at the nearest buffered packet after three concealment packets,
+  preserving valid successors across larger loss bursts and sequence wraparound.
+  A call tick delayed by at least 80 ms discards old decoded audio, as stream
+  playback already did.
+- The Linux native video decoder admits at most four compressed access units /
+  8,650,752 bytes before the native pipeline. Overflow enters the existing keyframe
+  recovery path. GStreamer older than 1.20 uses the bounded software fallback.
+
+Offline checks reproduce the old lost recovery packets, uncapped native queue,
+indefinite rekey wait and successful fixed behavior. They do not establish that
+Linux-to-official-client error 2012 is resolved. Native portal/GPU behavior and
+physical or live media still require owner-controlled verification. A large
+keyframe at a very low feedback bitrate can still take seconds to drain; the
+current controller does not adapt resolution or implement sender-clock A/V sync.
+Use the existing opt-in diagnostics on a deliberate failed attempt to distinguish
+capture stalls, decoder failures, loss and transport timing before changing those
+policies. No automatic capture, account test or diagnostic logging was added.
 
 ## Diagnosing a call that never opens audio
 

@@ -1278,7 +1278,9 @@ impl DiscordApi {
 				message,
 				content,
 			} => {
-				if content.trim().is_empty() || content.chars().count() > client_core::MAX_CONTENT {
+				if content.trim().is_empty()
+					|| content.chars().count() > client_core::MAX_PREMIUM_CONTENT
+				{
 					return Event::Edited {
 						request,
 						channel,
@@ -1540,7 +1542,7 @@ impl DiscordApi {
 	) -> Result<model::Message, Failure> {
 		if !message_options::valid(
 			content,
-			client_core::MAX_CONTENT,
+			client_core::MAX_PREMIUM_CONTENT,
 			attachment.as_ref().is_some_and(|items| !items.is_empty()) || sticker.is_some(),
 		) {
 			return Err(Failure::Capacity);
@@ -1595,7 +1597,7 @@ impl DiscordApi {
 			|| tags.len() > model::forum::MAX_APPLIED_TAGS
 			|| !message_options::valid(
 				content,
-				client_core::MAX_CONTENT,
+				client_core::MAX_PREMIUM_CONTENT,
 				attachments.as_ref().is_some_and(|items| !items.is_empty()),
 			) {
 			return Err(Failure::Capacity);

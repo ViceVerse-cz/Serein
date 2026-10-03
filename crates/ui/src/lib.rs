@@ -124,7 +124,7 @@ pub mod updates;
 mod user_menu;
 mod verification;
 mod voice;
-use client_core::{Command, MAX_CONTENT, MAX_DRAFT_BYTES, NavStep, State};
+use client_core::{Command, MAX_DRAFT_BYTES, NavStep, State};
 use egui::{RichText, TextEdit};
 use model::{Freshness, Id};
 pub use verification::VerificationUi;
@@ -418,6 +418,7 @@ pub struct MessagingUi {
 	/// Server folders the owner left open; restored from device preferences at startup.
 	pub expanded_folders: Vec<u64>,
 	pub voice_ptt_active: bool,
+	pub voice_ptm_active: bool,
 	pub voice_privacy_code: Option<String>,
 	/// Latest media activity, capped at 64 IDs (512 bytes) by the voice host.
 	pub voice_speaking: Vec<Id>,
@@ -534,8 +535,13 @@ impl MessagingUi {
 	}
 
 	/// Feed the frame's middle button before `show`. Never fed means never pressed.
+	/// A bound middle button does not also start autoscroll.
 	pub fn middle_button(&mut self, middle: scroll::Middle) {
-		self.scroll.middle(middle);
+		if self.button_claimed(egui::PointerButton::Middle) {
+			self.scroll.middle(scroll::Middle::default());
+		} else {
+			self.scroll.middle(middle);
+		}
 	}
 
 	/// Feed mouse 4 / mouse 5 edge presses before `show`. Flags OR so a second feed cannot clear a press.
@@ -557,37 +563,63 @@ impl MessagingUi {
 
 	/// Returns whether the configured push-to-talk chord is held in the focused window.
 	pub fn push_to_talk_down(&self, ctx: &egui::Context) -> bool {
-		if ctx.egui_wants_keyboard_input() {
+		self.voice_hold_down(ctx, model::KeybindAction::PushToTalk)
+	}
+
+	/// Returns whether the configured push-to-mute chord is held in the focused window.
+	pub fn push_to_mute_down(&self, ctx: &egui::Context) -> bool {
+		self.voice_hold_down(ctx, model::KeybindAction::PushToMute)
+	}
+
+	/// Text entry suppresses held keys, but a held mouse button is never typing.
+	fn voice_hold_down(&self, ctx: &egui::Context, action: model::KeybindAction) -> bool {
+		let chord = self.keybinds.chord(action);
+		if !model::keybinds::is_mouse_button(&chord.key) && ctx.egui_wants_keyboard_input() {
 			return false;
 		}
-		ctx.input(|input| {
-			input.focused
-				&& crate::keybinds::down(
-					input,
-					self.keybinds.chord(model::KeybindAction::PushToTalk),
-				)
-		})
+		ctx.input(|input| input.focused && crate::keybinds::down(input, chord))
+	}
+
+	/// Whether egui must see mouse 3–5: one is bound, or a binding is being recorded.
+	/// Otherwise the host strips them for autoscroll and history navigation.
+	pub fn wants_mouse_buttons(&self) -> bool {
+		[
+			egui::PointerButton::Middle,
+			egui::PointerButton::Extra1,
+			egui::PointerButton::Extra2,
+		]
+		.into_iter()
+		.any(|button| self.button_claimed(button))
+	}
+
+	/// Whether a binding claims `button`, or a capture may, instead of its built-in role.
+	fn button_claimed(&self, button: egui::PointerButton) -> bool {
+		self.keybind_capture.is_some()
+			|| model::KeybindAction::ALL.into_iter().any(|action| {
+				crate::keybinds::button_from_name(&self.keybinds.chord(action).key) == Some(button)
+			})
 	}
 
 	/// Returns focused-window mute/deafen presses that were not claimed by a native global hotkey.
 	pub fn voice_toggle_pressed(&self, ctx: &egui::Context, global_mask: u8) -> u8 {
-		if !ctx.input(|input| input.focused) || ctx.egui_wants_keyboard_input() {
+		if !ctx.input(|input| input.focused) {
 			return 0;
 		}
+		let wants_kb = ctx.egui_wants_keyboard_input();
 		ctx.input_mut(|input| {
 			let mut toggles = 0;
+			let mute_chord = self.keybinds.chord(model::KeybindAction::ToggleMute);
 			if global_mask & 1 == 0
-				&& crate::keybinds::pressed(
-					input,
-					self.keybinds.chord(model::KeybindAction::ToggleMute),
-				) {
+				&& (!wants_kb || model::keybinds::is_mouse_button(&mute_chord.key))
+				&& crate::keybinds::pressed(input, mute_chord)
+			{
 				toggles |= 1;
 			}
+			let deafen_chord = self.keybinds.chord(model::KeybindAction::ToggleDeafen);
 			if global_mask & 2 == 0
-				&& crate::keybinds::pressed(
-					input,
-					self.keybinds.chord(model::KeybindAction::ToggleDeafen),
-				) {
+				&& (!wants_kb || model::keybinds::is_mouse_button(&deafen_chord.key))
+				&& crate::keybinds::pressed(input, deafen_chord)
+			{
 				toggles |= 2;
 			}
 			toggles
@@ -2892,8 +2924,10 @@ impl MessagingUi {
 			model::message_options::content(composer_content).0
 		};
 		let count_before = effective.chars().count();
+		let max_content = state.content_limit();
+		emoji_picker::set_content_limit(max_content);
 		let new_content_valid =
-			model::message_options::valid(composer_content, MAX_CONTENT, self.attachment.is_some());
+			model::message_options::valid(composer_content, max_content, self.attachment.is_some());
 		// Suggestion rows can take focus on press; keep the editor alive until release
 		// so the shared member/channel/emoji popup can finish the click.
 		let suggestion_pointer = self.mention_menu.pointer_interacting(ctx, channel)
@@ -3014,7 +3048,7 @@ impl MessagingUi {
                     egui::pos2(ui.max_rect().right() + 10.0, ui.max_rect().top()),
                 );
                 if !editing_here && self.attachment.is_some() {
-                    self.attachment_tray(ui, state.can_send(channel));
+                    self.attachment_tray(ui, state.can_send(channel), state.upload_limit());
                 }
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
@@ -3070,11 +3104,11 @@ impl MessagingUi {
                             })
                             .inner;
                         let send = enter || send_button.clicked();
-                        if count_before + 200 >= MAX_CONTENT {
+                        if count_before + 200 >= max_content {
                             ui.label(
-                                RichText::new(format!("{}", MAX_CONTENT.saturating_sub(count_before)))
+                                RichText::new(format!("{}", max_content.saturating_sub(count_before)))
                                     .size(11.0)
-                                    .color(if count_before >= MAX_CONTENT { colors.danger } else { colors.muted }),
+                                    .color(if count_before >= max_content { colors.danger } else { colors.muted }),
                             );
                         }
                         let pick = ui
@@ -3165,7 +3199,7 @@ impl MessagingUi {
                         {
                             state.reply = None;
                         }
-                        let remaining = if editing_here { MAX_CONTENT * 4 } else { MAX_DRAFT_BYTES.saturating_sub(state.draft_bytes()) };
+                        let remaining = if editing_here { max_content * 4 } else { MAX_DRAFT_BYTES.saturating_sub(state.draft_bytes()) };
                         // Temporarily own the buffer so suggestions can borrow the current
                         // permission state without cloning the draft or server catalogs.
                         let restore_empty_draft = self.draft_restore_pending && state.drafts.contains_key(&channel);
@@ -3299,7 +3333,7 @@ impl MessagingUi {
                                         horizontal_arrows: true, vertical_arrows: true, escape: editing_here,
                                         ..Default::default()
                                     })
-                                    .char_limit(MAX_CONTENT + if editing_here { 0 } else { model::message_options::PREFIX_ALLOWANCE })
+                                    .char_limit(max_content + if editing_here { 0 } else { model::message_options::PREFIX_ALLOWANCE })
                                     .desired_rows(1)
                                     .desired_width(f32::INFINITY)
                                     // Horizontal layouts reserve the interaction height, including around icons.
@@ -3433,11 +3467,13 @@ impl MessagingUi {
 		}
 	}
 	/// Selected-file cards above the composer input, in the style of Discord's upload tray.
-	fn attachment_tray(&mut self, ui: &mut egui::Ui, can_host: bool) {
+	fn attachment_tray(&mut self, ui: &mut egui::Ui, can_host: bool, upload_limit: u64) {
 		let colors = design::palette(ui);
 		let textures = self.attachment_textures(ui.ctx());
 		ui.add_space(4.0);
 		let files = self.selected_files();
+		// Public hosting is only offered once the files would not fit Discord's upload limit.
+		let over_limit = files.iter().map(|(_, bytes)| *bytes).sum::<u64>() > upload_limit;
 		egui::ScrollArea::horizontal()
 			.id_salt("pending-attachments")
 			.show(ui, |ui| {
@@ -3460,16 +3496,17 @@ impl MessagingUi {
 								{
 									self.remove_attachment_index = Some(index);
 								}
-								if ui
-									.add_enabled_ui(!self.upload_busy && can_host, |ui| {
-										design::button(
-											ui,
-											"public-upload-host-file",
-											design::ButtonKind::Neutral,
-										)
-									})
-									.inner
-									.clicked()
+								if over_limit
+									&& ui
+										.add_enabled_ui(!self.upload_busy && can_host, |ui| {
+											design::button(
+												ui,
+												"public-upload-host-file",
+												design::ButtonKind::Neutral,
+											)
+										})
+										.inner
+										.clicked()
 								{
 									self.host_attachment_requested = Some(index);
 								}
@@ -3683,8 +3720,11 @@ impl MessagingUi {
 		{
 			commands.push(command);
 		}
-		if side.back || side.forward {
-			self.navigate_history(state, &mut commands, side.back);
+		// Bound side buttons run their binding instead of history navigation.
+		let back = side.back && !self.button_claimed(egui::PointerButton::Extra1);
+		let forward = side.forward && !self.button_claimed(egui::PointerButton::Extra2);
+		if back || forward {
+			self.navigate_history(state, &mut commands, back);
 		}
 		// Fullscreen media owns the whole client surface, including during native resizing.
 		if self.show_fullscreen_voice(ui.ctx(), state) {
@@ -4934,6 +4974,7 @@ impl MessagingUi {
 #[cfg(test)]
 mod composer_tests {
 	use super::*;
+	use client_core::MAX_CONTENT;
 
 	#[test]
 	fn paste_into_an_idle_conversation_focuses_composer_without_sending() {
@@ -5057,6 +5098,37 @@ mod composer_tests {
 	}
 
 	#[test]
+	fn a_bound_mouse_button_holds_push_to_mute_instead_of_navigating() {
+		let mut view = MessagingUi::default();
+		assert!(!view.wants_mouse_buttons());
+		assert!(!view.button_claimed(egui::PointerButton::Middle));
+		view.keybinds.push_to_mute = model::KeyChord::new("MouseExtra1", 0);
+		assert!(view.wants_mouse_buttons());
+		assert!(view.button_claimed(egui::PointerButton::Extra1));
+		assert!(!view.button_claimed(egui::PointerButton::Extra2));
+		let ctx = egui::Context::default();
+		for focused in [true, false] {
+			ctx.run_ui(
+				egui::RawInput {
+					focused,
+					events: vec![egui::Event::PointerButton {
+						pos: egui::pos2(10.0, 10.0),
+						button: egui::PointerButton::Extra1,
+						pressed: true,
+						modifiers: egui::Modifiers::NONE,
+					}],
+					..Default::default()
+				},
+				|ui| {
+					assert_eq!(view.push_to_mute_down(ui.ctx()), focused);
+					assert!(!view.push_to_talk_down(ui.ctx()));
+				},
+			)
+			.drop_without_applying_deltas();
+		}
+	}
+
+	#[test]
 	fn an_unmodified_diagnostics_key_does_not_replace_the_clipboard_while_typing() {
 		let ctx = egui::Context::default();
 		let mut state = edit_state();
@@ -5115,7 +5187,7 @@ mod composer_tests {
 		let mut view = MessagingUi::default();
 		view.preview_attachment("synthetic.pdf", 100, None);
 		for _ in 0..2 {
-			let output = ctx.run_ui(Default::default(), |ui| view.attachment_tray(ui, true));
+			let output = ctx.run_ui(Default::default(), |ui| view.attachment_tray(ui, true, 0));
 			let text_rect = |label: &str| {
 				output
 					.shapes
@@ -5128,7 +5200,7 @@ mod composer_tests {
 					})
 					.unwrap()
 			};
-			assert!(text_rect("Host file…").top() > text_rect("synthetic.pdf").bottom());
+			assert!(text_rect("Share link instead…").top() > text_rect("synthetic.pdf").bottom());
 			output.drop_without_applying_deltas();
 		}
 	}

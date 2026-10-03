@@ -1,5 +1,5 @@
 //! Forum containers list their posts (threads) and create one post at a time.
-use crate::{Command, MAX_CONTENT, MAX_NAV, State, auth::AuthState, auth::Failure};
+use crate::{Command, MAX_NAV, State, auth::AuthState, auth::Failure};
 use model::{Channel, Id, permissions as p};
 
 pub const MAX_TITLE: usize = 100;
@@ -448,7 +448,7 @@ impl State {
 		if !self.can_create_post(parent)
 			|| title.is_empty()
 			|| title.chars().count() > MAX_TITLE
-			|| !model::message_options::valid(content, MAX_CONTENT, !filenames.is_empty())
+			|| !model::message_options::valid(content, self.content_limit(), !filenames.is_empty())
 		{
 			return None;
 		}
@@ -554,7 +554,7 @@ impl State {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::{Envelope, Event};
+	use crate::{Envelope, Event, MAX_CONTENT};
 
 	fn channel(id: u64, parent: Option<Id>, kind: u8) -> Channel {
 		Channel {

@@ -3,28 +3,34 @@ use super::{CHANGED, CHUNK_BYTES, Source, Status};
 use std::{io, time::Duration};
 use tokio::{io::AsyncReadExt, sync::watch};
 
-pub use model::public_upload::{Error, MAX_BYTES, eligible};
+pub use model::public_upload::{Error, Host, eligible};
 const RESPONSE_BYTES: usize = 4096;
-const ENDPOINT: &str = "https://catbox.moe/user/api.php";
 
-pub fn validated_link(value: &[u8]) -> Result<String, Error> {
+fn endpoint(host: Host) -> &'static str {
+	match host {
+		Host::ZeroX0 => "https://0x0.st",
+		Host::Catbox => "https://catbox.moe/user/api.php",
+	}
+}
+
+pub fn validated_link(host: Host, value: &[u8]) -> Result<String, Error> {
 	if value.len() > RESPONSE_BYTES {
 		return Err(Error::InvalidLink);
 	}
 	let value = std::str::from_utf8(value)
 		.map_err(|_| Error::InvalidLink)?
 		.trim();
-	if !value.starts_with("https://files.catbox.moe/")
-		|| value.chars().any(|c| c.is_control() || c.is_whitespace())
-	{
+	let prefix = host.link_prefix();
+	if !value.starts_with(prefix) || value.chars().any(|c| c.is_control() || c.is_whitespace()) {
 		return Err(Error::InvalidLink);
 	}
 	let url = reqwest::Url::parse(value).map_err(|_| Error::InvalidLink)?;
-	let filename = value
-		.strip_prefix("https://files.catbox.moe/")
-		.unwrap_or_default();
+	let filename = value.strip_prefix(prefix).unwrap_or_default();
 	if url.scheme() != "https"
-		|| url.host_str() != Some("files.catbox.moe")
+		|| url.host_str()
+			!= prefix
+				.strip_prefix("https://")
+				.and_then(|p| p.strip_suffix('/'))
 		|| url.port().is_some()
 		|| !url.username().is_empty()
 		|| url.password().is_some()
@@ -44,6 +50,7 @@ pub fn validated_link(value: &[u8]) -> Result<String, Error> {
 
 /// One attempt only. Cancellation cannot erase bytes already received by the public host.
 pub async fn upload(
+	host: Host,
 	source: Source,
 	progress: watch::Sender<Status>,
 	mut cancel: watch::Receiver<bool>,
@@ -52,6 +59,7 @@ pub async fn upload(
 		return Err(Error::Cancelled);
 	}
 	let client = reqwest::Client::builder()
+		.user_agent(concat!("Serein/", env!("CARGO_PKG_VERSION")))
 		.https_only(true)
 		.no_proxy()
 		.redirect(reqwest::redirect::Policy::none())
@@ -62,12 +70,13 @@ pub async fn upload(
 		.timeout(Duration::from_secs(300))
 		.build()
 		.map_err(|_| Error::Prepare)?;
-	attempt(&client, ENDPOINT, source, progress, &mut cancel).await
+	attempt(&client, endpoint(host), host, source, progress, &mut cancel).await
 }
 
 async fn attempt(
 	client: &reqwest::Client,
 	endpoint: &str,
+	host: Host,
 	source: Source,
 	progress: watch::Sender<Status>,
 	cancel: &mut watch::Receiver<bool>,
@@ -75,17 +84,18 @@ async fn attempt(
 	tokio::select! {
 		biased;
 		_ = super::cancelled(cancel) => Err(Error::Cancelled),
-		result = transfer(client, endpoint, source, progress) => result,
+		result = transfer(client, endpoint, host, source, progress) => result,
 	}
 }
 
 async fn transfer(
 	client: &reqwest::Client,
 	endpoint: &str,
+	host: Host,
 	source: Source,
 	progress: watch::Sender<Status>,
 ) -> Result<String, Error> {
-	if !eligible(source.filename(), source.size()) {
+	if !eligible(host, source.filename(), source.size()) {
 		return Err(Error::Unsupported);
 	}
 	source.validate().await.map_err(|_| Error::Changed)?;
@@ -112,7 +122,17 @@ async fn transfer(
 			.as_nanos()
 	);
 	let name = source.filename().replace(['"', '\\'], "_");
-	let prefix = format!("--{boundary}\r\nContent-Disposition: form-data; name=\"reqtype\"\r\n\r\nfileupload\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"fileToUpload\"; filename=\"{name}\"\r\nContent-Type: application/octet-stream\r\n\r\n").into_bytes();
+	let fields = match host {
+		Host::ZeroX0 => String::new(),
+		Host::Catbox => format!(
+			"--{boundary}\r\nContent-Disposition: form-data; name=\"reqtype\"\r\n\r\nfileupload\r\n"
+		),
+	};
+	let field = match host {
+		Host::ZeroX0 => "file",
+		Host::Catbox => "fileToUpload",
+	};
+	let prefix = format!("{fields}--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{name}\"\r\nContent-Type: application/octet-stream\r\n\r\n").into_bytes();
 	let suffix = format!("\r\n--{boundary}--\r\n").into_bytes();
 	let total = source.size();
 	let body_size = total + prefix.len() as u64 + suffix.len() as u64;
@@ -200,7 +220,7 @@ async fn transfer(
 	{
 		return Err(Error::Changed);
 	}
-	validated_link(&bytes)
+	validated_link(host, &bytes)
 }
 
 #[cfg(test)]
@@ -209,22 +229,48 @@ mod tests {
 	use tokio::{io::AsyncWriteExt, net::TcpListener};
 	#[test]
 	fn limits_and_public_url_admission() {
-		assert!(eligible("video.mp4", MAX_BYTES));
+		assert!(eligible(
+			Host::Catbox,
+			"video.mp4",
+			Host::Catbox.max_bytes()
+		));
+		assert!(eligible(Host::ZeroX0, "image.gif", 20_000_001));
+		assert!(eligible(Host::ZeroX0, "notes.docx", 1));
 		for (name, size) in [
 			("file.zip", 0),
-			("file.zip", MAX_BYTES + 1),
+			("file.zip", Host::Catbox.max_bytes() + 1),
 			("private.DOCX", 1),
 			("app.EXE", 1),
 			("image.gif", 20_000_001),
 		] {
-			assert!(!eligible(name, size));
+			assert!(!eligible(Host::Catbox, name, size));
+		}
+		assert!(!eligible(Host::ZeroX0, "app.exe", 1));
+		assert!(!eligible(
+			Host::ZeroX0,
+			"file.zip",
+			Host::ZeroX0.max_bytes() + 1
+		));
+		assert_eq!(
+			validated_link(Host::ZeroX0, b"https://0x0.st/AbC1.png\n").unwrap(),
+			"https://0x0.st/AbC1.png"
+		);
+		for link in [
+			"https://files.catbox.moe/abc123.png",
+			"https://0x0.st.evil/a.png",
+			"http://0x0.st/a.png",
+		] {
+			assert!(
+				validated_link(Host::ZeroX0, link.as_bytes()).is_err(),
+				"{link}"
+			);
 		}
 		assert_eq!(
-			validated_link(b"https://files.catbox.moe/abc123.png\n").unwrap(),
+			validated_link(Host::Catbox, b"https://files.catbox.moe/abc123.png\n").unwrap(),
 			"https://files.catbox.moe/abc123.png"
 		);
 		assert_eq!(
-			validated_link(b"https://files.catbox.moe/abc123").unwrap(),
+			validated_link(Host::Catbox, b"https://files.catbox.moe/abc123").unwrap(),
 			"https://files.catbox.moe/abc123"
 		);
 		for link in [
@@ -240,9 +286,12 @@ mod tests {
 			"https://files.catbox.moe/",
 			"https://files.catbox.moe/a\n.png",
 		] {
-			assert!(validated_link(link.as_bytes()).is_err(), "{link}");
+			assert!(
+				validated_link(Host::Catbox, link.as_bytes()).is_err(),
+				"{link}"
+			);
 		}
-		assert!(validated_link(&vec![b'a'; RESPONSE_BYTES + 1]).is_err());
+		assert!(validated_link(Host::Catbox, &vec![b'a'; RESPONSE_BYTES + 1]).is_err());
 	}
 	async fn read_request(socket: &mut tokio::net::TcpStream) -> Vec<u8> {
 		let mut bytes = [0; 1024];
@@ -317,6 +366,7 @@ mod tests {
 				transfer(
 					&client,
 					&endpoint,
+					Host::Catbox,
 					Source::pasted_png(vec![1]).unwrap(),
 					progress
 				)
@@ -347,6 +397,7 @@ mod tests {
 			attempt(
 				&client,
 				&endpoint,
+				Host::Catbox,
 				Source::pasted_png(vec![1]).unwrap(),
 				progress,
 				&mut cancellation,
@@ -380,6 +431,7 @@ mod tests {
 			transfer(
 				&reqwest::Client::new(),
 				"http://127.0.0.1:1/",
+				Host::Catbox,
 				source,
 				progress
 			)
@@ -426,6 +478,7 @@ mod tests {
 		let result = transfer(
 			&reqwest::Client::builder().no_proxy().build().unwrap(),
 			&endpoint,
+			Host::Catbox,
 			source,
 			progress,
 		)
@@ -439,9 +492,14 @@ mod tests {
 		let (progress, _) = watch::channel(Status::Preparing);
 		let (_sender, cancel) = watch::channel(true);
 		assert_eq!(
-			upload(Source::pasted_png(vec![1]).unwrap(), progress, cancel)
-				.await
-				.unwrap_err(),
+			upload(
+				Host::ZeroX0,
+				Source::pasted_png(vec![1]).unwrap(),
+				progress,
+				cancel
+			)
+			.await
+			.unwrap_err(),
 			Error::Cancelled
 		);
 	}
@@ -481,6 +539,7 @@ mod tests {
 			transfer(
 				&client,
 				&endpoint,
+				Host::Catbox,
 				Source::pasted_png(b"synthetic bytes".to_vec()).unwrap(),
 				progress
 			)

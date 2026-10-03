@@ -10,6 +10,21 @@ concurrency:
 permissions:
   contents: read
 jobs:
+  windows-installer:
+    # Run the bounded synthetic installer check on drafts too.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - name: Install NSIS
+        run: choco install nsis --no-progress -y
+      - name: Install, upgrade and uninstall (synthetic/offline)
+        run: python packaging/windows/test_installer.py
   native:
     if: github.event_name == 'push' || github.event.pull_request.draft == false
     strategy:

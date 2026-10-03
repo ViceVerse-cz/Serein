@@ -507,13 +507,14 @@ impl MessagingUi {
 						.layout(egui::Layout::left_to_right(egui::Align::Center)),
 				);
 				inner.spacing_mut().item_spacing.x = 6.0;
+				// The name label carries the row's only tooltip.
 				let avatar = match user {
-					Some(user) => self.avatars.show_plain(&mut inner, user, 28.0, state.demo),
+					Some(user) => self.avatars.show_quiet(&mut inner, user, 28.0, state.demo),
 					None => {
 						let (r, response) = inner
 							.allocate_exact_size(egui::Vec2::splat(28.0), egui::Sense::hover());
 						design::paint_avatar(&inner, name, 28.0, r);
-						response.on_hover_text(name)
+						response
 					}
 				};
 				if self.is_speaking(state, entry.channel, &entry.participant) {
@@ -563,6 +564,7 @@ impl MessagingUi {
 							ui.add(
 								egui::Label::new(RichText::new(name).color(name_color))
 									.truncate()
+									.show_tooltip_when_elided(false)
 									.selectable(false),
 							)
 							.on_hover_text(name);
@@ -4068,8 +4070,8 @@ fn speaking_avatar(ui: &egui::Ui, avatar: &egui::Response, name: &str) {
 		egui::Stroke::new(3.0, colors.positive),
 	);
 	let label = format!("{name} · Speaking");
+	// Callers own the avatar's tooltip; a second one here would stack under it.
 	avatar.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &label));
-	avatar.clone().on_hover_text(label);
 }
 
 fn call_failure(ui: &mut egui::Ui, error: Option<&str>, color: egui::Color32) {

@@ -57,6 +57,8 @@ use trail::Place;
 
 pub const MAX_DRAFT_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_CONTENT: usize = 2000;
+/// Nitro and Nitro Classic accounts may send longer messages.
+pub const MAX_PREMIUM_CONTENT: usize = 4000;
 /// Discord accepts at most ten attachments per message.
 pub const MAX_ATTACHMENTS: usize = 10;
 pub const MAX_NAV: usize = model::account::MAX_ENTRIES;
@@ -278,7 +280,8 @@ pub enum Command {
 	},
 }
 pub struct Startup {
-	pub external_stickers: bool,
+	/// Discord's `premium_type`: 0 none, 1 Nitro Classic, 2 Nitro, 3 Nitro Basic.
+	pub premium_type: u8,
 	pub user: User,
 	pub guilds: Vec<Guild>,
 	pub channels: Vec<Channel>,
@@ -655,6 +658,8 @@ pub struct ReadingCursor {
 }
 
 pub struct State {
+	/// The signed-in account's Discord `premium_type`; 0 until READY reports one.
+	pub premium_type: u8,
 	pub stickers: stickers::Stickers,
 	pub interactions: interactions::Interactions,
 	pub application_commands: application_commands::Catalog,
@@ -870,6 +875,7 @@ enum Apply {
 impl Default for State {
 	fn default() -> Self {
 		Self {
+			premium_type: 0,
 			stickers: Default::default(),
 			interactions: Default::default(),
 			application_commands: Default::default(),
@@ -1062,6 +1068,27 @@ impl State {
 				.pending
 				.iter()
 				.any(|p| p.delivery != Delivery::Confirmed)
+	}
+	fn set_premium_type(&mut self, kind: u8) {
+		self.premium_type = kind;
+		self.stickers.external_allowed = matches!(kind, 2 | 3);
+	}
+	/// Longest message content Discord accepts from this account.
+	pub fn content_limit(&self) -> usize {
+		if matches!(self.premium_type, 1 | 2) {
+			MAX_PREMIUM_CONTENT
+		} else {
+			MAX_CONTENT
+		}
+	}
+	/// Largest per-message attachment total this account may send without server boosts.
+	pub fn upload_limit(&self) -> u64 {
+		const MIB: u64 = 1024 * 1024;
+		match self.premium_type {
+			2 => 500 * MIB,
+			1 | 3 => 50 * MIB,
+			_ => 20 * MIB,
+		}
 	}
 	pub fn draft_bytes(&self) -> usize {
 		self.drafts.values().map(String::capacity).sum::<usize>()
@@ -1715,7 +1742,7 @@ impl State {
 		};
 		if !model::message_options::valid(
 			content,
-			MAX_CONTENT,
+			self.content_limit(),
 			!filenames.is_empty() || sticker.is_some(),
 		) || self.pending.len() >= 64
 			|| self.draft_bytes()
@@ -2223,7 +2250,7 @@ impl State {
 				..
 			} = *startup;
 			let Startup {
-				external_stickers,
+				premium_type,
 				user,
 				guilds,
 				channels,
@@ -2248,7 +2275,7 @@ impl State {
 			if self.auth != auth::AuthState::Authenticated {
 				return;
 			}
-			self.stickers.external_allowed = external_stickers;
+			self.set_premium_type(premium_type);
 			warnings.read_state |= self.apply_read_state(read_state).is_err();
 			if let Some(settings) = notifications {
 				warnings.notifications |= self.apply_notification_preferences(settings).is_err();
@@ -2274,7 +2301,7 @@ impl State {
 			Event::Ready { .. } | Event::Disconnected | Event::Resync
 		) {
 			if matches!(envelope.event, Event::Ready { .. } | Event::Resync) {
-				self.stickers.external_allowed = false;
+				self.set_premium_type(0);
 			}
 			self.interrupt_stickers();
 			self.posts.clear_summaries();
@@ -2553,10 +2580,12 @@ impl State {
 				Ok(())
 			}
 			Event::StickerEntitlement { user, premium_type } => {
-				if self.user.as_ref().is_some_and(|own| own.id == user)
-					&& !matches!(premium_type, Patch::Absent)
-				{
-					self.stickers.external_allowed = matches!(premium_type, Patch::Value(2 | 3));
+				if self.user.as_ref().is_some_and(|own| own.id == user) {
+					match premium_type {
+						Patch::Absent => {}
+						Patch::Null => self.set_premium_type(0),
+						Patch::Value(kind) => self.set_premium_type(kind),
+					}
 				}
 				Ok(())
 			}

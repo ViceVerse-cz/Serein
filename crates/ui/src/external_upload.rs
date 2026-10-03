@@ -1,15 +1,17 @@
 //! A per-file public hosting consent prompt and a reviewable, never automatically sent link.
-use crate::{design, dialog};
-use client_core::{MAX_CONTENT, MAX_DRAFT_BYTES, State};
+use crate::{attachments, design, dialog, icons};
+use client_core::{MAX_DRAFT_BYTES, State};
 use egui::{Context, RichText};
 use model::{
 	Id,
-	public_upload::{Error, eligible},
+	public_upload::{Error, Host, eligible},
 };
 
 #[derive(Default)]
 pub struct ExternalUpload {
 	prompt: Option<Prompt>,
+	/// The last host chosen this session; new prompts start from it.
+	host: Host,
 	pub request: Option<Request>,
 	pub cancel_requested: bool,
 }
@@ -20,6 +22,7 @@ pub struct Request {
 	pub key: Option<u64>,
 	pub filename: String,
 	pub bytes: u64,
+	pub host: Host,
 }
 struct Prompt {
 	generation: u64,
@@ -51,6 +54,14 @@ impl ExternalUpload {
 	) {
 		if self.prompt.as_ref().is_some_and(|p| p.running) {
 			return;
+		}
+		// Prefer a host that accepts the file when the remembered one cannot.
+		if !eligible(self.host, &filename, bytes)
+			&& let Some(host) = Host::ALL
+				.into_iter()
+				.find(|host| eligible(*host, &filename, bytes))
+		{
+			self.host = host;
 		}
 		self.prompt = Some(Prompt {
 			generation,
@@ -93,69 +104,100 @@ impl ExternalUpload {
 		if prompt.running {
 			ctx.request_repaint_after(std::time::Duration::from_millis(250));
 		}
+		let host = &mut self.host;
+		let accepted = eligible(*host, &prompt.filename, prompt.bytes);
 		let mut close = false;
 		let modal = dialog::Dialog::new(
 			"public-attachment-upload",
 			crate::i18n::translate("public-upload-heading"),
 		)
 		.subtitle(crate::i18n::translate("public-upload-subtitle"))
-		.width(460.0)
+		.icon(icons::Icon::Link)
+		.width(480.0)
 		.show(ctx, |body| {
 			body.scroll(200.0, |ui| {
 				let colors = design::palette(ui);
+				ui.spacing_mut().item_spacing.y = 8.0;
 				if state.demo {
-					ui.colored_label(
-						colors.warning,
-						crate::i18n::translate("public-upload-offline"),
-					);
+					design::notice(ui, design::Level::Info, "public-upload-offline");
 				}
-				ui.label(RichText::new(&prompt.filename).color(colors.text_strong));
-				ui.label(crate::i18n::translate_args(
-					"public-upload-size",
-					&[("size", &format!("{:.1}", prompt.bytes as f64 / 1_000_000.0))],
-				));
-				ui.add_space(8.0);
-				ui.label(crate::i18n::translate("public-upload-privacy"));
-				ui.label(crate::i18n::translate("public-upload-retention"));
-				ui.label(crate::i18n::translate("public-upload-review"));
-				if !same_channel {
-					ui.colored_label(
-						colors.warning,
-						crate::i18n::translate("public-upload-return"),
-					);
-				}
-				if let Some(result) = &prompt.result {
-					match result {
-						Ok(link) => {
-							if prompt.draft_full {
-								ui.colored_label(
-									colors.danger,
-									crate::i18n::translate("public-upload-draft-full"),
-								);
-							}
-							ui.label(RichText::new(link).color(colors.link));
-						}
-						Err(error) => {
-							ui.colored_label(
-								colors.danger,
-								crate::i18n::translate(error_key(*error)),
-							);
+				file_card(ui, &prompt.filename, prompt.bytes, state.upload_limit());
+				ui.add_space(4.0);
+				design::section(ui, "public-upload-host", None);
+				ui.add_enabled_ui(!prompt.running && prompt.result.is_none(), |ui| {
+					for choice in Host::ALL {
+						let detail = if eligible(choice, &prompt.filename, prompt.bytes) {
+							crate::i18n::translate(host_detail_key(choice))
+						} else {
+							crate::i18n::translate("public-upload-limits")
+						};
+						if design::radio_row(ui, *host == choice, choice.name(), Some(&detail))
+							.clicked()
+						{
+							*host = choice;
 						}
 					}
-				} else if prompt.running {
-					if let Some((sent, total)) = prompt.progress {
+				});
+				ui.add_space(4.0);
+				design::notice(ui, design::Level::Warning, "public-upload-privacy");
+				if !same_channel {
+					design::notice(ui, design::Level::Warning, "public-upload-return");
+				}
+				match &prompt.result {
+					Some(Ok(link)) => {
+						if prompt.draft_full {
+							design::notice(ui, design::Level::Error, "public-upload-draft-full");
+						}
+						design::card(ui, |ui| {
+							ui.horizontal(|ui| {
+								let (rect, _) = ui.allocate_exact_size(
+									egui::Vec2::splat(16.0),
+									egui::Sense::hover(),
+								);
+								icons::paint(
+									ui.painter(),
+									icons::Icon::Check,
+									rect,
+									colors.positive,
+								);
+								ui.add(
+									egui::Label::new(
+										RichText::new(link).color(colors.link).monospace(),
+									)
+									.truncate(),
+								);
+							});
+						});
+						ui.label(
+							RichText::new(crate::i18n::translate("public-upload-review"))
+								.size(12.0)
+								.color(colors.muted),
+						);
+					}
+					Some(Err(error)) => {
+						design::notice(ui, design::Level::Error, error_key(*error));
+					}
+					None if prompt.running => {
+						let (sent, total) = prompt.progress.unwrap_or((0, prompt.bytes));
+						ui.label(
+							RichText::new(crate::i18n::translate_args(
+								"public-upload-uploading",
+								&[
+									("host", host.name()),
+									("sent", &attachments::format_size(sent)),
+									("total", &attachments::format_size(total)),
+								],
+							))
+							.size(13.0)
+							.color(colors.muted),
+						);
 						ui.add(
 							egui::ProgressBar::new(sent as f32 / total.max(1) as f32)
-								.show_percentage(),
+								.desired_height(6.0)
+								.fill(colors.accent),
 						);
-					} else {
-						ui.label(crate::i18n::translate("public-upload-preparing"));
 					}
-				} else if !eligible(&prompt.filename, prompt.bytes) {
-					ui.colored_label(
-						colors.danger,
-						crate::i18n::translate("public-upload-limits"),
-					);
+					None => {}
 				}
 			});
 			body.footer(|ui| {
@@ -189,13 +231,14 @@ impl ExternalUpload {
 						self.cancel_requested = true;
 					}
 				} else {
+					let label = crate::i18n::translate_args(
+						"public-upload-upload",
+						&[("host", host.name())],
+					);
 					if ui
-						.add_enabled_ui(
-							eligible(&prompt.filename, prompt.bytes) && same_channel,
-							|ui| {
-								dialog::action(ui, "public-upload-upload", dialog::Action::Primary)
-							},
-						)
+						.add_enabled_ui(accepted && same_channel, |ui| {
+							dialog::action(ui, &label, dialog::Action::Primary)
+						})
 						.inner
 						.clicked()
 					{
@@ -207,6 +250,7 @@ impl ExternalUpload {
 							key: prompt.key,
 							filename: prompt.filename.clone(),
 							bytes: prompt.bytes,
+							host: *host,
 						});
 					}
 					close |= dialog::action(ui, "public-upload-cancel", dialog::Action::Neutral)
@@ -225,6 +269,44 @@ impl ExternalUpload {
 		if close {
 			self.prompt = None;
 		}
+	}
+}
+/// The file being shared: kind glyph, name, size, and whether Discord itself would refuse it.
+fn file_card(ui: &mut egui::Ui, filename: &str, bytes: u64, limit: u64) {
+	let colors = design::palette(ui);
+	let kind = attachments::file_kind(filename, None);
+	design::card(ui, |ui| {
+		ui.horizontal(|ui| {
+			ui.spacing_mut().item_spacing.x = 12.0;
+			let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(32.0), egui::Sense::hover());
+			icons::paint(ui.painter(), kind.icon(), rect, kind.tint(&colors));
+			ui.vertical(|ui| {
+				ui.spacing_mut().item_spacing.y = 2.0;
+				ui.add(
+					egui::Label::new(design::medium(ui, filename, 15.0).color(colors.text_strong))
+						.truncate(),
+				);
+				let size = attachments::format_size(bytes);
+				let (text, color) = if bytes > limit {
+					(
+						crate::i18n::translate_args(
+							"public-upload-over-limit",
+							&[("size", &size), ("limit", &attachments::format_size(limit))],
+						),
+						colors.warning,
+					)
+				} else {
+					(size, colors.muted)
+				};
+				ui.label(RichText::new(text).size(12.0).color(color));
+			});
+		});
+	});
+}
+fn host_detail_key(host: Host) -> &'static str {
+	match host {
+		Host::ZeroX0 => "public-upload-host-zerox0",
+		Host::Catbox => "public-upload-host-catbox",
 	}
 }
 fn error_key(error: Error) -> &'static str {
@@ -256,7 +338,8 @@ fn append_link(state: &mut State, channel: Id, link: &str) -> bool {
 	if !state.drafts.contains_key(&channel) && state.drafts.len() >= 64 {
 		return false;
 	}
-	if draft.chars().count() + added > MAX_CONTENT || state.draft_bytes() + added > MAX_DRAFT_BYTES
+	if draft.chars().count() + added > state.content_limit()
+		|| state.draft_bytes() + added > MAX_DRAFT_BYTES
 	{
 		return false;
 	}
@@ -270,6 +353,7 @@ fn append_link(state: &mut State, channel: Id, link: &str) -> bool {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use client_core::MAX_CONTENT;
 	#[test]
 	fn typed_public_upload_errors_have_english_and_czech_messages() {
 		use crate::i18n::Language;
@@ -376,7 +460,7 @@ mod tests {
 		assert!(!view.has_unsent());
 		let button = labels
 			.iter()
-			.find(|(label, _)| label == "Upload publicly to Catbox")
+			.find(|(label, _)| label == "Upload to 0x0.st")
 			.unwrap()
 			.1
 			.center();
