@@ -132,7 +132,7 @@ impl Page {
 				"appearance customization font typography import ttf otf primary accent hex window effects transparency blur theme dark light system mode zoom scale layout sidebar width people members member list reset colour color preset"
 			}
 			Self::Chat => {
-				"chat messages media reading animate animated gifs autoplay hide image links confirm confirmation external browser smooth scrolling scroll speed motion trackpad wheel hidden channels channel list reset"
+				"chat messages media reading animate animated gifs autoplay hide image links confirm confirmation external browser smooth scrolling scroll speed motion trackpad wheel hidden channels channel list reset emoticons emoji chat box automatically convert"
 			}
 			Self::MessagingPermissions => {
 				"messaging permissions spam filters direct messages dm friend requests personalized connected games"
@@ -1043,6 +1043,14 @@ impl MessagingUi {
 
 	fn chat_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
 		self.chat_reading_settings(ui, demo);
+		design::group(ui, &crate::i18n::translate("settings-chat-box"), |ui| {
+			design::switch(
+				ui,
+				"settings-convert-emoticons",
+				Some("settings-convert-emoticons-description"),
+				&mut self.convert_emoticons,
+			);
+		});
 		design::group(
 			ui,
 			&crate::i18n::translate("settings-chat-settings-channel-list"),
