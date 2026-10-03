@@ -1558,32 +1558,40 @@ impl MessagingUi {
 										ui.spacing_mut().item_spacing.y = 1.0;
 										ui.spacing_mut().interact_size.y = 0.0;
 										show_name(ui);
-										ui.horizontal(|ui| {
-											ui.spacing_mut().item_spacing.x = 4.0;
-											profiles::voice_badge(ui, in_voice, subtitle.is_some());
-											if let Some(subtitle) = subtitle {
-												if activities
-													.first()
-													.is_some_and(profiles::is_spotify)
-												{
-													icons::inline(
-														ui,
-														icons::Icon::Spotify,
-														12.0,
-														colors.positive,
+										ui.allocate_ui_with_layout(
+											egui::vec2(ui.available_width(), 14.0),
+											egui::Layout::left_to_right(egui::Align::Center),
+											|ui| {
+												ui.spacing_mut().item_spacing.x = 4.0;
+												profiles::voice_badge(
+													ui,
+													in_voice,
+													subtitle.is_some(),
+												);
+												if let Some(subtitle) = subtitle {
+													if activities
+														.first()
+														.is_some_and(profiles::is_spotify)
+													{
+														icons::inline(
+															ui,
+															icons::Icon::Spotify,
+															12.0,
+															colors.positive,
+														);
+													}
+													ui.add(
+														egui::Label::new(
+															RichText::new(subtitle)
+																.size(12.0)
+																.color(colors.muted),
+														)
+														.truncate()
+														.selectable(false),
 													);
 												}
-												ui.add(
-													egui::Label::new(
-														RichText::new(subtitle)
-															.size(12.0)
-															.color(colors.muted),
-													)
-													.truncate()
-													.selectable(false),
-												);
-											}
-										});
+											},
+										);
 									});
 								} else {
 									show_name(ui);
