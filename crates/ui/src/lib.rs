@@ -8195,6 +8195,28 @@ pub fn debug_member_voice_status_check(mut state: State, mut private: State) {
 		clients: Default::default(),
 	});
 	let check_cards = |view: &mut MessagingUi, state: &mut State, header: bool| {
+		let check_dm_alignment = |output: &egui::FullOutput| {
+			let text_rect = |label: &str| {
+				output
+					.shapes
+					.iter()
+					.find_map(|shape| match &shape.shape {
+						egui::Shape::Text(text) if text.galley.text() == label => {
+							Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
+						}
+						_ => None,
+					})
+					.unwrap()
+			};
+			let name = text_rect(&user.name);
+			let status = text_rect("Synthetic status");
+			let avatar = text_rect("RS"); // The synthetic peer's avatar initials.
+			assert!(status.top() >= name.bottom(), "DM status overlaps its name");
+			assert!(
+				(name.union(status).center().y - avatar.center().y).abs() < 1.0,
+				"DM name/status block is not centered beside its avatar"
+			);
+		};
 		for surface in ["friends", "profile", "dm-list", "dm-header"]
 			.into_iter()
 			.filter(|surface| header || *surface != "dm-header")
@@ -8233,6 +8255,16 @@ pub fn debug_member_voice_status_check(mut state: State, mut private: State) {
 					matches!(&shape.shape,
 				egui::Shape::Text(text) if text.galley.text() == "In voice")
 				});
+				if surface == "dm-list" && frame == 1 {
+					check_dm_alignment(&output);
+					let voice = std::mem::take(&mut state.voice);
+					let status_only = ctx.run_ui(egui::RawInput::default(), |ui| {
+						view.channel_list(ui, state);
+					});
+					check_dm_alignment(&status_only);
+					status_only.drop_without_applying_deltas();
+					state.voice = voice;
+				}
 				output.drop_without_applying_deltas();
 				if frame == 1 {
 					assert!(found, "shared-server voice badge missing from {surface}");
