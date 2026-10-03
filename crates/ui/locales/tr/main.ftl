@@ -4336,6 +4336,13 @@ lib-composer-onboarding-rules-pending = Sohbete başlamak için bu sunucunun kur
 lib-composer-onboarding-incomplete = Daha fazla kanalın kilidini açmak için sunucuya katılımı tamamla.
 # Context: composer
 lib-composer-onboarding-complete = Tanıtımı tamamla
+voice-recipient-ring = Yeniden ara
+voice-recipient-stop-ringing = Çalmayı durdur
+voice-recipient-ringing = Çalıyor…
+voice-recipient-not-in-call = Aramada değil
+
+
+reconnect-now = Şimdi yeniden bağlan
 
 voice-call-moved-to-another-client = Bu cihazın arama oturumu değiştirildi
 
@@ -4418,3 +4425,8 @@ server-emoji-empty-animated = Henüz hareketli emoji yok
 server-emoji-empty-detail = Eklemek için bir görsel yükleyin. GIF'ler hareketli emoji olur.
 
 server-stickers-empty-detail = İlk çıkartmanızı eklemek için bir görsel yükleyin.
+
+
+screen-macos-system-picker = macOS sistem seçicisiyle seç
+
+screen-macos-system-picker-kind = Sistem içerik seçicisi

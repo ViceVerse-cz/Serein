@@ -1,0 +1,11 @@
+{
+  "source": "71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35",
+  "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein-target-root-delivery CARGO_BUILD_JOBS=2 cargo build --release --locked -p replay-bench",
+  "profile": "Repository default FAT release, no overrides",
+  "bytes": 1246112,
+  "sha256": "5c9c789bb02b08373ecef4058775a7a52f768d24f8265faeef870ad25b29bdb8",
+  "build_log_sha256": "5aa3dba01d04b16569750e0743877a8b2388f3cb14159010e30527af619d6e95",
+  "same_source_as_prior_all12fresh_standard": true,
+  "source_clean": true,
+  "compile_log": "   Compiling model v0.1.0 (/private/tmp/serein-resume-baseline-71/crates/model)\n   Compiling session-cache v0.1.0 (/private/tmp/serein-resume-baseline-71/crates/session-cache)\n   Compiling client-core v0.1.0 (/private/tmp/serein-resume-baseline-71/crates/client-core)\n   Compiling test-support v0.1.0 (/private/tmp/serein-resume-baseline-71/crates/test-support)\n   Compiling replay-bench v0.1.0 (/private/tmp/serein-resume-baseline-71/tools/replay-bench)\n    Finished `release` profile [optimized + debuginfo] target(s) in 47.87s\n"
+}

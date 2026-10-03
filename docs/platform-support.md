@@ -182,29 +182,29 @@ provider rejection and missing native webview runtimes fail visibly. macOS/Linux
 live CAPTCHA acceptance remains unverified. Widget
 loading and synthetic checks do not establish live Discord challenge acceptance.
 
-## Opt-out tray icon (September 13, 2026)
+## Persistent tray icon and close behavior (October 2, 2026)
 
-Windows General settings offer Show Serein in System Tray, on by default; turning it off
-falls back to ordinary window minimize/close. Minimizing
-keeps the window in the taskbar, including taskbar clicks and automatic startup. The icon supports
-keyboard/mouse restore and a Show Serein / Quit menu. Quit uses the normal unsaved
-work/download exit checks; while the icon is live, the window Close button hides the
-window instead of exiting, and Serein keeps running with its logic ticking so
-notifications and calls continue. Show restores the window. Disabling the setting,
-or a tray that reports itself unavailable, restores a hidden window immediately, so
-Close can never strand the application without a way back.
-The adapter uses existing user32/Shell APIs and dependencies, with no background
-polling. A synthetic native Windows test verifies registration,
-minimize/restore, own-window taskbar recovery, Quit event and cleanup. macOS uses a native menu bar icon with Show Serein / Quit actions; it draws Serein's own
-mark (`assets/brand/serein-tray.png`, rendered from the brand SVG) as an 18-point template
-image, so the system tints it for light, dark and highlighted menu bars. Minimized windows
-remain in the Dock.
+Serein keeps its native tray/menu-bar icon while running, independently of the
+on-by-default minimize-to-tray preference. The preference controls window Close:
+when enabled and registration is available, Close hides the window; otherwise
+Close follows ordinary exit checks. Turning the preference off or losing the
+tray host restores a hidden window. Normal taskbar/Dock minimizing is unchanged.
+Show restores the window, and Quit follows the existing unsaved-work and download
+checks.
 
-Linux now uses ksni's StatusNotifierItem on the session bus with Show Serein,
-Minimize Serein and Quit actions. Enable a StatusNotifier host (for example a panel's
-tray module). Until registration succeeds, or after host loss, Close retains normal
-exit behavior. Start/restart the host and toggle the tray off/on to retry registration.
-The existing on-by-default tray preference is reused; demo changes are session-only.
+Windows voice state changes the icon and tooltip for speaking, muted and deafened
+states. Fixed-size icons are created once and destroyed with the registration;
+failed updates are retried on the next logic tick. Explorer recovery restores the
+current icon and tooltip. Voice and tray updates run once in background-capable
+logic, with a 50 ms repaint request while a call is active. No audio device opens
+merely to update the icon. Windows shell behavior remains unverified in this macOS
+repair session; synthetic update-state tests do not prove native shell behavior.
+
+macOS retains its 18-point template Serein menu-bar mark and Show/Quit actions.
+Linux uses ksni StatusNotifierItem with Show, Minimize and Quit. A StatusNotifier
+host is required. Registration failures remain visible independently of the Close
+preference; toggling that preference retries registration while healthy icons stay
+registered. Demo setting changes are session-only.
 
 **Hyprland / native Wayland:** winit cannot hide, unhide, focus or unminimize a native
 Wayland window. On Hyprland, Close and tray Minimize instead park Serein on
@@ -349,3 +349,31 @@ continue to use their installed native codecs. This optional fallback is not bun
 in release packages; actual codec coverage depends on the local FFmpeg build.
 Windows passes MPEG-4/MOV and WebM/Matroska attachments to Media Foundation; a recognized
 container can still fail when its video or audio codec is not installed.
+
+## HEIC still images
+
+Windows HEIC/HEIF attachment previews and composer thumbnails use Windows Imaging
+Component (WIC) and its installed HEIF/HEVC codecs. Install the Microsoft HEIF
+Image Extensions and an applicable HEVC codec if decoding is unavailable. No codec
+library, installer or DLL is bundled; only the existing `windows` crate gains its
+Imaging bindings. Executable/package size changes have not been measured.
+
+Only the primary still frame is decoded, on existing blocking workers, within the
+existing encoded-byte, source-dimension and scaled RGBA allocation limits (also
+capped at 32 MiB encoded, 8192 pixels per edge and 128 MiB RGBA). OS codec scratch allocations are
+not controlled by Serein. WIC scales to the requested output edge before Serein
+allocates RGBA pixels, so large sources can produce bounded composer thumbnails.
+Originals remain unchanged when uploaded, with image/heic
+or image/heif MIME types. Incoming attachments prefer Discord's existing image
+proxy; attachment originals can fall back to the validated CDN URL even without
+a HEIC filename suffix.
+On Windows, attachment viewers prefer that original, with the existing 4096-pixel
+longest-edge display limit; larger photos are downscaled. Missing service dimensions
+use decoded pixels for the aspect ratio and displayed resolution, so that resolution
+is the decoded rendition, not necessarily the full source photo. Original downloads
+remain unchanged.
+Missing codecs or corrupt/oversized files retain the existing failed-preview state.
+macOS and Linux have no local HEIC decoder in this implementation; proxy-provided
+PNG/JPEG/WebP renditions can still display. The offline Windows check decodes an
+original synthetic 6000x4000 HEIC both at source size and as a 320px thumbnail,
+checking dimensions and pixel conversion. Owner photos and live Discord remain unverified.

@@ -464,6 +464,19 @@ statements in the historical voice/screen-sharing notes below.
 
 ## Outgoing screen sharing — September 11, 2026
 
+October 3 reliability audit: UDP media sends drop on local socket pressure without
+waiting inside the media loop. Established stream rekeys now retain a 30-second
+response/execution deadline, including when WebSocket heartbeats continue.
+The shared Opus reorder buffer preserves received successors after larger loss
+bursts. Linux incoming native decoding enforces four queued access units and
+8,650,752 payload bytes; GStreamer before 1.20 falls back to software decoding.
+Synthetic pressure and encrypted local-socket tests verify those corrections.
+They do not establish resolution of the reported intermittent Linux outgoing
+lag or official-client error 2012. Capture/GPU/network/viewer conditions and
+low-bitrate large-keyframe latency still need owner-controlled evidence; see
+[the audit notes](voice.md#stream-lag-and-viewer-timeouts-october-3-2026).
+
+
 September 21 interoperability correction: camera and screen-share H.264 SPS metadata
 is normalized before DAVE encryption to specify no frame reordering and bounded
 decoder buffering. The [WebRTC receiver rewrites unsuitable SPS metadata](https://github.com/webrtc-mirror/webrtc/blob/main/modules/rtp_rtcp/source/video_rtp_depacketizer_h264.cc)
@@ -2095,6 +2108,43 @@ Voter-name browsing and a custom-server-emoji creation picker are not included i
 Extension snapshots retain their existing unsupported poll contract. No live Discord account was
 used to verify normal-account interoperability. Use --demo --demo-polls for an offline preview
 and --demo --demo-check-polls for the focused synthetic debug check.
+
+Compact message display is a device-local layout: ordinary message rows show
+the time, then a clickable author, then the formatted body in its own column,
+without the avatar gutter or header row. Existing reply and system widgets remain.
+Pending rows use the same time, author and body columns;
+message selection, mentions, spoilers, media and delivery actions remain in
+the existing native widgets. The saved compact choice also reduces divider and
+reply/system spacing. This changes local presentation only.
+
+## Message sending during Gateway recovery — October 2, 2026
+
+A temporary Gateway outage no longer disables an explicit REST message send from
+an authenticated session with last known send permission. Discord still authorizes
+the request; an offline network, changed permissions or expired session can reject
+it. The existing bounded write queue, service cooldown, single-attempt policy and
+failed/ambiguous delivery states remain in use. Attachment uploads still require
+the Gateway to be connected. Nothing automatically replays uncertain writes.
+
+Refresh during reconnection, the Reconnect now button and an explicit message send
+wake the Gateway's current retry without waiting for its capped backoff. Recovery
+preserves the session/sequence for RESUME, does not reopen login or restart a REST
+write, and cannot extend the bounded initial-login attempt limit. Late recovery
+requests are consumed without interrupting an already READY/RESUMED socket.
+Reconnect now is available in the account card on every platform. Refresh also
+reloads readable message history through REST during an outage; repeated Gateway
+retry notifications preserve that request. A successful RESUME still revalidates
+the active history; a REST-only reload during an outage completes as stale rather
+than leaving Refresh disabled in Loading.
+
+The offline debug command is
+`cargo run --locked -p serein --features demo -- --demo --demo-check-resume-send`.
+It exercises synthetic composer/Refresh/Reconnect input, disconnected sending,
+terminal auth and access gates, uncertain-write preservation and coalesced recovery
+waits without opening a network connection or audio device. Workspace tests also
+use a local synthetic WebSocket to check late recovery requests and preserved
+RESUME session/cursor state. macOS sleep/wake and live Discord RESUME/delivery
+remain unverified in this Linux fast pass.
 
 ## Quiet messages (`@silent`)
 

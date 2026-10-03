@@ -37,7 +37,8 @@ pub fn file_kind(filename: &str, content_type: Option<&str>) -> FileKind {
 		})
 		.unwrap_or_default();
 	match extension.as_str() {
-		"png" | "jpg" | "jpeg" | "gif" | "webp" | "avif" | "bmp" | "tiff" | "heic" | "svg" => {
+		"png" | "jpg" | "jpeg" | "gif" | "webp" | "avif" | "bmp" | "tiff" | "heic" | "heif"
+		| "svg" => {
 			return FileKind::Image;
 		}
 		"pdf" => return FileKind::Pdf,
@@ -329,7 +330,11 @@ pub(crate) fn show_subset(
 										&attachment.media,
 										artwork_size(attachment, size),
 										demo,
-										Surface::Inline,
+										if columns == 3 {
+											Surface::Banner
+										} else {
+											Surface::Inline
+										},
 									)
 									.response;
 								let response =
@@ -418,7 +423,13 @@ fn artwork_size(attachment: &Attachment, gallery: egui::Vec2) -> egui::Vec2 {
 }
 
 pub(crate) fn image_layout(count: usize, width: f32) -> (usize, egui::Vec2) {
-	let columns = if count > 1 && width >= 280.0 { 2 } else { 1 };
+	let columns = if count >= 5 && width >= 420.0 {
+		3
+	} else if count > 1 && width >= 280.0 {
+		2
+	} else {
+		1
+	};
 	let width = ((width.min(crate::avatars::media::MEDIA_MAX_WIDTH) - (columns - 1) as f32 * 6.0)
 		/ columns as f32)
 		.max(1.0);
@@ -426,7 +437,9 @@ pub(crate) fn image_layout(count: usize, width: f32) -> (usize, egui::Vec2) {
 		columns,
 		egui::vec2(
 			width,
-			if count > 1 {
+			if columns == 3 {
+				width
+			} else if count > 1 {
 				180.0
 			} else {
 				crate::avatars::media::MEDIA_MAX_HEIGHT
@@ -454,6 +467,7 @@ pub struct DownloadUi {
 	pub request: Option<Attachment>,
 	pub copy_request: Option<Attachment>,
 	pub embed_request: Option<(model::EmbedMedia, bool)>,
+	pub(crate) embed_view_request: Option<(Id, model::EmbedMedia)>,
 	pub cancel_requested: bool,
 	pub dismiss_requested: bool,
 	pub active: bool,
@@ -590,6 +604,11 @@ fn media_menu(
 	action
 }
 impl DownloadUi {
+	pub(crate) fn view_embed(&mut self, message: Id, media: &model::EmbedMedia) {
+		if media.valid() && media.bytes() <= 8 * 1024 {
+			self.embed_view_request = Some((message, media.clone()));
+		}
+	}
 	pub(crate) fn busy(&self) -> bool {
 		self.active
 			|| self.request.is_some()
@@ -822,17 +841,19 @@ pub fn viewer(
 				Rect::from_center_size(full.center(), egui::vec2(1.0, 1.0))
 			};
 			// Image, centered on the stage, sized from bounded metadata.
-			let original = if attachment.media.width > 0 && attachment.media.height > 0 {
-				egui::vec2(
-					attachment.media.width.min(16384) as f32,
-					attachment.media.height.min(16384) as f32,
-				)
-			} else {
-				egui::vec2(320.0, 180.0)
-			};
+			let dimensions = images.media_dimensions(&attachment.media);
+			let original = dimensions.map_or(egui::vec2(320.0, 180.0), |[width, height]| {
+				egui::vec2(width as f32, height as f32)
+			});
 			let scale = (stage.width() / original.x)
 				.min(stage.height() / original.y)
-				.min(1.0);
+				.min(
+					if attachment.media.width > 0 && attachment.media.height > 0 {
+						1.0
+					} else {
+						f32::INFINITY
+					},
+				);
 			let fitted = (original * scale).max(egui::vec2(1.0, 1.0));
 			let image_rect = Rect::from_center_size(stage.center(), fitted);
 			if let Some(pointer) = ui.input(|i| i.pointer.hover_pos())
@@ -988,11 +1009,8 @@ pub fn viewer(
 						.selectable(false),
 					);
 					let mut meta = format_size(attachment.size);
-					if attachment.media.width > 0 && attachment.media.height > 0 {
-						meta = format!(
-							"{meta} · {}×{}",
-							attachment.media.width, attachment.media.height
-						);
+					if let Some([width, height]) = images.media_dimensions(&attachment.media) {
+						meta = format!("{meta} · {width}×{height}");
 					}
 					ui.add(
 						egui::Label::new(
@@ -1159,6 +1177,21 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn large_image_galleries_use_three_square_columns_and_narrow_layouts_fit() {
+		for width in [280.0, 420.0, 640.0] {
+			let (columns, size) = image_layout(5, width);
+			assert!(size.x * columns as f32 + (columns - 1) as f32 * 6.0 <= width);
+			if width >= 420.0 {
+				assert_eq!(columns, 3);
+				assert_eq!(size.x, size.y);
+			} else {
+				assert_eq!(columns, 2);
+			}
+		}
+		assert_eq!(image_layout(4, 640.0).0, 2);
+	}
+
+	#[test]
 	fn image_gallery_wraps_without_filenames_and_opens_each_attachment() {
 		let mut message = test_support::message(1, Id(2));
 		message.attachments = (0..3)
@@ -1300,6 +1333,85 @@ mod tests {
 			estimated_height(&message.attachments, 420.0)
 				< estimated_height(&message.attachments, 240.0)
 		);
+	}
+
+	#[test]
+	fn three_column_gallery_height_matches_the_actual_wrapped_rows() {
+		for light in [false, true] {
+			for width in [240.0, 420.0, 640.0] {
+				for count in [5, 10] {
+					let mut message = test_support::message(1, Id(2));
+					message.attachments = (0..count)
+						.map(|index| Attachment {
+							id: Id(index + 10),
+							filename: format!("Synthetic-{index}.png"),
+							description: None,
+							content_type: Some("image/png".into()),
+							size: 512,
+							spoiler: false,
+							media: model::EmbedMedia {
+								width: 640,
+								height: 360,
+								..Default::default()
+							},
+							duration_ms: None,
+							waveform: vec![],
+						})
+						.collect();
+					let ctx = egui::Context::default();
+					ctx.set_visuals(if light {
+						egui::Visuals::light()
+					} else {
+						egui::Visuals::dark()
+					});
+					let mut actual = 0.0;
+					for _ in 0..3 {
+						let output = ctx.run_ui(
+							egui::RawInput {
+								screen_rect: Some(egui::Rect::from_min_size(
+									egui::Pos2::ZERO,
+									egui::vec2(width + 16.0, 2400.0),
+								)),
+								..Default::default()
+							},
+							|ui| {
+								ui.set_width(width);
+								actual = ui
+									.scope(|ui| {
+										let mut surface =
+											crate::select::Surface::new(ui, "height-test");
+										show(
+											ui,
+											&message,
+											&mut Avatars::default(),
+											&mut None,
+											&mut None,
+											&mut DownloadUi::default(),
+											&mut crate::audio::AudioUi::default(),
+											&mut crate::video::VideoUi::default(),
+											true,
+											&mut surface,
+											design::MessageCardSurface::Conversation,
+										);
+									})
+									.response
+									.rect
+									.height();
+							},
+						);
+						output.drop_without_applying_deltas();
+					}
+					let estimate = estimated_height(&message.attachments, width);
+					// Uncropped narrow layouts conservatively reserve their maximum
+					// height. New square galleries must match their actual row budget.
+					let (columns, _) = image_layout(count as usize, width);
+					assert!(
+						estimate >= actual - 1.0 && (columns != 3 || estimate <= actual + 8.0),
+						"{count} tiles at {width}, light={light}: actual {actual}, estimate {estimate}"
+					);
+				}
+			}
+		}
 	}
 
 	#[test]

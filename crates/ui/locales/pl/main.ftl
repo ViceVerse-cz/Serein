@@ -4351,6 +4351,12 @@ lib-composer-onboarding-incomplete = Dokończ dołączanie do serwera, aby odblo
 # Context: composer
 lib-composer-onboarding-complete = Dokończ wprowadzenie
 
+voice-recipient-ring = Zadzwoń ponownie
+voice-recipient-stop-ringing = Zatrzymaj dzwonienie
+voice-recipient-ringing = Dzwoni…
+voice-recipient-not-in-call = Poza rozmową
+reconnect-now = Połącz ponownie
+
 voice-call-moved-to-another-client = Sesja połączenia na tym urządzeniu została zastąpiona
 
 server-settings-page-safety = Konfiguracja bezpieczeństwa
@@ -4432,3 +4438,7 @@ server-emoji-empty-animated = Brak animowanych emoji
 server-emoji-empty-detail = Prześlij obraz, aby je dodać. Pliki GIF stają się animowanymi emoji.
 
 server-stickers-empty-detail = Prześlij obraz, aby dodać swoją pierwszą naklejkę.
+
+screen-macos-system-picker = Wybierz w systemowym oknie macOS
+
+screen-macos-system-picker-kind = Systemowy wybór treści

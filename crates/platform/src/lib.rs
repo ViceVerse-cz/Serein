@@ -3,6 +3,7 @@ pub mod badge;
 pub mod captcha;
 pub mod compositor;
 pub mod game_activity;
+pub mod heic;
 pub mod hotkeys;
 pub mod notifications;
 pub mod pointer;

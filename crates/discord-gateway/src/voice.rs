@@ -379,7 +379,8 @@ impl Calls {
 			| Command::WatchStream { .. }
 			| Command::StopWatching { .. }
 			| Command::Decline { .. }
-			| Command::Ring { .. } => return Ok(None),
+			| Command::Ring { .. }
+			| Command::RingRecipient { .. } => return Ok(None),
 		};
 		Ok(Some(Frame::Text(json!({"op":4,"d":{"guild_id":guild,"channel_id":channel,"self_mute":self.muted,"self_deaf":self.deafened,"self_video":self.camera}}).to_string().into())))
 	}

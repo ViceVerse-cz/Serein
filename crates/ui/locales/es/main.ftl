@@ -4347,6 +4347,13 @@ lib-composer-onboarding-rules-pending = Acepta las reglas de este servidor para 
 lib-composer-onboarding-incomplete = Termina de unirte a este servidor para desbloquear más canales.
 # Context: composer
 lib-composer-onboarding-complete = Completar bienvenida
+voice-recipient-ring = Volver a llamar
+voice-recipient-stop-ringing = Dejar de llamar
+voice-recipient-ringing = Llamando…
+voice-recipient-not-in-call = Fuera de la llamada
+
+
+reconnect-now = Reconectar ahora
 
 voice-call-moved-to-another-client = Se reemplazó la sesión de llamada de este dispositivo
 
@@ -4429,3 +4436,8 @@ server-emoji-empty-animated = Aún no hay emojis animados
 server-emoji-empty-detail = Suba una imagen para añadir uno. Los GIF se convierten en emojis animados.
 
 server-stickers-empty-detail = Suba una imagen para añadir su primer sticker.
+
+
+screen-macos-system-picker = Elegir con el selector del sistema macOS
+
+screen-macos-system-picker-kind = Selector de contenido del sistema

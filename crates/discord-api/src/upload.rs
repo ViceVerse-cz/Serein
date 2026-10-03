@@ -580,6 +580,8 @@ fn content_type(filename: &str) -> &'static str {
 		"jpg" | "jpeg" => "image/jpeg",
 		"gif" => "image/gif",
 		"webp" => "image/webp",
+		"heic" => "image/heic",
+		"heif" => "image/heif",
 		"svg" => "image/svg+xml",
 		"mp4" => "video/mp4",
 		"webm" => "video/webm",

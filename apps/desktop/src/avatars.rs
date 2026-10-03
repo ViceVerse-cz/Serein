@@ -150,10 +150,7 @@ fn budget(key: &str) -> Budget {
 		Motion::Still => Budget {
 			fit: longest,
 			encoded: media_encoded(&rendition),
-			canvas: match rendition.size {
-				Size::Exact { .. } => (longest * 2).min(8192),
-				Size::Longest(_) => 8192,
-			},
+			canvas: 8192,
 			alloc: 128 * 1024 * 1024,
 			frames: None,
 		},
@@ -283,6 +280,7 @@ pub struct AvatarWorker {
 	cancel: watch::Sender<bool>,
 	clear: Arc<AtomicBool>,
 	cleanup: Option<Cleanup>,
+	bundled_only: bool,
 }
 impl AvatarWorker {
 	pub fn start(
@@ -300,6 +298,20 @@ impl AvatarWorker {
 		root: Option<PathBuf>,
 		ctx: egui::Context,
 	) -> Result<Self, &'static str> {
+		Self::start_inner(runtime, root, ctx, false)
+	}
+	pub fn start_bundled(
+		runtime: &tokio::runtime::Runtime,
+		ctx: egui::Context,
+	) -> Result<Self, &'static str> {
+		Self::start_inner(runtime, None, ctx, true)
+	}
+	fn start_inner(
+		runtime: &tokio::runtime::Runtime,
+		root: Option<PathBuf>,
+		ctx: egui::Context,
+		bundled_only: bool,
+	) -> Result<Self, &'static str> {
 		let (requests, receive) = async_mpsc::channel(1024);
 		let (send, results) = result_channel(ctx.clone());
 		let wake = ctx.clone();
@@ -311,8 +323,8 @@ impl AvatarWorker {
 		std::thread::Builder::new()
 			.name("avatar-cache".into())
 			.spawn(move || {
-				handle.block_on(run(root.as_deref(), receive, send, cancelled));
-				let result = if cleanup_flag.load(Ordering::Acquire) {
+				handle.block_on(run(root.as_deref(), receive, send, cancelled, bundled_only));
+				let result = if cleanup_flag.load(Ordering::Acquire) && !bundled_only {
 					clear_directory(root.as_deref())
 				} else {
 					Ok(())
@@ -328,10 +340,12 @@ impl AvatarWorker {
 			cancel,
 			clear,
 			cleanup: Some(cleanup),
+			bundled_only,
 		})
 	}
 	pub fn request(&self, key: String) -> bool {
-		cdn_url(&key).is_some() && self.requests.try_send(key).is_ok()
+		(ui::emoji::bundled_svg(&key).is_some() || (!self.bundled_only && cdn_url(&key).is_some()))
+			&& self.requests.try_send(key).is_ok()
 	}
 	pub fn poll(&mut self) -> Option<AvatarResult> {
 		let result = self.results.try_recv().ok()?;
@@ -600,7 +614,16 @@ fn media_urls(rendition: &Rendition) -> Option<MediaUrls> {
 		{
 			(proxy_base(source).map(String::from), None)
 		}
-		Motion::Still => (proxy_url(source, size, ProxyFormat::LosslessWebp), None),
+		Motion::Still => (
+			proxy_url(source, size, ProxyFormat::LosslessWebp),
+			proxy_base(source).and_then(|mut original| {
+				if !original.path().starts_with("/attachments/") {
+					return None;
+				}
+				original.set_host(Some("cdn.discordapp.com")).ok()?;
+				Some(original.into())
+			}),
+		),
 		Motion::Animated if let Some(video) = motion_video_source(source) => (Some(video), None),
 		Motion::Animated if provider => (Some(source.to_owned()), None),
 		Motion::Animated if webp => (
@@ -612,6 +635,15 @@ fn media_urls(rendition: &Rendition) -> Option<MediaUrls> {
 			direct_gif(source, size),
 		),
 	};
+	#[cfg(target_os = "windows")]
+	if rendition.lane == Lane::Viewer
+		&& let Some(original) = fallback.clone()
+	{
+		return Some(MediaUrls {
+			primary: original,
+			fallback: primary,
+		});
+	}
 	match primary {
 		Some(primary) => Some(MediaUrls { primary, fallback }),
 		None => fallback.map(|primary| MediaUrls {
@@ -846,17 +878,22 @@ async fn run(
 	mut requests: async_mpsc::Receiver<String>,
 	results: ResultSender,
 	mut cancelled: watch::Receiver<bool>,
+	bundled_only: bool,
 ) {
 	let mut disk = root.and_then(|root| Disk::open(root.to_owned()).ok());
-	let client = reqwest::Client::builder()
-		.https_only(true)
-		.no_proxy()
-		.redirect(reqwest::redirect::Policy::none())
-		.timeout(Duration::from_secs(15))
-		.connect_timeout(Duration::from_secs(5))
-		.pool_max_idle_per_host(1)
-		.build()
-		.ok();
+	let client = (!bundled_only)
+		.then(|| {
+			reqwest::Client::builder()
+				.https_only(true)
+				.no_proxy()
+				.redirect(reqwest::redirect::Policy::none())
+				.timeout(Duration::from_secs(15))
+				.connect_timeout(Duration::from_secs(5))
+				.pool_max_idle_per_host(1)
+				.build()
+				.ok()
+		})
+		.flatten();
 	let mut cooldown = Instant::now();
 	// Eight bounded loads overlap; each downloads and decodes off this loop, which owns the disk.
 	let mut jobs = tokio::task::JoinSet::new();
@@ -866,6 +903,27 @@ async fn run(
 			&& !*cancelled.borrow()
 			&& let Some(key) = viewer.pop_front().or_else(|| inline.pop_front())
 		{
+			if let Some((source, edge)) = ui::emoji::bundled_svg(&key) {
+				jobs.spawn(async move {
+					let image =
+						bounded_decode(DECODE_SLOTS.clone(), move || rasterize_emoji(source, edge))
+							.await
+							.ok()
+							.flatten();
+					Loaded {
+						key,
+						fetched: None,
+						image,
+						frames: Vec::new(),
+						error: None,
+						until: Instant::now(),
+					}
+				});
+				continue;
+			}
+			if bundled_only {
+				continue;
+			}
 			let Some(MediaUrls { primary, fallback }) = job_urls(&key) else {
 				continue;
 			};
@@ -947,6 +1005,36 @@ async fn run(
 		}
 	}
 	jobs.abort_all();
+}
+
+fn rasterize_emoji(source: &[u8], edge: u32) -> Option<egui::ColorImage> {
+	if !matches!(edge, 64 | 128 | 256) {
+		return None;
+	}
+	let svg = ui::emoji::decode_bundled_svg(source)?;
+	let options = resvg::usvg::Options {
+		image_href_resolver: resvg::usvg::ImageHrefResolver {
+			resolve_data: Box::new(|_, _, _| None),
+			resolve_string: Box::new(|_, _| None),
+		},
+		..Default::default()
+	};
+	let tree = resvg::usvg::Tree::from_data(&svg, &options).ok()?;
+	let mut pixels = resvg::tiny_skia::Pixmap::new(edge, edge)?;
+	let padding = edge as f32 / 32.0;
+	let scale = (edge as f32 - padding * 2.0) / tree.size().width().max(tree.size().height());
+	let transform = resvg::tiny_skia::Transform::from_row(scale, 0.0, 0.0, scale, padding, padding);
+	resvg::render(&tree, transform, &mut pixels.as_mut());
+	Some(egui::ColorImage::new(
+		[edge as usize, edge as usize],
+		pixels
+			.data()
+			.as_chunks::<4>()
+			.0
+			.iter()
+			.map(|p| egui::Color32::from_rgba_premultiplied(p[0], p[1], p[2], p[3]))
+			.collect(),
+	))
 }
 
 fn job_urls(key: &str) -> Option<MediaUrls> {
@@ -1213,6 +1301,15 @@ async fn download(
 fn decode(bytes: &[u8], budget: &Budget) -> Option<egui::ColorImage> {
 	if bytes.len() > budget.encoded {
 		return None;
+	}
+	if platform::heic::is_heic(bytes) {
+		let (width, height, rgba) =
+			platform::heic::decode(bytes, budget.canvas, budget.alloc, budget.fit)?;
+		let image = resize_to(image::RgbaImage::from_raw(width, height, rgba)?, budget.fit);
+		return Some(egui::ColorImage::from_rgba_unmultiplied(
+			[image.width() as usize, image.height() as usize],
+			image.as_raw(),
+		));
 	}
 	// Provider previews can be GIF/JPEG/WebP; decode only the first frame, within limits.
 	let mut reader = image::ImageReader::new(Cursor::new(bytes))
@@ -1729,6 +1826,62 @@ mod tests {
 	}
 
 	#[test]
+	fn scalable_emoji_uses_bundled_shapes_and_preserves_transparency() {
+		for cell in 0..4009 {
+			let (svg, _) = ui::emoji::bundled_svg(&format!("emoji-unicode-{cell}-64")).unwrap();
+			let image =
+				super::rasterize_emoji(svg, 64).unwrap_or_else(|| panic!("artwork cell {cell}"));
+			assert_eq!(image.size, [64; 2]);
+			assert_eq!(image.pixels[0], egui::Color32::TRANSPARENT);
+			assert!(
+				image.pixels.iter().any(|pixel| pixel.a() > 0),
+				"artwork cell {cell}"
+			);
+		}
+		for cell in [0, 1000, 2000, 3000, 4008] {
+			for edge in [64, 128, 256] {
+				let (svg, _) =
+					ui::emoji::bundled_svg(&format!("emoji-unicode-{cell}-{edge}")).unwrap();
+				let image = super::rasterize_emoji(svg, edge).unwrap();
+				assert_eq!(image.size, [edge as usize; 2]);
+				assert_eq!(image.pixels[0], egui::Color32::TRANSPARENT);
+				assert!(image.pixels.iter().any(|pixel| pixel.a() > 0));
+			}
+		}
+		assert!(super::rasterize_emoji(b"invalid", 64).is_none());
+		assert!(super::rasterize_emoji(b"invalid", 1024).is_none());
+	}
+	#[test]
+	fn offline_emoji_worker_rejects_network_requests() {
+		let runtime = tokio::runtime::Runtime::new().unwrap();
+		let mut worker =
+			super::AvatarWorker::start_bundled(&runtime, egui::Context::default()).unwrap();
+		assert!(!worker.request("emoji-9001".into()));
+		assert!(!worker.request("1-01234567890123456789012345678901".into()));
+		assert!(worker.request("emoji-unicode-0-128".into()));
+		let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+		let result = loop {
+			if let Some(result) = worker.poll() {
+				break result;
+			}
+			assert!(
+				std::time::Instant::now() < deadline,
+				"bundled worker did not finish"
+			);
+			std::thread::sleep(std::time::Duration::from_millis(5));
+		};
+		assert_eq!(result.key, "emoji-unicode-0-128");
+		assert_eq!(result.image.unwrap().size, [128, 128]);
+		assert!(result.error.is_none());
+		assert!(
+			worker
+				.shutdown()
+				.recv_timeout(std::time::Duration::from_secs(5))
+				.unwrap()
+				.is_ok()
+		);
+	}
+	#[test]
 	fn direct_image_decode_preserves_pixels_formats_and_resize() {
 		let rgba = image::RgbaImage::from_fn(256, 67, |x, y| {
 			image::Rgba([x as u8, (255 - x) as u8, (y * 83) as u8, x as u8])
@@ -1929,6 +2082,7 @@ mod tests {
 			cancel,
 			clear: Arc::new(AtomicBool::new(false)),
 			cleanup: None,
+			bundled_only: false,
 		};
 		let mut oversized = queued_image(1);
 		oversized
@@ -2475,7 +2629,18 @@ mod tests {
 			.is_some()
 		);
 		let media_key = "media:vs:2048x512:https://cdn.discordapp.com/attachments/1/2/image.png?ex=abc&is=def&hm=synthetic";
-		let transformed = cdn_url(media_key).unwrap();
+		let urls = media_urls(&Rendition::parse(media_key).unwrap()).unwrap();
+		// Windows viewers prefer the original so system codecs can decode HEIC.
+		let transformed = if cfg!(windows) {
+			assert!(
+				urls.primary
+					.starts_with("https://cdn.discordapp.com/attachments/1/2/image.png?")
+			);
+			urls.fallback.unwrap()
+		} else {
+			assert_eq!(cdn_url(media_key).as_deref(), Some(urls.primary.as_str()));
+			urls.primary
+		};
 		assert!(transformed.starts_with("https://media.discordapp.net/attachments/1/2/image.png?"));
 		assert!(transformed.ends_with("format=webp&quality=lossless&width=2048&height=512"));
 		assert_ne!(disk_key(media_key).unwrap(), disk_key(embed_key).unwrap());
@@ -2487,7 +2652,7 @@ mod tests {
 		);
 		let media = budget("media:vs:2048x1024:https://cdn.discordapp.com/attachments/1/2/a.png");
 		assert_eq!(decode(&png(1024, 512), &media).unwrap().size, [1024, 512]);
-		assert!(decode(&png(4097, 1), &media).is_none());
+		assert!(decode(&png(8193, 1), &media).is_none());
 		assert!(decode(&vec![0; MAX_ENCODED + 1], &legacy(128)).is_none());
 		assert!(decode(b"not an image", &legacy(128)).is_none());
 		assert!(decode(&png(257, 1), &legacy(128)).is_none());
@@ -2694,4 +2859,81 @@ mod tests {
 		);
 		assert_eq!(cooldown, retry_at);
 	}
+}
+
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub(crate) fn debug_heic_check() {
+	ui::debug_heic_layout_check();
+	let suffixless = Rendition::parse(
+		"media:is:e512:https://media.discordapp.net/attachments/1/2/Attachment?ex=abc&hm=def",
+	)
+	.unwrap();
+	assert_eq!(
+		media_urls(&suffixless).unwrap().fallback.as_deref(),
+		Some("https://cdn.discordapp.com/attachments/1/2/Attachment?ex=abc&hm=def")
+	);
+	let external = Rendition::parse(
+		"media:is:e512:https://images-ext-1.discordapp.net/external/abcdefghijklmnop/https/example.com/photo.png",
+	)
+	.unwrap();
+	assert!(media_urls(&external).unwrap().fallback.is_none());
+
+	for (filename, content_type, image) in [
+		("shelf-christmas-decoration.heic", None, true),
+		("photo.HEIC", Some("application/octet-stream"), true),
+		("photo.heif", Some("image/heif"), true),
+		("Attachment", Some("image/heic"), true),
+		("photo.heic.exe", Some("application/octet-stream"), false),
+		("photo.heic", Some("audio/wav"), false),
+		("photo.heic", Some("video/mp4"), false),
+	] {
+		let message = serde_json::json!({
+			"id": "1", "channel_id": "2", "author": {"id": "3", "username": "Synthetic"},
+			"attachments": [{"id": "4", "filename": filename, "content_type": content_type,
+				"size": 1380000, "url": "https://cdn.discordapp.com/attachments/2/4/photo.heic"}]
+		});
+		let message = discord_protocol::decode::<discord_protocol::MessageDto>(
+			message.to_string().as_bytes(),
+		)
+		.unwrap()
+		.into_model();
+		assert_eq!(
+			message.attachments[0].is_image(),
+			image,
+			"{filename} / {content_type:?}"
+		);
+		assert_eq!(message.attachments[0].media.width, 0);
+		assert_eq!(message.attachments[0].media.height, 0);
+	}
+	let heic = b"\x00\x00\x00\x18ftypmif1\x00\x00\x00\x00heicmif1";
+	assert!(platform::heic::is_heic(heic));
+	for len in 0..heic.len() {
+		assert!(!platform::heic::is_heic(&heic[..len]));
+	}
+	assert!(!platform::heic::is_heic(
+		b"\x00\x00\x00\x10ftypavif\x00\x00\x00\x00"
+	));
+	assert!(decode(heic, &Budget::legacy(256)).is_none());
+	let rendition = Rendition::parse(
+		"media:is:e512:https://cdn.discordapp.com/attachments/1/2/photo.HEIC?ex=abc&hm=def",
+	)
+	.unwrap();
+	let urls = media_urls(&rendition).unwrap();
+	assert_eq!(budget(&rendition.key()).canvas, 8192);
+	#[cfg(target_os = "windows")]
+	{
+		let viewer = Rendition {
+			lane: Lane::Viewer,
+			..rendition.clone()
+		};
+		let urls = media_urls(&viewer).unwrap();
+		assert!(urls.primary.contains("cdn.discordapp.com") && !urls.primary.contains("format="));
+		assert!(urls.fallback.unwrap().contains("format=webp"));
+	}
+
+	assert!(urls.primary.contains("format=webp"));
+	assert_eq!(
+		urls.fallback.as_deref(),
+		Some("https://cdn.discordapp.com/attachments/1/2/photo.HEIC?ex=abc&hm=def")
+	);
 }

@@ -86,7 +86,7 @@ impl MessagingUi {
 				match focus {
 					StageFocus::LocalScreen => self.screen_tile(ui, rect, false),
 					StageFocus::Stream(user) => {
-						self.stream_tile(ui, state, rect, channel, user, false)
+						self.stream_tile(ui, state, rect, channel, user, true)
 					}
 					StageFocus::Participant(_) => unreachable!("validated screen share"),
 				}
@@ -236,7 +236,41 @@ impl MessagingUi {
 			.show(|ui| {
 				ui.set_width(220.0);
 				let id = entry.participant.user.0;
-				if state.user.as_ref().is_some_and(|own| own.id.0 != id) {
+				if let Some(call) = state
+					.voice
+					.active
+					.as_ref()
+					.filter(|call| call.channel == entry.channel && call.guild.is_none())
+					&& state.user.as_ref().is_some_and(|own| own.id.0 != id)
+					&& !call.participants.iter().any(|p| p.user.0 == id)
+				{
+					let stop = state
+						.voice
+						.ringing(call.channel)
+						.contains(&entry.participant.user);
+					let enabled = state
+						.ring_recipient(call.channel, call.request, entry.participant.user, stop)
+						.is_some();
+					if ui
+						.add_enabled(
+							enabled,
+							egui::Button::new(crate::i18n::translate(if stop {
+								"voice-recipient-stop-ringing"
+							} else {
+								"voice-recipient-ring"
+							})),
+						)
+						.clicked()
+					{
+						self.ring_request =
+							Some((call.channel, call.request, entry.participant.user, stop));
+						ui.close();
+					}
+					ui.separator();
+				}
+				if state.user.as_ref().is_some_and(|own| own.id.0 != id)
+					&& !inactive_recipient(state, entry.channel, entry.participant.user)
+				{
 					let muted = self.voice_user_locally_muted(entry.participant.user);
 					if ui
 						.button(crate::i18n::translate_if_key(
@@ -291,7 +325,8 @@ impl MessagingUi {
 	}
 
 	fn is_speaking(&self, state: &State, channel: Id, participant: &Participant) -> bool {
-		!self.voice_user_locally_muted(participant.user)
+		!inactive_recipient(state, channel, participant.user)
+			&& !self.voice_user_locally_muted(participant.user)
 			&& !participant.muted
 			&& !participant.deafened
 			&& !participant.server_muted
@@ -685,11 +720,21 @@ impl MessagingUi {
 		let Some((channel, user)) = self.stream_preview_watch else {
 			return;
 		};
-		if !state.voice.roster.iter().any(|entry| {
+		// DM calls have no guild roster entry; their live shares come from the call itself.
+		let live = state.voice.roster.iter().any(|entry| {
 			entry.channel == channel
 				&& entry.participant.user == user
 				&& entry.participant.streaming
-		}) {
+		}) || state.voice.active.as_ref().is_some_and(|call| {
+			call.channel == channel
+				&& call.guild.is_none()
+				&& matches!(call.phase, Phase::Connected | Phase::Waiting)
+				&& call
+					.participants
+					.iter()
+					.any(|participant| participant.user == user && participant.streaming)
+		});
+		if !live {
 			self.stream_preview_watch = None;
 			state.status = "This stream is no longer live";
 			return;
@@ -715,9 +760,11 @@ impl MessagingUi {
 			}
 			Some((_, Phase::Connected | Phase::Waiting)) => {
 				self.stream_preview_watch = None;
-				if state.voice.active.as_ref().and_then(|call| call.watching) != Some(user)
-					&& state.watch_stream(user).is_none()
+				if state.voice.active.as_ref().and_then(|call| call.watching) == Some(user)
+					|| state.watch_stream(user).is_some()
 				{
+					self.voice_focus = Some(StageFocus::Stream(user));
+				} else {
 					state.status = "This stream is not available in the connected voice channel";
 				}
 			}
@@ -747,10 +794,21 @@ impl MessagingUi {
 		let (rect, _) = ui.allocate_exact_size(stage.size(), egui::Sense::hover());
 		let notices = self.stage_notices(state, channel, connected);
 		let bottom = CONTROL_HEIGHT + 2.0 * STAGE_MARGIN;
-		let body = egui::Rect::from_min_max(
-			rect.left_top() + egui::vec2(STAGE_MARGIN, STAGE_MARGIN),
-			egui::pos2(rect.right() - STAGE_MARGIN, rect.bottom() - bottom),
-		);
+		// In the call, the bar fades in on hover and an enlarged video fills the stage.
+		let reveal = if connected {
+			chrome_reveal(ui, rect, "voice-stage-chrome")
+		} else {
+			1.0
+		};
+		let full = connected && self.voice_focus.is_some() && !self.voice_focus_participants;
+		let body = if full {
+			rect
+		} else {
+			egui::Rect::from_min_max(
+				rect.left_top() + egui::vec2(STAGE_MARGIN, STAGE_MARGIN),
+				egui::pos2(rect.right() - STAGE_MARGIN, rect.bottom() - bottom),
+			)
+		};
 		let mut body_ui = ui.new_child(
 			egui::UiBuilder::new()
 				.max_rect(body)
@@ -804,7 +862,9 @@ impl MessagingUi {
 						.color(STAGE_MUTED),
 					);
 				}
+				self.voice_chrome_hidden = 1.0 - reveal;
 				self.participant_tiles(&mut body_ui, state, channel, &entries, false);
+				self.voice_chrome_hidden = 0.0;
 			}
 		}
 		self.apply_watch_request(state);
@@ -812,10 +872,14 @@ impl MessagingUi {
 			egui::pos2(rect.left(), rect.bottom() - bottom),
 			rect.right_bottom(),
 		);
+		if full {
+			chrome_shade(ui, rect, 96.0, false, reveal);
+		}
 		let mut bar_ui = ui.new_child(egui::UiBuilder::new().max_rect(bar).layout(
 			egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
 		));
 		if connected {
+			bar_ui.set_opacity(reveal);
 			self.call_controls(&mut bar_ui, state, channel, commands);
 		} else {
 			bar_ui.horizontal_centered(|ui| {
@@ -845,19 +909,38 @@ impl MessagingUi {
 		}) {
 			tiles.push(Tile::LocalScreen);
 		}
-		if let Some(streamer) = call.and_then(|call| call.watching) {
+		// Like Discord, every remote share gets its own box beside its streamer's tile; the
+		// watched one leads, the rest stay previews until someone clicks to watch.
+		let watching = call.and_then(|call| call.watching);
+		if let Some(streamer) = watching {
 			tiles.push(Tile::Stream(streamer));
 		}
+		let own = state.user.as_ref().map(|user| user.id);
+		tiles.extend(
+			entries
+				.iter()
+				.map(|entry| entry.participant.user)
+				.filter(|user| Some(*user) != watching && Some(*user) != own)
+				.filter(|user| {
+					entries
+						.iter()
+						.any(|entry| entry.participant.user == *user && entry.participant.streaming)
+				})
+				.map(Tile::Stream),
+		);
 		tiles.extend(entries.iter().map(Tile::Participant));
 		tiles
 	}
 
-	/// True once any stage tile carries video, so the direct-message stage can grow.
+	/// True once any stage tile carries video or a live share, so the direct-message stage
+	/// can grow.
 	pub(super) fn stage_shows_video(&self, state: &State, channel: Id) -> bool {
 		let entries = stage_participants(state, channel);
 		self.stage_tiles(state, channel, &entries)
 			.iter()
-			.any(|tile| self.tile_has_video(state, channel, tile))
+			.any(|tile| {
+				matches!(tile, Tile::Stream(_)) || self.tile_has_video(state, channel, tile)
+			})
 	}
 
 	/// Stage tiles: a best-fit grid, or one enlarged video with the rest in a strip below.
@@ -884,9 +967,11 @@ impl MessagingUi {
 		});
 		let focus = focus.filter(|_| !ui.input(|input| input.key_pressed(egui::Key::Escape)));
 		self.voice_focus = focus;
-		let video = tiles
-			.iter()
-			.any(|tile| self.tile_has_video(state, channel, tile));
+		// A live share turns the avatar-only DM stage into boxed tiles, as in Discord.
+		let video = tiles.iter().any(|tile| {
+			matches!(tile, Tile::Stream(_) | Tile::LocalScreen)
+				|| self.tile_has_video(state, channel, tile)
+		});
 		let frameless = dm && !video && !state.is_group_dm(channel);
 		let area = ui.available_rect_before_wrap();
 		if area.width() < 40.0 || area.height() < 40.0 {
@@ -968,6 +1053,14 @@ impl MessagingUi {
 		}
 	}
 
+	fn watching(&self, state: &State, channel: Id, streamer: Id) -> bool {
+		state.voice.active.as_ref().is_some_and(|call| {
+			call.channel == channel
+				&& call.phase != Phase::Failed
+				&& call.watching == Some(streamer)
+		})
+	}
+
 	fn remote_texture(&self, user: Id) -> Option<&egui::TextureHandle> {
 		self.voice_remote_video
 			.iter()
@@ -978,7 +1071,7 @@ impl MessagingUi {
 	fn tile_has_video(&self, state: &State, channel: Id, tile: &Tile<'_>) -> bool {
 		match tile {
 			Tile::LocalScreen => self.screen.preview.is_some(),
-			Tile::Stream(_) => true,
+			Tile::Stream(streamer) => self.watching(state, channel, *streamer),
 			Tile::Participant(entry) => {
 				let own = state
 					.user
@@ -1012,7 +1105,7 @@ impl MessagingUi {
 		let response = ui.interact(
 			rect,
 			ui.scope_id().with(("voice-tile", tile.key())),
-			if has_video || matches!(tile, Tile::Participant(_)) {
+			if has_video || matches!(tile, Tile::Participant(_) | Tile::Stream(_)) {
 				egui::Sense::click()
 			} else {
 				egui::Sense::hover()
@@ -1029,12 +1122,45 @@ impl MessagingUi {
 					.capture_status
 					.unwrap_or("Your screen · local preview")
 			}
-			Tile::Stream(streamer) => {
-				self.stream_tile(ui, state, rect, channel, *streamer, compact);
+			Tile::Stream(streamer) if has_video => {
+				self.stream_tile(ui, state, rect, channel, *streamer, false);
 				egui::Popup::context_menu(&response)
 					.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-					.show(|ui| self.stream_audio_controls(ui));
+					.show(|ui| {
+						self.stream_audio_controls(ui);
+						ui.separator();
+						if ui.button("Stop watching").clicked() {
+							self.watch_request = Some(None);
+							ui.close();
+						}
+					});
 				"Screen share you are watching"
+			}
+			Tile::Stream(streamer) => {
+				let watch = self.stream_invite_tile(ui, state, rect, channel, *streamer, compact);
+				let can_watch = self.can_watch(state, channel, *streamer);
+				response.widget_info(|| {
+					egui::WidgetInfo::labeled(egui::Role::Button, can_watch, "Watch Stream")
+				});
+				if can_watch && (watch || response.clicked()) {
+					// In the call, watch directly (DM calls have no guild roster entry);
+					// otherwise join the channel first, like the hover preview's button.
+					if state
+						.voice
+						.active
+						.as_ref()
+						.is_some_and(|call| call.channel == channel)
+					{
+						self.watch_request = Some(Some(*streamer));
+					} else {
+						self.stream_preview_watch = Some((channel, *streamer));
+					}
+				}
+				if can_watch {
+					response.on_hover_cursor(egui::CursorIcon::PointingHand);
+					return None;
+				}
+				"Join this voice channel before watching"
 			}
 			Tile::Participant(entry) => {
 				self.participant_tile(ui, state, entry, rect, frameless, compact);
@@ -1079,7 +1205,7 @@ impl MessagingUi {
 			})
 			.unwrap_or(rect);
 		if !compact {
-			name_badge(ui, content, "Your screen", None);
+			name_badge(ui, content, "Your screen", None, self.badge_opacity());
 		}
 	}
 
@@ -1091,7 +1217,7 @@ impl MessagingUi {
 		rect: egui::Rect,
 		channel: Id,
 		streamer: Id,
-		compact: bool,
+		overlay: bool,
 	) {
 		let name = participant_user(state, channel, streamer)
 			.map_or_else(|| "Participant".to_owned(), |user| user.name.clone());
@@ -1106,7 +1232,7 @@ impl MessagingUi {
 			}
 			None => {
 				ui.painter().rect_filled(rect, 8, TILE_FILL);
-				if !compact {
+				if rect.height() >= 132.0 {
 					let status = if self.voice_stream_status.is_empty() {
 						"Connecting to the stream…"
 					} else {
@@ -1128,45 +1254,181 @@ impl MessagingUi {
 				rect
 			}
 		};
-		let audio = ui.put(
-			egui::Rect::from_min_size(
-				rect.left_top() + egui::vec2(8.0, 8.0),
-				egui::vec2(110.0_f32.min((rect.width() - 16.0).max(0.0)), 26.0),
-			),
-			egui::Button::new(
-				RichText::new(crate::i18n::translate_if_key(
-					if self.voice_stream_volume() == 0 {
-						"voice-stream-tile-stream-muted"
-					} else {
-						"voice-stream-tile-stream-audio"
-					},
-				))
-				.size(12.0)
-				.color(egui::Color32::WHITE),
-			)
-			.truncate()
-			.fill(egui::Color32::from_black_alpha(170))
-			.corner_radius(6),
+		// Even a small strip-sized share names whose screen it is.
+		if content.height() >= 72.0 {
+			name_badge(
+				ui,
+				content,
+				&format!("{name}'s screen"),
+				None,
+				self.badge_opacity(),
+			);
+		}
+		// Fullscreen has no call bar, so it keeps its own small audio and stop actions.
+		if overlay {
+			self.stream_overlay_controls(ui, content);
+		}
+	}
+
+	/// Bottom-right actions over a fullscreen share: stream audio and Stop watching.
+	fn stream_overlay_controls(&mut self, ui: &mut egui::Ui, content: egui::Rect) {
+		let height = 40.0;
+		let stop_label = "Stop watching";
+		let font = egui::FontId::new(13.0, design::medium_family(ui.ctx()));
+		let galley = ui
+			.painter()
+			.layout_no_wrap(stop_label.to_owned(), font, egui::Color32::WHITE);
+		let stop = egui::Rect::from_min_size(
+			content.right_bottom() - egui::vec2(16.0 + galley.size().x + 24.0, 16.0 + height),
+			egui::vec2(galley.size().x + 24.0, height),
 		);
-		egui::Popup::menu(&audio)
+		let audio = egui::Rect::from_min_size(
+			stop.left_top() - egui::vec2(8.0 + height, 0.0),
+			egui::Vec2::splat(height),
+		);
+		let danger = design::palette(ui).danger;
+		let response = ui.allocate_rect(audio, egui::Sense::click());
+		ui.painter().rect_filled(
+			audio,
+			8,
+			egui::Color32::from_black_alpha(if response.hovered() { 220 } else { 170 }),
+		);
+		crate::icons::paint(
+			ui.painter(),
+			crate::icons::Icon::Speaker,
+			audio.shrink(10.0),
+			if self.voice_stream_volume() == 0 {
+				danger
+			} else {
+				egui::Color32::WHITE
+			},
+		);
+		response
+			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Stream audio"));
+		egui::Popup::menu(&response)
 			.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
 			.show(|ui| self.stream_audio_controls(ui));
-		if compact {
-			return;
-		}
-		name_badge(ui, content, &format!("{name}'s screen"), None);
-		if tile_button(
-			ui,
-			content,
-			"Stop watching",
-			egui::Color32::from_black_alpha(170),
-			design::palette(ui).danger,
-			"Stop receiving this screen share",
-		)
-		.clicked()
+		let response = ui.allocate_rect(stop, egui::Sense::click());
+		ui.painter().rect_filled(
+			stop,
+			8,
+			if response.hovered() {
+				danger
+			} else {
+				egui::Color32::from_black_alpha(170)
+			},
+		);
+		ui.painter().galley(
+			stop.center() - galley.size() * 0.5,
+			galley,
+			egui::Color32::WHITE,
+		);
+		response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, stop_label));
+		if response
+			.on_hover_text("Stop receiving this screen share")
+			.clicked()
 		{
 			self.watch_request = Some(None);
 		}
+	}
+
+	/// Whether a click on a live share's box may start watching it (joining if needed).
+	fn can_watch(&self, state: &State, channel: Id, streamer: Id) -> bool {
+		let connected = state.voice.active.as_ref().is_some_and(|call| {
+			call.channel == channel && matches!(call.phase, Phase::Connected | Phase::Waiting)
+		});
+		(connected || (state.voice.active.is_none() && state.can_call(channel)))
+			&& state.user.as_ref().is_none_or(|user| user.id != streamer)
+	}
+
+	/// A live share nobody here watches yet: a dark box with a LIVE pill,
+	/// the streamer's name and a Watch Stream button. Returns true when the box is clicked.
+	fn stream_invite_tile(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &State,
+		rect: egui::Rect,
+		channel: Id,
+		streamer: Id,
+		compact: bool,
+	) -> bool {
+		let colors = design::palette(ui);
+		ui.painter().rect_filled(rect, 8, PILL_FILL);
+		let name = participant_user(state, channel, streamer)
+			.map_or("Participant", |user| user.name.as_str());
+		let (pill, font, margin) = if compact {
+			(egui::vec2(30.0, 15.0), 9.0, 5.0)
+		} else {
+			(egui::vec2(40.0, 20.0), 11.0, 8.0)
+		};
+		let live = egui::Rect::from_min_size(rect.left_top() + egui::Vec2::splat(margin), pill);
+		ui.painter().rect_filled(live, 4, colors.danger);
+		ui.painter().text(
+			live.center(),
+			egui::Align2::CENTER_CENTER,
+			"LIVE",
+			egui::FontId::new(font, design::medium_family(ui.ctx())),
+			egui::Color32::WHITE,
+		);
+		let enabled = self.can_watch(state, channel, streamer);
+		if !compact {
+			self.watch_stream_button(ui, rect, name, enabled);
+		}
+		// One click target over the whole box, button included.
+		let response = ui.interact(
+			rect,
+			ui.scope_id().with(("voice-watch-stream", streamer)),
+			if enabled {
+				egui::Sense::click()
+			} else {
+				egui::Sense::hover()
+			},
+		);
+		enabled && response.clicked()
+	}
+
+	fn watch_stream_button(&self, ui: &mut egui::Ui, rect: egui::Rect, name: &str, enabled: bool) {
+		let opacity = self.badge_opacity();
+		name_badge(ui, rect, &format!("{name}'s screen"), None, opacity);
+		let font = egui::FontId::new(14.0, design::medium_family(ui.ctx()));
+		let label = "Watch Stream";
+		let galley = ui
+			.painter()
+			.layout_no_wrap(label.to_owned(), font, egui::Color32::WHITE);
+		let icon = 18.0;
+		let size = egui::vec2(galley.size().x + icon + 8.0 + 32.0, 36.0);
+		let button = egui::Rect::from_center_size(rect.center(), size);
+		if !rect.contains_rect(button) {
+			return;
+		}
+		let fill = if !enabled {
+			egui::Color32::from_white_alpha(24)
+		} else if ui.rect_contains_pointer(button) {
+			egui::Color32::from_white_alpha(56)
+		} else {
+			egui::Color32::from_white_alpha(36)
+		};
+		ui.painter().rect_filled(button, 8, fill);
+		let text = if enabled {
+			egui::Color32::WHITE
+		} else {
+			STAGE_MUTED
+		};
+		let left = button.center().x - (galley.size().x + icon + 8.0) * 0.5;
+		crate::icons::paint(
+			ui.painter(),
+			crate::icons::Icon::ScreenShare,
+			egui::Rect::from_min_size(
+				egui::pos2(left, button.center().y - icon * 0.5),
+				egui::Vec2::splat(icon),
+			),
+			text,
+		);
+		ui.painter().galley(
+			egui::pos2(left + icon + 8.0, button.center().y - galley.size().y * 0.5),
+			galley,
+			text,
+		);
 	}
 
 	fn stream_audio_controls(&mut self, ui: &mut egui::Ui) {
@@ -1185,11 +1447,22 @@ impl MessagingUi {
 	/// Apply a tile's watch click once the stage has mutable state again.
 	pub(super) fn apply_watch_request(&mut self, state: &mut State) {
 		match self.watch_request.take() {
+			// Like Discord, a share opens enlarged as soon as you choose to watch it.
 			Some(Some(user)) => {
-				let _ = state.watch_stream(user);
+				if state.watch_stream(user).is_some() {
+					self.voice_focus = Some(StageFocus::Stream(user));
+				}
 			}
 			Some(None) => state.stop_watching(),
 			None => {}
+		}
+	}
+	pub(super) fn apply_ring_request(&mut self, state: &mut State, commands: &mut Vec<Command>) {
+		if let Some((channel, request, recipient, stop)) = self.ring_request.take()
+			&& let Some(command) = state.ring_recipient(channel, request, recipient, stop)
+		{
+			state.voice.ring_error = None;
+			commands.push(command);
 		}
 	}
 
@@ -1214,6 +1487,7 @@ impl MessagingUi {
 			.active
 			.as_ref()
 			.filter(|call| call.channel == entry.channel && call.phase != Phase::Failed);
+		let inactive = inactive_recipient(state, entry.channel, entry.participant.user);
 		// The local preview is mirrored like a webcam; remote cameras fill the tile edge to edge.
 		let video = if own && call.is_some_and(|call| call.camera) {
 			self.voice_camera_preview
@@ -1239,6 +1513,11 @@ impl MessagingUi {
 		} else {
 			(size.y * 0.42).clamp(48.0, 128.0)
 		};
+		let ringing = inactive
+			&& state
+				.voice
+				.ringing(entry.channel)
+				.contains(&entry.participant.user);
 		let offset = if compact {
 			0.0
 		} else if frameless {
@@ -1253,6 +1532,12 @@ impl MessagingUi {
 		let mut avatar_ui = ui.new_child(egui::UiBuilder::new().max_rect(avatar_rect));
 		if video.is_some() {
 			avatar_ui.set_opacity(0.0);
+		} else if inactive && !ringing {
+			// Absent peers fade like Discord's empty call seats.
+			avatar_ui.set_opacity(0.45);
+		}
+		if ringing && video.is_none() {
+			ringing_pulse(ui, avatar_rect);
 		}
 		let avatar = if let Some(user) = user {
 			self.avatars
@@ -1261,7 +1546,9 @@ impl MessagingUi {
 			design::avatar(&mut avatar_ui, name, avatar_size)
 		};
 		// Mute state reads as Discord's red ring plus the matching slashed glyph.
-		let silenced = if entry.participant.deafened || entry.participant.server_deafened {
+		let silenced = if inactive {
+			None
+		} else if entry.participant.deafened || entry.participant.server_deafened {
 			Some(crate::icons::Icon::HeadphonesSlash)
 		} else if entry.participant.muted || entry.participant.server_muted {
 			Some(crate::icons::Icon::MicrophoneSlash)
@@ -1303,6 +1590,26 @@ impl MessagingUi {
 			}
 		}
 		self.voice_participant_menu(&avatar, state, entry);
+		if inactive {
+			let label = crate::i18n::translate(if ringing {
+				"voice-recipient-ringing"
+			} else {
+				"voice-recipient-not-in-call"
+			});
+			let status = format!("{name} · {label}");
+			avatar.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &status));
+			avatar.clone().on_hover_text(status);
+			// Plates keep a small corner status; the frameless DM stage relies on the ring.
+			if !frameless && !compact {
+				ui.put(
+					egui::Rect::from_min_size(
+						rect.left_top() + egui::vec2(8.0, 6.0),
+						egui::vec2((size.x - 16.0).max(16.0), 18.0),
+					),
+					egui::Label::new(RichText::new(label).size(11.0).color(STAGE_MUTED)).truncate(),
+				);
+			}
+		}
 		if let Some(user) = user {
 			self.profile.person_click(ui, &avatar, None, user);
 		}
@@ -1338,47 +1645,32 @@ impl MessagingUi {
 			ui.painter().galley(
 				egui::pos2(
 					rect.center().x - galley.size().x * 0.5,
-					avatar_rect.bottom() + 20.0 - galley.size().y * 0.5,
+					avatar_rect.bottom() + 24.0 - galley.size().y * 0.5,
 				),
 				galley,
 				STAGE_TEXT,
 			);
 		} else {
-			name_badge(ui, rect, name, silenced.filter(|_| video.is_some()));
-		}
-		// Watching is an explicit click, never automatic.
-		if entry.participant.streaming
-			&& !own && let Some(call) = call
-			&& matches!(call.phase, Phase::Connected | Phase::Waiting)
-		{
-			let watching = call.watching == Some(entry.participant.user);
-			let (label, fill, hint) = if watching {
-				(
-					"Watching",
-					egui::Color32::from_black_alpha(170),
-					"Stop receiving this screen share",
-				)
-			} else {
-				(
-					"Watch stream",
-					colors.accent,
-					"Receive this participant's screen share",
-				)
-			};
-			let hover = if watching {
-				colors.danger
-			} else {
-				colors.accent.gamma_multiply(1.2)
-			};
-			if tile_button(ui, rect, label, fill, hover, hint).clicked() {
-				self.watch_request = Some((!watching).then_some(entry.participant.user));
-			}
+			name_badge(
+				ui,
+				rect,
+				name,
+				silenced.filter(|_| video.is_some()),
+				self.badge_opacity(),
+			);
 		}
 	}
 
 	fn stage_notices(&self, state: &State, channel: Id, connected: bool) -> Vec<(String, bool)> {
 		let mut notices = Vec::new();
 		if let Some(call) = state.voice.active.as_ref().filter(|c| c.channel == channel) {
+			if let Some((_, _, error)) = state
+				.voice
+				.ring_error
+				.filter(|(id, request, _)| *id == channel && *request == call.request)
+			{
+				notices.push((error.into(), true));
+			}
 			if self.screen.context == Some((state.generation, channel, call.request)) {
 				let status = self.screen.capture_status.unwrap_or(self.screen.status);
 				if !status.is_empty() {
@@ -2673,183 +2965,252 @@ impl MessagingUi {
 			self.voice_focus,
 			Some(StageFocus::LocalScreen | StageFocus::Stream(_))
 		);
-		let pill_width =
-			MEDIA_PILL + if focused { 48.0 } else { 0.0 } + if screen_focused { 48.0 } else { 0.0 };
-		let width = pill_width + BAR_GAP + HANG_UP;
+		// Discord's call bar: microphone and camera with their device menus, then share and
+		// more, then the red action; view actions sit at the right edge.
+		let watched = match self.voice_focus {
+			Some(StageFocus::Stream(user)) if call.watching == Some(user) => Some(user),
+			_ => None,
+		};
+		let media = 2.0 * (48.0 + 28.0);
+		let actions = 2.0 * 48.0;
+		let width = media + BAR_GAP + actions + BAR_GAP + HANG_UP;
+		let side = [watched.is_some(), focused, screen_focused]
+			.iter()
+			.filter(|shown| **shown)
+			.count() as f32
+			* 44.0;
+		let bar = ui.max_rect();
+		let left = (bar.center().x - width * 0.5)
+			.min(bar.right() - STAGE_MARGIN - side - BAR_GAP - width)
+			.max(bar.left() + STAGE_MARGIN);
 		let mut camera_clicked = false;
 		let mut mute_clicked = false;
 		let mut deafen_clicked = false;
 		let mut leave = false;
-		ui.horizontal(|ui| {
-			ui.spacing_mut().item_spacing.x = BAR_GAP;
-			ui.add_space(((ui.available_width() - width) * 0.5).max(0.0));
-			pill(ui, pill_width, |ui| {
-				let mic = control(
-					ui,
-					if muted {
-						crate::icons::Icon::MicrophoneSlash
-					} else {
-						crate::icons::Icon::Microphone
-					},
-					48.0,
-					voice_toggles && (can_speak || state.demo),
-					if muted { colors.danger } else { STAGE_TEXT },
-					if muted { "Unmute" } else { "Mute" },
-					if !can_speak {
-						"Speaking is unavailable in this channel."
-					} else if muted {
-						"Turn on microphone"
-					} else {
-						"Turn off microphone"
-					},
-				);
-				mute_clicked = mic.clicked();
-				let settings = control(
-					ui,
-					crate::icons::Icon::ChevronDown,
-					28.0,
-					true,
-					STAGE_TEXT,
-					"Voice settings",
-					"Microphone and speaker settings",
-				);
-				self.voice_settings_popup(&settings, state.demo, true, true);
-				deafen_clicked = control(
-					ui,
-					if deafened {
-						crate::icons::Icon::HeadphonesSlash
-					} else {
-						crate::icons::Icon::Headphones
-					},
-					48.0,
-					voice_toggles,
-					if deafened { colors.danger } else { STAGE_TEXT },
-					if deafened { "Undeafen" } else { "Deafen" },
-					if deafened {
-						"Turn on incoming audio"
-					} else {
-						"Turn off incoming audio"
-					},
-				)
-				.clicked();
-				camera_clicked = control(
-					ui,
-					if camera {
-						crate::icons::Icon::Video
-					} else {
-						crate::icons::Icon::VideoSlash
-					},
-					48.0,
-					controls && (camera || can_camera),
-					if camera { colors.positive } else { STAGE_TEXT },
-					if camera {
-						"Turn off camera"
-					} else {
-						"Turn on camera"
-					},
-					if camera {
-						"Stop sharing your camera"
-					} else if state.demo {
-						"Camera is off in the offline preview"
-					} else if !cfg!(any(
-						target_os = "macos",
-						target_os = "windows",
-						target_os = "linux"
-					)) {
-						"Camera capture is unavailable on this platform"
-					} else if !self.voice_camera_available {
-						"Camera requires H264 support from the voice server"
-					} else if !state.can_camera(channel) {
-						"Camera is unavailable with current channel permissions"
-					} else {
-						"Share your selected camera with this call"
-					},
-				)
-				.clicked();
-				let camera_settings = control(
-					ui,
-					crate::icons::Icon::ChevronDown,
-					28.0,
-					true,
-					STAGE_TEXT,
-					"Camera settings",
-					"Choose a camera",
-				);
-				self.camera_settings_popup(&camera_settings, state.demo);
-				self.screen_share_control(ui, state);
-				if screen_focused {
-					let fullscreen = fullscreen_control(ui, STAGE_TEXT);
-					if fullscreen.clicked() {
-						let previous =
-							ui.input(|input| input.viewport().fullscreen.unwrap_or(false));
-						self.voice_fullscreen = self
-							.voice_focus
-							.map(|focus| (focus, ui.ctx().clone(), previous, fullscreen.id));
-						self.voice_fullscreen_request = Some(true);
-					}
-				}
-				if focused {
-					let shown = self.voice_focus_participants;
-					if control(
-						ui,
-						crate::icons::Icon::People,
-						48.0,
-						true,
-						if shown { colors.accent } else { STAGE_TEXT },
-						if shown {
-							"Hide participants"
-						} else {
-							"Show participants"
-						},
-						if shown {
-							"Hide the participant strip under the enlarged video"
-						} else {
-							"Show the other participants under the enlarged video"
-						},
-					)
-					.clicked()
-					{
-						self.voice_focus_participants = !shown;
-					}
-				}
-			});
-			let hang_up = {
-				let (rect, response) = ui
-					.allocate_exact_size(egui::vec2(HANG_UP, CONTROL_HEIGHT), egui::Sense::click());
-				let enabled = !state.demo;
-				let fill = if !enabled {
-					colors.danger.gamma_multiply(0.45)
-				} else if response.hovered() || response.has_focus() {
-					colors.danger.gamma_multiply(0.85)
+		let mut stop_watching = false;
+		let mut row = ui.new_child(
+			egui::UiBuilder::new()
+				.max_rect(egui::Rect::from_min_size(
+					egui::pos2(left, bar.center().y - CONTROL_HEIGHT * 0.5),
+					egui::vec2(width, CONTROL_HEIGHT),
+				))
+				.layout(egui::Layout::left_to_right(egui::Align::Center)),
+		);
+		row.spacing_mut().item_spacing.x = BAR_GAP;
+		pill(&mut row, media, |ui| {
+			let mic = control(
+				ui,
+				if muted {
+					crate::icons::Icon::MicrophoneSlash
 				} else {
-					colors.danger
-				};
-				ui.painter().rect_filled(rect, 12, fill);
-				crate::icons::paint(
-					ui.painter(),
-					crate::icons::Icon::HangUp,
-					egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(22.0)),
-					egui::Color32::WHITE,
-				);
-				let label = crate::i18n::translate_if_key(if phase == Phase::Failed {
+					crate::icons::Icon::Microphone
+				},
+				48.0,
+				voice_toggles && (can_speak || state.demo),
+				if muted { colors.danger } else { STAGE_TEXT },
+				if muted { "Unmute" } else { "Mute" },
+				if !can_speak {
+					"Speaking is unavailable in this channel."
+				} else if muted {
+					"Turn on microphone"
+				} else {
+					"Turn off microphone"
+				},
+			);
+			mute_clicked = mic.clicked();
+			let settings = control(
+				ui,
+				crate::icons::Icon::ChevronDown,
+				28.0,
+				true,
+				STAGE_TEXT,
+				"Voice settings",
+				"Microphone and speaker settings",
+			);
+			self.voice_settings_popup(&settings, state.demo, true, true);
+			camera_clicked = control(
+				ui,
+				if camera {
+					crate::icons::Icon::Video
+				} else {
+					crate::icons::Icon::VideoSlash
+				},
+				48.0,
+				controls && (camera || can_camera),
+				if camera { colors.positive } else { STAGE_TEXT },
+				if camera {
+					"Turn off camera"
+				} else {
+					"Turn on camera"
+				},
+				if camera {
+					"Stop sharing your camera"
+				} else if state.demo {
+					"Camera is off in the offline preview"
+				} else if !cfg!(any(
+					target_os = "macos",
+					target_os = "windows",
+					target_os = "linux"
+				)) {
+					"Camera capture is unavailable on this platform"
+				} else if !self.voice_camera_available {
+					"Camera requires H264 support from the voice server"
+				} else if !state.can_camera(channel) {
+					"Camera is unavailable with current channel permissions"
+				} else {
+					"Share your selected camera with this call"
+				},
+			)
+			.clicked();
+			let camera_settings = control(
+				ui,
+				crate::icons::Icon::ChevronDown,
+				28.0,
+				true,
+				STAGE_TEXT,
+				"Camera settings",
+				"Choose a camera",
+			);
+			self.camera_settings_popup(&camera_settings, state.demo);
+		});
+		pill(&mut row, actions, |ui| {
+			self.screen_share_control(ui, state);
+			let more = control(
+				ui,
+				crate::icons::Icon::More,
+				48.0,
+				true,
+				STAGE_TEXT,
+				"More options",
+				"More call options",
+			);
+			egui::Popup::menu(&more)
+				.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+				.show(|ui| {
+					let label =
+						crate::i18n::translate_if_key(if deafened { "Undeafen" } else { "Deafen" });
+					if ui
+						.add_enabled(voice_toggles, egui::Button::new(label))
+						.clicked()
+					{
+						deafen_clicked = true;
+						ui.close();
+					}
+				});
+		});
+		// While a watched share is enlarged, the red action stops watching, as in Discord.
+		let hang_up = {
+			let (rect, response) =
+				row.allocate_exact_size(egui::vec2(HANG_UP, CONTROL_HEIGHT), egui::Sense::click());
+			let enabled = watched.is_some() || !state.demo;
+			let fill = if !enabled {
+				colors.danger.gamma_multiply(0.45)
+			} else if response.hovered() || response.has_focus() {
+				colors.danger.gamma_multiply(0.85)
+			} else {
+				colors.danger
+			};
+			row.painter().rect_filled(rect, 12, fill);
+			crate::icons::paint(
+				row.painter(),
+				if watched.is_some() {
+					crate::icons::Icon::Close
+				} else {
+					crate::icons::Icon::HangUp
+				},
+				egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(22.0)),
+				egui::Color32::WHITE,
+			);
+			let label = if watched.is_some() {
+				"Stop watching".to_owned()
+			} else {
+				crate::i18n::translate_if_key(if phase == Phase::Failed {
 					"voice-call-controls-dismiss-call"
 				} else {
 					"voice-call-controls-disconnect"
-				});
-				response
-					.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &label));
-				response.on_hover_text(crate::i18n::translate_if_key(
-					&(if enabled {
-						label.clone()
-					} else {
-						crate::i18n::translate(
-							"voice-call-controls-leaving-is-unavailable-in-the-offline-preview",
-						)
-					}),
-				))
+				})
 			};
-			leave = hang_up.clicked() && !state.demo;
-		});
+			response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &label));
+			response.on_hover_text(if enabled {
+				label.clone()
+			} else {
+				crate::i18n::translate(
+					"voice-call-controls-leaving-is-unavailable-in-the-offline-preview",
+				)
+			})
+		};
+		if hang_up.clicked() {
+			if watched.is_some() {
+				stop_watching = true;
+			} else {
+				leave = !state.demo;
+			}
+		}
+		let mut view = ui.new_child(
+			egui::UiBuilder::new()
+				.max_rect(egui::Rect::from_min_max(
+					egui::pos2(bar.right() - STAGE_MARGIN - side, bar.top()),
+					egui::pos2(bar.right() - STAGE_MARGIN, bar.bottom()),
+				))
+				.layout(egui::Layout::right_to_left(egui::Align::Center)),
+		);
+		view.spacing_mut().item_spacing.x = 4.0;
+		if screen_focused {
+			let fullscreen = fullscreen_control(&mut view, STAGE_TEXT);
+			if fullscreen.clicked() {
+				let previous = view.input(|input| input.viewport().fullscreen.unwrap_or(false));
+				self.voice_fullscreen = self
+					.voice_focus
+					.map(|focus| (focus, view.ctx().clone(), previous, fullscreen.id));
+				self.voice_fullscreen_request = Some(true);
+			}
+		}
+		if focused {
+			let shown = self.voice_focus_participants;
+			if control(
+				&mut view,
+				crate::icons::Icon::People,
+				40.0,
+				true,
+				if shown { colors.accent } else { STAGE_TEXT },
+				if shown {
+					"Hide participants"
+				} else {
+					"Show participants"
+				},
+				if shown {
+					"Hide the participant strip under the enlarged video"
+				} else {
+					"Show the other participants under the enlarged video"
+				},
+			)
+			.clicked()
+			{
+				self.voice_focus_participants = !shown;
+			}
+		}
+		if watched.is_some() {
+			let volume = control(
+				&mut view,
+				crate::icons::Icon::Speaker,
+				40.0,
+				true,
+				if self.voice_stream_volume() == 0 {
+					colors.danger
+				} else {
+					STAGE_TEXT
+				},
+				"Stream volume",
+				"Stream audio",
+			);
+			egui::Popup::menu(&volume)
+				.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+				.show(|ui| self.stream_audio_controls(ui));
+		}
+		if stop_watching {
+			self.watch_request = Some(None);
+			self.voice_focus = None;
+		}
 		if camera_clicked && let Some(command) = state.set_call_camera(!camera) {
 			self.voice_camera_status = "";
 			commands.push(command);
@@ -2890,11 +3251,13 @@ impl MessagingUi {
 			"Share your screen"
 		};
 		let color = if self.screen.busy {
-			design::palette(ui).accent
+			egui::Color32::WHITE
 		} else {
 			STAGE_TEXT
 		};
-		if control(
+		// While sharing, the button sits on a filled accent plate like Discord's live state.
+		let plate = ui.painter().add(egui::Shape::Noop);
+		let response = control(
 			ui,
 			crate::icons::Icon::ScreenShare,
 			48.0,
@@ -2912,19 +3275,46 @@ impl MessagingUi {
 			} else {
 				"Screen sharing requires a connected call and video permission on a supported desktop."
 			},
-		)
-		.clicked()
-		{
+		);
+		if self.screen.busy {
+			let accent = design::palette(ui).accent;
+			let fill = if response.hovered() || response.has_focus() {
+				accent.gamma_multiply(1.15)
+			} else {
+				accent
+			};
+			ui.painter().set(
+				plate,
+				egui::Shape::rect_filled(response.rect.shrink(4.0), 8, fill),
+			);
+		}
+		if response.clicked() {
 			self.screen.launch(state);
 		}
 	}
 
-	/// DM call stage above the conversation, plus the incoming-call banner.
+	fn badge_opacity(&self) -> f32 {
+		1.0 - self.voice_chrome_hidden
+	}
+
+	/// The DM call this conversation shows as a stage, if any.
+	pub(super) fn dm_call_stage(&self, state: &State) -> Option<Id> {
+		state
+			.voice
+			.active
+			.as_ref()
+			.filter(|call| call.guild.is_none() && Some(call.channel) == state.selected)
+			.map(|call| call.channel)
+	}
+
+	/// DM call stage above the conversation, plus the incoming-call banner. `header` carries
+	/// the conversation header's flags when the stage draws that header itself.
 	pub(super) fn call_bar(
 		&mut self,
 		ui: &mut egui::Ui,
 		state: &mut State,
 		commands: &mut Vec<Command>,
+		header: Option<(bool, bool, bool)>,
 	) {
 		let colors = design::palette(ui);
 		let selected = state.selected;
@@ -2936,10 +3326,12 @@ impl MessagingUi {
 			.map(|call| call.channel)
 		{
 			let stage = self.stage_shows_video(state, channel) || state.is_group_dm(channel);
+			// The stage also carries the conversation header when it draws one.
 			let height = if stage {
 				(ui.available_height() * 0.74).clamp(320.0, 900.0)
 			} else {
-				(ui.available_height() * 0.5).clamp(300.0, 440.0)
+				(ui.available_height() * 0.36).clamp(240.0, 320.0)
+					+ if header.is_some() { 48.0 } else { 0.0 }
 			};
 			// Dragging the bottom edge resizes the call; video and voice-only keep separate sizes.
 			// The conversation and composer below always keep at least 160 points.
@@ -2960,10 +3352,15 @@ impl MessagingUi {
 					// The children below do not grow this Ui; claim the whole panel so its
 					// background follows a resize and egui keeps the dragged size.
 					ui.expand_to_include_rect(rect);
+					let reveal = chrome_reveal(ui, rect, "dm-call-chrome");
+					let top = rect.top() + if header.is_some() { 48.0 } else { 0.0 };
 					let notices = self.stage_notices(state, channel, true);
 					let mut notice_ui = ui.new_child(
 						egui::UiBuilder::new()
-							.max_rect(rect.shrink(STAGE_MARGIN))
+							.max_rect(
+								egui::Rect::from_min_max(egui::pos2(rect.left(), top), rect.max)
+									.shrink(STAGE_MARGIN),
+							)
 							.layout(egui::Layout::top_down(egui::Align::Min)),
 					);
 					stage_notices(&mut notice_ui, &notices);
@@ -2972,18 +3369,33 @@ impl MessagingUi {
 						state.voice.active.as_ref().and_then(|c| c.error),
 						STAGE_TEXT,
 					);
-					let body = egui::Rect::from_min_max(
-						egui::pos2(rect.left() + STAGE_MARGIN, notice_ui.cursor().top() + 8.0),
-						egui::pos2(
-							rect.right() - STAGE_MARGIN,
-							rect.bottom() - CONTROL_HEIGHT - 2.0 * STAGE_MARGIN,
-						),
-					);
+					let bar_top = rect.bottom() - CONTROL_HEIGHT - 2.0 * STAGE_MARGIN;
+					// An enlarged video fills the whole stage under the hover chrome, like
+					// Discord; the grid keeps clear of the header and the call bar.
+					let body = if self.voice_focus.is_some() {
+						egui::Rect::from_min_max(
+							rect.min,
+							egui::pos2(
+								rect.right(),
+								if self.voice_focus_participants {
+									bar_top
+								} else {
+									rect.bottom()
+								},
+							),
+						)
+					} else {
+						egui::Rect::from_min_max(
+							egui::pos2(rect.left() + STAGE_MARGIN, notice_ui.cursor().top() + 8.0),
+							egui::pos2(rect.right() - STAGE_MARGIN, bar_top),
+						)
+					};
 					let mut body_ui = ui.new_child(
 						egui::UiBuilder::new()
 							.max_rect(body)
 							.layout(egui::Layout::top_down(egui::Align::Min)),
 					);
+					self.voice_chrome_hidden = 1.0 - reveal;
 					self.participant_tiles(
 						&mut body_ui,
 						state,
@@ -2991,6 +3403,32 @@ impl MessagingUi {
 						&stage_participants(state, channel),
 						true,
 					);
+					self.voice_chrome_hidden = 0.0;
+					if self.voice_focus.is_some() {
+						chrome_shade(ui, rect, 72.0, true, reveal);
+						chrome_shade(ui, rect, 96.0, false, reveal);
+					}
+					if let Some((selected_voice, show_members, wide_members)) = header {
+						let mut header_ui = ui.new_child(
+							egui::UiBuilder::new()
+								.max_rect(egui::Rect::from_min_max(
+									egui::pos2(rect.left() + 16.0, rect.top()),
+									egui::pos2(rect.right() - 16.0, top),
+								))
+								.layout(egui::Layout::left_to_right(egui::Align::Center)),
+						);
+						// The stage stays black in every theme, so its header reads as dark.
+						header_ui.visuals_mut().dark_mode = true;
+						header_ui.set_opacity(reveal);
+						self.channel_header_row(
+							&mut header_ui,
+							state,
+							selected_voice,
+							show_members,
+							wide_members,
+							commands,
+						);
+					}
 					let bar = egui::Rect::from_min_max(
 						egui::pos2(rect.left(), rect.bottom() - CONTROL_HEIGHT - STAGE_MARGIN),
 						egui::pos2(rect.right(), rect.bottom() - STAGE_MARGIN),
@@ -3000,6 +3438,7 @@ impl MessagingUi {
 							.max_rect(bar)
 							.layout(egui::Layout::left_to_right(egui::Align::Center)),
 					);
+					bar_ui.set_opacity(reveal);
 					self.call_controls(&mut bar_ui, state, channel, commands);
 				});
 			self.apply_watch_request(state);
@@ -3435,8 +3874,6 @@ const STAGE_MARGIN: f32 = 16.0;
 const TILE_GAP: f32 = 8.0;
 /// Height shared by every control, pill and the hang-up button in the call bar.
 const CONTROL_HEIGHT: f32 = 48.0;
-/// Mic, settings chevron, deafen, camera and screen share sit in one pill.
-const MEDIA_PILL: f32 = 248.0;
 const HANG_UP: f32 = 64.0;
 const BAR_GAP: f32 = 12.0;
 
@@ -3532,7 +3969,18 @@ fn cover_image(
 }
 
 /// Bottom-left translucent name plate, optionally with the mute glyph.
-fn name_badge(ui: &mut egui::Ui, rect: egui::Rect, name: &str, icon: Option<crate::icons::Icon>) {
+fn name_badge(
+	ui: &mut egui::Ui,
+	rect: egui::Rect,
+	name: &str,
+	icon: Option<crate::icons::Icon>,
+	opacity: f32,
+) {
+	if opacity <= 0.0 {
+		return;
+	}
+	let mut painter = ui.painter().clone();
+	painter.multiply_opacity(opacity);
 	let font = egui::FontId::new(13.0, design::medium_family(ui.ctx()));
 	let icon_width = if icon.is_some() { 20.0 } else { 0.0 };
 	// One line, truncated with an ellipsis; the tile hover text carries the full name.
@@ -3545,16 +3993,15 @@ fn name_badge(ui: &mut egui::Ui, rect: egui::Rect, name: &str, icon: Option<crat
 		rect.left_bottom() + egui::vec2(8.0, -8.0 - 24.0),
 		egui::vec2(galley.size().x + 16.0 + icon_width, 24.0),
 	);
-	ui.painter()
-		.rect_filled(badge, 6, egui::Color32::from_black_alpha(160));
-	ui.painter().galley(
+	painter.rect_filled(badge, 6, egui::Color32::from_black_alpha(160));
+	painter.galley(
 		egui::pos2(badge.left() + 8.0, badge.center().y - galley.size().y * 0.5),
 		galley,
 		STAGE_TEXT,
 	);
 	if let Some(icon) = icon {
 		crate::icons::paint(
-			ui.painter(),
+			&painter,
 			icon,
 			egui::Rect::from_center_size(
 				egui::pos2(badge.right() - 14.0, badge.center().y),
@@ -3565,46 +4012,60 @@ fn name_badge(ui: &mut egui::Ui, rect: egui::Rect, name: &str, icon: Option<crat
 	}
 }
 
-/// Bottom-right pill action on a tile, sized to its label with a hover fill.
-fn tile_button(
-	ui: &mut egui::Ui,
-	rect: egui::Rect,
-	label: &str,
-	fill: egui::Color32,
-	hover_fill: egui::Color32,
-	hint: &str,
-) -> egui::Response {
-	let font = egui::FontId::new(12.0, design::medium_family(ui.ctx()));
-	let galley = ui
-		.painter()
-		.layout_no_wrap(label.to_owned(), font, egui::Color32::WHITE);
-	let size = egui::vec2(galley.size().x + 20.0, 26.0);
-	let button = egui::Rect::from_min_size(
-		egui::pos2(rect.right() - 8.0 - size.x, rect.top() + 8.0),
-		size,
-	);
-	let response = ui.allocate_rect(button, egui::Sense::click());
-	let fill = if response.hovered() || response.has_focus() {
-		hover_fill
+/// Call chrome fades in while the pointer is over the stage or one of its menus is open.
+fn chrome_reveal(ui: &egui::Ui, stage: egui::Rect, id: &str) -> f32 {
+	let shown = ui.rect_contains_pointer(stage) || egui::Popup::is_any_open(ui.ctx());
+	ui.ctx()
+		.animate_bool_with_time(egui::Id::unique(id), shown, 0.15)
+}
+
+/// A dark gradient behind the header (`top`) or the call bar over an enlarged video.
+fn chrome_shade(ui: &egui::Ui, stage: egui::Rect, height: f32, top: bool, reveal: f32) {
+	if reveal <= 0.0 {
+		return;
+	}
+	let dark = egui::Color32::from_black_alpha((170.0 * reveal) as u8);
+	let rect = if top {
+		egui::Rect::from_min_size(stage.min, egui::vec2(stage.width(), height))
 	} else {
-		fill
+		egui::Rect::from_min_max(egui::pos2(stage.left(), stage.bottom() - height), stage.max)
 	};
-	ui.painter().rect_filled(button, 6, fill);
-	ui.painter().galley(
-		button.center() - galley.size() * 0.5,
-		galley,
-		egui::Color32::WHITE,
+	let (start, end) = if top {
+		(dark, egui::Color32::TRANSPARENT)
+	} else {
+		(egui::Color32::TRANSPARENT, dark)
+	};
+	let mut mesh = egui::Mesh::default();
+	mesh.colored_vertex(rect.left_top(), start);
+	mesh.colored_vertex(rect.right_top(), start);
+	mesh.colored_vertex(rect.left_bottom(), end);
+	mesh.colored_vertex(rect.right_bottom(), end);
+	mesh.add_triangle(0, 1, 2);
+	mesh.add_triangle(1, 2, 3);
+	ui.painter().add(mesh);
+}
+
+/// Discord's ringing seat: a grey ring breathing outward from the avatar.
+fn ringing_pulse(ui: &egui::Ui, avatar: egui::Rect) {
+	const PERIOD: f64 = 1.6;
+	let phase = (ui.input(|input| input.time) % PERIOD / PERIOD) as f32;
+	ui.painter().circle_stroke(
+		avatar.center(),
+		avatar.width() * 0.5 + 4.0 + phase * 14.0,
+		egui::Stroke::new(3.0, STAGE_MUTED.gamma_multiply(0.9 * (1.0 - phase))),
 	);
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
-	response.on_hover_text(hint)
+	// The pulse only needs a smooth 30 fps while someone is being rung.
+	ui.ctx()
+		.request_repaint_after(std::time::Duration::from_millis(33));
 }
 
 fn speaking_avatar(ui: &egui::Ui, avatar: &egui::Response, name: &str) {
 	let colors = design::palette(ui);
+	// A small dark gap separates the ring from the avatar, as on Discord.
 	ui.painter().circle_stroke(
 		avatar.rect.center(),
-		avatar.rect.width() * 0.5 + 2.0,
-		egui::Stroke::new(2.0, colors.positive),
+		avatar.rect.width() * 0.5 + 4.0,
+		egui::Stroke::new(3.0, colors.positive),
 	);
 	let label = format!("{name} · Speaking");
 	avatar.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &label));
@@ -3794,6 +4255,36 @@ fn stage_participants(state: &State, channel: Id) -> Vec<RosterEntry> {
 			.cloned()
 			.collect()
 	};
+	if call.is_some_and(|call| call.guild.is_none() && call.phase != Phase::Failed)
+		&& let Some(conversation) = state.channel(channel)
+	{
+		for user in conversation
+			.recipients
+			.iter()
+			.take(client_core::voice::MAX_PARTICIPANTS - 1)
+		{
+			if entries.len() < client_core::voice::MAX_PARTICIPANTS
+				&& !entries
+					.iter()
+					.any(|entry| entry.participant.user == user.id)
+			{
+				entries.push(RosterEntry {
+					guild: Id(0),
+					channel,
+					member: None,
+					participant: Participant {
+						user: user.id,
+						muted: false,
+						deafened: false,
+						server_muted: false,
+						server_deafened: false,
+						video: false,
+						streaming: false,
+					},
+				});
+			}
+		}
+	}
 	if let Some(call) = call.filter(|call| call.phase != Phase::Failed)
 		&& let Some(user) = &state.user
 	{
@@ -3823,6 +4314,18 @@ fn stage_participants(state: &State, channel: Id) -> Vec<RosterEntry> {
 		}
 	}
 	entries
+}
+
+fn inactive_recipient(state: &State, channel: Id, user: Id) -> bool {
+	state.voice.active.as_ref().is_some_and(|call| {
+		call.channel == channel
+			&& call.guild.is_none()
+			&& state.user.as_ref().is_some_and(|own| own.id != user)
+			&& !call
+				.participants
+				.iter()
+				.any(|participant| participant.user == user)
+	})
 }
 
 fn resolve_member<'a>(
@@ -4234,6 +4737,77 @@ mod tests {
 	}
 
 	#[test]
+	fn existing_call_can_offer_recipient_action_after_prejoin_metadata_and_confirmation() {
+		let mut state = test_support::existing_call_demo_state();
+		state.demo = false;
+		state.apply_voice(client_core::voice::Event::Call {
+			channel: Id(22),
+			ringing: Some(vec![]),
+			participants: Some(vec![]),
+			unavailable: false,
+		});
+		assert!(state.start_call(Id(22), false).is_some());
+		let call = state.voice.active.as_mut().unwrap();
+		let request = call.request;
+		// Synthetic confirmed media phase; this test never starts a transport/device.
+		call.phase = Phase::Waiting;
+		let mut view = MessagingUi {
+			voice_available: true,
+			..Default::default()
+		};
+		view.ring_request = Some((Id(22), request, Id(2), false));
+		let mut commands = vec![];
+		view.apply_ring_request(&mut state, &mut commands);
+		assert!(matches!(
+			commands.as_slice(),
+			[Command::Voice(client_core::voice::Command::RingRecipient {
+				channel: Id(22),
+				recipient: Id(2),
+				stop: false,
+				..
+			})]
+		));
+		assert!(inactive_recipient(&state, Id(22), Id(2)));
+	}
+
+	#[test]
+	fn dm_stage_includes_absent_recipients_without_speaking_or_mute_state() {
+		let mut state = test_support::call_demo_state();
+		let call = state.voice.active.as_mut().unwrap();
+		let channel = call.channel;
+		let request = call.request;
+		call.participants.retain(|p| p.user == Id(1));
+		let entries = stage_participants(&state, channel);
+		assert_eq!(entries.len(), 2);
+		assert_eq!(entries[0].participant.user, Id(1));
+		let peer = entries
+			.iter()
+			.find(|entry| entry.participant.user == Id(2))
+			.unwrap();
+		assert!(inactive_recipient(&state, channel, Id(2)));
+		assert!(!peer.participant.muted);
+		let mut view = MessagingUi::default();
+		view.voice_speaking.push(Id(2));
+		assert!(!view.is_speaking(&state, channel, &peer.participant));
+		state.voice.ring_error = Some((channel, request, "Synthetic recipient error"));
+		assert!(
+			view.stage_notices(&state, channel, true)
+				.contains(&("Synthetic recipient error".into(), true))
+		);
+		state.voice.ring_error = Some((channel, request + 1, "Stale recipient error"));
+		assert!(
+			!view
+				.stage_notices(&state, channel, true)
+				.iter()
+				.any(|(text, _)| text == "Stale recipient error")
+		);
+		view.ring_request = Some((channel, request + 1, Id(2), false));
+		let mut commands = vec![];
+		view.apply_ring_request(&mut state, &mut commands);
+		assert!(commands.is_empty());
+		assert!(view.ring_request.is_none());
+	}
+	#[test]
 	fn solo_call_stages_show_both_local_previews_without_a_roster() {
 		fn textures(shape: &egui::Shape, ids: &mut Vec<egui::TextureId>) {
 			match shape {
@@ -4283,7 +4857,10 @@ mod tests {
 					messaging.screen.preview = Some(screen);
 					messaging.screen.busy = true;
 					messaging.screen.context = Some((state.generation, channel, request));
-					assert_eq!(stage_participants(&state, channel).len(), 1);
+					assert_eq!(
+						stage_participants(&state, channel).len(),
+						if guild { 1 } else { 2 }
+					);
 					let mut commands = vec![];
 					for phase in [Phase::Waiting, Phase::Connected, Phase::Failed] {
 						state.voice.active.as_mut().unwrap().phase = phase;
@@ -4299,7 +4876,7 @@ mod tests {
 								if guild {
 									messaging.voice_channel(ui, &mut state, channel, &mut commands);
 								} else {
-									messaging.call_bar(ui, &mut state, &mut commands);
+									messaging.call_bar(ui, &mut state, &mut commands, None);
 								}
 							},
 						);
@@ -4356,7 +4933,7 @@ mod tests {
 					events,
 					..Default::default()
 				},
-				|ui| messaging.call_bar(ui, state, &mut commands),
+				|ui| messaging.call_bar(ui, state, &mut commands, None),
 			);
 			output.textures_delta.clear();
 			let mut text = vec![];

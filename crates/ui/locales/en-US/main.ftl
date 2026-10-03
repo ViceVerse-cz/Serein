@@ -2166,9 +2166,9 @@ reading-chat-reading-settings-scrolling-speed = Scrolling speed
 # Context: chat_reading_settings
 reading-chat-reading-settings-smooth-scrolling = Smooth scrolling
 # Context: chat_reading_settings
-reading-chat-reading-settings-compact-message-spacing = Compact message spacing
+reading-chat-reading-settings-compact-message-spacing = Compact messages
 # Context: chat_reading_settings
-reading-chat-reading-settings-tighter-gaps-between-message-groups = Tighter gaps between message groups fit more messages on screen.
+reading-chat-reading-settings-tighter-gaps-between-message-groups = Show names beside messages without avatars, with tighter message and divider spacing.
 # Context: chat_reading_settings
 reading-chat-reading-settings-visible-chat-gifs-play-automatically = Visible chat GIFs play automatically.
 # Context: layout_settings
@@ -4365,6 +4365,12 @@ lib-composer-onboarding-incomplete = Finish joining this server to unlock more c
 # Context: composer
 lib-composer-onboarding-complete = Complete Onboarding
 
+voice-recipient-ring = Ring again
+voice-recipient-stop-ringing = Stop ringing
+voice-recipient-ringing = Ringing…
+voice-recipient-not-in-call = Not in call
+reconnect-now = Reconnect now
+
 # Explicit public attachment hosting
 public-upload-host-file = Host file…
 public-upload-heading = Upload to Catbox
@@ -4490,3 +4496,7 @@ server-emoji-empty-animated = No animated emoji yet
 server-emoji-empty-detail = Upload an image to add one. GIFs become animated emoji.
 
 server-stickers-empty-detail = Upload artwork to add your first sticker.
+
+screen-macos-system-picker = Choose with the macOS system picker
+
+screen-macos-system-picker-kind = System content picker

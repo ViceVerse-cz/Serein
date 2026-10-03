@@ -42,8 +42,19 @@ pub(super) fn appimage_session() -> bool {
 	})
 }
 
+/// Nix store paths are read-only and versioned by the user's Nix configuration.
+pub(super) fn nix_session() -> bool {
+	static NIX: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+	*NIX.get_or_init(|| {
+		cfg!(unix)
+			&& std::env::current_exe()
+				.and_then(fs::canonicalize)
+				.is_ok_and(|exe| exe.starts_with("/nix/store"))
+	})
+}
+
 pub(super) fn linux_package_manager_update_command() -> Option<&'static str> {
-	if !cfg!(target_os = "linux") || flatpak_session() || appimage_session() {
+	if !cfg!(target_os = "linux") || flatpak_session() || appimage_session() || nix_session() {
 		return None;
 	}
 	if let Ok(content) = fs::read_to_string("/etc/os-release") {
@@ -121,6 +132,9 @@ fn installation() -> Result<PathBuf, String> {
 	let exe = std::env::current_exe()
 		.and_then(fs::canonicalize)
 		.map_err(|_| "Cannot locate the installed application.".to_owned())?;
+	if nix_session() {
+		return Err("Nix installations are updated through Nix.".into());
+	}
 	if cfg!(target_os = "linux") {
 		if !appimage_session() {
 			if flatpak_session() {

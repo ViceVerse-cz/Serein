@@ -12,6 +12,8 @@ mod attachments;
 pub mod external_upload;
 pub use attachments::DownloadUi;
 mod avatars;
+#[cfg(feature = "demo")]
+pub use avatars::media::debug_heic_layout_check;
 pub use avatars::media::{Lane, MAX_FRAMES, Motion, Rendition, Size, fit_edge, is_motion_video};
 pub use avatars::{EMBED_EDGE, GifFrames};
 mod categories;
@@ -26,6 +28,10 @@ mod channel_permissions;
 mod channel_welcome_tests;
 mod components;
 mod composer_text;
+#[cfg(any(test, all(debug_assertions, feature = "demo")))]
+mod recovery_demo;
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub use recovery_demo::check as debug_resume_send_check;
 pub mod design;
 mod embeds;
 mod extension_account_actions;
@@ -376,10 +382,13 @@ pub struct MessagingUi {
 	voice_fullscreen_request: Option<bool>,
 	/// Whether the other participants stay visible as a strip under the enlarged tile.
 	pub voice_focus_participants: bool,
+	/// How far the call stage's hover chrome (and tile name badges) has faded out: 0 shown.
+	voice_chrome_hidden: f32,
 	/// Session-only visibility of the selected guild voice channel's chat.
 	pub voice_chat_open: bool,
 	/// Tile click to start (`Some(user)`) or stop (`None`) watching, applied by the stage.
 	watch_request: Option<Option<Id>>,
+	ring_request: Option<(Id, u64, Id, bool)>,
 	stream_preview_open: Option<((Id, Id, Id), u64)>,
 	stream_preview_request: Option<(Id, Id, Id)>,
 	stream_preview_watch: Option<(Id, Id)>,
@@ -409,6 +418,7 @@ pub struct MessagingUi {
 	/// Server folders the owner left open; restored from device preferences at startup.
 	pub expanded_folders: Vec<u64>,
 	pub voice_ptt_active: bool,
+	pub voice_ptm_active: bool,
 	pub voice_privacy_code: Option<String>,
 	/// Latest media activity, capped at 64 IDs (512 bytes) by the voice host.
 	pub voice_speaking: Vec<Id>,
@@ -525,8 +535,13 @@ impl MessagingUi {
 	}
 
 	/// Feed the frame's middle button before `show`. Never fed means never pressed.
+	/// A bound middle button does not also start autoscroll.
 	pub fn middle_button(&mut self, middle: scroll::Middle) {
-		self.scroll.middle(middle);
+		if self.button_claimed(egui::PointerButton::Middle) {
+			self.scroll.middle(scroll::Middle::default());
+		} else {
+			self.scroll.middle(middle);
+		}
 	}
 
 	/// Feed mouse 4 / mouse 5 edge presses before `show`. Flags OR so a second feed cannot clear a press.
@@ -548,37 +563,63 @@ impl MessagingUi {
 
 	/// Returns whether the configured push-to-talk chord is held in the focused window.
 	pub fn push_to_talk_down(&self, ctx: &egui::Context) -> bool {
-		if ctx.egui_wants_keyboard_input() {
+		self.voice_hold_down(ctx, model::KeybindAction::PushToTalk)
+	}
+
+	/// Returns whether the configured push-to-mute chord is held in the focused window.
+	pub fn push_to_mute_down(&self, ctx: &egui::Context) -> bool {
+		self.voice_hold_down(ctx, model::KeybindAction::PushToMute)
+	}
+
+	/// Text entry suppresses held keys, but a held mouse button is never typing.
+	fn voice_hold_down(&self, ctx: &egui::Context, action: model::KeybindAction) -> bool {
+		let chord = self.keybinds.chord(action);
+		if !model::keybinds::is_mouse_button(&chord.key) && ctx.egui_wants_keyboard_input() {
 			return false;
 		}
-		ctx.input(|input| {
-			input.focused
-				&& crate::keybinds::down(
-					input,
-					self.keybinds.chord(model::KeybindAction::PushToTalk),
-				)
-		})
+		ctx.input(|input| input.focused && crate::keybinds::down(input, chord))
+	}
+
+	/// Whether egui must see mouse 3–5: one is bound, or a binding is being recorded.
+	/// Otherwise the host strips them for autoscroll and history navigation.
+	pub fn wants_mouse_buttons(&self) -> bool {
+		[
+			egui::PointerButton::Middle,
+			egui::PointerButton::Extra1,
+			egui::PointerButton::Extra2,
+		]
+		.into_iter()
+		.any(|button| self.button_claimed(button))
+	}
+
+	/// Whether a binding claims `button`, or a capture may, instead of its built-in role.
+	fn button_claimed(&self, button: egui::PointerButton) -> bool {
+		self.keybind_capture.is_some()
+			|| model::KeybindAction::ALL.into_iter().any(|action| {
+				crate::keybinds::button_from_name(&self.keybinds.chord(action).key) == Some(button)
+			})
 	}
 
 	/// Returns focused-window mute/deafen presses that were not claimed by a native global hotkey.
 	pub fn voice_toggle_pressed(&self, ctx: &egui::Context, global_mask: u8) -> u8 {
-		if !ctx.input(|input| input.focused) || ctx.egui_wants_keyboard_input() {
+		if !ctx.input(|input| input.focused) {
 			return 0;
 		}
+		let wants_kb = ctx.egui_wants_keyboard_input();
 		ctx.input_mut(|input| {
 			let mut toggles = 0;
+			let mute_chord = self.keybinds.chord(model::KeybindAction::ToggleMute);
 			if global_mask & 1 == 0
-				&& crate::keybinds::pressed(
-					input,
-					self.keybinds.chord(model::KeybindAction::ToggleMute),
-				) {
+				&& (!wants_kb || model::keybinds::is_mouse_button(&mute_chord.key))
+				&& crate::keybinds::pressed(input, mute_chord)
+			{
 				toggles |= 1;
 			}
+			let deafen_chord = self.keybinds.chord(model::KeybindAction::ToggleDeafen);
 			if global_mask & 2 == 0
-				&& crate::keybinds::pressed(
-					input,
-					self.keybinds.chord(model::KeybindAction::ToggleDeafen),
-				) {
+				&& (!wants_kb || model::keybinds::is_mouse_button(&deafen_chord.key))
+				&& crate::keybinds::pressed(input, deafen_chord)
+			{
 				toggles |= 2;
 			}
 			toggles
@@ -1790,6 +1831,14 @@ impl MessagingUi {
 					self.update_banner(ui);
 					divider(ui);
 				}
+				if !state.demo
+					&& state.auth == client_core::auth::AuthState::Authenticated
+					&& !state.gateway_connected
+				{
+					let first = !self.shows_update_banner();
+					self.reconnecting_banner(ui, first);
+					divider(ui);
+				}
 				if in_call {
 					self.voice_card_section(ui, state, commands);
 					divider(ui);
@@ -1960,7 +2009,6 @@ impl MessagingUi {
 		commands: &mut Vec<Command>,
 	) {
 		let colors = design::palette(ui);
-		let language = self.language;
 		egui::Panel::top("channel-header")
 			.exact_size(48.0)
 			.show_separator_line(false)
@@ -1989,334 +2037,353 @@ impl MessagingUi {
 					rect.bottom(),
 					egui::Stroke::new(1.0, colors.border),
 				);
-				let channel = state.selected.and_then(|id| state.channel(id)).cloned();
-				let dm = channel
-					.as_ref()
-					.is_some_and(|c| c.kind == 1 && c.guild.is_none());
-				let shortcuts_available = self.shortcuts_available(state);
-				ui.horizontal_centered(|ui| {
-					ui.spacing_mut().item_spacing.x = 8.0;
-					let voice_chat_label = language.text(if self.voice_chat_open {
-						"hide-chat"
-					} else {
-						"show-chat"
-					});
-					match channel.as_ref() {
-						Some(c) if c.guild.is_none() && c.kind == 3 => {
-							let avatar = self.avatars.show_group(ui, c, 24.0, state.demo);
-							self.group_menu.context(
+				self.channel_header_row(
+					ui,
+					state,
+					selected_voice,
+					show_members,
+					wide_members,
+					commands,
+				);
+			});
+	}
+
+	/// The header's avatar, name and actions; the DM call stage draws it over the call.
+	pub(crate) fn channel_header_row(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		selected_voice: bool,
+		show_members: bool,
+		wide_members: bool,
+		commands: &mut Vec<Command>,
+	) {
+		let colors = design::palette(ui);
+		let language = self.language;
+		let channel = state.selected.and_then(|id| state.channel(id)).cloned();
+		let dm = channel
+			.as_ref()
+			.is_some_and(|c| c.kind == 1 && c.guild.is_none());
+		let shortcuts_available = self.shortcuts_available(state);
+		ui.horizontal_centered(|ui| {
+			ui.spacing_mut().item_spacing.x = 8.0;
+			let voice_chat_label = language.text(if self.voice_chat_open {
+				"hide-chat"
+			} else {
+				"show-chat"
+			});
+			match channel.as_ref() {
+				Some(c) if c.guild.is_none() && c.kind == 3 => {
+					let avatar = self.avatars.show_group(ui, c, 24.0, state.demo);
+					self.group_menu.context(
+						&avatar,
+						state,
+						c,
+						shortcuts::ShortcutView::new(
+							&self.channel_preferences,
+							shortcuts_available,
+						),
+					);
+				}
+				Some(c) if c.guild.is_none() => {
+					if let Some(user) = c.recipients.first() {
+						// Header avatar identifies the conversation; the profile is a
+						// context-menu action, not a click target.
+						let avatar = self.avatars.show_plain(ui, user, 24.0, state.demo);
+						if dm {
+							user_menu::show_with_pin(
 								&avatar,
 								state,
-								c,
-								shortcuts::ShortcutView::new(
+								user,
+								&mut self.profile,
+								&mut self.user_action,
+								Some(shortcuts::ShortcutView::new(
 									&self.channel_preferences,
 									shortcuts_available,
-								),
+								)),
 							);
 						}
-						Some(c) if c.guild.is_none() => {
-							if let Some(user) = c.recipients.first() {
-								// Header avatar identifies the conversation; the profile is a
-								// context-menu action, not a click target.
-								let avatar = self.avatars.show_plain(ui, user, 24.0, state.demo);
-								if dm {
-									user_menu::show_with_pin(
-										&avatar,
-										state,
-										user,
-										&mut self.profile,
-										&mut self.user_action,
-										Some(shortcuts::ShortcutView::new(
-											&self.channel_preferences,
-											shortcuts_available,
-										)),
-									);
-								}
-								let (status, _, _, clients) =
-									profiles::presence(state, user.id, None);
-								if dm && let Some(status) = status {
-									profiles::presence_badge(
-										ui,
-										avatar.rect,
-										status,
-										clients,
-										colors.sidebar,
-									);
-								}
-							} else {
-								icons::inline(ui, icons::Icon::People, 22.0, colors.muted);
-							}
+						let (status, _, _, clients) = profiles::presence(state, user.id, None);
+						if dm && let Some(status) = status {
+							profiles::presence_badge(
+								ui,
+								avatar.rect,
+								status,
+								clients,
+								colors.sidebar,
+							);
 						}
-						Some(c) => {
-							let icon = match c.kind {
-								2 | 13 => icons::Icon::Speaker,
-								5 => icons::Icon::Megaphone,
-								15 | 16 => icons::Icon::Forum,
-								10..=12 => icons::Icon::Thread,
-								_ => icons::Icon::Hash,
-							};
-							icons::inline(ui, icon, 22.0, colors.muted);
-						}
-						None => {}
+					} else {
+						icons::inline(ui, icons::Icon::People, 22.0, colors.muted);
 					}
-					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-						ui.spacing_mut().item_spacing.x = 4.0;
-						if selected_voice
-							&& icons::toggle(
-								ui,
-								icons::Icon::Forum,
-								32.0,
-								self.voice_chat_open,
-								&voice_chat_label,
+				}
+				Some(c) => {
+					let icon = match c.kind {
+						2 | 13 => icons::Icon::Speaker,
+						5 => icons::Icon::Megaphone,
+						15 | 16 => icons::Icon::Forum,
+						10..=12 => icons::Icon::Thread,
+						_ => icons::Icon::Hash,
+					};
+					icons::inline(ui, icon, 22.0, colors.muted);
+				}
+				None => {}
+			}
+			ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+				ui.spacing_mut().item_spacing.x = 4.0;
+				if selected_voice
+					&& icons::toggle(
+						ui,
+						icons::Icon::Forum,
+						32.0,
+						self.voice_chat_open,
+						&voice_chat_label,
+					)
+					.clicked()
+				{
+					self.voice_chat_open = !self.voice_chat_open;
+					self.focus_switched_composer = self.voice_chat_open;
+				}
+				if let Some(c) = channel
+					.as_ref()
+					.filter(|c| c.guild.is_none() && c.kind == 3)
+				{
+					self.group_menu.dropdown(
+						ui,
+						state,
+						c,
+						shortcuts::ShortcutView::new(
+							&self.channel_preferences,
+							shortcuts_available,
+						),
+					);
+				}
+				if state.selected.is_some() && !selected_voice {
+					if self.search.open && !self.search.pins() {
+						ui.allocate_ui_with_layout(
+							egui::vec2(240.0_f32.min(ui.available_width() * 0.5).max(120.0), 28.0),
+							egui::Layout::left_to_right(egui::Align::Center),
+							|ui| self.search.header_input(ui, state, commands),
+						);
+					} else {
+						// Search pill.
+						let (pill, response) =
+							ui.allocate_exact_size(egui::vec2(144.0, 28.0), egui::Sense::click());
+						let enabled = state.can_search();
+						response.widget_info(|| {
+							egui::WidgetInfo::labeled(
+								egui::Role::Button,
+								enabled,
+								language.text("search"),
 							)
-							.clicked()
+						});
+						ui.painter().rect_filled(pill, 6, colors.raised);
+						let pill_text = if enabled {
+							colors.muted
+						} else {
+							colors.muted.gamma_multiply(0.5)
+						};
+						ui.painter().text(
+							pill.left_center() + egui::vec2(10.0, 0.0),
+							egui::Align2::LEFT_CENTER,
+							language.text("search"),
+							egui::FontId::proportional(13.0),
+							pill_text,
+						);
+						icons::paint(
+							ui.painter(),
+							icons::Icon::Search,
+							egui::Rect::from_center_size(
+								pill.right_center() - egui::vec2(14.0, 0.0),
+								egui::Vec2::splat(16.0),
+							),
+							pill_text,
+						);
+						if enabled
+							&& response
+								.on_hover_text(language.text("search-conversation"))
+								.clicked()
 						{
-							self.voice_chat_open = !self.voice_chat_open;
-							self.focus_switched_composer = self.voice_chat_open;
-						}
-						if let Some(c) = channel
-							.as_ref()
-							.filter(|c| c.guild.is_none() && c.kind == 3)
-						{
-							self.group_menu.dropdown(
-								ui,
-								state,
-								c,
-								shortcuts::ShortcutView::new(
-									&self.channel_preferences,
-									shortcuts_available,
-								),
-							);
-						}
-						if state.selected.is_some() && !selected_voice {
-							if self.search.open && !self.search.pins() {
-								ui.allocate_ui_with_layout(
-									egui::vec2(
-										240.0_f32.min(ui.available_width() * 0.5).max(120.0),
-										28.0,
-									),
-									egui::Layout::left_to_right(egui::Align::Center),
-									|ui| self.search.header_input(ui, state, commands),
-								);
-							} else {
-								// Search pill.
-								let (pill, response) = ui.allocate_exact_size(
-									egui::vec2(144.0, 28.0),
-									egui::Sense::click(),
-								);
-								let enabled = state.can_search();
-								response.widget_info(|| {
-									egui::WidgetInfo::labeled(
-										egui::Role::Button,
-										enabled,
-										language.text("search"),
-									)
-								});
-								ui.painter().rect_filled(pill, 6, colors.raised);
-								let pill_text = if enabled {
-									colors.muted
-								} else {
-									colors.muted.gamma_multiply(0.5)
-								};
-								ui.painter().text(
-									pill.left_center() + egui::vec2(10.0, 0.0),
-									egui::Align2::LEFT_CENTER,
-									language.text("search"),
-									egui::FontId::proportional(13.0),
-									pill_text,
-								);
-								icons::paint(
-									ui.painter(),
-									icons::Icon::Search,
-									egui::Rect::from_center_size(
-										pill.right_center() - egui::vec2(14.0, 0.0),
-										egui::Vec2::splat(16.0),
-									),
-									pill_text,
-								);
-								if enabled
-									&& response
-										.on_hover_text(language.text("search-conversation"))
-										.clicked()
-								{
-									if state.archives.is_some() {
-										commands.push(state.clear_archives());
-									}
-									self.search.toggle(false);
-								}
+							if state.archives.is_some() {
+								commands.push(state.clear_archives());
 							}
-							ui.add_space(4.0);
-							if icons::toggle(
+							self.search.toggle(false);
+						}
+					}
+					ui.add_space(4.0);
+					if icons::toggle(
+						ui,
+						icons::Icon::People,
+						32.0,
+						show_members,
+						&language.text("show-member-list"),
+					)
+					.clicked()
+					{
+						if wide_members {
+							let shown = self.members_preference(state);
+							*shown = !*shown;
+						} else {
+							self.members_narrow_open = !self.members_narrow_open;
+						}
+					}
+					let pins_open = self.search.open && self.search.pins();
+					let pins = ui
+						.add_enabled_ui(state.can_search() || pins_open, |ui| {
+							icons::toggle(
 								ui,
-								icons::Icon::People,
+								icons::Icon::Pin,
 								32.0,
-								show_members,
-								&language.text("show-member-list"),
+								pins_open,
+								&language.text("pinned-messages"),
 							)
-							.clicked()
-							{
-								if wide_members {
-									let shown = self.members_preference(state);
-									*shown = !*shown;
-								} else {
-									self.members_narrow_open = !self.members_narrow_open;
-								}
-							}
-							let pins_open = self.search.open && self.search.pins();
-							let pins = ui
-								.add_enabled_ui(state.can_search() || pins_open, |ui| {
-									icons::toggle(
-										ui,
-										icons::Icon::Pin,
-										32.0,
-										pins_open,
-										&language.text("pinned-messages"),
-									)
-								})
-								.inner;
-							if pins.clicked()
-								&& self.search.toggle(true)
-								&& let Some(command) = state.request_pins()
-							{
-								commands.push(command);
-							}
-							self.pins_anchor =
-								(self.search.open && self.search.pins()).then_some(pins.rect);
-							if let Some(c) = channel
-								.as_ref()
-								.filter(|c| c.guild.is_some() && matches!(c.kind, 0 | 5 | 15 | 16))
-							{
-								let allowed =
-									state.can_archive(c.id, model::archives::Kind::Public);
-								let archive = ui
-									.add_enabled_ui(allowed, |ui| {
-										icons::button(
-											ui,
-											icons::Icon::Thread,
-											32.0,
-											&language.text("threads"),
-										)
-									})
-									.inner;
-								if archive.clicked() {
-									self.archive_parent = Some(c.id);
-								}
-							}
-							let reload = ui
-								.add_enabled_ui(
-									state.selected.is_some_and(|id| {
-										if state.is_forum(id) {
-											state.can_load_posts(id) && !state.posts.loading
-										} else {
-											state.freshness != Freshness::Loading
-												&& state.can_read_history(id)
-										}
-									}),
-									|ui| {
-										icons::button(
-											ui,
-											icons::Icon::Reload,
-											32.0,
-											&language.text("reload-history"),
-										)
-									},
+						})
+						.inner;
+					if pins.clicked()
+						&& self.search.toggle(true)
+						&& let Some(command) = state.request_pins()
+					{
+						commands.push(command);
+					}
+					self.pins_anchor =
+						(self.search.open && self.search.pins()).then_some(pins.rect);
+					if let Some(c) = channel
+						.as_ref()
+						.filter(|c| c.guild.is_some() && matches!(c.kind, 0 | 5 | 15 | 16))
+					{
+						let allowed = state.can_archive(c.id, model::archives::Kind::Public);
+						let archive = ui
+							.add_enabled_ui(allowed, |ui| {
+								icons::button(
+									ui,
+									icons::Icon::Thread,
+									32.0,
+									&language.text("threads"),
 								)
-								.inner;
-							if reload.clicked() {
-								commands.push(state.history(None));
-								self.timeline.follow_latest(state);
-							}
+							})
+							.inner;
+						if archive.clicked() {
+							self.archive_parent = Some(c.id);
 						}
-						if let Some(channel) = state.selected.filter(|_| {
-							channel
-								.as_ref()
-								.is_some_and(|c| c.guild.is_none() && matches!(c.kind, 1 | 3))
-						}) {
-							self.voice_settings(ui, state.demo, state.voice.active.is_some());
-							self.call_button(ui, state, channel, commands);
+					}
+					let can_reload = state.selected.is_some_and(|id| {
+						if state.is_forum(id) {
+							state.can_load_posts(id) && !state.posts.loading
+						} else {
+							state.freshness != Freshness::Loading && state.can_read_history(id)
 						}
-						ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-							// Centre the name block in the fixed-height header even without a subtitle.
-							let name = channel.as_ref().map_or_else(
-								|| language.text("direct-messages"),
-								|c| state.conversation_name(c).to_owned(),
-							);
-							let subtitle = channel
-								.as_ref()
-								.filter(|_| dm)
-								.and_then(|c| c.recipients.first())
-								.and_then(|user| {
-									let (_, custom, activities, _) =
-										profiles::presence(state, user.id, None);
-									profiles::subtitle(custom, activities)
-								});
-							let name_height = ui
-								.painter()
-								.layout_no_wrap(
-									name.to_owned(),
-									egui::FontId::new(16.0, design::semibold_family(ui.ctx())),
-									colors.text_strong,
-								)
-								.size()
-								.y;
-							let subtitle_height = subtitle.as_ref().map_or(0.0, |text| {
-								1.0 + ui
-									.painter()
-									.layout_no_wrap(
-										text.clone(),
-										egui::FontId::proportional(12.0),
-										colors.muted,
-									)
-									.size()
-									.y
-							});
-							ui.vertical(|ui| {
-								ui.add_space(
-									((ui.available_height() - name_height - subtitle_height) / 2.0)
-										.max(0.0),
-								);
-								ui.spacing_mut().item_spacing.y = 1.0;
+					});
+					let can_reconnect = state.auth == client_core::auth::AuthState::Authenticated
+						&& !state.gateway_connected;
+					let reload = ui
+						.add_enabled_ui(can_reload || can_reconnect, |ui| {
+							icons::button(
+								ui,
+								icons::Icon::Reload,
+								32.0,
+								&language.text("reload-history"),
+							)
+						})
+						.inner;
+					if reload.clicked() {
+						if can_reconnect {
+							self.reconnect_requested = true;
+						}
+						if can_reload {
+							commands.push(state.history(None));
+							self.timeline.follow_latest(state);
+						}
+					}
+				}
+				if let Some(channel) = state.selected.filter(|_| {
+					channel
+						.as_ref()
+						.is_some_and(|c| c.guild.is_none() && matches!(c.kind, 1 | 3))
+				}) {
+					self.voice_settings(ui, state.demo, state.voice.active.is_some());
+					self.call_button(ui, state, channel, commands);
+				}
+				ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+					// Centre the name block in the fixed-height header even without a subtitle.
+					let name = channel.as_ref().map_or_else(
+						|| language.text("direct-messages"),
+						|c| state.conversation_name(c).to_owned(),
+					);
+					let subtitle = channel
+						.as_ref()
+						.filter(|_| dm)
+						.and_then(|c| c.recipients.first())
+						.and_then(|user| {
+							let (_, custom, activities, _) =
+								profiles::presence(state, user.id, None);
+							profiles::subtitle(custom, activities)
+						});
+					let name_height = ui
+						.painter()
+						.layout_no_wrap(
+							name.to_owned(),
+							egui::FontId::new(16.0, design::semibold_family(ui.ctx())),
+							colors.text_strong,
+						)
+						.size()
+						.y;
+					let subtitle_height = subtitle.as_ref().map_or(0.0, |text| {
+						1.0 + ui
+							.painter()
+							.layout_no_wrap(
+								text.clone(),
+								egui::FontId::proportional(12.0),
+								colors.muted,
+							)
+							.size()
+							.y
+					});
+					ui.vertical(|ui| {
+						ui.add_space(
+							((ui.available_height() - name_height - subtitle_height) / 2.0)
+								.max(0.0),
+						);
+						ui.spacing_mut().item_spacing.y = 1.0;
+						ui.add(
+							egui::Label::new(
+								design::semibold(ui, name, 16.0).color(colors.text_strong),
+							)
+							.truncate(),
+						);
+						{
+							if let Some(text) = subtitle {
 								ui.add(
 									egui::Label::new(
-										design::semibold(ui, name, 16.0).color(colors.text_strong),
+										RichText::new(&text).size(12.0).color(colors.muted),
 									)
 									.truncate(),
-								);
-								{
-									if let Some(text) = subtitle {
-										ui.add(
-											egui::Label::new(
-												RichText::new(&text).size(12.0).color(colors.muted),
-											)
-											.truncate(),
-										)
-										.on_hover_text(text);
-									}
-								}
-							});
-							let in_call = state.voice.active.as_ref().is_some_and(|call| {
-								Some(call.channel) == state.selected
-									&& matches!(
-										call.phase,
-										client_core::voice::Phase::Connected
-											| client_core::voice::Phase::Waiting
-									)
-							});
-							if in_call {
-								ui.add_space(4.0);
-								icons::inline(ui, icons::Icon::InCall, 16.0, colors.positive);
-								ui.add(
-									egui::Label::new(
-										design::medium(ui, language.text("in-a-call"), 14.0)
-											.color(colors.positive),
-									)
-									.selectable(false),
-								);
+								)
+								.on_hover_text(text);
 							}
-						});
+						}
 					});
+					let in_call = state.voice.active.as_ref().is_some_and(|call| {
+						Some(call.channel) == state.selected
+							&& matches!(
+								call.phase,
+								client_core::voice::Phase::Connected
+									| client_core::voice::Phase::Waiting
+							)
+					});
+					if in_call {
+						ui.add_space(4.0);
+						icons::inline(ui, icons::Icon::InCall, 16.0, colors.positive);
+						ui.add(
+							egui::Label::new(
+								design::medium(ui, language.text("in-a-call"), 14.0)
+									.color(colors.positive),
+							)
+							.selectable(false),
+						);
+					}
 				});
 			});
+		});
 	}
 	fn clear_draft(&mut self, state: &mut State, channel: Id) {
 		if self.draft_restore_pending {
@@ -2685,11 +2752,22 @@ impl MessagingUi {
 			&& !egui::Popup::is_any_open(ctx)
 			&& ctx.memory(|m| m.focused().is_none())
 			&& ctx.input(|i| {
-				!i.modifiers.command
-					&& !i.modifiers.ctrl
-					&& i.events.iter().any(|event| {
-						matches!(event, egui::Event::Text(text) if text.chars().any(|c| !c.is_control() && !c.is_whitespace()))
-					})
+				i.events.iter().any(|event| match event {
+					egui::Event::Paste(_) | egui::Event::PasteImage(_) => true,
+					egui::Event::Key {
+						key: egui::Key::V,
+						pressed: false,
+						modifiers,
+						..
+					} => !modifiers.shift && (modifiers.ctrl || modifiers.command),
+					egui::Event::Text(text) => {
+						!i.modifiers.command
+							&& !i.modifiers.ctrl && text
+							.chars()
+							.any(|c| !c.is_control() && !c.is_whitespace())
+					}
+					_ => false,
+				})
 			});
 		if focus_composer || typed {
 			ctx.memory_mut(|m| m.request_focus(composer_id));
@@ -3608,8 +3686,11 @@ impl MessagingUi {
 		{
 			commands.push(command);
 		}
-		if side.back || side.forward {
-			self.navigate_history(state, &mut commands, side.back);
+		// Bound side buttons run their binding instead of history navigation.
+		let back = side.back && !self.button_claimed(egui::PointerButton::Extra1);
+		let forward = side.forward && !self.button_claimed(egui::PointerButton::Extra2);
+		if back || forward {
+			self.navigate_history(state, &mut commands, back);
 		}
 		// Fullscreen media owns the whole client surface, including during native resizing.
 		if self.show_fullscreen_voice(ui.ctx(), state) {
@@ -4077,12 +4158,14 @@ impl MessagingUi {
 						});
 				}
 				if state.selected.is_none() && self.guild.is_none() {
-					self.call_bar(ui, state, &mut commands);
+					self.call_bar(ui, state, &mut commands, None);
 					self.timeline.download.show_status(ui);
 					self.friends_page(ui, state, &mut commands);
 					return;
 				}
-				if !search_open {
+				// In a DM call the header moves onto the call stage, shown while hovered.
+				let header_in_call = !search_open && self.dm_call_stage(state).is_some();
+				if !search_open && !header_in_call {
 					self.channel_header(
 						ui,
 						state,
@@ -4103,7 +4186,12 @@ impl MessagingUi {
 							ui.available_rect_before_wrap().top(),
 						)
 					});
-				self.call_bar(ui, state, &mut commands);
+				self.call_bar(
+					ui,
+					state,
+					&mut commands,
+					header_in_call.then_some((selected_voice, show_members, wide_members)),
+				);
 				self.timeline.download.show_status(ui);
 				let Some(channel) = state.selected else {
 					ui.add_space((ui.available_height() * 0.32).max(24.0));
@@ -4834,6 +4922,7 @@ impl MessagingUi {
 			}
 		}
 		self.show_call_switch(&ctx, state, &mut commands);
+		self.apply_ring_request(state, &mut commands);
 		self.verification.show(&ctx, state);
 		self.onboarding.show(&ctx, state, &mut commands);
 		self.scroll.clear_if_unbound(&ctx);
@@ -4851,6 +4940,72 @@ impl MessagingUi {
 #[cfg(test)]
 mod composer_tests {
 	use super::*;
+
+	#[test]
+	fn paste_into_an_idle_conversation_focuses_composer_without_sending() {
+		let ctx = egui::Context::default();
+		let mut state = edit_state();
+		let mut view = MessagingUi::default();
+		let frame = |view: &mut MessagingUi, state: &mut State, events| {
+			let mut commands = Vec::new();
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(1000.0, 700.0),
+					)),
+					events,
+					focused: true,
+					..Default::default()
+				},
+				|ui| {
+					commands = view.show(ui, state);
+				},
+			);
+			output.drop_without_applying_deltas();
+			commands
+		};
+		for _ in 0..3 {
+			frame(&mut view, &mut state, vec![]);
+		}
+		ctx.memory_mut(|memory| {
+			if let Some(id) = memory.focused() {
+				memory.surrender_focus(id);
+			}
+		});
+		let channel = state.selected.unwrap();
+		state.drafts.remove(&channel);
+		let commands = frame(
+			&mut view,
+			&mut state,
+			vec![egui::Event::Paste("Pasted offline text".into())],
+		);
+		let request = view
+			.attachment_paste_requested
+			.take()
+			.expect("idle paste is admitted to the existing bounded clipboard worker");
+		assert!(ctx.memory(|memory| memory.has_focus(request.target)));
+		assert!(request.image.is_none());
+		let text = request.text.unwrap();
+		assert_eq!(text, "Pasted offline text");
+		view.upload_busy = false;
+		view.pasted_text = Some((channel, request.target, text));
+		let completion_commands = frame(&mut view, &mut state, vec![]);
+		assert_eq!(
+			state.drafts.get(&channel).map(String::as_str),
+			Some("Pasted offline text")
+		);
+		assert!(
+			completion_commands
+				.iter()
+				.all(|command| !matches!(command, Command::Send { .. } | Command::Edit { .. }))
+		);
+		assert!(
+			!commands
+				.iter()
+				.any(|command| matches!(command, Command::Send { .. } | Command::Edit { .. }))
+		);
+	}
 
 	#[test]
 	fn diagnostics_shortcut_copies_existing_report_and_respects_key_capture() {
@@ -4904,6 +5059,37 @@ mod composer_tests {
 				copies
 			);
 			output.drop_without_applying_deltas();
+		}
+	}
+
+	#[test]
+	fn a_bound_mouse_button_holds_push_to_mute_instead_of_navigating() {
+		let mut view = MessagingUi::default();
+		assert!(!view.wants_mouse_buttons());
+		assert!(!view.button_claimed(egui::PointerButton::Middle));
+		view.keybinds.push_to_mute = model::KeyChord::new("MouseExtra1", 0);
+		assert!(view.wants_mouse_buttons());
+		assert!(view.button_claimed(egui::PointerButton::Extra1));
+		assert!(!view.button_claimed(egui::PointerButton::Extra2));
+		let ctx = egui::Context::default();
+		for focused in [true, false] {
+			ctx.run_ui(
+				egui::RawInput {
+					focused,
+					events: vec![egui::Event::PointerButton {
+						pos: egui::pos2(10.0, 10.0),
+						button: egui::PointerButton::Extra1,
+						pressed: true,
+						modifiers: egui::Modifiers::NONE,
+					}],
+					..Default::default()
+				},
+				|ui| {
+					assert_eq!(view.push_to_mute_down(ui.ctx()), focused);
+					assert!(!view.push_to_talk_down(ui.ctx()));
+				},
+			)
+			.drop_without_applying_deltas();
 		}
 	}
 

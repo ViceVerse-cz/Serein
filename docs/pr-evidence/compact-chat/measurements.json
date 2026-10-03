@@ -1,0 +1,329 @@
+{
+  "runtime_source_commit": "e5b98f831568094d40ca779267601ee279ed13bb",
+  "parent_commit": "71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35",
+  "scope": "Exact parent/main71 versus compact-only UI/runtime change; later evidence commit changes docs/images/records only. Historical appearance before pictures use explicitly separate earlier source revisions and do not serve as package/native performance comparators.",
+  "host": {
+    "os": "macOS27.0(26A428)",
+    "hardware": "Apple M1 MacBookAir10,1",
+    "cores": 8,
+    "memory_gib": 16,
+    "graphics": "Metal",
+    "scale": 2
+  },
+  "verification": {
+    "full_command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein/target CARGO_BUILD_JOBS=2 cargo xtask check",
+    "full_pass": true,
+    "ui_tests_passed": 369,
+    "ui_preexisting_ignored": 5,
+    "desktop_tests_passed": 168,
+    "desktop_preexisting_ignored": 6,
+    "full_log_sha256": "a4eec94a3fdba676370f33f20fceaf678303328ca05e76ad1da9ebf062accbfd",
+    "focused_command": "cargo test --locked -p ui compact -- --nocapture",
+    "focused_actual_glyph_height_tests_passed": 2,
+    "focused_log_sha256": "92302f38b9b11a4e1312dd01c66336f6f077f304c95b8849d7366c85bfd724d1",
+    "native_after_build_pass": true,
+    "native_after_source": "e5b98f831568094d40ca779267601ee279ed13bb",
+    "after_photos_inspected": 13,
+    "historical_matching_before_photos_inspected": 13,
+    "temporary_hooks_removed_byte_exactly": true,
+    "main_rs_sha256": "eb08ff76cdd130844ae67b187b998f564dda2a8f638ebce54eaea215f926a692",
+    "full_log_repository_path": "docs/pr-evidence/compact-chat/full-check.log"
+  },
+  "standard_package": {
+    "source_commit": "e5b98f831568094d40ca779267601ee279ed13bb",
+    "parent_commit": "71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35",
+    "fresh_runtime_crate_paths": [
+      "/private/tmp/serein-compact-chat/apps/desktop",
+      "/private/tmp/serein-compact-chat/crates/client-core",
+      "/private/tmp/serein-compact-chat/crates/discord-api",
+      "/private/tmp/serein-compact-chat/crates/discord-gateway",
+      "/private/tmp/serein-compact-chat/crates/discord-protocol",
+      "/private/tmp/serein-compact-chat/crates/discord-voice",
+      "/private/tmp/serein-compact-chat/crates/extensions",
+      "/private/tmp/serein-compact-chat/crates/local-store",
+      "/private/tmp/serein-compact-chat/crates/model",
+      "/private/tmp/serein-compact-chat/crates/platform",
+      "/private/tmp/serein-compact-chat/crates/session-cache",
+      "/private/tmp/serein-compact-chat/crates/ui"
+    ],
+    "source_difference_runtime_paths": [
+      "crates/ui/locales/cs/main.ftl",
+      "crates/ui/locales/en-US/main.ftl",
+      "crates/ui/src/markdown.rs",
+      "crates/ui/src/pending.rs",
+      "crates/ui/src/timeline.rs"
+    ],
+    "workspace_cache_invalidation": {
+      "target": "/Users/claw/Code/Serein/target",
+      "profile": "release",
+      "workspace_entries": 69,
+      "scope": "all worktree PackageIDs for owned workspace package names only, preserving third-party dependency and immutable evidence caches"
+    },
+    "build_log": "/tmp/serein-compact-current-standard-package.log",
+    "build_log_sha256": "870c8e7c59f3f4ddf85e2d5e0ef16cecda1ed3a5faa91e73edef6f73813a6152",
+    "standard_release_build_seconds": 935,
+    "standard": {
+      "commit": "e5b98f831568094d40ca779267601ee279ed13bb",
+      "command": "cargo xtask package",
+      "features": "standard xtask package; voice included; xtask internally uses --no-default-features",
+      "executable": 62269504,
+      "installed": 68279933,
+      "compressed": 43364562,
+      "files": 206,
+      "executable_sha256": "faa602a48cd6038e93e045a1eaf0d9d94e06761f8a19d67e8b87c38415fc1a21",
+      "zip_method": "ditto -c -k --sequesterRsrc full standard-dist contents, without enclosing directory"
+    },
+    "parent_standard": {
+      "commit": "71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35",
+      "command": "cargo xtask package",
+      "features": "standard xtask package; voice included; xtask internally uses --no-default-features",
+      "executable": 62269488,
+      "installed": 68279917,
+      "compressed": 43363423,
+      "files": 206,
+      "executable_sha256": "c6b3b2ac3f9d801cdd81f91ba36a68200e96f072d7fd18e3bb3707a919e50988",
+      "zip_method": "ditto -c -k --sequesterRsrc full standard-dist contents, without enclosing directory"
+    },
+    "parent_standard_record_sha256": "2e49b08ba21f5363c3d772fa7d33b1bade85139cd132a0c2e9e03c5345b35f22",
+    "signature": "codesign --verify --deep --strict --verbose=2 passed on immutable copied Serein.app",
+    "hooks_removed_before_build": true,
+    "build_log_repository_path": "docs/pr-evidence/compact-chat/standard-build.log"
+  },
+  "package_comparison": {
+    "executable": {
+      "before": 62269488,
+      "after": 62269504,
+      "delta": 16,
+      "percent": 2.5694767234957832e-05
+    },
+    "installed": {
+      "before": 68279917,
+      "after": 68279933,
+      "delta": 16,
+      "percent": 2.3432951741871625e-05
+    },
+    "compressed": {
+      "before": 43363423,
+      "after": 43364562,
+      "delta": 1139,
+      "percent": 0.0026266376618838414
+    },
+    "files": {
+      "before": 206,
+      "after": 206,
+      "delta": 0,
+      "percent": 0.0
+    }
+  },
+  "native_profile": "Identical instrument-free default-plus-demo THIN LTO process override; other repository release flags unchanged. Normal shipping package uses default FAT LTO.",
+  "before_thin_build": {
+    "source": "71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35",
+    "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein-target-root-delivery CARGO_BUILD_JOBS=2 CARGO_PROFILE_RELEASE_LTO=thin cargo build --release --locked -p serein --features demo",
+    "profile_override": "Process-only thin LTO; repository FAT shipping profile unchanged; other release settings unchanged",
+    "features": "default+demo; voice included",
+    "native_instrumentation": false,
+    "source_clean": true,
+    "path": "/Users/claw/Code/Serein/target/issue-sweep/resume-send/baseline71/serein-release-demo-thin",
+    "bytes": 66894800,
+    "sha256": "01f12cbd58b505de954028bff2785fdf9101c9f3e9868759d448a30e5df7c03c",
+    "all12_runtime_crates_fresh": {
+      "model": true,
+      "session-cache": true,
+      "client-core": true,
+      "discord-protocol": true,
+      "discord-api": true,
+      "discord-gateway": true,
+      "discord-voice": true,
+      "extensions": true,
+      "local-store": true,
+      "platform": true,
+      "ui": true,
+      "serein": true
+    },
+    "build_log_sha256": "8efb1ca5bef4394bd6a22438479f11d34c6e129bfbd16a87ad108556f6be74f0",
+    "elapsed": [
+      "Finished `release` profile [optimized + debuginfo] target(s) in 20m 04s"
+    ]
+  },
+  "after_thin_build": {
+    "source_commit": "e5b98f831568094d40ca779267601ee279ed13bb",
+    "parent_commit": "71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35",
+    "binary": "/Users/claw/Code/Serein/target/issue-sweep/compact-chat/e5b98f83/serein-release-demo-thin",
+    "bytes": 66894816,
+    "sha256": "ddd760accc146adfdf26aaa3b6e80043773aee0684c9f145cd2ea000335f3009",
+    "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein-target-ui-thin CARGO_BUILD_JOBS=2 CARGO_PROFILE_RELEASE_LTO=thin cargo build --release --locked -p serein --features demo",
+    "profile": "process-only thin LTO override; other repository release flags unchanged; shipping package uses normal fat LTO",
+    "features": "default plus demo, voice included",
+    "build_seconds": 842,
+    "fresh_runtime_crate_paths": [
+      "/private/tmp/serein-compact-chat/apps/desktop",
+      "/private/tmp/serein-compact-chat/crates/client-core",
+      "/private/tmp/serein-compact-chat/crates/discord-api",
+      "/private/tmp/serein-compact-chat/crates/discord-gateway",
+      "/private/tmp/serein-compact-chat/crates/discord-protocol",
+      "/private/tmp/serein-compact-chat/crates/discord-voice",
+      "/private/tmp/serein-compact-chat/crates/extensions",
+      "/private/tmp/serein-compact-chat/crates/local-store",
+      "/private/tmp/serein-compact-chat/crates/model",
+      "/private/tmp/serein-compact-chat/crates/platform",
+      "/private/tmp/serein-compact-chat/crates/session-cache",
+      "/private/tmp/serein-compact-chat/crates/ui"
+    ],
+    "fresh_demo_fixture_crate": "/private/tmp/serein-compact-chat/crates/test-support",
+    "workspace_cache_invalidation": {
+      "profile": "release",
+      "workspace_entries": 523,
+      "all_worktree_package_ids": true,
+      "third_party_and_immutable_evidence_preserved": true
+    },
+    "build_log_sha256": "ac0a45bf186a15cb9e831f0a0e5636817215f897b77f041478f741ceed6dbf89",
+    "instrumentation_removed": true,
+    "main_rs_sha256": "eb08ff76cdd130844ae67b187b998f564dda2a8f638ebce54eaea215f926a692"
+  },
+  "native_method": "Global quiet explicitly confirmed by all four owners; no cargo/rustc/native app/heavy IO before the pair. Five-second warmup plus ten one-second macOS ps samples; ordinary --demo --demo-chat; both processes stopped with SIGINT, exit -2.",
+  "native_before": {
+    "binary": "/Users/claw/Code/Serein/target/issue-sweep/resume-send/baseline71/serein-release-demo-thin",
+    "flags": [
+      "--demo",
+      "--demo-chat"
+    ],
+    "warmup_seconds": 5,
+    "interval_seconds": 1,
+    "samples": [
+      {
+        "seconds": 5.029,
+        "cpu_percent": 0.0,
+        "rss_kib": 125616
+      },
+      {
+        "seconds": 6.045,
+        "cpu_percent": 0.0,
+        "rss_kib": 125616
+      },
+      {
+        "seconds": 7.058,
+        "cpu_percent": 0.0,
+        "rss_kib": 125616
+      },
+      {
+        "seconds": 8.083,
+        "cpu_percent": 0.0,
+        "rss_kib": 125568
+      },
+      {
+        "seconds": 9.099,
+        "cpu_percent": 0.0,
+        "rss_kib": 125568
+      },
+      {
+        "seconds": 10.122,
+        "cpu_percent": 0.0,
+        "rss_kib": 125568
+      },
+      {
+        "seconds": 11.139,
+        "cpu_percent": 0.0,
+        "rss_kib": 125568
+      },
+      {
+        "seconds": 12.157,
+        "cpu_percent": 0.0,
+        "rss_kib": 125568
+      },
+      {
+        "seconds": 13.172,
+        "cpu_percent": 0.0,
+        "rss_kib": 125568
+      },
+      {
+        "seconds": 14.19,
+        "cpu_percent": 0.0,
+        "rss_kib": 125568
+      }
+    ],
+    "cpu_percent_median": 0.0,
+    "rss_peak_kib": 125616,
+    "rss_settled_kib": 125568,
+    "elapsed_seconds": 15.204,
+    "user_cpu_seconds": 0.203694,
+    "system_cpu_seconds": 0.184085,
+    "exit_code": -2,
+    "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo"
+  },
+  "native_after": {
+    "binary": "/Users/claw/Code/Serein/target/issue-sweep/compact-chat/e5b98f83/serein-release-demo-thin",
+    "flags": [
+      "--demo",
+      "--demo-chat"
+    ],
+    "warmup_seconds": 5,
+    "interval_seconds": 1,
+    "samples": [
+      {
+        "seconds": 5.03,
+        "cpu_percent": 0.0,
+        "rss_kib": 125952
+      },
+      {
+        "seconds": 6.043,
+        "cpu_percent": 0.0,
+        "rss_kib": 125952
+      },
+      {
+        "seconds": 7.054,
+        "cpu_percent": 0.0,
+        "rss_kib": 125904
+      },
+      {
+        "seconds": 8.074,
+        "cpu_percent": 0.0,
+        "rss_kib": 125904
+      },
+      {
+        "seconds": 9.091,
+        "cpu_percent": 0.0,
+        "rss_kib": 125904
+      },
+      {
+        "seconds": 10.115,
+        "cpu_percent": 0.0,
+        "rss_kib": 125904
+      },
+      {
+        "seconds": 11.132,
+        "cpu_percent": 0.0,
+        "rss_kib": 125904
+      },
+      {
+        "seconds": 12.151,
+        "cpu_percent": 0.0,
+        "rss_kib": 125904
+      },
+      {
+        "seconds": 13.167,
+        "cpu_percent": 0.0,
+        "rss_kib": 125904
+      },
+      {
+        "seconds": 14.183,
+        "cpu_percent": 0.0,
+        "rss_kib": 125904
+      }
+    ],
+    "cpu_percent_median": 0.0,
+    "rss_peak_kib": 125952,
+    "rss_settled_kib": 125904,
+    "elapsed_seconds": 15.2,
+    "user_cpu_seconds": 0.20934899999999998,
+    "system_cpu_seconds": 0.135276,
+    "exit_code": -2,
+    "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo"
+  },
+  "native_delta": {
+    "cpu_percent_median": 0.0,
+    "rss_peak_kib": 336,
+    "rss_settled_kib": 336,
+    "rss_settled_percent": 0.26758409785932724
+  },
+  "interpretation": "Idle CPU remains 0%; the 336 KiB (about 0.268%) RSS difference is small process-to-process noise, not a performance improvement claim. Active compact frame timing, live service compatibility and Linux/Windows native appearance are unmeasured."
+}

@@ -4337,6 +4337,12 @@ lib-composer-onboarding-incomplete = 参加を完了すると、さらにチャ�
 # Context: composer
 lib-composer-onboarding-complete = オンボーディングを完了
 
+voice-recipient-ring = もう一度呼び出す
+voice-recipient-stop-ringing = 呼び出しを停止
+voice-recipient-ringing = 呼び出し中…
+voice-recipient-not-in-call = 通話に未参加
+reconnect-now = 今すぐ再接続
+
 voice-call-moved-to-another-client = このデバイスの通話セッションが置き換えられました
 
 server-settings-page-safety = 安全設定
@@ -4418,3 +4424,7 @@ server-emoji-empty-animated = アニメーション絵文字はまだありま�
 server-emoji-empty-detail = 画像をアップロードして追加します。GIFはアニメーション絵文字になります。
 
 server-stickers-empty-detail = 画像をアップロードして最初のスタンプを追加しましょう。
+
+screen-macos-system-picker = macOSのシステム選択画面で選ぶ
+
+screen-macos-system-picker-kind = システムのコンテンツ選択

@@ -4348,6 +4348,12 @@ lib-composer-onboarding-incomplete = Completa l'accesso a questo server per sblo
 # Context: composer
 lib-composer-onboarding-complete = Completa l'accoglienza
 
+voice-recipient-ring = Richiama
+voice-recipient-stop-ringing = Interrompi squillo
+voice-recipient-ringing = Sta squillando…
+voice-recipient-not-in-call = Non nella chiamata
+reconnect-now = Riconnetti ora
+
 voice-call-moved-to-another-client = La sessione di chiamata di questo dispositivo è stata sostituita
 
 server-settings-page-safety = Configurazione sicurezza
@@ -4429,3 +4435,7 @@ server-emoji-empty-animated = Ancora nessuna emoji animata
 server-emoji-empty-detail = Carica un'immagine per aggiungerne una. Le GIF diventano emoji animate.
 
 server-stickers-empty-detail = Carica un'immagine per aggiungere il tuo primo sticker.
+
+screen-macos-system-picker = Scegli con il selettore di macOS
+
+screen-macos-system-picker-kind = Selettore dei contenuti di sistema

@@ -32,10 +32,11 @@ Right-click another participant's voice-row name, avatar, or stage card for
 **User volume**, from 0% to 200%, and **Reset volume** (100%). Keyboard users can focus
 an avatar/name and press Shift+F10. This changes only that person's voice playback before
 mixing; the global speaker level and deafen still apply. Speaking indicators remain based on
-the received signal. Screen-share audio has its own mix and is unaffected. Overrides carry
-across calls and device changes in the current session and clear on logout/preview reset.
+the received signal. Screen-share audio has its own mix and is unaffected. Overrides are saved
+in device preferences and restored before the first UI frame,
+so they carry across calls, device changes, restart and logout. Demo edits remain session-only.
 At most 64 custom levels are retained; a full table replaces its first retained entry.
-Nothing is sent to Discord or saved to disk. Boosting may clip; physical listening and
+Nothing is sent to Discord. Boosting may clip; physical listening and
 native slider interaction remain unverified.
 
 Device-free tests cover gain, clipping, invalid PCM, independent live changes and gates. Actual
@@ -61,6 +62,20 @@ signaling; a fresh Join is rejected locally until the release is queued ahead of
 Stale release commands cannot displace cleanup for the current attempt. A later Join
 that encounters the still-full queue fails only that unsent attempt, keeping text
 signaling available.
+
+If local transport confirmation cannot enter the bounded control queue, its
+channel, attempt and candidate revision accompany a local failure. The desktop
+receives it through one fixed-size latest-report watch, independent of the reliable
+account event queue and its byte budget. Old-scope reports cannot replace the
+current attempt's failure; an older candidate revision cannot replace a newer one.
+The watch remains unread until queued reliable signaling is drained, including
+replacement candidates or acknowledgments beyond the current frame's event batch.
+The original negotiation deadline still bounds local failure under sustained load.
+The desktop
+consumes it only for the exact current unconfirmed candidate within its original
+deadline, then abandons that negotiation through the existing local release path.
+Old-candidate failures do not fail a replacement or established call. Text
+authentication and signaling remain available.
 
 After confirmation, a different owner session in the same voice channel, or movement
 to another non-null channel/guild, clears the local call and closes media without
@@ -96,11 +111,23 @@ For the owner-controlled live gate, leave the peer connected in a private DM cal
 DM in Serein, wait for the banner, then explicitly Join. Verify no new ring, actual two-way
 audio, leaving/rejoining while the peer stays, and disappearance after the peer ends the call.
 
-Mute/deafen, saved input/output selection and focused V push-to-talk are implemented. Remappable mute and deafen bindings use global native registration when supported and when a modifier is present; they fall back to focused input on Wayland or when registration is unavailable. Settings → Keybinds offers **Enable global keybinds**, saved on this device and enabled by default. Turning it off unregisters global voice shortcuts; mute, deafen and push-to-talk still work while Serein is focused, with the existing text-entry guards. Push-to-talk releases when focus is lost and is disabled while text entry has focus. It remains focused-only by default. Devices are initialized only following an explicit call with authenticated empty-room waiting or encrypted readiness, or an explicit local microphone test; no microphone test runs at startup. Acoustic echo cancellation follows the selected input profile; see below for its limits. A microphone that fails to open or start, reports a fatal callback error, or delivers no audio callbacks for five seconds is disabled with a visible warning. The call and speaker playback remain connected, and the client periodically retries microphone setup in the background while selecting another input immediately retries. Transient buffer discontinuities and non-fatal stream glitches do not disable the microphone. Ordinary silence does not trigger the warning. Selected speaker failures can fall back to the default output; an unusable output can still fail the call.
+Mute/deafen, saved input/output selection and focused V push-to-talk are implemented. Remappable mute and deafen bindings use global native registration when supported and when a modifier is present; they fall back to focused input on Wayland or when registration is unavailable. Settings → Keybinds offers **Enable global keybinds**, saved on this device and enabled by default. Turning it off unregisters global voice shortcuts; mute, deafen and push-to-talk still work while Serein is focused, with the existing text-entry guards. Push-to-talk releases when focus is lost and is disabled while text entry has focus. It remains focused-only by default. Push to Mute is unassigned by default; once bound, holding it mutes the microphone during a call and releasing it restores the previous state, and it registers globally like push-to-talk. Voice and other remappable actions can also use mouse 3, 4 or 5, optionally with modifiers; left and right click cancel recording instead. A bound mouse button no longer starts middle-click autoscroll or back/forward navigation. Mouse bindings work while Serein is focused on every platform and, with global keybinds enabled, are polled globally on Windows only; macOS, X11 and the Wayland portal have no global mouse-button registration. Devices are initialized only following an explicit call with authenticated empty-room waiting or encrypted readiness, or an explicit local microphone test; no microphone test runs at startup. Acoustic echo cancellation follows the selected input profile; see below for its limits. A microphone that fails to open or start, reports a fatal callback error, or delivers no audio callbacks for five seconds is disabled with a visible warning. The call and speaker playback remain connected, and the client periodically retries microphone setup in the background while selecting another input immediately retries. Transient buffer discontinuities and non-fatal stream glitches do not disable the microphone. Ordinary silence does not trigger the warning. Selected speaker failures can fall back to the default output; an unusable output can still fail the call.
 
 One-to-one DM calls accept only their expected peer. Group DM and server calls support up to 64 total participants, with independent bounded decoder/jitter state and mixed mono playback. Only DAVE version 1 is accepted; encryption downgrades and group identities outside the authenticated participant roster fail closed. Stage channels and recording are unsupported. Outgoing screen sharing and macOS camera support is described below. Voice WebSocket resumption has a finite retry budget; failed resumption or main Gateway disconnect requires an explicit new call. Voice credentials, ephemeral DAVE identities and audio stay in bounded session memory. The displayed privacy code applies to the current group epoch; identities are not remembered across calls. Comparing codes does not establish long-term identity verification or text-message encryption.
 
 ## Group DM calls
+
+Connected one-to-one and group DM stages also show recipients who have not joined,
+with **Ringing…** or **Not in call** status rather than an invented microphone state.
+Right-click an absent recipient's avatar to **Stop ringing** that recipient or
+**Ring again** after ringing has stopped. These explicit actions target one current
+recipient of the joined call; they never join a conversation or start media.
+The initial call still rings only once after transport allocation. Recipient write
+failures remain visible in the stage while the call continues; no uncertain write
+automatically retries. Leaving, changing calls, disconnecting, and changes to DM
+membership cancel the one pending recipient write. Guild calls have no ringing
+controls. This uses the existing unofficial normal-user call HTTP routes; synthetic
+tests do not establish live Discord acceptance.
 
 Existing group conversations expose the same Start/Answer/Decline/Join controls, call stage,
 mute/deafen, audio device and gain controls, focused push-to-talk, noise suppression,
@@ -196,6 +223,37 @@ SPEAK prepares input under the current encryption and mute/PTT gates; mute/PTT a
 reopen devices. Lost VIEW_CHANNEL drops the stored roster and hides participant rows, including
 when no call is active; late updates cannot repopulate an inaccessible channel.
 
+
+## Stream lag and viewer timeouts (October 3, 2026)
+
+Discord identifies error 2012 as a [video viewer timeout](https://support.discord.com/hc/en-us/articles/30952914470807-Discord-Audio-and-Video-Error-Codes-Troubleshooting-Guide),
+which does not identify whether capture, encoding, forwarding or viewer decoding failed.
+The Linux-focused code audit corrected these reproducible failures:
+
+- Call, camera and stream UDP writes never wait for socket capacity. A congested
+  socket drops the current datagram; continuous send errors retain the existing
+  ten-second failure policy. Signaling, audio ticks and feedback can keep running.
+- An established stream that loses DAVE transition execution or its new group
+  response gets a 30-second recovery deadline. Heartbeat acknowledgments cannot
+  keep a stalled rekey waiting forever. Authenticated sole-member waiting remains
+  unlimited; a pending transition is not treated as idle waiting.
+- Audio resumes at the nearest buffered packet after three concealment packets,
+  preserving valid successors across larger loss bursts and sequence wraparound.
+  A call tick delayed by at least 80 ms discards old decoded audio, as stream
+  playback already did.
+- The Linux native video decoder admits at most four compressed access units /
+  8,650,752 bytes before the native pipeline. Overflow enters the existing keyframe
+  recovery path. GStreamer older than 1.20 uses the bounded software fallback.
+
+Offline checks reproduce the old lost recovery packets, uncapped native queue,
+indefinite rekey wait and successful fixed behavior. They do not establish that
+Linux-to-official-client error 2012 is resolved. Native portal/GPU behavior and
+physical or live media still require owner-controlled verification. A large
+keyframe at a very low feedback bitrate can still take seconds to drain; the
+current controller does not adapt resolution or implement sender-clock A/V sync.
+Use the existing opt-in diagnostics on a deliberate failed attempt to distinguish
+capture stalls, decoder failures, loss and transport timing before changing those
+policies. No automatic capture, account test or diagnostic logging was added.
 
 ## Diagnosing a call that never opens audio
 
@@ -368,7 +426,20 @@ In a connected call, select **Share your screen**, choose a display/window, 480p
 
 480p uses 854×480 pixels and a target video bitrate of 2 Mbps at 15/30 fps or 4 Mbps at 60 fps.
 
-Capture uses macOS 14+ ScreenCaptureKit (screen-recording permission in System Settings) or Windows Graphics Capture. Source discovery alone does not start streaming. Closing or minimizing a selected source may pause frames or end capture, according to the native API. The initial Windows adapter accepts source dimensions up to 3840×2160. Changes to screen-server metadata, lost video permission, leaving the call and logout stop sharing. The sender never starts itself after reconnection.
+Capture uses macOS 14+ ScreenCaptureKit or Windows Graphics Capture. On macOS,
+Share Screen offers the native `SCContentSharingPicker` to choose one display or
+window. Source discovery only advertises that choice; it does not enumerate private
+window titles, request screen-recording permission or open the picker. The owner
+confirms quality/audio, then explicitly shares to open the system picker. Cancel,
+call teardown and a two-minute choice deadline stop the pending request; no source
+is silently selected or retried. Legacy direct display/window filters retain their
+existing screen-recording permission requirements. When audio is enabled for a
+window, ScreenCaptureKit captures its owning application's audio, which may include
+other windows in that application; this is not isolation of one window's audio.
+Serein's own playback remains excluded. No microphone is captured by screen sharing.
+The native picker has not been opened during synthetic verification.
+
+Source discovery alone does not start streaming. Closing or minimizing a selected source may pause frames or end capture, according to the native API. The initial Windows adapter accepts source dimensions up to 3840×2160. Changes to screen-server metadata, lost video permission, leaving the call and logout stop sharing. The sender never starts itself after reconnection.
 
 Linux uses the desktop ScreenCast portal and PipeWire. Share Screen opens the system
 screen/window picker after the quality dialog; source discovery never opens that picker.
@@ -763,3 +834,21 @@ checks settings rendering and capture guards without opening devices. Physical l
 microphone permission prompts remain owner-verified behavior.
 
 Rapid mute/unmute invalidates partial callback PCM.
+
+Recipient ringing consumes the confirmed local call scope. Session replacement or
+local abandonment cancels initial and targeted ringing, clears dispatcher ownership
+and rejects queued actions from the previous request. Targeted HTTP work checks the
+latest ownership, membership revision and connection availability before polling
+the network future; already accepted service writes cannot be undone.
+
+Recipient actions also recheck latest validated service ringing and observed peer
+presence when dequeued: Ring again requires an absent, non-ringing peer; Stop
+ringing requires current service-confirmed ringing. Unknown ringing disables both
+actions until call metadata arrives; relevant target/scope changes cancel pending writes.
+
+Pending targeted ringing revalidates the requested recipient when call metadata
+changes. An unrelated participant’s mute/camera update preserves an eligible
+request; a target joining during a start, being removed, reaching the requested
+service state, or losing its current call scope cancels obsolete work. The UI
+continues to show service-confirmed state instead of reporting successful state
+changes as failures.

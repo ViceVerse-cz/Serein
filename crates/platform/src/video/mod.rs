@@ -56,6 +56,8 @@ pub const MAX_SECONDS: f64 = 2.0 * 60.0 * 60.0;
 pub const MAX_BYTES: usize = 16 * 1024 * 1024;
 pub const UNSUPPORTED: &str = "This video format or codec is not supported on this system.";
 pub const INVALID: &str = "The video could not be decoded safely.";
+/// A live decoder queue is full; the access unit was dropped but the decoder is healthy.
+pub const BUSY: &str = "The video decoder is falling behind.";
 pub const TOO_LARGE: &str = "Inline playback supports videos up to 1080p.";
 pub const TOO_LONG: &str = "Videos longer than two hours are not supported.";
 
