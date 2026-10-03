@@ -4124,3 +4124,44 @@ macOS host. No Rust runtime or voice dependency changed. The standard host
 voice-inclusive package passes; full workspace tests remain blocked by unchanged
 UI failures. Antivirus acceptance and Windows signing are separate, unverified
 release concerns.
+
+## Light controls with window transparency (October 3, 2026)
+
+Baseline `f3f244c97f223280b49966ac96284aa72fd03a1f` is compared with the
+runtime source hashes in
+[`light-transparency-surfaces/measurements.json`](pr-evidence/light-transparency-surfaces/measurements.json).
+Host: Ubuntu 26.04.1 / Linux x86_64, AMD Ryzen 5 7535U, 12 logical CPUs,
+15,369,359,360 bytes RAM, native eframe WGPU/Vulkan (RADV REMBRANDT), display
+scale 1. Both revisions use pinned Rust 1.98.1 and the unchanged lockfile.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Idle CPU, mean / median of one core | 0.00% / 0.00% | 0.05% / 0.00% | +0.05 / 0.00 percentage points |
+| Sampled peak / settled RSS | 130,904,064 B | 129,536,000 B | −1,368,064 B (−1.05%) |
+| Standard executable | 85,350,064 B | 85,352,368 B | +2,304 B (+0.0027%) |
+| Installed regular files | 89,864,185 B | 89,866,489 B | +2,304 B (+0.0026%) |
+| Complete compressed DEB | 44,192,928 B | 44,194,608 B | +1,680 B (+0.0038%) |
+
+Native sampling uses the existing offline `profile_preview` harness at
+1120 × 760, Standard/Light, 100% palette transparency: the Appearance modal
+opens once and then idles. Both optimized builds use the same final-crate
+`-C lto=off` override. After eight seconds of warmup and three seconds of
+settling, psutil collects twenty one-second process CPU/RSS samples; settled
+RSS is the median of the final five. No helper processes were present and no
+build ran during sampling. Small CPU/RSS differences are sampling, allocator
+or driver noise; this is not a performance improvement claim. Frame/startup
+latency, startup memory peaks, GPU memory and live traffic are unmeasured.
+
+Standard voice-inclusive packages use `cargo xtask package`, normal fat LTO
+and no default/demo features. Both pass the Debian package smoke checks
+(225 files). Installed bytes sum regular files extracted from each DEB;
+compressed bytes measure the complete DEB distribution.
+
+The [evidence README](pr-evidence/light-transparency-surfaces/README.md)
+records reproduction commands and native before/after captures. The opaque
+preview viewport validates control rendering, not desktop alpha/blur or
+Windows/macOS compositors. Focused transparency tests, remaining workspace
+packages, formatting, strict Clippy, policy and the production check pass.
+`cargo xtask check` stops at the unchanged native video pressure test
+`stalled_native_queue_rejects_pressure_at_item_and_byte_limits`; the same
+failure reproduces on baseline main, so the PR remains draft.

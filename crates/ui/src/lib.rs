@@ -2,6 +2,8 @@
 //! Native egui views; emits commands without owning transports or session credentials.
 mod account_badge;
 mod account_menu;
+#[cfg(test)]
+mod appearance_transparency_tests;
 mod archives;
 mod audio;
 mod forwarding;

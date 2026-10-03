@@ -774,7 +774,8 @@ pub fn theme_sets_accent(dark: bool) -> bool {
 		.get()
 		.is_some_and(|palettes| palettes[usize::from(dark)].colors[ACCENT_FIELD].is_some())
 }
-pub fn colors(dark: bool, variant: Variant) -> Palette {
+/// Resolve theme and accent colors before applying desktop opacity.
+fn resolved_colors(dark: bool, variant: Variant) -> Palette {
 	let mut palette = builtin_colors(dark, variant);
 	let mut themed_accent = false;
 	if let Some(palettes) = EXTENSION_THEME.get() {
@@ -782,11 +783,14 @@ pub fn colors(dark: bool, variant: Variant) -> Palette {
 		themed_accent = theme.colors[ACCENT_FIELD].is_some();
 		palette = recolor(palette, theme);
 	}
-	let mut palette = if themed_accent {
+	if themed_accent {
 		palette
 	} else {
 		customize(palette, primary_color())
-	};
+	}
+}
+pub fn colors(dark: bool, variant: Variant) -> Palette {
+	let mut palette = resolved_colors(dark, variant);
 	let (enabled, transparency, _) = window_effects();
 	if enabled && transparency > 0 {
 		let alpha = 100 - u16::from(transparency);
@@ -851,10 +855,16 @@ pub(crate) fn theme_preview_palette(ui: &egui::Ui, theme: &extensions::Theme) ->
 	}
 }
 pub fn palette(ui: &egui::Ui) -> Palette {
-	opaque_surfaces(colors(ui.visuals().dark_mode, variant()))
+	control_colors(ui.visuals().dark_mode, variant())
 }
 pub fn palette_for(ctx: &egui::Context) -> Palette {
-	opaque_surfaces(colors(ctx.theme() == egui::Theme::Dark, variant()))
+	control_colors(ctx.theme() == egui::Theme::Dark, variant())
+}
+/// Controls and popouts retain the theme's composited colors at every window opacity.
+/// Resolve them before desktop transparency: fully transparent premultiplied colors
+/// have already lost their RGB, so restoring their alpha would create black controls.
+pub(crate) fn control_colors(dark: bool, variant: Variant) -> Palette {
+	opaque_surfaces(resolved_colors(dark, variant))
 }
 /// Main surfaces preserve gradient presets; widgets and popouts use opaque surfaces.
 pub fn window_palette(ui: &egui::Ui) -> Palette {
@@ -888,7 +898,7 @@ pub fn paint_backdrop(ctx: &egui::Context) {
 	}
 	let [top, bottom] = palette.backdrop.unwrap_or_else(|| {
 		let (enabled, transparency, _) = window_effects();
-		let mut base = palette.base.to_opaque();
+		let mut base = resolved_colors(dark, variant()).base.to_opaque();
 		if enabled {
 			base = base.gamma_multiply(f32::from(100 - transparency) / 100.0);
 		}
@@ -1046,7 +1056,7 @@ pub fn apply(ctx: &egui::Context) {
 	let item_spacing = metrics.item_spacing.unwrap_or([8, 8]);
 	let button_padding = metrics.button_padding.unwrap_or([12, 6]);
 	for theme in [egui::Theme::Dark, egui::Theme::Light] {
-		let p = opaque_surfaces(colors(theme == egui::Theme::Dark, variant));
+		let p = control_colors(theme == egui::Theme::Dark, variant);
 		let mut style = (*ctx.style_of(theme)).clone();
 		style.text_styles.insert(
 			egui::TextStyle::Heading,
@@ -3063,6 +3073,93 @@ pub fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
 #[cfg(test)]
 mod sign_in_widget_tests {
 	use super::*;
+	#[test]
+	fn control_palettes_ignore_window_transparency_for_presets_and_translucent_themes() {
+		let mut theme = extensions::Theme::default();
+		for (appearance, chat, raised, backdrop) in [
+			(
+				&mut theme.light,
+				"#f4f4f488",
+				"#efebe780",
+				["#d8d8d8", "#ffffff"],
+			),
+			(
+				&mut theme.dark,
+				"#18182088",
+				"#20202880",
+				["#101018", "#303038"],
+			),
+		] {
+			appearance.colors.insert("chat".into(), chat.into());
+			appearance.colors.insert("raised".into(), raised.into());
+			appearance.backdrop = Some(backdrop.map(str::to_owned));
+		}
+		for theme in [None, Some(&theme)] {
+			set_extension_theme(theme);
+			for variant in Variant::ALL {
+				for dark in [false, true] {
+					set_window_effects(false, 15, 50);
+					let controls = control_colors(dark, variant);
+					let window = colors(dark, variant);
+					for amount in [0, 15, 50, 85, 100] {
+						set_window_effects(true, amount, 50);
+						assert_eq!(control_colors(dark, variant), controls);
+						let faded = colors(dark, variant);
+						for (actual, original) in [
+							(faded.base, window.base),
+							(faded.sidebar, window.sidebar),
+							(faded.chat, window.chat),
+							(faded.raised, window.raised),
+						] {
+							assert_eq!(
+								actual.a(),
+								(u16::from(original.a()) * u16::from(100 - amount) / 100) as u8
+							);
+						}
+						assert_eq!((faded.text, faded.muted), (window.text, window.muted));
+					}
+				}
+			}
+		}
+		set_extension_theme(None);
+		set_window_effects(false, 15, 50);
+	}
+
+	#[test]
+	fn window_image_backdrop_applies_transparency_to_the_original_tint_once() {
+		let ctx = egui::Context::default();
+		ctx.set_theme(egui::ThemePreference::Light);
+		set_extension_theme(None);
+		set_background_image(
+			&ctx,
+			Some(std::sync::Arc::new(egui::ColorImage::filled(
+				[2, 2],
+				Color32::WHITE,
+			))),
+		);
+		let base = resolved_colors(false, variant()).base.to_opaque();
+		for amount in [0, 50, 100] {
+			set_window_effects(true, amount, 0);
+			let expected = base.gamma_multiply(f32::from(100 - amount) / 100.0);
+			let output = ctx.run_ui(egui::RawInput::default(), |_| paint_backdrop(&ctx));
+			let mut vertices = 0;
+			for shape in &output.shapes {
+				if let egui::Shape::Mesh(mesh) = &shape.shape
+					&& mesh.texture_id == egui::TextureId::default()
+				{
+					for vertex in &mesh.vertices {
+						assert_eq!(vertex.color, expected);
+						vertices += 1;
+					}
+				}
+			}
+			assert!(vertices > 0);
+			output.drop_without_applying_deltas();
+		}
+		set_background_image(&ctx, None);
+		set_window_effects(false, 15, 50);
+	}
+
 	#[test]
 	fn transparency_composes_with_background_images_and_section_opacity() {
 		let ctx = egui::Context::default();

@@ -1515,16 +1515,16 @@ fn theme_preference_cards(ui: &mut egui::Ui) {
 			let variant = design::variant();
 			let (left, right) = match preference {
 				egui::ThemePreference::Dark => {
-					let p = design::colors(true, variant);
+					let p = design::control_colors(true, variant);
 					(p.sidebar.to_opaque(), p.chat.to_opaque())
 				}
 				egui::ThemePreference::Light => {
-					let p = design::colors(false, variant);
+					let p = design::control_colors(false, variant);
 					(p.sidebar.to_opaque(), p.chat.to_opaque())
 				}
 				egui::ThemePreference::System => (
-					design::colors(true, variant).chat.to_opaque(),
-					design::colors(false, variant).chat.to_opaque(),
+					design::control_colors(true, variant).chat,
+					design::control_colors(false, variant).chat,
 				),
 			};
 			painter.rect_filled(swatch, 6, right);
