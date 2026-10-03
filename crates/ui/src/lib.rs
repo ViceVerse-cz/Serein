@@ -8056,14 +8056,22 @@ mod composer_tests {
 /// Offline guild/private-call member-row check; no service or audio access.
 #[cfg(debug_assertions)]
 pub fn debug_member_voice_status_check(mut state: State, mut private: State) {
-	let entry = state.voice.roster[0].clone();
+	let entry = state.voice.roster[1].clone();
+	state.voice.roster = vec![entry.clone()];
+	state.voice.active = None;
+	let text_channel = state
+		.channels
+		.iter()
+		.find(|channel| channel.guild == Some(entry.guild) && channel.kind == 0)
+		.unwrap()
+		.id;
 	let mut member = entry.member.clone().unwrap();
 	member.custom_status = Some("Synthetic status".into());
-	state.selected = Some(entry.channel);
+	state.selected = Some(text_channel);
 	state.gateway_connected = true;
 	state.members = Some(model::MemberList {
 		guild: Some(entry.guild),
-		channel: entry.channel,
+		channel: text_channel,
 		request: 0,
 		start: 0,
 		slots: vec![Some(model::MemberSlot::Person(member))],
