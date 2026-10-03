@@ -1,6 +1,8 @@
 use crate::{DiscordApi, Failure};
-use model::{Id, forum::Page};
+use model::{forum::Page, Id};
 use reqwest::Method;
+
+const FORUM_MESSAGE_LIMIT: usize = 50;
 
 impl DiscordApi {
 	pub(super) async fn forum_summary(
@@ -10,16 +12,20 @@ impl DiscordApi {
 		if channel.0 == 0 {
 			return Err(Failure::Protocol);
 		}
+
 		let bytes = self
 			.request_limited(
 				Method::GET,
-				&format!("/channels/{channel}/messages?limit=50"),
+				&format!("/channels/{channel}/messages?limit={FORUM_MESSAGE_LIMIT}"),
 				None,
 				discord_protocol::forum::MAX_WIRE,
 			)
 			.await?;
-		discord_protocol::decode::<discord_protocol::forum::Recent>(&bytes)
-			.map_err(|_| Failure::Protocol)?
+
+		let recent = discord_protocol::decode::<discord_protocol::forum::Recent>(&bytes)
+			.map_err(|_| Failure::Protocol)?;
+
+		recent
 			.into_summary(channel)
 			.map_err(|_| Failure::Protocol)
 	}
@@ -37,22 +43,40 @@ impl DiscordApi {
 		if parent.0 == 0 || guild.0 == 0 || offset > model::forum::MAX_POSTS {
 			return Err(Failure::Protocol);
 		}
-		match self.searched_posts(parent, guild, offset).await {
-			Err(Failure::Protocol) if offset == 0 => self.active_guild_posts(parent, guild).await,
-			outcome => outcome,
+
+		let result = self.searched_posts(parent, guild, offset).await;
+
+		if offset == 0 && matches!(result, Err(Failure::Protocol)) {
+			return self.active_guild_posts(parent, guild).await;
 		}
+
+		result
 	}
 
-	async fn searched_posts(&self, parent: Id, guild: Id, offset: usize) -> Result<Page, Failure> {
+	async fn searched_posts(
+		&self,
+		parent: Id,
+		guild: Id,
+		offset: usize,
+	) -> Result<Page, Failure> {
 		let path = format!(
 			"/channels/{parent}/threads/search?archived=false&sort_by=last_message_time&sort_order=desc&limit={}&offset={offset}",
 			model::forum::PAGE_SIZE
 		);
+
 		let bytes = self
-			.request_limited(Method::GET, &path, None, discord_protocol::forum::MAX_WIRE)
+			.request_limited(
+				Method::GET,
+				&path,
+				None,
+				discord_protocol::forum::MAX_WIRE,
+			)
 			.await?;
-		discord_protocol::decode::<discord_protocol::forum::Reply>(&bytes)
-			.map_err(|_| Failure::Protocol)?
+
+		let reply = discord_protocol::decode::<discord_protocol::forum::Reply>(&bytes)
+			.map_err(|_| Failure::Protocol)?;
+
+		reply
 			.into_page(parent, guild)
 			.map_err(|_| Failure::Protocol)
 	}
@@ -66,8 +90,11 @@ impl DiscordApi {
 				discord_protocol::forum::GUILD_MAX_WIRE,
 			)
 			.await?;
-		discord_protocol::decode::<discord_protocol::forum::GuildActive>(&bytes)
-			.map_err(|_| Failure::Protocol)?
+
+		let active = discord_protocol::decode::<discord_protocol::forum::GuildActive>(&bytes)
+			.map_err(|_| Failure::Protocol)?;
+
+		active
 			.into_page(parent, guild)
 			.map_err(|_| Failure::Protocol)
 	}
@@ -76,60 +103,111 @@ impl DiscordApi {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use client_core::{Command, Event, auth::SessionSecret};
-	use std::{sync::Arc, time::Duration};
+	use client_core::{auth::SessionSecret, Command, Event};
+	use std::{
+		sync::Arc,
+		time::Duration,
+	};
 	use tokio::{
 		io::{AsyncReadExt, AsyncWriteExt},
 		net::TcpListener,
 	};
 
+	async fn create_api(listener: &TcpListener) -> DiscordApi {
+		let mut api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("SYNTHETIC_FORUM_TOKEN".into()).unwrap(),
+		))
+		.unwrap();
+
+		api.base = format!("http://{}", listener.local_addr().unwrap());
+
+		api
+	}
+
+	async fn respond(
+		listener: &TcpListener,
+		route: &str,
+		status: &str,
+		body: &str,
+	) {
+		let (mut socket, _) = listener.accept().await.unwrap();
+
+		let mut request = Vec::new();
+
+		loop {
+			let mut buffer = [0; 1024];
+			let n = socket.read(&mut buffer).await.unwrap();
+
+			assert!(n > 0);
+
+			request.extend_from_slice(&buffer[..n]);
+
+			assert!(request.len() < 4096);
+
+			if request.windows(4).any(|window| window == b"\r\n\r\n") {
+				break;
+			}
+		}
+
+		let text = std::str::from_utf8(&request).unwrap();
+
+		assert!(text.starts_with(&format!("GET {route} HTTP/1.1\r\n")));
+		assert!(text.contains("SYNTHETIC_FORUM_TOKEN"));
+
+		socket
+			.write_all(
+				format!(
+					"HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+					body.len()
+				)
+				.as_bytes(),
+			)
+			.await
+			.unwrap();
+	}
+
+	fn thread_row(guild: &str) -> String {
+		format!(
+			r#"{{"id":"9","guild_id":"{guild}","parent_id":"2","type":11,"name":"Synthetic","thread_metadata":{{"archived":false}}}}"#
+		)
+	}
+
+	fn search_route(offset: usize) -> String {
+		format!(
+			"/channels/2/threads/search?archived=false&sort_by=last_message_time&sort_order=desc&limit={}&offset={offset}",
+			model::forum::PAGE_SIZE
+		)
+	}
+
 	#[tokio::test]
-	async fn forum_posts_are_scoped_paged_and_reject_foreign_rows() {
+	async fn forum_posts_are_paginated() {
 		tokio::time::timeout(Duration::from_secs(10), async {
 			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-			let mut api = DiscordApi::new(Arc::new(
-				SessionSecret::from_owner_input("SYNTHETIC_FORUM_TOKEN".into()).unwrap(),
-			))
-			.unwrap();
-			api.base = format!("http://{}", listener.local_addr().unwrap());
-			let row = |guild: &str| format!(r#"{{"id":"9","guild_id":"{guild}","parent_id":"2","type":11,"name":"Synthetic","thread_metadata":{{"archived":false}}}}"#);
+			let api = create_api(&listener).await;
+
+			let first_body = format!(
+				r#"{{"threads":[{}],"members":[],"has_more":true,"total_results":2}}"#,
+				thread_row("1")
+			);
+
 			let server = tokio::spawn(async move {
-				for (route, status, body) in [
-					("/channels/2/threads/search?archived=false&sort_by=last_message_time&sort_order=desc&limit=25&offset=0","200 OK",format!(r#"{{"threads":[{}],"members":[],"has_more":true,"total_results":2}}"#, row("1"))),
-					("/channels/2/threads/search?archived=false&sort_by=last_message_time&sort_order=desc&limit=25&offset=25","200 OK",r#"{"threads":[],"members":[],"has_more":false}"#.to_owned()),
-					("/channels/2/threads/search?archived=false&sort_by=last_message_time&sort_order=desc&limit=25&offset=0","404 Not Found",r#"{"code":0}"#.to_owned()),
-					("/guilds/1/threads/active","200 OK",format!(r#"{{"threads":[{}],"members":[]}}"#, row("1"))),
-					("/channels/2/threads/search?archived=false&sort_by=last_message_time&sort_order=desc&limit=25&offset=0","200 OK",format!(r#"{{"threads":[{}],"members":[],"has_more":false}}"#, row("7"))),
-					("/guilds/1/threads/active","403 Forbidden",r#"{"code":50013}"#.to_owned()),
-					("/channels/2/threads/search?archived=false&sort_by=last_message_time&sort_order=desc&limit=25&offset=0","403 Forbidden",r#"{"code":50013}"#.to_owned()),
-				] {
-					let (mut socket, _) = listener.accept().await.unwrap();
-					let mut request = Vec::new();
-					loop {
-						let mut buffer = [0; 1024];
-						let n = socket.read(&mut buffer).await.unwrap();
-						assert!(n > 0);
-						request.extend_from_slice(&buffer[..n]);
-						assert!(request.len() < 4096);
-						if request.windows(4).any(|w| w == b"\r\n\r\n") {
-							break;
-						}
-					}
-					let text = std::str::from_utf8(&request).unwrap();
-					assert!(text.starts_with(&format!("GET {route} HTTP/1.1\r\n")));
-					assert!(text.contains("SYNTHETIC_FORUM_TOKEN"));
-					socket
-						.write_all(
-							format!(
-								"HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-								body.len()
-							)
-							.as_bytes(),
-						)
-						.await
-						.unwrap();
-				}
+				respond(
+					&listener,
+					&search_route(0),
+					"200 OK",
+					&first_body,
+				)
+				.await;
+
+				respond(
+					&listener,
+					&search_route(25),
+					"200 OK",
+					r#"{"threads":[],"members":[],"has_more":false}"#,
+				)
+				.await;
 			});
+
 			let Event::ForumPosts {
 				parent: Id(2),
 				request: 4,
@@ -145,35 +223,139 @@ mod tests {
 			else {
 				panic!()
 			};
+
 			assert_eq!(page.threads[0].id, Id(9));
 			assert!(page.more);
+
 			let exhausted = api.forum_posts(Id(2), Id(1), 25).await.unwrap();
-			assert!(exhausted.threads.is_empty() && !exhausted.more);
-			// A rejected search route falls back to the documented guild-wide active list.
-			let fallback = api.forum_posts(Id(2), Id(1), 0).await.unwrap();
-			assert_eq!(fallback.threads[0].id, Id(9));
-			assert!(!fallback.more);
-			// A foreign-scoped row is rejected, and so is its fallback.
-			assert!(matches!(
-				api.forum_posts(Id(2), Id(1), 0).await,
-				Err(Failure::Forbidden)
-			));
-			// Only a rejected response falls back; a denial is reported as one.
-			assert!(matches!(
-				api.forum_posts(Id(2), Id(1), 0).await,
-				Err(Failure::Forbidden)
-			));
-			assert!(matches!(
-				api.forum_posts(Id(0), Id(1), 0).await,
-				Err(Failure::Protocol)
-			));
-			assert!(matches!(
-				api.forum_posts(Id(2), Id(1), model::forum::MAX_POSTS + 1).await,
-				Err(Failure::Protocol)
-			));
+
+			assert!(exhausted.threads.is_empty());
+			assert!(!exhausted.more);
+
 			server.await.unwrap();
 		})
 		.await
 		.unwrap();
+	}
+
+	#[tokio::test]
+	async fn forum_posts_fallback_to_guild_active() {
+		tokio::time::timeout(Duration::from_secs(10), async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let api = create_api(&listener).await;
+
+			let body = format!(
+				r#"{{"threads":[{}],"members":[]}}"#,
+				thread_row("1")
+			);
+
+			let server = tokio::spawn(async move {
+				respond(
+					&listener,
+					&search_route(0),
+					"404 Not Found",
+					r#"{"code":0}"#,
+				)
+				.await;
+
+				respond(
+					&listener,
+					"/guilds/1/threads/active",
+					"200 OK",
+					&body,
+				)
+				.await;
+			});
+
+			let page = api.forum_posts(Id(2), Id(1), 0).await.unwrap();
+
+			assert_eq!(page.threads[0].id, Id(9));
+			assert!(!page.more);
+
+			server.await.unwrap();
+		})
+		.await
+		.unwrap();
+	}
+
+	#[tokio::test]
+	async fn forum_posts_reject_foreign_threads() {
+		tokio::time::timeout(Duration::from_secs(10), async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let api = create_api(&listener).await;
+
+			let body = format!(
+				r#"{{"threads":[{}],"members":[],"has_more":false}}"#,
+				thread_row("7")
+			);
+
+			let server = tokio::spawn(async move {
+				respond(
+					&listener,
+					&search_route(25),
+					"200 OK",
+					&body,
+				)
+				.await;
+			});
+
+			assert!(matches!(
+				api.forum_posts(Id(2), Id(1), 25).await,
+				Err(Failure::Protocol)
+			));
+
+			server.await.unwrap();
+		})
+		.await
+		.unwrap();
+	}
+
+	#[tokio::test]
+	async fn forum_posts_propagate_forbidden() {
+		tokio::time::timeout(Duration::from_secs(10), async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let api = create_api(&listener).await;
+
+			let server = tokio::spawn(async move {
+				respond(
+					&listener,
+					&search_route(0),
+					"403 Forbidden",
+					r#"{"code":50013}"#,
+				)
+				.await;
+			});
+
+			assert!(matches!(
+				api.forum_posts(Id(2), Id(1), 0).await,
+				Err(Failure::Forbidden)
+			));
+
+			server.await.unwrap();
+		})
+		.await
+		.unwrap();
+	}
+
+	#[tokio::test]
+	async fn forum_posts_reject_invalid_ids() {
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let api = create_api(&listener).await;
+
+		assert!(matches!(
+			api.forum_posts(Id(0), Id(1), 0).await,
+			Err(Failure::Protocol)
+		));
+
+		assert!(matches!(
+			api.forum_posts(Id(2), Id(0), 0).await,
+			Err(Failure::Protocol)
+		));
+
+		assert!(matches!(
+			api.forum_posts(Id(2), Id(1), model::forum::MAX_POSTS + 1)
+				.await,
+			Err(Failure::Protocol)
+		));
 	}
 }
