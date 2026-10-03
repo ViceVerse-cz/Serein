@@ -9,7 +9,8 @@ No UI change; screenshots are not applicable.
 
 The exact baseline/current Linux decoder modules are extracted into an ignored
 standalone harness. Only surrounding type/limit shims and measurement tests are
-added; `source-identity.log` verifies the production module prefix. This exercises
+added; `measure-queue.py` checks each copied module against its extracted source
+and records the source hashes in `metadata.json`. This exercises
 the real native appsrc and decoder admission, rather than a mock queue. It does
 not build the complete Linux client or exercise desktop capture/GPU integration.
 

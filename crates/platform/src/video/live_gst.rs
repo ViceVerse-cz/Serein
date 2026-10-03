@@ -1,7 +1,7 @@
 //! Linux live H.264 decoding through GStreamer. `decodebin` auto-plugs the highest-ranked
 //! decoder, which is the VA-API or NVDEC plugin when one is installed and `avdec_h264`
 //! otherwise. The caller hands over complete, already decrypted Annex-B access units.
-use super::{INVALID, MAX_BYTES, UNSUPPORTED};
+use super::{BUSY, INVALID, MAX_BYTES, UNSUPPORTED};
 pub use super::{LiveFrame as Frame, LiveSink as Sink, MAX_ACCESS_UNIT};
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -152,7 +152,7 @@ impl H264Decoder {
 				.saturating_add(access_unit.len() as u64)
 				> MAX_QUEUED_BYTES
 		{
-			return Err(INVALID);
+			return Err(BUSY);
 		}
 		if self.failed.load(Ordering::Acquire) {
 			return Err(INVALID);

@@ -28,6 +28,7 @@ SHIMS = """#![allow(dead_code)]
 pub const MAX_ACCESS_UNIT: usize = 2 * 1024 * 1024 + 64 * 1024;
 pub const MAX_BYTES: usize = 16 * 1024 * 1024;
 pub const INVALID: &str = "The video could not be decoded safely.";
+pub const BUSY: &str = "The video decoder is falling behind.";
 pub const UNSUPPORTED: &str = "This video format or codec is not supported on this system.";
 pub struct LiveFrame { pub width: u32, pub height: u32, pub rgba: Vec<u8> }
 pub type LiveSink = Box<dyn Fn(LiveFrame) + Send + Sync>;

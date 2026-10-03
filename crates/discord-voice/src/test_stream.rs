@@ -354,7 +354,14 @@ async fn exchange(rekey_timeout: bool) {
 		let prepared = message(&mut send_ws).await;
 		let prepared: Value = serde_json::from_str(prepared.to_text().unwrap()).unwrap();
 		assert_eq!(prepared, json!({"op":23,"d":{"transition_id":7}}));
-		assert_eq!(message(&mut view_ws).await.into_data()[0], 26);
+		// A due opcode 15 refresh (or other JSON) can be queued ahead of the binary key package.
+		loop {
+			let package = message(&mut view_ws).await;
+			if !matches!(package, Message::Text(_)) {
+				assert_eq!(package.into_data()[0], 26);
+				break;
+			}
+		}
 		let mut sender_done = false;
 		let mut viewer_done = false;
 		while !sender_done || !viewer_done {
