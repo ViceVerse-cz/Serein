@@ -602,6 +602,15 @@ impl Streams {
 		let output = choose(&host, settings.output.as_deref(), false)?;
 		let output_id = output.id().ok().map(|id| id.to_string());
 		let output_config = config(&output, false)?;
+        let stream_config = output_config.config();
+		#[cfg(target_os = "linux")]
+		let stream_config = {
+			let mut config = stream_config;
+			if host.id() == cpal::HostId::PulseAudio {
+				config.buffer_size = cpal::BufferSize::Fixed(config.sample_rate / 50);
+			}
+			config
+		};
 		let (output_write, output_read) = rtrb::RingBuffer::new(8);
 		let (reference_write, reference_read) = rtrb::RingBuffer::new(8);
 		let render = Playback::new(output_config.sample_rate(), output_read, reference_write);
@@ -620,28 +629,28 @@ impl Streams {
 		let output_stream = match output_config.sample_format() {
 			cpal::SampleFormat::F32 => output_stream::<f32>(
 				&output,
-				&output_config.config(),
+				&stream_config,
 				render,
 				gate.clone(),
 				revision,
 			),
 			cpal::SampleFormat::I16 => output_stream::<i16>(
 				&output,
-				&output_config.config(),
+				&stream_config,
 				render,
 				gate.clone(),
 				revision,
 			),
 			cpal::SampleFormat::I32 => output_stream::<i32>(
 				&output,
-				&output_config.config(),
+				&stream_config,
 				render,
 				gate.clone(),
 				revision,
 			),
 			cpal::SampleFormat::U16 => output_stream::<u16>(
 				&output,
-				&output_config.config(),
+				&stream_config,
 				render,
 				gate.clone(),
 				revision,
