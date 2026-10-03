@@ -4501,3 +4501,6 @@ screen-macos-system-picker = Vybrat systémovým dialogem macOS
 screen-macos-system-picker-kind = Systémový výběr obsahu
 
 member-in-voice = V hlasovém chatu
+settings-chat-box = Psaní zpráv
+settings-convert-emoticons = Automaticky převádět emotikony ve zprávách na emoji
+settings-convert-emoticons-description = Při odesílání nebo úpravě zpráv převést samostatné emotikony jako :) na 🙂. Kód a odkazy zůstanou beze změny.

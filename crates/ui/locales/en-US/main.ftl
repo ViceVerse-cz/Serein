@@ -4499,3 +4499,6 @@ screen-macos-system-picker = Choose with the macOS system picker
 screen-macos-system-picker-kind = System content picker
 
 member-in-voice = In voice
+settings-chat-box = Chat Box
+settings-convert-emoticons = Automatically convert emoticons in your messages to emoji
+settings-convert-emoticons-description = Convert standalone emoticons such as :) to 🙂 when sending or editing messages. Code and links stay unchanged.

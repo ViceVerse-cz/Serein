@@ -48,6 +48,7 @@ pub use extensions_ui::{ExtensionContext, ExtensionEntry, ExtensionRequest, Exte
 pub mod emoji;
 mod emoji_details;
 mod emoji_picker;
+mod emoticons;
 pub mod fonts;
 pub mod i18n;
 #[cfg(all(debug_assertions, feature = "demo"))]
@@ -199,12 +200,61 @@ fn thread_member_rows<'a>(
 	rows
 }
 
+/// Offline composer check; no service, credentials or microphone access.
+#[cfg(debug_assertions)]
+pub fn debug_emoticon_conversion_check(make_state: impl Fn() -> State) {
+	assert_eq!(emoticons::convert("Hi :) ;) :D <3"), "Hi 🙂 😉 😃 ❤️");
+	let protected = "`:D` ```\n:)\n``` https://example.test/:) \\:) <:smile:123>";
+	assert_eq!(emoticons::convert(protected), protected);
+	for enabled in [false, true] {
+		let mut state = make_state();
+		let channel = state.selected.unwrap();
+		state.drafts.insert(channel, "Hello :)".into());
+		let mut view = MessagingUi {
+			convert_emoticons: enabled,
+			focus_switched_composer: true,
+			..Default::default()
+		};
+		let ctx = egui::Context::default();
+		for frame in 0..3 {
+			let mut commands = vec![];
+			let events = if frame == 2 {
+				vec![egui::Event::Key {
+					key: egui::Key::Enter,
+					physical_key: None,
+					pressed: true,
+					repeat: false,
+					modifiers: egui::Modifiers::NONE,
+				}]
+			} else {
+				vec![]
+			};
+			ctx.run_ui(
+				egui::RawInput {
+					events,
+					..Default::default()
+				},
+				|ui| {
+					view.composer(ui, &mut state, channel, &ctx, &mut commands);
+				},
+			)
+			.drop_without_applying_deltas();
+			if frame == 2 {
+				let expected = if enabled { "Hello 🙂" } else { "Hello :)" };
+				assert!(commands.iter().any(|command| matches!(command,
+					Command::Send { content, .. } if content == expected)));
+			}
+		}
+	}
+}
+
 #[derive(Default)]
 pub struct MessagingUi {
 	poll_creator: polls::Creator,
 	pub language: i18n::Language,
 	forwarding: forwarding::ForwardDialog,
 	pub image_sharing_enabled: bool,
+	pub convert_emoticons: bool,
 	pub image_share_requested: Option<model::ImageShare>,
 	pub interaction_file_request: Option<String>,
 	interaction_components: components::Components,
@@ -3426,7 +3476,8 @@ impl MessagingUi {
                         if (send || slash_run) && !cancel_edit {
                             if let Some((edit_channel, message, content)) = &editing {
                                 if state.freshness == Freshness::Fresh
-                                    && let Some(command) = state.prepare_edit(*edit_channel, *message, content.clone())
+                                    && let Some(command) = state.prepare_edit(*edit_channel, *message,
+                                        if self.convert_emoticons { emoticons::convert(content) } else { content.clone() })
                                 {
                                     commands.push(command);
                                     self.edit_sent = true;
@@ -3435,13 +3486,22 @@ impl MessagingUi {
                                 }
                             } else if self.send_application_command(state, channel, commands)
                                 || self.handle_builtin_slash(state, channel, ctx, commands) {
-                            } else if !self.upload_busy && !(state.demo && self.attachment.is_some())
-                                && let Some(command) = state.prepare_send_with_attachments(&self.selected_files().iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>()) {
+                            } else if !self.upload_busy && !(state.demo && self.attachment.is_some()) {
+                                let original_draft = if self.convert_emoticons {
+                                    state.drafts.get_mut(&channel).map(|draft| {
+                                        let converted = emoticons::convert(draft);
+                                        std::mem::replace(draft, converted)
+                                    })
+                                } else { None };
+                                if let Some(command) = state.prepare_send_with_attachments(&self.selected_files().iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>()) {
                                 // Consume the selection in this UI pass, before desktop dispatch.
                                 // A second render or Send gesture must not enqueue it again.
                                 self.stage_pending_upload(ctx, &command);
                                 self.timeline.follow_latest(state);
                                 commands.push(command);
+                                } else if let Some(original) = original_draft {
+                                    state.drafts.insert(channel, original);
+                                }
                             }
                             if !application_command { edit.request_focus(); }
                             if application_command && self.slash_commands.active.is_none() {
