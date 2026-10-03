@@ -79,6 +79,13 @@ const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 fn main() -> eframe::Result {
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-window-geometry")
+	{
+		app_settings::debug_window_geometry_check();
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-voice-preferences")
 	{
 		cache::debug_voice_preferences_check();
@@ -362,16 +369,18 @@ fn main() -> eframe::Result {
 	} else {
 		local_store::LocalStore::open_default().and_then(|store| store.app_preferences())
 	};
-	let (gpu_preference, transparency_available, hide_window_decorations) = preferences
-		.as_ref()
-		.map(|value| {
-			(
-				value.gpu_preference,
-				value.transparency_blur,
-				value.hide_window_decorations,
-			)
-		})
-		.unwrap_or_default();
+	let (gpu_preference, transparency_available, hide_window_decorations, window_geometry) =
+		preferences
+			.as_ref()
+			.map(|value| {
+				(
+					value.gpu_preference,
+					value.transparency_blur,
+					value.hide_window_decorations,
+					value.window_geometry,
+				)
+			})
+			.unwrap_or_default();
 	#[cfg(feature = "demo")]
 	let transparency_available =
 		transparency_available || demo && std::env::args().any(|arg| arg == "--demo-transparency");
@@ -383,7 +392,9 @@ fn main() -> eframe::Result {
 		viewport: {
 			let builder = egui::ViewportBuilder::default()
 				.with_transparent(transparency_available)
-				.with_inner_size([1120.0, 760.0])
+				.with_inner_size(window_geometry.map_or([1120.0, 760.0], |geometry| {
+					geometry.size.map(|value| value as f32)
+				}))
 				.with_min_inner_size([760.0, 520.0])
 				.with_active(!start_minimized)
 				.with_app_id("cz.viceverse.serein");
@@ -458,6 +469,9 @@ fn main() -> eframe::Result {
 		Box::new(move |cc| {
 			let desktop =
 				Desktop::new(cc, demo, frame_sample, transparency_available, preferences)?;
+			if let Some(geometry) = window_geometry {
+				app_settings::restore_window_geometry(&desktop.window, geometry);
+			}
 			if start_minimized {
 				cc.egui_ctx
 					.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
@@ -5818,6 +5832,34 @@ impl eframe::App for Desktop {
 	fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
 		// Before the pass begins, so the whole frame resolves System to the same theme.
 		self.sync_system_theme(ctx);
+		// Read native size independently of viewport rectangles: Wayland has no global position,
+		// so egui-winit cannot supply either rectangle there. Native scale excludes egui zoom.
+		if !self.fixture_only
+			&& !self.state.demo
+			&& self.app_settings.loaded
+			&& let Some(viewport) = raw_input.viewports.get(&raw_input.viewport_id)
+			&& viewport.minimized != Some(true)
+			&& viewport.maximized != Some(true)
+			&& viewport.fullscreen != Some(true)
+			&& self.window.is_visible() != Some(false)
+		{
+			let size = self
+				.window
+				.inner_size()
+				.to_logical::<u32>(self.window.scale_factor());
+			let geometry = local_store::WindowGeometry {
+				size: [size.width, size.height],
+				position: self
+					.window
+					.outer_position()
+					.ok()
+					.map(|position| [position.x, position.y]),
+			};
+			if geometry.is_valid() && self.app_settings.current.window_geometry != Some(geometry) {
+				self.app_settings.current.window_geometry = Some(geometry);
+				self.app_settings.state.dirty = true;
+			}
+		}
 		// Viewport position/scale comes from native events; avoid an OS monitor query on paints.
 		if let Some(viewport) = raw_input.viewports.get(&raw_input.viewport_id) {
 			let geometry = (viewport.outer_rect, viewport.native_pixels_per_point);

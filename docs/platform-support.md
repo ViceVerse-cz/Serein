@@ -1,5 +1,36 @@
 # Platform support and packaging
 
+## Window size and placement
+
+Normal window size is saved in logical pixels in the existing device-local SQLite
+preferences. Outer position is saved in physical pixels where the window system
+supports it (including Linux X11); disconnected-monitor positions are ignored.
+Restoration fits the complete outer window to the selected monitor's dimensions,
+shrinking it and moving it inward when the display has become smaller. The normal
+minimum size is relaxed if necessary to fit that display.
+Minimized, hidden, maximized and fullscreen states do not replace normal geometry.
+The offline `--demo` ignores saved geometry and does not save its window state.
+
+Wayland does not expose global window coordinates to ordinary clients, so window
+placement belongs to the compositor. Niri also controls tiled column sizes and can
+override the application's requested size. To allow Serein's saved width, add to
+`~/.config/niri/config.kdl`:
+
+```kdl
+window-rule {
+    match app-id=r#"^cz\.viceverse\.serein$"#
+    default-column-width {}
+}
+```
+
+For compositor-controlled placement, use Niri's `open-on-workspace`, `open-on-output`
+or floating-window rules. See [Niri window rules](https://github.com/niri-wm/niri/wiki/Configuration:-Window-Rules)
+and [Niri's application-selected width](https://github.com/niri-wm/niri/wiki/Configuration:-Layout#default-column-width),
+and [winit's platform limitations](https://docs.rs/winit/0.30.13/winit/window/struct.Window.html#method.outer_position).
+Native restart/resize behavior on Niri and other Linux desktops remains unverified.
+
+## Build and runtime support
+
 Target platforms are Windows, macOS and Linux. **macOS arm64, Windows x64 and Linux x64 have local build evidence.** The release workflow also targets Windows arm64 and Ubuntu 26.04 ARM64 on native GitHub Actions runners; build and runtime validation remain pending. macOS has native visual checks; Windows has offline tests and a process/window startup smoke check only. Minimum OS versions, other architectures, real screen-reader support and native login-method support are not certified.
 
 Windows defaults to DirectX 12 to avoid reported startup access violations in Intel's

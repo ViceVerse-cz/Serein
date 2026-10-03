@@ -36,6 +36,7 @@ pub struct LocalStore(Connection);
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct AppPreferences {
+	pub window_geometry: Option<WindowGeometry>,
 	/// `None` follows the operating-system locale; otherwise this is a bounded BCP 47 tag.
 	pub language: Option<String>,
 	pub notifications_enabled: bool,
@@ -75,6 +76,7 @@ pub struct AppPreferences {
 impl Default for AppPreferences {
 	fn default() -> Self {
 		Self {
+			window_geometry: None,
 			language: None,
 			notifications_enabled: true,
 			auto_update: false,
@@ -106,13 +108,14 @@ impl Default for AppPreferences {
 }
 impl AppPreferences {
 	pub fn is_valid(&self) -> bool {
-		self.language.as_ref().is_none_or(|language| {
-			!language.is_empty()
-				&& language.len() <= 35
-				&& language
-					.bytes()
-					.all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-		}) && self.transparency <= 100
+		self.window_geometry.is_none_or(WindowGeometry::is_valid)
+			&& self.language.as_ref().is_none_or(|language| {
+				!language.is_empty()
+					&& language.len() <= 35
+					&& language
+						.bytes()
+						.all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+			}) && self.transparency <= 100
 			&& self.blur <= 100
 			&& self.input_percent <= 200
 			&& self.output_percent <= 200
@@ -127,6 +130,26 @@ impl AppPreferences {
 			&& [&self.voice_input, &self.voice_output]
 				.into_iter()
 				.all(|value| value.as_ref().is_none_or(|value| value.len() <= 1024))
+	}
+}
+
+/// Normal client size in logical pixels; outer position in physical desktop pixels.
+/// Position is absent on Wayland, where the compositor owns window placement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WindowGeometry {
+	pub size: [u32; 2],
+	pub position: Option<[i32; 2]>,
+}
+impl WindowGeometry {
+	pub fn is_valid(self) -> bool {
+		self.size
+			.into_iter()
+			.all(|value| (1..=16384).contains(&value))
+			&& self.position.is_none_or(|position| {
+				position
+					.into_iter()
+					.all(|value| (-131072..=131072).contains(&value))
+			})
 	}
 }
 

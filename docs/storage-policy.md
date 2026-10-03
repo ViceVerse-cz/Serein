@@ -521,7 +521,10 @@ Interactive changes coalesce for 300 ms into at most one queued write and one fi
 value. A full or failed worker reports an unsaved change without an automatic retry loop;
 Retry saving is deliberate. Closing with pending/failed writes prompts before discarding.
 In-app preview edits are not saved; a write already requested outside preview still completes.
-The standalone --demo does not start the SQLite worker. Narrow People overlays and outer window geometry remain session-local.
+The standalone --demo does not start the SQLite worker. Narrow People overlays remain
+session-local. Normal window geometry is device-local in the bounded app_preferences singleton:
+two logical size integers (1..=16,384) and an optional physical position pair
+(-131,072..=131,072). It survives account logout and introduces no new file or table.
 Notification opt-in, hidden-channel visibility, primary RGB color, audio devices (up to 1,024 bytes each),
 input profile/custom processing, push-to-talk, gain, keyboard and mouse-button bindings and the global-keybind
 switch (enabled by default) are saved in the device-wide `app_preferences`
@@ -584,7 +587,7 @@ no audio is retained. Preview levels remain session-only.
 
 Loaded thread navigation shares the 4,000-entry account navigation and 4 MiB normalized navigation budgets. Incoming thread syncs additionally cap combined parent/thread entries at 4,000 and normalized snapshot metadata at 2 MiB; wire JSON remains capped at 4 MiB. Removed-member arrays are capped at 4,000 and are discarded after checking the owner. Navigation/member lists are session-only; selected thread messages/drafts reuse existing account history/draft storage. Actual accepted thread removals enqueue the existing account-wide history clear, preserving drafts; ignored, empty-scope and rename-only events do not clear disk history. This coarse invalidation trades refetch cost for simpler deletion, without new tables or workers.
 
-The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, SQLite, saved drafts, settings and caches are permitted. The implementation persists **history with embeds, attachments and mentioned users; avatar/server-icon/banner/preview images; drafts; appearance; reading/layout preferences; and the login token**. Outer window geometry remains session-local.
+The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, SQLite, saved drafts, settings and caches are permitted. The implementation persists **history with embeds, attachments and mentioned users; avatar/server-icon/banner/preview images; drafts; appearance; reading/layout preferences; and the login token**. Normal window size and supported outer position are retained in the bounded device-local app_preferences singleton.
 
 | Data | Location / bound | Removal |
 |---|---|---|
@@ -662,8 +665,8 @@ These are component ceilings, not measured whole-process RSS. Disk eviction reta
 32 candidate paths at a time. Worker completion fences replacement and deletion, so
 logout/clear cannot race an older worker's writes. Picture-cache failures appear in
 local-storage status. Disk cache contents are unencrypted. Category collapse is retained in the
-account-isolated channel preferences record. Narrow People overlays and outer window geometry
-remain session-local.
+account-isolated channel preferences record. Narrow People overlays remain session-local.
+Normal window geometry is device-local in the bounded app_preferences singleton.
 
 Storage commands and results each retain their 16-item limit and have separate 16 MiB
 estimated allocation budgets. Reservations include vector/string capacity and metadata
