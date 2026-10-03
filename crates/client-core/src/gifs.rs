@@ -278,11 +278,14 @@ impl State {
 				let previous = std::mem::take(&mut self.gifs.favorites);
 				// Keep distinct local fallback entries before filling remaining remote slots.
 				for gif in previous {
-					if !previous_remote.contains(&gif.url) {
-						// A local still preview outranks the synchronized clip for the same URL.
-						let current = favorites.iter().find(|remote| {
-							remote.url == gif.url && !model::valid_gif_preview(&gif.preview)
-						});
+					// A local still preview outranks the synchronized clip for the same URL,
+					// on every sync while the account still lists it.
+					let local_preview = model::valid_gif_preview(&gif.preview)
+						&& favorites.iter().any(|remote| remote.url == gif.url);
+					if !previous_remote.contains(&gif.url) || local_preview {
+						let current = favorites
+							.iter()
+							.find(|remote| remote.url == gif.url && !local_preview);
 						self.gifs.favorites.push(current.cloned().unwrap_or(gif));
 					}
 				}
@@ -727,6 +730,33 @@ mod tests {
 			state.gifs.favorites.is_empty(),
 			"late cache cannot re-add a removed star"
 		);
+	}
+	#[test]
+	fn local_still_previews_survive_repeated_syncs_until_removed_remotely() {
+		let mut state = test_state();
+		state.restore_gif_favorites(vec![gif("still")]);
+		let mut clip = gif("still");
+		clip.preview = "https://media.tenor.com/still/tenor.mp4".into();
+		for remote in [
+			vec![clip.clone()],
+			vec![gif("other"), clip.clone()],
+			vec![gif("other")],
+		] {
+			let Some(Command::GifFavorites { request, .. }) = state.request_gif_favorites() else {
+				panic!("sync");
+			};
+			state.apply_gif_favorites(request, Ok(remote));
+		}
+		assert_eq!(state.gifs.favorites, vec![gif("other")]);
+		let mut state = test_state();
+		state.restore_gif_favorites(vec![gif("still")]);
+		for remote in [vec![clip.clone()], vec![gif("other"), clip]] {
+			let Some(Command::GifFavorites { request, .. }) = state.request_gif_favorites() else {
+				panic!("sync");
+			};
+			state.apply_gif_favorites(request, Ok(remote));
+		}
+		assert_eq!(state.gifs.favorites, vec![gif("still"), gif("other")]);
 	}
 	#[test]
 	fn pre_cache_removal_history_is_bounded_and_overflow_cannot_restore_stale_records() {

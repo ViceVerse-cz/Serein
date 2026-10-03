@@ -875,20 +875,16 @@ impl Avatars {
 		rect: egui::Rect,
 		demo: bool,
 	) {
+		// Synced favorites without dimensions carry a 1×1 layout placeholder, not a size.
+		let native = (gif.width > 1 || gif.height > 1).then_some([gif.width, gif.height]);
+		let [width, height] = native.unwrap_or_default();
 		let media = model::EmbedMedia {
 			url: Some(gif.preview.clone()),
-			width: gif.width,
-			height: gif.height,
+			width,
+			height,
 			..Default::default()
 		};
-		self.paint_media(
-			ui,
-			&media,
-			rect,
-			Some([gif.width, gif.height]),
-			demo,
-			Surface::Banner,
-		);
+		self.paint_media(ui, &media, rect, native, demo, Surface::Banner);
 	}
 
 	/// Service dimensions when present, otherwise the largest decoded rendition.
