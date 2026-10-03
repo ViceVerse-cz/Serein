@@ -602,11 +602,13 @@ impl Streams {
 		let output = choose(&host, settings.output.as_deref(), false)?;
 		let output_id = output.id().ok().map(|id| id.to_string());
 		let output_config = config(&output, false)?;
-        let stream_config = output_config.config();
+		let stream_config = output_config.config();
 		#[cfg(target_os = "linux")]
 		let stream_config = {
 			let mut config = stream_config;
 			if host.id() == cpal::HostId::PulseAudio {
+				// Server-default playback buffers add seconds of latency and
+				// desync the echo-cancellation reference from what is heard.
 				config.buffer_size = cpal::BufferSize::Fixed(config.sample_rate / 50);
 			}
 			config
@@ -627,34 +629,18 @@ impl Streams {
 			(None, rtrb::RingBuffer::new(8).1, None)
 		};
 		let output_stream = match output_config.sample_format() {
-			cpal::SampleFormat::F32 => output_stream::<f32>(
-				&output,
-				&stream_config,
-				render,
-				gate.clone(),
-				revision,
-			),
-			cpal::SampleFormat::I16 => output_stream::<i16>(
-				&output,
-				&stream_config,
-				render,
-				gate.clone(),
-				revision,
-			),
-			cpal::SampleFormat::I32 => output_stream::<i32>(
-				&output,
-				&stream_config,
-				render,
-				gate.clone(),
-				revision,
-			),
-			cpal::SampleFormat::U16 => output_stream::<u16>(
-				&output,
-				&stream_config,
-				render,
-				gate.clone(),
-				revision,
-			),
+			cpal::SampleFormat::F32 => {
+				output_stream::<f32>(&output, &stream_config, render, gate.clone(), revision)
+			}
+			cpal::SampleFormat::I16 => {
+				output_stream::<i16>(&output, &stream_config, render, gate.clone(), revision)
+			}
+			cpal::SampleFormat::I32 => {
+				output_stream::<i32>(&output, &stream_config, render, gate.clone(), revision)
+			}
+			cpal::SampleFormat::U16 => {
+				output_stream::<u16>(&output, &stream_config, render, gate.clone(), revision)
+			}
 			_ => Err("Speaker sample format is not supported"),
 		}?;
 		if !gate.ready.load(Ordering::Acquire)
