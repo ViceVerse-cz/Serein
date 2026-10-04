@@ -1232,6 +1232,9 @@ impl Formatted {
 							quoted_spans = &quoted_spans[..quoted_spans.len() - 1];
 						}
 						if !quoted_spans.is_empty() {
+							// Keep the full block height before an emoji's zero-width reservation
+							// or a wrapped label can reset this horizontal flow's current row.
+							ui.end_row();
 							let colors = crate::design::palette(ui);
 							let width = ui.max_rect().width();
 							ui.allocate_ui_with_layout(
@@ -1260,6 +1263,7 @@ impl Formatted {
 									);
 								},
 							);
+							ui.end_row();
 						}
 						start += count;
 						continue;
@@ -2550,6 +2554,102 @@ mod tests {
 			rail.right() <= quote.left(),
 			"The rail sits left of the quoted text: {rail:?} against {quote:?}"
 		);
+	}
+
+	#[test]
+	fn emoji_quotes_reserve_their_full_height_between_paragraphs() {
+		fn shapes(
+			shape: &egui::Shape,
+			rails: &mut Vec<egui::Rect>,
+			texts: &mut Vec<(String, egui::Rect)>,
+		) {
+			match shape {
+				egui::Shape::Rect(rect) if rect.rect.width() == f32::from(QUOTE_RAIL) => {
+					rails.push(rect.rect);
+				}
+				egui::Shape::Text(text) => texts.push((
+					text.galley.job.text.clone(),
+					text.galley
+						.rows
+						.iter()
+						.filter(|row| row.glyphs.iter().any(|glyph| !glyph.chr.is_whitespace()))
+						.fold(egui::Rect::NOTHING, |rect, row| rect.union(row.rect()))
+						.translate(text.pos.to_vec2()),
+				)),
+				egui::Shape::Vec(children) => {
+					for shape in children {
+						shapes(shape, rails, texts);
+					}
+				}
+				_ => {}
+			}
+		}
+		let sources = [
+			(
+				include_str!("../tests/fixtures/prune-announcement.txt"),
+				"Guild Feature",
+				"Server owners",
+			),
+			(
+				"before\n> ⚠️ **A warning** with enough words to wrap onto several lines in a narrow message.\nafter",
+				"before",
+				"after",
+			),
+			(
+				"before\n> A plain quote with enough words to wrap onto several lines in a narrow message.\n\nafter ✍️",
+				"before",
+				"after",
+			),
+		];
+		for (source, before, after) in sources {
+			let parsed = Formatted::parse(source);
+			assert!(parsed.artwork);
+			for width in [220.0, 560.0, 1260.0] {
+				for (light, scale) in [(false, 1.0), (true, 1.0), (false, 2.0), (true, 2.0)] {
+					let ctx = egui::Context::default();
+					ctx.set_pixels_per_point(scale);
+					crate::design::apply(&ctx);
+					if light {
+						ctx.set_visuals(egui::Visuals::light());
+					}
+					let output = ctx.run_ui(
+						egui::RawInput {
+							screen_rect: Some(egui::Rect::from_min_size(
+								egui::Pos2::ZERO,
+								egui::vec2(width, 1600.0),
+							)),
+							..Default::default()
+						},
+						|ui| parsed.show(ui, &mut None),
+					);
+					let (mut rails, mut texts) = (vec![], vec![]);
+					for shape in &output.shapes {
+						shapes(&shape.shape, &mut rails, &mut texts);
+					}
+					output.drop_without_applying_deltas();
+					assert_eq!(rails.len(), 1);
+					let rail = rails[0];
+					let before = texts
+						.iter()
+						.find(|(text, _)| text.contains(before))
+						.unwrap()
+						.1;
+					let after = texts
+						.iter()
+						.find(|(text, _)| text.contains(after))
+						.unwrap()
+						.1;
+					assert!(
+						before.bottom() <= rail.top(),
+						"Preceding text overlaps quote at width {width}: {before:?}, {rail:?}"
+					);
+					assert!(
+						after.top() >= rail.bottom(),
+						"Following text overlaps quote at width {width}: {after:?}, {rail:?}"
+					);
+				}
+			}
+		}
 	}
 
 	#[test]
