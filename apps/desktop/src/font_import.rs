@@ -1,61 +1,99 @@
-//! One native font picker and one bounded decode; persistence uses the cache worker.
-use std::{
-	io::Read,
-	path::Path,
-	sync::{Arc, mpsc},
-};
-use ui::fonts::{CustomFont, MAX_CUSTOM_FONT_BYTES};
+//! Installed-family enumeration and one bounded face load; persistence uses the cache worker.
+use std::sync::mpsc;
+use ui::fonts::CustomFont;
 
 pub type Selected = Result<Option<CustomFont>, &'static str>;
+/// Upper bound on listed families; real systems carry a few hundred to a couple thousand.
+const MAX_FAMILIES: usize = 4096;
 
-pub fn choose(
+fn collection() -> fontique::Collection {
+	fontique::Collection::new(fontique::CollectionOptions {
+		shared: false,
+		system_fonts: true,
+	})
+}
+
+/// Sorted, user-visible installed family names, enumerated off the UI thread.
+pub fn installed(
 	runtime: &tokio::runtime::Runtime,
 	ctx: &eframe::egui::Context,
-	parent: Arc<winit::window::Window>,
-) -> mpsc::Receiver<Selected> {
-	let dialog = platform::save::font_source(parent);
+) -> mpsc::Receiver<Vec<String>> {
 	let (send, receive) = mpsc::sync_channel(1);
 	let ctx = ctx.clone();
 	runtime.spawn(async move {
-		let result = match dialog.await {
-			Some(path) => tokio::task::spawn_blocking(move || read(&path).map(Some))
-				.await
-				.unwrap_or(Err("Font import interrupted. Try again.")),
-			None => Ok(None),
-		};
+		let families = tokio::task::spawn_blocking(|| {
+			let mut names: Vec<String> = collection()
+				.family_names()
+				// Dot-prefixed families are private system UI faces.
+				.filter(|name| {
+					!name.is_empty()
+						&& !name.starts_with('.')
+						&& name.len() <= 128
+						&& !name.chars().any(char::is_control)
+				})
+				.take(MAX_FAMILIES)
+				.map(str::to_owned)
+				.collect();
+			names.sort_by_cached_key(|name| name.to_lowercase());
+			names.dedup();
+			names
+		})
+		.await
+		.unwrap_or_default();
+		let _ = send.send(families);
+		ctx.request_repaint();
+	});
+	receive
+}
+
+/// Load the family's upright regular face as a standalone, validated font.
+pub fn load(
+	runtime: &tokio::runtime::Runtime,
+	ctx: &eframe::egui::Context,
+	family: String,
+) -> mpsc::Receiver<Selected> {
+	let (send, receive) = mpsc::sync_channel(1);
+	let ctx = ctx.clone();
+	runtime.spawn(async move {
+		let result = tokio::task::spawn_blocking(move || read_family(family).map(Some))
+			.await
+			.unwrap_or(Err("Font loading interrupted. Try again."));
 		let _ = send.send(result);
 		ctx.request_repaint();
 	});
 	receive
 }
 
-fn read(path: &Path) -> Result<CustomFont, &'static str> {
-	let metadata = std::fs::symlink_metadata(path).map_err(|_| "Could not open the font.")?;
-	if !metadata.is_file() {
-		return Err("Choose a regular TTF or OTF file.");
-	}
-	if metadata.len() == 0 || metadata.len() > MAX_CUSTOM_FONT_BYTES as u64 {
-		return Err("Choose a font up to 8 MiB.");
-	}
-	let file = std::fs::File::open(path).map_err(|_| "Could not open the font.")?;
-	let mut bytes = Vec::with_capacity(metadata.len() as usize);
-	file.take(MAX_CUSTOM_FONT_BYTES as u64 + 1)
-		.read_to_end(&mut bytes)
-		.map_err(|_| "Could not read the font.")?;
-	let name: String = path
-		.file_stem()
-		.unwrap_or_default()
-		.to_string_lossy()
-		.chars()
-		.filter(|c| !c.is_control())
-		.take(32)
-		.collect();
+fn read_family(name: String) -> Result<CustomFont, &'static str> {
+	let mut collection = collection();
+	let family = collection
+		.family_by_name(&name)
+		.ok_or("This font is no longer installed.")?;
+	let font = family
+		.fonts()
+		.iter()
+		.filter(|font| font.style() == fontique::FontStyle::Normal)
+		.min_by_key(|font| {
+			(
+				(font.width().ratio() - 1.0).abs().to_bits(),
+				(font.weight().value() - 400.0).abs().to_bits(),
+			)
+		})
+		.or_else(|| family.default_font())
+		.ok_or("This font has no usable style.")?;
+	let blob = font.load(None).ok_or("Could not read the font.")?;
+	let bytes = ui::fonts::standalone_face(blob.as_ref(), font.index())?;
+	CustomFont::new(name, bytes)
+}
+
+#[cfg(all(debug_assertions, feature = "demo"))]
+fn read(path: &std::path::Path) -> Result<CustomFont, &'static str> {
+	let bytes = std::fs::read(path).map_err(|_| "Could not read the font.")?;
 	CustomFont::new(
-		if name.is_empty() {
-			"Custom font".into()
-		} else {
-			name
-		},
+		path.file_stem()
+			.unwrap_or_default()
+			.to_string_lossy()
+			.into_owned(),
 		bytes,
 	)
 }
@@ -63,6 +101,8 @@ fn read(path: &Path) -> Result<CustomFont, &'static str> {
 #[cfg(all(debug_assertions, feature = "demo"))]
 pub fn debug_check() {
 	use eframe::egui::{self, FontFamily};
+	use std::path::Path;
+	use ui::fonts::MAX_CUSTOM_FONT_BYTES;
 	let assets = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fonts");
 	let font = read(&assets.join("Inter-Regular.ttf")).unwrap();
 	let replacement = read(&assets.join("Inter-SemiBold.ttf")).unwrap();

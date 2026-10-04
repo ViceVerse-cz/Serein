@@ -144,6 +144,27 @@ pub struct State {
 	sequence: u64,
 }
 impl State {
+	/// Bounded, retained private-call membership across conversations.
+	pub fn dm_call_participants(&self) -> impl Iterator<Item = (Id, &[Participant])> {
+		self.dm_participants
+			.iter()
+			.map(|(channel, participants)| (*channel, participants.as_slice()))
+	}
+	/// Known private-call membership, including calls this device has not joined.
+	pub fn dm_participants(&self, channel: Id) -> &[Participant] {
+		self.dm_participants
+			.iter()
+			.find(|(id, _)| *id == channel)
+			.map_or_else(
+				|| {
+					self.active
+						.as_ref()
+						.filter(|call| call.channel == channel && call.guild.is_none())
+						.map_or(&[][..], |call| call.participants.as_slice())
+				},
+				|(_, participants)| participants.as_slice(),
+			)
+	}
 	pub fn has_dm_call(&self, channel: Id) -> bool {
 		self.dm_calls.contains(&channel)
 	}
@@ -503,12 +524,7 @@ impl ClientState {
 				.map(|r| r.participant)
 				.collect()
 		} else {
-			self.voice
-				.dm_participants
-				.iter()
-				.find(|(id, _)| *id == channel)
-				.map(|(_, participants)| participants.clone())
-				.unwrap_or_default()
+			self.voice.dm_participants(channel).to_vec()
 		};
 		if participants.len() >= MAX_PARTICIPANTS {
 			self.status = "Voice channel exceeds the 64 participant limit";

@@ -278,11 +278,14 @@ impl State {
 				let previous = std::mem::take(&mut self.gifs.favorites);
 				// Keep distinct local fallback entries before filling remaining remote slots.
 				for gif in previous {
-					if !previous_remote.contains(&gif.url) {
-						// A local still preview outranks the synchronized clip for the same URL.
-						let current = favorites.iter().find(|remote| {
-							remote.url == gif.url && !model::valid_gif_preview(&gif.preview)
-						});
+					// A local still preview outranks the synchronized clip for the same URL,
+					// on every sync while the account lists it as a clip.
+					let remote = favorites.iter().find(|remote| remote.url == gif.url);
+					let still = model::valid_gif_preview(&gif.preview);
+					let over_clip = still
+						&& remote.is_some_and(|remote| !model::valid_gif_preview(&remote.preview));
+					if !previous_remote.contains(&gif.url) || over_clip {
+						let current = remote.filter(|_| !still);
 						self.gifs.favorites.push(current.cloned().unwrap_or(gif));
 					}
 				}
@@ -727,6 +730,44 @@ mod tests {
 			state.gifs.favorites.is_empty(),
 			"late cache cannot re-add a removed star"
 		);
+	}
+	#[test]
+	fn local_still_previews_survive_repeated_syncs_until_removed_remotely() {
+		let mut state = test_state();
+		state.restore_gif_favorites(vec![gif("still")]);
+		let mut clip = gif("still");
+		clip.preview = "https://media.tenor.com/still/tenor.mp4".into();
+		for remote in [
+			vec![clip.clone()],
+			vec![gif("other"), clip.clone()],
+			vec![gif("other")],
+		] {
+			let Some(Command::GifFavorites { request, .. }) = state.request_gif_favorites() else {
+				panic!("sync");
+			};
+			state.apply_gif_favorites(request, Ok(remote));
+		}
+		assert_eq!(state.gifs.favorites, vec![gif("other")]);
+		let mut state = test_state();
+		state.restore_gif_favorites(vec![gif("still")]);
+		for remote in [vec![clip.clone()], vec![gif("other"), clip]] {
+			let Some(Command::GifFavorites { request, .. }) = state.request_gif_favorites() else {
+				panic!("sync");
+			};
+			state.apply_gif_favorites(request, Ok(remote));
+		}
+		assert_eq!(state.gifs.favorites, vec![gif("still"), gif("other")]);
+		// A synchronized image favorite keeps following the server's entry.
+		let mut state = test_state();
+		let mut updated = gif("image");
+		updated.width = 480;
+		for remote in [vec![gif("image")], vec![updated.clone()]] {
+			let Some(Command::GifFavorites { request, .. }) = state.request_gif_favorites() else {
+				panic!("sync");
+			};
+			state.apply_gif_favorites(request, Ok(remote));
+		}
+		assert_eq!(state.gifs.favorites, vec![updated]);
 	}
 	#[test]
 	fn pre_cache_removal_history_is_bounded_and_overflow_cannot_restore_stale_records() {

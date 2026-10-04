@@ -4165,3 +4165,45 @@ packages, formatting, strict Clippy, policy and the production check pass.
 `cargo xtask check` stops at the unchanged native video pressure test
 `stalled_native_queue_rejects_pressure_at_item_and_byte_limits`; the same
 failure reproduces on baseline main, so the PR remains draft.
+
+## Markdown quote row boundaries — October 4, 2026
+
+Compared renderer baseline `61a1a55001763b512e8a9813aeda74777122cb1d` with the
+quote row-boundary fix using the exact announcement fixture in the existing native
+`profile_preview --demo --page=markdown` harness. The same fixture page was added
+to both builds; the baseline renderer was unchanged. The preview uses production
+message widgets and synthetic state, with no desktop account or media adapters.
+
+Ubuntu 26.04.1, AMD Ryzen 5 7535U (12 logical CPUs), 14.3 GiB RAM, Xvfb/X11,
+1400×900 logical pixels at scale 1. Both builds used Rust 1.98.1, release,
+`--no-default-features --features demo`, and WGPU/Vulkan with the Mesa lavapipe
+ICD forced and its mapped driver library verified. After an identical neutral
+sidebar click and an eight-second warmup, one fresh process per revision received
+20 one-second psutil samples. CPU is percent of one logical core; peak RSS is
+post-warmup, and settled RSS is the last five samples' median. No helper children
+were present during sampling.
+
+| Native idle metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Mean CPU, one logical core | 0.00% | 0.00% | 0.00 percentage points |
+| Sampled peak RSS | 171.883 MiB | 175.074 MiB | +3.191 MiB / +1.86% |
+| Settled RSS | 171.883 MiB | 175.074 MiB | +3.191 MiB / +1.86% |
+
+This single launch pair does not separate layout cost from allocator/driver
+variation. Startup, full-frame p95, GPU memory and live workloads were not measured.
+Standard voice-enabled Debian package sizes, hashes and raw process samples are
+recorded in [the task measurements](pr-evidence/markdown-wrapped-quote/measurements.json).
+
+Reproduce the native fixture with:
+
+```bash
+cargo build --release --locked -p serein --no-default-features --features demo --example profile_preview
+./target/release/examples/profile_preview --demo --interactive --page=markdown --width=1400 --height=900
+```
+
+The committed pair also covers a 760×900 light viewport (`--light`). A 760×520
+native view was scrolled to inspect the long quote. Geometry regressions cover
+three sources, 220/560/1260-point widths, light/dark themes and scales 1/2.
+The exact announcement failed on the baseline because the following text began
+at y=76 while its quote rail extended to y=216; explicit row boundaries pass.
+`cargo xtask check` and strict Clippy for the demo preview passed.

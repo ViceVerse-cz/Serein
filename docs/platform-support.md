@@ -183,8 +183,15 @@ for restoration or the named special workspace for hiding. A compositor rejectio
 falls back to `hl.dsp.window.move` with `follow = false`, preserving the workspace
 `address` when supplied, otherwise its numeric `id`. Transport failures are not
 retried. Workspace names are bounded and escaped before Lua dispatch.
+On KDE Plasma (`XDG_CURRENT_DESKTOP` contains `KDE`), Close loads a small KWin script
+over D-Bus (`org.kde.KWin` `/Scripting`) that minimizes Serein and skips the taskbar,
+pager and task switcher; Show and Quit unminimize and activate it first, so Quit no
+longer renders into a minimized surface. Tray Minimize keeps the taskbar entry. Native
+installs match the process ID; Flatpak matches its app ID and writes scripts to its
+shared per-app runtime directory. If KWin scripting is unreachable, Close falls back
+to minimizing. KDE Plasma behavior is not yet verified on a live session.
 Other Wayland compositors receive minimize/restore requests and may require their
-own window controls; the KDE tray restoration report remains unresolved. Native Wayland remains the default on Wayland sessions, with no
+own window controls. Native Wayland remains the default on Wayland sessions, with no
 application-level XWayland fallback or backend override.
 Quit remains explicit and runs the existing unsaved-work/download/extension checks;
 cancelling Quit restores close-to-tray behavior.

@@ -94,8 +94,8 @@ raw network traffic. Native non-Flatpak installations retain their existing wind
 ### Sandbox Permissions
 
 The sandbox grants network, graphics, Wayland and X11 access, audio and
-specific Secret Service/notification D-Bus names and `org.kde.StatusNotifierWatcher`
-for the tray. A StatusNotifier host must be running; no additional bus-name ownership
+specific Secret Service/notification D-Bus names, `org.kde.StatusNotifierWatcher`
+for the tray and `org.kde.KWin` to hide the window from the KDE Plasma taskbar. A StatusNotifier host must be running; no additional bus-name ownership
 or blanket session-bus permission is required. X11 access is required as an
 automatic clipboard fallback on Wayland compositors without the data-control
 protocol. Files are selected through

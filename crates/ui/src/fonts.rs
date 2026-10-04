@@ -48,8 +48,56 @@ impl CustomFont {
 	}
 }
 
+/// One face as a standalone font file. A collection (`.ttc`) member is copied out with its own
+/// table directory, so the saved copy restores without a face index.
+pub fn standalone_face(data: &[u8], index: u32) -> Result<Vec<u8>, &'static str> {
+	use skrifa::raw::TableProvider as _;
+	const INVALID: &str = "This font cannot be read.";
+	let font = skrifa::FontRef::from_index(data, index).map_err(|_| INVALID)?;
+	let _ = font.head().map_err(|_| INVALID)?;
+	let records = font.table_directory().table_records();
+	if records.is_empty() || records.len() > 1024 {
+		return Err(INVALID);
+	}
+	let header = 12 + 16 * records.len();
+	let size = records.iter().try_fold(header, |size, record| {
+		size.checked_add((record.length() as usize).next_multiple_of(4))
+	});
+	if size.is_none_or(|size| size > MAX_CUSTOM_FONT_BYTES) {
+		return Err("Choose a font up to 8 MiB.");
+	}
+	let count = records.len() as u16;
+	let selector = 15 - count.leading_zeros() as u16;
+	let range = 16u16 << selector;
+	let mut bytes = Vec::with_capacity(size.unwrap_or_default());
+	bytes.extend(font.table_directory().sfnt_version().to_be_bytes());
+	for value in [count, range, selector, count * 16 - range] {
+		bytes.extend(value.to_be_bytes());
+	}
+	let mut offset = header;
+	for record in records {
+		bytes.extend(record.tag().to_be_bytes());
+		bytes.extend(record.checksum().to_be_bytes());
+		bytes.extend((offset as u32).to_be_bytes());
+		bytes.extend(record.length().to_be_bytes());
+		offset += (record.length() as usize).next_multiple_of(4);
+	}
+	for record in records {
+		let start = record.offset() as usize;
+		let table = start
+			.checked_add(record.length() as usize)
+			.and_then(|end| data.get(start..end))
+			.ok_or(INVALID)?;
+		bytes.extend_from_slice(table);
+		bytes.resize(bytes.len().next_multiple_of(4), 0);
+	}
+	Ok(bytes)
+}
+
 pub enum Action {
-	Import,
+	/// Enumerate the installed families once the font settings are first shown.
+	List,
+	Select(String),
 	Reset,
 }
 
@@ -59,34 +107,31 @@ pub struct Settings {
 	pub busy: bool,
 	pub status: &'static str,
 	pub request: Option<Action>,
+	/// Installed family names, sorted; `None` until the platform list arrives.
+	pub families: Option<Vec<String>>,
+	listed: bool,
+	query: String,
+	/// Focus the search and reveal the current family on the pass after the picker opens.
+	focus: bool,
 }
 
 impl Settings {
 	pub(super) fn show(&mut self, ui: &mut egui::Ui) {
 		use crate::design;
+		if !std::mem::replace(&mut self.listed, true) {
+			self.request = Some(Action::List);
+		}
 		design::group(ui, &crate::i18n::translate("fonts-show-typography"), |ui| {
 			ui.add_enabled_ui(!self.busy, |ui| {
-				design::row(
-					ui,
-					"fonts-show-interface-font",
-					Some(self.name.as_deref().unwrap_or("fonts-show-inter-default")),
-					|ui| {
-						if design::text_action(ui, &crate::i18n::translate("fonts-show-reset"))
+				design::row(ui, "fonts-show-interface-font", None, |ui| {
+					if self.name.is_some()
+						&& design::text_action(ui, &crate::i18n::translate("fonts-show-reset"))
 							.clicked()
-						{
-							self.request = Some(Action::Reset);
-						}
-						if design::button(
-							ui,
-							&crate::i18n::translate("fonts-show-import-font"),
-							design::ButtonKind::Outline,
-						)
-						.clicked()
-						{
-							self.request = Some(Action::Import);
-						}
-					},
-				);
+					{
+						self.request = Some(Action::Reset);
+					}
+				});
+				self.family_list(ui);
 			});
 			design::hint(
 				ui,
@@ -99,6 +144,187 @@ impl Settings {
 				design::hint(ui, self.status);
 			}
 		});
+	}
+
+	/// Select-style picker; the searchable family list opens in a popup so the settings page
+	/// never contains a nested scroll area.
+	fn family_list(&mut self, ui: &mut egui::Ui) {
+		use crate::design;
+		use crate::icons::{Icon, paint};
+		const ROW: f32 = 32.0;
+		let colors = design::palette(ui);
+		let Some(families) = &self.families else {
+			ui.horizontal(|ui| {
+				ui.spinner();
+				ui.label(
+					egui::RichText::new(crate::i18n::translate("fonts-show-loading"))
+						.color(colors.muted),
+				);
+			});
+			return;
+		};
+		let default = crate::i18n::translate("fonts-show-inter-default");
+		let current = self.name.clone().unwrap_or_else(|| default.clone());
+		ui.add_space(4.0);
+		let (rect, button) =
+			ui.allocate_exact_size(egui::vec2(ui.available_width(), 40.0), egui::Sense::click());
+		button.widget_info(|| {
+			egui::WidgetInfo::labeled(egui::Role::ComboBox, button.enabled(), &current)
+		});
+		let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&button));
+		let stroke = if open {
+			egui::Stroke::new(2.0, colors.accent)
+		} else if button.hovered() {
+			egui::Stroke::new(1.0, colors.muted)
+		} else {
+			egui::Stroke::new(1.0, colors.border)
+		};
+		ui.painter()
+			.rect(rect, 8, colors.base, stroke, egui::StrokeKind::Inside);
+		ui.painter().text(
+			rect.left_center() + egui::vec2(12.0, 0.0),
+			egui::Align2::LEFT_CENTER,
+			&current,
+			egui::FontId::proportional(15.0),
+			colors.text_strong,
+		);
+		paint(
+			ui.painter(),
+			Icon::ChevronDown,
+			egui::Rect::from_center_size(
+				rect.right_center() - egui::vec2(20.0, 0.0),
+				egui::vec2(14.0, 14.0),
+			),
+			colors.muted,
+		);
+		if button.clicked() {
+			self.query.clear();
+			self.focus = true;
+		}
+		let mut picked = None;
+		egui::Popup::menu(&button)
+			.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+			.width(rect.width())
+			.gap(6.0)
+			.frame(
+				egui::Frame::popup(ui.style())
+					.fill(colors.base)
+					.stroke(egui::Stroke::new(1.0, colors.border))
+					.inner_margin(6)
+					.corner_radius(8),
+			)
+			.show(|ui| {
+				ui.set_width(rect.width() - 12.0);
+				let search = design::input(
+					ui,
+					egui::TextEdit::singleline(&mut self.query)
+						.hint_text(crate::i18n::translate("fonts-show-search"))
+						.char_limit(64),
+				);
+				paint(
+					ui.painter(),
+					Icon::Search,
+					egui::Rect::from_center_size(
+						search.rect.right_center() - egui::vec2(18.0, 0.0),
+						egui::vec2(14.0, 14.0),
+					),
+					colors.muted,
+				);
+				let query = self.query.trim().to_lowercase();
+				// `None` is the bundled default, listed first while the search is empty.
+				let matches: Vec<Option<&String>> = query
+					.is_empty()
+					.then_some(None)
+					.into_iter()
+					.chain(
+						families
+							.iter()
+							.filter(|name| query.is_empty() || name.to_lowercase().contains(&query))
+							.map(Some),
+					)
+					.collect();
+				ui.add_space(4.0);
+				if matches.is_empty() {
+					ui.add_space(6.0);
+					design::hint(
+						ui,
+						&crate::i18n::translate(if families.is_empty() {
+							"fonts-show-none-installed"
+						} else {
+							"fonts-show-no-match"
+						}),
+					);
+					ui.add_space(6.0);
+					return;
+				}
+				let mut area = egui::ScrollArea::vertical()
+					.id_salt("installed-fonts")
+					.max_height(ROW * 8.0)
+					.auto_shrink([false, true]);
+				if std::mem::take(&mut self.focus) {
+					search.request_focus();
+					let index = matches
+						.iter()
+						.position(|name| name.map(String::as_str) == self.name.as_deref())
+						.unwrap_or(0);
+					area = area.vertical_scroll_offset((index as f32 - 3.0).max(0.0) * ROW);
+				}
+				area.show_rows(ui, ROW, matches.len(), |ui, rows| {
+					ui.spacing_mut().item_spacing.y = 0.0;
+					for name in &matches[rows] {
+						let selected = name.map(String::as_str) == self.name.as_deref();
+						let (rect, response) = ui.allocate_exact_size(
+							egui::vec2(ui.available_width(), ROW),
+							egui::Sense::click(),
+						);
+						let label = name.map_or(default.as_str(), String::as_str);
+						response.widget_info(|| {
+							egui::WidgetInfo::selected(egui::Role::Button, true, selected, label)
+						});
+						let fill = if selected {
+							colors.accent.gamma_multiply(0.22)
+						} else if response.hovered() {
+							colors.hover
+						} else {
+							egui::Color32::TRANSPARENT
+						};
+						ui.painter().rect_filled(rect, 6, fill);
+						ui.painter().text(
+							rect.left_center() + egui::vec2(10.0, 0.0),
+							egui::Align2::LEFT_CENTER,
+							label,
+							egui::FontId::proportional(14.0),
+							if selected {
+								colors.text_strong
+							} else {
+								colors.text
+							},
+						);
+						if selected {
+							paint(
+								ui.painter(),
+								Icon::Check,
+								egui::Rect::from_center_size(
+									rect.right_center() - egui::vec2(16.0, 0.0),
+									egui::vec2(14.0, 14.0),
+								),
+								colors.accent,
+							);
+						}
+						if response.clicked() {
+							if !selected {
+								picked = Some(name.cloned());
+							}
+							ui.close();
+						}
+					}
+				});
+			});
+		match picked {
+			Some(Some(name)) => self.request = Some(Action::Select(name)),
+			Some(None) => self.request = Some(Action::Reset),
+			None => {}
+		}
 	}
 }
 

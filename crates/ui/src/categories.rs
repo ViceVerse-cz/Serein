@@ -471,6 +471,7 @@ fn kind_label(kind: u8) -> &'static str {
 
 impl MessagingUi {
 	pub(super) fn channel_list(&mut self, ui: &mut egui::Ui, state: &mut State) -> Option<Id> {
+		let voice_users = crate::profiles::voice_users(state);
 		let language = self.language;
 		let hide_muted = self
 			.guild
@@ -937,6 +938,8 @@ impl MessagingUi {
 							let direct_user = (dm_list && channel.kind == 1)
 								.then(|| channel.recipients.first())
 								.flatten();
+							let in_voice =
+								direct_user.is_some_and(|user| voice_users.contains(&user.id));
 							let mut show_name = |ui: &mut egui::Ui| {
 								ui.allocate_ui_with_layout(
 									egui::vec2(ui.available_width(), 18.0),
@@ -978,19 +981,35 @@ impl MessagingUi {
 									},
 								);
 							};
-							if let Some(subtitle) = subtitle {
-								inner.vertical(|ui| {
-									ui.spacing_mut().item_spacing.y = 0.0;
-									ui.add_space(((row.height() - 34.0) * 0.5).max(0.0));
-									show_name(ui);
-									ui.add(
-										egui::Label::new(
-											RichText::new(subtitle).size(12.0).color(colors.muted),
-										)
-										.truncate()
-										.selectable(false),
-									);
-								});
+							if subtitle.is_some() || in_voice {
+								inner.allocate_ui_with_layout(
+									egui::vec2(inner.available_width(), 32.0),
+									egui::Layout::top_down(egui::Align::Min),
+									|ui| {
+										ui.spacing_mut().item_spacing.y = 0.0;
+										ui.spacing_mut().interact_size.y = 14.0;
+										show_name(ui);
+										ui.horizontal(|ui| {
+											ui.spacing_mut().item_spacing.x = 4.0;
+											crate::profiles::voice_badge(
+												ui,
+												in_voice,
+												subtitle.is_some(),
+											);
+											if let Some(subtitle) = subtitle {
+												ui.add(
+													egui::Label::new(
+														RichText::new(subtitle)
+															.size(12.0)
+															.color(colors.muted),
+													)
+													.truncate()
+													.selectable(false),
+												);
+											}
+										});
+									},
+								);
 							} else {
 								show_name(&mut inner);
 							}

@@ -3445,7 +3445,6 @@ settings-close-control-close-settings-esc = Закрыть настройки (E
 # Context: colour_preset_settings
 settings-colour-preset-settings-colour-preset = Предустановка цвета
 # Context: colour_preset_settings
-settings-colour-preset-settings-saved-with-your-appearance-gradient-presets-always-use-dark-text = Сэкономил на своем внешнем виде. В настройках градиента всегда используется темный текст.
 # Context: storage_page
 settings-storage-page-clear-cache = Очистить кеш
 # Context: storage_page
@@ -4162,7 +4161,6 @@ voice-voice-processing-controls-start-the-microphone-test-or-join-a-call-to-see 
 # Context: voice_processing_controls
 voice-voice-processing-controls-suppression-strength = Сила подавления
 # Context: voice_settings_content
-voice-voice-settings-content-audio-preferences-are-saved-on-this-device-your-microphone-starts = Настройки звука сохраняются на этом устройстве. Ваш микрофон включается только тогда, когда вы присоединяетесь к вызову или начинаете тестирование.
 # Context: voice_settings_content
 voice-voice-settings-content-camera = Камера
 # Context: voice_settings_content
@@ -4351,6 +4349,18 @@ lib-composer-onboarding-rules-pending = Примите правила серве
 lib-composer-onboarding-incomplete = Завершите вступление, чтобы открыть больше каналов.
 # Context: composer
 lib-composer-onboarding-complete = Завершить знакомство
+profiles-show-view-full-bio = Показать полное описание
+profiles-show-hide-full-bio = Скрыть полное описание
+profiles-message-placeholder = Сообщение @{ $user }
+profiles-message-send = Отправить сообщение
+profiles-message-sending = Открытие личных сообщений…
+user-menu-contents-start-a-call = Начать звонок
+verification-show-complete-the-check-to-open-this-conversation = Пройдите проверку, чтобы открыть этот разговор.
+verification-show-discord-requires-a-security-check-before-you-can-message = Discord требует проверку безопасности, прежде чем вы сможете написать этому человеку.
+verification-show-complete-the-check-to-send-this-message = Пройдите проверку, чтобы отправить это сообщение.
+verification-show-discord-requires-a-security-check-before-this-message = Discord требует проверку безопасности перед отправкой этого сообщения.
+profiles-message-busy = Ожидание завершения другого действия…
+profiles-message-offline = Переподключитесь, чтобы отправить сообщение
 
 voice-recipient-ring = Позвонить снова
 voice-recipient-stop-ringing = Перестать звонить
@@ -4443,3 +4453,5 @@ server-stickers-empty-detail = Загрузите изображение, что
 screen-macos-system-picker = Выбрать через системное окно macOS
 
 screen-macos-system-picker-kind = Системный выбор содержимого
+
+member-in-voice = В голосовом чате

@@ -301,6 +301,7 @@ impl MessagingUi {
 			.align(egui::RectAlign::RIGHT)
 			.open(
 				!dragging
+					&& !response.context_menu_opened()
 					&& (response.contains_pointer() || response.hovered() || response.has_focus()),
 			)
 			.gap(8.0)
@@ -541,6 +542,12 @@ impl MessagingUi {
 					response.context_menu(|ui| {
 						if let Item::Server(id) = item {
 							ui.set_width(232.0);
+							// The invite dialog belongs to the active server, so choosing it
+							// from the rail also opens that server, like settings do.
+							let invite = self.server_menu.invite_item(ui, state, id);
+							if invite {
+								self.guild = Some(id);
+							}
 							self.server_menu.read_item(ui, state, id);
 							ui.separator();
 							let settings = self.server_menu.settings_item(ui, state, id);

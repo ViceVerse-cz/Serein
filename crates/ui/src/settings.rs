@@ -1059,7 +1059,6 @@ impl MessagingUi {
 
 	/// Built-in presets plus enabled community themes, one swatch each.
 	fn colour_preset_settings(&mut self, ui: &mut egui::Ui) {
-		let colors = design::palette(ui);
 		let current = design::variant();
 		let mut presets: Vec<_> = design::Variant::ALL
 			.into_iter()
@@ -1083,17 +1082,6 @@ impl MessagingUi {
 				design::theme_preview_palette(ui, entry.theme_preview.as_ref()?),
 			))
 		}));
-		let active_label = presets
-			.iter()
-			.find(|(variant, id, _, _)| {
-				if let Some(active) = &self.extensions.active_theme {
-					id.as_ref() == Some(active)
-				} else {
-					*variant == Some(current)
-				}
-			})
-			.map_or(current.label(), |(_, _, label, _)| label.as_str())
-			.to_owned();
 		design::group(
 			ui,
 			&crate::i18n::translate("settings-colour-preset-settings-colour-preset"),
@@ -1120,17 +1108,6 @@ impl MessagingUi {
 						}
 					}
 				});
-				ui.add_space(4.0);
-				ui.label(
-				RichText::new(format!(
-					"{active_label} · {}",
-					crate::i18n::translate(
-						"settings-colour-preset-settings-saved-with-your-appearance-gradient-presets-always-use-dark-text"
-					)
-				))
-				.size(12.0)
-				.color(colors.muted),
-			);
 			},
 		);
 	}

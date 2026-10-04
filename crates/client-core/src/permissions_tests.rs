@@ -16,7 +16,7 @@ const BITS: u128 = p::VIEW_CHANNEL
 
 fn large_startup() -> crate::Startup {
 	let mut startup = crate::Startup {
-		external_stickers: false,
+		premium_type: 0,
 		user: user(),
 		guilds: vec![],
 		channels: vec![],

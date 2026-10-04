@@ -876,6 +876,7 @@ struct Desktop {
 	reading: reading_settings::ReadingSettings,
 	app_settings: app_settings::Settings,
 	font_picker: Option<std::sync::mpsc::Receiver<font_import::Selected>>,
+	font_families: Option<std::sync::mpsc::Receiver<Vec<String>>>,
 	updater: updater::Updater,
 	game_activity: toggle_setting::Settings,
 	registered_games: registered_games::Registered,
@@ -2008,6 +2009,16 @@ impl Desktop {
 			onboarding_demo::open(&mut state);
 		}
 		#[cfg(feature = "demo")]
+		if demo
+			&& std::env::args().any(|arg| arg == "--demo-server-invite")
+			&& let Some(guild) = state
+				.selected
+				.and_then(|id| state.channels.iter().find(|c| c.id == id))
+				.and_then(|c| c.guild)
+		{
+			messaging.preview_server_invite(&mut state, guild);
+		}
+		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-server-settings") {
 			server_settings_demo::open(&mut state, &mut messaging);
 		}
@@ -2045,7 +2056,11 @@ impl Desktop {
 		}
 		// The GPU surface and X11 visual are selected at startup. Opaque launches
 		// keep the same native/compositor path as builds without window effects.
-		let tray_window = tray_window::State::default();
+		// KWin hiding runs its D-Bus worker on the application runtime.
+		let tray_window = {
+			let _runtime = runtime.enter();
+			tray_window::State::default()
+		};
 		Ok(Self {
 			proxy_auth: proxy_auth::Authentication::default(),
 			api_proxy: tokio::sync::watch::channel(None).0,
@@ -2116,6 +2131,7 @@ impl Desktop {
 			reading,
 			app_settings,
 			font_picker: None,
+			font_families: None,
 			updater: updater::Updater::new(demo),
 			game_activity,
 			registered_games: if demo {
@@ -2547,15 +2563,31 @@ impl Desktop {
 				}
 			}
 		}
+		if let Some(families) = &self.font_families
+			&& let Ok(families) = families.try_recv()
+		{
+			self.font_families = None;
+			self.messaging.custom_font.families = Some(families);
+		}
+		// Listing is independent of a pending save, so it is never dropped while busy.
+		if matches!(
+			self.messaging.custom_font.request,
+			Some(ui::fonts::Action::List)
+		) {
+			self.messaging.custom_font.request = None;
+			if self.font_families.is_none() && self.messaging.custom_font.families.is_none() {
+				self.font_families = Some(font_import::installed(&self.runtime, ctx));
+			}
+		}
 		if let Some(action) = self.messaging.custom_font.request.take()
 			&& !self.messaging.custom_font.busy
 		{
 			match action {
-				ui::fonts::Action::Import => {
-					self.font_picker =
-						Some(font_import::choose(&self.runtime, ctx, self.window.clone()));
+				ui::fonts::Action::List => {}
+				ui::fonts::Action::Select(family) => {
+					self.font_picker = Some(font_import::load(&self.runtime, ctx, family));
 					self.messaging.custom_font.busy = true;
-					self.messaging.custom_font.status = "Choosing font…";
+					self.messaging.custom_font.status = "Loading font…";
 				}
 				ui::fonts::Action::Reset => self.save_font(ctx, None),
 			}
@@ -3977,6 +4009,11 @@ impl Desktop {
 						.find(|s| s.id == id)
 						.cloned()
 						.ok_or(Failure::Protocol),
+				},
+				// The offline fixture never issues challenges, so it never resumes one.
+				Command::VerifiedSend { nonce, .. } => Event::SendResult {
+					nonce,
+					result: Err(Failure::Protocol),
 				},
 				Command::Forward {
 					message,
@@ -6146,6 +6183,31 @@ impl eframe::App for Desktop {
 				&& !self.messaging.has_edit_in(self.state.selected)
 			{
 				match result {
+					Ok(clipboard::Content::Text(text))
+						if upload_allowed && can_attach && {
+							let draft = self
+								.state
+								.drafts
+								.get(&paste.channel)
+								.map_or("", String::as_str);
+							model::message_options::content(draft).0.chars().count()
+								+ text.chars().count() > self.state.content_limit()
+						} =>
+					{
+						// Text that cannot fit one message is attached as `message.txt`, like Discord.
+						if let Err(error) =
+							discord_api::upload::Source::pasted_text(text).and_then(|source| {
+								self.uploads.select_pasted(
+									paste.generation,
+									paste.channel,
+									vec![source],
+									self.runtime.handle(),
+									&ctx,
+								)
+							}) {
+							self.messaging.toasts.push(ui::design::Level::Error, error);
+						}
+					}
 					Ok(clipboard::Content::Text(text)) => {
 						self.messaging.pasted_text = Some((paste.channel, paste.target, text));
 					}
@@ -6569,6 +6631,7 @@ impl eframe::App for Desktop {
 				key,
 				filename,
 				bytes,
+				host,
 			}) = self.messaging.external_upload.request.take()
 			{
 				let result = if generation != self.state.generation
@@ -6584,6 +6647,7 @@ impl eframe::App for Desktop {
 						channel,
 						&filename,
 						bytes,
+						host,
 						self.runtime.handle(),
 						&ctx,
 						self.state.demo,

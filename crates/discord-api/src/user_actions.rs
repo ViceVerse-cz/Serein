@@ -4,16 +4,27 @@ use reqwest::Method;
 use serde_json::json;
 
 impl DiscordApi {
-	pub(super) async fn open_dm(&self, user: model::Id) -> Result<model::Channel, Failure> {
-		if user.0 == 0 {
+	/// Opens one DM; a service captcha is reported through `challenge` for the user to solve.
+	pub(super) async fn open_dm(
+		&self,
+		user: model::Id,
+		captcha: Option<&client_core::captcha::Retry>,
+		challenge: Option<&mut Option<client_core::captcha::Challenge>>,
+	) -> Result<model::Channel, Failure> {
+		if user.0 == 0
+			|| captcha.is_some_and(|retry| {
+				!retry.matches_target(&client_core::captcha::Target::Direct { user })
+			}) {
 			return Err(Failure::Protocol);
 		}
 		let bytes = self
-			.request_limited(
+			.request_with_captcha(
 				Method::POST,
 				"/users/@me/channels",
 				Some(json!({"recipient_id": user})),
 				64 * 1024,
+				captcha,
+				challenge,
 			)
 			.await
 			.map_err(|failure| {
@@ -63,8 +74,8 @@ impl DiscordApi {
 		challenge: Option<&mut Option<client_core::captcha::Challenge>>,
 	) -> Result<(), Failure> {
 		// Unofficial normal-user routes: discord.py-self/http.py, checked 2026-09-12.
-		// A solved challenge may only resume the friendship write it was issued for.
-		if client_core::user_actions::establishes_friendship(action) {
+		// A solved challenge may only resume the write it was issued for.
+		if client_core::user_actions::challengeable(action) {
 			let target =
 				client_core::user_actions::challenge_target(action).ok_or(Failure::Protocol)?;
 			if captcha.is_some_and(|retry| !retry.matches_target(&target)) {
@@ -655,9 +666,9 @@ mod tests {
 			generation: state.generation,
 			event,
 		});
-		let request = state.friend_challenge().unwrap().0;
+		let request = state.account_challenge().unwrap().0;
 		let command = state
-			.resume_friend_challenge(
+			.resume_account_challenge(
 				request,
 				client_core::captcha::Solution::new("synthetic-solution".into()).unwrap(),
 			)

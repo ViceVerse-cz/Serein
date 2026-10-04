@@ -8,8 +8,18 @@ const NAMES: &str = include_str!("../../../assets/twemoji/names.tsv");
 const DISCORD_NAMES: &str = include_str!("../../../assets/twemoji/discord-shortcodes.tsv");
 const CELL: f32 = 40.0;
 
+thread_local! {
+	/// The signed-in account's message length; the composer sets it each frame before edits.
+	static CONTENT_LIMIT: std::cell::Cell<usize> =
+		const { std::cell::Cell::new(client_core::MAX_CONTENT) };
+}
+
+pub(crate) fn set_content_limit(limit: usize) {
+	CONTENT_LIMIT.set(limit);
+}
+
 pub(crate) fn composer_limit(draft: &str, editing: bool) -> usize {
-	client_core::MAX_CONTENT
+	CONTENT_LIMIT.get()
 		+ if !editing && model::message_options::content(draft).1 {
 			model::message_options::PREFIX_ALLOWANCE
 		} else {

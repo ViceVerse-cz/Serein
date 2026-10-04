@@ -733,10 +733,21 @@ impl DiscordApi {
 				captcha,
 			} => {
 				if let client_core::user_actions::Action::OpenDm(user) = action {
+					let mut challenge = None;
+					let result = self
+						.open_dm(user, captcha.as_deref(), Some(&mut challenge))
+						.await;
+					if let Some(challenge) = challenge {
+						return Event::UserAction(client_core::user_actions::Event::Challenge {
+							action,
+							request,
+							challenge: Box::new(challenge),
+						});
+					}
 					return Event::UserAction(client_core::user_actions::Event::DmOpened {
 						user,
 						request,
-						result: self.open_dm(user).await.map(Box::new),
+						result: result.map(Box::new),
 					});
 				}
 				if let client_core::user_actions::Action::LoadNote(user) = action {
@@ -747,8 +758,8 @@ impl DiscordApi {
 					});
 				}
 				let mut challenge = None;
-				let slot = client_core::user_actions::establishes_friendship(&action)
-					.then_some(&mut challenge);
+				let slot =
+					client_core::user_actions::challengeable(&action).then_some(&mut challenge);
 				let result = self.user_action(&action, captcha.as_deref(), slot).await;
 				if let Some(challenge) = challenge {
 					return Event::UserAction(client_core::user_actions::Event::Challenge {
@@ -1267,10 +1278,32 @@ impl DiscordApi {
 				nonce,
 				reply,
 			} => {
-				let result = self
-					.send_message(channel, &content, &nonce, reply, None, sticker)
-					.await;
-				Event::SendResult { nonce, result }
+				self.send_text(channel, &content, nonce, reply, sticker, None)
+					.await
+			}
+			Command::VerifiedSend {
+				sticker,
+				channel,
+				content,
+				nonce,
+				reply,
+				captcha,
+			} => {
+				let target = client_core::captcha::Target::Message {
+					channel,
+					nonce: nonce.clone(),
+				};
+				if captcha.matches_target(&target) {
+					self.send_text(channel, &content, nonce, reply, sticker, Some(&captcha))
+						.await
+				} else {
+					Event::SendResult {
+						nonce,
+						result: Err(Failure::ProtocolAt(
+							"Verification expired; retry the message",
+						)),
+					}
+				}
 			}
 			Command::Edit {
 				request,
@@ -1278,7 +1311,9 @@ impl DiscordApi {
 				message,
 				content,
 			} => {
-				if content.trim().is_empty() || content.chars().count() > client_core::MAX_CONTENT {
+				if content.trim().is_empty()
+					|| content.chars().count() > client_core::MAX_PREMIUM_CONTENT
+				{
 					return Event::Edited {
 						request,
 						channel,
@@ -1529,6 +1564,36 @@ impl DiscordApi {
 			}
 		}
 	}
+	/// One text send that reports a service captcha instead of a terminal rejection.
+	async fn send_text(
+		&self,
+		channel: model::Id,
+		content: &str,
+		nonce: String,
+		reply: Option<Reply>,
+		sticker: Option<model::Id>,
+		retry: Option<&client_core::captcha::Retry>,
+	) -> Event {
+		let mut challenge = None;
+		let result = self
+			.send_message_with_captcha(
+				channel,
+				content,
+				&nonce,
+				(reply, None, sticker),
+				retry,
+				Some(&mut challenge),
+			)
+			.await;
+		match challenge {
+			Some(challenge) => Event::SendChallenge {
+				nonce,
+				reply,
+				challenge: Box::new(challenge),
+			},
+			None => Event::SendResult { nonce, result },
+		}
+	}
 	async fn send_message(
 		&self,
 		channel: model::Id,
@@ -1538,9 +1603,32 @@ impl DiscordApi {
 		attachment: Option<Vec<serde_json::Value>>,
 		sticker: Option<model::Id>,
 	) -> Result<model::Message, Failure> {
+		self.send_message_with_captcha(
+			channel,
+			content,
+			nonce,
+			(reply, attachment, sticker),
+			None,
+			None,
+		)
+		.await
+	}
+	async fn send_message_with_captcha(
+		&self,
+		channel: model::Id,
+		content: &str,
+		nonce: &str,
+		(reply, attachment, sticker): (
+			Option<Reply>,
+			Option<Vec<serde_json::Value>>,
+			Option<model::Id>,
+		),
+		retry: Option<&client_core::captcha::Retry>,
+		challenge: Option<&mut Option<client_core::captcha::Challenge>>,
+	) -> Result<model::Message, Failure> {
 		if !message_options::valid(
 			content,
-			client_core::MAX_CONTENT,
+			client_core::MAX_PREMIUM_CONTENT,
 			attachment.as_ref().is_some_and(|items| !items.is_empty()) || sticker.is_some(),
 		) {
 			return Err(Failure::Capacity);
@@ -1564,10 +1652,13 @@ impl DiscordApi {
 			body["attachments"] = serde_json::json!(attachment);
 		}
 		// No enforce_nonce claim until normal-user semantics are live verified. Never auto-retry writes.
-		self.request(
+		self.request_with_captcha(
 			Method::POST,
 			&format!("/channels/{channel}/messages"),
 			Some(body),
+			MAX_WIRE,
+			retry,
+			challenge,
 		)
 		.await
 		.and_then(|bytes| {
@@ -1595,7 +1686,7 @@ impl DiscordApi {
 			|| tags.len() > model::forum::MAX_APPLIED_TAGS
 			|| !message_options::valid(
 				content,
-				client_core::MAX_CONTENT,
+				client_core::MAX_PREMIUM_CONTENT,
 				attachments.as_ref().is_some_and(|items| !items.is_empty()),
 			) {
 			return Err(Failure::Capacity);

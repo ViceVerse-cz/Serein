@@ -397,6 +397,7 @@ impl Uploads {
 		channel: Id,
 		filename: &str,
 		bytes: u64,
+		host: model::public_upload::Host,
 		runtime: &tokio::runtime::Handle,
 		context: &egui::Context,
 		demo: bool,
@@ -427,9 +428,9 @@ impl Uploads {
 		let context = context.clone();
 		runtime.spawn(async move {
 			let result = if demo {
-				Ok("https://files.catbox.moe/offline-preview.png".to_owned())
+				Ok(format!("{}offline-preview.png", host.link_prefix()))
 			} else if let Some(source) = source {
-				discord_api::upload::external::upload(source, updates, cancelled).await
+				discord_api::upload::external::upload(host, source, updates, cancelled).await
 			} else {
 				Err(model::public_upload::Error::MissingSelection)
 			};
@@ -934,6 +935,7 @@ mod tests {
 					Id(1),
 					"other-file.png",
 					1,
+					model::public_upload::Host::default(),
 					&runtime,
 					&context,
 					true
@@ -949,6 +951,7 @@ mod tests {
 					Id(1),
 					"pasted-image.png",
 					1,
+					model::public_upload::Host::default(),
 					&runtime,
 					&context,
 					false
@@ -966,6 +969,7 @@ mod tests {
 					Id(1),
 					"pasted-image.png",
 					1,
+					model::public_upload::Host::default(),
 					&runtime,
 					&context,
 					false
@@ -980,6 +984,7 @@ mod tests {
 				Id(1),
 				"pasted-image.png",
 				1,
+				model::public_upload::Host::default(),
 				&runtime,
 				&context,
 				true,
@@ -1008,6 +1013,7 @@ mod tests {
 				Id(1),
 				"synthetic.png",
 				1,
+				model::public_upload::Host::default(),
 				&runtime,
 				&context,
 				true,

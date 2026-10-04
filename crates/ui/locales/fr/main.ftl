@@ -3444,7 +3444,6 @@ settings-close-control-close-settings-esc = Fermer les paramètres (Esc)
 # Context: colour_preset_settings
 settings-colour-preset-settings-colour-preset = Couleur prédéfinie
 # Context: colour_preset_settings
-settings-colour-preset-settings-saved-with-your-appearance-gradient-presets-always-use-dark-text = Enregistré avec votre apparence. Les préréglages de dégradé utilisent toujours du texte sombre.
 # Context: storage_page
 settings-storage-page-clear-cache = Vider le cache
 # Context: storage_page
@@ -4160,7 +4159,6 @@ voice-voice-processing-controls-start-the-microphone-test-or-join-a-call-to-see 
 # Context: voice_processing_controls
 voice-voice-processing-controls-suppression-strength = Force de suppression
 # Context: voice_settings_content
-voice-voice-settings-content-audio-preferences-are-saved-on-this-device-your-microphone-starts = Les préférences audio sont enregistrées sur cet appareil. Votre microphone démarre uniquement lorsque vous rejoignez un appel ou démarrez un test.
 # Context: voice_settings_content
 voice-voice-settings-content-camera = Caméra
 # Context: voice_settings_content
@@ -4347,6 +4345,18 @@ lib-composer-onboarding-rules-pending = Accepte les règles de ce serveur pour c
 lib-composer-onboarding-incomplete = Termine de rejoindre ce serveur pour débloquer plus de salons.
 # Context: composer
 lib-composer-onboarding-complete = Terminer l'accueil
+profiles-show-view-full-bio = Voir la biographie complète
+profiles-show-hide-full-bio = Masquer la biographie complète
+profiles-message-placeholder = Message à @{ $user }
+profiles-message-send = Envoyer le message
+profiles-message-sending = Ouverture du message privé…
+user-menu-contents-start-a-call = Démarrer un appel
+verification-show-complete-the-check-to-open-this-conversation = Termine la vérification pour ouvrir cette conversation.
+verification-show-discord-requires-a-security-check-before-you-can-message = Discord exige une vérification de sécurité avant que tu puisses écrire à cette personne.
+verification-show-complete-the-check-to-send-this-message = Termine la vérification pour envoyer ce message.
+verification-show-discord-requires-a-security-check-before-this-message = Discord exige une vérification de sécurité avant l'envoi de ce message.
+profiles-message-busy = En attente de la fin d'une autre action…
+profiles-message-offline = Reconnecte-toi pour envoyer un message
 
 voice-recipient-ring = Rappeler
 voice-recipient-stop-ringing = Arrêter la sonnerie
@@ -4439,3 +4449,5 @@ server-stickers-empty-detail = Importez une image pour ajouter votre premier aut
 screen-macos-system-picker = Choisir avec le sélecteur système macOS
 
 screen-macos-system-picker-kind = Sélecteur de contenu système
+
+member-in-voice = En vocal

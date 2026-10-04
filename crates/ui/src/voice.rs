@@ -2370,14 +2370,6 @@ impl MessagingUi {
 				);
 			});
 		}
-		if !compact {
-			design::hint(
-				ui,
-				&crate::i18n::translate(
-					"voice-voice-settings-content-audio-preferences-are-saved-on-this-device-your-microphone-starts",
-				),
-			);
-		}
 	}
 
 	fn camera_settings_content(&mut self, ui: &mut egui::Ui, demo: bool) {

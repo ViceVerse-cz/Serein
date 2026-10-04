@@ -243,12 +243,13 @@ impl MessagingUi {
 					avatars.show(ui, user, 72.0, state.demo)
 				});
 			});
-			let dot = avatar.right_bottom() - egui::Vec2::splat(11.0);
-			ui.painter().circle_filled(dot, 10.5, colors.raised);
+			// Same 6 px ring as the avatar, so the dot is cut out of the banner alike.
+			let dot = avatar.right_bottom() - egui::Vec2::splat(12.0);
+			ui.painter().circle_filled(dot, 17.5, colors.raised);
 			presence_dot(
 				ui.painter(),
 				dot,
-				7.0,
+				11.5,
 				self.own_presence.status,
 				colors.raised,
 			);
