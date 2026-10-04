@@ -949,6 +949,16 @@ impl Theme {
 				// The body panel is opaque enough that its tint decides contrast: white over a
 				// bright gradient takes dark text, black over a dark one takes light text.
 				let bright = (luma(top) + luma(bottom)) * 0.5 > 0.5;
+				// Light themes use a softer outer gradient so the body does not read as a
+				// separate pale rectangle inside a fully saturated frame.
+				let (top, bottom) = if bright {
+					(
+						top.lerp_to_gamma(Color32::WHITE, 0.3),
+						bottom.lerp_to_gamma(Color32::WHITE, 0.3),
+					)
+				} else {
+					(top, bottom)
+				};
 				Self {
 					gradient: Some((top, bottom)),
 					text: if bright {
@@ -962,12 +972,12 @@ impl Theme {
 						Color32::from_rgb(190, 195, 201)
 					},
 					link: if bright {
-						Color32::from_rgb(0, 96, 208)
+						Color32::from_rgb(0, 75, 160)
 					} else {
 						Color32::from_rgb(0, 176, 244)
 					},
 					panel: if bright {
-						Color32::from_white_alpha(170)
+						Color32::from_white_alpha(96)
 					} else {
 						Color32::from_black_alpha(130)
 					},
@@ -2832,6 +2842,38 @@ pub fn synthetic(user: &User, guild: Option<Id>) -> model::UserProfile {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn bright_profile_gradient_is_softened_without_flattening_the_body() {
+		let palette = design::colors(true, Default::default());
+		let raw = [0xffb02e, 0xf16e38];
+		let theme = Theme::new(&palette, Some(raw));
+		let (top, bottom) = theme.gradient.unwrap();
+		let composite = |background: Color32, alpha: u8| {
+			background.lerp_to_gamma(Color32::WHITE, f32::from(alpha) / 255.0)
+		};
+		let contrast = |foreground: Color32, background: Color32| {
+			let a = design::luminance(foreground) + 0.05;
+			let b = design::luminance(background) + 0.05;
+			a.max(b) / a.min(b)
+		};
+		assert_ne!(top, bottom, "retain the profile's two-color gradient");
+		for (raw, softened) in raw.into_iter().map(rgb).zip([top, bottom]) {
+			let body = composite(softened, theme.panel.a());
+			let before = composite(raw, 170);
+			assert!((luma(body) - luma(softened)).abs() < (luma(before) - luma(raw)).abs());
+			for foreground in [theme.text, theme.muted, theme.link] {
+				assert!(
+					contrast(foreground, body) >= 4.5,
+					"profile text needs readable contrast"
+				);
+			}
+		}
+		let dark = Theme::new(&palette, Some([0x1f3a4d, 0x3b2a5e]));
+		assert_eq!(dark.gradient, Some((rgb(0x1f3a4d), rgb(0x3b2a5e))));
+		assert_eq!(dark.panel, Color32::from_black_alpha(130));
+		assert!(Theme::new(&palette, None).gradient.is_none());
+	}
 
 	fn enter(repeat: bool) -> egui::Event {
 		egui::Event::Key {
