@@ -112,6 +112,8 @@ pub fn check() {
 				bits: 0,
 				name: "Synthetic colored role".into(),
 				color: 0x68ada4,
+				secondary_color: None,
+				tertiary_color: None,
 				position: 1,
 				hoist: false,
 			});

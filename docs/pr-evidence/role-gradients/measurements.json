@@ -1,0 +1,42 @@
+{
+    "baseline_commit":  "6313e271e9c34b39069eb20787afb1476741b21c",
+    "task_branch":  "feat/role-gradients",
+    "os":  "Windows 11 Pro",
+    "cpu":  "AMD Ryzen 5 5600G, 12 logical CPUs",
+    "ram_gib":  32,
+    "rust":  "1.98.1",
+    "package_features":  "no default/demo features; voice included; normal fat LTO",
+    "baseline_executable_bytes":  84442112,
+    "after_executable_bytes":  84451840,
+    "baseline_executable_sha256":  "1323a16edf954cc117ce8d80604af97194b0416c2596aefd9a79b20294fdf742",
+    "after_executable_sha256":  "cb68f9339297d513fd11e1c24118717942676f7845fc55148f9418df9b0b3fdc",
+    "baseline_installed_bytes":  88615308,
+    "after_installed_bytes":  88625036,
+    "baseline_zip_bytes":  49397126,
+    "after_zip_bytes":  49399197,
+    "baseline_warmup_ms":  83.3754,
+    "after_warmup_ms":  79.4327,
+    "baseline_samples_ms":  [
+                                76.3419,
+                                77.6732,
+                                78.0997,
+                                77.0771,
+                                77.0769
+                            ],
+    "after_samples_ms":  [
+                             77.8291,
+                             78.0121,
+                             78.0503,
+                             78.3148,
+                             79.2404
+                         ],
+    "baseline_median_ms":  77.0771,
+    "after_median_ms":  78.0503,
+    "retained_timeline_bytes_range":  [
+                                          331992,
+                                          332477
+                                      ],
+    "retained_timeline_records":  500,
+    "method":  "100000 synthetic reducer events; one warmup per revision; five alternating measured runs each; no concurrent build; installed app and user preview left running",
+    "limitations":  "No native screenshots, idle CPU/RSS, frame/startup latency, GPU memory or live Discord measurements; NSIS unavailable, portable package only"
+}

@@ -39,6 +39,8 @@ fn main() {
 				bits: 0,
 				position: 10,
 				color: 0,
+				secondary_color: None,
+				tertiary_color: None,
 				hoist: true,
 			}]),
 		},

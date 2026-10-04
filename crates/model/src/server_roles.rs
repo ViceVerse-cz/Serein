@@ -83,6 +83,8 @@ impl Role {
 			name: self.name.clone(),
 			bits: self.permissions,
 			color: self.colors.primary,
+			secondary_color: self.colors.secondary,
+			tertiary_color: self.colors.tertiary,
 			position: self.position,
 			hoist: self.hoist,
 		}

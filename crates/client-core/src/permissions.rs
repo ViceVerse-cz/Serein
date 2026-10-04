@@ -161,7 +161,7 @@ impl Permissions {
 					&& g.roles.as_ref().is_none_or(|roles| {
 						roles.len() <= 512
 							&& roles.iter().all(|role| {
-								role.name.chars().count() <= 100 && role.color <= 0xff_ffff
+								role.name.chars().count() <= 100 && role.colors().valid()
 							})
 					}) && g
 					.member
@@ -442,6 +442,13 @@ impl State {
 			.and_then(|guild| guild.roles.as_deref())
 	}
 	pub fn message_author_color(&self, message: &model::Message) -> Option<u32> {
+		self.message_author_colors(message)
+			.map(|colors| colors.primary)
+	}
+	pub fn message_author_colors(
+		&self,
+		message: &model::Message,
+	) -> Option<model::server_roles::Colors> {
 		if message.author.webhook {
 			return None;
 		}
@@ -449,7 +456,7 @@ impl State {
 		let roles = self
 			.live_author_roles(guild, message.channel, message.author.id)
 			.unwrap_or(message.author_roles.as_slice());
-		self.display_roles(guild, roles).1.map(|role| role.color)
+		self.display_roles(guild, roles).1.map(p::Role::colors)
 	}
 	pub fn forum_author_color(
 		&self,
@@ -458,6 +465,16 @@ impl State {
 		webhook: bool,
 		roles: &[Id],
 	) -> Option<u32> {
+		self.forum_author_colors(channel, author, webhook, roles)
+			.map(|colors| colors.primary)
+	}
+	pub fn forum_author_colors(
+		&self,
+		channel: Id,
+		author: Id,
+		webhook: bool,
+		roles: &[Id],
+	) -> Option<model::server_roles::Colors> {
 		if webhook {
 			return None;
 		}
@@ -466,7 +483,7 @@ impl State {
 			.selected
 			.and_then(|selected| self.live_author_roles(guild, selected, author))
 			.unwrap_or(roles);
-		self.display_roles(guild, roles).1.map(|role| role.color)
+		self.display_roles(guild, roles).1.map(p::Role::colors)
 	}
 	fn live_author_roles(&self, guild: Id, channel: Id, user: Id) -> Option<&[Id]> {
 		let member = self
@@ -1013,6 +1030,8 @@ mod tests {
 			roles: Some(vec![p::Role {
 				name: String::new(),
 				color: 0,
+				secondary_color: None,
+				tertiary_color: None,
 				position: 0,
 				hoist: false,
 				id: Id(1),

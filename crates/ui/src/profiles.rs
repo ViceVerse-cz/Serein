@@ -1797,10 +1797,14 @@ fn role_chips(
 	ui.horizontal_wrapped(|ui| {
 		ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
 		for (role, width) in roles.iter().zip(&widths).take(visible) {
-			let galley = ui.painter().layout_no_wrap(
-				role.name.clone(),
+			let galley = crate::role_names::galley(
+				ui,
+				&role.name,
 				egui::FontId::proportional(12.0),
+				Some(role.colors()),
+				theme.chip,
 				theme.text,
+				(*width - 21.0).max(0.0),
 			);
 			let size = vec2(*width, galley.size().y + 6.0);
 			let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
@@ -3022,6 +3026,21 @@ pub fn show_with_session(
 							})
 							.unwrap_or_else(|| state.user_display_name(user));
 						let display = display.split_whitespace().collect::<Vec<_>>().join(" ");
+						let role_colors = data
+							.filter(|_| !user.webhook)
+							.and_then(|data| data.guild.as_ref())
+							.and_then(|member| {
+								state
+									.guild_roles(member.guild)?
+									.iter()
+									.filter(|role| {
+										role.id != member.guild
+											&& role.color != 0
+											&& member.roles.contains(&role.id)
+									})
+									.max_by(|a, b| a.cmp_hierarchy(b))
+									.map(|role| role.colors())
+							});
 						// Ordinary user payloads already carry the server identity. Keep it visible
 						// while the extended profile loads or when that optional request fails.
 						let clan = data
@@ -3047,11 +3066,18 @@ pub fn show_with_session(
 								egui::Layout::left_to_right(egui::Align::Center),
 								|ui| {
 									let name = ui.add(
-										egui::Label::new(
-											RichText::new(display)
-												.size(if full { 26.0 } else { 20.0 })
-												.strong(),
-										)
+										egui::Label::new(crate::role_names::galley(
+											ui,
+											&display,
+											egui::FontId::new(
+												if full { 26.0 } else { 20.0 },
+												design::semibold_family(ui.ctx()),
+											),
+											role_colors,
+											if full { theme.card } else { theme.panel },
+											theme.text,
+											ui.available_width(),
+										))
 										.truncate()
 										.sense(if full || user.webhook {
 											egui::Sense::hover()
@@ -4460,6 +4486,8 @@ mod tests {
 						bits: 0,
 						name: name.into(),
 						color,
+						secondary_color: None,
+						tertiary_color: None,
 						position,
 						hoist: false,
 					},

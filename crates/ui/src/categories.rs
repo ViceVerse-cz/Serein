@@ -962,7 +962,7 @@ impl MessagingUi {
 												user,
 												&label,
 												15.0,
-												name_color,
+												(name_color, None, colors.sidebar),
 												egui::Sense::hover(),
 												trailing,
 											);

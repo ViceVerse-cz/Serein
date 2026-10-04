@@ -304,6 +304,8 @@ fn main() -> eframe::Result {
 					id: role,
 					name: "Verified".into(),
 					color: 0x00ff00,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 1,
 					hoist: false,
 					bits: 0,
@@ -1542,14 +1544,22 @@ impl Desktop {
 					.collect();
 			}
 			// Synthetic role metadata exercises the same bounded permission mirror as live events.
+			let gradient_roles = std::env::args().any(|arg| arg == "--demo-role-gradients");
 			for guild in state.permissions.guilds.values_mut() {
 				if let Some(roles) = &mut guild.roles {
+					if gradient_roles {
+						for role in roles.iter_mut().filter(|role| role.id == model::Id(101)) {
+							role.secondary_color = Some(0x89b4fa);
+						}
+					}
 					roles.extend([
 						model::permissions::Role {
 							id: model::Id(9001),
 							bits: 0,
 							name: "Founders".into(),
 							color: 0xe78284,
+							secondary_color: gradient_roles.then_some(0x89b4fa),
+							tertiary_color: None,
 							position: 2,
 							hoist: true,
 						},
@@ -1557,7 +1567,9 @@ impl Desktop {
 							id: model::Id(9002),
 							bits: 0,
 							name: "Community".into(),
-							color: 0xe5c769,
+							color: if gradient_roles { 11127295 } else { 0xe5c769 },
+							secondary_color: gradient_roles.then_some(16759788),
+							tertiary_color: gradient_roles.then_some(16761760),
 							position: 1,
 							hoist: true,
 						},

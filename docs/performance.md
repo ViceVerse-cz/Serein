@@ -4402,3 +4402,37 @@ UI Automation focus fallback. The unavailable computer-use pipe is not used.
 The tree read is no full accessibility audit. Workspace checks pass (1,166 tests
 passed, 27 ignored), and the font subset reproduces byte-for-byte. All content
 is synthetic; live Discord, microphone and calls remain unverified.
+
+## Role name gradients — October 4, 2026
+
+Compared baseline `6313e271e9c34b39069eb20787afb1476741b21c` with the role gradient
+implementation on Windows 11 Pro, AMD Ryzen 5 5600G, 12 logical CPUs and approximately
+32 GiB RAM, using pinned Rust 1.98.1. Both standard voice-inclusive portable packages
+use `cargo xtask package`, no default/demo features and normal fat LTO. NSIS is absent,
+so no installer was produced. Installed bytes sum regular files in `dist`; ZIP bytes
+use PowerShell `Compress-Archive -Path dist/* -CompressionLevel Optimal`.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 84,442,112 B | 84,451,840 B | +9,728 B / +0.0115% |
+| Portable installed files | 88,615,308 B | 88,625,036 B | +9,728 B / +0.0110% |
+| Complete portable ZIP | 49,397,126 B | 49,399,197 B | +2,071 B / +0.0042% |
+| Reducer replay median | 77.0771 ms | 78.0503 ms | +0.9732 ms / +1.26% |
+| Retained timeline estimate | 331,992–332,477 B | 331,992–332,477 B | unchanged |
+
+Replay uses the existing release `replay-bench` workload of 100,000 synthetic events.
+Build each revision once with `cargo build --release --locked -p replay-bench`, then
+run its executable directly: one warmup per revision and five alternating measured
+runs each, with no concurrent build. Both retained 500 records. The installed app and
+the owner's debug preview were left running during both sets. The small timing increase
+does not establish a UI regression or improvement; this reducer workload does not
+exercise gradient rendering. Raw samples and executable hashes are recorded in
+[the measurements](pr-evidence/role-gradients/measurements.json).
+
+The synthetic native demo passed a five-second startup smoke check on WGPU/Dx12,
+NVIDIA GeForce RTX 5070 Ti. Native screenshot automation was unavailable because its
+helper pipe could not be opened. Before/after visual inspection, native idle CPU/RSS,
+frame/startup latency and GPU memory remain unmeasured. No live Discord, microphone
+or voice traffic was tested. The PR remains draft for missing native visual evidence
+and two pre-existing Gateway loopback failures, reproduced on baseline with
+`Protocol(MissingConnectionUpgradeHeader)`.

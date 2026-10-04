@@ -7,6 +7,7 @@ mod appearance_transparency_tests;
 mod archives;
 mod audio;
 mod forwarding;
+mod role_names;
 pub use audio::{AudioCommand, AudioState, AudioUi};
 mod video;
 pub use video::{VideoCommand, VideoState, VideoUi};
@@ -1437,6 +1438,14 @@ impl MessagingUi {
 					};
 					match slot {
 						Some(model::MemberSlot::Group(id)) => {
+							let role_colors = id.parse::<u64>().ok().and_then(|role_id| {
+								guild
+									.and_then(|guild| state.guild_roles(guild))
+									.and_then(|roles| {
+										roles.iter().find(|role| role.id == Id(role_id))
+									})
+									.map(|role| role.colors())
+							});
 							let name = match id.as_str() {
 								"online" => language.text("status-online"),
 								"offline" => language.text("status-offline"),
@@ -1476,9 +1485,15 @@ impl MessagingUi {
 							);
 							header
 								.add(
-									egui::Label::new(
-										design::medium(ui, &text, 12.0).color(colors.muted),
-									)
+									egui::Label::new(crate::role_names::galley(
+										&header,
+										&text,
+										egui::FontId::new(12.0, design::medium_family(ui.ctx())),
+										role_colors,
+										colors.sidebar,
+										colors.muted,
+										header.available_width(),
+									))
 									.truncate(),
 								)
 								.on_hover_text(&text);
@@ -1558,21 +1573,17 @@ impl MessagingUi {
 										colors.sidebar,
 									);
 								}
-								let text_color = if online {
-									let role_color = guild.and_then(|guild| {
-										state.member_roles(guild, member).1.map(|role| role.color)
-									});
-									let background = if response.hovered() || response.has_focus() {
-										colors.hover
-									} else {
-										colors.sidebar
-									};
-									role_color.map_or(colors.text, |rgb| {
-										design::role_name_color(rgb, background, colors.text)
+								let role_colors = online
+									.then(|| {
+										guild.and_then(|guild| {
+											state
+												.member_roles(guild, member)
+												.1
+												.map(|role| role.colors())
+										})
 									})
-								} else {
-									colors.muted
-								};
+									.flatten();
+								let text_color = if online { colors.text } else { colors.muted };
 								let mut show_name = |ui: &mut egui::Ui| {
 									ui.allocate_ui_with_layout(
 										egui::vec2(ui.available_width(), 18.0),
@@ -1588,7 +1599,15 @@ impl MessagingUi {
 												&member.user,
 												name,
 												15.0,
-												text_color,
+												(
+													text_color,
+													role_colors,
+													if response.hovered() || response.has_focus() {
+														colors.hover
+													} else {
+														colors.sidebar
+													},
+												),
 												egui::Sense::hover(),
 												trailing,
 											);
@@ -7506,6 +7525,8 @@ mod composer_tests {
 					bits: 0,
 					name: "Founders".into(),
 					color: 0xe78284,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 1,
 					hoist: true,
 				}]),

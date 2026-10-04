@@ -14,6 +14,83 @@ const BITS: u128 = p::VIEW_CHANNEL
 	| p::SPEAK
 	| p::USE_VAD;
 
+#[test]
+fn author_gradients_follow_role_hierarchy_and_reject_invalid_stops() {
+	let mut state = state();
+	let mut role = state.guild_roles(Id(10)).unwrap()[1].clone();
+	role.position = 2;
+	role.color = 0x112233;
+	role.secondary_color = Some(0x445566);
+	role.tertiary_color = Some(0x778899);
+	let colors = role.colors();
+	let role_id = role.id;
+	permission(
+		&mut state,
+		PermissionEvent::Role {
+			guild: Id(10),
+			role: role.clone(),
+		},
+	);
+	let mut chat = message(100, Id(20));
+	chat.author_roles = vec![role_id];
+	assert_eq!(state.message_author_colors(&chat), Some(colors));
+	assert_eq!(
+		state.forum_author_colors(Id(20), chat.author.id, false, &chat.author_roles),
+		Some(colors)
+	);
+	let mut lower = role.clone();
+	lower.id = Id(12);
+	lower.position = 1;
+	lower.secondary_color = None;
+	lower.tertiary_color = None;
+	permission(
+		&mut state,
+		PermissionEvent::Role {
+			guild: Id(10),
+			role: lower,
+		},
+	);
+	chat.author_roles.push(Id(12));
+	assert_eq!(state.message_author_colors(&chat), Some(colors));
+	assert_eq!(
+		state.forum_author_colors(Id(20), chat.author.id, false, &chat.author_roles),
+		Some(colors)
+	);
+	chat.author.webhook = true;
+	assert_eq!(state.message_author_colors(&chat), None);
+	assert_eq!(
+		state.forum_author_colors(Id(20), chat.author.id, true, &chat.author_roles),
+		None
+	);
+	for tertiary in [false, true] {
+		let mut invalid = role.clone();
+		if tertiary {
+			invalid.tertiary_color = Some(0x1000000);
+		} else {
+			invalid.secondary_color = Some(0x1000000);
+		}
+		assert!(
+			state
+				.permissions
+				.update(PermissionEvent::Role {
+					guild: Id(10),
+					role: invalid
+				})
+				.is_err()
+		);
+		assert_eq!(
+			state
+				.guild_roles(Id(10))
+				.unwrap()
+				.iter()
+				.find(|role| role.id == role_id)
+				.unwrap()
+				.colors(),
+			colors
+		);
+	}
+}
+
 fn large_startup() -> crate::Startup {
 	let mut startup = crate::Startup {
 		premium_type: 0,
@@ -313,6 +390,8 @@ fn snapshot() -> p::Snapshot {
 				p::Role {
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
 					id: Id(10),
@@ -321,6 +400,8 @@ fn snapshot() -> p::Snapshot {
 				p::Role {
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
 					id: Id(11),
@@ -680,6 +761,8 @@ fn role_rest_catalog_and_self_membership_revoke_selected_history_immediately() {
 			name: "Manager".into(),
 			bits: p::MANAGE_ROLES | p::MANAGE_GUILD,
 			color: 0,
+			secondary_color: None,
+			tertiary_color: None,
 			position: 3,
 			hoist: false,
 		});
@@ -1045,6 +1128,8 @@ fn revoked_view_cannot_return_through_stale_gateway_content_or_old_history() {
 				role: p::Role {
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
 					id: Id(11),
@@ -1097,6 +1182,8 @@ fn deleting_an_unassigned_role_prunes_its_overwrites_and_invalidates_cached_deci
 				role: p::Role {
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
 					id: Id(10),
@@ -1173,6 +1260,8 @@ fn malformed_snapshots_are_atomic_and_rejected_permission_events_fail_closed() {
 			.map(|id| p::Role {
 				name: String::new(),
 				color: 0,
+				secondary_color: None,
+				tertiary_color: None,
 				position: 0,
 				hoist: false,
 				id: Id(id),
@@ -1364,6 +1453,8 @@ fn member_requests_survive_guild_hydration_and_follow_current_permissions() {
 			name: format!("Role {id}"),
 			position,
 			color,
+			secondary_color: None,
+			tertiary_color: None,
 			hoist,
 		};
 		for role in [

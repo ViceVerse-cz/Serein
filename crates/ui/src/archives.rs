@@ -333,16 +333,16 @@ fn thread_card(
 							)
 							.selectable(false),
 						);
-						let color = state
-							.message_author_color(starter)
-							.map_or(colors.text_strong, |rgb| {
-								crate::design::role_name_color(rgb, colors.raised, colors.text)
-							});
 						ui.add(
-							egui::Label::new(
-								crate::design::medium(ui, state.message_author_name(starter), 12.5)
-									.color(color),
-							)
+							egui::Label::new(crate::role_names::galley(
+								ui,
+								state.message_author_name(starter),
+								egui::FontId::new(12.5, crate::design::medium_family(ui.ctx())),
+								state.message_author_colors(starter),
+								colors.raised,
+								colors.text_strong,
+								ui.available_width(),
+							))
 							.truncate()
 							.selectable(false),
 						);
