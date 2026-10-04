@@ -6321,6 +6321,7 @@ dependencies = [
  "eframe",
  "extensions",
  "find-msvc-tools",
+ "fontique",
  "futures-util",
  "getrandom 0.4.3",
  "image",

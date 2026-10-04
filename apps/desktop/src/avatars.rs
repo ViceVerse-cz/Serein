@@ -667,6 +667,7 @@ fn motion_video_source(source: &str) -> Option<String> {
 	}
 	let host = url.host_str()?;
 	let allowed = model::valid_gif_url(source)
+		|| model::valid_gif_video_source(source)
 		|| matches!(
 			host,
 			"cdn.discordapp.com"

@@ -10,7 +10,7 @@ use std::sync::Arc;
 /// only its alpha matters, so macOS tints it for light, dark and highlighted menu bars.
 const MARK: &[u8] = include_bytes!("../../../../assets/brand/serein-tray.png");
 /// Menu bar images are measured in points; the render is larger so Retina scales stay sharp.
-const MARK_POINTS: f64 = 18.0;
+const MARK_POINTS: f64 = 15.0;
 
 struct State {
 	window: Arc<winit::window::Window>,

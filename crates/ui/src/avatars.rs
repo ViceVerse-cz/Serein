@@ -1183,6 +1183,16 @@ impl Avatars {
 	) -> egui::Response {
 		self.user_avatar(ui, user, size, demo, false, true)
 	}
+	/// Hover-only avatar without a tooltip, for rows whose own label already names the user.
+	pub fn show_quiet(
+		&mut self,
+		ui: &mut egui::Ui,
+		user: &User,
+		size: f32,
+		demo: bool,
+	) -> egui::Response {
+		self.user_avatar(ui, user, size, demo, false, false)
+	}
 	pub fn show_rail(
 		&mut self,
 		ui: &mut egui::Ui,

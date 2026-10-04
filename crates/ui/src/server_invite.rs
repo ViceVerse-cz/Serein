@@ -56,7 +56,8 @@ impl InviteDialog {
 			} else {
 				"server-invite-show-share-a-link-so-friends-can-join-this-server"
 			}))
-			.width(540.0)
+			.icon(icons::Icon::AddPeople)
+			.width(520.0)
 			.show(ctx, |d| {
 				if settings_open {
 					d.scroll(220.0, |ui| {
@@ -78,63 +79,71 @@ impl InviteDialog {
 		avatars: &mut Avatars,
 		commands: &mut Vec<Command>,
 	) {
+		const ROW: f32 = 52.0;
 		let colors = design::palette(ui);
-		ui.add_space(6.0);
+		ui.add_space(2.0);
 		let before = *channel;
 		ui.add_enabled_ui(
 			!state.server_action_pending() && !state.server_invite_pending(),
 			|ui| {
-				let layout = if ui.available_width() < 420.0 {
-					egui::Layout::top_down(egui::Align::Min)
+				let (layout, height) = if ui.available_width() < 420.0 {
+					(egui::Layout::top_down(egui::Align::Min), 0.0)
 				} else {
-					egui::Layout::left_to_right(egui::Align::Center)
+					// A row height lets the label centre on the taller channel picker.
+					(egui::Layout::left_to_right(egui::Align::Center), 34.0)
 				};
-				ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 0.0), layout, |ui| {
-					ui.label(
-						egui::RichText::new(crate::i18n::translate(
-							"server-invite-picker-recipients-will-land-in",
-						))
-						.size(18.0)
-						.color(colors.muted),
-					);
-					let current = state.channels.iter().find(|c| Some(c.id) == *channel);
-					let name = current.map_or_else(
-						|| crate::i18n::translate("server-invite-picker-no-eligible-channel"),
-						|channel| channel.name.clone(),
-					);
-					egui::ComboBox::from_id_salt("invite-channel")
-						.selected_text((
-							crate::icons::atom(
-								crate::icons::channel(current.map_or(0, |c| c.kind)),
-								18.0,
-								colors.muted,
-							),
-							egui::RichText::new(name).color(colors.muted).size(18.0),
-						))
-						.width(ui.available_width().min(300.0))
-						.wrap_mode(egui::TextWrapMode::Truncate)
-						.height(220.0)
-						.show_ui(ui, |ui| {
-							for c in state
-								.channels
-								.iter()
-								.filter(|c| state.can_create_server_invite(guild, c.id))
-							{
-								ui.selectable_value(
-									channel,
-									Some(c.id),
-									(
-										crate::icons::atom(
-											crate::icons::channel(c.kind),
-											16.0,
-											colors.muted,
+				ui.allocate_ui_with_layout(
+					egui::vec2(ui.available_width(), height),
+					layout,
+					|ui| {
+						ui.label(
+							egui::RichText::new(crate::i18n::translate(
+								"server-invite-picker-recipients-will-land-in",
+							))
+							.size(14.0)
+							.color(colors.muted),
+						);
+						let current = state.channels.iter().find(|c| Some(c.id) == *channel);
+						let name = current.map_or_else(
+							|| crate::i18n::translate("server-invite-picker-no-eligible-channel"),
+							|channel| channel.name.clone(),
+						);
+						egui::ComboBox::from_id_salt("invite-channel")
+							.selected_text((
+								crate::icons::atom(
+									crate::icons::channel(current.map_or(0, |c| c.kind)),
+									16.0,
+									colors.muted,
+								),
+								egui::RichText::new(name)
+									.color(colors.text_strong)
+									.size(14.0),
+							))
+							.width(ui.available_width().min(260.0))
+							.wrap_mode(egui::TextWrapMode::Truncate)
+							.height(220.0)
+							.show_ui(ui, |ui| {
+								for c in state
+									.channels
+									.iter()
+									.filter(|c| state.can_create_server_invite(guild, c.id))
+								{
+									ui.selectable_value(
+										channel,
+										Some(c.id),
+										(
+											crate::icons::atom(
+												crate::icons::channel(c.kind),
+												16.0,
+												colors.muted,
+											),
+											c.name.as_str(),
 										),
-										c.name.as_str(),
-									),
-								);
-							}
-						});
-				});
+									);
+								}
+							});
+					},
+				);
 			},
 		);
 		if *channel != before {
@@ -142,15 +151,16 @@ impl InviteDialog {
 			self.copied = false;
 			self.generate = true;
 		}
-		ui.add_space(24.0);
+		ui.add_space(14.0);
 		egui::Frame::new()
+			.fill(colors.base)
 			.stroke(egui::Stroke::new(1.0, colors.border))
-			.corner_radius(10)
-			.inner_margin(egui::Margin::symmetric(12, 8))
+			.corner_radius(8)
+			.inner_margin(egui::Margin::symmetric(10, 7))
 			.show(ui, |ui| {
 				ui.horizontal(|ui| {
 					let (rect, _) =
-						ui.allocate_exact_size(egui::vec2(20.0, 22.0), egui::Sense::hover());
+						ui.allocate_exact_size(egui::vec2(16.0, 20.0), egui::Sense::hover());
 					icons::paint(ui.painter(), icons::Icon::Search, rect, colors.muted);
 					ui.add(
 						egui::TextEdit::singleline(&mut self.search)
@@ -158,14 +168,14 @@ impl InviteDialog {
 								"server-invite-picker-search-for-friends",
 							))
 							.char_limit(100)
-							.font(egui::FontId::proportional(18.0))
+							.font(egui::FontId::proportional(15.0))
 							.align(egui::Align2::LEFT_CENTER)
 							.desired_width(ui.available_width())
 							.frame(egui::Frame::NONE),
 					);
 				});
 			});
-		ui.add_space(12.0);
+		ui.add_space(8.0);
 		let query = self.search.to_lowercase();
 		let friends: Vec<_> = state
 			.friends()
@@ -190,102 +200,123 @@ impl InviteDialog {
 			.max_height(list_height)
 			.min_scrolled_height(list_height)
 			.auto_shrink([false, false])
-			.show_rows(ui, 60.0, friends.len(), |ui, range| {
+			.show_rows(ui, ROW, friends.len(), |ui, range| {
 				ui.spacing_mut().item_spacing.y = 0.0;
 				for user in &friends[range] {
 					ui.push_id((guild, user.id), |ui| {
 						let (rect, _) = ui.allocate_exact_size(
-							egui::vec2(ui.available_width(), 60.0),
+							egui::vec2(ui.available_width(), ROW),
 							egui::Sense::hover(),
 						);
 						if ui.rect_contains_pointer(rect) {
-							ui.painter().rect_filled(rect, 6, colors.hover);
+							ui.painter().rect_filled(rect, 8, colors.hover);
 						}
 						ui.scope_builder(
-							egui::UiBuilder::new().max_rect(rect.shrink2(egui::vec2(0.0, 10.0))),
+							egui::UiBuilder::new().max_rect(rect.shrink2(egui::vec2(8.0, 9.0))),
 							|ui| {
 								ui.horizontal(|ui| {
-									avatars.show(ui, user, 40.0, state.demo);
+									avatars.show(ui, user, 34.0, state.demo);
 									ui.add_space(4.0);
-									let label_width = (ui.available_width() - 90.0).max(1.0);
-									ui.allocate_ui_with_layout(
-										egui::vec2(label_width, 40.0),
-										egui::Layout::top_down(egui::Align::Min),
+									// Right to left: the action keeps its natural width at the edge and
+									// the name takes what remains, so rows never overflow the list.
+									ui.with_layout(
+										egui::Layout::right_to_left(egui::Align::Center),
 										|ui| {
-											ui.set_width(label_width);
-											ui.add(
-												egui::Label::new(design::semibold(
-													ui, &user.name, 18.0,
-												))
-												.truncate(),
-											);
 											let status = state.server_invite_status(guild, user.id);
-											let subtitle =
-												if let Some(InviteStatus::Failed(failure)) = status
-												{
-													failure.label()
-												} else {
-													state.friend_username(user.id).unwrap_or("")
-												};
-											ui.add(
-												egui::Label::new(
-													egui::RichText::new(subtitle).size(12.0).color(
-														if matches!(
-															status,
-															Some(InviteStatus::Failed(_))
-														) {
-															colors.warning
-														} else {
-															colors.muted
-														},
-													),
+											let label =
+												crate::i18n::translate_if_key(match status {
+													Some(InviteStatus::Sending) => {
+														"server-invite-picker-sending"
+													}
+													Some(InviteStatus::Sent) => {
+														"server-invite-picker-sent"
+													}
+													Some(InviteStatus::Failed(
+														client_core::auth::Failure::Ambiguous,
+													)) => "server-invite-picker-uncertain",
+													Some(InviteStatus::Failed(_)) => {
+														"server-invite-picker-retry"
+													}
+													None => "server-invite-picker-invite",
+												});
+											let can_send = enabled
+												&& !matches!(
+													status,
+													Some(
+														InviteStatus::Sent
+															| InviteStatus::Sending | InviteStatus::Failed(
+															client_core::auth::Failure::Ambiguous
+														)
+													)
+												);
+											let button = ui
+												.add_enabled_ui(can_send, |ui| {
+													design::button(
+														ui,
+														&label,
+														design::ButtonKind::Outline,
+													)
+												})
+												.inner;
+											button.widget_info(|| {
+												egui::WidgetInfo::labeled(
+													egui::Role::Button,
+													can_send,
+													format!("{label} {}", user.name),
 												)
-												.truncate(),
+											});
+											if button.clicked() {
+												send = Some(user.id);
+											}
+											if let Some(InviteStatus::Failed(failure)) = status {
+												button.on_hover_text(failure.label());
+											}
+											let label_width = ui.available_width().max(1.0);
+											ui.allocate_ui_with_layout(
+												egui::vec2(label_width, 34.0),
+												egui::Layout::top_down(egui::Align::Min),
+												|ui| {
+													ui.set_width(label_width);
+													ui.add(
+														egui::Label::new(
+															design::semibold(ui, &user.name, 15.0)
+																.color(colors.text_strong),
+														)
+														.truncate(),
+													);
+													let status =
+														state.server_invite_status(guild, user.id);
+													let subtitle = if let Some(
+														InviteStatus::Failed(failure),
+													) = status
+													{
+														failure.label()
+													} else {
+														state.friend_username(user.id).unwrap_or("")
+													};
+													ui.add(
+														egui::Label::new(
+															egui::RichText::new(subtitle)
+																.size(12.0)
+																.color(
+																	if matches!(
+																		status,
+																		Some(InviteStatus::Failed(
+																			_
+																		))
+																	) {
+																		colors.warning
+																	} else {
+																		colors.muted
+																	},
+																),
+														)
+														.truncate(),
+													);
+												},
 											);
 										},
 									);
-									let status = state.server_invite_status(guild, user.id);
-									let label = crate::i18n::translate_if_key(match status {
-										Some(InviteStatus::Sending) => {
-											"server-invite-picker-sending"
-										}
-										Some(InviteStatus::Sent) => "server-invite-picker-sent",
-										Some(InviteStatus::Failed(
-											client_core::auth::Failure::Ambiguous,
-										)) => "server-invite-picker-uncertain",
-										Some(InviteStatus::Failed(_)) => {
-											"server-invite-picker-retry"
-										}
-										None => "server-invite-picker-invite",
-									});
-									let can_send = enabled
-										&& !matches!(
-											status,
-											Some(
-												InviteStatus::Sent
-													| InviteStatus::Sending | InviteStatus::Failed(
-													client_core::auth::Failure::Ambiguous
-												)
-											)
-										);
-									let button = ui
-										.add_enabled_ui(can_send, |ui| {
-											design::button(ui, &label, design::ButtonKind::Outline)
-										})
-										.inner;
-									button.widget_info(|| {
-										egui::WidgetInfo::labeled(
-											egui::Role::Button,
-											can_send,
-											format!("{label} {}", user.name),
-										)
-									});
-									if button.clicked() {
-										send = Some(user.id);
-									}
-									if let Some(InviteStatus::Failed(failure)) = status {
-										button.on_hover_text(failure.label());
-									}
 								});
 							},
 						);
@@ -310,22 +341,24 @@ impl InviteDialog {
 		{
 			commands.push(command);
 		}
-		ui.add_space(16.0);
+		ui.add_space(12.0);
 		let y = ui.cursor().top();
+		// Edge to edge of the dialog: the content block is inset by exactly the dialog padding.
+		let edge = crate::dialog::PAD;
 		ui.painter().hline(
-			ui.min_rect().left() - 30.0..=ui.max_rect().right() + 30.0,
+			ui.max_rect().left() - edge..=ui.max_rect().right() + edge,
 			y,
 			egui::Stroke::new(1.0, colors.border),
 		);
-		ui.add_space(20.0);
-		ui.label(design::medium(
+		ui.add_space(16.0);
+		ui.label(design::eyebrow(
 			ui,
 			crate::i18n::translate("server-invite-picker-or-send-a-server-invite-link-to-a-friend"),
-			17.0,
+			colors.muted,
 		));
-		ui.add_space(8.0);
+		ui.add_space(6.0);
 		self.link(ui, state, guild, *channel, commands);
-		ui.add_space(12.0);
+		ui.add_space(6.0);
 		ui.horizontal_wrapped(|ui| {
 			let options = state.created_invite_options(guild).unwrap_or(self.options);
 			ui.label(
@@ -383,49 +416,89 @@ impl InviteDialog {
 	) {
 		let colors = design::palette(ui);
 		egui::Frame::new()
+			.fill(colors.base)
 			.stroke(egui::Stroke::new(1.0, colors.border))
-			.corner_radius(10)
-			.inner_margin(5)
+			.corner_radius(8)
+			.inner_margin(egui::Margin {
+				left: 12,
+				right: 5,
+				top: 5,
+				bottom: 5,
+			})
 			.show(ui, |ui| {
-				ui.horizontal(|ui| {
-					let link = state.created_invite(guild);
-					let pending = state.server_action_pending();
-					let text = link.unwrap_or(if pending {
+				ui.set_width(ui.available_width());
+				let link = state.created_invite(guild).map(str::to_owned);
+				let pending = state.server_action_pending();
+				let text = link.clone().unwrap_or_else(|| {
+					if pending {
 						"Creating invite link…"
 					} else {
 						"Create a link to share"
-					});
-					ui.add_sized(
-						[(ui.available_width() - 100.0).max(24.0), 38.0],
-						egui::Label::new(egui::RichText::new(text).size(18.0)).truncate(),
-					);
-					let label = if link.is_some() {
-						if self.copied { "Copied" } else { "Copy" }
-					} else if pending {
-						"Creating…"
-					} else {
-						"Create link"
-					};
-					if ui
-						.add_enabled_ui(!pending && channel.is_some(), |ui| {
-							design::button(ui, label, design::ButtonKind::Primary)
-						})
-						.inner
-						.clicked()
-					{
-						if let Some(link) = link {
-							ui.ctx().copy_text(link.to_owned());
-							self.copied = true;
-						} else if let Some(channel) = channel
-							&& let Some(command) = state.create_server_invite_with_options(
-								guild,
-								channel,
-								self.options,
-							) {
-							commands.push(command);
-						}
 					}
+					.to_owned()
 				});
+				// Right to left: the action sits at the edge and the link fills the rest.
+				// A fixed row height keeps the centred cross axis from claiming the dialog.
+				ui.allocate_ui_with_layout(
+					egui::vec2(ui.available_width(), 32.0),
+					egui::Layout::right_to_left(egui::Align::Center),
+					|ui| {
+						let label = if link.is_some() {
+							if self.copied { "Copied" } else { "Copy" }
+						} else if pending {
+							"Creating…"
+						} else {
+							"Create link"
+						};
+						if ui
+							.add_enabled_ui(!pending && channel.is_some(), |ui| {
+								design::button(ui, label, design::ButtonKind::Primary)
+							})
+							.inner
+							.clicked()
+						{
+							if let Some(link) = &link {
+								ui.ctx().copy_text(link.clone());
+								self.copied = true;
+							} else if let Some(channel) = channel
+								&& let Some(command) = state.create_server_invite_with_options(
+									guild,
+									channel,
+									self.options,
+								) {
+								commands.push(command);
+							}
+						}
+						ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+							let (rect, _) = ui
+								.allocate_exact_size(egui::vec2(16.0, 32.0), egui::Sense::hover());
+							icons::paint(
+								ui.painter(),
+								if self.copied {
+									icons::Icon::Check
+								} else {
+									icons::Icon::Link
+								},
+								rect,
+								if self.copied {
+									colors.positive
+								} else {
+									colors.muted
+								},
+							);
+							ui.add(
+								egui::Label::new(egui::RichText::new(text).size(15.0).color(
+									if link.is_some() {
+										colors.text_strong
+									} else {
+										colors.muted
+									},
+								))
+								.truncate(),
+							);
+						});
+					},
+				);
 			});
 	}
 	fn settings(
@@ -438,15 +511,15 @@ impl InviteDialog {
 	) {
 		let pending = state.server_action_pending();
 		let mut options = self.settings.unwrap();
-		ui.add_space(28.0);
+		ui.add_space(12.0);
 		ui.add_enabled_ui(!pending, |ui| {
-			ui.label(design::medium(ui, crate::i18n::translate("server-invite-settings-expire-after"), 18.0));
+			ui.label(design::medium(ui, crate::i18n::translate("server-invite-settings-expire-after"), 14.0));
 			ui.add_space(8.0);
 			select(ui, "invite-expiry", &expiry_label(options.max_age), |ui| {
 				for seconds in [1800, 3600, 21600, 43200, 86400, 604800, 2592000, 0] { ui.selectable_value(&mut options.max_age, seconds, expiry_label(seconds)); }
 			});
-			ui.add_space(24.0);
-			ui.label(design::medium(ui, crate::i18n::translate("server-invite-settings-max-number-of-uses"), 18.0));
+			ui.add_space(16.0);
+			ui.label(design::medium(ui, crate::i18n::translate("server-invite-settings-max-number-of-uses"), 14.0));
 			ui.add_space(8.0);
 			select(ui, "invite-uses", &uses_label(options.max_uses), |ui| {
 				for uses in [0, 1, 5, 10, 25, 50, 100] { ui.selectable_value(&mut options.max_uses, uses, uses_label(uses)); }
@@ -516,10 +589,10 @@ fn uses_label(uses: u16) -> String {
 }
 fn select(ui: &mut egui::Ui, id: &str, label: &str, content: impl FnOnce(&mut egui::Ui)) {
 	ui.scope(|ui| {
-		ui.spacing_mut().button_padding = egui::vec2(14.0, 12.0);
-		ui.spacing_mut().interact_size.y = 48.0;
+		ui.spacing_mut().button_padding = egui::vec2(12.0, 9.0);
+		ui.spacing_mut().interact_size.y = 38.0;
 		egui::ComboBox::from_id_salt(id)
-			.selected_text(egui::RichText::new(label).size(18.0))
+			.selected_text(egui::RichText::new(label).size(15.0))
 			.width(ui.available_width())
 			.show_ui(ui, content);
 	});

@@ -16,7 +16,7 @@ impl DiscordApi {
 		{
 			return Err(Failure::Protocol);
 		}
-		let channel = self.open_dm(user).await?;
+		let channel = self.open_dm(user, None, None).await?;
 		let content = format!("https://discord.gg/{code}");
 		let message = self
 			.send_message(channel.id, &content, nonce, None, None, None)

@@ -8,8 +8,18 @@ const NAMES: &str = include_str!("../../../assets/twemoji/names.tsv");
 const DISCORD_NAMES: &str = include_str!("../../../assets/twemoji/discord-shortcodes.tsv");
 const CELL: f32 = 40.0;
 
+thread_local! {
+	/// The signed-in account's message length; the composer sets it each frame before edits.
+	static CONTENT_LIMIT: std::cell::Cell<usize> =
+		const { std::cell::Cell::new(client_core::MAX_CONTENT) };
+}
+
+pub(crate) fn set_content_limit(limit: usize) {
+	CONTENT_LIMIT.set(limit);
+}
+
 pub(crate) fn composer_limit(draft: &str, editing: bool) -> usize {
-	client_core::MAX_CONTENT
+	CONTENT_LIMIT.get()
 		+ if !editing && model::message_options::content(draft).1 {
 			model::message_options::PREFIX_ALLOWANCE
 		} else {
@@ -1780,18 +1790,17 @@ impl Picker {
 				let heading = match mode {
 					GifMode::Home | GifMode::Waiting => None,
 					GifMode::Favorites => {
-						ui.horizontal_wrapped(|ui| {
-							if state.gifs.sync_pending.is_some() {
-								ui.add(egui::Spinner::new().size(12.0));
-								ui.label(crate::i18n::translate("gif-favorites-sync-loading"));
-							} else {
-								let key =
-									state.gifs.sync_error.unwrap_or(if state.gifs.sync_ready {
-										"gif-favorites-sync-ready"
-									} else {
-										"gif-favorites-sync-local"
-									});
-								ui.label(crate::i18n::translate(key));
+						// Only an actionable sync failure is worth a line above the grid.
+						if let Some(error) = state
+							.gifs
+							.sync_error
+							.filter(|_| state.gifs.sync_pending.is_none())
+						{
+							ui.horizontal_wrapped(|ui| {
+								ui.label(
+									egui::RichText::new(crate::i18n::translate(error))
+										.color(colors.muted),
+								);
 								if ui
 									.add_enabled(
 										state.can_browse_gifs(),
@@ -1803,11 +1812,9 @@ impl Picker {
 								{
 									action = Some(GifAction::Refresh);
 								}
-							}
-						})
-						.response
-						.on_hover_text(crate::i18n::translate("gif-favorites-sync-help"));
-						ui.add_space(8.0);
+							});
+							ui.add_space(8.0);
+						}
 						Some(crate::i18n::translate("emoji-picker-gif-body-favorites"))
 					}
 					GifMode::Remote(None) => Some(crate::i18n::translate(
@@ -2046,7 +2053,8 @@ fn gif_home(
 	let favorite_art = state
 		.gifs
 		.favorites
-		.first()
+		.iter()
+		.find(|gif| model::valid_gif_preview(&gif.preview))
 		.and_then(|gif| avatars.gif_texture(ui.ctx(), gif, demo));
 	let trending_art = page
 		.and_then(|page| page.gifs.first())
@@ -2198,6 +2206,9 @@ fn gif_grid(
 				};
 				match avatars.gif_texture(ui.ctx(), gif, demo) {
 					Some(texture) => paint_cover(ui, rect, texture, 8),
+					None if !model::valid_gif_preview(&gif.preview) => {
+						avatars.paint_gif_media(ui, gif, rect, demo);
+					}
 					None => {
 						ui.painter().rect_filled(rect, 8, colors.raised);
 						crate::icons::paint(

@@ -916,7 +916,7 @@ impl State {
 	pub fn prepare_edit(&mut self, channel: Id, message: Id, content: String) -> Option<Command> {
 		if !self.can_edit(channel, message)
 			|| content.trim().is_empty()
-			|| content.chars().count() > crate::MAX_CONTENT
+			|| content.chars().count() > self.content_limit()
 		{
 			self.status = "This message cannot be edited with the current access";
 			return None;

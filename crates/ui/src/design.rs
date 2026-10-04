@@ -31,7 +31,8 @@ pub fn rail_name(response: &egui::Response, name: impl AsRef<str>) {
 	let dragging = response
 		.ctx
 		.input(|input| input.pointer.is_decidedly_dragging());
-	if dragging {
+	// The right-click menu replaces the name card; both would cover the same spot.
+	if dragging || response.context_menu_opened() {
 		return;
 	}
 	if !response.contains_pointer() && !response.hovered() && !response.has_focus() {

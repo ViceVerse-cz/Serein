@@ -4095,3 +4095,75 @@ remain unmeasured. No account, microphone, camera or desktop capture was used.
 Synthetic delivery and bounded recovery do not prove resolution of intermittent
 official-client error 2012. Very large keyframes at low feedback bitrates still
 need owner-controlled investigation; no automatic resolution adaptation was added.
+
+## Native Windows installer smoke (October 3, 2026)
+
+Installer source `4be6d629` replaces setup/uninstall PowerShell with native Windows
+process enumeration and shortcut property-store calls. Run
+`python packaging/windows/test_installer.py` in a disposable Windows user with
+pinned Rust 1.98.1 and NSIS. The script compiles an optimized, std-only offline
+fixture; it never runs Serein, connects an account or opens audio devices.
+
+| Synthetic fixture metric | Windows x64 | Windows ARM64 |
+| --- | ---: | ---: |
+| Compressed setup EXE | 870,573 B | 874,551 B |
+| Fresh silent installation | 254.489 ms | 1,159.990 ms |
+| First / second silent upgrade | 208.480 / 250.311 ms | 377.350 / 337.698 ms |
+
+One CI run per architecture, no warmup: elapsed wall time around the setup
+subprocess includes extraction, process checks, shortcut and registry writes.
+These three samples perform different work and are not a latency benchmark or
+before/after speed claim. [x64 evidence](https://github.com/ViceVerse-cz/Serein/actions/runs/37088681680/job/111104156410)
+and [ARM64 evidence](https://github.com/ViceVerse-cz/Serein/actions/runs/37088681680/job/111104156236)
+also verify the running-app guard, Unicode paths, shortcut target/working directory/
+AppUserModelID, legacy-script removal and uninstall cleanup.
+
+Production Windows executable, full voice-inclusive installed package and
+distribution sizes and baseline installation timings remain unmeasured on the
+macOS host. No Rust runtime or voice dependency changed. The standard host
+voice-inclusive package passes; full workspace tests remain blocked by unchanged
+UI failures. Antivirus acceptance and Windows signing are separate, unverified
+release concerns.
+
+
+## Markdown quote row boundaries — October 4, 2026
+
+Compared renderer baseline `61a1a55001763b512e8a9813aeda74777122cb1d` with the
+quote row-boundary fix using the exact announcement fixture in the existing native
+`profile_preview --demo --page=markdown` harness. The same fixture page was added
+to both builds; the baseline renderer was unchanged. The preview uses production
+message widgets and synthetic state, with no desktop account or media adapters.
+
+Ubuntu 26.04.1, AMD Ryzen 5 7535U (12 logical CPUs), 14.3 GiB RAM, Xvfb/X11,
+1400×900 logical pixels at scale 1. Both builds used Rust 1.98.1, release,
+`--no-default-features --features demo`, and WGPU/Vulkan with the Mesa lavapipe
+ICD forced and its mapped driver library verified. After an identical neutral
+sidebar click and an eight-second warmup, one fresh process per revision received
+20 one-second psutil samples. CPU is percent of one logical core; peak RSS is
+post-warmup, and settled RSS is the last five samples' median. No helper children
+were present during sampling.
+
+| Native idle metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Mean CPU, one logical core | 0.00% | 0.00% | 0.00 percentage points |
+| Sampled peak RSS | 171.883 MiB | 175.074 MiB | +3.191 MiB / +1.86% |
+| Settled RSS | 171.883 MiB | 175.074 MiB | +3.191 MiB / +1.86% |
+
+This single launch pair does not separate layout cost from allocator/driver
+variation. Startup, full-frame p95, GPU memory and live workloads were not measured.
+Standard voice-enabled Debian package sizes, hashes and raw process samples are
+recorded in [the task measurements](pr-evidence/markdown-wrapped-quote/measurements.json).
+
+Reproduce the native fixture with:
+
+```bash
+cargo build --release --locked -p serein --no-default-features --features demo --example profile_preview
+./target/release/examples/profile_preview --demo --interactive --page=markdown --width=1400 --height=900
+```
+
+The committed pair also covers a 760×900 light viewport (`--light`). A 760×520
+native view was scrolled to inspect the long quote. Geometry regressions cover
+three sources, 220/560/1260-point widths, light/dark themes and scales 1/2.
+The exact announcement failed on the baseline because the following text began
+at y=76 while its quote rail extended to y=216; explicit row boundaries pass.
+`cargo xtask check` and strict Clippy for the demo preview passed.

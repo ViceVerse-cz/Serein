@@ -1,0 +1,11 @@
+# `PRUNE_REQUIRES_ADMIN` Guild Feature
+
+> ⚠️ **This is already live.** It rolled out earlier this year and it was a mistake on our part to not issue a breaking change announcement. This change log entry brings the docs up to date. If your app calls the prune endpoints, check your logs for `403` / `50013` errors.
+
+Server owners can now enable the `PRUNE_REQUIRES_ADMIN` guild feature. When enabled, [Get Guild Prune Count](<https://docs.discord.com/developers/resources/guild#get-guild-prune-count>) and [Begin Guild Prune](<https://docs.discord.com/developers/resources/guild#begin-guild-prune>) require the `ADMINISTRATOR` permission.
+
+Without the feature enabled, both endpoints still require `MANAGE_GUILD` and `KICK_MEMBERS`.
+## What this means for your app
+Check for `PRUNE_REQUIRES_ADMIN` in the guild's `features` array before calling either endpoint, and surface a clear message to moderators when your app lacks `ADMINISTRATOR` there.  Server owners can toggle this at any time so beware caching this list.
+
+✍️  [Read the change log](<https://docs.discord.com/developers/change-log#prune_requires_admin-guild-feature>)

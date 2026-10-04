@@ -10,6 +10,84 @@ use client_core::{State, profile::ProfileView};
 use egui::{Color32, CornerRadius, Pos2, Rect, RichText, Stroke, UiBuilder, Vec2, pos2, vec2};
 use model::{Id, User};
 
+/// Voice presence follows the person across views, using only known, visible calls.
+pub(crate) fn voice_users(state: &State) -> std::collections::BTreeSet<Id> {
+	if !state.gateway_connected {
+		return Default::default();
+	}
+	let mut users: std::collections::BTreeSet<_> = state
+		.voice
+		.roster
+		.iter()
+		.filter(|entry| {
+			state.guilds.iter().any(|guild| guild.id == entry.guild)
+				&& state.can_view(entry.channel)
+		})
+		.map(|entry| entry.participant.user)
+		.collect();
+	for (channel, participants) in state.voice.dm_call_participants() {
+		if state.can_view(channel) {
+			users.extend(participants.iter().map(|participant| participant.user));
+		}
+	}
+	if let Some(call) = &state.voice.active
+		&& call.guild.is_none()
+		&& state.can_view(call.channel)
+	{
+		users.extend(call.participants.iter().map(|participant| participant.user));
+	}
+	users
+}
+
+/// Same rules as `voice_users` for one person; stops at the first match and allocates nothing,
+/// so single-user callers do not scan the whole roster into a set each redraw.
+pub(crate) fn user_in_voice(state: &State, user: Id) -> bool {
+	state.gateway_connected
+		&& (state.voice.roster.iter().any(|entry| {
+			entry.participant.user == user
+				&& state.guilds.iter().any(|guild| guild.id == entry.guild)
+				&& state.can_view(entry.channel)
+		}) || state
+			.voice
+			.dm_call_participants()
+			.any(|(channel, participants)| {
+				participants
+					.iter()
+					.any(|participant| participant.user == user)
+					&& state.can_view(channel)
+			}) || state.voice.active.as_ref().is_some_and(|call| {
+			call.guild.is_none()
+				&& call
+					.participants
+					.iter()
+					.any(|participant| participant.user == user)
+				&& state.can_view(call.channel)
+		}))
+}
+
+/// Prefix a status row with the shared voice badge, reserving room for its existing text.
+pub(crate) fn voice_badge(ui: &mut egui::Ui, in_voice: bool, has_status: bool) {
+	if !in_voice {
+		return;
+	}
+	let colors = design::palette(ui);
+	let label = crate::i18n::translate("member-in-voice");
+	icons::inline(ui, Icon::Speaker, 12.0, colors.positive);
+	let width = ui.available_width() * if has_status { 0.5 } else { 1.0 };
+	ui.scope(|ui| {
+		ui.set_max_width(width);
+		ui.add(
+			egui::Label::new(RichText::new(&label).size(12.0).color(colors.positive))
+				.truncate()
+				.selectable(false),
+		)
+		.on_hover_text(&label);
+	});
+	if has_status {
+		ui.label(RichText::new("·").size(12.0).color(colors.muted));
+	}
+}
+
 pub(crate) fn server_tag_width(ui: &egui::Ui, tag: Option<&model::ClanTag>) -> f32 {
 	tag.map_or(0.0, |tag| {
 		let text = ui.painter().layout_no_wrap(
@@ -52,7 +130,11 @@ pub enum Action {
 	Edit,
 	Close,
 	Retry,
-	Message(Id),
+	/// Explicitly submitted text from the profile footer; the DM may need creating first.
+	SendMessage {
+		user: User,
+		content: String,
+	},
 	AddFriend(Id),
 	RemoveFriend,
 	AcceptFriend(Id),
@@ -360,6 +442,8 @@ fn activity_elapsed(start: u64, now: u64) -> Option<String> {
 const WIDTH: f32 = 340.0;
 const PAD: f32 = 12.0;
 const AVATAR: f32 = 80.0;
+/// Card-coloured ring separating the profile avatar from the banner.
+const AVATAR_RING: f32 = 6.0;
 const RADIUS: u8 = 12;
 /// Diameter of the translucent action circles laid over the banner.
 const CIRCLE: f32 = 32.0;
@@ -466,7 +550,7 @@ fn more_menu(
 	ui.set_min_width(200.0);
 	ui.spacing_mut().button_padding = vec2(8.0, 6.0);
 	let own_profile = state.user.as_ref().is_some_and(|own| own.id == user.id);
-	// Message is the card's own footer button, so the menu does not repeat it.
+	// The footer owns message composition, so the menu does not repeat it.
 	if user.webhook
 		&& ui
 			.button(crate::i18n::translate("profiles-more-menu-copy-webhook-id"))
@@ -644,10 +728,19 @@ pub(crate) fn presence_color(status: &str) -> Color32 {
 		_ => Color32::from_rgb(128, 132, 142),
 	}
 }
+/// Dot radius and ring width. Banner avatars punch the dot out with the same ring they use
+/// against the banner; list avatars keep a thin ring.
+fn presence_badge_metrics(rect: Rect) -> (f32, f32) {
+	if rect.width() >= AVATAR {
+		(rect.width() * 0.16, AVATAR_RING)
+	} else {
+		((rect.width() * 0.2).clamp(6.0, 10.0), 2.0)
+	}
+}
 fn presence_badge_rect(rect: Rect) -> Rect {
-	let radius = (rect.width() * 0.2).clamp(6.0, 10.0);
+	let (radius, ring) = presence_badge_metrics(rect);
 	let center = rect.right_bottom() - Vec2::splat(radius + 0.5);
-	Rect::from_center_size(center, Vec2::splat((radius + 2.0) * 2.0))
+	Rect::from_center_size(center, Vec2::splat((radius + ring) * 2.0))
 }
 fn pointer_on_presence(status: Option<&str>, avatar: Rect, pointer: Option<egui::Pos2>) -> bool {
 	status.is_some() && pointer.is_some_and(|pos| presence_badge_rect(avatar).contains(pos))
@@ -659,10 +752,11 @@ pub(crate) fn presence_badge(
 	clients: model::ClientPlatforms,
 	ring: Color32,
 ) {
+	let (radius, ring_width) = presence_badge_metrics(rect);
+	let center = rect.right_bottom() - Vec2::splat(radius + 0.5);
+	ui.painter()
+		.circle_filled(center, radius + ring_width, ring);
 	if clients.mobile {
-		let radius = (rect.width() * 0.2).clamp(6.0, 10.0);
-		let center = rect.right_bottom() - Vec2::splat(radius + 0.5);
-		ui.painter().circle_filled(center, radius + 2.0, ring);
 		icons::paint(
 			ui.painter(),
 			Icon::DeviceMobile,
@@ -670,7 +764,8 @@ pub(crate) fn presence_badge(
 			presence_color(status),
 		);
 	} else {
-		design::presence_dot(ui, rect, presence_color(status), ring);
+		ui.painter()
+			.circle_filled(center, radius, presence_color(status));
 	}
 	ui.allocate_rect(presence_badge_rect(rect), egui::Sense::hover())
 		.on_hover_text(presence_label(status));
@@ -1482,6 +1577,15 @@ pub struct ProfileSession {
 	anchor: Option<(Id, Pos2)>,
 	trigger: Option<Rect>,
 	pending: Vec<ProfileEffect>,
+	message_target: Option<(u64, Id)>,
+	message_draft: String,
+	message_pending: bool,
+	message_ime: bool,
+	/// Last laid-out composer height, so the scrollable details leave room for it.
+	message_height: f32,
+	bio_identity: Option<egui::Id>,
+	bio_expanded: bool,
+	bio_revealed: u32,
 }
 
 pub enum ProfileEffect {
@@ -1489,6 +1593,37 @@ pub enum ProfileEffect {
 }
 
 impl ProfileSession {
+	fn reset_card_input(&mut self) {
+		self.message_target = None;
+		self.message_draft = String::new();
+		self.message_pending = false;
+		self.message_ime = false;
+		self.bio_identity = None;
+		self.bio_expanded = false;
+		self.bio_revealed = 0;
+	}
+
+	fn reconcile_card_input(&mut self, generation: u64, user: Id) {
+		if self.message_target != Some((generation, user)) {
+			self.reset_card_input();
+			self.message_target = Some((generation, user));
+		}
+	}
+
+	/// A rejected send keeps the text available for an explicit retry. Accepting it means the
+	/// existing message pipeline has retained its own copy, so the footer can release its draft.
+	pub fn finish_message(&mut self, user: Id, accepted: bool) {
+		if self
+			.message_target
+			.is_some_and(|(_, target)| target == user)
+		{
+			self.message_pending = false;
+			if accepted {
+				self.message_draft = String::new();
+			}
+		}
+	}
+
 	pub fn open_user(&self) -> Option<&User> {
 		self.open.as_ref()
 	}
@@ -1540,10 +1675,14 @@ impl ProfileSession {
 		if self.open.as_ref().is_some_and(|open| open.id != user.id) {
 			self.pending.push(ProfileEffect::ClearCore);
 		}
+		self.reset_card_input();
 		self.open = Some(user.clone());
 	}
 
 	pub fn command_open(&mut self, user: User) {
+		if self.open.as_ref().is_none_or(|open| open.id != user.id) {
+			self.reset_card_input();
+		}
 		if self.open.as_ref().is_some_and(|open| open.id != user.id) {
 			self.pending.push(ProfileEffect::ClearCore);
 		}
@@ -1551,6 +1690,7 @@ impl ProfileSession {
 	}
 
 	pub fn navigate(&mut self, user: User) {
+		self.reset_card_input();
 		self.pending.push(ProfileEffect::ClearCore);
 		self.open = Some(user);
 		self.anchor = None;
@@ -1558,6 +1698,7 @@ impl ProfileSession {
 
 	/// Drops the card and keeps the loaded profile.
 	pub fn hide(&mut self) {
+		self.reset_card_input();
 		self.open = None;
 		self.anchor = None;
 		self.trigger = None;
@@ -1596,8 +1737,280 @@ impl ProfileSession {
 	}
 }
 
+/// Compact message composer; Enter sends, Shift+Enter adds a line. It retains one bounded
+/// draft until the caller accepts the send.
+fn message_input(
+	ui: &mut egui::Ui,
+	user: &User,
+	state: &State,
+	session: &mut ProfileSession,
+	theme: &Theme,
+) -> Option<Action> {
+	let id = egui::Id::unique(("profile-message-input", state.generation, user.id));
+	let enabled = state.can_open_user_dm(user) && !session.message_pending;
+	let focused = ui.ctx().memory(|memory| memory.has_focus(id));
+	let ime_this_frame = session.message_ime
+		|| (focused
+			&& ui.input(|input| {
+				input.events.iter().any(|event| match event {
+					egui::Event::Ime(
+						egui::ImeEvent::Preedit { text, .. } | egui::ImeEvent::Commit(text),
+					) => !text.is_empty(),
+					egui::Event::Ime(egui::ImeEvent::DeleteSurrounding { .. }) => true,
+					_ => false,
+				})
+			}));
+	if focused || session.message_ime {
+		ui.input(|input| {
+			for event in &input.events {
+				match event {
+					egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) => {
+						session.message_ime = !text.is_empty();
+					}
+					egui::Event::Ime(egui::ImeEvent::Commit(_)) => session.message_ime = false,
+					_ => {}
+				}
+			}
+		});
+	}
+	// Plain Enter is always the send key here, even while a send is pending; only Shift+Enter
+	// inserts a line break.
+	let enter = focused
+		&& !ime_this_frame
+		&& !ui.input(|input| {
+			input.events.iter().any(|event| {
+				matches!(
+					event,
+					egui::Event::Key {
+						key: egui::Key::Enter,
+						pressed: true,
+						repeat: true,
+						..
+					}
+				)
+			})
+		}) && ui.input(|input| {
+		input.events.iter().any(|event| {
+			matches!(event, egui::Event::Key {
+					key: egui::Key::Enter, pressed: true, repeat: false, modifiers, ..
+				} if modifiers.is_none())
+		})
+	}) && ui
+		.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+		&& enabled;
+	let placeholder =
+		crate::i18n::translate_args("profiles-message-placeholder", &[("user", &user.name)]);
+	let colors = design::palette(ui);
+	let can_send = enabled && !ime_this_frame && !session.message_draft.trim().is_empty();
+	let mut clicked = false;
+	let top = ui.cursor().top();
+	egui::Frame::new()
+		// Profile theme colours keep the composer legible over bright or saturated gradients.
+		.fill(theme.panel)
+		.stroke(Stroke::new(
+			1.0,
+			// A quiet focus cue in the profile's own text colour; accent blue clashes with themes.
+			if focused { theme.muted } else { theme.border },
+		))
+		.corner_radius(10)
+		.inner_margin(egui::Margin {
+			left: 12,
+			right: 5,
+			top: 5,
+			bottom: 5,
+		})
+		.show(ui, |ui| {
+			ui.horizontal(|ui| {
+				let button = 30.0;
+				let edit_width =
+					(ui.available_width() - button - ui.spacing().item_spacing.x).max(1.0);
+				let row = ui.text_style_height(&egui::TextStyle::Body);
+				// Shrinks to one line and scrolls past four; the row stays as tall as the button.
+				egui::ScrollArea::vertical()
+					.id_salt(("profile-message-scroll", user.id))
+					.max_width(edit_width)
+					.max_height(row * 4.0 + button - row)
+					.min_scrolled_height(button)
+					.auto_shrink([false, true])
+					.stick_to_bottom(true)
+					.show(ui, |ui| {
+						ui.add_enabled(
+							enabled,
+							egui::TextEdit::multiline(&mut session.message_draft)
+								.id(id)
+								.char_limit(client_core::MAX_CONTENT)
+								.desired_width(edit_width)
+								.desired_rows(1)
+								.margin(vec2(0.0, ((button - row) / 2.0).max(0.0)))
+								.frame(egui::Frame::NONE)
+								.text_color(theme.text)
+								.hint_text(RichText::new(placeholder).color(theme.muted)),
+						);
+					});
+				let (rect, response) = ui.allocate_exact_size(
+					Vec2::splat(button),
+					if can_send {
+						egui::Sense::click()
+					} else {
+						egui::Sense::hover()
+					},
+				);
+				let label = crate::i18n::translate("profiles-message-send");
+				if session.message_pending {
+					egui::Spinner::new()
+						.size(16.0)
+						.color(theme.muted)
+						.paint_at(ui, rect.shrink(7.0));
+				} else {
+					if can_send {
+						ui.painter().circle_filled(
+							rect.center(),
+							button / 2.0,
+							if response.hovered() {
+								colors.accent.gamma_multiply(0.85)
+							} else {
+								colors.accent
+							},
+						);
+					}
+					icons::paint(
+						ui.painter(),
+						Icon::Send,
+						rect.shrink(8.0),
+						if can_send {
+							colors.accent_text
+						} else {
+							theme.muted.gamma_multiply(0.7)
+						},
+					);
+				}
+				if can_send {
+					response
+						.clone()
+						.on_hover_cursor(egui::CursorIcon::PointingHand);
+				}
+				response.widget_info(|| {
+					egui::WidgetInfo::labeled(egui::Role::Button, can_send, &label)
+				});
+				clicked = response.on_hover_text(label).clicked();
+			});
+		});
+	// One quiet status line: progress, why sending is unavailable, or the length budget.
+	let length = session.message_draft.chars().count();
+	let hint = if session.message_pending {
+		Some((
+			crate::i18n::translate("profiles-message-sending"),
+			theme.muted,
+		))
+	} else if !state.can_open_user_dm(user) {
+		Some((
+			crate::i18n::translate(if state.user_action_pending() {
+				"profiles-message-busy"
+			} else {
+				"profiles-message-offline"
+			}),
+			theme.text,
+		))
+	} else if length + 200 > client_core::MAX_CONTENT {
+		Some((
+			format!("{length} / {}", client_core::MAX_CONTENT),
+			if length >= client_core::MAX_CONTENT {
+				colors.danger
+			} else {
+				theme.muted
+			},
+		))
+	} else {
+		None
+	};
+	if let Some((text, color)) = hint {
+		ui.add(egui::Label::new(RichText::new(text).size(11.0).color(color)).truncate());
+	}
+	session.message_height = ui.cursor().top() - top;
+	// TextEdit caps Unicode characters, which also bounds UTF-8 bytes to four per character.
+	if session.message_draft.capacity() > client_core::MAX_CONTENT * 4 {
+		session.message_draft.shrink_to_fit();
+	}
+	if (enter || clicked) && !session.message_pending && !session.message_draft.trim().is_empty() {
+		session.message_pending = true;
+		Some(Action::SendMessage {
+			user: user.clone(),
+			content: session.message_draft.clone(),
+		})
+	} else {
+		None
+	}
+}
+
+/// Render the original markup into a clipped three-line preview. Truncating source could turn
+/// an unfinished spoiler or Markdown link into visible text or a different destination.
+#[allow(clippy::too_many_arguments)]
+fn biography(
+	ui: &mut egui::Ui,
+	user: Id,
+	bio: &str,
+	state: &State,
+	avatars: &mut Avatars,
+	opening: &mut Option<String>,
+	formatted: &mut FormatCache,
+	session: &mut ProfileSession,
+) -> Option<User> {
+	let identity = egui::Id::unique((user, bio));
+	if session.bio_identity != Some(identity) {
+		session.bio_identity = Some(identity);
+		session.bio_expanded = false;
+		session.bio_revealed = 0;
+	}
+	let preview_height = 3.0 * ui.text_style_height(&egui::TextStyle::Body);
+	let mut linked = ProfileSession::default();
+	let mut render = |ui: &mut egui::Ui| {
+		let mut surface = crate::select::Surface::new(ui, "profile-bio");
+		formatted.get(user, bio).show_references(
+			ui,
+			opening,
+			&[],
+			None,
+			&mut linked,
+			(&[], &mut None, &state.guilds, &[]),
+			(avatars, state.demo, &mut session.bio_revealed),
+			&mut surface,
+			crate::design::MessageCardSurface::Opaque,
+		);
+		surface.finish(ui);
+	};
+	let overflowing = if session.bio_expanded {
+		render(ui);
+		true
+	} else {
+		let clip = Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), preview_height));
+		let mut preview = ui.new_child(
+			UiBuilder::new()
+				.id_salt("profile-bio-preview")
+				.max_rect(clip),
+		);
+		preview.set_clip_rect(ui.clip_rect().intersect(clip));
+		render(&mut preview);
+		let height = preview.min_rect().height();
+		ui.allocate_space(vec2(ui.available_width(), height.min(preview_height)));
+		height > preview_height + 0.5 || bio.chars().count() > 200
+	};
+	if overflowing {
+		let label = if session.bio_expanded {
+			"profiles-show-hide-full-bio"
+		} else {
+			"profiles-show-view-full-bio"
+		};
+		if ui.small_button(crate::i18n::translate(label)).clicked() {
+			session.bio_expanded = !session.bio_expanded;
+		}
+	}
+	linked.open_user().cloned()
+}
+
 /// Shows the popout beside `anchor`; returns an action when the card wants to change or close.
 #[allow(clippy::too_many_arguments)]
+#[allow(dead_code)]
+#[cfg(test)]
 pub fn show(
 	ui: &mut egui::Ui,
 	user: &User,
@@ -1609,6 +2022,35 @@ pub fn show(
 	confirm_links: bool,
 	anchor: Pos2,
 ) -> Option<Action> {
+	show_with_session(
+		ui,
+		user,
+		view,
+		state,
+		avatars,
+		opening,
+		formatted,
+		confirm_links,
+		anchor,
+		&mut ProfileSession::default(),
+	)
+}
+
+/// Shows a card with one session-scoped footer draft and explicit biography expansion state.
+#[allow(clippy::too_many_arguments)]
+pub fn show_with_session(
+	ui: &mut egui::Ui,
+	user: &User,
+	view: Option<&ProfileView>,
+	state: &State,
+	avatars: &mut Avatars,
+	opening: &mut Option<String>,
+	formatted: &mut FormatCache,
+	confirm_links: bool,
+	anchor: Pos2,
+	session: &mut ProfileSession,
+) -> Option<Action> {
+	session.reconcile_card_input(state.generation, user.id);
 	let colors = design::palette(ui);
 	let viewport = ui.ctx().content_rect();
 	let bounds = viewport.shrink(8.0);
@@ -1624,6 +2066,7 @@ pub fn show(
 	} else {
 		presence(state, user.id, guild)
 	};
+	let in_voice = !user.webhook && user_in_voice(state, user.id);
 	let dm_channel = state
 		.channels
 		.iter()
@@ -1766,8 +2209,11 @@ pub fn show(
 					}));
 				}
 			}
-			ui.painter()
-				.circle_filled(avatar_rect.center(), AVATAR * 0.5 + 6.0, theme.card);
+			ui.painter().circle_filled(
+				avatar_rect.center(),
+				AVATAR * 0.5 + AVATAR_RING,
+				theme.card,
+			);
 			let pointer_on_presence = pointer_on_presence(
 				status,
 				avatar_rect,
@@ -1872,10 +2318,18 @@ pub fn show(
 				.show(ui, |ui| {
 					ui.spacing_mut().item_spacing.y = 8.0;
 					// Reserve space only for footer rows that are actually displayed.
-					let has_action = state.user.as_ref().is_some_and(|own| own.id == user.id)
-						|| dm_channel.is_some()
-						|| user.webhook;
-					let footer = if has_action { 40.0 } else { 0.0 };
+					let message_target = !user.webhook
+						&& state.user.as_ref().is_some_and(|own| own.id != user.id)
+						&& state.user_blocked(user.id) != Some(true);
+					let own = state.user.as_ref().is_some_and(|own| own.id == user.id);
+					let has_action = own || message_target || user.webhook;
+					let footer = if message_target && !own {
+						session.message_height.max(32.0) + 8.0
+					} else if has_action {
+						40.0
+					} else {
+						0.0
+					};
 					egui::Frame::new()
 						.fill(theme.panel)
 						.corner_radius(RADIUS)
@@ -2056,9 +2510,18 @@ pub fn show(
 									}
 								});
 							}
-							if let Some(custom) = custom {
+							if custom.is_some() || in_voice {
 								ui.add_space(4.0);
-								ui.add(egui::Label::new(RichText::new(custom).size(13.0)).wrap());
+								ui.horizontal(|ui| {
+									ui.spacing_mut().item_spacing.x = 4.0;
+									voice_badge(ui, in_voice, custom.is_some());
+									if let Some(custom) = custom {
+										ui.add(
+											egui::Label::new(RichText::new(custom).size(13.0))
+												.wrap(),
+										);
+									}
+								});
 							}
 							if !user.webhook && view.is_none_or(|v| v.loading) {
 								ui.add_space(4.0);
@@ -2124,18 +2587,11 @@ pub fn show(
 													&mut sections,
 													"profiles-show-about-me",
 												);
-												let mut linked = ProfileSession::default();
-												formatted.get(user.id, bio).show_with_images(
-													ui,
-													opening,
-													&[],
-													None,
-													&mut linked,
-													(avatars, state.demo, &state.guilds),
-													crate::design::MessageCardSurface::Opaque,
-												);
-												if let Some(user) = linked.open_user().cloned() {
-													action = Some(Action::Profile(user));
+												if let Some(next) = biography(
+													ui, user.id, bio, state, avatars, opening,
+													formatted, session,
+												) {
+													action = Some(Action::Profile(next));
 												}
 											}
 											if let Some(guild) = data.guild.as_ref()
@@ -2242,26 +2698,9 @@ pub fn show(
 						{
 							action = Some(Action::Edit);
 						}
-					} else if let Some(channel) = dm_channel {
-						if ui
-							.add_sized(
-								[ui.available_width(), 32.0],
-								egui::Button::new(
-									RichText::new(format!(
-										"{} @{}",
-										crate::i18n::translate("profiles-show-message"),
-										user.name
-									))
-									.color(colors.accent_text)
-									.strong(),
-								)
-								.fill(colors.accent)
-								.stroke(Stroke::NONE)
-								.corner_radius(RADIUS),
-							)
-							.clicked()
-						{
-							action = Some(Action::Message(channel));
+					} else if message_target {
+						if let Some(submitted) = message_input(ui, user, state, session, &theme) {
+							action = Some(submitted);
 						}
 					} else if user.webhook
 						&& ui
@@ -2426,6 +2865,242 @@ pub fn synthetic(user: &User, guild: Option<Id>) -> model::UserProfile {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	fn enter(repeat: bool) -> egui::Event {
+		egui::Event::Key {
+			key: egui::Key::Enter,
+			physical_key: None,
+			pressed: true,
+			repeat,
+			modifiers: egui::Modifiers::NONE,
+		}
+	}
+
+	#[test]
+	fn profile_message_input_submits_nonfriend_once_and_preserves_rejected_text() {
+		let state = test_support::demo_state();
+		let mut user = test_support::message(1, Id(22)).author;
+		user.id = Id(991);
+		assert!(state.can_open_user_dm(&user));
+		assert!(!state.friends().any(|friend| friend.id == user.id));
+		assert!(
+			!state
+				.channels
+				.iter()
+				.any(|channel| channel.recipients.iter().any(|u| u.id == user.id))
+		);
+		let mut session = ProfileSession::default();
+		session.reconcile_card_input(state.generation, user.id);
+		let ctx = egui::Context::default();
+		let id = egui::Id::unique(("profile-message-input", state.generation, user.id));
+		let frame = |session: &mut ProfileSession, mut events: Vec<egui::Event>| {
+			let mut release = enter(false);
+			if let egui::Event::Key { pressed, .. } = &mut release {
+				*pressed = false;
+			}
+			events.insert(0, release);
+			ctx.memory_mut(|memory| memory.request_focus(id));
+			let mut action = None;
+			ctx.run_ui(input(vec2(400.0, 200.0), events), |ui| {
+				let theme = Theme::new(&design::palette(ui), None);
+				action = message_input(ui, &user, &state, session, &theme);
+			})
+			.drop_without_applying_deltas();
+			action
+		};
+		assert!(frame(&mut session, vec![egui::Event::Text("hello".into())]).is_none());
+		assert_eq!(session.message_draft, "hello");
+		assert!(
+			matches!(frame(&mut session, vec![enter(false)]), Some(Action::SendMessage { user: target, content }) if target.id == user.id && content == "hello")
+		);
+		assert!(session.message_pending);
+		assert!(frame(&mut session, vec![enter(false)]).is_none());
+		session.finish_message(user.id, false);
+		assert_eq!(session.message_draft, "hello");
+		assert!(matches!(
+			frame(&mut session, vec![enter(false)]),
+			Some(Action::SendMessage { .. })
+		));
+		session.finish_message(user.id, true);
+		assert!(session.message_draft.is_empty());
+		assert!(!session.message_pending);
+		assert!(
+			frame(
+				&mut session,
+				vec![egui::Event::Text("   ".into()), enter(false)]
+			)
+			.is_none()
+		);
+	}
+
+	#[test]
+	fn profile_message_input_bounds_unicode_and_ignores_ime_enter() {
+		let state = test_support::demo_state();
+		let mut user = test_support::message(1, Id(22)).author;
+		user.id = Id(991);
+		let mut session = ProfileSession::default();
+		session.reconcile_card_input(state.generation, user.id);
+		let ctx = egui::Context::default();
+		let id = egui::Id::unique(("profile-message-input", state.generation, user.id));
+		let frame = |session: &mut ProfileSession, mut events: Vec<egui::Event>| {
+			let mut release = enter(false);
+			if let egui::Event::Key { pressed, .. } = &mut release {
+				*pressed = false;
+			}
+			events.insert(0, release);
+			ctx.memory_mut(|memory| memory.request_focus(id));
+			let mut action = None;
+			ctx.run_ui(input(vec2(400.0, 200.0), events), |ui| {
+				let theme = Theme::new(&design::palette(ui), None);
+				action = message_input(ui, &user, &state, session, &theme);
+			})
+			.drop_without_applying_deltas();
+			action
+		};
+		assert!(
+			frame(
+				&mut session,
+				vec![egui::Event::Text(
+					"🦀".repeat(client_core::MAX_CONTENT + 20)
+				)]
+			)
+			.is_none()
+		);
+		assert_eq!(
+			session.message_draft.chars().count(),
+			client_core::MAX_CONTENT
+		);
+		assert!(session.message_draft.capacity() <= client_core::MAX_CONTENT * 4);
+		session.message_draft = "hello".into();
+		assert!(
+			frame(
+				&mut session,
+				vec![
+					egui::Event::Ime(egui::ImeEvent::Preedit {
+						text: "ni".into(),
+						active_range_chars: None
+					}),
+					enter(false)
+				]
+			)
+			.is_none()
+		);
+		assert!(session.message_ime);
+		assert!(frame(&mut session, vec![enter(false)]).is_none());
+		assert!(
+			frame(
+				&mut session,
+				vec![
+					egui::Event::Ime(egui::ImeEvent::Commit("你".into())),
+					enter(false)
+				]
+			)
+			.is_none()
+		);
+		assert!(!session.message_ime);
+		assert!(matches!(
+			frame(&mut session, vec![enter(false)]),
+			Some(Action::SendMessage { .. })
+		));
+	}
+
+	#[test]
+	fn profile_footer_draft_resets_on_target_generation_and_hide() {
+		let mut session = ProfileSession::default();
+		session.reconcile_card_input(1, Id(2));
+		session.message_draft = "first person".into();
+		session.reconcile_card_input(1, Id(2));
+		assert_eq!(session.message_draft, "first person");
+		session.reconcile_card_input(1, Id(3));
+		assert!(session.message_draft.is_empty());
+		session.message_draft = "second account".into();
+		session.reconcile_card_input(2, Id(3));
+		assert!(session.message_draft.is_empty());
+		session.message_draft = "temporary".into();
+		session.message_pending = true;
+		session.hide();
+		assert!(session.message_draft.is_empty());
+		assert!(!session.message_pending);
+	}
+
+	#[test]
+	fn compact_bio_preserves_spoilers_and_expands_within_the_profile_scroll() {
+		let mut state = test_support::demo_state();
+		state.selected = None;
+		let mut user = test_support::message(1, Id(22)).author;
+		user.id = Id(991);
+		let mut data = synthetic(&user, None);
+		data.bio = format!(
+			"First line.\nSecond line.\nThird line.\n{}\nhttps://example.com/full",
+			"More biography.\n".repeat(15)
+		);
+		let profile = ProfileView {
+			user: user.id,
+			guild: None,
+			request: 1,
+			loading: false,
+			error: None,
+			data: Some(data),
+		};
+		let ctx = egui::Context::default();
+		let mut avatars = Avatars::default();
+		let mut session = ProfileSession::default();
+		let mut formatted = FormatCache::default();
+		let size = vec2(500.0, 850.0);
+		{
+			let mut render = |session: &mut ProfileSession, size| {
+				let output = ctx.run_ui(input(size, vec![]), |ui| {
+					show_with_session(
+						ui,
+						&user,
+						Some(&profile),
+						&state,
+						&mut avatars,
+						&mut None,
+						&mut formatted,
+						true,
+						pos2(20.0, 40.0),
+						session,
+					);
+				});
+				let rect = ctx
+					.memory(|memory| memory.area_rect(egui::Id::unique("user-profile-popout")))
+					.unwrap();
+				output.drop_without_applying_deltas();
+				rect
+			};
+			let mut collapsed = Rect::NOTHING;
+			for _ in 0..3 {
+				collapsed = render(&mut session, size);
+			}
+			session.bio_expanded = true;
+			let mut expanded = Rect::NOTHING;
+			for _ in 0..3 {
+				expanded = render(&mut session, size);
+			}
+			assert!(
+				expanded.height() > collapsed.height() + 100.0,
+				"collapsed biography must make the card smaller"
+			);
+			for _ in 0..3 {
+				expanded = render(&mut session, vec2(400.0, 500.0));
+			}
+			assert!(
+				expanded.bottom() <= 493.0,
+				"expanded details keep the message editor in the viewport"
+			);
+		}
+		let mut painted = String::new();
+		let output = ctx.run_ui(input(size, vec![]), |ui| {
+			biography(ui, user.id, "before ||private text that must stay hidden even across several wrapped lines and a truncation boundary|| after", &state, &mut avatars, &mut None, &mut formatted, &mut session);
+		});
+		for shape in &output.shapes {
+			text(&shape.shape, &mut painted);
+		}
+		output.drop_without_applying_deltas();
+		assert!(!painted.contains("private text"));
+		assert_eq!(session.bio_revealed, 0);
+	}
 
 	#[test]
 	fn profile_friend_button_requires_confirmation_and_tracks_relationships() {

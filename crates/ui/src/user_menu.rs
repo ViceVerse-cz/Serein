@@ -8,6 +8,10 @@ pub enum Action {
 	Note(User),
 	Nickname(User),
 	Mention(User),
+	Message(User),
+	StartCall(User),
+	AddFriend(User),
+	AcceptFriend(model::Id),
 	CloseDm(model::Id),
 	Block { user: model::Id, blocked: bool },
 	Mute { channel: model::Id, muted: bool },
@@ -21,7 +25,14 @@ impl std::fmt::Debug for Action {
 
 pub(super) fn prepare(action: Action, state: &mut State) -> Option<Command> {
 	match action {
-		Action::Note(_) | Action::Nickname(_) | Action::Shortcut(_) | Action::Mention(_) => None,
+		Action::Note(_)
+		| Action::Nickname(_)
+		| Action::Shortcut(_)
+		| Action::Mention(_)
+		| Action::Message(_)
+		| Action::StartCall(_) => None,
+		Action::AddFriend(user) => state.add_profile_friend(user.id),
+		Action::AcceptFriend(user) => state.resolve_friend_request(user, true),
 		Action::CloseDm(channel) => state.close_dm(channel),
 		Action::Block { user, blocked } => state.set_user_blocked(user, blocked),
 		Action::Mute { channel, muted } => state.set_dm_muted(channel, muted),
@@ -87,6 +98,17 @@ pub(super) fn show_with_pin(
 		.show(|ui| contents(ui, state, user, profile, action, view));
 }
 
+const VOICE_AVAILABLE: &str = "user-menu-voice-available";
+
+/// Publishes this frame's voice availability so every menu caller reflects it without threading it.
+pub(super) fn set_voice_available(ctx: &egui::Context, available: bool) {
+	ctx.data_mut(|data| data.insert_temp(egui::Id::unique(VOICE_AVAILABLE), available));
+}
+
+fn voice_available(ui: &egui::Ui) -> bool {
+	ui.data(|data| data.get_temp::<bool>(egui::Id::unique(VOICE_AVAILABLE))) == Some(true)
+}
+
 pub(super) fn contents(
 	ui: &mut egui::Ui,
 	state: &State,
@@ -124,7 +146,73 @@ pub(super) fn contents(
 		.channels
 		.iter()
 		.find(|c| c.guild.is_none() && c.kind == 1 && c.recipients.iter().any(|u| u.id == user.id));
-	let enabled = (state.demo || state.gateway_connected) && !state.user_action_pending();
+	let enabled = !state.user_action_pending()
+		&& (state.demo
+			|| (state.gateway_connected
+				&& state.auth == client_core::auth::AuthState::Authenticated));
+	let reachable = user.id.0 != 0
+		&& state.user.as_ref().is_some_and(|own| own.id != user.id)
+		&& state.user_blocked(user.id) == Some(false);
+	if ui
+		.add_enabled(
+			state.can_open_user_dm(user),
+			egui::Button::new(crate::i18n::translate("friends-message")),
+		)
+		.clicked()
+	{
+		*action = Some(Action::Message(user.clone()));
+		ui.close();
+	}
+	if ui
+		.add_enabled(
+			state.can_open_user_dm(user)
+				&& enabled && !state.demo
+				&& voice_available(ui)
+				&& state
+					.voice
+					.active
+					.as_ref()
+					.is_none_or(|call| dm.is_none_or(|channel| call.channel != channel.id))
+				&& dm.is_none_or(|channel| state.can_call(channel.id)),
+			egui::Button::new(crate::i18n::translate("user-menu-contents-start-a-call")),
+		)
+		.clicked()
+	{
+		*action = Some(Action::StartCall(user.clone()));
+		ui.close();
+	}
+	if user.kind == model::AccountKind::Human && state.friend(user.id).is_none() {
+		let request = state
+			.pending_friends()
+			.find(|(person, _, _)| person.id == user.id);
+		let (label, friend_action) = if let Some((_, _, incoming)) = request {
+			if *incoming {
+				(
+					"profiles-friend-action-accept",
+					Some(Action::AcceptFriend(user.id)),
+				)
+			} else {
+				("profiles-friend-action-sent", None)
+			}
+		} else if !state.friends_known() || !state.friend_requests_known() {
+			("profiles-friend-action-loading", None)
+		} else {
+			("friends-add", Some(Action::AddFriend(user.clone())))
+		};
+		if ui
+			.add_enabled(
+				enabled
+					&& reachable && state.friends_known()
+					&& state.friend_requests_known()
+					&& friend_action.is_some(),
+				egui::Button::new(crate::i18n::translate(label)),
+			)
+			.clicked()
+		{
+			*action = friend_action;
+			ui.close();
+		}
+	}
 	ui.separator();
 	if ui
 		.add_enabled(
@@ -311,6 +399,7 @@ mod tests {
 			for label in [
 				"Profile",
 				"Mention",
+				"Message",
 				"Mute Conversation",
 				"Close DM",
 				"Block",
@@ -359,6 +448,8 @@ mod tests {
 				for expected in [
 					"Profile",
 					"Mention",
+					"Message",
+					"Start a Call",
 					"Add Note",
 					"Add Friend Nickname",
 					"Mute Conversation",
@@ -389,6 +480,7 @@ mod tests {
 				match label {
 					"Profile" => assert_eq!(profile.open_user().unwrap().id, user.id),
 					"Mention" => assert_eq!(action, Some(Action::Mention(user.clone()))),
+					"Message" => assert_eq!(action, Some(Action::Message(user.clone()))),
 					"Mute Conversation" => assert_eq!(
 						action,
 						Some(Action::Mute {
@@ -406,6 +498,269 @@ mod tests {
 					),
 				}
 				assert!(!egui::Popup::is_any_open(&ctx));
+			}
+		}
+	}
+
+	fn apply_user_event(state: &mut State, event: client_core::user_actions::Event) {
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::UserAction(event),
+		});
+	}
+
+	fn menu_labels(state: &State, user: &User) -> Vec<String> {
+		let ctx = egui::Context::default();
+		let (mut profile, mut action) = (crate::profiles::ProfileSession::default(), None);
+		let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+			contents(ui, state, user, &mut profile, &mut action, None);
+		});
+		let mut text = vec![];
+		for shape in &output.shapes {
+			labels(&shape.shape, &mut text);
+		}
+		output.drop_without_applying_deltas();
+		text.into_iter().map(|(text, _)| text).collect()
+	}
+
+	fn click_menu_action(
+		state: &State,
+		user: &User,
+		label: &str,
+		light: bool,
+		keyboard: bool,
+		voice: bool,
+	) -> Option<Action> {
+		let ctx = egui::Context::default();
+		set_voice_available(&ctx, voice);
+		ctx.set_visuals(if light {
+			egui::Visuals::light()
+		} else {
+			egui::Visuals::dark()
+		});
+		let (mut profile, mut action) = (crate::profiles::ProfileSession::default(), None);
+		let (row, _) = frame(&ctx, state, user, vec![], &mut profile, &mut action);
+		if keyboard {
+			row.request_focus();
+			frame(
+				&ctx,
+				state,
+				user,
+				vec![Event::Key {
+					key: egui::Key::F10,
+					physical_key: None,
+					pressed: true,
+					repeat: false,
+					modifiers: Modifiers::SHIFT,
+				}],
+				&mut profile,
+				&mut action,
+			);
+		} else {
+			for pressed in [true, false] {
+				frame(
+					&ctx,
+					state,
+					user,
+					pointer(row.rect.center(), PointerButton::Secondary, pressed),
+					&mut profile,
+					&mut action,
+				);
+			}
+		}
+		let (_, text) = frame(&ctx, state, user, vec![], &mut profile, &mut action);
+		if let Some((_, rect)) = text.iter().find(|(text, _)| text == label) {
+			for pressed in [true, false] {
+				frame(
+					&ctx,
+					state,
+					user,
+					pointer(rect.center(), PointerButton::Primary, pressed),
+					&mut profile,
+					&mut action,
+				);
+			}
+		}
+		action
+	}
+
+	#[test]
+	fn nonfriend_message_call_and_friend_actions_use_relationship_state() {
+		use client_core::user_actions::Event as UserEvent;
+		for light in [false, true] {
+			for keyboard in [false, true] {
+				let mut state = test_support::demo_state();
+				let mut user = state
+					.channels
+					.iter()
+					.find(|channel| channel.kind == 1)
+					.unwrap()
+					.recipients[0]
+					.clone();
+				user.id = model::Id(99001);
+				assert!(state.friend(user.id).is_none());
+				assert_eq!(
+					click_menu_action(&state, &user, "Message", light, keyboard, true),
+					Some(Action::Message(user.clone()))
+				);
+				assert_eq!(
+					click_menu_action(&state, &user, "Start a Call", light, keyboard, true),
+					None,
+					"Demo never starts a call"
+				);
+				assert_eq!(
+					click_menu_action(&state, &user, "Add Friend", light, keyboard, true),
+					Some(Action::AddFriend(user.clone()))
+				);
+				apply_user_event(
+					&mut state,
+					UserEvent::Requests(Some(vec![(user.clone(), "synthetic".into(), true)])),
+				);
+				assert_eq!(
+					click_menu_action(
+						&state,
+						&user,
+						"Accept Friend Request",
+						light,
+						keyboard,
+						true
+					),
+					Some(Action::AcceptFriend(user.id))
+				);
+				apply_user_event(
+					&mut state,
+					UserEvent::Requests(Some(vec![(user.clone(), "synthetic".into(), false)])),
+				);
+				assert_eq!(
+					click_menu_action(&state, &user, "Friend Request Sent", light, keyboard, true),
+					None
+				);
+				apply_user_event(&mut state, UserEvent::Requests(Some(vec![])));
+				apply_user_event(&mut state, UserEvent::Relationships(Some(vec![])));
+				state.demo = false;
+				state.gateway_connected = true;
+				state.auth = client_core::auth::AuthState::Authenticated;
+				assert_eq!(
+					click_menu_action(&state, &user, "Start a Call", light, keyboard, true),
+					Some(Action::StartCall(user.clone()))
+				);
+				assert_eq!(
+					click_menu_action(&state, &user, "Start a Call", light, keyboard, false),
+					None,
+					"Builds without voice never offer a call"
+				);
+				state.gateway_connected = false;
+				for label in ["Message", "Start a Call", "Add Friend"] {
+					assert_eq!(
+						click_menu_action(&state, &user, label, light, keyboard, true),
+						None
+					);
+				}
+				state.gateway_connected = true;
+				apply_user_event(
+					&mut state,
+					UserEvent::Relationships(Some(vec![(user.id, true)])),
+				);
+				for label in ["Message", "Start a Call", "Add Friend"] {
+					assert_eq!(
+						click_menu_action(&state, &user, label, light, keyboard, true),
+						None
+					);
+				}
+				apply_user_event(&mut state, UserEvent::Relationships(None));
+				for label in ["Message", "Start a Call", "Add Friend"] {
+					assert_eq!(
+						click_menu_action(&state, &user, label, light, keyboard, true),
+						None
+					);
+				}
+				apply_user_event(&mut state, UserEvent::Relationships(Some(vec![])));
+				assert!(prepare(Action::AddFriend(user.clone()), &mut state).is_some());
+				for label in ["Message", "Start a Call", "Add Friend"] {
+					assert_eq!(
+						click_menu_action(&state, &user, label, light, keyboard, true),
+						None
+					);
+				}
+			}
+		}
+	}
+
+	#[test]
+	fn start_call_allows_switch_confirmation_but_disables_current_dm_call() {
+		use client_core::voice::{Call, Phase};
+		for light in [false, true] {
+			for keyboard in [false, true] {
+				let mut state = test_support::demo_state();
+				apply_user_event(
+					&mut state,
+					client_core::user_actions::Event::Relationships(Some(vec![])),
+				);
+				state.demo = false;
+				state.gateway_connected = true;
+				state.auth = client_core::auth::AuthState::Authenticated;
+				let dm = state
+					.channels
+					.iter()
+					.find(|channel| channel.kind == 1)
+					.unwrap();
+				let channel = dm.id;
+				let user = dm.recipients[0].clone();
+				state.voice.active = Some(Call {
+					channel: model::Id(99002),
+					guild: None,
+					connected_at: None,
+					channel_started_at: None,
+					server_muted: false,
+					server_deafened: false,
+					request: 1,
+					phase: Phase::Connected,
+					muted: true,
+					deafened: true,
+					participants: vec![],
+					camera: false,
+					watching: None,
+					error: None,
+				});
+				assert_eq!(
+					click_menu_action(&state, &user, "Start a Call", light, keyboard, true),
+					Some(Action::StartCall(user.clone()))
+				);
+				state.voice.active.as_mut().unwrap().channel = channel;
+				assert_eq!(
+					click_menu_action(&state, &user, "Start a Call", light, keyboard, true),
+					None
+				);
+			}
+		}
+	}
+
+	#[test]
+	fn friend_menu_excludes_add_friend_and_self_or_webhook_excludes_contact_actions() {
+		for light in [false, true] {
+			let state = test_support::demo_state();
+			let friend = state.friends().next().unwrap();
+			assert!(
+				!menu_labels(&state, friend)
+					.iter()
+					.any(|label| label == "Add Friend")
+			);
+			assert_eq!(
+				click_menu_action(&state, friend, "Add Friend", light, false, true),
+				None
+			);
+			let own = state.user.as_ref().unwrap();
+			let mut webhook = friend.clone();
+			webhook.webhook = true;
+			for user in [own, &webhook] {
+				let text = menu_labels(&state, user);
+				for label in ["Message", "Start a Call", "Add Friend"] {
+					assert!(!text.iter().any(|text| text == label));
+					assert_eq!(
+						click_menu_action(&state, user, label, light, false, true),
+						None
+					);
+				}
 			}
 		}
 	}
