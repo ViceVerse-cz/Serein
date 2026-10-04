@@ -138,6 +138,16 @@ pub fn restore_window_geometry(
 	if available.width == 0 || available.height == 0 {
 		return;
 	}
+	// Move onto the saved monitor first so Windows applies its DPI change before fitting.
+	let movable = window.outer_position().is_ok();
+	if let (Some(position), true) = (position, movable) {
+		window.set_outer_position(winit::dpi::PhysicalPosition::new(position[0], position[1]));
+	}
+	let scale_factor = if position.is_some() {
+		monitor.scale_factor()
+	} else {
+		window.scale_factor()
+	};
 	let inner = window.inner_size();
 	let outer = window.outer_size();
 	let frame = [
@@ -146,7 +156,7 @@ pub fn restore_window_geometry(
 	];
 	// Wayland may not have reported its configured size before the first frame.
 	let requested = winit::dpi::LogicalSize::new(geometry.size[0], geometry.size[1])
-		.to_physical::<u32>(window.scale_factor());
+		.to_physical::<u32>(scale_factor);
 	let position = position.or_else(|| {
 		window
 			.outer_position()
@@ -167,13 +177,13 @@ pub fn restore_window_geometry(
 		size[1].saturating_sub(frame[1]).max(1),
 	);
 	// A newly smaller display must also be allowed to shrink below the usual minimum.
-	let minimum = winit::dpi::LogicalSize::new(760, 520).to_physical::<u32>(window.scale_factor());
+	let minimum = winit::dpi::LogicalSize::new(760, 520).to_physical::<u32>(scale_factor);
 	window.set_min_inner_size(Some(winit::dpi::PhysicalSize::new(
 		minimum.width.min(size.width),
 		minimum.height.min(size.height),
 	)));
 	let _ = window.request_inner_size(size);
-	if window.outer_position().is_ok() {
+	if movable {
 		window.set_outer_position(winit::dpi::PhysicalPosition::new(position[0], position[1]));
 	}
 }
