@@ -1710,9 +1710,9 @@ impl State {
 	pub fn prepare_send_with_attachments(&mut self, filenames: &[&str]) -> Option<Command> {
 		self.prepare_message(filenames, None, false)
 	}
-	/// Send selected artwork without consuming the text draft.
-	pub fn prepare_image_send(&mut self, filename: &str) -> Option<Command> {
-		self.prepare_message(&[filename], None, true)
+	/// Send explicitly submitted artwork without consuming a newer text draft.
+	pub fn prepare_image_send(&mut self, filenames: &[&str]) -> Option<Command> {
+		self.prepare_message(filenames, None, true)
 	}
 	pub(crate) fn prepare_message(
 		&mut self,

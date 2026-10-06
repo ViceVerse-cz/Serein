@@ -35,6 +35,8 @@ impl Pointer {
 		let mut middle = Middle::default();
 		let mut side = SidePress::default();
 		raw.events.retain(|event| match event {
+			// Serein uses middle-click for autoscroll, including over text edits.
+			Event::MiddleClickPaste { .. } => false,
 			Event::PointerButton {
 				pos,
 				button: PointerButton::Middle,

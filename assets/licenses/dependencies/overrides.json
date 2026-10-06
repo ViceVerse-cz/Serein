@@ -169,7 +169,7 @@
     {
       "name": "ecolor",
       "version": "0.36.2",
-      "source": "git+https://github.com/emilk/egui?rev=65e7db3c06d779c60ac56647bdd3011ed8ba1cbd#65e7db3c06d779c60ac56647bdd3011ed8ba1cbd",
+      "source": "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054",
       "files": [
         "assets/licenses/dependencies/egui-LICENSE-APACHE",
         "assets/licenses/dependencies/egui-LICENSE-MIT"
@@ -179,7 +179,7 @@
     {
       "name": "eframe",
       "version": "0.36.2",
-      "source": "git+https://github.com/emilk/egui?rev=65e7db3c06d779c60ac56647bdd3011ed8ba1cbd#65e7db3c06d779c60ac56647bdd3011ed8ba1cbd",
+      "source": "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054",
       "files": [
         "assets/licenses/dependencies/egui-LICENSE-APACHE",
         "assets/licenses/dependencies/egui-LICENSE-MIT"
@@ -189,7 +189,7 @@
     {
       "name": "egui",
       "version": "0.36.2",
-      "source": "git+https://github.com/emilk/egui?rev=65e7db3c06d779c60ac56647bdd3011ed8ba1cbd#65e7db3c06d779c60ac56647bdd3011ed8ba1cbd",
+      "source": "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054",
       "files": [
         "assets/licenses/dependencies/egui-LICENSE-APACHE",
         "assets/licenses/dependencies/egui-LICENSE-MIT"
@@ -199,7 +199,7 @@
     {
       "name": "egui-wgpu",
       "version": "0.36.2",
-      "source": "git+https://github.com/emilk/egui?rev=65e7db3c06d779c60ac56647bdd3011ed8ba1cbd#65e7db3c06d779c60ac56647bdd3011ed8ba1cbd",
+      "source": "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054",
       "files": [
         "assets/licenses/dependencies/egui-LICENSE-APACHE",
         "assets/licenses/dependencies/egui-LICENSE-MIT"
@@ -209,7 +209,7 @@
     {
       "name": "egui-winit",
       "version": "0.36.2",
-      "source": "git+https://github.com/emilk/egui?rev=65e7db3c06d779c60ac56647bdd3011ed8ba1cbd#65e7db3c06d779c60ac56647bdd3011ed8ba1cbd",
+      "source": "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054",
       "files": [
         "assets/licenses/dependencies/egui-LICENSE-APACHE",
         "assets/licenses/dependencies/egui-LICENSE-MIT"
@@ -219,7 +219,7 @@
     {
       "name": "egui_glow",
       "version": "0.36.2",
-      "source": "git+https://github.com/emilk/egui?rev=65e7db3c06d779c60ac56647bdd3011ed8ba1cbd#65e7db3c06d779c60ac56647bdd3011ed8ba1cbd",
+      "source": "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054",
       "files": [
         "assets/licenses/dependencies/egui-LICENSE-APACHE",
         "assets/licenses/dependencies/egui-LICENSE-MIT"
@@ -229,7 +229,7 @@
     {
       "name": "egui_system_fonts",
       "version": "0.36.2",
-      "source": "git+https://github.com/emilk/egui?rev=65e7db3c06d779c60ac56647bdd3011ed8ba1cbd#65e7db3c06d779c60ac56647bdd3011ed8ba1cbd",
+      "source": "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054",
       "files": [
         "assets/licenses/dependencies/egui-LICENSE-APACHE",
         "assets/licenses/dependencies/egui-LICENSE-MIT"
@@ -239,7 +239,7 @@
     {
       "name": "emath",
       "version": "0.36.2",
-      "source": "git+https://github.com/emilk/egui?rev=65e7db3c06d779c60ac56647bdd3011ed8ba1cbd#65e7db3c06d779c60ac56647bdd3011ed8ba1cbd",
+      "source": "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054",
       "files": [
         "assets/licenses/dependencies/egui-LICENSE-APACHE",
         "assets/licenses/dependencies/egui-LICENSE-MIT"
@@ -249,7 +249,7 @@
     {
       "name": "epaint",
       "version": "0.36.2",
-      "source": "git+https://github.com/emilk/egui?rev=65e7db3c06d779c60ac56647bdd3011ed8ba1cbd#65e7db3c06d779c60ac56647bdd3011ed8ba1cbd",
+      "source": "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054",
       "files": [
         "assets/licenses/dependencies/egui-LICENSE-APACHE",
         "assets/licenses/dependencies/egui-LICENSE-MIT"
@@ -259,7 +259,7 @@
     {
       "name": "epaint_default_fonts",
       "version": "0.36.2",
-      "source": "git+https://github.com/emilk/egui?rev=65e7db3c06d779c60ac56647bdd3011ed8ba1cbd#65e7db3c06d779c60ac56647bdd3011ed8ba1cbd",
+      "source": "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054",
       "files": [
         "assets/licenses/dependencies/egui-LICENSE-APACHE",
         "assets/licenses/dependencies/egui-LICENSE-MIT",

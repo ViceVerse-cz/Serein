@@ -1206,7 +1206,7 @@ impl MessagingUi {
 		}
 		if let Some(guild) = self.guild {
 			let content_bottom =
-				output.inner_rect.top() - output.state.offset.y + output.content_size.y;
+				output.inner_rect.top() - output.state.unclamped_offset().y + output.content_size.y;
 			if content_bottom < output.inner_rect.bottom() {
 				let empty = egui::Rect::from_min_max(
 					egui::pos2(
@@ -1589,6 +1589,7 @@ mod tests {
 						egui::Event::PointerMoved(egui::pos2(100.0, 250.0)),
 						egui::Event::MouseWheel {
 							phase: egui::TouchPhase::Move,
+							source: egui::MouseWheelSource::Unknown,
 							unit: egui::MouseWheelUnit::Point,
 							delta: egui::vec2(0.0, -100.0),
 							modifiers: egui::Modifiers::NONE,
@@ -1819,23 +1820,35 @@ mod tests {
 		design::apply(&ctx);
 		let mut original_y = None;
 		for offset in [0.0, 33.0, 34.0, 41.0, 42.0, 67.0, 68.0, 101.0, 102.0] {
-			let output = ctx.run_ui(
-				egui::RawInput {
-					screen_rect: Some(egui::Rect::from_min_size(
-						egui::Pos2::ZERO,
-						egui::vec2(240.0, 200.0),
-					)),
-					..Default::default()
-				},
-				|ui| {
-					let id = ui.make_persistent_id(egui::IdSalt::new(("channel-list", view.guild)));
-					let mut scroll = egui::scroll_area::State::load(&ctx, id).unwrap_or_default();
-					scroll.offset.y = offset;
-					scroll.store(&ctx, id);
-					view.channel_list(ui, &mut state);
-					assert_eq!(ui.spacing().item_spacing.y, 8.0);
-				},
-			);
+			let mut frame = |scroll: bool| {
+				ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(240.0, 200.0),
+						)),
+						events: vec![egui::Event::PointerMoved(egui::pos2(100.0, 100.0))],
+						..Default::default()
+					},
+					|ui| {
+						if scroll {
+							let id = ui.make_persistent_id(egui::IdSalt::new((
+								"channel-list",
+								view.guild,
+							)));
+							let current = egui::scroll_area::State::load(&ctx, id)
+								.unwrap_or_default()
+								.clamped_offset()
+								.y;
+							ui.input_mut(|input| input.smooth_scroll_delta.y = current - offset);
+						}
+						view.channel_list(ui, &mut state);
+						assert_eq!(ui.spacing().item_spacing.y, 8.0);
+					},
+				)
+			};
+			frame(true).drop_without_applying_deltas();
+			let output = frame(false);
 			let y = output.shapes.iter().find_map(|shape| match &shape.shape {
 				egui::Shape::Text(text) if text.galley.job.text == "Synthetic 204" => {
 					Some(text.pos.y)

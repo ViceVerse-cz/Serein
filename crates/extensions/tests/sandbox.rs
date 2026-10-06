@@ -366,10 +366,10 @@ fn catalog_preview_metadata_is_optional_and_bounded() {
 
 #[test]
 fn image_sharing_plugin_requires_activation_and_capability() {
-	let mut package = parse_package(include_bytes!(
-		"../../../extensions/plugins/packages/emoji-sticker-images.serein-extension"
-	))
-	.unwrap();
+	let mut package = returning(r#"{"image_sharing":true}"#);
+	package.manifest.capabilities = vec![Capability::ImageSharing];
+	package.manifest.actions[0].id = "activate".into();
+	package.manifest.actions[0].surface = Surface::Activation;
 	let input = Invocation {
 		action: "activate".into(),
 		..Default::default()

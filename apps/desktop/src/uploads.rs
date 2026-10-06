@@ -57,32 +57,17 @@ fn image_share_source(
 	asset: model::ImageShare,
 ) -> Option<(String, String, image::ImageFormat, image::ImageFormat)> {
 	use model::ImageShare;
-	let (id, kind, host, source_extension, output_extension, query) = match asset {
-		ImageShare::Emoji { id, animated } => (
+	let (id, kind, source_extension, output_extension) = match asset {
+		ImageShare::Emoji { id, animated } => {
+			let extension = if animated { "gif" } else { "png" };
+			(id, "emoji", extension, extension)
+		}
+		ImageShare::Sticker {
 			id,
-			"emoji",
-			"cdn.discordapp.com",
-			if animated { "gif" } else { "png" },
-			if animated { "gif" } else { "png" },
-			"?size=64",
-		),
-		ImageShare::Sticker { id, format_type: 1 } => {
-			(id, "sticker", "cdn.discordapp.com", "png", "png", "")
-		}
-		ImageShare::Sticker { id, format_type: 2 } => {
-			(id, "sticker", "cdn.discordapp.com", "png", "gif", "")
-		}
-		ImageShare::Sticker { id, format_type: 3 } => (
-			id,
-			"sticker",
-			"media.discordapp.net",
-			"png",
-			"png",
-			"?passthrough=false",
-		),
-		ImageShare::Sticker { id, format_type: 4 } => {
-			(id, "sticker", "media.discordapp.net", "gif", "gif", "")
-		}
+			format_type: 1 | 3,
+		} => (id, "sticker", "png", "png"),
+		ImageShare::Sticker { id, format_type: 2 } => (id, "sticker", "png", "gif"),
+		ImageShare::Sticker { id, format_type: 4 } => (id, "sticker", "gif", "gif"),
 		_ => return None,
 	};
 	let format = |extension| {
@@ -92,14 +77,12 @@ fn image_share_source(
 			image::ImageFormat::Png
 		}
 	};
-	(id.0 != 0).then(|| {
-		(
-			format!("https://{host}/{kind}s/{id}.{source_extension}{query}"),
-			format!("{kind}-{id}.{output_extension}"),
-			format(source_extension),
-			format(output_extension),
-		)
-	})
+	Some((
+		asset.url()?,
+		format!("{kind}-{id}.{output_extension}"),
+		format(source_extension),
+		format(output_extension),
+	))
 }
 
 async fn download_image_share(url: &str, cancelled: &AtomicBool) -> Result<Vec<u8>, &'static str> {
@@ -373,7 +356,7 @@ struct ExternalUploading {
 pub struct Uploads {
 	external: Option<ExternalUploading>,
 	public_result: Option<Result<String, model::public_upload::Error>>,
-	auto_image: bool,
+	image_draft: Option<String>,
 	scope: Option<(u64, Id)>,
 	selected: Vec<Chosen>,
 	next_key: u64,
@@ -465,13 +448,13 @@ impl Uploads {
 			upload.cancel.send_replace(true);
 		}
 	}
-	/// A picker click authorizes one image send after preparation.
+	/// Explicit Send authorizes one bounded batch; picking artwork only edits the draft.
 	#[allow(clippy::too_many_arguments)]
 	pub fn start_image_share(
 		&mut self,
 		generation: u64,
 		channel: Id,
-		asset: model::ImageShare,
+		(assets, draft): (Vec<model::ImageShare>, String),
 		runtime: &tokio::runtime::Handle,
 		context: &egui::Context,
 		demo: bool,
@@ -480,47 +463,70 @@ impl Uploads {
 			return Err("Wait for the current attachment operation to finish");
 		}
 		if !self.selected.is_empty() {
-			return Err("Send or remove existing attachments before selecting an image");
+			return Err("Send or remove existing attachments before sending artwork alone");
 		}
-		let (url, filename, format, output_format) =
-			image_share_source(asset).ok_or("Unsupported emoji or sticker artwork")?;
+		if assets.is_empty() || assets.len() > discord_api::upload::MAX_FILES || draft.len() > 8192
+		{
+			return Err("Send up to 10 emoji or sticker images per message");
+		}
+		let sources = assets
+			.into_iter()
+			.map(image_share_source)
+			.collect::<Option<Vec<_>>>()
+			.ok_or("Unsupported emoji or sticker artwork")?;
 		let cancelled = Arc::new(AtomicBool::new(false));
 		let flag = cancelled.clone();
 		let (send, result) = mpsc::sync_channel(1);
 		let context = context.clone();
 		runtime.spawn(async move {
 			let result = async {
-				let bytes = if demo {
-					synthetic_share(format)?
-				} else {
-					download_image_share(&url, &flag).await?
-				};
-				if flag.load(Ordering::Acquire) {
-					return Ok(None);
-				}
-				let prepare_flag = flag.clone();
-				let selected = tokio::task::spawn_blocking(move || {
-					if bytes.is_empty()
-						|| bytes.len() > SHARE_BYTES
-						|| image::guess_format(&bytes).ok() != Some(format)
-					{
-						return Err("Unsupported or invalid image data");
-					}
-					let edge = if filename.starts_with("emoji-") {
-						EMOJI_EDGE
+				let mut selected = Vec::with_capacity(sources.len());
+				let mut total = 0;
+				for (url, mut filename, format, mut output_format) in sources {
+					let bytes = if demo {
+						synthetic_share(format)?
 					} else {
-						STICKER_EDGE
+						download_image_share(&url, &flag).await?
 					};
-					let bytes =
-						compact_artwork(&bytes, format, output_format, edge, &prepare_flag)?;
-					let thumbnail =
-						decode_preview(&bytes).ok_or("Could not decode this image safely")?;
-					let source = Source::image_bytes(filename, bytes)?;
-					Ok((source, Some(thumbnail)))
-				})
-				.await
-				.map_err(|_| "Image preparation interrupted")??;
-				Ok((!flag.load(Ordering::Acquire)).then(|| vec![selected]))
+					if flag.load(Ordering::Acquire) {
+						return Ok(None);
+					}
+					let prepare_flag = flag.clone();
+					let prepared = tokio::task::spawn_blocking(move || {
+						if bytes.is_empty()
+							|| bytes.len() > SHARE_BYTES
+							|| image::guess_format(&bytes).ok() != Some(format)
+						{
+							return Err("Unsupported or invalid image data");
+						}
+						let emoji = filename.starts_with("emoji-");
+						// A restored PNG link may no longer have catalog metadata identifying APNG.
+						if !emoji
+							&& output_format == image::ImageFormat::Png
+							&& image::codecs::png::PngDecoder::new(std::io::Cursor::new(&bytes))
+								.map_err(|_| "Could not inspect this artwork safely")?
+								.is_apng()
+								.map_err(|_| "Could not inspect this artwork safely")?
+						{
+							output_format = image::ImageFormat::Gif;
+							filename = filename.replace(".png", ".gif");
+						}
+						let edge = if emoji { EMOJI_EDGE } else { STICKER_EDGE };
+						let bytes =
+							compact_artwork(&bytes, format, output_format, edge, &prepare_flag)?;
+						let thumbnail =
+							decode_preview(&bytes).ok_or("Could not decode this image safely")?;
+						Ok((Source::image_bytes(filename, bytes)?, Some(thumbnail)))
+					})
+					.await
+					.map_err(|_| "Image preparation interrupted")??;
+					total += prepared.0.size();
+					if total > SHARE_BYTES as u64 {
+						return Err("Selected artwork must total at most 8 MiB");
+					}
+					selected.push(prepared);
+				}
+				Ok((!flag.load(Ordering::Acquire)).then_some(selected))
 			}
 			.await;
 			let _ = send.send(result);
@@ -529,27 +535,38 @@ impl Uploads {
 		self.scope = Some((generation, channel));
 		self.last = None;
 		self.choosing = Some(Choosing { result, cancelled });
-		self.auto_image = true;
+		self.image_draft = Some(draft);
 		Ok(())
 	}
 	pub fn image_send(
 		&mut self,
 		state: &mut client_core::State,
-		enabled: bool,
+		can_attach: bool,
 	) -> Option<client_core::Command> {
-		if !enabled {
-			self.auto_image = false;
+		if !can_attach {
+			self.image_draft = None;
 		}
-		if !self.auto_image || self.busy() {
+		if self.busy() {
 			return None;
 		}
-		self.auto_image = false;
+		let draft = self.image_draft.take()?;
 		if self.scope != state.selected.map(|channel| (state.generation, channel))
-			|| self.selected.len() != 1
+			|| self.selected.is_empty()
 		{
 			return None;
 		}
-		state.prepare_image_send(self.selected[0].source.filename())
+		let names: Vec<_> = self
+			.selected
+			.iter()
+			.map(|chosen| chosen.source.filename())
+			.collect();
+		let command = state.prepare_image_send(&names)?;
+		let channel = state.selected?;
+		// A newer draft typed during preparation belongs to the next message.
+		if state.drafts.get(&channel) == Some(&draft) {
+			state.drafts.remove(&channel);
+		}
+		Some(command)
 	}
 	pub fn select_pasted(
 		&mut self,
@@ -871,7 +888,7 @@ impl Uploads {
 	}
 	pub fn cancel(&mut self) {
 		self.cancel_public();
-		self.auto_image = false;
+		self.image_draft = None;
 		if let Some(choosing) = &self.choosing {
 			choosing.cancelled.store(true, Ordering::Release);
 		}
@@ -1105,7 +1122,14 @@ mod tests {
 		] {
 			assert!(
 				uploads
-					.start_image_share(1, Id(2), invalid, &runtime, &context, true)
+					.start_image_share(
+						1,
+						Id(2),
+						(vec![invalid], String::new()),
+						&runtime,
+						&context,
+						true
+					)
 					.is_err()
 			);
 		}
@@ -1131,7 +1155,14 @@ mod tests {
 			},
 		] {
 			uploads
-				.start_image_share(1, channel, asset, &runtime, &context, true)
+				.start_image_share(
+					1,
+					channel,
+					(vec![asset], String::new()),
+					&runtime,
+					&context,
+					true,
+				)
 				.unwrap();
 			assert!(uploads.image_send(&mut state, true).is_none());
 			settle(&mut uploads, &context, channel).await;
@@ -1145,7 +1176,14 @@ mod tests {
 			assert_eq!(uploads.take_source(1, channel).unwrap().len(), 1);
 		}
 		uploads
-			.start_image_share(1, channel, asset, &runtime, &context, true)
+			.start_image_share(
+				1,
+				channel,
+				(vec![asset], String::new()),
+				&runtime,
+				&context,
+				true,
+			)
 			.unwrap();
 		settle(&mut uploads, &context, channel).await;
 		assert!(uploads.image_send(&mut state, false).is_none());
@@ -1153,7 +1191,14 @@ mod tests {
 		uploads.remove();
 
 		uploads
-			.start_image_share(1, Id(2), asset, &runtime, &context, true)
+			.start_image_share(
+				1,
+				Id(2),
+				(vec![asset], String::new()),
+				&runtime,
+				&context,
+				true,
+			)
 			.unwrap();
 		uploads.revalidate_scope(1, Some(Id(3)), true);
 		settle(&mut uploads, &context, Id(3)).await;
@@ -1166,7 +1211,14 @@ mod tests {
 		}
 		assert!(
 			uploads
-				.start_image_share(1, Id(3), asset, &runtime, &context, true)
+				.start_image_share(
+					1,
+					Id(3),
+					(vec![asset], String::new()),
+					&runtime,
+					&context,
+					true
+				)
 				.is_err()
 		);
 	}
@@ -1380,7 +1432,7 @@ mod tests {
 		let mut uploads = Uploads {
 			external: None,
 			public_result: None,
-			auto_image: false,
+			image_draft: None,
 			scope: Some((1, Id(2))),
 			choosing: Some(Choosing {
 				result,

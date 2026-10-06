@@ -4072,10 +4072,10 @@ fn ringing_pulse(ui: &egui::Ui, avatar: egui::Rect) {
 
 fn speaking_avatar(ui: &egui::Ui, avatar: &egui::Response, name: &str) {
 	let colors = design::palette(ui);
-	// A small dark gap separates the ring from the avatar, as on Discord.
+	// Inset the centered stroke so the ring stays inside the avatar.
 	ui.painter().circle_stroke(
 		avatar.rect.center(),
-		avatar.rect.width() * 0.5 + 4.0,
+		avatar.rect.width() * 0.5 - 1.5,
 		egui::Stroke::new(3.0, colors.positive),
 	);
 	let label = format!("{name} · Speaking");

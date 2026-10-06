@@ -1,5 +1,5 @@
 use crate::{DiscordApi, Failure};
-use model::{forum::Page, Id};
+use model::{Id, forum::Page};
 use reqwest::Method;
 
 const FORUM_MESSAGE_LIMIT: usize = 50;
@@ -25,9 +25,7 @@ impl DiscordApi {
 		let recent = discord_protocol::decode::<discord_protocol::forum::Recent>(&bytes)
 			.map_err(|_| Failure::Protocol)?;
 
-		recent
-			.into_summary(channel)
-			.map_err(|_| Failure::Protocol)
+		recent.into_summary(channel).map_err(|_| Failure::Protocol)
 	}
 
 	/// Active posts of one forum. The gateway only syncs joined threads, so the list is fetched.
@@ -53,24 +51,14 @@ impl DiscordApi {
 		result
 	}
 
-	async fn searched_posts(
-		&self,
-		parent: Id,
-		guild: Id,
-		offset: usize,
-	) -> Result<Page, Failure> {
+	async fn searched_posts(&self, parent: Id, guild: Id, offset: usize) -> Result<Page, Failure> {
 		let path = format!(
 			"/channels/{parent}/threads/search?archived=false&sort_by=last_message_time&sort_order=desc&limit={}&offset={offset}",
 			model::forum::PAGE_SIZE
 		);
 
 		let bytes = self
-			.request_limited(
-				Method::GET,
-				&path,
-				None,
-				discord_protocol::forum::MAX_WIRE,
-			)
+			.request_limited(Method::GET, &path, None, discord_protocol::forum::MAX_WIRE)
 			.await?;
 
 		let reply = discord_protocol::decode::<discord_protocol::forum::Reply>(&bytes)
@@ -103,11 +91,8 @@ impl DiscordApi {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use client_core::{auth::SessionSecret, Command, Event};
-	use std::{
-		sync::Arc,
-		time::Duration,
-	};
+	use client_core::{Command, Event, auth::SessionSecret};
+	use std::{sync::Arc, time::Duration};
 	use tokio::{
 		io::{AsyncReadExt, AsyncWriteExt},
 		net::TcpListener,
@@ -124,12 +109,7 @@ mod tests {
 		api
 	}
 
-	async fn respond(
-		listener: &TcpListener,
-		route: &str,
-		status: &str,
-		body: &str,
-	) {
+	async fn respond(listener: &TcpListener, route: &str, status: &str, body: &str) {
 		let (mut socket, _) = listener.accept().await.unwrap();
 
 		let mut request = Vec::new();
@@ -191,13 +171,7 @@ mod tests {
 			);
 
 			let server = tokio::spawn(async move {
-				respond(
-					&listener,
-					&search_route(0),
-					"200 OK",
-					&first_body,
-				)
-				.await;
+				respond(&listener, &search_route(0), "200 OK", &first_body).await;
 
 				respond(
 					&listener,
@@ -212,14 +186,13 @@ mod tests {
 				parent: Id(2),
 				request: 4,
 				result: Ok(page),
-			} = api
-				.execute(Command::ForumPosts {
-					parent: Id(2),
-					guild: Id(1),
-					offset: 0,
-					request: 4,
-				})
-				.await
+			} = api.execute(Command::ForumPosts {
+				parent: Id(2),
+				guild: Id(1),
+				offset: 0,
+				request: 4,
+			})
+			.await
 			else {
 				panic!()
 			};
@@ -244,10 +217,7 @@ mod tests {
 			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 			let api = create_api(&listener).await;
 
-			let body = format!(
-				r#"{{"threads":[{}],"members":[]}}"#,
-				thread_row("1")
-			);
+			let body = format!(r#"{{"threads":[{}],"members":[]}}"#, thread_row("1"));
 
 			let server = tokio::spawn(async move {
 				respond(
@@ -258,13 +228,7 @@ mod tests {
 				)
 				.await;
 
-				respond(
-					&listener,
-					"/guilds/1/threads/active",
-					"200 OK",
-					&body,
-				)
-				.await;
+				respond(&listener, "/guilds/1/threads/active", "200 OK", &body).await;
 			});
 
 			let page = api.forum_posts(Id(2), Id(1), 0).await.unwrap();
@@ -290,13 +254,7 @@ mod tests {
 			);
 
 			let server = tokio::spawn(async move {
-				respond(
-					&listener,
-					&search_route(25),
-					"200 OK",
-					&body,
-				)
-				.await;
+				respond(&listener, &search_route(25), "200 OK", &body).await;
 			});
 
 			assert!(matches!(

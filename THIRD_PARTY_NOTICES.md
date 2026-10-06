@@ -80,10 +80,13 @@ The native attachment video adapter also uses **symphonia-codec-aac 0.6.1**
 the other Symphonia codecs, and ship through the same package copy step.
 
 The egui main experiment pins the egui/eframe ecosystem to upstream commit
-`99df44a801749aee958295ed96fccad8dfecb289` (version 0.36.2, MIT OR Apache-2.0).
+`35b9cbf27afd1756f5896bdd1325f155a415c054` (version 0.36.2, MIT OR Apache-2.0).
 It adds unicode-properties 0.1.4 (MIT/Apache-2.0) and updates glifo to 0.3.0 and
 vello_common/vello_cpu to 0.2.0 (Apache-2.0 OR MIT). Epaint bundled fonts and
-their separate license obligations are unchanged. Native font fallback uses
+their separate license obligations are unchanged. Clipboard support is explicitly
+enabled through eframe's `clipboard` feature. This pin updates AccessKit to 0.25.1,
+its consumer to 0.39.1 and its winit adapter to 0.34.1 (MIT OR Apache-2.0), with
+platform adapters resolved in Cargo.lock. Native font fallback uses
 egui_system_fonts/fontique and platform font discovery; see docs/dependency-versions.md
 for the exact added dependency versions and declared licenses. OS emoji fonts
 remain installed system resources and are not bundled or redistributed.
