@@ -30,6 +30,11 @@
     "policy": "passed",
     "full_xtask_check": "blocked by inherited UI failures; Appearance failure and download-cancel SIGABRT reproduced on rebased baseline"
   },
-  "package": "Stopped during baseline linking at user request; standard release packaging and package-size comparison incomplete.",
+  "package": {
+    "baseline": "Completed successfully as verification was stopped; local ad-hoc signing, not notarized.",
+    "baseline_executable_bytes": 67589904,
+    "after": "Not run at user request.",
+    "size_comparison": "Unmeasured."
+  },
   "benchmark": "rustc -O; one warmup and five alternating measured batches of 100000 conversions; shared host with compiler activity, so observational timings, not an uncontended performance claim."
 }

@@ -41,8 +41,9 @@ python3 docs/pr-evidence/emoticon-review/benchmark.py BASELINE_WORKTREE CHANGED_
 ```
 
 Run `cargo xtask package` on both revisions with identical normal release
-settings and no default/demo features. This includes voice. Packaging was stopped during baseline linking at the user’s request; no package
-size comparison or successful standard release-package verification is claimed.
+settings and no default/demo features. This includes voice. The baseline package completed successfully as verification was stopped at the
+user’s request. The changed release package was not built; no package-size
+comparison or successful changed release-package verification is claimed.
 For future measurements, sum regular files in each complete `dist` directory. Distribution ZIPs include
 all those files in sorted order using `ZIP_DEFLATED` level six. Local ad-hoc
 signing is not Developer ID signing or notarization.

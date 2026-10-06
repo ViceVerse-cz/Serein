@@ -4227,8 +4227,9 @@ The scanner now indexes matching delimiters and preserves unmatched inline
 markers as literal text. Samples were taken on a shared host with compiler
 activity, so these are observational timings, not an uncontended comparison or
 a performance improvement claim. Conversion occurs on submission. Native
-frame timing and process CPU/RSS remain unmeasured. Standard release packaging
-was stopped during baseline linking at the user’s request; executable, installed
-package and distribution size comparisons remain unmeasured. No dependencies
+frame timing and process CPU/RSS remain unmeasured. The baseline standard release package completed successfully (67,589,904-byte
+executable) as verification was stopped at the user’s request. The changed release
+package was not built; executable, installed package and distribution size
+comparisons remain unmeasured. No dependencies
 were added. Reproduction, raw samples and inspected synthetic native captures
 are in [the evidence directory](pr-evidence/emoticon-review/README.md).
