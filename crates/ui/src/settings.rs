@@ -1041,6 +1041,7 @@ impl MessagingUi {
 		self.layout_settings(ui, demo);
 	}
 
+	/// Shows device-local reading, composer and channel-list preferences.
 	fn chat_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
 		self.chat_reading_settings(ui, demo);
 		design::group(ui, &crate::i18n::translate("settings-chat-box"), |ui| {

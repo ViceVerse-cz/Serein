@@ -39,6 +39,7 @@ impl Settings {
 		self.state.failed = !accepted;
 		accepted
 	}
+	/// Marks changed, valid device preferences for asynchronous persistence.
 	pub fn observe(&mut self, ui: &ui::MessagingUi) {
 		let value = AppPreferences {
 			window_geometry: self.current.window_geometry,
@@ -80,6 +81,7 @@ impl Settings {
 			}
 		}
 	}
+	/// Restores saved device preferences, including the opt-in composer conversion.
 	pub fn apply(&self, ui: &mut ui::MessagingUi) {
 		let value = &self.current;
 		ui.language = ui::i18n::Language::from_preference(value.language.as_deref());
