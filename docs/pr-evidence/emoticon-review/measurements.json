@@ -1,0 +1,35 @@
+{
+  "baseline_commit": "20c2bb5fb6940e8f2ac3c84a25e9263457e658e1",
+  "base_main_commit": "ec75f729b11d5f3acca36b3563ee8db492b220aa",
+  "runtime_commit": "50873692c7f46fbd91d0e56574c289df91d6e786",
+  "source_sha256": {
+    "apps/desktop/src/app_settings.rs": "8458e61e5b552c1312fcb8253f8f2186610bfb76884b2dc5aa3caa3b904c5fa0",
+    "crates/ui/src/lib.rs": "ad24601aec14f451c178f58d44e39c6b6546637228aeec5d687d811a1d7da6c1",
+    "crates/ui/src/emoticons.rs": "8b350d73e065b4860b66be428b1a2bd575e1838d28c26a586572f74e91540359",
+    "crates/ui/src/settings.rs": "f34fb406dbd6967231012f5c24a0279915b90218d5fcc1098347b5f7d5331e74",
+    "crates/local-store/src/lib.rs": "edc8a79d9fdefbb927d65508f9a43b19eba49d64086e3e4191aaa315e849e233"
+  },
+  "captures": {
+    "renderer": "native WGPU/Metal",
+    "mode": "synthetic --demo",
+    "logical_viewport": [
+      1120,
+      760
+    ],
+    "framebuffer": [
+      1920,
+      1303
+    ],
+    "before_sha256": "3c880dfa86549fe7f0b0c2d4f8d75da2bd3ccf476384cfde28407e2349b98023",
+    "after_sha256": "62b5cbeac4e693068bc516991bd79664ed0783456e3079df3ff2a9ade04714ea"
+  },
+  "checks": {
+    "focused_tests_passed": 11,
+    "workspace_all_target_clippy": "passed",
+    "workspace_and_fuzz_formatting": "passed",
+    "policy": "passed",
+    "full_xtask_check": "blocked by inherited UI failures; Appearance failure and download-cancel SIGABRT reproduced on rebased baseline"
+  },
+  "package": "Stopped during baseline linking at user request; standard release packaging and package-size comparison incomplete.",
+  "benchmark": "rustc -O; one warmup and five alternating measured batches of 100000 conversions; shared host with compiler activity, so observational timings, not an uncontended performance claim."
+}

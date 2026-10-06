@@ -4207,3 +4207,28 @@ three sources, 220/560/1260-point widths, light/dark themes and scales 1/2.
 The exact announcement failed on the baseline because the following text began
 at y=76 while its quote rail extended to y=216; explicit row boundaries pass.
 `cargo xtask check` and strict Clippy for the demo preview passed.
+
+
+## Emoticon review fixes — October 6, 2026
+
+Compared rebased PR baseline `20c2bb5f` with runtime `50873692` on Apple M1 Pro,
+16 GiB RAM, macOS 27.0, pinned Rust 1.98.1. The std-only component harness
+compiles each exact converter with `rustc -O`; one warmup and five alternating
+measured batches each convert 100,000 synthetic messages using `black_box` and
+`Instant`. These timings include output allocation.
+
+| Message / bytes | Before, median µs | After, median µs | Delta |
+| --- | ---: | ---: | ---: |
+| Plain emoticons / 1,280 | 2.850 | 3.320 | +0.470 |
+| Code and links / 1,710 | 3.950 | 5.042 | +1.093 |
+| Escaped/unmatched ticks / 1,160 | 2.293 | 3.164 | +0.871 |
+
+The scanner now indexes matching delimiters and preserves unmatched inline
+markers as literal text. Samples were taken on a shared host with compiler
+activity, so these are observational timings, not an uncontended comparison or
+a performance improvement claim. Conversion occurs on submission. Native
+frame timing and process CPU/RSS remain unmeasured. Standard release packaging
+was stopped during baseline linking at the user’s request; executable, installed
+package and distribution size comparisons remain unmeasured. No dependencies
+were added. Reproduction, raw samples and inspected synthetic native captures
+are in [the evidence directory](pr-evidence/emoticon-review/README.md).
