@@ -4086,6 +4086,26 @@ voice-mute-toggle-unmute = Riattiva
 voice-mute-toggle-with-settings-input-settings = Impostazioni di ingresso
 # Context: mute_toggle_with_settings
 voice-mute-toggle-with-settings-output-settings = Impostazioni di uscita
+# Context: soundboard_panel
+voice-soundboard-title = Soundboard
+# Context: soundboard_panel
+voice-soundboard-open = Riproduci un suono in questo canale vocale
+# Context: soundboard_panel
+voice-soundboard-server-only = La soundboard è disponibile nei canali vocali dei server
+# Context: soundboard_panel
+voice-soundboard-server-sounds = Suoni del server
+# Context: soundboard_panel
+voice-soundboard-default-sounds = Suoni predefiniti
+# Context: soundboard_panel
+voice-soundboard-loading = Caricamento dei suoni…
+# Context: soundboard_panel
+voice-soundboard-empty = Nessun suono disponibile qui.
+# Context: soundboard_panel
+voice-soundboard-retry = Riprova
+# Context: soundboard_panel
+voice-soundboard-volume = Volume della soundboard
+# Context: soundboard_panel
+voice-soundboard-sound-unavailable = Questo suono non è disponibile
 # Context: stream_audio_controls
 voice-stream-audio-controls-mute-stream-audio = Disattiva l'audio in streaming
 # Context: stream_audio_controls

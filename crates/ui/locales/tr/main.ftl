@@ -4083,6 +4083,26 @@ voice-mute-toggle-unmute = Sesini açmak
 voice-mute-toggle-with-settings-input-settings = Giriş ayarları
 # Context: mute_toggle_with_settings
 voice-mute-toggle-with-settings-output-settings = Çıkış ayarları
+# Context: soundboard_panel
+voice-soundboard-title = Ses Paneli
+# Context: soundboard_panel
+voice-soundboard-open = Bu ses kanalında bir ses çal
+# Context: soundboard_panel
+voice-soundboard-server-only = Ses paneli sunucu ses kanallarında kullanılabilir
+# Context: soundboard_panel
+voice-soundboard-server-sounds = Sunucu sesleri
+# Context: soundboard_panel
+voice-soundboard-default-sounds = Varsayılan sesler
+# Context: soundboard_panel
+voice-soundboard-loading = Sesler yükleniyor…
+# Context: soundboard_panel
+voice-soundboard-empty = Burada kullanılabilir ses yok.
+# Context: soundboard_panel
+voice-soundboard-retry = Tekrar dene
+# Context: soundboard_panel
+voice-soundboard-volume = Ses paneli ses düzeyi
+# Context: soundboard_panel
+voice-soundboard-sound-unavailable = Bu ses kullanılamıyor
 # Context: stream_audio_controls
 voice-stream-audio-controls-mute-stream-audio = Akış sesini kapat
 # Context: stream_audio_controls

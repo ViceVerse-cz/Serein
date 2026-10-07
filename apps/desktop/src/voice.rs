@@ -176,6 +176,8 @@ struct Live {
 	remote_video: Arc<std::sync::Mutex<RemotePictures>>,
 	/// Decoded audio of a watched stream, mixed into this call's playback.
 	stream_audio: mpsc::SyncSender<discord_voice::Frame>,
+	/// Soundboard clips mixed into this call's playback; never transmitted.
+	effects: discord_voice::Effects,
 }
 
 #[derive(Default)]
@@ -311,6 +313,7 @@ pub struct Voice {
 	pending: Option<Pending>,
 	live: Option<Live>,
 	retiring: Option<mpsc::Receiver<()>>,
+	soundboard: crate::soundboard::Soundboard,
 	device_scan: Option<mpsc::Receiver<Result<discord_voice::audio::DeviceList, &'static str>>>,
 	camera_scan: Option<mpsc::Receiver<Result<discord_voice::camera::DeviceList, &'static str>>>,
 }
@@ -397,6 +400,66 @@ impl Voice {
 			failed_candidate: false,
 		});
 		Ok(())
+	}
+	/// Play a soundboard clip into the connected call's local playback. The sender hears its
+	/// own sound once the service accepted it; other participants' sounds arrive as effects.
+	pub fn soundboard(
+		&mut self,
+		runtime: &Runtime,
+		state: &State,
+		ui: &ui::MessagingUi,
+		event: &client_core::soundboard::Event,
+	) {
+		use client_core::soundboard::Event as E;
+		let Some(live) = &self.live else {
+			return;
+		};
+		if state.demo || live.generation != state.generation {
+			return;
+		}
+		let (channel, user, sound, volume) = match event {
+			E::Effect {
+				channel,
+				user,
+				sound,
+				volume,
+			} if *user != live.user => (*channel, *user, *sound, *volume),
+			E::Sent {
+				channel,
+				sound,
+				result: Ok(()),
+			} => (
+				*channel,
+				live.user,
+				*sound,
+				state
+					.soundboard
+					.sound(*sound)
+					.map_or(1.0, |sound| sound.volume),
+			),
+			_ => return,
+		};
+		if channel != live.channel
+			|| !state.voice.active.as_ref().is_some_and(|call| {
+				call.channel == channel
+					&& !call.deafened
+					&& matches!(call.phase, Phase::Connected | Phase::Waiting)
+			}) || (user != live.user && state.user_blocked(user) == Some(true))
+		{
+			return;
+		}
+		// A locally muted or quieter participant keeps that level for their sounds too.
+		let listener = if user == live.user {
+			100
+		} else {
+			ui.voice_user_volumes()
+				.iter()
+				.find(|(id, _)| *id == user.0)
+				.map_or(100, |(_, percent)| (*percent).min(200))
+		};
+		let gain =
+			volume * f32::from(ui.voice_soundboard_volume()) / 100.0 * f32::from(listener) / 100.0;
+		self.soundboard.play(runtime, &live.effects, sound, gain);
 	}
 	/// Take negotiation secrets before reducing the UI event. Nothing is persisted.
 	pub fn observe(&mut self, state: &State, event: &mut Event) -> Option<&'static str> {
@@ -1455,6 +1518,8 @@ impl Voice {
 		};
 		let identity = discord_voice::Identity::generate();
 		let media_identity = identity.clone();
+		let effects = discord_voice::Effects::default();
+		let transport_effects = effects.clone();
 		let transport_failure = failure.clone();
 		let wake = ctx.clone();
 		let task = runtime.spawn(async move {
@@ -1472,6 +1537,7 @@ impl Voice {
 				},
 				Some(sink),
 				Some(stream_audio_receive),
+				Some(transport_effects),
 				move |event| {
 					let notice = match event {
 						Status::TransportReady => Notice::TransportReady(negotiation_revision),
@@ -1531,6 +1597,7 @@ impl Voice {
 			camera_clock: Instant::now(),
 			remote_video,
 			stream_audio,
+			effects,
 			negotiation: Some(pending),
 		});
 		Ok(())
@@ -2268,6 +2335,7 @@ mod tests {
 			camera_clock: Instant::now(),
 			remote_video: Arc::new(std::sync::Mutex::new(Vec::new())),
 			stream_audio,
+			effects: Default::default(),
 		});
 		let failure = |revision| {
 			Event::Voice(voice::Event::SessionConfirmationFailed {

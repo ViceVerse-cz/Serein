@@ -4098,6 +4098,26 @@ voice-mute-toggle-unmute = Zrušit ztlumení
 voice-mute-toggle-with-settings-input-settings = Nastavení vstupu
 # Context: mute_toggle_with_settings
 voice-mute-toggle-with-settings-output-settings = Nastavení výstupu
+# Context: soundboard_panel
+voice-soundboard-title = Soundboard
+# Context: soundboard_panel
+voice-soundboard-open = Přehrát zvuk v tomto hlasovém kanálu
+# Context: soundboard_panel
+voice-soundboard-server-only = Soundboard je dostupný v hlasových kanálech serveru
+# Context: soundboard_panel
+voice-soundboard-server-sounds = Zvuky serveru
+# Context: soundboard_panel
+voice-soundboard-default-sounds = Výchozí zvuky
+# Context: soundboard_panel
+voice-soundboard-loading = Načítání zvuků…
+# Context: soundboard_panel
+voice-soundboard-empty = Nejsou zde dostupné žádné zvuky.
+# Context: soundboard_panel
+voice-soundboard-retry = Zkusit znovu
+# Context: soundboard_panel
+voice-soundboard-volume = Hlasitost soundboardu
+# Context: soundboard_panel
+voice-soundboard-sound-unavailable = Tento zvuk není dostupný
 # Context: stream_audio_controls
 voice-stream-audio-controls-mute-stream-audio = Ztlumit streamovaný zvuk
 # Context: stream_audio_controls

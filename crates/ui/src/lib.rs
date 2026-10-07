@@ -404,6 +404,8 @@ pub struct MessagingUi {
 	/// Session-only stream playback level; unset is 100%. Mute preserves the level.
 	voice_stream_volume: Option<u16>,
 	voice_stream_muted: bool,
+	/// Session-only soundboard playback level; unset is 100%.
+	voice_soundboard_volume: Option<u16>,
 	/// Enlarged stage tile; cleared when it stops showing video or on Escape.
 	pub voice_focus: Option<voice::StageFocus>,
 	/// Screen share currently owning the client surface, its prior window mode and focus target.

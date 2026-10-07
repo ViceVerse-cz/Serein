@@ -4100,6 +4100,26 @@ voice-mute-toggle-unmute = Unmute
 voice-mute-toggle-with-settings-input-settings = Input settings
 # Context: mute_toggle_with_settings
 voice-mute-toggle-with-settings-output-settings = Output settings
+# Context: soundboard_panel
+voice-soundboard-title = Soundboard
+# Context: soundboard_panel
+voice-soundboard-open = Play a sound in this voice channel
+# Context: soundboard_panel
+voice-soundboard-server-only = Soundboard is available in server voice channels
+# Context: soundboard_panel
+voice-soundboard-server-sounds = Server sounds
+# Context: soundboard_panel
+voice-soundboard-default-sounds = Default sounds
+# Context: soundboard_panel
+voice-soundboard-loading = Loading sounds…
+# Context: soundboard_panel
+voice-soundboard-empty = No sounds are available here.
+# Context: soundboard_panel
+voice-soundboard-retry = Try again
+# Context: soundboard_panel
+voice-soundboard-volume = Soundboard volume
+# Context: soundboard_panel
+voice-soundboard-sound-unavailable = This sound is unavailable
 # Context: stream_audio_controls
 voice-stream-audio-controls-mute-stream-audio = Mute stream audio
 # Context: stream_audio_controls

@@ -153,6 +153,56 @@ controls, including simultaneous speech, additions/removals, ringing/decline/joi
 sharing/viewing, last-peer departure/rejoin, and removal of this account. This local `!fast`
 implementation pass does not establish production readiness or physical media behavior.
 
+## Soundboard
+
+In a connected server voice channel, the call bar's **Soundboard** button opens a panel with
+that server's sounds and Discord's default sounds. Selecting a sound sends one explicit play
+request; nothing plays or loads until the panel is opened. Sounds played by other participants
+are audible: the service announces each one, and Serein downloads that sound and mixes it into
+the call's playback. Your own sound is heard locally once the service accepts the request, so a
+rejected request stays silent and shows its reason in the panel.
+
+Playing requires SPEAK and USE_SOUNDBOARD in the channel and is unavailable while deafened or
+server muted/deafened, matching the documented service rules. A sound owned by another server
+additionally needs USE_EXTERNAL_SOUNDS and names its source server; the panel currently lists
+only the connected server's sounds and the defaults, so there is no cross-server picker and no
+favorites. One play request is outstanding at a time. Private and group DM calls show the
+button disabled. Creating, editing and deleting sounds, entrance sounds, emoji-only voice
+effects and animations are not implemented.
+
+Sound audio is local playback only: it is never encoded into the microphone stream, and the
+service does not relay it as voice. Clips enter the same mix as participant voices, after
+decryption and before the speaker volume, so the selected output device, **Speaker volume**,
+deafen and the echo-cancellation reference all apply. The panel's **Soundboard volume**
+(0% to 100%, session-only, initially 100%) scales every sound together with the level the
+server configured for it. A participant's **User volume** and local mute also apply to the
+sounds they play, and sounds from blocked users are skipped. Sounds also play while waiting
+alone in a channel.
+
+Limits: catalogs are session-only and bounded to 256 sounds and 128 KiB per catalog (one
+server's catalog plus the defaults; responses over 256 KiB are rejected). A server sound
+change marks that catalog stale and it reloads the next time the panel is shown. Sound files
+are fetched without credentials from `cdn.discordapp.com/soundboard-sounds/{id}`, limited to
+1 MiB and a 10-second transfer, decoded off the UI and audio threads (MP3, Ogg Vorbis or Ogg
+Opus) to 48 kHz mono and truncated at six seconds. At most four downloads run at once and
+sixteen decoded clips (at most ten full-length ones, about 11.5 MiB) are kept in RAM for the
+session; nothing is written to disk. Eight clips can overlap; a ninth replaces the oldest. A
+sound that takes more than three seconds to arrive is cached but not played late. Download or
+decode failures of another participant's sound are silent.
+
+The routes and events are [documented by Discord](https://docs.discord.com/developers/resources/soundboard)
+for bots; acceptance from a normal account is unofficial and **live-unverified**. Offline
+tests cover wire decoding, permission and call-state gates, the HTTP requests against a local
+server, Gateway dispatch, the clip mixer, cache bounds, decoding of bundled fixtures and the
+panel's click path. They do not establish that Discord accepts the request, that the effect
+event reaches this client, or that any sound is audible on a physical device. For the
+owner-controlled live gate: join a private server voice channel with a second client you
+control, play a default and a server sound from each side, and confirm each is heard once on
+both; then check deafen, server mute, a denied USE_SOUNDBOARD role, Soundboard volume at 0%
+and 100%, a locally muted participant, and that leaving the call stops playback.
+`cargo run --locked -p serein --features demo -- --demo --demo-voice` shows the panel with a
+synthetic catalog; the preview never downloads or plays audio.
+
 ## Protocol classification
 
 | Area | Evidence / classification | Verification here |
@@ -160,6 +210,7 @@ implementation pass does not establish production readiness or physical media be
 | DM entry, incoming call events and ringing | [discord.py-self Gateway](https://github.com/dolfies/discord.py-self/blob/master/discord/gateway.py), [dispatch](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py), [HTTP](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py): unofficial normal-user behavior | Real local WebSocket op13/op4 join/leave and local HTTP ring/decline tests; no Discord call |
 | Voice WebSocket, UDP discovery, RTP and codec negotiation | [Discord voice documentation](https://docs.discord.com/developers/topics/voice-connections): documented transport, not an approval of normal-user clients | Synthetic loopback voice event loop, authenticated RTP and Opus tests |
 | Required end-to-end encryption | [Discord DAVE protocol](https://daveprotocol.com/): documented; [Davey](https://github.com/Snazzah/davey): unofficial implementation, not an independent security-audit claim | Synthetic two-party MLS/DAVE exchange, tamper/replay rejection and encrypted audio across local sockets |
+| Soundboard catalog, play request and effect event | [Soundboard resource](https://docs.discord.com/developers/resources/soundboard), [Voice Channel Effect Send](https://docs.discord.com/developers/events/gateway-events#voice-channel-effect-send): documented for bots; normal-account acceptance unofficial | Local HTTP server, synthetic Gateway dispatch and device-free mixer/decoder tests; no Discord request or audible check |
 | Microphone, playback, resampling and devices | CPAL/native platform APIs | Device-free capture/resampling tests only; physical audio and permission dialogs unverified |
 
 The [compatibility matrix](discord-compatibility.md) distinguishes this from restricted OAuth/RPC capabilities. No OAuth voice grant or bot connection substitutes for the user's session.

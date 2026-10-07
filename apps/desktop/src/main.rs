@@ -49,6 +49,7 @@ mod screen;
 mod server_settings_demo;
 #[cfg(feature = "demo")]
 mod slash_demo;
+mod soundboard;
 mod spotify;
 mod startup;
 mod sticker_upload;
@@ -3687,6 +3688,17 @@ impl Desktop {
 				Command::Polls(request) => {
 					polls_demo::respond(&self.state, request, &mut self.synthetic_id)
 				}
+				// The offline preview answers a play request without any audio or network use.
+				Command::Soundboard(client_core::soundboard::Request::Send {
+					channel,
+					sound,
+					..
+				}) => Event::Soundboard(client_core::soundboard::Event::Sent {
+					channel,
+					sound,
+					result: Ok(()),
+				}),
+				Command::Soundboard(_) => return,
 				Command::Reactions(command) => {
 					use client_core::reactions::{Command as R, Event as E};
 					Event::Reactions(match command {
@@ -5645,6 +5657,12 @@ impl Desktop {
 			}
 			let takeover_notice = voice::takeover_notice(&self.state, &event.event);
 			let voice_failure = self.voice.observe(&self.state, &mut event.event);
+			if event.generation == self.state.generation
+				&& let Event::Soundboard(effect) = &event.event
+			{
+				self.voice
+					.soundboard(&self.runtime, &self.state, &self.messaging, effect);
+			}
 			let ready = event.event.ready_navigation().is_some();
 			let resumed = matches!(event.event, Event::Resumed);
 			if (ready || resumed)

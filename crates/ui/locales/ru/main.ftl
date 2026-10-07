@@ -4088,6 +4088,26 @@ voice-mute-toggle-unmute = Включить звук
 voice-mute-toggle-with-settings-input-settings = Настройки ввода
 # Context: mute_toggle_with_settings
 voice-mute-toggle-with-settings-output-settings = Настройки вывода
+# Context: soundboard_panel
+voice-soundboard-title = Звуковая панель
+# Context: soundboard_panel
+voice-soundboard-open = Воспроизвести звук в этом голосовом канале
+# Context: soundboard_panel
+voice-soundboard-server-only = Звуковая панель доступна в голосовых каналах серверов
+# Context: soundboard_panel
+voice-soundboard-server-sounds = Звуки сервера
+# Context: soundboard_panel
+voice-soundboard-default-sounds = Стандартные звуки
+# Context: soundboard_panel
+voice-soundboard-loading = Загрузка звуков…
+# Context: soundboard_panel
+voice-soundboard-empty = Здесь нет доступных звуков.
+# Context: soundboard_panel
+voice-soundboard-retry = Повторить
+# Context: soundboard_panel
+voice-soundboard-volume = Громкость звуковой панели
+# Context: soundboard_panel
+voice-soundboard-sound-unavailable = Этот звук недоступен
 # Context: stream_audio_controls
 voice-stream-audio-controls-mute-stream-audio = Отключить звук потока
 # Context: stream_audio_controls

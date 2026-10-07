@@ -43,6 +43,30 @@ These are unofficial normal-account interfaces, not Discord's public bot API.
 Normal-account acceptance and cover availability remain unverified; synthetic
 fixtures and offline checks are not service-compatibility evidence.
 
+## Soundboard — October 6, 2026
+
+Server voice channels can list, play and hear soundboard sounds. The catalog uses the
+documented [`GET /soundboard-default-sounds` and `GET /guilds/{guild.id}/soundboard-sounds`](https://docs.discord.com/developers/resources/soundboard)
+routes, and playing uses `POST /channels/{channel.id}/send-soundboard-sound` with `sound_id`
+and, only for another server's sound, `source_guild_id`. Sounds from other participants arrive
+as the documented [Voice Channel Effect Send](https://docs.discord.com/developers/events/gateway-events#voice-channel-effect-send)
+Gateway event (`sound_id`, `sound_volume`); the audio itself is not relayed over voice, so each
+client fetches `https://cdn.discordapp.com/soundboard-sounds/{sound_id}` without credentials
+and plays it locally. Guild Soundboard Sound Create/Update/Delete and Sounds Update only mark
+the cached server catalog stale. Request Soundboard Sounds (opcode 31) is not sent.
+
+Sound identifiers are accepted as snowflake strings or integers, and a `guild_id` of `"0"` is
+treated as a default sound; the integer and zero forms are tolerated defensively and are not
+documented guarantees. The unofficial [user-account reference](https://docs.discord.food/resources/soundboard)
+describes the same routes and adds that the sender must be connected and not server muted,
+deafened or suppressed; [discord.py-self](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py)
+has no soundboard implementation to compare against (checked October 6, 2026). Whether the
+effect event is also delivered to the sender is not documented: Serein ignores effects from
+its own user and plays its own sound when the request succeeds, so a sound should play once
+either way. Normal-account acceptance, delivery of the effect event and audible playback are
+**live-unverified**; no account, call or audio device was used. See
+[workflow and limits](voice.md#soundboard).
+
 ## GIF favorite synchronization — October 2, 2026
 
 Opening the GIF picker lazily reads account favorites through the unofficial

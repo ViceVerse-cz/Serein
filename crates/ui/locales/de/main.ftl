@@ -4086,6 +4086,26 @@ voice-mute-toggle-unmute = Stummschaltung aufheben
 voice-mute-toggle-with-settings-input-settings = Eingabeeinstellungen
 # Context: mute_toggle_with_settings
 voice-mute-toggle-with-settings-output-settings = Ausgabeeinstellungen
+# Context: soundboard_panel
+voice-soundboard-title = Soundboard
+# Context: soundboard_panel
+voice-soundboard-open = Einen Sound in diesem Sprachkanal abspielen
+# Context: soundboard_panel
+voice-soundboard-server-only = Das Soundboard ist in Server-Sprachkanälen verfügbar
+# Context: soundboard_panel
+voice-soundboard-server-sounds = Server-Sounds
+# Context: soundboard_panel
+voice-soundboard-default-sounds = Standard-Sounds
+# Context: soundboard_panel
+voice-soundboard-loading = Sounds werden geladen…
+# Context: soundboard_panel
+voice-soundboard-empty = Hier sind keine Sounds verfügbar.
+# Context: soundboard_panel
+voice-soundboard-retry = Erneut versuchen
+# Context: soundboard_panel
+voice-soundboard-volume = Soundboard-Lautstärke
+# Context: soundboard_panel
+voice-soundboard-sound-unavailable = Dieser Sound ist nicht verfügbar
 # Context: stream_audio_controls
 voice-stream-audio-controls-mute-stream-audio = Stream-Audio stumm schalten
 # Context: stream_audio_controls

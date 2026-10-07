@@ -4086,6 +4086,26 @@ voice-mute-toggle-unmute = Ativar som
 voice-mute-toggle-with-settings-input-settings = Configurações de entrada
 # Context: mute_toggle_with_settings
 voice-mute-toggle-with-settings-output-settings = Configurações de saída
+# Context: soundboard_panel
+voice-soundboard-title = Soundboard
+# Context: soundboard_panel
+voice-soundboard-open = Tocar um som neste canal de voz
+# Context: soundboard_panel
+voice-soundboard-server-only = O soundboard está disponível em canais de voz de servidores
+# Context: soundboard_panel
+voice-soundboard-server-sounds = Sons do servidor
+# Context: soundboard_panel
+voice-soundboard-default-sounds = Sons padrão
+# Context: soundboard_panel
+voice-soundboard-loading = Carregando sons…
+# Context: soundboard_panel
+voice-soundboard-empty = Nenhum som disponível aqui.
+# Context: soundboard_panel
+voice-soundboard-retry = Tentar novamente
+# Context: soundboard_panel
+voice-soundboard-volume = Volume do soundboard
+# Context: soundboard_panel
+voice-soundboard-sound-unavailable = Este som está indisponível
 # Context: stream_audio_controls
 voice-stream-audio-controls-mute-stream-audio = Silenciar transmissão de áudio
 # Context: stream_audio_controls

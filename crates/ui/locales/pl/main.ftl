@@ -4087,6 +4087,26 @@ voice-mute-toggle-unmute = Wyłącz wyciszenie
 voice-mute-toggle-with-settings-input-settings = Ustawienia wejściowe
 # Context: mute_toggle_with_settings
 voice-mute-toggle-with-settings-output-settings = Ustawienia wyjściowe
+# Context: soundboard_panel
+voice-soundboard-title = Soundboard
+# Context: soundboard_panel
+voice-soundboard-open = Odtwórz dźwięk na tym kanale głosowym
+# Context: soundboard_panel
+voice-soundboard-server-only = Soundboard jest dostępny na kanałach głosowych serwera
+# Context: soundboard_panel
+voice-soundboard-server-sounds = Dźwięki serwera
+# Context: soundboard_panel
+voice-soundboard-default-sounds = Dźwięki domyślne
+# Context: soundboard_panel
+voice-soundboard-loading = Wczytywanie dźwięków…
+# Context: soundboard_panel
+voice-soundboard-empty = Brak dostępnych dźwięków.
+# Context: soundboard_panel
+voice-soundboard-retry = Spróbuj ponownie
+# Context: soundboard_panel
+voice-soundboard-volume = Głośność soundboardu
+# Context: soundboard_panel
+voice-soundboard-sound-unavailable = Ten dźwięk jest niedostępny
 # Context: stream_audio_controls
 voice-stream-audio-controls-mute-stream-audio = Wycisz dźwięk strumienia
 # Context: stream_audio_controls

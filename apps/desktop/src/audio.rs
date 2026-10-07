@@ -565,6 +565,58 @@ pub(super) fn decode_stream(
 	Ok(())
 }
 
+/// Decode a small, complete download to 48 kHz mono, keeping at most `max_samples`.
+pub(super) fn decode_clip(bytes: Vec<u8>, max_samples: usize) -> Result<Vec<f32>, &'static str> {
+	let mut mono = Vec::new();
+	let mut source_rate = 0u32;
+	let full = std::cell::Cell::new(false);
+	let result = decode_stream(
+		source::memory(bytes)?,
+		&|| !full.get(),
+		&mut |chunk, channels, rate, _| {
+			source_rate = rate;
+			// Source frames that fill the 48 kHz budget.
+			let limit = (max_samples as u64 * u64::from(rate)).div_ceil(48_000) as usize;
+			for frame in chunk.chunks_exact(channels) {
+				if mono.len() >= limit {
+					full.set(true);
+					break;
+				}
+				let sample = frame.iter().sum::<f32>() / channels as f32;
+				mono.push(if sample.is_finite() {
+					sample.clamp(-1.0, 1.0)
+				} else {
+					0.0
+				});
+			}
+			Ok(())
+		},
+	);
+	// A clip longer than the budget is truncated rather than rejected.
+	if !full.get() {
+		result?;
+	}
+	if mono.is_empty() || source_rate == 0 {
+		return Err(INVALID);
+	}
+	if source_rate == 48_000 {
+		mono.truncate(max_samples);
+		return Ok(mono);
+	}
+	let frames = mono.len();
+	// ponytail: linear rate conversion; use a band-limited resampler if quality measurements require it.
+	Ok(
+		(0..(frames * 48_000 / source_rate as usize).min(max_samples))
+			.map(|frame| {
+				let position = frame as f64 * f64::from(source_rate) / 48_000.0;
+				let index = (position as usize).min(frames - 1);
+				let next = (index + 1).min(frames - 1);
+				mono[index] + (mono[next] - mono[index]) * (position - index as f64) as f32
+			})
+			.collect(),
+	)
+}
+
 // Skip metadata without decoding attacker-provided tag lengths/artwork. Compact in-place:
 // only bounded PCM fmt/data chunks reach the WAV demuxer; ID3 parsing is disabled entirely.
 fn prepare_media(bytes: &mut Vec<u8>) -> Result<(), &'static str> {

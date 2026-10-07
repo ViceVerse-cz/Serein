@@ -4086,6 +4086,26 @@ voice-mute-toggle-unmute = Activer le son
 voice-mute-toggle-with-settings-input-settings = Paramètres d'entrée
 # Context: mute_toggle_with_settings
 voice-mute-toggle-with-settings-output-settings = Paramètres de sortie
+# Context: soundboard_panel
+voice-soundboard-title = Soundboard
+# Context: soundboard_panel
+voice-soundboard-open = Jouer un son dans ce salon vocal
+# Context: soundboard_panel
+voice-soundboard-server-only = Le soundboard est disponible dans les salons vocaux de serveur
+# Context: soundboard_panel
+voice-soundboard-server-sounds = Sons du serveur
+# Context: soundboard_panel
+voice-soundboard-default-sounds = Sons par défaut
+# Context: soundboard_panel
+voice-soundboard-loading = Chargement des sons…
+# Context: soundboard_panel
+voice-soundboard-empty = Aucun son n'est disponible ici.
+# Context: soundboard_panel
+voice-soundboard-retry = Réessayer
+# Context: soundboard_panel
+voice-soundboard-volume = Volume du soundboard
+# Context: soundboard_panel
+voice-soundboard-sound-unavailable = Ce son est indisponible
 # Context: stream_audio_controls
 voice-stream-audio-controls-mute-stream-audio = Couper le son du flux
 # Context: stream_audio_controls

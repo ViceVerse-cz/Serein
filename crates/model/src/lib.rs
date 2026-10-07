@@ -29,6 +29,7 @@ pub mod server_integrations;
 pub mod server_invites;
 pub mod server_roles;
 pub mod server_settings;
+pub mod soundboard;
 pub use reading_preferences::ReadingPreferences;
 mod profile;
 mod system_messages;
