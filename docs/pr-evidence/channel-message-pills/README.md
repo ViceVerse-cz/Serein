@@ -1,7 +1,7 @@
 # Channel and message pills — issue #576
 
-Baseline: `38d919d74054b885b992ce607f0bfa93ab449696`; final runtime:
-`78de8d15`. The original checkout's
+Baseline: `38d919d74054b885b992ce607f0bfa93ab449696`; runtime used for the
+screenshots and process comparison: `78de8d15`. The original checkout's
 untracked `community-extensions/` was preserved in a separate checkout. Both
 comparison builds use the new synthetic `channel-links` fixture and the same
 one-edge Cargo.lock repair: gpu-allocator 0.28.0 selects windows 0.62.2, matching
@@ -96,3 +96,27 @@ changed UI suite had 414 passed, 8 baseline failures, 5 ignored. After the final
 background-only correction, all seven focused pill tests and strict workspace
 Clippy passed again. Formatting, production-only checking and policy checks also
 passed. See `checks.json` for the exact baseline failure names.
+
+## Review follow-up
+
+`f9e568c9` fixes biography destination metadata, localizes accessible labels,
+shares the renderer's source limit with metadata fingerprints, and adds table
+methods. `7d9c0d05` distinguishes Chinese thread and post labels. Ten focused
+pill tests pass, including synthetic egui biography rendering/keyboard navigation,
+the source-byte boundary, and distinct thread/post labels in every language.
+Formatting and strict workspace Clippy pass after the final translation fix.
+The full workspace run at `f9e568c9` has 1,157 passes, the same eight baseline
+failures, and 23 ignored tests; production-only and policy checks also pass.
+The historical screenshots and process samples above were not repeated for
+these review fixes; native input and capture remain unavailable.
+
+The standard voice-inclusive package at `7d9c0d05` passed with no demo/developer
+features. [review-package.json](review-package.json) records its sizes and SHA-256;
+the [performance report](../../performance.md#review-follow-up-package) compares
+it with the same baseline. NSIS remains unavailable locally; this is an unsigned
+directory and ZIP, not an installer executable.
+
+[Ubuntu CI at `7d9c0d05`](https://github.com/ViceVerse-cz/Serein/actions/runs/37639466527/job/112854794590)
+also failed on those same eight baseline UI tests (415 passed, 8 failed, 5 ignored).
+CodeRabbit approved the runtime changes and all five review threads were resolved;
+that approval does not waive the test and native-verification blockers.

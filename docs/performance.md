@@ -4398,3 +4398,25 @@ passing tests, eight failures also reproduced on the baseline, and 23 ignored
 tests. Seven focused pill tests and strict Clippy passed after the final visual
 correction. Commands, raw counters, baseline failure names and image provenance
 are in [the evidence directory](pr-evidence/channel-message-pills/README.md).
+
+### Review follow-up package
+
+The standard voice-inclusive package was rebuilt at `7d9c0d05` after the review
+fixes, using the same Windows host, pinned toolchain, no demo/developer features,
+and compression method. It passed; NSIS remains unavailable locally. Comparison
+with the same `38d919d7` baseline:
+
+| Package metric | Baseline | After review | Delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| Executable | 85,449,728 B | 85,464,576 B | +14,848 B / +0.017% | serein.exe file length |
+| Installed files | 89,623,341 B | 89,638,189 B | +14,848 B / +0.017% | Sum of all dist file lengths |
+| ZIP distribution | 49,775,655 B | 49,781,661 B | +6,006 B / +0.012% | Compress-Archive, Optimal; ZIP file length |
+
+Raw sizes and the executable hash are in
+[review-package.json](pr-evidence/channel-message-pills/review-package.json).
+The process samples and screenshots above remain evidence for `78de8d15`; they
+were not repeated for the review fixes and support no claim about changed CPU
+or memory usage. Full workspace checking at `f9e568c9` reached 1,157 passes,
+the same eight baseline failures, and 23 ignored tests. After the final Chinese
+label correction, all ten focused pill tests, formatting and strict workspace
+Clippy passed. Native input/capture remain unverified; merge blockers persist.
