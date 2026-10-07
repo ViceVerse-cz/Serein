@@ -4,6 +4,31 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Watched-stream quality request — October 8, 2026
+
+Windows 11 Home build 26200, Ryzen 7 7800X3D, 32 GiB RAM, 100% system scale.
+The standard voice-enabled `cargo xtask package` compared `a76e030d` with
+`26bc3c91`; no installer executable was made because `makensis` is absent.
+The compressed size uses .NET `ZipFile.CreateFromDirectory` with optimal compression
+on the same 216 installed files in each build.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 85,932,032 B | 85,934,080 B | +2,048 B (+0.0024%) |
+| Installed package | 90,123,148 B | 90,125,196 B | +2,048 B (+0.0023%) |
+| Compressed distribution | 49,976,600 B | 49,979,377 B | +2,777 B (+0.0056%) |
+| Offline demo idle CPU, mean of one core | 2.4% | 1.5% | −0.9 percentage points; noisy |
+| Offline demo peak private bytes | 166,727,680 B | 166,727,680 B | 0 B |
+| Offline demo settled median private bytes | 166,727,680 B | 166,694,912 B | −32,768 B; noise |
+
+The process sample used matched release `--no-default-features --features demo`
+builds, `--demo --demo-voice`, a hidden native window, DX12 requested through
+`WGPU_BACKEND`, a 15-second warmup and ten one-second samples; neither process
+spawned a child. The synthetic fixture does not receive video or exercise the
+new signaling. No decoded frame rate, stream bandwidth, live quality, GPU memory
+or other operating systems were measured; the idle CPU difference is not an
+improvement claim.
+
 ## Voice default-device polling — October 7, 2026
 
 An offline probe compared creating a fresh PulseAudio client for every metadata poll with reusing
