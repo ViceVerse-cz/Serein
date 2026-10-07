@@ -100,6 +100,35 @@ allocation limit) instead of up to the 500 MB upload limit plus a second copy.
 Standard no-default-features macOS packages built from both revisions: executable 68,509,584 B in
 both, installed app 74,547,919 B in both, `ditto` ZIP 48,179,547 vs 48,179,867 B (+320 B).
 
+## Soundboard — October 7, 2026
+
+Baseline `884fb73f` plus the one-line lockfile correction that lets it build on Windows,
+compared with the soundboard playback, panel and server management changes. Windows 11 Pro
+10.0.26200, AMD Ryzen 7 7800X3D, 32 GB RAM, Radeon RX 9070 XT, pinned Rust 1.98.1, locked
+dependencies. Both revisions were built in separate target directories.
+
+| Metric / method | Baseline | After | Delta |
+| --- | --- | --- | --- |
+| `serein.exe`, `cargo xtask package` | 85,350,400 B | 85,810,688 B | +460,288 B (+0.54%) |
+| Installed `dist/` tree | 89,524,013 B | 89,984,421 B | +460,408 B (+0.51%) |
+| `dist/` as one deflate-9 zip | 49,631,916 B | 49,767,265 B | +135,349 B (+0.27%) |
+| Idle CPU, median of 3 | 1.25% of one core | 1.30% of one core | within run-to-run noise |
+| Working set after sampling, median of 3 | 122.2 MB | 122.6 MB | within run-to-run noise |
+| Private bytes after sampling, median of 3 | 152.2 MB | 148.3 MB | within run-to-run noise |
+
+The process rows sample a release build with the `demo` feature running
+`--demo --demo-voice` with no input: 15 seconds of warmup, then 30 one-second samples of
+total processor time, working set and private bytes. Individual runs ranged over 1.15-1.41%
+CPU and 147.9-156.1 MB private bytes across both builds, so no difference is claimed. The
+zip is a local measurement of the package directory, not a published artifact.
+
+Not measured: playback mixing cost in a live call, download and decode time of a real
+sound, waveform rendering frame time and trim encoding time. None of those paths run in the
+idle demo; the mixer and the Ogg Opus encoder have device-free tests but no timing
+workload. Bounded additions: up to eight overlapping clips of at most six seconds in the
+call mixer, a session cache of at most sixteen decoded clips (about 11.5 MiB), and, only
+while the upload review is open, up to 57.6 MB of decoded audio plus 30 KB of peaks.
+
 ## Voice default-device polling — October 7, 2026
 
 An offline probe compared creating a fresh PulseAudio client for every metadata poll with reusing
