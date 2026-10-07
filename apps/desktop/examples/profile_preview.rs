@@ -197,7 +197,8 @@ impl eframe::App for Preview {
 fn prime_profile(state: &mut client_core::State) {
 	if let Some(client_core::Command::EditProfile { user, request, .. }) = state.load_own_profile()
 	{
-		let profile = ui::synthetic_own_profile(state.user.as_ref().unwrap());
+		let mut profile = ui::synthetic_own_profile(state.user.as_ref().unwrap());
+		profile.bio = "✦ quiet corners ✦\nSynthetic preview with a four-pointed star.".into();
 		state.apply(client_core::Envelope {
 			generation: state.generation,
 			event: client_core::Event::ProfileEdited {

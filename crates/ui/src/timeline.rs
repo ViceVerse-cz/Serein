@@ -4453,7 +4453,15 @@ mod tests {
 				);
 			},
 		);
-		assert!(output.platform_output.commands.is_empty());
+		assert!(
+			output
+				.platform_output
+				.commands
+				.iter()
+				.all(|command| matches!(command, egui::OutputCommand::TextSelectionSettled(_))),
+			"{:?}",
+			output.platform_output.commands
+		);
 		let mut labels = vec![];
 		for shape in &output.shapes {
 			collect(&shape.shape, &mut labels, actual_glyphs);
@@ -6777,7 +6785,18 @@ mod tests {
 						)
 					},
 				);
-				assert!(output.platform_output.commands.is_empty());
+				assert!(
+					output
+						.platform_output
+						.commands
+						.iter()
+						.all(|command| matches!(
+							command,
+							egui::OutputCommand::TextSelectionSettled(_)
+						)),
+					"{:?}",
+					output.platform_output.commands
+				);
 				let mut labels = vec![];
 				for shape in &output.shapes {
 					collect(&shape.shape, &mut labels);
