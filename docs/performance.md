@@ -4233,3 +4233,28 @@ package was not built; executable, installed package and distribution size
 comparisons remain unmeasured. No dependencies
 were added. Reproduction, raw samples and inspected synthetic native captures
 are in [the evidence directory](pr-evidence/emoticon-review/README.md).
+
+
+# Attachment storage selectors — October 7, 2026
+
+Baseline `884fb73fa68bffda70b1f308c903ece239281522`, compared with the
+`backend=b2`/`backend=b3` URL admission change delivered alongside this report.
+Both standard `cargo xtask package` builds completed on macOS 27.0 (26A428),
+Apple M1, 16 GiB RAM, Rust 1.98.1 with the lockfile and default/demo features
+disabled; voice remains included. Both ad-hoc signatures verified successfully.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Desktop executable | 68,180,992 B | 68,180,992 B | 0 B |
+| Installed app, sum of files | 74,201,013 B | 74,201,013 B | 0 B |
+| Distribution directory, sum of files | 74,265,778 B | 74,265,778 B | 0 B |
+| Complete ZIP, `ditto -c -k --keepParent dist` | 48,039,907 B | 48,040,389 B | +482 B / +0.0010% |
+
+This changes one bounded URL query predicate. Metadata remains limited to 2,048
+URL bytes; download limits, decoding, rendering, caches, queues and dependencies
+are unchanged. Nine focused download tests and all 188 non-ignored desktop tests
+passed. No CPU/RSS, native frame-time or decoder-throughput comparison was run;
+the separate playback CPU complaint in issue #556 is not resolved by URL admission.
+The small archive difference supports no runtime-performance claim. Raw package
+sizes and the changed source hash are in
+[the size record](pr-evidence/attachment-storage-selectors/package-sizes.json).

@@ -2047,7 +2047,8 @@ the reported account response and live Discord behavior remain unverified.
 
 The shared video/audio/download URL validator now normalizes attachment links on
 `media.discordapp.net` to `cdn.discordapp.com`, retaining the original path and
-signed `ex`, `is`, and `hm` query. It still rejects transformed media queries,
+signed `ex`, `is`, and `hm` query, plus the observed storage selectors described
+below. It still rejects transformed media queries,
 foreign hosts, credentials, non-HTTPS URLs, fragments, mismatched attachment IDs,
 encoded path separators and oversized metadata/files. Playback fetches the original
 through the same bounded range reader; no decoder, cache or queue is changed.
@@ -2068,6 +2069,17 @@ the received attachment. Source channel/message IDs can differ from a forwarded
 message's outer identity. Signed paths and queries remain intact, and the existing
 origin, metadata, file-size and transformation guards remain enforced. Synthetic
 checks cover both forms and both hosts; the reported live message remains unverified.
+
+### Storage backend selectors (October 7, 2026)
+
+The shared original-attachment validator also retains `backend=b2` and
+`backend=b3`, the storage selectors reported in issue #556. These are observed,
+unofficial CDN behavior. Previously these URLs failed before networking, blocking
+video/audio playback and explicit saves. Both admitted hosts and attachment path
+forms keep the complete signed query; unknown/empty backend values, rendition
+parameters, invalid origins/IDs and oversized metadata/files remain rejected.
+Offline regression tests cover admission only. Actual decoding and the issue's
+separate high-CPU playback report remain unverified and are not fixed here.
 
 ## Optional REST API proxy plugin (preview)
 
