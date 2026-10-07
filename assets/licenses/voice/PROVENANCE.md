@@ -130,3 +130,26 @@ no PulseAudio server is bundled.
 | enum-primitive-derive-0.3.0-LICENSE | [registry source](https://docs.rs/crate/enum-primitive-derive/0.3.0/source/LICENSE) | `819e0555b295079201b0670bb3302855303bdbbcc739f3819b13e1b3d2ec03bb` |
 | futures-0.3.34-LICENSE-MIT | [registry source](https://docs.rs/crate/futures/0.3.34/source/LICENSE-MIT) | `6652c868f35dfe5e8ef636810a4e576b9d663f3a17fb0f5613ad73583e1b88fd` |
 | futures-0.3.34-LICENSE-APACHE | [registry source](https://docs.rs/crate/futures/0.3.34/source/LICENSE-APACHE) | `275c491d6d1160553c32fd6127061d7f9606c3ea25abfad6ca3f6ed088785427` |
+
+## DeepFilterNet noise suppression — October 7, 2026
+
+DeepFilterNet source, the DeepFilterNet3 model and their licenses come from
+[Rikorose/DeepFilterNet](https://github.com/Rikorose/DeepFilterNet/tree/d375b2d8309e0935d165700c91da9de862a99c31)
+commit `d375b2d8309e0935d165700c91da9de862a99c31`; `vendor/deepfilternet/SEREIN-PATCH.md`
+records the vendored files and manifest changes. The tract texts are unmodified from the
+tract-core 0.21.4 registry archive and apply to the tract workspace crates. Hashes are of
+the LF-normalized files.
+
+| File | Exact source | SHA-256 |
+|---|---|---|
+| deepfilternet-LICENSE-MIT.txt | [pinned upstream](https://github.com/Rikorose/DeepFilterNet/blob/d375b2d8309e0935d165700c91da9de862a99c31/LICENSE-MIT) | `24e6bb09c928af8d8e56268082f87413247ce36b39dd5d33add2f9893968065e` |
+| deepfilternet-LICENSE-APACHE.txt | [pinned upstream](https://github.com/Rikorose/DeepFilterNet/blob/d375b2d8309e0935d165700c91da9de862a99c31/LICENSE-APACHE) | `1eaee808c5fb6b4e895ba30425285a5cdc5dd25bba2cd230f264c2200c331aec` |
+| tract-LICENSE-MIT.txt | [registry source](https://docs.rs/crate/tract-core/0.21.4/source/LICENSE-MIT) | `23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3` |
+| tract-LICENSE-APACHE.txt | [registry source](https://docs.rs/crate/tract-core/0.21.4/source/LICENSE-APACHE) | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` |
+
+The embedded model `vendor/deepfilternet/models/DeepFilterNet3_onnx.tar.gz` has SHA-256
+`c94d91f70911001c946e0fabb4aa9adc37045f45a03b56008cb0c8244cb63616`. License texts for
+ndarray 0.15.6, matrixmultiply, rubato, rust-ini, tar, anyhow and the other newly locked
+support crates (all declaring MIT and/or Apache-2.0, plus compile-time tiny-keccak 2.0.2
+under CC0-1.0) are not yet retained here; they remain part of the existing per-artifact
+release review.

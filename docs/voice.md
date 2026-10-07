@@ -322,7 +322,7 @@ summary. Remove the environment variables to disable diagnostics on the next lau
 
 Each voice stage reports `[calls, total_us, max_us]` over `window_ms`:
 `echo_render` processes speaker reference; `echo_capture` includes the selected microphone
-processing; `noise` isolates RNNoise inference within `echo_capture`
+processing; `noise` isolates RNNoise or DeepFilterNet inference within `echo_capture`
 (WebRTC suppression remains inside the combined processor timing);
 `encode` includes Opus and outgoing encryption; `mix` includes remote Opus decoding; `receive` measures accepted packet decryption/queueing.
 `noise_frames` identifies capture frames processed with suppression enabled.
@@ -332,7 +332,8 @@ full capture/playback worker queues; `stalls` counts transport gaps of at least 
 Stage timings exclude device callbacks, socket waits, device opening and UI rendering.
 These are elapsed times, including scheduler preemption, **not process CPU percentages**.
 `debug=true` identifies a build with debug assertions. Development builds optimize the
-Sonora echo-processing crates, RNNoise (`nnnoiseless` and its FFT chain) and libopus
+Sonora echo-processing crates, RNNoise (`nnnoiseless` and its FFT chain), DeepFilterNet
+(`deep_filter`, tract and ndarray) and libopus
 while keeping application code unoptimized and debuggable; release builds remain the reference for overall performance. Rebuild and
 restart to apply this change. Compare speaking, muted and noise-suppression-on/off windows to narrow
 the cause; UI frame diagnostics help identify excessive rendering separately.
@@ -409,7 +410,7 @@ Voice & Video settings offers three saved profiles:
   control (maximum 20 dB), and −55 dBFS input sensitivity.
 - **Studio:** bypasses processing and sensitivity gating. Manual gain, mute, deafen,
   push-to-talk and permission/security gates still apply.
-- **Custom:** Off, RNNoise, or WebRTC (four suppression strengths);
+- **Custom:** Off, RNNoise, WebRTC (four suppression strengths), or DeepFilterNet;
   independent echo cancellation and automatic gain controls; and optional manual
   sensitivity from −80 to 0 dBFS. The gate uses 3 dB hysteresis, a 200 ms release
   hold and a 5 ms ramp. This controls transmitted audio, not just the speaking glow.
@@ -418,13 +419,22 @@ Switching profiles retains Custom settings; editing a preset starts from its vis
 values. Saved preferences without a profile migrate to Custom with their prior
 RNNoise/Off choice, echo cancellation enabled, and gain control/sensitivity gating off.
 
-The worker processes AEC/WebRTC suppression, then optional RNNoise,
+The worker processes AEC/WebRTC suppression, then optional RNNoise or DeepFilterNet,
 then digital automatic gain, manual gain, the local meter, and sensitivity gating.
 Calls and microphone preview share this path; playback audio is not denoised.
 No DSP runs in rendering or native audio callbacks. Settings replace one fixed-size
 worker snapshot and do not add a queue. Native PCM queues remain eight frames each.
 
-RNNoise uses bundled nnnoiseless 0.5.2. These processors keep bounded session state,
+RNNoise uses bundled nnnoiseless 0.5.2. DeepFilterNet runs the bundled DeepFilterNet3
+model (48 kHz, 10 ms hops) on the tract 0.21.4 CPU runtime, at full attenuation with the
+reference command-line stage thresholds (−15/35/35 dB local SNR). It is a separate Custom
+choice; Voice Isolation still uses RNNoise. Its STFT overlap and two look-ahead frames
+delay the microphone by 30 ms, compared with 10 ms for RNNoise. Selecting it decodes and
+optimizes the network on the audio worker, which pauses that worker once for roughly a
+quarter of a second (about 250 ms measured in a release build on a Ryzen 7 7800X3D),
+and holds two copies of the model state so that mute, device and security resets discard
+its look-ahead and recurrent history without reloading. A load failure stops audio with a
+visible error. These processors keep bounded session state,
 with no audio recordings or remote processing. Quality, CPU cost, physical latency and
 cross-platform behavior require owner-operated checks; this local implementation does
 not establish production readiness or superiority over Discord's processing.

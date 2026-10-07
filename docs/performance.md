@@ -4402,3 +4402,37 @@ UI Automation focus fallback. The unavailable computer-use pipe is not used.
 The tree read is no full accessibility audit. Workspace checks pass (1,166 tests
 passed, 27 ignored), and the font subset reproduces byte-for-byte. All content
 is synthetic; live Discord, microphone and calls remain unverified.
+
+## DeepFilterNet suppression — October 7, 2026
+
+Baseline `c5e50e77` and the DeepFilterNet branch were built with `cargo xtask package`
+(standard voice-inclusive release, fat LTO, no demo) in separate worktrees and target
+directories on Windows 11 Pro, Ryzen 7 7800X3D, 32 GB, rustc 1.98.1.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Standard voice-enabled executable | 85,833,728 B | 110,105,088 B | +24,271,360 B (+28.28%) |
+| Installed regular files (`dist`) | 90,024,844 B | 114,323,454 B | +24,298,610 B (+26.99%) |
+| Complete ZIP of `dist` (Python `zipfile` deflate) | 49,948,608 B | 63,371,697 B | +13,423,089 B (+26.87%) |
+
+The growth is the tract ONNX runtime plus the embedded 7,983,136-byte DeepFilterNet3
+archive; it is paid by every build whether or not the suppressor is selected.
+
+Offline component timing of the worker's capture chain (`Echo::capture`, AEC and AGC on,
+no gate), three runs over 529 real 20 ms frames of speech mixed with recorded noise,
+release build, single thread. Elapsed time, not process CPU:
+
+| Suppression | Median per 20 ms frame | p99 | Share of real time | Configure |
+| --- | ---: | ---: | ---: | ---: |
+| Off | 0.118 ms | 0.145–0.162 ms | 0.60% | 0.16–0.19 ms |
+| RNNoise | 0.184–0.186 ms | 0.198–0.230 ms | 0.92–0.94% | 0.20–0.26 ms |
+| WebRTC (High) | 0.126 ms | 0.133–0.141 ms | 0.63% | 0.32–0.35 ms |
+| DeepFilterNet | 0.856–0.891 ms | 0.931–1.319 ms | 4.31–4.74% | 242–274 ms |
+
+DeepFilterNet's configure time is the one-time model decode and optimization, which runs
+on the audio worker and pauses it. A reset clones the pristine model in 0.34–0.38 ms. In
+a dev build with the profile overrides the same frames take a 1.28 ms median (6.45% of
+real time) and configuring takes 428 ms. The harness and its Creative Commons sample
+audio from the upstream repository were local and are not committed. Process memory,
+whole-app CPU, startup, other CPUs and operating systems, physical microphone latency and
+live calls are unmeasured; no microphone or Discord session was used.

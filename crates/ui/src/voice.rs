@@ -2762,6 +2762,7 @@ impl MessagingUi {
 				(NoiseSuppression::Off, "Off"),
 				(NoiseSuppression::RnNoise, "RNNoise"),
 				(NoiseSuppression::WebRtc, "WebRTC"),
+				(NoiseSuppression::DeepFilterNet, "DeepFilterNet"),
 			];
 			design::row(
 				ui,

@@ -77,6 +77,34 @@ opt-level = 3
 [profile.dev.package.nnnoiseless]
 opt-level = 3
 
+# DeepFilterNet decodes and optimizes its network when selected and runs it per 10 ms frame.
+[profile.dev.package.deep_filter]
+opt-level = 3
+
+# tract 0.21.4 debug builds reject the duplicate node names its own optimizer gives the
+# bundled DFN3 graph; release builds never run that check.
+[profile.dev.package.tract-core]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.tract-data]
+opt-level = 3
+
+[profile.dev.package.tract-linalg]
+opt-level = 3
+
+[profile.dev.package.tract-hir]
+opt-level = 3
+
+[profile.dev.package.tract-onnx]
+opt-level = 3
+
+[profile.dev.package.tract-pulse]
+opt-level = 3
+
+[profile.dev.package.ndarray]
+opt-level = 3
+
 [profile.dev.package.easyfft]
 opt-level = 3
 
@@ -190,6 +218,9 @@ gpu-allocator = { path = "vendor/gpu-allocator" }
 hpke-rs = { path = "vendor/hpke-rs" }
 # Native DAVE does not need OpenMLS browser timers; see vendor/davey/SEREIN-PATCH.md.
 davey = { path = "vendor/davey" }
+
+# crates.io stops at 0.2.5 without the inference runtime; see vendor/deepfilternet/SEREIN-PATCH.md.
+deep_filter = { path = "vendor/deepfilternet/libDF" }
 
 # Linux login uses GTK4/WebKit6; exclude obsolete GTK3 declarations from the lockfile.
 wry = { path = "vendor/wry" }

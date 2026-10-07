@@ -1,5 +1,7 @@
 //! Worker-owned speech processing; never runs in device callbacks.
+use df::tract::{DfParams, DfTract, RuntimeParams};
 use model::voice_settings::{NoiseSuppression, Processing, VoiceProcessing};
+use ndarray::{ArrayView2, ArrayViewMut2};
 use nnnoiseless::DenoiseState;
 use sonora::{
 	AudioProcessing, Config, StreamConfig,
@@ -11,7 +13,30 @@ pub struct Echo {
 	processor: AudioProcessing,
 	gain: Option<AudioProcessing>,
 	noise: Option<Box<DenoiseState<'static>>>,
+	deep: Option<Box<DeepFilter>>,
 	settings: Processing,
+}
+
+/// Bundled DeepFilterNet3. The model keeps recurrent and look-ahead history, so a reset
+/// restarts from `fresh` instead of decoding and optimizing the network again.
+struct DeepFilter {
+	fresh: DfTract,
+	model: DfTract,
+}
+impl DeepFilter {
+	fn load() -> Result<Box<Self>, &'static str> {
+		// The reference command-line thresholds. The narrower library defaults skip the stateful
+		// decoders on many speech frames, which audibly clips speech in moderate noise.
+		let params = RuntimeParams::default_with_ch(1).with_thresholds(-15.0, 35.0, 35.0);
+		let fresh = DfTract::new(DfParams::default(), &params)
+			.ok()
+			.filter(|model| model.sr == 48_000 && model.hop_size == 480)
+			.ok_or("DeepFilterNet noise suppression could not start")?;
+		Ok(Box::new(Self {
+			model: fresh.clone(),
+			fresh,
+		}))
+	}
 }
 
 fn processor(config: Config) -> AudioProcessing {
@@ -35,6 +60,7 @@ impl Echo {
 			}),
 			gain: None,
 			noise: None,
+			deep: None,
 			settings: VoiceProcessing::from_legacy(false).effective(),
 		}
 	}
@@ -50,6 +76,11 @@ impl Echo {
 			self.noise = Some(noise_state());
 		} else if settings.suppression != NoiseSuppression::RnNoise {
 			self.noise = None;
+		}
+		if settings.suppression == NoiseSuppression::DeepFilterNet && self.deep.is_none() {
+			self.deep = Some(DeepFilter::load()?);
+		} else if settings.suppression != NoiseSuppression::DeepFilterNet {
+			self.deep = None;
 		}
 		if settings.echo_cancellation != self.settings.echo_cancellation
 			|| (settings.suppression == NoiseSuppression::WebRtc)
@@ -101,6 +132,9 @@ impl Echo {
 		if self.noise.is_some() {
 			self.noise = Some(noise_state());
 		}
+		if let Some(deep) = &mut self.deep {
+			deep.model.clone_from(&deep.fresh);
+		}
 	}
 
 	pub fn render(&mut self, frame: &[f32; 960]) -> Result<(), &'static str> {
@@ -148,6 +182,21 @@ impl Echo {
 				for sample in &mut output {
 					*sample = (*sample / 32768.0).clamp(-1.0, 1.0);
 				}
+				if let Some(start) = start {
+					noise_time += start.elapsed();
+				}
+			}
+			if let Some(deep) = &mut self.deep {
+				let start = time_noise.then(Instant::now);
+				let input = output;
+				let noisy = ArrayView2::from_shape((1, 480), &input);
+				let clean = ArrayViewMut2::from_shape((1, 480), &mut output);
+				let (Ok(noisy), Ok(clean)) = (noisy, clean) else {
+					return Err("DeepFilterNet noise suppression failed");
+				};
+				deep.model
+					.process(noisy, clean)
+					.map_err(|_| "DeepFilterNet noise suppression failed")?;
 				if let Some(start) = start {
 					noise_time += start.elapsed();
 				}

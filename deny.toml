@@ -65,6 +65,12 @@ name = "selectors"
 version = "=0.38.0"
 allow = ["MPL-2.0"]
 
+# Compile-time hashing for rust-ini's const-random, pulled in by vendored DeepFilterNet.
+[[licenses.exceptions]]
+name = "tiny-keccak"
+version = "=2.0.2"
+allow = ["CC0-1.0"]
+
 # Embedded font licenses remain separate from the application's code license.
 [[licenses.exceptions]]
 name = "epaint_default_fonts"

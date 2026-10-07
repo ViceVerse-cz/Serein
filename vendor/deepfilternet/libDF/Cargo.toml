@@ -1,0 +1,60 @@
+# Serein's trimmed manifest; the upstream manifest is Cargo.toml.orig. See SEREIN-PATCH.md.
+[package]
+name = "deep_filter"
+version = "0.5.7-pre"
+authors = ["Hendrik Schröter"]
+edition = "2021"
+description = "Noise supression using deep filtering"
+repository = "https://github.com/Rikorose/DeepFilterNet"
+license = "MIT OR Apache-2.0"
+rust-version = "1.70"
+publish = false
+
+[lib]
+name = "df"
+path = "src/lib.rs"
+
+[features]
+default = []
+transforms = ["dep:thiserror", "dep:ndarray", "dep:rubato"]
+logging = ["dep:log", "dep:crossbeam-channel"]
+tract = [
+  "transforms",
+  "logging",
+  "dep:tract-core",
+  "dep:tract-onnx",
+  "dep:tract-pulse",
+  "dep:tract-hir",
+  "dep:rust-ini",
+  "dep:ndarray",
+  "dep:anyhow",
+  "dep:flate2",
+  "dep:tar",
+]
+default-model = [] # Include default DFN3 model
+
+[dependencies]
+rustfft = "^6.1.0"
+realfft = "^3.1.0"
+itertools = "0.12"
+num-complex = { version = "^0.4", features = ["serde"] }
+log = { version = "0.4", features = ["std"], optional = true }
+rubato = { version = "0.14", optional = true }
+thiserror = { version = "1.0", optional = true }
+anyhow = { version = "1.0", optional = true, features = ["backtrace"] }
+ndarray = { version = "^0.15", optional = true, features = ["serde"] }
+crossbeam-channel = { version = "^0.5", optional = true }
+rust-ini = { version = "^0.21", optional = true }
+tract-core = { version = "=0.21.4", optional = true }
+tract-onnx = { version = "=0.21.4", optional = true }
+tract-pulse = { version = "=0.21.4", optional = true }
+tract-hir = { version = "=0.21.4", optional = true }
+flate2 = { version = "1.0.24", optional = true }
+tar = { version = "0.4.38", optional = true }
+
+# Unmodified upstream source predates current rustc and Clippy lints.
+[lints.rust]
+warnings = "allow"
+
+[lints.clippy]
+all = "allow"
