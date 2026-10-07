@@ -1,0 +1,37 @@
+{
+    "baseline":  "38d919d74054b885b992ce607f0bfa93ab449696",
+    "runtime_commit":  "78de8d1554f3fce10c162f47562fceacf55e5214",
+    "baseline_ui":  {
+                        "ignored":  5,
+                        "failed":  8,
+                        "passed":  407
+                    },
+    "changed_workspace":  {
+                              "ignored":  23,
+                              "failed":  8,
+                              "passed":  1154
+                          },
+    "changed_ui":  {
+                       "ignored":  5,
+                       "failed":  8,
+                       "passed":  414
+                   },
+    "format":  "passed",
+    "strict_workspace_clippy":  "passed",
+    "production_check":  "passed",
+    "policy":  "passed",
+    "baseline_failures":  [
+                              "composer_tests::incoming_custom_status_updates_people_and_open_profile_without_refetch",
+                              "composer_tests::reply_controls_are_inert_when_deleted_loading_stale_or_unavailable",
+                              "composer_tests::reply_original_buttons_navigate_locally_or_request_one_page_without_sending",
+                              "composer_tests::unread_pages_and_return_to_present_preserve_drafts_without_automatic_ack",
+                              "mentions::tests::cross_server_emoji_search_names_sources_bounds_and_account_reset",
+                              "mentions::tests::emoji_shortcodes_need_two_characters_and_include_usable_server_emoji",
+                              "timeline::tests::marking_read_resets_the_banner_and_later_arrivals_stay_read_at_the_bottom",
+                              "timeline::tests::reply_target_browsing_waits_for_success_and_explicit_latest_before_acknowledging"
+                          ],
+    "final_pill_tests":  {
+                             "passed":  7,
+                             "failed":  0
+                         }
+}
