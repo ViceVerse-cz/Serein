@@ -3035,8 +3035,7 @@ pub fn show_with_session(
 									.iter()
 									.filter(|role| {
 										role.id != member.guild
-											&& role.color != 0
-											&& member.roles.contains(&role.id)
+											&& role.color != 0 && member.roles.contains(&role.id)
 									})
 									.max_by(|a, b| a.cmp_hierarchy(b))
 									.map(|role| role.colors())

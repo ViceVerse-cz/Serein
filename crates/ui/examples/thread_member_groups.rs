@@ -38,8 +38,8 @@ fn main() {
 				name: "Thread moderators".into(),
 				bits: 0,
 				position: 10,
-				color: 0,
-				secondary_color: None,
+				color: 0xe78284,
+				secondary_color: Some(0x89b4fa),
 				tertiary_color: None,
 				hoist: true,
 			}]),
@@ -83,6 +83,7 @@ fn main() {
 	let mut painted = Vec::new();
 	let mut name_rect = egui::Rect::NOTHING;
 	let mut subtitle_rect = egui::Rect::NOTHING;
+	let mut gradient_names = std::collections::BTreeSet::new();
 	for _ in 0..3 {
 		painted.clear();
 		let output = ctx.run_ui(
@@ -100,6 +101,15 @@ fn main() {
 		for shape in &output.shapes {
 			text(&shape.shape, &mut painted);
 			if let egui::Shape::Text(text) = &shape.shape {
+				if text.galley.rows.iter().any(|row| {
+					row.visuals
+						.mesh
+						.vertices
+						.windows(2)
+						.any(|pair| pair[0].color != pair[1].color)
+				}) {
+					gradient_names.insert(text.galley.job.text.clone());
+				}
 				let rect = egui::Rect::from_min_size(text.pos, text.galley.size());
 				match text.galley.job.text.as_str() {
 					"Participant 2" => name_rect = rect,
@@ -135,5 +145,11 @@ fn main() {
 		"member text must fit beside the avatar: {name_rect:?} {subtitle_rect:?}"
 	);
 	assert!(!painted.contains(&"Listening to Spotify".into()));
+	assert!(gradient_names.contains("Thread moderators - 1"));
+	assert!(gradient_names.contains("Participant 1"));
+	assert!(
+		!gradient_names.contains("Participant 3"),
+		"offline names stay muted"
+	);
 	println!("Thread role groups, online fallback and offline members rendered correctly.");
 }
