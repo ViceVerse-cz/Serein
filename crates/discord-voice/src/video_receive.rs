@@ -22,7 +22,7 @@ pub const MAX_SOURCES: usize = 16;
 const MAX_DECODERS: usize = 8;
 const QUEUE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_WIDTH: u32 = 1920;
-const MAX_PIXELS: u64 = 1920 * 1080;
+pub(crate) const MAX_PIXELS: u64 = 1920 * 1080;
 const START_CODE: [u8; 4] = [0, 0, 0, 1];
 const MAX_DECODE_AGE: Duration = Duration::from_millis(150);
 
@@ -433,6 +433,10 @@ impl Receivers {
 	/// Whether any video source has been announced for this connection.
 	pub fn has_sources(&self) -> bool {
 		!self.sources.is_empty()
+	}
+	/// Primary video SSRCs only; RTX sources are not display sinks.
+	pub fn video_ssrcs(&self) -> impl Iterator<Item = u32> + '_ {
+		self.sources.iter().map(|(ssrc, _, _)| *ssrc)
 	}
 	/// Ask every announced sender for a keyframe. Used when video stops without the
 	/// depacketizer seeing loss, which no per-picture signal would ever reveal.

@@ -3,14 +3,14 @@ use crate::{
 	crypto::{Dave, Encryption, Identity, MAX_PACKET, MAX_SIGNAL, MODE},
 	diagnostics::{Signal, Video},
 	video_receive::{
-		DecoderQueue, Encoded, Receivers, VideoSink, has_parameter_sets, is_keyframe, offer, pli,
-		remove as remove_decoder, retain_sources, spawn_decoder,
+		DecoderQueue, Encoded, MAX_PIXELS, Receivers, VideoSink, has_parameter_sets, is_keyframe,
+		offer, pli, remove as remove_decoder, retain_sources, spawn_decoder,
 	},
 };
 use client_core::voice::VoiceConnection;
 use futures_util::{SinkExt, StreamExt};
 use opus2::{Application, Bitrate, Channels, Encoder};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::{
 	net::{IpAddr, SocketAddr},
 	sync::{
@@ -215,6 +215,19 @@ pub(super) fn announce_video(
 	}
 	retain_sources(decoder, receivers);
 	Ok(())
+}
+
+/// Ask the stream server for the largest picture this receiver can decode.
+fn stream_sink_wants(receivers: &Receivers) -> Value {
+	let pixels: Map<String, Value> = receivers
+		.video_ssrcs()
+		.map(|ssrc| (ssrc.to_string(), Value::from(MAX_PIXELS)))
+		.collect();
+	let mut data = json!({"any": 100});
+	if !pixels.is_empty() {
+		data["pixelCounts"] = Value::Object(pixels);
+	}
+	json!({"op": 15, "d": data})
 }
 fn discovery(packet: &[u8], ssrc: u32) -> Result<(IpAddr, u16), &'static str> {
 	if packet.len() != 74 || packet[..4] != [0, 2, 0, 70] || packet[4..8] != ssrc.to_be_bytes() {
@@ -1202,7 +1215,7 @@ async fn run_stream_inner(
 					} else {
 						json_send(&mut ws,json!({"op":12,"d":{"audio_ssrc":audio_ssrc,"video_ssrc":0,"rtx_ssrc":0,"streams":[]}})).await?;
 						metrics.signal(Signal::SubscribeSent,1);
-						json_send(&mut ws,json!({"op":15,"d":{"any":100}})).await?;
+						json_send(&mut ws,stream_sink_wants(&receivers)).await?;
 						metrics.signal(Signal::SinkWantsSent,1);
 						next_sink_wants=now+SINK_WANTS_INTERVAL;
 						emit(Status::Ready{privacy_code:dave.session.voice_privacy_code().unwrap_or_default().into()}).map_err(|_|"Stream interface closed")?;
@@ -1232,7 +1245,7 @@ async fn run_stream_inner(
 				// A viewer's subscription lapses silently and video stops with no loss to
 				// observe; refresh the sink wants while watching, and sooner while stalled.
 				if secure && announced && video.is_none() && now>=next_sink_wants {
-					json_send(&mut ws,json!({"op":15,"d":{"any":100}})).await?;
+					json_send(&mut ws,stream_sink_wants(&receivers)).await?;
 					metrics.signal(Signal::SinkWantsSent,1);
 					next_sink_wants=now+if stalled {SINK_WANTS_STALLED_INTERVAL} else {SINK_WANTS_INTERVAL};
 				}
@@ -1371,11 +1384,11 @@ async fn run_stream_inner(
 							12=>{
 								let user=id(data,"user_id")?;
 								if user!=credentials.user.0 && dave.contains(user) {
-									if let Some(decoder) = decoder.as_ref() {announce_video(&mut receivers,decoder,user,data)?;}
+									if let Some(decoder) = decoder.as_ref() {announce_video(&mut receivers,decoder,user,data)?;next_sink_wants=Instant::now();}
 									if audio.is_some() && let Some(value)=data["audio_ssrc"].as_u64().and_then(|v|u32::try_from(v).ok()).filter(|v|*v!=0) {mixer.announce(user,value)?;}
 								}
 							},
-							13=>{let user=id(data,"user_id")?;receivers.remove(user);if let Some(decoder)=decoder.as_ref(){remove_decoder(decoder,user);}mixer.remove(user);let was_group_member=dave.is_group_member(user);let was_ready=dave.ready;if dave.disconnect(user)?{if dave.alone(){announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);dave.enter_sole_member_waiting()?;deadline=None;}else if was_group_member{deadline=Some(Instant::now()+Duration::from_secs(30));announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);}else if was_ready{dave.ready=true;deadline=None;}}},
+							13=>{let user=id(data,"user_id")?;receivers.remove(user);next_sink_wants=Instant::now();if let Some(decoder)=decoder.as_ref(){remove_decoder(decoder,user);}mixer.remove(user);let was_group_member=dave.is_group_member(user);let was_ready=dave.ready;if dave.disconnect(user)?{if dave.alone(){announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);dave.enter_sole_member_waiting()?;deadline=None;}else if was_group_member{deadline=Some(Instant::now()+Duration::from_secs(30));announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);}else if was_ready{dave.ready=true;deadline=None;}}},
 							21=>{if number(data,"protocol_version")?!=1{return Err("Discord requested a stream encryption downgrade");}announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);dave.pending=Some(transition(data)?);if dave.pending==Some(0){if dave.session.is_ready(){dave.execute(0)?;}else if dave.alone(){dave.enter_sole_member_waiting()?;deadline=None;}else{dave.pending=None;dave.ready=false;}}else{json_send(&mut ws,json!({"op":23,"d":{"transition_id":dave.pending}})).await?;}},
 							22=>{dave.execute(transition(data)?)?;},
 							24=>{if number(data,"protocol_version")?!=1{return Err("Unsupported stream DAVE version");}
@@ -1398,6 +1411,26 @@ mod tests {
 	use super::*;
 	use crate::video_receive::Receivers;
 	use opus2::Decoder;
+
+	#[test]
+	fn stream_sink_wants_tracks_primary_video_sources() {
+		let mut receivers = Receivers::default();
+		assert_eq!(
+			stream_sink_wants(&receivers),
+			json!({"op": 15, "d": {"any": 100}})
+		);
+		receivers.announce(7, 700).unwrap();
+		receivers.announce_rtx(700, 701).unwrap();
+		assert_eq!(
+			stream_sink_wants(&receivers),
+			json!({"op": 15, "d": {"any": 100, "pixelCounts": {"700": 2_073_600}}})
+		);
+		receivers.announce(7, 0).unwrap();
+		assert_eq!(
+			stream_sink_wants(&receivers),
+			json!({"op": 15, "d": {"any": 100}})
+		);
+	}
 
 	#[tokio::test]
 	async fn udp_send_errors_drop_datagrams_without_waiting_and_recover() {
