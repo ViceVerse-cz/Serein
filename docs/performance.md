@@ -4375,7 +4375,7 @@ settled memory is the last sample. No task build runs during sampling.
 | --- | ---: | ---: | ---: |
 | Mean idle CPU, one logical core | 0.00% | 0.00% | 0.00 percentage points |
 | Sampled peak / settled private bytes | 337,178,624 B | 337,391,616 B | +212,992 B (+0.0632%) |
-| Sampled peak / settled working set | 140,349,440 B | 114,184,192 B | −26,165,248 B (−18.6429%) |
+| Sampled peak / settled working set (noisy sample) | 140,349,440 B | 114,184,192 B | −26,165,248 B (−18.6429%) |
 | Embedded font bytes | 15,580,429 B | 15,667,889 B | +87,460 B; below 16 MiB |
 | Standard voice-enabled executable | 85,449,728 B | 85,540,864 B | +91,136 B (+0.1067%) |
 | Installed regular files | 89,623,341 B | 89,719,239 B | +95,898 B (+0.1070%) |
