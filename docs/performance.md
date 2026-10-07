@@ -1,3 +1,37 @@
+# Window geometry minimum — October 7, 2026
+
+Baseline `c5e50e77` and fixed `c5ace4dd` were built on Windows 11 Home build
+26200, Ryzen 7 7800X3D, 32 GiB RAM, Rust 1.98.1. Both standard voice-enabled
+packages used `cargo xtask package` with no default or demo features. The installed
+size sums all 216 files in `dist`; .NET `ZipFile.CreateFromDirectory` compressed
+each complete directory with the same default settings. NSIS was unavailable, so
+these measurements cover the package directory and ZIP, not an installer binary.
+
+| Metric | Baseline | Fixed | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 85,922,304 B | 85,922,304 B | 0 B |
+| Installed package | 90,113,420 B | 90,113,420 B | 0 B |
+| Distribution ZIP | 49,970,177 B | 49,970,277 B | +100 B (+0.00020%) |
+
+For native idle samples, each source was also built with
+`cargo build --release --locked -p serein --no-default-features --features demo`
+and run with `--demo`.
+Both runs used the same 1120×760 synthetic fixture, Windows DPI 120 (125% scale),
+the default DX12 renderer and no child processes. After a 15-second warmup,
+`Get-Process` sampled cumulative CPU time and private bytes every second for ten
+seconds, with no further interaction. CPU is the mean one-core percentage; settled
+private memory is the median of the final five readings.
+
+| Native demo metric | Baseline | Fixed | Delta |
+| --- | ---: | ---: | ---: |
+| Idle CPU, 10 samples | 0% | 0% | Below sample resolution |
+| Peak private memory | 192,835,584 B | 192,643,072 B | -192,512 B (-0.10%) |
+| Settled private memory | 192,835,584 B | 192,643,072 B | -192,512 B (-0.10%) |
+
+The tiny ZIP and memory differences do not establish a performance improvement.
+Startup latency and frame timing were not measured. Demo ignores persisted geometry;
+the offline window-geometry check covers restoration of undersized saved values.
+
 # Voice default-device polling — October 7, 2026
 
 Baseline runtime source: `884fb73fa68bffda70b1f308c903ece239281522`.
