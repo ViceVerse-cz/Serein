@@ -9,6 +9,7 @@ Restoration fits the complete outer window to the selected monitor's dimensions,
 shrinking it and moving it inward when the display has become smaller. The normal
 minimum size is relaxed if necessary to fit that display.
 Minimized, hidden, maximized and fullscreen states do not replace normal geometry.
+Closing frames and sizes below the normal minimum do not overwrite the saved geometry.
 The offline `--demo` ignores saved geometry and does not save its window state.
 
 Wayland does not expose global window coordinates to ordinary clients, so window

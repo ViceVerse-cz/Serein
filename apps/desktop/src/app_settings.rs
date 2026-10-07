@@ -1,5 +1,7 @@
 use local_store::AppPreferences;
 
+pub const MIN_WINDOW_SIZE: [u32; 2] = [760, 520];
+
 #[derive(Default)]
 pub struct Settings {
 	pub current: AppPreferences,
@@ -163,6 +165,8 @@ pub fn restore_window_geometry(
 	// Wayland may not have reported its configured size before the first frame.
 	let requested = winit::dpi::LogicalSize::new(geometry.size[0], geometry.size[1])
 		.to_physical::<u32>(scale_factor);
+	let minimum = winit::dpi::LogicalSize::new(MIN_WINDOW_SIZE[0], MIN_WINDOW_SIZE[1])
+		.to_physical::<u32>(scale_factor);
 	let position = position.or_else(|| {
 		window
 			.outer_position()
@@ -177,13 +181,16 @@ pub fn restore_window_geometry(
 		],
 		[origin.x, origin.y],
 		[available.width, available.height],
+		[
+			minimum.width.saturating_add(frame[0]),
+			minimum.height.saturating_add(frame[1]),
+		],
 	);
 	let size = winit::dpi::PhysicalSize::new(
 		size[0].saturating_sub(frame[0]).max(1),
 		size[1].saturating_sub(frame[1]).max(1),
 	);
 	// A newly smaller display must also be allowed to shrink below the usual minimum.
-	let minimum = winit::dpi::LogicalSize::new(760, 520).to_physical::<u32>(scale_factor);
 	window.set_min_inner_size(Some(winit::dpi::PhysicalSize::new(
 		minimum.width.min(size.width),
 		minimum.height.min(size.height),
@@ -200,9 +207,10 @@ fn fit_window_geometry(
 	mut size: [u32; 2],
 	origin: [i32; 2],
 	available: [u32; 2],
+	minimum: [u32; 2],
 ) -> ([i32; 2], [u32; 2]) {
 	for axis in 0..2 {
-		size[axis] = size[axis].max(1).min(available[axis].max(1));
+		size[axis] = size[axis].max(minimum[axis]).min(available[axis].max(1));
 		let minimum = i64::from(origin[axis]);
 		let maximum = (minimum + i64::from(available[axis].max(1)) - i64::from(size[axis]))
 			.min(i64::from(i32::MAX));
@@ -215,16 +223,24 @@ fn fit_window_geometry(
 pub fn debug_window_geometry_check() {
 	use local_store::{LocalStore, WindowGeometry};
 	assert_eq!(
-		fit_window_geometry([1850, 1000], [3000, 2000], [0, 0], [1920, 1080]),
+		fit_window_geometry([1850, 1000], [3000, 2000], [0, 0], [1920, 1080], [1, 1]),
 		([0, 0], [1920, 1080])
 	);
 	assert_eq!(
-		fit_window_geometry([-100, 900], [1200, 800], [-1920, 0], [1920, 1080]),
+		fit_window_geometry([-100, 900], [1200, 800], [-1920, 0], [1920, 1080], [1, 1]),
 		([-1200, 280], [1200, 800])
 	);
 	assert_eq!(
-		fit_window_geometry([-1800, 80], [1000, 700], [-1920, 0], [1920, 1080]),
+		fit_window_geometry([-1800, 80], [1000, 700], [-1920, 0], [1920, 1080], [1, 1]),
 		([-1800, 80], [1000, 700])
+	);
+	assert_eq!(
+		fit_window_geometry([0, 0], [229, 70], [0, 0], [1920, 1080], MIN_WINDOW_SIZE),
+		([0, 0], MIN_WINDOW_SIZE)
+	);
+	assert_eq!(
+		fit_window_geometry([0, 0], [229, 70], [0, 0], [640, 480], MIN_WINDOW_SIZE),
+		([0, 0], [640, 480])
 	);
 	let mut random = [0_u8; 16];
 	getrandom::fill(&mut random).unwrap();
@@ -278,7 +294,7 @@ pub fn debug_window_geometry_check() {
 	std::fs::remove_file(path).unwrap();
 	std::fs::remove_dir(directory).unwrap();
 	println!(
-		"Offline window geometry check passed: size without position, X11 coordinates, native scale, preference preservation, SQLite reopen and bounds."
+		"Offline window geometry check passed: minimum size, small display, X11 coordinates, native scale, preference preservation, SQLite reopen and bounds."
 	);
 }
 

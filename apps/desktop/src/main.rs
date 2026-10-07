@@ -483,7 +483,7 @@ fn main() -> eframe::Result {
 				.with_inner_size(window_geometry.map_or([1120.0, 760.0], |geometry| {
 					geometry.size.map(|value| value as f32)
 				}))
-				.with_min_inner_size([760.0, 520.0])
+				.with_min_inner_size(app_settings::MIN_WINDOW_SIZE.map(|size| size as f32))
 				.with_active(!start_minimized)
 				.with_app_id("cz.viceverse.serein");
 			#[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -5965,6 +5965,7 @@ impl eframe::App for Desktop {
 			&& viewport.minimized != Some(true)
 			&& viewport.maximized != Some(true)
 			&& viewport.fullscreen != Some(true)
+			&& !viewport.close_requested()
 			&& self.window.is_visible() != Some(false)
 		{
 			let size = self
@@ -5979,7 +5980,11 @@ impl eframe::App for Desktop {
 					.ok()
 					.map(|position| [position.x, position.y]),
 			};
-			if geometry.is_valid() && self.app_settings.current.window_geometry != Some(geometry) {
+			if size.width >= app_settings::MIN_WINDOW_SIZE[0]
+				&& size.height >= app_settings::MIN_WINDOW_SIZE[1]
+				&& geometry.is_valid()
+				&& self.app_settings.current.window_geometry != Some(geometry)
+			{
 				self.app_settings.current.window_geometry = Some(geometry);
 				self.app_settings.state.dirty = true;
 			}
