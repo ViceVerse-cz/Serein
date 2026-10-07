@@ -420,6 +420,7 @@ impl RolesUi {
 		ui.add_space(24.0);
 		ui.add(
 			egui::TextEdit::singleline(&mut self.search)
+				.align(egui::Align2::LEFT_CENTER)
 				.hint_text(crate::i18n::translate("server-roles-list-search-roles"))
 				.char_limit(100)
 				.desired_width(width)
@@ -755,7 +756,9 @@ impl RolesUi {
 		);
 		design::input(
 			ui,
-			egui::TextEdit::singleline(&mut draft.name).char_limit(100),
+			egui::TextEdit::singleline(&mut draft.name)
+				.align(egui::Align2::LEFT_CENTER)
+				.char_limit(100),
 		)
 		.labelled_by(label.id);
 		section(ui, "Role Style");
@@ -1154,6 +1157,7 @@ impl RolesUi {
 			if ui
 				.add(
 					egui::TextEdit::singleline(&mut self.member_query.search)
+						.align(egui::Align2::LEFT_CENTER)
 						.hint_text(crate::i18n::translate(
 							"server-roles-members-search-members",
 						))
@@ -1471,6 +1475,7 @@ fn permissions(
 ) {
 	ui.add(
 		egui::TextEdit::singleline(search)
+			.align(egui::Align2::LEFT_CENTER)
 			.char_limit(64)
 			.hint_text(crate::i18n::translate(
 				"server-roles-permissions-search-permissions",

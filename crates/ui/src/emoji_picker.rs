@@ -421,6 +421,7 @@ impl Picker {
 				if ui
 					.add(
 						egui::TextEdit::singleline(&mut self.query)
+							.align(egui::Align2::LEFT_CENTER)
 							.hint_text(crate::i18n::translate(
 								"emoji-picker-unicode-button-with-search-emoji",
 							))
@@ -846,6 +847,7 @@ impl Picker {
 		self.sync(state, Some(channel));
 		if std::mem::take(&mut self.pending_open) {
 			self.open = true;
+			self.focus = true;
 		}
 		let was_open = self.open;
 		// Rightmost first: the composer lays these out right-to-left like Discord's tray.
@@ -1182,26 +1184,31 @@ impl Picker {
 													"emoji-picker-search-emoji-label",
 												)
 											};
+											let search_id = ui.scope_id().with("picker-search");
+											// New Areas have an invisible sizing pass before they can take focus.
+											// Request before TextEdit runs so the first typed character is retained.
+											if self.focus
+												&& !ui.is_sizing_pass() && ui.ctx().memory(
+												|memory| memory.allows_interaction(ui.layer_id()),
+											) {
+												ui.memory_mut(|memory| {
+													memory.request_focus(search_id)
+												});
+												self.focus = false;
+											}
 											let search = ui.add(
 												egui::TextEdit::singleline(text)
-													.id(ui.scope_id().with("picker-search"))
+													.id(search_id)
 													.char_limit(64)
 													.frame(egui::Frame::NONE)
+													.min_size(egui::vec2(0.0, 30.0))
+													.align(egui::Align2::LEFT_CENTER)
 													.hint_text(crate::i18n::translate_if_key(hint))
 													.desired_width(ui.available_width()),
 											);
 											let search = search.accessible_name(
 												crate::i18n::translate_if_key(label),
 											);
-											if self.focus {
-												search.request_focus();
-												// Above a dialog, a form field's just-opened popout is
-												// ordered (and focusable) only from its second frame.
-												self.focus = clearable.is_some()
-													&& !ui.ctx().memory(|memory| {
-														memory.allows_interaction(ui.layer_id())
-													});
-											}
 											if search.changed() {
 												if gifs_tab {
 													self.gif_changed_at =
@@ -2149,7 +2156,13 @@ fn gif_home(
 	let mut chosen = None;
 	let mut retry = false;
 	let rows = 1 + categories.len().div_ceil(2);
-	let total = rows as f32 * TILE_HEIGHT + (rows.saturating_sub(1)) as f32 * TILE_GAP + 8.0;
+	let failed = trending
+		.filter(|view| !view.loading)
+		.and_then(|view| view.error);
+	let loading = categories.is_empty() && trending.is_some_and(|view| view.loading);
+	let status_row = failed.is_some() || loading;
+	let tiles_height = rows as f32 * TILE_HEIGHT + (rows.saturating_sub(1)) as f32 * TILE_GAP;
+	let total = tiles_height + 8.0 + if status_row { TILE_GAP + 40.0 } else { 0.0 };
 	egui::ScrollArea::vertical()
 		.id_salt("gif-home")
 		.auto_shrink([false, false])
@@ -2205,14 +2218,9 @@ fn gif_home(
 					chosen = Some(GifSection::Category(category.name.clone()));
 				}
 			}
-			let failed = trending
-				.filter(|view| !view.loading)
-				.and_then(|view| view.error);
-			if categories.is_empty()
-				&& let Some(error) = failed
-			{
+			if let Some(error) = failed {
 				let below = egui::Rect::from_min_size(
-					egui::pos2(area.left(), cell(2).top()),
+					egui::pos2(area.left(), area.top() + tiles_height + TILE_GAP),
 					egui::vec2(width, 40.0),
 				);
 				ui.scope_builder(
@@ -2239,9 +2247,9 @@ fn gif_home(
 					},
 				);
 			}
-			if categories.is_empty() && trending.is_some_and(|view| view.loading) {
+			if loading {
 				let below = egui::Rect::from_min_size(
-					egui::pos2(area.left(), cell(2).top()),
+					egui::pos2(area.left(), area.top() + tiles_height + TILE_GAP),
 					egui::vec2(width, 40.0),
 				);
 				ui.scope_builder(
@@ -3687,5 +3695,99 @@ pub(crate) fn debug_fallback_choice(state: &State) -> String {
 	) {
 		Pick::Insert(text) => text,
 		_ => panic!("fallback selection must edit the composer"),
+	}
+}
+
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub(crate) fn debug_gif_retry(state: &mut State) {
+	for cached in [false, true] {
+		state.gifs.view = Some(client_core::gifs::View {
+			query: None,
+			request: 1,
+			loading: false,
+			error: Some("Synthetic failure"),
+			page: Some(model::GifPage {
+				gifs: vec![],
+				categories: if cached {
+					vec![model::GifCategory {
+						name: "Cached category".into(),
+						preview: None,
+					}]
+				} else {
+					vec![]
+				},
+			}),
+		});
+		let ctx = egui::Context::default();
+		ctx.enable_accesskit();
+		let mut images = Avatars::default();
+		let mut picked = None;
+		let mut frame = |events| {
+			let mut output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(320.0, 100.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					let colors = crate::design::palette(ui);
+					picked = gif_home(ui, state, &mut images, &colors, true);
+				},
+			);
+			output.textures_delta.clear();
+			output
+		};
+		frame(vec![]);
+		frame(vec![
+			egui::Event::PointerMoved(egui::pos2(100.0, 50.0)),
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+				delta: egui::vec2(0.0, -2000.0),
+				modifiers: egui::Modifiers::NONE,
+			},
+		]);
+		for _ in 0..30 {
+			frame(vec![]);
+		}
+		let output = frame(vec![]);
+		let label = crate::i18n::translate("emoji-picker-gif-body-retry");
+		let bounds = output
+			.platform_output
+			.accesskit_update
+			.as_ref()
+			.unwrap()
+			.nodes
+			.iter()
+			.find_map(|(_, node)| {
+				(node.label() == Some(label.as_str()))
+					.then(|| node.bounds())
+					.flatten()
+			})
+			.expect("retry remains available");
+		let pos = egui::pos2(
+			((bounds.x0 + bounds.x1) / 2.0) as f32,
+			((bounds.y0 + bounds.y1) / 2.0) as f32,
+		);
+		assert!(
+			(0.0..100.0).contains(&pos.y),
+			"retry is reachable after scrolling, cached={cached}: {pos:?}"
+		);
+		for pressed in [true, false] {
+			frame(vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::PointerButton {
+					pos,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]);
+		}
+		assert!(matches!(picked, Some(Err(GifAction::Retry(None)))));
 	}
 }

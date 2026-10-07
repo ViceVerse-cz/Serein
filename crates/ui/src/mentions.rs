@@ -1097,7 +1097,7 @@ mod tests {
 		insert(&mut draft, menu.pick(0).unwrap(), true).unwrap();
 		assert_eq!(
 			draft,
-			"[same_wave](https://cdn.discordapp.com/emojis/10001.gif?size=64) "
+			"[same\\_wave](https://cdn.discordapp.com/emojis/10001.gif?size=64) "
 		);
 		menu.refresh(&state, Id(2), ":source20", Some(9), &[]);
 		assert_eq!(menu.candidates[0].id(), Id(20001));
@@ -1448,7 +1448,7 @@ mod tests {
 		);
 		let mut draft = "hi :he".to_owned();
 		let expected =
-			"hi [heart_hands_custom](https://cdn.discordapp.com/emojis/9001.gif?size=64) ";
+			"hi [heart\\_hands\\_custom](https://cdn.discordapp.com/emojis/9001.gif?size=64) ";
 		assert_eq!(
 			insert(&mut draft, menu.pick(0).unwrap(), true),
 			Some(expected.chars().count())

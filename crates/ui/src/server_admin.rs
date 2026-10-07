@@ -321,6 +321,7 @@ impl Admin {
 							ui.add_enabled(
 								!self.uploading,
 								egui::TextEdit::singleline(&mut upload.name)
+									.align(egui::Align2::LEFT_CENTER)
 									.desired_width((ui.available_width() - 130.0).max(60.0))
 									.char_limit(32),
 							)
@@ -597,6 +598,7 @@ impl Admin {
 						if ui
 							.add(
 								egui::TextEdit::singleline(&mut self.query.search)
+									.align(egui::Align2::LEFT_CENTER)
 									.frame(egui::Frame::NONE)
 									.font(egui::FontId::proportional(13.0))
 									.hint_text(crate::i18n::translate(
@@ -1181,8 +1183,13 @@ impl Admin {
 				match dialog {
 					Dialog::Rename { name, .. } => {
 						let label = crate::dialog::label(ui, "server-admin-dialog-emoji-name");
-						crate::dialog::input(ui, egui::TextEdit::singleline(name).char_limit(32))
-							.labelled_by(label.id);
+						crate::dialog::input(
+							ui,
+							egui::TextEdit::singleline(name)
+								.align(egui::Align2::LEFT_CENTER)
+								.char_limit(32),
+						)
+						.labelled_by(label.id);
 					}
 					Dialog::Delete { .. } | Dialog::Kick { .. } => {}
 					Dialog::Nickname { name, .. } => {
@@ -1190,6 +1197,7 @@ impl Admin {
 						crate::dialog::input(
 							ui,
 							egui::TextEdit::singleline(name)
+								.align(egui::Align2::LEFT_CENTER)
 								.hint_text(crate::i18n::translate(
 									"server-admin-dialog-use-their-username",
 								))

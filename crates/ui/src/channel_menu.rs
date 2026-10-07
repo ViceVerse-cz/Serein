@@ -857,6 +857,7 @@ impl Dialog {
 		let name = dialog::input(
 			ui,
 			egui::TextEdit::singleline(&mut self.draft.name)
+				.align(egui::Align2::LEFT_CENTER)
 				.hint_text(crate::i18n::translate_if_key(
 					&(if self.kind == Kind::CreateCategory {
 						crate::i18n::translate("channel-menu-overview-new-category")

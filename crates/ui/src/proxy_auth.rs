@@ -59,6 +59,7 @@ fn credential_input(
 ) -> egui::Id {
 	let label = ui.label(label);
 	let mut edit = egui::TextEdit::singleline(&mut **value)
+		.align(egui::Align2::LEFT_CENTER)
 		.id_salt(("host-proxy-credential", password))
 		.password(password)
 		.char_limit(limit)

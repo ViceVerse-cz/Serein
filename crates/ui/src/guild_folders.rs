@@ -791,6 +791,7 @@ impl MessagingUi {
 					crate::dialog::input(
 						ui,
 						egui::TextEdit::singleline(name)
+							.align(egui::Align2::LEFT_CENTER)
 							.hint_text(crate::i18n::translate(
 								"guild-folders-server-folders-folder-name",
 							))

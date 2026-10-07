@@ -4513,3 +4513,13 @@ screen-macos-system-picker = 用 macOS 系統選擇器挑選
 screen-macos-system-picker-kind = 系統內容選擇器
 
 member-in-voice = 在語音中
+
+profiles-board = Board
+profiles-board-unavailable = This profile’s board is unavailable.
+profiles-board-empty = No games on this board yet.
+profiles-board-show-more = Show more
+profiles-board-show-less = Show less
+profiles-activity-empty = 尚無分享的活動。
+profiles-mutuals-empty = Nothing to show here.
+
+reading-double-click-reaction = Double-click reaction

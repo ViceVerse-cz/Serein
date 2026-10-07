@@ -51,7 +51,8 @@ pub(super) struct Calls {
 	muted: bool,
 	deafened: bool,
 	camera: bool,
-	/// Last `(self_mute, self_deaf, self_video)` sent on the wire, and when.
+	/// Last `(self_mute, self_deaf, self_video)` handed to the wire, and when.
+	/// The socket owner rolls this back with `state_send_failed` if sending fails.
 	sent_state: Option<((bool, bool, bool), Instant)>,
 	/// A coalesced mute/deafen change is sent when this passes; only the newest state goes out.
 	pub(super) state_deadline: Option<Instant>,
@@ -409,6 +410,12 @@ impl Calls {
 		self.sent_state = Some(((self.muted, self.deafened, self.camera), Instant::now()));
 		self.state_deadline = None;
 		Frame::Text(json!({"op":4,"d":{"guild_id":guild,"channel_id":channel,"self_mute":self.muted,"self_deaf":self.deafened,"self_video":self.camera}}).to_string().into())
+	}
+	/// Preserve a failed active-call update for the next resumed socket. A fresh READY
+	/// clears this together with the old call, so it never causes an automatic rejoin.
+	pub(super) fn state_send_failed(&mut self) {
+		self.sent_state = None;
+		self.state_deadline = self.active.map(|_| Instant::now());
 	}
 	/// Sends the newest coalesced mute/deafen state, unless it already matches the wire.
 	pub(super) fn flush_state(&mut self) -> Option<Frame> {
@@ -1102,6 +1109,51 @@ fn deletion_reason(raw: Option<&str>) -> Option<&'static str> {
 		"session_terminated" => "Discord terminated the stream session",
 		_ => "Discord ended the stream",
 	})
+}
+
+/// Offline retry check; no gateway or media connection is opened.
+#[cfg(debug_assertions)]
+pub fn debug_voice_state_retry_check() {
+	let mut calls = Calls::default();
+	let channel = Id(20);
+	calls.allowed.insert(channel, Some(Id(10)));
+	assert!(
+		calls
+			.packet(Command::Join {
+				channel,
+				request: 1,
+				ring: false,
+				mute: false,
+				deaf: false
+			})
+			.unwrap()
+			.is_some()
+	);
+	assert!(
+		calls
+			.packet(Command::SetMute {
+				channel,
+				request: 1,
+				mute: true,
+				deaf: true
+			})
+			.unwrap()
+			.is_none()
+	);
+	assert!(calls.flush_state().is_some());
+	calls.state_send_failed();
+	calls.disconnected();
+	assert!(calls.state_deadline.is_some());
+	let Some(Frame::Text(frame)) = calls.flush_state() else {
+		panic!("failed state must be retried after RESUMED")
+	};
+	let value: serde_json::Value = serde_json::from_str(&frame).unwrap();
+	assert_eq!(value["d"]["self_mute"], true);
+	assert_eq!(value["d"]["self_deaf"], true);
+	assert!(calls.flush_state().is_none());
+	calls.state_send_failed();
+	calls.session_reset();
+	assert!(calls.state_deadline.is_none() && calls.flush_state().is_none());
 }
 
 #[cfg(test)]

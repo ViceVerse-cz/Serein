@@ -588,6 +588,9 @@ impl Uploads {
 		if !self.accepting() {
 			return Err("Wait for the current attachment operation to finish");
 		}
+		if self.selected.len() + self.loading() + source.len() > discord_api::upload::MAX_FILES {
+			return Err("Attach up to 10 files per message");
+		}
 		self.admit(&source)?;
 		self.scope = Some((generation, channel));
 		self.clear_finished_progress();
@@ -1582,4 +1585,48 @@ pub(crate) fn debug_heic_check() {
 	assert!(previewable("photo.HEIC"));
 	assert!(previewable("photo.heif"));
 	assert!(decode_preview(b"\x00\x00\x00\x10ftypheic\x00\x00\x00\x00").is_none());
+}
+
+/// Device-free check that pasted content cannot steal pending drop reservations.
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub(crate) fn debug_reservation_check(runtime: &tokio::runtime::Handle) {
+	let (_send, result) = mpsc::sync_channel(1);
+	let mut uploads = Uploads::default();
+	uploads.choosing.push(Choosing {
+		result,
+		cancelled: Arc::new(AtomicBool::new(false)),
+		files: Arc::new(AtomicUsize::new(discord_api::upload::MAX_FILES)),
+	});
+	let context = egui::Context::default();
+	assert!(uploads.accepting());
+	assert!(
+		uploads
+			.select_pasted(
+				1,
+				Id(2),
+				vec![Source::pasted_text("synthetic".into()).unwrap()],
+				runtime,
+				&context
+			)
+			.is_err()
+	);
+	assert!(uploads.selected.is_empty());
+	uploads.choosing[0]
+		.files
+		.store(discord_api::upload::MAX_FILES - 1, Ordering::Release);
+	assert!(
+		uploads
+			.select_pasted(
+				1,
+				Id(2),
+				vec![Source::pasted_text("synthetic".into()).unwrap()],
+				runtime,
+				&context
+			)
+			.is_ok()
+	);
+	assert_eq!(
+		uploads.selected.len() + uploads.loading(),
+		discord_api::upload::MAX_FILES
+	);
 }

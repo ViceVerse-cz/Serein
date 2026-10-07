@@ -263,6 +263,7 @@ impl Connection {
                 }));
                 let mut history:Option<AbortTask>=None;
                 let mut profile:Option<AbortTask>=None;
+                let mut profile_note:Option<AbortTask>=None;
 				let mut stream_preview:Option<AbortTask>=None;
                 let mut invite:Option<AbortTask>=None;
                 let mut search:Option<AbortTask>=None;
@@ -566,7 +567,7 @@ impl Connection {
                                 })));
                                 continue;
                             }
-                            if matches!(command,Command::CancelProfile) {drop(profile.take());continue;}
+                            if matches!(command,Command::CancelProfile) {drop(profile.take());drop(profile_note.take());continue;}
 							if matches!(command,Command::StreamPreview{..}) {
 								drop(stream_preview.take());
 								let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
@@ -579,6 +580,21 @@ impl Connection {
 								})));
 								continue;
 							}
+
+                            if matches!(&command, Command::UserAction { action: client_core::user_actions::Action::LoadNote(_), .. }) {
+                                drop(profile_note.take());
+                                let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
+                                profile_note=Some(AbortTask(tokio::spawn(async move {
+                                    let event=api.execute(command).await;
+                                    let failure=match &event {
+                                        Event::UserAction(client_core::user_actions::Event::NoteLoaded{result:Err(f),..}) if f.ends_session()=>Some(*f),
+                                        _=>None,
+                                    };
+                                    if let Some(error)=emit(event).err().or(failure) {api.stop();let _=finished.send(Some(error));}
+                                    wake.request_repaint();
+                                })));
+                                continue;
+                            }
                             if matches!(command,Command::Profile{..}) {
                                 drop(profile.take());
                                 let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();

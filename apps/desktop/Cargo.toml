@@ -80,3 +80,7 @@ required-features = ["demo"]
 
 [lints]
 workspace = true
+
+[[example]]
+name = "double_click_settings"
+required-features = ["demo"]

@@ -603,6 +603,7 @@ impl MessagingUi {
 					ui.spacing_mut().item_spacing.x = 6.0;
 					let response = ui.add(
 						egui::TextEdit::singleline(&mut self.settings.query)
+							.align(egui::Align2::LEFT_CENTER)
 							.hint_text(language.text("search"))
 							.char_limit(64)
 							.frame(egui::Frame::NONE)

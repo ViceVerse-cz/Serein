@@ -450,6 +450,33 @@ pub fn channel(kind: u8) -> Icon {
 
 /// Square icon button that highlights on hover and exposes `label` to accessibility.
 pub fn button(ui: &mut egui::Ui, icon: Icon, size: f32, label: &str) -> Response {
+	button_with_tooltip(ui, icon, size, label, false)
+}
+
+/// Message toolbar labels appear as soon as the pointer reaches the action.
+pub(crate) fn button_immediate(ui: &mut egui::Ui, icon: Icon, size: f32, label: &str) -> Response {
+	button_with_tooltip(ui, icon, size, label, true)
+}
+
+pub(crate) fn immediate_tooltip(response: Response, label: &str) -> Response {
+	if (response.hovered() || response.has_focus())
+		&& !response.ctx.input(|input| input.pointer.any_down())
+		&& !egui::Popup::is_any_open(&response.ctx)
+	{
+		egui::Tooltip::for_widget(&response).show(|ui| {
+			ui.label(label);
+		});
+	}
+	response
+}
+
+fn button_with_tooltip(
+	ui: &mut egui::Ui,
+	icon: Icon,
+	size: f32,
+	label: &str,
+	immediate: bool,
+) -> Response {
 	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
@@ -465,7 +492,11 @@ pub fn button(ui: &mut egui::Ui, icon: Icon, size: f32, label: &str) -> Response
 	};
 	paint(ui.painter(), icon, rect.shrink(size * 0.2), color);
 	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
-	response.on_hover_text(&label)
+	if immediate {
+		immediate_tooltip(response, &label)
+	} else {
+		response.on_hover_text(&label)
+	}
 }
 
 /// Toggleable variant: `active` keeps the icon in the strong text colour.

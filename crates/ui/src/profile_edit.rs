@@ -542,7 +542,7 @@ fn field(
 	let edit = if multiline {
 		egui::TextEdit::multiline(value).desired_rows(4)
 	} else {
-		egui::TextEdit::singleline(value)
+		egui::TextEdit::singleline(value).align(egui::Align2::LEFT_CENTER)
 	};
 	design::input(
 		ui,

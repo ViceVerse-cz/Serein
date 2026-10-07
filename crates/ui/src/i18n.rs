@@ -3,13 +3,9 @@ use fluent_templates::{
 	FluentBundle, LanguageIdentifier,
 	fluent_bundle::{FluentArgs, FluentResource},
 };
-use std::{
-	cell::RefCell,
-	sync::{
-		LazyLock,
-		atomic::{AtomicU8, Ordering},
-	},
-};
+#[cfg(not(test))]
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::{cell::RefCell, sync::LazyLock};
 
 static ENGLISH: LazyLock<LanguageIdentifier> = LazyLock::new(|| "en-US".parse().unwrap());
 static SPANISH: LazyLock<LanguageIdentifier> = LazyLock::new(|| "es".parse().unwrap());
@@ -26,8 +22,12 @@ static CHINESE_TRADITIONAL: LazyLock<LanguageIdentifier> =
 	LazyLock::new(|| "zh-TW".parse().unwrap());
 static CHINESE_SIMPLIFIED: LazyLock<LanguageIdentifier> =
 	LazyLock::new(|| "zh-CN".parse().unwrap());
+#[cfg(not(test))]
 static SYSTEM: LazyLock<Language> =
 	LazyLock::new(|| language_from_tag(sys_locale::get_locale().as_deref().unwrap_or("en-US")));
+#[cfg(test)]
+static SYSTEM: LazyLock<Language> = LazyLock::new(|| Language::English);
+#[cfg(not(test))]
 static CURRENT: AtomicU8 = AtomicU8::new(Language::System as u8);
 
 struct ActiveBundle {
@@ -36,6 +36,9 @@ struct ActiveBundle {
 }
 
 thread_local! {
+	// Synthetic UI fixtures must not share locale changes with parallel tests.
+	#[cfg(test)]
+	static TEST_CURRENT: std::cell::Cell<Language> = const { std::cell::Cell::new(Language::English) };
 	static ACTIVE_BUNDLE: RefCell<Option<ActiveBundle>> = const { RefCell::new(None) };
 }
 
@@ -246,6 +249,12 @@ impl Language {
 	}
 }
 
+#[cfg(test)]
+pub fn set_current(language: Language) {
+	TEST_CURRENT.set(language);
+}
+
+#[cfg(not(test))]
 pub fn set_current(language: Language) {
 	if CURRENT.swap(language as u8, Ordering::Relaxed) != language as u8 {
 		ACTIVE_BUNDLE.with_borrow_mut(|active| *active = None);
@@ -272,6 +281,12 @@ pub fn translate_if_key(value: &str) -> String {
 		.unwrap_or_else(|| value.to_owned())
 }
 
+#[cfg(test)]
+pub(crate) fn current() -> Language {
+	TEST_CURRENT.get()
+}
+
+#[cfg(not(test))]
 pub(crate) fn current() -> Language {
 	let value = CURRENT.load(Ordering::Relaxed);
 	Language::ALL

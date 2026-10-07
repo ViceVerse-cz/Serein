@@ -73,3 +73,5 @@ stale/session-changed forms. Private replies bypass persistent timeline state. N
 file dialogs stage modal uploads separately from composer attachments, through the
 existing upload worker. No bot credentials, backend or embedded messaging webview is
 introduced. Normal-account interaction behavior remains unofficial and live-unverified.
+
+Profile private-note reads use one independent cancellable task and a separate request identity; they do not reserve the account-write slot or disable profile messaging. Gateway note updates and confirmed local note saves win over older read responses. Closing the profile cancels its read.

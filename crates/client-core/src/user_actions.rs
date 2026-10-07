@@ -194,6 +194,7 @@ pub enum Event {
 #[derive(Default)]
 pub struct Actions {
 	note: Option<(Id, String)>,
+	note_request: Option<(Id, u64, bool)>,
 	nicknames: BTreeMap<Id, String>,
 	friends_since: BTreeMap<Id, i64>,
 	requests: BTreeMap<Id, (model::User, String, bool)>,
@@ -293,13 +294,29 @@ impl State {
 		}
 	}
 	pub fn load_user_note(&mut self, user: Id) -> Option<Command> {
-		if user.0 == 0 || self.user_action_pending() {
+		if user.0 == 0
+			|| self
+				.user_actions
+				.note_request
+				.is_some_and(|(id, _, _)| id == user)
+			|| (!self.demo && (self.auth != AuthState::Authenticated || !self.gateway_connected))
+		{
 			return None;
 		}
 		if self.user_note(user).is_none() {
 			self.user_actions.note = None;
 		}
-		self.request_user_action(Action::LoadNote(user))
+		self.user_actions.sequence = self.user_actions.sequence.wrapping_add(1);
+		let request = self.user_actions.sequence;
+		self.user_actions.note_request = Some((user, request, false));
+		Some(Command::UserAction {
+			action: Action::LoadNote(user),
+			request,
+			captcha: None,
+		})
+	}
+	pub(crate) fn cancel_user_note_read(&mut self) {
+		self.user_actions.note_request = None;
 	}
 	pub fn set_user_note(&mut self, user: Id, text: String) -> Option<Command> {
 		if self.user_note(user).is_none() || !valid_personal_text(&text, false) {
@@ -822,6 +839,7 @@ impl State {
 	}
 	/// Aborts the pending account write and reports an unknown outcome.
 	pub(crate) fn cancel_user_action(&mut self) {
+		self.cancel_user_note_read();
 		self.user_actions.dm_origin = None;
 		self.user_actions.opened_dm = None;
 		self.user_actions.challenge = None;
@@ -932,11 +950,14 @@ impl State {
 					return Err("Invalid note");
 				}
 				let mut active = self.user_note(user).is_some();
-				if let Some((
-					Action::LoadNote(target) | Action::Note { user: target, .. },
-					_,
-					observed,
-				)) = &mut self.user_actions.pending
+				if let Some((target, _, observed)) = &mut self.user_actions.note_request
+					&& *target == user
+				{
+					*observed = true;
+					active = true;
+				}
+				if let Some((Action::Note { user: target, .. }, _, observed)) =
+					&mut self.user_actions.pending
 					&& *target == user
 				{
 					*observed = true;
@@ -951,30 +972,19 @@ impl State {
 				request,
 				result,
 			} => {
-				if !matches!(&self.user_actions.pending, Some((Action::LoadNote(id), sequence, _)) if *id == user && *sequence == request)
-				{
+				let Some((target, sequence, observed)) = self.user_actions.note_request else {
+					return Ok(());
+				};
+				if target != user || sequence != request {
 					return Ok(());
 				}
+				self.user_actions.note_request = None;
 				match result {
-					Ok(text) if valid_personal_text(&text, false) => {
-						if !self
-							.user_actions
-							.pending
-							.as_ref()
-							.is_some_and(|(_, _, observed)| *observed)
-						{
-							self.user_actions.note = Some((user, text.as_str().to_owned()));
-						}
-						self.user_actions.pending = None;
-						self.user_actions.status = None;
+					Ok(text) if valid_personal_text(&text, false) && !observed => {
+						self.user_actions.note = Some((user, text.as_str().to_owned()));
 					}
-					result => {
-						return self.apply_user_action(Event::Written {
-							action: Action::LoadNote(user),
-							request,
-							result: Err(result.err().unwrap_or(Failure::Protocol)),
-						});
-					}
+					Err(failure) if failure.ends_session() => self.fail(failure),
+					_ => {}
 				}
 			}
 			Event::FriendsSince { entries, replace } => {
@@ -1404,6 +1414,13 @@ impl State {
 				request,
 				result,
 			} => {
+				if let Action::LoadNote(user) = action {
+					return self.apply_user_action(Event::NoteLoaded {
+						user,
+						request,
+						result: Err(result.err().unwrap_or(Failure::Protocol)),
+					});
+				}
 				let Some((pending, sequence, observed)) = &self.user_actions.pending else {
 					return Ok(());
 				};
@@ -1430,6 +1447,11 @@ impl State {
 					match action {
 						Action::LoadNote(_) | Action::OpenDm(_) => {}
 						Action::Note { user, ref text } => {
+							if let Some((target, _, observed)) = &mut self.user_actions.note_request
+								&& *target == user
+							{
+								*observed = true;
+							}
 							self.user_actions.note = Some((user, text.clone()))
 						}
 						Action::Nickname { user, ref text } => {
@@ -1549,6 +1571,71 @@ fn valid_friend(user: &model::User, username: &str) -> bool {
 			.avatar
 			.as_ref()
 			.is_none_or(|hash| model::valid_avatar_hash(hash))
+}
+
+#[cfg(debug_assertions)]
+impl State {
+	/// Offline state check; preserves the caller's action state and sends no commands.
+	pub fn debug_profile_note_read_check(&mut self, user: &model::User) {
+		let saved = std::mem::take(&mut self.user_actions);
+		let allowed = self.can_open_user_dm(user);
+		let Command::UserAction { request, .. } = self.load_user_note(user.id).unwrap() else {
+			panic!("note read");
+		};
+		assert!(
+			!self.user_action_pending(),
+			"note read never reserves the account-write slot"
+		);
+		assert_eq!(self.can_open_user_dm(user), allowed);
+		let write = self
+			.request_user_action(Action::Note {
+				user: user.id,
+				text: "New note".into(),
+			})
+			.expect("write can run alongside note read");
+		self.apply_user_action(Event::NoteChanged {
+			user: user.id,
+			text: "New note".into(),
+		})
+		.unwrap();
+		self.apply_user_action(Event::NoteLoaded {
+			user: user.id,
+			request,
+			result: Ok("Old note".into()),
+		})
+		.unwrap();
+		assert_eq!(self.user_note(user.id), Some("New note"));
+		assert!(
+			self.user_action_pending(),
+			"read completion cannot clear the pending write"
+		);
+		let Command::UserAction {
+			action, request, ..
+		} = write
+		else {
+			panic!("note write");
+		};
+		self.apply_user_action(Event::Written {
+			action,
+			request,
+			result: Ok(()),
+		})
+		.unwrap();
+		assert!(!self.user_action_pending());
+		let Command::UserAction { request, .. } = self.load_user_note(user.id).unwrap() else {
+			panic!("second read");
+		};
+		self.cancel_user_note_read();
+		self.apply_user_action(Event::NoteLoaded {
+			user: user.id,
+			request,
+			result: Ok("Cancelled read".into()),
+		})
+		.unwrap();
+		assert_eq!(self.user_note(user.id), Some("New note"));
+		self.user_actions = saved;
+		println!("Profile note read isolation, newer-note reconciliation and cancellation passed.");
+	}
 }
 
 #[cfg(test)]

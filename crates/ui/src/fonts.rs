@@ -218,6 +218,7 @@ impl Settings {
 				let search = design::input(
 					ui,
 					egui::TextEdit::singleline(&mut self.query)
+						.align(egui::Align2::LEFT_CENTER)
 						.hint_text(crate::i18n::translate("fonts-show-search"))
 						.char_limit(64),
 				);

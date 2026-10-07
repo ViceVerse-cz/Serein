@@ -494,31 +494,41 @@ fn normalize_fences(input: &str) -> std::borrow::Cow<'_, str> {
 }
 
 /// Discord quotes a line only for `> ` or `>>> ` (a space after the marker); CommonMark also
-/// quotes `>text`. Escape such bare markers at line starts outside fenced code so they stay
+/// quotes `>text`. Escape such bare markers at line starts outside code so they stay
 /// literal text. Only inserted backslashes differ from the input.
 fn escape_bare_quotes(input: &str) -> std::borrow::Cow<'_, str> {
+	if !input.contains('>') {
+		return std::borrow::Cow::Borrowed(input);
+	}
 	let mut out: Option<String> = None;
 	let mut copied = 0;
-	let mut fence = false;
+	let mut code = Parser::new_ext(input, Options::ENABLE_STRIKETHROUGH)
+		.into_offset_iter()
+		.filter_map(|(event, range)| {
+			matches!(event, Event::Start(Tag::CodeBlock(_)) | Event::Code(_)).then_some(range)
+		})
+		.peekable();
 	let mut start = 0;
 	while start < input.len() {
 		let end = input[start..].find('\n').map_or(input.len(), |n| start + n);
 		let line = &input[start..end];
 		let indent = line.len() - line.trim_start_matches(' ').len();
 		let body = &line[indent..];
-		if indent <= 3 && body.starts_with("```") {
-			fence = !fence;
-		} else if !fence
-			&& indent <= 3
+		if indent <= 3
 			&& body.starts_with('>')
 			&& !body.starts_with("> ")
 			&& !body.starts_with(">>> ")
 		{
 			let at = start + indent;
-			let out = out.get_or_insert_with(|| String::with_capacity(input.len() + 8));
-			out.push_str(&input[copied..at]);
-			out.push('\\');
-			copied = at;
+			while code.peek().is_some_and(|range| range.end <= at) {
+				code.next();
+			}
+			if !code.peek().is_some_and(|range| range.contains(&at)) {
+				let out = out.get_or_insert_with(|| String::with_capacity(input.len() + 8));
+				out.push_str(&input[copied..at]);
+				out.push('\\');
+				copied = at;
+			}
 		}
 		start = end + 1;
 	}
@@ -576,6 +586,45 @@ const QUOTE_RAIL: i8 = 4;
 const QUOTE_GAP: i8 = 8;
 
 impl Formatted {
+	/// Offline debug assertions for quote escaping and bounded literal fallbacks.
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	pub fn debug_quote_regressions() {
+		for source in [
+			"~~~\n>text\n~~~",
+			"```\n>text\n```",
+			"~~~~\n~~~\n>text\n~~~~",
+		] {
+			assert_eq!(escape_bare_quotes(source), source);
+			let parsed = Self::parse(source);
+			assert_eq!(parsed.blocks.len(), 1);
+			assert!(parsed.blocks[0].code.contains(">text"));
+			assert!(!parsed.blocks[0].code.contains("\\>"));
+		}
+		let source = "```example```\n>text";
+		assert_eq!(escape_bare_quotes(source), "```example```\n\\>text");
+		let parsed = Self::parse(source);
+		assert_eq!(parsed.blocks[0].code, "example");
+		assert!(parsed.spans.iter().all(|(_, style)| !style.quote));
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.map(|(text, _)| text.as_str())
+				.collect::<String>()
+				.contains(">text")
+		);
+		for source in [
+			format!(">raw\n{}", "*x* ".repeat(MAX_EVENTS)),
+			format!(">raw\n{}", "||x|| ".repeat(33)),
+			format!(">raw\n||{}", "x".repeat(MAX_INPUT)),
+		] {
+			let parsed = Self::parse(&source);
+			assert!(parsed.limited);
+			assert_eq!(parsed.spans[0].0, source[..source.len().min(MAX_INPUT)]);
+			assert_eq!(parsed.spoilers, source.contains("||"));
+		}
+	}
+
 	pub fn parse(source: &str) -> Self {
 		let mut end = source.len().min(MAX_INPUT);
 		while !source.is_char_boundary(end) {
@@ -651,7 +700,7 @@ impl Formatted {
 		});
 		for (count, (event, range)) in events.enumerate() {
 			if count >= MAX_EVENTS || stack.len() > MAX_DEPTH {
-				return Self::limited_literal(input, source.contains("||"));
+				return Self::limited_literal(&source[..end], source.contains("||"));
 			}
 			style.spoiler = open_spoiler.map(|(_, region)| region);
 			if quote_all {
@@ -813,7 +862,7 @@ impl Formatted {
 							&mut open_spoiler,
 							&mut regions,
 						) {
-							return Self::limited_literal(input, true);
+							return Self::limited_literal(&source[..end], true);
 						}
 					}
 				}
@@ -829,7 +878,7 @@ impl Formatted {
 							&mut open_spoiler,
 							&mut regions,
 						) {
-							return Self::limited_literal(input, true);
+							return Self::limited_literal(&source[..end], true);
 						}
 					} else {
 						output.push(&text, inert);
@@ -871,7 +920,7 @@ impl Formatted {
 		if let Some((opening, region)) = open_spoiler {
 			if end < source.len() {
 				// A closing delimiter may be outside our byte/line window.
-				return Self::limited_literal(input, true);
+				return Self::limited_literal(&source[..end], true);
 			}
 			// An unmatched opening delimiter is literal, including its contents.
 			for (_, style) in &mut output.spans[opening..] {

@@ -225,6 +225,7 @@ impl ArchivesUi {
 							crate::dialog::input(
 								ui,
 								egui::TextEdit::singleline(&mut self.filter)
+									.align(egui::Align2::LEFT_CENTER)
 									.char_limit(100)
 									.hint_text(crate::i18n::translate(
 										"archives-show-search-for-thread-name",

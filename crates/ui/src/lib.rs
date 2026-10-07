@@ -737,6 +737,10 @@ impl MessagingUi {
 		self.members_narrow_open = true;
 		self.profile.command_open(user);
 	}
+	#[cfg(any(test, feature = "demo"))]
+	pub fn preview_full_profile(&mut self, user: model::User) {
+		self.profile.open_full(user);
+	}
 	/// Fixture-only entry point: opens the emoji popout as if the composer button was clicked.
 	/// Fixture-only entry point: stage a synthetic attachment as if it had been selected.
 	/// Repeated calls build up a batch, like choosing several files.
@@ -2685,6 +2689,7 @@ impl MessagingUi {
 					ui.add_enabled(
 						false,
 						TextEdit::singleline(&mut hint)
+							.align(egui::Align2::LEFT_CENTER)
 							.desired_width(f32::INFINITY)
 							.frame(egui::Frame::NONE),
 					);
@@ -2911,12 +2916,18 @@ impl MessagingUi {
 		if focus_composer || typed {
 			ctx.memory_mut(|m| m.request_focus(composer_id));
 		}
-		if focus_edit {
+		if focus_edit || (focus_composer && !editing_here) {
 			let mut edit_state = egui::text_edit::TextEditState::default();
-			let count = self
-				.editing
-				.as_ref()
-				.map_or(0, |(_, _, content)| content.chars().count());
+			let count = if editing_here {
+				self.editing
+					.as_ref()
+					.map_or(0, |(_, _, content)| content.chars().count())
+			} else {
+				state
+					.drafts
+					.get(&channel)
+					.map_or(0, |draft| draft.chars().count())
+			};
 			edit_state
 				.cursor
 				.set_char_range(Some(egui::text::CCursorRange::one(
@@ -4556,6 +4567,10 @@ impl MessagingUi {
 						design::paint_chat_background(ui, ui.available_rect_before_wrap());
 						self.timeline.hide_media_links = self.reading_preferences.hide_media_links;
 						self.timeline.compact_messages = self.reading_preferences.compact_messages;
+						self.timeline.double_click_reaction = self
+							.reading_preferences
+							.double_click_reaction_enabled
+							.then_some(self.reading_preferences.double_click_emoji());
 						self.timeline.instant_scrolling =
 							!self.reading_preferences.smooth_scrolling;
 						self.timeline.extension_actions = self.extensions.message_actions();
@@ -4999,11 +5014,10 @@ impl MessagingUi {
 					.and_then(|channel| channel.guild)
 			});
 			self.sync_profile(state, &mut commands, &user, profile_guild);
-			// The card ends with the private note; read it once while no other write is pending.
+			// The private note uses an independent read and never locks message actions.
 			if !user.webhook
 				&& state.user.as_ref().is_some_and(|own| own.id != user.id)
 				&& state.user_note(user.id).is_none()
-				&& !state.user_action_pending()
 				&& (state.demo
 					|| (state.gateway_connected
 						&& state.auth == client_core::auth::AuthState::Authenticated))
@@ -6635,7 +6649,16 @@ mod composer_tests {
 					},
 					|ui| commands = view.show(ui, state),
 				);
-				assert!(output.platform_output.commands.is_empty());
+				assert!(
+					output
+						.platform_output
+						.commands
+						.iter()
+						.all(|command| matches!(
+							command,
+							egui::OutputCommand::TextSelectionSettled(_)
+						))
+				);
 				assert!(
 					!commands.iter().any(|command| matches!(
 						command,
@@ -6809,7 +6832,16 @@ mod composer_tests {
 					},
 					|ui| commands = view.show(ui, state),
 				);
-				assert!(output.platform_output.commands.is_empty());
+				assert!(
+					output
+						.platform_output
+						.commands
+						.iter()
+						.all(|command| matches!(
+							command,
+							egui::OutputCommand::TextSelectionSettled(_)
+						))
+				);
 				assert!(!commands.iter().any(|command| matches!(
 					command,
 					Command::History { .. }
@@ -6914,7 +6946,16 @@ mod composer_tests {
 					},
 					|ui| commands = view.show(ui, state),
 				);
-				assert!(output.platform_output.commands.is_empty());
+				assert!(
+					output
+						.platform_output
+						.commands
+						.iter()
+						.all(|command| matches!(
+							command,
+							egui::OutputCommand::TextSelectionSettled(_)
+						))
+				);
 				assert!(!commands.iter().any(|command| matches!(
 					command,
 					Command::Send { .. }
@@ -7176,7 +7217,16 @@ mod composer_tests {
 					command,
 					Command::Send { .. } | Command::Edit { .. } | Command::Delete { .. }
 				)));
-				assert!(output.platform_output.commands.is_empty());
+				assert!(
+					output
+						.platform_output
+						.commands
+						.iter()
+						.all(|command| matches!(
+							command,
+							egui::OutputCommand::TextSelectionSettled(_)
+						))
+				);
 				let mut labels = vec![];
 				for shape in &output.shapes {
 					collect(&shape.shape, &mut labels);
@@ -7646,6 +7696,10 @@ mod composer_tests {
 		let mut state = test_support::demo_state();
 		state.demo = false; // Exercise normal command admission using synthetic loaded data.
 		state.guild_folders = Some(Default::default()); // Folder fetch is outside this presence-only scenario.
+		// Sidebar forum discovery is outside this loaded presence-only scenario.
+		state
+			.channels
+			.retain(|channel| !matches!(channel.kind, 15 | 16));
 		let channel = state.selected.unwrap();
 		let guild = state
 			.channels
@@ -7912,7 +7966,16 @@ mod composer_tests {
 							messaging.show(ui, &mut state);
 						},
 					);
-					assert!(output.platform_output.commands.is_empty());
+					assert!(
+						output
+							.platform_output
+							.commands
+							.iter()
+							.all(|command| matches!(
+								command,
+								egui::OutputCommand::TextSelectionSettled(_)
+							))
+					);
 					for shape in &output.shapes {
 						collect(&shape.shape, &mut painted);
 					}
@@ -9089,3 +9152,155 @@ pub fn debug_image_sharing(state: &mut State) -> (Vec<model::ImageShare>, String
 	);
 	(assets, draft)
 }
+
+/// Offline interaction check for PR 565; never attaches service or image workers.
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub fn debug_pr565(mut state: State, mut user: model::User) {
+	state.debug_profile_note_read_check(&user);
+	profiles::debug_activity_panel(&state);
+	profiles::debug_board_layout();
+	user.avatar = Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into());
+	markdown::Formatted::debug_quote_regressions();
+	let ctx = egui::Context::default();
+	ctx.enable_accesskit();
+	design::apply(&ctx);
+	let mut view = MessagingUi::default();
+	view.preview_profile(user.clone());
+	let frame = |view: &mut MessagingUi, state: &mut State, events| {
+		let mut output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(1120.0, 900.0),
+				)),
+				events,
+				focused: true,
+				..Default::default()
+			},
+			|ui| {
+				view.show(ui, state);
+			},
+		);
+		output.textures_delta.clear();
+		output
+	};
+	let avatar = |output: &egui::FullOutput, label: &str| {
+		let bounds = output
+			.platform_output
+			.accesskit_update
+			.as_ref()
+			.unwrap()
+			.nodes
+			.iter()
+			.find_map(|(_, node)| {
+				(node.label() == Some(label))
+					.then(|| node.bounds())
+					.flatten()
+					.filter(|rect| rect.x1 - rect.x0 > 50.0)
+			})
+			.expect("profile avatar is accessible");
+		egui::pos2(
+			((bounds.x0 + bounds.x1) / 2.0) as f32,
+			((bounds.y0 + bounds.y1) / 2.0) as f32,
+		)
+	};
+	let click = |view: &mut MessagingUi, state: &mut State, pos| {
+		for pressed in [true, false] {
+			frame(
+				view,
+				state,
+				vec![
+					egui::Event::PointerMoved(pos),
+					egui::Event::PointerButton {
+						pos,
+						button: egui::PointerButton::Primary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					},
+				],
+			);
+		}
+	};
+	for _ in 0..3 {
+		frame(&mut view, &mut state, vec![]);
+	}
+	let compact = frame(&mut view, &mut state, vec![]);
+	let connection = state
+		.profile
+		.as_ref()
+		.unwrap()
+		.data
+		.as_ref()
+		.unwrap()
+		.connections[0]
+		.name
+		.clone();
+	assert!(!compact.shapes.iter().any(
+		|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text() == connection)
+	));
+	let own = state.user.clone().unwrap();
+	state.own_profile.data = Some(profiles::synthetic(&own, None));
+	assert_eq!(
+		profiles::known_username(&state, own.id).as_deref(),
+		Some("serein.preview")
+	);
+	click(
+		&mut view,
+		&mut state,
+		avatar(&compact, &i18n::translate("profiles-view-full-profile")),
+	);
+	for _ in 0..3 {
+		frame(&mut view, &mut state, vec![]);
+	}
+	let full = frame(&mut view, &mut state, vec![]);
+	assert!(
+		ctx.memory(|memory| memory.area_rect(egui::Id::unique("user-profile-full")))
+			.is_some()
+	);
+	assert!(
+		full.shapes.iter().any(
+			|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text() == connection)
+		),
+		"full profile retains connections"
+	);
+	click(
+		&mut view,
+		&mut state,
+		avatar(
+			&full,
+			&i18n::translate("profiles-show-view-profile-picture"),
+		),
+	);
+	let image = &view
+		.profile_image
+		.as_ref()
+		.expect("full avatar opens image")
+		.1;
+	assert!(image.media.url.as_ref().unwrap().contains("size=2048"));
+	view.profile_image = None;
+	user.webhook = true;
+	view.preview_profile(user);
+	for _ in 0..3 {
+		frame(&mut view, &mut state, vec![]);
+	}
+	let webhook = frame(&mut view, &mut state, vec![]);
+	click(
+		&mut view,
+		&mut state,
+		avatar(
+			&webhook,
+			&i18n::translate("profiles-show-view-profile-picture"),
+		),
+	);
+	assert!(
+		view.profile_image.is_some(),
+		"webhook avatar still opens its image"
+	);
+	emoji_picker::debug_gif_retry(&mut state);
+	println!(
+		"Profile avatar navigation, connections, username fallback, GIF retry and Markdown checks passed."
+	);
+}
+
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub use timeline::debug_copy_feedback_check;

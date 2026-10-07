@@ -4471,3 +4471,13 @@ screen-macos-system-picker = macOSのシステム選択画面で選ぶ
 screen-macos-system-picker-kind = システムのコンテンツ選択
 
 member-in-voice = ボイスチャット中
+
+profiles-board = Board
+profiles-board-unavailable = This profile’s board is unavailable.
+profiles-board-empty = No games on this board yet.
+profiles-board-show-more = Show more
+profiles-board-show-less = Show less
+profiles-activity-empty = 共有されているアクティビティはありません。
+profiles-mutuals-empty = Nothing to show here.
+
+reading-double-click-reaction = Double-click reaction

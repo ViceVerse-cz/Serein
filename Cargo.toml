@@ -184,6 +184,8 @@ opt-level = 3
 opt-level = 3
 
 [patch.crates-io]
+# Align Direct3D interfaces with wgpu-hal; see vendor/gpu-allocator/SEREIN-PATCH.md.
+gpu-allocator = { path = "vendor/gpu-allocator" }
 # Replace an affected SHAKE dependency while retaining the compatible HPKE API.
 hpke-rs = { path = "vendor/hpke-rs" }
 # Native DAVE does not need OpenMLS browser timers; see vendor/davey/SEREIN-PATCH.md.

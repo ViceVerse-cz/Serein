@@ -4482,3 +4482,13 @@ screen-macos-system-picker = Mit der macOS-Systemauswahl wählen
 screen-macos-system-picker-kind = Systemauswahl für Inhalte
 
 member-in-voice = Im Sprachchat
+
+profiles-board = Board
+profiles-board-unavailable = This profile’s board is unavailable.
+profiles-board-empty = No games on this board yet.
+profiles-board-show-more = Show more
+profiles-board-show-less = Show less
+profiles-activity-empty = Keine geteilte Aktivität.
+profiles-mutuals-empty = Nothing to show here.
+
+reading-double-click-reaction = Double-click reaction

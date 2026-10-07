@@ -79,6 +79,29 @@ const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 fn main() -> eframe::Result {
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-pr565")
+	{
+		ui::debug_pr565(
+			test_support::demo_state(),
+			test_support::message(1, model::Id(20)).author,
+		);
+		avatars::debug_profile_resolution_check();
+		ui::MessagingUi::debug_call_membership_check(test_support::call_demo_state());
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+		uploads::debug_reservation_check(runtime.handle());
+		discord_gateway::debug_voice_state_retry_check();
+		ui::MessagingUi::debug_double_click_reaction_check(
+			test_support::demo_state(),
+			test_support::message(60_000 << 22, model::Id(20)),
+		);
+		local_store::LocalStore::debug_double_click_reaction_check();
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-window-geometry")
 	{
 		app_settings::debug_window_geometry_check();

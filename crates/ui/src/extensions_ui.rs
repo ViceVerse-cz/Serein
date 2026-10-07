@@ -1045,6 +1045,7 @@ impl ExtensionUi {
 							24.0 * f32::from(u8::from(working) + u8::from(!self.query.is_empty()));
 						ui.add(
 							egui::TextEdit::singleline(&mut self.query)
+								.align(egui::Align2::LEFT_CENTER)
 								.hint_text(crate::i18n::translate_if_key(
 									&(if self.themes {
 										crate::i18n::translate(
@@ -2848,6 +2849,7 @@ pub(crate) fn render_elements(
 				let label = ui.label(label);
 				ui.add(
 					egui::TextEdit::singleline(value)
+						.align(egui::Align2::LEFT_CENTER)
 						.id_salt(id)
 						.char_limit(1024)
 						.desired_width(ui.available_width().min(320.0)),

@@ -13,6 +13,8 @@ mod message_options;
 mod messaging_permissions;
 mod onboarding;
 mod profile_edit;
+#[cfg(debug_assertions)]
+pub use profile_edit::debug_profile_board_request_check;
 pub mod proxy;
 #[cfg(test)]
 mod proxy_tests;
@@ -1135,17 +1137,28 @@ impl DiscordApi {
 				if let Some(guild) = guild {
 					path.push_str(&format!("&guild_id={guild}"));
 				}
-				let result = self
-					.request_limited(Method::GET, &path, None, profile::MAX_PROFILE_WIRE)
+				let result = async {
+					let bytes = self
+						.request_limited(Method::GET, &path, None, profile::MAX_PROFILE_WIRE)
+						.await?;
+					let mut profile = profile::decode_profile(&bytes, guild, with_mutuals)
+						.map_err(|_| Failure::Protocol)?;
+					if profile.user.id != user {
+						return Err(Failure::Protocol);
+					}
+					// Optional names/artwork must not hold the entire profile behind slow reads
+					// or a shared service cooldown. Dropping this read is safe: it never writes.
+					if let Ok(result) = tokio::time::timeout(
+						Duration::from_secs(2),
+						self.load_profile_board_games(&mut profile),
+					)
 					.await
-					.and_then(|bytes| {
-						let profile = profile::decode_profile(&bytes, guild, with_mutuals)
-							.map_err(|_| Failure::Protocol)?;
-						if profile.user.id != user {
-							return Err(Failure::Protocol);
-						}
-						Ok(Box::new(profile))
-					});
+					{
+						result?;
+					}
+					Ok(Box::new(profile))
+				}
+				.await;
 				Event::Profile {
 					user,
 					guild,

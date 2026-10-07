@@ -228,6 +228,7 @@ impl SearchUi {
 						ui.fonts_mut(|fonts| fonts.layout_job(job))
 					};
 					let output = egui::TextEdit::singleline(&mut self.query)
+						.align(egui::Align2::LEFT_CENTER)
 						.id_salt("conversation-search-query")
 						.char_limit(256)
 						.frame(egui::Frame::NONE)
@@ -1300,6 +1301,7 @@ impl SearchUi {
 				let input = ui
 					.add(
 						egui::TextEdit::singleline(&mut self.page_input)
+							.align(egui::Align2::LEFT_CENTER)
 							.id_salt("search-page-number")
 							.desired_width(40.0)
 							.char_limit(3),

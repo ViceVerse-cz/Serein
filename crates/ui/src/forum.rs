@@ -316,6 +316,7 @@ impl ForumUi {
 							icons::inline(ui, icons::Icon::Search, 20.0, colors.muted);
 							let input = ui.add(
 								egui::TextEdit::singleline(&mut self.query)
+									.align(egui::Align2::LEFT_CENTER)
 									.char_limit(MAX_TITLE)
 									.frame(egui::Frame::NONE)
 									.hint_text(crate::i18n::translate(
@@ -608,6 +609,7 @@ impl ForumUi {
 								ui.spacing_mut().item_spacing.y = 4.0;
 								let title = ui.add(
 									egui::TextEdit::singleline(&mut draft.title)
+										.align(egui::Align2::LEFT_CENTER)
 										.char_limit(MAX_TITLE)
 										.frame(egui::Frame::NONE)
 										.font(egui::FontId::new(

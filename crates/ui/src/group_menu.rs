@@ -324,6 +324,7 @@ impl GroupMenu {
 						let response = crate::dialog::input(
 							ui,
 							egui::TextEdit::singleline(&mut dialog.name)
+								.align(egui::Align2::LEFT_CENTER)
 								.char_limit(100)
 								.hint_text(crate::i18n::translate("group-menu-show-group-name"))
 								.id(egui::Id::unique(("group-name", self.revision))),

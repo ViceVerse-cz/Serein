@@ -186,3 +186,10 @@ an incomplete spec gate. New unlisted missing notices still stop packaging.
 | `objc2-web-kit-0.3.2.crate` | objc2-web-kit 0.3.2 | [source](https://static.crates.io/crates/objc2-web-kit/objc2-web-kit-0.3.2.crate) | `b2e5aaab980c433cf470df9d7af96a7b46a9d892d521a2cbbb2f8a4c16751e7f` |
 | `realfft-3.5.0.crate` | realfft 3.5.0 | [source](https://static.crates.io/crates/realfft/realfft-3.5.0.crate) | `f821338fddb99d089116342c46e9f1fbf3828dba077674613e734e01d6ea8677` |
 | `realfft-3.5.0-license-declaration.toml` | realfft 3.5.0 | [source](https://docs.rs/crate/realfft/3.5.0/source/Cargo.toml.orig) | `d72ddbadf9bb55ed21ae973ac97f0bb4e8df2064af628c54b802b2c7d764c8de` |
+
+## gpu-allocator Windows compatibility patch (October 7, 2026)
+
+Unmodified license texts copied from crates.io gpu-allocator 0.28.0, also retained with the locally patched manifest under `vendor/gpu-allocator`.
+
+- `gpu-allocator-0.28.0-LICENSE-MIT`: SHA-256 `ad41be6cc6538b29b9346648f41432b5e460bad6be073b5eeaa41320ea2921dc`.
+- `gpu-allocator-0.28.0-LICENSE-APACHE`: SHA-256 `0178e21322b0e88aa3aeb3146f6a9611bc1f8df6d98bdfb34be28b9dd56a8107`.

@@ -710,6 +710,64 @@ impl Avatars {
 			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, ui.is_enabled(), label));
 		response
 	}
+	/// Portrait game cover for the profile board, cropped to fill; a rounded tile until loaded.
+	pub fn show_cover(
+		&mut self,
+		ui: &mut egui::Ui,
+		key: Option<String>,
+		size: egui::Vec2,
+		demo: bool,
+		label: &str,
+	) -> egui::Response {
+		let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
+		if ui.is_rect_visible(rect) {
+			let colors = crate::design::palette(ui);
+			#[cfg(any(test, feature = "demo"))]
+			if demo
+				&& let Some(key) = &key
+				&& !self.textures.contains_key(key)
+			{
+				// Original synthetic two-tone artwork; never bundled third-party covers.
+				let seed = key
+					.bytes()
+					.fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32));
+				let top = egui::Color32::from_rgb(
+					60 + (seed % 140) as u8,
+					70 + ((seed >> 8) % 120) as u8,
+					110 + ((seed >> 16) % 120) as u8,
+				);
+				let mut image = ColorImage::filled([24, 32], top);
+				for y in 0..32 {
+					let shade = top.lerp_to_gamma(egui::Color32::BLACK, y as f32 / 48.0);
+					for x in 0..24 {
+						image.pixels[y * 24 + x] = shade;
+					}
+				}
+				self.attempts.insert(key.clone(), (Instant::now(), false));
+				self.accept(ui.ctx(), key.clone(), Some(image));
+			}
+			if !key
+				.as_ref()
+				.is_some_and(|key| self.paint_fitted(ui, key, rect, 8, true))
+			{
+				ui.painter().rect_filled(rect, 8, colors.hover);
+				crate::icons::paint(
+					ui.painter(),
+					crate::icons::Icon::GameController,
+					egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(28.0)),
+					colors.muted,
+				);
+				if let Some(key) = key
+					&& !demo
+				{
+					self.request(key);
+				}
+			}
+		}
+		response
+			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, ui.is_enabled(), label));
+		response
+	}
 	pub fn show_profile_avatar(
 		&mut self,
 		ui: &mut egui::Ui,

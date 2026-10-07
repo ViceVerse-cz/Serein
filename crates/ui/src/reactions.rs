@@ -256,7 +256,7 @@ pub fn add_button(
 ) -> Option<(egui::Rect, egui::Id)> {
 	let response = ui
 		.add_enabled_ui(enabled && !writing, |ui| {
-			crate::icons::button(
+			crate::icons::button_immediate(
 				ui,
 				crate::icons::Icon::Smile,
 				28.0,
@@ -311,7 +311,7 @@ pub fn quick_button(ui: &mut egui::Ui, emoji: &str, reacted: bool) -> egui::Resp
 	response.widget_info(|| {
 		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), reacted, &label)
 	});
-	response.on_hover_text(label)
+	crate::icons::immediate_tooltip(response, &label)
 }
 
 pub fn show_users(

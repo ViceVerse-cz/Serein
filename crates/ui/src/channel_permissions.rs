@@ -94,6 +94,7 @@ impl PermissionsUi {
 						ui.set_width(240.0);
 						ui.add(
 							egui::TextEdit::singleline(&mut self.search)
+								.align(egui::Align2::LEFT_CENTER)
 								.hint_text(crate::i18n::translate(
 									"channel-permissions-targets-search-roles-or-loaded-members",
 								))
@@ -168,6 +169,7 @@ impl PermissionsUi {
 						let label = dialog::label(ui, "channel-permissions-targets-member-id");
 						ui.add(
 							egui::TextEdit::singleline(&mut self.member_id)
+								.align(egui::Align2::LEFT_CENTER)
 								.char_limit(20)
 								.desired_width(f32::INFINITY),
 						)

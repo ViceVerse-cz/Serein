@@ -1539,8 +1539,8 @@ impl MessagingUi {
 		let mut avatar_ui = ui.new_child(egui::UiBuilder::new().max_rect(avatar_rect));
 		if video.is_some() {
 			avatar_ui.set_opacity(0.0);
-		} else if inactive && !ringing {
-			// Absent peers fade like Discord's empty call seats.
+		} else if ringing {
+			// Only a ringing recipient keeps a faded seat before joining.
 			avatar_ui.set_opacity(0.45);
 		}
 		if ringing && video.is_none() {
@@ -1753,6 +1753,61 @@ impl MessagingUi {
 			Some("Joining this channel is unavailable with current permission information.")
 		} else {
 			None
+		}
+	}
+
+	/// Device-free membership check with a synthetic connected DM call.
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	pub fn debug_call_membership_check(mut state: State) {
+		state.demo = false;
+		let call = state.voice.active.as_ref().unwrap();
+		let channel = call.channel;
+		let own = state.user.as_ref().unwrap().id;
+		let peer = call
+			.participants
+			.iter()
+			.find(|p| p.user != own)
+			.unwrap()
+			.user;
+		assert!(
+			stage_participants(&state, channel)
+				.iter()
+				.any(|p| p.participant.user == peer)
+		);
+		state.apply_voice(client_core::voice::Event::State {
+			guild: None,
+			member: None,
+			server_muted: false,
+			server_deafened: false,
+			request: None,
+			channel: None,
+			user: peer,
+			session: None,
+			negotiation_revision: None,
+			muted: false,
+			deafened: false,
+			video: false,
+			streaming: false,
+		});
+		assert!(
+			!stage_participants(&state, channel)
+				.iter()
+				.any(|p| p.participant.user == peer)
+		);
+		for ringing in [vec![peer], vec![]] {
+			let expected = !ringing.is_empty();
+			state.apply_voice(client_core::voice::Event::Call {
+				channel,
+				ringing: Some(ringing),
+				participants: None,
+				unavailable: false,
+			});
+			assert_eq!(
+				stage_participants(&state, channel)
+					.iter()
+					.any(|p| p.participant.user == peer),
+				expected
+			);
 		}
 	}
 
@@ -4349,7 +4404,8 @@ fn stage_participants(state: &State, channel: Id) -> Vec<RosterEntry> {
 			.iter()
 			.take(client_core::voice::MAX_PARTICIPANTS - 1)
 		{
-			if entries.len() < client_core::voice::MAX_PARTICIPANTS
+			if state.voice.ringing(channel).contains(&user.id)
+				&& entries.len() < client_core::voice::MAX_PARTICIPANTS
 				&& !entries
 					.iter()
 					.any(|entry| entry.participant.user == user.id)
@@ -4952,12 +5008,20 @@ mod tests {
 	}
 
 	#[test]
-	fn dm_stage_includes_absent_recipients_without_speaking_or_mute_state() {
+	fn dm_stage_includes_only_ringing_absent_recipients_without_speaking_or_mute_state() {
 		let mut state = test_support::call_demo_state();
 		let call = state.voice.active.as_mut().unwrap();
 		let channel = call.channel;
 		let request = call.request;
 		call.participants.retain(|p| p.user == Id(1));
+		assert_eq!(stage_participants(&state, channel).len(), 1);
+		state.demo = false;
+		state.apply_voice(client_core::voice::Event::Call {
+			channel,
+			ringing: Some(vec![Id(2)]),
+			participants: None,
+			unavailable: false,
+		});
 		let entries = stage_participants(&state, channel);
 		assert_eq!(entries.len(), 2);
 		assert_eq!(entries[0].participant.user, Id(1));
@@ -5038,10 +5102,7 @@ mod tests {
 					messaging.screen.preview = Some(screen);
 					messaging.screen.busy = true;
 					messaging.screen.context = Some((state.generation, channel, request));
-					assert_eq!(
-						stage_participants(&state, channel).len(),
-						if guild { 1 } else { 2 }
-					);
+					assert_eq!(stage_participants(&state, channel).len(), 1);
 					let mut commands = vec![];
 					for phase in [Phase::Waiting, Phase::Connected, Phase::Failed] {
 						state.voice.active.as_mut().unwrap().phase = phase;

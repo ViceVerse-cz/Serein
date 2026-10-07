@@ -1420,13 +1420,21 @@ async fn run_recoverable(
 					}
 					if let Some(channel)=connect && let Some(packet)=calls.packet(client_core::voice::Command::Sync { channel })?
 						&& !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {break;}
-					if let Some(packet)=packet && !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {break;}
+					if let Some(packet)=packet && !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {
+						if matches!(command,client_core::voice::Command::SetMute{..}|client_core::voice::Command::SetCamera{..}) {
+							calls.state_send_failed();
+						}
+						break;
+					}
 					if let Some(channel)=connect && let Some(packet)=calls.channel_info_packet(channel)
 						&& !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {break;}
 				}
 
 				_=tokio::time::sleep_until(calls.state_deadline.unwrap_or(ready_deadline)), if calls.state_deadline.is_some() && ready_at.is_some() => {
-					if let Some(packet)=calls.flush_state() && !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {break;}
+					if let Some(packet)=calls.flush_state() && !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {
+						calls.state_send_failed();
+						break;
+					}
 				}
 				_=tokio::time::sleep_until(calls.departure_deadline.unwrap_or(ready_deadline)), if calls.departure_deadline.is_some() => {
 					if let Some(event)=calls.departure_expired() {emit(event)?;}
@@ -2756,6 +2764,14 @@ mod tests {
 								assert!(gates.is_empty());
 								"onboarding"
 							}
+							Event::UserAction(client_core::user_actions::Event::FriendsSince {
+								entries,
+								replace,
+							}) => {
+								assert!(replace);
+								assert!(entries.is_empty());
+								return Ok(());
+							}
 							Event::Resumed => "resumed",
 							Event::DirectPresence(_) => "presence",
 							Event::Resync => "resync",
@@ -3682,3 +3698,6 @@ mod member_tests {
 
 #[cfg(debug_assertions)]
 pub use member_search::debug_check as debug_member_search_check;
+
+#[cfg(debug_assertions)]
+pub use voice::debug_voice_state_retry_check;

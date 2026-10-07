@@ -379,6 +379,7 @@ impl State {
 		})
 	}
 	pub fn clear_profile(&mut self) -> Command {
+		self.cancel_user_note_read();
 		self.profile_request = self.profile_request.wrapping_add(1);
 		self.profile = None;
 		Command::CancelProfile
@@ -459,6 +460,7 @@ mod tests {
 			guild: None,
 			theme_colors: None,
 			clan: None,
+			board: None,
 			limited: false,
 		})
 	}
@@ -780,6 +782,7 @@ mod tests {
 					guild: None,
 					theme_colors: None,
 					clan: None,
+					board: None,
 					limited: false,
 				})
 			}
@@ -908,6 +911,7 @@ mod tests {
 					guild: None,
 					theme_colors: None,
 					clan: None,
+					board: None,
 					limited: false,
 				})
 			};
