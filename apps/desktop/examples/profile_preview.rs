@@ -278,6 +278,57 @@ fn prime_extension_chat(state: &mut client_core::State) {
 		.expect("valid synthetic conversation");
 }
 
+/// Shared before/after fixture; all channel metadata and server artwork are synthetic.
+fn prime_channel_links(state: &mut client_core::State) {
+	let channel = state.selected.expect("synthetic channel-link conversation");
+	let mut guild = state.guilds[0].clone();
+	guild.id = model::Id(11);
+	guild.name = "Synthetic elsewhere".into();
+	guild.icon = Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into());
+	state.guilds.push(guild);
+	let mut foreign = state.channel(channel).unwrap().clone();
+	foreign.id = model::Id(30);
+	foreign.guild = Some(model::Id(11));
+	foreign.parent_id = None;
+	foreign.name = "other-server-chat".into();
+	state.channels.push(foreign);
+	let mut long = state.channel(model::Id(27)).unwrap().clone();
+	long.id = model::Id(31);
+	long.name = "Příliš žluťoučký kůň · 日本語の長い投稿名 · A deliberately long forum post title for narrow windows".into();
+	state.channels.push(long);
+	state.invalidate_navigation();
+	state
+		.permissions
+		.replace(test_support::permission_snapshot(state))
+		.expect("valid synthetic channel-link permissions");
+	let mut message = test_support::message(600, channel);
+	message.content = "**Channel and thread references**\n\
+Regular channel: <#20>\n\
+Regular thread: <#28>\n\
+Forum channel: <#26>\n\
+Forum post: <#27>\n\n\
+**Message links**\n\
+Regular channel: https://discord.com/channels/10/20/501\n\
+Regular thread: https://discord.com/channels/10/28/501\n\
+Forum post: https://discord.com/channels/10/27/501\n\
+Another server: https://discord.com/channels/11/30/501\n\n\
+**Fallbacks and long names**\n\
+Unavailable: <#999> https://discord.com/channels/10/998/501\n\
+Long post: <#31> https://discord.com/channels/10/31/501\n\
+Named link: [Open the original message](https://discord.com/channels/10/20/501)\n\
+Literal: `<#28>` · Concealed: ||<#27> https://discord.com/channels/11/30/501||"
+		.into();
+	message.attachments.clear();
+	message.embeds.clear();
+	message.reactions = Some(vec![]);
+	state.timeline.clear();
+	state.older_exhausted = true;
+	state
+		.timeline
+		.seed_cache(vec![message])
+		.expect("valid synthetic channel-link message");
+}
+
 // Fixture packages are checked-in inputs; execution never calls desktop adapters.
 fn extension_fixture(
 	id: &str,
@@ -496,7 +547,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|profile-card|member-tags|dm-tags|account|appearance|general|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--scroll=PIXELS] [--light] [--compact] [--transparency=0..100]".into());
+		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|channel-links|profile-card|member-tags|dm-tags|account|appearance|general|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--scroll=PIXELS] [--light] [--compact] [--transparency=0..100]".into());
 	}
 	let smoke = args.iter().any(|arg| arg == "--smoke");
 	let interactive = args.iter().any(|arg| arg == "--interactive");
@@ -516,6 +567,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "profile-card"
 			| "member-tags"
 			| "markdown"
+			| "channel-links"
 			| "dm-tags"
 			| "account"
 			| "appearance"
@@ -537,7 +589,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "forum-settings"
 			| "friends"
 	) {
-		return Err("Page must be profile, markdown, profile-card, member-tags, dm-tags, account, appearance, general, keybinds, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement, server-safety, server-emoji, server-stickers, server-members, server-roles, server-invites, server-integrations or server-audit-log".into());
+		return Err("Page must be profile, markdown, channel-links, profile-card, member-tags, dm-tags, account, appearance, general, keybinds, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement, server-safety, server-emoji, server-stickers, server-members, server-roles, server-invites, server-integrations or server-audit-log".into());
 	}
 	let slash_command = value("--command=").unwrap_or("help").to_owned();
 	if !matches!(slash_command.as_str(), "help" | "weather") {
@@ -621,6 +673,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					.seed_cache(vec![message])
 					.expect("valid synthetic markdown");
 			}
+			if page == "channel-links" {
+				prime_channel_links(&mut state);
+			}
 			if page == "profile" {
 				prime_profile(&mut state);
 			}
@@ -687,7 +742,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					&[model::Id(2603)],
 					Some("Faster startup on older phones"),
 				);
-			} else if matches!(page.as_str(), "member-tags" | "dm-tags" | "markdown") {
+			} else if matches!(
+				page.as_str(),
+				"member-tags" | "dm-tags" | "markdown" | "channel-links"
+			) {
 				// State is primed above; the normal offline messaging surface renders the list.
 			} else if page == "slash-commands" {
 				messaging.preview_slash_commands();

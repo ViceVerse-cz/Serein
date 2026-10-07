@@ -57,6 +57,7 @@ pub mod i18n;
 pub fn debug_channel_creation(state: client_core::State) {
 	channel_menu::debug_creation(state);
 }
+mod channel_pill;
 mod formatting;
 mod forum;
 mod forum_settings;
@@ -6008,7 +6009,7 @@ mod composer_tests {
 			),
 			(
 				"https://discord.com/channels/100/11/25",
-				"#Synthetic edit conversation",
+				"Linked server",
 				Some(Id(25)),
 			),
 			(

@@ -16,7 +16,12 @@ const PREVIEW_EMOJI_SIZE: f32 = 16.0;
 pub(crate) struct PreviewEmoji {
 	at: usize,
 	text: String,
-	cell: usize,
+	image: PreviewImage,
+}
+
+enum PreviewImage {
+	Emoji(usize),
+	Channel(crate::icons::Icon),
 }
 
 /// True when the raw source escapes the token at `at` with an odd run of backslashes.
@@ -1302,53 +1307,19 @@ impl Formatted {
 					}
 					if let Some(id) = spans[start].1.channel {
 						reserve(ui);
-						let colors = crate::design::palette(ui);
-						let name = channel_reference_name(id, render.channels, render.source);
-						if let Some(name) = name {
-							let label = format!("#{name}");
-							let response = ui
-								.add(egui::Link::new(
-									egui::RichText::new(&label)
-										.strong()
-										.color(colors.mention_text)
-										.background_color(colors.mention_bg),
-								))
-								.on_hover_text(crate::i18n::translate(
-									"markdown-show-run-open-channel",
-								));
+						if let Some(pill) =
+							crate::channel_pill::Pill::channel(id, render.channels, render.source)
+						{
+							let known = channel_reference_name(id, render.channels, render.source)
+								.is_some();
+							let response = pill.show(ui, render.images, render.demo).on_hover_text(
+								crate::i18n::translate(if known {
+									"markdown-show-run-open-channel"
+								} else {
+									"markdown-show-run-load-channel"
+								}),
+							);
 							render.surface.keep(&response);
-							response.widget_info(|| {
-								egui::WidgetInfo::labeled(
-									egui::Role::Link,
-									ui.is_enabled(),
-									format!("{label}, open channel"),
-								)
-							});
-							if response.clicked() {
-								*render.channel = Some(id);
-							}
-						} else if render.channels.iter().all(|target| target.id != id) {
-							let label = "#unknown-channel";
-							let response = ui
-								.add(egui::Link::new(
-									egui::RichText::new(label)
-										.strong()
-										.color(colors.mention_text)
-										.background_color(colors.mention_bg),
-								))
-								.on_hover_text(crate::i18n::translate(
-									"markdown-show-run-load-channel",
-								));
-							render.surface.keep(&response);
-							response.widget_info(|| {
-								egui::WidgetInfo::labeled(
-									egui::Role::Link,
-									ui.is_enabled(),
-									crate::i18n::translate(
-										"markdown-show-run-unknown-channel-load-channel",
-									),
-								)
-							});
 							if response.clicked() {
 								*render.channel = Some(id);
 							}
@@ -1504,12 +1475,13 @@ impl Formatted {
 							.then(|| discord_chat_link(url))
 							.flatten()
 							.filter(|link| link.message.is_some());
-						let pill_label = message_link.as_ref().map(|link| {
-							channel_reference_name(link.channel, render.channels, render.source)
-								.map_or_else(
-									|| "#unknown-channel".into(),
-									|name| format!("#{name}"),
-								)
+						let pill = message_link.as_ref().map(|link| {
+							crate::channel_pill::Pill::message(
+								link,
+								render.channels,
+								render.guilds,
+								render.source,
+							)
 						});
 						let response = if let Some(asset) =
 							model::ImageShare::from_url(url).filter(|_| label != *url)
@@ -1527,16 +1499,9 @@ impl Formatted {
 								Some(asset),
 							)
 							.on_hover_text(url)
-						} else if let Some(label) = &pill_label {
-							let colors = crate::design::palette(ui);
-							let response = ui
-								.add(egui::Link::new(
-									egui::RichText::new(label)
-										.strong()
-										.color(colors.mention_text)
-										.background_color(colors.mention_bg),
-								))
-								.on_hover_text(url);
+						} else if let Some(pill) = &pill {
+							let response =
+								pill.show(ui, render.images, render.demo).on_hover_text(url);
 							render.surface.keep(&response);
 							response
 						} else {
@@ -1558,7 +1523,8 @@ impl Formatted {
 							egui::WidgetInfo::labeled(
 								egui::Role::Link,
 								ui.is_enabled(),
-								pill_label.as_deref().unwrap_or(&label),
+								pill.as_ref()
+									.map_or_else(|| label.clone(), |pill| pill.label()),
 							)
 						});
 						if response.clicked() {
@@ -1951,15 +1917,30 @@ impl Formatted {
 				}
 			})
 			.collect();
-		surface.run(ui, &response, pos, galley, artwork);
 		if link {
-			response = ui.interact(
-				response.rect,
-				response.id.with("link"),
-				egui::Sense::click(),
-			);
-			surface.through(&response);
+			let id = response.id.with("link");
+			// Wrapping leaves space for adjacent pills; a bounding rectangle would
+			// steal their clicks. Only the first row participates in tab navigation.
+			let mut hits: Option<egui::Response> = None;
+			for (index, row) in galley.rows.iter().enumerate() {
+				let rect = row.rect_without_leading_space().translate(pos.to_vec2());
+				let sense = if index == 0 {
+					egui::Sense::click()
+				} else {
+					egui::Sense::click() - egui::Sense::FOCUSABLE
+				};
+				let hit = ui.interact(rect, id.with(index), sense);
+				surface.through(&hit);
+				hits = Some(match hits {
+					Some(response) => response.union(hit),
+					None => hit,
+				});
+			}
+			if let Some(hit) = hits {
+				response = hit;
+			}
 		}
+		surface.run(ui, &response, pos, galley, artwork);
 		if ui.is_rect_visible(response.rect) {
 			for (index, rect) in &slots {
 				if !ui.is_rect_visible(*rect) {
@@ -2093,7 +2074,7 @@ impl Formatted {
 			background: colors.mention_bg,
 			..Default::default()
 		};
-		let mut remaining = 120;
+		let mut remaining: usize = 120;
 		let mut emojis = Vec::new();
 		for (text, style) in &self.spans {
 			if remaining == 0 {
@@ -2125,12 +2106,23 @@ impl Formatted {
 				format.font_id = pill.font_id.clone();
 				(format!("@{name}"), format)
 			} else if let Some(id) = style.channel {
-				if let Some(name) = channel_reference_name(id, channels, source) {
-					(format!("#{name}"), pill.clone())
-				} else if channels.iter().any(|channel| channel.id == id) {
-					(text.clone(), muted.clone())
+				if let Some(channel) = crate::channel_pill::Pill::channel(id, channels, source) {
+					let prefix = channel.label();
+					let prefix = &prefix[..prefix.len() - channel.name.len()];
+					let prefix: String = prefix.chars().take(remaining).collect();
+					remaining -= prefix.chars().count();
+					emojis.push(PreviewEmoji {
+						at: job.text.len(),
+						text: prefix,
+						image: PreviewImage::Channel(channel.icon),
+					});
+					let mut slot =
+						crate::emoji::inline_format(ui, PREVIEW_EMOJI_SIZE, PREVIEW_EMOJI_SIZE);
+					slot.background = colors.mention_bg;
+					job.append(" ", 0.0, slot);
+					(channel.name.into(), pill.clone())
 				} else {
-					("#unknown-channel".into(), pill.clone())
+					(text.clone(), muted.clone())
 				}
 			} else if let Some((seconds, kind)) = style.timestamp {
 				(
@@ -2160,7 +2152,7 @@ impl Formatted {
 					emojis.push(PreviewEmoji {
 						at: job.text.len(),
 						text: cluster.into(),
-						cell,
+						image: PreviewImage::Emoji(cell),
 					});
 					job.append(
 						" ",
@@ -2187,9 +2179,7 @@ impl Formatted {
 		galley: &egui::Galley,
 		emojis: &[PreviewEmoji],
 	) {
-		let Some(atlas) = crate::emoji::atlas(ui.ctx()) else {
-			return;
-		};
+		let atlas = crate::emoji::atlas(ui.ctx());
 		let mut next = 0;
 		for placed in &galley.rows {
 			for glyph in &placed.glyphs {
@@ -2204,14 +2194,24 @@ impl Formatted {
 					egui::vec2(PREVIEW_EMOJI_SIZE, placed.row.size.y),
 				);
 				let emoji = &emojis[next];
-				crate::emoji::image_cell(atlas, &emoji.text, emoji.cell, PREVIEW_EMOJI_SIZE)
-					.paint_at(
-						ui,
-						egui::Rect::from_center_size(
-							rect.center(),
-							egui::Vec2::splat(PREVIEW_EMOJI_SIZE),
-						),
-					);
+				let rect = egui::Rect::from_center_size(
+					rect.center(),
+					egui::Vec2::splat(PREVIEW_EMOJI_SIZE),
+				);
+				match emoji.image {
+					PreviewImage::Emoji(cell) => {
+						if let Some(atlas) = atlas {
+							crate::emoji::image_cell(atlas, &emoji.text, cell, PREVIEW_EMOJI_SIZE)
+								.paint_at(ui, rect);
+						}
+					}
+					PreviewImage::Channel(icon) => crate::icons::paint(
+						ui.painter(),
+						icon,
+						rect.shrink(1.0),
+						crate::design::palette(ui).mention_text,
+					),
+				}
 				next += 1;
 			}
 		}
@@ -3248,6 +3248,320 @@ mod tests {
 			}
 			assert_eq!(channel, matches!(id, 4 | 5).then_some(Id(id)));
 			assert!(opening.is_none() && profile.open_user().is_none());
+		}
+	}
+
+	fn reference_text_shapes<'a>(
+		shape: &'a egui::Shape,
+		texts: &mut Vec<&'a egui::epaint::TextShape>,
+	) {
+		match shape {
+			egui::Shape::Text(text) => texts.push(text),
+			egui::Shape::Vec(shapes) => {
+				for shape in shapes {
+					reference_text_shapes(shape, texts);
+				}
+			}
+			_ => {}
+		}
+	}
+
+	#[test]
+	fn reference_pills_wrap_and_activate_one_destination_with_keyboard_or_pointer() {
+		let mut state = test_support::demo_state();
+		let mut other = state.guilds[0].clone();
+		other.id = Id(99);
+		other.name = "Other synthetic server".into();
+		state.guilds.push(other);
+		let source = crate::mentions::MentionSource {
+			state: &state,
+			channel: Id(20),
+		};
+		for (raw, label, painted, selected) in [
+			("<#20>", "#getting-started", "getting-started", Some(Id(20))),
+			(
+				"<#28>",
+				"Thread: Introductions thread",
+				"Introductions thread",
+				Some(Id(28)),
+			),
+			("<#26>", "Forum: ideas", "ideas", Some(Id(26))),
+			(
+				"<#42>",
+				"Post: Different model weights for differently powerful phones",
+				"Different model weights for differently powerful phones",
+				Some(Id(42)),
+			),
+			(
+				"https://discord.com/channels/10/20/100",
+				"#getting-started > message",
+				"getting-started",
+				None,
+			),
+			(
+				"https://discord.com/channels/10/28/100",
+				"Thread: Introductions thread > message",
+				"Introductions thread",
+				None,
+			),
+			(
+				"https://discord.com/channels/10/26/100",
+				"Forum: ideas > message",
+				"ideas",
+				None,
+			),
+			(
+				"https://discord.com/channels/10/42/100",
+				"Forum: ideas > Different model weights for differently powerful phones",
+				"Different model weights for differently powerful phones",
+				None,
+			),
+			(
+				"https://discord.com/channels/99/777/100",
+				"Other synthetic server > message",
+				"Other synthetic server",
+				None,
+			),
+			(
+				"https://discord.com/channels/10/777/100",
+				"#unknown-channel > message",
+				"unknown-channel",
+				None,
+			),
+			(
+				"[a custom link label](https://discord.com/channels/10/20/100)",
+				"a custom link label",
+				"a custom link label",
+				None,
+			),
+		] {
+			for (width, dark) in [(120.0, false), (480.0, true)] {
+				let ctx = egui::Context::default();
+				crate::icons::install(&ctx);
+				ctx.enable_accesskit();
+				ctx.set_visuals(if dark {
+					egui::Visuals::dark()
+				} else {
+					egui::Visuals::light()
+				});
+				let parsed = Formatted::parse(&format!("{raw} [next](https://example.com/next)"));
+				let target = selected.is_none().then(|| parsed.links[0].clone());
+				let mut images = crate::avatars::Avatars::default();
+				let mut opening = None;
+				let mut channel = None;
+				let mut profile = crate::profiles::ProfileSession::default();
+				let mut revealed = u32::MAX;
+				let mut frame = |events| {
+					let output = ctx.run_ui(
+						egui::RawInput {
+							screen_rect: Some(egui::Rect::from_min_size(
+								egui::Pos2::ZERO,
+								egui::vec2(width, 500.0),
+							)),
+							events,
+							..Default::default()
+						},
+						|ui| {
+							let mut surface =
+								crate::select::Surface::new(ui, "reference-navigation");
+							parsed.show_references(
+								ui,
+								&mut opening,
+								&[],
+								Some(&source),
+								&mut profile,
+								(&state.channels, &mut channel, &state.guilds, &[]),
+								(&mut images, true, &mut revealed),
+								&mut surface,
+								crate::design::MessageCardSurface::Opaque,
+							);
+							surface.finish(ui);
+						},
+					);
+					assert!(
+						output
+							.platform_output
+							.commands
+							.iter()
+							.all(|command| matches!(
+								command,
+								egui::OutputCommand::TextSelectionSettled(_)
+							)),
+						"{raw}: navigation stays in the application: {:?}",
+						output.platform_output.commands
+					);
+					(output, opening.take(), channel.take())
+				};
+				frame(vec![]).0.drop_without_applying_deltas();
+				let (output, opening, channel) = frame(vec![]);
+				assert!(opening.is_none() && channel.is_none());
+				assert_eq!(
+					output
+						.platform_output
+						.accesskit_update
+						.as_ref()
+						.unwrap()
+						.nodes
+						.iter()
+						.filter(|(_, node)| node.label() == Some(label))
+						.count(),
+					1,
+					"{raw}"
+				);
+				let mut texts = Vec::new();
+				for shape in &output.shapes {
+					reference_text_shapes(&shape.shape, &mut texts);
+				}
+				let text = texts
+					.iter()
+					.find(|text| text.galley.text().contains(painted))
+					.expect(painted);
+				if width == 120.0 && painted.len() > 30 {
+					assert!(text.galley.rows.len() > 1, "long destination must wrap");
+				}
+				for text in &texts {
+					let rect = text.galley.rect.translate(text.pos.to_vec2());
+					assert!(
+						rect.left() >= -0.5 && rect.right() <= width + 0.5,
+						"{raw}: {rect:?}"
+					);
+				}
+				assert!(
+					!texts
+						.iter()
+						.any(|text| text.galley.text().contains("https://discord.com")),
+					"{raw}"
+				);
+				let points: Vec<_> = text
+					.galley
+					.rows
+					.iter()
+					.map(|row| {
+						row.rect_without_leading_space()
+							.translate(text.pos.to_vec2())
+							.center()
+					})
+					.collect();
+				output.drop_without_applying_deltas();
+				let key = |key| {
+					vec![egui::Event::Key {
+						key,
+						physical_key: None,
+						pressed: true,
+						repeat: false,
+						modifiers: egui::Modifiers::NONE,
+					}]
+				};
+				let mut activate = |events| {
+					let (output, opening, channel) = frame(events);
+					output.drop_without_applying_deltas();
+					(opening, channel)
+				};
+				assert_eq!(activate(key(egui::Key::Tab)), (None, None));
+				assert_eq!(
+					activate(key(egui::Key::Enter)),
+					(target.clone(), selected),
+					"{raw}"
+				);
+				assert_eq!(activate(vec![]), (None, None));
+				// A wrapped pill, including its icon and message suffix, is one tab stop.
+				assert_eq!(activate(key(egui::Key::Tab)), (None, None));
+				assert_eq!(
+					activate(key(egui::Key::Enter)),
+					(Some("https://example.com/next".into()), None)
+				);
+				for point in points {
+					for pressed in [true, false] {
+						assert_eq!(
+							activate(vec![
+								egui::Event::PointerMoved(point),
+								egui::Event::PointerButton {
+									pos: point,
+									button: egui::PointerButton::Primary,
+									pressed,
+									modifiers: egui::Modifiers::NONE,
+								}
+							]),
+							if pressed {
+								(None, None)
+							} else {
+								(target.clone(), selected)
+							},
+							"{raw}"
+						);
+					}
+				}
+			}
+		}
+	}
+
+	#[test]
+	fn concealed_reference_pills_hide_destination_labels_and_guild_artwork_requests() {
+		let mut state = test_support::demo_state();
+		let mut other = state.guilds[0].clone();
+		other.id = Id(99);
+		other.name = "Hidden synthetic server".into();
+		state.guilds.push(other);
+		let source = crate::mentions::MentionSource {
+			state: &state,
+			channel: Id(20),
+		};
+		let parsed =
+			Formatted::parse("before ||<#27> https://discord.com/channels/99/777/100|| after");
+		let ctx = egui::Context::default();
+		crate::icons::install(&ctx);
+		ctx.enable_accesskit();
+		let mut images = crate::avatars::Avatars::default();
+		for revealed in [false, true] {
+			let mut opening = None;
+			let mut channel = None;
+			let output = ctx.run_ui(Default::default(), |ui| {
+				let mut surface = crate::select::Surface::new(ui, "concealed-references");
+				parsed.show_references(
+					ui,
+					&mut opening,
+					&[],
+					Some(&source),
+					&mut crate::profiles::ProfileSession::default(),
+					(&state.channels, &mut channel, &state.guilds, &[]),
+					(&mut images, false, &mut u32::from(revealed)),
+					&mut surface,
+					crate::design::MessageCardSurface::Opaque,
+				);
+				surface.finish(ui);
+			});
+			assert!(
+				opening.is_none()
+					&& channel.is_none()
+					&& output.platform_output.commands.is_empty()
+			);
+			let mut texts = Vec::new();
+			for shape in &output.shapes {
+				reference_text_shapes(&shape.shape, &mut texts);
+			}
+			let labels: Vec<_> = output
+				.platform_output
+				.accesskit_update
+				.as_ref()
+				.unwrap()
+				.nodes
+				.iter()
+				.filter_map(|(_, node)| node.label().or_else(|| node.value()))
+				.collect();
+			for name in ["A synthetic forum post", "Hidden synthetic server"] {
+				assert_eq!(
+					texts.iter().any(|text| text.galley.text().contains(name)),
+					revealed,
+					"{name}"
+				);
+				assert_eq!(
+					labels.iter().any(|label| label.contains(name)),
+					revealed,
+					"{name}"
+				);
+			}
+			assert_eq!(images.take_requests().len(), usize::from(revealed));
+			output.drop_without_applying_deltas();
 		}
 	}
 
