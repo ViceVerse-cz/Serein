@@ -263,6 +263,10 @@ node tests/login-handoff.cjs
 cargo xtask package
 ```
 
+On pushes to `main`, the extension SDK CI job uses the `serein-ryzen` self-hosted
+runner. Pull requests use GitHub-hosted runners. The local runner's work and tool
+caches share a dedicated 75 GB filesystem.
+
 ---
 
 ## Feature Matrix

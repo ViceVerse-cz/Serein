@@ -70,7 +70,8 @@ jobs:
           name: serein-${{ runner.os }}-${{ runner.arch }}-unsigned
           path: dist/
   extension-sdk:
-    runs-on: ubuntu-latest
+    # Public pull requests stay on GitHub-hosted runners.
+    runs-on: ${{ github.event_name == 'push' && 'serein-ryzen' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
