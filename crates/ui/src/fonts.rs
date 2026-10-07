@@ -389,6 +389,11 @@ const CJK_ZSTD: &[u8] = include_bytes!("../../../assets/fonts/NotoSansCJK-Regula
 const CJK_BYTES: usize = 19_484_784;
 const ARABIC: &[u8] = include_bytes!("../../../assets/fonts/NotoSansArabic.ttf");
 const MATH: &[u8] = include_bytes!("../../../assets/fonts/NotoSansMath-Regular.otf");
+/// Subset of Noto Sans Symbols 2 (punctuation, arrows, technical, miscellaneous
+/// symbols and dingbats incl. U+2726 BLACK FOUR POINTED STAR). Inter, the CJK,
+/// Arabic and Math faces all lack that scalar, so without this fallback egui
+/// paints Inter's `.notdef` (a stack of horizontal bars) wherever it appears.
+const SYMBOLS: &[u8] = include_bytes!("../../../assets/fonts/NotoSansSymbols2-Regular.ttf");
 const INTER: &[u8] = include_bytes!("../../../assets/fonts/Inter-Regular.ttf");
 const INTER_MEDIUM: &[u8] = include_bytes!("../../../assets/fonts/Inter-Medium.ttf");
 const INTER_SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf");
@@ -596,6 +601,7 @@ fn definitions(with_cjk: bool) -> FontDefinitions {
 		.chain([
 			("Noto Sans Arabic", FontData::from_static(ARABIC)),
 			("Noto Sans Math", FontData::from_static(MATH)),
+			("Noto Sans Symbols 2", FontData::from_static(SYMBOLS)),
 		]) {
 		add_fallback(&mut definitions, name, data);
 	}
@@ -706,7 +712,8 @@ mod tests {
 		assert!(
 			CJK_ZSTD.len()
 				+ ARABIC.len()
-				+ MATH.len() + INTER.len()
+				+ MATH.len() + SYMBOLS.len()
+				+ INTER.len()
 				+ INTER_MEDIUM.len()
 				+ INTER_SEMIBOLD.len()
 				<= 16 * 1024 * 1024
@@ -732,8 +739,8 @@ mod tests {
 						.expect("valid bundled font")
 				})
 				.collect();
-			for c in
-				"Hello, 日本語かなカナ 中文汉字繁體 한국어 العربية مَرْحَبًا 𝖘𝖓𝖎𝖎𝖝. é e\u{301}".chars()
+			for c in "Hello, 日本語かなカナ 中文汉字繁體 한국어 العربية مَرْحَبًا 𝖘𝖓𝖎𝖎𝖝. é e\u{301} ✦"
+				.chars()
 			{
 				assert!(
 					faces.iter().any(|face| {
@@ -754,7 +761,7 @@ mod tests {
 					// egui 0.36.2 has_glyph incorrectly returns false for all
 					// primary-face glyphs. Check every scalar through its font
 					// parser above, then check the actual fallback path here.
-					for c in "日本語かなカナ中文汉字繁體한국어العربية𝖘𝖓𝖎𝖎𝖝".chars()
+					for c in "日本語かなカナ中文汉字繁體한국어العربية𝖘𝖓𝖎𝖎𝖝✦".chars()
 					{
 						assert!(fonts.has_glyph(&font, c), "missing glyph: {c} ({c:?})");
 					}

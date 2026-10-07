@@ -6657,7 +6657,9 @@ mod composer_tests {
 						.all(|command| matches!(
 							command,
 							egui::OutputCommand::TextSelectionSettled(_)
-						))
+						)),
+					"{:?}",
+					output.platform_output.commands
 				);
 				assert!(
 					!commands.iter().any(|command| matches!(
@@ -6840,7 +6842,9 @@ mod composer_tests {
 						.all(|command| matches!(
 							command,
 							egui::OutputCommand::TextSelectionSettled(_)
-						))
+						)),
+					"{:?}",
+					output.platform_output.commands
 				);
 				assert!(!commands.iter().any(|command| matches!(
 					command,
@@ -6954,7 +6958,9 @@ mod composer_tests {
 						.all(|command| matches!(
 							command,
 							egui::OutputCommand::TextSelectionSettled(_)
-						))
+						)),
+					"{:?}",
+					output.platform_output.commands
 				);
 				assert!(!commands.iter().any(|command| matches!(
 					command,
@@ -7696,10 +7702,10 @@ mod composer_tests {
 		let mut state = test_support::demo_state();
 		state.demo = false; // Exercise normal command admission using synthetic loaded data.
 		state.guild_folders = Some(Default::default()); // Folder fetch is outside this presence-only scenario.
-		// Sidebar forum discovery is outside this loaded presence-only scenario.
+		// Forum sidebar loading is outside this presence-only scenario.
 		state
 			.channels
-			.retain(|channel| !matches!(channel.kind, 15 | 16));
+			.retain(|entry| !matches!(entry.kind, 15 | 16));
 		let channel = state.selected.unwrap();
 		let guild = state
 			.channels

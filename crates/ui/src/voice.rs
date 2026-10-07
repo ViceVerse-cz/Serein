@@ -398,21 +398,14 @@ impl MessagingUi {
 			row.left_center() + egui::vec2(18.0, 0.0),
 			egui::Vec2::splat(20.0),
 		);
-		crate::icons::paint(ui.painter(), crate::icons::Icon::Speaker, glyph, text_color);
-		channel_marks::paint(
+		channel_marks::paint_glyph(
 			ui.painter(),
 			access,
-			row,
+			crate::icons::Icon::Speaker,
 			glyph,
 			text_color,
-			if selected {
-				colors.selected
-			} else if hovered {
-				crate::design::row_highlight(ui, colors.hover, 1.0)
-			} else {
-				colors.sidebar
-			},
 		);
+		channel_marks::paint(ui.painter(), access, row, glyph, text_color);
 		let marks = channel_marks::trailing(access);
 		let elapsed_width = if elapsed.is_some() { 64.0 } else { 0.0 };
 		let name = ui.painter().layout(

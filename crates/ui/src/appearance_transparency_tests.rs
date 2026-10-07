@@ -311,10 +311,9 @@ fn channel_colors(light: bool, selected: bool, effects: (bool, u8)) -> ChannelCo
 		.filter(|(radius, _)| (*radius - 7.5).abs() < 0.01)
 		.map(|(_, fill)| *fill)
 		.collect();
-	assert_eq!(
-		halos.len(),
-		2,
-		"private text and voice channels must paint their lock halos"
+	assert!(
+		halos.is_empty(),
+		"private text and voice locks must leave the backdrop visible"
 	);
 	ChannelColors {
 		halos,
@@ -324,12 +323,11 @@ fn channel_colors(light: bool, selected: bool, effects: (bool, u8)) -> ChannelCo
 }
 
 #[test]
-fn private_text_and_voice_channel_lock_halos_follow_the_active_theme_at_every_window_opacity() {
+fn private_text_and_voice_channel_locks_have_no_halo_at_every_window_opacity() {
 	let _reset = ResetAppearance::new();
 	for light in [false, true] {
 		for selected in [false, true] {
 			let baseline = channel_colors(light, selected, EFFECTS[0]);
-			assert!(baseline.halos.iter().all(|fill| fill.a() == 255));
 			for effects in EFFECTS {
 				assert_eq!(
 					channel_colors(light, selected, effects),

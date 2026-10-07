@@ -4354,3 +4354,51 @@ the separate playback CPU complaint in issue #556 is not resolved by URL admissi
 The small archive difference supports no runtime-performance claim. Raw package
 sizes and the changed source hash are in
 [the size record](pr-evidence/attachment-storage-selectors/package-sizes.json).
+
+## Symbols 2 fallback — October 7, 2026
+
+Compared baseline `38d919d74054b885b992ce607f0bfa93ab449696` with measured runtime
+`7894963e05d6a617b1765df04be0f51a17c5000f`. Both use Rust 1.98.1, normal release
+fat LTO and the same synthetic U+2726 profile bio. The baseline also has the PR's
+one-line Windows lockfile correction; pristine baseline fails to compile with
+incompatible Windows binding types. Its renderer and font assets are unchanged.
+
+Host: Windows 11 Home 10.0.26200, Ryzen 7 7800X3D / 16 logical CPUs, 32 GiB
+physical RAM, NVIDIA RTX 5070 Ti and AMD integrated graphics. Both native previews
+set `WGPU_BACKEND=dx12`, use default features plus `demo`, and run at 1120×760
+logical pixels with 125% display scale. Adapter selection is not instrumented.
+After capture and a Windows UI Automation tree read, five seconds of warmup
+precede twenty 500 ms process samples. CPU is percent of one logical core;
+settled memory is the last sample. No task build runs during sampling.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Mean idle CPU, one logical core | 0.00% | 0.00% | 0.00 percentage points |
+| Sampled peak / settled private bytes | 337,178,624 B | 337,391,616 B | +212,992 B (+0.0632%) |
+| Sampled peak / settled working set (noisy sample) | 140,349,440 B | 114,184,192 B | −26,165,248 B (−18.6429%) |
+| Embedded font bytes | 15,580,429 B | 15,667,889 B | +87,460 B; below 16 MiB |
+| Standard voice-enabled executable | 85,449,728 B | 85,540,864 B | +91,136 B (+0.1067%) |
+| Installed regular files | 89,623,341 B | 89,719,239 B | +95,898 B (+0.1070%) |
+| Complete ZIP, .NET Optimal compression | 49,777,784 B | 49,833,312 B | +55,528 B (+0.1116%) |
+
+This single launch pair does not separate font cost from allocator, driver,
+input or OS paging variation. Unrelated compiler activity on the shared host
+remains a source of noise; the smaller working set is no performance improvement
+claim. Startup, full-frame p95, GPU memory and live traffic are unmeasured.
+
+Both standard voice-inclusive packages pass `cargo xtask package`, using
+`--no-default-features` and no demo. Installed file counts are 213 before and
+214 after. ZIPs use `Compress-Archive -LiteralPath dist -CompressionLevel Optimal`
+with a base-directory entry. The staged Symbols 2 license matches the source
+byte-for-byte. NSIS is unavailable locally, so no local installer is generated.
+
+The [evidence README](pr-evidence/symbols-fallback/README.md) records baseline
+adjustments, cache invalidation and reproduction. The
+[measurements](pr-evidence/symbols-fallback/measurements.json) include hashes and
+raw process samples. Four inspected native Windows screen captures cover dark
+1120×760 and light 640×760 views; they show missing-glyph bars before and stars
+after. Capture uses the owned preview window's native screen bounds and Windows
+UI Automation focus fallback. The unavailable computer-use pipe is not used.
+The tree read is no full accessibility audit. Workspace checks pass (1,166 tests
+passed, 27 ignored), and the font subset reproduces byte-for-byte. All content
+is synthetic; live Discord, microphone and calls remain unverified.

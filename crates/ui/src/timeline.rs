@@ -4785,7 +4785,9 @@ mod tests {
 				.platform_output
 				.commands
 				.iter()
-				.all(|command| matches!(command, egui::OutputCommand::TextSelectionSettled(_)))
+				.all(|command| matches!(command, egui::OutputCommand::TextSelectionSettled(_))),
+			"{:?}",
+			output.platform_output.commands
 		);
 		let mut labels = vec![];
 		for shape in &output.shapes {
@@ -7313,7 +7315,9 @@ mod tests {
 						.all(|command| matches!(
 							command,
 							egui::OutputCommand::TextSelectionSettled(_)
-						))
+						)),
+					"{:?}",
+					output.platform_output.commands
 				);
 				let mut labels = vec![];
 				for shape in &output.shapes {

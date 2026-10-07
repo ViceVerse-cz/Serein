@@ -903,10 +903,16 @@ impl MessagingUi {
 									10..=12 => crate::icons::Icon::Thread,
 									_ => crate::icons::Icon::Hash,
 								};
-								glyph = Some(crate::icons::inline(
-									&mut inner,
+								let (rect, _) = inner.allocate_exact_size(
+									egui::Vec2::splat(20.0),
+									egui::Sense::hover(),
+								);
+								glyph = Some(rect);
+								channel_marks::paint_glyph(
+									inner.painter(),
+									access,
 									icon,
-									20.0,
+									rect,
 									name_color.gamma_multiply(
 										if (active || hovered) && !access.dim() {
 											1.0
@@ -914,7 +920,7 @@ impl MessagingUi {
 											0.85
 										},
 									),
-								));
+								);
 							}
 							let mut label = String::from(state.conversation_name(channel));
 							if !enabled && visible {
@@ -1059,20 +1065,7 @@ impl MessagingUi {
 								);
 							}
 							if let Some(glyph) = glyph {
-								channel_marks::paint(
-									ui.painter(),
-									access,
-									row,
-									glyph,
-									name_color,
-									if active {
-										colors.selected
-									} else if hovered {
-										crate::design::row_highlight(ui, colors.hover, 1.0)
-									} else {
-										colors.sidebar
-									},
-								);
+								channel_marks::paint(ui.painter(), access, row, glyph, name_color);
 							}
 							let response = response.on_hover_text_with(|| {
 								format!(
