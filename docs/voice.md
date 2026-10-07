@@ -200,6 +200,15 @@ device-free capture tests; owner-operated live permission changes/audio remain u
 
 ## Connection and playback recovery
 
+Default-device polling and microphone retries reuse the audio host that opened the
+active streams. In particular, the one-second poll no longer creates a new
+PulseAudio connection and reactor thread. A failed default-device lookup leaves
+healthy streams running; only a successfully identified different default triggers
+a switch. Explicit selections and inputs that are not open skip default lookup.
+Actual stream failure still uses bounded recovery and creates a replacement host.
+This addresses a device-restart path consistent with issue #569's repeated audio
+resets; the reporter's Linux/PipeWire call still requires a live retest.
+
 A voice-server crash (WebSocket close 4015) uses the existing two-attempt resume budget,
 retaining the UDP connection, acknowledged signaling cursor and encrypted group. Terminal
 closes, including 4014, still require an explicit new call. Bounded proposals arriving before

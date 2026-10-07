@@ -320,8 +320,7 @@ impl Audio {
 						&& Instant::now() >= next_input_retry
 					{
 						next_input_retry = Instant::now() + Duration::from_secs(2);
-						let host = cpal::default_host();
-						if active.try_reopen_input(&host, &current, &worker_gate, revision) {
+						if active.try_reopen_input(&current, &worker_gate, revision) {
 							emit(Ok(()));
 						}
 					}
@@ -528,6 +527,9 @@ const MAX_RECOVERY_ATTEMPTS: u8 = 24;
 const RECOVERY_DELAY: Duration = Duration::from_millis(250);
 
 struct Streams {
+	// Reuse the connection that owns these streams for polling and microphone retries.
+	// A new PulseAudio host opens a server connection and reactor thread.
+	host: cpal::Host,
 	processing: Processing,
 	input_gate: crate::activity::InputGate,
 	input_callbacks: u64,
@@ -580,16 +582,16 @@ impl Streams {
 	}
 	/// True when the call follows the system default and that default now points elsewhere.
 	fn default_changed(&self, settings: &Devices) -> bool {
-		let host = cpal::default_host();
 		let id = |device: Option<cpal::Device>| {
 			device.and_then(|d| d.id().ok()).map(|id| id.to_string())
 		};
-		(settings.output.is_none()
-			&& self.output_id.is_some()
-			&& id(host.default_output_device()) != self.output_id)
-			|| (settings.input.is_none()
-				&& self.input_id.is_some()
-				&& id(host.default_input_device()) != self.input_id)
+		default_device_changed(
+			settings.output.as_deref(),
+			self.output_id.as_deref(),
+			|| id(self.host.default_output_device()),
+		) || default_device_changed(settings.input.as_deref(), self.input_id.as_deref(), || {
+			id(self.host.default_input_device())
+		})
 	}
 	fn open(settings: &Devices, gate: Arc<Gate>, revision: u64) -> Result<Self, &'static str> {
 		if gate.stopped.load(Ordering::Acquire)
@@ -653,6 +655,7 @@ impl Streams {
 			.play()
 			.map_err(|_| "Could not start speaker playback")?;
 		Ok(Self {
+			host,
 			input_callbacks: gate.input_callbacks.load(Ordering::Acquire),
 			input_activity: Instant::now(),
 			_input: input_stream,
@@ -666,15 +669,9 @@ impl Streams {
 			input_id,
 		})
 	}
-	fn try_reopen_input(
-		&mut self,
-		host: &cpal::Host,
-		settings: &Devices,
-		gate: &Arc<Gate>,
-		revision: u64,
-	) -> bool {
+	fn try_reopen_input(&mut self, settings: &Devices, gate: &Arc<Gate>, revision: u64) -> bool {
 		match gate.reopen_input(revision, || {
-			open_input_stream(host, settings, gate, revision)
+			open_input_stream(&self.host, settings, gate, revision)
 		}) {
 			Ok((stream, input_read, id)) => {
 				self._input = Some(stream);
@@ -688,6 +685,16 @@ impl Streams {
 			Err(_) => false,
 		}
 	}
+}
+// A failed lookup is not evidence that a healthy stream's default changed. Device
+// callback failures still trigger recovery and replace the host along with the streams.
+fn default_device_changed(
+	selection: Option<&str>,
+	opened: Option<&str>,
+	lookup: impl FnOnce() -> Option<String>,
+) -> bool {
+	selection.is_none()
+		&& opened.is_some_and(|opened| lookup().is_some_and(|current| current != opened))
 }
 fn open_input_stream(
 	host: &cpal::Host,
@@ -1142,6 +1149,47 @@ mod tests {
 			thread: std::thread::current(),
 			done: None,
 		}
+	}
+
+	#[test]
+	fn default_device_polling_preserves_ready_streams_until_a_confirmed_change() {
+		let audio = audio_without_devices();
+		audio.set_ready(true);
+		let revision = audio.gate.revision.load(Ordering::Acquire);
+		assert!(audio.gate.acknowledge(revision));
+		let mut opened = "pulse:headphones".to_owned();
+		let mut reopens = 0;
+		// Ten minutes of one-second polls, including transient lookup failures,
+		// must leave an established call ready. Then follow one real change once.
+		for poll in 0..602 {
+			let observed = match poll {
+				600.. => Some("pulse:speakers"),
+				_ if poll % 3 == 0 => None,
+				_ => Some("pulse:headphones"),
+			};
+			if default_device_changed(None, Some(&opened), || observed.map(str::to_owned)) {
+				reopens += 1;
+				let next = audio.gate.revision.fetch_add(1, Ordering::AcqRel) + 1;
+				assert!(!audio.is_ready());
+				opened = observed.unwrap().to_owned();
+				assert!(audio.gate.acknowledge(next));
+			}
+			assert!(audio.is_ready());
+			assert_eq!(reopens, usize::from(poll >= 600));
+		}
+		assert_eq!(audio.gate.revision.load(Ordering::Acquire), revision + 1);
+	}
+
+	#[test]
+	fn explicit_or_unopened_devices_do_not_query_system_defaults() {
+		assert!(!default_device_changed(
+			Some("selected"),
+			Some("opened"),
+			|| { panic!("Explicit device selection must not query the default") }
+		));
+		assert!(!default_device_changed(None, None, || {
+			panic!("Disabled or unavailable input has no active default to follow")
+		}));
 	}
 
 	#[test]
