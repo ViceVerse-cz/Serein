@@ -71,6 +71,10 @@ find-msvc-tools = "=0.1.12"
 test-support.workspace = true
 
 [[example]]
+name = "video_handoff"
+required-features = ["demo"]
+
+[[example]]
 name = "profile_preview"
 required-features = ["demo"]
 
