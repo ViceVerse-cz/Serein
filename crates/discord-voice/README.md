@@ -59,7 +59,7 @@ but does not prove that the owner's live no-audio report is resolved.
 
 When enabled, AEC uses Sonora 0.2.0 with its default adaptive delay estimator and
 high-pass filter, in two 10 ms blocks per 20 ms mono frame. WebRTC suppression shares
-this processor; optional RNNoise follows it. Digital-only AGC, when
+this processor; optional RNNoise or DeepFilterNet follows it. Digital-only AGC, when
 enabled, follows denoising and is capped at 20 dB. Manual gain, the local input meter
 and optional sensitivity gating follow; Studio bypasses all DSP and sensitivity gating.
 The rendered-reference ring holds eight frames (30,720 PCM bytes / 160 ms), in
@@ -90,7 +90,8 @@ checks batched capture continuity and gate/stall flushing alongside synthetic AE
 The desktop persists Voice Isolation, Studio and Custom profiles via the shared
 `VoiceProcessing` model. Voice Isolation selects RNNoise, AEC3, digital AGC and
 −55 dBFS sensitivity; Studio retains only manual gain and privacy/permission gates.
-Custom selects Off, RNNoise (nnnoiseless 0.5.2), or WebRTC (levels 0–3),
+Custom selects Off, RNNoise (nnnoiseless 0.5.2), WebRTC (levels 0–3), or
+DeepFilterNet (bundled DFN3 on tract 0.21.4; adds 30 ms),
 independent echo cancellation/AGC and optional −80..=0 dBFS sensitivity. Sensitivity
 uses 3 dB hysteresis, 200 ms release and a 5 ms ramp. Local activity uses the selected
 threshold, or −70 dBFS when open; remote indicators remain display-only at −45 dBFS.

@@ -178,6 +178,20 @@ strength_reduce 0.2.4 and transpose 0.2.3. Their license declarations and retain
 texts/notices are recorded in docs/dependency-versions.md and
 assets/licenses/voice/PROVENANCE.md and staged by the existing voice packager.
 
+The optional DeepFilterNet microphone suppressor uses **DeepFilterNet / deep_filter
+0.5.7-pre** (MIT OR Apache-2.0, Hendrik Schröter), vendored from upstream commit
+`d375b2d8309e0935d165700c91da9de862a99c31` with a trimmed manifest and unmodified Rust
+source; see `vendor/deepfilternet/SEREIN-PATCH.md`. Its unmodified **DeepFilterNet3**
+ONNX model is embedded in the executable under the same license. Inference uses the
+**tract 0.21.4** crates (tract-core, tract-data, tract-hir, tract-linalg, tract-nnef,
+tract-onnx, tract-onnx-opl, tract-pulse, tract-pulse-opl; MIT OR Apache-2.0, Sonos) and
+**ndarray 0.15.6** (MIT OR Apache-2.0). The DeepFilterNet and tract license texts are
+`assets/licenses/voice/deepfilternet-LICENSE-*.txt` and `tract-LICENSE-*.txt`. This adds
+53 locked packages in total; all declare MIT and/or Apache-2.0 except compile-time
+**tiny-keccak 2.0.2** (CC0-1.0). Retained texts for the remaining support crates are part
+of the outstanding per-artifact redistribution review noted in
+`assets/licenses/voice/PROVENANCE.md`. No model or SDK is downloaded at runtime.
+
 Optional screen sharing adds **screencapturekit 10.0.3** (MIT OR Apache-2.0) on macOS, **windows-capture 2.0.1** (MIT) on Windows and **openh264 / openh264-sys2 0.9.8** (BSD-2-Clause) for source-built Cisco OpenH264 encoding. It reuses **image 0.25.10** (MIT OR Apache-2.0) for bounded scaling. Native frameworks are supplied by the OS. These dependencies stay behind the existing voice feature. Unmodified available license texts and source provenance are retained in `assets/licenses/voice/PROVENANCE.md`; the noted missing binding license text and existing full per-artifact redistribution review remain outstanding.
 
 Camera sending in the macOS build uses **openh264 0.9.8** and

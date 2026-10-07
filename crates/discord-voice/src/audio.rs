@@ -1115,7 +1115,11 @@ pub fn debug_processing_check() {
 	let mut frame = original;
 	dsp.capture(&mut frame, false).unwrap();
 	assert_eq!(frame, original, "Studio must bypass DSP");
-	for suppression in [NoiseSuppression::RnNoise, NoiseSuppression::WebRtc] {
+	for suppression in [
+		NoiseSuppression::RnNoise,
+		NoiseSuppression::WebRtc,
+		NoiseSuppression::DeepFilterNet,
+	] {
 		dsp.configure(Processing {
 			suppression,
 			..Processing::default()
@@ -1143,13 +1147,49 @@ pub fn debug_processing_check() {
 		"Live switch back to Studio must bypass DSP"
 	);
 	println!(
-		"Offline voice processing passed: profiles, legacy mapping, sensitivity/release, Studio bypass, RNNoise/WebRTC inference and history reset. No devices opened."
+		"Offline voice processing passed: profiles, legacy mapping, sensitivity/release, Studio bypass, RNNoise/WebRTC/DeepFilterNet inference and history reset. No devices opened."
 	);
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn deepfilternet_removes_noise_and_resets_history() {
+		let mut dsp = echo::Echo::new();
+		dsp.configure(Processing {
+			suppression: NoiseSuppression::DeepFilterNet,
+			..Processing::studio()
+		})
+		.unwrap();
+		let mut seed = 17_u32;
+		let mut noise = || -> Frame {
+			std::array::from_fn(|_| {
+				seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+				(seed as i32 as f32 / i32::MAX as f32) * 0.05
+			})
+		};
+		let (mut before, mut after) = (0.0, 0.0);
+		for tick in 0..60 {
+			let raw = noise();
+			let mut clean = raw;
+			dsp.capture(&mut clean, false).unwrap();
+			assert!(clean.iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+			if tick >= 30 {
+				before += raw.iter().map(|s| s * s).sum::<f32>();
+				after += clean.iter().map(|s| s * s).sum::<f32>();
+			}
+		}
+		assert!(after < before * 0.1, "{before} -> {after}");
+		// Look-ahead and recurrent state hold earlier microphone audio; a reset must drop it.
+		let probe = noise();
+		let [mut first, mut second] = [probe; 2];
+		dsp.reset();
+		dsp.capture(&mut first, false).unwrap();
+		dsp.reset();
+		dsp.capture(&mut second, false).unwrap();
+		assert_eq!(first, second);
+	}
 	fn audio_without_devices() -> Audio {
 		let (settings, _) = tokio::sync::watch::channel(Devices::default());
 		let (processing, _) =
