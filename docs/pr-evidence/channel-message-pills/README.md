@@ -1,4 +1,4 @@
-# Channel and message pills â€” issue #576
+# Channel and message pills — issue #576
 
 Baseline: `38d919d74054b885b992ce607f0bfa93ab449696`; final runtime:
 `78de8d15`. The original checkout's
@@ -70,7 +70,15 @@ Package bytes are the sum of files; compressed bytes use PowerShell
 `Compress-Archive -Path dist/* -CompressionLevel Optimal`. No package executable
 is launched with a saved session.
 
-Baseline packaging passed. Changed production packaging is still in progress.
+Both standard production packages passed, with voice included and without demo
+or developer features. Package measurements:
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 85,449,728 B | 85,464,064 B | +14,336 B / +0.017% |
+| Installed files | 89,623,341 B | 89,637,677 B | +14,336 B / +0.016% |
+| ZIP distribution | 49,775,655 B | 49,781,438 B | +5,783 B / +0.012% |
+
 NSIS is unavailable locally, so packaging produces an unsigned directory rather
 than an installer executable. The standard build emitted the existing OpenH264
 duplicate-object debug-info linker warning.
