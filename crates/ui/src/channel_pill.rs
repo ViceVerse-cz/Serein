@@ -129,11 +129,9 @@ impl<'a> Pill<'a> {
 		let format = egui::TextFormat {
 			font_id: egui::FontId::new(size, crate::design::semibold_family(ui.ctx())),
 			color: colors.mention_text,
-			background: colors.mention_bg,
 			..Default::default()
 		};
-		let mut slot = crate::emoji::inline_format(ui, size, size);
-		slot.background = colors.mention_bg;
+		let slot = crate::emoji::inline_format(ui, size, size);
 		let mut job = egui::text::LayoutJob::default();
 		// Label sets wrap indentation on the first section.
 		job.append("", 0.0, format.clone());
@@ -172,6 +170,13 @@ impl<'a> Pill<'a> {
 			egui::WidgetInfo::labeled(egui::Role::Link, ui.is_enabled(), self.label())
 		});
 		if ui.is_rect_visible(response.rect) {
+			for row in &galley.rows {
+				ui.painter().rect_filled(
+					row.rect_without_leading_space().translate(pos.to_vec2()),
+					0,
+					colors.mention_bg,
+				);
+			}
 			let underline = if response.hovered() || response.has_focus() {
 				egui::Stroke::new(1.0, colors.mention_text)
 			} else {
