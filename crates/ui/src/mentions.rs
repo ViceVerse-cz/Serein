@@ -290,7 +290,9 @@ pub fn presentation_fingerprint(state: &State, message: &model::Message) -> u64 
 		channel: message.channel,
 	};
 	let roles = known_roles(state, message.channel);
-	let content = &message.content[..message.content.floor_char_boundary(8192)];
+	let content = &message.content[..message
+		.content
+		.floor_char_boundary(crate::markdown::MAX_INPUT)];
 	// Reuse the metadata revision: types, parents, guilds and resolved names can all
 	// change pill geometry. Message traffic is filtered out; no Markdown parse is needed.
 	if content.contains("<#") || content.contains("/channels/") {
@@ -1015,7 +1017,7 @@ mod tests {
 		);
 		message.content = format!(
 			"{}é<#28> https://discord.com/channels/10/27/501",
-			"a".repeat(8191)
+			"a".repeat(crate::markdown::MAX_INPUT - 1)
 		);
 		let before = presentation_fingerprint(&state, &message);
 		state.invalidate_navigation();

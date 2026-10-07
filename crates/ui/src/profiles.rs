@@ -3033,6 +3033,58 @@ mod tests {
 	}
 
 	#[test]
+	fn biography_message_pill_uses_known_server_and_keeps_original_destination() {
+		let state = test_support::demo_state();
+		let ctx = egui::Context::default();
+		crate::icons::install(&ctx);
+		let mut avatars = Avatars::default();
+		let mut session = ProfileSession::default();
+		let mut formatted = FormatCache::default();
+		let url = "https://discord.com/channels/10/20/100";
+		let mut frame = |events| {
+			let mut opening = None;
+			let output = ctx.run_ui(input(vec2(500.0, 850.0), events), |ui| {
+				biography(
+					ui,
+					Id(1),
+					url,
+					&state,
+					&mut avatars,
+					&mut opening,
+					&mut formatted,
+					&mut session,
+				);
+			});
+			let mut painted = String::new();
+			for shape in &output.shapes {
+				text(&shape.shape, &mut painted);
+			}
+			assert!(painted.contains(&state.guilds[0].name));
+			assert!(!painted.contains("unknown-channel"));
+			assert!(
+				output
+					.platform_output
+					.commands
+					.iter()
+					.all(|command| !matches!(command, egui::OutputCommand::OpenUrl(_)))
+			);
+			output.drop_without_applying_deltas();
+			opening
+		};
+		assert_eq!(frame(vec![]), None);
+		for key in [egui::Key::Tab, egui::Key::Enter] {
+			let opening = frame(vec![egui::Event::Key {
+				key,
+				physical_key: None,
+				pressed: true,
+				repeat: false,
+				modifiers: egui::Modifiers::NONE,
+			}]);
+			assert_eq!(opening, (key == egui::Key::Enter).then(|| url.to_owned()));
+		}
+	}
+
+	#[test]
 	fn biography_keeps_spoilers_hidden() {
 		let state = test_support::demo_state();
 		let user = test_support::message(1, Id(22)).author;

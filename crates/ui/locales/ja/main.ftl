@@ -87,6 +87,11 @@ search-conversation = この会話を検索
 show-member-list = メンバーリストを表示
 pinned-messages = 固定メッセージ
 threads = スレッド
+
+channel-pill-thread = スレッド
+channel-pill-forum = フォーラム
+channel-pill-post = 投稿
+channel-pill-message = メッセージ
 reload-history = 履歴のリロード
 in-a-call = 通話中
 members-description = この会話にアクセスできる全員。

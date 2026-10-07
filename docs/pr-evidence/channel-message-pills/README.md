@@ -54,11 +54,11 @@ This is a static idle fixture. No scripted scrolling or native input is claimed.
 Compiler activity on the shared machine introduces noise. Frame latency,
 startup latency and live Discord performance are unmeasured.
 
-| Process metric | Baseline | After | Delta |
-| --- | ---: | ---: | ---: |
-| CPU, one-core percentage | 0.00% | 0.31% | +0.31 percentage points |
-| Peak / settled working set | 196,276,224 B | 198,307,840 B | +2,031,616 B / +1.04% |
-| Settled private bytes | 414,261,248 B | 415,698,944 B | +1,437,696 B / +0.35% |
+| Process metric | Baseline | After | Delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| CPU, one-core percentage | 0.00% | 0.31% | +0.31 percentage points | Process CPU delta / elapsed time |
+| Peak / settled working set | 196,276,224 B | 198,307,840 B | +2,031,616 B / +1.04% | WorkingSet64; maximum / mean of last five samples |
+| Settled private bytes | 414,261,248 B | 415,698,944 B | +1,437,696 B / +0.35% | PrivateMemorySize64; mean of last five samples |
 
 Settled means the mean of the last five samples. Baseline elapsed sample time was
 20.536 s; after was 20.252 s. One sample series per build supports no performance
@@ -73,11 +73,11 @@ is launched with a saved session.
 Both standard production packages passed, with voice included and without demo
 or developer features. Package measurements:
 
-| Metric | Baseline | After | Delta |
-| --- | ---: | ---: | ---: |
-| Executable | 85,449,728 B | 85,464,064 B | +14,336 B / +0.017% |
-| Installed files | 89,623,341 B | 89,637,677 B | +14,336 B / +0.016% |
-| ZIP distribution | 49,775,655 B | 49,781,438 B | +5,783 B / +0.012% |
+| Metric | Baseline | After | Delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| Executable | 85,449,728 B | 85,464,064 B | +14,336 B / +0.017% | serein.exe file length |
+| Installed files | 89,623,341 B | 89,637,677 B | +14,336 B / +0.016% | Sum of dist file lengths |
+| ZIP distribution | 49,775,655 B | 49,781,438 B | +5,783 B / +0.012% | Compress-Archive, Optimal; ZIP file length |
 
 NSIS is unavailable locally, so packaging produces an unsigned directory rather
 than an installer executable. The standard build emitted the existing OpenH264

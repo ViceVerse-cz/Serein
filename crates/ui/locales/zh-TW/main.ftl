@@ -87,6 +87,11 @@ search-conversation = 搜尋這個對話
 show-member-list = 顯示成員清單
 pinned-messages = 釘選的訊息
 threads = 討論串
+
+channel-pill-thread = 討論串
+channel-pill-forum = 論壇
+channel-pill-post = 貼文
+channel-pill-message = 訊息
 reload-history = 重新載入紀錄
 in-a-call = 通話中
 members-description = 所有能進入這個對話的人。

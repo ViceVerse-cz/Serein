@@ -87,6 +87,11 @@ search-conversation = Искать этот разговор
 show-member-list = Показать список участников
 pinned-messages = Закрепленные сообщения
 threads = Темы
+
+channel-pill-thread = Ветка
+channel-pill-forum = Форум
+channel-pill-post = Сообщение
+channel-pill-message = сообщение
 reload-history = Обновить историю
 in-a-call = Во время звонка
 members-description = Все, у кого есть доступ к этому разговору.

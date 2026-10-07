@@ -87,6 +87,11 @@ search-conversation = 搜索这个对话
 show-member-list = 显示成员清单
 pinned-messages = 置顶的消息
 threads = 帖子
+
+channel-pill-thread = 帖子
+channel-pill-forum = 论坛
+channel-pill-post = 帖子
+channel-pill-message = 消息
 reload-history = 重新加载记录
 in-a-call = 通话中
 members-description = 所有能进入这个对话的人。

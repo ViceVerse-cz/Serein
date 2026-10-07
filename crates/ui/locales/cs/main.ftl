@@ -87,6 +87,11 @@ search-conversation = Hledat v této konverzaci
 show-member-list = Zobrazit seznam členů
 pinned-messages = Připnuté zprávy
 threads = Vlákna
+
+channel-pill-thread = Vlákno
+channel-pill-forum = Fórum
+channel-pill-post = Příspěvek
+channel-pill-message = zpráva
 reload-history = Načíst historii znovu
 in-a-call = V hovoru
 members-description = Všichni s přístupem k této konverzaci.

@@ -4369,22 +4369,22 @@ second apart per build. This was a static idle fixture, with no scripted input.
 Baseline elapsed sample time was 20.536 s and after was 20.252 s. Settled memory
 is the mean of the final five samples.
 
-| Metric | Baseline | After | Delta |
-| --- | ---: | ---: | ---: |
-| CPU, percentage of one core | 0.00% | 0.31% | +0.31 percentage points |
-| Peak / settled working set | 196,276,224 B | 198,307,840 B | +2,031,616 B / +1.04% |
-| Settled private bytes | 414,261,248 B | 415,698,944 B | +1,437,696 B / +0.35% |
+| Metric | Baseline | After | Delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| CPU, percentage of one core | 0.00% | 0.31% | +0.31 percentage points | Windows process CPU delta / actual elapsed time |
+| Peak / settled working set | 196,276,224 B | 198,307,840 B | +2,031,616 B / +1.04% | Windows WorkingSet64; maximum / mean of last five samples |
+| Settled private bytes | 414,261,248 B | 415,698,944 B | +1,437,696 B / +0.35% | Windows PrivateMemorySize64; mean of last five samples |
 
 One series per build on a shared machine with compiler activity is observational;
 it supports no performance improvement claim. Native frame/startup latency and
 live-service performance were not measured. Both standard voice-inclusive release
 packages passed, without demo/developer features:
 
-| Package metric | Baseline | After | Delta |
-| --- | ---: | ---: | ---: |
-| Executable | 85,449,728 B | 85,464,064 B | +14,336 B / +0.017% |
-| Installed files | 89,623,341 B | 89,637,677 B | +14,336 B / +0.016% |
-| ZIP distribution | 49,775,655 B | 49,781,438 B | +5,783 B / +0.012% |
+| Package metric | Baseline | After | Delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| Executable | 85,449,728 B | 85,464,064 B | +14,336 B / +0.017% | serein.exe file length |
+| Installed files | 89,623,341 B | 89,637,677 B | +14,336 B / +0.016% | Sum of all dist file lengths |
+| ZIP distribution | 49,775,655 B | 49,781,438 B | +5,783 B / +0.012% | Compress-Archive, Optimal; ZIP file length |
 
 Installed bytes sum all files in `dist`; ZIPs use PowerShell `Compress-Archive`
 with Optimal compression. NSIS was unavailable, so no installer executable was

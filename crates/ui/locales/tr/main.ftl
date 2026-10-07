@@ -87,6 +87,11 @@ search-conversation = Bu görüşmeyi arayın
 show-member-list = Üye listesini göster
 pinned-messages = Sabitlenmiş mesajlar
 threads = Konular
+
+channel-pill-thread = Konu
+channel-pill-forum = Forum
+channel-pill-post = Gönderi
+channel-pill-message = mesaj
 reload-history = Geçmişi yeniden yükle
 in-a-call = Bir çağrıda
 members-description = Bu görüşmeye erişimi olan herkes.

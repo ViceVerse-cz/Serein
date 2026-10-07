@@ -68,8 +68,7 @@ impl<'a> Pill<'a> {
 				.channel(source.channel)
 				.and_then(|channel| channel.guild)
 		});
-		if source.is_some()
-			&& link.guild != current_guild
+		if link.guild != current_guild
 			&& let Some(guild) = guilds.iter().find(|guild| Some(guild.id) == link.guild)
 		{
 			return Self {
@@ -102,18 +101,28 @@ impl<'a> Pill<'a> {
 		}
 	}
 
-	pub fn label(&self) -> String {
-		let prefix = match self.icon {
-			Icon::Hash => "#",
-			Icon::Thread => "Thread: ",
-			Icon::Threads => "Forum: ",
-			Icon::Forum => "Post: ",
-			_ => "",
+	/// Localized semantic equivalent of the leading icon, also used by reply previews.
+	pub fn prefix(&self) -> String {
+		let key = match self.icon {
+			Icon::Hash => return "#".into(),
+			Icon::Thread => "channel-pill-thread",
+			Icon::Threads => "channel-pill-forum",
+			Icon::Forum => "channel-pill-post",
+			_ => return String::new(),
 		};
-		let mut label = format!("{prefix}{}", self.name);
+		format!("{}: ", crate::i18n::translate(key))
+	}
+
+	/// Accessible destination text; names and breadcrumb symbols remain unchanged.
+	pub fn label(&self) -> String {
+		let mut label = format!("{}{}", self.prefix(), self.name);
 		if self.message {
 			label.push_str(" > ");
-			label.push_str(self.post.unwrap_or("message"));
+			if let Some(post) = self.post {
+				label.push_str(post);
+			} else {
+				label.push_str(&crate::i18n::translate("channel-pill-message"));
+			}
 		}
 		label
 	}
@@ -268,6 +277,9 @@ mod tests {
 		assert_eq!(pill.name, "Other server");
 		assert_eq!(pill.guild.map(|guild| guild.id), Some(Id(999)));
 		assert_eq!(pill.label(), "Other server > message");
+		let biography = Pill::message(&link, &[], &state.guilds, None);
+		assert_eq!(biography.guild.map(|guild| guild.id), Some(Id(999)));
+		assert_eq!(biography.label(), "Other server > message");
 	}
 
 	#[test]

@@ -5,7 +5,8 @@ use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use std::collections::HashMap;
 use unicode_segmentation::UnicodeSegmentation;
 
-const MAX_INPUT: usize = 8192;
+/// Maximum rendered source bytes; metadata fingerprints use the same boundary.
+pub(crate) const MAX_INPUT: usize = 8192;
 const MAX_EVENTS: usize = 512;
 const MAX_DEPTH: usize = 16;
 const MAX_LINKS: usize = 16;
@@ -2107,9 +2108,7 @@ impl Formatted {
 				(format!("@{name}"), format)
 			} else if let Some(id) = style.channel {
 				if let Some(channel) = crate::channel_pill::Pill::channel(id, channels, source) {
-					let prefix = channel.label();
-					let prefix = &prefix[..prefix.len() - channel.name.len()];
-					let prefix: String = prefix.chars().take(remaining).collect();
+					let prefix: String = channel.prefix().chars().take(remaining).collect();
 					remaining -= prefix.chars().count();
 					emojis.push(PreviewEmoji {
 						at: job.text.len(),
@@ -3562,6 +3561,35 @@ mod tests {
 			}
 			assert_eq!(images.take_requests().len(), usize::from(revealed));
 			output.drop_without_applying_deltas();
+		}
+	}
+
+	#[test]
+	fn pill_metadata_fingerprints_cover_every_rendered_source_byte() {
+		let tail = "<#28> https://discord.com/channels/10/27/501";
+		for (prefix, rendered) in [
+			("x".repeat(MAX_INPUT - tail.len()), true),
+			("x".repeat(MAX_INPUT), false),
+			(format!("{}é", "x".repeat(MAX_INPUT - 1)), false),
+		] {
+			let state = test_support::demo_state();
+			let mut message = test_support::message(600, Id(20));
+			message.content = format!("{prefix}{tail}");
+			let parsed = Formatted::parse(&message.content);
+			assert_eq!(
+				parsed
+					.spans
+					.iter()
+					.any(|(_, style)| style.channel == Some(Id(28))),
+				rendered
+			);
+			assert_eq!(!parsed.links.is_empty(), rendered);
+			let before = crate::mentions::presentation_fingerprint(&state, &message);
+			state.invalidate_navigation();
+			assert_eq!(
+				crate::mentions::presentation_fingerprint(&state, &message) != before,
+				rendered
+			);
 		}
 	}
 

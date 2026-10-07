@@ -87,6 +87,11 @@ search-conversation = Przeszukaj tę rozmowę
 show-member-list = Pokaż listę członków
 pinned-messages = Przypięte wiadomości
 threads = Wątki
+
+channel-pill-thread = Wątek
+channel-pill-forum = Forum
+channel-pill-post = Post
+channel-pill-message = wiadomość
 reload-history = Załaduj ponownie historię
 in-a-call = W rozmowie
 members-description = Wszyscy, którzy mają dostęp do tej rozmowy.
