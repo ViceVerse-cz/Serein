@@ -710,8 +710,9 @@ impl State {
 	pub fn can_send_custom_emoji(&self, channel: Id, source: Id, emoji: &CustomEmoji) -> bool {
 		self.custom_emoji_unavailable_reason(channel, source, emoji)
 			.is_none()
-			&& (self.stickers.external_allowed
-				|| self.channel(channel).and_then(|target| target.guild) == Some(source))
+			&& (matches!(self.premium_type, 1..=3)
+				|| (!emoji.animated
+					&& self.channel(channel).and_then(|target| target.guild) == Some(source)))
 	}
 	/// Any Nitro tier allows animated emoji and emoji from other servers; without one, only
 	/// the conversation's own server's static emoji are native. Entitlement is Discord's call.

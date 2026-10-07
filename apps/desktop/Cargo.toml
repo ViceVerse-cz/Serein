@@ -74,5 +74,9 @@ test-support.workspace = true
 name = "profile_preview"
 required-features = ["demo"]
 
+[[example]]
+name = "gif_favorites"
+required-features = ["demo"]
+
 [lints]
 workspace = true

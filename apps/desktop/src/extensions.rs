@@ -126,13 +126,6 @@ pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
-			include_bytes!(
-				"../../../extensions/plugins/packages/emoji-sticker-images.serein-extension"
-			),
-			"While enabled, custom emoji and stickers fall back to image attachments only when native sending is unavailable.",
-		),
-		#[cfg(any(test, feature = "demo"))]
-		(
 			include_bytes!("../../../extensions/themes/ocean.serein-extension"),
 			"Deep blue surfaces with a bright ocean accent.",
 		),
@@ -200,13 +193,13 @@ pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 #[cfg(feature = "demo")]
 pub fn demo_check_examples() -> Result<bool, String> {
 	let starters = starters()?;
-	if starters.len() != 11
+	if starters.len() != 10
 		|| starters
 			.iter()
 			.filter(|entry| entry.theme.is_some())
 			.count() != 9
 	{
-		return Err("Expected two starter plugins and nine themes".into());
+		return Err("Expected one starter plugin and nine themes".into());
 	}
 	let gate = Gate {
 		epoch: 0,
@@ -245,7 +238,6 @@ pub fn demo_check_examples() -> Result<bool, String> {
 		if manifest.kind == ExtensionKind::Plugin {
 			let ok = match manifest.id.as_str() {
 				"message-delete-protector" => summary.preserve_deleted_messages,
-				"emoji-sticker-images" => summary.image_sharing,
 				_ => false,
 			};
 			if !ok {
@@ -2333,7 +2325,7 @@ mod tests {
 	#[test]
 	fn shop_preview_demo_catalog_and_images_are_local_and_hash_pinned() {
 		let starters = starters().unwrap();
-		assert_eq!(starters.len(), 11);
+		assert_eq!(starters.len(), 10);
 		let mut ids = std::collections::BTreeSet::new();
 		for starter in starters {
 			let InstallSource::Bundled {

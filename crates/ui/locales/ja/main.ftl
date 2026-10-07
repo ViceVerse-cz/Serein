@@ -1016,7 +1016,7 @@ fonts-show-reset = リセット
 # Context: show
 fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = 素早い茶色のキツネが怠惰な犬を飛び越えます。 0123456789
 # Context: show
-fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF または OTF、最大 8 MiB。このデバイスに保存されます。コードは等幅フォントを維持します。
+fonts-show-ttf-or-otf-up-to-32-mib-saved-on-this = TTF または OTF、最大 32 MiB。このデバイスに保存されます。コードは等幅フォントを維持します。
 # Context: show
 fonts-show-typography = タイポグラフィ
 

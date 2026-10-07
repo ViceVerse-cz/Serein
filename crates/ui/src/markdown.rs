@@ -887,7 +887,11 @@ impl Formatted {
 				break;
 			}
 		}
-		output.artwork = has_artwork(&output.spans);
+		output.artwork = has_artwork(&output.spans)
+			|| output
+				.links
+				.iter()
+				.any(|url| model::ImageShare::from_url(url).is_some());
 		output.jumbo = only_emoji(&output.spans, &output.blocks, output.mention_count);
 		output
 	}
@@ -1546,7 +1550,23 @@ impl Formatted {
 									|name| format!("#{name}"),
 								)
 						});
-						let response = if let Some(label) = &pill_label {
+						let response = if let Some(asset) =
+							model::ImageShare::from_url(url).filter(|_| label != *url)
+						{
+							Self::show_emoji(
+								&[(label.clone(), Style::default())],
+								ui,
+								true,
+								false,
+								render.images,
+								render.demo,
+								render.guilds,
+								render.surface,
+								render.query,
+								Some(asset),
+							)
+							.on_hover_text(url)
+						} else if let Some(label) = &pill_label {
 							let colors = crate::design::palette(ui);
 							let response = ui
 								.add(egui::Link::new(
@@ -1569,6 +1589,7 @@ impl Formatted {
 								render.guilds,
 								render.surface,
 								render.query,
+								None,
 							)
 							.on_hover_text(url)
 						};
@@ -1593,6 +1614,7 @@ impl Formatted {
 							render.guilds,
 							render.surface,
 							render.query,
+							None,
 						);
 					}
 					start += count;
@@ -1773,6 +1795,7 @@ impl Formatted {
 		guilds: &[model::Guild],
 		surface: &mut crate::select::Surface,
 		query: &str,
+		shared: Option<model::ImageShare>,
 	) -> egui::Response {
 		struct Inline {
 			text: String,
@@ -1784,7 +1807,11 @@ impl Formatted {
 		let body = egui::TextStyle::Body.resolve(ui.style());
 		let mut job = LayoutJob::default();
 		let source: String = spans.iter().map(|(text, _)| text.as_str()).collect();
-		let bidi = bidi_spans(spans);
+		let bidi = if shared.is_none() {
+			bidi_spans(spans)
+		} else {
+			None
+		};
 		let (spans, right_aligned) = bidi
 			.as_ref()
 			.map_or((spans, false), |(spans, right)| (spans.as_slice(), *right));
@@ -1801,26 +1828,31 @@ impl Formatted {
 			let mut start = 0;
 			let mut offset = 0;
 			while offset < text.len() {
-				let custom = (!style.code)
+				let custom = (!style.code && shared.is_none())
 					.then(|| crate::emoji::custom_prefix(&text[offset..]))
 					.flatten();
-				let len = custom.map_or_else(
+				let len = shared.map_or_else(
 					|| {
-						text[offset..]
-							.graphemes(true)
-							.next()
-							.expect("remaining text")
-							.len()
+						custom.map_or_else(
+							|| {
+								text[offset..]
+									.graphemes(true)
+									.next()
+									.expect("remaining text")
+									.len()
+							},
+							|(_, len)| len,
+						)
 					},
-					|(_, len)| len,
+					|_| text.len() - offset,
 				);
 				let cluster = &text[offset..offset + len];
-				let cell = if custom.is_none() && !style.code {
+				let cell = if custom.is_none() && !style.code && shared.is_none() {
 					crate::emoji::lookup(cluster)
 				} else {
 					None
 				};
-				if cell.is_none() && custom.is_none() {
+				if cell.is_none() && custom.is_none() && shared.is_none() {
 					offset += len;
 					continue;
 				}
@@ -1833,14 +1865,22 @@ impl Formatted {
 				inlines.push(Inline {
 					text: cluster.to_owned(),
 					custom: custom.map(|(id, _)| id),
-					image: cell.and_then(|cell| {
-						if jumbo && let Some(image) = images.unicode_image(ui.ctx(), cell, size) {
-							return Some(image.alt_text(cluster));
-						}
-						atlas
-							.get_or_insert_with(|| crate::emoji::atlas(ui.ctx()))
-							.map(|atlas| crate::emoji::image_cell(atlas, cluster, cell, size))
-					}),
+					image: shared
+						.and_then(|asset| images.share_image(ui.ctx(), asset, size, demo))
+						.or_else(|| {
+							cell.and_then(|cell| {
+								if jumbo
+									&& let Some(image) = images.unicode_image(ui.ctx(), cell, size)
+								{
+									return Some(image.alt_text(cluster));
+								}
+								atlas
+									.get_or_insert_with(|| crate::emoji::atlas(ui.ctx()))
+									.map(|atlas| {
+										crate::emoji::image_cell(atlas, cluster, cell, size)
+									})
+							})
+						}),
 				});
 				offset += len;
 				start = offset;

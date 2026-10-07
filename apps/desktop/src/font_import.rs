@@ -144,7 +144,6 @@ pub fn debug_check() {
 	store.save_custom_font(None).unwrap();
 	assert!(store.custom_font().unwrap().is_none());
 	drop(store);
-	std::fs::remove_dir_all(directory).unwrap();
 
 	let ctx = egui::Context::default();
 	ui::fonts::install(&ctx);
@@ -160,12 +159,7 @@ pub fn debug_check() {
 	ui::fonts::apply_custom(&ctx, Some(&replacement));
 	for _ in 0..100 {
 		frame("Replacement font 日本語");
-		if ctx.fonts(|fonts| {
-			fonts
-				.definitions()
-				.font_data
-				.contains_key("Noto Sans CJK JP")
-		}) {
+		if ctx.fonts(|fonts| fonts.definitions().font_data.contains_key("Noto Sans CJK")) {
 			break;
 		}
 		std::thread::sleep(std::time::Duration::from_millis(10));
@@ -173,7 +167,7 @@ pub fn debug_check() {
 	assert_ne!(original, ui::fonts::revision(&ctx));
 	ctx.fonts(|fonts| {
 		let definitions = fonts.definitions();
-		assert!(definitions.font_data.contains_key("Noto Sans CJK JP"));
+		assert!(definitions.font_data.contains_key("Noto Sans CJK"));
 		assert_eq!(
 			definitions.families[&FontFamily::Proportional][0],
 			"Serein Custom"
@@ -195,15 +189,52 @@ pub fn debug_check() {
 			fonts.definitions().families[&FontFamily::Proportional][0],
 			"Inter"
 		);
-		assert!(
-			fonts
-				.definitions()
-				.font_data
-				.contains_key("Noto Sans CJK JP")
-		);
+		assert!(fonts.definitions().font_data.contains_key("Noto Sans CJK"));
 		assert!(!fonts.definitions().font_data.contains_key("Serein Custom"));
 	});
+	let collection = ctx.fonts(|fonts| {
+		fonts.definitions().font_data["Noto Sans CJK"]
+			.bytes()
+			.to_vec()
+	});
+	for index in [0, 2, 3] {
+		let bytes = ui::fonts::standalone_face(&collection, index).unwrap();
+		assert!(bytes.len() > 8 * 1024 * 1024);
+		let font = CustomFont::new("CJK".into(), bytes).unwrap();
+		let store = local_store::LocalStore::open(&path).unwrap();
+		store
+			.save_custom_font(Some((&font.name, font.bytes())))
+			.unwrap();
+		drop(store);
+		let store = local_store::LocalStore::open(&path).unwrap();
+		assert_eq!(store.custom_font().unwrap().unwrap().1, font.bytes());
+	}
+	ui::fonts::apply_custom(&ctx, Some(&replacement));
+	ui::i18n::set_current(ui::i18n::Language::English);
+	frame("中文 日本語");
+	frame("中文 日本語");
+	for (language, index) in [
+		(ui::i18n::Language::ChineseSimplified, 2),
+		(ui::i18n::Language::ChineseTraditional, 3),
+		(ui::i18n::Language::Japanese, 0),
+	] {
+		let before = ui::fonts::revision(&ctx);
+		ui::i18n::set_current(language);
+		frame("中文 日本語");
+		frame("中文 日本語");
+		assert_ne!(before, ui::fonts::revision(&ctx));
+		ctx.fonts(|fonts| {
+			let definitions = fonts.definitions();
+			assert_eq!(definitions.font_data["Noto Sans CJK"].index, index);
+			assert_eq!(
+				definitions.families[&FontFamily::Proportional][0],
+				"Serein Custom"
+			);
+		});
+	}
+	ui::i18n::set_current(ui::i18n::Language::System);
+	std::fs::remove_dir_all(directory).unwrap();
 	println!(
-		"Font debug check passed: bounded import, invalid input, saved copy, replacement during CJK loading, reset, and saved decoration preference."
+		"Font debug check passed: bounded CJK import and persistence, locale switching, invalid input, replacement during CJK loading, reset, and saved decoration preference."
 	);
 }

@@ -1016,7 +1016,7 @@ fonts-show-reset = Sıfırla
 # Context: show
 fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = Hızlı kahverengi tilki tembel köpeğin üzerinden atlıyor. 0123456789
 # Context: show
-fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF veya OTF, 8 MiB'ye kadar. Bu cihaza kaydedildi. Kod tek aralıklı yazı tipini korur.
+fonts-show-ttf-or-otf-up-to-32-mib-saved-on-this = TTF veya OTF, 32 MiB'ye kadar. Bu cihaza kaydedildi. Kod tek aralıklı yazı tipini korur.
 # Context: show
 fonts-show-typography = Tipografi
 

@@ -1016,7 +1016,7 @@ fonts-show-reset = Перезагрузить
 # Context: show
 fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = Быстрая бурая лиса перепрыгивает через ленивую собаку. 0123456789
 # Context: show
-fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF или OTF, до 8 МБ. Сохранено на этом устройстве. Код сохраняет моноширинный шрифт.
+fonts-show-ttf-or-otf-up-to-32-mib-saved-on-this = TTF или OTF, до 32 МБ. Сохранено на этом устройстве. Код сохраняет моноширинный шрифт.
 # Context: show
 fonts-show-typography = Типография
 

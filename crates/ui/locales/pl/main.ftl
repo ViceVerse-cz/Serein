@@ -1015,7 +1015,7 @@ fonts-show-reset = Nastawić
 # Context: show
 fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = Szybki brązowy lis przeskakuje leniwego psa. 0123456789
 # Context: show
-fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF lub OTF, do 8 MiB. Zapisano na tym urządzeniu. Kod zachowuje czcionkę o stałej szerokości.
+fonts-show-ttf-or-otf-up-to-32-mib-saved-on-this = TTF lub OTF, do 32 MiB. Zapisano na tym urządzeniu. Kod zachowuje czcionkę o stałej szerokości.
 # Context: show
 fonts-show-typography = Typografia
 

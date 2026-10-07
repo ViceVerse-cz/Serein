@@ -7,10 +7,11 @@ Every current package has a hash-pinned PNG preview under 256 KiB.
   packaged covers, retaining the artwork's existing package provenance and terms.
 - Other theme previews render Serein's synthetic workspace with the corresponding
   packaged theme applied in dark mode, including its spacing and typography.
-- Plugin previews render the synthetic workspace with a preserved deleted message
-  or the sticker picker and sample artwork. No live account or Discord traffic is used.
+- The original plugin preview renders the synthetic workspace with a preserved
+  deleted message. The retired emoji/sticker plugin preview has been removed.
+  No live account or Discord traffic is used.
 
-These ten previews were rendered by Serein's existing `profile_preview` example at
+These original previews were rendered by Serein's existing `profile_preview` example at
 `ddbed3c456167e827d088aeac3ae74db46c07744`, using a 1280x720 window and its built-in
 640x360 thumbnail export. They are captures of the actual egui framebuffer, not
 drawn mockups, OS window-capture evidence, or proof of live interoperability.

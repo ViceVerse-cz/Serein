@@ -1015,7 +1015,7 @@ fonts-show-reset = Reset
 # Context: show
 fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = La veloce volpe marrone salta sopra il cane pigro. 0123456789
 # Context: show
-fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF o OTF, fino a 8 MiB. Salvato su questo dispositivo. Il codice mantiene il carattere a spaziatura fissa.
+fonts-show-ttf-or-otf-up-to-32-mib-saved-on-this = TTF o OTF, fino a 32 MiB. Salvato su questo dispositivo. Il codice mantiene il carattere a spaziatura fissa.
 # Context: show
 fonts-show-typography = Tipografia
 

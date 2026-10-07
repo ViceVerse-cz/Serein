@@ -1018,7 +1018,7 @@ fonts-show-none-installed = V tomto systému nebyla nalezena žádná nainstalov
 # Context: show
 fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = Rychlá hnědá liška přeskakuje líného psa. 0123456789
 # Context: show
-fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = Písma nainstalovaná v tomto zařízení, až 8 MiB. Kopie se uloží pro Serein. Kód si zachovává jednoprostorové písmo.
+fonts-show-ttf-or-otf-up-to-32-mib-saved-on-this = Písma nainstalovaná v tomto zařízení, až 32 MiB. Kopie se uloží pro Serein. Kód si zachovává jednoprostorové písmo.
 # Context: show
 fonts-show-typography = Typografie
 
@@ -4551,3 +4551,6 @@ screen-macos-system-picker = Vybrat systémovým dialogem macOS
 screen-macos-system-picker-kind = Systémový výběr obsahu
 
 member-in-voice = V hlasovém chatu
+settings-chat-box = Psaní zpráv
+settings-convert-emoticons = Automaticky převádět emotikony ve zprávách na emoji
+settings-convert-emoticons-description = Při odesílání nebo úpravě zpráv převést samostatné emotikony jako :) na 🙂. Kód a odkazy zůstanou beze změny.

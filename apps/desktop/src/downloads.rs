@@ -435,9 +435,13 @@ pub(crate) fn original_url(attachment: &Attachment) -> Option<url::Url> {
 		&& !["%2f", "%5c"]
 			.iter()
 			.any(|escape| filename.to_ascii_lowercase().contains(escape))
-		&& url
-			.query_pairs()
-			.all(|(name, _)| matches!(name.as_ref(), "ex" | "is" | "hm")))
+		&& url.query_pairs().all(|(name, value)| match name.as_ref() {
+			"ex" | "is" | "hm" => true,
+			// Observed storage selectors from issue #556; preserve them in the signed URL.
+			// Unknown selectors and rendition parameters still fail admission.
+			"backend" => matches!(value.as_ref(), "b2" | "b3"),
+			_ => false,
+		}))
 	.then_some(url)
 }
 
@@ -967,6 +971,65 @@ mod tests {
 			assert!(original_url(&video).is_none());
 		}
 	}
+	#[test]
+	fn storage_backend_selectors_preserve_original_attachment_urls() {
+		let mut file = attachment();
+		for (filename, content_type) in [
+			("2026-10-03_150804_compressed.mp4", "video/mp4"),
+			("voice-message.ogg", "audio/ogg"),
+			("synthetic.bin", "application/octet-stream"),
+		] {
+			file.filename = filename.into();
+			file.content_type = Some(content_type.into());
+			for host in ["cdn.discordapp.com", "media.discordapp.net"] {
+				for ids in ["1/2", "1/3/2"] {
+					for backend in ["b2", "b3"] {
+						let path = format!(
+							"attachments/{ids}/{filename}?backend={backend}&ex=123&is=123&hm=abc"
+						);
+						file.media.url = Some(format!("https://{host}/{path}"));
+						assert_eq!(
+							original_url(&file).unwrap().as_str(),
+							format!("https://cdn.discordapp.com/{path}")
+						);
+					}
+				}
+			}
+		}
+	}
+
+	#[test]
+	fn storage_backend_selectors_keep_query_and_size_guards() {
+		let mut file = attachment();
+		let source = "https://cdn.discordapp.com/attachments/1/2/synthetic.png";
+		for query in [
+			"backend",
+			"backend=",
+			"backend=b4",
+			"backend=B2",
+			"backend=https%3A%2F%2Fevil.test",
+			"backend=b2%26width%3D1",
+			"backend=b2&backend=unknown",
+			"backend=b2&format=webp",
+			"backend=b2&width=640",
+			"backend=b2&height=480",
+			"backend=b2&size=512",
+			"backend=b2&quality=80",
+		] {
+			file.media.url = Some(format!("{source}?ex=123&is=123&hm=abc&{query}"));
+			assert!(original_url(&file).is_none(), "{query}");
+		}
+		file.media.url = Some(format!("{source}?backend=b2&hm={}", "a".repeat(2048)));
+		assert!(original_url(&file).is_none());
+		file.media.url = Some(format!("{source}?backend=b2&ex=123&is=123&hm=abc"));
+		for size in [0, MAX_BYTES + 1] {
+			file.size = size;
+			assert!(original_url(&file).is_none());
+		}
+		file.size = MAX_BYTES;
+		assert!(original_url(&file).is_some());
+	}
+
 	#[test]
 	fn message_scoped_attachment_paths_keep_admission_guards() {
 		let mut file = attachment();

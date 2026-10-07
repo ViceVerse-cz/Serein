@@ -111,7 +111,17 @@ pub fn standalone_media_links(message: &Message) -> bool {
 
 fn inline_image(embed: &Embed) -> Option<&model::EmbedMedia> {
 	matches!(embed.kind.as_str(), "image" | "gifv")
-		.then(|| embed.image.as_ref().or(embed.thumbnail.as_ref()))
+		.then(|| {
+			embed
+				.image
+				.as_ref()
+				.or(embed.thumbnail.as_ref())
+				.or_else(|| {
+					(embed.kind == "gifv")
+						.then_some(embed.video.as_ref())
+						.flatten()
+				})
+		})
 		.flatten()
 }
 
@@ -207,6 +217,15 @@ fn gallery(
 				let response =
 					ui.interact(image.rect, image.id.with("media"), egui::Sense::click());
 				embed_context_menu(&response, media, download, demo);
+				let star =
+					gif_for_media(media, embed.url.as_deref(), embed.kind == "gifv").map(|gif| {
+						let favorite = download.gif_favorites.contains(&gif.url);
+						let star = favorite_star(ui, &response, favorite);
+						if star.clicked() {
+							download.gif_favorite_request = Some(gif);
+						}
+						star
+					});
 				response.widget_info(|| {
 					egui::WidgetInfo::labeled(
 						if target.is_some() {
@@ -233,6 +252,9 @@ fn gallery(
 					);
 				}
 				if target.is_some()
+					&& !star
+						.as_ref()
+						.is_some_and(|star| star.hovered() || star.clicked())
 					&& response
 						.on_hover_text(crate::i18n::translate("embeds-gallery-open-image"))
 						.clicked()
@@ -246,9 +268,9 @@ fn gallery(
 
 fn gif_for_embed(embed: &Embed, gifs: &client_core::gifs::Gifs) -> Option<Gif> {
 	let media = [
+		embed.video.as_ref().filter(|_| embed.kind == "gifv"),
 		embed.image.as_ref(),
 		embed.thumbnail.as_ref(),
-		embed.video.as_ref(),
 	];
 	let matches = |gif: &&Gif| {
 		embed.url.as_deref() == Some(gif.url.as_str())
@@ -267,30 +289,50 @@ fn gif_for_embed(embed: &Embed, gifs: &client_core::gifs::Gifs) -> Option<Gif> {
 	{
 		return Some(gif.clone());
 	}
-	let preview = media.iter().flatten().find(|image| {
-		image.url.as_deref().is_some_and(|url| {
-			model::valid_gif_preview(url) && (embed.kind == "gifv" || url.ends_with(".gif"))
-		})
-	})?;
-	let url = embed
-		.url
-		.as_deref()
-		.filter(|url| model::valid_gif_url(url))
-		.or_else(|| {
-			preview
-				.url
-				.as_deref()
-				.filter(|url| model::valid_gif_url(url))
-		})?;
+	media
+		.iter()
+		.flatten()
+		.find_map(|media| gif_for_media(media, embed.url.as_deref(), embed.kind == "gifv"))
+}
+
+pub(crate) fn gif_for_media(
+	media: &model::EmbedMedia,
+	page: Option<&str>,
+	animated: bool,
+) -> Option<Gif> {
+	let is_gif = |url: &str| {
+		url.split('?')
+			.next()
+			.unwrap_or(url)
+			.to_ascii_lowercase()
+			.ends_with(".gif")
+	};
+	if !animated
+		&& !media.url.as_deref().is_some_and(is_gif)
+		&& !media.proxy_url.as_deref().is_some_and(is_gif)
+	{
+		return None;
+	}
+	let preview = [media.url.as_deref(), media.proxy_url.as_deref()]
+		.into_iter()
+		.flatten()
+		.find(|url| model::valid_gif_favorite_source(url))?;
+	let url = page
+		.filter(|url| model::valid_gif_favorite_url(url))
+		.or(media
+			.url
+			.as_deref()
+			.filter(|url| model::valid_gif_favorite_url(url)))
+		.unwrap_or(preview);
 	let mut hash = DefaultHasher::new();
 	url.hash(&mut hash);
 	let gif = Gif {
 		id: format!("chat-{:016x}", hash.finish()),
-		title: embed.title.clone().unwrap_or_default(),
+		title: String::new(),
 		url: url.to_owned(),
-		preview: preview.url.clone()?,
-		width: preview.width,
-		height: preview.height,
+		preview: preview.to_owned(),
+		width: media.width.clamp(1, 4096),
+		height: media.height.clamp(1, 4096),
 	};
 	gif.valid().then_some(gif)
 }
@@ -381,57 +423,11 @@ pub fn show(
 				embed_context_menu(&response, image, download, demo);
 				let star = gif.map(|gif| {
 					let favorite = state.is_gif_favorite(&gif);
-					let star_rect = egui::Rect::from_min_size(
-						response.rect.right_top() + egui::vec2(-34.0, 4.0),
-						egui::Vec2::splat(30.0),
-					);
-					let star = ui.interact(
-						star_rect,
-						ui.scope_id().with("favorite"),
-						egui::Sense::click(),
-					);
-					ui.painter()
-						.rect_filled(star_rect, 6, egui::Color32::from_black_alpha(190));
-					crate::icons::paint(
-						ui.painter(),
-						if favorite {
-							crate::icons::Icon::StarFill
-						} else {
-							crate::icons::Icon::Star
-						},
-						star_rect.shrink(5.0),
-						if favorite {
-							crate::design::palette(ui).warning
-						} else {
-							egui::Color32::WHITE
-						},
-					);
-					if star.has_focus() {
-						ui.painter().rect_stroke(
-							star_rect,
-							6,
-							ui.visuals().selection.stroke,
-							egui::StrokeKind::Inside,
-						);
-					}
-					star.widget_info(|| {
-						egui::WidgetInfo::selected(
-							egui::Role::CheckBox,
-							ui.is_enabled(),
-							favorite,
-							crate::i18n::translate("embeds-show-favorite-gif"),
-						)
-					});
+					let star = favorite_star(ui, &response, favorite);
 					if star.clicked() {
 						favorite_action = Some(gif);
 					}
-					star.on_hover_text(crate::i18n::translate_if_key(
-						&(if favorite {
-							crate::i18n::translate("embeds-show-remove-from-gif-favorites")
-						} else {
-							crate::i18n::translate("embeds-show-save-to-gif-favorites")
-						}),
-					))
+					star
 				});
 				if !star
 					.as_ref()
@@ -1146,4 +1142,60 @@ mod tests {
 		}
 		output.drop_without_applying_deltas();
 	}
+}
+
+/// Shared star overlay for message GIFs and uploaded GIF attachments.
+pub(crate) fn favorite_star(
+	ui: &mut egui::Ui,
+	response: &egui::Response,
+	favorite: bool,
+) -> egui::Response {
+	let star_rect = egui::Rect::from_min_size(
+		response.rect.right_top() + egui::vec2(-34.0, 4.0),
+		egui::Vec2::splat(30.0),
+	);
+	let star = ui.interact(
+		star_rect,
+		response.id.with("favorite"),
+		egui::Sense::click(),
+	);
+	ui.painter()
+		.rect_filled(star_rect, 6, egui::Color32::from_black_alpha(190));
+	crate::icons::paint(
+		ui.painter(),
+		if favorite {
+			crate::icons::Icon::StarFill
+		} else {
+			crate::icons::Icon::Star
+		},
+		star_rect.shrink(5.0),
+		if favorite {
+			crate::design::palette(ui).warning
+		} else {
+			egui::Color32::WHITE
+		},
+	);
+	if star.has_focus() {
+		ui.painter().rect_stroke(
+			star_rect,
+			6,
+			ui.visuals().selection.stroke,
+			egui::StrokeKind::Inside,
+		);
+	}
+	star.widget_info(|| {
+		egui::WidgetInfo::selected(
+			egui::Role::CheckBox,
+			ui.is_enabled(),
+			favorite,
+			crate::i18n::translate("embeds-show-favorite-gif"),
+		)
+	});
+	star.on_hover_text(crate::i18n::translate_if_key(
+		&(if favorite {
+			crate::i18n::translate("embeds-show-remove-from-gif-favorites")
+		} else {
+			crate::i18n::translate("embeds-show-save-to-gif-favorites")
+		}),
+	))
 }

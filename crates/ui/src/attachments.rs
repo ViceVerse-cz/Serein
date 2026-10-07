@@ -384,15 +384,39 @@ pub(crate) fn show_subset(
 									)
 								});
 								media_context_menu(&response, attachment, download, opening, demo);
+								let gif = crate::embeds::gif_for_media(
+									&attachment.media,
+									None,
+									attachment.filename.to_ascii_lowercase().ends_with(".gif")
+										|| attachment.content_type.as_deref().is_some_and(|mime| {
+											mime.split(';')
+												.next()
+												.unwrap_or(mime)
+												.trim()
+												.eq_ignore_ascii_case("image/gif")
+										}),
+								);
+								let star = gif.map(|gif| {
+									let favorite = download.gif_favorites.contains(&gif.url);
+									let star =
+										crate::embeds::favorite_star(ui, &response, favorite);
+									if star.clicked() {
+										download.gif_favorite_request = Some(gif);
+									}
+									star
+								});
 								surface.keep(&response);
-								if response
-									.on_hover_text(
-										attachment
-											.description
-											.as_deref()
-											.unwrap_or("Enlarge image"),
-									)
-									.clicked()
+								if !star
+									.as_ref()
+									.is_some_and(|star| star.hovered() || star.clicked())
+									&& response
+										.on_hover_text(
+											attachment
+												.description
+												.as_deref()
+												.unwrap_or("Enlarge image"),
+										)
+										.clicked()
 								{
 									*viewing = Some((message.id, attachment.id));
 								}
@@ -501,6 +525,8 @@ fn open_original(
 }
 #[derive(Default)]
 pub struct DownloadUi {
+	pub(crate) gif_favorites: Vec<String>,
+	pub(crate) gif_favorite_request: Option<model::Gif>,
 	pub request: Option<Attachment>,
 	pub copy_request: Option<Attachment>,
 	pub embed_request: Option<(model::EmbedMedia, bool)>,

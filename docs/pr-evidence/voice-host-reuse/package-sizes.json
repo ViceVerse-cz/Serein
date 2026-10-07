@@ -1,0 +1,17 @@
+{
+  "baseline": {
+    "baseline_commit": "884fb73fa68bffda70b1f308c903ece239281522",
+    "executable_bytes": 68180992,
+    "installed_bundle_bytes": 74201013,
+    "distribution_directory_bytes": 74265778,
+    "distribution_zip_bytes": 48039907
+  },
+  "voice": {
+    "baseline_commit": "884fb73fa68bffda70b1f308c903ece239281522",
+    "runtime_source_sha256": "01a4200caf5a23061dde9134578402a54a82f3bccf4fac1a4e742eb82f7d39e6",
+    "executable_bytes": 68180992,
+    "installed_bundle_bytes": 74201013,
+    "distribution_directory_bytes": 74265778,
+    "distribution_zip_bytes": 48039944
+  }
+}

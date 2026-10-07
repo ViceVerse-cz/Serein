@@ -11,8 +11,8 @@ use std::{
 
 const MAX_MEDIA_JSON: usize = 256 * 1024;
 const MAX_WINDOW_BYTES: usize = 4 * 1024 * 1024;
-const NATIVE_SCHEMA: u32 = 26;
-const READABLE_SCHEMA: u32 = 26;
+const NATIVE_SCHEMA: u32 = 27;
+const READABLE_SCHEMA: u32 = 27;
 #[derive(serde::Deserialize)]
 struct CachedMentions(#[serde(deserialize_with = "model::deserialize_mentions")] Vec<User>);
 fn parse_author_roles(raw: &str) -> std::result::Result<Vec<Id>, StoreError> {
@@ -46,6 +46,8 @@ pub struct AppPreferences {
 	pub show_hidden_channels: bool,
 	/// Keep custom emoji that need Nitro out of suggestions and lock them in the picker.
 	pub hide_nitro_emojis: bool,
+	/// Device-local opt-in; older saved preferences deserialize with conversion off.
+	pub convert_emoticons: bool,
 	pub hide_title_bar: bool,
 	pub hide_window_decorations: bool,
 	pub primary_color: Option<[u8; 3]>,
@@ -86,6 +88,7 @@ impl Default for AppPreferences {
 			notification_options: Default::default(),
 			show_hidden_channels: false,
 			hide_nitro_emojis: false,
+			convert_emoticons: false,
 			hide_title_bar: false,
 			hide_window_decorations: false,
 			primary_color: None,
@@ -423,7 +426,16 @@ impl LocalStore {
 		transaction.execute_batch("CREATE TABLE IF NOT EXISTS custom_font(
             singleton INTEGER PRIMARY KEY CHECK(singleton=1),
             name TEXT NOT NULL CHECK(typeof(name)='text' AND length(CAST(name AS BLOB)) BETWEEN 1 AND 128),
-            data BLOB NOT NULL CHECK(typeof(data)='blob' AND length(data) BETWEEN 1 AND 8388608));")?;
+            data BLOB NOT NULL CHECK(typeof(data)='blob' AND length(data) BETWEEN 1 AND 33554432));")?;
+		if version < 27 {
+			transaction.execute_batch("CREATE TABLE custom_font_v27(
+                singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+                name TEXT NOT NULL CHECK(typeof(name)='text' AND length(CAST(name AS BLOB)) BETWEEN 1 AND 128),
+                data BLOB NOT NULL CHECK(typeof(data)='blob' AND length(data) BETWEEN 1 AND 33554432));
+                INSERT INTO custom_font_v27 SELECT * FROM custom_font;
+                DROP TABLE custom_font;
+                ALTER TABLE custom_font_v27 RENAME TO custom_font;")?;
+		}
 		if !has_reply_deleted {
 			transaction.execute_batch("ALTER TABLE messages ADD COLUMN reply_deleted INTEGER NOT NULL DEFAULT 0 CHECK(typeof(reply_deleted)='integer' AND reply_deleted IN (0,1));")?;
 		}
@@ -581,7 +593,7 @@ impl LocalStore {
 		self.0.query_row(
 			"SELECT
              CASE WHEN typeof(name)='text' AND length(CAST(name AS BLOB)) BETWEEN 1 AND 128 THEN name ELSE NULL END,
-             CASE WHEN typeof(data)='blob' AND length(data) BETWEEN 1 AND 8388608 THEN data ELSE NULL END
+             CASE WHEN typeof(data)='blob' AND length(data) BETWEEN 1 AND 33554432 THEN data ELSE NULL END
              FROM custom_font WHERE singleton=1",
 			[], |row| Ok((row.get(0)?, row.get(1)?)),
 		).optional().map_err(Into::into)
@@ -591,7 +603,7 @@ impl LocalStore {
 			if name.is_empty()
 				|| name.len() > 128
 				|| bytes.is_empty()
-				|| bytes.len() > 8 * 1024 * 1024
+				|| bytes.len() > 32 * 1024 * 1024
 			{
 				return Err(StoreError::Capacity);
 			}
@@ -1543,6 +1555,30 @@ impl LocalStore {
 #[cfg(test)]
 mod tests {
 	#[test]
+	fn custom_font_migration_preserves_saved_data_and_accepts_cjk_sizes() {
+		let connection = rusqlite::Connection::open_in_memory().unwrap();
+		connection.execute_batch("PRAGMA user_version=26;
+            CREATE TABLE custom_font(
+                singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+                name TEXT NOT NULL CHECK(typeof(name)='text' AND length(CAST(name AS BLOB)) BETWEEN 1 AND 128),
+                data BLOB NOT NULL CHECK(typeof(data)='blob' AND length(data) BETWEEN 1 AND 8388608));
+            INSERT INTO custom_font VALUES(1,'Saved',X'010203');").unwrap();
+		let store = super::LocalStore::initialize(connection).unwrap();
+		assert_eq!(
+			store.custom_font().unwrap(),
+			Some(("Saved".into(), vec![1, 2, 3]))
+		);
+		let bytes = vec![0; 20 * 1024 * 1024];
+		store.save_custom_font(Some(("CJK", &bytes))).unwrap();
+		assert_eq!(store.custom_font().unwrap().unwrap().1, bytes);
+		assert_eq!(
+			store.save_custom_font(Some(("Oversized", &vec![0; 32 * 1024 * 1024 + 1]))),
+			Err(super::StoreError::Capacity)
+		);
+		assert_eq!(store.custom_font().unwrap().unwrap().0, "CJK");
+	}
+
+	#[test]
 	fn data_directory_override_is_absolute_and_never_falls_back() {
 		let default = std::env::temp_dir();
 		assert!(default.is_absolute());
@@ -2033,6 +2069,27 @@ mod tests {
 			Err(StoreError::Incompatible)
 		));
 	}
+	#[test]
+	fn emoticon_conversion_defaults_off_and_persists_across_reopens() {
+		let legacy: AppPreferences = serde_json::from_str("{}").unwrap();
+		assert!(!legacy.convert_emoticons);
+		let root = std::env::temp_dir().join(format!("serein-emoticons-{}", std::process::id()));
+		std::fs::create_dir(&root).unwrap();
+		let path = root.join("preferences.sqlite3");
+		for enabled in [true, false] {
+			{
+				let store = LocalStore::open(&path).unwrap();
+				let mut preferences = store.app_preferences().unwrap();
+				assert_eq!(preferences.convert_emoticons, !enabled);
+				preferences.convert_emoticons = enabled;
+				store.save_app_preferences(&preferences).unwrap();
+			}
+			let store = LocalStore::open(&path).unwrap();
+			assert_eq!(store.app_preferences().unwrap().convert_emoticons, enabled);
+		}
+		std::fs::remove_dir_all(root).unwrap();
+	}
+
 	#[test]
 	fn app_preferences_round_trip_and_reject_invalid_replacement() {
 		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();

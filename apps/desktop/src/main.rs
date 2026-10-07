@@ -129,6 +129,13 @@ fn main() -> eframe::Result {
 	}
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-fonts")
+	{
+		font_import::debug_check();
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-customization")
 	{
 		font_import::debug_check();
@@ -349,8 +356,66 @@ fn main() -> eframe::Result {
 		return Ok(());
 	}
 	#[cfg(feature = "demo")]
+	if demo && std::env::args().any(|arg| arg == "--demo-check-forum-sidebar") {
+		post_menu_demo::check_sidebar();
+		return Ok(());
+	}
+	#[cfg(feature = "demo")]
 	if demo && std::env::args().any(|arg| arg == "--demo-check-post-menu") {
 		post_menu_demo::check();
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if demo && std::env::args().any(|arg| arg == "--demo-check-image-sharing") {
+		let mut state = test_support::demo_state();
+		let selection = ui::debug_image_sharing(&mut state);
+		let channel = state.selected.unwrap();
+		let ctx = egui::Context::default();
+		let runtime = tokio::runtime::Runtime::new().expect("offline artwork runtime");
+		let mut uploads = uploads::Uploads::default();
+		for newer_draft in [None, Some("Next message")] {
+			state.drafts.insert(channel, selection.1.clone());
+			uploads
+				.start_image_share(
+					state.generation,
+					channel,
+					selection.clone(),
+					runtime.handle(),
+					&ctx,
+					true,
+				)
+				.unwrap();
+			assert!(uploads.image_send(&mut state, true).is_none());
+			if let Some(text) = newer_draft {
+				state.drafts.insert(channel, text.into());
+			}
+			runtime.block_on(async {
+				tokio::time::timeout(std::time::Duration::from_secs(5), async {
+					while uploads.busy() {
+						uploads.poll(state.generation, Some(channel), true, &ctx);
+						tokio::task::yield_now().await;
+					}
+				})
+				.await
+				.unwrap();
+			});
+			assert!(uploads.take_notice().is_none());
+			assert!(
+				matches!(uploads.image_send(&mut state, true), Some(Command::Send { content, .. }) if content.is_empty())
+			);
+			assert_eq!(state.drafts.get(&channel).map(String::as_str), newer_draft);
+			assert_eq!(
+				uploads
+					.take_source(state.generation, channel)
+					.unwrap()
+					.len(),
+				2
+			);
+			assert!(uploads.image_send(&mut state, true).is_none());
+		}
+		println!(
+			"Offline artwork composition passed: explicit Send, inline previews, Markdown with text, attachment batches, newer drafts and no restore button while sending."
+		);
 		return Ok(());
 	}
 	#[cfg(feature = "demo")]
@@ -2281,7 +2346,6 @@ impl Desktop {
 	fn end_session(&mut self, ctx: &egui::Context, intent: SessionEnd) {
 		self.captcha.close();
 		self.notification_runtime.clear(&self.window);
-		self.messaging.image_sharing_enabled = false;
 		self.messaging.image_share_requested = None;
 		let extension_logout = self.extensions.logout(ctx);
 		self.role_icon.cancel();
@@ -6173,8 +6237,15 @@ impl eframe::App for Desktop {
 			ctx.request_repaint_after(std::time::Duration::from_millis(50));
 		}
 	}
-	fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
+	fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
 		let ctx = ui.ctx().clone();
+		let title_bar_height = if self.login.is_some() {
+			platform::LOGIN_HEADER_HEIGHT
+		} else if self.state.user.is_some() {
+			ui::design::TITLE_BAR_HEIGHT
+		} else {
+			SIGN_IN_HEADER_HEIGHT
+		};
 		self.tray_window.ui(&ctx);
 		// Change native hints before drawing, so the clear color and panel alpha
 		// agree for the whole frame. OS calls happen only when an effect changes.
@@ -6259,15 +6330,16 @@ impl eframe::App for Desktop {
 			self.state.user.is_some() && self.state.gateway_connected,
 			&ctx,
 		);
-		if let Some(command) = self
-			.uploads
-			.image_send(&mut self.state, self.messaging.image_sharing_enabled)
+		if let Some(command) = self.uploads.image_send(&mut self.state, can_attach)
 			&& !self.state.demo
 		{
-			// Auto-send bypasses the composer, so retain its prepared thumbnail explicitly.
+			// Explicit artwork Send finishes asynchronously; retain its prepared thumbnails.
 			self.messaging.attachment_previews = self.uploads.previews();
 			self.messaging.attachment_files = self.uploads.files();
 			self.messaging.stage_pending_upload(&ctx, &command);
+			if let Command::Send { channel, .. } = &command {
+				self.messaging.draft_changes.push(*channel);
+			}
 			self.command(command);
 		}
 		// Move native handles once; never load dropped bytes on the rendering thread.
@@ -6696,15 +6768,16 @@ impl eframe::App for Desktop {
 				// The timeline row cancels its own upload, not files loading for the next message.
 				self.uploads.cancel_transfer();
 			}
-			if let Some(asset) = self.messaging.image_share_requested.take()
-				&& self.messaging.image_sharing_enabled
-				&& let Some(channel) = self.state.selected
+			if let Some((generation, channel, assets, draft)) =
+				self.messaging.image_share_requested.take()
+				&& generation == self.state.generation
+				&& self.state.selected == Some(channel)
 				&& self.state.can_send(channel)
 				&& self.state.can_attach(channel)
 				&& let Err(error) = self.uploads.start_image_share(
 					self.state.generation,
 					channel,
-					asset,
+					(assets, draft),
 					self.runtime.handle(),
 					&ctx,
 					self.state.demo,
@@ -7005,6 +7078,9 @@ impl eframe::App for Desktop {
 		{
 			self.messaging.hide_title_bar = false;
 			self.state.status = error;
+		}
+		if !self.messaging.hide_title_bar {
+			frame.set_traffic_lights_position(&ctx, egui::Rangef::new(0.0, title_bar_height), 12.0);
 		}
 		self.sync_customization(&ctx);
 		self.save_app_preferences();

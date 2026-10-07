@@ -50,7 +50,7 @@ fn entry(bytes: &[u8]) -> Result<Entry<'_>, DecodeError> {
 		}
 	}
 	let url = url.ok_or(DecodeError)?;
-	if url.is_empty() || url.len() > 1024 {
+	if url.is_empty() {
 		return Err(DecodeError);
 	}
 	let mut result = Entry {
@@ -62,7 +62,7 @@ fn entry(bytes: &[u8]) -> Result<Entry<'_>, DecodeError> {
 		order: 0,
 	};
 	let mut seen = 0u8;
-	for field in fields(value.ok_or(DecodeError)?)? {
+	for field in fields(value.unwrap_or_default())? {
 		if (1..=5).contains(&field.number) {
 			let bit = 1 << field.number;
 			if seen & bit != 0 {
@@ -73,9 +73,6 @@ fn entry(bytes: &[u8]) -> Result<Entry<'_>, DecodeError> {
 		match field.number {
 			2 => {
 				result.source = std::str::from_utf8(field.message()?).map_err(|_| DecodeError)?;
-				if result.source.len() > 1024 {
-					return Err(DecodeError);
-				}
 			}
 			1 | 3 | 4 | 5 => {
 				let value = u32::try_from(field.integer()?).map_err(|_| DecodeError)?;
@@ -132,7 +129,8 @@ pub fn decode_response(bytes: &[u8]) -> Result<Decoded, DecodeError> {
 		}
 	}
 	let decoded = Decoded {
-		version: version.ok_or(DecodeError)?,
+		// Versions is optional in FrecencyUserSettings (including an empty initial proto).
+		version: version.unwrap_or(0),
 		subtree: subtree.unwrap_or_default(),
 	};
 	let mut keys = HashSet::new();

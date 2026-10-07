@@ -1,5 +1,14 @@
 # Local storage policy and audit
 
+## Voice audio host lifetime (October 7, 2026)
+
+Each active voice device set retains its CPAL host and reuses it for default-device
+polling and microphone retries. Polling no longer allocates a fresh PulseAudio
+client/reactor every second. Stream replacement replaces the host; callback
+failure recovery remains bounded. No PCM queue, cache, diagnostic budget or
+persistent record changes. Native backend resources are additional to the existing
+application media bounds; this is not a whole-process memory limit.
+
 ## Linux native live decoder admission (October 3, 2026)
 
 Each Linux live H.264 decoder now admits at most four queued compressed access
@@ -606,6 +615,7 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 | SQLite working files | DELETE journal mode, in-memory temporary tables, 2 MiB page cache; transaction journal may temporarily add disk usage | SQLite transaction completion; normal SQLite crash recovery |
 | Voice credentials, DAVE identities/keys and PCM/Opus audio | Session memory only; one call, bounded media queues; no recording or audio cache | Hangup, failure, logout and application teardown; no forensic-erasure claim |
 | Audio devices, input profile/custom processing, push-to-talk and gain | Device-wide `app_preferences` SQLite singleton, bounded to 16 KiB; device names ≤1,024 bytes each | Retained across restart/logout; demo changes remain in memory |
+| Automatic emoticon conversion | Boolean in the existing device-wide `app_preferences` singleton; defaults off, including older saved preferences | Retained across restart/logout; converts standalone emoticons on message send/edit; demo changes remain in memory |
 | Authentication page | Wry incognito on Windows/macOS; ephemeral WebKit6 NetworkSession on Linux, destroyed on token handoff/cancel/timeout | Platform engine teardown; OS artifacts not promised erased |
 
 Typical packaged-build database directories: macOS `~/Library/Application Support/serein`, Windows `%LOCALAPPDATA%/serein`, Linux `$XDG_DATA_HOME/serein` or `~/.local/share/serein`; default source builds use the sibling `serein-development` directory. An absolute `SEREIN_DATA_DIR` selects the root for SQLite, image caches, extensions and detectable-game metadata; an empty or relative override disables those stores instead of falling back to production data. `cargo xtask package` disables the development feature, so distributed executables use the packaged-build directory and credential namespace. Newly created Unix data directories are private (0700); existing override permissions are preserved. Database contents are **not encrypted by Serein**. OS token protection does not encrypt history, backups or drafts, and the override does not relocate credentials from the OS store.
@@ -668,9 +678,10 @@ local-storage status. Disk cache contents are unencrypted. Category collapse is 
 account-isolated channel preferences record. Narrow People overlays remain session-local.
 Normal window geometry is device-local in the bounded app_preferences singleton.
 
-Storage commands and results each retain their 16-item limit and have separate 16 MiB
-estimated allocation budgets. Reservations include vector/string capacity and metadata
-allowances and are released when work/results are consumed or dropped. Byte exhaustion
+Storage commands and results each retain their 16-item limit and have separate 48 MiB
+estimated allocation budgets (32 MiB for a custom font plus 16 MiB of work/metadata).
+Reservations include vector/string capacity and metadata allowances and are released
+when work/results are consumed or dropped. Byte exhaustion
 rejects command admission through the existing unsaved/cleanup handling; the storage worker
 waits for result capacity without dropping completions. One completed result awaiting
 admission and the SQLite working set are additional. History payloads retain the 500-row /
@@ -934,13 +945,14 @@ for enumeration on its first missing glyph; its font/cache memory is framework
 overhead, separate from Serein message/image budgets. OS font availability and
 emoji coverage vary by platform. Bundled text faces and Twemoji remain in use.
 
-Explicit Appearance → Typography import accepts one local TTF/OTF up to 8 MiB. A native
+Explicit Appearance → Typography import accepts one installed TTF/OTF face up to 32 MiB. A native
 picker feeds one bounded background read and validation; no file path is saved. The existing
-SQLite worker atomically replaces one `custom_font` row (name ≤128 UTF-8 bytes, font ≤8 MiB),
-within the database's existing total size ceiling. Reset deletes that row; logout retains it.
+SQLite worker atomically replaces one `custom_font` row (name ≤128 UTF-8 bytes, font ≤32 MiB),
+within the database's existing 64 MiB total size ceiling. Schema 27 migrates the old
+8 MiB table constraint while preserving the saved font. Reset deletes that row; logout retains it.
 The prior font stays active if importing or saving fails. The three proportional weight
 definitions share the imported bytes; the active font and one pending replacement can each
-retain up to 8 MiB, in addition to renderer/font-atlas overhead. Cache queue reservations
+retain up to 32 MiB, in addition to renderer/font-atlas overhead. Cache queue reservations
 include font payload bytes. Demo imports stay in memory and do not read or write this row.
 
 
@@ -1387,6 +1399,10 @@ bounded map metadata, in RAM and reuses them across forum switches. Refresh,
 disconnect and account reset release them; permission loss prunes inaccessible entries.
 No new disk cache is introduced. Startup read cursors
 for not-yet-loaded threads remain in the existing item/byte-bounded read-state map.
+Sidebar discovery reuses the single forum page loader and existing navigation budgets.
+It retains at most 200 fixed-size forum ID/last-post cursor pairs for the displayed
+guild (4,800 payload bytes plus bounded B-tree overhead), cleared on guild changes
+or disconnect. No additional response queue, message history fetch or disk cache is added.
 
 ### Stickers (schema 21)
 
@@ -1424,15 +1440,20 @@ or background pagination is added.
 
 ### Emoji and sticker image sharing
 
-The opt-in plugin stages public artwork as ordinary attachments only after selecting
-an emoji or sticker that cannot use its normal Discord send path.
-One host download/preparation uses generated HTTPS CDN URLs without credentials or
-redirects, capped at 8 MiB per image and 15 seconds per request. Raster preview decoding
-uses the existing 64 MiB allocation limit and 320px thumbnail edge outside rendering.
-Up to ten selected images remain in session RAM (80 MiB encoded artwork maximum),
-with no temporary files or recovery cache. Navigation/logout cancel pending preparation;
-The picker selection authorizes one send after validation; ordinary upload permissions
-and cleanup apply. Existing selected files are never included in that send.
+The built-in fallback inserts bounded named Markdown links into the ordinary draft
+without sending. Composer/message previews reuse the existing bounded media worker;
+only exact public Discord emoji/sticker routes are recognized as inline artwork.
+Explicit Send with additional text uses those links as ordinary message content.
+Artwork-only Send prepares one batch of up to ten images and retains the submitted
+draft until preparation succeeds. The preparation snapshot is capped at 8,192 bytes
+and matched to the originating generation/channel; newer drafts are preserved.
+One host preparation job downloads generated HTTPS CDN URLs without credentials or
+redirects, sequentially, capped at 8 MiB per input and 15 seconds per request.
+Prepared images total at most 8 MiB in session RAM, plus the current bounded input and
+decoder working set. Raster preview decoding uses the existing 64 MiB allocation
+limit and 320px thumbnail edge outside rendering. There are no temporary files or
+recovery caches. Navigation/logout cancel preparation; ordinary upload permissions
+and cleanup still apply. Existing selected files take the regular composer send path.
 
 
 ### Local camera settings preview
@@ -1634,3 +1655,9 @@ confirmed call, recipient membership and current target eligibility; unrelated
 peer mute/camera state does not cancel an eligible target. Departure, replacement,
 access loss and target state changes retire obsolete work without an optimistic
 state or additional failure/retry queue.
+
+GIF stars in attachment and gallery widgets retain a per-frame copy of at most
+100 admitted favorite URL keys (512 bytes each) and one at-most-2-KiB pending GIF
+action in the account UI. Account reset clears both. Wire URL metadata is bounded
+by its enclosing 4-KiB entry rather than an additional 1-KiB string restriction;
+the native projection retains its existing URL and allocated-byte limits.

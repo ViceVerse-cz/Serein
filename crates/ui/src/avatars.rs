@@ -421,36 +421,28 @@ impl Avatars {
 			None
 		}
 	}
-	/// Transparent, clickable sticker artwork using the shared bounded media working set.
-	pub(crate) fn sticker_image(
+	fn sticker_key(
 		&mut self,
-		ui: &mut egui::Ui,
-		sticker: &model::Sticker,
-		size: egui::Vec2,
-		demo: bool,
-	) -> egui::Response {
-		let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
-		response.widget_info(|| {
-			egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &sticker.name)
-		});
-		if !ui.is_rect_visible(rect) {
-			return response;
-		}
-		let prefix = if self.animate_gifs && matches!(sticker.format_type, 2 | 4) {
+		_ctx: &egui::Context,
+		id: model::Id,
+		format_type: u8,
+		_demo: bool,
+	) -> String {
+		let prefix = if self.animate_gifs && matches!(format_type, 2 | 4) {
 			"anim"
 		} else {
 			"embed"
 		};
-		let key = format!("{prefix}:sticker-{}-{}", sticker.id, sticker.format_type);
+		let key = format!("{prefix}:sticker-{id}-{format_type}");
 		#[cfg(any(test, feature = "demo"))]
-		if demo && !self.textures.contains_key(&key) {
+		if _demo && !self.textures.contains_key(&key) {
 			// Original synthetic mascot, generated locally; never downloaded service artwork.
 			let mut image = ColorImage::filled([128, 128], egui::Color32::TRANSPARENT);
 			let tint = [
 				egui::Color32::from_rgb(103, 192, 177),
 				egui::Color32::from_rgb(250, 181, 98),
 				egui::Color32::from_rgb(172, 155, 241),
-			][sticker.id.0 as usize % 3];
+			][id.0 as usize % 3];
 			for y in 0..128_i32 {
 				for x in 0..128_i32 {
 					let body = (x - 64).pow(2) + (y - 65).pow(2) < 46 * 46;
@@ -469,8 +461,62 @@ impl Avatars {
 				}
 			}
 			self.attempts.insert(key.clone(), (Instant::now(), false));
-			self.accept(ui.ctx(), key.clone(), Some(image));
+			self.accept(_ctx, key.clone(), Some(image));
 		}
+		key
+	}
+	/// Composer and named artwork links share the same bounded native image cache.
+	pub(crate) fn share_image(
+		&mut self,
+		ctx: &egui::Context,
+		asset: model::ImageShare,
+		size: f32,
+		demo: bool,
+	) -> Option<egui::Image<'static>> {
+		match asset {
+			model::ImageShare::Emoji { id, .. } => self.custom_image(ctx, id, size, demo),
+			model::ImageShare::Sticker { id, format_type } => {
+				let key = self.sticker_key(ctx, id, format_type, demo);
+				let animated = self.advance_animation(ctx, &key, false);
+				if let Some(entry) = self.textures.get_mut(&key) {
+					self.clock += 1;
+					entry.0 = self.clock;
+					Some(
+						egui::Image::new(animated.as_ref().unwrap_or(&entry.1))
+							.fit_to_exact_size(egui::Vec2::splat(size)),
+					)
+				} else {
+					if !demo {
+						if let Some((attempted, _)) = self.attempts.get(&key) {
+							ctx.request_repaint_after(
+								RETRY
+									.saturating_sub(attempted.elapsed())
+									.max(Duration::from_secs(1)),
+							);
+						}
+						self.request(key);
+					}
+					None
+				}
+			}
+		}
+	}
+	/// Transparent, clickable sticker artwork using the shared bounded media working set.
+	pub(crate) fn sticker_image(
+		&mut self,
+		ui: &mut egui::Ui,
+		sticker: &model::Sticker,
+		size: egui::Vec2,
+		demo: bool,
+	) -> egui::Response {
+		let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+		response.widget_info(|| {
+			egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &sticker.name)
+		});
+		if !ui.is_rect_visible(rect) {
+			return response;
+		}
+		let key = self.sticker_key(ui.ctx(), sticker.id, sticker.format_type, demo);
 		if !self.paint(ui, &key, rect, 0) {
 			let failed = self.attempts.get(&key).is_some_and(|(_, failed)| *failed);
 			let supported = sticker.id.0 != 0 && matches!(sticker.format_type, 1..=4);
@@ -1064,7 +1110,9 @@ impl Avatars {
 			.filter(|gif| self.animate_gifs && gif.url.ends_with(".gif"))
 			.map(|gif| model::EmbedMedia {
 				url: Some(gif.url.clone()),
-				proxy_url: None,
+				proxy_url: (!model::valid_gif_preview(&gif.url)
+					&& !model::valid_discord_media_url(&gif.url))
+				.then(|| gif.preview.clone()),
 				width: gif.width,
 				height: gif.height,
 				placeholder: poster
@@ -1075,7 +1123,8 @@ impl Avatars {
 			.as_ref()
 			.or(original.as_ref())
 			.or(embed.image.as_ref())
-			.or(embed.thumbnail.as_ref());
+			.or(embed.thumbnail.as_ref())
+			.or(embed.video.as_ref());
 		self.show_media(
 			ui,
 			media.unwrap_or(&model::EmbedMedia::default()),

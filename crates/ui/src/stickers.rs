@@ -200,7 +200,6 @@ impl Browser {
 														&& sticker.valid() && sticker.available
 														&& state.selected.is_some_and(|channel| {
 															state.can_send(channel)
-																&& state.can_attach(channel)
 														}));
 												let response = ui
 													.add_enabled_ui(enabled, |ui| {

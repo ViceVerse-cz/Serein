@@ -200,6 +200,15 @@ device-free capture tests; owner-operated live permission changes/audio remain u
 
 ## Connection and playback recovery
 
+Default-device polling and microphone retries reuse the audio host that opened the
+active streams. In particular, the one-second poll no longer creates a new
+PulseAudio connection and reactor thread. A failed default-device lookup leaves
+healthy streams running; only a successfully identified different default triggers
+a switch. Explicit selections and inputs that are not open skip default lookup.
+Actual stream failure still uses bounded recovery and creates a replacement host.
+This addresses a device-restart path consistent with issue #569's repeated audio
+resets; the reporter's Linux/PipeWire call still requires a live retest.
+
 A voice-server crash (WebSocket close 4015) uses the existing two-attempt resume budget,
 retaining the UDP connection, acknowledged signaling cursor and encrypted group. Terminal
 closes, including 4014, still require an explicit new call. Bounded proposals arriving before
@@ -440,6 +449,11 @@ Serein's own playback remains excluded. No microphone is captured by screen shar
 The native picker has not been opened during synthetic verification.
 
 Source discovery alone does not start streaming. Closing or minimizing a selected source may pause frames or end capture, according to the native API. The initial Windows adapter accepts source dimensions up to 3840×2160. Changes to screen-server metadata, lost video permission, leaving the call and logout stop sharing. The sender never starts itself after reconnection.
+
+Windows capture requests border removal when the native `IsBorderRequired` API is
+supported (Windows 11), and keeps the system's default border on Windows 10 builds
+without it or if the capability check fails. This avoids an unsupported border
+request aborting capture startup. Native Windows verification of this correction is pending.
 
 Linux uses the desktop ScreenCast portal and PipeWire. Share Screen opens the system
 screen/window picker after the quality dialog; source discovery never opens that picker.

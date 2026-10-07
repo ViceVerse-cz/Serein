@@ -1015,7 +1015,7 @@ fonts-show-reset = Réinitialiser
 # Context: show
 fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = Le renard brun rapide saute par-dessus le chien paresseux. 0123456789
 # Context: show
-fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF ou OTF, jusqu'à 8 Mio. Enregistré sur cet appareil. Le code conserve sa police monospace.
+fonts-show-ttf-or-otf-up-to-32-mib-saved-on-this = TTF ou OTF, jusqu'à 32 Mio. Enregistré sur cet appareil. Le code conserve sa police monospace.
 # Context: show
 fonts-show-typography = Typographie
 

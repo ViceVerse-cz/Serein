@@ -1015,7 +1015,7 @@ fonts-show-reset = Reiniciar
 # Context: show
 fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = El veloz zorro marrón salta sobre el perro perezoso. 0123456789
 # Context: show
-fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF u OTF, hasta 8 MiB. Guardado en este dispositivo. El código mantiene su fuente monoespaciada.
+fonts-show-ttf-or-otf-up-to-32-mib-saved-on-this = TTF u OTF, hasta 32 MiB. Guardado en este dispositivo. El código mantiene su fuente monoespaciada.
 # Context: show
 fonts-show-typography = Tipografía
 

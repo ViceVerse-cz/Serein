@@ -1,0 +1,19 @@
+{
+  "source": "issue #569 attachment 33113579",
+  "audio_reports": 89,
+  "transport_reports": 89,
+  "first_repeated_reset": {
+    "scope": "Audio",
+    "at_ms": 275160,
+    "window_ms": 5024,
+    "resets": 5
+  },
+  "last_audio_report": {
+    "scope": "Audio",
+    "at_ms": 439171,
+    "window_ms": 3584,
+    "resets": 3
+  },
+  "audio_reset_total": 171,
+  "transport_reset_total": 0
+}

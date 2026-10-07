@@ -2834,7 +2834,23 @@ impl MessagingUi {
 		after
 	}
 
+	/// Which glyph the mute/deafen toggle paints. `ptm_held` is a held push-to-mute
+	/// on an otherwise live microphone: still slashed, but the caller paints it in
+	/// the neutral tone rather than the red latched-mute tone. A toggled mute keeps
+	/// red even while the key is held, and deafen never shows a microphone.
+	fn mute_toggle_icon(deafen: bool, muted: bool, ptm_held: bool) -> crate::icons::Icon {
+		match (deafen, muted) {
+			(true, true) => crate::icons::Icon::HeadphonesSlash,
+			(true, false) => crate::icons::Icon::Headphones,
+			(false, _) if muted || ptm_held => crate::icons::Icon::MicrophoneSlash,
+			(false, _) => crate::icons::Icon::Microphone,
+		}
+	}
+
 	/// Mute or deafen toggle: red slashed glyph while active, like Discord's user area.
+	/// A held push-to-mute on an otherwise live microphone shows the slashed
+	/// microphone in the neutral tone instead, so a momentary hold reads
+	/// differently from a latched mute.
 	pub(super) fn mute_toggle(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -2890,6 +2906,8 @@ impl MessagingUi {
 		} else {
 			self.voice_muted || self.voice_deafened || !can_speak
 		};
+		// A momentary push-to-mute stays neutral unless mute/deafen is latched.
+		let ptm = !deafen && !active && self.voice_ptm_active;
 		let enabled =
 			(self.controls_enabled(state) || state.demo) && (deafen || can_speak || state.demo);
 		let label = crate::i18n::translate_if_key(match (deafen, active) {
@@ -2905,16 +2923,13 @@ impl MessagingUi {
 				if response.hovered() || response.has_focus() {
 					ui.painter().rect_filled(rect, 6, colors.hover);
 				}
-				let icon = match (deafen, active) {
-					(true, true) => crate::icons::Icon::HeadphonesSlash,
-					(true, false) => crate::icons::Icon::Headphones,
-					(false, true) => crate::icons::Icon::MicrophoneSlash,
-					(false, false) => crate::icons::Icon::Microphone,
-				};
+				let icon = Self::mute_toggle_icon(deafen, active, ptm);
 				let color = if !enabled {
 					colors.muted.gamma_multiply(0.5)
 				} else if active {
 					colors.danger
+				} else if ptm {
+					colors.muted
 				} else if response.hovered() || response.has_focus() {
 					colors.text_strong
 				} else {
@@ -4132,10 +4147,10 @@ fn ringing_pulse(ui: &egui::Ui, avatar: egui::Rect) {
 
 fn speaking_avatar(ui: &egui::Ui, avatar: &egui::Response, name: &str) {
 	let colors = design::palette(ui);
-	// A small dark gap separates the ring from the avatar, as on Discord.
+	// Inset the centered stroke so the ring stays inside the avatar.
 	ui.painter().circle_stroke(
 		avatar.rect.center(),
-		avatar.rect.width() * 0.5 + 4.0,
+		avatar.rect.width() * 0.5 - 1.5,
 		egui::Stroke::new(3.0, colors.positive),
 	);
 	let label = format!("{name} · Speaking");
@@ -4595,6 +4610,35 @@ fn device_combo(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn held_push_to_mute_shows_a_slashed_microphone_without_toggling() {
+		use crate::icons::Icon;
+		assert_eq!(
+			MessagingUi::mute_toggle_icon(false, false, false),
+			Icon::Microphone
+		);
+		assert_eq!(
+			MessagingUi::mute_toggle_icon(false, false, true),
+			Icon::MicrophoneSlash
+		);
+		assert_eq!(
+			MessagingUi::mute_toggle_icon(false, true, false),
+			Icon::MicrophoneSlash
+		);
+		assert_eq!(
+			MessagingUi::mute_toggle_icon(false, true, true),
+			Icon::MicrophoneSlash
+		);
+		assert_eq!(
+			MessagingUi::mute_toggle_icon(true, false, true),
+			Icon::Headphones
+		);
+		assert_eq!(
+			MessagingUi::mute_toggle_icon(true, true, false),
+			Icon::HeadphonesSlash
+		);
+	}
 
 	#[test]
 	fn explicit_join_audio_waits_for_call_switch_and_survives_teardown() {
