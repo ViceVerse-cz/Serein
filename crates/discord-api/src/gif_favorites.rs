@@ -17,12 +17,7 @@ impl DiscordApi {
 			.map_err(|_| Failure::ProtocolAt("gif-favorites-sync-unsupported"))
 	}
 	pub async fn gif_favorites(&self, change: Option<(Gif, bool)>) -> Result<Vec<Gif>, Failure> {
-		if change.as_ref().is_some_and(|(gif, favorite)| {
-			!gif.valid()
-				|| (*favorite
-					&& !model::valid_gif_preview(&gif.preview)
-					&& !model::valid_gif_video_source(&gif.preview))
-		}) {
+		if change.as_ref().is_some_and(|(gif, _)| !gif.valid()) {
 			return Err(Failure::Protocol);
 		}
 		let current = self.read_gif_favorites().await?;

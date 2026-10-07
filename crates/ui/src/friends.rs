@@ -478,6 +478,7 @@ impl MessagingUi {
 			self.friend_requests_page(ui, state, commands);
 			return;
 		}
+		let voice_users = profiles::voice_users(state);
 		let mut selected = None;
 		egui::Frame::new()
 			.inner_margin(egui::Margin::symmetric(24, 16))
@@ -696,6 +697,11 @@ impl MessagingUi {
 									});
 								text.horizontal(|ui| {
 									ui.spacing_mut().item_spacing.x = 4.0;
+									profiles::voice_badge(
+										ui,
+										restricted.is_none() && voice_users.contains(&user.id),
+										true,
+									);
 									if let Some(activity) = activities.first() {
 										icons::inline(
 											ui,

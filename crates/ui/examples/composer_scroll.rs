@@ -21,6 +21,7 @@ fn main() {
 						egui::Event::MouseWheel {
 							unit: egui::MouseWheelUnit::Point,
 							phase: egui::TouchPhase::Move,
+							source: egui::MouseWheelSource::Unknown,
 							delta: egui::vec2(0.0, -100.0),
 							modifiers: egui::Modifiers::NONE,
 						},

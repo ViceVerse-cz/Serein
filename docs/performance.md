@@ -4124,3 +4124,186 @@ macOS host. No Rust runtime or voice dependency changed. The standard host
 voice-inclusive package passes; full workspace tests remain blocked by unchanged
 UI failures. Antivirus acceptance and Windows signing are separate, unverified
 release concerns.
+
+## Light controls with window transparency (October 3, 2026)
+
+Baseline `f3f244c97f223280b49966ac96284aa72fd03a1f` is compared with the
+runtime source hashes in
+[`light-transparency-surfaces/measurements.json`](pr-evidence/light-transparency-surfaces/measurements.json).
+Host: Ubuntu 26.04.1 / Linux x86_64, AMD Ryzen 5 7535U, 12 logical CPUs,
+15,369,359,360 bytes RAM, native eframe WGPU/Vulkan (RADV REMBRANDT), display
+scale 1. Both revisions use pinned Rust 1.98.1 and the unchanged lockfile.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Idle CPU, mean / median of one core | 0.00% / 0.00% | 0.05% / 0.00% | +0.05 / 0.00 percentage points |
+| Sampled peak / settled RSS | 130,904,064 B | 129,536,000 B | −1,368,064 B (−1.05%) |
+| Standard executable | 85,350,064 B | 85,352,368 B | +2,304 B (+0.0027%) |
+| Installed regular files | 89,864,185 B | 89,866,489 B | +2,304 B (+0.0026%) |
+| Complete compressed DEB | 44,192,928 B | 44,194,608 B | +1,680 B (+0.0038%) |
+
+Native sampling uses the existing offline `profile_preview` harness at
+1120 × 760, Standard/Light, 100% palette transparency: the Appearance modal
+opens once and then idles. Both optimized builds use the same final-crate
+`-C lto=off` override. After eight seconds of warmup and three seconds of
+settling, psutil collects twenty one-second process CPU/RSS samples; settled
+RSS is the median of the final five. No helper processes were present and no
+build ran during sampling. Small CPU/RSS differences are sampling, allocator
+or driver noise; this is not a performance improvement claim. Frame/startup
+latency, startup memory peaks, GPU memory and live traffic are unmeasured.
+
+Standard voice-inclusive packages use `cargo xtask package`, normal fat LTO
+and no default/demo features. Both pass the Debian package smoke checks
+(225 files). Installed bytes sum regular files extracted from each DEB;
+compressed bytes measure the complete DEB distribution.
+
+The [evidence README](pr-evidence/light-transparency-surfaces/README.md)
+records reproduction commands and native before/after captures. The opaque
+preview viewport validates control rendering, not desktop alpha/blur or
+Windows/macOS compositors. Focused transparency tests, remaining workspace
+packages, formatting, strict Clippy, policy and the production check pass.
+`cargo xtask check` stops at the unchanged native video pressure test
+`stalled_native_queue_rejects_pressure_at_item_and_byte_limits`; the same
+failure reproduces on baseline main, so the PR remains draft.
+
+## Markdown quote row boundaries — October 4, 2026
+
+Compared renderer baseline `61a1a55001763b512e8a9813aeda74777122cb1d` with the
+quote row-boundary fix using the exact announcement fixture in the existing native
+`profile_preview --demo --page=markdown` harness. The same fixture page was added
+to both builds; the baseline renderer was unchanged. The preview uses production
+message widgets and synthetic state, with no desktop account or media adapters.
+
+Ubuntu 26.04.1, AMD Ryzen 5 7535U (12 logical CPUs), 14.3 GiB RAM, Xvfb/X11,
+1400×900 logical pixels at scale 1. Both builds used Rust 1.98.1, release,
+`--no-default-features --features demo`, and WGPU/Vulkan with the Mesa lavapipe
+ICD forced and its mapped driver library verified. After an identical neutral
+sidebar click and an eight-second warmup, one fresh process per revision received
+20 one-second psutil samples. CPU is percent of one logical core; peak RSS is
+post-warmup, and settled RSS is the last five samples' median. No helper children
+were present during sampling.
+
+| Native idle metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Mean CPU, one logical core | 0.00% | 0.00% | 0.00 percentage points |
+| Sampled peak RSS | 171.883 MiB | 175.074 MiB | +3.191 MiB / +1.86% |
+| Settled RSS | 171.883 MiB | 175.074 MiB | +3.191 MiB / +1.86% |
+
+This single launch pair does not separate layout cost from allocator/driver
+variation. Startup, full-frame p95, GPU memory and live workloads were not measured.
+Standard voice-enabled Debian package sizes, hashes and raw process samples are
+recorded in [the task measurements](pr-evidence/markdown-wrapped-quote/measurements.json).
+
+Reproduce the native fixture with:
+
+```bash
+cargo build --release --locked -p serein --no-default-features --features demo --example profile_preview
+./target/release/examples/profile_preview --demo --interactive --page=markdown --width=1400 --height=900
+```
+
+The committed pair also covers a 760×900 light viewport (`--light`). A 760×520
+native view was scrolled to inspect the long quote. Geometry regressions cover
+three sources, 220/560/1260-point widths, light/dark themes and scales 1/2.
+The exact announcement failed on the baseline because the following text began
+at y=76 while its quote rail extended to y=216; explicit row boundaries pass.
+`cargo xtask check` and strict Clippy for the demo preview passed.
+
+## Compact message baselines — October 6, 2026
+
+Compared baseline `2423f600ad3cdb266c4c5ea8a840b2b2ade4795c` with runtime
+commit `05af1e6aee17a44f5821f8abe5d20350722121dc`. Both native previews use the
+same `--compact` harness addition, pinned Rust 1.98.1, release,
+`--no-default-features --features demo`, and separate Cargo target directories.
+The [measurements](pr-evidence/compact-message-alignment/measurements.json) record
+source/binary hashes, package sizes and raw process samples; the
+[README](pr-evidence/compact-message-alignment/README.md) gives reproduction commands.
+
+Host: Windows 11 Home 10.0.26200, Ryzen 7 7800X3D (16 logical CPUs),
+33,410,678,784 bytes RAM, NVIDIA RTX 5070 Ti / driver 591.86, native WGPU/Vulkan.
+Both processes mapped `vulkan-1.dll` and NVIDIA's `nvoglv64.dll`. Display scale is
+1.25; dark and light framebuffer captures are 1750×1125 and 950×1125 pixels.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Mean idle CPU, one logical core | 0.2172% | 1.4059% | +1.1887 percentage points |
+| Median idle CPU, one logical core | 0.00% | 0.00% | 0.00 percentage points |
+| Sampled peak / settled working set | 144,941,056 B | 149,811,200 B | +4,870,144 B (+3.36%) |
+| Standard voice-enabled executable | 84,548,096 B | 84,562,944 B | +14,848 B (+0.0176%) |
+| Installed regular files | 88,721,292 B | 88,736,140 B | +14,848 B (+0.0167%) |
+| Complete ZIP, .NET Optimal compression | 49,426,763 B | 49,432,817 B | +6,054 B (+0.0122%) |
+
+Sampling uses one fresh interactive preview per revision at 1400×900 logical
+pixels, `--demo --interactive --compact --page=member-tags`, default bottom
+position. After eight seconds of warmup, twenty approximately one-second samples
+measure process CPU time deltas and `WorkingSet64`; settled working set is the
+last five samples' median. No builds run during sampling. Observed `conhost.exe`
+children are excluded from these process-only measurements. This single launch
+pair includes five nonzero CPU intervals after and one before; it does not
+separate layout cost from input, allocator or driver variation. No performance
+improvement or causal regression is established. Full-frame p95, startup peaks,
+GPU memory and live traffic remain unmeasured.
+
+Both standard voice-inclusive packages pass `cargo xtask package` with normal
+fat LTO and no demo feature (213 installed files each). ZIPs use
+`ZipFile.CreateFromDirectory`, `CompressionLevel.Optimal`, without a base-directory
+entry. These packages precede this evidence-only documentation appendix. NSIS is
+unavailable locally, so the optional Windows installer binary is not generated.
+
+The committed captures use the same scene with `--scroll=-1200`, wide dark and
+narrow light, and show aligned compact timestamp/author/body text. They are actual
+native WGPU framebuffer exports, not OS screenshots or native-input proof; the
+Computer Use helper cannot connect to its native pipe (`os error 2`). Workspace
+tests (1,153 passed, 27 ignored), strict Clippy, policy and production checks pass.
+`cargo xtask check` remains blocked by pre-existing formatting in
+`crates/discord-api/src/forum.rs`, reproduced on the untouched baseline. Linux,
+macOS and live Discord behavior remain unverified locally.
+
+## Emoticon review fixes — October 6, 2026
+
+Compared rebased PR baseline `20c2bb5f` with runtime `50873692` on Apple M1 Pro,
+16 GiB RAM, macOS 27.0, pinned Rust 1.98.1. The std-only component harness
+compiles each exact converter with `rustc -O`; one warmup and five alternating
+measured batches each convert 100,000 synthetic messages using `black_box` and
+`Instant`. These timings include output allocation.
+
+| Message / bytes | Before, median µs | After, median µs | Delta |
+| --- | ---: | ---: | ---: |
+| Plain emoticons / 1,280 | 2.850 | 3.320 | +0.470 |
+| Code and links / 1,710 | 3.950 | 5.042 | +1.093 |
+| Escaped/unmatched ticks / 1,160 | 2.293 | 3.164 | +0.871 |
+
+The scanner now indexes matching delimiters and preserves unmatched inline
+markers as literal text. Samples were taken on a shared host with compiler
+activity, so these are observational timings, not an uncontended comparison or
+a performance improvement claim. Conversion occurs on submission. Native
+frame timing and process CPU/RSS remain unmeasured. The baseline standard release package completed successfully (67,589,904-byte
+executable) as verification was stopped at the user’s request. The changed release
+package was not built; executable, installed package and distribution size
+comparisons remain unmeasured. No dependencies
+were added. Reproduction, raw samples and inspected synthetic native captures
+are in [the evidence directory](pr-evidence/emoticon-review/README.md).
+
+
+# Attachment storage selectors — October 7, 2026
+
+Baseline `884fb73fa68bffda70b1f308c903ece239281522`, compared with the
+`backend=b2`/`backend=b3` URL admission change delivered alongside this report.
+Both standard `cargo xtask package` builds completed on macOS 27.0 (26A428),
+Apple M1, 16 GiB RAM, Rust 1.98.1 with the lockfile and default/demo features
+disabled; voice remains included. Both ad-hoc signatures verified successfully.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Desktop executable | 68,180,992 B | 68,180,992 B | 0 B |
+| Installed app, sum of files | 74,201,013 B | 74,201,013 B | 0 B |
+| Distribution directory, sum of files | 74,265,778 B | 74,265,778 B | 0 B |
+| Complete ZIP, `ditto -c -k --keepParent dist` | 48,039,907 B | 48,040,389 B | +482 B / +0.0010% |
+
+This changes one bounded URL query predicate. Metadata remains limited to 2,048
+URL bytes; download limits, decoding, rendering, caches, queues and dependencies
+are unchanged. Nine focused download tests and all 188 non-ignored desktop tests
+passed. No CPU/RSS, native frame-time or decoder-throughput comparison was run;
+the separate playback CPU complaint in issue #556 is not resolved by URL admission.
+The small archive difference supports no runtime-performance claim. Raw package
+sizes and the changed source hash are in
+[the size record](pr-evidence/attachment-storage-selectors/package-sizes.json).

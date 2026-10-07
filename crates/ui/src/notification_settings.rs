@@ -328,11 +328,12 @@ impl MessagingUi {
 		});
 		self.settings.notifications.heading(ui, Tab::Badges);
 		design::card(ui, |ui| {
-			ui.add_enabled_ui(cfg!(target_os = "windows"), |ui| {
+			let supported = cfg!(any(target_os = "windows", target_os = "macos"));
+			ui.add_enabled_ui(supported, |ui| {
 				design::switch(
 					ui,
 					"notification-settings-notification-settings-enable-unread-message-badge",
-					Some(if cfg!(target_os = "windows") {
+					Some(if supported {
 						"notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you"
 					} else {
 						"notification-settings-notification-settings-app-icon-badges-are-not-available-on-this-platform-yet"

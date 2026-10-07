@@ -3,6 +3,8 @@
 Collected September 11, 2026 against the locked dependency graph at `11d0416`.
 Files below are unmodified copies from cached registry archives, the pinned egui checkout,
 or exact upstream commits identified by each released crate's `.cargo_vcs_info.json`.
+The egui workspace and font license files were rechecked unchanged against
+`35b9cbf27afd1756f5896bdd1325f155a415c054` on October 6, 2026.
 Registry archive SHA-256 values were matched to `Cargo.lock` before copying source archives.
 These supplements are bundled without dependency selection or coverage checks; this directory
 is not an assertion that every listed package belongs in every binary.
@@ -26,13 +28,13 @@ check. Older `objc2-*-LICENSE.txt` files contain the upstream MIT text.
 
 | File | Component(s) | Exact source | SHA-256 |
 | --- | --- | --- | --- |
-| `egui-LICENSE-MIT` | egui workspace 0.36.2 at 65e7db3c06d779c60ac56647bdd3011ed8ba1cbd | [upstream](https://github.com/emilk/egui/blob/65e7db3c06d779c60ac56647bdd3011ed8ba1cbd/LICENSE-MIT) | `95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c` |
-| `egui-LICENSE-APACHE` | egui workspace 0.36.2 at 65e7db3c06d779c60ac56647bdd3011ed8ba1cbd | [upstream](https://github.com/emilk/egui/blob/65e7db3c06d779c60ac56647bdd3011ed8ba1cbd/LICENSE-APACHE) | `8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90` |
-| `egui-fonts-Hack-Regular.txt` | epaint_default_fonts 0.36.2 | [upstream](https://github.com/emilk/egui/blob/65e7db3c06d779c60ac56647bdd3011ed8ba1cbd/crates/epaint_default_fonts/fonts/Hack-Regular.txt) | `47c0cccbeec7e8614548cc485588b28149e7874188df5f41b36efebcee285c87` |
-| `egui-fonts-OFL.txt` | epaint_default_fonts 0.36.2 | [upstream](https://github.com/emilk/egui/blob/65e7db3c06d779c60ac56647bdd3011ed8ba1cbd/crates/epaint_default_fonts/fonts/OFL.txt) | `6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2` |
-| `egui-fonts-UFL.txt` | epaint_default_fonts 0.36.2 | [upstream](https://github.com/emilk/egui/blob/65e7db3c06d779c60ac56647bdd3011ed8ba1cbd/crates/epaint_default_fonts/fonts/UFL.txt) | `2f0015108d68627bd788d313f529c21ff4da2c2c42a5e1f3883acc83480f9002` |
-| `egui-fonts-emoji-icon-font-mit-license.txt` | epaint_default_fonts 0.36.2 | [upstream](https://github.com/emilk/egui/blob/65e7db3c06d779c60ac56647bdd3011ed8ba1cbd/crates/epaint_default_fonts/fonts/emoji-icon-font-mit-license.txt) | `b9d2c1d909aa149996fd4c91dcb92b2362a04431640c1d200959da94caf8cde1` |
-| `egui-fonts-egui-icons.txt` | epaint_default_fonts 0.36.2 | [upstream](https://github.com/emilk/egui/blob/65e7db3c06d779c60ac56647bdd3011ed8ba1cbd/crates/epaint_default_fonts/fonts/egui-icons.txt) | `36dbbfd79d73974f864116879c17dd11559e1340277385f1ac52d8d29a5f5c79` |
+| `egui-LICENSE-MIT` | egui workspace 0.36.2 at 35b9cbf27afd1756f5896bdd1325f155a415c054 | [upstream](https://github.com/emilk/egui/blob/35b9cbf27afd1756f5896bdd1325f155a415c054/LICENSE-MIT) | `95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c` |
+| `egui-LICENSE-APACHE` | egui workspace 0.36.2 at 35b9cbf27afd1756f5896bdd1325f155a415c054 | [upstream](https://github.com/emilk/egui/blob/35b9cbf27afd1756f5896bdd1325f155a415c054/LICENSE-APACHE) | `8173d5c29b4f956d532781d2b86e4e30f83e6b7878dce18c919451d6ba707c90` |
+| `egui-fonts-Hack-Regular.txt` | epaint_default_fonts 0.36.2 | [upstream](https://github.com/emilk/egui/blob/35b9cbf27afd1756f5896bdd1325f155a415c054/crates/epaint_default_fonts/fonts/Hack-Regular.txt) | `47c0cccbeec7e8614548cc485588b28149e7874188df5f41b36efebcee285c87` |
+| `egui-fonts-OFL.txt` | epaint_default_fonts 0.36.2 | [upstream](https://github.com/emilk/egui/blob/35b9cbf27afd1756f5896bdd1325f155a415c054/crates/epaint_default_fonts/fonts/OFL.txt) | `6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2` |
+| `egui-fonts-UFL.txt` | epaint_default_fonts 0.36.2 | [upstream](https://github.com/emilk/egui/blob/35b9cbf27afd1756f5896bdd1325f155a415c054/crates/epaint_default_fonts/fonts/UFL.txt) | `2f0015108d68627bd788d313f529c21ff4da2c2c42a5e1f3883acc83480f9002` |
+| `egui-fonts-emoji-icon-font-mit-license.txt` | epaint_default_fonts 0.36.2 | [upstream](https://github.com/emilk/egui/blob/35b9cbf27afd1756f5896bdd1325f155a415c054/crates/epaint_default_fonts/fonts/emoji-icon-font-mit-license.txt) | `b9d2c1d909aa149996fd4c91dcb92b2362a04431640c1d200959da94caf8cde1` |
+| `egui-fonts-egui-icons.txt` | epaint_default_fonts 0.36.2 | [upstream](https://github.com/emilk/egui/blob/35b9cbf27afd1756f5896bdd1325f155a415c054/crates/epaint_default_fonts/fonts/egui-icons.txt) | `36dbbfd79d73974f864116879c17dd11559e1340277385f1ac52d8d29a5f5c79` |
 | `aws-lc-fiat-LICENSE` | aws-lc-sys 0.45.0 | [upstream](https://docs.rs/crate/aws-lc-sys/0.45.0/source/aws-lc/third_party/fiat/LICENSE) | `43e358d7b6eb109d0f51f7b3a090fd82607965767c25fadee39e922475de2061` |
 | `option-ext-0.2.0.crate` | option-ext 0.2.0 | [upstream](https://static.crates.io/crates/option-ext/option-ext-0.2.0.crate) | `04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d` |
 | `hpke-rs-crypto-0.6.1.crate` | hpke-rs-crypto 0.6.1 | [upstream](https://static.crates.io/crates/hpke-rs-crypto/hpke-rs-crypto-0.6.1.crate) | `0a73a99d9008010d73289f41335a3f6e14fb8c04eaf60e9111b450463b1bbc7f` |

@@ -710,8 +710,9 @@ impl State {
 	pub fn can_send_custom_emoji(&self, channel: Id, source: Id, emoji: &CustomEmoji) -> bool {
 		self.custom_emoji_unavailable_reason(channel, source, emoji)
 			.is_none()
-			&& (self.stickers.external_allowed
-				|| self.channel(channel).and_then(|target| target.guild) == Some(source))
+			&& (matches!(self.premium_type, 1..=3)
+				|| (!emoji.animated
+					&& self.channel(channel).and_then(|target| target.guild) == Some(source)))
 	}
 	/// Local eligibility for an emoji borrowed from `source`'s catalog. Discord still
 	/// decides account entitlements, including Nitro; this is not a send guarantee.
@@ -916,7 +917,7 @@ impl State {
 	pub fn prepare_edit(&mut self, channel: Id, message: Id, content: String) -> Option<Command> {
 		if !self.can_edit(channel, message)
 			|| content.trim().is_empty()
-			|| content.chars().count() > crate::MAX_CONTENT
+			|| content.chars().count() > self.content_limit()
 		{
 			self.status = "This message cannot be edited with the current access";
 			return None;

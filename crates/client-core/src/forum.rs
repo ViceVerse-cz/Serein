@@ -1,5 +1,5 @@
 //! Forum containers list their posts (threads) and create one post at a time.
-use crate::{Command, MAX_CONTENT, MAX_NAV, State, auth::AuthState, auth::Failure};
+use crate::{Command, MAX_NAV, State, auth::AuthState, auth::Failure};
 use model::{Channel, Id, permissions as p};
 
 pub const MAX_TITLE: usize = 100;
@@ -8,6 +8,9 @@ pub const SUMMARY_BATCH: usize = 4;
 /// The on-demand active-post list of one forum; the gateway only delivers joined posts.
 #[derive(Default)]
 pub struct Posts {
+	// At most 200 fixed-size forum/cursor pairs for the displayed guild.
+	sidebar_guild: Option<Id>,
+	sidebar_attempts: std::collections::BTreeMap<Id, Option<Id>>,
 	// At most 200 summaries of at most 4 KiB each across the current session.
 	summaries: std::collections::BTreeMap<Id, (Option<Id>, Option<model::forum::Summary>)>,
 	summary_request: u64,
@@ -25,6 +28,8 @@ pub struct Posts {
 
 impl Posts {
 	pub(crate) fn clear_summaries(&mut self) {
+		self.sidebar_guild = None;
+		self.sidebar_attempts.clear();
 		self.summaries.clear();
 		self.summary_pending = None;
 		self.previews.clear();
@@ -252,10 +257,11 @@ impl State {
 	/// their posts is, so the sidebar row needs the same aggregate.
 	pub fn forum_unread(&self, forum: Id) -> bool {
 		self.is_forum(forum)
-			&& self
-				.channels
-				.iter()
-				.any(|post| self.is_post_of(post, forum) && self.post_unread(post))
+			&& (self.unread(forum) == Some(true)
+				|| self
+					.channels
+					.iter()
+					.any(|post| self.is_post_of(post, forum) && self.post_unread(post)))
 	}
 
 	/// Loaded posts whose starter has not been read; replies do not make a post new again.
@@ -263,10 +269,15 @@ impl State {
 		if !self.is_forum(forum) {
 			return 0;
 		}
+		let Some(boundary) = self.read_marker(forum) else {
+			return 0;
+		};
 		self.channels
 			.iter()
 			.filter(|post| {
 				self.is_post_of(post, forum)
+					&& Some(post.id) != self.archived_thread
+					&& boundary.is_none_or(|read| post.id > read)
 					&& self.post_unread(post)
 					&& self
 						.read_marker(post.id)
@@ -286,6 +297,42 @@ impl State {
 			&& self.gateway_connected
 			&& self.is_forum(parent)
 			&& self.can_read_history(parent)
+	}
+
+	/// Populate unread badges without opening each forum. Share the existing single-page
+	/// loader, yielding to an open forum and stopping at its normal 200-post ceiling.
+	pub fn request_sidebar_forum_posts(&mut self, guild: Option<Id>) -> Option<Command> {
+		if self.posts.sidebar_guild != guild {
+			self.posts.sidebar_guild = guild;
+			self.posts.sidebar_attempts.clear();
+		}
+		let guild = guild?;
+		if self.posts.loading || self.selected.is_some_and(|id| self.is_forum(id)) {
+			return None;
+		}
+		if let Some(parent) = self.posts.parent
+			&& self.channel(parent).and_then(|c| c.guild) == Some(guild)
+			&& self.posts.sidebar_attempts.contains_key(&parent)
+			&& self.posts.error.is_none()
+			&& self.posts.more
+			&& self.posts.loaded < model::forum::MAX_POSTS
+		{
+			return self.request_forum_posts(parent, true);
+		}
+		let forum = self.channels.iter().find(|channel| {
+			channel.guild == Some(guild)
+				&& matches!(channel.kind, 15 | 16)
+				&& self.can_load_posts(channel.id)
+				&& (self.posts.sidebar_attempts.contains_key(&channel.id)
+					|| self.posts.sidebar_attempts.len() < model::forum::MAX_POSTS)
+				&& self.posts.sidebar_attempts.get(&channel.id) != Some(&channel.last_message)
+		})?;
+		let (parent, latest) = (forum.id, forum.last_message);
+		self.reload_forum_posts(parent);
+		let command = self.request_forum_posts(parent, false)?;
+		// Failed/empty pages are attempted once per guild visit or new parent activity.
+		self.posts.sidebar_attempts.insert(parent, latest);
+		Some(command)
 	}
 
 	/// Loads the first page of a forum, or the next one when `more` is set.
@@ -327,6 +374,8 @@ impl State {
 		if self.posts.parent == Some(parent) && !self.posts.loading {
 			// Keep the request counter monotonic so a late reply cannot match a fresh load.
 			self.posts = Posts {
+				sidebar_guild: self.posts.sidebar_guild,
+				sidebar_attempts: std::mem::take(&mut self.posts.sidebar_attempts),
 				request: self.posts.request,
 				summary_request: self.posts.summary_request,
 				..Posts::default()
@@ -448,7 +497,7 @@ impl State {
 		if !self.can_create_post(parent)
 			|| title.is_empty()
 			|| title.chars().count() > MAX_TITLE
-			|| !model::message_options::valid(content, MAX_CONTENT, !filenames.is_empty())
+			|| !model::message_options::valid(content, self.content_limit(), !filenames.is_empty())
 		{
 			return None;
 		}
@@ -554,7 +603,7 @@ impl State {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::{Envelope, Event};
+	use crate::{Envelope, Event, MAX_CONTENT};
 
 	fn channel(id: u64, parent: Option<Id>, kind: u8) -> Channel {
 		Channel {

@@ -291,6 +291,7 @@ fn narrow_notification_dialog_keeps_footer_visible_and_scrolls_controls() {
 				egui::Event::PointerMoved(content),
 				egui::Event::MouseWheel {
 					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
 					unit: egui::MouseWheelUnit::Point,
 					delta: egui::vec2(0.0, -160.0),
 					modifiers: egui::Modifiers::NONE,

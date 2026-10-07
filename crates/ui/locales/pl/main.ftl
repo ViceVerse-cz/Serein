@@ -1008,7 +1008,7 @@ fonts-show-reset = Nastawić
 # Context: show
 fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = Szybki brązowy lis przeskakuje leniwego psa. 0123456789
 # Context: show
-fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF lub OTF, do 8 MiB. Zapisano na tym urządzeniu. Kod zachowuje czcionkę o stałej szerokości.
+fonts-show-ttf-or-otf-up-to-32-mib-saved-on-this = TTF lub OTF, do 32 MiB. Zapisano na tym urządzeniu. Kod zachowuje czcionkę o stałej szerokości.
 # Context: show
 fonts-show-typography = Typografia
 
@@ -3444,7 +3444,6 @@ settings-close-control-close-settings-esc = Zamknij ustawienia (Esc)
 # Context: colour_preset_settings
 settings-colour-preset-settings-colour-preset = Wstępnie ustawiony kolor
 # Context: colour_preset_settings
-settings-colour-preset-settings-saved-with-your-appearance-gradient-presets-always-use-dark-text = Zapisane wraz z Twoim wyglądem. Wstępne ustawienia gradientu zawsze używają ciemnego tekstu.
 # Context: storage_page
 settings-storage-page-clear-cache = Wyczyść pamięć podręczną
 # Context: storage_page
@@ -4161,7 +4160,6 @@ voice-voice-processing-controls-start-the-microphone-test-or-join-a-call-to-see 
 # Context: voice_processing_controls
 voice-voice-processing-controls-suppression-strength = Siła tłumienia
 # Context: voice_settings_content
-voice-voice-settings-content-audio-preferences-are-saved-on-this-device-your-microphone-starts = Preferencje audio są zapisane na tym urządzeniu. Mikrofon uruchamia się dopiero po dołączeniu do połączenia lub rozpoczęciu testowania.
 # Context: voice_settings_content
 voice-voice-settings-content-camera = Kamera
 # Context: voice_settings_content
@@ -4350,6 +4348,16 @@ lib-composer-onboarding-rules-pending = Zaakceptuj zasady tego serwera, aby zacz
 lib-composer-onboarding-incomplete = Dokończ dołączanie do serwera, aby odblokować więcej kanałów.
 # Context: composer
 lib-composer-onboarding-complete = Dokończ wprowadzenie
+profiles-message-placeholder = Wiadomość do @{ $user }
+profiles-message-send = Wyślij wiadomość
+profiles-message-sending = Otwieranie wiadomości prywatnej…
+user-menu-contents-start-a-call = Rozpocznij rozmowę
+verification-show-complete-the-check-to-open-this-conversation = Dokończ weryfikację, aby otworzyć tę rozmowę.
+verification-show-discord-requires-a-security-check-before-you-can-message = Discord wymaga kontroli bezpieczeństwa, zanim napiszesz do tej osoby.
+verification-show-complete-the-check-to-send-this-message = Dokończ weryfikację, aby wysłać tę wiadomość.
+verification-show-discord-requires-a-security-check-before-this-message = Discord wymaga kontroli bezpieczeństwa przed wysłaniem tej wiadomości.
+profiles-message-busy = Oczekiwanie na zakończenie innej akcji…
+profiles-message-offline = Połącz się ponownie, aby wysłać wiadomość
 
 voice-recipient-ring = Zadzwoń ponownie
 voice-recipient-stop-ringing = Zatrzymaj dzwonienie
@@ -4442,3 +4450,5 @@ server-stickers-empty-detail = Prześlij obraz, aby dodać swoją pierwszą nakl
 screen-macos-system-picker = Wybierz w systemowym oknie macOS
 
 screen-macos-system-picker-kind = Systemowy wybór treści
+
+member-in-voice = Na czacie głosowym

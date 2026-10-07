@@ -12,8 +12,8 @@ pub struct Gif {
 	pub title: String,
 	/// Provider page address; this is the text sent when the GIF is chosen.
 	pub url: String,
-	/// Allowed image preview or retained video source.
-	/// Video sources paint a placeholder in the picker; they are never guessed or downloaded.
+	/// Allowed image preview, provider video clip or Discord-hosted favorite media.
+	/// Anything but an image preview plays through the bounded embed media pipeline.
 	pub preview: String,
 	pub width: u32,
 	pub height: u32,
@@ -34,8 +34,8 @@ impl Gif {
 				.all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 			&& self.title.len() <= 256
 			&& !self.title.chars().any(char::is_control)
-			&& valid_gif_url(&self.url)
-			&& (valid_gif_preview(&self.preview) || valid_gif_video_source(&self.preview))
+			&& valid_gif_favorite_url(&self.url)
+			&& valid_gif_favorite_source(&self.preview)
 			&& (1..=4096).contains(&self.width)
 			&& (1..=4096).contains(&self.height)
 			&& self.bytes() <= 2048
@@ -97,6 +97,74 @@ pub fn valid_gif_video_source(url: &str) -> bool {
 	) && [".mp4", ".webm", ".mov"]
 		.iter()
 		.any(|extension| url.ends_with(extension))
+}
+
+/// Discord attachment or proxied media, as stored by GIFs favorited from messages.
+/// Signed attachment queries are kept verbatim; they are part of the address.
+pub fn valid_discord_media_url(url: &str) -> bool {
+	url.len() <= MAX_URL
+		&& url
+			.bytes()
+			.all(|b| b.is_ascii_graphic() && b != b'\\' && b != b'#')
+		&& !url.contains("..")
+		&& [
+			"cdn.discordapp.com",
+			"media.discordapp.net",
+			"images-ext-1.discordapp.net",
+			"images-ext-2.discordapp.net",
+		]
+		.iter()
+		.any(|host| {
+			url.strip_prefix("https://")
+				.and_then(|rest| rest.strip_prefix(host))
+				.and_then(|rest| rest.strip_prefix('/'))
+				.is_some_and(|path| {
+					let path = path.split('?').next().unwrap_or(path);
+					(path.starts_with("attachments/") || path.starts_with("external/"))
+						&& !path.ends_with('/')
+				})
+		})
+}
+
+/// A favorite may share any bounded HTTPS page. This does not authorize fetching it;
+/// previews still require an admitted provider or Discord media source.
+pub fn valid_gif_favorite_url(url: &str) -> bool {
+	if url.len() > MAX_URL
+		|| !url
+			.bytes()
+			.all(|b| b.is_ascii_graphic() && b != b'\\' && b != b'#')
+	{
+		return false;
+	}
+	let Some((host, path)) = url
+		.strip_prefix("https://")
+		.and_then(|rest| rest.split_once('/'))
+	else {
+		return false;
+	};
+	!path.is_empty()
+		&& host.contains('.')
+		&& host.split('.').all(|label| {
+			!label.is_empty()
+				&& !label.starts_with('-')
+				&& !label.ends_with('-')
+				&& label
+					.bytes()
+					.all(|b| b.is_ascii_alphanumeric() || b == b'-')
+		})
+}
+
+/// Media a favorite may display.
+pub fn valid_gif_favorite_source(url: &str) -> bool {
+	valid_gif_preview(url) || valid_gif_video_source(url) || valid_discord_media_url(url)
+}
+
+/// Discord's favorite format: 2 for a video clip, 1 for an image.
+pub fn gif_source_is_video(url: &str) -> bool {
+	let path = url.split('?').next().unwrap_or(url);
+	[".mp4", ".webm", ".mov"]
+		.iter()
+		.any(|extension| path.ends_with(extension))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

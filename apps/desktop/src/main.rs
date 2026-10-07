@@ -79,6 +79,13 @@ const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 fn main() -> eframe::Result {
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-window-geometry")
+	{
+		app_settings::debug_window_geometry_check();
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-voice-preferences")
 	{
 		cache::debug_voice_preferences_check();
@@ -118,6 +125,13 @@ fn main() -> eframe::Result {
 		&& std::env::args().any(|arg| arg == "--demo-check-call-cues")
 	{
 		voice::debug_call_cues_check();
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-fonts")
+	{
+		font_import::debug_check();
 		return Ok(());
 	}
 	#[cfg(all(debug_assertions, feature = "demo"))]
@@ -342,8 +356,66 @@ fn main() -> eframe::Result {
 		return Ok(());
 	}
 	#[cfg(feature = "demo")]
+	if demo && std::env::args().any(|arg| arg == "--demo-check-forum-sidebar") {
+		post_menu_demo::check_sidebar();
+		return Ok(());
+	}
+	#[cfg(feature = "demo")]
 	if demo && std::env::args().any(|arg| arg == "--demo-check-post-menu") {
 		post_menu_demo::check();
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if demo && std::env::args().any(|arg| arg == "--demo-check-image-sharing") {
+		let mut state = test_support::demo_state();
+		let selection = ui::debug_image_sharing(&mut state);
+		let channel = state.selected.unwrap();
+		let ctx = egui::Context::default();
+		let runtime = tokio::runtime::Runtime::new().expect("offline artwork runtime");
+		let mut uploads = uploads::Uploads::default();
+		for newer_draft in [None, Some("Next message")] {
+			state.drafts.insert(channel, selection.1.clone());
+			uploads
+				.start_image_share(
+					state.generation,
+					channel,
+					selection.clone(),
+					runtime.handle(),
+					&ctx,
+					true,
+				)
+				.unwrap();
+			assert!(uploads.image_send(&mut state, true).is_none());
+			if let Some(text) = newer_draft {
+				state.drafts.insert(channel, text.into());
+			}
+			runtime.block_on(async {
+				tokio::time::timeout(std::time::Duration::from_secs(5), async {
+					while uploads.busy() {
+						uploads.poll(state.generation, Some(channel), true, &ctx);
+						tokio::task::yield_now().await;
+					}
+				})
+				.await
+				.unwrap();
+			});
+			assert!(uploads.take_notice().is_none());
+			assert!(
+				matches!(uploads.image_send(&mut state, true), Some(Command::Send { content, .. }) if content.is_empty())
+			);
+			assert_eq!(state.drafts.get(&channel).map(String::as_str), newer_draft);
+			assert_eq!(
+				uploads
+					.take_source(state.generation, channel)
+					.unwrap()
+					.len(),
+				2
+			);
+			assert!(uploads.image_send(&mut state, true).is_none());
+		}
+		println!(
+			"Offline artwork composition passed: explicit Send, inline previews, Markdown with text, attachment batches, newer drafts and no restore button while sending."
+		);
 		return Ok(());
 	}
 	#[cfg(feature = "demo")]
@@ -362,16 +434,18 @@ fn main() -> eframe::Result {
 	} else {
 		local_store::LocalStore::open_default().and_then(|store| store.app_preferences())
 	};
-	let (gpu_preference, transparency_available, hide_window_decorations) = preferences
-		.as_ref()
-		.map(|value| {
-			(
-				value.gpu_preference,
-				value.transparency_blur,
-				value.hide_window_decorations,
-			)
-		})
-		.unwrap_or_default();
+	let (gpu_preference, transparency_available, hide_window_decorations, window_geometry) =
+		preferences
+			.as_ref()
+			.map(|value| {
+				(
+					value.gpu_preference,
+					value.transparency_blur,
+					value.hide_window_decorations,
+					value.window_geometry,
+				)
+			})
+			.unwrap_or_default();
 	#[cfg(feature = "demo")]
 	let transparency_available =
 		transparency_available || demo && std::env::args().any(|arg| arg == "--demo-transparency");
@@ -383,7 +457,9 @@ fn main() -> eframe::Result {
 		viewport: {
 			let builder = egui::ViewportBuilder::default()
 				.with_transparent(transparency_available)
-				.with_inner_size([1120.0, 760.0])
+				.with_inner_size(window_geometry.map_or([1120.0, 760.0], |geometry| {
+					geometry.size.map(|value| value as f32)
+				}))
 				.with_min_inner_size([760.0, 520.0])
 				.with_active(!start_minimized)
 				.with_app_id("cz.viceverse.serein");
@@ -458,6 +534,9 @@ fn main() -> eframe::Result {
 		Box::new(move |cc| {
 			let desktop =
 				Desktop::new(cc, demo, frame_sample, transparency_available, preferences)?;
+			if let Some(geometry) = window_geometry {
+				app_settings::restore_window_geometry(&desktop.window, geometry);
+			}
 			if start_minimized {
 				cc.egui_ctx
 					.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
@@ -876,6 +955,7 @@ struct Desktop {
 	reading: reading_settings::ReadingSettings,
 	app_settings: app_settings::Settings,
 	font_picker: Option<std::sync::mpsc::Receiver<font_import::Selected>>,
+	font_families: Option<std::sync::mpsc::Receiver<Vec<String>>>,
 	updater: updater::Updater,
 	game_activity: toggle_setting::Settings,
 	registered_games: registered_games::Registered,
@@ -2008,6 +2088,16 @@ impl Desktop {
 			onboarding_demo::open(&mut state);
 		}
 		#[cfg(feature = "demo")]
+		if demo
+			&& std::env::args().any(|arg| arg == "--demo-server-invite")
+			&& let Some(guild) = state
+				.selected
+				.and_then(|id| state.channels.iter().find(|c| c.id == id))
+				.and_then(|c| c.guild)
+		{
+			messaging.preview_server_invite(&mut state, guild);
+		}
+		#[cfg(feature = "demo")]
 		if demo && std::env::args().any(|arg| arg == "--demo-server-settings") {
 			server_settings_demo::open(&mut state, &mut messaging);
 		}
@@ -2045,7 +2135,11 @@ impl Desktop {
 		}
 		// The GPU surface and X11 visual are selected at startup. Opaque launches
 		// keep the same native/compositor path as builds without window effects.
-		let tray_window = tray_window::State::default();
+		// KWin hiding runs its D-Bus worker on the application runtime.
+		let tray_window = {
+			let _runtime = runtime.enter();
+			tray_window::State::default()
+		};
 		Ok(Self {
 			proxy_auth: proxy_auth::Authentication::default(),
 			api_proxy: tokio::sync::watch::channel(None).0,
@@ -2116,6 +2210,7 @@ impl Desktop {
 			reading,
 			app_settings,
 			font_picker: None,
+			font_families: None,
 			updater: updater::Updater::new(demo),
 			game_activity,
 			registered_games: if demo {
@@ -2251,7 +2346,6 @@ impl Desktop {
 	fn end_session(&mut self, ctx: &egui::Context, intent: SessionEnd) {
 		self.captcha.close();
 		self.notification_runtime.clear(&self.window);
-		self.messaging.image_sharing_enabled = false;
 		self.messaging.image_share_requested = None;
 		let extension_logout = self.extensions.logout(ctx);
 		self.role_icon.cancel();
@@ -2547,15 +2641,31 @@ impl Desktop {
 				}
 			}
 		}
+		if let Some(families) = &self.font_families
+			&& let Ok(families) = families.try_recv()
+		{
+			self.font_families = None;
+			self.messaging.custom_font.families = Some(families);
+		}
+		// Listing is independent of a pending save, so it is never dropped while busy.
+		if matches!(
+			self.messaging.custom_font.request,
+			Some(ui::fonts::Action::List)
+		) {
+			self.messaging.custom_font.request = None;
+			if self.font_families.is_none() && self.messaging.custom_font.families.is_none() {
+				self.font_families = Some(font_import::installed(&self.runtime, ctx));
+			}
+		}
 		if let Some(action) = self.messaging.custom_font.request.take()
 			&& !self.messaging.custom_font.busy
 		{
 			match action {
-				ui::fonts::Action::Import => {
-					self.font_picker =
-						Some(font_import::choose(&self.runtime, ctx, self.window.clone()));
+				ui::fonts::Action::List => {}
+				ui::fonts::Action::Select(family) => {
+					self.font_picker = Some(font_import::load(&self.runtime, ctx, family));
 					self.messaging.custom_font.busy = true;
-					self.messaging.custom_font.status = "Choosing font…";
+					self.messaging.custom_font.status = "Loading font…";
 				}
 				ui::fonts::Action::Reset => self.save_font(ctx, None),
 			}
@@ -3977,6 +4087,11 @@ impl Desktop {
 						.find(|s| s.id == id)
 						.cloned()
 						.ok_or(Failure::Protocol),
+				},
+				// The offline fixture never issues challenges, so it never resumes one.
+				Command::VerifiedSend { nonce, .. } => Event::SendResult {
+					nonce,
+					result: Err(Failure::Protocol),
 				},
 				Command::Forward {
 					message,
@@ -5818,6 +5933,34 @@ impl eframe::App for Desktop {
 	fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
 		// Before the pass begins, so the whole frame resolves System to the same theme.
 		self.sync_system_theme(ctx);
+		// Read native size independently of viewport rectangles: Wayland has no global position,
+		// so egui-winit cannot supply either rectangle there. Native scale excludes egui zoom.
+		if !self.fixture_only
+			&& !self.state.demo
+			&& self.app_settings.loaded
+			&& let Some(viewport) = raw_input.viewports.get(&raw_input.viewport_id)
+			&& viewport.minimized != Some(true)
+			&& viewport.maximized != Some(true)
+			&& viewport.fullscreen != Some(true)
+			&& self.window.is_visible() != Some(false)
+		{
+			let size = self
+				.window
+				.inner_size()
+				.to_logical::<u32>(self.window.scale_factor());
+			let geometry = local_store::WindowGeometry {
+				size: [size.width, size.height],
+				position: self
+					.window
+					.outer_position()
+					.ok()
+					.map(|position| [position.x, position.y]),
+			};
+			if geometry.is_valid() && self.app_settings.current.window_geometry != Some(geometry) {
+				self.app_settings.current.window_geometry = Some(geometry);
+				self.app_settings.state.dirty = true;
+			}
+		}
 		// Viewport position/scale comes from native events; avoid an OS monitor query on paints.
 		if let Some(viewport) = raw_input.viewports.get(&raw_input.viewport_id) {
 			let geometry = (viewport.outer_rect, viewport.native_pixels_per_point);
@@ -6117,8 +6260,15 @@ impl eframe::App for Desktop {
 			ctx.request_repaint_after(std::time::Duration::from_millis(50));
 		}
 	}
-	fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
+	fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
 		let ctx = ui.ctx().clone();
+		let title_bar_height = if self.login.is_some() {
+			platform::LOGIN_HEADER_HEIGHT
+		} else if self.state.user.is_some() {
+			ui::design::TITLE_BAR_HEIGHT
+		} else {
+			SIGN_IN_HEADER_HEIGHT
+		};
 		self.tray_window.ui(&ctx);
 		// Change native hints before drawing, so the clear color and panel alpha
 		// agree for the whole frame. OS calls happen only when an effect changes.
@@ -6146,6 +6296,31 @@ impl eframe::App for Desktop {
 				&& !self.messaging.has_edit_in(self.state.selected)
 			{
 				match result {
+					Ok(clipboard::Content::Text(text))
+						if upload_allowed && can_attach && {
+							let draft = self
+								.state
+								.drafts
+								.get(&paste.channel)
+								.map_or("", String::as_str);
+							model::message_options::content(draft).0.chars().count()
+								+ text.chars().count() > self.state.content_limit()
+						} =>
+					{
+						// Text that cannot fit one message is attached as `message.txt`, like Discord.
+						if let Err(error) =
+							discord_api::upload::Source::pasted_text(text).and_then(|source| {
+								self.uploads.select_pasted(
+									paste.generation,
+									paste.channel,
+									vec![source],
+									self.runtime.handle(),
+									&ctx,
+								)
+							}) {
+							self.messaging.toasts.push(ui::design::Level::Error, error);
+						}
+					}
 					Ok(clipboard::Content::Text(text)) => {
 						self.messaging.pasted_text = Some((paste.channel, paste.target, text));
 					}
@@ -6178,15 +6353,16 @@ impl eframe::App for Desktop {
 			self.state.user.is_some() && self.state.gateway_connected,
 			&ctx,
 		);
-		if let Some(command) = self
-			.uploads
-			.image_send(&mut self.state, self.messaging.image_sharing_enabled)
+		if let Some(command) = self.uploads.image_send(&mut self.state, can_attach)
 			&& !self.state.demo
 		{
-			// Auto-send bypasses the composer, so retain its prepared thumbnail explicitly.
+			// Explicit artwork Send finishes asynchronously; retain its prepared thumbnails.
 			self.messaging.attachment_previews = self.uploads.previews();
 			self.messaging.attachment_files = self.uploads.files();
 			self.messaging.stage_pending_upload(&ctx, &command);
+			if let Command::Send { channel, .. } = &command {
+				self.messaging.draft_changes.push(*channel);
+			}
 			self.command(command);
 		}
 		// Move native handles once; never load dropped bytes on the rendering thread.
@@ -6569,6 +6745,7 @@ impl eframe::App for Desktop {
 				key,
 				filename,
 				bytes,
+				host,
 			}) = self.messaging.external_upload.request.take()
 			{
 				let result = if generation != self.state.generation
@@ -6584,6 +6761,7 @@ impl eframe::App for Desktop {
 						channel,
 						&filename,
 						bytes,
+						host,
 						self.runtime.handle(),
 						&ctx,
 						self.state.demo,
@@ -6610,15 +6788,16 @@ impl eframe::App for Desktop {
 			if std::mem::take(&mut self.messaging.cancel_upload_requested) {
 				self.uploads.cancel();
 			}
-			if let Some(asset) = self.messaging.image_share_requested.take()
-				&& self.messaging.image_sharing_enabled
-				&& let Some(channel) = self.state.selected
+			if let Some((generation, channel, assets, draft)) =
+				self.messaging.image_share_requested.take()
+				&& generation == self.state.generation
+				&& self.state.selected == Some(channel)
 				&& self.state.can_send(channel)
 				&& self.state.can_attach(channel)
 				&& let Err(error) = self.uploads.start_image_share(
 					self.state.generation,
 					channel,
-					asset,
+					(assets, draft),
 					self.runtime.handle(),
 					&ctx,
 					self.state.demo,
@@ -6919,6 +7098,9 @@ impl eframe::App for Desktop {
 		{
 			self.messaging.hide_title_bar = false;
 			self.state.status = error;
+		}
+		if !self.messaging.hide_title_bar {
+			frame.set_traffic_lights_position(&ctx, egui::Rangef::new(0.0, title_bar_height), 12.0);
 		}
 		self.sync_customization(&ctx);
 		self.save_app_preferences();

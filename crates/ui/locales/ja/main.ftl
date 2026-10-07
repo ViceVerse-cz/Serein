@@ -1009,7 +1009,7 @@ fonts-show-reset = リセット
 # Context: show
 fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = 素早い茶色のキツネが怠惰な犬を飛び越えます。 0123456789
 # Context: show
-fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF または OTF、最大 8 MiB。このデバイスに保存されます。コードは等幅フォントを維持します。
+fonts-show-ttf-or-otf-up-to-32-mib-saved-on-this = TTF または OTF、最大 32 MiB。このデバイスに保存されます。コードは等幅フォントを維持します。
 # Context: show
 fonts-show-typography = タイポグラフィ
 
@@ -3445,7 +3445,6 @@ settings-close-control-close-settings-esc = 設定を閉じる (Esc)
 # Context: colour_preset_settings
 settings-colour-preset-settings-colour-preset = カラープリセット
 # Context: colour_preset_settings
-settings-colour-preset-settings-saved-with-your-appearance-gradient-presets-always-use-dark-text = あなたの容姿とともに保存されました。グラデーション プリセットでは常に暗いテキストが使用されます。
 # Context: storage_page
 settings-storage-page-clear-cache = キャッシュをクリアする
 # Context: storage_page
@@ -4157,7 +4156,6 @@ voice-voice-processing-controls-start-the-microphone-test-or-join-a-call-to-see 
 # Context: voice_processing_controls
 voice-voice-processing-controls-suppression-strength = 抑制力
 # Context: voice_settings_content
-voice-voice-settings-content-audio-preferences-are-saved-on-this-device-your-microphone-starts = オーディオ設定はこのデバイスに保存されます。マイクは、通話に参加するかテストを開始するときにのみ起動します。
 # Context: voice_settings_content
 voice-voice-settings-content-camera = カメラ
 # Context: voice_settings_content
@@ -4336,6 +4334,16 @@ lib-composer-onboarding-rules-pending = チャットを始めるには、この�
 lib-composer-onboarding-incomplete = 参加を完了すると、さらにチャンネルが開放されます。
 # Context: composer
 lib-composer-onboarding-complete = オンボーディングを完了
+profiles-message-placeholder = @{ $user } にメッセージ
+profiles-message-send = メッセージを送信
+profiles-message-sending = ダイレクトメッセージを開いています…
+user-menu-contents-start-a-call = 通話を開始
+verification-show-complete-the-check-to-open-this-conversation = 確認を完了してこの会話を開いてください。
+verification-show-discord-requires-a-security-check-before-you-can-message = この相手にメッセージを送るには、Discordのセキュリティ確認が必要です。
+verification-show-complete-the-check-to-send-this-message = 確認を完了してこのメッセージを送信してください。
+verification-show-discord-requires-a-security-check-before-this-message = このメッセージを送信するには、Discordのセキュリティ確認が必要です。
+profiles-message-busy = 別の操作が終わるのを待っています…
+profiles-message-offline = メッセージを送るには再接続してください
 
 voice-recipient-ring = もう一度呼び出す
 voice-recipient-stop-ringing = 呼び出しを停止
@@ -4428,3 +4436,5 @@ server-stickers-empty-detail = 画像をアップロードして最初のスタ�
 screen-macos-system-picker = macOSのシステム選択画面で選ぶ
 
 screen-macos-system-picker-kind = システムのコンテンツ選択
+
+member-in-voice = ボイスチャット中

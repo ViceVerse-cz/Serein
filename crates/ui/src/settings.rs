@@ -132,7 +132,7 @@ impl Page {
 				"appearance customization font typography import ttf otf primary accent hex window effects transparency blur theme dark light system mode zoom scale layout sidebar width people members member list reset colour color preset"
 			}
 			Self::Chat => {
-				"chat messages media reading animate animated gifs autoplay hide image links confirm confirmation external browser smooth scrolling scroll speed motion trackpad wheel hidden channels channel list reset"
+				"chat messages media reading animate animated gifs autoplay hide image links confirm confirmation external browser smooth scrolling scroll speed motion trackpad wheel hidden channels channel list reset emoticons emoji chat box automatically convert"
 			}
 			Self::MessagingPermissions => {
 				"messaging permissions spam filters direct messages dm friend requests personalized connected games"
@@ -1041,8 +1041,17 @@ impl MessagingUi {
 		self.layout_settings(ui, demo);
 	}
 
+	/// Shows device-local reading, composer and channel-list preferences.
 	fn chat_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
 		self.chat_reading_settings(ui, demo);
+		design::group(ui, &crate::i18n::translate("settings-chat-box"), |ui| {
+			design::switch(
+				ui,
+				"settings-convert-emoticons",
+				Some("settings-convert-emoticons-description"),
+				&mut self.convert_emoticons,
+			);
+		});
 		design::group(
 			ui,
 			&crate::i18n::translate("settings-chat-settings-channel-list"),
@@ -1059,7 +1068,6 @@ impl MessagingUi {
 
 	/// Built-in presets plus enabled community themes, one swatch each.
 	fn colour_preset_settings(&mut self, ui: &mut egui::Ui) {
-		let colors = design::palette(ui);
 		let current = design::variant();
 		let mut presets: Vec<_> = design::Variant::ALL
 			.into_iter()
@@ -1083,17 +1091,6 @@ impl MessagingUi {
 				design::theme_preview_palette(ui, entry.theme_preview.as_ref()?),
 			))
 		}));
-		let active_label = presets
-			.iter()
-			.find(|(variant, id, _, _)| {
-				if let Some(active) = &self.extensions.active_theme {
-					id.as_ref() == Some(active)
-				} else {
-					*variant == Some(current)
-				}
-			})
-			.map_or(current.label(), |(_, _, label, _)| label.as_str())
-			.to_owned();
 		design::group(
 			ui,
 			&crate::i18n::translate("settings-colour-preset-settings-colour-preset"),
@@ -1120,17 +1117,6 @@ impl MessagingUi {
 						}
 					}
 				});
-				ui.add_space(4.0);
-				ui.label(
-				RichText::new(format!(
-					"{active_label} · {}",
-					crate::i18n::translate(
-						"settings-colour-preset-settings-saved-with-your-appearance-gradient-presets-always-use-dark-text"
-					)
-				))
-				.size(12.0)
-				.color(colors.muted),
-			);
 			},
 		);
 	}
@@ -1515,16 +1501,16 @@ fn theme_preference_cards(ui: &mut egui::Ui) {
 			let variant = design::variant();
 			let (left, right) = match preference {
 				egui::ThemePreference::Dark => {
-					let p = design::colors(true, variant);
+					let p = design::control_colors(true, variant);
 					(p.sidebar.to_opaque(), p.chat.to_opaque())
 				}
 				egui::ThemePreference::Light => {
-					let p = design::colors(false, variant);
+					let p = design::control_colors(false, variant);
 					(p.sidebar.to_opaque(), p.chat.to_opaque())
 				}
 				egui::ThemePreference::System => (
-					design::colors(true, variant).chat.to_opaque(),
-					design::colors(false, variant).chat.to_opaque(),
+					design::control_colors(true, variant).chat,
+					design::control_colors(false, variant).chat,
 				),
 			};
 			painter.rect_filled(swatch, 6, right);

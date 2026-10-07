@@ -76,7 +76,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		mov.read_video()?,
 		Some(platform::video::Sample::Video { .. })
 	));
-	println!("Synthetic WebM and MOV conversion produced native video frames.");
+	assert!(fallback::eligible(platform::video::TOO_LARGE));
+	assert!(fallback::eligible(platform::video::INVALID));
+	assert!(!fallback::eligible(platform::video::TOO_LONG));
+	// Valid AAC may use a media clock different from the PCM sample rate.
+	// Halve both clock and sample deltas so presentation times remain unchanged.
+	let mut bytes = include_bytes!("../tests/fixtures/video.mov").to_vec();
+	let mdhd = bytes.windows(4).rposition(|tag| tag == b"mdhd").unwrap();
+	let clock = mdhd + 16;
+	assert_eq!(&bytes[clock..clock + 4], &48_000_u32.to_be_bytes());
+	bytes[clock..clock + 4].copy_from_slice(&24_000_u32.to_be_bytes());
+	let duration = u32::from_be_bytes(bytes[clock + 4..clock + 8].try_into()?);
+	bytes[clock + 4..clock + 8].copy_from_slice(&(duration / 2).to_be_bytes());
+	let stts = bytes.windows(4).rposition(|tag| tag == b"stts").unwrap();
+	let count = u32::from_be_bytes(bytes[stts + 8..stts + 12].try_into()?);
+	for index in 0..count as usize {
+		let at = stts + 16 + index * 8;
+		let delta = u32::from_be_bytes(bytes[at..at + 4].try_into()?);
+		assert_eq!(delta % 2, 0);
+		bytes[at..at + 4].copy_from_slice(&(delta / 2).to_be_bytes());
+	}
+	let mut native = platform::video::Decoder::open(Box::new(std::io::Cursor::new(bytes)))?;
+	let mut packets = 0;
+	while let Some(platform::video::Sample::Audio { pts, frames }) = native.read_audio()? {
+		assert!(pts.is_finite() && !frames.is_empty());
+		packets += 1;
+	}
+	assert!(packets > 100);
+	println!(
+		"Synthetic WebM/MOV conversion, fallback selection, and AAC with a separate media clock passed."
+	);
 	Ok(())
 }
 

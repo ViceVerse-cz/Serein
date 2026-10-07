@@ -131,7 +131,7 @@ pub struct TimelineView {
 	pub(super) opening: Option<String>,
 	pub(super) browser_opening: Option<String>,
 	text_size: f32,
-	font_revision: (usize, usize),
+	font_revision: (usize, usize, u32),
 	scale: f32,
 	pub(super) load_older: bool,
 	pub(super) latest: bool,
@@ -352,6 +352,43 @@ pub(crate) const MESSAGE_LINE: f32 = 22.0;
 /// Widest author name in a compact row; the body takes the rest beside it.
 pub(crate) fn compact_author_width(available: f32) -> f32 {
 	(available * 0.35).clamp(72.0, 150.0)
+}
+
+/// Match the first body-text baseline, including custom fonts and reading text sizes.
+pub(crate) fn compact_header(
+	ui: &mut egui::Ui,
+	width: f32,
+	font: egui::FontId,
+	add: impl FnOnce(&mut egui::Ui),
+) {
+	let body = ui.painter().layout_no_wrap(
+		" ".into(),
+		egui::TextStyle::Body.resolve(ui.style()),
+		egui::Color32::TRANSPARENT,
+	);
+	let header = ui
+		.painter()
+		.layout_no_wrap(" ".into(), font, egui::Color32::TRANSPARENT);
+	let offset = body.rows[0].glyphs[0].pos.y - header.rows[0].glyphs[0].pos.y;
+	let at = ui.next_widget_position();
+	let mut header_ui = ui.new_child(
+		egui::UiBuilder::new()
+			.max_rect(egui::Rect::from_min_size(
+				at + egui::vec2(0.0, offset),
+				egui::vec2(width, body.size().y),
+			))
+			.layout(egui::Layout::left_to_right(egui::Align::Min)),
+	);
+	add(&mut header_ui);
+	let used = header_ui.min_rect();
+	// Negative font offsets must not move the next column's origin above this row.
+	ui.advance_cursor_after_rect(egui::Rect::from_min_size(
+		at,
+		egui::vec2(
+			used.width(),
+			body.size().y.max(used.height()).max(used.bottom() - at.y),
+		),
+	));
 }
 const GROUPED_ROW_SAVINGS: f32 = 52.0;
 
@@ -2506,9 +2543,10 @@ impl TimelineView {
 									let body_spacing = ui.spacing().item_spacing.x;
 									ui.spacing_mut().item_spacing.x = 8.0;
 									let time = timestamp(id);
-									ui.allocate_ui_with_layout(
-										egui::vec2(ui.available_width(), MESSAGE_LINE),
-										egui::Layout::left_to_right(egui::Align::Center),
+									compact_header(
+										ui,
+										ui.available_width(),
+										egui::FontId::proportional(12.0),
 										|ui| {
 											let time = ui
 												.label(
@@ -2525,9 +2563,13 @@ impl TimelineView {
 										},
 									);
 									let width = compact_author_width(ui.available_width());
-									ui.allocate_ui_with_layout(
-										egui::vec2(width, MESSAGE_LINE),
-										egui::Layout::left_to_right(egui::Align::Center),
+									compact_header(
+										ui,
+										width,
+										egui::FontId::new(
+											15.5,
+											crate::design::medium_family(ui.ctx()),
+										),
 										|ui| {
 											ui.set_max_width(width);
 											let author = crate::account_badge::name(
@@ -3531,7 +3573,7 @@ impl TimelineView {
 			}
 			viewport.min.y
 		});
-		self.scroll_offset = output.state.offset.y;
+		self.scroll_offset = output.state.clamped_offset().y;
 		if jumped_to.is_some_and(|target| (self.scroll_offset - target).abs() > 1.0) {
 			self.jump = false;
 			ui.ctx().request_discard("Timeline live edge settled");
@@ -3546,19 +3588,20 @@ impl TimelineView {
 		let lead = spare;
 		let (anchor, _, anchor_top) = visible_range(
 			&self.rows,
-			(output.state.offset.y - lead).max(0.0),
-			(output.state.offset.y + output.inner_rect.height() - lead).max(0.0),
+			(output.state.clamped_offset().y - lead).max(0.0),
+			(output.state.clamped_offset().y + output.inner_rect.height() - lead).max(0.0),
 		);
 		self.anchor = self
 			.rows
 			.get(anchor)
-			.map(|(id, _)| (*id, output.state.offset.y - lead - anchor_top));
+			.map(|(id, _)| (*id, output.state.clamped_offset().y - lead - anchor_top));
 		if selected_reply.is_some() {
 			state.reply = selected_reply.map(client_core::Reply::to);
 			self.reply_started = true;
 		}
 		let distance_from_bottom =
-			(output.content_size.y - output.state.offset.y - output.inner_rect.height()).max(0.0);
+			(output.content_size.y - output.state.clamped_offset().y - output.inner_rect.height())
+				.max(0.0);
 		let whole_conversation_visible =
 			state.older_exhausted && packed <= output.inner_rect.height() + 3.0;
 		let at_bottom = distance_from_bottom <= 3.0 || whole_conversation_visible;
@@ -3581,7 +3624,7 @@ impl TimelineView {
 						.pointer
 						.hover_pos()
 						.is_some_and(|pos| output.inner_rect.contains(pos))))
-				|| (input.pointer.any_down() && output.state.offset.y > output.inner)
+				|| (input.pointer.any_down() && output.state.clamped_offset().y > output.inner)
 		});
 		if at_bottom && (can_load_newer || self.at_current_latest) {
 			if can_load_newer {
@@ -3671,7 +3714,7 @@ impl TimelineView {
 		}
 		// Explicit upward input requests one page even when a short view cannot scroll.
 		// Idle layout still never drains history merely to fill the viewport.
-		self.load_older = output.state.offset.y < 160.0
+		self.load_older = output.state.clamped_offset().y < 160.0
 			&& ui.input(|i| {
 				scroll_delta > 0.0
 					&& (session.holding()
@@ -3849,7 +3892,7 @@ impl TimelineView {
 				if distance_from_bottom > 0.5 && !browsing_history && !self.instant_scrolling {
 					// Glide back so the reader keeps their place in the conversation.
 					self.target_browsing = false;
-					self.present_scroll = Some((output.state.offset.y, 0.0));
+					self.present_scroll = Some((output.state.clamped_offset().y, 0.0));
 				} else {
 					self.follow_latest(state);
 				}
@@ -4180,6 +4223,7 @@ mod tests {
 				egui::Event::MouseWheel {
 					unit: egui::MouseWheelUnit::Point,
 					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
 					delta: egui::vec2(0.0, delta),
 					modifiers: egui::Modifiers::NONE,
 				},
@@ -4216,6 +4260,7 @@ mod tests {
 			vec![egui::Event::MouseWheel {
 				unit: egui::MouseWheelUnit::Point,
 				phase: egui::TouchPhase::End,
+				source: egui::MouseWheelSource::Unknown,
 				delta: egui::Vec2::ZERO,
 				modifiers: egui::Modifiers::NONE,
 			}],
@@ -4563,6 +4608,147 @@ mod tests {
 	}
 
 	#[test]
+	fn compact_message_text_baselines_align() {
+		fn collect(shape: &egui::Shape, labels: &mut Vec<(String, egui::Pos2)>) {
+			match shape {
+				egui::Shape::Text(text) => {
+					if let Some(row) = text.galley.rows.first()
+						&& let Some(glyph) = row.glyphs.first()
+					{
+						labels.push((
+							text.galley.job.text.clone(),
+							text.pos + row.pos.to_vec2() + glyph.pos.to_vec2(),
+						));
+					}
+				}
+				egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| collect(shape, labels)),
+				_ => {}
+			}
+		}
+		for size in [10.0, 15.0, 20.0] {
+			for width in [440.0, 900.0] {
+				let ctx = egui::Context::default();
+				crate::fonts::install(&ctx);
+				crate::design::apply(&ctx);
+				ctx.all_styles_mut(|style| {
+					style
+						.text_styles
+						.get_mut(&egui::TextStyle::Body)
+						.unwrap()
+						.size = size
+				});
+				let mut state = loading_unread_channel(false);
+				state.freshness = model::Freshness::Fresh;
+				state.history_pending = false;
+				let mut message = text_message(20);
+				message.author.name = "Received author".into();
+				message.author.kind = model::AccountKind::VerifiedBot;
+				message.content =
+					"Received body with enough words to wrap in the narrow viewport".into();
+				state.user = Some(model::User {
+					name: "Pending author".into(),
+					..message.author.clone()
+				});
+				state.timeline.insert(message, false, false).unwrap();
+				let mut second = text_message(21);
+				second.author.name = "Second author".into();
+				second.content = "Second body".into();
+				state.timeline.insert(second, false, false).unwrap();
+				state.pending.push(client_core::Pending {
+					channel: Id(20),
+					nonce: "compact-baseline".into(),
+					content: "Pending body".into(),
+					attachments: vec![],
+					sticker: None,
+					delivery: model::Delivery::Sending,
+					confirmed: None,
+				});
+				let mut view = TimelineView {
+					compact_messages: true,
+					..Default::default()
+				};
+				let mut labels = vec![];
+				for _ in 0..6 {
+					let output = ctx.run_ui(
+						egui::RawInput {
+							screen_rect: Some(egui::Rect::from_min_size(
+								egui::Pos2::ZERO,
+								egui::vec2(width, 600.0),
+							)),
+							..Default::default()
+						},
+						|ui| {
+							view.show(
+								ui,
+								&mut state,
+								&mut None,
+								&mut None,
+								(
+									&mut crate::avatars::Avatars::default(),
+									&mut crate::profiles::ProfileSession::default(),
+								),
+								None,
+							);
+						},
+					);
+					labels.clear();
+					for shape in &output.shapes {
+						collect(&shape.shape, &mut labels);
+					}
+					output.drop_without_applying_deltas();
+				}
+				for (author, body) in [
+					("Received author", "Received body"),
+					("Second author", "Second body"),
+					("Pending author", "Pending body"),
+				] {
+					let author = labels.iter().find(|(text, _)| text == author).unwrap().1;
+					let body = labels
+						.iter()
+						.find(|(text, _)| text.starts_with(body))
+						.unwrap()
+						.1;
+					assert!(
+						(author.y - body.y).abs() <= 1.0 && author.x < body.x,
+						"author {author:?}, body {body:?}; font {size}, width {width}"
+					);
+				}
+				let first = labels
+					.iter()
+					.find(|(text, _)| text == "Received author")
+					.unwrap()
+					.1;
+				let second = labels
+					.iter()
+					.find(|(text, _)| text == "Second author")
+					.unwrap()
+					.1;
+				let height = ctx.fonts_mut(|fonts| {
+					fonts.row_height(&egui::FontId::new(15.5, crate::design::medium_family(&ctx)))
+				});
+				assert!(
+					second.y - first.y >= height,
+					"consecutive authors must not overlap: {first:?}, {second:?}"
+				);
+				let time = labels
+					.iter()
+					.find(|(text, _)| text.len() == 5 && text.as_bytes()[2] == b':')
+					.unwrap()
+					.1;
+				let body = labels
+					.iter()
+					.find(|(text, _)| text.starts_with("Received body"))
+					.unwrap()
+					.1;
+				assert!(
+					(time.y - body.y).abs() <= 1.0,
+					"time {time:?}, body {body:?}; font {size}"
+				);
+			}
+		}
+	}
+
+	#[test]
 	fn compact_messages_place_authors_beside_every_body_and_reduce_row_height() {
 		let mut heights = Vec::new();
 		for compact in [false, true] {
@@ -4828,6 +5014,7 @@ mod tests {
 							delta: egui::vec2(0.0, -600.0),
 							modifiers: egui::Modifiers::NONE,
 							phase: egui::TouchPhase::Move,
+							source: egui::MouseWheelSource::Unknown,
 						},
 					],
 					false,
@@ -4944,6 +5131,7 @@ mod tests {
 					delta: egui::vec2(0.0, -600.0),
 					modifiers: egui::Modifiers::NONE,
 					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
 				},
 			],
 			false,
@@ -6860,6 +7048,7 @@ mod tests {
 					delta: egui::vec2(0.0, -80.0),
 					modifiers: egui::Modifiers::NONE,
 					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
 				},
 			],
 			false,
@@ -6964,6 +7153,7 @@ mod tests {
 						delta: egui::vec2(0.0, -80.0),
 						modifiers: egui::Modifiers::NONE,
 						phase: egui::TouchPhase::Move,
+						source: egui::MouseWheelSource::Unknown,
 					},
 				],
 			);
@@ -7041,6 +7231,7 @@ mod tests {
 					delta: egui::vec2(0.0, -80.0),
 					modifiers: egui::Modifiers::NONE,
 					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
 				},
 			],
 			false,
@@ -7251,6 +7442,7 @@ mod tests {
 					delta: egui::vec2(0.0, -80.0),
 					modifiers: egui::Modifiers::NONE,
 					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
 				},
 			],
 			false,
@@ -7544,6 +7736,7 @@ mod tests {
 								delta: egui::vec2(0.0, delta),
 								modifiers: egui::Modifiers::NONE,
 								phase: egui::TouchPhase::Move,
+								source: egui::MouseWheelSource::Unknown,
 							},
 						],
 						..Default::default()
@@ -7871,6 +8064,7 @@ mod tests {
 						delta: egui::vec2(0.0, 4_000.0),
 						modifiers: egui::Modifiers::NONE,
 						phase: egui::TouchPhase::Move,
+						source: egui::MouseWheelSource::Unknown,
 					},
 				];
 				let mut left = bottom;

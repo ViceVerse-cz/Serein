@@ -1008,7 +1008,7 @@ fonts-show-reset = Reiniciar
 # Context: show
 fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = El veloz zorro marrón salta sobre el perro perezoso. 0123456789
 # Context: show
-fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF u OTF, hasta 8 MiB. Guardado en este dispositivo. El código mantiene su fuente monoespaciada.
+fonts-show-ttf-or-otf-up-to-32-mib-saved-on-this = TTF u OTF, hasta 32 MiB. Guardado en este dispositivo. El código mantiene su fuente monoespaciada.
 # Context: show
 fonts-show-typography = Tipografía
 
@@ -3444,7 +3444,6 @@ settings-close-control-close-settings-esc = Cerrar configuración (Esc)
 # Context: colour_preset_settings
 settings-colour-preset-settings-colour-preset = Color preestablecido
 # Context: colour_preset_settings
-settings-colour-preset-settings-saved-with-your-appearance-gradient-presets-always-use-dark-text = Guardado con tu apariencia. Los ajustes preestablecidos de degradado siempre utilizan texto oscuro.
 # Context: storage_page
 settings-storage-page-clear-cache = Borrar caché
 # Context: storage_page
@@ -4160,7 +4159,6 @@ voice-voice-processing-controls-start-the-microphone-test-or-join-a-call-to-see 
 # Context: voice_processing_controls
 voice-voice-processing-controls-suppression-strength = Fuerza de supresión
 # Context: voice_settings_content
-voice-voice-settings-content-audio-preferences-are-saved-on-this-device-your-microphone-starts = Las preferencias de audio se guardan en este dispositivo. Su micrófono se activa solo cuando se une a una llamada o comienza a realizar pruebas.
 # Context: voice_settings_content
 voice-voice-settings-content-camera = Cámara
 # Context: voice_settings_content
@@ -4347,6 +4345,17 @@ lib-composer-onboarding-rules-pending = Acepta las reglas de este servidor para 
 lib-composer-onboarding-incomplete = Termina de unirte a este servidor para desbloquear más canales.
 # Context: composer
 lib-composer-onboarding-complete = Completar bienvenida
+profiles-message-placeholder = Mensaje a @{ $user }
+profiles-message-send = Enviar mensaje
+profiles-message-sending = Abriendo mensaje directo…
+user-menu-contents-start-a-call = Iniciar llamada
+verification-show-complete-the-check-to-open-this-conversation = Completa la verificación para abrir esta conversación.
+verification-show-discord-requires-a-security-check-before-you-can-message = Discord requiere una verificación de seguridad antes de que puedas escribir a esta persona.
+verification-show-complete-the-check-to-send-this-message = Completa la verificación para enviar este mensaje.
+verification-show-discord-requires-a-security-check-before-this-message = Discord requiere una verificación de seguridad antes de enviar este mensaje.
+profiles-message-busy = Esperando a que termine otra acción…
+profiles-message-offline = Vuelve a conectarte para enviar un mensaje
+
 voice-recipient-ring = Volver a llamar
 voice-recipient-stop-ringing = Dejar de llamar
 voice-recipient-ringing = Llamando…
@@ -4441,3 +4450,5 @@ server-stickers-empty-detail = Suba una imagen para añadir su primer sticker.
 screen-macos-system-picker = Elegir con el selector del sistema macOS
 
 screen-macos-system-picker-kind = Selector de contenido del sistema
+
+member-in-voice = En un canal de voz

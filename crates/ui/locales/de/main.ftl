@@ -1008,7 +1008,7 @@ fonts-show-reset = Zurücksetzen
 # Context: show
 fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = Der schnelle Braunfuchs springt über den faulen Hund. 0123456789
 # Context: show
-fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF oder OTF, bis zu 8 MiB. Auf diesem Gerät gespeichert. Code behält seine Monospace-Schriftart.
+fonts-show-ttf-or-otf-up-to-32-mib-saved-on-this = TTF oder OTF, bis zu 32 MiB. Auf diesem Gerät gespeichert. Code behält seine Monospace-Schriftart.
 # Context: show
 fonts-show-typography = Typografie
 
@@ -3444,7 +3444,6 @@ settings-close-control-close-settings-esc = Einstellungen schließen (Esc)
 # Context: colour_preset_settings
 settings-colour-preset-settings-colour-preset = Farbvoreinstellung
 # Context: colour_preset_settings
-settings-colour-preset-settings-saved-with-your-appearance-gradient-presets-always-use-dark-text = Gespeichert mit Ihrem Aussehen. Verlaufsvoreinstellungen verwenden immer dunklen Text.
 # Context: storage_page
 settings-storage-page-clear-cache = Cache leeren
 # Context: storage_page
@@ -4160,7 +4159,6 @@ voice-voice-processing-controls-start-the-microphone-test-or-join-a-call-to-see 
 # Context: voice_processing_controls
 voice-voice-processing-controls-suppression-strength = Unterdrückungsstärke
 # Context: voice_settings_content
-voice-voice-settings-content-audio-preferences-are-saved-on-this-device-your-microphone-starts = Audioeinstellungen werden auf diesem Gerät gespeichert. Ihr Mikrofon startet nur, wenn Sie an einem Anruf teilnehmen oder mit dem Testen beginnen.
 # Context: voice_settings_content
 voice-voice-settings-content-camera = Kamera
 # Context: voice_settings_content
@@ -4347,6 +4345,16 @@ lib-composer-onboarding-rules-pending = Akzeptiere die Regeln dieses Servers, um
 lib-composer-onboarding-incomplete = Schließe den Beitritt ab, um weitere Kanäle freizuschalten.
 # Context: composer
 lib-composer-onboarding-complete = Einführung abschließen
+profiles-message-placeholder = Nachricht an @{ $user }
+profiles-message-send = Nachricht senden
+profiles-message-sending = Direktnachricht wird geöffnet…
+user-menu-contents-start-a-call = Anruf starten
+verification-show-complete-the-check-to-open-this-conversation = Schließe die Prüfung ab, um diese Unterhaltung zu öffnen.
+verification-show-discord-requires-a-security-check-before-you-can-message = Discord verlangt eine Sicherheitsprüfung, bevor du dieser Person schreiben kannst.
+verification-show-complete-the-check-to-send-this-message = Schließe die Prüfung ab, um diese Nachricht zu senden.
+verification-show-discord-requires-a-security-check-before-this-message = Discord verlangt eine Sicherheitsprüfung, bevor diese Nachricht gesendet werden kann.
+profiles-message-busy = Warte, bis eine andere Aktion abgeschlossen ist …
+profiles-message-offline = Verbinde dich erneut, um eine Nachricht zu senden
 
 voice-recipient-ring = Erneut anrufen
 voice-recipient-stop-ringing = Klingeln beenden
@@ -4439,3 +4447,5 @@ server-stickers-empty-detail = Laden Sie ein Bild hoch, um Ihren ersten Sticker 
 screen-macos-system-picker = Mit der macOS-Systemauswahl wählen
 
 screen-macos-system-picker-kind = Systemauswahl für Inhalte
+
+member-in-voice = Im Sprachchat

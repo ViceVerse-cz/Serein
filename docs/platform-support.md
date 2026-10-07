@@ -1,5 +1,36 @@
 # Platform support and packaging
 
+## Window size and placement
+
+Normal window size is saved in logical pixels in the existing device-local SQLite
+preferences. Outer position is saved in physical pixels where the window system
+supports it (including Linux X11); disconnected-monitor positions are ignored.
+Restoration fits the complete outer window to the selected monitor's dimensions,
+shrinking it and moving it inward when the display has become smaller. The normal
+minimum size is relaxed if necessary to fit that display.
+Minimized, hidden, maximized and fullscreen states do not replace normal geometry.
+The offline `--demo` ignores saved geometry and does not save its window state.
+
+Wayland does not expose global window coordinates to ordinary clients, so window
+placement belongs to the compositor. Niri also controls tiled column sizes and can
+override the application's requested size. To allow Serein's saved width, add to
+`~/.config/niri/config.kdl`:
+
+```kdl
+window-rule {
+    match app-id=r#"^cz\.viceverse\.serein$"#
+    default-column-width {}
+}
+```
+
+For compositor-controlled placement, use Niri's `open-on-workspace`, `open-on-output`
+or floating-window rules. See [Niri window rules](https://github.com/niri-wm/niri/wiki/Configuration:-Window-Rules)
+and [Niri's application-selected width](https://github.com/niri-wm/niri/wiki/Configuration:-Layout#default-column-width),
+and [winit's platform limitations](https://docs.rs/winit/0.30.13/winit/window/struct.Window.html#method.outer_position).
+Native restart/resize behavior on Niri and other Linux desktops remains unverified.
+
+## Build and runtime support
+
 Target platforms are Windows, macOS and Linux. **macOS arm64, Windows x64 and Linux x64 have local build evidence.** The release workflow also targets Windows arm64 and Ubuntu 26.04 ARM64 on native GitHub Actions runners; build and runtime validation remain pending. macOS has native visual checks; Windows has offline tests and a process/window startup smoke check only. Minimum OS versions, other architectures, real screen-reader support and native login-method support are not certified.
 
 Windows defaults to DirectX 12 to avoid reported startup access violations in Intel's
@@ -183,8 +214,15 @@ for restoration or the named special workspace for hiding. A compositor rejectio
 falls back to `hl.dsp.window.move` with `follow = false`, preserving the workspace
 `address` when supplied, otherwise its numeric `id`. Transport failures are not
 retried. Workspace names are bounded and escaped before Lua dispatch.
+On KDE Plasma (`XDG_CURRENT_DESKTOP` contains `KDE`), Close loads a small KWin script
+over D-Bus (`org.kde.KWin` `/Scripting`) that minimizes Serein and skips the taskbar,
+pager and task switcher; Show and Quit unminimize and activate it first, so Quit no
+longer renders into a minimized surface. Tray Minimize keeps the taskbar entry. Native
+installs match the process ID; Flatpak matches its app ID and writes scripts to its
+shared per-app runtime directory. If KWin scripting is unreachable, Close falls back
+to minimizing. KDE Plasma behavior is not yet verified on a live session.
 Other Wayland compositors receive minimize/restore requests and may require their
-own window controls; the KDE tray restoration report remains unresolved. Native Wayland remains the default on Wayland sessions, with no
+own window controls. Native Wayland remains the default on Wayland sessions, with no
 application-level XWayland fallback or backend override.
 Quit remains explicit and runs the existing unsaved-work/download/extension checks;
 cancelling Quit restores close-to-tray behavior.
@@ -308,12 +346,15 @@ an official client remain unverified.
 
 ## Additional macOS attachment codecs
 
-WebM and MOV codecs unavailable in the native inline decoder can use an installed
+WebM, MOV and MP4 codecs unavailable in the native inline decoder can use an installed
 FFmpeg from `/opt/homebrew/bin`, `/usr/local/bin`, or `/usr/bin`. Nothing is installed
 automatically. The helper must include H.264 (`libx264`) and AAC encoding; converted
 video plays through the existing native controls. Conversion may take up to two
 minutes before playback and is limited to 100 MiB input/output, 1080p and two hours.
-Missing FFmpeg or conversion failures appear in the video card. Linux and Windows
+Native format failures during opening or playback retry conversion once, resuming at
+the last displayed position. Sources above the native 1080p limit also use this
+bounded downscaling path. AAC track timestamps need not use the audio sample rate
+as their timescale. Missing FFmpeg or conversion failures appear in the video card. Linux and Windows
 continue to use their installed native codecs. This optional fallback is not bundled
 in release packages; actual codec coverage depends on the local FFmpeg build.
 Windows passes MPEG-4/MOV and WebM/Matroska attachments to Media Foundation; a recognized

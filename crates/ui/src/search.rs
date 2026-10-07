@@ -1562,8 +1562,8 @@ impl SearchUi {
 									.color(colors.muted),
 								);
 							} else {
-								if !preview.embeds.is_empty() {
-									crate::embeds::show(
+								if !preview.embeds.is_empty()
+									&& let Some(gif) = crate::embeds::show(
 										ui,
 										preview,
 										&mut self.formats,
@@ -1573,7 +1573,8 @@ impl SearchUi {
 										profile,
 										state,
 										crate::design::MessageCardSurface::Opaque,
-									);
+									) {
+									media.download.gif_favorite_request = Some(gif);
 								}
 								if !preview.attachments.is_empty() {
 									crate::attachments::show(

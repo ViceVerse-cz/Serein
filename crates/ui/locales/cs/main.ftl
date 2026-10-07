@@ -998,17 +998,20 @@ extensions-ui-toolbar-working-on-your-last-action = Zpracovávám poslední akci
 
 ## crates/ui/src/fonts.rs
 # Context: show
-fonts-show-import-font = Importovat písmo…
 # Context: show
 fonts-show-inter-default = Inter (výchozí)
 # Context: show
 fonts-show-interface-font = Písmo rozhraní
 # Context: show
 fonts-show-reset = Resetovat
+fonts-show-search = Hledat nainstalovaná písma
+fonts-show-loading = Načítání nainstalovaných písem…
+fonts-show-no-match = Hledání neodpovídá žádné nainstalované písmo.
+fonts-show-none-installed = V tomto systému nebyla nalezena žádná nainstalovaná písma.
 # Context: show
 fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = Rychlá hnědá liška přeskakuje líného psa. 0123456789
 # Context: show
-fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF nebo OTF, až 8 MiB. Uloženo v tomto zařízení. Kód si zachovává jednoprostorové písmo.
+fonts-show-ttf-or-otf-up-to-32-mib-saved-on-this = Písma nainstalovaná v tomto zařízení, až 32 MiB. Kopie se uloží pro Serein. Kód si zachovává jednoprostorové písmo.
 # Context: show
 fonts-show-typography = Typografie
 
@@ -3444,7 +3447,6 @@ settings-close-control-close-settings-esc = Zavřít nastavení (Esc)
 # Context: colour_preset_settings
 settings-colour-preset-settings-colour-preset = Přednastavená barva
 # Context: colour_preset_settings
-settings-colour-preset-settings-saved-with-your-appearance-gradient-presets-always-use-dark-text = Ušetřeno s vaším vzhledem. Předvolby přechodu vždy používají tmavý text.
 # Context: storage_page
 settings-storage-page-clear-cache = Vymazat mezipaměť
 # Context: storage_page
@@ -4161,7 +4163,6 @@ voice-voice-processing-controls-start-the-microphone-test-or-join-a-call-to-see 
 # Context: voice_processing_controls
 voice-voice-processing-controls-suppression-strength = Síla potlačení
 # Context: voice_settings_content
-voice-voice-settings-content-audio-preferences-are-saved-on-this-device-your-microphone-starts = Předvolby zvuku jsou uloženy v tomto zařízení. Váš mikrofon se spustí, pouze když se připojíte k hovoru nebo začnete testovat.
 # Context: voice_settings_content
 voice-voice-settings-content-camera = Fotoaparát
 # Context: voice_settings_content
@@ -4366,6 +4367,16 @@ lib-composer-onboarding-rules-pending = Přijmi pravidla tohoto serveru, abys mo
 lib-composer-onboarding-incomplete = Dokonči připojení k serveru a odemkni další kanály.
 # Context: composer
 lib-composer-onboarding-complete = Dokončit uvítání
+profiles-message-placeholder = Zpráva pro @{ $user }
+profiles-message-send = Odeslat zprávu
+profiles-message-sending = Otevírání soukromé zprávy…
+user-menu-contents-start-a-call = Zahájit hovor
+verification-show-complete-the-check-to-open-this-conversation = Dokonči ověření a otevři tuto konverzaci.
+verification-show-discord-requires-a-security-check-before-you-can-message = Discord vyžaduje bezpečnostní ověření, než této osobě budeš moct napsat.
+verification-show-complete-the-check-to-send-this-message = Dokonči ověření a odešli tuto zprávu.
+verification-show-discord-requires-a-security-check-before-this-message = Discord vyžaduje bezpečnostní ověření, než bude možné tuto zprávu odeslat.
+profiles-message-busy = Čeká se na dokončení jiné akce…
+profiles-message-offline = Pro odeslání zprávy se znovu připoj
 
 voice-recipient-ring = Znovu zavolat
 voice-recipient-stop-ringing = Zastavit vyzvánění
@@ -4374,35 +4385,42 @@ voice-recipient-not-in-call = Není v hovoru
 reconnect-now = Znovu připojit
 
 # Explicit public attachment hosting
-public-upload-host-file = Hostovat soubor…
-public-upload-heading = Nahrát na Catbox
-public-upload-subtitle = Sdílet veřejný odkaz místo přílohy Discordu
+public-upload-host-file = Sdílet odkazem…
+public-upload-heading = Sdílet veřejným odkazem
+public-upload-subtitle = Nahrajte soubor na veřejné úložiště a pošlete jeho odkaz místo přílohy Discordu
 public-upload-offline = Offline náhled · žádný soubor se nenahrává
-public-upload-size = { $size } MB · veřejné úložiště souborů
-public-upload-privacy = Kdokoli s odkazem má přístup k tomuto souboru. Původní soubor i jeho metadata se nahrají beze změny na Catbox, mimo Discord.
-public-upload-retention = Catbox nyní uvádí, že anonymní soubory mohou být odstraněny po dvou letech bez přístupu. Serein nemůže uložené soubory smazat; zrušení nahrávání ani smazání zprávy Discordu je neodstraní.
-public-upload-review = Odkaz zde zůstane ke kontrole. Zvolte Přidat do konceptu nebo Kopírovat odkaz a poté jej sami odešlete.
+public-upload-host = Úložiště souborů
+public-upload-host-x0at = Až 1 GB · uchováno 3 až 100 dní, menší soubory déle
+public-upload-host-catbox = Až 200 MB (GIF 20 MB) · může být odstraněn po dvou letech bez přístupu
+public-upload-host-litterbox = Až 1 GB · dočasné, smazáno po 72 hodinách
+public-upload-over-limit = { $size } · nad vaším limitem nahrávání na Discord ({ $limit })
+public-upload-uploading = Nahrávání na { $host } · { $sent } z { $total }
+public-upload-privacy = Kdokoli s odkazem může soubor otevřít. Nahraje se beze změny včetně metadat mimo Discord a Serein jej později nemůže smazat.
+public-upload-review = Zatím se nic neodesílá. Přidejte odkaz do konceptu nebo jej zkopírujte a pak jej sami odešlete.
 public-upload-return = Pro přidání odkazu se vraťte do původní konverzace.
 public-upload-preparing = Příprava veřejného nahrávání…
-public-upload-limits = Nejvýše 200 MB (GIF: 20 MB). Soubory EXE, SCR, CPL, JAR a DOC nejsou podporovány.
+public-upload-limits = Soubor je příliš velký nebo tohoto typu, který úložiště nepřijímá
 public-upload-add = Přidat do konceptu
 public-upload-copy = Kopírovat odkaz
 public-upload-close = Zavřít
 public-upload-cancel-upload = Zrušit nahrávání
-public-upload-upload = Veřejně nahrát na Catbox
+public-upload-upload = Nahrát na { $host }
 public-upload-cancel = Zrušit
 public-upload-draft-full = Koncept je plný; před zavřením zkopírujte veřejný odkaz
-public-upload-leave = Odchod zruší veřejné nahrávání a zahodí odkaz v dialogu. Již nahrané soubory mohou zůstat na Catboxu; před pokračováním zkopírujte odkaz.
-public-upload-error-cancelled = Veřejné nahrávání zrušeno; přijatá data mohou zůstat na Catboxu
+public-upload-leave = Odchod zruší veřejné nahrávání a zahodí odkaz v dialogu. Již nahrané soubory mohou zůstat na úložišti; před pokračováním zkopírujte odkaz.
+public-upload-error-cancelled = Veřejné nahrávání zrušeno; přijatá data mohou zůstat na úložišti
 public-upload-error-prepare = Veřejné nahrávání se nepodařilo připravit
 public-upload-error-changed = Soubor se změnil nebo je nedostupný; vyberte jej znovu
-public-upload-error-failed = Veřejné nahrávání selhalo; přijatá data mohou zůstat na Catboxu
-public-upload-error-rejected = Catbox odmítl nahrávání; žádná zpráva Discordu nebyla odeslána
-public-upload-error-incomplete = Veřejné nahrávání je neúplné; přijatá data mohou zůstat na Catboxu
+public-upload-error-failed = Veřejné nahrávání selhalo; přijatá data mohou zůstat na úložišti
+public-upload-error-rejected = Úložiště odmítlo nahrávání; žádná zpráva Discordu nebyla odeslána
+public-upload-error-incomplete = Veřejné nahrávání je neúplné; přijatá data mohou zůstat na úložišti
 public-upload-error-response-limit = Odpověď úložiště souborů překročila limit
-public-upload-error-interrupted = Veřejné nahrávání přerušeno; přijatá data mohou zůstat na Catboxu
+public-upload-error-interrupted = Veřejné nahrávání přerušeno; přijatá data mohou zůstat na úložišti
 public-upload-error-invalid-link = Úložiště souborů vrátilo neplatný odkaz
 public-upload-error-busy = Počkejte na dokončení aktuální operace s přílohou
+public-upload-retry = Zkusit znovu
+public-upload-error-unavailable = Toto úložiště je nedostupné nebo nyní nepřijímá nahrávání. Zkuste to znovu s jiným úložištěm.
+public-upload-oversized = Soubory nad { $limit } nelze s vaším plánem odeslat. Odeberte je, nebo místo toho sdílejte odkaz.
 public-upload-error-conversation = Před veřejným nahráním se vraťte do původní konverzace a znovu zkontrolujte soubor
 public-upload-error-selection = Výběr se změnil; před veřejným nahráním znovu zkontrolujte soubor
 public-upload-error-missing = Před veřejným nahráním znovu vyberte soubor
@@ -4410,11 +4428,7 @@ public-upload-error-missing = Před veřejným nahráním znovu vyberte soubor
 voice-call-moved-to-another-client = Relace hovoru na tomto zařízení byla nahrazena
 
 # Synchronizované oblíbené GIFy (neoficiální nastavení účtu).
-gif-favorites-sync-loading = Synchronizuji oblíbené…
-gif-favorites-sync-ready = Oblíbené z Discordu a místní
-gif-favorites-sync-local = Místní oblíbené
 gif-favorites-sync-refresh = Obnovit z Discordu
-gif-favorites-sync-help = Místní oblíbené zůstávají místní, dokud nezměníte jejich hvězdičku. Nové změny se po načtení synchronizují. Video GIFy mají náhradní náhled. Zobrazí se nejvýše 100 oblíbených; ostatní se při ukládání zachovají.
 gif-favorites-sync-failed = Synchronizace selhala; místní oblíbené zůstávají. Před další změnou obnovte seznam.
 gif-favorites-sync-unsupported = Oblíbené na Discordu nejsou podporované nebo překračují bezpečný limit.
 gif-favorites-sync-unconfirmed = Změna nebyla potvrzena. Před opakováním obnovte seznam.
@@ -4502,3 +4516,8 @@ server-stickers-empty-detail = Nahrajte obrázek a přidejte svou první nálepk
 screen-macos-system-picker = Vybrat systémovým dialogem macOS
 
 screen-macos-system-picker-kind = Systémový výběr obsahu
+
+member-in-voice = V hlasovém chatu
+settings-chat-box = Psaní zpráv
+settings-convert-emoticons = Automaticky převádět emotikony ve zprávách na emoji
+settings-convert-emoticons-description = Při odesílání nebo úpravě zpráv převést samostatné emotikony jako :) na 🙂. Kód a odkazy zůstanou beze změny.

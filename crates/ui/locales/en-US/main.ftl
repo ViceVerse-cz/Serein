@@ -999,17 +999,20 @@ extensions-ui-toolbar-working-on-your-last-action = Working on your last action
 
 ## crates/ui/src/fonts.rs
 # Context: show
-fonts-show-import-font = Import font…
 # Context: show
 fonts-show-inter-default = Inter (default)
 # Context: show
 fonts-show-interface-font = Interface font
 # Context: show
 fonts-show-reset = Reset
+fonts-show-search = Search installed fonts
+fonts-show-loading = Loading installed fonts…
+fonts-show-no-match = No installed font matches your search.
+fonts-show-none-installed = No installed fonts were found on this system.
 # Context: show
 fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = The quick brown fox jumps over the lazy dog. 0123456789
 # Context: show
-fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF or OTF, up to 8 MiB. Saved on this device. Code keeps its monospace font.
+fonts-show-ttf-or-otf-up-to-32-mib-saved-on-this = Fonts installed on this device, up to 32 MiB. A copy is saved for Serein. Code keeps its monospace font.
 # Context: show
 fonts-show-typography = Typography
 
@@ -3445,7 +3448,6 @@ settings-close-control-close-settings-esc = Close settings (Esc)
 # Context: colour_preset_settings
 settings-colour-preset-settings-colour-preset = Colour preset
 # Context: colour_preset_settings
-settings-colour-preset-settings-saved-with-your-appearance-gradient-presets-always-use-dark-text = Saved with your appearance. Gradient presets always use dark text.
 # Context: storage_page
 settings-storage-page-clear-cache = Clear cache
 # Context: storage_page
@@ -4161,7 +4163,6 @@ voice-voice-processing-controls-start-the-microphone-test-or-join-a-call-to-see 
 # Context: voice_processing_controls
 voice-voice-processing-controls-suppression-strength = Suppression strength
 # Context: voice_settings_content
-voice-voice-settings-content-audio-preferences-are-saved-on-this-device-your-microphone-starts = Audio preferences are saved on this device. Your microphone starts only when you join a call or start testing.
 # Context: voice_settings_content
 voice-voice-settings-content-camera = Camera
 # Context: voice_settings_content
@@ -4364,6 +4365,16 @@ lib-composer-onboarding-rules-pending = Accept this server's rules to start chat
 lib-composer-onboarding-incomplete = Finish joining this server to unlock more channels.
 # Context: composer
 lib-composer-onboarding-complete = Complete Onboarding
+profiles-message-placeholder = Message @{ $user }
+profiles-message-send = Send message
+profiles-message-sending = Opening direct message…
+user-menu-contents-start-a-call = Start a Call
+verification-show-complete-the-check-to-open-this-conversation = Complete the check to open this conversation.
+verification-show-discord-requires-a-security-check-before-you-can-message = Discord requires a security check before you can message this person.
+verification-show-complete-the-check-to-send-this-message = Complete the check to send this message.
+verification-show-discord-requires-a-security-check-before-this-message = Discord requires a security check before this message can be sent.
+profiles-message-busy = Waiting for another action to finish…
+profiles-message-offline = Reconnect to send a message
 
 voice-recipient-ring = Ring again
 voice-recipient-stop-ringing = Stop ringing
@@ -4372,35 +4383,42 @@ voice-recipient-not-in-call = Not in call
 reconnect-now = Reconnect now
 
 # Explicit public attachment hosting
-public-upload-host-file = Host file…
-public-upload-heading = Upload to Catbox
-public-upload-subtitle = Share a public link instead of a Discord attachment
+public-upload-host-file = Share link instead…
+public-upload-heading = Share with a public link
+public-upload-subtitle = Upload the file to a public host and send its link instead of a Discord attachment
 public-upload-offline = Offline preview · no file is uploaded
-public-upload-size = { $size } MB · public file host
-public-upload-privacy = Anyone with the link can access this file. The original file and its metadata are uploaded unchanged to Catbox, outside Discord.
-public-upload-retention = Catbox currently says anonymous files may be removed after two years without access. Serein cannot delete hosted files; cancelling or deleting a Discord message does not remove them.
-public-upload-review = The link stays here for review. Choose Add to draft or Copy link, then send it yourself.
+public-upload-host = File host
+public-upload-host-x0at = Up to 1 GB · kept 3 to 100 days, longer for smaller files
+public-upload-host-catbox = Up to 200 MB (GIF 20 MB) · may be removed after two years without access
+public-upload-host-litterbox = Up to 1 GB · temporary, deleted after 72 hours
+public-upload-over-limit = { $size } · over your { $limit } Discord upload limit
+public-upload-uploading = Uploading to { $host } · { $sent } of { $total }
+public-upload-privacy = Anyone with the link can open this file. It is uploaded unchanged, metadata included, outside Discord, and Serein cannot delete it later.
+public-upload-review = Nothing is sent yet. Add the link to your draft or copy it, then send it yourself.
 public-upload-return = Return to the original conversation to add its link.
 public-upload-preparing = Preparing public upload…
-public-upload-limits = Maximum 200 MB (GIF: 20 MB). EXE, SCR, CPL, JAR and DOC files are unsupported.
+public-upload-limits = This file is too large or a type this host does not accept
 public-upload-add = Add to draft
 public-upload-copy = Copy link
 public-upload-close = Close
 public-upload-cancel-upload = Cancel upload
-public-upload-upload = Upload publicly to Catbox
+public-upload-upload = Upload to { $host }
 public-upload-cancel = Cancel
 public-upload-draft-full = Draft is full; copy the public link before closing
-public-upload-leave = Leaving cancels public uploads and discards the dialog's link. Already uploaded files may remain on Catbox; copy the link before continuing.
-public-upload-error-cancelled = Public upload cancelled; received bytes may remain on Catbox
+public-upload-leave = Leaving cancels public uploads and discards the dialog's link. Already uploaded files may remain on the file host; copy the link before continuing.
+public-upload-error-cancelled = Public upload cancelled; received bytes may remain on the file host
 public-upload-error-prepare = Could not prepare public upload
 public-upload-error-changed = File changed or became unavailable; select it again
-public-upload-error-failed = Public upload failed; received bytes may remain on Catbox
-public-upload-error-rejected = Catbox rejected the upload; no Discord message was sent
-public-upload-error-incomplete = Public upload incomplete; received bytes may remain on Catbox
+public-upload-error-failed = Public upload failed; received bytes may remain on the file host
+public-upload-error-rejected = The file host rejected the upload; no Discord message was sent
+public-upload-error-incomplete = Public upload incomplete; received bytes may remain on the file host
 public-upload-error-response-limit = File host response exceeded its limit
-public-upload-error-interrupted = Public upload interrupted; received bytes may remain on Catbox
+public-upload-error-interrupted = Public upload interrupted; received bytes may remain on the file host
 public-upload-error-invalid-link = File host returned an invalid link
 public-upload-error-busy = Wait for the current attachment operation to finish
+public-upload-retry = Try again
+public-upload-error-unavailable = This host is down or not accepting uploads right now. Try again with another host.
+public-upload-oversized = Files over { $limit } can’t be sent on your plan. Remove them or share a link instead.
 public-upload-error-conversation = Return to the original conversation and review the file again before uploading publicly
 public-upload-error-selection = Selection changed; review the file again before uploading publicly
 public-upload-error-missing = Select the file again before uploading publicly
@@ -4408,11 +4426,7 @@ public-upload-error-missing = Select the file again before uploading publicly
 voice-call-moved-to-another-client = This device's call session was replaced
 
 # Synchronized favorite GIFs (unofficial account settings).
-gif-favorites-sync-loading = Syncing favorites…
-gif-favorites-sync-ready = Discord and local favorites
-gif-favorites-sync-local = Local favorites
 gif-favorites-sync-refresh = Refresh from Discord
-gif-favorites-sync-help = Existing local favorites stay local until you change their star. New star changes sync after loading. Video-only favorites keep a preview placeholder. At most 100 favorites are displayed; saves preserve the other server favorites.
 gif-favorites-sync-failed = Sync failed; local favorites are kept. Refresh before trying another synced change.
 gif-favorites-sync-unsupported = Discord favorites are unsupported or exceed the safe limit.
 gif-favorites-sync-unconfirmed = Favorite change was not confirmed. Refresh before retrying.
@@ -4500,3 +4514,8 @@ server-stickers-empty-detail = Upload artwork to add your first sticker.
 screen-macos-system-picker = Choose with the macOS system picker
 
 screen-macos-system-picker-kind = System content picker
+
+member-in-voice = In voice
+settings-chat-box = Chat Box
+settings-convert-emoticons = Automatically convert emoticons in your messages to emoji
+settings-convert-emoticons-description = Convert standalone emoticons such as :) to 🙂 when sending or editing messages. Code and links stay unchanged.

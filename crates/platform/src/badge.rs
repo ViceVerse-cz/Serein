@@ -1,10 +1,25 @@
-//! Native taskbar unread indicator; no message text or account identity leaves the app.
+//! Native taskbar/Dock unread indicator; no message text or account identity leaves the app.
 pub const fn supported() -> bool {
-	cfg!(target_os = "windows")
+	cfg!(any(target_os = "windows", target_os = "macos"))
 }
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn set(_window: &winit::window::Window, _count: u32) -> Result<(), &'static str> {
-	Err("App icon badges are currently available on Windows.")
+	Err("App icon badges are currently available on Windows and macOS.")
+}
+#[cfg(target_os = "macos")]
+pub fn set(_window: &winit::window::Window, count: u32) -> Result<(), &'static str> {
+	use objc2_app_kit::NSApplication;
+	use objc2_foundation::{MainThreadMarker, NSString};
+	let mtm = MainThreadMarker::new().ok_or("The Dock badge requires the main thread.")?;
+	let label = match count {
+		0 => None,
+		1..=99 => Some(NSString::from_str(&count.to_string())),
+		_ => Some(NSString::from_str("99+")),
+	};
+	NSApplication::sharedApplication(mtm)
+		.dockTile()
+		.setBadgeLabel(label.as_deref());
+	Ok(())
 }
 #[cfg(target_os = "windows")]
 #[allow(unsafe_code)]

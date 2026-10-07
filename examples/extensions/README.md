@@ -62,7 +62,6 @@ may not be available in a released build.
 | [Conversation Inspector](conversation-inspector/src/lib.rs) | Rich summaries, forum flags, typing/pins and host discovery |
 | [Message Counter](message-counter/src/lib.rs) | Reactive events, saved counters and a reset button |
 | [Message Delete Protector](../../extensions/plugins/message-delete-protector/src/lib.rs) | Opt-in activation enabling host-managed message retention |
-| [Emoji & Sticker Images](../../extensions/plugins/emoji-sticker-images/src/lib.rs) | Activation enabling image attachment fallback |
 | [RGB Cycle](rgb-cycle/src/lib.rs) | Host-scheduled, smoothly eased appearance updates with saved settings |
 | [Custom Rich Presence](../../extensions/plugins/custom-rpc) | Native activity editor/preview, saved Apply/Stop controls and activation restore through the bounded `rich_presence` capability |
 
@@ -286,8 +285,8 @@ review its grants again. Replacing Rust source alone does not update an installe
 Wasm module.
 
 For an unchanged example, use its own manifest and matching compiled filename:
-`app_toolbox.wasm`, `guild_inspector.wasm`, `conversation_inspector.wasm`, `message_counter.wasm`, `message_delete_protector.wasm`, or
-`emoji_sticker_images.wasm`.
+`app_toolbox.wasm`, `guild_inspector.wasm`, `conversation_inspector.wasm`,
+`message_counter.wasm`, or `message_delete_protector.wasm`.
 
 ## Test and develop locally
 
@@ -448,13 +447,10 @@ retained text and offers local controls without calling Discord. Deleted bodies
 are never supplied to this plugin, written to disk, or recovered from before they
 were loaded. Disable, logout, permission revocation and eviction release them.
 
-Emoji & Sticker Images requests `image_sharing` and returns `image_sharing: true`
-from activation. Emoji and stickers that are usable in the conversation keep their
-normal Discord send path; otherwise selecting artwork authorizes an immediate image
-fallback after validation, preserving text drafts. Animated APNG sticker fallbacks
-are sent as GIF attachments. Wasm receives no image bytes and cannot fetch or send
-anything. Disable/logout revoke the option. Only an activation action with the grant
-may enable this mode.
+Emoji and sticker image fallback is built into Serein; the former Emoji & Sticker
+Images plugin has been retired. The legacy `image_sharing` capability/output remains
+accepted with its existing activation/grant checks for ABI compatibility and has no
+behavioral effect. Wasm receives no artwork bytes and cannot fetch or send them.
 
 There is at most one activation action per plugin, run on enable/account load.
 Activation itself does not require deleted-message access. Granted `appearance`

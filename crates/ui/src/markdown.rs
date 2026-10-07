@@ -848,7 +848,11 @@ impl Formatted {
 				break;
 			}
 		}
-		output.artwork = has_artwork(&output.spans);
+		output.artwork = has_artwork(&output.spans)
+			|| output
+				.links
+				.iter()
+				.any(|url| model::ImageShare::from_url(url).is_some());
 		output.jumbo = only_emoji(&output.spans, &output.blocks, output.mention_count);
 		output
 	}
@@ -1232,6 +1236,9 @@ impl Formatted {
 							quoted_spans = &quoted_spans[..quoted_spans.len() - 1];
 						}
 						if !quoted_spans.is_empty() {
+							// Keep the full block height before an emoji's zero-width reservation
+							// or a wrapped label can reset this horizontal flow's current row.
+							ui.end_row();
 							let colors = crate::design::palette(ui);
 							let width = ui.max_rect().width();
 							ui.allocate_ui_with_layout(
@@ -1260,6 +1267,7 @@ impl Formatted {
 									);
 								},
 							);
+							ui.end_row();
 						}
 						start += count;
 						continue;
@@ -1503,7 +1511,23 @@ impl Formatted {
 									|name| format!("#{name}"),
 								)
 						});
-						let response = if let Some(label) = &pill_label {
+						let response = if let Some(asset) =
+							model::ImageShare::from_url(url).filter(|_| label != *url)
+						{
+							Self::show_emoji(
+								&[(label.clone(), Style::default())],
+								ui,
+								true,
+								false,
+								render.images,
+								render.demo,
+								render.guilds,
+								render.surface,
+								render.query,
+								Some(asset),
+							)
+							.on_hover_text(url)
+						} else if let Some(label) = &pill_label {
 							let colors = crate::design::palette(ui);
 							let response = ui
 								.add(egui::Link::new(
@@ -1526,6 +1550,7 @@ impl Formatted {
 								render.guilds,
 								render.surface,
 								render.query,
+								None,
 							)
 							.on_hover_text(url)
 						};
@@ -1550,6 +1575,7 @@ impl Formatted {
 							render.guilds,
 							render.surface,
 							render.query,
+							None,
 						);
 					}
 					start += count;
@@ -1730,6 +1756,7 @@ impl Formatted {
 		guilds: &[model::Guild],
 		surface: &mut crate::select::Surface,
 		query: &str,
+		shared: Option<model::ImageShare>,
 	) -> egui::Response {
 		struct Inline {
 			text: String,
@@ -1741,7 +1768,11 @@ impl Formatted {
 		let body = egui::TextStyle::Body.resolve(ui.style());
 		let mut job = LayoutJob::default();
 		let source: String = spans.iter().map(|(text, _)| text.as_str()).collect();
-		let bidi = bidi_spans(spans);
+		let bidi = if shared.is_none() {
+			bidi_spans(spans)
+		} else {
+			None
+		};
 		let (spans, right_aligned) = bidi
 			.as_ref()
 			.map_or((spans, false), |(spans, right)| (spans.as_slice(), *right));
@@ -1758,26 +1789,31 @@ impl Formatted {
 			let mut start = 0;
 			let mut offset = 0;
 			while offset < text.len() {
-				let custom = (!style.code)
+				let custom = (!style.code && shared.is_none())
 					.then(|| crate::emoji::custom_prefix(&text[offset..]))
 					.flatten();
-				let len = custom.map_or_else(
+				let len = shared.map_or_else(
 					|| {
-						text[offset..]
-							.graphemes(true)
-							.next()
-							.expect("remaining text")
-							.len()
+						custom.map_or_else(
+							|| {
+								text[offset..]
+									.graphemes(true)
+									.next()
+									.expect("remaining text")
+									.len()
+							},
+							|(_, len)| len,
+						)
 					},
-					|(_, len)| len,
+					|_| text.len() - offset,
 				);
 				let cluster = &text[offset..offset + len];
-				let cell = if custom.is_none() && !style.code {
+				let cell = if custom.is_none() && !style.code && shared.is_none() {
 					crate::emoji::lookup(cluster)
 				} else {
 					None
 				};
-				if cell.is_none() && custom.is_none() {
+				if cell.is_none() && custom.is_none() && shared.is_none() {
 					offset += len;
 					continue;
 				}
@@ -1790,14 +1826,22 @@ impl Formatted {
 				inlines.push(Inline {
 					text: cluster.to_owned(),
 					custom: custom.map(|(id, _)| id),
-					image: cell.and_then(|cell| {
-						if jumbo && let Some(image) = images.unicode_image(ui.ctx(), cell, size) {
-							return Some(image.alt_text(cluster));
-						}
-						atlas
-							.get_or_insert_with(|| crate::emoji::atlas(ui.ctx()))
-							.map(|atlas| crate::emoji::image_cell(atlas, cluster, cell, size))
-					}),
+					image: shared
+						.and_then(|asset| images.share_image(ui.ctx(), asset, size, demo))
+						.or_else(|| {
+							cell.and_then(|cell| {
+								if jumbo
+									&& let Some(image) = images.unicode_image(ui.ctx(), cell, size)
+								{
+									return Some(image.alt_text(cluster));
+								}
+								atlas
+									.get_or_insert_with(|| crate::emoji::atlas(ui.ctx()))
+									.map(|atlas| {
+										crate::emoji::image_cell(atlas, cluster, cell, size)
+									})
+							})
+						}),
 				});
 				offset += len;
 				start = offset;
@@ -2550,6 +2594,102 @@ mod tests {
 			rail.right() <= quote.left(),
 			"The rail sits left of the quoted text: {rail:?} against {quote:?}"
 		);
+	}
+
+	#[test]
+	fn emoji_quotes_reserve_their_full_height_between_paragraphs() {
+		fn shapes(
+			shape: &egui::Shape,
+			rails: &mut Vec<egui::Rect>,
+			texts: &mut Vec<(String, egui::Rect)>,
+		) {
+			match shape {
+				egui::Shape::Rect(rect) if rect.rect.width() == f32::from(QUOTE_RAIL) => {
+					rails.push(rect.rect);
+				}
+				egui::Shape::Text(text) => texts.push((
+					text.galley.job.text.clone(),
+					text.galley
+						.rows
+						.iter()
+						.filter(|row| row.glyphs.iter().any(|glyph| !glyph.chr.is_whitespace()))
+						.fold(egui::Rect::NOTHING, |rect, row| rect.union(row.rect()))
+						.translate(text.pos.to_vec2()),
+				)),
+				egui::Shape::Vec(children) => {
+					for shape in children {
+						shapes(shape, rails, texts);
+					}
+				}
+				_ => {}
+			}
+		}
+		let sources = [
+			(
+				include_str!("../tests/fixtures/prune-announcement.txt"),
+				"Guild Feature",
+				"Server owners",
+			),
+			(
+				"before\n> ⚠️ **A warning** with enough words to wrap onto several lines in a narrow message.\nafter",
+				"before",
+				"after",
+			),
+			(
+				"before\n> A plain quote with enough words to wrap onto several lines in a narrow message.\n\nafter ✍️",
+				"before",
+				"after",
+			),
+		];
+		for (source, before, after) in sources {
+			let parsed = Formatted::parse(source);
+			assert!(parsed.artwork);
+			for width in [220.0, 560.0, 1260.0] {
+				for (light, scale) in [(false, 1.0), (true, 1.0), (false, 2.0), (true, 2.0)] {
+					let ctx = egui::Context::default();
+					ctx.set_pixels_per_point(scale);
+					crate::design::apply(&ctx);
+					if light {
+						ctx.set_visuals(egui::Visuals::light());
+					}
+					let output = ctx.run_ui(
+						egui::RawInput {
+							screen_rect: Some(egui::Rect::from_min_size(
+								egui::Pos2::ZERO,
+								egui::vec2(width, 1600.0),
+							)),
+							..Default::default()
+						},
+						|ui| parsed.show(ui, &mut None),
+					);
+					let (mut rails, mut texts) = (vec![], vec![]);
+					for shape in &output.shapes {
+						shapes(&shape.shape, &mut rails, &mut texts);
+					}
+					output.drop_without_applying_deltas();
+					assert_eq!(rails.len(), 1);
+					let rail = rails[0];
+					let before = texts
+						.iter()
+						.find(|(text, _)| text.contains(before))
+						.unwrap()
+						.1;
+					let after = texts
+						.iter()
+						.find(|(text, _)| text.contains(after))
+						.unwrap()
+						.1;
+					assert!(
+						before.bottom() <= rail.top(),
+						"Preceding text overlaps quote at width {width}: {before:?}, {rail:?}"
+					);
+					assert!(
+						after.top() >= rail.bottom(),
+						"Following text overlaps quote at width {width}: {after:?}, {rail:?}"
+					);
+				}
+			}
+		}
 	}
 
 	#[test]

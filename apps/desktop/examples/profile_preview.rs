@@ -43,6 +43,7 @@ impl eframe::App for Preview {
 			raw_input.events.push(egui::Event::MouseWheel {
 				unit: egui::MouseWheelUnit::Point,
 				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
 				delta: egui::vec2(0.0, -distance / 3.0),
 				modifiers: egui::Modifiers::NONE,
 			});
@@ -325,9 +326,6 @@ fn extension_fixture(
 		"teal-theme" => {
 			include_bytes!("../../../extensions/themes/teal.serein-extension")
 		}
-		"emoji-sticker-images" => include_bytes!(
-			"../../../extensions/plugins/packages/emoji-sticker-images.serein-extension"
-		),
 		_ => return Err("Unknown fixture extension".into()),
 	};
 	let package = extensions::parse_package(bytes)?;
@@ -498,7 +496,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|profile-card|member-tags|dm-tags|account|appearance|general|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--scroll=PIXELS] [--light]".into());
+		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|profile-card|member-tags|dm-tags|account|appearance|general|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--scroll=PIXELS] [--light] [--compact] [--transparency=0..100]".into());
 	}
 	let smoke = args.iter().any(|arg| arg == "--smoke");
 	let interactive = args.iter().any(|arg| arg == "--interactive");
@@ -517,6 +515,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "slash-command-options"
 			| "profile-card"
 			| "member-tags"
+			| "markdown"
 			| "dm-tags"
 			| "account"
 			| "appearance"
@@ -538,7 +537,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "forum-settings"
 			| "friends"
 	) {
-		return Err("Page must be profile, profile-card, member-tags, dm-tags, account, appearance, general, keybinds, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement, server-safety, server-emoji, server-stickers, server-members, server-roles, server-invites, server-integrations or server-audit-log".into());
+		return Err("Page must be profile, markdown, profile-card, member-tags, dm-tags, account, appearance, general, keybinds, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement, server-safety, server-emoji, server-stickers, server-members, server-roles, server-invites, server-integrations or server-audit-log".into());
 	}
 	let slash_command = value("--command=").unwrap_or("help").to_owned();
 	if !matches!(slash_command.as_str(), "help" | "weather") {
@@ -562,6 +561,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		})
 		.unwrap_or_default();
 	let light = args.iter().any(|arg| arg == "--light");
+	let transparency = value("--transparency=").map(str::parse::<u8>).transpose()?;
+	if transparency.is_some_and(|amount| amount > 100) {
+		return Err("Transparency must be in 0..=100".into());
+	}
 	let activities = args.iter().any(|arg| arg == "--activities");
 	let friends_tab = value("--tab=").unwrap_or("online").to_owned();
 	let theme_editor = value("--theme-editor=").map(str::to_owned);
@@ -584,6 +587,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		Box::new(move |cc| {
 			ui::fonts::install(&cc.egui_ctx);
 			let _ = ui::emoji::install(&cc.egui_ctx);
+			ui::design::set_window_effects(transparency.is_some(), transparency.unwrap_or(0), 0);
 			ui::design::apply(&cc.egui_ctx);
 			cc.egui_ctx.set_theme(if light {
 				egui::ThemePreference::Light
@@ -602,6 +606,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			};
 			if activities {
 				prime_activities(&mut state);
+			}
+			if page == "markdown" {
+				let channel = state.selected.expect("synthetic markdown conversation");
+				let mut message = test_support::message(600, channel);
+				message.content =
+					include_str!("../../../crates/ui/tests/fixtures/prune-announcement.txt").into();
+				message.attachments.clear();
+				message.embeds.clear();
+				message.reactions = Some(vec![]);
+				state.timeline.clear();
+				state
+					.timeline
+					.seed_cache(vec![message])
+					.expect("valid synthetic markdown");
 			}
 			if page == "profile" {
 				prime_profile(&mut state);
@@ -639,6 +657,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				let _ = state.select(model::Id(26));
 			}
 			let mut messaging = ui::MessagingUi::default();
+			if args.iter().any(|arg| arg == "--compact") {
+				messaging.apply_reading_preferences(
+					&cc.egui_ctx,
+					model::ReadingPreferences {
+						compact_messages: true,
+						..messaging.reading_preferences
+					},
+				);
+			}
+			messaging.transparency_blur = transparency.is_some();
+			messaging.transparency = transparency.unwrap_or(0);
 			messaging.tray_available = platform::tray::supported();
 			messaging.startup_available = platform::startup::available();
 			messaging.startup_enabled = args.iter().any(|arg| arg == "--startup-enabled");
@@ -658,7 +687,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					&[model::Id(2603)],
 					Some("Faster startup on older phones"),
 				);
-			} else if matches!(page.as_str(), "member-tags" | "dm-tags") {
+			} else if matches!(page.as_str(), "member-tags" | "dm-tags" | "markdown") {
 				// State is primed above; the normal offline messaging surface renders the list.
 			} else if page == "slash-commands" {
 				messaging.preview_slash_commands();
@@ -734,11 +763,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 							output.clone(),
 							&state,
 						);
-					}
-					messaging.image_sharing_enabled = output.image_sharing;
-					if output.image_sharing {
-						test_support::seed_stickers(&mut state);
-						messaging.preview_sticker_picker();
 					}
 					if output.preserve_deleted_messages {
 						let channel = state.selected.unwrap();
