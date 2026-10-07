@@ -1,3 +1,50 @@
+# Voice default-device polling — October 7, 2026
+
+Baseline runtime source: `884fb73fa68bffda70b1f308c903ece239281522`.
+The voice audio worker now retains the CPAL host with its active device set and
+reuses it for one-second default-device checks and microphone retries. Failed
+default lookups preserve healthy streams until a different default is confirmed.
+Stream failure recovery still replaces the device set and host.
+
+An offline release probe uses the pinned `pulseaudio` 0.3.1 dependency with fake
+protocol replies over Unix socket pairs. It compares the original fresh-client
+polling pattern with one retained client. After one warmup, all five measured
+runs on macOS 27.0 (26A428), Apple M1, 16 GiB RAM, Rust 1.98.1 produced:
+
+| Metric / method | Baseline pattern | Reuse pattern | Delta |
+| --- | ---: | ---: | ---: |
+| Clients created for 300 metadata polls | 300 | 1 | -299 / -99.67% |
+| Peer sockets still connected after the polling batch | 300 | 1 | -299 / -99.67% |
+
+The baseline clients were dropped after each query; the reused client remained
+active through the batch. The probe also observed one connection remaining after
+the reused client's final drop. This confirms polling-driven resource retention
+in the dependency, not an upstream shutdown fix or a whole-process memory bound.
+The probe explicitly closes its synthetic peers afterward. Source, locked
+dependencies, exact reproduction command and samples are in
+[the evidence directory](pr-evidence/voice-host-reuse/README.md).
+
+These are dependency experiment counts, not Linux application socket/RSS samples.
+Each query includes a 2 ms pause to let the reactor park; concurrent compilation
+and deliberate pauses make the recorded elapsed times unsuitable for speed claims.
+No Discord call, microphone, physical device, Linux/PipeWire client-limit behavior,
+callback latency, frame timing or production CPU/RSS comparison was measured.
+
+Both revisions also completed the standard `cargo xtask package` build on that
+Mac, including voice and disabling default/demo features. File sizes were summed
+from the installed `.app`; `ditto -c -k --keepParent dist <archive>` compressed the
+complete distribution directory. Both ad-hoc signatures passed verification.
+
+| Package metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Desktop executable | 68,180,992 B | 68,180,992 B | 0 B |
+| Installed app bundle | 74,201,013 B | 74,201,013 B | 0 B |
+| Distribution directory | 74,265,778 B | 74,265,778 B | 0 B |
+| Distribution ZIP | 48,039,907 B | 48,039,944 B | +37 B / +0.00008% |
+
+The ZIP difference is negligible packaging variation, not a runtime regression.
+Raw sizes and the changed runtime source hash are in the evidence directory.
+
 # CPU/RAM deep dive — October 2, 2026
 
 Baseline `f16bc92fde374b91c5482daf802992f2373ee74c`, compared with the runtime

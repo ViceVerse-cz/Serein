@@ -1,5 +1,14 @@
 # Local storage policy and audit
 
+## Voice audio host lifetime (October 7, 2026)
+
+Each active voice device set retains its CPAL host and reuses it for default-device
+polling and microphone retries. Polling no longer allocates a fresh PulseAudio
+client/reactor every second. Stream replacement replaces the host; callback
+failure recovery remains bounded. No PCM queue, cache, diagnostic budget or
+persistent record changes. Native backend resources are additional to the existing
+application media bounds; this is not a whole-process memory limit.
+
 ## Linux native live decoder admission (October 3, 2026)
 
 Each Linux live H.264 decoder now admits at most four queued compressed access
