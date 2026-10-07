@@ -32,6 +32,7 @@ mod group_icon;
 mod interaction_uploads;
 mod notification_runtime;
 mod notification_sounds;
+mod ogg_opus;
 #[cfg(feature = "demo")]
 mod onboarding_demo;
 mod pointer;
@@ -49,6 +50,7 @@ mod screen;
 mod server_settings_demo;
 #[cfg(feature = "demo")]
 mod slash_demo;
+mod sound_upload;
 mod soundboard;
 mod spotify;
 mod startup;
@@ -969,6 +971,7 @@ struct Desktop {
 	role_icon_scope: Option<(u64, model::Id, model::Id, u64)>,
 	emoji_upload: emoji_upload::EmojiUpload,
 	sticker_upload: sticker_upload::StickerUpload,
+	sound_upload: sound_upload::SoundUpload,
 	clipboard: Option<clipboard::Paste>,
 	download_close_pending: bool,
 	window: Arc<winit::window::Window>,
@@ -2157,6 +2160,21 @@ impl Desktop {
 		if demo && std::env::args().any(|arg| arg == "--demo-server-settings") {
 			server_settings_demo::open(&mut state, &mut messaging);
 		}
+		// With `--demo-server-settings --demo-server-page=soundboard`, `--demo-sound-upload`
+		// adds the upload review with a synthetic 77.8-second waveform. No file or audio
+		// device is used.
+		#[cfg(feature = "demo")]
+		if demo && std::env::args().any(|arg| arg == "--demo-sound-upload") {
+			let peaks = (0..7780u32)
+				.map(|n| {
+					let t = n as f32 / 7780.0;
+					let envelope = 0.35 + 0.65 * (t * 9.0).sin().abs();
+					let detail = 0.55 + 0.45 * ((n as f32 * 0.37).sin() * (n as f32 * 0.11).cos());
+					(envelope * detail * 235.0).clamp(12.0, 255.0) as u8
+				})
+				.collect();
+			messaging.preview_server_sound_upload(("Synthetic song".into(), 77_800, peaks, None));
+		}
 		#[cfg(feature = "demo")]
 		if demo
 			&& std::env::args().any(|arg| arg == "--demo-server-notifications")
@@ -2236,6 +2254,7 @@ impl Desktop {
 			role_icon_scope: None,
 			emoji_upload: emoji_upload::EmojiUpload::default(),
 			sticker_upload: sticker_upload::StickerUpload::default(),
+			sound_upload: sound_upload::SoundUpload::default(),
 			clipboard: None,
 			download_close_pending: false,
 			window_blur: transparency_available
@@ -2334,6 +2353,7 @@ impl Desktop {
 		self.server_icon.cancel();
 		self.emoji_upload.cancel();
 		self.sticker_upload.cancel();
+		self.sound_upload.cancel();
 		if let Some(store) = &mut self.store {
 			store.cancel_load();
 		}
@@ -2413,6 +2433,7 @@ impl Desktop {
 		self.server_icon.cancel();
 		self.emoji_upload.cancel();
 		self.sticker_upload.cancel();
+		self.sound_upload.cancel();
 		self.notifications.clear();
 		self.uploads.cancel();
 		if let Some(store) = &mut self.store {
@@ -6591,6 +6612,14 @@ impl eframe::App for Desktop {
 		}) {
 			self.messaging.accept_server_sticker(&ctx, scope, result);
 		}
+		if let Some((scope, result)) = self.sound_upload.poll(self.state.generation, |guild| {
+			self.state.server_admin.guild == Some(guild) && self.state.can_create_guild_sound(guild)
+		}) {
+			self.messaging.accept_server_sound(scope, result);
+		}
+		if let Some((scope, result)) = self.sound_upload.poll_trim() {
+			self.messaging.accept_server_sound_trim(scope, result);
+		}
 		self.messaging.voice_available = true;
 		if close_requested
 			&& !self.close_approved
@@ -7099,6 +7128,32 @@ impl eframe::App for Desktop {
 					self.messaging
 						.accept_server_sticker(&ctx, scope, Err(error));
 				}
+			}
+			if let Some((generation, guild, request)) = self.messaging.take_server_sound_request() {
+				let scope = (generation, guild, request);
+				let result = if generation != self.state.generation
+					|| !self.state.can_create_guild_sound(guild)
+				{
+					Err("You can no longer upload sounds to this server")
+				} else {
+					self.sound_upload
+						.start(scope, self.runtime.handle(), &ctx, self.window.clone())
+				};
+				if let Err(error) = result {
+					self.messaging.accept_server_sound(scope, Err(error));
+				}
+			}
+			if let Some((scope, start, end)) = self.messaging.take_server_sound_trim() {
+				self.sound_upload.trim(scope, start, end, &ctx);
+			}
+			if let Some((scope, selection)) = self.messaging.take_server_sound_preview() {
+				// The offline preview never opens an audio device.
+				if !self.state.demo {
+					self.sound_upload.preview(scope, selection, &ctx);
+				}
+			}
+			if self.messaging.take_server_sound_closed() {
+				self.sound_upload.clear();
 			}
 			for key in self.messaging.take_avatar_requests() {
 				if !self

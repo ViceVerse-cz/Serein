@@ -3226,6 +3226,8 @@ server-settings-page-profile = Server Profile
 server-settings-page-roles = Roles
 # Context: label
 server-settings-page-stickers = Stickers
+# Context: label
+server-settings-page-soundboard = Soundboard
 # Context: preview
 server-settings-preview-established = Established
 # Context: preview
@@ -3281,6 +3283,84 @@ server-settings-show-people = PEOPLE
 # Context: timeout_picker
 server-settings-timeout-picker-minutes = minutes
 
+# Context: server_sounds
+server-sounds-title = Soundboard
+# Context: server_sounds
+server-sounds-upload-title = Upload a Sound
+# Context: server_sounds
+server-sounds-preview = Preview
+# Context: server_sounds
+server-sounds-trim-hint = Drag the handles to choose up to 5.2 seconds. Hold a handle still to zoom in.
+# Context: server_sounds
+server-sounds-never-mind = Never mind
+# Context: server_sounds
+server-sounds-play-preview = Play selection
+# Context: server_sounds
+server-sounds-stop-preview = Stop preview
+# Context: server_sounds
+server-sounds-description = Upload custom sound reactions that anyone in this server can use.
+# Context: server_sounds
+server-sounds-upload-sound = Upload Sound
+# Context: server_sounds
+server-sounds-reload = Reload
+# Context: server_sounds
+server-sounds-saving = Saving changes…
+# Context: server_sounds
+server-sounds-loading = Loading sounds…
+# Context: server_sounds
+server-sounds-hint = MP3, Ogg or WAV audio. Sounds are at most 5.2 seconds and 512 KB; longer files can be trimmed.
+# Context: server_sounds
+server-sounds-preparing = Preparing sound…
+# Context: server_sounds
+server-sounds-name = Name
+# Context: server_sounds
+server-sounds-emoji = Related emoji (optional)
+# Context: server_sounds
+server-sounds-volume = Volume
+# Context: server_sounds
+server-sounds-upload = Upload
+# Context: server_sounds
+server-sounds-cancel = Cancel
+# Context: server_sounds
+server-sounds-invalid = Use a 2–32 character name and at most one emoji.
+# Context: server_sounds
+server-sounds-section = Sounds
+# Context: server_sounds
+server-sounds-count = { $count } sounds
+# Context: server_sounds
+server-sounds-slots = { $count } of { $limit } slots available
+# Context: server_sounds
+server-sounds-empty = No custom sounds yet
+# Context: server_sounds
+server-sounds-empty-detail = Upload a sound to get started.
+# Context: server_sounds
+server-sounds-column-emoji = Emoji
+# Context: server_sounds
+server-sounds-column-name = Name
+# Context: server_sounds
+server-sounds-column-uploaded-by = Uploaded by
+# Context: server_sounds
+server-sounds-unknown = Unknown
+# Context: server_sounds
+server-sounds-unavailable = Unavailable
+# Context: server_sounds
+server-sounds-actions = Sound actions
+# Context: server_sounds
+server-sounds-edit = Edit
+# Context: server_sounds
+server-sounds-delete = Delete sound
+# Context: server_sounds
+server-sounds-edit-title = Edit sound
+# Context: server_sounds
+server-sounds-edit-subtitle = Update the sound's name, emoji and volume.
+# Context: server_sounds
+server-sounds-delete-title = Delete sound?
+# Context: server_sounds
+server-sounds-delete-subtitle = Removing { $name } cannot be undone.
+# Context: server_sounds
+server-sounds-save = Save
+# Context: server_sounds
+server-sounds-custom-emoji-kept = This sound uses a custom emoji. Leave the field empty to keep it.
 ## crates/ui/src/server_stickers.rs
 # Context: dialog
 server-stickers-dialog-cancel = Cancel

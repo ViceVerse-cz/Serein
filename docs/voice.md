@@ -167,8 +167,8 @@ server muted/deafened, matching the documented service rules. A sound owned by a
 additionally needs USE_EXTERNAL_SOUNDS and names its source server; the panel currently lists
 only the connected server's sounds and the defaults, so there is no cross-server picker and no
 favorites. One play request is outstanding at a time. Private and group DM calls show the
-button disabled. Creating, editing and deleting sounds, entrance sounds, emoji-only voice
-effects and animations are not implemented.
+button disabled. Entrance sounds, emoji-only voice effects and animations are not
+implemented. Server sounds are managed in [Server Settings](#managing-server-sounds).
 
 Sound audio is local playback only: it is never encoded into the microphone stream, and the
 service does not relay it as voice. Clips enter the same mix as participant voices, after
@@ -202,6 +202,46 @@ both; then check deafen, server mute, a denied USE_SOUNDBOARD role, Soundboard v
 and 100%, a locally muted participant, and that leaving the call stops playback.
 `cargo run --locked -p serein --features demo -- --demo --demo-voice` shows the panel with a
 synthetic catalog; the preview never downloads or plays audio.
+
+### Managing server sounds
+
+**Server Settings > Soundboard** lists the server's sounds with their emoji, name and
+uploader, and shows the free slots for the server's boost level (8, 24, 36 or 48; 96 with
+the `MORE_SOUNDBOARD` feature) when that metadata is available. The page is offered to
+members with CREATE_GUILD_EXPRESSIONS or MANAGE_GUILD_EXPRESSIONS. Uploading needs
+CREATE_GUILD_EXPRESSIONS; editing or deleting needs MANAGE_GUILD_EXPRESSIONS, or
+CREATE_GUILD_EXPRESSIONS for a sound you uploaded. **Upload Sound** is disabled when every
+slot is used. Each write is one explicit request followed by a reload of the list; an
+unexpected or uncertain outcome is shown and asks for a reload instead of retrying.
+
+**Upload Sound** opens a file picker (MP3, Ogg or WAV up to 16 MB) and then a review with a
+waveform, a name (2 to 32 characters), an optional related emoji and a volume. Choosing a
+file uploads nothing. The two handles select the part to upload, between 0.2 and 5.2
+seconds; dragging an edge past 5.2 seconds carries the other edge along, and dragging the
+selected span moves it. On files longer than 20 seconds, holding a handle for one second
+with at most 4 points of pointer movement zooms the waveform to a 15-second span around
+that handle for fine adjustment; releasing zooms back out. The play button previews the
+selection on the default output device at the chosen volume, and a playhead follows it.
+
+A short MP3 or Ogg file (at most 5.2 seconds and 512 KB) whose whole length is selected is
+uploaded unchanged. Any trimmed selection, and every WAV file, is re-encoded on a worker
+thread as mono Ogg Opus at 96 kbit/s with a 5 ms fade at each cut, which stays far below
+512 KB. Audio beyond the first five minutes of a file is not shown. While the review is
+open the decoded audio (48 kHz mono, at most 57.6 MB for five minutes) and its waveform
+peaks (one per 10 ms, at most 30 KB) are held in RAM; closing the review releases them.
+Nothing is written to disk. The related emoji is a text field for one Unicode emoji: there
+is no emoji picker, and a sound's existing custom emoji is kept on edit but cannot be
+chosen. Sounds cannot be previewed from the list.
+
+The routes are Discord's documented Create, Modify and Delete Guild Soundboard Sound;
+acceptance from a normal account, and of an Ogg Opus upload in particular, is
+**live-unverified**. Offline tests cover the wire shapes against a local server,
+permission and reconciliation rules, selection limits, pointer-driven dragging and
+hold-to-zoom, file preparation, and an encode/decode round trip of the trimmed clip. The
+preview's audible output and the native file picker have not been exercised.
+`cargo run --locked -p serein --features demo -- --demo --demo-server-settings
+--demo-server-page=soundboard` shows the page with synthetic sounds; adding
+`--demo-sound-upload` opens the review with a synthetic 77.8-second waveform and no audio.
 
 ## Protocol classification
 

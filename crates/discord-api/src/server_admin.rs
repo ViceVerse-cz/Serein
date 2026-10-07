@@ -49,6 +49,31 @@ impl DiscordApi {
 			.map(Outcome::Stickers)
 			.map_err(|_| Failure::Protocol)
 	}
+	/// The server's sounds plus its slot limit; missing boost metadata only hides the limit.
+	async fn admin_sounds(&self, guild: Id) -> Result<Outcome, Failure> {
+		let bytes = self
+			.request_limited(
+				Method::GET,
+				&format!("/guilds/{guild}/soundboard-sounds"),
+				None,
+				client_core::soundboard::MAX_WIRE_BYTES,
+			)
+			.await?;
+		let mut page = discord_protocol::soundboard::admin_sounds(&bytes, guild)
+			.map_err(|_| Failure::Protocol)?;
+		match self.admin_metadata(guild).await {
+			Ok(metadata) => {
+				let tier = metadata.premium_tier;
+				let features = metadata.checked_roles().map(|(_, features)| features);
+				page.limit = features
+					.ok()
+					.map(|features| discord_protocol::soundboard::sound_limit(tier, &features));
+			}
+			Err(failure) if failure.ends_session() => return Err(failure),
+			Err(_) => {}
+		}
+		Ok(Outcome::Sounds(page))
+	}
 	async fn admin_member(
 		&self,
 		guild: Id,
@@ -215,6 +240,90 @@ impl DiscordApi {
 					return Err(Failure::Ambiguous);
 				}
 				self.admin_stickers(guild).await.map_err(reconcile_failure)
+			}
+			Action::LoadSounds => self.admin_sounds(guild).await,
+			Action::CreateSound {
+				name,
+				emoji,
+				volume,
+				content_type,
+				file,
+			} => {
+				if !discord_protocol::soundboard::valid_sound_file(content_type, file) {
+					return Err(Failure::Protocol);
+				}
+				let mut body = json!({
+					"name": name,
+					"sound": discord_protocol::soundboard::sound_data_uri(content_type, file),
+					"volume": f64::from(*volume) / 100.0,
+				});
+				if !emoji.is_empty() {
+					body["emoji_name"] = json!(emoji);
+				}
+				let bytes = self
+					.request_limited(
+						Method::POST,
+						&format!("/guilds/{guild}/soundboard-sounds"),
+						Some(body),
+						64 * 1024,
+					)
+					.await
+					.map_err(write_failure)?;
+				let created = discord_protocol::soundboard::admin_sound(&bytes, guild)
+					.map_err(|_| Failure::Ambiguous)?;
+				if created.name != *name {
+					return Err(Failure::Ambiguous);
+				}
+				self.admin_sounds(guild).await.map_err(reconcile_failure)
+			}
+			Action::EditSound {
+				id,
+				name,
+				emoji,
+				volume,
+			} => {
+				let mut body = json!({"name": name, "volume": f64::from(*volume) / 100.0});
+				match emoji {
+					model::Patch::Absent => {}
+					model::Patch::Null => {
+						body["emoji_id"] = serde_json::Value::Null;
+						body["emoji_name"] = serde_json::Value::Null;
+					}
+					model::Patch::Value(emoji) => {
+						body["emoji_id"] = serde_json::Value::Null;
+						body["emoji_name"] = json!(emoji);
+					}
+				}
+				let bytes = self
+					.request_limited(
+						Method::PATCH,
+						&format!("/guilds/{guild}/soundboard-sounds/{id}"),
+						Some(body),
+						64 * 1024,
+					)
+					.await
+					.map_err(write_failure)?;
+				let edited = discord_protocol::soundboard::admin_sound(&bytes, guild)
+					.map_err(|_| Failure::Ambiguous)?;
+				if edited.id != *id || edited.name != *name {
+					return Err(Failure::Ambiguous);
+				}
+				self.admin_sounds(guild).await.map_err(reconcile_failure)
+			}
+			Action::DeleteSound { id } => {
+				let bytes = self
+					.request_limited(
+						Method::DELETE,
+						&format!("/guilds/{guild}/soundboard-sounds/{id}"),
+						None,
+						4096,
+					)
+					.await
+					.map_err(write_failure)?;
+				if !bytes.is_empty() {
+					return Err(Failure::Ambiguous);
+				}
+				self.admin_sounds(guild).await.map_err(reconcile_failure)
 			}
 			Action::LoadMembers(query) => {
 				let now = std::time::SystemTime::now()
@@ -455,5 +564,182 @@ mod sticker_tests {
 			assert!(body.contains(expected));
 		}
 		assert!(body.ends_with("--\r\n"));
+	}
+}
+
+#[cfg(test)]
+mod sound_tests {
+	use super::*;
+	use std::{sync::Arc, time::Duration};
+	use tokio::{
+		io::{AsyncReadExt, AsyncWriteExt},
+		net::TcpListener,
+	};
+
+	/// Serve one scripted exchange per connection, checking each request line and JSON body.
+	async fn serve(
+		listener: TcpListener,
+		script: Vec<(&'static str, Option<serde_json::Value>, &'static str)>,
+	) {
+		for (line, expected, reply) in script {
+			let (mut socket, _) = listener.accept().await.unwrap();
+			let mut request = Vec::new();
+			loop {
+				let mut bytes = [0; 4096];
+				let n = socket.read(&mut bytes).await.unwrap();
+				assert!(n > 0);
+				request.extend_from_slice(&bytes[..n]);
+				assert!(request.len() < 64 * 1024);
+				let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") else {
+					continue;
+				};
+				let headers = String::from_utf8_lossy(&request[..end]).into_owned();
+				assert!(headers.starts_with(line), "{headers}");
+				let Some(expected) = &expected else {
+					break;
+				};
+				let length: usize = headers
+					.lines()
+					.find_map(|line| {
+						line.to_ascii_lowercase()
+							.strip_prefix("content-length: ")
+							.map(str::to_owned)
+					})
+					.unwrap()
+					.parse()
+					.unwrap();
+				if request.len() >= end + 4 + length {
+					let body: serde_json::Value =
+						serde_json::from_slice(&request[end + 4..]).unwrap();
+					assert_eq!(&body, expected);
+					break;
+				}
+			}
+			let status = if reply.is_empty() {
+				"204 No Content"
+			} else {
+				"200 OK"
+			};
+			socket
+				.write_all(
+					format!(
+						"HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+						reply.len()
+					)
+					.as_bytes(),
+				)
+				.await
+				.unwrap();
+		}
+	}
+	const LIST: &str = r#"{"items":[{"name":"Air horn","sound_id":"30","volume":0.8,"emoji_name":"x","guild_id":"9","user":{"id":"5","username":"Uploader"}}]}"#;
+	const GUILD: &str =
+		r#"{"id":"9","owner_id":"5","roles":[],"features":["COMMUNITY"],"premium_tier":1}"#;
+
+	#[tokio::test]
+	async fn sound_writes_use_documented_routes_and_reload_the_catalog_with_its_slot_limit() {
+		tokio::time::timeout(Duration::from_secs(5), async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				crate::SessionSecret::from_owner_input("SYNTHETIC_SOUND_ADMIN_TOKEN".into())
+					.unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{}", listener.local_addr().unwrap());
+			let server = tokio::spawn(serve(
+				listener,
+				vec![
+					(
+						"POST /guilds/9/soundboard-sounds HTTP/1.1",
+						Some(json!({
+							"name": "Air horn",
+							"sound": "data:audio/ogg;base64,T2dnUw==",
+							"volume": 0.8,
+							"emoji_name": "x",
+						})),
+						r#"{"name":"Air horn","sound_id":"30","volume":0.8,"guild_id":"9"}"#,
+					),
+					("GET /guilds/9/soundboard-sounds HTTP/1.1", None, LIST),
+					("GET /guilds/9 HTTP/1.1", None, GUILD),
+					(
+						"PATCH /guilds/9/soundboard-sounds/30 HTTP/1.1",
+						Some(json!({
+							"name": "Air horn",
+							"volume": 0.5,
+							"emoji_id": null,
+							"emoji_name": null,
+						})),
+						r#"{"name":"Air horn","sound_id":"30","volume":0.5,"guild_id":"9"}"#,
+					),
+					("GET /guilds/9/soundboard-sounds HTTP/1.1", None, LIST),
+					// Missing boost metadata only hides the slot limit.
+					("GET /guilds/9 HTTP/1.1", None, r#"{"id":"8"}"#),
+					("DELETE /guilds/9/soundboard-sounds/30 HTTP/1.1", None, ""),
+					(
+						"GET /guilds/9/soundboard-sounds HTTP/1.1",
+						None,
+						r#"{"items":[]}"#,
+					),
+					("GET /guilds/9 HTTP/1.1", None, GUILD),
+				],
+			));
+			let created = api
+				.server_admin_action(
+					Id(9),
+					&Action::CreateSound {
+						name: "Air horn".into(),
+						emoji: "x".into(),
+						volume: 80,
+						content_type: "audio/ogg".into(),
+						file: b"OggS".to_vec(),
+					},
+				)
+				.await;
+			let Ok(Outcome::Sounds(page)) = created else {
+				panic!("created sound must reload the catalog");
+			};
+			assert_eq!(page.limit, Some(24));
+			assert_eq!(page.items[0].sound.id, Id(30));
+			assert_eq!(page.items[0].uploader.as_ref().unwrap().id, Id(5));
+
+			let edited = api
+				.server_admin_action(
+					Id(9),
+					&Action::EditSound {
+						id: Id(30),
+						name: "Air horn".into(),
+						emoji: model::Patch::Null,
+						volume: 50,
+					},
+				)
+				.await;
+			assert!(matches!(edited, Ok(Outcome::Sounds(page)) if page.limit.is_none()));
+
+			let deleted = api
+				.server_admin_action(Id(9), &Action::DeleteSound { id: Id(30) })
+				.await;
+			assert!(
+				matches!(deleted, Ok(Outcome::Sounds(page)) if page.items.is_empty() && page.limit == Some(24))
+			);
+			server.await.unwrap();
+
+			// A file that is not the declared container never reaches the network.
+			assert!(matches!(
+				api.server_admin_action(
+					Id(9),
+					&Action::CreateSound {
+						name: "Air horn".into(),
+						emoji: String::new(),
+						volume: 80,
+						content_type: "audio/mpeg".into(),
+						file: b"OggS".to_vec(),
+					},
+				)
+				.await,
+				Err(Failure::Protocol)
+			));
+		})
+		.await
+		.unwrap();
 	}
 }

@@ -76,7 +76,8 @@ pub fn execute_admin(
 	action: model::server_admin::Action,
 ) -> Event {
 	use model::server_admin::{
-		Action, Emoji, Emojis, Member, Members, Result as Outcome, Role, Sticker, Stickers,
+		Action, Emoji, Emojis, Member, Members, Result as Outcome, Role, Sound, Sounds, Sticker,
+		Stickers,
 	};
 	assert!(
 		action.valid(),
@@ -211,6 +212,71 @@ pub fn execute_admin(
 				_ => {}
 			}
 			Outcome::Stickers(page)
+		}
+		Action::LoadSounds
+		| Action::CreateSound { .. }
+		| Action::EditSound { .. }
+		| Action::DeleteSound { .. } => {
+			let sound = |id: u64, name: &str, emoji: Option<&str>, volume: f32| Sound {
+				sound: model::soundboard::Sound {
+					id: Id(id),
+					name: name.into(),
+					volume,
+					emoji_id: None,
+					emoji_name: emoji.map(str::to_owned),
+					guild: Some(guild),
+					available: true,
+				},
+				uploader: Some(owner.clone()),
+			};
+			let mut page = state.server_admin.sounds.clone().unwrap_or_else(|| Sounds {
+				items: vec![
+					sound(9301, "Synthetic fanfare", Some("\u{1f3ba}"), 1.0),
+					sound(9302, "Drum roll", Some("\u{1f941}"), 0.8),
+					sound(9303, "A sound without an emoji", None, 0.5),
+				],
+				limit: Some(8),
+			});
+			match action {
+				Action::CreateSound {
+					name,
+					emoji,
+					volume,
+					..
+				} => {
+					let id = page
+						.items
+						.iter()
+						.map(|row| row.sound.id.0)
+						.max()
+						.unwrap_or(9300) + 1;
+					page.items.push(sound(
+						id,
+						&name,
+						(!emoji.is_empty()).then_some(emoji.as_str()),
+						f32::from(volume) / 100.0,
+					));
+				}
+				Action::EditSound {
+					id,
+					name,
+					emoji,
+					volume,
+				} => {
+					if let Some(row) = page.items.iter_mut().find(|row| row.sound.id == id) {
+						row.sound.name = name;
+						row.sound.volume = f32::from(volume) / 100.0;
+						match emoji {
+							model::Patch::Absent => {}
+							model::Patch::Null => row.sound.emoji_name = None,
+							model::Patch::Value(emoji) => row.sound.emoji_name = Some(emoji),
+						}
+					}
+				}
+				Action::DeleteSound { id } => page.items.retain(|row| row.sound.id != id),
+				_ => {}
+			}
+			Outcome::Sounds(page)
 		}
 		Action::LoadMembers(query) => {
 			let mut page = {

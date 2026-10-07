@@ -113,6 +113,7 @@ mod server_notification_tests;
 mod server_notifications;
 mod server_roles;
 mod server_settings;
+mod server_sounds;
 mod server_stickers;
 mod settings;
 mod shortcuts;

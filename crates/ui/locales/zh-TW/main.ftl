@@ -3243,6 +3243,8 @@ server-settings-page-profile = 伺服器資料
 server-settings-page-roles = 身分組
 # Context: label
 server-settings-page-stickers = 貼圖
+# Context: label
+server-settings-page-soundboard = 音效板
 # Context: preview
 server-settings-preview-established = 已建立連線
 # Context: preview
@@ -3298,6 +3300,84 @@ server-settings-show-people = 成員
 # Context: timeout_picker
 server-settings-timeout-picker-minutes = 分鐘
 
+# Context: server_sounds
+server-sounds-title = 音效板
+# Context: server_sounds
+server-sounds-upload-title = 上傳音效
+# Context: server_sounds
+server-sounds-preview = 預覽
+# Context: server_sounds
+server-sounds-trim-hint = 拖曳控點以選擇最多 5.2 秒。按住控點不動即可放大。
+# Context: server_sounds
+server-sounds-never-mind = 算了
+# Context: server_sounds
+server-sounds-play-preview = 播放所選片段
+# Context: server_sounds
+server-sounds-stop-preview = 停止預覽
+# Context: server_sounds
+server-sounds-description = 上傳此伺服器中任何人都可以使用的自訂音效。
+# Context: server_sounds
+server-sounds-upload-sound = 上傳音效
+# Context: server_sounds
+server-sounds-reload = 重新載入
+# Context: server_sounds
+server-sounds-saving = 正在儲存變更…
+# Context: server_sounds
+server-sounds-loading = 正在載入音效…
+# Context: server_sounds
+server-sounds-hint = MP3、Ogg 或 WAV 音訊。音效最長 5.2 秒、最大 512 KB；較長的檔案可以裁剪。
+# Context: server_sounds
+server-sounds-preparing = 正在準備音效…
+# Context: server_sounds
+server-sounds-name = 名稱
+# Context: server_sounds
+server-sounds-emoji = 相關表情符號（選填）
+# Context: server_sounds
+server-sounds-volume = 音量
+# Context: server_sounds
+server-sounds-upload = 上傳
+# Context: server_sounds
+server-sounds-cancel = 取消
+# Context: server_sounds
+server-sounds-invalid = 請使用 2–32 個字元的名稱，且最多一個表情符號。
+# Context: server_sounds
+server-sounds-section = 音效
+# Context: server_sounds
+server-sounds-count = { $count } 個音效
+# Context: server_sounds
+server-sounds-slots = 剩餘 { $count } / { $limit } 個欄位
+# Context: server_sounds
+server-sounds-empty = 尚無自訂音效
+# Context: server_sounds
+server-sounds-empty-detail = 上傳一個音效即可開始。
+# Context: server_sounds
+server-sounds-column-emoji = 表情符號
+# Context: server_sounds
+server-sounds-column-name = 名稱
+# Context: server_sounds
+server-sounds-column-uploaded-by = 上傳者
+# Context: server_sounds
+server-sounds-unknown = 未知
+# Context: server_sounds
+server-sounds-unavailable = 無法使用
+# Context: server_sounds
+server-sounds-actions = 音效操作
+# Context: server_sounds
+server-sounds-edit = 編輯
+# Context: server_sounds
+server-sounds-delete = 刪除音效
+# Context: server_sounds
+server-sounds-edit-title = 編輯音效
+# Context: server_sounds
+server-sounds-edit-subtitle = 更新音效的名稱、表情符號和音量。
+# Context: server_sounds
+server-sounds-delete-title = 刪除音效？
+# Context: server_sounds
+server-sounds-delete-subtitle = 移除 { $name } 後無法復原。
+# Context: server_sounds
+server-sounds-save = 儲存
+# Context: server_sounds
+server-sounds-custom-emoji-kept = 此音效使用自訂表情符號。留空即可保留。
 ## crates/ui/src/server_stickers.rs
 # Context: dialog
 server-stickers-dialog-cancel = 取消

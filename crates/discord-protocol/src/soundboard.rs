@@ -53,34 +53,47 @@ struct SoundDto {
 	guild_id: Option<Loose>,
 	#[serde(default = "available")]
 	available: bool,
+	/// Present only for members allowed to manage the server's expressions.
+	#[serde(default)]
+	user: Option<crate::UserDto>,
 }
-/// Bind each sound to its authoritative owner: `None` for the default set.
+impl SoundDto {
+	/// Bind the sound to its authoritative owner: `None` for the default set.
+	fn checked(
+		self,
+		guild: Option<Id>,
+	) -> Result<(Sound, Option<model::User>), crate::DecodeError> {
+		let owner = self.guild_id.and_then(|id| id.0);
+		if owner.is_some() && owner != guild {
+			return Err(crate::DecodeError);
+		}
+		let volume = self.volume.unwrap_or(1.0);
+		let sound = Sound {
+			id: self.sound_id.0.ok_or(crate::DecodeError)?,
+			name: self.name,
+			volume: if volume.is_finite() {
+				volume.clamp(0.0, 1.0) as f32
+			} else {
+				1.0
+			},
+			emoji_id: self.emoji_id.and_then(|id| id.0),
+			emoji_name: self.emoji_name.filter(|name| !name.is_empty()),
+			guild,
+			available: self.available,
+		};
+		if !sound.valid() {
+			return Err(crate::DecodeError);
+		}
+		Ok((sound, self.user.map(crate::UserDto::into_model)))
+	}
+}
 fn catalog(items: Vec<SoundDto>, guild: Option<Id>) -> Result<Vec<Sound>, crate::DecodeError> {
 	if items.len() > model::soundboard::MAX_SOUNDS {
 		return Err(crate::DecodeError);
 	}
 	let sounds = items
 		.into_iter()
-		.map(|dto| {
-			let owner = dto.guild_id.and_then(|id| id.0);
-			if owner.is_some() && owner != guild {
-				return Err(crate::DecodeError);
-			}
-			let volume = dto.volume.unwrap_or(1.0);
-			Ok(Sound {
-				id: dto.sound_id.0.ok_or(crate::DecodeError)?,
-				name: dto.name,
-				volume: if volume.is_finite() {
-					volume.clamp(0.0, 1.0) as f32
-				} else {
-					1.0
-				},
-				emoji_id: dto.emoji_id.and_then(|id| id.0),
-				emoji_name: dto.emoji_name.filter(|name| !name.is_empty()),
-				guild,
-				available: dto.available,
-			})
-		})
+		.map(|dto| dto.checked(guild).map(|(sound, _)| sound))
 		.collect::<Result<Vec<_>, _>>()?;
 	if !model::soundboard::valid_sounds(&sounds) {
 		return Err(crate::DecodeError);
@@ -101,6 +114,73 @@ pub fn guild_sounds(bytes: &[u8], guild: Id) -> Result<Vec<Sound>, crate::Decode
 		return Err(crate::DecodeError);
 	}
 	catalog(crate::decode::<Page>(bytes)?.items, Some(guild))
+}
+/// The management view of a server's sounds, with uploaders where the service includes them.
+pub fn admin_sounds(
+	bytes: &[u8],
+	guild: Id,
+) -> Result<model::server_admin::Sounds, crate::DecodeError> {
+	#[derive(Deserialize)]
+	struct Page {
+		items: Vec<SoundDto>,
+	}
+	let items = crate::decode::<Page>(bytes)?.items;
+	if guild.0 == 0 || items.len() > model::soundboard::MAX_SOUNDS {
+		return Err(crate::DecodeError);
+	}
+	let page = model::server_admin::Sounds {
+		items: items
+			.into_iter()
+			.map(|dto| {
+				dto.checked(Some(guild))
+					.map(|(sound, uploader)| model::server_admin::Sound { sound, uploader })
+			})
+			.collect::<Result<_, _>>()?,
+		limit: None,
+	};
+	if !model::server_admin::Result::Sounds(page.clone()).valid() {
+		return Err(crate::DecodeError);
+	}
+	Ok(page)
+}
+/// One created or edited server sound.
+pub fn admin_sound(bytes: &[u8], guild: Id) -> Result<Sound, crate::DecodeError> {
+	if guild.0 == 0 {
+		return Err(crate::DecodeError);
+	}
+	crate::decode::<SoundDto>(bytes)?
+		.checked(Some(guild))
+		.map(|(sound, _)| sound)
+}
+/// Slots by boost level, per Discord's published server perks; `MORE_SOUNDBOARD` raises it.
+pub fn sound_limit(premium_tier: u8, features: &[String]) -> usize {
+	if features.iter().any(|feature| feature == "MORE_SOUNDBOARD") {
+		return 96;
+	}
+	match premium_tier {
+		0 => 8,
+		1 => 24,
+		2 => 36,
+		_ => 48,
+	}
+}
+/// The `sound` field of Create Guild Soundboard Sound: a base64 data URI.
+pub fn sound_data_uri(content_type: &str, bytes: &[u8]) -> String {
+	use base64::{Engine as _, engine::general_purpose::STANDARD};
+	format!("data:{content_type};base64,{}", STANDARD.encode(bytes))
+}
+/// A declared MP3 or Ogg upload within the service's size limit, checked by container magic.
+pub fn valid_sound_file(content_type: &str, bytes: &[u8]) -> bool {
+	!bytes.is_empty()
+		&& bytes.len() <= model::server_admin::MAX_SOUND_FILE_BYTES
+		&& match content_type {
+			"audio/ogg" => bytes.starts_with(b"OggS"),
+			"audio/mpeg" => {
+				bytes.starts_with(b"ID3")
+					|| (bytes.len() > 1 && bytes[0] == 0xff && bytes[1] & 0xe0 == 0xe0)
+			}
+			_ => false,
+		}
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Effect {
@@ -157,7 +237,7 @@ mod tests {
 		assert!(defaults[1].available && defaults[1].emoji_name.is_none());
 
 		let guild = guild_sounds(
-			br#"{"items":[{"name":"Yay","sound_id":"30","volume":0.25,"emoji_id":"40","emoji_name":"yay","guild_id":"9","available":false,"user":{"id":"5"}}]}"#,
+			br#"{"items":[{"name":"Yay","sound_id":"30","volume":0.25,"emoji_id":"40","emoji_name":"yay","guild_id":"9","available":false,"user":{"id":"5","username":"Uploader"}}]}"#,
 			Id(9),
 		)
 		.unwrap();
@@ -223,5 +303,62 @@ mod tests {
 			changed_guild(br#"{"guild_id":"9","sound_id":"30"}"#).unwrap(),
 			Id(9)
 		);
+	}
+	#[test]
+	fn management_rows_keep_uploaders_and_uploads_need_a_declared_container() {
+		let page = admin_sounds(
+			br#"{"items":[{"name":"Yay","sound_id":"30","volume":0.5,"emoji_name":"x","guild_id":"9","user":{"id":"5","username":"Uploader"}},
+			{"name":"Boo","sound_id":"31","guild_id":"9"}]}"#,
+			Id(9),
+		)
+		.unwrap();
+		assert_eq!(page.items.len(), 2);
+		assert_eq!(page.items[0].uploader.as_ref().unwrap().id, Id(5));
+		assert!(page.items[1].uploader.is_none() && page.limit.is_none());
+		assert!(
+			admin_sounds(
+				br#"{"items":[{"name":"Yay","sound_id":"30","guild_id":"8"}]}"#,
+				Id(9)
+			)
+			.is_err()
+		);
+		assert!(
+			admin_sounds(
+				br#"{"items":[{"name":"a1","sound_id":"30"},{"name":"b1","sound_id":"30"}]}"#,
+				Id(9)
+			)
+			.is_err()
+		);
+		assert_eq!(
+			admin_sound(br#"{"name":"Yay","sound_id":"30","guild_id":"9"}"#, Id(9))
+				.unwrap()
+				.guild,
+			Some(Id(9))
+		);
+		assert!(admin_sound(br#"{"name":"Yay","sound_id":"30","guild_id":"9"}"#, Id(0)).is_err());
+
+		assert_eq!(
+			[0, 1, 2, 3].map(|tier| sound_limit(tier, &[])),
+			[8, 24, 36, 48]
+		);
+		assert_eq!(sound_limit(0, &["MORE_SOUNDBOARD".into()]), 96);
+		assert_eq!(
+			sound_data_uri("audio/ogg", b"OggS"),
+			"data:audio/ogg;base64,T2dnUw=="
+		);
+		assert!(valid_sound_file("audio/ogg", b"OggS...."));
+		assert!(valid_sound_file("audio/mpeg", b"ID3...."));
+		assert!(valid_sound_file("audio/mpeg", &[0xff, 0xfb, 0x90]));
+		assert!(!valid_sound_file("audio/mpeg", b"OggS...."));
+		assert!(!valid_sound_file("audio/wav", b"RIFF...."));
+		assert!(!valid_sound_file("audio/ogg", b""));
+		assert!(!valid_sound_file(
+			"audio/ogg",
+			&[
+				b"OggS".as_slice(),
+				&vec![0; model::server_admin::MAX_SOUND_FILE_BYTES]
+			]
+			.concat()
+		));
 	}
 }

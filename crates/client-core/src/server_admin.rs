@@ -5,7 +5,7 @@ use crate::{
 };
 use model::{
 	Id, permissions as p,
-	server_admin::{Action, Emojis, Members, Query, Result as Outcome, Stickers},
+	server_admin::{Action, Emojis, Members, Query, Result as Outcome, Sounds, Stickers},
 };
 
 pub struct Event {
@@ -28,6 +28,7 @@ pub struct View {
 	pub guild: Option<Id>,
 	pub emojis: Option<Emojis>,
 	pub stickers: Option<Stickers>,
+	pub sounds: Option<Sounds>,
 	pub members: Option<Members>,
 	pub query: Query,
 	pub pending: bool,
@@ -199,6 +200,44 @@ impl State {
 					.zip(self.user.as_ref())
 					.is_some_and(|(uploader, user)| uploader.id == user.id))
 	}
+	pub fn can_open_sound_settings(&self, guild: Id) -> bool {
+		self.guild_permission(guild, p::MANAGE_GUILD_EXPRESSIONS)
+			|| self.guild_permission(guild, p::CREATE_GUILD_EXPRESSIONS)
+	}
+	pub fn can_create_guild_sound(&self, guild: Id) -> bool {
+		self.guild_permission(guild, p::CREATE_GUILD_EXPRESSIONS)
+	}
+	/// Managers edit any sound; creators only the sounds they uploaded.
+	pub fn can_edit_guild_sound(&self, guild: Id, id: Id) -> bool {
+		if self.server_admin.guild != Some(guild) {
+			return false;
+		}
+		let Some(row) = self
+			.server_admin
+			.sounds
+			.as_ref()
+			.and_then(|page| page.items.iter().find(|row| row.sound.id == id))
+		else {
+			return false;
+		};
+		self.guild_permission(guild, p::MANAGE_GUILD_EXPRESSIONS)
+			|| (self.can_create_guild_sound(guild)
+				&& row
+					.uploader
+					.as_ref()
+					.zip(self.user.as_ref())
+					.is_some_and(|(uploader, user)| uploader.id == user.id))
+	}
+	fn sound_action_allowed(&self, guild: Id, action: &Action) -> bool {
+		match action {
+			Action::LoadSounds => self.can_open_sound_settings(guild),
+			Action::CreateSound { .. } => self.can_create_guild_sound(guild),
+			Action::EditSound { id, .. } | Action::DeleteSound { id } => {
+				self.can_edit_guild_sound(guild, *id)
+			}
+			_ => false,
+		}
+	}
 	pub fn can_open_member_settings(&self, guild: Id) -> bool {
 		self.can_manage_guild(guild)
 	}
@@ -358,6 +397,10 @@ impl State {
 			Action::EditSticker { id, .. } | Action::DeleteSticker { id } => {
 				self.can_edit_guild_sticker(guild, *id)
 			}
+			Action::LoadSounds
+			| Action::CreateSound { .. }
+			| Action::EditSound { .. }
+			| Action::DeleteSound { .. } => self.sound_action_allowed(guild, action),
 			Action::LoadMembers(_) => self.can_open_member_settings(guild),
 			Action::SetRole { user, role, .. } => self.can_edit_member_role(guild, *user, *role),
 			Action::SetNickname { user, .. } => self.can_edit_guild_nickname(guild, *user),
@@ -408,6 +451,24 @@ impl State {
 				description.shrink_to_fit();
 				tags.shrink_to_fit();
 			}
+			Action::CreateSound {
+				name,
+				emoji,
+				content_type,
+				file,
+				..
+			} => {
+				name.shrink_to_fit();
+				emoji.shrink_to_fit();
+				content_type.shrink_to_fit();
+				file.shrink_to_fit();
+			}
+			Action::EditSound { name, emoji, .. } => {
+				name.shrink_to_fit();
+				if let model::Patch::Value(emoji) = emoji {
+					emoji.shrink_to_fit();
+				}
+			}
 			_ => {}
 		}
 		if self.server_admin.pending
@@ -446,7 +507,9 @@ impl State {
 		let mut retained = action.clone();
 		if let Action::CreateEmoji { image, .. } = &mut retained {
 			*image = String::new();
-		} else if let Action::CreateSticker { file, .. } = &mut retained {
+		} else if let Action::CreateSticker { file, .. } | Action::CreateSound { file, .. } =
+			&mut retained
+		{
 			file.clear();
 			file.shrink_to_fit();
 		} else if let Action::Roles(
@@ -554,6 +617,8 @@ impl State {
 					}
 					_ => false,
 				}
+			} else if action.sound() {
+				!self.sound_action_allowed(event.guild, action)
 			} else {
 				!self.can_open_member_settings(event.guild)
 			}
@@ -713,6 +778,25 @@ impl State {
 						_ => false,
 					}
 			}
+			(Some(action), Outcome::Sounds(page)) if action.sound() => {
+				page.items
+					.iter()
+					.all(|row| row.sound.guild == Some(event.guild))
+					&& match action {
+						Action::LoadSounds => true,
+						Action::CreateSound { name, .. } => {
+							page.items.iter().any(|row| row.sound.name == *name)
+						}
+						Action::EditSound { id, name, .. } => page
+							.items
+							.iter()
+							.any(|row| row.sound.id == *id && row.sound.name == *name),
+						Action::DeleteSound { id } => {
+							page.items.iter().all(|row| row.sound.id != *id)
+						}
+						_ => false,
+					}
+			}
 			_ => false,
 		};
 		if !expected {
@@ -758,6 +842,11 @@ impl State {
 					},
 				});
 				self.server_admin.stickers = Some(page);
+			}
+			Outcome::Sounds(page) => {
+				// The call panel's copy of this server's sounds reloads when next shown.
+				self.apply_soundboard(crate::soundboard::Event::Changed(event.guild));
+				self.server_admin.sounds = Some(page);
 			}
 			Outcome::Members(page) => {
 				if let Some(enabled) = page.show_in_channel_list {
@@ -853,6 +942,7 @@ impl State {
 			Some(
 				Action::LoadEmojis
 					| Action::LoadStickers
+					| Action::LoadSounds
 					| Action::Invites(model::server_invites::Action::Load)
 					| Action::Integrations(model::server_integrations::Action::Load { .. })
 					| Action::LoadMembers(_)
@@ -1189,5 +1279,288 @@ mod sticker_tests {
 				Id(6)
 			);
 		}
+	}
+}
+
+#[cfg(test)]
+mod sound_tests {
+	use super::*;
+
+	fn user(id: u64) -> model::User {
+		model::User {
+			primary_guild: None,
+			id: Id(id),
+			name: "Synthetic".into(),
+			avatar: None,
+			discriminator: 0,
+			kind: Default::default(),
+			webhook: false,
+		}
+	}
+	fn row(id: u64, name: &str, uploader: u64) -> model::server_admin::Sound {
+		model::server_admin::Sound {
+			sound: model::soundboard::Sound {
+				id: Id(id),
+				name: name.into(),
+				volume: 1.0,
+				emoji_id: None,
+				emoji_name: None,
+				guild: Some(Id(2)),
+				available: true,
+			},
+			uploader: Some(user(uploader)),
+		}
+	}
+	fn state(bits: u128) -> State {
+		let mut state = State {
+			auth: AuthState::Authenticated,
+			gateway_connected: true,
+			user: Some(user(1)),
+			guilds: vec![model::Guild {
+				default_message_notifications: None,
+				id: Id(2),
+				name: "Synthetic".into(),
+				icon: None,
+				emojis: None,
+				stickers: None,
+			}],
+			..Default::default()
+		};
+		state.permissions.guilds.insert(
+			Id(2),
+			p::Guild {
+				id: Id(2),
+				owner: Some(Id(99)),
+				member: Some(p::Member {
+					roles: vec![],
+					timeout_until: None,
+				}),
+				roles: Some(vec![p::Role {
+					id: Id(2),
+					name: "@everyone".into(),
+					bits,
+					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
+					position: 0,
+					hoist: false,
+				}]),
+			},
+		);
+		state.server_admin.guild = Some(Id(2));
+		state.server_admin.sounds = Some(Sounds {
+			items: vec![row(4, "Mine", 1), row(5, "Other", 7)],
+			limit: Some(8),
+		});
+		state
+	}
+	fn create() -> Action {
+		Action::CreateSound {
+			name: "Air horn".into(),
+			emoji: String::new(),
+			volume: 80,
+			content_type: "audio/ogg".into(),
+			file: b"OggS".to_vec(),
+		}
+	}
+
+	#[test]
+	fn sound_permissions_follow_creator_and_manager_rules() {
+		let mut state = state(p::CREATE_GUILD_EXPRESSIONS);
+		assert!(state.can_open_sound_settings(Id(2)));
+		assert!(state.can_create_guild_sound(Id(2)));
+		assert!(state.can_edit_guild_sound(Id(2), Id(4)));
+		assert!(!state.can_edit_guild_sound(Id(2), Id(5)));
+		assert!(!state.can_edit_guild_sound(Id(3), Id(4)));
+		assert!(
+			state
+				.request_server_admin(Id(2), Action::DeleteSound { id: Id(5) })
+				.is_none()
+		);
+		state
+			.permissions
+			.guilds
+			.get_mut(&Id(2))
+			.unwrap()
+			.roles
+			.as_mut()
+			.unwrap()[0]
+			.bits = p::MANAGE_GUILD_EXPRESSIONS;
+		state.permissions.clear_cache();
+		assert!(!state.can_create_guild_sound(Id(2)));
+		assert!(state.can_edit_guild_sound(Id(2), Id(5)));
+		assert!(state.request_server_admin(Id(2), create()).is_none());
+
+		let mut outsider = self::state(0);
+		assert!(!outsider.can_open_sound_settings(Id(2)));
+		assert!(
+			outsider
+				.request_server_admin(Id(2), Action::LoadSounds)
+				.is_none()
+		);
+		// Malformed uploads and edits never become a request.
+		let mut state = self::state(p::CREATE_GUILD_EXPRESSIONS);
+		for action in [
+			Action::CreateSound {
+				name: "x".into(),
+				emoji: String::new(),
+				volume: 80,
+				content_type: "audio/ogg".into(),
+				file: b"OggS".to_vec(),
+			},
+			Action::CreateSound {
+				name: "Air horn".into(),
+				emoji: String::new(),
+				volume: 101,
+				content_type: "audio/ogg".into(),
+				file: b"OggS".to_vec(),
+			},
+			Action::CreateSound {
+				name: "Air horn".into(),
+				emoji: String::new(),
+				volume: 80,
+				content_type: "audio/wav".into(),
+				file: b"RIFF".to_vec(),
+			},
+			Action::CreateSound {
+				name: "Air horn".into(),
+				emoji: String::new(),
+				volume: 80,
+				content_type: "audio/ogg".into(),
+				file: Vec::new(),
+			},
+			Action::EditSound {
+				id: Id(4),
+				name: "Mine".into(),
+				emoji: model::Patch::Value("two words".into()),
+				volume: 80,
+			},
+		] {
+			assert!(state.request_server_admin(Id(2), action).is_none());
+		}
+	}
+
+	#[test]
+	fn sound_writes_drop_the_retained_file_and_require_the_expected_catalog() {
+		let mut state = state(p::CREATE_GUILD_EXPRESSIONS);
+		let Command::ServerAdmin {
+			request, action, ..
+		} = state.request_server_admin(Id(2), create()).unwrap()
+		else {
+			panic!()
+		};
+		assert!(matches!(*action, Action::CreateSound { ref file, .. } if file == b"OggS"));
+		assert!(
+			matches!(state.server_admin.action, Some(Action::CreateSound { ref file, .. }) if file.is_empty())
+		);
+		assert!(state.server_admin.saving);
+		// One request at a time.
+		assert!(
+			state
+				.request_server_admin(Id(2), Action::LoadSounds)
+				.is_none()
+		);
+		// A catalog without the created sound is not accepted as its outcome.
+		state
+			.apply_server_admin(Event {
+				guild: Id(2),
+				request,
+				result: Ok(Outcome::Sounds(Sounds {
+					items: vec![row(4, "Mine", 1)],
+					limit: Some(8),
+				})),
+			})
+			.unwrap();
+		assert!(state.server_admin.error.is_some() && state.server_admin.needs_refresh);
+		assert_eq!(state.server_admin.sounds.as_ref().unwrap().items.len(), 2);
+		assert!(state.request_server_admin(Id(2), create()).is_none());
+
+		let Command::ServerAdmin { request, .. } = state
+			.request_server_admin(Id(2), Action::LoadSounds)
+			.unwrap()
+		else {
+			panic!()
+		};
+		// Another server's sounds never enter this catalog.
+		let mut foreign = row(6, "Air horn", 1);
+		foreign.sound.guild = Some(Id(3));
+		state
+			.apply_server_admin(Event {
+				guild: Id(2),
+				request,
+				result: Ok(Outcome::Sounds(Sounds {
+					items: vec![foreign],
+					limit: None,
+				})),
+			})
+			.unwrap();
+		assert!(state.server_admin.error.is_some());
+		let Command::ServerAdmin { request, .. } = state
+			.request_server_admin(Id(2), Action::LoadSounds)
+			.unwrap()
+		else {
+			panic!()
+		};
+		state
+			.apply_server_admin(Event {
+				guild: Id(2),
+				request,
+				result: Ok(Outcome::Sounds(Sounds {
+					items: vec![row(4, "Mine", 1), row(6, "Air horn", 1)],
+					limit: Some(8),
+				})),
+			})
+			.unwrap();
+		assert!(state.server_admin.error.is_none() && !state.server_admin.needs_refresh);
+
+		// The call panel's copy of this server's sounds is marked stale by a management reload.
+		state.soundboard.guild = Some((
+			Id(2),
+			crate::soundboard::Catalog {
+				loaded: true,
+				..Default::default()
+			},
+		));
+		let edit = Action::EditSound {
+			id: Id(6),
+			name: "Louder horn".into(),
+			emoji: model::Patch::Null,
+			volume: 100,
+		};
+		let Command::ServerAdmin { request, .. } = state.request_server_admin(Id(2), edit).unwrap()
+		else {
+			panic!()
+		};
+		state
+			.apply_server_admin(Event {
+				guild: Id(2),
+				request,
+				result: Ok(Outcome::Sounds(Sounds {
+					items: vec![row(4, "Mine", 1), row(6, "Louder horn", 1)],
+					limit: Some(8),
+				})),
+			})
+			.unwrap();
+		assert!(state.server_admin.error.is_none());
+		assert!(!state.soundboard.guild.as_ref().unwrap().1.loaded);
+
+		let Command::ServerAdmin { request, .. } = state
+			.request_server_admin(Id(2), Action::DeleteSound { id: Id(6) })
+			.unwrap()
+		else {
+			panic!()
+		};
+		state
+			.apply_server_admin(Event {
+				guild: Id(2),
+				request,
+				result: Ok(Outcome::Sounds(Sounds {
+					items: vec![row(4, "Mine", 1)],
+					limit: Some(8),
+				})),
+			})
+			.unwrap();
+		assert!(state.server_admin.error.is_none());
+		assert_eq!(state.server_admin.sounds.as_ref().unwrap().items.len(), 1);
 	}
 }

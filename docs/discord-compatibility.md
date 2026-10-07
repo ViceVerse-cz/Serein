@@ -67,6 +67,17 @@ either way. Normal-account acceptance, delivery of the effect event and audible 
 **live-unverified**; no account, call or audio device was used. See
 [workflow and limits](voice.md#soundboard).
 
+Server Settings > Soundboard manages a server's sounds with the documented
+`POST /guilds/{guild.id}/soundboard-sounds` (`name`, a base64 `sound` data URI, `volume`,
+optional `emoji_name`), `PATCH` and `DELETE /guilds/{guild.id}/soundboard-sounds/{sound.id}`.
+The list reads the same catalog route, whose `user` field is present only for members who
+may manage expressions. Slot limits are not part of that response: they come from
+`premium_tier` and the `MORE_SOUNDBOARD` feature of `GET /guilds/{guild.id}`, using Discord's
+published boost perks (8/24/36/48, 96 with the feature), and are omitted when that read
+fails. Trimmed uploads are sent as `audio/ogg` containing Opus; the documentation says
+"MP3 or Ogg" without naming the Ogg codec, so acceptance of Opus is an assumption and
+**live-unverified**. See [management workflow](voice.md#managing-server-sounds).
+
 ## GIF favorite synchronization — October 2, 2026
 
 Opening the GIF picker lazily reads account favorites through the unofficial
