@@ -290,6 +290,23 @@ pub fn debug_window_geometry_check() {
 			Some(geometry)
 		);
 	}
+	let small = WindowGeometry {
+		size: [640, 480],
+		position: None,
+	};
+	let preferences = AppPreferences {
+		window_geometry: Some(small),
+		..AppPreferences::default()
+	};
+	store.save_app_preferences(&preferences).unwrap();
+	assert_eq!(
+		LocalStore::open(&path)
+			.unwrap()
+			.app_preferences()
+			.unwrap()
+			.window_geometry,
+		Some(small)
+	);
 	drop(store);
 	std::fs::remove_file(path).unwrap();
 	std::fs::remove_dir(directory).unwrap();

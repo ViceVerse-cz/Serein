@@ -5980,11 +5980,7 @@ impl eframe::App for Desktop {
 					.ok()
 					.map(|position| [position.x, position.y]),
 			};
-			if size.width >= app_settings::MIN_WINDOW_SIZE[0]
-				&& size.height >= app_settings::MIN_WINDOW_SIZE[1]
-				&& geometry.is_valid()
-				&& self.app_settings.current.window_geometry != Some(geometry)
-			{
+			if geometry.is_valid() && self.app_settings.current.window_geometry != Some(geometry) {
 				self.app_settings.current.window_geometry = Some(geometry);
 				self.app_settings.state.dirty = true;
 			}
