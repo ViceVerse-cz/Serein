@@ -90,7 +90,7 @@ threads = 帖子
 
 channel-pill-thread = 帖子
 channel-pill-forum = 论坛
-channel-pill-post = 帖子
+channel-pill-post = 贴文
 channel-pill-message = 消息
 reload-history = 重新加载记录
 in-a-call = 通话中

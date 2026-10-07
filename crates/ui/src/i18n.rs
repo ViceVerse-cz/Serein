@@ -398,6 +398,13 @@ mod tests {
 
 	#[test]
 	fn channel_pill_labels_are_localized_in_every_catalog() {
+		for language in Language::ALL {
+			assert_ne!(
+				language.text("channel-pill-thread"),
+				language.text("channel-pill-post"),
+				"{language:?} must distinguish regular threads from forum posts"
+			);
+		}
 		for (key, english, czech) in [
 			("channel-pill-thread", "Thread", "Vlákno"),
 			("channel-pill-forum", "Forum", "Fórum"),
