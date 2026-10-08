@@ -601,11 +601,7 @@ impl State {
 		{
 			return false;
 		}
-		let Some(channel) = self
-			.channels
-			.iter()
-			.find(|c| c.id == channel && c.supports_text())
-		else {
+		let Some(channel) = self.channel(channel).filter(|c| c.supports_text()) else {
 			return false;
 		};
 		if channel.guild.is_some() && self.notification_preferences.dnd.is_none() {

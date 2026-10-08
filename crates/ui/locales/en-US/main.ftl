@@ -378,6 +378,18 @@ channel-list-heading-direct-messages = Direct Messages
 channel-list-heading-favorites = Favorites
 # Context: key
 channel-list-heading-pinned = Pinned
+# Context: key
+channel-list-heading-message-requests = Message Requests
+# Context: label
+message-request-ignore-tooltip = Ignore request
+# Context: label
+message-request-accept = Accept
+# Context: label
+message-request-ignore = Ignore
+# Context: label
+message-request-banner = This person isn't your friend yet. Accept to move the conversation into your direct messages.
+# Context: label
+message-request-title = Message request
 
 ## crates/ui/src/channel_menu.rs
 # Context: context

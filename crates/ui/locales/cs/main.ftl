@@ -377,6 +377,18 @@ channel-list-heading-direct-messages = Přímé zprávy
 channel-list-heading-favorites = Oblíbené
 # Context: key
 channel-list-heading-pinned = Připnuté
+# Context: key
+channel-list-heading-message-requests = Žádosti o zprávy
+# Context: label
+message-request-ignore-tooltip = Ignorovat žádost
+# Context: label
+message-request-accept = Přijmout
+# Context: label
+message-request-ignore = Ignorovat
+# Context: label
+message-request-banner = Tato osoba zatím není váš přítel. Přijetím přesunete konverzaci mezi přímé zprávy.
+# Context: label
+message-request-title = Žádost o zprávu
 
 ## crates/ui/src/channel_menu.rs
 # Context: context

@@ -378,6 +378,18 @@ channel-list-heading-direct-messages = Doğrudan Mesajlar
 channel-list-heading-favorites = Favoriler
 # Context: key
 channel-list-heading-pinned = Sabitlendi
+# Context: key
+channel-list-heading-message-requests = Mesaj İstekleri
+# Context: label
+message-request-ignore-tooltip = İsteği yok say
+# Context: label
+message-request-accept = Kabul et
+# Context: label
+message-request-ignore = Yok say
+# Context: label
+message-request-banner = Bu kişi henüz arkadaşın değil. Sohbeti doğrudan mesajlarına taşımak için kabul et.
+# Context: label
+message-request-title = Mesaj isteği
 
 ## crates/ui/src/channel_menu.rs
 # Context: context

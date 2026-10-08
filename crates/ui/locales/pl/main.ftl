@@ -377,6 +377,18 @@ channel-list-heading-direct-messages = Wiadomości bezpośrednie
 channel-list-heading-favorites = Ulubione
 # Context: key
 channel-list-heading-pinned = Przypięty
+# Context: key
+channel-list-heading-message-requests = Prośby o wiadomość
+# Context: label
+message-request-ignore-tooltip = Zignoruj prośbę
+# Context: label
+message-request-accept = Akceptuj
+# Context: label
+message-request-ignore = Ignoruj
+# Context: label
+message-request-banner = Ta osoba nie jest jeszcze Twoim znajomym. Zaakceptuj, aby przenieść rozmowę do wiadomości prywatnych.
+# Context: label
+message-request-title = Prośba o wiadomość
 
 ## crates/ui/src/channel_menu.rs
 # Context: context
