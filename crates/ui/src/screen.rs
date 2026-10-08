@@ -22,6 +22,7 @@ pub struct ScreenUi {
 	pub status: &'static str,
 	pub capture_status: Option<&'static str>,
 	pub supported: bool,
+	pub audio_supported: bool,
 	pub preview: Option<egui::TextureHandle>,
 	height: u32,
 	fps: u32,
@@ -41,6 +42,7 @@ impl Default for ScreenUi {
 			status: "",
 			capture_status: None,
 			supported: false,
+			audio_supported: false,
 			preview: None,
 			height: if cfg!(target_os = "linux") { 720 } else { 1080 },
 			fps: 30,
@@ -101,7 +103,7 @@ impl ScreenUi {
 			height: self.height,
 			fps: self.fps,
 			cursor: self.cursor,
-			audio: self.audio,
+			audio: self.audio && self.audio_supported,
 		};
 		settings.valid().then_some(settings)
 	}
@@ -247,16 +249,21 @@ impl ScreenUi {
 		);
 		if self.supported {
 			ui.add_space(6.0);
-			crate::design::switch(
-				ui,
-				"screen-body-share-system-audio",
-				Some(if cfg!(target_os = "macos") {
-					"screen-body-send-what-your-mac-plays-along-with-the-screen-serein"
-				} else {
-					"screen-body-share-sound-from-other-apps-even-when-sharing-one-window"
-				}),
-				&mut self.audio,
-			);
+			self.audio &= self.audio_supported;
+			ui.add_enabled_ui(self.audio_supported, |ui| {
+				crate::design::switch(
+					ui,
+					"screen-body-share-system-audio",
+					Some(if !self.audio_supported {
+						"screen-body-system-audio-needs-newer-windows"
+					} else if cfg!(target_os = "macos") {
+						"screen-body-send-what-your-mac-plays-along-with-the-screen-serein"
+					} else {
+						"screen-body-share-sound-from-other-apps-even-when-sharing-one-window"
+					}),
+					&mut self.audio,
+				)
+			});
 		}
 		ui.add_space(4.0);
 		ui.add(
@@ -467,6 +474,8 @@ mod tests {
 		);
 		assert_eq!(settings.bit_rate(), 16_000_000);
 		picker.audio = true;
+		assert!(!picker.settings().unwrap().audio);
+		picker.audio_supported = true;
 		assert!(picker.settings().unwrap().audio);
 		picker.audio = false;
 		assert!(!picker.settings().unwrap().audio);

@@ -79,7 +79,34 @@ pub struct Video {
 
 /// Whether this platform can capture system audio with the screen.
 pub fn audio_supported() -> bool {
+	#[cfg(target_os = "windows")]
+	return windows_audio_supported();
+	#[cfg(not(target_os = "windows"))]
 	supported()
+}
+
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+fn windows_audio_supported() -> bool {
+	use windows::{
+		Wdk::System::SystemServices::RtlGetVersion,
+		Win32::System::SystemInformation::OSVERSIONINFOW,
+	};
+	static SUPPORTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+	*SUPPORTED.get_or_init(|| {
+		let mut version = OSVERSIONINFOW {
+			dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as u32,
+			..Default::default()
+		};
+		// Process-excluding loopback was introduced in build 20348.
+		unsafe { RtlGetVersion(&mut version) }.is_ok()
+			&& process_loopback_supported(version.dwMajorVersion, version.dwBuildNumber)
+	})
+}
+
+#[cfg(any(test, target_os = "windows"))]
+fn process_loopback_supported(major: u32, build: u32) -> bool {
+	major > 10 || (major == 10 && build >= 20_348)
 }
 
 pub fn supported() -> bool {
@@ -127,6 +154,11 @@ impl Worker {
 	) -> Result<(Self, Video), &'static str> {
 		if !settings.valid() || !supported() {
 			return Err("Screen sharing is unavailable for these settings or this platform");
+		}
+		if settings.audio && !audio_supported() {
+			return Err(
+				"System audio is unavailable on this Windows version; turn it off to share video",
+			);
 		}
 		let stop = Arc::new(AtomicBool::new(false));
 		let ready = Arc::new(AtomicBool::new(false));
@@ -757,6 +789,16 @@ fn fit_frame(frame: RawFrame, width: u32, height: u32) -> Result<Vec<u8>, &'stat
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn process_loopback_requires_the_windows_build_that_supports_exclusion() {
+		assert!(!process_loopback_supported(6, 9600));
+		assert!(!process_loopback_supported(10, 19045));
+		assert!(!process_loopback_supported(10, 20347));
+		assert!(process_loopback_supported(10, 20348));
+		assert!(process_loopback_supported(10, 22000));
+		assert!(process_loopback_supported(11, 1));
+	}
 
 	#[test]
 	fn idle_screen_keyframe_uses_latest_snapshot_only_when_ready() {

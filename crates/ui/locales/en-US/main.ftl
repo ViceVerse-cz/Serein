@@ -2251,6 +2251,7 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Send what yo
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Share sound from other apps, even when sharing one window. Serein's own audio is left out.
 # Context: body
 screen-body-share-system-audio = Share system audio
+screen-body-system-audio-needs-newer-windows = Audio sharing needs Windows 11 or Windows Server 2022. You can still share video.
 # Context: body
 screen-body-show-cursor = Show cursor
 # Context: body
