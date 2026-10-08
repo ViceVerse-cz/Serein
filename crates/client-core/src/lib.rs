@@ -3756,9 +3756,7 @@ impl State {
 			self.archived_thread = None;
 		}
 		self.channels.retain(|c| !removed.contains(&c.id));
-		if !removed.is_empty() {
-			self.permissions.clear_cache();
-		}
+		self.permissions.forget_channels(removed);
 		for id in removed {
 			self.permissions.channels.remove(id);
 			self.end_voice_channel(*id);

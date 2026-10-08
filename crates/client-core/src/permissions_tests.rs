@@ -1154,6 +1154,52 @@ fn revoked_view_cannot_return_through_stale_gateway_content_or_old_history() {
 }
 
 #[test]
+fn repeated_member_sync_keeps_cached_decisions() {
+	let mut state = state();
+	let member = || PermissionEvent::Member {
+		guild: Id(10),
+		roles: Patch::Value(vec![Id(11)]),
+		timeout_until: Patch::Absent,
+	};
+	permission(&mut state, member());
+	// Channel 21 is not selected, so only this query can populate its decisions.
+	state.can_view(Id(21));
+	let warm = state.permissions.cached_decisions(Id(21));
+	assert!(warm > 0, "Decision queries populate the cache");
+	permission(&mut state, member());
+	assert_eq!(
+		state.permissions.cached_decisions(Id(21)),
+		warm,
+		"An identical sync must not discard valid decisions"
+	);
+	permission(
+		&mut state,
+		PermissionEvent::Member {
+			guild: Id(10),
+			roles: Patch::Value(vec![]),
+			timeout_until: Patch::Absent,
+		},
+	);
+	assert_eq!(
+		state.permissions.cached_decisions(Id(21)),
+		0,
+		"A changed role set invalidates the guild's decisions"
+	);
+}
+
+#[test]
+fn removing_a_channel_keeps_other_channels_cached_decisions() {
+	let mut state = state();
+	state.can_view(Id(21));
+	state.can_view(Id(22));
+	let sibling = state.permissions.cached_decisions(Id(21));
+	assert!(sibling > 0 && state.permissions.cached_decisions(Id(22)) > 0);
+	apply(&mut state, Event::Unavailable(Id(22)));
+	assert_eq!(state.permissions.cached_decisions(Id(22)), 0);
+	assert_eq!(state.permissions.cached_decisions(Id(21)), sibling);
+}
+
+#[test]
 fn deleting_an_unassigned_role_prunes_its_overwrites_and_invalidates_cached_decisions() {
 	{
 		let mut state = state();

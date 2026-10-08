@@ -6269,7 +6269,9 @@ impl eframe::App for Desktop {
 		}
 		self.sync_tray(ctx);
 		if self.state.voice.active.is_some() {
-			ctx.request_repaint_after(std::time::Duration::from_millis(50));
+			// Speaking, notices, remote video, devices, hotkeys and deadlines each wake the UI
+			// themselves; this heartbeat only bounds a missed wake, so a call does not repaint at 20 Hz.
+			ctx.request_repaint_after(std::time::Duration::from_secs(1));
 		}
 	}
 	fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {

@@ -34,6 +34,9 @@ struct Chosen {
 /// Longest edge of the composer thumbnail; the full decode stays bounded by `image::Limits`.
 const PREVIEW_EDGE: u32 = 320;
 const PREVIEW_ALLOC: u64 = 64 * 1024 * 1024;
+/// Largest file read whole for a composer thumbnail; larger selections keep the generic card
+/// instead of loading up to the upload limit (and a second copy) just to draw 320 px.
+const PREVIEW_SOURCE_BYTES: u64 = PREVIEW_ALLOC;
 const SHARE_BYTES: usize = 8 * 1024 * 1024;
 const EMOJI_EDGE: u32 = 48;
 const STICKER_EDGE: u32 = 160;
@@ -305,7 +308,7 @@ async fn preview(source: &Source) -> Option<egui::ColorImage> {
 	if !previewable(source.filename()) {
 		return None;
 	}
-	let bytes = source.preview_bytes(discord_api::upload::MAX_BYTES).await?;
+	let bytes = source.preview_bytes(PREVIEW_SOURCE_BYTES).await?;
 	tokio::task::spawn_blocking(move || decode_preview(&bytes))
 		.await
 		.ok()
@@ -989,6 +992,21 @@ impl Drop for Uploads {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[tokio::test]
+	async fn thumbnails_never_read_selections_larger_than_the_decode_budget() {
+		let dir = std::env::temp_dir().join(format!("serein-preview-cap-{}", std::process::id()));
+		std::fs::create_dir_all(&dir).unwrap();
+		let path = dir.join("large.png");
+		// Sparse: no disk is written, and a capped preview must not read it either.
+		let file = std::fs::File::create(&path).unwrap();
+		file.set_len(PREVIEW_SOURCE_BYTES + 1).unwrap();
+		drop(file);
+		let source = Source::inspect(path).await.unwrap();
+		assert!(source.preview_bytes(PREVIEW_SOURCE_BYTES).await.is_none());
+		assert!(preview(&source).await.is_none());
+		std::fs::remove_dir_all(dir).unwrap();
+	}
+
 	#[tokio::test]
 	async fn public_host_consent_matches_selection_and_completion_is_session_scoped() {
 		let context = egui::Context::default();

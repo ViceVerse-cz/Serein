@@ -96,6 +96,20 @@ impl Permissions {
 	pub fn clear_cache(&self) {
 		self.cache.borrow_mut().clear();
 	}
+	#[cfg(test)]
+	pub(crate) fn cached_decisions(&self, channel: Id) -> usize {
+		self.cache
+			.borrow()
+			.keys()
+			.filter(|(_, cached, _)| *cached == channel)
+			.count()
+	}
+	/// Drops only the cached decisions of `channels`; other channels' decisions stay valid.
+	pub fn forget_channels(&self, channels: &BTreeSet<Id>) {
+		self.cache
+			.borrow_mut()
+			.retain(|(_, channel, _), _| !channels.contains(channel));
+	}
 	pub(crate) fn effective(
 		&self,
 		target: Id,
@@ -251,9 +265,13 @@ impl Permissions {
 				.any(|(id, old)| self.channels.get(id) != old.as_ref());
 		let limit = self.decision_limit.max(MIN_DECISIONS);
 		let cache = self.cache.get_mut();
-		cache.retain(|(guild, channel, _), _| {
-			!guild_ids.contains(guild) && !channel_ids.contains(channel)
-		});
+		// Decisions are pure functions of the guild and channel records, so an event that left
+		// them equal (a repeated member or role sync) keeps every cached decision valid.
+		if changed {
+			cache.retain(|(guild, channel, _), _| {
+				!guild_ids.contains(guild) && !channel_ids.contains(channel)
+			});
+		}
 		// Larger metadata can shrink the budget; drop only the decisions it no longer covers.
 		while cache.len() > limit {
 			cache.pop_last();

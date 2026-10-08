@@ -4,6 +4,38 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Active-call repaint cadence — October 8, 2026
+
+A code audit of the UI, desktop wiring, client state and network/voice crates found one
+always-on cost: while any call was active, `logic()` requested a repaint every 50 ms, running the
+whole UI pass at 20 Hz even though speaking, notices, remote video, devices, hotkeys, screen share
+and deadlines each already wake the UI themselves. The request is now a 1 s heartbeat.
+
+The synthetic `--demo --demo-call` fixture (no credentials, no audio device, no network) was sampled
+on an Apple M1 (16 GiB, macOS 27.0, Rust 1.98.1) with release `--features demo` builds of the base
+commit and the change. Each sample waited 8 s, then summed process CPU time and polled RSS every
+0.5 s for 30 s; base and change were alternated.
+
+| Workload (30 s) | Base | Change |
+| --- | ---: | ---: |
+| Active-call fixture, CPU, 3 runs each | 6.27%, 5.77%, 6.17% | 0.50%, 0.50%, 0.50% |
+| Active-call fixture, peak RSS | 126.3–126.5 MiB | 126.3–126.4 MiB |
+| Plain `--demo` idle, CPU | 0.000% | 0.000% |
+
+The 0.50% remaining is the 1 s heartbeat plus the call timer. CPU time has 10 ms resolution, so
+treat the figures as approximate. They cover one fixture and display, not a live call: remote video,
+screen share, audio threads and GPU work were not measured. A `footprint`/`heap` look at the idle demo
+showed 68 MB physical footprint and 11.6 MB of live heap, so no idle-memory regression was found.
+
+The same change set also avoids work that was not benchmarked, so no speedup is claimed for it:
+permission decisions are no longer discarded when an event leaves the guild and channel records
+equal or when an unrelated channel is removed, notification/read-state lookups use the indexed
+channel map instead of a linear scan, and the composer thumbnail reads at most 64 MiB (the decode
+allocation limit) instead of up to the 500 MB upload limit plus a second copy.
+
+Standard no-default-features macOS packages built from both revisions: executable 68,509,584 B in
+both, installed app 74,547,919 B in both, `ditto` ZIP 48,179,547 vs 48,179,867 B (+320 B).
+
 ## Voice default-device polling — October 7, 2026
 
 An offline probe compared creating a fresh PulseAudio client for every metadata poll with reusing
