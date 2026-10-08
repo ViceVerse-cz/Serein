@@ -298,6 +298,7 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Indisponível par
 attachments-open-original-open-original = Abra o original…
 # Context: pending_card
 attachments-pending-card-remove-attachment = Remover anexo
+attachments-loading-card-preparing = Preparando…
 # Context: show_status
 attachments-show-status-cancel-download = Cancelar download
 # Context: show_status
@@ -376,6 +377,18 @@ channel-list-heading-direct-messages = Mensagens Diretas
 channel-list-heading-favorites = Favoritos
 # Context: key
 channel-list-heading-pinned = Fixado
+# Context: key
+channel-list-heading-message-requests = Solicitações de mensagem
+# Context: label
+message-request-ignore-tooltip = Ignorar solicitação
+# Context: label
+message-request-accept = Aceitar
+# Context: label
+message-request-ignore = Ignorar
+# Context: label
+message-request-banner = Esta pessoa ainda não é sua amiga. Aceite para mover a conversa para suas mensagens diretas.
+# Context: label
+message-request-title = Solicitação de mensagem
 
 ## crates/ui/src/channel_menu.rs
 # Context: context
@@ -809,6 +822,10 @@ emoji-picker-gif-body-searching-klipy = Pesquisando KLIPY…
 # Context: gif_body
 emoji-picker-gif-body-trending-gifs = Tendências de GIFs
 # Context: gif_body
+emoji-picker-gif-body-retry = Tentar novamente
+# Context: gif_body
+emoji-picker-gif-body-no-trending-gifs-right-now = Pesquise um GIF ou tente novamente mais tarde.
+# Context: gif_body
 emoji-picker-gif-body-try-a-different-search-term = Experimente um termo de pesquisa diferente.
 # Context: gif_grid
 emoji-picker-gif-grid-favorite = Favorito
@@ -834,6 +851,8 @@ emoji-picker-popup-hover-an-emoji-to-preview-it = Passe o mouse sobre um emoji p
 emoji-picker-popup-no-matching-emoji = Nenhum emoji correspondente.
 # Context: popup
 emoji-picker-popup-retry-sticker-packs = Tentar novamente pacotes de adesivos
+# Context: popup
+emoji-picker-popup-requires-nitro = Requer Nitro para usar aqui
 # Context: popup
 emoji-picker-popup-search-results = Resultados da pesquisa
 # Context: popup
@@ -1008,7 +1027,7 @@ fonts-show-reset = Reiniciar
 # Context: show
 fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = A rápida raposa marrom salta sobre o cachorro preguiçoso. 0123456789
 # Context: show
-fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF ou OTF, até 8 MiB. Salvo neste dispositivo. O código mantém sua fonte monoespaçada.
+fonts-show-ttf-or-otf-up-to-32-mib-saved-on-this = TTF ou OTF, até 32 MiB. Salvo neste dispositivo. O código mantém sua fonte monoespaçada.
 # Context: show
 fonts-show-typography = Tipografia
 
@@ -2050,6 +2069,20 @@ profiles-more-menu-add-friend-nickname = Adicionar apelido de amigo
 profiles-more-menu-add-note = Adicionar nota
 # Context: more_menu
 profiles-more-menu-block = Bloquear
+profiles-view-full-profile = Ver perfil completo
+profiles-copy-username = Copiar nome de usuário
+profiles-username-unavailable = Abra este perfil para carregar o nome de usuário
+profiles-ignore = Ignorar
+profiles-unignore = Deixar de ignorar
+profiles-ignore-hint = Usa a configuração Ignorar do Discord sem bloquear. A pessoa não é notificada.
+profiles-report-user-profile = Denunciar perfil de usuário
+profiles-report-hint = Abre o formulário de suporte do Discord no navegador e copia o ID do usuário
+profiles-show-activity = ATIVIDADE
+profiles-show-connections = CONEXÕES
+profiles-show-friends-since = AMIGOS DESDE
+profiles-show-note = NOTA
+profiles-show-note-hint = Clique para adicionar uma nota
+profiles-show-note-only-you = Visível apenas para você
 # Context: more_menu
 profiles-more-menu-copy-webhook-id = Copiar ID do webhook
 # Context: more_menu
@@ -2118,6 +2151,8 @@ profiles-show-view-profile-picture = Ver foto do perfil
 ## crates/ui/src/reactions.rs
 # Context: add_button
 reactions-add-button-add-reaction = Adicionar reação
+# Context: quick_button
+reactions-quick-react = Reagir com { $emoji }
 # Context: show
 reactions-show-reactions-unavailable = Reações indisponíveis
 # Context: show
@@ -3439,12 +3474,17 @@ settings-chat-settings-channel-list = Lista de canais
 settings-chat-settings-show-channels-you-cannot-currently-access = Mostrar canais que você não pode acessar no momento.
 # Context: chat_settings
 settings-chat-settings-show-hidden-channels = Mostrar canais ocultos
+# Context: chat_settings
+settings-chat-settings-emoji = Emojis
+# Context: chat_settings
+settings-chat-settings-suggest-nitro-emojis = Sugerir emojis que exigem Nitro
+# Context: chat_settings
+settings-chat-settings-suggest-nitro-emojis-description = Oferecer emojis animados e de outros servidores nas sugestões de : e no seletor sem Nitro. Quando desativado, eles ficam ocultos nas sugestões e bloqueados no seletor.
 # Context: close_control
 settings-close-control-close-settings-esc = Fechar configurações (Esc)
 # Context: colour_preset_settings
 settings-colour-preset-settings-colour-preset = Predefinição de cores
 # Context: colour_preset_settings
-settings-colour-preset-settings-saved-with-your-appearance-gradient-presets-always-use-dark-text = Salvo com sua aparência. As predefinições de gradiente sempre usam texto escuro.
 # Context: storage_page
 settings-storage-page-clear-cache = Limpar cache
 # Context: storage_page
@@ -3737,6 +3777,10 @@ timeline-deleted-message-actions-toggle-deleted-highlight = Alternar destaque ex
 timeline-loading-messages-loading-messages = Carregando mensagens
 # Context: message_actions
 timeline-message-actions-copy = Cópia
+# Context: message_actions
+timeline-message-actions-copy-message-id = Copiar ID da mensagem
+# Context: message_actions
+timeline-message-actions-copy-message-link = Copiar link da mensagem
 # Context: message_actions
 timeline-message-actions-create-thread = Criar tópico…
 # Context: message_actions
@@ -4160,7 +4204,6 @@ voice-voice-processing-controls-start-the-microphone-test-or-join-a-call-to-see 
 # Context: voice_processing_controls
 voice-voice-processing-controls-suppression-strength = Força de supressão
 # Context: voice_settings_content
-voice-voice-settings-content-audio-preferences-are-saved-on-this-device-your-microphone-starts = As preferências de áudio são salvas neste dispositivo. Seu microfone só é iniciado quando você participa de uma chamada ou inicia um teste.
 # Context: voice_settings_content
 voice-voice-settings-content-camera = Câmera
 # Context: voice_settings_content
@@ -4347,6 +4390,22 @@ lib-composer-onboarding-rules-pending = Aceite as regras deste servidor para com
 lib-composer-onboarding-incomplete = Conclua a entrada neste servidor para desbloquear mais canais.
 # Context: composer
 lib-composer-onboarding-complete = Concluir integração
+profiles-message-placeholder = Mensagem para @{ $user }
+profiles-message-send = Enviar mensagem
+profiles-message-sending = Abrindo mensagem direta…
+user-menu-contents-start-a-call = Iniciar chamada
+verification-show-complete-the-check-to-open-this-conversation = Conclua a verificação para abrir esta conversa.
+verification-show-discord-requires-a-security-check-before-you-can-message = O Discord exige uma verificação de segurança antes que você possa enviar mensagens a esta pessoa.
+verification-show-complete-the-check-to-send-this-message = Conclua a verificação para enviar esta mensagem.
+verification-show-discord-requires-a-security-check-before-this-message = O Discord exige uma verificação de segurança antes de enviar esta mensagem.
+profiles-message-busy = Aguardando outra ação terminar…
+profiles-message-offline = Reconecte-se para enviar uma mensagem
+
+voice-recipient-ring = Chamar novamente
+voice-recipient-stop-ringing = Parar de chamar
+voice-recipient-ringing = Chamando…
+voice-recipient-not-in-call = Fora da chamada
+reconnect-now = Reconectar agora
 
 voice-stereo-input = Microfone estéreo
 voice-stereo-input-warning = Requer entrada de dois canais. Usa os dois primeiros sem supressão de ruído, cancelamento de eco, ganho automático ou controles de sensibilidade. Use fones de ouvido.
@@ -4431,3 +4490,19 @@ server-emoji-empty-animated = Nenhum emoji animado ainda
 server-emoji-empty-detail = Envie uma imagem para adicionar um. GIFs viram emojis animados.
 
 server-stickers-empty-detail = Envie uma imagem para adicionar sua primeira figurinha.
+
+screen-macos-system-picker = Escolher com o seletor do macOS
+
+screen-macos-system-picker-kind = Seletor de conteúdo do sistema
+
+member-in-voice = No chat de voz
+
+profiles-board = Board
+profiles-board-unavailable = This profile’s board is unavailable.
+profiles-board-empty = No games on this board yet.
+profiles-board-show-more = Show more
+profiles-board-show-less = Show less
+profiles-activity-empty = Nenhuma atividade compartilhada.
+profiles-mutuals-empty = Nothing to show here.
+
+reading-double-click-reaction = Double-click reaction

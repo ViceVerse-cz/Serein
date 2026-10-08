@@ -676,6 +676,16 @@ impl Voice {
 					.map(|c| (c.generation, c.channel, c.request))
 			});
 		if current.is_some() && current != expected {
+			// Leaving a call this account had joined mirrors its local join cue.
+			if self
+				.live
+				.as_ref()
+				.is_some_and(|live| live.cues.joined && live.generation == state.generation)
+				&& ui.notification_options.allows(Sound::UserLeave)
+			{
+				ui.notification_preview = Some(Sound::UserLeave);
+				ctx.request_repaint();
+			}
 			let command = current.map(|(_, channel, request)| self.end_control(channel, request));
 			self.stop();
 			// Permission/removal failures must leave the service too; never target a new account.
@@ -711,7 +721,7 @@ impl Voice {
 				pending.channel,
 				ui.voice_push_to_talk,
 				ui.voice_ptt_active,
-			);
+			) || ui.voice_ptm_active;
 			let input_enabled = state.can_speak(pending.channel);
 			if let Err(error) =
 				self.start_media(runtime, pending, ui, ctx, listen_only, input_enabled)
@@ -734,7 +744,8 @@ impl Voice {
 					ui.voice_push_to_talk,
 					ui.voice_ptt_active,
 				) || call.server_muted
-				|| deafened || (ui.voice_push_to_talk && !ui.voice_ptt_active);
+				|| deafened || (ui.voice_push_to_talk && !ui.voice_ptt_active)
+				|| ui.voice_ptm_active;
 			live.audio.set_controls(muted, deafened);
 			live.audio.set_processing(ui.voice_processing.effective());
 			live.audio.set_input_enabled(state.can_speak(call.channel));
@@ -1891,6 +1902,8 @@ mod tests {
 				roles: Some(vec![p::Role {
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
 					id: Id(10),

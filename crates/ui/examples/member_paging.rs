@@ -40,6 +40,7 @@ fn frames(ctx: &egui::Context, view: &mut ui::MessagingUi, state: &mut State, wh
 						egui::Event::MouseWheel {
 							unit: egui::MouseWheelUnit::Point,
 							phase: egui::TouchPhase::Move,
+							source: egui::MouseWheelSource::Unknown,
 							delta: egui::vec2(0.0, wheel),
 							modifiers: egui::Modifiers::NONE,
 						},

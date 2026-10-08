@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Rebuild the bundled Twemoji atlas; requires Pillow==11.3.0 (development only)."""
+"""Rebuild bundled Twemoji atlas and scalable artwork; requires Pillow==11.3.0 and zstd."""
 
 import argparse
 import hashlib
 import io
 import sys
+import struct
 from pathlib import Path
 import shutil
 import subprocess
@@ -44,13 +45,24 @@ def main():
         assert len({text for text, _ in entries}) == COUNT
         atlas = Image.new("RGBA", (COLUMNS * CELL, ((COUNT + COLUMNS - 1) // COLUMNS) * CELL))
         index = []
+        vectors = bytearray()
+        offsets = [0]
         for cell, (text, member) in enumerate(entries):
             with Image.open(archive.extractfile(member)) as original:
                 assert original.size == (72, 72)
                 glyph = original.convert("RGBA").resize((CELL - 2, CELL - 2), Image.Resampling.LANCZOS)
                 atlas.paste(glyph, ((cell % COLUMNS) * CELL + 1, (cell // COLUMNS) * CELL + 1))
+            svg_name = member.name.replace("/assets/72x72/", "/assets/svg/").removesuffix(".png") + ".svg"
+            svg = archive.extractfile(svg_name).read(65537)
+            assert len(svg) <= 65536
+            assert not any(marker in svg for marker in [b"<image", b"<text", b"<use", b"href=", b"<filter"])
+            encoded = subprocess.run(["zstd", "-q", "-19", "--zstd=wlog=16", f"--stream-size={len(svg)}", "-c"], input=svg, stdout=subprocess.PIPE, check=True).stdout
+            vectors.extend(encoded)
+            offsets.append(len(vectors))
             index.append((text.replace("\ufe0f", ""), cell))
         assert len({text for text, _ in index}) == COUNT
+        assert len(vectors) <= 8 * 1024 * 1024
+        (destination / "vectors.bin").write_bytes(struct.pack(f"<{COUNT + 1}I", *offsets) + vectors)
         atlas.save(destination / "atlas.png", optimize=True)
         # Lossless; ~13% smaller than Pillow's best zlib output. Install with `cargo install oxipng`.
         if shutil.which("oxipng"):

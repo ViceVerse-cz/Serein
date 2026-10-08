@@ -15,6 +15,58 @@ and encoded output remains 1,275 bytes. Native driver buffers and Opus state are
 additional. Capture is gated by the existing permissions, explicit call/test,
 mute/deafen and encryption lifecycle. No audio is persisted, logged or recorded.
 
+
+## Profile board games (October 7, 2026)
+
+Board metadata uses the existing on-demand profile worker and RAM profile cache,
+within the unchanged 64-KiB retained-profile limit and 256-KiB profile wire limit.
+The parser admits eight widget envelopes, retains at most one of each of four
+supported kinds, and caps their games at 1/5/20/20 respectively. Each game retains
+at most 512 name bytes, 1,024 comment bytes and three ASCII tags of 64 bytes each;
+image references are validated service hashes. Names and image hashes use at most
+two sequential requests with 25 IDs and 256 KiB response bytes each. Optional
+enrichment is accepted only when the entire profile remains within its budget.
+No polling, new queues or profile persistence are added. Current cancellation,
+generation checks, cache expiry, logout and account isolation still apply.
+Visible cover/icon images use the existing credential-free image worker and
+bounded account image cache; arbitrary game-supplied URLs are never fetched.
+
+## Voice audio host lifetime (October 7, 2026)
+
+Each active voice device set retains its CPAL host and reuses it for default-device
+polling and microphone retries. Polling no longer allocates a fresh PulseAudio
+client/reactor every second. Stream replacement replaces the host; callback
+failure recovery remains bounded. No PCM queue, cache, diagnostic budget or
+persistent record changes. Native backend resources are additional to the existing
+application media bounds; this is not a whole-process memory limit.
+
+## Linux native live decoder admission (October 3, 2026)
+
+Each Linux live H.264 decoder now admits at most four queued compressed access
+units and 8,650,752 payload bytes in its native appsrc. Its existing nonblocking
+`max-bytes` setting only signaled pressure and did not enforce rejection. One
+producer checks native queue levels before copying the next access unit; native
+consumption can only lower them. Rejection resets decoding through the existing
+keyframe recovery path rather than silently losing a reference picture. Older
+GStreamer runtimes without item accounting (before 1.20) use the software fallback.
+The outer 16-picture / 16-MiB decode handoff, at most eight active decoders,
+current worker input, consumed native buffers, codec surfaces and decoded pictures
+remain separate allocations. This is a queue bound, not a whole-process RAM cap.
+No media or keys are persisted and no queue budget is enlarged.
+
+## macOS system sharing picker (October 2, 2026)
+
+macOS discovery retains one generic picker source instead of enumerating window
+titles. After explicit sharing, the worker receives at most one native picker
+result through a one-slot channel. It validates finite, positive dimensions and
+the existing source bounds before retaining the selected filter. Waiting is capped
+at two minutes and checks cancellation every 20 ms; stale results are discarded.
+Existing screen worker retirement prevents overlapping capture workers. The native
+bridge owns one pending callback until completion/cancellation or replacement by
+the next picker; it contains only the result sender, with no account secrets.
+Neither picker metadata nor selected window titles are persisted or logged.
+Existing frame/audio byte limits, encryption gates and capture cleanup still apply.
+
 ## Image decoder lifetime and stream frame reuse (October 2, 2026)
 
 Each image worker still admits eight loads. Blocking image decoders now share
@@ -509,9 +561,12 @@ Interactive changes coalesce for 300 ms into at most one queued write and one fi
 value. A full or failed worker reports an unsaved change without an automatic retry loop;
 Retry saving is deliberate. Closing with pending/failed writes prompts before discarding.
 In-app preview edits are not saved; a write already requested outside preview still completes.
-The standalone --demo does not start the SQLite worker. Narrow People overlays and outer window geometry remain session-local.
+The standalone --demo does not start the SQLite worker. Narrow People overlays remain
+session-local. Normal window geometry is device-local in the bounded app_preferences singleton:
+two logical size integers (1..=16,384) and an optional physical position pair
+(-131,072..=131,072). It survives account logout and introduces no new file or table.
 Notification opt-in, hidden-channel visibility, primary RGB color, audio devices (up to 1,024 bytes each),
-input profile/custom processing, push-to-talk, gain, keyboard bindings and the global-keybind
+input profile/custom processing, push-to-talk, gain, keyboard and mouse-button bindings and the global-keybind
 switch (enabled by default) are saved in the device-wide `app_preferences`
 SQLite singleton (16 KiB maximum), using the existing background worker. The Linux
 hide-window-decorations boolean is stored in this same record and defaults to false. These survive
@@ -572,7 +627,7 @@ no audio is retained. Preview levels remain session-only.
 
 Loaded thread navigation shares the 4,000-entry account navigation and 4 MiB normalized navigation budgets. Incoming thread syncs additionally cap combined parent/thread entries at 4,000 and normalized snapshot metadata at 2 MiB; wire JSON remains capped at 4 MiB. Removed-member arrays are capped at 4,000 and are discarded after checking the owner. Navigation/member lists are session-only; selected thread messages/drafts reuse existing account history/draft storage. Actual accepted thread removals enqueue the existing account-wide history clear, preserving drafts; ignored, empty-scope and rename-only events do not clear disk history. This coarse invalidation trades refetch cost for simpler deletion, without new tables or workers.
 
-The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, SQLite, saved drafts, settings and caches are permitted. The implementation persists **history with embeds, attachments and mentioned users; avatar/server-icon/banner/preview images; drafts; appearance; reading/layout preferences; and the login token**. Outer window geometry remains session-local.
+The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, SQLite, saved drafts, settings and caches are permitted. The implementation persists **history with embeds, attachments and mentioned users; avatar/server-icon/banner/preview images; drafts; appearance; reading/layout preferences; and the login token**. Normal window size and supported outer position are retained in the bounded device-local app_preferences singleton.
 
 | Data | Location / bound | Removal |
 |---|---|---|
@@ -586,11 +641,12 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 | Selected upload source | Up to ten session-only paths (4096 encoded bytes each), filenames (256 UTF-8 bytes each) and size/modified metadata; 500,000,000 bytes total, read in 64 KiB chunks | Removal, send completion/failure, cancellation or session teardown; sources are never copied to recovery/cache files or deleted |
 | Drafts | 64 globally, at most 2 MiB content; each draft at most 8192 UTF-8 bytes | Clear draft, confirmed send, or account logout |
 | Appearance | One application-wide SQLite row: Light or Dark; absent means System | Select System to remove the override; retained across account logout |
-| Reading/layout | One application-wide SQLite row with eight bounded scalar fields | Reset reading and layout removes only this override; retained across account logout |
+| Reading/layout | One application-wide SQLite row with bounded scalar fields, including the double-click reaction opt-in and Unicode preset | Reset reading and layout removes only this override; retained across account logout |
 | Theme preset | One application-wide SQLite row (`theme_variant`, ≤32-byte key such as `onyx`); absent means Default | Select Default to remove it; unknown keys are ignored; retained across account logout |
 | SQLite working files | DELETE journal mode, in-memory temporary tables, 2 MiB page cache; transaction journal may temporarily add disk usage | SQLite transaction completion; normal SQLite crash recovery |
 | Voice credentials, DAVE identities/keys and PCM/Opus audio | Session memory only; one call, bounded media queues; no recording or audio cache | Hangup, failure, logout and application teardown; no forensic-erasure claim |
 | Audio devices, input profile/custom processing, push-to-talk and gain | Device-wide `app_preferences` SQLite singleton, bounded to 16 KiB; device names ≤1,024 bytes each | Retained across restart/logout; demo changes remain in memory |
+| Automatic emoticon conversion | Boolean in the existing device-wide `app_preferences` singleton; defaults off, including older saved preferences | Retained across restart/logout; converts standalone emoticons on message send/edit; demo changes remain in memory |
 | Authentication page | Wry incognito on Windows/macOS; ephemeral WebKit6 NetworkSession on Linux, destroyed on token handoff/cancel/timeout | Platform engine teardown; OS artifacts not promised erased |
 
 Typical packaged-build database directories: macOS `~/Library/Application Support/serein`, Windows `%LOCALAPPDATA%/serein`, Linux `$XDG_DATA_HOME/serein` or `~/.local/share/serein`; default source builds use the sibling `serein-development` directory. An absolute `SEREIN_DATA_DIR` selects the root for SQLite, image caches, extensions and detectable-game metadata; an empty or relative override disables those stores instead of falling back to production data. `cargo xtask package` disables the development feature, so distributed executables use the packaged-build directory and credential namespace. Newly created Unix data directories are private (0700); existing override permissions are preserved. Database contents are **not encrypted by Serein**. OS token protection does not encrypt history, backups or drafts, and the override does not relocate credentials from the OS store.
@@ -650,12 +706,13 @@ These are component ceilings, not measured whole-process RSS. Disk eviction reta
 32 candidate paths at a time. Worker completion fences replacement and deletion, so
 logout/clear cannot race an older worker's writes. Picture-cache failures appear in
 local-storage status. Disk cache contents are unencrypted. Category collapse is retained in the
-account-isolated channel preferences record. Narrow People overlays and outer window geometry
-remain session-local.
+account-isolated channel preferences record. Narrow People overlays remain session-local.
+Normal window geometry is device-local in the bounded app_preferences singleton.
 
-Storage commands and results each retain their 16-item limit and have separate 16 MiB
-estimated allocation budgets. Reservations include vector/string capacity and metadata
-allowances and are released when work/results are consumed or dropped. Byte exhaustion
+Storage commands and results each retain their 16-item limit and have separate 48 MiB
+estimated allocation budgets (32 MiB for a custom font plus 16 MiB of work/metadata).
+Reservations include vector/string capacity and metadata allowances and are released
+when work/results are consumed or dropped. Byte exhaustion
 rejects command admission through the existing unsaved/cleanup handling; the storage worker
 waits for result capacity without dropping completions. One completed result awaiting
 admission and the SQLite working set are additional. History payloads retain the 500-row /
@@ -671,6 +728,8 @@ of 2 MiB + 64 KiB each; discarded partials release capacities above 256 KiB. Dec
 reference-picture, hardware and displayed-frame memory are additional. The synchronous
 software-video sink borrows the reusable RGBA buffer, avoiding a full-frame clone before
 conversion to UI pixels. No live media was used to establish these implementation bounds.
+
+Service-confirmed DM ringing retains at most 64 calls × 64 recipient IDs (32 KiB ID storage plus bounded vector metadata), alongside the existing call roster. It is session-only and clears on call deletion, access loss, fresh resync and disconnect. Targeted ringing adds one fixed-size pending UI action and one cancellable HTTP task, with no retries or persisted history. The dispatcher reuses a navigation-limited private-channel map, retaining at most 63 recipient IDs and 512 allocated ID bytes per channel for membership checks; no directory fetch is added. A coalesced revision invalidates pending actions when membership changes.
 
 Voice introduces no application audio files, recordings or voice-key store. Device preferences are saved locally as described above. Voice tokens/session IDs use redacted, zeroizing buffers and never enter SQLite or diagnostics; DAVE identities are regenerated for a new call. Eight-frame PCM queues, bounded Opus packets and one bounded decoder/jitter/PCM working set per remote speaker (up to 63) are transient media allocations, not disk caches. Guild voice rosters are session-only with 4,096-entry and 1 MiB budgets; they are never persisted. Upstream cryptographic tracing is compiled out. Audio-device shutdown is fenced before another device session starts. Synthetic crypto, transport and device-free capture-gate tests passed; actual audio-driver/permission artifacts and process writes during a physical call have not been traced. OS microphone permissions and driver behavior are outside Serein's cache-clearing guarantee.
 
@@ -917,13 +976,14 @@ for enumeration on its first missing glyph; its font/cache memory is framework
 overhead, separate from Serein message/image budgets. OS font availability and
 emoji coverage vary by platform. Bundled text faces and Twemoji remain in use.
 
-Explicit Appearance → Typography import accepts one local TTF/OTF up to 8 MiB. A native
+Explicit Appearance → Typography import accepts one installed TTF/OTF face up to 32 MiB. A native
 picker feeds one bounded background read and validation; no file path is saved. The existing
-SQLite worker atomically replaces one `custom_font` row (name ≤128 UTF-8 bytes, font ≤8 MiB),
-within the database's existing total size ceiling. Reset deletes that row; logout retains it.
+SQLite worker atomically replaces one `custom_font` row (name ≤128 UTF-8 bytes, font ≤32 MiB),
+within the database's existing 64 MiB total size ceiling. Schema 27 migrates the old
+8 MiB table constraint while preserving the saved font. Reset deletes that row; logout retains it.
 The prior font stays active if importing or saving fails. The three proportional weight
 definitions share the imported bytes; the active font and one pending replacement can each
-retain up to 8 MiB, in addition to renderer/font-atlas overhead. Cache queue reservations
+retain up to 32 MiB, in addition to renderer/font-atlas overhead. Cache queue reservations
 include font payload bytes. Demo imports stay in memory and do not read or write this row.
 
 
@@ -1370,6 +1430,10 @@ bounded map metadata, in RAM and reuses them across forum switches. Refresh,
 disconnect and account reset release them; permission loss prunes inaccessible entries.
 No new disk cache is introduced. Startup read cursors
 for not-yet-loaded threads remain in the existing item/byte-bounded read-state map.
+Sidebar discovery reuses the single forum page loader and existing navigation budgets.
+It retains at most 200 fixed-size forum ID/last-post cursor pairs for the displayed
+guild (4,800 payload bytes plus bounded B-tree overhead), cleared on guild changes
+or disconnect. No additional response queue, message history fetch or disk cache is added.
 
 ### Stickers (schema 21)
 
@@ -1407,15 +1471,20 @@ or background pagination is added.
 
 ### Emoji and sticker image sharing
 
-The opt-in plugin stages public artwork as ordinary attachments only after selecting
-an emoji or sticker that cannot use its normal Discord send path.
-One host download/preparation uses generated HTTPS CDN URLs without credentials or
-redirects, capped at 8 MiB per image and 15 seconds per request. Raster preview decoding
-uses the existing 64 MiB allocation limit and 320px thumbnail edge outside rendering.
-Up to ten selected images remain in session RAM (80 MiB encoded artwork maximum),
-with no temporary files or recovery cache. Navigation/logout cancel pending preparation;
-The picker selection authorizes one send after validation; ordinary upload permissions
-and cleanup apply. Existing selected files are never included in that send.
+The built-in fallback inserts bounded named Markdown links into the ordinary draft
+without sending. Composer/message previews reuse the existing bounded media worker;
+only exact public Discord emoji/sticker routes are recognized as inline artwork.
+Explicit Send with additional text uses those links as ordinary message content.
+Artwork-only Send prepares one batch of up to ten images and retains the submitted
+draft until preparation succeeds. The preparation snapshot is capped at 8,192 bytes
+and matched to the originating generation/channel; newer drafts are preserved.
+One host preparation job downloads generated HTTPS CDN URLs without credentials or
+redirects, sequentially, capped at 8 MiB per input and 15 seconds per request.
+Prepared images total at most 8 MiB in session RAM, plus the current bounded input and
+decoder working set. Raster preview decoding uses the existing 64 MiB allocation
+limit and 320px thumbnail edge outside rendering. There are no temporary files or
+recovery caches. Navigation/logout cancel preparation; ordinary upload permissions
+and cleanup still apply. Existing selected files take the regular composer send path.
 
 
 ### Local camera settings preview
@@ -1500,6 +1569,23 @@ the credential-store job completes. A failed deletion leaves routing paused; it
 does not resume stored credentials. In-flight requests retain their earlier
 snapshot. Rejected saves retain the credential draft until a valid job can start.
 
+The embed image lightbox retains one cloned, validated media reference (at most
+8 KiB), reuses the existing bounded attachment viewer/media working set, and
+discards its reference when the source message is removed or changed or its
+spoiler consent no longer matches. Mention recency is calculated from the
+already-loaded timeline for at most 256 candidates and is not persisted.
+
+Tray voice presentation retains one desired state and one successfully applied
+state. Windows keeps at most four owned 32×32 icons and one fixed 128-code-unit
+tooltip descriptor. Background voice/tray logic runs once per event tick; active
+calls request a 50 ms repaint. These ticks neither open audio devices nor create
+new network payloads.
+Bundled scalable emoji retain the existing 1,024-item / 16 MiB emoji texture LRU.
+Their local-only request keys select 64, 128 or 256-pixel renditions. Each SVG has
+a 64 KiB decompression/window limit and shares the media worker’s eight decode
+permits, 1,024-item bounded requests and 128-item / 128 MiB result queue. No runtime
+network or disk cache is used for this bundled artwork, including in offline demo.
+
 ## Native camera format selection
 
 Camera input selection is limited to 1280×720 except DirectShow, which preserves
@@ -1513,11 +1599,13 @@ and preserves its existing four 4-MiB mapping ceiling and 4-MiB JPEG decode limi
 Nonmatching Linux pictures add at most 2,764,800 native RGB bytes, 921,600 fitted
 RGB bytes and 921,600 output RGB bytes. No camera files or persistent metadata
 are introduced. Native driver allocations remain outside these application limits.
+
 Linux system appearance retains one atomic preference and at most one portal
 connection/subscription (eight queued messages). Portal connect/read operations
 have three-second timeouts and reconnect attempts are separated by three seconds.
 The initial gsettings fallback runs once off rendering, with a two-second process
 limit and a 256-byte output cap; no preference history or diagnostics are stored.
+
 Reading zoom is constrained to 50–150%. Schema 26 rebuilds the fixed-size reading
 preferences table in the existing migration transaction, preserving all saved choices
 while widening the former 80% lower limit. Older clients reject schema 26 rather than
@@ -1572,6 +1660,13 @@ replacement behind the existing audio retirement fence. It keeps the original
 30-second deadline and zeroizes that set on confirmation, cancellation or failure
 teardown. Failed candidates do not spawn retries until credentials actually change.
 
+Targeted-ring dispatch additionally retains one observed/current DM call record: a channel/request/confirmation tuple and two 64-ID vectors for joined
+and service-ringing peers (at most 1,024 allocated ID bytes per record). The dispatcher retains at most 64 discovered DM records in FIFO discovery order, matching the core call limit, plus one active attempt: at most 66,560 allocated ID bytes. Additional retained metadata is bounded by the observed Vec capacity (64) × `size_of::<Option<RecipientCall>>()`, the active record/Vec header in `RecipientCalls`, and its fixed shared `Arc<Mutex<_>>` allocation/control block; allocator bookkeeping is not included in the ID-byte bound. Unrelated DM events update their discovered record without cancelling the current recipient write. Same-channel Join preserves service observations, replaces its local request and
+requires fresh confirmation; another channel replaces the record. Replacement,
+local release, disconnect and removed access clear it.
+Validated Call/State observations update it before dispatch and invalidate pending
+HTTP workers. Unknown ringing authorizes neither start nor stop.
+
 Local voice-confirmation admission failures carry one generation, channel ID,
 attempt and candidate revision plus a fixed static diagnostic through a dedicated
 latest-report watch. Its optional payload is at most 64 bytes, plus fixed watch
@@ -1584,3 +1679,20 @@ The original negotiation deadline remains bounded during sustained event load.
 The desktop consumes only the matching current unconfirmed candidate;
 existing bounded local abandonment handles release after failure. There is no new
 retry worker or pending command slot.
+
+Targeted-ring dispatch keeps one fixed command tuple (at most 64 bytes) beside
+its existing HTTP task. Main-loop and worker revision wakeups recheck the same
+confirmed call, recipient membership and current target eligibility; unrelated
+peer mute/camera state does not cancel an eligible target. Departure, replacement,
+access loss and target state changes retire obsolete work without an optimistic
+state or additional failure/retry queue.
+
+GIF stars in attachment and gallery widgets retain a per-frame copy of at most
+100 admitted favorite URL keys (512 bytes each) and one at-most-2-KiB pending GIF
+action in the account UI. Account reset clears both. Wire URL metadata is bounded
+by its enclosing 4-KiB entry rather than an additional 1-KiB string restriction;
+the native projection retains its existing URL and allocated-byte limits.
+
+Schema 28 adds the device-wide double-click reaction preset to the reading settings singleton. The bounded index selects one of six Unicode emoji, defaults to ❤️, and persists independently of session emoji recommendations.
+
+Schema 29 adds a bounded boolean opt-in for double-click reactions, disabled for new and migrated settings. The selected Unicode preset is retained while disabled; Reset chat restores the disabled default.

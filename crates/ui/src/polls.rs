@@ -678,6 +678,7 @@ fn answer_field(
 					let emoji = emoji_button(ui, answer.emoji.as_ref(), open, avatars, demo);
 					let text = ui.add(
 						egui::TextEdit::singleline(&mut answer.text)
+							.align(egui::Align2::LEFT_CENTER)
 							.hint_text(translate_args(
 								"polls-creator-answer-hint",
 								&[("number", &(index + 1).to_string())],

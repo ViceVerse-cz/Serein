@@ -52,6 +52,7 @@ impl Preview {
 			time: 0.0,
 			width: 1120.0,
 		};
+		preview.view.language = ui::i18n::Language::English;
 		preview.settle();
 		preview
 	}

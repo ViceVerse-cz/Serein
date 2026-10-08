@@ -14,6 +14,89 @@ fn labels(shape: &egui::Shape, found: &mut Vec<(String, egui::Rect)>) {
 	}
 }
 
+/// Offline check of unopened forum loading and parent/post read cursors.
+pub fn check_sidebar() {
+	let mut sidebar = test_support::demo_state();
+	let post = sidebar.forum_posts(Id(26))[0].clone();
+	sidebar.demo = false;
+	sidebar.selected = None;
+	sidebar.channels.retain(|channel| {
+		channel.parent_id != Some(Id(26))
+			&& (!matches!(channel.kind, 15 | 16) || channel.id == Id(26))
+	});
+	sidebar.invalidate_navigation();
+	sidebar
+		.apply_read_state(client_core::read_state::Event::Snapshot {
+			entries: Some(vec![(Id(26), Some(Id(post.id.0 - 1)), 0)]),
+			version: None,
+			partial: false,
+		})
+		.unwrap();
+	assert_eq!(sidebar.read_marker(Id(26)), Some(Some(Id(post.id.0 - 1))));
+	let Some(Command::ForumPosts {
+		parent,
+		request,
+		offset: 0,
+		..
+	}) = sidebar.request_sidebar_forum_posts(post.guild)
+	else {
+		panic!("unopened forum must fetch for the sidebar");
+	};
+	assert_eq!(parent, Id(26));
+	assert!(sidebar.request_sidebar_forum_posts(post.guild).is_none());
+	sidebar.apply_forum_posts(
+		parent,
+		request,
+		Ok(model::forum::Page {
+			threads: vec![post.clone()],
+			more: true,
+			previews: vec![],
+		}),
+	);
+	assert!(sidebar.posts.error.is_none());
+	assert!(sidebar.forum_unread(parent));
+	assert_eq!(sidebar.forum_new_count(parent), 1);
+	let Some(Command::ForumPosts {
+		request, offset: 1, ..
+	}) = sidebar.request_sidebar_forum_posts(post.guild)
+	else {
+		panic!("sidebar must continue beyond the first page");
+	};
+	sidebar.apply_forum_posts(
+		parent,
+		request,
+		Ok(model::forum::Page {
+			threads: vec![],
+			more: false,
+			previews: vec![],
+		}),
+	);
+	assert!(sidebar.request_sidebar_forum_posts(post.guild).is_none());
+	sidebar
+		.apply_read_state(client_core::read_state::Event::Ack {
+			channel: parent,
+			message: Some(post.id),
+			manual: false,
+			mention_count: Some(0),
+			version: None,
+		})
+		.unwrap();
+	assert_eq!(sidebar.forum_new_count(parent), 0);
+	assert!(sidebar.post_unread(sidebar.channel(post.id).unwrap()));
+	sidebar.request_sidebar_forum_posts(None);
+	let Some(Command::ForumPosts { request, .. }) = sidebar.request_sidebar_forum_posts(post.guild)
+	else {
+		panic!("returning to a guild refreshes forum posts");
+	};
+	sidebar.apply_forum_posts(parent, request, Err(client_core::auth::Failure::Capacity));
+	assert!(sidebar.request_sidebar_forum_posts(post.guild).is_none());
+	sidebar.selected = Some(parent);
+	assert!(sidebar.request_sidebar_forum_posts(post.guild).is_none());
+	println!(
+		"Forum sidebar debug check passed: unopened fetch, parent read boundary, independent replies, and no failure retry loop."
+	);
+}
+
 pub fn check() {
 	let ctx = egui::Context::default();
 	ui::design::apply(&ctx);
@@ -29,6 +112,8 @@ pub fn check() {
 				bits: 0,
 				name: "Synthetic colored role".into(),
 				color: 0x68ada4,
+				secondary_color: None,
+				tertiary_color: None,
 				position: 1,
 				hoist: false,
 			});
@@ -95,6 +180,8 @@ pub fn check() {
 			"Forum notifications debug check passed: readable mentions, post badge, and replies excluded from new posts."
 		);
 	}
+
+	check_sidebar();
 
 	// READY may contain a cursor before its unjoined forum post is loaded.
 	let latest = post.last_message.unwrap();

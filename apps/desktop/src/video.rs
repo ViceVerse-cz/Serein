@@ -187,22 +187,38 @@ fn play(
 		session.cancelled.clone(),
 		runtime.clone(),
 	)?;
-	let decoder = Decoder::open(source);
+	let result = Decoder::open(source).and_then(|decoder| play_decoded(decoder, session, ctx));
 	#[cfg(target_os = "macos")]
-	let decoder = match decoder {
-		Err(platform::video::UNSUPPORTED | platform::video::INVALID) => {
+	let result = match result {
+		Err(error) if fallback::eligible(error) && !session.cancelled.load(Ordering::Acquire) => {
+			// Native codecs can fail on the first packet or later in the movie, not just
+			// while opening it. Retry conversion once, after releasing the old decoder
+			// and audio output, and resume from the last displayed position.
+			let resume = if let Ok(mut update) = session.update.lock() {
+				update.state = VideoState::Loading;
+				update.position
+			} else {
+				0.
+			};
+			ctx.request_repaint();
 			let source = source::source(
 				request.url.clone(),
 				request.size,
 				session.cancelled.clone(),
 				runtime.clone(),
 			)?;
-			fallback::open(source, &session.cancelled)
+			let decoder = fallback::open(source, &session.cancelled)?;
+			// A seek made during conversion takes precedence over automatic resumption.
+			let _ = session.seek.compare_exchange(
+				u64::MAX,
+				(resume * 1000.) as u64,
+				Ordering::AcqRel,
+				Ordering::Acquire,
+			);
+			play_decoded(decoder, session, ctx)
 		}
 		result => result,
 	};
-	let decoder = decoder?;
-	let result = play_decoded(decoder, session, ctx);
 	// Cancellation aborts in-flight source reads; that is a clean stop, not a decode failure.
 	if session.cancelled.load(Ordering::Acquire) {
 		return Ok(());

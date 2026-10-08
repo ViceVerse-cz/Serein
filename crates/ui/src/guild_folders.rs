@@ -14,6 +14,8 @@ use std::collections::BTreeSet;
 #[derive(Default)]
 pub(super) struct FolderUi {
 	expanded: BTreeSet<u64>,
+	/// Collapsed folders whose servers stay listed until the close animation finishes.
+	closing: BTreeSet<u64>,
 	editor: Option<(u64, String, [u8; 3])>,
 	generation: u64,
 	key: Option<(u64, u64)>,
@@ -47,8 +49,10 @@ impl FolderUi {
 			.map(|g| (Item::Server(g.id), None))
 			.collect();
 		if let Some(settings) = &state.guild_folders {
-			self.expanded
-				.retain(|id| settings.folders.iter().any(|f| f.id == Some(*id)));
+			for set in [&mut self.expanded, &mut self.closing] {
+				set.retain(|id| settings.folders.iter().any(|f| f.id == Some(*id)));
+			}
+			let shown = |id| self.expanded.contains(&id) || self.closing.contains(&id);
 			for folder in &settings.folders {
 				if !folder.guild_ids.iter().any(|&id| state.guild(id).is_some()) {
 					continue;
@@ -56,15 +60,12 @@ impl FolderUi {
 				if let Some(id) = folder.id {
 					rows.push((
 						Item::Folder(id),
-						self.expanded
-							.contains(&id)
+						shown(id)
 							.then_some((id, folder.color.unwrap_or(design::DEFAULT_PRIMARY_RGB))),
 					));
 				}
 				for &id in &folder.guild_ids {
-					if folder.id.is_none_or(|id| self.expanded.contains(&id))
-						&& state.guild(id).is_some()
-					{
+					if folder.id.is_none_or(shown) && state.guild(id).is_some() {
 						rows.push((
 							Item::Server(id),
 							folder.id.map(|folder_id| {
@@ -86,8 +87,11 @@ impl FolderUi {
 		true
 	}
 	fn toggle(&mut self, id: u64) {
-		if !self.expanded.remove(&id) {
+		if self.expanded.remove(&id) {
+			self.closing.insert(id);
+		} else {
 			self.expanded.insert(id);
+			self.closing.remove(&id);
 		}
 		self.key = None;
 	}
@@ -222,6 +226,15 @@ fn drop_target(
 	Some((item, rect, placement))
 }
 
+fn open_id(folder: u64) -> egui::Id {
+	egui::Id::unique(("rail-folder-open", folder))
+}
+
+/// Ends a folder's partly open server list: the parent advances only by the revealed share.
+fn finish_reveal(ui: &mut egui::Ui, (_, _, height, open): (u64, egui::Ui, f32, f32)) {
+	ui.add_space(open * (height + ui.spacing().item_spacing.y));
+}
+
 const MOSAIC: usize = 4;
 const MOSAIC_PREVIEW: f32 = 38.0;
 const MOSAIC_ICON: f32 = 18.0;
@@ -301,6 +314,7 @@ impl MessagingUi {
 			.align(egui::RectAlign::RIGHT)
 			.open(
 				!dragging
+					&& !response.context_menu_opened()
 					&& (response.contains_pointer() || response.hovered() || response.has_focus()),
 			)
 			.gap(8.0)
@@ -361,6 +375,15 @@ impl MessagingUi {
 		{
 			commands.push(command);
 		}
+		// Quicker than the rail hover easing so opening a folder never feels sluggish.
+		let motion = rail_motion(ui) * 0.6;
+		let closing = self.folder_ui.closing.len();
+		self.folder_ui
+			.closing
+			.retain(|&id| ui.ctx().animate_bool_with_time(open_id(id), false, motion) > 0.0);
+		if self.folder_ui.closing.len() != closing {
+			self.folder_ui.key = None;
+		}
 		self.folder_ui.sync_rows(state);
 		let colors = design::palette(ui);
 		let enabled = state.guild_folders.is_some()
@@ -371,8 +394,49 @@ impl MessagingUi {
 		let mut drop_rows = Vec::new();
 		let mut background: Option<(u64, egui::layers::ShapeIdx, egui::Rect, Color32)> = None;
 		let call_guild = state.voice.active.as_ref().and_then(|call| call.guild);
+		// The latest folder row's openness, and the clipped child `Ui` its servers slide out of.
+		let mut openness = (0, 1.0);
+		let mut reveal: Option<(u64, egui::Ui, f32, f32)> = None;
 		for index in 0..self.folder_ui.rows.len() {
 			let (item, group) = self.folder_ui.rows[index];
+			if let Item::Folder(id) = item {
+				let open = self.folder_ui.expanded.contains(&id);
+				openness = (
+					id,
+					ui.ctx().animate_bool_with_time(open_id(id), open, motion),
+				);
+			}
+			let parent = match item {
+				Item::Server(_) => group.map(|g| g.0),
+				Item::Folder(_) => None,
+			};
+			if reveal.as_ref().is_some_and(|r| Some(r.0) != parent) {
+				finish_reveal(ui, reveal.take().unwrap());
+			}
+			if reveal.is_none()
+				&& let Some(folder) = parent
+				&& openness.0 == folder
+				&& openness.1 < 1.0
+			{
+				let count = self.folder_ui.rows[index..]
+					.iter()
+					.take_while(|(item, group)| {
+						matches!(item, Item::Server(_)) && group.is_some_and(|g| g.0 == folder)
+					})
+					.count() as f32;
+				let spacing = ui.spacing().item_spacing.y;
+				let height = count * (46.0 + spacing) - spacing;
+				let mut child = ui.new_child(egui::UiBuilder::new().scope_id(ui.scope_id()));
+				let top = child.max_rect().top();
+				let mut clip = child.clip_rect();
+				clip.max.y = clip
+					.max
+					.y
+					.min(top + openness.1 * (height + spacing) - spacing)
+					.max(top);
+				child.set_clip_rect(clip);
+				reveal = Some((folder, child, height, openness.1));
+			}
 			if group.map(|g| g.0) != background.as_ref().map(|b| b.0) {
 				background = group.map(|(id, rgb)| {
 					let tint = Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8);
@@ -380,11 +444,18 @@ impl MessagingUi {
 						id,
 						ui.painter().add(egui::Shape::Noop),
 						egui::Rect::NOTHING,
-						colors.raised.lerp_to_gamma(tint, 0.18),
+						colors
+							.raised
+							.lerp_to_gamma(tint, 0.18)
+							.gamma_multiply(openness.1),
 					)
 				});
 			}
-			let row = ui.push_id(
+			let target = match &mut reveal {
+				Some((_, child, _, _)) => child,
+				None => &mut *ui,
+			};
+			let row = target.push_id(
 				match item {
 					Item::Server(id) => (0, id.0),
 					Item::Folder(id) => (1, id),
@@ -445,14 +516,16 @@ impl MessagingUi {
 								Sense::click_and_drag(),
 							);
 							let open = self.folder_ui.expanded.contains(&id);
-							if open {
+							let shown = openness.1;
+							if shown > 0.0 {
 								icons::paint(
 									ui.painter(),
 									Icon::FolderOpen,
-									rect.shrink(8.5),
-									tint,
+									rect.shrink(8.5 + 4.0 * (1.0 - shown)),
+									tint.gamma_multiply(shown),
 								);
-							} else {
+							}
+							if shown < 1.0 {
 								let hover = if ui.is_rect_visible(rect) {
 									ui.ctx().animate_bool_with_time(
 										response.id.with("rail-hover"),
@@ -463,14 +536,17 @@ impl MessagingUi {
 									0.0
 								};
 								let fill = tint.lerp_to_gamma(Color32::WHITE, 0.1 * hover);
+								let opacity = ui.opacity();
+								ui.multiply_opacity(1.0 - shown);
 								paint_folder_tile(
 									ui,
 									&mut self.avatars,
-									rect,
+									rect.shrink(4.0 * shown),
 									fill,
 									folder_mosaic(folder, state),
 									state.demo,
 								);
+								ui.set_opacity(opacity);
 							}
 
 							let unread = folder
@@ -541,6 +617,12 @@ impl MessagingUi {
 					response.context_menu(|ui| {
 						if let Item::Server(id) = item {
 							ui.set_width(232.0);
+							// The invite dialog belongs to the active server, so choosing it
+							// from the rail also opens that server, like settings do.
+							let invite = self.server_menu.invite_item(ui, state, id);
+							if invite {
+								self.guild = Some(id);
+							}
 							self.server_menu.read_item(ui, state, id);
 							ui.separator();
 							let settings = self.server_menu.settings_item(ui, state, id);
@@ -632,14 +714,24 @@ impl MessagingUi {
 					}
 				},
 			);
-			drop_rows.push((item, row.response.rect));
-			if let Some((_, shape, rect, fill)) = &mut background {
-				*rect = rect.union(row.response.rect);
+			let mut row_rect = row.response.rect;
+			if let Some((_, child, _, _)) = &reveal {
+				row_rect.max.y = row_rect.max.y.min(child.clip_rect().max.y);
+			} else {
+				drop_rows.push((item, row_rect));
+			}
+			if let Some((_, shape, rect, fill)) = &mut background
+				&& row_rect.is_positive()
+			{
+				*rect = rect.union(row_rect);
 				ui.painter().set(
 					*shape,
 					egui::Shape::rect_filled(rect.expand(4.0), 16, *fill),
 				);
 			}
+		}
+		if let Some(reveal) = reveal {
+			finish_reveal(ui, reveal);
 		}
 		if enabled
 			&& let Some(source) = egui::DragAndDrop::payload::<Item>(ui.ctx())
@@ -784,6 +876,7 @@ impl MessagingUi {
 					crate::dialog::input(
 						ui,
 						egui::TextEdit::singleline(name)
+							.align(egui::Align2::LEFT_CENTER)
 							.hint_text(crate::i18n::translate(
 								"guild-folders-server-folders-folder-name",
 							))

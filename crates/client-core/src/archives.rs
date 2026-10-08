@@ -375,6 +375,8 @@ mod tests {
 			guild.roles = Some(vec![p::Role {
 				name: String::new(),
 				color: 0,
+				secondary_color: None,
+				tertiary_color: None,
 				position: 0,
 				hoist: false,
 				id: Id(1),

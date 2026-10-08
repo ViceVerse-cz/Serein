@@ -280,6 +280,7 @@ fn main() {
 		delta: egui::vec2(0.0, 40.0),
 		modifiers: egui::Modifiers::NONE,
 		phase: egui::TouchPhase::Move,
+		source: egui::MouseWheelSource::Unknown,
 	}]);
 	let after_wheel = frame(vec![]);
 	for _ in 0..30 {
@@ -558,6 +559,7 @@ fn main() {
 			delta: egui::vec2(0.0, -80.0),
 			modifiers: egui::Modifiers::NONE,
 			phase: egui::TouchPhase::Move,
+			source: egui::MouseWheelSource::Unknown,
 		}]);
 		if labels
 			.borrow()

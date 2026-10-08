@@ -28,7 +28,8 @@ impl Scope {
 	pub fn admits(self, channel: &Channel, state: &State) -> bool {
 		channel.guild == self.guild()
 			&& channel.kind != 4
-			&& (self.guild().is_some() || !state.spam_direct(channel.id))
+			&& (self.guild().is_some()
+				|| (!state.spam_direct(channel.id) && !state.message_request(channel.id)))
 	}
 
 	/// Rosters in display order. Home pins DMs; guilds keep one Favorites shelf.
@@ -51,6 +52,7 @@ impl Scope {
 /// Typed heading rows. `key` identifies the localized user-facing string.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Heading {
+	MessageRequests,
 	Pinned,
 	DirectMessages,
 	Favorites,
@@ -59,6 +61,7 @@ pub(crate) enum Heading {
 impl Heading {
 	pub fn key(self) -> &'static str {
 		match self {
+			Self::MessageRequests => "channel-list-heading-message-requests",
 			Self::Pinned => "channel-list-heading-pinned",
 			Self::DirectMessages => "channel-list-heading-direct-messages",
 			Self::Favorites => "channel-list-heading-favorites",

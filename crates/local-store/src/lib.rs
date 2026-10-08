@@ -11,8 +11,8 @@ use std::{
 
 const MAX_MEDIA_JSON: usize = 256 * 1024;
 const MAX_WINDOW_BYTES: usize = 4 * 1024 * 1024;
-const NATIVE_SCHEMA: u32 = 26;
-const READABLE_SCHEMA: u32 = 26;
+const NATIVE_SCHEMA: u32 = 29;
+const READABLE_SCHEMA: u32 = 29;
 #[derive(serde::Deserialize)]
 struct CachedMentions(#[serde(deserialize_with = "model::deserialize_mentions")] Vec<User>);
 fn parse_author_roles(raw: &str) -> std::result::Result<Vec<Id>, StoreError> {
@@ -36,6 +36,7 @@ pub struct LocalStore(Connection);
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct AppPreferences {
+	pub window_geometry: Option<WindowGeometry>,
 	/// `None` follows the operating-system locale; otherwise this is a bounded BCP 47 tag.
 	pub language: Option<String>,
 	pub notifications_enabled: bool,
@@ -43,6 +44,10 @@ pub struct AppPreferences {
 	pub update_nightly: bool,
 	pub notification_options: model::notification_preferences::Device,
 	pub show_hidden_channels: bool,
+	/// Keep custom emoji that need Nitro out of suggestions and lock them in the picker.
+	pub hide_nitro_emojis: bool,
+	/// Device-local opt-in; older saved preferences deserialize with conversion off.
+	pub convert_emoticons: bool,
 	pub hide_title_bar: bool,
 	pub hide_window_decorations: bool,
 	pub primary_color: Option<[u8; 3]>,
@@ -76,12 +81,15 @@ pub struct AppPreferences {
 impl Default for AppPreferences {
 	fn default() -> Self {
 		Self {
+			window_geometry: None,
 			language: None,
 			notifications_enabled: true,
 			auto_update: false,
 			update_nightly: true,
 			notification_options: Default::default(),
 			show_hidden_channels: false,
+			hide_nitro_emojis: false,
+			convert_emoticons: false,
 			hide_title_bar: false,
 			hide_window_decorations: false,
 			primary_color: None,
@@ -108,13 +116,14 @@ impl Default for AppPreferences {
 }
 impl AppPreferences {
 	pub fn is_valid(&self) -> bool {
-		self.language.as_ref().is_none_or(|language| {
-			!language.is_empty()
-				&& language.len() <= 35
-				&& language
-					.bytes()
-					.all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-		}) && self.transparency <= 100
+		self.window_geometry.is_none_or(WindowGeometry::is_valid)
+			&& self.language.as_ref().is_none_or(|language| {
+				!language.is_empty()
+					&& language.len() <= 35
+					&& language
+						.bytes()
+						.all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+			}) && self.transparency <= 100
 			&& self.blur <= 100
 			&& self.input_percent <= 200
 			&& self.output_percent <= 200
@@ -129,6 +138,26 @@ impl AppPreferences {
 			&& [&self.voice_input, &self.voice_output]
 				.into_iter()
 				.all(|value| value.as_ref().is_none_or(|value| value.len() <= 1024))
+	}
+}
+
+/// Normal client size in logical pixels; outer position in physical desktop pixels.
+/// Position is absent on Wayland, where the compositor owns window placement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WindowGeometry {
+	pub size: [u32; 2],
+	pub position: Option<[i32; 2]>,
+}
+impl WindowGeometry {
+	pub fn is_valid(self) -> bool {
+		self.size
+			.into_iter()
+			.all(|value| (1..=16384).contains(&value))
+			&& self.position.is_none_or(|position| {
+				position
+					.into_iter()
+					.all(|value| (-131072..=131072).contains(&value))
+			})
 	}
 }
 
@@ -399,7 +428,16 @@ impl LocalStore {
 		transaction.execute_batch("CREATE TABLE IF NOT EXISTS custom_font(
             singleton INTEGER PRIMARY KEY CHECK(singleton=1),
             name TEXT NOT NULL CHECK(typeof(name)='text' AND length(CAST(name AS BLOB)) BETWEEN 1 AND 128),
-            data BLOB NOT NULL CHECK(typeof(data)='blob' AND length(data) BETWEEN 1 AND 8388608));")?;
+            data BLOB NOT NULL CHECK(typeof(data)='blob' AND length(data) BETWEEN 1 AND 33554432));")?;
+		if version < 27 {
+			transaction.execute_batch("CREATE TABLE custom_font_v27(
+                singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+                name TEXT NOT NULL CHECK(typeof(name)='text' AND length(CAST(name AS BLOB)) BETWEEN 1 AND 128),
+                data BLOB NOT NULL CHECK(typeof(data)='blob' AND length(data) BETWEEN 1 AND 33554432));
+                INSERT INTO custom_font_v27 SELECT * FROM custom_font;
+                DROP TABLE custom_font;
+                ALTER TABLE custom_font_v27 RENAME TO custom_font;")?;
+		}
 		if !has_reply_deleted {
 			transaction.execute_batch("ALTER TABLE messages ADD COLUMN reply_deleted INTEGER NOT NULL DEFAULT 0 CHECK(typeof(reply_deleted)='integer' AND reply_deleted IN (0,1));")?;
 		}
@@ -518,6 +556,18 @@ impl LocalStore {
 			); INSERT INTO reading_preferences_zoom SELECT singleton,zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links,smooth_scrolling,scroll_speed_percent,show_members_dms,compact_messages FROM reading_preferences;
 			DROP TABLE reading_preferences; ALTER TABLE reading_preferences_zoom RENAME TO reading_preferences;")?;
 		}
+		let has_double_click_reaction: bool = transaction.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('reading_preferences') WHERE name='double_click_reaction')", [], |row| row.get(0),
+		)?;
+		if !has_double_click_reaction {
+			transaction.execute_batch("ALTER TABLE reading_preferences ADD COLUMN double_click_reaction INTEGER NOT NULL DEFAULT 0 CHECK(typeof(double_click_reaction)='integer' AND double_click_reaction BETWEEN 0 AND 5);")?;
+		}
+		let has_double_click_enabled: bool = transaction.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('reading_preferences') WHERE name='double_click_reaction_enabled')", [], |row| row.get(0),
+		)?;
+		if !has_double_click_enabled {
+			transaction.execute_batch("ALTER TABLE reading_preferences ADD COLUMN double_click_reaction_enabled INTEGER NOT NULL DEFAULT 0 CHECK(typeof(double_click_reaction_enabled)='integer' AND double_click_reaction_enabled IN (0,1));")?;
+		}
 		let has_author_roles: bool = transaction.query_row(
 			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='author_roles')",
 			[],
@@ -557,7 +607,7 @@ impl LocalStore {
 		self.0.query_row(
 			"SELECT
              CASE WHEN typeof(name)='text' AND length(CAST(name AS BLOB)) BETWEEN 1 AND 128 THEN name ELSE NULL END,
-             CASE WHEN typeof(data)='blob' AND length(data) BETWEEN 1 AND 8388608 THEN data ELSE NULL END
+             CASE WHEN typeof(data)='blob' AND length(data) BETWEEN 1 AND 33554432 THEN data ELSE NULL END
              FROM custom_font WHERE singleton=1",
 			[], |row| Ok((row.get(0)?, row.get(1)?)),
 		).optional().map_err(Into::into)
@@ -567,7 +617,7 @@ impl LocalStore {
 			if name.is_empty()
 				|| name.len() > 128
 				|| bytes.is_empty()
-				|| bytes.len() > 8 * 1024 * 1024
+				|| bytes.len() > 32 * 1024 * 1024
 			{
 				return Err(StoreError::Capacity);
 			}
@@ -667,7 +717,7 @@ impl LocalStore {
 		let stored = self
 			.0
 			.query_row(
-				"SELECT zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links,smooth_scrolling,scroll_speed_percent,show_members_dms,compact_messages FROM reading_preferences WHERE singleton=1",
+				"SELECT zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links,smooth_scrolling,scroll_speed_percent,show_members_dms,compact_messages,double_click_reaction,double_click_reaction_enabled FROM reading_preferences WHERE singleton=1",
 				[],
 				|row| {
 					Ok(match (
@@ -681,6 +731,8 @@ impl LocalStore {
 						row.get_ref(7)?,
 						row.get_ref(8)?,
 						row.get_ref(9)?,
+						row.get_ref(10)?,
+						row.get_ref(11)?,
 					) {
 						(
 							ValueRef::Integer(zoom @ 50..=150),
@@ -693,12 +745,16 @@ impl LocalStore {
 							ValueRef::Integer(scroll_speed_percent @ 25..=300),
 							ValueRef::Integer(members_dms @ 0..=1),
 							ValueRef::Integer(compact_messages @ 0..=1),
+							ValueRef::Integer(double_click_reaction @ 0..=5),
+							ValueRef::Integer(double_click_enabled @ 0..=1),
 						) => Some(ReadingPreferences {
 							zoom_percent: zoom as u16,
 							sidebar_width: width as u16,
 							show_members: members == 1,
 							show_members_dms: members_dms == 1,
 							compact_messages: compact_messages == 1,
+							double_click_reaction: double_click_reaction as u8,
+							double_click_reaction_enabled: double_click_enabled == 1,
 							animate_gifs: animate_gifs == 1,
 							hide_media_links: hide_media_links == 1,
 							confirm_external_links: confirm_external_links == 1,
@@ -725,10 +781,10 @@ impl LocalStore {
 			self.0
 				.execute("DELETE FROM reading_preferences WHERE singleton=1", [])?;
 		} else {
-			self.0.execute("INSERT INTO reading_preferences(singleton,zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links,smooth_scrolling,scroll_speed_percent,show_members_dms,compact_messages)
-				VALUES(1,?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) ON CONFLICT(singleton) DO UPDATE SET
-				zoom_percent=excluded.zoom_percent,sidebar_width=excluded.sidebar_width,show_members=excluded.show_members,animate_gifs=excluded.animate_gifs,hide_media_links=excluded.hide_media_links,confirm_external_links=excluded.confirm_external_links,smooth_scrolling=excluded.smooth_scrolling,scroll_speed_percent=excluded.scroll_speed_percent,show_members_dms=excluded.show_members_dms,compact_messages=excluded.compact_messages",
-				params![preferences.zoom_percent, preferences.sidebar_width, preferences.show_members, preferences.animate_gifs, preferences.hide_media_links, preferences.confirm_external_links, preferences.smooth_scrolling, preferences.scroll_speed_percent, preferences.show_members_dms, preferences.compact_messages])?;
+			self.0.execute("INSERT INTO reading_preferences(singleton,zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links,smooth_scrolling,scroll_speed_percent,show_members_dms,compact_messages,double_click_reaction,double_click_reaction_enabled)
+				VALUES(1,?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12) ON CONFLICT(singleton) DO UPDATE SET
+				zoom_percent=excluded.zoom_percent,sidebar_width=excluded.sidebar_width,show_members=excluded.show_members,animate_gifs=excluded.animate_gifs,hide_media_links=excluded.hide_media_links,confirm_external_links=excluded.confirm_external_links,smooth_scrolling=excluded.smooth_scrolling,scroll_speed_percent=excluded.scroll_speed_percent,show_members_dms=excluded.show_members_dms,compact_messages=excluded.compact_messages,double_click_reaction=excluded.double_click_reaction,double_click_reaction_enabled=excluded.double_click_reaction_enabled",
+				params![preferences.zoom_percent, preferences.sidebar_width, preferences.show_members, preferences.animate_gifs, preferences.hide_media_links, preferences.confirm_external_links, preferences.smooth_scrolling, preferences.scroll_speed_percent, preferences.show_members_dms, preferences.compact_messages, preferences.double_click_reaction, preferences.double_click_reaction_enabled])?;
 		}
 		Ok(())
 	}
@@ -1519,6 +1575,30 @@ impl LocalStore {
 #[cfg(test)]
 mod tests {
 	#[test]
+	fn custom_font_migration_preserves_saved_data_and_accepts_cjk_sizes() {
+		let connection = rusqlite::Connection::open_in_memory().unwrap();
+		connection.execute_batch("PRAGMA user_version=26;
+            CREATE TABLE custom_font(
+                singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+                name TEXT NOT NULL CHECK(typeof(name)='text' AND length(CAST(name AS BLOB)) BETWEEN 1 AND 128),
+                data BLOB NOT NULL CHECK(typeof(data)='blob' AND length(data) BETWEEN 1 AND 8388608));
+            INSERT INTO custom_font VALUES(1,'Saved',X'010203');").unwrap();
+		let store = super::LocalStore::initialize(connection).unwrap();
+		assert_eq!(
+			store.custom_font().unwrap(),
+			Some(("Saved".into(), vec![1, 2, 3]))
+		);
+		let bytes = vec![0; 20 * 1024 * 1024];
+		store.save_custom_font(Some(("CJK", &bytes))).unwrap();
+		assert_eq!(store.custom_font().unwrap().unwrap().1, bytes);
+		assert_eq!(
+			store.save_custom_font(Some(("Oversized", &vec![0; 32 * 1024 * 1024 + 1]))),
+			Err(super::StoreError::Capacity)
+		);
+		assert_eq!(store.custom_font().unwrap().unwrap().0, "CJK");
+	}
+
+	#[test]
 	fn data_directory_override_is_absolute_and_never_falls_back() {
 		let default = std::env::temp_dir();
 		assert!(default.is_absolute());
@@ -2010,6 +2090,27 @@ mod tests {
 		));
 	}
 	#[test]
+	fn emoticon_conversion_defaults_off_and_persists_across_reopens() {
+		let legacy: AppPreferences = serde_json::from_str("{}").unwrap();
+		assert!(!legacy.convert_emoticons);
+		let root = std::env::temp_dir().join(format!("serein-emoticons-{}", std::process::id()));
+		std::fs::create_dir(&root).unwrap();
+		let path = root.join("preferences.sqlite3");
+		for enabled in [true, false] {
+			{
+				let store = LocalStore::open(&path).unwrap();
+				let mut preferences = store.app_preferences().unwrap();
+				assert_eq!(preferences.convert_emoticons, !enabled);
+				preferences.convert_emoticons = enabled;
+				store.save_app_preferences(&preferences).unwrap();
+			}
+			let store = LocalStore::open(&path).unwrap();
+			assert_eq!(store.app_preferences().unwrap().convert_emoticons, enabled);
+		}
+		std::fs::remove_dir_all(root).unwrap();
+	}
+
+	#[test]
 	fn app_preferences_round_trip_and_reject_invalid_replacement() {
 		let store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
 		assert_eq!(store.app_preferences().unwrap(), AppPreferences::default());
@@ -2212,6 +2313,8 @@ mod tests {
 			show_members: false,
 			show_members_dms: false,
 			compact_messages: false,
+			double_click_reaction_enabled: false,
+			double_click_reaction: 0,
 			animate_gifs: false,
 			smooth_scrolling: true,
 			scroll_speed_percent: 100,
@@ -2538,6 +2641,8 @@ mod tests {
 			show_members: false,
 			show_members_dms: false,
 			compact_messages: false,
+			double_click_reaction_enabled: false,
+			double_click_reaction: 0,
 			animate_gifs: false,
 			smooth_scrolling: true,
 			scroll_speed_percent: 100,
@@ -2558,6 +2663,8 @@ mod tests {
 				show_members: true,
 				show_members_dms: true,
 				compact_messages: false,
+				double_click_reaction_enabled: false,
+				double_click_reaction: 0,
 				animate_gifs: false,
 				smooth_scrolling: true,
 				scroll_speed_percent: 100,
@@ -2728,6 +2835,8 @@ mod tests {
 			confirm_external_links: false,
 			smooth_scrolling: false,
 			compact_messages: true,
+			double_click_reaction_enabled: false,
+			double_click_reaction: 0,
 			scroll_speed_percent: 140,
 		};
 		store.save_reading_preferences(preferences).unwrap();
@@ -2796,6 +2905,8 @@ mod tests {
 					show_members,
 					show_members_dms: show_members,
 					compact_messages: false,
+					double_click_reaction_enabled: false,
+					double_click_reaction: 0,
 					animate_gifs: false,
 					smooth_scrolling: true,
 					scroll_speed_percent: 100,
@@ -2823,6 +2934,8 @@ mod tests {
 					show_members: false,
 					show_members_dms: false,
 					compact_messages: false,
+					double_click_reaction_enabled: false,
+					double_click_reaction: 0,
 					animate_gifs: false,
 					smooth_scrolling: true,
 					scroll_speed_percent: 100,
@@ -2841,6 +2954,8 @@ mod tests {
 				show_members: false,
 				show_members_dms: false,
 				compact_messages: false,
+				double_click_reaction_enabled: false,
+				double_click_reaction: 0,
 				animate_gifs: false,
 				smooth_scrolling: true,
 				scroll_speed_percent: 100,
@@ -3426,5 +3541,61 @@ mod component_storage_tests {
 			store.save_channel(Id(1), Id(2), &messages),
 			Err(StoreError::Capacity)
 		);
+	}
+}
+
+#[cfg(debug_assertions)]
+impl LocalStore {
+	/// In-memory migration and persistence check; never opens the account database.
+	pub fn debug_double_click_reaction_check() {
+		let store = Self::initialize(Connection::open_in_memory().unwrap()).unwrap();
+		let mut preferences = ReadingPreferences {
+			zoom_percent: 125,
+			..Default::default()
+		};
+		store.save_reading_preferences(preferences).unwrap();
+		store
+			.0
+			.execute_batch(
+				"ALTER TABLE reading_preferences DROP COLUMN double_click_reaction; ALTER TABLE reading_preferences DROP COLUMN double_click_reaction_enabled; PRAGMA user_version=27;",
+			)
+			.unwrap();
+		let store = Self::initialize(store.0).unwrap();
+		assert_eq!(store.reading_preferences().unwrap(), preferences);
+		assert!(
+			!store
+				.reading_preferences()
+				.unwrap()
+				.double_click_reaction_enabled
+		);
+		assert_eq!(preferences.double_click_emoji(), "❤️");
+		preferences.double_click_reaction = 3;
+		store.save_reading_preferences(preferences).unwrap();
+		store.0.execute_batch("ALTER TABLE reading_preferences DROP COLUMN double_click_reaction_enabled; PRAGMA user_version=28;").unwrap();
+		let store = Self::initialize(store.0).unwrap();
+		assert_eq!(
+			store.reading_preferences().unwrap(),
+			preferences,
+			"migration preserves the chosen emoji and defaults to disabled"
+		);
+		preferences.double_click_reaction_enabled = true;
+		store.save_reading_preferences(preferences).unwrap();
+		let store = Self::initialize(store.0).unwrap();
+		assert_eq!(store.reading_preferences().unwrap(), preferences);
+		assert_eq!(
+			store.reading_preferences().unwrap().double_click_emoji(),
+			"🎉"
+		);
+		let invalid = ReadingPreferences {
+			double_click_reaction_enabled: false,
+			double_click_reaction: u8::MAX,
+			..preferences
+		};
+		assert_eq!(
+			store.save_reading_preferences(invalid),
+			Err(StoreError::Capacity)
+		);
+		assert_eq!(store.reading_preferences().unwrap(), preferences);
+		println!("Double-click reaction migration, roundtrip and bounds passed in memory");
 	}
 }

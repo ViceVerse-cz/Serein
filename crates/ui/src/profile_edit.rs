@@ -503,7 +503,13 @@ fn form(
 		},
 	);
 	if enabled != draft.color.is_some() {
-		draft.color = enabled.then_some(design::DEFAULT_PRIMARY_RGB);
+		// Start from the profile's own colors rather than the app accent.
+		draft.color = enabled.then(|| {
+			profile
+				.accent_color
+				.or(profile.theme_colors.map(|[top, _]| top))
+				.unwrap_or(design::DEFAULT_PRIMARY_RGB)
+		});
 	}
 	action
 }
@@ -536,7 +542,7 @@ fn field(
 	let edit = if multiline {
 		egui::TextEdit::multiline(value).desired_rows(4)
 	} else {
-		egui::TextEdit::singleline(value)
+		egui::TextEdit::singleline(value).align(egui::Align2::LEFT_CENTER)
 	};
 	design::input(
 		ui,
@@ -568,27 +574,32 @@ fn preview(
 		colors.muted,
 	));
 	ui.add_space(4.0);
-	egui::Frame::new()
-		.fill(colors.raised)
-		.corner_radius(8)
-		.stroke(egui::Stroke::new(1.0, colors.border))
-		.show(ui, |ui| {
-			ui.set_width(ui.available_width());
-			ui.spacing_mut().item_spacing.y = 0.0;
+	// Paint with the profile's own colors, as other people see the card, not the app theme.
+	let theme = crate::profiles::Theme::new(&colors, profile.theme_colors);
+	let rgb = |c: u32| egui::Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8);
+	ui.scope(|ui| {
+		let background = ui.painter().add(egui::Shape::Noop);
+		ui.visuals_mut().override_text_color = Some(theme.text);
+		ui.visuals_mut().hyperlink_color = theme.link;
+		ui.set_width(ui.available_width());
+		ui.spacing_mut().item_spacing.y = 0.0;
+		{
 			let (banner, _) = ui
 				.allocate_exact_size(egui::vec2(ui.available_width(), 90.0), egui::Sense::hover());
 			let corner = egui::CornerRadius {
-				nw: 8,
-				ne: 8,
+				nw: 12,
+				ne: 12,
 				sw: 0,
 				se: 0,
 			};
 			if profile.banner.is_some() {
+				// The banner image covers its color, so the saved profile paints it as is.
 				avatars.paint_banner(ui, profile, banner, corner, demo);
 			} else {
-				let color = draft.color.map_or(colors.accent.gamma_multiply(0.4), |c| {
-					egui::Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
-				});
+				let color = draft
+					.color
+					.or(profile.theme_colors.map(|[top, _]| top))
+					.map_or(colors.raised, rgb);
 				ui.painter().rect_filled(banner, corner, color);
 			}
 			let avatar = egui::Rect::from_min_size(
@@ -596,7 +607,7 @@ fn preview(
 				egui::Vec2::splat(80.0),
 			);
 			ui.painter()
-				.circle_filled(avatar.center(), 46.0, colors.raised);
+				.circle_filled(avatar.center(), 46.0, theme.card);
 			let response =
 				ui.scope_builder(
 					egui::UiBuilder::new().max_rect(avatar),
@@ -649,7 +660,7 @@ fn preview(
 				})
 				.show(ui, |ui| {
 					egui::Frame::new()
-						.fill(colors.chat)
+						.fill(theme.panel)
 						.corner_radius(8)
 						.inner_margin(12)
 						.show(ui, |ui| {
@@ -663,20 +674,20 @@ fn preview(
 							};
 							ui.add(
 								egui::Label::new(
-									design::semibold(ui, name, 20.0).color(colors.text_strong),
+									design::semibold(ui, name, 20.0).color(theme.text),
 								)
 								.wrap(),
 							);
 							ui.label(
 								egui::RichText::new(&profile.username)
 									.size(13.0)
-									.color(colors.text),
+									.color(theme.text),
 							);
 							if !draft.pronouns.is_empty() {
 								ui.label(
 									egui::RichText::new(&draft.pronouns)
 										.size(12.0)
-										.color(colors.muted),
+										.color(theme.muted),
 								);
 							}
 							if !draft.bio.is_empty() {
@@ -686,7 +697,7 @@ fn preview(
 								ui.label(design::eyebrow(
 									ui,
 									crate::i18n::translate("profile-edit-preview-about-me"),
-									colors.text_strong,
+									theme.text,
 								));
 								let mut mentions = crate::profiles::ProfileSession::default();
 								crate::markdown::Formatted::parse(&draft.bio).show_with_images(
@@ -701,7 +712,10 @@ fn preview(
 							}
 						});
 				});
-		});
+		}
+		let rect = ui.min_rect();
+		ui.painter().set(background, theme.background(rect));
+	});
 	action
 }
 

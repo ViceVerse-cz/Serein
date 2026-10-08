@@ -27,6 +27,8 @@ pub struct Menu {
 	dismissed: bool,
 	/// Keyboard moved the highlight; scroll the popout so it stays visible.
 	follow: bool,
+	/// Leave custom emoji that need Nitro out of `:` suggestions.
+	pub hide_nitro_emojis: bool,
 }
 pub struct Pick {
 	range: Range<usize>,
@@ -63,6 +65,7 @@ enum Candidate {
 		id: Id,
 		name: String,
 		animated: bool,
+		image_fallback: bool,
 		server: String,
 	},
 }
@@ -90,8 +93,23 @@ impl Candidate {
 			Candidate::Channel { id, .. } => format!("<#{id}> "),
 			Candidate::Unicode { text, .. } => format!("{text} "),
 			Candidate::Custom {
-				id, name, animated, ..
+				id,
+				name,
+				animated,
+				image_fallback,
+				..
 			} => {
+				if *image_fallback {
+					return format!(
+						"{} ",
+						model::ImageShare::Emoji {
+							id: *id,
+							animated: *animated
+						}
+						.markdown(name)
+						.unwrap_or_default()
+					);
+				}
 				format!("<{}:{name}:{id}> ", if *animated { "a" } else { "" })
 			}
 		}
@@ -127,6 +145,7 @@ pub fn known_users(state: &State, channel: Id) -> Vec<User> {
 			add(user);
 		}
 	}
+
 	if let Some(members) = state.members.as_ref().filter(|m| m.channel == channel) {
 		for member in members
 			.slots
@@ -139,7 +158,7 @@ pub fn known_users(state: &State, channel: Id) -> Vec<User> {
 			add(&member.user);
 		}
 	}
-	for message in state.timeline.iter() {
+	for message in state.timeline.iter().rev() {
 		if message.channel == channel {
 			add(&message.author);
 			for user in &message.mentions {
@@ -147,7 +166,38 @@ pub fn known_users(state: &State, channel: Id) -> Vec<User> {
 			}
 		}
 	}
+
 	users
+}
+
+// Compute all candidate recencies in one scan of the already-loaded bounded conversation.
+fn recent_user_ranks(
+	state: &State,
+	channel: Id,
+	users: &[User],
+) -> std::collections::HashMap<Id, u64> {
+	let mut ranks: std::collections::HashMap<_, _> = users
+		.iter()
+		.take(256)
+		.map(|user| (user.id, u64::MAX))
+		.collect();
+	for message in state
+		.timeline
+		.iter()
+		.rev()
+		.filter(|message| message.channel == channel)
+	{
+		for user in
+			std::iter::once(message.author.id).chain(message.mentions.iter().map(|user| user.id))
+		{
+			if let Some(rank) = ranks.get_mut(&user)
+				&& *rank == u64::MAX
+			{
+				*rank = u64::MAX - message.id.0;
+			}
+		}
+	}
+	ranks
 }
 
 pub struct MentionSource<'a> {
@@ -418,7 +468,10 @@ impl Menu {
 		users: &[User],
 	) {
 		let Some((range, query, kind)) = cursor.and_then(|cursor| query(draft, cursor)) else {
-			*self = Self::default();
+			*self = Self {
+				hide_nitro_emojis: self.hide_nitro_emojis,
+				..Self::default()
+			};
 			return;
 		};
 		if self.channel != Some(channel)
@@ -444,6 +497,7 @@ impl Menu {
 			.and_then(|c| c.guild);
 		let mut ranked: Vec<Ranked> = match kind {
 			Kind::User => {
+				let recency = recent_user_ranks(state, channel, users);
 				let mut ranked = users
 					.iter()
 					.filter_map(|user| {
@@ -464,7 +518,7 @@ impl Menu {
 							})
 							.map(|r| {
 								(
-									(r, 0, 0),
+									(r, 0, recency.get(&user.id).copied().unwrap_or(u64::MAX)),
 									Candidate::User {
 										user: user.clone(),
 										name: name.to_owned(),
@@ -522,14 +576,18 @@ impl Menu {
 					let source_match = rank(&query, &guild.name, Id(0)).map(|_| 2);
 					for emoji in guild.emojis.iter().flatten() {
 						if let Some(rank) = rank(&query, &emoji.name, Id(0)).or(source_match)
-							&& state
+							&& emoji.valid() && (state.can_send(channel)
+							|| state
 								.custom_emoji_unavailable_reason(channel, guild.id, emoji)
-								.is_none()
+								.is_none()) && !(self.hide_nitro_emojis
+							&& state.custom_emoji_requires_nitro(channel, guild.id, emoji))
 						{
 							push_emoji(&mut out, (rank, 0, emoji.id.0), || Candidate::Custom {
 								id: emoji.id,
 								name: emoji.name.clone(),
 								animated: emoji.animated,
+								image_fallback: !state
+									.can_send_custom_emoji(channel, guild.id, emoji),
 								server: guild.name.chars().take(120).collect(),
 							});
 						}
@@ -866,6 +924,123 @@ mod tests {
 	use model::Channel;
 
 	#[test]
+	fn loaded_members_remain_suggested_and_admitted_beyond_the_candidate_cap() {
+		let mut state = test_support::demo_state();
+		// Synthetic authenticated reducer state; no transport consumes these commands.
+		state.demo = false;
+		state.auth = client_core::auth::AuthState::Authenticated;
+		state.gateway_connected = true;
+		let channel = state.selected.unwrap();
+		let guild = state.channel(channel).unwrap().guild;
+		let make_member = |id| model::Member {
+			user: user(id, &format!("Member{id}")),
+			roles: vec![],
+			nick: None,
+			status: None,
+			custom_status: None,
+			activities: vec![],
+			clients: Default::default(),
+		};
+		let target = Id(20199);
+		state.members = Some(model::MemberList {
+			guild,
+			channel,
+			request: 1,
+			start: 0,
+			total: 200,
+			lazy: false,
+			freshness: model::Freshness::Fresh,
+			groups: vec![],
+			ranges: vec![],
+			slots: (20000..20200)
+				.map(|id| Some(model::MemberSlot::Person(make_member(id))))
+				.collect(),
+		});
+		for id in 30000..30256 {
+			let mut message = test_support::message(id, channel);
+			message.author = user(id, "Synthetic recent speaker");
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		let users = known_users(&state, channel);
+		assert!(
+			users.iter().any(|user| user.id == target),
+			"recent authors cannot displace loaded members"
+		);
+		let mut menu = Menu::default();
+		menu.refresh(&state, channel, "@Member20199", Some(12), &users);
+		assert!(
+			menu.candidates
+				.iter()
+				.any(|candidate| candidate.id() == target)
+		);
+		// Search results and the member window together can exceed the candidate cap.
+		state.member_search[0].request = Some(client_core::member_search::Request {
+			guild: guild.unwrap(),
+			channel,
+			query: "Member".into(),
+			users: vec![],
+			nonce: 1,
+			slot: 0,
+		});
+		state.member_search[0].rows = (40000..40100).map(make_member).collect();
+		assert_eq!(known_users(&state, channel).len(), 256);
+		assert!(
+			!known_users(&state, channel)
+				.iter()
+				.any(|user| user.id == target)
+		);
+		let mut view = crate::MessagingUi::default();
+		let mut commands = vec![];
+		view.apply_extension_app_action(
+			&mut state,
+			extensions::AppAction::RequestProfile {
+				user_id: target.to_string(),
+				guild_id: None,
+			},
+			&mut commands,
+		)
+		.unwrap();
+		assert!(!commands.is_empty());
+		commands.clear();
+		view.apply_extension_account_action(
+			&mut state,
+			extensions::AppAction::SetUserBlocked {
+				user_id: target.to_string(),
+				blocked: true,
+			},
+			&mut commands,
+		)
+		.unwrap();
+		assert!(
+			matches!(&commands[..], [client_core::Command::UserAction { action: client_core::user_actions::Action::Block { user, blocked: true }, .. }] if *user == target)
+		);
+	}
+
+	#[test]
+	fn mention_matches_prefer_recent_conversation_users_after_match_quality() {
+		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		let old = user(40001, "AlexOlder");
+		let recent = user(40002, "BAlexRecent");
+		for (id, author) in [(40001, old.clone()), (40002, recent.clone())] {
+			let mut message = test_support::message(id, channel);
+			message.author = author;
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		let mut menu = Menu::default();
+		menu.refresh(
+			&state,
+			channel,
+			"@lex",
+			Some(4),
+			&[old.clone(), recent.clone()],
+		);
+		assert_eq!(menu.candidates[0].id(), recent.id);
+		menu.refresh(&state, channel, "@Al", Some(3), &[recent, old.clone()]);
+		assert_eq!(menu.candidates[0].id(), old.id);
+	}
+
+	#[test]
 	fn cross_server_emoji_search_names_sources_bounds_and_account_reset() {
 		let mut state = State {
 			channels: vec![channel(1, None, 1, "DM"), channel(2, None, 3, "Group DM")],
@@ -920,7 +1095,10 @@ mod tests {
 		);
 		let mut draft = ":same".into();
 		insert(&mut draft, menu.pick(0).unwrap(), true).unwrap();
-		assert_eq!(draft, "<a:same_wave:10001> ");
+		assert_eq!(
+			draft,
+			r"[same\_wave](https://cdn.discordapp.com/emojis/10001.gif?size=64) "
+		);
 		menu.refresh(&state, Id(2), ":source20", Some(9), &[]);
 		assert_eq!(menu.candidates[0].id(), Id(20001));
 		assert!(menu.candidates.iter().all(
@@ -992,6 +1170,8 @@ mod tests {
 								id: guild,
 								name: String::new(),
 								color: 0,
+								secondary_color: None,
+								tertiary_color: None,
 								position: 0,
 								hoist: false,
 								bits: p::VIEW_CHANNEL | p::SEND_MESSAGES | p::MENTION_EVERYONE,
@@ -1244,7 +1424,7 @@ mod tests {
 				},
 			]),
 		}];
-		let state = State {
+		let mut state = State {
 			guilds,
 			channels: vec![channel(1, None, 1, "DM")],
 			user: Some(user(7, "Owner")),
@@ -1269,8 +1449,13 @@ mod tests {
 				.any(|c| matches!(c, Candidate::Unicode { code, .. } if *code == ":heart:"))
 		);
 		let mut draft = "hi :he".to_owned();
-		assert_eq!(insert(&mut draft, menu.pick(0).unwrap(), true), Some(31));
-		assert_eq!(draft, "hi <a:heart_hands_custom:9001> ");
+		let expected =
+			r"hi [heart\_hands\_custom](https://cdn.discordapp.com/emojis/9001.gif?size=64) ";
+		assert_eq!(
+			insert(&mut draft, menu.pick(0).unwrap(), true),
+			Some(expected.chars().count())
+		);
+		assert_eq!(draft, expected);
 		let unicode = menu
 			.candidates
 			.iter()
@@ -1279,6 +1464,24 @@ mod tests {
 		let mut draft = "hi :he".to_owned();
 		insert(&mut draft, menu.pick(unicode).unwrap(), true).unwrap();
 		assert_eq!(draft, "hi ❤️ ");
+		// Opting out of Nitro-only suggestions drops the animated, other-server emoji only.
+		menu.hide_nitro_emojis = true;
+		menu.refresh(&state, Id(1), "x", None, &[]);
+		menu.refresh(&state, Id(1), "hi :he", Some(6), &[]);
+		assert!(
+			menu.hide_nitro_emojis,
+			"the preference survives a closed menu"
+		);
+		assert!(!menu.candidates.iter().any(|c| c.id() == Id(9001)));
+		assert!(
+			menu.candidates
+				.iter()
+				.any(|c| matches!(c, Candidate::Unicode { code, .. } if *code == ":heart:"))
+		);
+		state.premium_type = 2;
+		menu.refresh(&state, Id(1), "hi :he", Some(6), &[]);
+		assert!(menu.candidates.iter().any(|c| c.id() == Id(9001)));
+		menu.hide_nitro_emojis = false;
 		menu.refresh(&state, Id(1), ":+1", Some(3), &[]);
 		assert!(menu.candidates.iter().any(|candidate| matches!(
 			candidate,
@@ -1288,6 +1491,66 @@ mod tests {
 			}
 		)));
 	}
+}
+
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub(crate) fn debug_image_completion(state: &mut State) -> String {
+	let channel = state.selected.unwrap();
+	let premium = state.premium_type;
+	let mut fallback = String::new();
+	for entitlement in 0..=3 {
+		state.premium_type = entitlement;
+		for target in [channel, Id(22)] {
+			for (query, id, name, animated) in [
+				(":serein_pa", Id(9002), "serein_party", true),
+				(":serein_wa", Id(9001), "serein_wave", false),
+			] {
+				let mut menu = Menu::default();
+				menu.refresh(state, target, query, Some(query.chars().count()), &[]);
+				let image = entitlement == 0 && (animated || target != channel);
+				let expected = if image {
+					format!(
+						"{} ",
+						model::ImageShare::Emoji { id, animated }
+							.markdown(name)
+							.unwrap()
+					)
+				} else {
+					format!("<{}:{name}:{id}> ", if animated { "a" } else { "" })
+				};
+				for key in [egui::Key::Tab, egui::Key::Enter] {
+					let ctx = egui::Context::default();
+					let output = ctx.run_ui(
+						egui::RawInput {
+							events: vec![egui::Event::Key {
+								key,
+								physical_key: None,
+								pressed: true,
+								repeat: false,
+								modifiers: Default::default(),
+							}],
+							..Default::default()
+						},
+						|_| {
+							let mut draft = query.to_owned();
+							let pick = menu.keys(&ctx).expect("emoji completion");
+							assert_eq!(
+								insert(&mut draft, pick, false),
+								Some(expected.chars().count())
+							);
+							assert_eq!(draft, expected);
+						},
+					);
+					output.drop_without_applying_deltas();
+				}
+				if entitlement == 0 && target == channel && animated {
+					fallback = expected.trim_end().into();
+				}
+			}
+		}
+	}
+	state.premium_type = premium;
+	fallback
 }
 
 #[cfg(debug_assertions)]
@@ -1503,6 +1766,8 @@ pub fn debug_role_mentions_check(state: &mut State) {
 		name: "Role check".into(),
 		bits: 0,
 		color: 0xe67e22,
+		secondary_color: None,
+		tertiary_color: None,
 		position: 1,
 		hoist: false,
 	});

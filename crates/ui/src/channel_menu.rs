@@ -857,6 +857,7 @@ impl Dialog {
 		let name = dialog::input(
 			ui,
 			egui::TextEdit::singleline(&mut self.draft.name)
+				.align(egui::Align2::LEFT_CENTER)
 				.hint_text(crate::i18n::translate_if_key(
 					&(if self.kind == Kind::CreateCategory {
 						crate::i18n::translate("channel-menu-overview-new-category")
@@ -1542,6 +1543,7 @@ mod tests {
 						Event::PointerMoved(egui::pos2(width / 2.0, 500.0)),
 						Event::MouseWheel {
 							phase: egui::TouchPhase::Move,
+							source: egui::MouseWheelSource::Unknown,
 							unit: egui::MouseWheelUnit::Point,
 							delta: egui::vec2(0.0, -260.0),
 							modifiers: Modifiers::NONE,
@@ -1662,6 +1664,7 @@ mod tests {
 								Event::PointerMoved(rect.center()),
 								Event::MouseWheel {
 									phase: egui::TouchPhase::Move,
+									source: egui::MouseWheelSource::Unknown,
 									unit: egui::MouseWheelUnit::Point,
 									delta: egui::vec2(0.0, -300.0),
 									modifiers: Modifiers::NONE,

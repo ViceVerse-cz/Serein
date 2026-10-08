@@ -4,7 +4,54 @@ use eframe::egui;
 use model::{Channel, Id};
 
 pub fn channel(state: &State, user: Id) -> Result<Channel, Failure> {
-	let recipient = state.friend(user).ok_or(Failure::Forbidden)?;
+	let recipient = state
+		.friend(user)
+		.or_else(|| {
+			state
+				.channels
+				.iter()
+				.flat_map(|c| &c.recipients)
+				.find(|u| u.id == user)
+		})
+		.or_else(|| {
+			state
+				.members
+				.as_ref()?
+				.slots
+				.iter()
+				.flatten()
+				.find_map(|slot| match slot {
+					model::MemberSlot::Person(member) if member.user.id == user => {
+						Some(&member.user)
+					}
+					_ => None,
+				})
+		})
+		.or_else(|| {
+			state.timeline.iter().find_map(|message| {
+				if message.author.id == user {
+					Some(&message.author)
+				} else {
+					message.mentions.iter().find(|u| u.id == user)
+				}
+			})
+		})
+		.or_else(|| {
+			state
+				.profile
+				.as_ref()?
+				.data
+				.as_ref()
+				.map(|data| &data.user)
+				.filter(|u| u.id == user)
+		})
+		.filter(|u| {
+			!u.webhook
+				&& u.id.0 != 0
+				&& state.user.as_ref().is_some_and(|owner| owner.id != u.id)
+				&& state.user_blocked(u.id) == Some(false)
+		})
+		.ok_or(Failure::Forbidden)?;
 	Ok(state
 		.channels
 		.iter()
@@ -203,7 +250,38 @@ pub fn check() {
 			assert!(state.channel(dm.id).is_none());
 		}
 	}
+	// A loaded guild-message author can open a DM without being in the friends list.
+	let mut state = test_support::demo_state();
+	// Remove the fixture's existing DM so this check exercises a newly opened conversation.
+	state.channels.retain(|channel| channel.id != Id(22));
+	let stranger = state
+		.timeline
+		.iter()
+		.map(|message| &message.author)
+		.find(|user| user.id == Id(2))
+		.expect("synthetic stranger author")
+		.clone();
+	assert!(state.friend(stranger.id).is_none());
+	let dm = channel(&state, stranger.id).unwrap();
+	assert!(state.channel(dm.id).is_none());
+	let selected = state.selected;
+	let drafts = state.drafts.clone();
+	let Command::UserAction { request, .. } = state.open_user_dm(&stranger).unwrap() else {
+		panic!("nonfriend open command")
+	};
+	apply(
+		&mut state,
+		user_actions::Event::DmOpened {
+			user: stranger.id,
+			request,
+			result: Ok(Box::new(dm.clone())),
+		},
+	);
+	assert_eq!(state.selected, selected);
+	assert!(state.select_opened_dm().is_some());
+	assert_eq!(state.selected, Some(dm.id));
+	assert_eq!(state.drafts, drafts);
 	println!(
-		"Switcher debug check passed: friend username, missing/existing DM, history, drafts, stale replies and failures."
+		"Switcher debug check passed: friend username, nonfriend message author, missing/existing DM, history, drafts, stale replies and failures."
 	);
 }

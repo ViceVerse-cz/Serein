@@ -65,6 +65,7 @@ fn current_game_can_be_renamed_and_running_programs_added() {
 	state.demo = false;
 	state.gateway_connected = true;
 	let mut view = MessagingUi::default();
+	view.language = ui::i18n::Language::English;
 	view.share_game_activity = true;
 	view.running_game = Some(RunningGame {
 		executable: "lms.exe".into(),
@@ -149,6 +150,7 @@ fn one_page_shares_activity_and_lists_detected_games_that_can_be_hidden() {
 	state.demo = false;
 	state.gateway_connected = true;
 	let mut view = MessagingUi::default();
+	view.language = ui::i18n::Language::English;
 	view.share_game_activity = true;
 	view.discord_activity_sharing = Some(false);
 	let now = std::time::SystemTime::now()

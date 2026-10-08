@@ -306,7 +306,7 @@ fn field_ui(ui: &mut egui::Ui, field: &Field, answer: &mut Answer) {
 			let editor = if field.kind == FieldKind::Paragraph {
 				egui::TextEdit::multiline(text).desired_rows(4)
 			} else {
-				egui::TextEdit::singleline(text)
+				egui::TextEdit::singleline(text).align(egui::Align2::LEFT_CENTER)
 			};
 			ui.add(
 				editor

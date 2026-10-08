@@ -30,7 +30,7 @@ pub fn show(
 	ui: &mut egui::Ui,
 	pending: &Pending,
 	// Whether the row continues a group, and the gap above a new group.
-	(compact, gap): (bool, i8),
+	(compact, gap, irc): (bool, i8, bool),
 	state: &State,
 	media: (
 		&mut crate::avatars::Avatars,
@@ -44,6 +44,7 @@ pub fn show(
 ) {
 	let colors = design::palette(ui);
 	let (avatars, opening, profile, channel, formats) = media;
+	let compact = compact || irc;
 	let upload = upload.filter(|upload| upload.nonce == pending.nonce);
 	let sending = pending.delivery == Delivery::Sending;
 	let artwork = pending.attachments.len() == 1
@@ -58,13 +59,55 @@ pub fn show(
 		.inner_margin(egui::Margin {
 			left: 16,
 			right: 16,
-			top: if compact { 1 } else { gap },
+			top: if irc {
+				3
+			} else if compact {
+				1
+			} else {
+				gap
+			},
 			bottom: 1,
 		})
 		.show(ui, |ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(16.0, 4.0);
 			ui.horizontal_top(|ui| {
-				if compact {
+				if irc {
+					// Match a compact timeline row: a time-wide slot, the author, then the body.
+					let body_spacing = ui.spacing().item_spacing.x;
+					let line = ui.text_style_height(&egui::TextStyle::Body);
+					ui.spacing_mut().item_spacing.x = 8.0;
+					let time = ui.painter().layout_no_wrap(
+						"00:00".into(),
+						egui::FontId::proportional(12.0),
+						colors.muted,
+					);
+					ui.allocate_exact_size(egui::vec2(time.size().x, line), egui::Sense::hover());
+					let width = crate::timeline::compact_author_width(ui.available_width());
+					crate::timeline::compact_header(
+						ui,
+						width,
+						egui::FontId::new(15.5, design::medium_family(ui.ctx())),
+						|ui| {
+							ui.set_max_width(width);
+							ui.add(
+								egui::Label::new(
+									design::medium(
+										ui,
+										state.user.as_ref().map_or_else(
+											|| crate::i18n::translate("pending-show-you"),
+											|u| u.name.clone(),
+										),
+										15.5,
+									)
+									.color(colors.muted),
+								)
+								.truncate()
+								.selectable(false),
+							);
+						},
+					);
+					ui.spacing_mut().item_spacing.x = body_spacing;
+				} else if compact {
 					ui.allocate_exact_size(
 						egui::vec2(40.0, crate::timeline::MESSAGE_LINE),
 						egui::Sense::hover(),
@@ -188,7 +231,7 @@ pub fn show(
 								upload_strip(ui, pending, upload, cancel);
 							});
 						}
-					} else if pending.delivery != Delivery::Confirmed {
+					} else if !sending && pending.delivery != Delivery::Confirmed {
 						if pending.delivery == Delivery::Ambiguous {
 							ui.label(
 								RichText::new(crate::i18n::translate(
@@ -477,7 +520,7 @@ mod tests {
 						show(
 							ui,
 							&pending,
-							(true, 10),
+							(true, 10, false),
 							&state,
 							(
 								&mut crate::avatars::Avatars::default(),

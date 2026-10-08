@@ -1543,6 +1543,7 @@ fn color_input(ui: &mut egui::Ui, value: &mut String) -> bool {
 						design::input(
 							ui,
 							egui::TextEdit::singleline(value)
+								.align(egui::Align2::LEFT_CENTER)
 								.char_limit(9)
 								.font(egui::FontId::proportional(14.0)),
 						)
@@ -1673,6 +1674,7 @@ fn text_field(
 		let changed = design::input(
 			ui,
 			egui::TextEdit::singleline(value)
+				.align(egui::Align2::LEFT_CENTER)
 				.char_limit(limit)
 				.font(egui::FontId::proportional(15.0))
 				.hint_text(hint),
