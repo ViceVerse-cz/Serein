@@ -747,7 +747,10 @@ ready, so a stream that reports a transport key with `dave_ready=0` and no
 
 Two recovery paths depend on these counters. A viewer refreshes its video sink wants
 every five seconds, and every second while stalled, because Discord stops forwarding
-video when that subscription lapses. Separately, video that stops cleanly leaves nothing
+video when that subscription lapses. Watched streams include the announced primary
+video SSRCs with a pixel count capped at 1920×1080; a source change refreshes the
+request immediately. This is an unofficial quality request, not a delivered-quality
+guarantee. Separately, video that stops cleanly leaves nothing
 marked lost, so no per-picture signal would ever request recovery; after a second without
 a decoded picture every announced sender is asked for a keyframe until one arrives.
 Both are visible as `sink_wants_sent`, `stall_ticks` and `pli_sent`.

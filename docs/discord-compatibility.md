@@ -558,6 +558,9 @@ before the existing DAVE payload. This matches the public
 and [native sender](https://github.com/dolfies/discord-native-voice/blob/master/discord/ext/native_voice/client.py),
 not a documented Discord guarantee. Viewers announce a receive-only video state and
 request media with opcode 15 (`any: 100`), following that native receiver implementation.
+For announced primary video SSRCs, watched streams also request a pixel count up to the
+receiver's 1920×1080 decode limit and refresh it when sources change. This is an
+unofficial receive preference, not proof that Discord delivers that resolution or frame rate.
 The missing packet marker and receive request are interoperability differences; their
 role in the owner's silent browser-audio report is not yet live-confirmed.
 

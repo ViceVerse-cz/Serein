@@ -221,16 +221,36 @@ async fn exchange(rekey_timeout: bool) {
 		receiver,
 		json!({"op":12,"d":{"audio_ssrc":42,"video_ssrc":0,"rtx_ssrc":0,"streams":[]}})
 	);
-	let subscription = message(&mut view_ws).await;
-	let subscription: Value = serde_json::from_str(subscription.to_text().unwrap()).unwrap();
-	assert_eq!(subscription, json!({"op":15,"d":{"any":100}}));
 	view_ws
 		.send(Message::Ping(b"mapped".to_vec().into()))
 		.await
 		.unwrap();
-	assert!(
-		matches!(message(&mut view_ws).await, Message::Pong(data) if data.as_ref() == b"mapped")
-	);
+	timeout(Duration::from_secs(1), async {
+		let mut subscribed = false;
+		let mut mapped = false;
+		while !subscribed || !mapped {
+			match message(&mut view_ws).await {
+				Message::Text(text) => {
+					let value: Value = serde_json::from_str(&text).unwrap();
+					if !subscribed && value == json!({"op":15,"d":{"any":100}}) {
+						continue;
+					}
+					assert_eq!(
+						value,
+						json!({"op":15,"d":{"any":100,"pixelCounts":{"51":1920*1080}}})
+					);
+					subscribed = true;
+				}
+				Message::Pong(data) => {
+					assert_eq!(data.as_ref(), b"mapped");
+					mapped = true;
+				}
+				other => panic!("Unexpected viewer subscription frame: {other:?}"),
+			}
+		}
+	})
+	.await
+	.expect("Viewer must request the announced source promptly and acknowledge the mapping fence");
 	// Sender-only sessions must keep receiving authenticated RTCP feedback after
 	// discovery. An unrelated media SSRC must not force our encoder's keyframe.
 	assert!(ready.load(Ordering::Acquire));
