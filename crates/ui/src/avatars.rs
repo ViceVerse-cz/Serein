@@ -313,13 +313,13 @@ impl Avatars {
 		}
 		self.media.release_idle(now);
 	}
-	/// When frames that stopped showing before `pass` become releasable; the host wakes then so
-	/// an idle window does not keep them. Artwork still painted in `pass` schedules nothing.
-	pub fn next_release(&self, pass: u64) -> Option<Instant> {
+	/// When the next unplayed frame set becomes releasable; the host wakes then so an idle window
+	/// does not keep frames it stopped playing.
+	pub fn next_release(&self) -> Option<Instant> {
 		self.animations
 			.values()
 			.map(|animation| animation.played + IDLE_FRAMES)
-			.chain(self.media.next_release(pass))
+			.chain(self.media.next_release())
 			.min()
 	}
 	fn request(&mut self, key: String) {
@@ -1814,7 +1814,7 @@ mod tests {
 	}
 
 	#[test]
-	fn inline_gif_frames_release_after_scrolling_away_and_reload_when_shown() {
+	fn inline_gif_frames_release_when_unplayed_and_reload_once_playable() {
 		let ctx = egui::Context::default();
 		let mut images = Avatars::default();
 		images.set_animation(true);
@@ -1824,20 +1824,17 @@ mod tests {
 			height: 32,
 			..Default::default()
 		};
-		let paint = |images: &mut Avatars| {
-			let mut pass = 0;
+		let paint = |images: &mut Avatars, focused: bool| {
 			ctx.run_ui(
 				egui::RawInput {
-					focused: true,
+					focused,
 					..Default::default()
 				},
 				|ui| {
 					images.show_media(ui, &media, egui::vec2(64.0, 32.0), false, Surface::Inline);
-					pass = ui.ctx().cumulative_pass_nr();
 				},
 			)
 			.drop_without_applying_deltas();
-			pass
 		};
 		let deliver = |images: &mut Avatars, key: &str| {
 			let frame = |color| std::sync::Arc::new(ColorImage::filled([2, 1], color));
@@ -1854,30 +1851,32 @@ mod tests {
 				],
 			);
 		};
-		paint(&mut images);
+		paint(&mut images, true);
 		let key = images.take_requests().pop().unwrap();
 		let rendition = media::Rendition::parse(&key).unwrap();
 		deliver(&mut images, &key);
 		assert!(images.media.animation(&rendition).is_some());
-		let pass = paint(&mut images);
-		assert!(
-			images.next_release(pass).is_none(),
-			"A GIF still on screen never schedules a release wake"
-		);
 		let playing = images.media.bytes();
 		images.release_idle(Instant::now());
 		assert!(
 			images.media.animation(&rendition).is_some(),
-			"Recently painted frames stay"
+			"Recently played frames stay"
 		);
-		assert!(images.next_release(u64::MAX).is_some());
+		assert!(images.next_release().is_some());
+		// Still on screen, but an unfocused window paints without playing it.
+		paint(&mut images, false);
 		images.release_idle(Instant::now() + IDLE_FRAMES);
 		assert!(images.media.animation(&rendition).is_none());
 		assert!(images.media.bytes() < playing);
 		assert!(images.texture_id(&key).is_some(), "The still is kept");
-		assert!(images.next_release(u64::MAX).is_none());
-		// Scrolling back paints the still and asks the disk-cached source for frames again.
-		paint(&mut images);
+		assert!(images.next_release().is_none());
+		paint(&mut images, false);
+		assert!(
+			images.take_requests().is_empty(),
+			"Frames are not decoded again while they cannot play"
+		);
+		// Focus (or scrolling back) shows the still and asks the disk cache for frames again.
+		paint(&mut images, true);
 		assert_eq!(images.take_requests(), vec![key.clone()]);
 		deliver(&mut images, &key);
 		assert!(images.media.animation(&rendition).is_some());

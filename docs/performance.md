@@ -11,9 +11,9 @@ RGBA, so one 498x280, 40-frame GIF is about 22 MB and a 128 px, 40-frame avatar 
 GIFs kept their frames after scrolling away until a 128 MiB pool filled. Animated avatars and banners
 kept theirs in another 128 MiB pool, although avatars only play on hover or in an open profile.
 
-Frames not played (avatars, stickers, banners) or not painted (inline GIFs) for 5 s are now released
-while the still texture stays. Hover-only avatars keep frames only when they are about to play.
-Released artwork asks the worker for frames again when it would play; the encoded source comes from
+Frames not played for 5 s (scrolled away, not hovered, or shown in an unfocused window) are now
+released while the still texture stays. Hover-only avatars keep frames only when they are about to
+play. Released artwork asks the worker for frames again only once it can play; the encoded source comes from
 the disk cache, so this costs a re-decode, not a download.
 
 The ignored `ui` workload `animation_memory_workload` (release build, Apple M1, Rust 1.98.1, no window,

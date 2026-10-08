@@ -7041,7 +7041,7 @@ impl eframe::App for Desktop {
 				}
 			}
 			// Idle frames are freed on a pass, so an otherwise idle window wakes once for them.
-			if let Some(at) = self.messaging.avatar_release_at(ctx.cumulative_pass_nr()) {
+			if let Some(at) = self.messaging.avatar_release_at() {
 				ctx.request_repaint_after(at.saturating_duration_since(std::time::Instant::now()));
 			}
 			if std::mem::take(&mut self.messaging.reconnect_requested) {

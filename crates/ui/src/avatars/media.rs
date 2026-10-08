@@ -309,7 +309,6 @@ struct Held {
 	arrived: Instant,
 	used: u64,
 	painted_pass: u64,
-	painted_at: Instant,
 }
 
 impl Held {
@@ -532,7 +531,6 @@ impl MediaLibrary {
 		let held = self.slots.get_mut(source)?.held.get_mut(index)?;
 		held.used = self.clock;
 		held.painted_pass = pass;
-		held.painted_at = Instant::now();
 		if lane == Lane::Inline {
 			held.lane = Lane::Inline;
 		}
@@ -625,7 +623,6 @@ impl MediaLibrary {
 					arrived: Instant::now(),
 					used,
 					painted_pass: self.swept_pass,
-					painted_at: Instant::now(),
 				};
 				let pool = held.pool();
 				slot.held.push(held);
@@ -693,8 +690,6 @@ impl MediaLibrary {
 		let still = match &held.pixels {
 			Pixels::Still(still) | Pixels::Playing { still, .. } => still.clone(),
 		};
-		// Arrival counts as a paint, so frames for a row scrolled away mid-decode still expire.
-		held.painted_at = now;
 		held.pixels = Pixels::Playing {
 			still,
 			animation: Animation {
@@ -753,25 +748,28 @@ impl MediaLibrary {
 		}
 	}
 
-	/// Inline animations not painted for `IDLE_FRAMES` fall back to their still, freeing the
-	/// decoded frames and playback texture. Painting the rendition again requests the frames.
+	/// Inline animations not played for `IDLE_FRAMES` (scrolled away, or shown in an unfocused
+	/// window) fall back to their still, freeing the decoded frames and playback texture. The
+	/// frames are requested again once the rendition can play.
 	pub(super) fn release_idle(&mut self, now: Instant) {
 		for held in self.slots.values_mut().flat_map(|slot| &mut slot.held) {
 			if held.lane == Lane::Inline
-				&& now.saturating_duration_since(held.painted_at) >= super::IDLE_FRAMES
-				&& let Pixels::Playing { still, .. } = &held.pixels
+				&& let Pixels::Playing { still, animation } = &held.pixels
+				&& now.saturating_duration_since(animation.played) >= super::IDLE_FRAMES
 			{
 				held.pixels = Pixels::Still(still.clone());
 			}
 		}
 	}
-	/// Only renditions missing from `pass` count: visible ones are repainted, not released.
-	pub(super) fn next_release(&self, pass: u64) -> Option<Instant> {
+	pub(super) fn next_release(&self) -> Option<Instant> {
 		self.slots
 			.values()
 			.flat_map(|slot| &slot.held)
-			.filter(|held| held.lane == Lane::Inline && held.playing() && held.painted_pass != pass)
-			.map(|held| held.painted_at + super::IDLE_FRAMES)
+			.filter(|held| held.lane == Lane::Inline)
+			.filter_map(|held| match &held.pixels {
+				Pixels::Playing { animation, .. } => Some(animation.played + super::IDLE_FRAMES),
+				Pixels::Still(_) => None,
+			})
 			.min()
 	}
 
@@ -1045,13 +1043,16 @@ impl Avatars {
 		} else {
 			choice
 		};
-		if choice.request && !demo && self.requests.len() < REQUESTS {
+		let playing = self.animate_gifs && ui.ctx().input(|input| input.focused);
+		// A shown still waits for playback before asking for frames, so an unfocused window
+		// does not decode frames that would only be released again unplayed.
+		let deferred = want.motion == Motion::Animated && !playing && choice.base.is_some();
+		if choice.request && !deferred && !demo && self.requests.len() < REQUESTS {
 			self.requests.push(want.key());
 			self.media
 				.slot(&source)
 				.record(want.motion, want.size, Attempt::Pending);
 		}
-		let playing = self.animate_gifs && ui.ctx().input(|input| input.focused);
 		let mut texture = |index| {
 			self.media
 				.texture(&source, index, ui.ctx(), playing, lane, pass)

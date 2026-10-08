@@ -972,9 +972,9 @@ impl MessagingUi {
 	pub fn take_avatar_requests(&mut self) -> Vec<String> {
 		self.avatars.take_requests()
 	}
-	/// When animation frames no longer shown in `pass` can be released; see `take_avatar_requests`.
-	pub fn avatar_release_at(&self, pass: u64) -> Option<std::time::Instant> {
-		self.avatars.next_release(pass)
+	/// When unplayed animation frames can next be released; see `take_avatar_requests`.
+	pub fn avatar_release_at(&self) -> Option<std::time::Instant> {
+		self.avatars.next_release()
 	}
 	pub fn accept_gif_animation(&mut self, key: String, frames: GifFrames) {
 		self.avatars.accept_animation(key, frames);
