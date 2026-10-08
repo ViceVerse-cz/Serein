@@ -1586,8 +1586,21 @@ download/open actions in the context menu. Limits are 100 MiB encoded, two hours
 1920x1080 total pixels, and mono/stereo audio up to 96 kHz. Rotated portrait video uses
 the same pixel budget.
 Only an explicit attachment Play starts decoding; leaving its visible message (unless
-fullscreen) or channel, hiding the app, logout, replacement or cancellation stops that player. Embeds with web
-video pages continue using their external link action. No live Discord media was tested.
+fullscreen) or channel, hiding the app, logout, replacement or cancellation stops that player.
+Discord-proxied MP4/MOV video embeds reuse this native player. Because embeds omit
+attachment sizes, a credential-free one-byte range request must establish a valid,
+bounded total before decoding starts; the same 100 MiB limit applies.
+
+Recognized YouTube and Vimeo embeds offer a user-started provider player on Windows
+and macOS. It uses one temporary playback-only webview with no Discord credentials,
+IPC or downloads. Top-level navigation is restricted to provider hosts; the Windows
+callback does not filter frame or resource requests. Popup links use the normal
+external-link confirmation. Autoplay is allowed after the user's Play action;
+other browser permission requests are denied where the webview backend supports
+the permission handler. Closing the player, hiding the app or logout destroys it.
+Linux currently falls back to external-link confirmation, as do unsupported providers
+and failed webview creation. The offline demo never opens a provider webview.
+Live Discord media and provider playback have not been verified.
 
 The native MPEG-4 source does not support external tracks; it receives an unnamed byte
 stream without a base URL and Media Foundation starts with socket support disabled.

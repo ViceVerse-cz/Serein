@@ -425,6 +425,7 @@ fn search_preview_cards_keep_their_surface_while_chat_cards_use_tint() {
 								&mut None,
 								&mut DownloadUi::default(),
 								&mut crate::profiles::ProfileSession::default(),
+								&mut crate::video::VideoUi::default(),
 								&client_core::State::default(),
 								card_surface,
 							);

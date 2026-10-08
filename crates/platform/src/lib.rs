@@ -15,6 +15,7 @@ pub mod startup;
 pub mod system_theme;
 pub mod tray;
 pub mod video;
+pub mod web_player;
 #[cfg(target_os = "macos")]
 pub mod window;
 pub mod window_effects;
