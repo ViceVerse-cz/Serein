@@ -4407,6 +4407,8 @@ voice-recipient-ringing = Sonnerie…
 voice-recipient-not-in-call = Absent de l’appel
 reconnect-now = Se reconnecter
 
+voice-media-output = Sortie multimédia
+voice-media-output-hint = S’applique aux nouvelles lectures audio/vidéo et aux flux que vous regardez.
 voice-call-moved-to-another-client = La session d’appel de cet appareil a été remplacée
 
 server-settings-page-safety = Configuration de la sécurité

@@ -4411,6 +4411,8 @@ voice-recipient-ringing = Вызов…
 voice-recipient-not-in-call = Не в звонке
 reconnect-now = Переподключиться
 
+voice-media-output = Вывод мультимедиа
+voice-media-output-hint = Применяется к новому воспроизведению аудио/видео и просматриваемым трансляциям.
 voice-call-moved-to-another-client = Сеанс звонка на этом устройстве был заменён
 
 server-settings-page-safety = Настройка безопасности

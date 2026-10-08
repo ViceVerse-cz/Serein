@@ -4396,6 +4396,8 @@ voice-recipient-ringing = 呼び出し中…
 voice-recipient-not-in-call = 通話に未参加
 reconnect-now = 今すぐ再接続
 
+voice-media-output = メディア出力
+voice-media-output-hint = 新しく再生する音声・動画と視聴中の配信に適用します。
 voice-call-moved-to-another-client = このデバイスの通話セッションが置き換えられました
 
 server-settings-page-safety = 安全設定

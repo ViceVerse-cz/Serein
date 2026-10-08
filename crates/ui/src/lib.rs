@@ -425,6 +425,7 @@ pub struct MessagingUi {
 	pub voice_outputs: Vec<(String, String)>,
 	pub voice_input: Option<String>,
 	pub voice_output: Option<String>,
+	pub media_output: Option<String>,
 	pub voice_gain: VoiceGain,
 	voice_user_volumes: Option<Box<[(u64, u16); 64]>>,
 	/// Speakers silenced on this device only; never sent to Discord.

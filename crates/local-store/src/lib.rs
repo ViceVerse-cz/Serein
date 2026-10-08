@@ -64,6 +64,8 @@ pub struct AppPreferences {
 	pub voice_deafened: bool,
 	pub voice_input: Option<String>,
 	pub voice_output: Option<String>,
+	/// Independent media output; None preserves each player’s existing default routing.
+	pub media_output: Option<String>,
 	pub input_percent: u16,
 	pub output_percent: u16,
 	/// Which GPU renders the window; applied on the next start.
@@ -102,6 +104,7 @@ impl Default for AppPreferences {
 			voice_deafened: false,
 			voice_input: None,
 			voice_output: None,
+			media_output: None,
 			input_percent: 100,
 			output_percent: 100,
 			gpu_preference: Default::default(),
@@ -133,7 +136,7 @@ impl AppPreferences {
 			&& self.user_volumes.iter().all(|(_, volume)| *volume <= 200)
 			&& self.muted_users.len() <= 64
 			&& self.keybinds.is_valid()
-			&& [&self.voice_input, &self.voice_output]
+			&& [&self.voice_input, &self.voice_output, &self.media_output]
 				.into_iter()
 				.all(|value| value.as_ref().is_none_or(|value| value.len() <= 1024))
 	}
@@ -2115,6 +2118,7 @@ mod tests {
 		let legacy: AppPreferences =
 			serde_json::from_str(r#"{"voice_noise_suppression":true}"#).unwrap();
 		assert!(legacy.voice_processing.is_none());
+		assert!(legacy.media_output.is_none());
 		assert!(legacy.voice_noise_suppression);
 		// Existing serialized bindings omit the newly optional diagnostics shortcut.
 		let mut old_bindings = serde_json::to_value(model::Keybinds::default()).unwrap();
@@ -2148,6 +2152,7 @@ mod tests {
 			voice_muted: true,
 			voice_deafened: true,
 			voice_input: Some("synthetic microphone".into()),
+			media_output: Some("synthetic media speakers".into()),
 			output_percent: 75,
 			gpu_preference: model::GpuPreference::PowerSaving,
 			..Default::default()
@@ -2187,6 +2192,9 @@ mod tests {
 		assert!(store.save_app_preferences(&value).is_err());
 		assert_eq!(store.app_preferences().unwrap().input_percent, 100);
 		value.input_percent = 100;
+		value.media_output = Some("x".repeat(1025));
+		assert!(store.save_app_preferences(&value).is_err());
+		value.media_output = Some("synthetic media speakers".into());
 		value.voice_input = Some("x".repeat(1025));
 		assert!(store.save_app_preferences(&value).is_err());
 		assert_eq!(

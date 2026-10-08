@@ -4398,6 +4398,8 @@ voice-recipient-not-in-call = Aramada değil
 
 reconnect-now = Şimdi yeniden bağlan
 
+voice-media-output = Medya çıkışı
+voice-media-output-hint = Yeni ses/video oynatımlarına ve izlenen yayınlara uygulanır.
 voice-call-moved-to-another-client = Bu cihazın arama oturumu değiştirildi
 
 server-settings-page-safety = Güvenlik Kurulumu

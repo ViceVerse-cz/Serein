@@ -30,6 +30,7 @@ mod game_activity;
 mod gpu;
 mod group_icon;
 mod interaction_uploads;
+mod media_output;
 mod notification_runtime;
 mod notification_sounds;
 #[cfg(feature = "demo")]
@@ -6237,6 +6238,7 @@ impl eframe::App for Desktop {
 		}
 		self.video.poll(self.messaging.video(), ctx);
 		let audio = self.audio.poll();
+		self.audio.output.clone_from(&self.messaging.media_output);
 		let player = self.messaging.audio();
 		player.position = audio.position.as_secs_f64();
 		player.duration = audio.duration.as_secs_f64();
@@ -6709,6 +6711,7 @@ impl eframe::App for Desktop {
 					ui::AudioCommand::Stop => self.audio.stop(),
 				}
 			}
+			self.video.output.clone_from(&self.messaging.media_output);
 			let player = self.messaging.video();
 			if self.state.demo
 				&& let Some(pause) = self.demo_video_autoplay

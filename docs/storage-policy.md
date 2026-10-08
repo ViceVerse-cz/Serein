@@ -1,5 +1,22 @@
 # Local storage policy and audit
 
+## Independent media output (October 2, 2026)
+
+The optional media output device ID joins device-local application preferences,
+bounded to 1,024 bytes and the existing 16 KiB preference record. It survives logout
+and restart; demo changes remain in memory. Attachment audio/video workers take
+one selected ID per playback request. A watched-stream routing worker retains at
+most eight mono 20 ms frames (30,720 bytes), one stereo output ring of at most
+2,880 sample pairs (23,040 bytes), and one frame being processed (3,840 bytes).
+The media callback and native driver buffers are additional. There is one worker
+per explicit watched stream, replaced and stopped with its owning watch context.
+A retiring worker must finish native output teardown before the next worker starts;
+rapid watch switches cannot accumulate output workers. Each drain pass examines
+at most eight frames even if incoming packets continue refilling the channel.
+Mute/deafen, device changes and stop clear the pending PCM; nothing is persisted,
+recorded, logged or sent anywhere beyond existing Discord transports.
+
+
 ## Profile board games (October 7, 2026)
 
 Board metadata uses the existing on-demand profile worker and RAM profile cache,

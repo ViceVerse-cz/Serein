@@ -4427,6 +4427,9 @@ voice-recipient-ringing = Ringing…
 voice-recipient-not-in-call = Not in call
 reconnect-now = Reconnect now
 
+voice-media-output = Media output
+voice-media-output-hint = Applies to new audio/video playback and watched streams.
+
 # Explicit public attachment hosting
 public-upload-host-file = Share link instead…
 public-upload-heading = Share with a public link

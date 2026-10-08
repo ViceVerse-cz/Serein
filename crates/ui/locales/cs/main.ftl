@@ -4429,6 +4429,9 @@ voice-recipient-ringing = Vyzvání…
 voice-recipient-not-in-call = Není v hovoru
 reconnect-now = Znovu připojit
 
+voice-media-output = Výstup médií
+voice-media-output-hint = Platí pro nově spuštěné audio/video a sledované streamy.
+
 # Explicit public attachment hosting
 public-upload-host-file = Sdílet odkazem…
 public-upload-heading = Sdílet veřejným odkazem

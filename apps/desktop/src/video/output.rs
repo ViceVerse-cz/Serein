@@ -1,5 +1,5 @@
 //! One second of decoded stereo PCM; the device callback only touches its ring and atomics.
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, StreamTrait};
 use std::sync::{
 	Arc,
 	atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
@@ -43,7 +43,7 @@ impl Playback {
 		}
 		let volume = f32::from_bits(self.controls.volume.load(Ordering::Acquire));
 		let volume = if volume.is_finite() {
-			volume.clamp(0.0, 1.0)
+			volume.clamp(0.0, 2.0)
 		} else {
 			0.0
 		};
@@ -106,14 +106,17 @@ impl Playback {
 		}
 	}
 }
-pub fn open(rate: u32, controls: Controls) -> Result<Output, &'static str> {
+pub fn open(
+	rate: u32,
+	selected: Option<&str>,
+	capacity: usize,
+	controls: Controls,
+) -> Result<Output, &'static str> {
 	if !(8000..=96000).contains(&rate) {
 		return Err("Unsupported video audio sample rate");
 	}
 	let host = cpal::default_host();
-	let device = host
-		.default_output_device()
-		.ok_or("No audio output device")?;
+	let device = crate::media_output::choose(&host, selected)?;
 	let supported = device
 		.default_output_config()
 		.map_err(|_| "Audio output unavailable")?;
@@ -121,7 +124,7 @@ pub fn open(rate: u32, controls: Controls) -> Result<Output, &'static str> {
 	if !(1..=8).contains(&config.channels) || !(8000..=192000).contains(&config.sample_rate) {
 		return Err("Unsupported audio output format");
 	}
-	let (producer, frames) = rtrb::RingBuffer::new(rate as usize);
+	let (producer, frames) = rtrb::RingBuffer::new(capacity.clamp(960, rate as usize));
 	controls.position.store(0, Ordering::Release);
 	let playback = Playback {
 		frames,

@@ -752,7 +752,11 @@ impl Voice {
 			live.audio
 				.set_gain(ui.voice_gain.input_percent, ui.voice_gain.output_percent);
 			let user_volumes = ui.voice_user_volumes();
-			let stream_volume = ui.voice_stream_volume();
+			let stream_volume = if ui.media_output.is_some() {
+				0
+			} else {
+				ui.voice_stream_volume()
+			};
 			let activity_threshold_db = ui
 				.voice_processing
 				.effective()
@@ -1409,7 +1413,11 @@ impl Voice {
 			camera: 0,
 			deafened: false,
 			user_volumes: ui.voice_user_volumes(),
-			stream_volume: ui.voice_stream_volume(),
+			stream_volume: if ui.media_output.is_some() {
+				0
+			} else {
+				ui.voice_stream_volume()
+			},
 		});
 		let remote_video: Arc<std::sync::Mutex<RemotePictures>> =
 			Arc::new(std::sync::Mutex::new(Vec::new()));

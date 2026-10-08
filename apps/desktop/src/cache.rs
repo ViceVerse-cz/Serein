@@ -265,6 +265,7 @@ impl Cache {
 				}
 				value.voice_input.as_ref().map_or(0, String::capacity)
 					+ value.voice_output.as_ref().map_or(0, String::capacity)
+					+ value.media_output.as_ref().map_or(0, String::capacity)
 					+ value.expanded_folders.capacity() * size_of::<u64>()
 					+ model::KeybindAction::ALL
 						.into_iter()
