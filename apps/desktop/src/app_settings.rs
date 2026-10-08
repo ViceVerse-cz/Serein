@@ -219,7 +219,8 @@ fn fit_window_geometry(
 	(position, size)
 }
 
-#[cfg(all(debug_assertions, feature = "demo"))]
+#[cfg(any(test, all(debug_assertions, feature = "demo")))]
+#[cfg_attr(test, test)]
 pub fn debug_window_geometry_check() {
 	use local_store::{LocalStore, WindowGeometry};
 	assert_eq!(
