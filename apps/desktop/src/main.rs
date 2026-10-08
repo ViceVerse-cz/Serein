@@ -971,7 +971,7 @@ struct Desktop {
 	clipboard: Option<clipboard::Paste>,
 	download_close_pending: bool,
 	window: Arc<winit::window::Window>,
-	monitor_geometry: Option<(Option<egui::Rect>, Option<f32>)>,
+	monitor_geometry: Option<(Option<egui::Rect>, Option<f32>, Option<egui::Vec2>)>,
 	monitor_period: Option<Duration>,
 	frame_metrics: FrameMetrics,
 	#[cfg(feature = "demo")]
@@ -5970,8 +5970,10 @@ impl Desktop {
 	fn frame_period(&self) -> Option<Duration> {
 		self.monitor_period
 	}
-	fn refresh_frame_period(&mut self) -> Option<Duration> {
-		let millihertz = self.window.current_monitor()?.refresh_rate_millihertz()?;
+	fn refresh_monitor(&mut self) -> Option<Duration> {
+		let monitor = self.window.current_monitor()?;
+		app_settings::update_window_minimum(&self.window, &monitor);
+		let millihertz = monitor.refresh_rate_millihertz()?;
 		(1_000..=1_000_000)
 			.contains(&millihertz)
 			.then(|| Duration::from_secs_f64(1000.0 / f64::from(millihertz)))
@@ -6021,12 +6023,16 @@ impl eframe::App for Desktop {
 				self.app_settings.state.dirty = true;
 			}
 		}
-		// Viewport position/scale comes from native events; avoid an OS monitor query on paints.
+		// Monitor size also detects Wayland moves without a global window position.
 		if let Some(viewport) = raw_input.viewports.get(&raw_input.viewport_id) {
-			let geometry = (viewport.outer_rect, viewport.native_pixels_per_point);
+			let geometry = (
+				viewport.outer_rect,
+				viewport.native_pixels_per_point,
+				viewport.monitor_size,
+			);
 			if self.monitor_geometry != Some(geometry) {
 				self.monitor_geometry = Some(geometry);
-				self.monitor_period = self.refresh_frame_period();
+				self.monitor_period = self.refresh_monitor();
 			}
 		}
 		if let Some(period) = self.frame_period() {

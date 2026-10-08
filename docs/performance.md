@@ -152,3 +152,28 @@ Fresh standard Windows x64 voice-enabled packages compare main `1b3e4a7b` with `
 Method: `cargo xtask package`, Rust 1.98.1, standard release flags without demo; Windows 11 build 26200, Ryzen 7 7800X3D, 32 GiB RAM. Runtime workspace artifacts were invalidated before each feature build. Installed bytes sum every file in `dist`; ZIP uses whole-directory .NET Optimal compression. NSIS was unavailable, so no installer executable was built.
 
 Current native CPU, memory, frame/startup latency and affected-device behavior remain unmeasured because the native automation bridge is unavailable. Package size and synthetic reducer timing do not establish live Discord performance.
+
+### Window minimum after monitor changes — review follow-up (2026-10-08)
+
+Fresh standard Windows x64 voice-enabled packages compare `666d7d4a` with this
+review fix. Both use Rust 1.98.1, the pinned lockfile, standard release flags
+without demo, Windows 11 build 26200, Ryzen 7 7800X3D and 32 GiB RAM. Each package
+contains 216 files. Installed bytes sum all files in `dist`; ZIP uses the complete
+directory with .NET `ZipFile.CreateFromDirectory`, Optimal compression.
+
+| Metric | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 86,009,344 B | 86,011,904 B | +2,560 B (+0.0030%) |
+| Installed directory | 90,200,460 B | 90,203,020 B | +2,560 B (+0.0028%) |
+| Distribution ZIP | 50,002,090 B | 50,003,472 B | +1,382 B (+0.0028%) |
+
+Both `cargo xtask package` runs passed; NSIS is unavailable, so no installer
+executable was produced. The final `cargo xtask check` passed formatting, strict
+workspace Clippy, workspace tests, demo compilation and policy checks. Four
+focused application-settings tests passed, including small displays, scale and
+decoration bounds for the recalculated minimum.
+
+Native capture/interaction remains unavailable (the native helper reports a
+missing pipe). Moving a real window between monitors, native CPU/memory, startup
+and frame latency were not measured. These package measurements and synthetic
+tests do not establish native multi-monitor or live Discord behavior.

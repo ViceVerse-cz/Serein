@@ -165,8 +165,7 @@ pub fn restore_window_geometry(
 	// Wayland may not have reported its configured size before the first frame.
 	let requested = winit::dpi::LogicalSize::new(geometry.size[0], geometry.size[1])
 		.to_physical::<u32>(scale_factor);
-	let minimum = winit::dpi::LogicalSize::new(MIN_WINDOW_SIZE[0], MIN_WINDOW_SIZE[1])
-		.to_physical::<u32>(scale_factor);
+	let minimum = window_minimum(available, frame, scale_factor);
 	let position = position.or_else(|| {
 		window
 			.outer_position()
@@ -191,14 +190,48 @@ pub fn restore_window_geometry(
 		size[1].saturating_sub(frame[1]).max(1),
 	);
 	// A newly smaller display must also be allowed to shrink below the usual minimum.
-	window.set_min_inner_size(Some(winit::dpi::PhysicalSize::new(
-		minimum.width.min(size.width),
-		minimum.height.min(size.height),
-	)));
+	window.set_min_inner_size(Some(minimum));
 	let _ = window.request_inner_size(size);
 	if movable {
 		window.set_outer_position(winit::dpi::PhysicalPosition::new(position[0], position[1]));
 	}
+}
+
+pub fn update_window_minimum(
+	window: &winit::window::Window,
+	monitor: &winit::monitor::MonitorHandle,
+) {
+	let available = monitor.size();
+	if available.width == 0 || available.height == 0 {
+		return;
+	}
+	let inner = window.inner_size();
+	let outer = window.outer_size();
+	window.set_min_inner_size(Some(window_minimum(
+		available,
+		[
+			outer.width.saturating_sub(inner.width),
+			outer.height.saturating_sub(inner.height),
+		],
+		monitor.scale_factor(),
+	)));
+}
+
+fn window_minimum(
+	available: winit::dpi::PhysicalSize<u32>,
+	frame: [u32; 2],
+	scale_factor: f64,
+) -> winit::dpi::PhysicalSize<u32> {
+	let minimum = winit::dpi::LogicalSize::new(MIN_WINDOW_SIZE[0], MIN_WINDOW_SIZE[1])
+		.to_physical::<u32>(scale_factor);
+	winit::dpi::PhysicalSize::new(
+		minimum
+			.width
+			.min(available.width.saturating_sub(frame[0]).max(1)),
+		minimum
+			.height
+			.min(available.height.saturating_sub(frame[1]).max(1)),
+	)
 }
 
 /// Fit the complete physical outer rectangle, not just its top-left corner.
@@ -319,6 +352,22 @@ pub fn debug_window_geometry_check() {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn minimum_tracks_monitor_size_scale_and_decorations() {
+		for (available, frame, scale, expected) in [
+			([640, 480], [16, 39], 1.0, [624, 441]),
+			([1920, 1080], [16, 39], 1.0, MIN_WINDOW_SIZE),
+			([1920, 1080], [24, 59], 1.5, [1140, 780]),
+			([960, 720], [24, 59], 1.5, [936, 661]),
+			([8, 12], [16, 39], 1.0, [1, 1]),
+		] {
+			assert_eq!(
+				window_minimum(available.into(), frame, scale),
+				winit::dpi::PhysicalSize::from(expected)
+			);
+		}
+	}
 
 	#[test]
 	fn startup_defaults_do_not_overwrite_pending_saved_preferences() {
