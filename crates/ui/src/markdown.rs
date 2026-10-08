@@ -1,7 +1,7 @@
 //! Bounded native text formatting. No HTML renderer, image loader, or automatic URL access.
 use egui::{FontId, Stroke, TextFormat, text::LayoutJob};
 use model::Id;
-use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, LinkType, Options, Parser, Tag, TagEnd};
 use std::collections::HashMap;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -42,6 +42,8 @@ struct Style {
 	/// Discord `-# ` subtext: smaller, quieter body text.
 	small: bool,
 	link: Option<usize>,
+	/// Only bare URLs and angle autolinks get native message chips; masked labels stay text.
+	message_link: bool,
 	mention: Option<Id>,
 	role: Option<Id>,
 	role_color: Option<u32>,
@@ -300,33 +302,63 @@ pub(super) struct ChatLink {
 	pub message: Option<Id>,
 }
 
-/// Recognize only Discord's chat routes; other destinations keep normal link handling.
+/// Recognize the raw route, before URL parsing can remove dot segments or escaped dots.
+/// Query/fragment text is preserved on the link but never changes the navigation identity.
 pub(super) fn discord_chat_link(input: &str) -> Option<ChatLink> {
-	let target = external_url(input)?;
-	let url = url::Url::parse(&target).ok()?;
-	if url.scheme() != "https"
-		|| url.port().is_some()
-		|| !matches!(
-			url.host_str()?,
-			"discord.com"
-				| "www.discord.com"
-				| "ptb.discord.com"
-				| "canary.discord.com"
-				| "discordapp.com"
-				| "www.discordapp.com"
-				| "ptb.discordapp.com"
-				| "canary.discordapp.com"
-		) {
+	if input.len() > 2048
+		|| input
+			.chars()
+			.any(|chr| chr.is_control() || chr.is_whitespace() || chr == '\\')
+	{
 		return None;
 	}
+	let (scheme, rest) = input.split_once("://")?;
+	if !scheme.eq_ignore_ascii_case("https") {
+		return None;
+	}
+	let (authority, route) = rest.split_once('/')?;
+	let host = authority.strip_suffix(":443").unwrap_or(authority);
+	if ![
+		"discord.com",
+		"www.discord.com",
+		"ptb.discord.com",
+		"canary.discord.com",
+		"discordapp.com",
+		"www.discordapp.com",
+		"ptb.discordapp.com",
+		"canary.discordapp.com",
+	]
+	.iter()
+	.any(|allowed| host.eq_ignore_ascii_case(allowed))
+	{
+		return None;
+	}
+	let path_end = route.find(['?', '#']).unwrap_or(route.len());
+	let suffix = &route[path_end..];
+	// Reject malformed escapes without decoding anything. Escaped bytes are allowed only
+	// in the non-routing suffix, never in the authority or path.
+	let mut escapes = suffix.bytes();
+	while let Some(byte) = escapes.next() {
+		if byte == b'%'
+			&& !(escapes.next()?.is_ascii_hexdigit() && escapes.next()?.is_ascii_hexdigit())
+		{
+			return None;
+		}
+	}
+	let route = &route[..path_end];
 	let id = |value: &str| {
-		if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+		if value.is_empty()
+			|| value.len() > 20
+			|| value.starts_with('0')
+			|| !value.bytes().all(|byte| byte.is_ascii_digit())
+		{
 			return None;
 		}
 		value.parse::<u64>().ok().filter(|id| *id != 0).map(Id)
 	};
-	let mut path = url.path().trim_end_matches('/').split('/');
-	if !path.next()?.is_empty() || path.next()? != "channels" {
+	// Accept at most one trailing slash, not arbitrary extra empty path components.
+	let mut path = route.strip_suffix('/').unwrap_or(route).split('/');
+	if path.next()? != "channels" {
 		return None;
 	}
 	let guild = match path.next()? {
@@ -783,9 +815,14 @@ impl Formatted {
 								_ => output.push("• ", style),
 							}
 						}
-						Tag::Link { dest_url, .. } => {
+						Tag::Link {
+							dest_url,
+							link_type,
+							..
+						} => {
 							style.no_autolink = true;
 							style.link = output.add_link(&dest_url);
+							style.message_link = link_type == LinkType::Autolink;
 						}
 						Tag::Image { .. } => {
 							style.no_autolink = true;
@@ -1034,7 +1071,14 @@ impl Formatted {
 		}
 	}
 	fn add_link(&mut self, target: &str) -> Option<usize> {
-		let url = external_url(target)?;
+		let normalized = external_url(target)?;
+		// Keep the original spelling whenever normalization could yield a chat route.
+		// Otherwise a raw /../ or /%2e%2e/ attack becomes an internal link at click time.
+		let url = if discord_chat_link(&normalized).is_some() {
+			target.to_owned()
+		} else {
+			normalized
+		};
 		if let Some(index) = self.links.iter().position(|existing| *existing == url) {
 			return Some(index);
 		}
@@ -1056,7 +1100,12 @@ impl Formatted {
 			{
 				target = &target[..target.len() - 1];
 			}
-			if (target.starts_with("https://") || target.starts_with("http://"))
+			if (target
+				.get(..8)
+				.is_some_and(|scheme| scheme.eq_ignore_ascii_case("https://"))
+				|| target
+					.get(..7)
+					.is_some_and(|scheme| scheme.eq_ignore_ascii_case("http://")))
 				&& let Some(link) = self.add_link(target)
 			{
 				let link_start = start + word.len() - candidate.len();
@@ -1065,6 +1114,7 @@ impl Formatted {
 					target,
 					Style {
 						link: Some(link),
+						message_link: true,
 						..style
 					},
 				);
@@ -1515,10 +1565,12 @@ impl Formatted {
 						continue;
 					}
 					let target = spans[start].1.link;
+					let native_message_link = spans[start].1.message_link;
 					let count = spans[start..]
 						.iter()
 						.take_while(|(_, style)| {
 							style.link == target
+								&& style.message_link == native_message_link
 								&& style.spoiler == spoiler
 								&& style.mention.is_none()
 								&& style.channel.is_none()
@@ -1588,17 +1640,25 @@ impl Formatted {
 					if let Some(index) = target {
 						let url = &self.links[index];
 						let label: String = spans.iter().map(|(text, _)| text.as_str()).collect();
-						let message_link = (label == *url)
+						let message_link = native_message_link
 							.then(|| discord_chat_link(url))
 							.flatten()
 							.filter(|link| link.message.is_some());
-						let pill_label = message_link.as_ref().map(|link| {
-							channel_reference_name(link.channel, render.channels, render.source)
-								.map_or_else(
-									|| "#unknown-channel".into(),
-									|name| format!("#{name}"),
-								)
-						});
+						if let Some(link) = &message_link {
+							let chip = crate::message_links::Presentation::resolve(
+								link,
+								render.source,
+								url,
+							);
+							let response = chip
+								.show(ui, url, render.surface)
+								.on_hover_text(&chip.tooltip);
+							if response.clicked() {
+								*render.opening = Some(url.clone());
+							}
+							start += count;
+							continue;
+						}
 						let response = if let Some(asset) =
 							model::ImageShare::from_url(url).filter(|_| label != *url)
 						{
@@ -1615,18 +1675,6 @@ impl Formatted {
 								Some(asset),
 							)
 							.on_hover_text(url)
-						} else if let Some(label) = &pill_label {
-							let colors = crate::design::palette(ui);
-							let response = ui
-								.add(egui::Link::new(
-									egui::RichText::new(label)
-										.strong()
-										.color(colors.mention_text)
-										.background_color(colors.mention_bg),
-								))
-								.on_hover_text(url);
-							render.surface.keep(&response);
-							response
 						} else {
 							Self::show_emoji(
 								spans,
@@ -1643,11 +1691,7 @@ impl Formatted {
 							.on_hover_text(url)
 						};
 						response.widget_info(|| {
-							egui::WidgetInfo::labeled(
-								egui::Role::Link,
-								ui.is_enabled(),
-								pill_label.as_deref().unwrap_or(&label),
-							)
+							egui::WidgetInfo::labeled(egui::Role::Link, ui.is_enabled(), &label)
 						});
 						if response.clicked() {
 							*render.opening = Some(url.clone());
@@ -1972,6 +2016,7 @@ impl Formatted {
 			})
 			.selectable(false);
 		let (pos, mut galley, mut response) = label.layout_in_ui(ui);
+		let first_row_leading = galley.job.sections.first().map_or(0.0, |s| s.leading_space);
 		response
 			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, ui.is_enabled(), &source));
 		let mut slots: Vec<(usize, egui::Rect)> = Vec::new();
@@ -2039,6 +2084,32 @@ impl Formatted {
 				}
 			})
 			.collect();
+		// Labels in wrapping layouts encode preceding widgets as leading space in their first
+		// row. Surface's per-row selection bands must not cover that space (and steal
+		// a drag from a message chip). Rebase the row without moving any painted glyphs
+		// or cursor positions. An empty wrap row still starts after the previous widget.
+		if let Some(first) = galley.rows.first() {
+			let leading = first.glyphs.first().map_or_else(
+				|| (first_row_leading - first.pos.x).max(0.0),
+				|glyph| glyph.pos.x,
+			);
+			if leading > 0.0 {
+				let galley = std::sync::Arc::make_mut(&mut galley);
+				let first = &mut galley.rows[0];
+				first.pos.x += leading;
+				let row = std::sync::Arc::make_mut(&mut first.row);
+				if !row.glyphs.is_empty() {
+					row.size.x -= leading;
+					for glyph in &mut row.glyphs {
+						glyph.pos.x -= leading;
+					}
+					let offset = egui::vec2(-leading, 0.0);
+					row.visuals.mesh.translate(offset);
+					row.visuals.mesh_bounds = row.visuals.mesh_bounds.translate(offset);
+				}
+				galley.rect |= first.rect();
+			}
+		}
 		surface.run(ui, &response, pos, galley, artwork);
 		if link {
 			response = ui.interact(
@@ -2548,6 +2619,38 @@ mod tests {
 				message: None
 			})
 		);
+		assert_eq!(
+			discord_chat_link("https://discord.com/channels/10/20/30?jump=1#message"),
+			Some(ChatLink {
+				guild: Some(Id(10)),
+				channel: Id(20),
+				message: Some(Id(30)),
+			})
+		);
+		assert_eq!(
+			discord_chat_link("https://discord.com/channels/10/20/30?topic=café#メッセージ"),
+			Some(ChatLink {
+				guild: Some(Id(10)),
+				channel: Id(20),
+				message: Some(Id(30)),
+			})
+		);
+		assert_eq!(
+			discord_chat_link("https://discord.com/channels/@me/20/30/?q=%2F%23#message"),
+			Some(ChatLink {
+				guild: None,
+				channel: Id(20),
+				message: Some(Id(30)),
+			})
+		);
+		assert_eq!(
+			discord_chat_link("https://discord.com/channels/1/2/18446744073709551615"),
+			Some(ChatLink {
+				guild: Some(Id(1)),
+				channel: Id(2),
+				message: Some(Id(u64::MAX)),
+			})
+		);
 		for target in [
 			"http://discord.com/channels/1/2",
 			"https://discord.com.evil.example/channels/1/2",
@@ -2567,6 +2670,29 @@ mod tests {
 			"https://discord.com/channels/1/%32",
 			"https://discord.com/channels/1/2\n",
 			"https://discord.com\\channels/1/2",
+			"https://discord.com./channels/1/2/3",
+			"https://discord.com:0443/channels/1/2/3",
+			"https://discord.com:443:443/channels/1/2/3",
+			"https://discord.com/CHANNELS/1/2/3",
+			"https://discord.com/channels/@ME/2/3",
+			"https://discord.com/channels/01/2/3",
+			"https://discord.com/channels/1/02/3",
+			"https://discord.com/channels/1/2/03",
+			"https://discord.com/channels/1/2//",
+			"https://discord.com/channels/1//2/3",
+			"https://discord.com//channels/1/2/3",
+			"https://discord.com/channels/1/2/3/extra?jump=1",
+			"https://discord.com/not/../channels/10/20/30?x",
+			"https://discord.com/./channels/1/2/3",
+			"https://discord.com/channels/1/4/../2/3",
+			"https://discord.com/channels/1/%2e/2/3",
+			"https://discord.com/not/%2e%2e/channels/1/2/3#message",
+			"https://discord.com/channels/1/2/3/%2E%2E",
+			"https://discord.com/channels/1/%2F2/3",
+			"https://discord%2Ecom/channels/1/2/3",
+			"https://discord.com/channels/1/２/3",
+			"https://discord.com/channels/1/2/3?q=%",
+			"https://discord.com/channels/1/2/3#%zz",
 		] {
 			assert!(discord_chat_link(target).is_none(), "{target}");
 		}
@@ -2662,6 +2788,437 @@ mod tests {
 			}
 		}
 	}
+
+	#[test]
+	fn message_link_raw_destinations_survive_normalization_without_laundering_paths() {
+		for target in [
+			"https://discord.com/not/../channels/10/20/30?x",
+			"https://discord.com/./channels/10/20/30",
+			"https://discord.com/not/%2e%2e/channels/10/20/30#message",
+			"https://discord.com/channels/10/40/../20/30",
+			"https://discord%2Ecom/channels/10/20/30",
+		] {
+			assert!(
+				discord_chat_link(&external_url(target).unwrap()).is_some(),
+				"test must exercise a normalizable attack: {target}"
+			);
+			for source in [
+				target.to_owned(),
+				format!("<{target}>"),
+				format!("[Jump]({target})"),
+			] {
+				let parsed = Formatted::parse(&source);
+				assert_eq!(parsed.links, [target], "{source}");
+				assert!(discord_chat_link(&parsed.links[0]).is_none(), "{source}");
+			}
+		}
+	}
+
+	#[test]
+	fn message_link_chips_use_autolink_syntax_not_normalized_label_equality() {
+		for target in [
+			"https://discord.com/channels/10/20/30",
+			"HTTPS://DISCORD.COM:443/channels/10/20/30",
+			"https://discord.com/channels/10/20/30?jump=1#message",
+			"https://discord.com/channels/10/20/30?topic=café#メッセージ",
+		] {
+			for source in [target.to_owned(), format!("<{target}>")] {
+				let parsed = Formatted::parse(&source);
+				assert_eq!(parsed.links, [target], "{source}");
+				assert!(
+					parsed.spans.iter().any(|(_, style)| {
+						style.link == Some(0) && style.message_link && !style.code
+					}),
+					"{source}"
+				);
+			}
+			for source in [
+				format!("[Read **original**]({target})"),
+				format!("[{target}]({target})"),
+			] {
+				let parsed = Formatted::parse(&source);
+				assert_eq!(parsed.links, [target], "{source}");
+				assert!(
+					parsed
+						.spans
+						.iter()
+						.filter(|(_, style)| style.link.is_some())
+						.all(|(_, style)| !style.message_link),
+					"{source}"
+				);
+			}
+			for source in [format!("`{target}`"), format!("```\n{target}\n```")] {
+				let parsed = Formatted::parse(&source);
+				assert!(parsed.links.is_empty(), "{source}");
+				assert!(parsed.spans.iter().all(|(_, style)| style.link.is_none()));
+			}
+			let spoiler = Formatted::parse(&format!("||<{target}>||"));
+			assert!(spoiler.spans.iter().any(|(_, style)| {
+				style.link == Some(0) && style.message_link && style.spoiler.is_some()
+			}));
+		}
+		let bounded = Formatted::parse(
+			&(0..MAX_LINKS + 8)
+				.map(|id| format!("https://discord.com/channels/10/20/{} ", id + 1))
+				.collect::<String>(),
+		);
+		assert_eq!(bounded.links.len(), MAX_LINKS);
+	}
+
+	/// Offline message-body harness: assertions include the renderer's outgoing actions,
+	/// not just the parser flags or a standalone chip response.
+	struct MessageLinkTestUi {
+		ctx: egui::Context,
+		state: client_core::State,
+		parsed: Formatted,
+		images: crate::avatars::Avatars,
+		revealed: u32,
+		clock: f64,
+	}
+
+	impl MessageLinkTestUi {
+		fn new(source: &str) -> Self {
+			Self {
+				ctx: egui::Context::default(),
+				state: test_support::demo_state(),
+				parsed: Formatted::parse(source),
+				images: crate::avatars::Avatars::default(),
+				revealed: 0,
+				clock: 0.0,
+			}
+		}
+
+		fn frame(
+			&mut self,
+			width: f32,
+			events: Vec<egui::Event>,
+		) -> (egui::FullOutput, Option<String>) {
+			self.clock += 1.0;
+			let mut opening = None;
+			let mut profile = crate::profiles::ProfileSession::default();
+			let mut channel = None;
+			let output = self.ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(width, 400.0),
+					)),
+					time: Some(self.clock),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					let mut surface = crate::select::Surface::new(ui, "message-link-body");
+					self.parsed.show_references(
+						ui,
+						&mut opening,
+						&[],
+						Some(&crate::mentions::MentionSource {
+							state: &self.state,
+							channel: Id(20),
+						}),
+						&mut profile,
+						(&self.state.channels, &mut channel, &self.state.guilds, &[]),
+						(&mut self.images, false, &mut self.revealed),
+						&mut surface,
+						crate::design::MessageCardSurface::Opaque,
+					);
+					surface.finish(ui);
+				},
+			);
+			assert!(
+				!output
+					.platform_output
+					.commands
+					.iter()
+					.any(|command| matches!(command, egui::OutputCommand::OpenUrl(_)))
+			);
+			assert!(
+				self.images.take_requests().is_empty(),
+				"Rendering must not request previews"
+			);
+			assert!(channel.is_none() && profile.open_user().is_none());
+			(output, opening)
+		}
+	}
+
+	fn message_link_text<'a>(
+		output: &'a egui::FullOutput,
+		target: &str,
+	) -> Option<&'a egui::epaint::TextShape> {
+		fn find<'a>(shape: &'a egui::Shape, target: &str) -> Option<&'a egui::epaint::TextShape> {
+			match shape {
+				egui::Shape::Text(text) if text.galley.text().trim() == target => Some(text),
+				egui::Shape::Vec(shapes) => shapes.iter().find_map(|shape| find(shape, target)),
+				_ => None,
+			}
+		}
+		output
+			.shapes
+			.iter()
+			.find_map(|shape| find(&shape.shape, target))
+	}
+
+	fn message_link_key(key: egui::Key, pressed: bool) -> egui::Event {
+		egui::Event::Key {
+			key,
+			physical_key: None,
+			pressed,
+			repeat: false,
+			modifiers: egui::Modifiers::NONE,
+		}
+	}
+
+	#[test]
+	fn message_chips_and_masked_labels_activate_with_enter_and_space() {
+		for target in [
+			"https://discord.com/channels/10/20/100",
+			"HTTPS://DISCORD.COM:443/channels/10/20/100?jump=1#message",
+			"https://discord.com/channels/10/20/100?topic=café#メッセージ",
+		] {
+			for (source, native, label) in [
+				(target.to_owned(), true, "getting-started"),
+				(format!("<{target}>"), true, "getting-started"),
+				(format!("[Read original]({target})"), false, "Read original"),
+				(format!("[{target}]({target})"), false, target),
+			] {
+				for key in [egui::Key::Enter, egui::Key::Space] {
+					let mut ui = MessageLinkTestUi::new(&source);
+					ui.frame(220.0, vec![]).0.drop_without_applying_deltas();
+					let (output, opening) = ui.frame(220.0, vec![]);
+					assert!(opening.is_none());
+					assert!(message_link_text(&output, label).is_some(), "{source}");
+					if !native {
+						assert!(message_link_text(&output, "getting-started").is_none());
+					}
+					output.drop_without_applying_deltas();
+					let (output, opening) =
+						ui.frame(220.0, vec![message_link_key(egui::Key::Tab, true)]);
+					assert!(opening.is_none());
+					let info = output
+						.platform_output
+						.events
+						.iter()
+						.find_map(|event| match event {
+							egui::output::OutputEvent::FocusGained(info)
+								if info.role == egui::Role::Link =>
+							{
+								Some(info)
+							}
+							_ => None,
+						})
+						.expect("keyboard focus on the link");
+					if native {
+						let description = info.label.as_deref().unwrap();
+						for part in [
+							"Jump to message",
+							"Message in this channel",
+							"Synthetic workspace",
+							"getting-started",
+							target,
+						] {
+							assert!(description.contains(part), "{description}");
+						}
+					} else {
+						assert_eq!(info.label.as_deref(), Some(label));
+					}
+					output.drop_without_applying_deltas();
+					let (output, opening) = ui.frame(220.0, vec![message_link_key(key, true)]);
+					assert_eq!(opening.as_deref(), Some(target), "{source} via {key:?}");
+					output.drop_without_applying_deltas();
+				}
+			}
+		}
+	}
+
+	#[test]
+	fn message_chips_stay_hidden_and_inert_until_spoilers_reveal_and_code_stays_literal() {
+		let target = "https://discord.com/channels/10/20/100?jump=1#message";
+		for source in [format!("`{target}`"), format!("```\n{target}\n```")] {
+			let mut ui = MessageLinkTestUi::new(&source);
+			for events in [
+				vec![],
+				vec![message_link_key(egui::Key::Tab, true)],
+				vec![message_link_key(egui::Key::Enter, true)],
+			] {
+				let (output, opening) = ui.frame(220.0, events);
+				assert!(opening.is_none());
+				assert!(message_link_text(&output, "getting-started").is_none());
+				assert!(
+					!output
+						.platform_output
+						.events
+						.iter()
+						.any(|event| event.widget_info().role == egui::Role::Link)
+				);
+				output.drop_without_applying_deltas();
+			}
+		}
+		let mut ui = MessageLinkTestUi::new(&format!("||<{target}>||"));
+		for events in [vec![], vec![message_link_key(egui::Key::Tab, true)]] {
+			let (output, opening) = ui.frame(220.0, events);
+			assert!(opening.is_none());
+			assert!(message_link_text(&output, "Reveal spoiler").is_some());
+			assert!(message_link_text(&output, target).is_none());
+			assert!(message_link_text(&output, "getting-started").is_none());
+			assert!(
+				!output
+					.platform_output
+					.events
+					.iter()
+					.any(|event| event.widget_info().role == egui::Role::Link)
+			);
+			output.drop_without_applying_deltas();
+		}
+		let (output, opening) = ui.frame(220.0, vec![message_link_key(egui::Key::Enter, true)]);
+		assert!(
+			opening.is_none(),
+			"Revealing a spoiler must not activate its link"
+		);
+		assert_eq!(ui.revealed, 1);
+		output.drop_without_applying_deltas();
+		let (output, opening) = ui.frame(220.0, vec![message_link_key(egui::Key::Enter, false)]);
+		assert!(opening.is_none());
+		assert!(message_link_text(&output, "getting-started").is_some());
+		assert!(message_link_text(&output, target).is_some());
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn dragging_message_chips_copies_the_complete_original_url_without_activation() {
+		let target = "HTTPS://DISCORD.COM:443/channels/10/20/100?jump=1&q=%2F#message";
+		for width in [160.0, 800.0] {
+			for source in [
+				format!("Before {target} after"),
+				format!("Before <{target}> after"),
+			] {
+				let mut ui = MessageLinkTestUi::new(&source);
+				ui.frame(width, vec![]).0.drop_without_applying_deltas();
+				// Both a multi-run drag and a drag started inside the chip copy the URL,
+				// rather than its resolved channel name; wrapped chips remain atomic.
+				for gesture in ["whole message", "inside chip"] {
+					// Refresh geometry after the preceding selection instead of reusing
+					// coordinates from a frame before that gesture.
+					let (output, opening) = ui.frame(width, vec![]);
+					assert!(opening.is_none());
+					let first = message_link_text(&output, "Before").unwrap();
+					let last = message_link_text(&output, "after").unwrap();
+					let prefix = first
+						.galley
+						.rows
+						.iter()
+						.find(|row| !row.glyphs.is_empty())
+						.unwrap()
+						.rect_without_leading_space()
+						.translate(first.pos.to_vec2());
+					let suffix = last
+						.galley
+						.rows
+						.iter()
+						.rfind(|row| !row.glyphs.is_empty())
+						.unwrap()
+						.rect_without_leading_space()
+						.translate(last.pos.to_vec2());
+					let suffix_rows: Vec<_> = last
+						.galley
+						.rows
+						.iter()
+						.map(|row| row.rect().translate(last.pos.to_vec2()))
+						.collect();
+					let slot = message_link_text(&output, target).expect("URL selection slot");
+					let chip = egui::Rect::from_min_size(slot.pos, slot.galley.size());
+					let left = egui::pos2(chip.left() + chip.width() * 0.25, chip.center().y);
+					let right = egui::pos2(chip.left() + chip.width() * 0.75, chip.center().y);
+					let (start, end, expected) = if gesture == "whole message" {
+						(
+							egui::pos2(prefix.left(), prefix.center().y),
+							egui::pos2(suffix.right(), suffix.center().y),
+							format!("Before {target} after"),
+						)
+					} else {
+						(left, right, target.to_owned())
+					};
+					let geometry = format!(
+						"{gesture}, width={width}, source={source:?}, start={start:?}, end={end:?}, \
+						 chip={chip:?}, prefix={prefix:?}, suffix={suffix:?}, suffix rows={suffix_rows:?}"
+					);
+					assert!(
+						chip.width() <= width && slot.galley.rows.len() == 1,
+						"{geometry}"
+					);
+					assert_eq!(
+						slot.galley.cursor_from_pos(left - slot.pos).index.0,
+						0,
+						"{geometry}"
+					);
+					assert_eq!(
+						slot.galley.cursor_from_pos(right - slot.pos).index.0,
+						target.chars().count(),
+						"{geometry}"
+					);
+					assert!(
+						suffix_rows
+							.iter()
+							.all(|row| !row.contains(left) && !row.contains(right)),
+						"Following text must not claim the chip's selection hit band: {geometry}"
+					);
+					output.drop_without_applying_deltas();
+					for events in [
+						vec![
+							egui::Event::PointerMoved(start),
+							egui::Event::PointerButton {
+								pos: start,
+								button: egui::PointerButton::Primary,
+								pressed: true,
+								modifiers: egui::Modifiers::NONE,
+							},
+						],
+						vec![egui::Event::PointerMoved(end)],
+						vec![egui::Event::PointerButton {
+							pos: end,
+							button: egui::PointerButton::Primary,
+							pressed: false,
+							modifiers: egui::Modifiers::NONE,
+						}],
+					] {
+						let (output, opening) = ui.frame(width, events);
+						assert!(
+							opening.is_none(),
+							"Selection drags must not navigate: {geometry}"
+						);
+						let current = message_link_text(&output, target)
+							.expect("URL selection slot during drag");
+						assert_eq!(
+							egui::Rect::from_min_size(current.pos, current.galley.size()),
+							chip,
+							"Selection must not change the chip's layout: {geometry}"
+						);
+						output.drop_without_applying_deltas();
+					}
+					let (output, opening) = ui.frame(width, vec![egui::Event::Copy]);
+					assert!(opening.is_none(), "{geometry}");
+					let copied = output
+						.platform_output
+						.commands
+						.iter()
+						.find_map(|command| match command {
+							egui::OutputCommand::CopyText(text) => Some(text),
+							_ => None,
+						})
+						.unwrap_or_else(|| {
+							panic!("Selected message body must copy text: {geometry}")
+						});
+					assert_eq!(
+						copied.split_whitespace().collect::<Vec<_>>().join(" "),
+						expected,
+						"{geometry}"
+					);
+					output.drop_without_applying_deltas();
+				}
+			}
+		}
+	}
+
 	#[test]
 	fn quote_rails_span_every_wrapped_line_of_their_block() {
 		fn shapes(

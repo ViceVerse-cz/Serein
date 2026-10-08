@@ -107,6 +107,18 @@ pages keep their existing status treatment; pending messages suppress the welcom
 `--features demo -- --demo --demo-empty-channel` previews this state offline;
 `--demo-empty-channel-long` exercises a long Unicode name and `--demo-light` selects light mode.
 
+Bare Discord message links use an atomic inline chip: conversation-kind icon, bounded
+conversation name, chevron and message glyph. The name is ellipsized within the paragraph
+width (at most 288px); untrusted names are sanitized and bounded before layout. Hover and
+keyboard focus use the active palette, and tooltips include accessible server/thread/forum
+context plus the original URL. A hidden or unknown target does not reveal cached private
+names. Masked links retain their text, inline/fenced code stays literal, and hidden spoilers
+remain concealed. Drag selection copies the original URL rather than the shortened name;
+click, Enter and Space activate native navigation. The existing timeline centers and briefly
+highlights the exact target, retaining historical browsing and Jump to present.
+`--features demo -- --demo --demo-message-links` exercises these states with a new, entirely
+offline fixture; `--demo-light` selects the light appearance.
+
 Icons are [Phosphor Icons](https://phosphoricons.com) 2.1.1 (MIT) in the fill/bold weights,
 rasterized once into `assets/icons/atlas.png` (37 white glyphs in 64px cells) and tinted at
 draw time by `crates/ui/src/icons.rs`; there is no icon font. Provenance and the regeneration

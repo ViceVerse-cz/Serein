@@ -1680,6 +1680,25 @@ markdown-show-run-reveal-spoiler = Reveal spoiler
 # Context: show_run
 markdown-show-run-unknown-channel-load-channel = Unknown channel, load channel
 
+## Native Discord message links: names are resolved only from accessible local metadata.
+message-link-unknown-channel = Unknown channel
+message-link-unknown-conversation = Unknown conversation
+message-link-unknown-server = Unknown server
+message-link-jump = Jump to message
+message-link-unavailable = Channel or conversation unavailable in this session
+message-link-current-channel = Message in this channel
+message-link-other-channel = Message in another channel
+message-link-other-server = Message in another server
+message-link-current-conversation = Message in this conversation
+message-link-other-conversation = Message in another conversation
+message-link-server = Server: { $name }
+message-link-channel = Channel: #{ $name }
+message-link-thread = Thread: { $name }
+message-link-parent = Thread in: #{ $name }
+message-link-forum-parent = Forum post in: #{ $name }
+message-link-dm = Direct message: { $name }
+message-link-group = Group conversation: { $name }
+
 ## crates/ui/src/mentions.rs
 # Context: show
 mentions-show-choose-tab-enter-insert-esc = ↑↓ choose · Tab/Enter insert · Esc

@@ -1452,6 +1452,8 @@ impl Desktop {
 					test_support::system_demo_state()
 				} else if std::env::args().any(|arg| arg == "--demo-code") {
 					test_support::code_demo_state()
+				} else if std::env::args().any(|arg| arg == "--demo-message-links") {
+					test_support::message_links_demo_state()
 				} else if std::env::args().any(|arg| arg == "--demo-notifications") {
 					test_support::notification_demo_state()
 				} else if std::env::args().any(|arg| {
@@ -4099,8 +4101,23 @@ impl Desktop {
 					Event::Members(demo_members(&self.state, guild, channel, request))
 				}
 				Command::ForumPosts { .. } | Command::ForumSummaries { .. } => return,
-				Command::History { before, after, .. } => {
-					test_support::load_page_with_cursors(&mut self.state, before, after);
+				Command::History {
+					channel,
+					request,
+					before,
+					after,
+				} => {
+					if std::env::args().any(|arg| arg == "--demo-message-links") {
+						test_support::load_message_link_page(
+							&mut self.state,
+							channel,
+							request,
+							before,
+							after,
+						);
+					} else {
+						test_support::load_page_with_cursors(&mut self.state, before, after);
+					}
 					return;
 				}
 				Command::StickerPacks => Event::StickerPacks(Ok(self.state.stickers.packs.clone())),
