@@ -451,6 +451,121 @@ pub(crate) fn gif_for_media(
 	gif.valid().then_some(gif)
 }
 
+/// Discord shows a sizable landscape link preview thumbnail as the card's large image.
+/// Bot (`rich`) embeds keep their explicit side thumbnail.
+fn large_thumbnail(embed: &Embed) -> Option<&model::EmbedMedia> {
+	embed.thumbnail.as_ref().filter(|thumbnail| {
+		embed.image.is_none()
+			&& matches!(embed.kind.as_str(), "article" | "link" | "video")
+			&& thumbnail.width >= 300
+			&& thumbnail.width as f32 >= thumbnail.height as f32 * 1.2
+	})
+}
+
+/// Discord's closed-poll card: the winning answer and a jump back to the poll.
+/// Returns whether "View Poll" was clicked; `can_open` reflects whether the poll is reachable.
+pub fn poll_result(ui: &mut egui::Ui, message: &Message, can_open: bool) -> bool {
+	let Some(embed) = message.embeds.iter().find(|e| e.kind == "poll_result") else {
+		return false;
+	};
+	let number = |name| {
+		embed
+			.field(name)
+			.and_then(|value| value.trim().parse::<u64>().ok())
+	};
+	let total = number("total_votes").unwrap_or(0);
+	let winner = embed
+		.field("victor_answer_text")
+		.map(str::trim)
+		.filter(|text| !text.is_empty());
+	let (title, detail) = match winner {
+		Some(text) => {
+			let votes = number("victor_answer_votes").unwrap_or(0).min(total);
+			let percent = (votes * 100 + total / 2).checked_div(total).unwrap_or(0);
+			// Custom emoji images are not resolved here; Unicode emoji carry no id.
+			let emoji = embed
+				.field("victor_answer_emoji_name")
+				.filter(|_| embed.field("victor_answer_emoji_id").is_none());
+			(
+				emoji.map_or_else(|| text.to_owned(), |emoji| format!("{emoji} {text}")),
+				Some(format!(
+					"{} • {percent}%",
+					crate::i18n::translate("embeds-poll-result-winning-answer")
+				)),
+			)
+		}
+		None if total > 0 => (crate::i18n::translate("embeds-poll-result-tie"), None),
+		None => (crate::i18n::translate("embeds-poll-result-no-votes"), None),
+	};
+	let colors = crate::design::palette(ui);
+	let width = ui.available_width().min(440.0);
+	let mut clicked = false;
+	egui::Frame::new()
+		.fill(crate::design::message_card_fill(ui, colors.raised))
+		.stroke(crate::design::message_card_stroke(ui))
+		.corner_radius(8)
+		.inner_margin(egui::Margin::symmetric(16, 10))
+		.show(ui, |ui| {
+			ui.set_width((width - 34.0).max(1.0));
+			ui.allocate_ui_with_layout(
+				egui::vec2(ui.available_width(), crate::design::BUTTON_HEIGHT + 4.0),
+				egui::Layout::right_to_left(egui::Align::Center),
+				|ui| {
+					clicked = ui
+						.add_enabled_ui(can_open, |ui| {
+							crate::design::button(
+								ui,
+								"embeds-poll-result-view-poll",
+								crate::design::ButtonKind::Outline,
+							)
+						})
+						.inner
+						.clicked();
+					ui.add_space(8.0);
+					ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+						ui.spacing_mut().item_spacing.y = 2.0;
+						if detail.is_none() {
+							ui.add_space(10.0);
+						}
+						ui.horizontal(|ui| {
+							ui.spacing_mut().item_spacing.x = 6.0;
+							let badge = if winner.is_some() { 24.0 } else { 0.0 };
+							ui.scope(|ui| {
+								ui.set_max_width((ui.available_width() - badge).max(1.0));
+								ui.add(
+									egui::Label::new(
+										crate::design::medium(ui, &title, 15.0)
+											.color(colors.text_strong),
+									)
+									.truncate(),
+								);
+							});
+							if winner.is_some() {
+								let (rect, _) = ui.allocate_exact_size(
+									egui::Vec2::splat(18.0),
+									egui::Sense::hover(),
+								);
+								ui.painter()
+									.circle_filled(rect.center(), 9.0, colors.positive);
+								crate::icons::paint(
+									ui.painter(),
+									crate::icons::Icon::Check,
+									rect.shrink(4.0),
+									egui::Color32::WHITE,
+								);
+							}
+						});
+						if let Some(detail) = &detail {
+							ui.label(RichText::new(detail).size(13.0).color(colors.muted));
+						}
+					});
+				},
+			);
+		});
+	ui.add_space(6.0);
+	clicked && can_open
+}
+
 fn image_preview(
 	ui: &mut egui::Ui,
 	message: model::Id,
@@ -504,6 +619,11 @@ pub fn show(
 		let count = gallery_len(&message.embeds[index..]);
 		let group = &message.embeds[index..index + count];
 		let embed = &group[0];
+		// Poll results render as a dedicated card next to their system row.
+		if embed.kind == "poll_result" {
+			index += count;
+			continue;
+		}
 		ui.push_id(("embed", index), |ui| {
 			if count > 1 && inline_image(embed).is_some() {
 				gallery(ui, group, images, message.id, download, demo);
@@ -563,6 +683,7 @@ pub fn show(
 			let width = ui.available_width().min(480.0);
 			let frame = egui::Frame::new()
 				.fill(card_surface.fill(ui, colors.raised))
+				.stroke(crate::design::message_card_stroke(ui))
 				.corner_radius(5)
 				.inner_margin(12)
 				.show(ui, |ui| {
@@ -580,10 +701,10 @@ pub fn show(
 							let provider =
 								native.is_none().then(|| provider_video(embed)).flatten();
 							let playable = native.is_some() || provider.is_some();
-							let thumbnail = embed
-								.thumbnail
-								.as_ref()
-								.filter(|_| !playable && ui.available_width() >= 300.0);
+							let large = large_thumbnail(embed).filter(|_| count == 1);
+							let thumbnail = embed.thumbnail.as_ref().filter(|_| {
+								!playable && large.is_none() && ui.available_width() >= 300.0
+							});
 							let body_width = (ui.available_width()
 								- if thumbnail.is_some() { 96.0 } else { 0.0 })
 							.max(1.0);
@@ -738,7 +859,7 @@ pub fn show(
 								);
 							} else if count > 1 {
 								gallery(ui, group, images, message.id, download, demo);
-							} else if let Some(image) = &embed.image {
+							} else if let Some(image) = embed.image.as_ref().or(large) {
 								image_preview(
 									ui,
 									message.id,
@@ -753,7 +874,8 @@ pub fn show(
 								);
 							}
 							if thumbnail.is_none()
-								&& !playable && let Some(image) = &embed.thumbnail
+								&& !playable && large.is_none()
+								&& let Some(image) = &embed.thumbnail
 							{
 								image_preview(
 									ui,
@@ -850,12 +972,14 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 			crate::video::embed_stage_height(width, height, 456.0) + 6.0
 		} else if count > 1 {
 			gallery_rect(count, count - 1, 456.0).bottom()
-		} else if e.image.is_some() {
+		} else if e.image.is_some() || large_thumbnail(e).is_some() {
 			200.0
 		} else {
 			0.0
 		};
-		height += if inline_image(e).is_some() {
+		height += if e.kind == "poll_result" {
+			72.0
+		} else if inline_image(e).is_some() {
 			if count > 1 { image_height + 6.0 } else { 206.0 }
 		} else {
 			let mut lines = 0.0;
@@ -888,7 +1012,8 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 				lines = 1.0;
 			}
 			let text = 24.0 + lines * 20.0 + 6.0;
-			let thumb = if e.thumbnail.is_some() && stage.is_none() {
+			let thumb = if e.thumbnail.is_some() && stage.is_none() && large_thumbnail(e).is_none()
+			{
 				114.0
 			} else {
 				0.0
@@ -906,25 +1031,26 @@ mod tests {
 
 	#[test]
 	fn image_previews_dispatch_copy_and_save_without_opening_links() {
-		for variant in 0..5 {
+		for variant in 0..6 {
 			for copy in [true, false] {
 				let mut message = test_support::message(1, model::Id(2));
 				let media = model::EmbedMedia {
 					url: Some("https://cdn.discordapp.com/attachments/2/42/preview.png".into()),
-					width: 160,
-					height: 90,
+					width: if variant == 5 { 640 } else { 160 },
+					height: if variant == 5 { 360 } else { 90 },
 					..Default::default()
 				};
 				message.embeds = vec![Embed {
 					kind: match variant {
 						0 | 4 => "image",
 						1 => "gifv",
+						5 => "article",
 						_ => "rich",
 					}
 					.into(),
 					url: Some("https://example.org/post".into()),
-					image: (variant != 3).then(|| media.clone()),
-					thumbnail: (variant == 3).then(|| media.clone()),
+					image: (!matches!(variant, 3 | 5)).then(|| media.clone()),
+					thumbnail: matches!(variant, 3 | 5).then(|| media.clone()),
 					..Default::default()
 				}];
 				if variant == 4 {
@@ -978,12 +1104,16 @@ mod tests {
 								&& shape.rect.width() > 40.0
 								&& shape.rect.height() > 30.0 =>
 						{
-							Some(shape.rect.center())
+							Some(shape.rect)
 						}
 						_ => None,
 					})
 					.next_back()
 					.expect("rendered image");
+				if variant == 5 {
+					assert!(pos.width() > 300.0 && pos.height() > 150.0);
+				}
+				let pos = pos.center();
 				output.drop_without_applying_deltas();
 				for pressed in [true, false] {
 					frame(vec![
@@ -1044,8 +1174,8 @@ mod tests {
 			url: Some("https://www.youtube.com/watch?v=KwRSAfoW5uo".into()),
 			thumbnail: Some(model::EmbedMedia {
 				url: Some("https://i.ytimg.com/vi/KwRSAfoW5uo/hqdefault.jpg".into()),
-				width: 480,
-				height: 360,
+				width: 160,
+				height: 160,
 				..Default::default()
 			}),
 			video: Some(model::EmbedMedia {
@@ -1067,6 +1197,8 @@ mod tests {
 			Some("https://www.youtube.com/embed/x\"><script>".into());
 		assert!(provider_video(&hostile).is_none());
 		let mut x = youtube.clone();
+		x.thumbnail.as_mut().unwrap().width = 480;
+		x.thumbnail.as_mut().unwrap().height = 360;
 		x.video = Some(model::EmbedMedia {
 			url: Some("https://video.twimg.com/ext_tw_video/1/pu/vid/1280x720/a.mp4?tag=12".into()),
 			proxy_url: Some(
@@ -1080,6 +1212,13 @@ mod tests {
 		assert!(clip.is_video() && crate::video::is_embedded(&clip));
 		assert!(provider_video(&x).is_none());
 		for (embed, web) in [(youtube, true), (x, false)] {
+			let mut without_poster = embed.clone();
+			without_poster.thumbnail = None;
+			assert_eq!(
+				estimated_height(std::slice::from_ref(&embed)),
+				estimated_height(std::slice::from_ref(&without_poster)),
+				"a player poster must not reserve another thumbnail row"
+			);
 			let mut message = test_support::message(1, model::Id(2));
 			message.embeds = vec![embed];
 			let ctx = egui::Context::default();
