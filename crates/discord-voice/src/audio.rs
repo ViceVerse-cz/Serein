@@ -1298,6 +1298,39 @@ mod tests {
 	}
 
 	#[test]
+	fn stereo_capture_discards_partial_pcm_after_fast_mute_and_security_transitions() {
+		for security_pause in [false, true] {
+			let audio = audio_without_devices();
+			audio.set_ready(true);
+			assert!(audio.gate.acknowledge(1));
+			let (send, mut received) = rtrb::RingBuffer::new(8);
+			let mut capture =
+				stereo::InputCapture::new(48_000, rtrb::RingBuffer::new(8).0, send, true);
+			capture.process(&[0.75_f32, -0.75].repeat(100), 2, &audio.gate);
+			assert!(received.pop().is_err());
+			// Both transitions may complete between native callbacks.
+			if security_pause {
+				audio.set_ready(false);
+				audio.set_ready(true);
+			} else {
+				audio.set_controls(true, false);
+				audio.set_controls(false, false);
+			}
+			assert!(audio.gate.capture());
+			capture.process(&[0.25_f32, -0.25].repeat(961), 2, &audio.gate);
+			let frame = received.pop().unwrap();
+			assert!(
+				frame
+					.as_chunks::<2>()
+					.0
+					.iter()
+					.all(|sample| *sample == [0.25, -0.25])
+			);
+			assert!(received.pop().is_err());
+		}
+	}
+
+	#[test]
 	fn default_device_polling_preserves_ready_streams_until_a_confirmed_change() {
 		let audio = audio_without_devices();
 		audio.set_ready(true);

@@ -60,7 +60,7 @@ impl StereoCapture {
 	where
 		f32: cpal::FromSample<T>,
 	{
-		let generation = gate.media_generation.load(Ordering::Acquire);
+		let generation = gate.capture_generation.load(Ordering::Acquire);
 		if generation != self.generation {
 			self.generation = generation;
 			self.reset();
@@ -157,7 +157,7 @@ mod tests {
 			);
 			while receive.pop().is_ok() {}
 			capture.process(&[0.75f32, -0.75].repeat(100), 2, &gate);
-			gate.media_generation.fetch_add(1, Ordering::AcqRel);
+			gate.capture_generation.fetch_add(1, Ordering::AcqRel);
 			capture.process(&[0.25f32, -0.25].repeat(rate as usize / 50 + 2), 2, &gate);
 			let frame = receive.pop().unwrap();
 			assert!(
