@@ -761,6 +761,10 @@ fn mention_roles<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Id>, D::E
 	d.deserialize_seq(Roles)
 }
 #[derive(Deserialize)]
+pub struct RecentMentions(
+	#[serde(deserialize_with = "search::list::<_,_,25>")] pub Vec<MessageDto>,
+);
+#[derive(Deserialize)]
 pub struct MessageDto {
 	#[serde(default)]
 	pub application_id: Option<Id>,
