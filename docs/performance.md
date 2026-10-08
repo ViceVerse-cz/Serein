@@ -15,14 +15,14 @@ lavapipe (`WGPU_BACKEND=vulkan`), 21 samples at 1 second. CPU is percent of one 
 `/proc` ticks. RSS is `VmRSS`. No child processes. These runs do not measure frame time, startup,
 GPU memory, or live Discord.
 
-| Workload | Before | After | Result |
-| --- | ---: | ---: | ---: |
-| Reducer replay median | 87.063 ms | 89.386 ms | +2.3 ms, inside the before-run spread |
-| Standard executable | 87,096,456 B | 87,125,128 B | +28,672 B |
-| Installed RPM | 91,628,399 B | 91,657,071 B | +28,672 B |
-| Compressed RPM | 46,215,813 B | 46,226,682 B | +10,869 B |
-| Demo idle mean CPU | 0.100% | 0.100% | no visible change |
-| Demo idle RSS | 233.230 MiB | 236.266 MiB | +3.0 MiB, one noisy sample |
+| Workload | Before | After | Result | Method |
+| --- | ---: | ---: | ---: | --- |
+| Reducer replay median | 87.063 ms | 89.386 ms | +2.3 ms, inside the before-run spread | `replay-bench`, 1 warmup and 5 runs, median |
+| Standard executable | 87,096,456 B | 87,125,128 B | +28,672 B | voice-enabled release executable size |
+| Installed RPM | 91,628,399 B | 91,657,071 B | +28,672 B | RPM installed-size field |
+| Compressed RPM | 46,215,813 B | 46,226,682 B | +10,869 B | compressed RPM size |
+| Demo idle mean CPU | 0.100% | 0.100% | no visible change | 21 one-second `/proc` samples |
+| Demo idle RSS | 233.230 MiB | 236.266 MiB | +3.0 MiB, one noisy sample | same sample, `VmRSS` |
 
 The before reducer spread was 85.584–94.617 ms, so the median difference is not a regression.
 The after idle sample followed one same-channel click and a 10 second settle while other builds
