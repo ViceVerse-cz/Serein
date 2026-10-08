@@ -129,3 +129,17 @@ These workloads can be repeated with the pinned toolchain using `cargo replay` f
 the existing ignored client-core, desktop-frame and replay-soak workloads for detailed memory work.
 The delivery skill documents how to compare a task baseline with the changed build. Do not compare
 results from different machines or claim live-client behavior from synthetic fixtures.
+
+## Watched-stream quality request (PR #589): Windows integration evidence - October 8, 2026
+
+Fresh standard Windows x64 voice-enabled packages compare main `1b3e4a7b` with `3aedbddd` (measured 2026-10-08). Baseline/current file counts: 216/216.
+
+| Metric | Main `1b3e4a7b` | Current integration | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 86,008,832 B | 86,011,392 B | +2,560 B (+0.0030%) |
+| Installed directory | 90,199,948 B | 90,202,508 B | +2,560 B (+0.0028%) |
+| Distribution ZIP | 50,001,798 B | 50,004,569 B | +2,771 B (+0.0055%) |
+
+Method: `cargo xtask package`, Rust 1.98.1, standard release flags without demo; Windows 11 build 26200, Ryzen 7 7800X3D, 32 GiB RAM. Runtime workspace artifacts were invalidated before each feature build. Installed bytes sum every file in `dist`; ZIP uses whole-directory .NET Optimal compression. NSIS was unavailable, so no installer executable was built.
+
+Current native CPU, memory, frame/startup latency and affected-device behavior remain unmeasured because the native automation bridge is unavailable. Package size and synthetic reducer timing do not establish live Discord performance.
