@@ -7040,6 +7040,10 @@ impl eframe::App for Desktop {
 					self.messaging.accept_avatar(&ctx, key, None);
 				}
 			}
+			// Idle frames are freed on a pass, so an otherwise idle window wakes once for them.
+			if let Some(at) = self.messaging.avatar_release_at(ctx.cumulative_pass_nr()) {
+				ctx.request_repaint_after(at.saturating_duration_since(std::time::Instant::now()));
+			}
 			if std::mem::take(&mut self.messaging.reconnect_requested) {
 				if self.state.auth == AuthState::Authenticated {
 					if let Some(connection) = &self.connection {

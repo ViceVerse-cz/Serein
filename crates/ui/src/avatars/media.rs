@@ -309,6 +309,7 @@ struct Held {
 	arrived: Instant,
 	used: u64,
 	painted_pass: u64,
+	painted_at: Instant,
 }
 
 impl Held {
@@ -531,6 +532,7 @@ impl MediaLibrary {
 		let held = self.slots.get_mut(source)?.held.get_mut(index)?;
 		held.used = self.clock;
 		held.painted_pass = pass;
+		held.painted_at = Instant::now();
 		if lane == Lane::Inline {
 			held.lane = Lane::Inline;
 		}
@@ -623,6 +625,7 @@ impl MediaLibrary {
 					arrived: Instant::now(),
 					used,
 					painted_pass: self.swept_pass,
+					painted_at: Instant::now(),
 				};
 				let pool = held.pool();
 				slot.held.push(held);
@@ -690,6 +693,8 @@ impl MediaLibrary {
 		let still = match &held.pixels {
 			Pixels::Still(still) | Pixels::Playing { still, .. } => still.clone(),
 		};
+		// Arrival counts as a paint, so frames for a row scrolled away mid-decode still expire.
+		held.painted_at = now;
 		held.pixels = Pixels::Playing {
 			still,
 			animation: Animation {
@@ -697,6 +702,7 @@ impl MediaLibrary {
 				texture: None,
 				total,
 				started,
+				played: now,
 				next_upload: now,
 				frame: usize::MAX,
 				bytes,
@@ -745,6 +751,28 @@ impl MediaLibrary {
 				slot.held.retain(|held| held.lane == Lane::Inline);
 			}
 		}
+	}
+
+	/// Inline animations not painted for `IDLE_FRAMES` fall back to their still, freeing the
+	/// decoded frames and playback texture. Painting the rendition again requests the frames.
+	pub(super) fn release_idle(&mut self, now: Instant) {
+		for held in self.slots.values_mut().flat_map(|slot| &mut slot.held) {
+			if held.lane == Lane::Inline
+				&& now.saturating_duration_since(held.painted_at) >= super::IDLE_FRAMES
+				&& let Pixels::Playing { still, .. } = &held.pixels
+			{
+				held.pixels = Pixels::Still(still.clone());
+			}
+		}
+	}
+	/// Only renditions missing from `pass` count: visible ones are repainted, not released.
+	pub(super) fn next_release(&self, pass: u64) -> Option<Instant> {
+		self.slots
+			.values()
+			.flat_map(|slot| &slot.held)
+			.filter(|held| held.lane == Lane::Inline && held.playing() && held.painted_pass != pass)
+			.map(|held| held.painted_at + super::IDLE_FRAMES)
+			.min()
 	}
 
 	/// False once this clip failed to decode, so a gifv embed can use its GIF or poster instead.

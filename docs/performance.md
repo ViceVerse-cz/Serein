@@ -4,6 +4,34 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Animation frame retention — October 8, 2026
+
+Decoded GIF and animated-avatar frames were the largest bounded RAM consumer. Each frame is held as
+RGBA, so one 498x280, 40-frame GIF is about 22 MB and a 128 px, 40-frame avatar about 2.6 MB. Inline
+GIFs kept their frames after scrolling away until a 128 MiB pool filled. Animated avatars and banners
+kept theirs in another 128 MiB pool, although avatars only play on hover or in an open profile.
+
+Frames not played (avatars, stickers, banners) or not painted (inline GIFs) for 5 s are now released
+while the still texture stays. Hover-only avatars keep frames only when they are about to play.
+Released artwork asks the worker for frames again when it would play; the encoded source comes from
+the disk cache, so this costs a re-decode, not a download.
+
+The ignored `ui` workload `animation_memory_workload` (release build, Apple M1, Rust 1.98.1, no window,
+GPU, network or account) scrolls past 12 GIF embeds with 20 of 60 animated avatar rows on screen, then
+settles for 6 s. Retained bytes were identical across three runs per revision (six on the change):
+
+| Metric | Base | Change |
+| --- | ---: | ---: |
+| Peak retained decoded frames | 237.3 MiB | 111.7 MiB |
+| Settled retained decoded frames | 237.3 MiB | 46.3 MiB |
+| Peak process RSS | 265.7–265.8 MiB | 145.2–157.1 MiB (5 of 6 runs ≤ 145.4) |
+
+Retained bytes come from the pools' own accounting. RSS did not fall after settling, because the
+macOS allocator keeps freed ~0.5 MB blocks resident for reuse. Later decodes reuse them rather than
+growing the process. GPU playback textures, which were also released, were not measured, and the
+real app's scroll speed and media mix will differ. Standard macOS package: executable
+68,526,000 B (+16,416), installed app 74,564,335 B (+16,416), `ditto` ZIP 48,183,136 B (+3,269).
+
 ## Active-call repaint cadence — October 8, 2026
 
 A code audit of the UI, desktop wiring, client state and network/voice crates found one
