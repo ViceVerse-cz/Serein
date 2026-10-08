@@ -120,3 +120,63 @@ directory and ZIP, not an installer executable.
 also failed on those same eight baseline UI tests (415 passed, 8 failed, 5 ignored).
 CodeRabbit approved the runtime changes and all five review threads were resolved;
 that approval does not waive the test and native-verification blockers.
+
+## Reply message links (2026-10-08)
+
+The reply preview now uses the same channel, forum/post and foreign-server
+destination metadata as the main message. Named links and code remain literal;
+the existing 120-character preview limit includes the semantic icon prefix.
+The icon background is painted at its actual size instead of using the enlarged
+blank font glyph that reserves its width.
+
+The new `channel-link-replies` page contains four synthetic original/reply pairs.
+Baseline `d2299412` was built with only this fixture added, before the runtime
+edit. `reply-before.png` / `reply-after.png` use 1120x900 dark; the
+`reply-*-light-narrow.png` pair uses 720x900 light. All four framebuffer exports
+were inspected, including the long Czech/Japanese post title and narrow reply
+truncation. Build and run with the commands above, replacing `channel-links`
+with `channel-link-replies`. These are eframe/WGPU exports, not OS captures.
+The installed native helper still reports `failed to connect native pipe:
+The system cannot find the file specified. (os error 2)`.
+
+The new regression first failed against the baseline raw URL, then passed for
+both themes, known/unknown destinations, literal/named links and Unicode bounds.
+The final UI suite has 418 passes, the same eight recorded baseline failures,
+and five ignored tests. The final serial `cargo xtask check` reached 1,158 passes,
+eight baseline failures and 23 ignored tests; formatting and strict workspace
+Clippy passed. An earlier parallel run stopped on an unrelated desktop audio
+timeout, which passed both its focused serial retry and this final full run.
+Policy checks also passed. [reply-checks.json](reply-checks.json) records the
+results. No live Discord, native input or screen-reader verification was performed.
+
+The same `sample-process.ps1` was copied locally with its page changed to
+`channel-link-replies`. The matched runs use the same host, renderer, 125% scale,
+five-second warmup and 21 samples as above, with 20.315 s baseline and 20.268 s
+changed sampling windows. The binaries were rebuilt and preserved separately.
+Concurrent compiler activity and OS residency introduce noise; this single idle
+series establishes no CPU or memory improvement. Working set rose 6.58%, while
+private bytes stayed approximately flat. See `reply-*-process.json` and
+`reply-process-summary.json` for the counters.
+
+| Process metric | Baseline | After | Delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| CPU, one-core percentage | 0.692% | 0.000% | -0.692 percentage points | Process CPU delta / elapsed time |
+| Peak working set | 200,089,600 B | 213,258,240 B | +13,168,640 B / +6.58% | WorkingSet64 maximum |
+| Settled working set | 200,089,600 B | 213,257,421 B | +13,167,821 B / +6.58% | WorkingSet64 mean of last five samples |
+| Settled private bytes | 416,260,096 B | 416,219,136 B | -40,960 B / -0.010% | PrivateMemorySize64 mean of last five samples |
+
+The fresh standard voice-inclusive package passed after the final reply painting
+fix, without demo/developer features. Its comparison uses the historical
+`7d9c0d05` package recorded above: the runtime source at that commit is identical
+to pre-fix `d2299412`, with only four documentation files changed in between.
+This is not a fresh simultaneous package baseline. See
+[reply-package.json](reply-package.json) for the new sizes and executable hash.
+
+| Package metric | Historical baseline | Reply fix | Delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| Executable | 85,464,576 B | 85,465,088 B | +512 B / +0.0006% | serein.exe file length |
+| Installed files | 89,638,189 B | 89,638,701 B | +512 B / +0.0006% | Sum of dist file lengths |
+| ZIP distribution | 49,781,661 B | 49,781,875 B | +214 B / +0.0004% | Compress-Archive, Optimal; ZIP file length |
+
+NSIS remains unavailable, so the result is an unsigned directory and ZIP.
+The existing OpenH264 duplicate-object debug-info linker warning remains.

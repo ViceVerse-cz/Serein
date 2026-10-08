@@ -2084,6 +2084,25 @@ impl Formatted {
 			if text.is_empty() {
 				continue;
 			}
+			let destination = style
+				.channel
+				.and_then(|id| crate::channel_pill::Pill::channel(id, channels, source))
+				.or_else(|| {
+					style
+						.link
+						.and_then(|index| self.links.get(index))
+						.filter(|url| *url == text)
+						.and_then(|url| discord_chat_link(url))
+						.filter(|link| link.message.is_some())
+						.map(|link| {
+							crate::channel_pill::Pill::message(
+								&link,
+								channels,
+								source.map_or(&[], |source| &source.state.guilds),
+								source,
+							)
+						})
+				});
 			let (display, format) = if let Some(id) = style.mention {
 				(
 					crate::mentions::mention_label(id, users, source),
@@ -2106,23 +2125,20 @@ impl Formatted {
 				let mut format = Self::format(ui, &style);
 				format.font_id = pill.font_id.clone();
 				(format!("@{name}"), format)
-			} else if let Some(id) = style.channel {
-				if let Some(channel) = crate::channel_pill::Pill::channel(id, channels, source) {
-					let prefix: String = channel.prefix().chars().take(remaining).collect();
-					remaining -= prefix.chars().count();
-					emojis.push(PreviewEmoji {
-						at: job.text.len(),
-						text: prefix,
-						image: PreviewImage::Channel(channel.icon),
-					});
-					let mut slot =
-						crate::emoji::inline_format(ui, PREVIEW_EMOJI_SIZE, PREVIEW_EMOJI_SIZE);
-					slot.background = colors.mention_bg;
-					job.append(" ", 0.0, slot);
-					(channel.name.into(), pill.clone())
-				} else {
-					(text.clone(), muted.clone())
-				}
+			} else if let Some(channel) = destination {
+				let prefix: String = channel.prefix().chars().take(remaining).collect();
+				remaining -= prefix.chars().count();
+				emojis.push(PreviewEmoji {
+					at: job.text.len(),
+					text: prefix,
+					image: PreviewImage::Channel(channel.icon),
+				});
+				job.append(
+					" ",
+					0.0,
+					crate::emoji::inline_format(ui, PREVIEW_EMOJI_SIZE, PREVIEW_EMOJI_SIZE),
+				);
+				(channel.text(), pill.clone())
 			} else if let Some((seconds, kind)) = style.timestamp {
 				(
 					crate::local_time::discord_timestamp(seconds, kind)
@@ -2204,12 +2220,16 @@ impl Formatted {
 								.paint_at(ui, rect);
 						}
 					}
-					PreviewImage::Channel(icon) => crate::icons::paint(
-						ui.painter(),
-						icon,
-						rect.shrink(1.0),
-						crate::design::palette(ui).mention_text,
-					),
+					PreviewImage::Channel(icon) => {
+						let colors = crate::design::palette(ui);
+						ui.painter().rect_filled(rect, 0, colors.mention_bg);
+						crate::icons::paint(
+							ui.painter(),
+							icon,
+							rect.shrink(1.0),
+							colors.mention_text,
+						);
+					}
 				}
 				next += 1;
 			}
@@ -4377,6 +4397,93 @@ mod tests {
 			.count();
 		assert_eq!(highlighted, 2);
 		output.drop_without_applying_deltas();
+	}
+	#[test]
+	fn reply_previews_render_message_destinations_and_preserve_literal_links() {
+		let mut state = test_support::demo_state();
+		let mut guild = state.guilds[0].clone();
+		guild.id = Id(999);
+		guild.name = "Other server".into();
+		state.guilds.push(guild);
+		state
+			.channels
+			.iter_mut()
+			.find(|channel| channel.id == Id(28))
+			.unwrap()
+			.name = "長い名前".repeat(80);
+		let source = crate::mentions::MentionSource {
+			state: &state,
+			channel: Id(20),
+		};
+		let ctx = egui::Context::default();
+		for dark in [true, false] {
+			ctx.set_visuals(if dark {
+				egui::Visuals::dark()
+			} else {
+				egui::Visuals::light()
+			});
+			for (input, destination) in [
+				("https://discord.com/channels/10/20/501", true),
+				("https://discord.com/channels/10/27/501", true),
+				("https://discord.com/channels/10/28/501", true),
+				("https://discord.com/channels/999/900/501", true),
+				("https://discord.com/channels/10/998/501", true),
+				("https://example.com/channels/10/20/501", false),
+				("https://discord.com/channels/10/20", false),
+				(
+					"[Named link](https://discord.com/channels/10/20/501)",
+					false,
+				),
+				("`https://discord.com/channels/10/20/501`", false),
+			] {
+				let parsed = Formatted::parse(input);
+				let mut job = LayoutJob::default();
+				let mut images = Vec::new();
+				let output = ctx.run_ui(Default::default(), |ui| {
+					images = parsed.append_inline_preview(
+						&mut job,
+						ui,
+						&[],
+						Some(&source),
+						&[],
+						&state.channels,
+					);
+				});
+				output.drop_without_applying_deltas();
+				let text = Formatted::inline_preview_text(&job, &images);
+				if destination {
+					let link = discord_chat_link(input).unwrap();
+					let pill = crate::channel_pill::Pill::message(
+						&link,
+						&state.channels,
+						&state.guilds,
+						Some(&source),
+					);
+					assert_eq!(text, pill.label().chars().take(120).collect::<String>());
+					assert_eq!(images.len(), 1);
+					assert!(
+						matches!(images[0].image, PreviewImage::Channel(icon) if icon == pill.icon)
+					);
+					assert_eq!(
+						job.sections[0].format.background,
+						egui::Color32::TRANSPARENT
+					);
+					assert!(job.sections.iter().skip(1).all(|section| {
+						section.format.background == crate::design::palette_for(&ctx).mention_bg
+					}));
+				} else {
+					assert!(images.is_empty());
+					assert_eq!(
+						text,
+						if input.starts_with('[') {
+							"Named link"
+						} else {
+							input.trim_matches('`')
+						}
+					);
+				}
+			}
+		}
 	}
 	#[test]
 	fn timestamps_render_the_formatted_instant_not_the_raw_token() {

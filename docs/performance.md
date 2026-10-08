@@ -4420,3 +4420,44 @@ or memory usage. Full workspace checking at `f9e568c9` reached 1,157 passes,
 the same eight baseline failures, and 23 ignored tests. After the final Chinese
 label correction, all ten focused pill tests, formatting and strict workspace
 Clippy passed. Native input/capture remain unverified; merge blockers persist.
+
+### Reply message-link preview follow-up (2026-10-08)
+
+Compared `d2299412` with the reply-preview fix, using the new synthetic
+`channel-link-replies` fixture in both builds. The Windows host, WGPU renderer,
+125% scale and five-second warmup match the previous section. Each build has one
+series of 21 process-counter samples over about 20 seconds. Baseline and changed
+preview executables were rebuilt and preserved separately. Concurrent builds
+and OS residency add noise; these idle results are not a performance improvement
+claim and do not measure frame latency or live Discord behavior.
+
+| Metric | Baseline | After | Delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| CPU, one-core percentage | 0.692% | 0.000% | -0.692 percentage points | Process CPU delta / elapsed time |
+| Peak working set | 200,089,600 B | 213,258,240 B | +13,168,640 B / +6.58% | WorkingSet64 maximum |
+| Settled working set | 200,089,600 B | 213,257,421 B | +13,167,821 B / +6.58% | WorkingSet64 mean of last five samples |
+| Settled private bytes | 416,260,096 B | 416,219,136 B | -40,960 B / -0.010% | PrivateMemorySize64 mean of last five samples |
+
+Working set increased while private bytes were approximately flat. Raw samples,
+the inspected light/dark framebuffer pairs and reproduction details are in
+[the reply evidence](pr-evidence/channel-message-pills/README.md#reply-message-links-2026-10-08).
+Native input and OS screenshot capture remain unavailable; a successful
+framebuffer export does not establish them.
+
+The fresh standard voice-inclusive package passes without demo/developer
+features. Compared with the historical `7d9c0d05` package, executable and
+installed payload grow by 512 B; ZIP grows by 214 B. The runtime source at
+`7d9c0d05` is identical to pre-fix `d2299412` (the intervening changes are four
+documentation files), but this is not a fresh simultaneous package baseline.
+
+| Package metric | Historical baseline | Reply fix | Delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| Executable | 85,464,576 B | 85,465,088 B | +512 B / +0.0006% | serein.exe file length |
+| Installed files | 89,638,189 B | 89,638,701 B | +512 B / +0.0006% | Sum of dist file lengths |
+| ZIP distribution | 49,781,661 B | 49,781,875 B | +214 B / +0.0004% | Compress-Archive, Optimal; ZIP file length |
+
+[reply-package.json](pr-evidence/channel-message-pills/reply-package.json) records
+the new measurements and executable hash. NSIS remains unavailable; this is an
+unsigned directory and ZIP. Final serial workspace checking reached 1,158
+passes, eight recorded baseline UI failures and 23 ignored tests. Formatting,
+strict workspace Clippy and the independent policy check passed.

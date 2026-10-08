@@ -115,7 +115,12 @@ impl<'a> Pill<'a> {
 
 	/// Accessible destination text; names and breadcrumb symbols remain unchanged.
 	pub fn label(&self) -> String {
-		let mut label = format!("{}{}", self.prefix(), self.name);
+		format!("{}{}", self.prefix(), self.text())
+	}
+
+	/// Destination text after the leading channel or server icon.
+	pub fn text(&self) -> String {
+		let mut label = self.name.to_owned();
 		if self.message {
 			label.push_str(" > ");
 			if let Some(post) = self.post {

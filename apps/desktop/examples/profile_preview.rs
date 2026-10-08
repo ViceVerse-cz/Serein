@@ -329,6 +329,26 @@ Literal: `<#28>` · Concealed: ||<#27> https://discord.com/channels/11/30/501||"
 		.expect("valid synthetic channel-link message");
 }
 
+fn prime_channel_link_replies(state: &mut client_core::State) {
+	prime_channel_links(state);
+	let channel = state.selected.unwrap();
+	let mut messages = Vec::new();
+	for (index, target) in ["10/20", "10/27", "11/30", "10/31"].iter().enumerate() {
+		let mut original = test_support::message(700 + index as u64 * 2, channel);
+		original.content = format!("https://discord.com/channels/{target}/501");
+		original.attachments.clear();
+		original.embeds.clear();
+		original.reactions = Some(vec![]);
+		let mut reply = original.clone();
+		reply.id = model::Id(original.id.0 + 1);
+		reply.reply_to = Some(original.id);
+		reply.content = "Synthetic reply to the message link above.".into();
+		messages.extend([original, reply]);
+	}
+	state.timeline.clear();
+	state.timeline.seed_cache(messages).unwrap();
+}
+
 // Fixture packages are checked-in inputs; execution never calls desktop adapters.
 fn extension_fixture(
 	id: &str,
@@ -568,6 +588,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "member-tags"
 			| "markdown"
 			| "channel-links"
+			| "channel-link-replies"
 			| "dm-tags"
 			| "account"
 			| "appearance"
@@ -676,6 +697,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			if page == "channel-links" {
 				prime_channel_links(&mut state);
 			}
+			if page == "channel-link-replies" {
+				prime_channel_link_replies(&mut state);
+			}
 			if page == "profile" {
 				prime_profile(&mut state);
 			}
@@ -744,7 +768,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				);
 			} else if matches!(
 				page.as_str(),
-				"member-tags" | "dm-tags" | "markdown" | "channel-links"
+				"member-tags" | "dm-tags" | "markdown" | "channel-links" | "channel-link-replies"
 			) {
 				// State is primed above; the normal offline messaging surface renders the list.
 			} else if page == "slash-commands" {
