@@ -407,26 +407,41 @@ pub(crate) fn original_url(attachment: &Attachment) -> Option<url::Url> {
 	{
 		return None;
 	}
-	let url = url::Url::parse(attachment.media.url.as_deref()?).ok()?;
+	let mut url = url::Url::parse(attachment.media.url.as_deref()?).ok()?;
+	// Discord media attachment links identify the same original CDN object.
+	// Keep the signed path/query; never fetch a proxy rendition with a different size.
+	if url.host_str() == Some("media.discordapp.net") {
+		url.set_host(Some("cdn.discordapp.com")).ok()?;
+	}
 	let path: Vec<_> = url.path_segments()?.collect();
+	// Both CDN path forms are in use; forwarded files keep their source message IDs.
+	let (channel, id, filename) = match path.as_slice() {
+		["attachments", channel, id, filename] => (channel, id, filename),
+		["attachments", channel, message, id, filename] if message.parse::<model::Id>().is_ok() => {
+			(channel, id, filename)
+		}
+		_ => return None,
+	};
 	(url.scheme() == "https"
 		&& url.host_str() == Some("cdn.discordapp.com")
 		&& url.port_or_known_default() == Some(443)
 		&& url.username().is_empty()
 		&& url.password().is_none()
 		&& url.fragment().is_none()
-		&& path.len() == 4
-		&& path[0] == "attachments"
-		&& path[1].parse::<model::Id>().is_ok()
-		&& path[2] == attachment.id.to_string()
-		&& !path[3].is_empty()
-		&& !path[3].contains('\\')
+		&& channel.parse::<model::Id>().is_ok()
+		&& *id == attachment.id.to_string()
+		&& !filename.is_empty()
+		&& !filename.contains('\\')
 		&& !["%2f", "%5c"]
 			.iter()
-			.any(|escape| path[3].to_ascii_lowercase().contains(escape))
-		&& url
-			.query_pairs()
-			.all(|(name, _)| matches!(name.as_ref(), "ex" | "is" | "hm")))
+			.any(|escape| filename.to_ascii_lowercase().contains(escape))
+		&& url.query_pairs().all(|(name, value)| match name.as_ref() {
+			"ex" | "is" | "hm" => true,
+			// Observed storage selectors from issue #556; preserve them in the signed URL.
+			// Unknown selectors and rendition parameters still fail admission.
+			"backend" => matches!(value.as_ref(), "b2" | "b3"),
+			_ => false,
+		}))
 	.then_some(url)
 }
 
@@ -925,6 +940,133 @@ mod tests {
 		assert!(!failed.load(Ordering::Acquire));
 	}
 
+	#[test]
+	fn media_video_links_resolve_to_the_signed_original() {
+		let mut video = attachment();
+		video.filename = "synthetic.MOV".into();
+		video.content_type = Some("video/quicktime".into());
+		let query = "ex=123&is=123&hm=abc";
+		for host in ["cdn.discordapp.com", "media.discordapp.net"] {
+			video.media.url = Some(format!(
+				"https://{host}/attachments/1/2/synthetic.MOV?{query}"
+			));
+			let original = original_url(&video).unwrap();
+			assert!(video.is_video());
+			assert_eq!(
+				original.as_str(),
+				format!("https://cdn.discordapp.com/attachments/1/2/synthetic.MOV?{query}")
+			);
+		}
+		for url in [
+			"https://media.discordapp.net.evil.test/attachments/1/2/synthetic.MOV",
+			"http://media.discordapp.net/attachments/1/2/synthetic.MOV",
+			"https://user@media.discordapp.net/attachments/1/2/synthetic.MOV",
+			"https://media.discordapp.net:444/attachments/1/2/synthetic.MOV",
+			"https://media.discordapp.net/attachments/1/99/synthetic.MOV",
+			"https://media.discordapp.net/attachments/1/2/synthetic.MOV?format=webp",
+			"https://media.discordapp.net/attachments/1/2/%2fapi",
+			"https://media.discordapp.net/attachments/1/2/synthetic.MOV#fragment",
+		] {
+			video.media.url = Some(url.into());
+			assert!(original_url(&video).is_none());
+		}
+	}
+	#[test]
+	fn storage_backend_selectors_preserve_original_attachment_urls() {
+		let mut file = attachment();
+		for (filename, content_type) in [
+			("2026-10-03_150804_compressed.mp4", "video/mp4"),
+			("voice-message.ogg", "audio/ogg"),
+			("synthetic.bin", "application/octet-stream"),
+		] {
+			file.filename = filename.into();
+			file.content_type = Some(content_type.into());
+			for host in ["cdn.discordapp.com", "media.discordapp.net"] {
+				for ids in ["1/2", "1/3/2"] {
+					for backend in ["b2", "b3"] {
+						let path = format!(
+							"attachments/{ids}/{filename}?backend={backend}&ex=123&is=123&hm=abc"
+						);
+						file.media.url = Some(format!("https://{host}/{path}"));
+						assert_eq!(
+							original_url(&file).unwrap().as_str(),
+							format!("https://cdn.discordapp.com/{path}")
+						);
+					}
+				}
+			}
+		}
+	}
+
+	#[test]
+	fn storage_backend_selectors_keep_query_and_size_guards() {
+		let mut file = attachment();
+		let source = "https://cdn.discordapp.com/attachments/1/2/synthetic.png";
+		for query in [
+			"backend",
+			"backend=",
+			"backend=b4",
+			"backend=B2",
+			"backend=https%3A%2F%2Fevil.test",
+			"backend=b2%26width%3D1",
+			"backend=b2&backend=unknown",
+			"backend=b2&format=webp",
+			"backend=b2&width=640",
+			"backend=b2&height=480",
+			"backend=b2&size=512",
+			"backend=b2&quality=80",
+		] {
+			file.media.url = Some(format!("{source}?ex=123&is=123&hm=abc&{query}"));
+			assert!(original_url(&file).is_none(), "{query}");
+		}
+		file.media.url = Some(format!("{source}?backend=b2&hm={}", "a".repeat(2048)));
+		assert!(original_url(&file).is_none());
+		file.media.url = Some(format!("{source}?backend=b2&ex=123&is=123&hm=abc"));
+		for size in [0, MAX_BYTES + 1] {
+			file.size = size;
+			assert!(original_url(&file).is_none());
+		}
+		file.size = MAX_BYTES;
+		assert!(original_url(&file).is_some());
+	}
+
+	#[test]
+	fn message_scoped_attachment_paths_keep_admission_guards() {
+		let mut file = attachment();
+		file.filename = "voice-message.ogg".into();
+		file.content_type = Some("audio/ogg".into());
+		for host in ["cdn.discordapp.com", "media.discordapp.net"] {
+			for path in [
+				"attachments/1/0/2/voice-message.ogg",
+				"attachments/1/message/2/voice-message.ogg",
+				"attachments/1/18446744073709551616/2/voice-message.ogg",
+				"attachments/1/%33/2/voice-message.ogg",
+				"attachments/1/3/99/voice-message.ogg",
+				"attachments/1/2/3/voice-message.ogg",
+				"attachments/1/3/2/extra/voice-message.ogg",
+				"attachments/0/3/2/voice-message.ogg",
+				"attachments/1/3/2/",
+				"attachments/1/3/2/%2Fvoice-message.ogg",
+				"attachments/1/3/2/voice-message%5C.ogg",
+				"attachments/1/3/2/voice-message.ogg?width=1",
+				"attachments/1/3/2/voice-message.ogg#fragment",
+			] {
+				file.media.url = Some(format!("https://{host}/{path}"));
+				assert!(original_url(&file).is_none(), "{host}/{path}");
+			}
+		}
+		for origin in [
+			"http://cdn.discordapp.com",
+			"https://cdn.discordapp.com.evil.test",
+			"https://user@cdn.discordapp.com",
+			"https://cdn.discordapp.com:444",
+			"https://127.0.0.1",
+		] {
+			file.media.url = Some(format!("{origin}/attachments/1/3/2/voice-message.ogg"));
+			assert!(original_url(&file).is_none(), "{origin}");
+		}
+	}
+
 	#[tokio::test]
 	async fn explicit_download_stream_limits_cancel_and_atomic_replacement() {
 		let mut image = attachment();
@@ -961,7 +1103,6 @@ mod tests {
 			"https://cdn.discordapp.com/attachments/1/2/%2fapi",
 			"https://cdn.discordapp.com/attachments/1/2/a.png#fragment",
 			"https://127.0.0.1/attachments/1/2/a.png",
-			"https://media.discordapp.net/attachments/1/2/a.png",
 		] {
 			image.media.url = Some(url.into());
 			assert!(original_url(&image).is_none());

@@ -85,6 +85,9 @@ fn home_request_label(friends: u32, messages: u32) -> String {
 }
 
 pub(super) fn badge(ui: &egui::Ui, center: egui::Pos2, count: u32, ring: Color32) {
+	badge_scaled(ui, center, count, ring, 1.0);
+}
+fn badge_scaled(ui: &egui::Ui, center: egui::Pos2, count: u32, ring: Color32, scale: f32) {
 	let label = if count > 99 {
 		"99+".into()
 	} else {
@@ -97,10 +100,16 @@ pub(super) fn badge(ui: &egui::Ui, center: egui::Pos2, count: u32, ring: Color32
 	} else {
 		18.0
 	};
-	let rect = egui::Rect::from_center_size(center, egui::vec2(width, 18.0));
+	let rect = egui::Rect::from_center_size(center, egui::vec2(width, 18.0) * scale);
 	let colors = design::palette(ui);
-	ui.painter().rect_filled(rect.expand(2.0), 11, ring);
-	ui.painter().rect_filled(rect, 9, colors.danger);
+	ui.painter()
+		.rect_filled(rect.expand(2.0 * scale), (11.0 * scale) as u8, ring);
+	ui.painter()
+		.rect_filled(rect, (9.0 * scale) as u8, colors.danger);
+	// A fixed text size keeps the pop-in from laying out glyphs at every intermediate size.
+	if scale < 0.8 {
+		return;
+	}
 	ui.painter().text(
 		center,
 		Align2::CENTER_CENTER,
@@ -109,29 +118,70 @@ pub(super) fn badge(ui: &egui::Ui, center: egui::Pos2, count: u32, ring: Color32
 		Color32::WHITE,
 	);
 }
+/// Duration of rail hover/selection motion: egui's `animation_time` (1/12 s by default),
+/// so 0 disables it. Hover feedback must feel immediate; longer reads as lag.
+pub(super) fn rail_motion(ui: &egui::Ui) -> f32 {
+	ui.style().animation_time
+}
 /// Rail pill on the window edge: short for unread, taller on hover, full when selected.
+/// Each state eases on wall-clock time under `id`, so slow frames never stretch the motion
+/// (egui's `animate_value` advances at most one frame step per frame); idle frames only
+/// read the stored values.
 pub(super) fn rail_indicator(
 	ui: &egui::Ui,
+	id: egui::Id,
 	rect: egui::Rect,
 	selected: bool,
 	hovered: bool,
 	unread: bool,
 ) {
-	let height = if selected {
-		40.0
-	} else if hovered {
-		20.0
-	} else if unread {
-		8.0
-	} else {
+	// The rail is not virtualized; scrolled-out rows skip the animation lookup too.
+	if !ui.is_rect_visible(rect.expand2(egui::vec2(16.0, 0.0))) {
 		return;
+	}
+	let time = rail_motion(ui);
+	let ease = |key: &str, on: bool| {
+		ui.ctx().animate_bool_with_time_and_easing(
+			id.with(key),
+			on,
+			time,
+			egui::emath::easing::cubic_out,
+		)
 	};
+	let height = (40.0 * ease("rail-pill-selected", selected))
+		.max(20.0 * ease("rail-pill-hover", hovered))
+		.max(8.0 * ease("rail-pill-unread", unread));
+	if height < 0.5 {
+		return;
+	}
 	let pill = egui::Rect::from_center_size(
 		egui::pos2(rect.left() - 10.0, rect.center().y),
 		egui::vec2(8.0, height),
 	);
 	ui.painter()
 		.rect_filled(pill, 4, design::palette(ui).text_strong);
+}
+/// Mention badge that pops in when `count` first becomes non-zero.
+pub(super) fn rail_badge(ui: &egui::Ui, id: egui::Id, rect: egui::Rect, count: u32, ring: Color32) {
+	if !ui.is_rect_visible(rect) {
+		return;
+	}
+	let shown = ui.ctx().animate_bool_with_time_and_easing(
+		id.with("rail-badge"),
+		count > 0,
+		rail_motion(ui) * 1.5,
+		egui::emath::easing::back_out,
+	);
+	if count == 0 || shown <= 0.0 {
+		return;
+	}
+	badge_scaled(
+		ui,
+		rect.right_bottom() - egui::vec2(8.0, 8.0),
+		count,
+		ring,
+		shown,
+	);
 }
 /// Green speaker badge on the rail avatar of the conversation you are calling in.
 fn call_badge(ui: &egui::Ui, rect: egui::Rect) {
@@ -162,16 +212,10 @@ fn speaker_badge(ui: &egui::Ui, rect: egui::Rect, fill: Color32, glyph: Color32)
 		glyph,
 	);
 }
-fn indicator(ui: &egui::Ui, rect: egui::Rect, unread: bool, count: u32) {
-	rail_indicator(ui, rect, false, false, unread);
-	if count > 0 {
-		badge(
-			ui,
-			rect.right_bottom() - egui::vec2(8.0, 8.0),
-			count,
-			design::palette(ui).base,
-		);
-	}
+fn indicator(ui: &egui::Ui, id: egui::Id, response: &egui::Response, unread: bool, count: u32) {
+	let hovered = response.hovered() || response.has_focus();
+	rail_indicator(ui, id, response.rect, false, hovered, unread);
+	rail_badge(ui, id, response.rect, count, design::palette(ui).base);
 }
 impl MessagingUi {
 	pub fn viewing_latest(&self, channel: Id) -> bool {
@@ -210,33 +254,35 @@ impl MessagingUi {
 				let (rect, response) =
 					ui.allocate_exact_size(egui::Vec2::splat(46.0), egui::Sense::click());
 				let hovered = response.hovered() || response.has_focus();
-				let fill = if home || hovered {
-					colors.accent
-				} else {
-					colors.raised
-				};
-				ui.painter().rect_filled(rect, 13, fill);
+				// Rests rounder and morphs to the squircle when hovered or selected.
+				let lit = ui.ctx().animate_bool_with_time_and_easing(
+					response.id.with("rail-morph"),
+					home || hovered,
+					rail_motion(ui),
+					egui::emath::easing::cubic_out,
+				);
+				let radius = egui::lerp(18.0..=13.0, lit).round() as u8;
+				ui.painter().rect_filled(
+					rect,
+					radius,
+					colors.raised.lerp_to_gamma(colors.accent, lit),
+				);
 				crate::icons::paint(
 					ui.painter(),
 					crate::icons::Icon::Serein,
 					rect.shrink(10.5),
-					if home || hovered {
-						colors.accent_text
-					} else {
-						colors.text
-					},
+					colors.text.lerp_to_gamma(colors.accent_text, lit),
 				);
-				rail_indicator(ui, rect, home, hovered, false);
+				rail_indicator(ui, response.id, rect, home, hovered, false);
 				let (friends, messages) = state.home_request_parts();
 				let requests = friends.saturating_add(messages);
-				if requests > 0 {
-					badge(
-						ui,
-						rect.right_bottom() - egui::vec2(8.0, 8.0),
-						requests,
-						design::window_palette(ui).base,
-					);
-				}
+				rail_badge(
+					ui,
+					response.id,
+					rect,
+					requests,
+					design::window_palette(ui).base,
+				);
 				let label = home_request_label(friends, messages);
 				response.widget_info(|| {
 					egui::WidgetInfo::selected(egui::Role::Button, true, home, label.clone())
@@ -292,7 +338,9 @@ impl MessagingUi {
 							}
 							let count = state.unread_count(channel.id);
 							let unread = state.channel_unread(channel) == Some(true) || count > 0;
-							indicator(ui, response.rect, unread, count);
+							// Keyed by channel: auto ids shift as unread conversations come and go.
+							let id = ui.scope_id().with(("rail-direct", channel.id));
+							indicator(ui, id, &response, unread, count);
 							if in_call {
 								call_badge(ui, response.rect);
 							}
@@ -301,16 +349,26 @@ impl MessagingUi {
 									egui::Role::Button,
 									true,
 									format!(
-										"Open {}{}, {} notifications",
+										"{} {}{}, {} {}",
+										crate::i18n::translate(
+											"notifications-notification-rail-open"
+										),
 										channel.name,
 										if in_call {
-											", in a call"
+											crate::i18n::translate(
+												"notifications-notification-rail-in-a-call",
+											)
 										} else if unread {
-											", unread"
+											crate::i18n::translate(
+												"notifications-notification-rail-unread",
+											)
 										} else {
-											""
+											String::new()
 										},
-										count
+										count,
+										crate::i18n::translate(
+											"notifications-notification-rail-notifications"
+										)
 									),
 								)
 							});
@@ -351,9 +409,18 @@ impl MessagingUi {
 							},
 						);
 						response.widget_info(|| {
-							egui::WidgetInfo::labeled(egui::Role::Button, true, "Add a Server")
+							egui::WidgetInfo::labeled(
+								egui::Role::Button,
+								true,
+								crate::i18n::translate(
+									"notifications-notification-rail-add-a-server",
+								),
+							)
 						});
-						design::rail_name(&response, "Add a Server");
+						design::rail_name(
+							&response,
+							crate::i18n::translate("notifications-notification-rail-add-a-server"),
+						);
 						if response.clicked() {
 							self.join_server.open_picker(state.generation);
 						}
@@ -544,62 +611,61 @@ mod tests {
 		state.logout();
 		assert!(cache.sync(&state));
 		assert!(cache.guild_badges.is_empty());
-	}
 
-	#[test]
-	fn rail_cache_preserves_the_first_fifteen_chats_and_local_call_changes() {
-		let mut state = test_support::demo_state();
-		let template = state.channel(Id(22)).unwrap().clone();
-		for id in 100..116 {
+		{
+			let mut state = test_support::demo_state();
+			let template = state.channel(Id(22)).unwrap().clone();
+			for id in 100..116 {
+				apply(
+					&mut state,
+					Event::ChannelCreated(model::Channel {
+						id: Id(id),
+						last_message: Some(Id(200)),
+						..template.clone()
+					}),
+				);
+			}
 			apply(
 				&mut state,
-				Event::ChannelCreated(model::Channel {
-					id: Id(id),
-					last_message: Some(Id(200)),
-					..template.clone()
+				Event::ReadState(read_state::Event::Snapshot {
+					partial: false,
+					entries: Some(
+						std::iter::once((Id(20), Some(Id(495)), 0))
+							.chain((100..=115).map(|id| (Id(id), Some(Id(1)), 0)))
+							.collect(),
+					),
+					version: Some(1),
 				}),
 			);
+			let mut cache = RailCache::default();
+			assert!(cache.sync(&state));
+			assert!(!cache.direct.contains(&Id(43)));
+			assert_eq!(
+				&*cache.direct,
+				&(101..=115).rev().map(Id).collect::<Vec<_>>()
+			);
+			// Exercise the local command preparation gate; no command is dispatched by this test.
+			state.demo = false;
+			let revision = state.revision;
+			assert!(state.start_call(Id(22), false).is_some());
+			assert_eq!(state.revision, revision);
+			assert!(cache.sync(&state));
+			assert_eq!(cache.direct.len(), 15);
+			assert_eq!(cache.direct[0], Id(22));
+			assert_eq!(cache.direct[14], Id(102));
+			assert!(state.leave_call().is_some());
+			assert_eq!(state.revision, revision);
+			assert!(cache.sync(&state));
+			assert_eq!(cache.direct[0], Id(115));
+			assert_eq!(cache.direct[14], Id(101));
+			// Session failure through a local completion must also retire unread visibility.
+			state.folders_pending = true;
+			state.apply_guild_folders(Err(client_core::auth::Failure::Expired));
+			assert!(cache.sync(&state));
+			assert!(cache.direct.is_empty());
+			apply(&mut state, Event::Resumed);
+			assert!(cache.sync(&state));
+			assert_eq!(cache.direct.len(), 15);
 		}
-		apply(
-			&mut state,
-			Event::ReadState(read_state::Event::Snapshot {
-				partial: false,
-				entries: Some(
-					std::iter::once((Id(20), Some(Id(495)), 0))
-						.chain((100..=115).map(|id| (Id(id), Some(Id(1)), 0)))
-						.collect(),
-				),
-				version: Some(1),
-			}),
-		);
-		let mut cache = RailCache::default();
-		assert!(cache.sync(&state));
-		assert!(!cache.direct.contains(&Id(43)));
-		assert_eq!(
-			&*cache.direct,
-			&(101..=115).rev().map(Id).collect::<Vec<_>>()
-		);
-		// Exercise the local command preparation gate; no command is dispatched by this test.
-		state.demo = false;
-		let revision = state.revision;
-		assert!(state.start_call(Id(22), false).is_some());
-		assert_eq!(state.revision, revision);
-		assert!(cache.sync(&state));
-		assert_eq!(cache.direct.len(), 15);
-		assert_eq!(cache.direct[0], Id(22));
-		assert_eq!(cache.direct[14], Id(102));
-		assert!(state.leave_call().is_some());
-		assert_eq!(state.revision, revision);
-		assert!(cache.sync(&state));
-		assert_eq!(cache.direct[0], Id(115));
-		assert_eq!(cache.direct[14], Id(101));
-		// Session failure through a local completion must also retire unread visibility.
-		state.folders_pending = true;
-		state.apply_guild_folders(Err(client_core::auth::Failure::Expired));
-		assert!(cache.sync(&state));
-		assert!(cache.direct.is_empty());
-		apply(&mut state, Event::Resumed);
-		assert!(cache.sync(&state));
-		assert_eq!(cache.direct.len(), 15);
 	}
 }

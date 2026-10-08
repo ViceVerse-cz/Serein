@@ -26,11 +26,31 @@ impl VerificationUi {
 				..Self::default()
 			};
 		}
-		let friend = matches!(
-			verification,
-			client_core::captcha::Verification::Friend { .. }
-		);
-		let title = (!friend)
+		use client_core::captcha::Verification;
+		let invite = matches!(verification, Verification::Invite { .. });
+		let (id, subtitle, body) = match verification {
+			Verification::Invite { .. } => (
+				"invite-verification",
+				"verification-show-complete-the-check-to-join-this-server",
+				"verification-show-discord-requires-a-security-check-before-you-can-join",
+			),
+			Verification::Friend { .. } => (
+				"friend-verification",
+				"verification-show-complete-the-check-to-send-this-friend-request",
+				"verification-show-discord-requires-a-security-check-before-you-can-add-this",
+			),
+			Verification::Direct { .. } => (
+				"direct-verification",
+				"verification-show-complete-the-check-to-open-this-conversation",
+				"verification-show-discord-requires-a-security-check-before-you-can-message",
+			),
+			Verification::Message { .. } => (
+				"message-verification",
+				"verification-show-complete-the-check-to-send-this-message",
+				"verification-show-discord-requires-a-security-check-before-this-message",
+			),
+		};
+		let title = invite
 			.then(|| {
 				state
 					.invites
@@ -42,18 +62,10 @@ impl VerificationUi {
 			.flatten();
 		let mut cancel = false;
 		let response = dialog::Dialog::new(
-			if friend {
-				"friend-verification"
-			} else {
-				"invite-verification"
-			},
-			"Verification required",
+			id,
+			crate::i18n::translate("verification-show-verification-required"),
 		)
-		.subtitle(if friend {
-			"Complete the check to send this friend request."
-		} else {
-			"Complete the check to join this server."
-		})
+		.subtitle(crate::i18n::translate_if_key(subtitle))
 		.width(520.0)
 		.show(ctx, |d| {
 			d.content(|ui| {
@@ -78,23 +90,21 @@ impl VerificationUi {
 						ui.add_space(if self.active { 28.0 } else { 12.0 });
 						ui.label(design::semibold(
 							ui,
-							if self.active {
-								"Loading verification…"
+							crate::i18n::translate_if_key(if self.active {
+								"verification-show-loading-verification"
 							} else {
-								"One quick check"
-							},
+								"verification-show-one-quick-check"
+							}),
 							18.0,
 						));
 						ui.add_space(8.0);
 						ui.add(
 							egui::Label::new(
-								egui::RichText::new(if state.demo {
-									"Offline preview · no verification service is contacted."
-								} else if friend {
-									"Discord requires a security check before you can add this person."
+								egui::RichText::new(crate::i18n::translate_if_key(if state.demo {
+									"verification-show-offline-preview-no-verification-service-is-contacted"
 								} else {
-									"Discord requires a security check before you can join."
-								})
+									body
+								}))
 								.size(13.0)
 								.color(colors.muted),
 							)
@@ -112,12 +122,16 @@ impl VerificationUi {
 				ui.add_space(16.0);
 			});
 			d.footer(|ui| {
-				if !self.active && dialog::action(ui, "Verify", dialog::Action::Primary).clicked() {
+				if !self.active
+					&& dialog::action(ui, "verification-show-verify", dialog::Action::Primary)
+						.clicked()
+				{
 					self.error = None;
 					self.active = true;
 					self.start_requested = !state.demo;
 				}
-				cancel |= dialog::action(ui, "Cancel", dialog::Action::Neutral).clicked();
+				cancel |= dialog::action(ui, "verification-show-cancel", dialog::Action::Neutral)
+					.clicked();
 			});
 		});
 		if cancel || response.close {

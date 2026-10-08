@@ -643,7 +643,7 @@ impl Menu {
 				&mut body,
 				icons::Icon::Reload,
 				18.0,
-				"Refresh application commands",
+				&crate::i18n::translate("slash-commands-footer-refresh-application-commands"),
 			)
 			.clicked()
 		{
@@ -774,18 +774,32 @@ impl Menu {
 						egui::WidgetInfo::labeled(
 							egui::Role::Button,
 							true,
-							format!("/{} · choose a different command", active.name),
+							format!(
+								"/{} · {}",
+								active.name,
+								crate::i18n::translate(
+									"slash-commands-composer-choose-a-different-command"
+								)
+							),
 						)
 					});
-					name.on_hover_text(format!("/{} · choose a different command", active.name));
+					name.on_hover_text(format!(
+						"/{} · {}",
+						active.name,
+						crate::i18n::translate(
+							"slash-commands-composer-choose-a-different-command"
+						)
+					));
 					if !allowed {
 						ui.add(
 							egui::Label::new(
-								egui::RichText::new(if command.is_some() {
-									NO_PERMISSION
-								} else {
-									"Command unavailable. Your arguments are kept."
-								})
+								egui::RichText::new(crate::i18n::translate_if_key(
+									if command.is_some() {
+										NO_PERMISSION
+									} else {
+										"slash-commands-composer-command-unavailable-your-arguments-are-kept"
+									},
+								))
 								.color(colors.muted),
 							)
 							.truncate(),
@@ -1252,12 +1266,30 @@ fn argument(
 			.map_or(value.as_str(), |choice| choice.name.as_str());
 		egui::ComboBox::from_id_salt(id)
 			.width(ui.available_width())
-			.selected_text(if label.is_empty() { "Choose…" } else { label })
+			.selected_text(crate::i18n::translate_if_key(
+				&(if label.is_empty() {
+					crate::i18n::translate("slash-commands-argument-choose")
+				} else {
+					label.to_owned()
+				}),
+			))
 			.show_ui(ui, |ui| {
-				ui.selectable_value(value, String::new(), "Not set");
+				ui.selectable_value(
+					value,
+					String::new(),
+					crate::i18n::translate("slash-commands-argument-not-set"),
+				);
 				if option.kind == 5 {
-					ui.selectable_value(value, "true".into(), "True");
-					ui.selectable_value(value, "false".into(), "False");
+					ui.selectable_value(
+						value,
+						"true".into(),
+						crate::i18n::translate("slash-commands-argument-true"),
+					);
+					ui.selectable_value(
+						value,
+						"false".into(),
+						crate::i18n::translate("slash-commands-argument-false"),
+					);
 				}
 				for choice in &option.choices {
 					ui.selectable_value(value, value_text(&choice.value), &choice.name);
@@ -1268,9 +1300,12 @@ fn argument(
 		ui.horizontal(|ui| {
 			let response = ui.add(
 				egui::TextEdit::singleline(value)
+					.align(egui::Align2::LEFT_CENTER)
 					.id(id)
 					.frame(egui::Frame::NONE)
-					.hint_text("ID or choose…")
+					.hint_text(crate::i18n::translate(
+						"slash-commands-argument-id-or-choose",
+					))
 					.char_limit(22)
 					.desired_width((ui.available_width() - 25.0).max(24.0)),
 			);
@@ -1321,11 +1356,19 @@ fn argument(
 		})
 		.inner
 	} else if option.kind == 11 {
-		ui.add(egui::Label::new("Unavailable").truncate())
-			.on_hover_text("Attachment arguments are not supported yet.")
+		ui.add(
+			egui::Label::new(crate::i18n::translate(
+				"slash-commands-argument-unavailable",
+			))
+			.truncate(),
+		)
+		.on_hover_text(crate::i18n::translate(
+			"slash-commands-argument-attachment-arguments-are-not-supported-yet",
+		))
 	} else {
 		ui.add(
 			egui::TextEdit::singleline(value)
+				.align(egui::Align2::LEFT_CENTER)
 				.id(id)
 				.frame(egui::Frame::NONE)
 				.font(egui::FontId::proportional(14.0))

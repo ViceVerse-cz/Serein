@@ -27,8 +27,7 @@ impl ArchivesUi {
 		}
 		let parent = view.parent;
 		let allowed = state.can_archive(parent, view.kind);
-		let private = state.channel(parent).is_some_and(|c| c.kind == 0);
-		let mut close = false;
+		let supports_private = state.channel(parent).is_some_and(|c| c.kind == 0);
 		let mut request = None;
 		let mut target = None;
 		let mut active_target = None;
@@ -37,53 +36,37 @@ impl ArchivesUi {
 		let filter = self.filter.trim().to_lowercase();
 		let matches = |name: &str| filter.is_empty() || name.to_lowercase().contains(&filter);
 		let can_create = state.can_create_thread(parent);
-		let response = crate::dialog::Dialog::new("archived-threads", "Threads")
-			.icon(crate::icons::Icon::Thread)
-			.width(520.0)
-			.show(ctx, |d| {
+		let action_pending = state.channel_action_pending();
+		let response = crate::dialog::Dialog::new(
+			"archived-threads",
+			crate::i18n::translate("archives-show-threads"),
+		)
+		.icon(crate::icons::Icon::Thread)
+		.width(520.0)
+		.show_with_toolbar(
+			ctx,
+			|d| {
 				d.content(|ui| {
 					let colors = crate::design::palette(ui);
-					// Discord's popout header: search on the left, Create on the right.
-					ui.horizontal(|ui| {
-						let create_width = 88.0;
-						let field_width = (ui.available_width() - create_width - 12.0).max(80.0);
-						let field = ui
-							.allocate_ui(egui::vec2(field_width, 0.0), |ui| {
-								crate::dialog::input(
-									ui,
-									egui::TextEdit::singleline(&mut self.filter)
-										.char_limit(100)
-										.hint_text("Search for thread name"),
-								)
-							})
-							.inner;
-						self.filter.shrink_to_fit();
-						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-							ui.add_enabled_ui(can_create && !state.channel_action_pending(), |ui| {
-								create = crate::dialog::action(
-									ui,
-									"Create",
-									crate::dialog::Action::Primary,
-								)
-								.on_disabled_hover_text(
-									"You cannot start a thread in this channel.",
-								)
-								.clicked();
-							});
-						});
-						if field.changed() {
-							ui.ctx().request_repaint();
-						}
-					});
-					ui.add_space(14.0);
 					let shown: Vec<_> = active
 						.iter()
 						.filter(|thread| matches(&thread.name))
 						.collect();
 					if !active.is_empty() {
-						section(ui, &format!("{} ACTIVE THREADS", shown.len()), &colors);
+						section(
+							ui,
+							&format!(
+								"{} {}",
+								shown.len(),
+								crate::i18n::translate("archives-show-archives-active-threads")
+							),
+							&colors,
+						);
 						if shown.is_empty() {
-							crate::dialog::hint(ui, "No active thread matches this search.");
+							crate::dialog::hint(
+								ui,
+								"archives-show-no-active-thread-matches-this-search",
+							);
 						}
 						egui::ScrollArea::vertical()
 							.id_salt(("active-threads", parent))
@@ -98,69 +81,91 @@ impl ArchivesUi {
 							});
 						ui.add_space(12.0);
 					}
-					section(ui, "OLDER THREADS", &colors);
-					// A plain row, not `horizontal_wrapped`: the enabled scopes below are child
-					// uis, which would break wrapping.
 					ui.horizontal(|ui| {
-						ui.spacing_mut().item_spacing.x = 6.0;
-						let kinds: Vec<(Kind, &str)> = [
-							(Kind::Public, "Public"),
-							(Kind::JoinedPrivate, "Joined private"),
-							(Kind::Private, "Private"),
-						]
-						.into_iter()
-						.filter(|(kind, _)| *kind == Kind::Public || private)
-						.collect();
-						let names: Vec<&str> = kinds.iter().map(|(_, name)| *name).collect();
-						let selected = kinds
-							.iter()
-							.position(|(kind, _)| *kind == view.kind)
-							.unwrap_or(usize::MAX);
-						if let Some(index) = ui
-							.add_enabled_ui(allowed && !view.loading, |ui| {
-								crate::design::segmented(ui, &names, selected)
-							})
-							.inner
-						{
-							request = Some((kinds[index].0, None));
-						}
-						let action = |ui: &mut egui::Ui, enabled: bool, label: &str| {
-							ui.add_enabled_ui(enabled, |ui| {
-								crate::dialog::action(ui, label, crate::dialog::Action::Neutral)
-							})
-							.inner
-						};
-						let reload = action(ui, allowed, "Reload");
-						if self.focus {
-							reload.request_focus();
-							self.focus = false;
-						}
-						if reload.clicked() {
-							request = Some((view.kind, None));
-						}
-						if view.error.is_some() {
-							if action(ui, allowed && !view.loading, "Retry").clicked() {
-								request = Some((view.kind, view.before));
+						ui.label(
+							crate::design::semibold(
+								ui,
+								crate::i18n::translate("archives-show-older-threads"),
+								12.0,
+							)
+							.color(colors.muted),
+						);
+						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+							if supports_private {
+								let mut kind = view.kind;
+								ui.add_enabled_ui(allowed && !view.loading, |ui| {
+									egui::ComboBox::from_id_salt(("archive-kind", parent))
+										.width(112.0)
+										.selected_text(match kind {
+											Kind::Public => "Public",
+											Kind::JoinedPrivate => "Joined private",
+											Kind::Private => "Private",
+										})
+										.show_ui(ui, |ui| {
+											for (option, label) in [
+												(Kind::Public, "Public"),
+												(Kind::JoinedPrivate, "Joined private"),
+												(Kind::Private, "Private"),
+											] {
+												ui.add_enabled_ui(
+													state.can_archive(parent, option),
+													|ui| {
+														ui.selectable_value(
+															&mut kind, option, label,
+														);
+													},
+												);
+											}
+										});
+								});
+								if kind != view.kind {
+									request = Some((kind, None));
+								}
 							}
-						} else if let Some(before) = view.page.as_ref().and_then(|page| page.next)
-							&& action(ui, allowed && !view.loading, "Older").clicked()
-						{
-							request = Some((view.kind, Some(before)));
-						}
+							let action = if view.error.is_some() {
+								Some(("archives-action-retry", view.before))
+							} else {
+								view.page
+									.as_ref()
+									.and_then(|page| page.next)
+									.map(|before| ("archives-action-older", Some(before)))
+							};
+							if let Some((label, before)) = action
+								&& ui
+									.add_enabled_ui(allowed && !view.loading, |ui| {
+										crate::dialog::action(
+											ui,
+											label,
+											crate::dialog::Action::Neutral,
+										)
+									})
+									.inner
+									.clicked()
+							{
+								request = Some((view.kind, before));
+							}
+							if ui
+								.add_enabled_ui(allowed && !view.loading, |ui| {
+									crate::icons::button(
+										ui,
+										crate::icons::Icon::Reload,
+										24.0,
+										"archives-action-reload",
+									)
+								})
+								.inner
+								.clicked()
+							{
+								request = Some((view.kind, None));
+							}
+						});
 					});
 					ui.add_space(6.0);
-					if view.kind == Kind::Private {
-						crate::dialog::notice(
-							ui,
-							crate::dialog::Level::Info,
-							"Private archives require permission from the service.",
-						);
-					}
 					if !allowed {
 						crate::dialog::notice(
 							ui,
 							crate::dialog::Level::Warning,
-							"Archives are unavailable while disconnected or without channel access.",
+							"archives-show-archives-are-unavailable-while-disconnected-or-without-channel-access",
 						);
 					}
 					if let Some(error) = view.error {
@@ -169,13 +174,12 @@ impl ArchivesUi {
 					if view.loading {
 						ui.horizontal(|ui| {
 							ui.spinner();
-							ui.label("Loading older threads…");
+							ui.label(crate::i18n::translate(
+								"archives-show-loading-older-threads",
+							));
 						});
 					}
 					if let Some(page) = &view.page {
-						if page.threads.is_empty() {
-							crate::dialog::hint(ui, "No older threads returned.");
-						}
 						let older: Vec<_> = page
 							.threads
 							.iter()
@@ -197,24 +201,65 @@ impl ArchivesUi {
 									});
 								}
 							});
-						if page.next.is_none() && !view.loading {
-							crate::dialog::hint(ui, "No older threads reported by the service.");
+						if older.is_empty() && !view.loading {
+							crate::dialog::hint(
+								ui,
+								if page.threads.is_empty() {
+									"archives-show-no-older-threads-returned"
+								} else {
+									"archives-show-no-older-thread-matches-this-search"
+								},
+							);
 						}
 					}
-					crate::dialog::hint(
+				});
+			},
+			|ui| {
+				let create_width = 88.0;
+				let field_width = (ui.available_width() - create_width - 12.0).max(80.0);
+				let field = ui
+					.allocate_ui_with_layout(
+						egui::vec2(field_width, 38.0),
+						egui::Layout::left_to_right(egui::Align::Center),
+						|ui| {
+							crate::dialog::input(
+								ui,
+								egui::TextEdit::singleline(&mut self.filter)
+									.align(egui::Align2::LEFT_CENTER)
+									.char_limit(100)
+									.hint_text(crate::i18n::translate(
+										"archives-show-search-for-thread-name",
+									)),
+							)
+						},
+					)
+					.inner;
+				self.filter.shrink_to_fit();
+				ui.add_space(12.0);
+				ui.add_enabled_ui(can_create && !action_pending, |ui| {
+					create = crate::dialog::action(
 						ui,
-						"Active threads come from the session; older threads load 25 at a time. Opening loads messages without joining.",
-					);
+						"archives-show-create",
+						crate::dialog::Action::Primary,
+					)
+					.on_disabled_hover_text(crate::i18n::translate(
+						"archives-show-you-cannot-start-a-thread-in-this-channel",
+					))
+					.clicked();
 				});
-				d.footer(|ui| {
-					close |= crate::dialog::action(ui, "Close", crate::dialog::Action::Neutral)
-						.clicked();
-				});
-			});
+				if field.changed() {
+					ui.ctx().request_repaint();
+				}
+				if self.focus {
+					field.request_focus();
+					self.focus = false;
+				}
+			},
+		);
 		if create {
 			self.create_requested = Some(parent);
 		}
-		if response.close || close {
+		if response.close {
 			self.filter.clear();
 			commands.push(state.clear_archives());
 		} else if let Some((kind, before)) = request {
@@ -234,7 +279,7 @@ impl ArchivesUi {
 	}
 }
 
-const CARD_HEIGHT: f32 = 74.0;
+const CARD_HEIGHT: f32 = 64.0;
 const CARD_GAP: f32 = 8.0;
 
 fn section(ui: &mut egui::Ui, label: &str, colors: &crate::design::Palette) {
@@ -259,16 +304,16 @@ fn thread_card(
 	if ui.is_rect_visible(rect) {
 		let frame = crate::design::interactive_card_frame(ui, &response);
 		ui.painter().add(frame.paint(rect));
-		let inner = rect.shrink2(egui::vec2(16.0, 12.0));
+		let inner = rect.shrink2(egui::vec2(14.0, 9.0));
 		ui.scope_builder(
 			egui::UiBuilder::new()
 				.max_rect(inner)
 				.layout(egui::Layout::top_down(egui::Align::Min)),
 			|ui| {
-				ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+				ui.spacing_mut().item_spacing = egui::vec2(5.0, 4.0);
 				ui.add(
 					egui::Label::new(
-						crate::design::semibold(ui, thread.name.as_str(), 15.5)
+						crate::design::semibold(ui, thread.name.as_str(), 15.0)
 							.color(colors.text_strong),
 					)
 					.truncate()
@@ -277,31 +322,33 @@ fn thread_card(
 				ui.horizontal(|ui| {
 					// The thread shares its id with its starter, so the open channel may hold it.
 					if let Some(starter) = state.timeline.get(thread.id) {
-						avatars.show_plain(ui, &starter.author, 18.0, state.demo);
+						avatars.show_plain(ui, &starter.author, 16.0, state.demo);
 						ui.add(
 							egui::Label::new(
-								egui::RichText::new("Started by")
-									.size(13.0)
-									.color(colors.muted),
+								egui::RichText::new(crate::i18n::translate(
+									"archives-thread-card-started-by",
+								))
+								.size(12.5)
+								.color(colors.muted),
 							)
 							.selectable(false),
 						);
-						let color = state
-							.message_author_color(starter)
-							.map_or(colors.text_strong, |rgb| {
-								crate::design::role_name_color(rgb, colors.raised, colors.text)
-							});
 						ui.add(
-							egui::Label::new(
-								crate::design::medium(ui, state.message_author_name(starter), 13.0)
-									.color(color),
-							)
+							egui::Label::new(crate::role_names::galley(
+								ui,
+								state.message_author_name(starter),
+								egui::FontId::new(12.5, crate::design::medium_family(ui.ctx())),
+								state.message_author_colors(starter),
+								colors.raised,
+								colors.text_strong,
+								ui.available_width(),
+							))
 							.truncate()
 							.selectable(false),
 						);
 						ui.add(
 							egui::Label::new(
-								egui::RichText::new("•").size(13.0).color(colors.muted),
+								egui::RichText::new("•").size(12.5).color(colors.muted),
 							)
 							.selectable(false),
 						);
@@ -309,7 +356,7 @@ fn thread_card(
 					ui.add(
 						egui::Label::new(
 							egui::RichText::new(crate::timeline::thread_activity(thread))
-								.size(13.0)
+								.size(12.5)
 								.color(colors.muted),
 						)
 						.truncate()
@@ -320,7 +367,11 @@ fn thread_card(
 		);
 	}
 	ui.add_space(CARD_GAP);
-	response.on_hover_text(format!("Open thread “{}”", thread.name))
+	response.on_hover_text(format!(
+		"{} “{}”",
+		crate::i18n::translate("archives-thread-card-open-thread"),
+		thread.name
+	))
 }
 
 #[cfg(test)]
@@ -346,6 +397,138 @@ mod tests {
 			message_count: None,
 			icon: None,
 		}
+	}
+	fn archive_state(kind: u8) -> State {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		state.auth = client_core::auth::AuthState::Authenticated;
+		state.gateway_connected = true;
+		let mut parent = channel(7, kind, None);
+		parent.guild = Some(state.guilds[0].id);
+		state.channels = vec![parent];
+		state
+			.permissions
+			.replace(test_support::permission_snapshot(&state))
+			.unwrap();
+		state.request_archives(Id(7), Kind::Public, None).unwrap();
+		let request = state.archives.as_ref().unwrap().request;
+		state.apply_archives(
+			Id(7),
+			request,
+			Ok(Page {
+				threads: vec![],
+				next: None,
+			}),
+		);
+		state
+	}
+
+	#[test]
+	fn archive_scope_disables_only_unavailable_kinds() {
+		for can_manage in [false, true] {
+			let ctx = egui::Context::default();
+			ctx.enable_accesskit();
+			ctx.memory_mut(|memory| memory.set_everything_is_visible(true));
+			let mut state = archive_state(0);
+			if !can_manage {
+				for guild in state.permissions.guilds.values_mut() {
+					for role in guild.roles.as_mut().unwrap() {
+						role.bits &= !model::permissions::MANAGE_THREADS;
+					}
+				}
+				state.permissions.clear_cache();
+			}
+			let mut archives = ArchivesUi::default();
+			let mut avatars = crate::avatars::Avatars::default();
+			let mut commands = vec![];
+			for _ in 0..2 {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(640.0, 480.0),
+						)),
+						..Default::default()
+					},
+					|_| archives.show(&ctx, &mut state, &mut commands, &mut avatars),
+				);
+				let nodes = &output
+					.platform_output
+					.accesskit_update
+					.as_ref()
+					.unwrap()
+					.nodes;
+				for (label, enabled) in [
+					("Public", true),
+					("Joined private", true),
+					("Private", can_manage),
+				] {
+					let node = nodes
+						.iter()
+						.find(|(_, node)| node.label() == Some(label))
+						.expect(label);
+					assert_eq!(!node.1.is_disabled(), enabled, "{label}");
+				}
+				output.drop_without_applying_deltas();
+			}
+			assert!(commands.is_empty());
+		}
+	}
+
+	#[test]
+	fn archive_search_distinguishes_no_matches_from_an_empty_page() {
+		let ctx = egui::Context::default();
+		ctx.enable_accesskit();
+		let mut state = archive_state(15);
+		let mut archives = ArchivesUi {
+			filter: "absent".into(),
+			..Default::default()
+		};
+		let mut avatars = crate::avatars::Avatars::default();
+		let mut commands = vec![];
+		for populated in [false, true] {
+			if populated {
+				let mut thread = channel(8, 11, Some(Id(7)));
+				thread.guild = Some(state.guilds[0].id);
+				state
+					.archives
+					.as_mut()
+					.unwrap()
+					.page
+					.as_mut()
+					.unwrap()
+					.threads
+					.push(thread);
+			}
+			let expected = crate::i18n::translate(if populated {
+				"archives-show-no-older-thread-matches-this-search"
+			} else {
+				"archives-show-no-older-threads-returned"
+			});
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(640.0, 480.0),
+					)),
+					..Default::default()
+				},
+				|_| archives.show(&ctx, &mut state, &mut commands, &mut avatars),
+			);
+			let labels: Vec<_> = output
+				.platform_output
+				.accesskit_update
+				.as_ref()
+				.unwrap()
+				.nodes
+				.iter()
+				.filter_map(|(_, node)| node.label().or_else(|| node.value()))
+				.map(str::to_owned)
+				.collect();
+			output.drop_without_applying_deltas();
+			assert!(labels.contains(&expected), "{expected}: {labels:?}");
+		}
+		assert!(commands.is_empty());
 	}
 	fn frame(ctx: &egui::Context, key: Option<egui::Key>, draw: impl FnMut(&mut egui::Ui)) {
 		let output = ctx.run_ui(
@@ -393,6 +576,7 @@ mod tests {
 				auth: client_core::auth::AuthState::Authenticated,
 				gateway_connected: true,
 				guilds: vec![model::Guild {
+					default_message_notifications: None,
 					stickers: None,
 					id: Id(100),
 					name: "Synthetic".into(),
@@ -443,7 +627,12 @@ mod tests {
 					next: Some(before),
 				}),
 			);
-			for key in [None, Some(egui::Key::Tab), Some(egui::Key::Enter)] {
+			for key in [
+				None,
+				Some(egui::Key::Tab),
+				Some(egui::Key::Tab),
+				Some(egui::Key::Enter),
+			] {
 				frame(&ctx, key, |_| {
 					ui.archives
 						.show(&ctx, &mut state, &mut commands, &mut ui.avatars)
@@ -463,8 +652,45 @@ mod tests {
 				}),
 			);
 			ui.archives.focus = true;
-			// Reload, Open thread: exhausted pages have no Older control.
-			for key in [None, None, Some(egui::Key::Tab), Some(egui::Key::Enter)] {
+			// With no Older control, keyboard Reload returns from an older page to the newest.
+			for key in [
+				None,
+				Some(egui::Key::Tab),
+				Some(egui::Key::Tab),
+				Some(egui::Key::Enter),
+			] {
+				frame(&ctx, key, |_| {
+					ui.archives
+						.show(&ctx, &mut state, &mut commands, &mut ui.avatars)
+				});
+			}
+			assert!(matches!(
+				commands.last(),
+				Some(Command::Archives {
+					parent: Id(7),
+					before: None,
+					..
+				})
+			));
+			assert!(state.archives.as_ref().unwrap().loading);
+			let request = state.archives.as_ref().unwrap().request;
+			state.apply_archives(
+				Id(7),
+				request,
+				Ok(Page {
+					threads: vec![channel(9, 11, Some(Id(7)))],
+					next: None,
+				}),
+			);
+			ui.archives.focus = true;
+			// Search, Close, Reload, Open thread (Create is disabled for this forum).
+			for key in [
+				None,
+				Some(egui::Key::Tab),
+				Some(egui::Key::Tab),
+				Some(egui::Key::Tab),
+				Some(egui::Key::Enter),
+			] {
 				frame(&ctx, key, |_| {
 					ui.archives
 						.show(&ctx, &mut state, &mut commands, &mut ui.avatars)

@@ -53,7 +53,7 @@ impl Layout {
 		avatars.revision.hash(&mut key);
 		emoji::ready(ui.ctx()).hash(&mut key);
 		demo.hash(&mut key);
-		if text.contains("<:") || text.contains("<a:") {
+		if text.contains("<:") || text.contains("<a:") || text.contains("](https://") {
 			static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
 			(START
 				.get_or_init(std::time::Instant::now)
@@ -131,6 +131,12 @@ impl Layout {
 			} else if mass_mentions && let Some(len) = model::mass_mention_prefix(tail) {
 				label = Some((tail[..len].to_owned(), colors.mention_text));
 				background = colors.mention_bg;
+				len
+			} else if let Some((asset, name, len)) = model::ImageShare::markdown_prefix(tail) {
+				image = avatars.share_image(ui.ctx(), asset, size, demo);
+				if image.is_none() {
+					label = Some((name, colors.muted));
+				}
 				len
 			} else if let Some((id, len)) = emoji::custom_prefix(tail) {
 				image = avatars.custom_image(ui.ctx(), id, size, demo);
@@ -227,7 +233,9 @@ impl Layout {
 		{
 			return;
 		}
-		let painter = ui.painter().with_clip_rect(output.text_clip_rect);
+		// The editor is taller than a scrolled composer; stay inside the scroll viewport too.
+		let clip = output.text_clip_rect.intersect(ui.clip_rect());
+		let painter = ui.painter().with_clip_rect(clip);
 		for inline in &self.inlines {
 			let mut cursor = CCursor::new(inline.source.start);
 			cursor.prefer_next_row = true;
@@ -239,7 +247,7 @@ impl Layout {
 				position.min,
 				egui::vec2(inline.width, position.height()),
 			);
-			if !rect.intersects(output.text_clip_rect) {
+			if !rect.intersects(clip) {
 				continue;
 			}
 			if let Some(label) = &inline.label {
@@ -251,7 +259,7 @@ impl Layout {
 				);
 			} else if let Some(image) = &inline.image {
 				let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
-				child.set_clip_rect(output.text_clip_rect);
+				child.set_clip_rect(clip);
 				image.paint_at(
 					&child,
 					egui::Rect::from_center_size(
@@ -556,6 +564,7 @@ mod tests {
 					None,
 					&mut crate::profiles::ProfileSession::default(),
 					(&mut avatars, false, &[]),
+					crate::design::MessageCardSurface::Opaque,
 				);
 				let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width| {
 					layout.galley(
@@ -653,6 +662,58 @@ mod tests {
 		});
 		output.drop_without_applying_deltas();
 		assert!(avatars.take_requests().is_empty());
+	}
+
+	#[test]
+	fn scrolled_out_artwork_stays_inside_the_composer_viewport() {
+		let ctx = egui::Context::default();
+		emoji::install(&ctx).unwrap();
+		let mut text = format!("😀{}😀", "\nline".repeat(30));
+		let mut avatars = Avatars::default();
+		let mut layout = Layout::default();
+		let mut viewport = egui::Rect::NOTHING;
+		let output = ctx.run_ui(Default::default(), |ui| {
+			viewport = egui::ScrollArea::vertical()
+				.max_height(40.0)
+				.show(ui, |ui| {
+					let mut layouter =
+						|ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width: f32| {
+							layout.galley(
+								ui,
+								buffer.as_str(),
+								width,
+								&[],
+								&[],
+								&[],
+								false,
+								&mut avatars,
+								true,
+							)
+						};
+					let edit = egui::TextEdit::multiline(&mut text)
+						.layouter(&mut layouter)
+						.show(ui);
+					layout.paint(ui, &edit);
+					assert!(edit.text_clip_rect.height() > 40.0);
+					ui.clip_rect()
+				})
+				.inner;
+			assert_eq!(
+				layout.inlines.iter().filter(|i| i.image.is_some()).count(),
+				2
+			);
+		});
+		let artwork: Vec<_> = output
+			.shapes
+			.iter()
+			.filter(|s| s.shape.texture_id() != egui::TextureId::default())
+			.collect();
+		assert_eq!(artwork.len(), 1, "the scrolled-out emoji is culled");
+		assert!(
+			artwork.iter().all(|s| viewport.contains_rect(s.clip_rect)),
+			"composer artwork must be clipped to the scroll viewport"
+		);
+		output.drop_without_applying_deltas();
 	}
 
 	#[test]

@@ -2,16 +2,16 @@
 
 fn main() {
 	let ctx = egui::Context::default();
-	let package =
-		extensions::parse_package(include_bytes!("../../../extensions/ocean.serein-extension"))
-			.expect("existing color-only themes remain compatible");
+	let package = extensions::parse_package(include_bytes!(
+		"../../../extensions/themes/ocean.serein-extension"
+	))
+	.expect("existing color-only themes remain compatible");
 	let mut theme = package.theme.unwrap();
 	assert_eq!(theme.style, extensions::ThemeStyle::default());
 	theme.style = extensions::ThemeStyle {
 		transparency_blur: Some(true),
 		transparency: Some(30),
 		blur: Some(60),
-		transparent_all: Some(true),
 		body_size: Some(18),
 		heading_size: Some(26),
 		button_size: Some(17),
@@ -23,6 +23,7 @@ fn main() {
 		widget_radius: Some(10),
 		window_radius: Some(16),
 		menu_radius: Some(12),
+		..Default::default()
 	};
 	let overlay = extensions::Theme {
 		style: extensions::ThemeStyle {
@@ -41,8 +42,8 @@ fn main() {
 	theme.validate().unwrap();
 	ui::design::set_extension_theme(Some(&theme));
 	assert!(!ui::design::window_effects().0);
-	ui::design::set_window_effects(true, 15, 50, false);
-	assert_eq!(ui::design::window_effects(), (true, 30, 60, true));
+	ui::design::set_window_effects(true, 15, 50);
+	assert_eq!(ui::design::window_effects(), (true, 30, 60));
 	ui::design::apply(&ctx);
 	for appearance in [egui::Theme::Dark, egui::Theme::Light] {
 		let style = ctx.style_of(appearance);
@@ -87,18 +88,12 @@ fn main() {
 		8.into()
 	);
 	ui::design::set_extension_theme(None);
-	assert_eq!(ui::design::window_effects(), (true, 15, 50, false));
-	ui::design::set_window_effects(true, 30, 60, false);
-	let focused = ui::design::colors(true, ui::design::Variant::Standard);
-	assert!(focused.chat.a() < 255);
-	assert_eq!(focused.sidebar.a(), 255);
-	ui::design::set_window_effects(true, 30, 60, true);
-	assert!(
-		ui::design::colors(true, ui::design::Variant::Standard)
-			.sidebar
-			.a() < 255
-	);
-	ui::design::set_window_effects(false, 15, 50, false);
+	assert_eq!(ui::design::window_effects(), (true, 15, 50));
+	ui::design::set_window_effects(true, 30, 60);
+	let see_through = ui::design::colors(true, ui::design::Variant::Standard);
+	assert!(see_through.chat.a() < 255);
+	assert!(see_through.sidebar.a() < 255);
+	ui::design::set_window_effects(false, 15, 50);
 	ui::design::apply(&ctx);
 	assert_eq!(
 		ctx.style_of(egui::Theme::Dark).spacing.button_padding,

@@ -2,12 +2,16 @@
 pub mod account;
 pub mod application_commands;
 mod image_sharing;
+pub mod polls;
+pub mod public_upload;
+pub mod registered_games;
 pub use image_sharing::ImageShare;
 pub mod archives;
 mod channel_preferences;
 pub mod keybinds;
 pub mod messaging_permissions;
 pub mod notification_preferences;
+pub mod onboarding;
 pub mod voice_settings;
 pub use channel_preferences::{ChannelPreferences, PreferenceEdit, Shortcut};
 pub use keybinds::{KeyChord, KeybindAction, Keybinds};
@@ -16,6 +20,7 @@ pub mod gifs;
 mod graphics;
 pub use graphics::GpuPreference;
 pub mod guild_folders;
+pub mod message_options;
 pub mod permissions;
 mod reading_preferences;
 pub mod server_admin;
@@ -109,6 +114,7 @@ impl User {
 		match (self.kind, self.webhook) {
 			(AccountKind::App, _) => Some("APP"),
 			(_, true) => Some("WEBHOOK"),
+			(AccountKind::VerifiedBot, _) => Some("APP"),
 			(AccountKind::Bot, _) => Some("BOT"),
 			_ => None,
 		}
@@ -160,6 +166,7 @@ pub enum AccountKind {
 	Human = 0,
 	Bot = 1,
 	App = 2,
+	VerifiedBot = 3,
 }
 /// Locally remembered account for the switcher: identity only, never a token.
 /// Tokens stay in the OS credential store under their own per-account entry.
@@ -231,6 +238,8 @@ impl InvitePreview {
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct Guild {
+	/// Service default: 0 = all messages, 1 = mentions; absent/invalid stays unknown.
+	pub default_message_notifications: Option<u8>,
 	pub stickers: Option<Vec<Sticker>>,
 	pub emojis: Option<Vec<CustomEmoji>>,
 	pub id: Id,
@@ -254,6 +263,7 @@ impl Guild {
 }
 #[derive(Clone)]
 pub struct GuildPatch {
+	pub default_message_notifications: Patch<u8>,
 	pub id: Id,
 	pub name: Patch<String>,
 	pub icon: Patch<String>,
@@ -319,6 +329,7 @@ impl Interaction {
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct Message {
+	pub poll: Option<Box<polls::Poll>>,
 	pub sticker_items: Vec<Sticker>,
 	/// Original outer message flags, retained for interaction submissions.
 	pub flags: u64,
@@ -387,6 +398,7 @@ impl Message {
 
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>()
+			+ self.poll.as_ref().map_or(0, |poll| poll.bytes())
 			+ self.reactions.as_ref().map_or(0, |r| {
 				reaction_bytes(r) + r.capacity().saturating_sub(r.len()) * size_of::<Reaction>()
 			}) + self.content.capacity()
@@ -433,6 +445,7 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Patch<T> {
 }
 #[derive(Clone)]
 pub struct MessagePatch {
+	pub poll: Patch<Option<Box<polls::Poll>>>,
 	pub sticker_items: Patch<Vec<Sticker>>,
 	pub flags: Patch<u64>,
 	pub components: Patch<Vec<Component>>,
@@ -578,7 +591,7 @@ pub struct RichActivity {
 	pub small_image: Option<ActivityImage>,
 	/// Unix milliseconds, as supplied by the activity producer.
 	pub started_at: Option<u64>,
-	/// Track end in Unix milliseconds; absent when duration is unknown.
+	/// Activity end in Unix milliseconds; may be present without a start for a countdown.
 	pub ends_at: Option<u64>,
 }
 pub const MAX_ACTIVITY_TIMESTAMP: u64 = 9_007_199_254_740_991;
@@ -594,7 +607,7 @@ impl RichActivity {
 				.started_at
 				.is_none_or(|at| at <= MAX_ACTIVITY_TIMESTAMP)
 			&& self.ends_at.is_none_or(|end| {
-				end <= MAX_ACTIVITY_TIMESTAMP && self.started_at.is_some_and(|start| end > start)
+				end <= MAX_ACTIVITY_TIMESTAMP && self.started_at.is_none_or(|start| end > start)
 			})
 	}
 	pub fn heap_bytes(&self) -> usize {
@@ -889,6 +902,14 @@ mod presence_tests {
 		allocated.started_at = Some(MAX_ACTIVITY_TIMESTAMP + 1);
 		assert!(!allocated.valid());
 		allocated.started_at = None;
+		allocated.ends_at = Some(1000);
+		assert!(allocated.valid());
+		allocated.started_at = Some(1000);
+		assert!(!allocated.valid());
+		allocated.started_at = None;
+		allocated.ends_at = Some(MAX_ACTIVITY_TIMESTAMP + 1);
+		assert!(!allocated.valid());
+		allocated.ends_at = None;
 		allocated.small_image = Some(ActivityImage::Proxy("external/../secret".into()));
 		assert!(!allocated.valid());
 	}

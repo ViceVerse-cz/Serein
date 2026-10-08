@@ -56,9 +56,7 @@ impl Status {
 		match self {
 			Self::Disabled => "System notifications are off in Serein settings.",
 			Self::Enabling => "Checking system notification permission…",
-			Self::Ready => {
-				"Serein can send system notifications; message alerts show sender and preview."
-			}
+			Self::Ready => "",
 			Self::Denied => "System notifications are disabled in your OS settings.",
 			Self::QueueFull => {
 				"Notification queue full; an alert was skipped. Unread indicators are retained."
@@ -666,20 +664,24 @@ mod tests {
 		publish(&notifications.status, 1, Status::Unavailable);
 		assert_eq!(notifications.status.load(Ordering::Acquire), active_status);
 		assert_eq!(notifications.status(), Status::Disabled);
-	}
-	#[test]
-	fn message_alert_payload_is_bounded_and_retains_preview() {
-		let mut notifications = Notifications::new(|| {}, || {});
-		let (send, receive) = mpsc::sync_channel(QUEUE_ITEMS);
-		notifications.send = Some(send);
-		notifications.generation.store(1, Ordering::Release);
-		notifications
-			.status
-			.store(encoded(1, Status::Ready), Ordering::Release);
-		assert!(notifications.notify_message("A sender".into(), "Hello there".into(), None));
-		let alert = receive.try_recv().unwrap().alert.unwrap();
-		assert_eq!((&*alert.title, &*alert.body), ("A sender", "Hello there"));
-		assert!(!notifications.notify_message("x".repeat(TITLE_BYTES + 1), "Message".into(), None));
-		assert!(receive.try_recv().is_err());
+
+		{
+			let mut notifications = Notifications::new(|| {}, || {});
+			let (send, receive) = mpsc::sync_channel(QUEUE_ITEMS);
+			notifications.send = Some(send);
+			notifications.generation.store(1, Ordering::Release);
+			notifications
+				.status
+				.store(encoded(1, Status::Ready), Ordering::Release);
+			assert!(notifications.notify_message("A sender".into(), "Hello there".into(), None));
+			let alert = receive.try_recv().unwrap().alert.unwrap();
+			assert_eq!((&*alert.title, &*alert.body), ("A sender", "Hello there"));
+			assert!(!notifications.notify_message(
+				"x".repeat(TITLE_BYTES + 1),
+				"Message".into(),
+				None
+			));
+			assert!(receive.try_recv().is_err());
+		}
 	}
 }

@@ -15,9 +15,12 @@ model.workspace = true
 client-core.workspace = true
 pulldown-cmark = { version = "=0.13.4", default-features = false }
 url.workspace = true
+zeroize.workspace = true
 time = { workspace = true, features = ["local-offset"] }
 unicode-segmentation = "=1.13.3"
 unicode-bidi = "=0.3.18"
+fluent-templates = { version = "=0.15.1", default-features = false, features = ["macros", "walkdir"] }
+sys-locale = "=0.3.2"
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
 ruzstd = { version = "0.9.0", default-features = false, features = ["std"] }
 skrifa = { version = "=0.44.0", default-features = false, features = ["std"] }
@@ -54,4 +57,16 @@ required-features = ["demo"]
 
 [[example]]
 name = "unread_navigation"
+required-features = ["demo"]
+
+[[example]]
+name = "friend_message"
+required-features = ["demo"]
+
+[[example]]
+name = "profile_board"
+required-features = ["demo"]
+
+[[example]]
+name = "copy_feedback"
 required-features = ["demo"]

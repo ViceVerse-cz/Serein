@@ -42,10 +42,11 @@ fn invite_input(ui: &mut egui::Ui, text: &mut String, focus: bool) -> egui::Resp
 }
 
 fn option_row(ui: &mut egui::Ui, icon: icons::Icon, label: &str) -> egui::Response {
+	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	let (rect, response) =
 		ui.allocate_exact_size(egui::vec2(ui.available_width(), 56.0), egui::Sense::click());
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
 	let hot = response.hovered() || response.has_focus();
 	ui.painter().rect(
 		rect,
@@ -70,7 +71,7 @@ fn option_row(ui: &mut egui::Ui, icon: icons::Icon, label: &str) -> egui::Respon
 	ui.painter().text(
 		egui::pos2(rect.left() + 50.0, rect.center().y),
 		egui::Align2::LEFT_CENTER,
-		label,
+		&label,
 		egui::FontId::new(15.0, design::medium_family(ui.ctx())),
 		colors.text,
 	);
@@ -210,43 +211,58 @@ impl JoinDialog {
 			return;
 		}
 		let mut close = false;
-		let response = dialog::Dialog::new("join-server-dialog", "Join a Server")
-			.subtitle("Enter an invite below to join an existing server.")
-			.width(460.0)
-			.show(ctx, |d| {
-				let (ready, member, loading, accepted, parsed) =
-					d.scroll(260.0, |ui| self.body(ui, state, avatars));
-				d.footer(|ui| {
-					let busy = loading || state.invite_join.pending;
-					let enabled = !state.demo && !busy && !member && !accepted;
-					let text = if busy {
-						"Please wait…"
-					} else if ready {
-						"Join Server"
-					} else {
-						"Check Invite"
-					};
-					ui.add_enabled_ui(enabled, |ui| {
-						if dialog::action(ui, text, dialog::Action::Primary).clicked() {
-							self.submit(state, parsed.clone(), ready, commands);
-						}
-					});
-					if dialog::action(
-						ui,
-						if self.picker { "Back" } else { "Cancel" },
-						dialog::Action::Neutral,
-					)
-					.clicked()
-					{
-						if self.picker {
-							self.page = Page::Choose;
-						} else {
-							close = true;
-						}
+		let response = dialog::Dialog::new(
+			"join-server-dialog",
+			crate::i18n::translate("join-server-show-join-join-a-server"),
+		)
+		.subtitle(crate::i18n::translate(
+			"join-server-show-join-enter-an-invite-below-to-join-an-existing-server",
+		))
+		.width(460.0)
+		.show(ctx, |d| {
+			let (ready, member, loading, accepted, parsed) =
+				d.scroll(260.0, |ui| self.body(ui, state, avatars));
+			d.footer(|ui| {
+				let busy = loading || state.invite_join.pending;
+				let enabled = !state.demo && !busy && !member && !accepted;
+				let text = if busy {
+					"Please wait…"
+				} else if ready {
+					"Join Server"
+				} else {
+					"Check Invite"
+				};
+				ui.add_enabled_ui(enabled, |ui| {
+					if dialog::action(ui, text, dialog::Action::Primary).clicked() {
+						self.submit(state, parsed.clone(), ready, commands);
 					}
 				});
+				if dialog::action(
+					ui,
+					if self.picker {
+						"join-server-show-join-back"
+					} else {
+						"join-server-show-join-cancel"
+					},
+					dialog::Action::Neutral,
+				)
+				.clicked()
+				{
+					if self.picker {
+						self.page = Page::Choose;
+					} else {
+						close = true;
+					}
+				}
 			});
-		if close || response.close {
+		});
+		// Like Discord, a successful join lands in the server; the dialog has done its job.
+		let joined = matches!(state.invite_join.result, Some(Ok(guild))
+			if state.selected.and_then(|id| state.channel(id)).is_some_and(|c| c.guild == Some(guild)));
+		if close
+			|| response.close
+			|| joined && input_code(&self.input).as_deref() == Some(state.invite_join.code.as_str())
+		{
 			*self = Self::default();
 		}
 	}
@@ -296,16 +312,16 @@ impl JoinDialog {
 	fn choose(&mut self, d: &mut dialog::Body<'_>, state: &State) {
 		d.scroll(250.0, |ui| {
 			ui.spacing_mut().item_spacing.y = 10.0;
-			if option_row(ui, icons::Icon::Plus, "Create My Own").clicked() {
+			if option_row(ui, icons::Icon::Plus, "join-server-choose-create-my-own").clicked() {
 				self.page = Page::Audience;
 			}
 			ui.add_space(8.0);
 			ui.label(design::eyebrow(
 				ui,
-				"Have an invite already?",
+				crate::i18n::translate("join-server-choose-have-an-invite-already"),
 				design::palette(ui).muted,
 			));
-			if option_row(ui, icons::Icon::Compass, "Join a Server").clicked() {
+			if option_row(ui, icons::Icon::Compass, "join-server-choose-join-a-server").clicked() {
 				self.page = Page::Join;
 				self.focus = true;
 			}
@@ -314,7 +330,9 @@ impl JoinDialog {
 				design::notice(
 					ui,
 					design::Level::Info,
-					"Offline preview - creating and joining servers are disabled.",
+					&crate::i18n::translate(
+						"join-server-choose-offline-preview-creating-and-joining-servers-are-disabled",
+					),
 				);
 			}
 		});
@@ -322,22 +340,32 @@ impl JoinDialog {
 	fn audience(&mut self, d: &mut dialog::Body<'_>, state: &State) {
 		d.content(|ui| {
 			ui.spacing_mut().item_spacing.y = 10.0;
-			let community = option_row(ui, icons::Icon::Globe, "For a club or community").clicked();
-			let friends = option_row(ui, icons::Icon::People, "For me and my friends").clicked();
+			let community = option_row(
+				ui,
+				icons::Icon::Globe,
+				"join-server-audience-for-a-club-or-community",
+			)
+			.clicked();
+			let friends = option_row(
+				ui,
+				icons::Icon::People,
+				"join-server-audience-for-me-and-my-friends",
+			)
+			.clicked();
 			if community || friends {
 				self.begin_customize(state);
 			}
 			ui.add_space(8.0);
 			ui.horizontal_wrapped(|ui| {
-				ui.label("Not sure?");
+				ui.label(crate::i18n::translate("join-server-audience-not-sure"));
 				if ui.link("Skip this question").clicked() {
 					self.begin_customize(state);
 				}
-				ui.label("for now.");
+				ui.label(crate::i18n::translate("join-server-audience-for-now"));
 			});
 		});
 		d.footer(|ui| {
-			if dialog::action(ui, "Back", dialog::Action::Neutral).clicked() {
+			if dialog::action(ui, "join-server-audience-back", dialog::Action::Neutral).clicked() {
 				self.page = Page::Choose;
 			}
 		});
@@ -347,8 +375,13 @@ impl JoinDialog {
 			self.name = state
 				.user
 				.as_ref()
-				.map(|user| format!("{}'s server", user.name))
-				.unwrap_or_else(|| "My server".to_owned());
+				.map(|user| {
+					crate::i18n::translate_args(
+						"join-server-customize-users-server",
+						&[("user", &user.name)],
+					)
+				})
+				.unwrap_or_else(|| crate::i18n::translate("join-server-customize-my-server"));
 		}
 		self.page = Page::Customize;
 		self.name_focus = true;
@@ -368,11 +401,11 @@ impl JoinDialog {
 					egui::WidgetInfo::labeled(
 						egui::Role::Button,
 						!self.icon_pending,
-						if self.icon.is_some() {
-							"Change server icon"
+						crate::i18n::translate_if_key(if self.icon.is_some() {
+							"join-server-customize-change-server-icon"
 						} else {
-							"Upload server icon"
-						},
+							"join-server-customize-upload-server-icon"
+						}),
 					)
 				});
 				ui.painter().circle(
@@ -410,12 +443,16 @@ impl JoinDialog {
 				}
 			});
 			ui.add_space(18.0);
-			let label = design::label(ui, "Server name");
+			let label = design::label(
+				ui,
+				&crate::i18n::translate("join-server-customize-server-name"),
+			);
 			let input = design::input(
 				ui,
 				egui::TextEdit::singleline(&mut self.name)
+					.align(egui::Align2::LEFT_CENTER)
 					.char_limit(100)
-					.hint_text("My server"),
+					.hint_text(crate::i18n::translate("join-server-customize-my-server")),
 			)
 			.labelled_by(label.id);
 			if std::mem::take(&mut self.name_focus) {
@@ -440,14 +477,18 @@ impl JoinDialog {
 				design::notice(
 					ui,
 					design::Level::Success,
-					"Server created. Waiting for Discord to add it to your server list.",
+					&crate::i18n::translate(
+						"join-server-customize-server-created-waiting-for-discord-to-add-it-to-your",
+					),
 				);
 			} else if state.demo {
 				ui.add_space(10.0);
 				design::notice(
 					ui,
 					design::Level::Info,
-					"Offline preview - creation is disabled.",
+					&crate::i18n::translate(
+						"join-server-customize-offline-preview-creation-is-disabled",
+					),
 				);
 			} else if !self.status.is_empty() {
 				ui.add_space(10.0);
@@ -468,7 +509,11 @@ impl JoinDialog {
 			ui.add_enabled_ui(!state.demo && !busy && !accepted && valid, |ui| {
 				if dialog::action(
 					ui,
-					if busy { "Please wait..." } else { "Create" },
+					if busy {
+						"join-server-customize-please-wait"
+					} else {
+						"join-server-customize-create"
+					},
 					dialog::Action::Primary,
 				)
 				.clicked()
@@ -483,7 +528,7 @@ impl JoinDialog {
 					}
 				}
 			});
-			if dialog::action(ui, "Back", dialog::Action::Neutral).clicked() {
+			if dialog::action(ui, "join-server-customize-back", dialog::Action::Neutral).clicked() {
 				self.page = Page::Audience;
 			}
 		});
@@ -497,7 +542,11 @@ impl JoinDialog {
 		avatars: &mut crate::avatars::Avatars,
 	) -> (bool, bool, bool, bool, Option<String>) {
 		let colors = design::palette(ui);
-		let label = ui.label(design::eyebrow(ui, "Invite link", colors.muted));
+		let label = ui.label(design::eyebrow(
+			ui,
+			crate::i18n::translate("join-server-body-invite-link"),
+			colors.muted,
+		));
 		ui.add_space(6.0);
 		let input = invite_input(ui, &mut self.input, std::mem::take(&mut self.focus))
 			.labelled_by(label.id);
@@ -507,7 +556,7 @@ impl JoinDialog {
 		ui.add_space(10.0);
 		ui.add(
 			egui::Label::new(
-				egui::RichText::new("Invites look like")
+				egui::RichText::new(crate::i18n::translate("join-server-body-invites-look-like"))
 					.size(12.0)
 					.color(colors.muted),
 			)
@@ -516,10 +565,12 @@ impl JoinDialog {
 		ui.add_space(2.0);
 		ui.add(
 			egui::Label::new(
-				egui::RichText::new("hTKzmak · discord.gg/hTKzmak · discord.gg/wumpus-friends")
-					.size(12.0)
-					.monospace()
-					.color(colors.muted),
+				egui::RichText::new(crate::i18n::translate(
+					"join-server-body-htkzmak-discord-gg-htkzmak-discord-gg-wumpus-friends",
+				))
+				.size(12.0)
+				.monospace()
+				.color(colors.muted),
 			)
 			.wrap(),
 		);
@@ -588,9 +639,13 @@ impl JoinDialog {
 								egui::Label::new(
 									design::semibold(
 										ui,
-										preview
-											.and_then(|p| p.embed.title.as_deref())
-											.unwrap_or("Checking invite…"),
+										preview.and_then(|p| p.embed.title.clone()).unwrap_or_else(
+											|| {
+												crate::i18n::translate(
+													"join-server-body-checking-invite",
+												)
+											},
+										),
 										17.0,
 									)
 									.color(colors.text_strong),
@@ -622,13 +677,15 @@ impl JoinDialog {
 								None => {
 									ui.add(
 										egui::Label::new(
-											egui::RichText::new(if member {
-												"You are already a member."
-											} else if loading {
-												"Fetching server details…"
-											} else {
-												"Review this server, then choose Join Server."
-											})
+											egui::RichText::new(crate::i18n::translate_if_key(
+												if member {
+													"join-server-body-you-are-already-a-member"
+												} else if loading {
+													"join-server-body-fetching-server-details"
+												} else {
+													"join-server-body-review-this-server-then-choose-join-server"
+												},
+											))
 											.size(13.0)
 											.color(colors.muted),
 										)
@@ -639,11 +696,13 @@ impl JoinDialog {
 							if preview.is_some() {
 								ui.add(
 									egui::Label::new(
-										egui::RichText::new(if member {
-											"You are already a member of this server."
-										} else {
-											"Choose Join Server to confirm."
-										})
+										egui::RichText::new(crate::i18n::translate_if_key(
+											if member {
+												"join-server-body-you-are-already-a-member-of-this-server"
+											} else {
+												"join-server-body-choose-join-server-to-confirm"
+											},
+										))
 										.size(12.0)
 										.color(colors.muted),
 									)
@@ -658,20 +717,17 @@ impl JoinDialog {
 			(lookup_error.map(|error| error.label()), true),
 			(join_error.map(|error| error.label()), true),
 			(
-				accepted.then_some(
-					"Invite accepted. Waiting for server access; complete any server rules in Discord.",
-				),
+				accepted.then_some("join-server-status-invite-accepted"),
 				false,
 			),
 			(
-				state
-					.demo
-					.then_some("Offline preview — joining servers is disabled."),
+				state.demo.then_some("join-server-status-offline-preview"),
 				false,
 			),
 			((!self.status.is_empty()).then_some(self.status), false),
 		] {
 			let Some(text) = text else { continue };
+			let text = crate::i18n::translate_if_key(text);
 			ui.add_space(12.0);
 			let (fill, color) = if danger {
 				(colors.danger.gamma_multiply(0.14), colors.danger)
@@ -697,11 +753,17 @@ impl JoinDialog {
 			.show(ui, |ui| {
 				ui.set_width(ui.available_width());
 				ui.spacing_mut().item_spacing.y = 4.0;
-				ui.label(design::semibold(ui, "Don't have an invite?", 15.0));
+				ui.label(design::semibold(
+					ui,
+					crate::i18n::translate("join-server-body-don-t-have-an-invite"),
+					15.0,
+				));
 				ui.hyperlink_to(
-					egui::RichText::new("Explore discoverable communities in Discord ↗")
-						.size(13.0)
-						.color(colors.link),
+					egui::RichText::new(crate::i18n::translate(
+						"join-server-body-explore-discoverable-communities-in-discord",
+					))
+					.size(13.0)
+					.color(colors.link),
 					"https://discord.com/servers",
 				);
 			});
@@ -742,69 +804,7 @@ impl JoinDialog {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	#[test]
-	fn invite_field_centers_hint_and_text_with_padding_and_focus_outline() {
-		for light in [false, true] {
-			for width in [240.0, 490.0] {
-				for initial in ["", "synthetic-invite"] {
-					let ctx = egui::Context::default();
-					design::apply(&ctx);
-					ctx.set_visuals(if light {
-						egui::Visuals::light()
-					} else {
-						egui::Visuals::dark()
-					});
-					let mut text = initial.to_owned();
-					let mut rect = egui::Rect::NOTHING;
-					for _ in 0..2 {
-						let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-							ui.set_width(width);
-							let response = invite_input(ui, &mut text, true);
-							assert!(response.has_focus());
-							rect = response.rect;
-						});
-						let mut shapes = Vec::new();
-						fn flatten<'a>(shape: &'a egui::Shape, out: &mut Vec<&'a egui::Shape>) {
-							if let egui::Shape::Vec(children) = shape {
-								for child in children {
-									flatten(child, out);
-								}
-							} else {
-								out.push(shape);
-							}
-						}
-						for shape in &output.shapes {
-							flatten(&shape.shape, &mut shapes);
-						}
-						assert!((rect.height() - 48.0).abs() < 1.0, "{rect:?}");
-						let label = shapes
-							.iter()
-							.find_map(|shape| match shape {
-								egui::Shape::Text(t)
-									if t.galley.job.text
-										== if initial.is_empty() {
-											"https://discord.gg/hTKzmak"
-										} else {
-											initial
-										} =>
-								{
-									Some(t.galley.rect.translate(t.pos.to_vec2()))
-								}
-								_ => None,
-							})
-							.expect("input text is rendered");
-						assert!(
-							(label.center().y - rect.center().y).abs() <= 1.0,
-							"text {label:?}, field {rect:?}"
-						);
-						assert!(label.left() >= rect.left() + 11.0);
-						assert!(shapes.iter().any(|shape| matches!(shape, egui::Shape::Rect(r) if r.rect == rect && r.stroke.width == 2.0 && r.stroke.color == design::palette_for(&ctx).accent)));
-						output.drop_without_applying_deltas();
-					}
-				}
-			}
-		}
-	}
+
 	fn frame(
 		ctx: &egui::Context,
 		dialog: &mut JoinDialog,

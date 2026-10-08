@@ -8,7 +8,21 @@ pub struct Settings {
 }
 
 impl Settings {
+	pub fn from_preferences(value: Result<AppPreferences, local_store::StoreError>) -> Self {
+		let mut settings = Self {
+			loaded: value.is_ok(),
+			current: value.unwrap_or_default(),
+			..Self::default()
+		};
+		settings.state.failed = !settings.loaded;
+		settings
+	}
 	pub fn save(&mut self, cache: Option<&crate::cache::Cache>, generation: u64) -> bool {
+		// Never replace an unread preference row with startup defaults after a read failure.
+		if !self.loaded {
+			self.state.failed = true;
+			return false;
+		}
 		if !self.state.dirty || self.state.saving {
 			return false;
 		}
@@ -25,13 +39,18 @@ impl Settings {
 		self.state.failed = !accepted;
 		accepted
 	}
+	/// Marks changed, valid device preferences for asynchronous persistence.
 	pub fn observe(&mut self, ui: &ui::MessagingUi) {
 		let value = AppPreferences {
+			window_geometry: self.current.window_geometry,
+			language: ui.language.preference().map(str::to_owned),
 			notifications_enabled: ui.notifications_enabled,
 			auto_update: ui.updates.auto_update,
 			update_nightly: ui.updates.nightly,
 			notification_options: ui.notification_options,
 			show_hidden_channels: ui.show_hidden_channels,
+			hide_nitro_emojis: ui.hide_nitro_emojis,
+			convert_emoticons: ui.convert_emoticons,
 			hide_title_bar: ui.hide_title_bar,
 			hide_window_decorations: ui.hide_window_decorations,
 			gpu_preference: ui.gpu_preference,
@@ -39,7 +58,6 @@ impl Settings {
 			transparency_blur: ui.transparency_blur,
 			transparency: ui.transparency,
 			blur: ui.blur,
-			transparent_all: ui.transparent_all,
 			voice_noise_suppression: ui.voice_processing.effective().suppression
 				!= model::voice_settings::NoiseSuppression::Off,
 			voice_processing: Some(ui.voice_processing),
@@ -64,13 +82,18 @@ impl Settings {
 			}
 		}
 	}
+	/// Restores saved device preferences, including the opt-in composer conversion.
 	pub fn apply(&self, ui: &mut ui::MessagingUi) {
 		let value = &self.current;
+		ui.language = ui::i18n::Language::from_preference(value.language.as_deref());
+		ui::i18n::set_current(ui.language);
 		ui.notifications_enabled = value.notifications_enabled;
 		ui.updates.auto_update = value.auto_update;
 		ui.updates.nightly = value.update_nightly;
 		ui.notification_options = value.notification_options;
 		ui.show_hidden_channels = value.show_hidden_channels;
+		ui.hide_nitro_emojis = value.hide_nitro_emojis;
+		ui.convert_emoticons = value.convert_emoticons;
 		ui.hide_title_bar = value.hide_title_bar;
 		ui.hide_window_decorations = value.hide_window_decorations;
 		ui.gpu_preference = value.gpu_preference;
@@ -78,7 +101,6 @@ impl Settings {
 		ui.transparency_blur = value.transparency_blur;
 		ui.transparency = value.transparency;
 		ui.blur = value.blur;
-		ui.transparent_all = value.transparent_all;
 		ui.voice_processing = value.voice_processing.unwrap_or_else(|| {
 			model::voice_settings::VoiceProcessing::from_legacy(value.voice_noise_suppression)
 		});
@@ -94,6 +116,170 @@ impl Settings {
 		ui.set_voice_user_volume_overrides(&value.user_volumes);
 		ui.set_voice_user_mutes(&value.muted_users);
 	}
+}
+
+pub fn restore_window_geometry(
+	window: &winit::window::Window,
+	geometry: local_store::WindowGeometry,
+) {
+	let saved_monitor = geometry.position.and_then(|position| {
+		window.available_monitors().find(|monitor| {
+			let origin = monitor.position();
+			let size = monitor.size();
+			i64::from(position[0]) >= i64::from(origin.x)
+				&& i64::from(position[1]) >= i64::from(origin.y)
+				&& i64::from(position[0]) < i64::from(origin.x) + i64::from(size.width)
+				&& i64::from(position[1]) < i64::from(origin.y) + i64::from(size.height)
+		})
+	});
+	let position = saved_monitor.as_ref().and(geometry.position);
+	let Some(monitor) = saved_monitor
+		.or_else(|| window.current_monitor())
+		.or_else(|| window.available_monitors().next())
+	else {
+		return;
+	};
+	let origin = monitor.position();
+	let available = monitor.size();
+	if available.width == 0 || available.height == 0 {
+		return;
+	}
+	// Move onto the saved monitor first so Windows applies its DPI change before fitting.
+	let movable = window.outer_position().is_ok();
+	if let (Some(position), true) = (position, movable) {
+		window.set_outer_position(winit::dpi::PhysicalPosition::new(position[0], position[1]));
+	}
+	let scale_factor = if position.is_some() {
+		monitor.scale_factor()
+	} else {
+		window.scale_factor()
+	};
+	let inner = window.inner_size();
+	let outer = window.outer_size();
+	let frame = [
+		outer.width.saturating_sub(inner.width),
+		outer.height.saturating_sub(inner.height),
+	];
+	// Wayland may not have reported its configured size before the first frame.
+	let requested = winit::dpi::LogicalSize::new(geometry.size[0], geometry.size[1])
+		.to_physical::<u32>(scale_factor);
+	let position = position.or_else(|| {
+		window
+			.outer_position()
+			.ok()
+			.map(|position| [position.x, position.y])
+	});
+	let (position, size) = fit_window_geometry(
+		position.unwrap_or([origin.x, origin.y]),
+		[
+			requested.width.saturating_add(frame[0]),
+			requested.height.saturating_add(frame[1]),
+		],
+		[origin.x, origin.y],
+		[available.width, available.height],
+	);
+	let size = winit::dpi::PhysicalSize::new(
+		size[0].saturating_sub(frame[0]).max(1),
+		size[1].saturating_sub(frame[1]).max(1),
+	);
+	// A newly smaller display must also be allowed to shrink below the usual minimum.
+	let minimum = winit::dpi::LogicalSize::new(760, 520).to_physical::<u32>(scale_factor);
+	window.set_min_inner_size(Some(winit::dpi::PhysicalSize::new(
+		minimum.width.min(size.width),
+		minimum.height.min(size.height),
+	)));
+	let _ = window.request_inner_size(size);
+	if movable {
+		window.set_outer_position(winit::dpi::PhysicalPosition::new(position[0], position[1]));
+	}
+}
+
+/// Fit the complete physical outer rectangle, not just its top-left corner.
+fn fit_window_geometry(
+	mut position: [i32; 2],
+	mut size: [u32; 2],
+	origin: [i32; 2],
+	available: [u32; 2],
+) -> ([i32; 2], [u32; 2]) {
+	for axis in 0..2 {
+		size[axis] = size[axis].max(1).min(available[axis].max(1));
+		let minimum = i64::from(origin[axis]);
+		let maximum = (minimum + i64::from(available[axis].max(1)) - i64::from(size[axis]))
+			.min(i64::from(i32::MAX));
+		position[axis] = i64::from(position[axis]).clamp(minimum, maximum) as i32;
+	}
+	(position, size)
+}
+
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub fn debug_window_geometry_check() {
+	use local_store::{LocalStore, WindowGeometry};
+	assert_eq!(
+		fit_window_geometry([1850, 1000], [3000, 2000], [0, 0], [1920, 1080]),
+		([0, 0], [1920, 1080])
+	);
+	assert_eq!(
+		fit_window_geometry([-100, 900], [1200, 800], [-1920, 0], [1920, 1080]),
+		([-1200, 280], [1200, 800])
+	);
+	assert_eq!(
+		fit_window_geometry([-1800, 80], [1000, 700], [-1920, 0], [1920, 1080]),
+		([-1800, 80], [1000, 700])
+	);
+	let mut random = [0_u8; 16];
+	getrandom::fill(&mut random).unwrap();
+	let directory = std::env::temp_dir().join(format!("serein-window-geometry-{random:02x?}"));
+	std::fs::create_dir(&directory).unwrap();
+	let path = directory.join("preferences.sqlite3");
+	let store = LocalStore::open(&path).unwrap();
+	assert!(store.app_preferences().unwrap().window_geometry.is_none());
+	for position in [None, Some([-1920, 80])] {
+		let size = winit::dpi::PhysicalSize::new(1800, 1200).to_logical::<u32>(1.5);
+		let geometry = WindowGeometry {
+			size: [size.width, size.height],
+			position,
+		};
+		let mut settings = Settings::default();
+		settings.current.window_geometry = Some(geometry);
+		let mut ui = ui::MessagingUi::default();
+		settings.apply(&mut ui);
+		ui.notifications_enabled = false;
+		settings.observe(&ui);
+		assert_eq!(settings.current.window_geometry, Some(geometry));
+		store.save_app_preferences(&settings.current).unwrap();
+		let reopened = LocalStore::open(&path).unwrap();
+		assert_eq!(
+			reopened.app_preferences().unwrap().window_geometry,
+			Some(geometry)
+		);
+		for invalid in [
+			WindowGeometry {
+				size: [0, 800],
+				position,
+			},
+			WindowGeometry {
+				size: [16385, 800],
+				position,
+			},
+			WindowGeometry {
+				size: [1200, 800],
+				position: Some([i32::MAX, 0]),
+			},
+		] {
+			settings.current.window_geometry = Some(invalid);
+			assert!(store.save_app_preferences(&settings.current).is_err());
+		}
+		assert_eq!(
+			reopened.app_preferences().unwrap().window_geometry,
+			Some(geometry)
+		);
+	}
+	drop(store);
+	std::fs::remove_file(path).unwrap();
+	std::fs::remove_dir(directory).unwrap();
+	println!(
+		"Offline window geometry check passed: size without position, X11 coordinates, native scale, preference preservation, SQLite reopen and bounds."
+	);
 }
 
 #[cfg(test)]
@@ -115,10 +301,12 @@ mod tests {
 		);
 		assert!(!settings.state.dirty);
 
+		settings.current.language = Some("cs".into());
 		settings.current.notification_options.current_channel = true;
 		settings.loaded = true;
 		settings.apply(&mut ui);
 		settings.observe(&ui);
+		assert_eq!(ui.language, ui::i18n::Language::Czech);
 		assert!(ui.notification_options.current_channel);
 		assert!(!settings.state.touched);
 		assert!(!settings.state.dirty);

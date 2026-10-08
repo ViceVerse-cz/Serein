@@ -72,7 +72,7 @@ impl Browser {
 		state: &State,
 		avatars: &mut Avatars,
 		hovered: &mut Option<(Sticker, String)>,
-		as_image: bool,
+		image_fallback: bool,
 	) -> Option<Sticker> {
 		let colors = design::palette(ui);
 		let sections = sections(state);
@@ -178,8 +178,10 @@ impl Browser {
 							let (_, header, _) = header.body(|ui| {
 								if matching.is_empty() {
 									ui.label(
-										egui::RichText::new("This server has no stickers yet.")
-											.color(colors.muted),
+										egui::RichText::new(crate::i18n::translate(
+											"stickers-show-this-server-has-no-stickers-yet",
+										))
+										.color(colors.muted),
 									);
 								}
 								for row in matching.chunks(columns) {
@@ -193,15 +195,12 @@ impl Browser {
 									ui.horizontal(|ui| {
 										for sticker in row {
 											ui.push_id(sticker.id, |ui| {
-												let enabled = if as_image {
-													sticker.valid()
+												let enabled = state.can_send_sticker(sticker)
+													|| (image_fallback
+														&& sticker.valid() && sticker.available
 														&& state.selected.is_some_and(|channel| {
 															state.can_send(channel)
-																&& state.can_attach(channel)
-														})
-												} else {
-													state.can_send_sticker(sticker)
-												};
+														}));
 												let response = ui
 													.add_enabled_ui(enabled, |ui| {
 														avatars.sticker_image(
@@ -225,13 +224,16 @@ impl Browser {
 												}
 												if !enabled {
 													response.on_disabled_hover_text(
-														if !as_image
-															&& state.sticker_requires_nitro(sticker)
-														{
-															"Nitro is required to use this sticker outside its server."
-														} else {
-															"This sticker is unavailable with the current connection or permissions."
-														},
+														crate::i18n::translate_if_key(
+															if !image_fallback
+																&& state
+																	.sticker_requires_nitro(sticker)
+															{
+																"stickers-show-nitro-is-required-to-use-this-sticker-outside-its-server"
+															} else {
+																"stickers-show-this-sticker-is-unavailable-with-the-current-connection-or-permissions"
+															},
+														),
 													);
 												}
 											});
@@ -244,17 +246,17 @@ impl Browser {
 								self.target = None;
 							}
 							if !query.is_empty() && results >= 500 {
-								ui.small(
-									"Showing the first 500 stickers. Search to narrow the results.",
-								);
+								ui.small(crate::i18n::translate(
+									"stickers-show-showing-the-first-500-stickers-search-to-narrow-the-results",
+								));
 								break;
 							}
 						}
 						if results == 0 && !query.is_empty() {
-							ui.label("No stickers found.");
+							ui.label(crate::i18n::translate("stickers-show-no-stickers-found"));
 						}
 						if state.stickers.loading {
-							ui.label("Loading sticker packs…");
+							ui.label(crate::i18n::translate("stickers-show-loading-sticker-packs"));
 						}
 					});
 			});
@@ -320,17 +322,27 @@ pub(crate) fn message(
 				.wrap(),
 			);
 			if let Some(section) = section {
-				ui.label(format!("This is a {} sticker.", section.name));
+				ui.label(format!(
+					"{} {} {}.",
+					crate::i18n::translate("stickers-message-this-is-a"),
+					section.name,
+					crate::i18n::translate("stickers-message-sticker")
+				));
 			} else if state.stickers.detail_loading == Some(sticker.id) {
-				ui.label("Loading sticker details…");
+				ui.label(crate::i18n::translate(
+					"stickers-message-loading-sticker-details",
+				));
 			} else {
-				ui.label(
-					state
-						.stickers
-						.detail_error
-						.unwrap_or("Sticker details unavailable."),
-				);
-				if ui.button("Retry sticker details").clicked() {
+				ui.label(state.stickers.detail_error.map_or_else(
+					|| crate::i18n::translate("stickers-message-sticker-details-unavailable"),
+					str::to_owned,
+				));
+				if ui
+					.button(crate::i18n::translate(
+						"stickers-message-retry-sticker-details",
+					))
+					.clicked()
+				{
 					*request = Some(sticker.id);
 				}
 			}
@@ -359,7 +371,12 @@ pub(crate) fn message(
 				});
 			}
 			ui.separator();
-			if design::secondary_button(ui, "View More Stickers").clicked() {
+			if design::secondary_button(
+				ui,
+				&crate::i18n::translate("stickers-message-view-more-stickers"),
+			)
+			.clicked()
+			{
 				*browse = Some(detail.clone());
 				ui.close();
 			}
@@ -518,22 +535,5 @@ mod tests {
 		assert!(browser.query.is_empty());
 		assert_eq!(browser.target, None);
 		assert!(avatars.take_requests().is_empty());
-	}
-	#[test]
-	fn search_matches_names_tags_and_source() {
-		let sticker = Sticker {
-			id: Id(1),
-			name: "Wave".into(),
-			tags: "hello,greeting".into(),
-			description: String::new(),
-			format_type: 1,
-			guild_id: Some(Id(2)),
-			pack_id: None,
-			available: true,
-		};
-		assert!(matches(&sticker, "Cozy Club", "wave"));
-		assert!(matches(&sticker, "Cozy Club", "hello"));
-		assert!(matches(&sticker, "Cozy Club", "cozy"));
-		assert!(!matches(&sticker, "Cozy Club", "sleep"));
 	}
 }

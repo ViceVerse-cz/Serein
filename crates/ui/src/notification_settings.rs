@@ -143,9 +143,9 @@ impl Tab {
 	pub const ALL: [Self; 3] = [Self::Overview, Self::Sounds, Self::Badges];
 	pub fn label(self) -> &'static str {
 		match self {
-			Self::Overview => "Overview",
-			Self::Sounds => "Sounds",
-			Self::Badges => "Badges",
+			Self::Overview => "notification-settings-tab-overview",
+			Self::Sounds => "notification-settings-tab-sounds",
+			Self::Badges => "notification-settings-tab-badges",
 		}
 	}
 }
@@ -175,7 +175,10 @@ impl MessagingUi {
 			ui.horizontal_wrapped(|ui| {
 				for tab in Tab::ALL {
 					if ui
-						.selectable_label(self.settings.notifications.active == tab, tab.label())
+						.selectable_label(
+							self.settings.notifications.active == tab,
+							crate::i18n::translate_if_key(tab.label()),
+						)
 						.clicked()
 					{
 						self.settings.notifications.jump = Some(tab);
@@ -187,9 +190,9 @@ impl MessagingUi {
 		design::card(ui, |ui| {
 			design::switch(
 				ui,
-				"Enable Desktop Notifications",
+				"notification-settings-notification-settings-enable-desktop-notifications",
 				Some(
-					"For per-channel or per-server notifications, right-click the channel or server and select Notification Settings.",
+					"notification-settings-notification-settings-for-per-channel-or-per-server-notifications-right-click-the",
 				),
 				&mut self.notifications_enabled,
 			);
@@ -201,8 +204,10 @@ impl MessagingUi {
 		design::card(ui, |ui| {
 			design::slider_row(
 				ui,
-				"Sound Volume",
-				Some("Adjusts the volume of all notification sounds and ringtones."),
+				"notification-settings-notification-settings-sound-volume",
+				Some(
+					"notification-settings-notification-settings-adjusts-the-volume-of-all-notification-sounds-and-ringtones",
+				),
 				&mut self.notification_options.volume,
 				0..=100,
 				"%",
@@ -210,9 +215,9 @@ impl MessagingUi {
 			design::card_divider(ui);
 			design::switch(
 				ui,
-				"Disable All Notification Sounds",
+				"notification-settings-notification-settings-disable-all-notification-sounds",
 				Some(
-					"Disables notification sounds. Your individual sound preferences are saved and restored when you turn this off.",
+					"notification-settings-notification-settings-disables-notification-sounds-your-individual-sound-preferences-are-saved",
 				),
 				&mut self.notification_options.disable_sounds,
 			);
@@ -284,7 +289,14 @@ impl MessagingUi {
 					design::card_divider(ui);
 				}
 				design::switch(ui, label, None, value);
-				if design::text_action(ui, "Preview Sound").clicked() {
+				if design::text_action(
+					ui,
+					&crate::i18n::translate(
+						"notification-settings-notification-settings-preview-sound",
+					),
+				)
+				.clicked()
+				{
 					self.notification_preview = Some(sound);
 				}
 			}
@@ -297,9 +309,17 @@ impl MessagingUi {
 		design::card(ui, |ui| {
 			if design::row(
 				ui,
-				"Voice & Video",
-				Some("Ringtones, call devices and microphone processing."),
-				|ui| design::button(ui, "Open", design::ButtonKind::Outline),
+				"notification-settings-notification-settings-voice-video",
+				Some(
+					"notification-settings-notification-settings-ringtones-call-devices-and-microphone-processing",
+				),
+				|ui| {
+					design::button(
+						ui,
+						&crate::i18n::translate("notification-settings-notification-settings-open"),
+						design::ButtonKind::Outline,
+					)
+				},
 			)
 			.clicked()
 			{
@@ -308,14 +328,15 @@ impl MessagingUi {
 		});
 		self.settings.notifications.heading(ui, Tab::Badges);
 		design::card(ui, |ui| {
-			ui.add_enabled_ui(cfg!(target_os = "windows"), |ui| {
+			let supported = cfg!(any(target_os = "windows", target_os = "macos"));
+			ui.add_enabled_ui(supported, |ui| {
 				design::switch(
 					ui,
-					"Enable Unread Message Badge",
-					Some(if cfg!(target_os = "windows") {
-						"Shows a red badge on the app icon when you have unread messages."
+					"notification-settings-notification-settings-enable-unread-message-badge",
+					Some(if supported {
+						"notification-settings-notification-settings-shows-a-red-badge-on-the-app-icon-when-you"
 					} else {
-						"App icon badges are not available on this platform yet."
+						"notification-settings-notification-settings-app-icon-badges-are-not-available-on-this-platform-yet"
 					}),
 					&mut self.notification_options.unread_badge,
 				);

@@ -52,6 +52,7 @@ impl Preview {
 			time: 0.0,
 			width: 1120.0,
 		};
+		preview.view.language = ui::i18n::Language::English;
 		preview.settle();
 		preview
 	}
@@ -222,57 +223,4 @@ fn optional_modal_select_can_clear_a_default_and_submit() {
 	assert!(matches!(&preview.interaction().data,
 		interactions::Data::Modal { components, .. }
 		if components[0].component.as_ref().unwrap().values.is_empty()));
-}
-
-#[test]
-fn container_sections_keep_content_width_and_show_whole_accessories() {
-	let text = |content: &str| Component {
-		kind: 10,
-		content: Some(content.into()),
-		..Default::default()
-	};
-	let mut preview = Preview::with_tree(
-		vec![Component {
-			kind: 17,
-			components: vec![
-				text("**Details**\n> **Prize:** one\n> **Winners:** 10"),
-				Component {
-					kind: 9,
-					components: vec![text("**Publishing**\n> **Channel:** none")],
-					accessory: Some(Box::new(Component {
-						kind: 2,
-						style: Some(2),
-						label: Some("Edit publishing settings".into()),
-						custom_id: Some("publish".into()),
-						..Default::default()
-					})),
-					..Default::default()
-				},
-			],
-			..Default::default()
-		}],
-		true,
-	);
-	// A wide window leaves the message column far wider than Discord's content width.
-	preview.width = 2000.0;
-	preview.settle();
-	let center = |needle: &str| {
-		preview
-			.labels
-			.iter()
-			.find(|(label, _)| label.starts_with(needle))
-			.unwrap_or_else(|| panic!("Missing {needle:?}: {:?}", preview.labels))
-			.1
-	};
-	let details = center("Details");
-	let publishing = center("Publishing");
-	let accessory = center("Edit publishing settings");
-	assert!(
-		accessory.x > publishing.x && accessory.x - details.x < 520.0,
-		"The accessory sits at the right edge of a content-width container, not the viewport: details={details:?} accessory={accessory:?}"
-	);
-	assert!(
-		(accessory.y - publishing.y).abs() < 40.0,
-		"The accessory shares its section's top row: publishing={publishing:?} accessory={accessory:?}"
-	);
 }

@@ -541,35 +541,34 @@ mod tests {
 		}
 		assert!(saw_keyframe && saw_delta);
 		assert!(encoder.encode(&pixels[..1000], (1280, 720), false).is_err());
-	}
 
-	#[test]
-	fn encodes_packed_rgb_camera_pictures_as_independent_keyframes() {
-		let Ok(mut encoder) = Encoder::new(CAMERA, SourceFormat::Rgb) else {
-			return;
-		};
-		let mut pixels = vec![0u8; 640 * 480 * 3];
-		for (index, pixel) in pixels.as_chunks_mut::<3>().0.iter_mut().enumerate() {
-			*pixel = [(index % 251) as u8, (index / 640 % 253) as u8, 60];
-		}
-		// The camera sender drops to the latest frame, so every picture must stand alone.
-		for _ in 0..4 {
-			let (data, keyframe) = encoder
-				.encode(&pixels, (640, 480), true)
-				.expect("hardware encode");
-			if data.is_empty() {
-				continue;
+		{
+			let Ok(mut encoder) = Encoder::new(CAMERA, SourceFormat::Rgb) else {
+				return;
+			};
+			let mut pixels = vec![0u8; 640 * 480 * 3];
+			for (index, pixel) in pixels.as_chunks_mut::<3>().0.iter_mut().enumerate() {
+				*pixel = [(index % 251) as u8, (index / 640 % 253) as u8, 60];
 			}
-			assert!(keyframe && crate::video_receive::is_keyframe(&data));
-			assert!(crate::video_receive::has_parameter_sets(&data));
-			crate::video::validate_source(&data).expect("valid Annex B");
-			assert!(data.len() <= CAMERA.max_bytes);
+			// The camera sender drops to the latest frame, so every picture must stand alone.
+			for _ in 0..4 {
+				let (data, keyframe) = encoder
+					.encode(&pixels, (640, 480), true)
+					.expect("hardware encode");
+				if data.is_empty() {
+					continue;
+				}
+				assert!(keyframe && crate::video_receive::is_keyframe(&data));
+				assert!(crate::video_receive::has_parameter_sets(&data));
+				crate::video::validate_source(&data).expect("valid Annex B");
+				assert!(data.len() <= CAMERA.max_bytes);
+			}
+			// A BGRA-sized buffer is rejected against the packed RGB stride.
+			assert!(
+				encoder
+					.encode(&vec![0; 640 * 480 * 4], (640, 480), true)
+					.is_err()
+			);
 		}
-		// A BGRA-sized buffer is rejected against the packed RGB stride.
-		assert!(
-			encoder
-				.encode(&vec![0; 640 * 480 * 4], (640, 480), true)
-				.is_err()
-		);
 	}
 }

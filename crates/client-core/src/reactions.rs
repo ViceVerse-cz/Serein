@@ -730,432 +730,325 @@ mod tests {
 
 	#[test]
 	fn live_reaction_deltas_preserve_counts_echoes_and_history_races() {
-		let message = crate::tests::message(10);
-		let channel = message.channel;
-		let id = message.id;
-		let own = message.author.id;
-		let emoji = ReactionEmoji {
-			id: None,
-			name: Some("x".into()),
-		};
-		let other = ReactionEmoji {
-			id: Some(Id(99)),
-			name: None,
-		};
-		let mut state = State {
-			selected: Some(channel),
-			user: Some(message.author.clone()),
-			channels: vec![Channel {
-				id: channel,
-				guild: None,
-				parent_id: None,
-				kind: 1,
-				name: "Synthetic".into(),
-				position: 0,
-				recipients: vec![],
-				last_message: None,
-				icon: None,
-				member_list_id: None,
-				tags: None,
-				message_count: None,
-			}],
-			gateway_connected: true,
-			auth: AuthState::Authenticated,
-			freshness: Freshness::Fresh,
-			..State::default()
-		};
-		state
-			.timeline
-			.insert(message.clone(), false, false)
-			.unwrap();
-		let delta = |user, emoji: &ReactionEmoji, add, burst| Event::Delta {
-			channel,
-			message: id,
-			user,
-			emoji: emoji.clone(),
-			add,
-			burst,
-		};
-		let visible = |s: &State| {
-			s.reactions
-				.display(s.timeline.get(id).unwrap())
-				.unwrap()
-				.to_vec()
-		};
-		state
-			.apply_reactions(delta(Id(500), &emoji, true, false))
-			.unwrap();
-		state
-			.apply_reactions(delta(Id(501), &emoji, true, true))
-			.unwrap();
-		state
-			.apply_reactions(delta(Id(500), &other, true, false))
-			.unwrap();
-		assert_eq!(
-			visible(&state).iter().map(|r| r.count).collect::<Vec<_>>(),
-			[2, 1]
-		);
-		assert!(state.reactions.invalidated(id));
-		// Another user and our own echo update both sides of the optimistic write.
-		let Some(crate::Command::Reactions(Command::Set { request, .. })) =
-			state.prepare_reaction(id, emoji.clone())
-		else {
-			panic!()
-		};
-		state
-			.apply_reactions(delta(Id(502), &emoji, true, false))
-			.unwrap();
-		assert_eq!(visible(&state)[0].count, 4);
-		state
-			.apply_reactions(delta(own, &emoji, true, false))
-			.unwrap();
-		assert_eq!(visible(&state)[0].count, 4);
-		assert!(visible(&state)[0].me);
-		state
-			.apply_reactions(Event::Written {
+		{
+			let message = crate::tests::message(10);
+			let channel = message.channel;
+			let id = message.id;
+			let own = message.author.id;
+			let emoji = ReactionEmoji {
+				id: None,
+				name: Some("x".into()),
+			};
+			let other = ReactionEmoji {
+				id: Some(Id(99)),
+				name: None,
+			};
+			let mut state = State {
+				selected: Some(channel),
+				user: Some(message.author.clone()),
+				channels: vec![Channel {
+					id: channel,
+					guild: None,
+					parent_id: None,
+					kind: 1,
+					name: "Synthetic".into(),
+					position: 0,
+					recipients: vec![],
+					last_message: None,
+					icon: None,
+					member_list_id: None,
+					tags: None,
+					message_count: None,
+				}],
+				gateway_connected: true,
+				auth: AuthState::Authenticated,
+				freshness: Freshness::Fresh,
+				..State::default()
+			};
+			state
+				.timeline
+				.insert(message.clone(), false, false)
+				.unwrap();
+			let delta = |user, emoji: &ReactionEmoji, add, burst| Event::Delta {
 				channel,
 				message: id,
-				request,
-				result: Err(Failure::RateLimited),
-			})
-			.unwrap();
-		assert_eq!(
-			visible(&state)[0].count,
-			4,
-			"an observed echo survives a late write error"
-		);
-		// Normal and burst membership are independent, including optimistic removal.
-		state
-			.apply_reactions(delta(own, &emoji, true, true))
-			.unwrap();
-		let Some(crate::Command::Reactions(Command::Set {
-			request,
-			add: false,
-			..
-		})) = state.prepare_reaction(id, emoji.clone())
-		else {
-			panic!()
-		};
-		state
-			.apply_reactions(delta(own, &emoji, false, false))
-			.unwrap();
-		assert_eq!(visible(&state)[0].count, 4);
-		assert!(!visible(&state)[0].me && visible(&state)[0].me_burst);
-		state
-			.apply_reactions(Event::Written {
-				channel,
-				message: id,
-				request,
-				result: Ok(()),
-			})
-			.unwrap();
-		let Some(crate::Command::Reactions(Command::Read { request, .. })) =
-			state.next_reaction_read()
-		else {
-			panic!()
-		};
-		state
-			.apply_reactions(delta(Id(503), &emoji, true, false))
-			.unwrap();
-		assert_eq!(visible(&state)[0].count, 5);
-		state
-			.apply_reactions(Event::Read {
-				channel,
-				message: id,
-				request,
-				result: Ok(vec![]),
-			})
-			.unwrap();
-		assert_eq!(
-			visible(&state)[0].count,
-			5,
-			"stale HTTP reply cannot undo a live update"
-		);
-		let Some(crate::Command::Reactions(Command::Read { request, .. })) =
-			state.next_reaction_read()
-		else {
-			panic!()
-		};
-		state
-			.apply_reactions(Event::Read {
-				channel,
-				message: id,
-				request,
-				result: Ok(visible(&state)),
-			})
-			.unwrap();
-		let _ = state.history(None);
-		state
-			.apply_reactions(delta(Id(504), &emoji, true, false))
-			.unwrap();
-		let mut history_message = message;
-		history_message.content = "Newer history content".into();
-		state.apply(crate::Envelope {
-			generation: state.generation,
-			event: crate::Event::History {
-				channel,
-				request: state.request,
-				older: false,
-				messages: vec![history_message],
-			},
-		});
-		assert_eq!(
-			visible(&state)[0].count,
-			6,
-			"history must preserve a newer live delta"
-		);
-		assert_eq!(
-			state.timeline.get(id).unwrap().content,
-			"Newer history content"
-		);
-		let Some(crate::Command::Reactions(Command::Read { request, .. })) =
-			state.next_reaction_read()
-		else {
-			panic!()
-		};
-		state
-			.apply_reactions(Event::Read {
-				channel,
-				message: id,
-				request,
-				result: Ok(visible(&state)),
-			})
-			.unwrap();
-		state
-			.apply_reactions(Event::Cleared {
-				channel,
-				message: id,
-				emoji: Some(emoji),
-			})
-			.unwrap();
-		assert_eq!(visible(&state).len(), 1);
-		state
-			.apply_reactions(delta(Id(500), &other, false, false))
-			.unwrap();
-		assert!(visible(&state).is_empty());
-		state
-			.apply_reactions(delta(Id(500), &other, true, false))
-			.unwrap();
-		state
-			.apply_reactions(Event::Cleared {
-				channel,
-				message: id,
-				emoji: None,
-			})
-			.unwrap();
-		assert!(visible(&state).is_empty());
-		assert!(state.reactions.invalidated(id));
-		// A successful write/readback can arrive before our Gateway echo.
-		let named = ReactionEmoji {
-			id: None,
-			name: Some("x".into()),
-		};
-		let Some(crate::Command::Reactions(Command::Set { request, .. })) =
-			state.prepare_reaction(id, named.clone())
-		else {
-			panic!()
-		};
-		state
-			.apply_reactions(Event::Written {
-				channel,
-				message: id,
-				request,
-				result: Ok(()),
-			})
-			.unwrap();
-		let Some(crate::Command::Reactions(Command::Read { request, .. })) =
-			state.next_reaction_read()
-		else {
-			panic!()
-		};
-		state
-			.apply_reactions(Event::Read {
-				channel,
-				message: id,
-				request,
-				result: Ok(visible(&state)),
-			})
-			.unwrap();
-		state
-			.apply_reactions(delta(own, &named, true, false))
-			.unwrap();
-		assert_eq!(visible(&state)[0].count, 1);
-		state.timeline.set_reactions(id, None).unwrap();
-		state
-			.apply_reactions(delta(Id(500), &other, true, false))
-			.unwrap();
-		assert!(
-			state.timeline.get(id).unwrap().reactions.is_none(),
-			"unknown is not zero"
-		);
-		assert!(state.next_reaction_read().is_some());
-	}
-
-	#[test]
-	fn live_reaction_verification_preserves_visible_counts_and_scope() {
-		let mut message = crate::tests::message(10);
-		let channel = message.channel;
-		let id = message.id;
-		let emoji = ReactionEmoji {
-			id: None,
-			name: Some("x".into()),
-		};
-		let snapshot = |count| {
-			vec![Reaction {
+				user,
 				emoji: emoji.clone(),
-				count,
-				me: false,
-				me_burst: false,
-			}]
-		};
-		message.reactions = Some(snapshot(1));
-		let mut state = State {
-			selected: Some(channel),
-			user: Some(message.author.clone()),
-			channels: vec![Channel {
-				id: channel,
-				guild: None,
-				parent_id: None,
-				kind: 1,
-				name: "Synthetic".into(),
-				position: 0,
-				recipients: vec![],
-				last_message: None,
-				icon: None,
-				member_list_id: None,
-				tags: None,
-				message_count: None,
-			}],
-			gateway_connected: true,
-			auth: AuthState::Authenticated,
-			freshness: Freshness::Fresh,
-			..State::default()
-		};
-		state.timeline.insert(message, false, false).unwrap();
-		let delta = || Event::Delta {
-			channel,
-			message: id,
-			user: Id(500),
-			emoji: emoji.clone(),
-			add: true,
-			burst: false,
-		};
-		let visible =
-			|s: &State| s.reactions.display(s.timeline.get(id).unwrap()).unwrap()[0].count;
-		assert!(state.queue_reaction_read(id));
-		assert_eq!(visible(&state), 1);
-		let Some(crate::Command::Reactions(Command::Read { request, .. })) =
-			state.next_reaction_read()
-		else {
-			panic!()
-		};
-		// The HTTP snapshot includes an add whose Gateway event has not arrived yet.
-		state
-			.apply_reactions(Event::Read {
-				channel,
-				message: id,
+				add,
+				burst,
+			};
+			let visible = |s: &State| {
+				s.reactions
+					.display(s.timeline.get(id).unwrap())
+					.unwrap()
+					.to_vec()
+			};
+			state
+				.apply_reactions(delta(Id(500), &emoji, true, false))
+				.unwrap();
+			state
+				.apply_reactions(delta(Id(501), &emoji, true, true))
+				.unwrap();
+			state
+				.apply_reactions(delta(Id(500), &other, true, false))
+				.unwrap();
+			assert_eq!(
+				visible(&state).iter().map(|r| r.count).collect::<Vec<_>>(),
+				[2, 1]
+			);
+			assert!(state.reactions.invalidated(id));
+			// Another user and our own echo update both sides of the optimistic write.
+			let Some(crate::Command::Reactions(Command::Set { request, .. })) =
+				state.prepare_reaction(id, emoji.clone())
+			else {
+				panic!()
+			};
+			state
+				.apply_reactions(delta(Id(502), &emoji, true, false))
+				.unwrap();
+			assert_eq!(visible(&state)[0].count, 4);
+			state
+				.apply_reactions(delta(own, &emoji, true, false))
+				.unwrap();
+			assert_eq!(visible(&state)[0].count, 4);
+			assert!(visible(&state)[0].me);
+			state
+				.apply_reactions(Event::Written {
+					channel,
+					message: id,
+					request,
+					result: Err(Failure::RateLimited),
+				})
+				.unwrap();
+			assert_eq!(
+				visible(&state)[0].count,
+				4,
+				"an observed echo survives a late write error"
+			);
+			// Normal and burst membership are independent, including optimistic removal.
+			state
+				.apply_reactions(delta(own, &emoji, true, true))
+				.unwrap();
+			let Some(crate::Command::Reactions(Command::Set {
 				request,
-				result: Ok(snapshot(2)),
-			})
-			.unwrap();
-		assert_eq!(visible(&state), 2);
-		assert!(state.next_reaction_read().is_none());
-		state.apply(crate::Envelope {
-			generation: state.generation,
-			event: crate::Event::Reactions(delta()),
-		});
-		assert_eq!(visible(&state), 3);
-		assert!(state.timeline.get(id).unwrap().reactions.is_some());
-		let Some(crate::Command::Reactions(Command::Read {
-			channel: read_channel,
-			message: read_message,
-			request,
-		})) = state.next_reaction_read()
-		else {
-			panic!()
-		};
-		assert_eq!((read_channel, read_message), (channel, id));
-		assert!(
-			state.next_reaction_read().is_none(),
-			"only one verification is in flight"
-		);
-		assert_eq!(
-			visible(&state),
-			3,
-			"verification must not hide known counts"
-		);
-		state
-			.apply_reactions(Event::Read {
-				channel,
-				message: id,
-				request,
-				result: Ok(snapshot(2)),
-			})
-			.unwrap();
-		assert_eq!(
-			visible(&state),
-			2,
-			"verification repairs cross-transport ordering"
-		);
-		assert!(state.next_reaction_read().is_none());
-		for unknown in [false, true] {
-			if unknown {
-				state.refresh_reactions(id);
-			} else {
-				assert!(state.queue_reaction_read(id));
-			}
+				add: false,
+				..
+			})) = state.prepare_reaction(id, emoji.clone())
+			else {
+				panic!()
+			};
+			state
+				.apply_reactions(delta(own, &emoji, false, false))
+				.unwrap();
+			assert_eq!(visible(&state)[0].count, 4);
+			assert!(!visible(&state)[0].me && visible(&state)[0].me_burst);
+			state
+				.apply_reactions(Event::Written {
+					channel,
+					message: id,
+					request,
+					result: Ok(()),
+				})
+				.unwrap();
 			let Some(crate::Command::Reactions(Command::Read { request, .. })) =
 				state.next_reaction_read()
 			else {
 				panic!()
 			};
-			let mut replacement = crate::tests::message(id.0);
-			replacement.content = "New replacement body".into();
-			replacement.reactions = Some(snapshot(999));
-			state.apply(crate::Envelope {
-				generation: state.generation,
-				event: crate::Event::Message(replacement),
-			});
-			assert_eq!(
-				state.timeline.get(id).unwrap().content,
-				"New replacement body"
-			);
-			state.apply(crate::Envelope {
-				generation: state.generation,
-				event: crate::Event::Patch(model::MessagePatch {
-					sticker_items: model::Patch::Absent,
-					id,
-					channel,
-					content: model::Patch::Value("New patch body".into()),
-					reactions: model::Patch::Value(snapshot(998)),
-					mentions: model::Patch::Absent,
-					edited: model::Patch::Absent,
-					embeds: model::Patch::Absent,
-					embeds_suppressed: model::Patch::Absent,
-					attachments: model::Patch::Absent,
-					components: model::Patch::Absent,
-					flags: model::Patch::Absent,
-					application_id: model::Patch::Absent,
-					extra_content: Default::default(),
-				}),
-			});
-			assert_eq!(state.timeline.get(id).unwrap().content, "New patch body");
-			let expected = if unknown { None } else { Some(snapshot(2)) };
-			assert_eq!(state.timeline.get(id).unwrap().reactions, expected);
+			state
+				.apply_reactions(delta(Id(503), &emoji, true, false))
+				.unwrap();
+			assert_eq!(visible(&state)[0].count, 5);
 			state
 				.apply_reactions(Event::Read {
 					channel,
 					message: id,
 					request,
-					result: Ok(snapshot(997)),
+					result: Ok(vec![]),
 				})
 				.unwrap();
-			assert_eq!(state.timeline.get(id).unwrap().reactions, expected);
+			assert_eq!(
+				visible(&state)[0].count,
+				5,
+				"stale HTTP reply cannot undo a live update"
+			);
 			let Some(crate::Command::Reactions(Command::Read { request, .. })) =
 				state.next_reaction_read()
 			else {
 				panic!()
 			};
+			state
+				.apply_reactions(Event::Read {
+					channel,
+					message: id,
+					request,
+					result: Ok(visible(&state)),
+				})
+				.unwrap();
+			let _ = state.history(None);
+			state
+				.apply_reactions(delta(Id(504), &emoji, true, false))
+				.unwrap();
+			let mut history_message = message;
+			history_message.content = "Newer history content".into();
+			state.apply(crate::Envelope {
+				generation: state.generation,
+				event: crate::Event::History {
+					channel,
+					request: state.request,
+					older: false,
+					messages: vec![history_message],
+				},
+			});
+			assert_eq!(
+				visible(&state)[0].count,
+				6,
+				"history must preserve a newer live delta"
+			);
+			assert_eq!(
+				state.timeline.get(id).unwrap().content,
+				"Newer history content"
+			);
+			let Some(crate::Command::Reactions(Command::Read { request, .. })) =
+				state.next_reaction_read()
+			else {
+				panic!()
+			};
+			state
+				.apply_reactions(Event::Read {
+					channel,
+					message: id,
+					request,
+					result: Ok(visible(&state)),
+				})
+				.unwrap();
+			state
+				.apply_reactions(Event::Cleared {
+					channel,
+					message: id,
+					emoji: Some(emoji),
+				})
+				.unwrap();
+			assert_eq!(visible(&state).len(), 1);
+			state
+				.apply_reactions(delta(Id(500), &other, false, false))
+				.unwrap();
+			assert!(visible(&state).is_empty());
+			state
+				.apply_reactions(delta(Id(500), &other, true, false))
+				.unwrap();
+			state
+				.apply_reactions(Event::Cleared {
+					channel,
+					message: id,
+					emoji: None,
+				})
+				.unwrap();
+			assert!(visible(&state).is_empty());
+			assert!(state.reactions.invalidated(id));
+			// A successful write/readback can arrive before our Gateway echo.
+			let named = ReactionEmoji {
+				id: None,
+				name: Some("x".into()),
+			};
+			let Some(crate::Command::Reactions(Command::Set { request, .. })) =
+				state.prepare_reaction(id, named.clone())
+			else {
+				panic!()
+			};
+			state
+				.apply_reactions(Event::Written {
+					channel,
+					message: id,
+					request,
+					result: Ok(()),
+				})
+				.unwrap();
+			let Some(crate::Command::Reactions(Command::Read { request, .. })) =
+				state.next_reaction_read()
+			else {
+				panic!()
+			};
+			state
+				.apply_reactions(Event::Read {
+					channel,
+					message: id,
+					request,
+					result: Ok(visible(&state)),
+				})
+				.unwrap();
+			state
+				.apply_reactions(delta(own, &named, true, false))
+				.unwrap();
+			assert_eq!(visible(&state)[0].count, 1);
+			state.timeline.set_reactions(id, None).unwrap();
+			state
+				.apply_reactions(delta(Id(500), &other, true, false))
+				.unwrap();
+			assert!(
+				state.timeline.get(id).unwrap().reactions.is_none(),
+				"unknown is not zero"
+			);
+			assert!(state.next_reaction_read().is_some());
+		}
+		{
+			let mut message = crate::tests::message(10);
+			let channel = message.channel;
+			let id = message.id;
+			let emoji = ReactionEmoji {
+				id: None,
+				name: Some("x".into()),
+			};
+			let snapshot = |count| {
+				vec![Reaction {
+					emoji: emoji.clone(),
+					count,
+					me: false,
+					me_burst: false,
+				}]
+			};
+			message.reactions = Some(snapshot(1));
+			let mut state = State {
+				selected: Some(channel),
+				user: Some(message.author.clone()),
+				channels: vec![Channel {
+					id: channel,
+					guild: None,
+					parent_id: None,
+					kind: 1,
+					name: "Synthetic".into(),
+					position: 0,
+					recipients: vec![],
+					last_message: None,
+					icon: None,
+					member_list_id: None,
+					tags: None,
+					message_count: None,
+				}],
+				gateway_connected: true,
+				auth: AuthState::Authenticated,
+				freshness: Freshness::Fresh,
+				..State::default()
+			};
+			state.timeline.insert(message, false, false).unwrap();
+			let delta = || Event::Delta {
+				channel,
+				message: id,
+				user: Id(500),
+				emoji: emoji.clone(),
+				add: true,
+				burst: false,
+			};
+			let visible =
+				|s: &State| s.reactions.display(s.timeline.get(id).unwrap()).unwrap()[0].count;
+			assert!(state.queue_reaction_read(id));
+			assert_eq!(visible(&state), 1);
+			let Some(crate::Command::Reactions(Command::Read { request, .. })) =
+				state.next_reaction_read()
+			else {
+				panic!()
+			};
+			// The HTTP snapshot includes an add whose Gateway event has not arrived yet.
 			state
 				.apply_reactions(Event::Read {
 					channel,
@@ -1165,114 +1058,220 @@ mod tests {
 				})
 				.unwrap();
 			assert_eq!(visible(&state), 2);
-		}
-
-		let events = || {
-			[
-				delta(),
-				Event::Cleared {
+			assert!(state.next_reaction_read().is_none());
+			state.apply(crate::Envelope {
+				generation: state.generation,
+				event: crate::Event::Reactions(delta()),
+			});
+			assert_eq!(visible(&state), 3);
+			assert!(state.timeline.get(id).unwrap().reactions.is_some());
+			let Some(crate::Command::Reactions(Command::Read {
+				channel: read_channel,
+				message: read_message,
+				request,
+			})) = state.next_reaction_read()
+			else {
+				panic!()
+			};
+			assert_eq!((read_channel, read_message), (channel, id));
+			assert!(
+				state.next_reaction_read().is_none(),
+				"only one verification is in flight"
+			);
+			assert_eq!(
+				visible(&state),
+				3,
+				"verification must not hide known counts"
+			);
+			state
+				.apply_reactions(Event::Read {
 					channel,
 					message: id,
-					emoji: None,
-				},
-			]
-		};
-		for event in events() {
-			state.apply(crate::Envelope {
-				generation: state.generation - 1,
-				event: crate::Event::Reactions(event),
-			});
-			assert_eq!(visible(&state), 2);
-			assert!(!state.reactions.invalidated(id));
-		}
-		state.gateway_connected = false;
-		for event in events() {
-			state.apply_reactions(event).unwrap();
-			assert_eq!(visible(&state), 2);
-			assert!(!state.reactions.invalidated(id));
-		}
-		state.gateway_connected = true;
-		state.channels[0].guild = Some(Id(99));
-		assert!(
-			!state.can_view(channel),
-			"unknown guild permissions fail closed"
-		);
-		for event in events() {
-			state.apply_reactions(event).unwrap();
-			assert_eq!(visible(&state), 2);
-			assert!(!state.reactions.invalidated(id));
-		}
-		state.channels[0].guild = None;
-		state.freshness = Freshness::Unavailable;
-		for event in events() {
-			state.apply_reactions(event).unwrap();
-			assert_eq!(visible(&state), 2);
-			assert!(!state.reactions.invalidated(id));
-		}
-		state.freshness = Freshness::Fresh;
-		state.selected = Some(Id(99));
-		for event in events() {
-			state.apply_reactions(event).unwrap();
-			assert_eq!(visible(&state), 2);
-			assert!(!state.reactions.invalidated(id));
-		}
-	}
+					request,
+					result: Ok(snapshot(2)),
+				})
+				.unwrap();
+			assert_eq!(
+				visible(&state),
+				2,
+				"verification repairs cross-transport ordering"
+			);
+			assert!(state.next_reaction_read().is_none());
+			for unknown in [false, true] {
+				if unknown {
+					state.refresh_reactions(id);
+				} else {
+					assert!(state.queue_reaction_read(id));
+				}
+				let Some(crate::Command::Reactions(Command::Read { request, .. })) =
+					state.next_reaction_read()
+				else {
+					panic!()
+				};
+				let mut replacement = crate::tests::message(id.0);
+				replacement.content = "New replacement body".into();
+				replacement.reactions = Some(snapshot(999));
+				state.apply(crate::Envelope {
+					generation: state.generation,
+					event: crate::Event::Message(replacement),
+				});
+				assert_eq!(
+					state.timeline.get(id).unwrap().content,
+					"New replacement body"
+				);
+				state.apply(crate::Envelope {
+					generation: state.generation,
+					event: crate::Event::Patch(model::MessagePatch {
+						poll: model::Patch::Absent,
+						sticker_items: model::Patch::Absent,
+						id,
+						channel,
+						content: model::Patch::Value("New patch body".into()),
+						reactions: model::Patch::Value(snapshot(998)),
+						mentions: model::Patch::Absent,
+						edited: model::Patch::Absent,
+						embeds: model::Patch::Absent,
+						embeds_suppressed: model::Patch::Absent,
+						attachments: model::Patch::Absent,
+						components: model::Patch::Absent,
+						flags: model::Patch::Absent,
+						application_id: model::Patch::Absent,
+						extra_content: Default::default(),
+					}),
+				});
+				assert_eq!(state.timeline.get(id).unwrap().content, "New patch body");
+				let expected = if unknown { None } else { Some(snapshot(2)) };
+				assert_eq!(state.timeline.get(id).unwrap().reactions, expected);
+				state
+					.apply_reactions(Event::Read {
+						channel,
+						message: id,
+						request,
+						result: Ok(snapshot(997)),
+					})
+					.unwrap();
+				assert_eq!(state.timeline.get(id).unwrap().reactions, expected);
+				let Some(crate::Command::Reactions(Command::Read { request, .. })) =
+					state.next_reaction_read()
+				else {
+					panic!()
+				};
+				state
+					.apply_reactions(Event::Read {
+						channel,
+						message: id,
+						request,
+						result: Ok(snapshot(2)),
+					})
+					.unwrap();
+				assert_eq!(visible(&state), 2);
+			}
 
-	#[test]
-	fn live_reaction_deltas_preserve_capacity_and_count_bounds() {
-		let mut values: Vec<_> = (1..=model::MAX_REACTIONS)
-			.map(|id| Reaction {
-				emoji: ReactionEmoji {
-					id: Some(Id(id as u64)),
-					name: Some("x".repeat(128)),
-				},
-				count: 1,
-				me: false,
-				me_burst: false,
-			})
-			.collect();
-		let extra = ReactionEmoji {
-			id: Some(Id(1000)),
-			name: None,
-		};
-		let before = values.clone();
-		assert!(apply_delta(&mut values, &extra, false, true, false).is_err());
-		assert_eq!(
-			values, before,
-			"a rejected new emoji cannot mutate a full list"
-		);
-		apply_delta(&mut values, &extra, false, false, false).unwrap();
-		assert_eq!(
-			values, before,
-			"removing an unknown emoji must not create a row"
-		);
-		let existing = values[0].emoji.clone();
-		apply_delta(&mut values, &existing, false, true, false).unwrap();
-		assert_eq!(
-			values[0].count, 2,
-			"a full list still accepts existing emoji updates"
-		);
-		assert_eq!(values.len(), model::MAX_REACTIONS);
-		values[0].count = u32::MAX;
-		let before = values.clone();
-		assert!(apply_delta(&mut values, &existing, false, true, true).is_err());
-		assert_eq!(
-			values, before,
-			"overflow must not change count or membership"
-		);
-		values[0].me = true;
-		apply_delta(&mut values, &existing, true, true, false).unwrap();
-		assert_eq!(
-			values[0].count,
-			u32::MAX,
-			"an own echo remains idempotent at capacity"
-		);
-		values[0].count = 1;
-		apply_delta(&mut values, &existing, true, false, false).unwrap();
-		assert!(!values.iter().any(|r| r.emoji.same(&existing)));
-		apply_delta(&mut values, &existing, true, false, false).unwrap();
-		assert!(model::valid_reactions(&values));
-		assert_eq!(values.len(), model::MAX_REACTIONS - 1);
+			let events = || {
+				[
+					delta(),
+					Event::Cleared {
+						channel,
+						message: id,
+						emoji: None,
+					},
+				]
+			};
+			for event in events() {
+				state.apply(crate::Envelope {
+					generation: state.generation - 1,
+					event: crate::Event::Reactions(event),
+				});
+				assert_eq!(visible(&state), 2);
+				assert!(!state.reactions.invalidated(id));
+			}
+			state.gateway_connected = false;
+			for event in events() {
+				state.apply_reactions(event).unwrap();
+				assert_eq!(visible(&state), 2);
+				assert!(!state.reactions.invalidated(id));
+			}
+			state.gateway_connected = true;
+			state.channels[0].guild = Some(Id(99));
+			assert!(
+				!state.can_view(channel),
+				"unknown guild permissions fail closed"
+			);
+			for event in events() {
+				state.apply_reactions(event).unwrap();
+				assert_eq!(visible(&state), 2);
+				assert!(!state.reactions.invalidated(id));
+			}
+			state.channels[0].guild = None;
+			state.freshness = Freshness::Unavailable;
+			for event in events() {
+				state.apply_reactions(event).unwrap();
+				assert_eq!(visible(&state), 2);
+				assert!(!state.reactions.invalidated(id));
+			}
+			state.freshness = Freshness::Fresh;
+			state.selected = Some(Id(99));
+			for event in events() {
+				state.apply_reactions(event).unwrap();
+				assert_eq!(visible(&state), 2);
+				assert!(!state.reactions.invalidated(id));
+			}
+		}
+		{
+			let mut values: Vec<_> = (1..=model::MAX_REACTIONS)
+				.map(|id| Reaction {
+					emoji: ReactionEmoji {
+						id: Some(Id(id as u64)),
+						name: Some("x".repeat(128)),
+					},
+					count: 1,
+					me: false,
+					me_burst: false,
+				})
+				.collect();
+			let extra = ReactionEmoji {
+				id: Some(Id(1000)),
+				name: None,
+			};
+			let before = values.clone();
+			assert!(apply_delta(&mut values, &extra, false, true, false).is_err());
+			assert_eq!(
+				values, before,
+				"a rejected new emoji cannot mutate a full list"
+			);
+			apply_delta(&mut values, &extra, false, false, false).unwrap();
+			assert_eq!(
+				values, before,
+				"removing an unknown emoji must not create a row"
+			);
+			let existing = values[0].emoji.clone();
+			apply_delta(&mut values, &existing, false, true, false).unwrap();
+			assert_eq!(
+				values[0].count, 2,
+				"a full list still accepts existing emoji updates"
+			);
+			assert_eq!(values.len(), model::MAX_REACTIONS);
+			values[0].count = u32::MAX;
+			let before = values.clone();
+			assert!(apply_delta(&mut values, &existing, false, true, true).is_err());
+			assert_eq!(
+				values, before,
+				"overflow must not change count or membership"
+			);
+			values[0].me = true;
+			apply_delta(&mut values, &existing, true, true, false).unwrap();
+			assert_eq!(
+				values[0].count,
+				u32::MAX,
+				"an own echo remains idempotent at capacity"
+			);
+			values[0].count = 1;
+			apply_delta(&mut values, &existing, true, false, false).unwrap();
+			assert!(!values.iter().any(|r| r.emoji.same(&existing)));
+			apply_delta(&mut values, &existing, true, false, false).unwrap();
+			assert!(model::valid_reactions(&values));
+			assert_eq!(values.len(), model::MAX_REACTIONS - 1);
+		}
 	}
 
 	#[test]
@@ -1293,6 +1292,7 @@ mod tests {
 			selected: Some(Id(10)),
 			user: Some(user.clone()),
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(1),
 				name: "Synthetic".into(),
@@ -1324,6 +1324,8 @@ mod tests {
 					roles: Some(vec![p::Role {
 						name: String::new(),
 						color: 0,
+						secondary_color: None,
+						tertiary_color: None,
 						position: 0,
 						hoist: false,
 						id: Id(1),
@@ -1349,6 +1351,7 @@ mod tests {
 			.timeline
 			.insert(
 				Message {
+					poll: None,
 					sticker_items: Vec::new(),
 					kind: 0,
 					id: Id(50),

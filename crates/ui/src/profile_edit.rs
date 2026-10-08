@@ -169,9 +169,11 @@ impl Editor {
 			ui.horizontal(|ui| {
 				ui.add(egui::Spinner::new().size(14.0));
 				ui.label(
-					egui::RichText::new("Loading your profile…")
-						.size(13.0)
-						.color(colors.muted),
+					egui::RichText::new(crate::i18n::translate(
+						"profile-edit-show-loading-your-profile",
+					))
+					.size(13.0)
+					.color(colors.muted),
 				);
 			});
 		}
@@ -179,8 +181,11 @@ impl Editor {
 			design::notice(ui, design::Level::Error, error);
 			if !state.own_profile.loading
 				&& !state.own_profile.saving
-				&& design::text_action(ui, "Reload profile").clicked()
-				&& let Some(command) = state.load_own_profile()
+				&& design::text_action(
+					ui,
+					&crate::i18n::translate("profile-edit-show-reload-profile"),
+				)
+				.clicked() && let Some(command) = state.load_own_profile()
 			{
 				commands.push(command);
 			}
@@ -271,7 +276,9 @@ impl Editor {
 			design::notice(
 				ui,
 				design::Level::Error,
-				"Check character limits and remove control characters. A display name cannot contain only spaces.",
+				&crate::i18n::translate(
+					"profile-edit-show-check-character-limits-and-remove-control-characters-a-display-name",
+				),
 			);
 		}
 		ui.add_space(16.0);
@@ -286,33 +293,41 @@ impl Editor {
 					if state.own_profile.saving {
 						ui.add(egui::Spinner::new().size(14.0));
 						ui.label(
-							egui::RichText::new("Saving profile…")
-								.size(13.0)
-								.color(colors.muted),
+							egui::RichText::new(crate::i18n::translate(
+								"profile-edit-show-saving-profile",
+							))
+							.size(13.0)
+							.color(colors.muted),
 						);
 					} else if self.saved {
 						ui.label(
-							egui::RichText::new(if state.demo {
-								"Saved in preview"
+							egui::RichText::new(crate::i18n::translate_if_key(if state.demo {
+								"profile-edit-show-saved-in-preview"
 							} else {
-								"Profile saved"
-							})
+								"profile-edit-show-profile-saved"
+							}))
 							.size(13.0)
 							.color(colors.positive),
 						);
 					} else if changed {
 						ui.label(
-							egui::RichText::new("You have unsaved changes.")
-								.size(13.0)
-								.color(colors.text),
+							egui::RichText::new(crate::i18n::translate(
+								"profile-edit-show-you-have-unsaved-changes",
+							))
+							.size(13.0)
+							.color(colors.text),
 						);
 					}
 					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 						ui.add_enabled_ui(
 							changed && changes.valid() && state.can_save_own_profile(),
 							|ui| {
-								if design::button(ui, "Save changes", design::ButtonKind::Primary)
-									.clicked() && let Some(command) = state.save_own_profile(changes)
+								if design::button(
+									ui,
+									&crate::i18n::translate("profile-edit-show-save-changes"),
+									design::ButtonKind::Primary,
+								)
+								.clicked() && let Some(command) = state.save_own_profile(changes)
 								{
 									self.submitted = Some(state.own_profile.request);
 									self.saved = false;
@@ -321,7 +336,13 @@ impl Editor {
 							},
 						);
 						ui.add_enabled_ui(changed && editable, |ui| {
-							if design::button(ui, "Cancel", design::ButtonKind::Neutral).clicked() {
+							if design::button(
+								ui,
+								&crate::i18n::translate("profile-edit-show-cancel"),
+								design::ButtonKind::Neutral,
+							)
+							.clicked()
+							{
 								self.draft =
 									state.own_profile.data.as_ref().map(Draft::from_profile);
 								self.pending_picture = None;
@@ -356,7 +377,10 @@ impl Editor {
 		}
 		crate::markdown::confirm_external_link(ui.ctx(), &mut self.preview_link, true);
 		if !state.demo && !state.gateway_connected {
-			design::hint(ui, "Reconnect to save your profile.");
+			design::hint(
+				ui,
+				&crate::i18n::translate("profile-edit-show-reconnect-to-save-your-profile"),
+			);
 		}
 	}
 }
@@ -376,23 +400,34 @@ fn form(
 	};
 	design::row(
 		ui,
-		"Profile picture",
+		"profile-edit-form-profile-picture",
 		Some(match &draft.avatar {
-			Some(Some(_)) => "New picture chosen. Save to upload it.",
-			Some(None) => "Your picture will be removed when you save.",
-			None => "PNG, JPEG, GIF or WebP up to 8 MB. Cropped to a square.",
+			Some(Some(_)) => "profile-edit-form-new-picture-chosen-save-to-upload-it",
+			Some(None) => "profile-edit-form-your-picture-will-be-removed-when-you-save",
+			None => "profile-edit-form-png-jpeg-gif-or-webp-up-to-8-mb-cropped",
 		}),
 		|ui| {
 			ui.add_enabled_ui(!choosing, |ui| {
-				if design::button(ui, "Change", design::ButtonKind::Outline).clicked() {
+				if design::button(
+					ui,
+					&crate::i18n::translate("profile-edit-form-change"),
+					design::ButtonKind::Outline,
+				)
+				.clicked()
+				{
 					action = Some(AvatarAction::Pick);
 				}
 			});
 			if draft.avatar.is_some() {
-				if design::text_action(ui, "Undo").clicked() {
+				if design::text_action(ui, &crate::i18n::translate("profile-edit-form-undo"))
+					.clicked()
+				{
 					action = Some(AvatarAction::Undo);
 				}
-			} else if has_picture && design::text_action(ui, "Remove").clicked() {
+			} else if has_picture
+				&& design::text_action(ui, &crate::i18n::translate("profile-edit-form-remove"))
+					.clicked()
+			{
 				action = Some(AvatarAction::Remove);
 			}
 			if choosing {
@@ -403,21 +438,23 @@ fn form(
 	ui.add_space(10.0);
 	field(
 		ui,
-		"Display name",
+		"profile-edit-form-display-name",
 		"profile-display-name",
 		&mut draft.name,
 		model::MAX_PROFILE_NAME_CHARS,
 		false,
 	);
 	ui.label(
-		egui::RichText::new("Leave blank to use your username.")
-			.size(12.0)
-			.color(colors.muted),
+		egui::RichText::new(crate::i18n::translate(
+			"profile-edit-form-leave-blank-to-use-your-username",
+		))
+		.size(12.0)
+		.color(colors.muted),
 	);
 	ui.add_space(8.0);
 	field(
 		ui,
-		"Pronouns",
+		"profile-edit-form-pronouns",
 		"profile-pronouns",
 		&mut draft.pronouns,
 		model::MAX_PROFILE_PRONOUNS_CHARS,
@@ -426,7 +463,7 @@ fn form(
 	ui.add_space(8.0);
 	field(
 		ui,
-		"About Me",
+		"profile-edit-form-about-me",
 		"profile-about-me",
 		&mut draft.bio,
 		model::MAX_PROFILE_BIO_CHARS,
@@ -436,28 +473,43 @@ fn form(
 	let mut enabled = draft.color.is_some();
 	design::row(
 		ui,
-		"Profile color",
-		Some("Tints your banner when you have not set a banner image."),
+		"profile-edit-form-profile-color",
+		Some("profile-edit-form-tints-your-banner-when-you-have-not-set-a-banner"),
 		|ui| {
 			if let Some(color) = &mut draft.color {
 				let mut rgb = [(*color >> 16) as u8, (*color >> 8) as u8, *color as u8];
 				if design::color_edit(ui, &mut rgb)
-					.on_hover_text("Choose profile color")
+					.on_hover_text(crate::i18n::translate(
+						"profile-edit-form-choose-profile-color",
+					))
 					.changed()
 				{
 					*color =
 						(u32::from(rgb[0]) << 16) | (u32::from(rgb[1]) << 8) | u32::from(rgb[2]);
 				}
-				if design::text_action(ui, "Use default").clicked() {
+				if design::text_action(ui, &crate::i18n::translate("profile-edit-form-use-default"))
+					.clicked()
+				{
 					enabled = false;
 				}
-			} else if design::text_action(ui, "Custom color").clicked() {
+			} else if design::text_action(
+				ui,
+				&crate::i18n::translate("profile-edit-form-custom-color"),
+			)
+			.clicked()
+			{
 				enabled = true;
 			}
 		},
 	);
 	if enabled != draft.color.is_some() {
-		draft.color = enabled.then_some(design::DEFAULT_PRIMARY_RGB);
+		// Start from the profile's own colors rather than the app accent.
+		draft.color = enabled.then(|| {
+			profile
+				.accent_color
+				.or(profile.theme_colors.map(|[top, _]| top))
+				.unwrap_or(design::DEFAULT_PRIMARY_RGB)
+		});
 	}
 	action
 }
@@ -471,9 +523,10 @@ fn field(
 	multiline: bool,
 ) {
 	let colors = design::palette(ui);
+	let label = crate::i18n::translate_if_key(label);
 	let label_id = ui
 		.horizontal(|ui| {
-			let label = ui.label(design::eyebrow(ui, label, colors.muted));
+			let label = ui.label(design::eyebrow(ui, &label, colors.muted));
 			if multiline {
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					ui.label(
@@ -489,7 +542,7 @@ fn field(
 	let edit = if multiline {
 		egui::TextEdit::multiline(value).desired_rows(4)
 	} else {
-		egui::TextEdit::singleline(value)
+		egui::TextEdit::singleline(value).align(egui::Align2::LEFT_CENTER)
 	};
 	design::input(
 		ui,
@@ -515,29 +568,38 @@ fn preview(
 	let (demo, guilds) = media;
 	let colors = design::palette(ui);
 	let mut action = None;
-	ui.label(design::eyebrow(ui, "Preview", colors.muted));
+	ui.label(design::eyebrow(
+		ui,
+		crate::i18n::translate("profile-edit-preview-preview"),
+		colors.muted,
+	));
 	ui.add_space(4.0);
-	egui::Frame::new()
-		.fill(colors.raised)
-		.corner_radius(8)
-		.stroke(egui::Stroke::new(1.0, colors.border))
-		.show(ui, |ui| {
-			ui.set_width(ui.available_width());
-			ui.spacing_mut().item_spacing.y = 0.0;
+	// Paint with the profile's own colors, as other people see the card, not the app theme.
+	let theme = crate::profiles::Theme::new(&colors, profile.theme_colors);
+	let rgb = |c: u32| egui::Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8);
+	ui.scope(|ui| {
+		let background = ui.painter().add(egui::Shape::Noop);
+		ui.visuals_mut().override_text_color = Some(theme.text);
+		ui.visuals_mut().hyperlink_color = theme.link;
+		ui.set_width(ui.available_width());
+		ui.spacing_mut().item_spacing.y = 0.0;
+		{
 			let (banner, _) = ui
 				.allocate_exact_size(egui::vec2(ui.available_width(), 90.0), egui::Sense::hover());
 			let corner = egui::CornerRadius {
-				nw: 8,
-				ne: 8,
+				nw: 12,
+				ne: 12,
 				sw: 0,
 				se: 0,
 			};
 			if profile.banner.is_some() {
+				// The banner image covers its color, so the saved profile paints it as is.
 				avatars.paint_banner(ui, profile, banner, corner, demo);
 			} else {
-				let color = draft.color.map_or(colors.accent.gamma_multiply(0.4), |c| {
-					egui::Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
-				});
+				let color = draft
+					.color
+					.or(profile.theme_colors.map(|[top, _]| top))
+					.map_or(colors.raised, rgb);
 				ui.painter().rect_filled(banner, corner, color);
 			}
 			let avatar = egui::Rect::from_min_size(
@@ -545,7 +607,7 @@ fn preview(
 				egui::Vec2::splat(80.0),
 			);
 			ui.painter()
-				.circle_filled(avatar.center(), 46.0, colors.raised);
+				.circle_filled(avatar.center(), 46.0, theme.card);
 			let response =
 				ui.scope_builder(
 					egui::UiBuilder::new().max_rect(avatar),
@@ -567,7 +629,9 @@ fn preview(
 					ui.scope_id().with("change-avatar"),
 					egui::Sense::click(),
 				);
-				let hit = hit.on_hover_text("Change profile picture");
+				let hit = hit.on_hover_text(crate::i18n::translate(
+					"profile-edit-preview-change-profile-picture",
+				));
 				if hit.hovered() || hit.has_focus() {
 					ui.painter().circle_filled(
 						avatar.center(),
@@ -596,7 +660,7 @@ fn preview(
 				})
 				.show(ui, |ui| {
 					egui::Frame::new()
-						.fill(colors.chat)
+						.fill(theme.panel)
 						.corner_radius(8)
 						.inner_margin(12)
 						.show(ui, |ui| {
@@ -610,27 +674,31 @@ fn preview(
 							};
 							ui.add(
 								egui::Label::new(
-									design::semibold(ui, name, 20.0).color(colors.text_strong),
+									design::semibold(ui, name, 20.0).color(theme.text),
 								)
 								.wrap(),
 							);
 							ui.label(
 								egui::RichText::new(&profile.username)
 									.size(13.0)
-									.color(colors.text),
+									.color(theme.text),
 							);
 							if !draft.pronouns.is_empty() {
 								ui.label(
 									egui::RichText::new(&draft.pronouns)
 										.size(12.0)
-										.color(colors.muted),
+										.color(theme.muted),
 								);
 							}
 							if !draft.bio.is_empty() {
 								ui.add_space(8.0);
 								ui.separator();
 								ui.add_space(8.0);
-								ui.label(design::eyebrow(ui, "About Me", colors.text_strong));
+								ui.label(design::eyebrow(
+									ui,
+									crate::i18n::translate("profile-edit-preview-about-me"),
+									theme.text,
+								));
 								let mut mentions = crate::profiles::ProfileSession::default();
 								crate::markdown::Formatted::parse(&draft.bio).show_with_images(
 									ui,
@@ -639,11 +707,15 @@ fn preview(
 									None,
 									&mut mentions,
 									(avatars, demo, guilds),
+									crate::design::MessageCardSurface::Opaque,
 								);
 							}
 						});
 				});
-		});
+		}
+		let rect = ui.min_rect();
+		ui.painter().set(background, theme.background(rect));
+	});
 	action
 }
 

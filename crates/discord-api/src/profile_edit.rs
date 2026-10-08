@@ -4,6 +4,39 @@ use model::{Id, ProfileEdit, UserProfile};
 use reqwest::Method;
 
 impl DiscordApi {
+	/// Read-only optional enrichment in the existing cancellable profile worker.
+	pub(super) async fn load_profile_board_games(
+		&self,
+		profile: &mut UserProfile,
+	) -> Result<(), Failure> {
+		let Some(board) = &profile.board else {
+			return Ok(());
+		};
+		let mut ids: Vec<Id> = board
+			.iter()
+			.flat_map(|widget| widget.games.iter().map(|game| game.id))
+			.collect();
+		ids.sort_unstable();
+		ids.dedup();
+		for batch in ids.chunks(25) {
+			let path = board_games_path(batch);
+			let bytes = match self
+				.request_limited(Method::GET, &path, None, profile::MAX_PROFILE_WIRE)
+				.await
+			{
+				Ok(bytes) => bytes,
+				Err(failure) if failure.ends_session() => return Err(failure),
+				// Optional metadata failures must not hide the rest of the profile.
+				Err(_) => break,
+			};
+			let mut enriched = profile.clone();
+			if profile::apply_board_games(&mut enriched, &bytes, batch).is_ok() {
+				*profile = enriched;
+			}
+		}
+		Ok(())
+	}
+
 	pub(super) async fn edit_profile(
 		&self,
 		user: Id,
@@ -42,7 +75,7 @@ impl DiscordApi {
 		let bytes = self
 			.request_limited(Method::GET, &path, None, profile::MAX_PROFILE_WIRE)
 			.await?;
-		let saved = profile::decode_profile(&bytes, None).map_err(|_| Failure::Protocol)?;
+		let saved = profile::decode_profile(&bytes, None, false).map_err(|_| Failure::Protocol)?;
 		if saved.user.id != user || saved.limited || saved.guild.is_some() {
 			return Err(Failure::ProtocolAt(
 				"Full account profile is unavailable; reload before editing",
@@ -74,6 +107,25 @@ impl DiscordApi {
 	}
 }
 
+// The client serializes array query parameters as repeated keys, not CSV.
+fn board_games_path(ids: &[Id]) -> String {
+	let query = ids
+		.iter()
+		.map(|id| format!("game_ids={id}"))
+		.collect::<Vec<_>>()
+		.join("&");
+	format!("/games?{query}")
+}
+
+#[cfg(debug_assertions)]
+pub fn debug_profile_board_request_check() {
+	assert_eq!(
+		board_games_path(&[Id(2), Id(3)]),
+		"/games?game_ids=2&game_ids=3"
+	);
+	assert_eq!(board_games_path(&[Id(2)]), "/games?game_ids=2");
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -89,7 +141,7 @@ mod tests {
 	const PATCH: &str = "PATCH /users/@me";
 	const USER: &str =
 		r#"{"id":"1","username":"synthetic","global_name":null,"avatar":null,"discriminator":"0"}"#;
-	const PROFILE: &str = r#"{"user":{"id":"1","username":"synthetic","global_name":null,"avatar":null,"discriminator":"0"},"user_profile":{"bio":"hello","pronouns":"","accent_color":null}}"#;
+	const PROFILE: &str = r#"{"user":{"id":"1","username":"synthetic","global_name":null,"avatar":null,"discriminator":"0"},"user_profile":{"bio":"hello","pronouns":"","accent_color":null},"mutual_guilds":null,"mutual_friends":null}"#;
 
 	async fn respond(
 		listener: &TcpListener,

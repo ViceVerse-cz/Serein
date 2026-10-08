@@ -10,6 +10,21 @@ concurrency:
 permissions:
   contents: read
 jobs:
+  windows-installer:
+    # Run the bounded synthetic installer check on drafts too.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - name: Install NSIS
+        run: choco install nsis --no-progress -y
+      - name: Install, upgrade and uninstall (synthetic/offline)
+        run: python packaging/windows/test_installer.py
   native:
     if: github.event_name == 'push' || github.event.pull_request.draft == false
     strategy:
@@ -24,14 +39,20 @@ jobs:
         run: bash packaging/macos/test_sign_release.sh
       - name: Linux native dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libxrandr-dev libxcursor-dev libvulkan-dev libasound2-dev libpulse-dev cmake python3 dpkg-dev desktop-file-utils
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libxrandr-dev libxcursor-dev libvulkan-dev libasound2-dev libpulse-dev cmake python3 dpkg-dev desktop-file-utils xvfb xauth
       - uses: dtolnay/rust-toolchain@1.98.1
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2.9.2
         with:
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Check production build without development fixtures
+        run: cargo check --locked -p serein --bin serein --no-default-features
       - run: cargo xtask check
+      - name: Flatpak encoding after GTK initialization (synthetic)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a cargo test --locked -p platform --features winit/x11,winit/wayland --lib flatpak_locale_tests::post_gtk_flatpak_encoding_preflight -- --exact --ignored
       - uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: 1.4.2
@@ -61,16 +82,26 @@ jobs:
       - uses: Swatinem/rust-cache@v2.9.2
         with:
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: |
             . -> target
             examples/extensions -> target
+            extensions -> target
+      - name: Validate catalog packages, manifests and previews (offline)
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 extensions/test_catalog.py
+          python3 extensions/catalog.py --validate
       - run: cargo fmt --manifest-path examples/extensions/Cargo.toml --all -- --check
       - run: cargo test --manifest-path examples/extensions/Cargo.toml --workspace --locked
       - run: cargo test --locked -p extensions --test app_contract --example manifest_check
       - run: cargo clippy --manifest-path examples/extensions/Cargo.toml --workspace --all-targets --locked -- -D warnings
       - run: cargo build --manifest-path examples/extensions/Cargo.toml --workspace --locked --release --target wasm32-unknown-unknown
+      - run: cargo fmt --manifest-path extensions/Cargo.toml --all -- --check
+      - run: cargo test --manifest-path extensions/Cargo.toml --workspace --locked
+      - run: cargo clippy --manifest-path extensions/Cargo.toml --workspace --all-targets --locked -- -D warnings
+      - run: cargo build --manifest-path extensions/Cargo.toml --workspace --locked --release --target wasm32-unknown-unknown
       - name: Check existing and rebuilt plugins in the host sandbox (offline)
-        run: cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release
+        run: cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release extensions/target/wasm32-unknown-unknown/release
       - run: cargo run --locked --release -p extensions --example legacy_sdk_check
   security:
     if: github.event_name == 'push' || github.event.pull_request.draft == false
@@ -83,6 +114,7 @@ jobs:
           key: cargo-audit-0.22.2
           cache-targets: false
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo install cargo-audit --version 0.22.2 --locked --no-default-features
       - run: cargo audit --deny warnings
   licenses:
@@ -95,6 +127,7 @@ jobs:
         with:
           key: cargo-deny-0.20.2
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo install cargo-deny --version 0.20.2 --locked
       - run: cargo fetch --locked
       - run: cargo fetch --locked --manifest-path fuzz/Cargo.toml
@@ -117,6 +150,7 @@ jobs:
         with:
           key: cargo-fuzz-0.13.2
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: |
             . -> target
             fuzz -> target

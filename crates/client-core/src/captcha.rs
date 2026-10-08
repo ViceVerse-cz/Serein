@@ -1,4 +1,4 @@
-//! One human-completed invite challenge; never persisted or solved automatically.
+//! One human-completed challenge for an explicit write; never persisted or solved automatically.
 use std::{
 	fmt,
 	time::{Duration, Instant},
@@ -99,21 +99,41 @@ pub struct Retry {
 /// Identity of the single write a solved challenge may resume.
 #[derive(Clone, PartialEq, Eq)]
 pub enum Target {
-	Invite { code: String },
-	Friend { user: model::Id },
-	Username { username: String },
+	Invite {
+		code: String,
+	},
+	Friend {
+		user: model::Id,
+	},
+	Username {
+		username: String,
+	},
+	/// Opening a one-to-one conversation with someone who may not be a friend.
+	Direct {
+		user: model::Id,
+	},
+	/// One already-queued text message, identified by its local nonce.
+	Message {
+		channel: model::Id,
+		nonce: String,
+	},
 }
 /// The user-visible flow a pending challenge belongs to.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Verification {
 	Invite { request: u64 },
 	Friend { request: u64 },
+	Direct { request: u64 },
+	Message { request: u64 },
 }
 impl Verification {
 	/// The request sequence this pending challenge belongs to.
 	pub fn request(self) -> u64 {
 		match self {
-			Self::Invite { request } | Self::Friend { request } => request,
+			Self::Invite { request }
+			| Self::Friend { request }
+			| Self::Direct { request }
+			| Self::Message { request } => request,
 		}
 	}
 }

@@ -76,6 +76,7 @@ fn select_media_menu(
 						&mut video,
 						demo,
 						&mut crate::select::Surface::new(ui, "attachment-test"),
+						crate::design::MessageCardSurface::Conversation,
 					);
 				}
 			},
@@ -340,4 +341,122 @@ fn video_controls_still_handle_primary_clicks() {
 			assert!(!egui::Popup::is_any_open(&ctx));
 		}
 	}
+}
+
+#[test]
+fn composer_upload_cards_keep_their_surface_at_every_chat_transparency() {
+	let original = design::default_window_effects();
+	for light in [false, true] {
+		for transparency in [0, 15, 50, 100] {
+			design::set_window_effects(true, transparency, 0);
+			let ctx = egui::Context::default();
+			ctx.set_visuals(if light {
+				egui::Visuals::light()
+			} else {
+				egui::Visuals::dark()
+			});
+			let texture = ctx.load_texture(
+				"synthetic-upload",
+				egui::ColorImage::filled([2, 2], Color32::WHITE),
+				egui::TextureOptions::default(),
+			);
+			for preview in [None, Some(&texture)] {
+				let mut expected = None;
+				let output = ctx.run_ui(Default::default(), |ui| {
+					expected = Some(design::palette(ui));
+					assert!(!pending_card(ui, "sample.png", 512, preview, true));
+				});
+				let colors = expected.unwrap();
+				for (size, fill) in [
+					(egui::vec2(176.0, 168.0), colors.sidebar),
+					(egui::vec2(160.0, 108.0), colors.base),
+				] {
+					assert!(
+						output.shapes.iter().any(|shape| matches!(
+							&shape.shape,
+							egui::Shape::Rect(rect) if rect.rect.size() == size && rect.fill == fill
+						)),
+						"upload surface changed with chat transparency {transparency}"
+					);
+				}
+				output.drop_without_applying_deltas();
+			}
+		}
+	}
+	design::set_window_effects(original.0, original.1, original.2);
+}
+
+#[test]
+fn search_preview_cards_keep_their_surface_while_chat_cards_use_tint() {
+	let original = design::default_window_effects();
+	let mut message = test_support::message(1, Id(2));
+	message.attachments = vec![Attachment {
+		filename: "synthetic-report.pdf".into(),
+		content_type: Some("application/pdf".into()),
+		..attachment(false)
+	}];
+	message.embeds = vec![model::Embed {
+		description: Some("Synthetic preview".into()),
+		..Default::default()
+	}];
+	for light in [false, true] {
+		for transparency in [0, 15, 100] {
+			design::set_window_effects(true, transparency, 0);
+			let ctx = egui::Context::default();
+			ctx.set_visuals(if light {
+				egui::Visuals::light()
+			} else {
+				egui::Visuals::dark()
+			});
+			for card_surface in [
+				design::MessageCardSurface::Opaque,
+				design::MessageCardSurface::Conversation,
+			] {
+				for embed in [false, true] {
+					let mut expected = Color32::TRANSPARENT;
+					let output = ctx.run_ui(Default::default(), |ui| {
+						expected = card_surface.fill(ui, design::palette(ui).raised);
+						if embed {
+							crate::embeds::show(
+								ui,
+								&message,
+								&mut crate::markdown::FormatCache::default(),
+								&mut Avatars::default(),
+								&mut None,
+								&mut DownloadUi::default(),
+								&mut crate::profiles::ProfileSession::default(),
+								&mut crate::video::VideoUi::default(),
+								&client_core::State::default(),
+								card_surface,
+							);
+						} else {
+							show(
+								ui,
+								&message,
+								&mut Avatars::default(),
+								&mut None,
+								&mut None,
+								&mut DownloadUi::default(),
+								&mut crate::audio::AudioUi::default(),
+								&mut crate::video::VideoUi::default(),
+								true,
+								&mut crate::select::Surface::new(ui, "preview-card-test"),
+								card_surface,
+							);
+						}
+					});
+					assert!(
+						output.shapes.iter().any(|shape| matches!(
+							&shape.shape,
+							egui::Shape::Rect(rect) if rect.corner_radius == egui::CornerRadius::same(if embed { 5 } else { 8 })
+								&& rect.fill == expected
+						)),
+						"missing preview card surface at transparency {transparency}"
+					);
+					output.drop_without_applying_deltas();
+				}
+			}
+		}
+	}
+	design::set_window_effects(original.0, original.1, original.2);
 }

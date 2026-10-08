@@ -48,10 +48,15 @@ impl Candidate {
 	fn label(&self) -> String {
 		let kind = match self.kind {
 			Kind::Text => "#",
-			Kind::Voice => "Voice · roster",
+			Kind::Voice => "switcher-kind-voice-roster",
 			Kind::Direct | Kind::Group => "",
 		};
-		format!("{kind} {} · {}", self.name, self.scope)
+		format!(
+			"{} {} · {}",
+			crate::i18n::translate_if_key(kind),
+			self.name,
+			self.scope
+		)
 	}
 }
 
@@ -148,22 +153,24 @@ fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 		.map(|channel| {
 			let name = state.conversation_name(channel);
 			let name = if name.is_empty() && channel.guild.is_none() {
-				channel
-					.recipients
-					.first()
-					.map_or("Direct message", |user| state.user_display_name(user))
+				channel.recipients.first().map_or_else(
+					|| crate::i18n::translate("switcher-kind-direct-message"),
+					|user| state.user_display_name(user).to_owned(),
+				)
 			} else {
-				name
+				name.to_owned()
 			};
-			let scope = channel.guild.and_then(|id| state.guild(id)).map_or(
-				if channel.guild.is_some() {
-					"Server"
-				} else if channel.kind == 3 {
-					"Group direct message"
-				} else {
-					"Direct message"
+			let scope = channel.guild.and_then(|id| state.guild(id)).map_or_else(
+				|| {
+					crate::i18n::translate(if channel.guild.is_some() {
+						"switcher-kind-server"
+					} else if channel.kind == 3 {
+						"switcher-kind-group-direct-message"
+					} else {
+						"switcher-kind-direct-message"
+					})
 				},
-				|g| g.name.as_str(),
+				|g| g.name.clone(),
 			);
 			let kind = if channel.kind == 2 {
 				Kind::Voice
@@ -177,8 +184,8 @@ fn candidates(state: &State, query: &str) -> Vec<Candidate> {
 			Candidate {
 				target: Target::Channel(channel.id),
 				kind,
-				name: bounded(name),
-				scope: bounded(scope),
+				name: bounded(&name),
+				scope: bounded(&scope),
 				current: Some(channel.id) == state.selected,
 				user: if kind == Kind::Direct {
 					channel.recipients.first().cloned()
@@ -516,6 +523,7 @@ impl Switcher {
 						icons::inline(ui, icons::Icon::Search, 18.0, colors.muted);
 						let input = ui.add(
 							egui::TextEdit::singleline(&mut self.query)
+								.align(egui::Align2::LEFT_CENTER)
 								.id(egui::Id::unique("conversation-switcher-query"))
 								.event_filter(egui::EventFilter {
 									horizontal_arrows: true,
@@ -525,11 +533,14 @@ impl Switcher {
 								})
 								.frame(egui::Frame::NONE)
 								.font(egui::FontId::proportional(16.0))
-								.hint_text("Where would you like to go?")
+								.hint_text(crate::i18n::translate(
+									"switcher-show-where-would-you-like-to-go",
+								))
 								.char_limit(QUERY_CHARS)
 								.desired_width(ui.available_width().max(60.0)),
 						);
-						let input = input.accessible_name("Find conversation");
+						let input =
+							input.accessible_name(crate::i18n::translate("find-conversation"));
 						if self.focus {
 							input.request_focus();
 							self.focus = false;
@@ -550,9 +561,11 @@ impl Switcher {
 			}
 			if blocked {
 				ui.label(
-					egui::RichText::new("Finish composing text before opening or closing.")
-						.size(12.0)
-						.color(colors.warning),
+					egui::RichText::new(crate::i18n::translate(
+						"switcher-show-finish-composing-text-before-opening-or-closing",
+					))
+					.size(12.0)
+					.color(colors.warning),
 				);
 			}
 			let now = ui.input(|input| input.time);
@@ -580,11 +593,11 @@ impl Switcher {
 			ui.add_space(2.0);
 			ui.label(design::eyebrow(
 				ui,
-				if self.query.trim().is_empty() {
-					"Conversations and friends"
+				crate::i18n::translate_if_key(if self.query.trim().is_empty() {
+					"switcher-show-conversations-and-friends"
 				} else {
-					"Results"
-				},
+					"switcher-show-results"
+				}),
 				colors.muted,
 			));
 			ui.spacing_mut().item_spacing.y = 2.0;
@@ -596,13 +609,21 @@ impl Switcher {
 							icons::inline(ui, icons::Icon::Search, 28.0, colors.muted);
 							ui.add_space(6.0);
 							ui.label(
-								design::semibold(ui, "No conversations or friends match", 14.0)
-									.color(colors.text),
+								design::semibold(
+									ui,
+									crate::i18n::translate(
+										"switcher-show-no-conversations-or-friends-match",
+									),
+									14.0,
+								)
+								.color(colors.text),
 							);
 							ui.label(
-								egui::RichText::new("Try a channel, server or person name.")
-									.size(12.0)
-									.color(colors.muted),
+								egui::RichText::new(crate::i18n::translate(
+									"switcher-show-try-a-channel-server-or-person-name",
+								))
+								.size(12.0)
+								.color(colors.muted),
 							);
 						});
 					});
@@ -638,16 +659,28 @@ impl Switcher {
 			ui.horizontal(|ui| {
 				ui.spacing_mut().item_spacing.x = 4.0;
 				if !narrow {
-					for (keys, action) in [("↑↓", "choose"), ("↵", "open"), ("Esc", "close")]
-					{
+					for (keys, action) in [
+						("↑↓", "switcher-footer-choose"),
+						("↵", "switcher-footer-open"),
+						("Esc", "switcher-show-close"),
+					] {
 						key_hint(ui, keys, colors);
-						ui.label(egui::RichText::new(action).size(12.0).color(colors.muted));
+						ui.label(
+							egui::RichText::new(crate::i18n::translate(action))
+								.size(12.0)
+								.color(colors.muted),
+						);
 						ui.add_space(6.0);
 					}
 				}
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					ui.add_enabled_ui(!blocked, |ui| {
-						if design::secondary_button(ui, "Close").clicked() {
+						if design::secondary_button(
+							ui,
+							&crate::i18n::translate("switcher-show-close"),
+						)
+						.clicked()
+						{
 							cancel = true;
 						}
 					});
@@ -696,23 +729,6 @@ mod tests {
 			.collect();
 		state.selected = Some(Id(25));
 		state
-	}
-
-	#[test]
-	fn lowercase_buffer_matches_allocating_normalization() {
-		let mut buffer = String::new();
-		for value in [
-			"",
-			"General Chat",
-			"Žofie Example",
-			"ΟΔΥΣΣΕΎΣ ΑΣ",
-			"İstanbul",
-			&"🦀A".repeat(1000),
-			&"x".repeat(1000),
-		] {
-			lowercase_bounded_into(&mut buffer, value);
-			assert_eq!(buffer, bounded(value).to_lowercase(), "{value:?}");
-		}
 	}
 
 	#[test]

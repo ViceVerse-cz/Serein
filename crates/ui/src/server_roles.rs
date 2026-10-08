@@ -6,7 +6,6 @@ use model::{
 	Id, Patch, permissions as p, server_admin,
 	server_roles::{Action, Colors, Edit, Role},
 };
-use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum Tab {
@@ -238,7 +237,8 @@ impl RolesUi {
 			if ui
 				.add_sized(
 					[width - 36.0, 32.0],
-					egui::Button::new("←  BACK").frame(false),
+					egui::Button::new(crate::i18n::translate("server-roles-navigation-back"))
+						.frame(false),
 				)
 				.clicked()
 			{
@@ -252,7 +252,9 @@ impl RolesUi {
 							&& !self.has_changes(),
 						egui::Button::new("+"),
 					)
-					.on_hover_text("Create Role")
+					.on_hover_text(crate::i18n::translate(
+						"server-roles-navigation-create-role",
+					))
 					.clicked()
 			{
 				self.creating = Self::dispatch(
@@ -284,16 +286,18 @@ impl RolesUi {
 							6.0,
 							color,
 						);
-						let name = egui::WidgetText::from(
-							RichText::new(&role.name)
-								.size(14.0)
-								.color(design::palette(ui).text),
-						)
-						.into_galley(
+						let name = crate::role_names::galley(
 							ui,
-							Some(egui::TextWrapMode::Truncate),
+							&role.name,
+							egui::FontId::proportional(14.0),
+							Some(role.colors),
+							if response.hovered() {
+								design::palette(ui).hover
+							} else {
+								design::palette(ui).base
+							},
+							design::palette(ui).text,
 							width - 34.0,
-							egui::TextStyle::Body,
 						);
 						ui.painter().galley(
 							response.rect.left_center() + egui::vec2(29.0, -name.size().y / 2.0),
@@ -325,12 +329,48 @@ impl RolesUi {
 	) {
 		self.sync(state, guild);
 		ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
+		if self.selected.is_none() {
+			design::page_header(
+				ui,
+				"server-roles-list-roles",
+				Some(
+					"server-roles-list-use-roles-to-group-your-server-members-and-assign-permissions",
+				),
+				|ui| {
+					if state.can_create_guild_role(guild)
+						&& ui
+							.add_enabled_ui(
+								!state.server_admin.pending && !state.server_admin.needs_refresh,
+								|ui| {
+									design::button(
+										ui,
+										"server-roles-list-create-role",
+										design::ButtonKind::Primary,
+									)
+								},
+							)
+							.inner
+							.clicked()
+					{
+						self.creating = Self::dispatch(
+							state,
+							guild,
+							Action::Create(Edit {
+								name: Some("new role".into()),
+								..Edit::default()
+							}),
+							commands,
+						);
+					}
+				},
+			);
+		}
 		if let Some(error) = state.server_admin.error.or(self.error) {
 			design::notice(ui, design::Level::Error, error);
 			if ui
 				.add_enabled(
 					!state.server_admin.pending,
-					egui::Button::new("Reload Roles"),
+					egui::Button::new(crate::i18n::translate("server-roles-show-reload-roles")),
 				)
 				.clicked()
 			{
@@ -342,11 +382,13 @@ impl RolesUi {
 		if state.server_admin.pending {
 			ui.horizontal(|ui| {
 				ui.spinner();
-				ui.weak(if state.server_admin.saving {
-					"Saving..."
-				} else {
-					"Loading roles..."
-				});
+				ui.weak(crate::i18n::translate_if_key(
+					if state.server_admin.saving {
+						"server-roles-show-saving"
+					} else {
+						"server-roles-show-loading-roles"
+					},
+				));
 			});
 		}
 		if self.selected.is_some() {
@@ -372,66 +414,45 @@ impl RolesUi {
 		commands: &mut Vec<Command>,
 	) {
 		let colors = design::palette(ui);
-		ui.label(design::semibold(ui, "Roles", 22.0));
-		ui.label("Use roles to group your server members and assign permissions.");
-		ui.add_space(20.0);
 		let width = ui.available_width();
-		if ui
-			.add_sized(
-				[width, 76.0],
-				egui::Button::new(
-					RichText::new("Default Permissions\n@everyone · applies to all server members")
-						.size(16.0),
-				)
-				.right_text("›")
-				.fill(colors.raised)
-				.corner_radius(10),
-			)
-			.clicked()
-		{
+		if default_permissions_card(ui, width).clicked() {
 			self.switch(Some(guild), guild);
 		}
 		ui.add_space(24.0);
-		ui.horizontal(|ui| {
-			ui.add(
-				egui::TextEdit::singleline(&mut self.search)
-					.hint_text("Search Roles")
-					.char_limit(100)
-					.desired_width((width - 128.0).max(60.0))
-					.margin(egui::vec2(12.0, 10.0)),
-			);
-			if state.can_create_guild_role(guild)
-				&& ui
-					.add_enabled_ui(
-						!state.server_admin.pending && !state.server_admin.needs_refresh,
-						|ui| design::button(ui, "Create Role", design::ButtonKind::Primary),
-					)
-					.inner
-					.clicked()
-			{
-				self.creating = Self::dispatch(
-					state,
-					guild,
-					Action::Create(Edit {
-						name: Some("new role".into()),
-						..Edit::default()
-					}),
-					commands,
-				);
-			}
-		});
-		ui.label(
-			"Members use the color of the highest role they have on this list. Drag roles to reorder them.",
+		ui.add(
+			egui::TextEdit::singleline(&mut self.search)
+				.align(egui::Align2::LEFT_CENTER)
+				.hint_text(crate::i18n::translate("server-roles-list-search-roles"))
+				.char_limit(100)
+				.desired_width(width)
+				.margin(egui::vec2(12.0, 10.0)),
 		);
-		ui.add_space(28.0);
+		design::hint(
+			ui,
+			"server-roles-list-members-use-the-color-of-the-highest-role-they-have",
+		);
+		ui.add_space(20.0);
 		let Some(catalog) = &state.server_admin.roles else {
 			return;
 		};
 		let query = self.search.to_lowercase();
 		let count = catalog.items.iter().filter(|role| role.id != guild).count();
 		ui.horizontal(|ui| {
-			fixed_label(ui, &format!("ROLES — {count}"), width * 0.52, true);
-			fixed_label(ui, "MEMBERS", (width * 0.48 - 108.0).max(48.0), true);
+			fixed_label(
+				ui,
+				&format!(
+					"{} — {count}",
+					crate::i18n::translate("server-roles-list-roles-2")
+				),
+				width * 0.52,
+				true,
+			);
+			fixed_label(
+				ui,
+				&crate::i18n::translate("server-roles-list-members"),
+				(width * 0.48 - 108.0).max(48.0),
+				true,
+			);
 		});
 		ui.separator();
 		let mut action = None;
@@ -451,14 +472,14 @@ impl RolesUi {
 							egui::vec2(name_width, 58.0),
 							egui::Sense::click_and_drag(),
 						);
-						let name = egui::WidgetText::from(
-							RichText::new(&role.name).size(16.0).color(colors.text),
-						)
-						.into_galley(
+						let name = crate::role_names::galley(
 							ui,
-							Some(egui::TextWrapMode::Truncate),
+							&role.name,
+							egui::FontId::proportional(16.0),
+							Some(role.colors),
+							colors.base,
+							colors.text,
 							name_width - 32.0,
-							egui::TextStyle::Body,
 						);
 						ui.painter().circle_filled(
 							rect.left_center() + egui::vec2(9.0, 0.0),
@@ -474,7 +495,11 @@ impl RolesUi {
 							egui::WidgetInfo::labeled(
 								egui::Role::Button,
 								true,
-								format!("Edit role {}", role.name),
+								format!(
+									"{} {}",
+									crate::i18n::translate("server-roles-list-edit-role"),
+									role.name
+								),
 							)
 						});
 						if response.clicked() {
@@ -492,23 +517,32 @@ impl RolesUi {
 						}
 						fixed_label(
 							ui,
-							&role
-								.member_count
-								.map_or_else(|| "Unknown".into(), |count| count.to_string()),
+							&role.member_count.map_or_else(
+								|| crate::i18n::translate("server-roles-list-unknown"),
+								|count| count.to_string(),
+							),
 							(width * 0.48 - 116.0).max(48.0),
 							false,
 						);
-						if boxed_icon(ui, icons::Icon::Pencil, "Edit Role").clicked() {
+						if boxed_icon(ui, icons::Icon::Pencil, "server-roles-list-edit-role-2")
+							.clicked()
+						{
 							self.switch(Some(role.id), guild);
 						}
-						let menu = boxed_icon(ui, icons::Icon::More, "Role actions");
+						let menu =
+							boxed_icon(ui, icons::Icon::More, "server-roles-list-role-actions");
 						egui::Popup::menu(&menu).show(|ui| {
-							if ui.button("Edit Role").clicked() {
+							if ui
+								.button(crate::i18n::translate("server-roles-list-edit-role-2"))
+								.clicked()
+							{
 								self.switch(Some(role.id), guild);
 								ui.close();
 							}
 							if state.can_move_guild_role(guild, role.id, role.position + 1)
-								&& ui.button("Move Up").clicked()
+								&& ui
+									.button(crate::i18n::translate("server-roles-list-move-up"))
+									.clicked()
 							{
 								action = Some(Action::Move {
 									id: role.id,
@@ -517,7 +551,9 @@ impl RolesUi {
 								ui.close();
 							}
 							if state.can_move_guild_role(guild, role.id, role.position - 1)
-								&& ui.button("Move Down").clicked()
+								&& ui
+									.button(crate::i18n::translate("server-roles-list-move-down"))
+									.clicked()
 							{
 								action = Some(Action::Move {
 									id: role.id,
@@ -527,7 +563,12 @@ impl RolesUi {
 							}
 							if state.can_delete_guild_role(guild, role.id)
 								&& ui
-									.button(RichText::new("Delete Role").color(colors.danger))
+									.button(
+										RichText::new(crate::i18n::translate(
+											"server-roles-list-delete-role",
+										))
+										.color(colors.danger),
+									)
 									.clicked()
 							{
 								self.delete = Some(role.id);
@@ -582,15 +623,27 @@ impl RolesUi {
 		if ui.ctx().content_rect().width() < 752.0 {
 			let mut selected = self.selected;
 			ui.horizontal_wrapped(|ui| {
-				if ui.button("← Back to Roles").clicked() {
+				if ui
+					.button(crate::i18n::translate("server-roles-editor-back-to-roles"))
+					.clicked()
+				{
 					selected = None;
 				}
 				egui::ComboBox::from_id_salt("compact-role-navigation")
-					.selected_text("Choose role")
+					.selected_text(crate::i18n::translate("server-roles-editor-choose-role"))
 					.show_ui(ui, |ui| {
 						if let Some(catalog) = &state.server_admin.roles {
 							for role in &catalog.items {
-								ui.selectable_value(&mut selected, Some(role.id), &role.name);
+								let name = crate::role_names::galley(
+									ui,
+									&role.name,
+									egui::FontId::proportional(14.0),
+									Some(role.colors),
+									ui.visuals().extreme_bg_color,
+									design::palette(ui).text,
+									ui.available_width(),
+								);
+								ui.selectable_value(&mut selected, Some(role.id), name);
 							}
 						}
 					});
@@ -608,15 +661,29 @@ impl RolesUi {
 		ui.horizontal(|ui| {
 			fixed_label(
 				ui,
-				&format!("EDIT ROLE — {}", draft.name),
+				&format!(
+					"{} — {}",
+					crate::i18n::translate("server-roles-editor-edit-role"),
+					draft.name
+				),
 				(width - 40.0).max(80.0),
 				true,
 			);
 			if state.can_delete_guild_role(guild, role) {
-				let button = icons::button(ui, icons::Icon::More, 28.0, "Role actions");
+				let button = icons::button(
+					ui,
+					icons::Icon::More,
+					28.0,
+					&crate::i18n::translate("server-roles-editor-role-actions"),
+				);
 				egui::Popup::menu(&button).show(|ui| {
 					if ui
-						.button(RichText::new("Delete Role").color(colors.danger))
+						.button(
+							RichText::new(crate::i18n::translate(
+								"server-roles-editor-delete-role",
+							))
+							.color(colors.danger),
+						)
 						.clicked()
 					{
 						self.delete = Some(role);
@@ -628,9 +695,19 @@ impl RolesUi {
 		ui.add_space(22.0);
 		ui.horizontal_wrapped(|ui| {
 			if role != guild {
-				tab_button(ui, &mut self.tab, Tab::Display, "Display");
+				tab_button(
+					ui,
+					&mut self.tab,
+					Tab::Display,
+					"server-roles-editor-display",
+				);
 			}
-			tab_button(ui, &mut self.tab, Tab::Permissions, "Permissions");
+			tab_button(
+				ui,
+				&mut self.tab,
+				Tab::Permissions,
+				"server-roles-editor-permissions",
+			);
 			if role != guild && state.can_open_member_settings(guild) {
 				tab_button(
 					ui,
@@ -648,11 +725,11 @@ impl RolesUi {
 		ui.separator();
 		ui.add_space(20.0);
 		if !state.can_edit_guild_role(guild, role) {
-			ui.weak(if draft.managed {
-				"This role is managed by an integration."
+			ui.weak(crate::i18n::translate_if_key(if draft.managed {
+				"server-roles-editor-this-role-is-managed-by-an-integration"
 			} else {
-				"This role is above your highest role and is read-only."
-			});
+				"server-roles-editor-this-role-is-above-your-highest-role-and-is-read"
+			}));
 		}
 		if self.tab == Tab::Members {
 			if state.can_open_member_settings(guild) {
@@ -683,10 +760,15 @@ impl RolesUi {
 			return;
 		};
 		let colors = design::palette(ui);
-		let label = design::label(ui, "Role name");
+		let label = design::label(
+			ui,
+			&crate::i18n::translate("server-roles-display-role-name"),
+		);
 		design::input(
 			ui,
-			egui::TextEdit::singleline(&mut draft.name).char_limit(100),
+			egui::TextEdit::singleline(&mut draft.name)
+				.align(egui::Align2::LEFT_CENTER)
+				.char_limit(100),
 		)
 		.labelled_by(label.id);
 		section(ui, "Role Style");
@@ -756,13 +838,24 @@ impl RolesUi {
 											rgb(sample.primary),
 										);
 										ui.add(
-											egui::Label::new(design::semibold(ui, "Preview", 14.0))
-												.truncate(),
+											egui::Label::new(design::semibold(
+												ui,
+												crate::i18n::translate(
+													"server-roles-display-preview",
+												),
+												14.0,
+											))
+											.truncate(),
 										);
 									});
 									ui.add(
-										egui::Label::new(RichText::new("Sample message").small())
-											.truncate(),
+										egui::Label::new(
+											RichText::new(crate::i18n::translate(
+												"server-roles-display-sample-message",
+											))
+											.small(),
+										)
+										.truncate(),
 									);
 									ui.add_space(8.0);
 									ui.add(egui::Label::new(name).truncate());
@@ -809,7 +902,9 @@ impl RolesUi {
 			}
 		});
 		section(ui, "Role color");
-		ui.weak("Members use the color of their highest role on the roles list.");
+		ui.weak(crate::i18n::translate(
+			"server-roles-display-members-use-the-color-of-their-highest-role-on-the",
+		));
 		let palette = [
 			0x1abc9c, 0x2ecc71, 0x3498db, 0x9b59b6, 0xe91e63, 0xf1c40f, 0xe67e22, 0xe74c3c,
 			0x95a5a6, 0x607d8b, 0x11806a, 0x1f8b4c, 0x206694, 0x71368a, 0xad1457, 0xc27c0e,
@@ -831,7 +926,12 @@ impl RolesUi {
 							colors.text,
 						);
 					}
-					if response.on_hover_text("Default role color").clicked() {
+					if response
+						.on_hover_text(crate::i18n::translate(
+							"server-roles-display-default-role-color",
+						))
+						.clicked()
+					{
 						draft.colors.primary = 0;
 					}
 					let mut color = [
@@ -840,7 +940,9 @@ impl RolesUi {
 						draft.colors.primary as u8,
 					];
 					if design::color_edit(ui, &mut color)
-						.on_hover_text("Custom role color")
+						.on_hover_text(crate::i18n::translate(
+							"server-roles-display-custom-role-color",
+						))
 						.changed()
 					{
 						draft.colors.primary = (u32::from(color[0]) << 16)
@@ -879,7 +981,9 @@ impl RolesUi {
 			&& let Some(secondary) = &mut draft.colors.secondary
 		{
 			ui.horizontal(|ui| {
-				ui.label("Second gradient color");
+				ui.label(crate::i18n::translate(
+					"server-roles-display-second-gradient-color",
+				));
 				let mut color = [
 					(*secondary >> 16) as u8,
 					(*secondary >> 8) as u8,
@@ -894,18 +998,20 @@ impl RolesUi {
 		}
 		if state.can_edit_role_icon(guild, draft.id) {
 			section(ui, "Role icon");
-			ui.weak(
-				"Upload an image under 256 KiB or choose a Unicode emoji. We recommend at least 64×64 pixels.",
-			);
+			ui.weak(crate::i18n::translate(
+				"server-roles-display-upload-an-image-under-256-kib-or-choose-a-unicode",
+			));
 			ui.horizontal(|ui| {
 				if ui
 					.add_enabled(
 						!self.icon_pending,
-						egui::Button::new(if self.icon_pending {
-							"Preparing..."
-						} else {
-							"Choose Image"
-						})
+						egui::Button::new(crate::i18n::translate_if_key(
+							&(if self.icon_pending {
+								crate::i18n::translate("server-roles-display-preparing")
+							} else {
+								crate::i18n::translate("server-roles-display-choose-image")
+							}),
+						))
 						.min_size(egui::vec2(120.0, 36.0)),
 					)
 					.clicked()
@@ -926,7 +1032,9 @@ impl RolesUi {
 				if (draft.icon.is_some()
 					|| draft.unicode_emoji.is_some()
 					|| !matches!(self.icon, Patch::Absent))
-					&& ui.button("Remove Icon").clicked()
+					&& ui
+						.button(crate::i18n::translate("server-roles-display-remove-icon"))
+						.clicked()
 				{
 					draft.icon = None;
 					draft.unicode_emoji = None;
@@ -983,7 +1091,9 @@ impl RolesUi {
 									);
 								}
 							});
-							ui.label("This is how members with this role appear.");
+							ui.label(crate::i18n::translate(
+								"server-roles-display-this-is-how-members-with-this-role-appear",
+							));
 						});
 					});
 				});
@@ -991,14 +1101,16 @@ impl RolesUi {
 		ui.add_space(20.0);
 		design::switch(
 			ui,
-			"Display role members separately from online members",
+			"server-roles-display-display-role-members-separately-from-online-members",
 			None,
 			&mut draft.hoist,
 		);
 		design::switch(
 			ui,
-			"Allow anyone to @mention this role",
-			Some("Members with permission to mention all roles can always mention this role."),
+			"server-roles-display-allow-anyone-to-mention-this-role",
+			Some(
+				"server-roles-display-members-with-permission-to-mention-all-roles-can-always-mention",
+			),
 			&mut draft.mentionable,
 		);
 	}
@@ -1011,7 +1123,8 @@ impl RolesUi {
 	) {
 		let (save, reset) = design::save_bar(
 			ui,
-			self.submitted.then_some("Saving role…"),
+			self.submitted
+				.then_some("server-roles-save-bar-saving-role"),
 			!state.server_admin.pending && !state.server_admin.needs_refresh && !self.icon_pending,
 			!state.server_admin.pending,
 		);
@@ -1054,7 +1167,10 @@ impl RolesUi {
 			if ui
 				.add(
 					egui::TextEdit::singleline(&mut self.member_query.search)
-						.hint_text("Search members")
+						.align(egui::Align2::LEFT_CENTER)
+						.hint_text(crate::i18n::translate(
+							"server-roles-members-search-members",
+						))
 						.char_limit(100)
 						.desired_width(220.0),
 				)
@@ -1066,11 +1182,13 @@ impl RolesUi {
 			if ui
 				.add_enabled(
 					!state.server_admin.pending,
-					egui::Button::new(if self.adding_members {
-						"Back to Role Members"
-					} else {
-						"Add Members"
-					}),
+					egui::Button::new(crate::i18n::translate_if_key(
+						&(if self.adding_members {
+							crate::i18n::translate("server-roles-members-back-to-role-members")
+						} else {
+							crate::i18n::translate("server-roles-members-add-members")
+						}),
+					)),
 				)
 				.clicked()
 			{
@@ -1131,7 +1249,11 @@ impl RolesUi {
 						&& ui
 							.add_enabled(
 								!state.server_admin.pending && !state.server_admin.needs_refresh,
-								egui::Button::new(if assigned { "Remove" } else { "Add" }),
+								egui::Button::new(crate::i18n::translate_if_key(if assigned {
+									"server-roles-members-remove"
+								} else {
+									"server-roles-members-add"
+								})),
 							)
 							.clicked()
 					{
@@ -1145,10 +1267,20 @@ impl RolesUi {
 				ui.separator();
 			}
 			ui.horizontal(|ui| {
-				ui.weak(format!("Showing {} members", members.items.len()));
+				ui.weak(format!(
+					"{} {} {}",
+					crate::i18n::translate("server-roles-members-showing"),
+					members.items.len(),
+					crate::i18n::translate("members")
+				));
 				if self.member_query.after.is_some()
 					&& ui
-						.add_enabled(!state.server_admin.pending, egui::Button::new("First page"))
+						.add_enabled(
+							!state.server_admin.pending,
+							egui::Button::new(crate::i18n::translate(
+								"server-roles-members-first-page",
+							)),
+						)
 						.clicked()
 				{
 					self.member_query.after = None;
@@ -1156,7 +1288,12 @@ impl RolesUi {
 				}
 				if let Some(next) = members.next
 					&& ui
-						.add_enabled(!state.server_admin.pending, egui::Button::new("Next page"))
+						.add_enabled(
+							!state.server_admin.pending,
+							egui::Button::new(crate::i18n::translate(
+								"server-roles-members-next-page",
+							)),
+						)
 						.clicked()
 				{
 					self.member_query.after = Some(next);
@@ -1237,9 +1374,10 @@ fn rgb(color: u32) -> Color32 {
 	}
 }
 fn tab_button(ui: &mut egui::Ui, tab: &mut Tab, value: Tab, label: &str) {
+	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	let response = ui.add(
-		egui::Button::new(design::medium(ui, label, 15.0).color(if *tab == value {
+		egui::Button::new(design::medium(ui, &label, 15.0).color(if *tab == value {
 			colors.text
 		} else {
 			colors.muted
@@ -1262,57 +1400,33 @@ fn tab_button(ui: &mut egui::Ui, tab: &mut Tab, value: Tab, label: &str) {
 			egui::Role::RadioButton,
 			ui.is_enabled(),
 			*tab == value,
-			label,
+			&label,
 		)
 	});
 }
 fn boxed_icon(ui: &mut egui::Ui, icon: icons::Icon, label: &str) -> egui::Response {
+	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	let response = ui.add_sized(
 		[36.0, 36.0],
 		egui::Button::new(()).fill(colors.raised).corner_radius(8),
 	);
 	icons::paint(ui.painter(), icon, response.rect.shrink(9.0), colors.text);
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
 	response.on_hover_text(label)
 }
 fn colored_name(ui: &mut egui::Ui, text: &str, colors: Colors, size: f32) {
 	let palette = design::palette(ui);
-	let readable =
-		|value| design::role_name_color(value, ui.visuals().extreme_bg_color, palette.text);
-	let primary = readable(colors.primary);
-	let secondary = colors.secondary.map_or(primary, readable);
-	let tertiary = colors.tertiary.map_or(secondary, readable);
-	let count = text.graphemes(true).count().max(2) - 1;
-	let mut job = egui::text::LayoutJob::default();
-	for (index, grapheme) in text.graphemes(true).enumerate() {
-		let at = index as f32 / count as f32;
-		let (from, to, amount) = if colors.tertiary.is_some() {
-			if at < 0.5 {
-				(primary, secondary, at * 2.0)
-			} else {
-				(secondary, tertiary, (at - 0.5) * 2.0)
-			}
-		} else {
-			(primary, secondary, at)
-		};
-		let channel =
-			|a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * amount).round() as u8;
-		job.append(
-			grapheme,
-			0.0,
-			egui::TextFormat {
-				font_id: egui::FontId::new(size, design::semibold_family(ui.ctx())),
-				color: Color32::from_rgb(
-					channel(from.r(), to.r()),
-					channel(from.g(), to.g()),
-					channel(from.b(), to.b()),
-				),
-				..Default::default()
-			},
-		);
-	}
-	ui.add(egui::Label::new(job).truncate());
+	let galley = crate::role_names::galley(
+		ui,
+		text,
+		egui::FontId::new(size, design::semibold_family(ui.ctx())),
+		Some(colors),
+		ui.visuals().extreme_bg_color,
+		palette.text,
+		ui.available_width(),
+	);
+	ui.add(egui::Label::new(galley).truncate());
 }
 fn section(ui: &mut egui::Ui, title: &str) {
 	design::divider(ui);
@@ -1346,90 +1460,201 @@ fn permissions(
 ) {
 	ui.add(
 		egui::TextEdit::singleline(search)
+			.align(egui::Align2::LEFT_CENTER)
 			.char_limit(64)
-			.hint_text("Search permissions")
+			.hint_text(crate::i18n::translate(
+				"server-roles-permissions-search-permissions",
+			))
 			.desired_width(f32::INFINITY),
 	);
 	let query = search.to_lowercase();
 	for (group, values) in [
 		(
-			"General Server Permissions",
+			"server-roles-permissions-general-server",
 			&[
-				(p::VIEW_CHANNEL, "View Channels"),
-				(p::MANAGE_CHANNELS, "Manage Channels"),
-				(p::MANAGE_ROLES, "Manage Roles"),
-				(p::MANAGE_GUILD, "Manage Server"),
-				(p::CREATE_GUILD_EXPRESSIONS, "Create Expressions"),
-				(p::MANAGE_GUILD_EXPRESSIONS, "Manage Expressions"),
+				(p::VIEW_CHANNEL, "channel-permissions-add-view-channels"),
+				(
+					p::MANAGE_CHANNELS,
+					"channel-permissions-add-manage-channels",
+				),
+				(p::MANAGE_ROLES, "server-roles-permissions-manage-roles"),
+				(p::MANAGE_GUILD, "server-roles-permissions-manage-server"),
+				(
+					p::CREATE_GUILD_EXPRESSIONS,
+					"server-roles-permissions-create-expressions",
+				),
+				(
+					p::MANAGE_GUILD_EXPRESSIONS,
+					"server-roles-permissions-manage-expressions",
+				),
 			][..],
 		),
 		(
-			"Membership Permissions",
+			"channel-permissions-add-membership-permissions",
 			&[
-				(p::CHANGE_NICKNAME, "Change Nickname"),
-				(p::MANAGE_NICKNAMES, "Manage Nicknames"),
-				(p::KICK_MEMBERS, "Kick Members"),
-				(p::MODERATE_MEMBERS, "Timeout Members"),
+				(
+					p::CHANGE_NICKNAME,
+					"server-admin-member-menu-change-nickname",
+				),
+				(
+					p::MANAGE_NICKNAMES,
+					"server-roles-permissions-manage-nicknames",
+				),
+				(p::KICK_MEMBERS, "server-roles-permissions-kick-members"),
+				(
+					p::MODERATE_MEMBERS,
+					"server-roles-permissions-timeout-members",
+				),
 			][..],
 		),
 		(
-			"Text Channel Permissions",
+			"channel-permissions-add-text-channel-permissions",
 			&[
-				(p::SEND_MESSAGES, "Send Messages"),
-				(p::SEND_MESSAGES_IN_THREADS, "Send Messages in Threads"),
-				(p::CREATE_PUBLIC_THREADS, "Create Public Threads"),
-				(p::CREATE_PRIVATE_THREADS, "Create Private Threads"),
-				(p::EMBED_LINKS, "Embed Links"),
-				(p::ATTACH_FILES, "Attach Files"),
-				(p::ADD_REACTIONS, "Add Reactions"),
-				(p::USE_EXTERNAL_EMOJIS, "Use External Emoji"),
-				(p::USE_EXTERNAL_STICKERS, "Use External Stickers"),
+				(p::SEND_MESSAGES, "channel-permissions-add-send-messages"),
+				(
+					p::SEND_MESSAGES_IN_THREADS,
+					"channel-permissions-add-send-messages-in-threads",
+				),
+				(
+					p::CREATE_PUBLIC_THREADS,
+					"channel-permissions-add-create-public-threads",
+				),
+				(
+					p::CREATE_PRIVATE_THREADS,
+					"channel-permissions-add-create-private-threads",
+				),
+				(p::EMBED_LINKS, "channel-permissions-add-embed-links"),
+				(p::ATTACH_FILES, "channel-permissions-add-attach-files"),
+				(p::ADD_REACTIONS, "channel-permissions-add-add-reactions"),
+				(
+					p::USE_EXTERNAL_EMOJIS,
+					"channel-permissions-add-use-external-emoji",
+				),
+				(
+					p::USE_EXTERNAL_STICKERS,
+					"channel-permissions-add-use-external-stickers",
+				),
 				(
 					p::MENTION_EVERYONE,
-					"Mention @everyone, @here, and All Roles",
+					"channel-permissions-add-mention-everyone-here-and-all-roles",
 				),
-				(p::MANAGE_MESSAGES, "Manage Messages"),
-				(p::PIN_MESSAGES, "Pin Messages"),
-				(p::MANAGE_THREADS, "Manage Threads"),
-				(p::READ_MESSAGE_HISTORY, "Read Message History"),
-				(p::SEND_TTS_MESSAGES, "Send Text-to-Speech Messages"),
+				(
+					p::MANAGE_MESSAGES,
+					"channel-permissions-add-manage-messages",
+				),
+				(p::PIN_MESSAGES, "channel-permissions-add-pin-messages"),
+				(p::MANAGE_THREADS, "channel-permissions-add-manage-threads"),
+				(
+					p::READ_MESSAGE_HISTORY,
+					"channel-permissions-add-read-message-history",
+				),
+				(
+					p::SEND_TTS_MESSAGES,
+					"channel-permissions-add-send-text-to-speech-messages",
+				),
 			][..],
 		),
 		(
-			"Voice Channel Permissions",
+			"channel-permissions-add-voice-channel-permissions",
 			&[
-				(p::CONNECT, "Connect"),
-				(p::SPEAK, "Speak"),
-				(p::STREAM, "Video"),
-				(p::USE_VAD, "Use Voice Activity"),
-				(p::MUTE_MEMBERS, "Mute Members"),
-				(p::DEAFEN_MEMBERS, "Deafen Members"),
-				(p::MOVE_MEMBERS, "Move Members"),
+				(p::CONNECT, "channel-permissions-add-connect"),
+				(p::SPEAK, "channel-permissions-add-speak"),
+				(p::STREAM, "channel-permissions-add-video"),
+				(p::USE_VAD, "channel-permissions-add-use-voice-activity"),
+				(p::MUTE_MEMBERS, "channel-permissions-add-mute-members"),
+				(p::DEAFEN_MEMBERS, "channel-permissions-add-deafen-members"),
+				(p::MOVE_MEMBERS, "channel-permissions-add-move-members"),
 			][..],
 		),
 		(
-			"Advanced Permissions",
-			&[(p::ADMINISTRATOR, "Administrator")][..],
+			"channel-permissions-show-advanced-permissions",
+			&[(p::ADMINISTRATOR, "server-roles-permissions-administrator")][..],
 		),
 	] {
-		if !values
-			.iter()
-			.any(|(_, label)| label.to_lowercase().contains(&query))
-		{
+		if !values.iter().any(|(_, label)| {
+			crate::i18n::translate(label)
+				.to_lowercase()
+				.contains(&query)
+		}) {
 			continue;
 		}
 		section(ui, group);
-		for &(bit, label) in values
-			.iter()
-			.filter(|(_, label)| label.to_lowercase().contains(&query))
-		{
+		for &(bit, label) in values.iter().filter(|(_, label)| {
+			crate::i18n::translate(label)
+				.to_lowercase()
+				.contains(&query)
+		}) {
 			let mut enabled = role.permissions & bit != 0;
-			ui.add_enabled_ui(editable && (enabled || state.can_grant_role_permission(guild, bit)), |ui| {
-				let detail = (bit == p::ADMINISTRATOR).then_some("Grants every permission and bypasses channel permission overrides. Only grant this to people you trust.");
-				if design::switch(ui, label, detail, &mut enabled).changed() { if enabled { role.permissions |= bit; } else { role.permissions &= !bit; } }
-			});
+			ui.add_enabled_ui(
+				editable && (enabled || state.can_grant_role_permission(guild, bit)),
+				|ui| {
+					let detail = (bit == p::ADMINISTRATOR)
+						.then_some("server-roles-permissions-administrator-detail");
+					if design::switch(ui, label, detail, &mut enabled).changed() {
+						if enabled {
+							role.permissions |= bit;
+						} else {
+							role.permissions &= !bit;
+						}
+					}
+				},
+			);
 		}
 	}
+}
+
+/// The @everyone entry above the role list: a raised card with a title, muted detail and a
+/// chevron, clickable as one button.
+fn default_permissions_card(ui: &mut egui::Ui, width: f32) -> egui::Response {
+	let text = crate::i18n::translate(
+		"server-roles-list-default-permissions-everyone-applies-to-all-server-members",
+	);
+	let (title, detail) = text
+		.split_once('\n')
+		.map_or((text.trim(), ""), |(title, detail)| {
+			(title.trim(), detail.trim())
+		});
+	let p = design::palette(ui);
+	let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 68.0), egui::Sense::click());
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &text));
+	let hot = response.hovered() || response.has_focus();
+	let painter = ui.painter();
+	painter.rect(
+		rect,
+		8,
+		if hot { p.hover } else { p.raised },
+		egui::Stroke::new(1.0, if hot { p.accent } else { p.border }),
+		egui::StrokeKind::Inside,
+	);
+	let icon = egui::Rect::from_center_size(
+		rect.left_center() + egui::vec2(32.0, 0.0),
+		egui::Vec2::splat(20.0),
+	);
+	icons::paint(painter, icons::Icon::People, icon, p.muted);
+	let text_width = (width - 112.0).max(40.0);
+	let title = painter.layout(
+		title.to_owned(),
+		egui::FontId::new(15.0, design::medium_family(ui.ctx())),
+		p.text_strong,
+		text_width,
+	);
+	let detail = painter.layout(
+		detail.to_owned(),
+		egui::FontId::proportional(13.0),
+		p.muted,
+		text_width,
+	);
+	let top = rect.center().y - (title.size().y + 2.0 + detail.size().y) / 2.0;
+	let left = rect.left() + 60.0;
+	let title_height = title.size().y;
+	painter.galley(egui::pos2(left, top), title, p.text_strong);
+	painter.galley(egui::pos2(left, top + title_height + 2.0), detail, p.muted);
+	let chevron = egui::Rect::from_center_size(
+		rect.right_center() - egui::vec2(28.0, 0.0),
+		egui::Vec2::splat(16.0),
+	);
+	icons::paint(painter, icons::Icon::ChevronRight, chevron, p.muted);
+	response
 }
 
 #[cfg(test)]

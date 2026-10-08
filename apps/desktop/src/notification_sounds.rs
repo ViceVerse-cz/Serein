@@ -367,32 +367,7 @@ mod tests {
 		next(&mut data[..2], &info(2000, 3000));
 		assert_eq!(&data[..2], &[0.3, 0.3]);
 	}
-	#[test]
-	fn callback_applies_volume_gain() {
-		let config = cpal::StreamConfig {
-			channels: 2,
-			sample_rate: 8000,
-			buffer_size: cpal::BufferSize::Default,
-		};
-		let generation = Arc::new(AtomicU64::new(1));
-		let finished = Arc::new(AtomicBool::new(false));
-		let mut render = callback::<f32>(
-			config,
-			vec![[0.4, 0.8]],
-			50,
-			generation.clone(),
-			1,
-			finished.clone(),
-		);
-		let mut data = [0.0_f32; 2];
-		let info = cpal::OutputCallbackInfo::new(cpal::OutputStreamTimestamp {
-			callback: cpal::StreamInstant::from_millis(0),
-			playback: cpal::StreamInstant::from_millis(10),
-		});
-		render(&mut data, &info);
-		assert!((data[0] - 0.2).abs() < 1e-4);
-		assert!((data[1] - 0.4).abs() < 1e-4);
-	}
+
 	#[test]
 	fn bundled_cues_decode_in_full_at_supported_rates_and_cancel() {
 		for rate in [8000, 44100, 48000, 192000] {

@@ -6,7 +6,7 @@ use std::sync::{
 	mpsc::{self, Receiver},
 };
 
-/// Provider hosts a player frame may load. Everything else is cancelled.
+/// Allowed provider navigations; Windows applies this to top-level navigation, not subresources.
 pub fn player_navigation(value: &str) -> bool {
 	if value == "about:blank" || value == "about:srcdoc" {
 		return true;
@@ -64,6 +64,10 @@ impl WebPlayer {
 			.with_incognito(true)
 			.with_devtools(false)
 			.with_autoplay(true)
+			.with_permission_handler(|permission| match permission {
+				wry::PermissionKind::Autoplay => wry::PermissionResponse::Allow,
+				_ => wry::PermissionResponse::Deny,
+			})
 			.with_back_forward_navigation_gestures(false)
 			.with_background_color((0, 0, 0, 255))
 			.with_navigation_handler(|url| player_navigation(&url))
@@ -118,7 +122,7 @@ impl WebPlayer {
 #[cfg(test)]
 mod tests {
 	#[test]
-	fn player_frames_stay_on_provider_hosts() {
+	fn player_navigation_requires_https_provider_hosts() {
 		for url in [
 			"https://www.youtube-nocookie.com/embed/KwRSAfoW5uo?autoplay=1",
 			"https://i.ytimg.com/vi/KwRSAfoW5uo/hqdefault.jpg",

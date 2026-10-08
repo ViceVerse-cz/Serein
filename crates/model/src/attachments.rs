@@ -76,10 +76,22 @@ impl Attachment {
 		if self.is_audio() || self.is_video() {
 			return false;
 		}
+		// Discord can upload HEIC as a generic file without image dimensions or MIME.
+		if self
+			.filename
+			.rsplit_once('.')
+			.is_some_and(|(_, extension)| {
+				extension.eq_ignore_ascii_case("heic") || extension.eq_ignore_ascii_case("heif")
+			}) {
+			return true;
+		}
 		if let Some(kind) = &self.content_type {
 			matches!(
 				kind.to_ascii_lowercase().as_str(),
-				"image/png" | "image/jpeg" | "image/webp" | "image/gif" | "image/avif"
+				"image/png"
+					| "image/jpeg" | "image/webp"
+					| "image/gif" | "image/avif"
+					| "image/heic" | "image/heif"
 			)
 		} else {
 			self.filename
@@ -116,88 +128,89 @@ mod audio_tests {
 	use super::*;
 	#[test]
 	fn video_detection_uses_mime_and_case_insensitive_extension() {
-		let mut file = Attachment {
-			id: Id(1),
-			filename: String::new(),
-			description: None,
-			content_type: None,
-			size: 32,
-			media: EmbedMedia::default(),
-			spoiler: false,
-			duration_ms: None,
-			waveform: Vec::new(),
-		};
-		for filename in [
-			"CLIP.MOV",
-			"clip.Mp4",
-			"clip.webm",
-			"clip.mkv",
-			"clip.avi",
-			"clip.m4v",
-		] {
-			file.filename = filename.into();
-			for kind in [None, Some("application/octet-stream"), Some("image/jpeg")] {
-				file.content_type = kind.map(str::to_owned);
-				assert!(file.is_video(), "{filename}: {kind:?}");
-				assert!(!file.is_image());
-			}
-		}
-		file.filename = "clip".into();
-		file.content_type = Some(" Video/Quicktime; codecs=avc1 ".into());
-		assert!(file.is_video());
-		file.filename = "clip.mov.exe".into();
-		file.content_type = None;
-		assert!(!file.is_video());
-	}
-	#[test]
-	fn audio_detection_uses_mime_and_safe_filename_fallback() {
-		let mut file = Attachment {
-			duration_ms: None,
-			waveform: Vec::new(),
-			id: Id(1),
-			filename: "TRACK.MP3".into(),
-			description: None,
-			content_type: None,
-			size: 32,
-			media: EmbedMedia::default(),
-			spoiler: false,
-		};
-		for filename in ["TRACK.MP3", "track.WaV", "voice-message.ogg", "track.opus"] {
-			file.filename = filename.into();
-			for kind in [
-				None,
-				Some(""),
-				Some("application/octet-stream"),
-				Some("text/plain"),
-				Some("audio/ogg"),
-				Some("image/jpeg"),
+		{
+			let mut file = Attachment {
+				id: Id(1),
+				filename: String::new(),
+				description: None,
+				content_type: None,
+				size: 32,
+				media: EmbedMedia::default(),
+				spoiler: false,
+				duration_ms: None,
+				waveform: Vec::new(),
+			};
+			for filename in [
+				"CLIP.MOV",
+				"clip.Mp4",
+				"clip.webm",
+				"clip.mkv",
+				"clip.avi",
+				"clip.m4v",
 			] {
-				file.content_type = kind.map(str::to_owned);
-				assert!(file.is_audio(), "{filename}: {kind:?}");
+				file.filename = filename.into();
+				for kind in [None, Some("application/octet-stream"), Some("image/jpeg")] {
+					file.content_type = kind.map(str::to_owned);
+					assert!(file.is_video(), "{filename}: {kind:?}");
+					assert!(!file.is_image());
+				}
+			}
+			file.filename = "clip".into();
+			file.content_type = Some(" Video/Quicktime; codecs=avc1 ".into());
+			assert!(file.is_video());
+			file.filename = "clip.mov.exe".into();
+			file.content_type = None;
+			assert!(!file.is_video());
+		}
+		{
+			let mut file = Attachment {
+				duration_ms: None,
+				waveform: Vec::new(),
+				id: Id(1),
+				filename: "TRACK.MP3".into(),
+				description: None,
+				content_type: None,
+				size: 32,
+				media: EmbedMedia::default(),
+				spoiler: false,
+			};
+			for filename in ["TRACK.MP3", "track.WaV", "voice-message.ogg", "track.opus"] {
+				file.filename = filename.into();
+				for kind in [
+					None,
+					Some(""),
+					Some("application/octet-stream"),
+					Some("text/plain"),
+					Some("audio/ogg"),
+					Some("image/jpeg"),
+				] {
+					file.content_type = kind.map(str::to_owned);
+					assert!(file.is_audio(), "{filename}: {kind:?}");
+					assert!(!file.is_image());
+				}
+			}
+			file.filename = "attachment".into();
+			for kind in [
+				"audio/mpeg",
+				"audio/mp3",
+				"Audio/Wav; codec=pcm",
+				"audio/x-wav",
+				"audio/wave",
+			] {
+				file.content_type = Some(kind.into());
+				assert!(file.is_audio());
 				assert!(!file.is_image());
 			}
-		}
-		file.filename = "attachment".into();
-		for kind in [
-			"audio/mpeg",
-			"audio/mp3",
-			"Audio/Wav; codec=pcm",
-			"audio/x-wav",
-			"audio/wave",
-		] {
-			file.content_type = Some(kind.into());
-			assert!(file.is_audio());
-			assert!(!file.is_image());
-		}
-		for (filename, kind, image) in [
-			("track.mp3.exe", None, false),
-			("picture.jpg", Some("image/jpeg"), true),
-			("picture.png", None, true),
-		] {
-			file.filename = filename.into();
-			file.content_type = kind.map(str::to_owned);
-			assert!(!file.is_audio());
-			assert_eq!(file.is_image(), image);
+			for (filename, kind, image) in [
+				("track.mp3.exe", None, false),
+				("picture.jpg", Some("image/jpeg"), true),
+				("picture.png", None, true),
+			] {
+				file.filename = filename.into();
+				file.content_type = kind.map(str::to_owned);
+				assert!(!file.is_audio());
+				assert_eq!(file.is_image(), image);
+			}
 		}
 	}
 }

@@ -37,7 +37,8 @@ pub fn file_kind(filename: &str, content_type: Option<&str>) -> FileKind {
 		})
 		.unwrap_or_default();
 	match extension.as_str() {
-		"png" | "jpg" | "jpeg" | "gif" | "webp" | "avif" | "bmp" | "tiff" | "heic" | "svg" => {
+		"png" | "jpg" | "jpeg" | "gif" | "webp" | "avif" | "bmp" | "tiff" | "heic" | "heif"
+		| "svg" => {
 			return FileKind::Image;
 		}
 		"pdf" => return FileKind::Pdf,
@@ -111,23 +112,18 @@ pub fn format_size(bytes: u64) -> String {
 	}
 }
 
-/// Card for a file that will be uploaded with the next message. Returns `true` when the user
-/// asks to remove it.
-pub fn pending_card(
-	ui: &mut egui::Ui,
-	filename: &str,
-	bytes: u64,
-	preview: Option<&egui::TextureHandle>,
-	removable: bool,
-) -> bool {
+/// Discord floats the action pill over the pending card's top edge; reserve that overhang.
+const PENDING_OVERHANG: f32 = 10.0;
+
+/// Allocates one upload-tray card and paints its background; returns the card and preview area.
+fn pending_card_frame(ui: &mut egui::Ui) -> (Rect, Rect) {
 	const WIDTH: f32 = 176.0;
 	const HEIGHT: f32 = 168.0;
-	// Discord floats the action pill over the card's top edge; reserve that overhang.
-	const OVERHANG: f32 = 10.0;
 	let colors = design::palette(ui);
-	let kind = file_kind(filename, None);
-	let (allocated, _) =
-		ui.allocate_exact_size(egui::vec2(WIDTH + 12.0, HEIGHT + OVERHANG), Sense::hover());
+	let (allocated, _) = ui.allocate_exact_size(
+		egui::vec2(WIDTH + 12.0, HEIGHT + PENDING_OVERHANG),
+		Sense::hover(),
+	);
 	let card = Rect::from_min_size(
 		allocated.left_bottom() - egui::vec2(0.0, HEIGHT),
 		egui::vec2(WIDTH, HEIGHT),
@@ -142,6 +138,48 @@ pub fn pending_card(
 	let preview_rect =
 		Rect::from_min_size(card.min + egui::vec2(8.0, 8.0), egui::vec2(160.0, 108.0));
 	ui.painter().rect_filled(preview_rect, 4, colors.base);
+	(card, preview_rect)
+}
+
+/// Placeholder card for a selected file that is still being inspected; it becomes a
+/// [`pending_card`] once ready, and sending waits until then.
+pub fn loading_card(ui: &mut egui::Ui) {
+	let colors = design::palette(ui);
+	let (_, preview_rect) = pending_card_frame(ui);
+	ui.put(
+		Rect::from_center_size(preview_rect.center(), egui::Vec2::splat(28.0)),
+		egui::Spinner::new().size(28.0).color(colors.muted),
+	);
+	ui.put(
+		Rect::from_min_size(
+			preview_rect.left_bottom() + egui::vec2(0.0, 6.0),
+			egui::vec2(preview_rect.width(), 18.0),
+		),
+		egui::Label::new(
+			design::semibold(
+				ui,
+				crate::i18n::translate("attachments-loading-card-preparing"),
+				13.0,
+			)
+			.color(colors.muted),
+		)
+		.truncate()
+		.selectable(false),
+	);
+}
+
+/// Card for a file that will be uploaded with the next message. Returns `true` when the user
+/// asks to remove it.
+pub fn pending_card(
+	ui: &mut egui::Ui,
+	filename: &str,
+	bytes: u64,
+	preview: Option<&egui::TextureHandle>,
+	removable: bool,
+) -> bool {
+	let colors = design::palette(ui);
+	let kind = file_kind(filename, None);
+	let (card, preview_rect) = pending_card_frame(ui);
 	match preview {
 		Some(texture) => {
 			let size = texture.size_vec2();
@@ -188,7 +226,7 @@ pub fn pending_card(
 		.selectable(false),
 	);
 	let pill = Rect::from_min_size(
-		egui::pos2(card.right() - 28.0, card.top() - OVERHANG),
+		egui::pos2(card.right() - 28.0, card.top() - PENDING_OVERHANG),
 		egui::vec2(36.0, 36.0),
 	);
 	ui.painter().rect(
@@ -204,7 +242,13 @@ pub fn pending_card(
 		),
 		|ui| {
 			ui.add_enabled_ui(removable, |ui| {
-				icons::button(ui, Icon::Trash, 32.0, "Remove attachment").clicked()
+				icons::button(
+					ui,
+					Icon::Trash,
+					32.0,
+					&crate::i18n::translate("attachments-pending-card-remove-attachment"),
+				)
+				.clicked()
 			})
 			.inner
 		},
@@ -219,11 +263,12 @@ fn file_card(
 	download: &mut DownloadUi,
 	demo: bool,
 	surface: &mut crate::select::Surface,
+	card_surface: design::MessageCardSurface,
 ) {
 	let colors = design::palette(ui);
 	let kind = file_kind(&attachment.filename, attachment.content_type.as_deref());
 	egui::Frame::new()
-		.fill(colors.raised)
+		.fill(card_surface.fill(ui, colors.raised))
 		.stroke(Stroke::new(1.0, colors.border))
 		.corner_radius(8)
 		.inner_margin(egui::Margin::symmetric(12, 10))
@@ -274,6 +319,7 @@ pub fn show(
 	video: &mut crate::video::VideoUi,
 	demo: bool,
 	surface: &mut crate::select::Surface,
+	card_surface: design::MessageCardSurface,
 ) {
 	show_subset(
 		ui,
@@ -287,6 +333,7 @@ pub fn show(
 		video,
 		demo,
 		surface,
+		card_surface,
 	);
 }
 
@@ -303,6 +350,7 @@ pub(crate) fn show_subset(
 	video: &mut crate::video::VideoUi,
 	demo: bool,
 	surface: &mut crate::select::Surface,
+	card_surface: design::MessageCardSurface,
 ) {
 	for group in attachments.chunk_by(|a, b| a.is_image() == b.is_image()) {
 		if group[0].is_image() {
@@ -319,7 +367,11 @@ pub(crate) fn show_subset(
 										&attachment.media,
 										artwork_size(attachment, size),
 										demo,
-										Surface::Inline,
+										if columns == 3 {
+											Surface::Banner
+										} else {
+											Surface::Inline
+										},
 									)
 									.response;
 								let response =
@@ -332,15 +384,39 @@ pub(crate) fn show_subset(
 									)
 								});
 								media_context_menu(&response, attachment, download, opening, demo);
+								let gif = crate::embeds::gif_for_media(
+									&attachment.media,
+									None,
+									attachment.filename.to_ascii_lowercase().ends_with(".gif")
+										|| attachment.content_type.as_deref().is_some_and(|mime| {
+											mime.split(';')
+												.next()
+												.unwrap_or(mime)
+												.trim()
+												.eq_ignore_ascii_case("image/gif")
+										}),
+								);
+								let star = gif.map(|gif| {
+									let favorite = download.gif_favorites.contains(&gif.url);
+									let star =
+										crate::embeds::favorite_star(ui, &response, favorite);
+									if star.clicked() {
+										download.gif_favorite_request = Some(gif);
+									}
+									star
+								});
 								surface.keep(&response);
-								if response
-									.on_hover_text(
-										attachment
-											.description
-											.as_deref()
-											.unwrap_or("Enlarge image"),
-									)
-									.clicked()
+								if !star
+									.as_ref()
+									.is_some_and(|star| star.hovered() || star.clicked())
+									&& response
+										.on_hover_text(
+											attachment
+												.description
+												.as_deref()
+												.unwrap_or("Enlarge image"),
+										)
+										.clicked()
 								{
 									*viewing = Some((message.id, attachment.id));
 								}
@@ -375,7 +451,7 @@ pub(crate) fn show_subset(
 							});
 						}
 					} else {
-						file_card(ui, attachment, download, demo, surface);
+						file_card(ui, attachment, download, demo, surface, card_surface);
 					}
 					ui.add_space(6.0);
 				});
@@ -408,7 +484,13 @@ fn artwork_size(attachment: &Attachment, gallery: egui::Vec2) -> egui::Vec2 {
 }
 
 pub(crate) fn image_layout(count: usize, width: f32) -> (usize, egui::Vec2) {
-	let columns = if count > 1 && width >= 280.0 { 2 } else { 1 };
+	let columns = if count >= 5 && width >= 420.0 {
+		3
+	} else if count > 1 && width >= 280.0 {
+		2
+	} else {
+		1
+	};
 	let width = ((width.min(crate::avatars::media::MEDIA_MAX_WIDTH) - (columns - 1) as f32 * 6.0)
 		/ columns as f32)
 		.max(1.0);
@@ -416,7 +498,9 @@ pub(crate) fn image_layout(count: usize, width: f32) -> (usize, egui::Vec2) {
 		columns,
 		egui::vec2(
 			width,
-			if count > 1 {
+			if columns == 3 {
+				width
+			} else if count > 1 {
 				180.0
 			} else {
 				crate::avatars::media::MEDIA_MAX_HEIGHT
@@ -431,7 +515,9 @@ fn open_original(
 	opening: &mut Option<String>,
 ) -> Option<egui::Response> {
 	let target = attachment.media.url.as_deref().and_then(external_url)?;
-	let response = ui.small_button("Open original…");
+	let response = ui.small_button(crate::i18n::translate(
+		"attachments-open-original-open-original",
+	));
 	if response.clicked() {
 		*opening = Some(target);
 	}
@@ -439,9 +525,12 @@ fn open_original(
 }
 #[derive(Default)]
 pub struct DownloadUi {
+	pub(crate) gif_favorites: Vec<String>,
+	pub(crate) gif_favorite_request: Option<model::Gif>,
 	pub request: Option<Attachment>,
 	pub copy_request: Option<Attachment>,
 	pub embed_request: Option<(model::EmbedMedia, bool)>,
+	pub(crate) embed_view_request: Option<(Id, model::EmbedMedia)>,
 	pub cancel_requested: bool,
 	pub dismiss_requested: bool,
 	pub active: bool,
@@ -512,18 +601,43 @@ fn media_menu(
 	let mut action = None;
 	popup.show(|ui| {
 		let idle = !demo && !download.busy();
-		let kind = if video { "video" } else { "image" };
-		for (copy, label) in [
-			(true, format!("Copy {kind}")),
-			(false, format!("Save {kind} as…")),
-		] {
+		let actions = if video {
+			[
+				(
+					true,
+					crate::i18n::translate("attachments-media-menu-copy-video"),
+				),
+				(
+					false,
+					crate::i18n::translate("attachments-media-menu-save-video-as"),
+				),
+			]
+		} else {
+			[
+				(
+					true,
+					crate::i18n::translate("attachments-media-menu-copy-image"),
+				),
+				(
+					false,
+					crate::i18n::translate("attachments-media-menu-save-image-as"),
+				),
+			]
+		};
+		for (copy, label) in actions {
 			if ui
 				.add_enabled(idle, egui::Button::new(label))
-				.on_disabled_hover_text(if demo {
-					"Unavailable for synthetic attachments"
-				} else {
-					"A media transfer is already active"
-				})
+				.on_disabled_hover_text(crate::i18n::translate_if_key(
+					&(if demo {
+						crate::i18n::translate(
+							"attachments-media-menu-unavailable-for-synthetic-attachments",
+						)
+					} else {
+						crate::i18n::translate(
+							"attachments-media-menu-a-media-transfer-is-already-active",
+						)
+					}),
+				))
 				.clicked()
 			{
 				action = Some(copy);
@@ -531,11 +645,20 @@ fn media_menu(
 			}
 		}
 		if let Some(url) = url.and_then(external_url) {
-			if video && ui.button("Open original…").clicked() {
+			if video
+				&& ui
+					.button(crate::i18n::translate(
+						"attachments-media-menu-open-original",
+					))
+					.clicked()
+			{
 				*opening = Some(url.clone());
 				ui.close();
 			}
-			if ui.button("Copy link").clicked() {
+			if ui
+				.button(crate::i18n::translate("attachments-media-menu-copy-link"))
+				.clicked()
+			{
 				ui.ctx().copy_text(url);
 				ui.close();
 			}
@@ -544,6 +667,11 @@ fn media_menu(
 	action
 }
 impl DownloadUi {
+	pub(crate) fn view_embed(&mut self, message: Id, media: &model::EmbedMedia) {
+		if media.valid() && media.bytes() <= 8 * 1024 {
+			self.embed_view_request = Some((message, media.clone()));
+		}
+	}
 	pub(crate) fn busy(&self) -> bool {
 		self.active
 			|| self.request.is_some()
@@ -554,10 +682,20 @@ impl DownloadUi {
 		if !self.status.is_empty() {
 			ui.horizontal_wrapped(|ui| {
 				ui.small(&self.status);
-				if self.active && ui.small_button("Cancel download").clicked() {
+				if self.active
+					&& ui
+						.small_button(crate::i18n::translate(
+							"attachments-show-status-cancel-download",
+						))
+						.clicked()
+				{
 					self.cancel_requested = true;
 				}
-				if !self.active && ui.small_button("Dismiss").clicked() {
+				if !self.active
+					&& ui
+						.small_button(crate::i18n::translate("attachments-show-status-dismiss"))
+						.clicked()
+				{
 					self.dismiss_requested = true;
 				}
 			});
@@ -571,13 +709,20 @@ fn download_button(
 	demo: bool,
 ) -> egui::Response {
 	let response = ui
-		.add_enabled(!demo && !download.busy(), egui::Button::new("Download"))
-		.on_hover_text("Choose where to save this file · up to 100 MiB")
-		.on_disabled_hover_text(if demo {
-			"Downloads are disabled for synthetic attachments"
+		.add_enabled(
+			!demo && !download.busy(),
+			egui::Button::new(crate::i18n::translate(
+				"attachments-download-button-download",
+			)),
+		)
+		.on_hover_text(crate::i18n::translate(
+			"attachments-download-button-choose-where-to-save-this-file-up-to-100-mib",
+		))
+		.on_disabled_hover_text(crate::i18n::translate_if_key(if demo {
+			"attachments-download-button-downloads-are-disabled-for-synthetic-attachments"
 		} else {
-			"A download is already active"
-		});
+			"attachments-download-button-a-download-is-already-active"
+		}));
 	if response.clicked() {
 		download.request = Some(attachment.clone());
 	}
@@ -695,6 +840,9 @@ fn quality_pill(ui: &egui::Ui, stage: Rect, quality: Quality) {
 	}
 }
 
+/// Zoom applied when clicking fitted media in the viewer.
+const VIEWER_CLICK_ZOOM: f32 = 2.0;
+
 /// Full-window media viewer. Returns the attachment to keep showing, or `None` once closed by
 /// the close control, Escape, or a click anywhere outside the image and its controls.
 pub fn viewer(
@@ -759,19 +907,22 @@ pub fn viewer(
 				Rect::from_center_size(full.center(), egui::vec2(1.0, 1.0))
 			};
 			// Image, centered on the stage, sized from bounded metadata.
-			let original = if attachment.media.width > 0 && attachment.media.height > 0 {
-				egui::vec2(
-					attachment.media.width.min(16384) as f32,
-					attachment.media.height.min(16384) as f32,
-				)
-			} else {
-				egui::vec2(320.0, 180.0)
-			};
+			let dimensions = images.media_dimensions(&attachment.media);
+			let original = dimensions.map_or(egui::vec2(320.0, 180.0), |[width, height]| {
+				egui::vec2(width as f32, height as f32)
+			});
 			let scale = (stage.width() / original.x)
 				.min(stage.height() / original.y)
-				.min(1.0);
+				.min(
+					if attachment.media.width > 0 && attachment.media.height > 0 {
+						1.0
+					} else {
+						f32::INFINITY
+					},
+				);
 			let fitted = (original * scale).max(egui::vec2(1.0, 1.0));
 			let image_rect = Rect::from_center_size(stage.center(), fitted);
+			let max_zoom = (4096.0 / fitted.max_elem()).clamp(1.0, 8.0);
 			if let Some(pointer) = ui.input(|i| i.pointer.hover_pos())
 				&& stage.contains(pointer)
 			{
@@ -780,7 +931,7 @@ pub fn viewer(
 					i.smooth_scroll_delta = egui::Vec2::ZERO;
 					factor
 				});
-				let next = (zoom * factor).clamp(1.0, (4096.0 / fitted.max_elem()).clamp(1.0, 8.0));
+				let next = (zoom * factor).clamp(1.0, max_zoom);
 				pan = (pointer - stage.center()) - (pointer - stage.center() - pan) * (next / zoom);
 				zoom = next;
 			}
@@ -797,26 +948,46 @@ pub fn viewer(
 				let shown =
 					images.show_media(ui, &attachment.media, fitted * zoom, demo, Surface::Viewer);
 				let image = shown.response;
-				let response = ui
+				let mut response = ui
 					.interact(image.rect, image.id.with("media"), Sense::click_and_drag())
 					.on_hover_cursor(if zoom > 1.0 {
 						egui::CursorIcon::Grab
 					} else {
 						egui::CursorIcon::ZoomIn
-					})
-					.on_hover_text("Scroll to zoom · Drag to pan · Double-click to reset")
-					.on_hover_text(
-						attachment
-							.description
-							.as_deref()
-							.unwrap_or(&attachment.filename),
-					);
+					});
+				// Zoomed in, the description tooltip would cover the detail being inspected.
+				if zoom <= 1.0 {
+					response = response
+						.on_hover_text(crate::i18n::translate(
+							"attachments-viewer-scroll-to-zoom-drag-to-pan-double-click-to-reset",
+						))
+						.on_hover_text(
+							attachment
+								.description
+								.as_deref()
+								.unwrap_or(&attachment.filename),
+						);
+				}
 				if response.dragged_by(egui::PointerButton::Primary) {
 					pan = (pan + response.drag_delta()).clamp(-limit, limit);
 				}
 				if response.double_clicked() {
 					zoom = 1.0;
 					pan = egui::Vec2::ZERO;
+				} else if response.clicked_by(egui::PointerButton::Primary) {
+					// A click toggles between fit and 2x, keeping the clicked point under the pointer.
+					let next = if zoom > 1.0 {
+						1.0
+					} else {
+						VIEWER_CLICK_ZOOM.min(max_zoom)
+					};
+					if let Some(pointer) = response.interact_pointer_pos() {
+						let offset = pointer - stage.center();
+						pan = offset - (offset - pan) * (next / zoom);
+					}
+					zoom = next;
+					let limit = ((fitted * zoom - stage.size()) * 0.5).max(egui::Vec2::ZERO);
+					pan = pan.clamp(-limit, limit);
 				}
 				// Zero-ID images are local viewer metadata, not service attachments.
 				if attachment.id == Id(0) {
@@ -857,11 +1028,11 @@ pub fn viewer(
 							glass_button(ui, Icon::Download, 40.0, "Download")
 						})
 						.inner
-						.on_disabled_hover_text(if demo {
-							"Downloads are disabled for synthetic attachments"
+						.on_disabled_hover_text(crate::i18n::translate_if_key(if demo {
+							"attachments-viewer-downloads-are-disabled-for-synthetic-attachments"
 						} else {
-							"A download is already active"
-						})
+							"attachments-viewer-a-download-is-already-active"
+						}))
 						.clicked()
 					{
 						if attachment.id == Id(0) {
@@ -900,7 +1071,9 @@ pub fn viewer(
 					);
 				}
 			}
-			// Caption: file name, size and dimensions, plus the browser link.
+			// Caption: file name, size and dimensions, plus the browser link. Zoomed media fills the
+			// stage, so the caption would sit on top of it; keep it only for an active download.
+			let show_caption = zoom <= 1.0 || download.active;
 			let caption_width = image_rect.width().max(360.0).min(stage.width());
 			let caption = Rect::from_min_size(
 				egui::pos2(
@@ -909,76 +1082,82 @@ pub fn viewer(
 				),
 				egui::vec2(caption_width, 44.0),
 			);
-			ui.scope_builder(
-				egui::UiBuilder::new()
-					.max_rect(caption)
-					.layout(egui::Layout::left_to_right(egui::Align::Center)),
-				|ui| {
-					ui.spacing_mut().item_spacing.x = 10.0;
+			let mut caption_ui = egui::UiBuilder::new()
+				.max_rect(caption)
+				.layout(egui::Layout::left_to_right(egui::Align::Center));
+			if !show_caption {
+				caption_ui = caption_ui.invisible();
+			}
+			ui.scope_builder(caption_ui, |ui| {
+				ui.spacing_mut().item_spacing.x = 10.0;
+				ui.add(
+					egui::Label::new(
+						design::semibold(ui, &attachment.filename, 14.0).color(Color32::WHITE),
+					)
+					.truncate()
+					.selectable(false),
+				);
+				let mut meta = format_size(attachment.size);
+				if let Some([width, height]) = images.media_dimensions(&attachment.media) {
+					meta = format!("{meta} · {width}×{height}");
+				}
+				ui.add(
+					egui::Label::new(
+						RichText::new(meta)
+							.size(13.0)
+							.color(Color32::from_gray(170)),
+					)
+					.selectable(false),
+				);
+				if let Some(target) = attachment.media.url.as_deref().and_then(external_url)
+					&& ui
+						.add(
+							egui::Label::new(
+								design::medium(
+									ui,
+									crate::i18n::translate("attachments-viewer-open-in-browser"),
+									13.0,
+								)
+								.color(Color32::from_rgb(0, 168, 252)),
+							)
+							.sense(Sense::click())
+							.selectable(false),
+						)
+						.on_hover_cursor(egui::CursorIcon::PointingHand)
+						.clicked()
+				{
+					*opening = Some(target);
+				}
+				if download.active || !download.status.is_empty() {
 					ui.add(
 						egui::Label::new(
-							design::semibold(ui, &attachment.filename, 14.0).color(Color32::WHITE),
+							RichText::new(&download.status)
+								.size(13.0)
+								.color(Color32::from_gray(170)),
 						)
 						.truncate()
 						.selectable(false),
 					);
-					let mut meta = format_size(attachment.size);
-					if attachment.media.width > 0 && attachment.media.height > 0 {
-						meta = format!(
-							"{meta} · {}×{}",
-							attachment.media.width, attachment.media.height
-						);
-					}
-					ui.add(
-						egui::Label::new(
-							RichText::new(meta)
-								.size(13.0)
-								.color(Color32::from_gray(170)),
-						)
-						.selectable(false),
-					);
-					if let Some(target) = attachment.media.url.as_deref().and_then(external_url)
+					if download.active
 						&& ui
 							.add(
 								egui::Label::new(
-									design::medium(ui, "Open in browser", 13.0)
-										.color(Color32::from_rgb(0, 168, 252)),
+									design::medium(
+										ui,
+										crate::i18n::translate("attachments-viewer-cancel"),
+										13.0,
+									)
+									.color(Color32::from_rgb(0, 168, 252)),
 								)
 								.sense(Sense::click())
 								.selectable(false),
 							)
-							.on_hover_cursor(egui::CursorIcon::PointingHand)
 							.clicked()
 					{
-						*opening = Some(target);
+						download.cancel_requested = true;
 					}
-					if download.active || !download.status.is_empty() {
-						ui.add(
-							egui::Label::new(
-								RichText::new(&download.status)
-									.size(13.0)
-									.color(Color32::from_gray(170)),
-							)
-							.truncate()
-							.selectable(false),
-						);
-						if download.active
-							&& ui
-								.add(
-									egui::Label::new(
-										design::medium(ui, "Cancel", 13.0)
-											.color(Color32::from_rgb(0, 168, 252)),
-									)
-									.sense(Sense::click())
-									.selectable(false),
-								)
-								.clicked()
-						{
-							download.cancel_requested = true;
-						}
-					}
-				},
-			);
+				}
+			});
 			// Thumbnail strip: the whole gallery at a glance, current one highlighted.
 			if count > 1 {
 				const THUMB: f32 = 48.0;
@@ -1084,38 +1263,18 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn shared_artwork_keeps_compact_tiles_and_matching_row_heights() {
-		let mut attachment = Attachment {
-			id: Id(1),
-			filename: String::new(),
-			description: None,
-			content_type: Some("image/png".into()),
-			size: 1,
-			spoiler: false,
-			media: Default::default(),
-			duration_ms: None,
-			waveform: vec![],
-		};
-		let gallery = image_layout(1, 500.0).1;
-		for (name, edge) in [("emoji-7.gif", 48.0), ("sticker-8.png", 160.0)] {
-			attachment.filename = name.into();
-			attachment.content_type = Some("image/png".into());
-			assert_eq!(artwork_size(&attachment, gallery), egui::Vec2::splat(edge));
-			assert_eq!(estimated_height(&[attachment.clone()], 500.0), edge + 6.0);
-			assert_eq!(
-				artwork_size(&attachment, egui::Vec2::splat(20.0)),
-				egui::Vec2::splat(20.0)
-			);
+	fn large_image_galleries_use_three_square_columns_and_narrow_layouts_fit() {
+		for width in [280.0, 420.0, 640.0] {
+			let (columns, size) = image_layout(5, width);
+			assert!(size.x * columns as f32 + (columns - 1) as f32 * 6.0 <= width);
+			if width >= 420.0 {
+				assert_eq!(columns, 3);
+				assert_eq!(size.x, size.y);
+			} else {
+				assert_eq!(columns, 2);
+			}
 		}
-		for name in [
-			"photo.png",
-			"emoji-0.png",
-			"emoji-nope.png",
-			"sticker-8.txt",
-		] {
-			attachment.filename = name.into();
-			assert_eq!(artwork_size(&attachment, gallery), gallery);
-		}
+		assert_eq!(image_layout(4, 640.0).0, 2);
 	}
 
 	#[test]
@@ -1192,6 +1351,7 @@ mod tests {
 							&mut crate::video::VideoUi::default(),
 							true,
 							&mut surface,
+							crate::design::MessageCardSurface::Conversation,
 						);
 						surface.finish(ui);
 					},
@@ -1259,6 +1419,85 @@ mod tests {
 			estimated_height(&message.attachments, 420.0)
 				< estimated_height(&message.attachments, 240.0)
 		);
+	}
+
+	#[test]
+	fn three_column_gallery_height_matches_the_actual_wrapped_rows() {
+		for light in [false, true] {
+			for width in [240.0, 420.0, 640.0] {
+				for count in [5, 10] {
+					let mut message = test_support::message(1, Id(2));
+					message.attachments = (0..count)
+						.map(|index| Attachment {
+							id: Id(index + 10),
+							filename: format!("Synthetic-{index}.png"),
+							description: None,
+							content_type: Some("image/png".into()),
+							size: 512,
+							spoiler: false,
+							media: model::EmbedMedia {
+								width: 640,
+								height: 360,
+								..Default::default()
+							},
+							duration_ms: None,
+							waveform: vec![],
+						})
+						.collect();
+					let ctx = egui::Context::default();
+					ctx.set_visuals(if light {
+						egui::Visuals::light()
+					} else {
+						egui::Visuals::dark()
+					});
+					let mut actual = 0.0;
+					for _ in 0..3 {
+						let output = ctx.run_ui(
+							egui::RawInput {
+								screen_rect: Some(egui::Rect::from_min_size(
+									egui::Pos2::ZERO,
+									egui::vec2(width + 16.0, 2400.0),
+								)),
+								..Default::default()
+							},
+							|ui| {
+								ui.set_width(width);
+								actual = ui
+									.scope(|ui| {
+										let mut surface =
+											crate::select::Surface::new(ui, "height-test");
+										show(
+											ui,
+											&message,
+											&mut Avatars::default(),
+											&mut None,
+											&mut None,
+											&mut DownloadUi::default(),
+											&mut crate::audio::AudioUi::default(),
+											&mut crate::video::VideoUi::default(),
+											true,
+											&mut surface,
+											design::MessageCardSurface::Conversation,
+										);
+									})
+									.response
+									.rect
+									.height();
+							},
+						);
+						output.drop_without_applying_deltas();
+					}
+					let estimate = estimated_height(&message.attachments, width);
+					// Uncropped narrow layouts conservatively reserve their maximum
+					// height. New square galleries must match their actual row budget.
+					let (columns, _) = image_layout(count as usize, width);
+					assert!(
+						estimate >= actual - 1.0 && (columns != 3 || estimate <= actual + 8.0),
+						"{count} tiles at {width}, light={light}: actual {actual}, estimate {estimate}"
+					);
+				}
+			}
+		}
 	}
 
 	#[test]
@@ -1386,6 +1625,7 @@ mod tests {
 			},
 		};
 		let message = Message {
+			poll: None,
 			sticker_items: vec![],
 			id: Id(1),
 			channel: Id(2),
@@ -1442,6 +1682,7 @@ mod tests {
 				&mut crate::video::VideoUi::default(),
 				false,
 				&mut crate::select::Surface::new(ui, "attachment-test"),
+				crate::design::MessageCardSurface::Conversation,
 			)
 		});
 		assert!(images.take_requests().is_empty());
@@ -1459,6 +1700,7 @@ mod tests {
 					&mut crate::video::VideoUi::default(),
 					false,
 					&mut crate::select::Surface::new(ui, "attachment-test"),
+					crate::design::MessageCardSurface::Conversation,
 				)
 			});
 		}

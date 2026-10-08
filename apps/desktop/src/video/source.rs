@@ -276,6 +276,76 @@ mod tests {
 	use std::{io::Write, net::TcpListener, sync::atomic::AtomicUsize};
 
 	#[test]
+	fn embed_probe_requires_a_bounded_range_length() {
+		let runtime = tokio::runtime::Builder::new_multi_thread()
+			.worker_threads(1)
+			.enable_all()
+			.build()
+			.unwrap();
+		for (status, range, valid) in [
+			("206 Partial Content", "bytes 0-0/8".to_owned(), true),
+			("206 Partial Content", "bytes 0-0/0".to_owned(), false),
+			(
+				"206 Partial Content",
+				format!("bytes 0-0/{}", MAX_BYTES + 1),
+				false,
+			),
+			("206 Partial Content", "bytes 1-1/8".to_owned(), false),
+			("206 Partial Content", "bytes 0-0/*".to_owned(), false),
+			("200 OK", "bytes 0-0/8".to_owned(), false),
+		] {
+			let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+			listener.set_nonblocking(true).unwrap();
+			let url = url::Url::parse(&format!(
+				"http://{}/embedded.mp4",
+				listener.local_addr().unwrap()
+			))
+			.unwrap();
+			let server = std::thread::spawn(move || {
+				let deadline = std::time::Instant::now() + Duration::from_secs(2);
+				let mut socket = loop {
+					match listener.accept() {
+						Ok((socket, _)) => break socket,
+						Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+							assert!(
+								std::time::Instant::now() < deadline,
+								"probe did not connect"
+							);
+							std::thread::sleep(Duration::from_millis(5));
+						}
+						Err(error) => panic!("{error}"),
+					}
+				};
+				socket
+					.set_read_timeout(Some(Duration::from_secs(2)))
+					.unwrap();
+				let mut header = Vec::new();
+				while !header.ends_with(b"\r\n\r\n") {
+					assert!(header.len() < 8192);
+					let mut byte = [0];
+					socket.read_exact(&mut byte).unwrap();
+					header.push(byte[0]);
+				}
+				let header = String::from_utf8(header).unwrap().to_ascii_lowercase();
+				assert!(header.contains("range: bytes=0-0\r\n"));
+				assert!(!header.contains("authorization:") && !header.contains("cookie:"));
+				write!(socket, "HTTP/1.1 {status}\r\nContent-Range: {range}\r\nContent-Length: 1\r\nConnection: close\r\n\r\nx").unwrap();
+			});
+			let result = source(
+				Some(url),
+				0,
+				Arc::new(AtomicBool::new(false)),
+				runtime.handle().clone(),
+			);
+			assert_eq!(result.is_ok(), valid);
+			if let Ok(mut source) = result {
+				assert_eq!(source.seek(SeekFrom::End(0)).unwrap(), 8);
+			}
+			server.join().unwrap();
+		}
+	}
+
+	#[test]
 	fn alternating_tracks_reuse_buffered_ranges() {
 		let listener = TcpListener::bind("127.0.0.1:0").unwrap();
 		let address = listener.local_addr().unwrap();

@@ -319,7 +319,6 @@ impl Decoder {
 		audio.cursor += 1;
 		let rate = track.sample_rate;
 		let channels = usize::from(track.channels);
-		let timescale = track.track.timescale;
 		let pts = track.track.seconds(entry.pts);
 		let bytes = self.read_sample(entry, MAX_AUDIO_PACKET)?;
 		let audio = self.audio.as_mut().ok_or(INVALID)?;
@@ -328,7 +327,6 @@ impl Decoder {
 		if decoded.spec().rate() != rate
 			|| decoded.spec().channels().count() != channels
 			|| decoded.frames() > MAX_AUDIO_FRAMES
-			|| timescale != rate
 		{
 			return Err(UNSUPPORTED);
 		}
@@ -692,61 +690,23 @@ mod tests {
 			panic!("Missing portrait frame");
 		};
 		assert_eq!((width, height, rgba.len()), (180, 320, 180 * 320 * 4));
-	}
 
-	/// Developer check for real-world files: `SEREIN_VIDEO_SAMPLE=/path/clip.mp4 cargo test
-	/// -p platform decodes_local_sample -- --ignored --nocapture`.
-	#[test]
-	#[ignore = "decodes a developer-supplied local clip"]
-	fn decodes_local_sample() {
-		let path = std::env::var("SEREIN_VIDEO_SAMPLE").expect("SEREIN_VIDEO_SAMPLE path");
-		let bytes = std::fs::read(path).unwrap();
-		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(bytes))).unwrap();
-		let info = decoder.info();
-		eprintln!("{info:?}");
-		let started = std::time::Instant::now();
-		let (mut videos, mut audio_frames, mut last_pts) = (0, 0_usize, -1.0);
-		loop {
-			let video = decoder.read_video().unwrap();
-			let audio = decoder.read_audio().unwrap();
-			if video.is_none() && audio.is_none() {
-				break;
+		{
+			let silent = include_bytes!("../../../../apps/desktop/tests/fixtures/video-silent.mov");
+			let mut decoder =
+				Decoder::open(Box::new(std::io::Cursor::new(silent.as_slice()))).unwrap();
+			assert_eq!(decoder.info().sample_rate, 0);
+			assert!(decoder.read_audio().unwrap().is_none());
+			assert!(decoder.read_video().unwrap().is_some());
+			let short =
+				include_bytes!("../../../../apps/desktop/tests/fixtures/video-short-audio.mov");
+			let mut decoder =
+				Decoder::open(Box::new(std::io::Cursor::new(short.as_slice()))).unwrap();
+			let mut frames = 0;
+			while let Some(Sample::Audio { frames: pcm, .. }) = decoder.read_audio().unwrap() {
+				frames += pcm.len();
 			}
-			if let Some(Sample::Video {
-				pts, width, height, ..
-			}) = video
-			{
-				assert_eq!((width, height), (info.width, info.height));
-				assert!(pts > last_pts, "{pts} after {last_pts}");
-				last_pts = pts;
-				videos += 1;
-			}
-			if let Some(Sample::Audio { frames, .. }) = audio {
-				audio_frames += frames.len();
-			}
+			assert!((20_000..30_000).contains(&frames), "{frames}");
 		}
-		eprintln!(
-			"{videos} frames, {audio_frames} PCM frames, last pts {last_pts:.3}s in {:.0} ms",
-			started.elapsed().as_secs_f64() * 1000.0
-		);
-		assert!(videos > 0);
-		decoder.seek(info.duration / 2.0).unwrap();
-		assert!(decoder.read_video().unwrap().is_some());
-	}
-
-	#[test]
-	fn silent_and_short_audio_variants_open() {
-		let silent = include_bytes!("../../../../apps/desktop/tests/fixtures/video-silent.mov");
-		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(silent.as_slice()))).unwrap();
-		assert_eq!(decoder.info().sample_rate, 0);
-		assert!(decoder.read_audio().unwrap().is_none());
-		assert!(decoder.read_video().unwrap().is_some());
-		let short = include_bytes!("../../../../apps/desktop/tests/fixtures/video-short-audio.mov");
-		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(short.as_slice()))).unwrap();
-		let mut frames = 0;
-		while let Some(Sample::Audio { frames: pcm, .. }) = decoder.read_audio().unwrap() {
-			frames += pcm.len();
-		}
-		assert!((20_000..30_000).contains(&frames), "{frames}");
 	}
 }

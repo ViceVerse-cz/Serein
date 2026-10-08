@@ -449,31 +449,6 @@ fn sample_bytes(sample: &IMFSample, max_bytes: usize) -> Result<Vec<u8>, &'stati
 mod tests {
 	use super::*;
 	#[test]
-	fn keyframe_control_uses_the_documented_unsigned_variant() {
-		let value = force_keyframe_value();
-		assert_eq!(value.vt(), windows::Win32::System::Variant::VT_UI4);
-		assert_eq!(u32::try_from(&value).unwrap(), 1);
-	}
-	#[test]
-	fn hardware_output_capacity_is_separate_from_compressed_frame_limit() {
-		let mut info = MFT_OUTPUT_STREAM_INFO {
-			dwFlags: 0,
-			cbSize: 1280 * 720 * 3 / 2,
-			cbAlignment: 0,
-		};
-		assert!(info.cbSize as usize > crate::camera::MAX_ENCODED_BYTES);
-		assert_eq!(
-			output_buffer_size(&info, 1280 * 720 * 4).unwrap(),
-			info.cbSize
-		);
-		assert!(output_buffer_size(&info, 1024).is_err());
-		info.cbSize = 0;
-		assert!(output_buffer_size(&info, 1280 * 720 * 4).is_err());
-		info.cbSize = u32::MAX;
-		assert!(output_buffer_size(&info, 1280 * 720 * 4).is_err());
-	}
-
-	#[test]
 	fn larger_native_buffer_does_not_relax_encoded_sample_limit() {
 		let _runtime = Runtime::open().unwrap();
 		let limit = crate::camera::MAX_ENCODED_BYTES;
@@ -494,6 +469,30 @@ mod tests {
 			assert!(encoded.iter().all(|&byte| byte == 0x2a));
 			buffer.SetCurrentLength(limit as u32 + 1).unwrap();
 			assert!(sample_bytes(&sample, limit).is_err());
+		}
+
+		{
+			let mut info = MFT_OUTPUT_STREAM_INFO {
+				dwFlags: 0,
+				cbSize: 1280 * 720 * 3 / 2,
+				cbAlignment: 0,
+			};
+			assert!(info.cbSize as usize > crate::camera::MAX_ENCODED_BYTES);
+			assert_eq!(
+				output_buffer_size(&info, 1280 * 720 * 4).unwrap(),
+				info.cbSize
+			);
+			assert!(output_buffer_size(&info, 1024).is_err());
+			info.cbSize = 0;
+			assert!(output_buffer_size(&info, 1280 * 720 * 4).is_err());
+			info.cbSize = u32::MAX;
+			assert!(output_buffer_size(&info, 1280 * 720 * 4).is_err());
+		}
+
+		{
+			let value = force_keyframe_value();
+			assert_eq!(value.vt(), windows::Win32::System::Variant::VT_UI4);
+			assert_eq!(u32::try_from(&value).unwrap(), 1);
 		}
 	}
 }

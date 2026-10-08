@@ -268,7 +268,7 @@ fn dashboard(app: &AppSnapshot) -> Vec<Element> {
 			Element::Slider {
 				id: "zoom".into(),
 				label: "Zoom percent".into(),
-				min: 80,
+				min: 50,
 				max: 150,
 				value: settings.zoom_percent.into(),
 			},
@@ -434,8 +434,8 @@ fn proposal(input: &Invocation, app: &AppSnapshot) -> Result<HostEffect, &'stati
 			if scroll_speed_percent.is_some_and(|speed| !(25..=300).contains(&speed)) {
 				return Err("Scroll speed must be 25–300.");
 			}
-			if !(80..=150).contains(&zoom) || !(190..=360).contains(&sidebar) {
-				return Err("Zoom must be 80–150 and sidebar width 190–360.");
+			if !(50..=150).contains(&zoom) || !(190..=360).contains(&sidebar) {
+				return Err("Zoom must be 50–150 and sidebar width 190–360.");
 			}
 			HostEffect::SetLocalSettings {
 				settings: LocalSettingsPatch {
@@ -649,8 +649,16 @@ mod tests {
 			assert!(run(&input).effects.is_empty());
 		}
 		input.invocation.values.remove("scroll-speed");
-		input.invocation.values.insert("zoom".into(), "151".into());
-		assert!(run(&input).effects.is_empty());
+		for zoom in ["50", "79"] {
+			input.invocation.values.insert("zoom".into(), zoom.into());
+			assert!(
+				matches!(&run(&input).effects[..], [HostEffect::SetLocalSettings { settings }] if settings.zoom_percent == zoom.parse::<u16>().ok())
+			);
+		}
+		for zoom in ["49", "151"] {
+			input.invocation.values.insert("zoom".into(), zoom.into());
+			assert!(run(&input).effects.is_empty());
+		}
 		input.invocation.action = "notifications".into();
 		input.invocation.values.extend(
 			[

@@ -20,8 +20,9 @@ use extensions::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+/// Generated from `extensions/` and pinned to a merged commit by the catalog workflow.
 const CATALOG_URL: &str =
-	"https://raw.githubusercontent.com/ViceVerse-cz/Serein-extensions/main/catalog.json";
+	"https://raw.githubusercontent.com/ViceVerse-cz/Serein/main/extensions/catalog.json";
 const MAX_PACKAGE: usize = 16 * 1024 * 1024;
 const MAX_RECORD: usize = MAX_PACKAGE + 64 * 1024;
 const MAX_CATALOG: usize = 1024 * 1024;
@@ -78,13 +79,10 @@ pub enum Job {
 	Load {
 		account: Option<String>,
 	},
-	RefreshCatalog {
-		demo: bool,
-	},
+	RefreshCatalog,
 	Preview {
 		id: String,
 		preview: Preview,
-		demo: bool,
 	},
 	InspectImport {
 		path: PathBuf,
@@ -122,60 +120,53 @@ pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 		#[cfg(any(test, feature = "demo"))]
 		(
 			include_bytes!(
-				"../../../examples/extensions/packages/message-delete-protector.serein-extension"
+				"../../../extensions/plugins/packages/message-delete-protector.serein-extension"
 			),
 			"Keep messages already seen in this session visible in red after deletion. Cleared when disabled or signed out.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
-			include_bytes!(
-				"../../../examples/extensions/packages/emoji-sticker-images.serein-extension"
-			),
-			"While enabled, selecting custom emoji or stickers sends an image attachment immediately.",
-		),
-		#[cfg(any(test, feature = "demo"))]
-		(
-			include_bytes!("../../../extensions/ocean.serein-extension"),
+			include_bytes!("../../../extensions/themes/ocean.serein-extension"),
 			"Deep blue surfaces with a bright ocean accent.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
-			include_bytes!("../../../extensions/midnight.serein-extension"),
+			include_bytes!("../../../extensions/themes/midnight.serein-extension"),
 			"Inky midnight surfaces with a vivid violet accent.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
-			include_bytes!("../../../extensions/rose.serein-extension"),
+			include_bytes!("../../../extensions/themes/rose.serein-extension"),
 			"Soft rose surfaces with a warm pink accent.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
-			include_bytes!("../../../extensions/forest.serein-extension"),
+			include_bytes!("../../../extensions/themes/forest.serein-extension"),
 			"Calm forest greens and fresh leafy accents.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
-			include_bytes!("../../../extensions/latte.serein-extension"),
+			include_bytes!("../../../extensions/themes/latte.serein-extension"),
 			"Warm coffee tones and a creamy caramel accent.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
-			include_bytes!("../../../extensions/golden.serein-extension"),
+			include_bytes!("../../../extensions/themes/golden.serein-extension"),
 			"Warm charcoal and gold, with rounded, roomy controls.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
-			include_bytes!("../../../extensions/katana.serein-extension"),
+			include_bytes!("../../../extensions/themes/katana.serein-extension"),
 			"Katana's dark charcoal surfaces and sharp red accents. Light mode uses built-in colors.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
-			include_bytes!("../../../extensions/obsidian.serein-extension"),
+			include_bytes!("../../../extensions/themes/obsidian.serein-extension"),
 			"Obsidian violet surfaces and lavender accents in light and dark.",
 		),
 		#[cfg(any(test, feature = "demo"))]
 		(
-			include_bytes!("../../../extensions/teal.serein-extension"),
+			include_bytes!("../../../extensions/themes/teal.serein-extension"),
 			"Cool blue-green surfaces with fresh teal accents.",
 		),
 	];
@@ -202,13 +193,13 @@ pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 #[cfg(feature = "demo")]
 pub fn demo_check_examples() -> Result<bool, String> {
 	let starters = starters()?;
-	if starters.len() != 11
+	if starters.len() != 10
 		|| starters
 			.iter()
 			.filter(|entry| entry.theme.is_some())
 			.count() != 9
 	{
-		return Err("Expected two starter plugins and nine themes".into());
+		return Err("Expected one starter plugin and nine themes".into());
 	}
 	let gate = Gate {
 		epoch: 0,
@@ -247,7 +238,6 @@ pub fn demo_check_examples() -> Result<bool, String> {
 		if manifest.kind == ExtensionKind::Plugin {
 			let ok = match manifest.id.as_str() {
 				"message-delete-protector" => summary.preserve_deleted_messages,
-				"emoji-sticker-images" => summary.image_sharing,
 				_ => false,
 			};
 			if !ok {
@@ -328,6 +318,8 @@ pub struct InstalledExtension {
 	pub error: Option<String>,
 	pub preserve_deleted_messages: bool,
 	pub image_sharing: bool,
+	pub rich_presence: Option<Box<extensions::CustomRichPresence>>,
+	pub api_proxy: Option<extensions::ApiProxyConfig>,
 }
 
 pub enum Event {
@@ -575,6 +567,19 @@ impl Stored {
 			sha256: self.sha256.clone(),
 			download_bytes: self.download_bytes,
 			image_sharing: result.as_ref().is_ok_and(|output| output.image_sharing),
+			api_proxy: result
+				.as_ref()
+				.ok()
+				.and_then(|output| output.api_proxy.clone()),
+			rich_presence: result
+				.as_ref()
+				.ok()
+				.and_then(|output| match &output.rich_presence {
+					Some(extensions::RichPresenceUpdate::Set { presence }) => {
+						Some(presence.clone())
+					}
+					_ => None,
+				}),
 			// Current protector packages have a no-op activation; consent still opts in.
 			preserve_deleted_messages: activation.is_some()
 				&& result.is_ok()
@@ -592,7 +597,9 @@ fn validate_job(job: &Job) -> Result<(), String> {
 			invocation,
 		} => {
 			valid_id(id)?;
-			account_key(account)?;
+			if !account.is_empty() {
+				account_key(account)?;
+			}
 			let event_bytes = if let Some(event) = &invocation.message_event {
 				event.validate().map_err(|error| error.to_string())?;
 				event
@@ -756,19 +763,12 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			starters: starters()?,
 			installed: load(root, account.as_deref(), gate)?,
 		}),
-		Job::RefreshCatalog { demo } => {
-			if demo {
-				return extensions::parse_catalog(include_bytes!(
-					"../../../extensions/catalog.json"
-				))
-				.map(Event::Catalog)
-				.map_err(|error| error.to_string());
-			}
+		Job::RefreshCatalog => {
 			let bytes = download(CATALOG_URL, MAX_CATALOG, gate, Duration::from_secs(15))?;
 			cache_catalog(root, &bytes, gate).map(Event::Catalog)
 		}
-		Job::Preview { id, preview, demo } => {
-			let image = load_preview(&id, &preview, demo, gate);
+		Job::Preview { id, preview } => {
+			let image = load_preview(&preview, gate);
 			Ok(Event::Preview { id, image })
 		}
 		Job::InspectImport { path } => {
@@ -800,7 +800,12 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			account,
 			mut invocation,
 		} => {
-			let directory = scope(root, ExtensionKind::Plugin, Some(&account))?.join(&id);
+			let directory = scope(
+				root,
+				ExtensionKind::Plugin,
+				(!account.is_empty()).then_some(account.as_str()),
+			)?
+			.join(&id);
 			if directory.with_extension("disabled").exists() {
 				return Err("Plugin is disabled".into());
 			}
@@ -809,6 +814,9 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 				|| stored.package.manifest.kind != ExtensionKind::Plugin
 			{
 				return Err("Installed plugin identity changed".into());
+			}
+			if is_proxy(&stored.package.manifest) != account.is_empty() {
+				return Err("Plugin connection scope changed".into());
 			}
 			if invocation.selected_message.is_some()
 				&& !stored.grants.contains(&Capability::SelectedMessage)
@@ -841,6 +849,13 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			let mut output =
 				extensions::invoke(&stored.package, &invocation).map_err(|e| e.to_string())?;
 			gate.check()?;
+			if output.api_proxy.is_some() && !stored.grants.contains(&Capability::ApiProxy) {
+				return Err("API proxy access was not granted".into());
+			}
+			if output.rich_presence.is_some() && !stored.grants.contains(&Capability::RichPresence)
+			{
+				return Err("Rich presence access was not granted".into());
+			}
 			if let Some(data) = output.storage.take() {
 				if !stored.grants.contains(&Capability::Storage) || data.len() > MAX_STORAGE {
 					return Err("Plugin data exceeds its granted storage budget".into());
@@ -908,7 +923,7 @@ fn enable(
 		return Err("Package does not match the reviewed manifest".into());
 	}
 	if reviewed {
-		let path = scope(root, package.manifest.kind, account)?
+		let path = manifest_scope(root, &package.manifest, account)?
 			.join(&package.manifest.id)
 			.join("package.json");
 		if path.exists() {
@@ -948,7 +963,7 @@ fn install_stored(
 	gate: &Gate,
 ) -> Result<InstalledExtension, String> {
 	validate_grants(&stored.package.manifest, &stored.grants)?;
-	let parent = scope(root, stored.package.manifest.kind, account)?;
+	let parent = manifest_scope(root, &stored.package.manifest, account)?;
 	let directory = parent.join(&stored.package.manifest.id);
 	if parent.with_extension("disabled").exists() {
 		return Err("Account extension cleanup is incomplete; reopen Extensions to retry".into());
@@ -959,6 +974,7 @@ fn install_stored(
 		);
 	}
 	if stored.package.manifest.kind == ExtensionKind::Plugin
+		&& !is_proxy(&stored.package.manifest)
 		&& !parent.exists()
 		&& count_directories(&root.join("accounts"))? >= MAX_ACCOUNTS
 	{
@@ -1008,12 +1024,31 @@ fn validate_grants(manifest: &Manifest, grants: &[Capability]) -> Result<(), Str
 	Ok(())
 }
 
+fn is_proxy(manifest: &Manifest) -> bool {
+	manifest.capabilities.contains(&Capability::ApiProxy)
+}
+fn manifest_scope(
+	root: &Path,
+	manifest: &Manifest,
+	account: Option<&str>,
+) -> Result<PathBuf, String> {
+	manifest.validate().map_err(|error| error.to_string())?;
+	if is_proxy(manifest) {
+		return Ok(root.join("proxy-plugins"));
+	}
+	if manifest.kind == ExtensionKind::Plugin && account.is_none() {
+		return Err("Select an account before enabling plugins".into());
+	}
+	scope(root, manifest.kind, account)
+}
+
 fn scope(root: &Path, kind: ExtensionKind, account: Option<&str>) -> Result<PathBuf, String> {
 	match kind {
 		ExtensionKind::Theme => Ok(root.join("themes")),
-		ExtensionKind::Plugin => Ok(root.join("accounts").join(account_key(
-			account.ok_or("Select an account before enabling plugins")?,
-		)?)),
+		ExtensionKind::Plugin => match account {
+			Some(account) => Ok(root.join("accounts").join(account_key(account)?)),
+			None => Ok(root.join("proxy-plugins")),
+		},
 	}
 }
 
@@ -1037,7 +1072,10 @@ fn load(
 	gate: &Gate,
 ) -> Result<Vec<InstalledExtension>, String> {
 	cleanup(&root.join("accounts"), MAX_ACCOUNTS, gate)?;
-	let mut scopes = vec![(root.join("themes"), ExtensionKind::Theme)];
+	let mut scopes = vec![
+		(root.join("themes"), ExtensionKind::Theme),
+		(root.join("proxy-plugins"), ExtensionKind::Plugin),
+	];
 	if let Some(account) = account {
 		scopes.push((
 			scope(root, ExtensionKind::Plugin, Some(account))?,
@@ -1067,7 +1105,7 @@ fn load(
 				.map_err(|_| "Cannot read extension entry")?
 				.is_dir()
 			{
-				if installed.len() >= MAX_PER_SCOPE * 2 {
+				if installed.len() >= MAX_PER_SCOPE * 3 {
 					return Err("Too many installed extensions".into());
 				}
 				let id = entry.file_name().to_string_lossy().into_owned();
@@ -1083,7 +1121,11 @@ fn load(
 							"Extension is disabled; cleanup needs retrying".into()
 						}));
 					}
-					if stored.package.manifest.id != id || stored.package.manifest.kind != kind {
+					if stored.package.manifest.id != id
+						|| stored.package.manifest.kind != kind
+						|| is_proxy(&stored.package.manifest)
+							!= (parent == root.join("proxy-plugins"))
+					{
 						return Err("Installed extension identity changed".into());
 					}
 					Ok(stored)
@@ -1108,6 +1150,7 @@ fn load(
 							summary.theme = None;
 							summary.preserve_deleted_messages = false;
 							summary.image_sharing = false;
+							summary.rich_presence = None;
 							summary.error = Some(error);
 							summary
 						}
@@ -1126,7 +1169,11 @@ fn load(
 							license: "Unknown".into(),
 							source: "https://github.com/ViceVerse-cz/rustcord".into(),
 							kind,
-							capabilities: Vec::new(),
+							capabilities: if parent == root.join("proxy-plugins") {
+								vec![Capability::ApiProxy]
+							} else {
+								Vec::new()
+							},
 							actions: Vec::new(),
 						},
 						theme: None,
@@ -1136,6 +1183,8 @@ fn load(
 						error: Some(error),
 						preserve_deleted_messages: false,
 						image_sharing: false,
+						rich_presence: None,
+						api_proxy: None,
 					},
 				});
 			}
@@ -1334,17 +1383,10 @@ fn remove_owned_directory(path: &Path) -> Result<(), String> {
 	fs::remove_dir_all(path).map_err(|_| "Extension cleanup failed; it will retry on launch".into())
 }
 
-fn load_preview(
-	id: &str,
-	preview: &Preview,
-	demo: bool,
-	gate: &Gate,
-) -> Option<eframe::egui::ColorImage> {
+fn load_preview(preview: &Preview, gate: &Gate) -> Option<eframe::egui::ColorImage> {
 	gate.check().ok()?;
 	preview.validate().ok()?;
-	let bytes = if demo {
-		demo_preview(id)?.to_vec()
-	} else if let Some(bytes) = cached_preview(&preview.sha256) {
+	let bytes = if let Some(bytes) = cached_preview(&preview.sha256) {
 		bytes
 	} else {
 		download(
@@ -1358,9 +1400,7 @@ fn load_preview(
 	gate.check().ok()?;
 	let image = decode_preview(&bytes, preview)?;
 	gate.check().ok()?;
-	if !demo {
-		remember_preview(&preview.sha256, bytes);
-	}
+	remember_preview(&preview.sha256, bytes);
 	Some(image)
 }
 
@@ -1396,21 +1436,6 @@ fn remember_preview(sha256: &str, bytes: Vec<u8>) {
 		|| cache.iter().map(|(_, bytes)| bytes.len()).sum::<usize>() > MAX_CACHED_PREVIEW_BYTES
 	{
 		cache.pop_front();
-	}
-}
-
-fn demo_preview(id: &str) -> Option<&'static [u8]> {
-	#[cfg(feature = "demo")]
-	{
-		match id {
-			"serein-ocean" => Some(include_bytes!("../../../extensions/previews/ocean.png")),
-			_ => None,
-		}
-	}
-	#[cfg(not(feature = "demo"))]
-	{
-		let _ = id;
-		None
 	}
 }
 
@@ -1677,59 +1702,7 @@ mod tests {
 			wake_cancel: Arc::new(tokio::sync::Notify::new()),
 		}
 	}
-	#[test]
-	fn bundled_themes_open_without_installing_and_preserve_preview_intent() {
-		let profile = Profile::new();
-		let root = profile.0.join("extensions");
-		for starter in starters().unwrap() {
-			let InstallSource::Bundled { manifest, .. } = starter.source else {
-				unreachable!()
-			};
-			let result = run(
-				&root,
-				Job::EditTheme {
-					id: manifest.id.clone(),
-					preview: true,
-				},
-				&gate(),
-			);
-			if manifest.kind == ExtensionKind::Theme {
-				let Event::EditTheme {
-					package,
-					local_theme,
-					preview,
-					..
-				} = result.unwrap()
-				else {
-					panic!("expected theme")
-				};
-				assert_eq!(package.manifest.id, manifest.id);
-				assert!(package.theme.is_some());
-				assert!(preview && !local_theme);
-			} else {
-				assert!(result.is_err());
-			}
-		}
-		assert!(!root.exists(), "preview must not install a theme");
-		let original =
-			extensions::parse_package(include_bytes!("../../../extensions/ocean.serein-extension"))
-				.unwrap();
-		let directory = root.join("themes").join(&original.manifest.id);
-		fs::create_dir_all(&directory).unwrap();
-		fs::write(directory.join("package.json"), b"invalid").unwrap();
-		assert!(
-			run(
-				&root,
-				Job::EditTheme {
-					id: original.manifest.id,
-					preview: false
-				},
-				&gate()
-			)
-			.is_err(),
-			"do not hide a corrupt installed package behind the bundled original"
-		);
-	}
+
 	fn theme(id: &str) -> Package {
 		Package {
 			manifest: Manifest {
@@ -1776,6 +1749,133 @@ mod tests {
 				..Default::default()
 			},
 		}
+	}
+
+	#[test]
+	fn proxy_plugins_are_prelogin_global_and_survive_account_logout() {
+		let profile = Profile::new();
+		let root = profile.0.join("extensions");
+		let mut package = extensions::parse_package(include_bytes!(
+			"../../../examples/extensions/packages/message-counter.serein-extension"
+		))
+		.unwrap();
+		assert!(manifest_scope(&root, &package.manifest, None).is_err());
+		package.manifest.id = "api-proxy".into();
+		package.manifest.capabilities = vec![Capability::ApiProxy, Capability::Storage];
+		package.manifest.actions = vec![extensions::Action {
+			id: "settings".into(),
+			label: "Settings".into(),
+			surface: Surface::Panel,
+		}];
+		let installed = enable(
+			&root,
+			source(&profile, &package),
+			package.manifest.capabilities.clone(),
+			None,
+			&gate(),
+		)
+		.unwrap();
+		assert!(installed.error.is_none());
+		let directory = root.join("proxy-plugins/api-proxy");
+		assert!(directory.join("package.json").exists());
+		for account in [None, Some("one"), Some("two")] {
+			assert!(
+				load(&root, account, &gate())
+					.unwrap()
+					.iter()
+					.any(|entry| entry.manifest.id == "api-proxy")
+			);
+		}
+		assert!(
+			run(
+				&root,
+				Job::Invoke {
+					id: "api-proxy".into(),
+					account: "one".into(),
+					invocation: Invocation {
+						action: "settings".into(),
+						..Default::default()
+					}
+				},
+				&gate()
+			)
+			.is_err()
+		);
+		run(
+			&root,
+			Job::Logout {
+				account: "one".into(),
+			},
+			&gate(),
+		)
+		.unwrap();
+		assert!(directory.exists());
+		run(
+			&root,
+			Job::Disable {
+				id: "api-proxy".into(),
+				kind: ExtensionKind::Plugin,
+				account: None,
+			},
+			&gate(),
+		)
+		.unwrap();
+		assert!(!directory.exists());
+	}
+
+	#[test]
+	fn bundled_themes_open_without_installing_and_preserve_preview_intent() {
+		let profile = Profile::new();
+		let root = profile.0.join("extensions");
+		for starter in starters().unwrap() {
+			let InstallSource::Bundled { manifest, .. } = starter.source else {
+				unreachable!()
+			};
+			let result = run(
+				&root,
+				Job::EditTheme {
+					id: manifest.id.clone(),
+					preview: true,
+				},
+				&gate(),
+			);
+			if manifest.kind == ExtensionKind::Theme {
+				let Event::EditTheme {
+					package,
+					local_theme,
+					preview,
+					..
+				} = result.unwrap()
+				else {
+					panic!("expected theme")
+				};
+				assert_eq!(package.manifest.id, manifest.id);
+				assert!(package.theme.is_some());
+				assert!(preview && !local_theme);
+			} else {
+				assert!(result.is_err());
+			}
+		}
+		assert!(!root.exists(), "preview must not install a theme");
+		let original = extensions::parse_package(include_bytes!(
+			"../../../extensions/themes/ocean.serein-extension"
+		))
+		.unwrap();
+		let directory = root.join("themes").join(&original.manifest.id);
+		fs::create_dir_all(&directory).unwrap();
+		fs::write(directory.join("package.json"), b"invalid").unwrap();
+		assert!(
+			run(
+				&root,
+				Job::EditTheme {
+					id: original.manifest.id,
+					preview: false
+				},
+				&gate()
+			)
+			.is_err(),
+			"do not hide a corrupt installed package behind the bundled original"
+		);
 	}
 
 	#[test]
@@ -1931,9 +2031,7 @@ mod tests {
 	#[ignore = "Downloads public GitHub catalog/packages; no Discord account or traffic"]
 	fn public_repository_catalog_and_packages_match_pins() {
 		let profile = Profile::new();
-		let Event::Catalog(catalog) =
-			run(&profile.0, Job::RefreshCatalog { demo: false }, &gate()).unwrap()
-		else {
+		let Event::Catalog(catalog) = run(&profile.0, Job::RefreshCatalog, &gate()).unwrap() else {
 			panic!("expected catalog")
 		};
 		assert!(
@@ -1976,7 +2074,8 @@ mod tests {
 		let profile = Profile::new();
 		let bytes = include_bytes!("../../../extensions/catalog.json");
 		let catalog = cache_catalog(&profile.0, bytes, &gate()).unwrap();
-		assert_eq!(catalog.entries.len(), 1);
+		let entries = catalog.entries.len();
+		assert!(entries > 0);
 		atomic_write(
 			&profile.0.join("catalog.json"),
 			&serde_json::to_vec(&catalog).unwrap(),
@@ -1999,7 +2098,7 @@ mod tests {
 		else {
 			panic!("expected load")
 		};
-		assert_eq!(catalog.unwrap().entries.len(), 1);
+		assert_eq!(catalog.unwrap().entries.len(), entries);
 		assert_eq!(reloaded[0].sha256, installed.sha256);
 		assert!(reloaded[0].active_theme);
 		cache_catalog(&profile.0, br#"{"api_version":1,"entries":[]}"#, &gate()).unwrap();
@@ -2188,7 +2287,10 @@ mod tests {
 		cleanup(&second, MAX_PER_SCOPE, &gate()).unwrap();
 		assert!(!second.join("plugin").exists());
 		assert!(!second.join("orphan.partial").exists());
-		assert!(scope(&root, ExtensionKind::Plugin, None).is_err());
+		assert_eq!(
+			scope(&root, ExtensionKind::Plugin, None).unwrap(),
+			root.join("proxy-plugins")
+		);
 		assert!(disable(&second, "../outside", &gate()).is_err());
 	}
 
@@ -2204,8 +2306,7 @@ mod tests {
 		assert!(loaded[0].error.is_some());
 		disable(&directory, "broken", &gate()).unwrap();
 		let mut host = ExtensionHost::new(root);
-		host.queue
-			.push_back((0, Job::RefreshCatalog { demo: false }));
+		host.queue.push_back((0, Job::RefreshCatalog));
 		host.queue.push_back((
 			1,
 			Job::Logout {
@@ -2224,7 +2325,7 @@ mod tests {
 	#[test]
 	fn shop_preview_demo_catalog_and_images_are_local_and_hash_pinned() {
 		let starters = starters().unwrap();
-		assert_eq!(starters.len(), 11);
+		assert_eq!(starters.len(), 10);
 		let mut ids = std::collections::BTreeSet::new();
 		for starter in starters {
 			let InstallSource::Bundled {
@@ -2281,7 +2382,7 @@ mod tests {
 		assert!(decode_preview(&too_large, &metadata(&too_large)).is_none());
 		let cancelled = gate();
 		cancelled.generation.fetch_add(1, Ordering::Release);
-		assert!(load_preview("synthetic", &metadata(b"bad"), false, &cancelled).is_none());
+		assert!(load_preview(&metadata(b"bad"), &cancelled).is_none());
 	}
 
 	#[test]

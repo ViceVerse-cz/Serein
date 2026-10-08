@@ -904,6 +904,7 @@ mod invite_tests {
 				webhook: false,
 			}),
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(2),
 				name: "Synthetic".into(),
@@ -926,6 +927,8 @@ mod invite_tests {
 					name: "@everyone".into(),
 					bits: p::MANAGE_GUILD | p::MANAGE_ROLES,
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
 				}]),
@@ -947,94 +950,95 @@ mod invite_tests {
 	}
 	#[test]
 	fn invites_stale_requests_and_permission_loss_do_not_restore_codes() {
-		let mut state = state();
-		assert!(!state.can_revoke_guild_invite(Id(2), "unknown"));
-		let Command::ServerAdmin { guild, request, .. } = state
-			.request_server_admin(Id(2), Action::Invites(InviteAction::Load))
-			.unwrap()
-		else {
-			panic!()
-		};
-		deliver(&mut state, guild, request + 1, Ok(Outcome::Invites(page())));
-		assert!(state.server_admin.pending);
-		state.close_server_admin();
-		deliver(&mut state, guild, request, Ok(Outcome::Invites(page())));
-		assert!(state.server_admin.invites.is_none());
-		let Command::ServerAdmin { guild, request, .. } = state
-			.request_server_admin(Id(2), Action::Invites(InviteAction::Load))
-			.unwrap()
-		else {
-			panic!()
-		};
-		let mut role = state
-			.permissions
-			.guilds
-			.get(&guild)
-			.unwrap()
-			.roles
-			.as_ref()
-			.unwrap()[0]
-			.clone();
-		role.bits = p::MANAGE_ROLES;
-		state.apply(Envelope {
-			generation: state.generation,
-			event: CoreEvent::Permissions(crate::permissions::Event::Role { guild, role }),
-		});
-		assert!(!state.can_open_invite_settings(guild));
-		deliver(&mut state, guild, request, Ok(Outcome::Invites(page())));
-		assert!(state.server_admin.invites.is_none());
-	}
-	#[test]
-	fn invites_revoke_and_pause_require_confirmed_results_and_explicit_reload_after_ambiguity() {
-		let mut state = state();
-		let revoke = Action::Invites(InviteAction::Revoke {
-			code: "synthetic_code".into(),
-		});
-		let Command::ServerAdmin { guild, request, .. } =
-			state.request_server_admin(Id(2), revoke.clone()).unwrap()
-		else {
-			panic!()
-		};
-		deliver(&mut state, guild, request, Err(Failure::Ambiguous));
-		assert!(state.server_admin.needs_refresh);
-		assert!(state.request_server_admin(guild, revoke.clone()).is_none());
-		let Command::ServerAdmin { request, .. } = state
-			.request_server_admin(guild, Action::Invites(InviteAction::Load))
-			.unwrap()
-		else {
-			panic!()
-		};
-		deliver(&mut state, guild, request, Ok(Outcome::Invites(page())));
-		assert!(!state.server_admin.needs_refresh);
-		let Command::ServerAdmin { request, .. } =
-			state.request_server_admin(guild, revoke).unwrap()
-		else {
-			panic!()
-		};
-		let mut empty = page();
-		empty.items.clear();
-		deliver(&mut state, guild, request, Ok(Outcome::Invites(empty)));
-		assert!(
-			state
-				.server_admin
-				.invites
-				.as_ref()
+		{
+			let mut state = state();
+			assert!(!state.can_revoke_guild_invite(Id(2), "unknown"));
+			let Command::ServerAdmin { guild, request, .. } = state
+				.request_server_admin(Id(2), Action::Invites(InviteAction::Load))
 				.unwrap()
-				.items
-				.is_empty()
-		);
-		let Command::ServerAdmin { request, .. } = state
-			.request_server_admin(
-				guild,
-				Action::Invites(InviteAction::SetPaused { paused: true }),
-			)
-			.unwrap()
-		else {
-			panic!()
-		};
-		deliver(&mut state, guild, request, Ok(Outcome::Invites(page())));
-		assert!(state.server_admin.needs_refresh);
-		assert!(!state.server_admin.invites.as_ref().unwrap().paused());
+			else {
+				panic!()
+			};
+			deliver(&mut state, guild, request + 1, Ok(Outcome::Invites(page())));
+			assert!(state.server_admin.pending);
+			state.close_server_admin();
+			deliver(&mut state, guild, request, Ok(Outcome::Invites(page())));
+			assert!(state.server_admin.invites.is_none());
+			let Command::ServerAdmin { guild, request, .. } = state
+				.request_server_admin(Id(2), Action::Invites(InviteAction::Load))
+				.unwrap()
+			else {
+				panic!()
+			};
+			let mut role = state
+				.permissions
+				.guilds
+				.get(&guild)
+				.unwrap()
+				.roles
+				.as_ref()
+				.unwrap()[0]
+				.clone();
+			role.bits = p::MANAGE_ROLES;
+			state.apply(Envelope {
+				generation: state.generation,
+				event: CoreEvent::Permissions(crate::permissions::Event::Role { guild, role }),
+			});
+			assert!(!state.can_open_invite_settings(guild));
+			deliver(&mut state, guild, request, Ok(Outcome::Invites(page())));
+			assert!(state.server_admin.invites.is_none());
+		}
+		{
+			let mut state = state();
+			let revoke = Action::Invites(InviteAction::Revoke {
+				code: "synthetic_code".into(),
+			});
+			let Command::ServerAdmin { guild, request, .. } =
+				state.request_server_admin(Id(2), revoke.clone()).unwrap()
+			else {
+				panic!()
+			};
+			deliver(&mut state, guild, request, Err(Failure::Ambiguous));
+			assert!(state.server_admin.needs_refresh);
+			assert!(state.request_server_admin(guild, revoke.clone()).is_none());
+			let Command::ServerAdmin { request, .. } = state
+				.request_server_admin(guild, Action::Invites(InviteAction::Load))
+				.unwrap()
+			else {
+				panic!()
+			};
+			deliver(&mut state, guild, request, Ok(Outcome::Invites(page())));
+			assert!(!state.server_admin.needs_refresh);
+			let Command::ServerAdmin { request, .. } =
+				state.request_server_admin(guild, revoke).unwrap()
+			else {
+				panic!()
+			};
+			let mut empty = page();
+			empty.items.clear();
+			deliver(&mut state, guild, request, Ok(Outcome::Invites(empty)));
+			assert!(
+				state
+					.server_admin
+					.invites
+					.as_ref()
+					.unwrap()
+					.items
+					.is_empty()
+			);
+			let Command::ServerAdmin { request, .. } = state
+				.request_server_admin(
+					guild,
+					Action::Invites(InviteAction::SetPaused { paused: true }),
+				)
+				.unwrap()
+			else {
+				panic!()
+			};
+			deliver(&mut state, guild, request, Ok(Outcome::Invites(page())));
+			assert!(state.server_admin.needs_refresh);
+			assert!(!state.server_admin.invites.as_ref().unwrap().paused());
+		}
 	}
 }
 
@@ -1074,6 +1078,7 @@ mod sticker_tests {
 			gateway_connected: true,
 			user: Some(user(1, "Synthetic")),
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				id: Id(2),
 				name: "Synthetic".into(),
 				icon: None,
@@ -1096,6 +1101,8 @@ mod sticker_tests {
 					name: "@everyone".into(),
 					bits,
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
 				}]),
@@ -1111,74 +1118,76 @@ mod sticker_tests {
 
 	#[test]
 	fn sticker_permissions_follow_creator_and_manager_rules() {
-		let mut state = state(p::CREATE_GUILD_EXPRESSIONS);
-		assert!(state.can_open_sticker_settings(Id(2)));
-		assert!(state.can_create_guild_sticker(Id(2)));
-		assert!(state.can_edit_guild_sticker(Id(2), Id(4)));
-		assert!(!state.can_edit_guild_sticker(Id(2), Id(5)));
+		{
+			let mut state = state(p::CREATE_GUILD_EXPRESSIONS);
+			assert!(state.can_open_sticker_settings(Id(2)));
+			assert!(state.can_create_guild_sticker(Id(2)));
+			assert!(state.can_edit_guild_sticker(Id(2), Id(4)));
+			assert!(!state.can_edit_guild_sticker(Id(2), Id(5)));
 
-		state
-			.permissions
-			.guilds
-			.get_mut(&Id(2))
-			.unwrap()
-			.roles
-			.as_mut()
-			.unwrap()[0]
-			.bits = p::MANAGE_GUILD_EXPRESSIONS;
-		state.permissions.clear_cache();
-		assert!(!state.can_create_guild_sticker(Id(2)));
-		assert!(state.can_edit_guild_sticker(Id(2), Id(5)));
-	}
+			state
+				.permissions
+				.guilds
+				.get_mut(&Id(2))
+				.unwrap()
+				.roles
+				.as_mut()
+				.unwrap()[0]
+				.bits = p::MANAGE_GUILD_EXPRESSIONS;
+			state.permissions.clear_cache();
+			assert!(!state.can_create_guild_sticker(Id(2)));
+			assert!(state.can_edit_guild_sticker(Id(2), Id(5)));
+		}
+		{
+			let mut state = state(p::CREATE_GUILD_EXPRESSIONS);
+			let action = Action::CreateSticker {
+				name: "New Sticker".into(),
+				description: "A friendly wave".into(),
+				tags: "wave".into(),
+				filename: "wave.png".into(),
+				content_type: "image/png".into(),
+				file: vec![1, 2, 3],
+			};
+			let Command::ServerAdmin {
+				request, action, ..
+			} = state.request_server_admin(Id(2), action).unwrap()
+			else {
+				panic!()
+			};
+			assert!(
+				matches!(*action, Action::CreateSticker { ref file, .. } if file == &[1, 2, 3])
+			);
+			assert!(
+				matches!(state.server_admin.action, Some(Action::CreateSticker { ref file, .. }) if file.is_empty())
+			);
 
-	#[test]
-	fn sticker_create_drops_retained_file_and_reconciles_guild_catalog() {
-		let mut state = state(p::CREATE_GUILD_EXPRESSIONS);
-		let action = Action::CreateSticker {
-			name: "New Sticker".into(),
-			description: "A friendly wave".into(),
-			tags: "wave".into(),
-			filename: "wave.png".into(),
-			content_type: "image/png".into(),
-			file: vec![1, 2, 3],
-		};
-		let Command::ServerAdmin {
-			request, action, ..
-		} = state.request_server_admin(Id(2), action).unwrap()
-		else {
-			panic!()
-		};
-		assert!(matches!(*action, Action::CreateSticker { ref file, .. } if file == &[1, 2, 3]));
-		assert!(
-			matches!(state.server_admin.action, Some(Action::CreateSticker { ref file, .. }) if file.is_empty())
-		);
-
-		let page = model::server_admin::Stickers {
-			items: vec![row(6, "New Sticker", 1)],
-			limit: Some(5),
-		};
-		state
-			.apply_server_admin(Event {
-				guild: Id(2),
-				request,
-				result: Ok(Outcome::Stickers(page)),
-			})
-			.unwrap();
-		assert!(
-			state.guild(Id(2)).unwrap().stickers.is_some(),
-			"status={} admin={:?}",
-			state.status,
-			state.server_admin.error
-		);
-		assert_eq!(
-			state.guild(Id(2)).unwrap().stickers.as_ref().unwrap()[0].id,
-			Id(6)
-		);
-		assert_eq!(
-			state.server_admin.stickers.as_ref().unwrap().items[0]
-				.sticker
-				.id,
-			Id(6)
-		);
+			let page = model::server_admin::Stickers {
+				items: vec![row(6, "New Sticker", 1)],
+				limit: Some(5),
+			};
+			state
+				.apply_server_admin(Event {
+					guild: Id(2),
+					request,
+					result: Ok(Outcome::Stickers(page)),
+				})
+				.unwrap();
+			assert!(
+				state.guild(Id(2)).unwrap().stickers.is_some(),
+				"status={} admin={:?}",
+				state.status,
+				state.server_admin.error
+			);
+			assert_eq!(
+				state.guild(Id(2)).unwrap().stickers.as_ref().unwrap()[0].id,
+				Id(6)
+			);
+			assert_eq!(
+				state.server_admin.stickers.as_ref().unwrap().items[0]
+					.sticker
+					.id,
+				Id(6)
+			);
+		}
 	}
 }

@@ -2,7 +2,7 @@ name: Linux packages
 
 on:
   pull_request:
-    paths: ['packaging/linux/**', 'packaging/appimage/**', 'packaging/flatpak/**', 'packaging/repositories/**', 'tools/xtask/**', '.github/workflows/linux-packages.yml', '.github/workflows/package-repositories.yml']
+    paths: ['packaging/aur/**', 'packaging/linux/**', 'packaging/appimage/**', 'packaging/flatpak/**', 'packaging/repositories/**', 'tools/xtask/**', '.github/workflows/linux-packages.yml', '.github/workflows/package-repositories.yml']
   workflow_call:
     inputs:
       release:
@@ -25,6 +25,10 @@ jobs:
           - distribution: ubuntu-26.04
             image: ubuntu:26.04
             format: deb
+          - distribution: ubuntu-26.04
+            image: ubuntu:26.04
+            format: deb
+            runner: ubuntu-24.04-arm
           - distribution: fedora-43
             image: fedora:43
             format: rpm
@@ -37,7 +41,7 @@ jobs:
           - distribution: arch
             image: archlinux:base
             format: arch
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner || 'ubuntu-latest' }}
     container: ${{ matrix.image }}
     timeout-minutes: 90
     steps:
@@ -61,13 +65,6 @@ jobs:
         run: |
           useradd --create-home builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
-      - uses: actions/cache@v6.1.0
-        with:
-          path: |
-            /home/builder/.cargo/registry
-            /home/builder/.cargo/git
-            target
-          key: linux-${{ matrix.distribution }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
       - name: Build and inspect native package
         env:
           FORMAT: ${{ matrix.format }}
@@ -80,6 +77,16 @@ jobs:
             rustup show active-toolchain
             PYTHONDONTWRITEBYTECODE=1 python3 packaging/linux/test_package.py --format "$FORMAT"
             cargo xtask package --format "$FORMAT"
+            if [ "$FORMAT" = arch ]; then
+              cd packaging/aur
+              aur_metadata=$(mktemp)
+              makepkg --printsrcinfo > "$aur_metadata"
+              diff -u .SRCINFO "$aur_metadata"
+              rm "$aur_metadata"
+              makepkg --verifysource
+              bash check-dependencies.sh
+              makepkg --nodeps --noconfirm
+            fi
           BUILD
       - name: Collect distribution-labelled package
         env:
@@ -94,7 +101,7 @@ jobs:
           done
       - uses: actions/upload-artifact@v7.0.1
         with:
-          name: serein-linux-${{ matrix.distribution }}
+          name: serein-linux-${{ matrix.distribution }}-${{ runner.arch }}
           path: release-assets/*
           if-no-files-found: error
           retention-days: 14
@@ -120,13 +127,6 @@ jobs:
         run: |
           useradd --create-home builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
-      - uses: actions/cache@v6.1.0
-        with:
-          path: |
-            /home/builder/.cargo/registry
-            /home/builder/.cargo/git
-            target
-          key: linux-appimage-ubuntu-24.04-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
       - name: Build AppImage including voice
         env:
           SEREIN_RELEASE_TAG: ${{ inputs.release && inputs.tag || '' }}

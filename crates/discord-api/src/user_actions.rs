@@ -4,16 +4,27 @@ use reqwest::Method;
 use serde_json::json;
 
 impl DiscordApi {
-	pub(super) async fn open_dm(&self, user: model::Id) -> Result<model::Channel, Failure> {
-		if user.0 == 0 {
+	/// Opens one DM; a service captcha is reported through `challenge` for the user to solve.
+	pub(super) async fn open_dm(
+		&self,
+		user: model::Id,
+		captcha: Option<&client_core::captcha::Retry>,
+		challenge: Option<&mut Option<client_core::captcha::Challenge>>,
+	) -> Result<model::Channel, Failure> {
+		if user.0 == 0
+			|| captcha.is_some_and(|retry| {
+				!retry.matches_target(&client_core::captcha::Target::Direct { user })
+			}) {
 			return Err(Failure::Protocol);
 		}
 		let bytes = self
-			.request_limited(
+			.request_with_captcha(
 				Method::POST,
 				"/users/@me/channels",
 				Some(json!({"recipient_id": user})),
 				64 * 1024,
+				captcha,
+				challenge,
 			)
 			.await
 			.map_err(|failure| {
@@ -63,8 +74,8 @@ impl DiscordApi {
 		challenge: Option<&mut Option<client_core::captcha::Challenge>>,
 	) -> Result<(), Failure> {
 		// Unofficial normal-user routes: discord.py-self/http.py, checked 2026-09-12.
-		// A solved challenge may only resume the friendship write it was issued for.
-		if client_core::user_actions::establishes_friendship(action) {
+		// A solved challenge may only resume the write it was issued for.
+		if client_core::user_actions::challengeable(action) {
 			let target =
 				client_core::user_actions::challenge_target(action).ok_or(Failure::Protocol)?;
 			if captcha.is_some_and(|retry| !retry.matches_target(&target)) {
@@ -103,7 +114,9 @@ impl DiscordApi {
 			Action::OpenDm(id)
 			| Action::CloseDm(id)
 			| Action::Block { user: id, .. }
-			| Action::Mute { channel: id, .. } => id,
+			| Action::Ignore { user: id, .. }
+			| Action::Mute { channel: id, .. }
+			| Action::MessageRequest { channel: id, .. } => id,
 		};
 		if id.0 == 0 {
 			return Err(Failure::Protocol);
@@ -196,9 +209,38 @@ impl DiscordApi {
 				)
 				.await
 				.map(|_| ()),
+			// Unverified: the route mirrors the official web client's ignore toggle; no checked
+			// reference documents it. The gateway's `user_ignored` flag confirms the outcome.
+			Action::Ignore { user, ignored } => self
+				.request(
+					if *ignored {
+						Method::PUT
+					} else {
+						Method::DELETE
+					},
+					&format!("/users/@me/relationships/{user}/ignore"),
+					None,
+				)
+				.await
+				.map(|_| ()),
+			// Unverified: the routes mirror the official client's message-request accept and ignore;
+			// no checked reference documents them. The gateway's channel update confirms the outcome.
+			Action::MessageRequest { channel, accept } => {
+				let path = format!("/channels/{channel}/recipients/@me");
+				if *accept {
+					self.request(Method::PUT, &path, Some(json!({"consent_status": 2})))
+						.await
+						.map(|_| ())
+				} else {
+					self.request(Method::DELETE, &path, None).await.map(|_| ())
+				}
+			}
 			Action::Mute { channel, muted } => {
+				// Unmuting clears the config; a leftover "forever" window keeps the mute on the service.
+				let mute_config =
+					muted.then(|| json!({"end_time": null, "selected_time_window": -1}));
 				let bytes = self.request(Method::PATCH, "/users/@me/guilds/@me/settings",
-					Some(json!({"channel_overrides": {channel.to_string(): {"muted": muted, "mute_config": {"end_time": null, "selected_time_window": -1}}}}))).await?;
+					Some(json!({"channel_overrides": {channel.to_string(): {"muted": muted, "mute_config": mute_config}}}))).await?;
 				let setting: discord_protocol::notifications::Setting =
 					discord_protocol::decode(&bytes).map_err(|_| Failure::Protocol)?;
 				if setting.guild_id.is_some()
@@ -468,9 +510,7 @@ mod tests {
 					muted: false,
 				},
 				"PATCH /users/@me/guilds/@me/settings",
-				Some(
-					json!({"channel_overrides":{"10":{"muted":false,"mute_config":{"end_time":null,"selected_time_window":-1}}}}),
-				),
+				Some(json!({"channel_overrides":{"10":{"muted":false,"mute_config":null}}})),
 				200,
 				r#"{"guild_id":null,"channel_overrides":[{"channel_id":"11","muted":false}]}"#,
 				Err(Failure::ProtocolAt(
@@ -654,9 +694,9 @@ mod tests {
 			generation: state.generation,
 			event,
 		});
-		let request = state.friend_challenge().unwrap().0;
+		let request = state.account_challenge().unwrap().0;
 		let command = state
-			.resume_friend_challenge(
+			.resume_account_challenge(
 				request,
 				client_core::captcha::Solution::new("synthetic-solution".into()).unwrap(),
 			)

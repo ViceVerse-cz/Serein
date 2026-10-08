@@ -127,12 +127,93 @@ pub struct UserProfile {
 	pub badges: Vec<ProfileBadge>,
 	pub connections: Vec<ProfileConnection>,
 	pub mutual_guilds: Vec<ProfileGuild>,
+	pub mutual_friends: Vec<User>,
 	pub guild: Option<GuildProfile>,
 	/// Two profile theme colors (top, bottom) when the account configured them.
 	pub theme_colors: Option<[u32; 2]>,
 	/// Displayed server tag when the account enabled one.
 	pub clan: Option<ClanTag>,
+	/// Absent when the service withholds the board; never synthesized for live accounts.
+	pub board: Option<Vec<ProfileGameWidget>>,
 	pub limited: bool,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProfileGameWidgetKind {
+	Favorite,
+	Rotation,
+	Played,
+	Wishlist,
+}
+impl ProfileGameWidgetKind {
+	pub fn title(self) -> &'static str {
+		match self {
+			Self::Favorite => "Favorite Game",
+			Self::Rotation => "Games in Rotation",
+			Self::Played => "Games I've Played",
+			Self::Wishlist => "Want to Play",
+		}
+	}
+	pub fn limit(self) -> usize {
+		match self {
+			Self::Favorite => 1,
+			Self::Rotation => 5,
+			Self::Played | Self::Wishlist => 20,
+		}
+	}
+}
+#[derive(Clone)]
+pub struct ProfileGameWidget {
+	pub kind: ProfileGameWidgetKind,
+	pub games: Vec<ProfileGame>,
+}
+#[derive(Clone)]
+pub struct ProfileGame {
+	pub id: Id,
+	pub name: Option<String>,
+	/// CDN hash or bounded Discord-proxied URL.
+	pub icon: Option<String>,
+	pub cover: Option<String>,
+	pub comment: Option<String>,
+	pub tags: Vec<String>,
+}
+impl ProfileGame {
+	pub fn cover_key(&self) -> Option<String> {
+		self.cover
+			.as_deref()
+			.or(self.icon.as_deref())
+			.and_then(|asset| self.artwork_key(asset))
+	}
+	pub fn icon_key(&self) -> Option<String> {
+		self.icon
+			.as_deref()
+			.and_then(|asset| self.artwork_key(asset))
+	}
+	fn artwork_key(&self, asset: &str) -> Option<String> {
+		if valid_avatar_hash(asset) {
+			Some(format!("application-icon-{}-{asset}", self.id))
+		} else {
+			crate::valid_discord_media_url(asset).then(|| format!("game:{asset}"))
+		}
+	}
+	fn bytes(&self) -> usize {
+		bytes(&self.name)
+			+ bytes(&self.icon)
+			+ bytes(&self.cover)
+			+ bytes(&self.comment)
+			+ self.tags.capacity() * size_of::<String>()
+			+ self.tags.iter().map(String::capacity).sum::<usize>()
+	}
+	fn valid(&self) -> bool {
+		self.id.0 != 0
+			&& self.name.as_ref().is_none_or(|s| s.len() <= 512)
+			&& self.comment.as_ref().is_none_or(|s| s.len() <= 1024)
+			&& [&self.icon, &self.cover].into_iter().all(|h| {
+				h.as_deref().is_none_or(|asset| {
+					valid_avatar_hash(asset) || crate::valid_discord_media_url(asset)
+				})
+			}) && self.tags.len() <= 3
+			&& self.tags.iter().all(|s| s.len() <= 64)
+	}
 }
 #[derive(Clone)]
 pub struct ProfileBadge {
@@ -165,6 +246,8 @@ impl ClanTag {
 #[derive(Clone)]
 pub struct ProfileConnection {
 	pub kind: String,
+	/// Account identifier on the connected service; some profile URLs need it.
+	pub id: String,
 	pub name: String,
 	pub verified: bool,
 }
@@ -191,7 +274,16 @@ fn bytes(value: &Option<String>) -> usize {
 impl UserProfile {
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>()
-			+ self.user.heap_bytes()
+			+ self.board.as_ref().map_or(0, |board| {
+				board.capacity() * size_of::<ProfileGameWidget>()
+					+ board
+						.iter()
+						.map(|widget| {
+							widget.games.capacity() * size_of::<ProfileGame>()
+								+ widget.games.iter().map(ProfileGame::bytes).sum::<usize>()
+						})
+						.sum::<usize>()
+			}) + self.user.heap_bytes()
 			+ self.username.capacity()
 			+ bytes(&self.global_name)
 			+ bytes(&self.banner)
@@ -211,13 +303,19 @@ impl UserProfile {
 			+ self
 				.connections
 				.iter()
-				.map(|c| c.kind.capacity() + c.name.capacity())
+				.map(|c| c.kind.capacity() + c.id.capacity() + c.name.capacity())
 				.sum::<usize>()
 			+ self.mutual_guilds.capacity() * size_of::<ProfileGuild>()
 			+ self
 				.mutual_guilds
 				.iter()
 				.map(|g| bytes(&g.nick))
+				.sum::<usize>()
+			+ self.mutual_friends.capacity() * size_of::<User>()
+			+ self
+				.mutual_friends
+				.iter()
+				.map(User::heap_bytes)
 				.sum::<usize>()
 			+ self.guild.as_ref().map_or(0, |g| {
 				size_of::<GuildProfile>()
@@ -232,7 +330,16 @@ impl UserProfile {
 	}
 	pub fn valid(&self) -> bool {
 		self.bytes() <= MAX_PROFILE_BYTES
-			&& self.user.id.0 != 0
+			&& self.board.as_ref().is_none_or(|board| {
+				board.len() <= 4
+					&& board.iter().enumerate().all(|(index, widget)| {
+						widget.games.len() <= widget.kind.limit()
+							&& widget.games.iter().all(ProfileGame::valid)
+							&& !board[..index]
+								.iter()
+								.any(|previous| previous.kind == widget.kind)
+					})
+			}) && self.user.id.0 != 0
 			&& self.user.name.len() <= 512
 			&& self.username.len() <= 512
 			&& self.global_name.as_ref().is_none_or(|s| s.len() <= 512)
@@ -253,6 +360,7 @@ impl UserProfile {
 			&& self.badges.len() <= 16
 			&& self.connections.len() <= 16
 			&& self.mutual_guilds.len() <= 50
+			&& self.mutual_friends.len() <= 50
 			&& self.badges.iter().all(|b| {
 				b.id.len() <= 64
 					&& b.description.len() <= 1024
@@ -260,24 +368,28 @@ impl UserProfile {
 			}) && self
 			.connections
 			.iter()
-			.all(|c| c.kind.len() <= 64 && c.name.len() <= 512)
+			.all(|c| c.kind.len() <= 64 && c.id.len() <= 512 && c.name.len() <= 512)
 			&& self
 				.mutual_guilds
 				.iter()
 				.all(|g| g.id.0 != 0 && g.nick.as_ref().is_none_or(|n| n.len() <= 512))
-			&& self.guild.as_ref().is_none_or(|g| {
-				g.guild.0 != 0
-					&& g.roles.len() <= crate::permissions::MAX_MEMBER_ROLES
-					&& g.roles.iter().all(|id| id.0 != 0)
-					&& g.roles.windows(2).all(|ids| ids[0] < ids[1])
-					&& g.nick.as_ref().is_none_or(|n| n.len() <= 512)
-					&& g.bio.len() <= 4096
-					&& g.pronouns.len() <= 256
-					&& g.joined_at.as_ref().is_none_or(|s| s.len() <= 64)
-					&& [&g.avatar, &g.banner]
-						.into_iter()
-						.all(|h| h.as_deref().is_none_or(valid_avatar_hash))
-			})
+			&& self.mutual_friends.iter().all(|friend| {
+				friend.id.0 != 0
+					&& friend.name.len() <= 512
+					&& friend.avatar.as_deref().is_none_or(valid_avatar_hash)
+			}) && self.guild.as_ref().is_none_or(|g| {
+			g.guild.0 != 0
+				&& g.roles.len() <= crate::permissions::MAX_MEMBER_ROLES
+				&& g.roles.iter().all(|id| id.0 != 0)
+				&& g.roles.windows(2).all(|ids| ids[0] < ids[1])
+				&& g.nick.as_ref().is_none_or(|n| n.len() <= 512)
+				&& g.bio.len() <= 4096
+				&& g.pronouns.len() <= 256
+				&& g.joined_at.as_ref().is_none_or(|s| s.len() <= 64)
+				&& [&g.avatar, &g.banner]
+					.into_iter()
+					.all(|h| h.as_deref().is_none_or(valid_avatar_hash))
+		})
 	}
 	pub fn banner_key(&self) -> Option<String> {
 		if let Some(guild) = &self.guild
@@ -370,9 +482,11 @@ mod banner_tests {
 			badges: vec![],
 			connections: vec![],
 			mutual_guilds: vec![],
+			mutual_friends: vec![],
 			guild: None,
 			theme_colors: None,
 			clan: None,
+			board: None,
 			limited: false,
 		};
 		assert_eq!(

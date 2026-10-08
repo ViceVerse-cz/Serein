@@ -14,6 +14,7 @@ use std::{thread, time::Duration};
 #[cfg(target_os = "linux")]
 #[path = "camera/encode_linux.rs"]
 mod encode_linux;
+mod format;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "windows")]
@@ -27,7 +28,7 @@ pub const SUPPORTED: bool = cfg!(any(
 	target_os = "windows",
 	target_os = "linux"
 ));
-const FRAME_INTERVAL: Duration = Duration::from_millis(67);
+const FRAME_INTERVAL: Duration = Duration::from_nanos(1_000_000_000 / format::FPS as u64);
 // Includes asynchronous teardown: rapid toggles cannot accumulate camera workers.
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -273,7 +274,7 @@ fn encoder() -> Result<Encoder, &'static str> {
 		OpenH264API::from_source(),
 		EncoderConfig::new()
 			.bitrate(BitRate::from_bps(600_000))
-			.max_frame_rate(FrameRate::from_hz(15.0))
+			.max_frame_rate(FrameRate::from_hz(format::FPS as f32))
 			.profile(Profile::Baseline)
 			.num_threads(1)
 			.debug(false),
@@ -353,7 +354,7 @@ mod macos {
 		runtime::{AnyObject, Bool, NSObject, NSObjectProtocol, ProtocolObject},
 	};
 	use objc2_av_foundation::*;
-	use objc2_core_media::CMSampleBuffer;
+	use objc2_core_media::{CMSampleBuffer, CMTime, CMVideoFormatDescriptionGetDimensions};
 	use objc2_core_video::*;
 	use objc2_foundation::{NSArray, NSDictionary, NSNumber, NSString};
 	use std::{
@@ -511,6 +512,47 @@ mod macos {
 		_delegate: Retained<SereinCameraDelegate>,
 		queue: DispatchRetained<DispatchQueue>,
 	}
+
+	fn configure(device: &AVCaptureDevice) -> Result<(), &'static str> {
+		// SAFETY: Formats/ranges come from this device. Only this worker changes it,
+		// while locked, before capture starts. Endpoint durations stay exact.
+		unsafe {
+			let mut selected = None;
+			for native in device.formats().iter().take(256) {
+				let size = CMVideoFormatDescriptionGetDimensions(&native.formatDescription());
+				for range in native.videoSupportedFrameRateRanges().iter().take(256) {
+					let (min, max) = (range.minFrameRate(), range.maxFrameRate());
+					let Some(fps) = format::nearest_fps(min, max) else {
+						continue;
+					};
+					let Some(rank) = format::rank(size.width as usize, size.height as usize, fps)
+					else {
+						continue;
+					};
+					let duration = if fps == min {
+						range.maxFrameDuration()
+					} else if fps == max {
+						range.minFrameDuration()
+					} else {
+						CMTime::new(1, format::FPS as i32)
+					};
+					if selected.as_ref().is_none_or(|(best, _, _)| rank < *best) {
+						selected = Some((rank, native.clone(), duration));
+					}
+				}
+			}
+			let (_, native, duration) =
+				selected.ok_or("Camera does not offer a capture mode at or below 1280×720")?;
+			device
+				.lockForConfiguration()
+				.map_err(|_| "Camera configuration is unavailable")?;
+			device.setActiveFormat(&native);
+			device.setActiveVideoMinFrameDuration(duration);
+			device.setActiveVideoMaxFrameDuration(duration);
+			device.unlockForConfiguration();
+		}
+		Ok(())
+	}
 	impl Drop for CaptureSession {
 		fn drop(&mut self) {
 			// SAFETY: Owned session is configured, and teardown runs on its worker.
@@ -557,20 +599,29 @@ mod macos {
 			}
 			session.addInput(&input);
 			session.addOutput(&output);
-			if !session.canSetSessionPreset(AVCaptureSessionPreset640x480) {
-				return Err("Camera does not support 640×480 capture");
+			if !session.canSetSessionPreset(AVCaptureSessionPresetInputPriority) {
+				return Err("Camera does not support native format selection");
 			}
-			session.setSessionPreset(AVCaptureSessionPreset640x480);
+			session.beginConfiguration();
+			session.setSessionPreset(AVCaptureSessionPresetInputPriority);
+			let configured = configure(&device);
+			session.commitConfiguration();
+			configured?;
 			let format = NSNumber::new_u32(kCVPixelFormatType_32BGRA);
 			let width = NSNumber::new_usize(WIDTH);
 			let height = NSNumber::new_usize(HEIGHT);
 			let format_key = NSString::from_str(&kCVPixelBufferPixelFormatTypeKey.to_string());
 			let width_key = NSString::from_str(&kCVPixelBufferWidthKey.to_string());
 			let height_key = NSString::from_str(&kCVPixelBufferHeightKey.to_string());
-			// The session preset alone does not fix the video data output dimensions.
+			let scaling_key =
+				AVVideoScalingModeKey.ok_or("Camera aspect scaling is unavailable")?;
+			let scaling =
+				AVVideoScalingModeResizeAspect.ok_or("Camera aspect scaling is unavailable")?;
+			// Fix output dimensions and preserve nonmatching native aspect ratios.
+			// AVFoundation performs this conversion before the delegate callback.
 			let settings = NSDictionary::from_slices(
-				&[&*format_key, &*width_key, &*height_key],
-				&[&*format as &AnyObject, &*width, &*height],
+				&[&*format_key, &*width_key, &*height_key, scaling_key],
+				&[&*format as &AnyObject, &*width, &*height, scaling],
 			);
 			output.setVideoSettings(Some(&settings));
 			output.setAlwaysDiscardsLateVideoFrames(true);
@@ -667,41 +718,6 @@ mod tests {
 	use openh264::formats::YUVSource;
 
 	#[test]
-	fn hardware_camera_frames_decode_and_stay_independently_decodable() {
-		let mut encoder = CameraEncoder::new().unwrap();
-		// Exactly one encoder is live: hardware when the machine offers it, openh264 otherwise.
-		#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-		assert_eq!(encoder.hardware.is_some(), encoder.software.is_none());
-		for length in [0, WIDTH * HEIGHT * 3 - 1, WIDTH * HEIGHT * 3 + 1] {
-			assert!(encoder.encode(vec![0; length]).is_err());
-		}
-		let mut decoder = openh264::decoder::Decoder::new().unwrap();
-		for value in [0, 96, 255] {
-			let mut rgb = vec![value; WIDTH * HEIGHT * 3];
-			// Flat pictures compress to almost nothing; vary one row so the size check bites.
-			for (index, pixel) in rgb
-				.as_chunks_mut::<3>()
-				.0
-				.iter_mut()
-				.take(WIDTH)
-				.enumerate()
-			{
-				*pixel = [(index % 251) as u8, value, (index % 97) as u8];
-			}
-			let Some(frame) = encoder.encode(rgb).unwrap() else {
-				continue;
-			};
-			assert_eq!(frame.rgb.len(), WIDTH * HEIGHT * 3);
-			assert!(frame.h264.len() <= MAX_ENCODED_BYTES);
-			// The sender drops to the latest frame, so each picture must stand alone.
-			assert!(crate::video_receive::is_keyframe(&frame.h264));
-			assert!(crate::video_receive::has_parameter_sets(&frame.h264));
-			let decoded = decoder.decode(&frame.h264).unwrap().unwrap();
-			assert_eq!(decoded.dimensions(), (WIDTH, HEIGHT));
-		}
-	}
-
-	#[test]
 	fn camera_frames_are_bounded_independently_decodable_and_stop_is_immediate() {
 		let mut encoder = encoder().unwrap();
 		let mut yuv = YUVBuffer::new(WIDTH, HEIGHT);
@@ -729,5 +745,39 @@ mod tests {
 		assert!(!camera.stopped());
 		camera.shared.finished.store(true, Ordering::Release);
 		assert!(camera.stopped());
+
+		{
+			let mut encoder = CameraEncoder::new().unwrap();
+			// Exactly one encoder is live: hardware when the machine offers it, openh264 otherwise.
+			#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+			assert_eq!(encoder.hardware.is_some(), encoder.software.is_none());
+			for length in [0, WIDTH * HEIGHT * 3 - 1, WIDTH * HEIGHT * 3 + 1] {
+				assert!(encoder.encode(vec![0; length]).is_err());
+			}
+			let mut decoder = openh264::decoder::Decoder::new().unwrap();
+			for value in [0, 96, 255] {
+				let mut rgb = vec![value; WIDTH * HEIGHT * 3];
+				// Flat pictures compress to almost nothing; vary one row so the size check bites.
+				for (index, pixel) in rgb
+					.as_chunks_mut::<3>()
+					.0
+					.iter_mut()
+					.take(WIDTH)
+					.enumerate()
+				{
+					*pixel = [(index % 251) as u8, value, (index % 97) as u8];
+				}
+				let Some(frame) = encoder.encode(rgb).unwrap() else {
+					continue;
+				};
+				assert_eq!(frame.rgb.len(), WIDTH * HEIGHT * 3);
+				assert!(frame.h264.len() <= MAX_ENCODED_BYTES);
+				// The sender drops to the latest frame, so each picture must stand alone.
+				assert!(crate::video_receive::is_keyframe(&frame.h264));
+				assert!(crate::video_receive::has_parameter_sets(&frame.h264));
+				let decoded = decoder.decode(&frame.h264).unwrap().unwrap();
+				assert_eq!(decoded.dimensions(), (WIDTH, HEIGHT));
+			}
+		}
 	}
 }

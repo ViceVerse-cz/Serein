@@ -2,6 +2,10 @@
 use std::sync::Arc;
 use winit::window::Window;
 
+#[cfg(target_os = "windows")]
+mod dwm;
+#[cfg(target_os = "macos")]
+mod macos;
 #[cfg(target_os = "linux")]
 mod wayland;
 #[cfg(target_os = "linux")]
@@ -10,7 +14,11 @@ mod x11;
 pub struct Blur {
 	#[cfg(target_os = "linux")]
 	wayland: Option<wayland::Blur>,
+	#[cfg(target_os = "macos")]
+	macos: Option<macos::Blur>,
 	native_enabled: bool,
+	#[cfg(target_os = "windows")]
+	decorated: bool,
 	// Keep the native display and surface alive until the protocol objects are dropped.
 	window: Arc<Window>,
 }
@@ -21,7 +29,11 @@ impl Blur {
 		Self {
 			#[cfg(target_os = "linux")]
 			wayland: wayland::Blur::new(&window),
+			#[cfg(target_os = "macos")]
+			macos: macos::Blur::new(&window),
 			native_enabled: false,
+			#[cfg(target_os = "windows")]
+			decorated: window.is_decorated(),
 			window,
 		}
 	}
@@ -35,13 +47,20 @@ impl Blur {
 		} else {
 			enabled
 		};
-		if enabled == self.native_enabled {
+		let unchanged = enabled == self.native_enabled;
+		#[cfg(target_os = "windows")]
+		let unchanged = unchanged && self.decorated == self.window.is_decorated();
+		if unchanged {
 			return;
 		}
 		self.native_enabled = enabled;
 		#[cfg(target_os = "windows")]
 		{
 			use winit::platform::windows::{BackdropType, WindowExtWindows};
+			self.decorated = self.window.is_decorated();
+			if let Err(error) = dwm::extend_frame(&self.window, enabled) {
+				eprintln!("Window blur: {error}");
+			}
 			self.window.set_system_backdrop(if enabled {
 				BackdropType::TransientWindow
 			} else {
@@ -62,7 +81,13 @@ impl Blur {
 				self.window.set_blur(enabled);
 			}
 		}
-		#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+		#[cfg(target_os = "macos")]
+		if let Some(macos) = &self.macos {
+			macos.set_enabled(enabled);
+		} else {
+			self.window.set_blur(enabled);
+		}
+		#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
 		self.window.set_blur(enabled);
 	}
 }

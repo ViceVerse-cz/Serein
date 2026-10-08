@@ -282,6 +282,7 @@ mod tests {
 	}
 	fn message(id: u64, channel: Id) -> model::Message {
 		model::Message {
+			poll: None,
 			sticker_items: Vec::new(),
 			flags: 0,
 			ephemeral: false,
@@ -338,6 +339,7 @@ mod tests {
 				discriminator: 0,
 			}),
 			guilds: vec![Guild {
+				default_message_notifications: None,
 				stickers: None,
 				emojis: None,
 				id: Id(1),
@@ -365,424 +367,426 @@ mod tests {
 
 	#[test]
 	fn archive_and_search_reads_require_current_permissions() {
-		use model::permissions as p;
-		let mut state = state();
-		let guild = state.permissions.guilds.get_mut(&Id(1)).unwrap();
-		guild.owner = Some(Id(999));
-		guild.roles = Some(vec![p::Role {
-			name: String::new(),
-			color: 0,
-			position: 0,
-			hoist: false,
-			id: Id(1),
-			bits: p::VIEW_CHANNEL | p::READ_MESSAGE_HISTORY,
-		}]);
-		guild.member = Some(p::Member {
-			roles: vec![],
-			timeout_until: None,
-		});
-		state.permissions.clear_cache();
-		assert!(state.can_archive(Id(10), Kind::Public));
-		assert!(state.can_archive(Id(10), Kind::JoinedPrivate));
-		assert!(!state.can_archive(Id(10), Kind::Private));
-		assert!(
-			state
-				.request_archives(Id(10), Kind::Private, None)
-				.is_none()
-		);
-		state
-			.permissions
-			.guilds
-			.get_mut(&Id(1))
-			.unwrap()
-			.roles
-			.as_mut()
-			.unwrap()[0]
-			.bits |= p::MANAGE_THREADS;
-		state.permissions.clear_cache();
-		state.request_archives(Id(10), Kind::Private, None).unwrap();
-		let request = state.search_request;
-		state
-			.permissions
-			.guilds
-			.get_mut(&Id(1))
-			.unwrap()
-			.roles
-			.as_mut()
-			.unwrap()[0]
-			.bits &= !p::MANAGE_THREADS;
-		state.permissions.clear_cache();
-		state.apply_archives(
-			Id(10),
-			request,
-			Ok(Page {
-				threads: vec![channel(99, Some(Id(10)), 12)],
-				next: None,
-			}),
-		);
-		assert!(state.archives.as_ref().unwrap().page.is_none());
-
-		state.request_archives(Id(10), Kind::Public, None).unwrap();
-		let request = state.search_request;
-		state
-			.permissions
-			.guilds
-			.get_mut(&Id(1))
-			.unwrap()
-			.roles
-			.as_mut()
-			.unwrap()[0]
-			.bits = p::VIEW_CHANNEL | p::SEND_MESSAGES;
-		state.permissions.clear_cache();
-		state.apply_archives(Id(10), request, Ok(page(99, None)));
-		assert!(state.archives.as_ref().unwrap().page.is_none());
-		assert!(state.request_pins().is_none());
-		assert!(state.request_search("query".into(), None).is_none());
-		assert!(
-			state.can_send(Id(10)),
-			"Sending live messages does not require history access"
-		);
-
-		state
-			.permissions
-			.guilds
-			.get_mut(&Id(1))
-			.unwrap()
-			.roles
-			.as_mut()
-			.unwrap()[0]
-			.bits |= p::READ_MESSAGE_HISTORY;
-		state.permissions.clear_cache();
-		state.request_pins().unwrap();
-		let request = state.search_request;
-		state
-			.permissions
-			.guilds
-			.get_mut(&Id(1))
-			.unwrap()
-			.roles
-			.as_mut()
-			.unwrap()[0]
-			.bits &= !p::VIEW_CHANNEL;
-		state.permissions.clear_cache();
-		state.apply_search(
-			Id(10),
-			request,
-			Ok(crate::search::Outcome::Pins(model::SearchPage {
-				hits: vec![],
-				total: 0,
-				partial: false,
-				pin_cursor: None,
-			})),
-		);
-		assert!(state.search.as_ref().unwrap().page.is_none());
-		assert!(!state.can_send(Id(10)));
-	}
-
-	#[test]
-	fn archive_pages_are_scoped_replaceable_retryable_and_bounded() {
-		let mut state = state();
-		assert!(state.can_archive(Id(20), Kind::Public));
-		assert!(!state.can_archive(Id(20), Kind::Private));
-		assert!(!state.can_archive(Id(999), Kind::Public));
-		assert!(
-			state
-				.request_archives(Id(10), Kind::Public, Some(Cursor::Time(100)))
-				.is_none()
-		);
-		state.request_archives(Id(10), Kind::Public, None).unwrap();
-		let stale = state.search_request;
-		state.request_pins().unwrap();
-		assert!(state.archives.is_none());
-		state.apply_archives(Id(10), stale, Ok(page(100, None)));
-		assert!(state.archives.is_none());
-		state.request_archives(Id(10), Kind::Public, None).unwrap();
-		assert!(state.search.is_none());
-		let request = state.search_request;
-		state.apply_archives(Id(20), request, Ok(page(100, None)));
-		assert!(state.archives.as_ref().unwrap().loading);
-		state.apply_archives(Id(10), request, Ok(page(100, Some(Cursor::Time(100)))));
-		let before = Some(Cursor::Time(100));
-		let older = state
-			.request_archives(Id(10), Kind::Public, before)
-			.unwrap();
-		assert!(state.archives.as_ref().unwrap().page.is_none());
-		assert!(
-			state
-				.request_archives(Id(10), Kind::Public, before)
-				.is_none()
-		);
-		state.command_rejected(older);
-		assert!(state.gateway_connected);
-		state
-			.request_archives(Id(10), Kind::Public, before)
-			.unwrap();
-		let request = state.search_request;
-		state.apply_archives(Id(10), request, Ok(page(99, before)));
-		assert!(
-			state.archives.as_ref().unwrap().error.is_some(),
-			"Nonprogressing pages are rejected"
-		);
-		state
-			.request_archives(Id(10), Kind::Public, before)
-			.unwrap();
-		state.apply_archives(Id(10), state.search_request, Ok(page(99, None)));
-		assert_eq!(
-			state
-				.archives
-				.as_ref()
-				.unwrap()
-				.page
-				.as_ref()
-				.unwrap()
-				.threads[0]
-				.id,
-			Id(99)
-		);
-		assert!(state.open_archived_thread(Id(100)).is_none());
-
-		for changed in [false, true] {
-			let mutation = |guild, id| {
-				if changed {
-					Event::ThreadChanged {
-						guild: Id(guild),
-						patch: model::ChannelPatch {
-							icon: model::Patch::Absent,
-							id: Id(id),
-							name: model::Patch::Value("Updated archive metadata".into()),
-							last_message: model::Patch::Absent,
-							parent_id: model::Patch::Absent,
-							position: model::Patch::Absent,
-							kind: model::Patch::Absent,
-							message_count: model::Patch::Absent,
-							tags: model::Patch::Absent,
-						},
-					}
-				} else {
-					Event::ThreadRemoved {
-						guild: Id(guild),
-						id: Id(id),
-					}
-				}
-			};
-			state.request_archives(Id(10), Kind::Public, None).unwrap();
-			state.apply_archives(Id(10), state.search_request, Ok(page(99, None)));
-			assert!(state.channels.iter().all(|c| c.id != Id(99)));
-			apply(&mut state, mutation(2, 99));
-			apply(&mut state, mutation(1, 100));
+		{
+			use model::permissions as p;
+			let mut state = state();
+			let guild = state.permissions.guilds.get_mut(&Id(1)).unwrap();
+			guild.owner = Some(Id(999));
+			guild.roles = Some(vec![p::Role {
+				name: String::new(),
+				color: 0,
+				secondary_color: None,
+				tertiary_color: None,
+				position: 0,
+				hoist: false,
+				id: Id(1),
+				bits: p::VIEW_CHANNEL | p::READ_MESSAGE_HISTORY,
+			}]);
+			guild.member = Some(p::Member {
+				roles: vec![],
+				timeout_until: None,
+			});
+			state.permissions.clear_cache();
+			assert!(state.can_archive(Id(10), Kind::Public));
+			assert!(state.can_archive(Id(10), Kind::JoinedPrivate));
+			assert!(!state.can_archive(Id(10), Kind::Private));
 			assert!(
-				state.archives.as_ref().unwrap().page.is_some(),
-				"Another guild or an unrelated completed row does not invalidate this snapshot"
+				state
+					.request_archives(Id(10), Kind::Private, None)
+					.is_none()
 			);
-			apply(&mut state, mutation(1, 99));
-			assert!(
-				state.archives.is_none(),
-				"Unloaded archive rows still receive invalidation"
+			state
+				.permissions
+				.guilds
+				.get_mut(&Id(1))
+				.unwrap()
+				.roles
+				.as_mut()
+				.unwrap()[0]
+				.bits |= p::MANAGE_THREADS;
+			state.permissions.clear_cache();
+			state.request_archives(Id(10), Kind::Private, None).unwrap();
+			let request = state.search_request;
+			state
+				.permissions
+				.guilds
+				.get_mut(&Id(1))
+				.unwrap()
+				.roles
+				.as_mut()
+				.unwrap()[0]
+				.bits &= !p::MANAGE_THREADS;
+			state.permissions.clear_cache();
+			state.apply_archives(
+				Id(10),
+				request,
+				Ok(Page {
+					threads: vec![channel(99, Some(Id(10)), 12)],
+					next: None,
+				}),
 			);
-			assert!(state.open_archived_thread(Id(99)).is_none());
+			assert!(state.archives.as_ref().unwrap().page.is_none());
 
 			state.request_archives(Id(10), Kind::Public, None).unwrap();
 			let request = state.search_request;
-			apply(&mut state, mutation(2, 99));
-			assert!(state.archives.as_ref().unwrap().loading);
-			apply(&mut state, mutation(1, 500));
-			assert!(
-				state.archives.is_none(),
-				"An in-flight page cannot yet identify its affected rows"
-			);
+			state
+				.permissions
+				.guilds
+				.get_mut(&Id(1))
+				.unwrap()
+				.roles
+				.as_mut()
+				.unwrap()[0]
+				.bits = p::VIEW_CHANNEL | p::SEND_MESSAGES;
+			state.permissions.clear_cache();
 			state.apply_archives(Id(10), request, Ok(page(99, None)));
-			assert!(
-				state.archives.is_none(),
-				"A late page cannot restore a revoked snapshot"
-			);
-		}
-
-		for invalid in [
-			Page {
-				threads: (100..126).map(|id| channel(id, Some(Id(10)), 11)).collect(),
-				next: None,
-			},
-			Page {
-				threads: vec![channel(100, Some(Id(20)), 11)],
-				next: None,
-			},
-			Page {
-				threads: vec![channel(100, Some(Id(10)), 10)],
-				next: None,
-			},
-			Page {
-				threads: vec![channel(100, Some(Id(10)), 11); 2],
-				next: None,
-			},
-		] {
-			state.request_archives(Id(10), Kind::Public, None).unwrap();
-			state.apply_archives(Id(10), state.search_request, Ok(invalid));
-			assert!(state.archives.as_ref().unwrap().error.is_some());
 			assert!(state.archives.as_ref().unwrap().page.is_none());
+			assert!(state.request_pins().is_none());
+			assert!(state.request_search("query".into(), None).is_none());
+			assert!(
+				state.can_send(Id(10)),
+				"Sending live messages does not require history access"
+			);
+
+			state
+				.permissions
+				.guilds
+				.get_mut(&Id(1))
+				.unwrap()
+				.roles
+				.as_mut()
+				.unwrap()[0]
+				.bits |= p::READ_MESSAGE_HISTORY;
+			state.permissions.clear_cache();
+			state.request_pins().unwrap();
+			let request = state.search_request;
+			state
+				.permissions
+				.guilds
+				.get_mut(&Id(1))
+				.unwrap()
+				.roles
+				.as_mut()
+				.unwrap()[0]
+				.bits &= !p::VIEW_CHANNEL;
+			state.permissions.clear_cache();
+			state.apply_search(
+				Id(10),
+				request,
+				Ok(crate::search::Outcome::Pins(model::SearchPage {
+					hits: vec![],
+					total: 0,
+					partial: false,
+					pin_cursor: None,
+				})),
+			);
+			assert!(state.search.as_ref().unwrap().page.is_none());
+			assert!(!state.can_send(Id(10)));
 		}
-		let mut large = page(100, None);
-		large.threads[0].name.reserve(64 * 1024);
-		state.request_archives(Id(10), Kind::Public, None).unwrap();
-		state.apply_archives(Id(10), state.search_request, Ok(large));
-		assert!(state.archives.as_ref().unwrap().error.is_some());
-		state.request_archives(Id(10), Kind::Public, None).unwrap();
-		let request = state.search_request;
-		apply(&mut state, Event::PermissionsChanged);
-		state.apply_archives(Id(10), request, Ok(page(100, None)));
-		assert!(state.archives.is_none());
-		crate::tests::grant_permissions(&mut state);
-		state.request_archives(Id(10), Kind::Public, None).unwrap();
-		let request = state.search_request;
-		apply(&mut state, Event::Unavailable(Id(10)));
-		state.apply_archives(Id(10), request, Ok(page(100, None)));
-		assert!(state.archives.is_none());
+		{
+			let mut state = state();
+			assert!(state.can_archive(Id(20), Kind::Public));
+			assert!(!state.can_archive(Id(20), Kind::Private));
+			assert!(!state.can_archive(Id(999), Kind::Public));
+			assert!(
+				state
+					.request_archives(Id(10), Kind::Public, Some(Cursor::Time(100)))
+					.is_none()
+			);
+			state.request_archives(Id(10), Kind::Public, None).unwrap();
+			let stale = state.search_request;
+			state.request_pins().unwrap();
+			assert!(state.archives.is_none());
+			state.apply_archives(Id(10), stale, Ok(page(100, None)));
+			assert!(state.archives.is_none());
+			state.request_archives(Id(10), Kind::Public, None).unwrap();
+			assert!(state.search.is_none());
+			let request = state.search_request;
+			state.apply_archives(Id(20), request, Ok(page(100, None)));
+			assert!(state.archives.as_ref().unwrap().loading);
+			state.apply_archives(Id(10), request, Ok(page(100, Some(Cursor::Time(100)))));
+			let before = Some(Cursor::Time(100));
+			let older = state
+				.request_archives(Id(10), Kind::Public, before)
+				.unwrap();
+			assert!(state.archives.as_ref().unwrap().page.is_none());
+			assert!(
+				state
+					.request_archives(Id(10), Kind::Public, before)
+					.is_none()
+			);
+			state.command_rejected(older);
+			assert!(state.gateway_connected);
+			state
+				.request_archives(Id(10), Kind::Public, before)
+				.unwrap();
+			let request = state.search_request;
+			state.apply_archives(Id(10), request, Ok(page(99, before)));
+			assert!(
+				state.archives.as_ref().unwrap().error.is_some(),
+				"Nonprogressing pages are rejected"
+			);
+			state
+				.request_archives(Id(10), Kind::Public, before)
+				.unwrap();
+			state.apply_archives(Id(10), state.search_request, Ok(page(99, None)));
+			assert_eq!(
+				state
+					.archives
+					.as_ref()
+					.unwrap()
+					.page
+					.as_ref()
+					.unwrap()
+					.threads[0]
+					.id,
+				Id(99)
+			);
+			assert!(state.open_archived_thread(Id(100)).is_none());
+
+			for changed in [false, true] {
+				let mutation = |guild, id| {
+					if changed {
+						Event::ThreadChanged {
+							guild: Id(guild),
+							patch: model::ChannelPatch {
+								icon: model::Patch::Absent,
+								id: Id(id),
+								name: model::Patch::Value("Updated archive metadata".into()),
+								last_message: model::Patch::Absent,
+								parent_id: model::Patch::Absent,
+								position: model::Patch::Absent,
+								kind: model::Patch::Absent,
+								message_count: model::Patch::Absent,
+								tags: model::Patch::Absent,
+							},
+						}
+					} else {
+						Event::ThreadRemoved {
+							guild: Id(guild),
+							id: Id(id),
+						}
+					}
+				};
+				state.request_archives(Id(10), Kind::Public, None).unwrap();
+				state.apply_archives(Id(10), state.search_request, Ok(page(99, None)));
+				assert!(state.channels.iter().all(|c| c.id != Id(99)));
+				apply(&mut state, mutation(2, 99));
+				apply(&mut state, mutation(1, 100));
+				assert!(
+					state.archives.as_ref().unwrap().page.is_some(),
+					"Another guild or an unrelated completed row does not invalidate this snapshot"
+				);
+				apply(&mut state, mutation(1, 99));
+				assert!(
+					state.archives.is_none(),
+					"Unloaded archive rows still receive invalidation"
+				);
+				assert!(state.open_archived_thread(Id(99)).is_none());
+
+				state.request_archives(Id(10), Kind::Public, None).unwrap();
+				let request = state.search_request;
+				apply(&mut state, mutation(2, 99));
+				assert!(state.archives.as_ref().unwrap().loading);
+				apply(&mut state, mutation(1, 500));
+				assert!(
+					state.archives.is_none(),
+					"An in-flight page cannot yet identify its affected rows"
+				);
+				state.apply_archives(Id(10), request, Ok(page(99, None)));
+				assert!(
+					state.archives.is_none(),
+					"A late page cannot restore a revoked snapshot"
+				);
+			}
+
+			for invalid in [
+				Page {
+					threads: (100..126).map(|id| channel(id, Some(Id(10)), 11)).collect(),
+					next: None,
+				},
+				Page {
+					threads: vec![channel(100, Some(Id(20)), 11)],
+					next: None,
+				},
+				Page {
+					threads: vec![channel(100, Some(Id(10)), 10)],
+					next: None,
+				},
+				Page {
+					threads: vec![channel(100, Some(Id(10)), 11); 2],
+					next: None,
+				},
+			] {
+				state.request_archives(Id(10), Kind::Public, None).unwrap();
+				state.apply_archives(Id(10), state.search_request, Ok(invalid));
+				assert!(state.archives.as_ref().unwrap().error.is_some());
+				assert!(state.archives.as_ref().unwrap().page.is_none());
+			}
+			let mut large = page(100, None);
+			large.threads[0].name.reserve(64 * 1024);
+			state.request_archives(Id(10), Kind::Public, None).unwrap();
+			state.apply_archives(Id(10), state.search_request, Ok(large));
+			assert!(state.archives.as_ref().unwrap().error.is_some());
+			state.request_archives(Id(10), Kind::Public, None).unwrap();
+			let request = state.search_request;
+			apply(&mut state, Event::PermissionsChanged);
+			state.apply_archives(Id(10), request, Ok(page(100, None)));
+			assert!(state.archives.is_none());
+			crate::tests::grant_permissions(&mut state);
+			state.request_archives(Id(10), Kind::Public, None).unwrap();
+			let request = state.search_request;
+			apply(&mut state, Event::Unavailable(Id(10)));
+			state.apply_archives(Id(10), request, Ok(page(100, None)));
+			assert!(state.archives.is_none());
+		}
 	}
 
 	#[test]
 	fn opened_archives_are_single_transients_until_gateway_adoption() {
-		let mut state = state();
-		state.drafts.insert(Id(100), "Preserved draft".into());
-		state.request_archives(Id(10), Kind::Public, None).unwrap();
-		state.apply_archives(Id(10), state.search_request, Ok(page(100, None)));
-		assert!(matches!(
-			state.open_archived_thread(Id(100)),
-			Some(Command::History {
-				channel: Id(100),
-				before: None,
-				..
-			})
-		));
-		assert!(state.archives.is_none());
-		assert_eq!(state.archived_thread, Some(Id(100)));
-		let previous_history = state.request;
-		state.request_archives(Id(10), Kind::Public, None).unwrap();
-		state.apply_archives(Id(10), state.search_request, Ok(page(101, None)));
-		state.open_archived_thread(Id(101)).unwrap();
-		assert_eq!(state.archived_thread, Some(Id(101)));
-		assert!(state.channels.iter().all(|c| c.id != Id(100)));
-		assert!(state.request > previous_history);
-		state.request_archives(Id(10), Kind::Public, None).unwrap();
-		state.apply_archives(Id(10), state.search_request, Ok(page(100, None)));
-		state.open_archived_thread(Id(100)).unwrap();
-		assert!(state.channels.iter().all(|c| c.id != Id(101)));
-		apply(
-			&mut state,
-			Event::ThreadsSync {
-				removed: vec![],
-				guild: Id(1),
-				parents: None,
-				threads: vec![],
-			},
-		);
-		assert!(
-			state.channels.iter().any(|c| c.id == Id(100)),
-			"Active-list omission is not archive revocation"
-		);
-		state.clear_archives();
-		assert_eq!(state.selected, Some(Id(100)));
-		assert!(state.channels.iter().any(|c| c.id == Id(100)));
-		state.select(Id(10)).unwrap();
-		assert!(state.channels.iter().all(|c| c.id != Id(100)));
-		assert_eq!(state.drafts[&Id(100)], "Preserved draft");
-
-		for adopt_with_snapshot in [false, true] {
+		{
+			let mut state = state();
+			state.drafts.insert(Id(100), "Preserved draft".into());
+			state.request_archives(Id(10), Kind::Public, None).unwrap();
+			state.apply_archives(Id(10), state.search_request, Ok(page(100, None)));
+			assert!(matches!(
+				state.open_archived_thread(Id(100)),
+				Some(Command::History {
+					channel: Id(100),
+					before: None,
+					..
+				})
+			));
+			assert!(state.archives.is_none());
+			assert_eq!(state.archived_thread, Some(Id(100)));
+			let previous_history = state.request;
+			state.request_archives(Id(10), Kind::Public, None).unwrap();
+			state.apply_archives(Id(10), state.search_request, Ok(page(101, None)));
+			state.open_archived_thread(Id(101)).unwrap();
+			assert_eq!(state.archived_thread, Some(Id(101)));
+			assert!(state.channels.iter().all(|c| c.id != Id(100)));
+			assert!(state.request > previous_history);
 			state.request_archives(Id(10), Kind::Public, None).unwrap();
 			state.apply_archives(Id(10), state.search_request, Ok(page(100, None)));
 			state.open_archived_thread(Id(100)).unwrap();
+			assert!(state.channels.iter().all(|c| c.id != Id(101)));
 			apply(
 				&mut state,
-				if adopt_with_snapshot {
-					Event::ThreadsSync {
-						removed: vec![],
-						guild: Id(1),
-						parents: None,
-						threads: vec![channel(100, Some(Id(10)), 11)],
-					}
-				} else {
-					Event::ChannelCreated(channel(100, Some(Id(10)), 11))
+				Event::ThreadsSync {
+					removed: vec![],
+					guild: Id(1),
+					parents: None,
+					threads: vec![],
 				},
 			);
-			assert!(state.archived_thread.is_none());
-			state.select(Id(10)).unwrap();
+			assert!(
+				state.channels.iter().any(|c| c.id == Id(100)),
+				"Active-list omission is not archive revocation"
+			);
+			state.clear_archives();
+			assert_eq!(state.selected, Some(Id(100)));
 			assert!(state.channels.iter().any(|c| c.id == Id(100)));
-			state.channels.retain(|c| c.id != Id(100));
-		}
-		for collision in [
-			channel(100, Some(Id(20)), 11),
-			channel(100, None, 0),
-			Channel {
-				guild: Some(Id(2)),
-				..channel(100, Some(Id(10)), 11)
-			},
-		] {
-			state.channels.push(collision.clone());
+			state.select(Id(10)).unwrap();
+			assert!(state.channels.iter().all(|c| c.id != Id(100)));
+			assert_eq!(state.drafts[&Id(100)], "Preserved draft");
+
+			for adopt_with_snapshot in [false, true] {
+				state.request_archives(Id(10), Kind::Public, None).unwrap();
+				state.apply_archives(Id(10), state.search_request, Ok(page(100, None)));
+				state.open_archived_thread(Id(100)).unwrap();
+				apply(
+					&mut state,
+					if adopt_with_snapshot {
+						Event::ThreadsSync {
+							removed: vec![],
+							guild: Id(1),
+							parents: None,
+							threads: vec![channel(100, Some(Id(10)), 11)],
+						}
+					} else {
+						Event::ChannelCreated(channel(100, Some(Id(10)), 11))
+					},
+				);
+				assert!(state.archived_thread.is_none());
+				state.select(Id(10)).unwrap();
+				assert!(state.channels.iter().any(|c| c.id == Id(100)));
+				state.channels.retain(|c| c.id != Id(100));
+			}
+			for collision in [
+				channel(100, Some(Id(20)), 11),
+				channel(100, None, 0),
+				Channel {
+					guild: Some(Id(2)),
+					..channel(100, Some(Id(10)), 11)
+				},
+			] {
+				state.channels.push(collision.clone());
+				state.request_archives(Id(10), Kind::Public, None).unwrap();
+				state.apply_archives(Id(10), state.search_request, Ok(page(100, None)));
+				assert!(state.open_archived_thread(Id(100)).is_none());
+				assert!(state.channels.iter().any(|c| c == &collision));
+				state.channels.retain(|c| c.id != Id(100));
+			}
+			state
+				.channels
+				.extend((1000..(1000 + MAX_NAV - 3) as u64).map(|id| channel(id, None, 0)));
 			state.request_archives(Id(10), Kind::Public, None).unwrap();
 			state.apply_archives(Id(10), state.search_request, Ok(page(100, None)));
-			assert!(state.open_archived_thread(Id(100)).is_none());
-			assert!(state.channels.iter().any(|c| c == &collision));
-			state.channels.retain(|c| c.id != Id(100));
+			assert!(
+				state.open_archived_thread(Id(100)).is_none(),
+				"Account item budget applies to transient insertion"
+			);
+			state.channels.truncate(2);
+			state.channels[1].name.reserve(model::account::MAX_BYTES);
+			state.request_archives(Id(10), Kind::Public, None).unwrap();
+			state.apply_archives(Id(10), state.search_request, Ok(page(100, None)));
+			assert!(
+				state.open_archived_thread(Id(100)).is_none(),
+				"Account byte budget applies to transient insertion"
+			);
+			state.channels[1].name = "Synthetic".into();
+			state.request_archives(Id(10), Kind::Public, None).unwrap();
+			state.apply_archives(Id(10), state.search_request, Ok(page(100, None)));
+			state.open_archived_thread(Id(100)).unwrap();
+			apply(&mut state, Event::Unavailable(Id(10)));
+			assert!(state.channels.iter().all(|c| c.id != Id(100)));
+			assert!(state.archived_thread.is_none());
+			assert!(!state.history_pending);
+			assert_eq!(state.drafts[&Id(100)], "Preserved draft");
+			assert_eq!(state.freshness, Freshness::Unavailable);
+			assert!(
+				state.request_archives(Id(20), Kind::Public, None).is_some(),
+				"Another loaded parent remains browsable after selected-thread revocation"
+			);
 		}
-		state
-			.channels
-			.extend((1000..(1000 + MAX_NAV - 3) as u64).map(|id| channel(id, None, 0)));
-		state.request_archives(Id(10), Kind::Public, None).unwrap();
-		state.apply_archives(Id(10), state.search_request, Ok(page(100, None)));
-		assert!(
-			state.open_archived_thread(Id(100)).is_none(),
-			"Account item budget applies to transient insertion"
-		);
-		state.channels.truncate(2);
-		state.channels[1].name.reserve(model::account::MAX_BYTES);
-		state.request_archives(Id(10), Kind::Public, None).unwrap();
-		state.apply_archives(Id(10), state.search_request, Ok(page(100, None)));
-		assert!(
-			state.open_archived_thread(Id(100)).is_none(),
-			"Account byte budget applies to transient insertion"
-		);
-		state.channels[1].name = "Synthetic".into();
-		state.request_archives(Id(10), Kind::Public, None).unwrap();
-		state.apply_archives(Id(10), state.search_request, Ok(page(100, None)));
-		state.open_archived_thread(Id(100)).unwrap();
-		apply(&mut state, Event::Unavailable(Id(10)));
-		assert!(state.channels.iter().all(|c| c.id != Id(100)));
-		assert!(state.archived_thread.is_none());
-		assert!(!state.history_pending);
-		assert_eq!(state.drafts[&Id(100)], "Preserved draft");
-		assert_eq!(state.freshness, Freshness::Unavailable);
-		assert!(
-			state.request_archives(Id(20), Kind::Public, None).is_some(),
-			"Another loaded parent remains browsable after selected-thread revocation"
-		);
-	}
-
-	#[test]
-	fn active_threads_are_sorted_newest_first_excluding_archived_and_other_parents() {
-		let mut state = state();
-		state.channels.extend([
-			channel(30, Some(Id(10)), 11),
-			channel(31, Some(Id(10)), 11),
-			channel(32, Some(Id(20)), 11), // different parent: excluded
-			channel(33, Some(Id(10)), 0),  // not a thread kind: excluded
-		]);
-		state
-			.channels
-			.iter_mut()
-			.find(|c| c.id == Id(30))
-			.unwrap()
-			.last_message = Some(Id(1000));
-		state
-			.channels
-			.iter_mut()
-			.find(|c| c.id == Id(31))
-			.unwrap()
-			.last_message = Some(Id(2000));
-		state.archived_thread = Some(Id(31));
-		let active: Vec<Id> = state.active_threads(Id(10)).iter().map(|c| c.id).collect();
-		assert_eq!(
-			active,
-			vec![Id(30)],
-			"Newest activity first, current archived-thread transient and other parents excluded"
-		);
+		{
+			let mut state = state();
+			state.channels.extend([
+				channel(30, Some(Id(10)), 11),
+				channel(31, Some(Id(10)), 11),
+				channel(32, Some(Id(20)), 11), // different parent: excluded
+				channel(33, Some(Id(10)), 0),  // not a thread kind: excluded
+			]);
+			state
+				.channels
+				.iter_mut()
+				.find(|c| c.id == Id(30))
+				.unwrap()
+				.last_message = Some(Id(1000));
+			state
+				.channels
+				.iter_mut()
+				.find(|c| c.id == Id(31))
+				.unwrap()
+				.last_message = Some(Id(2000));
+			state.archived_thread = Some(Id(31));
+			let active: Vec<Id> = state.active_threads(Id(10)).iter().map(|c| c.id).collect();
+			assert_eq!(
+				active,
+				vec![Id(30)],
+				"Newest activity first, current archived-thread transient and other parents excluded"
+			);
+		}
 	}
 
 	#[test]

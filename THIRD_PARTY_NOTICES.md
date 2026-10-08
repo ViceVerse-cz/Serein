@@ -54,7 +54,7 @@ already-resolved **flate2 1.1.10**. Rusqlite statement caching adds **hashlink 0
 All five declare **MIT OR Apache-2.0** in their corresponding registry release
 manifests; their versions and archive checksums are recorded in `Cargo.lock`.
 
-The bundled Noto Sans CJK JP face is embedded as a zstd archive and inflated in memory by
+The bundled Noto Sans CJK collection is embedded as a zstd archive and inflated in memory by
 **ruzstd 0.9.0** (MIT), a pure-Rust decoder with no further dependencies. Its license is
 copied unmodified from the registry release to `assets/licenses/files/ruzstd-0.9.0-LICENSE`;
 `Cargo.lock` records the archive checksum.
@@ -80,10 +80,13 @@ The native attachment video adapter also uses **symphonia-codec-aac 0.6.1**
 the other Symphonia codecs, and ship through the same package copy step.
 
 The egui main experiment pins the egui/eframe ecosystem to upstream commit
-`99df44a801749aee958295ed96fccad8dfecb289` (version 0.36.2, MIT OR Apache-2.0).
+`72bc6574978d87fe0929b1d590c35222e6fd8935` (version 0.36.2, MIT OR Apache-2.0).
 It adds unicode-properties 0.1.4 (MIT/Apache-2.0) and updates glifo to 0.3.0 and
 vello_common/vello_cpu to 0.2.0 (Apache-2.0 OR MIT). Epaint bundled fonts and
-their separate license obligations are unchanged. Native font fallback uses
+their separate license obligations are unchanged. Clipboard support is explicitly
+enabled through eframe's `clipboard` feature. This pin updates AccessKit to 0.25.1,
+its consumer to 0.39.1 and its winit adapter to 0.34.1 (MIT OR Apache-2.0), with
+platform adapters resolved in Cargo.lock. Native font fallback uses
 egui_system_fonts/fontique and platform font discovery; see docs/dependency-versions.md
 for the exact added dependency versions and declared licenses. OS emoji fonts
 remain installed system resources and are not bundled or redistributed.
@@ -112,6 +115,12 @@ not included in text or voice packages. The registry wrapper retains MIT/Apache 
 and upstream LLVM attribution in its bundled libFuzzer sources. This declaration is not a
 redistribution review of independently distributed fuzz executables.
 
+The build-time **yoke-derive 0.8.4** procedural macro declares Unicode-3.0.
+Its unmodified registry-release license is retained at
+`assets/licenses/files/yoke-derive-0.8.4-LICENSE`; `Cargo.lock` records the archive
+checksum. The macro generates existing ICU lifetime bindings during compilation;
+its compiler implementation is not a runtime component of Serein.
+
 Core components include egui/eframe/wgpu (MIT OR Apache-2.0), Tokio (MIT), serde (MIT OR Apache-2.0), reqwest (MIT OR Apache-2.0), tokio-tungstenite/tungstenite (MIT OR Apache-2.0 / MIT), rustls and its crypto/provider dependencies, Wry (MIT OR Apache-2.0), keyring (MIT OR Apache-2.0), and rusqlite (MIT) with SQLite (public domain). Consult the resolved inventory for precise expressions and native transitive dependencies, including AWS-LC/BoringSSL notices, ring, Unicode data, and egui’s font licenses.
 
 System frameworks and runtimes (Metal, WebKit/WKWebView, WebView2, GTK/WebKitGTK, OS credential stores) are supplied under their vendors’ terms and are not relicensed here. Text-mode packages contain no libdave, Opus, camera, or microphone implementation. No Discord logos, proprietary fonts, official client binaries/source, or emoji collection are redistributed. Abaddon and Discord Userdoccers were consulted as protocol evidence; no implementation source was copied.
@@ -126,7 +135,7 @@ The direct voice library/codec license and notice texts are collected in [assets
 
 The voice dependency tree also contains the locally patched **hpke-rs 0.6.1**, licensed **MPL-2.0** according to its [release-pinned Cargo manifest](https://github.com/cryspen/hpke-rs/blob/f3463e7530771d7f7116635335c25e7d2d11e861/Cargo.toml). The vendored component is under `vendor/hpke-rs/`; `SEREIN-PATCH.md` describes its SHAKE dependency replacement, small standard-XOF adapter and removal of the unused optional libcrux backend. Its original source remains under MPL-2.0, separately from Serein's MIT/Apache code. Upstream's registry archive and pinned Git tree omit a standalone license file, so an unmodified [canonical Mozilla MPL-2.0 text](https://www.mozilla.org/media/MPL/2.0/index.txt) is provided as `vendor/hpke-rs/LICENSE-MPL-2.0.txt` and `assets/licenses/voice/hpke-rs-LICENSE-MPL-2.0.txt`. This text was supplied from Mozilla, not recovered from a nonexistent upstream file. Voice packages include this corresponding component source under `source/hpke-rs` (inside macOS bundle Resources). Binary distributors must provide recipients access to the corresponding hpke-rs source, including modifications, and retain its notices as required by MPL-2.0; distributing only this license text is insufficient.
 
-Bundled fonts are unmodified and licensed under SIL OFL 1.1: **Inter 3.19** (Regular, Medium, SemiBold; the "hinted for Windows" TrueType builds), Copyright (c) 2016-2020 The Inter Project Authors, "Inter" is a trademark of Rasmus Andersson (https://github.com/rsms/inter); **Noto Sans CJK JP Regular 2.004**, © 2014–2021 Adobe (http://www.adobe.com/), stored zstd-compressed and inflated unchanged at runtime; **Noto Sans Arabic 2.012**, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/arabic); and **Noto Sans Math 3.000**, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/math). The complete license texts are `assets/fonts/Inter-OFL.txt`, `assets/fonts/NotoSansCJK-LICENSE.txt`, `assets/fonts/NotoSansArabic-OFL.txt` and `assets/fonts/NotoSansMath-OFL.txt` in source, and are staged alongside distribution notices. Provenance, hashes, sizes and coverage limitations are in [assets/README.md](assets/README.md). Their font licenses remain separate from Serein's source-code license.
+Bundled fonts are licensed under SIL OFL 1.1: **Inter 3.19** (Regular, Medium, SemiBold; the "hinted for Windows" TrueType builds), Copyright (c) 2016-2020 The Inter Project Authors, "Inter" is a trademark of Rasmus Andersson (https://github.com/rsms/inter); **Noto Sans CJK Regular 2.004 collection (JP/SC/TC regional faces)**, © 2014–2021 Adobe (http://www.adobe.com/), stored zstd-compressed and inflated unchanged at runtime; **Noto Sans Arabic 2.012**, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/arabic); **Noto Sans Math 3.000**, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/math); and **Noto Sans Symbols 2 2.008** (modified subset to punctuation, arrows, technical, miscellaneous symbols and dingbats, with hinting removed), Copyright 2022 The Noto Project Authors (https://github.com/notofonts/symbols). The other bundled fonts are unmodified. The complete license texts are `assets/fonts/Inter-OFL.txt`, `assets/fonts/NotoSansCJK-LICENSE.txt`, `assets/fonts/NotoSansArabic-OFL.txt`, `assets/fonts/NotoSansMath-OFL.txt` and `assets/fonts/NotoSansSymbols2-OFL.txt` in source, and are staged alongside distribution notices. Provenance, hashes, sizes and coverage limitations are in [assets/README.md](assets/README.md). Their font licenses remain separate from Serein's source-code license.
 
 The initial packaging command stages original licenses and this inventory notice. Complete per-artifact transitive license-text assembly and platform redistribution review remain a release-hardening gate; do not treat a development package as a completed legal/distribution review.
 
@@ -252,3 +261,32 @@ uses the existing bundled OpenH264 notices above.
 
 Wayland global voice keybinds use **ashpd 0.13.13** (MIT) to access the desktop
 GlobalShortcuts portal. Its license is bundled under `assets/licenses/dependencies`.
+
+Scalable bundled Twemoji artwork uses **resvg 0.48.1** and **usvg 0.48.1**
+(MIT OR Apache-2.0), with default features disabled: no text shaping, font discovery,
+raster image decoding or SVGZ. The integration denies image-href resolution.
+New resolved dependencies are data-url 0.3.2 (MIT OR Apache-2.0), float-cmp 0.9.0
+(MIT), imagesize 0.15.0 (MIT), pico-args 0.5.0 (MIT), rgb 0.8.53 (MIT), simplecss
+0.2.2 (MIT OR Apache-2.0), and svgtypes 0.16.1 (MIT OR Apache-2.0).
+Existing tiny-skia, kurbo, roxmltree and ruzstd are reused. Registry archive checksums
+are in Cargo.lock; all unmodified upstream license texts are retained under
+`assets/licenses/files` and copied by the existing package workflow. Twemoji SVGs
+retain the same CC BY 4.0 attribution and license as the atlas, as described in
+[assets/twemoji/README.md](assets/twemoji/README.md).
+
+- `resvg-0.48.1-LICENSE-APACHE`: SHA-256 `a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9`; unmodified registry `resvg-0.48.1`/LICENSE-APACHE.
+- `resvg-0.48.1-LICENSE-MIT`: SHA-256 `f5d934dc281b44e0003ee461ac740b18b6629a454decd872c774d34e4ee0b21d`; unmodified registry `resvg-0.48.1`/LICENSE-MIT.
+- `usvg-0.48.1-LICENSE-APACHE`: SHA-256 `a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9`; unmodified registry `usvg-0.48.1`/LICENSE-APACHE.
+- `usvg-0.48.1-LICENSE-MIT`: SHA-256 `f5d934dc281b44e0003ee461ac740b18b6629a454decd872c774d34e4ee0b21d`; unmodified registry `usvg-0.48.1`/LICENSE-MIT.
+- `data-url-0.3.2-LICENSE-APACHE`: SHA-256 `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2`; unmodified registry `data-url-0.3.2`/LICENSE-APACHE.
+- `data-url-0.3.2-LICENSE-MIT`: SHA-256 `b38f11f6096706e6de553dabe2a7ed142d59b6fa8c97e290c67496154745cdd5`; unmodified registry `data-url-0.3.2`/LICENSE-MIT.
+- `float-cmp-0.9.0-LICENSE`: SHA-256 `40be1e77825d7e49485a2e43d89bed29dfff29f8f529e71d3c683656021f0d08`; unmodified registry `float-cmp-0.9.0`/LICENSE.
+- `imagesize-0.15.0-LICENSE`: SHA-256 `fa0d694967d5c279e70a5c7b7e4b9929e4c1c8c1b8506998e66fc2f1547b200a`; unmodified registry `imagesize-0.15.0`/LICENSE.
+- `pico-args-0.5.0-LICENSE`: SHA-256 `f71452d91682fdae0ca948b18cfed53a953d1237740dd80371c76a5c1c7bbe91`; unmodified registry `pico-args-0.5.0`/LICENSE.
+- `rgb-0.8.53-LICENSE`: SHA-256 `457b464bc0fba8a3d67d2458569104f5611869f0c1563a1a12d9c51a0bca9261`; unmodified registry `rgb-0.8.53`/LICENSE.
+- `simplecss-0.2.2-LICENSE-APACHE`: SHA-256 `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2`; unmodified registry `simplecss-0.2.2`/LICENSE-APACHE.
+- `simplecss-0.2.2-LICENSE-MIT`: SHA-256 `0b5f24524360e15bcf9fb79bca875f5aa62f01f94f2988e23238c7ec0e6e8784`; unmodified registry `simplecss-0.2.2`/LICENSE-MIT.
+- `svgtypes-0.16.1-LICENSE-APACHE`: SHA-256 `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2`; unmodified registry `svgtypes-0.16.1`/LICENSE-APACHE.
+- `svgtypes-0.16.1-LICENSE-MIT`: SHA-256 `f3c9fe731c701ed77fd5fbaac573872af04dc5869385eb9bd5e3c73c42713814`; unmodified registry `svgtypes-0.16.1`/LICENSE-MIT.
+
+The locally patched **gpu-allocator 0.28.0** retains its MIT/Apache-2.0 licenses under `vendor/gpu-allocator`. Only the Windows binding version bounds are widened to include 0.62 patch releases, aligning Direct3D types with wgpu-hal. See `vendor/gpu-allocator/SEREIN-PATCH.md` for provenance; allocator source is unchanged. The license texts also ship under `licenses/dependencies`.

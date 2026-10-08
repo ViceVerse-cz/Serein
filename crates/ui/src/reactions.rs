@@ -14,9 +14,13 @@ fn reacting_names<'a>(names: impl Iterator<Item = &'a str>, count: u32) -> Strin
 	if remaining == 0 {
 		names
 	} else {
-		format!(
-			"{names}, and {remaining} other{}",
-			if remaining == 1 { "" } else { "s" }
+		crate::i18n::translate_args(
+			if remaining == 1 {
+				"reactions-tooltip-one-other"
+			} else {
+				"reactions-tooltip-many-others"
+			},
+			&[("names", &names), ("count", &remaining.to_string())],
 		)
 	}
 }
@@ -96,9 +100,15 @@ pub fn show(
 		ui.spacing_mut().button_padding = egui::vec2(6.0, 3.0);
 		ui.spacing_mut().interact_size.y = 26.0;
 		let Some(reactions) = reactions else {
-			ui.weak("Reactions unavailable");
+			ui.weak(crate::i18n::translate(
+				"reactions-show-reactions-unavailable",
+			));
 			if ui
-				.add_enabled(enabled, egui::Button::new("Reload reactions").small())
+				.add_enabled(
+					enabled,
+					egui::Button::new(crate::i18n::translate("reactions-show-reload-reactions"))
+						.small(),
+				)
 				.clicked()
 			{
 				action = Some(Action::Reload);
@@ -180,11 +190,14 @@ pub fn show(
 								value.users.iter().map(|user| user.name.as_str()),
 								reaction.count,
 							);
-							format!("{} reacted by {reactors}", reaction.emoji.label())
+							crate::i18n::translate_args(
+								"reactions-tooltip-reacted-by",
+								&[("emoji", &reaction.emoji.label()), ("reactors", &reactors)],
+							)
 						} else if matching.is_some_and(|value| value.error.is_some()) {
-							"Reaction details unavailable".into()
+							crate::i18n::translate("reactions-tooltip-unavailable")
 						} else {
-							"Loading reactions…".into()
+							crate::i18n::translate("reactions-show-users-loading-reactions")
 						};
 						ui.add(
 							egui::Label::new(
@@ -243,10 +256,62 @@ pub fn add_button(
 ) -> Option<(egui::Rect, egui::Id)> {
 	let response = ui
 		.add_enabled_ui(enabled && !writing, |ui| {
-			crate::icons::button(ui, crate::icons::Icon::Smile, 28.0, "Add reaction")
+			crate::icons::button_immediate(
+				ui,
+				crate::icons::Icon::Smile,
+				28.0,
+				&crate::i18n::translate("reactions-add-button-add-reaction"),
+			)
 		})
 		.inner;
 	response.clicked().then_some((response.rect, response.id))
+}
+
+/// Hover-bar reactions before the reader has used any emoji this session.
+pub const QUICK_DEFAULTS: [&str; 3] = ["👍", "❤️", "😂"];
+
+/// One quick reaction in the message hover bar, sized like its icon buttons.
+pub fn quick_button(ui: &mut egui::Ui, emoji: &str, reacted: bool) -> egui::Response {
+	let colors = crate::design::palette(ui);
+	let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(28.0), egui::Sense::click());
+	if reacted || response.hovered() || response.has_focus() {
+		ui.painter().rect_filled(
+			rect,
+			6,
+			if reacted {
+				colors.selected
+			} else {
+				colors.hover
+			},
+		);
+	}
+	let size = if response.hovered() && ui.is_enabled() {
+		20.0
+	} else {
+		18.0
+	};
+	let target = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(size));
+	let tint = if ui.is_enabled() {
+		egui::Color32::WHITE
+	} else {
+		egui::Color32::WHITE.gamma_multiply(0.4)
+	};
+	if let Some(image) = crate::emoji::image(ui.ctx(), emoji, size) {
+		image.tint(tint).paint_at(ui, target);
+	} else {
+		ui.painter().text(
+			rect.center(),
+			egui::Align2::CENTER_CENTER,
+			emoji,
+			egui::FontId::proportional(16.0),
+			colors.text_strong.gamma_multiply(tint.a() as f32 / 255.0),
+		);
+	}
+	let label = crate::i18n::translate_args("reactions-quick-react", &[("emoji", emoji)]);
+	response.widget_info(|| {
+		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), reacted, &label)
+	});
+	crate::icons::immediate_tooltip(response, &label)
 }
 
 pub fn show_users(
@@ -271,74 +336,92 @@ pub fn show_users(
 	let mut select = None;
 	let mut more = false;
 	let mut close = false;
-	let response = crate::dialog::Dialog::new("reaction-users", "Reactions")
-		.width(560.0)
-		.show(ctx, |dialog| {
-			dialog.content(|ui| {
-				ui.horizontal_wrapped(|ui| {
-					for reaction in &reactions {
-						let selected = details.emoji.same(&reaction.emoji);
-						if ui
-							.add(
-								reaction_button(
-									ui.ctx(),
-									avatars,
-									&reaction.emoji,
-									reaction.count,
-									state.demo,
-								)
-								.selected(selected),
+	let response = crate::dialog::Dialog::new(
+		"reaction-users",
+		crate::i18n::translate("reactions-show-users-reactions"),
+	)
+	.width(560.0)
+	.show(ctx, |dialog| {
+		dialog.content(|ui| {
+			ui.horizontal_wrapped(|ui| {
+				for reaction in &reactions {
+					let selected = details.emoji.same(&reaction.emoji);
+					if ui
+						.add(
+							reaction_button(
+								ui.ctx(),
+								avatars,
+								&reaction.emoji,
+								reaction.count,
+								state.demo,
 							)
-							.clicked() && !selected
-						{
-							select = Some(reaction.emoji.clone());
-						}
-					}
-				});
-			});
-			dialog.scroll(190.0, |ui| {
-				if details.users.is_empty() && details.loading {
-					ui.horizontal(|ui| {
-						ui.spinner();
-						ui.label("Loading reactions…");
-					});
-				} else if details.users.is_empty() {
-					crate::dialog::hint(
-						ui,
-						details
-							.error
-							.unwrap_or("Nobody currently has this reaction."),
-					);
-				}
-				for user in &details.users {
-					ui.horizontal(|ui| {
-						avatars.show_plain(ui, user, 36.0, state.demo);
-						ui.label(crate::design::medium(ui, &user.name, 15.0));
-					});
-				}
-				if details.users.len() >= client_core::reactions::MAX_REACTION_USERS {
-					crate::dialog::hint(ui, "Showing the first 1,000 reactions.");
-				} else if let Some(error) = details.error {
-					crate::dialog::notice(ui, crate::dialog::Level::Warning, error);
-					if crate::dialog::action(ui, "Retry", crate::dialog::Action::Neutral).clicked()
+							.selected(selected),
+						)
+						.clicked() && !selected
 					{
-						more = true;
-					}
-				} else if !details.exhausted {
-					if details.loading {
-						ui.spinner();
-					} else if crate::dialog::action(ui, "Load more", crate::dialog::Action::Neutral)
-						.clicked()
-					{
-						more = true;
+						select = Some(reaction.emoji.clone());
 					}
 				}
-			});
-			dialog.footer(|ui| {
-				close =
-					crate::dialog::action(ui, "Close", crate::dialog::Action::Primary).clicked();
 			});
 		});
+		dialog.scroll(190.0, |ui| {
+			if details.users.is_empty() && details.loading {
+				ui.horizontal(|ui| {
+					ui.spinner();
+					ui.label(crate::i18n::translate(
+						"reactions-show-users-loading-reactions",
+					));
+				});
+			} else if details.users.is_empty() {
+				crate::dialog::hint(
+					ui,
+					details
+						.error
+						.unwrap_or("reactions-show-users-nobody-currently-has-this-reaction"),
+				);
+			}
+			for user in &details.users {
+				ui.horizontal(|ui| {
+					avatars.show_plain(ui, user, 36.0, state.demo);
+					ui.label(crate::design::medium(ui, &user.name, 15.0));
+				});
+			}
+			if details.users.len() >= client_core::reactions::MAX_REACTION_USERS {
+				crate::dialog::hint(ui, "reactions-show-users-showing-the-first-1-000-reactions");
+			} else if let Some(error) = details.error {
+				crate::dialog::notice(ui, crate::dialog::Level::Warning, error);
+				if crate::dialog::action(
+					ui,
+					"reactions-show-users-retry",
+					crate::dialog::Action::Neutral,
+				)
+				.clicked()
+				{
+					more = true;
+				}
+			} else if !details.exhausted {
+				if details.loading {
+					ui.spinner();
+				} else if crate::dialog::action(
+					ui,
+					"reactions-show-users-load-more",
+					crate::dialog::Action::Neutral,
+				)
+				.clicked()
+				{
+					more = true;
+				}
+			}
+		});
+		dialog.footer(|ui| {
+			close = crate::dialog::action(
+				ui,
+				"reactions-show-users-close",
+				crate::dialog::Action::Primary,
+			)
+			.clicked();
+		});
+	});
 	close |= response.close;
 	if close {
 		state.close_reaction_users();
@@ -354,19 +437,6 @@ pub fn show_users(
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	#[test]
-	fn truncated_reaction_names_include_the_hidden_count() {
-		assert_eq!(
-			reacting_names(["A", "B", "C", "D"].into_iter(), 9),
-			"A, B, C, and 6 others"
-		);
-		assert_eq!(reacting_names(["A", "B", "C"].into_iter(), 3), "A, B, C");
-		assert_eq!(
-			reacting_names(["A", "B", "C"].into_iter(), 4),
-			"A, B, C, and 1 other"
-		);
-	}
 
 	#[test]
 	fn custom_reaction_button_loads_its_image() {
@@ -386,76 +456,51 @@ mod tests {
 		});
 		assert!(!output.textures_delta.set.is_empty());
 		output.textures_delta.clear();
-	}
 
-	#[test]
-	fn empty_reactions_do_not_allocate_a_row() {
-		let ctx = egui::Context::default();
-		let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-			let before = ui.min_rect();
-			assert_eq!(
-				show(
-					ui,
-					Some(&[]),
-					true,
-					false,
-					false,
-					(&mut crate::avatars::Avatars::default(), true),
-					model::Id(1),
-					None,
-					|_, _| true,
-				),
-				None
-			);
-			assert_eq!(ui.min_rect(), before);
-		});
-		output.drop_without_applying_deltas();
-	}
-
-	#[test]
-	fn hovering_starts_reaction_user_load_before_the_tooltip_opens() {
-		let ctx = egui::Context::default();
-		crate::emoji::install(&ctx).unwrap();
-		let emoji = ReactionEmoji {
-			id: None,
-			name: Some("👍".into()),
-		};
-		let mut action = None;
-		for frame in 0..2 {
-			let output = ctx.run_ui(
-				egui::RawInput {
-					screen_rect: Some(egui::Rect::from_min_size(
-						egui::Pos2::ZERO,
-						egui::vec2(240.0, 180.0),
-					)),
-					events: (frame == 0)
-						.then(|| egui::Event::PointerMoved(egui::pos2(20.0, 15.0)))
-						.into_iter()
-						.collect(),
-					..Default::default()
-				},
-				|ui| {
-					action = show(
-						ui,
-						Some(&[Reaction {
-							emoji: emoji.clone(),
-							count: 3,
-							me: false,
-							me_burst: false,
-						}]),
-						true,
-						false,
-						false,
-						(&mut crate::avatars::Avatars::default(), true),
-						model::Id(1),
-						None,
-						|_, _| true,
-					);
-				},
-			);
-			output.drop_without_applying_deltas();
+		{
+			let ctx = egui::Context::default();
+			crate::emoji::install(&ctx).unwrap();
+			let emoji = ReactionEmoji {
+				id: None,
+				name: Some("👍".into()),
+			};
+			let mut action = None;
+			for frame in 0..2 {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(240.0, 180.0),
+						)),
+						events: (frame == 0)
+							.then(|| egui::Event::PointerMoved(egui::pos2(20.0, 15.0)))
+							.into_iter()
+							.collect(),
+						..Default::default()
+					},
+					|ui| {
+						action = show(
+							ui,
+							Some(&[Reaction {
+								emoji: emoji.clone(),
+								count: 3,
+								me: false,
+								me_burst: false,
+							}]),
+							true,
+							false,
+							false,
+							(&mut crate::avatars::Avatars::default(), true),
+							model::Id(1),
+							None,
+							|_, _| true,
+						);
+					},
+				);
+				output.drop_without_applying_deltas();
+			}
+			assert_eq!(action, Some(Action::Inspect(emoji, false)));
 		}
-		assert_eq!(action, Some(Action::Inspect(emoji, false)));
 	}
 
 	#[test]

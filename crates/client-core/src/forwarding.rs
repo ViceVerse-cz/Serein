@@ -24,7 +24,7 @@ impl State {
 				.iter()
 				.enumerate()
 				.any(|(i, id)| !self.can_compose(*id) || targets[..i].contains(id))
-			|| note.chars().count() > crate::MAX_CONTENT
+			|| !model::message_options::valid(note, self.content_limit(), note.trim().is_empty())
 			|| self.pending.len() + count > 64
 			|| self.draft_bytes() + count * (note.len() + 128 + size_of::<Pending>())
 				> crate::MAX_DRAFT_BYTES

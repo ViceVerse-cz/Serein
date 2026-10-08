@@ -18,11 +18,11 @@ const PREVIEW: f32 = 72.0;
 /// Narrowest gallery tile before a row drops a column.
 const GALLERY_TILE: f32 = 300.0;
 
-fn sort_label(sort: Sort) -> &'static str {
-	match sort {
-		Sort::Activity => "Recent activity",
-		Sort::Created => "Creation date",
-	}
+fn sort_label(sort: Sort) -> String {
+	crate::i18n::translate_if_key(match sort {
+		Sort::Activity => "forum-sort-label-recent-activity",
+		Sort::Created => "forum-sort-label-creation-date",
+	})
 }
 
 #[derive(Default)]
@@ -174,23 +174,25 @@ impl ForumUi {
 								ui.label(
 									design::semibold(
 										ui,
-										if filtered {
-											"No posts match"
+										crate::i18n::translate_if_key(if filtered {
+											"forum-show-no-posts-match"
 										} else {
-											"No posts loaded"
-										},
+											"forum-show-no-posts-loaded"
+										}),
 										16.0,
 									)
 									.color(colors.text_strong),
 								);
 								ui.label(
-									RichText::new(if !query.is_empty() {
-										"Press Enter to start a post with this title."
-									} else if filtered {
-										"No loaded post carries the selected tags; load more or clear the filter."
-									} else {
-										"Nothing is posted here yet; archived posts load on request."
-									})
+									RichText::new(crate::i18n::translate_if_key(
+										if !query.is_empty() {
+											"forum-show-press-enter-to-start-a-post-with-this-title"
+										} else if filtered {
+											"forum-show-no-loaded-post-carries-the-selected-tags-load-more-or"
+										} else {
+											"forum-show-nothing-is-posted-here-yet-archived-posts-load-on-request"
+										},
+									))
 									.color(colors.muted),
 								);
 							});
@@ -290,7 +292,12 @@ impl ForumUi {
 						let button = ui.add_enabled(
 							allowed && self.draft.is_none(),
 							egui::Button::new(
-								design::medium(ui, "New Post", 14.0).color(colors.accent_text),
+								design::medium(
+									ui,
+									crate::i18n::translate("forum-toolbar-new-post"),
+									14.0,
+								)
+								.color(colors.accent_text),
 							)
 							.fill(colors.accent)
 							.stroke(egui::Stroke::NONE)
@@ -301,22 +308,26 @@ impl ForumUi {
 							self.start_draft(String::new());
 						}
 						if !allowed && state.is_forum(forum) {
-							button.on_disabled_hover_text(
-								"Posting requires a connected session with permission to send here.",
-							);
+							button.on_disabled_hover_text(crate::i18n::translate(
+								"forum-toolbar-posting-requires-a-connected-session-with-permission-to-send-here",
+							));
 						}
 						ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
 							icons::inline(ui, icons::Icon::Search, 20.0, colors.muted);
 							let input = ui.add(
 								egui::TextEdit::singleline(&mut self.query)
+									.align(egui::Align2::LEFT_CENTER)
 									.char_limit(MAX_TITLE)
 									.frame(egui::Frame::NONE)
-									.hint_text("Search or create a post...")
+									.hint_text(crate::i18n::translate(
+										"forum-toolbar-search-or-create-a-post",
+									))
 									.font(egui::TextStyle::Body)
 									.desired_width(ui.available_width().max(60.0)),
 							);
-							let input =
-								input.accessible_name("Search loaded posts or start a new one");
+							let input = input.accessible_name(crate::i18n::translate(
+								"forum-toolbar-search-or-create-a-post",
+							));
 							if input.lost_focus()
 								&& ui.input(|i| i.key_pressed(egui::Key::Enter))
 								&& !self.query.trim().is_empty()
@@ -369,31 +380,49 @@ impl ForumUi {
 				Some(icons::Icon::SortArrows),
 				Some(icons::Icon::ChevronDown),
 			),
-			"Sort & View",
+			"forum-sort-menu-sort-view",
 			TAG_HEIGHT,
 			false,
 		)
 		.on_hover_text(format!(
-			"Sorted by {}, {} view",
+			"{} {}, {} {}",
+			crate::i18n::translate("forum-sort-menu-sorted-by"),
 			sort_label(self.sort).to_lowercase(),
-			match self.layout {
-				Layout::List => "list",
-				Layout::Gallery => "gallery",
-			}
+			crate::i18n::translate_if_key(match self.layout {
+				Layout::List => "forum-sort-menu-list-2",
+				Layout::Gallery => "forum-sort-menu-gallery-2",
+			}),
+			crate::i18n::translate("forum-sort-menu-view")
 		));
 		egui::Popup::menu(&button)
 			.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
 			.show(|ui| {
 				ui.set_min_width(200.0);
 				ui.spacing_mut().item_spacing.y = 6.0;
-				ui.label(design::eyebrow(ui, "Sort by", colors.muted));
+				ui.label(design::eyebrow(
+					ui,
+					crate::i18n::translate("forum-sort-menu-sort-by"),
+					colors.muted,
+				));
 				for sort in [Sort::Activity, Sort::Created] {
 					ui.radio_value(&mut self.sort, sort, sort_label(sort));
 				}
 				ui.separator();
-				ui.label(design::eyebrow(ui, "View as", colors.muted));
-				ui.radio_value(&mut self.layout, Layout::List, "List");
-				ui.radio_value(&mut self.layout, Layout::Gallery, "Gallery");
+				ui.label(design::eyebrow(
+					ui,
+					crate::i18n::translate("forum-sort-menu-view-as"),
+					colors.muted,
+				));
+				ui.radio_value(
+					&mut self.layout,
+					Layout::List,
+					crate::i18n::translate("forum-sort-menu-list"),
+				);
+				ui.radio_value(
+					&mut self.layout,
+					Layout::Gallery,
+					crate::i18n::translate("forum-sort-menu-gallery"),
+				);
 			});
 	}
 
@@ -407,9 +436,12 @@ impl ForumUi {
 		let (rule, _) = ui.allocate_exact_size(egui::vec2(1.0, 20.0), egui::Sense::hover());
 		ui.painter().rect_filled(rule, 0, colors.border);
 		let menu_label = if self.tags.is_empty() {
-			"All".to_owned()
+			crate::i18n::translate("forum-tag-filter-all")
 		} else {
-			format!("{} selected", self.tags.len())
+			crate::i18n::translate_args(
+				"forum-tag-filter-selected",
+				&[("count", &self.tags.len().to_string())],
+			)
 		};
 		let menu_width = action_width(ui, &menu_label, TAG_HEIGHT, 1);
 		let mut folded = false;
@@ -442,7 +474,7 @@ impl ForumUi {
 			!self.tags.is_empty(),
 		);
 		let button = if folded {
-			button.on_hover_text("More tags")
+			button.on_hover_text(crate::i18n::translate("forum-tag-filter-more-tags"))
 		} else {
 			button
 		};
@@ -452,7 +484,14 @@ impl ForumUi {
 				ui.set_max_width(360.0);
 				ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
 				ui.horizontal(|ui| {
-					ui.label(design::semibold(ui, "Select Tags", 15.0).color(colors.muted));
+					ui.label(
+						design::semibold(
+							ui,
+							crate::i18n::translate("forum-tag-filter-select-tags"),
+							15.0,
+						)
+						.color(colors.muted),
+					);
 					count_badge(ui, self.tags.len());
 				});
 				ui.horizontal_wrapped(|ui| {
@@ -473,18 +512,37 @@ impl ForumUi {
 					}
 				});
 				ui.horizontal(|ui| {
-					ui.label(RichText::new("Match").size(13.0).color(colors.muted));
-					ui.radio_value(&mut self.match_all, false, "Some")
-						.on_hover_text("Show posts with any selected tag");
-					ui.radio_value(&mut self.match_all, true, "All")
-						.on_hover_text("Show only posts with every selected tag");
+					ui.label(
+						RichText::new(crate::i18n::translate("forum-tag-filter-match"))
+							.size(13.0)
+							.color(colors.muted),
+					);
+					ui.radio_value(
+						&mut self.match_all,
+						false,
+						crate::i18n::translate("forum-tag-filter-some"),
+					)
+					.on_hover_text(crate::i18n::translate(
+						"forum-tag-filter-show-posts-with-any-selected-tag",
+					));
+					ui.radio_value(
+						&mut self.match_all,
+						true,
+						crate::i18n::translate("forum-tag-filter-all"),
+					)
+					.on_hover_text(crate::i18n::translate(
+						"forum-tag-filter-show-only-posts-with-every-selected-tag",
+					));
 				});
 				ui.separator();
 				if ui
 					.add_enabled(
 						!self.tags.is_empty(),
-						egui::Button::new(RichText::new("Clear all").color(colors.link))
-							.frame(false),
+						egui::Button::new(
+							RichText::new(crate::i18n::translate("forum-tag-filter-clear-all"))
+								.color(colors.link),
+						)
+						.frame(false),
 					)
 					.clicked()
 				{
@@ -534,8 +592,13 @@ impl ForumUi {
 						ui.set_width(ui.available_width());
 						ui.horizontal_top(|ui| {
 							ui.spacing_mut().item_spacing.x = 10.0;
-							if icons::button(ui, icons::Icon::Close, 22.0, "Discard this post")
-								.clicked()
+							if icons::button(
+								ui,
+								icons::Icon::Close,
+								22.0,
+								&crate::i18n::translate("forum-composer-discard-this-post"),
+							)
+							.clicked()
 							{
 								cancel = true;
 							}
@@ -546,6 +609,7 @@ impl ForumUi {
 								ui.spacing_mut().item_spacing.y = 4.0;
 								let title = ui.add(
 									egui::TextEdit::singleline(&mut draft.title)
+										.align(egui::Align2::LEFT_CENTER)
 										.char_limit(MAX_TITLE)
 										.frame(egui::Frame::NONE)
 										.font(egui::FontId::new(
@@ -554,28 +618,41 @@ impl ForumUi {
 										))
 										.text_color(colors.text_strong)
 										.hint_text(
-											design::semibold(ui, "Title", 20.0).color(colors.muted),
+											design::semibold(
+												ui,
+												crate::i18n::translate("forum-composer-title"),
+												20.0,
+											)
+											.color(colors.muted),
 										)
 										.desired_width(f32::INFINITY),
 								);
-								let title = title.accessible_name("Post title");
+								let title = title.accessible_name(crate::i18n::translate(
+									"forum-composer-title",
+								));
 								if draft.focus {
 									title.request_focus();
 									draft.focus = false;
 								}
 								let body = ui.add(
 									egui::TextEdit::multiline(&mut draft.body)
-										.char_limit(MAX_CONTENT)
+										.char_limit(
+											MAX_CONTENT + model::message_options::PREFIX_ALLOWANCE,
+										)
 										.frame(egui::Frame::NONE)
 										.hint_text(
-											RichText::new("Enter a message...")
-												.size(15.0)
-												.color(colors.muted),
+											RichText::new(crate::i18n::translate(
+												"forum-composer-enter-a-message",
+											))
+											.size(15.0)
+											.color(colors.muted),
 										)
 										.desired_rows(3)
 										.desired_width(f32::INFINITY),
 								);
-								body.accessible_name("First message of this post");
+								body.accessible_name(crate::i18n::translate(
+									"forum-composer-enter-a-message",
+								));
 								post_tags(ui, state, forum, &mut draft.tags, images);
 							});
 							// Discord parks the image control beside the fields, not under them.
@@ -623,17 +700,25 @@ impl ForumUi {
 									egui::WidgetInfo::labeled(
 										egui::Role::Button,
 										enabled,
-										"Add images to this post",
+										crate::i18n::translate(
+											"forum-composer-add-images-to-this-post",
+										),
 									)
 								});
 								if response.clicked() {
 									*staged.choose = true;
 								}
-								response.on_hover_text(if files_allowed {
-									"Add images or files. Up to 10 files and 500 MB total; account limits may be lower."
-								} else {
-									"Attaching files is unavailable in this forum."
-								});
+								response.on_hover_text(crate::i18n::translate_if_key(
+									&(if files_allowed {
+										crate::i18n::translate(
+											"forum-composer-add-images-or-files-up-to-10-files-and-500",
+										)
+									} else {
+										crate::i18n::translate(
+											"forum-composer-attaching-files-is-unavailable-in-this-forum",
+										)
+									}),
+								));
 							});
 						});
 						if !staged.files.is_empty() {
@@ -661,6 +746,7 @@ impl ForumUi {
 									&text,
 									None,
 									MAX_CONTENT,
+									false,
 								);
 							}
 							ui.with_layout(
@@ -668,16 +754,21 @@ impl ForumUi {
 								|ui| {
 									let ready = state.can_create_post(forum)
 										&& !draft.title.trim().is_empty()
-										&& (!draft.body.trim().is_empty()
-											|| !staged.files.is_empty()) && (!draft
-										.tags
-										.is_empty()
+										&& model::message_options::valid(
+											model::message_options::starter(&draft.body),
+											MAX_CONTENT,
+											!staged.files.is_empty(),
+										) && (!draft.tags.is_empty()
 										|| !state.forum_requires_tag(forum));
 									let post = ui.add_enabled(
 										ready && !draft.submitted && !posting,
 										egui::Button::new(
-											design::medium(ui, "Post", 14.0)
-												.color(colors.accent_text),
+											design::medium(
+												ui,
+												crate::i18n::translate("forum-composer-post"),
+												14.0,
+											)
+											.color(colors.accent_text),
 										)
 										.fill(colors.accent)
 										.stroke(egui::Stroke::NONE)
@@ -686,7 +777,12 @@ impl ForumUi {
 									);
 									submit = post.clicked();
 									if posting {
-										ui.label(RichText::new("Posting…").color(colors.muted));
+										ui.label(
+											RichText::new(crate::i18n::translate(
+												"forum-composer-posting",
+											))
+											.color(colors.muted),
+										);
 									} else if let Some(error) = error {
 										ui.label(RichText::new(error).color(colors.danger));
 									}
@@ -694,7 +790,12 @@ impl ForumUi {
 										RichText::new(format!(
 											"{}/{MAX_TITLE} · {}/{MAX_CONTENT}",
 											draft.title.chars().count(),
-											draft.body.chars().count()
+											model::message_options::content(
+												model::message_options::starter(&draft.body)
+											)
+											.0
+											.chars()
+											.count()
 										))
 										.size(11.0)
 										.color(colors.muted),
@@ -799,7 +900,7 @@ fn post_tags(
 				CARD_TAG_HEIGHT,
 				egui::Sense::click(),
 			)
-			.on_hover_text("Remove tag")
+			.on_hover_text(crate::i18n::translate("forum-post-tags-remove-tag"))
 			.clicked()
 			{
 				removed = Some(tag.id);
@@ -813,9 +914,9 @@ fn post_tags(
 					ui,
 					(Some(icons::Icon::Plus), None),
 					if picked.is_empty() {
-						"Add tags"
+						"forum-post-tags-add-tags"
 					} else {
-						"Add tag"
+						"forum-post-tags-add-tag"
 					},
 					CARD_TAG_HEIGHT,
 					false,
@@ -823,15 +924,19 @@ fn post_tags(
 			})
 			.inner;
 		let button = if full {
-			button.on_disabled_hover_text("A post can carry up to 5 tags.")
+			button.on_disabled_hover_text(crate::i18n::translate(
+				"forum-post-tags-a-post-can-carry-up-to-5-tags",
+			))
 		} else {
 			button
 		};
 		if required && picked.is_empty() {
 			ui.label(
-				RichText::new("This forum requires a tag")
-					.size(12.0)
-					.color(colors.muted),
+				RichText::new(crate::i18n::translate(
+					"forum-post-tags-this-forum-requires-a-tag",
+				))
+				.size(12.0)
+				.color(colors.muted),
 			);
 		}
 		egui::Popup::menu(&button)
@@ -840,12 +945,23 @@ fn post_tags(
 				ui.set_max_width(360.0);
 				ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
 				ui.horizontal(|ui| {
-					ui.label(design::semibold(ui, "Select Tags", 15.0).color(colors.muted));
+					ui.label(
+						design::semibold(
+							ui,
+							crate::i18n::translate("forum-post-tags-select-tags"),
+							15.0,
+						)
+						.color(colors.muted),
+					);
 					count_badge(ui, picked.len());
 					ui.label(
-						RichText::new(format!("up to {}", model::forum::MAX_APPLIED_TAGS))
-							.size(12.0)
-							.color(colors.muted),
+						RichText::new(format!(
+							"{} {}",
+							crate::i18n::translate("forum-post-tags-up-to"),
+							model::forum::MAX_APPLIED_TAGS
+						))
+						.size(12.0)
+						.color(colors.muted),
 					);
 				});
 				ui.horizontal_wrapped(|ui| {
@@ -867,7 +983,9 @@ fn post_tags(
 							})
 							.inner;
 						let pill = if tag.moderated && !state.can_apply_tag(forum, tag) {
-							pill.on_disabled_hover_text("Only moderators can apply this tag.")
+							pill.on_disabled_hover_text(crate::i18n::translate(
+								"forum-post-tags-only-moderators-can-apply-this-tag",
+							))
 						} else {
 							pill
 						};
@@ -897,14 +1015,15 @@ fn action_pill(
 	height: f32,
 	active: bool,
 ) -> egui::Response {
+	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	let count = usize::from(leading.is_some()) + usize::from(trailing.is_some());
 	let (rect, response) = ui.allocate_exact_size(
-		egui::vec2(action_width(ui, label, height, count), height),
+		egui::vec2(action_width(ui, &label, height, count), height),
 		egui::Sense::click(),
 	);
 	let enabled = ui.is_enabled();
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &label));
 	if !ui.is_rect_visible(rect) {
 		return response;
 	}
@@ -949,7 +1068,7 @@ fn action_pill(
 		icons::paint(painter, icon, icon_rect(x), text);
 		x += icon_size + 6.0;
 	}
-	let galley = painter.layout_no_wrap(label.to_owned(), tag_font(ui, height), text);
+	let galley = painter.layout_no_wrap(label, tag_font(ui, height), text);
 	let width = galley.size().x;
 	painter.galley(
 		egui::pos2(x, rect.center().y - galley.size().y / 2.0),
@@ -1241,27 +1360,34 @@ fn latest_row(ui: &mut egui::Ui, state: &State, post: &Channel) {
 		.and_then(|summary| summary.latest.as_ref());
 	let Some(latest) = latest else {
 		ui.label(
-			RichText::new("Latest message unavailable")
-				.size(14.0)
-				.color(colors.muted),
+			RichText::new(crate::i18n::translate(
+				"forum-latest-row-latest-message-unavailable",
+			))
+			.size(14.0)
+			.color(colors.muted),
 		);
 		return;
 	};
 	ui.horizontal(|ui| {
 		ui.spacing_mut().item_spacing.x = 5.0;
-		let author_color = state
-			.forum_author_color(post.id, latest.author_id, latest.webhook, &latest.roles)
-			.map_or(colors.text_strong, |rgb| {
-				design::role_name_color(rgb, colors.raised, colors.text_strong)
-			});
-		ui.label(design::semibold(ui, format!("{}:", latest.author), 14.0).color(author_color));
+		ui.label(crate::role_names::galley(
+			ui,
+			&format!("{}:", latest.author),
+			egui::FontId::new(14.0, design::semibold_family(ui.ctx())),
+			state.forum_author_colors(post.id, latest.author_id, latest.webhook, &latest.roles),
+			colors.raised,
+			colors.text_strong,
+			ui.available_width(),
+		));
 		ui.add(
 			egui::Label::new(
-				RichText::new(if latest.excerpt.trim().is_empty() {
-					"Attachment or non-text message"
-				} else {
-					&latest.excerpt
-				})
+				RichText::new(crate::i18n::translate_if_key(
+					if latest.excerpt.trim().is_empty() {
+						"forum-latest-row-attachment-or-non-text-message"
+					} else {
+						&latest.excerpt
+					},
+				))
 				.size(14.0)
 				.color(colors.text),
 			)
@@ -1294,9 +1420,13 @@ fn stats_row(
 		if unread {
 			let label = match state.post_new_count(post) {
 				Some((count, exact)) if count > 0 => {
-					format!("({count}{} New)", if exact { "" } else { "+" })
+					format!(
+						"({count}{} {})",
+						if exact { "" } else { "+" },
+						crate::i18n::translate("forum-stats-row-new")
+					)
 				}
-				_ => "(New)".to_owned(),
+				_ => format!("({})", crate::i18n::translate("forum-stats-row-new")),
 			};
 			ui.label(design::medium(ui, label, 13.0).color(colors.accent));
 		}
@@ -1308,7 +1438,11 @@ fn stats_row(
 		);
 		if archived {
 			ui.label(RichText::new("·").color(colors.muted));
-			ui.label(RichText::new("Archived").size(13.0).color(colors.muted));
+			ui.label(
+				RichText::new(crate::i18n::translate("forum-stats-row-archived"))
+					.size(13.0)
+					.color(colors.muted),
+			);
 		}
 	});
 }
@@ -1319,12 +1453,23 @@ fn describe(response: &egui::Response, post: &Channel, (archived, unread): (bool
 			egui::Role::Button,
 			true,
 			format!(
-				"{}{}{}; {} replies",
+				"{}{}{}; {} {}",
 				post.name,
-				if unread { ", unread" } else { "" },
-				if archived { ", archived" } else { "" },
-				post.message_count
-					.map_or("unknown".to_owned(), |n| n.to_string())
+				if unread {
+					crate::i18n::translate("forum-describe-unread")
+				} else {
+					String::new()
+				},
+				if archived {
+					crate::i18n::translate("forum-describe-archived")
+				} else {
+					String::new()
+				},
+				post.message_count.map_or_else(
+					|| crate::i18n::translate("forum-describe-unknown"),
+					|n| n.to_string()
+				),
+				crate::i18n::translate("forum-describe-replies")
 			),
 		)
 	});
@@ -1513,7 +1658,7 @@ fn posts_footer(ui: &mut egui::Ui, state: &State, forum: Id) -> bool {
 	ui.horizontal_wrapped(|ui| {
 		if state.posts.loading {
 			ui.label(
-				RichText::new("Loading posts…")
+				RichText::new(crate::i18n::translate("forum-posts-footer-loading-posts"))
 					.size(13.0)
 					.color(colors.muted),
 			);
@@ -1522,14 +1667,17 @@ fn posts_footer(ui: &mut egui::Ui, state: &State, forum: Id) -> bool {
 			request = ui
 				.add_enabled(
 					state.can_load_posts(forum),
-					egui::Button::new(RichText::new("Retry").size(13.0)),
+					egui::Button::new(
+						RichText::new(crate::i18n::translate("forum-posts-footer-retry"))
+							.size(13.0),
+					),
 				)
 				.clicked();
 		} else if state.posts.more {
 			request = ui
 				.add(
 					egui::Button::new(
-						RichText::new("Load more posts")
+						RichText::new(crate::i18n::translate("forum-posts-footer-load-more-posts"))
 							.size(13.0)
 							.color(colors.link),
 					)
@@ -1556,9 +1704,11 @@ fn archive_footer(
 			let button = ui.add_enabled(
 				allowed,
 				egui::Button::new(
-					RichText::new("Load archived posts")
-						.size(13.0)
-						.color(colors.link),
+					RichText::new(crate::i18n::translate(
+						"forum-archive-footer-load-archived-posts",
+					))
+					.size(13.0)
+					.color(colors.link),
 				)
 				.frame(false),
 			);
@@ -1567,17 +1717,21 @@ fn archive_footer(
 			}
 			if !allowed {
 				ui.label(
-					RichText::new("Archived posts need a connected session with history access.")
-						.size(12.0)
-						.color(colors.muted),
+					RichText::new(crate::i18n::translate(
+						"forum-archive-footer-archived-posts-need-a-connected-session-with-history-access",
+					))
+					.size(12.0)
+					.color(colors.muted),
 				);
 			}
 		}
 		Some(view) if view.loading => {
 			ui.label(
-				RichText::new("Loading archived posts…")
-					.size(13.0)
-					.color(colors.muted),
+				RichText::new(crate::i18n::translate(
+					"forum-archive-footer-loading-archived-posts",
+				))
+				.size(13.0)
+				.color(colors.muted),
 			);
 		}
 		Some(view) => {
@@ -1586,7 +1740,10 @@ fn archive_footer(
 				if ui
 					.add_enabled(
 						allowed,
-						egui::Button::new(RichText::new("Retry").size(13.0)),
+						egui::Button::new(
+							RichText::new(crate::i18n::translate("forum-archive-footer-retry"))
+								.size(13.0),
+						),
 					)
 					.clicked()
 				{
@@ -1598,9 +1755,11 @@ fn archive_footer(
 						.add_enabled(
 							allowed,
 							egui::Button::new(
-								RichText::new("Older archived posts")
-									.size(13.0)
-									.color(colors.link),
+								RichText::new(crate::i18n::translate(
+									"forum-archive-footer-older-archived-posts",
+								))
+								.size(13.0)
+								.color(colors.link),
 							)
 							.frame(false),
 						)
@@ -1610,9 +1769,11 @@ fn archive_footer(
 					}
 				} else {
 					ui.label(
-						RichText::new("No older archived posts reported.")
-							.size(12.0)
-							.color(colors.muted),
+						RichText::new(crate::i18n::translate(
+							"forum-archive-footer-no-older-archived-posts-reported",
+						))
+						.size(12.0)
+						.color(colors.muted),
 					);
 				}
 			}
@@ -1671,20 +1832,6 @@ mod tests {
 			draw,
 		);
 		output.drop_without_applying_deltas();
-	}
-
-	#[test]
-	fn relative_times_round_down() {
-		let now = time::OffsetDateTime::from_unix_timestamp(1_800_000_000).unwrap();
-		let at = |seconds_ago: i64| {
-			Id((((1_800_000_000 - seconds_ago - 1_420_070_400) as u64) * 1000) << 22)
-		};
-		assert_eq!(ago(at(5), now), "just now");
-		assert_eq!(ago(at(125), now), "2m ago");
-		assert_eq!(ago(at(7_200), now), "2h ago");
-		assert_eq!(ago(at(15 * 86_400), now), "15d ago");
-		assert_eq!(ago(at(70 * 86_400), now), "2mo ago");
-		assert_eq!(ago(at(800 * 86_400), now), "2y ago");
 	}
 
 	#[test]

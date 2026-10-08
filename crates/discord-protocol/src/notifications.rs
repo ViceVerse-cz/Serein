@@ -15,36 +15,149 @@ impl MuteConfig {
 	}
 }
 #[derive(Deserialize)]
+#[serde(from = "OverrideWire")]
 pub struct Override {
 	pub channel_id: Id,
-	#[serde(default)]
 	pub mute_config: Option<MuteConfig>,
-	#[serde(default)]
 	pub muted: Option<bool>,
-	#[serde(default)]
 	pub message_notifications: Option<u8>,
+	absent: u8,
+}
+#[derive(Deserialize)]
+struct OverrideWire {
+	channel_id: Id,
+	#[serde(default)]
+	mute_config: Option<MuteConfig>,
+	#[serde(default)]
+	muted: model::Patch<bool>,
+	#[serde(default)]
+	message_notifications: model::Patch<u8>,
+}
+impl From<OverrideWire> for Override {
+	fn from(wire: OverrideWire) -> Self {
+		let mut absent = 0;
+		let muted = match wire.muted {
+			model::Patch::Value(value) => Some(value),
+			model::Patch::Null => None,
+			model::Patch::Absent => {
+				absent |= 1;
+				None
+			}
+		};
+		let message_notifications = match wire.message_notifications {
+			model::Patch::Value(value) => Some(value),
+			model::Patch::Null => None,
+			model::Patch::Absent => {
+				absent |= 2;
+				None
+			}
+		};
+		Self {
+			channel_id: wire.channel_id,
+			mute_config: wire.mute_config,
+			muted,
+			message_notifications,
+			absent,
+		}
+	}
 }
 #[derive(Deserialize)]
 pub struct Overrides(
 	#[serde(deserialize_with = "crate::read_state::account_entries")] pub Vec<Override>,
 );
-#[derive(Deserialize)]
+fn present_overrides<'de, D: serde::Deserializer<'de>>(
+	d: D,
+) -> Result<Option<Overrides>, D::Error> {
+	Overrides::deserialize(d).map(Some)
+}
 pub struct Setting {
-	// Legacy READY can use zero for private-channel settings, not just null.
-	#[serde(default, deserialize_with = "crate::read_state::optional_id")]
 	pub guild_id: Option<Id>,
-	#[serde(default)]
+	pub mute_config: Option<MuteConfig>,
 	pub muted: Option<bool>,
-	#[serde(default)]
 	pub suppress_everyone: Option<bool>,
-	#[serde(default)]
 	pub suppress_roles: Option<bool>,
-	#[serde(default)]
 	pub hide_muted_channels: Option<bool>,
-	#[serde(default)]
 	pub message_notifications: Option<u8>,
-	#[serde(default)]
 	pub channel_overrides: Option<Overrides>,
+	absent: u8,
+}
+impl<'de> Deserialize<'de> for Setting {
+	fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+		#[derive(Deserialize)]
+		struct Wire {
+			#[serde(default, deserialize_with = "crate::read_state::optional_id")]
+			guild_id: Option<Id>,
+			#[serde(default)]
+			mute_config: Option<MuteConfig>,
+			#[serde(default)]
+			muted: model::Patch<bool>,
+			#[serde(default)]
+			suppress_everyone: model::Patch<bool>,
+			#[serde(default)]
+			suppress_roles: model::Patch<bool>,
+			#[serde(default)]
+			hide_muted_channels: model::Patch<bool>,
+			#[serde(default)]
+			message_notifications: model::Patch<u8>,
+			#[serde(default, deserialize_with = "present_overrides")]
+			channel_overrides: Option<Overrides>,
+		}
+		fn value<T>(patch: model::Patch<T>, bit: u8, absent: &mut u8) -> Option<T> {
+			match patch {
+				model::Patch::Absent => {
+					*absent |= bit;
+					None
+				}
+				model::Patch::Null => None,
+				model::Patch::Value(value) => Some(value),
+			}
+		}
+		let wire = Wire::deserialize(deserializer)?;
+		let mut absent = 0;
+		Ok(Self {
+			guild_id: wire.guild_id,
+			mute_config: wire.mute_config,
+			muted: value(wire.muted, 1, &mut absent),
+			suppress_everyone: value(wire.suppress_everyone, 2, &mut absent),
+			suppress_roles: value(wire.suppress_roles, 4, &mut absent),
+			hide_muted_channels: value(wire.hide_muted_channels, 8, &mut absent),
+			message_notifications: value(wire.message_notifications, 16, &mut absent),
+			channel_overrides: wire.channel_overrides,
+			absent,
+		})
+	}
+}
+impl Setting {
+	/// Gateway objects are full settings records. Only omitted fields use service defaults;
+	/// explicit null stays unknown. REST acknowledgements deliberately skip this conversion.
+	pub fn with_defaults(mut self) -> Self {
+		if self.absent & 1 != 0 {
+			self.muted = Some(false);
+		}
+		if self.absent & 2 != 0 {
+			self.suppress_everyone = Some(false);
+		}
+		if self.absent & 4 != 0 {
+			self.suppress_roles = Some(false);
+		}
+		if self.absent & 8 != 0 {
+			self.hide_muted_channels = Some(false);
+		}
+		if self.absent & 16 != 0 {
+			self.message_notifications = Some(3);
+		}
+		if let Some(overrides) = &mut self.channel_overrides {
+			for row in &mut overrides.0 {
+				if row.absent & 1 != 0 {
+					row.muted = Some(false);
+				}
+				if row.absent & 2 != 0 {
+					row.message_notifications = Some(3);
+				}
+			}
+		}
+		self
+	}
 }
 #[derive(Deserialize)]
 #[serde(untagged)]
@@ -89,6 +202,24 @@ impl Sessions {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn defaults_apply_only_to_omitted_gateway_fields_not_rest_confirmation() {
+		let sparse: Setting = crate::decode(br#"{"guild_id":"1"}"#).unwrap();
+		assert_eq!(sparse.muted, None);
+		assert_eq!(sparse.message_notifications, None);
+		let defaults = sparse.with_defaults();
+		assert_eq!(defaults.muted, Some(false));
+		assert_eq!(defaults.message_notifications, Some(3));
+		assert_eq!(defaults.suppress_everyone, Some(false));
+		let unknown: Setting =
+			crate::decode(br#"{"guild_id":"1","muted":null,"message_notifications":null}"#)
+				.unwrap();
+		let unknown = unknown.with_defaults();
+		assert_eq!(unknown.muted, None);
+		assert_eq!(unknown.message_notifications, None);
+		assert!(crate::decode::<Setting>(br#"{"guild_id":"1","channel_overrides":null}"#).is_err());
+	}
+
 	#[test]
 	fn mention_suppression_settings_preserve_unknown_false_and_true() {
 		for (fields, everyone, roles) in [

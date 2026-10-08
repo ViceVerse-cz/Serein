@@ -1,28 +1,5 @@
 use extensions::*;
 
-#[test]
-fn section_opacity_roundtrips_and_stays_bounded() {
-	let mut theme = Theme::default();
-	theme.dark.background = Some(Background {
-		opacity: 100,
-		sections: Some(SectionOpacity::default()),
-		..Default::default()
-	});
-	let decoded: Theme = serde_json::from_slice(&serde_json::to_vec(&theme).unwrap()).unwrap();
-	assert_eq!(decoded, theme);
-	assert!(theme.validate().is_ok());
-	theme
-		.dark
-		.background
-		.as_mut()
-		.unwrap()
-		.sections
-		.as_mut()
-		.unwrap()
-		.member_list = 101;
-	assert!(theme.validate().is_err());
-}
-
 fn plugin(wasm: &str) -> Package {
 	Package {
 		manifest: Manifest {
@@ -59,38 +36,11 @@ fn returning(json: &str) -> Package {
 	))
 }
 
-#[test]
-fn cover_bytes_are_theme_only_and_bounded() {
-	let mut package = returning("{}");
-	package.cover_image = vec![1];
-	assert!(package.validate().is_err());
-	package.manifest.kind = ExtensionKind::Theme;
-	package.manifest.capabilities.clear();
-	package.manifest.actions.clear();
-	package.theme = Some(Theme::default());
-	package.wasm.clear();
-	assert!(package.validate().is_ok());
-	package.cover_image.resize(MAX_BACKGROUND_BYTES + 1, 0);
-	assert!(package.validate().is_err());
-}
-
 fn input() -> Invocation {
 	Invocation {
 		action: "run".into(),
 		composer: Some("hello".into()),
 		..Default::default()
-	}
-}
-
-#[test]
-fn returns_bounded_composer_proposal_and_releases_invocations() {
-	let package = returning(r#"{"replacement":"HELLO","panel":[]}"#);
-	let roundtrip = parse_package(&serde_json::to_vec(&package).unwrap()).unwrap();
-	for _ in 0..20 {
-		assert_eq!(
-			invoke(&roundtrip, &input()).unwrap().replacement.as_deref(),
-			Some("HELLO")
-		);
 	}
 }
 
@@ -195,6 +145,17 @@ fn rejects_oversized_or_invalid_pointers_and_json_responses() {
 	}
 	assert!(invoke(&returning("not json"), &input()).is_err());
 	assert!(invoke(&returning(r#"{"send":"not allowed"}"#), &input()).is_err());
+
+	{
+		let package = returning(r#"{"replacement":"HELLO","panel":[]}"#);
+		let roundtrip = parse_package(&serde_json::to_vec(&package).unwrap()).unwrap();
+		for _ in 0..20 {
+			assert_eq!(
+				invoke(&roundtrip, &input()).unwrap().replacement.as_deref(),
+				Some("HELLO")
+			);
+		}
+	}
 }
 
 #[test]
@@ -216,6 +177,30 @@ fn enforces_capabilities_and_restricts_context_to_action_surface() {
 		..Default::default()
 	};
 	assert!(matches!(invoke(&package, &request), Err(Error::Capability)));
+}
+
+#[test]
+fn tick_requires_elapsed_time_and_only_returns_appearance() {
+	let mut package = returning(r#"{"appearance":{}}"#);
+	package.manifest.capabilities.push(Capability::Appearance);
+	package.manifest.actions[0].surface = Surface::Tick;
+	let mut request = Invocation {
+		action: "run".into(),
+		tick_ms: Some(250),
+		..Default::default()
+	};
+	assert!(invoke(&package, &request).is_ok());
+	request.tick_ms = None;
+	assert!(matches!(invoke(&package, &request), Err(Error::Capability)));
+	request.tick_ms = Some(250);
+	for response in [
+		r#"{"panel":[{"type":"text","text":"no"}]}"#,
+		r#"{"storage":"no"}"#,
+		r#"{"effects":[] ,"image_sharing":true}"#,
+	] {
+		package.wasm = returning(response).wasm;
+		assert!(matches!(invoke(&package, &request), Err(Error::Capability)));
+	}
 }
 
 #[test]
@@ -296,22 +281,42 @@ fn validates_themes_catalog_and_path_safe_identifiers() {
 		entries: vec![entry.clone(), entry],
 	};
 	assert!(parse_catalog(&serde_json::to_vec(&catalog).unwrap()).is_err());
-}
 
-#[test]
-fn shipped_rust_examples_execute_through_the_real_abi() {
-	let protector = parse_package(include_bytes!(
-		"../../../examples/extensions/packages/message-delete-protector.serein-extension"
-	))
-	.unwrap();
-	let input = Invocation {
-		action: "activate".into(),
-		..Default::default()
-	};
-	assert!(
-		invoke(&protector, &input).is_ok(),
-		"bundled protector package still executes through the ABI"
-	);
+	{
+		let mut theme = Theme::default();
+		theme.dark.background = Some(Background {
+			opacity: 100,
+			sections: Some(SectionOpacity::default()),
+			..Default::default()
+		});
+		let decoded: Theme = serde_json::from_slice(&serde_json::to_vec(&theme).unwrap()).unwrap();
+		assert_eq!(decoded, theme);
+		assert!(theme.validate().is_ok());
+		theme
+			.dark
+			.background
+			.as_mut()
+			.unwrap()
+			.sections
+			.as_mut()
+			.unwrap()
+			.member_list = 101;
+		assert!(theme.validate().is_err());
+	}
+
+	{
+		let mut package = returning("{}");
+		package.cover_image = vec![1];
+		assert!(package.validate().is_err());
+		package.manifest.kind = ExtensionKind::Theme;
+		package.manifest.capabilities.clear();
+		package.manifest.actions.clear();
+		package.theme = Some(Theme::default());
+		package.wasm.clear();
+		assert!(package.validate().is_ok());
+		package.cover_image.resize(MAX_BACKGROUND_BYTES + 1, 0);
+		assert!(package.validate().is_err());
+	}
 }
 
 #[test]
@@ -361,10 +366,10 @@ fn catalog_preview_metadata_is_optional_and_bounded() {
 
 #[test]
 fn image_sharing_plugin_requires_activation_and_capability() {
-	let mut package = parse_package(include_bytes!(
-		"../../../examples/extensions/packages/emoji-sticker-images.serein-extension"
-	))
-	.unwrap();
+	let mut package = returning(r#"{"image_sharing":true}"#);
+	package.manifest.capabilities = vec![Capability::ImageSharing];
+	package.manifest.actions[0].id = "activate".into();
+	package.manifest.actions[0].surface = Surface::Activation;
 	let input = Invocation {
 		action: "activate".into(),
 		..Default::default()
@@ -378,6 +383,40 @@ fn image_sharing_plugin_requires_activation_and_capability() {
 	package.manifest.actions[0].surface = Surface::Panel;
 	assert!(output.validate(&package.manifest, &input).is_err());
 	assert!(!serde_json::from_str::<Output>("{}").unwrap().image_sharing);
+
+	{
+		let protector = parse_package(include_bytes!(
+			"../../../extensions/plugins/packages/message-delete-protector.serein-extension"
+		))
+		.unwrap();
+		let input = Invocation {
+			action: "activate".into(),
+			..Default::default()
+		};
+		assert!(
+			invoke(&protector, &input).is_ok(),
+			"bundled protector package still executes through the ABI"
+		);
+	}
+}
+
+#[test]
+fn rgb_cycle_package_executes_through_the_real_abi() {
+	let package = parse_package(include_bytes!(
+		"../../../examples/extensions/packages/rgb-cycle.serein-extension"
+	))
+	.unwrap();
+	let output = invoke(
+		&package,
+		&Invocation {
+			action: "tick".into(),
+			storage: Some(r#"{"base":false}"#.into()),
+			tick_ms: Some(250),
+			..Default::default()
+		},
+	)
+	.unwrap();
+	assert!(!output.appearance.unwrap().dark.colors.contains_key("base"));
 }
 
 fn message_event() -> MessageEvent {
@@ -528,4 +567,72 @@ fn event_effects_allow_granted_storage_and_appearance_without_unsolicited_ui() {
 		]);
 		assert!(matches!(invoke(&package, &input), Err(Error::Capability)));
 	}
+}
+
+/// The published Custom RPC package through the real offline sandbox.
+#[test]
+fn custom_rpc_package_preserves_drafts_and_controls_presence() {
+	let bytes = include_bytes!("../../../extensions/plugins/packages/custom-rpc.serein-extension");
+	let package = parse_package(bytes).expect("package validates");
+	let mut input = Invocation {
+		action: "open".into(),
+		..Default::default()
+	};
+	let opened = invoke(&package, &input).expect("native editor panel validates");
+	assert!(opened.rich_presence.is_none());
+	assert!(opened.storage.is_none());
+	input.values.extend([
+		("application-id".into(), "123456789".into()),
+		("name".into(), "Synthetic Custom RPC".into()),
+		("details".into(), "Offline sandbox check".into()),
+		("large-key".into(), "cover".into()),
+		("button1-label".into(), "Example".into()),
+		("button1-url".into(), "https://example.com".into()),
+		("timer".into(), "Custom timestamps".into()),
+		("start".into(), "2024-03-01 00:00".into()),
+	]);
+	input.action = "preview".into();
+	let preview = invoke(&package, &input).expect("preview validates");
+	assert!(preview.rich_presence.is_none() && preview.storage.is_none());
+	assert!(
+		preview
+			.panel
+			.iter()
+			.any(|e| matches!(e, Element::ActivityPreview { .. }))
+	);
+	input.action = "apply".into();
+	let applied = invoke(&package, &input).expect("apply validates");
+	assert!(matches!(
+		applied.rich_presence,
+		Some(RichPresenceUpdate::Set { .. })
+	));
+	input.storage = applied.storage;
+	input.values.clear();
+	input.action = "activate".into();
+	assert!(
+		invoke(&package, &input)
+			.expect("restore validates")
+			.rich_presence
+			.is_some()
+	);
+	input.action = "stop".into();
+	let stopped = invoke(&package, &input).expect("stop validates");
+	assert!(matches!(
+		stopped.rich_presence,
+		Some(RichPresenceUpdate::Clear)
+	));
+	input.storage = stopped.storage;
+	input.action = "activate".into();
+	assert!(
+		invoke(&package, &input)
+			.expect("stopped activation validates")
+			.rich_presence
+			.is_none()
+	);
+	input.action = "apply".into();
+	input
+		.values
+		.insert("button1-url".into(), "javascript:alert(1)".into());
+	let invalid = invoke(&package, &input).expect("invalid field stays a valid editor panel");
+	assert!(invalid.rich_presence.is_none() && invalid.storage.is_none());
 }

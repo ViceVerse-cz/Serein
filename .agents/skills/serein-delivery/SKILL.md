@@ -1,114 +1,43 @@
 ---
 name: serein-delivery
-description: Deliver Serein feature and fix requests as tested pull requests with native before/after screenshots and measured performance. Use for implementation in this repository, including task-scoped CI repairs; skip read-only questions and unrelated projects.
+description: Implement and deliver Serein repository changes as pull requests, or as a local pass in !fast mode.
 ---
 
 # Serein delivery
 
-Follow root `AGENTS.md` and the documentation. This skill supplies the evidence and PR procedure;
-it does not grant new account, deployment, microphone or credential permissions.
+Follow the delivery mode and authorization in [AGENTS.md](../../../AGENTS.md).
+Completion means the requested implementation, relevant verification and agreed delivery are done,
+or a concrete external blocker has been reported with a reviewable local result.
 
-## `!fast` local delivery
+## Select the workflow
 
-If the request begins with `!fast`, follow the root fast-local policy instead of the rest of this
-skill: implement locally, run one smallest useful debug command, and leave the result uncommitted.
-Do not collect baselines, tests, packages, screenshots, or performance/size evidence, and do not
-create progress logs or ADRs, open a PR, or push. End by asking the owner to check it and explicitly
-confirm before committing and pushing to `main`.
-On confirmation, the root policy requires workspace/fuzz formatting checks and strict workspace
-Clippy before committing or pushing. Fix failures and rerun the checks; a blocked or failing
-check prevents the push. The initial local pass still skips the full delivery workflow.
+- `!fast`: implement locally and run the smallest useful debug command. Leave changes uncommitted
+  until the owner confirms delivery. Default to an existing task PR; otherwise ask PR or direct
+  commit/push to `main`. Follow the root formatting/lint gate on confirmation. Skip the full
+  evidence/package workflow and disclose skipped checks in any PR.
+- Instructions/templates only: validate changed skills and review the diff. No application builds,
+  tests, packages, screenshots or runtime measurements are needed.
+- Visible or runtime changes: read [evidence guidance](references/evidence.md) before editing so
+  the relevant baseline can be collected. Load only the screenshot/measurement sections that apply.
+- Author-visible SDK changes: also use `serein-sdk-wiki`; read the affected canonical authoring docs.
 
-## Establish the baseline
+## Review and deliver
 
-Record the task's starting commit, dirty paths, active branch, remote/default branch, Rust version
-and intended feature flags. Fetch safely and branch as described in `AGENTS.md`. Use the actual
-starting state for before/after comparisons; document any difference from the remote base.
+Inspect branch, upstream and dirty paths; preserve unrelated work and use a task branch/worktree
+as required by the root instructions. Implement the complete requested slice, inspect the diff and
+run relevant verification. Fix failures caused by the task and rerun checks invalidated by the fix.
+Use `cargo xtask check` for application changes outside `!fast`; avoid rebuilding unchanged code
+for documentation delivery. Record evidence and limitations in the PR, never in `docs/progress.md`
+or `docs/adr/`.
 
-Before editing a visible flow, capture its existing native `--demo` state. For runtime changes,
-record release package size and relevant workload measurements before editing too. A baseline
-from an unverified old `dist/` executable is invalid. Use a disposable baseline worktree when
-needed; never move the user's branch or clean their files to obtain a baseline. Keep baseline
-and changed release output directories separate so one cannot overwrite the other.
+Stage explicit task paths, review the staged diff, commit and push normally to the existing origin.
+Use `.github/pull_request_template.md` and a Markdown body file. Reuse this task's open PR or create
+one with explicit base/head. Completed implementation is ready for review; draft is reserved for
+unfinished requested implementation. Pending/failed CI or unavailable evidence alone never forces
+draft status. Mark an existing draft ready when implementation is complete.
 
-Choose the smallest meaningful existing test/workload. Implement and check the complete path,
-including failure/empty/loading states and bounded resource behavior. Parallelize independent
-reads or clearly separated agent tasks; serialize shared-file edits, Cargo builds using the same
-target directory, commits and pushes. Avoid duplicate builds and exhaustive unrelated audits.
-
-## Native before/after screenshots
-
-For visible changes, capture the affected app window before and after using the available native
-computer-use/screenshot tools. Use the same scenario, viewport, display scale and appearance;
-label baseline/new feature absence honestly. Default to the existing synthetic fixture. A new
-fixture may demonstrate a new state, but disclose it and never disguise it as live Discord data.
-
-Launch explicitly with `--demo`; do not launch a saved authenticated session for visual evidence.
-Inspect the actual rendered images, keyboard interaction, scrolling and affected overlays. Check
-light/dark and narrow/long-content cases when the change affects those layouts. Fix clipping,
-blank scroll strips, unreadable text and inaccessible controls before taking the final images.
-Capture only this application's synthetic content, excluding other windows or notifications.
-
-Save a small, useful pair under `docs/pr-evidence/<task-slug>/before.png` and `after.png` (or WebP).
-Keep each image at most 2 MiB; avoid whole-desktop captures and generated build artifacts. Evidence
-is development material, never a bundled runtime asset. Commit only reviewed synthetic images.
-In the PR use a Before/After Markdown table with absolute, commit-pinned image URLs:
-
-```text
-https://github.com/<owner>/<repo>/blob/<pushed-commit>/docs/pr-evidence/<task-slug>/before.png?raw=true
-```
-
-Use the existing repository's visibility; do not upload to an unrelated image host or create a
-public gist. Verify each linked file exists at the pushed commit and the PR contains both links.
-A screenshot only displayed in chat, a local path, or inaccessible CI artifact is not an embedded
-PR image. If capture/export is unavailable, record the exact missing capability in a draft PR;
-never fabricate a screenshot or call an uninspected image verified.
-
-For nonvisual work write `Not applicable — no visible UI change`; do not manufacture screenshots
-of identical windows or source code. Include a brief reproduction procedure for changed behavior.
-
-## Performance evidence
-
-Every PR has a Performance section. For instructions/docs-only changes, state `Not applicable —
-no runtime/build dependency change`. Do not spend time rebuilding an unchanged app for a cosmetic
-measurement. For runtime changes, compare relevant release builds against the recorded baseline:
-
-- Always record affected executable size, full installed package and compressed distribution size;
-  measure the standard package including voice. Reuse the package outputs built for verification.
-- Reducer/cache/protocol changes: use `cargo replay` on both revisions. Build once, then run the
-  produced `replay-bench` directly: one warmup and five measured runs, report median elapsed time
-  and the retained timeline range. This measures a synthetic reducer, never process RSS or UI latency.
-- UI/media changes: sample the native `--demo` process after the same warmup and scripted interaction
-  on both builds. Record OS, CPU/RAM, renderer, display scale, feature flags, sampling interval,
-  duration and process-memory metric. Report idle CPU and peak/settled memory when measurable.
-  Include child/helper processes separately. Do not derive p95 frame/startup latency from screenshots
-  or a stopwatch sample; use suitable instrumentation or mark that metric unmeasured.
-- Dependency/voice changes: report package deltas, applicable notices/audit results and relevant
-  component limits. No live audio, account load tests or microphone capture without the owner gate.
-
-Use a compact table: metric, baseline, after, absolute/percent delta, method. State sample counts,
-noise and meaningful regressions; do not call a noisy tiny difference an improvement. If a relevant
-measurement is unavailable, identify the missing tool/platform and make no performance claim.
-Update `docs/performance.md` with new reproducible measurements, not copied historical numbers.
-
-## Review and PR
-
-Run `cargo xtask check` and applicable focused/native checks. Review the complete task diff for
-correctness, secret exposure, scope and resource limits; use an independent reviewer for complex
-changes when useful. Fix task regressions and rerun only the invalidated checks. Record results in the PR description and update affected documentation. Never create or write
-`docs/progress.md` or `docs/adr/`. Ensure screenshot links and measurements describe the final implementation.
-
-Stage explicit task paths/hunks, inspect `git diff --cached`, then commit and push the task branch
-to the existing origin. Compose the PR body from `.github/pull_request_template.md` in an ignored
-local file (e.g. `target/pr-body.md`), with actual newlines. Lead with the problem and resulting
-behavior; include commands/results, screenshots, measurements, and only material risks.
-
-Discover and reuse an open PR for this branch; otherwise create one with `gh pr create` using
-explicit base/head/title and `--body-file`. Use a draft while required checks/evidence are pending
-or failing. Inspect `gh pr checks` and logs; repair task-caused failures, push normally and update
-the same PR. Do not waive pre-existing failures, silently label pending CI green, or repeatedly
-rerun infrastructure failures. If still blocked after a diagnosis and justified repair/retry,
-leave a reviewable draft and report the concrete blocker. Do not merge automatically.
-
-Fetch the PR again to verify its URL, head, body and status. Final response: PR link, result,
-checks and meaningful performance delta, plus blockers if any. No manufactured completion claim.
+Inspect PR checks and repair task-caused failures within scope. Report pre-existing failures,
+pending checks and unavailable evidence accurately; do not repeatedly retry infrastructure failures.
+Verify the PR URL, head and body after updating. When the host provides PR linking, register the PR
+with the current thread. Finish with the link, result, verification and material limitations.
+Do not merge or publish a release without a separate request.

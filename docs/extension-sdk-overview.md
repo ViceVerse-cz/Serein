@@ -51,11 +51,17 @@ for state that survives invocations.
 | Join a call or control host-mediated devices/screen share | [App actions](extension-sdk-actions.md#app-actions) | `voice_connect`, `camera_control`, `audio_settings` or `media_control`; explicit Apply |
 | React to app changes | [App events](extension-sdk-reference.md#appeventkind-why-an-app-observer-ran) | `app_events`, the relevant data grants, and `data_events` for the event kinds that require it |
 | Save plugin preferences | [Panels and storage](extension-sdk-actions.md#panels-and-storage) | `storage` |
+| Configure a REST-only HTTP/HTTPS proxy before login | [API proxy](extension-sdk-actions.md#api-proxy-preview) | Preview `api_proxy`, optional `storage`; device-wide narrow scope, no account data or calls |
+| Publish a custom activity from a native editor | [Custom Rich Presence](extension-sdk-actions.md#custom-rich-presence) | `rich_presence`, explicit panel actions, and `storage` for saved settings; activity sharing remains a separate user choice |
 | Change the app's visual appearance | [Theme guide](theme-api.md) and [appearance output](extension-sdk-actions.md#every-output-field) | A declarative theme, or `appearance` for a plugin overlay |
+| Animate an appearance while enabled | [Scheduled ticks](../examples/extensions/README.md#scheduled-appearance-ticks) | One preview `tick` action and `appearance` |
 
 For all names and consent rules, see the [capability reference](extensions.md#capability-reference).
-No SDK capability gives a plugin credentials, unrestricted files, a network API,
-or automatic Discord actions. Separately granted actions can propose sending
+No SDK capability gives a plugin credentials, unrestricted files or a network API.
+The preview `rich_presence` capability lets an explicit panel action or activation
+contribute a bounded activity while the user's activity-sharing preference permits
+publication. A plugin can restore its saved active configuration on account load;
+disabling it revokes the contribution. Separately granted actions can propose sending
 messages, editing profiles, managing threads and more; every operation requires
 the user's Apply confirmation. Host actions expose only the operations listed
 in the action reference.
@@ -110,7 +116,7 @@ contract; they are not standalone packages.
 | Rust type | The corresponding type exported by `serein_extension_sdk` |
 | Capability | A manifest permission that must also be granted by the user |
 | Action ID | Your manifest's stable action name; received in `action` |
-| Surface | Where the host can invoke an action: `panel`, `message`, `composer`, `activation`, `message_event`, or `app_event` |
+| Surface | Where the host can invoke an action: `panel`, `message`, `composer`, `activation`, `message_event`, `app_event`, or preview `tick` |
 | Snapshot | Bounded app data captured for one invocation, not a live object or fetch API |
 | Effect | A validated proposal for an app operation; at most one per foreground result |
 | Partial / truncated | Some data was not loaded or did not fit the stated bound |
@@ -144,7 +150,9 @@ runs, so discovery cannot make an incompatible manifest installable.
 Treat optional fields as optional, and test against the host revision you plan
 to support. Existing compiled plugins and rebuilding Rust source are different
 compatibility questions: new struct fields can require updates to Rust literals
-when you rebuild.
+when you rebuild. Rich Presence uses a new opt-in `RichPresenceOutput` wrapper;
+the original SDK `Output` struct-literal API stays unchanged. Its native
+`ActivityPreview` element is a local preview, not evidence of live publication.
 
 ## Coverage and boundaries
 

@@ -241,6 +241,7 @@ mod tests {
 
 	fn message(channel: u64, id: u64) -> Message {
 		Message {
+			poll: None,
 			sticker_items: Vec::new(),
 			id: Id(id),
 			channel: Id(channel),
@@ -336,6 +337,7 @@ mod tests {
 	}
 	fn patch(channel: u64) -> MessagePatch {
 		MessagePatch {
+			poll: model::Patch::Absent,
 			sticker_items: model::Patch::Absent,
 			channel: Id(channel),
 			id: Id(channel * 1000 + 1),
@@ -355,136 +357,73 @@ mod tests {
 
 	#[test]
 	fn reselecting_current_channel_preserves_history_request_and_composer() {
-		let mut state = state();
-		load(&mut state, 1);
-		state.drafts.insert(Id(1), "Unsent draft".into());
-		state.reply = Some(Reply::to(Id(1001)));
-		let content = state.timeline.get(Id(1001)).unwrap().content.as_ptr();
-		for loading in [false, true] {
-			if loading {
-				state.history(Some(Id(1001)));
+		{
+			let mut state = state();
+			load(&mut state, 1);
+			state.drafts.insert(Id(1), "Unsent draft".into());
+			state.reply = Some(Reply::to(Id(1001)));
+			let content = state.timeline.get(Id(1001)).unwrap().content.as_ptr();
+			for loading in [false, true] {
+				if loading {
+					state.history(Some(Id(1001)));
+				}
+				state.search_target = Some(Id(1001));
+				let before = (state.request, state.revision, state.freshness);
+				assert!(state.select(Id(1)).is_none());
+				assert_eq!((state.request, state.revision, state.freshness), before);
+				assert_eq!(state.history_pending, loading);
+				assert_eq!(state.search_target, Some(Id(1001)));
+				assert_eq!(state.reply_target(), Some(Id(1001)));
+				assert_eq!(state.drafts[&Id(1)], "Unsent draft");
+				assert_eq!(
+					state.timeline.get(Id(1001)).unwrap().content.as_ptr(),
+					content
+				);
+				assert_eq!(state.timeline.row_count(), 50);
 			}
-			state.search_target = Some(Id(1001));
-			let before = (state.request, state.revision, state.freshness);
-			assert!(state.select(Id(1)).is_none());
-			assert_eq!((state.request, state.revision, state.freshness), before);
-			assert_eq!(state.history_pending, loading);
-			assert_eq!(state.search_target, Some(Id(1001)));
-			assert_eq!(state.reply_target(), Some(Id(1001)));
-			assert_eq!(state.drafts[&Id(1)], "Unsent draft");
+		}
+		{
+			let mut state = state();
+			load(&mut state, 1);
+			let content = state.timeline.get(Id(1001)).unwrap().content.as_ptr();
+			let old_request = state.request;
+			state.drafts.insert(Id(1), "Unsent draft".into());
+			load(&mut state, 2);
+			load(&mut state, 3);
+			assert_eq!(state.resident_window_count(), 2);
+			assert_eq!(state.resident_history_rows(), 150);
+			assert!(matches!(
+				state.select(Id(1)),
+				Some(Command::History {
+					channel: Id(1),
+					before: None,
+					..
+				})
+			));
 			assert_eq!(
 				state.timeline.get(Id(1001)).unwrap().content.as_ptr(),
 				content
 			);
 			assert_eq!(state.timeline.row_count(), 50);
-		}
-	}
-
-	#[test]
-	fn moves_two_recent_windows_and_always_revalidates_with_new_request() {
-		let mut state = state();
-		load(&mut state, 1);
-		let content = state.timeline.get(Id(1001)).unwrap().content.as_ptr();
-		let old_request = state.request;
-		state.drafts.insert(Id(1), "Unsent draft".into());
-		load(&mut state, 2);
-		load(&mut state, 3);
-		assert_eq!(state.resident_window_count(), 2);
-		assert_eq!(state.resident_history_rows(), 150);
-		assert!(matches!(
-			state.select(Id(1)),
-			Some(Command::History {
-				channel: Id(1),
-				before: None,
-				..
-			})
-		));
-		assert_eq!(
-			state.timeline.get(Id(1001)).unwrap().content.as_ptr(),
-			content
-		);
-		assert_eq!(state.timeline.row_count(), 50);
-		assert!(
-			state
-				.timeline
-				.iter()
-				.all(|message| message.channel == Id(1))
-		);
-		assert_eq!(state.freshness, Freshness::Loading);
-		assert!(!state.can_load_older());
-		assert_eq!(state.drafts[&Id(1)], "Unsent draft");
-		apply(
-			&mut state,
-			Event::History {
-				channel: Id(1),
-				request: old_request,
-				older: false,
-				messages: vec![],
-			},
-		);
-		assert_eq!(state.timeline.row_count(), 50);
-		let request = state.request;
-		apply(
-			&mut state,
-			Event::History {
-				channel: Id(1),
-				request,
-				older: false,
-				messages: vec![message(1, 2000)],
-			},
-		);
-		assert_eq!(state.timeline.row_ids().collect::<Vec<_>>(), vec![Id(2000)]);
-		assert_eq!(state.freshness, Freshness::Fresh);
-	}
-
-	#[test]
-	fn deletion_only_windows_survive_promotion_and_reject_old_page_bodies() {
-		let mut state = state();
-		load(&mut state, 1);
-		apply(
-			&mut state,
-			Event::DeleteBulk {
-				channel: Id(1),
-				ids: (1001..=1050).map(Id).collect(),
-			},
-		);
-		assert!(state.timeline.is_empty());
-		load(&mut state, 2);
-		state.select(Id(1)).unwrap();
-		assert_eq!(state.timeline.row_count(), 50);
-		assert!(state.timeline.is_empty());
-		let request = state.request;
-		apply(
-			&mut state,
-			Event::History {
-				channel: Id(1),
-				request,
-				older: false,
-				messages: vec![message(1, 1001)],
-			},
-		);
-		assert!(state.timeline.get(Id(1001)).is_none());
-	}
-
-	#[test]
-	fn dormant_deletions_survive_live_history_invalidation() {
-		for event in [Event::Message(message(1, 1099)), Event::Patch(patch(1))] {
-			let mut state = state();
-			state.set_preserve_deleted_messages(true);
-			load(&mut state, 1);
-			load(&mut state, 2);
+			assert!(
+				state
+					.timeline
+					.iter()
+					.all(|message| message.channel == Id(1))
+			);
+			assert_eq!(state.freshness, Freshness::Loading);
+			assert!(!state.can_load_older());
+			assert_eq!(state.drafts[&Id(1)], "Unsent draft");
 			apply(
 				&mut state,
-				Event::Delete {
+				Event::History {
 					channel: Id(1),
-					id: Id(1001),
+					request: old_request,
+					older: false,
+					messages: vec![],
 				},
 			);
-			apply(&mut state, event);
-			state.select(Id(1)).unwrap();
-			assert!(state.timeline.get_display(Id(1001)).is_some());
-			assert!(state.timeline.get(Id(1001)).is_none());
-			assert_eq!(state.timeline.row_count(), 1);
+			assert_eq!(state.timeline.row_count(), 50);
 			let request = state.request;
 			apply(
 				&mut state,
@@ -492,149 +431,237 @@ mod tests {
 					channel: Id(1),
 					request,
 					older: false,
-					messages: vec![message(1, 1099)],
+					messages: vec![message(1, 2000)],
 				},
 			);
-			assert!(state.timeline.get_display(Id(1001)).is_some());
-			state.discard_preserved_deleted(Id(1001));
-			assert!(state.timeline.get_display(Id(1001)).is_none());
-			assert!(state.timeline.is_deleted(Id(1001)));
+			assert_eq!(state.timeline.row_ids().collect::<Vec<_>>(), vec![Id(2000)]);
+			assert_eq!(state.freshness, Freshness::Fresh);
 		}
 	}
 
 	#[test]
-	fn lru_and_aggregate_row_budget_evict_whole_windows() {
-		let mut state = state();
-		for channel in 1..=4 {
-			load(&mut state, channel);
-		}
-		assert_eq!(state.resident_window_count(), 2);
-		state.select(Id(1)).unwrap();
-		assert_eq!(state.timeline.row_count(), 0); // Least recent was evicted.
-		for channel in 1..=3 {
-			load(&mut state, channel);
-			state
-				.timeline
-				.seed_cache(
-					(1..=500)
-						.map(|id| message(channel, channel * 10000 + id))
-						.collect(),
-				)
-				.unwrap();
-			state.enforce_resident_budget();
-			assert!(state.resident_history_rows() <= MAX_ROWS);
-			assert!(state.resident_history_bytes() <= MAX_BYTES);
-		}
-		assert_eq!(state.timeline.row_count(), 500);
-		assert_eq!(state.resident_window_count(), 1);
-		assert_eq!(state.resident_history_rows(), 1000);
-	}
-
-	#[test]
-	fn inactive_mutations_evict_only_the_affected_window_and_ignore_old_generations() {
-		for event in [
-			Event::Message(message(1, 1099)),
-			Event::Patch(patch(1)),
-			Event::Delete {
-				channel: Id(1),
-				id: Id(1001),
-			},
-			Event::DeleteBulk {
-				channel: Id(1),
-				ids: vec![Id(1001)],
-			},
-			Event::Reactions(reactions::Event::Changed {
-				channel: Id(1),
-				message: Id(1001),
-			}),
-			Event::Reactions(reactions::Event::Delta {
-				channel: Id(1),
-				message: Id(1001),
-				user: Id(2),
-				emoji: model::ReactionEmoji {
-					id: None,
-					name: Some("x".into()),
-				},
-				add: true,
-				burst: false,
-			}),
-			Event::Reactions(reactions::Event::Cleared {
-				channel: Id(1),
-				message: Id(1001),
-				emoji: None,
-			}),
-			Event::SendResult {
-				nonce: "synthetic".into(),
-				result: Ok(message(1, 1099)),
-			},
-		] {
+	fn deletion_only_windows_survive_promotion_and_reject_old_page_bodies() {
+		{
 			let mut state = state();
 			load(&mut state, 1);
-			load(&mut state, 2);
-			load(&mut state, 3);
-			state.apply(Envelope {
-				generation: state.generation - 1,
-				event: Event::Delete {
-					channel: Id(2),
-					id: Id(2001),
+			apply(
+				&mut state,
+				Event::DeleteBulk {
+					channel: Id(1),
+					ids: (1001..=1050).map(Id).collect(),
 				},
-			});
-			let delete = matches!(&event, Event::Delete { .. } | Event::DeleteBulk { .. });
-			apply(&mut state, event);
-			if delete {
-				assert_eq!(state.resident_window_count(), 2);
+			);
+			assert!(state.timeline.is_empty());
+			load(&mut state, 2);
+			state.select(Id(1)).unwrap();
+			assert_eq!(state.timeline.row_count(), 50);
+			assert!(state.timeline.is_empty());
+			let request = state.request;
+			apply(
+				&mut state,
+				Event::History {
+					channel: Id(1),
+					request,
+					older: false,
+					messages: vec![message(1, 1001)],
+				},
+			);
+			assert!(state.timeline.get(Id(1001)).is_none());
+		}
+		{
+			for event in [Event::Message(message(1, 1099)), Event::Patch(patch(1))] {
+				let mut state = state();
+				state.set_preserve_deleted_messages(true);
+				load(&mut state, 1);
+				load(&mut state, 2);
+				apply(
+					&mut state,
+					Event::Delete {
+						channel: Id(1),
+						id: Id(1001),
+					},
+				);
+				apply(&mut state, event);
 				state.select(Id(1)).unwrap();
-				assert!(state.timeline.get_display(Id(1001)).is_none());
+				assert!(state.timeline.get_display(Id(1001)).is_some());
 				assert!(state.timeline.get(Id(1001)).is_none());
-				assert_eq!(state.timeline.row_count(), 50);
-			} else {
-				assert_eq!(state.resident_window_count(), 1);
-				state.select(Id(2)).unwrap();
-				assert_eq!(state.timeline.row_count(), 50);
-				state.select(Id(1)).unwrap();
-				assert_eq!(state.timeline.row_count(), 0);
+				assert_eq!(state.timeline.row_count(), 1);
+				let request = state.request;
+				apply(
+					&mut state,
+					Event::History {
+						channel: Id(1),
+						request,
+						older: false,
+						messages: vec![message(1, 1099)],
+					},
+				);
+				assert!(state.timeline.get_display(Id(1001)).is_some());
+				state.discard_preserved_deleted(Id(1001));
+				assert!(state.timeline.get_display(Id(1001)).is_none());
+				assert!(state.timeline.is_deleted(Id(1001)));
 			}
 		}
 	}
 
 	#[test]
-	fn identity_access_session_and_explicit_clear_remove_dormant_content() {
-		for event in [
-			Event::ChannelChanged(model::ChannelPatch {
-				icon: model::Patch::Absent,
-				id: Id(1),
-				parent_id: Patch::Value(Id(99)),
-				name: Patch::Absent,
-				kind: Patch::Absent,
-				message_count: Patch::Absent,
-				tags: Patch::Absent,
-				position: Patch::Absent,
-				last_message: Patch::Absent,
-			}),
-			Event::Unavailable(Id(1)),
-			Event::Resync,
-			Event::PermissionsChanged,
-			Event::Failure(auth::Failure::Expired),
-			Event::RecipientRemoved {
-				channel: Id(1),
-				user: Id(9),
-			},
-		] {
+	fn lru_and_aggregate_row_budget_evict_whole_windows() {
+		{
+			let mut state = state();
+			for channel in 1..=4 {
+				load(&mut state, channel);
+			}
+			assert_eq!(state.resident_window_count(), 2);
+			state.select(Id(1)).unwrap();
+			assert_eq!(state.timeline.row_count(), 0); // Least recent was evicted.
+			for channel in 1..=3 {
+				load(&mut state, channel);
+				state
+					.timeline
+					.seed_cache(
+						(1..=500)
+							.map(|id| message(channel, channel * 10000 + id))
+							.collect(),
+					)
+					.unwrap();
+				state.enforce_resident_budget();
+				assert!(state.resident_history_rows() <= MAX_ROWS);
+				assert!(state.resident_history_bytes() <= MAX_BYTES);
+			}
+			assert_eq!(state.timeline.row_count(), 500);
+			assert_eq!(state.resident_window_count(), 1);
+			assert_eq!(state.resident_history_rows(), 1000);
+		}
+		{
+			let mut state = state();
+			for channel in 1..=3 {
+				load(&mut state, channel);
+				for id in 1..=500 {
+					let mut item = message(channel, channel * 10000 + id);
+					item.content = "x".repeat(64 * 1024);
+					state.timeline.insert(item, false, false).unwrap();
+				}
+				state.enforce_resident_budget();
+				assert!(state.resident_history_bytes() <= MAX_BYTES);
+				assert!(state.resident_history_rows() <= MAX_ROWS);
+			}
+			let request = state.history(None);
+			assert!(matches!(request, Command::History { .. }));
+			for id in 1..=12 {
+				let mut update = patch(3);
+				update.id = Id(90000 + id);
+				update.content = Patch::Value("p".repeat(64 * 1024));
+				apply(&mut state, Event::Patch(update));
+				assert!(state.resident_history_bytes() <= MAX_BYTES);
+			}
+		}
+	}
+
+	#[test]
+	fn inactive_mutations_evict_only_the_affected_window_and_ignore_old_generations() {
+		{
+			for event in [
+				Event::Message(message(1, 1099)),
+				Event::Patch(patch(1)),
+				Event::Delete {
+					channel: Id(1),
+					id: Id(1001),
+				},
+				Event::DeleteBulk {
+					channel: Id(1),
+					ids: vec![Id(1001)],
+				},
+				Event::Reactions(reactions::Event::Changed {
+					channel: Id(1),
+					message: Id(1001),
+				}),
+				Event::Reactions(reactions::Event::Delta {
+					channel: Id(1),
+					message: Id(1001),
+					user: Id(2),
+					emoji: model::ReactionEmoji {
+						id: None,
+						name: Some("x".into()),
+					},
+					add: true,
+					burst: false,
+				}),
+				Event::Reactions(reactions::Event::Cleared {
+					channel: Id(1),
+					message: Id(1001),
+					emoji: None,
+				}),
+				Event::SendResult {
+					nonce: "synthetic".into(),
+					result: Ok(message(1, 1099)),
+				},
+			] {
+				let mut state = state();
+				load(&mut state, 1);
+				load(&mut state, 2);
+				load(&mut state, 3);
+				state.apply(Envelope {
+					generation: state.generation - 1,
+					event: Event::Delete {
+						channel: Id(2),
+						id: Id(2001),
+					},
+				});
+				let delete = matches!(&event, Event::Delete { .. } | Event::DeleteBulk { .. });
+				apply(&mut state, event);
+				if delete {
+					assert_eq!(state.resident_window_count(), 2);
+					state.select(Id(1)).unwrap();
+					assert!(state.timeline.get_display(Id(1001)).is_none());
+					assert!(state.timeline.get(Id(1001)).is_none());
+					assert_eq!(state.timeline.row_count(), 50);
+				} else {
+					assert_eq!(state.resident_window_count(), 1);
+					state.select(Id(2)).unwrap();
+					assert_eq!(state.timeline.row_count(), 50);
+					state.select(Id(1)).unwrap();
+					assert_eq!(state.timeline.row_count(), 0);
+				}
+			}
+		}
+		{
+			for event in [
+				Event::ChannelChanged(model::ChannelPatch {
+					icon: model::Patch::Absent,
+					id: Id(1),
+					parent_id: Patch::Value(Id(99)),
+					name: Patch::Absent,
+					kind: Patch::Absent,
+					message_count: Patch::Absent,
+					tags: Patch::Absent,
+					position: Patch::Absent,
+					last_message: Patch::Absent,
+				}),
+				Event::Unavailable(Id(1)),
+				Event::Resync,
+				Event::PermissionsChanged,
+				Event::Failure(auth::Failure::Expired),
+				Event::RecipientRemoved {
+					channel: Id(1),
+					user: Id(9),
+				},
+			] {
+				let mut state = state();
+				load(&mut state, 1);
+				load(&mut state, 2);
+				apply(&mut state, event);
+				assert_eq!(state.resident_window_count(), 0);
+			}
 			let mut state = state();
 			load(&mut state, 1);
 			load(&mut state, 2);
-			apply(&mut state, event);
+			state.clear_cached_history();
 			assert_eq!(state.resident_window_count(), 0);
+			assert_eq!(state.timeline.row_count(), 50);
+			load(&mut state, 1);
+			state.logout();
+			assert_eq!(state.resident_history_rows(), 0);
 		}
-		let mut state = state();
-		load(&mut state, 1);
-		load(&mut state, 2);
-		state.clear_cached_history();
-		assert_eq!(state.resident_window_count(), 0);
-		assert_eq!(state.timeline.row_count(), 50);
-		load(&mut state, 1);
-		state.logout();
-		assert_eq!(state.resident_history_rows(), 0);
 	}
 
 	#[test]
@@ -642,6 +669,7 @@ mod tests {
 		use model::permissions as p;
 		let mut state = state();
 		state.guilds.push(model::Guild {
+			default_message_notifications: None,
 			stickers: None,
 			id: Id(10),
 			name: "Synthetic guild".into(),
@@ -659,6 +687,8 @@ mod tests {
 					roles: Some(vec![p::Role {
 						name: String::new(),
 						color: 0,
+						secondary_color: None,
+						tertiary_color: None,
 						position: 0,
 						hoist: false,
 						id: Id(10),
@@ -690,31 +720,6 @@ mod tests {
 		assert_eq!(state.timeline.row_count(), 50);
 		assert_eq!(state.freshness, Freshness::Fresh);
 		assert!(!state.can_read_history(Id(1)));
-	}
-
-	#[test]
-	fn large_windows_and_reconciliation_remain_inside_global_byte_budget() {
-		let mut state = state();
-		for channel in 1..=3 {
-			load(&mut state, channel);
-			for id in 1..=500 {
-				let mut item = message(channel, channel * 10000 + id);
-				item.content = "x".repeat(64 * 1024);
-				state.timeline.insert(item, false, false).unwrap();
-			}
-			state.enforce_resident_budget();
-			assert!(state.resident_history_bytes() <= MAX_BYTES);
-			assert!(state.resident_history_rows() <= MAX_ROWS);
-		}
-		let request = state.history(None);
-		assert!(matches!(request, Command::History { .. }));
-		for id in 1..=12 {
-			let mut update = patch(3);
-			update.id = Id(90000 + id);
-			update.content = Patch::Value("p".repeat(64 * 1024));
-			apply(&mut state, Event::Patch(update));
-			assert!(state.resident_history_bytes() <= MAX_BYTES);
-		}
 	}
 
 	#[test]

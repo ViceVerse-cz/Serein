@@ -1,6 +1,9 @@
-//! Unofficial normal-user profile response; see docs/profiles.md for source evidence.
+//! Unofficial normal-user profile response; see docs/discord-compatibility.md for source evidence.
 use crate::{DecodeError, UserDto};
-use model::{GuildProfile, Id, ProfileBadge, ProfileConnection, ProfileGuild, UserProfile};
+use model::{
+	GuildProfile, Id, ProfileBadge, ProfileConnection, ProfileGame, ProfileGameWidget,
+	ProfileGameWidgetKind, ProfileGuild, UserProfile,
+};
 use serde::{
 	Deserialize, Deserializer,
 	de::{SeqAccess, Visitor},
@@ -35,6 +38,8 @@ pub fn encode_edit(changes: &model::ProfileEdit) -> Result<serde_json::Value, De
 struct ProfileDto {
 	user: ProfileUser,
 	#[serde(default)]
+	widgets: Option<Small<serde_json::Value, 8>>,
+	#[serde(default)]
 	user_profile: Option<Metadata>,
 	#[serde(default)]
 	guild_member: Option<Member>,
@@ -48,6 +53,130 @@ struct ProfileDto {
 	connected_accounts: Small<Connection, 16>,
 	#[serde(default)]
 	mutual_guilds: Small<MutualGuild, 50>,
+	#[serde(default)]
+	mutual_friends: Small<UserDto, 50>,
+}
+#[derive(Deserialize)]
+struct GameWidgetDto {
+	data: GameWidgetDataDto,
+}
+#[derive(Deserialize)]
+struct GameWidgetDataDto {
+	#[serde(rename = "type")]
+	kind: String,
+	#[serde(default)]
+	games: Small<WidgetGameDto, 20>,
+}
+#[derive(Deserialize)]
+struct WidgetGameDto {
+	game_id: Id,
+	#[serde(default)]
+	comment: Option<String>,
+	#[serde(default)]
+	tags: Small<String, 3>,
+}
+#[derive(Deserialize)]
+struct GameMetadataDto {
+	#[serde(default)]
+	media: Option<GameMediaDto>,
+	id: Id,
+	name: String,
+	#[serde(default)]
+	icon_hash: Option<String>,
+	#[serde(default)]
+	cover_image_hash: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GameMediaDto {
+	#[serde(default)]
+	icon: Option<GameAssetDto>,
+	#[serde(default)]
+	cover: Option<GameAssetDto>,
+}
+#[derive(Deserialize)]
+struct GameAssetDto {
+	#[serde(rename = "type")]
+	kind: String,
+	value: String,
+}
+impl GameAssetDto {
+	fn artwork(self, id: Id) -> Option<String> {
+		match self.kind.as_str() {
+			"hash" => hash(Some(self.value)),
+			"url" if model::valid_discord_media_url(&self.value) => Some(self.value),
+			"url" => {
+				// Normalize first-party app-icon URLs to the existing bounded hash key.
+				let url = url::Url::parse(&self.value).ok()?;
+				if self.value.len() > 2048
+					|| url.scheme() != "https"
+					|| !matches!(
+						url.host_str(),
+						Some("cdn.discordapp.com" | "media.discordapp.net")
+					) || !url.username().is_empty()
+					|| url.password().is_some()
+					|| url.port().is_some()
+					|| url.fragment().is_some()
+				{
+					return None;
+				}
+				let prefix = format!("/app-icons/{id}/");
+				let (value, extension) = url.path().strip_prefix(&prefix)?.rsplit_once('.')?;
+				matches!(extension, "png" | "webp" | "jpg")
+					.then(|| hash(Some(value.to_owned())))
+					.flatten()
+			}
+			_ => None,
+		}
+	}
+}
+
+/// Titles/artwork from the unofficial GET /games response. Unrequested IDs are ignored.
+pub fn apply_board_games(
+	profile: &mut UserProfile,
+	bytes: &[u8],
+	requested: &[Id],
+) -> Result<(), DecodeError> {
+	if bytes.len() > MAX_PROFILE_WIRE || requested.len() > 25 {
+		return Err(DecodeError);
+	}
+	let games: Small<GameMetadataDto, 25> = crate::decode(bytes)?;
+	if games.limited {
+		return Err(DecodeError);
+	}
+	let Some(board) = profile.board.as_mut() else {
+		return Ok(());
+	};
+	for game in games.items {
+		if !requested.contains(&game.id) {
+			continue;
+		}
+		// Optional Board truncation must not mark editable profile fields incomplete.
+		let name = text(game.name, 128, &mut false);
+		let (icon, cover) = game
+			.media
+			.map(|media| (media.icon, media.cover))
+			.unwrap_or_default();
+		let icon = icon
+			.and_then(|asset| asset.artwork(game.id))
+			.or_else(|| hash(game.icon_hash));
+		let cover = cover
+			.and_then(|asset| asset.artwork(game.id))
+			.or_else(|| hash(game.cover_image_hash));
+		for entry in board
+			.iter_mut()
+			.flat_map(|widget| &mut widget.games)
+			.filter(|entry| entry.id == game.id)
+		{
+			entry.name = Some(name.clone());
+			entry.icon = icon.clone();
+			entry.cover = cover.clone();
+		}
+	}
+	if !profile.valid() {
+		return Err(DecodeError);
+	}
+	Ok(())
 }
 #[derive(Deserialize)]
 struct ProfileUser {
@@ -107,6 +236,8 @@ struct Badge {
 struct Connection {
 	#[serde(rename = "type")]
 	kind: String,
+	#[serde(default)]
+	id: String,
 	name: String,
 	#[serde(default)]
 	verified: bool,
@@ -179,7 +310,11 @@ fn hash(value: Option<String>) -> Option<String> {
 fn timestamp(value: Option<String>) -> Option<String> {
 	value.filter(|s| s.len() <= 64 && crate::Timestamp::try_from(s.clone()).is_ok())
 }
-pub fn decode_profile(bytes: &[u8], guild: Option<Id>) -> Result<UserProfile, DecodeError> {
+pub fn decode_profile(
+	bytes: &[u8],
+	guild: Option<Id>,
+	with_mutuals: bool,
+) -> Result<UserProfile, DecodeError> {
 	if bytes.len() > MAX_PROFILE_WIRE {
 		return Err(DecodeError);
 	}
@@ -201,8 +336,58 @@ pub fn decode_profile(bytes: &[u8], guild: Option<Id>) -> Result<UserProfile, De
 	let mut limited = dto.badges.limited
 		|| dto.guild_badges.limited
 		|| dto.connected_accounts.limited
-		|| dto.mutual_guilds.limited
+		// Null mutual lists are expected when those sections were not requested.
+		|| (dto.mutual_guilds.limited
+			&& (with_mutuals || !dto.mutual_guilds.items.is_empty()))
+		|| (dto.mutual_friends.limited
+			&& (with_mutuals || !dto.mutual_friends.items.is_empty()))
 		|| dto.user_profile.is_none();
+	let board = dto.widgets.map(|widgets| {
+		// Board limits do not affect completeness of editable identity fields.
+		let mut board: Vec<ProfileGameWidget> = Vec::new();
+		for widget in widgets.items {
+			// Optional widget evolution must not hide the user's identity/profile.
+			let Ok(widget) = serde_json::from_value::<GameWidgetDto>(widget) else {
+				continue;
+			};
+			let kind = match widget.data.kind.as_str() {
+				"favorite_games" => ProfileGameWidgetKind::Favorite,
+				"current_games" => ProfileGameWidgetKind::Rotation,
+				"played_games" => ProfileGameWidgetKind::Played,
+				"want_to_play_games" => ProfileGameWidgetKind::Wishlist,
+				_ => continue,
+			};
+			if board.iter().any(|existing| existing.kind == kind) {
+				continue;
+			}
+			let games = widget
+				.data
+				.games
+				.items
+				.into_iter()
+				.take(kind.limit())
+				.map(|game| ProfileGame {
+					id: game.game_id,
+					name: None,
+					icon: None,
+					cover: None,
+					comment: game.comment.map(|value| text(value, 256, &mut false)),
+					tags: game
+						.tags
+						.items
+						.into_iter()
+						.filter(|value| {
+							value.len() <= 64
+								&& value.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+						})
+						.collect(),
+				})
+				.collect();
+			board.push(ProfileGameWidget { kind, games });
+		}
+		board.shrink_to_fit();
+		board
+	});
 	let username = text(dto.user.user.username.clone(), 128, &mut limited);
 	let global_name = dto
 		.user
@@ -288,6 +473,7 @@ pub fn decode_profile(bytes: &[u8], guild: Option<Id>) -> Result<UserProfile, De
 			.into_iter()
 			.map(|c| ProfileConnection {
 				kind: text(c.kind, 16, &mut limited),
+				id: text(c.id, 128, &mut limited),
 				name: text(c.name, 128, &mut limited),
 				verified: c.verified,
 			})
@@ -301,16 +487,33 @@ pub fn decode_profile(bytes: &[u8], guild: Option<Id>) -> Result<UserProfile, De
 				nick: g.nick.map(|n| text(n, 128, &mut limited)),
 			})
 			.collect(),
+		mutual_friends: dto
+			.mutual_friends
+			.items
+			.into_iter()
+			.map(UserDto::into_model)
+			.collect(),
 		guild,
 		theme_colors,
 		clan,
+		board,
 		limited,
 	};
-	// Keep identity/about fields; large returned mutual lists are the first expendable summaries.
+	// Discard optional board summaries first; preserve complete editable profile fields.
 	while profile.bytes() > model::MAX_PROFILE_BYTES {
+		if profile
+			.board
+			.as_mut()
+			.is_some_and(|board| board.pop().is_some())
+		{
+			profile.board.as_mut().unwrap().shrink_to_fit();
+			continue;
+		}
 		profile.limited = true;
 		if profile.mutual_guilds.pop().is_some() {
 			profile.mutual_guilds.shrink_to_fit();
+		} else if profile.mutual_friends.pop().is_some() {
+			profile.mutual_friends.shrink_to_fit();
 		} else if profile.badges.pop().is_some() {
 			profile.badges.shrink_to_fit();
 		} else {
@@ -328,9 +531,9 @@ mod tests {
 	use serde_json::json;
 	#[test]
 	fn partial_profiles_preserve_identity_and_reject_malformed_lists() {
-		let base = json!({"user":{"id":"1","username":"synthetic","global_name":"Display","avatar":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"user_profile":{},"badges":[],"guild_badges":[],"connected_accounts":[],"mutual_guilds":[]});
+		let base = json!({"user":{"id":"1","username":"synthetic","global_name":"Display","avatar":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"user_profile":{},"badges":[],"guild_badges":[],"connected_accounts":[],"mutual_guilds":[],"mutual_friends":[]});
 		assert!(
-			!decode_profile(base.to_string().as_bytes(), None)
+			!decode_profile(base.to_string().as_bytes(), None, true)
 				.unwrap()
 				.limited
 		);
@@ -339,10 +542,11 @@ mod tests {
 			"guild_badges",
 			"connected_accounts",
 			"mutual_guilds",
+			"mutual_friends",
 		] {
 			let mut value = base.clone();
 			value[field] = serde_json::Value::Null;
-			let profile = decode_profile(value.to_string().as_bytes(), None).unwrap();
+			let profile = decode_profile(value.to_string().as_bytes(), None, true).unwrap();
 			assert_eq!(profile.username, "synthetic");
 			assert_eq!(profile.user.name, "Display");
 			assert_eq!(
@@ -353,9 +557,33 @@ mod tests {
 			assert!(profile.valid());
 			for invalid in [json!({}), json!(false), json!(1), json!(""), json!([null])] {
 				value[field] = invalid;
-				assert!(decode_profile(value.to_string().as_bytes(), None).is_err());
+				assert!(decode_profile(value.to_string().as_bytes(), None, true).is_err());
 			}
 		}
+	}
+	#[test]
+	fn unrequested_null_mutuals_do_not_hide_real_profile_limits() {
+		let mut value = json!({"user":{"id":"1","username":"synthetic"},"user_profile":{"bio":"About"},"mutual_guilds":null,"mutual_friends":null});
+		let decode = |value: &serde_json::Value, with_mutuals| {
+			decode_profile(value.to_string().as_bytes(), None, with_mutuals).unwrap()
+		};
+		assert!(!decode(&value, false).limited);
+		assert_eq!(decode(&value, false).bio, "About");
+		assert!(decode(&value, true).limited);
+		for field in [
+			"user_profile",
+			"badges",
+			"guild_badges",
+			"connected_accounts",
+		] {
+			let mut partial = value.clone();
+			partial[field] = serde_json::Value::Null;
+			assert!(decode(&partial, false).limited);
+		}
+		value["mutual_guilds"] = json!(vec![json!({"id":"2"}); 51]);
+		assert!(decode(&value, false).limited);
+		value["mutual_guilds"] = json!({});
+		assert!(decode_profile(value.to_string().as_bytes(), None, false).is_err());
 	}
 	#[test]
 	fn profile_metadata_is_bounded_and_guild_identity_is_checked() {
@@ -363,8 +591,8 @@ mod tests {
             "user_profile":{"bio":"About me","pronouns":"they/them","banner":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","accent_color":123,"theme_colors":[1193046,16777215]},
             "guild_member":{"roles":["8","7"],"nick":"Server name","avatar":"cccccccccccccccccccccccccccccccc","joined_at":"2026-01-01T00:00:00Z"},
             "guild_member_profile":{"guild_id":2,"banner":"dddddddddddddddddddddddddddddddd","bio":"Server bio"},
-            "badges":[{"id":"badge","description":"Synthetic badge","icon":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}],"connected_accounts":[{"type":"github","name":"synthetic","verified":true}],"mutual_guilds":[{"id":"2","nick":"Server name"}]});
-		let profile = decode_profile(value.to_string().as_bytes(), Some(Id(2))).unwrap();
+            "badges":[{"id":"badge","description":"Synthetic badge","icon":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}],"connected_accounts":[{"type":"github","name":"synthetic","verified":true}],"mutual_guilds":[{"id":"2","nick":"Server name"}],"mutual_friends":[{"id":"3","username":"friend","global_name":"Mutual Friend","avatar":"abababababababababababababababab"}]});
+		let profile = decode_profile(value.to_string().as_bytes(), Some(Id(2)), true).unwrap();
 		assert_eq!(profile.user.name, "Display");
 		assert_eq!(profile.username, "name");
 		assert_eq!(profile.bio, "About me");
@@ -381,6 +609,7 @@ mod tests {
 		let clan = profile.clan.as_ref().unwrap();
 		assert_eq!((clan.guild, clan.tag.as_str()), (Id(2), "SRN"));
 		assert_eq!(profile.user.primary_guild.as_deref(), Some(clan));
+		assert_eq!(profile.mutual_friends[0].name, "Mutual Friend");
 		assert_eq!(
 			clan.badge_key().as_deref(),
 			Some("clan-2-ffffffffffffffffffffffffffffffff")
@@ -392,22 +621,22 @@ mod tests {
 		assert!(profile.valid());
 		let disabled = json!({"user":{"id":"1","username":"n","clan":{"identity_guild_id":"2","identity_enabled":false,"tag":"OFF"}},
             "user_profile":{"theme_colors":[1,2,3]},"badges":[{"id":"b","description":"d","icon":"../evil"}]});
-		let profile = decode_profile(disabled.to_string().as_bytes(), None).unwrap();
+		let profile = decode_profile(disabled.to_string().as_bytes(), None, true).unwrap();
 		assert!(profile.clan.is_none());
 		assert!(profile.theme_colors.is_none());
 		assert!(profile.badges[0].icon.is_none());
 		let too_bright =
 			json!({"user":{"id":"1","username":"n"},"user_profile":{"theme_colors":[16777216,0]}});
 		assert!(
-			decode_profile(too_bright.to_string().as_bytes(), None)
+			decode_profile(too_bright.to_string().as_bytes(), None, true)
 				.unwrap()
 				.theme_colors
 				.is_none()
 		);
-		assert!(decode_profile(value.to_string().as_bytes(), Some(Id(3))).is_err());
-		assert!(decode_profile(&vec![0; MAX_PROFILE_WIRE + 1], None).is_err());
+		assert!(decode_profile(value.to_string().as_bytes(), Some(Id(3)), true).is_err());
+		assert!(decode_profile(&vec![0; MAX_PROFILE_WIRE + 1], None, true).is_err());
 		let huge = json!({"user":{"id":"1","username":"x".repeat(10000)},"user_profile":{"bio":"世".repeat(5000),"banner":"../invalid"},"mutual_guilds":vec![json!({"id":"2","nick":"文".repeat(300)});70]});
-		let profile = decode_profile(huge.to_string().as_bytes(), None).unwrap();
+		let profile = decode_profile(huge.to_string().as_bytes(), None, true).unwrap();
 		assert!(profile.valid());
 		assert!(profile.limited);
 		assert!(profile.banner.is_none());
@@ -415,7 +644,8 @@ mod tests {
 		assert!(
 			decode_profile(
 				br#"{"user":{"id":"1","username":"User"},"user_profile":null}"#,
-				None
+				None,
+				true,
 			)
 			.unwrap()
 			.limited

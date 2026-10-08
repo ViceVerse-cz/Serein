@@ -697,6 +697,7 @@ impl MediaLibrary {
 				texture: None,
 				total,
 				started,
+				played: now,
 				next_upload: now,
 				frame: usize::MAX,
 				bytes,
@@ -745,6 +746,31 @@ impl MediaLibrary {
 				slot.held.retain(|held| held.lane == Lane::Inline);
 			}
 		}
+	}
+
+	/// Inline animations not played for `IDLE_FRAMES` (scrolled away, or shown in an unfocused
+	/// window) fall back to their still, freeing the decoded frames and playback texture. The
+	/// frames are requested again once the rendition can play.
+	pub(super) fn release_idle(&mut self, now: Instant) {
+		for held in self.slots.values_mut().flat_map(|slot| &mut slot.held) {
+			if held.lane == Lane::Inline
+				&& let Pixels::Playing { still, animation } = &held.pixels
+				&& now.saturating_duration_since(animation.played) >= super::IDLE_FRAMES
+			{
+				held.pixels = Pixels::Still(still.clone());
+			}
+		}
+	}
+	pub(super) fn next_release(&self) -> Option<Instant> {
+		self.slots
+			.values()
+			.flat_map(|slot| &slot.held)
+			.filter(|held| held.lane == Lane::Inline)
+			.filter_map(|held| match &held.pixels {
+				Pixels::Playing { animation, .. } => Some(animation.played + super::IDLE_FRAMES),
+				Pixels::Still(_) => None,
+			})
+			.min()
 	}
 
 	/// False once this clip failed to decode, so a gifv embed can use its GIF or poster instead.
@@ -866,6 +892,49 @@ fn pick(media: &model::EmbedMedia, animate: bool) -> Option<(&str, bool)> {
 }
 
 impl Avatars {
+	/// Synchronized favorite whose media is a clip or a Discord-hosted file: it plays like a
+	/// gifv embed, covering its picker tile.
+	pub(crate) fn paint_gif_media(
+		&mut self,
+		ui: &mut egui::Ui,
+		gif: &model::Gif,
+		rect: egui::Rect,
+		demo: bool,
+	) {
+		// Synced favorites without dimensions carry a 1×1 layout placeholder, not a size.
+		let native = (gif.width > 1 || gif.height > 1).then_some([gif.width, gif.height]);
+		let [width, height] = native.unwrap_or_default();
+		let media = model::EmbedMedia {
+			url: Some(gif.preview.clone()),
+			width,
+			height,
+			..Default::default()
+		};
+		self.paint_media(ui, &media, rect, native, demo, Surface::Banner);
+	}
+
+	/// Service dimensions when present, otherwise the largest decoded rendition.
+	pub(crate) fn media_dimensions(&mut self, media: &model::EmbedMedia) -> Option<[u32; 2]> {
+		if media.width > 0 && media.height > 0 {
+			return Some([media.width.min(16384), media.height.min(16384)]);
+		}
+		let (raw, _) = pick(media, self.animate_gifs)?;
+		let source = self.media.source(raw)?;
+		self.media
+			.slots
+			.get(&source)?
+			.held
+			.iter()
+			.map(|held| {
+				let texture = match &held.pixels {
+					Pixels::Still(still) | Pixels::Playing { still, .. } => still,
+				};
+				let [width, height] = texture.size();
+				[width as u32, height as u32]
+			})
+			.max_by_key(|[width, height]| u64::from(*width) * u64::from(*height))
+	}
+
 	pub(crate) fn show_media(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -882,11 +951,13 @@ impl Avatars {
 		);
 		let native = (media.width > 0 && media.height > 0)
 			.then(|| [media.width.min(16384), media.height.min(16384)]);
-		let original = native.map_or(egui::vec2(320.0, 180.0), |[width, height]| {
-			egui::vec2(width as f32, height as f32)
-		});
+		let original = self
+			.media_dimensions(media)
+			.map_or(egui::vec2(320.0, 180.0), |[width, height]| {
+				egui::vec2(width as f32, height as f32)
+			});
 		let scale = (max_size.x / original.x).min(max_size.y / original.y).min(
-			if surface.allows_upscale() {
+			if surface.allows_upscale() || native.is_none() {
 				f32::INFINITY
 			} else {
 				1.0
@@ -943,10 +1014,23 @@ impl Avatars {
 			}
 			None => rect.size().max_elem() * ppp,
 		};
-		let size = Size::new(
-			Edge::for_target(needed, native.map(|[width, height]| width.max(height))),
-			native,
-		);
+		let heic = source
+			.as_str()
+			.split('?')
+			.next()
+			.and_then(|path| path.rsplit_once('.'))
+			.is_some_and(|(_, ext)| {
+				ext.eq_ignore_ascii_case("heic") || ext.eq_ignore_ascii_case("heif")
+			});
+		let size = if viewer && (heic || native.is_none()) {
+			// Use the maximum existing rendition instead of treating a thumbnail as native size.
+			Size::Longest(Edge::for_target(4096.0, None))
+		} else {
+			Size::new(
+				Edge::for_target(needed, native.map(|[width, height]| width.max(height))),
+				native,
+			)
+		};
 		let lane = surface.lane();
 		self.media.viewer_painted |= viewer;
 		let (want, choice) = self
@@ -959,13 +1043,16 @@ impl Avatars {
 		} else {
 			choice
 		};
-		if choice.request && !demo && self.requests.len() < REQUESTS {
+		let playing = self.animate_gifs && ui.ctx().input(|input| input.focused);
+		// A shown still waits for playback before asking for frames, so an unfocused window
+		// does not decode frames that would only be released again unplayed.
+		let deferred = want.motion == Motion::Animated && !playing && choice.base.is_some();
+		if choice.request && !deferred && !demo && self.requests.len() < REQUESTS {
 			self.requests.push(want.key());
 			self.media
 				.slot(&source)
 				.record(want.motion, want.size, Attempt::Pending);
 		}
-		let playing = self.animate_gifs && ui.ctx().input(|input| input.focused);
 		let mut texture = |index| {
 			self.media
 				.texture(&source, index, ui.ctx(), playing, lane, pass)
@@ -1076,4 +1163,57 @@ impl Avatars {
 		}
 		StandIn::Label
 	}
+}
+
+#[cfg(feature = "demo")]
+pub fn debug_heic_layout_check() {
+	let ctx = egui::Context::default();
+	let mut images = Avatars::default();
+	let media = model::EmbedMedia {
+		url: Some("https://cdn.discordapp.com/attachments/1/2/photo.heic".into()),
+		..Default::default()
+	};
+	let frame = |images: &mut Avatars, surface| {
+		let mut rect = egui::Rect::NOTHING;
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(1000.0, 800.0),
+				)),
+				..Default::default()
+			},
+			|ui| {
+				rect = images
+					.show_media(ui, &media, egui::vec2(550.0, 350.0), false, surface)
+					.response
+					.rect;
+			},
+		);
+		output.drop_without_applying_deltas();
+		rect
+	};
+	frame(&mut images, Surface::Inline);
+	let key = images.take_requests().pop().unwrap();
+	images.accept(
+		&ctx,
+		key,
+		Some(ColorImage::filled([300, 225], Color32::WHITE)),
+	);
+	let rect = frame(&mut images, Surface::Inline);
+	assert!((rect.width() / rect.height() - 4.0 / 3.0).abs() < 0.01);
+	assert!((rect.height() - 350.0).abs() < 0.01);
+	assert_eq!(images.media_dimensions(&media), Some([300, 225]));
+	images.take_requests();
+	frame(&mut images, Surface::Viewer);
+	let key = images.take_requests().pop().unwrap();
+	assert!(key.starts_with("media:vs:e4096:"), "{key}");
+	images.accept(
+		&ctx,
+		key,
+		Some(ColorImage::filled([1024, 768], Color32::WHITE)),
+	);
+	assert_eq!(images.media_dimensions(&media), Some([1024, 768]));
+	let rect = frame(&mut images, Surface::Viewer);
+	assert!((rect.width() / rect.height() - 4.0 / 3.0).abs() < 0.01);
 }

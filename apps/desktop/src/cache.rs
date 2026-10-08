@@ -9,7 +9,8 @@ use std::{
 		mpsc::{self, Receiver, SyncSender},
 	},
 };
-const QUEUE_BYTES: usize = 16 * 1024 * 1024;
+// One full CJK font plus the existing 16 MiB of storage work and metadata.
+const QUEUE_BYTES: usize = 48 * 1024 * 1024;
 const WINDOW_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Default)]
@@ -54,7 +55,6 @@ fn message_bytes(messages: &Vec<Message>) -> usize {
 pub enum Operation {
 	LoadCustomFont,
 	SaveCustomFont(Option<ui::fonts::CustomFont>),
-	LoadAppPreferences,
 	SaveAppPreferences(Box<local_store::AppPreferences>),
 	LoadAppearance,
 	SaveAppearance(Appearance),
@@ -105,7 +105,6 @@ pub enum Operation {
 #[allow(clippy::large_enum_variant)]
 pub enum Outcome {
 	CustomFont(Result<Option<ui::fonts::CustomFont>, &'static str>),
-	AppPreferences(Result<Box<local_store::AppPreferences>, StoreError>),
 	AppPreferencesSaved(Result<(), StoreError>),
 	/// Saved appearance plus the saved theme preset key, if any.
 	Appearance(Appearance, Option<String>),
@@ -457,12 +456,6 @@ fn execute(
 				pruned: Vec::new(),
 			};
 		}
-		Operation::LoadAppPreferences => {
-			return Outcome::AppPreferences(match store {
-				Ok(store) => store.app_preferences().map(Box::new),
-				Err(error) => Err(*error),
-			});
-		}
 		Operation::SaveAppPreferences(value) => {
 			return Outcome::AppPreferencesSaved(match store {
 				Ok(store) => store.save_app_preferences(value),
@@ -550,7 +543,6 @@ fn execute(
 		Operation::LoadChannel { .. } => "Could not read cached history",
 		Operation::LoadCustomFont
 		| Operation::SaveCustomFont(_)
-		| Operation::LoadAppPreferences
 		| Operation::LoadAccounts
 		| Operation::SaveAccount(_)
 		| Operation::SetAccountToken { .. }
@@ -570,7 +562,6 @@ fn execute(
 		Ok(store) => match operation {
 			Operation::LoadCustomFont
 			| Operation::SaveCustomFont(_)
-			| Operation::LoadAppPreferences
 			| Operation::LoadAccounts
 			| Operation::SaveAccount(_)
 			| Operation::SetAccountToken { .. }
@@ -645,6 +636,89 @@ fn execute(
 	})
 }
 
+/// Offline restart check; uses only synthetic device preferences and opens no audio devices.
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub fn debug_voice_preferences_check() {
+	let root = std::env::temp_dir().join(format!(
+		"serein-voice-preferences-{}-{}",
+		std::process::id(),
+		std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.unwrap()
+			.as_nanos()
+	));
+	std::fs::create_dir(&root).unwrap();
+	let path = root.join("client.sqlite3");
+	let (send, commands) = mpsc::sync_channel(16);
+	let (_, receive) = mpsc::sync_channel(16);
+	let cache = Cache {
+		send,
+		receive,
+		budget: Arc::new(Budget::default()),
+		history: Arc::new(HistorySafety::default()),
+	};
+	let mut settings =
+		crate::app_settings::Settings::from_preferences(Ok(local_store::AppPreferences::default()));
+	let mut view = ui::MessagingUi::default();
+	settings.apply(&mut view);
+	view.set_voice_user_volume_overrides(&[(7, 35), (9, 150)]);
+	view.set_voice_user_mutes(&[9]);
+	settings.observe(&view);
+	{
+		let mut store = Ok(local_store::LocalStore::open(&path).unwrap());
+		assert!(settings.save(Some(&cache), 0));
+		let (_, account, epoch, operation, _reservation) = commands.try_recv().unwrap();
+		assert!(matches!(
+			execute(&mut store, &cache.history, account, epoch, operation),
+			Outcome::AppPreferencesSaved(Ok(()))
+		));
+	}
+	let mut restored = crate::app_settings::Settings::from_preferences(
+		local_store::LocalStore::open(&path)
+			.unwrap()
+			.app_preferences(),
+	);
+	let mut restarted = ui::MessagingUi::default();
+	restored.apply(&mut restarted);
+	assert!(restored.loaded);
+	assert!(restarted.voice_user_volumes().contains(&(7, 35)));
+	assert!(restarted.voice_user_volumes().contains(&(9, 0)));
+	assert_eq!(
+		restarted.voice_user_volume_overrides(),
+		vec![(7, 35), (9, 150)]
+	);
+	restored.observe(&restarted);
+	assert!(!restored.state.touched && !restored.state.dirty);
+	restarted.notifications_enabled = !restarted.notifications_enabled;
+	restored.observe(&restarted);
+	assert_eq!(restored.current.user_volumes, vec![(7, 35), (9, 150)]);
+	assert_eq!(restored.current.muted_users, vec![9]);
+	let mut failed =
+		crate::app_settings::Settings::from_preferences(Err(local_store::StoreError::Unavailable));
+	failed.apply(&mut restarted);
+	restarted.notifications_enabled = !restarted.notifications_enabled;
+	failed.observe(&restarted);
+	assert!(!failed.save(Some(&cache), 0));
+	assert!(matches!(
+		commands.try_recv(),
+		Err(mpsc::TryRecvError::Empty)
+	));
+	assert!(failed.state.failed && !failed.state.saving);
+	assert_eq!(
+		local_store::LocalStore::open(&path)
+			.unwrap()
+			.app_preferences()
+			.unwrap()
+			.user_volumes,
+		vec![(7, 35), (9, 150)]
+	);
+	std::fs::remove_file(path).unwrap();
+	std::fs::remove_dir(root).unwrap();
+	println!(
+		"Voice preferences debug check passed: SQLite reopen, startup restore, independent local mute and subsequent preference edits. No Discord or audio devices accessed."
+	);
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -662,7 +736,7 @@ mod tests {
 		let mut view = ui::MessagingUi::default();
 		view.channel_preferences_reload = true;
 		for _ in 0..16 {
-			assert!(cache.queue(7, Id(0), Operation::LoadAppPreferences));
+			assert!(cache.queue(7, Id(0), Operation::LoadAppearance));
 		}
 		assert!(!crate::queue_channel_preferences(
 			Some(&cache),
@@ -693,7 +767,7 @@ mod tests {
 		for _ in 0..15 {
 			assert!(matches!(
 				commands.try_recv().unwrap().3,
-				Operation::LoadAppPreferences
+				Operation::LoadAppearance
 			));
 		}
 		let (generation, account, epoch, operation, reservation) = commands.try_recv().unwrap();
@@ -705,6 +779,7 @@ mod tests {
 			favorites: vec![Id(19)],
 			pinned: vec![Id(20)],
 			collapsed_categories: vec![Id(21)],
+			last_channels: vec![(Id(22), Id(23))],
 		};
 		store
 			.as_ref()
@@ -761,6 +836,7 @@ mod tests {
 			let mut store = Ok(LocalStore::open(&path).unwrap());
 			let mut settings = crate::app_settings::Settings {
 				current: store.as_ref().unwrap().app_preferences().unwrap(),
+				loaded: true,
 				..Default::default()
 			};
 			let mut view = ui::MessagingUi::default();
@@ -768,7 +844,7 @@ mod tests {
 			view.notifications_enabled = enabled;
 			settings.observe(&view);
 			for _ in 0..16 {
-				assert!(cache.queue(1, Id(0), Operation::LoadAppPreferences));
+				assert!(cache.queue(1, Id(0), Operation::LoadAppearance));
 			}
 			assert!(!settings.save(Some(&cache), 1));
 			assert!(settings.state.needs_attention());
@@ -842,111 +918,113 @@ mod tests {
 			),
 			Outcome::MinimizeToTraySaved(Err(StoreError::Unavailable))
 		));
-	}
 
-	#[test]
-	fn game_activity_operations_keep_their_own_results_even_when_history_is_blocked() {
-		let safety = HistorySafety::default();
-		safety.block();
-		let mut store = Ok(LocalStore::open(std::path::Path::new(":memory:")).unwrap());
-		assert!(matches!(
-			execute(&mut store, &safety, Id(0), 0, Operation::LoadGameActivity),
-			Outcome::GameActivity(Ok(false))
-		));
-		assert!(matches!(
-			execute(
-				&mut store,
-				&safety,
-				Id(0),
-				0,
-				Operation::SaveGameActivity(true)
-			),
-			Outcome::GameActivitySaved(Ok(()))
-		));
-		assert!(matches!(
-			execute(&mut store, &safety, Id(9), 0, Operation::LoadGameActivity),
-			Outcome::GameActivity(Ok(true))
-		));
-		let mut unavailable = Err(StoreError::Unavailable);
-		assert!(matches!(
-			execute(
-				&mut unavailable,
-				&safety,
-				Id(0),
-				0,
-				Operation::LoadGameActivity
-			),
-			Outcome::GameActivity(Err(StoreError::Unavailable))
-		));
-		assert!(matches!(
-			execute(
-				&mut unavailable,
-				&safety,
-				Id(0),
-				0,
-				Operation::SaveGameActivity(false)
-			),
-			Outcome::GameActivitySaved(Err(StoreError::Unavailable))
-		));
-	}
+		{
+			let safety = HistorySafety::default();
+			safety.block();
+			let mut store = Ok(LocalStore::open(std::path::Path::new(":memory:")).unwrap());
+			assert!(matches!(
+				execute(&mut store, &safety, Id(0), 0, Operation::LoadGameActivity),
+				Outcome::GameActivity(Ok(false))
+			));
+			assert!(matches!(
+				execute(
+					&mut store,
+					&safety,
+					Id(0),
+					0,
+					Operation::SaveGameActivity(true)
+				),
+				Outcome::GameActivitySaved(Ok(()))
+			));
+			assert!(matches!(
+				execute(&mut store, &safety, Id(9), 0, Operation::LoadGameActivity),
+				Outcome::GameActivity(Ok(true))
+			));
+			let mut unavailable = Err(StoreError::Unavailable);
+			assert!(matches!(
+				execute(
+					&mut unavailable,
+					&safety,
+					Id(0),
+					0,
+					Operation::LoadGameActivity
+				),
+				Outcome::GameActivity(Err(StoreError::Unavailable))
+			));
+			assert!(matches!(
+				execute(
+					&mut unavailable,
+					&safety,
+					Id(0),
+					0,
+					Operation::SaveGameActivity(false)
+				),
+				Outcome::GameActivitySaved(Err(StoreError::Unavailable))
+			));
+		}
 
-	#[test]
-	fn reading_operations_report_their_own_results_without_touching_account_history() {
-		let safety = HistorySafety::default();
-		let mut store = Ok(LocalStore::open(std::path::Path::new(":memory:")).unwrap());
-		let value = model::ReadingPreferences {
-			zoom_percent: 125,
-			sidebar_width: 300,
-			show_members: false,
-			animate_gifs: false,
-			smooth_scrolling: true,
-			scroll_speed_percent: 100,
-			hide_media_links: true,
-			confirm_external_links: true,
-		};
-		store
-			.as_mut()
-			.unwrap()
-			.save_draft(Id(1), Id(2), "Synthetic draft")
-			.unwrap();
-		safety.block(); // History cleanup does not prohibit application settings.
-		assert!(matches!(
-			execute(
-				&mut store,
-				&safety,
-				Id(0),
-				0,
-				Operation::SaveReadingPreferences(value)
-			),
-			Outcome::ReadingPreferencesSaved(Ok(()))
-		));
-		assert!(matches!(execute(&mut store, &safety, Id(9), 0,
+		{
+			let safety = HistorySafety::default();
+			let mut store = Ok(LocalStore::open(std::path::Path::new(":memory:")).unwrap());
+			let value = model::ReadingPreferences {
+				zoom_percent: 125,
+				sidebar_width: 300,
+				show_members: false,
+				show_members_dms: false,
+				compact_messages: false,
+				double_click_reaction_enabled: false,
+				double_click_reaction: 0,
+				animate_gifs: false,
+				smooth_scrolling: true,
+				scroll_speed_percent: 100,
+				hide_media_links: true,
+				confirm_external_links: true,
+			};
+			store
+				.as_mut()
+				.unwrap()
+				.save_draft(Id(1), Id(2), "Synthetic draft")
+				.unwrap();
+			safety.block(); // History cleanup does not prohibit application settings.
+			assert!(matches!(
+				execute(
+					&mut store,
+					&safety,
+					Id(0),
+					0,
+					Operation::SaveReadingPreferences(value)
+				),
+				Outcome::ReadingPreferencesSaved(Ok(()))
+			));
+			assert!(matches!(execute(&mut store, &safety, Id(9), 0,
             Operation::LoadReadingPreferences), Outcome::ReadingPreferences(Ok(stored)) if stored == value));
-		assert_eq!(
-			store.as_ref().unwrap().load_drafts(Id(1)).unwrap()[&Id(2)],
-			"Synthetic draft"
-		);
-		let mut unavailable = Err(StoreError::Unavailable);
-		assert!(matches!(
-			execute(
-				&mut unavailable,
-				&safety,
-				Id(0),
-				0,
-				Operation::LoadReadingPreferences
-			),
-			Outcome::ReadingPreferences(Err(StoreError::Unavailable))
-		));
-		assert!(matches!(
-			execute(
-				&mut unavailable,
-				&safety,
-				Id(0),
-				0,
-				Operation::SaveReadingPreferences(value)
-			),
-			Outcome::ReadingPreferencesSaved(Err(StoreError::Unavailable))
-		));
+			assert_eq!(
+				store.as_ref().unwrap().load_drafts(Id(1)).unwrap()[&Id(2)],
+				"Synthetic draft"
+			);
+			let mut unavailable = Err(StoreError::Unavailable);
+			assert!(matches!(
+				execute(
+					&mut unavailable,
+					&safety,
+					Id(0),
+					0,
+					Operation::LoadReadingPreferences
+				),
+				Outcome::ReadingPreferences(Err(StoreError::Unavailable))
+			));
+			assert!(matches!(
+				execute(
+					&mut unavailable,
+					&safety,
+					Id(0),
+					0,
+					Operation::SaveReadingPreferences(value)
+				),
+				Outcome::ReadingPreferencesSaved(Err(StoreError::Unavailable))
+			));
+		}
 	}
 
 	#[test]

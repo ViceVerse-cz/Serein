@@ -1385,7 +1385,7 @@ impl AppSnapshot {
 
 impl LocalSettingsSnapshot {
 	pub fn validate(&self) -> Result<(), Error> {
-		if !(80..=150).contains(&self.zoom_percent)
+		if !(50..=150).contains(&self.zoom_percent)
 			|| !(190..=360).contains(&self.sidebar_width)
 			|| self
 				.scroll_speed_percent
@@ -1402,7 +1402,7 @@ impl LocalSettingsPatch {
 		if self == &Self::default()
 			|| self
 				.zoom_percent
-				.is_some_and(|value| !(80..=150).contains(&value))
+				.is_some_and(|value| !(50..=150).contains(&value))
 			|| self
 				.sidebar_width
 				.is_some_and(|value| !(190..=360).contains(&value))
@@ -1932,7 +1932,7 @@ impl AppAction {
 				if *base_version > u32::MAX.into() {
 					return Err(Error::Invalid);
 				}
-				if folders.len() > 200 {
+				if folders.len() > crate::extended::MAX_GUILD_FOLDERS {
 					return Err(Error::Limit);
 				}
 				for folder in folders {

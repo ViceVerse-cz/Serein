@@ -466,12 +466,17 @@ mod tests {
 			assert_eq!(bare.default_member_permissions, None);
 			assert_eq!(bare.permissions, Default::default());
 			assert_eq!(bare.application_permissions, Default::default());
-			for bits in [Value::Null, json!("0"), json!(u128::MAX.to_string())] {
+			for bits in [
+				Value::Null,
+				json!(0),
+				json!("0"),
+				json!(u128::MAX.to_string()),
+			] {
 				permission_index["application_commands"][0]["default_member_permissions"] = bits;
 				assert!(decode_permissions(&permission_index).is_ok());
 			}
 			for bits in [
-				json!(0),
+				json!(-1),
 				json!(""),
 				json!("-1"),
 				json!(format!("{}0", u128::MAX)),

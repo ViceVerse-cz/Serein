@@ -91,6 +91,7 @@ pub fn message(id: u64, channel: Id) -> Message {
 		content = format!("Hey <@2> — see <#21>. {content}");
 	}
 	Message {
+		poll: None,
 		reactions: Some(if id == 500 {
 			vec![Reaction {
 				emoji: ReactionEmoji {
@@ -301,6 +302,7 @@ pub fn demo_state() -> State {
 				name: "You (synthetic)".into(),
 			},
 			guilds: vec![Guild {
+				default_message_notifications: None,
 				stickers: None,
 				emojis: Some(vec![
 					model::CustomEmoji {
@@ -592,6 +594,8 @@ pub fn demo_state() -> State {
 	state
 		.apply_notification_preferences(client_core::notifications::Event::Settings {
 			entries: vec![client_core::notifications::Setting {
+				overrides_known: true,
+				mute_until: None,
 				guild: Some(Id(10)),
 				muted: Some(false),
 				level: Some(3),
@@ -784,6 +788,7 @@ pub fn voice_demo_state() -> State {
 		request: 0,
 		phase: Phase::Connected,
 		connected_at: Some(Instant::now() - Duration::from_secs(3663)),
+		channel_started_at: Some(Instant::now() - Duration::from_secs(3663)),
 		muted: false,
 		deafened: false,
 		server_muted: false,
@@ -825,6 +830,7 @@ pub fn call_demo_state() -> State {
 		request: 0,
 		phase: Phase::Connected,
 		connected_at: Some(Instant::now() - Duration::from_secs(754)),
+		channel_started_at: None,
 		muted: false,
 		deafened: false,
 		server_muted: false,
@@ -969,6 +975,8 @@ pub fn seed_access_marks(state: &mut State) {
 				bits: 0,
 				name: "Contributors".into(),
 				color: 0,
+				secondary_color: None,
+				tertiary_color: None,
 				position: 1,
 				hoist: false,
 			});
@@ -1008,6 +1016,8 @@ pub fn seed_access_marks(state: &mut State) {
 	state
 		.apply_notification_preferences(client_core::notifications::Event::Settings {
 			entries: vec![client_core::notifications::Setting {
+				overrides_known: true,
+				mute_until: None,
 				guild: Some(GUILD),
 				muted: Some(false),
 				level: Some(3),
@@ -1031,6 +1041,7 @@ pub fn seed_demo_folder_mosaic(state: &mut State) {
 	];
 	for (id, name, hash) in EXTRA {
 		state.guilds.push(Guild {
+			default_message_notifications: None,
 			stickers: None,
 			emojis: None,
 			id: Id(id),
@@ -1069,6 +1080,8 @@ pub fn chat_demo_state() -> State {
 				name: "Synthetic colored role".into(),
 				bits: 0,
 				color: 0x68ada4,
+				secondary_color: None,
+				tertiary_color: None,
 				position: 1,
 				hoist: false,
 			},
@@ -1194,6 +1207,7 @@ pub fn permission_snapshot(state: &State) -> model::permissions::Snapshot {
 		| 1 // CREATE_INSTANT_INVITE, synthetic demo only.
 		| p::READ_MESSAGE_HISTORY
 		| p::SEND_MESSAGES
+        | p::SEND_POLLS
 		| p::SEND_MESSAGES_IN_THREADS
 		| p::ATTACH_FILES
 		| p::ADD_REACTIONS
@@ -1213,6 +1227,8 @@ pub fn permission_snapshot(state: &State) -> model::permissions::Snapshot {
 				roles: Some(vec![p::Role {
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
 					id: guild.id,
@@ -1662,6 +1678,8 @@ mod tests {
 		state
 			.apply_notification_preferences(n::Event::Settings {
 				entries: vec![n::Setting {
+					overrides_known: true,
+					mute_until: None,
 					channel_mute_until: vec![],
 					guild: None,
 					muted: Some(false),
@@ -1777,6 +1795,8 @@ mod tests {
 			.unwrap()
 			.clone();
 		let setting = n::Setting {
+			overrides_known: true,
+			mute_until: None,
 			channel_mute_until: vec![],
 			guild: channel.guild,
 			muted: Some(false),
@@ -1859,6 +1879,8 @@ mod tests {
 		state
 			.apply_notification_preferences(n::Event::Settings {
 				entries: vec![n::Setting {
+					overrides_known: true,
+					mute_until: None,
 					channel_mute_until: vec![],
 					guild: None,
 					muted: Some(false),
@@ -1885,6 +1907,8 @@ mod tests {
 		state
 			.apply_notification_preferences(n::Event::Settings {
 				entries: vec![n::Setting {
+					overrides_known: true,
+					mute_until: None,
 					channel_mute_until: vec![],
 					guild: None,
 					muted: Some(false),
@@ -1905,6 +1929,8 @@ mod tests {
 		state
 			.apply_notification_preferences(n::Event::Settings {
 				entries: vec![n::Setting {
+					overrides_known: true,
+					mute_until: None,
 					channel_mute_until: vec![],
 					guild: None,
 					muted: Some(false),
@@ -1953,6 +1979,7 @@ mod tests {
 					id: Id(id),
 					channel: Id(20),
 					author: crate::message(1, Id(20)).author,
+					mentions: vec![],
 					excerpt: "pin".into(),
 					attachments: vec![],
 					embeds: vec![],
@@ -2076,6 +2103,120 @@ mod tests {
 		assert!(state.request_pins().is_none());
 	}
 	#[test]
+	fn numbered_search_pages_preserve_scope_retry_and_bound_retained_results() {
+		use client_core::{Command, auth::Failure, search::Outcome};
+		let mut state = demo_state();
+		let page = |id, total| {
+			Outcome::Page(SearchPage {
+				hits: vec![SearchHit {
+					id: Id(id),
+					channel: Id(20),
+					author: crate::message(1, Id(20)).author,
+					mentions: vec![],
+					excerpt: "synthetic match".into(),
+					attachments: vec![],
+					embeds: vec![],
+				}],
+				total,
+				partial: false,
+				pin_cursor: None,
+			})
+		};
+		assert!(state.request_search_page(0).is_none());
+		let query = "synthetic before_id:500";
+		let Command::Search {
+			request, offset: 0, ..
+		} = state.request_search(query.into(), None).unwrap()
+		else {
+			panic!()
+		};
+		assert!(state.request_search_page(0).is_none());
+		state.apply_search(Id(20), request, Err(Failure::Network));
+		assert_eq!(state.search.as_ref().unwrap().page_count(), 1);
+		assert!(state.request_search_page(1).is_none());
+		let Command::Search { request, .. } = state.request_search_page(0).unwrap() else {
+			panic!()
+		};
+		state.apply_search(Id(20), request, Ok(page(499, 51)));
+		assert_eq!(state.search.as_ref().unwrap().page_count(), 3);
+		assert!(state.request_search_page(3).is_none());
+		let Command::Search {
+			request: next,
+			channel,
+			guild,
+			query: retained_query,
+			before,
+			offset,
+		} = state.request_search_page(2).unwrap()
+		else {
+			panic!()
+		};
+		assert_eq!(
+			(channel, guild, before, offset),
+			(Id(20), Some(Id(10)), None, 50)
+		);
+		assert_eq!(retained_query, query);
+		assert!(state.search.as_ref().unwrap().page.is_none());
+		assert_eq!(state.search.as_ref().unwrap().total, Some(51));
+		state.apply_search(Id(20), request, Ok(page(499, 100)));
+		assert!(state.search.as_ref().unwrap().loading);
+		state.apply_search(Id(20), next, Err(Failure::Network));
+		assert_eq!(state.search.as_ref().unwrap().page_count(), 3);
+		let Command::Search {
+			request,
+			offset: 50,
+			..
+		} = state.request_search_page(2).unwrap()
+		else {
+			panic!()
+		};
+		state.apply_search(Id(20), request, Ok(page(449, 51)));
+		assert_eq!(
+			state
+				.search
+				.as_ref()
+				.unwrap()
+				.page
+				.as_ref()
+				.unwrap()
+				.hits
+				.len(),
+			1
+		);
+		let Command::Search {
+			request, offset: 0, ..
+		} = state.request_search_page(0).unwrap()
+		else {
+			panic!()
+		};
+		state.apply_search(Id(20), request, Ok(page(499, 51)));
+		// The legacy cursor API starts a new subquery; numbered pages retain that cursor.
+		let Command::Search {
+			request, offset: 0, ..
+		} = state.request_search(query.into(), Some(Id(499))).unwrap()
+		else {
+			panic!()
+		};
+		state.apply_search(Id(20), request, Ok(page(498, u64::MAX)));
+		assert_eq!(state.search.as_ref().unwrap().page_count(), 400);
+		assert!(state.request_search_page(400).is_none());
+		assert!(state.request_search_page(u32::MAX).is_none());
+		let Command::Search {
+			request,
+			before: Some(Id(499)),
+			offset: model::MAX_SEARCH_OFFSET,
+			..
+		} = state.request_search_page(399).unwrap()
+		else {
+			panic!()
+		};
+		state.apply_search(Id(20), request, Ok(page(1, u64::MAX)));
+		state.request_pins().unwrap();
+		assert!(state.request_search_page(0).is_none());
+		state.select(Id(22));
+		assert!(state.request_search_page(0).is_none());
+	}
+	#[test]
 	fn search_pages_reject_late_results_and_open_only_revalidated_history() {
 		use client_core::{Command, auth::Failure, search::Outcome};
 		let mut state = demo_state();
@@ -2085,6 +2226,7 @@ mod tests {
 					id: Id(499),
 					channel: Id(20),
 					author: crate::message(1, Id(20)).author,
+					mentions: vec![],
 					excerpt: "index text".into(),
 					attachments: vec![],
 					embeds: vec![],

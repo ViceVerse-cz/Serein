@@ -8,12 +8,32 @@ const NAMES: &str = include_str!("../../../assets/twemoji/names.tsv");
 const DISCORD_NAMES: &str = include_str!("../../../assets/twemoji/discord-shortcodes.tsv");
 const CELL: f32 = 40.0;
 
+thread_local! {
+	/// The signed-in account's message length; the composer sets it each frame before edits.
+	static CONTENT_LIMIT: std::cell::Cell<usize> =
+		const { std::cell::Cell::new(client_core::MAX_CONTENT) };
+}
+
+pub(crate) fn set_content_limit(limit: usize) {
+	CONTENT_LIMIT.set(limit);
+}
+
+pub(crate) fn composer_limit(draft: &str, editing: bool) -> usize {
+	CONTENT_LIMIT.get()
+		+ if !editing && model::message_options::content(draft).1 {
+			model::message_options::PREFIX_ALLOWANCE
+		} else {
+			0
+		}
+}
+
 /// Replace the composer's scalar-index selection without exceeding its character or RAM budget.
 pub(crate) fn insert(
 	draft: &mut String,
 	text: &str,
 	range: Option<egui::text::CCursorRange>,
 	remaining: usize,
+	editing: bool,
 ) -> Option<usize> {
 	let count = draft.chars().count();
 	let (start, end) = range.map_or((count, count), |range| {
@@ -21,7 +41,7 @@ pub(crate) fn insert(
 		(range.start.0.min(count), range.end.0.min(count))
 	});
 	let inserted = text.chars().count();
-	if count - (end - start) + inserted > client_core::MAX_CONTENT {
+	if count - (end - start) + inserted > composer_limit(draft, editing) {
 		return None;
 	}
 	let byte_start = draft
@@ -58,6 +78,7 @@ pub(crate) fn complete_shortcode(
 	draft: &mut String,
 	cursor: usize,
 	remaining: usize,
+	editing: bool,
 ) -> Option<usize> {
 	let end = draft
 		.char_indices()
@@ -95,6 +116,7 @@ pub(crate) fn complete_shortcode(
 			egui::text::CCursor::new(cursor),
 		)),
 		remaining,
+		editing,
 	)
 }
 
@@ -139,16 +161,29 @@ enum GifSection {
 
 /// What the composer does with a picked item.
 pub(crate) enum Pick {
-	Image(model::ImageShare),
 	Sticker(model::Sticker),
 	/// Insert text at the caret (emoji or custom emoji markup).
 	Insert(String),
 	/// Send this GIF address as its own message right away, like Discord.
 	Send(String),
 	React(Id, model::ReactionEmoji),
+	/// A form field's new emoji, such as a poll answer's; `None` clears it.
+	Choose(Option<model::ReactionEmoji>),
+}
+
+/// Where a picked emoji goes when the popout is not inserting into the composer.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum Target {
+	/// Toggle a reaction on this message.
+	React(Id),
+	/// Hand the emoji back to a form field; `clearable` offers removing the current one.
+	Choose { clearable: bool },
 }
 
 enum GifAction {
+	Refresh,
+	/// Explicitly retry a failed trending (`None`) or search request.
+	Retry(Option<String>),
 	Toggle(model::Gif),
 	Send(String),
 }
@@ -172,6 +207,15 @@ impl GifMode {
 }
 
 const CUSTOM_LIMIT: usize = model::MAX_GUILD_EMOJIS;
+
+/// Move the current conversation's server to the front without copying or reordering catalogs.
+fn server_rail_index(row: usize, current: Option<usize>) -> usize {
+	match current {
+		Some(current) if row == 0 => current,
+		Some(current) if row <= current => row - 1,
+		_ => row,
+	}
+}
 
 /// Case-insensitive substring test against an already lowercased `needle`. ASCII names
 /// (Discord permits only `[A-Za-z0-9_]`) compare in place; only non-ASCII server names allocate.
@@ -266,9 +310,10 @@ impl CustomMatches {
 }
 
 pub(crate) struct Picker {
-	pub image_sharing_enabled: bool,
+	/// Lock custom emoji that need Nitro instead of offering them through image sharing.
+	pub hide_nitro_emojis: bool,
 	stickers: crate::stickers::Browser,
-	reaction: Option<(Id, egui::Rect, egui::Id)>,
+	reaction: Option<(Target, egui::Rect, egui::Id)>,
 	// ponytail: session-only Unicode usage; persist if cross-launch favorites are needed.
 	frequent: Vec<(usize, u32)>,
 	open: bool,
@@ -277,6 +322,9 @@ pub(crate) struct Picker {
 	channel: Option<Id>,
 	generation: u64,
 	server: Option<Id>,
+	rail_guild: Option<Id>,
+	#[cfg(test)]
+	rail_scroll: Option<egui::Id>,
 	query: String,
 	matches: Vec<usize>,
 	custom: CustomMatches,
@@ -291,7 +339,7 @@ impl Default for Picker {
 	fn default() -> Self {
 		// Initialize the static catalog during application creation, outside rendering.
 		Self {
-			image_sharing_enabled: false,
+			hide_nitro_emojis: false,
 			stickers: crate::stickers::Browser::default(),
 			reaction: None,
 			frequent: Vec::with_capacity(32),
@@ -301,6 +349,9 @@ impl Default for Picker {
 			channel: None,
 			generation: 0,
 			server: None,
+			rail_guild: None,
+			#[cfg(test)]
+			rail_scroll: None,
 			query: String::new(),
 			matches: (0..standard().len()).collect(),
 			custom: CustomMatches::default(),
@@ -336,16 +387,27 @@ impl Picker {
 					.min_size(egui::Vec2::splat(28.0)),
 			)
 		} else if selected.is_none() {
-			crate::icons::button(ui, crate::icons::Icon::Smile, 28.0, "Choose emoji")
+			crate::icons::button(
+				ui,
+				crate::icons::Icon::Smile,
+				28.0,
+				&crate::i18n::translate("emoji-picker-unicode-button-with-choose-emoji"),
+			)
 		} else {
 			ui.add_sized(
 				[28.0, 28.0],
 				egui::Button::new(selected.as_deref().unwrap_or("☺")).frame(false),
 			)
 		}
-		.on_hover_text("Choose emoji");
+		.on_hover_text(crate::i18n::translate(
+			"emoji-picker-unicode-button-with-choose-emoji",
+		));
 		button.widget_info(|| {
-			egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), "Choose emoji")
+			egui::WidgetInfo::labeled(
+				egui::Role::Button,
+				ui.is_enabled(),
+				crate::i18n::translate("emoji-picker-unicode-button-with-choose-emoji"),
+			)
 		});
 		if button.clicked() {
 			self.query.clear();
@@ -359,7 +421,10 @@ impl Picker {
 				if ui
 					.add(
 						egui::TextEdit::singleline(&mut self.query)
-							.hint_text("Search emoji")
+							.align(egui::Align2::LEFT_CENTER)
+							.hint_text(crate::i18n::translate(
+								"emoji-picker-unicode-button-with-search-emoji",
+							))
 							.char_limit(64)
 							.desired_width(f32::INFINITY),
 					)
@@ -367,7 +432,13 @@ impl Picker {
 				{
 					self.filter();
 				}
-				if removable && ui.button("Remove emoji").clicked() {
+				if removable
+					&& ui
+						.button(crate::i18n::translate(
+							"emoji-picker-unicode-button-with-remove-emoji",
+						))
+						.clicked()
+				{
 					*selected = None;
 					ui.close();
 				}
@@ -516,7 +587,7 @@ impl Picker {
 			return;
 		};
 		self.sync(state, Some(channel));
-		self.reaction = Some((message, anchor, trigger));
+		self.reaction = Some((Target::React(message), anchor, trigger));
 		self.open = true;
 		self.focus = true;
 		self.tab = Tab::Emoji;
@@ -537,7 +608,9 @@ impl Picker {
 			return;
 		};
 		self.sync(state, Some(channel));
-		let Some((message, anchor, trigger_id)) = self.reaction.filter(|_| self.open) else {
+		let Some((Target::React(message), anchor, trigger_id)) =
+			self.reaction.filter(|_| self.open)
+		else {
 			return;
 		};
 		if !state
@@ -553,13 +626,62 @@ impl Picker {
 		// popout covers the message row. Keep a node for the id focus is returned to, or
 		// AccessKit's tree validation panics on a focused id missing from the node list.
 		trigger.widget_info(|| {
-			egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), "Add reaction")
+			egui::WidgetInfo::labeled(
+				egui::Role::Button,
+				ui.is_enabled(),
+				crate::i18n::translate("emoji-picker-show-reaction-add-reaction"),
+			)
 		});
 		if let Some(Pick::React(message, emoji)) =
 			self.popup(ui, state, channel, avatars, commands, &trigger, None)
 			&& let Some(command) = state.prepare_reaction(message, emoji)
 		{
 			commands.push(command);
+		}
+	}
+
+	/// Opens the emoji tab to choose an emoji for a form field such as a poll answer.
+	/// `clearable` adds a control that removes the field's current emoji.
+	pub(crate) fn open_choice(
+		&mut self,
+		state: &State,
+		channel: Id,
+		trigger: &egui::Response,
+		clearable: bool,
+	) {
+		self.sync(state, Some(channel));
+		self.reaction = Some((Target::Choose { clearable }, trigger.rect, trigger.id));
+		self.open = true;
+		self.focus = true;
+		self.tab = Tab::Emoji;
+		self.server = None;
+		self.query.clear();
+		self.filter();
+	}
+
+	/// Whether a form-field choice opened by [`Self::open_choice`] is showing.
+	pub(crate) fn choosing(&self) -> bool {
+		self.open && matches!(self.reaction, Some((Target::Choose { .. }, _, _)))
+	}
+
+	/// Shows an open choice anchored to `trigger`. `Some(None)` clears the field's emoji.
+	pub(crate) fn show_choice(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		channel: Id,
+		avatars: &mut Avatars,
+		trigger: &egui::Response,
+	) -> Option<Option<model::ReactionEmoji>> {
+		self.sync(state, Some(channel));
+		if !self.choosing() {
+			return None;
+		}
+		// The emoji tab never requests GIFs or stickers, so no command can be produced.
+		let mut commands = Vec::new();
+		match self.popup(ui, state, channel, avatars, &mut commands, trigger, None) {
+			Some(Pick::Choose(emoji)) => Some(emoji),
+			_ => None,
 		}
 	}
 
@@ -582,6 +704,26 @@ impl Picker {
 			.sort_by_key(|entry| std::cmp::Reverse(entry.1));
 	}
 
+	/// The most used Unicode emoji first, filled with the hover bar defaults.
+	pub(crate) fn quick_reactions(&self) -> [&'static str; 3] {
+		let mut quick = crate::reactions::QUICK_DEFAULTS;
+		let mut filled = 0;
+		for text in self.frequent.iter().take(3).map(|(i, _)| standard()[*i].0) {
+			quick[filled] = text;
+			filled += 1;
+		}
+		for text in crate::reactions::QUICK_DEFAULTS {
+			if filled == 3 {
+				break;
+			}
+			if !quick[..filled].contains(&text) {
+				quick[filled] = text;
+				filled += 1;
+			}
+		}
+		quick
+	}
+
 	fn favorites(&self) -> Vec<usize> {
 		let mut favorites: Vec<_> = self.frequent.iter().take(8).map(|(i, _)| *i).collect();
 		for text in ["👍", "❤️", "😂", "🎉", "👀", "✅", "🙏", "😢"] {
@@ -598,43 +740,99 @@ impl Picker {
 	}
 
 	fn images(&self) -> bool {
-		self.image_sharing_enabled && self.reaction.is_none()
+		self.reaction.is_none()
 	}
 
-	fn pick(&self, emoji: model::ReactionEmoji, text: String) -> Pick {
-		if self.images()
+	fn shares_emoji(
+		&self,
+		state: &State,
+		emoji: &model::ReactionEmoji,
+		custom: Option<(&model::Guild, &model::CustomEmoji)>,
+	) -> bool {
+		self.images()
+			&& emoji.id.is_some()
+			&& !custom.is_some_and(|(guild, custom)| {
+				self.channel
+					.is_some_and(|channel| state.can_send_custom_emoji(channel, guild.id, custom))
+			})
+	}
+
+	fn pick(&self, state: &State, emoji: model::ReactionEmoji, text: String) -> Pick {
+		let custom = emoji.id.and_then(|id| state.custom_emoji(id));
+		if self.shares_emoji(state, &emoji, custom)
 			&& let Some(id) = emoji.id
 		{
-			return Pick::Image(model::ImageShare::Emoji {
-				id,
-				animated: text.starts_with("<a:"),
-			});
+			return Pick::Insert(
+				model::ImageShare::Emoji {
+					id,
+					animated: text.starts_with("<a:"),
+				}
+				.markdown(emoji.name.as_deref().unwrap_or("emoji"))
+				.unwrap_or(text),
+			);
 		}
 		match self.reaction {
-			Some((message, _, _)) => Pick::React(message, emoji),
+			Some((Target::React(message), _, _)) => Pick::React(message, emoji),
+			Some((Target::Choose { .. }, _, _)) => Pick::Choose(Some(emoji)),
 			None => Pick::Insert(text),
 		}
 	}
 
-	fn can_pick(&self, state: &State, emoji: &model::ReactionEmoji) -> bool {
-		if self.images() && emoji.id.is_some() {
-			return self
-				.channel
-				.is_some_and(|channel| state.can_send(channel) && state.can_attach(channel));
+	fn pick_sticker(&self, state: &State, sticker: model::Sticker) -> Pick {
+		if self.images() && !state.can_send_sticker(&sticker) {
+			Pick::Insert(
+				model::ImageShare::Sticker {
+					id: sticker.id,
+					format_type: sticker.format_type,
+				}
+				.markdown(&sticker.name)
+				.unwrap_or_default(),
+			)
+		} else {
+			Pick::Sticker(sticker)
+		}
+	}
+
+	/// The user opted out of emoji they cannot use natively without Nitro.
+	fn nitro_locked(
+		&self,
+		state: &State,
+		custom: Option<(&model::Guild, &model::CustomEmoji)>,
+	) -> bool {
+		self.hide_nitro_emojis
+			&& custom.is_some_and(|(guild, emoji)| {
+				self.channel.is_some_and(|channel| {
+					state.custom_emoji_requires_nitro(channel, guild.id, emoji)
+				})
+			})
+	}
+
+	fn can_pick(
+		&self,
+		state: &State,
+		emoji: &model::ReactionEmoji,
+		custom: Option<(&model::Guild, &model::CustomEmoji)>,
+	) -> bool {
+		if self.nitro_locked(state, custom) {
+			return false;
+		}
+		if self.shares_emoji(state, emoji, custom) {
+			return self.channel.is_some_and(|channel| state.can_send(channel));
 		}
 		match self.reaction {
-			Some((message, _, _)) => {
+			Some((Target::React(message), _, _)) => {
 				!state.reactions.busy() && state.can_react(message, Some(emoji), true)
 			}
-			None => emoji.id.is_none_or(|id| {
-				state.custom_emoji(id).is_some_and(|(guild, emoji)| {
-					self.channel.is_some_and(|channel| {
-						state
-							.custom_emoji_unavailable_reason(channel, guild.id, emoji)
-							.is_none()
+			Some((Target::Choose { .. }, _, _)) | None => {
+				emoji.id.is_none()
+					|| custom.is_some_and(|(guild, emoji)| {
+						self.channel.is_some_and(|channel| {
+							state
+								.custom_emoji_unavailable_reason(channel, guild.id, emoji)
+								.is_none()
+						})
 					})
-				})
-			}),
+			}
 		}
 	}
 
@@ -649,6 +847,7 @@ impl Picker {
 		self.sync(state, Some(channel));
 		if std::mem::take(&mut self.pending_open) {
 			self.open = true;
+			self.focus = true;
 		}
 		let was_open = self.open;
 		// Rightmost first: the composer lays these out right-to-left like Discord's tray.
@@ -657,14 +856,14 @@ impl Picker {
 			crate::icons::Icon::Smile,
 			28.0,
 			self.open && self.tab == Tab::Emoji,
-			"Insert an emoji",
+			&crate::i18n::translate("emoji-picker-show-insert-an-emoji"),
 		);
 		let gif_trigger = crate::icons::toggle(
 			ui,
 			crate::icons::Icon::Gif,
 			28.0,
 			self.open && self.tab == Tab::Gifs,
-			"Send a GIF",
+			&crate::i18n::translate("emoji-picker-show-send-a-gif"),
 		);
 		for (response, tab) in [(&trigger, Tab::Emoji), (&gif_trigger, Tab::Gifs)] {
 			if response.clicked() {
@@ -715,6 +914,10 @@ impl Picker {
 		}
 		let colors = crate::design::palette(ui);
 		let demo = state.demo;
+		let current_server = state
+			.channel(channel)
+			.and_then(|channel| channel.guild)
+			.and_then(|guild| state.guilds.iter().position(|server| server.id == guild));
 		if self
 			.server
 			.is_some_and(|id| !state.guilds.iter().any(|guild| guild.id == id))
@@ -724,11 +927,34 @@ impl Picker {
 		let bounds = ui.ctx().content_rect().shrink(8.0);
 		let width = WIDTH.min(bounds.width());
 		let height = HEIGHT.min(bounds.height());
-		// Anchor above the composer with the right edge on the trigger, like a Discord popout.
-		let x = (trigger.rect.right() - width)
-			.min(bounds.right() - width)
-			.max(bounds.left());
-		let y = (trigger.rect.top() - 8.0 - height).max(bounds.top());
+		let clearable = match self.reaction {
+			Some((Target::Choose { clearable }, _, _)) => Some(clearable),
+			_ => None,
+		};
+		let (x, y) = if clearable.is_some() {
+			// Form fields open the popout beside the field, below it when there is room.
+			let below = trigger.rect.bottom() + 8.0;
+			(
+				trigger
+					.rect
+					.left()
+					.min(bounds.right() - width)
+					.max(bounds.left()),
+				if below + height <= bounds.bottom() {
+					below
+				} else {
+					(trigger.rect.top() - 8.0 - height).max(bounds.top())
+				},
+			)
+		} else {
+			// Anchor above the composer with the right edge on the trigger, like a Discord popout.
+			(
+				(trigger.rect.right() - width)
+					.min(bounds.right() - width)
+					.max(bounds.left()),
+				(trigger.rect.top() - 8.0 - height).max(bounds.top()),
+			)
+		};
 		let mut selected: Option<Pick> = None;
 		let mut used = None;
 		let mut gif_action: Option<GifAction> = None;
@@ -749,13 +975,25 @@ impl Picker {
 		// Remote requests happen before the popout borrows navigation state immutably.
 		let gif_mode = self.gif_mode(ui);
 		if gifs_tab
+			&& !state.gifs.sync_attempted
+			&& let Some(command) = state.request_gif_favorites()
+		{
+			commands.push(command);
+		}
+		// A failed request stays failed until the user retries; never re-request every frame.
+		if gifs_tab
 			&& let Some(query) = gif_mode.wanted()
+			&& !state
+				.gifs
+				.view
+				.as_ref()
+				.is_some_and(|view| view.error.is_some() && view.query.as_deref() == query)
 			&& let Some(command) = state.request_gifs(query)
 		{
 			commands.push(command);
 		}
 		let popup_id =
-			egui::Id::unique(("emoji-picker", self.reaction.map(|(message, _, _)| message)));
+			egui::Id::unique(("emoji-picker", self.reaction.map(|(target, _, _)| target)));
 		let area = egui::Area::new(popup_id)
 			.kind(egui::UiKind::Popup)
 			.enabled(ui.is_enabled())
@@ -818,14 +1056,15 @@ impl Picker {
 								ui.spacing_mut().item_spacing.x = 20.0;
 								let family = crate::design::semibold_family(ui.ctx());
 								for (tab, label) in [
-									(Tab::Gifs, "GIFs"),
-									(Tab::Stickers, "Stickers"),
-									(Tab::Emoji, "Emoji"),
+									(Tab::Gifs, "emoji-picker-popup-gifs"),
+									(Tab::Stickers, "emoji-picker-popup-stickers"),
+									(Tab::Emoji, "emoji-picker-popup-emoji"),
 								] {
 									if self.reaction.is_some() && tab != Tab::Emoji {
 										continue;
 									}
 									let active = self.tab == tab;
+									let label = crate::i18n::translate(label);
 									let galley = ui.painter().layout_no_wrap(
 										label.to_owned(),
 										egui::FontId::new(15.0, family.clone()),
@@ -865,7 +1104,7 @@ impl Picker {
 											egui::Role::Button,
 											true,
 											active,
-											label,
+											&label,
 										)
 									});
 									if response.clicked() && !active {
@@ -896,7 +1135,9 @@ impl Picker {
 										ui,
 										crate::icons::Icon::ArrowLeft,
 										30.0,
-										"Back to GIF categories",
+										&crate::i18n::translate(
+											"emoji-picker-popup-back-to-gif-categories",
+										),
 									)
 									.clicked()
 								{
@@ -905,13 +1146,16 @@ impl Picker {
 									self.gif_changed_at = None;
 									self.focus = true;
 								}
+								let remove = clearable == Some(true);
 								egui::Frame::new()
 									.fill(colors.raised)
 									.corner_radius(6)
 									.stroke(egui::Stroke::new(1.0, colors.border))
 									.inner_margin(egui::Margin::symmetric(10, 0))
 									.show(ui, |ui| {
-										ui.set_width(ui.available_width());
+										ui.set_width(
+											ui.available_width() - if remove { 38.0 } else { 0.0 },
+										);
 										ui.set_height(30.0);
 										ui.horizontal_centered(|ui| {
 											ui.spacing_mut().item_spacing.x = 8.0;
@@ -924,35 +1168,47 @@ impl Picker {
 											let (text, hint, label) = if gifs_tab {
 												(
 													&mut self.gif_query,
-													"Search KLIPY",
-													"Search GIFs on KLIPY",
+													"emoji-picker-search-klipy",
+													"emoji-picker-search-gifs-label",
 												)
 											} else if stickers_tab {
 												(
 													&mut self.stickers.query,
-													"Find the perfect sticker",
-													"Search stickers by name",
+													"emoji-picker-search-stickers",
+													"emoji-picker-search-stickers-label",
 												)
 											} else {
 												(
 													&mut self.query,
-													"Find the perfect emoji",
-													"Search emoji by name",
+													"emoji-picker-search-emoji",
+													"emoji-picker-search-emoji-label",
 												)
 											};
-											let search = ui.add(
-												egui::TextEdit::singleline(text)
-													.id(ui.scope_id().with("picker-search"))
-													.char_limit(64)
-													.frame(egui::Frame::NONE)
-													.hint_text(hint)
-													.desired_width(ui.available_width()),
-											);
-											let search = search.accessible_name(label);
-											if self.focus {
-												search.request_focus();
+											let search_id = ui.scope_id().with("picker-search");
+											// New Areas have an invisible sizing pass before they can take focus.
+											// Request before TextEdit runs so the first typed character is retained.
+											if self.focus
+												&& !ui.is_sizing_pass() && ui.ctx().memory(
+												|memory| memory.allows_interaction(ui.layer_id()),
+											) {
+												ui.memory_mut(|memory| {
+													memory.request_focus(search_id)
+												});
 												self.focus = false;
 											}
+											let search = ui.add(
+												egui::TextEdit::singleline(text)
+													.id(search_id)
+													.char_limit(64)
+													.frame(egui::Frame::NONE)
+													.min_size(egui::vec2(0.0, 30.0))
+													.align(egui::Align2::LEFT_CENTER)
+													.hint_text(crate::i18n::translate_if_key(hint))
+													.desired_width(ui.available_width()),
+											);
+											let search = search.accessible_name(
+												crate::i18n::translate_if_key(label),
+											);
 											if search.changed() {
 												if gifs_tab {
 													self.gif_changed_at =
@@ -963,6 +1219,17 @@ impl Picker {
 											}
 										});
 									});
+								if remove
+									&& crate::icons::button(
+										ui,
+										crate::icons::Icon::Trash,
+										30.0,
+										"emoji-picker-unicode-button-with-remove-emoji",
+									)
+									.clicked()
+								{
+									selected = Some(Pick::Choose(None));
+								}
 							},
 						);
 
@@ -974,8 +1241,12 @@ impl Picker {
 								|ui| {
 									if let Some(error) = state.stickers.error {
 										ui.label(error);
-										if ui.button("Retry sticker packs").clicked()
-											&& let Some(command) = state.request_sticker_packs()
+										if ui
+											.button(crate::i18n::translate(
+												"emoji-picker-popup-retry-sticker-packs",
+											))
+											.clicked() && let Some(command) =
+											state.request_sticker_packs()
 										{
 											commands.push(command);
 										}
@@ -988,14 +1259,7 @@ impl Picker {
 										&mut hovered_sticker,
 										image_mode,
 									) {
-										selected = Some(if image_mode {
-											Pick::Image(model::ImageShare::Sticker {
-												id: sticker.id,
-												format_type: sticker.format_type,
-											})
-										} else {
-											Pick::Sticker(sticker)
-										});
+										selected = Some(self.pick_sticker(state, sticker));
 									}
 								},
 							);
@@ -1024,14 +1288,27 @@ impl Picker {
 										crate::icons::Icon::Smile,
 										32.0,
 										self.server.is_none(),
-										"Standard emoji",
+										&crate::i18n::translate(
+											"emoji-picker-popup-standard-emoji",
+										),
 									);
 									if unicode.clicked() {
 										self.server = None;
 										self.query.clear();
 										self.filter();
 									}
-									egui::ScrollArea::vertical()
+									let current_guild =
+										current_server.map(|index| state.guilds[index].id);
+									if self.rail_guild != current_guild {
+										egui::scroll_area::State::default().store(
+											ui.ctx(),
+											ui.make_persistent_id(egui::IdSalt::new(
+												"emoji-server-rail",
+											)),
+										);
+										self.rail_guild = current_guild;
+									}
+									let rail = egui::ScrollArea::vertical()
 										.id_salt("emoji-server-rail")
 										.scroll_bar_visibility(
 											egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
@@ -1039,7 +1316,8 @@ impl Picker {
 										.max_height(ui.available_height())
 										.show_rows(ui, 32.0, state.guilds.len(), |ui, rows| {
 											for index in rows {
-												let guild = &state.guilds[index];
+												let guild = &state.guilds
+													[server_rail_index(index, current_server)];
 												let active = self.server == Some(guild.id);
 												let response = ui
 													.push_id(guild.id, |ui| {
@@ -1092,6 +1370,12 @@ impl Picker {
 												}
 											}
 										});
+									#[cfg(test)]
+									{
+										self.rail_scroll = Some(rail.id);
+									}
+									#[cfg(not(test))]
+									let _ = rail;
 								},
 							);
 
@@ -1104,8 +1388,14 @@ impl Picker {
 									ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
 									if self.reaction.is_some() && self.query.is_empty() {
 										ui.label(
-											crate::design::semibold(ui, "FREQUENTLY USED", 12.0)
-												.color(colors.muted),
+											crate::design::semibold(
+												ui,
+												crate::i18n::translate(
+													"emoji-picker-popup-frequently-used",
+												),
+												12.0,
+											)
+											.color(colors.muted),
 										);
 										ui.horizontal_wrapped(|ui| {
 											for index in self.favorites() {
@@ -1118,7 +1408,7 @@ impl Picker {
 													ui,
 													crate::emoji::image(ui.ctx(), text, 32.0),
 													name,
-													self.can_pick(state, &emoji),
+													self.can_pick(state, &emoji, None),
 													&colors,
 												);
 												if response.hovered() {
@@ -1129,7 +1419,8 @@ impl Picker {
 													));
 												}
 												if response.clicked() {
-													selected = Some(self.pick(emoji, text.into()));
+													selected =
+														Some(self.pick(state, emoji, text.into()));
 													used = Some(text);
 												}
 											}
@@ -1141,9 +1432,12 @@ impl Picker {
 										.server
 										.and_then(|id| state.guilds.iter().find(|g| g.id == id));
 									let heading = if searching {
-										"Search results"
+										crate::i18n::translate("emoji-picker-popup-search-results")
 									} else {
-										guild.map_or("Emoji", |g| g.name.as_str())
+										guild.map_or_else(
+											|| crate::i18n::translate("emoji-picker-popup-emoji"),
+											|g| g.name.clone(),
+										)
 									};
 									ui.add(
 										egui::Label::new(
@@ -1169,20 +1463,20 @@ impl Picker {
 									};
 									let count = custom.len() + unicode.len();
 									if count == 0 {
-										let text = if searching {
-											"No matching emoji."
+										let text = crate::i18n::translate_if_key(if searching {
+											"emoji-picker-popup-no-matching-emoji"
 										} else if guild.is_some_and(|g| g.emojis.is_none()) {
-											"This server's emoji list is not loaded yet."
+											"emoji-picker-popup-this-server-s-emoji-list-is-not-loaded-yet"
 										} else {
-											"This server has no custom emoji."
-										};
+											"emoji-picker-popup-this-server-has-no-custom-emoji"
+										});
 										ui.label(egui::RichText::new(text).color(colors.muted));
 									}
 									if searching && custom.len() == CUSTOM_LIMIT {
 										ui.label(
-											egui::RichText::new(
-												"Showing the first 1,000 custom emoji. Refine your search for more.",
-											)
+											egui::RichText::new(crate::i18n::translate(
+												"emoji-picker-popup-showing-the-first-1-000-custom-emoji-refine-your-search",
+											))
 											.small()
 											.color(colors.muted),
 										);
@@ -1201,6 +1495,8 @@ impl Picker {
 														for index in
 															(row * columns..count).take(columns)
 														{
+															let custom_emoji =
+																custom.get(state, index);
 															let (
 																image,
 																name,
@@ -1209,7 +1505,7 @@ impl Picker {
 																emoji,
 																text,
 															) = if let Some((guild, emoji)) =
-																custom.get(state, index)
+																custom_emoji
 															{
 																(
 																	avatars.custom_image(
@@ -1251,17 +1547,31 @@ impl Picker {
 																	text.to_owned(),
 																)
 															};
-															let unavailable = custom
-																.get(state, index)
+															let unavailable = custom_emoji
 																.and_then(|(guild, custom)| {
 																	state
 																		.custom_emoji_unavailable_reason(
 																			channel, guild.id,
 																			custom,
 																		)
+																		.map(str::to_owned)
+																})
+																.or_else(|| {
+																	self.nitro_locked(
+																		state,
+																		custom_emoji,
+																	)
+																	.then(|| {
+																		crate::i18n::translate(
+																			"emoji-picker-popup-requires-nitro",
+																		)
+																	})
 																});
-															let enabled =
-																self.can_pick(state, &emoji);
+															let enabled = self.can_pick(
+																state,
+																&emoji,
+																custom_emoji,
+															);
 															let response = ui
 																.push_id(
 																	(
@@ -1282,8 +1592,12 @@ impl Picker {
 																.inner;
 															let response = if !enabled {
 																response.on_hover_text(
-																	unavailable.unwrap_or(
-																		"Cannot add this reaction right now",
+																	unavailable.unwrap_or_else(
+																		|| {
+																			crate::i18n::translate(
+																				"emoji-picker-popup-cannot-add-this-reaction-right-now",
+																			)
+																		},
 																	),
 																)
 															} else {
@@ -1304,8 +1618,9 @@ impl Picker {
 																		.0,
 																	);
 																}
-																selected =
-																	Some(self.pick(emoji, text));
+																selected = Some(
+																	self.pick(state, emoji, text),
+																);
 															}
 														}
 													});
@@ -1360,7 +1675,12 @@ impl Picker {
 											);
 										});
 									} else {
-										ui.label("Hover a sticker to preview it");
+										ui.add(
+											egui::Label::new(crate::i18n::translate(
+												"emoji-picker-popup-hover-a-sticker-to-preview-it",
+											))
+											.truncate(),
+										);
 									}
 									return;
 								}
@@ -1377,17 +1697,23 @@ impl Picker {
 									);
 									match &hovered_gif {
 										Some(title) => {
-											ui.label(
-												crate::design::semibold(ui, title, 15.0)
-													.color(colors.text_strong),
+											ui.add(
+												egui::Label::new(
+													crate::design::semibold(ui, title, 15.0)
+														.color(colors.text_strong),
+												)
+												.truncate(),
 											);
 										}
 										None => {
-											ui.label(
-												egui::RichText::new(
-													"Click a GIF to send it right away",
+											ui.add(
+												egui::Label::new(
+													egui::RichText::new(crate::i18n::translate(
+														"emoji-picker-popup-click-a-gif-to-send-it-right-away",
+													))
+													.color(colors.muted),
 												)
-												.color(colors.muted),
+												.truncate(),
 											);
 										}
 									}
@@ -1428,9 +1754,14 @@ impl Picker {
 											28.0,
 											colors.muted,
 										);
-										ui.label(
-											egui::RichText::new("Hover an emoji to preview it")
+										ui.add(
+											egui::Label::new(
+												egui::RichText::new(crate::i18n::translate(
+													"emoji-picker-popup-hover-an-emoji-to-preview-it",
+												))
 												.color(colors.muted),
+											)
+											.truncate(),
 										);
 									}
 								}
@@ -1438,12 +1769,26 @@ impl Picker {
 						);
 					});
 			});
+		if clearable.is_some() && ui.layer_id().order == area.response.layer_id.order {
+			// Keep a form field's popout above the dialog that opened it.
+			ui.ctx().set_sublayer(ui.layer_id(), area.response.layer_id);
+		}
 		if self.reaction.is_some()
 			&& let Some(text) = used
 		{
 			self.record(text);
 		}
 		match gif_action {
+			Some(GifAction::Refresh) => {
+				if let Some(command) = state.request_gif_favorites() {
+					commands.push(command);
+				}
+			}
+			Some(GifAction::Retry(query)) => {
+				if let Some(command) = state.request_gifs(query.as_deref()) {
+					commands.push(command);
+				}
+			}
 			Some(GifAction::Toggle(gif)) => {
 				state.toggle_gif_favorite(&gif);
 			}
@@ -1519,8 +1864,37 @@ impl Picker {
 				ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
 				let heading = match mode {
 					GifMode::Home | GifMode::Waiting => None,
-					GifMode::Favorites => Some("Favorites".to_owned()),
-					GifMode::Remote(None) => Some("Trending GIFs".to_owned()),
+					GifMode::Favorites => {
+						// Only an actionable sync failure is worth a line above the grid.
+						if let Some(error) = state
+							.gifs
+							.sync_error
+							.filter(|_| state.gifs.sync_pending.is_none())
+						{
+							ui.horizontal_wrapped(|ui| {
+								ui.label(
+									egui::RichText::new(crate::i18n::translate(error))
+										.color(colors.muted),
+								);
+								if ui
+									.add_enabled(
+										state.can_browse_gifs(),
+										egui::Button::new(crate::i18n::translate(
+											"gif-favorites-sync-refresh",
+										)),
+									)
+									.clicked()
+								{
+									action = Some(GifAction::Refresh);
+								}
+							});
+							ui.add_space(8.0);
+						}
+						Some(crate::i18n::translate("emoji-picker-gif-body-favorites"))
+					}
+					GifMode::Remote(None) => Some(crate::i18n::translate(
+						"emoji-picker-gif-body-trending-gifs",
+					)),
 					GifMode::Remote(Some(query)) => Some(query.clone()),
 				};
 				if let Some(heading) = heading {
@@ -1534,21 +1908,23 @@ impl Picker {
 					ui.add_space(4.0);
 				}
 				match mode {
-					GifMode::Home => {
-						if let Some(section) = gif_home(ui, state, avatars, colors, demo) {
-							self.gif_section = section;
-						}
-					}
+					GifMode::Home => match gif_home(ui, state, avatars, colors, demo) {
+						Some(Ok(section)) => self.gif_section = section,
+						Some(Err(retry)) => action = Some(retry),
+						None => {}
+					},
 					GifMode::Favorites => {
 						if state.gifs.favorites.is_empty() {
 							crate::design::empty_state(
 								ui,
 								crate::icons::Icon::Star,
-								"No favorites yet",
-								"Hover a GIF and press the star to keep it here.",
+								&crate::i18n::translate("emoji-picker-gif-body-no-favorites-yet"),
+								&crate::i18n::translate(
+									"emoji-picker-gif-body-hover-a-gif-and-press-the-star-to-keep-it",
+								),
 							);
 						} else {
-							action = gif_grid(
+							let grid_action = gif_grid(
 								ui,
 								"favorites",
 								&state.gifs.favorites,
@@ -1558,19 +1934,26 @@ impl Picker {
 								demo,
 								hovered,
 							);
+							if grid_action.is_some() {
+								action = grid_action;
+							}
 						}
 					}
 					GifMode::Waiting => {
-						status_row(ui, colors, true, "Searching KLIPY…");
+						status_row(ui, colors, true, "emoji-picker-gif-body-searching-klipy");
 					}
 					GifMode::Remote(query) => {
 						let view = state.gifs.view.as_ref().filter(|view| view.query == *query);
 						match view {
 							Some(view) if view.loading => {
-								status_row(ui, colors, true, "Loading GIFs…");
+								status_row(ui, colors, true, "emoji-picker-gif-body-loading-gifs");
 							}
 							Some(view) if view.error.is_some() => {
 								status_row(ui, colors, false, view.error.unwrap_or_default());
+								ui.add_space(8.0);
+								if retry_button(ui, state) {
+									action = Some(GifAction::Retry(query.clone()));
+								}
 							}
 							Some(view) => {
 								let gifs = view
@@ -1582,8 +1965,14 @@ impl Picker {
 									crate::design::empty_state(
 										ui,
 										crate::icons::Icon::Gif,
-										"No GIFs found",
-										"Try a different search term.",
+										&crate::i18n::translate(
+											"emoji-picker-gif-body-no-gifs-found",
+										),
+										&crate::i18n::translate(if query.is_none() {
+											"emoji-picker-gif-body-no-trending-gifs-right-now"
+										} else {
+											"emoji-picker-gif-body-try-a-different-search-term"
+										}),
 									);
 								} else {
 									action = gif_grid(
@@ -1603,7 +1992,7 @@ impl Picker {
 									ui,
 									colors,
 									false,
-									"GIF search needs a connected session.",
+									"emoji-picker-gif-body-gif-search-needs-a-connected-session",
 								);
 							}
 						}
@@ -1620,7 +2009,20 @@ const HEIGHT: f32 = 476.0;
 const TILE_GAP: f32 = 8.0;
 const TILE_HEIGHT: f32 = 92.0;
 
+/// Centered retry control under a failed GIF status row.
+fn retry_button(ui: &mut egui::Ui, state: &State) -> bool {
+	ui.vertical_centered(|ui| {
+		ui.add_enabled(
+			state.can_browse_gifs(),
+			egui::Button::new(crate::i18n::translate("emoji-picker-gif-body-retry")),
+		)
+		.clicked()
+	})
+	.inner
+}
+
 fn status_row(ui: &mut egui::Ui, colors: &crate::design::Palette, spinner: bool, text: &str) {
+	let text = crate::i18n::translate_if_key(text);
 	ui.add_space(24.0);
 	ui.vertical_centered(|ui| {
 		if spinner {
@@ -1699,12 +2101,17 @@ fn tile(
 			);
 		}
 		let family = crate::design::semibold_family(ui.ctx());
-		let galley = ui.painter().layout_no_wrap(
+		let icon_size = if icon.is_some() { 22.0 } else { 0.0 };
+		// Long localized labels elide to one line inside the tile.
+		let mut job = egui::text::LayoutJob::simple_singleline(
 			label.to_owned(),
 			egui::FontId::new(15.0, family),
 			egui::Color32::WHITE,
 		);
-		let icon_size = if icon.is_some() { 22.0 } else { 0.0 };
+		job.wrap = egui::text::TextWrapping::truncate_at_width(
+			rect.width() - 24.0 - icon_size - if icon.is_some() { 8.0 } else { 0.0 },
+		);
+		let galley = ui.painter().layout_job(job);
 		let total = galley.size().x + icon_size + if icon.is_some() { 8.0 } else { 0.0 };
 		let mut cursor = rect.center().x - total / 2.0;
 		if let Some(icon) = icon {
@@ -1726,27 +2133,36 @@ fn tile(
 }
 
 /// Home: Favorites and Trending tiles, then one tile per trending category.
+/// `Err` carries a retry of the failed trending request.
 fn gif_home(
 	ui: &mut egui::Ui,
 	state: &State,
 	avatars: &mut Avatars,
 	colors: &crate::design::Palette,
 	demo: bool,
-) -> Option<GifSection> {
+) -> Option<Result<GifSection, GifAction>> {
 	let trending = state.gifs.view.as_ref().filter(|view| view.query.is_none());
 	let page = trending.and_then(|view| view.page.as_ref());
 	let categories: &[model::GifCategory] = page.map_or(&[], |page| &page.categories);
 	let favorite_art = state
 		.gifs
 		.favorites
-		.first()
+		.iter()
+		.find(|gif| model::valid_gif_preview(&gif.preview))
 		.and_then(|gif| avatars.gif_texture(ui.ctx(), gif, demo));
 	let trending_art = page
 		.and_then(|page| page.gifs.first())
 		.and_then(|gif| avatars.gif_texture(ui.ctx(), gif, demo));
 	let mut chosen = None;
+	let mut retry = false;
 	let rows = 1 + categories.len().div_ceil(2);
-	let total = rows as f32 * TILE_HEIGHT + (rows.saturating_sub(1)) as f32 * TILE_GAP + 8.0;
+	let failed = trending
+		.filter(|view| !view.loading)
+		.and_then(|view| view.error);
+	let loading = categories.is_empty() && trending.is_some_and(|view| view.loading);
+	let status_row = failed.is_some() || loading;
+	let tiles_height = rows as f32 * TILE_HEIGHT + (rows.saturating_sub(1)) as f32 * TILE_GAP;
+	let total = tiles_height + 8.0 + if status_row { TILE_GAP + 40.0 } else { 0.0 };
 	egui::ScrollArea::vertical()
 		.id_salt("gif-home")
 		.auto_shrink([false, false])
@@ -1767,7 +2183,7 @@ fn gif_home(
 			if tile(
 				ui,
 				cell(0),
-				"Favorites",
+				&crate::i18n::translate("emoji-picker-gif-body-favorites"),
 				Some(crate::icons::Icon::StarFill),
 				favorite_art,
 				0,
@@ -1780,7 +2196,7 @@ fn gif_home(
 			if tile(
 				ui,
 				cell(1),
-				"Trending GIFs",
+				&crate::i18n::translate("emoji-picker-gif-body-trending-gifs"),
 				Some(crate::icons::Icon::Fire),
 				trending_art,
 				1,
@@ -1802,9 +2218,38 @@ fn gif_home(
 					chosen = Some(GifSection::Category(category.name.clone()));
 				}
 			}
-			if categories.is_empty() && trending.is_some_and(|view| view.loading) {
+			if let Some(error) = failed {
 				let below = egui::Rect::from_min_size(
-					egui::pos2(area.left(), cell(2).top()),
+					egui::pos2(area.left(), area.top() + tiles_height + TILE_GAP),
+					egui::vec2(width, 40.0),
+				);
+				ui.scope_builder(
+					egui::UiBuilder::new()
+						.max_rect(below)
+						.layout(egui::Layout::left_to_right(egui::Align::Center)),
+					|ui| {
+						ui.spacing_mut().item_spacing.x = 8.0;
+						ui.add(
+							egui::Label::new(
+								egui::RichText::new(crate::i18n::translate_if_key(error))
+									.color(colors.muted),
+							)
+							.truncate(),
+						);
+						retry = ui
+							.add_enabled(
+								state.can_browse_gifs(),
+								egui::Button::new(crate::i18n::translate(
+									"emoji-picker-gif-body-retry",
+								)),
+							)
+							.clicked();
+					},
+				);
+			}
+			if loading {
+				let below = egui::Rect::from_min_size(
+					egui::pos2(area.left(), area.top() + tiles_height + TILE_GAP),
 					egui::vec2(width, 40.0),
 				);
 				ui.scope_builder(
@@ -1815,13 +2260,19 @@ fn gif_home(
 						ui.spacing_mut().item_spacing.x = 8.0;
 						ui.add(egui::Spinner::new().size(16.0).color(colors.muted));
 						ui.label(
-							egui::RichText::new("Loading trending categories…").color(colors.muted),
+							egui::RichText::new(crate::i18n::translate(
+								"emoji-picker-gif-home-loading-trending-categories",
+							))
+							.color(colors.muted),
 						);
 					},
 				);
 			}
 		});
-	chosen
+	if retry {
+		return Some(Err(GifAction::Retry(None)));
+	}
+	chosen.map(Ok)
 }
 
 /// Two-column masonry of static previews; the star toggles a favorite, a click sends.
@@ -1865,7 +2316,7 @@ fn gif_grid(
 				if !ui.is_rect_visible(rect) {
 					continue;
 				}
-				let id = ui.scope_id().with(("gif", &gif.id));
+				let id = ui.scope_id().with(("gif", &gif.url));
 				let response = ui.interact(rect, id, egui::Sense::click());
 				let star_rect = egui::Rect::from_min_size(
 					egui::pos2(rect.right() - 32.0, rect.top() + 6.0),
@@ -1874,12 +2325,23 @@ fn gif_grid(
 				let favorite = state.is_gif_favorite(gif);
 				let lifted = response.hovered() || response.has_focus();
 				let star = if lifted || favorite {
-					Some(ui.interact(star_rect, id.with("star"), egui::Sense::click()))
+					Some(ui.interact(
+						star_rect,
+						id.with("star"),
+						if state.gifs.sync_pending.is_none() {
+							egui::Sense::click()
+						} else {
+							egui::Sense::hover()
+						},
+					))
 				} else {
 					None
 				};
 				match avatars.gif_texture(ui.ctx(), gif, demo) {
 					Some(texture) => paint_cover(ui, rect, texture, 8),
+					None if !model::valid_gif_preview(&gif.preview) => {
+						avatars.paint_gif_media(ui, gif, rect, demo);
+					}
 					None => {
 						ui.painter().rect_filled(rect, 8, colors.raised);
 						crate::icons::paint(
@@ -1917,13 +2379,22 @@ fn gif_grid(
 					};
 					crate::icons::paint(ui.painter(), icon, star_rect.shrink(5.0), color);
 					star.widget_info(|| {
-						egui::WidgetInfo::selected(egui::Role::CheckBox, true, favorite, "Favorite")
+						egui::WidgetInfo::selected(
+							egui::Role::CheckBox,
+							state.gifs.sync_pending.is_none(),
+							favorite,
+							crate::i18n::translate("emoji-picker-gif-grid-favorite"),
+						)
 					});
 				}
 				let label = if gif.title.is_empty() {
-					"Send GIF".to_owned()
+					crate::i18n::translate("emoji-picker-gif-grid-send-gif")
 				} else {
-					format!("Send GIF: {}", gif.title)
+					format!(
+						"{}: {}",
+						crate::i18n::translate("emoji-picker-gif-grid-send-gif"),
+						gif.title
+					)
 				};
 				response
 					.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
@@ -2016,6 +2487,234 @@ fn cell(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn gif_favorite_loading_is_single_flight_and_video_placeholders_never_request_media() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		let video = model::Gif {
+			id: "discord-video".into(),
+			title: "Synthetic video favorite".into(),
+			url: "https://tenor.com/view/synthetic-video".into(),
+			preview: "https://media.tenor.com/synthetic/video.mp4".into(),
+			width: 300,
+			height: 200,
+		};
+		state.restore_gif_favorites(vec![video.clone()]);
+		let mut picker = Picker {
+			open: true,
+			channel: Some(channel),
+			generation: state.generation,
+			tab: Tab::Gifs,
+			gif_section: GifSection::Favorites,
+			..Default::default()
+		};
+		let mut avatars = Avatars::default();
+		let mut commands = Vec::new();
+		for _ in 0..3 {
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(800.0, 800.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					picker.show(ui, &mut state, channel, &mut avatars, &mut commands);
+				},
+			)
+			.drop_without_applying_deltas();
+		}
+		assert!(matches!(
+			&commands[..],
+			[Command::GifFavorites { change: None, .. }]
+		));
+		assert!(avatars.take_requests().is_empty());
+		assert!(!state.toggle_gif_favorite(&video));
+		assert!(state.is_gif_favorite(&video));
+		assert!(avatars.gif_texture(&ctx, &video, false).is_none());
+		assert!(avatars.take_requests().is_empty());
+	}
+
+	#[test]
+	fn server_rail_prioritizes_current_server_and_preserves_other_servers() {
+		for current in [None, Some(0), Some(2), Some(4)] {
+			let order: Vec<_> = (0..5).map(|row| server_rail_index(row, current)).collect();
+			let mut expected: Vec<_> = (0..5).filter(|index| Some(*index) != current).collect();
+			if let Some(current) = current {
+				expected.insert(0, current);
+			}
+			assert_eq!(order, expected);
+		}
+	}
+
+	#[test]
+	fn current_server_is_the_first_clickable_picker_rail_entry() {
+		let ctx = egui::Context::default();
+		ctx.enable_accesskit();
+		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		let mut second = state.guilds[0].clone();
+		second.id = Id(777);
+		second.name = "Current synthetic server".into();
+		state.guilds[0].name = "Other synthetic server".into();
+		state.guilds.push(second);
+		state
+			.channels
+			.iter_mut()
+			.find(|known| known.id == channel)
+			.unwrap()
+			.guild = Some(Id(777));
+		let order: Vec<_> = state.guilds.iter().map(|guild| guild.id).collect();
+		let mut picker = Picker {
+			open: true,
+			..Default::default()
+		};
+		let mut avatars = Avatars::default();
+		let mut frame = |picker: &mut Picker, state: &mut State, events| {
+			ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					ui.add_space(620.0);
+					let trigger = ui.button("Synthetic picker trigger");
+					let mut commands = Vec::new();
+					picker.popup(
+						ui,
+						state,
+						channel,
+						&mut avatars,
+						&mut commands,
+						&trigger,
+						None,
+					);
+					assert!(commands.is_empty());
+				},
+			)
+		};
+		for _ in 0..3 {
+			frame(&mut picker, &mut state, vec![]).drop_without_applying_deltas();
+		}
+		let output = frame(&mut picker, &mut state, vec![]);
+		let nodes = &output
+			.platform_output
+			.accesskit_update
+			.as_ref()
+			.unwrap()
+			.nodes;
+		let position = |name| {
+			nodes
+				.iter()
+				.find_map(|(_, node)| {
+					(node.label() == Some(name))
+						.then(|| node.bounds())
+						.flatten()
+				})
+				.expect("server rail entry")
+		};
+		let current = position("Current synthetic server");
+		let other = position("Other synthetic server");
+		assert!(current.y0 < other.y0);
+		let pos = egui::pos2(
+			((current.x0 + current.x1) * 0.5) as f32,
+			((current.y0 + current.y1) * 0.5) as f32,
+		);
+		output.drop_without_applying_deltas();
+		for pressed in [true, false] {
+			frame(
+				&mut picker,
+				&mut state,
+				vec![
+					egui::Event::PointerMoved(pos),
+					egui::Event::PointerButton {
+						pos,
+						button: egui::PointerButton::Primary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					},
+				],
+			)
+			.drop_without_applying_deltas();
+		}
+		assert_eq!(picker.server, Some(Id(777)));
+		assert_eq!(
+			state
+				.guilds
+				.iter()
+				.map(|guild| guild.id)
+				.collect::<Vec<_>>(),
+			order
+		);
+		for number in 0..40 {
+			let mut guild = state.guilds[0].clone();
+			guild.id = Id(2000 + number);
+			guild.name = format!("Additional synthetic {number}");
+			state.guilds.push(guild);
+		}
+		frame(&mut picker, &mut state, vec![]).drop_without_applying_deltas();
+		let rail = picker.rail_scroll.unwrap();
+		frame(
+			&mut picker,
+			&mut state,
+			vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::MouseWheel {
+					unit: egui::MouseWheelUnit::Point,
+					phase: egui::TouchPhase::Move,
+					source: egui::MouseWheelSource::Unknown,
+					delta: egui::vec2(0.0, -600.0),
+					modifiers: egui::Modifiers::NONE,
+				},
+			],
+		)
+		.drop_without_applying_deltas();
+		for _ in 0..6 {
+			frame(&mut picker, &mut state, vec![]).drop_without_applying_deltas();
+		}
+		frame(
+			&mut picker,
+			&mut state,
+			vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				phase: egui::TouchPhase::End,
+				source: egui::MouseWheelSource::Unknown,
+				delta: egui::Vec2::ZERO,
+				modifiers: egui::Modifiers::NONE,
+			}],
+		)
+		.drop_without_applying_deltas();
+		assert!(
+			egui::scroll_area::State::load(&ctx, rail)
+				.unwrap()
+				.clamped_offset()
+				.y > 100.0
+		);
+		state
+			.channels
+			.iter_mut()
+			.find(|known| known.id == channel)
+			.unwrap()
+			.guild = Some(Id(2039));
+		for _ in 0..2 {
+			frame(&mut picker, &mut state, vec![]).drop_without_applying_deltas();
+		}
+		assert_eq!(
+			egui::scroll_area::State::load(&ctx, rail)
+				.unwrap()
+				.clamped_offset()
+				.y,
+			0.0
+		);
+		assert_eq!(picker.rail_guild, Some(Id(2039)));
+	}
 
 	#[test]
 	#[ignore = "release picker frame benchmark; ten warmup frames and one warmup/five measured batches"]
@@ -2033,6 +2732,7 @@ mod tests {
 			let emoji = template.emojis.as_ref().unwrap()[0].clone();
 			state.guilds = (0..guild_count)
 				.map(|guild| model::Guild {
+					default_message_notifications: None,
 					id: Id(template.id.0 + guild),
 					name: format!("Synthetic server {guild}"),
 					icon: None,
@@ -2162,6 +2862,7 @@ mod tests {
 		apply(
 			&mut state,
 			Event::GuildChanged(model::GuildPatch {
+				default_message_notifications: model::Patch::Absent,
 				id: guild,
 				name: model::Patch::Value("Needle server".into()),
 				icon: model::Patch::Absent,
@@ -2242,78 +2943,194 @@ mod tests {
 		state.logout();
 		assert!(cache.update(&state, None, "brand_new"));
 		assert_eq!(cache.len(), 0);
+
+		{
+			let mut state = test_support::demo_state();
+			let emoji = state.guilds[0].emojis.as_ref().unwrap()[0].clone();
+			let mut guild = state.guilds[0].clone();
+			guild.emojis = Some(
+				(1..=CUSTOM_LIMIT)
+					.rev()
+					.map(|id| model::CustomEmoji {
+						id: Id(id as u64),
+						name: format!("emoji_{id}"),
+						..emoji.clone()
+					})
+					.collect(),
+			);
+			let mut second = guild.clone();
+			second.id = Id(guild.id.0 + 1);
+			state.guilds = vec![guild, second];
+			let mut cache = CustomMatches::default();
+			cache.update(&state, None, "emoji");
+			assert_eq!(cache.len(), CUSTOM_LIMIT);
+			assert_eq!(
+				std::mem::size_of_val(cache.entries.as_ref()),
+				CUSTOM_LIMIT * size_of::<(usize, usize)>()
+			);
+			assert_eq!(cache.get(&state, 0).unwrap().1.id, Id(1));
+			assert_eq!(
+				cache.get(&state, CUSTOM_LIMIT - 1).unwrap().1.id,
+				Id(CUSTOM_LIMIT as u64)
+			);
+			let query = "😀".repeat(64);
+			assert!(cache.update(&state, None, &query));
+			assert_eq!(cache.query.len(), 256);
+			assert!(!cache.update(&state, None, &query));
+			assert!(cache.update(&state, None, &"😀".repeat(65)));
+			assert!(cache.query.is_empty());
+			assert!(cache.key.is_none());
+		}
 	}
 
 	#[test]
-	fn custom_match_cache_bounds_results_and_retained_query_bytes() {
+	fn resolved_custom_emoji_eligibility_preserves_native_and_fallback_permissions() {
 		let mut state = test_support::demo_state();
-		let emoji = state.guilds[0].emojis.as_ref().unwrap()[0].clone();
-		let mut guild = state.guilds[0].clone();
-		guild.emojis = Some(
-			(1..=CUSTOM_LIMIT)
-				.rev()
-				.map(|id| model::CustomEmoji {
-					id: Id(id as u64),
-					name: format!("emoji_{id}"),
-					..emoji.clone()
-				})
-				.collect(),
-		);
-		let mut second = guild.clone();
-		second.id = Id(guild.id.0 + 1);
-		state.guilds = vec![guild, second];
-		let mut cache = CustomMatches::default();
-		cache.update(&state, None, "emoji");
-		assert_eq!(cache.len(), CUSTOM_LIMIT);
-		assert_eq!(
-			std::mem::size_of_val(cache.entries.as_ref()),
-			CUSTOM_LIMIT * size_of::<(usize, usize)>()
-		);
-		assert_eq!(cache.get(&state, 0).unwrap().1.id, Id(1));
-		assert_eq!(
-			cache.get(&state, CUSTOM_LIMIT - 1).unwrap().1.id,
-			Id(CUSTOM_LIMIT as u64)
-		);
-		let query = "😀".repeat(64);
-		assert!(cache.update(&state, None, &query));
-		assert_eq!(cache.query.len(), 256);
-		assert!(!cache.update(&state, None, &query));
-		assert!(cache.update(&state, None, &"😀".repeat(65)));
-		assert!(cache.query.is_empty());
-		assert!(cache.key.is_none());
+		state.premium_type = 2;
+		let picker = Picker {
+			channel: state.selected,
+			..Default::default()
+		};
+		let guild = state.guilds[0].id;
+		let mut matches = CustomMatches::default();
+		matches.update(&state, Some(guild), "serein_party");
+		let (source, custom) = matches.get(&state, 0).unwrap();
+		let emoji = model::ReactionEmoji {
+			id: Some(custom.id),
+			name: Some(custom.name.clone()),
+		};
+		assert!(picker.can_pick(&state, &emoji, Some((source, custom))));
+		assert!(!picker.shares_emoji(&state, &emoji, Some((source, custom))));
+		// Eligibility uses the resolved entry, not another ID search of the catalog.
+		let mut unavailable = custom.clone();
+		unavailable.available = false;
+		assert!(picker.can_pick(&state, &emoji, Some((source, &unavailable))));
+		assert!(picker.shares_emoji(&state, &emoji, Some((source, &unavailable))));
+		state
+			.permissions
+			.guilds
+			.get_mut(&guild)
+			.unwrap()
+			.roles
+			.as_mut()
+			.unwrap()[0]
+			.bits &= !model::permissions::ATTACH_FILES;
+		state.permissions.clear_cache();
+		let (source, custom) = matches.get(&state, 0).unwrap();
+		assert!(picker.can_pick(&state, &emoji, Some((source, &unavailable))));
+		assert!(picker.can_pick(&state, &emoji, Some((source, custom))));
 	}
 
 	#[test]
-	fn image_sharing_requires_enabled_plugin_and_never_changes_reactions() {
-		let state = test_support::demo_state();
+	fn nitro_opt_out_locks_animated_and_external_emoji_without_nitro() {
+		let mut state = test_support::demo_state();
+		state.premium_type = 0;
 		let mut picker = Picker {
 			channel: state.selected,
-			image_sharing_enabled: true,
+			..Default::default()
+		};
+		let guild = state.guilds[0].id;
+		let mut matches = CustomMatches::default();
+		matches.update(&state, Some(guild), "serein_party");
+		let (source, custom) = matches.get(&state, 0).unwrap();
+		assert!(custom.animated);
+		let emoji = model::ReactionEmoji {
+			id: Some(custom.id),
+			name: Some(custom.name.clone()),
+		};
+		// Default: offered through built-in image sharing.
+		assert!(picker.can_pick(&state, &emoji, Some((source, custom))));
+		picker.hide_nitro_emojis = true;
+		assert!(picker.nitro_locked(&state, Some((source, custom))));
+		assert!(!picker.can_pick(&state, &emoji, Some((source, custom))));
+		let still = model::CustomEmoji {
+			animated: false,
+			..custom.clone()
+		};
+		assert!(!picker.nitro_locked(&state, Some((source, &still))));
+		assert!(picker.can_pick(&state, &emoji, Some((source, &still))));
+		state.premium_type = 2;
+		let (source, custom) = matches.get(&state, 0).unwrap();
+		assert!(!picker.nitro_locked(&state, Some((source, custom))));
+		assert!(picker.can_pick(&state, &emoji, Some((source, custom))));
+	}
+
+	#[test]
+	fn image_sharing_is_builtin_and_never_changes_reactions() {
+		let mut state = test_support::demo_state();
+		let mut picker = Picker {
+			channel: state.selected,
 			..Default::default()
 		};
 		let emoji = model::ReactionEmoji {
 			id: Some(Id(999)),
 			name: Some("wave".into()),
 		};
-		assert!(picker.can_pick(&state, &emoji));
+		assert!(picker.can_pick(&state, &emoji, None));
 		assert!(matches!(
-			picker.pick(emoji.clone(), "<a:wave:999>".into()),
-			Pick::Image(model::ImageShare::Emoji {
-				id: Id(999),
-				animated: true
-			})
+			picker.pick(&state, emoji.clone(), "<a:wave:999>".into()),
+			Pick::Insert(text) if text == "[wave](https://cdn.discordapp.com/emojis/999.gif?size=64)"
 		));
-		picker.image_sharing_enabled = false;
-		assert!(!picker.can_pick(&state, &emoji));
+		picker.reaction = Some((
+			Target::React(Id(500)),
+			egui::Rect::NOTHING,
+			egui::Id::unique("reaction"),
+		));
 		assert!(matches!(
-			picker.pick(emoji.clone(), "<a:wave:999>".into()),
+			picker.pick(&state, emoji.clone(), "<a:wave:999>".into()),
+			Pick::React(Id(500), _)
+		));
+		// Form fields such as poll answers get the emoji itself, never an image share.
+		picker.reaction = Some((
+			Target::Choose { clearable: false },
+			egui::Rect::NOTHING,
+			egui::Id::unique("choose"),
+		));
+		assert!(matches!(
+			picker.pick(&state, emoji, "<a:wave:999>".into()),
+			Pick::Choose(Some(model::ReactionEmoji {
+				id: Some(Id(999)),
+				..
+			}))
+		));
+
+		picker.reaction = None;
+		let local = model::ReactionEmoji {
+			id: Some(Id(9002)),
+			name: Some("serein_party".into()),
+		};
+		assert!(matches!(
+			picker.pick(&state, local.clone(), "<a:serein_party:9002>".into()),
+			Pick::Insert(text) if text.contains("https://cdn.discordapp.com/emojis/9002.gif?size=64")
+		));
+		state.selected = Some(Id(22));
+		picker.channel = state.selected;
+		assert!(matches!(
+			picker.pick(&state, local.clone(), "<a:serein_party:9002>".into()),
+			Pick::Insert(text) if text.contains("https://cdn.discordapp.com/emojis/9002.gif?size=64")
+		));
+		state.premium_type = 2;
+		assert!(matches!(
+			picker.pick(&state, local, "<a:serein_party:9002>".into()),
 			Pick::Insert(_)
 		));
-		picker.image_sharing_enabled = true;
-		picker.reaction = Some((Id(500), egui::Rect::NOTHING, egui::Id::unique("reaction")));
+
+		test_support::seed_stickers(&mut state);
+		let standard = state.stickers.packs[0].stickers[0].clone();
 		assert!(matches!(
-			picker.pick(emoji, "<a:wave:999>".into()),
-			Pick::React(Id(500), _)
+			picker.pick_sticker(&state, standard),
+			Pick::Sticker(_)
+		));
+		let external = state.guilds[0].stickers.as_ref().unwrap()[0].clone();
+		state.stickers.external_allowed = false;
+		assert!(matches!(
+			picker.pick_sticker(&state, external.clone()),
+			Pick::Insert(text) if model::ImageShare::markdown_only(&text).is_some()
+		));
+		state.stickers.external_allowed = true;
+		assert!(matches!(
+			picker.pick_sticker(&state, external),
+			Pick::Sticker(_)
 		));
 	}
 
@@ -2416,7 +3233,8 @@ mod tests {
 			&model::ReactionEmoji {
 				id: None,
 				name: Some("🚀".into())
-			}
+			},
+			None,
 		));
 		state.selected = Some(Id(21));
 		frame(&mut picker, &mut state, &mut avatars, vec![]);
@@ -2511,95 +3329,83 @@ mod tests {
 
 	#[test]
 	fn sticker_picker_search_keyboard_send_preserves_draft_and_resets_session() {
-		for images in [false, true] {
-			let ctx = egui::Context::default();
-			crate::emoji::install(&ctx).unwrap();
-			let mut state = test_support::demo_state();
-			test_support::seed_stickers(&mut state);
-			let channel = state.selected.unwrap();
-			state.drafts.insert(channel, "Keep my draft".into());
-			let mut picker = Picker {
-				image_sharing_enabled: images,
-				..Default::default()
-			};
-			picker.open_stickers(None);
-			let mut avatars = Avatars::default();
-			let mut frame = |picker: &mut Picker, state: &mut State, events| {
-				let mut selected = None;
-				let output = ctx.run_ui(
-					egui::RawInput {
-						screen_rect: Some(egui::Rect::from_min_size(
-							egui::Pos2::ZERO,
-							egui::vec2(900.0, 700.0),
-						)),
-						events,
-						..Default::default()
-					},
-					|ui| {
-						selected = picker.show(ui, state, channel, &mut avatars, &mut Vec::new());
-					},
-				);
-				output.drop_without_applying_deltas();
-				selected
-			};
-			for _ in 0..3 {
-				frame(&mut picker, &mut state, vec![]);
-			}
-			frame(
-				&mut picker,
-				&mut state,
-				vec![egui::Event::Text("Sle".into())],
+		let ctx = egui::Context::default();
+		crate::emoji::install(&ctx).unwrap();
+		let mut state = test_support::demo_state();
+		test_support::seed_stickers(&mut state);
+		let channel = state.selected.unwrap();
+		state.drafts.insert(channel, "Keep my draft".into());
+		let mut picker = Picker::default();
+		picker.open_stickers(None);
+		let mut avatars = Avatars::default();
+		let mut frame = |picker: &mut Picker, state: &mut State, events| {
+			let mut selected = None;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					selected = picker.show(ui, state, channel, &mut avatars, &mut Vec::new());
+				},
 			);
-			frame(
-				&mut picker,
-				&mut state,
-				vec![egui::Event::Text("ep".into())],
-			);
-			assert_eq!(picker.stickers.query, "Sleep");
-			let key = |key| egui::Event::Key {
-				key,
-				physical_key: None,
-				pressed: true,
-				repeat: false,
-				modifiers: egui::Modifiers::NONE,
-			};
-			let mut picked = None;
-			for _ in 0..20 {
-				frame(&mut picker, &mut state, vec![key(egui::Key::Tab)]);
-				if ctx
-					.memory(|m| m.focused())
-					.and_then(|id| ctx.read_response(id))
-					.is_some_and(|r| {
-						r.rect.width() >= 70.0 && (r.rect.width() - r.rect.height()).abs() < 0.1
-					}) {
-					picked = frame(&mut picker, &mut state, vec![key(egui::Key::Enter)]);
-					break;
-				}
-			}
-			if images {
-				assert!(matches!(
-					picked,
-					Some(Pick::Image(model::ImageShare::Sticker { id: Id(9201), .. }))
-				));
-			} else {
-				let Some(Pick::Sticker(sticker)) = picked else {
-					panic!("keyboard sticker selection");
-				};
-				assert_eq!(sticker.name, "Sleep");
-				assert!(matches!(
-					state.prepare_sticker_send(&sticker),
-					Some(Command::Send {
-						sticker: Some(Id(9201)),
-						..
-					})
-				));
-			}
-			assert_eq!(state.drafts[&channel], "Keep my draft");
-			assert!(!picker.open);
-			state.generation += 1;
-			picker.sync(&state, Some(channel));
-			assert!(picker.stickers.query.is_empty());
+			output.drop_without_applying_deltas();
+			selected
+		};
+		for _ in 0..3 {
+			frame(&mut picker, &mut state, vec![]);
 		}
+		frame(
+			&mut picker,
+			&mut state,
+			vec![egui::Event::Text("Sle".into())],
+		);
+		frame(
+			&mut picker,
+			&mut state,
+			vec![egui::Event::Text("ep".into())],
+		);
+		assert_eq!(picker.stickers.query, "Sleep");
+		let key = |key| egui::Event::Key {
+			key,
+			physical_key: None,
+			pressed: true,
+			repeat: false,
+			modifiers: egui::Modifiers::NONE,
+		};
+		let mut picked = None;
+		for _ in 0..20 {
+			frame(&mut picker, &mut state, vec![key(egui::Key::Tab)]);
+			if ctx
+				.memory(|m| m.focused())
+				.and_then(|id| ctx.read_response(id))
+				.is_some_and(|r| {
+					r.rect.width() >= 70.0 && (r.rect.width() - r.rect.height()).abs() < 0.1
+				}) {
+				picked = frame(&mut picker, &mut state, vec![key(egui::Key::Enter)]);
+				break;
+			}
+		}
+		let Some(Pick::Sticker(sticker)) = picked else {
+			panic!("keyboard sticker selection");
+		};
+		assert_eq!(sticker.name, "Sleep");
+		assert!(matches!(
+			state.prepare_sticker_send(&sticker),
+			Some(Command::Send {
+				sticker: Some(Id(9201)),
+				..
+			})
+		));
+		assert_eq!(state.drafts[&channel], "Keep my draft");
+		assert!(!picker.open);
+		state.generation += 1;
+		picker.sync(&state, Some(channel));
+		assert!(picker.stickers.query.is_empty());
 	}
 
 	#[test]
@@ -2665,15 +3471,45 @@ mod tests {
 	}
 
 	#[test]
+	fn quiet_insertions_keep_full_payload_limit_without_extending_literal_edits() {
+		let mut quiet = format!("@silent {}", "x".repeat(client_core::MAX_CONTENT - 1));
+		assert!(insert(&mut quiet, "🙂", None, 64, false).is_some());
+		assert!(model::message_options::valid(
+			&quiet,
+			client_core::MAX_CONTENT,
+			false
+		));
+		let full = quiet.clone();
+		assert!(insert(&mut quiet, "x", None, 64, false).is_none());
+		assert_eq!(quiet, full);
+		let mut literal = format!("@silent {}", "x".repeat(client_core::MAX_CONTENT - 8));
+		let original = literal.clone();
+		assert!(insert(&mut literal, "🙂", None, 64, true).is_none());
+		assert_eq!(literal, original);
+		let mut shortcode = format!(
+			"@silent {} :heart:",
+			"x".repeat(client_core::MAX_CONTENT - 8)
+		);
+		let cursor = shortcode.chars().count();
+		assert!(complete_shortcode(&mut shortcode, cursor, 64, false).is_some());
+		assert!(shortcode.ends_with("❤️"));
+		assert!(model::message_options::valid(
+			&shortcode,
+			client_core::MAX_CONTENT,
+			false
+		));
+	}
+
+	#[test]
 	fn insertion_replaces_unicode_selection_and_respects_character_and_capacity_budgets() {
 		use egui::text::{CCursor, CCursorRange};
 		let mut draft = "前👩🏽‍💻後".to_owned();
 		let selection = Some(CCursorRange::two(CCursor::new(5), CCursor::new(1)));
-		assert_eq!(insert(&mut draft, "❤️", selection, 0), Some(3));
+		assert_eq!(insert(&mut draft, "❤️", selection, 0, true), Some(3));
 		assert_eq!(draft, "前❤️後");
 		let markup = "<a:party_blob:123456789>";
 		assert_eq!(
-			insert(&mut draft, markup, None, 100),
+			insert(&mut draft, markup, None, 100, true),
 			Some(4 + markup.len())
 		);
 		assert_eq!(draft, format!("前❤️後{markup}"));
@@ -2683,41 +3519,25 @@ mod tests {
 				&mut draft,
 				"😀",
 				Some(CCursorRange::one(CCursor::new(usize::MAX))),
-				100
+				100,
+				true
 			),
 			Some(end + 1)
 		);
 		assert!(draft.ends_with("😀"));
 
 		let mut draft = "a".repeat(client_core::MAX_CONTENT);
-		assert_eq!(insert(&mut draft, "😀", None, 100), None);
+		assert_eq!(insert(&mut draft, "😀", None, 100, true), None);
 		assert_eq!(draft.len(), client_core::MAX_CONTENT);
 		let mut draft = String::new();
-		assert_eq!(insert(&mut draft, "😀", None, 3), None);
+		assert_eq!(insert(&mut draft, "😀", None, 3, true), None);
 		assert!(draft.is_empty());
-		assert_eq!(insert(&mut draft, "😀", None, 4), Some(1));
+		assert_eq!(insert(&mut draft, "😀", None, 4, true), Some(1));
 		assert_eq!(draft.capacity(), 4);
 		let selection = Some(CCursorRange::two(CCursor::new(0), CCursor::new(1)));
-		assert_eq!(insert(&mut draft, "👍", selection, 0), Some(1));
+		assert_eq!(insert(&mut draft, "👍", selection, 0, true), Some(1));
 		assert_eq!(draft, "👍");
 		assert_eq!(draft.capacity(), 4);
-	}
-
-	#[test]
-	fn completed_shortcode_becomes_unicode_at_the_caret() {
-		let mut draft = "look :eyes: here :pray:".to_owned();
-		assert_eq!(complete_shortcode(&mut draft, 11, 0), Some(6));
-		assert_eq!(draft, "look 👀 here :pray:");
-		assert_eq!(complete_shortcode(&mut draft, 18, 0), Some(13));
-		assert_eq!(draft, "look 👀 here 🙏");
-		let mut alias = ":folded_hands:".to_owned();
-		assert_eq!(complete_shortcode(&mut alias, 14, 0), Some(1));
-		assert_eq!(alias, "🙏");
-		for literal in ["word:eyes:", "https:", "<:eyes:", ":unknown:"] {
-			let mut draft = literal.to_owned();
-			let cursor = draft.chars().count();
-			assert_eq!(complete_shortcode(&mut draft, cursor, 0), None);
-		}
 	}
 
 	#[test]
@@ -2759,6 +3579,7 @@ mod tests {
 	fn server_grid_only_requests_visible_images_and_resets_on_navigation() {
 		let mut state = State {
 			guilds: vec![model::Guild {
+				default_message_notifications: None,
 				stickers: None,
 				id: Id(1),
 				name: "Synthetic server".into(),
@@ -2855,5 +3676,118 @@ mod tests {
 		output.textures_delta.clear();
 		assert!(!picker.open && picker.server.is_none() && picker.query.is_empty());
 		assert_eq!(picker.custom.len(), 0);
+	}
+}
+
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub(crate) fn debug_fallback_choice(state: &State) -> String {
+	let picker = Picker {
+		channel: state.selected,
+		..Default::default()
+	};
+	match picker.pick(
+		state,
+		model::ReactionEmoji {
+			id: Some(Id(9002)),
+			name: Some("serein_party".into()),
+		},
+		"<a:serein_party:9002>".into(),
+	) {
+		Pick::Insert(text) => text,
+		_ => panic!("fallback selection must edit the composer"),
+	}
+}
+
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub(crate) fn debug_gif_retry(state: &mut State) {
+	for cached in [false, true] {
+		state.gifs.view = Some(client_core::gifs::View {
+			query: None,
+			request: 1,
+			loading: false,
+			error: Some("Synthetic failure"),
+			page: Some(model::GifPage {
+				gifs: vec![],
+				categories: if cached {
+					vec![model::GifCategory {
+						name: "Cached category".into(),
+						preview: None,
+					}]
+				} else {
+					vec![]
+				},
+			}),
+		});
+		let ctx = egui::Context::default();
+		ctx.enable_accesskit();
+		let mut images = Avatars::default();
+		let mut picked = None;
+		let mut frame = |events| {
+			let mut output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(320.0, 100.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					let colors = crate::design::palette(ui);
+					picked = gif_home(ui, state, &mut images, &colors, true);
+				},
+			);
+			output.textures_delta.clear();
+			output
+		};
+		frame(vec![]);
+		frame(vec![
+			egui::Event::PointerMoved(egui::pos2(100.0, 50.0)),
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+				delta: egui::vec2(0.0, -2000.0),
+				modifiers: egui::Modifiers::NONE,
+			},
+		]);
+		for _ in 0..30 {
+			frame(vec![]);
+		}
+		let output = frame(vec![]);
+		let label = crate::i18n::translate("emoji-picker-gif-body-retry");
+		let bounds = output
+			.platform_output
+			.accesskit_update
+			.as_ref()
+			.unwrap()
+			.nodes
+			.iter()
+			.find_map(|(_, node)| {
+				(node.label() == Some(label.as_str()))
+					.then(|| node.bounds())
+					.flatten()
+			})
+			.expect("retry remains available");
+		let pos = egui::pos2(
+			((bounds.x0 + bounds.x1) / 2.0) as f32,
+			((bounds.y0 + bounds.y1) / 2.0) as f32,
+		);
+		assert!(
+			(0.0..100.0).contains(&pos.y),
+			"retry is reachable after scrolling, cached={cached}: {pos:?}"
+		);
+		for pressed in [true, false] {
+			frame(vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::PointerButton {
+					pos,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]);
+		}
+		assert!(matches!(picked, Some(Err(GifAction::Retry(None)))));
 	}
 }

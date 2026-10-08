@@ -16,11 +16,15 @@ use std::{
 };
 
 struct Preview {
+	interactive: bool,
+	smoke: bool,
 	messaging: ui::MessagingUi,
 	state: client_core::State,
 	output: PathBuf,
 	thumbnail: bool,
 	frames: u8,
+	/// Wheel distance and pointer position injected over the first frames, for pages below the fold.
+	scroll: Option<(f32, egui::Pos2)>,
 	requested: bool,
 	screenshot: Option<std::sync::mpsc::Receiver<Arc<egui::ColorImage>>>,
 	writer: Option<JoinHandle<Result<(), String>>>,
@@ -31,6 +35,19 @@ struct Preview {
 impl eframe::App for Preview {
 	fn persist_egui_memory(&self) -> bool {
 		false
+	}
+
+	fn raw_input_hook(&mut self, _: &egui::Context, raw_input: &mut egui::RawInput) {
+		if let Some((distance, at)) = self.scroll.filter(|_| (1..=3).contains(&self.frames)) {
+			raw_input.events.push(egui::Event::PointerMoved(at));
+			raw_input.events.push(egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+				delta: egui::vec2(0.0, -distance / 3.0),
+				modifiers: egui::Modifiers::NONE,
+			});
+		}
 	}
 
 	fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
@@ -93,6 +110,19 @@ impl eframe::App for Preview {
 				ui::design::set_background_image(&ctx, image);
 				ui::design::apply(&ctx);
 			}
+		}
+		if self.interactive {
+			return;
+		}
+		if self.smoke {
+			self.frames += 1;
+			if self.frames >= 5 {
+				self.saved.store(true, Ordering::Release);
+				println!("Offline UI smoke run completed; no screenshot captured.");
+				ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+			}
+			ctx.request_repaint();
+			return;
 		}
 		if self.requested && self.writer.is_none() {
 			let screenshot = self
@@ -167,7 +197,8 @@ impl eframe::App for Preview {
 fn prime_profile(state: &mut client_core::State) {
 	if let Some(client_core::Command::EditProfile { user, request, .. }) = state.load_own_profile()
 	{
-		let profile = ui::synthetic_own_profile(state.user.as_ref().unwrap());
+		let mut profile = ui::synthetic_own_profile(state.user.as_ref().unwrap());
+		profile.bio = "✦ quiet corners ✦\nSynthetic preview with a four-pointed star.".into();
 		state.apply(client_core::Envelope {
 			generation: state.generation,
 			event: client_core::Event::ProfileEdited {
@@ -259,27 +290,72 @@ fn extension_fixture(
 	),
 	Box<dyn std::error::Error>,
 > {
+	let external = std::env::var_os("SEREIN_PREVIEW_PACKAGE")
+		.map(std::fs::read)
+		.transpose()?;
 	let bytes: &[u8] = match id {
-		"serein-ocean" => include_bytes!("../../../extensions/ocean.serein-extension"),
+		"custom-rpc" | "api-proxy" => external
+			.as_deref()
+			.ok_or("Set SEREIN_PREVIEW_PACKAGE to the external plugin package")?,
+		"serein-ocean" => {
+			include_bytes!("../../../extensions/themes/ocean.serein-extension")
+		}
 		"message-delete-protector" => include_bytes!(
-			"../../../examples/extensions/packages/message-delete-protector.serein-extension"
+			"../../../extensions/plugins/packages/message-delete-protector.serein-extension"
 		),
-		"serein-midnight" => include_bytes!("../../../extensions/midnight.serein-extension"),
-		"serein-rose" => include_bytes!("../../../extensions/rose.serein-extension"),
-		"serein-forest" => include_bytes!("../../../extensions/forest.serein-extension"),
-		"serein-latte" => include_bytes!("../../../extensions/latte.serein-extension"),
-		"golden-theme" => include_bytes!("../../../extensions/golden.serein-extension"),
-		"black-theme" => include_bytes!("../../../extensions/katana.serein-extension"),
-		"obsidian-theme" => include_bytes!("../../../extensions/obsidian.serein-extension"),
-		"teal-theme" => include_bytes!("../../../extensions/teal.serein-extension"),
-		"emoji-sticker-images" => include_bytes!(
-			"../../../examples/extensions/packages/emoji-sticker-images.serein-extension"
-		),
+		"serein-midnight" => {
+			include_bytes!("../../../extensions/themes/midnight.serein-extension")
+		}
+		"serein-rose" => {
+			include_bytes!("../../../extensions/themes/rose.serein-extension")
+		}
+		"serein-forest" => {
+			include_bytes!("../../../extensions/themes/forest.serein-extension")
+		}
+		"serein-latte" => {
+			include_bytes!("../../../extensions/themes/latte.serein-extension")
+		}
+		"golden-theme" => {
+			include_bytes!("../../../extensions/themes/golden.serein-extension")
+		}
+		"black-theme" => {
+			include_bytes!("../../../extensions/themes/katana.serein-extension")
+		}
+		"obsidian-theme" => {
+			include_bytes!("../../../extensions/themes/obsidian.serein-extension")
+		}
+		"teal-theme" => {
+			include_bytes!("../../../extensions/themes/teal.serein-extension")
+		}
 		_ => return Err("Unknown fixture extension".into()),
 	};
 	let package = extensions::parse_package(bytes)?;
 	let invocation = extensions::Invocation {
-		action: "activate".into(),
+		action: if id == "custom-rpc" {
+			"preview"
+		} else if id == "api-proxy" {
+			"open"
+		} else {
+			"activate"
+		}
+		.into(),
+		values: if id == "custom-rpc" {
+			[
+				("application-id", "123456789"),
+				("name", "Stargazing"),
+				("details", "Exploring the night sky"),
+				("state", "In the observatory"),
+				("button1-label", "Visit the observatory"),
+				("button1-url", "https://example.com/observatory"),
+				("party-current", "2"),
+				("party-max", "4"),
+			]
+			.into_iter()
+			.map(|(k, v)| (k.into(), v.into()))
+			.collect()
+		} else {
+			Default::default()
+		},
 		..Default::default()
 	};
 	let output = if package.theme.is_none() {
@@ -294,27 +370,27 @@ fn seed_catalog(extensions: &mut ui::ExtensionUi, themes: bool) {
 	if themes {
 		let packages: [(&[u8], &str); 6] = [
 			(
-				include_bytes!("../../../extensions/ocean.serein-extension"),
+				include_bytes!("../../../extensions/themes/ocean.serein-extension"),
 				"",
 			),
 			(
-				include_bytes!("../../../extensions/obsidian.serein-extension"),
+				include_bytes!("../../../extensions/themes/obsidian.serein-extension"),
 				"Obsidian violet surfaces and lavender accents.",
 			),
 			(
-				include_bytes!("../../../extensions/forest.serein-extension"),
+				include_bytes!("../../../extensions/themes/forest.serein-extension"),
 				"Calm forest greens and fresh leafy accents.",
 			),
 			(
-				include_bytes!("../../../extensions/latte.serein-extension"),
+				include_bytes!("../../../extensions/themes/latte.serein-extension"),
 				"Warm coffee tones and a creamy caramel accent.",
 			),
 			(
-				include_bytes!("../../../extensions/rose.serein-extension"),
+				include_bytes!("../../../extensions/themes/rose.serein-extension"),
 				"Soft rose accents.",
 			),
 			(
-				include_bytes!("../../../extensions/midnight.serein-extension"),
+				include_bytes!("../../../extensions/themes/midnight.serein-extension"),
 				"Deep, quiet surfaces.",
 			),
 		];
@@ -421,9 +497,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo --output=PATH.png [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|profile-card|member-tags|dm-tags|account|appearance|general|extensions|server|server-engagement|server-stickers] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--light]".into());
+		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|profile-card|member-tags|dm-tags|account|appearance|general|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--scroll=PIXELS] [--light] [--compact] [--transparency=0..100]".into());
 	}
-	let output = PathBuf::from(value("--output=").ok_or("Missing --output=PATH.png")?);
+	let smoke = args.iter().any(|arg| arg == "--smoke");
+	let interactive = args.iter().any(|arg| arg == "--interactive");
+	let output = PathBuf::from(
+		value("--output=")
+			.or((smoke || interactive).then_some(""))
+			.ok_or("Missing --output=PATH.png")?,
+	);
 	let page = value("--page=").unwrap_or("profile").to_owned();
 	if !matches!(
 		page.as_str(),
@@ -434,20 +516,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "slash-command-options"
 			| "profile-card"
 			| "member-tags"
+			| "markdown"
 			| "dm-tags"
 			| "account"
 			| "appearance"
 			| "general"
+			| "keybinds"
 			| "extensions"
 			| "server"
 			| "server-engagement"
 			| "server-stickers"
+			| "server-safety"
+			| "server-emoji"
+			| "server-members"
+			| "server-roles"
+			| "server-invites"
+			| "server-integrations"
+			| "server-audit-log"
 			| "forum" | "forum-post"
 			| "forum-gallery"
 			| "forum-settings"
 			| "friends"
 	) {
-		return Err("Page must be profile, profile-card, member-tags, dm-tags, account, appearance, general, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement or server-stickers".into());
+		return Err("Page must be profile, markdown, profile-card, member-tags, dm-tags, account, appearance, general, keybinds, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement, server-safety, server-emoji, server-stickers, server-members, server-roles, server-invites, server-integrations or server-audit-log".into());
 	}
 	let slash_command = value("--command=").unwrap_or("help").to_owned();
 	if !matches!(slash_command.as_str(), "help" | "weather") {
@@ -455,6 +546,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	}
 	let width: f32 = value("--width=").unwrap_or("1120").parse()?;
 	let height: f32 = value("--height=").unwrap_or("760").parse()?;
+	let scroll = value("--scroll=")
+		.map(str::parse::<f32>)
+		.transpose()?
+		.map(|distance| (distance, egui::pos2(width * 0.6, height * 0.5)));
 	if !(500.0..=1920.0).contains(&width) || !(520.0..=1200.0).contains(&height) {
 		return Err("Viewport must be 500-1920 by 520-1200".into());
 	}
@@ -467,6 +562,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		})
 		.unwrap_or_default();
 	let light = args.iter().any(|arg| arg == "--light");
+	let transparency = value("--transparency=").map(str::parse::<u8>).transpose()?;
+	if transparency.is_some_and(|amount| amount > 100) {
+		return Err("Transparency must be in 0..=100".into());
+	}
 	let activities = args.iter().any(|arg| arg == "--activities");
 	let friends_tab = value("--tab=").unwrap_or("online").to_owned();
 	let theme_editor = value("--theme-editor=").map(str::to_owned);
@@ -489,6 +588,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		Box::new(move |cc| {
 			ui::fonts::install(&cc.egui_ctx);
 			let _ = ui::emoji::install(&cc.egui_ctx);
+			ui::design::set_window_effects(transparency.is_some(), transparency.unwrap_or(0), 0);
 			ui::design::apply(&cc.egui_ctx);
 			cc.egui_ctx.set_theme(if light {
 				egui::ThemePreference::Light
@@ -507,6 +607,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			};
 			if activities {
 				prime_activities(&mut state);
+			}
+			if page == "markdown" {
+				let channel = state.selected.expect("synthetic markdown conversation");
+				let mut message = test_support::message(600, channel);
+				message.content =
+					include_str!("../../../crates/ui/tests/fixtures/prune-announcement.txt").into();
+				message.attachments.clear();
+				message.embeds.clear();
+				message.reactions = Some(vec![]);
+				state.timeline.clear();
+				state
+					.timeline
+					.seed_cache(vec![message])
+					.expect("valid synthetic markdown");
 			}
 			if page == "profile" {
 				prime_profile(&mut state);
@@ -544,6 +658,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				let _ = state.select(model::Id(26));
 			}
 			let mut messaging = ui::MessagingUi::default();
+			if args.iter().any(|arg| arg == "--compact") {
+				messaging.apply_reading_preferences(
+					&cc.egui_ctx,
+					model::ReadingPreferences {
+						compact_messages: true,
+						..messaging.reading_preferences
+					},
+				);
+			}
+			messaging.transparency_blur = transparency.is_some();
+			messaging.transparency = transparency.unwrap_or(0);
 			messaging.tray_available = platform::tray::supported();
 			messaging.startup_available = platform::startup::available();
 			messaging.startup_enabled = args.iter().any(|arg| arg == "--startup-enabled");
@@ -563,7 +688,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					&[model::Id(2603)],
 					Some("Faster startup on older phones"),
 				);
-			} else if matches!(page.as_str(), "member-tags" | "dm-tags") {
+			} else if matches!(page.as_str(), "member-tags" | "dm-tags" | "markdown") {
 				// State is primed above; the normal offline messaging surface renders the list.
 			} else if page == "slash-commands" {
 				messaging.preview_slash_commands();
@@ -609,17 +734,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					}))],
 				});
 				messaging.preview_profile(user);
-			} else if let Some((package, _invocation, result)) = fixture {
+			} else if let Some((package, invocation, result)) = fixture {
 				prime_extension_chat(&mut state);
 				if let Some(theme) = package.theme.as_ref() {
 					ui::design::set_extension_theme(Some(theme));
 					ui::design::apply(&cc.egui_ctx);
 				}
 				if let Some(output) = result {
-					messaging.image_sharing_enabled = output.image_sharing;
-					if output.image_sharing {
-						test_support::seed_stickers(&mut state);
-						messaging.preview_sticker_picker();
+					if matches!(package.manifest.id.as_str(), "custom-rpc" | "api-proxy") {
+						messaging.extensions.set_entries(vec![ui::ExtensionEntry {
+							description: package.manifest.name.clone(),
+							preview: None,
+							theme_preview: None,
+							cover_image: None,
+							local_theme: false,
+							manifest: package.manifest.clone(),
+							reviewed: true,
+							sha256: String::new(),
+							download_bytes: 0,
+							enabled: true,
+							cleanup_pending: false,
+							update_available: false,
+							update_manifest: None,
+						}]);
+						messaging.extensions.present_output(
+							package.manifest.id.clone(),
+							invocation,
+							ui::ExtensionContext::panel(&state),
+							output.clone(),
+							&state,
+						);
 					}
 					if output.preserve_deleted_messages {
 						let channel = state.selected.unwrap();
@@ -636,13 +780,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				server_settings_demo::open(&mut state, &mut messaging);
 				if page == "server-engagement" {
 					messaging.preview_server_engagement();
-				} else if page == "server-stickers"
+				} else if page == "server-safety" {
+					messaging.preview_server_safety();
+				} else if page != "server"
 					&& let Some(client_core::Command::ServerAdmin {
 						guild,
 						request,
 						action,
-					}) = messaging.preview_server_admin(&mut state, model::Id(10), "stickers")
-				{
+					}) = messaging.preview_server_admin(
+						&mut state,
+						model::Id(10),
+						page.trim_start_matches("server-"),
+					) {
 					let event =
 						server_settings_demo::execute_admin(&state, guild, request, *action);
 					state.apply(client_core::Envelope {
@@ -669,7 +818,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					if theme_preview {
 						prime_extension_chat(&mut state);
 						let package = extensions::parse_package(include_bytes!(
-							"../../../extensions/katana.serein-extension"
+							"../../../extensions/themes/katana.serein-extension"
 						))?;
 						messaging.extensions.receive_theme_edit(
 							Box::new(package),
@@ -681,7 +830,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 					}
 					if let Some(tab) = &theme_editor {
 						let mut package = extensions::parse_package(include_bytes!(
-							"../../../extensions/ocean.serein-extension"
+							"../../../extensions/themes/ocean.serein-extension"
 						))
 						.expect("valid theme fixture");
 						package.manifest.name = "My ocean".into();
@@ -709,11 +858,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				}
 			}
 			Ok(Box::new(Preview {
+				interactive,
+				smoke,
 				messaging,
 				state,
 				output,
 				thumbnail,
 				frames: 0,
+				scroll,
 				requested: false,
 				screenshot: None,
 				writer: None,
@@ -722,8 +874,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			}))
 		}),
 	)?;
-	if !saved.load(Ordering::Acquire) {
+	if !interactive && !saved.load(Ordering::Acquire) {
 		return Err("No screenshot saved".into());
 	}
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	#[test]
+	fn non_theme_catalog_loads_community_preview() {
+		super::seed_catalog(&mut ui::ExtensionUi::default(), false);
+	}
 }

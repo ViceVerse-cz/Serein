@@ -121,13 +121,16 @@ pub enum Icon {
 	SortArrows,
 	Thread,
 	DeviceMobile,
+	/// Stacked servers, for mutual-server counts.
+	Servers,
+	Fullscreen,
 	/// Horizontally mirrored reply glyph from the shared atlas.
 	Forward,
 }
 
 impl Icon {
 	/// Canonical atlas cells; Forward reuses the mirrored Reply cell.
-	pub const ALL: [Icon; 105] = [
+	pub const ALL: [Icon; 107] = [
 		Icon::ChevronDown,
 		Icon::ChevronRight,
 		Icon::Gear,
@@ -233,6 +236,8 @@ impl Icon {
 		Icon::SortArrows,
 		Icon::Thread,
 		Icon::DeviceMobile,
+		Icon::Servers,
+		Icon::Fullscreen,
 	];
 	/// Upstream icon name recorded in `index.tsv`.
 	fn asset(self) -> &'static str {
@@ -342,6 +347,8 @@ impl Icon {
 			Icon::Sliders => "sliders-horizontal",
 			Icon::SortArrows => "arrows-down-up",
 			Icon::DeviceMobile => "device-mobile",
+			Icon::Servers => "hard-drives",
+			Icon::Fullscreen => "corners-out",
 		}
 	}
 	fn cell(self) -> usize {
@@ -443,6 +450,34 @@ pub fn channel(kind: u8) -> Icon {
 
 /// Square icon button that highlights on hover and exposes `label` to accessibility.
 pub fn button(ui: &mut egui::Ui, icon: Icon, size: f32, label: &str) -> Response {
+	button_with_tooltip(ui, icon, size, label, false)
+}
+
+/// Message toolbar labels appear as soon as the pointer reaches the action.
+pub(crate) fn button_immediate(ui: &mut egui::Ui, icon: Icon, size: f32, label: &str) -> Response {
+	button_with_tooltip(ui, icon, size, label, true)
+}
+
+pub(crate) fn immediate_tooltip(response: Response, label: &str) -> Response {
+	if (response.hovered() || response.has_focus())
+		&& !response.ctx.input(|input| input.pointer.any_down())
+		&& !egui::Popup::is_any_open(&response.ctx)
+	{
+		egui::Tooltip::for_widget(&response).show(|ui| {
+			ui.label(label);
+		});
+	}
+	response
+}
+
+fn button_with_tooltip(
+	ui: &mut egui::Ui,
+	icon: Icon,
+	size: f32,
+	label: &str,
+	immediate: bool,
+) -> Response {
+	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
 	if response.hovered() || response.has_focus() {
@@ -456,12 +491,17 @@ pub fn button(ui: &mut egui::Ui, icon: Icon, size: f32, label: &str) -> Response
 		colors.muted
 	};
 	paint(ui.painter(), icon, rect.shrink(size * 0.2), color);
-	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), label));
-	response.on_hover_text(label)
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), &label));
+	if immediate {
+		immediate_tooltip(response, &label)
+	} else {
+		response.on_hover_text(&label)
+	}
 }
 
 /// Toggleable variant: `active` keeps the icon in the strong text colour.
 pub fn toggle(ui: &mut egui::Ui, icon: Icon, size: f32, active: bool, label: &str) -> Response {
+	let label = crate::i18n::translate_if_key(label);
 	let colors = design::palette(ui);
 	let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
 	if response.hovered() || response.has_focus() {
@@ -474,9 +514,9 @@ pub fn toggle(ui: &mut egui::Ui, icon: Icon, size: f32, active: bool, label: &st
 	};
 	paint(ui.painter(), icon, rect.shrink(size * 0.2), color);
 	response.widget_info(|| {
-		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), active, label)
+		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), active, &label)
 	});
-	response.on_hover_text(label)
+	response.on_hover_text(&label)
 }
 
 /// Inline glyph used beside labels (channel kinds, section headers).
