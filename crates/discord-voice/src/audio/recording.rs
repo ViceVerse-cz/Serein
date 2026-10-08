@@ -139,7 +139,7 @@ impl Recorder {
 		let mute_changed = self.gate.muted.swap(muted, Ordering::AcqRel) != muted;
 		let enabled_changed = self.gate.input_enabled.swap(enabled, Ordering::AcqRel) != enabled;
 		if mute_changed || enabled_changed {
-			self.gate.media_generation.fetch_add(1, Ordering::AcqRel);
+			self.gate.capture_generation.fetch_add(1, Ordering::AcqRel);
 			self.thread.unpark();
 		}
 	}
@@ -195,7 +195,7 @@ fn capture(
 	let mut next_frame = started + FRAME_TIME;
 	let mut callbacks = gate.input_callbacks.load(Ordering::Acquire);
 	let mut last_callback = started;
-	let mut generation = gate.media_generation.load(Ordering::Acquire);
+	let mut generation = gate.capture_generation.load(Ordering::Acquire);
 	let mut sensitivity = crate::activity::InputGate::default();
 	let outcome = (|| {
 		publish.send_modify(|s| s.state = State::Recording);
@@ -216,7 +216,7 @@ fn capture(
 			{
 				return Err("Microphone stopped; select a working microphone and record again");
 			}
-			let current_generation = gate.media_generation.load(Ordering::Acquire);
+			let current_generation = gate.capture_generation.load(Ordering::Acquire);
 			if generation != current_generation || gate.echo_reset.swap(false, Ordering::AcqRel) {
 				generation = current_generation;
 				for _ in 0..8 {
@@ -242,7 +242,7 @@ fn capture(
 			} else {
 				frame.fill(0.0);
 			}
-			if !gate.capture() || gate.media_generation.load(Ordering::Acquire) != generation {
+			if !gate.capture() || gate.capture_generation.load(Ordering::Acquire) != generation {
 				frame.fill(0.0);
 			}
 			encoded.push(&frame)?;
@@ -432,6 +432,22 @@ mod tests {
 		};
 		recorder.set_controls(false, true);
 		assert!(gate.capture());
+		let (send, mut received) = rtrb::RingBuffer::new(8);
+		let mut capture = super::super::Capture::new(48_000, send);
+		for (muted, enabled) in [(true, true), (false, false)] {
+			capture.process(&[0.75_f32; 100], 1, &gate);
+			assert!(received.pop().is_err());
+			let generation = gate.capture_generation.load(Ordering::Acquire);
+			recorder.set_controls(muted, enabled);
+			recorder.set_controls(false, true);
+			assert!(gate.capture());
+			assert_ne!(gate.capture_generation.load(Ordering::Acquire), generation);
+			// A complete mute/PTT transition between callbacks must erase old PCM.
+			capture.process(&[0.25_f32; 961], 1, &gate);
+			assert_eq!(received.pop().unwrap(), [0.25; 960]);
+			assert!(received.pop().is_err());
+		}
+		assert_eq!(gate.playback_generation.load(Ordering::Acquire), 0);
 		recorder.set_controls(true, false);
 		assert!(gate.muted.load(Ordering::Acquire));
 		assert!(!gate.input_enabled.load(Ordering::Acquire));
