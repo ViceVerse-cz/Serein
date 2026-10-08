@@ -3762,7 +3762,34 @@ impl Desktop {
 						}
 					})
 				}
-				Command::Voice(_) | Command::CancelProfile | Command::CancelSearch => return,
+				Command::Voice(_)
+				| Command::CancelProfile
+				| Command::CancelSearch
+				| Command::CancelMentions => return,
+				Command::Mentions { before, request } => {
+					let mut messages: Vec<_> = [
+						"A direct mention for you",
+						"Your role was mentioned",
+						"An @everyone announcement",
+					]
+					.into_iter()
+					.enumerate()
+					.map(|(index, content)| {
+						let mut message =
+							test_support::message(90_000 - index as u64, model::Id(20));
+						message.content = content.into();
+						message.attachments.clear();
+						message.embeds.clear();
+						message
+					})
+					.filter(|message| before.is_none_or(|before| message.id < before))
+					.collect();
+					messages.shrink_to_fit();
+					Event::Mentions {
+						request,
+						result: Ok(messages),
+					}
+				}
 				Command::ThreadStarter {
 					thread,
 					parent,

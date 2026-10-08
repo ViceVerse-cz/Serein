@@ -1,5 +1,19 @@
 # Discord compatibility — checked 2026-09-10
 
+## Mentions inbox — October 8, 2026
+
+Inbox reads one on-demand page from the unofficial
+[List Recent Mentions](https://docs.discord.food/resources/user#list-recent-mentions)
+normal-account route. Requests explicitly include role and everyone/here mentions,
+use a 25-message limit and paginate with `before`. The service documents a seven-day
+window; Serein displays only returned messages in known accessible conversations and
+does not claim an exhaustive historical archive. One page is retained in session memory
+(25 messages, at most 1 MiB; wire replies capped at 2 MiB). Older pages replace the
+current page. Refresh/retry are explicit; there is no background polling or persistence.
+Opening a result uses the existing permission-checked message-history navigation.
+Closing, account changes, disconnects and relevant content/permission invalidation clear
+the snapshot. Source research and local HTTP/UI fixtures do not prove live acceptance.
+
 ## Profile boards — October 7, 2026
 
 The full profile reads game widgets from the existing on-demand profile response,
