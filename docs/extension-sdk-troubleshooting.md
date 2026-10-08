@@ -139,16 +139,18 @@ Use a small `dispatch_typed` test with a synthetic action/input to check your
 handler's decoding and result. The [tutorial test](../examples/extensions/README.md#test-and-develop-locally)
 shows this without raw pointers. It does not exercise Wasm fuel or host grants.
 
-For unchanged repository examples, build their Wasm and run the host sandbox check:
+For unchanged repository examples and catalog plugins, build their Wasm and run
+the host sandbox check:
 
 ```powershell
 cargo build --manifest-path examples/extensions/Cargo.toml --workspace --locked --release --target wasm32-unknown-unknown
-cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release
+cargo build --manifest-path extensions/Cargo.toml --workspace --locked --release --target wasm32-unknown-unknown
+cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release extensions/target/wasm32-unknown-unknown/release
 ```
 
-If `CARGO_TARGET_DIR` is set, pass its actual `wasm32-unknown-unknown/release`
-directory instead. `sdk_check` expects the repository examples' original behavior;
-it is not a generic runner for a modified Hello Context plugin. For your plugin,
+If you override `CARGO_TARGET_DIR`, replace both paths with the actual Wasm output
+directories used for those builds. `sdk_check` expects the repository examples'
+original behavior; it is not a generic runner for a modified Hello Context plugin. For your plugin,
 follow the [build/import steps](../examples/extensions/README.md#build-and-package)
 and keep `--demo` when launching the app. Native tests, offline Wasm checks and
 demo behavior are separate evidence; none proves live Discord compatibility.
