@@ -1,6 +1,6 @@
 //! Native global voice bindings, using the desktop portal on Wayland.
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState, hotkey::HotKey};
-use model::{KeyChord, KeybindAction, Keybinds};
+use model::{KeyChord, KeybindAction, Keybinds, keybinds::is_mouse_button};
 #[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -19,13 +19,15 @@ const MODIFIER_REQUIRED: &str = "Add Ctrl, Alt, Shift, or Command to use a voice
 const PUSH_TO_TALK: usize = 0;
 const TOGGLE_MUTE: usize = 1;
 const TOGGLE_DEAFEN: usize = 2;
+const PUSH_TO_MUTE: usize = 3;
 
 static NATIVE_INPUTS: Mutex<Vec<Weak<NativeInput>>> = Mutex::new(Vec::new());
 
 #[derive(Default)]
 struct NativeState {
-	registered: [Option<u32>; 3],
+	registered: [Option<u32>; 4],
 	ptt_down: bool,
+	ptm_down: bool,
 	pending_toggles: u8,
 }
 
@@ -36,25 +38,35 @@ struct NativeInput {
 
 impl NativeInput {
 	fn handle(&self, event: GlobalHotKeyEvent) {
-		let mut state = self.state.lock().expect("native hotkey state poisoned");
-		let index = state
+		let index = self
+			.state
+			.lock()
+			.expect("native hotkey state poisoned")
 			.registered
 			.iter()
 			.position(|id| *id == Some(event.id()));
-		let handled = match (index, event.state()) {
-			(Some(PUSH_TO_TALK), HotKeyState::Pressed) => {
-				state.ptt_down = true;
+		if let Some(index) = index {
+			self.apply(index, event.state() == HotKeyState::Pressed);
+		}
+	}
+
+	/// Folds one press or release of the binding in slot `index` and wakes the host.
+	fn apply(&self, index: usize, pressed: bool) {
+		let mut state = self.state.lock().expect("native hotkey state poisoned");
+		let handled = match (index, pressed) {
+			(PUSH_TO_TALK, _) => {
+				state.ptt_down = pressed;
 				true
 			}
-			(Some(PUSH_TO_TALK), HotKeyState::Released) => {
-				state.ptt_down = false;
+			(PUSH_TO_MUTE, _) => {
+				state.ptm_down = pressed;
 				true
 			}
-			(Some(TOGGLE_MUTE), HotKeyState::Pressed) => {
+			(TOGGLE_MUTE, true) => {
 				state.pending_toggles ^= 1;
 				true
 			}
-			(Some(TOGGLE_DEAFEN), HotKeyState::Pressed) => {
+			(TOGGLE_DEAFEN, true) => {
 				state.pending_toggles ^= 2;
 				true
 			}
@@ -93,6 +105,13 @@ impl NativeInput {
 			.expect("native hotkey state poisoned")
 			.ptt_down
 	}
+
+	fn ptm_down(&self) -> bool {
+		self.state
+			.lock()
+			.expect("native hotkey state poisoned")
+			.ptm_down
+	}
 }
 
 fn dispatch_native_event(event: GlobalHotKeyEvent) {
@@ -109,10 +128,12 @@ fn dispatch_native_event(event: GlobalHotKeyEvent) {
 
 pub struct Hotkeys {
 	manager: Option<GlobalHotKeyManager>,
-	registered: [Option<HotKey>; 3],
-	bindings: Option<[KeyChord; 3]>,
+	registered: [Option<HotKey>; 4],
+	bindings: Option<[KeyChord; 4]>,
 	native: Arc<NativeInput>,
 	status: &'static str,
+	#[cfg(target_os = "windows")]
+	mouse: Option<mouse::Poller>,
 	#[cfg(target_os = "linux")]
 	portal: Option<tokio::task::JoinHandle<()>>,
 	#[cfg(target_os = "linux")]
@@ -121,6 +142,8 @@ pub struct Hotkeys {
 	portal_registered: Arc<AtomicU8>,
 	#[cfg(target_os = "linux")]
 	portal_ptt_down: Arc<AtomicBool>,
+	#[cfg(target_os = "linux")]
+	portal_ptm_down: Arc<AtomicBool>,
 	#[cfg(target_os = "linux")]
 	portal_status: Arc<AtomicU8>,
 	#[cfg(target_os = "linux")]
@@ -152,10 +175,12 @@ impl Hotkeys {
 		};
 		Self {
 			manager,
-			registered: [None; 3],
+			registered: [None; 4],
 			bindings: None,
 			native,
 			status,
+			#[cfg(target_os = "windows")]
+			mouse: None,
 			#[cfg(target_os = "linux")]
 			portal: None,
 			#[cfg(target_os = "linux")]
@@ -164,6 +189,8 @@ impl Hotkeys {
 			portal_registered: Arc::new(AtomicU8::new(0)),
 			#[cfg(target_os = "linux")]
 			portal_ptt_down: Arc::new(AtomicBool::new(false)),
+			#[cfg(target_os = "linux")]
+			portal_ptm_down: Arc::new(AtomicBool::new(false)),
 			#[cfg(target_os = "linux")]
 			portal_status: Arc::new(AtomicU8::new(0)),
 			#[cfg(target_os = "linux")]
@@ -177,6 +204,7 @@ impl Hotkeys {
 				keybinds.chord(KeybindAction::PushToTalk).clone(),
 				keybinds.chord(KeybindAction::ToggleMute).clone(),
 				keybinds.chord(KeybindAction::ToggleDeafen).clone(),
+				keybinds.chord(KeybindAction::PushToMute).clone(),
 			]
 		});
 		if self.bindings == next {
@@ -194,6 +222,7 @@ impl Hotkeys {
 			self.portal_pending = Arc::new(AtomicU8::new(0));
 			self.portal_registered = Arc::new(AtomicU8::new(0));
 			self.portal_ptt_down = Arc::new(AtomicBool::new(false));
+			self.portal_ptm_down = Arc::new(AtomicBool::new(false));
 			self.portal_status = Arc::new(AtomicU8::new(1));
 		}
 		let Some(next) = next else {
@@ -205,6 +234,7 @@ impl Hotkeys {
 			let pending = self.portal_pending.clone();
 			let registered = self.portal_registered.clone();
 			let ptt_down = self.portal_ptt_down.clone();
+			let ptm_down = self.portal_ptm_down.clone();
 			let status = self.portal_status.clone();
 			let wake = self.wake.clone();
 			self.portal = Some(_runtime.spawn(async move {
@@ -214,6 +244,7 @@ impl Hotkeys {
 						pending,
 						registered.clone(),
 						ptt_down.clone(),
+						ptm_down.clone(),
 						status.clone(),
 						wake.clone(),
 					)
@@ -222,6 +253,7 @@ impl Hotkeys {
 				);
 				registered.store(0, Ordering::Relaxed);
 				ptt_down.store(false, Ordering::Relaxed);
+				ptm_down.store(false, Ordering::Relaxed);
 				if !no_shortcuts {
 					status.store(3, Ordering::Relaxed);
 				}
@@ -236,12 +268,21 @@ impl Hotkeys {
 		let mut failed = false;
 		let mut modifier_required = false;
 		for (index, chord) in next.iter().enumerate() {
+			// An unassigned push-to-mute binding is simply absent.
+			if chord.key.is_empty() && index == PUSH_TO_MUTE {
+				continue;
+			}
 			if !chord.is_valid() {
 				failed = true;
 				continue;
 			}
+			if is_mouse_button(&chord.key) {
+				// Windows polls mouse bindings below; elsewhere they stay focused-only.
+				failed |= cfg!(not(target_os = "windows"));
+				continue;
+			}
 			if chord.modifiers == 0 && !is_standalone_global_key(&chord.key) {
-				modifier_required |= index != PUSH_TO_TALK;
+				modifier_required |= !matches!(index, PUSH_TO_TALK | PUSH_TO_MUTE);
 				continue;
 			}
 			let Some(hotkey) = native_hotkey(chord) else {
@@ -259,6 +300,10 @@ impl Hotkeys {
 				}
 			}
 		}
+		#[cfg(target_os = "windows")]
+		{
+			self.mouse = mouse::Poller::start(&next, self.native.clone());
+		}
 		if failed {
 			self.status = INVALID;
 		} else if modifier_required {
@@ -269,6 +314,9 @@ impl Hotkeys {
 	}
 
 	fn unregister_all(&mut self) {
+		// Stop the poller first so it cannot publish a stale press after the clear.
+		#[cfg(target_os = "windows")]
+		drop(self.mouse.take());
 		self.native.clear();
 		if let Some(manager) = &self.manager {
 			for hotkey in &mut self.registered {
@@ -277,7 +325,7 @@ impl Hotkeys {
 				}
 			}
 		} else {
-			self.registered = [None; 3];
+			self.registered = [None; 4];
 		}
 	}
 
@@ -291,10 +339,15 @@ impl Hotkeys {
 
 	/// Bits for mute/deafen bindings currently owned by the native global registrar.
 	pub fn global_toggle_mask(&self) -> u8 {
-		let mask = (self.registered[TOGGLE_MUTE].is_some() as u8)
+		#[cfg_attr(not(target_os = "windows"), allow(unused_mut))]
+		let mut mask = (self.registered[TOGGLE_MUTE].is_some() as u8)
 			| ((self.registered[TOGGLE_DEAFEN].is_some() as u8) << 1);
+		#[cfg(target_os = "windows")]
+		if let Some(poller) = &self.mouse {
+			mask |= poller.toggle_mask();
+		}
 		#[cfg(target_os = "linux")]
-		return mask | (self.portal_registered.load(Ordering::Relaxed) >> 1);
+		return mask | ((self.portal_registered.load(Ordering::Relaxed) >> 1) & 3);
 		#[cfg(not(target_os = "linux"))]
 		mask
 	}
@@ -303,6 +356,14 @@ impl Hotkeys {
 		let native = self.native.ptt_down();
 		#[cfg(target_os = "linux")]
 		return native || self.portal_ptt_down.load(Ordering::Relaxed);
+		#[cfg(not(target_os = "linux"))]
+		native
+	}
+
+	pub fn push_to_mute_down(&self) -> bool {
+		let native = self.native.ptm_down();
+		#[cfg(target_os = "linux")]
+		return native || self.portal_ptm_down.load(Ordering::Relaxed);
 		#[cfg(not(target_os = "linux"))]
 		native
 	}
@@ -341,10 +402,11 @@ impl Drop for Hotkeys {
 
 #[cfg(target_os = "linux")]
 async fn portal(
-	bindings: [KeyChord; 3],
+	bindings: [KeyChord; 4],
 	pending: Arc<AtomicU8>,
 	registered: Arc<AtomicU8>,
 	ptt_down: Arc<AtomicBool>,
+	ptm_down: Arc<AtomicBool>,
 	status: Arc<AtomicU8>,
 	wake: Arc<dyn Fn() + Send + Sync>,
 ) -> Result<bool, ashpd::Error> {
@@ -354,6 +416,7 @@ async fn portal(
 		("push-to-talk", "Serein push to talk"),
 		("mute", "Toggle Serein microphone mute"),
 		("deafen", "Toggle Serein deafen"),
+		("push-to-mute", "Serein push to mute"),
 	]
 	.into_iter()
 	.zip(bindings.iter())
@@ -362,8 +425,11 @@ async fn portal(
 			.map(|trigger| NewShortcut::new(id, description).preferred_trigger(trigger.as_str()))
 	})
 	.collect();
-	let modifier_required = bindings[TOGGLE_MUTE..].iter().any(|chord| {
-		chord.is_valid() && chord.modifiers == 0 && !is_standalone_global_key(&chord.key)
+	let modifier_required = bindings[TOGGLE_MUTE..=TOGGLE_DEAFEN].iter().any(|chord| {
+		chord.is_valid()
+			&& chord.modifiers == 0
+			&& !is_mouse_button(&chord.key)
+			&& !is_standalone_global_key(&chord.key)
 	});
 	if shortcuts.is_empty() {
 		status.store(if modifier_required { 4 } else { 3 }, Ordering::Relaxed);
@@ -388,6 +454,7 @@ async fn portal(
 			"push-to-talk" => 1,
 			"mute" => 2,
 			"deafen" => 4,
+			"push-to-mute" => 8,
 			_ => 0,
 		}
 	});
@@ -410,6 +477,7 @@ async fn portal(
 				let Some(event) = event else { return Ok(false); };
 				match event.shortcut_id() {
 					"push-to-talk" => ptt_down.store(true, Ordering::Relaxed),
+					"push-to-mute" => ptm_down.store(true, Ordering::Relaxed),
 					"mute" => { pending.fetch_xor(1, Ordering::Relaxed); }
 					"deafen" => { pending.fetch_xor(2, Ordering::Relaxed); }
 					_ => continue,
@@ -418,10 +486,12 @@ async fn portal(
 			}
 			event = deactivated.next() => {
 				let Some(event) = event else { return Ok(false); };
-				if event.shortcut_id() == "push-to-talk" {
-					ptt_down.store(false, Ordering::Relaxed);
-					wake();
+				match event.shortcut_id() {
+					"push-to-talk" => ptt_down.store(false, Ordering::Relaxed),
+					"push-to-mute" => ptm_down.store(false, Ordering::Relaxed),
+					_ => continue,
 				}
+				wake();
 			}
 		}
 	}
@@ -579,6 +649,112 @@ fn code_name(name: &str) -> Option<&'static str> {
 	}
 }
 
+/// Windows has no global mouse-button hotkeys, so the physical button state is polled instead.
+#[cfg(target_os = "windows")]
+mod mouse {
+	use super::{KeyChord, NativeInput, TOGGLE_DEAFEN, TOGGLE_MUTE};
+	use model::keybinds::{ALT, CTRL, PRIMARY, SHIFT};
+	use std::sync::{
+		Arc,
+		atomic::{AtomicBool, Ordering},
+	};
+	use std::time::Duration;
+	use windows::Win32::UI::Input::KeyboardAndMouse::{
+		GetAsyncKeyState, VIRTUAL_KEY, VK_CONTROL, VK_MBUTTON, VK_MENU, VK_SHIFT, VK_XBUTTON1,
+		VK_XBUTTON2,
+	};
+
+	/// Well under an ordinary click, which stays down for tens of milliseconds.
+	const PERIOD: Duration = Duration::from_millis(10);
+
+	/// Runs only while a global voice action is bound to a mouse button.
+	pub(super) struct Poller {
+		stop: Arc<AtomicBool>,
+		thread: Option<std::thread::JoinHandle<()>>,
+		toggles: u8,
+	}
+
+	impl Poller {
+		pub(super) fn start(bindings: &[KeyChord; 4], native: Arc<NativeInput>) -> Option<Self> {
+			let watched: Vec<_> = bindings
+				.iter()
+				.enumerate()
+				.filter_map(|(index, chord)| Some((index, button(&chord.key)?, chord.modifiers)))
+				.collect();
+			if watched.is_empty() {
+				return None;
+			}
+			let toggles = watched.iter().fold(0, |mask, (index, ..)| {
+				mask | match *index {
+					TOGGLE_MUTE => 1,
+					TOGGLE_DEAFEN => 2,
+					_ => 0,
+				}
+			});
+			let stop = Arc::new(AtomicBool::new(false));
+			let stopped = stop.clone();
+			let thread = std::thread::Builder::new()
+				.name("serein-mouse-keybinds".into())
+				.spawn(move || {
+					let mut held = vec![false; watched.len()];
+					while !stopped.load(Ordering::Relaxed) {
+						for ((index, button, modifiers), held) in watched.iter().zip(&mut held) {
+							let down = key_down(*button) && modifiers_match(*modifiers);
+							if down != *held {
+								*held = down;
+								native.apply(*index, down);
+							}
+						}
+						std::thread::sleep(PERIOD);
+					}
+				})
+				.ok()?;
+			Some(Self {
+				stop,
+				thread: Some(thread),
+				toggles,
+			})
+		}
+
+		/// Mute/deafen bits this poller owns, so focused input does not toggle them twice.
+		pub(super) fn toggle_mask(&self) -> u8 {
+			self.toggles
+		}
+	}
+
+	impl Drop for Poller {
+		fn drop(&mut self) {
+			self.stop.store(true, Ordering::Relaxed);
+			if let Some(thread) = self.thread.take() {
+				let _ = thread.join();
+			}
+		}
+	}
+
+	fn button(name: &str) -> Option<VIRTUAL_KEY> {
+		match name {
+			"MouseMiddle" => Some(VK_MBUTTON),
+			"MouseExtra1" => Some(VK_XBUTTON1),
+			"MouseExtra2" => Some(VK_XBUTTON2),
+			_ => None,
+		}
+	}
+
+	/// Mirrors egui's `matches_logically` for focused input: extra Shift or Alt still
+	/// match, while Ctrl must agree so Ctrl+button stays a distinct binding.
+	fn modifiers_match(modifiers: u8) -> bool {
+		key_down(VK_CONTROL) == (modifiers & (PRIMARY | CTRL) != 0)
+			&& (modifiers & SHIFT == 0 || key_down(VK_SHIFT))
+			&& (modifiers & ALT == 0 || key_down(VK_MENU))
+	}
+
+	#[allow(unsafe_code)]
+	fn key_down(key: VIRTUAL_KEY) -> bool {
+		// SAFETY: GetAsyncKeyState only reads global input state for a virtual-key code.
+		unsafe { GetAsyncKeyState(i32::from(key.0)) < 0 }
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -604,6 +780,29 @@ mod tests {
 		assert!(native_hotkey(&KeyChord::new("F12", 0)).is_some());
 		assert!(native_hotkey(&KeyChord::new("F13", 0)).is_some());
 		assert!(native_hotkey(&KeyChord::new("F24", 0)).is_some());
+		// Mouse buttons have no native hotkey code.
+		assert!(native_hotkey(&KeyChord::new("MouseExtra1", 0)).is_none());
+	}
+
+	#[test]
+	fn push_to_mute_follows_press_and_release() {
+		let input = NativeInput {
+			state: Mutex::new(NativeState::default()),
+			wake: Arc::new(|| {}),
+		};
+		input.set_registered(PUSH_TO_MUTE, Some(7));
+		input.handle(GlobalHotKeyEvent {
+			id: 7,
+			state: HotKeyState::Pressed,
+		});
+		assert!(input.ptm_down());
+		assert!(!input.ptt_down());
+		input.handle(GlobalHotKeyEvent {
+			id: 7,
+			state: HotKeyState::Released,
+		});
+		assert!(!input.ptm_down());
+		assert_eq!(input.take_toggles(), 0);
 	}
 
 	#[test]

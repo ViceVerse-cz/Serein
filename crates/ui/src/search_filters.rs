@@ -543,9 +543,14 @@ fn user_picker(
 			&crate::i18n::translate("search-filters-user-picker-choose-a-user"),
 		))
 		.show_ui(ui, |ui| {
-			ui.add(egui::TextEdit::singleline(needle).char_limit(64).hint_text(
-				crate::i18n::translate("search-filters-user-picker-search-users"),
-			));
+			ui.add(
+				egui::TextEdit::singleline(needle)
+					.align(egui::Align2::LEFT_CENTER)
+					.char_limit(64)
+					.hint_text(crate::i18n::translate(
+						"search-filters-user-picker-search-users",
+					)),
+			);
 			let mut count = 0;
 			for user in users
 				.iter()
@@ -584,9 +589,14 @@ fn channel_picker(
 			&crate::i18n::translate("search-filters-channel-picker-choose-a-channel"),
 		))
 		.show_ui(ui, |ui| {
-			ui.add(egui::TextEdit::singleline(needle).char_limit(64).hint_text(
-				crate::i18n::translate("search-filters-channel-picker-search-channels"),
-			));
+			ui.add(
+				egui::TextEdit::singleline(needle)
+					.align(egui::Align2::LEFT_CENTER)
+					.char_limit(64)
+					.hint_text(crate::i18n::translate(
+						"search-filters-channel-picker-search-channels",
+					)),
+			);
 			let needle = needle.to_lowercase();
 			let mut count = 0;
 			egui::ScrollArea::vertical()
@@ -777,6 +787,7 @@ impl Draft {
 							ui.label(label);
 							ui.add(
 								egui::TextEdit::singleline(date)
+									.align(egui::Align2::LEFT_CENTER)
 									.hint_text(crate::i18n::translate(
 										"search-filters-show-yyyy-mm-dd",
 									))

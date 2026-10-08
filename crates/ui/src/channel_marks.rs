@@ -1,13 +1,14 @@
 use crate::design::Palette;
 use crate::icons::{self, Icon};
 use client_core::ChannelAccess;
+use egui::emath::GuiRounding;
 use egui::{Color32, Pos2, Rect, Vec2};
 
 const DIM: f32 = 0.6;
 const EYE: f32 = 22.0;
 const SCROLL: f32 = 16.0;
 const LOCK: f32 = 8.0;
-const LOCK_HALO: f32 = 3.5;
+const LOCK_GAP: f32 = 1.5;
 const LOCK_U: f32 = 19.5 / 24.0;
 const LOCK_V: f32 = 6.25 / 24.0;
 
@@ -36,17 +37,38 @@ pub(crate) fn trailing(access: ChannelAccess) -> f32 {
 	if access.hidden() { EYE + SCROLL } else { 0.0 }
 }
 
+pub(crate) fn paint_glyph(
+	painter: &egui::Painter,
+	access: ChannelAccess,
+	icon: Icon,
+	glyph: Rect,
+	color: Color32,
+) {
+	if access.limited() {
+		// Leave the backdrop visible around the lock instead of painting a surface over it.
+		let cutout = lock_badge(glyph)
+			.expand(LOCK_GAP)
+			.round_to_pixels(painter.pixels_per_point());
+		let clip = painter.clip_rect();
+		let left = Rect::from_min_max(clip.min, Pos2::new(cutout.left(), clip.bottom()));
+		let bottom = Rect::from_min_max(Pos2::new(cutout.left(), cutout.bottom()), clip.max);
+		for region in [left, bottom] {
+			icons::paint(&painter.with_clip_rect(region), icon, glyph, color);
+		}
+	} else {
+		icons::paint(painter, icon, glyph, color);
+	}
+}
+
 pub(crate) fn paint(
 	painter: &egui::Painter,
 	access: ChannelAccess,
 	row: Rect,
 	glyph: Rect,
 	color: Color32,
-	background: Color32,
 ) {
 	if access.limited() {
 		let badge = lock_badge(glyph);
-		painter.circle_filled(badge.center(), LOCK * 0.5 + LOCK_HALO, background);
 		icons::paint(painter, Icon::Lock, badge, color);
 	}
 	if access.hidden() {

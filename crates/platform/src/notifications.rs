@@ -56,9 +56,7 @@ impl Status {
 		match self {
 			Self::Disabled => "System notifications are off in Serein settings.",
 			Self::Enabling => "Checking system notification permission…",
-			Self::Ready => {
-				"Serein can send system notifications; message alerts show sender and preview."
-			}
+			Self::Ready => "",
 			Self::Denied => "System notifications are disabled in your OS settings.",
 			Self::QueueFull => {
 				"Notification queue full; an alert was skipped. Unread indicators are retained."

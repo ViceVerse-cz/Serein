@@ -20,6 +20,8 @@ pub struct Pointer {
 
 impl Pointer {
 	/// Remove middle / Extra1 / Extra2 from `events` and return what scroll and side-nav need.
+	/// With `keep_buttons` their presses also stay in `events`, for bindings that use them.
+	/// Releases always stay, so egui cannot hold a button whose keep flag changed mid-press.
 	/// When `track`, append the OS cursor as a `PointerMoved` so a cursor that has left the
 	/// window keeps reporting its distance from the drive origin.
 	pub fn intercept(
@@ -28,10 +30,13 @@ impl Pointer {
 		window: &Window,
 		pixels_per_point: f32,
 		track: bool,
+		keep_buttons: bool,
 	) -> Intercepted {
 		let mut middle = Middle::default();
 		let mut side = SidePress::default();
 		raw.events.retain(|event| match event {
+			// Serein uses middle-click for autoscroll, including over text edits.
+			Event::MiddleClickPaste { .. } => false,
 			Event::PointerButton {
 				pos,
 				button: PointerButton::Middle,
@@ -42,7 +47,7 @@ impl Pointer {
 					middle.pressed.get_or_insert(*pos);
 				}
 				self.down = *pressed;
-				false
+				keep_buttons || !pressed
 			}
 			Event::PointerButton {
 				button: PointerButton::Extra1,
@@ -52,7 +57,7 @@ impl Pointer {
 				if *pressed {
 					side.back = true;
 				}
-				false
+				keep_buttons || !pressed
 			}
 			Event::PointerButton {
 				button: PointerButton::Extra2,
@@ -62,7 +67,7 @@ impl Pointer {
 				if *pressed {
 					side.forward = true;
 				}
-				false
+				keep_buttons || !pressed
 			}
 			Event::PointerMoved(pos) => {
 				self.last = Some(*pos);

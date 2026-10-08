@@ -1,3 +1,7 @@
+/.envrc
+/.direnv/
+/result
+/result-*
 /target/
 /dist/
 .DS_Store

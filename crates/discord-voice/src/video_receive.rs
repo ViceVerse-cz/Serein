@@ -587,6 +587,27 @@ pub(crate) fn retain_sources(sender: &DecoderQueue, receivers: &Receivers) {
 	}
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum DecodeError {
+	/// The stream or decoder is unusable; the decoder is rebuilt at the next keyframe.
+	Failed,
+	/// The native queue is full; this access unit was dropped but the decoder is healthy.
+	Busy,
+}
+
+/// Skip a user's predictions until a keyframe and report the loss so a PLI gets sent.
+fn mark_broken(user: u64, broken: &mut Vec<u64>, lost: &Lost) {
+	if !broken.contains(&user) && broken.len() < MAX_SOURCES {
+		broken.push(user);
+	}
+	if let Ok(mut lost) = lost.lock()
+		&& !lost.contains(&user)
+		&& lost.len() < MAX_SOURCES
+	{
+		lost.push(user);
+	}
+}
+
 /// Hardware decoding where the OS offers it; the software decoder is the fallback and the
 /// only option on the other platforms. Hardware pictures reach the sink asynchronously.
 enum Backend {
@@ -626,17 +647,27 @@ impl Backend {
 	}
 	/// Feed one access unit. Software pictures are returned; hardware ones were already
 	/// delivered to the sink. `scratch` is reused so no frame-sized buffer is zeroed per frame.
-	fn decode(&mut self, data: &[u8], scratch: &mut Vec<u8>) -> Result<Option<(u32, u32)>, ()> {
+	fn decode(
+		&mut self,
+		data: &[u8],
+		scratch: &mut Vec<u8>,
+	) -> Result<Option<(u32, u32)>, DecodeError> {
 		match self {
-			Self::Hardware(decoder) => decoder.decode(data).map(|()| None).map_err(|_| ()),
+			Self::Hardware(decoder) => decoder.decode(data).map(|()| None).map_err(|error| {
+				if error == platform::video::BUSY {
+					DecodeError::Busy
+				} else {
+					DecodeError::Failed
+				}
+			}),
 			Self::Software(decoder) => {
 				let decoded = match decoder.decode(data) {
 					Ok(Some(yuv)) => yuv,
 					Ok(None) => return Ok(None),
-					Err(_) => return Err(()),
+					Err(_) => return Err(DecodeError::Failed),
 				};
 				let (width, height) = openh264::formats::YUVSource::dimensions(&decoded);
-				let (width, height) = bounded(width, height)?;
+				let (width, height) = bounded(width, height).map_err(|()| DecodeError::Failed)?;
 				let bytes = width as usize * height as usize * 4;
 				// Shared across participants: retain initialized bytes when resolutions alternate.
 				if scratch.len() < bytes {
@@ -708,15 +739,7 @@ fn decode_loop(
 			counters.stale.fetch_add(1, Ordering::Relaxed);
 			decoders.remove(&frame.user);
 			decoder_counts(&decoders, &counters);
-			if !broken.contains(&frame.user) && broken.len() < MAX_SOURCES {
-				broken.push(frame.user);
-			}
-			if let Ok(mut lost) = lost.lock()
-				&& !lost.contains(&frame.user)
-				&& lost.len() < MAX_SOURCES
-			{
-				lost.push(frame.user);
-			}
+			mark_broken(frame.user, &mut broken, &lost);
 			continue;
 		}
 		if frame.keyframe {
@@ -748,7 +771,15 @@ fn decode_loop(
 				decoder_counts(&decoders, &counters);
 				continue;
 			}
-			Err(()) => {
+			Err(DecodeError::Busy) => {
+				// Backpressure, not a decoder fault: keep the decoder and its hardware path,
+				// and skip predictions until the requested keyframe arrives.
+				counters.stale.fetch_add(1, Ordering::Relaxed);
+				decoder_counts(&decoders, &counters);
+				mark_broken(frame.user, &mut broken, &lost);
+				continue;
+			}
+			Err(DecodeError::Failed) => {
 				// Corrupt or lost data: a fresh decoder waits for the next keyframe. A
 				// hardware decoder that fails on a keyframe is replaced by software.
 				counters.errors.fetch_add(1, Ordering::Relaxed);
@@ -757,12 +788,7 @@ fn decode_loop(
 				if hardware && frame.keyframe && !software_only.contains(&frame.user) {
 					software_only.push(frame.user);
 				}
-				broken.push(frame.user);
-				if let Ok(mut lost) = lost.lock()
-					&& lost.len() < MAX_DECODERS
-				{
-					lost.push(frame.user);
-				}
+				mark_broken(frame.user, &mut broken, &lost);
 				continue;
 			}
 		};
@@ -852,6 +878,30 @@ mod tests {
 		let (send, receive) = sync_channel(1);
 		assert!(queue.send.send(Decode::Barrier(send)).is_ok());
 		receive.recv_timeout(Duration::from_secs(10)).unwrap()
+	}
+
+	/// Decodes one keyframe, resending it when a loaded runner held it past `MAX_DECODE_AGE`.
+	fn decoder_cleanup_decode(queue: &DecoderQueue, user: u64, data: &[u8]) {
+		let deadline = Instant::now() + Duration::from_secs(10);
+		loop {
+			let stale = queue.counters.stale.load(Ordering::Relaxed);
+			assert!(
+				offer(
+					queue,
+					Encoded {
+						user,
+						data: data.to_vec(),
+						keyframe: true
+					}
+				)
+				.unwrap()
+			);
+			decoder_cleanup_sync(queue);
+			if queue.counters.stale.load(Ordering::Relaxed) == stale {
+				return;
+			}
+			assert!(Instant::now() < deadline, "keyframe stayed stale");
+		}
 	}
 
 	#[test]
@@ -1072,18 +1122,7 @@ mod tests {
 				&serde_json::json!({"video_ssrc": user}),
 			)
 			.unwrap();
-			assert!(
-				offer(
-					&queue,
-					Encoded {
-						user,
-						data: data.clone(),
-						keyframe: true
-					}
-				)
-				.unwrap()
-			);
-			decoder_cleanup_sync(&queue);
+			decoder_cleanup_decode(&queue, user, &data);
 		}
 		assert_eq!(
 			queue.counters.software.load(Ordering::Relaxed),
@@ -1120,18 +1159,7 @@ mod tests {
 			&serde_json::json!({"video_ssrc": 9}),
 		)
 		.unwrap();
-		assert!(
-			offer(
-				&queue,
-				Encoded {
-					user: 9,
-					data,
-					keyframe: true
-				}
-			)
-			.unwrap()
-		);
-		decoder_cleanup_sync(&queue);
+		decoder_cleanup_decode(&queue, 9, &data);
 		assert_eq!(seen.lock().unwrap().last(), Some(&9));
 		assert_eq!(
 			queue.counters.software.load(Ordering::Relaxed),

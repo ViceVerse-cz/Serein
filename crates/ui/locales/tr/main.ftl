@@ -299,6 +299,7 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Sentetik ataşman
 attachments-open-original-open-original = Orijinali aç…
 # Context: pending_card
 attachments-pending-card-remove-attachment = Eki kaldır
+attachments-loading-card-preparing = Hazırlanıyor…
 # Context: show_status
 attachments-show-status-cancel-download = İndirmeyi iptal et
 # Context: show_status
@@ -377,6 +378,18 @@ channel-list-heading-direct-messages = Doğrudan Mesajlar
 channel-list-heading-favorites = Favoriler
 # Context: key
 channel-list-heading-pinned = Sabitlendi
+# Context: key
+channel-list-heading-message-requests = Mesaj İstekleri
+# Context: label
+message-request-ignore-tooltip = İsteği yok say
+# Context: label
+message-request-accept = Kabul et
+# Context: label
+message-request-ignore = Yok say
+# Context: label
+message-request-banner = Bu kişi henüz arkadaşın değil. Sohbeti doğrudan mesajlarına taşımak için kabul et.
+# Context: label
+message-request-title = Mesaj isteği
 
 ## crates/ui/src/channel_menu.rs
 # Context: context
@@ -810,6 +823,10 @@ emoji-picker-gif-body-searching-klipy = KLIPY aranıyor…
 # Context: gif_body
 emoji-picker-gif-body-trending-gifs = Trend olan GIF'ler
 # Context: gif_body
+emoji-picker-gif-body-retry = Yeniden dene
+# Context: gif_body
+emoji-picker-gif-body-no-trending-gifs-right-now = Bir GIF ara veya daha sonra tekrar dene.
+# Context: gif_body
 emoji-picker-gif-body-try-a-different-search-term = Farklı bir arama terimi deneyin.
 # Context: gif_grid
 emoji-picker-gif-grid-favorite = Favori
@@ -835,6 +852,8 @@ emoji-picker-popup-hover-an-emoji-to-preview-it = Önizlemek için bir emojinin 
 emoji-picker-popup-no-matching-emoji = Eşleşen emoji yok.
 # Context: popup
 emoji-picker-popup-retry-sticker-packs = Çıkartma paketlerini yeniden dene
+# Context: popup
+emoji-picker-popup-requires-nitro = Burada kullanmak için Nitro gerekir
 # Context: popup
 emoji-picker-popup-search-results = Arama sonuçları
 # Context: popup
@@ -1009,7 +1028,7 @@ fonts-show-reset = Sıfırla
 # Context: show
 fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = Hızlı kahverengi tilki tembel köpeğin üzerinden atlıyor. 0123456789
 # Context: show
-fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF veya OTF, 8 MiB'ye kadar. Bu cihaza kaydedildi. Kod tek aralıklı yazı tipini korur.
+fonts-show-ttf-or-otf-up-to-32-mib-saved-on-this = TTF veya OTF, 32 MiB'ye kadar. Bu cihaza kaydedildi. Kod tek aralıklı yazı tipini korur.
 # Context: show
 fonts-show-typography = Tipografi
 
@@ -2051,6 +2070,20 @@ profiles-more-menu-add-friend-nickname = Arkadaş Takma Adını Ekle
 profiles-more-menu-add-note = Not Ekle
 # Context: more_menu
 profiles-more-menu-block = Engellemek
+profiles-view-full-profile = Tam Profili Görüntüle
+profiles-copy-username = Kullanıcı Adını Kopyala
+profiles-username-unavailable = Kullanıcı adını yüklemek için profili açın
+profiles-ignore = Yok Say
+profiles-unignore = Yok Saymayı Kaldır
+profiles-ignore-hint = Engellemeden Discord'un Yok Say ayarını kullanır. Kullanıcıya bildirilmez.
+profiles-report-user-profile = Kullanıcı Profilini Bildir
+profiles-report-hint = Discord destek formunu tarayıcıda açar ve kullanıcı kimliğini kopyalar
+profiles-show-activity = ETKİNLİK
+profiles-show-connections = BAĞLANTILAR
+profiles-show-friends-since = ŞU TARİHTEN BERİ ARKADAŞ
+profiles-show-note = NOT
+profiles-show-note-hint = Not eklemek için tıklayın
+profiles-show-note-only-you = Yalnızca sana görünür
 # Context: more_menu
 profiles-more-menu-copy-webhook-id = Web kancası kimliğini kopyala
 # Context: more_menu
@@ -2119,6 +2152,8 @@ profiles-show-view-profile-picture = Profil resmini görüntüle
 ## crates/ui/src/reactions.rs
 # Context: add_button
 reactions-add-button-add-reaction = Tepki ekle
+# Context: quick_button
+reactions-quick-react = { $emoji } ile tepki ver
 # Context: show
 reactions-show-reactions-unavailable = Tepkiler kullanılamıyor
 # Context: show
@@ -3440,12 +3475,17 @@ settings-chat-settings-channel-list = Kanal listesi
 settings-chat-settings-show-channels-you-cannot-currently-access = Şu anda erişemediğiniz kanalları gösterin.
 # Context: chat_settings
 settings-chat-settings-show-hidden-channels = Gizli kanalları göster
+# Context: chat_settings
+settings-chat-settings-emoji = Emoji
+# Context: chat_settings
+settings-chat-settings-suggest-nitro-emojis = Nitro gerektiren emojileri öner
+# Context: chat_settings
+settings-chat-settings-suggest-nitro-emojis-description = Nitro olmadan da animasyonlu ve diğer sunuculardaki emojileri : önerilerinde ve seçicide göster. Kapalıyken önerilerde gizlenir ve seçicide kilitlenir.
 # Context: close_control
 settings-close-control-close-settings-esc = Ayarları kapat (Esc)
 # Context: colour_preset_settings
 settings-colour-preset-settings-colour-preset = Renk ön ayarı
 # Context: colour_preset_settings
-settings-colour-preset-settings-saved-with-your-appearance-gradient-presets-always-use-dark-text = Görünümünüzle birlikte kaydedildi. Degrade hazır ayarları her zaman koyu metin kullanır.
 # Context: storage_page
 settings-storage-page-clear-cache = Önbelleği temizle
 # Context: storage_page
@@ -3738,6 +3778,10 @@ timeline-deleted-message-actions-toggle-deleted-highlight = Silinen Vurgulamayı
 timeline-loading-messages-loading-messages = Mesajlar yükleniyor
 # Context: message_actions
 timeline-message-actions-copy = Kopyala
+# Context: message_actions
+timeline-message-actions-copy-message-id = Mesaj Kimliğini Kopyala
+# Context: message_actions
+timeline-message-actions-copy-message-link = Mesaj Bağlantısını Kopyala
 # Context: message_actions
 timeline-message-actions-create-thread = Konu Oluştur…
 # Context: message_actions
@@ -4157,7 +4201,6 @@ voice-voice-processing-controls-start-the-microphone-test-or-join-a-call-to-see 
 # Context: voice_processing_controls
 voice-voice-processing-controls-suppression-strength = Bastırma gücü
 # Context: voice_settings_content
-voice-voice-settings-content-audio-preferences-are-saved-on-this-device-your-microphone-starts = Ses tercihleri ​​bu cihaza kaydedilir. Mikrofonunuz yalnızca bir çağrıya katıldığınızda veya teste başladığınızda başlar.
 # Context: voice_settings_content
 voice-voice-settings-content-camera = Kamera
 # Context: voice_settings_content
@@ -4336,6 +4379,24 @@ lib-composer-onboarding-rules-pending = Sohbete başlamak için bu sunucunun kur
 lib-composer-onboarding-incomplete = Daha fazla kanalın kilidini açmak için sunucuya katılımı tamamla.
 # Context: composer
 lib-composer-onboarding-complete = Tanıtımı tamamla
+profiles-message-placeholder = @{ $user } kullanıcısına mesaj
+profiles-message-send = Mesaj gönder
+profiles-message-sending = Direkt mesaj açılıyor…
+user-menu-contents-start-a-call = Arama başlat
+verification-show-complete-the-check-to-open-this-conversation = Bu sohbeti açmak için doğrulamayı tamamla.
+verification-show-discord-requires-a-security-check-before-you-can-message = Bu kişiye mesaj gönderebilmen için Discord bir güvenlik doğrulaması istiyor.
+verification-show-complete-the-check-to-send-this-message = Bu mesajı göndermek için doğrulamayı tamamla.
+verification-show-discord-requires-a-security-check-before-this-message = Bu mesajın gönderilebilmesi için Discord bir güvenlik doğrulaması istiyor.
+profiles-message-busy = Başka bir işlemin bitmesi bekleniyor…
+profiles-message-offline = Mesaj göndermek için yeniden bağlan
+
+voice-recipient-ring = Yeniden ara
+voice-recipient-stop-ringing = Çalmayı durdur
+voice-recipient-ringing = Çalıyor…
+voice-recipient-not-in-call = Aramada değil
+
+
+reconnect-now = Şimdi yeniden bağlan
 
 voice-media-output = Medya çıkışı
 voice-media-output-hint = Yeni ses/video oynatımlarına ve izlenen yayınlara uygulanır.
@@ -4420,3 +4481,20 @@ server-emoji-empty-animated = Henüz hareketli emoji yok
 server-emoji-empty-detail = Eklemek için bir görsel yükleyin. GIF'ler hareketli emoji olur.
 
 server-stickers-empty-detail = İlk çıkartmanızı eklemek için bir görsel yükleyin.
+
+
+screen-macos-system-picker = macOS sistem seçicisiyle seç
+
+screen-macos-system-picker-kind = Sistem içerik seçicisi
+
+member-in-voice = Sesli sohbette
+
+profiles-board = Board
+profiles-board-unavailable = This profile’s board is unavailable.
+profiles-board-empty = No games on this board yet.
+profiles-board-show-more = Show more
+profiles-board-show-less = Show less
+profiles-activity-empty = Paylaşılan etkinlik yok.
+profiles-mutuals-empty = Nothing to show here.
+
+reading-double-click-reaction = Double-click reaction

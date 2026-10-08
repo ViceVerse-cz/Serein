@@ -111,6 +111,8 @@ impl Tray {
 		self.events.availability.load(Ordering::Acquire) == 1
 	}
 
+	pub fn set_voice_state(&self, _state: super::VoiceState) {}
+
 	pub fn take_event(&self) -> Option<Event> {
 		[
 			Event::Quit,

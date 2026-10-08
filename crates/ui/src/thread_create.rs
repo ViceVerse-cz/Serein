@@ -106,7 +106,9 @@ impl ThreadCreateUi {
 				let label = dialog::label(ui, "thread-create-show-thread-name");
 				dialog::input(
 					ui,
-					egui::TextEdit::singleline(&mut request.name).char_limit(100),
+					egui::TextEdit::singleline(&mut request.name)
+						.align(egui::Align2::LEFT_CENTER)
+						.char_limit(100),
 				)
 				.labelled_by(label.id);
 				request.name.shrink_to_fit();

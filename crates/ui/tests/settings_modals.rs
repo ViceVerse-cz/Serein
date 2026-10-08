@@ -29,6 +29,7 @@ fn server_settings_pages_share_one_modal_rect() {
 	state.permissions.replace(permissions).unwrap();
 	let guild = state.guilds[0].id;
 	let mut view = MessagingUi::default();
+	view.language = ui::i18n::Language::English;
 	let area = egui::Id::unique("server-settings");
 	let mut first: Option<(&str, egui::Rect)> = None;
 	for page in [

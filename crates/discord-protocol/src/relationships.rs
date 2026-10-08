@@ -15,6 +15,56 @@ pub struct Relationship {
 	pub is_spam_request: bool,
 	#[serde(default, deserialize_with = "crate::lossy::null_default")]
 	pub user_ignored: bool,
+	/// Unofficial: when the relationship began, as Unix seconds. A missing, oversized or
+	/// malformed timestamp is dropped without rejecting the row.
+	#[serde(default, deserialize_with = "since")]
+	pub since: Option<i64>,
+}
+fn since<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> {
+	use serde::de::{IgnoredAny, MapAccess, SeqAccess, Visitor};
+	struct Since;
+	impl<'de> Visitor<'de> for Since {
+		type Value = Option<i64>;
+		fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+			f.write_str("an optional timestamp")
+		}
+		fn visit_str<E: serde::de::Error>(self, text: &str) -> Result<Self::Value, E> {
+			Ok((text.len() <= 64)
+				.then(|| {
+					time::OffsetDateTime::parse(
+						text,
+						&time::format_description::well_known::Rfc3339,
+					)
+					.ok()
+				})
+				.flatten()
+				.map(time::OffsetDateTime::unix_timestamp))
+		}
+		fn visit_unit<E>(self) -> Result<Self::Value, E> {
+			Ok(None)
+		}
+		fn visit_bool<E>(self, _: bool) -> Result<Self::Value, E> {
+			Ok(None)
+		}
+		fn visit_i64<E>(self, _: i64) -> Result<Self::Value, E> {
+			Ok(None)
+		}
+		fn visit_u64<E>(self, _: u64) -> Result<Self::Value, E> {
+			Ok(None)
+		}
+		fn visit_f64<E>(self, _: f64) -> Result<Self::Value, E> {
+			Ok(None)
+		}
+		fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+			while seq.next_element::<IgnoredAny>()?.is_some() {}
+			Ok(None)
+		}
+		fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+			while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
+			Ok(None)
+		}
+	}
+	d.deserialize_any(Since)
 }
 /// Busy accounts can hold thousands of requests and blocks: past the bound, or on a malformed
 /// row, entries are dropped and `.1` reports it instead of rejecting the login.
@@ -35,6 +85,14 @@ impl Snapshot {
 				model::Patch::Value(text) => Some((r.id, text.clone())),
 				_ => None,
 			})
+			.collect()
+	}
+	/// Start of each friendship that reported one.
+	pub fn friends_since(&self) -> Vec<(Id, i64)> {
+		self.0
+			.iter()
+			.filter(|r| r.kind == 1 && r.id.0 != 0)
+			.filter_map(|r| Some((r.id, r.since?)))
 			.collect()
 	}
 	pub fn requests(
@@ -154,6 +212,12 @@ mod tests {
 		)
 		.unwrap();
 		assert_eq!(rows.entries(), vec![(Id(1), true), (Id(2), false)]);
+		let rows: Snapshot = crate::decode(
+			br#"[{"id":"2","type":1,"since":"2021-03-04T05:06:07.000000+00:00"},{"id":"3","type":1,"since":"not a date"},{"id":"4","type":1,"since":7},{"id":"5","type":3,"since":"2021-03-04T05:06:07+00:00"}]"#,
+		)
+		.unwrap();
+		assert_eq!(rows.0.len(), 4, "A malformed timestamp never drops the row");
+		assert_eq!(rows.friends_since(), vec![(Id(2), 1_614_834_367)]);
 		let malformed = crate::decode::<Snapshot>(br#"[{"id":"1"},{"id":"2","type":1}]"#).unwrap();
 		assert!(malformed.1 && malformed.0.len() == 1);
 		let large = format!(

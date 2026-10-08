@@ -142,7 +142,7 @@ supports 53 capabilities, with at most 64 distinct declarations per manifest.
 | `api_proxy` | Configure the Discord REST API HTTP/HTTPS proxy | Preview; device-wide, available before login; only `storage` may accompany this grant; no account data, Gateway, CDN or calls |
 | `rich_presence` | Contribute one bounded custom activity and restore it during activation | Preview; explicit panel/activation actions only; separate activity-sharing preference; revoked on disable/account change |
 | `deleted_messages` | Enable host retention of already-loaded deleted messages | Activation only; bounded session memory, no deleted text sent to Wasm |
-| `image_sharing` | Enable host emoji/sticker image attachment fallback | Activation only; unavailable native picker selections authorize sending, Wasm receives no image bytes |
+| `image_sharing` | Legacy compatibility capability | Activation output still validates, but emoji/sticker image fallback is now built in and cannot be controlled by a plugin |
 | `appearance` | Return a bounded declarative theme overlay | Native colors/control metrics; no arbitrary drawing |
 | `message_events` | Observe live create/update/delete events | Active accessible conversation; bounded best-effort delivery |
 | `app_context` | Read connection, current user and selected channel | Current session, optional fields |
@@ -391,19 +391,24 @@ Reactive SDK handlers use `EventInvocation` and `dispatch_typed`; existing
 Older hosts reject the new capability/action in the manifest. They do not load
 a message-event plugin merely because its manifest declares API version 1.
 
-The **Emoji & Sticker Images** catalog plugin requests `image_sharing`. Its
-activation output adds an image-attachment fallback for custom emoji and stickers that
-the current account cannot send natively. Emoji and stickers usable in the current
-conversation keep their normal Discord send path, including for Nitro accounts.
-Selecting fallback artwork authorizes one send after host download and validation,
-without another composer confirmation. Animated APNG stickers are sent as GIF
-attachments so their animation survives. Text drafts stay intact. Existing file
-selections must be sent or removed first. Serein displays these attachments at
-48px for emoji and 160px for stickers; other clients control their own attachment layout. Enabling the plugin never sends anything, grants
-network access to Wasm, or changes native sticker/emoji entitlements. Disabling removes the option. Logout, account changes and channel navigation cancel
-pending image preparation; already selected files follow ordinary attachment handling.
-The `image_sharing` output defaults to false and is accepted only from an activation
-action with that capability granted. This capability requires a supporting host.
+Emoji/sticker image fallback is built into the client and needs no extension.
+Emoji and stickers usable in the current conversation keep their native Discord
+send path. The account's session-reported Nitro entitlement controls animated and
+external custom emoji eligibility and external server sticker eligibility.
+Picking fallback artwork inserts an inline composer preview and never submits it.
+Explicit Send uses `[name](public-artwork-url)` Markdown when the draft also contains
+text. Serein renders these named links as inline artwork; other clients choose their
+own link/preview presentation. A draft containing only artwork sends up to ten ordinary
+image attachments after host validation, within an 8 MiB prepared batch limit.
+Animated APNG stickers become GIF attachments. A newer text draft typed during
+preparation is preserved. Existing file selections use the normal message path.
+Artwork attachments display at 48px for emoji and 160px for stickers. Sending rows
+have no Restore to composer action; failed/unknown sends keep their existing controls.
+Normal attachment permissions and account upload limits still apply. Logout,
+account changes and channel navigation cancel pending image preparation.
+The retired Emoji & Sticker Images plugin is no longer offered. Its `image_sharing`
+capability and output remain accepted under the existing activation/grant validation
+for ABI compatibility, but have no effect on this built-in behavior.
 
 Themes override named colors and native typography, spacing, padding and corner
 radii, plus an optional embedded PNG/JPEG background with per-mode opacity and fit.

@@ -11,6 +11,31 @@ pub enum Event {
 	Minimize = 8,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum VoiceState {
+	#[default]
+	Unmuted = 0,
+	Speaking = 1,
+	Muted = 2,
+	Deafened = 3,
+}
+
+// Keep the desired state for Explorer recovery, and only remember a successful
+// presentation. A rejected native update is retried on the next background tick.
+#[cfg(any(target_os = "windows", test))]
+fn update_voice_state(
+	desired: &std::cell::Cell<VoiceState>,
+	applied: &std::cell::Cell<Option<VoiceState>>,
+	state: VoiceState,
+	apply: impl FnOnce(VoiceState) -> bool,
+) {
+	desired.set(state);
+	if applied.get() != Some(state) && apply(state) {
+		applied.set(Some(state));
+	}
+}
+
 pub const fn supported() -> bool {
 	cfg!(any(
 		target_os = "windows",
@@ -67,6 +92,7 @@ impl Tray {
 	pub fn take_event(&self) -> Option<Event> {
 		None
 	}
+	pub fn set_voice_state(&self, _state: VoiceState) {}
 }
 
 #[cfg(target_os = "windows")]
@@ -89,6 +115,8 @@ mod native {
 	const QUIT: usize = 2;
 	const NIN_KEYSELECT: u32 = NIN_SELECT | NINF_KEY;
 	const UNAVAILABLE: &str = "The Windows tray is unavailable. The window will remain accessible.";
+	const ATLAS: &[u8] = include_bytes!("../../../assets/icons/atlas.png");
+	const ICON_SIZE: usize = 32;
 
 	/// UI-thread-owned registration: no worker, timer or allocating event queue.
 	/// The retained window and Rc prevent cross-thread drop or a dangling subclass callback.
@@ -107,6 +135,9 @@ mod native {
 		present: Cell<bool>,
 		events: Events,
 		wake: Box<dyn Fn()>,
+		voice_icons: [Option<HICON>; 4],
+		current_voice_state: Cell<super::VoiceState>,
+		applied_voice_state: Cell<Option<super::VoiceState>>,
 	}
 
 	impl Tray {
@@ -144,7 +175,7 @@ mod native {
 				return Err(UNAVAILABLE);
 			}
 			// SAFETY: request a borrowed window icon; the fallback is a shared system icon.
-			let icon = unsafe {
+			let fallback_icon = unsafe {
 				let handle = HICON(
 					SendMessageW(hwnd, WM_GETICON, Some(WPARAM(ICON_SMALL2 as usize)), None).0
 						as *mut _,
@@ -157,6 +188,9 @@ mod native {
 			};
 			// SAFETY: creates a menu owned by State, released on every success/error path.
 			let menu = unsafe { CreatePopupMenu() }.map_err(|_| UNAVAILABLE)?;
+			// Create owned icons only after fallible borrowed-icon/menu initialization.
+			let voice_icons = create_voice_icons();
+			let icon = voice_icons[super::VoiceState::Unmuted as usize].unwrap_or(fallback_icon);
 			let mut data = NOTIFYICONDATAW {
 				cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
 				hWnd: hwnd,
@@ -183,6 +217,9 @@ mod native {
 					present: Cell::new(false),
 					events: Events::default(),
 					wake: Box::new(wake),
+					voice_icons,
+					current_voice_state: Cell::new(super::VoiceState::Unmuted),
+					applied_voice_state: Cell::new(None),
 				}),
 				_window: window,
 			};
@@ -218,24 +255,77 @@ mod native {
 		pub fn take_event(&self) -> Option<Event> {
 			self.state.events.take()
 		}
+
+		pub fn set_voice_state(&self, state: super::VoiceState) {
+			super::update_voice_state(
+				&self.state.current_voice_state,
+				&self.state.applied_voice_state,
+				state,
+				|state| {
+					let hicon =
+						self.state.voice_icons[state as usize].unwrap_or(self.state.icon.hIcon);
+					let mut data = NOTIFYICONDATAW {
+						cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+						hWnd: self.state.icon.hWnd,
+						uID: self.state.icon.uID,
+						uFlags: NIF_ICON | NIF_TIP | NIF_SHOWTIP,
+						hIcon: hicon,
+						Anonymous: NOTIFYICONDATAW_0 {
+							uVersion: NOTIFYICON_VERSION_4,
+						},
+						..Default::default()
+					};
+					let tip = voice_state_tip(state);
+					for (slot, unit) in data.szTip.iter_mut().zip(tip.encode_utf16()) {
+						*slot = unit;
+					}
+					// SAFETY: the descriptor uses retained UI-thread handles and fixed tooltip text.
+					unsafe { Shell_NotifyIconW(NIM_MODIFY, &data).as_bool() }
+				},
+			);
+		}
+	}
+
+	fn voice_state_tip(state: super::VoiceState) -> &'static str {
+		match state {
+			super::VoiceState::Unmuted => "Serein",
+			super::VoiceState::Speaking => "Serein (Speaking)",
+			super::VoiceState::Muted => "Serein (Muted)",
+			super::VoiceState::Deafened => "Serein (Deafened)",
+		}
 	}
 
 	impl State {
 		fn add_icon(&self) -> bool {
+			let mut icon_data = self.icon;
+			let state = self.current_voice_state.get();
+			if let Some(hicon) = self.voice_icons[state as usize] {
+				icon_data.hIcon = hicon;
+			}
+			icon_data.szTip = [0; 128];
+			for (slot, unit) in icon_data
+				.szTip
+				.iter_mut()
+				.zip(voice_state_tip(state).encode_utf16())
+			{
+				*slot = unit;
+			}
 			// SAFETY: this initialized descriptor contains only live borrowed handles and fixed text.
 			unsafe {
-				if !Shell_NotifyIconW(NIM_ADD, &self.icon).as_bool() {
+				if !Shell_NotifyIconW(NIM_ADD, &icon_data).as_bool() {
 					return false;
 				}
-				if !Shell_NotifyIconW(NIM_SETVERSION, &self.icon).as_bool() {
-					let _ = Shell_NotifyIconW(NIM_DELETE, &self.icon);
+				if !Shell_NotifyIconW(NIM_SETVERSION, &icon_data).as_bool() {
+					let _ = Shell_NotifyIconW(NIM_DELETE, &icon_data);
 					return false;
 				}
 			}
 			self.present.set(true);
+			self.applied_voice_state.set(Some(state));
 			true
 		}
 		fn remove_icon(&self) {
+			self.applied_voice_state.set(None);
 			if self.present.replace(false) {
 				// SAFETY: hwnd/uID identify only this application's owned notification icon.
 				let _ = unsafe { Shell_NotifyIconW(NIM_DELETE, &self.icon) };
@@ -315,7 +405,160 @@ mod native {
 		fn drop(&mut self) {
 			// SAFETY: this state owns the menu; callback Rc copies keep it alive during nested menus.
 			let _ = unsafe { DestroyMenu(self.menu) };
+			for hicon in self.voice_icons.into_iter().flatten() {
+				let _ = unsafe { DestroyIcon(hicon) };
+			}
 		}
+	}
+
+	fn create_voice_icons() -> [Option<HICON>; 4] {
+		let Ok(atlas_image) = image::load_from_memory_with_format(ATLAS, image::ImageFormat::Png)
+		else {
+			return [None, None, None, None];
+		};
+		let atlas = atlas_image.into_rgba8();
+
+		let extract = |cell: usize, rgb: [u8; 3]| -> Option<HICON> {
+			let col = cell % 8;
+			let row = cell / 8;
+			let base_x = (col * 64) as u32;
+			let base_y = (row * 64) as u32;
+			let mut bgra = [0u8; ICON_SIZE * ICON_SIZE * 4];
+			let [cr, cg, cb] = rgb;
+
+			for dy in 0..ICON_SIZE {
+				for dx in 0..ICON_SIZE {
+					let sx = base_x + (dx as u32) * 2;
+					let sy = base_y + (dy as u32) * 2;
+					let a00 = atlas.get_pixel(sx, sy)[3] as u32;
+					let a01 = atlas.get_pixel(sx + 1, sy)[3] as u32;
+					let a10 = atlas.get_pixel(sx, sy + 1)[3] as u32;
+					let a11 = atlas.get_pixel(sx + 1, sy + 1)[3] as u32;
+					let alpha = ((a00 + a01 + a10 + a11 + 2) / 4) as u8;
+
+					let idx = (dy * ICON_SIZE + dx) * 4;
+					let a = alpha as u16;
+					bgra[idx] = ((cb as u16 * a) / 255) as u8;
+					bgra[idx + 1] = ((cg as u16 * a) / 255) as u8;
+					bgra[idx + 2] = ((cr as u16 * a) / 255) as u8;
+					bgra[idx + 3] = alpha;
+				}
+			}
+			unsafe { create_hicon_from_bgra(ICON_SIZE as u32, ICON_SIZE as u32, &bgra) }
+		};
+
+		let extract_gradient =
+			|cell: usize, top_left: [u8; 3], bottom_right: [u8; 3]| -> Option<HICON> {
+				let col = cell % 8;
+				let row = cell / 8;
+				let base_x = (col * 64) as u32;
+				let base_y = (row * 64) as u32;
+				let mut bgra = [0u8; ICON_SIZE * ICON_SIZE * 4];
+
+				for dy in 0..ICON_SIZE {
+					for dx in 0..ICON_SIZE {
+						let sx = base_x + (dx as u32) * 2;
+						let sy = base_y + (dy as u32) * 2;
+						let a00 = atlas.get_pixel(sx, sy)[3] as u32;
+						let a01 = atlas.get_pixel(sx + 1, sy)[3] as u32;
+						let a10 = atlas.get_pixel(sx, sy + 1)[3] as u32;
+						let a11 = atlas.get_pixel(sx + 1, sy + 1)[3] as u32;
+						let alpha = ((a00 + a01 + a10 + a11 + 2) / 4) as u8;
+
+						// Diagonal interpolation factor across 32x32: dx + dy in 0..=62
+						let t = (dx + dy) as u32;
+						let cr = ((top_left[0] as u32 * (62 - t) + bottom_right[0] as u32 * t) / 62)
+							as u16;
+						let cg = ((top_left[1] as u32 * (62 - t) + bottom_right[1] as u32 * t) / 62)
+							as u16;
+						let cb = ((top_left[2] as u32 * (62 - t) + bottom_right[2] as u32 * t) / 62)
+							as u16;
+
+						let idx = (dy * ICON_SIZE + dx) * 4;
+						let a = alpha as u16;
+						bgra[idx] = ((cb * a) / 255) as u8;
+						bgra[idx + 1] = ((cg * a) / 255) as u8;
+						bgra[idx + 2] = ((cr * a) / 255) as u8;
+						bgra[idx + 3] = alpha;
+					}
+				}
+				unsafe { create_hicon_from_bgra(ICON_SIZE as u32, ICON_SIZE as u32, &bgra) }
+			};
+
+		[
+			extract(58, [215, 218, 224]),
+			extract_gradient(58, [100, 165, 255], [120, 50, 230]),
+			extract(4, [242, 63, 67]),
+			extract(6, [242, 63, 67]),
+		]
+	}
+
+	unsafe fn create_hicon_from_bgra(width: u32, height: u32, bgra: &[u8]) -> Option<HICON> {
+		use windows::Win32::Graphics::Gdi::{
+			BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateBitmap, CreateDIBSection, DIB_RGB_COLORS,
+			DeleteObject,
+		};
+		use windows::Win32::UI::WindowsAndMessaging::{CreateIconIndirect, ICONINFO};
+
+		let mask_stride = width.div_ceil(32) * 4;
+		let mask_bytes = vec![0u8; (mask_stride * height) as usize];
+		// SAFETY: mask_bytes has valid stride and length for width * height monochrome bitmap.
+		let mask = unsafe {
+			CreateBitmap(
+				width as i32,
+				height as i32,
+				1,
+				1,
+				Some(mask_bytes.as_ptr().cast()),
+			)
+		};
+		if mask.is_invalid() {
+			return None;
+		}
+
+		let bi = BITMAPINFOHEADER {
+			biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+			biWidth: width as i32,
+			biHeight: -(height as i32),
+			biPlanes: 1,
+			biBitCount: 32,
+			biCompression: BI_RGB.0,
+			..Default::default()
+		};
+		let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
+		let info = BITMAPINFO {
+			bmiHeader: bi,
+			bmiColors: [Default::default()],
+		};
+		// SAFETY: creates a 32-bit top-down DIB section for icon color data.
+		let color =
+			match unsafe { CreateDIBSection(None, &info, DIB_RGB_COLORS, &mut bits, None, 0) } {
+				Ok(c) => c,
+				Err(_) => {
+					let _ = unsafe { DeleteObject(mask.into()) };
+					return None;
+				}
+			};
+
+		if !bits.is_null() {
+			// SAFETY: bits points to a valid DIB buffer of width * height * 4 bytes.
+			unsafe {
+				std::ptr::copy_nonoverlapping(bgra.as_ptr(), bits.cast(), bgra.len());
+			}
+		}
+
+		let icon_info = ICONINFO {
+			fIcon: true.into(),
+			xHotspot: 0,
+			yHotspot: 0,
+			hbmMask: mask,
+			hbmColor: color,
+		};
+		// SAFETY: mask and color are valid owned HBITMAPs; icon is created and bitmap handles are released.
+		let hicon = unsafe { CreateIconIndirect(&icon_info).ok() };
+		let _ = unsafe { DeleteObject(mask.into()) };
+		let _ = unsafe { DeleteObject(color.into()) };
+		hicon
 	}
 
 	unsafe extern "system" fn callback(
@@ -446,6 +689,35 @@ mod native {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn failed_voice_icon_updates_retry_without_losing_the_desired_state() {
+		use super::{VoiceState, update_voice_state};
+		use std::cell::Cell;
+		let desired = Cell::new(VoiceState::Unmuted);
+		let applied = Cell::new(Some(VoiceState::Unmuted));
+		let attempts = Cell::new(0);
+		let update = |success| {
+			update_voice_state(&desired, &applied, VoiceState::Muted, |_| {
+				attempts.set(attempts.get() + 1);
+				success
+			});
+		};
+		update(false);
+		assert_eq!(desired.get(), VoiceState::Muted);
+		assert_eq!(applied.get(), Some(VoiceState::Unmuted));
+		update(true);
+		update(true);
+		assert_eq!(attempts.get(), 2);
+		assert_eq!(applied.get(), Some(VoiceState::Muted));
+		applied.set(None); // Explorer lost the registration.
+		update(true);
+		assert_eq!(attempts.get(), 3);
+		for state in [VoiceState::Speaking, VoiceState::Deafened] {
+			update_voice_state(&desired, &applied, state, |_| true);
+			assert_eq!(applied.get(), Some(state));
+		}
+	}
+
 	use super::*;
 	#[test]
 	fn clicks_coalesce_without_losing_quit_or_failure() {

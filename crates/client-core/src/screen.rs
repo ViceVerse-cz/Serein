@@ -7,6 +7,8 @@ pub const MAX_SOURCE_NAME_BYTES: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceId {
+	/// macOS chooses a display/window only after an explicit Share action.
+	SystemPicker,
 	/// The Linux desktop chooses the source after an explicit Share action.
 	Portal,
 	/// Explicit whole-desktop capture on a native X11 session, without a portal.

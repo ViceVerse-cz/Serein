@@ -177,7 +177,7 @@ impl State {
 								current.name == role.name
 									&& current.bits == role.permissions
 									&& current.position == role.position
-									&& current.color == role.colors.primary
+									&& current.colors() == role.colors
 									&& current.hoist == role.hoist
 							})
 					})
@@ -301,6 +301,58 @@ mod tests {
 			features: vec![],
 		});
 		state
+	}
+	#[test]
+	fn role_catalog_reconciliation_compares_and_preserves_gradient_stops() {
+		let mut state = state();
+		let mut catalog = state.server_admin.roles.as_ref().unwrap().clone();
+		assert!(state.roles_catalog_matches_permissions(&catalog));
+		let colors = Colors {
+			primary: 0x112233,
+			secondary: Some(0x445566),
+			tertiary: Some(0x778899),
+		};
+		catalog
+			.items
+			.iter_mut()
+			.find(|role| role.id == Id(4))
+			.unwrap()
+			.colors = colors;
+		assert!(!state.roles_catalog_matches_permissions(&catalog));
+		state.apply_roles_catalog(catalog.clone(), Some(Id(4)));
+		assert!(state.roles_catalog_matches_permissions(&catalog));
+		assert_eq!(
+			state
+				.guild_roles(Id(2))
+				.unwrap()
+				.iter()
+				.find(|role| role.id == Id(4))
+				.unwrap()
+				.colors(),
+			colors
+		);
+		catalog
+			.items
+			.iter_mut()
+			.find(|role| role.id == Id(4))
+			.unwrap()
+			.colors
+			.secondary = None;
+		assert!(!state.roles_catalog_matches_permissions(&catalog));
+		catalog
+			.items
+			.iter_mut()
+			.find(|role| role.id == Id(4))
+			.unwrap()
+			.colors = colors;
+		catalog
+			.items
+			.iter_mut()
+			.find(|role| role.id == Id(4))
+			.unwrap()
+			.colors
+			.tertiary = None;
+		assert!(!state.roles_catalog_matches_permissions(&catalog));
 	}
 	#[test]
 	fn role_edit_gates_hierarchy_defaults_entitlements_and_new_grants() {

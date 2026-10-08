@@ -94,12 +94,19 @@ fn credentials(user: u64) -> VoiceConnection {
 
 #[tokio::test]
 async fn local_stream_sender_and_viewer_deliver_audio_and_video() {
-	timeout(Duration::from_secs(15), exchange())
+	timeout(Duration::from_secs(15), exchange(false))
 		.await
 		.expect("Synthetic Go Live exchange timed out");
 }
 
-async fn exchange() {
+#[tokio::test]
+async fn established_streams_bound_missing_rekey_execution_and_welcome() {
+	timeout(Duration::from_secs(45), exchange(true))
+		.await
+		.expect("Stream rekey must time out while signaling remains healthy");
+}
+
+async fn exchange(rekey_timeout: bool) {
 	let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 	let url = format!("ws://{}", listener.local_addr().unwrap());
 	let (frames_tx, frames) = tokio::sync::mpsc::channel(3);
@@ -124,7 +131,7 @@ async fn exchange() {
 		audio_epoch: epoch.clone(),
 	};
 	let sender_url = url.clone();
-	let sender = tokio::spawn(async move {
+	let mut sender = tokio::spawn(async move {
 		run_stream_inner(
 			credentials(1),
 			Identity::generate(),
@@ -145,7 +152,7 @@ async fn exchange() {
 	let sink: VideoSink = Arc::new(move |frame| {
 		let _ = picture_tx.try_send((frame.user, frame.width, frame.height, frame.rgba.len()));
 	});
-	let viewer = tokio::spawn(async move {
+	let mut viewer = tokio::spawn(async move {
 		run_stream_inner(
 			credentials(2),
 			Identity::generate(),
@@ -331,6 +338,61 @@ async fn exchange() {
 	}
 	assert!(audio_packets > 0 && video_packets > 0);
 	assert_eq!(picture.unwrap(), (1, 320, 240, 320 * 240 * 4));
+	if rekey_timeout {
+		// Both have cleared their initial negotiation deadline. Keep acknowledging
+		// heartbeats, but withhold the sender's Execute and viewer's new Welcome.
+		event(
+			&mut send_ws,
+			json!({"op":21,"d":{"protocol_version":1,"transition_id":7}}),
+		)
+		.await;
+		event(
+			&mut view_ws,
+			json!({"op":24,"d":{"protocol_version":1,"epoch":1}}),
+		)
+		.await;
+		let prepared = message(&mut send_ws).await;
+		let prepared: Value = serde_json::from_str(prepared.to_text().unwrap()).unwrap();
+		assert_eq!(prepared, json!({"op":23,"d":{"transition_id":7}}));
+		// A due opcode 15 refresh (or other JSON) can be queued ahead of the binary key package.
+		loop {
+			let package = message(&mut view_ws).await;
+			if !matches!(package, Message::Text(_)) {
+				assert_eq!(package.into_data()[0], 26);
+				break;
+			}
+		}
+		let mut sender_done = false;
+		let mut viewer_done = false;
+		while !sender_done || !viewer_done {
+			tokio::select! {
+				result = &mut sender, if !sender_done => {
+					assert_eq!(result.unwrap(), Err("Discord DAVE transition execution timed out; no audio was enabled"));
+					sender_done = true;
+				},
+				result = &mut viewer, if !viewer_done => {
+					assert_eq!(result.unwrap(), Err("Discord DAVE group negotiation timed out; no accepted commit or welcome was received"));
+					viewer_done = true;
+				},
+				frame = send_ws.next(), if !sender_done => {
+					if let Some(Ok(Message::Text(text))) = frame {
+						let value: Value = serde_json::from_str(&text).unwrap();
+						assert_eq!(value["op"], 3);
+						event(&mut send_ws, json!({"op":6,"d":{"t":value["d"]["t"]}})).await;
+					}
+				},
+				frame = view_ws.next(), if !viewer_done => {
+					if let Some(Ok(Message::Text(text))) = frame {
+						let value: Value = serde_json::from_str(&text).unwrap();
+						assert_eq!(value["op"], 3);
+						event(&mut view_ws, json!({"op":6,"d":{"t":value["d"]["t"]}})).await;
+					}
+				},
+			}
+		}
+		assert!(!ready.load(Ordering::Acquire));
+		return;
+	}
 	send_ws.close(None).await.unwrap();
 	view_ws.close(None).await.unwrap();
 	assert_eq!(

@@ -5,7 +5,7 @@ pub struct State {
 	pub hidden: bool,
 	exiting: bool,
 	close_after_show: bool,
-	/// Compositor IPC for Wayland sessions where winit can neither hide nor minimize (Hyprland).
+	/// Compositor IPC for Wayland sessions where winit cannot hide (Hyprland, KWin).
 	compositor: Option<platform::compositor::Hider>,
 }
 
@@ -45,9 +45,8 @@ impl State {
 	/// restores the window first so the minimize request lands on a mapped surface.
 	#[allow(dead_code)]
 	pub fn minimize(&mut self, ctx: &egui::Context) {
-		if let Some(compositor) = &self.compositor {
-			self.hidden = true;
-			compositor.hide();
+		if let Some(compositor) = usable(&self.compositor) {
+			self.hidden = compositor.minimize();
 			ctx.request_repaint();
 			return;
 		}
@@ -78,10 +77,11 @@ impl State {
 			return;
 		}
 		if tray_available && !self.exiting {
-			// Native Wayland cannot hide surfaces through winit, and Hyprland ignores
-			// minimization, so its IPC parks the window instead. Elsewhere never label a
-			// possibly visible window hidden; the compositor may ignore minimization.
-			if let Some(compositor) = &self.compositor {
+			// Native Wayland cannot hide surfaces through winit, Hyprland ignores minimization
+			// and KWin keeps minimized windows in the taskbar, so their IPC hides the window
+			// instead. Elsewhere never label a possibly visible window hidden; the compositor
+			// may ignore minimization.
+			if let Some(compositor) = usable(&self.compositor) {
 				self.hidden = true;
 				compositor.hide();
 			} else {
@@ -116,4 +116,13 @@ impl State {
 			ctx.send_viewport_cmd(egui::ViewportCommand::Close);
 		}
 	}
+}
+
+/// Usable compositor IPC; KWin answers asynchronously and may be denied by a sandbox.
+fn usable(
+	compositor: &Option<platform::compositor::Hider>,
+) -> Option<&platform::compositor::Hider> {
+	compositor
+		.as_ref()
+		.filter(|compositor| compositor.available())
 }
