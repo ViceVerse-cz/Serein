@@ -4409,6 +4409,8 @@ voice-recipient-not-in-call = Fuera de la llamada
 
 reconnect-now = Reconectar ahora
 
+voice-stereo-input = Micrófono estéreo
+voice-stereo-input-warning = Requiere entrada de dos canales. Usa los dos primeros sin supresión de ruido, cancelación de eco, ganancia automática ni sensibilidad. Usa auriculares.
 voice-call-moved-to-another-client = Se reemplazó la sesión de llamada de este dispositivo
 
 server-settings-page-safety = Configuración de seguridad

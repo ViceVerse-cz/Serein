@@ -4398,6 +4398,8 @@ voice-recipient-not-in-call = Aramada değil
 
 reconnect-now = Şimdi yeniden bağlan
 
+voice-stereo-input = Stereo mikrofon
+voice-stereo-input-warning = İki kanallı giriş gerektirir. İlk iki kanalı gürültü bastırma, yankı giderme, otomatik kazanç ve hassasiyet olmadan kullanır. Kulaklık kullanın.
 voice-call-moved-to-another-client = Bu cihazın arama oturumu değiştirildi
 
 server-settings-page-safety = Güvenlik Kurulumu

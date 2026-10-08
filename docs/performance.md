@@ -104,3 +104,58 @@ These workloads can be repeated with the pinned toolchain using `cargo replay` f
 the existing ignored client-core, desktop-frame and replay-soak workloads for detailed memory work.
 The delivery skill documents how to compare a task baseline with the changed build. Do not compare
 results from different machines or claim live-client behavior from synthetic fixtures.
+
+## Stereo microphone input: isolated native verification (October 2, 2026)
+
+Measured source `36d26757fc69b87f2d67fdb1e3e44336c3748284` uses recorded main110 and the
+confirmation-pressure dependency `9cdad91c86139543a370f3658e5f92257a9064fe`. Its
+standard comparator uses `5724cf5be34f17a62ee1b5fc07f2cd2653be3d79`; 9cd changes
+only cfg(test) coverage. These measurements precede later main integration and
+the reliable confirmation-failure watch correction 5ecd; they are historical
+feature evidence, not measurements of the current aggregate head.
+
+On macOS 27.0 (26A428), Apple M1 / 16 GiB, Rust 1.98.1 and locked dependencies,
+the feature passed the full workspace check (170 desktop/352 UI),
+strict lint/format/policy and the standard voice-inclusive package. All 12
+runtime workspace crates were freshly compiled after all-worktree-ID release
+invalidation. The optimized default-plus-demo build immediately followed the
+same unchanged source, with normal FAT-LTO, jobs 2 and no capture hooks.
+Both packages retain 206 paths, 203 unchanged hashes and 199 unchanged notices.
+
+| Metric / method | Baseline | Feature | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 62,154,064 B | 62,170,496 B | +16,432 B /+0.0264% |
+| Installed package | 68,164,493 B | 68,180,925 B | +16,432 B /+0.0241% |
+| Distribution ZIP | 43,321,986 B | 43,333,434 B | +11,448 B /+0.0264% |
+| Idle median process CPU | 0.0 % | 0.0 % | +0.0 % |
+| Peak process RSS | 124,496 KiB | 124,736 KiB | +240 KiB /+0.1928% |
+| Settled process RSS | 124,448 KiB | 124,688 KiB | +240 KiB /+0.1929% |
+
+Native Metal at 2× scale used the same `--demo --demo-chat` workload, 5-second
+warmup and ten 1-second `ps` CPU/RSS samples per revision. Settled RSS is the
+median of the final five. All other agent compilers, native apps and heavy IO
+were held. Both apps stopped with SIGINT. Idle CPU quantization and small RSS
+differences are noise; no improvement is claimed. GPU memory, frame/startup
+latency, physical device routing/capture and normal-account compatibility are
+unmeasured. No account, microphone or output device was used.
+
+Wide and narrow native voice-settings screenshots were inspected; temporary
+capture hooks were removed byte-exactly. These demonstrate layout only; offline
+controls are disabled. Pure reducer trees and configuration are unchanged, so
+no new reducer benchmark was warranted. Actual samples, source/blob proofs,
+image/binary hashes and resource bounds are preserved in
+[`stereo-microphone/measurements.json`](https://github.com/ViceVerse-cz/Serein/blob/c632d6a83bf242fac860bc773b8b689bf33d9d70/docs/pr-evidence/stereo-microphone/measurements.json).
+
+## Stereo microphone input (PR #534): Windows integration evidence - October 8, 2026
+
+Fresh standard Windows x64 voice-enabled packages compare main `1b3e4a7b` with `af432050` (measured 2026-10-08). Baseline/current file counts: 216/216.
+
+| Metric | Main `1b3e4a7b` | Current integration | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 86,008,832 B | 86,040,064 B | +31,232 B (+0.0363%) |
+| Installed directory | 90,199,948 B | 90,231,180 B | +31,232 B (+0.0346%) |
+| Distribution ZIP | 50,001,798 B | 50,009,534 B | +7,736 B (+0.0155%) |
+
+Method: `cargo xtask package`, Rust 1.98.1, standard release flags without demo; Windows 11 build 26200, Ryzen 7 7800X3D, 32 GiB RAM. Runtime workspace artifacts were invalidated before each feature build. Installed bytes sum every file in `dist`; ZIP uses whole-directory .NET Optimal compression. NSIS was unavailable, so no installer executable was built.
+
+Current native CPU, memory, frame/startup latency and affected-device behavior remain unmeasured because the native automation bridge is unavailable. Package size and synthetic reducer timing do not establish live Discord performance.

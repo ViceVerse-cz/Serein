@@ -4411,6 +4411,8 @@ voice-recipient-ringing = Вызов…
 voice-recipient-not-in-call = Не в звонке
 reconnect-now = Переподключиться
 
+voice-stereo-input = Стереомикрофон
+voice-stereo-input-warning = Требуется двухканальный вход. Первые два канала передаются без шумоподавления, эхоподавления, автоматического усиления и порога чувствительности. Используйте наушники.
 voice-call-moved-to-another-client = Сеанс звонка на этом устройстве был заменён
 
 server-settings-page-safety = Настройка безопасности

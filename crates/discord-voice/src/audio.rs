@@ -1,6 +1,7 @@
 //! Device I/O starts only for an explicit call or a user-started local microphone preview.
 //! CPAL callbacks use preallocated lock-free rings; codecs and channels stay off them.
-use crate::Frame;
+use crate::{CapturedFrame, Frame, StereoFrame};
+mod stereo;
 use crate::diagnostics::{Metrics, Scope, Stage};
 mod echo;
 use model::voice_settings::{NoiseSuppression, Processing, VoiceProcessing};
@@ -16,6 +17,7 @@ use std::time::{Duration, Instant};
 
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct Devices {
+	pub stereo_input: bool,
 	pub input: Option<String>,
 	pub output: Option<String>,
 }
@@ -158,7 +160,7 @@ pub struct Audio {
 impl Audio {
 	pub fn start(
 		settings: Devices,
-		capture: mpsc::SyncSender<Frame>,
+		capture: mpsc::SyncSender<CapturedFrame>,
 		playback: mpsc::Receiver<Frame>,
 		emit: impl Fn(Result<(), &'static str>) + Send + 'static,
 	) -> Result<Self, &'static str> {
@@ -181,7 +183,7 @@ impl Audio {
 	}
 	fn start_inner(
 		settings: Devices,
-		capture: mpsc::SyncSender<Frame>,
+		capture: mpsc::SyncSender<CapturedFrame>,
 		playback: mpsc::Receiver<Frame>,
 		emit: impl Fn(Result<(), &'static str>) + Send + 'static,
 		preview: bool,
@@ -336,10 +338,16 @@ impl Audio {
 						active.input_gate = crate::activity::InputGate::default();
 						for _ in 0..8 {
 							let _ = active.input.pop();
+							let _ = active.stereo_input.pop();
 							let _ = active.reference.pop();
 						}
 					}
-					let processing = *selected_processing.borrow_and_update();
+					let configured_processing = *selected_processing.borrow_and_update();
+					let processing = if current.stereo_input {
+						Processing::studio()
+					} else {
+						configured_processing
+					};
 					if active.processing != processing {
 						active.input_gate = crate::activity::InputGate::default();
 						active.processing = processing;
@@ -350,7 +358,7 @@ impl Audio {
 					}
 					// Publish readiness under the same watch lock as configuration changes.
 					let latest_processing = selected_processing.borrow();
-					let prepared = *latest_processing == processing;
+					let prepared = *latest_processing == configured_processing;
 					if !worker_gate
 						.processing_ready
 						.swap(prepared, Ordering::AcqRel)
@@ -408,9 +416,37 @@ impl Audio {
 								if preview {
 									drops += u64::from(active.output.push(frame).is_err());
 								} else if audible {
-									drops += u64::from(capture.try_send(frame).is_err());
+									drops += u64::from(
+										capture.try_send(CapturedFrame::mono(frame)).is_err(),
+									);
 								}
 							}
+						}
+					}
+					for _ in 0..8 {
+						let Ok(mut frame) = active.stereo_input.pop() else {
+							break;
+						};
+						if !worker_gate.capture() || worker_gate.echo_reset.load(Ordering::Acquire)
+						{
+							continue;
+						}
+						let gain =
+							f32::from(worker_gate.input_gain.load(Ordering::Relaxed)) / 100.0;
+						for sample in &mut frame {
+							*sample = amplify(*sample, gain);
+						}
+						worker_gate.preview_level.store(
+							(crate::activity::level_db(&frame) + 100.0) as u16,
+							Ordering::Relaxed,
+						);
+						if preview {
+							let mono =
+								std::array::from_fn(|i| (frame[i * 2] + frame[i * 2 + 1]) * 0.5);
+							drops += u64::from(active.output.push(mono).is_err());
+						} else {
+							drops +=
+								u64::from(capture.try_send(CapturedFrame::stereo(frame)).is_err());
 						}
 					}
 					for _ in 0..8 {
@@ -549,6 +585,7 @@ struct Streams {
 	_input: Option<cpal::Stream>,
 	_output: cpal::Stream,
 	input: rtrb::Consumer<Frame>,
+	stereo_input: rtrb::Consumer<StereoFrame>,
 	output: rtrb::Producer<Frame>,
 	reference: rtrb::Consumer<Frame>,
 	/// Devices actually opened, so a changed system default can be followed.
@@ -565,6 +602,7 @@ impl Streams {
 		let mut candidates = [
 			settings.clone(),
 			Devices {
+				stereo_input: settings.stereo_input,
 				input: settings.input.clone(),
 				output: None,
 			},
@@ -615,7 +653,7 @@ impl Streams {
 		let host = cpal::default_host();
 		let output = choose(&host, settings.output.as_deref(), false)?;
 		let output_id = output.id().ok().map(|id| id.to_string());
-		let output_config = config(&output, false)?;
+		let output_config = config(&output, false, 1)?;
 		let stream_config = output_config.config();
 		#[cfg(target_os = "linux")]
 		let stream_config = {
@@ -630,18 +668,29 @@ impl Streams {
 		let (output_write, output_read) = rtrb::RingBuffer::new(8);
 		let (reference_write, reference_read) = rtrb::RingBuffer::new(8);
 		let render = Playback::new(output_config.sample_rate(), output_read, reference_write);
-		let (input_stream, input_read, input_id) = if gate.input_enabled.load(Ordering::Acquire) {
-			match open_input_stream(&host, settings, &gate, revision) {
-				Ok((stream, read, id)) => (Some(stream), read, id),
-				Err(_) => {
-					gate.input_failed_revision
-						.fetch_max(revision, Ordering::AcqRel);
-					(None, rtrb::RingBuffer::new(8).1, None)
+		let (input_stream, input_read, stereo_read, input_id) =
+			if gate.input_enabled.load(Ordering::Acquire) {
+				match open_input_stream(&host, settings, &gate, revision) {
+					Ok((stream, read, stereo, id)) => (Some(stream), read, stereo, id),
+					Err(_) => {
+						gate.input_failed_revision
+							.fetch_max(revision, Ordering::AcqRel);
+						(
+							None,
+							rtrb::RingBuffer::new(8).1,
+							rtrb::RingBuffer::new(8).1,
+							None,
+						)
+					}
 				}
-			}
-		} else {
-			(None, rtrb::RingBuffer::new(8).1, None)
-		};
+			} else {
+				(
+					None,
+					rtrb::RingBuffer::new(8).1,
+					rtrb::RingBuffer::new(8).1,
+					None,
+				)
+			};
 		let output_stream = match output_config.sample_format() {
 			cpal::SampleFormat::F32 => {
 				output_stream::<f32>(&output, &stream_config, render, gate.clone(), revision)
@@ -673,6 +722,7 @@ impl Streams {
 			_input: input_stream,
 			_output: output_stream,
 			input: input_read,
+			stereo_input: stereo_read,
 			output: output_write,
 			reference: reference_read,
 			processing: VoiceProcessing::from_legacy(false).effective(),
@@ -685,9 +735,10 @@ impl Streams {
 		match gate.reopen_input(revision, || {
 			open_input_stream(&self.host, settings, gate, revision)
 		}) {
-			Ok((stream, input_read, id)) => {
+			Ok((stream, input_read, stereo_read, id)) => {
 				self._input = Some(stream);
 				self.input = input_read;
+				self.stereo_input = stereo_read;
 				self.input_id = id;
 				self.input_callbacks = gate.input_callbacks.load(Ordering::Acquire);
 				self.input_activity = Instant::now();
@@ -698,6 +749,13 @@ impl Streams {
 		}
 	}
 }
+type InputStreams = (
+	cpal::Stream,
+	rtrb::Consumer<Frame>,
+	rtrb::Consumer<StereoFrame>,
+	Option<String>,
+);
+
 // A failed lookup is not evidence that a healthy stream's default changed. Device
 // callback failures still trigger recovery and replace the host along with the streams.
 fn default_device_changed(
@@ -713,12 +771,12 @@ fn open_input_stream(
 	settings: &Devices,
 	gate: &Arc<Gate>,
 	revision: u64,
-) -> Result<(cpal::Stream, rtrb::Consumer<Frame>, Option<String>), &'static str> {
+) -> Result<InputStreams, &'static str> {
 	#[cfg(target_os = "macos")]
 	permission_macos::authorize(gate, revision)?;
 	let input = choose(host, settings.input.as_deref(), true)?;
 	let input_id = input.id().ok().map(|id| id.to_string());
-	let input_config = config(&input, true)?;
+	let input_config = config(&input, true, if settings.stereo_input { 2 } else { 1 })?;
 	let stream_config = input_config.config();
 	#[cfg(target_os = "linux")]
 	let stream_config = {
@@ -730,8 +788,16 @@ fn open_input_stream(
 		}
 		config
 	};
-	let (input_write, input_read) = rtrb::RingBuffer::new(8);
-	let capture = Capture::new(input_config.sample_rate(), input_write);
+	let (input_write, input_read) =
+		rtrb::RingBuffer::new(if settings.stereo_input { 1 } else { 8 });
+	let (stereo_write, stereo_read) =
+		rtrb::RingBuffer::new(if settings.stereo_input { 8 } else { 1 });
+	let capture = stereo::InputCapture::new(
+		input_config.sample_rate(),
+		input_write,
+		stereo_write,
+		settings.stereo_input,
+	);
 	let stream = match input_config.sample_format() {
 		cpal::SampleFormat::F32 => {
 			input_stream::<f32>(&input, &stream_config, capture, gate.clone(), revision)
@@ -750,7 +816,7 @@ fn open_input_stream(
 	stream
 		.play()
 		.map_err(|_| "Could not start microphone; check system microphone permission")?;
-	Ok((stream, input_read, input_id))
+	Ok((stream, input_read, stereo_read, input_id))
 }
 fn choose(host: &cpal::Host, id: Option<&str>, input: bool) -> Result<cpal::Device, &'static str> {
 	if let Some(id) = id {
@@ -770,7 +836,11 @@ fn choose(host: &cpal::Host, id: Option<&str>, input: bool) -> Result<cpal::Devi
 	}
 	.ok_or("No default audio device is available")
 }
-fn config(device: &cpal::Device, input: bool) -> Result<cpal::SupportedStreamConfig, &'static str> {
+fn config(
+	device: &cpal::Device,
+	input: bool,
+	min_channels: u16,
+) -> Result<cpal::SupportedStreamConfig, &'static str> {
 	let supported: Vec<_> = if input {
 		device
 			.supported_input_configs()
@@ -790,11 +860,18 @@ fn config(device: &cpal::Device, input: bool) -> Result<cpal::SupportedStreamCon
 			.collect()
 	};
 	if let Some(config) = supported
-		.into_iter()
-		.filter(|c| c.channels() > 0 && c.channels() <= 8)
+		.iter()
+		.copied()
+		.filter(|c| c.channels() >= min_channels && c.channels() <= 8)
 		.filter(|c| supported_format(c.sample_format()))
 		.filter_map(|c| c.try_with_sample_rate(48_000))
 		.min_by_key(|c| c.channels())
+	{
+		return Ok(config);
+	}
+	if input
+		&& min_channels >= 2
+		&& let Some(config) = stereo_config(&supported, min_channels)
 	{
 		return Ok(config);
 	}
@@ -804,7 +881,7 @@ fn config(device: &cpal::Device, input: bool) -> Result<cpal::SupportedStreamCon
 		device.default_output_config()
 	}
 	.map_err(|_| "Default audio format is unavailable")?;
-	if config.channels() == 0
+	if config.channels() < min_channels
 		|| config.channels() > 8
 		|| !(8_000..=192_000).contains(&config.sample_rate())
 		|| !supported_format(config.sample_format())
@@ -812,6 +889,27 @@ fn config(device: &cpal::Device, input: bool) -> Result<cpal::SupportedStreamCon
 		return Err("Audio device format is unsupported; choose another device");
 	}
 	Ok(config)
+}
+// Stereo resampling supports these native rates even when a device's default is mono.
+fn stereo_config(
+	supported: &[cpal::SupportedStreamConfigRange],
+	min_channels: u16,
+) -> Option<cpal::SupportedStreamConfig> {
+	supported
+		.iter()
+		.copied()
+		.filter(|c| {
+			(min_channels..=8).contains(&c.channels()) && supported_format(c.sample_format())
+		})
+		.filter_map(|c| {
+			let min = c.min_sample_rate().max(8_000);
+			let max = c.max_sample_rate().min(192_000);
+			if min > max {
+				return None;
+			}
+			c.try_with_sample_rate(48_000u32.clamp(min, max))
+		})
+		.min_by_key(|c| (c.channels(), c.sample_rate().abs_diff(48_000)))
 }
 fn supported_format(format: cpal::SampleFormat) -> bool {
 	matches!(
@@ -831,7 +929,7 @@ fn is_fatal_error(error: &cpal::Error) -> bool {
 fn input_stream<T>(
 	device: &cpal::Device,
 	config: &cpal::StreamConfig,
-	mut capture: Capture,
+	mut capture: stereo::InputCapture,
 	gate: Arc<Gate>,
 	revision: u64,
 ) -> Result<cpal::Stream, &'static str>
@@ -1200,6 +1298,39 @@ mod tests {
 	}
 
 	#[test]
+	fn stereo_capture_discards_partial_pcm_after_fast_mute_and_security_transitions() {
+		for security_pause in [false, true] {
+			let audio = audio_without_devices();
+			audio.set_ready(true);
+			assert!(audio.gate.acknowledge(1));
+			let (send, mut received) = rtrb::RingBuffer::new(8);
+			let mut capture =
+				stereo::InputCapture::new(48_000, rtrb::RingBuffer::new(8).0, send, true);
+			capture.process(&[0.75_f32, -0.75].repeat(100), 2, &audio.gate);
+			assert!(received.pop().is_err());
+			// Both transitions may complete between native callbacks.
+			if security_pause {
+				audio.set_ready(false);
+				audio.set_ready(true);
+			} else {
+				audio.set_controls(true, false);
+				audio.set_controls(false, false);
+			}
+			assert!(audio.gate.capture());
+			capture.process(&[0.25_f32, -0.25].repeat(961), 2, &audio.gate);
+			let frame = received.pop().unwrap();
+			assert!(
+				frame
+					.as_chunks::<2>()
+					.0
+					.iter()
+					.all(|sample| *sample == [0.25, -0.25])
+			);
+			assert!(received.pop().is_err());
+		}
+	}
+
+	#[test]
 	fn default_device_polling_preserves_ready_streams_until_a_confirmed_change() {
 		let audio = audio_without_devices();
 		audio.set_ready(true);
@@ -1269,6 +1400,7 @@ mod tests {
 		audio.set_devices(Devices::default());
 		assert_eq!(audio.gate.revision.load(Ordering::Acquire), pending);
 		audio.set_devices(Devices {
+			stereo_input: false,
 			input: Some("synthetic-device".into()),
 			output: None,
 		});
@@ -1423,6 +1555,37 @@ mod tests {
 		assert_eq!(rendered, [0.0; 2]);
 	}
 
+	#[test]
+	fn stereo_format_selection_accepts_native_non_48k_formats_with_a_mono_default() {
+		let range = |channels, rate, format| {
+			cpal::SupportedStreamConfigRange::new(
+				channels,
+				rate,
+				rate,
+				cpal::SupportedBufferSize::Unknown,
+				format,
+			)
+		};
+		for rate in [44_100, 96_000] {
+			let supported = [
+				range(1, 48_000, cpal::SampleFormat::F32),
+				range(2, rate, cpal::SampleFormat::F32),
+			];
+			let selected = stereo_config(&supported, 2).unwrap();
+			assert_eq!((selected.channels(), selected.sample_rate()), (2, rate));
+		}
+		let supported = [
+			range(2, 1_000, cpal::SampleFormat::F32),
+			range(2, 384_000, cpal::SampleFormat::F32),
+			range(9, 48_000, cpal::SampleFormat::F32),
+		];
+		assert!(stereo_config(&supported, 2).is_none());
+		let supported = [
+			range(2, 44_100, cpal::SampleFormat::F32),
+			range(2, 48_000, cpal::SampleFormat::F32),
+		];
+		assert_eq!(stereo_config(&supported, 2).unwrap().sample_rate(), 48_000);
+	}
 	#[test]
 	fn resampling_buffers_and_capture_gate_are_bounded_without_devices() {
 		let gate = Gate::default();

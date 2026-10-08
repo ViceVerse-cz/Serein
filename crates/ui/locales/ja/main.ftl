@@ -4396,6 +4396,8 @@ voice-recipient-ringing = 呼び出し中…
 voice-recipient-not-in-call = 通話に未参加
 reconnect-now = 今すぐ再接続
 
+voice-stereo-input = ステレオマイク
+voice-stereo-input-warning = 2チャンネル入力が必要です。最初の2チャンネルを使用し、ノイズ抑制、エコー除去、自動ゲイン、感度設定を無効にします。ヘッドホンを使用してください。
 voice-call-moved-to-another-client = このデバイスの通話セッションが置き換えられました
 
 server-settings-page-safety = 安全設定

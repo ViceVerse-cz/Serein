@@ -1,5 +1,21 @@
 # Local storage policy and audit
 
+## Optional stereo input (October 2, 2026)
+
+The stereo microphone preference is one device-local Boolean in the existing
+16 KiB application preference record; older records default to mono. Stereo input
+retains at most eight 1,920-sample frames (61,440 bytes) in its callback ring. Mono
+input still uses its existing eight-frame ring; the unused opposite-format ring
+has one slot (3,840 bytes for stereo mode, 7,680 bytes for mono mode). The transport
+uses fixed tagged frames with at most eight channel slots plus one pacer frame,
+bounded to 70 KiB including tags. Native resampler state retains one partial stereo
+frame (7,680 bytes), two previous samples and scalar counters, plus the existing
+unused mono converter’s partial frame (3,840 bytes) and scalar state in stereo mode. Codec PCM scratch is 7,680 bytes
+and encoded output remains 1,275 bytes. Native driver buffers and Opus state are
+additional. Capture is gated by the existing permissions, explicit call/test,
+mute/deafen and encryption lifecycle. No audio is persisted, logged or recorded.
+
+
 ## Profile board games (October 7, 2026)
 
 Board metadata uses the existing on-demand profile worker and RAM profile cache,

@@ -4427,6 +4427,9 @@ voice-recipient-ringing = Ringing…
 voice-recipient-not-in-call = Not in call
 reconnect-now = Reconnect now
 
+voice-stereo-input = Stereo microphone
+voice-stereo-input-warning = Requires a two-channel input. Uses the first two channels and bypasses noise suppression, echo cancellation, automatic gain and sensitivity. Use headphones.
+
 # Explicit public attachment hosting
 public-upload-host-file = Share link instead…
 public-upload-heading = Share with a public link

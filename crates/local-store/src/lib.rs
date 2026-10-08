@@ -63,6 +63,7 @@ pub struct AppPreferences {
 	pub voice_muted: bool,
 	pub voice_deafened: bool,
 	pub voice_input: Option<String>,
+	pub voice_stereo_input: bool,
 	pub voice_output: Option<String>,
 	pub input_percent: u16,
 	pub output_percent: u16,
@@ -101,6 +102,7 @@ impl Default for AppPreferences {
 			voice_muted: false,
 			voice_deafened: false,
 			voice_input: None,
+			voice_stereo_input: false,
 			voice_output: None,
 			input_percent: 100,
 			output_percent: 100,
@@ -2115,6 +2117,7 @@ mod tests {
 		let legacy: AppPreferences =
 			serde_json::from_str(r#"{"voice_noise_suppression":true}"#).unwrap();
 		assert!(legacy.voice_processing.is_none());
+		assert!(!legacy.voice_stereo_input);
 		assert!(legacy.voice_noise_suppression);
 		// Existing serialized bindings omit the newly optional diagnostics shortcut.
 		let mut old_bindings = serde_json::to_value(model::Keybinds::default()).unwrap();
@@ -2148,6 +2151,7 @@ mod tests {
 			voice_muted: true,
 			voice_deafened: true,
 			voice_input: Some("synthetic microphone".into()),
+			voice_stereo_input: true,
 			output_percent: 75,
 			gpu_preference: model::GpuPreference::PowerSaving,
 			..Default::default()

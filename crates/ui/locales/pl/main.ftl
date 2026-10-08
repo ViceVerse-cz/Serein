@@ -4410,6 +4410,8 @@ voice-recipient-ringing = Dzwoni…
 voice-recipient-not-in-call = Poza rozmową
 reconnect-now = Połącz ponownie
 
+voice-stereo-input = Mikrofon stereo
+voice-stereo-input-warning = Wymaga wejścia dwukanałowego. Używa dwóch pierwszych kanałów bez tłumienia szumu, echa, automatycznego wzmocnienia i progu czułości. Używaj słuchawek.
 voice-call-moved-to-another-client = Sesja połączenia na tym urządzeniu została zastąpiona
 
 server-settings-page-safety = Konfiguracja bezpieczeństwa

@@ -9,13 +9,13 @@ pub(crate) fn hold(energy: f32, previous: u8) -> u8 {
 }
 
 /// Finite RMS level for the local preview meter, clamped to its display range.
-pub(crate) fn level_db(frame: &[f32; 960]) -> f32 {
+pub(crate) fn level_db(frame: &[f32]) -> f32 {
 	let energy: f32 = frame
 		.iter()
 		.filter(|s| s.is_finite())
 		.map(|s| s.clamp(-1.0, 1.0).powi(2))
 		.sum();
-	(10.0 * (energy / 960.0).max(1e-10).log10()).clamp(-100.0, 0.0)
+	(10.0 * (energy / frame.len().max(1) as f32).max(1e-10).log10()).clamp(-100.0, 0.0)
 }
 
 /// Manual sensitivity with 3 dB hysteresis, 200 ms release and a 5 ms click-free ramp.

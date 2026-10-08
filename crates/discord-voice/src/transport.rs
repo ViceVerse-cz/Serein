@@ -1,5 +1,5 @@
 use crate::{
-	Controls, Frame, Status,
+	CapturedFrame, Controls, Frame, Status,
 	crypto::{Dave, Encryption, Identity, MAX_PACKET, MAX_SIGNAL, MODE},
 	diagnostics::{Signal, Video},
 	video_receive::{
@@ -235,12 +235,38 @@ fn discovery(packet: &[u8], ssrc: u32) -> Result<(IpAddr, u16), &'static str> {
 	Ok((address, port))
 }
 
+fn microphone_encoder(channels: Channels) -> Result<Encoder, &'static str> {
+	let mut encoder = Encoder::new(
+		48_000,
+		channels,
+		if channels == Channels::Stereo {
+			Application::Audio
+		} else {
+			Application::Voip
+		},
+	)
+	.map_err(|_| "Opus encoder initialization failed")?;
+	encoder
+		.set_bitrate(Bitrate::Bits(if channels == Channels::Stereo {
+			128_000
+		} else {
+			64_000
+		}))
+		.map_err(|_| "Opus bitrate configuration failed")?;
+	if channels == Channels::Stereo {
+		encoder
+			.set_force_channels(Some(Channels::Stereo))
+			.map_err(|_| "Opus stereo configuration failed")?;
+	}
+	Ok(encoder)
+}
+
 /// Drop the control sender or abort this future to stop the socket, UDP, codecs and ephemeral keys.
-/// PCM queues must contain at most eight 20ms mono48k frames each. No audio device opens here.
+/// PCM queues contain at most eight 20ms frames. No audio device opens here.
 #[allow(clippy::too_many_arguments)] // Every media input of one call.
 pub async fn run(
 	credentials: VoiceConnection,
-	capture: Receiver<Frame>,
+	capture: Receiver<CapturedFrame>,
 	playback: SyncSender<Frame>,
 	controls: watch::Receiver<Controls>,
 	camera: Option<Receiver<crate::camera_video::Frame>>,
@@ -265,7 +291,7 @@ pub async fn run(
 #[allow(clippy::too_many_arguments)] // Every media input of one call plus its identity.
 pub async fn run_with_identity(
 	credentials: VoiceConnection,
-	capture: Receiver<Frame>,
+	capture: Receiver<CapturedFrame>,
 	playback: SyncSender<Frame>,
 	controls: watch::Receiver<Controls>,
 	camera: Option<Receiver<crate::camera_video::Frame>>,
@@ -295,7 +321,7 @@ pub async fn run_with_identity(
 #[allow(clippy::too_many_arguments)] // Public media inputs plus the loopback-only test endpoint.
 async fn run_inner(
 	credentials: VoiceConnection,
-	capture: Receiver<Frame>,
+	capture: Receiver<CapturedFrame>,
 	playback: SyncSender<Frame>,
 	mut controls: watch::Receiver<Controls>,
 	camera: Option<Receiver<crate::camera_video::Frame>>,
@@ -365,19 +391,16 @@ async fn run_inner(
 	let mut heard = false;
 	let mut speaking = false;
 	let mut silence = 0u8;
-	// Capture is mono; a mono stream halves Opus work and decodes identically on stereo receivers.
-	let mut encoder = Encoder::new(48_000, Channels::Mono, Application::Voip)
-		.map_err(|_| "Opus encoder initialization failed")?;
-	encoder
-		.set_bitrate(Bitrate::Bits(64_000))
-		.map_err(|_| "Opus bitrate configuration failed")?;
+	// Mono stays the default; a tagged stereo frame preserves independent native channels.
+	let mut encoder = microphone_encoder(Channels::Mono)?;
+	let mut encoder_channels = Channels::Mono;
 	let mut random = [0; 6];
 	getrandom::fill(&mut random).map_err(|_| "Voice random initialization failed")?;
 	let mut sequence = u16::from_be_bytes([random[0], random[1]]);
 	let mut timestamp = u32::from_be_bytes(random[2..].try_into().unwrap());
 	let mut packet = [0u8; MAX_PACKET + 1];
 	let mut encoded = [0u8; 1275];
-	let mut mono = [0.0f32; 960];
+	let mut pcm = [0.0f32; 1920];
 	let mut tick = tokio::time::interval(Duration::from_millis(20));
 	tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 	let mut signal_window = Instant::now();
@@ -465,7 +488,7 @@ async fn run_inner(
 					capture_pacer.next(&capture,enabled && !control.muted && !control.deafened,stalled)
 				};
 				local_activity=if (enabled || waiting) && !control.muted && !control.deafened && !stalled {
-					crate::activity::hold_at(latest.as_ref().map_or(0.0, |frame| frame.iter().filter(|s| s.is_finite()).map(|s| s*s).sum()),local_activity,control.activity_threshold_db)
+					crate::activity::hold_at(latest.as_ref().map_or(0.0, |frame| frame.samples().iter().filter(|s| s.is_finite()).map(|s| s*s).sum::<f32>() / frame.channels() as f32),local_activity,control.activity_threshold_db)
 				} else {0};
 				let active=enabled && !control.muted && !control.deafened && latest.is_some();
 				if active && !speaking {json_send(&mut ws,json!({"op":5,"d":{"speaking":1,"delay":0,"ssrc":ssrc}})).await?;speaking=true;}
@@ -474,8 +497,14 @@ async fn run_inner(
 					let start = metrics.start();
 					let data=if active {
 						let frame=latest.unwrap();
-						for (sample,out) in frame.iter().zip(mono.iter_mut()) {*out=if sample.is_finite(){sample.clamp(-1.0,1.0)}else{0.0};}
-						let length=encoder.encode_float(&mono,&mut encoded).map_err(|_|"Opus encoding failed")?;
+						let channels = if frame.channels() == 2 { Channels::Stereo } else { Channels::Mono };
+						if channels != encoder_channels {
+							encoder = microphone_encoder(channels)?;
+							encoder_channels = channels;
+						}
+						let samples = frame.samples();
+						for (sample,out) in samples.iter().zip(pcm.iter_mut()) {*out=if sample.is_finite(){sample.clamp(-1.0,1.0)}else{0.0};}
+						let length=encoder.encode_float(&pcm[..samples.len()],&mut encoded).map_err(|_|"Opus encoding failed")?;
 						dave.session.encrypt_opus(&encoded[..length]).map_err(|_|"DAVE audio encryption failed")?.into_owned()
 					} else {silence-=1;davey::OPUS_SILENCE_PACKET.to_vec()};
 					let mut header=[0;12];header[0]=0x80;header[1]=120;header[2..4].copy_from_slice(&sequence.to_be_bytes());header[4..8].copy_from_slice(&timestamp.to_be_bytes());header[8..12].copy_from_slice(&ssrc.to_be_bytes());
@@ -1396,6 +1425,56 @@ async fn run_stream_inner(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn stereo_microphone_opus_preserves_channel_separation_and_mono_default() {
+		let mut encoder = microphone_encoder(Channels::Stereo).unwrap();
+		let mut decoder = Decoder::new(48_000, Channels::Stereo).unwrap();
+		let mut packet = [0u8; 1275];
+		let input = std::array::from_fn::<_, 1920, _>(|sample| {
+			if sample % 2 == 0 {
+				(sample as f32 * std::f32::consts::TAU * 440.0 / 96_000.0).sin() * 0.4
+			} else {
+				0.0
+			}
+		});
+		let mut decoded = [0.0f32; 1920];
+		for _ in 0..4 {
+			let length = encoder.encode_float(&input, &mut packet).unwrap();
+			assert_eq!(
+				opus2::packet::get_nb_channels(&packet[..length]).unwrap(),
+				Channels::Stereo
+			);
+			assert_eq!(
+				decoder
+					.decode_float(&packet[..length], &mut decoded, false)
+					.unwrap(),
+				960
+			);
+		}
+		let left: f32 = decoded
+			.iter()
+			.step_by(2)
+			.map(|sample| sample * sample)
+			.sum();
+		let right: f32 = decoded
+			.iter()
+			.skip(1)
+			.step_by(2)
+			.map(|sample| sample * sample)
+			.sum();
+		assert!(
+			left > 10.0 && right < left * 0.01,
+			"left={left}, right={right}"
+		);
+		let mut mono = microphone_encoder(Channels::Mono).unwrap();
+		let length = mono.encode_float(&[0.1; 960], &mut packet).unwrap();
+		assert_eq!(
+			opus2::packet::get_nb_channels(&packet[..length]).unwrap(),
+			Channels::Mono
+		);
+		assert!(size_of::<CapturedFrame>() * 9 <= 70 * 1024);
+	}
 	use crate::video_receive::Receivers;
 	use opus2::Decoder;
 
@@ -2063,7 +2142,9 @@ mod tests {
 			request: 1,
 		};
 		let (capture_tx, capture) = std::sync::mpsc::sync_channel(8);
-		capture_tx.try_send([0.25; 960]).unwrap();
+		capture_tx
+			.try_send(CapturedFrame::mono([0.25; 960]))
+			.unwrap();
 		let (playback, playback_rx) = std::sync::mpsc::sync_channel(8);
 		let (control_tx, control_rx) = watch::channel(Controls::default());
 		let (_camera_tx, camera_rx) = std::sync::mpsc::sync_channel(1);
@@ -2137,7 +2218,7 @@ mod tests {
 					_ = capture_tick.tick(), if ready > 0 => {
 						// Model a bounded continuous microphone, not one frame discarded by a stall.
 						if !captured {
-							match capture_tx.try_send(std::array::from_fn(|i| (i as f32 * 0.06).sin() * 0.3)) {
+							match capture_tx.try_send(CapturedFrame::mono(std::array::from_fn(|i| (i as f32 * 0.06).sin() * 0.3))) {
 								Ok(()) | Err(std::sync::mpsc::TrySendError::Full(_)) => {}
 								Err(std::sync::mpsc::TrySendError::Disconnected(_)) => panic!("test capture stopped before peer receipt"),
 							}

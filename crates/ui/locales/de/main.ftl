@@ -4407,6 +4407,8 @@ voice-recipient-ringing = Klingelt…
 voice-recipient-not-in-call = Nicht im Anruf
 reconnect-now = Jetzt neu verbinden
 
+voice-stereo-input = Stereo-Mikrofon
+voice-stereo-input-warning = Erfordert zwei Eingangskanäle. Nutzt die ersten beiden ohne Rauschunterdrückung, Echounterdrückung, automatische Verstärkung oder Empfindlichkeit. Kopfhörer verwenden.
 voice-call-moved-to-another-client = Die Anrufsitzung dieses Geräts wurde ersetzt
 
 server-settings-page-safety = Sicherheitseinstellungen
