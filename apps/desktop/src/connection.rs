@@ -38,8 +38,8 @@ pub struct Connection {
 	pub registered_games: watch::Sender<Vec<model::registered_games::RegisteredGame>>,
 	pub running_game: watch::Receiver<Option<model::registered_games::RunningGame>>,
 	pub spotify_activity: watch::Receiver<Option<discord_protocol::spotify::Activity>>,
-	/// A local Rich Presence client asked the client to show an invite: counter and code.
-	pub rpc_invite: watch::Receiver<Option<(u64, String)>>,
+	/// The latest local RPC invite; each receiver consumes watch changes once.
+	pub rpc_invite: watch::Receiver<Option<String>>,
 	pub activity_observation: watch::Receiver<discord_gateway::ActivityObservation>,
 	pub activity_sharing: watch::Receiver<Result<Option<bool>, Failure>>,
 	pub activity_sharing_request: mpsc::Sender<bool>,
