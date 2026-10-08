@@ -228,3 +228,17 @@ measurement is inferred from this integration; the historical measurements
 remain explicitly source-pinned. Current hashes, inventory, build provenance
 and source equivalence are recorded separately in
 [`rtl-message-layout/measurements.json`](https://github.com/ViceVerse-cz/Serein/blob/7d495ed350e165bb7bfd3165b88ee6429e544bcf/docs/pr-evidence/rtl-message-layout/measurements.json).
+
+## RTL message layout (PR #531): Windows integration evidence - October 8, 2026
+
+Fresh standard Windows x64 voice-enabled packages compare main `1b3e4a7b` with `ea64b31e` (measured 2026-10-08). Baseline/current file counts: 216/217; the additional file is the epaint patch notice. Both Chinese layout-limit notices are included in the measured source.
+
+| Metric | Main `1b3e4a7b` | Current integration | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 86,008,832 B | 86,181,376 B | +172,544 B (+0.2006%) |
+| Installed directory | 90,199,948 B | 90,374,954 B | +175,006 B (+0.1940%) |
+| Distribution ZIP | 50,001,798 B | 50,061,897 B | +60,099 B (+0.1202%) |
+
+Method: `cargo xtask package`, Rust 1.98.1, standard release flags without demo; Windows 11 build 26200, Ryzen 7 7800X3D, 32 GiB RAM. Runtime workspace artifacts were invalidated before the feature build. Installed bytes sum every file in `dist`; ZIP uses whole-directory .NET Optimal compression. NSIS was unavailable, so no installer executable was built.
+
+Current native CPU, memory, frame/startup latency and affected-device behavior remain unmeasured because the native automation bridge is unavailable. Package size and synthetic reducer timing do not establish live Discord performance.
