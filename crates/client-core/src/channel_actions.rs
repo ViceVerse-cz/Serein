@@ -1299,6 +1299,8 @@ mod tests {
 				id: Id(2),
 				name: String::new(),
 				color: 0,
+				secondary_color: None,
+				tertiary_color: None,
 				position: 0,
 				hoist: false,
 				bits: VIEW_CHANNEL | MANAGE_ROLES,

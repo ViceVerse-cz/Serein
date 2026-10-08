@@ -95,15 +95,27 @@ pub(crate) struct Role {
 struct RoleColors {
 	#[serde(default)]
 	primary_color: Option<u32>,
+	#[serde(default)]
+	secondary_color: Option<u32>,
+	#[serde(default)]
+	tertiary_color: Option<u32>,
 }
 impl Role {
 	pub(crate) fn checked(self) -> Result<p::Role, DecodeError> {
 		nonzero(self.id)?;
-		let color = self
-			.colors
-			.and_then(|colors| colors.primary_color)
-			.unwrap_or(self.color);
-		if color > 0xff_ffff {
+		let colors = self.colors.map_or(
+			model::server_roles::Colors {
+				primary: self.color,
+				secondary: None,
+				tertiary: None,
+			},
+			|colors| model::server_roles::Colors {
+				primary: colors.primary_color.unwrap_or(self.color),
+				secondary: colors.secondary_color,
+				tertiary: colors.tertiary_color,
+			},
+		);
+		if !colors.valid() {
 			return Err(DecodeError);
 		}
 		Ok(p::Role {
@@ -115,7 +127,9 @@ impl Role {
 				.filter(|c| !c.is_control())
 				.take(100)
 				.collect(),
-			color,
+			color: colors.primary,
+			secondary_color: colors.secondary,
+			tertiary_color: colors.tertiary,
 			position: self.position,
 			hoist: self.hoist,
 		})
@@ -623,6 +637,46 @@ pub fn channel(bytes: &[u8], user: Id) -> Result<Option<ChannelUpdate>, DecodeEr
 mod tests {
 	use super::*;
 	use serde_json::json;
+
+	#[test]
+	fn role_gradients_preserve_all_stops_and_reject_invalid_rgb() {
+		let colors =
+			json!({"primary_color":1122867,"secondary_color":4478310,"tertiary_color":7833753});
+		let payload =
+			json!({"guild_id":"1","role":{"id":"2","permissions":"0","color":1,"colors":colors}});
+		let (_, role) = super::role(&serde_json::to_vec(&payload).unwrap()).unwrap();
+		assert_eq!(
+			role.colors(),
+			model::server_roles::Colors {
+				primary: 0x112233,
+				secondary: Some(0x445566),
+				tertiary: Some(0x778899),
+			}
+		);
+		let snapshot = ready(
+			&serde_json::to_vec(
+				&json!({"guilds":[{"id":"1","roles":[{"id":"1","permissions":"0"},payload["role"]]}]}),
+			)
+			.unwrap(),
+			Id(9),
+		)
+		.unwrap();
+		assert_eq!(snapshot.guilds[0].roles.as_ref().unwrap()[1], role);
+		for stop in ["primary_color", "secondary_color", "tertiary_color"] {
+			let mut invalid = payload.clone();
+			invalid["role"]["colors"][stop] = json!(0x1000000);
+			assert!(super::role(&serde_json::to_vec(&invalid).unwrap()).is_err());
+		}
+		let (_, solid) = super::role(br#"{"guild_id":"1","role":{"id":"2","permissions":"0","color":1122867,"colors":{"primary_color":null,"secondary_color":null,"tertiary_color":null}}}"#).unwrap();
+		assert_eq!(
+			solid.colors(),
+			model::server_roles::Colors {
+				primary: 0x112233,
+				secondary: None,
+				tertiary: None
+			}
+		);
+	}
 
 	#[test]
 	fn role_display_metadata_accepts_modern_and_legacy_colors_with_bounded_names() {

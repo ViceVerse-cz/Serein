@@ -378,6 +378,18 @@ channel-list-heading-direct-messages = Прямые сообщения
 channel-list-heading-favorites = Избранное
 # Context: key
 channel-list-heading-pinned = Закреплено
+# Context: key
+channel-list-heading-message-requests = Запросы на переписку
+# Context: label
+message-request-ignore-tooltip = Игнорировать запрос
+# Context: label
+message-request-accept = Принять
+# Context: label
+message-request-ignore = Игнорировать
+# Context: label
+message-request-banner = Этот человек пока не в вашем списке друзей. Примите, чтобы перенести беседу в личные сообщения.
+# Context: label
+message-request-title = Запрос на переписку
 
 ## crates/ui/src/channel_menu.rs
 # Context: context

@@ -116,9 +116,8 @@ impl State {
 		if !self.gateway_connected
 			|| !self.can_view(channel)
 			|| !self
-				.channels
-				.iter()
-				.any(|c| c.id == channel && (c.supports_text() || matches!(c.kind, 15 | 16)))
+				.channel(channel)
+				.is_some_and(|c| c.supports_text() || matches!(c.kind, 15 | 16))
 		{
 			return None;
 		}

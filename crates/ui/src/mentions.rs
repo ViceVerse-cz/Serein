@@ -1170,6 +1170,8 @@ mod tests {
 								id: guild,
 								name: String::new(),
 								color: 0,
+								secondary_color: None,
+								tertiary_color: None,
 								position: 0,
 								hoist: false,
 								bits: p::VIEW_CHANNEL | p::SEND_MESSAGES | p::MENTION_EVERYONE,
@@ -1764,6 +1766,8 @@ pub fn debug_role_mentions_check(state: &mut State) {
 		name: "Role check".into(),
 		bits: 0,
 		color: 0xe67e22,
+		secondary_color: None,
+		tertiary_color: None,
 		position: 1,
 		hoist: false,
 	});

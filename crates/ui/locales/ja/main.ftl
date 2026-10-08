@@ -378,6 +378,18 @@ channel-list-heading-direct-messages = ダイレクトメッセージ
 channel-list-heading-favorites = お気に入り
 # Context: key
 channel-list-heading-pinned = 固定された
+# Context: key
+channel-list-heading-message-requests = メッセージリクエスト
+# Context: label
+message-request-ignore-tooltip = リクエストを無視
+# Context: label
+message-request-accept = 承認
+# Context: label
+message-request-ignore = 無視
+# Context: label
+message-request-banner = この人はまだフレンドではありません。承認するとダイレクトメッセージに移動します。
+# Context: label
+message-request-title = メッセージリクエスト
 
 ## crates/ui/src/channel_menu.rs
 # Context: context

@@ -1468,26 +1468,21 @@ impl SearchUi {
 							egui::Layout::left_to_right(egui::Align::Center),
 							|ui| {
 								ui.spacing_mut().item_spacing.x = 8.0;
-								let name_color = state
-									.forum_author_color(
-										hit.channel,
-										hit.author.id,
-										hit.author.webhook,
-										&[],
-									)
-									.map_or(colors.text_strong, |rgb| {
-										design::role_name_color(
-											rgb,
-											colors.base,
-											colors.text_strong,
-										)
-									});
 								crate::account_badge::name(
 									ui,
 									&hit.author,
 									state.user_display_name(&hit.author),
 									14.0,
-									name_color,
+									(
+										colors.text_strong,
+										state.forum_author_colors(
+											hit.channel,
+											hit.author.id,
+											hit.author.webhook,
+											&[],
+										),
+										colors.base,
+									),
 									egui::Sense::hover(),
 									88.0,
 								);

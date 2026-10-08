@@ -55,6 +55,7 @@ pub enum Action {
 	Block { user: Id, blocked: bool },
 	Ignore { user: Id, ignored: bool },
 	Mute { channel: Id, muted: bool },
+	MessageRequest { channel: Id, accept: bool },
 }
 impl std::fmt::Debug for Action {
 	/// Redacted debug output; never prints note, nickname or username text.
@@ -85,6 +86,8 @@ impl Action {
 				"Conversation notifications muted until you turn them back on"
 			}
 			Self::Mute { muted: false, .. } => "Conversation notifications unmuted",
+			Self::MessageRequest { accept: true, .. } => "Message request accepted",
+			Self::MessageRequest { accept: false, .. } => "Message request ignored",
 		}
 	}
 }
@@ -386,6 +389,20 @@ impl State {
 	pub(crate) fn message_request_pending(&self, channel: Id) -> bool {
 		self.user_actions.message_requests.contains(&channel)
 	}
+	/// A pending request from someone who is neither a friend nor blocked; the same rule as the badge.
+	pub fn message_request(&self, channel: Id) -> bool {
+		self.message_request_pending(channel)
+			&& self
+				.channel(channel)
+				.is_some_and(|channel| self.stranger_message_request(channel))
+	}
+	/// Accepts or ignores a pending message request. Ignoring removes the conversation.
+	pub fn resolve_message_request(&mut self, channel: Id, accept: bool) -> Option<Command> {
+		if !self.message_request(channel) {
+			return None;
+		}
+		self.request_user_action(Action::MessageRequest { channel, accept })
+	}
 	pub fn spam_direct(&self, channel: Id) -> bool {
 		self.user_actions.spam_directs.contains(&channel)
 	}
@@ -404,6 +421,7 @@ impl State {
 		} else {
 			self.user_actions.message_requests.remove(&channel);
 		}
+		self.user_actions.bump_view();
 		Ok(())
 	}
 	fn set_spam_request(&mut self, user: Id, spam: bool) -> Result<(), &'static str> {
@@ -1355,6 +1373,7 @@ impl State {
 					"Message requests exceed safe capacity",
 					"Message requests contain invalid or duplicate channels",
 				)?;
+				self.user_actions.bump_view();
 			}
 			Event::MessageRequest { channel, pending } => {
 				self.set_message_request(channel, pending)?;
@@ -1516,6 +1535,15 @@ impl State {
 							})?;
 						}
 						Action::Mute { channel, muted } => self.confirm_dm_muted(channel, muted)?,
+						Action::MessageRequest { channel, accept } => {
+							self.set_message_request(channel, false)?;
+							if !accept {
+								self.remove_channels(&std::collections::BTreeSet::from([channel]));
+								if self.selected == Some(channel) {
+									self.arrived_home();
+								}
+							}
+						}
 					}
 				}
 			}

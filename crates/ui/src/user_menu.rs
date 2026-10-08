@@ -16,6 +16,7 @@ pub enum Action {
 	Block { user: model::Id, blocked: bool },
 	Ignore { user: model::Id, ignored: bool },
 	Mute { channel: model::Id, muted: bool },
+	MessageRequest { channel: model::Id, accept: bool },
 	Shortcut(Intent),
 }
 impl std::fmt::Debug for Action {
@@ -38,6 +39,9 @@ pub(super) fn prepare(action: Action, state: &mut State) -> Option<Command> {
 		Action::Block { user, blocked } => state.set_user_blocked(user, blocked),
 		Action::Ignore { user, ignored } => state.set_user_ignored(user, ignored),
 		Action::Mute { channel, muted } => state.set_dm_muted(channel, muted),
+		Action::MessageRequest { channel, accept } => {
+			state.resolve_message_request(channel, accept)
+		}
 	}
 }
 

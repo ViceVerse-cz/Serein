@@ -7,6 +7,7 @@ mod appearance_transparency_tests;
 mod archives;
 mod audio;
 mod forwarding;
+mod role_names;
 pub use audio::{AudioCommand, AudioState, AudioUi};
 mod video;
 pub use video::{VideoCommand, VideoState, VideoUi};
@@ -290,6 +291,8 @@ pub struct MessagingUi {
 	profile_formatted: markdown::FormatCache,
 	pub reading_preferences: model::ReadingPreferences,
 	pub show_hidden_channels: bool,
+	/// Folds the home list's message requests away; session-local like hover state.
+	message_requests_collapsed: bool,
 	/// Custom emoji that need Nitro stay out of `:` suggestions and are locked in pickers.
 	pub hide_nitro_emojis: bool,
 	pub hide_title_bar: bool,
@@ -971,6 +974,10 @@ impl MessagingUi {
 	pub fn take_avatar_requests(&mut self) -> Vec<String> {
 		self.avatars.take_requests()
 	}
+	/// When unplayed animation frames can next be released; see `take_avatar_requests`.
+	pub fn avatar_release_at(&self) -> Option<std::time::Instant> {
+		self.avatars.next_release()
+	}
 	pub fn accept_gif_animation(&mut self, key: String, frames: GifFrames) {
 		self.avatars.accept_animation(key, frames);
 	}
@@ -1437,6 +1444,14 @@ impl MessagingUi {
 					};
 					match slot {
 						Some(model::MemberSlot::Group(id)) => {
+							let role_colors = id.parse::<u64>().ok().and_then(|role_id| {
+								guild
+									.and_then(|guild| state.guild_roles(guild))
+									.and_then(|roles| {
+										roles.iter().find(|role| role.id == Id(role_id))
+									})
+									.map(|role| role.colors())
+							});
 							let name = match id.as_str() {
 								"online" => language.text("status-online"),
 								"offline" => language.text("status-offline"),
@@ -1476,9 +1491,15 @@ impl MessagingUi {
 							);
 							header
 								.add(
-									egui::Label::new(
-										design::medium(ui, &text, 12.0).color(colors.muted),
-									)
+									egui::Label::new(crate::role_names::galley(
+										&header,
+										&text,
+										egui::FontId::new(12.0, design::medium_family(ui.ctx())),
+										role_colors,
+										colors.sidebar,
+										colors.muted,
+										header.available_width(),
+									))
 									.truncate(),
 								)
 								.on_hover_text(&text);
@@ -1558,21 +1579,17 @@ impl MessagingUi {
 										colors.sidebar,
 									);
 								}
-								let text_color = if online {
-									let role_color = guild.and_then(|guild| {
-										state.member_roles(guild, member).1.map(|role| role.color)
-									});
-									let background = if response.hovered() || response.has_focus() {
-										colors.hover
-									} else {
-										colors.sidebar
-									};
-									role_color.map_or(colors.text, |rgb| {
-										design::role_name_color(rgb, background, colors.text)
+								let role_colors = online
+									.then(|| {
+										guild.and_then(|guild| {
+											state
+												.member_roles(guild, member)
+												.1
+												.map(|role| role.colors())
+										})
 									})
-								} else {
-									colors.muted
-								};
+									.flatten();
+								let text_color = if online { colors.text } else { colors.muted };
 								let mut show_name = |ui: &mut egui::Ui| {
 									ui.allocate_ui_with_layout(
 										egui::vec2(ui.available_width(), 18.0),
@@ -1588,7 +1605,15 @@ impl MessagingUi {
 												&member.user,
 												name,
 												15.0,
-												text_color,
+												(
+													text_color,
+													role_colors,
+													if response.hovered() || response.has_focus() {
+														colors.hover
+													} else {
+														colors.sidebar
+													},
+												),
 												egui::Sense::hover(),
 												trailing,
 											);
@@ -2557,6 +2582,80 @@ impl MessagingUi {
 		}
 	}
 	/// Submits message drafts or edits after applying the device conversion preference.
+	/// Accept or ignore a pending message request, as in Discord's request conversation view.
+	fn message_request_bar(&mut self, ui: &mut egui::Ui, state: &State, channel: Id) {
+		let colors = design::palette(ui);
+		let language = self.language;
+		let enabled = !state.user_action_pending();
+		ui.add_space(6.0);
+		egui::Frame::new()
+			.fill(colors.raised)
+			.stroke(egui::Stroke::new(1.0, colors.border))
+			.corner_radius(8)
+			.inner_margin(egui::Margin::symmetric(14, 10))
+			.show(ui, |ui| {
+				ui.set_width(ui.available_width());
+				let button = |ui: &mut egui::Ui, label: String, fill, text| {
+					ui.add_enabled(
+						enabled,
+						egui::Button::new(design::medium(ui, &label, 14.0).color(text))
+							.fill(fill)
+							.stroke(egui::Stroke::NONE)
+							.corner_radius(6)
+							.min_size(egui::vec2(88.0, 32.0)),
+					)
+					.clicked()
+				};
+				ui.horizontal(|ui| {
+					ui.spacing_mut().item_spacing.x = 8.0;
+					let actions = 2.0 * 88.0 + 8.0 + 16.0;
+					ui.allocate_ui_with_layout(
+						egui::vec2((ui.available_width() - actions).max(120.0), 0.0),
+						egui::Layout::top_down(egui::Align::Min),
+						|ui| {
+							ui.spacing_mut().item_spacing.y = 2.0;
+							ui.label(
+								design::semibold(ui, language.text("message-request-title"), 15.0)
+									.color(colors.text_strong),
+							);
+							ui.add(
+								egui::Label::new(
+									RichText::new(language.text("message-request-banner"))
+										.size(13.0)
+										.color(colors.muted),
+								)
+								.wrap(),
+							);
+						},
+					);
+					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+						if button(
+							ui,
+							language.text("message-request-ignore"),
+							colors.hover,
+							colors.text_strong,
+						) {
+							self.user_action = Some(user_menu::Action::MessageRequest {
+								channel,
+								accept: false,
+							});
+						}
+						if button(
+							ui,
+							language.text("message-request-accept"),
+							colors.accent,
+							colors.accent_text,
+						) {
+							self.user_action = Some(user_menu::Action::MessageRequest {
+								channel,
+								accept: true,
+							});
+						}
+					});
+				});
+			});
+		ui.add_space(8.0);
+	}
 	fn composer(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -4515,6 +4614,9 @@ impl MessagingUi {
 							}),
 					)
 					.show(ui, |ui| {
+						if state.message_request(channel) {
+							self.message_request_bar(ui, state, channel);
+						}
 						self.composer(ui, state, channel, &ctx, &mut commands);
 					});
 				if let Some((shape, top)) = message_fill {
@@ -7506,6 +7608,8 @@ mod composer_tests {
 					bits: 0,
 					name: "Founders".into(),
 					color: 0xe78284,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 1,
 					hoist: true,
 				}]),

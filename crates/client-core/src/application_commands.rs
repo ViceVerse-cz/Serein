@@ -374,6 +374,8 @@ mod tests {
 				bits,
 				name: "Synthetic role".into(),
 				color: 0,
+				secondary_color: None,
+				tertiary_color: None,
 				position: 0,
 				hoist: false,
 			};
@@ -676,6 +678,8 @@ mod tests {
 						bits: p::VIEW_CHANNEL | p::USE_APPLICATION_COMMANDS | p::SEND_MESSAGES,
 						name: "Synthetic role".into(),
 						color: 0,
+						secondary_color: None,
+						tertiary_color: None,
 						position: 0,
 						hoist: false,
 					}]),

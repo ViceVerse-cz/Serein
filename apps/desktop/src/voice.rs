@@ -676,6 +676,16 @@ impl Voice {
 					.map(|c| (c.generation, c.channel, c.request))
 			});
 		if current.is_some() && current != expected {
+			// Leaving a call this account had joined mirrors its local join cue.
+			if self
+				.live
+				.as_ref()
+				.is_some_and(|live| live.cues.joined && live.generation == state.generation)
+				&& ui.notification_options.allows(Sound::UserLeave)
+			{
+				ui.notification_preview = Some(Sound::UserLeave);
+				ctx.request_repaint();
+			}
 			let command = current.map(|(_, channel, request)| self.end_control(channel, request));
 			self.stop();
 			// Permission/removal failures must leave the service too; never target a new account.
@@ -1884,6 +1894,8 @@ mod tests {
 				roles: Some(vec![p::Role {
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
 					id: Id(10),

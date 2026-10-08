@@ -592,17 +592,16 @@ fn starter_row(
 						egui::Layout::left_to_right(egui::Align::Center),
 						|ui| {
 							ui.spacing_mut().item_spacing.x = 8.0;
-							let color = state
-								.message_author_color(message)
-								.map_or(colors.text_strong, |rgb| {
-									crate::design::role_name_color(rgb, colors.chat, colors.text)
-								});
 							crate::account_badge::name(
 								ui,
 								&message.author,
 								state.message_author_name(message),
 								15.5,
-								color,
+								(
+									colors.text_strong,
+									state.message_author_colors(message),
+									colors.chat,
+								),
 								egui::Sense::hover(),
 								0.0,
 							);
@@ -2707,16 +2706,14 @@ impl TimelineView {
 								});
 							}
 							let system = message.system_message();
-							let name_color = state.message_author_color(message).map_or(
-								colors.text_strong,
-								|rgb| {
-									crate::design::role_name_color(
-										rgb,
-										colors.chat,
-										colors.text_strong,
-									)
-								},
-							);
+							let author_colors = state.message_author_colors(message);
+							let name_color = author_colors.map_or(colors.text_strong, |role| {
+								crate::design::role_name_color(
+									role.primary,
+									colors.chat,
+									colors.text_strong,
+								)
+							});
 							let mut body_bottom = f32::NAN;
 							// Hovering the avatar underlines the author, like hovering the name.
 							let mut avatar_hot = false;
@@ -2776,7 +2773,7 @@ impl TimelineView {
 												&message.author,
 												state.message_author_name(message),
 												15.5,
-												name_color,
+												(colors.text_strong, author_colors, colors.chat),
 												egui::Sense::click(),
 												0.0,
 											)
@@ -2842,7 +2839,11 @@ impl TimelineView {
 													&message.author,
 													state.message_author_name(message),
 													15.5,
-													name_color,
+													(
+														colors.text_strong,
+														author_colors,
+														colors.chat,
+													),
 													egui::Sense::click(),
 													48.0,
 												)
@@ -7453,6 +7454,8 @@ mod tests {
 							id: Id(id),
 							name: String::new(),
 							color: 0,
+							secondary_color: None,
+							tertiary_color: None,
 							position: 0,
 							hoist: false,
 							bits: p::VIEW_CHANNEL | p::READ_MESSAGE_HISTORY,

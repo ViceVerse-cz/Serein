@@ -1,6 +1,6 @@
 cask "serein" do
-  version "1.0.0-nightly.20261004.54"
-  sha256 "741ae1d13e56199787e3bc63495cf9921cb29521091d61361bea545362979889"
+  version "1.0.0-nightly.20261007.55"
+  sha256 "e0f3832787121c652e93875801e1286a9dc3d529e111b1b94d16807f695c933e"
 
   url "https://github.com/ViceVerse-cz/Serein/releases/download/v#{version}/serein-v#{version}-macOS-ARM64.zip"
   name "Serein"

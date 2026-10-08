@@ -304,6 +304,8 @@ fn main() -> eframe::Result {
 					id: role,
 					name: "Verified".into(),
 					color: 0x00ff00,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 1,
 					hoist: false,
 					bits: 0,
@@ -346,6 +348,15 @@ fn main() -> eframe::Result {
 		eprintln!("Demo support is not included; rebuild with --features demo and run with --demo");
 		std::process::exit(2);
 	}
+	// Fixture runs may overlap; real launches show the running client instead of duplicating it.
+	let mut instance = if demo {
+		platform::single_instance::Instance::default()
+	} else {
+		match platform::single_instance::claim() {
+			platform::single_instance::Launch::Primary(instance) => instance,
+			platform::single_instance::Launch::Forwarded => return Ok(()),
+		}
+	};
 	let frame_sample = std::env::args()
 		.find_map(|arg| arg.strip_prefix("--demo-frame-sample").map(str::to_owned))
 		.map(|value| {
@@ -555,8 +566,15 @@ fn main() -> eframe::Result {
 		"Serein",
 		options,
 		Box::new(move |cc| {
-			let desktop =
+			let mut desktop =
 				Desktop::new(cc, demo, frame_sample, transparency_available, preferences)?;
+			let wake = cc.egui_ctx.clone();
+			instance.listen(
+				desktop.window.clone(),
+				desktop.tray_window.restorer(),
+				move || wake.request_repaint(),
+			);
+			desktop.instance = instance;
 			if let Some(geometry) = window_geometry {
 				app_settings::restore_window_geometry(&desktop.window, geometry);
 			}
@@ -990,6 +1008,8 @@ struct Desktop {
 	system_theme: platform::system_theme::SystemTheme,
 	tray_error: Option<&'static str>,
 	tray_window: tray_window::State,
+	/// Show requests from later launches and macOS Dock reopens.
+	instance: platform::single_instance::Instance,
 	/// `--demo-reply`: keeps two synthetic typists active on the selected fixture channel.
 	#[cfg(feature = "demo")]
 	demo_typing: bool,
@@ -1542,14 +1562,22 @@ impl Desktop {
 					.collect();
 			}
 			// Synthetic role metadata exercises the same bounded permission mirror as live events.
+			let gradient_roles = std::env::args().any(|arg| arg == "--demo-role-gradients");
 			for guild in state.permissions.guilds.values_mut() {
 				if let Some(roles) = &mut guild.roles {
+					if gradient_roles {
+						for role in roles.iter_mut().filter(|role| role.id == model::Id(101)) {
+							role.secondary_color = Some(0x89b4fa);
+						}
+					}
 					roles.extend([
 						model::permissions::Role {
 							id: model::Id(9001),
 							bits: 0,
 							name: "Founders".into(),
 							color: 0xe78284,
+							secondary_color: gradient_roles.then_some(0x89b4fa),
+							tertiary_color: None,
 							position: 2,
 							hoist: true,
 						},
@@ -1557,7 +1585,9 @@ impl Desktop {
 							id: model::Id(9002),
 							bits: 0,
 							name: "Community".into(),
-							color: 0xe5c769,
+							color: if gradient_roles { 11127295 } else { 0xe5c769 },
+							secondary_color: gradient_roles.then_some(16759788),
+							tertiary_color: gradient_roles.then_some(16761760),
 							position: 1,
 							hoist: true,
 						},
@@ -2245,6 +2275,7 @@ impl Desktop {
 			startup,
 			tray: None,
 			tray_window,
+			instance: Default::default(),
 			hotkeys,
 			system_theme,
 			tray_error: None,
@@ -2792,7 +2823,7 @@ impl Desktop {
 			};
 			tray.set_voice_state(voice_state);
 		}
-		if self.tray_window.hidden && !self.tray_available() {
+		if self.tray_window.hidden && !self.background_available() {
 			self.tray_window.show(ctx);
 		}
 		// The icon remains registered independently of minimize-on-close.
@@ -2802,6 +2833,11 @@ impl Desktop {
 		if previous_status != self.messaging.tray_status {
 			ctx.request_repaint();
 		}
+	}
+	/// Whether closing may keep Serein running without a window. macOS apps stay in the Dock
+	/// until quit, and the Dock icon reopens the window.
+	fn background_available(&self) -> bool {
+		cfg!(target_os = "macos") || self.tray_available()
 	}
 	fn tray_available(&self) -> bool {
 		if !self.tray_setting.enabled || self.tray_error.is_some() {
@@ -6176,9 +6212,12 @@ impl eframe::App for Desktop {
 				}
 			}
 		}
+		if self.instance.take_show_request() {
+			self.tray_window.show(ctx);
+		}
 		self.tray_window.logic(
 			ctx,
-			self.tray_available(),
+			self.background_available(),
 			self.window.is_visible().is_some(),
 		);
 		// The hide command lands after this frame, so the flag leads reported visibility.
@@ -6258,7 +6297,9 @@ impl eframe::App for Desktop {
 		}
 		self.sync_tray(ctx);
 		if self.state.voice.active.is_some() {
-			ctx.request_repaint_after(std::time::Duration::from_millis(50));
+			// Speaking, notices, remote video, devices, hotkeys and deadlines each wake the UI
+			// themselves; this heartbeat only bounds a missed wake, so a call does not repaint at 20 Hz.
+			ctx.request_repaint_after(std::time::Duration::from_secs(1));
 		}
 	}
 	fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
@@ -7026,6 +7067,10 @@ impl eframe::App for Desktop {
 				{
 					self.messaging.accept_avatar(&ctx, key, None);
 				}
+			}
+			// Idle frames are freed on a pass, so an otherwise idle window wakes once for them.
+			if let Some(at) = self.messaging.avatar_release_at() {
+				ctx.request_repaint_after(at.saturating_duration_since(std::time::Instant::now()));
 			}
 			if std::mem::take(&mut self.messaging.reconnect_requested) {
 				if self.state.auth == AuthState::Authenticated {

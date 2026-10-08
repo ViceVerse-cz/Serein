@@ -697,6 +697,7 @@ impl MediaLibrary {
 				texture: None,
 				total,
 				started,
+				played: now,
 				next_upload: now,
 				frame: usize::MAX,
 				bytes,
@@ -745,6 +746,31 @@ impl MediaLibrary {
 				slot.held.retain(|held| held.lane == Lane::Inline);
 			}
 		}
+	}
+
+	/// Inline animations not played for `IDLE_FRAMES` (scrolled away, or shown in an unfocused
+	/// window) fall back to their still, freeing the decoded frames and playback texture. The
+	/// frames are requested again once the rendition can play.
+	pub(super) fn release_idle(&mut self, now: Instant) {
+		for held in self.slots.values_mut().flat_map(|slot| &mut slot.held) {
+			if held.lane == Lane::Inline
+				&& let Pixels::Playing { still, animation } = &held.pixels
+				&& now.saturating_duration_since(animation.played) >= super::IDLE_FRAMES
+			{
+				held.pixels = Pixels::Still(still.clone());
+			}
+		}
+	}
+	pub(super) fn next_release(&self) -> Option<Instant> {
+		self.slots
+			.values()
+			.flat_map(|slot| &slot.held)
+			.filter(|held| held.lane == Lane::Inline)
+			.filter_map(|held| match &held.pixels {
+				Pixels::Playing { animation, .. } => Some(animation.played + super::IDLE_FRAMES),
+				Pixels::Still(_) => None,
+			})
+			.min()
 	}
 
 	/// False once this clip failed to decode, so a gifv embed can use its GIF or poster instead.
@@ -1017,13 +1043,16 @@ impl Avatars {
 		} else {
 			choice
 		};
-		if choice.request && !demo && self.requests.len() < REQUESTS {
+		let playing = self.animate_gifs && ui.ctx().input(|input| input.focused);
+		// A shown still waits for playback before asking for frames, so an unfocused window
+		// does not decode frames that would only be released again unplayed.
+		let deferred = want.motion == Motion::Animated && !playing && choice.base.is_some();
+		if choice.request && !deferred && !demo && self.requests.len() < REQUESTS {
 			self.requests.push(want.key());
 			self.media
 				.slot(&source)
 				.record(want.motion, want.size, Attempt::Pending);
 		}
-		let playing = self.animate_gifs && ui.ctx().input(|input| input.focused);
 		let mut texture = |index| {
 			self.media
 				.texture(&source, index, ui.ctx(), playing, lane, pass)

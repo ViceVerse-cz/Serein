@@ -14,11 +14,17 @@ pub type GifFrames = Vec<(Duration, std::sync::Arc<ColorImage>)>;
 const ANIMATIONS: usize = 128;
 const ANIMATION_BYTES: usize = 128 * 1024 * 1024;
 const ANIMATION_INTERVAL: Duration = Duration::from_millis(16);
+/// Decoded frames unplayed for this long are released; the still stays, and the frames are decoded
+/// again from the disk cache once the artwork would play. Off-screen GIFs and hover-only avatars
+/// otherwise held their full RGBA frame sets until a whole pool filled.
+pub(crate) const IDLE_FRAMES: Duration = Duration::from_secs(5);
+const RELEASED: usize = 2048;
 struct Animation {
 	frames: GifFrames,
 	texture: Option<TextureHandle>,
 	total: Duration,
 	started: Instant,
+	played: Instant,
 	next_upload: Instant,
 	frame: usize,
 	bytes: usize,
@@ -48,6 +54,10 @@ pub(crate) struct Avatars {
 	avatar_animation: bool,
 	animations: HashMap<String, Animation>,
 	no_animations: HashSet<String>,
+	/// Animated keys whose frames were released or declined; they reload only when they would play.
+	released: HashSet<String>,
+	/// Hover-only artwork that wanted to play while its frames were missing.
+	wanted: HashSet<String>,
 	textures: HashMap<String, (u64, TextureHandle)>,
 	emoji_textures: HashMap<String, (u64, TextureHandle)>,
 	emoji_bytes: usize,
@@ -67,6 +77,7 @@ impl Animation {
 			return None;
 		}
 		let now = Instant::now();
+		self.played = now;
 		let elapsed_nanos = (self.started.elapsed().as_nanos() % total_nanos) as u64;
 		let mut elapsed = Duration::from_nanos(elapsed_nanos);
 		let mut target_index = 0;
@@ -183,6 +194,8 @@ impl Avatars {
 		}
 		self.animate_gifs = enabled;
 		self.no_animations.clear();
+		self.released.clear();
+		self.wanted.clear();
 		self.media.set_animation(enabled);
 		if !enabled {
 			self.animations.clear();
@@ -213,6 +226,7 @@ impl Avatars {
 			|| frames.len() > 200
 		{
 			if frames.len() < 2 {
+				self.released.remove(&key);
 				if self.no_animations.len() >= 2048 {
 					self.no_animations.clear();
 				}
@@ -221,6 +235,13 @@ impl Avatars {
 			return;
 		}
 		self.no_animations.remove(&key);
+		// The worker decodes an animated avatar's frames with its still. Hover-only artwork keeps
+		// them only when it is about to play; otherwise they would sit unused in the pool.
+		if is_animated_profile_or_avatar_key(&key) && !self.wanted.remove(&key) {
+			self.release(key);
+			return;
+		}
+		self.released.remove(&key);
 		let total: Duration = frames.iter().map(|(delay, _)| *delay).sum();
 		if total.is_zero() {
 			return;
@@ -256,16 +277,50 @@ impl Avatars {
 				texture: None,
 				total,
 				started: Instant::now(),
+				played: Instant::now(),
 				next_upload: Instant::now(),
 				frame: usize::MAX,
 				bytes,
 			},
 		);
 	}
+	fn release(&mut self, key: String) {
+		if self.released.len() >= RELEASED {
+			self.released.clear();
+		}
+		self.released.insert(key);
+	}
 	/// Drained once per frame after the UI pass.
 	pub fn take_requests(&mut self) -> Vec<String> {
 		self.media.end_frame();
+		self.release_idle(Instant::now());
 		std::mem::take(&mut self.requests)
+	}
+	/// Drops decoded frames that have not played for `IDLE_FRAMES`, keeping each still texture.
+	fn release_idle(&mut self, now: Instant) {
+		let idle: Vec<String> = self
+			.animations
+			.iter()
+			.filter(|(_, animation)| now.saturating_duration_since(animation.played) >= IDLE_FRAMES)
+			.map(|(key, _)| key.clone())
+			.collect();
+		for key in idle {
+			self.animations.remove(&key);
+			self.release(key);
+		}
+		if self.wanted.len() > REQUESTS {
+			self.wanted.clear();
+		}
+		self.media.release_idle(now);
+	}
+	/// When the next unplayed frame set becomes releasable; the host wakes then so an idle window
+	/// does not keep frames it stopped playing.
+	pub fn next_release(&self) -> Option<Instant> {
+		self.animations
+			.values()
+			.map(|animation| animation.played + IDLE_FRAMES)
+			.chain(self.media.next_release())
+			.min()
 	}
 	fn request(&mut self, key: String) {
 		let now = Instant::now();
@@ -615,6 +670,7 @@ impl Avatars {
 				&& is_animated
 				&& !self.animations.contains_key(&key)
 				&& !self.no_animations.contains(&key)
+				&& !self.released.contains(&key)
 				&& !demo
 			{
 				self.request(key.clone());
@@ -816,12 +872,26 @@ impl Avatars {
 		key: &str,
 		hovered: bool,
 	) -> Option<TextureHandle> {
-		if self.animate_gifs
-			&& ctx.input(|input| input.focused)
-			&& (hovered || self.avatar_animation || !is_animated_profile_or_avatar_key(key))
-			&& let Some(animation) = self.animations.get_mut(key)
+		if !self.animate_gifs
+			|| !ctx.input(|input| input.focused)
+			|| !(hovered || self.avatar_animation || !is_animated_profile_or_avatar_key(key))
 		{
+			return None;
+		}
+		if let Some(animation) = self.animations.get_mut(key) {
 			return animation.advance(ctx);
+		}
+		if is_animated_profile_or_avatar_key(key) {
+			if self.wanted.len() >= REQUESTS {
+				self.wanted.clear();
+			}
+			self.wanted.insert(key.to_owned());
+		}
+		if self.released.contains(key)
+			&& self.textures.contains_key(key)
+			&& !self.no_animations.contains(key)
+		{
+			self.request(key.to_owned());
 		}
 		None
 	}
@@ -870,6 +940,7 @@ impl Avatars {
 				&& self.animate_gifs
 				&& !self.animations.contains_key(key)
 				&& !self.no_animations.contains(key)
+				&& !self.released.contains(key)
 			{
 				self.request(key.to_string());
 			}
@@ -1743,6 +1814,137 @@ mod tests {
 	}
 
 	#[test]
+	fn inline_gif_frames_release_when_unplayed_and_reload_once_playable() {
+		let ctx = egui::Context::default();
+		let mut images = Avatars::default();
+		images.set_animation(true);
+		let media = model::EmbedMedia {
+			url: Some("https://cdn.discordapp.com/attachments/1/2/a.gif?hm=signed".into()),
+			width: 64,
+			height: 32,
+			..Default::default()
+		};
+		let paint = |images: &mut Avatars, focused: bool| {
+			ctx.run_ui(
+				egui::RawInput {
+					focused,
+					..Default::default()
+				},
+				|ui| {
+					images.show_media(ui, &media, egui::vec2(64.0, 32.0), false, Surface::Inline);
+				},
+			)
+			.drop_without_applying_deltas();
+		};
+		let deliver = |images: &mut Avatars, key: &str| {
+			let frame = |color| std::sync::Arc::new(ColorImage::filled([2, 1], color));
+			images.accept(
+				&ctx,
+				key.to_owned(),
+				Some(ColorImage::filled([2, 1], egui::Color32::RED)),
+			);
+			images.accept_animation(
+				key.to_owned(),
+				vec![
+					(Duration::from_secs(1), frame(egui::Color32::RED)),
+					(Duration::from_secs(1), frame(egui::Color32::BLUE)),
+				],
+			);
+		};
+		paint(&mut images, true);
+		let key = images.take_requests().pop().unwrap();
+		let rendition = media::Rendition::parse(&key).unwrap();
+		deliver(&mut images, &key);
+		assert!(images.media.animation(&rendition).is_some());
+		let playing = images.media.bytes();
+		images.release_idle(Instant::now());
+		assert!(
+			images.media.animation(&rendition).is_some(),
+			"Recently played frames stay"
+		);
+		assert!(images.next_release().is_some());
+		// Still on screen, but an unfocused window paints without playing it.
+		paint(&mut images, false);
+		images.release_idle(Instant::now() + IDLE_FRAMES);
+		assert!(images.media.animation(&rendition).is_none());
+		assert!(images.media.bytes() < playing);
+		assert!(images.texture_id(&key).is_some(), "The still is kept");
+		assert!(images.next_release().is_none());
+		paint(&mut images, false);
+		assert!(
+			images.take_requests().is_empty(),
+			"Frames are not decoded again while they cannot play"
+		);
+		// Focus (or scrolling back) shows the still and asks the disk cache for frames again.
+		paint(&mut images, true);
+		assert_eq!(images.take_requests(), vec![key.clone()]);
+		deliver(&mut images, &key);
+		assert!(images.media.animation(&rendition).is_some());
+	}
+
+	#[test]
+	fn hover_only_avatar_frames_load_on_hover_and_release_when_idle() {
+		let ctx = egui::Context::default();
+		let mut images = Avatars::default();
+		images.set_animation(true);
+		let key = "123-a_0123456789abcdef0123456789abcdef".to_owned();
+		let rect = egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(32.0, 32.0));
+		let paint = |images: &mut Avatars, hovered: bool| {
+			ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					events: vec![egui::Event::PointerMoved(if hovered {
+						rect.center()
+					} else {
+						egui::pos2(500.0, 500.0)
+					})],
+					..Default::default()
+				},
+				|ui| {
+					images.paint(ui, &key, rect, 4);
+				},
+			)
+			.drop_without_applying_deltas();
+		};
+		let deliver = |images: &mut Avatars| {
+			let frame = |color| std::sync::Arc::new(ColorImage::filled([2, 2], color));
+			images.accept(
+				&ctx,
+				key.clone(),
+				Some(ColorImage::filled([2, 2], egui::Color32::RED)),
+			);
+			images.accept_animation(
+				key.clone(),
+				vec![
+					(Duration::from_secs(1), frame(egui::Color32::RED)),
+					(Duration::from_secs(1), frame(egui::Color32::BLUE)),
+				],
+			);
+		};
+		paint(&mut images, false);
+		assert_eq!(images.take_requests(), vec![key.clone()]);
+		deliver(&mut images);
+		assert!(
+			images.animations.is_empty(),
+			"An avatar that is not hovered keeps only its still"
+		);
+		assert!(images.texture_id(&key).is_some());
+		paint(&mut images, false);
+		assert!(
+			images.take_requests().is_empty(),
+			"Declined frames are not decoded again until they would play"
+		);
+		paint(&mut images, true);
+		assert_eq!(images.take_requests(), vec![key.clone()]);
+		deliver(&mut images);
+		assert!(images.animations.contains_key(&key));
+		images.release_idle(Instant::now() + IDLE_FRAMES);
+		assert!(images.animations.is_empty());
+		paint(&mut images, false);
+		assert!(images.take_requests().is_empty());
+	}
+
+	#[test]
 	fn animated_profile_avatar_and_banner_viewer_requests_anim_and_plays() {
 		let ctx = egui::Context::default();
 		let mut images = Avatars::default();
@@ -1880,6 +2082,117 @@ mod tests {
 		assert_eq!(images.media.bytes(), 64 * 32 * 4);
 		frame(&mut images, false);
 		assert_eq!(images.media.bytes(), 0);
+	}
+
+	/// Synthetic chat scroll past GIF embeds beside a member list of animated avatars, then a
+	/// settled view. Prints retained decoded frame bytes and process RSS; no window, GPU, network
+	/// or account access.
+	#[test]
+	#[ignore = "release memory workload; prints retained frame bytes and RSS"]
+	fn animation_memory_workload() {
+		let rss = || {
+			let output = std::process::Command::new("ps")
+				.args(["-o", "rss=", "-p", &std::process::id().to_string()])
+				.output()
+				.unwrap();
+			String::from_utf8_lossy(&output.stdout)
+				.trim()
+				.parse::<f64>()
+				.unwrap() / 1024.0
+		};
+		let ctx = egui::Context::default();
+		let mut images = Avatars::default();
+		images.set_animation(true);
+		// A typical provider GIF and Nitro avatar: 498x280 and 128x128, 40 frames at 50 ms.
+		let gifs: Vec<_> = (0..12)
+			.map(|index| model::EmbedMedia {
+				url: Some(format!(
+					"https://cdn.discordapp.com/attachments/1/{index}/clip.gif?hm=signed"
+				)),
+				width: 498,
+				height: 280,
+				..Default::default()
+			})
+			.collect();
+		let avatars: Vec<String> = (0..60)
+			.map(|index| format!("{}-a_{index:032x}", 1000 + index))
+			.collect();
+		let frames = |width: usize, height: usize| -> GifFrames {
+			(0..40)
+				.map(|index| {
+					(
+						Duration::from_millis(50),
+						std::sync::Arc::new(ColorImage::filled(
+							[width, height],
+							egui::Color32::from_gray(index as u8),
+						)),
+					)
+				})
+				.collect()
+		};
+		let frame = |images: &mut Avatars, shown: &[usize], members: &[usize]| {
+			ctx.run_ui(
+				egui::RawInput {
+					focused: true,
+					..Default::default()
+				},
+				|ui| {
+					for &index in shown {
+						images.show_media(
+							ui,
+							&gifs[index],
+							egui::vec2(498.0, 280.0),
+							false,
+							Surface::Inline,
+						);
+					}
+					for &index in members {
+						let rect = egui::Rect::from_min_size(
+							egui::pos2(0.0, index as f32 * 40.0),
+							egui::vec2(32.0, 32.0),
+						);
+						images.paint(ui, &avatars[index], rect, 16);
+					}
+				},
+			)
+			.drop_without_applying_deltas();
+			for key in images.take_requests() {
+				let (width, height, limit) = match media::Rendition::parse(&key) {
+					Some(rendition) => (498, 280, rendition.size.longest() as usize),
+					None => (128, 128, 128),
+				};
+				let (width, height) = (width.min(limit), height.min(limit));
+				images.accept(
+					&ctx,
+					key.clone(),
+					Some(ColorImage::filled([width, height], egui::Color32::GRAY)),
+				);
+				images.accept_animation(key, frames(width, height));
+			}
+		};
+		let retained = |images: &Avatars| {
+			(images.media.bytes() + images.animations.values().map(|a| a.bytes).sum::<usize>())
+				as f64 / (1024.0 * 1024.0)
+		};
+		let start = rss();
+		let mut peak = (0.0f64, 0.0f64);
+		// Two embeds and twenty member rows are on screen at a time while scrolling.
+		for step in 0..11 {
+			let members: Vec<usize> = (step * 4..(step * 4 + 20).min(60)).collect();
+			frame(&mut images, &[step, step + 1], &members);
+			frame(&mut images, &[step, step + 1], &members);
+			peak = (peak.0.max(retained(&images)), peak.1.max(rss()));
+		}
+		std::thread::sleep(Duration::from_secs(6));
+		let settled: Vec<usize> = (40..60).collect();
+		frame(&mut images, &[10, 11], &settled);
+		println!(
+			"animation memory workload: start_rss={start:.1}MiB peak_retained={:.1}MiB peak_rss={:.1}MiB settled_retained={:.1}MiB settled_rss={:.1}MiB",
+			peak.0,
+			peak.1,
+			retained(&images),
+			rss()
+		);
 	}
 
 	/// Offline settled media frames; no window, GPU, network, or account access.
