@@ -104,3 +104,15 @@ These workloads can be repeated with the pinned toolchain using `cargo replay` f
 the existing ignored client-core, desktop-frame and replay-soak workloads for detailed memory work.
 The delivery skill documents how to compare a task baseline with the changed build. Do not compare
 results from different machines or claim live-client behavior from synthetic fixtures.
+
+## Watched-stream recovery — October 8, 2026
+
+Standard Windows x64 voice-enabled packages (`cargo xtask package`, no demo feature,
+Rust 1.98.1) compared baseline `1b3e4a7b` and fixed runtime `5b446a45` on Windows 11
+build 26200, Ryzen 7 7800X3D, 32 GiB RAM. Executable size stayed 86,008,832 B;
+the 216-file installed directory stayed 90,199,948 B. Whole-directory .NET Optimal
+ZIP size changed from 50,001,798 B to 50,001,523 B (-275 B), packaging variation.
+NSIS was unavailable, so no installer binary was built. Native CPU/memory/frame
+measurements and live stream continuity remain unmeasured because the native
+automation bridge is unavailable. The lifecycle regression checks retained worker
+ownership during recovery; it does not measure network quality or throughput.
