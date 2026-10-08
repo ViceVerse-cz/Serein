@@ -70,18 +70,36 @@ fn describe(error: &serde_json::Error) -> String {
 	}
 }
 
-/// Everything after "expected" describes the local schema; before it, only schema field names
-/// in "missing/duplicate field" survive. Quoted or backticked remote values become `…`.
+/// An unquoted "expected" delimiter starts the schema description. Before it, only
+/// missing/duplicate schema field names survive; quoted remote values become `…`.
 fn redact(message: &str) -> String {
-	let (found, expected) = message
-		.find("expected")
-		.map_or((message, ""), |at| message.split_at(at));
-	let keep_first = found.starts_with("missing field") || found.starts_with("duplicate field");
+	// Serde does not escape backticks inside unknown names, so redact the entire value.
+	for kind in ["unknown variant", "unknown field"] {
+		if message.starts_with(&format!("{kind} `")) {
+			let suffix = ["`, there are no variants", "`, there are no fields"]
+				.into_iter()
+				.find(|suffix| message.ends_with(*suffix))
+				.map(|suffix| &suffix[1..])
+				.or_else(|| message.rfind("`, expected ").map(|at| &message[at + 1..]))
+				.unwrap_or("");
+			let mut out = format!("{kind} `…`{suffix}");
+			out.retain(|c| !c.is_control());
+			return out;
+		}
+	}
+	let keep_first = message.starts_with("missing field") || message.starts_with("duplicate field");
 	let mut out = String::with_capacity(message.len());
 	let mut quoted = None;
 	let mut quotes = 0;
 	let mut escaped = false;
-	for c in found.chars() {
+	for (at, c) in message.char_indices() {
+		if quoted.is_none()
+			&& (at == 0 || message[..at].ends_with(", "))
+			&& message[at..].starts_with("expected ")
+		{
+			out.push_str(&message[at..]);
+			break;
+		}
 		match quoted {
 			Some(_) if escaped => escaped = false,
 			Some(_) if c == '\\' => escaped = true,
@@ -108,7 +126,6 @@ fn redact(message: &str) -> String {
 			}
 		}
 	}
-	out.push_str(expected);
 	out.retain(|c| !c.is_control());
 	out
 }
@@ -139,6 +156,44 @@ mod tests {
 		assert_eq!(
 			cause,
 			"guilds[0].channels[1].name: invalid type: string \"…\", expected u32"
+		);
+	}
+
+	#[test]
+	fn expected_words_and_escaped_quotes_inside_remote_values_stay_redacted() {
+		for value in [
+			"expected private-account-name",
+			"unexpected private-account-name",
+			"private, expected account-name",
+			"private\\\", expected account-name",
+			"private\" , expected account-name\\",
+			"private` , expected account-name",
+		] {
+			let bytes = serde_json::to_vec(&serde_json::json!({"id":"1","name":value})).unwrap();
+			assert_eq!(
+				trace::<Channel>("channels[0]", &bytes).unwrap(),
+				"channels[0].name: invalid type: string \"…\", expected u32"
+			);
+		}
+		assert_eq!(
+			super::redact("duplicate field `name`"),
+			"duplicate field `name`"
+		);
+		assert_eq!(
+			super::redact("expected one of `first`, `second`"),
+			"expected one of `first`, `second`"
+		);
+		assert_eq!(
+			super::redact("unknown variant `private`, expected account-name`, expected `valid`"),
+			"unknown variant `…`, expected `valid`"
+		);
+		assert_eq!(
+			super::redact("unknown variant `private`, expected one of `first`, `second`"),
+			"unknown variant `…`, expected one of `first`, `second`"
+		);
+		assert_eq!(
+			super::redact("unknown field `private`, expected account-name`, there are no fields"),
+			"unknown field `…`, there are no fields"
 		);
 	}
 

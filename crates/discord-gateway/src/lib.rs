@@ -1620,6 +1620,9 @@ async fn run_recoverable(
 											read_state: client_core::read_state::Event::Snapshot {entries:read_entries,version:read_version,partial},
 											notifications, session_dnd: ready.sessions.as_ref().and_then(|s| s.dnd()), warnings,
 										}.prepare()?)))?;
+										if let Some(detail) = ready.entry_diagnostic.take() {
+											emit(Event::StartupWarningDetail(format!("READY: {detail}").into()))?;
+										}
 										// A new session does not replay settings changed while disconnected.
 										if was_ready { emit(Event::AccountSettings { status: true, folders: true })?; }
 										was_ready = true;
@@ -1649,6 +1652,9 @@ async fn run_recoverable(
 									"READY_SUPPLEMENTAL" => {
 										let (mut extra, warnings) = ready::supplemental(packet.d.get().as_bytes()).map_err(|_| diagnosed(&emit, Failure::ProtocolAt("Gateway login: invalid supplemental guild or voice metadata"), ready::diagnose_supplemental(packet.d.get().as_bytes())))?;
 										if warnings != model::account::Warnings::default() { emit(Event::StartupWarnings(warnings))?; }
+										if let Some(detail) = extra.entry_diagnostic.take() {
+											emit(Event::StartupWarningDetail(format!("READY_SUPPLEMENTAL: {detail}").into()))?;
+										}
 										if let Some(friends) = extra.merged_presences.as_ref().and_then(|m| m.friends.as_deref()).or(extra.presences.as_deref()) {
 											direct_presence.friends(friends, Instant::now(), &emit)?;
 										}

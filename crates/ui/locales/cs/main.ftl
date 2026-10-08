@@ -4576,3 +4576,5 @@ profiles-activity-empty = Žádná sdílená aktivita.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction
+
+startup-copy-details = Zkopírovat podrobnosti spuštění

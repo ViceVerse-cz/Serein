@@ -68,12 +68,12 @@ fn since<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error
 }
 /// Busy accounts can hold thousands of requests and blocks: past the bound, or on a malformed
 /// row, entries are dropped and `.1` reports it instead of rejecting the login.
-pub struct Snapshot(pub Vec<Relationship>, pub bool);
+pub struct Snapshot(pub Vec<Relationship>, pub bool, pub(crate) Option<String>);
 pub const MAX_RELATIONSHIPS: usize = 10_000;
 impl<'de> Deserialize<'de> for Snapshot {
 	fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
 		let rows = crate::lossy::Lossy::<Relationship, MAX_RELATIONSHIPS, true>::deserialize(d)?;
-		Ok(Self(rows.items, rows.skipped))
+		Ok(Self(rows.items, rows.skipped, rows.cause))
 	}
 }
 impl Snapshot {

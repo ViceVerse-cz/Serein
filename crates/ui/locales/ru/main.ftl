@@ -4508,3 +4508,5 @@ profiles-activity-empty = Нет опубликованной активност
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction
+
+startup-copy-details = Копировать сведения о запуске

@@ -1,7 +1,7 @@
 //! Split READY once, borrowing the large arrays for their independent bounded projections.
 use crate::{
 	ChannelDto, DecodeError, MAX_GATEWAY_WIRE, MAX_WIRE, Ready, UserDto,
-	lossy::{Lossy, Slots, null_default},
+	lossy::{Lossy, Slots, null_default, prefixed_diagnostic},
 	permissions, presence, read_state,
 };
 use model::account::MAX_ENTRIES;
@@ -63,7 +63,7 @@ impl Envelope<'_> {
 			self.user.id,
 		)
 	}
-	pub fn navigation(self) -> Result<(Ready, Warnings), DecodeError> {
+	pub fn navigation(mut self) -> Result<(Ready, Warnings), DecodeError> {
 		let mut warnings = Warnings::default();
 		let guilds: Guilds = crate::decode_gateway(self.guilds.get().as_bytes())?;
 		warnings.emojis = guilds.emojis;
@@ -72,6 +72,24 @@ impl Envelope<'_> {
 			|| self.users.skipped
 			|| self.private_channels.skipped
 			|| self.relationships.as_ref().is_some_and(|r| r.1);
+		let entry_diagnostic = guilds
+			.entry_diagnostic
+			.or_else(|| {
+				self.users
+					.cause
+					.map(|cause| prefixed_diagnostic("users", cause))
+			})
+			.or_else(|| {
+				self.private_channels
+					.cause
+					.map(|cause| prefixed_diagnostic("private_channels", cause))
+			})
+			.or_else(|| {
+				self.relationships
+					.as_mut()
+					.and_then(|rows| rows.2.take())
+					.map(|cause| prefixed_diagnostic("relationships", cause))
+			});
 		let read_state = optional(self.read_state, &mut warnings.read_state);
 		let user_guild_settings = optional(self.user_guild_settings, &mut warnings.notifications)
 			.filter(|settings: &crate::notifications::Snapshot| {
@@ -112,6 +130,7 @@ impl Envelope<'_> {
 				presences,
 				merged_presences,
 				skipped,
+				entry_diagnostic,
 			},
 			warnings,
 		))
@@ -179,8 +198,27 @@ pub fn supplemental(bytes: &[u8]) -> Result<(crate::ReadySupplemental, Warnings)
 	if bytes.len() > MAX_GATEWAY_WIRE {
 		return Err(DecodeError);
 	}
-	let raw: Supplemental<'_> = serde_json::from_slice(bytes).map_err(|_| DecodeError)?;
+	let mut raw: Supplemental<'_> = serde_json::from_slice(bytes).map_err(|_| DecodeError)?;
 	let guilds: Guilds = crate::decode_gateway(raw.guilds.get().as_bytes())?;
+	let entry_diagnostic = guilds
+		.entry_diagnostic
+		.or_else(|| {
+			raw.merged_members
+				.cause
+				.take()
+				.map(|cause| prefixed_diagnostic("merged_members", cause))
+		})
+		.or_else(|| {
+			raw.merged_members
+				.items
+				.iter_mut()
+				.enumerate()
+				.find_map(|(index, row)| {
+					row.as_mut().and_then(|row| row.cause.take()).map(|cause| {
+						prefixed_diagnostic(&format!("merged_members[{index}]"), cause)
+					})
+				})
+		});
 	// `merged_members` is index-aligned with `guilds`: drop the rows of skipped guilds too.
 	let mut entries = raw
 		.merged_members
@@ -213,6 +251,7 @@ pub fn supplemental(bytes: &[u8]) -> Result<(crate::ReadySupplemental, Warnings)
 			merged_members,
 			presences,
 			merged_presences,
+			entry_diagnostic,
 		},
 		warnings,
 	))
@@ -295,6 +334,7 @@ struct Guilds {
 	skipped: bool,
 	/// Array positions of guilds that could not be decoded at all.
 	dropped: Vec<usize>,
+	entry_diagnostic: Option<String>,
 }
 impl<'de> Deserialize<'de> for Guilds {
 	fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -312,8 +352,15 @@ impl<'de> Deserialize<'de> for Guilds {
 				let mut index = 0;
 				while let Some(raw) = seq.next_element::<&'de RawValue>()? {
 					index += 1;
-					let Ok(guild) = serde_json::from_str::<Guild<'de>>(raw.get()) else {
+					let Ok(mut guild) = serde_json::from_str::<Guild<'de>>(raw.get()) else {
 						out.skipped = true;
+						if out.entry_diagnostic.is_none() {
+							out.entry_diagnostic = crate::diagnostics::trace::<Guild<'de>>(
+								&format!("guilds[{}]", index - 1),
+								raw.get().as_bytes(),
+							)
+							.map(|cause| prefixed_diagnostic("", cause));
+						}
 						out.dropped.push(index - 1);
 						continue;
 					};
@@ -322,6 +369,24 @@ impl<'de> Deserialize<'de> for Guilds {
 						|| guild.roles.skipped
 						|| guild.voice_states.skipped
 						|| guild.members.skipped;
+					if out.entry_diagnostic.is_none() {
+						out.entry_diagnostic = [
+							("channels", guild.channels.cause.take()),
+							("threads", guild.threads.cause.take()),
+							("roles", guild.roles.cause.take()),
+							("voice_states", guild.voice_states.cause.take()),
+							("members", guild.members.cause.take()),
+						]
+						.into_iter()
+						.find_map(|(section, cause)| {
+							cause.map(|cause| {
+								prefixed_diagnostic(
+									&format!("guilds[{}].{section}", index - 1),
+									cause,
+								)
+							})
+						});
+					}
 					entries += 1 + guild.channels.items.len() + guild.threads.items.len();
 					if entries > model::account::MAX_ENTRIES {
 						return Err(serde::de::Error::custom(
@@ -410,6 +475,139 @@ mod tests {
 
 	fn fixture() -> serde_json::Value {
 		json!({"user":{"id":"9","username":"Synthetic"},"session_id":"synthetic","resume_gateway_url":"wss://gateway.discord.gg/","guilds":[{"id":"1","owner_id":"9","name":"Synthetic","roles":[],"channels":[{"id":"2","type":0,"name":"general","permission_overwrites":[]}]}]})
+	}
+
+	#[test]
+	fn entry_diagnostics_identify_redacted_schema_paths_without_rejecting_login() {
+		for (fault, path) in [
+			(
+				json!({"users":[{"id":"3","username":null}]}),
+				"users[0].username:",
+			),
+			(
+				json!({"private_channels":[{"id":"3","type":"private value"},{"id":"4","type":1},{"id":"4","type":1}]}),
+				"private_channels[0].type:",
+			),
+			(
+				json!({"relationships":[{"id":"3","type":1,"nickname":987654321}]}),
+				"relationships[0].nickname:",
+			),
+			(
+				json!({"guilds":[{"id":"1","properties":{"name":true}}]}),
+				"guilds[0].properties.name:",
+			),
+			(
+				json!({"guilds":[{"id":"1","channels":[{"id":"3","type":"private value"}]}]}),
+				"guilds[0].channels[0].type:",
+			),
+			(
+				json!({"guilds":[{"id":"1","threads":[{"id":"3","type":"private value"}]}]}),
+				"guilds[0].threads[0].type:",
+			),
+			(
+				json!({"guilds":[{"id":"1","roles":[{"id":"3","permissions":false}]}]}),
+				"guilds[0].roles[0].permissions:",
+			),
+			(
+				json!({"guilds":[{"id":"1","voice_states":[{"user_id":false}]}]}),
+				"guilds[0].voice_states[0].user_id:",
+			),
+			(
+				json!({"guilds":[{"id":"1","members":[{"user_id":"3","nick":false}]}]}),
+				"guilds[0].members[0].nick:",
+			),
+		] {
+			let mut payload = fixture();
+			payload
+				.as_object_mut()
+				.unwrap()
+				.extend(fault.as_object().unwrap().clone());
+			let bytes = serde_json::to_vec(&payload).unwrap();
+			let (mut ready, _) = decode(&bytes).unwrap().navigation().unwrap();
+			assert!(ready.skipped);
+			ready.navigation().unwrap();
+			let cause = ready.entry_diagnostic.unwrap();
+			assert!(cause.starts_with(path), "{cause}");
+			assert!(!cause.contains("private value") && !cause.contains("987654321"));
+			assert!(cause.len() <= 512);
+		}
+		let mut payload = fixture();
+		payload["users"] = json!(null);
+		payload["guilds"][0]["channels"][0]["flags"] = json!(null);
+		let bytes = serde_json::to_vec(&payload).unwrap();
+		let (mut ready, _) = decode(&bytes).unwrap().navigation().unwrap();
+		ready.navigation().unwrap();
+		assert!(!ready.skipped && ready.entry_diagnostic.is_none());
+	}
+
+	#[test]
+	fn entry_diagnostics_report_relationship_truncation() {
+		let mut payload = fixture();
+		payload["relationships"] = json!(vec![
+			json!({"id":"3","type":2});
+			crate::relationships::MAX_RELATIONSHIPS + 1
+		]);
+		let bytes = serde_json::to_vec(&payload).unwrap();
+		let (ready, _) = decode(&bytes).unwrap().navigation().unwrap();
+		assert!(ready.skipped);
+		assert_eq!(
+			ready.entry_diagnostic.as_deref(),
+			Some("relationships[10000]: list truncated at 10000 entries")
+		);
+	}
+
+	#[test]
+	fn entry_diagnostics_distinguish_navigation_conflicts_and_supplemental_rows() {
+		for (fault, cause) in [
+			(
+				json!({"guilds":[{"id":"1"},{"id":"1"}]}),
+				"guilds: duplicate or zero guild ID",
+			),
+			(
+				json!({"private_channels":[{"id":"3","type":1},{"id":"3","type":1}]}),
+				"private_channels: duplicate or zero channel ID",
+			),
+			(
+				json!({"guilds":[{"id":"1","channels":[{"id":"3","type":0,"guild_id":"4"}]}]}),
+				"guilds[].channels: conflicting guild or duplicate/zero channel ID",
+			),
+			(
+				json!({"guilds":[{"id":"1","threads":[{"id":"3","type":11}]}]}),
+				"guilds[].threads: invalid thread kind, parent or guild",
+			),
+		] {
+			let mut payload = fixture();
+			payload
+				.as_object_mut()
+				.unwrap()
+				.extend(fault.as_object().unwrap().clone());
+			let bytes = serde_json::to_vec(&payload).unwrap();
+			let (mut ready, _) = decode(&bytes).unwrap().navigation().unwrap();
+			assert!(ready.entry_diagnostic.is_none());
+			ready.navigation().unwrap();
+			assert!(ready.skipped);
+			assert_eq!(ready.entry_diagnostic.as_deref(), Some(cause));
+		}
+		for (payload, path) in [
+			(
+				json!({"merged_members":["private value"]}),
+				"merged_members[0]:",
+			),
+			(
+				json!({"merged_members":[[{"user_id":"3","nick":false}]]}),
+				"merged_members[0][0].nick:",
+			),
+			(
+				json!({"guilds":[{"id":"1","voice_states":[{"user_id":false}]}]}),
+				"guilds[0].voice_states[0].user_id:",
+			),
+		] {
+			let (extra, warnings) = supplemental(&serde_json::to_vec(&payload).unwrap()).unwrap();
+			assert!(warnings.entries);
+			let cause = extra.entry_diagnostic.unwrap();
+			assert!(cause.starts_with(path), "{cause}");
+			assert!(!cause.contains("private value"));
+		}
 	}
 
 	#[test]

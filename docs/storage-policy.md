@@ -1,5 +1,15 @@
 # Local storage policy and audit
 
+## Partial startup diagnostics (October 8, 2026)
+
+The active session retains one redacted skipped-entry reason, capped at 1,024 UTF-8 bytes.
+READY and READY_SUPPLEMENTAL share this first-cause slot; later causes do not accumulate.
+The existing byte-budgeted event queue includes its text allocation. A fresh startup or logout
+clears it; a resumed connection preserves it with the warning. Parsing retains only bounded
+schema paths, array positions and error kinds, never account identifiers or received values.
+Nothing is logged, sent or persisted automatically. The warning's copy button explicitly copies
+the reason plus existing build/system information to the clipboard.
+
 ## Profile board games (October 7, 2026)
 
 Board metadata uses the existing on-demand profile worker and RAM profile cache,

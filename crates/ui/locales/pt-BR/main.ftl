@@ -4504,3 +4504,5 @@ profiles-activity-empty = Nenhuma atividade compartilhada.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction
+
+startup-copy-details = Copiar detalhes da inicialização

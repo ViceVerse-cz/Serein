@@ -4535,3 +4535,5 @@ profiles-activity-empty = 尚無分享的活動。
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction
+
+startup-copy-details = 複製啟動詳細資訊

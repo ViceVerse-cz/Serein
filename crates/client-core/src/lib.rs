@@ -446,6 +446,8 @@ pub enum Event {
 	},
 	Startup(Box<PreparedStartup>),
 	StartupWarnings(model::account::Warnings),
+	/// First redacted reason for skipped startup entries; never contains received values.
+	StartupWarningDetail(Box<str>),
 	/// Redacted decode cause preceding a session failure; schema paths only, never remote values.
 	FailureDetail(Box<str>),
 	MessagingPermissions {
@@ -716,6 +718,7 @@ pub struct State {
 	pub reply_deletions: ReplyDeletions,
 	pub read_state: read_state::ReadState,
 	pub startup_warnings: model::account::Warnings,
+	pub startup_warning_detail: Option<Box<str>>,
 	pub notification_preferences: notifications::Preferences,
 	pub reactions: reactions::Reactions,
 	pub profile: Option<profile::ProfileView>,
@@ -928,6 +931,7 @@ impl Default for State {
 			reply_deletions: ReplyDeletions::default(),
 			read_state: read_state::ReadState::default(),
 			startup_warnings: Default::default(),
+			startup_warning_detail: None,
 			notification_preferences: notifications::Preferences::default(),
 			reactions: reactions::Reactions::default(),
 			profile: None,
@@ -2310,6 +2314,7 @@ impl State {
 		}
 		if matches!(envelope.event, Event::Ready { .. } | Event::Resync) {
 			self.startup_warnings = Default::default();
+			self.startup_warning_detail = None;
 			self.failure_detail = None;
 		}
 		if matches!(envelope.event, Event::Resync) {
@@ -2505,6 +2510,16 @@ impl State {
 				}
 				if warnings.presence {
 					self.clear_direct_presences();
+				}
+				Ok(())
+			}
+			Event::StartupWarningDetail(detail) => {
+				if self.startup_warnings.entries
+					&& self.startup_warning_detail.is_none()
+					&& !detail.is_empty()
+					&& detail.len() <= 1024
+				{
+					self.startup_warning_detail = Some(detail);
 				}
 				Ok(())
 			}
@@ -3920,6 +3935,7 @@ impl Event {
 							.sum::<usize>()
 				}),
 				Self::Startup(startup) => startup.bytes(),
+				Self::StartupWarningDetail(detail) => detail.len(),
 				Self::MessagingPermissions { result, .. } => result
 					.as_ref()
 					.map_or(0, model::messaging_permissions::Snapshot::bytes),
@@ -4212,6 +4228,48 @@ impl Event {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn startup_detail_is_bounded_and_follows_snapshot_lifetime() {
+		let mut state = State::default();
+		let detail =
+			|| Event::StartupWarningDetail("READY: users[0]: missing field `username`".into());
+		assert_eq!(
+			detail().bytes(),
+			size_of::<Event>() + "READY: users[0]: missing field `username`".len()
+		);
+		apply(&mut state, detail());
+		assert!(state.startup_warning_detail.is_none());
+		apply(
+			&mut state,
+			Event::StartupWarnings(model::account::Warnings {
+				entries: true,
+				..Default::default()
+			}),
+		);
+		apply(
+			&mut state,
+			Event::StartupWarningDetail("x".repeat(1025).into()),
+		);
+		assert!(state.startup_warning_detail.is_none());
+		apply(&mut state, detail());
+		let first = state.startup_warning_detail.clone();
+		apply(
+			&mut state,
+			Event::StartupWarningDetail("READY_SUPPLEMENTAL: members skipped".into()),
+		);
+		apply(&mut state, Event::Resumed);
+		assert_eq!(state.startup_warning_detail, first);
+		apply(&mut state, Event::Resync);
+		assert!(state.startup_warning_detail.is_none());
+		state.startup_warning_detail = first;
+		let generation = state.generation;
+		state.logout();
+		state.apply(Envelope {
+			generation,
+			event: detail(),
+		});
+		assert!(state.startup_warning_detail.is_none());
+	}
 
 	#[test]
 	#[ignore = "manual release timing; run with --release --ignored --nocapture"]
