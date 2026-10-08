@@ -7,6 +7,8 @@ mod interactions;
 mod login_tests;
 mod member_search;
 mod presence;
+#[cfg(test)]
+mod recovery_tests;
 mod thread_events;
 mod voice;
 #[cfg(debug_assertions)]
@@ -138,6 +140,32 @@ struct ResumeState {
 	session: Option<Zeroizing<String>>,
 	url: Option<String>,
 	sequence: Option<u64>,
+	failures: u8,
+}
+impl ResumeState {
+	fn failed(&mut self) {
+		if self.session.is_some() {
+			self.failures += 1;
+			// A dead resume host must not strand an otherwise reachable account.
+			if self.failures == 3 {
+				*self = Self::default();
+			}
+		}
+	}
+	fn close(&mut self, code: u16) -> Result<(), Failure> {
+		match close_action(code) {
+			Reconnect::Stop => {
+				return Err(if code == 4004 {
+					Failure::Expired
+				} else {
+					Failure::Protocol
+				});
+			}
+			Reconnect::Identify => *self = Self::default(),
+			Reconnect::Resume => {}
+		}
+		Ok(())
+	}
 }
 #[derive(Default)]
 struct Heartbeat {
@@ -1091,7 +1119,7 @@ async fn run_inner(
 		None,
 		emit,
 		#[cfg(test)]
-		test_endpoint,
+		test_endpoint.map(|endpoint| (endpoint, endpoint)),
 	)
 	.await
 }
@@ -1104,7 +1132,7 @@ async fn run_recoverable(
 	activity: Option<ActivityInput<'_>>,
 	reconnect: Option<&Notify>,
 	emit: impl Fn(Event) -> Result<(), Failure>,
-	#[cfg(test)] test_endpoint: Option<&str>,
+	#[cfg(test)] test_endpoints: Option<(&str, &str)>,
 ) -> Result<(), Failure> {
 	let initial_url = validated_url(&initial_url)?;
 	let activity_enabled = activity.is_some();
@@ -1169,7 +1197,12 @@ async fn run_recoverable(
 		let url = state.url.as_deref().unwrap_or(&initial_url);
 		// Compiled out of shipped builds. Tests replace only dialing, never URL validation.
 		#[cfg(test)]
-		let url = test_endpoint.unwrap_or(url);
+		let url = test_endpoints.map_or(
+			url,
+			|(initial, resume)| {
+				if url == initial_url { initial } else { resume }
+			},
+		);
 		let config = WebSocketConfig::default()
 			.max_message_size(Some(MAX_GATEWAY_WIRE))
 			.max_frame_size(Some(MAX_GATEWAY_WIRE))
@@ -1188,6 +1221,7 @@ async fn run_recoverable(
 			continue;
 		};
 		let Ok(Ok((mut socket, _))) = connection else {
+			state.failed();
 			attempt = next_attempt(attempt, None);
 			continue;
 		};
@@ -1217,7 +1251,11 @@ async fn run_recoverable(
 		{
 			return Err(failure);
 		}
+		if let Ok(Ok(Frame::Close(Some(close)))) = &hello {
+			state.close(close.code.into())?;
+		}
 		let Ok(Ok(Frame::Text(text))) = hello else {
+			state.failed();
 			attempt = next_attempt(attempt, None);
 			continue;
 		};
@@ -1250,6 +1288,7 @@ async fn run_recoverable(
 			.await,
 			Ok(Ok(()))
 		) {
+			state.failed();
 			attempt = next_attempt(attempt, None);
 			continue;
 		}
@@ -1641,6 +1680,7 @@ async fn run_recoverable(
 											direct_presence.friends(friends, Instant::now(), &emit)?;
 										}
 										if !participants.is_empty() { emit(Event::Voice(client_core::voice::Event::Snapshot { partial: false, guild: None, participants }))?; }
+										state.failures = 0;
 										ready_at = Some(Instant::now());
 									}
 									"GUILD_MEMBERS_CHUNK" => {
@@ -1673,7 +1713,7 @@ async fn run_recoverable(
 										if !participants.is_empty() { emit(Event::Voice(client_core::voice::Event::Snapshot { partial: true, guild: None, participants }))?; }
 										calls.users.clear();
 									}
-									"RESUMED" => { emit(Event::Interaction(client_core::interactions::Event::Session(state.session.clone().ok_or(Failure::Protocol)?)))?; emit(Event::Resumed)?; ready_at = Some(Instant::now()); },
+									"RESUMED" => { emit(Event::Interaction(client_core::interactions::Event::Session(state.session.clone().ok_or(Failure::Protocol)?)))?; emit(Event::Resumed)?; state.failures = 0; ready_at = Some(Instant::now()); },
 									"CALL_CREATE" | "CALL_UPDATE" | "CALL_DELETE" | "CHANNEL_INFO" | "VOICE_CHANNEL_START_TIME_UPDATE" | "VOICE_STATE_UPDATE" | "VOICE_SERVER_UPDATE" | "STREAM_CREATE" | "STREAM_SERVER_UPDATE" | "STREAM_DELETE" => calls.dispatch(packet.t.as_deref().unwrap_or(""),packet.d.get().as_bytes(),owner_id,&emit)?,
 									"THREAD_MEMBER_LIST_UPDATE" => {
 										if let Some(active) = &mut active_members {
@@ -1926,7 +1966,7 @@ async fn run_recoverable(
 						}
 						Some(Ok(Frame::Close(close))) => {
 							let code = close.map_or(1006, |f| u16::from(f.code));
-							match close_action(code) { Reconnect::Stop => return Err(if code == 4004 { Failure::Expired } else { Failure::Protocol }), Reconnect::Identify => state = ResumeState::default(), Reconnect::Resume => {} }
+							state.close(code)?;
 							break;
 						}
 						Some(Ok(Frame::Ping(data))) => { if !matches!(timeout(Duration::from_secs(5), socket.send(Frame::Pong(data))).await, Ok(Ok(()))) { break; } }
@@ -1936,6 +1976,9 @@ async fn run_recoverable(
 					}
 				}
 			}
+		}
+		if ready_at.is_none() && !skip_backoff {
+			state.failed();
 		}
 		attempt = next_attempt(attempt, ready_at.map(|ready| ready.elapsed()));
 	}
@@ -2057,7 +2100,7 @@ mod tests {
 		tungstenite::protocol::{CloseFrame, frame::coding::CloseCode},
 	};
 
-	async fn packet(socket: &mut WebSocketStream<TcpStream>) -> Value {
+	pub(super) async fn packet(socket: &mut WebSocketStream<TcpStream>) -> Value {
 		let frame = timeout(Duration::from_secs(5), socket.next())
 			.await
 			.unwrap()
@@ -2068,13 +2111,13 @@ mod tests {
 		};
 		serde_json::from_str(&text).unwrap()
 	}
-	async fn send(socket: &mut WebSocketStream<TcpStream>, value: Value) {
+	pub(super) async fn send(socket: &mut WebSocketStream<TcpStream>, value: Value) {
 		socket
 			.send(Frame::Text(value.to_string().into()))
 			.await
 			.unwrap();
 	}
-	async fn acknowledge(socket: &mut WebSocketStream<TcpStream>, sequence: u64) {
+	pub(super) async fn acknowledge(socket: &mut WebSocketStream<TcpStream>, sequence: u64) {
 		send(socket, json!({"op":1,"d":null})).await;
 		// A timer heartbeat may already be queued before the preceding dispatch is read.
 		for _ in 0..4 {
@@ -2087,7 +2130,7 @@ mod tests {
 		}
 		panic!("dispatch sequence was not reflected in heartbeat");
 	}
-	fn ready(sequence: u64, session: &str) -> Value {
+	pub(super) fn ready(sequence: u64, session: &str) -> Value {
 		json!({"op":0,"t":"READY","s":sequence,"d":{
 			"user":{"id":"1","username":"synthetic"}, "session_id":session,
 			"resume_gateway_url":"wss://gateway.discord.gg/", "guilds":[], "private_channels":[]
@@ -2180,7 +2223,7 @@ mod tests {
 						reconnect.notify_one();
 						Ok(())
 					},
-					Some(&endpoint),
+					Some((&endpoint, &endpoint)),
 				)
 				.await;
 				let _ = client_finished.send(());

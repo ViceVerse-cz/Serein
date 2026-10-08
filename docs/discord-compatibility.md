@@ -1,5 +1,23 @@
 # Discord compatibility — checked 2026-09-10
 
+## Gateway recovery after failed resumes — October 8, 2026
+
+An established connection first attempts to resume using the service-supplied
+resume address. After three consecutive failed resume attempts, it discards the
+old session, sequence and address, then identifies through the original validated
+gateway URL. Successful READY/RESUMED resets that counter; explicit recovery
+cancellation does not consume it. Existing connection deadlines, capped backoff
+and the six-attempt initial-login limit remain unchanged.
+
+Close codes received before HELLO follow the same policy as established sockets:
+expired credentials stop, invalid or expired sessions require a fresh Identify,
+and resumable closes retain their session within the failure budget. This follows
+Discord's documented [disconnect fallback](https://docs.discord.com/developers/events/gateway#handling-a-disconnect)
+and [Gateway close codes](https://docs.discord.com/developers/topics/opcodes-and-status-codes#gateway-gateway-close-event-codes).
+Normal-account use remains unofficial. Local WebSocket regressions exercise the
+recovery policy; they do not establish the cause of issue #577's macOS Wi-Fi
+failure or prove live Discord recovery.
+
 ## Profile boards — October 7, 2026
 
 The full profile reads game widgets from the existing on-demand profile response,
