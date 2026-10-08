@@ -9,11 +9,14 @@ use client_core::{
 use egui::RichText;
 use model::{
 	Id,
+	server_admin::VoiceChange,
 	voice_settings::{InputProfile, NoiseSuppression},
 };
 
 /// Local mutes share the 64 per-user volume slots sent to the mixer.
 const MAX_USER_MUTES: usize = 64;
+
+pub(super) struct VoiceDrag(pub Id, pub Id, pub Id);
 
 pub(super) struct CallSwitch {
 	from: (Id, u64),
@@ -311,6 +314,65 @@ impl MessagingUi {
 					}
 					ui.separator();
 				}
+				let (guild, channel, user) = (entry.guild, entry.channel, entry.participant.user);
+				let can_move =
+					state.can_moderate_voice(guild, channel, user, VoiceChange::Move(None));
+				let muted = entry.participant.server_muted;
+				let can_mute =
+					state.can_moderate_voice(guild, channel, user, VoiceChange::Mute(!muted));
+				if can_move || can_mute {
+					let enabled = !state.server_admin.pending
+						&& (state.demo
+							|| (state.gateway_connected && state.auth == AuthState::Authenticated));
+					ui.add_enabled_ui(enabled, |ui| {
+						if can_mute
+							&& ui
+								.button(crate::i18n::translate(if muted {
+									"voice-server-unmute"
+								} else {
+									"voice-server-mute"
+								}))
+								.clicked()
+						{
+							self.voice_moderation =
+								Some((guild, channel, user, VoiceChange::Mute(!muted)));
+							ui.close();
+						}
+						if can_move {
+							ui.menu_button(crate::i18n::translate("voice-move-to"), |ui| {
+								egui::ScrollArea::vertical()
+									.max_height(240.0)
+									.show(ui, |ui| {
+										for target in state.channels.iter().filter(|target| {
+											target.guild == Some(guild)
+												&& target.kind == 2 && target.id != channel
+										}) {
+											let change = VoiceChange::Move(Some(target.id));
+											if state.can_view(target.id)
+												&& state.permission(
+													target.id,
+													model::permissions::CONNECT,
+												) == Some(true) && ui.button(&target.name).clicked()
+											{
+												self.voice_moderation =
+													Some((guild, channel, user, change));
+												ui.close();
+											}
+										}
+									});
+							});
+							if ui
+								.button(crate::i18n::translate("voice-disconnect-member"))
+								.clicked()
+							{
+								self.voice_moderation =
+									Some((guild, channel, user, VoiceChange::Move(None)));
+								ui.close();
+							}
+						}
+					});
+					ui.separator();
+				}
 				if let Some(user) = resolve_member(state, entry).0 {
 					crate::user_menu::contents(
 						ui,
@@ -476,10 +538,30 @@ impl MessagingUi {
 		ui.push_id(
 			("voice-participant", entry.channel, entry.participant.user),
 			|ui| {
+				let draggable = !state.server_admin.pending
+					&& (state.demo
+						|| (state.gateway_connected && state.auth == AuthState::Authenticated))
+					&& state.can_moderate_voice(
+						entry.guild,
+						entry.channel,
+						entry.participant.user,
+						VoiceChange::Move(None),
+					);
 				let (rect, row) = ui.allocate_exact_size(
 					egui::vec2(ui.available_width(), 34.0),
-					egui::Sense::click(),
+					if draggable {
+						egui::Sense::click_and_drag()
+					} else {
+						egui::Sense::click()
+					},
 				);
+				if draggable && row.drag_started_by(egui::PointerButton::Primary) {
+					row.dnd_set_drag_payload(VoiceDrag(
+						entry.guild,
+						entry.channel,
+						entry.participant.user,
+					));
+				}
 				row.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, name));
 				let hovered = row.contains_pointer() || row.has_focus();
 				if hovered {
@@ -4805,6 +4887,200 @@ mod tests {
 		view.set_voice_user_mutes(&(0..200).collect::<Vec<u64>>());
 		assert_eq!(view.voice_user_mutes().len(), MAX_USER_MUTES);
 		assert!(!view.voice_user_mutes().contains(&0));
+	}
+
+	#[test]
+	fn voice_moderation_checks_permissions_source_and_reconciles_demo_actions() {
+		use model::{
+			permissions as p,
+			server_admin::{Action, Result as Outcome},
+		};
+		let mut state = test_support::voice_demo_state();
+		let guild = Id(10);
+		let metadata = state.permissions.guilds.get_mut(&guild).unwrap();
+		metadata.owner = Some(Id(99));
+		metadata
+			.roles
+			.as_mut()
+			.unwrap()
+			.iter_mut()
+			.find(|role| role.id == guild)
+			.unwrap()
+			.bits = p::VIEW_CHANNEL | p::CONNECT | p::MUTE_MEMBERS | p::MOVE_MEMBERS;
+		for id in [Id(25), Id(26)] {
+			state.permissions.channels.insert(
+				id,
+				p::Channel {
+					id,
+					guild,
+					overwrites: Some(vec![]),
+				},
+			);
+		}
+		state.permissions.clear_cache();
+		assert!(state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(26)))));
+		assert!(!state.can_moderate_voice(guild, Id(25), Id(1), VoiceChange::Mute(true)));
+		assert!(!state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(25)))));
+		assert!(!state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(20)))));
+		state
+			.permissions
+			.channels
+			.get_mut(&Id(26))
+			.unwrap()
+			.overwrites = Some(vec![p::Overwrite {
+			id: guild,
+			kind: 0,
+			allow: 0,
+			deny: p::CONNECT,
+		}]);
+		state.permissions.clear_cache();
+		assert!(!state.can_moderate_voice(guild, Id(25), Id(2), VoiceChange::Move(Some(Id(26)))));
+		state
+			.permissions
+			.channels
+			.get_mut(&Id(26))
+			.unwrap()
+			.overwrites = Some(vec![]);
+		state.permissions.clear_cache();
+		for change in [
+			VoiceChange::Mute(true),
+			VoiceChange::Mute(false),
+			VoiceChange::Move(Some(Id(26))),
+			VoiceChange::Move(None),
+		] {
+			let channel = state
+				.voice
+				.roster
+				.iter()
+				.find(|entry| entry.participant.user == Id(2))
+				.unwrap()
+				.channel;
+			let action = Action::Voice {
+				user: Id(2),
+				channel,
+				change,
+			};
+			let Command::ServerAdmin { request, .. } =
+				state.request_server_admin(guild, action.clone()).unwrap()
+			else {
+				panic!()
+			};
+			assert!(
+				state.request_server_admin(guild, action.clone()).is_none(),
+				"one outstanding mutation"
+			);
+			assert!(state.server_admin_command_allowed(guild, request, &action));
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::ServerAdmin(client_core::server_admin::Event {
+					guild,
+					request,
+					result: Ok(Outcome::VoiceUpdated(Id(2))),
+				}),
+			});
+			assert!(!state.server_admin.pending);
+			match change {
+				VoiceChange::Mute(muted) => assert_eq!(
+					state
+						.voice
+						.roster
+						.iter()
+						.find(|entry| entry.participant.user == Id(2))
+						.unwrap()
+						.participant
+						.server_muted,
+					muted
+				),
+				VoiceChange::Move(to) => assert_eq!(
+					state
+						.voice
+						.roster
+						.iter()
+						.find(|entry| entry.participant.user == Id(2))
+						.map(|entry| entry.channel),
+					to
+				),
+			}
+		}
+		assert!(
+			!state.can_moderate_voice(guild, Id(26), Id(2), VoiceChange::Mute(true)),
+			"departed source cannot be moderated"
+		);
+	}
+
+	#[test]
+	fn voice_moderation_menu_click_records_server_action() {
+		for (label, change) in [
+			("Server mute", VoiceChange::Mute(true)),
+			("Disconnect", VoiceChange::Move(None)),
+		] {
+			let mut state = test_support::voice_demo_state();
+			state.permissions.guilds.get_mut(&Id(10)).unwrap().owner =
+				Some(state.user.as_ref().unwrap().id);
+			state.permissions.clear_cache();
+			let entry = state
+				.voice
+				.roster
+				.iter()
+				.find(|entry| entry.participant.user == Id(2))
+				.unwrap()
+				.clone();
+			let ctx = egui::Context::default();
+			crate::design::apply(&ctx);
+			let mut view = MessagingUi::default();
+			let frame = |view: &mut MessagingUi, events| {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(600.0, 700.0),
+						)),
+						events,
+						..Default::default()
+					},
+					|ui| view.voice_participant(ui, &state, &entry),
+				);
+				let button = output.shapes.iter().find_map(|shape| match &shape.shape {
+					egui::Shape::Text(text) if text.galley.job.text == label => {
+						Some(text.galley.rect.translate(text.pos.to_vec2()).center())
+					}
+					_ => None,
+				});
+				output.drop_without_applying_deltas();
+				button
+			};
+			frame(&mut view, vec![]);
+			let point = egui::pos2(100.0, 17.0);
+			let click = |point, button, pressed| {
+				vec![
+					egui::Event::PointerMoved(point),
+					egui::Event::PointerButton {
+						pos: point,
+						button,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					},
+				]
+			};
+			for pressed in [true, false] {
+				frame(
+					&mut view,
+					click(point, egui::PointerButton::Secondary, pressed),
+				);
+			}
+			let point = frame(&mut view, vec![]).expect("moderation menu item");
+			for pressed in [true, false] {
+				frame(
+					&mut view,
+					click(point, egui::PointerButton::Primary, pressed),
+				);
+			}
+			assert_eq!(view.voice_moderation, Some((Id(10), Id(25), Id(2), change)));
+			assert!(
+				view.voice_user_mutes().is_empty(),
+				"server mute is distinct from local mute"
+			);
+		}
 	}
 
 	#[test]

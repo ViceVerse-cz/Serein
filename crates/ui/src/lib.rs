@@ -418,6 +418,7 @@ pub struct MessagingUi {
 	/// Tile click to start (`Some(user)`) or stop (`None`) watching, applied by the stage.
 	watch_request: Option<Option<Id>>,
 	ring_request: Option<(Id, u64, Id, bool)>,
+	voice_moderation: Option<(Id, Id, Id, model::server_admin::VoiceChange)>,
 	stream_preview_open: Option<((Id, Id, Id), u64)>,
 	stream_preview_request: Option<(Id, Id, Id)>,
 	stream_preview_watch: Option<(Id, Id)>,
@@ -5303,6 +5304,17 @@ impl MessagingUi {
 		}
 		self.show_call_switch(&ctx, state, &mut commands);
 		self.apply_ring_request(state, &mut commands);
+		if let Some((guild, channel, user, change)) = self.voice_moderation.take()
+			&& let Some(command) = state.request_server_admin(
+				guild,
+				model::server_admin::Action::Voice {
+					user,
+					channel,
+					change,
+				},
+			) {
+			commands.push(command);
+		}
 		self.verification.show(&ctx, state);
 		self.onboarding.show(&ctx, state, &mut commands);
 		self.scroll.clear_if_unbound(&ctx);

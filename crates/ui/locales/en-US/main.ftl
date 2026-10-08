@@ -4133,6 +4133,10 @@ voice-voice-participant-deafened-by-server = Deafened by server
 voice-voice-participant-menu-mute = Mute
 # Context: voice_participant_menu
 voice-voice-participant-menu-reset-volume = Reset volume
+voice-server-mute = Server mute
+voice-server-unmute = Server unmute
+voice-move-to = Move to
+voice-disconnect-member = Disconnect
 # Context: voice_participant_menu
 voice-voice-participant-menu-silence-this-person-on-this-device-only-nobody-else-is = Silence this person on this device only. Nobody else is affected.
 # Context: voice_participant_menu

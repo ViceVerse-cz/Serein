@@ -39,6 +39,16 @@ At most 64 custom levels are retained; a full table replaces its first retained 
 Nothing is sent to Discord. Boosting may clip; physical listening and
 native slider interaction remain unverified.
 
+Guild voice participant menus also offer **Server mute / Server unmute**, **Move to**,
+and **Disconnect** when the account has the corresponding channel permissions.
+Sidebar participants can be dragged onto another available voice channel; the Move to
+menu provides the same action for keyboard users. Source membership and permissions
+are checked again before dispatch. Moving requires Move Members in the source and
+Connect in the destination; server mute requires Mute Members. These actions use the
+existing single outstanding administration request and bounded REST response. Failures
+remain visible in the status bar. Live participant state continues to come from Gateway
+events; offline fixtures simulate those events locally. Live moderation remains unverified.
+
 Device-free tests cover gain, clipping, invalid PCM, independent live changes and gates. Actual
 gain perception, microphone/speaker hardware, native slider interaction and callback latency
 remain unverified. Owner-controlled live checks should include 0/100/200% on each control,
