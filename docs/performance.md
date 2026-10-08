@@ -4,6 +4,42 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Gateway resume fallback — October 8, 2026
+
+Compared baseline `2164f52e` with implementation `2ebc48a7` on Windows 11 x64,
+AMD Ryzen 7 7800X3D (16 logical CPUs), 32 GB RAM, Rust 1.98.1 and the locked
+dependencies. The recovery change adds one fixed-size failure counter, with no
+new queue or persistence. Synthetic localhost tests now return to the original
+gateway after three failed resume attempts; the baseline keeps selecting the
+failed resume route. Manual recovery and successful resumes preserve their
+existing behavior. These are protocol-policy checks, not live recovery timings.
+
+Both revisions passed `cargo xtask package` with voice included, release fat LTO
+and no default features. Each output directory was retained separately. Installed
+bytes are the sum of all files in `dist`; archives use PowerShell
+`Compress-Archive -CompressionLevel Optimal` over that directory.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 86,008,832 B | 86,010,368 B | +1,536 B (+0.0018%) |
+| Full portable directory | 90,199,948 B | 90,201,484 B | +1,536 B (+0.0017%) |
+| Portable ZIP | 50,002,123 B | 50,002,724 B | +601 B (+0.0012%) |
+
+These are unsigned Windows portable packages. NSIS was unavailable, so no local
+installer was produced. Both builds emitted the same OpenH264 duplicate-object
+debug-info linker warning; packaging exited successfully.
+
+The release reducer control used `cargo replay`, then one warmup and five direct
+`replay-bench` runs per revision. It processed 100,000 events and retained 500
+records / 331,992–332,477 estimated timeline bytes in both cases. Median times
+were 159.8291 ms before and 117.5277 ms after. The five samples were
+173.1020/159.8291/125.8932/152.4096/181.1192 ms and
+128.2427/118.3857/106.1182/109.4493/117.5277 ms respectively. Other builds shared
+the host, and the replay executables were byte-identical: this workload does not
+include the changed gateway transport. The 42.3014 ms difference is not evidence
+of a speed improvement. Process RSS, UI timing and live network recovery were
+not measured.
+
 ## Animation frame retention — October 8, 2026
 
 Decoded GIF and animated-avatar frames were the largest bounded RAM consumer. Each frame is held as
