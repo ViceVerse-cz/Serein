@@ -434,7 +434,7 @@ struct Entry {
 	spans: Vec<Span>,
 	width: u32,
 	scale: u32,
-	fonts: (usize, usize),
+	fonts: (usize, usize, u32),
 	discovered: usize,
 	atlas_generation: usize,
 	value: Arc<Layout>,
