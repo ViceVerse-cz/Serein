@@ -231,14 +231,14 @@ and source equivalence are recorded separately in
 
 ## RTL message layout (PR #531): Windows integration evidence - October 8, 2026
 
-Fresh standard Windows x64 voice-enabled packages compare main `1b3e4a7b` with `ea64b31e` (measured 2026-10-08). Baseline/current file counts: 216/217; the additional file is the epaint patch notice. Both Chinese layout-limit notices are included in the measured source.
+Standard Windows x64 voice-enabled packages compare main `1b3e4a7b` with `093c4843` (measured 2026-10-08). Baseline/current file counts: 216/217; the additional file is the epaint patch notice. The current package includes main `1e24fa5d`'s updated Chinese translations and both RTL layout-limit notices.
 
 | Metric | Main `1b3e4a7b` | Current integration | Delta |
 | --- | ---: | ---: | ---: |
-| Standard executable | 86,008,832 B | 86,181,376 B | +172,544 B (+0.2006%) |
-| Installed directory | 90,199,948 B | 90,374,954 B | +175,006 B (+0.1940%) |
-| Distribution ZIP | 50,001,798 B | 50,061,897 B | +60,099 B (+0.1202%) |
+| Standard executable | 86,008,832 B | 86,185,472 B | +176,640 B (+0.2054%) |
+| Installed directory | 90,199,948 B | 90,379,050 B | +179,102 B (+0.1986%) |
+| Distribution ZIP | 50,001,798 B | 50,061,748 B | +59,950 B (+0.1199%) |
 
-Method: `cargo xtask package`, Rust 1.98.1, standard release flags without demo; Windows 11 build 26200, Ryzen 7 7800X3D, 32 GiB RAM. Runtime workspace artifacts were invalidated before the feature build. Installed bytes sum every file in `dist`; ZIP uses whole-directory .NET Optimal compression. NSIS was unavailable, so no installer executable was built.
+Method: `cargo xtask package`, Rust 1.98.1, standard release flags without demo; Windows 11 build 26200, Ryzen 7 7800X3D, 32 GiB RAM. The initial feature build invalidated runtime workspace artifacts; this catalog update rebuilt UI and desktop against the retained dependencies, with xtask rebuilt explicitly. Installed bytes sum every file in `dist`; ZIP uses whole-directory .NET Optimal compression. NSIS was unavailable, so no installer executable was built. The upstream OpenH264 archive emitted LNK4255 for duplicate object names/debug information; linking and packaging succeeded.
 
 Current native CPU, memory, frame/startup latency and affected-device behavior remain unmeasured because the native automation bridge is unavailable. Package size and synthetic reducer timing do not establish live Discord performance.
