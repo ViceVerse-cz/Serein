@@ -279,6 +279,10 @@ attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = Choos
 attachments-download-button-download = Download
 # Context: download_button
 attachments-download-button-downloads-are-disabled-for-synthetic-attachments = Downloads are disabled for synthetic attachments
+# Context: message report browser handoff
+message-report-in-discord = Report in Discord…
+message-report-in-discord-hint = Opens this message in Discord in your browser. Right-click it there and choose Report Message to complete your report.
+message-report-unavailable = This message’s Discord link is unavailable. Open the conversation in Discord to report it.
 # Context: media_menu
 attachments-media-menu-a-media-transfer-is-already-active = A media transfer is already active
 # Context: media_menu

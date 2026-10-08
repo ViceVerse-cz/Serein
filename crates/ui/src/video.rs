@@ -117,7 +117,12 @@ impl VideoUi {
 				let response =
 					self.show_player(ui, message, attachment, true, download, opening, demo);
 				crate::attachments::media_context_menu(
-					&response, attachment, download, opening, demo,
+					&response,
+					attachment,
+					download,
+					opening,
+					demo,
+					crate::attachments::report_target(message),
 				);
 			});
 		// The shared link confirmation is drawn before the timeline. Leave the video
@@ -731,6 +736,120 @@ fn timestamp(seconds: f64) -> String {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn fullscreen_report_handoff_opens_the_message_in_the_clicked_frame() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let channel = state.selected.unwrap();
+		let mut message = test_support::message(987, channel);
+		let attachment = Attachment {
+			id: Id(42),
+			filename: "synthetic-report.mp4".into(),
+			content_type: Some("video/mp4".into()),
+			description: None,
+			size: 512,
+			media: model::EmbedMedia {
+				width: 640,
+				height: 360,
+				..Default::default()
+			},
+			spoiler: false,
+			duration_ms: None,
+			waveform: vec![],
+		};
+		message.attachments.push(attachment.clone());
+		let link = crate::markdown::discord_url(state.channel(channel).unwrap(), Some(message.id))
+			.unwrap();
+		state
+			.timeline
+			.insert(message.clone(), false, false)
+			.unwrap();
+		let mut view = crate::MessagingUi::default();
+		view.timeline.video.active = Some((channel, message.id, attachment));
+		view.timeline.video.state = VideoState::Paused;
+		view.timeline.video.fullscreen = Some((
+			ctx.clone(),
+			false,
+			egui::Id::unique("fullscreen-report-test"),
+		));
+		let mut frame = |events| {
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(1000.0, 700.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					view.show(ui, &mut state);
+				},
+			)
+		};
+		frame(vec![]).drop_without_applying_deltas();
+		frame(vec![]).drop_without_applying_deltas();
+		let pos = egui::pos2(500.0, 300.0);
+		for pressed in [true, false] {
+			frame(vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::PointerButton {
+					pos,
+					button: egui::PointerButton::Secondary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			])
+			.drop_without_applying_deltas();
+		}
+		let output = frame(vec![]);
+		let pos = output
+			.shapes
+			.iter()
+			.find_map(|shape| match &shape.shape {
+				egui::Shape::Text(text) if text.galley.job.text == "Report in Discord…" => {
+					Some(text.pos + text.galley.rect.center().to_vec2())
+				}
+				_ => None,
+			})
+			.expect("fullscreen media report action");
+		output.drop_without_applying_deltas();
+		for pressed in [true, false] {
+			let output = frame(vec![
+				egui::Event::PointerMoved(pos),
+				egui::Event::PointerButton {
+					pos,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				},
+			]);
+			let urls: Vec<_> = output
+				.platform_output
+				.commands
+				.iter()
+				.filter_map(|command| {
+					if let egui::OutputCommand::OpenUrl(url) = command {
+						Some(url.url.as_str())
+					} else {
+						None
+					}
+				})
+				.collect();
+			assert_eq!(urls, if pressed { vec![] } else { vec![link.as_str()] });
+			output.drop_without_applying_deltas();
+		}
+		assert!(view.timeline.video.is_fullscreen());
+		assert!(view.timeline.video.command.is_none());
+		assert!(view.timeline.download.report_request.is_none());
+		assert!(
+			view.timeline.download.request.is_none()
+				&& view.timeline.download.copy_request.is_none()
+		);
+		assert!(view.timeline.opening.is_none());
+	}
+
 	#[test]
 	fn video_controls_are_explicit_bounded_and_keyboard_operable() {
 		let mut message = test_support::message(1, Id(2));

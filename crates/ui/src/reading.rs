@@ -119,8 +119,10 @@ impl MessagingUi {
 	}
 
 	/// Media, link and scrolling behaviour shown on the Chat page.
-	pub fn chat_reading_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
+	pub fn chat_reading_settings(&mut self, ui: &mut egui::Ui, state: &mut client_core::State) {
+		let demo = state.demo;
 		let mut value = self.reading_preferences;
+		let mut reaction_trigger = None;
 		let reset = Self::header_with_reset(
 			ui,
 			"reading-chat-reading-settings-messages-and-media",
@@ -158,24 +160,59 @@ impl MessagingUi {
 			);
 			ui.add_enabled_ui(value.double_click_reaction_enabled, |ui| {
 				design::row(ui, "emoji-picker-popup-emoji", None, |ui| {
-					egui::ComboBox::from_id_salt("double-click-reaction")
-						.width(96.0)
-						.selected_text(egui::RichText::new(value.double_click_emoji()).size(22.0))
-						.show_ui(ui, |ui| {
-							for (index, emoji) in ReadingPreferences::DOUBLE_CLICK_REACTIONS
-								.iter()
-								.enumerate()
-							{
-								ui.selectable_value(
-									&mut value.double_click_reaction,
-									index as u8,
-									egui::RichText::new(*emoji).size(22.0),
-								);
-							}
-						});
+					let emoji = value.double_click_choice();
+					let label = emoji.emoji().label();
+					let image = match emoji.id() {
+						Some(id) => self.avatars.custom_image(ui.ctx(), id, 22.0, demo),
+						None => crate::emoji::image(ui.ctx(), emoji.name(), 22.0),
+					};
+					let button = match image {
+						Some(image) => egui::Button::image_and_text(image.alt_text(&label), "⌄")
+							.image_tint_follows_text_color(false),
+						None => egui::Button::new(&label).truncate(),
+					};
+					let trigger = ui.add_sized([96.0, 32.0], button).on_hover_text(&label);
+					trigger.widget_info(|| {
+						egui::WidgetInfo::labeled(
+							egui::Role::Button,
+							ui.is_enabled(),
+							crate::i18n::translate("emoji-picker-popup-emoji"),
+						)
+					});
+					reaction_trigger = Some(trigger);
 				});
 			});
 		});
+		if !value.double_click_reaction_enabled {
+			self.settings
+				.reaction_picker
+				.dismiss(state, &mut Vec::new());
+		} else if let Some(trigger) = reaction_trigger {
+			// A signed-in account without a selected channel can still choose Unicode emoji.
+			let channel = state.selected.unwrap_or(model::Id(0));
+			self.settings.reaction_picker.hide_nitro_emojis = self.hide_nitro_emojis;
+			if trigger.clicked() {
+				if self.settings.reaction_picker.choosing() {
+					self.settings
+						.reaction_picker
+						.dismiss(state, &mut Vec::new());
+				} else {
+					self.settings
+						.reaction_picker
+						.open_choice(state, channel, &trigger, false);
+				}
+			}
+			if let Some(Some(emoji)) = self.settings.reaction_picker.show_choice(
+				ui,
+				state,
+				channel,
+				&mut self.avatars,
+				&trigger,
+			) && let Some(emoji) = model::SavedReactionEmoji::from_emoji(&emoji)
+			{
+				value.double_click_reaction_emoji = Some(emoji);
+			}
+		}
 		design::group(
 			ui,
 			&crate::i18n::translate("reading-chat-reading-settings-links"),
@@ -222,6 +259,10 @@ impl MessagingUi {
 			value.compact_messages = defaults.compact_messages;
 			value.double_click_reaction_enabled = defaults.double_click_reaction_enabled;
 			value.double_click_reaction = defaults.double_click_reaction;
+			value.double_click_reaction_emoji = defaults.double_click_reaction_emoji;
+			self.settings
+				.reaction_picker
+				.dismiss(state, &mut Vec::new());
 			value.confirm_external_links = defaults.confirm_external_links;
 			value.smooth_scrolling = defaults.smooth_scrolling;
 			value.scroll_speed_percent = defaults.scroll_speed_percent;
@@ -309,6 +350,114 @@ mod tests {
 	}
 
 	#[test]
+	fn double_click_picker_selects_search_results_without_sending_or_editing_draft() {
+		crate::i18n::set_current(crate::i18n::Language::English);
+		for (query, name, id) in [
+			("rocket", "🚀", None),
+			("serein_wave", "serein_wave", Some(model::Id(9001))),
+		] {
+			let ctx = egui::Context::default();
+			ctx.enable_accesskit();
+			crate::emoji::install(&ctx).unwrap();
+			let mut state = test_support::demo_state();
+			let channel = state.selected.unwrap();
+			state.drafts.insert(channel, "Keep my draft".into());
+			let mut view = MessagingUi::default();
+			view.reading_preferences.double_click_reaction_enabled = true;
+			let frame = |view: &mut MessagingUi, state: &mut client_core::State, events| {
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(900.0, 1000.0),
+						)),
+						events,
+						..Default::default()
+					},
+					|ui| view.chat_reading_settings(ui, state),
+				);
+				let buttons: Vec<_> = output
+					.platform_output
+					.accesskit_update
+					.as_ref()
+					.unwrap()
+					.nodes
+					.iter()
+					.filter(|(_, node)| node.role() == egui::Role::Button)
+					.filter_map(|(_, node)| Some((node.label()?.to_owned(), node.bounds()?)))
+					.map(|(label, rect)| {
+						(
+							label,
+							egui::pos2(
+								((rect.x0 + rect.x1) / 2.0) as f32,
+								((rect.y0 + rect.y1) / 2.0) as f32,
+							),
+						)
+					})
+					.collect();
+				assert!(output.platform_output.commands.is_empty());
+				output.drop_without_applying_deltas();
+				buttons
+			};
+			let click = |pos| {
+				[true, false].map(|pressed| {
+					vec![
+						egui::Event::PointerMoved(pos),
+						egui::Event::PointerButton {
+							pos,
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					]
+				})
+			};
+			for _ in 0..3 {
+				frame(&mut view, &mut state, vec![]);
+			}
+			let buttons = frame(&mut view, &mut state, vec![]);
+			let button = buttons
+				.iter()
+				.find(|(label, _)| label == "Emoji")
+				.expect("reaction selector")
+				.1;
+			for events in click(button) {
+				frame(&mut view, &mut state, events);
+			}
+			for _ in 0..3 {
+				frame(&mut view, &mut state, vec![]);
+			}
+			assert!(view.settings.reaction_picker.choosing());
+			frame(&mut view, &mut state, vec![egui::Event::Text(query.into())]);
+			let buttons = frame(&mut view, &mut state, vec![]);
+			let code = format!(":{query}:");
+			let result = buttons
+				.iter()
+				.find(|(label, _)| label == &code)
+				.expect("search result from full picker")
+				.1;
+			for events in click(result) {
+				frame(&mut view, &mut state, events);
+			}
+			let selected = view.reading_preferences.double_click_choice();
+			assert_eq!(selected.id(), id);
+			assert_eq!(selected.name(), name);
+			assert!(!view.settings.reaction_picker.choosing());
+			assert_eq!(state.drafts[&channel], "Keep my draft");
+			assert!(
+				!state.reactions.busy(),
+				"selecting a preference never sends a reaction"
+			);
+			let command = state
+				.prepare_reaction(model::Id(500), selected.emoji())
+				.expect("chosen reaction uses the existing command path");
+			assert!(
+				matches!(command, client_core::Command::Reactions(client_core::reactions::Command::Set { emoji, .. }) if emoji.id == id && emoji.name.as_deref() == Some(name))
+			);
+		}
+	}
+
+	#[test]
 	fn reading_controls_reset_retry_and_preserve_session_notification_opt_in() {
 		fn labels(shape: &egui::Shape, found: &mut Vec<(String, egui::Rect)>) {
 			match shape {
@@ -343,7 +492,9 @@ mod tests {
 				},
 				|ui| {
 					view.layout_settings(ui, false);
-					view.chat_reading_settings(ui, false);
+					let mut state = test_support::demo_state();
+					state.demo = false;
+					view.chat_reading_settings(ui, &mut state);
 				},
 			);
 			assert!(output.platform_output.commands.is_empty());
@@ -362,6 +513,7 @@ mod tests {
 			compact_messages: true,
 			double_click_reaction_enabled: false,
 			double_click_reaction: 0,
+			double_click_reaction_emoji: None,
 			animate_gifs: false,
 			smooth_scrolling: true,
 			scroll_speed_percent: 100,

@@ -91,10 +91,10 @@ pub struct TimelineView {
 	pub(super) reaction_users: Option<(Id, model::ReactionEmoji, bool)>,
 	/// Hover-bar reactions, most used first; `None` uses the defaults.
 	pub(super) quick_reactions: Option<[&'static str; 3]>,
-	/// Explicit preset for the double-click gesture; `None` disables it.
-	pub(super) double_click_reaction: Option<&'static str>,
+	/// Explicit full-picker selection for the double-click gesture; `None` disables it.
+	pub(super) double_click_reaction: Option<model::SavedReactionEmoji>,
 	/// A quick reaction the reader added this frame, for the usage ranking.
-	pub(super) quick_reaction_used: Option<&'static str>,
+	pub(super) quick_reaction_used: Option<String>,
 	/// Requested pin change: channel, message, pinned.
 	pub(super) pin_request: Option<(Id, Id, bool)>,
 	/// Requested new thread: parent channel and the message that starts it.
@@ -832,10 +832,20 @@ fn quick_reaction(
 	message: &Message,
 	text: &str,
 ) -> (model::ReactionEmoji, bool, bool) {
-	let emoji = model::ReactionEmoji {
-		id: None,
-		name: Some(text.to_owned()),
-	};
+	reaction_state(
+		state,
+		message,
+		model::ReactionEmoji {
+			id: None,
+			name: Some(text.to_owned()),
+		},
+	)
+}
+fn reaction_state(
+	state: &State,
+	message: &Message,
+	emoji: model::ReactionEmoji,
+) -> (model::ReactionEmoji, bool, bool) {
 	let reactions = state.reactions.display(message);
 	let reacted = reactions
 		.and_then(|items| items.iter().find(|r| r.emoji.same(&emoji)))
@@ -1096,6 +1106,13 @@ fn message_actions(
 				.clicked()
 		{
 			ui.ctx().copy_text(link.to_owned());
+			ui.close();
+		}
+		if !message.ephemeral
+			&& let Some(link) = link
+			&& crate::attachments::report_button(ui)
+		{
+			ui.ctx().open_url(egui::OpenUrl::new_tab(link));
 			ui.close();
 		}
 		if ui
@@ -3386,7 +3403,7 @@ impl TimelineView {
 						});
 					let rect = row.response.rect;
 					if let Some(pos) = double_click
-						&& let Some(text) = self.double_click_reaction
+						&& let Some(choice) = self.double_click_reaction
 						&& !deleted && rect.contains(pos)
 						&& self
 							.toolbar
@@ -3394,13 +3411,14 @@ impl TimelineView {
 						&& ui.ctx().layer_id_at(pos) == Some(ui.layer_id())
 						&& !egui::Popup::is_any_open(ui.ctx())
 					{
-						let (emoji, reacted, enabled) = quick_reaction(state, message, text);
+						let (emoji, reacted, enabled) =
+							reaction_state(state, message, choice.emoji());
 						if enabled {
 							// The second click selected the nearest word in the blank band.
 							crate::select::clear(ui.ctx());
 							self.reaction = Some((id, Some(emoji)));
-							if !reacted {
-								self.quick_reaction_used = Some(text);
+							if !reacted && choice.id().is_none() {
+								self.quick_reaction_used = Some(choice.name().to_owned());
 							}
 						}
 					}
@@ -3638,7 +3656,7 @@ impl TimelineView {
 									if response.clicked() {
 										self.reaction = Some((id, Some(emoji)));
 										if !reacted {
-											self.quick_reaction_used = Some(text);
+											self.quick_reaction_used = Some(text.to_owned());
 										}
 									}
 								}
@@ -4289,6 +4307,7 @@ impl TimelineView {
 					&mut self.download,
 					&mut self.opening,
 					state.demo,
+					display_message(state, *message).and_then(crate::attachments::report_target),
 				)
 				.is_none()
 			{
@@ -4338,6 +4357,7 @@ impl TimelineView {
 					&mut self.download,
 					&mut self.opening,
 					state.demo,
+					crate::attachments::report_target(m),
 				)
 				.map(|id| (message_id, id))
 			});
@@ -6998,7 +7018,7 @@ mod tests {
 		state.timeline.insert(message, false, false).unwrap();
 		let mut view = TimelineView {
 			quick_reactions: Some(["🚀", "👍", "❤️"]),
-			double_click_reaction: Some("🎉"),
+			double_click_reaction: model::SavedReactionEmoji::new(None, "🎉"),
 			..Default::default()
 		};
 		let mut avatars = crate::avatars::Avatars::default();
@@ -7084,7 +7104,7 @@ mod tests {
 			name: Some("🚀".into()),
 		};
 		assert_eq!(view.reaction.take(), Some((id, Some(rocket.clone()))));
-		assert_eq!(view.quick_reaction_used.take(), Some("🚀"));
+		assert_eq!(view.quick_reaction_used.take(), Some("🚀".into()));
 
 		// Shift hides quick reactions, adds direct actions and swaps the menu for quick delete.
 		let shift = egui::Modifiers::SHIFT;
@@ -7136,6 +7156,31 @@ mod tests {
 			);
 			render(&mut view, &mut state, vec![egui::Event::PointerGone], none);
 		}
+		// Full-picker Unicode and custom choices take the same gesture path.
+		for choice in [
+			model::SavedReactionEmoji::new(None, "🦀").unwrap(),
+			model::SavedReactionEmoji::new(Some(Id(9001)), "serein_wave").unwrap(),
+		] {
+			view.double_click_reaction = Some(choice);
+			clock.set(clock.get() + 2.0);
+			for _ in 0..2 {
+				for events in click(egui::pos2(450.0, text.center().y), none) {
+					render(&mut view, &mut state, events, none);
+				}
+			}
+			assert_eq!(view.reaction.take(), Some((id, Some(choice.emoji()))));
+		}
+		// A persisted custom ID does not grant access after its catalog is removed.
+		for guild in &mut state.guilds {
+			guild.emojis = None;
+		}
+		clock.set(clock.get() + 2.0);
+		for _ in 0..2 {
+			for events in click(egui::pos2(450.0, text.center().y), none) {
+				render(&mut view, &mut state, events, none);
+			}
+		}
+		assert!(view.reaction.is_none());
 	}
 	#[test]
 	fn right_clicking_a_reaction_opens_its_details_without_the_message_menu() {
@@ -10106,7 +10151,7 @@ impl crate::MessagingUi {
 		};
 		let mut view = TimelineView {
 			quick_reactions: Some(["🚀", "👍", "😂"]),
-			double_click_reaction: Some(preferences.double_click_emoji()),
+			double_click_reaction: Some(preferences.double_click_choice()),
 			..Default::default()
 		};
 		let mut avatars = crate::avatars::Avatars::default();
@@ -10166,7 +10211,7 @@ impl crate::MessagingUi {
 		let pos = egui::pos2(450.0, render(&mut view, vec![]).expect("message laid out"));
 		assert!(!model::ReadingPreferences::default().double_click_reaction_enabled);
 		for enabled in [false, true] {
-			view.double_click_reaction = enabled.then_some(preferences.double_click_emoji());
+			view.double_click_reaction = enabled.then_some(preferences.double_click_choice());
 			for _ in 0..30 {
 				render(&mut view, vec![]);
 			}

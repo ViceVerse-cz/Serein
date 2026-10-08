@@ -60,7 +60,8 @@ fn select_media_menu(
 							&mut images,
 							&mut download,
 							&mut opening,
-							demo
+							demo,
+							report_target(&message),
 						),
 						Some(attachment.id)
 					);
@@ -189,6 +190,154 @@ fn image_video_and_viewer_context_menus_copy_or_save_the_attachment() {
 }
 
 #[test]
+fn report_media_menus_keep_the_message_origin_without_opening_or_downloading_media() {
+	for (video, in_viewer, embed) in [
+		(false, false, false),
+		(true, false, false),
+		(false, true, false),
+		(false, true, true),
+	] {
+		let mut attachment = attachment(video);
+		if embed {
+			attachment.id = Id(0);
+		}
+		let download = select_media_menu(
+			&attachment,
+			in_viewer,
+			true,
+			DownloadUi::default(),
+			"Report in Discord…",
+			None,
+			false,
+		);
+		assert_eq!(download.report_request, Some((Id(2), Id(1))));
+		assert!(download.request.is_none() && download.copy_request.is_none());
+		assert!(download.embed_request.is_none() && download.embed_view_request.is_none());
+	}
+}
+
+#[test]
+fn report_handoff_opens_only_the_origin_message_once_and_handles_missing_channels() {
+	for (kind, guild, scope) in [(0, Some(Id(9)), "9"), (1, None, "@me")] {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let mut channel = state.channels[0].clone();
+		channel.id = Id(2);
+		channel.kind = kind;
+		channel.guild = guild;
+		state.channels = vec![channel];
+		state.selected = Some(Id(99));
+		let mut download = DownloadUi {
+			report_request: Some((Id(2), Id(1))),
+			..Default::default()
+		};
+		let mut toasts = crate::toasts::Toasts::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			download.open_report_handoff(ui.ctx(), &state, &mut toasts);
+			download.open_report_handoff(ui.ctx(), &state, &mut toasts);
+		});
+		let urls: Vec<_> = output
+			.platform_output
+			.commands
+			.iter()
+			.filter_map(|command| {
+				if let egui::OutputCommand::OpenUrl(url) = command {
+					Some(url.url.as_str())
+				} else {
+					None
+				}
+			})
+			.collect();
+		assert_eq!(urls, [format!("https://discord.com/channels/{scope}/2/1")]);
+		assert!(download.report_request.is_none());
+		output.drop_without_applying_deltas();
+		state.channels.clear();
+		download.report_request = Some((Id(2), Id(1)));
+		let output = ctx.run_ui(Default::default(), |ui| {
+			download.open_report_handoff(ui.ctx(), &state, &mut toasts);
+			toasts.show(ui.ctx(), 20.0);
+		});
+		assert!(
+			!output
+				.platform_output
+				.commands
+				.iter()
+				.any(|command| matches!(command, egui::OutputCommand::OpenUrl(_)))
+		);
+		assert!(download.report_request.is_none());
+		output.drop_without_applying_deltas();
+		let output = ctx.run_ui(Default::default(), |ui| toasts.show(ui.ctx(), 20.0));
+		assert!(output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text.contains("Discord link is unavailable"))));
+		output.drop_without_applying_deltas();
+	}
+}
+
+#[test]
+fn profile_image_viewer_has_no_message_report_target() {
+	let ctx = egui::Context::default();
+	let mut attachment = attachment(false);
+	attachment.id = Id(0);
+	let mut images = Avatars::default();
+	let mut download = DownloadUi::default();
+	let mut opening = None;
+	let mut frame = |events| {
+		ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(1000.0, 700.0),
+				)),
+				events,
+				..Default::default()
+			},
+			|ui| {
+				let _ = viewer(
+					ui,
+					std::slice::from_ref(&attachment),
+					attachment.id,
+					&mut images,
+					&mut download,
+					&mut opening,
+					true,
+					None,
+				);
+			},
+		)
+	};
+	frame(vec![]).drop_without_applying_deltas();
+	frame(vec![]).drop_without_applying_deltas();
+	let pos = egui::pos2(500.0, 350.0);
+	for pressed in [true, false] {
+		frame(vec![
+			egui::Event::PointerMoved(pos),
+			egui::Event::PointerButton {
+				pos,
+				button: egui::PointerButton::Secondary,
+				pressed,
+				modifiers: egui::Modifiers::NONE,
+			},
+		])
+		.drop_without_applying_deltas();
+	}
+	let output = frame(vec![]);
+	let labels: Vec<_> = output
+		.shapes
+		.iter()
+		.filter_map(|shape| {
+			if let egui::Shape::Text(text) = &shape.shape {
+				Some(text.galley.job.text.as_str())
+			} else {
+				None
+			}
+		})
+		.collect();
+	assert!(labels.contains(&"Copy image"));
+	assert!(!labels.contains(&"Report in Discord…"));
+	assert!(download.report_request.is_none() && opening.is_none());
+	output.drop_without_applying_deltas();
+}
+
+#[test]
 fn media_context_menus_disable_transfers_in_demo_and_while_busy() {
 	for (video, in_viewer) in [(false, false), (true, false), (false, true)] {
 		let attachment = attachment(video);
@@ -313,6 +462,7 @@ fn video_controls_still_handle_primary_clicks() {
 							&mut download,
 							&mut opening,
 							false,
+							report_target(&message),
 						);
 					},
 				)

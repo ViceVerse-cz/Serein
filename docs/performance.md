@@ -1,8 +1,43 @@
 # Performance findings
 
 Recent synthetic/offline measurements are workload-specific. They do not establish live Discord
-performance, universal device results or application-wide memory bounds. The raw PR screenshot,
-log and per-run evidence archive has been removed; the summaries below retain the useful results.
+performance, universal device results or application-wide memory bounds. Older raw PR screenshot,
+log and per-run evidence archives have been removed; the summaries below retain the useful results.
+
+## Reaction chooser and reporting handoff — October 8, 2026
+
+Baseline `2164f52eeab3383078cef50730d1cb1e25dba94d` versus this change after rebasing onto `b5e8132f`,
+on Ubuntu 26.04.1 LTS, AMD Ryzen 5 7535U, 14.3 GiB RAM and Rust 1.98.1. Both standard voice-enabled
+Debian packages were built with `cargo xtask package`; installed size sums regular files from the extracted package
+(228 files each). Native UI measurements use the release `profile_preview` example with `--features demo`,
+Wgpu (adapter not recorded), Xwayland, 1120×760 and effective scale 1×.
+
+Each fresh process navigated from Appearance to Chat, enabled double-click reaction, opened the
+selector and selected heart. The new picker additionally searched `red heart`. With the picker closed
+and the pointer at (750,100), each run warmed for 10 s and sampled `/proc` CPU time and RSS every 1 s
+for 10 s (ten samples), also recording process high-water RSS (`VmHWM`, including startup and
+scripted navigation). Neither fresh process overlapped a build. The baseline
+preview needed the one-argument demo-helper compilation repair now present in main (`87a08320`).
+Separate executable copies were retained, and relevant Cargo fingerprints were invalidated when
+switching source trees.
+
+| Metric | Baseline | Change | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 86,973,168 B | 86,999,024 B | +25,856 B (+0.030%) |
+| Installed Debian tree | 91,505,111 B | 91,530,967 B | +25,856 B (+0.028%) |
+| Debian archive | 44,649,740 B | 44,668,592 B | +18,852 B (+0.042%) |
+| Idle CPU, one core | 0.00% | 0.00% | +0.00 percentage points |
+| Lifetime peak RSS (VmHWM) | 111.348 MiB | 133.980 MiB | +22.633 MiB (+20.33%) |
+| Settled RSS | 98.520 MiB | 121.969 MiB | +23.449 MiB (+23.80%) |
+
+This is one short synthetic run per revision, covering the settings preview and its UI caches.
+The changed build also includes main commits through `b5e8132f` that landed after the starting
+baseline, so the deltas do not isolate this PR alone.
+CPU is relative to one logical core; zero means no CPU tick was observed in the interval. RSS is
+resident memory, rather than total allocation or GPU memory. Settled RSS was 23.449 MiB higher in
+this workload; the sample cannot attribute it to individual changes. No compilation ran during
+either process’s setup or sampling. Child/helper processes, desktop transports and devices, live
+traffic, startup latency, p95 frame time and GPU memory were not measured.
 
 ## Animation frame retention — October 8, 2026
 

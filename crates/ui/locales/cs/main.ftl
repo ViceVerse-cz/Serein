@@ -278,6 +278,10 @@ attachments-download-button-choose-where-to-save-this-file-up-to-100-mib = Vyber
 attachments-download-button-download = Stáhnout
 # Context: download_button
 attachments-download-button-downloads-are-disabled-for-synthetic-attachments = U syntetických příloh je stahování zakázáno
+# Context: message report browser handoff
+message-report-in-discord = Nahlásit v Discordu…
+message-report-in-discord-hint = Otevře tuto zprávu v Discordu v prohlížeči. Klikněte na ni tam pravým tlačítkem a zvolte Nahlásit zprávu pro dokončení hlášení.
+message-report-unavailable = Odkaz na tuto zprávu v Discordu není dostupný. Pro nahlášení otevřete konverzaci v Discordu.
 # Context: media_menu
 attachments-media-menu-a-media-transfer-is-already-active = Již probíhá přenos média
 # Context: media_menu

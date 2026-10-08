@@ -2293,3 +2293,15 @@ links may come from any host; this does not authorize fetching arbitrary origins
 Previews still use the existing provider/Discord media admission and bounded
 pipeline. The original share URL, including attachment signatures, is retained.
 The offline debug check is `cargo run --locked -p serein --features demo --example gif_favorites`.
+
+## Message reporting handoff — October 8, 2026
+
+Message menus and message-media menus (including GIF embeds, galleries, search
+results and fullscreen video) offer **Report in Discord…**. This opens the original
+message's canonical Discord URL in the browser; the tooltip explains that the user
+must right-click the message there and choose **Report Message** to complete the
+report. This follows Discord's [documented reporting flow](https://discord.com/safety/360044103651-reporting-abusive-behavior-to-discord).
+It does not submit a report or claim a successful submission, and adds no reporting
+API or automatic network request. Profile-image viewers and ephemeral messages do
+not receive a message-report action. Synthetic interaction tests verify the
+originating message target and browser command; live reporting remains unverified.
