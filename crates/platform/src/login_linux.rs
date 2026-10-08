@@ -1,5 +1,9 @@
 //! A separate ephemeral GTK4/WebKit6 window for owner-operated Discord login.
-use super::{Failure, SessionSecret, captcha::hcaptcha_origin, discord_origin};
+use super::{
+	Failure, SessionSecret,
+	captcha::{hcaptcha_origin, verification_storage_domains},
+	discord_origin,
+};
 use std::{
 	cell::{Cell, RefCell},
 	rc::Rc,
@@ -237,6 +241,7 @@ impl LoginView {
 					.downcast_ref::<webkit6::WebsiteDataAccessPermissionRequest>()
 					.is_some_and(|request| {
 						verification_storage_domains(
+							"discord.com",
 							request.current_domain().as_deref(),
 							request.requesting_domain().as_deref(),
 						)
@@ -413,12 +418,6 @@ impl Drop for LoginView {
 	}
 }
 
-fn verification_storage_domains(current: Option<&str>, requesting: Option<&str>) -> bool {
-	current == Some("discord.com")
-		&& requesting
-			.is_some_and(|domain| domain == "hcaptcha.com" || domain.ends_with(".hcaptcha.com"))
-}
-
 fn discord_api_uri(value: &str) -> bool {
 	let Ok(url) = url::Url::parse(value) else {
 		return false;
@@ -439,27 +438,6 @@ fn discord_api_uri(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	#[test]
-	fn verification_storage_is_limited_to_hcaptcha_embedded_in_discord() {
-		for domain in ["hcaptcha.com", "newassets.hcaptcha.com"] {
-			assert!(verification_storage_domains(
-				Some("discord.com"),
-				Some(domain)
-			));
-		}
-		for domain in [
-			None,
-			Some("evil.test"),
-			Some("hcaptcha.com.evil.test"),
-			Some("evilhcaptcha.com"),
-		] {
-			assert!(!verification_storage_domains(Some("discord.com"), domain));
-		}
-		for domain in [None, Some("evil.test"), Some("discord.com.evil.test")] {
-			assert!(!verification_storage_domains(domain, Some("hcaptcha.com")));
-		}
-	}
 
 	#[test]
 	fn discord_api_uri_requires_the_exact_https_api_origin() {

@@ -16,7 +16,9 @@ port 443 for embedded challenges, using the same origin validation as invite ver
 The main-document response and candidate origin checks still restrict login to
 https://discord.com. Website-data access requests are allowed only for hcaptcha.com
 or its subdomains embedded in discord.com, while the main page is still Discord.
-This uses the existing ephemeral session and does not enable persistent storage.
+The invite-verification view applies the same permission rule while its exact local
+verification page is open, with WebKit's `verification.invalid` registrable domain.
+This uses the existing ephemeral sessions and does not enable persistent storage.
 It removes a possible challenge-state blocker; live acceptance and the reported Linux
 QR/CAPTCHA loop remain unverified. Popups, downloads, file choosers, other permission
 requests, HTTP-auth, notifications and printing are denied; embedded challenge
@@ -39,13 +41,14 @@ login challenges.
 Close/drop invalidates pending results, clears the secret/scripts/handler, cancels evaluation,
 stops loading, terminates the ephemeral web process and destroys the GTK window. GLib pumping
 checks a 2-ms deadline between at most 16 callbacks; one native callback may exceed that time.
-The login view retains its GDK display while the window is live, so flushing does not
-look up a display through a window already destroyed by a close event.
+The login and verification views retain their GDK display while the window is live,
+so flushing does not look up a display through a window already destroyed by a close event.
 The nonblocking pump explicitly flushes GDK window requests. Teardown also flushes after
-destroying the window, since successful handoff and cancellation stop the login pump.
-Offline native Wayland validation reproduced the stuck window after a synthetic
-token handoff before this change and confirmed that it disappears after the change.
-Live Discord login remains unverified.
+destroying the window, since successful handoff and cancellation stop the pump.
+The earlier login-only fix had offline native Wayland validation: a stuck window after
+a synthetic token handoff was reproduced and then confirmed to disappear with flushing.
+Live Discord login remains unverified. The same flushing is applied to invite verification;
+its reported X11 freeze and timeout still require testing on the affected Linux device.
 These are implemented limits, not measured teardown/storage or live login compatibility.
 
 Serein uses Discord’s official login page in a temporary platform webview, not OAuth. The credential handoff is unofficial and live-unverified; see the compatibility matrix. Complete authentication yourself, in the application. Never send passwords, tokens, MFA codes, QR screenshots, or private message contents to the coding agent, issues, logs, or CI.
