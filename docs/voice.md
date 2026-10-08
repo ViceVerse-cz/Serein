@@ -12,6 +12,10 @@ Voice is included in every build without a feature flag. Source builds require C
 
 ## Implemented behavior and limits
 
+Resizing the DM or group call stage keeps a conversation following the newest message
+anchored above its composer on every frame. Reading older messages retains the existing
+scroll position instead of forcing the conversation back to the newest message.
+
 Guild voice channels have a chat icon with a **Show chat / Hide chat** tooltip in the channel header.
 Chat uses the existing message timeline, composer, drafts and permission checks without
 requiring a voice connection. Wide windows place chat beside the stage; narrow windows

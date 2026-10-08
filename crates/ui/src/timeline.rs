@@ -2184,6 +2184,10 @@ impl TimelineView {
 			offset = Some(live_edge_offset);
 			jumped_to = Some(live_edge_offset);
 		}
+		if self.following {
+			// egui sticks after painting; use this frame's height while the call panel resizes.
+			offset = Some(live_edge_offset);
+		}
 		let wheel = ui.input(|input| input.smooth_scroll_delta());
 		let user_scroll = wheel.y + autoscroll_delta;
 		if user_scroll != 0.0 && self.reveal_scroll.take().is_some() {
@@ -4509,6 +4513,72 @@ mod pending_tests;
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn resizing_call_stage_keeps_latest_message_at_the_composer() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = loading_unread_channel(false);
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		state.older_exhausted = true;
+		state.channels[0].last_message = Some(Id(49));
+		for id in 20..=49 {
+			let mut message = text_message(id);
+			message.content = format!("Synthetic resize message {id}");
+			state.timeline.insert(message, false, false).unwrap();
+		}
+		let mut view = TimelineView::default();
+		let frame = |view: &mut TimelineView, state: &mut State, stage_height| {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 760.0),
+					)),
+					..Default::default()
+				},
+				|ui| {
+					egui::Panel::top("synthetic-call-stage")
+						.exact_size(stage_height)
+						.show(ui, |_| {});
+					view.show(
+						ui,
+						state,
+						&mut None,
+						&mut None,
+						(
+							&mut crate::avatars::Avatars::default(),
+							&mut crate::profiles::ProfileSession::default(),
+						),
+						None,
+					);
+				},
+			);
+			let y = output.shapes.iter().find_map(|shape| match &shape.shape {
+				egui::Shape::Text(text)
+					if text.galley.job.text == "Synthetic resize message 49" =>
+				{
+					Some(text.pos.y)
+				}
+				_ => None,
+			});
+			output.drop_without_applying_deltas();
+			y
+		};
+		for _ in 0..12 {
+			frame(&mut view, &mut state, 240.0);
+		}
+		let baseline = frame(&mut view, &mut state, 240.0).unwrap();
+		for height in [280.0, 320.0, 360.0, 320.0, 280.0, 240.0] {
+			let y = frame(&mut view, &mut state, height).unwrap();
+			assert!(view.following);
+			assert!(
+				(y - baseline).abs() <= 1.0,
+				"latest message moved during resize: stage={height}, {baseline} -> {y}"
+			);
+		}
+	}
 
 	#[test]
 	fn short_history_loads_older_only_after_explicit_upward_input() {
