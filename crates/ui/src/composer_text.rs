@@ -53,7 +53,7 @@ impl Layout {
 		avatars.revision.hash(&mut key);
 		emoji::ready(ui.ctx()).hash(&mut key);
 		demo.hash(&mut key);
-		if text.contains("<:") || text.contains("<a:") {
+		if text.contains("<:") || text.contains("<a:") || text.contains("](https://") {
 			static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
 			(START
 				.get_or_init(std::time::Instant::now)
@@ -131,6 +131,12 @@ impl Layout {
 			} else if mass_mentions && let Some(len) = model::mass_mention_prefix(tail) {
 				label = Some((tail[..len].to_owned(), colors.mention_text));
 				background = colors.mention_bg;
+				len
+			} else if let Some((asset, name, len)) = model::ImageShare::markdown_prefix(tail) {
+				image = avatars.share_image(ui.ctx(), asset, size, demo);
+				if image.is_none() {
+					label = Some((name, colors.muted));
+				}
 				len
 			} else if let Some((id, len)) = emoji::custom_prefix(tail) {
 				image = avatars.custom_image(ui.ctx(), id, size, demo);

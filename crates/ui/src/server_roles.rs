@@ -6,7 +6,6 @@ use model::{
 	Id, Patch, permissions as p, server_admin,
 	server_roles::{Action, Colors, Edit, Role},
 };
-use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum Tab {
@@ -287,16 +286,18 @@ impl RolesUi {
 							6.0,
 							color,
 						);
-						let name = egui::WidgetText::from(
-							RichText::new(&role.name)
-								.size(14.0)
-								.color(design::palette(ui).text),
-						)
-						.into_galley(
+						let name = crate::role_names::galley(
 							ui,
-							Some(egui::TextWrapMode::Truncate),
+							&role.name,
+							egui::FontId::proportional(14.0),
+							Some(role.colors),
+							if response.hovered() {
+								design::palette(ui).hover
+							} else {
+								design::palette(ui).base
+							},
+							design::palette(ui).text,
 							width - 34.0,
-							egui::TextStyle::Body,
 						);
 						ui.painter().galley(
 							response.rect.left_center() + egui::vec2(29.0, -name.size().y / 2.0),
@@ -420,6 +421,7 @@ impl RolesUi {
 		ui.add_space(24.0);
 		ui.add(
 			egui::TextEdit::singleline(&mut self.search)
+				.align(egui::Align2::LEFT_CENTER)
 				.hint_text(crate::i18n::translate("server-roles-list-search-roles"))
 				.char_limit(100)
 				.desired_width(width)
@@ -470,14 +472,14 @@ impl RolesUi {
 							egui::vec2(name_width, 58.0),
 							egui::Sense::click_and_drag(),
 						);
-						let name = egui::WidgetText::from(
-							RichText::new(&role.name).size(16.0).color(colors.text),
-						)
-						.into_galley(
+						let name = crate::role_names::galley(
 							ui,
-							Some(egui::TextWrapMode::Truncate),
+							&role.name,
+							egui::FontId::proportional(16.0),
+							Some(role.colors),
+							colors.base,
+							colors.text,
 							name_width - 32.0,
-							egui::TextStyle::Body,
 						);
 						ui.painter().circle_filled(
 							rect.left_center() + egui::vec2(9.0, 0.0),
@@ -632,7 +634,16 @@ impl RolesUi {
 					.show_ui(ui, |ui| {
 						if let Some(catalog) = &state.server_admin.roles {
 							for role in &catalog.items {
-								ui.selectable_value(&mut selected, Some(role.id), &role.name);
+								let name = crate::role_names::galley(
+									ui,
+									&role.name,
+									egui::FontId::proportional(14.0),
+									Some(role.colors),
+									ui.visuals().extreme_bg_color,
+									design::palette(ui).text,
+									ui.available_width(),
+								);
+								ui.selectable_value(&mut selected, Some(role.id), name);
 							}
 						}
 					});
@@ -755,7 +766,9 @@ impl RolesUi {
 		);
 		design::input(
 			ui,
-			egui::TextEdit::singleline(&mut draft.name).char_limit(100),
+			egui::TextEdit::singleline(&mut draft.name)
+				.align(egui::Align2::LEFT_CENTER)
+				.char_limit(100),
 		)
 		.labelled_by(label.id);
 		section(ui, "Role Style");
@@ -1154,6 +1167,7 @@ impl RolesUi {
 			if ui
 				.add(
 					egui::TextEdit::singleline(&mut self.member_query.search)
+						.align(egui::Align2::LEFT_CENTER)
 						.hint_text(crate::i18n::translate(
 							"server-roles-members-search-members",
 						))
@@ -1403,41 +1417,16 @@ fn boxed_icon(ui: &mut egui::Ui, icon: icons::Icon, label: &str) -> egui::Respon
 }
 fn colored_name(ui: &mut egui::Ui, text: &str, colors: Colors, size: f32) {
 	let palette = design::palette(ui);
-	let readable =
-		|value| design::role_name_color(value, ui.visuals().extreme_bg_color, palette.text);
-	let primary = readable(colors.primary);
-	let secondary = colors.secondary.map_or(primary, readable);
-	let tertiary = colors.tertiary.map_or(secondary, readable);
-	let count = text.graphemes(true).count().max(2) - 1;
-	let mut job = egui::text::LayoutJob::default();
-	for (index, grapheme) in text.graphemes(true).enumerate() {
-		let at = index as f32 / count as f32;
-		let (from, to, amount) = if colors.tertiary.is_some() {
-			if at < 0.5 {
-				(primary, secondary, at * 2.0)
-			} else {
-				(secondary, tertiary, (at - 0.5) * 2.0)
-			}
-		} else {
-			(primary, secondary, at)
-		};
-		let channel =
-			|a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * amount).round() as u8;
-		job.append(
-			grapheme,
-			0.0,
-			egui::TextFormat {
-				font_id: egui::FontId::new(size, design::semibold_family(ui.ctx())),
-				color: Color32::from_rgb(
-					channel(from.r(), to.r()),
-					channel(from.g(), to.g()),
-					channel(from.b(), to.b()),
-				),
-				..Default::default()
-			},
-		);
-	}
-	ui.add(egui::Label::new(job).truncate());
+	let galley = crate::role_names::galley(
+		ui,
+		text,
+		egui::FontId::new(size, design::semibold_family(ui.ctx())),
+		Some(colors),
+		ui.visuals().extreme_bg_color,
+		palette.text,
+		ui.available_width(),
+	);
+	ui.add(egui::Label::new(galley).truncate());
 }
 fn section(ui: &mut egui::Ui, title: &str) {
 	design::divider(ui);
@@ -1471,6 +1460,7 @@ fn permissions(
 ) {
 	ui.add(
 		egui::TextEdit::singleline(search)
+			.align(egui::Align2::LEFT_CENTER)
 			.char_limit(64)
 			.hint_text(crate::i18n::translate(
 				"server-roles-permissions-search-permissions",

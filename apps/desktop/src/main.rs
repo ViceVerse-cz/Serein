@@ -80,6 +80,29 @@ const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 fn main() -> eframe::Result {
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-pr565")
+	{
+		ui::debug_pr565(
+			test_support::demo_state(),
+			test_support::message(1, model::Id(20)).author,
+		);
+		avatars::debug_profile_resolution_check();
+		ui::MessagingUi::debug_call_membership_check(test_support::call_demo_state());
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+		uploads::debug_reservation_check(runtime.handle());
+		discord_gateway::debug_voice_state_retry_check();
+		ui::MessagingUi::debug_double_click_reaction_check(
+			test_support::demo_state(),
+			test_support::message(60_000 << 22, model::Id(20)),
+		);
+		local_store::LocalStore::debug_double_click_reaction_check();
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-window-geometry")
 	{
 		app_settings::debug_window_geometry_check();
@@ -126,6 +149,13 @@ fn main() -> eframe::Result {
 		&& std::env::args().any(|arg| arg == "--demo-check-call-cues")
 	{
 		voice::debug_call_cues_check();
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-fonts")
+	{
+		font_import::debug_check();
 		return Ok(());
 	}
 	#[cfg(all(debug_assertions, feature = "demo"))]
@@ -275,6 +305,8 @@ fn main() -> eframe::Result {
 					id: role,
 					name: "Verified".into(),
 					color: 0x00ff00,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 1,
 					hoist: false,
 					bits: 0,
@@ -317,6 +349,15 @@ fn main() -> eframe::Result {
 		eprintln!("Demo support is not included; rebuild with --features demo and run with --demo");
 		std::process::exit(2);
 	}
+	// Fixture runs may overlap; real launches show the running client instead of duplicating it.
+	let mut instance = if demo {
+		platform::single_instance::Instance::default()
+	} else {
+		match platform::single_instance::claim() {
+			platform::single_instance::Launch::Primary(instance) => instance,
+			platform::single_instance::Launch::Forwarded => return Ok(()),
+		}
+	};
 	let frame_sample = std::env::args()
 		.find_map(|arg| arg.strip_prefix("--demo-frame-sample").map(str::to_owned))
 		.map(|value| {
@@ -350,8 +391,66 @@ fn main() -> eframe::Result {
 		return Ok(());
 	}
 	#[cfg(feature = "demo")]
+	if demo && std::env::args().any(|arg| arg == "--demo-check-forum-sidebar") {
+		post_menu_demo::check_sidebar();
+		return Ok(());
+	}
+	#[cfg(feature = "demo")]
 	if demo && std::env::args().any(|arg| arg == "--demo-check-post-menu") {
 		post_menu_demo::check();
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if demo && std::env::args().any(|arg| arg == "--demo-check-image-sharing") {
+		let mut state = test_support::demo_state();
+		let selection = ui::debug_image_sharing(&mut state);
+		let channel = state.selected.unwrap();
+		let ctx = egui::Context::default();
+		let runtime = tokio::runtime::Runtime::new().expect("offline artwork runtime");
+		let mut uploads = uploads::Uploads::default();
+		for newer_draft in [None, Some("Next message")] {
+			state.drafts.insert(channel, selection.1.clone());
+			uploads
+				.start_image_share(
+					state.generation,
+					channel,
+					selection.clone(),
+					runtime.handle(),
+					&ctx,
+					true,
+				)
+				.unwrap();
+			assert!(uploads.image_send(&mut state, true).is_none());
+			if let Some(text) = newer_draft {
+				state.drafts.insert(channel, text.into());
+			}
+			runtime.block_on(async {
+				tokio::time::timeout(std::time::Duration::from_secs(5), async {
+					while uploads.busy() {
+						uploads.poll(state.generation, Some(channel), true, &ctx);
+						tokio::task::yield_now().await;
+					}
+				})
+				.await
+				.unwrap();
+			});
+			assert!(uploads.take_notice().is_none());
+			assert!(
+				matches!(uploads.image_send(&mut state, true), Some(Command::Send { content, .. }) if content.is_empty())
+			);
+			assert_eq!(state.drafts.get(&channel).map(String::as_str), newer_draft);
+			assert_eq!(
+				uploads
+					.take_source(state.generation, channel)
+					.unwrap()
+					.len(),
+				2
+			);
+			assert!(uploads.image_send(&mut state, true).is_none());
+		}
+		println!(
+			"Offline artwork composition passed: explicit Send, inline previews, Markdown with text, attachment batches, newer drafts and no restore button while sending."
+		);
 		return Ok(());
 	}
 	#[cfg(feature = "demo")]
@@ -468,8 +567,15 @@ fn main() -> eframe::Result {
 		"Serein",
 		options,
 		Box::new(move |cc| {
-			let desktop =
+			let mut desktop =
 				Desktop::new(cc, demo, frame_sample, transparency_available, preferences)?;
+			let wake = cc.egui_ctx.clone();
+			instance.listen(
+				desktop.window.clone(),
+				desktop.tray_window.restorer(),
+				move || wake.request_repaint(),
+			);
+			desktop.instance = instance;
 			if let Some(geometry) = window_geometry {
 				app_settings::restore_window_geometry(&desktop.window, geometry);
 			}
@@ -904,6 +1010,8 @@ struct Desktop {
 	system_theme: platform::system_theme::SystemTheme,
 	tray_error: Option<&'static str>,
 	tray_window: tray_window::State,
+	/// Show requests from later launches and macOS Dock reopens.
+	instance: platform::single_instance::Instance,
 	/// `--demo-reply`: keeps two synthetic typists active on the selected fixture channel.
 	#[cfg(feature = "demo")]
 	demo_typing: bool,
@@ -1456,14 +1564,22 @@ impl Desktop {
 					.collect();
 			}
 			// Synthetic role metadata exercises the same bounded permission mirror as live events.
+			let gradient_roles = std::env::args().any(|arg| arg == "--demo-role-gradients");
 			for guild in state.permissions.guilds.values_mut() {
 				if let Some(roles) = &mut guild.roles {
+					if gradient_roles {
+						for role in roles.iter_mut().filter(|role| role.id == model::Id(101)) {
+							role.secondary_color = Some(0x89b4fa);
+						}
+					}
 					roles.extend([
 						model::permissions::Role {
 							id: model::Id(9001),
 							bits: 0,
 							name: "Founders".into(),
 							color: 0xe78284,
+							secondary_color: gradient_roles.then_some(0x89b4fa),
+							tertiary_color: None,
 							position: 2,
 							hoist: true,
 						},
@@ -1471,7 +1587,9 @@ impl Desktop {
 							id: model::Id(9002),
 							bits: 0,
 							name: "Community".into(),
-							color: 0xe5c769,
+							color: if gradient_roles { 11127295 } else { 0xe5c769 },
+							secondary_color: gradient_roles.then_some(16759788),
+							tertiary_color: gradient_roles.then_some(16761760),
 							position: 1,
 							hoist: true,
 						},
@@ -2160,6 +2278,7 @@ impl Desktop {
 			startup,
 			tray: None,
 			tray_window,
+			instance: Default::default(),
 			hotkeys,
 			system_theme,
 			tray_error: None,
@@ -2285,7 +2404,6 @@ impl Desktop {
 	fn end_session(&mut self, ctx: &egui::Context, intent: SessionEnd) {
 		self.captcha.close();
 		self.notification_runtime.clear(&self.window);
-		self.messaging.image_sharing_enabled = false;
 		self.messaging.image_share_requested = None;
 		let extension_logout = self.extensions.logout(ctx);
 		self.role_icon.cancel();
@@ -2710,7 +2828,7 @@ impl Desktop {
 			};
 			tray.set_voice_state(voice_state);
 		}
-		if self.tray_window.hidden && !self.tray_available() {
+		if self.tray_window.hidden && !self.background_available() {
 			self.tray_window.show(ctx);
 		}
 		// The icon remains registered independently of minimize-on-close.
@@ -2720,6 +2838,11 @@ impl Desktop {
 		if previous_status != self.messaging.tray_status {
 			ctx.request_repaint();
 		}
+	}
+	/// Whether closing may keep Serein running without a window. macOS apps stay in the Dock
+	/// until quit, and the Dock icon reopens the window.
+	fn background_available(&self) -> bool {
+		cfg!(target_os = "macos") || self.tray_available()
 	}
 	fn tray_available(&self) -> bool {
 		if !self.tray_setting.enabled || self.tray_error.is_some() {
@@ -5994,39 +6117,16 @@ impl eframe::App for Desktop {
 				.messaging
 				.voice_toggle_pressed(ctx, self.hotkeys.global_toggle_mask());
 		if voice_toggles != 0 && !self.fixture_only {
-			let mut muted = self.messaging.voice_muted;
-			let mut deafened = self.messaging.voice_deafened;
-			let mut mic_toggled = false;
-			let mut deaf_toggled = false;
+			// Toggle from the newest choice; a mute and deafen in one frame apply in order.
+			let mut latest = None;
 			if voice_toggles & 1 != 0 {
-				muted = !muted;
-				mic_toggled = true;
+				latest = Some(self.messaging.toggle_voice(false));
 			}
 			if voice_toggles & 2 != 0 {
-				deafened = !deafened;
-				deaf_toggled = true;
+				latest = Some(self.messaging.toggle_voice(true));
 			}
-			self.messaging.voice_muted = muted;
-			self.messaging.voice_deafened = deafened;
-			if deaf_toggled {
-				let cue = if deafened {
-					model::notification_preferences::Sound::Deafen
-				} else {
-					model::notification_preferences::Sound::Undeafen
-				};
-				if self.messaging.notification_options.allows(cue) {
-					self.messaging.notification_preview = Some(cue);
-				}
-			} else if mic_toggled {
-				let cue = if muted {
-					model::notification_preferences::Sound::Mute
-				} else {
-					model::notification_preferences::Sound::Unmute
-				};
-				if self.messaging.notification_options.allows(cue) {
-					self.messaging.notification_preview = Some(cue);
-				}
-			}
+			let (muted, deafened) =
+				latest.unwrap_or((self.messaging.voice_muted, self.messaging.voice_deafened));
 			if self.state.auth == AuthState::Authenticated
 				&& let Some(command) = self.state.set_call_mute(muted, deafened)
 				&& !self.state.demo
@@ -6144,9 +6244,12 @@ impl eframe::App for Desktop {
 				}
 			}
 		}
+		if self.instance.take_show_request() {
+			self.tray_window.show(ctx);
+		}
 		self.tray_window.logic(
 			ctx,
-			self.tray_available(),
+			self.background_available(),
 			self.window.is_visible().is_some(),
 		);
 		// The hide command lands after this frame, so the flag leads reported visibility.
@@ -6232,11 +6335,20 @@ impl eframe::App for Desktop {
 		}
 		self.sync_tray(ctx);
 		if self.state.voice.active.is_some() {
-			ctx.request_repaint_after(std::time::Duration::from_millis(50));
+			// Speaking, notices, remote video, devices, hotkeys and deadlines each wake the UI
+			// themselves; this heartbeat only bounds a missed wake, so a call does not repaint at 20 Hz.
+			ctx.request_repaint_after(std::time::Duration::from_secs(1));
 		}
 	}
-	fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
+	fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
 		let ctx = ui.ctx().clone();
+		let title_bar_height = if self.login.is_some() {
+			platform::LOGIN_HEADER_HEIGHT
+		} else if self.state.user.is_some() {
+			ui::design::TITLE_BAR_HEIGHT
+		} else {
+			SIGN_IN_HEADER_HEIGHT
+		};
 		self.tray_window.ui(&ctx);
 		// Change native hints before drawing, so the clear color and panel alpha
 		// agree for the whole frame. OS calls happen only when an effect changes.
@@ -6321,15 +6433,16 @@ impl eframe::App for Desktop {
 			self.state.user.is_some() && self.state.gateway_connected,
 			&ctx,
 		);
-		if let Some(command) = self
-			.uploads
-			.image_send(&mut self.state, self.messaging.image_sharing_enabled)
+		if let Some(command) = self.uploads.image_send(&mut self.state, can_attach)
 			&& !self.state.demo
 		{
-			// Auto-send bypasses the composer, so retain its prepared thumbnail explicitly.
+			// Explicit artwork Send finishes asynchronously; retain its prepared thumbnails.
 			self.messaging.attachment_previews = self.uploads.previews();
 			self.messaging.attachment_files = self.uploads.files();
 			self.messaging.stage_pending_upload(&ctx, &command);
+			if let Command::Send { channel, .. } = &command {
+				self.messaging.draft_changes.push(*channel);
+			}
 			self.command(command);
 		}
 		// Move native handles once; never load dropped bytes on the rendering thread.
@@ -6384,6 +6497,8 @@ impl eframe::App for Desktop {
 			self.messaging.external_upload.complete(result);
 		}
 		self.messaging.upload_busy = self.uploads.busy() || self.clipboard.is_some();
+		self.messaging.attach_busy = !self.uploads.accepting();
+		self.messaging.attachment_loading = self.uploads.loading();
 		if let Some(notice) = self.uploads.take_notice() {
 			self.messaging.toasts.push(ui::design::Level::Error, notice);
 		}
@@ -6778,17 +6893,19 @@ impl eframe::App for Desktop {
 				self.messaging.attachment_previews.clear();
 			}
 			if std::mem::take(&mut self.messaging.cancel_upload_requested) {
-				self.uploads.cancel();
+				// The timeline row cancels its own upload, not files loading for the next message.
+				self.uploads.cancel_transfer();
 			}
-			if let Some(asset) = self.messaging.image_share_requested.take()
-				&& self.messaging.image_sharing_enabled
-				&& let Some(channel) = self.state.selected
+			if let Some((generation, channel, assets, draft)) =
+				self.messaging.image_share_requested.take()
+				&& generation == self.state.generation
+				&& self.state.selected == Some(channel)
 				&& self.state.can_send(channel)
 				&& self.state.can_attach(channel)
 				&& let Err(error) = self.uploads.start_image_share(
 					self.state.generation,
 					channel,
-					asset,
+					(assets, draft),
 					self.runtime.handle(),
 					&ctx,
 					self.state.demo,
@@ -7014,6 +7131,10 @@ impl eframe::App for Desktop {
 					self.messaging.accept_avatar(&ctx, key, None);
 				}
 			}
+			// Idle frames are freed on a pass, so an otherwise idle window wakes once for them.
+			if let Some(at) = self.messaging.avatar_release_at() {
+				ctx.request_repaint_after(at.saturating_duration_since(std::time::Instant::now()));
+			}
 			if std::mem::take(&mut self.messaging.reconnect_requested) {
 				if self.state.auth == AuthState::Authenticated {
 					if let Some(connection) = &self.connection {
@@ -7089,6 +7210,9 @@ impl eframe::App for Desktop {
 		{
 			self.messaging.hide_title_bar = false;
 			self.state.status = error;
+		}
+		if !self.messaging.hide_title_bar {
+			frame.set_traffic_lights_position(&ctx, egui::Rangef::new(0.0, title_bar_height), 12.0);
 		}
 		self.sync_customization(&ctx);
 		self.save_app_preferences();

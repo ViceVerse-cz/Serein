@@ -228,6 +228,7 @@ impl SearchUi {
 						ui.fonts_mut(|fonts| fonts.layout_job(job))
 					};
 					let output = egui::TextEdit::singleline(&mut self.query)
+						.align(egui::Align2::LEFT_CENTER)
 						.id_salt("conversation-search-query")
 						.char_limit(256)
 						.frame(egui::Frame::NONE)
@@ -1300,6 +1301,7 @@ impl SearchUi {
 				let input = ui
 					.add(
 						egui::TextEdit::singleline(&mut self.page_input)
+							.align(egui::Align2::LEFT_CENTER)
 							.id_salt("search-page-number")
 							.desired_width(40.0)
 							.char_limit(3),
@@ -1466,26 +1468,21 @@ impl SearchUi {
 							egui::Layout::left_to_right(egui::Align::Center),
 							|ui| {
 								ui.spacing_mut().item_spacing.x = 8.0;
-								let name_color = state
-									.forum_author_color(
-										hit.channel,
-										hit.author.id,
-										hit.author.webhook,
-										&[],
-									)
-									.map_or(colors.text_strong, |rgb| {
-										design::role_name_color(
-											rgb,
-											colors.base,
-											colors.text_strong,
-										)
-									});
 								crate::account_badge::name(
 									ui,
 									&hit.author,
 									state.user_display_name(&hit.author),
 									14.0,
-									name_color,
+									(
+										colors.text_strong,
+										state.forum_author_colors(
+											hit.channel,
+											hit.author.id,
+											hit.author.webhook,
+											&[],
+										),
+										colors.base,
+									),
 									egui::Sense::hover(),
 									88.0,
 								);
@@ -1562,8 +1559,8 @@ impl SearchUi {
 									.color(colors.muted),
 								);
 							} else {
-								if !preview.embeds.is_empty() {
-									crate::embeds::show(
+								if !preview.embeds.is_empty()
+									&& let Some(gif) = crate::embeds::show(
 										ui,
 										preview,
 										&mut self.formats,
@@ -1573,7 +1570,8 @@ impl SearchUi {
 										profile,
 										state,
 										crate::design::MessageCardSurface::Opaque,
-									);
+									) {
+									media.download.gif_favorite_request = Some(gif);
 								}
 								if !preview.attachments.is_empty() {
 									crate::attachments::show(

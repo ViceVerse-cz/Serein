@@ -298,6 +298,7 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Indisponible pour
 attachments-open-original-open-original = Ouvrir l'original…
 # Context: pending_card
 attachments-pending-card-remove-attachment = Supprimer la pièce jointe
+attachments-loading-card-preparing = Préparation…
 # Context: show_status
 attachments-show-status-cancel-download = Annuler le téléchargement
 # Context: show_status
@@ -376,6 +377,18 @@ channel-list-heading-direct-messages = Messages directs
 channel-list-heading-favorites = Favoris
 # Context: key
 channel-list-heading-pinned = Épinglé
+# Context: key
+channel-list-heading-message-requests = Demandes de messages
+# Context: label
+message-request-ignore-tooltip = Ignorer la demande
+# Context: label
+message-request-accept = Accepter
+# Context: label
+message-request-ignore = Ignorer
+# Context: label
+message-request-banner = Cette personne n'est pas encore votre amie. Acceptez pour déplacer la conversation dans vos messages privés.
+# Context: label
+message-request-title = Demande de message
 
 ## crates/ui/src/channel_menu.rs
 # Context: context
@@ -809,6 +822,10 @@ emoji-picker-gif-body-searching-klipy = Recherche de KLIPY…
 # Context: gif_body
 emoji-picker-gif-body-trending-gifs = GIF tendance
 # Context: gif_body
+emoji-picker-gif-body-retry = Réessayer
+# Context: gif_body
+emoji-picker-gif-body-no-trending-gifs-right-now = Recherchez un GIF ou réessayez plus tard.
+# Context: gif_body
 emoji-picker-gif-body-try-a-different-search-term = Essayez un autre terme de recherche.
 # Context: gif_grid
 emoji-picker-gif-grid-favorite = Préféré
@@ -834,6 +851,8 @@ emoji-picker-popup-hover-an-emoji-to-preview-it = Survolez un emoji pour le pré
 emoji-picker-popup-no-matching-emoji = Aucun emoji correspondant.
 # Context: popup
 emoji-picker-popup-retry-sticker-packs = Réessayer les packs d'autocollants
+# Context: popup
+emoji-picker-popup-requires-nitro = Nécessite Nitro pour l'utiliser ici
 # Context: popup
 emoji-picker-popup-search-results = Résultats de la recherche
 # Context: popup
@@ -1008,7 +1027,7 @@ fonts-show-reset = Réinitialiser
 # Context: show
 fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = Le renard brun rapide saute par-dessus le chien paresseux. 0123456789
 # Context: show
-fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF ou OTF, jusqu'à 8 Mio. Enregistré sur cet appareil. Le code conserve sa police monospace.
+fonts-show-ttf-or-otf-up-to-32-mib-saved-on-this = TTF ou OTF, jusqu'à 32 Mio. Enregistré sur cet appareil. Le code conserve sa police monospace.
 # Context: show
 fonts-show-typography = Typographie
 
@@ -2050,6 +2069,20 @@ profiles-more-menu-add-friend-nickname = Ajouter un pseudo d'ami
 profiles-more-menu-add-note = Ajouter une note
 # Context: more_menu
 profiles-more-menu-block = Bloc
+profiles-view-full-profile = Voir le profil complet
+profiles-copy-username = Copier le nom d'utilisateur
+profiles-username-unavailable = Ouvrez ce profil pour charger le nom d'utilisateur
+profiles-ignore = Ignorer
+profiles-unignore = Ne plus ignorer
+profiles-ignore-hint = Utilise le réglage Ignorer de Discord sans bloquer. La personne n'est pas prévenue.
+profiles-report-user-profile = Signaler le profil
+profiles-report-hint = Ouvre le formulaire d'assistance de Discord dans votre navigateur et copie l'ID utilisateur
+profiles-show-activity = ACTIVITÉ
+profiles-show-connections = CONNEXIONS
+profiles-show-friends-since = AMIS DEPUIS
+profiles-show-note = NOTE
+profiles-show-note-hint = Cliquez pour ajouter une note
+profiles-show-note-only-you = Visible uniquement par vous
 # Context: more_menu
 profiles-more-menu-copy-webhook-id = Copier l'ID du webhook
 # Context: more_menu
@@ -2118,6 +2151,8 @@ profiles-show-view-profile-picture = Voir la photo de profil
 ## crates/ui/src/reactions.rs
 # Context: add_button
 reactions-add-button-add-reaction = Ajouter une réaction
+# Context: quick_button
+reactions-quick-react = Réagir avec { $emoji }
 # Context: show
 reactions-show-reactions-unavailable = Réactions indisponibles
 # Context: show
@@ -3439,6 +3474,12 @@ settings-chat-settings-channel-list = Liste des chaînes
 settings-chat-settings-show-channels-you-cannot-currently-access = Afficher les chaînes auxquelles vous ne pouvez pas accéder actuellement.
 # Context: chat_settings
 settings-chat-settings-show-hidden-channels = Afficher les chaînes masquées
+# Context: chat_settings
+settings-chat-settings-emoji = Émojis
+# Context: chat_settings
+settings-chat-settings-suggest-nitro-emojis = Suggérer les émojis nécessitant Nitro
+# Context: chat_settings
+settings-chat-settings-suggest-nitro-emojis-description = Proposer les émojis animés et ceux d'autres serveurs dans les suggestions : et le sélecteur sans Nitro. Désactivé, ils sont masqués des suggestions et verrouillés dans le sélecteur.
 # Context: close_control
 settings-close-control-close-settings-esc = Fermer les paramètres (Esc)
 # Context: colour_preset_settings
@@ -3736,6 +3777,10 @@ timeline-deleted-message-actions-toggle-deleted-highlight = Basculer la surbrill
 timeline-loading-messages-loading-messages = Chargement des messages
 # Context: message_actions
 timeline-message-actions-copy = Copie
+# Context: message_actions
+timeline-message-actions-copy-message-id = Copier l'ID du message
+# Context: message_actions
+timeline-message-actions-copy-message-link = Copier le lien du message
 # Context: message_actions
 timeline-message-actions-create-thread = Créer un fil de discussion…
 # Context: message_actions
@@ -4449,3 +4494,13 @@ screen-macos-system-picker = Choisir avec le sélecteur système macOS
 screen-macos-system-picker-kind = Sélecteur de contenu système
 
 member-in-voice = En vocal
+
+profiles-board = Board
+profiles-board-unavailable = This profile’s board is unavailable.
+profiles-board-empty = No games on this board yet.
+profiles-board-show-more = Show more
+profiles-board-show-less = Show less
+profiles-activity-empty = Aucune activité partagée.
+profiles-mutuals-empty = Nothing to show here.
+
+reading-double-click-reaction = Double-click reaction

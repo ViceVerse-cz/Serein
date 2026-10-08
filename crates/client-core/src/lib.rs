@@ -1710,9 +1710,9 @@ impl State {
 	pub fn prepare_send_with_attachments(&mut self, filenames: &[&str]) -> Option<Command> {
 		self.prepare_message(filenames, None, false)
 	}
-	/// Send selected artwork without consuming the text draft.
-	pub fn prepare_image_send(&mut self, filename: &str) -> Option<Command> {
-		self.prepare_message(&[filename], None, true)
+	/// Send explicitly submitted artwork without consuming a newer text draft.
+	pub fn prepare_image_send(&mut self, filenames: &[&str]) -> Option<Command> {
+		self.prepare_message(filenames, None, true)
 	}
 	/// A voice clip is sent alone; the text draft stays available for a separate send.
 	pub fn prepare_voice_message(&mut self) -> Option<Command> {
@@ -1720,7 +1720,7 @@ impl State {
 			self.status = "Voice messages are unavailable with the current permissions";
 			return None;
 		}
-		self.prepare_image_send("voice-message.ogg")
+		self.prepare_image_send(&["voice-message.ogg"])
 	}
 	pub(crate) fn prepare_message(
 		&mut self,
@@ -3764,9 +3764,7 @@ impl State {
 			self.archived_thread = None;
 		}
 		self.channels.retain(|c| !removed.contains(&c.id));
-		if !removed.is_empty() {
-			self.permissions.clear_cache();
-		}
+		self.permissions.forget_channels(removed);
 		for id in removed {
 			self.permissions.channels.remove(id);
 			self.end_voice_channel(*id);
@@ -3882,7 +3880,8 @@ impl Event {
 					result: Ok(None),
 					..
 				}) | Event::UserAction(user_actions::Event::Written {
-				action: user_actions::Action::CloseDm(_),
+				action: user_actions::Action::CloseDm(_)
+					| user_actions::Action::MessageRequest { accept: false, .. },
 				result: Ok(()),
 				..
 			}) | Event::ServerAction(server_actions::Event::Written {
@@ -4550,6 +4549,8 @@ mod tests {
 								id: Id(id),
 								name: String::new(),
 								color: 0,
+								secondary_color: None,
+								tertiary_color: None,
 								position: 0,
 								hoist: false,
 								bits: p::VIEW_CHANNEL | p::READ_MESSAGE_HISTORY,

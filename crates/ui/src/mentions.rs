@@ -27,6 +27,8 @@ pub struct Menu {
 	dismissed: bool,
 	/// Keyboard moved the highlight; scroll the popout so it stays visible.
 	follow: bool,
+	/// Leave custom emoji that need Nitro out of `:` suggestions.
+	pub hide_nitro_emojis: bool,
 }
 pub struct Pick {
 	range: Range<usize>,
@@ -63,6 +65,7 @@ enum Candidate {
 		id: Id,
 		name: String,
 		animated: bool,
+		image_fallback: bool,
 		server: String,
 	},
 }
@@ -90,8 +93,23 @@ impl Candidate {
 			Candidate::Channel { id, .. } => format!("<#{id}> "),
 			Candidate::Unicode { text, .. } => format!("{text} "),
 			Candidate::Custom {
-				id, name, animated, ..
+				id,
+				name,
+				animated,
+				image_fallback,
+				..
 			} => {
+				if *image_fallback {
+					return format!(
+						"{} ",
+						model::ImageShare::Emoji {
+							id: *id,
+							animated: *animated
+						}
+						.markdown(name)
+						.unwrap_or_default()
+					);
+				}
 				format!("<{}:{name}:{id}> ", if *animated { "a" } else { "" })
 			}
 		}
@@ -450,7 +468,10 @@ impl Menu {
 		users: &[User],
 	) {
 		let Some((range, query, kind)) = cursor.and_then(|cursor| query(draft, cursor)) else {
-			*self = Self::default();
+			*self = Self {
+				hide_nitro_emojis: self.hide_nitro_emojis,
+				..Self::default()
+			};
 			return;
 		};
 		if self.channel != Some(channel)
@@ -555,14 +576,18 @@ impl Menu {
 					let source_match = rank(&query, &guild.name, Id(0)).map(|_| 2);
 					for emoji in guild.emojis.iter().flatten() {
 						if let Some(rank) = rank(&query, &emoji.name, Id(0)).or(source_match)
-							&& state
+							&& emoji.valid() && (state.can_send(channel)
+							|| state
 								.custom_emoji_unavailable_reason(channel, guild.id, emoji)
-								.is_none()
+								.is_none()) && !(self.hide_nitro_emojis
+							&& state.custom_emoji_requires_nitro(channel, guild.id, emoji))
 						{
 							push_emoji(&mut out, (rank, 0, emoji.id.0), || Candidate::Custom {
 								id: emoji.id,
 								name: emoji.name.clone(),
 								animated: emoji.animated,
+								image_fallback: !state
+									.can_send_custom_emoji(channel, guild.id, emoji),
 								server: guild.name.chars().take(120).collect(),
 							});
 						}
@@ -1070,7 +1095,10 @@ mod tests {
 		);
 		let mut draft = ":same".into();
 		insert(&mut draft, menu.pick(0).unwrap(), true).unwrap();
-		assert_eq!(draft, "<a:same_wave:10001> ");
+		assert_eq!(
+			draft,
+			r"[same\_wave](https://cdn.discordapp.com/emojis/10001.gif?size=64) "
+		);
 		menu.refresh(&state, Id(2), ":source20", Some(9), &[]);
 		assert_eq!(menu.candidates[0].id(), Id(20001));
 		assert!(menu.candidates.iter().all(
@@ -1142,6 +1170,8 @@ mod tests {
 								id: guild,
 								name: String::new(),
 								color: 0,
+								secondary_color: None,
+								tertiary_color: None,
 								position: 0,
 								hoist: false,
 								bits: p::VIEW_CHANNEL | p::SEND_MESSAGES | p::MENTION_EVERYONE,
@@ -1394,7 +1424,7 @@ mod tests {
 				},
 			]),
 		}];
-		let state = State {
+		let mut state = State {
 			guilds,
 			channels: vec![channel(1, None, 1, "DM")],
 			user: Some(user(7, "Owner")),
@@ -1419,8 +1449,13 @@ mod tests {
 				.any(|c| matches!(c, Candidate::Unicode { code, .. } if *code == ":heart:"))
 		);
 		let mut draft = "hi :he".to_owned();
-		assert_eq!(insert(&mut draft, menu.pick(0).unwrap(), true), Some(31));
-		assert_eq!(draft, "hi <a:heart_hands_custom:9001> ");
+		let expected =
+			r"hi [heart\_hands\_custom](https://cdn.discordapp.com/emojis/9001.gif?size=64) ";
+		assert_eq!(
+			insert(&mut draft, menu.pick(0).unwrap(), true),
+			Some(expected.chars().count())
+		);
+		assert_eq!(draft, expected);
 		let unicode = menu
 			.candidates
 			.iter()
@@ -1429,6 +1464,24 @@ mod tests {
 		let mut draft = "hi :he".to_owned();
 		insert(&mut draft, menu.pick(unicode).unwrap(), true).unwrap();
 		assert_eq!(draft, "hi ❤️ ");
+		// Opting out of Nitro-only suggestions drops the animated, other-server emoji only.
+		menu.hide_nitro_emojis = true;
+		menu.refresh(&state, Id(1), "x", None, &[]);
+		menu.refresh(&state, Id(1), "hi :he", Some(6), &[]);
+		assert!(
+			menu.hide_nitro_emojis,
+			"the preference survives a closed menu"
+		);
+		assert!(!menu.candidates.iter().any(|c| c.id() == Id(9001)));
+		assert!(
+			menu.candidates
+				.iter()
+				.any(|c| matches!(c, Candidate::Unicode { code, .. } if *code == ":heart:"))
+		);
+		state.premium_type = 2;
+		menu.refresh(&state, Id(1), "hi :he", Some(6), &[]);
+		assert!(menu.candidates.iter().any(|c| c.id() == Id(9001)));
+		menu.hide_nitro_emojis = false;
 		menu.refresh(&state, Id(1), ":+1", Some(3), &[]);
 		assert!(menu.candidates.iter().any(|candidate| matches!(
 			candidate,
@@ -1438,6 +1491,66 @@ mod tests {
 			}
 		)));
 	}
+}
+
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub(crate) fn debug_image_completion(state: &mut State) -> String {
+	let channel = state.selected.unwrap();
+	let premium = state.premium_type;
+	let mut fallback = String::new();
+	for entitlement in 0..=3 {
+		state.premium_type = entitlement;
+		for target in [channel, Id(22)] {
+			for (query, id, name, animated) in [
+				(":serein_pa", Id(9002), "serein_party", true),
+				(":serein_wa", Id(9001), "serein_wave", false),
+			] {
+				let mut menu = Menu::default();
+				menu.refresh(state, target, query, Some(query.chars().count()), &[]);
+				let image = entitlement == 0 && (animated || target != channel);
+				let expected = if image {
+					format!(
+						"{} ",
+						model::ImageShare::Emoji { id, animated }
+							.markdown(name)
+							.unwrap()
+					)
+				} else {
+					format!("<{}:{name}:{id}> ", if animated { "a" } else { "" })
+				};
+				for key in [egui::Key::Tab, egui::Key::Enter] {
+					let ctx = egui::Context::default();
+					let output = ctx.run_ui(
+						egui::RawInput {
+							events: vec![egui::Event::Key {
+								key,
+								physical_key: None,
+								pressed: true,
+								repeat: false,
+								modifiers: Default::default(),
+							}],
+							..Default::default()
+						},
+						|_| {
+							let mut draft = query.to_owned();
+							let pick = menu.keys(&ctx).expect("emoji completion");
+							assert_eq!(
+								insert(&mut draft, pick, false),
+								Some(expected.chars().count())
+							);
+							assert_eq!(draft, expected);
+						},
+					);
+					output.drop_without_applying_deltas();
+				}
+				if entitlement == 0 && target == channel && animated {
+					fallback = expected.trim_end().into();
+				}
+			}
+		}
+	}
+	state.premium_type = premium;
+	fallback
 }
 
 #[cfg(debug_assertions)]
@@ -1653,6 +1766,8 @@ pub fn debug_role_mentions_check(state: &mut State) {
 		name: "Role check".into(),
 		bits: 0,
 		color: 0xe67e22,
+		secondary_color: None,
+		tertiary_color: None,
 		position: 1,
 		hoist: false,
 	});

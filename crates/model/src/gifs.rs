@@ -126,9 +126,32 @@ pub fn valid_discord_media_url(url: &str) -> bool {
 		})
 }
 
-/// A favorite sends its provider page or the Discord-hosted media address.
+/// A favorite may share any bounded HTTPS page. This does not authorize fetching it;
+/// previews still require an admitted provider or Discord media source.
 pub fn valid_gif_favorite_url(url: &str) -> bool {
-	valid_gif_url(url) || valid_discord_media_url(url)
+	if url.len() > MAX_URL
+		|| !url
+			.bytes()
+			.all(|b| b.is_ascii_graphic() && b != b'\\' && b != b'#')
+	{
+		return false;
+	}
+	let Some((host, path)) = url
+		.strip_prefix("https://")
+		.and_then(|rest| rest.split_once('/'))
+	else {
+		return false;
+	};
+	!path.is_empty()
+		&& host.contains('.')
+		&& host.split('.').all(|label| {
+			!label.is_empty()
+				&& !label.starts_with('-')
+				&& !label.ends_with('-')
+				&& label
+					.bytes()
+					.all(|b| b.is_ascii_alphanumeric() || b == b'-')
+		})
 }
 
 /// Media a favorite may display.

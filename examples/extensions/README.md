@@ -62,7 +62,6 @@ may not be available in a released build.
 | [Conversation Inspector](conversation-inspector/src/lib.rs) | Rich summaries, forum flags, typing/pins and host discovery |
 | [Message Counter](message-counter/src/lib.rs) | Reactive events, saved counters and a reset button |
 | [Message Delete Protector](../../extensions/plugins/message-delete-protector/src/lib.rs) | Opt-in activation enabling host-managed message retention |
-| [Emoji & Sticker Images](../../extensions/plugins/emoji-sticker-images/src/lib.rs) | Activation enabling image attachment fallback |
 | [RGB Cycle](rgb-cycle/src/lib.rs) | Host-scheduled, smoothly eased appearance updates with saved settings |
 | [Custom Rich Presence](../../extensions/plugins/custom-rpc) | Native activity editor/preview, saved Apply/Stop controls and activation restore through the bounded `rich_presence` capability |
 | [Voice Messages](../../extensions/plugins/voice-messages) | Opt-in native recorder gate and saved duration, waveform style and suppression settings; Wasm never captures or receives audio |
@@ -287,8 +286,8 @@ review its grants again. Replacing Rust source alone does not update an installe
 Wasm module.
 
 For an unchanged example, use its own manifest and matching compiled filename:
-`app_toolbox.wasm`, `guild_inspector.wasm`, `conversation_inspector.wasm`, `message_counter.wasm`, `message_delete_protector.wasm`, or
-`emoji_sticker_images.wasm`.
+`app_toolbox.wasm`, `guild_inspector.wasm`, `conversation_inspector.wasm`,
+`message_counter.wasm`, or `message_delete_protector.wasm`.
 
 ## Test and develop locally
 
@@ -449,13 +448,10 @@ retained text and offers local controls without calling Discord. Deleted bodies
 are never supplied to this plugin, written to disk, or recovered from before they
 were loaded. Disable, logout, permission revocation and eviction release them.
 
-Emoji & Sticker Images requests `image_sharing` and returns `image_sharing: true`
-from activation. Emoji and stickers that are usable in the conversation keep their
-normal Discord send path; otherwise selecting artwork authorizes an immediate image
-fallback after validation, preserving text drafts. Animated APNG sticker fallbacks
-are sent as GIF attachments. Wasm receives no image bytes and cannot fetch or send
-anything. Disable/logout revoke the option. Only an activation action with the grant
-may enable this mode.
+Emoji and sticker image fallback is built into Serein; the former Emoji & Sticker
+Images plugin has been retired. The legacy `image_sharing` capability/output remains
+accepted with its existing activation/grant checks for ABI compatibility and has no
+behavioral effect. Wasm receives no artwork bytes and cannot fetch or send them.
 
 There is at most one activation action per plugin, run on enable/account load.
 Activation itself does not require deleted-message access. Granted `appearance`
@@ -510,9 +506,11 @@ Import into an offline `--demo` host, or use its bundled opt-in card in Settings
 Extensions, review grants, and enable it. Normal builds also include this bounded
 starter without automatically enabling it or waiting for catalog publication. In live-capable
 builds native users choose **Record voice message** from the composer's **+** menu,
-review and choose **Send**. The native host alone owns devices, capture and upload.
+then **Record**, **Stop**, review and **Send**. Opening the dialog alone does not
+capture audio. The native host alone owns devices, capture and upload.
 Wasm has no microphone/filesystem/network imports or recording data. Recordings
-remain in bounded session memory (at most 120 seconds and 8 MiB), with native
+remain in session memory, with each encoded Ogg/Opus clip capped at 120 seconds
+and 8 MiB and native capture buffers bounded separately. The host enforces native
 mute/PTT/OS permission handling and capture release on cancel, navigation,
 disable, logout and call teardown. Synthetic tests do not authorize live microphone
 use or prove Discord compatibility.

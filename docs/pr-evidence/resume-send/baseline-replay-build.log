@@ -1,6 +1,0 @@
-   Compiling model v0.1.0 (/private/tmp/serein-resume-baseline-71/crates/model)
-   Compiling session-cache v0.1.0 (/private/tmp/serein-resume-baseline-71/crates/session-cache)
-   Compiling client-core v0.1.0 (/private/tmp/serein-resume-baseline-71/crates/client-core)
-   Compiling test-support v0.1.0 (/private/tmp/serein-resume-baseline-71/crates/test-support)
-   Compiling replay-bench v0.1.0 (/private/tmp/serein-resume-baseline-71/tools/replay-bench)
-    Finished `release` profile [optimized + debuginfo] target(s) in 47.87s

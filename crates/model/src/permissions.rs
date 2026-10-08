@@ -52,10 +52,19 @@ pub struct Role {
 	pub bits: u128,
 	pub name: String,
 	pub color: u32,
+	pub secondary_color: Option<u32>,
+	pub tertiary_color: Option<u32>,
 	pub position: i32,
 	pub hoist: bool,
 }
 impl Role {
+	pub fn colors(&self) -> crate::server_roles::Colors {
+		crate::server_roles::Colors {
+			primary: self.color,
+			secondary: self.secondary_color,
+			tertiary: self.tertiary_color,
+		}
+	}
 	/// Higher positions rank first; equal positions favor the older (lower) role ID.
 	/// Compare roles from the same guild, excluding its @everyone role.
 	pub fn cmp_hierarchy(&self, other: &Self) -> std::cmp::Ordering {
@@ -342,6 +351,8 @@ mod tests {
 				Role {
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
 					id: Id(1),
@@ -353,6 +364,8 @@ mod tests {
 				Role {
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
 					id: Id(2),
@@ -361,6 +374,8 @@ mod tests {
 				Role {
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
 					id: Id(3),
@@ -481,6 +496,8 @@ mod tests {
 					Role {
 						name: String::new(),
 						color: 0,
+						secondary_color: None,
+						tertiary_color: None,
 						position: 0,
 						hoist: false,
 						id: Id(1),
@@ -494,6 +511,8 @@ mod tests {
 				roles: Some(vec![Role {
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
 					id: Id(2),
@@ -528,6 +547,8 @@ mod tests {
 						.map(|id| Role {
 							name: String::new(),
 							color: 0,
+							secondary_color: None,
+							tertiary_color: None,
 							position: 0,
 							hoist: false,
 							id: Id(id as u64),

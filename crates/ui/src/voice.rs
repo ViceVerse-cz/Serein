@@ -398,21 +398,14 @@ impl MessagingUi {
 			row.left_center() + egui::vec2(18.0, 0.0),
 			egui::Vec2::splat(20.0),
 		);
-		crate::icons::paint(ui.painter(), crate::icons::Icon::Speaker, glyph, text_color);
-		channel_marks::paint(
+		channel_marks::paint_glyph(
 			ui.painter(),
 			access,
-			row,
+			crate::icons::Icon::Speaker,
 			glyph,
 			text_color,
-			if selected {
-				colors.selected
-			} else if hovered {
-				crate::design::row_highlight(ui, colors.hover, 1.0)
-			} else {
-				colors.sidebar
-			},
 		);
+		channel_marks::paint(ui.painter(), access, row, glyph, text_color);
 		let marks = channel_marks::trailing(access);
 		let elapsed_width = if elapsed.is_some() { 64.0 } else { 0.0 };
 		let name = ui.painter().layout(
@@ -521,25 +514,26 @@ impl MessagingUi {
 					speaking_avatar(&inner, &avatar, name);
 				}
 				let locally_muted = self.voice_user_locally_muted(entry.participant.user);
+				let shown = shown_participant(state, entry);
 				inner.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-					if entry.participant.deafened {
+					// Deafening implies muted; Discord shows only the headphones then.
+					if shown.deafened || shown.server_deafened {
 						status_icon(
 							ui,
 							crate::icons::Icon::HeadphonesSlash,
 							colors.muted,
-							if entry.participant.server_deafened {
+							if shown.server_deafened {
 								"voice-voice-participant-deafened-by-server"
 							} else {
 								"voice-voice-participant-deafened"
 							},
 						);
-					}
-					if entry.participant.muted {
+					} else if shown.muted || shown.server_muted {
 						status_icon(
 							ui,
 							crate::icons::Icon::MicrophoneSlash,
 							colors.muted,
-							if entry.participant.server_muted {
+							if shown.server_muted {
 								"voice-voice-participant-muted-by-server"
 							} else {
 								"voice-voice-participant-microphone-muted"
@@ -816,6 +810,8 @@ impl MessagingUi {
 				.max_rect(body)
 				.layout(egui::Layout::top_down(egui::Align::Min)),
 		);
+		// A short stage clips notices and tiles instead of drawing them over the call bar.
+		body_ui.set_clip_rect(body.intersect(ui.clip_rect()));
 		stage_notices(&mut body_ui, &notices);
 		call_failure(
 			&mut body_ui,
@@ -987,8 +983,12 @@ impl MessagingUi {
 				.expect("validated focus");
 			// The enlarged tile keeps the stage; everyone else becomes a small strip below it,
 			// only when the pill-bar toggle asks for them.
-			let strip = if tiles.len() > 1 && self.voice_focus_participants {
-				(area.height() * 0.18).clamp(64.0, 124.0)
+			// A short stage drops the strip instead of squeezing the enlarged tile.
+			let strip = if tiles.len() > 1
+				&& self.voice_focus_participants
+				&& area.height() >= MIN_STRIP + TILE_GAP + MIN_FOCUS
+			{
+				(area.height() * 0.18).clamp(MIN_STRIP, 124.0)
 			} else {
 				0.0
 			};
@@ -996,25 +996,28 @@ impl MessagingUi {
 				area.min,
 				egui::vec2(
 					area.width(),
-					(area.height() - strip - if strip > 0.0 { TILE_GAP } else { 0.0 }).max(80.0),
+					area.height() - strip - if strip > 0.0 { TILE_GAP } else { 0.0 },
 				),
 			);
 			toggle = self.tile(ui, state, channel, &tiles[index], main, false, true);
 			if strip > 0.0 {
-				let size = egui::vec2(strip * 16.0 / 9.0, strip);
-				let others = (tiles.len() - 1) as f32;
-				let row = size.x * others + TILE_GAP * (others - 1.0);
+				// Narrow stages show as many square-or-wider tiles as fit, never clipped ones.
+				let fits = ((area.width() + TILE_GAP) / (strip + TILE_GAP)).floor() as usize;
+				let shown = (tiles.len() - 1).min(fits.max(1));
+				let width = ((area.width() - TILE_GAP * (shown as f32 - 1.0)) / shown as f32)
+					.min(strip * 16.0 / 9.0);
+				let size = egui::vec2(width, strip);
+				let row = size.x * shown as f32 + TILE_GAP * (shown as f32 - 1.0);
 				let mut x = area.center().x - row * 0.5;
 				let top = main.bottom() + TILE_GAP;
-				for (position, tile) in tiles.iter().enumerate() {
-					if position == index {
-						continue;
-					}
+				for (_, tile) in tiles
+					.iter()
+					.enumerate()
+					.filter(|(position, _)| *position != index)
+					.take(shown)
+				{
 					let rect = egui::Rect::from_min_size(egui::pos2(x, top), size);
 					x += size.x + TILE_GAP;
-					if !area.intersects(rect) {
-						continue;
-					}
 					if let Some(focus) = self.tile(ui, state, channel, tile, rect, false, false) {
 						toggle = Some(focus);
 					}
@@ -1022,12 +1025,13 @@ impl MessagingUi {
 			}
 		} else {
 			// Pick the column count that makes the tiles largest inside the stage, so two
-			// participants fill the width instead of sitting in a corner.
-			let cap = if frameless { 148.0 } else { 620.0 };
-			let (columns, mut size) = best_fit(tiles.len(), area.size(), cap);
-			if frameless {
-				size.y = size.y.max(132.0).min(area.height());
-			}
+			// participants fill the width instead of sitting in a corner. Frameless DM avatars
+			// instead keep Discord's tight spacing and shrink to fit a short panel.
+			let (columns, size) = if frameless {
+				frameless_fit(tiles.len(), area.size())
+			} else {
+				best_fit(tiles.len(), area.size(), 620.0)
+			};
 			if size.x < 24.0 || size.y < 24.0 {
 				return;
 			}
@@ -1508,13 +1512,7 @@ impl MessagingUi {
 			cover_image(ui, rect, id, image, mirror);
 		}
 		let speaking = self.is_speaking(state, entry.channel, &entry.participant);
-		let avatar_size = if compact {
-			(size.y * 0.5).clamp(28.0, 48.0)
-		} else if frameless {
-			(size.y * 0.58).clamp(56.0, 112.0)
-		} else {
-			(size.y * 0.42).clamp(48.0, 128.0)
-		};
+		let avatar_size = tile_avatar(size, frameless);
 		let ringing = inactive
 			&& state
 				.voice
@@ -1534,8 +1532,8 @@ impl MessagingUi {
 		let mut avatar_ui = ui.new_child(egui::UiBuilder::new().max_rect(avatar_rect));
 		if video.is_some() {
 			avatar_ui.set_opacity(0.0);
-		} else if inactive && !ringing {
-			// Absent peers fade like Discord's empty call seats.
+		} else if ringing {
+			// Only a ringing recipient keeps a faded seat before joining.
 			avatar_ui.set_opacity(0.45);
 		}
 		if ringing && video.is_none() {
@@ -1548,11 +1546,12 @@ impl MessagingUi {
 			design::avatar(&mut avatar_ui, name, avatar_size)
 		};
 		// Mute state reads as Discord's red ring plus the matching slashed glyph.
+		let shown = shown_participant(state, entry);
 		let silenced = if inactive {
 			None
-		} else if entry.participant.deafened || entry.participant.server_deafened {
+		} else if shown.deafened || shown.server_deafened {
 			Some(crate::icons::Icon::HeadphonesSlash)
-		} else if entry.participant.muted || entry.participant.server_muted {
+		} else if shown.muted || shown.server_muted {
 			Some(crate::icons::Icon::MicrophoneSlash)
 		} else if self.voice_user_locally_muted(entry.participant.user) {
 			// Silenced on this device only; the speaker glyph separates it from a microphone mute.
@@ -1568,13 +1567,16 @@ impl MessagingUi {
 				avatar.rect.width() * 0.5 + 2.0,
 				egui::Stroke::new(2.0, colors.danger),
 			);
+			// The badge scales down with small avatars so it never hides the face.
+			let radius = (avatar_size * 0.2).clamp(7.0, 12.0);
 			let badge = avatar.rect.right_bottom() - egui::Vec2::splat(avatar_size * 0.14);
-			ui.painter().circle_filled(badge, 12.0, STAGE_FILL);
-			ui.painter().circle_filled(badge, 10.0, colors.danger);
+			ui.painter().circle_filled(badge, radius, STAGE_FILL);
+			ui.painter()
+				.circle_filled(badge, radius - 2.0, colors.danger);
 			crate::icons::paint(
 				ui.painter(),
 				icon,
-				egui::Rect::from_center_size(badge, egui::Vec2::splat(12.0)),
+				egui::Rect::from_center_size(badge, egui::Vec2::splat(radius)),
 				egui::Color32::WHITE,
 			);
 		}
@@ -1640,10 +1642,14 @@ impl MessagingUi {
 		// Name label with the mute glyph: a bottom-left badge on plates, centred under the
 		// avatar once the plates are gone.
 		if frameless {
-			let font = egui::FontId::new(13.0, design::medium_family(ui.ctx()));
-			let galley =
-				ui.painter()
-					.layout(name.to_owned(), font, STAGE_TEXT, (size.x - 24.0).max(20.0));
+			// One truncated line: tight avatar spacing must not wrap long names into the bar.
+			let mut job = egui::text::LayoutJob::simple_singleline(
+				name.to_owned(),
+				egui::FontId::new(13.0, design::medium_family(ui.ctx())),
+				STAGE_TEXT,
+			);
+			job.wrap = egui::text::TextWrapping::truncate_at_width((size.x - 8.0).max(20.0));
+			let galley = ui.painter().layout_job(job);
 			ui.painter().galley(
 				egui::pos2(
 					rect.center().x - galley.size().x * 0.5,
@@ -1740,6 +1746,61 @@ impl MessagingUi {
 			Some("Joining this channel is unavailable with current permission information.")
 		} else {
 			None
+		}
+	}
+
+	/// Device-free membership check with a synthetic connected DM call.
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	pub fn debug_call_membership_check(mut state: State) {
+		state.demo = false;
+		let call = state.voice.active.as_ref().unwrap();
+		let channel = call.channel;
+		let own = state.user.as_ref().unwrap().id;
+		let peer = call
+			.participants
+			.iter()
+			.find(|p| p.user != own)
+			.unwrap()
+			.user;
+		assert!(
+			stage_participants(&state, channel)
+				.iter()
+				.any(|p| p.participant.user == peer)
+		);
+		state.apply_voice(client_core::voice::Event::State {
+			guild: None,
+			member: None,
+			server_muted: false,
+			server_deafened: false,
+			request: None,
+			channel: None,
+			user: peer,
+			session: None,
+			negotiation_revision: None,
+			muted: false,
+			deafened: false,
+			video: false,
+			streaming: false,
+		});
+		assert!(
+			!stage_participants(&state, channel)
+				.iter()
+				.any(|p| p.participant.user == peer)
+		);
+		for ringing in [vec![peer], vec![]] {
+			let expected = !ringing.is_empty();
+			state.apply_voice(client_core::voice::Event::Call {
+				channel,
+				ringing: Some(ringing),
+				participants: None,
+				unavailable: false,
+			});
+			assert_eq!(
+				stage_participants(&state, channel)
+					.iter()
+					.any(|p| p.participant.user == peer),
+				expected
+			);
 		}
 	}
 
@@ -2807,7 +2868,37 @@ impl MessagingUi {
 		}
 	}
 
+	/// Applies one mute (`deafen == false`) or deafen toggle to the newest local choice and
+	/// queues its cue. Deafening implies muted; undeafening restores the earlier microphone.
+	pub fn toggle_voice(&mut self, deafen: bool) -> (bool, bool) {
+		let before = (self.voice_muted, self.voice_deafened);
+		let after = client_core::voice::toggle_self_voice(before.0, before.1, deafen);
+		(self.voice_muted, self.voice_deafened) = after;
+		if after.1 != before.1 {
+			self.queue_voice_toggle_cue(true, after.1);
+		} else {
+			self.queue_voice_toggle_cue(false, after.0);
+		}
+		after
+	}
+
+	/// Which glyph the mute/deafen toggle paints. `ptm_held` is a held push-to-mute
+	/// on an otherwise live microphone: still slashed, but the caller paints it in
+	/// the neutral tone rather than the red latched-mute tone. A toggled mute keeps
+	/// red even while the key is held, and deafen never shows a microphone.
+	fn mute_toggle_icon(deafen: bool, muted: bool, ptm_held: bool) -> crate::icons::Icon {
+		match (deafen, muted) {
+			(true, true) => crate::icons::Icon::HeadphonesSlash,
+			(true, false) => crate::icons::Icon::Headphones,
+			(false, _) if muted || ptm_held => crate::icons::Icon::MicrophoneSlash,
+			(false, _) => crate::icons::Icon::Microphone,
+		}
+	}
+
 	/// Mute or deafen toggle: red slashed glyph while active, like Discord's user area.
+	/// A held push-to-mute on an otherwise live microphone shows the slashed
+	/// microphone in the neutral tone instead, so a momentary hold reads
+	/// differently from a latched mute.
 	pub(super) fn mute_toggle(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -2821,7 +2912,7 @@ impl MessagingUi {
 			let active = if deafen {
 				self.voice_deafened
 			} else {
-				self.voice_muted
+				self.voice_muted || self.voice_deafened
 			};
 			let label = crate::i18n::translate_if_key(match (deafen, active) {
 				(true, true) => "voice-mute-toggle-undeafen",
@@ -2849,13 +2940,7 @@ impl MessagingUi {
 				egui::WidgetInfo::selected(egui::Role::Button, true, active, &label)
 			});
 			if response.clicked() {
-				if deafen {
-					self.voice_deafened = !active;
-					self.queue_voice_toggle_cue(true, !active);
-				} else {
-					self.voice_muted = !active;
-					self.queue_voice_toggle_cue(false, !active);
-				}
+				self.toggle_voice(deafen);
 			}
 			return response.on_hover_text(format!(
 				"{label}; {}",
@@ -2864,8 +2949,13 @@ impl MessagingUi {
 		};
 		let channel = call.channel;
 		let can_speak = state.can_speak(channel);
-		let (mut muted, mut deafened) = (self.voice_muted || !can_speak, self.voice_deafened);
-		let active = if deafen { deafened } else { muted };
+		let active = if deafen {
+			self.voice_deafened
+		} else {
+			self.voice_muted || self.voice_deafened || !can_speak
+		};
+		// A momentary push-to-mute stays neutral unless mute/deafen is latched.
+		let ptm = !deafen && !active && self.voice_ptm_active;
 		let enabled =
 			(self.controls_enabled(state) || state.demo) && (deafen || can_speak || state.demo);
 		let label = crate::i18n::translate_if_key(match (deafen, active) {
@@ -2881,16 +2971,13 @@ impl MessagingUi {
 				if response.hovered() || response.has_focus() {
 					ui.painter().rect_filled(rect, 6, colors.hover);
 				}
-				let icon = match (deafen, active) {
-					(true, true) => crate::icons::Icon::HeadphonesSlash,
-					(true, false) => crate::icons::Icon::Headphones,
-					(false, true) => crate::icons::Icon::MicrophoneSlash,
-					(false, false) => crate::icons::Icon::Microphone,
-				};
+				let icon = Self::mute_toggle_icon(deafen, active, ptm);
 				let color = if !enabled {
 					colors.muted.gamma_multiply(0.5)
 				} else if active {
 					colors.danger
+				} else if ptm {
+					colors.muted
 				} else if response.hovered() || response.has_focus() {
 					colors.text_strong
 				} else {
@@ -2917,15 +3004,7 @@ impl MessagingUi {
 				}),
 			));
 		if response.clicked() {
-			if deafen {
-				deafened = !deafened;
-				self.queue_voice_toggle_cue(true, deafened);
-			} else {
-				muted = !muted;
-				self.queue_voice_toggle_cue(false, muted);
-			}
-			self.voice_muted = muted;
-			self.voice_deafened = deafened;
+			let (muted, deafened) = self.toggle_voice(deafen);
 			if let Some(command) = state.set_call_mute(muted, deafened) {
 				commands.push(command);
 			}
@@ -2951,7 +3030,8 @@ impl MessagingUi {
 			&& state.can_camera(channel)
 			&& matches!(phase, Phase::Connected | Phase::Waiting);
 		let can_speak = state.can_speak(channel);
-		let (mut muted, mut deafened) = (self.voice_muted || !can_speak, self.voice_deafened);
+		let deafened = self.voice_deafened;
+		let muted = self.voice_muted || deafened || !can_speak;
 		let controls = self.controls_enabled(state);
 		let voice_toggles = controls || state.demo;
 		let focused = self.voice_focus.is_some();
@@ -2965,15 +3045,32 @@ impl MessagingUi {
 			Some(StageFocus::Stream(user)) if call.watching == Some(user) => Some(user),
 			_ => None,
 		};
-		let media = 2.0 * (48.0 + 28.0);
+		let bar = ui.max_rect();
+		// A narrow stage sheds secondary controls (view toggles, device chevrons, then
+		// share/more) before anything overlaps; mute, camera and hang-up always stay.
 		let actions = 2.0 * 48.0;
-		let width = media + BAR_GAP + actions + BAR_GAP + HANG_UP;
+		let essential = 2.0 * 48.0 + BAR_GAP + HANG_UP;
 		let side = [watched.is_some(), focused, screen_focused]
 			.iter()
 			.filter(|shown| **shown)
 			.count() as f32
 			* 44.0;
-		let bar = ui.max_rect();
+		let side_shown = bar.width() - 2.0 * STAGE_MARGIN >= essential + BAR_GAP + side;
+		let side = if side_shown { side } else { 0.0 };
+		let room = bar.width() - 2.0 * STAGE_MARGIN - if side > 0.0 { side + BAR_GAP } else { 0.0 };
+		let chevrons = room >= 2.0 * 28.0 + actions + BAR_GAP + essential;
+		let media = if chevrons {
+			2.0 * (48.0 + 28.0)
+		} else {
+			2.0 * 48.0
+		};
+		let actions_shown = room >= media + BAR_GAP + actions + BAR_GAP + HANG_UP;
+		let width = media
+			+ BAR_GAP + if actions_shown {
+			actions + BAR_GAP
+		} else {
+			0.0
+		} + HANG_UP;
 		let left = (bar.center().x - width * 0.5)
 			.min(bar.right() - STAGE_MARGIN - side - BAR_GAP - width)
 			.max(bar.left() + STAGE_MARGIN);
@@ -3012,16 +3109,18 @@ impl MessagingUi {
 				},
 			);
 			mute_clicked = mic.clicked();
-			let settings = control(
-				ui,
-				crate::icons::Icon::ChevronDown,
-				28.0,
-				true,
-				STAGE_TEXT,
-				"Voice settings",
-				"Microphone and speaker settings",
-			);
-			self.voice_settings_popup(&settings, state.demo, true, true);
+			if chevrons {
+				let settings = control(
+					ui,
+					crate::icons::Icon::ChevronDown,
+					28.0,
+					true,
+					STAGE_TEXT,
+					"Voice settings",
+					"Microphone and speaker settings",
+				);
+				self.voice_settings_popup(&settings, state.demo, true, true);
+			}
 			camera_clicked = control(
 				ui,
 				if camera {
@@ -3056,42 +3155,49 @@ impl MessagingUi {
 				},
 			)
 			.clicked();
-			let camera_settings = control(
-				ui,
-				crate::icons::Icon::ChevronDown,
-				28.0,
-				true,
-				STAGE_TEXT,
-				"Camera settings",
-				"Choose a camera",
-			);
-			self.camera_settings_popup(&camera_settings, state.demo);
+			if chevrons {
+				let camera_settings = control(
+					ui,
+					crate::icons::Icon::ChevronDown,
+					28.0,
+					true,
+					STAGE_TEXT,
+					"Camera settings",
+					"Choose a camera",
+				);
+				self.camera_settings_popup(&camera_settings, state.demo);
+			}
 		});
-		pill(&mut row, actions, |ui| {
-			self.screen_share_control(ui, state);
-			let more = control(
-				ui,
-				crate::icons::Icon::More,
-				48.0,
-				true,
-				STAGE_TEXT,
-				"More options",
-				"More call options",
-			);
-			egui::Popup::menu(&more)
-				.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-				.show(|ui| {
-					let label =
-						crate::i18n::translate_if_key(if deafened { "Undeafen" } else { "Deafen" });
-					if ui
-						.add_enabled(voice_toggles, egui::Button::new(label))
-						.clicked()
-					{
-						deafen_clicked = true;
-						ui.close();
-					}
-				});
-		});
+		if actions_shown {
+			pill(&mut row, actions, |ui| {
+				self.screen_share_control(ui, state);
+				let more = control(
+					ui,
+					crate::icons::Icon::More,
+					48.0,
+					true,
+					STAGE_TEXT,
+					"More options",
+					"More call options",
+				);
+				egui::Popup::menu(&more)
+					.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+					.show(|ui| {
+						let label = crate::i18n::translate_if_key(if deafened {
+							"Undeafen"
+						} else {
+							"Deafen"
+						});
+						if ui
+							.add_enabled(voice_toggles, egui::Button::new(label))
+							.clicked()
+						{
+							deafen_clicked = true;
+							ui.close();
+						}
+					});
+			});
+		}
 		// While a watched share is enlarged, the red action stops watching, as in Discord.
 		let hang_up = {
 			let (rect, response) =
@@ -3149,7 +3255,7 @@ impl MessagingUi {
 				.layout(egui::Layout::right_to_left(egui::Align::Center)),
 		);
 		view.spacing_mut().item_spacing.x = 4.0;
-		if screen_focused {
+		if screen_focused && side_shown {
 			let fullscreen = fullscreen_control(&mut view, STAGE_TEXT);
 			if fullscreen.clicked() {
 				let previous = view.input(|input| input.viewport().fullscreen.unwrap_or(false));
@@ -3159,7 +3265,7 @@ impl MessagingUi {
 				self.voice_fullscreen_request = Some(true);
 			}
 		}
-		if focused {
+		if focused && side_shown {
 			let shown = self.voice_focus_participants;
 			if control(
 				&mut view,
@@ -3183,7 +3289,7 @@ impl MessagingUi {
 				self.voice_focus_participants = !shown;
 			}
 		}
-		if watched.is_some() {
+		if watched.is_some() && side_shown {
 			let volume = control(
 				&mut view,
 				crate::icons::Icon::Speaker,
@@ -3209,22 +3315,14 @@ impl MessagingUi {
 			self.voice_camera_status = "";
 			commands.push(command);
 		}
-		if mute_clicked {
-			muted = !muted;
-			self.queue_voice_toggle_cue(false, muted);
-		}
-		if deafen_clicked {
-			deafened = !deafened;
-			self.queue_voice_toggle_cue(true, deafened);
-		}
-		if mute_clicked || deafen_clicked {
-			self.voice_muted = muted;
-			self.voice_deafened = deafened;
-		}
-		if (mute_clicked || deafen_clicked)
-			&& let Some(command) = state.set_call_mute(muted, deafened)
-		{
-			commands.push(command);
+		// Each toggle reads the newest choice, so two in one frame never undo each other.
+		for (clicked, deafen) in [(mute_clicked, false), (deafen_clicked, true)] {
+			if clicked {
+				let (muted, deafened) = self.toggle_voice(deafen);
+				if let Some(command) = state.set_call_mute(muted, deafened) {
+					commands.push(command);
+				}
+			}
 		}
 		if leave && let Some(command) = state.leave_call() {
 			commands.push(command);
@@ -3349,21 +3447,26 @@ impl MessagingUi {
 					let reveal = chrome_reveal(ui, rect, "dm-call-chrome");
 					let top = rect.top() + if header.is_some() { 48.0 } else { 0.0 };
 					let notices = self.stage_notices(state, channel, true);
+					let error = state.voice.active.as_ref().and_then(|c| c.error);
+					let bar_top = rect.bottom() - CONTROL_HEIGHT - STAGE_MARGIN - TILE_GAP;
+					let notice_rect = egui::Rect::from_min_max(
+						egui::pos2(rect.left() + STAGE_MARGIN, top + STAGE_MARGIN),
+						egui::pos2(rect.right() - STAGE_MARGIN, bar_top),
+					);
 					let mut notice_ui = ui.new_child(
 						egui::UiBuilder::new()
-							.max_rect(
-								egui::Rect::from_min_max(egui::pos2(rect.left(), top), rect.max)
-									.shrink(STAGE_MARGIN),
-							)
+							.max_rect(notice_rect)
 							.layout(egui::Layout::top_down(egui::Align::Min)),
 					);
+					notice_ui.set_clip_rect(notice_rect.intersect(ui.clip_rect()));
 					stage_notices(&mut notice_ui, &notices);
-					call_failure(
-						&mut notice_ui,
-						state.voice.active.as_ref().and_then(|c| c.error),
-						STAGE_TEXT,
-					);
-					let bar_top = rect.bottom() - CONTROL_HEIGHT - 2.0 * STAGE_MARGIN;
+					call_failure(&mut notice_ui, error, STAGE_TEXT);
+					// Without notices the avatars may use the whole height of a shrunken panel.
+					let body_top = if notices.is_empty() && error.is_none() {
+						top + TILE_GAP
+					} else {
+						notice_ui.cursor().top() + TILE_GAP
+					};
 					// An enlarged video fills the whole stage under the hover chrome, like
 					// Discord; the grid keeps clear of the header and the call bar.
 					let body = if self.voice_focus.is_some() {
@@ -3380,8 +3483,8 @@ impl MessagingUi {
 						)
 					} else {
 						egui::Rect::from_min_max(
-							egui::pos2(rect.left() + STAGE_MARGIN, notice_ui.cursor().top() + 8.0),
-							egui::pos2(rect.right() - STAGE_MARGIN, bar_top),
+							egui::pos2(rect.left() + STAGE_MARGIN, body_top),
+							egui::pos2(rect.right() - STAGE_MARGIN, bar_top.max(body_top)),
 						)
 					};
 					let mut body_ui = ui.new_child(
@@ -3389,6 +3492,7 @@ impl MessagingUi {
 							.max_rect(body)
 							.layout(egui::Layout::top_down(egui::Align::Min)),
 					);
+					body_ui.set_clip_rect(body.intersect(ui.clip_rect()));
 					self.voice_chrome_hidden = 1.0 - reveal;
 					self.participant_tiles(
 						&mut body_ui,
@@ -3866,6 +3970,12 @@ const STAGE_TEXT: egui::Color32 = egui::Color32::from_rgb(0xdb, 0xde, 0xe1);
 const STAGE_MUTED: egui::Color32 = egui::Color32::from_rgb(0x9a, 0x9b, 0xa1);
 const STAGE_MARGIN: f32 = 16.0;
 const TILE_GAP: f32 = 8.0;
+/// Frameless DM tile height and the horizontal room beside each avatar for its name.
+const FRAMELESS_HEIGHT: f32 = 132.0;
+const FRAMELESS_MARGIN: f32 = 20.0;
+/// Below these, the enlarged view hides its participant strip instead of overlapping it.
+const MIN_STRIP: f32 = 64.0;
+const MIN_FOCUS: f32 = 80.0;
 /// Height shared by every control, pill and the hang-up button in the call bar.
 const CONTROL_HEIGHT: f32 = 48.0;
 const HANG_UP: f32 = 64.0;
@@ -3900,6 +4010,36 @@ impl Tile<'_> {
 			StageFocus::Stream(user) => (1, user.0),
 			StageFocus::Participant(user) => (2, user.0),
 		}
+	}
+}
+
+/// Avatar diameter for a stage tile, never larger than the tile itself.
+fn tile_avatar(size: egui::Vec2, frameless: bool) -> f32 {
+	let avatar = if size.y < 132.0 {
+		(size.y * 0.5).clamp(28.0, 48.0)
+	} else if frameless {
+		(size.y * 0.58).clamp(56.0, 112.0)
+	} else {
+		(size.y * 0.42).clamp(48.0, 128.0)
+	};
+	avatar.min(size.x - 8.0).min(size.y - 8.0).max(12.0)
+}
+
+/// Frameless DM avatars: Discord-tight columns (avatar plus a small name margin), wrapping
+/// and shrinking so every row stays inside `area`.
+fn frameless_fit(count: usize, area: egui::Vec2) -> (usize, egui::Vec2) {
+	let count = count.max(1);
+	let mut height = area.y.min(FRAMELESS_HEIGHT);
+	loop {
+		let width = tile_avatar(egui::vec2(f32::INFINITY, height), true) + FRAMELESS_MARGIN;
+		let columns = (((area.x + TILE_GAP) / (width + TILE_GAP)).floor() as usize).clamp(1, count);
+		let rows = count.div_ceil(columns);
+		let needed = height * rows as f32 + TILE_GAP * (rows as f32 - 1.0);
+		if needed <= area.y || height <= 24.0 {
+			let fitted = ((area.y - TILE_GAP * (rows as f32 - 1.0)) / rows as f32).min(height);
+			return (columns, egui::vec2(width.min(area.x), fitted));
+		}
+		height = (height - 8.0).max(24.0);
 	}
 }
 
@@ -4055,10 +4195,10 @@ fn ringing_pulse(ui: &egui::Ui, avatar: egui::Rect) {
 
 fn speaking_avatar(ui: &egui::Ui, avatar: &egui::Response, name: &str) {
 	let colors = design::palette(ui);
-	// A small dark gap separates the ring from the avatar, as on Discord.
+	// Inset the centered stroke so the ring stays inside the avatar.
 	ui.painter().circle_stroke(
 		avatar.rect.center(),
-		avatar.rect.width() * 0.5 + 4.0,
+		avatar.rect.width() * 0.5 - 1.5,
 		egui::Stroke::new(3.0, colors.positive),
 	);
 	let label = format!("{name} · Speaking");
@@ -4257,7 +4397,8 @@ fn stage_participants(state: &State, channel: Id) -> Vec<RosterEntry> {
 			.iter()
 			.take(client_core::voice::MAX_PARTICIPANTS - 1)
 		{
-			if entries.len() < client_core::voice::MAX_PARTICIPANTS
+			if state.voice.ringing(channel).contains(&user.id)
+				&& entries.len() < client_core::voice::MAX_PARTICIPANTS
 				&& !entries
 					.iter()
 					.any(|entry| entry.participant.user == user.id)
@@ -4308,6 +4449,28 @@ fn stage_participants(state: &State, channel: Id) -> Vec<RosterEntry> {
 		}
 	}
 	entries
+}
+
+/// The local participant follows this device's toggles at once instead of waiting for the
+/// gateway echo, so a deafen shows the deafened glyph immediately (and in the offline preview).
+fn shown_participant(state: &State, entry: &RosterEntry) -> Participant {
+	let mut participant = entry.participant;
+	if let Some(call) = state
+		.voice
+		.active
+		.as_ref()
+		.filter(|call| call.channel == entry.channel && call.phase != Phase::Failed)
+		&& state
+			.user
+			.as_ref()
+			.is_some_and(|own| own.id == participant.user)
+	{
+		participant.deafened = call.deafened;
+		participant.muted = call.self_muted();
+		participant.server_muted |= call.server_muted;
+		participant.server_deafened |= call.server_deafened;
+	}
+	participant
 }
 
 fn inactive_recipient(state: &State, channel: Id, user: Id) -> bool {
@@ -4498,6 +4661,35 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn held_push_to_mute_shows_a_slashed_microphone_without_toggling() {
+		use crate::icons::Icon;
+		assert_eq!(
+			MessagingUi::mute_toggle_icon(false, false, false),
+			Icon::Microphone
+		);
+		assert_eq!(
+			MessagingUi::mute_toggle_icon(false, false, true),
+			Icon::MicrophoneSlash
+		);
+		assert_eq!(
+			MessagingUi::mute_toggle_icon(false, true, false),
+			Icon::MicrophoneSlash
+		);
+		assert_eq!(
+			MessagingUi::mute_toggle_icon(false, true, true),
+			Icon::MicrophoneSlash
+		);
+		assert_eq!(
+			MessagingUi::mute_toggle_icon(true, false, true),
+			Icon::Headphones
+		);
+		assert_eq!(
+			MessagingUi::mute_toggle_icon(true, true, false),
+			Icon::HeadphonesSlash
+		);
+	}
+
+	#[test]
 	fn explicit_join_audio_waits_for_call_switch_and_survives_teardown() {
 		let mut state = test_support::call_demo_state();
 		state.demo = false;
@@ -4549,6 +4741,50 @@ mod tests {
 		);
 		assert_eq!((view.voice_muted, view.voice_deafened), (true, true));
 		assert!(commands.is_empty());
+	}
+
+	#[test]
+	fn frameless_avatars_stay_close_and_inside_short_or_narrow_stages() {
+		// Two DM avatars: Discord-tight spacing instead of wide plates.
+		let (columns, size) = frameless_fit(2, egui::vec2(800.0, 300.0));
+		assert_eq!(columns, 2);
+		assert!(size.x - tile_avatar(size, true) <= FRAMELESS_MARGIN + 0.5);
+		for (count, area) in [
+			(2, egui::vec2(800.0, 60.0)),
+			(6, egui::vec2(220.0, 200.0)),
+			(9, egui::vec2(150.0, 120.0)),
+		] {
+			let (columns, size) = frameless_fit(count, area);
+			let rows = count.div_ceil(columns) as f32;
+			assert!(
+				size.y * rows + TILE_GAP * (rows - 1.0) <= area.y + 0.5,
+				"{count} {area:?}"
+			);
+			assert!(size.x * columns as f32 <= area.x + 0.5);
+			let avatar = tile_avatar(size, true);
+			assert!(avatar <= size.x && avatar <= size.y.max(12.0));
+		}
+	}
+
+	#[test]
+	fn deafening_mutes_and_undeafening_restores_the_microphone() {
+		let mut view = MessagingUi::default();
+		assert_eq!(view.toggle_voice(true), (false, true));
+		assert_eq!(
+			view.notification_preview,
+			Some(model::notification_preferences::Sound::Deafen)
+		);
+		assert_eq!(view.toggle_voice(true), (false, false));
+		view.toggle_voice(false);
+		assert_eq!(view.toggle_voice(true), (true, true));
+		assert_eq!(view.toggle_voice(true), (true, false));
+		view.toggle_voice(true);
+		// The microphone button while deafened clears both, with Discord's undeafen cue.
+		assert_eq!(view.toggle_voice(false), (false, false));
+		assert_eq!(
+			view.notification_preview,
+			Some(model::notification_preferences::Sound::Undeafen)
+		);
 	}
 
 	#[test]
@@ -4765,12 +5001,20 @@ mod tests {
 	}
 
 	#[test]
-	fn dm_stage_includes_absent_recipients_without_speaking_or_mute_state() {
+	fn dm_stage_includes_only_ringing_absent_recipients_without_speaking_or_mute_state() {
 		let mut state = test_support::call_demo_state();
 		let call = state.voice.active.as_mut().unwrap();
 		let channel = call.channel;
 		let request = call.request;
 		call.participants.retain(|p| p.user == Id(1));
+		assert_eq!(stage_participants(&state, channel).len(), 1);
+		state.demo = false;
+		state.apply_voice(client_core::voice::Event::Call {
+			channel,
+			ringing: Some(vec![Id(2)]),
+			participants: None,
+			unavailable: false,
+		});
 		let entries = stage_participants(&state, channel);
 		assert_eq!(entries.len(), 2);
 		assert_eq!(entries[0].participant.user, Id(1));
@@ -4851,10 +5095,7 @@ mod tests {
 					messaging.screen.preview = Some(screen);
 					messaging.screen.busy = true;
 					messaging.screen.context = Some((state.generation, channel, request));
-					assert_eq!(
-						stage_participants(&state, channel).len(),
-						if guild { 1 } else { 2 }
-					);
+					assert_eq!(stage_participants(&state, channel).len(), 1);
 					let mut commands = vec![];
 					for phase in [Phase::Waiting, Phase::Connected, Phase::Failed] {
 						state.voice.active.as_mut().unwrap().phase = phase;

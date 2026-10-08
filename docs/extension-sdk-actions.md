@@ -75,7 +75,7 @@ The Rust paths below are relative to `AppOutput`. When using the original
 | `storage` / `output.storage` | Optional opaque UTF-8 string; `storage`. | A valid foreground or event result replaces the plugin's saved value before result approval. Activation can read storage but this build does not persist its returned storage. |
 | `appearance` / `output.appearance` | Optional `Theme` object; `appearance`. | An accepted result updates the plugin's appearance overlay immediately, including activation and event results. Preview `tick` results are eased from the currently displayed colors. No Apply button is involved. |
 | `preserve_deleted_messages` / `output.preserve_deleted_messages` | Boolean, default `false`; `deleted_messages` is required for `true`. | Only an `activation` action may enable host retention of already-loaded deleted messages. |
-| `image_sharing` / `output.image_sharing` | Boolean, default `false`; `image_sharing` is required for `true`. | Only an `activation` action may enable the host's fallback image attachment mode for emoji/stickers that cannot be sent natively. Enabling it does not send anything. |
+| `image_sharing` / `output.image_sharing` | Boolean, default `false`; `image_sharing` is required for `true`. | Legacy compatibility field, validated only for an `activation` action with the grant. It no longer changes host behavior: emoji/sticker image fallback is built in. |
 | `effects` / `effects` | Array containing at most one `HostEffect`; its capability is checked separately. | The native result describes the action. It runs only after its **Apply** button is clicked and current access is rechecked. |
 
 Closing a result discards its pending app/draft proposal. It does not undo
@@ -940,7 +940,7 @@ client. See the [Custom Rich Presence example](../extensions/plugins/custom-rpc)
 
 ### Voice Messages
 
-> **Preview capability, not yet released.** Live Discord interoperability is
+> **Preview SDK — PR #566, not yet released.** Live Discord interoperability is
 > unverified. Use a host built from this source revision.
 
 Declare `voice_messages` and obtain explicit consent. The opt-in wrapper
@@ -971,9 +971,11 @@ contribute, the first in ascending plugin-ID order wins, within the existing
 eight-plugin limit. Disable, lost consent, account changes and logout revoke the
 option. Native recording/review/send obey current conversation access, mute,
 push-to-talk and OS device permission gates. Cancel, navigation, disable, logout
-and call teardown release capture. Audio remains in bounded session memory,
-limited to 120 seconds and 8 MiB; neither bytes nor device lists enter Wasm or
-plugin storage. User review and native **Send** authorize the ordinary upload
+and call teardown release capture. Each encoded Ogg/Opus clip remains in session
+memory, capped at 120 seconds and 8 MiB; native capture buffers are bounded
+separately. Neither bytes nor device lists enter Wasm or plugin storage. The
+composer menu opens an idle recorder dialog; native **Record** starts capture,
+**Stop** finishes it, and **Send** after review authorizes the ordinary upload
 path. No background or generic `HostEffect` can start recording or send audio.
 
 #### Complete configuration interaction

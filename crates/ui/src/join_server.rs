@@ -450,6 +450,7 @@ impl JoinDialog {
 			let input = design::input(
 				ui,
 				egui::TextEdit::singleline(&mut self.name)
+					.align(egui::Align2::LEFT_CENTER)
 					.char_limit(100)
 					.hint_text(crate::i18n::translate("join-server-customize-my-server")),
 			)

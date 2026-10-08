@@ -229,6 +229,7 @@ mod tests {
 				}),
 				theme_colors: None,
 				clan: None,
+				board: None,
 				limited: false,
 			}),
 		});

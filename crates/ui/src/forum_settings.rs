@@ -392,6 +392,7 @@ impl ForumSettingsUi {
 			dialog::input(
 				ui,
 				egui::TextEdit::singleline(&mut draft.tag.name)
+					.align(egui::Align2::LEFT_CENTER)
 					.hint_text(crate::i18n::translate("forum-settings-tag-editor-question"))
 					.char_limit(TAG_NAME_LIMIT),
 			)
@@ -520,6 +521,7 @@ impl ForumSettingsUi {
 				ui.set_width(CELL * COLUMNS as f32 + 24.0);
 				ui.add(
 					egui::TextEdit::singleline(&mut self.query)
+						.align(egui::Align2::LEFT_CENTER)
 						.hint_text(crate::i18n::translate(
 							"forum-settings-chooser-search-emoji",
 						))

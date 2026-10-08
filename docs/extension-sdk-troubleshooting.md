@@ -100,8 +100,9 @@ See [storage semantics](extension-sdk-actions.md#storage-is-one-value-not-a-file
 
 See [Voice Messages configuration](extension-sdk-actions.md#voice-messages). Native
 Cancel/navigation/disable/logout/call teardown release capture; recordings are
-session-only, with 120-second and 8-MiB audio ceilings. Offline checks do not prove
-live Discord interoperability.
+session-only, with a 120-second duration ceiling and an 8-MiB encoded Ogg/Opus
+ceiling. Native capture buffers are bounded separately. Offline checks do not
+prove live Discord interoperability.
 
 ## Execution errors
 

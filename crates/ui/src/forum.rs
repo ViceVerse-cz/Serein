@@ -316,6 +316,7 @@ impl ForumUi {
 							icons::inline(ui, icons::Icon::Search, 20.0, colors.muted);
 							let input = ui.add(
 								egui::TextEdit::singleline(&mut self.query)
+									.align(egui::Align2::LEFT_CENTER)
 									.char_limit(MAX_TITLE)
 									.frame(egui::Frame::NONE)
 									.hint_text(crate::i18n::translate(
@@ -608,6 +609,7 @@ impl ForumUi {
 								ui.spacing_mut().item_spacing.y = 4.0;
 								let title = ui.add(
 									egui::TextEdit::singleline(&mut draft.title)
+										.align(egui::Align2::LEFT_CENTER)
 										.char_limit(MAX_TITLE)
 										.frame(egui::Frame::NONE)
 										.font(egui::FontId::new(
@@ -1368,12 +1370,15 @@ fn latest_row(ui: &mut egui::Ui, state: &State, post: &Channel) {
 	};
 	ui.horizontal(|ui| {
 		ui.spacing_mut().item_spacing.x = 5.0;
-		let author_color = state
-			.forum_author_color(post.id, latest.author_id, latest.webhook, &latest.roles)
-			.map_or(colors.text_strong, |rgb| {
-				design::role_name_color(rgb, colors.raised, colors.text_strong)
-			});
-		ui.label(design::semibold(ui, format!("{}:", latest.author), 14.0).color(author_color));
+		ui.label(crate::role_names::galley(
+			ui,
+			&format!("{}:", latest.author),
+			egui::FontId::new(14.0, design::semibold_family(ui.ctx())),
+			state.forum_author_colors(post.id, latest.author_id, latest.webhook, &latest.roles),
+			colors.raised,
+			colors.text_strong,
+			ui.available_width(),
+		));
 		ui.add(
 			egui::Label::new(
 				RichText::new(crate::i18n::translate_if_key(

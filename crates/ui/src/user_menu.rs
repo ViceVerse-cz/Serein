@@ -14,7 +14,9 @@ pub enum Action {
 	AcceptFriend(model::Id),
 	CloseDm(model::Id),
 	Block { user: model::Id, blocked: bool },
+	Ignore { user: model::Id, ignored: bool },
 	Mute { channel: model::Id, muted: bool },
+	MessageRequest { channel: model::Id, accept: bool },
 	Shortcut(Intent),
 }
 impl std::fmt::Debug for Action {
@@ -35,7 +37,11 @@ pub(super) fn prepare(action: Action, state: &mut State) -> Option<Command> {
 		Action::AcceptFriend(user) => state.resolve_friend_request(user, true),
 		Action::CloseDm(channel) => state.close_dm(channel),
 		Action::Block { user, blocked } => state.set_user_blocked(user, blocked),
+		Action::Ignore { user, ignored } => state.set_user_ignored(user, ignored),
 		Action::Mute { channel, muted } => state.set_dm_muted(channel, muted),
+		Action::MessageRequest { channel, accept } => {
+			state.resolve_message_request(channel, accept)
+		}
 	}
 }
 
@@ -128,6 +134,14 @@ pub(super) fn contents(
 		ui.close();
 	}
 	if !user.webhook
+		&& ui
+			.button(crate::i18n::translate("profiles-view-full-profile"))
+			.clicked()
+	{
+		profile.open_full(user.clone());
+		ui.close();
+	}
+	if !user.webhook
 		&& state.selected.is_some_and(|id| {
 			state
 				.channel(id)
@@ -138,6 +152,9 @@ pub(super) fn contents(
 	{
 		*action = Some(Action::Mention(user.clone()));
 		ui.close();
+	}
+	if !user.webhook {
+		crate::profiles::copy_username_button(ui, state, user);
 	}
 	if user.webhook || state.user.as_ref().is_some_and(|own| own.id == user.id) {
 		return;
@@ -315,6 +332,9 @@ pub(super) fn contents(
 		));
 	}
 	ui.separator();
+	if let Some(ignore) = crate::profiles::ignore_button(ui, state, user, enabled) {
+		*action = Some(ignore);
+	}
 	let blocked = state.user_blocked(user.id) == Some(true);
 	if ui
 		.add_enabled(
@@ -336,6 +356,7 @@ pub(super) fn contents(
 		});
 		ui.close();
 	}
+	crate::profiles::report_button(ui, user);
 }
 
 #[cfg(test)]

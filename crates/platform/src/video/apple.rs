@@ -319,7 +319,6 @@ impl Decoder {
 		audio.cursor += 1;
 		let rate = track.sample_rate;
 		let channels = usize::from(track.channels);
-		let timescale = track.track.timescale;
 		let pts = track.track.seconds(entry.pts);
 		let bytes = self.read_sample(entry, MAX_AUDIO_PACKET)?;
 		let audio = self.audio.as_mut().ok_or(INVALID)?;
@@ -328,7 +327,6 @@ impl Decoder {
 		if decoded.spec().rate() != rate
 			|| decoded.spec().channels().count() != channels
 			|| decoded.frames() > MAX_AUDIO_FRAMES
-			|| timescale != rate
 		{
 			return Err(UNSUPPORTED);
 		}

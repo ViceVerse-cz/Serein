@@ -3,6 +3,7 @@ use ui::MessagingUi;
 #[test]
 fn session_clear_keeps_window_preference_but_removes_account_sharing_actions() {
 	let mut view = MessagingUi::default();
+	view.language = ui::i18n::Language::English;
 	view.minimize_to_tray = true;
 	view.tray_available = true;
 	view.discord_activity_sharing = Some(false);
@@ -29,6 +30,7 @@ fn account_sharing_requires_an_explicit_action_and_disables_it_while_pending() {
 			state.demo = false;
 			state.gateway_connected = true;
 			let mut view = MessagingUi::default();
+			view.language = ui::i18n::Language::English;
 			view.share_game_activity = true;
 			view.discord_activity_sharing = Some(false);
 			view.preview_settings("activity");

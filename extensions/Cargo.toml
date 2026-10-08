@@ -4,7 +4,6 @@
 members = [
 	"sdk",
 	"plugins/message-delete-protector",
-	"plugins/emoji-sticker-images",
 	"plugins/custom-rpc",
 	"plugins/api-proxy",
 	"plugins/voice-messages",

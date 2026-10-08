@@ -9,7 +9,8 @@ use std::{
 		mpsc::{self, Receiver, SyncSender},
 	},
 };
-const QUEUE_BYTES: usize = 16 * 1024 * 1024;
+// One full CJK font plus the existing 16 MiB of storage work and metadata.
+const QUEUE_BYTES: usize = 48 * 1024 * 1024;
 const WINDOW_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Default)]
@@ -972,6 +973,8 @@ mod tests {
 				show_members: false,
 				show_members_dms: false,
 				compact_messages: false,
+				double_click_reaction_enabled: false,
+				double_click_reaction: 0,
 				animate_gifs: false,
 				smooth_scrolling: true,
 				scroll_speed_percent: 100,

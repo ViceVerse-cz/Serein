@@ -463,6 +463,20 @@ fn cdn_url(key: &str) -> Option<String> {
 		return (role.0 != 0 && model::valid_avatar_hash(hash))
 			.then(|| format!("https://cdn.discordapp.com/role-icons/{role}/{hash}.png?size=128"));
 	}
+	if let Some(source) = key.strip_prefix("game:") {
+		return model::valid_discord_media_url(source)
+			.then(|| {
+				proxy_url(
+					source,
+					Size::Exact {
+						width: 256,
+						height: 256,
+					},
+					ProxyFormat::LosslessWebp,
+				)
+			})
+			.flatten();
+	}
 	if let Some(value) = key.strip_prefix("application-icon-") {
 		let (application, hash) = value.split_once('-')?;
 		let application: Id = application.parse().ok()?;
@@ -725,13 +739,20 @@ fn proxy_query(
 	width: u32,
 	height: Option<u32>,
 ) -> String {
+	// Profile CDN assets require `size` for the source resolution; width/height alone
+	// can upscale the default thumbnail. proxy_base has already validated this path.
+	let profile_asset = matches!(
+		url.path().split('/').nth(1),
+		Some("avatars" | "banners" | "icons" | "guilds")
+	);
 	let query: Vec<_> = url
 		.query_pairs()
 		.filter(|(key, _)| {
-			!matches!(
-				key.as_ref(),
-				"format" | "width" | "height" | "quality" | "animated" | "fit"
-			)
+			!(profile_asset && key == "size")
+				&& !matches!(
+					key.as_ref(),
+					"format" | "width" | "height" | "quality" | "animated" | "fit"
+				)
 		})
 		.map(|(key, value)| (key.into_owned(), value.into_owned()))
 		.collect();
@@ -742,6 +763,13 @@ fn proxy_query(
 			.extend_pairs(query)
 			.extend_pairs(format.iter().copied())
 			.append_pair("width", &width.to_string());
+		if profile_asset {
+			let side = width
+				.max(height.unwrap_or(width))
+				.clamp(16, 4096)
+				.next_power_of_two();
+			pairs.append_pair("size", &side.to_string());
+		}
 		if let Some(height) = height {
 			pairs.append_pair("height", &height.to_string());
 		}
@@ -853,6 +881,7 @@ fn disk_key(key: &str) -> Option<String> {
 		|| key.starts_with("embed:")
 		|| key.starts_with("media:")
 		|| key.starts_with("gif:")
+		|| key.starts_with("game:")
 	{
 		Some(format!("embed-{:x}", Sha256::digest(url.as_bytes())))
 	} else {
@@ -2936,5 +2965,57 @@ pub(crate) fn debug_heic_check() {
 	assert_eq!(
 		urls.fallback.as_deref(),
 		Some("https://cdn.discordapp.com/attachments/1/2/photo.HEIC?ex=abc&hm=def")
+	);
+}
+
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub(crate) fn debug_profile_resolution_check() {
+	let cover = cdn_url(
+		"game:https://images-ext-1.discordapp.net/external/aaaaaaaaaaaaaaaa/https/example.com/cover.jpg",
+	)
+	.unwrap();
+	assert!(cover.starts_with("https://images-ext-1.discordapp.net/external/"));
+	assert!(cover.contains("width=256"));
+	assert!(
+		disk_key(
+			"game:https://images-ext-1.discordapp.net/external/aaaaaaaaaaaaaaaa/https/example.com/cover.jpg"
+		)
+		.unwrap()
+		.starts_with("embed-")
+	);
+	for key in [
+		"game:http://127.0.0.1/cover.jpg",
+		"game:https://images-ext-1.discordapp.net.evil.test/external/a/https/b/c",
+	] {
+		assert!(cdn_url(key).is_none());
+	}
+	println!("Profile game artwork uses the bounded credential-free media worker.");
+	for path in [
+		"avatars/1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+		"banners/1/a_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.gif",
+		"guilds/2/users/1/avatars/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+		"guilds/2/users/1/banners/a_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.gif",
+	] {
+		for motion in ['s', 'a'] {
+			let key = format!("media:v{motion}:1440x720:https://cdn.discordapp.com/{path}");
+			let rendition = Rendition::parse(&key).unwrap();
+			let url = media_urls(&rendition).unwrap().primary;
+			let url = url::Url::parse(&url).unwrap();
+			assert_eq!(
+				url.query_pairs().find(|(key, _)| key == "size").unwrap().1,
+				"2048"
+			);
+			assert!(disk_key(&key).is_some());
+		}
+	}
+	let attachment = Rendition::parse(
+		"media:vs:1024x512:https://cdn.discordapp.com/attachments/1/2/image.png?ex=abc&hm=def",
+	)
+	.unwrap();
+	let url = media_urls(&attachment).unwrap().primary;
+	assert!(!url.contains("size="));
+	assert!(url.contains("ex=abc&hm=def"));
+	println!(
+		"Profile avatar/banner renditions request source resolution; attachment signatures preserved."
 	);
 }

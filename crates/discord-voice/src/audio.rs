@@ -64,7 +64,10 @@ pub struct Gate {
 	input_callbacks: AtomicU64,
 	revision: AtomicU64,
 	acknowledged_revision: AtomicU64,
-	media_generation: AtomicU64,
+	/// Bumped when the microphone gate changes; only capture drops partial PCM.
+	capture_generation: AtomicU64,
+	/// Bumped when the speaker gate changes; only playback drops queued audio.
+	playback_generation: AtomicU64,
 	input_enabled: AtomicBool,
 	input_gain: AtomicU16,
 	output_gain: AtomicU16,
@@ -85,7 +88,8 @@ impl Default for Gate {
 			input_callbacks: AtomicU64::new(0),
 			revision: AtomicU64::new(1),
 			acknowledged_revision: AtomicU64::new(0),
-			media_generation: AtomicU64::new(0),
+			capture_generation: AtomicU64::new(0),
+			playback_generation: AtomicU64::new(0),
 			input_enabled: AtomicBool::new(true),
 			input_gain: AtomicU16::new(100),
 			output_gain: AtomicU16::new(100),
@@ -321,8 +325,7 @@ impl Audio {
 						&& Instant::now() >= next_input_retry
 					{
 						next_input_retry = Instant::now() + Duration::from_secs(2);
-						let host = cpal::default_host();
-						if active.try_reopen_input(&host, &current, &worker_gate, revision) {
+						if active.try_reopen_input(&current, &worker_gate, revision) {
 							emit(Ok(()));
 						}
 					}
@@ -456,7 +459,8 @@ impl Audio {
 	pub fn set_ready(&self, ready: bool) {
 		let established = self.gate.is_ready();
 		if self.gate.ready.swap(ready, Ordering::AcqRel) && !ready {
-			self.gate.media_generation.fetch_add(1, Ordering::AcqRel);
+			self.gate.capture_generation.fetch_add(1, Ordering::AcqRel);
+			self.gate.playback_generation.fetch_add(1, Ordering::AcqRel);
 			self.gate.echo_reset.store(true, Ordering::Release);
 			if !established {
 				// An in-flight open must not acknowledge a later security epoch.
@@ -482,14 +486,21 @@ impl Audio {
 				|| self.gate.input_failed_revision.load(Ordering::Acquire)
 					== self.gate.revision.load(Ordering::Acquire))
 	}
+	/// Idempotent: repeated calls with the same state change nothing. Each gate invalidates only
+	/// its own direction, so a burst of mute clicks never drops what you hear and the echo
+	/// canceller restarts only when the microphone resumes.
 	pub fn set_controls(&self, muted: bool, deafened: bool) {
-		let mute_changed =
-			self.gate.muted.swap(muted || deafened, Ordering::AcqRel) != (muted || deafened);
-		let deafen_changed = self.gate.deafened.swap(deafened, Ordering::AcqRel) != deafened;
-		if mute_changed || deafen_changed {
+		let muted = muted || deafened;
+		if self.gate.muted.swap(muted, Ordering::AcqRel) != muted {
 			// A quick mute/unmute may happen between callbacks: invalidate partial PCM too.
-			self.gate.media_generation.fetch_add(1, Ordering::AcqRel);
-			self.gate.echo_reset.store(true, Ordering::Release);
+			self.gate.capture_generation.fetch_add(1, Ordering::AcqRel);
+			if !muted {
+				// The canceller hears the far end only while capturing; restart it on resume.
+				self.gate.echo_reset.store(true, Ordering::Release);
+			}
+		}
+		if self.gate.deafened.swap(deafened, Ordering::AcqRel) != deafened {
+			self.gate.playback_generation.fetch_add(1, Ordering::AcqRel);
 		}
 	}
 	/// Changes are coalesced and applied on the worker, never in device callbacks.
@@ -529,6 +540,9 @@ const MAX_RECOVERY_ATTEMPTS: u8 = 24;
 const RECOVERY_DELAY: Duration = Duration::from_millis(250);
 
 struct Streams {
+	// Reuse the connection that owns these streams for polling and microphone retries.
+	// A new PulseAudio host opens a server connection and reactor thread.
+	host: cpal::Host,
 	processing: Processing,
 	input_gate: crate::activity::InputGate,
 	input_callbacks: u64,
@@ -581,16 +595,16 @@ impl Streams {
 	}
 	/// True when the call follows the system default and that default now points elsewhere.
 	fn default_changed(&self, settings: &Devices) -> bool {
-		let host = cpal::default_host();
 		let id = |device: Option<cpal::Device>| {
 			device.and_then(|d| d.id().ok()).map(|id| id.to_string())
 		};
-		(settings.output.is_none()
-			&& self.output_id.is_some()
-			&& id(host.default_output_device()) != self.output_id)
-			|| (settings.input.is_none()
-				&& self.input_id.is_some()
-				&& id(host.default_input_device()) != self.input_id)
+		default_device_changed(
+			settings.output.as_deref(),
+			self.output_id.as_deref(),
+			|| id(self.host.default_output_device()),
+		) || default_device_changed(settings.input.as_deref(), self.input_id.as_deref(), || {
+			id(self.host.default_input_device())
+		})
 	}
 	fn open(settings: &Devices, gate: Arc<Gate>, revision: u64) -> Result<Self, &'static str> {
 		if gate.stopped.load(Ordering::Acquire)
@@ -654,6 +668,7 @@ impl Streams {
 			.play()
 			.map_err(|_| "Could not start speaker playback")?;
 		Ok(Self {
+			host,
 			input_callbacks: gate.input_callbacks.load(Ordering::Acquire),
 			input_activity: Instant::now(),
 			_input: input_stream,
@@ -667,15 +682,9 @@ impl Streams {
 			input_id,
 		})
 	}
-	fn try_reopen_input(
-		&mut self,
-		host: &cpal::Host,
-		settings: &Devices,
-		gate: &Arc<Gate>,
-		revision: u64,
-	) -> bool {
+	fn try_reopen_input(&mut self, settings: &Devices, gate: &Arc<Gate>, revision: u64) -> bool {
 		match gate.reopen_input(revision, || {
-			open_input_stream(host, settings, gate, revision)
+			open_input_stream(&self.host, settings, gate, revision)
 		}) {
 			Ok((stream, input_read, id)) => {
 				self._input = Some(stream);
@@ -689,6 +698,16 @@ impl Streams {
 			Err(_) => false,
 		}
 	}
+}
+// A failed lookup is not evidence that a healthy stream's default changed. Device
+// callback failures still trigger recovery and replace the host along with the streams.
+fn default_device_changed(
+	selection: Option<&str>,
+	opened: Option<&str>,
+	lookup: impl FnOnce() -> Option<String>,
+) -> bool {
+	selection.is_none()
+		&& opened.is_some_and(|opened| lookup().is_some_and(|current| current != opened))
 }
 fn open_input_stream(
 	host: &cpal::Host,
@@ -909,7 +928,7 @@ impl Capture {
 	where
 		f32: cpal::FromSample<T>,
 	{
-		let generation = gate.media_generation.load(Ordering::Acquire);
+		let generation = gate.capture_generation.load(Ordering::Acquire);
 		if generation != self.media_generation {
 			self.media_generation = generation;
 			self.reset();
@@ -979,7 +998,7 @@ impl Playback {
 		channels: usize,
 		gate: &Gate,
 	) {
-		let generation = gate.media_generation.load(Ordering::Acquire);
+		let generation = gate.playback_generation.load(Ordering::Acquire);
 		if generation != self.media_generation {
 			self.media_generation = generation;
 			self.reset();
@@ -1146,6 +1165,83 @@ mod tests {
 	}
 
 	#[test]
+	fn rapid_mute_toggles_never_flush_playback_and_end_in_the_latest_state() {
+		let audio = audio_without_devices();
+		let gate = &audio.gate;
+		let generations = || {
+			(
+				gate.capture_generation.load(Ordering::Acquire),
+				gate.playback_generation.load(Ordering::Acquire),
+			)
+		};
+		for _ in 0..10 {
+			audio.set_controls(true, false);
+			audio.set_controls(false, false);
+		}
+		assert_eq!(generations(), (20, 0));
+		assert!(!gate.muted.load(Ordering::Acquire) && !gate.deafened.load(Ordering::Acquire));
+		// Repeating the current state is a no-op.
+		gate.echo_reset.store(false, Ordering::Release);
+		audio.set_controls(false, false);
+		assert_eq!(generations(), (20, 0));
+		assert!(!gate.echo_reset.load(Ordering::Acquire));
+		// Muting never restarts the canceller; only resuming the microphone does.
+		audio.set_controls(true, false);
+		assert!(!gate.echo_reset.load(Ordering::Acquire));
+		// Deafening implies muted; a deafen burst from muted leaves capture untouched.
+		for _ in 0..3 {
+			audio.set_controls(true, true);
+			audio.set_controls(true, false);
+		}
+		assert_eq!(generations(), (21, 6));
+		audio.set_controls(false, true);
+		assert!(gate.muted.load(Ordering::Acquire) && gate.deafened.load(Ordering::Acquire));
+		audio.set_controls(false, false);
+		assert!(!gate.muted.load(Ordering::Acquire) && gate.echo_reset.load(Ordering::Acquire));
+	}
+
+	#[test]
+	fn default_device_polling_preserves_ready_streams_until_a_confirmed_change() {
+		let audio = audio_without_devices();
+		audio.set_ready(true);
+		let revision = audio.gate.revision.load(Ordering::Acquire);
+		assert!(audio.gate.acknowledge(revision));
+		let mut opened = "pulse:headphones".to_owned();
+		let mut reopens = 0;
+		// Ten minutes of one-second polls, including transient lookup failures,
+		// must leave an established call ready. Then follow one real change once.
+		for poll in 0..602 {
+			let observed = match poll {
+				600.. => Some("pulse:speakers"),
+				_ if poll % 3 == 0 => None,
+				_ => Some("pulse:headphones"),
+			};
+			if default_device_changed(None, Some(&opened), || observed.map(str::to_owned)) {
+				reopens += 1;
+				let next = audio.gate.revision.fetch_add(1, Ordering::AcqRel) + 1;
+				assert!(!audio.is_ready());
+				opened = observed.unwrap().to_owned();
+				assert!(audio.gate.acknowledge(next));
+			}
+			assert!(audio.is_ready());
+			assert_eq!(reopens, usize::from(poll >= 600));
+		}
+		assert_eq!(audio.gate.revision.load(Ordering::Acquire), revision + 1);
+	}
+
+	#[test]
+	fn explicit_or_unopened_devices_do_not_query_system_defaults() {
+		assert!(!default_device_changed(
+			Some("selected"),
+			Some("opened"),
+			|| { panic!("Explicit device selection must not query the default") }
+		));
+		assert!(!default_device_changed(None, None, || {
+			panic!("Disabled or unavailable input has no active default to follow")
+		}));
+	}
+
+	#[test]
 	fn device_readiness_rejects_stale_open_and_fast_security_transitions() {
 		let audio = audio_without_devices();
 		audio.set_ready(true);
@@ -1159,7 +1255,8 @@ mod tests {
 		let second = audio.gate.revision.load(Ordering::Acquire);
 		assert_eq!(first, second); // Established devices survive a security pause.
 		assert!(audio.is_ready());
-		assert_eq!(audio.gate.media_generation.load(Ordering::Acquire), 1);
+		assert_eq!(audio.gate.capture_generation.load(Ordering::Acquire), 1);
+		assert_eq!(audio.gate.playback_generation.load(Ordering::Acquire), 1);
 		// A pause while devices are still opening must invalidate their late result.
 		audio.gate.acknowledged_revision.store(0, Ordering::Release);
 		audio.set_ready(false);
@@ -1305,7 +1402,8 @@ mod tests {
 		capture.process(&[0.75; 961], 1, &audio.gate);
 		assert!(captured.pop().is_err());
 		playback.render(&mut rendered, 1, &audio.gate);
-		assert_eq!(rendered, [0.0; 2]);
+		// Muting the microphone never drops what you are hearing.
+		assert_eq!(rendered, [0.5; 2]);
 		audio.set_controls(false, true);
 		playback_send.push([0.75; 960]).unwrap();
 		capture.process(&[0.75; 961], 1, &audio.gate);

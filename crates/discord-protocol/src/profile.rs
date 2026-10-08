@@ -1,6 +1,9 @@
-//! Unofficial normal-user profile response; see docs/profiles.md for source evidence.
+//! Unofficial normal-user profile response; see docs/discord-compatibility.md for source evidence.
 use crate::{DecodeError, UserDto};
-use model::{GuildProfile, Id, ProfileBadge, ProfileConnection, ProfileGuild, UserProfile};
+use model::{
+	GuildProfile, Id, ProfileBadge, ProfileConnection, ProfileGame, ProfileGameWidget,
+	ProfileGameWidgetKind, ProfileGuild, UserProfile,
+};
 use serde::{
 	Deserialize, Deserializer,
 	de::{SeqAccess, Visitor},
@@ -35,6 +38,8 @@ pub fn encode_edit(changes: &model::ProfileEdit) -> Result<serde_json::Value, De
 struct ProfileDto {
 	user: ProfileUser,
 	#[serde(default)]
+	widgets: Option<Small<serde_json::Value, 8>>,
+	#[serde(default)]
 	user_profile: Option<Metadata>,
 	#[serde(default)]
 	guild_member: Option<Member>,
@@ -50,6 +55,128 @@ struct ProfileDto {
 	mutual_guilds: Small<MutualGuild, 50>,
 	#[serde(default)]
 	mutual_friends: Small<UserDto, 50>,
+}
+#[derive(Deserialize)]
+struct GameWidgetDto {
+	data: GameWidgetDataDto,
+}
+#[derive(Deserialize)]
+struct GameWidgetDataDto {
+	#[serde(rename = "type")]
+	kind: String,
+	#[serde(default)]
+	games: Small<WidgetGameDto, 20>,
+}
+#[derive(Deserialize)]
+struct WidgetGameDto {
+	game_id: Id,
+	#[serde(default)]
+	comment: Option<String>,
+	#[serde(default)]
+	tags: Small<String, 3>,
+}
+#[derive(Deserialize)]
+struct GameMetadataDto {
+	#[serde(default)]
+	media: Option<GameMediaDto>,
+	id: Id,
+	name: String,
+	#[serde(default)]
+	icon_hash: Option<String>,
+	#[serde(default)]
+	cover_image_hash: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GameMediaDto {
+	#[serde(default)]
+	icon: Option<GameAssetDto>,
+	#[serde(default)]
+	cover: Option<GameAssetDto>,
+}
+#[derive(Deserialize)]
+struct GameAssetDto {
+	#[serde(rename = "type")]
+	kind: String,
+	value: String,
+}
+impl GameAssetDto {
+	fn artwork(self, id: Id) -> Option<String> {
+		match self.kind.as_str() {
+			"hash" => hash(Some(self.value)),
+			"url" if model::valid_discord_media_url(&self.value) => Some(self.value),
+			"url" => {
+				// Normalize first-party app-icon URLs to the existing bounded hash key.
+				let url = url::Url::parse(&self.value).ok()?;
+				if self.value.len() > 2048
+					|| url.scheme() != "https"
+					|| !matches!(
+						url.host_str(),
+						Some("cdn.discordapp.com" | "media.discordapp.net")
+					) || !url.username().is_empty()
+					|| url.password().is_some()
+					|| url.port().is_some()
+					|| url.fragment().is_some()
+				{
+					return None;
+				}
+				let prefix = format!("/app-icons/{id}/");
+				let (value, extension) = url.path().strip_prefix(&prefix)?.rsplit_once('.')?;
+				matches!(extension, "png" | "webp" | "jpg")
+					.then(|| hash(Some(value.to_owned())))
+					.flatten()
+			}
+			_ => None,
+		}
+	}
+}
+
+/// Titles/artwork from the unofficial GET /games response. Unrequested IDs are ignored.
+pub fn apply_board_games(
+	profile: &mut UserProfile,
+	bytes: &[u8],
+	requested: &[Id],
+) -> Result<(), DecodeError> {
+	if bytes.len() > MAX_PROFILE_WIRE || requested.len() > 25 {
+		return Err(DecodeError);
+	}
+	let games: Small<GameMetadataDto, 25> = crate::decode(bytes)?;
+	if games.limited {
+		return Err(DecodeError);
+	}
+	let Some(board) = profile.board.as_mut() else {
+		return Ok(());
+	};
+	for game in games.items {
+		if !requested.contains(&game.id) {
+			continue;
+		}
+		// Optional Board truncation must not mark editable profile fields incomplete.
+		let name = text(game.name, 128, &mut false);
+		let (icon, cover) = game
+			.media
+			.map(|media| (media.icon, media.cover))
+			.unwrap_or_default();
+		let icon = icon
+			.and_then(|asset| asset.artwork(game.id))
+			.or_else(|| hash(game.icon_hash));
+		let cover = cover
+			.and_then(|asset| asset.artwork(game.id))
+			.or_else(|| hash(game.cover_image_hash));
+		for entry in board
+			.iter_mut()
+			.flat_map(|widget| &mut widget.games)
+			.filter(|entry| entry.id == game.id)
+		{
+			entry.name = Some(name.clone());
+			entry.icon = icon.clone();
+			entry.cover = cover.clone();
+		}
+	}
+	if !profile.valid() {
+		return Err(DecodeError);
+	}
+	Ok(())
 }
 #[derive(Deserialize)]
 struct ProfileUser {
@@ -215,6 +342,52 @@ pub fn decode_profile(
 		|| (dto.mutual_friends.limited
 			&& (with_mutuals || !dto.mutual_friends.items.is_empty()))
 		|| dto.user_profile.is_none();
+	let board = dto.widgets.map(|widgets| {
+		// Board limits do not affect completeness of editable identity fields.
+		let mut board: Vec<ProfileGameWidget> = Vec::new();
+		for widget in widgets.items {
+			// Optional widget evolution must not hide the user's identity/profile.
+			let Ok(widget) = serde_json::from_value::<GameWidgetDto>(widget) else {
+				continue;
+			};
+			let kind = match widget.data.kind.as_str() {
+				"favorite_games" => ProfileGameWidgetKind::Favorite,
+				"current_games" => ProfileGameWidgetKind::Rotation,
+				"played_games" => ProfileGameWidgetKind::Played,
+				"want_to_play_games" => ProfileGameWidgetKind::Wishlist,
+				_ => continue,
+			};
+			if board.iter().any(|existing| existing.kind == kind) {
+				continue;
+			}
+			let games = widget
+				.data
+				.games
+				.items
+				.into_iter()
+				.take(kind.limit())
+				.map(|game| ProfileGame {
+					id: game.game_id,
+					name: None,
+					icon: None,
+					cover: None,
+					comment: game.comment.map(|value| text(value, 256, &mut false)),
+					tags: game
+						.tags
+						.items
+						.into_iter()
+						.filter(|value| {
+							value.len() <= 64
+								&& value.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+						})
+						.collect(),
+				})
+				.collect();
+			board.push(ProfileGameWidget { kind, games });
+		}
+		board.shrink_to_fit();
+		board
+	});
 	let username = text(dto.user.user.username.clone(), 128, &mut limited);
 	let global_name = dto
 		.user
@@ -323,10 +496,19 @@ pub fn decode_profile(
 		guild,
 		theme_colors,
 		clan,
+		board,
 		limited,
 	};
-	// Keep identity/about fields; large returned mutual lists are the first expendable summaries.
+	// Discard optional board summaries first; preserve complete editable profile fields.
 	while profile.bytes() > model::MAX_PROFILE_BYTES {
+		if profile
+			.board
+			.as_mut()
+			.is_some_and(|board| board.pop().is_some())
+		{
+			profile.board.as_mut().unwrap().shrink_to_fit();
+			continue;
+		}
 		profile.limited = true;
 		if profile.mutual_guilds.pop().is_some() {
 			profile.mutual_guilds.shrink_to_fit();

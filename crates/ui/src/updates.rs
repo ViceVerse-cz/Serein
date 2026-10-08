@@ -307,21 +307,6 @@ impl MessagingUi {
 					badge.shrink(10.0),
 					colors.accent,
 				);
-				ui.vertical(|ui| {
-					ui.spacing_mut().item_spacing.y = 2.0;
-					ui.label(
-						design::semibold(ui, format!("Serein {}", self.build.version), 17.0)
-							.color(colors.text_strong),
-					);
-					ui.add(
-						egui::Label::new(
-							egui::RichText::new(&self.updates.status)
-								.size(13.0)
-								.color(colors.muted),
-						)
-						.wrap(),
-					);
-				});
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					if self.updates.ready {
 						ui.add_enabled_ui(!self.updates.busy, |ui| {
@@ -375,6 +360,22 @@ impl MessagingUi {
 					if self.updates.busy {
 						ui.add(egui::Spinner::new().size(16.0));
 					}
+					// Reserve the action's width before laying out the status beside it.
+					ui.vertical(|ui| {
+						ui.spacing_mut().item_spacing.y = 2.0;
+						ui.label(
+							design::semibold(ui, format!("Serein {}", self.build.version), 17.0)
+								.color(colors.text_strong),
+						);
+						ui.add(
+							egui::Label::new(
+								egui::RichText::new(&self.updates.status)
+									.size(13.0)
+									.color(colors.muted),
+							)
+							.truncate(),
+						);
+					});
 				});
 			});
 			if let Some(progress) = self.updates.progress {

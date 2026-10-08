@@ -299,6 +299,7 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Недоступ�
 attachments-open-original-open-original = Открыть оригинал…
 # Context: pending_card
 attachments-pending-card-remove-attachment = Удалить вложение
+attachments-loading-card-preparing = Подготовка…
 # Context: show_status
 attachments-show-status-cancel-download = Отменить загрузку
 # Context: show_status
@@ -377,6 +378,18 @@ channel-list-heading-direct-messages = Прямые сообщения
 channel-list-heading-favorites = Избранное
 # Context: key
 channel-list-heading-pinned = Закреплено
+# Context: key
+channel-list-heading-message-requests = Запросы на переписку
+# Context: label
+message-request-ignore-tooltip = Игнорировать запрос
+# Context: label
+message-request-accept = Принять
+# Context: label
+message-request-ignore = Игнорировать
+# Context: label
+message-request-banner = Этот человек пока не в вашем списке друзей. Примите, чтобы перенести беседу в личные сообщения.
+# Context: label
+message-request-title = Запрос на переписку
 
 ## crates/ui/src/channel_menu.rs
 # Context: context
@@ -810,6 +823,10 @@ emoji-picker-gif-body-searching-klipy = Поиск в KLIPY…
 # Context: gif_body
 emoji-picker-gif-body-trending-gifs = Популярные GIF-изображения
 # Context: gif_body
+emoji-picker-gif-body-retry = Повторить
+# Context: gif_body
+emoji-picker-gif-body-no-trending-gifs-right-now = Найдите GIF или повторите попытку позже.
+# Context: gif_body
 emoji-picker-gif-body-try-a-different-search-term = Попробуйте другой поисковый запрос.
 # Context: gif_grid
 emoji-picker-gif-grid-favorite = Любимый
@@ -835,6 +852,8 @@ emoji-picker-popup-hover-an-emoji-to-preview-it = Наведите курсор 
 emoji-picker-popup-no-matching-emoji = Нет соответствующих смайлов.
 # Context: popup
 emoji-picker-popup-retry-sticker-packs = Повторить набор стикеров
+# Context: popup
+emoji-picker-popup-requires-nitro = Здесь требуется Nitro
 # Context: popup
 emoji-picker-popup-search-results = Результаты поиска
 # Context: popup
@@ -1009,7 +1028,7 @@ fonts-show-reset = Перезагрузить
 # Context: show
 fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789 = Быстрая бурая лиса перепрыгивает через ленивую собаку. 0123456789
 # Context: show
-fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this = TTF или OTF, до 8 МБ. Сохранено на этом устройстве. Код сохраняет моноширинный шрифт.
+fonts-show-ttf-or-otf-up-to-32-mib-saved-on-this = TTF или OTF, до 32 МБ. Сохранено на этом устройстве. Код сохраняет моноширинный шрифт.
 # Context: show
 fonts-show-typography = Типография
 
@@ -2051,6 +2070,20 @@ profiles-more-menu-add-friend-nickname = Добавить псевдоним д�
 profiles-more-menu-add-note = Добавить примечание
 # Context: more_menu
 profiles-more-menu-block = Блокировать
+profiles-view-full-profile = Открыть полный профиль
+profiles-copy-username = Копировать имя пользователя
+profiles-username-unavailable = Откройте профиль, чтобы загрузить имя пользователя
+profiles-ignore = Игнорировать
+profiles-unignore = Перестать игнорировать
+profiles-ignore-hint = Использует настройку «Игнорировать» Discord без блокировки. Пользователь не получит уведомления.
+profiles-report-user-profile = Пожаловаться на профиль
+profiles-report-hint = Открывает форму поддержки Discord в браузере и копирует ID пользователя
+profiles-show-activity = АКТИВНОСТЬ
+profiles-show-connections = ИНТЕГРАЦИИ
+profiles-show-friends-since = ДРУЗЬЯ С
+profiles-show-note = ЗАМЕТКА
+profiles-show-note-hint = Нажмите, чтобы добавить заметку
+profiles-show-note-only-you = Видно только вам
 # Context: more_menu
 profiles-more-menu-copy-webhook-id = Скопировать идентификатор вебхука
 # Context: more_menu
@@ -2119,6 +2152,8 @@ profiles-show-view-profile-picture = Посмотреть изображение
 ## crates/ui/src/reactions.rs
 # Context: add_button
 reactions-add-button-add-reaction = Добавить реакцию
+# Context: quick_button
+reactions-quick-react = Реакция { $emoji }
 # Context: show
 reactions-show-reactions-unavailable = Реакции недоступны.
 # Context: show
@@ -3440,6 +3475,12 @@ settings-chat-settings-channel-list = Список каналов
 settings-chat-settings-show-channels-you-cannot-currently-access = Показать каналы, к которым вы в данный момент не имеете доступа.
 # Context: chat_settings
 settings-chat-settings-show-hidden-channels = Показать скрытые каналы
+# Context: chat_settings
+settings-chat-settings-emoji = Эмодзи
+# Context: chat_settings
+settings-chat-settings-suggest-nitro-emojis = Предлагать эмодзи, требующие Nitro
+# Context: chat_settings
+settings-chat-settings-suggest-nitro-emojis-description = Показывать анимированные эмодзи и эмодзи других серверов в подсказках : и в окне выбора без Nitro. Если выключено, они скрыты из подсказок и заблокированы в окне выбора.
 # Context: close_control
 settings-close-control-close-settings-esc = Закрыть настройки (Esc)
 # Context: colour_preset_settings
@@ -3737,6 +3778,10 @@ timeline-deleted-message-actions-toggle-deleted-highlight = Переключит
 timeline-loading-messages-loading-messages = Загрузка сообщений
 # Context: message_actions
 timeline-message-actions-copy = Копировать
+# Context: message_actions
+timeline-message-actions-copy-message-id = Копировать ID сообщения
+# Context: message_actions
+timeline-message-actions-copy-message-link = Копировать ссылку на сообщение
 # Context: message_actions
 timeline-message-actions-create-thread = Создать тему…
 # Context: message_actions
@@ -4453,3 +4498,13 @@ screen-macos-system-picker = Выбрать через системное окн
 screen-macos-system-picker-kind = Системный выбор содержимого
 
 member-in-voice = В голосовом чате
+
+profiles-board = Board
+profiles-board-unavailable = This profile’s board is unavailable.
+profiles-board-empty = No games on this board yet.
+profiles-board-show-more = Show more
+profiles-board-show-less = Show less
+profiles-activity-empty = Нет опубликованной активности.
+profiles-mutuals-empty = Nothing to show here.
+
+reading-double-click-reaction = Double-click reaction

@@ -11,7 +11,6 @@ Build and package from `extensions/`, the workspace root (Python 3 is used only 
 rustup target add wasm32-unknown-unknown
 cargo build --locked --release --target wasm32-unknown-unknown
 python pack.py plugins/message-delete-protector/manifest.json target/wasm32-unknown-unknown/release/message_delete_protector.wasm plugins/packages/message-delete-protector.serein-extension
-python pack.py plugins/emoji-sticker-images/manifest.json target/wasm32-unknown-unknown/release/emoji_sticker_images.wasm plugins/packages/emoji-sticker-images.serein-extension
 ```
 
 A rebuilt module is not a release by itself: committed packages are the reviewed bytes
@@ -26,10 +25,10 @@ retained row. They never call Discord. The host never sends message bodies to th
 saves deleted bodies to disk, restores messages deleted before loading, or gives deleted
 messages live service actions.
 Disabling, logout, permission revocation and timeline eviction release retained content.
-Emoji & Sticker Images requests `image_sharing` and returns `image_sharing: true`
-from activation. While enabled, custom emoji and sticker selections stage image attachments. Wasm receives no conversation text or image bytes and cannot fetch
-or send anything. Selecting artwork authorizes an immediate image send after validation; text drafts
-remain intact. Disable/logout revoke the option.
+Emoji and sticker image fallback is now built into the client; the former Emoji &
+Sticker Images plugin is retired. Native eligibility uses the account's Nitro
+entitlement. Unavailable native selections enter the composer as named artwork
+links; explicit Send uses Markdown with text, or attachments for artwork alone.
 Declarative themes are under `../themes/`.
 The author packages compiled bytes; Serein never runs a repository's build scripts.
 

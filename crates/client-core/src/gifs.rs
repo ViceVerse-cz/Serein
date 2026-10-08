@@ -306,6 +306,12 @@ impl State {
 			Err(failure) if failure.ends_session() && failure != Failure::Capacity => {
 				self.fail(failure)
 			}
+			Err(Failure::ProtocolAt(
+				context @ ("gif-favorites-sync-unsupported" | "gif-favorites-sync-unconfirmed"),
+			)) => {
+				self.gifs.sync_ready = false;
+				self.gifs.sync_error = Some(context);
+			}
 			_ => {
 				self.gifs.sync_ready = false;
 				self.gifs.sync_error = Some("gif-favorites-sync-failed");

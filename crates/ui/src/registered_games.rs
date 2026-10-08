@@ -210,6 +210,7 @@ impl MessagingUi {
 			let response = design::input(
 				ui,
 				egui::TextEdit::singleline(draft)
+					.align(egui::Align2::LEFT_CENTER)
 					.char_limit(games::MAX_NAME)
 					.font(egui::FontId::new(15.0, design::medium_family(ui.ctx()))),
 			);
@@ -262,6 +263,7 @@ impl MessagingUi {
 		design::input(
 			ui,
 			egui::TextEdit::singleline(&mut picker.query)
+				.align(egui::Align2::LEFT_CENTER)
 				.hint_text(tr("settings-activity-search-programs"))
 				.char_limit(64),
 		);

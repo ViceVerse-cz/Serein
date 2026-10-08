@@ -7,6 +7,7 @@ mod appearance_transparency_tests;
 mod archives;
 mod audio;
 mod forwarding;
+mod role_names;
 pub use audio::{AudioCommand, AudioState, AudioUi};
 mod video;
 pub use video::{VideoCommand, VideoState, VideoUi};
@@ -51,6 +52,7 @@ pub use extensions_ui::{ExtensionContext, ExtensionEntry, ExtensionRequest, Exte
 pub mod emoji;
 mod emoji_details;
 mod emoji_picker;
+mod emoticons;
 pub mod fonts;
 pub mod i18n;
 #[cfg(all(debug_assertions, feature = "demo"))]
@@ -210,13 +212,20 @@ fn thread_member_rows<'a>(
 	rows
 }
 
+struct SubmittedEdit {
+	channel: Id,
+	message: Id,
+	draft: String,
+	content: String,
+}
+
 #[derive(Default)]
 pub struct MessagingUi {
 	poll_creator: polls::Creator,
 	pub language: i18n::Language,
 	forwarding: forwarding::ForwardDialog,
-	pub image_sharing_enabled: bool,
-	pub image_share_requested: Option<model::ImageShare>,
+	pub convert_emoticons: bool,
+	pub image_share_requested: Option<(u64, Id, Vec<model::ImageShare>, String)>,
 	pub interaction_file_request: Option<String>,
 	interaction_components: components::Components,
 	pub verification: VerificationUi,
@@ -283,6 +292,10 @@ pub struct MessagingUi {
 	profile_formatted: markdown::FormatCache,
 	pub reading_preferences: model::ReadingPreferences,
 	pub show_hidden_channels: bool,
+	/// Folds the home list's message requests away; session-local like hover state.
+	message_requests_collapsed: bool,
+	/// Custom emoji that need Nitro stay out of `:` suggestions and are locked in pickers.
+	pub hide_nitro_emojis: bool,
 	pub hide_title_bar: bool,
 	pub hide_window_decorations: bool,
 	pub custom_font: fonts::Settings,
@@ -357,6 +370,11 @@ pub struct MessagingUi {
 	pub remove_attachment_requested: bool,
 	pub cancel_upload_requested: bool,
 	pub upload_busy: bool,
+	/// New attachments cannot be selected right now. Loading files and an upload in flight
+	/// do not set this: further files join the composer and sending waits instead.
+	pub attach_busy: bool,
+	/// Selected files still being inspected; shown as loading tiles in the upload tray.
+	pub attachment_loading: usize,
 	pub external_upload: external_upload::ExternalUpload,
 	pub voice_messages: voice_messages::VoiceMessages,
 	/// Transient problem and progress notices. Nothing here outlives its deadline.
@@ -451,7 +469,7 @@ pub struct MessagingUi {
 	pins_anchor: Option<egui::Rect>,
 	editing: Option<(Id, Id, String)>,
 	composer_edit: Option<(Id, Id)>,
-	edit_sent: bool,
+	edit_sent: Option<SubmittedEdit>,
 	deleting: Option<(Id, Id)>,
 	ime_active: bool,
 	mention_menu: mentions::Menu,
@@ -724,6 +742,10 @@ impl MessagingUi {
 		self.members_narrow_open = true;
 		self.profile.command_open(user);
 	}
+	#[cfg(any(test, feature = "demo"))]
+	pub fn preview_full_profile(&mut self, user: model::User) {
+		self.profile.open_full(user);
+	}
 	/// Fixture-only entry point: opens the emoji popout as if the composer button was clicked.
 	/// Fixture-only entry point: stage a synthetic attachment as if it had been selected.
 	/// Repeated calls build up a batch, like choosing several files.
@@ -954,6 +976,10 @@ impl MessagingUi {
 	pub fn take_avatar_requests(&mut self) -> Vec<String> {
 		self.avatars.take_requests()
 	}
+	/// When unplayed animation frames can next be released; see `take_avatar_requests`.
+	pub fn avatar_release_at(&self) -> Option<std::time::Instant> {
+		self.avatars.next_release()
+	}
 	pub fn accept_gif_animation(&mut self, key: String, frames: GifFrames) {
 		self.avatars.accept_animation(key, frames);
 	}
@@ -1069,7 +1095,7 @@ impl MessagingUi {
 				editor.store(ctx, id);
 			}
 		}
-		self.edit_sent = false;
+		self.edit_sent = None;
 		self.edit_undo_cleared = true;
 		if untouched {
 			self.editing = None;
@@ -1078,12 +1104,24 @@ impl MessagingUi {
 			self.edit_closed_channel = Some(channel);
 		}
 	}
-	fn reconcile_edit(&mut self, state: &State) {
+	/// Preserves raw active text on failed edits and reconciles unavailable messages.
+	fn reconcile_edit(&mut self, state: &mut State) {
 		let Some((channel, id, content)) = &self.editing else {
 			self.edit_modified = None;
 			self.edit_undo_cleared = false;
 			return;
 		};
+		// Keep the raw editor text on rejection/interruption; the recovery queue holds
+		// the transformed payload, which must not replace the user's draft.
+		if let Some(index) = state
+			.message_actions
+			.failed_edits
+			.iter()
+			.position(|(c, message, _)| c == channel && message == id)
+		{
+			state.message_actions.failed_edits.remove(index);
+			self.edit_sent = None;
+		}
 		if self
 			.edit_modified
 			.is_none_or(|(c, message, _)| c != *channel || message != *id)
@@ -1102,7 +1140,7 @@ impl MessagingUi {
 		{
 			self.editing = None;
 			self.edit_modified = None;
-			self.edit_sent = false;
+			self.edit_sent = None;
 		}
 	}
 	/// Window title strip: traffic-light inset, centred context title and session state.
@@ -1115,7 +1153,7 @@ impl MessagingUi {
 	) {
 		let colors = design::palette(ui);
 		egui::Panel::top("title-bar")
-			.exact_size(36.0)
+			.exact_size(design::TITLE_BAR_HEIGHT)
 			.show_separator_line(false)
 			.frame(egui::Frame::new().fill(design::section_surface(
 				ui,
@@ -1408,6 +1446,14 @@ impl MessagingUi {
 					};
 					match slot {
 						Some(model::MemberSlot::Group(id)) => {
+							let role_colors = id.parse::<u64>().ok().and_then(|role_id| {
+								guild
+									.and_then(|guild| state.guild_roles(guild))
+									.and_then(|roles| {
+										roles.iter().find(|role| role.id == Id(role_id))
+									})
+									.map(|role| role.colors())
+							});
 							let name = match id.as_str() {
 								"online" => language.text("status-online"),
 								"offline" => language.text("status-offline"),
@@ -1447,9 +1493,15 @@ impl MessagingUi {
 							);
 							header
 								.add(
-									egui::Label::new(
-										design::medium(ui, &text, 12.0).color(colors.muted),
-									)
+									egui::Label::new(crate::role_names::galley(
+										&header,
+										&text,
+										egui::FontId::new(12.0, design::medium_family(ui.ctx())),
+										role_colors,
+										colors.sidebar,
+										colors.muted,
+										header.available_width(),
+									))
 									.truncate(),
 								)
 								.on_hover_text(&text);
@@ -1529,21 +1581,17 @@ impl MessagingUi {
 										colors.sidebar,
 									);
 								}
-								let text_color = if online {
-									let role_color = guild.and_then(|guild| {
-										state.member_roles(guild, member).1.map(|role| role.color)
-									});
-									let background = if response.hovered() || response.has_focus() {
-										colors.hover
-									} else {
-										colors.sidebar
-									};
-									role_color.map_or(colors.text, |rgb| {
-										design::role_name_color(rgb, background, colors.text)
+								let role_colors = online
+									.then(|| {
+										guild.and_then(|guild| {
+											state
+												.member_roles(guild, member)
+												.1
+												.map(|role| role.colors())
+										})
 									})
-								} else {
-									colors.muted
-								};
+									.flatten();
+								let text_color = if online { colors.text } else { colors.muted };
 								let mut show_name = |ui: &mut egui::Ui| {
 									ui.allocate_ui_with_layout(
 										egui::vec2(ui.available_width(), 18.0),
@@ -1559,7 +1607,15 @@ impl MessagingUi {
 												&member.user,
 												name,
 												15.0,
-												text_color,
+												(
+													text_color,
+													role_colors,
+													if response.hovered() || response.has_focus() {
+														colors.hover
+													} else {
+														colors.sidebar
+													},
+												),
 												egui::Sense::hover(),
 												trailing,
 											);
@@ -1646,8 +1702,9 @@ impl MessagingUi {
 			let first = visible.start;
 			let mut last = visible.end.saturating_sub(1);
 			if row_count < total
-				&& output.state.offset.y > 0.0
-				&& output.state.offset.y + output.inner_rect.height() >= output.content_size.y - 1.0
+				&& output.state.clamped_offset().y > 0.0
+				&& output.state.clamped_offset().y + output.inner_rect.height()
+					>= output.content_size.y - 1.0
 			{
 				// Keep requesting the next chunk while at the bottom, without exposing
 				// another page of empty rows before its first entry arrives.
@@ -1809,6 +1866,9 @@ impl MessagingUi {
 							self.channel_preferences_reload = true;
 						}
 					}
+				}
+				if let Some(command) = state.request_sidebar_forum_posts(self.guild) {
+					commands.push(command);
 				}
 				let select = self.channel_list(ui, state);
 				if let Some((guild, channel, user)) = self.stream_preview_request.take()
@@ -2475,6 +2535,129 @@ impl MessagingUi {
 			}
 		}
 	}
+	fn submit_composer(
+		&mut self,
+		state: &mut State,
+		ctx: &egui::Context,
+		commands: &mut Vec<Command>,
+	) {
+		let Some(channel) = state.selected else {
+			return;
+		};
+		if self.upload_busy || self.image_share_requested.is_some() || !state.can_send(channel) {
+			return;
+		}
+		let draft = state.drafts.get(&channel).map_or("", String::as_str);
+		if self.selected_files().is_empty()
+			&& let Some(assets) = model::ImageShare::markdown_only(draft)
+		{
+			if !state.can_attach(channel) {
+				state.status =
+					"Attaching images is unavailable here; add text to send a named link.";
+				return;
+			}
+			self.image_share_requested =
+				Some((state.generation, channel, assets, draft.to_owned()));
+			return;
+		}
+		let original_draft = if self.convert_emoticons {
+			state.drafts.get_mut(&channel).map(|draft| {
+				let converted = emoticons::convert(draft);
+				std::mem::replace(draft, converted)
+			})
+		} else {
+			None
+		};
+		if let Some(command) = state.prepare_send_with_attachments(
+			&self
+				.selected_files()
+				.iter()
+				.map(|(name, _)| name.as_str())
+				.collect::<Vec<_>>(),
+		) {
+			// Consume this selection once, before desktop dispatch.
+			self.stage_pending_upload(ctx, &command);
+			self.timeline.follow_latest(state);
+			commands.push(command);
+		} else if let Some(original) = original_draft {
+			state.drafts.insert(channel, original);
+		}
+	}
+	/// Submits message drafts or edits after applying the device conversion preference.
+	/// Accept or ignore a pending message request, as in Discord's request conversation view.
+	fn message_request_bar(&mut self, ui: &mut egui::Ui, state: &State, channel: Id) {
+		let colors = design::palette(ui);
+		let language = self.language;
+		let enabled = !state.user_action_pending();
+		ui.add_space(6.0);
+		egui::Frame::new()
+			.fill(colors.raised)
+			.stroke(egui::Stroke::new(1.0, colors.border))
+			.corner_radius(8)
+			.inner_margin(egui::Margin::symmetric(14, 10))
+			.show(ui, |ui| {
+				ui.set_width(ui.available_width());
+				let button = |ui: &mut egui::Ui, label: String, fill, text| {
+					ui.add_enabled(
+						enabled,
+						egui::Button::new(design::medium(ui, &label, 14.0).color(text))
+							.fill(fill)
+							.stroke(egui::Stroke::NONE)
+							.corner_radius(6)
+							.min_size(egui::vec2(88.0, 32.0)),
+					)
+					.clicked()
+				};
+				ui.horizontal(|ui| {
+					ui.spacing_mut().item_spacing.x = 8.0;
+					let actions = 2.0 * 88.0 + 8.0 + 16.0;
+					ui.allocate_ui_with_layout(
+						egui::vec2((ui.available_width() - actions).max(120.0), 0.0),
+						egui::Layout::top_down(egui::Align::Min),
+						|ui| {
+							ui.spacing_mut().item_spacing.y = 2.0;
+							ui.label(
+								design::semibold(ui, language.text("message-request-title"), 15.0)
+									.color(colors.text_strong),
+							);
+							ui.add(
+								egui::Label::new(
+									RichText::new(language.text("message-request-banner"))
+										.size(13.0)
+										.color(colors.muted),
+								)
+								.wrap(),
+							);
+						},
+					);
+					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+						if button(
+							ui,
+							language.text("message-request-ignore"),
+							colors.hover,
+							colors.text_strong,
+						) {
+							self.user_action = Some(user_menu::Action::MessageRequest {
+								channel,
+								accept: false,
+							});
+						}
+						if button(
+							ui,
+							language.text("message-request-accept"),
+							colors.accent,
+							colors.accent_text,
+						) {
+							self.user_action = Some(user_menu::Action::MessageRequest {
+								channel,
+								accept: true,
+							});
+						}
+					});
+				});
+			});
+		ui.add_space(8.0);
+	}
 	fn composer(
 		&mut self,
 		ui: &mut egui::Ui,
@@ -2607,6 +2790,7 @@ impl MessagingUi {
 					ui.add_enabled(
 						false,
 						TextEdit::singleline(&mut hint)
+							.align(egui::Align2::LEFT_CENTER)
 							.desired_width(f32::INFINITY)
 							.frame(egui::Frame::NONE),
 					);
@@ -2621,14 +2805,13 @@ impl MessagingUi {
 					&& (editing_here || self.composer_edit.is_some_and(|(c, _)| c == channel))));
 		if self.composer_edit != editing_key {
 			self.composer_edit = editing_key;
-			self.edit_sent = false;
 			self.ime_active = false;
 			self.mention_menu = mentions::Menu::default();
 			self.emoji_picker = emoji_picker::Picker::default();
 		}
 		let mut cancel_edit = false;
 		if ctx.input(|input| !input.raw.hovered_files.is_empty()) {
-			let available = state.can_attach(channel) && !self.upload_busy && !editing_here;
+			let available = state.can_attach(channel) && !self.attach_busy && !editing_here;
 			egui::Frame::new()
 				.fill(colors.accent.gamma_multiply(0.12))
 				.stroke(egui::Stroke::new(1.5, colors.accent))
@@ -2671,7 +2854,7 @@ impl MessagingUi {
 					.size(13.0)
 					.color(colors.muted),
 				);
-				if self.edit_sent {
+				if self.edit_sent.is_some() {
 					ui.label(
 						RichText::new(crate::i18n::translate(
 							"lib-ime-updates-text-save-requested-check-the-connection-before-retrying",
@@ -2834,12 +3017,18 @@ impl MessagingUi {
 		if focus_composer || typed {
 			ctx.memory_mut(|m| m.request_focus(composer_id));
 		}
-		if focus_edit {
+		if focus_edit || (focus_composer && !editing_here) {
 			let mut edit_state = egui::text_edit::TextEditState::default();
-			let count = self
-				.editing
-				.as_ref()
-				.map_or(0, |(_, _, content)| content.chars().count());
+			let count = if editing_here {
+				self.editing
+					.as_ref()
+					.map_or(0, |(_, _, content)| content.chars().count())
+			} else {
+				state
+					.drafts
+					.get(&channel)
+					.map_or(0, |draft| draft.chars().count())
+			};
 			edit_state
 				.cursor
 				.set_char_range(Some(egui::text::CCursorRange::one(
@@ -3011,6 +3200,7 @@ impl MessagingUi {
 			.and_then(|s| s.cursor.char_range())
 			.filter(|r| r.is_empty())
 			.map(|r| r.primary.index.0);
+		self.mention_menu.hide_nitro_emojis = self.hide_nitro_emojis;
 		self.mention_menu.refresh(
 			state,
 			channel,
@@ -3052,8 +3242,8 @@ impl MessagingUi {
 		let can_attach = !editing_here
 			&& self.slash_commands.active.is_none()
 			&& state.can_attach(channel)
-			&& !self.upload_busy
-			&& self.attachment_files.len() < 10;
+			&& !self.attach_busy
+			&& self.attachment_files.len() + self.attachment_loading < 10;
 		let can_create_poll =
 			!editing_here && self.slash_commands.active.is_none() && state.can_create_poll(channel);
 		let application_command = !editing_here && self.slash_commands.active.is_some();
@@ -3088,7 +3278,7 @@ impl MessagingUi {
                     egui::pos2(ui.max_rect().left() - 10.0, cap_top.unwrap_or(ui.max_rect().top() - 6.0)),
                     egui::pos2(ui.max_rect().right() + 10.0, ui.max_rect().top()),
                 );
-                if !editing_here && self.attachment.is_some() {
+                if !editing_here && (self.attachment.is_some() || self.attachment_loading > 0) {
                     self.attachment_tray(ui, state.can_send(channel), upload_limit);
                 }
                 // Tall drafts stack the actions in bottom-aligned columns so the text keeps the
@@ -3180,7 +3370,7 @@ impl MessagingUi {
                         }
                         let pick = ui
                             .add_enabled_ui(!application_command && !self.ime_active && !ime_this_frame, |ui| {
-                                self.emoji_picker.image_sharing_enabled = self.image_sharing_enabled;
+                                self.emoji_picker.hide_nitro_emojis = self.hide_nitro_emojis;
                                 self.emoji_picker
                                     .show(ui, state, channel, &mut self.avatars, commands)
                             })
@@ -3195,12 +3385,6 @@ impl MessagingUi {
                                 Some(text)
                             },
                             Some(emoji_picker::Pick::React(_, _) | emoji_picker::Pick::Choose(_)) => None,
-                            Some(emoji_picker::Pick::Image(asset)) => {
-                                if editing_here { state.status = "Finish or cancel the edit before attaching an image."; }
-                                else if self.upload_busy { state.status = "Wait for the upload before attaching an image."; }
-                                else if self.image_sharing_enabled && state.can_send(channel) && state.can_attach(channel) { self.image_share_requested = Some(asset); }
-                                None
-                            },
                             Some(emoji_picker::Pick::Sticker(sticker)) => {
                                 if editing_here { state.status = "Finish or cancel the edit before sending a sticker."; }
                                 else if self.upload_busy { state.status = "Wait for the upload before sending a sticker."; }
@@ -3476,7 +3660,7 @@ impl MessagingUi {
                                 *modified = true;
                             }
                             if editing_here {
-                                self.edit_sent = false;
+                                self.edit_sent = None;
                             } else if cleared {
                                 self.clear_draft(state, channel);
                             } else {
@@ -3513,10 +3697,18 @@ impl MessagingUi {
                         if (send || slash_run) && !cancel_edit {
                             if let Some((edit_channel, message, content)) = &editing {
                                 if state.freshness == Freshness::Fresh
-                                    && let Some(command) = state.prepare_edit(*edit_channel, *message, content.clone())
+                                    && let Some(command) = state.prepare_edit(*edit_channel, *message,
+                                        if self.convert_emoticons { emoticons::convert(content) } else { content.clone() })
                                 {
+                                    if let Command::Edit { content: submitted, .. } = &command {
+                                        self.edit_sent = Some(SubmittedEdit {
+                                            channel: *edit_channel,
+                                            message: *message,
+                                            draft: content.clone(),
+                                            content: submitted.clone(),
+                                        });
+                                    }
                                     commands.push(command);
-                                    self.edit_sent = true;
                                 } else {
                                     state.status = "Edit kept. Wait for your current message and connection, and enter nonempty text.";
                                 }
@@ -3524,13 +3716,8 @@ impl MessagingUi {
                                 || self.handle_builtin_slash(state, channel, ctx, commands) {
                             } else if oversized {
                                 self.toasts.push(design::Level::Error, oversized_text(upload_limit));
-                            } else if !self.upload_busy && !(state.demo && self.attachment.is_some())
-                                && let Some(command) = state.prepare_send_with_attachments(&self.selected_files().iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>()) {
-                                // Consume the selection in this UI pass, before desktop dispatch.
-                                // A second render or Send gesture must not enqueue it again.
-                                self.stage_pending_upload(ctx, &command);
-                                self.timeline.follow_latest(state);
-                                commands.push(command);
+                            } else if !self.upload_busy && !(state.demo && self.attachment.is_some()) {
+                                self.submit_composer(state, ctx, commands);
                             }
                             if !application_command { edit.request_focus(); }
                             if application_command && self.slash_commands.active.is_none() {
@@ -3550,17 +3737,28 @@ impl MessagingUi {
 		if editing_here {
 			self.editing = if cancel_edit { None } else { editing };
 			if cancel_edit {
-				self.edit_sent = false;
+				self.edit_sent = None;
 			}
 		}
-		if self.edit_sent
-			&& self.editing.as_ref().is_some_and(|(channel, id, content)| {
-				state.timeline.get(*id).is_some_and(|message| {
-					message.channel == *channel && message.content == *content
-				})
-			}) {
+		if self.edit_sent.as_ref().is_some_and(|submitted| {
+			self.editing
+				.as_ref()
+				.is_some_and(|(channel, message, draft)| {
+					*channel == submitted.channel
+						&& *message == submitted.message
+						&& *draft == submitted.draft
+				}) && !state
+				.message_actions
+				.edit_pending(submitted.channel, submitted.message)
+				&& state
+					.timeline
+					.get(submitted.message)
+					.is_some_and(|message| {
+						message.channel == submitted.channel && message.content == submitted.content
+					})
+		}) {
 			self.editing = None;
-			self.edit_sent = false;
+			self.edit_sent = None;
 		}
 	}
 	/// Selected-file cards above the composer input, in the style of Discord's upload tray.
@@ -3612,6 +3810,9 @@ impl MessagingUi {
 								}
 							});
 						});
+					}
+					for index in 0..self.attachment_loading.min(10) {
+						ui.push_id(("loading", index), attachments::loading_card);
 					}
 				});
 			});
@@ -3736,6 +3937,12 @@ impl MessagingUi {
 	}
 
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		self.timeline.download.gif_favorites = state
+			.gifs
+			.favorites
+			.iter()
+			.map(|gif| gif.url.clone())
+			.collect();
 		crate::scroll::apply_preferences(ui.ctx(), self.reading_preferences);
 		let diagnostics_chord = self
 			.keybinds
@@ -3799,7 +4006,7 @@ impl MessagingUi {
 			let (channel, message, content) = state.message_actions.failed_edits.remove(index);
 			self.editing = Some((channel, message, content));
 			self.edit_modified = Some((channel, message, true));
-			self.edit_sent = false;
+			self.edit_sent = None;
 		}
 
 		if self
@@ -4413,6 +4620,9 @@ impl MessagingUi {
 							}),
 					)
 					.show(ui, |ui| {
+						if state.message_request(channel) {
+							self.message_request_bar(ui, state, channel);
+						}
 						self.composer(ui, state, channel, &ctx, &mut commands);
 					});
 				if let Some((shape, top)) = message_fill {
@@ -4465,9 +4675,15 @@ impl MessagingUi {
 						design::paint_chat_background(ui, ui.available_rect_before_wrap());
 						self.timeline.hide_media_links = self.reading_preferences.hide_media_links;
 						self.timeline.compact_messages = self.reading_preferences.compact_messages;
+						self.timeline.double_click_reaction = self
+							.reading_preferences
+							.double_click_reaction_enabled
+							.then_some(self.reading_preferences.double_click_emoji());
 						self.timeline.instant_scrolling =
 							!self.reading_preferences.smooth_scrolling;
 						self.timeline.extension_actions = self.extensions.message_actions();
+						self.timeline.quick_reactions =
+							Some(self.reaction_picker.quick_reactions());
 						let mut seen = std::collections::BTreeSet::new();
 						let author_lookup: Vec<_> = state
 							.timeline
@@ -4522,6 +4738,7 @@ impl MessagingUi {
 							self.reaction_picker
 								.open_reaction(state, message, anchor, trigger);
 						}
+						self.reaction_picker.hide_nitro_emojis = self.hide_nitro_emojis;
 						self.reaction_picker.show_reaction(
 							ui,
 							state,
@@ -4593,7 +4810,7 @@ impl MessagingUi {
 							self.edit_modified = None;
 							self.edit_undo_cleared = false;
 							self.composer_edit = None;
-							self.edit_sent = false;
+							self.edit_sent = None;
 						}
 						if std::mem::take(&mut self.timeline.reply_started) {
 							self.focus_switched_composer = true;
@@ -4829,6 +5046,9 @@ impl MessagingUi {
 			state.dismiss_ephemeral(id);
 			self.timeline.components.forget_message(id);
 		}
+		if let Some(text) = self.timeline.quick_reaction_used.take() {
+			self.reaction_picker.record(text);
+		}
 		if let Some((message, emoji)) = self.timeline.reaction.take() {
 			if let Some(emoji) = emoji {
 				if let Some(command) = state.prepare_reaction(message, emoji) {
@@ -4903,6 +5123,18 @@ impl MessagingUi {
 					.and_then(|channel| channel.guild)
 			});
 			self.sync_profile(state, &mut commands, &user, profile_guild);
+			// The private note uses an independent read and never locks message actions.
+			if !user.webhook
+				&& state.user.as_ref().is_some_and(|own| own.id != user.id)
+				&& state.user_note(user.id).is_none()
+				&& (state.demo
+					|| (state.gateway_connected
+						&& state.auth == client_core::auth::AuthState::Authenticated))
+				&& self.profile.note_wanted(state.generation, user.id)
+				&& let Some(command) = state.load_user_note(user.id)
+			{
+				commands.push(command);
+			}
 			let anchor = self.profile.anchor_or_place(&ctx, user.id);
 			self.profile.ingest_opener_rect(&ctx);
 			match profiles::show_with_session(
@@ -5087,6 +5319,9 @@ impl MessagingUi {
 			.show(&ctx, if self.shows_title_bar() { 96.0 } else { 60.0 });
 		if !commands.is_empty() {
 			ctx.request_repaint();
+		}
+		if let Some(gif) = self.timeline.download.gif_favorite_request.take() {
+			state.toggle_gif_favorite(&gif);
 		}
 		commands
 	}
@@ -5344,6 +5579,160 @@ mod composer_tests {
 				matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == "Cancel download")
 			}));
 			output.drop_without_applying_deltas();
+		}
+	}
+
+	#[test]
+	fn emoticon_conversion_composer_on_off_and_rejected_sends_keep_raw_drafts() {
+		for enabled in [false, true] {
+			for rejection in [None, Some("budget"), Some("oversized")] {
+				let mut state = edit_state();
+				if rejection == Some("budget") {
+					for _ in 0..64 {
+						state.drafts.insert(Id(10), "Queued".into());
+						assert!(state.prepare_send().is_some());
+					}
+				}
+				state.drafts.insert(Id(10), "Hello :)".into());
+				let mut view = MessagingUi {
+					convert_emoticons: enabled,
+					focus_switched_composer: true,
+					attachment: (rejection == Some("oversized"))
+						.then(|| ("large.txt".into(), 500 * 1024 * 1024 + 1)),
+					..Default::default()
+				};
+				let ctx = egui::Context::default();
+				for _ in 0..2 {
+					edit_frame(&ctx, &mut view, &mut state, vec![]);
+				}
+				let commands = edit_frame(
+					&ctx,
+					&mut view,
+					&mut state,
+					vec![edit_key(egui::Key::Enter)],
+				);
+				if rejection.is_some() {
+					assert!(
+						!commands
+							.iter()
+							.any(|command| matches!(command, Command::Send { .. }))
+					);
+					assert_eq!(state.drafts[&Id(10)], "Hello :)");
+				} else {
+					let expected = if enabled { "Hello 🙂" } else { "Hello :)" };
+					assert!(commands.iter().any(
+						|command| matches!(command, Command::Send { content, .. } if content == expected)
+					));
+				}
+			}
+		}
+	}
+
+	#[test]
+	fn emoticon_conversion_edits_wait_for_confirmation_and_keep_raw_text_on_failure() {
+		for success in [false, true] {
+			let mut state = edit_state();
+			let mut view = MessagingUi {
+				convert_emoticons: true,
+				editing: Some((Id(10), Id(20), "Hello :)".into())),
+				..Default::default()
+			};
+			let ctx = egui::Context::default();
+			edit_frame(&ctx, &mut view, &mut state, vec![]);
+			let commands = edit_frame(
+				&ctx,
+				&mut view,
+				&mut state,
+				vec![edit_key(egui::Key::Enter)],
+			);
+			let [
+				Command::Edit {
+					content, request, ..
+				},
+			] = commands.as_slice()
+			else {
+				panic!("One converted edit")
+			};
+			assert_eq!(content, "Hello 🙂");
+			assert_eq!(view.editing.as_ref().unwrap().2, "Hello :)");
+			assert_eq!(state.timeline.get(Id(20)).unwrap().content, "Hello 🙂");
+			// An optimistic update and an unrelated result must not close the editor.
+			let confirmed = state.timeline.get(Id(20)).unwrap().clone();
+			state.apply_edit_result(Id(10), Id(20), request + 1, Ok(confirmed.clone()));
+			edit_frame(&ctx, &mut view, &mut state, vec![]);
+			assert!(view.has_edit());
+			// Navigation must retain the submitted value and the raw draft.
+			state.selected = Some(Id(11));
+			edit_frame(&ctx, &mut view, &mut state, vec![]);
+			state.selected = Some(Id(10));
+			let result = if success {
+				Ok(confirmed)
+			} else {
+				Err(client_core::auth::Failure::Network)
+			};
+			state.apply_edit_result(Id(10), Id(20), *request, result);
+			edit_frame(&ctx, &mut view, &mut state, vec![]);
+			assert_eq!(state.drafts[&Id(10)], "Unsent draft 👋");
+			assert!(view.edit_sent.is_none());
+			if success {
+				assert!(!view.has_edit());
+			} else {
+				assert_eq!(view.editing.as_ref().unwrap().2, "Hello :)");
+				assert!(state.message_actions.failed_edits.is_empty());
+				let retry = edit_frame(
+					&ctx,
+					&mut view,
+					&mut state,
+					vec![edit_key(egui::Key::Enter)],
+				);
+				assert!(
+					matches!(retry.as_slice(), [Command::Edit { content, .. }] if content == "Hello 🙂")
+				);
+			}
+		}
+	}
+
+	#[test]
+	fn emoticon_conversion_failed_noop_edit_and_success_with_newer_input_stay_open() {
+		for success in [false, true] {
+			let ctx = egui::Context::default();
+			let mut state = edit_state();
+			let mut original = state.timeline.get(Id(20)).unwrap().clone();
+			original.content = "Hello 🙂".into();
+			state.timeline.insert(original, true, false).unwrap();
+			let mut view = MessagingUi {
+				convert_emoticons: true,
+				editing: Some((Id(10), Id(20), "Hello :)".into())),
+				..Default::default()
+			};
+			edit_frame(&ctx, &mut view, &mut state, vec![]);
+			let commands = edit_frame(
+				&ctx,
+				&mut view,
+				&mut state,
+				vec![edit_key(egui::Key::Enter)],
+			);
+			let [Command::Edit { request, .. }] = commands.as_slice() else {
+				panic!()
+			};
+			if success {
+				edit_frame(
+					&ctx,
+					&mut view,
+					&mut state,
+					vec![egui::Event::Text(" newer".into())],
+				);
+			}
+			let kept = view.editing.as_ref().unwrap().2.clone();
+			let result = if success {
+				Ok(state.timeline.get(Id(20)).unwrap().clone())
+			} else {
+				Err(client_core::auth::Failure::Network)
+			};
+			state.apply_edit_result(Id(10), Id(20), *request, result);
+			edit_frame(&ctx, &mut view, &mut state, vec![]);
+			assert_eq!(view.editing.as_ref().unwrap().2, kept);
+			assert!(view.edit_sent.is_none());
 		}
 	}
 
@@ -6201,7 +6590,7 @@ mod composer_tests {
 		assert!(
 			matches!(commands.as_slice(), [Command::Edit { channel: Id(10), message: Id(20), content, .. }] if content.trim_end() == "Original <@1> 語")
 		);
-		assert!(!view.has_edit(), "accepted edits close immediately");
+		assert!(view.has_edit(), "optimistic edits await confirmation");
 		assert_eq!(
 			state.timeline.get(Id(20)).unwrap().content,
 			"Original <@1> 語\n"
@@ -6237,7 +6626,7 @@ mod composer_tests {
 		let [Command::Edit { request, .. }] = commands.as_slice() else {
 			panic!()
 		};
-		assert!(!view.has_edit());
+		assert!(view.has_edit());
 		let confirmed = state.timeline.get(Id(20)).unwrap().clone();
 		view.editing = Some((Id(10), Id(20), "Newer input".into()));
 		state.apply_edit_result(Id(10), Id(20), *request, Ok(confirmed));
@@ -6369,7 +6758,18 @@ mod composer_tests {
 					},
 					|ui| commands = view.show(ui, state),
 				);
-				assert!(output.platform_output.commands.is_empty());
+				assert!(
+					output
+						.platform_output
+						.commands
+						.iter()
+						.all(|command| matches!(
+							command,
+							egui::OutputCommand::TextSelectionSettled(_)
+						)),
+					"{:?}",
+					output.platform_output.commands
+				);
 				assert!(
 					!commands.iter().any(|command| matches!(
 						command,
@@ -6543,7 +6943,18 @@ mod composer_tests {
 					},
 					|ui| commands = view.show(ui, state),
 				);
-				assert!(output.platform_output.commands.is_empty());
+				assert!(
+					output
+						.platform_output
+						.commands
+						.iter()
+						.all(|command| matches!(
+							command,
+							egui::OutputCommand::TextSelectionSettled(_)
+						)),
+					"{:?}",
+					output.platform_output.commands
+				);
 				assert!(!commands.iter().any(|command| matches!(
 					command,
 					Command::History { .. }
@@ -6648,7 +7059,18 @@ mod composer_tests {
 					},
 					|ui| commands = view.show(ui, state),
 				);
-				assert!(output.platform_output.commands.is_empty());
+				assert!(
+					output
+						.platform_output
+						.commands
+						.iter()
+						.all(|command| matches!(
+							command,
+							egui::OutputCommand::TextSelectionSettled(_)
+						)),
+					"{:?}",
+					output.platform_output.commands
+				);
 				assert!(!commands.iter().any(|command| matches!(
 					command,
 					Command::Send { .. }
@@ -6910,7 +7332,16 @@ mod composer_tests {
 					command,
 					Command::Send { .. } | Command::Edit { .. } | Command::Delete { .. }
 				)));
-				assert!(output.platform_output.commands.is_empty());
+				assert!(
+					output
+						.platform_output
+						.commands
+						.iter()
+						.all(|command| matches!(
+							command,
+							egui::OutputCommand::TextSelectionSettled(_)
+						))
+				);
 				let mut labels = vec![];
 				for shape in &output.shapes {
 					collect(&shape.shape, &mut labels);
@@ -7184,6 +7615,8 @@ mod composer_tests {
 					bits: 0,
 					name: "Founders".into(),
 					color: 0xe78284,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 1,
 					hoist: true,
 				}]),
@@ -7380,6 +7813,10 @@ mod composer_tests {
 		let mut state = test_support::demo_state();
 		state.demo = false; // Exercise normal command admission using synthetic loaded data.
 		state.guild_folders = Some(Default::default()); // Folder fetch is outside this presence-only scenario.
+		// Forum sidebar loading is outside this presence-only scenario.
+		state
+			.channels
+			.retain(|entry| !matches!(entry.kind, 15 | 16));
 		let channel = state.selected.unwrap();
 		let guild = state
 			.channels
@@ -7423,6 +7860,19 @@ mod composer_tests {
 			error: None,
 			data: Some(profiles::synthetic(&user, Some(guild))),
 		});
+		// The card's one private-note read is outside this presence-only scenario.
+		let Some(Command::UserAction { request, .. }) = state.load_user_note(user.id) else {
+			panic!("The synthetic profile note loads");
+		};
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::UserAction(client_core::user_actions::Event::NoteLoaded {
+				user: user.id,
+				request,
+				result: Ok(String::new()),
+			}),
+		});
+		assert_eq!(state.user_note(user.id), Some(""));
 		state
 			.drafts
 			.insert(channel, "Keep this unsent draft".into());
@@ -7633,7 +8083,16 @@ mod composer_tests {
 							messaging.show(ui, &mut state);
 						},
 					);
-					assert!(output.platform_output.commands.is_empty());
+					assert!(
+						output
+							.platform_output
+							.commands
+							.iter()
+							.all(|command| matches!(
+								command,
+								egui::OutputCommand::TextSelectionSettled(_)
+							))
+					);
 					for shape in &output.shapes {
 						collect(&shape.shape, &mut painted);
 					}
@@ -8558,3 +9017,407 @@ pub fn debug_forward_check(state: &mut State) {
 			.all(|p| p.delivery != model::Delivery::Sending)
 	);
 }
+
+/// Offline issue #559 check; no transport, image worker or audio device is attached.
+#[cfg(feature = "demo")]
+pub fn debug_gif_favorites_check(mut message: model::Message) -> Vec<model::Gif> {
+	let proxy = "https://images-ext-1.discordapp.net/external/synthetic/https/example.org/wave.gif";
+	let cases = [
+		(
+			"https://cdn.discordapp.com/attachments/1/2/wave.gif?ex=abc&is=def&hm=123",
+			None,
+			false,
+		),
+		("https://example.org/wave.gif", Some(proxy), false),
+		("https://media.tenor.com/synthetic/wave.mp4", None, true),
+	];
+	let mut gifs = Vec::new();
+	for (url, proxy_url, animated) in cases {
+		let media = model::EmbedMedia {
+			url: Some(url.into()),
+			proxy_url: proxy_url.map(str::to_owned),
+			width: 320,
+			height: 200,
+			..Default::default()
+		};
+		let gif = embeds::gif_for_media(&media, None, animated).expect("GIF can be starred");
+		assert_eq!(gif.url, url);
+		assert_eq!(gif.preview, proxy_url.unwrap_or(url));
+		gifs.push(gif);
+	}
+	assert!(
+		embeds::gif_for_media(
+			&model::EmbedMedia {
+				url: Some("https://example.org/still.png".into()),
+				proxy_url: Some(proxy.into()),
+				..Default::default()
+			},
+			None,
+			false
+		)
+		.is_some()
+	); // Proxy itself identifies an animated image.
+	assert!(
+		embeds::gif_for_media(
+			&model::EmbedMedia {
+				url: Some("https://example.org/wave.gif".into()),
+				..Default::default()
+			},
+			None,
+			false
+		)
+		.is_none(),
+		"foreign originals do not authorize a fetch"
+	);
+	for bad in [
+		"https://user@example.org/x.gif",
+		"http://example.org/x.gif",
+		"https://example.org/x.gif\n",
+	] {
+		assert!(!model::valid_gif_favorite_url(bad));
+	}
+	let ctx = egui::Context::default();
+	let mut state = client_core::State::default();
+	let mut images = avatars::Avatars::default();
+	let mut download = DownloadUi::default();
+	message.attachments.clear();
+	message.attachments.push(model::Attachment {
+		id: model::Id(2),
+		filename: "wave.gif".into(),
+		description: None,
+		content_type: Some("image/gif".into()),
+		size: 100,
+		spoiler: false,
+		duration_ms: None,
+		waveform: vec![],
+		media: model::EmbedMedia {
+			url: Some(gifs[0].url.clone()),
+			width: 320,
+			height: 200,
+			..Default::default()
+		},
+	});
+	let mut star = None;
+	for click in [false, true] {
+		let events = star
+			.filter(|_| click)
+			.map(|pos| {
+				vec![
+					egui::Event::PointerMoved(pos),
+					egui::Event::PointerButton {
+						pos,
+						button: egui::PointerButton::Primary,
+						pressed: true,
+						modifiers: Default::default(),
+					},
+					egui::Event::PointerButton {
+						pos,
+						button: egui::PointerButton::Primary,
+						pressed: false,
+						modifiers: Default::default(),
+					},
+				]
+			})
+			.unwrap_or_default();
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(640.0, 480.0),
+				)),
+				events,
+				..Default::default()
+			},
+			|ui| {
+				attachments::show(
+					ui,
+					&message,
+					&mut images,
+					&mut None,
+					&mut None,
+					&mut download,
+					&mut audio::AudioUi::default(),
+					&mut video::VideoUi::default(),
+					true,
+					&mut select::Surface::new(ui, "gif-check"),
+					design::MessageCardSurface::Opaque,
+				);
+			},
+		);
+		star = output.shapes.iter().find_map(|shape| match &shape.shape {
+			egui::Shape::Rect(rect) if rect.rect.size() == egui::Vec2::splat(30.0) => {
+				Some(rect.rect.center())
+			}
+			_ => None,
+		});
+		output.drop_without_applying_deltas();
+	}
+	let clicked = download
+		.gif_favorite_request
+		.take()
+		.expect("attachment star click");
+	assert!(state.toggle_gif_favorite(&clicked));
+	assert!(state.is_gif_favorite(&clicked));
+	assert!(state.toggle_gif_favorite(&clicked));
+	assert!(!state.is_gif_favorite(&clicked));
+	gifs
+}
+
+/// Offline exercise of the same picker, composer, Markdown and optimistic row paths.
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub fn debug_image_sharing(state: &mut State) -> (Vec<model::ImageShare>, String) {
+	let ctx = egui::Context::default();
+	let channel = state.selected.unwrap();
+	let mut view = MessagingUi::default();
+	let mut commands = Vec::new();
+	let picked = mentions::debug_image_completion(state);
+	assert_eq!(picked, emoji_picker::debug_fallback_choice(state));
+	let sticker = model::ImageShare::Sticker {
+		id: Id(9201),
+		format_type: 1,
+	}
+	.markdown("Wave [hello]")
+	.unwrap();
+	let mixed = format!("Hello {picked} {sticker}!");
+	assert!(model::ImageShare::markdown_only(&mixed).is_none());
+	assert!(model::ImageShare::markdown_only("[evil](https://example.com/image.png)").is_none());
+	assert!(
+		model::ImageShare::from_url("https://cdn.discordapp.com/emojis/9002.gif?size=64&extra=1")
+			.is_none()
+	);
+	assert!(
+		model::ImageShare::from_url("https://cdn.discordapp.com/emojis/09002.gif?size=64")
+			.is_none()
+	);
+	state.drafts.insert(channel, mixed.clone());
+	for dark in [true, false] {
+		ctx.set_visuals(if dark {
+			egui::Visuals::dark()
+		} else {
+			egui::Visuals::light()
+		});
+		for _ in 0..2 {
+			let output = ctx.run_ui(Default::default(), |ui| {
+				view.composer(ui, state, channel, &ctx, &mut commands);
+				markdown::Formatted::parse(&mixed).show_with_images(
+					ui,
+					&mut None,
+					&[],
+					None,
+					&mut profiles::ProfileSession::default(),
+					(&mut view.avatars, true, &[]),
+					design::MessageCardSurface::Conversation,
+				);
+			});
+			assert!(
+				output.shapes.iter().any(
+					|shape| matches!(&shape.shape, egui::Shape::Rect(rect) if rect.brush.is_some())
+				),
+				"native inline artwork renders"
+			);
+			output.drop_without_applying_deltas();
+		}
+	}
+	assert!(
+		commands.is_empty() && view.image_share_requested.is_none(),
+		"picking and rendering never sends"
+	);
+	view.submit_composer(state, &ctx, &mut commands);
+	assert!(matches!(commands.as_slice(), [Command::Send { content, .. }] if content == &mixed));
+	assert!(state.pending.last().unwrap().attachments.is_empty());
+	state.pending.clear();
+	commands.clear();
+	view.preview_attachment(
+		"emoji-9002.gif",
+		12,
+		Some(egui::ColorImage::filled([4, 4], egui::Color32::WHITE)),
+	);
+	let command = state.prepare_image_send(&["emoji-9002.gif"]).unwrap();
+	view.stage_pending_upload(&ctx, &command);
+	let output = ctx.run_ui(Default::default(), |ui| {
+		pending::show(
+			ui,
+			state.pending.last().unwrap(),
+			(false, 10, false),
+			state,
+			(
+				&mut view.avatars,
+				&mut None,
+				&mut view.profile,
+				&mut None,
+				&mut markdown::FormatCache::default(),
+			),
+			view.pending_upload.as_ref(),
+			(&mut None, &mut false),
+		);
+	});
+	assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == "Restore to composer")), "sending artwork has no restore button");
+	output.drop_without_applying_deltas();
+	state.pending.clear();
+	view = MessagingUi::default();
+	let alone = format!("{picked} {sticker}");
+	state.drafts.insert(channel, alone.clone());
+	view.submit_composer(state, &ctx, &mut commands);
+	view.submit_composer(state, &ctx, &mut commands);
+	assert!(commands.is_empty() && state.pending.is_empty());
+	let (generation, queued_channel, assets, draft) = view.image_share_requested.take().unwrap();
+	assert_eq!((generation, queued_channel), (state.generation, channel));
+	assert_eq!(assets.len(), 2);
+	assert_eq!(
+		state.drafts[&channel], alone,
+		"preparation retains the draft until success"
+	);
+	(assets, draft)
+}
+
+/// Offline interaction check for PR 565; never attaches service or image workers.
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub fn debug_pr565(mut state: State, mut user: model::User) {
+	state.debug_profile_note_read_check(&user);
+	profiles::debug_activity_panel(&state);
+	profiles::debug_board_layout();
+	user.avatar = Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into());
+	markdown::Formatted::debug_quote_regressions();
+	let ctx = egui::Context::default();
+	ctx.enable_accesskit();
+	design::apply(&ctx);
+	let mut view = MessagingUi::default();
+	view.preview_profile(user.clone());
+	let frame = |view: &mut MessagingUi, state: &mut State, events| {
+		let mut output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(1120.0, 900.0),
+				)),
+				events,
+				focused: true,
+				..Default::default()
+			},
+			|ui| {
+				view.show(ui, state);
+			},
+		);
+		output.textures_delta.clear();
+		output
+	};
+	let avatar = |output: &egui::FullOutput, label: &str| {
+		let bounds = output
+			.platform_output
+			.accesskit_update
+			.as_ref()
+			.unwrap()
+			.nodes
+			.iter()
+			.find_map(|(_, node)| {
+				(node.label() == Some(label))
+					.then(|| node.bounds())
+					.flatten()
+					.filter(|rect| rect.x1 - rect.x0 > 50.0)
+			})
+			.expect("profile avatar is accessible");
+		egui::pos2(
+			((bounds.x0 + bounds.x1) / 2.0) as f32,
+			((bounds.y0 + bounds.y1) / 2.0) as f32,
+		)
+	};
+	let click = |view: &mut MessagingUi, state: &mut State, pos| {
+		for pressed in [true, false] {
+			frame(
+				view,
+				state,
+				vec![
+					egui::Event::PointerMoved(pos),
+					egui::Event::PointerButton {
+						pos,
+						button: egui::PointerButton::Primary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					},
+				],
+			);
+		}
+	};
+	for _ in 0..3 {
+		frame(&mut view, &mut state, vec![]);
+	}
+	let compact = frame(&mut view, &mut state, vec![]);
+	let connection = state
+		.profile
+		.as_ref()
+		.unwrap()
+		.data
+		.as_ref()
+		.unwrap()
+		.connections[0]
+		.name
+		.clone();
+	assert!(!compact.shapes.iter().any(
+		|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text() == connection)
+	));
+	let own = state.user.clone().unwrap();
+	state.own_profile.data = Some(profiles::synthetic(&own, None));
+	assert_eq!(
+		profiles::known_username(&state, own.id).as_deref(),
+		Some("serein.preview")
+	);
+	click(
+		&mut view,
+		&mut state,
+		avatar(&compact, &i18n::translate("profiles-view-full-profile")),
+	);
+	for _ in 0..3 {
+		frame(&mut view, &mut state, vec![]);
+	}
+	let full = frame(&mut view, &mut state, vec![]);
+	assert!(
+		ctx.memory(|memory| memory.area_rect(egui::Id::unique("user-profile-full")))
+			.is_some()
+	);
+	assert!(
+		full.shapes.iter().any(
+			|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text() == connection)
+		),
+		"full profile retains connections"
+	);
+	click(
+		&mut view,
+		&mut state,
+		avatar(
+			&full,
+			&i18n::translate("profiles-show-view-profile-picture"),
+		),
+	);
+	let image = &view
+		.profile_image
+		.as_ref()
+		.expect("full avatar opens image")
+		.1;
+	assert!(image.media.url.as_ref().unwrap().contains("size=2048"));
+	view.profile_image = None;
+	user.webhook = true;
+	view.preview_profile(user);
+	for _ in 0..3 {
+		frame(&mut view, &mut state, vec![]);
+	}
+	let webhook = frame(&mut view, &mut state, vec![]);
+	click(
+		&mut view,
+		&mut state,
+		avatar(
+			&webhook,
+			&i18n::translate("profiles-show-view-profile-picture"),
+		),
+	);
+	assert!(
+		view.profile_image.is_some(),
+		"webhook avatar still opens its image"
+	);
+	emoji_picker::debug_gif_retry(&mut state);
+	println!(
+		"Profile avatar navigation, connections, username fallback, GIF retry and Markdown checks passed."
+	);
+}
+
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub use timeline::debug_copy_feedback_check;

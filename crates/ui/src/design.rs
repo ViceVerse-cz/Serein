@@ -1163,6 +1163,8 @@ pub fn apply(ctx: &egui::Context) {
 		options.input_options.max_double_click_delay = 0.5;
 	});
 }
+/// Height of the messaging window's custom title strip, in egui points.
+pub const TITLE_BAR_HEIGHT: f32 = 36.0;
 /// Space reserved at the left of window strips for macOS traffic lights.
 pub const TRAFFIC_LIGHT_INSET: f32 = if cfg!(target_os = "macos") { 72.0 } else { 0.0 };
 /// Width of the Windows caption buttons drawn by [`window_controls`]; zero elsewhere.

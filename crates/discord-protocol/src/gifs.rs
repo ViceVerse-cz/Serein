@@ -1,5 +1,7 @@
-//! Tenor results relayed by `/gifs/search` and `/gifs/trending`. Unofficial: the official
-//! developer reference does not document these normal-client routes.
+//! Provider results relayed by `/gifs/search`, `/gifs/trending` and `/gifs/trending-gifs`.
+//! Unofficial: the official developer reference does not document these normal-client routes.
+//! `/gifs/trending` carries the categories and only a sample GIF for the home tile; the
+//! trending grid itself is the plain GIF list from `/gifs/trending-gifs`.
 use model::{GIF_CATEGORIES, GIF_PAGE_SIZE, Gif, GifCategory, GifPage};
 use serde::{
 	Deserialize, Deserializer,
@@ -8,9 +10,25 @@ use serde::{
 
 pub const MAX_WIRE: usize = 256 * 1024;
 
+/// Provider IDs arrive as strings; accept a bare number too rather than reject the page.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum WireId {
+	Text(String),
+	Number(u64),
+}
+impl From<WireId> for String {
+	fn from(id: WireId) -> Self {
+		match id {
+			WireId::Text(id) => id,
+			WireId::Number(id) => id.to_string(),
+		}
+	}
+}
+
 #[derive(Deserialize)]
 pub struct GifDto {
-	id: String,
+	id: WireId,
 	#[serde(default)]
 	title: String,
 	url: String,
@@ -81,7 +99,7 @@ fn into_gifs(gifs: Vec<GifDto>) -> Vec<Gif> {
 			continue;
 		};
 		let gif = Gif {
-			id: gif.id,
+			id: gif.id.into(),
 			title: gif.title.trim().chars().take(256).collect(),
 			// Sharing the actual GIF lets the timeline play it without a provider video player.
 			url: gif
@@ -110,6 +128,16 @@ impl SearchReply {
 	}
 }
 impl TrendingReply {
+	/// Categories from `/gifs/trending` with the full `/gifs/trending-gifs` list; the sample
+	/// GIF is kept only when the full list has nothing usable.
+	pub fn into_page_with(self, trending: SearchReply) -> Result<GifPage, &'static str> {
+		let mut page = self.into_page()?;
+		let gifs = into_gifs(trending.0);
+		if !gifs.is_empty() {
+			page.gifs = gifs;
+		}
+		page.valid().then_some(page).ok_or("GIF page rejected")
+	}
 	pub fn into_page(self) -> Result<GifPage, &'static str> {
 		let mut categories: Vec<GifCategory> = Vec::with_capacity(self.categories.len());
 		for category in self.categories {
@@ -188,5 +216,53 @@ mod tests {
 				.is_ok()
 		);
 		assert!(crate::decode::<SearchReply>(b"{}").is_err());
+	}
+
+	/// Synthetic replies shaped like the normal client's trending routes: `/gifs/trending`
+	/// sends categories plus one sample GIF, `/gifs/trending-gifs` the grid itself.
+	#[test]
+	fn trending_grid_comes_from_trending_gifs_and_keeps_categories() {
+		let klipy = |id: &str| {
+			let name = id.trim_matches('"');
+			format!(
+				r#"{{"id":{id},"title":"Synthetic {name}","url":"https://klipy.com/gifs/synthetic-{name}","src":"https://static.klipy.com/s/{name}.mp4","gif_src":"https://static.klipy.com/s/{name}.webp","width":320,"height":240,"preview":"https://static.klipy.com/s/{name}.gif"}}"#
+			)
+		};
+		let categories = format!(
+			r#"{{"categories":[{{"name":"happy","src":"https://static.klipy.com/c/happy.mp4"}},{{"name":"dance","src":"https://static.klipy.com/c/dance.gif"}}],"gifs":[{}]}}"#,
+			klipy(r#""sample""#)
+		);
+		let grid = format!(
+			"[{},{},{}]",
+			klipy(r#""a1""#),
+			klipy("42"),
+			klipy(r#""a1""#)
+		);
+		let decode_categories = || crate::decode::<TrendingReply>(categories.as_bytes()).unwrap();
+		let page = decode_categories()
+			.into_page_with(crate::decode::<SearchReply>(grid.as_bytes()).unwrap())
+			.unwrap();
+		assert_eq!(
+			page.gifs
+				.iter()
+				.map(|gif| gif.id.as_str())
+				.collect::<Vec<_>>(),
+			["a1", "42"]
+		);
+		assert_eq!(page.gifs[0].preview, "https://static.klipy.com/s/a1.webp");
+		assert_eq!(
+			page.categories
+				.iter()
+				.map(|category| (category.name.as_str(), category.preview.is_some()))
+				.collect::<Vec<_>>(),
+			[("happy", false), ("dance", true)]
+		);
+		// An empty grid falls back to the sample rather than an empty Trending view.
+		let page = decode_categories()
+			.into_page_with(crate::decode::<SearchReply>(b"[]").unwrap())
+			.unwrap();
+		assert_eq!(page.gifs.len(), 1);
+		assert_eq!(page.gifs[0].id, "sample");
+		assert_eq!(page.categories.len(), 2);
 	}
 }

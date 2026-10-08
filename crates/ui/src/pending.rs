@@ -74,20 +74,19 @@ pub fn show(
 				if irc {
 					// Match a compact timeline row: a time-wide slot, the author, then the body.
 					let body_spacing = ui.spacing().item_spacing.x;
+					let line = ui.text_style_height(&egui::TextStyle::Body);
 					ui.spacing_mut().item_spacing.x = 8.0;
 					let time = ui.painter().layout_no_wrap(
 						"00:00".into(),
 						egui::FontId::proportional(12.0),
 						colors.muted,
 					);
-					ui.allocate_exact_size(
-						egui::vec2(time.size().x, crate::timeline::MESSAGE_LINE),
-						egui::Sense::hover(),
-					);
+					ui.allocate_exact_size(egui::vec2(time.size().x, line), egui::Sense::hover());
 					let width = crate::timeline::compact_author_width(ui.available_width());
-					ui.allocate_ui_with_layout(
-						egui::vec2(width, crate::timeline::MESSAGE_LINE),
-						egui::Layout::left_to_right(egui::Align::Center),
+					crate::timeline::compact_header(
+						ui,
+						width,
+						egui::FontId::new(15.5, design::medium_family(ui.ctx())),
 						|ui| {
 							ui.set_max_width(width);
 							ui.add(
@@ -232,7 +231,7 @@ pub fn show(
 								upload_strip(ui, pending, upload, cancel);
 							});
 						}
-					} else if pending.delivery != Delivery::Confirmed {
+					} else if !sending && pending.delivery != Delivery::Confirmed {
 						if pending.delivery == Delivery::Ambiguous {
 							ui.label(
 								RichText::new(crate::i18n::translate(

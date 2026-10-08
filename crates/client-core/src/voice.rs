@@ -124,6 +124,24 @@ pub struct Call {
 	pub watching: Option<Id>,
 	pub error: Option<&'static str>,
 }
+impl Call {
+	/// Discord's microphone indicator: deafening always reads (and is sent) as muted.
+	pub fn self_muted(&self) -> bool {
+		self.muted || self.deafened
+	}
+}
+/// Applies one local mute (`deafen == false`) or deafen toggle to the latest `(muted, deafened)`.
+///
+/// `muted` is the microphone choice kept underneath a deafen, so undeafening restores it.
+/// Unmuting while deafened clears both, as in Discord. Callers must pass the newest state,
+/// never a snapshot taken before an earlier toggle in the same burst.
+pub fn toggle_self_voice(muted: bool, deafened: bool, deafen: bool) -> (bool, bool) {
+	match (deafen, deafened) {
+		(true, _) => (muted, !deafened),
+		(false, true) => (false, false),
+		(false, false) => (!muted, false),
+	}
+}
 #[derive(Default)]
 pub struct State {
 	pub active: Option<Call>,
@@ -1207,6 +1225,35 @@ mod tests {
 	}
 
 	#[test]
+	fn deafen_implies_mute_and_undeafen_restores_the_previous_microphone() {
+		use super::toggle_self_voice as toggle;
+		// Deafen while live, undeafen: the microphone comes back live.
+		assert_eq!(toggle(false, false, true), (false, true));
+		assert_eq!(toggle(false, true, true), (false, false));
+		// Deafen while muted, undeafen: still muted.
+		assert_eq!(toggle(true, false, true), (true, true));
+		assert_eq!(toggle(true, true, true), (true, false));
+		// Unmuting while deafened clears both, like Discord's microphone button.
+		assert_eq!(toggle(true, true, false), (false, false));
+		assert_eq!(toggle(false, true, false), (false, false));
+		// Rapid bursts are pure functions of the newest state: an even number of the same
+		// toggle returns to the start, except that the first unmute also undeafens.
+		for start in [(false, false), (true, false), (false, true), (true, true)] {
+			for deafen in [false, true] {
+				let mut state = start;
+				for _ in 0..8 {
+					state = toggle(state.0, state.1, deafen);
+				}
+				let expected = if deafen || !start.1 {
+					start
+				} else {
+					(true, false)
+				};
+				assert_eq!(state, expected, "{start:?} deafen={deafen}");
+			}
+		}
+	}
+	#[test]
 	fn takeover_clears_only_the_matching_call_and_allows_an_explicit_rejoin() {
 		let mut state = stream_preview_state();
 		state.start_call(Id(20), false).unwrap();
@@ -1296,6 +1343,8 @@ mod tests {
 							id: Id(10),
 							name: String::new(),
 							color: 0,
+							secondary_color: None,
+							tertiary_color: None,
 							position: 0,
 							hoist: false,
 							bits: p::VIEW_CHANNEL,
@@ -1538,6 +1587,8 @@ mod tests {
 						roles: Some(vec![p::Role {
 							name: String::new(),
 							color: 0,
+							secondary_color: None,
+							tertiary_color: None,
 							position: 0,
 							hoist: false,
 							id: Id(10),
@@ -1651,6 +1702,8 @@ mod tests {
 							bits: p::VIEW_CHANNEL | p::CONNECT,
 							name: String::new(),
 							color: 0,
+							secondary_color: None,
+							tertiary_color: None,
 							position: 0,
 							hoist: false,
 						}]),
@@ -2019,6 +2072,20 @@ mod tests {
 			));
 			assert!(state.voice.active.as_ref().unwrap().muted);
 			assert!(state.voice.active.as_ref().unwrap().deafened);
+			// A rapid burst always applies to the latest state and ends where the UI does.
+			let (mut muted, mut deafened) = (false, false);
+			let mut last = None;
+			for deafen in [false, true, true, false, true, false, false, true, true] {
+				(muted, deafened) = super::toggle_self_voice(muted, deafened, deafen);
+				last = state.set_call_mute(muted, deafened);
+			}
+			let call = state.voice.active.as_ref().unwrap();
+			assert_eq!((call.muted, call.deafened), (muted, deafened));
+			assert!(matches!(
+				last,
+				Some(crate::Command::Voice(Command::SetMute { mute, deaf, .. }))
+					if mute == call.self_muted() && deaf == deafened
+			));
 			let mute = state.set_call_mute(true, false).unwrap();
 			state.command_rejected(mute);
 			assert!(state.voice.active.as_ref().unwrap().muted);

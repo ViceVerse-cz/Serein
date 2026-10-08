@@ -149,6 +149,32 @@ impl MessagingUi {
 				Some("reading-chat-reading-settings-tighter-gaps-between-message-groups"),
 				&mut value.compact_messages,
 			);
+			design::card_divider(ui);
+			design::switch(
+				ui,
+				"reading-double-click-reaction",
+				None,
+				&mut value.double_click_reaction_enabled,
+			);
+			ui.add_enabled_ui(value.double_click_reaction_enabled, |ui| {
+				design::row(ui, "emoji-picker-popup-emoji", None, |ui| {
+					egui::ComboBox::from_id_salt("double-click-reaction")
+						.width(96.0)
+						.selected_text(egui::RichText::new(value.double_click_emoji()).size(22.0))
+						.show_ui(ui, |ui| {
+							for (index, emoji) in ReadingPreferences::DOUBLE_CLICK_REACTIONS
+								.iter()
+								.enumerate()
+							{
+								ui.selectable_value(
+									&mut value.double_click_reaction,
+									index as u8,
+									egui::RichText::new(*emoji).size(22.0),
+								);
+							}
+						});
+				});
+			});
 		});
 		design::group(
 			ui,
@@ -194,6 +220,8 @@ impl MessagingUi {
 			value.animate_gifs = defaults.animate_gifs;
 			value.hide_media_links = defaults.hide_media_links;
 			value.compact_messages = defaults.compact_messages;
+			value.double_click_reaction_enabled = defaults.double_click_reaction_enabled;
+			value.double_click_reaction = defaults.double_click_reaction;
 			value.confirm_external_links = defaults.confirm_external_links;
 			value.smooth_scrolling = defaults.smooth_scrolling;
 			value.scroll_speed_percent = defaults.scroll_speed_percent;
@@ -332,6 +360,8 @@ mod tests {
 			show_members: false,
 			show_members_dms: false,
 			compact_messages: true,
+			double_click_reaction_enabled: false,
+			double_click_reaction: 0,
 			animate_gifs: false,
 			smooth_scrolling: true,
 			scroll_speed_percent: 100,

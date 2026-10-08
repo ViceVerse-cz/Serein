@@ -577,42 +577,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			&catalog_wasm_dir.join("voice_messages.wasm"),
 		)?,
 	);
-	for (name, committed, manifest, wasm_file, expected) in [
-		(
-			"message-delete-protector",
-			include_bytes!(
-				"../../../extensions/plugins/packages/message-delete-protector.serein-extension"
-			)
-			.as_slice(),
-			include_str!("../../../extensions/plugins/message-delete-protector/manifest.json"),
-			"message_delete_protector.wasm",
-			Output {
-				preserve_deleted_messages: true,
-				..Default::default()
-			},
+	let expected = Output {
+		preserve_deleted_messages: true,
+		..Default::default()
+	};
+	check(
+		"message-delete-protector/committed",
+		include_bytes!(
+			"../../../extensions/plugins/packages/message-delete-protector.serein-extension"
 		),
-		(
-			"emoji-sticker-images",
-			include_bytes!(
-				"../../../extensions/plugins/packages/emoji-sticker-images.serein-extension"
-			)
-			.as_slice(),
-			include_str!("../../../extensions/plugins/emoji-sticker-images/manifest.json"),
-			"emoji_sticker_images.wasm",
-			Output {
-				image_sharing: true,
-				..Default::default()
-			},
-		),
-	] {
-		check(&format!("{name}/committed"), committed, &expected);
-		let rebuilt = rebuilt(manifest, &catalog_wasm_dir.join(wasm_file))?;
-		check(
-			&format!("{name}/rebuilt"),
-			&serde_json::to_vec(&rebuilt)?,
-			&expected,
-		);
-	}
+		&expected,
+	);
+	let protector = rebuilt(
+		include_str!("../../../extensions/plugins/message-delete-protector/manifest.json"),
+		&catalog_wasm_dir.join("message_delete_protector.wasm"),
+	)?;
+	check(
+		"message-delete-protector/rebuilt",
+		&serde_json::to_vec(&protector)?,
+		&expected,
+	);
 	// Editor plugins have no fixed activation output; their rebuilt panel must still validate.
 	for (name, manifest, wasm_file) in [
 		(

@@ -2,7 +2,7 @@
 use egui::{Context, FontData, FontDefinitions, FontFamily};
 use std::sync::{Arc, Mutex, Weak};
 
-pub const MAX_CUSTOM_FONT_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_CUSTOM_FONT_BYTES: usize = 32 * 1024 * 1024;
 const CUSTOM: [&str; 3] = [
 	"Serein Custom",
 	"Serein Custom Medium",
@@ -21,7 +21,7 @@ impl CustomFont {
 	pub fn new(mut name: String, mut bytes: Vec<u8>) -> Result<Self, &'static str> {
 		use skrifa::{MetadataProvider, raw::TableProvider};
 		if bytes.is_empty() || bytes.len() > MAX_CUSTOM_FONT_BYTES {
-			return Err("Choose a font up to 8 MiB.");
+			return Err("Choose a font up to 32 MiB.");
 		}
 		if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
 			return Err("The font name is invalid.");
@@ -64,7 +64,7 @@ pub fn standalone_face(data: &[u8], index: u32) -> Result<Vec<u8>, &'static str>
 		size.checked_add((record.length() as usize).next_multiple_of(4))
 	});
 	if size.is_none_or(|size| size > MAX_CUSTOM_FONT_BYTES) {
-		return Err("Choose a font up to 8 MiB.");
+		return Err("Choose a font up to 32 MiB.");
 	}
 	let count = records.len() as u16;
 	let selector = 15 - count.leading_zeros() as u16;
@@ -135,7 +135,7 @@ impl Settings {
 			});
 			design::hint(
 				ui,
-				&crate::i18n::translate("fonts-show-ttf-or-otf-up-to-8-mib-saved-on-this"),
+				&crate::i18n::translate("fonts-show-ttf-or-otf-up-to-32-mib-saved-on-this"),
 			);
 			ui.label(crate::i18n::translate(
 				"fonts-show-the-quick-brown-fox-jumps-over-the-lazy-dog-0123456789",
@@ -218,6 +218,7 @@ impl Settings {
 				let search = design::input(
 					ui,
 					egui::TextEdit::singleline(&mut self.query)
+						.align(egui::Align2::LEFT_CENTER)
 						.hint_text(crate::i18n::translate("fonts-show-search"))
 						.char_limit(64),
 				);
@@ -329,13 +330,14 @@ impl Settings {
 }
 
 /// Use the active definitions so layout caches change on the same pass as egui's fonts.
-pub fn revision(ctx: &Context) -> (usize, usize) {
+pub fn revision(ctx: &Context) -> (usize, usize, u32) {
 	ctx.fonts(|fonts| {
 		let data = &fonts.definitions().font_data;
 		(
 			data.len(),
 			data.get(CUSTOM[0])
 				.map_or(0, |font| Arc::as_ptr(font) as usize),
+			data.get("Noto Sans CJK").map_or(0, |font| font.index),
 		)
 	})
 }
@@ -381,13 +383,17 @@ pub fn apply_custom(ctx: &Context, font: Option<&CustomFont>) {
 	ctx.request_repaint();
 }
 
-/// Noto Sans CJK JP is a quarter of the executable uncompressed (16.4 MB). It ships as a
-/// `zstd -19` archive (12.0 MB) and is inflated in memory the first time CJK text is
-/// drawn; Latin-only sessions never pay for the decode.
-const CJK_ZSTD: &[u8] = include_bytes!("../../../assets/fonts/NotoSansCJKjp-Regular.otf.zst");
-const CJK_BYTES: usize = 16_467_736;
+/// The regional faces share one collection, decoded off-thread on the first CJK text.
+/// Latin-only sessions never pay for the decode; language changes reuse the same bytes.
+const CJK_ZSTD: &[u8] = include_bytes!("../../../assets/fonts/NotoSansCJK-Regular.ttc.zst");
+const CJK_BYTES: usize = 19_484_784;
 const ARABIC: &[u8] = include_bytes!("../../../assets/fonts/NotoSansArabic.ttf");
 const MATH: &[u8] = include_bytes!("../../../assets/fonts/NotoSansMath-Regular.otf");
+/// Subset of Noto Sans Symbols 2 (punctuation, arrows, technical, miscellaneous
+/// symbols and dingbats incl. U+2726 BLACK FOUR POINTED STAR). Inter, the CJK,
+/// Arabic and Math faces all lack that scalar, so without this fallback egui
+/// paints Inter's `.notdef` (a stack of horizontal bars) wherever it appears.
+const SYMBOLS: &[u8] = include_bytes!("../../../assets/fonts/NotoSansSymbols2-Regular.ttf");
 const INTER: &[u8] = include_bytes!("../../../assets/fonts/Inter-Regular.ttf");
 const INTER_MEDIUM: &[u8] = include_bytes!("../../../assets/fonts/Inter-Medium.ttf");
 const INTER_SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf");
@@ -454,6 +460,7 @@ pub fn install(ctx: &Context) {
 		std::sync::Arc::new(move |ui| {
 			// Also true while the decode thread runs, so the scan stops after the first hit.
 			if installed.load(std::sync::atomic::Ordering::Relaxed) {
+				update_cjk(ui.ctx(), &shared, cjk_index(crate::i18n::current()));
 				return;
 			}
 			let mut scan = scan.lock().expect("CJK scan");
@@ -469,7 +476,7 @@ pub fn install(ctx: &Context) {
 			if needed {
 				*scan = CjkScan::default();
 				installed.store(true, std::sync::atomic::Ordering::Relaxed);
-				// Inflating 16 MB and reparsing the font set takes tens of milliseconds; keep
+				// Inflating 19 MB and reparsing the font set takes tens of milliseconds; keep
 				// it off the UI thread and accept one pass of fallback glyphs.
 				let worker = ctx.clone();
 				let definitions = shared.clone();
@@ -491,10 +498,31 @@ pub fn install(ctx: &Context) {
 }
 
 fn install_cjk(ctx: &Context, shared: &Mutex<FontDefinitions>) {
-	let data = FontData::from_owned(cjk());
+	let mut data = FontData::from_owned(cjk());
 	let mut definitions = shared.lock().expect("font definitions");
-	add_fallback(&mut definitions, "Noto Sans CJK JP", data);
+	data.index = cjk_index(crate::i18n::current());
+	add_fallback(&mut definitions, "Noto Sans CJK", data);
 	ctx.set_fonts(definitions.clone());
+}
+
+fn cjk_index(language: crate::i18n::Language) -> u32 {
+	match language.resolved() {
+		crate::i18n::Language::ChineseSimplified => 2,
+		crate::i18n::Language::ChineseTraditional => 3,
+		_ => 0,
+	}
+}
+
+fn update_cjk(ctx: &Context, shared: &Mutex<FontDefinitions>, index: u32) {
+	let mut definitions = shared.lock().expect("font definitions");
+	let Some(data) = definitions.font_data.get_mut("Noto Sans CJK") else {
+		return;
+	};
+	if data.index != index {
+		Arc::make_mut(data).index = index;
+		ctx.set_fonts(definitions.clone());
+		ctx.request_repaint();
+	}
 }
 
 fn add_fallback(definitions: &mut FontDefinitions, name: &str, data: FontData) {
@@ -564,16 +592,19 @@ fn definitions(with_cjk: bool) -> FontDefinitions {
 		list.extend(defaults.iter().cloned());
 	}
 	for (name, data) in with_cjk
-		.then(|| ("Noto Sans CJK JP", FontData::from_owned(cjk())))
+		.then(|| {
+			let mut data = FontData::from_owned(cjk());
+			data.index = cjk_index(crate::i18n::current());
+			("Noto Sans CJK", data)
+		})
 		.into_iter()
 		.chain([
 			("Noto Sans Arabic", FontData::from_static(ARABIC)),
 			("Noto Sans Math", FontData::from_static(MATH)),
+			("Noto Sans Symbols 2", FontData::from_static(SYMBOLS)),
 		]) {
 		add_fallback(&mut definitions, name, data);
 	}
-	// ponytail: one Japanese CJK face bounds asset cost; add regional Han faces
-	// when locale-specific glyph forms are implemented and measured.
 	definitions
 }
 
@@ -628,10 +659,7 @@ mod tests {
 			ctx.run_ui(Default::default(), |ui| {
 				ui.label("Synthetic Latin text");
 				assert!(!ui.fonts(|fonts| {
-					fonts
-						.definitions()
-						.font_data
-						.contains_key("Noto Sans CJK JP")
+					fonts.definitions().font_data.contains_key("Noto Sans CJK")
 				}));
 			})
 			.drop_without_applying_deltas();
@@ -641,12 +669,8 @@ mod tests {
 			let mut installed = false;
 			ctx.run_ui(Default::default(), |ui| {
 				ui.label("日本語");
-				installed = ui.fonts(|fonts| {
-					fonts
-						.definitions()
-						.font_data
-						.contains_key("Noto Sans CJK JP")
-				});
+				installed =
+					ui.fonts(|fonts| fonts.definitions().font_data.contains_key("Noto Sans CJK"));
 			})
 			.drop_without_applying_deltas();
 			if installed {
@@ -666,16 +690,16 @@ mod tests {
 		install(&Context::default());
 		assert_eq!(CJK_DECODES.get(), before);
 		let base = definitions(false);
-		assert!(!base.font_data.contains_key("Noto Sans CJK JP"));
+		assert!(!base.font_data.contains_key("Noto Sans CJK"));
 		let full = definitions(true);
 		assert_eq!(CJK_DECODES.get(), before + 1);
 		assert_eq!(full.font_data.len(), base.font_data.len() + 1);
-		assert_eq!(full.font_data["Noto Sans CJK JP"].bytes().len(), CJK_BYTES);
+		assert_eq!(full.font_data["Noto Sans CJK"].bytes().len(), CJK_BYTES);
 		for (family, names) in &base.families {
-			assert!(!names.iter().any(|name| name == "Noto Sans CJK JP"));
+			assert!(!names.iter().any(|name| name == "Noto Sans CJK"));
 			let without_cjk: Vec<_> = full.families[family]
 				.iter()
-				.filter(|name| *name != "Noto Sans CJK JP")
+				.filter(|name| *name != "Noto Sans CJK")
 				.cloned()
 				.collect();
 			assert_eq!(*names, without_cjk);
@@ -688,12 +712,23 @@ mod tests {
 		assert!(
 			CJK_ZSTD.len()
 				+ ARABIC.len()
-				+ MATH.len() + INTER.len()
+				+ MATH.len() + SYMBOLS.len()
+				+ INTER.len()
 				+ INTER_MEDIUM.len()
 				+ INTER_SEMIBOLD.len()
 				<= 16 * 1024 * 1024
 		);
-		assert_eq!(cjk().len(), CJK_BYTES);
+		let collection = cjk();
+		assert_eq!(collection.len(), CJK_BYTES);
+		for (language, index, glyph) in [
+			(crate::i18n::Language::Japanese, 0, 45132),
+			(crate::i18n::Language::ChineseSimplified, 2, 45133),
+			(crate::i18n::Language::ChineseTraditional, 3, 45134),
+		] {
+			assert_eq!(cjk_index(language), index);
+			let face = skrifa::FontRef::from_index(&collection, index).unwrap();
+			assert_eq!(face.charmap().map('骨'), Some(skrifa::GlyphId::new(glyph)));
+		}
 		let definitions = definitions(true);
 		for family in [FontFamily::Proportional, FontFamily::Monospace] {
 			let faces: Vec<_> = definitions.families[&family]
@@ -704,8 +739,8 @@ mod tests {
 						.expect("valid bundled font")
 				})
 				.collect();
-			for c in
-				"Hello, 日本語かなカナ 中文汉字繁體 한국어 العربية مَرْحَبًا 𝖘𝖓𝖎𝖎𝖝. é e\u{301}".chars()
+			for c in "Hello, 日本語かなカナ 中文汉字繁體 한국어 العربية مَرْحَبًا 𝖘𝖓𝖎𝖎𝖝. é e\u{301} ✦"
+				.chars()
 			{
 				assert!(
 					faces.iter().any(|face| {
@@ -726,7 +761,7 @@ mod tests {
 					// egui 0.36.2 has_glyph incorrectly returns false for all
 					// primary-face glyphs. Check every scalar through its font
 					// parser above, then check the actual fallback path here.
-					for c in "日本語かなカナ中文汉字繁體한국어العربية𝖘𝖓𝖎𝖎𝖝".chars()
+					for c in "日本語かなカナ中文汉字繁體한국어العربية𝖘𝖓𝖎𝖎𝖝✦".chars()
 					{
 						assert!(fonts.has_glyph(&font, c), "missing glyph: {c} ({c:?})");
 					}
