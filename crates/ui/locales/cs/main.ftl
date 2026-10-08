@@ -2250,6 +2250,7 @@ screen-body-send-what-your-mac-plays-along-with-the-screen-serein = Odesílejte,
 screen-body-share-sound-from-other-apps-even-when-sharing-one-window = Sdílejte zvuk z jiných aplikací, i když sdílíte jedno okno. Serein vlastní zvuk je vynechán.
 # Context: body
 screen-body-share-system-audio = Sdílejte systémový zvuk
+screen-body-system-audio-needs-newer-windows = Sdílení zvuku vyžaduje Windows 11 nebo Windows Server 2022. Video můžete sdílet i bez zvuku.
 # Context: body
 screen-body-show-cursor = Zobrazit kurzor
 # Context: body

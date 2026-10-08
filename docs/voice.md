@@ -511,8 +511,10 @@ are moved between outputs and no virtual device is installed.
 
 Windows uses native process loopback with `PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE`,
 excluding Serein and its child processes across outputs. This requires Windows build 20348+
-(Windows 11 or Windows Server 2022; ordinary Windows 10 22H2 is older). Unsupported systems
-or failed isolation report an audio error; turn audio off to share video alone. There is no
+(Windows 11 or Windows Server 2022; ordinary Windows 10 22H2 is older). On older Windows,
+the share dialog disables system audio and explains that video sharing is still available.
+The capture entry point also rejects unsupported audio before starting a worker. Failed
+isolation on supported systems reports an audio error; turn audio off to share video alone. There is no
 whole-output fallback. Neither adapter records to disk.
 
 Native contracts: [PulseAudio per-stream monitoring](https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/Developer/Clients/WritingVolumeControlUIs/)

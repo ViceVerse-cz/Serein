@@ -104,3 +104,21 @@ These workloads can be repeated with the pinned toolchain using `cargo replay` f
 the existing ignored client-core, desktop-frame and replay-soak workloads for detailed memory work.
 The delivery skill documents how to compare a task baseline with the changed build. Do not compare
 results from different machines or claim live-client behavior from synthetic fixtures.
+
+## Windows screen-audio capability guard — October 8, 2026
+
+Standard Windows x64 packages (`cargo xtask package`, Rust 1.98.1, voice included,
+no demo feature) compared baseline `1b3e4a7b` with this capability guard on the same
+Windows 11 build 26200 / Ryzen 7 7800X3D / 32 GiB host. The complete `dist`
+directories were compressed with .NET `ZipFile.CreateFromDirectory`, Optimal.
+
+| Metric | Baseline | Guard | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 86,008,832 B | 86,016,000 B | +7,168 B |
+| Installed directory (216 files) | 90,199,948 B | 90,207,116 B | +7,168 B |
+| ZIP | 50,001,798 B | 49,993,933 B | -7,865 B |
+
+ZIP variation is not a runtime improvement. NSIS was unavailable, so these are
+unsigned package-directory measurements, not an installer. Native CPU/memory,
+frame latency and affected Windows 10 capture were not measured; the native
+automation bridge was unavailable. The OS capability query is cached once.
