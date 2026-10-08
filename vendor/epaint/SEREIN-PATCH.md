@@ -1,6 +1,6 @@
 # Exact RTL shaping metadata for Serein
 
-Source: epaint 0.36.2 from egui revision `fe6d63efa4a4df6f56ceab814d4f3a6efab69b88`.
+Source: epaint 0.36.2 from egui revision `72bc6574978d87fe0929b1d590c35222e6fd8935`.
 All upstream Rust sources and README were copied from that revision. The original manifest is
 retained in Cargo.toml.orig, with the exact upstream MIT and Apache-2.0 texts. The standalone
 manifest expands inherited dependency versions/features and keeps sibling emath, ecolor and

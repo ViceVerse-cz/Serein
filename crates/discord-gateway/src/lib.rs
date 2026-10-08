@@ -25,7 +25,7 @@ use std::{
 	time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
-	sync::{mpsc, watch},
+	sync::{Notify, mpsc, watch},
 	time::{Instant, interval_at, sleep, timeout},
 };
 use tokio_tungstenite::{
@@ -168,6 +168,76 @@ fn next_attempt(attempt: u32, ready_for: Option<Duration>) -> u32 {
 	} else {
 		attempt.saturating_add(1).min(6)
 	}
+}
+async fn recovery_signal(reconnect: Option<&Notify>) {
+	match reconnect {
+		Some(reconnect) => reconnect.notified().await,
+		None => std::future::pending().await,
+	}
+}
+/// Recovery cancels reads and delays, never a potentially accepted socket write.
+async fn recoverable_wait<T>(
+	operation: impl std::future::Future<Output = T>,
+	reconnect: Option<&Notify>,
+) -> Option<T> {
+	tokio::select! {
+		biased;
+		() = recovery_signal(reconnect) => None,
+		result = operation => Some(result),
+	}
+}
+/// Exercises recovery without a socket, account, or network request.
+#[cfg(debug_assertions)]
+pub fn debug_recovery_check() {
+	let runtime = tokio::runtime::Builder::new_current_thread()
+		.enable_time()
+		.build()
+		.unwrap();
+	runtime.block_on(async {
+		let reconnect = Arc::new(Notify::new());
+		for _ in 0..8 {
+			reconnect.notify_one();
+		}
+		assert!(
+			timeout(
+				Duration::from_secs(1),
+				recoverable_wait(sleep(Duration::from_secs(30)), Some(&reconnect)),
+			)
+			.await
+			.unwrap()
+			.is_none()
+		);
+		// All queued requests coalesce to one recovery, without a closed-channel spin.
+		assert_eq!(
+			recoverable_wait(async { 42 }, Some(&reconnect)).await,
+			Some(42)
+		);
+		let wake = reconnect.clone();
+		let sender = tokio::spawn(async move {
+			tokio::task::yield_now().await;
+			wake.notify_one();
+		});
+		assert!(
+			timeout(
+				Duration::from_secs(1),
+				recoverable_wait(std::future::pending::<()>(), Some(&reconnect)),
+			)
+			.await
+			.unwrap()
+			.is_none()
+		);
+		sender.await.unwrap();
+		reconnect.notify_one();
+		// Initial authentication keeps its bounded attempt limit and cannot be cancelled.
+		assert_eq!(recoverable_wait(async { 42 }, None).await, Some(42));
+		assert!(
+			recoverable_wait(std::future::pending::<()>(), Some(&reconnect))
+				.await
+				.is_none()
+		);
+		assert_eq!(next_attempt(5, None), 6);
+		assert_eq!(next_attempt(5, Some(Duration::from_secs(60))), 1);
+	});
 }
 fn jitter_ms(max: u64) -> u64 {
 	SystemTime::now()
@@ -959,6 +1029,43 @@ pub async fn run_with_activity(
 	)
 	.await
 }
+/// Runs the gateway with immediate recovery of an established session. The notification
+/// stores one pending request and preserves RESUME; writes and voice joins are never replayed.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+pub async fn run_with_activity_recovery(
+	secret: Arc<SessionSecret>,
+	initial_url: String,
+	subscriptions: watch::Receiver<Option<MemberSubscription>>,
+	controls: mpsc::Receiver<client_core::voice::Command>,
+	reconnect: Arc<Notify>,
+	activity: (
+		watch::Receiver<Option<discord_protocol::rpc::Activity>>,
+		watch::Receiver<model::OwnPresence>,
+		watch::Receiver<[Option<client_core::member_search::Request>; 2]>,
+		watch::Receiver<Option<discord_protocol::spotify::Activity>>,
+	),
+	observe: impl Fn(ActivityObservation) -> Result<(), Failure> + Sync,
+	emit: impl Fn(Event) -> Result<(), Failure>,
+) -> Result<(), Failure> {
+	run_recoverable(
+		secret,
+		initial_url,
+		subscriptions,
+		controls,
+		Some(ActivityInput {
+			receiver: activity.0,
+			own_presence: activity.1,
+			member_queries: activity.2,
+			spotify: activity.3,
+			observe: &observe,
+		}),
+		Some(&reconnect),
+		emit,
+		#[cfg(test)]
+		None,
+	)
+	.await
+}
 struct ActivityInput<'a> {
 	spotify: watch::Receiver<Option<discord_protocol::spotify::Activity>>,
 	member_queries: watch::Receiver<[Option<client_core::member_search::Request>; 2]>,
@@ -969,9 +1076,33 @@ struct ActivityInput<'a> {
 async fn run_inner(
 	secret: Arc<SessionSecret>,
 	initial_url: String,
+	subscriptions: watch::Receiver<Option<MemberSubscription>>,
+	voice_controls: mpsc::Receiver<client_core::voice::Command>,
+	activity: Option<ActivityInput<'_>>,
+	emit: impl Fn(Event) -> Result<(), Failure>,
+	#[cfg(test)] test_endpoint: Option<&str>,
+) -> Result<(), Failure> {
+	run_recoverable(
+		secret,
+		initial_url,
+		subscriptions,
+		voice_controls,
+		activity,
+		None,
+		emit,
+		#[cfg(test)]
+		test_endpoint,
+	)
+	.await
+}
+#[allow(clippy::too_many_arguments)]
+async fn run_recoverable(
+	secret: Arc<SessionSecret>,
+	initial_url: String,
 	mut subscriptions: watch::Receiver<Option<MemberSubscription>>,
 	mut voice_controls: mpsc::Receiver<client_core::voice::Command>,
 	activity: Option<ActivityInput<'_>>,
+	reconnect: Option<&Notify>,
 	emit: impl Fn(Event) -> Result<(), Failure>,
 	#[cfg(test)] test_endpoint: Option<&str>,
 ) -> Result<(), Failure> {
@@ -1018,16 +1149,22 @@ async fn run_inner(
 	let mut inbox = channel_events::Inbox::default();
 	let mut known_guilds = std::collections::BTreeSet::new();
 	let mut voice_open = true;
+	let mut skip_backoff = false;
 	// Initial login is bounded, but an established session must survive long outages.
 	while was_ready || attempt < 6 {
 		if attempt > 0 {
 			calls.disconnected();
 			while voice_controls.try_recv().is_ok() {}
 			emit(Event::Disconnected)?;
-			sleep(Duration::from_millis(
-				(1000_u64 << attempt.min(5)) + jitter_ms(1000),
-			))
-			.await;
+			if !std::mem::take(&mut skip_backoff) {
+				let _ = recoverable_wait(
+					sleep(Duration::from_millis(
+						(1000_u64 << attempt.min(5)) + jitter_ms(1000),
+					)),
+					if was_ready { reconnect } else { None },
+				)
+				.await;
+			}
 		}
 		let url = state.url.as_deref().unwrap_or(&initial_url);
 		// Compiled out of shipped builds. Tests replace only dialing, never URL validation.
@@ -1038,29 +1175,43 @@ async fn run_inner(
 			.max_frame_size(Some(MAX_GATEWAY_WIRE))
 			.write_buffer_size(0)
 			.max_write_buffer_size(64 * 1024);
-		let connection = timeout(
-			Duration::from_secs(15),
-			connect_async_with_config(url, Some(config), false),
+		let Some(connection) = recoverable_wait(
+			timeout(
+				Duration::from_secs(15),
+				connect_async_with_config(url, Some(config), false),
+			),
+			if was_ready { reconnect } else { None },
 		)
-		.await;
+		.await
+		else {
+			skip_backoff = true;
+			continue;
+		};
 		let Ok(Ok((mut socket, _))) = connection else {
 			attempt = next_attempt(attempt, None);
 			continue;
 		};
 		let mut compression = compression::Decoder::default();
-		let hello = timeout(Duration::from_secs(10), async {
-			while let Some(frame) = socket.next().await {
-				let frame = frame.map_err(socket_failure)?;
-				if let Some(frame) = compression.frame(frame)? {
-					match frame {
-						Frame::Ping(_) | Frame::Pong(_) => continue,
-						frame => return Ok(frame),
+		let Some(hello) = recoverable_wait(
+			timeout(Duration::from_secs(10), async {
+				while let Some(frame) = socket.next().await {
+					let frame = frame.map_err(socket_failure)?;
+					if let Some(frame) = compression.frame(frame)? {
+						match frame {
+							Frame::Ping(_) | Frame::Pong(_) => continue,
+							frame => return Ok(frame),
+						}
 					}
 				}
-			}
-			Err(Failure::Network)
-		})
-		.await;
+				Err(Failure::Network)
+			}),
+			if was_ready { reconnect } else { None },
+		)
+		.await
+		else {
+			skip_backoff = true;
+			continue;
+		};
 		if let Ok(Err(failure)) = hello
 			&& failure.ends_session()
 		{
@@ -1212,6 +1363,14 @@ async fn run_inner(
 				None
 			};
 			tokio::select! {
+				() = recovery_signal(reconnect), if was_ready => {
+					// READY/RESUMED can reach the transport before the UI drains its events.
+					// Consume a late recovery request without dropping that healthy socket.
+					if ready_at.is_none() {
+						skip_backoff = true;
+						break;
+					}
+				}
 				changed = own_presence.changed(), if presence_open => {
 					presence_open = changed.is_ok();
 					outgoing_activity.update_presence(&own_presence.borrow_and_update())?;
@@ -1261,11 +1420,22 @@ async fn run_inner(
 					}
 					if let Some(channel)=connect && let Some(packet)=calls.packet(client_core::voice::Command::Sync { channel })?
 						&& !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {break;}
-					if let Some(packet)=packet && !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {break;}
+					if let Some(packet)=packet && !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {
+						if matches!(command,client_core::voice::Command::SetMute{..}|client_core::voice::Command::SetCamera{..}) {
+							calls.state_send_failed();
+						}
+						break;
+					}
 					if let Some(channel)=connect && let Some(packet)=calls.channel_info_packet(channel)
 						&& !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {break;}
 				}
 
+				_=tokio::time::sleep_until(calls.state_deadline.unwrap_or(ready_deadline)), if calls.state_deadline.is_some() && ready_at.is_some() => {
+					if let Some(packet)=calls.flush_state() && !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {
+						calls.state_send_failed();
+						break;
+					}
+				}
 				_=tokio::time::sleep_until(calls.departure_deadline.unwrap_or(ready_deadline)), if calls.departure_deadline.is_some() => {
 					if let Some(event)=calls.departure_expired() {emit(event)?;}
 				}
@@ -1445,7 +1615,7 @@ async fn run_inner(
 											notification_preferences(entries, replace)
 										});
 										emit(Event::Startup(Box::new(client_core::Startup {
-											external_stickers: matches!(ready.user.premium_type, model::Patch::Value(2 | 3)),
+											premium_type: match ready.user.premium_type { model::Patch::Value(kind) => kind, _ => 0 },
 											user: ready.user.into_model(), guilds, channels, permissions,
 											read_state: client_core::read_state::Event::Snapshot {entries:read_entries,version:read_version,partial},
 											notifications, session_dnd: ready.sessions.as_ref().and_then(|s| s.dnd()), warnings,
@@ -1457,8 +1627,10 @@ async fn run_inner(
 
 										let nicknames = ready.relationships.as_ref().map(|s| s.nicknames());
 										let spam_requests = ready.relationships.as_ref().map(|s| s.spam_incoming_ids());
+										let friends_since = ready.relationships.as_ref().map(|s| s.friends_since()).unwrap_or_default();
 										emit(Event::UserAction(client_core::user_actions::Event::Relationships(ready.relationships.take().map(|s| s.entries()))))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Friends(friends)))?;
+										emit(Event::UserAction(client_core::user_actions::Event::FriendsSince { entries: friends_since, replace: true }))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Restrictions(restricted)))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Requests(requests)))?;
 										emit(Event::UserAction(client_core::user_actions::Event::RequestSpams(spam_requests)))?;
@@ -1573,6 +1745,7 @@ async fn run_inner(
 										let ignored = (packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && (relationship.kind == 2 || relationship.user_ignored)).then_some(relationship.user_ignored && relationship.kind != 2);
 										let incoming = (packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && matches!(relationship.kind,3|4)).then_some(relationship.kind==3);
 										emit(Event::UserAction(client_core::user_actions::Event::Friend { user: relationship.id, friend, profile: profile.clone() }))?;
+										if friend && let Some(since) = relationship.since { emit(Event::UserAction(client_core::user_actions::Event::FriendsSince { entries: vec![(relationship.id, since)], replace: false }))?; }
 										emit(Event::UserAction(client_core::user_actions::Event::Restriction { user: relationship.id, ignored, profile: profile.clone() }))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Request { user: relationship.id, incoming, profile }))?;
 										emit(Event::UserAction(client_core::user_actions::Event::RequestSpam { user: relationship.id, spam: packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && relationship.kind == 3 && relationship.is_spam_request }))?;
@@ -1921,6 +2094,109 @@ mod tests {
 		}})
 	}
 
+	#[tokio::test]
+	async fn late_recovery_preserves_ready_and_resumed_sockets() {
+		timeout(Duration::from_secs(10), async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let endpoint = format!("ws://{}/", listener.local_addr().unwrap());
+			let reconnect = Notify::new();
+			let events = std::sync::Mutex::new(Vec::new());
+			let (client_finished, terminal_observed) = tokio::sync::oneshot::channel();
+			let server = async {
+				let (stream, _) = listener.accept().await.unwrap();
+				let mut socket = accept_async(stream).await.unwrap();
+				send(
+					&mut socket,
+					json!({"op":10,"d":{"heartbeat_interval":1000}}),
+				)
+				.await;
+				assert_eq!(packet(&mut socket).await["op"], 2);
+				send(&mut socket, ready(41, "synthetic-recovery-session")).await;
+				acknowledge(&mut socket, 41).await;
+				// The READY callback queues recovery while the UI would still be disconnected.
+				// Keep the established socket alive while that notification is consumed.
+				assert!(
+					timeout(Duration::from_millis(100), listener.accept())
+						.await
+						.is_err()
+				);
+				acknowledge(&mut socket, 41).await;
+				send(&mut socket, json!({"op":7,"d":null})).await;
+				// Disconnected queues another recovery request. It must still skip the >=2s backoff.
+				let (stream, _) = timeout(Duration::from_millis(1500), listener.accept())
+					.await
+					.unwrap()
+					.unwrap();
+				drop(socket);
+				let mut socket = accept_async(stream).await.unwrap();
+				send(
+					&mut socket,
+					json!({"op":10,"d":{"heartbeat_interval":1000}}),
+				)
+				.await;
+				let handshake = packet(&mut socket).await;
+				assert_eq!(handshake["op"], 6);
+				assert_eq!(handshake["d"]["session_id"], "synthetic-recovery-session");
+				assert_eq!(handshake["d"]["seq"], 41);
+				send(&mut socket, json!({"op":0,"t":"RESUMED","s":42,"d":{}})).await;
+				acknowledge(&mut socket, 42).await;
+				// A late send/Refresh pulse after RESUMED must also preserve the healthy socket.
+				assert!(
+					timeout(Duration::from_millis(100), listener.accept())
+						.await
+						.is_err()
+				);
+				acknowledge(&mut socket, 42).await;
+				socket
+					.send(Frame::Close(Some(CloseFrame {
+						code: CloseCode::from(4004),
+						reason: "synthetic expiration".into(),
+					})))
+					.await
+					.unwrap();
+				// Retain TCP until the terminal close is consumed, even if a heartbeat races it.
+				terminal_observed.await.unwrap();
+			};
+			let client = async {
+				let result = run_recoverable(
+					Arc::new(
+						SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap(),
+					),
+					"wss://gateway.discord.gg/".into(),
+					watch::channel(None).1,
+					mpsc::channel(1).1,
+					None,
+					Some(&reconnect),
+					|event| {
+						let label = match event {
+							Event::Startup(_) => "ready",
+							Event::Disconnected => "disconnected",
+							Event::Resumed => "resumed",
+							_ => return Ok(()),
+						};
+						let mut events = events.lock().unwrap();
+						assert!(events.len() < 4, "recovery must not cycle a healthy socket");
+						events.push(label);
+						reconnect.notify_one();
+						Ok(())
+					},
+					Some(&endpoint),
+				)
+				.await;
+				let _ = client_finished.send(());
+				result
+			};
+			let ((), result) = tokio::join!(server, client);
+			assert_eq!(result, Err(Failure::Expired));
+			assert_eq!(
+				events.into_inner().unwrap(),
+				vec!["ready", "disconnected", "resumed"]
+			);
+		})
+		.await
+		.unwrap();
+	}
+
 	#[test]
 	fn reaction_dispatch_preserves_burst_and_falls_back_for_unsafe_details() {
 		use client_core::reactions::Event as ReactionEvent;
@@ -2043,8 +2319,10 @@ mod tests {
 							activities.push(json!({"name":"Custom Status","type":4,"state":if name == Some("osu!") { "Synthetic focus" } else { "On a break" }}));
 	                        assert_eq!(value["d"], json!({"since":null,"status":"dnd","afk":false,"activities":activities}));
 	                        let now = Instant::now();
+	                        // Receipt times include scheduling delay before the previous read,
+	                        // which can only shorten the observed gap below the 5 s client pacing.
 	                        if let Some(previous) = previous {
-	                            assert!(now.duration_since(previous) >= Duration::from_millis(4900));
+	                            assert!(now.duration_since(previous) >= Duration::from_millis(4500));
 	                        }
 	                        previous = Some(now);
 	                        match name {
@@ -2485,6 +2763,14 @@ mod tests {
 								assert!(snapshot);
 								assert!(gates.is_empty());
 								"onboarding"
+							}
+							Event::UserAction(client_core::user_actions::Event::FriendsSince {
+								entries,
+								replace,
+							}) => {
+								assert!(replace);
+								assert!(entries.is_empty());
+								return Ok(());
 							}
 							Event::Resumed => "resumed",
 							Event::DirectPresence(_) => "presence",
@@ -3412,3 +3698,6 @@ mod member_tests {
 
 #[cfg(debug_assertions)]
 pub use member_search::debug_check as debug_member_search_check;
+
+#[cfg(debug_assertions)]
+pub use voice::debug_voice_state_retry_check;

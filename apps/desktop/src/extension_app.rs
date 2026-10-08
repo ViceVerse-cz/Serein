@@ -1549,6 +1549,7 @@ mod tests {
 			guild: None,
 			theme_colors: None,
 			clan: None,
+			board: None,
 			limited: false,
 		});
 		let guild = state.guilds[0].clone();

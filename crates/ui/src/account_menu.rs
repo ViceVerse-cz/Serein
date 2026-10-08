@@ -243,12 +243,13 @@ impl MessagingUi {
 					avatars.show(ui, user, 72.0, state.demo)
 				});
 			});
-			let dot = avatar.right_bottom() - egui::Vec2::splat(11.0);
-			ui.painter().circle_filled(dot, 10.5, colors.raised);
+			// Same 6 px ring as the avatar, so the dot is cut out of the banner alike.
+			let dot = avatar.right_bottom() - egui::Vec2::splat(12.0);
+			ui.painter().circle_filled(dot, 17.5, colors.raised);
 			presence_dot(
 				ui.painter(),
 				dot,
-				7.0,
+				11.5,
 				self.own_presence.status,
 				colors.raised,
 			);
@@ -822,6 +823,7 @@ impl MessagingUi {
 		dialog::input(
 			ui,
 			egui::TextEdit::singleline(&mut self.account_menu.draft)
+				.align(egui::Align2::LEFT_CENTER)
 				.id_salt(("account-custom-status", state.generation))
 				.hint_text(crate::i18n::translate(
 					"account-menu-custom-status-editor-what-s-on-your-mind",

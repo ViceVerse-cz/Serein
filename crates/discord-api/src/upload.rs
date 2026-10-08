@@ -78,6 +78,19 @@ impl Source {
 			bytes: Some(bytes.into()),
 		})
 	}
+	/// Pasted text too long for one message becomes an in-memory `message.txt`, like Discord.
+	pub fn pasted_text(text: String) -> Result<Self, &'static str> {
+		if text.is_empty() || text.len() as u64 > MAX_BYTES {
+			return Err("Choose nonempty text up to Discord's 500 MB maximum");
+		}
+		Ok(Self {
+			path: PathBuf::new(),
+			filename: "message.txt".into(),
+			size: text.len() as u64,
+			modified: SystemTime::UNIX_EPOCH,
+			bytes: Some(text.into_bytes().into()),
+		})
+	}
 	/// Public artwork already decoded and validated by the host image worker.
 	pub fn image_bytes(filename: String, bytes: Vec<u8>) -> Result<Self, &'static str> {
 		let valid_name = filename
@@ -281,7 +294,7 @@ impl DiscordApi {
 				return Event::Failure(Failure::ProtocolAt("Invalid upload request"));
 			}
 		};
-		if content.chars().count() > client_core::MAX_CONTENT {
+		if content.chars().count() > client_core::MAX_PREMIUM_CONTENT {
 			let failure = Failure::ProtocolAt("Message is too long; no file was uploaded");
 			progress.send_replace(Status::Failed(failure.label()));
 			return target.failed(channel, failure);
@@ -580,6 +593,8 @@ fn content_type(filename: &str) -> &'static str {
 		"jpg" | "jpeg" => "image/jpeg",
 		"gif" => "image/gif",
 		"webp" => "image/webp",
+		"heic" => "image/heic",
+		"heif" => "image/heif",
 		"svg" => "image/svg+xml",
 		"mp4" => "video/mp4",
 		"webm" => "video/webm",

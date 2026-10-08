@@ -804,7 +804,9 @@ impl IntegrationsUi {
 		);
 		design::input(
 			ui,
-			egui::TextEdit::singleline(&mut draft.name).char_limit(80),
+			egui::TextEdit::singleline(&mut draft.name)
+				.align(egui::Align2::LEFT_CENTER)
+				.char_limit(80),
 		)
 		.labelled_by(label.id);
 		if draft.name.capacity() > 320 {

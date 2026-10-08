@@ -149,6 +149,7 @@ impl MessagingUi {
 					let input = design::input(
 						ui,
 						egui::TextEdit::singleline(&mut self.friends.username)
+							.align(egui::Align2::LEFT_CENTER)
 							.hint_text(language.text("friends-enter-username"))
 							.char_limit(33),
 					);
@@ -307,11 +308,24 @@ impl MessagingUi {
 					.show_rows(ui, ROW, rows.len(), |ui, range| {
 						for (user, name, incoming) in &rows[range] {
 							ui.push_id(user.id.0, |ui| {
-								// The friends surfaces keep their own row actions; the profile
-								// stays behind the context menu instead of every click.
-								let (rect, _, hot) =
-									person_row(ui, after_hot, egui::Sense::hover());
+								// Requests have no conversation to open, so the row opens the
+								// profile like member lists; the round buttons stay on top.
+								let (rect, response, hot) =
+									person_row(ui, after_hot, egui::Sense::click());
 								after_hot = hot;
+								let response =
+									response.on_hover_cursor(egui::CursorIcon::PointingHand);
+								response.widget_info(|| {
+									egui::WidgetInfo::labeled(egui::Role::Button, true, &user.name)
+								});
+								self.profile.person_click(ui, &response, None, user);
+								user_menu::show(
+									&response,
+									state,
+									user,
+									&mut self.profile,
+									&mut self.user_action,
+								);
 								let actions = if *incoming { 2 } else { 1 };
 								let layout = RowLayout::new(rect, actions);
 								self.avatars.show_plain(
@@ -478,6 +492,7 @@ impl MessagingUi {
 			self.friend_requests_page(ui, state, commands);
 			return;
 		}
+		let voice_users = profiles::voice_users(state);
 		let mut selected = None;
 		egui::Frame::new()
 			.inner_margin(egui::Margin::symmetric(24, 16))
@@ -696,6 +711,11 @@ impl MessagingUi {
 									});
 								text.horizontal(|ui| {
 									ui.spacing_mut().item_spacing.x = 4.0;
+									profiles::voice_badge(
+										ui,
+										restricted.is_none() && voice_users.contains(&user.id),
+										true,
+									);
 									if let Some(activity) = activities.first() {
 										icons::inline(
 											ui,
@@ -963,6 +983,7 @@ fn search(ui: &mut egui::Ui, query: &mut String, id: egui::Id, hint: &str) -> eg
 			ui.horizontal(|ui| {
 				let edit = ui.add(
 					egui::TextEdit::singleline(query)
+						.align(egui::Align2::LEFT_CENTER)
 						.id(id)
 						.hint_text(hint)
 						.char_limit(128)

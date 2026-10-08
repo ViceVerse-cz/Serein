@@ -1,5 +1,29 @@
 # Discord compatibility — checked 2026-09-10
 
+## Profile boards — October 7, 2026
+
+The full profile reads game widgets from the existing on-demand profile response,
+then optionally resolves their names and artwork with at most two bounded
+`GET /games` requests using repeated `game_ids` query parameters. Current `media.cover`
+and `media.icon` hash/Discord-proxied URL assets are supported alongside legacy
+image hashes. Arbitrary external artwork URLs are not fetched. Favorite Game, Games in Rotation, Games I've Played and
+Want to Play display service-supplied entries, comments and tags. Missing or
+restricted boards remain unavailable; failed metadata lookups retain the game ID
+without substituting another game's title or artwork. Application-provided stats
+widgets and board editing are not supported. The Activity tab uses current
+presence, including while profile metadata is loading; an empty presence snapshot shows “No activity shared.” Selected-user historical activity is not yet loaded. Optional board enrichment has a two-second total deadline so it cannot add two full HTTP timeouts before the profile appears.
+
+The primary reverse-engineering references are the Userdoccers
+[profile response](https://docs.discord.food/resources/user#get-user-profile),
+[game widget schema](https://docs.discord.food/resources/widgets#game-widget-object),
+[game metadata lookup](https://docs.discord.food/resources/game#list-games), and
+[application cover/icon CDN paths](https://docs.discord.food/reference#cdn-endpoints).
+The current request serialization and `media` shape were also checked against the
+[public web client](https://discord.com/assets/web.90d3ab34abfe98da.js), build 630444,
+on October 7; older community game documentation still describes the legacy fields.
+These are unofficial normal-account interfaces, not Discord's public bot API.
+Normal-account acceptance and cover availability remain unverified; synthetic
+fixtures and offline checks are not service-compatibility evidence.
 
 ## GIF favorite synchronization — October 2, 2026
 
@@ -146,9 +170,11 @@ entitlements do not unlock external stickers. Local selection and send checks
 share this gate; Discord remains authoritative. There is no purchase flow. See
 [Discord subscription benefits](https://support.discord.com/hc/en-us/articles/115000435108-What-are-Nitro-Nitro-Basic).
 
-When the Emoji & Sticker Images plugin is enabled, stickers that pass this native
-gate still send as stickers. Only unavailable native selections use the attachment
-fallback; animated APNG fallbacks are transcoded to GIF to retain animation.
+Sticker image fallback is built into the client. Stickers that pass this native
+gate still send as stickers. Unavailable native selections enter the composer as named
+artwork links. Explicit Send keeps Markdown links alongside text, or uses attachments
+for artwork-only drafts when send/attachment permissions allow it. Animated APNG
+attachments are transcoded to GIF to retain animation.
 
 Received `sticker_items` and legacy `stickers` render transparent artwork in chat.
 Clicking opens details and related previews; View More Stickers opens the source
@@ -463,6 +489,19 @@ and recording remain unsupported. This section supersedes older camera-exclusion
 statements in the historical voice/screen-sharing notes below.
 
 ## Outgoing screen sharing — September 11, 2026
+
+October 3 reliability audit: UDP media sends drop on local socket pressure without
+waiting inside the media loop. Established stream rekeys now retain a 30-second
+response/execution deadline, including when WebSocket heartbeats continue.
+The shared Opus reorder buffer preserves received successors after larger loss
+bursts. Linux incoming native decoding enforces four queued access units and
+8,650,752 payload bytes; GStreamer before 1.20 falls back to software decoding.
+Synthetic pressure and encrypted local-socket tests verify those corrections.
+They do not establish resolution of the reported intermittent Linux outgoing
+lag or official-client error 2012. Capture/GPU/network/viewer conditions and
+low-bitrate large-keyframe latency still need owner-controlled evidence; see
+[the audit notes](voice.md#stream-lag-and-viewer-timeouts-october-3-2026).
+
 
 September 21 interoperability correction: camera and screen-share H.264 SPS metadata
 is normalized before DAVE encryption to specify no frame reordering and bounded
@@ -877,18 +916,22 @@ one item, avoiding broken ZWJ sequences or partial custom markup. Whole-message 
 
 The chat Emoji button opens a searchable Unicode/name palette and a joined-server rail, also
 available in DMs. Search matches custom emoji names and source server names across loaded
-catalogs; `:name` autocomplete includes usable customs with their source server. Choosing
+catalogs; `:name` autocomplete includes native and image-fallback customs with their source server. Choosing
 inserts at the saved text cursor or replaces its selection, preserves Unicode presentation
 selectors, and records the draft without sending. Escape/close restores keyboard focus.
 Catalog entries must be explicitly available and unmanaged, with known role restrictions
 matched against the account's known source-server roles. A destination guild must allow
 USE_EXTERNAL_EMOJIS for another server's emoji; DMs have no guild permission gate. New custom
 reactions use the same eligibility rules, while existing reaction/removal semantics remain.
-Unknown eligibility remains disabled. With the Emoji & Sticker Images plugin enabled,
-the current session's confirmed Nitro entitlement chooses the normal custom-emoji path
-when available and the image fallback otherwise. Discord remains authoritative for actual
-sends and reactions, including entitlement rejection.
-Animated emoji are inserted with their original animated markup and shown as still previews.
+Unknown native eligibility remains disabled. The built-in picker and autocomplete use the current
+session's confirmed Nitro entitlement for animated or external custom emoji, choosing
+the native path when available and the image fallback otherwise. Static custom emoji
+in their own server keep the native path without Nitro. Fallback selection requires
+send permission and does not change reaction eligibility; artwork-only sends also
+require attachment permission. Picking never sends fallback artwork immediately.
+Discord remains authoritative for actual sends and reactions, including entitlement rejection.
+Natively eligible animated emoji are inserted with their original animated markup
+and shown as still previews.
 Clicking a rendered message, embed or profile emoji opens a native information card. Standard
 emoji show their shortcode and default-emoji explanation; customs use their catalog name and
 source server when the ID is known, otherwise explicitly report unknown provenance. Code and
@@ -1137,10 +1180,18 @@ directory fetch was added.
 
 Role name, position, hoist and primary color are documented fields in
 [Discord's role object](https://docs.discord.com/developers/topics/permissions#role-object).
-Modern `colors.primary_color` takes precedence over legacy `color`; role gradients are not
-rendered. Equal positions favor the lower role ID, consistent with
+Modern `colors.primary_color` takes precedence over legacy `color`. Secondary and tertiary
+colors survive READY, role updates and role catalog reconciliation. Chat authors, online
+member names, profile names and role labels render static two-stop gradients or three-stop
+holographic colors. Equal positions favor the lower role ID, consistent with
 [discord.py role comparison](https://github.com/Rapptz/discord.py/blob/master/discord/role.py).
 Names retain hue when readable; the theme adjusts insufficient contrast, including hover.
+Profile name colors and role chips prefer current self/member assignments, including empty
+assignments, and fall back to fetched profile roles when current membership is unavailable.
+Gradients color shaped glyph vertices without splitting Unicode text or recoloring color
+emoji. Inline mention pills and composer mention previews retain their primary color.
+`--features demo -- --demo --demo-chat --demo-role-gradients` enables synthetic gradients;
+add `--demo-light` for light mode. No live Discord account was used to verify this change.
 Member list subscriptions and lazy-range focus remain unofficial. Synthetic role evidence does
 not establish live role behavior for every account.
 
@@ -1498,6 +1549,12 @@ Synthetic tests exercise UI actions, bounds, coalescing, clearing and reconnect.
 
 ### Inline attachment video (September 12, 2026)
 
+macOS retries native format/decode failures once through the optional installed FFmpeg
+helper, including failures after opening and sources requiring downscaling to the
+1080p preview bound. Playback resumes from its last displayed position. Native AAC
+also accepts media timescales distinct from the PCM sample rate. This does not imply
+support for every MOV/MP4 codec or live-service verification.
+
 MOV/MP4 attachments, plus WebM/Matroska where the platform provides codecs, play
 inside the message with Discord-style overlay controls: a
 centered play button on the picture, and a translucent bar over its lower edge with seek,
@@ -1850,6 +1907,12 @@ They show the latest plain preview with the author's known guild role color and 
 `50+ New` indicates that the cursor precedes the retained 50-message window. Failed
 or unavailable summaries remain explicitly unavailable until refresh or new activity;
 successful summaries are reused when returning to a forum during the same session.
+The displayed guild also fetches unopened forums serially through the existing
+bounded active-post loader (up to 200 posts per forum). An open forum takes priority.
+A guild revisit or changed parent last-post ID refreshes the sidebar; failed pages
+do not retry every frame. Counts cover loaded active posts, not a complete directory.
+Forum-level READY and acknowledgement cursors are preserved: only posts newer than
+the parent cursor with unread starters contribute to `New`; replies remain independently unread.
 Startup preserves cursors for threads loaded after READY. These changes have synthetic
 offline coverage; normal-account behavior remains unofficial and live-unverified.
 
@@ -2016,7 +2079,8 @@ the reported account response and live Discord behavior remain unverified.
 
 The shared video/audio/download URL validator now normalizes attachment links on
 `media.discordapp.net` to `cdn.discordapp.com`, retaining the original path and
-signed `ex`, `is`, and `hm` query. It still rejects transformed media queries,
+signed `ex`, `is`, and `hm` query, plus the observed storage selectors described
+below. It still rejects transformed media queries,
 foreign hosts, credentials, non-HTTPS URLs, fragments, mismatched attachment IDs,
 encoded path separators and oversized metadata/files. Playback fetches the original
 through the same bounded range reader; no decoder, cache or queue is changed.
@@ -2037,6 +2101,17 @@ the received attachment. Source channel/message IDs can differ from a forwarded
 message's outer identity. Signed paths and queries remain intact, and the existing
 origin, metadata, file-size and transformation guards remain enforced. Synthetic
 checks cover both forms and both hosts; the reported live message remains unverified.
+
+### Storage backend selectors (October 7, 2026)
+
+The shared original-attachment validator also retains `backend=b2` and
+`backend=b3`, the storage selectors reported in issue #556. These are observed,
+unofficial CDN behavior. Previously these URLs failed before networking, blocking
+video/audio playback and explicit saves. Both admitted hosts and attachment path
+forms keep the complete signed query; unknown/empty backend values, rendition
+parameters, invalid origins/IDs and oversized metadata/files remain rejected.
+Offline regression tests cover admission only. Actual decoding and the issue's
+separate high-CPU playback report remain unverified and are not fixed here.
 
 ## Optional REST API proxy plugin (preview)
 
@@ -2095,6 +2170,43 @@ Voter-name browsing and a custom-server-emoji creation picker are not included i
 Extension snapshots retain their existing unsupported poll contract. No live Discord account was
 used to verify normal-account interoperability. Use --demo --demo-polls for an offline preview
 and --demo --demo-check-polls for the focused synthetic debug check.
+
+Compact message display is a device-local layout: ordinary message rows show
+the time, then a clickable author, then the formatted body in its own column,
+without the avatar gutter or header row. Existing reply and system widgets remain.
+Pending rows use the same time, author and body columns;
+message selection, mentions, spoilers, media and delivery actions remain in
+the existing native widgets. The saved compact choice also reduces divider and
+reply/system spacing. This changes local presentation only.
+
+## Message sending during Gateway recovery — October 2, 2026
+
+A temporary Gateway outage no longer disables an explicit REST message send from
+an authenticated session with last known send permission. Discord still authorizes
+the request; an offline network, changed permissions or expired session can reject
+it. The existing bounded write queue, service cooldown, single-attempt policy and
+failed/ambiguous delivery states remain in use. Attachment uploads still require
+the Gateway to be connected. Nothing automatically replays uncertain writes.
+
+Refresh during reconnection, the Reconnect now button and an explicit message send
+wake the Gateway's current retry without waiting for its capped backoff. Recovery
+preserves the session/sequence for RESUME, does not reopen login or restart a REST
+write, and cannot extend the bounded initial-login attempt limit. Late recovery
+requests are consumed without interrupting an already READY/RESUMED socket.
+Reconnect now is available in the account card on every platform. Refresh also
+reloads readable message history through REST during an outage; repeated Gateway
+retry notifications preserve that request. A successful RESUME still revalidates
+the active history; a REST-only reload during an outage completes as stale rather
+than leaving Refresh disabled in Loading.
+
+The offline debug command is
+`cargo run --locked -p serein --features demo -- --demo --demo-check-resume-send`.
+It exercises synthetic composer/Refresh/Reconnect input, disconnected sending,
+terminal auth and access gates, uncertain-write preservation and coalesced recovery
+waits without opening a network connection or audio device. Workspace tests also
+use a local synthetic WebSocket to check late recovery requests and preserved
+RESUME session/cursor state. macOS sleep/wake and live Discord RESUME/delivery
+remain unverified in this Linux fast pass.
 
 ## Quiet messages (`@silent`)
 
@@ -2188,3 +2300,20 @@ oversized or excessively narrow/multiline run shows the localized preview-limit
 notice within the limits documented in the storage policy. Native platform/font
 coverage still depends on the installed font fallback; synthetic evidence is not
 normal-account or every-platform validation.
+
+## GIF favorites admission — October 6, 2026
+
+The frecency decoder accepts the schema's absent optional version block (version
+zero), default map values, and long URL metadata within the existing 4 KiB wire
+entry budget. A long, undisplayable favorite no longer rejects the whole catalog;
+it survives edits verbatim. Truncated, duplicate and over-budget catalogs still
+fail closed, and writes still require version and read-back confirmation.
+Unsupported-format and unconfirmed-save errors now retain their specific messages.
+Issue #559 supplied no response payload, so its live failure remains unverified.
+
+Message stars also cover uploaded GIF attachments, image galleries, video-only
+GIF embeds and external GIFs with an admitted Discord media proxy. Shared HTTPS
+links may come from any host; this does not authorize fetching arbitrary origins.
+Previews still use the existing provider/Discord media admission and bounded
+pipeline. The original share URL, including attachment signatures, is retained.
+The offline debug check is `cargo run --locked -p serein --features demo --example gif_favorites`.

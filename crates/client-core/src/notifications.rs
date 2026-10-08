@@ -601,11 +601,7 @@ impl State {
 		{
 			return false;
 		}
-		let Some(channel) = self
-			.channels
-			.iter()
-			.find(|c| c.id == channel && c.supports_text())
-		else {
+		let Some(channel) = self.channel(channel).filter(|c| c.supports_text()) else {
 			return false;
 		};
 		if channel.guild.is_some() && self.notification_preferences.dnd.is_none() {
@@ -1035,6 +1031,8 @@ mod tests {
 							bits: p::VIEW_CHANNEL,
 							name: String::new(),
 							color: 0,
+							secondary_color: None,
+							tertiary_color: None,
 							position: 0,
 							hoist: false,
 						},
@@ -1043,6 +1041,8 @@ mod tests {
 							bits: 0,
 							name: String::new(),
 							color: 0,
+							secondary_color: None,
+							tertiary_color: None,
 							position: 0,
 							hoist: false,
 						},
@@ -1051,6 +1051,8 @@ mod tests {
 							bits: 0,
 							name: String::new(),
 							color: 0,
+							secondary_color: None,
+							tertiary_color: None,
 							position: 0,
 							hoist: false,
 						},

@@ -27,6 +27,7 @@ impl Jitter {
 			self.packets.clear();
 			self.next = Some(sequence);
 			self.wait = 2;
+			self.missing = 0;
 		}
 		if self.packets.len() < SLOTS && !self.packets.iter().any(|(id, _)| *id == sequence) {
 			self.packets.push((sequence, opus));
@@ -51,6 +52,17 @@ impl Jitter {
 		}
 		self.missing += 1;
 		if self.missing > 3 {
+			// Stop concealing the gap, but retain speech that already arrived after it.
+			if let Some((index, (sequence, _))) = self
+				.packets
+				.iter()
+				.enumerate()
+				.min_by_key(|(_, (sequence, _))| sequence.wrapping_sub(next))
+			{
+				self.next = Some(sequence.wrapping_add(1));
+				self.missing = 0;
+				return Some(self.packets.swap_remove(index).1);
+			}
 			self.clear();
 			return None;
 		}
@@ -60,6 +72,33 @@ impl Jitter {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn burst_loss_preserves_buffered_recovery_and_resets_on_far_jump() {
+		for first in [0u16, u16::MAX - 2] {
+			let mut jitter = Jitter::default();
+			jitter.push(first, vec![0]);
+			for offset in [7, 5, 6] {
+				jitter.push(first.wrapping_add(offset), vec![offset as u8]);
+			}
+			assert!(jitter.pop().is_none());
+			assert!(jitter.pop().is_none());
+			assert_eq!(jitter.pop(), Some(vec![0]));
+			for _ in 0..3 {
+				assert_eq!(jitter.pop(), Some(vec![]));
+			}
+			for offset in [5, 6, 7] {
+				assert_eq!(jitter.pop(), Some(vec![offset]));
+			}
+			for _ in 0..2 {
+				assert_eq!(jitter.pop(), Some(vec![]));
+			}
+			jitter.push(first.wrapping_add(100), vec![100]);
+			assert_eq!(jitter.missing, 0);
+			assert!(jitter.pop().is_none());
+			assert!(jitter.pop().is_none());
+			assert_eq!(jitter.pop(), Some(vec![100]));
+		}
+	}
 	#[test]
 	fn bounded_reordering_loss_duplicates_and_wrap() {
 		let mut jitter = Jitter::default();

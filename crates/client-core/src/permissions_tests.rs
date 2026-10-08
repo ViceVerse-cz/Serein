@@ -14,9 +14,86 @@ const BITS: u128 = p::VIEW_CHANNEL
 	| p::SPEAK
 	| p::USE_VAD;
 
+#[test]
+fn author_gradients_follow_role_hierarchy_and_reject_invalid_stops() {
+	let mut state = state();
+	let mut role = state.guild_roles(Id(10)).unwrap()[1].clone();
+	role.position = 2;
+	role.color = 0x112233;
+	role.secondary_color = Some(0x445566);
+	role.tertiary_color = Some(0x778899);
+	let colors = role.colors();
+	let role_id = role.id;
+	permission(
+		&mut state,
+		PermissionEvent::Role {
+			guild: Id(10),
+			role: role.clone(),
+		},
+	);
+	let mut chat = message(100, Id(20));
+	chat.author_roles = vec![role_id];
+	assert_eq!(state.message_author_colors(&chat), Some(colors));
+	assert_eq!(
+		state.forum_author_colors(Id(20), chat.author.id, false, &chat.author_roles),
+		Some(colors)
+	);
+	let mut lower = role.clone();
+	lower.id = Id(12);
+	lower.position = 1;
+	lower.secondary_color = None;
+	lower.tertiary_color = None;
+	permission(
+		&mut state,
+		PermissionEvent::Role {
+			guild: Id(10),
+			role: lower,
+		},
+	);
+	chat.author_roles.push(Id(12));
+	assert_eq!(state.message_author_colors(&chat), Some(colors));
+	assert_eq!(
+		state.forum_author_colors(Id(20), chat.author.id, false, &chat.author_roles),
+		Some(colors)
+	);
+	chat.author.webhook = true;
+	assert_eq!(state.message_author_colors(&chat), None);
+	assert_eq!(
+		state.forum_author_colors(Id(20), chat.author.id, true, &chat.author_roles),
+		None
+	);
+	for tertiary in [false, true] {
+		let mut invalid = role.clone();
+		if tertiary {
+			invalid.tertiary_color = Some(0x1000000);
+		} else {
+			invalid.secondary_color = Some(0x1000000);
+		}
+		assert!(
+			state
+				.permissions
+				.update(PermissionEvent::Role {
+					guild: Id(10),
+					role: invalid
+				})
+				.is_err()
+		);
+		assert_eq!(
+			state
+				.guild_roles(Id(10))
+				.unwrap()
+				.iter()
+				.find(|role| role.id == role_id)
+				.unwrap()
+				.colors(),
+			colors
+		);
+	}
+}
+
 fn large_startup() -> crate::Startup {
 	let mut startup = crate::Startup {
-		external_stickers: false,
+		premium_type: 0,
 		user: user(),
 		guilds: vec![],
 		channels: vec![],
@@ -313,6 +390,8 @@ fn snapshot() -> p::Snapshot {
 				p::Role {
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
 					id: Id(10),
@@ -321,6 +400,8 @@ fn snapshot() -> p::Snapshot {
 				p::Role {
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
 					id: Id(11),
@@ -477,6 +558,25 @@ fn cross_server_emoji_checks_destination_and_known_source_roles() {
 		state.custom_emoji_unavailable_reason(Id(20), local.id, local_emoji),
 		None
 	);
+	// Without Nitro only the conversation's own server's static emoji are native.
+	let local = local.id;
+	let local_emoji = model::CustomEmoji {
+		animated: false,
+		..local_emoji.clone()
+	};
+	let animated = model::CustomEmoji {
+		animated: true,
+		..local_emoji.clone()
+	};
+	assert!(!state.custom_emoji_requires_nitro(Id(20), local, &local_emoji));
+	assert!(state.custom_emoji_requires_nitro(Id(20), local, &animated));
+	assert!(state.custom_emoji_requires_nitro(Id(41), Id(40), &emoji));
+	for premium_type in [1, 2, 3] {
+		state.premium_type = premium_type;
+		assert!(!state.custom_emoji_requires_nitro(Id(20), local, &animated));
+		assert!(!state.custom_emoji_requires_nitro(Id(41), Id(40), &emoji));
+	}
+	state.premium_type = 0;
 	permission(
 		&mut state,
 		PermissionEvent::Channel {
@@ -661,6 +761,8 @@ fn role_rest_catalog_and_self_membership_revoke_selected_history_immediately() {
 			name: "Manager".into(),
 			bits: p::MANAGE_ROLES | p::MANAGE_GUILD,
 			color: 0,
+			secondary_color: None,
+			tertiary_color: None,
 			position: 3,
 			hoist: false,
 		});
@@ -1026,6 +1128,8 @@ fn revoked_view_cannot_return_through_stale_gateway_content_or_old_history() {
 				role: p::Role {
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
 					id: Id(11),
@@ -1047,6 +1151,52 @@ fn revoked_view_cannot_return_through_stale_gateway_content_or_old_history() {
 		));
 		assert!(!state.history_pending);
 	}
+}
+
+#[test]
+fn repeated_member_sync_keeps_cached_decisions() {
+	let mut state = state();
+	let member = || PermissionEvent::Member {
+		guild: Id(10),
+		roles: Patch::Value(vec![Id(11)]),
+		timeout_until: Patch::Absent,
+	};
+	permission(&mut state, member());
+	// Channel 21 is not selected, so only this query can populate its decisions.
+	state.can_view(Id(21));
+	let warm = state.permissions.cached_decisions(Id(21));
+	assert!(warm > 0, "Decision queries populate the cache");
+	permission(&mut state, member());
+	assert_eq!(
+		state.permissions.cached_decisions(Id(21)),
+		warm,
+		"An identical sync must not discard valid decisions"
+	);
+	permission(
+		&mut state,
+		PermissionEvent::Member {
+			guild: Id(10),
+			roles: Patch::Value(vec![]),
+			timeout_until: Patch::Absent,
+		},
+	);
+	assert_eq!(
+		state.permissions.cached_decisions(Id(21)),
+		0,
+		"A changed role set invalidates the guild's decisions"
+	);
+}
+
+#[test]
+fn removing_a_channel_keeps_other_channels_cached_decisions() {
+	let mut state = state();
+	state.can_view(Id(21));
+	state.can_view(Id(22));
+	let sibling = state.permissions.cached_decisions(Id(21));
+	assert!(sibling > 0 && state.permissions.cached_decisions(Id(22)) > 0);
+	apply(&mut state, Event::Unavailable(Id(22)));
+	assert_eq!(state.permissions.cached_decisions(Id(22)), 0);
+	assert_eq!(state.permissions.cached_decisions(Id(21)), sibling);
 }
 
 #[test]
@@ -1078,6 +1228,8 @@ fn deleting_an_unassigned_role_prunes_its_overwrites_and_invalidates_cached_deci
 				role: p::Role {
 					name: String::new(),
 					color: 0,
+					secondary_color: None,
+					tertiary_color: None,
 					position: 0,
 					hoist: false,
 					id: Id(10),
@@ -1154,6 +1306,8 @@ fn malformed_snapshots_are_atomic_and_rejected_permission_events_fail_closed() {
 			.map(|id| p::Role {
 				name: String::new(),
 				color: 0,
+				secondary_color: None,
+				tertiary_color: None,
 				position: 0,
 				hoist: false,
 				id: Id(id),
@@ -1345,6 +1499,8 @@ fn member_requests_survive_guild_hydration_and_follow_current_permissions() {
 			name: format!("Role {id}"),
 			position,
 			color,
+			secondary_color: None,
+			tertiary_color: None,
 			hoist,
 		};
 		for role in [
@@ -1465,7 +1621,7 @@ fn history_freshness_does_not_disable_authorized_sending() {
 	assert_eq!(state.freshness, Freshness::Loading);
 	assert!(state.can_send(Id(20)) && state.can_attach(Id(20)));
 	state.gateway_connected = false;
-	assert!(!state.can_send(Id(20)));
+	assert!(state.can_send(Id(20)) && !state.can_attach(Id(20)));
 	state.gateway_connected = true;
 	state.freshness = Freshness::Stale;
 	assert!(state.can_send(Id(20)));

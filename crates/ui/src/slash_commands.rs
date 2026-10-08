@@ -1300,6 +1300,7 @@ fn argument(
 		ui.horizontal(|ui| {
 			let response = ui.add(
 				egui::TextEdit::singleline(value)
+					.align(egui::Align2::LEFT_CENTER)
 					.id(id)
 					.frame(egui::Frame::NONE)
 					.hint_text(crate::i18n::translate(
@@ -1367,6 +1368,7 @@ fn argument(
 	} else {
 		ui.add(
 			egui::TextEdit::singleline(value)
+				.align(egui::Align2::LEFT_CENTER)
 				.id(id)
 				.frame(egui::Frame::NONE)
 				.font(egui::FontId::proportional(14.0))

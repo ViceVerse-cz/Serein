@@ -203,6 +203,19 @@ impl Surface {
 			.collect()
 	}
 
+	/// True when `pos` is on no glyph line, widget or excluded card of this block, so a
+	/// row gesture there cannot be a word selection, link or media interaction.
+	pub fn blank_at(&self, pos: Pos2) -> bool {
+		!self
+			.runs
+			.iter()
+			.flat_map(|run| &run.lines)
+			.chain(self.embeds.iter().map(|embed| &embed.response.rect))
+			.chain(self.holes.iter().map(|hole| &hole.rect))
+			.chain(self.overlays.iter().map(|over| &over.rect))
+			.any(|rect| rect.contains(pos))
+	}
+
 	/// Tile the block and register selection on the remaining bands.
 	pub fn finish(self, ui: &mut egui::Ui) {
 		let block = block_rect(ui, &self.runs, self.cover);

@@ -116,9 +116,8 @@ impl State {
 		if !self.gateway_connected
 			|| !self.can_view(channel)
 			|| !self
-				.channels
-				.iter()
-				.any(|c| c.id == channel && c.supports_text())
+				.channel(channel)
+				.is_some_and(|c| c.supports_text() || matches!(c.kind, 15 | 16))
 		{
 			return None;
 		}
@@ -134,7 +133,10 @@ impl State {
 	}
 	/// Shared unread visibility for sidebar rows and notification badges.
 	pub fn channel_unread(&self, channel: &model::Channel) -> Option<bool> {
-		if !self.gateway_connected || !self.can_view(channel.id) || !channel.supports_text() {
+		if !self.gateway_connected
+			|| !self.can_view(channel.id)
+			|| !(channel.supports_text() || matches!(channel.kind, 15 | 16))
+		{
 			return None;
 		}
 		let read = match self.read_state.entries.get(&channel.id) {
@@ -597,7 +599,10 @@ impl State {
 				}
 				for (channel, message, count) in entries.unwrap_or_default() {
 					// Unjoined forum posts load after READY; keep their service cursors.
-					if self.channel(channel).is_some_and(|c| !c.supports_text()) {
+					if self
+						.channel(channel)
+						.is_some_and(|c| !c.supports_text() && !matches!(c.kind, 15 | 16))
+					{
 						continue;
 					}
 					self.read_state.activity.set_count(channel, count);
@@ -625,7 +630,7 @@ impl State {
 				if !self
 					.channels
 					.iter()
-					.any(|c| c.id == channel && c.supports_text())
+					.any(|c| c.id == channel && (c.supports_text() || matches!(c.kind, 15 | 16)))
 					|| matches!((self.read_state.version,version),(Some(old),Some(new)) if new<old)
 				{
 					return Ok(());

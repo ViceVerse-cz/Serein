@@ -50,7 +50,7 @@ fn entry(bytes: &[u8]) -> Result<Entry<'_>, DecodeError> {
 		}
 	}
 	let url = url.ok_or(DecodeError)?;
-	if url.is_empty() || url.len() > 1024 {
+	if url.is_empty() {
 		return Err(DecodeError);
 	}
 	let mut result = Entry {
@@ -62,7 +62,7 @@ fn entry(bytes: &[u8]) -> Result<Entry<'_>, DecodeError> {
 		order: 0,
 	};
 	let mut seen = 0u8;
-	for field in fields(value.ok_or(DecodeError)?)? {
+	for field in fields(value.unwrap_or_default())? {
 		if (1..=5).contains(&field.number) {
 			let bit = 1 << field.number;
 			if seen & bit != 0 {
@@ -73,9 +73,6 @@ fn entry(bytes: &[u8]) -> Result<Entry<'_>, DecodeError> {
 		match field.number {
 			2 => {
 				result.source = std::str::from_utf8(field.message()?).map_err(|_| DecodeError)?;
-				if result.source.len() > 1024 {
-					return Err(DecodeError);
-				}
 			}
 			1 | 3 | 4 | 5 => {
 				let value = u32::try_from(field.integer()?).map_err(|_| DecodeError)?;
@@ -132,7 +129,8 @@ pub fn decode_response(bytes: &[u8]) -> Result<Decoded, DecodeError> {
 		}
 	}
 	let decoded = Decoded {
-		version: version.ok_or(DecodeError)?,
+		// Versions is optional in FrecencyUserSettings (including an empty initial proto).
+		version: version.unwrap_or(0),
 		subtree: subtree.unwrap_or_default(),
 	};
 	let mut keys = HashSet::new();
@@ -167,26 +165,30 @@ impl Decoded {
 		});
 		let mut favorites = Vec::with_capacity(MAX_GIF_FAVORITES);
 		for entry in entries {
-			if !model::valid_gif_url(entry.url)
-				|| !(1..=4096).contains(&entry.width)
-				|| !(1..=4096).contains(&entry.height)
-			{
+			if !model::valid_gif_favorite_url(entry.url) {
 				continue;
 			}
-			let preview = if (entry.format == 1 && model::valid_gif_preview(entry.source))
-				|| (entry.format == 2 && model::valid_gif_video_source(entry.source))
-			{
+			// Media saved from a message may omit its source; the address is then the media.
+			let preview = if model::valid_gif_favorite_source(entry.source) {
 				entry.source
+			} else if model::valid_gif_favorite_source(entry.url) {
+				entry.url
 			} else {
 				continue;
 			};
+			// Unknown dimensions lay out as a square tile instead of hiding the favorite.
+			let (width, height) = if entry.width == 0 || entry.height == 0 {
+				(1, 1)
+			} else {
+				(entry.width.min(4096), entry.height.min(4096))
+			};
 			let gif = Gif {
-				id: format!("discord-{}", favorites.len()),
+				id: favorite_id(entry.url),
 				title: String::new(),
 				url: entry.url.into(),
 				preview: preview.into(),
-				width: entry.width,
-				height: entry.height,
+				width,
+				height,
 			};
 			if gif.valid() {
 				favorites.push(gif);
@@ -210,14 +212,9 @@ impl Decoded {
 			if field.number == 1 {
 				let entry = entry(field.message()?)?;
 				if entry.url == gif.url {
-					let format = if model::valid_gif_preview(&gif.preview) {
-						1
-					} else {
-						2
-					};
 					return Ok(favorite
 						&& entry.source == gif.preview
-						&& entry.format == format
+						&& entry.format == format(&gif.preview)
 						&& entry.width == gif.width
 						&& entry.height == gif.height);
 				}
@@ -243,6 +240,22 @@ impl Decoded {
 			Ok((entries, other))
 		}
 		Ok(retained(self, url)? == retained(saved, url)?)
+	}
+}
+
+/// Stable per URL, so the local fallback never collapses two favorites onto one row.
+fn favorite_id(url: &str) -> String {
+	let hash = url.bytes().fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
+		(hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+	});
+	format!("discord-{hash:016x}")
+}
+
+fn format(source: &str) -> u32 {
+	if model::gif_source_is_video(source) {
+		2
+	} else {
+		1
 	}
 }
 
@@ -275,13 +288,6 @@ pub fn encode_patch(current: &Decoded, gif: &Gif, favorite: bool) -> Result<Stri
 		subtree.extend_from_slice(field.raw);
 	}
 	if favorite {
-		let format = if model::valid_gif_preview(&gif.preview) {
-			1
-		} else if model::valid_gif_video_source(&gif.preview) {
-			2
-		} else {
-			return Err(DecodeError);
-		};
 		if count >= MAX_ENTRIES {
 			return Err(DecodeError);
 		}
@@ -289,7 +295,7 @@ pub fn encode_patch(current: &Decoded, gif: &Gif, favorite: bool) -> Result<Stri
 			.map_or(Some(0), |order| order.checked_add(1))
 			.ok_or(DecodeError)?;
 		let mut value = Vec::new();
-		integer(1, format, &mut value);
+		integer(1, format(&gif.preview), &mut value);
 		message(2, gif.preview.as_bytes(), &mut value);
 		integer(3, gif.width, &mut value);
 		integer(4, gif.height, &mut value);

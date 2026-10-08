@@ -50,6 +50,8 @@ png = "=0.18.1"
 # Only trusted bundled path/shape SVGs; no text, font discovery, raster images or SVGZ.
 resvg = { version = "=0.48.1", default-features = false }
 arboard = "=3.6.1"
+# Already built for eframe's system-font fallback; lists installed families for font settings.
+fontique = { version = "=0.11.1", default-features = false, features = ["system", "fontconfig-dlopen"] }
 # Serein never installs a `log` logger, so dependency log calls (wgpu, winit, reqwest, ...)
 # are dead code; this feature compiles them out of release builds instead of shipping them.
 log = { version = "=0.4.34", features = ["release_max_level_off"] }
@@ -72,5 +74,13 @@ test-support.workspace = true
 name = "profile_preview"
 required-features = ["demo"]
 
+[[example]]
+name = "gif_favorites"
+required-features = ["demo"]
+
 [lints]
 workspace = true
+
+[[example]]
+name = "double_click_settings"
+required-features = ["demo"]

@@ -151,6 +151,7 @@ fn form(
 				design::input(
 					ui,
 					egui::TextEdit::singleline(value)
+						.align(egui::Align2::LEFT_CENTER)
 						.id_salt(id)
 						.char_limit(1024),
 				)

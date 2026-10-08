@@ -200,10 +200,15 @@ impl StickersUi {
 					);
 					ui.vertical(|ui| {
 						crate::dialog::label(ui, "server-stickers-show-name");
-						ui.add(egui::TextEdit::singleline(&mut upload.name).char_limit(30));
+						ui.add(
+							egui::TextEdit::singleline(&mut upload.name)
+								.align(egui::Align2::LEFT_CENTER)
+								.char_limit(30),
+						);
 						crate::dialog::label(ui, "server-stickers-show-related-emoji");
 						ui.add(
 							egui::TextEdit::singleline(&mut upload.tags)
+								.align(egui::Align2::LEFT_CENTER)
 								.hint_text(crate::i18n::translate(
 									"server-stickers-show-for-example",
 								))
@@ -212,7 +217,11 @@ impl StickersUi {
 					});
 				});
 				crate::dialog::label(ui, "server-stickers-show-description-optional");
-				ui.add(egui::TextEdit::singleline(&mut upload.description).char_limit(100));
+				ui.add(
+					egui::TextEdit::singleline(&mut upload.description)
+						.align(egui::Align2::LEFT_CENTER)
+						.char_limit(100),
+				);
 				let valid = valid_fields(&upload.name, &upload.description, &upload.tags);
 				if !valid {
 					design::notice(
@@ -448,20 +457,32 @@ impl StickersUi {
 					..
 				} => {
 					let label = crate::dialog::label(ui, "server-stickers-dialog-name");
-					crate::dialog::input(ui, egui::TextEdit::singleline(name).char_limit(30))
-						.labelled_by(label.id);
+					crate::dialog::input(
+						ui,
+						egui::TextEdit::singleline(name)
+							.align(egui::Align2::LEFT_CENTER)
+							.char_limit(30),
+					)
+					.labelled_by(label.id);
 					ui.add_space(12.0);
 					let label =
 						crate::dialog::label(ui, "server-stickers-dialog-description-optional");
 					crate::dialog::input(
 						ui,
-						egui::TextEdit::singleline(description).char_limit(100),
+						egui::TextEdit::singleline(description)
+							.align(egui::Align2::LEFT_CENTER)
+							.char_limit(100),
 					)
 					.labelled_by(label.id);
 					ui.add_space(12.0);
 					let label = crate::dialog::label(ui, "server-stickers-dialog-related-emoji");
-					crate::dialog::input(ui, egui::TextEdit::singleline(tags).char_limit(200))
-						.labelled_by(label.id);
+					crate::dialog::input(
+						ui,
+						egui::TextEdit::singleline(tags)
+							.align(egui::Align2::LEFT_CENTER)
+							.char_limit(200),
+					)
+					.labelled_by(label.id);
 				}
 				Dialog::Delete { .. } => {}
 			});

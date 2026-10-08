@@ -48,13 +48,13 @@ Pre-compiled releases for macOS, Linux, and Windows are published on GitHub [Rel
 | Platform | Format | Architectures | Details |
 |---|---|---|---|
 | **Windows** | `-Setup.exe`, `.zip` | `x86_64`, `aarch64` | Per-user NSIS installer (recommended) or standalone portable archive |
-| **macOS** | Homebrew Cask, `.zip` | Apple Silicon (`aarch64`) | Signed and notarized `.app` bundle |
-| **Linux** | Flatpak (recommended), Repositories (`apt`, `dnf`, `zypper`, `pacman`), Gentoo ebuild, `.AppImage` | `x86_64` | Flatpak with automatic updates; signed package repositories; portable AppImage |
+| **macOS** | Homebrew Cask, `.zip`, Nix flake | Apple Silicon (`aarch64`) | Signed and notarized `.app` bundle; the Nix build is unsigned |
+| **Linux** | Flatpak (recommended), Repositories (`apt`, `dnf`, `zypper`, `pacman`), Gentoo ebuild, Nix flake, `.AppImage` | `x86_64` | Flatpak with automatic updates; signed package repositories; portable AppImage |
 
 ---
 
 <details open>
-<summary><h3>🐧 Linux (Flatpak, Repositories, Gentoo, AppImage)</h3></summary>
+<summary><h3>🐧 Linux (Flatpak, Repositories, Gentoo, Nix, AppImage)</h3></summary>
 
 #### 1. Flatpak (Recommended)
 
@@ -105,7 +105,18 @@ sudo emerge --ask net-im/serein
 
 Use `net-im/serein-bin` in the keyword file and emerge command to install the prebuilt binary instead. The source ebuild requires Rust 1.98.1 or newer. The binary ebuild targets amd64 systems with glibc 2.43 or newer. The two ebuilds install the same files, so choose one.
 
-#### 4. Standalone AppImage (Portable)
+#### 4. Nix (flake)
+
+The repository flake builds Serein from source for `x86_64-linux` and `aarch64-darwin`:
+
+```sh
+nix run github:ViceVerse-cz/Serein#serein
+nix profile install github:ViceVerse-cz/Serein#serein
+```
+
+Nix installs are updated through Nix, not the in-app updater. On macOS the build produces an unsigned, non-notarized `Serein.app`. See the [Nix package guide](nix/README.md) for the development shell and details.
+
+#### 5. Standalone AppImage (Portable)
 
 Download `serein-<version>-Linux-X64.AppImage` from [Releases](https://github.com/ViceVerse-cz/rustcord/releases), make it executable, and run:
 ```sh
@@ -330,6 +341,7 @@ For full details, review the [Storage Policy](docs/storage-policy.md) and [Threa
 - [Authentication & Login Handoff](docs/authentication.md)
 - [Storage Policy & Cache Retention](docs/storage-policy.md)
 - [Platform Support & Build Requirements](docs/platform-support.md)
+- [Nix Package & Development Shell](nix/README.md)
 - [Voice Architecture & Procedure](docs/voice.md)
 - [Design Tokens & UI Styling](docs/design.md)
 - [Extensions & Plugin Architecture](docs/extensions.md)

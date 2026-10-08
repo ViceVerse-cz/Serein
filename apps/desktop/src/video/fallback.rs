@@ -12,6 +12,14 @@ use std::{
 const LIMIT: u64 = 100 * 1024 * 1024;
 const FAILED: &str = "This video could not be converted for playback";
 
+/// Recoverable native format failures, including sources that need bounded downscaling.
+pub(super) fn eligible(error: &str) -> bool {
+	matches!(
+		error,
+		platform::video::UNSUPPORTED | platform::video::INVALID | platform::video::TOO_LARGE
+	)
+}
+
 struct Temporary(PathBuf);
 impl Drop for Temporary {
 	fn drop(&mut self) {

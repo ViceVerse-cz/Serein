@@ -406,6 +406,40 @@ mod native {
 
 		#[tokio::test]
 		async fn private_socket_roundtrip_contention_and_owned_cleanup() {
+			// Sibling tests spawn shell processes. Keep socket ownership in an exact-test child
+			// so a concurrent spawn cannot temporarily inherit the fixture's open descriptors.
+			const CHILD: &str = "SEREIN_TEST_PRIVATE_SOCKET_CHILD";
+			if std::env::var_os(CHILD).is_none() {
+				let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+					.args([
+						"--exact",
+						"game_activity::native::tests::private_socket_roundtrip_contention_and_owned_cleanup",
+						"--nocapture",
+					])
+					.env(CHILD, "1")
+					.spawn()
+					.unwrap();
+				let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+					loop {
+						if let Some(status) = child.try_wait()? {
+							break Ok::<_, io::Error>(status);
+						}
+						tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+					}
+				})
+				.await;
+				if !matches!(result, Ok(Ok(_))) {
+					let _ = child.kill();
+					let _ = child.wait();
+				}
+				assert!(
+					result
+						.expect("socket child must terminate within five seconds")
+						.expect("socket child status must be readable")
+						.success()
+				);
+				return;
+			}
 			let directory = fs::canonicalize(std::env::temp_dir()).unwrap();
 			let path = directory.join(format!(
 				"serein-test-{}-{}",

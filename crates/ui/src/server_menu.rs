@@ -117,6 +117,32 @@ impl ServerMenu {
 		}
 		false
 	}
+	/// Create invite for `guild`, shown only where the account may create one.
+	pub fn invite_item(&mut self, ui: &mut egui::Ui, state: &mut State, guild: Id) -> bool {
+		let Some(channel) = state.invite_channel(guild) else {
+			return false;
+		};
+		let available = !state.server_action_pending()
+			&& !state.server_invite_pending()
+			&& (state.demo || state.gateway_connected);
+		if ui
+			.add_enabled_ui(available, |ui| {
+				menu_row(
+					ui,
+					icons::Icon::AddPeople,
+					&crate::i18n::translate("server-menu-header-create-invite"),
+					design::palette(ui).accent,
+				)
+			})
+			.inner
+			.clicked()
+		{
+			self.open_invite(state, guild, channel);
+			ui.close();
+			return true;
+		}
+		false
+	}
 	pub fn open_invite(&mut self, state: &mut State, guild: Id, channel: Id) {
 		if !state.can_create_server_invite(guild, channel) {
 			return;
@@ -565,19 +591,24 @@ mod tests {
 					"Create invite is deliberate; Leave still requires confirmation"
 				);
 				if action == "Create invite" {
-					let heading = text
+					assert!(
+						text.iter()
+							.any(|(t, _)| t.starts_with("Invite friends to "))
+					);
+					// The title sits beside the dialog icon; body sections share one left edge.
+					let body = text
 						.iter()
-						.find(|(t, _)| t.starts_with("Invite friends to "))
+						.find(|(t, _)| t == "Recipients will land in")
 						.unwrap()
 						.1;
 					let footer = text
 						.iter()
-						.find(|(t, _)| t == "Or, send a server invite link to a friend")
+						.find(|(t, _)| t == "OR, SEND A SERVER INVITE LINK TO A FRIEND")
 						.unwrap()
 						.1;
 					assert!(
-						(heading.left() - footer.left()).abs() < 1.0,
-						"heading and footer align left: {heading:?} {footer:?}"
+						(body.left() - footer.left()).abs() < 1.0,
+						"body sections align left: {body:?} {footer:?}"
 					);
 				}
 				if action == "Leave server" {

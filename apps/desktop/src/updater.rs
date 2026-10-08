@@ -149,7 +149,8 @@ impl Updater {
 			view.supported = true;
 			return false;
 		}
-		let supported = cfg!(any(target_os = "macos", windows)) || install::appimage_session();
+		let supported = (cfg!(any(target_os = "macos", windows)) && !install::nix_session())
+			|| install::appimage_session();
 		view.supported = supported;
 		view.flatpak = install::flatpak_session();
 		view.linux_update_cmd = install::linux_package_manager_update_command().map(str::to_owned);
@@ -208,6 +209,11 @@ impl Updater {
 										if install::flatpak_session() {
 											format!(
 												"Serein {} is available. Update with `flatpak update` or your Software center.",
+												p.version,
+											)
+										} else if install::nix_session() {
+											format!(
+												"Serein {} is available. Update it through Nix.",
 												p.version,
 											)
 										} else if let Some(cmd) =

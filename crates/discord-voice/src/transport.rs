@@ -110,17 +110,18 @@ async fn json_send(ws: &mut Socket, value: Value) -> Result<(), &'static str> {
 /// Media datagrams are lossy by design. A full send buffer, a network roam or a stray
 /// ICMP unreachable (which Windows reports on the next send of a connected socket) drops
 /// one packet; only a path that keeps failing for `UDP_OUTAGE` ends the call.
+/// Never wait for socket capacity here: that would stall audio, signaling and feedback.
 const UDP_OUTAGE: Duration = Duration::from_secs(10);
 #[derive(Default)]
 struct UdpFailures(Option<Instant>);
 impl UdpFailures {
-	async fn send(
+	fn send(
 		&mut self,
 		socket: &UdpSocket,
 		data: &[u8],
 		outage: &'static str,
 	) -> Result<(), &'static str> {
-		if socket.send(data).await.is_ok() {
+		if socket.try_send(data).is_ok() {
 			self.0 = None;
 			return Ok(());
 		}
@@ -144,7 +145,7 @@ fn transient_receive(error: &std::io::Error) -> bool {
 }
 // Native voice UDP ping: signaling heartbeats alone do not maintain an idle
 // media path (notably a receive-only stream or a muted call).
-async fn udp_keepalive(
+fn udp_keepalive(
 	socket: &UdpSocket,
 	failures: &mut UdpFailures,
 	sequence: &mut u32,
@@ -152,9 +153,7 @@ async fn udp_keepalive(
 	*sequence = sequence.wrapping_add(1);
 	let mut packet = [0x13, 0x37, 0xca, 0xfe, 0, 0, 0, 0];
 	packet[4..].copy_from_slice(&sequence.to_le_bytes());
-	failures
-		.send(socket, &packet, "Voice UDP keepalive failed")
-		.await
+	failures.send(socket, &packet, "Voice UDP keepalive failed")
 }
 fn number(data: &Value, key: &str) -> Result<u64, &'static str> {
 	data[key].as_u64().ok_or("Malformed voice signaling field")
@@ -397,7 +396,7 @@ async fn run_inner(
 				let generation=controls.borrow().camera;
 				if !dave.ready || resuming || generation==0 || generation!=video.generation {video.clear();}
 				else if let Some(packet)=video.next() && let Some(socket)=&udp {
-					udp_failures.send(socket,&packet,"Camera UDP send failed").await?;
+					udp_failures.send(socket,&packet,"Camera UDP send failed")?;
 				}
 			},
 			_=tick.tick()=>{
@@ -405,7 +404,7 @@ async fn run_inner(
 				if deadline.is_some_and(|d|now>=d) {return Err(negotiation_timeout(heartbeat_ms.is_some(),udp.is_some(),encryption.is_some(),&dave,resuming));}
 				if discovering && now>=discovery_deadline {return Err("Discord voice UDP discovery timed out; check the network firewall");}
 				if !discovering && now>=next_udp_ping && let Some(socket)=&udp {
-					udp_keepalive(socket,&mut udp_failures,&mut udp_ping_sequence).await?;
+					udp_keepalive(socket,&mut udp_failures,&mut udp_ping_sequence)?;
 					next_udp_ping=now+Duration::from_secs(5);
 				}
 				if let Some(interval)=heartbeat_ms && now>=heartbeat_at {
@@ -430,7 +429,7 @@ async fn run_inner(
 					receivers.absorb(lost);
 					let requests:Vec<u32>=receivers.keyframe_requests().collect();
 					metrics.video(Video::PliSent,requests.len() as u64);
-					for media in requests {let (header,body)=pli(ssrc,media);udp_failures.send(socket,&crypto.seal_rtcp(&header,&body)?,"Voice RTCP send failed").await?;}
+					for media in requests {let (header,body)=pli(ssrc,media);udp_failures.send(socket,&crypto.seal_rtcp(&header,&body)?,"Voice RTCP send failed")?;}
 					next_pli=now+Duration::from_millis(500);
 				}
 				let control=*controls.borrow();
@@ -482,7 +481,7 @@ async fn run_inner(
 					let mut header=[0;12];header[0]=0x80;header[1]=120;header[2..4].copy_from_slice(&sequence.to_be_bytes());header[4..8].copy_from_slice(&timestamp.to_be_bytes());header[8..12].copy_from_slice(&ssrc.to_be_bytes());
 					let wire=encryption.as_mut().ok_or("Missing voice transport key")?.seal(&header,&data)?;
 					metrics.finish(crate::diagnostics::Stage::Encode, start);
-					if let Some(socket)=&udp {udp_failures.send(socket,&wire,"Voice UDP send failed").await?;}
+					if let Some(socket)=&udp {udp_failures.send(socket,&wire,"Voice UDP send failed")?;}
 					sequence=sequence.wrapping_add(1);
 					if !active && silence==0 {json_send(&mut ws,json!({"op":5,"d":{"speaking":0,"delay":0,"ssrc":ssrc}})).await?;speaking=false;}
 					if active {silence=0;}
@@ -490,6 +489,7 @@ async fn run_inner(
 				timestamp=timestamp.wrapping_add(960);
 				let mut drops = 0;
 				if enabled && !control.deafened {
+					if stalled {mixer.clear();}
 					let start = metrics.start();
 					let (mut frame,remote_audio)=mixer.pop_with_volumes(&control.user_volumes);
 					// Keep the auxiliary stream close to live even if this clock misses a tick.
@@ -1152,10 +1152,10 @@ async fn run_stream_inner(
 				if history.has_pending() && outgoing.allow_repair(now,rate.target)
 					&& let Some(packet)=history.repair(rtx_ssrc,&mut rtx_sequence,now) {
 					// The original DAVE ciphertext is reused; the transport nonce is always fresh.
-					udp_failures.send(socket,&crypto.seal(&packet.header,&packet.payload)?,"Stream retransmission failed").await?;
+					udp_failures.send(socket,&crypto.seal(&packet.header,&packet.payload)?,"Stream retransmission failed")?;
 				}
 				for packet in outgoing.next_batch(now,rate.target) {
-					udp_failures.send(socket,&crypto.seal(&packet.header,&packet.payload)?,"Stream UDP send failed").await?;
+					udp_failures.send(socket,&crypto.seal(&packet.header,&packet.payload)?,"Stream UDP send failed")?;
 					if rtx_ssrc!=0 {history.remember(packet,now);}
 				}
 				metrics.finish(crate::diagnostics::Stage::VideoSend,start);
@@ -1170,7 +1170,7 @@ async fn run_stream_inner(
 				if deadline.is_some_and(|at| now>=at) {return Err(negotiation_timeout(heartbeat_ms.is_some(),udp.is_some(),encryption.is_some(),&dave,false));}
 				if discovering && now>=discovery_deadline {return Err("Discord stream UDP discovery timed out");}
 				if !discovering && now>=next_udp_ping && let Some(socket)=&udp {
-					udp_keepalive(socket,&mut udp_failures,&mut udp_ping_sequence).await?;
+					udp_keepalive(socket,&mut udp_failures,&mut udp_ping_sequence)?;
 					next_udp_ping=now+Duration::from_secs(5);
 				}
 				if let Some(interval)=heartbeat_ms && now>=heartbeat_at {
@@ -1180,13 +1180,15 @@ async fn run_stream_inner(
 					awaiting_ack=Some(heartbeat_nonce); heartbeat_at=now+Duration::from_millis(interval);
 				}
 				if secured_at.is_some_and(|at| now>=at+PEER_GRACE) && !discovering && dave.should_wait_for_peer() {dave.enter_sole_member_waiting()?;}
-				let waiting=dave.waiting && encryption.is_some() && !discovering;
+				let waiting=dave.waiting && dave.pending.is_none() && encryption.is_some() && !discovering;
 				if waiting {deadline=None;}
 				if waiting!=waiting_announced {
 					emit(if waiting {Status::WaitingForPeer} else {Status::Securing}).map_err(|_|"Stream interface closed")?;
 					waiting_announced=waiting;
 				}
 				let secure=dave.ready&&dave.session.is_ready()&&dave.pending.is_none()&&encryption.is_some()&&!discovering;
+				// A rekey can begin after initial readiness cleared the allocation deadline.
+				if !secure && !waiting {deadline.get_or_insert(now+Duration::from_secs(30));}
 				if secure && let Some(video)=&video && let Some(target)=rate.tick(now) {
 					video.bitrate.store(target,Ordering::Release);
 				}
@@ -1238,7 +1240,7 @@ async fn run_stream_inner(
 					receivers.absorb(lost);
 					let requests:Vec<u32>=receivers.keyframe_requests().collect();
 					metrics.video(Video::PliSent,requests.len() as u64);
-					for media in requests {let (header,body)=pli(audio_ssrc,media);udp_failures.send(socket,&crypto.seal_rtcp(&header,&body)?,"Stream RTCP send failed").await?;}
+					for media in requests {let (header,body)=pli(audio_ssrc,media);udp_failures.send(socket,&crypto.seal_rtcp(&header,&body)?,"Stream RTCP send failed")?;}
 					next_pli=now+Duration::from_millis(500);
 				}
 				if let Some(shared)=&mut share_audio
@@ -1256,7 +1258,7 @@ async fn run_stream_inner(
 					let mut header=[0;12];header[0]=0x80;header[1]=120;header[2..4].copy_from_slice(&audio_sequence.to_be_bytes());header[4..8].copy_from_slice(&audio_timestamp.to_be_bytes());header[8..12].copy_from_slice(&audio_ssrc.to_be_bytes());
 					let crypto=encryption.as_mut().ok_or("Missing stream transport key")?;
 					let socket=udp.as_ref().ok_or("Missing stream UDP socket")?;
-					udp_failures.send(socket,&crypto.seal_soundshare(&header,&data)?,"Stream audio UDP send failed").await?;
+					udp_failures.send(socket,&crypto.seal_soundshare(&header,&data)?,"Stream audio UDP send failed")?;
 					metrics.finish(crate::diagnostics::Stage::Encode,start);
 					audio_sequence=audio_sequence.wrapping_add(1);
 				}
@@ -1396,6 +1398,32 @@ mod tests {
 	use super::*;
 	use crate::video_receive::Receivers;
 	use opus2::Decoder;
+
+	#[tokio::test]
+	async fn udp_send_errors_drop_datagrams_without_waiting_and_recover() {
+		let receiver = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+		let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+		sender
+			.connect(receiver.local_addr().unwrap())
+			.await
+			.unwrap();
+		sender.writable().await.unwrap();
+		let mut failures = UdpFailures::default();
+		// An oversized datagram gives a real socket error without needing a live outage.
+		let invalid = vec![0; 65_536];
+		assert!(failures.send(&sender, &invalid, "outage").is_ok());
+		assert!(failures.0.is_some());
+		failures.0 = Some(Instant::now() - UDP_OUTAGE);
+		assert_eq!(failures.send(&sender, &invalid, "outage"), Err("outage"));
+		assert!(failures.send(&sender, b"recovered", "outage").is_ok());
+		assert!(failures.0.is_none());
+		let mut packet = [0; 16];
+		let length = timeout(Duration::from_secs(1), receiver.recv(&mut packet))
+			.await
+			.unwrap()
+			.unwrap();
+		assert_eq!(&packet[..length], b"recovered");
+	}
 
 	#[test]
 	fn decoder_cleanup_announcement_preserves_streams_and_partial_updates() {

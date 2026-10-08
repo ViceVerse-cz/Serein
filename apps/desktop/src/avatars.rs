@@ -150,10 +150,7 @@ fn budget(key: &str) -> Budget {
 		Motion::Still => Budget {
 			fit: longest,
 			encoded: media_encoded(&rendition),
-			canvas: match rendition.size {
-				Size::Exact { .. } => (longest * 2).min(8192),
-				Size::Longest(_) => 8192,
-			},
+			canvas: 8192,
 			alloc: 128 * 1024 * 1024,
 			frames: None,
 		},
@@ -466,6 +463,20 @@ fn cdn_url(key: &str) -> Option<String> {
 		return (role.0 != 0 && model::valid_avatar_hash(hash))
 			.then(|| format!("https://cdn.discordapp.com/role-icons/{role}/{hash}.png?size=128"));
 	}
+	if let Some(source) = key.strip_prefix("game:") {
+		return model::valid_discord_media_url(source)
+			.then(|| {
+				proxy_url(
+					source,
+					Size::Exact {
+						width: 256,
+						height: 256,
+					},
+					ProxyFormat::LosslessWebp,
+				)
+			})
+			.flatten();
+	}
 	if let Some(value) = key.strip_prefix("application-icon-") {
 		let (application, hash) = value.split_once('-')?;
 		let application: Id = application.parse().ok()?;
@@ -617,7 +628,16 @@ fn media_urls(rendition: &Rendition) -> Option<MediaUrls> {
 		{
 			(proxy_base(source).map(String::from), None)
 		}
-		Motion::Still => (proxy_url(source, size, ProxyFormat::LosslessWebp), None),
+		Motion::Still => (
+			proxy_url(source, size, ProxyFormat::LosslessWebp),
+			proxy_base(source).and_then(|mut original| {
+				if !original.path().starts_with("/attachments/") {
+					return None;
+				}
+				original.set_host(Some("cdn.discordapp.com")).ok()?;
+				Some(original.into())
+			}),
+		),
 		Motion::Animated if let Some(video) = motion_video_source(source) => (Some(video), None),
 		Motion::Animated if provider => (Some(source.to_owned()), None),
 		Motion::Animated if webp => (
@@ -629,6 +649,15 @@ fn media_urls(rendition: &Rendition) -> Option<MediaUrls> {
 			direct_gif(source, size),
 		),
 	};
+	#[cfg(target_os = "windows")]
+	if rendition.lane == Lane::Viewer
+		&& let Some(original) = fallback.clone()
+	{
+		return Some(MediaUrls {
+			primary: original,
+			fallback: primary,
+		});
+	}
 	match primary {
 		Some(primary) => Some(MediaUrls { primary, fallback }),
 		None => fallback.map(|primary| MediaUrls {
@@ -652,6 +681,7 @@ fn motion_video_source(source: &str) -> Option<String> {
 	}
 	let host = url.host_str()?;
 	let allowed = model::valid_gif_url(source)
+		|| model::valid_gif_video_source(source)
 		|| matches!(
 			host,
 			"cdn.discordapp.com"
@@ -709,13 +739,20 @@ fn proxy_query(
 	width: u32,
 	height: Option<u32>,
 ) -> String {
+	// Profile CDN assets require `size` for the source resolution; width/height alone
+	// can upscale the default thumbnail. proxy_base has already validated this path.
+	let profile_asset = matches!(
+		url.path().split('/').nth(1),
+		Some("avatars" | "banners" | "icons" | "guilds")
+	);
 	let query: Vec<_> = url
 		.query_pairs()
 		.filter(|(key, _)| {
-			!matches!(
-				key.as_ref(),
-				"format" | "width" | "height" | "quality" | "animated" | "fit"
-			)
+			!(profile_asset && key == "size")
+				&& !matches!(
+					key.as_ref(),
+					"format" | "width" | "height" | "quality" | "animated" | "fit"
+				)
 		})
 		.map(|(key, value)| (key.into_owned(), value.into_owned()))
 		.collect();
@@ -726,6 +763,13 @@ fn proxy_query(
 			.extend_pairs(query)
 			.extend_pairs(format.iter().copied())
 			.append_pair("width", &width.to_string());
+		if profile_asset {
+			let side = width
+				.max(height.unwrap_or(width))
+				.clamp(16, 4096)
+				.next_power_of_two();
+			pairs.append_pair("size", &side.to_string());
+		}
 		if let Some(height) = height {
 			pairs.append_pair("height", &height.to_string());
 		}
@@ -837,6 +881,7 @@ fn disk_key(key: &str) -> Option<String> {
 		|| key.starts_with("embed:")
 		|| key.starts_with("media:")
 		|| key.starts_with("gif:")
+		|| key.starts_with("game:")
 	{
 		Some(format!("embed-{:x}", Sha256::digest(url.as_bytes())))
 	} else {
@@ -1286,6 +1331,15 @@ async fn download(
 fn decode(bytes: &[u8], budget: &Budget) -> Option<egui::ColorImage> {
 	if bytes.len() > budget.encoded {
 		return None;
+	}
+	if platform::heic::is_heic(bytes) {
+		let (width, height, rgba) =
+			platform::heic::decode(bytes, budget.canvas, budget.alloc, budget.fit)?;
+		let image = resize_to(image::RgbaImage::from_raw(width, height, rgba)?, budget.fit);
+		return Some(egui::ColorImage::from_rgba_unmultiplied(
+			[image.width() as usize, image.height() as usize],
+			image.as_raw(),
+		));
 	}
 	// Provider previews can be GIF/JPEG/WebP; decode only the first frame, within limits.
 	let mut reader = image::ImageReader::new(Cursor::new(bytes))
@@ -2605,7 +2659,18 @@ mod tests {
 			.is_some()
 		);
 		let media_key = "media:vs:2048x512:https://cdn.discordapp.com/attachments/1/2/image.png?ex=abc&is=def&hm=synthetic";
-		let transformed = cdn_url(media_key).unwrap();
+		let urls = media_urls(&Rendition::parse(media_key).unwrap()).unwrap();
+		// Windows viewers prefer the original so system codecs can decode HEIC.
+		let transformed = if cfg!(windows) {
+			assert!(
+				urls.primary
+					.starts_with("https://cdn.discordapp.com/attachments/1/2/image.png?")
+			);
+			urls.fallback.unwrap()
+		} else {
+			assert_eq!(cdn_url(media_key).as_deref(), Some(urls.primary.as_str()));
+			urls.primary
+		};
 		assert!(transformed.starts_with("https://media.discordapp.net/attachments/1/2/image.png?"));
 		assert!(transformed.ends_with("format=webp&quality=lossless&width=2048&height=512"));
 		assert_ne!(disk_key(media_key).unwrap(), disk_key(embed_key).unwrap());
@@ -2617,7 +2682,7 @@ mod tests {
 		);
 		let media = budget("media:vs:2048x1024:https://cdn.discordapp.com/attachments/1/2/a.png");
 		assert_eq!(decode(&png(1024, 512), &media).unwrap().size, [1024, 512]);
-		assert!(decode(&png(4097, 1), &media).is_none());
+		assert!(decode(&png(8193, 1), &media).is_none());
 		assert!(decode(&vec![0; MAX_ENCODED + 1], &legacy(128)).is_none());
 		assert!(decode(b"not an image", &legacy(128)).is_none());
 		assert!(decode(&png(257, 1), &legacy(128)).is_none());
@@ -2824,4 +2889,133 @@ mod tests {
 		);
 		assert_eq!(cooldown, retry_at);
 	}
+}
+
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub(crate) fn debug_heic_check() {
+	ui::debug_heic_layout_check();
+	let suffixless = Rendition::parse(
+		"media:is:e512:https://media.discordapp.net/attachments/1/2/Attachment?ex=abc&hm=def",
+	)
+	.unwrap();
+	assert_eq!(
+		media_urls(&suffixless).unwrap().fallback.as_deref(),
+		Some("https://cdn.discordapp.com/attachments/1/2/Attachment?ex=abc&hm=def")
+	);
+	let external = Rendition::parse(
+		"media:is:e512:https://images-ext-1.discordapp.net/external/abcdefghijklmnop/https/example.com/photo.png",
+	)
+	.unwrap();
+	assert!(media_urls(&external).unwrap().fallback.is_none());
+
+	for (filename, content_type, image) in [
+		("shelf-christmas-decoration.heic", None, true),
+		("photo.HEIC", Some("application/octet-stream"), true),
+		("photo.heif", Some("image/heif"), true),
+		("Attachment", Some("image/heic"), true),
+		("photo.heic.exe", Some("application/octet-stream"), false),
+		("photo.heic", Some("audio/wav"), false),
+		("photo.heic", Some("video/mp4"), false),
+	] {
+		let message = serde_json::json!({
+			"id": "1", "channel_id": "2", "author": {"id": "3", "username": "Synthetic"},
+			"attachments": [{"id": "4", "filename": filename, "content_type": content_type,
+				"size": 1380000, "url": "https://cdn.discordapp.com/attachments/2/4/photo.heic"}]
+		});
+		let message = discord_protocol::decode::<discord_protocol::MessageDto>(
+			message.to_string().as_bytes(),
+		)
+		.unwrap()
+		.into_model();
+		assert_eq!(
+			message.attachments[0].is_image(),
+			image,
+			"{filename} / {content_type:?}"
+		);
+		assert_eq!(message.attachments[0].media.width, 0);
+		assert_eq!(message.attachments[0].media.height, 0);
+	}
+	let heic = b"\x00\x00\x00\x18ftypmif1\x00\x00\x00\x00heicmif1";
+	assert!(platform::heic::is_heic(heic));
+	for len in 0..heic.len() {
+		assert!(!platform::heic::is_heic(&heic[..len]));
+	}
+	assert!(!platform::heic::is_heic(
+		b"\x00\x00\x00\x10ftypavif\x00\x00\x00\x00"
+	));
+	assert!(decode(heic, &Budget::legacy(256)).is_none());
+	let rendition = Rendition::parse(
+		"media:is:e512:https://cdn.discordapp.com/attachments/1/2/photo.HEIC?ex=abc&hm=def",
+	)
+	.unwrap();
+	let urls = media_urls(&rendition).unwrap();
+	assert_eq!(budget(&rendition.key()).canvas, 8192);
+	#[cfg(target_os = "windows")]
+	{
+		let viewer = Rendition {
+			lane: Lane::Viewer,
+			..rendition.clone()
+		};
+		let urls = media_urls(&viewer).unwrap();
+		assert!(urls.primary.contains("cdn.discordapp.com") && !urls.primary.contains("format="));
+		assert!(urls.fallback.unwrap().contains("format=webp"));
+	}
+
+	assert!(urls.primary.contains("format=webp"));
+	assert_eq!(
+		urls.fallback.as_deref(),
+		Some("https://cdn.discordapp.com/attachments/1/2/photo.HEIC?ex=abc&hm=def")
+	);
+}
+
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub(crate) fn debug_profile_resolution_check() {
+	let cover = cdn_url(
+		"game:https://images-ext-1.discordapp.net/external/aaaaaaaaaaaaaaaa/https/example.com/cover.jpg",
+	)
+	.unwrap();
+	assert!(cover.starts_with("https://images-ext-1.discordapp.net/external/"));
+	assert!(cover.contains("width=256"));
+	assert!(
+		disk_key(
+			"game:https://images-ext-1.discordapp.net/external/aaaaaaaaaaaaaaaa/https/example.com/cover.jpg"
+		)
+		.unwrap()
+		.starts_with("embed-")
+	);
+	for key in [
+		"game:http://127.0.0.1/cover.jpg",
+		"game:https://images-ext-1.discordapp.net.evil.test/external/a/https/b/c",
+	] {
+		assert!(cdn_url(key).is_none());
+	}
+	println!("Profile game artwork uses the bounded credential-free media worker.");
+	for path in [
+		"avatars/1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+		"banners/1/a_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.gif",
+		"guilds/2/users/1/avatars/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+		"guilds/2/users/1/banners/a_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.gif",
+	] {
+		for motion in ['s', 'a'] {
+			let key = format!("media:v{motion}:1440x720:https://cdn.discordapp.com/{path}");
+			let rendition = Rendition::parse(&key).unwrap();
+			let url = media_urls(&rendition).unwrap().primary;
+			let url = url::Url::parse(&url).unwrap();
+			assert_eq!(
+				url.query_pairs().find(|(key, _)| key == "size").unwrap().1,
+				"2048"
+			);
+			assert!(disk_key(&key).is_some());
+		}
+	}
+	let attachment = Rendition::parse(
+		"media:vs:1024x512:https://cdn.discordapp.com/attachments/1/2/image.png?ex=abc&hm=def",
+	)
+	.unwrap();
+	let url = media_urls(&attachment).unwrap().primary;
+	assert!(!url.contains("size="));
+	assert!(url.contains("ex=abc&hm=def"));
+	println!(
+		"Profile avatar/banner renditions request source resolution; attachment signatures preserved."
+	);
 }

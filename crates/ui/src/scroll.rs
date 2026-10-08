@@ -30,6 +30,7 @@ pub(super) fn instant_wheel_delta(
 				delta,
 				phase,
 				modifiers,
+				..
 			} = event
 			else {
 				return None;
@@ -183,13 +184,13 @@ impl Session {
 		let Some(state) = egui::scroll_area::State::load(ui.ctx(), target) else {
 			return builder;
 		};
-		let next = (state.offset.y - delta).max(0.0);
-		if (next - state.offset.y).abs() < f32::EPSILON {
+		let next = (state.clamped_offset().y - delta).max(0.0);
+		if (next - state.clamped_offset().y).abs() < f32::EPSILON {
 			return builder;
 		}
 		if let Some((id, last)) = self.last_offset
 			&& id == target
-			&& clamped_away(last, state.offset.y, next)
+			&& clamped_away(last, state.clamped_offset().y, next)
 		{
 			return builder;
 		}

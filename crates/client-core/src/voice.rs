@@ -124,6 +124,24 @@ pub struct Call {
 	pub watching: Option<Id>,
 	pub error: Option<&'static str>,
 }
+impl Call {
+	/// Discord's microphone indicator: deafening always reads (and is sent) as muted.
+	pub fn self_muted(&self) -> bool {
+		self.muted || self.deafened
+	}
+}
+/// Applies one local mute (`deafen == false`) or deafen toggle to the latest `(muted, deafened)`.
+///
+/// `muted` is the microphone choice kept underneath a deafen, so undeafening restores it.
+/// Unmuting while deafened clears both, as in Discord. Callers must pass the newest state,
+/// never a snapshot taken before an earlier toggle in the same burst.
+pub fn toggle_self_voice(muted: bool, deafened: bool, deafen: bool) -> (bool, bool) {
+	match (deafen, deafened) {
+		(true, _) => (muted, !deafened),
+		(false, true) => (false, false),
+		(false, false) => (!muted, false),
+	}
+}
 #[derive(Default)]
 pub struct State {
 	pub active: Option<Call>,
@@ -136,13 +154,43 @@ pub struct State {
 	pub(crate) dm_calls: Vec<Id>,
 	/// Last reported members of each known DM call, so answering or joining shows them at once.
 	pub(crate) dm_participants: Vec<(Id, Vec<Participant>)>,
+	/// Service-confirmed ringing, at most 64 calls with 64 recipient IDs each.
+	pub(crate) dm_ringing: Vec<(Id, Vec<Id>)>,
+	pub ring_error: Option<(Id, u64, &'static str)>,
 	pub roster: Vec<RosterEntry>,
 	pub preview: Option<StreamPreview>,
 	sequence: u64,
 }
 impl State {
+	/// Bounded, retained private-call membership across conversations.
+	pub fn dm_call_participants(&self) -> impl Iterator<Item = (Id, &[Participant])> {
+		self.dm_participants
+			.iter()
+			.map(|(channel, participants)| (*channel, participants.as_slice()))
+	}
+	/// Known private-call membership, including calls this device has not joined.
+	pub fn dm_participants(&self, channel: Id) -> &[Participant] {
+		self.dm_participants
+			.iter()
+			.find(|(id, _)| *id == channel)
+			.map_or_else(
+				|| {
+					self.active
+						.as_ref()
+						.filter(|call| call.channel == channel && call.guild.is_none())
+						.map_or(&[][..], |call| call.participants.as_slice())
+				},
+				|(_, participants)| participants.as_slice(),
+			)
+	}
 	pub fn has_dm_call(&self, channel: Id) -> bool {
 		self.dm_calls.contains(&channel)
+	}
+	pub fn ringing(&self, channel: Id) -> &[Id] {
+		self.dm_ringing
+			.iter()
+			.find(|(id, _)| *id == channel)
+			.map_or(&[], |(_, recipients)| recipients)
 	}
 }
 #[derive(Clone, Copy, Debug)]
@@ -164,6 +212,12 @@ pub enum Command {
 	Ring {
 		channel: Id,
 		request: u64,
+	},
+	RingRecipient {
+		channel: Id,
+		request: u64,
+		recipient: Id,
+		stop: bool,
 	},
 	Join {
 		channel: Id,
@@ -218,6 +272,13 @@ pub enum Event {
 		channel: Id,
 		request: u64,
 		revision: u64,
+	},
+	/// Local confirmation admission failed; only the exact unconfirmed candidate may consume it.
+	SessionConfirmationFailed {
+		channel: Id,
+		request: u64,
+		revision: u64,
+		message: &'static str,
 	},
 	/// The confirmed local voice session was replaced. No service hangup is needed.
 	TakenOver {
@@ -276,6 +337,12 @@ pub enum Event {
 		phase: Phase,
 	},
 	Failed {
+		channel: Id,
+		request: u64,
+		message: &'static str,
+	},
+	/// A recipient action failed; the joined call and its media remain active.
+	RingFailed {
 		channel: Id,
 		request: u64,
 		message: &'static str,
@@ -475,12 +542,7 @@ impl ClientState {
 				.map(|r| r.participant)
 				.collect()
 		} else {
-			self.voice
-				.dm_participants
-				.iter()
-				.find(|(id, _)| *id == channel)
-				.map(|(_, participants)| participants.clone())
-				.unwrap_or_default()
+			self.voice.dm_participants(channel).to_vec()
 		};
 		if participants.len() >= MAX_PARTICIPANTS {
 			self.status = "Voice channel exceeds the 64 participant limit";
@@ -495,6 +557,7 @@ impl ClientState {
 		self.voice.sequence = self.voice.sequence.wrapping_add(1);
 		let request = self.voice.sequence;
 		self.voice.outgoing = ring.then_some((channel, request, false));
+		self.voice.ring_error = None;
 		self.voice.active = Some(Call {
 			channel,
 			guild,
@@ -525,10 +588,39 @@ impl ClientState {
 	pub fn leave_call(&mut self) -> Option<crate::Command> {
 		self.voice.outgoing = None;
 		let call = self.voice.active.take()?;
+		self.voice.ring_error = None;
 		self.voice.departed = None;
 		Some(crate::Command::Voice(Command::Leave {
 			channel: call.channel,
 			request: call.request,
+		}))
+	}
+	pub fn ring_recipient(
+		&self,
+		channel: Id,
+		request: u64,
+		recipient: Id,
+		stop: bool,
+	) -> Option<crate::Command> {
+		let call = self.voice.active.as_ref()?;
+		if call.channel != channel
+			|| call.request != request
+			|| call.guild.is_some()
+			|| !matches!(call.phase, Phase::Connected | Phase::Waiting)
+			|| !self.can_call(channel)
+			|| self.user.as_ref().is_none_or(|own| own.id == recipient)
+			|| !self.dm_call_participant(channel, recipient)
+			|| (!stop && call.participants.iter().any(|p| p.user == recipient))
+			|| !self.voice.dm_ringing.iter().any(|(id, _)| *id == channel)
+			|| self.voice.ringing(channel).contains(&recipient) != stop
+		{
+			return None;
+		}
+		Some(crate::Command::Voice(Command::RingRecipient {
+			channel,
+			request,
+			recipient,
+			stop,
 		}))
 	}
 	pub fn set_call_mute(&mut self, muted: bool, deafened: bool) -> Option<crate::Command> {
@@ -597,6 +689,21 @@ impl ClientState {
 	}
 	pub fn apply_voice(&mut self, event: Event) {
 		match event {
+			Event::RingFailed {
+				channel,
+				request,
+				message,
+			} => {
+				if self
+					.voice
+					.active
+					.as_ref()
+					.is_some_and(|call| call.channel == channel && call.request == request)
+				{
+					self.status = message;
+					self.voice.ring_error = Some((channel, request, message));
+				}
+			}
 			Event::TakenOver { channel, request } => {
 				if self
 					.voice
@@ -604,6 +711,7 @@ impl ClientState {
 					.as_ref()
 					.is_some_and(|call| call.channel == channel && call.request == request)
 				{
+					self.voice.ring_error = None;
 					self.voice.active = None;
 					self.voice.outgoing = None;
 					self.voice.departed = Some((channel, request));
@@ -657,8 +765,9 @@ impl ClientState {
 				}
 				if ringing.as_ref().is_some_and(|r| {
 					r.len() > MAX_PARTICIPANTS
-						|| r.iter()
-							.any(|user| !self.dm_call_participant(channel, *user))
+						|| r.iter().enumerate().any(|(index, user)| {
+							!self.dm_call_participant(channel, *user) || r[..index].contains(user)
+						})
 				}) || participants.as_ref().is_some_and(|p| {
 					p.len() > MAX_PARTICIPANTS
 						|| p.iter().enumerate().any(|(index, participant)| {
@@ -681,6 +790,7 @@ impl ClientState {
 						// ponytail: oldest call metadata is evicted; viewing that DM queries it again.
 						let evicted = self.voice.dm_calls.remove(0);
 						self.voice.dm_participants.retain(|(id, _)| *id != evicted);
+						self.voice.dm_ringing.retain(|(id, _)| *id != evicted);
 					}
 					self.voice.dm_calls.push(channel);
 				}
@@ -719,6 +829,10 @@ impl ClientState {
 					} else if self.voice.incoming == Some(channel) {
 						self.voice.incoming = None;
 					}
+					self.voice.dm_ringing.retain(|(id, _)| *id != channel);
+					let mut retained = Vec::with_capacity(MAX_PARTICIPANTS);
+					retained.extend(ringing);
+					self.voice.dm_ringing.push((channel, retained));
 				}
 				if let Some(mut participants) = participants {
 					participants.shrink_to_fit();
@@ -915,6 +1029,7 @@ impl ClientState {
 				}
 			}
 			Event::SessionConfirmed { .. }
+			| Event::SessionConfirmationFailed { .. }
 			| Event::Server { .. }
 			| Event::Stream { .. }
 			| Event::Watch { .. } => {} // The desktop consumes negotiation material; core never retains it.
@@ -997,7 +1112,15 @@ impl ClientState {
 			self.voice.outgoing = None;
 		}
 		self.voice.dm_calls.retain(|id| *id != channel);
+		if self
+			.voice
+			.ring_error
+			.is_some_and(|(id, _, _)| id == channel)
+		{
+			self.voice.ring_error = None;
+		}
 		self.voice.dm_participants.retain(|(id, _)| *id != channel);
+		self.voice.dm_ringing.retain(|(id, _)| *id != channel);
 		self.voice.roster.retain(|r| r.channel != channel);
 		if self
 			.voice
@@ -1023,6 +1146,8 @@ impl ClientState {
 		self.voice.outgoing = None;
 		self.voice.dm_calls.clear();
 		self.voice.dm_participants.clear();
+		self.voice.dm_ringing.clear();
+		self.voice.ring_error = None;
 		self.voice.roster.clear();
 		self.voice.preview = None;
 		self.voice.incoming = None;
@@ -1099,6 +1224,35 @@ mod tests {
 		state
 	}
 
+	#[test]
+	fn deafen_implies_mute_and_undeafen_restores_the_previous_microphone() {
+		use super::toggle_self_voice as toggle;
+		// Deafen while live, undeafen: the microphone comes back live.
+		assert_eq!(toggle(false, false, true), (false, true));
+		assert_eq!(toggle(false, true, true), (false, false));
+		// Deafen while muted, undeafen: still muted.
+		assert_eq!(toggle(true, false, true), (true, true));
+		assert_eq!(toggle(true, true, true), (true, false));
+		// Unmuting while deafened clears both, like Discord's microphone button.
+		assert_eq!(toggle(true, true, false), (false, false));
+		assert_eq!(toggle(false, true, false), (false, false));
+		// Rapid bursts are pure functions of the newest state: an even number of the same
+		// toggle returns to the start, except that the first unmute also undeafens.
+		for start in [(false, false), (true, false), (false, true), (true, true)] {
+			for deafen in [false, true] {
+				let mut state = start;
+				for _ in 0..8 {
+					state = toggle(state.0, state.1, deafen);
+				}
+				let expected = if deafen || !start.1 {
+					start
+				} else {
+					(true, false)
+				};
+				assert_eq!(state, expected, "{start:?} deafen={deafen}");
+			}
+		}
+	}
 	#[test]
 	fn takeover_clears_only_the_matching_call_and_allows_an_explicit_rejoin() {
 		let mut state = stream_preview_state();
@@ -1189,6 +1343,8 @@ mod tests {
 							id: Id(10),
 							name: String::new(),
 							color: 0,
+							secondary_color: None,
+							tertiary_color: None,
 							position: 0,
 							hoist: false,
 							bits: p::VIEW_CHANNEL,
@@ -1431,6 +1587,8 @@ mod tests {
 						roles: Some(vec![p::Role {
 							name: String::new(),
 							color: 0,
+							secondary_color: None,
+							tertiary_color: None,
 							position: 0,
 							hoist: false,
 							id: Id(10),
@@ -1544,6 +1702,8 @@ mod tests {
 							bits: p::VIEW_CHANNEL | p::CONNECT,
 							name: String::new(),
 							color: 0,
+							secondary_color: None,
+							tertiary_color: None,
 							position: 0,
 							hoist: false,
 						}]),
@@ -1687,6 +1847,109 @@ mod tests {
 		}
 	}
 	#[test]
+	fn ringing_metadata_has_fixed_call_and_byte_budgets() {
+		let mut state = dm_state();
+		let template = state.channels[0].clone();
+		for id in 100..100 + MAX_DM_CALLS as u64 + 1 {
+			let mut channel = template.clone();
+			channel.id = Id(id);
+			state.channels.push(channel);
+			state.apply_voice(Event::Call {
+				channel: Id(id),
+				ringing: Some(vec![Id(3)]),
+				participants: None,
+				unavailable: false,
+			});
+		}
+		assert_eq!(state.voice.dm_ringing.len(), MAX_DM_CALLS);
+		assert!(state.voice.ringing(Id(100)).is_empty());
+		let bytes: usize = state
+			.voice
+			.dm_ringing
+			.iter()
+			.map(|(_, ids)| ids.capacity() * size_of::<Id>())
+			.sum();
+		assert_eq!(bytes, MAX_DM_CALLS * MAX_PARTICIPANTS * size_of::<Id>());
+		state.disconnect_voice("Offline");
+		assert!(state.voice.dm_ringing.is_empty());
+	}
+	#[test]
+	fn targeted_ringing_is_scoped_and_service_confirmed_without_ending_media() {
+		let mut state = dm_state();
+		state.start_call(Id(2), false).unwrap();
+		let call = state.voice.active.as_mut().unwrap();
+		call.phase = Phase::Waiting;
+		let request = call.request;
+		assert!(state.ring_recipient(Id(2), request, Id(3), false).is_none());
+		service_ring(&mut state, &[]);
+		assert!(matches!(
+			state.ring_recipient(Id(2), request, Id(3), false),
+			Some(crate::Command::Voice(Command::RingRecipient {
+				recipient: Id(3),
+				stop: false,
+				..
+			}))
+		));
+		assert!(state.ring_recipient(Id(2), request, Id(3), true).is_none());
+		for (channel, req, user) in [
+			(Id(9), request, Id(3)),
+			(Id(2), request + 1, Id(3)),
+			(Id(2), request, Id(1)),
+			(Id(2), request, Id(99)),
+		] {
+			assert!(state.ring_recipient(channel, req, user, false).is_none());
+		}
+		service_ring(&mut state, &[Id(3)]);
+		assert_eq!(state.voice.ringing(Id(2)), &[Id(3)]);
+		assert!(state.ring_recipient(Id(2), request, Id(3), false).is_none());
+		let stop = state.ring_recipient(Id(2), request, Id(3), true).unwrap();
+		state.command_rejected(stop);
+		assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Waiting);
+		assert_eq!(state.voice.ringing(Id(2)), &[Id(3)]);
+		state.apply_voice(Event::RingFailed {
+			channel: Id(2),
+			request,
+			message: "Recipient write failed",
+		});
+		assert_eq!(state.status, "Recipient write failed");
+		assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Waiting);
+		state.apply_voice(Event::RingFailed {
+			channel: Id(2),
+			request: request + 1,
+			message: "Stale failure",
+		});
+		assert_eq!(state.status, "Recipient write failed");
+		service_ring(&mut state, &[Id(3), Id(3)]);
+		assert_eq!(
+			state.voice.ringing(Id(2)),
+			&[Id(3)],
+			"duplicate event rejected"
+		);
+		service_ring(&mut state, &[]);
+		assert!(state.ring_recipient(Id(2), request, Id(3), false).is_some());
+		state
+			.voice
+			.active
+			.as_mut()
+			.unwrap()
+			.participants
+			.push(Participant {
+				user: Id(3),
+				muted: false,
+				deafened: false,
+				server_muted: false,
+				server_deafened: false,
+				video: false,
+				streaming: false,
+			});
+		assert!(state.ring_recipient(Id(2), request, Id(3), false).is_none());
+		state.voice.active.as_mut().unwrap().guild = Some(Id(10));
+		assert!(state.ring_recipient(Id(2), request, Id(3), true).is_none());
+		state.end_voice_channel(Id(2));
+		assert!(state.voice.ringing(Id(2)).is_empty());
+	}
+
+	#[test]
 	fn dm_calls_require_gesture_and_reject_late_states() {
 		{
 			let mut state = dm_state();
@@ -1809,6 +2072,20 @@ mod tests {
 			));
 			assert!(state.voice.active.as_ref().unwrap().muted);
 			assert!(state.voice.active.as_ref().unwrap().deafened);
+			// A rapid burst always applies to the latest state and ends where the UI does.
+			let (mut muted, mut deafened) = (false, false);
+			let mut last = None;
+			for deafen in [false, true, true, false, true, false, false, true, true] {
+				(muted, deafened) = super::toggle_self_voice(muted, deafened, deafen);
+				last = state.set_call_mute(muted, deafened);
+			}
+			let call = state.voice.active.as_ref().unwrap();
+			assert_eq!((call.muted, call.deafened), (muted, deafened));
+			assert!(matches!(
+				last,
+				Some(crate::Command::Voice(Command::SetMute { mute, deaf, .. }))
+					if mute == call.self_muted() && deaf == deafened
+			));
 			let mute = state.set_call_mute(true, false).unwrap();
 			state.command_rejected(mute);
 			assert!(state.voice.active.as_ref().unwrap().muted);

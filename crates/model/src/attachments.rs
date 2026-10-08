@@ -76,10 +76,22 @@ impl Attachment {
 		if self.is_audio() || self.is_video() {
 			return false;
 		}
+		// Discord can upload HEIC as a generic file without image dimensions or MIME.
+		if self
+			.filename
+			.rsplit_once('.')
+			.is_some_and(|(_, extension)| {
+				extension.eq_ignore_ascii_case("heic") || extension.eq_ignore_ascii_case("heif")
+			}) {
+			return true;
+		}
 		if let Some(kind) = &self.content_type {
 			matches!(
 				kind.to_ascii_lowercase().as_str(),
-				"image/png" | "image/jpeg" | "image/webp" | "image/gif" | "image/avif"
+				"image/png"
+					| "image/jpeg" | "image/webp"
+					| "image/gif" | "image/avif"
+					| "image/heic" | "image/heif"
 			)
 		} else {
 			self.filename

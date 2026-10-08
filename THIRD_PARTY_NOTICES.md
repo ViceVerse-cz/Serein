@@ -54,7 +54,7 @@ already-resolved **flate2 1.1.10**. Rusqlite statement caching adds **hashlink 0
 All five declare **MIT OR Apache-2.0** in their corresponding registry release
 manifests; their versions and archive checksums are recorded in `Cargo.lock`.
 
-The bundled Noto Sans CJK JP face is embedded as a zstd archive and inflated in memory by
+The bundled Noto Sans CJK collection is embedded as a zstd archive and inflated in memory by
 **ruzstd 0.9.0** (MIT), a pure-Rust decoder with no further dependencies. Its license is
 copied unmodified from the registry release to `assets/licenses/files/ruzstd-0.9.0-LICENSE`;
 `Cargo.lock` records the archive checksum.
@@ -80,10 +80,13 @@ The native attachment video adapter also uses **symphonia-codec-aac 0.6.1**
 the other Symphonia codecs, and ship through the same package copy step.
 
 The egui main experiment pins the egui/eframe ecosystem to upstream commit
-`fe6d63efa4a4df6f56ceab814d4f3a6efab69b88` (version 0.36.2, MIT OR Apache-2.0).
+`72bc6574978d87fe0929b1d590c35222e6fd8935` (version 0.36.2, MIT OR Apache-2.0).
 It adds unicode-properties 0.1.4 (MIT/Apache-2.0) and updates glifo to 0.3.0 and
 vello_common/vello_cpu to 0.2.0 (Apache-2.0 OR MIT). Epaint bundled fonts and
-their separate license obligations are unchanged. Native font fallback uses
+their separate license obligations are unchanged. Clipboard support is explicitly
+enabled through eframe's `clipboard` feature. This pin updates AccessKit to 0.25.1,
+its consumer to 0.39.1 and its winit adapter to 0.34.1 (MIT OR Apache-2.0), with
+platform adapters resolved in Cargo.lock. Native font fallback uses
 egui_system_fonts/fontique and platform font discovery; see docs/dependency-versions.md
 for the exact added dependency versions and declared licenses. OS emoji fonts
 remain installed system resources and are not bundled or redistributed.
@@ -137,7 +140,7 @@ The direct voice library/codec license and notice texts are collected in [assets
 
 The voice dependency tree also contains the locally patched **hpke-rs 0.6.1**, licensed **MPL-2.0** according to its [release-pinned Cargo manifest](https://github.com/cryspen/hpke-rs/blob/f3463e7530771d7f7116635335c25e7d2d11e861/Cargo.toml). The vendored component is under `vendor/hpke-rs/`; `SEREIN-PATCH.md` describes its SHAKE dependency replacement, small standard-XOF adapter and removal of the unused optional libcrux backend. Its original source remains under MPL-2.0, separately from Serein's MIT/Apache code. Upstream's registry archive and pinned Git tree omit a standalone license file, so an unmodified [canonical Mozilla MPL-2.0 text](https://www.mozilla.org/media/MPL/2.0/index.txt) is provided as `vendor/hpke-rs/LICENSE-MPL-2.0.txt` and `assets/licenses/voice/hpke-rs-LICENSE-MPL-2.0.txt`. This text was supplied from Mozilla, not recovered from a nonexistent upstream file. Voice packages include this corresponding component source under `source/hpke-rs` (inside macOS bundle Resources). Binary distributors must provide recipients access to the corresponding hpke-rs source, including modifications, and retain its notices as required by MPL-2.0; distributing only this license text is insufficient.
 
-Bundled fonts are unmodified and licensed under SIL OFL 1.1: **Inter 3.19** (Regular, Medium, SemiBold; the "hinted for Windows" TrueType builds), Copyright (c) 2016-2020 The Inter Project Authors, "Inter" is a trademark of Rasmus Andersson (https://github.com/rsms/inter); **Noto Sans CJK JP Regular 2.004**, © 2014–2021 Adobe (http://www.adobe.com/), stored zstd-compressed and inflated unchanged at runtime; **Noto Sans Arabic 2.012**, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/arabic); and **Noto Sans Math 3.000**, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/math). The complete license texts are `assets/fonts/Inter-OFL.txt`, `assets/fonts/NotoSansCJK-LICENSE.txt`, `assets/fonts/NotoSansArabic-OFL.txt` and `assets/fonts/NotoSansMath-OFL.txt` in source, and are staged alongside distribution notices. Provenance, hashes, sizes and coverage limitations are in [assets/README.md](assets/README.md). Their font licenses remain separate from Serein's source-code license.
+Bundled fonts are licensed under SIL OFL 1.1: **Inter 3.19** (Regular, Medium, SemiBold; the "hinted for Windows" TrueType builds), Copyright (c) 2016-2020 The Inter Project Authors, "Inter" is a trademark of Rasmus Andersson (https://github.com/rsms/inter); **Noto Sans CJK Regular 2.004 collection (JP/SC/TC regional faces)**, © 2014–2021 Adobe (http://www.adobe.com/), stored zstd-compressed and inflated unchanged at runtime; **Noto Sans Arabic 2.012**, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/arabic); **Noto Sans Math 3.000**, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/math); and **Noto Sans Symbols 2 2.008** (modified subset to punctuation, arrows, technical, miscellaneous symbols and dingbats, with hinting removed), Copyright 2022 The Noto Project Authors (https://github.com/notofonts/symbols). The other bundled fonts are unmodified. The complete license texts are `assets/fonts/Inter-OFL.txt`, `assets/fonts/NotoSansCJK-LICENSE.txt`, `assets/fonts/NotoSansArabic-OFL.txt`, `assets/fonts/NotoSansMath-OFL.txt` and `assets/fonts/NotoSansSymbols2-OFL.txt` in source, and are staged alongside distribution notices. Provenance, hashes, sizes and coverage limitations are in [assets/README.md](assets/README.md). Their font licenses remain separate from Serein's source-code license.
 
 The initial packaging command stages original licenses and this inventory notice. Complete per-artifact transitive license-text assembly and platform redistribution review remain a release-hardening gate; do not treat a development package as a completed legal/distribution review.
 
@@ -290,3 +293,5 @@ retain the same CC BY 4.0 attribution and license as the atlas, as described in
 - `simplecss-0.2.2-LICENSE-MIT`: SHA-256 `0b5f24524360e15bcf9fb79bca875f5aa62f01f94f2988e23238c7ec0e6e8784`; unmodified registry `simplecss-0.2.2`/LICENSE-MIT.
 - `svgtypes-0.16.1-LICENSE-APACHE`: SHA-256 `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2`; unmodified registry `svgtypes-0.16.1`/LICENSE-APACHE.
 - `svgtypes-0.16.1-LICENSE-MIT`: SHA-256 `f3c9fe731c701ed77fd5fbaac573872af04dc5869385eb9bd5e3c73c42713814`; unmodified registry `svgtypes-0.16.1`/LICENSE-MIT.
+
+The locally patched **gpu-allocator 0.28.0** retains its MIT/Apache-2.0 licenses under `vendor/gpu-allocator`. Only the Windows binding version bounds are widened to include 0.62 patch releases, aligning Direct3D types with wgpu-hal. See `vendor/gpu-allocator/SEREIN-PATCH.md` for provenance; allocator source is unchanged. The license texts also ship under `licenses/dependencies`.

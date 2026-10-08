@@ -1,6 +1,6 @@
 {
   "source": "https://github.com/emilk/egui",
-  "revision": "fe6d63efa4a4df6f56ceab814d4f3a6efab69b88",
+  "revision": "72bc6574978d87fe0929b1d590c35222e6fd8935",
   "component": "crates/epaint/src",
   "files": [
     {
@@ -17,8 +17,8 @@
     },
     {
       "path": "corner_radius.rs",
-      "upstream_sha256": "5ee87d4b0142cfeb02b7a80e9e9494ee5a634988b922bcae8a47fe2055479a9d",
-      "task_sha256": "5ee87d4b0142cfeb02b7a80e9e9494ee5a634988b922bcae8a47fe2055479a9d",
+      "upstream_sha256": "32cd2ee9693f75108c3352378ab3731af8e374c59b0fb45a54537c55ee72213f",
+      "task_sha256": "32cd2ee9693f75108c3352378ab3731af8e374c59b0fb45a54537c55ee72213f",
       "changed": false
     },
     {
@@ -95,8 +95,8 @@
     },
     {
       "path": "shapes/bezier_shape.rs",
-      "upstream_sha256": "f1fc2271b099114bd9a33a9906f25e2dd295e23de8d48dd8460963852eb9d3e5",
-      "task_sha256": "f1fc2271b099114bd9a33a9906f25e2dd295e23de8d48dd8460963852eb9d3e5",
+      "upstream_sha256": "92b4fce6d8b37778476eb0f4e07f7d019cde5153d579d1fa74aa3ec2300a6ee3",
+      "task_sha256": "92b4fce6d8b37778476eb0f4e07f7d019cde5153d579d1fa74aa3ec2300a6ee3",
       "changed": false
     },
     {
@@ -125,26 +125,26 @@
     },
     {
       "path": "shapes/path_shape.rs",
-      "upstream_sha256": "9e72a22427ea493065d7e4094181d3bb3b94f26e3e4738257908688cf8fa26c9",
-      "task_sha256": "9e72a22427ea493065d7e4094181d3bb3b94f26e3e4738257908688cf8fa26c9",
+      "upstream_sha256": "6b294523605d6065af11b205b0f23ca82800ac23c829bc113f75f7df5b29fc41",
+      "task_sha256": "6b294523605d6065af11b205b0f23ca82800ac23c829bc113f75f7df5b29fc41",
       "changed": false
     },
     {
       "path": "shapes/rect_shape.rs",
-      "upstream_sha256": "13534055eff7e24b68aae1352a86048ab798f4fb48a671a55c83827c49b30ceb",
-      "task_sha256": "13534055eff7e24b68aae1352a86048ab798f4fb48a671a55c83827c49b30ceb",
+      "upstream_sha256": "fed679cdeec686e6484694fe015b4a32d34e53fe3c0415a256a9f5835bc3e924",
+      "task_sha256": "fed679cdeec686e6484694fe015b4a32d34e53fe3c0415a256a9f5835bc3e924",
       "changed": false
     },
     {
       "path": "shapes/shape.rs",
-      "upstream_sha256": "ee2a7b3d5b9b0f633cd401d54f47c0c9da8fbf411574f6684663ef7e14215854",
-      "task_sha256": "ee2a7b3d5b9b0f633cd401d54f47c0c9da8fbf411574f6684663ef7e14215854",
+      "upstream_sha256": "d5acd03fe88fc6f44b3a3178e38e1746d2e83daa018dfc81d057e95bf6ec3288",
+      "task_sha256": "d5acd03fe88fc6f44b3a3178e38e1746d2e83daa018dfc81d057e95bf6ec3288",
       "changed": false
     },
     {
       "path": "shapes/text_shape.rs",
-      "upstream_sha256": "fe342c549db9a589c0ddd9446ffd24b63a23377798b312bd8ef88e0972151047",
-      "task_sha256": "fe342c549db9a589c0ddd9446ffd24b63a23377798b312bd8ef88e0972151047",
+      "upstream_sha256": "b584dd031646cd2e98800d8d17b45a6e068adb6bad4a165ca62e414dbbe517f8",
+      "task_sha256": "b584dd031646cd2e98800d8d17b45a6e068adb6bad4a165ca62e414dbbe517f8",
       "changed": false
     },
     {
@@ -161,8 +161,8 @@
     },
     {
       "path": "tessellator.rs",
-      "upstream_sha256": "f7724bcea31037a8647fe247c62a0d98de869af2847fff3df3b6e206f3e0ecfb",
-      "task_sha256": "f7724bcea31037a8647fe247c62a0d98de869af2847fff3df3b6e206f3e0ecfb",
+      "upstream_sha256": "f476c33168458f5b39bdae40680c7539a553286cc0807ba9ea80ba0ae7ed6cfe",
+      "task_sha256": "f476c33168458f5b39bdae40680c7539a553286cc0807ba9ea80ba0ae7ed6cfe",
       "changed": false
     },
     {
@@ -263,26 +263,26 @@
     },
     {
       "path": "text/text_layout.rs",
-      "upstream_sha256": "22f6a7ef545e23e175605e3e38e6944758553709e01481aae15db050ca6b3f9f",
-      "task_sha256": "f5f8caa55c6198547c37c2530b7e6ad04820a40d92797028c7def3febbdfd0ab",
+      "upstream_sha256": "93441711273f1def9f6a4810879cb2cd82c673d8de21abaaac3a97f2973f82f9",
+      "task_sha256": "c49448bf52663fab8296e6b47daf020914d15694c53d36315c92f60cbce9f5ac",
       "changed": true
     },
     {
       "path": "text/text_layout_types.rs",
-      "upstream_sha256": "71e9e87ca7bcdf143288963bf56bb1166d54159b01c9b36cccd8620e846383d1",
-      "task_sha256": "71e9e87ca7bcdf143288963bf56bb1166d54159b01c9b36cccd8620e846383d1",
+      "upstream_sha256": "adb43af867e9c0c4ed261f05d4c092bc2a41939b40813630fb6d04b9b193c518",
+      "task_sha256": "adb43af867e9c0c4ed261f05d4c092bc2a41939b40813630fb6d04b9b193c518",
       "changed": false
     },
     {
       "path": "text/unicode.rs",
-      "upstream_sha256": "53665735f4db81915da0ea4d621854faecf2d38a18d5e8fa4ac57e22c8aa2194",
-      "task_sha256": "53665735f4db81915da0ea4d621854faecf2d38a18d5e8fa4ac57e22c8aa2194",
+      "upstream_sha256": "d0ede1ba4d979ff929a3448b76d4a6a8c173f8064f05feefb7add751e7de2b1b",
+      "task_sha256": "d0ede1ba4d979ff929a3448b76d4a6a8c173f8064f05feefb7add751e7de2b1b",
       "changed": false
     },
     {
       "path": "texture_atlas.rs",
-      "upstream_sha256": "25d90783fc1b217b9e43a8077443956c4101facdca7009c6a0dd45d0228e603e",
-      "task_sha256": "25d90783fc1b217b9e43a8077443956c4101facdca7009c6a0dd45d0228e603e",
+      "upstream_sha256": "d37790610dd761c1fbd813d22b88aa0a7c9df91860b4b8356d3b61879ef87937",
+      "task_sha256": "d37790610dd761c1fbd813d22b88aa0a7c9df91860b4b8356d3b61879ef87937",
       "changed": false
     },
     {
