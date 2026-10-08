@@ -4133,6 +4133,10 @@ voice-voice-participant-deafened-by-server = Ohlušen serverem
 voice-voice-participant-menu-mute = Ztlumit
 # Context: voice_participant_menu
 voice-voice-participant-menu-reset-volume = Resetovat hlasitost
+voice-server-mute = Ztlumit na serveru
+voice-server-unmute = Zrušit ztlumení na serveru
+voice-move-to = Přesunout do
+voice-disconnect-member = Odpojit
 # Context: voice_participant_menu
 voice-voice-participant-menu-silence-this-person-on-this-device-only-nobody-else-is = Ztišit tuto osobu pouze na tomto zařízení. Nikdo jiný není ovlivněn.
 # Context: voice_participant_menu

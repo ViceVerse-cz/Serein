@@ -3,7 +3,7 @@ use client_core::server_admin::Event;
 use discord_protocol::server_admin::{self as wire, MAX_WIRE};
 use model::{
 	Id,
-	server_admin::{Action, Result as Outcome},
+	server_admin::{Action, Result as Outcome, VoiceChange},
 };
 use reqwest::Method;
 use serde_json::json;
@@ -69,6 +69,33 @@ impl DiscordApi {
 			return Err(Failure::Protocol);
 		}
 		match action {
+			Action::Voice { user, change, .. } => {
+				let body = match change {
+					VoiceChange::Move(channel) => {
+						json!({"channel_id":channel.map(|id| id.to_string())})
+					}
+					VoiceChange::Mute(muted) => json!({"mute":muted}),
+				};
+				let bytes = self
+					.request_limited(
+						Method::PATCH,
+						&format!("/guilds/{guild}/members/{user}"),
+						Some(body),
+						64 * 1024,
+					)
+					.await
+					.map_err(write_failure)?;
+				let member: serde_json::Value =
+					serde_json::from_slice(&bytes).map_err(|_| Failure::Ambiguous)?;
+				if member["user"]["id"]
+					.as_str()
+					.and_then(|id| id.parse::<u64>().ok())
+					!= Some(user.0) || matches!(change, VoiceChange::Mute(muted) if member["mute"].as_bool() != Some(*muted))
+				{
+					return Err(Failure::Ambiguous);
+				}
+				Ok(Outcome::VoiceUpdated(*user))
+			}
 			Action::AuditLog(query) => self
 				.server_audit_log(guild, query)
 				.await
@@ -430,6 +457,114 @@ fn reconcile_failure(failure: Failure) -> Failure {
 #[cfg(test)]
 mod sticker_tests {
 	use super::*;
+
+	#[tokio::test]
+	async fn voice_moderation_http_sends_only_requested_member_change() {
+		use crate::SessionSecret;
+		use std::{sync::Arc, time::Duration};
+		use tokio::{
+			io::{AsyncReadExt, AsyncWriteExt},
+			net::TcpListener,
+		};
+		tokio::time::timeout(Duration::from_secs(10), async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_VOICE_MODERATOR".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{}", listener.local_addr().unwrap());
+			let server = tokio::spawn(async move {
+				for (expected, reply) in [
+					(json!({"mute":true}), json!({"user":{"id":"7"},"mute":true})),
+					(json!({"channel_id":"4"}), json!({"user":{"id":"7"}})),
+					(json!({"channel_id":null}), json!({"user":{"id":"7"}})),
+					(
+						json!({"mute":false}),
+						json!({"user":{"id":"8"},"mute":false}),
+					),
+				] {
+					let (mut stream, _) = listener.accept().await.unwrap();
+					let mut bytes = Vec::new();
+					let end = loop {
+						let mut chunk = [0; 4096];
+						let n = stream.read(&mut chunk).await.unwrap();
+						assert!(n > 0);
+						bytes.extend_from_slice(&chunk[..n]);
+						assert!(bytes.len() <= 16_384);
+						if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+							break end + 4;
+						}
+					};
+					let headers = std::str::from_utf8(&bytes[..end]).unwrap();
+					assert!(headers.starts_with("PATCH /guilds/2/members/7 HTTP/1.1\r\n"));
+					let length = headers
+						.lines()
+						.find_map(|line| {
+							let (name, value) = line.split_once(':')?;
+							name.eq_ignore_ascii_case("content-length")
+								.then(|| value.trim().parse::<usize>().unwrap())
+						})
+						.unwrap();
+					assert!(length < 128);
+					while bytes.len() < end + length {
+						let mut chunk = [0; 128];
+						let n = stream.read(&mut chunk).await.unwrap();
+						assert!(n > 0);
+						bytes.extend_from_slice(&chunk[..n]);
+					}
+					assert_eq!(
+						serde_json::from_slice::<serde_json::Value>(&bytes[end..end + length])
+							.unwrap(),
+						expected
+					);
+					let body = reply.to_string();
+					stream
+						.write_all(
+							format!(
+								"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+								body.len()
+							)
+							.as_bytes(),
+						)
+						.await
+						.unwrap();
+				}
+			});
+			for change in [
+				VoiceChange::Mute(true),
+				VoiceChange::Move(Some(Id(4))),
+				VoiceChange::Move(None),
+			] {
+				assert!(matches!(
+					api.server_admin_action(
+						Id(2),
+						&Action::Voice {
+							user: Id(7),
+							channel: Id(3),
+							change
+						}
+					)
+					.await,
+					Ok(Outcome::VoiceUpdated(Id(7)))
+				));
+			}
+			assert!(matches!(
+				api.server_admin_action(
+					Id(2),
+					&Action::Voice {
+						user: Id(7),
+						channel: Id(3),
+						change: VoiceChange::Mute(false)
+					}
+				)
+				.await,
+				Err(Failure::Ambiguous)
+			));
+			server.await.unwrap();
+		})
+		.await
+		.unwrap();
+	}
 
 	#[test]
 	fn sticker_multipart_keeps_fields_file_and_collision_free_boundary() {

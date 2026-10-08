@@ -5,7 +5,7 @@ use crate::{
 };
 use model::{
 	Id, permissions as p,
-	server_admin::{Action, Emojis, Members, Query, Result as Outcome, Stickers},
+	server_admin::{Action, Emojis, Members, Query, Result as Outcome, Stickers, VoiceChange},
 };
 
 pub struct Event {
@@ -91,6 +91,41 @@ impl View {
 	}
 }
 impl State {
+	pub fn can_moderate_voice(
+		&self,
+		guild: Id,
+		channel: Id,
+		user: Id,
+		change: VoiceChange,
+	) -> bool {
+		if !self.user.as_ref().is_some_and(|own| own.id != user)
+			|| !self.voice.roster.iter().any(|entry| {
+				entry.guild == guild && entry.channel == channel && entry.participant.user == user
+			}) || !self
+			.channel(channel)
+			.is_some_and(|source| source.guild == Some(guild) && source.kind == 2)
+			|| !self.can_view(channel)
+		{
+			return false;
+		}
+		let permission = match change {
+			VoiceChange::Mute(_) => p::MUTE_MEMBERS,
+			VoiceChange::Move(_) => p::MOVE_MEMBERS,
+		};
+		self.permission(channel, permission) == Some(true)
+			&& match change {
+				VoiceChange::Move(Some(to)) => {
+					to != channel
+						&& self
+							.channel(to)
+							.is_some_and(|target| target.guild == Some(guild) && target.kind == 2)
+						&& self.can_view(to)
+						&& self.permission(to, p::CONNECT) == Some(true)
+				}
+				_ => true,
+			}
+	}
+
 	pub(crate) fn can_retain_channel_integrations(&self, guild: Id) -> bool {
 		let scope = match &self.server_admin.action {
 			Some(Action::Integrations(action)) => action.scope(),
@@ -344,6 +379,11 @@ impl State {
 			return false;
 		}
 		match action {
+			Action::Voice {
+				user,
+				channel,
+				change,
+			} => self.can_moderate_voice(guild, *channel, *user, *change),
 			Action::AuditLog(query) => self.audit_log_action_allowed(guild, query),
 			Action::Roles(action) => self.role_action_allowed(guild, action),
 			Action::Invites(action) => self.invite_action_allowed(guild, action),
@@ -412,7 +452,9 @@ impl State {
 		}
 		if self.server_admin.pending
 			|| self.server_settings.saving
-			|| (self.server_admin.needs_refresh && action.write())
+			|| (self.server_admin.needs_refresh
+				&& action.write()
+				&& !matches!(action, Action::Voice { .. }))
 			|| !self.server_admin_action_allowed(guild, &action)
 			|| (!self.demo && (self.auth != AuthState::Authenticated || !self.gateway_connected))
 		{
@@ -531,7 +573,9 @@ impl State {
 		self.server_admin.pending = false;
 		self.server_admin.saving = false;
 		if action.as_ref().is_none_or(|action| {
-			if matches!(action, Action::AuditLog(_)) {
+			if matches!(action, Action::Voice { .. }) {
+				self.guild(event.guild).is_none()
+			} else if matches!(action, Action::AuditLog(_)) {
 				!self.can_open_audit_log_settings(event.guild)
 			} else if let Action::Integrations(action) = action {
 				!self.integration_action_allowed(event.guild, action)
@@ -570,6 +614,9 @@ impl State {
 				return Ok(());
 			}
 			Err(failure) => {
+				if matches!(action, Some(Action::Voice { .. })) {
+					self.status = failure.label();
+				}
 				if matches!(action, Some(Action::AuditLog(_))) && failure == Failure::Forbidden {
 					self.server_admin.revoke_audit_access();
 				}
@@ -624,6 +671,7 @@ impl State {
 				| (Some(Action::Prune { .. }), Outcome::Pruned(_))
 				| (Some(Action::ShowMembers { .. }), Outcome::ChannelList(_))
 		) || match (&action, &result) {
+			(Some(Action::Voice { user, .. }), Outcome::VoiceUpdated(id)) => user == id,
 			(
 				Some(Action::Integrations(model::server_integrations::Action::CopyWebhookUrl {
 					webhook,
@@ -819,6 +867,47 @@ impl State {
 					member.join_source = row.join_source;
 					member.invite_code.clone_from(&row.invite_code);
 					*row = member;
+				}
+			}
+			Outcome::VoiceUpdated(user) => {
+				self.status = "Voice moderation request accepted";
+				if self.demo
+					&& let Some(Action::Voice {
+						channel, change, ..
+					}) = action.as_ref()
+					&& let Some(entry) = self
+						.voice
+						.roster
+						.iter()
+						.find(|entry| {
+							entry.guild == event.guild
+								&& entry.channel == *channel
+								&& entry.participant.user == user
+						})
+						.cloned()
+				{
+					let participant = entry.participant;
+					self.apply_voice(crate::voice::Event::State {
+						guild: Some(event.guild),
+						user,
+						channel: match change {
+							VoiceChange::Move(to) => *to,
+							_ => Some(*channel),
+						},
+						server_muted: match change {
+							VoiceChange::Mute(muted) => *muted,
+							_ => participant.server_muted,
+						},
+						server_deafened: participant.server_deafened,
+						muted: participant.muted,
+						deafened: participant.deafened,
+						video: participant.video,
+						streaming: participant.streaming,
+						member: entry.member.map(Box::new),
+						request: None,
+						session: None,
+						negotiation_revision: None,
+					});
 				}
 			}
 			Outcome::Kicked(user) => {

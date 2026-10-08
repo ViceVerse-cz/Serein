@@ -1,5 +1,17 @@
 # Discord compatibility — checked 2026-09-10
 
+## Guild voice moderation — October 8, 2026
+
+Server mute/unmute and voice movement/disconnection use the documented
+[Modify Guild Member](https://docs.discord.com/developers/resources/guild#modify-guild-member)
+PATCH route with only `mute` or `channel_id` (null disconnects). A bounded 64 KiB
+member response must identify the requested user; mute replies must echo the requested
+value. Move completion is reflected by subsequent Gateway voice state, because the
+member response does not identify a voice channel. Source roster membership and
+loaded source/destination permissions are rechecked before dispatch. Existing REST
+deadlines, write ambiguity handling and the single administration request apply.
+Normal-account acceptance and live moderation have not been verified.
+
 ## Profile boards — October 7, 2026
 
 The full profile reads game widgets from the existing on-demand profile response,
