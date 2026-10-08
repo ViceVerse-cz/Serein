@@ -1,5 +1,5 @@
 //! Local Rich Presence: Discord-compatible IPC and WebSocket transports plus opt-in
-//! detection of running games. Everything here is off until activity sharing is enabled.
+//! detection of running games. Browser invite handoff remains available without activity sharing.
 use discord_api::{
 	detectable::{Game, Index},
 	external_assets::external_image_url,
@@ -119,7 +119,7 @@ pub struct Registered {
 	pub current: watch::Sender<Option<RunningGame>>,
 }
 
-/// Sharing owns the listeners and all clients. Dropping it cancels every pending operation.
+/// The account session owns listeners and clients; activity work additionally requires sharing.
 pub async fn run(
 	sharing: (
 		watch::Receiver<bool>,
@@ -128,14 +128,16 @@ pub async fn run(
 	),
 	activity: watch::Sender<Option<Activity>>,
 	report: watch::Sender<Detection>,
-	invites: watch::Sender<Option<(u64, String)>>,
+	invites: watch::Sender<Option<String>>,
 	ctx: egui::Context,
 	user: User,
 	api: Arc<discord_api::DiscordApi>,
 ) {
 	let (enabled, custom_requests, registered) = sharing;
 	let registered = &registered;
-	run_enabled(enabled, &activity, &report, &ctx, || async {
+	let mode = enabled.clone();
+	run_modes(enabled, &activity, &report, &ctx, || async {
+		let sharing = *mode.borrow();
 		let _clear = ClearCurrent(&registered.current);
 		let service = Service {
 			cooldown: Arc::new(tokio::sync::Mutex::new(Instant::now())),
@@ -144,11 +146,13 @@ pub async fn run(
 		let (detected_send, mut detected) = watch::channel(None);
 		let (detected_report_send, mut detected_report) = watch::channel(Ok(None));
 		let (custom_send, mut custom_report) = watch::channel(Ok(None));
-		let _custom = Abort(tokio::spawn(custom::run(
-			custom_requests.clone(),
-			custom_send,
-			service.clone(),
-		)));
+		let _custom = sharing.then(|| {
+			Abort(tokio::spawn(custom::run(
+				custom_requests.clone(),
+				custom_send.clone(),
+				service.clone(),
+			)))
+		});
 		let listener = listen(
 			&detected_send,
 			&detected_report_send,
@@ -156,7 +160,7 @@ pub async fn run(
 			&ctx,
 			&user,
 			&service,
-			registered,
+			sharing.then_some(registered),
 		);
 		tokio::pin!(listener);
 		let mut listening = true;
@@ -197,7 +201,7 @@ pub async fn run(
 	})
 	.await;
 }
-async fn run_enabled<F, Fut>(
+async fn run_modes<F, Fut>(
 	mut enabled: watch::Receiver<bool>,
 	activity: &watch::Sender<Option<Activity>>,
 	report: &watch::Sender<Detection>,
@@ -211,11 +215,7 @@ async fn run_enabled<F, Fut>(
 		activity.send_replace(None);
 		let _ = report.send_replace(Ok(None));
 		ctx.request_repaint();
-		while !*enabled.borrow_and_update() {
-			if enabled.changed().await.is_err() {
-				return;
-			}
-		}
+		enabled.borrow_and_update();
 		tokio::select! {
 			biased;
 			_ = enabled.changed() => {},
@@ -256,15 +256,23 @@ impl Drop for Abort {
 async fn listen<A: Applications>(
 	activity: &watch::Sender<Option<Activity>>,
 	report: &watch::Sender<Detection>,
-	invites: &watch::Sender<Option<(u64, String)>>,
+	invites: &watch::Sender<Option<String>>,
 	ctx: &egui::Context,
 	user: &User,
 	service: &A,
-	registered: &Registered,
+	registered: Option<&Registered>,
 ) -> Result<(), &'static str> {
-	let mut listener = platform::game_activity::Listener::bind().map_err(
-		|_| "Game activity is unavailable. Close other Discord clients, then turn sharing off and on.",
-	)?;
+	let mut listener = registered
+		.map(|_| platform::game_activity::Listener::bind())
+		.transpose()
+		.unwrap_or_else(|_| {
+			let _ = report.send_replace(Err(
+				"Game activity is unavailable. Close other Discord clients, then turn sharing off and on.",
+			));
+			ctx.request_repaint();
+			// Browser handoff has its own endpoint and survives an unavailable IPC slot.
+			None
+		});
 	// Browser and Electron clients speak the same RPC over localhost. Its absence is not fatal.
 	let web = bind_web().await;
 	let (send, mut receive) = mpsc::channel::<Update>(16);
@@ -276,20 +284,24 @@ async fn listen<A: Applications>(
 	let mut scanned = None;
 	let mut next_accept_ipc = Instant::now();
 	let mut next_accept_web = Instant::now();
-	let mut invite_count = 0;
-	let _scanner = Abort(tokio::spawn(scan(
-		service.clone(),
-		scan_send,
-		registered.games.clone(),
-		registered.current.clone(),
-		ctx.clone(),
-	)));
+	let _scanner = registered.map(|registered| {
+		Abort(tokio::spawn(scan(
+			service.clone(),
+			scan_send,
+			registered.games.clone(),
+			registered.current.clone(),
+			ctx.clone(),
+		)))
+	});
 	loop {
 		tokio::select! {
 			// An admission interval also bounds credential-free metadata requests (two per client).
 			accepted = async {
 				tokio::time::sleep_until(next_accept_ipc).await;
-				listener.accept().await
+				match &mut listener {
+					Some(listener) => listener.accept().await,
+					None => std::future::pending().await,
+				}
 			}, if workers.len() < MAX_CLIENTS => {
 				let stream = accepted.map_err(|_| "Game activity stopped. Turn sharing off and on to retry.")?;
 				next_accept_ipc = Instant::now() + Duration::from_secs(5);
@@ -314,8 +326,9 @@ async fn listen<A: Applications>(
 				if !peer.ip().is_loopback() { continue; }
 				let slot = claim(&mut slots);
 				let (send, user, service, invites) = (send.clone(), user.clone(), service.clone(), invite_send.clone());
+				let activity_enabled = registered.is_some();
 				workers.spawn(async move {
-					(slot, serve_web(stream, &user, send, slot, invites, &service).await)
+					(slot, serve_web(stream, &user, send, slot, invites, &service, activity_enabled).await)
 				});
 			},
 			Some((slot, value)) = receive.recv() => {
@@ -327,8 +340,7 @@ async fn listen<A: Applications>(
 				publish(&values, &scanned, activity, report, ctx);
 			},
 			Some(code) = invite_receive.recv() => {
-				invite_count += 1;
-				let _ = invites.send_replace(Some((invite_count, code)));
+				let _ = invites.send_replace(Some(code));
 				ctx.request_repaint();
 			},
 			Some(result) = workers.join_next(), if !workers.is_empty() => {
@@ -346,6 +358,12 @@ async fn listen<A: Applications>(
 			}
 		}
 	}
+}
+
+pub fn take_invite(receiver: &mut watch::Receiver<Option<String>>) -> Option<String> {
+	// Keep an unread final invite even if its publisher has already stopped.
+	let invite = receiver.borrow_and_update();
+	invite.has_changed().then(|| invite.clone()).flatten()
 }
 
 fn claim(slots: &mut [bool; MAX_CLIENTS]) -> usize {
@@ -655,10 +673,10 @@ where
 		.reply(&rpc::ready(user.id, &user.name))
 		.await
 		.map_err(|_| INVALID)?;
-	serve(channel, application, send, slot, invites, service).await
+	serve(channel, Some(application), send, slot, invites, service).await
 }
 
-/// Browser clients hand the application id to the upgrade request instead of a handshake frame.
+/// Activity clients identify the application at upgrade; Discord's invite page omits it.
 // tungstenite fixes the rejection type of an upgrade callback; it cannot be boxed.
 #[allow(clippy::result_large_err)]
 async fn serve_web<A: Applications>(
@@ -668,6 +686,7 @@ async fn serve_web<A: Applications>(
 	slot: usize,
 	invites: mpsc::Sender<String>,
 	service: &A,
+	activity_enabled: bool,
 ) -> Result<(), &'static str> {
 	let accepted = Arc::new(std::sync::Mutex::new(None));
 	let captured = accepted.clone();
@@ -681,13 +700,13 @@ async fn serve_web<A: Applications>(
 		tokio_tungstenite::accept_hdr_async_with_config(
 			stream,
 			move |request: &Handshake, response: Response| match upgrade_application(request) {
-				Some(id) => {
+				Some(id) if activity_enabled || id.is_none() => {
 					if let Ok(mut slot) = captured.lock() {
 						*slot = Some(id);
 					}
 					Ok(response)
 				}
-				None => Err(ErrorResponse::new(None)),
+				_ => Err(ErrorResponse::new(None)),
 			},
 			Some(config),
 		),
@@ -708,7 +727,7 @@ async fn serve_web<A: Applications>(
 }
 
 /// Only Discord's own web origins, or a native client that sends no origin, may connect.
-fn upgrade_application(request: &Handshake) -> Option<Id> {
+fn upgrade_application(request: &Handshake) -> Option<Option<Id>> {
 	let origin = request.headers().get("origin");
 	if let Some(origin) = origin {
 		let origin = origin.to_str().ok()?;
@@ -725,18 +744,22 @@ fn upgrade_application(request: &Handshake) -> Option<Id> {
 		}
 	}
 	(version == Some("1")).then_some(())?;
-	client?.parse().ok()
+	match client {
+		Some(client) => client.parse().ok().map(Some),
+		// Discord's invite page sends only ?v=1. It cannot publish game activity.
+		None => origin.is_some().then_some(None),
+	}
 }
 
 async fn serve<C: Channel, A: Applications>(
 	mut channel: C,
-	application: Id,
+	application: Option<Id>,
 	send: mpsc::Sender<Update>,
 	slot: usize,
 	invites: mpsc::Sender<String>,
 	service: &A,
 ) -> Result<(), &'static str> {
-	let mut session = Session::new(application, service);
+	let mut session = application.map(|application| Session::new(application, service));
 	loop {
 		let bytes = match channel.receive().await {
 			Ok(Incoming::Command(bytes)) => bytes,
@@ -753,8 +776,8 @@ async fn serve<C: Channel, A: Applications>(
 			}
 			Err(_) => return Err(INVALID),
 		};
-		match rpc::decode_request(&bytes) {
-			Ok(Request::SetActivity(command)) => {
+		match (rpc::decode_request(&bytes), session.as_mut()) {
+			(Ok(Request::SetActivity(command)), Some(session)) => {
 				let ack = rpc::acknowledge(&command);
 				let value = match command.activity {
 					Some(fields) => Some(session.activity(fields).await?),
@@ -764,15 +787,16 @@ async fn serve<C: Channel, A: Applications>(
 				channel.reply(&ack).await.map_err(|_| INVALID)?;
 				send.send((slot, value)).await.map_err(|_| INVALID)?;
 			}
-			Ok(Request::Invite { nonce, code }) => {
+			(Ok(Request::Invite { nonce, code }), _) => {
 				// Handing an invite to the client only opens a dialog; joining stays confirmed.
-				let _ = invites.try_send(code.clone());
-				channel
-					.reply(&rpc::invite_acknowledge(&nonce, &code))
-					.await
-					.map_err(|_| INVALID)?;
+				let reply = if invites.try_send(code.clone()).is_ok() {
+					rpc::invite_acknowledge(&nonce, &code)
+				} else {
+					rpc::error_for_payload(&bytes)
+				};
+				channel.reply(&reply).await.map_err(|_| INVALID)?;
 			}
-			Err(_) => channel
+			_ => channel
 				.reply(&rpc::error_for_payload(&bytes))
 				.await
 				.map_err(|_| INVALID)?,
@@ -1213,7 +1237,7 @@ mod tests {
 		let service = Offline::default();
 		let server = tokio::spawn(async move {
 			let mut results = Vec::new();
-			for slot in 0..3 {
+			for slot in 0..4 {
 				let (stream, _) = listener.accept().await.unwrap();
 				results.push(
 					serve_web(
@@ -1223,6 +1247,7 @@ mod tests {
 						slot,
 						invites.clone(),
 						&service,
+						true,
 					)
 					.await,
 				);
@@ -1251,6 +1276,7 @@ mod tests {
 				.is_err()
 		);
 		assert!(connect(None, "?v=2&client_id=7").await.is_err());
+		assert!(connect(None, "?v=1").await.is_err());
 		let (mut socket, _) = connect(Some("https://discord.com"), "?v=1&client_id=7")
 			.await
 			.unwrap();
@@ -1278,6 +1304,92 @@ mod tests {
 			.unwrap();
 		// A refused upgrade is silence, not a reported game failure.
 		assert!(results.iter().all(Result::is_ok));
+	}
+
+	#[tokio::test]
+	async fn browser_invites_without_client_id_work_without_activity_and_report_full_queue() {
+		timeout(Duration::from_secs(5), async {
+			let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+			let port = listener.local_addr().unwrap().port();
+			let (send, mut activities) = mpsc::channel(1);
+			let (invites, mut asked) = mpsc::channel(1);
+			let service = Offline {
+				release: Some(Arc::new(Notify::new())),
+				..Offline::default()
+			};
+			let server = tokio::spawn(async move {
+				let (stream, _) = listener.accept().await.unwrap();
+				serve_web(stream, &user(), send, 0, invites, &service, false).await
+			});
+			let mut request =
+				tokio_tungstenite::tungstenite::client::IntoClientRequest::into_client_request(
+					format!("ws://127.0.0.1:{port}/?v=1"),
+				)
+				.unwrap();
+			request
+				.headers_mut()
+				.insert("origin", "https://discord.com".parse().unwrap());
+			let (mut socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+			assert!(
+				socket
+					.next()
+					.await
+					.unwrap()
+					.unwrap()
+					.to_text()
+					.unwrap()
+					.contains("READY")
+			);
+			for (command, error) in [
+				(
+					r#"{"cmd":"INVITE_BROWSER","nonce":"first","args":{"code":"synthetic"}}"#,
+					false,
+				),
+				(
+					r#"{"cmd":"INVITE_BROWSER","nonce":"full","args":{"code":"another"}}"#,
+					true,
+				),
+				(
+					r#"{"cmd":"SET_ACTIVITY","nonce":"activity","args":{"pid":123,"activity":{}}}"#,
+					true,
+				),
+			] {
+				socket.send(Message::Text(command.into())).await.unwrap();
+				let reply = socket.next().await.unwrap().unwrap();
+				let reply: serde_json::Value =
+					serde_json::from_str(reply.to_text().unwrap()).unwrap();
+				assert_eq!(reply["evt"] == "ERROR", error);
+				let request: serde_json::Value = serde_json::from_str(command).unwrap();
+				assert_eq!(reply["nonce"], request["nonce"]);
+			}
+			assert_eq!(asked.recv().await.unwrap(), "synthetic");
+			assert!(asked.try_recv().is_err());
+			assert!(activities.try_recv().is_err());
+			socket.close(None).await.unwrap();
+			assert!(server.await.unwrap().is_ok());
+		})
+		.await
+		.unwrap();
+	}
+
+	#[test]
+	fn invite_consumption_survives_listener_and_account_replacement() {
+		let (send, mut receive) = watch::channel(None);
+		assert!(take_invite(&mut receive).is_none());
+		for _listener in 0..2 {
+			send.send_replace(Some("synthetic".into()));
+			assert_eq!(take_invite(&mut receive).as_deref(), Some("synthetic"));
+			assert!(take_invite(&mut receive).is_none());
+		}
+		let (new_account, new_receive) = watch::channel(None);
+		receive = new_receive;
+		assert!(take_invite(&mut receive).is_none());
+		new_account.send_replace(Some("new-account".into()));
+		assert_eq!(take_invite(&mut receive).as_deref(), Some("new-account"));
+		new_account.send_replace(Some("final-invite".into()));
+		drop(new_account);
+		assert_eq!(take_invite(&mut receive).as_deref(), Some("final-invite"));
+		assert!(take_invite(&mut receive).is_none());
 	}
 
 	#[tokio::test]
@@ -1558,12 +1670,16 @@ mod tests {
 		let running = Arc::new(AtomicUsize::new(0));
 		let count = running.clone();
 		let worker = tokio::spawn(async move {
-			run_enabled(
+			let mode = receiver.clone();
+			run_modes(
 				receiver,
 				&activity,
 				&report,
 				&egui::Context::default(),
 				|| async {
+					if !*mode.borrow() {
+						return std::future::pending().await;
+					}
 					count.fetch_add(1, Ordering::SeqCst);
 					let _running = Running(count.clone());
 					activity.send_replace(Some(

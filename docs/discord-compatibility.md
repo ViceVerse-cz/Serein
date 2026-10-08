@@ -1846,12 +1846,15 @@ Game Activity now covers what an out-of-client Rich Presence bridge is expected 
 following the feature set of [arRPC](https://github.com/OpenAsar/arrpc) and
 [rsRPC](https://github.com/SpikeHD/rsRPC) without reusing their code.
 
-**WebSocket transport.** Alongside the existing IPC endpoint, sharing binds the first free
-port in Discord's RPC range 6463–6472 on loopback only. The upgrade request must carry
-`v=1` and a numeric `client_id`, and either no `Origin` or one of Discord's own web origins;
-anything else is refused without a reported error, because browsers and port scanners reach
-these ports routinely. Accepted sockets receive the same READY dispatch and speak the same
-JSON commands as IPC, without opcode framing. Messages and frames are capped at 16 KiB.
+**WebSocket transport (updated October 8, 2026).** The authenticated session binds the first
+free port in Discord's RPC range 6463–6472 on loopback only. Activity requests require sharing
+to be enabled, `v=1`, a numeric `client_id`, and either no `Origin` or one of Discord's own
+web origins. Browser invite handoff also works with sharing disabled: `v=1` without
+`client_id` requires an exact allowed Discord origin and admits only `INVITE_BROWSER`.
+Other origins are refused. Accepted sockets receive the same READY dispatch and speak the
+same JSON commands as IPC, without opcode framing. Messages and frames are capped at 16 KiB;
+the existing eight-client limit and admission interval remain. IPC, process scanning,
+application lookups and activity publication remain opt-in.
 
 **Artwork.** `large_image`/`small_image` now accept three forms: a registered asset key or ID,
 an already-proxied `mp:` key passed through after the presence path checks, and an absolute
@@ -1881,6 +1884,16 @@ matches, and always loses to a connected client, which knows more than a process
 **Invites.** `INVITE_BROWSER` prefills the existing Join a Server dialog and is acknowledged.
 It never joins: the user still confirms the lookup and the join. `GUILD_TEMPLATE_BROWSER`,
 `DEEP_LINK`, `AUTHORIZE` and join/spectate remain unsupported and answer with correlated errors.
+The four-code queue returns an error when full; the UI consumes the latest queued code once,
+including repeated codes after a listener restart or account replacement.
+
+The missing-client-ID handshake was checked against Discord's public invite-page bundle
+[`web-minimal.d9727d84d5005f99.js`](https://discord.com/assets/web-minimal.d9727d84d5005f99.js)
+on October 8, 2026. Its native-modal caller (module 197111) uses the WebSocket request path
+(module 129014), which opens `ws://127.0.0.1:{port}/?v=1` and sends `INVITE_BROWSER`.
+This is observed, unofficial client behavior, not a public API compatibility guarantee.
+Synthetic socket tests cover this handshake and reject activity on the invite-only connection;
+no live invite acceptance or CAPTCHA flow was exercised.
 
 Offline tests cover the IPC and WebSocket transports end to end, origin and handshake refusal,
 URL proxying, late artwork uploads, proxy-path traversal attempts, badge fallback, detection
