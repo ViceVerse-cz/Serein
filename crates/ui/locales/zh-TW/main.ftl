@@ -377,6 +377,18 @@ channel-list-heading-direct-messages = 私訊
 channel-list-heading-favorites = 最愛
 # Context: key
 channel-list-heading-pinned = 釘選
+# Context: key
+channel-list-heading-message-requests = 訊息請求
+# Context: label
+message-request-ignore-tooltip = 忽略請求
+# Context: label
+message-request-accept = 接受
+# Context: label
+message-request-ignore = 忽略
+# Context: label
+message-request-banner = 此人還不是你的好友。接受後對話將移至私人訊息。
+# Context: label
+message-request-title = 訊息請求
 
 ## crates/ui/src/channel_menu.rs
 # Context: context

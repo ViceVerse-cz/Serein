@@ -377,6 +377,18 @@ channel-list-heading-direct-messages = Direktnachrichten
 channel-list-heading-favorites = Favoriten
 # Context: key
 channel-list-heading-pinned = Angepinnt
+# Context: key
+channel-list-heading-message-requests = Nachrichtenanfragen
+# Context: label
+message-request-ignore-tooltip = Anfrage ignorieren
+# Context: label
+message-request-accept = Annehmen
+# Context: label
+message-request-ignore = Ignorieren
+# Context: label
+message-request-banner = Diese Person ist noch nicht mit dir befreundet. Nimm an, um die Unterhaltung in deine Direktnachrichten zu verschieben.
+# Context: label
+message-request-title = Nachrichtenanfrage
 
 ## crates/ui/src/channel_menu.rs
 # Context: context

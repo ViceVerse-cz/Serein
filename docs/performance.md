@@ -29,6 +29,66 @@ The after idle sample followed one same-channel click and a 10 second settle whi
 were running; the before sample was an untouched window. Neither sample supports an idle
 performance claim. Startup latency, full-frame p95, and other platforms were unmeasured.
 
+## Animation frame retention — October 8, 2026
+
+Decoded GIF and animated-avatar frames were the largest bounded RAM consumer. Each frame is held as
+RGBA, so one 498x280, 40-frame GIF is about 22 MB and a 128 px, 40-frame avatar about 2.6 MB. Inline
+GIFs kept their frames after scrolling away until a 128 MiB pool filled. Animated avatars and banners
+kept theirs in another 128 MiB pool, although avatars only play on hover or in an open profile.
+
+Frames not played for 5 s (scrolled away, not hovered, or shown in an unfocused window) are now
+released while the still texture stays. Hover-only avatars keep frames only when they are about to
+play. Released artwork asks the worker for frames again only once it can play; the encoded source comes from
+the disk cache, so this costs a re-decode, not a download.
+
+The ignored `ui` workload `animation_memory_workload` (release build, Apple M1, Rust 1.98.1, no window,
+GPU, network or account) scrolls past 12 GIF embeds with 20 of 60 animated avatar rows on screen, then
+settles for 6 s. Retained bytes were identical across three runs per revision (six on the change):
+
+| Metric | Base | Change |
+| --- | ---: | ---: |
+| Peak retained decoded frames | 237.3 MiB | 111.7 MiB |
+| Settled retained decoded frames | 237.3 MiB | 46.3 MiB |
+| Peak process RSS | 265.7–265.8 MiB | 145.2–157.1 MiB (5 of 6 runs ≤ 145.4) |
+
+Retained bytes come from the pools' own accounting. RSS did not fall after settling, because the
+macOS allocator keeps freed ~0.5 MB blocks resident for reuse. Later decodes reuse them rather than
+growing the process. GPU playback textures, which were also released, were not measured, and the
+real app's scroll speed and media mix will differ. Standard macOS package: executable
+68,526,000 B (+16,416), installed app 74,564,335 B (+16,416), `ditto` ZIP 48,183,136 B (+3,269).
+
+## Active-call repaint cadence — October 8, 2026
+
+A code audit of the UI, desktop wiring, client state and network/voice crates found one
+always-on cost: while any call was active, `logic()` requested a repaint every 50 ms, running the
+whole UI pass at 20 Hz even though speaking, notices, remote video, devices, hotkeys, screen share
+and deadlines each already wake the UI themselves. The request is now a 1 s heartbeat.
+
+The synthetic `--demo --demo-call` fixture (no credentials, no audio device, no network) was sampled
+on an Apple M1 (16 GiB, macOS 27.0, Rust 1.98.1) with release `--features demo` builds of the base
+commit and the change. Each sample waited 8 s, then summed process CPU time and polled RSS every
+0.5 s for 30 s; base and change were alternated.
+
+| Workload (30 s) | Base | Change |
+| --- | ---: | ---: |
+| Active-call fixture, CPU, 3 runs each | 6.27%, 5.77%, 6.17% | 0.50%, 0.50%, 0.50% |
+| Active-call fixture, peak RSS | 126.3–126.5 MiB | 126.3–126.4 MiB |
+| Plain `--demo` idle, CPU | 0.000% | 0.000% |
+
+The 0.50% remaining is the 1 s heartbeat plus the call timer. CPU time has 10 ms resolution, so
+treat the figures as approximate. They cover one fixture and display, not a live call: remote video,
+screen share, audio threads and GPU work were not measured. A `footprint`/`heap` look at the idle demo
+showed 68 MB physical footprint and 11.6 MB of live heap, so no idle-memory regression was found.
+
+The same change set also avoids work that was not benchmarked, so no speedup is claimed for it:
+permission decisions are no longer discarded when an event leaves the guild and channel records
+equal or when an unrelated channel is removed, notification/read-state lookups use the indexed
+channel map instead of a linear scan, and the composer thumbnail reads at most 64 MiB (the decode
+allocation limit) instead of up to the 500 MB upload limit plus a second copy.
+
+Standard no-default-features macOS packages built from both revisions: executable 68,509,584 B in
+both, installed app 74,547,919 B in both, `ditto` ZIP 48,179,547 vs 48,179,867 B (+320 B).
+
 ## Voice default-device polling — October 7, 2026
 
 An offline probe compared creating a fresh PulseAudio client for every metadata poll with reusing
