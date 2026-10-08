@@ -187,6 +187,17 @@ an incomplete spec gate. New unlisted missing notices still stop packaging.
 | `realfft-3.5.0.crate` | realfft 3.5.0 | [source](https://static.crates.io/crates/realfft/realfft-3.5.0.crate) | `f821338fddb99d089116342c46e9f1fbf3828dba077674613e734e01d6ea8677` |
 | `realfft-3.5.0-license-declaration.toml` | realfft 3.5.0 | [source](https://docs.rs/crate/realfft/3.5.0/source/Cargo.toml.orig) | `d72ddbadf9bb55ed21ae973ac97f0bb4e8df2064af628c54b802b2c7d764c8de` |
 
+## Vendored epaint RTL metadata (October 2, 2026)
+
+`vendor/epaint` copies epaint 0.36.2 from egui revision
+`72bc6574978d87fe0929b1d590c35222e6fd8935`; its opt-in direction and exact UTF-8
+cluster metadata changes are recorded in `epaint-SEREIN-PATCH.md`, copied into
+this bundled notice directory. The upstream MIT and Apache texts at that revision
+are byte-identical to the existing `egui-LICENSE-MIT` and `egui-LICENSE-APACHE`
+files above. The retained source manifest, original manifest, licenses and patch
+notice remain in `vendor/epaint`. Native shaping and installed/bundled font
+identities are unchanged.
+
 ## gpu-allocator Windows compatibility patch (October 7, 2026)
 
 Unmodified license texts copied from crates.io gpu-allocator 0.28.0, also retained with the locally patched manifest under `vendor/gpu-allocator`.

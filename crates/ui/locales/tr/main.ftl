@@ -4398,6 +4398,8 @@ voice-recipient-not-in-call = Aramada değil
 
 reconnect-now = Şimdi yeniden bağlan
 
+message-preview-limit = Bu mesaj, yerel metin düzeni sınırını aşıyor.
+
 voice-call-moved-to-another-client = Bu cihazın arama oturumu değiştirildi
 
 server-settings-page-safety = Güvenlik Kurulumu

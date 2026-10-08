@@ -4409,6 +4409,8 @@ voice-recipient-not-in-call = Fuera de la llamada
 
 reconnect-now = Reconectar ahora
 
+message-preview-limit = Este mensaje supera el límite del diseño de texto nativo.
+
 voice-call-moved-to-another-client = Se reemplazó la sesión de llamada de este dispositivo
 
 server-settings-page-safety = Configuración de seguridad

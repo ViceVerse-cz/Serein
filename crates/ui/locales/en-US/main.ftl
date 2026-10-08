@@ -4468,6 +4468,7 @@ public-upload-error-conversation = Return to the original conversation and revie
 public-upload-error-selection = Selection changed; review the file again before uploading publicly
 public-upload-error-missing = Select the file again before uploading publicly
 
+message-preview-limit = This message exceeds the native text layout limit.
 voice-call-moved-to-another-client = This device's call session was replaced
 
 # Synchronized favorite GIFs (unofficial account settings).

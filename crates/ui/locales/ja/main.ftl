@@ -4396,6 +4396,8 @@ voice-recipient-ringing = 呼び出し中…
 voice-recipient-not-in-call = 通話に未参加
 reconnect-now = 今すぐ再接続
 
+message-preview-limit = このメッセージはネイティブテキストレイアウトの上限を超えています。
+
 voice-call-moved-to-another-client = このデバイスの通話セッションが置き換えられました
 
 server-settings-page-safety = 安全設定

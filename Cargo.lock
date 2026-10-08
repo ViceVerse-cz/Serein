@@ -1958,7 +1958,6 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=72bc6574978d87fe0929b1d590c35222e6fd8935#72bc6574978d87fe0929b1d590c35222e6fd8935"
 dependencies = [
  "ahash",
  "bytemuck",

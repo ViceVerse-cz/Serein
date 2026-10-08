@@ -1,0 +1,37 @@
+{
+  "baseline_source": "47a81035047695fe1d81edc4cb7efe46c14d87a8",
+  "after_source": "73aa31e1a81629d3eebf901eac70ed881a6dd462",
+  "renderer": "Native eframe/WGPU Apple M1 Metal framebuffer at 2x scale",
+  "fixture": "Four synthetic Arabic/Hebrew/mixed-script chat messages; no reporter screenshot or live account data",
+  "method": "Temporary native WGPU screenshot callback and bounded demo fixture; no image editing",
+  "viewports": {
+    "wide_dark": "--demo --demo-chat; SEREIN_SYNTHETIC_RTL=1",
+    "narrow_light": "--demo --demo-chat --demo-light; SEREIN_SYNTHETIC_RTL=1, SEREIN_SYNTHETIC_NARROW=1"
+  },
+  "files": {
+    "before.png": {
+      "bytes": 697712,
+      "sha256": "1397f17035bb52f1c59c6495224593b2113485e883df6d841fb3efd6724dcb80"
+    },
+    "after.png": {
+      "bytes": 694075,
+      "sha256": "8f67d2e3fcf912b00ae0169891e0a1fd0f082ebb3c69e7c97cedc1682afd1ad7"
+    },
+    "before-light-narrow.png": {
+      "bytes": 544597,
+      "sha256": "02ece59147d59bbb21445bb24e10b656e426b11025e79dfce78a1ee27b7e429c"
+    },
+    "after-light-narrow.png": {
+      "bytes": 567253,
+      "sha256": "bde78ab4792bb3670cec0bf43161a3c7135298d13c639a6527e69d5c63436cfe"
+    }
+  },
+  "verification": {
+    "cargo_xtask_check": "passed on exact source before temporary native captures; hooks removed byte-for-byte",
+    "ui_tests_passed": 368,
+    "ui_tests_ignored": 6,
+    "live_account_tests": false,
+    "performance": "Final corrected standard release package passed; source-pinned FAT native CPU/RSS and matched thin CPU component layouts measured. Raw samples and limits are in measurements.json; no general speed/memory improvement claim."
+  },
+  "after_note": "Translated-limit correction 73aa31e1 adds nine other-language notices and one actual lookup regression. Common renderer, runtime i18n code and English/Czech catalogs remain byte-identical to 5eb13e07. Fresh actual 73aa wide dark and narrow light frames are byte-identical to the inspected 5eb images. Temporary hooks were removed byte-for-byte."
+}

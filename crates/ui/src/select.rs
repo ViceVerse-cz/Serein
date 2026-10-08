@@ -2,16 +2,18 @@
 
 use egui::{
 	Color32, CursorIcon, Event, FullOutput, Id, InteractOptions, LayerId, Order, PointerButton,
-	Popup, PopupAnchor, Pos2, RawInput, Rect, Response, Sense, Stroke,
+	Popup, PopupAnchor, Pos2, RawInput, Rect, Response, Sense,
 	epaint::{Galley, TextShape},
 	text_selection::LabelSelectionState,
 };
 use std::sync::Arc;
+mod mapped;
 
 /// Inline artwork positioned inside a run's galley (custom and Unicode emoji).
 pub struct Artwork {
 	pub rect: Rect,
 	pub image: Option<egui::Image<'static>>,
+	pub fallback: Option<Arc<Galley>>,
 }
 
 struct Run {
@@ -22,6 +24,9 @@ struct Run {
 	/// One band per wrapped galley row, so a run never covers a neighbour's line.
 	lines: Vec<Rect>,
 	painted: bool,
+	mapping: Option<Arc<crate::rtl::Layout>>,
+	artwork: Vec<Artwork>,
+	highlights: Vec<Rect>,
 }
 
 struct Hole {
@@ -129,6 +134,42 @@ impl Surface {
 			galley,
 			rect: response.rect,
 			painted,
+			mapping: None,
+			artwork: Vec::new(),
+			highlights: Vec::new(),
+		});
+	}
+
+	/// A bidi paragraph keeps native painting separate from its logical cursor map.
+	pub(crate) fn mapped_run(
+		&mut self,
+		ui: &egui::Ui,
+		response: &Response,
+		pos: Pos2,
+		layout: Arc<crate::rtl::Layout>,
+		artwork: Vec<Artwork>,
+		highlights: Vec<Rect>,
+	) {
+		let galley = ui.painter().layout_no_wrap(
+			String::new(),
+			egui::FontId::proportional(1.0),
+			Color32::TRANSPARENT,
+		);
+		let lines = layout
+			.lines
+			.iter()
+			.map(|line| Rect::from_min_size(pos + line.position, line.galley.size()))
+			.collect();
+		self.runs.push(Run {
+			band: self.base.with(self.runs.len()),
+			galley_pos: pos,
+			galley,
+			rect: response.rect,
+			lines,
+			painted: true,
+			mapping: Some(layout),
+			artwork,
+			highlights,
 		});
 	}
 
@@ -148,6 +189,18 @@ impl Surface {
 			galley_pos,
 			galley,
 		});
+	}
+
+	#[cfg(test)]
+	pub(crate) fn mapped_layouts(&self) -> Vec<(Pos2, Arc<crate::rtl::Layout>)> {
+		self.runs
+			.iter()
+			.filter_map(|run| {
+				run.mapping
+					.as_ref()
+					.map(|layout| (run.galley_pos, layout.clone()))
+			})
+			.collect()
 	}
 
 	/// True when `pos` is on no glyph line, widget or excluded card of this block, so a
@@ -197,7 +250,33 @@ impl Surface {
 				continue;
 			}
 			if menu_open {
+				if let Some(layout) = &run.mapping {
+					mapped::observe(
+						ui,
+						run.band,
+						run.rect,
+						mapped::Source::Mapped(layout.clone()),
+					);
+
+					for rect in &run.highlights {
+						ui.painter().rect_filled(
+							*rect,
+							0.0,
+							Color32::from_rgba_unmultiplied(200, 160, 30, 85),
+						);
+					}
+					layout.paint(ui, run.galley_pos);
+					for art in &run.artwork {
+						paint_artwork(ui, art);
+					}
+				}
 				if !run.galley.job.text.is_empty() {
+					mapped::observe(
+						ui,
+						run.band,
+						run.rect,
+						mapped::Source::Native(run.galley.clone()),
+					);
 					let color = if run.painted {
 						Color32::TRANSPARENT
 					} else {
@@ -228,6 +307,42 @@ impl Surface {
 			let Some(response) = response else {
 				continue;
 			};
+			if let Some(layout) = &run.mapping {
+				for rect in &run.highlights {
+					ui.painter().rect_filled(
+						*rect,
+						0.0,
+						Color32::from_rgba_unmultiplied(200, 160, 30, 85),
+					);
+				}
+				let selected = ui
+					.ctx()
+					.plugin_or_default::<mapped::Selection>()
+					.lock()
+					.run(
+						ui,
+						&response,
+						mapped::Source::Mapped(layout.clone()),
+						true,
+						|point| layout.cursor((point - run.galley_pos).to_pos2()),
+					);
+				if !selected.is_empty() {
+					for cell in &layout.cells {
+						if cell.source.start < selected.end && cell.source.end > selected.start {
+							ui.painter().rect_filled(
+								cell.rect.translate(run.galley_pos.to_vec2()),
+								0.0,
+								ui.visuals().selection.bg_fill,
+							);
+						}
+					}
+				}
+				layout.paint(ui, run.galley_pos);
+				for art in &run.artwork {
+					paint_artwork(ui, art);
+				}
+				continue;
+			}
 			if run.galley.job.text.is_empty() {
 				continue;
 			}
@@ -236,14 +351,7 @@ impl Surface {
 			} else {
 				ui.visuals().text_color()
 			};
-			egui::text_selection::LabelSelectionState::label_text_selection(
-				ui,
-				&response,
-				run.galley_pos,
-				run.galley,
-				color,
-				Stroke::NONE,
-			);
+			mapped::native(ui, &response, run.galley_pos, run.galley, color);
 		}
 		for embed in &embeds[embedded..] {
 			show_embed(ui, embed, menu_open);
@@ -269,6 +377,7 @@ struct Pointer {
 	menu: bool,
 	silent: bool,
 	cached: String,
+	selection_secondary: bool,
 	#[cfg(target_os = "macos")]
 	control_primary: bool,
 }
@@ -309,7 +418,7 @@ impl egui::Plugin for Pointer {
 	fn input_hook(&mut self, ctx: &egui::Context, input: &mut RawInput) {
 		#[cfg(target_os = "macos")]
 		normalize_control_click(input, &mut self.control_primary);
-		let selecting = ctx.plugin::<LabelSelectionState>().lock().has_selection();
+		let selecting = has_selection(ctx);
 		let secondary = input.events.iter().any(|event| {
 			matches!(
 				event,
@@ -320,7 +429,21 @@ impl egui::Plugin for Pointer {
 				}
 			)
 		});
-		if selecting && secondary {
+		let secondary_release = input.events.iter().any(|event| {
+			matches!(
+				event,
+				Event::PointerButton {
+					button: PointerButton::Secondary,
+					pressed: false,
+					..
+				}
+			)
+		});
+		if self.selection_secondary || (selecting && secondary) {
+			self.selection_secondary |= secondary;
+			if secondary {
+				self.cached = String::new();
+			}
 			input.events.retain(|event| {
 				!matches!(
 					event,
@@ -330,42 +453,22 @@ impl egui::Plugin for Pointer {
 					}
 				)
 			});
-			if !input
-				.events
-				.iter()
-				.any(|event| matches!(event, Event::Copy))
+			if secondary
+				&& !input
+					.events
+					.iter()
+					.any(|event| matches!(event, Event::Copy))
 			{
 				input.events.push(Event::Copy);
 				self.silent = true;
 			}
-			self.menu = true;
+			self.menu = secondary;
 		} else {
 			self.menu = false;
 		}
-	}
-
-	fn on_end_pass(&mut self, ui: &mut egui::Ui) {
-		if !self.menu || Popup::is_any_open(ui.ctx()) {
-			return;
+		if secondary_release || !input.focused {
+			self.selection_secondary = false;
 		}
-		let id = Id::unique("chat-selection-copy");
-		Popup::new(
-			id,
-			ui.ctx().clone(),
-			PopupAnchor::PointerFixed,
-			LayerId::new(Order::Foreground, id),
-		)
-		.open_memory(Some(egui::SetOpenCommand::Bool(true)))
-		.kind(egui::PopupKind::Menu)
-		.show(|ui| {
-			if ui
-				.button(crate::i18n::translate("select-on-end-pass-copy"))
-				.clicked()
-			{
-				request_copy(ui.ctx());
-				ui.close();
-			}
-		});
 	}
 
 	fn output_hook(&mut self, ctx: &egui::Context, output: &mut FullOutput) {
@@ -374,22 +477,58 @@ impl egui::Plugin for Pointer {
 			.commands
 			.iter()
 			.find_map(|command| match command {
-				egui::OutputCommand::CopyText(text) => Some(text.clone()),
+				egui::OutputCommand::CopyText(text) => Some(text),
 				_ => None,
 			}) {
-			self.cached = text;
-			if self.silent {
-				output
-					.platform_output
-					.commands
-					.retain(|command| !matches!(command, egui::OutputCommand::CopyText(_)));
+			self.cached = if text.len() <= mapped::COPY_BYTES {
+				text.clone()
+			} else {
+				String::new()
+			};
+			if self.cached.capacity() > mapped::COPY_BYTES {
+				self.cached = String::new();
 			}
+		}
+		if self.silent {
+			output
+				.platform_output
+				.commands
+				.retain(|command| !matches!(command, egui::OutputCommand::CopyText(_)));
 		}
 		self.silent = false;
 		if output.platform_output.cursor_icon == CursorIcon::Text && !hovering_edit(ctx) {
 			output.platform_output.cursor_icon = CursorIcon::Default;
 		}
 	}
+}
+
+/// Draw outside a Plugin hook: egui notifies plugins when a popup widget is under
+/// the pointer, so creating it while holding Pointer's plugin mutex would reenter it.
+pub(crate) fn show_menu(ctx: &egui::Context) {
+	let requested = ctx
+		.plugin_opt::<Pointer>()
+		.is_some_and(|plugin| plugin.lock().menu);
+	let id = Id::unique("chat-selection-copy");
+	if !Popup::is_id_open(ctx, id) && (!requested || Popup::is_any_open(ctx)) {
+		return;
+	}
+	Popup::new(
+		id,
+		ctx.clone(),
+		PopupAnchor::PointerFixed,
+		LayerId::new(Order::Foreground, id),
+	)
+	.open_memory(requested.then_some(egui::SetOpenCommand::Bool(true)))
+	.kind(egui::PopupKind::Menu)
+	.show(|ui| {
+		if ui
+			.button(crate::i18n::translate("select-on-end-pass-copy"))
+			.clicked()
+		{
+			request_copy(ui.ctx());
+			ui.close();
+		}
+	});
 }
 
 fn hovering_edit(ctx: &egui::Context) -> bool {
@@ -403,14 +542,23 @@ pub fn install(ctx: &egui::Context) {
 	ctx.add_plugin(Pointer::default());
 }
 
+pub(crate) fn clear(ctx: &egui::Context) {
+	Popup::close_id(ctx, Id::unique("chat-selection-copy"));
+	if let Some(plugin) = ctx.plugin_opt::<mapped::Selection>() {
+		*plugin.lock() = Default::default();
+	}
+	if let Some(plugin) = ctx.plugin_opt::<LabelSelectionState>() {
+		plugin.lock().clear_selection();
+	}
+	if let Some(plugin) = ctx.plugin_opt::<Pointer>() {
+		*plugin.lock() = Default::default();
+	}
+}
+
 /// True when a label range is active.
 pub fn has_selection(ctx: &egui::Context) -> bool {
 	ctx.plugin::<LabelSelectionState>().lock().has_selection()
-}
-
-/// Drop a label range, e.g. the word a row double-click selected beside its text.
-pub fn clear(ctx: &egui::Context) {
-	ctx.plugin::<LabelSelectionState>().lock().clear_selection();
+		|| ctx.plugin_or_default::<mapped::Selection>().lock().active()
 }
 
 pub fn open_menu(ctx: &egui::Context) -> bool {
@@ -420,6 +568,9 @@ pub fn open_menu(ctx: &egui::Context) -> bool {
 
 /// Copy the text cached from the last selected range.
 pub fn request_copy(ctx: &egui::Context) {
+	if mapped::request_copy(ctx) {
+		return;
+	}
 	let text = ctx
 		.plugin_opt::<Pointer>()
 		.map(|plugin| plugin.lock().cached.clone())
@@ -441,6 +592,12 @@ fn show_embed(ui: &mut egui::Ui, embed: &Embed, menu_open: bool) {
 	// The galley carries its own per-token colours; the fallback only covers unstyled glyphs.
 	let color = ui.visuals().text_color();
 	if menu_open {
+		mapped::observe(
+			ui,
+			embed.response.id,
+			embed.response.rect,
+			mapped::Source::Native(embed.galley.clone()),
+		);
 		ui.painter().add(TextShape::new(
 			embed.galley_pos,
 			embed.galley.clone(),
@@ -448,13 +605,12 @@ fn show_embed(ui: &mut egui::Ui, embed: &Embed, menu_open: bool) {
 		));
 		return;
 	}
-	LabelSelectionState::label_text_selection(
+	mapped::native(
 		ui,
 		&embed.response,
 		embed.galley_pos,
 		embed.galley.clone(),
 		color,
-		Stroke::NONE,
 	);
 }
 
@@ -648,6 +804,9 @@ fn blank_run(ui: &egui::Ui, base: egui::Id, block: Rect) -> Run {
 		rect: block,
 		lines: vec![block],
 		painted: true,
+		mapping: None,
+		artwork: Vec::new(),
+		highlights: Vec::new(),
 	}
 }
 
@@ -655,10 +814,16 @@ fn paint_artwork(ui: &egui::Ui, art: &Artwork) {
 	if !ui.is_rect_visible(art.rect) {
 		return;
 	}
-	let size = art.rect.width();
+	let size = art.rect.width().min(art.rect.height());
 	if let Some(image) = &art.image {
 		let painted = image.calc_size(egui::Vec2::splat(size), image.size());
 		image.paint_at(ui, Rect::from_center_size(art.rect.center(), painted));
+	} else if let Some(label) = &art.fallback {
+		ui.painter().galley(
+			Pos2::new(art.rect.left(), art.rect.center().y - label.size().y / 2.0),
+			label.clone(),
+			ui.visuals().text_color(),
+		);
 	}
 }
 
@@ -792,6 +957,150 @@ mod tests {
 		]
 	}
 
+	#[cfg(target_os = "macos")]
+	fn menu_copy(
+		ctx: &egui::Context,
+		render: &mut dyn FnMut(&mut egui::Ui),
+		from: Pos2,
+		prepare: impl FnOnce(),
+	) -> Option<String> {
+		fn label(shape: &egui::Shape) -> Option<Pos2> {
+			match shape {
+				egui::Shape::Text(text)
+					if text.galley.job.text
+						== crate::i18n::translate("select-on-end-pass-copy") =>
+				{
+					Some(text.pos + text.galley.size() / 2.0)
+				}
+				egui::Shape::Vec(shapes) => shapes.iter().find_map(label),
+				_ => None,
+			}
+		}
+		for pressed in [true, false] {
+			let output = ctx.run_ui(
+				input(vec![
+					Event::PointerMoved(from),
+					Event::PointerButton {
+						pos: from,
+						button: PointerButton::Primary,
+						pressed,
+						modifiers: egui::Modifiers {
+							ctrl: pressed,
+							..Default::default()
+						},
+					},
+				]),
+				&mut *render,
+			);
+			if pressed {
+				assert!(
+					has_selection(ctx),
+					"Control-click press cannot clear the selected range"
+				);
+			}
+			assert!(
+				!output
+					.platform_output
+					.commands
+					.iter()
+					.any(|command| matches!(command, egui::OutputCommand::CopyText(_))),
+				"opening a menu does not write the clipboard"
+			);
+			output.drop_without_applying_deltas();
+		}
+		assert!(
+			Popup::is_id_open(ctx, Id::unique("chat-selection-copy")),
+			"the release keeps the selection menu open"
+		);
+		prepare();
+		let mut copy_pos = None;
+		for _ in 0..3 {
+			let output = ctx.run_ui(input(Vec::new()), &mut *render);
+			copy_pos = output
+				.shapes
+				.iter()
+				.find_map(|shape| label(&shape.shape))
+				.or(copy_pos);
+			output.drop_without_applying_deltas();
+		}
+		let copy_pos = copy_pos.expect("the native Copy menu is actually painted");
+		let mut copied = None;
+		for pressed in [true, false] {
+			let output = ctx.run_ui(input(press(copy_pos, pressed)), &mut *render);
+			copied = copied.or_else(|| {
+				output
+					.platform_output
+					.commands
+					.iter()
+					.find_map(|command| match command {
+						egui::OutputCommand::CopyText(value) => Some(value.clone()),
+						_ => None,
+					})
+			});
+			output.drop_without_applying_deltas();
+		}
+		Popup::close_all(ctx);
+		copied
+	}
+
+	#[cfg(target_os = "macos")]
+	#[test]
+	fn native_selection_control_click_copies_after_releasing_control_first() {
+		let ctx = egui::Context::default();
+		install(&ctx);
+		let positions = std::cell::Cell::new((Pos2::ZERO, Pos2::ZERO));
+		let text = "ordinary Latin selection";
+		let mut render = |ui: &mut egui::Ui| {
+			let mut surface = Surface::new(ui, "native-menu-selection");
+			let (pos, galley, response) = egui::Label::new(text).selectable(false).layout_in_ui(ui);
+			positions.set((
+				pos + egui::vec2(0.1, galley.size().y / 2.0),
+				pos + egui::vec2(galley.size().x + 1.0, galley.size().y / 2.0),
+			));
+			surface.run(ui, &response, pos, galley, Vec::new());
+			surface.finish(ui);
+			show_menu(ui.ctx());
+		};
+		ctx.run_ui(input(Vec::new()), &mut render)
+			.drop_without_applying_deltas();
+		let (from, to) = positions.get();
+		for events in [
+			press(from, true),
+			vec![Event::PointerMoved(to)],
+			press(to, false),
+			vec![],
+		] {
+			ctx.run_ui(input(events), &mut render)
+				.drop_without_applying_deltas();
+		}
+		assert_eq!(menu_copy(&ctx, &mut render, from, || {}), Some(text.into()));
+		Popup::open_id(&ctx, Id::unique("chat-selection-copy"));
+		clear(&ctx);
+		assert!(
+			!Popup::is_any_open(&ctx),
+			"a conversation/account reset closes the old selection menu"
+		);
+		let output = ctx.run_ui(input(vec![Event::Copy]), &mut render);
+		assert!(!has_selection(&ctx) && !Popup::is_any_open(&ctx));
+		assert!(
+			!output
+				.platform_output
+				.commands
+				.iter()
+				.any(|command| matches!(command, egui::OutputCommand::CopyText(_))),
+			"the reset cannot emit retained native or mapped text"
+		);
+		output.drop_without_applying_deltas();
+		let unrelated = Id::unique("unrelated-popup");
+		Popup::open_id(&ctx, unrelated);
+		clear(&ctx);
+		assert!(
+			Popup::is_id_open(&ctx, unrelated),
+			"only selection popup memory is reset"
+		);
+		Popup::close_all(&ctx);
+	}
+
 	/// Drag from `from` to `to` and return what a copy would yield.
 	fn drag(from: Pos2, to: Pos2) -> String {
 		let ctx = egui::Context::default();
@@ -848,5 +1157,318 @@ mod tests {
 			drag(Pos2::new(120.0, 22.0), Pos2::new(60.0, 7.0)),
 			"o charlie delta echo foxtrot golf hotel https://exa"
 		);
+	}
+	#[test]
+	fn rtl_pointer_drag_copies_partial_arabic_in_logical_order_and_crosses_to_latin() {
+		for across in [false, true] {
+			let ctx = egui::Context::default();
+			crate::fonts::install(&ctx);
+			install(&ctx);
+			let text = "مرحبا بالعالم English 123";
+			let changed = std::cell::Cell::new(false);
+			let clipped = std::cell::Cell::new(0_u8);
+			let prepended = std::cell::Cell::new(false);
+			let source_pressure = std::cell::Cell::new(false);
+			let external_copy = std::cell::Cell::new(false);
+			let start_pos = std::cell::Cell::new(None);
+			let end_pos = std::cell::Cell::new(None);
+			let mut render = |ui: &mut egui::Ui| {
+				if prepended.get() {
+					let mut prefix = Surface::new(ui, "prepended-row");
+					let (pos, galley, response) = egui::Label::new("unselected prefix")
+						.selectable(false)
+						.layout_in_ui(ui);
+					prefix.run(ui, &response, pos, galley, Vec::new());
+					prefix.finish(ui);
+				}
+				let mut tail_top = None;
+				let mut surface = Surface::new(ui, "rtl-pointer-test");
+				let spans = [crate::rtl::Span {
+					text: if changed.get() {
+						"مرحبا changed"
+					} else {
+						text
+					}
+					.into(),
+					format: egui::TextFormat::simple(
+						egui::FontId::proportional(15.0),
+						Color32::WHITE,
+					),
+					action: 0,
+					object: None,
+					copy: true,
+				}];
+				let layout = crate::rtl::layout(ui.ctx(), &spans, WIDTH).unwrap();
+				let (rect, response) = ui.allocate_exact_size(layout.size, Sense::hover());
+				let first = layout
+					.cells
+					.iter()
+					.find(|cell| cell.source.start == 0)
+					.unwrap();
+				start_pos.set(Some(
+					rect.min + egui::vec2(first.rect.right() - 0.1, first.rect.center().y),
+				));
+				let last = layout
+					.cells
+					.iter()
+					.find(|cell| cell.source.end == "مرحبا".len())
+					.unwrap();
+				end_pos.set(Some(
+					rect.min + egui::vec2(last.rect.left() + 0.1, last.rect.center().y),
+				));
+				surface.mapped_run(ui, &response, rect.min, layout, Vec::new(), Vec::new());
+				if across {
+					let (pos, mut galley, response) =
+						egui::Label::new("tail").selectable(false).layout_in_ui(ui);
+					if source_pressure.get() {
+						Arc::make_mut(&mut Arc::make_mut(&mut galley).job)
+							.text
+							.reserve_exact(4 * 1024 * 1024);
+					}
+					end_pos.set(Some(
+						pos + egui::vec2(galley.size().x + 1.0, galley.size().y / 2.0),
+					));
+					tail_top = Some(pos.y + 0.5);
+					surface.run(ui, &response, pos, galley, Vec::new());
+				}
+				if clipped.get() == 1 {
+					ui.set_clip_rect(Rect::NOTHING);
+				} else if clipped.get() == 2 {
+					let mut clip = ui.clip_rect();
+					clip.min.y = tail_top.unwrap();
+					ui.set_clip_rect(clip);
+				}
+				surface.finish(ui);
+				if external_copy.replace(false) {
+					request_copy(ui.ctx());
+				}
+				show_menu(ui.ctx());
+			};
+			ctx.run_ui(input(Vec::new()), &mut render)
+				.drop_without_applying_deltas();
+			// Keep the actual native hit positions, rather than asserting a synthetic index map.
+			let from = start_pos.get().unwrap();
+			let to = end_pos.get().unwrap();
+			let mut copied = None;
+			for events in [
+				press(from, true),
+				vec![Event::PointerMoved(to)],
+				press(to, false),
+				vec![],
+				vec![Event::Copy],
+			] {
+				let output = ctx.run_ui(input(events), &mut render);
+				copied = copied.or_else(|| {
+					output
+						.platform_output
+						.commands
+						.iter()
+						.find_map(|command| match command {
+							egui::OutputCommand::CopyText(text) => Some(text.clone()),
+							_ => None,
+						})
+				});
+				output.drop_without_applying_deltas();
+			}
+			assert_eq!(
+				copied,
+				Some(if across {
+					format!("{text}\ntail")
+				} else {
+					"مرحبا".into()
+				})
+			);
+			#[cfg(target_os = "macos")]
+			assert_eq!(menu_copy(&ctx, &mut render, from, || {}), copied);
+
+			// The app's ordinary message menu owns a different popup ID and uses
+			// this same explicit Copy action after body rendering.
+			Popup::open_id(&ctx, Id::unique("message-context-copy"));
+			assert!(
+				has_selection(&ctx),
+				"the valid mapped range remains active before message-menu Copy"
+			);
+			external_copy.set(true);
+			let output = ctx.run_ui(input(Vec::new()), &mut render);
+			assert!(output.platform_output.commands.iter().any(|command| matches!(command, egui::OutputCommand::CopyText(value) if Some(value) == copied.as_ref())), "other message menus also copy current logical source");
+			output.drop_without_applying_deltas();
+			Popup::close_all(&ctx);
+			clipped.set(1);
+			let output = ctx.run_ui(input(vec![Event::Copy]), &mut render);
+			assert!(
+				!output
+					.platform_output
+					.commands
+					.iter()
+					.any(|command| matches!(command, egui::OutputCommand::CopyText(_))),
+				"an incomplete offscreen selection never copies a partial or retained buffer"
+			);
+			output.drop_without_applying_deltas();
+			clipped.set(0);
+			ctx.run_ui(input(Vec::new()), &mut render)
+				.drop_without_applying_deltas();
+			let output = ctx.run_ui(input(vec![Event::Copy]), &mut render);
+			assert!(output.platform_output.commands.iter().any(|command|
+				matches!(command, egui::OutputCommand::CopyText(value) if value == copied.as_ref().unwrap())),
+				"scrolling back restores the original logical selection after source revalidation");
+			output.drop_without_applying_deltas();
+			if across {
+				// Only A leaves the viewport: B now has order0 while the retained A
+				// endpoint still has order0. Restoring both must resolve both IDs first.
+				clipped.set(2);
+				ctx.run_ui(input(Vec::new()), &mut render)
+					.drop_without_applying_deltas();
+				let output = ctx.run_ui(input(vec![Event::Copy]), &mut render);
+				assert!(
+					!output
+						.platform_output
+						.commands
+						.iter()
+						.any(|command| matches!(command, egui::OutputCommand::CopyText(_)))
+				);
+				output.drop_without_applying_deltas();
+				clipped.set(0);
+				// Copy on the first restored pass, before a settling/repaint pass.
+				let output = ctx.run_ui(input(vec![Event::Copy]), &mut render);
+				assert!(output.platform_output.commands.iter().any(|command|
+					matches!(command, egui::OutputCommand::CopyText(value) if value == &format!("{text}\ntail"))),
+					"a partial viewport cannot truncate A using B's old visible ordinal");
+				output.drop_without_applying_deltas();
+				prepended.set(true);
+				let output = ctx.run_ui(input(vec![Event::Copy]), &mut render);
+				assert!(output.platform_output.commands.iter().any(|command|
+					matches!(command, egui::OutputCommand::CopyText(value) if value == &format!("{text}\ntail"))),
+					"prepending a visible run cannot truncate either endpoint or copy the prefix");
+				output.drop_without_applying_deltas();
+				prepended.set(false);
+				ctx.run_ui(input(Vec::new()), &mut render)
+					.drop_without_applying_deltas();
+				source_pressure.set(true);
+				let output = ctx.run_ui(input(vec![Event::Copy]), &mut render);
+				assert!(
+					!output
+						.platform_output
+						.commands
+						.iter()
+						.any(|command| matches!(command, egui::OutputCommand::CopyText(_))),
+					"large spare source capacity rejects clipboard assembly even when visible text is short"
+				);
+				output.drop_without_applying_deltas();
+				source_pressure.set(false);
+				let output = ctx.run_ui(input(vec![Event::Copy]), &mut render);
+				assert!(output.platform_output.commands.iter().any(|command|
+					matches!(command, egui::OutputCommand::CopyText(value) if value == &format!("{text}\ntail"))),
+					"a new bounded pass can copy; the prior rejected request is not retried");
+				output.drop_without_applying_deltas();
+			}
+			// The menu click is a separate gesture from the word double-click below.
+			let mut settled = input(Vec::new());
+			settled.time = Some(10.0);
+			ctx.run_ui(settled, &mut render)
+				.drop_without_applying_deltas();
+			for events in [
+				press(from, true),
+				press(from, false),
+				press(from, true),
+				press(from, false),
+				Vec::new(),
+			] {
+				ctx.run_ui(input(events), &mut render)
+					.drop_without_applying_deltas();
+			}
+			let output = ctx.run_ui(input(vec![Event::Copy]), &mut render);
+			assert!(
+				output.platform_output.commands.iter().any(
+					|command| matches!(command, egui::OutputCommand::CopyText(value) if value == "مرحبا")
+				),
+				"double clicking selects the logical Arabic word"
+			);
+			output.drop_without_applying_deltas();
+			ctx.run_ui(
+				input(vec![Event::Key {
+					key: egui::Key::A,
+					physical_key: None,
+					pressed: true,
+					repeat: false,
+					modifiers: egui::Modifiers {
+						command: true,
+						..Default::default()
+					},
+				}]),
+				&mut render,
+			)
+			.drop_without_applying_deltas();
+			let output = ctx.run_ui(input(vec![Event::Copy]), &mut render);
+			assert!(
+				output.platform_output.commands.iter().any(
+					|command| matches!(command, egui::OutputCommand::CopyText(value) if value == text)
+				),
+				"select all retains the logical source rather than visual line order"
+			);
+			output.drop_without_applying_deltas();
+			if across {
+				ctx.run_ui(
+					input(vec![Event::Key {
+						key: egui::Key::Escape,
+						physical_key: None,
+						pressed: true,
+						repeat: false,
+						modifiers: Default::default(),
+					}]),
+					&mut render,
+				)
+				.drop_without_applying_deltas();
+			} else {
+				changed.set(true);
+				ctx.run_ui(input(Vec::new()), &mut render)
+					.drop_without_applying_deltas();
+			}
+			let output = ctx.run_ui(input(vec![Event::Copy]), &mut render);
+			assert!(
+				!output
+					.platform_output
+					.commands
+					.iter()
+					.any(|command| matches!(command, egui::OutputCommand::CopyText(_))),
+				"Escape and edited source retire mapped selection rather than copy old text"
+			);
+			output.drop_without_applying_deltas();
+			#[cfg(target_os = "macos")]
+			{
+				for invalidation in 0..3 {
+					changed.set(false);
+					clipped.set(0);
+					source_pressure.set(false);
+					let mut restored = input(Vec::new());
+					restored.time = Some(20.0 + f64::from(invalidation) * 2.0);
+					ctx.run_ui(restored, &mut render)
+						.drop_without_applying_deltas();
+					for events in [
+						press(from, true),
+						vec![Event::PointerMoved(to)],
+						press(to, false),
+						vec![],
+						vec![Event::Copy],
+					] {
+						ctx.run_ui(input(events), &mut render)
+							.drop_without_applying_deltas();
+					}
+					assert!(
+						has_selection(&ctx),
+						"invalidation {invalidation} begins with an actual selected range"
+					);
+					assert_eq!(
+						menu_copy(&ctx, &mut render, from, || match invalidation {
+							0 => clipped.set(1),
+							1 => changed.set(true),
+							_ if across => source_pressure.set(true),
+							_ => clipped.set(1),
+						}),
+						None,
+						"menu Copy cannot reuse earlier text after clipping, editing, or retained-source overflow"
+					);
+				}
+			}
+		}
 	}
 }

@@ -104,3 +104,141 @@ These workloads can be repeated with the pinned toolchain using `cargo replay` f
 the existing ignored client-core, desktop-frame and replay-soak workloads for detailed memory work.
 The delivery skill documents how to compare a task baseline with the changed build. Do not compare
 results from different machines or claim live-client behavior from synthetic fixtures.
+
+## Arabic/Hebrew message layout and logical selection — October 2, 2026
+
+Standard source `73aa31e1a81629d3eebf901eac70ed881a6dd462` is compared with
+main `1107d9045fb9d98980d6d8e9987c96a362b4f9ab`. The native pair uses the preserved
+FAT demo from renderer source `5eb13e07`; the later change adds nine other-language
+limit notices and a lookup regression, with runtime rendering, i18n code and the
+English/Czech catalogs byte-identical. Fresh actual wide dark and narrow light
+English captures on `73aa31e1` are byte-identical to the reviewed `5eb` pixels.
+The common CPU layout fixture compares original `47a81035` with `73aa31e1`.
+Raw samples, commands, source identities, binary hashes and capacity limits are in
+[`rtl-message-layout/measurements.json`](https://github.com/ViceVerse-cz/Serein/blob/7d495ed350e165bb7bfd3165b88ee6429e544bcf/docs/pr-evidence/rtl-message-layout/measurements.json).
+
+Environment: macOS 27.0 (26A428), Apple M1 MacBookAir10,1 / 16 GiB, Rust 1.98.1,
+locked dependencies, two build jobs.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable, bytes | 62,154,064 | 62,252,688 | +98,624 / +0.1587% |
+| Installed package, bytes | 68,164,493 | 68,266,274 | +101,781 / +0.1493% |
+| Distribution ZIP, bytes | 43,322,199 | 43,388,480 | +66,281 / +0.1530% |
+| Native idle CPU, ten-sample median | 0.0% | 0.0% | 0 percentage points |
+| Sampled peak RSS, KiB | 124,464 | 124,832 | +368 / +0.2957% |
+| Settled RSS, KiB | 124,416 | 124,784 | +368 / +0.2958% |
+| CPU layout, 200 frames at 360 px, ms | 27.298334 | 26.033583 | -1.264751 / -4.633% |
+| CPU layout, 200 frames at 900 px, ms | 26.678542 | 25.596833 | -1.081709 / -4.055% |
+
+Both standard packages use the unchanged default FAT release profile and include
+voice. The xtask internally uses `--no-default-features` to omit development data.
+The final package has 207 regular files versus 206 before, including the additional
+epaint patch notice. Deep/strict local ad-hoc signature verification passed.
+Installed size sums all regular files; ZIP uses identical
+`ditto -c -k --sequesterRsrc` over complete portable contents without an enclosing
+directory. Workspace artifacts across worktree IDs were inspected and cleared;
+the log confirms all twelve runtime workspace crates compiled from `73aa31e1`.
+
+Both native executables use `cargo build --release --locked -p serein --features demo`,
+default features and FAT LTO, without instrumentation. Both run `--demo --demo-chat`
+at 1120×760 logical pixels, 2× display scale, Metal. A five-second warmup precedes
+ten one-second process `ps` samples; settled RSS is the last-five median. All team
+compilers, tests, replays and other apps were held during the pair. The +368 KiB
+difference is small idle variation; no memory improvement is claimed. These
+samples measure inactive English/common chat overhead, not Arabic rendering.
+The source distinction above is retained; other-language RSS is unmeasured.
+
+The CPU component harness uses the exact same five messages at 360 and 900 logical
+pixels: long Arabic, mixed Arabic/Latin/digits/link/bold, Hebrew/Latin/digits,
+Arabic marks with a newline, and forty repetitions of formatted Latin text.
+Parsing and setup are outside timing. Each width has ten warmup frames and five
+measured batches of 200 complete egui layout passes. The fixture body is
+byte-identical, SHA256 `84a246bf25a840dcea103a64b54ddf56935691bbe2ef95a8a14fcb05f1c35846`.
+The baseline receives only this manual test fixture; the changed source includes
+it in the ignored test `markdown::tests::rtl_message_layout_benchmark`. Both
+harnesses were built with `CARGO_PROFILE_RELEASE_LTO=thin CARGO_BUILD_JOBS=2 cargo
+test --release --locked --offline -p ui --lib --no-run --message-format=json`,
+then run directly with that exact test, `--ignored --nocapture --test-threads=1`.
+This process-only thin-LTO override does not change repository profiles or the
+default FAT shipping/native measurements. No compiler or native app was active
+during the component pair. Small cached-workload timing differences do not establish
+a general speed improvement and exclude cold layout, GPU frame latency and input.
+
+The bounded RTL path admits 8 KiB / 512 spans / 128 rows per run, with 32 entries / 8 MiB
+and 4 MiB per cache entry. Selection stages at most 4,096 current-pass shared
+references / 4 MiB of actual referenced capacities plus a separate 4 MiB copy
+buffer; all references drop after the pass. Oversized or indivisible content
+shows an explicit localized preview limit. Stored message/draft/edit text remains
+logical. No live account, upload, message, call, microphone or camera was used.
+
+
+Current main integration `c36b585d8e4868b50194aec90ec202b59238f6f9` separately
+passes the fresh full check (383 UI / 168 desktop tests plus strict lint and policy)
+and standard package. Exact main `71ebbc1c0393a0ba4f4e6c93ae9b7b0bd3e06d35`
+was built independently with the same default FAT standard command; both builds
+freshly compiled all twelve runtime workspace crates after inspected cache pruning
+and passed deep/strict local signature verification. The RTL renderer, selection,
+font and manifest/lock files remain byte-identical to 73. The historic native and
+component results above keep their source identities; no new native/component
+measurement is implied by this package integration.
+
+| Current standard package | Main 71 | Integrated c36 | Delta |
+| --- | ---: | ---: | ---: |
+| Executable, bytes | 62,269,488 | 62,368,128 | +98,640 / +0.1584% |
+| Installed, bytes | 68,279,917 | 68,381,714 | +101,797 / +0.1491% |
+| ZIP, bytes | 43,363,423 | 43,429,267 | +65,844 / +0.1518% |
+
+The additional regular file is the epaint patch notice (207 versus 206). Existing
+license texts are unchanged; PROVENANCE.md gains the intentional minimal-vendor
+source/patch entry. Raw hashes, source proof and integration size records are
+included separately in the linked measurement JSON.
+
+
+### Current RTL and scalable-emoji integration (October 2, 2026)
+
+Fresh integrated source `4a7e92ef7fab758a6550b14826629ef567d76e81` includes
+main e74d's scalable-emoji SVG worker, dependencies and bundled licenses. The
+comparison below uses exact main71 and measures this aggregate package, rather
+than isolated RTL cost. Earlier source 73/c36 shipping sizes, source 5eb native
+samples and source 73 CPU component measurements retain their original pins.
+
+| Current aggregate shipping metric | Exact main71 | Source 4a7 | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 62,269,488 B | 67,212,176 B | +4,942,688 B / +7.9376% |
+| Installed package | 68,279,917 B | 73,298,357 B | +5,018,440 B / +7.3498% |
+| Distribution ZIP | 43,363,423 B | 47,633,110 B | +4,269,687 B / +9.8463% |
+
+The standard voice-enabled package uses the repository default FAT-LTO profile;
+xtask omits development data with its internal `--no-default-features`. All twelve
+runtime workspace crates compiled fresh after inspected workspace-name release
+cache invalidation across worktree IDs. Packaging finished in 11m42s and passed
+deep/strict local ad-hoc signature verification. The 221 regular files versus
+206 before include incoming SVG dependencies/licenses and the epaint patch
+notice; existing license texts remain unchanged. Installed bytes sum regular
+files and both archives use `ditto -c -k --sequesterRsrc` over complete contents.
+
+Current source passes 15 RTL, seven selection and the actual high-DPI inline
+emoji regression, plus the full check (385 UI / 170 desktop), formatting, strict
+Clippy and policy. Arabic/Hebrew mixed messages keep the inline atlas and queue
+no vector requests, while standalone jumbo emoji retains the incoming vector
+path. All seven RTL/shaper/selection/font files and the complete `show_rtl`
+method are byte-identical to historical source 73. No new native, GPU or CPU component
+measurement is inferred from this integration; the historical measurements
+remain explicitly source-pinned. Current hashes, inventory, build provenance
+and source equivalence are recorded separately in
+[`rtl-message-layout/measurements.json`](https://github.com/ViceVerse-cz/Serein/blob/7d495ed350e165bb7bfd3165b88ee6429e544bcf/docs/pr-evidence/rtl-message-layout/measurements.json).
+
+## RTL message layout (PR #531): Windows integration evidence - October 8, 2026
+
+Standard Windows x64 voice-enabled packages compare main `1b3e4a7b` with `093c4843` (measured 2026-10-08). Baseline/current file counts: 216/217; the additional file is the epaint patch notice. The current package includes main `1e24fa5d`'s updated Chinese translations and both RTL layout-limit notices.
+
+| Metric | Main `1b3e4a7b` | Current integration | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 86,008,832 B | 86,185,472 B | +176,640 B (+0.2054%) |
+| Installed directory | 90,199,948 B | 90,379,050 B | +179,102 B (+0.1986%) |
+| Distribution ZIP | 50,001,798 B | 50,061,748 B | +59,950 B (+0.1199%) |
+
+Method: `cargo xtask package`, Rust 1.98.1, standard release flags without demo; Windows 11 build 26200, Ryzen 7 7800X3D, 32 GiB RAM. The initial feature build invalidated runtime workspace artifacts; this catalog update rebuilt UI and desktop against the retained dependencies, with xtask rebuilt explicitly. Installed bytes sum every file in `dist`; ZIP uses whole-directory .NET Optimal compression. NSIS was unavailable, so no installer executable was built. The upstream OpenH264 archive emitted LNK4255 for duplicate object names/debug information; linking and packaging succeeded.
+
+Current native CPU, memory, frame/startup latency and affected-device behavior remain unmeasured because the native automation bridge is unavailable. Package size and synthetic reducer timing do not establish live Discord performance.

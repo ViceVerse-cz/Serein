@@ -4410,6 +4410,8 @@ voice-recipient-ringing = Dzwoni…
 voice-recipient-not-in-call = Poza rozmową
 reconnect-now = Połącz ponownie
 
+message-preview-limit = Ta wiadomość przekracza limit natywnego układu tekstu.
+
 voice-call-moved-to-another-client = Sesja połączenia na tym urządzeniu została zastąpiona
 
 server-settings-page-safety = Konfiguracja bezpieczeństwa

@@ -4407,6 +4407,8 @@ voice-recipient-ringing = Klingelt…
 voice-recipient-not-in-call = Nicht im Anruf
 reconnect-now = Jetzt neu verbinden
 
+message-preview-limit = Diese Nachricht überschreitet das Limit für das native Textlayout.
+
 voice-call-moved-to-another-client = Die Anrufsitzung dieses Geräts wurde ersetzt
 
 server-settings-page-safety = Sicherheitseinstellungen

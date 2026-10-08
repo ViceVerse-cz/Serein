@@ -4411,6 +4411,8 @@ voice-recipient-ringing = Вызов…
 voice-recipient-not-in-call = Не в звонке
 reconnect-now = Переподключиться
 
+message-preview-limit = Это сообщение превышает ограничение нативной раскладки текста.
+
 voice-call-moved-to-another-client = Сеанс звонка на этом устройстве был заменён
 
 server-settings-page-safety = Настройка безопасности
