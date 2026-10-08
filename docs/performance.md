@@ -138,3 +138,17 @@ private memory is the median of the final five readings.
 The tiny ZIP and memory differences do not establish a performance improvement.
 Startup latency and frame timing were not measured. Demo ignores persisted geometry;
 the offline window-geometry check covers restoration of undersized saved values.
+
+## Window minimum and restoration (PR #583): Windows integration evidence - October 8, 2026
+
+Fresh standard Windows x64 voice-enabled packages compare main `1b3e4a7b` with `371632f1` (measured 2026-10-08). Baseline/current file counts: 216/216.
+
+| Metric | Main `1b3e4a7b` | Current integration | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 86,008,832 B | 86,009,344 B | +512 B (+0.0006%) |
+| Installed directory | 90,199,948 B | 90,200,460 B | +512 B (+0.0006%) |
+| Distribution ZIP | 50,001,798 B | 50,002,093 B | +295 B (+0.0006%) |
+
+Method: `cargo xtask package`, Rust 1.98.1, standard release flags without demo; Windows 11 build 26200, Ryzen 7 7800X3D, 32 GiB RAM. Runtime workspace artifacts were invalidated before each feature build. Installed bytes sum every file in `dist`; ZIP uses whole-directory .NET Optimal compression. NSIS was unavailable, so no installer executable was built.
+
+Current native CPU, memory, frame/startup latency and affected-device behavior remain unmeasured because the native automation bridge is unavailable. Package size and synthetic reducer timing do not establish live Discord performance.
