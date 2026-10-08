@@ -1802,7 +1802,8 @@ fn role_chips(
 				ui,
 				&role.name,
 				egui::FontId::proportional(12.0),
-				Some(role.colors()),
+				// Only the dot carries the role color.
+				None,
 				theme.chip,
 				theme.text,
 				(*width - 21.0).max(0.0),
@@ -3027,9 +3028,6 @@ pub fn show_with_session(
 							})
 							.unwrap_or_else(|| state.user_display_name(user));
 						let display = display.split_whitespace().collect::<Vec<_>>().join(" ");
-						let role_colors = data
-							.and_then(|data| data.guild.as_ref())
-							.and_then(|member| state.profile_name_colors(user, member));
 						// Ordinary user payloads already carry the server identity. Keep it visible
 						// while the extended profile loads or when that optional request fails.
 						let clan = data
@@ -3062,7 +3060,8 @@ pub fn show_with_session(
 												if full { 26.0 } else { 20.0 },
 												design::semibold_family(ui.ctx()),
 											),
-											role_colors,
+											// Like Discord, the profile name stays neutral; roles show as chips.
+											None,
 											if full { theme.card } else { theme.panel },
 											theme.text,
 											ui.available_width(),

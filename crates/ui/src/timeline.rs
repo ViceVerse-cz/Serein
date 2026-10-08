@@ -2484,7 +2484,8 @@ impl TimelineView {
 									surface.keep(&command);
 								});
 							}
-							if let Some(reply) = message.reply_to {
+							// A poll result's reference opens through its result card instead.
+							if let Some(reply) = message.reply_to.filter(|_| message.kind != 46) {
 								ui.horizontal(|ui| {
 									ui.spacing_mut().interact_size.y = 18.0;
 									ui.spacing_mut().item_spacing.x = 6.0;
@@ -3048,6 +3049,18 @@ impl TimelineView {
 													),
 												));
 												let embed_top = ui.cursor().top();
+												let poll =
+													message.reply_to.filter(|_| message.kind == 46);
+												if crate::embeds::poll_result(
+													ui,
+													message,
+													poll.is_some_and(|id| {
+														state.can_open_reply_target(id)
+													}),
+												) && let Some(poll) = poll
+												{
+													self.request_reply_target(poll);
+												}
 												if let Some(gif) = crate::embeds::show(
 													ui,
 													message,

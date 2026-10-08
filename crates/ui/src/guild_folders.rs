@@ -1,7 +1,7 @@
 use crate::{
 	MessagingUi, design,
 	icons::{self, Icon},
-	notifications::{rail_badge, rail_indicator, rail_motion, voice_badge},
+	notifications::{RAIL_TILE, rail_badge, rail_indicator, rail_motion, voice_badge},
 };
 use client_core::{Command, State};
 use egui::{Color32, Sense};
@@ -236,8 +236,8 @@ fn finish_reveal(ui: &mut egui::Ui, (_, _, height, open): (u64, egui::Ui, f32, f
 }
 
 const MOSAIC: usize = 4;
-const MOSAIC_PREVIEW: f32 = 38.0;
-const MOSAIC_ICON: f32 = 18.0;
+const MOSAIC_PREVIEW: f32 = 32.0;
+const MOSAIC_ICON: f32 = 15.0;
 const MOSAIC_GAP: f32 = 2.0;
 
 fn folder_mosaic<'a>(folder: &Folder, state: &'a State) -> [Option<&'a model::Guild>; MOSAIC] {
@@ -425,7 +425,7 @@ impl MessagingUi {
 					})
 					.count() as f32;
 				let spacing = ui.spacing().item_spacing.y;
-				let height = count * (46.0 + spacing) - spacing;
+				let height = count * (RAIL_TILE + spacing) - spacing;
 				let mut child = ui.new_child(egui::UiBuilder::new().scope_id(ui.scope_id()));
 				let top = child.max_rect().top();
 				let mut clip = child.clip_rect();
@@ -512,7 +512,7 @@ impl MessagingUi {
 							let tint =
 								Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8);
 							let (rect, response) = ui.allocate_exact_size(
-								egui::Vec2::splat(46.0),
+								egui::Vec2::splat(RAIL_TILE),
 								Sense::click_and_drag(),
 							);
 							let open = self.folder_ui.expanded.contains(&id);
@@ -521,7 +521,7 @@ impl MessagingUi {
 								icons::paint(
 									ui.painter(),
 									Icon::FolderOpen,
-									rect.shrink(8.5 + 4.0 * (1.0 - shown)),
+									rect.shrink(7.5 + 3.5 * (1.0 - shown)),
 									tint.gamma_multiply(shown),
 								);
 							}
@@ -541,7 +541,7 @@ impl MessagingUi {
 								paint_folder_tile(
 									ui,
 									&mut self.avatars,
-									rect.shrink(4.0 * shown),
+									rect.shrink(3.5 * shown),
 									fill,
 									folder_mosaic(folder, state),
 									state.demo,
@@ -726,7 +726,7 @@ impl MessagingUi {
 				*rect = rect.union(row_rect);
 				ui.painter().set(
 					*shape,
-					egui::Shape::rect_filled(rect.expand(4.0), 16, *fill),
+					egui::Shape::rect_filled(rect.expand(3.5), 14, *fill),
 				);
 			}
 		}
@@ -798,8 +798,11 @@ impl MessagingUi {
 		{
 			let clip = ui.clip_rect();
 			let top = clip.top();
-			let bottom = (clip.bottom() - 46.0).max(top);
-			let position = egui::pos2(ui.max_rect().left(), (pointer.y - 23.0).clamp(top, bottom));
+			let bottom = (clip.bottom() - RAIL_TILE).max(top);
+			let position = egui::pos2(
+				ui.max_rect().left(),
+				(pointer.y - RAIL_TILE / 2.0).clamp(top, bottom),
+			);
 			ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
 			egui::Area::new(egui::Id::unique("server-drag-preview"))
 				.order(egui::Order::Tooltip)
@@ -811,7 +814,7 @@ impl MessagingUi {
 						Item::Server(id) => {
 							if let Some(guild) = state.guilds.iter().find(|g| g.id == id) {
 								self.avatars
-									.show_guild_sized(ui, guild, false, state.demo, 46.0);
+									.show_guild_sized(ui, guild, false, state.demo, RAIL_TILE);
 							}
 						}
 						Item::Folder(id) => {
@@ -826,8 +829,10 @@ impl MessagingUi {
 									(rgb >> 8) as u8,
 									rgb as u8,
 								);
-								let (rect, _) =
-									ui.allocate_exact_size(egui::Vec2::splat(46.0), Sense::hover());
+								let (rect, _) = ui.allocate_exact_size(
+									egui::Vec2::splat(RAIL_TILE),
+									Sense::hover(),
+								);
 								paint_folder_tile(
 									ui,
 									&mut self.avatars,

@@ -1049,7 +1049,14 @@ impl Avatars {
 		selected: bool,
 		demo: bool,
 	) -> egui::Response {
-		self.guild_avatar(ui, guild, selected, demo, 46.0, false)
+		self.guild_avatar(
+			ui,
+			guild,
+			selected,
+			demo,
+			crate::notifications::RAIL_TILE,
+			false,
+		)
 	}
 	pub fn paint_guild(
 		&mut self,

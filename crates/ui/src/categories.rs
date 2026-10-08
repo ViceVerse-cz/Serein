@@ -1343,6 +1343,7 @@ pub fn debug_thread_navigation_check(state: &mut State) {
 			&Roster::default(),
 			&BTreeSet::new(),
 			false,
+			false,
 		)
 		.into_iter()
 		.filter_map(|row| match row {

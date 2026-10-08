@@ -776,6 +776,14 @@ embeds-image-preview-image-actions = Image actions
 embeds-link-open-link = Open link…
 # Context: show
 embeds-show-additional-embed-content-is-not-supported = Additional embed content is not supported
+# Context: poll_result
+embeds-poll-result-winning-answer = Winning answer
+# Context: poll_result
+embeds-poll-result-tie = There was no winner
+# Context: poll_result
+embeds-poll-result-no-votes = No one voted
+# Context: poll_result
+embeds-poll-result-view-poll = View Poll
 # Context: show
 embeds-show-embed-display-limited = Embed display limited
 # Context: show

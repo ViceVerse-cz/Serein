@@ -3839,11 +3839,9 @@ mod tests {
 						crate::design::MessageCardSurface::Opaque => {
 							assert_eq!(expected, ctx.global_style().visuals.code_bg_color)
 						}
-						crate::design::MessageCardSurface::Conversation if transparency == 100 => {
-							assert_eq!(expected.a(), 0)
-						}
+						// A faint coat keeps the block visible even on fully see-through chat.
 						crate::design::MessageCardSurface::Conversation if transparency > 0 => {
-							assert!(expected.a() <= 32)
+							assert!((1..=24).contains(&expected.a()))
 						}
 						_ => {}
 					}

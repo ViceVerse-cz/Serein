@@ -235,7 +235,9 @@ fn folder_fill(light: bool, effects: (bool, u8)) -> Color32 {
 	paint
 		.rects
 		.iter()
-		.find(|(rect, radius, _)| *radius == CornerRadius::same(16) && rect.height() > 46.0)
+		.find(|(rect, radius, _)| {
+			*radius == CornerRadius::same(14) && rect.height() > crate::notifications::RAIL_TILE
+		})
 		.expect("expanded folder must paint its shared background")
 		.2
 }

@@ -177,3 +177,14 @@ Native capture/interaction remains unavailable (the native helper reports a
 missing pipe). Moving a real window between monitors, native CPU/memory, startup
 and frame latency were not measured. These package measurements and synthetic
 tests do not establish native multi-monitor or live Discord behavior.
+## Watched-stream recovery — October 8, 2026
+
+Standard Windows x64 voice-enabled packages (`cargo xtask package`, no demo feature,
+Rust 1.98.1) compared baseline `1b3e4a7b` and fixed runtime `5b446a45` on Windows 11
+build 26200, Ryzen 7 7800X3D, 32 GiB RAM. Executable size stayed 86,008,832 B;
+the 216-file installed directory stayed 90,199,948 B. Whole-directory .NET Optimal
+ZIP size changed from 50,001,798 B to 50,001,523 B (-275 B), packaging variation.
+NSIS was unavailable, so no installer binary was built. Native CPU/memory/frame
+measurements and live stream continuity remain unmeasured because the native
+automation bridge is unavailable. The lifecycle regression checks retained worker
+ownership during recovery; it does not measure network quality or throughput.

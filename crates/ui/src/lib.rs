@@ -1444,14 +1444,6 @@ impl MessagingUi {
 					};
 					match slot {
 						Some(model::MemberSlot::Group(id)) => {
-							let role_colors = id.parse::<u64>().ok().and_then(|role_id| {
-								guild
-									.and_then(|guild| state.guild_roles(guild))
-									.and_then(|roles| {
-										roles.iter().find(|role| role.id == Id(role_id))
-									})
-									.map(|role| role.colors())
-							});
 							let name = match id.as_str() {
 								"online" => language.text("status-online"),
 								"offline" => language.text("status-offline"),
@@ -1495,9 +1487,10 @@ impl MessagingUi {
 										&header,
 										&text,
 										egui::FontId::new(12.0, design::medium_family(ui.ctx())),
-										role_colors,
+										// Group headers stay neutral; role colours belong to names.
+										None,
 										colors.sidebar,
-										colors.muted,
+										colors.text,
 										header.available_width(),
 									))
 									.truncate(),

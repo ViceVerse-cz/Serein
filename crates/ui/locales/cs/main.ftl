@@ -775,6 +775,14 @@ embeds-image-preview-image-actions = Akce s obrázky
 embeds-link-open-link = Otevřít odkaz…
 # Context: show
 embeds-show-additional-embed-content-is-not-supported = Další vložený obsah není podporován
+# Context: poll_result
+embeds-poll-result-winning-answer = Vítězná odpověď
+# Context: poll_result
+embeds-poll-result-tie = Žádná odpověď nevyhrála
+# Context: poll_result
+embeds-poll-result-no-votes = Nikdo nehlasoval
+# Context: poll_result
+embeds-poll-result-view-poll = Zobrazit anketu
 # Context: show
 embeds-show-embed-display-limited = Vložení zobrazení omezeno
 # Context: show
