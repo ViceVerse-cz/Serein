@@ -4535,3 +4535,4 @@ profiles-activity-empty = 尚無分享的活動。
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction
+message-preview-limit = 此訊息超過原生文字排版的限制。
