@@ -232,7 +232,8 @@ message chips. Server, thread-parent, forum-parent and conversation context appe
 in tooltips only from accessible local metadata; rendering never fetches metadata.
 Unknown or hidden destinations use a generic label. Masked Markdown links retain
 their author-chosen text, code stays literal, and concealed spoilers do not expose
-or activate a chip. Copying a selected chip copies its original URL. Pointer and
+or activate a chip. Copying a selected chip copies its original URL. Adjacent copies
+of the same URL stay separate chips, so a selection covering both copies both URLs. Pointer and
 keyboard activation use the same internal route; explicit Open in Discord controls
 still open the browser, and unrelated links retain existing confirmation behavior.
 

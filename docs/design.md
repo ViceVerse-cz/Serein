@@ -113,8 +113,9 @@ width (at most 288px); untrusted names are sanitized and bounded before layout. 
 keyboard focus use the active palette, and tooltips include accessible server/thread/forum
 context plus the original URL. A hidden or unknown target does not reveal cached private
 names. Masked links retain their text, inline/fenced code stays literal, and hidden spoilers
-remain concealed. Drag selection copies the original URL rather than the shortened name;
-click, Enter and Space activate native navigation. The existing timeline centers and briefly
+remain concealed. Drag selection copies each link's original URL rather than its shortened
+name. Two adjacent copies of the same URL stay separate, so selecting both copies both URLs.
+Click, Enter and Space activate native navigation. The existing timeline centers and briefly
 highlights the exact target, retaining historical browsing and Jump to present.
 `--features demo -- --demo --demo-message-links` exercises these states with a new, entirely
 offline fixture; `--demo-light` selects the light appearance.

@@ -42,6 +42,8 @@ struct Style {
 	/// Discord `-# ` subtext: smaller, quieter body text.
 	small: bool,
 	link: Option<usize>,
+	/// Separate ranges that store the same URL. Zero means this span is not a link.
+	link_occurrence: u32,
 	/// Only bare URLs and angle autolinks get native message chips; masked labels stay text.
 	message_link: bool,
 	mention: Option<Id>,
@@ -206,6 +208,8 @@ pub struct Formatted {
 	pub links: Vec<String>,
 	pub limited: bool,
 	pub spoilers: bool,
+	/// Last id handed out by `next_link_occurrence`. Not message content.
+	link_occurrence: u32,
 }
 
 #[derive(Default)]
@@ -679,6 +683,7 @@ impl Formatted {
 			spoilers: false,
 			artwork: false,
 			jumbo: false,
+			link_occurrence: 0,
 		};
 		let mut stack = Vec::new();
 		let mut style = Style::default();
@@ -823,6 +828,11 @@ impl Formatted {
 							style.no_autolink = true;
 							style.link = output.add_link(&dest_url);
 							style.message_link = link_type == LinkType::Autolink;
+							style.link_occurrence = if style.link.is_some() {
+								output.next_link_occurrence()
+							} else {
+								0
+							};
 						}
 						Tag::Image { .. } => {
 							style.no_autolink = true;
@@ -1015,6 +1025,7 @@ impl Formatted {
 			spoilers: concealed,
 			artwork: false,
 			jumbo: false,
+			link_occurrence: 0,
 		};
 		formatted.artwork = has_artwork(&formatted.spans);
 		formatted.jumbo = only_emoji(&formatted.spans, &formatted.blocks, formatted.mention_count);
@@ -1088,6 +1099,10 @@ impl Formatted {
 		self.links.push(url);
 		Some(self.links.len() - 1)
 	}
+	fn next_link_occurrence(&mut self) -> u32 {
+		self.link_occurrence = self.link_occurrence.saturating_add(1);
+		self.link_occurrence
+	}
 	fn push_autolinks(&mut self, text: &str, style: Style) {
 		let mut consumed = 0;
 		let mut scanned = 0;
@@ -1110,10 +1125,12 @@ impl Formatted {
 			{
 				let link_start = start + word.len() - candidate.len();
 				self.push(&text[consumed..link_start], style);
+				let link_occurrence = self.next_link_occurrence();
 				self.push(
 					target,
 					Style {
 						link: Some(link),
+						link_occurrence,
 						message_link: true,
 						..style
 					},
@@ -1565,11 +1582,13 @@ impl Formatted {
 						continue;
 					}
 					let target = spans[start].1.link;
+					let link_occurrence = spans[start].1.link_occurrence;
 					let native_message_link = spans[start].1.message_link;
 					let count = spans[start..]
 						.iter()
 						.take_while(|(_, style)| {
 							style.link == target
+								&& style.link_occurrence == link_occurrence
 								&& style.message_link == native_message_link
 								&& style.spoiler == spoiler
 								&& style.mention.is_none()
@@ -3217,6 +3236,125 @@ mod tests {
 				}
 			}
 		}
+	}
+
+	fn link_occurrences(parsed: &Formatted) -> Vec<u32> {
+		parsed
+			.spans
+			.iter()
+			.filter(|(_, style)| style.link.is_some())
+			.map(|(_, style)| style.link_occurrence)
+			.collect()
+	}
+
+	#[test]
+	fn adjacent_identical_links_keep_separate_occurrences() {
+		let target = "https://discord.com/channels/10/20/30";
+		let adjacent = Formatted::parse(&format!("<{target}><{target}>"));
+		assert_eq!(adjacent.links, [target]);
+		let occurrences = link_occurrences(&adjacent);
+		assert_eq!(occurrences.len(), 2);
+		assert_ne!(occurrences[0], 0);
+		assert_ne!(occurrences[0], occurrences[1]);
+
+		let labeled = Formatted::parse(&format!("[**one** two]({target})"));
+		let shared = link_occurrences(&labeled);
+		assert!(
+			shared.len() >= 2,
+			"emphasis inside one link stays one range"
+		);
+		assert!(shared.iter().all(|id| *id == shared[0] && *id != 0));
+
+		let neighbors = Formatted::parse(&format!("[left]({target})[right]({target})"));
+		let neighbor_ids = link_occurrences(&neighbors);
+		assert_eq!(neighbor_ids.len(), 2);
+		assert_ne!(neighbor_ids[0], neighbor_ids[1]);
+	}
+
+	fn message_link_slots<'a>(
+		output: &'a egui::FullOutput,
+		target: &str,
+	) -> Vec<&'a egui::epaint::TextShape> {
+		fn walk<'a>(
+			shape: &'a egui::Shape,
+			target: &str,
+			found: &mut Vec<&'a egui::epaint::TextShape>,
+		) {
+			match shape {
+				egui::Shape::Text(text) if text.galley.text().trim() == target => found.push(text),
+				egui::Shape::Vec(shapes) => {
+					for shape in shapes {
+						walk(shape, target, found);
+					}
+				}
+				_ => {}
+			}
+		}
+		let mut found = Vec::new();
+		for shape in &output.shapes {
+			walk(&shape.shape, target, &mut found);
+		}
+		found.sort_by(|left, right| left.pos.x.total_cmp(&right.pos.x));
+		found
+	}
+
+	#[test]
+	fn dragging_adjacent_identical_message_chips_copies_both_urls() {
+		let target = "https://discord.com/channels/10/20/30";
+		let mut ui = MessageLinkTestUi::new(&format!("<{target}><{target}>"));
+		ui.frame(800.0, vec![]).0.drop_without_applying_deltas();
+		let (output, opening) = ui.frame(800.0, vec![]);
+		assert!(opening.is_none());
+		let slots = message_link_slots(&output, target);
+		assert_eq!(slots.len(), 2, "each autolink needs its own selection slot");
+		let first = egui::Rect::from_min_size(slots[0].pos, slots[0].galley.size());
+		let second = egui::Rect::from_min_size(slots[1].pos, slots[1].galley.size());
+		assert!(
+			second.left() + 1.0 >= first.right(),
+			"chips must stay separate: first={first:?} second={second:?}"
+		);
+		let start = egui::pos2(first.left() + first.width() * 0.25, first.center().y);
+		let end = egui::pos2(second.left() + second.width() * 0.75, second.center().y);
+		output.drop_without_applying_deltas();
+		for events in [
+			vec![
+				egui::Event::PointerMoved(start),
+				egui::Event::PointerButton {
+					pos: start,
+					button: egui::PointerButton::Primary,
+					pressed: true,
+					modifiers: egui::Modifiers::NONE,
+				},
+			],
+			vec![egui::Event::PointerMoved(end)],
+			vec![egui::Event::PointerButton {
+				pos: end,
+				button: egui::PointerButton::Primary,
+				pressed: false,
+				modifiers: egui::Modifiers::NONE,
+			}],
+		] {
+			let (output, opening) = ui.frame(800.0, events);
+			assert!(opening.is_none(), "Selection drags must not navigate");
+			output.drop_without_applying_deltas();
+		}
+		let (output, opening) = ui.frame(800.0, vec![egui::Event::Copy]);
+		assert!(opening.is_none());
+		let copied = output
+			.platform_output
+			.commands
+			.iter()
+			.find_map(|command| match command {
+				egui::OutputCommand::CopyText(text) => Some(text.as_str()),
+				_ => None,
+			})
+			.expect("dragging both chips must copy text");
+		assert_eq!(
+			copied.matches(target).count(),
+			2,
+			"copied text lost an occurrence: {copied:?}"
+		);
+		output.drop_without_applying_deltas();
 	}
 
 	#[test]
