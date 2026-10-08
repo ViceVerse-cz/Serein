@@ -70,6 +70,7 @@ The Rust paths below are relative to `AppOutput`. When using the original
 | --- | --- | --- |
 | `replacement` / `output.replacement` | Optional string; `composer`. The invocation must actually contain composer text. | **Apply to Draft** replaces the original, still-unchanged draft. It never sends a message. |
 | `rich_presence` / `RichPresenceOutput.rich_presence` | Optional `RichPresenceUpdate`; `rich_presence` grant. | Explicit panel/activation Set or Clear updates the contribution; omission leaves it unchanged. See [Custom Rich Presence](#custom-rich-presence). |
+| `voice_messages` / `VoiceMessagesOutput.voice_messages` | Optional `VoiceMessagesConfig`; `voice_messages` grant. | Panel/activation config enables/configures the native recorder; omission preserves the contribution. No capture or sending occurs. See [Voice Messages](#voice-messages). |
 | `panel` / `output.panel` | Array of native `Element` values; no separate panel capability. | A foreground result displays it. Message/app event handlers must return no elements. Activation does not display returned panels. |
 | `storage` / `output.storage` | Optional opaque UTF-8 string; `storage`. | A valid foreground or event result replaces the plugin's saved value before result approval. Activation can read storage but this build does not persist its returned storage. |
 | `appearance` / `output.appearance` | Optional `Theme` object; `appearance`. | An accepted result updates the plugin's appearance overlay immediately, including activation and event results. Preview `tick` results are eased from the currently displayed colors. No Apply button is involved. |
@@ -90,6 +91,7 @@ own button runs another handler; it is different from the host's Apply button.
 | `appearance` | Leave this plugin's current overlay unchanged. | `{}` removes this plugin's overrides, exposing the underlying theme and other overlays. |
 | `panel` | Omitted means `[]`; `null` is invalid. | `[]` supplies no panel elements; it is not a command to close a foreground result. |
 | `effects` | Omitted means `[]`; `null` is invalid. | `[]` makes no app proposal. |
+| `voice_messages` | Leave this plugin's recorder contribution unchanged. | `{}` is invalid; all three typed config fields are required. Disable revokes the option. |
 | Activation booleans | Omitted means `false`; `null` is invalid. | `false` does not enable the feature in an activation result. These are not runtime toggle commands for other surfaces. |
 
 Every returned appearance object replaces the previous object from that plugin;
@@ -99,7 +101,7 @@ a normal action and restore the overlay from activation's storage input. See the
 [theme API](theme-api.md) for palette and style fields.
 
 The preview `tick` surface accepts only `appearance`; panels, storage writes,
-replacements, activation booleans, rich presence and host effects are rejected.
+replacements, activation booleans, rich presence, voice-message config and host effects are rejected.
 
 A complete immediate appearance result with the `appearance` grant is:
 
@@ -935,6 +937,107 @@ fetch the caller's URL directly. Metadata or artwork failures clear the outgoing
 custom activity and report an error; users can revise and reapply. Button/text/
 image links and other rich fields depend on Discord's handling of this unofficial
 client. See the [Custom Rich Presence example](../extensions/plugins/custom-rpc).
+
+### Voice Messages
+
+> **Preview SDK — PR #566, not yet released.** Live Discord interoperability is
+> unverified. Use a host built from this source revision.
+
+Declare `voice_messages` and obtain explicit consent. The opt-in wrapper
+`VoiceMessagesOutput { output: Output, voice_messages: Option<VoiceMessagesConfig> }`
+flattens into ABI v1 JSON. It preserves original SDK `Output` literals and compiled
+plugins, and adds no Wasm imports. Only `panel` and `activation` actions can
+return a configuration; message, composer, event and tick actions are rejected.
+Older hosts reject the unknown required capability at import/enable.
+
+| Configuration field | Rust / JSON type | Meaning and bound |
+| --- | --- | --- |
+| `max_duration_seconds` | `u16` / integer | Required ceiling for a new recording, 5 through 120 inclusive; default 120 |
+| `waveform_style` | `WaveformStyle` / string | Required `Bars` / `"bars"` or `Line` / `"line"`; default Bars; changes native visualization only |
+| `noise_suppression` | `bool` / boolean | Required recorder suppression preference; default true; does not change ordinary call settings |
+
+`VoiceMessagesConfig::validate()` reports duration errors. The host revalidates
+the result's range, grant and action surface. Unknown config fields, missing
+fields and invalid types/style names are rejected. Omitted or null `voice_messages`
+means preserve the contribution; it is not a recorder-disable command. Successful
+activation restores preferences but does not persist activation output storage.
+Panel Save can save preferences with the independent `storage` capability and
+immediately apply them to **new** recordings. There is no additional host Apply
+for this settings contribution. It never starts the microphone or sends a clip.
+
+The host exposes **Record voice message** in the composer's **+** menu only while
+the account has an enabled, granted, successful contribution. If several plugins
+contribute, the first in ascending plugin-ID order wins, within the existing
+eight-plugin limit. Disable, lost consent, account changes and logout revoke the
+option. Native recording/review/send obey current conversation access, mute,
+push-to-talk and OS device permission gates. Cancel, navigation, disable, logout
+and call teardown release capture. Each encoded Ogg/Opus clip remains in session
+memory, capped at 120 seconds and 8 MiB; native capture buffers are bounded
+separately. Neither bytes nor device lists enter Wasm or plugin storage. The
+composer menu opens an idle recorder dialog; native **Record** starts capture,
+**Stop** finishes it, and **Send** after review authorizes the ordinary upload
+path. No background or generic `HostEffect` can start recording or send audio.
+
+#### Complete configuration interaction
+
+Declare panel action `save`, activation action `activate`, and capabilities
+`voice_messages` and `storage`. For this synthetic input:
+
+```json
+{"action":"save","values":{"duration":"30","waveform":"Line","suppression":"false"}}
+```
+
+The following complete handler validates Save values and restores saved valid
+settings on activation. Invalid input returns no configuration or storage write.
+
+```rust
+use serein_extension_sdk::{Invocation, VoiceMessagesConfig, VoiceMessagesOutput, WaveformStyle};
+
+fn handle(input: Invocation) -> VoiceMessagesOutput {
+    if input.action == "activate" {
+        let config = match input.storage_json::<VoiceMessagesConfig>() {
+            Ok(None) => VoiceMessagesConfig::default(),
+            Ok(Some(config)) if config.validate().is_ok() => config,
+            _ => return VoiceMessagesOutput::default(),
+        };
+        return VoiceMessagesOutput { voice_messages: Some(config), ..Default::default() };
+    }
+    if input.action != "save" { return VoiceMessagesOutput::default(); }
+    let (Ok(Some(duration)), Ok(Some(suppression))) = (
+        input.parse_value::<u16>("duration"), input.parse_value::<bool>("suppression")
+    ) else { return VoiceMessagesOutput::default(); };
+    let style = match input.value("waveform") {
+        Some("Bars") => WaveformStyle::Bars,
+        Some("Line") => WaveformStyle::Line,
+        _ => return VoiceMessagesOutput::default(),
+    };
+    let config = VoiceMessagesConfig {
+        max_duration_seconds: duration, waveform_style: style, noise_suppression: suppression,
+    };
+    if config.validate().is_err() { return VoiceMessagesOutput::default(); }
+    let mut output = VoiceMessagesOutput::default();
+    if output.output.set_storage_json(&config).is_ok() { output.voice_messages = Some(config); }
+    output
+}
+serein_extension_sdk::export!(handle);
+```
+
+It returns this complete output, applied as a preference contribution after host
+validation without capturing audio:
+
+```json
+{
+  "replacement": null,
+  "panel": [],
+  "storage": "{\"max_duration_seconds\":30,\"waveform_style\":\"line\",\"noise_suppression\":false}",
+  "voice_messages": {"max_duration_seconds":30,"waveform_style":"line","noise_suppression":false}
+}
+```
+
+The [Voice Messages catalog plugin](../extensions/plugins/voice-messages/src/lib.rs)
+adds the full native form, passive Open, diagnostics and explicit Save repair for
+corrupt storage. Synthetic native/sandbox tests verify config and bounds, not
+OS microphone behavior or cross-client Discord acceptance.
 
 ### API proxy (preview)
 

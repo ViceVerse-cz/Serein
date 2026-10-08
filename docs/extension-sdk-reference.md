@@ -76,6 +76,31 @@ fn handle(input: Invocation) -> Output {
 serein_extension_sdk::export!(handle);
 ```
 
+### Voice-message settings input (preview)
+
+The `voice_messages` grant adds no snapshot, microphone/device enumeration,
+recording data, capture command or automatic event surface. Use the ordinary
+`Invocation` input with `VoiceMessagesOutput`. Optional `storage` contains only
+your plugin's saved preference JSON when separately granted; absent storage means
+no saved preference. Form values remain bounded strings. The catalog plugin reads
+`duration` as `u16`, `waveform` as `Bars` or `Line`, and `suppression` as `bool`.
+Missing or malformed Save values are errors and do not overwrite saved data.
+
+This complete synthetic Save input changes preferences only:
+
+```json
+{
+  "action": "save",
+  "values": {"duration": "30", "waveform": "Line", "suppression": "false"}
+}
+```
+
+Read them with `input.parse_value::<u16>("duration")`, `input.value("waveform")`
+and `input.parse_value::<bool>("suppression")`, then validate the complete
+`VoiceMessagesConfig`. See the [full handler and output interaction](extension-sdk-actions.md#voice-messages).
+Host discovery exposes `voice_messages` as support only; older hosts reject
+manifests declaring this grant before the handler can run.
+
 ### Additional wrapper fields
 
 These fields are at the top level of the JSON object too. Absent fields decode
@@ -111,7 +136,7 @@ can be inspected without decoding a newer capability/event enum.
 | --- | --- | --- | --- |
 | `api_version` | `u32` / integer | Current buffer/JSON ABI version, `1`. | `host.api_version` |
 | `sdk_revision` | `u32` / integer | Current discovery schema revision, `1`; not a release or protocol compatibility claim. | `host.sdk_revision` |
-| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (52 currently), not this plugin's granted capabilities. | `host.supports("rich_presence")` |
+| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (54 currently), not this plugin's granted capabilities. | `host.supports("voice_messages")` |
 | `app_events` | `Vec<String>` / array of strings | Host-supported app-event names (21 currently), not an event subscription or delivery guarantee. | `host.supports_event("typing")` |
 
 A supported capability still needs to be declared and explicitly granted. Older
@@ -130,7 +155,9 @@ account snapshot or grant-dependent data:
     "api_version": 1,
     "sdk_revision": 1,
     "capabilities": [
+      "api_proxy",
       "rich_presence",
+      "voice_messages",
       "relationship_control",
       "account_control",
       "audio_settings",

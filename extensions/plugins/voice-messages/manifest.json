@@ -1,0 +1,16 @@
+{
+  "api_version": 1,
+  "id": "voice-messages",
+  "name": "Voice Messages",
+  "version": "1.0.0",
+  "author": "Serein contributors",
+  "license": "MIT OR Apache-2.0",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/voice-messages",
+  "kind": "plugin",
+  "capabilities": ["voice_messages", "storage"],
+  "actions": [
+    {"id": "open", "label": "Voice message settings", "surface": "panel"},
+    {"id": "save", "label": "Save voice message settings", "surface": "panel"},
+    {"id": "activate", "label": "Enable native voice recorder", "surface": "activation"}
+  ]
+}

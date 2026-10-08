@@ -2724,6 +2724,9 @@ fn capability_label(capability: Capability) -> &'static str {
 		Capability::ApiProxy => {
 			"Route the Discord REST API through a proxy across accounts (not calls or media)"
 		}
+		Capability::VoiceMessages => {
+			"Enable the native voice-message recorder (explicit Record and Send only)"
+		}
 		Capability::RichPresence => "Publish custom activity while activity sharing is enabled",
 		Capability::ImageSharing => "Enable explicit emoji and sticker image attachment selection",
 		Capability::Appearance => "Customize app colors, typography and control styling",

@@ -1500,6 +1500,7 @@ dependencies = [
 name = "discord-api"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "client-core",
  "discord-protocol",
  "futures-util",

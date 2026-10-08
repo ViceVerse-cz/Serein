@@ -53,6 +53,7 @@ for state that survives invocations.
 | Save plugin preferences | [Panels and storage](extension-sdk-actions.md#panels-and-storage) | `storage` |
 | Configure a REST-only HTTP/HTTPS proxy before login | [API proxy](extension-sdk-actions.md#api-proxy-preview) | Preview `api_proxy`, optional `storage`; device-wide narrow scope, no account data or calls |
 | Publish a custom activity from a native editor | [Custom Rich Presence](extension-sdk-actions.md#custom-rich-presence) | `rich_presence`, explicit panel actions, and `storage` for saved settings; activity sharing remains a separate user choice |
+| Opt into the native voice-message recorder | [Voice Messages](extension-sdk-actions.md#voice-messages) | Preview `voice_messages`; panel/activation configuration, separate `storage` for preferences; capture and Send stay in native UI |
 | Change the app's visual appearance | [Theme guide](theme-api.md) and [appearance output](extension-sdk-actions.md#every-output-field) | A declarative theme, or `appearance` for a plugin overlay |
 | Animate an appearance while enabled | [Scheduled ticks](../examples/extensions/README.md#scheduled-appearance-ticks) | One preview `tick` action and `appearance` |
 
@@ -165,6 +166,11 @@ channel/DM notification state, group/DM controls, server settings and emoji,
 invites, roles, member moderation, host device selection and native screen-share
 controls. These operations use the same permission checks, queues and failure
 handling as native app actions.
+
+The preview Voice Messages plugin enables the host recorder and edits bounded
+preferences. Its `VoiceMessagesOutput` wrapper preserves original SDK `Output`
+struct literals. It cannot capture audio, inspect recordings or send them; those
+actions remain explicit native user controls.
 
 It is not a complete Discord API. Poll voting and slash-command execution are
 not generic SDK operations in this revision. File/device/screen choices stay in

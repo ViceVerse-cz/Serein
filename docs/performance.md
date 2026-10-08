@@ -104,3 +104,58 @@ These workloads can be repeated with the pinned toolchain using `cargo replay` f
 the existing ignored client-core, desktop-frame and replay-soak workloads for detailed memory work.
 The delivery skill documents how to compare a task baseline with the changed build. Do not compare
 results from different machines or claim live-client behavior from synthetic fixtures.
+
+## Opt-in Voice Messages — October 5, 2026
+
+Compared baseline `6313e271e9c34b39069eb20787afb1476741b21c` with runtime source
+`9b44a4dfbe6d1702f36b20b0877bd24610cd9fa8`. Both use pinned Rust 1.98.1, ordinary
+fat LTO and the locked dependencies; no new dependency versions or system runtime
+requirements were introduced. Standard packages include voice and disable
+default/demo features; both pass the 225-file Debian smoke check.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 85,597,872 B | 86,025,264 B | +427,392 B / +0.50% |
+| Installed regular files | 90,111,993 B | 90,539,385 B | +427,392 B / +0.47% |
+| Complete compressed DEB | 44,266,736 B | 44,328,696 B | +61,960 B / +0.14% |
+| Mean idle CPU, one logical core | 0.00% | 0.00% | 0.00 percentage points |
+| Sampled peak RSS | 242,778,112 B | 251,494,400 B | +8,716,288 B / +3.59% |
+| Settled RSS | 242,778,112 B | 251,363,328 B | +8,585,216 B / +3.54% |
+
+Native idle sampling uses release `--no-default-features --features demo`,
+`--demo --demo-chat --demo-recorder`, a neutral channel-header click, eleven seconds
+of total warmup and twenty one-second psutil CPU/RSS samples per revision. The
+baseline ignores the new recorder fixture flag; after enables its synthetic
+contribution with no dialog/capture active. Settled RSS is the final five samples'
+median. Host: Ubuntu 26.04.1 / Linux 7.0.0-34, AMD Ryzen 5 7535U (12 logical CPUs),
+15,369,355,264 bytes RAM, Xvfb/X11 1120×760 scale 1, WGPU/Vulkan llvmpipe
+(LLVM 21.1.8), with Mesa lavapipe forced. No builds or helper children ran during
+sampling. This one launch pair reports an 8.19-MiB settled RSS increase but cannot
+separate integration cost from allocator/driver variation. No improvement is claimed.
+Startup peaks, frame latency, GPU memory, physical microphone/DSP cost and live
+Discord delivery are unmeasured.
+
+One clip is bounded to 120 seconds / 8 MiB, with an eight-frame / 30,720-sample-byte
+PCM queue, at most 6,000 amplitude bytes and a replaceable 64-bin UI snapshot.
+Device-free tests validate Opus/Ogg decoding, duration trimming, controls and
+bounds; synthetic HTTP tests validate the single-send metadata path. These are
+component checks, not physical audio or live-account compatibility evidence.
+
+The [evidence README](pr-evidence/voice-messages/README.md) gives reproduction
+commands and native dark/light inspection. [Raw measurements and package hashes](pr-evidence/voice-messages/measurements.json)
+include every sample and both release executable hashes. `cargo xtask check`,
+extension/SDK checks and standard Linux packaging pass.
+
+## Voice messages (PR #566): Windows integration evidence - October 8, 2026
+
+Fresh standard Windows x64 voice-enabled packages compare main `1b3e4a7b` with `0904fb4c` (measured 2026-10-08). Baseline/current file counts: 216/216.
+
+| Metric | Main `1b3e4a7b` | Current integration | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 86,008,832 B | 86,449,664 B | +440,832 B (+0.5125%) |
+| Installed directory | 90,199,948 B | 90,640,780 B | +440,832 B (+0.4887%) |
+| Distribution ZIP | 50,001,798 B | 50,094,977 B | +93,179 B (+0.1864%) |
+
+Method: `cargo xtask package`, Rust 1.98.1, standard release flags without demo; Windows 11 build 26200, Ryzen 7 7800X3D, 32 GiB RAM. Runtime workspace artifacts were invalidated before each feature build. Installed bytes sum every file in `dist`; ZIP uses whole-directory .NET Optimal compression. NSIS was unavailable, so no installer executable was built.
+
+Current native CPU, memory, frame/startup latency and affected-device behavior remain unmeasured because the native automation bridge is unavailable. Package size and synthetic reducer timing do not establish live Discord performance.

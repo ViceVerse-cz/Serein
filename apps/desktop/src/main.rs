@@ -58,6 +58,7 @@ mod updater;
 mod uploads;
 mod video;
 mod voice;
+mod voice_messages;
 mod watch;
 use client_core::{
 	Command, Envelope, Event, State,
@@ -959,6 +960,7 @@ struct Desktop {
 	notifications: platform::notifications::Notifications,
 	notification_runtime: notification_runtime::Runtime,
 	uploads: uploads::Uploads,
+	voice_messages: voice_messages::VoiceMessages,
 	interaction_files: interaction_uploads::Files,
 	group_icon: group_icon::GroupIcon,
 	create_server_icon: group_icon::GroupIcon,
@@ -2224,6 +2226,7 @@ impl Desktop {
 				)
 			},
 			uploads: uploads::Uploads::default(),
+			voice_messages: voice_messages::VoiceMessages::default(),
 			interaction_files: Default::default(),
 			group_icon: group_icon::GroupIcon::default(),
 			create_server_icon: group_icon::GroupIcon::default(),
@@ -2339,6 +2342,7 @@ impl Desktop {
 		} else {
 			"Connecting with the supplied session; saved login unchanged"
 		};
+		self.voice_messages.cancel();
 		self.voice.stop();
 		self.messaging.camera_test_requested = false;
 		self.messaging.camera_test_texture = None;
@@ -2418,6 +2422,7 @@ impl Desktop {
 		self.downloads.cancel();
 		self.audio.stop();
 		self.video.stop();
+		self.voice_messages.cancel();
 		self.voice.stop();
 		self.messaging.camera_test_requested = false;
 		self.messaging.camera_test_texture = None;
@@ -3337,6 +3342,7 @@ impl Desktop {
 					let request = uploads::UploadRequest {
 						command,
 						source,
+						voice_message: None,
 						progress,
 						cancel,
 					};
@@ -3392,6 +3398,7 @@ impl Desktop {
 					let request = uploads::UploadRequest {
 						command,
 						source,
+						voice_message: None,
 						progress,
 						cancel,
 					};
@@ -3442,6 +3449,9 @@ impl Desktop {
 				self.state.status = "Voice calls are unavailable in the offline preview";
 				return;
 			}
+			self.voice_messages.cancel();
+			self.messaging.voice_messages.close();
+			self.messaging.voice_messages.capture_busy = self.voice_messages.capture_busy();
 			if let client_core::voice::Command::Join {
 				channel,
 				request,
@@ -3467,6 +3477,7 @@ impl Desktop {
 				self.messaging.voice_camera_preview = None;
 			}
 			if matches!(control, client_core::voice::Command::Leave { .. }) {
+				self.voice_messages.cancel();
 				self.voice.stop();
 				self.messaging.camera_test_requested = false;
 				self.messaging.camera_test_texture = None;
@@ -5229,6 +5240,27 @@ impl Desktop {
 			}
 		}
 	}
+	fn poll_voice_messages(&mut self, ctx: &egui::Context) {
+		let demo = self.state.demo && std::env::args().any(|arg| arg == "--demo-recorder");
+		let config = if demo {
+			Some(::extensions::VoiceMessagesConfig::default())
+		} else {
+			self.extensions.voice_messages()
+		};
+		let blocked = self.state.voice.active.is_some()
+			|| self.voice.microphone_busy()
+			|| self.uploads.busy()
+			|| self.messaging.has_edit_in(self.state.selected)
+			|| self.messaging.attachment.is_some();
+		self.voice_messages.poll(
+			&mut self.state,
+			&mut self.messaging,
+			ctx,
+			config,
+			blocked,
+			self.fixture_only,
+		);
+	}
 	fn poll_voice(&mut self, ctx: &egui::Context) {
 		if let Some(command) =
 			self.voice
@@ -5875,6 +5907,7 @@ impl Desktop {
 			self.connection = None;
 			self.pending_save = None;
 			self.pending_account_save = None;
+			self.voice_messages.cancel();
 			self.voice.stop();
 			self.messaging.camera_test_requested = false;
 			self.messaging.camera_test_texture = None;
@@ -6285,13 +6318,19 @@ impl eframe::App for Desktop {
 			}
 		}
 		self.messaging.voice_ptt_active = self.messaging.voice_push_to_talk
-			&& self.state.voice.active.is_some()
+			&& (self.state.voice.active.is_some()
+				|| self.messaging.voice_messages.scope.is_some()
+				|| self.voice_messages.capture_busy())
 			&& (self.messaging.push_to_talk_down(ctx) || self.hotkeys.push_to_talk_down());
-		self.messaging.voice_ptm_active = self.state.voice.active.is_some()
+		self.messaging.voice_ptm_active = (self.state.voice.active.is_some()
+			|| self.messaging.voice_messages.scope.is_some()
+			|| self.voice_messages.capture_busy())
 			&& (self.messaging.push_to_mute_down(ctx) || self.hotkeys.push_to_mute_down());
+		self.poll_voice_messages(ctx);
 		if self.state.auth == AuthState::Authenticated || self.state.demo {
 			self.poll_voice(ctx);
 		} else {
+			self.voice_messages.cancel();
 			self.voice.stop();
 		}
 		self.sync_tray(ctx);
@@ -6563,6 +6602,7 @@ impl eframe::App for Desktop {
 				|| self.messaging.extensions.theme_editor_dirty()
 				|| self.state.server_settings.pending
 				|| self.state.server_admin.pending
+				|| self.voice_messages.has_unsent()
 				|| self.uploads.has_unsent()
 				|| self.messaging.external_upload.has_unsent()
 				|| self.forgetting
@@ -6751,6 +6791,30 @@ impl eframe::App for Desktop {
 				&& self.messaging.notification_test_available
 			{
 				self.notifications.notify();
+			}
+			self.poll_voice_messages(&ctx);
+			if let Some(request) = self
+				.voice_messages
+				.take_send(&mut self.state, &mut self.messaging.voice_messages)
+			{
+				if let Some(connection) = &self.connection {
+					if let Err(error) = connection.uploads.try_send(request) {
+						let request = error.into_inner();
+						request
+							.progress
+							.send_replace(discord_api::upload::Status::Failed(
+								"Upload queue full; record again",
+							));
+						self.state.command_rejected(request.command);
+					}
+				} else {
+					request
+						.progress
+						.send_replace(discord_api::upload::Status::Failed(
+							"Connection unavailable; record again",
+						));
+					self.state.command_rejected(request.command);
+				}
 			}
 			// Revalidate scope after navigation without polling workers a second time.
 			self.uploads.revalidate_scope(

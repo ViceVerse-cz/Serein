@@ -2277,6 +2277,53 @@ whose original compression request is not implemented. Synthetic localhost tests
 verify local behavior without any real hosted upload or Discord session. Live service
 acceptance, link embedding and other-platform native interaction remain unverified.
 
+## Voice Messages extension (preview, October 5, 2026)
+
+The opt-in bundled Voice Messages plugin adds **Record a voice message** to the
+composer `+` menu. Enable it and explicitly grant `voice_messages` (plus `storage`
+for settings) in Extensions. The native dialog requires separate Record, Stop and
+Send gestures. Importing, enabling, opening the plugin panel or saving settings
+never opens the microphone or sends a message. Wasm receives configuration only,
+without audio, device paths, microphone, filesystem or networking access.
+
+The host records mono 48 kHz Ogg Opus in session memory, capped at 120 seconds and
+8 MiB. The plugin selects a 5–120-second maximum, bars/line display and RNNoise
+suppression. Native device selection, gain, mute/deafen, held push-to-mute,
+push-to-talk and OS microphone permission gates apply. Recording is unavailable
+while a call or local device test owns capture. Stop closes input before encoding
+finalization. Cancel, navigation, permission/connection loss, disable, session reset,
+logout and call commands discard the local clip and gate microphone callbacks;
+asynchronous native retirement fences a replacement microphone owner. This records
+an explicitly created message clip, never a call or another participant.
+
+Sending requires ordinary send/attachment permission, fresh connected history and
+[`SEND_VOICE_MESSAGES` (bit 46)](https://docs.discord.com/developers/topics/permissions).
+One signed attachment upload produces `voice-message.ogg` with audio MIME,
+`duration_secs`, at most 64 base64 amplitude bins and message flag
+`IS_VOICE_MESSAGE` (8192). No caption or stickers are included; the existing text
+draft remains for a separate message, while an explicit reply can accompany the clip.
+The fields, one-audio-attachment restriction and Ogg Opus format follow
+[Discord's voice-message documentation](https://docs.discord.com/developers/resources/message#voice-messages).
+The normal-account staged upload/reply path was also inspected in the primary
+[Vencord plugin](https://github.com/Vendicated/Vencord/blob/main/src/plugins/voiceMessages/index.tsx);
+Serein's implementation is original.
+
+No recording, local path, upload target or audio recovery file is written to disk.
+Cancellation cannot erase bytes already uploaded or recall a message Discord has
+accepted. Failed/uncertain sends require a new recording and are never replayed.
+Returned message metadata uses the existing bounded timeline/history cache; ordinary
+explicit attachment downloads remain a separate user action.
+
+Device-free tests encode and decode synthetic Opus, check Ogg CRC/duration/bounds,
+exercise recorder control/retirement, validate the real Wasm settings plugin, and
+inspect local HTTP allocation/audio PUT/message POST including no-retry behavior.
+`--features demo -- --demo --demo-chat --demo-recorder` enables a labeled synthetic
+recorder preview; it uses generated amplitude/timer data and disables Send, without
+opening any device or contacting Discord. A preview is not a recording test.
+Normal-account sends, physical microphone/OS permissions and Windows/macOS native
+interaction remain unofficial and live-unverified; no account or microphone was
+used for this delivery.
+
 ## GIF favorites admission — October 6, 2026
 
 The frecency decoder accepts the schema's absent optional version block (version

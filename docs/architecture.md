@@ -58,9 +58,25 @@ The image viewer is a full-window egui modal. It draws the file at its own pixel
 
 The desktop consumes redacted, zeroizing voice credentials before core reduction. It pairs the owner's session with a channel-scoped voice server/token, bounded by a 30-second allocation deadline. Outgoing ringing is a separate, once-per-request REST command after transport allocation is confirmed, before waiting for the peer-dependent DAVE group. Answer never rings. Failed/ambiguous ringing writes are not replayed. Slow REST cannot block native mute or hangup; call control and notice queues each hold eight items.
 
-`discord-voice` owns the voice WebSocket, public-address UDP discovery, RTP transport authentication, DAVE/OpenMLS state, Opus and native CPAL audio. TLS/origin validation and required DAVE readiness gate media; there is no encryption downgrade. Audio callbacks use preallocated rings, while codecs/networking and device work run off the render thread. Capture/playback are enabled only after required encryption, and stop on hangup, session failure or account change. The desktop polls media lifecycle from eframe logic as well as after UI gestures, so teardown and focused push-to-talk do not depend on a visible repaint.
+`discord-voice` owns the voice WebSocket, public-address UDP discovery, RTP transport authentication, DAVE/OpenMLS state, Opus and native CPAL audio. TLS/origin validation and required DAVE readiness gate media; there is no encryption downgrade. Audio callbacks use preallocated rings, while codecs/networking and device work run off the render thread. Call capture/playback are enabled only after required encryption, and stop on hangup, session failure or account change. The desktop polls media lifecycle from eframe logic as well as after UI gestures, so teardown and focused push-to-talk do not depend on a visible repaint.
 
-Device choices, mute/deafen and focused V push-to-talk remain session-local. Voice WebSocket resumption is bounded and preserves the current call's cryptographic state; rejected resumption and main Gateway disconnect require deliberate rejoin. Group calls share the bounded media engine, AEC, camera and screen-sharing paths; recording is not included. Exact media limits and offline evidence are in [the adapter README](../crates/discord-voice/README.md); [the live gate](voice.md) is still blocked.
+Device choices, mute/deafen and focused V push-to-talk remain session-local. Voice WebSocket resumption is bounded and preserves the current call's cryptographic state; rejected resumption and main Gateway disconnect require deliberate rejoin. Group calls share the bounded media engine, AEC, camera and screen-sharing paths; call recording is not included. Exact media limits and offline evidence are in [the adapter README](../crates/discord-voice/README.md); [the live gate](voice.md) is still blocked.
+
+The opt-in bundled Voice Messages Starter supplies only a validated duration,
+waveform-style and suppression configuration through its granted extension capability.
+The desktop owns a separate generation/channel-scoped recording, review and single
+upload lifecycle. An explicit Record gesture starts the microphone-only
+`discord_voice::recording` worker; the plugin and UI never receive audio bytes or
+native device handles. Existing device selection/permission, mute/PTT and microphone
+DSP are reused. One eight-frame PCM ring feeds bounded mono 48 kHz Opus/Ogg encoding
+outside rendering/callbacks, capped at 120 seconds and 8 MiB. The UI receives only
+a replaceable fixed-size timer/waveform snapshot. Stop releases input before encoder
+flush; cancel/navigation/disable/session loss closes capture and discards unsent audio.
+Retirement fences conflicting call/test/preview capture. Explicit Send moves the
+RAM clip through the existing signed-upload worker and normal message reconciliation,
+with duration/waveform metadata and the voice-message flag. Text drafts remain separate;
+no audio is persisted and ambiguous writes are never automatically replayed.
+Physical capture and normal-account interoperability remain unverified.
 
 Conversation search owns one page of at most 25 ID/author/excerpt records plus bounded mentioned-user metadata, capped at 256 KiB, alongside the existing 500-message / 4 MiB timeline. Queries are capped at 256 characters / 1024 UTF-8 bytes. The decoder caps the HTTP body at 512 KiB, 25 result groups and 5 context records per group; only the matching 8 KiB excerpt and its at most 100 mentioned users are retained. Snippets reuse bounded message formatting without entering the message cache or loading a member directory. One cancellable read task shares the four REST permits. Opening a result replaces the active window with revalidated history rather than merging index snapshots into the message cache; the completed search page remains open. Numbered pages replace that same result slot with offsets capped at 9,975, retaining only fixed-size offset and total metadata.
 

@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parent
 REPOSITORY = "ViceVerse-cz/Serein"
 PACKAGE_DIRS = ("themes", "plugins/packages")
-CAPABILITIES = {"selected_message", "composer", "storage", "deleted_messages", "image_sharing", "appearance", "rich_presence", "api_proxy"}
+CAPABILITIES = {"selected_message", "composer", "storage", "deleted_messages", "image_sharing", "appearance", "rich_presence", "api_proxy", "voice_messages"}
 RESERVED = {"con", "prn", "aux", "nul"} | {f"{prefix}{n}" for prefix in ("com", "lpt") for n in range(1, 10)}
 MAX_PREVIEW = 256 * 1024
 

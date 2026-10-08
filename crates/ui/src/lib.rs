@@ -13,6 +13,7 @@ mod video;
 pub use video::{VideoCommand, VideoState, VideoUi};
 mod attachments;
 pub mod external_upload;
+pub mod voice_messages;
 pub use attachments::DownloadUi;
 mod avatars;
 #[cfg(feature = "demo")]
@@ -375,6 +376,7 @@ pub struct MessagingUi {
 	/// Selected files still being inspected; shown as loading tiles in the upload tray.
 	pub attachment_loading: usize,
 	pub external_upload: external_upload::ExternalUpload,
+	pub voice_messages: voice_messages::VoiceMessages,
 	/// Transient problem and progress notices. Nothing here outlives its deadline.
 	pub toasts: toasts::Toasts,
 	pending_upload: Option<pending::Upload>,
@@ -3305,7 +3307,7 @@ impl MessagingUi {
                         None
                     } else {
                         Some(ui
-                            .add_enabled_ui(can_attach || can_create_poll, |ui| {
+                            .add_enabled_ui(can_attach || can_create_poll || self.voice_messages.available, |ui| {
                                 icons::button(ui, icons::Icon::Attach, 28.0, &crate::i18n::translate("lib-ime-updates-text-attach-files"))
                             })
                             .inner
@@ -3331,6 +3333,10 @@ impl MessagingUi {
                                 };
                                 if ui.add_enabled(can_attach, item(icons::Icon::File, "lib-ime-updates-text-attach-files")).clicked() {
                                     self.attach_requested = true;
+                                    ui.close();
+                                }
+                                if self.voice_messages.config.is_some() && ui.add_enabled(self.voice_messages.available && !editing_here && self.attachment.is_none() && !self.upload_busy, item(icons::Icon::Microphone, "voice-message-menu")).clicked() {
+                                    self.voice_messages.open(state, channel);
                                     ui.close();
                                 }
                                 if ui.add_enabled(can_create_poll, item(icons::Icon::ChartBar, "lib-ime-updates-text-create-a-poll")).clicked() {
@@ -4854,6 +4860,7 @@ impl MessagingUi {
 		{
 			commands.push(command);
 		}
+		self.voice_messages.show(&ctx, state);
 		self.external_upload
 			.show(&ctx, state, &mut self.draft_changes);
 		self.search

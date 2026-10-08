@@ -323,7 +323,13 @@ impl Connection {
                             let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
                             upload=Some(AbortTask(tokio::spawn(async move {
                                 let mut updates=request.progress.subscribe();
-                                let operation=api.upload_messages(request.command,request.source,request.progress,request.cancel.subscribe());
+                                let operation=async {
+                                    if let Some(voice)=request.voice_message {
+                                        api.upload_voice_message(request.command,voice,request.progress,request.cancel.subscribe()).await
+                                    } else {
+                                        api.upload_messages(request.command,request.source,request.progress,request.cancel.subscribe()).await
+                                    }
+                                };
                                 tokio::pin!(operation);
                                 let mut observing=true;
                                 let event=loop {

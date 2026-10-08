@@ -37,6 +37,11 @@ Do not commit `catalog.json` changes in a pull request. To check a catalog local
 against its pinned commit, run `python3 catalog.py --check`; `python3 test_catalog.py`
 covers the validator itself.
 
+The preview Voice Messages package also ships as a bounded opt-in starter card
+in the native client, so it is available before the catalog workflow publishes
+the merged package. It still requires explicit grants and Enable; bundling does
+not run the plugin or authorize microphone use. See [Voice Messages setup](plugins/voice-messages/README.md).
+
 Catalog tooling uses only Python's standard library. It checks identities,
 capabilities/actions, byte bounds, plugin Wasm headers, source manifests, previews and
 hashes. It intentionally does not duplicate Serein's theme schema or Wasm sandbox

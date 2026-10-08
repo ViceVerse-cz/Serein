@@ -599,6 +599,13 @@ impl Voice {
 		});
 		Some(command)
 	}
+	pub fn microphone_busy(&self) -> bool {
+		self.live.is_some()
+			|| self.camera_test.is_some()
+			|| self.pending.is_some()
+			|| self.retiring.is_some()
+			|| self.mic_preview.is_some()
+	}
 	pub fn poll(
 		&mut self,
 		runtime: &Runtime,
@@ -607,10 +614,15 @@ impl Voice {
 		ctx: &egui::Context,
 	) -> Option<Command> {
 		self.reap();
+		self.poll_camera_test(state, ui, ctx);
+		if ui.voice_messages.capture_busy {
+			ui.voice_preview_requested = false;
+			ctx.request_repaint_after(Duration::from_millis(50));
+			return None;
+		}
 		ui.voice_switch_ready =
 			self.pending.is_none() && self.live.is_none() && self.retiring.is_none();
 		self.poll_mic_preview(state, ui, ctx);
-		self.poll_camera_test(state, ui, ctx);
 		ui.voice_speaking.clear();
 		ui.voice_microphone_unavailable = false;
 		self.poll_camera_devices(state.demo, ui, ctx);
@@ -1034,6 +1046,7 @@ impl Voice {
 	}
 	fn poll_mic_preview(&mut self, state: &State, ui: &mut ui::MessagingUi, ctx: &egui::Context) {
 		if state.demo
+			|| ui.voice_messages.capture_busy
 			|| !ui.voice_available
 			|| !ui.voice_settings_open()
 			|| state.voice.active.is_some()
@@ -1134,6 +1147,7 @@ impl Voice {
 
 	fn poll_camera_test(&mut self, state: &State, ui: &mut ui::MessagingUi, ctx: &egui::Context) {
 		ui.camera_test_available = !state.demo
+			&& !ui.voice_messages.capture_busy
 			&& ui.voice_available
 			&& discord_voice::camera::SUPPORTED
 			&& state.voice.active.is_none()

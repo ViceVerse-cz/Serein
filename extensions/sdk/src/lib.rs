@@ -18,6 +18,8 @@ mod discovery;
 pub use discovery::*;
 mod rich_presence;
 pub use rich_presence::*;
+mod voice_messages;
+pub use voice_messages::*;
 mod conversation_activity;
 pub use conversation_activity::*;
 mod message_content;

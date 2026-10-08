@@ -31,6 +31,7 @@ pub enum ExtensionKind {
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
 	RichPresence,
+	VoiceMessages,
 	RelationshipControl,
 	AccountControl,
 	AudioSettings,

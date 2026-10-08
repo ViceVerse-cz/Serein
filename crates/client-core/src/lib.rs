@@ -1714,6 +1714,14 @@ impl State {
 	pub fn prepare_image_send(&mut self, filenames: &[&str]) -> Option<Command> {
 		self.prepare_message(filenames, None, true)
 	}
+	/// A voice clip is sent alone; the text draft stays available for a separate send.
+	pub fn prepare_voice_message(&mut self) -> Option<Command> {
+		if !self.can_send_voice_message(self.selected?) {
+			self.status = "Voice messages are unavailable with the current permissions";
+			return None;
+		}
+		self.prepare_image_send(&["voice-message.ogg"])
+	}
 	pub(crate) fn prepare_message(
 		&mut self,
 		filenames: &[&str],
@@ -4326,6 +4334,51 @@ mod tests {
 		assert_eq!(state.freshness, Freshness::Stale);
 		assert!(!state.gateway_connected);
 	}
+	#[test]
+	fn voice_message_send_preserves_draft_and_requires_fresh_attachment_admission() {
+		let mut state = State {
+			channels: vec![Channel {
+				id: Id(1),
+				guild: None,
+				parent_id: None,
+				kind: 1,
+				name: "Synthetic DM".into(),
+				position: 0,
+				recipients: vec![],
+				last_message: None,
+				icon: None,
+				member_list_id: None,
+				tags: None,
+				message_count: None,
+			}],
+			selected: Some(Id(1)),
+			auth: auth::AuthState::Authenticated,
+			freshness: Freshness::Fresh,
+			gateway_connected: true,
+			..State::default()
+		};
+		state
+			.drafts
+			.insert(Id(1), "@silent text stays separate".into());
+		state.reply = Some(Reply::to(Id(7)));
+		let command = state.prepare_voice_message().unwrap();
+		assert!(
+			matches!(command, Command::Send { content, reply: Some(reply), sticker: None, .. } if content.is_empty() && reply.target() == Id(7))
+		);
+		assert_eq!(state.drafts[&Id(1)], "@silent text stays separate");
+		assert_eq!(state.pending[0].attachments, ["voice-message.ogg"]);
+		assert!(state.reply.is_none());
+		state.gateway_connected = false;
+		assert!(state.prepare_voice_message().is_none());
+		state.gateway_connected = true;
+		state.freshness = Freshness::Stale;
+		assert!(state.prepare_voice_message().is_none());
+		state.freshness = Freshness::Fresh;
+		state.auth = auth::AuthState::Expired;
+		assert!(state.prepare_voice_message().is_none());
+		assert_eq!(state.pending.len(), 1);
+	}
+
 	#[test]
 	fn attachment_only_sends_are_bounded_and_keep_existing_confirmation() {
 		let mut state = State {

@@ -4563,6 +4563,26 @@ screen-macos-system-picker = Vybrat systémovým dialogem macOS
 screen-macos-system-picker-kind = Systémový výběr obsahu
 
 member-in-voice = V hlasovém chatu
+
+# Native voice-message recorder
+voice-message-title = Hlasová zpráva
+voice-message-menu = Nahrát hlasovou zprávu
+voice-message-offline = Offline náhled · syntetický zvuk, bez mikrofonu a odesílání
+voice-message-ready = Tlačítkem Nahrát zapnete mikrofon.
+voice-message-starting = Otevírání mikrofonu…
+voice-message-recording = Nahrávání
+voice-message-muted = Mikrofon je ztlumený · zapněte jej nebo podržte push-to-talk.
+voice-message-finalizing = Dokončování nahrávky…
+voice-message-review = Připraveno k odeslání. Textový koncept se odešle samostatně.
+voice-message-sending = Odesílání hlasové zprávy…
+voice-message-retry = Zkuste nahrát nový klip.
+voice-message-record = Nahrát
+voice-message-stop = Zastavit nahrávání
+voice-message-send = Odeslat hlasovou zprávu
+voice-message-discard = Zahodit
+voice-message-private = Zvuk zůstává v paměti do odeslání nebo zahození.
+voice-message-cancel-send = Zrušení zastaví nahrávání; zprávu přijatou Discordem již nelze odvolat.
+
 settings-chat-box = Psaní zpráv
 settings-convert-emoticons = Automaticky převádět emotikony ve zprávách na emoji
 settings-convert-emoticons-description = Při odesílání nebo úpravě zpráv převést samostatné emotikony jako :) na 🙂. Kód a odkazy zůstanou beze změny.
