@@ -2261,11 +2261,11 @@ impl TimelineView {
 				(viewport.height() - lead_packed).max(0.0)
 			};
 			ui.add_space(lead);
-			let overscan = 100.0;
+			let overscan = 360.0;
 			let (first, _, top) = visible_range(
 				&self.rows,
 				(viewport.min.y - overscan - lead).max(0.0),
-				(viewport.max.y + 100.0 - lead).max(0.0),
+				(viewport.max.y + overscan - lead).max(0.0),
 			);
 			let (anchor, _, anchor_top) = visible_range(
 				&self.rows,
@@ -2316,7 +2316,7 @@ impl TimelineView {
 				} else {
 					&mut *ui
 				};
-				if index >= anchor && ui.cursor().top() > content_top + viewport.max.y + 100.0 {
+				if index >= anchor && ui.cursor().top() > content_top + viewport.max.y + overscan {
 					break;
 				}
 				end = index + 1;
@@ -8571,8 +8571,11 @@ mod tests {
 			offsets.push((offset, view.following));
 		}
 		assert!(!offsets[0].1);
-		assert_eq!(offsets[2].0, offsets[3].0);
-		assert_eq!(offsets[3].0, offsets[9].0);
+		// Smooth accumulator delivers residual across frame boundary rather than abruptly stopping
+		assert!(offsets[3].0 < offsets[2].0);
+		// Settled and stable without snapping back to the live edge
+		assert_eq!(offsets[8].0, offsets[9].0);
+		assert!(!offsets[9].1);
 	}
 	#[test]
 	fn touchpad_slow_scroll_up_from_live_edge_does_not_snap_back() {
