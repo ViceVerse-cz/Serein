@@ -304,6 +304,8 @@ attachments-media-menu-unavailable-for-synthetic-attachments = 合成附件無�
 attachments-open-original-open-original = 開啟原始檔案…
 # Context: pending_card
 attachments-pending-card-remove-attachment = 移除附件
+attachments-loading-card-preparing = 準備中…
+
 # Context: show_status
 attachments-show-status-cancel-download = 取消下載
 # Context: show_status
@@ -382,6 +384,18 @@ channel-list-heading-direct-messages = 私訊
 channel-list-heading-favorites = 最愛
 # Context: key
 channel-list-heading-pinned = 釘選
+# Context: key
+channel-list-heading-message-requests = 訊息請求
+# Context: label
+message-request-ignore-tooltip = 忽略請求
+# Context: label
+message-request-accept = 接受
+# Context: label
+message-request-ignore = 忽略
+# Context: label
+message-request-banner = 此人還不是你的好友。接受後對話將移至私人訊息。
+# Context: label
+message-request-title = 訊息請求
 
 ## crates/ui/src/channel_menu.rs
 # Context: context
@@ -768,6 +782,14 @@ embeds-image-preview-image-actions = 圖片操作
 embeds-link-open-link = 開啟連結…
 # Context: show
 embeds-show-additional-embed-content-is-not-supported = 不支援其他嵌入內容
+# Context: poll_result
+embeds-poll-result-winning-answer = 獲勝答案
+# Context: poll_result
+embeds-poll-result-tie = 沒有獲勝答案
+# Context: poll_result
+embeds-poll-result-no-votes = 尚無人投票
+# Context: poll_result
+embeds-poll-result-view-poll = 查看投票
 # Context: show
 embeds-show-embed-display-limited = 嵌入內容顯示受限
 # Context: show
@@ -815,6 +837,12 @@ emoji-picker-gif-body-searching-klipy = 正在搜尋 KLIPY…
 # Context: gif_body
 emoji-picker-gif-body-trending-gifs = 熱門 GIF
 # Context: gif_body
+emoji-picker-gif-body-retry = 重試
+
+# Context: gif_body
+emoji-picker-gif-body-no-trending-gifs-right-now = 請搜尋 GIF，或稍後再試。
+
+# Context: gif_body
 emoji-picker-gif-body-try-a-different-search-term = 試試別的搜尋詞。
 # Context: gif_grid
 emoji-picker-gif-grid-favorite = 收藏
@@ -840,6 +868,9 @@ emoji-picker-popup-hover-an-emoji-to-preview-it = 滑過表情符號即可預覽
 emoji-picker-popup-no-matching-emoji = 沒有相符的表情符號。
 # Context: popup
 emoji-picker-popup-retry-sticker-packs = 重試貼圖包
+# Context: popup
+emoji-picker-popup-requires-nitro = 需要 Nitro 才能在此使用
+
 # Context: popup
 emoji-picker-popup-search-results = 搜尋結果
 # Context: popup
@@ -2059,6 +2090,34 @@ profiles-more-menu-add-friend-nickname = 新增朋友暱稱
 profiles-more-menu-add-note = 新增筆記
 # Context: more_menu
 profiles-more-menu-block = 封鎖
+profiles-view-full-profile = 檢視完整個人檔案
+
+profiles-copy-username = 複製使用者名稱
+
+profiles-username-unavailable = 開啟此個人檔案以載入使用者名稱
+
+profiles-ignore = 忽略
+
+profiles-unignore = 取消忽略
+
+profiles-ignore-hint = 使用 Discord 的「忽略」設定而非封鎖。對方不會收到通知。
+
+profiles-report-user-profile = 檢舉個人檔案
+
+profiles-report-hint = 在瀏覽器開啟 Discord 的支援表單，並複製對方的使用者 ID
+
+profiles-show-activity = 活動
+
+profiles-show-connections = 連線
+
+profiles-show-friends-since = 結為好友於
+
+profiles-show-note = 筆記
+
+profiles-show-note-hint = 點擊以新增筆記
+
+profiles-show-note-only-you = 僅你自己可見
+
 # Context: more_menu
 profiles-more-menu-copy-webhook-id = 複製 Webhook ID
 # Context: more_menu
@@ -2127,6 +2186,9 @@ profiles-show-view-profile-picture = 檢視頭像
 ## crates/ui/src/reactions.rs
 # Context: add_button
 reactions-add-button-add-reaction = 添加反應
+# Context: quick_button
+reactions-quick-react = 以 { $emoji } 回應
+
 # Context: show
 reactions-show-reactions-unavailable = 反應無法使用
 # Context: show
@@ -3448,6 +3510,15 @@ settings-chat-settings-channel-list = 頻道清單
 settings-chat-settings-show-channels-you-cannot-currently-access = 顯示你目前無法存取的頻道。
 # Context: chat_settings
 settings-chat-settings-show-hidden-channels = 顯示隱藏的頻道
+# Context: chat_settings
+settings-chat-settings-emoji = 表情符號
+
+# Context: chat_settings
+settings-chat-settings-suggest-nitro-emojis = 建議需要 Nitro 的表情符號
+
+# Context: chat_settings
+settings-chat-settings-suggest-nitro-emojis-description = 即使沒有 Nitro，也在建議與選擇器中提供動態及其他伺服器的表情符號。關閉時會從建議中隱藏，並在選擇器中顯示為鎖定。
+
 # Context: close_control
 settings-close-control-close-settings-esc = 關閉設定（Esc）
 # Context: colour_preset_settings
@@ -3745,6 +3816,12 @@ timeline-deleted-message-actions-toggle-deleted-highlight = 切換刪除標示
 timeline-loading-messages-loading-messages = 正在載入訊息
 # Context: message_actions
 timeline-message-actions-copy = 複製
+# Context: message_actions
+timeline-message-actions-copy-message-id = 複製訊息 ID
+
+# Context: message_actions
+timeline-message-actions-copy-message-link = 複製訊息連結
+
 # Context: message_actions
 timeline-message-actions-create-thread = 建立討論串…
 # Context: message_actions
@@ -4518,3 +4595,19 @@ screen-macos-system-picker = 用 macOS 系統選擇器挑選
 screen-macos-system-picker-kind = 系統內容選擇器
 
 member-in-voice = 在語音中
+
+settings-chat-box = 聊天框
+
+settings-convert-emoticons = 自動把訊息中的顏文字轉成表情符號
+
+settings-convert-emoticons-description = 傳送或編輯訊息時，把 :) 這類獨立顏文字轉成 🙂。程式碼與連結不變。
+
+profiles-board = 看板
+profiles-board-unavailable = 這個個人檔案的看板無法使用。
+profiles-board-empty = 這個看板目前還沒有遊戲。
+profiles-board-show-more = 查看更多
+profiles-board-show-less = 收起
+profiles-activity-empty = 尚無分享的活動。
+profiles-mutuals-empty = 這裡沒有可顯示的內容。
+
+reading-double-click-reaction = 雙擊回應

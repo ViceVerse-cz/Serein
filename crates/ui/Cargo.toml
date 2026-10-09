@@ -62,3 +62,11 @@ required-features = ["demo"]
 [[example]]
 name = "friend_message"
 required-features = ["demo"]
+
+[[example]]
+name = "profile_board"
+required-features = ["demo"]
+
+[[example]]
+name = "copy_feedback"
+required-features = ["demo"]

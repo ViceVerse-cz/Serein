@@ -256,7 +256,7 @@ pub fn add_button(
 ) -> Option<(egui::Rect, egui::Id)> {
 	let response = ui
 		.add_enabled_ui(enabled && !writing, |ui| {
-			crate::icons::button(
+			crate::icons::button_immediate(
 				ui,
 				crate::icons::Icon::Smile,
 				28.0,
@@ -265,6 +265,53 @@ pub fn add_button(
 		})
 		.inner;
 	response.clicked().then_some((response.rect, response.id))
+}
+
+/// Hover-bar reactions before the reader has used any emoji this session.
+pub const QUICK_DEFAULTS: [&str; 3] = ["👍", "❤️", "😂"];
+
+/// One quick reaction in the message hover bar, sized like its icon buttons.
+pub fn quick_button(ui: &mut egui::Ui, emoji: &str, reacted: bool) -> egui::Response {
+	let colors = crate::design::palette(ui);
+	let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(28.0), egui::Sense::click());
+	if reacted || response.hovered() || response.has_focus() {
+		ui.painter().rect_filled(
+			rect,
+			6,
+			if reacted {
+				colors.selected
+			} else {
+				colors.hover
+			},
+		);
+	}
+	let size = if response.hovered() && ui.is_enabled() {
+		20.0
+	} else {
+		18.0
+	};
+	let target = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(size));
+	let tint = if ui.is_enabled() {
+		egui::Color32::WHITE
+	} else {
+		egui::Color32::WHITE.gamma_multiply(0.4)
+	};
+	if let Some(image) = crate::emoji::image(ui.ctx(), emoji, size) {
+		image.tint(tint).paint_at(ui, target);
+	} else {
+		ui.painter().text(
+			rect.center(),
+			egui::Align2::CENTER_CENTER,
+			emoji,
+			egui::FontId::proportional(16.0),
+			colors.text_strong.gamma_multiply(tint.a() as f32 / 255.0),
+		);
+	}
+	let label = crate::i18n::translate_args("reactions-quick-react", &[("emoji", emoji)]);
+	response.widget_info(|| {
+		egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), reacted, &label)
+	});
+	crate::icons::immediate_tooltip(response, &label)
 }
 
 pub fn show_users(

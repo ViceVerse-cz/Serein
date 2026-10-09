@@ -753,6 +753,7 @@ impl Editor {
 				dialog::input(
 					ui,
 					egui::TextEdit::singleline(&mut self.delete_name)
+						.align(egui::Align2::LEFT_CENTER)
 						.char_limit(100)
 						.desired_width(f32::INFINITY),
 				)
@@ -1009,6 +1010,7 @@ impl Editor {
 			design::input(
 				ui,
 				egui::TextEdit::singleline(&mut draft.name)
+					.align(egui::Align2::LEFT_CENTER)
 					.char_limit(100)
 					.hint_text(crate::i18n::translate("server-settings-profile-form-name")),
 			)
@@ -1369,6 +1371,7 @@ fn trait_cell(
 				picker.unicode_button(ui, &mut entry.emoji);
 				ui.add(
 					egui::TextEdit::singleline(&mut entry.label)
+						.align(egui::Align2::LEFT_CENTER)
 						.char_limit(100)
 						.hint_text(crate::i18n::translate(
 							"server-settings-profile-form-trait-name",

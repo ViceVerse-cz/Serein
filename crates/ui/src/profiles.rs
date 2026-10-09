@@ -447,6 +447,150 @@ const AVATAR_RING: f32 = 6.0;
 const RADIUS: u8 = 12;
 /// Diameter of the translucent action circles laid over the banner.
 const CIRCLE: f32 = 32.0;
+/// The centred "View Full Profile" card.
+const FULL_WIDTH: f32 = 1000.0;
+const FULL_AVATAR: f32 = 120.0;
+const FULL_BANNER: f32 = 160.0;
+/// Inset of the full profile's identity column; text, actions and the avatar share this edge.
+const FULL_PAD: f32 = 28.0;
+/// Height of the full profile's action row buttons.
+const FULL_ACTION: f32 = 36.0;
+
+/// Square secondary action beside the full profile's primary button.
+fn square_action(ui: &mut egui::Ui, theme: &Theme, icon: Icon, label: &str) -> egui::Response {
+	let label = crate::i18n::translate_if_key(label);
+	let (rect, response) = ui.allocate_exact_size(Vec2::splat(FULL_ACTION), egui::Sense::click());
+	let enabled = ui.is_enabled();
+	let hot = enabled && (response.hovered() || response.has_focus());
+	ui.painter()
+		.rect_filled(rect, 8, if hot { theme.chip_hover } else { theme.chip });
+	icons::paint(
+		ui.painter(),
+		icon,
+		rect.shrink(9.0),
+		if enabled {
+			theme.text
+		} else {
+			theme.muted.gamma_multiply(0.6)
+		},
+	);
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &label));
+	response.on_hover_text(label)
+}
+/// Server tag chip beside the profile name or username.
+fn clan_chip(
+	ui: &mut egui::Ui,
+	theme: &Theme,
+	avatars: &mut Avatars,
+	clan: &model::ClanTag,
+	demo: bool,
+) {
+	egui::Frame::new()
+		.fill(theme.chip)
+		.corner_radius(6)
+		.inner_margin(egui::Margin::symmetric(6, 2))
+		.show(ui, |ui| {
+			ui.spacing_mut().item_spacing.x = 4.0;
+			avatars.show_icon(ui, clan.badge_key(), 14.0, demo, "Server tag badge");
+			ui.add(egui::Label::new(RichText::new(&clan.tag).size(12.0).strong()).extend());
+		})
+		.response
+		.on_hover_text(format!(
+			"{} · {} {}",
+			crate::i18n::translate("profiles-show-server-tag"),
+			crate::i18n::translate("profiles-show-server"),
+			clan.guild
+		));
+}
+/// Discord's official support request form. No supported in-app reporting API is used.
+const REPORT_URL: &str = "https://support.discord.com/hc/en-us/requests/new";
+
+/// Best known account username: the loaded profile, then the relationship lists.
+pub(crate) fn known_username(state: &State, user: Id) -> Option<String> {
+	state
+		.profile
+		.as_ref()
+		.and_then(|view| view.data.as_ref())
+		.filter(|data| data.user.id == user && !data.username.is_empty())
+		.or_else(|| {
+			state
+				.own_profile
+				.data
+				.as_ref()
+				.filter(|data| data.user.id == user && !data.username.is_empty())
+		})
+		.map(|data| data.username.clone())
+		.or_else(|| state.friend_username(user).map(str::to_owned))
+		.or_else(|| state.restricted_user(user).map(|(_, name, _)| name.clone()))
+		.or_else(|| {
+			state
+				.pending_friends()
+				// Requests without a valid profile carry a placeholder instead of a username.
+				.find(|(person, name, _)| person.id == user && !name.starts_with("User ID: "))
+				.map(|(_, name, _)| name.clone())
+		})
+}
+/// Copies the account username, disabled until one is known.
+pub(crate) fn copy_username_button(ui: &mut egui::Ui, state: &State, user: &User) {
+	let username = known_username(state, user.id);
+	if ui
+		.add_enabled(
+			username.is_some(),
+			egui::Button::new(crate::i18n::translate("profiles-copy-username")),
+		)
+		.on_disabled_hover_text(crate::i18n::translate("profiles-username-unavailable"))
+		.clicked()
+		&& let Some(username) = username
+	{
+		ui.ctx().copy_text(username);
+		ui.close();
+	}
+}
+/// Ignore toggle backed by the account relationship; blocked users stay on Unblock instead.
+pub(crate) fn ignore_button(
+	ui: &mut egui::Ui,
+	state: &State,
+	user: &User,
+	enabled: bool,
+) -> Option<crate::user_menu::Action> {
+	let ignored = state.user_ignored(user.id);
+	let label = if ignored == Some(true) {
+		"profiles-unignore"
+	} else {
+		"profiles-ignore"
+	};
+	let clicked = ui
+		.add_enabled(
+			enabled && ignored.is_some() && state.user_blocked(user.id) == Some(false),
+			egui::Button::new(crate::i18n::translate(label)),
+		)
+		.on_hover_text(crate::i18n::translate("profiles-ignore-hint"))
+		.clicked();
+	if !clicked {
+		return None;
+	}
+	ui.close();
+	Some(crate::user_menu::Action::Ignore {
+		user: user.id,
+		ignored: ignored != Some(true),
+	})
+}
+/// Opens Discord's support form in the browser and copies the user ID it asks for.
+pub(crate) fn report_button(ui: &mut egui::Ui, user: &User) {
+	let colors = design::palette(ui);
+	if ui
+		.button(
+			RichText::new(crate::i18n::translate("profiles-report-user-profile"))
+				.color(colors.danger),
+		)
+		.on_hover_text(crate::i18n::translate("profiles-report-hint"))
+		.clicked()
+	{
+		ui.ctx().copy_text(user.id.to_string());
+		ui.ctx().open_url(egui::OpenUrl::new_tab(REPORT_URL));
+		ui.close();
+	}
+}
 
 fn friend_target(state: &State, user: &User) -> bool {
 	!user.webhook
@@ -495,11 +639,15 @@ fn header_circle(ui: &mut egui::Ui, icon: Icon, label: &str, enabled: bool) -> e
 	response.on_hover_text(label)
 }
 /// Add-friend circle; hidden for blocked users, whose relationship lives in the overflow menu.
-fn friend_circle(ui: &mut egui::Ui, state: &State, user: &User) -> Option<Action> {
+fn friend_button(ui: &mut egui::Ui, state: &State, user: &User, compact: bool) -> Option<Action> {
 	if !friend_target(state, user) || state.user_blocked(user.id) != Some(false) {
 		return None;
 	}
 	let friend = state.friends().any(|friend| friend.id == user.id);
+	if friend && !compact {
+		ui.label(RichText::new(crate::i18n::translate("friends")).strong());
+		return None;
+	}
 	let request = state
 		.pending_friends()
 		.find(|(person, _, _)| person.id == user.id);
@@ -532,11 +680,35 @@ fn friend_circle(ui: &mut egui::Ui, state: &State, user: &User) -> Option<Action
 		&& state.friends_known()
 		&& state.friend_requests_known()
 		&& actions_enabled(state);
-	if header_circle(ui, icon, &crate::i18n::translate(label), enabled).clicked() {
-		action
+	let response = if compact {
+		header_circle(ui, icon, &crate::i18n::translate(label), enabled)
 	} else {
-		None
-	}
+		// Adding or accepting is the profile's one primary action; other states stay quiet.
+		let colors = design::palette(ui);
+		let primary = matches!(action, Some(Action::AddFriend(_) | Action::AcceptFriend(_)));
+		let (fill, text) = if primary {
+			(colors.accent, colors.accent_text)
+		} else {
+			(
+				ui.visuals().widgets.inactive.weak_bg_fill,
+				ui.visuals().text_color(),
+			)
+		};
+		ui.add_enabled(
+			enabled,
+			egui::Button::new((
+				icons::atom(icon, 18.0, text),
+				RichText::new(crate::i18n::translate(label))
+					.strong()
+					.color(text),
+			))
+			.fill(fill)
+			.stroke(Stroke::NONE)
+			.corner_radius(8)
+			.min_size(vec2(0.0, FULL_ACTION)),
+		)
+	};
+	if response.clicked() { action } else { None }
 }
 /// Overflow menu behind the three-dots circle: webhook copy, notes, mute, block and friend removal.
 fn more_menu(
@@ -544,6 +716,7 @@ fn more_menu(
 	state: &State,
 	user: &User,
 	dm_channel: Option<Id>,
+	full: &mut bool,
 ) -> Option<Action> {
 	let colors = design::palette(ui);
 	let mut action = None;
@@ -558,6 +731,17 @@ fn more_menu(
 	{
 		ui.ctx().copy_text(user.id.to_string());
 		ui.close();
+	}
+	if !user.webhook {
+		if !*full
+			&& ui
+				.button(crate::i18n::translate("profiles-view-full-profile"))
+				.clicked()
+		{
+			*full = true;
+			ui.close();
+		}
+		copy_username_button(ui, state, user);
 	}
 	if user.webhook || own_profile {
 		return action;
@@ -642,6 +826,9 @@ fn more_menu(
 		ui.close();
 	}
 	ui.separator();
+	if let Some(ignore) = ignore_button(ui, state, user, enabled) {
+		action = Some(Action::Menu(ignore));
+	}
 	let blocked = state.user_blocked(user.id) == Some(true);
 	if ui
 		.add_enabled(
@@ -665,6 +852,7 @@ fn more_menu(
 		}));
 		ui.close();
 	}
+	report_button(ui, user);
 	action
 }
 
@@ -927,22 +1115,22 @@ fn luma(color: Color32) -> f32 {
 	(0.2126 * f32::from(r) + 0.7152 * f32::from(g) + 0.0722 * f32::from(b)) / 255.0
 }
 /// Card colors: the shared palette, or the profile theme when the account configured one.
-struct Theme {
-	gradient: Option<(Color32, Color32)>,
-	text: Color32,
-	muted: Color32,
-	link: Color32,
+pub(crate) struct Theme {
+	pub(crate) gradient: Option<(Color32, Color32)>,
+	pub(crate) text: Color32,
+	pub(crate) muted: Color32,
+	pub(crate) link: Color32,
 	/// Translucent body panel laid over the gradient.
-	panel: Color32,
+	pub(crate) panel: Color32,
 	/// Chips and secondary buttons inside the panel.
-	chip: Color32,
-	chip_hover: Color32,
-	border: Color32,
-	divider: Color32,
-	card: Color32,
+	pub(crate) chip: Color32,
+	pub(crate) chip_hover: Color32,
+	pub(crate) border: Color32,
+	pub(crate) divider: Color32,
+	pub(crate) card: Color32,
 }
 impl Theme {
-	fn new(colors: &design::Palette, theme: Option<[u32; 2]>) -> Self {
+	pub(crate) fn new(colors: &design::Palette, theme: Option<[u32; 2]>) -> Self {
 		match theme {
 			Some([top, bottom]) => {
 				let (top, bottom) = (rgb(top), rgb(bottom));
@@ -1018,7 +1206,7 @@ impl Theme {
 			},
 		}
 	}
-	fn background(&self, rect: Rect) -> egui::Shape {
+	pub(crate) fn background(&self, rect: Rect) -> egui::Shape {
 		let radius = f32::from(RADIUS);
 		let mut shapes = vec![
 			egui::Shape::Rect(
@@ -1074,14 +1262,40 @@ impl Theme {
 	}
 }
 /// Section title; adds breathing room before every section after the first.
-fn section(ui: &mut egui::Ui, theme: &Theme, count: &mut usize, text: &str) {
+fn section(ui: &mut egui::Ui, theme: &Theme, count: &mut usize, text: &str, full: bool) {
 	let text = crate::i18n::translate_if_key(text);
 	if *count > 0 {
-		ui.add_space(10.0);
+		ui.add_space(if full { 18.0 } else { 10.0 });
 	}
 	*count += 1;
-	ui.label(RichText::new(text).size(12.0).strong().color(theme.muted));
-	ui.add_space(2.0);
+	if full {
+		ui.label(
+			RichText::new(sentence(&text))
+				.size(13.0)
+				.strong()
+				.color(theme.muted),
+		);
+		ui.add_space(4.0);
+	} else {
+		ui.label(RichText::new(text).size(12.0).strong().color(theme.muted));
+		ui.add_space(2.0);
+	}
+}
+/// The compact card's all-caps headings read as shouting at full-profile scale.
+fn sentence(text: &str) -> String {
+	let turkish = crate::i18n::current().resolved() == crate::i18n::Language::Turkish;
+	let mut chars = text.chars();
+	chars.next().map_or_else(String::new, |first| {
+		let first = if turkish && first == 'i' { 'İ' } else { first };
+		first
+			.to_uppercase()
+			.chain(chars.flat_map(|c| match (turkish, c) {
+				(true, 'I') => 'ı'.to_lowercase(),
+				(true, 'İ') => 'i'.to_lowercase(),
+				_ => c.to_lowercase(),
+			}))
+			.collect()
+	})
 }
 fn divider(ui: &mut egui::Ui, theme: &Theme) {
 	ui.add_space(4.0);
@@ -1171,6 +1385,58 @@ fn mutual_row(
 	response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+/// Clickable mutual server or friend rows, shared by the side panel and the full profile.
+fn mutual_rows(
+	ui: &mut egui::Ui,
+	kind: Mutuals,
+	data: &model::UserProfile,
+	state: &State,
+	avatars: &mut Avatars,
+	theme: &Theme,
+) -> Option<Action> {
+	let mut action = None;
+	match kind {
+		Mutuals::Servers => {
+			for mutual in &data.mutual_guilds {
+				let guild = state.guilds.iter().find(|g| g.id == mutual.id);
+				let name = guild.map_or_else(
+					|| {
+						format!(
+							"{} {}",
+							crate::i18n::translate("profiles-show-server-2"),
+							mutual.id
+						)
+					},
+					|guild| guild.name.clone(),
+				);
+				let row = mutual_row(ui, theme, &name, |ui, rect| {
+					if let Some(guild) = guild {
+						avatars.paint_guild(ui, guild, rect, state.demo, 16);
+					} else {
+						ui.painter().circle_filled(rect.center(), 16.0, theme.chip);
+					}
+				});
+				if row.clicked() && guild.is_some() {
+					action = Some(Action::Server(mutual.id));
+				}
+			}
+		}
+		Mutuals::Friends => {
+			for friend in &data.mutual_friends {
+				let row = mutual_row(ui, theme, state.user_display_name(friend), |ui, rect| {
+					ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| {
+						avatars.show_plain(ui, friend, 32.0, state.demo);
+					});
+				});
+				if row.clicked() {
+					action = Some(Action::Profile(friend.clone()));
+				}
+			}
+		}
+	}
+	action
+}
+
 /// Side panel listing mutual servers or friends, pointing at the link that opened it.
 #[allow(clippy::too_many_arguments)]
 fn mutuals_panel(
@@ -1254,61 +1520,8 @@ fn mutuals_panel(
 							.id_salt(("profile-mutuals", user, title))
 							.max_height((bounds.height() - 80.0).clamp(88.0, 360.0))
 							.min_scrolled_height((bounds.height() - 80.0).clamp(88.0, 360.0))
-							.show(ui, |ui| match kind {
-								Mutuals::Servers => {
-									for mutual in &data.mutual_guilds {
-										let guild = state.guilds.iter().find(|g| g.id == mutual.id);
-										let name = guild.map_or_else(
-											|| {
-												format!(
-													"{} {}",
-													crate::i18n::translate(
-														"profiles-show-server-2"
-													),
-													mutual.id
-												)
-											},
-											|guild| guild.name.clone(),
-										);
-										let row = mutual_row(ui, theme, &name, |ui, rect| {
-											if let Some(guild) = guild {
-												avatars
-													.paint_guild(ui, guild, rect, state.demo, 16);
-											} else {
-												ui.painter().circle_filled(
-													rect.center(),
-													16.0,
-													theme.chip,
-												);
-											}
-										});
-										if row.clicked() && guild.is_some() {
-											action = Some(Action::Server(mutual.id));
-										}
-									}
-								}
-								Mutuals::Friends => {
-									for friend in &data.mutual_friends {
-										let row = mutual_row(
-											ui,
-											theme,
-											state.user_display_name(friend),
-											|ui, rect| {
-												ui.scope_builder(
-													UiBuilder::new().max_rect(rect),
-													|ui| {
-														avatars.show_plain(
-															ui, friend, 32.0, state.demo,
-														);
-													},
-												);
-											},
-										);
-										if row.clicked() {
-											action = Some(Action::Profile(friend.clone()));
-										}
-									}
-								}
+							.show(ui, |ui| {
+								action = mutual_rows(ui, kind, data, state, avatars, theme);
 							});
 					});
 				});
@@ -1417,43 +1630,107 @@ fn connection_icons(
 	theme: &Theme,
 	connections: &[model::ProfileConnection],
 	opening: &mut Option<String>,
+	named: bool,
 ) {
-	ui.horizontal_wrapped(|ui| {
-		ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
-		for connection in connections {
-			let (label, icon) = brand(&connection.kind);
-			let url = connection_url(connection);
-			let sense = if url.is_some() {
-				egui::Sense::click()
-			} else {
-				egui::Sense::hover()
-			};
+	let row_width = ui.available_width().max(36.0);
+	let mut connection = |ui: &mut egui::Ui, connection: &model::ProfileConnection| {
+		let (label, icon) = brand(&connection.kind);
+		let url = connection_url(connection);
+		let sense = if url.is_some() {
+			egui::Sense::click()
+		} else {
+			egui::Sense::hover()
+		};
+		let mut tip = format!("{label}: {}", connection.name);
+		if connection.verified {
+			tip.push_str(" ✓");
+		}
+		let response = if named {
+			// Full profile: a brand tile, the account name and an outbound arrow per row.
+			let name = ui.painter().layout_no_wrap(
+				connection.name.clone(),
+				egui::FontId::proportional(15.0),
+				theme.text,
+			);
+			let arrow = if url.is_some() { 22.0 } else { 0.0 };
+			let width = (40.0 + name.size().x + arrow).min(row_width);
+			let (rect, response) = ui.allocate_exact_size(vec2(width, 32.0), sense);
+			let tile = Rect::from_min_size(rect.min, Vec2::splat(32.0));
+			ui.painter().rect_filled(tile, 8, Color32::WHITE);
+			icons::paint(
+				ui.painter(),
+				icon,
+				tile.shrink(6.0),
+				Color32::from_rgb(24, 27, 31),
+			);
+			let text = pos2(tile.right() + 8.0, rect.center().y - name.size().y * 0.5);
+			let name_right = (text.x + name.size().x).min(rect.right() - arrow);
+			if response.hovered() && url.is_some() {
+				ui.painter().hline(
+					text.x..=name_right,
+					text.y + name.size().y,
+					Stroke::new(1.0, theme.text),
+				);
+			}
+			ui.painter()
+				.with_clip_rect(Rect::from_x_y_ranges(
+					rect.left()..=name_right,
+					rect.y_range(),
+				))
+				.galley(text, name, theme.text);
+			if url.is_some() {
+				icons::paint(
+					ui.painter(),
+					Icon::External,
+					Rect::from_center_size(
+						pos2(name_right + 12.0, rect.center().y),
+						Vec2::splat(14.0),
+					),
+					theme.muted,
+				);
+			}
+			response
+		} else {
 			let (rect, response) = ui.allocate_exact_size(Vec2::splat(36.0), sense);
 			if response.hovered() {
 				ui.painter()
 					.circle_filled(rect.center(), 18.0, theme.chip_hover);
 			}
-			icons::paint(ui.painter(), icon, rect.shrink(5.0), theme.text);
-			let mut tip = format!("{label}: {}", connection.name);
-			if connection.verified {
-				tip.push_str(" ✓");
-			}
-			response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Link, true, &tip));
-			let response = response.on_hover_text(tip);
-			if let Some(url) = url
-				&& response
-					.on_hover_cursor(egui::CursorIcon::PointingHand)
-					.clicked()
-			{
-				*opening = Some(url);
-			}
+			icons::paint(ui.painter(), icon, rect.shrink(7.0), theme.text);
+			response
+		};
+		response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Link, true, &tip));
+		let response = response.on_hover_text(tip);
+		if let Some(url) = url
+			&& response
+				.on_hover_cursor(egui::CursorIcon::PointingHand)
+				.clicked()
+		{
+			*opening = Some(url);
 		}
-	});
+	};
+	if named {
+		ui.vertical(|ui| {
+			ui.spacing_mut().item_spacing.y = 8.0;
+			for item in connections {
+				connection(ui, item);
+			}
+		});
+	} else {
+		ui.horizontal_wrapped(|ui| {
+			ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
+			for item in connections {
+				connection(ui, item);
+			}
+		});
+	}
 }
 
 fn creation_date(id: Id) -> Option<String> {
-	let seconds = ((id.0 >> 22) + 1_420_070_400_000) / 1000;
-	time::OffsetDateTime::from_unix_timestamp(seconds as i64)
+	local_date(((id.0 >> 22) + 1_420_070_400_000) as i64 / 1000)
+}
+fn local_date(seconds: i64) -> Option<String> {
+	time::OffsetDateTime::from_unix_timestamp(seconds)
 		.ok()
 		.map(|date| crate::local_time::local(date).date().to_string())
 }
@@ -1468,10 +1745,11 @@ fn role_chips(
 	let Some(roles) = state.guild_roles(guild.guild) else {
 		return;
 	};
+	let assigned = state.profile_role_ids(user, guild);
 	let roles: Vec<_> = roles
 		.iter()
 		.rev()
-		.filter(|role| role.id != guild.guild && guild.roles.contains(&role.id))
+		.filter(|role| role.id != guild.guild && assigned.contains(&role.id))
 		.collect();
 	let max_width = ui.available_width();
 	let widths: Vec<_> = roles
@@ -1520,10 +1798,15 @@ fn role_chips(
 	ui.horizontal_wrapped(|ui| {
 		ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
 		for (role, width) in roles.iter().zip(&widths).take(visible) {
-			let galley = ui.painter().layout_no_wrap(
-				role.name.clone(),
+			let galley = crate::role_names::galley(
+				ui,
+				&role.name,
 				egui::FontId::proportional(12.0),
+				// Only the dot carries the role color.
+				None,
+				theme.chip,
 				theme.text,
+				(*width - 21.0).max(0.0),
 			);
 			let size = vec2(*width, galley.size().y + 6.0);
 			let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
@@ -1577,6 +1860,362 @@ fn role_chips(
 	});
 }
 
+/// One board entry: portrait cover, then the name, tag chips and comment centred beside it.
+fn board_game(
+	ui: &mut egui::Ui,
+	game: &model::ProfileGame,
+	avatars: &mut Avatars,
+	demo: bool,
+	theme: &Theme,
+) {
+	const COVER: Vec2 = vec2(84.0, 112.0);
+	// Names normally arrive with the board; an unresolved entry still needs a stable label.
+	let name = game
+		.name
+		.clone()
+		.unwrap_or_else(|| format!("Game {}", game.id));
+	ui.horizontal(|ui| {
+		ui.spacing_mut().item_spacing.x = 16.0;
+		let cover = avatars.show_cover(ui, game.cover_key(), COVER, demo, &name);
+		let mut text = ui.new_child(
+			UiBuilder::new()
+				.max_rect(Rect::from_x_y_ranges(
+					cover.rect.right() + 16.0..=ui.max_rect().right(),
+					cover.rect.y_range(),
+				))
+				.layout(egui::Layout::top_down(egui::Align::Min)),
+		);
+		// Centre the block on the cover's midline using last frame's measured height.
+		let id = ui.auto_id_with(("board-game-height", game.id));
+		let height = text.data(|data| data.get_temp::<f32>(id)).unwrap_or(0.0);
+		text.add_space(((COVER.y - height) * 0.5).max(0.0));
+		let top = text.cursor().top();
+		board_text(&mut text, game, &name, theme);
+		let measured = text.min_rect().bottom() - top;
+		if (measured - height).abs() > 0.5 {
+			text.data_mut(|data| data.insert_temp(id, measured));
+			text.ctx().request_repaint();
+		}
+		// A wrapped title/comment can be taller than the cover. Reserve its full row.
+		ui.advance_cursor_after_rect(text.min_rect());
+	});
+}
+fn board_text(ui: &mut egui::Ui, game: &model::ProfileGame, name: &str, theme: &Theme) {
+	ui.spacing_mut().item_spacing.y = 8.0;
+	ui.add(egui::Label::new(RichText::new(name).size(17.0).strong().color(theme.text)).wrap());
+	if !game.tags.is_empty() {
+		ui.horizontal_wrapped(|ui| {
+			ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+			for tag in &game.tags {
+				let tag = sentence(&tag.replace('_', " "));
+				egui::Frame::new()
+					.stroke(Stroke::new(1.0, theme.border))
+					.corner_radius(8)
+					.inner_margin(egui::Margin::symmetric(10, 4))
+					.show(ui, |ui| {
+						ui.label(RichText::new(tag).size(13.0).color(theme.muted));
+					});
+			}
+		});
+	}
+	if let Some(comment) = game.comment.as_deref().filter(|c| !c.trim().is_empty()) {
+		ui.add(egui::Label::new(RichText::new(comment).size(14.0).color(theme.muted)).wrap());
+	}
+}
+
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub(crate) fn debug_board_layout() {
+	let language = crate::i18n::current();
+	crate::i18n::set_current(crate::i18n::Language::Turkish);
+	assert_eq!(sentence("HAKKIMDA"), "Hakkımda");
+	assert_eq!(sentence("ETKİNLİK"), "Etkinlik");
+	crate::i18n::set_current(language);
+	let ctx = egui::Context::default();
+	let mut avatars = Avatars::default();
+	let game = model::ProfileGame {
+		id: Id(7),
+		name: Some("A synthetic game".into()),
+		icon: None,
+		cover: None,
+		comment: Some("A long game comment with wrapping. ".repeat(7)),
+		tags: vec![],
+	};
+	for _ in 0..3 {
+		let output = ctx.run_ui(Default::default(), |ui| {
+			ui.set_width(220.0);
+			let theme = Theme::new(&design::palette(ui), None);
+			let row = ui.scope(|ui| board_game(ui, &game, &mut avatars, true, &theme));
+			assert!(
+				row.response.rect.height() > 112.0,
+				"long comments extend the row"
+			);
+			let next = ui.label("Next game");
+			assert!(next.rect.top() >= row.response.rect.bottom());
+		});
+		output.drop_without_applying_deltas();
+	}
+}
+
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub(crate) fn debug_activity_panel(state: &State) {
+	let ctx = egui::Context::default();
+	let activity = model::RichActivity {
+		kind: 0,
+		name: "Synthetic current activity".into(),
+		details: None,
+		state: None,
+		image: None,
+		small_image: None,
+		started_at: None,
+		ends_at: None,
+	};
+	for activities in [&[][..], std::slice::from_ref(&activity)] {
+		let mut avatars = Avatars::default();
+		let output = ctx.run_ui(Default::default(), |ui| {
+			let theme = Theme::new(&design::palette(ui), None);
+			full_panel(
+				ui,
+				&mut FullTab::Activity,
+				None,
+				None,
+				state,
+				activities,
+				&mut avatars,
+				&theme,
+			);
+		});
+		let labels: Vec<_> = output
+			.shapes
+			.iter()
+			.filter_map(|shape| match &shape.shape {
+				egui::Shape::Text(text) => Some(text.galley.text()),
+				_ => None,
+			})
+			.collect();
+		let empty = crate::i18n::translate("profiles-activity-empty");
+		assert_eq!(
+			labels.iter().any(|label| *label == empty),
+			activities.is_empty()
+		);
+		if !activities.is_empty() {
+			assert!(labels.contains(&"Synthetic current activity"));
+		}
+		output.drop_without_applying_deltas();
+	}
+	println!(
+		"Profile activity renders current presence before metadata and has an honest empty state."
+	);
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum FullTab {
+	#[default]
+	Board,
+	Activity,
+	Friends,
+	Servers,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn full_panel(
+	ui: &mut egui::Ui,
+	tab: &mut FullTab,
+	data: Option<&model::UserProfile>,
+	view: Option<&ProfileView>,
+	state: &State,
+	activities: &[model::RichActivity],
+	avatars: &mut Avatars,
+	theme: &Theme,
+) -> Option<Action> {
+	let mut action = None;
+	// Text tabs with an underline, sharing one baseline rule, rather than filled pills.
+	let tabs = ui.horizontal_wrapped(|ui| {
+		ui.spacing_mut().item_spacing = vec2(28.0, 8.0);
+		for (value, label) in [
+			(FullTab::Board, crate::i18n::translate("profiles-board")),
+			(
+				FullTab::Activity,
+				sentence(&crate::i18n::translate("profiles-show-activity")),
+			),
+			(
+				FullTab::Friends,
+				format!(
+					"{} {}",
+					data.map_or(0, |p| p.mutual_friends.len()),
+					crate::i18n::translate("profiles-show-mutual-friends")
+				),
+			),
+			(
+				FullTab::Servers,
+				format!(
+					"{} {}",
+					data.map_or(0, |p| p.mutual_guilds.len()),
+					crate::i18n::translate("profiles-show-mutual-servers")
+				),
+			),
+		] {
+			let selected = *tab == value;
+			let galley = ui.painter().layout_no_wrap(
+				label.clone(),
+				egui::FontId::new(16.0, design::medium_family(ui.ctx())),
+				theme.text,
+			);
+			let (rect, response) =
+				ui.allocate_exact_size(galley.size() + vec2(0.0, 14.0), egui::Sense::click());
+			let color = if selected || response.hovered() || response.has_focus() {
+				theme.text
+			} else {
+				theme.muted
+			};
+			ui.painter()
+				.galley_with_override_text_color(rect.min, galley, color);
+			if selected {
+				ui.painter().rect_filled(
+					Rect::from_min_max(pos2(rect.left(), rect.bottom() - 2.0), rect.right_bottom()),
+					1,
+					theme.text,
+				);
+			}
+			response.widget_info(|| {
+				egui::WidgetInfo::selected(egui::Role::Tab, true, selected, &label)
+			});
+			if response
+				.on_hover_cursor(egui::CursorIcon::PointingHand)
+				.clicked()
+			{
+				*tab = value;
+			}
+		}
+	});
+	let rule = tabs.response.rect.bottom();
+	ui.painter().hline(
+		ui.max_rect().x_range(),
+		rule,
+		Stroke::new(1.0, theme.divider),
+	);
+	ui.add_space(20.0);
+	ui.push_id(("full-profile-tab", *tab as u8), |ui| {
+		ui.spacing_mut().item_spacing.y = 12.0;
+		if *tab != FullTab::Activity && view.is_none_or(|view| view.loading) && data.is_none() {
+			ui.spinner();
+			return;
+		}
+		match tab {
+			FullTab::Board => {
+				let Some(board) = data.and_then(|data| data.board.as_ref()) else {
+					ui.label(crate::i18n::translate("profiles-board-unavailable"));
+					return;
+				};
+				if board.iter().all(|widget| widget.games.is_empty()) {
+					ui.label(crate::i18n::translate("profiles-board-empty"));
+				}
+				for (index, widget) in board
+					.iter()
+					.enumerate()
+					.filter(|(_, widget)| !widget.games.is_empty())
+				{
+					egui::Frame::new()
+						.fill(theme.panel)
+						.corner_radius(12)
+						.inner_margin(20)
+						.show(ui, |ui| {
+							ui.set_width(ui.available_width());
+							ui.spacing_mut().item_spacing.y = 16.0;
+							ui.label(
+								RichText::new(widget.kind.title())
+									.strong()
+									.size(16.0)
+									.color(theme.text),
+							);
+							let id = ui.scope_id().with((
+								"board-expanded",
+								data.map(|data| data.user.id),
+								index,
+							));
+							let expanded =
+								ui.data(|data| data.get_temp::<bool>(id)).unwrap_or(false);
+							for game in
+								widget
+									.games
+									.iter()
+									.take(if expanded { usize::MAX } else { 2 })
+							{
+								board_game(ui, game, avatars, state.demo, theme);
+							}
+							if widget.games.len() > 2 {
+								let label = crate::i18n::translate(if expanded {
+									"profiles-board-show-less"
+								} else {
+									"profiles-board-show-more"
+								});
+								let response = ui.add(
+									egui::Label::new(
+										RichText::new(label).size(15.0).color(theme.muted),
+									)
+									.sense(egui::Sense::click()),
+								);
+								if response.hovered() {
+									ui.painter().hline(
+										response.rect.x_range(),
+										response.rect.bottom(),
+										Stroke::new(1.0, theme.muted),
+									);
+								}
+								if response
+									.on_hover_cursor(egui::CursorIcon::PointingHand)
+									.clicked()
+								{
+									ui.data_mut(|data| data.insert_temp(id, !expanded));
+								}
+							}
+						});
+				}
+			}
+			FullTab::Activity => {
+				activity_list(
+					ui,
+					ui.scope_id().with("current-profile-activity"),
+					activities,
+					avatars,
+					state.demo,
+					(theme.panel, theme.muted),
+				);
+				if activities.is_empty() {
+					ui.label(
+						RichText::new(crate::i18n::translate("profiles-activity-empty"))
+							.color(theme.muted),
+					);
+				}
+			}
+			FullTab::Friends | FullTab::Servers => {
+				if let Some(data) = data {
+					let friends = *tab == FullTab::Friends;
+					if if friends {
+						data.mutual_friends.is_empty()
+					} else {
+						data.mutual_guilds.is_empty()
+					} {
+						ui.label(crate::i18n::translate("profiles-mutuals-empty"));
+					}
+					action = mutual_rows(
+						ui,
+						if friends {
+							Mutuals::Friends
+						} else {
+							Mutuals::Servers
+						},
+						data,
+						state,
+						avatars,
+						theme,
+					);
+				}
+			}
+		}
+	});
+	action
+}
+
 pub(crate) fn profile_opener_id() -> egui::Id {
 	egui::Id::unique("serein-profile-opener")
 }
@@ -1595,6 +2234,11 @@ pub struct ProfileSession {
 	message_height: f32,
 	bio_identity: Option<egui::Id>,
 	bio_revealed: u32,
+	/// Shown as the centred full profile instead of the anchored popout.
+	full: bool,
+	full_tab: FullTab,
+	/// The one automatic note read made for the open card, so a failure is not retried.
+	note_requested: Option<(u64, Id)>,
 }
 
 pub enum ProfileEffect {
@@ -1615,6 +2259,7 @@ impl ProfileSession {
 		if self.message_target != Some((generation, user)) {
 			self.reset_card_input();
 			self.message_target = Some((generation, user));
+			self.full_tab = FullTab::Board;
 		}
 	}
 
@@ -1634,6 +2279,21 @@ impl ProfileSession {
 
 	pub fn open_user(&self) -> Option<&User> {
 		self.open.as_ref()
+	}
+
+	/// Opens the centred full profile, as from the popout's "View Full Profile".
+	pub fn open_full(&mut self, user: User) {
+		self.command_open(user);
+		self.full = true;
+	}
+
+	/// Whether the open card should read its private note now; true once per card.
+	pub fn note_wanted(&mut self, generation: u64, user: Id) -> bool {
+		if self.note_requested == Some((generation, user)) {
+			return false;
+		}
+		self.note_requested = Some((generation, user));
+		true
 	}
 
 	pub fn anchor_or_place(&mut self, ctx: &egui::Context, user_id: Id) -> Pos2 {
@@ -1684,10 +2344,12 @@ impl ProfileSession {
 			self.pending.push(ProfileEffect::ClearCore);
 		}
 		self.reset_card_input();
+		self.full = false;
 		self.open = Some(user.clone());
 	}
 
 	pub fn command_open(&mut self, user: User) {
+		self.full = false;
 		if self.open.as_ref().is_none_or(|open| open.id != user.id) {
 			self.reset_card_input();
 		}
@@ -1707,6 +2369,8 @@ impl ProfileSession {
 	/// Drops the card and keeps the loaded profile.
 	pub fn hide(&mut self) {
 		self.reset_card_input();
+		self.full = false;
+		self.note_requested = None;
 		self.open = None;
 		self.anchor = None;
 		self.trigger = None;
@@ -1720,15 +2384,17 @@ impl ProfileSession {
 	}
 
 	pub fn close_unless_armed(&mut self, ctx: &egui::Context) {
-		let keep = self.trigger.is_some_and(|rect| {
-			ctx.input(|input| {
-				input.pointer.any_pressed()
-					&& input
-						.pointer
-						.interact_pos()
-						.is_some_and(|pos| rect.contains(pos))
-			})
-		});
+		// The full profile covers its opener, so a backdrop click always dismisses it.
+		let keep = !self.full
+			&& self.trigger.is_some_and(|rect| {
+				ctx.input(|input| {
+					input.pointer.any_pressed()
+						&& input
+							.pointer
+							.interact_pos()
+							.is_some_and(|pos| rect.contains(pos))
+				})
+			});
 		if !keep {
 			self.close();
 		}
@@ -1849,7 +2515,8 @@ fn message_input(
 								.char_limit(client_core::MAX_CONTENT)
 								.desired_width(edit_width)
 								.desired_rows(1)
-								.margin(vec2(0.0, ((button - row) / 2.0).max(0.0)))
+								.min_size(vec2(0.0, button))
+								.align(egui::Align2::LEFT_CENTER)
 								.frame(egui::Frame::NONE)
 								.text_color(theme.text)
 								.hint_text(RichText::new(placeholder).color(theme.muted)),
@@ -1910,13 +2577,9 @@ fn message_input(
 			crate::i18n::translate("profiles-message-sending"),
 			theme.muted,
 		))
-	} else if !state.can_open_user_dm(user) {
+	} else if !state.can_open_user_dm(user) && !state.user_action_pending() {
 		Some((
-			crate::i18n::translate(if state.user_action_pending() {
-				"profiles-message-busy"
-			} else {
-				"profiles-message-offline"
-			}),
+			crate::i18n::translate("profiles-message-offline"),
 			theme.text,
 		))
 	} else if length + 200 > client_core::MAX_CONTENT {
@@ -2030,10 +2693,28 @@ pub fn show_with_session(
 	session.reconcile_card_input(state.generation, user.id);
 	let colors = design::palette(ui);
 	let viewport = ui.ctx().content_rect();
-	let bounds = viewport.shrink(8.0);
 	let view = view.filter(|_| !user.webhook);
+	let full = session.full && !user.webhook;
+	let mut expand = full;
+	let bounds = viewport.shrink(if full { 32.0 } else { 8.0 });
+	let full_width = FULL_WIDTH.min(bounds.width());
+	let split = full_width >= 700.0;
+	let width = if split {
+		(full_width - 72.0) * 0.46
+	} else {
+		full_width - 48.0
+	};
+	let (width, banner_height, avatar_size, pad) = if full {
+		(width, FULL_BANNER, FULL_AVATAR, FULL_PAD)
+	} else {
+		(WIDTH, 105.0, AVATAR, PAD)
+	};
+	// Height shared by both full-profile columns below the close button.
+	let column = (bounds.height() - 48.0).max(80.0) - 36.0;
 	let data = view.and_then(|v| v.data.as_ref());
 	let theme = Theme::new(&colors, data.and_then(|d| d.theme_colors));
+	// The board column sits on the modal, not the profile theme, so it keeps app colors.
+	let panel_theme = Theme::new(&colors, None);
 	let guild = state
 		.selected
 		.and_then(|id| state.channels.iter().find(|c| c.id == id))
@@ -2058,75 +2739,72 @@ pub fn show_with_session(
 	let mut mutuals = ui.ctx().data(|d| d.get_temp::<Mutuals>(mutuals_id));
 	let mut mutual_anchor = None;
 	let mut mutual_links = Vec::new();
-	let x = if anchor.x + 12.0 + WIDTH <= bounds.right() {
-		anchor.x + 12.0
-	} else {
-		(anchor.x - 12.0 - WIDTH).max(bounds.left())
-	};
-	let response = egui::Area::new(egui::Id::unique("user-profile-popout"))
-		.kind(egui::UiKind::Popup)
-		.order(egui::Order::Foreground)
-		.fixed_pos(pos2(x, (anchor.y - 40.0).max(bounds.top())))
-		.constrain_to(bounds)
-		.interactable(true)
-		.show(ui.ctx(), |ui| {
-			ui.set_width(WIDTH);
-			ui.set_max_width(WIDTH);
-			// Area remembers its previous size; let details grow beyond a short prior profile.
-			ui.set_max_height(bounds.height());
-			ui.spacing_mut().item_spacing = vec2(8.0, 4.0);
-			// Cross-label drag selection paints stray highlights in this dense card.
-			ui.style_mut().interaction.selectable_labels = false;
-			let background = ui.painter().add(egui::Shape::Noop);
-			{
-				// egui resolves strong, button and spinner colors from the widget strokes rather
-				// than the override, so a bright theme needs every stroke recolored too.
-				let visuals = ui.visuals_mut();
-				visuals.override_text_color = Some(theme.text);
-				visuals.hyperlink_color = theme.link;
-				let widgets = &mut visuals.widgets;
-				for widget in [
-					&mut widgets.noninteractive,
-					&mut widgets.inactive,
-					&mut widgets.hovered,
-					&mut widgets.active,
-					&mut widgets.open,
-				] {
-					widget.fg_stroke.color = theme.text;
-					widget.bg_stroke = Stroke::NONE;
-				}
-				widgets.inactive.weak_bg_fill = theme.chip;
-				widgets.hovered.weak_bg_fill = theme.chip_hover;
-				widgets.active.weak_bg_fill = theme.chip_hover;
+	let mut full_tab = session.full_tab;
+	let mut panel_action = None;
+	let mut close = false;
+	let mut card = |ui: &mut egui::Ui, avatars: &mut Avatars| {
+		ui.set_width(width);
+		ui.set_max_width(width);
+		// Area remembers its previous size; let details grow beyond a short prior profile.
+		ui.set_max_height(bounds.height());
+		if full && split {
+			// The identity column spans the modal like the board beside it.
+			ui.set_min_height(column);
+		}
+		ui.spacing_mut().item_spacing = vec2(8.0, 4.0);
+		// Cross-label drag selection paints stray highlights in this dense card.
+		ui.style_mut().interaction.selectable_labels = false;
+		let background = ui.painter().add(egui::Shape::Noop);
+		{
+			// egui resolves strong, button and spinner colors from the widget strokes rather
+			// than the override, so a bright theme needs every stroke recolored too.
+			let visuals = ui.visuals_mut();
+			visuals.override_text_color = Some(theme.text);
+			visuals.hyperlink_color = theme.link;
+			let widgets = &mut visuals.widgets;
+			for widget in [
+				&mut widgets.noninteractive,
+				&mut widgets.inactive,
+				&mut widgets.hovered,
+				&mut widgets.active,
+				&mut widgets.open,
+			] {
+				widget.fg_stroke.color = theme.text;
+				widget.bg_stroke = Stroke::NONE;
 			}
+			widgets.inactive.weak_bg_fill = theme.chip;
+			widgets.hovered.weak_bg_fill = theme.chip_hover;
+			widgets.active.weak_bg_fill = theme.chip_hover;
+		}
 
-			// Header: banner, overlapping avatar with presence, badge pill.
-			let has_banner = data.as_ref().and_then(|d| d.banner_url()).is_some();
-			let sense = if has_banner {
-				egui::Sense::click()
-			} else {
-				egui::Sense::hover()
-			};
-			let (banner, banner_response) = ui.allocate_exact_size(vec2(WIDTH, 105.0), sense);
-			let top_corners = CornerRadius {
-				nw: RADIUS,
-				ne: RADIUS,
-				sw: 0,
-				se: 0,
-			};
-			if let Some(data) = data {
-				avatars.paint_banner(ui, data, banner, top_corners, state.demo);
-			} else {
-				ui.painter().rect_filled(banner, top_corners, colors.raised);
-			}
-			// Action circles in the banner's top-right corner: add friend, then the overflow menu.
-			let circles = Rect::from_min_size(
-				pos2(
-					banner.right() - PAD - 2.0 * CIRCLE - 8.0,
-					banner.top() + PAD,
-				),
-				vec2(2.0 * CIRCLE + 8.0, CIRCLE),
-			);
+		// Header: banner, overlapping avatar with presence, badge pill.
+		let has_banner = data.as_ref().and_then(|d| d.banner_url()).is_some();
+		let sense = if has_banner {
+			egui::Sense::click()
+		} else {
+			egui::Sense::hover()
+		};
+		let (banner, banner_response) = ui.allocate_exact_size(vec2(width, banner_height), sense);
+		let top_corners = CornerRadius {
+			nw: RADIUS,
+			ne: RADIUS,
+			sw: 0,
+			se: 0,
+		};
+		if let Some(data) = data {
+			avatars.paint_banner(ui, data, banner, top_corners, state.demo);
+		} else {
+			ui.painter().rect_filled(banner, top_corners, colors.raised);
+		}
+		// Action circles in the banner's top-right corner: add friend, then the overflow menu.
+		let circles = Rect::from_min_size(
+			pos2(
+				banner.right() - PAD - 2.0 * CIRCLE - 8.0,
+				banner.top() + PAD,
+			),
+			vec2(2.0 * CIRCLE + 8.0, CIRCLE),
+		);
+		if !full {
 			ui.scope_builder(
 				UiBuilder::new()
 					.max_rect(circles)
@@ -2135,287 +2813,324 @@ pub fn show_with_session(
 					ui.spacing_mut().item_spacing.x = 8.0;
 					let more = header_circle(ui, Icon::More, "profiles-show-more", true);
 					egui::Popup::menu(&more).id(menu_id).show(|ui| {
-						if let Some(picked) = more_menu(ui, state, user, dm_channel) {
+						if let Some(picked) = more_menu(ui, state, user, dm_channel, &mut expand) {
 							action = Some(picked);
 						}
 					});
-					if let Some(friend_action) = friend_circle(ui, state, user) {
+					if let Some(friend_action) = friend_button(ui, state, user, true) {
 						action = Some(friend_action);
 					}
 				},
 			);
-			let avatar_rect = Rect::from_min_size(
-				banner.left_bottom() + vec2(PAD + 4.0, -AVATAR * 0.5 - 6.0),
-				Vec2::splat(AVATAR),
-			);
-			if has_banner {
-				let pointer_in_subwidgets = ui.input(|i| {
-					i.pointer
-						.hover_pos()
-						.is_some_and(|pos| circles.contains(pos) || avatar_rect.contains(pos))
-				});
-				let banner_response = if !pointer_in_subwidgets {
-					banner_response
-						.on_hover_cursor(egui::CursorIcon::ZoomIn)
-						.on_hover_text(crate::i18n::translate("profiles-show-view-banner"))
-				} else {
-					banner_response
-				};
-				banner_response.widget_info(|| {
-					egui::WidgetInfo::labeled(
-						egui::Role::Button,
-						true,
-						crate::i18n::translate("profiles-show-view-banner"),
-					)
-				});
-				let pointer_interact_in_subwidgets = ui.input(|i| {
-					i.pointer
-						.interact_pos()
-						.is_some_and(|pos| circles.contains(pos) || avatar_rect.contains(pos))
-				});
-				if banner_response.clicked()
-					&& !pointer_interact_in_subwidgets
-					&& let Some(data) = data
-					&& let Some(url) = data.banner_url()
-				{
-					action = Some(Action::Banner(model::EmbedMedia {
-						url: Some(url),
-						width: 2048,
-						height: 1024,
-						..Default::default()
-					}));
-				}
+		}
+
+		let avatar_rect = Rect::from_min_size(
+			banner.left_bottom() + vec2(pad + 4.0, -avatar_size * 0.5 - 6.0),
+			Vec2::splat(avatar_size),
+		);
+		if has_banner {
+			let pointer_in_subwidgets = ui.input(|i| {
+				i.pointer.hover_pos().is_some_and(|pos| {
+					(!full && circles.contains(pos)) || avatar_rect.contains(pos)
+				})
+			});
+			let banner_response = if !pointer_in_subwidgets {
+				banner_response
+					.on_hover_cursor(egui::CursorIcon::ZoomIn)
+					.on_hover_text(crate::i18n::translate("profiles-show-view-banner"))
+			} else {
+				banner_response
+			};
+			banner_response.widget_info(|| {
+				egui::WidgetInfo::labeled(
+					egui::Role::Button,
+					true,
+					crate::i18n::translate("profiles-show-view-banner"),
+				)
+			});
+			let pointer_interact_in_subwidgets = ui.input(|i| {
+				i.pointer.interact_pos().is_some_and(|pos| {
+					(!full && circles.contains(pos)) || avatar_rect.contains(pos)
+				})
+			});
+			if banner_response.clicked()
+				&& !pointer_interact_in_subwidgets
+				&& let Some(data) = data
+				&& let Some(url) = data.banner_url()
+			{
+				action = Some(Action::Banner(model::EmbedMedia {
+					url: Some(url),
+					width: 2048,
+					height: 1024,
+					..Default::default()
+				}));
 			}
-			ui.painter().circle_filled(
-				avatar_rect.center(),
-				AVATAR * 0.5 + AVATAR_RING,
-				theme.card,
-			);
-			let pointer_on_presence = pointer_on_presence(
-				status,
-				avatar_rect,
-				ui.input(|input| input.pointer.hover_pos()),
-			);
-			ui.scope_builder(UiBuilder::new().max_rect(avatar_rect), |ui| {
-				let mut response = avatars.with_avatar_animation(true, |avatars| {
-					if let Some(data) = data {
-						avatars.show_profile_avatar(ui, data, AVATAR, state.demo)
-					} else {
-						avatars.show(ui, user, AVATAR, state.demo)
-					}
-				});
-				response.widget_info(|| {
-					egui::WidgetInfo::labeled(
-						egui::Role::Button,
-						true,
-						crate::i18n::translate("profiles-show-view-profile-picture"),
-					)
-				});
-				if !pointer_on_presence {
-					response = response
-						.on_hover_cursor(egui::CursorIcon::ZoomIn)
-						.on_hover_text(crate::i18n::translate(
-							"profiles-show-view-profile-picture",
-						));
-				}
-				if response.clicked() && !pointer_on_presence {
-					let mut url = data.map_or(user, |data| &data.user).avatar_url();
-					if let Some(data) = data
-						&& let Some(member) = data.guild.as_ref()
-						&& let Some(hash) = member
-							.avatar
-							.as_deref()
-							.filter(|hash| model::valid_avatar_hash(hash))
-					{
-						let ext = if hash.starts_with("a_") { "gif" } else { "png" };
-						url = format!(
-							"https://cdn.discordapp.com/guilds/{}/users/{}/avatars/{hash}.{ext}?size=128",
-							member.guild, data.user.id
-						);
-					}
-					action = Some(Action::Avatar(model::EmbedMedia {
-						url: Some(url.replace("size=128", "size=2048")),
-						width: 2048,
-						height: 2048,
-						..Default::default()
-					}));
+		}
+		ui.painter().circle_filled(
+			avatar_rect.center(),
+			avatar_size * 0.5 + AVATAR_RING,
+			theme.card,
+		);
+		let pointer_on_presence = pointer_on_presence(
+			status,
+			avatar_rect,
+			ui.input(|input| input.pointer.hover_pos()),
+		);
+		ui.scope_builder(UiBuilder::new().max_rect(avatar_rect), |ui| {
+			let mut response = avatars.with_avatar_animation(true, |avatars| {
+				if let Some(data) = data {
+					avatars.show_profile_avatar(ui, data, avatar_size, state.demo)
+				} else {
+					avatars.show(ui, user, avatar_size, state.demo)
 				}
 			});
-			if let Some(status) = status {
-				presence_badge(ui, avatar_rect, status, clients, theme.card);
+			let image_avatar = full || user.webhook;
+			let label = crate::i18n::translate(if image_avatar {
+				"profiles-show-view-profile-picture"
+			} else {
+				"profiles-view-full-profile"
+			});
+			response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
+			if !pointer_on_presence {
+				response = response
+					.on_hover_cursor(if image_avatar {
+						egui::CursorIcon::ZoomIn
+					} else {
+						egui::CursorIcon::PointingHand
+					})
+					.on_hover_text(label);
 			}
-			let mut header_bottom = avatar_rect.bottom();
-			let (icon_badges, text_badges): (Vec<_>, Vec<_>) = data
-				.map(|d| d.badges.iter().partition(|b| b.icon.is_some()))
-				.unwrap_or_default();
-			if !icon_badges.is_empty() {
-				const BADGE: f32 = 22.0;
-				let right = banner.right() - PAD;
-				let count = icon_badges.len() as f32;
-				let width = (count * BADGE + (count - 1.0) * 4.0 + 12.0)
-					.min(right - avatar_rect.right() - 12.0);
-				let pill = Rect::from_min_max(
-					pos2(right - width, banner.bottom() + 8.0),
-					pos2(right, banner.bottom() + 200.0),
-				);
-				let response = ui.scope_builder(UiBuilder::new().max_rect(pill), |ui| {
-					egui::Frame::new()
-						.fill(theme.panel)
-						.corner_radius(RADIUS)
-						.inner_margin(6)
-						.show(ui, |ui| {
-							ui.set_width(width - 12.0);
+			if response.clicked() && !pointer_on_presence && !image_avatar {
+				expand = true;
+			} else if response.clicked() && !pointer_on_presence {
+				let mut url = data.map_or(user, |data| &data.user).avatar_url();
+				if let Some(data) = data
+					&& let Some(member) = data.guild.as_ref()
+					&& let Some(hash) = member
+						.avatar
+						.as_deref()
+						.filter(|hash| model::valid_avatar_hash(hash))
+				{
+					let ext = if hash.starts_with("a_") { "gif" } else { "png" };
+					url = format!(
+						"https://cdn.discordapp.com/guilds/{}/users/{}/avatars/{hash}.{ext}?size=128",
+						member.guild, data.user.id
+					);
+				}
+				action = Some(Action::Avatar(model::EmbedMedia {
+					url: Some(url.replace("size=128", "size=2048")),
+					width: 2048,
+					height: 2048,
+					..Default::default()
+				}));
+			}
+		});
+		if let Some(status) = status {
+			presence_badge(ui, avatar_rect, status, clients, theme.card);
+		}
+		let mut header_bottom = avatar_rect.bottom();
+		let (icon_badges, text_badges): (Vec<_>, Vec<_>) = data
+			.map(|d| d.badges.iter().partition(|b| b.icon.is_some()))
+			.unwrap_or_default();
+		// The full profile lists badges inline after the username instead.
+		if !icon_badges.is_empty() && !full {
+			const BADGE: f32 = 22.0;
+			let right = banner.right() - PAD;
+			let count = icon_badges.len() as f32;
+			let width = (count * BADGE + (count - 1.0) * 4.0 + 12.0)
+				.min(right - avatar_rect.right() - 12.0);
+			let pill = Rect::from_min_max(
+				pos2(right - width, banner.bottom() + 8.0),
+				pos2(right, banner.bottom() + 200.0),
+			);
+			let response = ui.scope_builder(UiBuilder::new().max_rect(pill), |ui| {
+				egui::Frame::new()
+					.fill(theme.panel)
+					.corner_radius(RADIUS)
+					.inner_margin(6)
+					.show(ui, |ui| {
+						ui.set_width(width - 12.0);
+						ui.horizontal_wrapped(|ui| {
+							ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+							for badge in &icon_badges {
+								avatars
+									.show_icon(
+										ui,
+										badge.icon_key(),
+										BADGE,
+										state.demo,
+										&badge.description,
+									)
+									.on_hover_text(&badge.description);
+							}
+						});
+					});
+			});
+			header_bottom = header_bottom.max(response.response.rect.bottom());
+		}
+		ui.add_space((header_bottom + if full { 16.0 } else { 10.0 } - ui.cursor().top()).max(0.0));
+
+		egui::Frame::new()
+			.inner_margin(egui::Margin {
+				left: pad as i8,
+				right: pad as i8,
+				top: 0,
+				bottom: pad as i8,
+			})
+			.show(ui, |ui| {
+				ui.spacing_mut().item_spacing.y = 8.0;
+				// Reserve space only for footer rows that are actually displayed.
+				let message_target = !user.webhook
+					&& state.user.as_ref().is_some_and(|own| own.id != user.id)
+					&& state.user_blocked(user.id) != Some(true);
+				let own = state.user.as_ref().is_some_and(|own| own.id == user.id);
+				let has_action = own || message_target || user.webhook;
+				let footer = if full {
+					0.0
+				} else if message_target && !own {
+					session.message_height.max(32.0) + 8.0
+				} else if has_action {
+					40.0
+				} else {
+					0.0
+				};
+				// The full profile sits directly on its themed column instead of a nested box.
+				egui::Frame::new()
+					.fill(if full {
+						Color32::TRANSPARENT
+					} else {
+						theme.panel
+					})
+					.corner_radius(RADIUS)
+					.inner_margin(if full { 0 } else { 12 })
+					.show(ui, |ui| {
+						ui.set_width(ui.available_width());
+						ui.spacing_mut().item_spacing = vec2(6.0, 3.0);
+						if view.is_some_and(|v| v.error.is_some())
+							|| data.is_some_and(|data| data.limited)
+						{
+							design::notice(
+								ui,
+								design::Level::Warning,
+								&crate::i18n::translate(
+									"profiles-show-unable-to-load-parts-of-profile",
+								),
+							);
+							ui.add_space(6.0);
+						}
+						let display = data
+							.and_then(|p| {
+								p.guild
+									.as_ref()
+									.and_then(|g| g.nick.as_deref())
+									.or(state.friend_nickname(user.id))
+									.or(p.global_name.as_deref())
+							})
+							.unwrap_or_else(|| state.user_display_name(user));
+						let display = display.split_whitespace().collect::<Vec<_>>().join(" ");
+						// Ordinary user payloads already carry the server identity. Keep it visible
+						// while the extended profile loads or when that optional request fails.
+						let clan = data
+							.map(|data| data.clan.as_ref())
+							.unwrap_or(user.primary_guild.as_deref());
+						let tag_width = clan.filter(|_| !full).map_or(0.0, |clan| {
+							ui.painter()
+								.layout_no_wrap(
+									clan.tag.clone(),
+									egui::FontId::proportional(12.0),
+									theme.text,
+								)
+								.size()
+								.x + 38.0
+						});
+						ui.horizontal(|ui| {
+							ui.spacing_mut().item_spacing.x = 8.0;
+							ui.allocate_ui_with_layout(
+								vec2(
+									(ui.available_width() - tag_width).max(0.0),
+									if full { 34.0 } else { 24.0 },
+								),
+								egui::Layout::left_to_right(egui::Align::Center),
+								|ui| {
+									let name = ui.add(
+										egui::Label::new(crate::role_names::galley(
+											ui,
+											&display,
+											egui::FontId::new(
+												if full { 26.0 } else { 20.0 },
+												design::semibold_family(ui.ctx()),
+											),
+											// Like Discord, the profile name stays neutral; roles show as chips.
+											None,
+											if full { theme.card } else { theme.panel },
+											theme.text,
+											ui.available_width(),
+										))
+										.truncate()
+										.sense(if full || user.webhook {
+											egui::Sense::hover()
+										} else {
+											egui::Sense::click()
+										}),
+									);
+									if !full
+										&& !user.webhook && name
+										.on_hover_cursor(egui::CursorIcon::PointingHand)
+										.on_hover_text(crate::i18n::translate(
+											"profiles-view-full-profile",
+										))
+										.clicked()
+									{
+										expand = true;
+									}
+								},
+							);
+							if let Some(clan) = clan.filter(|_| !full) {
+								clan_chip(ui, &theme, avatars, clan, state.demo);
+							}
+						});
+						let mut identity = Vec::new();
+						if let Some(data) = data {
+							identity.push(if data.user.discriminator > 0 {
+								format!("{}#{:04}", data.username, data.user.discriminator)
+							} else {
+								data.username.clone()
+							});
+							let pronouns = data
+								.guild
+								.as_ref()
+								.map(|g| g.pronouns.as_str())
+								.filter(|s| !s.is_empty())
+								.unwrap_or(&data.pronouns);
+							if !pronouns.is_empty() {
+								identity.push(pronouns.to_owned());
+							}
+						} else if user.webhook {
+							identity.push("Webhook".into());
+						} else {
+							identity.push(user.name.clone());
+						}
+						if full {
+							// Username, pronouns, server tag and badges share one wrapping row.
 							ui.horizontal_wrapped(|ui| {
-								ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+								ui.spacing_mut().item_spacing = vec2(6.0, 4.0);
+								ui.label(RichText::new(identity.join(" • ")).size(15.0));
+								if let Some(clan) = clan {
+									clan_chip(ui, &theme, avatars, clan, state.demo);
+								}
 								for badge in &icon_badges {
 									avatars
 										.show_icon(
 											ui,
 											badge.icon_key(),
-											BADGE,
+											22.0,
 											state.demo,
 											&badge.description,
 										)
 										.on_hover_text(&badge.description);
 								}
 							});
-						});
-				});
-				header_bottom = header_bottom.max(response.response.rect.bottom());
-			}
-			ui.add_space((header_bottom + 10.0 - ui.cursor().top()).max(0.0));
-
-			egui::Frame::new()
-				.inner_margin(egui::Margin {
-					left: PAD as i8,
-					right: PAD as i8,
-					top: 0,
-					bottom: PAD as i8,
-				})
-				.show(ui, |ui| {
-					ui.spacing_mut().item_spacing.y = 8.0;
-					// Reserve space only for footer rows that are actually displayed.
-					let message_target = !user.webhook
-						&& state.user.as_ref().is_some_and(|own| own.id != user.id)
-						&& state.user_blocked(user.id) != Some(true);
-					let own = state.user.as_ref().is_some_and(|own| own.id == user.id);
-					let has_action = own || message_target || user.webhook;
-					let footer = if message_target && !own {
-						session.message_height.max(32.0) + 8.0
-					} else if has_action {
-						40.0
-					} else {
-						0.0
-					};
-					egui::Frame::new()
-						.fill(theme.panel)
-						.corner_radius(RADIUS)
-						.inner_margin(12)
-						.show(ui, |ui| {
-							ui.set_width(ui.available_width());
-							ui.spacing_mut().item_spacing = vec2(6.0, 3.0);
-							if view.is_some_and(|v| v.error.is_some())
-								|| data.is_some_and(|data| data.limited)
-							{
-								design::notice(
-									ui,
-									design::Level::Warning,
-									&crate::i18n::translate(
-										"profiles-show-unable-to-load-parts-of-profile",
-									),
-								);
-								ui.add_space(6.0);
-							}
-							let display = data
-								.and_then(|p| {
-									p.guild
-										.as_ref()
-										.and_then(|g| g.nick.as_deref())
-										.or(state.friend_nickname(user.id))
-										.or(p.global_name.as_deref())
-								})
-								.unwrap_or_else(|| state.user_display_name(user));
-							let display = display.split_whitespace().collect::<Vec<_>>().join(" ");
-							// Ordinary user payloads already carry the server identity. Keep it visible
-							// while the extended profile loads or when that optional request fails.
-							let clan = data
-								.map(|data| data.clan.as_ref())
-								.unwrap_or(user.primary_guild.as_deref());
-							let tag_width = clan.map_or(0.0, |clan| {
-								ui.painter()
-									.layout_no_wrap(
-										clan.tag.clone(),
-										egui::FontId::proportional(12.0),
-										theme.text,
-									)
-									.size()
-									.x + 38.0
-							});
-							ui.horizontal(|ui| {
-								ui.spacing_mut().item_spacing.x = 8.0;
-								ui.allocate_ui_with_layout(
-									vec2((ui.available_width() - tag_width).max(0.0), 24.0),
-									egui::Layout::left_to_right(egui::Align::Center),
-									|ui| {
-										ui.add(
-											egui::Label::new(
-												RichText::new(display).size(20.0).strong(),
-											)
-											.truncate(),
-										);
-									},
-								);
-								if let Some(clan) = clan {
-									egui::Frame::new()
-										.fill(theme.chip)
-										.corner_radius(6)
-										.inner_margin(egui::Margin::symmetric(6, 2))
-										.show(ui, |ui| {
-											ui.spacing_mut().item_spacing.x = 4.0;
-											avatars.show_icon(
-												ui,
-												clan.badge_key(),
-												14.0,
-												state.demo,
-												"Server tag badge",
-											);
-											ui.add(
-												egui::Label::new(
-													RichText::new(&clan.tag).size(12.0).strong(),
-												)
-												.extend(),
-											);
-										})
-										.response
-										.on_hover_text(format!(
-											"{} · {} {}",
-											crate::i18n::translate("profiles-show-server-tag"),
-											crate::i18n::translate("profiles-show-server"),
-											clan.guild
-										));
-								}
-							});
-							let mut identity = Vec::new();
-							if let Some(data) = data {
-								identity.push(if data.user.discriminator > 0 {
-									format!("{}#{:04}", data.username, data.user.discriminator)
-								} else {
-									data.username.clone()
-								});
-								let pronouns = data
-									.guild
-									.as_ref()
-									.map(|g| g.pronouns.as_str())
-									.filter(|s| !s.is_empty())
-									.unwrap_or(&data.pronouns);
-								if !pronouns.is_empty() {
-									identity.push(pronouns.to_owned());
-								}
-							} else if user.webhook {
-								identity.push("Webhook".into());
-							} else {
-								identity.push(user.name.clone());
-							}
+						} else {
 							ui.add(
 								egui::Label::new(
 									RichText::new(identity.join(" • "))
@@ -2424,292 +3139,502 @@ pub fn show_with_session(
 								)
 								.truncate(),
 							);
-							if !text_badges.is_empty() {
-								ui.add_space(2.0);
-								ui.horizontal_wrapped(|ui| {
-									ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
-									for badge in &text_badges {
-										egui::Frame::new()
-											.fill(theme.chip)
-											.corner_radius(6)
-											.inner_margin(egui::Margin::symmetric(6, 2))
-											.show(ui, |ui| {
-												ui.label(
-													RichText::new(&badge.description).size(11.0),
-												);
-											})
-											.response
-											.on_hover_text(&badge.id);
+						}
+
+						if full {
+							ui.add_space(16.0);
+							ui.horizontal_wrapped(|ui| {
+								ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
+								if let Some(picked) = friend_button(ui, state, user, false) {
+									action = Some(picked);
+								}
+								if !own
+									&& ui
+										.add_enabled_ui(state.can_open_user_dm(user), |ui| {
+											square_action(
+												ui,
+												&theme,
+												Icon::Forum,
+												"profiles-message-send",
+											)
+										})
+										.inner
+										.clicked()
+								{
+									action = Some(Action::Menu(crate::user_menu::Action::Message(
+										user.clone(),
+									)));
+								}
+								let more =
+									square_action(ui, &theme, Icon::More, "profiles-show-more");
+								egui::Popup::menu(&more).id(menu_id).show(|ui| {
+									if let Some(picked) =
+										more_menu(ui, state, user, dm_channel, &mut expand)
+									{
+										action = Some(picked);
 									}
 								});
+							});
+							ui.add_space(12.0);
+						}
+						if !text_badges.is_empty() {
+							ui.add_space(2.0);
+							ui.horizontal_wrapped(|ui| {
+								ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+								for badge in &text_badges {
+									egui::Frame::new()
+										.fill(theme.chip)
+										.corner_radius(6)
+										.inner_margin(egui::Margin::symmetric(6, 2))
+										.show(ui, |ui| {
+											ui.label(RichText::new(&badge.description).size(11.0));
+										})
+										.response
+										.on_hover_text(&badge.id);
+								}
+							});
+						}
+						if let Some(data) = data.filter(|data| {
+							!full
+								&& !own && (!data.mutual_guilds.is_empty()
+								|| !data.mutual_friends.is_empty())
+						}) {
+							ui.add_space(4.0);
+							ui.horizontal(|ui| {
+								ui.spacing_mut().item_spacing.x = 16.0;
+								for (kind, count, icon, one, many) in [
+									(
+										Mutuals::Servers,
+										data.mutual_guilds.len(),
+										Icon::Servers,
+										"profiles-show-mutual-server",
+										"profiles-show-mutual-servers",
+									),
+									(
+										Mutuals::Friends,
+										data.mutual_friends.len(),
+										Icon::People,
+										"profiles-show-mutual-friend",
+										"profiles-show-mutual-friends",
+									),
+								] {
+									if count == 0 {
+										continue;
+									}
+									let key = if count == 1 { one } else { many };
+									let link = mutual_link(
+										ui,
+										&theme,
+										icon,
+										format!("{count} {}", crate::i18n::translate(key)),
+									);
+									if link.clicked() {
+										mutuals = (mutuals != Some(kind)).then_some(kind);
+									}
+									if mutuals == Some(kind) {
+										mutual_anchor = Some(link.rect);
+									}
+									mutual_links.push(link.rect);
+								}
+							});
+						}
+						if custom.is_some() || in_voice {
+							ui.add_space(4.0);
+							ui.horizontal(|ui| {
+								ui.spacing_mut().item_spacing.x = 4.0;
+								voice_badge(ui, in_voice, custom.is_some());
+								if let Some(custom) = custom {
+									ui.add(
+										egui::Label::new(RichText::new(custom).size(13.0)).wrap(),
+									);
+								}
+							});
+						}
+						if !user.webhook && view.is_none_or(|v| v.loading) {
+							ui.add_space(4.0);
+							ui.horizontal(|ui| {
+								ui.spinner();
+								ui.label(
+									RichText::new(crate::i18n::translate(
+										"profiles-show-loading-profile",
+									))
+									.size(13.0)
+									.color(theme.muted),
+								);
+							});
+						}
+						if let Some(error) = view.and_then(|v| v.error) {
+							ui.add_space(4.0);
+							if ui
+								.small_button(crate::i18n::translate("profiles-show-retry-profile"))
+								.on_hover_text(error)
+								.clicked()
+							{
+								action = Some(Action::Retry);
 							}
-							if let Some(data) = data.filter(|data| {
-								state.user.as_ref().is_none_or(|own| own.id != user.id)
-									&& (!data.mutual_guilds.is_empty()
-										|| !data.mutual_friends.is_empty())
-							}) {
-								ui.add_space(4.0);
-								ui.horizontal(|ui| {
-									ui.spacing_mut().item_spacing.x = 16.0;
-									for (kind, count, icon, one, many) in [
-										(
-											Mutuals::Servers,
-											data.mutual_guilds.len(),
-											Icon::Servers,
-											"profiles-show-mutual-server",
-											"profiles-show-mutual-servers",
-										),
-										(
-											Mutuals::Friends,
-											data.mutual_friends.len(),
-											Icon::People,
-											"profiles-show-mutual-friend",
-											"profiles-show-mutual-friends",
-										),
-									] {
-										if count == 0 {
-											continue;
-										}
-										let key = if count == 1 { one } else { many };
-										let link = mutual_link(
+						}
+						if data.is_some() || !activities.is_empty() {
+							if full {
+								ui.add_space(8.0);
+							} else {
+								divider(ui, &theme);
+							}
+							let used = ui.cursor().top() - banner.top();
+							// No floor here: a busy profile (many badges, connections, a long
+							// bio) must still fit `bounds`, or the card's rounded bottom
+							// corner renders past the window edge and looks square.
+							let max_height = if full {
+								f32::INFINITY
+							} else {
+								(bounds.height() - used - footer - 48.0).max(0.0)
+							};
+							let details = |ui: &mut egui::Ui| {
+								ui.spacing_mut().item_spacing.y = 4.0;
+								let body = if full { 15.0 } else { 13.0 };
+								let mut sections = 0;
+								if !full && !activities.is_empty() {
+									sections += 1;
+									activity_list(
+										ui,
+										egui::Id::unique(("profile-activity", user.id)),
+										activities,
+										avatars,
+										state.demo,
+										(theme.chip, theme.muted),
+									);
+								}
+								if let Some(data) = data {
+									let bio = data
+										.guild
+										.as_ref()
+										.map(|g| g.bio.as_str())
+										.filter(|s| !s.is_empty())
+										.unwrap_or(&data.bio);
+									if !bio.is_empty() {
+										section(
 											ui,
 											&theme,
-											icon,
-											format!("{count} {}", crate::i18n::translate(key)),
+											&mut sections,
+											"profiles-show-about-me",
+											full,
 										);
-										if link.clicked() {
-											mutuals = (mutuals != Some(kind)).then_some(kind);
+										if let Some(next) = biography(
+											ui, user.id, bio, state, avatars, opening, formatted,
+											session,
+										) {
+											action = Some(Action::Profile(next));
 										}
-										if mutuals == Some(kind) {
-											mutual_anchor = Some(link.rect);
-										}
-										mutual_links.push(link.rect);
 									}
-								});
-							}
-							if custom.is_some() || in_voice {
-								ui.add_space(4.0);
-								ui.horizontal(|ui| {
-									ui.spacing_mut().item_spacing.x = 4.0;
-									voice_badge(ui, in_voice, custom.is_some());
-									if let Some(custom) = custom {
-										ui.add(
-											egui::Label::new(RichText::new(custom).size(13.0))
-												.wrap(),
+									if let Some(guild) = data.guild.as_ref()
+										&& state.guild_roles(guild.guild).is_some_and(|roles| {
+											roles.iter().any(|role| {
+												role.id != guild.guild
+													&& guild.roles.contains(&role.id)
+											})
+										}) {
+										section(
+											ui,
+											&theme,
+											&mut sections,
+											"profiles-show-roles",
+											full,
 										);
+										role_chips(ui, &theme, state, data.user.id, guild);
 									}
-								});
-							}
-							if !user.webhook && view.is_none_or(|v| v.loading) {
-								ui.add_space(4.0);
-								ui.horizontal(|ui| {
-									ui.spinner();
-									ui.label(
-										RichText::new(crate::i18n::translate(
-											"profiles-show-loading-profile",
-										))
-										.size(13.0)
-										.color(theme.muted),
+									section(
+										ui,
+										&theme,
+										&mut sections,
+										"profiles-show-member-since",
+										full,
 									);
-								});
-							}
-							if let Some(error) = view.and_then(|v| v.error) {
-								ui.add_space(4.0);
-								if ui
-									.small_button(crate::i18n::translate(
-										"profiles-show-retry-profile",
-									))
-									.on_hover_text(error)
-									.clicked()
-								{
-									action = Some(Action::Retry);
+									ui.horizontal_wrapped(|ui| {
+										ui.spacing_mut().item_spacing.x = 6.0;
+										if let Some(date) = creation_date(user.id) {
+											icons::inline(ui, Icon::Calendar, 16.0, theme.muted);
+											ui.label(RichText::new(date).size(body));
+										}
+										if let Some(joined) =
+											data.guild.as_ref().and_then(|g| g.joined_at.as_deref())
+										{
+											let server = data
+												.guild
+												.as_ref()
+												.and_then(|g| {
+													state
+														.guilds
+														.iter()
+														.find(|known| known.id == g.guild)
+												})
+												.map_or_else(
+													|| {
+														crate::i18n::translate(
+															"profiles-show-server-2",
+														)
+													},
+													|g| g.name.clone(),
+												);
+											ui.label(
+												RichText::new("•").size(body).color(theme.muted),
+											);
+											ui.label(
+												RichText::new(format!(
+													"{server} {}",
+													joined.split('T').next().unwrap_or(joined)
+												))
+												.size(body),
+											);
+										}
+									});
+									if let Some(since) =
+										state.friend_since(user.id).and_then(local_date)
+									{
+										section(
+											ui,
+											&theme,
+											&mut sections,
+											"profiles-show-friends-since",
+											full,
+										);
+										ui.horizontal(|ui| {
+											ui.spacing_mut().item_spacing.x = 6.0;
+											icons::inline(ui, Icon::People, 16.0, theme.muted);
+											ui.label(RichText::new(since).size(body));
+										});
+									}
+									if full && !data.connections.is_empty() {
+										section(
+											ui,
+											&theme,
+											&mut sections,
+											"profiles-show-connections",
+											full,
+										);
+										connection_icons(
+											ui,
+											&theme,
+											&data.connections,
+											opening,
+											full,
+										);
+									}
+									// Discord keeps the private note at the bottom of the profile.
+									if !own && !user.webhook {
+										section(
+											ui,
+											&theme,
+											&mut sections,
+											"profiles-show-note",
+											full,
+										);
+										let note = state
+											.user_note(user.id)
+											.filter(|note| !note.trim().is_empty());
+										let text = note.map_or_else(
+											|| {
+												RichText::new(crate::i18n::translate(
+													"profiles-show-note-hint",
+												))
+												.color(theme.muted)
+											},
+											RichText::new,
+										);
+										let enabled = actions_enabled(state);
+										let response = ui
+											.add(egui::Label::new(text.size(body)).wrap().sense(
+												if enabled {
+													egui::Sense::click()
+												} else {
+													egui::Sense::hover()
+												},
+											))
+											.on_hover_text(crate::i18n::translate(
+												"profiles-show-note-only-you",
+											));
+										if enabled
+											&& response
+												.on_hover_cursor(egui::CursorIcon::PointingHand)
+												.clicked()
+										{
+											action = Some(Action::Menu(
+												crate::user_menu::Action::Note(user.clone()),
+											));
+										}
+									}
 								}
-							}
-							if data.is_some() || !activities.is_empty() {
-								divider(ui, &theme);
-								let used = ui.cursor().top() - banner.top();
-								// No floor here: a busy profile (many badges, connections, a long
-								// bio) must still fit `bounds`, or the card's rounded bottom
-								// corner renders past the window edge and looks square.
-								let max_height = (bounds.height() - used - footer - 48.0).max(0.0);
+							};
+							if full {
+								ui.push_id("profile-details", details);
+							} else {
 								egui::ScrollArea::vertical()
 									.id_salt("profile-details")
 									.max_height(max_height)
 									.auto_shrink([false, true])
-									.show(ui, |ui| {
-										ui.spacing_mut().item_spacing.y = 4.0;
-										let mut sections = 0;
-										if !activities.is_empty() {
-											sections += 1;
-											activity_list(
-												ui,
-												egui::Id::unique(("profile-activity", user.id)),
-												activities,
-												avatars,
-												state.demo,
-												(theme.chip, theme.muted),
-											);
-										}
-										if let Some(data) = data {
-											let bio = data
-												.guild
-												.as_ref()
-												.map(|g| g.bio.as_str())
-												.filter(|s| !s.is_empty())
-												.unwrap_or(&data.bio);
-											if !bio.is_empty() {
-												section(
-													ui,
-													&theme,
-													&mut sections,
-													"profiles-show-about-me",
-												);
-												if let Some(next) = biography(
-													ui, user.id, bio, state, avatars, opening,
-													formatted, session,
-												) {
-													action = Some(Action::Profile(next));
-												}
-											}
-											if let Some(guild) = data.guild.as_ref()
-												&& state.guild_roles(guild.guild).is_some_and(
-													|roles| {
-														roles.iter().any(|role| {
-															role.id != guild.guild
-																&& guild.roles.contains(&role.id)
-														})
-													},
-												) {
-												section(
-													ui,
-													&theme,
-													&mut sections,
-													"profiles-show-roles",
-												);
-												role_chips(ui, &theme, state, data.user.id, guild);
-											}
-											section(
-												ui,
-												&theme,
-												&mut sections,
-												"profiles-show-member-since",
-											);
-											ui.horizontal_wrapped(|ui| {
-												ui.spacing_mut().item_spacing.x = 6.0;
-												if let Some(date) = creation_date(user.id) {
-													icons::inline(
-														ui,
-														Icon::Calendar,
-														16.0,
-														theme.muted,
-													);
-													ui.label(RichText::new(date).size(13.0));
-												}
-												if let Some(joined) = data
-													.guild
-													.as_ref()
-													.and_then(|g| g.joined_at.as_deref())
-												{
-													let server =
-														data.guild
-															.as_ref()
-															.and_then(|g| {
-																state.guilds.iter().find(|known| {
-																	known.id == g.guild
-																})
-															})
-															.map_or_else(
-																|| {
-																	crate::i18n::translate(
-																		"profiles-show-server-2",
-																	)
-																},
-																|g| g.name.clone(),
-															);
-													ui.label(
-														RichText::new("•")
-															.size(13.0)
-															.color(theme.muted),
-													);
-													ui.label(
-														RichText::new(format!(
-															"{server} {}",
-															joined
-																.split('T')
-																.next()
-																.unwrap_or(joined)
-														))
-														.size(13.0),
-													);
-												}
-											});
-											if !data.connections.is_empty() {
-												ui.add_space(10.0);
-												connection_icons(
-													ui,
-													&theme,
-													&data.connections,
-													opening,
-												);
-											}
-										}
-									});
+									.show(ui, details);
 							}
-						});
-					// Footer: one full-width primary action when available.
-					if state.user.as_ref().is_some_and(|own| own.id == user.id) {
-						if ui
-							.add_sized(
-								[ui.available_width(), 32.0],
-								egui::Button::new(
-									RichText::new(crate::i18n::translate(
-										"profiles-show-edit-profile",
-									))
+						}
+					});
+				// Footer: one full-width primary action when available.
+				if state.user.as_ref().is_some_and(|own| own.id == user.id) {
+					if ui
+						.add_sized(
+							[ui.available_width(), 32.0],
+							egui::Button::new(
+								RichText::new(crate::i18n::translate("profiles-show-edit-profile"))
 									.color(colors.accent_text),
-								)
-								.fill(colors.accent)
-								.stroke(Stroke::NONE)
-								.corner_radius(RADIUS),
 							)
-							.clicked()
-						{
-							action = Some(Action::Edit);
-						}
-					} else if message_target {
-						if let Some(submitted) = message_input(ui, user, state, session, &theme) {
-							action = Some(submitted);
-						}
-					} else if user.webhook
-						&& ui
-							.add_sized(
-								[ui.available_width(), 32.0],
-								egui::Button::new(
-									RichText::new(crate::i18n::translate(
-										"profiles-show-copy-webhook-id",
-									))
-									.size(13.0)
-									.strong(),
-								)
-								.corner_radius(RADIUS),
-							)
-							.clicked()
+							.fill(colors.accent)
+							.stroke(Stroke::NONE)
+							.corner_radius(RADIUS),
+						)
+						.clicked()
 					{
-						ui.ctx().copy_text(user.id.to_string());
+						action = Some(Action::Edit);
 					}
-					if state.demo {
-						ui.label(
-							RichText::new(crate::i18n::translate(
-								"profiles-show-offline-preview-synthetic",
-							))
-							.size(11.0)
-							.color(theme.muted),
-						);
+				} else if message_target && !full {
+					if let Some(submitted) = message_input(ui, user, state, session, &theme) {
+						action = Some(submitted);
 					}
+				} else if user.webhook
+					&& ui
+						.add_sized(
+							[ui.available_width(), 32.0],
+							egui::Button::new(
+								RichText::new(crate::i18n::translate(
+									"profiles-show-copy-webhook-id",
+								))
+								.size(13.0)
+								.strong(),
+							)
+							.corner_radius(RADIUS),
+						)
+						.clicked()
+				{
+					ui.ctx().copy_text(user.id.to_string());
+				}
+				if state.demo {
+					ui.label(
+						RichText::new(crate::i18n::translate(
+							"profiles-show-offline-preview-synthetic",
+						))
+						.size(11.0)
+						.color(theme.muted),
+					);
+				}
+			});
+		let rect = ui.min_rect();
+		ui.painter().set(background, theme.background(rect));
+	};
+	let rect = if full {
+		let id = egui::Id::unique("user-profile-full");
+		let modal = egui::Modal::new(id)
+			.backdrop_color(crate::dialog::backdrop(ui.ctx()))
+			.frame(
+				egui::Frame::new()
+					.fill(colors.sidebar)
+					.corner_radius(12)
+					.inner_margin(24),
+			)
+			.show(ui.ctx(), |ui| {
+				ui.set_width(full_width - 48.0);
+				let origin = ui.cursor().min;
+				let close_rect = Rect::from_min_size(
+					pos2(origin.x + ui.available_width() - 28.0, origin.y),
+					Vec2::splat(28.0),
+				);
+				ui.scope_builder(UiBuilder::new().max_rect(close_rect), |ui| {
+					close = icons::button(ui, Icon::Close, 28.0, "Close").clicked();
 				});
-			let rect = ui.min_rect();
-			ui.painter().set(background, theme.background(rect));
-		});
-	let rect = response.response.rect;
+				ui.add_space(4.0);
+				egui::ScrollArea::vertical()
+					.id_salt(("full-profile-content", user.id))
+					.max_height(column)
+					// Keep the modal tall enough to grow after showing a short profile.
+					.min_scrolled_height(column)
+					.auto_shrink([false, false])
+					.show(ui, |ui| {
+						if split {
+							ui.horizontal_top(|ui| {
+								ui.spacing_mut().item_spacing.x = 24.0;
+								ui.allocate_ui_with_layout(
+									vec2(width, column),
+									egui::Layout::top_down(egui::Align::Min),
+									|ui| card(ui, avatars),
+								);
+								ui.allocate_ui_with_layout(
+									vec2(ui.available_width(), column),
+									egui::Layout::top_down(egui::Align::Min),
+									|ui| {
+										panel_action = full_panel(
+											ui,
+											&mut full_tab,
+											data,
+											view,
+											state,
+											activities,
+											avatars,
+											&panel_theme,
+										);
+									},
+								);
+							});
+						} else {
+							card(ui, avatars);
+							ui.add_space(20.0);
+							panel_action = full_panel(
+								ui,
+								&mut full_tab,
+								data,
+								view,
+								state,
+								activities,
+								avatars,
+								&panel_theme,
+							);
+						}
+					});
+			});
+		// A centred modal positions itself from the previous pass's size; settle before showing.
+		let size = modal.response.rect.size();
+		let key = id.with(("settled", user.id));
+		let settled = ui
+			.ctx()
+			.data(|data| data.get_temp::<Vec2>(key))
+			.is_some_and(|previous| (previous - size).length() < 0.5);
+		if !settled {
+			ui.ctx().data_mut(|data| data.insert_temp(key, size));
+			if !ui.ctx().will_discard() {
+				ui.ctx().request_discard("full profile layout settling");
+			}
+		}
+		modal.response.rect
+	} else {
+		let x = if anchor.x + 12.0 + width <= bounds.right() {
+			anchor.x + 12.0
+		} else {
+			(anchor.x - 12.0 - width).max(bounds.left())
+		};
+		egui::Area::new(egui::Id::unique("user-profile-popout"))
+			.kind(egui::UiKind::Popup)
+			.order(egui::Order::Foreground)
+			.fixed_pos(pos2(x, (anchor.y - 40.0).max(bounds.top())))
+			.constrain_to(bounds)
+			.interactable(true)
+			.show(ui.ctx(), |ui| card(ui, avatars))
+			.response
+			.rect
+	};
+	session.full_tab = full_tab;
+	action = action.or(panel_action);
+	if close {
+		action = Some(Action::Close);
+	}
+	if expand && !full {
+		// Reopen centred; the side panel belongs to the popout only.
+		session.full = true;
+		mutuals = None;
+		mutual_anchor = None;
+	}
 	let mut panel = None;
 	if let (Some(kind), Some(link), Some(data)) = (mutuals, mutual_anchor, data) {
 		let (panel_rect, panel_action) = mutuals_panel(
@@ -2775,6 +3700,13 @@ pub fn synthetic(user: &User, guild: Option<Id>) -> model::UserProfile {
 	model::UserProfile {
         user: user.clone(),
         username: "serein.preview".into(),
+        board: Some(vec![model::ProfileGameWidget {
+            kind: model::ProfileGameWidgetKind::Favorite,
+            games: vec![model::ProfileGame { id: Id(90001), name: Some("Synthetic favorite game".into()), icon: Some(hash('b')), cover: Some(hash('b')), comment: None, tags: vec![] }],
+        }, model::ProfileGameWidget {
+            kind: model::ProfileGameWidgetKind::Rotation,
+            games: vec![model::ProfileGame { id: Id(90002), name: Some("Synthetic co-op game".into()), icon: Some(hash('c')), cover: Some(hash('c')), comment: Some("Evening co-op".into()), tags: vec!["Open to play".into()] }],
+        }]),
         global_name: Some(user.name.clone()),
         banner: Some(hash('a')),
         accent_color: Some(0x315c68),
@@ -3141,7 +4073,7 @@ mod tests {
 		let mut chosen = None;
 		let render_button = |events, chosen: &mut Option<Action>| {
 			ctx.run_ui(input(size, events), |ui| {
-				if let Some(action) = friend_circle(ui, &state, &person) {
+				if let Some(action) = friend_button(ui, &state, &person, true) {
 					*chosen = Some(action);
 				}
 			})
@@ -3594,6 +4526,8 @@ mod tests {
 						bits: 0,
 						name: name.into(),
 						color,
+						secondary_color: None,
+						tertiary_color: None,
 						position,
 						hoist: false,
 					},

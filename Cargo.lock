@@ -1726,7 +1726,7 @@ dependencies = [
 [[package]]
 name = "ecolor"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054"
+source = "git+https://github.com/emilk/egui?rev=72bc6574978d87fe0929b1d590c35222e6fd8935#72bc6574978d87fe0929b1d590c35222e6fd8935"
 dependencies = [
  "bytemuck",
  "emath",
@@ -1760,7 +1760,7 @@ dependencies = [
 [[package]]
 name = "eframe"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054"
+source = "git+https://github.com/emilk/egui?rev=72bc6574978d87fe0929b1d590c35222e6fd8935#72bc6574978d87fe0929b1d590c35222e6fd8935"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1796,7 +1796,7 @@ dependencies = [
 [[package]]
 name = "egui"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054"
+source = "git+https://github.com/emilk/egui?rev=72bc6574978d87fe0929b1d590c35222e6fd8935#72bc6574978d87fe0929b1d590c35222e6fd8935"
 dependencies = [
  "accesskit",
  "ahash",
@@ -1815,7 +1815,7 @@ dependencies = [
 [[package]]
 name = "egui-wgpu"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054"
+source = "git+https://github.com/emilk/egui?rev=72bc6574978d87fe0929b1d590c35222e6fd8935#72bc6574978d87fe0929b1d590c35222e6fd8935"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1834,7 +1834,7 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054"
+source = "git+https://github.com/emilk/egui?rev=72bc6574978d87fe0929b1d590c35222e6fd8935#72bc6574978d87fe0929b1d590c35222e6fd8935"
 dependencies = [
  "accesskit_winit",
  "arboard",
@@ -1858,7 +1858,7 @@ dependencies = [
 [[package]]
 name = "egui_glow"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054"
+source = "git+https://github.com/emilk/egui?rev=72bc6574978d87fe0929b1d590c35222e6fd8935#72bc6574978d87fe0929b1d590c35222e6fd8935"
 dependencies = [
  "bytemuck",
  "egui",
@@ -1871,7 +1871,7 @@ dependencies = [
 [[package]]
 name = "egui_system_fonts"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054"
+source = "git+https://github.com/emilk/egui?rev=72bc6574978d87fe0929b1d590c35222e6fd8935#72bc6574978d87fe0929b1d590c35222e6fd8935"
 dependencies = [
  "epaint",
  "fontique",
@@ -1912,7 +1912,7 @@ dependencies = [
 [[package]]
 name = "emath"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054"
+source = "git+https://github.com/emilk/egui?rev=72bc6574978d87fe0929b1d590c35222e6fd8935#72bc6574978d87fe0929b1d590c35222e6fd8935"
 dependencies = [
  "bytemuck",
 ]
@@ -1958,7 +1958,7 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054"
+source = "git+https://github.com/emilk/egui?rev=72bc6574978d87fe0929b1d590c35222e6fd8935#72bc6574978d87fe0929b1d590c35222e6fd8935"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1983,7 +1983,7 @@ dependencies = [
 [[package]]
 name = "epaint_default_fonts"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=35b9cbf27afd1756f5896bdd1325f155a415c054#35b9cbf27afd1756f5896bdd1325f155a415c054"
+source = "git+https://github.com/emilk/egui?rev=72bc6574978d87fe0929b1d590c35222e6fd8935#72bc6574978d87fe0929b1d590c35222e6fd8935"
 
 [[package]]
 name = "equivalent"
@@ -2763,8 +2763,6 @@ dependencies = [
 [[package]]
 name = "gpu-allocator"
 version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51255ea7cfaadb6c5f1528d43e92a82acb2b96c43365989a28b2d44ee38f8795"
 dependencies = [
  "ash",
  "hashbrown 0.16.1",
@@ -5239,6 +5237,7 @@ dependencies = [
  "gtk4",
  "image",
  "keyring",
+ "keyring-core",
  "ksni",
  "mac-usernotifications",
  "model",
@@ -5266,6 +5265,7 @@ dependencies = [
  "wry",
  "x11-dl",
  "zbus",
+ "zbus-secret-service-keyring-store",
  "zeroize",
 ]
 

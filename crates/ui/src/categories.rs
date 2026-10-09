@@ -23,10 +23,13 @@ fn sidebar_rank(channel: &Channel) -> (bool, i32, Id) {
 enum Slot {
 	Tree,
 	Roster(Shortcut),
+	/// A pending message request in the home list's collapsible requests section.
+	Request,
 }
 
 enum Row<'a> {
 	Heading(Heading),
+	Requests(usize, bool),
 	Category(&'a Channel, usize),
 	Channel(&'a Channel, Slot, bool),
 	Participant(&'a client_core::voice::RosterEntry),
@@ -35,6 +38,7 @@ enum Row<'a> {
 #[derive(Clone, Copy)]
 enum CachedRow {
 	Heading(Heading),
+	Requests(usize, bool),
 	Category(usize, usize),
 	Channel(usize, Slot, bool),
 	Participant(usize),
@@ -49,6 +53,8 @@ struct CacheKey {
 	selected: Option<Id>,
 	show_hidden: bool,
 	hide_muted: bool,
+	relationships: u64,
+	requests_collapsed: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -215,6 +221,7 @@ fn rows<'a>(
 	roster: &Roster<'a>,
 	collapsed: &BTreeSet<Id>,
 	show_hidden: bool,
+	requests_collapsed: bool,
 ) -> Vec<Row<'a>> {
 	let guild = scope.guild();
 	let channels = &state.channels;
@@ -284,6 +291,23 @@ fn rows<'a>(
 			.sum::<usize>()
 	};
 	let mut rows = Vec::new();
+	if guild.is_none() {
+		let mut requests: Vec<_> = channels
+			.iter()
+			.filter(|c| c.guild.is_none() && state.message_request(c.id))
+			.collect();
+		if !requests.is_empty() {
+			requests.sort_unstable_by_key(|c| std::cmp::Reverse((state.channel_activity(c), c.id)));
+			rows.push(Row::Requests(requests.len(), requests_collapsed));
+			if !requests_collapsed {
+				rows.extend(
+					requests
+						.into_iter()
+						.map(|c| Row::Channel(c, Slot::Request, false)),
+				);
+			}
+		}
+	}
 	for section in roster.sections() {
 		rows.push(Row::Heading(section.heading));
 		for channel in &section.channels {
@@ -424,7 +448,8 @@ fn eyebrow_row(ui: &mut egui::Ui, label: &str, row_height: f32) -> egui::Rect {
 fn shelf_row(rows: &[CachedRow], index: usize) -> bool {
 	match rows.get(index).copied() {
 		Some(CachedRow::Heading(heading)) => heading.shelf(),
-		Some(CachedRow::Channel(_, Slot::Roster(_), _)) => true,
+		Some(CachedRow::Requests(..)) => true,
+		Some(CachedRow::Channel(_, Slot::Roster(_) | Slot::Request, _)) => true,
 		Some(CachedRow::Participant(_)) => rows[..index]
 			.iter()
 			.rev()
@@ -486,6 +511,8 @@ impl MessagingUi {
 			selected: state.selected,
 			show_hidden: self.show_hidden_channels,
 			hide_muted,
+			relationships: state.relationship_view(),
+			requests_collapsed: self.message_requests_collapsed,
 		};
 		if self.channel_cache.key != Some(key) {
 			let categories: BTreeSet<_> = state
@@ -512,8 +539,14 @@ impl MessagingUi {
 				.iter()
 				.copied()
 				.collect();
-			let mut channel_rows =
-				rows(state, scope, &roster, &collapsed, self.show_hidden_channels);
+			let mut channel_rows = rows(
+				state,
+				scope,
+				&roster,
+				&collapsed,
+				self.show_hidden_channels,
+				self.message_requests_collapsed,
+			);
 			if hide_muted {
 				channel_rows.retain(|row| {
 					!matches!(row, Row::Channel(channel, ..) if Some(channel.id) != state.selected && state.guild_channel_muted(channel.id) == Some(true))
@@ -557,6 +590,7 @@ impl MessagingUi {
 				.into_iter()
 				.map(|row| match row {
 					Row::Heading(heading) => CachedRow::Heading(heading),
+					Row::Requests(count, collapsed) => CachedRow::Requests(count, collapsed),
 					Row::Category(c, n) => CachedRow::Category(
 						state.channel_index(c.id).expect("current channel row"),
 						n,
@@ -607,6 +641,32 @@ impl MessagingUi {
 								row_height,
 							);
 							paint_shelf_rule(ui, rect, &self.channel_cache.rows, index);
+						}
+						CachedRow::Requests(count, collapsed) => {
+							let response = category_header(
+								ui,
+								"message-requests",
+								&crate::i18n::translate(Heading::MessageRequests.key()),
+								count,
+								collapsed,
+								row_height,
+								false,
+							);
+							// The count stays visible while folded, so a hidden list still reports.
+							crate::notifications::badge(
+								ui,
+								egui::pos2(
+									response.rect.right() - 16.0,
+									response.rect.bottom() - 13.0,
+								),
+								u32::try_from(count).unwrap_or(u32::MAX),
+								colors.sidebar,
+							);
+							if response.clicked() {
+								self.message_requests_collapsed = !collapsed;
+								self.channel_cache.key = None;
+							}
+							paint_shelf_rule(ui, response.rect, &self.channel_cache.rows, index);
 						}
 						CachedRow::Participant(entry) => {
 							let entry = &state.voice.roster[entry];
@@ -824,9 +884,13 @@ impl MessagingUi {
 								.map_or(if count > 0 { 34.0 } else { 0.0 }, |label| {
 									label.size().x + 12.0
 								});
+							let request = slot == Slot::Request;
 							let trailing = badge_width
-								+ if external.is_some() { 30.0 } else { 0.0 }
-								+ channel_marks::trailing(access);
+								+ if external.is_some() || request {
+									30.0
+								} else {
+									0.0
+								} + channel_marks::trailing(access);
 							let content = egui::Rect::from_min_max(
 								egui::pos2(
 									row.left() + 8.0 + if nested { 14.0 } else { 0.0 },
@@ -903,10 +967,16 @@ impl MessagingUi {
 									10..=12 => crate::icons::Icon::Thread,
 									_ => crate::icons::Icon::Hash,
 								};
-								glyph = Some(crate::icons::inline(
-									&mut inner,
+								let (rect, _) = inner.allocate_exact_size(
+									egui::Vec2::splat(20.0),
+									egui::Sense::hover(),
+								);
+								glyph = Some(rect);
+								channel_marks::paint_glyph(
+									inner.painter(),
+									access,
 									icon,
-									20.0,
+									rect,
 									name_color.gamma_multiply(
 										if (active || hovered) && !access.dim() {
 											1.0
@@ -914,7 +984,7 @@ impl MessagingUi {
 											0.85
 										},
 									),
-								));
+								);
 							}
 							let mut label = String::from(state.conversation_name(channel));
 							if !enabled && visible {
@@ -956,7 +1026,7 @@ impl MessagingUi {
 												user,
 												&label,
 												15.0,
-												name_color,
+												(name_color, None, colors.sidebar),
 												egui::Sense::hover(),
 												trailing,
 											);
@@ -1034,6 +1104,30 @@ impl MessagingUi {
 									self.timeline.browser_opening = Some(url.clone());
 								}
 							}
+							if request {
+								let mut ignore = ui.new_child(
+									egui::UiBuilder::new()
+										.max_rect(egui::Rect::from_center_size(
+											row.right_center() - egui::vec2(18.0 + lane, 0.0),
+											egui::Vec2::splat(28.0),
+										))
+										.layout(egui::Layout::left_to_right(egui::Align::Center)),
+								);
+								if crate::icons::button(
+									&mut ignore,
+									crate::icons::Icon::Close,
+									28.0,
+									&language.text("message-request-ignore-tooltip"),
+								)
+								.clicked()
+								{
+									self.user_action =
+										Some(crate::user_menu::Action::MessageRequest {
+											channel: channel.id,
+											accept: false,
+										});
+								}
+							}
 							if let Some(label) = new_label {
 								let pos = row.right_center()
 									- egui::vec2(8.0 + lane + label.size().x, label.size().y * 0.5);
@@ -1045,7 +1139,11 @@ impl MessagingUi {
 									row.right_center()
 										- egui::vec2(
 											20.0 + lane
-												+ if external.is_some() { 30.0 } else { 0.0 },
+												+ if external.is_some() || request {
+													30.0
+												} else {
+													0.0
+												},
 											0.0,
 										),
 									count,
@@ -1059,20 +1157,7 @@ impl MessagingUi {
 								);
 							}
 							if let Some(glyph) = glyph {
-								channel_marks::paint(
-									ui.painter(),
-									access,
-									row,
-									glyph,
-									name_color,
-									if active {
-										colors.selected
-									} else if hovered {
-										crate::design::row_highlight(ui, colors.hover, 1.0)
-									} else {
-										colors.sidebar
-									},
-								);
+								channel_marks::paint(ui.painter(), access, row, glyph, name_color);
 							}
 							let response = response.on_hover_text_with(|| {
 								format!(
@@ -1257,6 +1342,7 @@ pub fn debug_thread_navigation_check(state: &mut State) {
 			Scope::Guild(Id(10)),
 			&Roster::default(),
 			&BTreeSet::new(),
+			false,
 			false,
 		)
 		.into_iter()
@@ -1494,7 +1580,7 @@ mod tests {
 		};
 		for collapsed in [BTreeSet::new(), BTreeSet::from([Id(4)])] {
 			let roster = Roster::build(&state, &preferences, scope, false);
-			let output = rows(&state, scope, &roster, &collapsed, false);
+			let output = rows(&state, scope, &roster, &collapsed, false, false);
 			let found = ids(&output);
 			assert_eq!(found.iter().filter(|id| **id == Id(7)).count(), 1);
 			assert_eq!(found.iter().filter(|id| **id == Id(9)).count(), 1);
@@ -1695,6 +1781,7 @@ mod tests {
 				&Roster::default(),
 				&BTreeSet::new(),
 				show_hidden,
+				false,
 			)
 		};
 		assert!(list(false).is_empty());
@@ -1718,6 +1805,7 @@ mod tests {
 				&Roster::default(),
 				&BTreeSet::new(),
 				false,
+				false,
 			)
 			.is_empty()
 		);
@@ -1728,6 +1816,7 @@ mod tests {
 				&Roster::default(),
 				&BTreeSet::new(),
 				true,
+				false,
 			)
 			.len(),
 			2
@@ -1741,6 +1830,7 @@ mod tests {
 				&Roster::default(),
 				&BTreeSet::new(),
 				false,
+				false,
 			)
 			.is_empty()
 		);
@@ -1751,6 +1841,7 @@ mod tests {
 				&Roster::default(),
 				&BTreeSet::new(),
 				true,
+				false,
 			)
 			.len(),
 			1
@@ -1766,6 +1857,7 @@ mod tests {
 				Scope::Guild(Id(100)),
 				&Roster::default(),
 				&BTreeSet::from([Id(4)]),
+				false,
 				false,
 			)
 			.as_slice(),
@@ -1894,6 +1986,7 @@ mod tests {
 				&Roster::default(),
 				&BTreeSet::new(),
 				true,
+				false,
 			)
 			.into_iter()
 			.filter_map(|row| match row {
@@ -2062,7 +2155,7 @@ mod tests {
 				.map(|r| match r {
 					Row::Channel(c, ..) | Row::Category(c, _) => c.id.0,
 					Row::Participant(entry) => entry.participant.user.0,
-					Row::Heading(..) => 0,
+					Row::Heading(..) | Row::Requests(..) => 0,
 				})
 				.collect::<Vec<_>>()
 		};
@@ -2073,6 +2166,7 @@ mod tests {
 				&Roster::default(),
 				&collapsed,
 				true,
+				false,
 			)
 		}
 		let layout = State {
@@ -2255,6 +2349,7 @@ mod tests {
 			Scope::Guild(Id(10)),
 			&Roster::default(),
 			&BTreeSet::new(),
+			false,
 			false,
 		);
 		assert!(

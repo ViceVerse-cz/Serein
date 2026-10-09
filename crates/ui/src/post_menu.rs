@@ -499,7 +499,9 @@ impl PostMenu {
 					);
 					dialog::input(
 						ui,
-						egui::TextEdit::singleline(&mut editor.name).char_limit(100),
+						egui::TextEdit::singleline(&mut editor.name)
+							.align(egui::Align2::LEFT_CENTER)
+							.char_limit(100),
 					)
 					.labelled_by(label.id);
 					editor.name.shrink_to_fit();

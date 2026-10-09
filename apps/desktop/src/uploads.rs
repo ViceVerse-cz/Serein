@@ -5,7 +5,7 @@ use eframe::egui;
 use model::Id;
 use std::sync::{
 	Arc,
-	atomic::{AtomicBool, Ordering},
+	atomic::{AtomicBool, AtomicUsize, Ordering},
 	mpsc,
 };
 use tokio::sync::watch;
@@ -21,6 +21,8 @@ type Selected = (Source, Option<egui::ColorImage>);
 struct Choosing {
 	result: mpsc::Receiver<Result<Option<Vec<Selected>>, &'static str>>,
 	cancelled: Arc<AtomicBool>,
+	/// Files this selection is preparing; zero while a native picker is still open.
+	files: Arc<AtomicUsize>,
 }
 /// One chosen file with its composer thumbnail; `key` survives removals while a thumbnail
 /// is still decoding for it.
@@ -32,6 +34,9 @@ struct Chosen {
 /// Longest edge of the composer thumbnail; the full decode stays bounded by `image::Limits`.
 const PREVIEW_EDGE: u32 = 320;
 const PREVIEW_ALLOC: u64 = 64 * 1024 * 1024;
+/// Largest file read whole for a composer thumbnail; larger selections keep the generic card
+/// instead of loading up to the upload limit (and a second copy) just to draw 320 px.
+const PREVIEW_SOURCE_BYTES: u64 = PREVIEW_ALLOC;
 const SHARE_BYTES: usize = 8 * 1024 * 1024;
 const EMOJI_EDGE: u32 = 48;
 const STICKER_EDGE: u32 = 160;
@@ -303,7 +308,7 @@ async fn preview(source: &Source) -> Option<egui::ColorImage> {
 	if !previewable(source.filename()) {
 		return None;
 	}
-	let bytes = source.preview_bytes(discord_api::upload::MAX_BYTES).await?;
+	let bytes = source.preview_bytes(PREVIEW_SOURCE_BYTES).await?;
 	tokio::task::spawn_blocking(move || decode_preview(&bytes))
 		.await
 		.ok()
@@ -362,7 +367,9 @@ pub struct Uploads {
 	next_key: u64,
 	/// Thumbnails still decoding for pasted files, by `Chosen::key`; at most `MAX_FILES`.
 	previewing: Vec<(u64, mpsc::Receiver<Option<egui::ColorImage>>)>,
-	choosing: Option<Choosing>,
+	/// Selections still being inspected and decoded; at most `MAX_FILES`. Later selections
+	/// join the composer while earlier ones (or the previous message's upload) still run.
+	choosing: Vec<Choosing>,
 	uploading: Option<Uploading>,
 	/// Progress of the batch in flight, and only ever a running state: terminal failures
 	/// leave through `notice`, so nothing here outlives the work it describes.
@@ -474,6 +481,7 @@ impl Uploads {
 			.map(image_share_source)
 			.collect::<Option<Vec<_>>>()
 			.ok_or("Unsupported emoji or sticker artwork")?;
+		let count = sources.len();
 		let cancelled = Arc::new(AtomicBool::new(false));
 		let flag = cancelled.clone();
 		let (send, result) = mpsc::sync_channel(1);
@@ -534,7 +542,11 @@ impl Uploads {
 		});
 		self.scope = Some((generation, channel));
 		self.last = None;
-		self.choosing = Some(Choosing { result, cancelled });
+		self.choosing.push(Choosing {
+			result,
+			cancelled,
+			files: Arc::new(AtomicUsize::new(count)),
+		});
 		self.image_draft = Some(draft);
 		Ok(())
 	}
@@ -576,12 +588,15 @@ impl Uploads {
 		runtime: &tokio::runtime::Handle,
 		context: &egui::Context,
 	) -> Result<(), &'static str> {
-		if self.busy() {
+		if !self.accepting() {
 			return Err("Wait for the current attachment operation to finish");
+		}
+		if self.selected.len() + self.loading() + source.len() > discord_api::upload::MAX_FILES {
+			return Err("Attach up to 10 files per message");
 		}
 		self.admit(&source)?;
 		self.scope = Some((generation, channel));
-		self.last = None;
+		self.clear_finished_progress();
 		for source in source {
 			let key = self.push(source, None);
 			if previewable(self.selected.last().map_or("", |c| c.source.filename())) {
@@ -609,12 +624,18 @@ impl Uploads {
 		context: &egui::Context,
 		parent: Arc<winit::window::Window>,
 	) -> Result<(), &'static str> {
-		if self.busy() {
+		// One native picker at a time; loading selections may continue behind it.
+		if !self.accepting()
+			|| self
+				.choosing
+				.iter()
+				.any(|choosing| choosing.files.load(Ordering::Acquire) == 0)
+		{
 			return Err("Wait for the current attachment operation to finish");
 		}
 		// Construct on the native UI thread; await and inspect outside rendering.
 		let dialog = platform::save::attachment_source(parent);
-		self.start_selection(generation, channel, runtime, context, dialog);
+		self.start_selection(generation, channel, runtime, context, 0, dialog);
 		Ok(())
 	}
 	pub fn start_drop(
@@ -625,10 +646,12 @@ impl Uploads {
 		context: &egui::Context,
 		files: Vec<egui::DroppedFileHandle>,
 	) -> Result<(), &'static str> {
-		if self.busy() {
+		if !self.accepting() {
 			return Err("Wait for the current attachment operation to finish");
 		}
-		if files.is_empty() || files.len() + self.selected.len() > discord_api::upload::MAX_FILES {
+		if files.is_empty()
+			|| files.len() + self.selected.len() + self.loading() > discord_api::upload::MAX_FILES
+		{
 			return Err("Attach up to 10 files per message");
 		}
 		let mut paths = Vec::with_capacity(files.len());
@@ -639,13 +662,10 @@ impl Uploads {
 			}
 			paths.push(path.to_owned());
 		}
-		self.start_selection(
-			generation,
-			channel,
-			runtime,
-			context,
-			async move { Some(paths) },
-		);
+		let count = paths.len();
+		self.start_selection(generation, channel, runtime, context, count, async move {
+			Some(paths)
+		});
 		Ok(())
 	}
 	fn start_selection(
@@ -654,10 +674,13 @@ impl Uploads {
 		channel: Id,
 		runtime: &tokio::runtime::Handle,
 		context: &egui::Context,
+		known: usize,
 		selection: impl std::future::Future<Output = Option<Vec<std::path::PathBuf>>> + Send + 'static,
 	) {
 		let cancelled = Arc::new(AtomicBool::new(false));
 		let flag = cancelled.clone();
+		let files = Arc::new(AtomicUsize::new(known));
+		let count = files.clone();
 		let (send, result) = mpsc::sync_channel(1);
 		let context = context.clone();
 		runtime.spawn(async move {
@@ -672,6 +695,8 @@ impl Uploads {
 				if paths.is_empty() || paths.len() > discord_api::upload::MAX_FILES {
 					return Err("Attach up to 10 files per message");
 				}
+				count.store(paths.len(), Ordering::Release);
+				context.request_repaint();
 				let mut selected = Vec::with_capacity(paths.len());
 				let mut total = 0;
 				for path in paths {
@@ -692,8 +717,12 @@ impl Uploads {
 			context.request_repaint();
 		});
 		self.scope = Some((generation, channel));
-		self.last = None;
-		self.choosing = Some(Choosing { result, cancelled });
+		self.clear_finished_progress();
+		self.choosing.push(Choosing {
+			result,
+			cancelled,
+			files,
+		});
 	}
 	pub fn revalidate_scope(&mut self, generation: u64, channel: Option<Id>, allowed: bool) {
 		if self
@@ -733,36 +762,38 @@ impl Uploads {
 				}
 			}
 		}
-		if let Some(choosing) = &self.choosing {
+		// Each selection joins the composer as soon as it is ready; admission rechecks bounds.
+		let mut index = 0;
+		while let Some(choosing) = self.choosing.get(index) {
 			let result = match choosing.result.try_recv() {
-				Ok(result) => Some(result),
-				Err(mpsc::TryRecvError::Disconnected) => {
-					Some(Err("Attachment selection interrupted"))
+				Ok(result) => result,
+				Err(mpsc::TryRecvError::Disconnected) => Err("Attachment selection interrupted"),
+				Err(mpsc::TryRecvError::Empty) => {
+					index += 1;
+					continue;
 				}
-				Err(mpsc::TryRecvError::Empty) => None,
 			};
-			if let Some(result) = result {
-				let cancelled = choosing.cancelled.load(Ordering::Acquire);
-				self.choosing = None;
-				self.last = None;
-				if !cancelled {
-					match result {
-						Ok(Some(selected)) => {
-							let sources: Vec<_> =
-								selected.iter().map(|(source, _)| source.clone()).collect();
-							match self.admit(&sources) {
-								Ok(()) => {
-									for (source, thumbnail) in selected {
-										self.push(source, thumbnail);
-									}
-								}
-								Err(error) => self.notice = Some(error),
+			let cancelled = choosing.cancelled.load(Ordering::Acquire);
+			self.choosing.remove(index);
+			self.clear_finished_progress();
+			if cancelled {
+				continue;
+			}
+			match result {
+				Ok(Some(selected)) => {
+					let sources: Vec<_> =
+						selected.iter().map(|(source, _)| source.clone()).collect();
+					match self.admit(&sources) {
+						Ok(()) => {
+							for (source, thumbnail) in selected {
+								self.push(source, thumbnail);
 							}
 						}
-						Ok(None) => {}
 						Err(error) => self.notice = Some(error),
 					}
 				}
+				Ok(None) => {}
+				Err(error) => self.notice = Some(error),
 			}
 		}
 		self.previewing
@@ -863,7 +894,28 @@ impl Uploads {
 		self.selected.iter().map(|c| c.preview.clone()).collect()
 	}
 	pub fn busy(&self) -> bool {
-		self.choosing.is_some() || self.uploading.is_some() || self.external.is_some()
+		!self.choosing.is_empty() || self.uploading.is_some() || self.external.is_some()
+	}
+	/// Whether another file selection may start. Loading selections and the previous
+	/// message's upload do not block it; sending waits for both through `busy`.
+	pub fn accepting(&self) -> bool {
+		self.external.is_none()
+			&& self.image_draft.is_none()
+			&& self.choosing.len() < discord_api::upload::MAX_FILES
+	}
+	/// Files still being inspected or decoded before they join the composer.
+	pub fn loading(&self) -> usize {
+		self.choosing
+			.iter()
+			.filter(|choosing| !choosing.cancelled.load(Ordering::Acquire))
+			.map(|choosing| choosing.files.load(Ordering::Acquire))
+			.sum()
+	}
+	/// A new selection drops a finished batch's progress, never an upload still in flight.
+	fn clear_finished_progress(&mut self) {
+		if self.uploading.is_none() {
+			self.last = None;
+		}
 	}
 	pub fn has_unsent(&self) -> bool {
 		!self.selected.is_empty() || self.busy()
@@ -889,9 +941,13 @@ impl Uploads {
 	pub fn cancel(&mut self) {
 		self.cancel_public();
 		self.image_draft = None;
-		if let Some(choosing) = &self.choosing {
+		for choosing in &self.choosing {
 			choosing.cancelled.store(true, Ordering::Release);
 		}
+		self.cancel_transfer();
+	}
+	/// Cancels only the message upload in flight, keeping files being added for the next one.
+	pub fn cancel_transfer(&mut self) {
 		if let Some(uploading) = &mut self.uploading {
 			uploading.cancelling = true;
 			uploading.cancel.send_replace(true);
@@ -936,6 +992,21 @@ impl Drop for Uploads {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[tokio::test]
+	async fn thumbnails_never_read_selections_larger_than_the_decode_budget() {
+		let dir = std::env::temp_dir().join(format!("serein-preview-cap-{}", std::process::id()));
+		std::fs::create_dir_all(&dir).unwrap();
+		let path = dir.join("large.png");
+		// Sparse: no disk is written, and a capped preview must not read it either.
+		let file = std::fs::File::create(&path).unwrap();
+		file.set_len(PREVIEW_SOURCE_BYTES + 1).unwrap();
+		drop(file);
+		let source = Source::inspect(path).await.unwrap();
+		assert!(source.preview_bytes(PREVIEW_SOURCE_BYTES).await.is_none());
+		assert!(preview(&source).await.is_none());
+		std::fs::remove_dir_all(dir).unwrap();
+	}
+
 	#[tokio::test]
 	async fn public_host_consent_matches_selection_and_completion_is_session_scoped() {
 		let context = egui::Context::default();
@@ -1391,16 +1462,36 @@ mod tests {
 				.start_drop(1, Id(2), &runtime, &context, vec![handle(path.clone())])
 				.is_ok()
 		);
+		// A drop while the first one still loads joins the composer instead of being refused;
+		// sending waits for both, and loading files count toward the 10-file bound.
 		assert!(
 			uploads
 				.start_drop(1, Id(2), &runtime, &context, vec![handle(path.clone())])
+				.is_ok()
+		);
+		assert!(uploads.accepting());
+		assert!(uploads.take_source(1, Id(2)).is_none());
+		assert!(
+			uploads
+				.start_drop(
+					1,
+					Id(2),
+					&runtime,
+					&context,
+					(0..10 - uploads.loading() - uploads.files().len() + 1)
+						.map(|_| handle(path.clone()))
+						.collect(),
+				)
 				.is_err()
 		);
 		settle(&mut uploads, &context, Id(2)).await;
+		assert_eq!(uploads.loading(), 0);
 		assert_eq!(
 			uploads.selection(),
 			Some((path.file_name().unwrap().to_str().unwrap(), 14))
 		);
+		assert_eq!(uploads.files().len(), 2);
+		uploads.remove_at(1);
 		assert!(
 			uploads
 				.start_drop(1, Id(2), &runtime, &context, vec![handle(path.clone())])
@@ -1434,10 +1525,11 @@ mod tests {
 			public_result: None,
 			image_draft: None,
 			scope: Some((1, Id(2))),
-			choosing: Some(Choosing {
+			choosing: vec![Choosing {
 				result,
 				cancelled: cancelled.clone(),
-			}),
+				files: Arc::new(AtomicUsize::new(1)),
+			}],
 			selected: vec![],
 			next_key: 0,
 			previewing: vec![],
@@ -1468,6 +1560,8 @@ mod tests {
 		let (progress, receive) = watch::channel(Status::Preparing);
 		let (cancel, _) = watch::channel(false);
 		assert!(uploads.begin_upload(receive, cancel).is_ok());
+		// Files for the next message may be added while this one uploads.
+		assert!(uploads.accepting() && uploads.busy());
 		progress.send_replace(Status::Finished);
 		uploads.poll(2, Some(Id(2)), true, &context);
 		assert!(uploads.busy());
@@ -1509,4 +1603,48 @@ pub(crate) fn debug_heic_check() {
 	assert!(previewable("photo.HEIC"));
 	assert!(previewable("photo.heif"));
 	assert!(decode_preview(b"\x00\x00\x00\x10ftypheic\x00\x00\x00\x00").is_none());
+}
+
+/// Device-free check that pasted content cannot steal pending drop reservations.
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub(crate) fn debug_reservation_check(runtime: &tokio::runtime::Handle) {
+	let (_send, result) = mpsc::sync_channel(1);
+	let mut uploads = Uploads::default();
+	uploads.choosing.push(Choosing {
+		result,
+		cancelled: Arc::new(AtomicBool::new(false)),
+		files: Arc::new(AtomicUsize::new(discord_api::upload::MAX_FILES)),
+	});
+	let context = egui::Context::default();
+	assert!(uploads.accepting());
+	assert!(
+		uploads
+			.select_pasted(
+				1,
+				Id(2),
+				vec![Source::pasted_text("synthetic".into()).unwrap()],
+				runtime,
+				&context
+			)
+			.is_err()
+	);
+	assert!(uploads.selected.is_empty());
+	uploads.choosing[0]
+		.files
+		.store(discord_api::upload::MAX_FILES - 1, Ordering::Release);
+	assert!(
+		uploads
+			.select_pasted(
+				1,
+				Id(2),
+				vec![Source::pasted_text("synthetic".into()).unwrap()],
+				runtime,
+				&context
+			)
+			.is_ok()
+	);
+	assert_eq!(
+		uploads.selected.len() + uploads.loading(),
+		discord_api::upload::MAX_FILES
+	);
 }

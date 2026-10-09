@@ -880,6 +880,30 @@ mod tests {
 		receive.recv_timeout(Duration::from_secs(10)).unwrap()
 	}
 
+	/// Decodes one keyframe, resending it when a loaded runner held it past `MAX_DECODE_AGE`.
+	fn decoder_cleanup_decode(queue: &DecoderQueue, user: u64, data: &[u8]) {
+		let deadline = Instant::now() + Duration::from_secs(10);
+		loop {
+			let stale = queue.counters.stale.load(Ordering::Relaxed);
+			assert!(
+				offer(
+					queue,
+					Encoded {
+						user,
+						data: data.to_vec(),
+						keyframe: true
+					}
+				)
+				.unwrap()
+			);
+			decoder_cleanup_sync(queue);
+			if queue.counters.stale.load(Ordering::Relaxed) == stale {
+				return;
+			}
+			assert!(Instant::now() < deadline, "keyframe stayed stale");
+		}
+	}
+
 	#[test]
 	fn decoder_cleanup_invalidates_full_queue_and_allows_restart() {
 		let data = decoder_cleanup_keyframe(32, 32);
@@ -1098,18 +1122,7 @@ mod tests {
 				&serde_json::json!({"video_ssrc": user}),
 			)
 			.unwrap();
-			assert!(
-				offer(
-					&queue,
-					Encoded {
-						user,
-						data: data.clone(),
-						keyframe: true
-					}
-				)
-				.unwrap()
-			);
-			decoder_cleanup_sync(&queue);
+			decoder_cleanup_decode(&queue, user, &data);
 		}
 		assert_eq!(
 			queue.counters.software.load(Ordering::Relaxed),
@@ -1146,18 +1159,7 @@ mod tests {
 			&serde_json::json!({"video_ssrc": 9}),
 		)
 		.unwrap();
-		assert!(
-			offer(
-				&queue,
-				Encoded {
-					user: 9,
-					data,
-					keyframe: true
-				}
-			)
-			.unwrap()
-		);
-		decoder_cleanup_sync(&queue);
+		decoder_cleanup_decode(&queue, 9, &data);
 		assert_eq!(seen.lock().unwrap().last(), Some(&9));
 		assert_eq!(
 			queue.counters.software.load(Ordering::Relaxed),

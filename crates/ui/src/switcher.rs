@@ -523,6 +523,7 @@ impl Switcher {
 						icons::inline(ui, icons::Icon::Search, 18.0, colors.muted);
 						let input = ui.add(
 							egui::TextEdit::singleline(&mut self.query)
+								.align(egui::Align2::LEFT_CENTER)
 								.id(egui::Id::unique("conversation-switcher-query"))
 								.event_filter(egui::EventFilter {
 									horizontal_arrows: true,

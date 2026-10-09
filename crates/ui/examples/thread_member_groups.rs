@@ -38,7 +38,9 @@ fn main() {
 				name: "Thread moderators".into(),
 				bits: 0,
 				position: 10,
-				color: 0,
+				color: 0xe78284,
+				secondary_color: Some(0x89b4fa),
+				tertiary_color: None,
 				hoist: true,
 			}]),
 		},
@@ -81,6 +83,7 @@ fn main() {
 	let mut painted = Vec::new();
 	let mut name_rect = egui::Rect::NOTHING;
 	let mut subtitle_rect = egui::Rect::NOTHING;
+	let mut gradient_names = std::collections::BTreeSet::new();
 	for _ in 0..3 {
 		painted.clear();
 		let output = ctx.run_ui(
@@ -98,6 +101,15 @@ fn main() {
 		for shape in &output.shapes {
 			text(&shape.shape, &mut painted);
 			if let egui::Shape::Text(text) = &shape.shape {
+				if text.galley.rows.iter().any(|row| {
+					row.visuals
+						.mesh
+						.vertices
+						.windows(2)
+						.any(|pair| pair[0].color != pair[1].color)
+				}) {
+					gradient_names.insert(text.galley.job.text.clone());
+				}
 				let rect = egui::Rect::from_min_size(text.pos, text.galley.size());
 				match text.galley.job.text.as_str() {
 					"Participant 2" => name_rect = rect,
@@ -133,5 +145,51 @@ fn main() {
 		"member text must fit beside the avatar: {name_rect:?} {subtitle_rect:?}"
 	);
 	assert!(!painted.contains(&"Listening to Spotify".into()));
-	println!("Thread role groups, online fallback and offline members rendered correctly.");
+	assert!(gradient_names.contains("Thread moderators - 1"));
+	assert!(gradient_names.contains("Participant 1"));
+	assert!(
+		!gradient_names.contains("Participant 3"),
+		"offline names stay muted"
+	);
+	let user = test_support::message(1, channel).author;
+	let mut profile = model::GuildProfile {
+		guild,
+		roles: vec![],
+		nick: None,
+		avatar: None,
+		banner: None,
+		bio: String::new(),
+		pronouns: String::new(),
+		joined_at: None,
+	};
+	profile.roles.clear();
+	assert_eq!(state.profile_role_ids(user.id, &profile), &[Id(999)]);
+	assert!(
+		state
+			.profile_name_colors(&user, &profile)
+			.unwrap()
+			.secondary
+			.is_some()
+	);
+	profile.roles = vec![Id(999)];
+	let Some(MemberSlot::Person(member)) = &mut state.members.as_mut().unwrap().slots[0] else {
+		panic!("synthetic member missing");
+	};
+	member.roles.clear();
+	assert!(state.profile_role_ids(user.id, &profile).is_empty());
+	assert_eq!(state.profile_name_colors(&user, &profile), None);
+	state.members = None;
+	assert_eq!(state.profile_role_ids(user.id, &profile), &[Id(999)]);
+	assert!(state.profile_name_colors(&user, &profile).is_some());
+	let own = state.user.as_ref().unwrap().clone();
+	state.permissions.guilds.get_mut(&guild).unwrap().member = Some(p::Member {
+		roles: vec![],
+		timeout_until: None,
+	});
+	assert!(state.profile_role_ids(own.id, &profile).is_empty());
+	assert_eq!(state.profile_name_colors(&own, &profile), None);
+	let mut webhook = user.clone();
+	webhook.webhook = true;
+	assert_eq!(state.profile_name_colors(&webhook, &profile), None);
+	println!("Thread gradients, muted offline names and current profile assignments verified.");
 }

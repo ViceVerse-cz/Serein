@@ -47,6 +47,7 @@ impl Cards {
 		let width = (ui.available_width() - 32.0).clamp(48.0, 440.0);
 		egui::Frame::new()
 			.fill(design::message_card_fill(ui, colors.sidebar))
+			.stroke(design::message_card_stroke(ui))
 			.corner_radius(8)
 			.inner_margin(16)
 			.show(ui, |ui| {
@@ -678,6 +679,7 @@ fn answer_field(
 					let emoji = emoji_button(ui, answer.emoji.as_ref(), open, avatars, demo);
 					let text = ui.add(
 						egui::TextEdit::singleline(&mut answer.text)
+							.align(egui::Align2::LEFT_CENTER)
 							.hint_text(translate_args(
 								"polls-creator-answer-hint",
 								&[("number", &(index + 1).to_string())],
@@ -920,15 +922,13 @@ pub fn debug_poll_check(state: &State) {
 				card_fill = design::message_card_fill(ui, design::palette(ui).sidebar);
 				let chat = design::window_palette(ui).chat;
 				if transparency > 0 {
-					// Card, answer and result coats must not turn translucent chat opaque.
-					assert!(card_fill.a() <= 32);
+					// Card, answer and result coats stay visible but must not turn
+					// translucent chat opaque.
+					assert!((1..=24).contains(&card_fill.a()));
 					assert!(
 						chat.blend(card_fill).blend(card_fill).blend(card_fill).a()
-							<= chat.a().saturating_add(24)
+							<= chat.a().saturating_add(64)
 					);
-					if transparency == 100 {
-						assert_eq!(card_fill.a(), 0);
-					}
 				}
 				ui.set_width(width - 16.0);
 				let mut cards = Cards::default();

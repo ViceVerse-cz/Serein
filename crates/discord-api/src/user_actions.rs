@@ -114,7 +114,9 @@ impl DiscordApi {
 			Action::OpenDm(id)
 			| Action::CloseDm(id)
 			| Action::Block { user: id, .. }
-			| Action::Mute { channel: id, .. } => id,
+			| Action::Ignore { user: id, .. }
+			| Action::Mute { channel: id, .. }
+			| Action::MessageRequest { channel: id, .. } => id,
 		};
 		if id.0 == 0 {
 			return Err(Failure::Protocol);
@@ -207,6 +209,32 @@ impl DiscordApi {
 				)
 				.await
 				.map(|_| ()),
+			// Unverified: the route mirrors the official web client's ignore toggle; no checked
+			// reference documents it. The gateway's `user_ignored` flag confirms the outcome.
+			Action::Ignore { user, ignored } => self
+				.request(
+					if *ignored {
+						Method::PUT
+					} else {
+						Method::DELETE
+					},
+					&format!("/users/@me/relationships/{user}/ignore"),
+					None,
+				)
+				.await
+				.map(|_| ()),
+			// Unverified: the routes mirror the official client's message-request accept and ignore;
+			// no checked reference documents them. The gateway's channel update confirms the outcome.
+			Action::MessageRequest { channel, accept } => {
+				let path = format!("/channels/{channel}/recipients/@me");
+				if *accept {
+					self.request(Method::PUT, &path, Some(json!({"consent_status": 2})))
+						.await
+						.map(|_| ())
+				} else {
+					self.request(Method::DELETE, &path, None).await.map(|_| ())
+				}
+			}
 			Action::Mute { channel, muted } => {
 				// Unmuting clears the config; a leftover "forever" window keeps the mute on the service.
 				let mute_config =

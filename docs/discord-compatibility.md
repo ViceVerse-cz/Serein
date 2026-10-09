@@ -1,5 +1,29 @@
 # Discord compatibility — checked 2026-09-10
 
+## Profile boards — October 7, 2026
+
+The full profile reads game widgets from the existing on-demand profile response,
+then optionally resolves their names and artwork with at most two bounded
+`GET /games` requests using repeated `game_ids` query parameters. Current `media.cover`
+and `media.icon` hash/Discord-proxied URL assets are supported alongside legacy
+image hashes. Arbitrary external artwork URLs are not fetched. Favorite Game, Games in Rotation, Games I've Played and
+Want to Play display service-supplied entries, comments and tags. Missing or
+restricted boards remain unavailable; failed metadata lookups retain the game ID
+without substituting another game's title or artwork. Application-provided stats
+widgets and board editing are not supported. The Activity tab uses current
+presence, including while profile metadata is loading; an empty presence snapshot shows “No activity shared.” Selected-user historical activity is not yet loaded. Optional board enrichment has a two-second total deadline so it cannot add two full HTTP timeouts before the profile appears.
+
+The primary reverse-engineering references are the Userdoccers
+[profile response](https://docs.discord.food/resources/user#get-user-profile),
+[game widget schema](https://docs.discord.food/resources/widgets#game-widget-object),
+[game metadata lookup](https://docs.discord.food/resources/game#list-games), and
+[application cover/icon CDN paths](https://docs.discord.food/reference#cdn-endpoints).
+The current request serialization and `media` shape were also checked against the
+[public web client](https://discord.com/assets/web.90d3ab34abfe98da.js), build 630444,
+on October 7; older community game documentation still describes the legacy fields.
+These are unofficial normal-account interfaces, not Discord's public bot API.
+Normal-account acceptance and cover availability remain unverified; synthetic
+fixtures and offline checks are not service-compatibility evidence.
 
 ## GIF favorite synchronization — October 2, 2026
 
@@ -1156,10 +1180,18 @@ directory fetch was added.
 
 Role name, position, hoist and primary color are documented fields in
 [Discord's role object](https://docs.discord.com/developers/topics/permissions#role-object).
-Modern `colors.primary_color` takes precedence over legacy `color`; role gradients are not
-rendered. Equal positions favor the lower role ID, consistent with
+Modern `colors.primary_color` takes precedence over legacy `color`. Secondary and tertiary
+colors survive READY, role updates and role catalog reconciliation. Chat authors, online
+member names, profile names and role labels render static two-stop gradients or three-stop
+holographic colors. Equal positions favor the lower role ID, consistent with
 [discord.py role comparison](https://github.com/Rapptz/discord.py/blob/master/discord/role.py).
 Names retain hue when readable; the theme adjusts insufficient contrast, including hover.
+Profile name colors and role chips prefer current self/member assignments, including empty
+assignments, and fall back to fetched profile roles when current membership is unavailable.
+Gradients color shaped glyph vertices without splitting Unicode text or recoloring color
+emoji. Inline mention pills and composer mention previews retain their primary color.
+`--features demo -- --demo --demo-chat --demo-role-gradients` enables synthetic gradients;
+add `--demo-light` for light mode. No live Discord account was used to verify this change.
 Member list subscriptions and lazy-range focus remain unofficial. Synthetic role evidence does
 not establish live role behavior for every account.
 

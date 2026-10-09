@@ -823,6 +823,7 @@ impl MessagingUi {
 		dialog::input(
 			ui,
 			egui::TextEdit::singleline(&mut self.account_menu.draft)
+				.align(egui::Align2::LEFT_CENTER)
 				.id_salt(("account-custom-status", state.generation))
 				.hint_text(crate::i18n::translate(
 					"account-menu-custom-status-editor-what-s-on-your-mind",

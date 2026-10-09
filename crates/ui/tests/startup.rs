@@ -3,6 +3,7 @@ use ui::MessagingUi;
 #[test]
 fn session_clear_preserves_device_startup_preferences_and_pending_status() {
 	let mut view = MessagingUi::default();
+	view.language = ui::i18n::Language::English;
 	view.startup_available = true;
 	view.startup_enabled = true;
 	view.startup_minimized = true;
@@ -28,6 +29,7 @@ fn startup_switches_require_availability_and_dependency_and_disable_while_pendin
 			ui::design::apply(&ctx);
 			let mut state = test_support::demo_state();
 			let mut view = MessagingUi::default();
+			view.language = ui::i18n::Language::English;
 			view.startup_available = true;
 			view.preview_settings("general");
 			// Only the renderer exists: clicks cannot register OS startup or contact Discord.

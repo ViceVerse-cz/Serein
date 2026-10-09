@@ -1,5 +1,7 @@
 use local_store::AppPreferences;
 
+pub const MIN_WINDOW_SIZE: [u32; 2] = [760, 520];
+
 #[derive(Default)]
 pub struct Settings {
 	pub current: AppPreferences,
@@ -49,6 +51,7 @@ impl Settings {
 			update_nightly: ui.updates.nightly,
 			notification_options: ui.notification_options,
 			show_hidden_channels: ui.show_hidden_channels,
+			hide_nitro_emojis: ui.hide_nitro_emojis,
 			convert_emoticons: ui.convert_emoticons,
 			hide_title_bar: ui.hide_title_bar,
 			hide_window_decorations: ui.hide_window_decorations,
@@ -91,6 +94,7 @@ impl Settings {
 		ui.updates.nightly = value.update_nightly;
 		ui.notification_options = value.notification_options;
 		ui.show_hidden_channels = value.show_hidden_channels;
+		ui.hide_nitro_emojis = value.hide_nitro_emojis;
 		ui.convert_emoticons = value.convert_emoticons;
 		ui.hide_title_bar = value.hide_title_bar;
 		ui.hide_window_decorations = value.hide_window_decorations;
@@ -161,6 +165,7 @@ pub fn restore_window_geometry(
 	// Wayland may not have reported its configured size before the first frame.
 	let requested = winit::dpi::LogicalSize::new(geometry.size[0], geometry.size[1])
 		.to_physical::<u32>(scale_factor);
+	let minimum = window_minimum(available, frame, scale_factor);
 	let position = position.or_else(|| {
 		window
 			.outer_position()
@@ -175,21 +180,58 @@ pub fn restore_window_geometry(
 		],
 		[origin.x, origin.y],
 		[available.width, available.height],
+		[
+			minimum.width.saturating_add(frame[0]),
+			minimum.height.saturating_add(frame[1]),
+		],
 	);
 	let size = winit::dpi::PhysicalSize::new(
 		size[0].saturating_sub(frame[0]).max(1),
 		size[1].saturating_sub(frame[1]).max(1),
 	);
 	// A newly smaller display must also be allowed to shrink below the usual minimum.
-	let minimum = winit::dpi::LogicalSize::new(760, 520).to_physical::<u32>(scale_factor);
-	window.set_min_inner_size(Some(winit::dpi::PhysicalSize::new(
-		minimum.width.min(size.width),
-		minimum.height.min(size.height),
-	)));
+	window.set_min_inner_size(Some(minimum));
 	let _ = window.request_inner_size(size);
 	if movable {
 		window.set_outer_position(winit::dpi::PhysicalPosition::new(position[0], position[1]));
 	}
+}
+
+pub fn update_window_minimum(
+	window: &winit::window::Window,
+	monitor: &winit::monitor::MonitorHandle,
+) {
+	let available = monitor.size();
+	if available.width == 0 || available.height == 0 {
+		return;
+	}
+	let inner = window.inner_size();
+	let outer = window.outer_size();
+	window.set_min_inner_size(Some(window_minimum(
+		available,
+		[
+			outer.width.saturating_sub(inner.width),
+			outer.height.saturating_sub(inner.height),
+		],
+		monitor.scale_factor(),
+	)));
+}
+
+fn window_minimum(
+	available: winit::dpi::PhysicalSize<u32>,
+	frame: [u32; 2],
+	scale_factor: f64,
+) -> winit::dpi::PhysicalSize<u32> {
+	let minimum = winit::dpi::LogicalSize::new(MIN_WINDOW_SIZE[0], MIN_WINDOW_SIZE[1])
+		.to_physical::<u32>(scale_factor);
+	winit::dpi::PhysicalSize::new(
+		minimum
+			.width
+			.min(available.width.saturating_sub(frame[0]).max(1)),
+		minimum
+			.height
+			.min(available.height.saturating_sub(frame[1]).max(1)),
+	)
 }
 
 /// Fit the complete physical outer rectangle, not just its top-left corner.
@@ -198,9 +240,10 @@ fn fit_window_geometry(
 	mut size: [u32; 2],
 	origin: [i32; 2],
 	available: [u32; 2],
+	minimum: [u32; 2],
 ) -> ([i32; 2], [u32; 2]) {
 	for axis in 0..2 {
-		size[axis] = size[axis].max(1).min(available[axis].max(1));
+		size[axis] = size[axis].max(minimum[axis]).min(available[axis].max(1));
 		let minimum = i64::from(origin[axis]);
 		let maximum = (minimum + i64::from(available[axis].max(1)) - i64::from(size[axis]))
 			.min(i64::from(i32::MAX));
@@ -209,20 +252,29 @@ fn fit_window_geometry(
 	(position, size)
 }
 
-#[cfg(all(debug_assertions, feature = "demo"))]
+#[cfg(any(test, all(debug_assertions, feature = "demo")))]
+#[cfg_attr(test, test)]
 pub fn debug_window_geometry_check() {
 	use local_store::{LocalStore, WindowGeometry};
 	assert_eq!(
-		fit_window_geometry([1850, 1000], [3000, 2000], [0, 0], [1920, 1080]),
+		fit_window_geometry([1850, 1000], [3000, 2000], [0, 0], [1920, 1080], [1, 1]),
 		([0, 0], [1920, 1080])
 	);
 	assert_eq!(
-		fit_window_geometry([-100, 900], [1200, 800], [-1920, 0], [1920, 1080]),
+		fit_window_geometry([-100, 900], [1200, 800], [-1920, 0], [1920, 1080], [1, 1]),
 		([-1200, 280], [1200, 800])
 	);
 	assert_eq!(
-		fit_window_geometry([-1800, 80], [1000, 700], [-1920, 0], [1920, 1080]),
+		fit_window_geometry([-1800, 80], [1000, 700], [-1920, 0], [1920, 1080], [1, 1]),
 		([-1800, 80], [1000, 700])
+	);
+	assert_eq!(
+		fit_window_geometry([0, 0], [229, 70], [0, 0], [1920, 1080], MIN_WINDOW_SIZE),
+		([0, 0], MIN_WINDOW_SIZE)
+	);
+	assert_eq!(
+		fit_window_geometry([0, 0], [229, 70], [0, 0], [640, 480], MIN_WINDOW_SIZE),
+		([0, 0], [640, 480])
 	);
 	let mut random = [0_u8; 16];
 	getrandom::fill(&mut random).unwrap();
@@ -272,17 +324,50 @@ pub fn debug_window_geometry_check() {
 			Some(geometry)
 		);
 	}
+	let small = WindowGeometry {
+		size: [640, 480],
+		position: None,
+	};
+	let preferences = AppPreferences {
+		window_geometry: Some(small),
+		..AppPreferences::default()
+	};
+	store.save_app_preferences(&preferences).unwrap();
+	assert_eq!(
+		LocalStore::open(&path)
+			.unwrap()
+			.app_preferences()
+			.unwrap()
+			.window_geometry,
+		Some(small)
+	);
 	drop(store);
 	std::fs::remove_file(path).unwrap();
 	std::fs::remove_dir(directory).unwrap();
 	println!(
-		"Offline window geometry check passed: size without position, X11 coordinates, native scale, preference preservation, SQLite reopen and bounds."
+		"Offline window geometry check passed: minimum size, small display, X11 coordinates, native scale, preference preservation, SQLite reopen and bounds."
 	);
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn minimum_tracks_monitor_size_scale_and_decorations() {
+		for (available, frame, scale, expected) in [
+			([640, 480], [16, 39], 1.0, [624, 441]),
+			([1920, 1080], [16, 39], 1.0, MIN_WINDOW_SIZE),
+			([1920, 1080], [24, 59], 1.5, [1140, 780]),
+			([960, 720], [24, 59], 1.5, [936, 661]),
+			([8, 12], [16, 39], 1.0, [1, 1]),
+		] {
+			assert_eq!(
+				window_minimum(available.into(), frame, scale),
+				winit::dpi::PhysicalSize::from(expected)
+			);
+		}
+	}
 
 	#[test]
 	fn startup_defaults_do_not_overwrite_pending_saved_preferences() {

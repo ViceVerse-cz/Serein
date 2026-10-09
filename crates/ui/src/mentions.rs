@@ -27,6 +27,8 @@ pub struct Menu {
 	dismissed: bool,
 	/// Keyboard moved the highlight; scroll the popout so it stays visible.
 	follow: bool,
+	/// Leave custom emoji that need Nitro out of `:` suggestions.
+	pub hide_nitro_emojis: bool,
 }
 pub struct Pick {
 	range: Range<usize>,
@@ -463,7 +465,10 @@ impl Menu {
 		users: &[User],
 	) {
 		let Some((range, query, kind)) = cursor.and_then(|cursor| query(draft, cursor)) else {
-			*self = Self::default();
+			*self = Self {
+				hide_nitro_emojis: self.hide_nitro_emojis,
+				..Self::default()
+			};
 			return;
 		};
 		if self.channel != Some(channel)
@@ -571,7 +576,8 @@ impl Menu {
 							&& emoji.valid() && (state.can_send(channel)
 							|| state
 								.custom_emoji_unavailable_reason(channel, guild.id, emoji)
-								.is_none())
+								.is_none()) && !(self.hide_nitro_emojis
+							&& state.custom_emoji_requires_nitro(channel, guild.id, emoji))
 						{
 							push_emoji(&mut out, (rank, 0, emoji.id.0), || Candidate::Custom {
 								id: emoji.id,
@@ -1198,7 +1204,7 @@ mod tests {
 		insert(&mut draft, menu.pick(0).unwrap(), true).unwrap();
 		assert_eq!(
 			draft,
-			"[same_wave](https://cdn.discordapp.com/emojis/10001.gif?size=64) "
+			r"[same\_wave](https://cdn.discordapp.com/emojis/10001.gif?size=64) "
 		);
 		menu.refresh(&state, Id(2), ":source20", Some(9), &[]);
 		assert_eq!(menu.candidates[0].id(), Id(20001));
@@ -1271,6 +1277,8 @@ mod tests {
 								id: guild,
 								name: String::new(),
 								color: 0,
+								secondary_color: None,
+								tertiary_color: None,
 								position: 0,
 								hoist: false,
 								bits: p::VIEW_CHANNEL | p::SEND_MESSAGES | p::MENTION_EVERYONE,
@@ -1523,7 +1531,7 @@ mod tests {
 				},
 			]),
 		}];
-		let state = State {
+		let mut state = State {
 			guilds,
 			channels: vec![channel(1, None, 1, "DM")],
 			user: Some(user(7, "Owner")),
@@ -1549,7 +1557,7 @@ mod tests {
 		);
 		let mut draft = "hi :he".to_owned();
 		let expected =
-			"hi [heart_hands_custom](https://cdn.discordapp.com/emojis/9001.gif?size=64) ";
+			r"hi [heart\_hands\_custom](https://cdn.discordapp.com/emojis/9001.gif?size=64) ";
 		assert_eq!(
 			insert(&mut draft, menu.pick(0).unwrap(), true),
 			Some(expected.chars().count())
@@ -1563,6 +1571,24 @@ mod tests {
 		let mut draft = "hi :he".to_owned();
 		insert(&mut draft, menu.pick(unicode).unwrap(), true).unwrap();
 		assert_eq!(draft, "hi ❤️ ");
+		// Opting out of Nitro-only suggestions drops the animated, other-server emoji only.
+		menu.hide_nitro_emojis = true;
+		menu.refresh(&state, Id(1), "x", None, &[]);
+		menu.refresh(&state, Id(1), "hi :he", Some(6), &[]);
+		assert!(
+			menu.hide_nitro_emojis,
+			"the preference survives a closed menu"
+		);
+		assert!(!menu.candidates.iter().any(|c| c.id() == Id(9001)));
+		assert!(
+			menu.candidates
+				.iter()
+				.any(|c| matches!(c, Candidate::Unicode { code, .. } if *code == ":heart:"))
+		);
+		state.premium_type = 2;
+		menu.refresh(&state, Id(1), "hi :he", Some(6), &[]);
+		assert!(menu.candidates.iter().any(|c| c.id() == Id(9001)));
+		menu.hide_nitro_emojis = false;
 		menu.refresh(&state, Id(1), ":+1", Some(3), &[]);
 		assert!(menu.candidates.iter().any(|candidate| matches!(
 			candidate,
@@ -1847,6 +1873,8 @@ pub fn debug_role_mentions_check(state: &mut State) {
 		name: "Role check".into(),
 		bits: 0,
 		color: 0xe67e22,
+		secondary_color: None,
+		tertiary_color: None,
 		position: 1,
 		hoist: false,
 	});

@@ -94,6 +94,7 @@ impl PermissionsUi {
 						ui.set_width(240.0);
 						ui.add(
 							egui::TextEdit::singleline(&mut self.search)
+								.align(egui::Align2::LEFT_CENTER)
 								.hint_text(crate::i18n::translate(
 									"channel-permissions-targets-search-roles-or-loaded-members",
 								))
@@ -117,12 +118,20 @@ impl PermissionsUi {
 									if ui
 										.selectable_label(
 											false,
-											format!(
-												"{}: {}",
-												crate::i18n::translate(
-													"channel-permissions-targets-role"
+											crate::role_names::galley(
+												ui,
+												&format!(
+													"{}: {}",
+													crate::i18n::translate(
+														"channel-permissions-targets-role"
+													),
+													role.name
 												),
-												role.name
+												egui::FontId::proportional(14.0),
+												Some(role.colors()),
+												ui.visuals().extreme_bg_color,
+												design::palette(ui).text,
+												ui.available_width(),
 											),
 										)
 										.clicked()
@@ -168,6 +177,7 @@ impl PermissionsUi {
 						let label = dialog::label(ui, "channel-permissions-targets-member-id");
 						ui.add(
 							egui::TextEdit::singleline(&mut self.member_id)
+								.align(egui::Align2::LEFT_CENTER)
 								.char_limit(20)
 								.desired_width(f32::INFINITY),
 						)
@@ -204,25 +214,27 @@ impl PermissionsUi {
 						.filter(|key| *key != (0, guild)),
 				) {
 					let label = target_name(state, guild, key);
-					let color = if key.0 == 0 {
+					let role_colors = if key.0 == 0 {
 						state
 							.permissions
 							.guilds
 							.get(&guild)
 							.and_then(|g| g.roles.as_ref())
-							.and_then(|roles| roles.iter().find(|r| r.id == key.1))
-							.map(|r| {
-								design::role_name_color(
-									r.color,
-									ui.visuals().extreme_bg_color,
-									design::palette(ui).text,
-								)
-							})
+							.and_then(|roles| roles.iter().find(|role| role.id == key.1))
+							.map(|role| role.colors())
 					} else {
 						None
 					};
-					let text = design::medium(ui, &label, 14.0)
-						.color(color.unwrap_or(design::palette(ui).text));
+					let palette = design::palette(ui);
+					let text = crate::role_names::galley(
+						ui,
+						&label,
+						egui::FontId::new(14.0, design::medium_family(ui.ctx())),
+						role_colors,
+						ui.visuals().extreme_bg_color,
+						palette.text,
+						(ui.available_width() - 16.0).max(0.0),
+					);
 					if ui
 						.add(
 							egui::Button::new(())

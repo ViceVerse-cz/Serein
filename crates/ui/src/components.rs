@@ -159,7 +159,7 @@ impl Components {
 				1 | 9 | 17 => {
 					let frame = if c.kind == 17 {
 						egui::Frame::new()
-							.fill(colors.raised)
+							.fill(design::opaque_card_fill(ui, colors.raised))
 							.stroke(egui::Stroke::new(
 								1.0,
 								c.accent_color
@@ -747,6 +747,7 @@ fn select(
 				&& ui
 					.add(
 						egui::TextEdit::singleline(query)
+							.align(egui::Align2::LEFT_CENTER)
 							.hint_text(crate::i18n::translate("components-select-search-options"))
 							.char_limit(64),
 					)
@@ -951,7 +952,7 @@ fn field(
 				let edit = if c.style == Some(2) {
 					egui::TextEdit::multiline(value).desired_rows(5)
 				} else {
-					egui::TextEdit::singleline(value)
+					egui::TextEdit::singleline(value).align(egui::Align2::LEFT_CENTER)
 				};
 				ui.add(
 					edit.char_limit(usize::from(c.max_length.unwrap_or(4000)).min(4000))

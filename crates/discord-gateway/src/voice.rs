@@ -16,6 +16,9 @@ use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Message as Frame;
 use zeroize::Zeroizing;
 
+/// Rapid mute/deafen toggles inside this window collapse into one voice state update.
+const STATE_COALESCE: Duration = Duration::from_millis(120);
+
 struct StreamAttempt {
 	channel: Id,
 	request: u64,
@@ -48,6 +51,11 @@ pub(super) struct Calls {
 	muted: bool,
 	deafened: bool,
 	camera: bool,
+	/// Last `(self_mute, self_deaf, self_video)` handed to the wire, and when.
+	/// The socket owner rolls this back with `state_send_failed` if sending fails.
+	sent_state: Option<((bool, bool, bool), Instant)>,
+	/// A coalesced mute/deafen change is sent when this passes; only the newest state goes out.
+	pub(super) state_deadline: Option<Instant>,
 	departing: Option<(Id, u64)>,
 	departing_guild: Option<Id>,
 	departing_session: Option<Secret>,
@@ -77,6 +85,8 @@ impl Calls {
 		self.muted = false;
 		self.deafened = false;
 		self.camera = false;
+		self.sent_state = None;
+		self.state_deadline = None;
 		self.departing = None;
 		self.departing_session = None;
 		self.departure_deadline = None;
@@ -357,6 +367,18 @@ impl Calls {
 				}
 				self.muted = mute || deaf;
 				self.deafened = deaf;
+				// Idempotent against what Discord already has; a burst waits for the window.
+				match self.sent_state {
+					Some((sent, _)) if sent == (self.muted, self.deafened, self.camera) => {
+						self.state_deadline = None;
+						return Ok(None);
+					}
+					Some((_, at)) if at.elapsed() < STATE_COALESCE => {
+						self.state_deadline.get_or_insert(at + STATE_COALESCE);
+						return Ok(None);
+					}
+					_ => {}
+				}
 				(Some(channel), self.active_guild)
 			}
 			Command::SetCamera {
@@ -382,7 +404,31 @@ impl Calls {
 			| Command::Ring { .. }
 			| Command::RingRecipient { .. } => return Ok(None),
 		};
-		Ok(Some(Frame::Text(json!({"op":4,"d":{"guild_id":guild,"channel_id":channel,"self_mute":self.muted,"self_deaf":self.deafened,"self_video":self.camera}}).to_string().into())))
+		Ok(Some(self.state_frame(channel, guild)))
+	}
+	fn state_frame(&mut self, channel: Option<Id>, guild: Option<Id>) -> Frame {
+		self.sent_state = Some(((self.muted, self.deafened, self.camera), Instant::now()));
+		self.state_deadline = None;
+		Frame::Text(json!({"op":4,"d":{"guild_id":guild,"channel_id":channel,"self_mute":self.muted,"self_deaf":self.deafened,"self_video":self.camera}}).to_string().into())
+	}
+	/// Preserve a failed active-call update for the next resumed socket. A fresh READY
+	/// clears this together with the old call, so it never causes an automatic rejoin.
+	pub(super) fn state_send_failed(&mut self) {
+		self.sent_state = None;
+		self.state_deadline = self.active.map(|_| Instant::now());
+	}
+	/// Sends the newest coalesced mute/deafen state, unless it already matches the wire.
+	pub(super) fn flush_state(&mut self) -> Option<Frame> {
+		self.state_deadline = None;
+		let (channel, _) = self.active?;
+		if self.allowed.get(&channel) != Some(&self.active_guild)
+			|| self
+				.sent_state
+				.is_some_and(|(sent, _)| sent == (self.muted, self.deafened, self.camera))
+		{
+			return None;
+		}
+		Some(self.state_frame(Some(channel), self.active_guild))
 	}
 	pub(super) fn channel_info_packet(&self, channel: Id) -> Option<Frame> {
 		let guild = self.active_guild?;
@@ -1065,6 +1111,51 @@ fn deletion_reason(raw: Option<&str>) -> Option<&'static str> {
 	})
 }
 
+/// Offline retry check; no gateway or media connection is opened.
+#[cfg(debug_assertions)]
+pub fn debug_voice_state_retry_check() {
+	let mut calls = Calls::default();
+	let channel = Id(20);
+	calls.allowed.insert(channel, Some(Id(10)));
+	assert!(
+		calls
+			.packet(Command::Join {
+				channel,
+				request: 1,
+				ring: false,
+				mute: false,
+				deaf: false
+			})
+			.unwrap()
+			.is_some()
+	);
+	assert!(
+		calls
+			.packet(Command::SetMute {
+				channel,
+				request: 1,
+				mute: true,
+				deaf: true
+			})
+			.unwrap()
+			.is_none()
+	);
+	assert!(calls.flush_state().is_some());
+	calls.state_send_failed();
+	calls.disconnected();
+	assert!(calls.state_deadline.is_some());
+	let Some(Frame::Text(frame)) = calls.flush_state() else {
+		panic!("failed state must be retried after RESUMED")
+	};
+	let value: serde_json::Value = serde_json::from_str(&frame).unwrap();
+	assert_eq!(value["d"]["self_mute"], true);
+	assert_eq!(value["d"]["self_deaf"], true);
+	assert!(calls.flush_state().is_none());
+	calls.state_send_failed();
+	calls.session_reset();
+	assert!(calls.state_deadline.is_none() && calls.flush_state().is_none());
+}
+
 #[cfg(test)]
 mod tests {
 	#[test]
@@ -1381,27 +1472,34 @@ mod tests {
 				deaf: true,
 			})
 			.unwrap();
-		for command in [
-			Command::SetCamera {
+		let Frame::Text(frame) = calls
+			.packet(Command::SetCamera {
 				channel,
 				request: 1,
 				enabled: true,
-			},
-			Command::SetMute {
-				channel,
-				request: 1,
-				mute: true,
-				deaf: true,
-			},
-		] {
-			let Frame::Text(frame) = calls.packet(command).unwrap().unwrap() else {
-				panic!("voice state")
-			};
-			let value: serde_json::Value = serde_json::from_str(&frame).unwrap();
-			assert_eq!(value["d"]["self_video"], true);
-			assert_eq!(value["d"]["self_mute"], true);
-			assert_eq!(value["d"]["self_deaf"], true);
-		}
+			})
+			.unwrap()
+			.unwrap()
+		else {
+			panic!("voice state")
+		};
+		let value: serde_json::Value = serde_json::from_str(&frame).unwrap();
+		assert_eq!(value["d"]["self_video"], true);
+		assert_eq!(value["d"]["self_mute"], true);
+		assert_eq!(value["d"]["self_deaf"], true);
+		// The camera update already carried the coalesced mute; repeating it sends nothing.
+		assert!(calls.state_deadline.is_none());
+		assert!(
+			calls
+				.packet(Command::SetMute {
+					channel,
+					request: 1,
+					mute: true,
+					deaf: true,
+				})
+				.unwrap()
+				.is_none()
+		);
 		assert!(
 			calls
 				.packet(Command::SetCamera {
@@ -1433,6 +1531,71 @@ mod tests {
 				.is_some()
 		);
 		assert!(!calls.camera);
+	}
+	#[test]
+	fn rapid_mute_toggles_coalesce_into_the_newest_voice_state() {
+		let mut calls = Calls::default();
+		let channel = Id(20);
+		calls.allowed.insert(channel, Some(Id(10)));
+		assert!(
+			calls
+				.packet(Command::Join {
+					channel,
+					request: 1,
+					ring: false,
+					mute: false,
+					deaf: false,
+				})
+				.unwrap()
+				.is_some()
+		);
+		let set = |calls: &mut Calls, mute: bool, deaf: bool| {
+			calls
+				.packet(Command::SetMute {
+					channel,
+					request: 1,
+					mute,
+					deaf,
+				})
+				.unwrap()
+		};
+		// Toggling back inside the window cancels the pending update entirely.
+		assert!(set(&mut calls, true, false).is_none());
+		assert!(calls.state_deadline.is_some());
+		assert!(set(&mut calls, false, false).is_none());
+		assert!(calls.state_deadline.is_none());
+		assert!(calls.flush_state().is_none());
+		// A burst ending deafened sends one update with the newest state.
+		for (mute, deaf) in [(true, false), (false, true), (true, true), (false, true)] {
+			assert!(set(&mut calls, mute, deaf).is_none());
+		}
+		let Some(Frame::Text(frame)) = calls.flush_state() else {
+			panic!("coalesced voice state")
+		};
+		let value: serde_json::Value = serde_json::from_str(&frame).unwrap();
+		assert_eq!(value["d"]["self_mute"], true);
+		assert_eq!(value["d"]["self_deaf"], true);
+		assert!(calls.flush_state().is_none());
+		// After the window, a single toggle goes out immediately.
+		calls.sent_state = Some(((true, true, false), Instant::now() - STATE_COALESCE));
+		let Some(Frame::Text(frame)) = set(&mut calls, false, false) else {
+			panic!("immediate voice state")
+		};
+		let value: serde_json::Value = serde_json::from_str(&frame).unwrap();
+		assert_eq!(value["d"]["self_mute"], false);
+		assert_eq!(value["d"]["self_deaf"], false);
+		// Leaving drops a pending update instead of re-sending it after the hangup.
+		assert!(set(&mut calls, true, false).is_none());
+		assert!(
+			calls
+				.packet(Command::Leave {
+					channel,
+					request: 1
+				})
+				.unwrap()
+				.is_some()
+		);
+		assert!(calls.state_deadline.is_none() && calls.flush_state().is_none());
 	}
 	fn confirm_transport(calls: &mut Calls, emit: &impl Fn(Event) -> Result<(), Failure>) {
 		let (channel, request) = calls.active.unwrap();

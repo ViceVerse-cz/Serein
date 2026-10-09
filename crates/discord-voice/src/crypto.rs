@@ -406,7 +406,10 @@ impl Dave {
 			return Err("Discord removed this device from the call");
 		}
 		let before = self.participants.len() + self.announced.len();
-		self.participants.retain(|id| *id != user);
+		// The MLS group keeps them until Discord's removal commit; pruned afterwards.
+		if !self.is_group_member(user) {
+			self.participants.retain(|id| *id != user);
+		}
 		self.announced.retain(|id| *id != user);
 		let changed = before != self.participants.len() + self.announced.len();
 		if changed {
@@ -459,7 +462,9 @@ impl Dave {
 				self.channel,
 				Some(&self.identity.0),
 			)
-			.map_err(|_| "DAVE reset failed")
+			.map_err(|_| "DAVE reset failed")?;
+		self.prune();
+		Ok(())
 	}
 	pub fn key_package(&mut self) -> Result<Vec<u8>, &'static str> {
 		// Match libdave and discord.py-self: opcode followed by the raw TLS KeyPackage.
@@ -546,6 +551,9 @@ impl Dave {
 		if payload.len() < 3 || payload.len() > MAX_SIGNAL {
 			return Err("Truncated DAVE group transition");
 		}
+		// Davey keeps the previous epoch's decryption keys for ten seconds, so an
+		// established call keeps its media flowing through a member change.
+		let was_ready = self.ready;
 		self.ready = false;
 		self.waiting = false;
 		self.transition_budget()?;
@@ -569,11 +577,23 @@ impl Dave {
 		}
 		self.validate_group()?;
 		self.pending_commit = None;
+		self.prune();
 		self.pending = Some(transition);
 		if transition == 0 {
 			self.execute(transition)?;
+		} else {
+			self.ready = was_ready;
 		}
 		Ok(transition)
+	}
+	/// Departed members stay authenticated only while the MLS group still contains them.
+	fn prune(&mut self) {
+		let members = self.session.get_user_ids().unwrap_or_default();
+		let (own, peer) = (self.own, self.peer);
+		let announced = &self.announced;
+		self.participants.retain(|id| {
+			*id == own || Some(*id) == peer || announced.contains(id) || members.contains(id)
+		});
 	}
 	fn transition_budget(&mut self) -> Result<(), &'static str> {
 		self.epochs = self

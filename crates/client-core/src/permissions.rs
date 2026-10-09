@@ -96,6 +96,20 @@ impl Permissions {
 	pub fn clear_cache(&self) {
 		self.cache.borrow_mut().clear();
 	}
+	#[cfg(test)]
+	pub(crate) fn cached_decisions(&self, channel: Id) -> usize {
+		self.cache
+			.borrow()
+			.keys()
+			.filter(|(_, cached, _)| *cached == channel)
+			.count()
+	}
+	/// Drops only the cached decisions of `channels`; other channels' decisions stay valid.
+	pub fn forget_channels(&self, channels: &BTreeSet<Id>) {
+		self.cache
+			.borrow_mut()
+			.retain(|(_, channel, _), _| !channels.contains(channel));
+	}
 	pub(crate) fn effective(
 		&self,
 		target: Id,
@@ -161,7 +175,7 @@ impl Permissions {
 					&& g.roles.as_ref().is_none_or(|roles| {
 						roles.len() <= 512
 							&& roles.iter().all(|role| {
-								role.name.chars().count() <= 100 && role.color <= 0xff_ffff
+								role.name.chars().count() <= 100 && role.colors().valid()
 							})
 					}) && g
 					.member
@@ -251,9 +265,13 @@ impl Permissions {
 				.any(|(id, old)| self.channels.get(id) != old.as_ref());
 		let limit = self.decision_limit.max(MIN_DECISIONS);
 		let cache = self.cache.get_mut();
-		cache.retain(|(guild, channel, _), _| {
-			!guild_ids.contains(guild) && !channel_ids.contains(channel)
-		});
+		// Decisions are pure functions of the guild and channel records, so an event that left
+		// them equal (a repeated member or role sync) keeps every cached decision valid.
+		if changed {
+			cache.retain(|(guild, channel, _), _| {
+				!guild_ids.contains(guild) && !channel_ids.contains(channel)
+			});
+		}
 		// Larger metadata can shrink the budget; drop only the decisions it no longer covers.
 		while cache.len() > limit {
 			cache.pop_last();
@@ -441,7 +459,39 @@ impl State {
 			.get(&guild)
 			.and_then(|guild| guild.roles.as_deref())
 	}
+	/// Prefer current member assignments over the fetched profile, including role removals.
+	pub fn profile_role_ids<'a>(&'a self, user: Id, member: &'a model::GuildProfile) -> &'a [Id] {
+		self.user
+			.as_ref()
+			.filter(|own| own.id == user)
+			.and_then(|_| self.permissions.guilds.get(&member.guild)?.member.as_ref())
+			.map(|own| own.roles.as_slice())
+			.or_else(|| {
+				self.selected
+					.and_then(|channel| self.live_member_roles(member.guild, channel, user))
+			})
+			.unwrap_or(&member.roles)
+	}
+	pub fn profile_name_colors(
+		&self,
+		user: &model::User,
+		member: &model::GuildProfile,
+	) -> Option<model::server_roles::Colors> {
+		if user.webhook {
+			return None;
+		}
+		self.display_roles(member.guild, self.profile_role_ids(user.id, member))
+			.1
+			.map(p::Role::colors)
+	}
 	pub fn message_author_color(&self, message: &model::Message) -> Option<u32> {
+		self.message_author_colors(message)
+			.map(|colors| colors.primary)
+	}
+	pub fn message_author_colors(
+		&self,
+		message: &model::Message,
+	) -> Option<model::server_roles::Colors> {
 		if message.author.webhook {
 			return None;
 		}
@@ -449,7 +499,7 @@ impl State {
 		let roles = self
 			.live_author_roles(guild, message.channel, message.author.id)
 			.unwrap_or(message.author_roles.as_slice());
-		self.display_roles(guild, roles).1.map(|role| role.color)
+		self.display_roles(guild, roles).1.map(p::Role::colors)
 	}
 	pub fn forum_author_color(
 		&self,
@@ -458,6 +508,16 @@ impl State {
 		webhook: bool,
 		roles: &[Id],
 	) -> Option<u32> {
+		self.forum_author_colors(channel, author, webhook, roles)
+			.map(|colors| colors.primary)
+	}
+	pub fn forum_author_colors(
+		&self,
+		channel: Id,
+		author: Id,
+		webhook: bool,
+		roles: &[Id],
+	) -> Option<model::server_roles::Colors> {
 		if webhook {
 			return None;
 		}
@@ -466,9 +526,13 @@ impl State {
 			.selected
 			.and_then(|selected| self.live_author_roles(guild, selected, author))
 			.unwrap_or(roles);
-		self.display_roles(guild, roles).1.map(|role| role.color)
+		self.display_roles(guild, roles).1.map(p::Role::colors)
 	}
 	fn live_author_roles(&self, guild: Id, channel: Id, user: Id) -> Option<&[Id]> {
+		self.live_member_roles(guild, channel, user)
+			.filter(|roles| !roles.is_empty())
+	}
+	fn live_member_roles(&self, guild: Id, channel: Id, user: Id) -> Option<&[Id]> {
 		let member = self
 			.members
 			.as_ref()
@@ -490,7 +554,7 @@ impl State {
 					.filter(|request| request.guild == guild && request.channel == channel)?;
 				view.rows.iter().find(|member| member.user.id == user)
 			})?;
-		(!member.roles.is_empty()).then_some(member.roles.as_slice())
+		Some(member.roles.as_slice())
 	}
 	fn display_roles(
 		&self,
@@ -713,6 +777,18 @@ impl State {
 			&& (matches!(self.premium_type, 1..=3)
 				|| (!emoji.animated
 					&& self.channel(channel).and_then(|target| target.guild) == Some(source)))
+	}
+	/// Any Nitro tier allows animated emoji and emoji from other servers; without one, only
+	/// the conversation's own server's static emoji are native. Entitlement is Discord's call.
+	pub fn custom_emoji_requires_nitro(
+		&self,
+		channel: Id,
+		source: Id,
+		emoji: &CustomEmoji,
+	) -> bool {
+		self.premium_type == 0
+			&& (emoji.animated
+				|| self.channel(channel).and_then(|target| target.guild) != Some(source))
 	}
 	/// Local eligibility for an emoji borrowed from `source`'s catalog. Discord still
 	/// decides account entitlements, including Nitro; this is not a send guarantee.
@@ -1001,6 +1077,8 @@ mod tests {
 			roles: Some(vec![p::Role {
 				name: String::new(),
 				color: 0,
+				secondary_color: None,
+				tertiary_color: None,
 				position: 0,
 				hoist: false,
 				id: Id(1),

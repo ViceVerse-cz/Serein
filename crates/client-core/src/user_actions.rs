@@ -53,7 +53,9 @@ pub enum Action {
 	OpenDm(Id),
 	CloseDm(Id),
 	Block { user: Id, blocked: bool },
+	Ignore { user: Id, ignored: bool },
 	Mute { channel: Id, muted: bool },
+	MessageRequest { channel: Id, accept: bool },
 }
 impl std::fmt::Debug for Action {
 	/// Redacted debug output; never prints note, nickname or username text.
@@ -78,10 +80,14 @@ impl Action {
 			Self::CloseDm(_) => "DM closed · messages and drafts were not deleted",
 			Self::Block { blocked: true, .. } => "User blocked",
 			Self::Block { blocked: false, .. } => "User unblocked",
+			Self::Ignore { ignored: true, .. } => "User ignored",
+			Self::Ignore { ignored: false, .. } => "User unignored",
 			Self::Mute { muted: true, .. } => {
 				"Conversation notifications muted until you turn them back on"
 			}
 			Self::Mute { muted: false, .. } => "Conversation notifications unmuted",
+			Self::MessageRequest { accept: true, .. } => "Message request accepted",
+			Self::MessageRequest { accept: false, .. } => "Message request ignored",
 		}
 	}
 }
@@ -129,6 +135,11 @@ pub enum Event {
 		result: Result<String, Failure>,
 	},
 	Nicknames(Vec<(Id, String)>),
+	/// Friendship start times in Unix seconds; `replace` drops every earlier entry first.
+	FriendsSince {
+		entries: Vec<(Id, i64)>,
+		replace: bool,
+	},
 	Nickname {
 		user: Id,
 		text: String,
@@ -186,7 +197,9 @@ pub enum Event {
 #[derive(Default)]
 pub struct Actions {
 	note: Option<(Id, String)>,
+	note_request: Option<(Id, u64, bool)>,
 	nicknames: BTreeMap<Id, String>,
+	friends_since: BTreeMap<Id, i64>,
 	requests: BTreeMap<Id, (model::User, String, bool)>,
 	requests_known: bool,
 	last_requested: Option<String>,
@@ -235,6 +248,11 @@ impl State {
 	pub fn friend_nickname(&self, user: Id) -> Option<&str> {
 		self.user_actions.nicknames.get(&user).map(String::as_str)
 	}
+	/// When the friendship began, if the service reported it for a current friend.
+	pub fn friend_since(&self, user: Id) -> Option<i64> {
+		self.friend(user)?;
+		self.user_actions.friends_since.get(&user).copied()
+	}
 	pub fn user_display_name<'a>(&'a self, user: &'a model::User) -> &'a str {
 		self.friend_nickname(user.id).unwrap_or(&user.name)
 	}
@@ -279,13 +297,29 @@ impl State {
 		}
 	}
 	pub fn load_user_note(&mut self, user: Id) -> Option<Command> {
-		if user.0 == 0 || self.user_action_pending() {
+		if user.0 == 0
+			|| self
+				.user_actions
+				.note_request
+				.is_some_and(|(id, _, _)| id == user)
+			|| (!self.demo && (self.auth != AuthState::Authenticated || !self.gateway_connected))
+		{
 			return None;
 		}
 		if self.user_note(user).is_none() {
 			self.user_actions.note = None;
 		}
-		self.request_user_action(Action::LoadNote(user))
+		self.user_actions.sequence = self.user_actions.sequence.wrapping_add(1);
+		let request = self.user_actions.sequence;
+		self.user_actions.note_request = Some((user, request, false));
+		Some(Command::UserAction {
+			action: Action::LoadNote(user),
+			request,
+			captcha: None,
+		})
+	}
+	pub(crate) fn cancel_user_note_read(&mut self) {
+		self.user_actions.note_request = None;
 	}
 	pub fn set_user_note(&mut self, user: Id, text: String) -> Option<Command> {
 		if self.user_note(user).is_none() || !valid_personal_text(&text, false) {
@@ -355,6 +389,20 @@ impl State {
 	pub(crate) fn message_request_pending(&self, channel: Id) -> bool {
 		self.user_actions.message_requests.contains(&channel)
 	}
+	/// A pending request from someone who is neither a friend nor blocked; the same rule as the badge.
+	pub fn message_request(&self, channel: Id) -> bool {
+		self.message_request_pending(channel)
+			&& self
+				.channel(channel)
+				.is_some_and(|channel| self.stranger_message_request(channel))
+	}
+	/// Accepts or ignores a pending message request. Ignoring removes the conversation.
+	pub fn resolve_message_request(&mut self, channel: Id, accept: bool) -> Option<Command> {
+		if !self.message_request(channel) {
+			return None;
+		}
+		self.request_user_action(Action::MessageRequest { channel, accept })
+	}
 	pub fn spam_direct(&self, channel: Id) -> bool {
 		self.user_actions.spam_directs.contains(&channel)
 	}
@@ -373,6 +421,7 @@ impl State {
 		} else {
 			self.user_actions.message_requests.remove(&channel);
 		}
+		self.user_actions.bump_view();
 		Ok(())
 	}
 	fn set_spam_request(&mut self, user: Id, spam: bool) -> Result<(), &'static str> {
@@ -622,6 +671,25 @@ impl State {
 			.copied()
 			.or_else(|| (self.demo || self.user_actions.known).then_some(false))
 	}
+	/// Whether the user is ignored, including an optimistic pending toggle; `None` while unknown.
+	pub fn user_ignored(&self, user: Id) -> Option<bool> {
+		if let Some((
+			Action::Ignore {
+				user: target,
+				ignored,
+			},
+			_,
+			false,
+		)) = &self.user_actions.pending
+			&& *target == user
+		{
+			return Some(*ignored);
+		}
+		if let Some((_, _, ignored)) = self.user_actions.restricted.get(&user) {
+			return Some(*ignored);
+		}
+		(self.demo || self.user_actions.restricted_known).then_some(false)
+	}
 	pub(crate) fn pending_dm_muted(&self, channel: Id) -> Option<bool> {
 		match &self.user_actions.pending {
 			Some((
@@ -744,6 +812,16 @@ impl State {
 		}
 		self.request_user_action(Action::Block { user, blocked })
 	}
+	pub fn set_user_ignored(&mut self, user: Id, ignored: bool) -> Option<Command> {
+		if user.0 == 0
+			|| self.user.as_ref().is_none_or(|owner| owner.id == user)
+			|| self.user_blocked(user) != Some(false)
+			|| self.user_ignored(user) != Some(!ignored)
+		{
+			return None;
+		}
+		self.request_user_action(Action::Ignore { user, ignored })
+	}
 	pub fn set_dm_muted(&mut self, channel: Id, muted: bool) -> Option<Command> {
 		if !self.is_one_to_one_dm(channel) && !self.is_group_dm(channel) {
 			return None;
@@ -779,6 +857,7 @@ impl State {
 	}
 	/// Aborts the pending account write and reports an unknown outcome.
 	pub(crate) fn cancel_user_action(&mut self) {
+		self.cancel_user_note_read();
 		self.user_actions.dm_origin = None;
 		self.user_actions.opened_dm = None;
 		self.user_actions.challenge = None;
@@ -889,11 +968,14 @@ impl State {
 					return Err("Invalid note");
 				}
 				let mut active = self.user_note(user).is_some();
-				if let Some((
-					Action::LoadNote(target) | Action::Note { user: target, .. },
-					_,
-					observed,
-				)) = &mut self.user_actions.pending
+				if let Some((target, _, observed)) = &mut self.user_actions.note_request
+					&& *target == user
+				{
+					*observed = true;
+					active = true;
+				}
+				if let Some((Action::Note { user: target, .. }, _, observed)) =
+					&mut self.user_actions.pending
 					&& *target == user
 				{
 					*observed = true;
@@ -908,29 +990,32 @@ impl State {
 				request,
 				result,
 			} => {
-				if !matches!(&self.user_actions.pending, Some((Action::LoadNote(id), sequence, _)) if *id == user && *sequence == request)
-				{
+				let Some((target, sequence, observed)) = self.user_actions.note_request else {
+					return Ok(());
+				};
+				if target != user || sequence != request {
 					return Ok(());
 				}
+				self.user_actions.note_request = None;
 				match result {
-					Ok(text) if valid_personal_text(&text, false) => {
-						if !self
-							.user_actions
-							.pending
-							.as_ref()
-							.is_some_and(|(_, _, observed)| *observed)
-						{
-							self.user_actions.note = Some((user, text.as_str().to_owned()));
-						}
-						self.user_actions.pending = None;
-						self.user_actions.status = None;
+					Ok(text) if valid_personal_text(&text, false) && !observed => {
+						self.user_actions.note = Some((user, text.as_str().to_owned()));
 					}
-					result => {
-						return self.apply_user_action(Event::Written {
-							action: Action::LoadNote(user),
-							request,
-							result: Err(result.err().unwrap_or(Failure::Protocol)),
-						});
+					Err(failure) if failure.ends_session() => self.fail(failure),
+					_ => {}
+				}
+			}
+			Event::FriendsSince { entries, replace } => {
+				if entries.len() > MAX_RELATIONSHIPS || entries.iter().any(|(id, _)| id.0 == 0) {
+					return Err("Invalid friendship dates");
+				}
+				if replace {
+					self.user_actions.friends_since.clear();
+				}
+				for (user, since) in entries {
+					let known = &mut self.user_actions.friends_since;
+					if known.contains_key(&user) || known.len() < MAX_RELATIONSHIPS {
+						known.insert(user, since);
 					}
 				}
 			}
@@ -1151,6 +1236,7 @@ impl State {
 					}
 					self.user_actions.friends.remove(&user);
 					self.user_actions.nicknames.remove(&user);
+					self.user_actions.friends_since.remove(&user);
 				} else if let Some((record, name)) = profile {
 					let entries = &mut self.user_actions.friends;
 					if user != record.id || !valid_friend(&record, &name) {
@@ -1211,6 +1297,12 @@ impl State {
 				ignored,
 				profile,
 			} => {
+				if let Some((Action::Ignore { user: target, .. }, _, observed)) =
+					&mut self.user_actions.pending
+					&& *target == user
+				{
+					*observed = true;
+				}
 				let Some(ignored) = ignored else {
 					self.user_actions.restricted.remove(&user);
 					return Ok(());
@@ -1281,6 +1373,7 @@ impl State {
 					"Message requests exceed safe capacity",
 					"Message requests contain invalid or duplicate channels",
 				)?;
+				self.user_actions.bump_view();
 			}
 			Event::MessageRequest { channel, pending } => {
 				self.set_message_request(channel, pending)?;
@@ -1340,6 +1433,13 @@ impl State {
 				request,
 				result,
 			} => {
+				if let Action::LoadNote(user) = action {
+					return self.apply_user_action(Event::NoteLoaded {
+						user,
+						request,
+						result: Err(result.err().unwrap_or(Failure::Protocol)),
+					});
+				}
 				let Some((pending, sequence, observed)) = &self.user_actions.pending else {
 					return Ok(());
 				};
@@ -1366,6 +1466,11 @@ impl State {
 					match action {
 						Action::LoadNote(_) | Action::OpenDm(_) => {}
 						Action::Note { user, ref text } => {
+							if let Some((target, _, observed)) = &mut self.user_actions.note_request
+								&& *target == user
+							{
+								*observed = true;
+							}
 							self.user_actions.note = Some((user, text.clone()))
 						}
 						Action::Nickname { user, ref text } => {
@@ -1415,7 +1520,30 @@ impl State {
 						Action::Block { user, blocked } => {
 							self.store_relationship(user, blocked)?
 						}
+						Action::Ignore { user, ignored } => {
+							let profile =
+								self.user_actions.friends.get(&user).cloned().or_else(|| {
+									self.user_actions
+										.requests
+										.get(&user)
+										.map(|(u, n, _)| (u.clone(), n.clone()))
+								});
+							self.apply_user_action(Event::Restriction {
+								user,
+								ignored: ignored.then_some(true),
+								profile,
+							})?;
+						}
 						Action::Mute { channel, muted } => self.confirm_dm_muted(channel, muted)?,
+						Action::MessageRequest { channel, accept } => {
+							self.set_message_request(channel, false)?;
+							if !accept {
+								self.remove_channels(&std::collections::BTreeSet::from([channel]));
+								if self.selected == Some(channel) {
+									self.arrived_home();
+								}
+							}
+						}
 					}
 				}
 			}
@@ -1471,6 +1599,71 @@ fn valid_friend(user: &model::User, username: &str) -> bool {
 			.avatar
 			.as_ref()
 			.is_none_or(|hash| model::valid_avatar_hash(hash))
+}
+
+#[cfg(debug_assertions)]
+impl State {
+	/// Offline state check; preserves the caller's action state and sends no commands.
+	pub fn debug_profile_note_read_check(&mut self, user: &model::User) {
+		let saved = std::mem::take(&mut self.user_actions);
+		let allowed = self.can_open_user_dm(user);
+		let Command::UserAction { request, .. } = self.load_user_note(user.id).unwrap() else {
+			panic!("note read");
+		};
+		assert!(
+			!self.user_action_pending(),
+			"note read never reserves the account-write slot"
+		);
+		assert_eq!(self.can_open_user_dm(user), allowed);
+		let write = self
+			.request_user_action(Action::Note {
+				user: user.id,
+				text: "New note".into(),
+			})
+			.expect("write can run alongside note read");
+		self.apply_user_action(Event::NoteChanged {
+			user: user.id,
+			text: "New note".into(),
+		})
+		.unwrap();
+		self.apply_user_action(Event::NoteLoaded {
+			user: user.id,
+			request,
+			result: Ok("Old note".into()),
+		})
+		.unwrap();
+		assert_eq!(self.user_note(user.id), Some("New note"));
+		assert!(
+			self.user_action_pending(),
+			"read completion cannot clear the pending write"
+		);
+		let Command::UserAction {
+			action, request, ..
+		} = write
+		else {
+			panic!("note write");
+		};
+		self.apply_user_action(Event::Written {
+			action,
+			request,
+			result: Ok(()),
+		})
+		.unwrap();
+		assert!(!self.user_action_pending());
+		let Command::UserAction { request, .. } = self.load_user_note(user.id).unwrap() else {
+			panic!("second read");
+		};
+		self.cancel_user_note_read();
+		self.apply_user_action(Event::NoteLoaded {
+			user: user.id,
+			request,
+			result: Ok("Cancelled read".into()),
+		})
+		.unwrap();
+		assert_eq!(self.user_note(user.id), Some("New note"));
+		self.user_actions = saved;
+		println!("Profile note read isolation, newer-note reconciliation and cancellation passed.");
+	}
 }
 
 #[cfg(test)]

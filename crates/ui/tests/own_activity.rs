@@ -53,6 +53,7 @@ fn own_profile_and_server_member_render_local_updates_and_clear_without_changing
 					.collect(),
 			});
 			let mut view = MessagingUi::default();
+			view.language = ui::i18n::Language::English;
 			view.reading_preferences.show_members = true;
 			view.preview_profile(own);
 			// Leave footer activity unset: two game labels must come from the profile and member row.
@@ -142,6 +143,7 @@ fn own_activity_panel_and_setting_render_and_clear() {
 			ui::design::apply(&ctx);
 			let mut state = test_support::demo_state();
 			let mut view = MessagingUi::default();
+			view.language = ui::i18n::Language::English;
 			view.own_game = Some("Playing osu!".into());
 			for settings in [false, true] {
 				if settings {

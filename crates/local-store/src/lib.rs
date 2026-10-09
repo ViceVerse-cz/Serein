@@ -11,8 +11,8 @@ use std::{
 
 const MAX_MEDIA_JSON: usize = 256 * 1024;
 const MAX_WINDOW_BYTES: usize = 4 * 1024 * 1024;
-const NATIVE_SCHEMA: u32 = 27;
-const READABLE_SCHEMA: u32 = 27;
+const NATIVE_SCHEMA: u32 = 29;
+const READABLE_SCHEMA: u32 = 29;
 #[derive(serde::Deserialize)]
 struct CachedMentions(#[serde(deserialize_with = "model::deserialize_mentions")] Vec<User>);
 fn parse_author_roles(raw: &str) -> std::result::Result<Vec<Id>, StoreError> {
@@ -44,6 +44,8 @@ pub struct AppPreferences {
 	pub update_nightly: bool,
 	pub notification_options: model::notification_preferences::Device,
 	pub show_hidden_channels: bool,
+	/// Keep custom emoji that need Nitro out of suggestions and lock them in the picker.
+	pub hide_nitro_emojis: bool,
 	/// Device-local opt-in; older saved preferences deserialize with conversion off.
 	pub convert_emoticons: bool,
 	pub hide_title_bar: bool,
@@ -85,6 +87,7 @@ impl Default for AppPreferences {
 			update_nightly: true,
 			notification_options: Default::default(),
 			show_hidden_channels: false,
+			hide_nitro_emojis: false,
 			convert_emoticons: false,
 			hide_title_bar: false,
 			hide_window_decorations: false,
@@ -551,6 +554,18 @@ impl LocalStore {
 			); INSERT INTO reading_preferences_zoom SELECT singleton,zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links,smooth_scrolling,scroll_speed_percent,show_members_dms,compact_messages FROM reading_preferences;
 			DROP TABLE reading_preferences; ALTER TABLE reading_preferences_zoom RENAME TO reading_preferences;")?;
 		}
+		let has_double_click_reaction: bool = transaction.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('reading_preferences') WHERE name='double_click_reaction')", [], |row| row.get(0),
+		)?;
+		if !has_double_click_reaction {
+			transaction.execute_batch("ALTER TABLE reading_preferences ADD COLUMN double_click_reaction INTEGER NOT NULL DEFAULT 0 CHECK(typeof(double_click_reaction)='integer' AND double_click_reaction BETWEEN 0 AND 5);")?;
+		}
+		let has_double_click_enabled: bool = transaction.query_row(
+			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('reading_preferences') WHERE name='double_click_reaction_enabled')", [], |row| row.get(0),
+		)?;
+		if !has_double_click_enabled {
+			transaction.execute_batch("ALTER TABLE reading_preferences ADD COLUMN double_click_reaction_enabled INTEGER NOT NULL DEFAULT 0 CHECK(typeof(double_click_reaction_enabled)='integer' AND double_click_reaction_enabled IN (0,1));")?;
+		}
 		let has_author_roles: bool = transaction.query_row(
 			"SELECT EXISTS(SELECT 1 FROM pragma_table_info('messages') WHERE name='author_roles')",
 			[],
@@ -700,7 +715,7 @@ impl LocalStore {
 		let stored = self
 			.0
 			.query_row(
-				"SELECT zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links,smooth_scrolling,scroll_speed_percent,show_members_dms,compact_messages FROM reading_preferences WHERE singleton=1",
+				"SELECT zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links,smooth_scrolling,scroll_speed_percent,show_members_dms,compact_messages,double_click_reaction,double_click_reaction_enabled FROM reading_preferences WHERE singleton=1",
 				[],
 				|row| {
 					Ok(match (
@@ -714,6 +729,8 @@ impl LocalStore {
 						row.get_ref(7)?,
 						row.get_ref(8)?,
 						row.get_ref(9)?,
+						row.get_ref(10)?,
+						row.get_ref(11)?,
 					) {
 						(
 							ValueRef::Integer(zoom @ 50..=150),
@@ -726,12 +743,16 @@ impl LocalStore {
 							ValueRef::Integer(scroll_speed_percent @ 25..=300),
 							ValueRef::Integer(members_dms @ 0..=1),
 							ValueRef::Integer(compact_messages @ 0..=1),
+							ValueRef::Integer(double_click_reaction @ 0..=5),
+							ValueRef::Integer(double_click_enabled @ 0..=1),
 						) => Some(ReadingPreferences {
 							zoom_percent: zoom as u16,
 							sidebar_width: width as u16,
 							show_members: members == 1,
 							show_members_dms: members_dms == 1,
 							compact_messages: compact_messages == 1,
+							double_click_reaction: double_click_reaction as u8,
+							double_click_reaction_enabled: double_click_enabled == 1,
 							animate_gifs: animate_gifs == 1,
 							hide_media_links: hide_media_links == 1,
 							confirm_external_links: confirm_external_links == 1,
@@ -758,10 +779,10 @@ impl LocalStore {
 			self.0
 				.execute("DELETE FROM reading_preferences WHERE singleton=1", [])?;
 		} else {
-			self.0.execute("INSERT INTO reading_preferences(singleton,zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links,smooth_scrolling,scroll_speed_percent,show_members_dms,compact_messages)
-				VALUES(1,?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) ON CONFLICT(singleton) DO UPDATE SET
-				zoom_percent=excluded.zoom_percent,sidebar_width=excluded.sidebar_width,show_members=excluded.show_members,animate_gifs=excluded.animate_gifs,hide_media_links=excluded.hide_media_links,confirm_external_links=excluded.confirm_external_links,smooth_scrolling=excluded.smooth_scrolling,scroll_speed_percent=excluded.scroll_speed_percent,show_members_dms=excluded.show_members_dms,compact_messages=excluded.compact_messages",
-				params![preferences.zoom_percent, preferences.sidebar_width, preferences.show_members, preferences.animate_gifs, preferences.hide_media_links, preferences.confirm_external_links, preferences.smooth_scrolling, preferences.scroll_speed_percent, preferences.show_members_dms, preferences.compact_messages])?;
+			self.0.execute("INSERT INTO reading_preferences(singleton,zoom_percent,sidebar_width,show_members,animate_gifs,hide_media_links,confirm_external_links,smooth_scrolling,scroll_speed_percent,show_members_dms,compact_messages,double_click_reaction,double_click_reaction_enabled)
+				VALUES(1,?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12) ON CONFLICT(singleton) DO UPDATE SET
+				zoom_percent=excluded.zoom_percent,sidebar_width=excluded.sidebar_width,show_members=excluded.show_members,animate_gifs=excluded.animate_gifs,hide_media_links=excluded.hide_media_links,confirm_external_links=excluded.confirm_external_links,smooth_scrolling=excluded.smooth_scrolling,scroll_speed_percent=excluded.scroll_speed_percent,show_members_dms=excluded.show_members_dms,compact_messages=excluded.compact_messages,double_click_reaction=excluded.double_click_reaction,double_click_reaction_enabled=excluded.double_click_reaction_enabled",
+				params![preferences.zoom_percent, preferences.sidebar_width, preferences.show_members, preferences.animate_gifs, preferences.hide_media_links, preferences.confirm_external_links, preferences.smooth_scrolling, preferences.scroll_speed_percent, preferences.show_members_dms, preferences.compact_messages, preferences.double_click_reaction, preferences.double_click_reaction_enabled])?;
 		}
 		Ok(())
 	}
@@ -2288,6 +2309,8 @@ mod tests {
 			show_members: false,
 			show_members_dms: false,
 			compact_messages: false,
+			double_click_reaction_enabled: false,
+			double_click_reaction: 0,
 			animate_gifs: false,
 			smooth_scrolling: true,
 			scroll_speed_percent: 100,
@@ -2614,6 +2637,8 @@ mod tests {
 			show_members: false,
 			show_members_dms: false,
 			compact_messages: false,
+			double_click_reaction_enabled: false,
+			double_click_reaction: 0,
 			animate_gifs: false,
 			smooth_scrolling: true,
 			scroll_speed_percent: 100,
@@ -2634,6 +2659,8 @@ mod tests {
 				show_members: true,
 				show_members_dms: true,
 				compact_messages: false,
+				double_click_reaction_enabled: false,
+				double_click_reaction: 0,
 				animate_gifs: false,
 				smooth_scrolling: true,
 				scroll_speed_percent: 100,
@@ -2804,6 +2831,8 @@ mod tests {
 			confirm_external_links: false,
 			smooth_scrolling: false,
 			compact_messages: true,
+			double_click_reaction_enabled: false,
+			double_click_reaction: 0,
 			scroll_speed_percent: 140,
 		};
 		store.save_reading_preferences(preferences).unwrap();
@@ -2872,6 +2901,8 @@ mod tests {
 					show_members,
 					show_members_dms: show_members,
 					compact_messages: false,
+					double_click_reaction_enabled: false,
+					double_click_reaction: 0,
 					animate_gifs: false,
 					smooth_scrolling: true,
 					scroll_speed_percent: 100,
@@ -2899,6 +2930,8 @@ mod tests {
 					show_members: false,
 					show_members_dms: false,
 					compact_messages: false,
+					double_click_reaction_enabled: false,
+					double_click_reaction: 0,
 					animate_gifs: false,
 					smooth_scrolling: true,
 					scroll_speed_percent: 100,
@@ -2917,6 +2950,8 @@ mod tests {
 				show_members: false,
 				show_members_dms: false,
 				compact_messages: false,
+				double_click_reaction_enabled: false,
+				double_click_reaction: 0,
 				animate_gifs: false,
 				smooth_scrolling: true,
 				scroll_speed_percent: 100,
@@ -3502,5 +3537,61 @@ mod component_storage_tests {
 			store.save_channel(Id(1), Id(2), &messages),
 			Err(StoreError::Capacity)
 		);
+	}
+}
+
+#[cfg(debug_assertions)]
+impl LocalStore {
+	/// In-memory migration and persistence check; never opens the account database.
+	pub fn debug_double_click_reaction_check() {
+		let store = Self::initialize(Connection::open_in_memory().unwrap()).unwrap();
+		let mut preferences = ReadingPreferences {
+			zoom_percent: 125,
+			..Default::default()
+		};
+		store.save_reading_preferences(preferences).unwrap();
+		store
+			.0
+			.execute_batch(
+				"ALTER TABLE reading_preferences DROP COLUMN double_click_reaction; ALTER TABLE reading_preferences DROP COLUMN double_click_reaction_enabled; PRAGMA user_version=27;",
+			)
+			.unwrap();
+		let store = Self::initialize(store.0).unwrap();
+		assert_eq!(store.reading_preferences().unwrap(), preferences);
+		assert!(
+			!store
+				.reading_preferences()
+				.unwrap()
+				.double_click_reaction_enabled
+		);
+		assert_eq!(preferences.double_click_emoji(), "❤️");
+		preferences.double_click_reaction = 3;
+		store.save_reading_preferences(preferences).unwrap();
+		store.0.execute_batch("ALTER TABLE reading_preferences DROP COLUMN double_click_reaction_enabled; PRAGMA user_version=28;").unwrap();
+		let store = Self::initialize(store.0).unwrap();
+		assert_eq!(
+			store.reading_preferences().unwrap(),
+			preferences,
+			"migration preserves the chosen emoji and defaults to disabled"
+		);
+		preferences.double_click_reaction_enabled = true;
+		store.save_reading_preferences(preferences).unwrap();
+		let store = Self::initialize(store.0).unwrap();
+		assert_eq!(store.reading_preferences().unwrap(), preferences);
+		assert_eq!(
+			store.reading_preferences().unwrap().double_click_emoji(),
+			"🎉"
+		);
+		let invalid = ReadingPreferences {
+			double_click_reaction_enabled: false,
+			double_click_reaction: u8::MAX,
+			..preferences
+		};
+		assert_eq!(
+			store.save_reading_preferences(invalid),
+			Err(StoreError::Capacity)
+		);
+		assert_eq!(store.reading_preferences().unwrap(), preferences);
+		println!("Double-click reaction migration, roundtrip and bounds passed in memory");
 	}
 }

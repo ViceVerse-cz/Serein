@@ -304,6 +304,7 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Sentetik ataşman
 attachments-open-original-open-original = Orijinali aç…
 # Context: pending_card
 attachments-pending-card-remove-attachment = Eki kaldır
+attachments-loading-card-preparing = Hazırlanıyor…
 # Context: show_status
 attachments-show-status-cancel-download = İndirmeyi iptal et
 # Context: show_status
@@ -382,6 +383,18 @@ channel-list-heading-direct-messages = Doğrudan Mesajlar
 channel-list-heading-favorites = Favoriler
 # Context: key
 channel-list-heading-pinned = Sabitlendi
+# Context: key
+channel-list-heading-message-requests = Mesaj İstekleri
+# Context: label
+message-request-ignore-tooltip = İsteği yok say
+# Context: label
+message-request-accept = Kabul et
+# Context: label
+message-request-ignore = Yok say
+# Context: label
+message-request-banner = Bu kişi henüz arkadaşın değil. Sohbeti doğrudan mesajlarına taşımak için kabul et.
+# Context: label
+message-request-title = Mesaj isteği
 
 ## crates/ui/src/channel_menu.rs
 # Context: context
@@ -815,6 +828,10 @@ emoji-picker-gif-body-searching-klipy = KLIPY aranıyor…
 # Context: gif_body
 emoji-picker-gif-body-trending-gifs = Trend olan GIF'ler
 # Context: gif_body
+emoji-picker-gif-body-retry = Yeniden dene
+# Context: gif_body
+emoji-picker-gif-body-no-trending-gifs-right-now = Bir GIF ara veya daha sonra tekrar dene.
+# Context: gif_body
 emoji-picker-gif-body-try-a-different-search-term = Farklı bir arama terimi deneyin.
 # Context: gif_grid
 emoji-picker-gif-grid-favorite = Favori
@@ -840,6 +857,8 @@ emoji-picker-popup-hover-an-emoji-to-preview-it = Önizlemek için bir emojinin 
 emoji-picker-popup-no-matching-emoji = Eşleşen emoji yok.
 # Context: popup
 emoji-picker-popup-retry-sticker-packs = Çıkartma paketlerini yeniden dene
+# Context: popup
+emoji-picker-popup-requires-nitro = Burada kullanmak için Nitro gerekir
 # Context: popup
 emoji-picker-popup-search-results = Arama sonuçları
 # Context: popup
@@ -2056,6 +2075,20 @@ profiles-more-menu-add-friend-nickname = Arkadaş Takma Adını Ekle
 profiles-more-menu-add-note = Not Ekle
 # Context: more_menu
 profiles-more-menu-block = Engellemek
+profiles-view-full-profile = Tam Profili Görüntüle
+profiles-copy-username = Kullanıcı Adını Kopyala
+profiles-username-unavailable = Kullanıcı adını yüklemek için profili açın
+profiles-ignore = Yok Say
+profiles-unignore = Yok Saymayı Kaldır
+profiles-ignore-hint = Engellemeden Discord'un Yok Say ayarını kullanır. Kullanıcıya bildirilmez.
+profiles-report-user-profile = Kullanıcı Profilini Bildir
+profiles-report-hint = Discord destek formunu tarayıcıda açar ve kullanıcı kimliğini kopyalar
+profiles-show-activity = ETKİNLİK
+profiles-show-connections = BAĞLANTILAR
+profiles-show-friends-since = ŞU TARİHTEN BERİ ARKADAŞ
+profiles-show-note = NOT
+profiles-show-note-hint = Not eklemek için tıklayın
+profiles-show-note-only-you = Yalnızca sana görünür
 # Context: more_menu
 profiles-more-menu-copy-webhook-id = Web kancası kimliğini kopyala
 # Context: more_menu
@@ -2124,6 +2157,8 @@ profiles-show-view-profile-picture = Profil resmini görüntüle
 ## crates/ui/src/reactions.rs
 # Context: add_button
 reactions-add-button-add-reaction = Tepki ekle
+# Context: quick_button
+reactions-quick-react = { $emoji } ile tepki ver
 # Context: show
 reactions-show-reactions-unavailable = Tepkiler kullanılamıyor
 # Context: show
@@ -3445,6 +3480,12 @@ settings-chat-settings-channel-list = Kanal listesi
 settings-chat-settings-show-channels-you-cannot-currently-access = Şu anda erişemediğiniz kanalları gösterin.
 # Context: chat_settings
 settings-chat-settings-show-hidden-channels = Gizli kanalları göster
+# Context: chat_settings
+settings-chat-settings-emoji = Emoji
+# Context: chat_settings
+settings-chat-settings-suggest-nitro-emojis = Nitro gerektiren emojileri öner
+# Context: chat_settings
+settings-chat-settings-suggest-nitro-emojis-description = Nitro olmadan da animasyonlu ve diğer sunuculardaki emojileri : önerilerinde ve seçicide göster. Kapalıyken önerilerde gizlenir ve seçicide kilitlenir.
 # Context: close_control
 settings-close-control-close-settings-esc = Ayarları kapat (Esc)
 # Context: colour_preset_settings
@@ -3742,6 +3783,10 @@ timeline-deleted-message-actions-toggle-deleted-highlight = Silinen Vurgulamayı
 timeline-loading-messages-loading-messages = Mesajlar yükleniyor
 # Context: message_actions
 timeline-message-actions-copy = Kopyala
+# Context: message_actions
+timeline-message-actions-copy-message-id = Mesaj Kimliğini Kopyala
+# Context: message_actions
+timeline-message-actions-copy-message-link = Mesaj Bağlantısını Kopyala
 # Context: message_actions
 timeline-message-actions-create-thread = Konu Oluştur…
 # Context: message_actions
@@ -4446,3 +4491,13 @@ screen-macos-system-picker = macOS sistem seçicisiyle seç
 screen-macos-system-picker-kind = Sistem içerik seçicisi
 
 member-in-voice = Sesli sohbette
+
+profiles-board = Board
+profiles-board-unavailable = This profile’s board is unavailable.
+profiles-board-empty = No games on this board yet.
+profiles-board-show-more = Show more
+profiles-board-show-less = Show less
+profiles-activity-empty = Paylaşılan etkinlik yok.
+profiles-mutuals-empty = Nothing to show here.
+
+reading-double-click-reaction = Double-click reaction

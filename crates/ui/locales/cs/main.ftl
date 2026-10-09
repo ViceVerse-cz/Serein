@@ -303,6 +303,7 @@ attachments-media-menu-unavailable-for-synthetic-attachments = Nedostupné pro s
 attachments-open-original-open-original = Otevřít originál…
 # Context: pending_card
 attachments-pending-card-remove-attachment = Odstraňte přílohu
+attachments-loading-card-preparing = Připravuje se…
 # Context: show_status
 attachments-show-status-cancel-download = Zrušit stahování
 # Context: show_status
@@ -381,6 +382,18 @@ channel-list-heading-direct-messages = Přímé zprávy
 channel-list-heading-favorites = Oblíbené
 # Context: key
 channel-list-heading-pinned = Připnuté
+# Context: key
+channel-list-heading-message-requests = Žádosti o zprávy
+# Context: label
+message-request-ignore-tooltip = Ignorovat žádost
+# Context: label
+message-request-accept = Přijmout
+# Context: label
+message-request-ignore = Ignorovat
+# Context: label
+message-request-banner = Tato osoba zatím není váš přítel. Přijetím přesunete konverzaci mezi přímé zprávy.
+# Context: label
+message-request-title = Žádost o zprávu
 
 ## crates/ui/src/channel_menu.rs
 # Context: context
@@ -767,6 +780,14 @@ embeds-image-preview-image-actions = Akce s obrázky
 embeds-link-open-link = Otevřít odkaz…
 # Context: show
 embeds-show-additional-embed-content-is-not-supported = Další vložený obsah není podporován
+# Context: poll_result
+embeds-poll-result-winning-answer = Vítězná odpověď
+# Context: poll_result
+embeds-poll-result-tie = Žádná odpověď nevyhrála
+# Context: poll_result
+embeds-poll-result-no-votes = Nikdo nehlasoval
+# Context: poll_result
+embeds-poll-result-view-poll = Zobrazit anketu
 # Context: show
 embeds-show-embed-display-limited = Vložení zobrazení omezeno
 # Context: show
@@ -814,6 +835,10 @@ emoji-picker-gif-body-searching-klipy = Vyhledávání KLIPY…
 # Context: gif_body
 emoji-picker-gif-body-trending-gifs = Populární GIFy
 # Context: gif_body
+emoji-picker-gif-body-retry = Zkusit znovu
+# Context: gif_body
+emoji-picker-gif-body-no-trending-gifs-right-now = Vyhledejte GIF nebo to zkuste později.
+# Context: gif_body
 emoji-picker-gif-body-try-a-different-search-term = Zkuste jiný hledaný výraz.
 # Context: gif_grid
 emoji-picker-gif-grid-favorite = Oblíbený
@@ -839,6 +864,8 @@ emoji-picker-popup-hover-an-emoji-to-preview-it = Umístěním kurzoru na emotik
 emoji-picker-popup-no-matching-emoji = Žádné odpovídající emotikony.
 # Context: popup
 emoji-picker-popup-retry-sticker-packs = Zkuste znovu balíčky nálepek
+# Context: popup
+emoji-picker-popup-requires-nitro = Zde vyžaduje Nitro
 # Context: popup
 emoji-picker-popup-search-results = Výsledky vyhledávání
 # Context: popup
@@ -2058,6 +2085,20 @@ profiles-more-menu-add-friend-nickname = Přidat přezdívku přítele
 profiles-more-menu-add-note = Přidat poznámku
 # Context: more_menu
 profiles-more-menu-block = Blok
+profiles-view-full-profile = Zobrazit celý profil
+profiles-copy-username = Kopírovat uživatelské jméno
+profiles-username-unavailable = Uživatelské jméno se načte po otevření profilu
+profiles-ignore = Ignorovat
+profiles-unignore = Přestat ignorovat
+profiles-ignore-hint = Použije nastavení Ignorovat na Discordu bez blokování. Uživatel nebude upozorněn.
+profiles-report-user-profile = Nahlásit profil uživatele
+profiles-report-hint = Otevře formulář podpory Discordu v prohlížeči a zkopíruje do schránky ID uživatele
+profiles-show-activity = AKTIVITA
+profiles-show-connections = PROPOJENÍ
+profiles-show-friends-since = PŘÁTELÉ OD
+profiles-show-note = POZNÁMKA
+profiles-show-note-hint = Kliknutím přidáte poznámku
+profiles-show-note-only-you = Vidíte jen vy
 # Context: more_menu
 profiles-more-menu-copy-webhook-id = Zkopírujte ID webhooku
 # Context: more_menu
@@ -2126,6 +2167,8 @@ profiles-show-view-profile-picture = Zobrazit profilový obrázek
 ## crates/ui/src/reactions.rs
 # Context: add_button
 reactions-add-button-add-reaction = Přidejte reakci
+# Context: quick_button
+reactions-quick-react = Reagovat { $emoji }
 # Context: show
 reactions-show-reactions-unavailable = Reakce nedostupné
 # Context: show
@@ -3447,6 +3490,12 @@ settings-chat-settings-channel-list = Seznam kanálů
 settings-chat-settings-show-channels-you-cannot-currently-access = Zobrazit kanály, ke kterým momentálně nemáte přístup.
 # Context: chat_settings
 settings-chat-settings-show-hidden-channels = Zobrazit skryté kanály
+# Context: chat_settings
+settings-chat-settings-emoji = Emoji
+# Context: chat_settings
+settings-chat-settings-suggest-nitro-emojis = Navrhovat emoji vyžadující Nitro
+# Context: chat_settings
+settings-chat-settings-suggest-nitro-emojis-description = Nabízet animované emoji a emoji z jiných serverů v návrzích : a ve výběru i bez Nitra. Když je vypnuto, jsou skryté v návrzích a zamčené ve výběru.
 # Context: close_control
 settings-close-control-close-settings-esc = Zavřít nastavení (Esc)
 # Context: colour_preset_settings
@@ -3744,6 +3793,10 @@ timeline-deleted-message-actions-toggle-deleted-highlight = Přepněte Odstraně
 timeline-loading-messages-loading-messages = Načítání zpráv
 # Context: message_actions
 timeline-message-actions-copy = Kopie
+# Context: message_actions
+timeline-message-actions-copy-message-id = Kopírovat ID zprávy
+# Context: message_actions
+timeline-message-actions-copy-message-link = Kopírovat odkaz na zprávu
 # Context: message_actions
 timeline-message-actions-create-thread = Vytvořit vlákno…
 # Context: message_actions
@@ -4526,3 +4579,13 @@ member-in-voice = V hlasovém chatu
 settings-chat-box = Psaní zpráv
 settings-convert-emoticons = Automaticky převádět emotikony ve zprávách na emoji
 settings-convert-emoticons-description = Při odesílání nebo úpravě zpráv převést samostatné emotikony jako :) na 🙂. Kód a odkazy zůstanou beze změny.
+
+profiles-board = Board
+profiles-board-unavailable = This profile’s board is unavailable.
+profiles-board-empty = No games on this board yet.
+profiles-board-show-more = Show more
+profiles-board-show-less = Show less
+profiles-activity-empty = Žádná sdílená aktivita.
+profiles-mutuals-empty = Nothing to show here.
+
+reading-double-click-reaction = Double-click reaction

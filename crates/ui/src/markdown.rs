@@ -499,6 +499,54 @@ fn normalize_fences(input: &str) -> std::borrow::Cow<'_, str> {
 	}
 }
 
+/// Discord quotes a line only for `> ` or `>>> ` (a space after the marker); CommonMark also
+/// quotes `>text`. Escape such bare markers at line starts outside code so they stay
+/// literal text. Only inserted backslashes differ from the input.
+fn escape_bare_quotes(input: &str) -> std::borrow::Cow<'_, str> {
+	if !input.contains('>') {
+		return std::borrow::Cow::Borrowed(input);
+	}
+	let mut out: Option<String> = None;
+	let mut copied = 0;
+	let mut code = Parser::new_ext(input, Options::ENABLE_STRIKETHROUGH)
+		.into_offset_iter()
+		.filter_map(|(event, range)| {
+			matches!(event, Event::Start(Tag::CodeBlock(_)) | Event::Code(_)).then_some(range)
+		})
+		.peekable();
+	let mut start = 0;
+	while start < input.len() {
+		let end = input[start..].find('\n').map_or(input.len(), |n| start + n);
+		let line = &input[start..end];
+		let indent = line.len() - line.trim_start_matches(' ').len();
+		let body = &line[indent..];
+		if indent <= 3
+			&& body.starts_with('>')
+			&& !body.starts_with("> ")
+			&& !body.starts_with(">>> ")
+		{
+			let at = start + indent;
+			while code.peek().is_some_and(|range| range.end <= at) {
+				code.next();
+			}
+			if !code.peek().is_some_and(|range| range.contains(&at)) {
+				let out = out.get_or_insert_with(|| String::with_capacity(input.len() + 8));
+				out.push_str(&input[copied..at]);
+				out.push('\\');
+				copied = at;
+			}
+		}
+		start = end + 1;
+	}
+	match out {
+		Some(mut out) => {
+			out.push_str(&input[copied..]);
+			std::borrow::Cow::Owned(out)
+		}
+		None => std::borrow::Cow::Borrowed(input),
+	}
+}
+
 /// Everything one message body needs while its spans are laid out, so a quote can lay out its
 /// own nested run without repeating the argument list.
 struct Render<'a> {
@@ -544,6 +592,45 @@ const QUOTE_RAIL: i8 = 4;
 const QUOTE_GAP: i8 = 8;
 
 impl Formatted {
+	/// Offline debug assertions for quote escaping and bounded literal fallbacks.
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	pub fn debug_quote_regressions() {
+		for source in [
+			"~~~\n>text\n~~~",
+			"```\n>text\n```",
+			"~~~~\n~~~\n>text\n~~~~",
+		] {
+			assert_eq!(escape_bare_quotes(source), source);
+			let parsed = Self::parse(source);
+			assert_eq!(parsed.blocks.len(), 1);
+			assert!(parsed.blocks[0].code.contains(">text"));
+			assert!(!parsed.blocks[0].code.contains("\\>"));
+		}
+		let source = "```example```\n>text";
+		assert_eq!(escape_bare_quotes(source), "```example```\n\\>text");
+		let parsed = Self::parse(source);
+		assert_eq!(parsed.blocks[0].code, "example");
+		assert!(parsed.spans.iter().all(|(_, style)| !style.quote));
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.map(|(text, _)| text.as_str())
+				.collect::<String>()
+				.contains(">text")
+		);
+		for source in [
+			format!(">raw\n{}", "*x* ".repeat(MAX_EVENTS)),
+			format!(">raw\n{}", "||x|| ".repeat(33)),
+			format!(">raw\n||{}", "x".repeat(MAX_INPUT)),
+		] {
+			let parsed = Self::parse(&source);
+			assert!(parsed.limited);
+			assert_eq!(parsed.spans[0].0, source[..source.len().min(MAX_INPUT)]);
+			assert_eq!(parsed.spoilers, source.contains("||"));
+		}
+	}
+
 	pub fn parse(source: &str) -> Self {
 		let mut end = source.len().min(MAX_INPUT);
 		while !source.is_char_boundary(end) {
@@ -555,6 +642,7 @@ impl Formatted {
 		// Discord closes a fence at the end of any line (` ```js\ncode``` `); CommonMark needs
 		// the closing fence on its own line. Only inserted newlines differ from the source.
 		let normalized = normalize_fences(&source[..end]);
+		let normalized = escape_bare_quotes(&normalized);
 		let input: &str = &normalized;
 		let mut output = Self {
 			spans: Vec::new(),
@@ -618,7 +706,7 @@ impl Formatted {
 		});
 		for (count, (event, range)) in events.enumerate() {
 			if count >= MAX_EVENTS || stack.len() > MAX_DEPTH {
-				return Self::limited_literal(input, source.contains("||"));
+				return Self::limited_literal(&source[..end], source.contains("||"));
 			}
 			style.spoiler = open_spoiler.map(|(_, region)| region);
 			if quote_all {
@@ -780,7 +868,7 @@ impl Formatted {
 							&mut open_spoiler,
 							&mut regions,
 						) {
-							return Self::limited_literal(input, true);
+							return Self::limited_literal(&source[..end], true);
 						}
 					}
 				}
@@ -796,7 +884,7 @@ impl Formatted {
 							&mut open_spoiler,
 							&mut regions,
 						) {
-							return Self::limited_literal(input, true);
+							return Self::limited_literal(&source[..end], true);
 						}
 					} else {
 						output.push(&text, inert);
@@ -838,7 +926,7 @@ impl Formatted {
 		if let Some((opening, region)) = open_spoiler {
 			if end < source.len() {
 				// A closing delimiter may be outside our byte/line window.
-				return Self::limited_literal(input, true);
+				return Self::limited_literal(&source[..end], true);
 			}
 			// An unmatched opening delimiter is literal, including its contents.
 			for (_, style) in &mut output.spans[opening..] {
@@ -2341,6 +2429,54 @@ mod tests {
 		assert!(bidi_spans(&[(ascii, style), ("second span".into(), style)]).is_none());
 		for text in ["\u{202e}English\u{202c}", "English \u{2067}مرحبا\u{2069}"] {
 			assert!(bidi_spans(&[(text.into(), style)]).is_some());
+		}
+	}
+
+	#[test]
+	fn only_spaced_markers_start_discord_quotes() {
+		// (source, text quoted, text not quoted)
+		let cases: [(&str, &[&str], &[&str]); 12] = [
+			(">text", &[], &[">text"]),
+			("> text", &["text"], &[]),
+			(">>> text", &["text"], &[]),
+			(">>>text", &[], &[">>>text"]),
+			(">> text", &[], &[">> text"]),
+			(">", &[], &[">"]),
+			("  > text", &["text"], &[]),
+			("  >text", &[], &[">text"]),
+			("> a\n>b", &["a"], &[">b"]),
+			(">>> a\n>b", &["a", ">b"], &[]),
+			("```\n>code\n```", &[], &[">code"]),
+			("a >b", &[], &["a >b"]),
+		];
+		for (source, quoted, plain) in cases {
+			let parsed = Formatted::parse(source);
+			let text = |want: bool| {
+				parsed
+					.spans
+					.iter()
+					.filter(|(_, style)| style.quote == want)
+					.map(|(text, _)| text.as_str())
+					.collect::<String>()
+			};
+			let (inside, outside) = (text(true), text(false));
+			for part in quoted {
+				assert!(
+					inside.contains(part),
+					"{source:?}: {inside:?} lacks {part:?}"
+				);
+			}
+			for part in plain {
+				assert!(
+					outside.contains(part),
+					"{source:?}: {outside:?} lacks {part:?}"
+				);
+				assert!(!inside.contains(part), "{source:?}: {part:?} quoted");
+			}
+			assert!(
+				!inside.contains('\\') && !outside.contains('\\'),
+				"{source:?}"
+			);
 		}
 	}
 
@@ -4065,11 +4201,9 @@ mod tests {
 						crate::design::MessageCardSurface::Opaque => {
 							assert_eq!(expected, ctx.global_style().visuals.code_bg_color)
 						}
-						crate::design::MessageCardSurface::Conversation if transparency == 100 => {
-							assert_eq!(expected.a(), 0)
-						}
+						// A faint coat keeps the block visible even on fully see-through chat.
 						crate::design::MessageCardSurface::Conversation if transparency > 0 => {
-							assert!(expected.a() <= 32)
+							assert!((1..=24).contains(&expected.a()))
 						}
 						_ => {}
 					}

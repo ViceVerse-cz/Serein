@@ -112,23 +112,18 @@ pub fn format_size(bytes: u64) -> String {
 	}
 }
 
-/// Card for a file that will be uploaded with the next message. Returns `true` when the user
-/// asks to remove it.
-pub fn pending_card(
-	ui: &mut egui::Ui,
-	filename: &str,
-	bytes: u64,
-	preview: Option<&egui::TextureHandle>,
-	removable: bool,
-) -> bool {
+/// Discord floats the action pill over the pending card's top edge; reserve that overhang.
+const PENDING_OVERHANG: f32 = 10.0;
+
+/// Allocates one upload-tray card and paints its background; returns the card and preview area.
+fn pending_card_frame(ui: &mut egui::Ui) -> (Rect, Rect) {
 	const WIDTH: f32 = 176.0;
 	const HEIGHT: f32 = 168.0;
-	// Discord floats the action pill over the card's top edge; reserve that overhang.
-	const OVERHANG: f32 = 10.0;
 	let colors = design::palette(ui);
-	let kind = file_kind(filename, None);
-	let (allocated, _) =
-		ui.allocate_exact_size(egui::vec2(WIDTH + 12.0, HEIGHT + OVERHANG), Sense::hover());
+	let (allocated, _) = ui.allocate_exact_size(
+		egui::vec2(WIDTH + 12.0, HEIGHT + PENDING_OVERHANG),
+		Sense::hover(),
+	);
 	let card = Rect::from_min_size(
 		allocated.left_bottom() - egui::vec2(0.0, HEIGHT),
 		egui::vec2(WIDTH, HEIGHT),
@@ -143,6 +138,48 @@ pub fn pending_card(
 	let preview_rect =
 		Rect::from_min_size(card.min + egui::vec2(8.0, 8.0), egui::vec2(160.0, 108.0));
 	ui.painter().rect_filled(preview_rect, 4, colors.base);
+	(card, preview_rect)
+}
+
+/// Placeholder card for a selected file that is still being inspected; it becomes a
+/// [`pending_card`] once ready, and sending waits until then.
+pub fn loading_card(ui: &mut egui::Ui) {
+	let colors = design::palette(ui);
+	let (_, preview_rect) = pending_card_frame(ui);
+	ui.put(
+		Rect::from_center_size(preview_rect.center(), egui::Vec2::splat(28.0)),
+		egui::Spinner::new().size(28.0).color(colors.muted),
+	);
+	ui.put(
+		Rect::from_min_size(
+			preview_rect.left_bottom() + egui::vec2(0.0, 6.0),
+			egui::vec2(preview_rect.width(), 18.0),
+		),
+		egui::Label::new(
+			design::semibold(
+				ui,
+				crate::i18n::translate("attachments-loading-card-preparing"),
+				13.0,
+			)
+			.color(colors.muted),
+		)
+		.truncate()
+		.selectable(false),
+	);
+}
+
+/// Card for a file that will be uploaded with the next message. Returns `true` when the user
+/// asks to remove it.
+pub fn pending_card(
+	ui: &mut egui::Ui,
+	filename: &str,
+	bytes: u64,
+	preview: Option<&egui::TextureHandle>,
+	removable: bool,
+) -> bool {
+	let colors = design::palette(ui);
+	let kind = file_kind(filename, None);
+	let (card, preview_rect) = pending_card_frame(ui);
 	match preview {
 		Some(texture) => {
 			let size = texture.size_vec2();
@@ -189,7 +226,7 @@ pub fn pending_card(
 		.selectable(false),
 	);
 	let pill = Rect::from_min_size(
-		egui::pos2(card.right() - 28.0, card.top() - OVERHANG),
+		egui::pos2(card.right() - 28.0, card.top() - PENDING_OVERHANG),
 		egui::vec2(36.0, 36.0),
 	);
 	ui.painter().rect(
@@ -803,6 +840,9 @@ fn quality_pill(ui: &egui::Ui, stage: Rect, quality: Quality) {
 	}
 }
 
+/// Zoom applied when clicking fitted media in the viewer.
+const VIEWER_CLICK_ZOOM: f32 = 2.0;
+
 /// Full-window media viewer. Returns the attachment to keep showing, or `None` once closed by
 /// the close control, Escape, or a click anywhere outside the image and its controls.
 pub fn viewer(
@@ -882,6 +922,7 @@ pub fn viewer(
 				);
 			let fitted = (original * scale).max(egui::vec2(1.0, 1.0));
 			let image_rect = Rect::from_center_size(stage.center(), fitted);
+			let max_zoom = (4096.0 / fitted.max_elem()).clamp(1.0, 8.0);
 			if let Some(pointer) = ui.input(|i| i.pointer.hover_pos())
 				&& stage.contains(pointer)
 			{
@@ -890,7 +931,7 @@ pub fn viewer(
 					i.smooth_scroll_delta = egui::Vec2::ZERO;
 					factor
 				});
-				let next = (zoom * factor).clamp(1.0, (4096.0 / fitted.max_elem()).clamp(1.0, 8.0));
+				let next = (zoom * factor).clamp(1.0, max_zoom);
 				pan = (pointer - stage.center()) - (pointer - stage.center() - pan) * (next / zoom);
 				zoom = next;
 			}
@@ -907,28 +948,46 @@ pub fn viewer(
 				let shown =
 					images.show_media(ui, &attachment.media, fitted * zoom, demo, Surface::Viewer);
 				let image = shown.response;
-				let response = ui
+				let mut response = ui
 					.interact(image.rect, image.id.with("media"), Sense::click_and_drag())
 					.on_hover_cursor(if zoom > 1.0 {
 						egui::CursorIcon::Grab
 					} else {
 						egui::CursorIcon::ZoomIn
-					})
-					.on_hover_text(crate::i18n::translate(
-						"attachments-viewer-scroll-to-zoom-drag-to-pan-double-click-to-reset",
-					))
-					.on_hover_text(
-						attachment
-							.description
-							.as_deref()
-							.unwrap_or(&attachment.filename),
-					);
+					});
+				// Zoomed in, the description tooltip would cover the detail being inspected.
+				if zoom <= 1.0 {
+					response = response
+						.on_hover_text(crate::i18n::translate(
+							"attachments-viewer-scroll-to-zoom-drag-to-pan-double-click-to-reset",
+						))
+						.on_hover_text(
+							attachment
+								.description
+								.as_deref()
+								.unwrap_or(&attachment.filename),
+						);
+				}
 				if response.dragged_by(egui::PointerButton::Primary) {
 					pan = (pan + response.drag_delta()).clamp(-limit, limit);
 				}
 				if response.double_clicked() {
 					zoom = 1.0;
 					pan = egui::Vec2::ZERO;
+				} else if response.clicked_by(egui::PointerButton::Primary) {
+					// A click toggles between fit and 2x, keeping the clicked point under the pointer.
+					let next = if zoom > 1.0 {
+						1.0
+					} else {
+						VIEWER_CLICK_ZOOM.min(max_zoom)
+					};
+					if let Some(pointer) = response.interact_pointer_pos() {
+						let offset = pointer - stage.center();
+						pan = offset - (offset - pan) * (next / zoom);
+					}
+					zoom = next;
+					let limit = ((fitted * zoom - stage.size()) * 0.5).max(egui::Vec2::ZERO);
+					pan = pan.clamp(-limit, limit);
 				}
 				// Zero-ID images are local viewer metadata, not service attachments.
 				if attachment.id == Id(0) {
@@ -1012,7 +1071,9 @@ pub fn viewer(
 					);
 				}
 			}
-			// Caption: file name, size and dimensions, plus the browser link.
+			// Caption: file name, size and dimensions, plus the browser link. Zoomed media fills the
+			// stage, so the caption would sit on top of it; keep it only for an active download.
+			let show_caption = zoom <= 1.0 || download.active;
 			let caption_width = image_rect.width().max(360.0).min(stage.width());
 			let caption = Rect::from_min_size(
 				egui::pos2(
@@ -1021,40 +1082,69 @@ pub fn viewer(
 				),
 				egui::vec2(caption_width, 44.0),
 			);
-			ui.scope_builder(
-				egui::UiBuilder::new()
-					.max_rect(caption)
-					.layout(egui::Layout::left_to_right(egui::Align::Center)),
-				|ui| {
-					ui.spacing_mut().item_spacing.x = 10.0;
+			let mut caption_ui = egui::UiBuilder::new()
+				.max_rect(caption)
+				.layout(egui::Layout::left_to_right(egui::Align::Center));
+			if !show_caption {
+				caption_ui = caption_ui.invisible();
+			}
+			ui.scope_builder(caption_ui, |ui| {
+				ui.spacing_mut().item_spacing.x = 10.0;
+				ui.add(
+					egui::Label::new(
+						design::semibold(ui, &attachment.filename, 14.0).color(Color32::WHITE),
+					)
+					.truncate()
+					.selectable(false),
+				);
+				let mut meta = format_size(attachment.size);
+				if let Some([width, height]) = images.media_dimensions(&attachment.media) {
+					meta = format!("{meta} · {width}×{height}");
+				}
+				ui.add(
+					egui::Label::new(
+						RichText::new(meta)
+							.size(13.0)
+							.color(Color32::from_gray(170)),
+					)
+					.selectable(false),
+				);
+				if let Some(target) = attachment.media.url.as_deref().and_then(external_url)
+					&& ui
+						.add(
+							egui::Label::new(
+								design::medium(
+									ui,
+									crate::i18n::translate("attachments-viewer-open-in-browser"),
+									13.0,
+								)
+								.color(Color32::from_rgb(0, 168, 252)),
+							)
+							.sense(Sense::click())
+							.selectable(false),
+						)
+						.on_hover_cursor(egui::CursorIcon::PointingHand)
+						.clicked()
+				{
+					*opening = Some(target);
+				}
+				if download.active || !download.status.is_empty() {
 					ui.add(
 						egui::Label::new(
-							design::semibold(ui, &attachment.filename, 14.0).color(Color32::WHITE),
+							RichText::new(&download.status)
+								.size(13.0)
+								.color(Color32::from_gray(170)),
 						)
 						.truncate()
 						.selectable(false),
 					);
-					let mut meta = format_size(attachment.size);
-					if let Some([width, height]) = images.media_dimensions(&attachment.media) {
-						meta = format!("{meta} · {width}×{height}");
-					}
-					ui.add(
-						egui::Label::new(
-							RichText::new(meta)
-								.size(13.0)
-								.color(Color32::from_gray(170)),
-						)
-						.selectable(false),
-					);
-					if let Some(target) = attachment.media.url.as_deref().and_then(external_url)
+					if download.active
 						&& ui
 							.add(
 								egui::Label::new(
 									design::medium(
 										ui,
-										crate::i18n::translate(
-											"attachments-viewer-open-in-browser",
-										),
+										crate::i18n::translate("attachments-viewer-cancel"),
 										13.0,
 									)
 									.color(Color32::from_rgb(0, 168, 252)),
@@ -1062,42 +1152,12 @@ pub fn viewer(
 								.sense(Sense::click())
 								.selectable(false),
 							)
-							.on_hover_cursor(egui::CursorIcon::PointingHand)
 							.clicked()
 					{
-						*opening = Some(target);
+						download.cancel_requested = true;
 					}
-					if download.active || !download.status.is_empty() {
-						ui.add(
-							egui::Label::new(
-								RichText::new(&download.status)
-									.size(13.0)
-									.color(Color32::from_gray(170)),
-							)
-							.truncate()
-							.selectable(false),
-						);
-						if download.active
-							&& ui
-								.add(
-									egui::Label::new(
-										design::medium(
-											ui,
-											crate::i18n::translate("attachments-viewer-cancel"),
-											13.0,
-										)
-										.color(Color32::from_rgb(0, 168, 252)),
-									)
-									.sense(Sense::click())
-									.selectable(false),
-								)
-								.clicked()
-						{
-							download.cancel_requested = true;
-						}
-					}
-				},
-			);
+				}
+			});
 			// Thumbnail strip: the whole gallery at a glance, current one highlighted.
 			if count > 1 {
 				const THUMB: f32 = 48.0;

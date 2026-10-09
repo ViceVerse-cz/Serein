@@ -1420,11 +1420,22 @@ async fn run_recoverable(
 					}
 					if let Some(channel)=connect && let Some(packet)=calls.packet(client_core::voice::Command::Sync { channel })?
 						&& !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {break;}
-					if let Some(packet)=packet && !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {break;}
+					if let Some(packet)=packet && !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {
+						if matches!(command,client_core::voice::Command::SetMute{..}|client_core::voice::Command::SetCamera{..}) {
+							calls.state_send_failed();
+						}
+						break;
+					}
 					if let Some(channel)=connect && let Some(packet)=calls.channel_info_packet(channel)
 						&& !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {break;}
 				}
 
+				_=tokio::time::sleep_until(calls.state_deadline.unwrap_or(ready_deadline)), if calls.state_deadline.is_some() && ready_at.is_some() => {
+					if let Some(packet)=calls.flush_state() && !matches!(timeout(Duration::from_secs(5),socket.send(packet)).await,Ok(Ok(()))) {
+						calls.state_send_failed();
+						break;
+					}
+				}
 				_=tokio::time::sleep_until(calls.departure_deadline.unwrap_or(ready_deadline)), if calls.departure_deadline.is_some() => {
 					if let Some(event)=calls.departure_expired() {emit(event)?;}
 				}
@@ -1616,8 +1627,10 @@ async fn run_recoverable(
 
 										let nicknames = ready.relationships.as_ref().map(|s| s.nicknames());
 										let spam_requests = ready.relationships.as_ref().map(|s| s.spam_incoming_ids());
+										let friends_since = ready.relationships.as_ref().map(|s| s.friends_since()).unwrap_or_default();
 										emit(Event::UserAction(client_core::user_actions::Event::Relationships(ready.relationships.take().map(|s| s.entries()))))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Friends(friends)))?;
+										emit(Event::UserAction(client_core::user_actions::Event::FriendsSince { entries: friends_since, replace: true }))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Restrictions(restricted)))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Requests(requests)))?;
 										emit(Event::UserAction(client_core::user_actions::Event::RequestSpams(spam_requests)))?;
@@ -1732,6 +1745,7 @@ async fn run_recoverable(
 										let ignored = (packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && (relationship.kind == 2 || relationship.user_ignored)).then_some(relationship.user_ignored && relationship.kind != 2);
 										let incoming = (packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && matches!(relationship.kind,3|4)).then_some(relationship.kind==3);
 										emit(Event::UserAction(client_core::user_actions::Event::Friend { user: relationship.id, friend, profile: profile.clone() }))?;
+										if friend && let Some(since) = relationship.since { emit(Event::UserAction(client_core::user_actions::Event::FriendsSince { entries: vec![(relationship.id, since)], replace: false }))?; }
 										emit(Event::UserAction(client_core::user_actions::Event::Restriction { user: relationship.id, ignored, profile: profile.clone() }))?;
 										emit(Event::UserAction(client_core::user_actions::Event::Request { user: relationship.id, incoming, profile }))?;
 										emit(Event::UserAction(client_core::user_actions::Event::RequestSpam { user: relationship.id, spam: packet.t.as_deref() != Some("RELATIONSHIP_REMOVE") && relationship.kind == 3 && relationship.is_spam_request }))?;
@@ -2750,6 +2764,14 @@ mod tests {
 								assert!(gates.is_empty());
 								"onboarding"
 							}
+							Event::UserAction(client_core::user_actions::Event::FriendsSince {
+								entries,
+								replace,
+							}) => {
+								assert!(replace);
+								assert!(entries.is_empty());
+								return Ok(());
+							}
 							Event::Resumed => "resumed",
 							Event::DirectPresence(_) => "presence",
 							Event::Resync => "resync",
@@ -3676,3 +3698,6 @@ mod member_tests {
 
 #[cfg(debug_assertions)]
 pub use member_search::debug_check as debug_member_search_check;
+
+#[cfg(debug_assertions)]
+pub use voice::debug_voice_state_retry_check;
