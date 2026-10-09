@@ -38,6 +38,9 @@ mod video_receive;
 #[cfg(target_os = "linux")]
 #[path = "../src/diagnostics.rs"]
 mod diagnostics;
+#[cfg(target_os = "linux")]
+#[path = "../src/timer.rs"]
+mod timer;
 
 #[cfg(target_os = "linux")]
 fn main() {

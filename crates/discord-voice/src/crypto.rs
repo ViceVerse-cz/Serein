@@ -310,6 +310,7 @@ pub(crate) struct Dave {
 	pub waiting: bool,
 	channel: u64,
 	pub pending: Option<u16>,
+	pub pending_protocol: Option<u16>,
 	pub ready: bool,
 	pub resets: u8,
 	epochs: u16,
@@ -337,6 +338,7 @@ impl Dave {
 			waiting: false,
 			channel,
 			pending: None,
+			pending_protocol: None,
 			ready: false,
 			resets: 0,
 			epochs: 0,
@@ -358,6 +360,7 @@ impl Dave {
 		!self.ready
 			&& !self.waiting
 			&& self.pending.is_none()
+			&& self.pending_protocol.is_none()
 			&& self.alone()
 			&& self.session.group().is_some()
 	}
@@ -425,6 +428,7 @@ impl Dave {
 			return Err("Unexpected sole-member DAVE transition");
 		}
 		self.pending = None;
+		self.pending_protocol = None;
 		self.ready = false;
 		self.waiting = true;
 		Ok(())
@@ -454,6 +458,7 @@ impl Dave {
 		self.ready = false;
 		self.waiting = false;
 		self.pending = None;
+		self.pending_protocol = None;
 		self.pending_commit = None;
 		self.session
 			.reinit(
@@ -624,13 +629,34 @@ impl Dave {
 		}
 		Ok(())
 	}
+	pub fn prepare_protocol(&mut self, id: u16) {
+		self.pending_protocol = Some(id);
+	}
 	pub fn execute(&mut self, id: u16) -> Result<(), &'static str> {
-		if self.pending != Some(id) || !self.session.is_ready() {
+		let is_protocol = self.pending_protocol == Some(id);
+		let is_mls = self.pending == Some(id);
+		if !is_protocol && !is_mls {
 			return Err("Unexpected DAVE encryption transition");
 		}
-		self.validate_group()?;
-		self.pending = None;
-		self.ready = true;
+		if is_protocol {
+			self.pending_protocol = None;
+		}
+		if is_mls {
+			if !self.session.is_ready() {
+				if is_protocol {
+					return Ok(());
+				}
+				return Err("Unexpected DAVE encryption transition");
+			}
+			self.validate_group()?;
+			self.pending = None;
+			if self.pending_protocol.is_none() {
+				self.ready = true;
+			}
+		} else if self.pending.is_none() && self.session.is_ready() && self.validate_group().is_ok()
+		{
+			self.ready = true;
+		}
 		Ok(())
 	}
 }

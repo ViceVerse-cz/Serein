@@ -173,8 +173,8 @@ fn guild_three_party_join_remove_and_empty_room_fail_closed() {
 	alice.group_changed(29, &transition(&commit, 7)).unwrap();
 	bob.group_changed(29, &transition(&commit, 7)).unwrap();
 	charlie.group_changed(30, &transition(&welcome, 7)).unwrap();
+	assert!(alice.ready && bob.ready && !charlie.ready);
 	for member in [&mut alice, &mut bob, &mut charlie] {
-		assert!(!member.ready);
 		member.execute(7).unwrap();
 		assert_eq!(member.session.get_user_ids().unwrap().len(), 3);
 	}
@@ -285,4 +285,99 @@ fn guild_welcome_requires_announced_members_and_rejects_duplicate_credentials() 
 			.is_err()
 	);
 	assert!(!alice.ready);
+}
+
+#[test]
+fn protocol_transitions_execute_independently_of_mls_and_do_not_clobber_pending() {
+	let server = Delivery::new();
+	let mut alice = Dave::new(1, None, 3).unwrap();
+	alice.session.set_external_sender(&server.external).unwrap();
+	alice.connect(&[1, 2]).unwrap();
+
+	// Case 1: Opcode 21 / 22 protocol transition arrives before MLS welcome / commit.
+	// In multi-user channels, Discord negotiates protocol version 1 and executes it before MLS.
+	assert!(!alice.session.is_ready());
+	alice.prepare_protocol(1);
+	assert_eq!(alice.pending_protocol, Some(1));
+	assert_eq!(alice.pending, None);
+	assert!(!alice.ready);
+
+	// Spurious execution ID fails.
+	assert_eq!(
+		alice.execute(99),
+		Err("Unexpected DAVE encryption transition")
+	);
+
+	// Protocol transition executes successfully without requiring MLS session readiness.
+	alice.execute(1).unwrap();
+	assert_eq!(alice.pending_protocol, None);
+	assert_eq!(alice.pending, None);
+	assert!(!alice.ready);
+
+	// Case 2: Protocol transition and MLS transition interleaved.
+	let mut bob = Dave::new(2, None, 3).unwrap();
+	bob.session.set_external_sender(&server.external).unwrap();
+	bob.connect(&[1, 2]).unwrap();
+	let (commit, welcome) = server.add(&mut alice, &bob.key_package().unwrap());
+	let transition = |bytes: &[u8], id: u16| [id.to_be_bytes().as_slice(), bytes].concat();
+
+	// Bob receives MLS welcome with transition id 5.
+	bob.group_changed(30, &transition(&welcome, 5)).unwrap();
+	assert_eq!(bob.pending, Some(5));
+	assert!(bob.session.is_ready());
+	assert!(!bob.ready);
+
+	// Opcode 21 arrives for Bob with protocol transition id 2.
+	// It must NOT clobber Bob's pending MLS transition.
+	bob.prepare_protocol(2);
+	assert_eq!(bob.pending_protocol, Some(2));
+	assert_eq!(bob.pending, Some(5));
+
+	// Executing protocol transition clears pending_protocol without clearing pending MLS.
+	bob.execute(2).unwrap();
+	assert_eq!(bob.pending_protocol, None);
+	assert_eq!(bob.pending, Some(5));
+	assert!(!bob.ready);
+
+	// Executing MLS transition clears pending and sets ready.
+	bob.execute(5).unwrap();
+	assert_eq!(bob.pending, None);
+	assert!(bob.ready);
+
+	// Alice processes and executes the commit to establish the group with Bob.
+	alice.group_changed(29, &transition(&commit, 5)).unwrap();
+	alice.execute(5).unwrap();
+
+	// Case 3: Protocol transition prepared first, then MLS transition prepared.
+	let mut charlie = Dave::new(4, None, 3).unwrap();
+	charlie
+		.session
+		.set_external_sender(&server.external)
+		.unwrap();
+	charlie.connect(&[1, 2, 4]).unwrap();
+	charlie.prepare_protocol(10);
+	assert_eq!(charlie.pending_protocol, Some(10));
+	assert_eq!(charlie.pending, None);
+
+	alice.connect(&[1, 2, 4]).unwrap();
+	let proposal = server.add_proposal(&alice, &charlie.key_package().unwrap());
+	let result = alice.proposals(&proposal).unwrap().unwrap();
+	let (_, welcome) = Delivery::split(&result);
+	charlie
+		.group_changed(30, &transition(&welcome, 11))
+		.unwrap();
+	assert_eq!(charlie.pending_protocol, Some(10));
+	assert_eq!(charlie.pending, Some(11));
+	assert!(!charlie.ready);
+
+	// Executing MLS transition first validates the group, but ready waits for protocol transition.
+	charlie.execute(11).unwrap();
+	assert_eq!(charlie.pending, None);
+	assert_eq!(charlie.pending_protocol, Some(10));
+	assert!(!charlie.ready);
+
+	// Executing protocol transition completes readiness.
+	charlie.execute(10).unwrap();
+	assert_eq!(charlie.pending_protocol, None);
+	assert!(charlie.ready);
 }

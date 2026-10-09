@@ -49,7 +49,8 @@ fn negotiation_timeout(
 		"Discord voice Ready timed out; rejoin the call"
 	} else if !key {
 		"Discord voice protocol selection timed out; no transport key was received"
-	} else if dave.session.is_ready() && dave.pending.is_some() {
+	} else if dave.session.is_ready() && (dave.pending.is_some() || dave.pending_protocol.is_some())
+	{
 		"Discord DAVE transition execution timed out; no audio was enabled"
 	} else {
 		"Discord DAVE group negotiation timed out; no accepted commit or welcome was received"
@@ -661,8 +662,10 @@ async fn run_inner(
 							21=>{
 								video.clear();
 								if number(data,"protocol_version")?!=1 {return Err("Discord requested a voice encryption downgrade; call stopped");}
-								capture_reset=true;dave.pending=Some(transition(data)?);
-								if dave.pending==Some(0) {
+								capture_reset=true;
+								let id = transition(data)?;
+								dave.prepare_protocol(id);
+								if id == 0 {
 									if dave.session.is_ready(){
 										dave.execute(0)?;
 									} else if dave.alone(){
@@ -672,10 +675,10 @@ async fn run_inner(
 										ready_announced=false;
 										emit(Status::WaitingForPeer).map_err(|_|"Call interface closed")?;
 									} else {
-										dave.pending=None;dave.ready=false;
+										dave.pending_protocol=None;dave.ready=false;
 									}
 								} else {
-									json_send(&mut ws,json!({"op":23,"d":{"transition_id":dave.pending}})).await?;
+									json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;
 								}
 							},
 							22=>{video.clear();dave.execute(transition(data)?)?;},
@@ -1183,13 +1186,13 @@ async fn run_stream_inner(
 					awaiting_ack=Some(heartbeat_nonce); heartbeat_at=now+Duration::from_millis(interval);
 				}
 				if secured_at.is_some_and(|at| now>=at+PEER_GRACE) && !discovering && dave.should_wait_for_peer() {dave.enter_sole_member_waiting()?;}
-				let waiting=dave.waiting && dave.pending.is_none() && encryption.is_some() && !discovering;
+				let waiting=dave.waiting && dave.pending.is_none() && dave.pending_protocol.is_none() && encryption.is_some() && !discovering;
 				if waiting {deadline=None;}
 				if waiting!=waiting_announced {
 					emit(if waiting {Status::WaitingForPeer} else {Status::Securing}).map_err(|_|"Stream interface closed")?;
 					waiting_announced=waiting;
 				}
-				let secure=dave.ready&&dave.session.is_ready()&&dave.pending.is_none()&&encryption.is_some()&&!discovering;
+				let secure=dave.ready&&dave.session.is_ready()&&dave.pending.is_none()&&dave.pending_protocol.is_none()&&encryption.is_some()&&!discovering;
 				// A rekey can begin after initial readiness cleared the allocation deadline.
 				if !secure && !waiting {deadline.get_or_insert(now+Duration::from_secs(30));}
 				if secure && let Some(video)=&video && let Some(target)=rate.tick(now) {
@@ -1215,7 +1218,7 @@ async fn run_stream_inner(
 				if !secure && announced {announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);emit(Status::Securing).map_err(|_|"Stream interface closed")?;}
 				metrics.stream_state([
 					encryption.is_some() && !discovering, dave.ready, dave.session.is_ready(),
-					dave.pending.is_some(), waiting, announced,
+					dave.pending.is_some() || dave.pending_protocol.is_some(), waiting, announced,
 					video.as_ref().is_some_and(|video|video.ready.load(Ordering::Acquire)),
 					share_audio.is_some() || audio.is_some(),
 				], video.as_ref().and_then(|video|video.audio.as_ref()).map_or(0,|source|source.len()));
@@ -1379,7 +1382,7 @@ async fn run_stream_inner(
 								}
 							},
 							13=>{let user=id(data,"user_id")?;receivers.remove(user);if let Some(decoder)=decoder.as_ref(){remove_decoder(decoder,user);}mixer.remove(user);let was_group_member=dave.is_group_member(user);let was_ready=dave.ready;if dave.disconnect(user)?{if dave.alone(){announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);dave.enter_sole_member_waiting()?;deadline=None;}else if was_group_member{deadline=Some(Instant::now()+Duration::from_secs(30));announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);}else if was_ready{dave.ready=true;deadline=None;}}},
-							21=>{if number(data,"protocol_version")?!=1{return Err("Discord requested a stream encryption downgrade");}announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);dave.pending=Some(transition(data)?);if dave.pending==Some(0){if dave.session.is_ready(){dave.execute(0)?;}else if dave.alone(){dave.enter_sole_member_waiting()?;deadline=None;}else{dave.pending=None;dave.ready=false;}}else{json_send(&mut ws,json!({"op":23,"d":{"transition_id":dave.pending}})).await?;}},
+							21=>{if number(data,"protocol_version")?!=1{return Err("Discord requested a stream encryption downgrade");}announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);let id=transition(data)?;dave.prepare_protocol(id);if id==0{if dave.session.is_ready(){dave.execute(0)?;}else if dave.alone(){dave.enter_sole_member_waiting()?;deadline=None;}else{dave.pending_protocol=None;dave.ready=false;}}else{json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;}},
 							22=>{dave.execute(transition(data)?)?;},
 							24=>{if number(data,"protocol_version")?!=1{return Err("Unsupported stream DAVE version");}
 							if number(data,"epoch")?==1{announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);dave.reinitialize()?;send(&mut ws,Message::Binary(dave.key_package()?.into())).await?;}},
