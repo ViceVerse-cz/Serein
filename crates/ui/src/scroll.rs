@@ -3,6 +3,12 @@ use egui::{AsIdSalt, IdSalt, Pos2, Rect, ScrollArea, Shape, Stroke, pos2};
 
 const TOUCHPAD_STATE_KEY: &str = "serein-touchpad-scroll-state";
 
+#[derive(Clone, Copy, Default)]
+struct TouchpadState {
+	last_active: Option<f64>,
+	accumulator: egui::Vec2,
+}
+
 /// Apply once before rendering the app's scroll areas. Zoom gestures remain unchanged.
 pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPreferences) {
 	if !preferences.is_valid() {
@@ -10,10 +16,10 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 	}
 	let options = ctx.options(|options| options.input_options);
 	let key = egui::Id::unique(TOUCHPAD_STATE_KEY);
-	let (time, page_height) = ctx.input(|i| (i.time, i.viewport_rect().height()));
-	let mut last_touchpad: Option<f64> = ctx.data(|d| d.get_temp(key));
+	let (time, page_height, dt) = ctx.input(|i| (i.time, i.viewport_rect().height(), i.stable_dt));
+	let mut state: TouchpadState = ctx.data(|d| d.get_temp(key)).unwrap_or_default();
 
-	let has_high_res = ctx.input(|input| {
+	let has_high_res_event = ctx.input(|input| {
 		let wheel_events = input
 			.raw
 			.events
@@ -38,30 +44,87 @@ pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPrefere
 			})
 	});
 
-	if has_high_res {
-		last_touchpad = Some(time);
-		ctx.data_mut(|d| d.insert_temp(key, time));
+	if has_high_res_event {
+		state.last_active = Some(time);
+	} else if let Some(last) = state.last_active {
+		if time - last < 0.35 {
+			let has_any_wheel = ctx.input(|input| {
+				input
+					.raw
+					.events
+					.iter()
+					.any(|event| matches!(event, egui::Event::MouseWheel { .. }))
+			});
+			if has_any_wheel {
+				state.last_active = Some(time);
+			}
+		} else {
+			state.last_active = None;
+			state.accumulator = egui::Vec2::ZERO;
+		}
 	}
 
-	let touchpad_active = last_touchpad.is_some_and(|t| time - t < 0.25);
+	let touchpad_active = state.last_active.is_some_and(|last| time - last < 0.35)
+		|| state.accumulator.length() > 0.5;
+
+	if ctx.input(|i| i.pointer.any_pressed()) {
+		state.accumulator = egui::Vec2::ZERO;
+	}
+
+	let delta = if touchpad_active {
+		let incoming =
+			ctx.input(|input| instant_wheel_delta(&input.raw.events, options, page_height));
+		if incoming.y != 0.0
+			&& state.accumulator.y != 0.0
+			&& incoming.y.signum() != state.accumulator.y.signum()
+		{
+			state.accumulator.y = 0.0;
+		}
+		if incoming.x != 0.0
+			&& state.accumulator.x != 0.0
+			&& incoming.x.signum() != state.accumulator.x.signum()
+		{
+			state.accumulator.x = 0.0;
+		}
+		state.accumulator += incoming;
+
+		let dt_clamped = dt.clamp(1.0 / 240.0, 0.05);
+		let step = if !preferences.smooth_scrolling {
+			let d = state.accumulator;
+			state.accumulator = egui::Vec2::ZERO;
+			d
+		} else {
+			let frame_ratio = dt_clamped / (1.0 / 60.0);
+			let max_step = (page_height * 0.25).clamp(120.0, 180.0) * frame_ratio;
+			let len = state.accumulator.length();
+			if len <= max_step {
+				let d = state.accumulator;
+				state.accumulator = egui::Vec2::ZERO;
+				d
+			} else {
+				let d = state.accumulator.normalized() * max_step;
+				state.accumulator -= d;
+				d
+			}
+		};
+
+		if state.accumulator.length() > 0.5 {
+			ctx.request_repaint();
+		}
+
+		step
+	} else {
+		state.accumulator = egui::Vec2::ZERO;
+		if preferences.smooth_scrolling {
+			ctx.input(|i| i.smooth_scroll_delta())
+		} else {
+			ctx.input(|input| instant_wheel_delta(&input.raw.events, options, page_height))
+		}
+	};
+
+	ctx.data_mut(|d| d.insert_temp(key, state));
 
 	ctx.input_mut(|input| {
-		let delta = if touchpad_active {
-			// Touchpads and precision scrolling devices handle inertia and smooth interpolation at
-			// the OS / driver level. Bypassing egui's notched-wheel exponential delay queue prevents
-			// multi-thousand-pixel backlog accumulation and massive single-frame teleport jumps.
-			let instant = instant_wheel_delta(&input.raw.events, options, page_height);
-			let max_per_frame = (page_height * 0.45).clamp(200.0, 360.0);
-			if instant.length() > max_per_frame {
-				instant.normalized() * max_per_frame
-			} else {
-				instant
-			}
-		} else if preferences.smooth_scrolling {
-			input.smooth_scroll_delta()
-		} else {
-			instant_wheel_delta(&input.raw.events, options, page_height)
-		};
 		input.smooth_scroll_delta = delta * (f32::from(preferences.scroll_speed_percent) / 100.0);
 	});
 }
@@ -491,7 +554,25 @@ mod tests {
 			delta = ui.input(|i| i.smooth_scroll_delta());
 		})
 		.drop_without_applying_deltas();
-		// 600.0 height * 0.45 = 270.0 max per frame
-		assert_eq!(delta.y, 270.0);
+		// Frame 1 is clamped to a smooth per-frame step (around 168px, not 1230px)
+		assert!(delta.y >= 140.0 && delta.y <= 180.0);
+
+		// Frame 2 with no new events continues smoothly from the accumulator, avoiding single-frame stalls
+		let raw_frame2 = egui::RawInput {
+			time: Some(0.116),
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(900.0, 600.0),
+			)),
+			events: vec![],
+			..Default::default()
+		};
+		let mut delta2 = egui::Vec2::ZERO;
+		ctx.run_ui(raw_frame2, |ui| {
+			apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+			delta2 = ui.input(|i| i.smooth_scroll_delta());
+		})
+		.drop_without_applying_deltas();
+		assert!(delta2.y >= 140.0 && delta2.y <= 180.0);
 	}
 }
