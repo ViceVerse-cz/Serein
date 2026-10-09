@@ -282,6 +282,11 @@ session. SakuraCord's lossy READY decoding was reviewed as prior art; no code wa
 Supplemental optional metadata follows the same policy. No raw payload or parser error is logged;
 when login still fails, the sign-in banner offers a copyable report with the schema path and
 error kind of the first failure, with remote strings, numbers and ID-like map keys redacted.
+Successful partial startup also retains the first redacted skipped-entry cause. The warning's
+copy button includes that cause and the existing build/system details; it never copies the
+received payload. List truncation and conflicting navigation identities have explicit reasons.
+This is diagnostic coverage, not evidence that an affected live account has been repaired.
+Restarting requests fresh startup data; resuming a connection preserves its existing warning.
 
 The Gateway prepares the permission mirror before transferring one atomic startup event to
 the UI. Its single reserved slot permits up to 128 MiB while ordinary events retain their

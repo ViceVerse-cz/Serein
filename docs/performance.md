@@ -4,6 +4,47 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Partial startup diagnostics - October 8, 2026
+
+Compared baseline `2164f52e` with implementation `e35a84e5` on Windows 11 build 26200,
+Ryzen 7 7800X3D, 33,410,678,784 bytes physical RAM and Rust 1.98.1 (x86_64 MSVC).
+Both standard `cargo xtask package` builds include voice and use the workspace release profile.
+Changed crate artifacts were explicitly invalidated before rebuilding in the shared release target.
+
+| Metric | Baseline | Change | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 86,008,832 B | 86,646,272 B | +637,440 B (+0.74%) |
+| Package directory | 90,199,948 B | 90,837,388 B | +637,440 B (+0.71%) |
+| Portable ZIP | 50,002,156 B | 50,217,939 B | +215,783 B (+0.43%) |
+| Valid READY decode batch | 349.350 ms | 349.753 ms | +0.403 ms (+0.12%) |
+| First user malformed | 221.960 ms | 199.683 ms | -22.277 ms (-10.04%) |
+| All users malformed | 307.619 ms | 302.073 ms | -5.546 ms (-1.80%) |
+| Reducer replay | 57.806 ms | 59.790 ms | +1.984 ms (+3.43%) |
+
+Directory size sums the packaged files. ZIPs use the release workflow's `Compress-Archive` defaults.
+NSIS is unavailable, so no installer
+was produced locally. Both builds emitted the same OpenH264 LNK4255 debug-information warning.
+
+Timing began after compilation stopped, with one warmup and five measured runs per revision,
+alternating baseline/change order. A temporary release protocol harness performs 1,000 full
+`ready::decode` / envelope `navigation` / `Ready::navigation` passes over 1,000 synthetic users,
+one guild and one channel. The malformed cases replace the first or every username with integer
+42; assertions confirm that exactly those users are skipped. Payloads are 41,124 / 41,113 / 28,234
+bytes respectively. Fixture generation is outside the timer; each decoded result is black-boxed
+and dropped. Baseline and change harness binaries were built in separate target directories.
+
+Valid-batch ranges were 335.574-417.809 ms before and 333.562-366.591 ms after. First-malformed
+ranges were 189.468-251.450 / 190.571-216.146 ms; all-malformed ranges were
+294.524-317.519 / 293.086-319.141 ms. These overlapping samples support no speedup claim.
+The existing `cargo replay` executable was built once per revision and run directly: ranges
+57.590-64.081 / 58.634-69.802 ms; both retained 500 records and 331,992-332,477 estimated timeline
+bytes. That reducer workload does not exercise network decoding, process RSS or UI frame time.
+
+Native before/after capture and interaction were unavailable: Orca was absent and the installed
+computer-use provider could not connect to its native pipe (OS error 2). Native idle CPU, process
+memory and frame timing remain unmeasured. These synthetic results do not establish live account
+compatibility or resolve the reported account-specific startup rejection.
+
 ## Animation frame retention — October 8, 2026
 
 Decoded GIF and animated-avatar frames were the largest bounded RAM consumer. Each frame is held as

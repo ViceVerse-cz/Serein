@@ -4470,7 +4470,7 @@ impl MessagingUi {
 					(warnings.sessions, "session status"),
 					(warnings.emojis, "some server emoji"),
 					(warnings.stickers, "some server stickers"),
-					(warnings.entries, "some malformed channels, DMs or contacts"),
+					(warnings.entries, "some startup records"),
 				]
 				.into_iter()
 				.filter_map(|(unavailable, label)| unavailable.then_some(label))
@@ -4479,13 +4479,43 @@ impl MessagingUi {
 					egui::Frame::new()
 						.inner_margin(egui::Margin::symmetric(16, 6))
 						.show(ui, |ui| {
-							ui.colored_label(
-								colors.warning,
-								format!(
-									"Connected with some data unavailable: {}. Reconnect to retry.",
-									unavailable.join(", ")
-								),
+							ui.add(
+								egui::Label::new(
+									egui::RichText::new(format!(
+										"Connected with some data unavailable: {}. Restart Serein to retry startup data.",
+										unavailable.join(", ")
+									))
+									.color(colors.warning),
+								)
+								.wrap(),
 							);
+							let copied = self
+								.updates
+								.copied_diagnostics
+								.is_some_and(|until| ui.input(|i| i.time) < until);
+							if design::button(
+								ui,
+								if copied {
+									"updates-update-settings-copied"
+								} else {
+									"startup-copy-details"
+								},
+								design::ButtonKind::Outline,
+							)
+							.clicked()
+							{
+								ui.ctx().copy_text(format!(
+									"- **Startup data unavailable:** {}\n- **Startup parsing:** {}\n\n{}",
+									unavailable.join(", "),
+									state.startup_warning_detail.as_deref().unwrap_or(
+										"Detailed parsing information is unavailable for this session."
+									),
+									self.diagnostic_info(ui.ctx()),
+								));
+								self.updates.copied_diagnostics = Some(ui.input(|i| i.time) + 2.5);
+								ui.ctx()
+									.request_repaint_after(std::time::Duration::from_secs(3));
+							}
 						});
 				}
 				if state.selected.is_none() && self.guild.is_none() {
@@ -8127,6 +8157,82 @@ mod composer_tests {
 					"Activity image appears and clears with its presence"
 				);
 			}
+		}
+	}
+
+	#[test]
+	fn startup_warning_copies_redacted_details_and_build_info() {
+		fn copy_button(shape: &egui::Shape) -> Option<egui::Rect> {
+			match shape {
+				egui::Shape::Text(text) if text.galley.job.text == "Copy startup details" => {
+					Some(text.galley.rect.translate(text.pos.to_vec2()))
+				}
+				egui::Shape::Vec(shapes) => shapes.iter().find_map(copy_button),
+				_ => None,
+			}
+		}
+		for detail in [None, Some("ChannelDto: missing required field (1)")] {
+			let ctx = egui::Context::default();
+			design::apply(&ctx);
+			let mut state = test_support::demo_state();
+			state.startup_warnings.entries = true;
+			state.startup_warnings.notifications = true;
+			state.startup_warning_detail = detail.map(Into::into);
+			state.user.as_mut().unwrap().name = "private-account-name".into();
+			let mut view = MessagingUi::default();
+			view.build.version = "1.2.3-startup-test";
+			let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(760.0, 700.0));
+			let frame = |view: &mut MessagingUi, state: &mut State, events| {
+				ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(screen_rect),
+						events,
+						..Default::default()
+					},
+					|ui| {
+						view.show(ui, state);
+					},
+				)
+			};
+			frame(&mut view, &mut state, vec![]).drop_without_applying_deltas();
+			let output = frame(&mut view, &mut state, vec![]);
+			let rect = output
+				.shapes
+				.iter()
+				.find_map(|shape| copy_button(&shape.shape))
+				.expect("startup details button is visible");
+			assert!(screen_rect.contains_rect(rect));
+			output.drop_without_applying_deltas();
+			let mut copied = None;
+			for pressed in [true, false] {
+				let output = frame(
+					&mut view,
+					&mut state,
+					vec![
+						egui::Event::PointerMoved(rect.center()),
+						egui::Event::PointerButton {
+							pos: rect.center(),
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					],
+				);
+				for command in &output.platform_output.commands {
+					if let egui::OutputCommand::CopyText(text) = command {
+						copied = Some(text.clone());
+					}
+				}
+				output.drop_without_applying_deltas();
+			}
+			let copied = copied.expect("startup details copied to clipboard");
+			assert!(copied.contains("notification settings, some startup records"));
+			assert!(copied.contains(
+				detail.unwrap_or("Detailed parsing information is unavailable for this session.")
+			));
+			assert!(copied.contains("1.2.3-startup-test"));
+			assert!(copied.contains("Operating System"));
+			assert!(!copied.contains("private-account-name"));
 		}
 	}
 

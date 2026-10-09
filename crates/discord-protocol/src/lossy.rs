@@ -7,6 +7,19 @@ use serde::{
 use serde_json::value::RawValue;
 use std::marker::PhantomData;
 
+pub(crate) fn prefixed_diagnostic(section: &str, cause: String) -> String {
+	let mut cause = format!("{section}{cause}");
+	if cause.len() > 512 {
+		let mut end = 509;
+		while !cause.is_char_boundary(end) {
+			end -= 1;
+		}
+		cause.truncate(end);
+		cause.push('…');
+	}
+	cause
+}
+
 /// `#[serde(default)]` covers an absent field; this also maps an explicit `null` to the default.
 pub(crate) fn null_default<'de, D: Deserializer<'de>, T: Default + Deserialize<'de>>(
 	d: D,
@@ -42,12 +55,14 @@ pub(crate) fn recipients<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<crate::U
 pub(crate) struct Slots<T, const N: usize, const TRUNCATE: bool = false> {
 	pub(crate) items: Vec<Option<T>>,
 	pub(crate) truncated: bool,
+	pub(crate) cause: Option<String>,
 }
 impl<T, const N: usize, const TRUNCATE: bool> Default for Slots<T, N, TRUNCATE> {
 	fn default() -> Self {
 		Self {
 			items: Vec::new(),
 			truncated: false,
+			cause: None,
 		}
 	}
 }
@@ -78,11 +93,21 @@ impl<'de, T: Deserialize<'de>, const N: usize, const TRUNCATE: bool> Deserialize
 					if slots.items.len() == N {
 						if TRUNCATE {
 							slots.truncated = true;
+							slots.cause.get_or_insert_with(|| {
+								format!("[{N}]: list truncated at {N} entries")
+							});
 							continue;
 						}
 						return Err(serde::de::Error::custom("List capacity exceeded"));
 					}
-					slots.items.push(serde_json::from_str(raw.get()).ok());
+					let item = serde_json::from_str(raw.get()).ok();
+					if item.is_none() && slots.cause.is_none() {
+						slots.cause = crate::diagnostics::trace::<T>(
+							&format!("[{}]", slots.items.len()),
+							raw.get().as_bytes(),
+						);
+					}
+					slots.items.push(item);
 				}
 				Ok(slots)
 			}
@@ -95,12 +120,14 @@ impl<'de, T: Deserialize<'de>, const N: usize, const TRUNCATE: bool> Deserialize
 pub(crate) struct Lossy<T, const N: usize, const TRUNCATE: bool = false> {
 	pub(crate) items: Vec<T>,
 	pub(crate) skipped: bool,
+	pub(crate) cause: Option<String>,
 }
 impl<T, const N: usize, const TRUNCATE: bool> Default for Lossy<T, N, TRUNCATE> {
 	fn default() -> Self {
 		Self {
 			items: Vec::new(),
 			skipped: false,
+			cause: None,
 		}
 	}
 }
@@ -113,6 +140,7 @@ impl<'de, T: Deserialize<'de>, const N: usize, const TRUNCATE: bool> Deserialize
 		let items: Vec<T> = slots.items.into_iter().flatten().collect();
 		Ok(Self {
 			skipped: slots.truncated || items.len() != total,
+			cause: slots.cause,
 			items,
 		})
 	}
@@ -149,13 +177,34 @@ mod tests {
 			[1, 3]
 		);
 		assert!(rows.rows.skipped && !rows.rows.items[0].flag);
+		assert_eq!(
+			rows.rows.cause.as_deref(),
+			Some("[1].id: invalid type: string \"…\", expected u8")
+		);
 		assert!(rows.slots.items[0].is_none() && rows.slots.items[1].is_some());
 		assert!(rows.capped.skipped && rows.capped.items.len() == 1);
+		assert_eq!(
+			rows.capped.cause.as_deref(),
+			Some("[1]: list truncated at 1 entries")
+		);
 		let rows: Rows = serde_json::from_slice(br#"{"rows":null}"#).unwrap();
 		assert!(rows.rows.items.is_empty() && !rows.rows.skipped);
+		assert!(rows.rows.cause.is_none());
 		assert!(
 			serde_json::from_slice::<Rows>(br#"{"rows":[{"id":1},{"id":2},{"id":3},{"id":4}]}"#)
 				.is_err()
 		);
+	}
+
+	#[test]
+	fn first_failure_survives_truncation_and_prefixed_causes_stay_bounded() {
+		let rows: Rows =
+			serde_json::from_slice(br#"{"capped":[{"id":"private value"},{"id":1}]}"#).unwrap();
+		assert_eq!(
+			rows.capped.cause.as_deref(),
+			Some("[0].id: invalid type: string \"…\", expected u8")
+		);
+		let cause = prefixed_diagnostic("guilds[0].channels", "é".repeat(300));
+		assert!(cause.len() <= 512 && cause.ends_with('…'));
 	}
 }

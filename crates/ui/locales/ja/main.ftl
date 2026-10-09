@@ -4493,3 +4493,5 @@ profiles-activity-empty = 共有されているアクティビティはありま
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction
+
+startup-copy-details = 起動の詳細をコピー

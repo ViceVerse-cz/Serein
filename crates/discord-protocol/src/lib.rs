@@ -594,6 +594,9 @@ pub struct Ready {
 	/// Set when decoding or [`Ready::navigation`] dropped malformed or conflicting entries.
 	#[serde(skip)]
 	pub skipped: bool,
+	/// First bounded, redacted reason for an entry warning; never contains account values.
+	#[serde(skip)]
+	pub entry_diagnostic: Option<String>,
 }
 impl Ready {
 	pub fn navigation(&mut self) -> Result<(Vec<Guild>, Vec<Channel>), DecodeError> {
@@ -612,25 +615,40 @@ impl Ready {
 		}
 		// Zero, repeated or cross-server entries are dropped individually; the first one wins.
 		let mut skipped = false;
+		let diagnostic = &mut self.entry_diagnostic;
 		let mut guild_ids = std::collections::BTreeSet::new();
 		self.guilds.retain(|g| {
 			let keep = g.id.0 != 0 && guild_ids.insert(g.id);
 			skipped |= !keep;
+			if !keep {
+				diagnostic.get_or_insert_with(|| "guilds: duplicate or zero guild ID".into());
+			}
 			keep
 		});
 		let mut ids = std::collections::BTreeSet::new();
 		self.private_channels.retain(|c| {
 			let keep = c.id.0 != 0 && ids.insert(c.id);
 			skipped |= !keep;
+			if !keep {
+				diagnostic
+					.get_or_insert_with(|| "private_channels: duplicate or zero channel ID".into());
+			}
 			keep
 		});
 		for g in &mut self.guilds {
 			let guild = g.id;
-			for list in [&mut g.channels, &mut g.threads] {
+			for (section, list) in [("channels", &mut g.channels), ("threads", &mut g.threads)] {
 				list.retain(|c| {
 					let keep =
 						c.id.0 != 0 && c.guild_id.is_none_or(|id| id == guild) && ids.insert(c.id);
 					skipped |= !keep;
+					if !keep {
+						diagnostic.get_or_insert_with(|| {
+							format!(
+								"guilds[].{section}: conflicting guild or duplicate/zero channel ID"
+							)
+						});
+					}
 					keep
 				});
 			}
@@ -704,7 +722,12 @@ impl Ready {
 					}
 					match threads::into_thread(thread, g.id) {
 						Ok(thread) => channels.push(thread),
-						Err(_) => skipped = true,
+						Err(_) => {
+							skipped = true;
+							diagnostic.get_or_insert_with(|| {
+								"guilds[].threads: invalid thread kind, parent or guild".into()
+							});
+						}
 					}
 				}
 				Guild {
@@ -716,6 +739,11 @@ impl Ready {
 					stickers: g.stickers.and_then(|list| {
 						let stickers = stickers::guild_catalog(list.0, g.id).ok();
 						skipped |= stickers.is_none();
+						if stickers.is_none() {
+							diagnostic.get_or_insert_with(|| {
+								"guilds[].stickers: invalid sticker catalog".into()
+							});
+						}
 						stickers
 					}),
 					id: g.id,
@@ -2186,6 +2214,8 @@ pub struct VoiceMemberDto {
 }
 #[derive(Deserialize)]
 pub struct ReadySupplemental {
+	#[serde(skip)]
+	pub entry_diagnostic: Option<String>,
 	#[serde(default)]
 	pub presences: Option<Box<RawValue>>,
 	#[serde(default)]

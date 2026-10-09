@@ -32,7 +32,7 @@ async fn login_metadata(
 	supplemental: Option<Value>,
 	metadata: Value,
 	warnings: model::account::Warnings,
-) {
+) -> Option<Box<str>> {
 	timeout(Duration::from_secs(30), async {
 		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 		let endpoint = format!("ws://{}/", listener.local_addr().unwrap());
@@ -135,9 +135,42 @@ async fn login_metadata(
 			"only the synthetic close may terminate login"
 		);
 		assert!(ready.load(Ordering::Relaxed), "login must emit Ready");
+		state.into_inner().unwrap().startup_warning_detail
 	})
 	.await
-	.expect("synthetic login exceeded its bounded deadline");
+	.expect("synthetic login exceeded its bounded deadline")
+}
+
+#[tokio::test]
+async fn skipped_startup_entries_deliver_redacted_details_after_login() {
+	let detail = login_metadata(
+		vec![json!({"id":"2","username":false})],
+		Vec::new(),
+		None,
+		json!({}),
+		model::account::Warnings {
+			entries: true,
+			..Default::default()
+		},
+	)
+	.await
+	.unwrap();
+	assert!(detail.starts_with("READY: users[0].username:"), "{detail}");
+	let detail = login_metadata(
+		Vec::new(),
+		Vec::new(),
+		Some(
+			json!({"guilds":[{"id":"10"}],"merged_members":[[{"user":{"id":"2","username":false}}]]}),
+		),
+		json!({}),
+		model::account::Warnings::default(),
+	)
+	.await
+	.unwrap();
+	assert!(
+		detail.starts_with("READY_SUPPLEMENTAL: merged_members[0][0].user.username:"),
+		"{detail}"
+	);
 }
 
 fn large_guilds(count: u64) -> Vec<Value> {

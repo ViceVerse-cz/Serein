@@ -4606,3 +4606,5 @@ profiles-activity-empty = 暂无共享活动。
 profiles-mutuals-empty = 这里没有可显示的内容。
 
 reading-double-click-reaction = 双击回应
+
+startup-copy-details = 复制启动详情
