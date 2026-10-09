@@ -50,7 +50,8 @@ unsafe extern "system" fn custom_caption(
 				TEMPORARY_DRAG.set(true);
 				SetWindowLongPtrW(hwnd, GWL_STYLE, style | WS_SYSMENU.0 as isize);
 				let result = DefSubclassProc(hwnd, message, wparam, lparam);
-				SetWindowLongPtrW(hwnd, GWL_STYLE, style);
+				let current_style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+				SetWindowLongPtrW(hwnd, GWL_STYLE, current_style & !(WS_SYSMENU.0 as isize));
 				TEMPORARY_DRAG.set(false);
 				return result;
 			}
@@ -139,7 +140,7 @@ pub fn extend_frame(window: &Window, extended: bool) -> Result<(), String> {
 mod tests {
 	use super::*;
 	use windows::Win32::UI::WindowsAndMessaging::{
-		CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW,
+		CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WS_MAXIMIZE, WS_OVERLAPPEDWINDOW,
 	};
 	use windows::core::w;
 
@@ -223,6 +224,10 @@ mod tests {
 				if style & WS_SYSMENU.0 as isize != 0 {
 					PROBE_SEEN_SYSMENU.set(PROBE_SEEN_SYSMENU.get() + 1);
 				}
+				if message == WM_SYSCOMMAND {
+					let _ = SetWindowLongPtrW(hwnd, GWL_STYLE, style | WS_MAXIMIZE.0 as isize);
+					return LRESULT(0);
+				}
 			}
 			DefSubclassProc(hwnd, message, wparam, lparam)
 		}
@@ -279,13 +284,14 @@ mod tests {
 			);
 			assert_eq!(PROBE_SEEN_SYSMENU.get(), 2);
 			assert_eq!(GetPropW(hwnd, REQUESTED_MENU), initial_menu);
-			assert_eq!(
-				GetWindowLongPtrW(hwnd, GWL_STYLE),
-				style & !(WS_SYSMENU.0 as isize)
-			);
+			let expected_moved_style = (style | WS_MAXIMIZE.0 as isize) & !(WS_SYSMENU.0 as isize);
+			assert_eq!(GetWindowLongPtrW(hwnd, GWL_STYLE), expected_moved_style);
 
 			set_custom_caption(hwnd, false).unwrap();
-			assert_eq!(GetWindowLongPtrW(hwnd, GWL_STYLE), style);
+			assert_eq!(
+				GetWindowLongPtrW(hwnd, GWL_STYLE),
+				style | WS_MAXIMIZE.0 as isize
+			);
 
 			let _ = RemoveWindowSubclass(hwnd, Some(probe_subclass), 1);
 			DestroyWindow(hwnd).unwrap();
