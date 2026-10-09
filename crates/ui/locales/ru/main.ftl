@@ -1692,7 +1692,6 @@ markdown-show-run-open-user-profile = Открыть профиль пользо
 # Context: show_run
 markdown-show-run-reveal-spoiler = Раскрыть спойлер
 # Context: show_run
-markdown-show-run-unknown-channel-load-channel = Неизвестный канал, загрузите канал
 
 ## crates/ui/src/mentions.rs
 # Context: show
@@ -3839,7 +3838,6 @@ timeline-show-with-scroll-edited = (отредактировано)
 # Context: show_with_scroll
 timeline-show-with-scroll-forwarded = ↪ Переадресовано
 # Context: show_with_scroll
-timeline-show-with-scroll-hide-spoilers = Скрыть спойлеры
 # Context: show_with_scroll
 timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = История пока недоступна. Используйте «Обновить», чтобы повторить попытку.
 # Context: show_with_scroll

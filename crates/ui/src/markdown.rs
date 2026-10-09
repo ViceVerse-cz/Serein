@@ -1,7 +1,7 @@
 //! Bounded native text formatting. No HTML renderer, image loader, or automatic URL access.
 use egui::{FontId, Stroke, TextFormat, text::LayoutJob};
 use model::Id;
-use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, LinkType, Options, Parser, Tag, TagEnd};
 use std::collections::HashMap;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -13,9 +13,14 @@ const MAX_LINKS: usize = 16;
 const MAX_SPOILERS: u8 = 32;
 const MAX_BLOCKS: usize = 32;
 const PREVIEW_EMOJI_SIZE: f32 = 16.0;
+/// Space on each side of a channel icon inside a reply preview pill.
+const PREVIEW_ICON_GAP: f32 = 2.0;
+const PREVIEW_TEXT_SIZE: f32 = 13.0;
 
 pub(crate) struct PreviewEmoji {
 	at: usize,
+	/// Bytes of placeholder text standing in for `text`.
+	len: usize,
 	text: String,
 	image: PreviewImage,
 }
@@ -48,6 +53,10 @@ struct Style {
 	/// Discord `-# ` subtext: smaller, quieter body text.
 	small: bool,
 	link: Option<usize>,
+	/// Separate ranges that store the same URL. Zero means this span is not a link.
+	link_occurrence: u32,
+	/// Only bare URLs and angle autolinks get native message chips; masked labels stay text.
+	message_link: bool,
 	mention: Option<Id>,
 	role: Option<Id>,
 	role_color: Option<u32>,
@@ -210,6 +219,8 @@ pub struct Formatted {
 	pub links: Vec<String>,
 	pub limited: bool,
 	pub spoilers: bool,
+	/// Last id handed out by `next_link_occurrence`. Not message content.
+	link_occurrence: u32,
 }
 
 #[derive(Default)]
@@ -306,33 +317,63 @@ pub(super) struct ChatLink {
 	pub message: Option<Id>,
 }
 
-/// Recognize only Discord's chat routes; other destinations keep normal link handling.
+/// Recognize the raw route, before URL parsing can remove dot segments or escaped dots.
+/// Query/fragment text is preserved on the link but never changes the navigation identity.
 pub(super) fn discord_chat_link(input: &str) -> Option<ChatLink> {
-	let target = external_url(input)?;
-	let url = url::Url::parse(&target).ok()?;
-	if url.scheme() != "https"
-		|| url.port().is_some()
-		|| !matches!(
-			url.host_str()?,
-			"discord.com"
-				| "www.discord.com"
-				| "ptb.discord.com"
-				| "canary.discord.com"
-				| "discordapp.com"
-				| "www.discordapp.com"
-				| "ptb.discordapp.com"
-				| "canary.discordapp.com"
-		) {
+	if input.len() > 2048
+		|| input
+			.chars()
+			.any(|chr| chr.is_control() || chr.is_whitespace() || chr == '\\')
+	{
 		return None;
 	}
+	let (scheme, rest) = input.split_once("://")?;
+	if !scheme.eq_ignore_ascii_case("https") {
+		return None;
+	}
+	let (authority, route) = rest.split_once('/')?;
+	let host = authority.strip_suffix(":443").unwrap_or(authority);
+	if ![
+		"discord.com",
+		"www.discord.com",
+		"ptb.discord.com",
+		"canary.discord.com",
+		"discordapp.com",
+		"www.discordapp.com",
+		"ptb.discordapp.com",
+		"canary.discordapp.com",
+	]
+	.iter()
+	.any(|allowed| host.eq_ignore_ascii_case(allowed))
+	{
+		return None;
+	}
+	let path_end = route.find(['?', '#']).unwrap_or(route.len());
+	let suffix = &route[path_end..];
+	// Reject malformed escapes without decoding anything. Escaped bytes are allowed only
+	// in the non-routing suffix, never in the authority or path.
+	let mut escapes = suffix.bytes();
+	while let Some(byte) = escapes.next() {
+		if byte == b'%'
+			&& !(escapes.next()?.is_ascii_hexdigit() && escapes.next()?.is_ascii_hexdigit())
+		{
+			return None;
+		}
+	}
+	let route = &route[..path_end];
 	let id = |value: &str| {
-		if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+		if value.is_empty()
+			|| value.len() > 20
+			|| value.starts_with('0')
+			|| !value.bytes().all(|byte| byte.is_ascii_digit())
+		{
 			return None;
 		}
 		value.parse::<u64>().ok().filter(|id| *id != 0).map(Id)
 	};
-	let mut path = url.path().trim_end_matches('/').split('/');
-	if !path.next()?.is_empty() || path.next()? != "channels" {
+	// Accept at most one trailing slash, not arbitrary extra empty path components.
+	let mut path = route.strip_suffix('/').unwrap_or(route).split('/');
+	if path.next()? != "channels" {
 		return None;
 	}
 	let guild = match path.next()? {
@@ -568,6 +609,31 @@ struct Render<'a> {
 	card_surface: crate::design::MessageCardSurface,
 }
 
+/// Whitespace, controls and zero-width characters: content with no visible text.
+fn invisible(chr: char) -> bool {
+	chr.is_whitespace()
+		|| chr.is_control()
+		|| matches!(chr, '\u{200b}'..='\u{200f}' | '\u{2060}'..='\u{2064}' | '\u{feff}')
+}
+
+/// Text and background of a role or mass mention: the role's own color, like Discord,
+/// with the text adjusted for contrast. Uncolored roles use the mention palette.
+fn mention_colors(ui: &egui::Ui, role_color: Option<u32>) -> (egui::Color32, egui::Color32) {
+	let colors = crate::design::palette(ui);
+	match role_color.filter(|rgb| *rgb != 0) {
+		Some(rgb) => {
+			let [r, g, b] = [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8];
+			let background = egui::Color32::from_rgba_unmultiplied(r, g, b, 38);
+			let behind = ui.visuals().panel_fill;
+			(
+				crate::design::role_name_color(rgb, behind, colors.mention_text),
+				background,
+			)
+		}
+		None => (colors.mention_text, colors.mention_bg),
+	}
+}
+
 fn channel_reference_name<'a>(
 	id: Id,
 	channels: &'a [model::Channel],
@@ -653,6 +719,7 @@ impl Formatted {
 			spoilers: false,
 			artwork: false,
 			jumbo: false,
+			link_occurrence: 0,
 		};
 		let mut stack = Vec::new();
 		let mut style = Style::default();
@@ -789,9 +856,19 @@ impl Formatted {
 								_ => output.push("• ", style),
 							}
 						}
-						Tag::Link { dest_url, .. } => {
+						Tag::Link {
+							dest_url,
+							link_type,
+							..
+						} => {
 							style.no_autolink = true;
 							style.link = output.add_link(&dest_url);
+							style.message_link = link_type == LinkType::Autolink;
+							style.link_occurrence = if style.link.is_some() {
+								output.next_link_occurrence()
+							} else {
+								0
+							};
 						}
 						Tag::Image { .. } => {
 							style.no_autolink = true;
@@ -984,6 +1061,7 @@ impl Formatted {
 			spoilers: concealed,
 			artwork: false,
 			jumbo: false,
+			link_occurrence: 0,
 		};
 		formatted.artwork = has_artwork(&formatted.spans);
 		formatted.jumbo = only_emoji(&formatted.spans, &formatted.blocks, formatted.mention_count);
@@ -1011,20 +1089,48 @@ impl Formatted {
 			}
 			self.push_literal(&text[consumed..start], style);
 			if let Some((opening, region)) = open.take() {
-				// Retain an empty marker so an empty paired region still has a reveal control.
-				self.spans[opening].0.clear();
-				self.spans[opening].1.spoiler = Some(region);
-				*regions += 1;
+				// Spoilers hiding nothing visible (Discord's ping-hiding trick repeats
+				// hundreds) merge with an adjacent empty one, so they use one region.
+				let empty = self.spans[opening + 1..]
+					.iter()
+					.all(|(text, _)| text.chars().all(invisible));
+				let merged = empty
+					&& opening > 0 && self.spans[opening - 1].0.is_empty()
+					&& self.spans[opening - 1].1.spoiler.is_some();
+				if merged {
+					self.spans.truncate(opening);
+				} else {
+					if empty {
+						self.spans.truncate(opening + 1);
+					}
+					// Retain an empty marker so an empty paired region still has a reveal control.
+					self.spans[opening].0.clear();
+					self.spans[opening].1.spoiler = Some(region);
+					// A region reused at the cap already counts.
+					if region == *regions {
+						*regions += 1;
+					}
+				}
 				self.spoilers = true;
 				style.spoiler = None;
 			} else {
-				if *regions == MAX_SPOILERS {
+				// At the cap, a spoiler directly after an empty one may still merge into it,
+				// so it provisionally shares that region instead of concealing everything.
+				let region = if *regions < MAX_SPOILERS {
+					*regions
+				} else if let Some(previous) = self
+					.spans
+					.last()
+					.and_then(|(text, previous)| previous.spoiler.filter(|_| text.is_empty()))
+				{
+					previous
+				} else {
 					return false;
-				}
+				};
 				let opening = self.spans.len();
 				self.push("||", style);
-				*open = Some((opening, *regions));
-				style.spoiler = Some(*regions);
+				*open = Some((opening, region));
+				style.spoiler = Some(region);
 			}
 			consumed = start + 2;
 			search = consumed;
@@ -1040,7 +1146,14 @@ impl Formatted {
 		}
 	}
 	fn add_link(&mut self, target: &str) -> Option<usize> {
-		let url = external_url(target)?;
+		let normalized = external_url(target)?;
+		// Keep the original spelling whenever normalization could yield a chat route.
+		// Otherwise a raw /../ or /%2e%2e/ attack becomes an internal link at click time.
+		let url = if discord_chat_link(&normalized).is_some() {
+			target.to_owned()
+		} else {
+			normalized
+		};
 		if let Some(index) = self.links.iter().position(|existing| *existing == url) {
 			return Some(index);
 		}
@@ -1049,6 +1162,10 @@ impl Formatted {
 		}
 		self.links.push(url);
 		Some(self.links.len() - 1)
+	}
+	fn next_link_occurrence(&mut self) -> u32 {
+		self.link_occurrence = self.link_occurrence.saturating_add(1);
+		self.link_occurrence
 	}
 	fn push_autolinks(&mut self, text: &str, style: Style) {
 		let mut consumed = 0;
@@ -1062,15 +1179,23 @@ impl Formatted {
 			{
 				target = &target[..target.len() - 1];
 			}
-			if (target.starts_with("https://") || target.starts_with("http://"))
+			if (target
+				.get(..8)
+				.is_some_and(|scheme| scheme.eq_ignore_ascii_case("https://"))
+				|| target
+					.get(..7)
+					.is_some_and(|scheme| scheme.eq_ignore_ascii_case("http://")))
 				&& let Some(link) = self.add_link(target)
 			{
 				let link_start = start + word.len() - candidate.len();
 				self.push(&text[consumed..link_start], style);
+				let link_occurrence = self.next_link_occurrence();
 				self.push(
 					target,
 					Style {
 						link: Some(link),
+						link_occurrence,
+						message_link: true,
 						..style
 					},
 				);
@@ -1376,13 +1501,48 @@ impl Formatted {
 							.iter()
 							.take_while(|(_, style)| style.spoiler == spoiler)
 							.count();
-						let response = ui
-							.push_id(("spoiler", region), |ui| {
-								ui.button(crate::i18n::translate(
-									"markdown-show-run-reveal-spoiler",
-								))
+						// Like Discord, a concealed spoiler is a block the size of its text. The
+						// text is only measured, never painted or exposed.
+						// Ignore delimiters and invisible characters, which have no visible width.
+						let hidden: String = spans[start..start + count]
+							.iter()
+							.flat_map(|(text, _)| text.chars())
+							.filter(|chr| *chr != '|' && !invisible(*chr))
+							.collect();
+						let font = egui::TextStyle::Body.resolve(ui.style());
+						let row = ui.fonts_mut(|fonts| fonts.row_height(&font));
+						let measured = ui
+							.fonts_mut(|fonts| {
+								fonts.layout_no_wrap(hidden, font, egui::Color32::TRANSPARENT)
 							})
-							.inner;
+							.size();
+						let size = egui::vec2(
+							measured
+								.x
+								.clamp(row * 0.5, ui.max_rect().width().max(row * 0.5)),
+							measured.y.max(row),
+						);
+						// Occupy the message's row height; the block itself is text height.
+						let (slot, response) = ui.allocate_exact_size(
+							egui::vec2(size.x, size.y.max(render.line.unwrap_or(0.0))),
+							egui::Sense::click(),
+						);
+						let rect = egui::Rect::from_center_size(slot.center(), size);
+						let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+						response.widget_info(|| {
+							egui::WidgetInfo::labeled(
+								egui::Role::Button,
+								ui.is_enabled(),
+								crate::i18n::translate("markdown-show-run-reveal-spoiler"),
+							)
+						});
+						if ui.is_rect_visible(rect) {
+							let muted = crate::design::palette(ui).muted;
+							let fill =
+								muted.gamma_multiply(if response.hovered() { 0.7 } else { 0.55 });
+							ui.painter()
+								.rect_filled(rect, crate::channel_pill::RADIUS, fill);
+						}
 						render.surface.keep(&response);
 						if response.clicked() {
 							*render.revealed |= 1_u32 << region;
@@ -1401,14 +1561,21 @@ impl Formatted {
 						{
 							let known = channel_reference_name(id, render.channels, render.source)
 								.is_some();
-							let response = pill.show(ui, render.images, render.demo).on_hover_text(
-								crate::i18n::translate(if known {
+							// Like Discord, selecting a channel reference copies `#name`.
+							let copied = format!("#{}", pill.name);
+							let response = pill
+								.show(
+									ui,
+									render.images,
+									render.demo,
+									render.line,
+									Some((&mut *render.surface, &copied)),
+								)
+								.on_hover_text(crate::i18n::translate(if known {
 									"markdown-show-run-open-channel"
 								} else {
 									"markdown-show-run-load-channel"
-								}),
-							);
-							render.surface.keep(&response);
+								}));
 							if response.clicked() {
 								*render.channel = Some(id);
 							}
@@ -1432,17 +1599,18 @@ impl Formatted {
 						let colors = crate::design::palette(ui);
 						let user = crate::mentions::find_user(id, render.users, render.source);
 						let label = crate::mentions::mention_label(id, render.users, render.source);
-						let response = ui
-							.add(egui::Link::new(
-								egui::RichText::new(&label)
-									.strong()
-									.color(colors.mention_text)
-									.background_color(colors.mention_bg),
-							))
-							.on_hover_text(crate::i18n::translate(
-								"markdown-show-run-open-user-profile",
-							));
-						render.surface.keep(&response);
+						let response = crate::channel_pill::mention(
+							ui,
+							&label,
+							colors.mention_text,
+							colors.mention_bg,
+							egui::Sense::click(),
+							render.line,
+							Some(&mut *render.surface),
+						)
+						.on_hover_text(crate::i18n::translate(
+							"markdown-show-run-open-user-profile",
+						));
 						response.widget_info(|| {
 							egui::WidgetInfo::labeled(
 								egui::Role::Link,
@@ -1462,6 +1630,39 @@ impl Formatted {
 							});
 							render.profile.person_click(ui, &response, None, &opened);
 						}
+						start += 1;
+						continue;
+					}
+					if spans[start].1.role.is_some() || spans[start].1.mass_mention {
+						reserve(ui);
+						let style = spans[start].1;
+						let role = style
+							.role
+							.and_then(|id| render.roles.iter().find(|role| role.id == id));
+						let label = match style.role {
+							Some(id) => format!(
+								"@{}",
+								role.map_or_else(
+									|| format!("unknown-role ({id})"),
+									|role| role.name.clone()
+								)
+							),
+							None => spans[start].0.clone(),
+						};
+						let (color, background) =
+							mention_colors(ui, role.map(|role| role.color).or(style.role_color));
+						let response = crate::channel_pill::mention(
+							ui,
+							&label,
+							color,
+							background,
+							egui::Sense::hover(),
+							render.line,
+							Some(&mut *render.surface),
+						);
+						response.widget_info(|| {
+							egui::WidgetInfo::labeled(egui::Role::Label, ui.is_enabled(), &label)
+						});
 						start += 1;
 						continue;
 					}
@@ -1487,12 +1688,17 @@ impl Formatted {
 						continue;
 					}
 					let target = spans[start].1.link;
+					let link_occurrence = spans[start].1.link_occurrence;
+					let native_message_link = spans[start].1.message_link;
 					let count = spans[start..]
 						.iter()
 						.take_while(|(_, style)| {
 							style.link == target
+								&& style.link_occurrence == link_occurrence
+								&& style.message_link == native_message_link
 								&& style.spoiler == spoiler
 								&& style.mention.is_none()
+								&& style.role.is_none() && !style.mass_mention
 								&& style.channel.is_none()
 								&& style.block.is_none() && (quoted || !style.quote)
 						})
@@ -1513,35 +1719,12 @@ impl Formatted {
 					} else {
 						&spans[start..start + count]
 					};
-					// Role pills share the surrounding text's galley, including wrapping and emoji heights.
 					let resolved;
-					let spans = if spans
-						.iter()
-						.any(|(_, style)| style.role.is_some() || style.timestamp.is_some())
-					{
+					let spans = if spans.iter().any(|(_, style)| style.timestamp.is_some()) {
 						resolved = spans
 							.iter()
 							.map(|(text, style)| {
-								if let Some(id) = style.role {
-									let name =
-										render.roles.iter().find(|role| role.id == id).map_or_else(
-											|| format!("unknown-role ({id})"),
-											|role| role.name.clone(),
-										);
-									(
-										format!("@{name}"),
-										Style {
-											mass_mention: true,
-											role_color: render
-												.roles
-												.iter()
-												.find(|role| role.id == id)
-												.map(|role| role.color)
-												.filter(|color| *color != 0),
-											..*style
-										},
-									)
-								} else if let Some((seconds, kind)) = style.timestamp {
+								if let Some((seconds, kind)) = style.timestamp {
 									(
 										crate::local_time::discord_timestamp(seconds, kind)
 											.unwrap_or_else(|| text.clone()),
@@ -1560,10 +1743,9 @@ impl Formatted {
 					if let Some(index) = target {
 						let url = &self.links[index];
 						let label: String = spans.iter().map(|(text, _)| text.as_str()).collect();
-						let message_link = (label == *url)
+						let message_link = native_message_link
 							.then(|| discord_chat_link(url))
-							.flatten()
-							.filter(|link| link.message.is_some());
+							.flatten();
 						let pill = message_link.as_ref().map(|link| {
 							crate::channel_pill::Pill::message(
 								link,
@@ -1585,14 +1767,19 @@ impl Formatted {
 								render.guilds,
 								render.surface,
 								render.query,
+								render.line,
 								Some(asset),
 							)
 							.on_hover_text(url)
 						} else if let Some(pill) = &pill {
-							let response =
-								pill.show(ui, render.images, render.demo).on_hover_text(url);
-							render.surface.keep(&response);
-							response
+							pill.show(
+								ui,
+								render.images,
+								render.demo,
+								render.line,
+								Some((&mut *render.surface, url)),
+							)
+							.on_hover_text(url)
 						} else {
 							Self::show_emoji(
 								spans,
@@ -1604,6 +1791,7 @@ impl Formatted {
 								render.guilds,
 								render.surface,
 								render.query,
+								render.line,
 								None,
 							)
 							.on_hover_text(url)
@@ -1630,6 +1818,7 @@ impl Formatted {
 							render.guilds,
 							render.surface,
 							render.query,
+							render.line,
 							None,
 						);
 					}
@@ -1811,6 +2000,7 @@ impl Formatted {
 		guilds: &[model::Guild],
 		surface: &mut crate::select::Surface,
 		query: &str,
+		line: Option<f32>,
 		shared: Option<model::ImageShare>,
 	) -> egui::Response {
 		struct Inline {
@@ -1930,6 +2120,22 @@ impl Formatted {
 			}
 			job.sections = sections;
 		}
+		// In a message with inline artwork every row has the artwork's height, so text
+		// centred in it lines up across separately laid out runs and pills. Underlines
+		// and backgrounds follow a glyph's line height: those sections keep the text's
+		// own height and are centred by the taller row instead.
+		if let Some(line) = line {
+			for section in &mut job.sections {
+				let format = &mut section.format;
+				if format.line_height.is_none()
+					&& format.underline == Stroke::NONE
+					&& format.background == egui::Color32::TRANSPARENT
+					&& ui.fonts_mut(|fonts| fonts.row_height(&format.font_id)) < line
+				{
+					format.line_height = Some(line);
+				}
+			}
+		}
 		let label = egui::Label::new(job)
 			.wrap()
 			.halign(if right_aligned {
@@ -1939,28 +2145,27 @@ impl Formatted {
 			})
 			.selectable(false);
 		let (pos, mut galley, mut response) = label.layout_in_ui(ui);
+		let first_row_leading = galley.job.sections.first().map_or(0.0, |s| s.leading_space);
 		response
 			.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, ui.is_enabled(), &source));
 		let mut slots: Vec<(usize, egui::Rect)> = Vec::new();
 		if !inlines.is_empty() {
 			let wrap = galley.job.wrap.max_width;
+			// Placeholders use a scaled font squeezed into the artwork line height. Text
+			// may share that line height, but only ever to grow, never to shrink.
+			let is_slot = |glyph: &egui::epaint::text::Glyph| {
+				glyph.chr == ' ' && glyph.line_height < glyph.font_height
+			};
 			let galley_mut = std::sync::Arc::make_mut(&mut galley);
 			let mut next = 0;
 			for placed in &mut galley_mut.rows {
-				if next >= inlines.len()
-					|| !placed
-						.glyphs
-						.iter()
-						.any(|glyph| glyph.chr == ' ' && glyph.line_height == size)
-				{
+				if next >= inlines.len() || !placed.glyphs.iter().any(is_slot) {
 					continue;
 				}
 				let row = std::sync::Arc::make_mut(&mut placed.row);
 				let mut glyphs = Vec::with_capacity(row.glyphs.len());
 				for glyph in &row.glyphs {
-					// Placeholders are the only glyphs with the artwork line height; a literal
-					// space in message text keeps the body font's row height.
-					if next >= inlines.len() || glyph.chr != ' ' || glyph.line_height != size {
+					if next >= inlines.len() || !is_slot(glyph) {
 						glyphs.push(*glyph);
 						continue;
 					}
@@ -2006,6 +2211,32 @@ impl Formatted {
 				}
 			})
 			.collect();
+		// Labels in wrapping layouts encode preceding widgets as leading space in their first
+		// row. Surface's per-row selection bands must not cover that space (and steal
+		// a drag from a message chip). Rebase the row without moving any painted glyphs
+		// or cursor positions. An empty wrap row still starts after the previous widget.
+		if let Some(first) = galley.rows.first() {
+			let leading = first.glyphs.first().map_or_else(
+				|| (first_row_leading - first.pos.x).max(0.0),
+				|glyph| glyph.pos.x,
+			);
+			if leading > 0.0 {
+				let galley = std::sync::Arc::make_mut(&mut galley);
+				let first = &mut galley.rows[0];
+				first.pos.x += leading;
+				let row = std::sync::Arc::make_mut(&mut first.row);
+				if !row.glyphs.is_empty() {
+					row.size.x -= leading;
+					for glyph in &mut row.glyphs {
+						glyph.pos.x -= leading;
+					}
+					let offset = egui::vec2(-leading, 0.0);
+					row.visuals.mesh.translate(offset);
+					row.visuals.mesh_bounds = row.visuals.mesh_bounds.translate(offset);
+				}
+				galley.rect |= first.rect();
+			}
+		}
 		if link {
 			let id = response.id.with("link");
 			// Wrapping leaves space for adjacent pills; a bounding rectangle would
@@ -2153,12 +2384,12 @@ impl Formatted {
 	) -> Vec<PreviewEmoji> {
 		let colors = crate::design::palette(ui);
 		let muted = TextFormat {
-			font_id: FontId::proportional(13.0),
+			font_id: FontId::proportional(PREVIEW_TEXT_SIZE),
 			color: colors.muted,
 			..Default::default()
 		};
 		let pill = TextFormat {
-			font_id: FontId::new(13.0, crate::design::semibold_family(ui.ctx())),
+			font_id: FontId::proportional(PREVIEW_TEXT_SIZE),
 			color: colors.mention_text,
 			background: colors.mention_bg,
 			..Default::default()
@@ -2178,10 +2409,9 @@ impl Formatted {
 				.or_else(|| {
 					style
 						.link
+						.filter(|_| style.message_link)
 						.and_then(|index| self.links.get(index))
-						.filter(|url| *url == text)
 						.and_then(|url| discord_chat_link(url))
-						.filter(|link| link.message.is_some())
 						.map(|link| {
 							crate::channel_pill::Pill::message(
 								&link,
@@ -2216,16 +2446,19 @@ impl Formatted {
 			} else if let Some(channel) = destination {
 				let prefix: String = channel.prefix().chars().take(remaining).collect();
 				remaining -= prefix.chars().count();
+				// The icon sits on plain spaces in the pill's own format, so the icon and
+				// name share one background strip at text height.
+				let space = ui.fonts_mut(|fonts| fonts.glyph_width(&pill.font_id, ' '));
+				let slot = " ".repeat(
+					((pill.font_id.size + 2.0 * PREVIEW_ICON_GAP) / space.max(1.0)).ceil() as usize,
+				);
 				emojis.push(PreviewEmoji {
 					at: job.text.len(),
+					len: slot.len(),
 					text: prefix,
 					image: PreviewImage::Channel(channel.icon),
 				});
-				job.append(
-					" ",
-					0.0,
-					crate::emoji::inline_format(ui, PREVIEW_EMOJI_SIZE, PREVIEW_EMOJI_SIZE),
-				);
+				job.append(&slot, 0.0, pill.clone());
 				(channel.text(), pill.clone())
 			} else if let Some((seconds, kind)) = style.timestamp {
 				(
@@ -2254,6 +2487,7 @@ impl Formatted {
 					job.append(&take[start..offset], 0.0, format.clone());
 					emojis.push(PreviewEmoji {
 						at: job.text.len(),
+						len: 1,
 						text: cluster.into(),
 						image: PreviewImage::Emoji(cell),
 					});
@@ -2272,7 +2506,7 @@ impl Formatted {
 	pub(crate) fn inline_preview_text(job: &LayoutJob, emojis: &[PreviewEmoji]) -> String {
 		let mut text = job.text.clone();
 		for emoji in emojis.iter().rev() {
-			text.replace_range(emoji.at..emoji.at + 1, &emoji.text);
+			text.replace_range(emoji.at..emoji.at + emoji.len, &emoji.text);
 		}
 		text
 	}
@@ -2282,6 +2516,34 @@ impl Formatted {
 		galley: &egui::Galley,
 		emojis: &[PreviewEmoji],
 	) {
+		let colors = crate::design::palette(ui);
+		// Channel icons sit on ordinary spaces: place them by character offset.
+		for emoji in emojis {
+			let PreviewImage::Channel(icon) = emoji.image else {
+				continue;
+			};
+			let index = galley
+				.job
+				.text
+				.get(..emoji.at)
+				.map_or(0, |text| text.chars().count());
+			let cursor = galley
+				.pos_from_cursor(egui::text::CCursor::new(index))
+				.translate(galley_pos.to_vec2());
+			let size = PREVIEW_TEXT_SIZE;
+			let rect = egui::Rect::from_min_size(
+				egui::pos2(
+					cursor.left() + PREVIEW_ICON_GAP,
+					cursor.center().y - size / 2.0,
+				),
+				egui::Vec2::splat(size),
+			);
+			crate::icons::paint(ui.painter(), icon, rect, colors.mention_text);
+		}
+		let emojis: Vec<_> = emojis
+			.iter()
+			.filter(|emoji| matches!(emoji.image, PreviewImage::Emoji(_)))
+			.collect();
 		let atlas = crate::emoji::atlas(ui.ctx());
 		let mut next = 0;
 		for placed in &galley.rows {
@@ -2301,23 +2563,11 @@ impl Formatted {
 					rect.center(),
 					egui::Vec2::splat(PREVIEW_EMOJI_SIZE),
 				);
-				match emoji.image {
-					PreviewImage::Emoji(cell) => {
-						if let Some(atlas) = atlas {
-							crate::emoji::image_cell(atlas, &emoji.text, cell, PREVIEW_EMOJI_SIZE)
-								.paint_at(ui, rect);
-						}
-					}
-					PreviewImage::Channel(icon) => {
-						let colors = crate::design::palette(ui);
-						ui.painter().rect_filled(rect, 0, colors.mention_bg);
-						crate::icons::paint(
-							ui.painter(),
-							icon,
-							rect.shrink(1.0),
-							colors.mention_text,
-						);
-					}
+				if let PreviewImage::Emoji(cell) = emoji.image
+					&& let Some(atlas) = atlas
+				{
+					crate::emoji::image_cell(atlas, &emoji.text, cell, PREVIEW_EMOJI_SIZE)
+						.paint_at(ui, rect);
 				}
 				next += 1;
 			}
@@ -2344,10 +2594,9 @@ impl Formatted {
 		let visuals = ui.visuals();
 		let colors = crate::design::palette(ui);
 		let body = egui::TextStyle::Body.resolve(ui.style());
+		let mention = mention_colors(ui, style.role_color);
 		let color = if style.mass_mention {
-			style.role_color.map_or(colors.mention_text, |rgb| {
-				crate::design::role_name_color(rgb, colors.mention_bg, colors.mention_text)
-			})
+			mention.0
 		} else if style.link.is_some() {
 			visuals.hyperlink_color
 		} else if style.strong {
@@ -2369,7 +2618,7 @@ impl Formatted {
 			valign: ui.text_valign(),
 			font_id: if style.code {
 				FontId::monospace(size)
-			} else if style.strong || style.mass_mention {
+			} else if style.strong {
 				// egui has no synthetic bold: emphasis comes from the bundled heavier face.
 				FontId::new(size, crate::design::semibold_family(ui.ctx()))
 			} else {
@@ -2377,7 +2626,10 @@ impl Formatted {
 			},
 			color,
 			background: if style.mass_mention {
-				colors.mention_bg
+				mention.1
+			} else if style.spoiler.is_some() {
+				// Only revealed spoilers reach the formatter.
+				colors.muted.gamma_multiply(0.15)
 			} else if style.timestamp.is_some() || style.code {
 				visuals.code_bg_color
 			} else {
@@ -2567,6 +2819,38 @@ mod tests {
 				message: None
 			})
 		);
+		assert_eq!(
+			discord_chat_link("https://discord.com/channels/10/20/30?jump=1#message"),
+			Some(ChatLink {
+				guild: Some(Id(10)),
+				channel: Id(20),
+				message: Some(Id(30)),
+			})
+		);
+		assert_eq!(
+			discord_chat_link("https://discord.com/channels/10/20/30?topic=café#メッセージ"),
+			Some(ChatLink {
+				guild: Some(Id(10)),
+				channel: Id(20),
+				message: Some(Id(30)),
+			})
+		);
+		assert_eq!(
+			discord_chat_link("https://discord.com/channels/@me/20/30/?q=%2F%23#message"),
+			Some(ChatLink {
+				guild: None,
+				channel: Id(20),
+				message: Some(Id(30)),
+			})
+		);
+		assert_eq!(
+			discord_chat_link("https://discord.com/channels/1/2/18446744073709551615"),
+			Some(ChatLink {
+				guild: Some(Id(1)),
+				channel: Id(2),
+				message: Some(Id(u64::MAX)),
+			})
+		);
 		for target in [
 			"http://discord.com/channels/1/2",
 			"https://discord.com.evil.example/channels/1/2",
@@ -2586,6 +2870,29 @@ mod tests {
 			"https://discord.com/channels/1/%32",
 			"https://discord.com/channels/1/2\n",
 			"https://discord.com\\channels/1/2",
+			"https://discord.com./channels/1/2/3",
+			"https://discord.com:0443/channels/1/2/3",
+			"https://discord.com:443:443/channels/1/2/3",
+			"https://discord.com/CHANNELS/1/2/3",
+			"https://discord.com/channels/@ME/2/3",
+			"https://discord.com/channels/01/2/3",
+			"https://discord.com/channels/1/02/3",
+			"https://discord.com/channels/1/2/03",
+			"https://discord.com/channels/1/2//",
+			"https://discord.com/channels/1//2/3",
+			"https://discord.com//channels/1/2/3",
+			"https://discord.com/channels/1/2/3/extra?jump=1",
+			"https://discord.com/not/../channels/10/20/30?x",
+			"https://discord.com/./channels/1/2/3",
+			"https://discord.com/channels/1/4/../2/3",
+			"https://discord.com/channels/1/%2e/2/3",
+			"https://discord.com/not/%2e%2e/channels/1/2/3#message",
+			"https://discord.com/channels/1/2/3/%2E%2E",
+			"https://discord.com/channels/1/%2F2/3",
+			"https://discord%2Ecom/channels/1/2/3",
+			"https://discord.com/channels/1/２/3",
+			"https://discord.com/channels/1/2/3?q=%",
+			"https://discord.com/channels/1/2/3#%zz",
 		] {
 			assert!(discord_chat_link(target).is_none(), "{target}");
 		}
@@ -2681,6 +2988,552 @@ mod tests {
 			}
 		}
 	}
+
+	#[test]
+	fn message_link_raw_destinations_survive_normalization_without_laundering_paths() {
+		for target in [
+			"https://discord.com/not/../channels/10/20/30?x",
+			"https://discord.com/./channels/10/20/30",
+			"https://discord.com/not/%2e%2e/channels/10/20/30#message",
+			"https://discord.com/channels/10/40/../20/30",
+			"https://discord%2Ecom/channels/10/20/30",
+		] {
+			assert!(
+				discord_chat_link(&external_url(target).unwrap()).is_some(),
+				"test must exercise a normalizable attack: {target}"
+			);
+			for source in [
+				target.to_owned(),
+				format!("<{target}>"),
+				format!("[Jump]({target})"),
+			] {
+				let parsed = Formatted::parse(&source);
+				assert_eq!(parsed.links, [target], "{source}");
+				assert!(discord_chat_link(&parsed.links[0]).is_none(), "{source}");
+			}
+		}
+	}
+
+	#[test]
+	fn message_link_chips_use_autolink_syntax_not_normalized_label_equality() {
+		for target in [
+			"https://discord.com/channels/10/20/30",
+			"HTTPS://DISCORD.COM:443/channels/10/20/30",
+			"https://discord.com/channels/10/20/30?jump=1#message",
+			"https://discord.com/channels/10/20/30?topic=café#メッセージ",
+		] {
+			for source in [target.to_owned(), format!("<{target}>")] {
+				let parsed = Formatted::parse(&source);
+				assert_eq!(parsed.links, [target], "{source}");
+				assert!(
+					parsed.spans.iter().any(|(_, style)| {
+						style.link == Some(0) && style.message_link && !style.code
+					}),
+					"{source}"
+				);
+			}
+			for source in [
+				format!("[Read **original**]({target})"),
+				format!("[{target}]({target})"),
+			] {
+				let parsed = Formatted::parse(&source);
+				assert_eq!(parsed.links, [target], "{source}");
+				assert!(
+					parsed
+						.spans
+						.iter()
+						.filter(|(_, style)| style.link.is_some())
+						.all(|(_, style)| !style.message_link),
+					"{source}"
+				);
+			}
+			for source in [format!("`{target}`"), format!("```\n{target}\n```")] {
+				let parsed = Formatted::parse(&source);
+				assert!(parsed.links.is_empty(), "{source}");
+				assert!(parsed.spans.iter().all(|(_, style)| style.link.is_none()));
+			}
+			let spoiler = Formatted::parse(&format!("||<{target}>||"));
+			assert!(spoiler.spans.iter().any(|(_, style)| {
+				style.link == Some(0) && style.message_link && style.spoiler.is_some()
+			}));
+		}
+		let bounded = Formatted::parse(
+			&(0..MAX_LINKS + 8)
+				.map(|id| format!("https://discord.com/channels/10/20/{} ", id + 1))
+				.collect::<String>(),
+		);
+		assert_eq!(bounded.links.len(), MAX_LINKS);
+	}
+
+	/// Offline message-body harness: assertions include the renderer's outgoing actions,
+	/// not just the parser flags or a standalone chip response.
+	struct MessageLinkTestUi {
+		ctx: egui::Context,
+		state: client_core::State,
+		parsed: Formatted,
+		images: crate::avatars::Avatars,
+		revealed: u32,
+		clock: f64,
+	}
+
+	impl MessageLinkTestUi {
+		fn new(source: &str) -> Self {
+			Self {
+				ctx: egui::Context::default(),
+				state: test_support::demo_state(),
+				parsed: Formatted::parse(source),
+				images: crate::avatars::Avatars::default(),
+				revealed: 0,
+				clock: 0.0,
+			}
+		}
+
+		fn frame(
+			&mut self,
+			width: f32,
+			events: Vec<egui::Event>,
+		) -> (egui::FullOutput, Option<String>) {
+			self.clock += 1.0;
+			let mut opening = None;
+			let mut profile = crate::profiles::ProfileSession::default();
+			let mut channel = None;
+			let output = self.ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(width, 400.0),
+					)),
+					time: Some(self.clock),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					let mut surface = crate::select::Surface::new(ui, "message-link-body");
+					self.parsed.show_references(
+						ui,
+						&mut opening,
+						&[],
+						Some(&crate::mentions::MentionSource {
+							state: &self.state,
+							channel: Id(20),
+						}),
+						&mut profile,
+						(&self.state.channels, &mut channel, &self.state.guilds, &[]),
+						(&mut self.images, false, &mut self.revealed),
+						&mut surface,
+						crate::design::MessageCardSurface::Opaque,
+					);
+					surface.finish(ui);
+				},
+			);
+			assert!(
+				!output
+					.platform_output
+					.commands
+					.iter()
+					.any(|command| matches!(command, egui::OutputCommand::OpenUrl(_)))
+			);
+			assert!(
+				self.images.take_requests().is_empty(),
+				"Rendering must not request previews"
+			);
+			assert!(channel.is_none() && profile.open_user().is_none());
+			(output, opening)
+		}
+	}
+
+	fn message_link_text<'a>(
+		output: &'a egui::FullOutput,
+		target: &str,
+	) -> Option<&'a egui::epaint::TextShape> {
+		fn find<'a>(shape: &'a egui::Shape, target: &str) -> Option<&'a egui::epaint::TextShape> {
+			match shape {
+				egui::Shape::Text(text) if text.galley.text().trim() == target => Some(text),
+				egui::Shape::Vec(shapes) => shapes.iter().find_map(|shape| find(shape, target)),
+				_ => None,
+			}
+		}
+		output
+			.shapes
+			.iter()
+			.find_map(|shape| find(&shape.shape, target))
+	}
+
+	fn message_link_key(key: egui::Key, pressed: bool) -> egui::Event {
+		egui::Event::Key {
+			key,
+			physical_key: None,
+			pressed,
+			repeat: false,
+			modifiers: egui::Modifiers::NONE,
+		}
+	}
+
+	#[test]
+	fn message_chips_and_masked_labels_activate_with_enter_and_space() {
+		for target in [
+			"https://discord.com/channels/10/20/100",
+			"HTTPS://DISCORD.COM:443/channels/10/20/100?jump=1#message",
+			"https://discord.com/channels/10/20/100?topic=café#メッセージ",
+		] {
+			for (source, native, label) in [
+				(target.to_owned(), true, "getting-started"),
+				(format!("<{target}>"), true, "getting-started"),
+				(format!("[Read original]({target})"), false, "Read original"),
+				(format!("[{target}]({target})"), false, target),
+			] {
+				for key in [egui::Key::Enter, egui::Key::Space] {
+					let mut ui = MessageLinkTestUi::new(&source);
+					ui.frame(220.0, vec![]).0.drop_without_applying_deltas();
+					let (output, opening) = ui.frame(220.0, vec![]);
+					assert!(opening.is_none());
+					assert!(message_link_text(&output, label).is_some(), "{source}");
+					if !native {
+						assert!(message_link_text(&output, "getting-started").is_none());
+					}
+					output.drop_without_applying_deltas();
+					let (output, opening) =
+						ui.frame(220.0, vec![message_link_key(egui::Key::Tab, true)]);
+					assert!(opening.is_none());
+					let info = output
+						.platform_output
+						.events
+						.iter()
+						.find_map(|event| match event {
+							egui::output::OutputEvent::FocusGained(info)
+								if info.role == egui::Role::Link =>
+							{
+								Some(info)
+							}
+							_ => None,
+						})
+						.expect("keyboard focus on the link");
+					if native {
+						assert_eq!(info.label.as_deref(), Some("#getting-started > message"));
+					} else {
+						assert_eq!(info.label.as_deref(), Some(label));
+					}
+					output.drop_without_applying_deltas();
+					let (output, opening) = ui.frame(220.0, vec![message_link_key(key, true)]);
+					assert_eq!(opening.as_deref(), Some(target), "{source} via {key:?}");
+					output.drop_without_applying_deltas();
+				}
+			}
+		}
+	}
+
+	#[test]
+	fn message_chips_stay_hidden_and_inert_until_spoilers_reveal_and_code_stays_literal() {
+		let target = "https://discord.com/channels/10/20/100?jump=1#message";
+		for source in [format!("`{target}`"), format!("```\n{target}\n```")] {
+			let mut ui = MessageLinkTestUi::new(&source);
+			for events in [
+				vec![],
+				vec![message_link_key(egui::Key::Tab, true)],
+				vec![message_link_key(egui::Key::Enter, true)],
+			] {
+				let (output, opening) = ui.frame(220.0, events);
+				assert!(opening.is_none());
+				assert!(message_link_text(&output, "getting-started").is_none());
+				assert!(
+					!output
+						.platform_output
+						.events
+						.iter()
+						.any(|event| event.widget_info().role == egui::Role::Link)
+				);
+				output.drop_without_applying_deltas();
+			}
+		}
+		let mut ui = MessageLinkTestUi::new(&format!("||<{target}>||"));
+		for events in [vec![], vec![message_link_key(egui::Key::Tab, true)]] {
+			let (output, opening) = ui.frame(220.0, events);
+			assert!(opening.is_none());
+			// The concealed region is a rounded block without text.
+			assert!(output.shapes.iter().any(|shape| matches!(
+				&shape.shape,
+				egui::Shape::Rect(rect)
+					if rect.corner_radius == crate::channel_pill::RADIUS.into()
+			)));
+			assert!(message_link_text(&output, target).is_none());
+			assert!(message_link_text(&output, "getting-started").is_none());
+			assert!(
+				!output
+					.platform_output
+					.events
+					.iter()
+					.any(|event| event.widget_info().role == egui::Role::Link)
+			);
+			output.drop_without_applying_deltas();
+		}
+		let (output, opening) = ui.frame(220.0, vec![message_link_key(egui::Key::Enter, true)]);
+		assert!(
+			opening.is_none(),
+			"Revealing a spoiler must not activate its link"
+		);
+		assert_eq!(ui.revealed, 1);
+		output.drop_without_applying_deltas();
+		let (output, opening) = ui.frame(220.0, vec![message_link_key(egui::Key::Enter, false)]);
+		assert!(opening.is_none());
+		assert!(message_link_text(&output, "getting-started").is_some());
+		assert!(message_link_text(&output, target).is_some());
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	fn dragging_message_chips_copies_the_complete_original_url_without_activation() {
+		let target = "HTTPS://DISCORD.COM:443/channels/10/20/100?jump=1&q=%2F#message";
+		for width in [160.0, 800.0] {
+			for source in [
+				format!("Before {target} after"),
+				format!("Before <{target}> after"),
+			] {
+				let mut ui = MessageLinkTestUi::new(&source);
+				ui.frame(width, vec![]).0.drop_without_applying_deltas();
+				// Both a multi-run drag and a drag started inside the chip copy the URL,
+				// rather than its resolved channel name; wrapped chips remain atomic.
+				for gesture in ["whole message", "inside chip"] {
+					// Refresh geometry after the preceding selection instead of reusing
+					// coordinates from a frame before that gesture.
+					let (output, opening) = ui.frame(width, vec![]);
+					assert!(opening.is_none());
+					let first = message_link_text(&output, "Before").unwrap();
+					let last = message_link_text(&output, "after").unwrap();
+					let prefix = first
+						.galley
+						.rows
+						.iter()
+						.find(|row| !row.glyphs.is_empty())
+						.unwrap()
+						.rect_without_leading_space()
+						.translate(first.pos.to_vec2());
+					let suffix = last
+						.galley
+						.rows
+						.iter()
+						.rfind(|row| !row.glyphs.is_empty())
+						.unwrap()
+						.rect_without_leading_space()
+						.translate(last.pos.to_vec2());
+					let suffix_rows: Vec<_> = last
+						.galley
+						.rows
+						.iter()
+						.map(|row| row.rect().translate(last.pos.to_vec2()))
+						.collect();
+					let slot = message_link_text(&output, target).expect("URL selection slot");
+					let chip = egui::Rect::from_min_size(slot.pos, slot.galley.size());
+					let left = egui::pos2(chip.left() + chip.width() * 0.25, chip.center().y);
+					let right = egui::pos2(chip.left() + chip.width() * 0.75, chip.center().y);
+					let (start, end, expected) = if gesture == "whole message" {
+						(
+							egui::pos2(prefix.left(), prefix.center().y),
+							egui::pos2(suffix.right(), suffix.center().y),
+							format!("Before {target} after"),
+						)
+					} else {
+						(left, right, target.to_owned())
+					};
+					let geometry = format!(
+						"{gesture}, width={width}, source={source:?}, start={start:?}, end={end:?}, \
+						 chip={chip:?}, prefix={prefix:?}, suffix={suffix:?}, suffix rows={suffix_rows:?}"
+					);
+					assert!(
+						chip.width() <= width && slot.galley.rows.len() == 1,
+						"{geometry}"
+					);
+					assert_eq!(
+						slot.galley.cursor_from_pos(left - slot.pos).index.0,
+						0,
+						"{geometry}"
+					);
+					assert_eq!(
+						slot.galley.cursor_from_pos(right - slot.pos).index.0,
+						target.chars().count(),
+						"{geometry}"
+					);
+					assert!(
+						suffix_rows
+							.iter()
+							.all(|row| !row.contains(left) && !row.contains(right)),
+						"Following text must not claim the chip's selection hit band: {geometry}"
+					);
+					output.drop_without_applying_deltas();
+					for events in [
+						vec![
+							egui::Event::PointerMoved(start),
+							egui::Event::PointerButton {
+								pos: start,
+								button: egui::PointerButton::Primary,
+								pressed: true,
+								modifiers: egui::Modifiers::NONE,
+							},
+						],
+						vec![egui::Event::PointerMoved(end)],
+						vec![egui::Event::PointerButton {
+							pos: end,
+							button: egui::PointerButton::Primary,
+							pressed: false,
+							modifiers: egui::Modifiers::NONE,
+						}],
+					] {
+						let (output, opening) = ui.frame(width, events);
+						assert!(
+							opening.is_none(),
+							"Selection drags must not navigate: {geometry}"
+						);
+						let current = message_link_text(&output, target)
+							.expect("URL selection slot during drag");
+						assert_eq!(
+							egui::Rect::from_min_size(current.pos, current.galley.size()),
+							chip,
+							"Selection must not change the chip's layout: {geometry}"
+						);
+						output.drop_without_applying_deltas();
+					}
+					let (output, opening) = ui.frame(width, vec![egui::Event::Copy]);
+					assert!(opening.is_none(), "{geometry}");
+					let copied = output
+						.platform_output
+						.commands
+						.iter()
+						.find_map(|command| match command {
+							egui::OutputCommand::CopyText(text) => Some(text),
+							_ => None,
+						})
+						.unwrap_or_else(|| {
+							panic!("Selected message body must copy text: {geometry}")
+						});
+					assert_eq!(
+						copied.split_whitespace().collect::<Vec<_>>().join(" "),
+						expected,
+						"{geometry}"
+					);
+					output.drop_without_applying_deltas();
+				}
+			}
+		}
+	}
+
+	fn link_occurrences(parsed: &Formatted) -> Vec<u32> {
+		parsed
+			.spans
+			.iter()
+			.filter(|(_, style)| style.link.is_some())
+			.map(|(_, style)| style.link_occurrence)
+			.collect()
+	}
+
+	#[test]
+	fn adjacent_identical_links_keep_separate_occurrences() {
+		let target = "https://discord.com/channels/10/20/30";
+		let adjacent = Formatted::parse(&format!("<{target}><{target}>"));
+		assert_eq!(adjacent.links, [target]);
+		let occurrences = link_occurrences(&adjacent);
+		assert_eq!(occurrences.len(), 2);
+		assert_ne!(occurrences[0], 0);
+		assert_ne!(occurrences[0], occurrences[1]);
+
+		let labeled = Formatted::parse(&format!("[**one** two]({target})"));
+		let shared = link_occurrences(&labeled);
+		assert!(
+			shared.len() >= 2,
+			"emphasis inside one link stays one range"
+		);
+		assert!(shared.iter().all(|id| *id == shared[0] && *id != 0));
+
+		let neighbors = Formatted::parse(&format!("[left]({target})[right]({target})"));
+		let neighbor_ids = link_occurrences(&neighbors);
+		assert_eq!(neighbor_ids.len(), 2);
+		assert_ne!(neighbor_ids[0], neighbor_ids[1]);
+	}
+
+	fn message_link_slots<'a>(
+		output: &'a egui::FullOutput,
+		target: &str,
+	) -> Vec<&'a egui::epaint::TextShape> {
+		fn walk<'a>(
+			shape: &'a egui::Shape,
+			target: &str,
+			found: &mut Vec<&'a egui::epaint::TextShape>,
+		) {
+			match shape {
+				egui::Shape::Text(text) if text.galley.text().trim() == target => found.push(text),
+				egui::Shape::Vec(shapes) => {
+					for shape in shapes {
+						walk(shape, target, found);
+					}
+				}
+				_ => {}
+			}
+		}
+		let mut found = Vec::new();
+		for shape in &output.shapes {
+			walk(&shape.shape, target, &mut found);
+		}
+		found.sort_by(|left, right| left.pos.x.total_cmp(&right.pos.x));
+		found
+	}
+
+	#[test]
+	fn dragging_adjacent_identical_message_chips_copies_both_urls() {
+		let target = "https://discord.com/channels/10/20/30";
+		let mut ui = MessageLinkTestUi::new(&format!("<{target}><{target}>"));
+		ui.frame(800.0, vec![]).0.drop_without_applying_deltas();
+		let (output, opening) = ui.frame(800.0, vec![]);
+		assert!(opening.is_none());
+		let slots = message_link_slots(&output, target);
+		assert_eq!(slots.len(), 2, "each autolink needs its own selection slot");
+		let first = egui::Rect::from_min_size(slots[0].pos, slots[0].galley.size());
+		let second = egui::Rect::from_min_size(slots[1].pos, slots[1].galley.size());
+		assert!(
+			second.left() + 1.0 >= first.right(),
+			"chips must stay separate: first={first:?} second={second:?}"
+		);
+		let start = egui::pos2(first.left() + first.width() * 0.25, first.center().y);
+		let end = egui::pos2(second.left() + second.width() * 0.75, second.center().y);
+		output.drop_without_applying_deltas();
+		for events in [
+			vec![
+				egui::Event::PointerMoved(start),
+				egui::Event::PointerButton {
+					pos: start,
+					button: egui::PointerButton::Primary,
+					pressed: true,
+					modifiers: egui::Modifiers::NONE,
+				},
+			],
+			vec![egui::Event::PointerMoved(end)],
+			vec![egui::Event::PointerButton {
+				pos: end,
+				button: egui::PointerButton::Primary,
+				pressed: false,
+				modifiers: egui::Modifiers::NONE,
+			}],
+		] {
+			let (output, opening) = ui.frame(800.0, events);
+			assert!(opening.is_none(), "Selection drags must not navigate");
+			output.drop_without_applying_deltas();
+		}
+		let (output, opening) = ui.frame(800.0, vec![egui::Event::Copy]);
+		assert!(opening.is_none());
+		let copied = output
+			.platform_output
+			.commands
+			.iter()
+			.find_map(|command| match command {
+				egui::OutputCommand::CopyText(text) => Some(text.as_str()),
+				_ => None,
+			})
+			.expect("dragging both chips must copy text");
+		assert_eq!(
+			copied.matches(target).count(),
+			2,
+			"copied text lost an occurrence: {copied:?}"
+		);
+		output.drop_without_applying_deltas();
+	}
+
 	#[test]
 	fn quote_rails_span_every_wrapped_line_of_their_block() {
 		fn shapes(
@@ -3041,6 +3894,30 @@ mod tests {
 	}
 
 	#[test]
+	fn empty_spoilers_merge_even_at_the_region_cap() {
+		let ordinary: String = (0..31).map(|index| format!("||s{index}|| ")).collect();
+		let parsed = Formatted::parse(&format!("{ordinary}{} visible", "||\u{200b}||".repeat(80)));
+		assert!(
+			!parsed.limited,
+			"empty spoilers must not exhaust the regions"
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(text, style)| text.contains("visible") && style.spoiler.is_none())
+		);
+		// 31 ordinary regions and one merged empty region.
+		let regions: std::collections::BTreeSet<_> = parsed
+			.spans
+			.iter()
+			.filter_map(|(_, style)| style.spoiler)
+			.collect();
+		assert!(regions.iter().all(|region| *region < MAX_SPOILERS));
+		assert_eq!(regions.len(), 32);
+	}
+
+	#[test]
 	fn spoiler_limits_never_fall_back_to_visible_secret_text() {
 		let exact = Formatted::parse(&"||x|| ".repeat(32));
 		assert!(exact.spoilers && !exact.limited);
@@ -3072,13 +3949,26 @@ mod tests {
 
 	#[test]
 	fn concealed_regions_skip_actions_images_and_text_until_keyboard_or_pointer_reveal() {
-		fn collect(shape: &egui::Shape, texts: &mut Vec<(String, egui::Rect)>) {
+		// Painted text, plus each concealed block recorded as "Reveal spoiler".
+		fn collect(
+			shape: &egui::Shape,
+			block: egui::Color32,
+			texts: &mut Vec<(String, egui::Rect)>,
+		) {
 			match shape {
 				egui::Shape::Text(text) => texts.push((
 					text.galley.text().into(),
 					egui::Rect::from_min_size(text.pos, text.galley.size()),
 				)),
-				egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| collect(shape, texts)),
+				egui::Shape::Rect(rect)
+					if rect.fill == block
+						&& rect.corner_radius == crate::channel_pill::RADIUS.into() =>
+				{
+					texts.push(("Reveal spoiler".into(), rect.rect));
+				}
+				egui::Shape::Vec(shapes) => {
+					shapes.iter().for_each(|shape| collect(shape, block, texts))
+				}
 				_ => {}
 			}
 		}
@@ -3105,6 +3995,7 @@ mod tests {
 			let mut channel = None;
 			let mut mask = 0;
 			let mut render = |mask: &mut u32, events| {
+				let mut block = egui::Color32::TRANSPARENT;
 				let mut output = ctx.run_ui(
 					egui::RawInput {
 						screen_rect: Some(egui::Rect::from_min_size(
@@ -3115,6 +4006,7 @@ mod tests {
 						..Default::default()
 					},
 					|ui| {
+						block = crate::design::palette(ui).muted.gamma_multiply(0.55);
 						let mut surface = crate::select::Surface::new(ui, "body");
 						parsed.show_references(
 							ui,
@@ -3138,7 +4030,7 @@ mod tests {
 				}
 				let mut texts = Vec::new();
 				for shape in &output.shapes {
-					collect(&shape.shape, &mut texts);
+					collect(&shape.shape, block, &mut texts);
 				}
 				output.textures_delta.clear();
 				output.drop_without_applying_deltas();
@@ -3581,10 +4473,16 @@ mod tests {
 						"{raw}: {rect:?}"
 					);
 				}
+				// The URL may only back an invisible selection slot, never painted glyphs.
 				assert!(
-					!texts
-						.iter()
-						.any(|text| text.galley.text().contains("https://discord.com")),
+					!texts.iter().any(|text| {
+						text.galley.text().contains("https://discord.com")
+							&& text
+								.galley
+								.rows
+								.iter()
+								.any(|row| !row.visuals.mesh.is_empty())
+					}),
 					"{raw}"
 				);
 				let points: Vec<_> = text
@@ -4516,20 +5414,25 @@ mod tests {
 		let ctx = egui::Context::default();
 		let output = ctx.run_ui(Default::default(), |ui| parsed.show(ui, &mut None));
 		let colors = crate::design::palette_for(&ctx);
-		let highlighted = output
+		let pills = output
 			.shapes
 			.iter()
-			.filter_map(|shape| match &shape.shape {
-				egui::Shape::Text(text) => Some(&text.galley.job.sections),
-				_ => None,
-			})
-			.flatten()
-			.filter(|section| {
-				section.format.background == colors.mention_bg
-					&& section.format.color == colors.mention_text
+			.filter(|shape| match &shape.shape {
+				egui::Shape::Text(text) => {
+					["@everyone", "@here"].contains(&text.galley.text())
+						&& text.fallback_color == colors.mention_text
+				}
+				_ => false,
 			})
 			.count();
-		assert_eq!(highlighted, 2);
+		let backgrounds = output
+			.shapes
+			.iter()
+			.filter(
+				|shape| matches!(&shape.shape, egui::Shape::Rect(rect) if rect.fill == colors.mention_bg),
+			)
+			.count();
+		assert_eq!((pills, backgrounds), (2, 2));
 		output.drop_without_applying_deltas();
 	}
 	#[test]
@@ -4563,7 +5466,7 @@ mod tests {
 				("https://discord.com/channels/999/900/501", true),
 				("https://discord.com/channels/10/998/501", true),
 				("https://example.com/channels/10/20/501", false),
-				("https://discord.com/channels/10/20", false),
+				("https://discord.com/channels/10/20", true),
 				(
 					"[Named link](https://discord.com/channels/10/20/501)",
 					false,
@@ -4598,11 +5501,8 @@ mod tests {
 					assert!(
 						matches!(images[0].image, PreviewImage::Channel(icon) if icon == pill.icon)
 					);
-					assert_eq!(
-						job.sections[0].format.background,
-						egui::Color32::TRANSPARENT
-					);
-					assert!(job.sections.iter().skip(1).all(|section| {
+					// The icon slot and the name share one background strip.
+					assert!(job.sections.iter().all(|section| {
 						section.format.background == crate::design::palette_for(&ctx).mention_bg
 					}));
 				} else {
@@ -4691,18 +5591,20 @@ mod tests {
 						let egui::Shape::Text(text) = &shape.shape else {
 							return None;
 						};
-						text.galley
-							.job
-							.sections
-							.iter()
-							.any(|section| {
-								section.format.background == colors.mention_bg
-									&& section.format.color == colors.mention_text
-							})
+						(text.fallback_color == colors.mention_text)
 							.then_some(text.galley.job.text.as_str())
 					})
 					.collect();
 				assert_eq!(highlighted, ["@Synthetic Robin", "@43"]);
+				// Each mention row paints its own rounded background.
+				let backgrounds = output
+					.shapes
+					.iter()
+					.filter(
+						|shape| matches!(&shape.shape, egui::Shape::Rect(rect) if rect.fill == colors.mention_bg),
+					)
+					.count();
+				assert!(backgrounds >= 2, "{backgrounds}");
 				output.drop_without_applying_deltas();
 			}
 		}

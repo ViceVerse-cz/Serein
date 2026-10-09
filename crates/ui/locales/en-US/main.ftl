@@ -1703,7 +1703,8 @@ markdown-show-run-open-user-profile = Open user profile
 # Context: show_run
 markdown-show-run-reveal-spoiler = Reveal spoiler
 # Context: show_run
-markdown-show-run-unknown-channel-load-channel = Unknown channel, load channel
+
+## Native Discord message links: names are resolved only from accessible local metadata.
 
 ## crates/ui/src/mentions.rs
 # Context: show
@@ -3849,7 +3850,6 @@ timeline-show-with-scroll-edited = (edited)
 # Context: show_with_scroll
 timeline-show-with-scroll-forwarded = ↪ Forwarded
 # Context: show_with_scroll
-timeline-show-with-scroll-hide-spoilers = Hide spoilers
 # Context: show_with_scroll
 timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = History is not available yet. Use Reload to try again.
 # Context: show_with_scroll

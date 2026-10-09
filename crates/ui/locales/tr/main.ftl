@@ -1692,7 +1692,6 @@ markdown-show-run-open-user-profile = Kullanıcı profilini aç
 # Context: show_run
 markdown-show-run-reveal-spoiler = Spoiler'ı açığa çıkar
 # Context: show_run
-markdown-show-run-unknown-channel-load-channel = Bilinmeyen kanal, yükleme kanalı
 
 ## crates/ui/src/mentions.rs
 # Context: show
@@ -3834,7 +3833,6 @@ timeline-show-with-scroll-edited = (düzenlendi)
 # Context: show_with_scroll
 timeline-show-with-scroll-forwarded = ↪ İletildi
 # Context: show_with_scroll
-timeline-show-with-scroll-hide-spoilers = Spoilerleri gizle
 # Context: show_with_scroll
 timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = Geçmiş henüz mevcut değil. Tekrar denemek için Yeniden Yükle'yi kullanın.
 # Context: show_with_scroll

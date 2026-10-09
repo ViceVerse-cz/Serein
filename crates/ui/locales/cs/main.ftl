@@ -1702,7 +1702,6 @@ markdown-show-run-open-user-profile = Otevřete uživatelský profil
 # Context: show_run
 markdown-show-run-reveal-spoiler = Odhalit spoiler
 # Context: show_run
-markdown-show-run-unknown-channel-load-channel = Neznámý kanál, načíst kanál
 
 ## crates/ui/src/mentions.rs
 # Context: show
@@ -3849,7 +3848,6 @@ timeline-show-with-scroll-edited = (upraveno)
 # Context: show_with_scroll
 timeline-show-with-scroll-forwarded = ↪ Přeposláno
 # Context: show_with_scroll
-timeline-show-with-scroll-hide-spoilers = Skrýt spoilery
 # Context: show_with_scroll
 timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = Historie zatím není k dispozici. Použijte Znovu načíst a zkuste to znovu.
 # Context: show_with_scroll

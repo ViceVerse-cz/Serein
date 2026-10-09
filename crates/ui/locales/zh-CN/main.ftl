@@ -1707,7 +1707,6 @@ markdown-show-run-open-user-profile = 开启用户个人资料
 # Context: show_run
 markdown-show-run-reveal-spoiler = 显示剧透内容
 # Context: show_run
-markdown-show-run-unknown-channel-load-channel = 未知频道，加载频道
 
 ## crates/ui/src/mentions.rs
 # Context: show
@@ -3872,7 +3871,6 @@ timeline-show-with-scroll-edited = （已编辑）
 # Context: show_with_scroll
 timeline-show-with-scroll-forwarded = ↪ 已转发
 # Context: show_with_scroll
-timeline-show-with-scroll-hide-spoilers = 隐藏剧透
 # Context: show_with_scroll
 timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = 消息历史尚不可用。请使用重新加载重试。
 # Context: show_with_scroll

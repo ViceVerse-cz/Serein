@@ -1692,7 +1692,6 @@ markdown-show-run-open-user-profile = ユーザープロフィールを開く
 # Context: show_run
 markdown-show-run-reveal-spoiler = スポイラーを明らかにする
 # Context: show_run
-markdown-show-run-unknown-channel-load-channel = 不明なチャネル、ロードチャネル
 
 ## crates/ui/src/mentions.rs
 # Context: show
@@ -3834,7 +3833,6 @@ timeline-show-with-scroll-edited = (編集済み)
 # Context: show_with_scroll
 timeline-show-with-scroll-forwarded = ↪ 転送されました
 # Context: show_with_scroll
-timeline-show-with-scroll-hide-spoilers = ネタバレを隠す
 # Context: show_with_scroll
 timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = 履歴はまだ利用できません。リロードを使用して再試行してください。
 # Context: show_with_scroll

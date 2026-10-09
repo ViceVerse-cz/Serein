@@ -1691,7 +1691,6 @@ markdown-show-run-open-user-profile = Apri il profilo utente
 # Context: show_run
 markdown-show-run-reveal-spoiler = Rivela spoiler
 # Context: show_run
-markdown-show-run-unknown-channel-load-channel = Canale sconosciuto, carica il canale
 
 ## crates/ui/src/mentions.rs
 # Context: show
@@ -3837,7 +3836,6 @@ timeline-show-with-scroll-edited = (modificato)
 # Context: show_with_scroll
 timeline-show-with-scroll-forwarded = ↪ Inoltrato
 # Context: show_with_scroll
-timeline-show-with-scroll-hide-spoilers = Nascondi spoiler
 # Context: show_with_scroll
 timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = La cronologia non è ancora disponibile. Utilizza Ricarica per riprovare.
 # Context: show_with_scroll

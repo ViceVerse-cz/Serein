@@ -297,11 +297,49 @@ fn prime_channel_links(state: &mut client_core::State) {
 	long.id = model::Id(31);
 	long.name = "Příliš žluťoučký kůň · 日本語の長い投稿名 · A deliberately long forum post title for narrow windows".into();
 	state.channels.push(long);
+	let base = state.channel(model::Id(20)).unwrap().clone();
+	for (id, kind, name) in [(32, 5, "announcements"), (33, 0, "staff-only")] {
+		let mut extra = base.clone();
+		extra.id = model::Id(id);
+		extra.kind = kind;
+		extra.name = name.into();
+		state.channels.push(extra);
+	}
 	state.invalidate_navigation();
+	let mut permissions = test_support::permission_snapshot(state);
+	// The cached name of a channel the session cannot view must not be displayed.
+	if let Some(hidden) = permissions
+		.channels
+		.iter_mut()
+		.find(|channel| channel.id == model::Id(33))
+	{
+		hidden.overwrites = Some(vec![model::permissions::Overwrite {
+			id: model::Id(10),
+			kind: 0,
+			allow: 0,
+			deny: model::permissions::VIEW_CHANNEL,
+		}]);
+	}
 	state
 		.permissions
-		.replace(test_support::permission_snapshot(state))
+		.replace(permissions)
 		.expect("valid synthetic channel-link permissions");
+	state.apply(client_core::Envelope {
+		generation: state.generation,
+		event: client_core::Event::Permissions(client_core::permissions::Event::Role {
+			guild: model::Id(10),
+			role: model::permissions::Role {
+				id: model::Id(101),
+				name: "Synthetic colored role".into(),
+				bits: 0,
+				color: 0x68ada4,
+				secondary_color: None,
+				tertiary_color: None,
+				position: 1,
+				hoist: false,
+			},
+		}),
+	});
 	let mut message = test_support::message(600, channel);
 	message.content = "**Channel and thread references**\n\
 Regular channel: <#20>\n\
@@ -313,12 +351,42 @@ Regular channel: https://discord.com/channels/10/20/501\n\
 Regular thread: https://discord.com/channels/10/28/501\n\
 Forum post: https://discord.com/channels/10/27/501\n\
 Another server: https://discord.com/channels/11/30/501\n\n\
+**Conversations and channel kinds**\n\
+Announcement: https://discord.com/channels/10/32/501\n\
+Voice chat: https://discord.com/channels/10/25/501\n\
+Direct message: https://discord.com/channels/@me/22/501\n\
+Group: https://discord.com/channels/@me/29/501\n\
+Hidden channel: https://discord.com/channels/10/33/501\n\
+Repeated: https://discord.com/channels/10/20/501 https://discord.com/channels/10/20/501\n\
+Channel link: https://discord.com/channels/10/32\n\n\
+**Mentions and spoilers**\n\
+Mentions: <@8001> <@&101> @everyone\n\
+Spoilers: ||a hidden synthetic secret|| and ||x||\n\n\
 **Fallbacks and long names**\n\
 Unavailable: <#999> https://discord.com/channels/10/998/501\n\
 Long post: <#31> https://discord.com/channels/10/31/501\n\
 Named link: [Open the original message](https://discord.com/channels/10/20/501)\n\
 Literal: `<#28>` · Concealed: ||<#27> https://discord.com/channels/11/30/501||"
 		.into();
+	// Discord's ping-hiding trick: many empty spoilers, then adjacent mentions.
+	message.content.push_str(
+		"\n\n**How to Join:**\n1. Make your profile themed\n\
+2. Take a screenshot, and post it in https://discord.com/channels/10/20\n\n\
+**Please read the full rules & information in https://discord.com/channels/10/21**\n",
+	);
+	message.content.push_str(
+		"\n🚀 **How to claim it**\n1. Download it and create an account\n\
+3. Copy your **reward code**\n\
+4. Redeem it at **[example.com/account/redeem](https://example.com/account/redeem)**\n\n\
+The badge unlocks instantly once redeemed.\n",
+	);
+	message.content.push_str(
+		"\n# 🐰 🥚Easter💎Deals🌞Sale\nDon’t 🐣 miss it, it ends soon 🌞.\n\
+- **10% off** all gifts\n- **15% off** all products\n",
+	);
+	message.content.push_str("\nHidden ping: ");
+	message.content.push_str(&"||\u{200b}||".repeat(60));
+	message.content.push_str(" @everyone<@&101>");
 	message.attachments.clear();
 	message.embeds.clear();
 	message.reactions = Some(vec![]);

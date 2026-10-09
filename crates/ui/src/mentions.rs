@@ -1311,7 +1311,7 @@ mod tests {
 			edit_state
 				.cursor
 				.set_char_range(Some(egui::text::CCursorRange::one(
-					egui::text::CCursor::new(draft.chars().count()),
+					egui::text::CCursor::end_of_str(draft),
 				)));
 			edit_state.store(&ctx, editor);
 			let mut output = ctx.run_ui(
@@ -1705,7 +1705,7 @@ pub(crate) fn debug_pointer_check(state: &mut State, channel: Id) {
 						initialized = true;
 						edit.cursor
 							.set_char_range(Some(egui::text::CCursorRange::one(
-								egui::text::CCursor::new(draft.chars().count()),
+								egui::text::CCursor::end_of_str(draft),
 							)));
 						edit.store(&ctx, editor);
 					}
