@@ -169,18 +169,86 @@ pub fn save_account_session(
 pub fn forget_account_session(account: model::Id) -> Result<(), CredentialError> {
 	forget_entry(&account_entry(account))
 }
-fn entry(name: &str) -> Result<keyring::Entry, CredentialError> {
-	keyring::Entry::new(SERVICE, name).map_err(|error| match error {
-		keyring::Error::NoDefaultStore => CredentialError::NoStore,
+fn entry(name: &str) -> Result<keyring_core::Entry, CredentialError> {
+	credential_store()?;
+	keyring_core::Entry::new(SERVICE, name).map_err(|error| match error {
+		keyring_core::Error::NoDefaultStore => CredentialError::NoStore,
 		_ => CredentialError::Unavailable,
 	})
+}
+#[cfg(not(target_os = "linux"))]
+fn credential_store() -> Result<(), CredentialError> {
+	keyring::Entry::store_status()
+		.as_ref()
+		.copied()
+		.map_err(|_| CredentialError::NoStore)
+}
+/// Unlike keyring's one-shot default, a missing Secret Service is retried, so a provider that
+/// starts after Serein (or KWallet, which may need activating) is still found.
+#[cfg(target_os = "linux")]
+fn credential_store() -> Result<(), CredentialError> {
+	const RETRY: std::time::Duration = std::time::Duration::from_secs(15);
+	static LAST_FAILURE: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+	let mut last_failure = LAST_FAILURE
+		.lock()
+		.unwrap_or_else(std::sync::PoisonError::into_inner);
+	if keyring_core::get_default_store().is_some() {
+		return Ok(());
+	}
+	if last_failure.is_some_and(|at| at.elapsed() < RETRY) {
+		return Err(CredentialError::NoStore);
+	}
+	let store = zbus_secret_service_keyring_store::Store::new().or_else(|_| {
+		activate_kwallet();
+		zbus_secret_service_keyring_store::Store::new()
+	});
+	match store {
+		Ok(store) => {
+			keyring_core::set_default_store(store);
+			*last_failure = None;
+			Ok(())
+		}
+		Err(_) => {
+			*last_failure = Some(std::time::Instant::now());
+			Err(CredentialError::NoStore)
+		}
+	}
+}
+/// KWallet serves the Secret Service API but, unlike GNOME Keyring, often is not D-Bus
+/// activatable under that name, so outside a Plasma session nothing starts it. Start the
+/// wallet daemon itself, then wait briefly for it to claim the Secret Service name.
+#[cfg(target_os = "linux")]
+fn activate_kwallet() {
+	use zbus::names::WellKnownName;
+	let Ok(connection) = zbus::blocking::Connection::session() else {
+		return;
+	};
+	let Ok(bus) = zbus::blocking::fdo::DBusProxy::new(&connection) else {
+		return;
+	};
+	let started = ["org.kde.kwalletd6", "org.kde.kwalletd5"]
+		.into_iter()
+		.any(|daemon| {
+			bus.start_service_by_name(WellKnownName::from_static_str_unchecked(daemon), 0)
+				.is_ok()
+		});
+	if !started {
+		return;
+	}
+	let secrets = WellKnownName::from_static_str_unchecked("org.freedesktop.secrets");
+	for _ in 0..20 {
+		if bus.name_has_owner(secrets.clone().into()).unwrap_or(false) {
+			return;
+		}
+		std::thread::sleep(std::time::Duration::from_millis(100));
+	}
 }
 fn load_entry(name: &str) -> Result<Option<SessionSecret>, CredentialError> {
 	match entry(name)?.get_password() {
 		Ok(value) => SessionSecret::from_owner_input(value)
 			.map(Some)
 			.map_err(|_| CredentialError::Invalid),
-		Err(keyring::Error::NoEntry) => Ok(None),
+		Err(keyring_core::Error::NoEntry) => Ok(None),
 		Err(_) => Err(CredentialError::Unavailable),
 	}
 }
@@ -191,7 +259,7 @@ fn save_entry(name: &str, secret: &SessionSecret) -> Result<(), CredentialError>
 }
 fn forget_entry(name: &str) -> Result<(), CredentialError> {
 	match entry(name)?.delete_credential() {
-		Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+		Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
 		Err(_) => Err(CredentialError::Unavailable),
 	}
 }

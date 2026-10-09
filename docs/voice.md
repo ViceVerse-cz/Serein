@@ -224,6 +224,12 @@ devices are opening invalidates old readiness even when both events reach one UI
 late readiness cannot mark the call connected. Once opened, devices stay open across a brief
 rekey while callbacks are silenced and old PCM is discarded.
 
+A watched screen share keeps its separate transport during these call rekeys and voice
+resumption. Another participant leaving no longer sends Stop Watching just because the
+call briefly leaves the connected phase. Explicit Stop Watching, the streamer's departure,
+call failure and a changed call/account still close the view. Synthetic lifecycle coverage
+does not establish live Discord behavior.
+
 Received short Opus packets are combined into the normal 20 ms playback frame. The encoded
 reorder queue remains bounded to eight packets per speaker; a full queue starts playout early
 instead of overflowing while waiting for its usual two-tick startup delay.

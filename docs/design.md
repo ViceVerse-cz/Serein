@@ -107,6 +107,20 @@ pages keep their existing status treatment; pending messages suppress the welcom
 `--features demo -- --demo --demo-empty-channel` previews this state offline;
 `--demo-empty-channel-long` exercises a long Unicode name and `--demo-light` selects light mode.
 
+Channel references and bare Discord message links share one inline pill. The leading icon
+distinguishes text, announcement, voice, thread, forum, forum post, direct and group
+conversations; message links append a chevron and message glyph, or the post name for forum
+posts, and links to another joined server lead with its icon and name. Pills wrap like text,
+keep one hit region per row and one keyboard stop, and expose a localized accessible label.
+Destination names come only from metadata the session may view and read; hidden or unknown
+targets show `unknown-channel` or `unknown-conversation`. Untrusted names are sanitized and
+bounded before layout. Masked links retain their text, inline/fenced code stays literal, and
+hidden spoilers remain concealed. Drag selection copies a link pill's original URL, and two
+adjacent copies of the same URL stay separate. Click, Enter and Space activate native
+navigation; the timeline centers and briefly highlights the exact target.
+`--features demo -- --demo --demo-message-links` exercises these states with an offline
+fixture; `--demo-light` selects the light appearance.
+
 Icons are [Phosphor Icons](https://phosphoricons.com) 2.1.1 (MIT) in the fill/bold weights,
 rasterized once into `assets/icons/atlas.png` (37 white glyphs in 64px cells) and tinted at
 draw time by `crates/ui/src/icons.rs`; there is no icon font. Provenance and the regeneration

@@ -355,6 +355,7 @@ pub struct Message {
 	pub edited_at: Option<i128>,
 	pub revision: u64,
 	pub nonce: Option<String>,
+	/// The replied-to message, or the closed poll of a poll result (type 46).
 	pub reply_to: Option<Id>,
 	/// Discord message type; 255 denotes an unknown legacy cached type.
 	pub kind: u8,

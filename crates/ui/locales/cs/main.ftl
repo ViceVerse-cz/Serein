@@ -87,6 +87,11 @@ search-conversation = Hledat v této konverzaci
 show-member-list = Zobrazit seznam členů
 pinned-messages = Připnuté zprávy
 threads = Vlákna
+
+channel-pill-thread = Vlákno
+channel-pill-forum = Fórum
+channel-pill-post = Příspěvek
+channel-pill-message = zpráva
 reload-history = Načíst historii znovu
 in-a-call = V hovoru
 members-description = Všichni s přístupem k této konverzaci.
@@ -775,6 +780,14 @@ embeds-image-preview-image-actions = Akce s obrázky
 embeds-link-open-link = Otevřít odkaz…
 # Context: show
 embeds-show-additional-embed-content-is-not-supported = Další vložený obsah není podporován
+# Context: poll_result
+embeds-poll-result-winning-answer = Vítězná odpověď
+# Context: poll_result
+embeds-poll-result-tie = Žádná odpověď nevyhrála
+# Context: poll_result
+embeds-poll-result-no-votes = Nikdo nehlasoval
+# Context: poll_result
+embeds-poll-result-view-poll = Zobrazit anketu
 # Context: show
 embeds-show-embed-display-limited = Vložení zobrazení omezeno
 # Context: show
@@ -1689,7 +1702,6 @@ markdown-show-run-open-user-profile = Otevřete uživatelský profil
 # Context: show_run
 markdown-show-run-reveal-spoiler = Odhalit spoiler
 # Context: show_run
-markdown-show-run-unknown-channel-load-channel = Neznámý kanál, načíst kanál
 
 ## crates/ui/src/mentions.rs
 # Context: show
@@ -3836,7 +3848,6 @@ timeline-show-with-scroll-edited = (upraveno)
 # Context: show_with_scroll
 timeline-show-with-scroll-forwarded = ↪ Přeposláno
 # Context: show_with_scroll
-timeline-show-with-scroll-hide-spoilers = Skrýt spoilery
 # Context: show_with_scroll
 timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = Historie zatím není k dispozici. Použijte Znovu načíst a zkuste to znovu.
 # Context: show_with_scroll

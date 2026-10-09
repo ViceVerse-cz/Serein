@@ -189,11 +189,13 @@ impl Watch {
 	) -> Option<Command> {
 		let wanted = state.voice.active.as_ref().and_then(|active| {
 			let streamer = active.watching?;
-			matches!(
-				active.phase,
-				voice::Phase::Connected | voice::Phase::Waiting
-			)
-			.then_some((state.generation, active.channel, active.request, streamer))
+			// The separate stream transport survives call rekeys and voice resumption.
+			(active.phase != voice::Phase::Failed).then_some((
+				state.generation,
+				active.channel,
+				active.request,
+				streamer,
+			))
 		});
 		let current = self.context();
 		let mut command = None;
@@ -414,6 +416,72 @@ impl Drop for Watch {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn watch_survives_call_recovery_until_its_selection_ends() {
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+		let mut state = test_support::voice_demo_state();
+		state.demo = false;
+		state.watch_stream(Id(3)).unwrap();
+		let call = state.voice.active.as_ref().unwrap();
+		let context = Context {
+			generation: state.generation,
+			channel: call.channel,
+			request: call.request,
+			stream_request: 2,
+			streamer: Id(3),
+		};
+		let mut ui = ui::MessagingUi::default();
+		let ctx = egui::Context::default();
+		for failed in [false, true] {
+			state.voice.active.as_mut().unwrap().watching = Some(context.streamer);
+			let (_send, events) = watch::channel(None);
+			let mut watch = Watch {
+				pending: None,
+				live: Some(Live {
+					context,
+					task: runtime.spawn(std::future::pending()),
+					events,
+					frames: Arc::new(Mutex::new(None)),
+				}),
+				ended: None,
+				sequence: 0,
+				status: "",
+				notice: "",
+			};
+			for phase in [
+				voice::Phase::Connected,
+				voice::Phase::Securing,
+				voice::Phase::ConnectingTransport,
+				voice::Phase::OpeningAudio,
+				voice::Phase::Waiting,
+				voice::Phase::Connected,
+			] {
+				state.voice.active.as_mut().unwrap().phase = phase;
+				assert!(
+					watch
+						.poll(&runtime, &mut state, &mut ui, &ctx, None, None)
+						.is_none()
+				);
+				assert!(watch.live.is_some());
+			}
+			if failed {
+				state.voice.active.as_mut().unwrap().phase = voice::Phase::Failed;
+			} else {
+				state.stop_watching();
+			}
+			assert!(matches!(
+				watch.poll(&runtime, &mut state, &mut ui, &ctx, None, None),
+				Some(Command::Voice(voice::Command::StopWatching {
+					channel, request, stream_request: 2,
+				})) if channel == context.channel && request == context.request
+			));
+			assert!(watch.live.is_none());
+		}
+	}
 
 	fn frame(width: u32, height: u32, rgba: &[u8]) -> discord_voice::RemoteFrame<'_> {
 		discord_voice::RemoteFrame {

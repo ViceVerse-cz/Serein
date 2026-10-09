@@ -110,10 +110,11 @@ struct FrameBudget {
 }
 
 impl Budget {
+	/// Allocates decode and canvas memory bounds for unrenditioned avatars and embeds.
 	fn legacy(edge: u32) -> Self {
 		let embed = edge >= ui::EMBED_EDGE;
 		Self {
-			fit: if edge <= 128 { 64 } else { edge },
+			fit: edge,
 			encoded: if embed {
 				MAX_ANIMATED_ENCODED
 			} else {
@@ -127,6 +128,7 @@ impl Budget {
 }
 
 impl FrameBudget {
+	/// Bounded frame and memory budget for animated avatars and previews.
 	fn legacy(edge: u32) -> Self {
 		Self {
 			fit: edge.min(ui::EMBED_EDGE),
@@ -137,6 +139,7 @@ impl FrameBudget {
 	}
 }
 
+/// Determines the memory and dimension bounds for decoding the image identified by `key`.
 fn budget(key: &str) -> Budget {
 	let Some(rendition) = Rendition::parse(key) else {
 		let edge = decode_edge(key);
@@ -2687,7 +2690,7 @@ mod tests {
 		assert!(decode(b"not an image", &legacy(128)).is_none());
 		assert!(decode(&png(257, 1), &legacy(128)).is_none());
 		let bytes = png(256, 256);
-		assert_eq!(decode(&bytes, &legacy(128)).unwrap().size, [64, 64]);
+		assert_eq!(decode(&bytes, &legacy(128)).unwrap().size, [128, 128]);
 		let root = std::env::temp_dir().join(format!(
 			"serein-avatar-test-{}-{}",
 			std::process::id(),
@@ -2775,7 +2778,7 @@ mod tests {
 				.unwrap()
 				.unwrap()
 		});
-		assert_eq!(result.image.unwrap().size, [64, 64]);
+		assert_eq!(result.image.unwrap().size, [128, 128]);
 		assert!(result.error.is_none());
 		// Fill the result channel, then cancel: shutdown must not wait on the renderer.
 		for _ in 0..32 {

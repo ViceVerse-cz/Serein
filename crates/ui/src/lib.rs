@@ -58,6 +58,7 @@ pub mod i18n;
 pub fn debug_channel_creation(state: client_core::State) {
 	channel_menu::debug_creation(state);
 }
+mod channel_pill;
 mod formatting;
 mod forum;
 mod forum_settings;
@@ -1444,14 +1445,6 @@ impl MessagingUi {
 					};
 					match slot {
 						Some(model::MemberSlot::Group(id)) => {
-							let role_colors = id.parse::<u64>().ok().and_then(|role_id| {
-								guild
-									.and_then(|guild| state.guild_roles(guild))
-									.and_then(|roles| {
-										roles.iter().find(|role| role.id == Id(role_id))
-									})
-									.map(|role| role.colors())
-							});
 							let name = match id.as_str() {
 								"online" => language.text("status-online"),
 								"offline" => language.text("status-offline"),
@@ -1495,9 +1488,10 @@ impl MessagingUi {
 										&header,
 										&text,
 										egui::FontId::new(12.0, design::medium_family(ui.ctx())),
-										role_colors,
+										// Group headers stay neutral; role colours belong to names.
+										None,
 										colors.sidebar,
-										colors.muted,
+										colors.text,
 										header.available_width(),
 									))
 									.truncate(),
@@ -6155,7 +6149,12 @@ mod composer_tests {
 			),
 			(
 				"https://discord.com/channels/100/11/25",
-				"#Synthetic edit conversation",
+				"Linked server",
+				Some(Id(25)),
+			),
+			(
+				"<HTTPS://DISCORD.COM:443/channels/100/11/25?jump=1#message>",
+				"Linked server",
 				Some(Id(25)),
 			),
 			(
@@ -6218,6 +6217,9 @@ mod composer_tests {
 			for _ in 0..3 {
 				frame(&mut view, &mut state, vec![]);
 			}
+			// The chip's atomic URL selection slot identifies its exact hit geometry.
+			// The resolved name also appears in the channel list/header, so it cannot
+			// reliably identify the message-body link here.
 			let point = frame(&mut view, &mut state, vec![])
 				.0
 				.expect("rendered chat link")
@@ -6242,7 +6244,7 @@ mod composer_tests {
 				);
 			}
 			commands.extend(frame(&mut view, &mut state, vec![]).1);
-			assert_eq!(state.selected, Some(Id(11)));
+			assert_eq!(state.selected, Some(Id(11)), "source: {source}");
 			assert_eq!(view.guild, Some(Id(100)));
 			assert_eq!(state.search_target, target_message);
 			assert_eq!(state.drafts, drafts);
@@ -6251,6 +6253,185 @@ mod composer_tests {
 				command,
 				Command::Send { .. } | Command::Edit { .. } | Command::Delete { .. }
 			)));
+		}
+	}
+
+	#[test]
+	fn malformed_discord_origins_dispatch_externally_without_native_routes_or_metadata() {
+		fn text_rect(shape: &egui::Shape, label: &str) -> Option<egui::Rect> {
+			match shape {
+				egui::Shape::Text(text) if text.galley.text().trim() == label => {
+					Some(text.galley.rect.translate(text.pos.to_vec2()))
+				}
+				egui::Shape::Vec(shapes) => shapes.iter().find_map(|shape| text_rect(shape, label)),
+				_ => None,
+			}
+		}
+		for (raw, external, confirms) in [
+			(
+				"https://discord.com/not/../channels/100/11/25?jump=1#message",
+				"https://discord.com/channels/100/11/25?jump=1#message",
+				false,
+			),
+			(
+				"https://discord.com/not/%2e%2e/channels/100/11/25?jump=1#message",
+				"https://discord.com/channels/100/11/25?jump=1#message",
+				false,
+			),
+			(
+				"https://discord%2Ecom/channels/100/11/25",
+				"https://discord.com/channels/100/11/25",
+				false,
+			),
+			(
+				"HTTPS://DISCORD.COM.EVIL.EXAMPLE:443/not/../channels/100/11/25?jump=1#message",
+				"https://discord.com.evil.example/channels/100/11/25?jump=1#message",
+				true,
+			),
+		] {
+			assert!(markdown::discord_chat_link(raw).is_none());
+			assert_eq!(markdown::external_url(raw).as_deref(), Some(external));
+			for source in [raw.to_owned(), format!("<{raw}>")] {
+				let ctx = egui::Context::default();
+				let mut view = MessagingUi::default();
+				view.reading_preferences.confirm_external_links = true;
+				let mut state = edit_state();
+				let mut target = state.channels[0].clone();
+				target.id = Id(11);
+				target.guild = Some(Id(100));
+				target.kind = 0;
+				target.name = "Malformed-origin cached target".into();
+				state.channels.push(target);
+				state.guilds.push(model::Guild {
+					id: Id(100),
+					name: "Malformed-origin cached server".into(),
+					icon: None,
+					emojis: None,
+					stickers: None,
+					default_message_notifications: None,
+				});
+				state
+					.permissions
+					.replace(test_support::permission_snapshot(&state))
+					.unwrap();
+				let mut message = state.timeline.get(Id(20)).unwrap().clone();
+				message.content = source;
+				state.timeline.insert(message, true, false).unwrap();
+				let drafts = state.drafts.clone();
+				let frame =
+					|view: &mut MessagingUi, state: &mut State, events| {
+						let mut commands = vec![];
+						let output = ctx.run_ui(
+							egui::RawInput {
+								screen_rect: Some(egui::Rect::from_min_size(
+									egui::Pos2::ZERO,
+									egui::vec2(1000.0, 700.0),
+								)),
+								events,
+								..Default::default()
+							},
+							|ui| commands = view.show(ui, state),
+						);
+						assert_eq!(state.selected, Some(Id(10)), "{raw}");
+						assert!(
+							state.search_target.is_none() && view.guild.is_none(),
+							"{raw}"
+						);
+						assert_eq!(state.drafts, drafts);
+						assert!(!commands.iter().any(|command| matches!(
+							command,
+							Command::History {
+								channel: Id(11),
+								..
+							} | Command::Send { .. } | Command::Edit { .. }
+								| Command::Delete { .. } | Command::Voice(_)
+						)));
+						for label in [
+							"Malformed-origin cached target",
+							"Malformed-origin cached server",
+							"Unknown channel",
+						] {
+							assert!(
+								output
+									.shapes
+									.iter()
+									.all(|shape| text_rect(&shape.shape, label).is_none()),
+								"No native destination chip for {raw}"
+							);
+						}
+						assert!(output.platform_output.events.iter().all(|event| {
+							let info = event.widget_info();
+							info.role != egui::Role::Link
+								|| info.label.as_deref().is_none_or(|label| {
+									!label.contains("Jump to message")
+										&& !label.contains("Malformed-origin cached")
+								})
+						}));
+						let find = |label| {
+							output
+								.shapes
+								.iter()
+								.find_map(|shape| text_rect(&shape.shape, label))
+						};
+						let link = find(raw);
+						let confirm = find("Open in Browser");
+						let destination = find(external).is_some();
+						let opened: Vec<_> = output
+							.platform_output
+							.commands
+							.iter()
+							.filter_map(|command| match command {
+								egui::OutputCommand::OpenUrl(url) => Some(url.url.clone()),
+								_ => None,
+							})
+							.collect();
+						output.drop_without_applying_deltas();
+						(link, confirm, destination, opened)
+					};
+				for _ in 0..3 {
+					assert!(frame(&mut view, &mut state, vec![]).3.is_empty());
+				}
+				let point = frame(&mut view, &mut state, vec![])
+					.0
+					.expect("raw link label")
+					.center();
+				let click = |point, pressed| {
+					vec![
+						egui::Event::PointerMoved(point),
+						egui::Event::PointerButton {
+							pos: point,
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					]
+				};
+				let mut opened = vec![];
+				for pressed in [true, false] {
+					opened.extend(frame(&mut view, &mut state, click(point, pressed)).3);
+				}
+				opened.extend(frame(&mut view, &mut state, vec![]).3);
+				if confirms {
+					assert!(opened.is_empty(), "Spoof hosts require confirmation");
+					assert!(view.timeline.opening.is_some());
+					let mut confirm = None;
+					for _ in 0..3 {
+						let (_, button, displayed, emitted) = frame(&mut view, &mut state, vec![]);
+						assert!(emitted.is_empty());
+						assert!(displayed, "Confirmation must show the actual destination");
+						confirm = button;
+					}
+					let point = confirm.expect("external confirmation action").center();
+					for pressed in [true, false] {
+						opened.extend(frame(&mut view, &mut state, click(point, pressed)).3);
+					}
+				}
+				// Genuine Discord origins retain the existing external-open exemption, but
+				// neither raw path attacks nor encoded authorities become native navigation.
+				assert_eq!(opened, [external.to_owned()], "{raw}");
+				assert!(view.timeline.opening.is_none());
+				assert!(frame(&mut view, &mut state, vec![]).3.is_empty());
+			}
 		}
 	}
 

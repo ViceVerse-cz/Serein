@@ -292,7 +292,15 @@ pub fn presentation_fingerprint(state: &State, message: &model::Message) -> u64 
 		channel: message.channel,
 	};
 	let roles = known_roles(state, message.channel);
-	let mut rest = message.content.as_str();
+	let content = &message.content[..message
+		.content
+		.floor_char_boundary(crate::markdown::MAX_INPUT)];
+	// Reuse the metadata revision: types, parents, guilds and resolved names can all
+	// change pill geometry. Message traffic is filtered out; no Markdown parse is needed.
+	if content.contains("<#") || content.contains("/channels/") {
+		state.channel_labels_revision().hash(&mut hasher);
+	}
+	let mut rest = content;
 	let mut seen = 0usize;
 	while seen < model::MAX_MENTIONS {
 		let Some(start) = rest.find('<') else {
@@ -309,18 +317,7 @@ pub fn presentation_fingerprint(state: &State, message: &model::Message) -> u64 
 				.map_or_else(|| format!("unknown-role ({id})"), |role| role.name.clone());
 			format!("@{name}").hash(&mut hasher);
 			rest = &rest[len..];
-		} else if let Some((id, len)) = model::channel_mention_prefix(rest) {
-			let label = match state.channels.iter().find(|channel| channel.id == id) {
-				Some(channel)
-					if channel.guild.is_some()
-						&& matches!(channel.kind, 0 | 5 | 10..=12 | 15 | 16) =>
-				{
-					format!("#{}", channel.name)
-				}
-				Some(_) => String::new(),
-				None => "#unknown-channel".into(),
-			};
-			label.hash(&mut hasher);
+		} else if let Some((_, len)) = model::channel_mention_prefix(rest) {
 			rest = &rest[len..];
 		} else {
 			let skip = rest.chars().next().map_or(1, char::len_utf8);
@@ -924,6 +921,116 @@ mod tests {
 	use model::Channel;
 
 	#[test]
+	fn pill_fingerprints_follow_navigation_metadata_without_message_churn() {
+		let mut state = test_support::demo_state();
+		let messages = [
+			("<#28>", Id(20)),
+			("https://discord.com/channels/10/27/501", Id(20)),
+			("https://discord.com/channels/10/27/501", Id(999)),
+			("Plain text", Id(20)),
+		]
+		.map(|(content, channel)| {
+			let mut message = test_support::message(600, channel);
+			message.content = content.into();
+			message
+		});
+		let fingerprints = |state: &State| {
+			messages
+				.each_ref()
+				.map(|message| presentation_fingerprint(state, message))
+		};
+		let before = fingerprints(&state);
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Message(test_support::message(601, Id(20))),
+		});
+		assert_eq!(fingerprints(&state), before);
+		for (id, name, kind, parent) in [
+			(28, "Renamed thread", 11, 20),
+			(28, "Renamed thread", 12, 20),
+			(28, "Renamed thread", 11, 26),
+			(26, "Longer forum parent name", 15, 24),
+		] {
+			let before = fingerprints(&state);
+			let mut updated = state.channel(Id(id)).unwrap().clone();
+			updated.name = name.into();
+			updated.kind = kind;
+			updated.parent_id = Some(Id(parent));
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::ChannelCreated(updated),
+			});
+			let after = fingerprints(&state);
+			assert!(before[..3].iter().zip(&after[..3]).all(|(a, b)| a != b));
+			assert_eq!(before[3], after[3]);
+		}
+		let before = fingerprints(&state);
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::GuildChanged(model::GuildPatch {
+				id: Id(10),
+				name: model::Patch::Value("Longer foreign server name".into()),
+				icon: model::Patch::Value("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into()),
+				default_message_notifications: model::Patch::Absent,
+			}),
+		});
+		assert_ne!(fingerprints(&state)[2], before[2]);
+		let before = fingerprints(&state);
+		let mut source = state.channel(Id(20)).unwrap().clone();
+		source.id = Id(999);
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::ChannelCreated(source),
+		});
+		assert_ne!(fingerprints(&state)[2], before[2]);
+	}
+
+	#[test]
+	fn pill_fingerprints_cover_retained_reference_names_and_bound_source_scanning() {
+		let mut state = test_support::demo_state();
+		let mut message = test_support::message(600, Id(20));
+		message.content = "<#77> <#78>".into();
+		for id in [77, 78] {
+			let before = presentation_fingerprint(&state, &message);
+			let Some(client_core::Command::ChannelAction { request, .. }) =
+				state.request_channel_reference(Id(10), Id(id))
+			else {
+				panic!("synthetic reference request");
+			};
+			let mut thread = state.channel(Id(28)).unwrap().clone();
+			thread.id = Id(id);
+			thread.name = format!("Resolved thread {id}");
+			state.apply(client_core::Envelope {
+				generation: state.generation,
+				event: client_core::Event::ChannelAction(
+					client_core::channel_actions::Event::Finished {
+						guild: Id(10),
+						channel: Id(id),
+						request,
+						result: Ok(client_core::channel_actions::Outcome::Channel {
+							channel: Box::new(thread),
+							permissions: None,
+						}),
+					},
+				),
+			});
+			assert_ne!(presentation_fingerprint(&state, &message), before);
+		}
+		assert!(state.channel(Id(77)).is_none());
+		assert_eq!(
+			state.channel_reference_name(Id(77)),
+			Some("Resolved thread 77")
+		);
+		message.content = format!(
+			"{}é<#28> https://discord.com/channels/10/27/501",
+			"a".repeat(crate::markdown::MAX_INPUT - 1)
+		);
+		let before = presentation_fingerprint(&state, &message);
+		state.invalidate_navigation();
+		assert_eq!(presentation_fingerprint(&state, &message), before);
+	}
+
+	#[test]
 	fn loaded_members_remain_suggested_and_admitted_beyond_the_candidate_cap() {
 		let mut state = test_support::demo_state();
 		// Synthetic authenticated reducer state; no transport consumes these commands.
@@ -1204,7 +1311,7 @@ mod tests {
 			edit_state
 				.cursor
 				.set_char_range(Some(egui::text::CCursorRange::one(
-					egui::text::CCursor::new(draft.chars().count()),
+					egui::text::CCursor::end_of_str(draft),
 				)));
 			edit_state.store(&ctx, editor);
 			let mut output = ctx.run_ui(
@@ -1598,7 +1705,7 @@ pub(crate) fn debug_pointer_check(state: &mut State, channel: Id) {
 						initialized = true;
 						edit.cursor
 							.set_char_range(Some(egui::text::CCursorRange::one(
-								egui::text::CCursor::new(draft.chars().count()),
+								egui::text::CCursor::end_of_str(draft),
 							)));
 						edit.store(&ctx, editor);
 					}
@@ -1947,10 +2054,7 @@ pub fn debug_role_mentions_check(state: &mut State) {
 						);
 						return 1;
 					}
-					usize::from(matches!(
-						value.as_str(),
-						"#Thread with spaces" | "#Forum check"
-					))
+					usize::from(matches!(value.trim(), "Thread with spaces" | "Forum check"))
 				}
 				egui::Shape::Vec(shapes) => {
 					shapes.iter().map(|shape| count(shape, role_color)).sum()

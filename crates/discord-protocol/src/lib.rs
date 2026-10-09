@@ -935,7 +935,8 @@ impl MessageDto {
 			.message_reference
 			.as_ref()
 			.filter(|reference| {
-				matches!(self.kind, 19 | 23)
+				// Poll results (46) reference the closed poll for "View Poll".
+				matches!(self.kind, 19 | 23 | 46)
 					&& self.flags & (1 << 1) == 0
 					&& reference.kind == 0
 					&& reference.channel_id == Some(self.channel_id)

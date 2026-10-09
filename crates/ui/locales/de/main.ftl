@@ -87,6 +87,11 @@ search-conversation = Durchsuchen Sie dieses Gespräch
 show-member-list = Mitgliederliste anzeigen
 pinned-messages = Angepinnte Nachrichten
 threads = Themen
+
+channel-pill-thread = Thread
+channel-pill-forum = Forum
+channel-pill-post = Beitrag
+channel-pill-message = Nachricht
 reload-history = Verlauf neu laden
 in-a-call = In einem Anruf
 members-description = Jeder, der Zugriff auf diese Konversation hat.
@@ -1686,7 +1691,6 @@ markdown-show-run-open-user-profile = Benutzerprofil öffnen
 # Context: show_run
 markdown-show-run-reveal-spoiler = Spoiler aufdecken
 # Context: show_run
-markdown-show-run-unknown-channel-load-channel = Unbekannter Kanal, Kanal laden
 
 ## crates/ui/src/mentions.rs
 # Context: show
@@ -3832,7 +3836,6 @@ timeline-show-with-scroll-edited = (bearbeitet)
 # Context: show_with_scroll
 timeline-show-with-scroll-forwarded = ↪ Weitergeleitet
 # Context: show_with_scroll
-timeline-show-with-scroll-hide-spoilers = Spoiler ausblenden
 # Context: show_with_scroll
 timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = Der Verlauf ist noch nicht verfügbar. Verwenden Sie „Neu laden“, um es erneut zu versuchen.
 # Context: show_with_scroll

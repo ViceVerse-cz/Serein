@@ -131,6 +131,15 @@ impl Embed {
 			.all(EmbedMedia::valid)
 	}
 }
+impl Embed {
+	/// The value of a named field, as used by `poll_result` embeds.
+	pub fn field(&self, name: &str) -> Option<&str> {
+		self.fields
+			.iter()
+			.find(|field| field.name == name)
+			.map(|field| field.value.as_str())
+	}
+}
 pub fn embed_bytes(embeds: &[Embed]) -> usize {
 	embeds.iter().map(Embed::bytes).sum()
 }

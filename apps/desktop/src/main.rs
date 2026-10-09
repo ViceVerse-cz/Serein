@@ -494,7 +494,7 @@ fn main() -> eframe::Result {
 				.with_inner_size(window_geometry.map_or([1120.0, 760.0], |geometry| {
 					geometry.size.map(|value| value as f32)
 				}))
-				.with_min_inner_size([760.0, 520.0])
+				.with_min_inner_size(app_settings::MIN_WINDOW_SIZE.map(|size| size as f32))
 				.with_active(!start_minimized)
 				.with_app_id("cz.viceverse.serein");
 			#[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -971,7 +971,7 @@ struct Desktop {
 	clipboard: Option<clipboard::Paste>,
 	download_close_pending: bool,
 	window: Arc<winit::window::Window>,
-	monitor_geometry: Option<(Option<egui::Rect>, Option<f32>)>,
+	monitor_geometry: Option<(Option<egui::Rect>, Option<f32>, Option<egui::Vec2>)>,
 	monitor_period: Option<Duration>,
 	frame_metrics: FrameMetrics,
 	#[cfg(feature = "demo")]
@@ -1470,6 +1470,8 @@ impl Desktop {
 					test_support::system_demo_state()
 				} else if std::env::args().any(|arg| arg == "--demo-code") {
 					test_support::code_demo_state()
+				} else if std::env::args().any(|arg| arg == "--demo-message-links") {
+					test_support::message_links_demo_state()
 				} else if std::env::args().any(|arg| arg == "--demo-notifications") {
 					test_support::notification_demo_state()
 				} else if std::env::args().any(|arg| {
@@ -4123,8 +4125,23 @@ impl Desktop {
 					Event::Members(demo_members(&self.state, guild, channel, request))
 				}
 				Command::ForumPosts { .. } | Command::ForumSummaries { .. } => return,
-				Command::History { before, after, .. } => {
-					test_support::load_page_with_cursors(&mut self.state, before, after);
+				Command::History {
+					channel,
+					request,
+					before,
+					after,
+				} => {
+					if std::env::args().any(|arg| arg == "--demo-message-links") {
+						test_support::load_message_link_page(
+							&mut self.state,
+							channel,
+							request,
+							before,
+							after,
+						);
+					} else {
+						test_support::load_page_with_cursors(&mut self.state, before, after);
+					}
 					return;
 				}
 				Command::StickerPacks => Event::StickerPacks(Ok(self.state.stickers.packs.clone())),
@@ -5970,8 +5987,10 @@ impl Desktop {
 	fn frame_period(&self) -> Option<Duration> {
 		self.monitor_period
 	}
-	fn refresh_frame_period(&mut self) -> Option<Duration> {
-		let millihertz = self.window.current_monitor()?.refresh_rate_millihertz()?;
+	fn refresh_monitor(&mut self) -> Option<Duration> {
+		let monitor = self.window.current_monitor()?;
+		app_settings::update_window_minimum(&self.window, &monitor);
+		let millihertz = monitor.refresh_rate_millihertz()?;
 		(1_000..=1_000_000)
 			.contains(&millihertz)
 			.then(|| Duration::from_secs_f64(1000.0 / f64::from(millihertz)))
@@ -6001,6 +6020,7 @@ impl eframe::App for Desktop {
 			&& viewport.minimized != Some(true)
 			&& viewport.maximized != Some(true)
 			&& viewport.fullscreen != Some(true)
+			&& !viewport.close_requested()
 			&& self.window.is_visible() != Some(false)
 		{
 			let size = self
@@ -6020,12 +6040,16 @@ impl eframe::App for Desktop {
 				self.app_settings.state.dirty = true;
 			}
 		}
-		// Viewport position/scale comes from native events; avoid an OS monitor query on paints.
+		// Monitor size also detects Wayland moves without a global window position.
 		if let Some(viewport) = raw_input.viewports.get(&raw_input.viewport_id) {
-			let geometry = (viewport.outer_rect, viewport.native_pixels_per_point);
+			let geometry = (
+				viewport.outer_rect,
+				viewport.native_pixels_per_point,
+				viewport.monitor_size,
+			);
 			if self.monitor_geometry != Some(geometry) {
 				self.monitor_geometry = Some(geometry);
-				self.monitor_period = self.refresh_frame_period();
+				self.monitor_period = self.refresh_monitor();
 			}
 		}
 		if let Some(period) = self.frame_period() {

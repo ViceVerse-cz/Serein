@@ -87,6 +87,11 @@ search-conversation = Search this conversation
 show-member-list = Show member list
 pinned-messages = Pinned messages
 threads = Threads
+
+channel-pill-thread = Thread
+channel-pill-forum = Forum
+channel-pill-post = Post
+channel-pill-message = message
 reload-history = Reload history
 in-a-call = In a call
 members-description = Everyone with access to this conversation.
@@ -776,6 +781,14 @@ embeds-image-preview-image-actions = Image actions
 embeds-link-open-link = Open link…
 # Context: show
 embeds-show-additional-embed-content-is-not-supported = Additional embed content is not supported
+# Context: poll_result
+embeds-poll-result-winning-answer = Winning answer
+# Context: poll_result
+embeds-poll-result-tie = There was no winner
+# Context: poll_result
+embeds-poll-result-no-votes = No one voted
+# Context: poll_result
+embeds-poll-result-view-poll = View Poll
 # Context: show
 embeds-show-embed-display-limited = Embed display limited
 # Context: show
@@ -1690,7 +1703,8 @@ markdown-show-run-open-user-profile = Open user profile
 # Context: show_run
 markdown-show-run-reveal-spoiler = Reveal spoiler
 # Context: show_run
-markdown-show-run-unknown-channel-load-channel = Unknown channel, load channel
+
+## Native Discord message links: names are resolved only from accessible local metadata.
 
 ## crates/ui/src/mentions.rs
 # Context: show
@@ -3836,7 +3850,6 @@ timeline-show-with-scroll-edited = (edited)
 # Context: show_with_scroll
 timeline-show-with-scroll-forwarded = ↪ Forwarded
 # Context: show_with_scroll
-timeline-show-with-scroll-hide-spoilers = Hide spoilers
 # Context: show_with_scroll
 timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = History is not available yet. Use Reload to try again.
 # Context: show_with_scroll

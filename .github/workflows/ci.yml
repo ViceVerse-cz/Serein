@@ -20,9 +20,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: dtolnay/rust-toolchain@1.98.1
-      - name: Install NSIS
-        run: choco install nsis --no-progress -y
+      - parallel:
+          - uses: dtolnay/rust-toolchain@1.98.1
+          - name: Install NSIS
+            run: choco install nsis --no-progress -y
       - name: Install, upgrade and uninstall (synthetic/offline)
         run: python packaging/windows/test_installer.py
   native:
@@ -34,15 +35,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7.0.1
-      - name: Mac signing regression (offline)
-        if: runner.os != 'Windows'
-        run: bash packaging/macos/test_sign_release.sh
-      - name: Linux native dependencies
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libxrandr-dev libxcursor-dev libvulkan-dev libasound2-dev libpulse-dev cmake python3 dpkg-dev desktop-file-utils xvfb xauth
-      - uses: dtolnay/rust-toolchain@1.98.1
-        with:
-          components: rustfmt, clippy
+      # Steps in one parallel group must not share a Cargo target directory.
+      - parallel:
+          - name: Mac signing regression (offline)
+            if: runner.os != 'Windows'
+            run: bash packaging/macos/test_sign_release.sh
+          - name: Linux native dependencies
+            if: runner.os == 'Linux'
+            run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libxrandr-dev libxcursor-dev libvulkan-dev libasound2-dev libpulse-dev cmake python3 dpkg-dev desktop-file-utils xvfb xauth
+          - uses: dtolnay/rust-toolchain@1.98.1
+            with:
+              components: rustfmt, clippy
+          - uses: oven-sh/setup-bun@v2.2.0
+            with:
+              bun-version: 1.4.2
       - uses: Swatinem/rust-cache@v2.9.2
         with:
           cache-on-failure: true
@@ -50,19 +56,17 @@ jobs:
       - name: Check production build without development fixtures
         run: cargo check --locked -p serein --bin serein --no-default-features
       - run: cargo xtask check
-      - name: Flatpak encoding after GTK initialization (synthetic)
-        if: runner.os == 'Linux'
-        run: xvfb-run -a cargo test --locked -p platform --features winit/x11,winit/wayland --lib flatpak_locale_tests::post_gtk_flatpak_encoding_preflight -- --exact --ignored
-      - uses: oven-sh/setup-bun@v2.2.0
-        with:
-          bun-version: 1.4.2
-      - run: bun tests/login-handoff.cjs
-      - run: bun tests/xtask-workspace.cjs
+      - parallel:
+          - name: Flatpak encoding after GTK initialization (synthetic)
+            if: runner.os == 'Linux'
+            run: xvfb-run -a cargo test --locked -p platform --features winit/x11,winit/wayland --lib flatpak_locale_tests::post_gtk_flatpak_encoding_preflight -- --exact --ignored
+          - run: bun tests/login-handoff.cjs
+          - run: bun tests/xtask-workspace.cjs
+          - name: Linux package regression
+            if: runner.os == 'Linux'
+            run: PYTHONDONTWRITEBYTECODE=1 python3 packaging/linux/test_package.py
       - run: cargo replay
       - run: cargo replay --soak 5
-      - name: Linux package regression
-        if: runner.os == 'Linux'
-        run: PYTHONDONTWRITEBYTECODE=1 python3 packaging/linux/test_package.py
       - name: Package app without demo or developer features
         run: cargo xtask package
       - uses: actions/upload-artifact@v7.0.1
@@ -87,19 +91,24 @@ jobs:
             . -> target
             examples/extensions -> target
             extensions -> target
-      - name: Validate catalog packages, manifests and previews (offline)
-        run: |
-          PYTHONDONTWRITEBYTECODE=1 python3 extensions/test_catalog.py
-          python3 extensions/catalog.py --validate
-      - run: cargo fmt --manifest-path examples/extensions/Cargo.toml --all -- --check
-      - run: cargo test --manifest-path examples/extensions/Cargo.toml --workspace --locked
-      - run: cargo test --locked -p extensions --test app_contract --example manifest_check
-      - run: cargo clippy --manifest-path examples/extensions/Cargo.toml --workspace --all-targets --locked -- -D warnings
-      - run: cargo build --manifest-path examples/extensions/Cargo.toml --workspace --locked --release --target wasm32-unknown-unknown
-      - run: cargo fmt --manifest-path extensions/Cargo.toml --all -- --check
-      - run: cargo test --manifest-path extensions/Cargo.toml --workspace --locked
-      - run: cargo clippy --manifest-path extensions/Cargo.toml --workspace --all-targets --locked -- -D warnings
-      - run: cargo build --manifest-path extensions/Cargo.toml --workspace --locked --release --target wasm32-unknown-unknown
+      # The root, examples/extensions and extensions workspaces have separate target directories.
+      - parallel:
+          - name: Validate catalog packages, manifests and previews (offline)
+            run: |
+              PYTHONDONTWRITEBYTECODE=1 python3 extensions/test_catalog.py
+              python3 extensions/catalog.py --validate
+          - run: cargo fmt --manifest-path examples/extensions/Cargo.toml --all -- --check
+          - run: cargo fmt --manifest-path extensions/Cargo.toml --all -- --check
+      - parallel:
+          - run: cargo test --manifest-path examples/extensions/Cargo.toml --workspace --locked
+          - run: cargo test --manifest-path extensions/Cargo.toml --workspace --locked
+          - run: cargo test --locked -p extensions --test app_contract --example manifest_check
+      - parallel:
+          - run: cargo clippy --manifest-path examples/extensions/Cargo.toml --workspace --all-targets --locked -- -D warnings
+          - run: cargo clippy --manifest-path extensions/Cargo.toml --workspace --all-targets --locked -- -D warnings
+      - parallel:
+          - run: cargo build --manifest-path examples/extensions/Cargo.toml --workspace --locked --release --target wasm32-unknown-unknown
+          - run: cargo build --manifest-path extensions/Cargo.toml --workspace --locked --release --target wasm32-unknown-unknown
       - name: Check existing and rebuilt plugins in the host sandbox (offline)
         run: cargo run --locked --release -p extensions --example sdk_check -- examples/extensions/target/wasm32-unknown-unknown/release extensions/target/wasm32-unknown-unknown/release
       - run: cargo run --locked --release -p extensions --example legacy_sdk_check
@@ -128,14 +137,16 @@ jobs:
           key: cargo-deny-0.20.2
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo install cargo-deny --version 0.20.2 --locked
-      - run: cargo fetch --locked
-      - run: cargo fetch --locked --manifest-path fuzz/Cargo.toml
-      - run: cargo xtask licenses
-      - uses: oven-sh/setup-bun@v2.2.0
-        with:
-          bun-version: 1.4.2
-      - run: bun tests/license-policy.cjs
+      - parallel:
+          - run: cargo install cargo-deny --version 0.20.2 --locked
+          - run: cargo fetch --locked
+          - run: cargo fetch --locked --manifest-path fuzz/Cargo.toml
+          - uses: oven-sh/setup-bun@v2.2.0
+            with:
+              bun-version: 1.4.2
+      - parallel:
+          - run: cargo xtask licenses
+          - run: bun tests/license-policy.cjs
   fuzz:
     if: github.event_name == 'push' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
@@ -145,7 +156,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.98.1
         with:
           components: rustfmt
-      - run: rustup toolchain install nightly-2026-09-09 --profile minimal
       - uses: Swatinem/rust-cache@v2.9.2
         with:
           key: cargo-fuzz-0.13.2
@@ -154,9 +164,11 @@ jobs:
           workspaces: |
             . -> target
             fuzz -> target
-      - run: cargo install cargo-fuzz --version 0.13.2 --locked
-      - run: cargo fetch --locked --manifest-path fuzz/Cargo.toml
-      - run: cargo fmt --manifest-path fuzz/Cargo.toml --all -- --check
+      - parallel:
+          - run: rustup toolchain install nightly-2026-09-09 --profile minimal
+          - run: cargo install cargo-fuzz --version 0.13.2 --locked
+          - run: cargo fetch --locked --manifest-path fuzz/Cargo.toml
+          - run: cargo fmt --manifest-path fuzz/Cargo.toml --all -- --check
       - run: cargo xtask fuzz
       - uses: actions/upload-artifact@v7.0.1
         if: failure()

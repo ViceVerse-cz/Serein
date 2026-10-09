@@ -1,5 +1,23 @@
 # Discord compatibility — checked 2026-09-10
 
+## Gateway recovery after failed resumes — October 8, 2026
+
+An established connection first attempts to resume using the service-supplied
+resume address. After three consecutive failed resume attempts, it discards the
+old session, sequence and address, then identifies through the original validated
+gateway URL. Successful READY/RESUMED resets that counter; explicit recovery
+cancellation does not consume it. Existing connection deadlines, capped backoff
+and the six-attempt initial-login limit remain unchanged.
+
+Close codes received before HELLO follow the same policy as established sockets:
+expired credentials stop, invalid or expired sessions require a fresh Identify,
+and resumable closes retain their session within the failure budget. This follows
+Discord's documented [disconnect fallback](https://docs.discord.com/developers/events/gateway#handling-a-disconnect)
+and [Gateway close codes](https://docs.discord.com/developers/topics/opcodes-and-status-codes#gateway-gateway-close-event-codes).
+Normal-account use remains unofficial. Local WebSocket regressions exercise the
+recovery policy; they do not establish the cause of issue #577's macOS Wi-Fi
+failure or prove live Discord recovery.
+
 ## Profile boards — October 7, 2026
 
 The full profile reads game widgets from the existing on-demand profile response,
@@ -217,20 +235,59 @@ demand, debounced by 350 ms, spaced by at least one second, and time out after
 15 seconds. No complete directory is downloaded. Offline debug validation covers
 remote nickname mention insertion, stale replies and response limits.
 
-## Chat links — September 16, 2026
+## Chat links — October 8, 2026
 
 Clicked message and embed links matching HTTPS `/channels/{guild|@me}/{channel}`
 with an optional message ID navigate inside Serein. Exact discord.com and legacy
-discordapp.com hosts, including www, ptb and canary, are recognized. Known channels
-can be in another joined server or an existing DM/group DM. Message links reuse
-the bounded history window and target highlight; loaded messages scroll locally.
+discordapp.com hosts, including www, ptb and canary, are recognized, case-insensitively
+and with the default HTTPS port. Valid query/fragment suffixes do not change the
+target. Raw routing paths are validated before URL normalization; encoded paths,
+dot segments, credentials, non-default ports, spoof hosts and malformed IDs are
+not internal routes. Parsing is capped at 2,048 bytes.
+
+Bare message URLs and angle autolinks render as destination pills: channel-kind icon and
+name, then a message glyph or, for forum posts, the forum and post names. A link to
+another joined server shows that server's icon and name. Channel and conversation names
+come only from local metadata the session may view and read; rendering never fetches
+metadata. Unknown or hidden destinations use a generic label. Masked Markdown links
+retain their author-chosen text, code stays literal, and concealed spoilers do not expose
+or activate a pill. Copying a selected pill copies its original URL. Adjacent copies of
+the same URL stay separate pills, so a selection covering both copies both URLs. Pointer
+and keyboard activation use the same internal route; explicit Open in Discord controls
+still open the browser, and unrelated links retain existing confirmation behavior.
+
+Known channels can be in another joined server, an existing DM/group DM, a thread
+or a forum post (whose destination is the thread channel, not its parent).
 Guild/channel identity and current view/history permissions are checked first.
-Unknown channels (including unloaded archived threads), unsupported channel kinds,
-and unavailable messages retain explicit unavailable/error feedback. Links do not
-join servers, open unknown DMs or join calls. Explicit Open in Discord controls
-still open the browser; unrelated links keep their existing confirmation behavior.
-Parsing is click-triggered and capped at 2,048 bytes, with no new cache or transport.
-Verification uses synthetic data only; live Discord interoperability is unverified.
+An absent thread can be admitted only from the existing bounded archive page through
+its normal permission and metadata-budget guards. Unloaded archives, unknown channels
+and unsupported channel kinds remain unavailable; navigation does not discover
+arbitrary channels, join servers, open unknown DMs, unarchive threads or join calls.
+
+Fresh loaded messages, including an eligible dormant resident window that holds the
+live target, scroll and highlight locally without recent-history or saved-cursor
+revalidation; a restored window without it is not presented as loaded. Other message
+targets reuse the bounded 50-message request for the window before the target. One request-scoped target
+survives consumption of the UI scroll cue; completion verifies the exact message ID,
+not just a neighboring result. Repeated pending clicks share the request. Superseded,
+wrong-channel and old-session responses cannot settle the current target. Known
+deletions report deletion; a successful page without the target reports that it was
+not returned and may have been removed or become unavailable, not proof of deletion.
+Offline misses leave the current conversation, draft and navigation unchanged. An
+active window marked Stale by disconnection is not treated as Fresh; previously
+Fresh dormant windows still use their permission/identity/mutation eligibility guards.
+
+The wire history route and permission requirements are documented in Discord's
+[Message resource](https://docs.discord.com/developers/resources/message); forum/thread
+relationships are documented in [Threads](https://docs.discord.com/developers/topics/threads).
+Compact presentation and normal-account navigation are **unofficial compatibility**,
+not a documented native UI contract. Source comparisons included Discohook's
+[approximation renderer](https://github.com/discohook/discohook/blob/3e339e2f3fbe2c13570d25c1a5a52877c94f4fb2/packages/site/app/components/preview/Markdown.tsx#L432-L505),
+Vencord's [exact returned-ID check](https://github.com/Vendicated/Vencord/blob/718c867256a9d181edc7a534afb296b9bb41ab58/src/plugins/messageLinkEmbeds/index.tsx#L133-L164),
+Dissent's [loaded-row navigation](https://github.com/diamondburned/dissent/blob/6ff6182b1eac30d57e9c9c995942317eb42e3bf6/internal/messages/view.go#L398-L419)
+and Abaddon's [selection-aware generic links](https://github.com/uowuo/abaddon/blob/7b3a4ff97ae6490a15adaa0a792ea9225c4c9e51/src/components/chatmessage.cpp#L881-L912).
+These are pinned source inspections, not live client tests. Verification uses
+synthetic data only; live Discord interoperability remains **unverified**.
 
 ## Forum post context menu — September 15, 2026
 

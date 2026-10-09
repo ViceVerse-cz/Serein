@@ -16,6 +16,7 @@ struct Inline {
 	label: Option<Arc<egui::Galley>>,
 	background: Color32,
 	image: Option<Image<'static>>,
+	icon: Option<crate::icons::Icon>,
 }
 
 #[derive(Default)]
@@ -74,7 +75,7 @@ impl Layout {
 				channels
 					.iter()
 					.find(|c| c.id == id)
-					.map(|c| &c.name)
+					.map(|c| (&c.name, crate::channel_pill::icon(c, channels) as u8))
 					.hash(&mut key);
 			}
 		}
@@ -103,6 +104,7 @@ impl Layout {
 			let mut label = None;
 			let mut background = colors.accent.gamma_multiply(0.12);
 			let mut image = None;
+			let mut icon = None;
 			let mut artwork = false;
 			let length = if let Some((id, len)) = model::user_mention_prefix(tail) {
 				let name = users
@@ -121,11 +123,13 @@ impl Layout {
 				background = colors.mention_bg;
 				len
 			} else if let Some((id, len)) = model::channel_mention_prefix(tail) {
-				let name = channels
-					.iter()
-					.find(|c| c.id == id && c.guild.is_some())
-					.map_or_else(|| format!("unknown-channel ({id})"), |c| c.name.clone());
-				label = Some((format!("#{name}"), colors.mention_text));
+				let channel = channels.iter().find(|c| c.id == id && c.guild.is_some());
+				let name =
+					channel.map_or_else(|| format!("unknown-channel ({id})"), |c| c.name.clone());
+				icon = Some(channel.map_or(crate::icons::Icon::Hash, |c| {
+					crate::channel_pill::icon(c, channels)
+				}));
+				label = Some((name, colors.mention_text));
 				background = colors.mention_bg;
 				len
 			} else if mass_mentions && let Some(len) = model::mass_mention_prefix(tail) {
@@ -159,14 +163,17 @@ impl Layout {
 			};
 			let label = label.map(|(text, color)| {
 				let mut job = LayoutJob::simple_singleline(text, font.clone(), color);
-				job.wrap.max_width = (width - 6.0).max(1.0);
+				job.wrap.max_width =
+					(width - 6.0 - if icon.is_some() { size } else { 0.0 }).max(1.0);
 				job.wrap.max_rows = 1;
 				ui.fonts_mut(|f| f.layout_job(job))
 			});
 			let raw = &tail[..length];
 			let count = raw.chars().count();
 			if label.is_some() || image.is_some() || artwork {
-				let slot = label.as_ref().map_or(size, |g| g.size().x + 6.0);
+				let slot = label.as_ref().map_or(size, |g| {
+					g.size().x + 6.0 + if icon.is_some() { size } else { 0.0 }
+				});
 				// One blank glyph forms an unbroken inline object, even at a row break.
 				// Expand its character slots below, so native selection/copy/undo use wire text.
 				job.append(" ", 0.0, emoji::inline_format(ui, slot, size));
@@ -177,6 +184,7 @@ impl Layout {
 					label,
 					background,
 					image,
+					icon,
 				});
 				projected += 1;
 			} else {
@@ -252,8 +260,26 @@ impl Layout {
 			}
 			if let Some(label) = &inline.label {
 				painter.rect_filled(rect, 3, inline.background);
+				let offset = if let Some(icon) = inline.icon {
+					let size = emoji::inline_size(ui);
+					crate::icons::paint(
+						&painter,
+						icon,
+						egui::Rect::from_center_size(
+							egui::pos2(rect.left() + 3.0 + size / 2.0, rect.center().y),
+							egui::Vec2::splat(size * 0.65),
+						),
+						crate::design::palette(ui).mention_text,
+					);
+					size
+				} else {
+					0.0
+				};
 				painter.galley(
-					egui::pos2(rect.left() + 3.0, rect.center().y - label.size().y / 2.0),
+					egui::pos2(
+						rect.left() + 3.0 + offset,
+						rect.center().y - label.size().y / 2.0,
+					),
 					label.clone(),
 					Color32::PLACEHOLDER,
 				);
@@ -344,6 +370,60 @@ impl Layout {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn channel_icons_preserve_editable_tokens_and_refresh_with_parent_type() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let mut layout = Layout::default();
+		let mut avatars = Avatars::default();
+		let text = "<#20> <#28> <#26> <#27>";
+		for forum in [true, false] {
+			state
+				.channels
+				.iter_mut()
+				.find(|channel| channel.id == model::Id(26))
+				.unwrap()
+				.kind = if forum { 15 } else { 0 };
+			let output = ctx.run_ui(Default::default(), |ui| {
+				let galley = layout.galley(
+					ui,
+					text,
+					180.0,
+					&[],
+					&[],
+					&state.channels,
+					false,
+					&mut avatars,
+					true,
+				);
+				assert_eq!(galley.job.text, text);
+				assert!(galley.size().x <= 180.0);
+				assert_eq!(
+					layout
+						.inlines
+						.iter()
+						.filter_map(|inline| inline.icon)
+						.collect::<Vec<_>>(),
+					[
+						crate::icons::Icon::Hash,
+						crate::icons::Icon::Thread,
+						if forum {
+							crate::icons::Icon::Threads
+						} else {
+							crate::icons::Icon::Hash
+						},
+						if forum {
+							crate::icons::Icon::Forum
+						} else {
+							crate::icons::Icon::Thread
+						},
+					]
+				);
+			});
+			output.drop_without_applying_deltas();
+		}
+	}
 
 	fn users() -> Vec<User> {
 		vec![User {

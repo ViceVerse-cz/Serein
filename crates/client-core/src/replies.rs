@@ -25,12 +25,39 @@ impl Reply {
 #[derive(Default)]
 pub struct ReplyDeletions(pub(crate) Vec<(Id, Id)>);
 
+/// One bounded, request-scoped target, independent of the UI's one-shot scroll cue.
+#[derive(Default)]
+pub struct HistoryNavigation {
+	target: Option<(Id, u64, Id)>,
+}
+
+impl HistoryNavigation {
+	pub(crate) fn clear(&mut self) {
+		self.target = None;
+	}
+
+	fn start(&mut self, channel: Id, request: u64, target: Id) {
+		self.target = Some((channel, request, target));
+	}
+
+	pub(crate) fn target(&self, channel: Id, request: u64) -> Option<Id> {
+		self.target
+			.filter(|(id, pending, _)| *id == channel && *pending == request)
+			.map(|(_, _, target)| target)
+	}
+}
+
 impl State {
 	pub fn reply_target(&self) -> Option<Id> {
 		self.reply.map(Reply::target)
 	}
 
 	/// Navigate a Discord chat link without sending messages or joining voice.
+	///
+	/// Only fresh active rows or eligible, previously fresh session-resident rows
+	/// can jump locally. Disconnect makes the active window stale, so it must be
+	/// revalidated online; a dormant resident may still be restored offline.
+	/// Destinations need metadata in navigation or the current safe archive page.
 	pub fn open_chat_link(
 		&mut self,
 		guild: Option<Id>,
@@ -39,6 +66,37 @@ impl State {
 	) -> Result<Option<Command>, &'static str> {
 		if channel.0 == 0 || guild.is_some_and(|id| id.0 == 0) {
 			return Err("This chat link is invalid");
+		}
+		if message.is_some_and(|id| id.0 == 0 || id.0.checked_add(1).is_none()) {
+			return Err("This message link is invalid");
+		}
+		if self.channel(channel).is_none() {
+			if message.is_some()
+				&& (self.auth != AuthState::Authenticated || !self.gateway_connected)
+			{
+				// Admission can retire another transient thread. A message link
+				// needing metadata/history must pass session gates before that mutation.
+				return Err("Message links are unavailable while disconnected");
+			}
+			// Only the existing bounded, permission-checked archive page may resolve
+			// metadata absent from navigation. Never guess a parent or open a DM.
+			let view = self.archives.as_ref().ok_or("This chat is unavailable")?;
+			let thread = view
+				.page
+				.as_ref()
+				.and_then(|page| page.threads.iter().find(|thread| thread.id == channel))
+				.ok_or("This chat is unavailable")?;
+			if thread.guild != guild {
+				return Err("This chat does not belong to the linked server");
+			}
+			if !self
+				.channel(view.parent)
+				.is_some_and(|parent| parent.guild == Some(view.guild))
+			{
+				return Err("This chat is unavailable");
+			}
+			self.admit_archived_thread(channel)
+				.ok_or("This chat is unavailable")?;
 		}
 		let target = self.channel(channel).ok_or("This chat is unavailable")?;
 		if target.guild != guild {
@@ -53,18 +111,21 @@ impl State {
 		let Some(message) = message else {
 			return Ok(self.select(channel));
 		};
-		if message.0 == 0 || message.0.checked_add(1).is_none() {
-			return Err("This message link is invalid");
-		}
 		if !target.supports_text() || !self.can_read_history(channel) {
 			return Err("Message history is unavailable with the current permissions");
 		}
-		if self.auth != AuthState::Authenticated || !self.gateway_connected {
+		if self.auth != AuthState::Authenticated {
 			return Err("Message links are unavailable while disconnected");
 		}
 		if self.selected == Some(channel) {
 			if self.timeline.is_deleted(message) {
 				return Err("This message was deleted");
+			}
+			if self.history_pending
+				&& self.history_navigation.target(channel, self.request) == Some(message)
+			{
+				// A repeat click shares the in-flight page instead of invalidating it.
+				return Ok(None);
 			}
 			if self.freshness == Freshness::Fresh
 				&& !self.history_pending
@@ -74,18 +135,89 @@ impl State {
 					.is_some_and(|m| m.channel == channel)
 			{
 				self.search_target = Some(message);
+				self.restore_scroll = false;
+				self.history_navigation.clear();
 				self.revision += 1;
 				return Ok(None);
 			}
 		}
-		// The targeted request supersedes selection's recent-history request.
-		let recent = self.select(channel);
-		if self.timeline.is_deleted(message) {
-			// A restored resident window can reveal a deletion after selection.
+		if self.selected != Some(channel)
+			&& self
+				.resident_timeline(channel)
+				.is_some_and(|timeline| timeline.is_deleted(message))
+		{
 			self.status = "This message was deleted";
-			return Ok(recent);
+			return Err(self.status);
+		}
+		if !self.gateway_connected
+			&& (self.selected == Some(channel)
+				|| !self.resident_timeline(channel).is_some_and(|timeline| {
+					timeline.get(message).is_some_and(|m| m.channel == channel)
+				})) {
+			// Check the exact dormant destination before touching selection,
+			// drafts, the navigation trail, or another conversation's timeline.
+			return Err("Message links are unavailable while disconnected");
+		}
+		// Restore the resident window without first starting a recent-history or
+		// saved-reading-cursor request. Selection alone never sends or joins voice.
+		self.select_chat_link_channel(channel, message)?;
+		if self.timeline.is_deleted(message) {
+			self.status = "This message was deleted";
+			// A window that could not be restored as loaded still needs its recent page.
+			if self.freshness != Freshness::Fresh && self.gateway_connected {
+				return Ok(Some(self.history(None)));
+			}
+			return Err("This message was deleted");
+		}
+		if self.freshness == Freshness::Fresh
+			&& !self.history_pending
+			&& self
+				.timeline
+				.get(message)
+				.is_some_and(|m| m.channel == channel)
+		{
+			self.search_target = Some(message);
+			self.restore_scroll = false;
+			self.revision += 1;
+			return Ok(None);
+		}
+		if !self.gateway_connected {
+			self.status = "Message links are unavailable while disconnected";
+			return Err(self.status);
 		}
 		Ok(self.open_target_window(message))
+	}
+
+	pub(crate) fn deleted_navigation_target(&mut self, channel: Id, target: Id) {
+		if self.selected == Some(channel)
+			&& (self.search_target == Some(target)
+				|| self.history_navigation.target(channel, self.request) == Some(target))
+		{
+			self.search_target = None;
+			self.restore_scroll = false;
+			self.status = "This message was deleted";
+		}
+	}
+
+	pub(crate) fn finish_history_navigation(&mut self, channel: Id, request: u64) {
+		let Some(target) = self.history_navigation.target(channel, request) else {
+			return;
+		};
+		self.history_navigation.clear();
+		if self.timeline.is_deleted(target) {
+			self.search_target = None;
+			self.restore_scroll = false;
+			self.status = "This message was deleted";
+		} else if !self
+			.timeline
+			.get(target)
+			.is_some_and(|m| m.channel == channel)
+		{
+			// Retain the cue for the timeline to mark this detached window as
+			// browsing, but report the outcome even without a UI consuming it.
+			self.status =
+				"Message was not returned; it may have been removed or become unavailable";
+		}
 	}
 
 	/// All effects belong to one channel, with at most 50 distinct targets.
@@ -130,6 +262,7 @@ impl State {
 		}
 		if self.selected == Some(message.channel) {
 			self.clear_search();
+			self.deleted_navigation_target(message.channel, target);
 			if self.reply_target() == Some(target) {
 				self.reply = None;
 			}
@@ -185,13 +318,26 @@ impl State {
 			return None;
 		}
 		let before = Id(target.0.checked_add(1)?);
+		let channel = self.selected?;
+		if self.history_pending
+			&& self.history_navigation.target(channel, self.request) == Some(target)
+		{
+			return None;
+		}
 		self.timeline.clear_window_preserving_deletions();
 		self.newer_cursor = None;
 		self.newer_may_have_more = false;
 		self.history_targeted = true;
 		self.revision += 1;
-		self.search_target = Some(target);
 		let command = self.history(Some(before));
+		if let Command::History {
+			channel, request, ..
+		} = &command
+		{
+			self.search_target = Some(target);
+			self.restore_scroll = false;
+			self.history_navigation.start(*channel, *request, target);
+		}
 		self.enforce_resident_budget();
 		Some(command)
 	}
@@ -472,19 +618,63 @@ mod tests {
 			state.timeline.delete(Id(50)).unwrap();
 			state.select(Id(2));
 			assert_eq!(state.resident_window_count(), 1);
+			let request = state.request;
+			assert_eq!(
+				state
+					.open_chat_link(Some(Id(10)), Id(1), Some(Id(50)))
+					.err(),
+				Some("This message was deleted")
+			);
+			assert_eq!(state.status, "This message was deleted");
+			assert!(state.search_target.is_none());
+			assert_eq!(state.selected, Some(Id(2)));
+			assert_eq!(state.request, request);
+			assert!(
+				state.history_pending,
+				"keep the unrelated selected-channel request"
+			);
+		}
+	}
+
+	#[test]
+	fn a_resident_without_the_live_target_is_not_presented_as_loaded() {
+		for delete_live in [false, true] {
+			let parked = || {
+				let mut state = chat_link_state();
+				state.timeline.delete(Id(50)).unwrap();
+				if delete_live {
+					// Only deletion placeholders remain in the parked window.
+					state.timeline.delete(Id(100)).unwrap();
+				}
+				state.select(Id(2));
+				assert_eq!(state.resident_window_count(), 1);
+				state
+			};
+			// The restore step alone must not claim a window without the target is loaded.
+			let mut state = parked();
+			state.select_chat_link_channel(Id(1), Id(60)).unwrap();
+			assert_eq!(state.selected, Some(Id(1)));
+			assert_ne!(state.freshness, Freshness::Fresh, "case {delete_live}");
+			let mut state = parked();
+			state.select_chat_link_channel(Id(1), Id(100)).unwrap();
+			assert_eq!(
+				state.freshness == Freshness::Fresh,
+				!delete_live,
+				"only a live target restores locally (case {delete_live})"
+			);
+			// The full link then requests the target's page.
+			let mut state = parked();
 			let command = state
-				.open_chat_link(Some(Id(10)), Id(1), Some(Id(50)))
+				.open_chat_link(Some(Id(10)), Id(1), Some(Id(60)))
 				.unwrap();
 			assert!(matches!(
 				command,
 				Some(Command::History {
 					channel: Id(1),
-					before: None,
+					before: Some(Id(61)),
 					..
 				})
 			));
-			assert_eq!(state.status, "This message was deleted");
-			assert!(state.search_target.is_none());
 		}
 	}
 

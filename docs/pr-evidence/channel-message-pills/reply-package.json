@@ -1,0 +1,10 @@
+﻿{
+    "executable_bytes":  85465088,
+    "installed_bytes":  89638701,
+    "zip_bytes":  49781875,
+    "sha256":  "E0705376F029DFFA1EDB81E632B63CF432756CE491629E827AD7AEC617469813",
+    "source_base_commit":  "d22994121c818cd7fb5c48a33d670fc624dc8888",
+    "historical_comparison_commit":  "7d9c0d057ff8bc989d1f0509a2cd127b06a34c96",
+    "command":  "cargo xtask package",
+    "nsis_installer_available":  false
+}

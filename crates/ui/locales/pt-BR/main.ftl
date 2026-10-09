@@ -87,6 +87,11 @@ search-conversation = Pesquisar esta conversa
 show-member-list = Mostrar lista de membros
 pinned-messages = Mensagens fixadas
 threads = Tópicos
+
+channel-pill-thread = Tópico
+channel-pill-forum = Fórum
+channel-pill-post = Postagem
+channel-pill-message = mensagem
 reload-history = Recarregar histórico
 in-a-call = Em uma chamada
 members-description = Todos com acesso a esta conversa.
@@ -1686,7 +1691,6 @@ markdown-show-run-open-user-profile = Abrir perfil de usuário
 # Context: show_run
 markdown-show-run-reveal-spoiler = Revelar spoiler
 # Context: show_run
-markdown-show-run-unknown-channel-load-channel = Canal desconhecido, canal de carregamento
 
 ## crates/ui/src/mentions.rs
 # Context: show
@@ -3832,7 +3836,6 @@ timeline-show-with-scroll-edited = (editado)
 # Context: show_with_scroll
 timeline-show-with-scroll-forwarded = ↪ Encaminhado
 # Context: show_with_scroll
-timeline-show-with-scroll-hide-spoilers = Ocultar spoilers
 # Context: show_with_scroll
 timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = O histórico ainda não está disponível. Use Recarregar para tentar novamente.
 # Context: show_with_scroll

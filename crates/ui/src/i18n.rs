@@ -412,6 +412,33 @@ mod tests {
 	}
 
 	#[test]
+	fn channel_pill_labels_are_localized_in_every_catalog() {
+		for language in Language::ALL {
+			assert_ne!(
+				language.text("channel-pill-thread"),
+				language.text("channel-pill-post"),
+				"{language:?} must distinguish regular threads from forum posts"
+			);
+		}
+		for (key, english, czech) in [
+			("channel-pill-thread", "Thread", "Vlákno"),
+			("channel-pill-forum", "Forum", "Fórum"),
+			("channel-pill-post", "Post", "Příspěvek"),
+			("channel-pill-message", "message", "zpráva"),
+		] {
+			assert_eq!(Language::English.text(key), english);
+			assert_eq!(Language::Czech.text(key), czech);
+			for language in Language::ALL {
+				let label = language.text(key);
+				assert!(
+					!label.is_empty() && !label.starts_with("Unknown localization key:"),
+					"{language:?} {key}: {label}"
+				);
+			}
+		}
+	}
+
+	#[test]
 	fn counts_select_plural_forms() {
 		let since = |language: Language, count| {
 			language

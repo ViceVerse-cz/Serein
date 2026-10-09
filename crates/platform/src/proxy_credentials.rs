@@ -44,7 +44,7 @@ fn name() -> String {
 pub fn load() -> Result<Option<Credentials>, CredentialError> {
 	let raw = match entry(&name())?.get_password() {
 		Ok(value) => Zeroizing::new(value),
-		Err(keyring::Error::NoEntry) => return Ok(None),
+		Err(keyring_core::Error::NoEntry) => return Ok(None),
 		Err(_) => return Err(CredentialError::Unavailable),
 	};
 	if raw.len() > 8192 {
