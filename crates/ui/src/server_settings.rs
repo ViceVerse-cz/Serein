@@ -258,6 +258,15 @@ impl MessagingUi {
 		let scope = self.server_sound_scope()?;
 		Some((scope, self.server_settings.sounds.take_preview()?))
 	}
+	/// The scope of the sound being chosen or reviewed. Decoded audio for any other scope,
+	/// including a review that was reset without closing, can be released.
+	pub fn server_sound_review(&self) -> Option<(u64, Id, u64)> {
+		self.server_settings
+			.sounds
+			.reviewing()
+			.then(|| self.server_sound_scope())
+			.flatten()
+	}
 	/// True once after the sound review closed; its decoded audio can be released.
 	pub fn take_server_sound_closed(&mut self) -> bool {
 		self.server_settings.sounds.take_closed()

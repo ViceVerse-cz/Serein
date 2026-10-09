@@ -828,6 +828,7 @@ pub fn seed_soundboard(state: &mut State, guild: Id) {
 			.collect(),
 		loading: false,
 		loaded: true,
+		stale: false,
 		error: None,
 	};
 	state.soundboard.guild = Some((

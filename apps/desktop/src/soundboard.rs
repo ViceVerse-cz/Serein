@@ -40,16 +40,18 @@ pub struct Soundboard {
 	client: Option<reqwest::Client>,
 }
 impl Soundboard {
-	/// Mix `sound` into `effects` at `gain`, downloading it first when it is not cached.
-	/// Best effort: a failed or slow download plays nothing.
+	/// Mix `sound` played by `source` into `effects` at `volume * gain`, downloading it first
+	/// when it is not cached. Best effort: a failed or slow download plays nothing.
 	pub fn play(
 		&mut self,
 		runtime: &tokio::runtime::Runtime,
 		effects: &Effects,
 		sound: Id,
+		source: Id,
+		volume: f32,
 		gain: f32,
 	) {
-		if sound.0 == 0 || !gain.is_finite() || gain <= 0.0 {
+		if sound.0 == 0 || !(volume * gain).is_finite() || volume * gain <= 0.0 {
 			return;
 		}
 		let Ok(mut shared) = self.shared.lock() else {
@@ -57,7 +59,7 @@ impl Soundboard {
 		};
 		if let Some(index) = shared.clips.iter().position(|(id, _)| *id == sound) {
 			let entry = shared.clips.remove(index);
-			effects.play(entry.1.clone(), gain);
+			effects.play(entry.1.clone(), source.0, volume, gain);
 			shared.clips.push(entry);
 			return;
 		}
@@ -92,7 +94,7 @@ impl Soundboard {
 			if let Ok(clip) = clip {
 				shared.insert(sound, clip.clone());
 				if requested.elapsed() <= MAX_LATENESS {
-					effects.play(clip, gain);
+					effects.play(clip, source.0, volume, gain);
 				}
 			}
 		});
@@ -169,6 +171,22 @@ mod tests {
 			assert_eq!(short[..100], clip[..100]);
 		}
 		assert!(crate::audio::decode_clip(Vec::new(), MAX_CLIP_SAMPLES).is_err());
+
+		// A file longer than the streaming decoder accepts still yields its start: 601 s of
+		// 8 kHz mono exceeds the ten-minute limit that rejects such files elsewhere.
+		let data = vec![128u8; 8000 * 601];
+		let mut wav = Vec::with_capacity(44 + data.len());
+		wav.extend_from_slice(b"RIFF");
+		wav.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+		wav.extend_from_slice(b"WAVEfmt ");
+		for field in [16u32, 1 | 1 << 16, 8000, 8000, 1 | 8 << 16] {
+			wav.extend_from_slice(&field.to_le_bytes());
+		}
+		wav.extend_from_slice(b"data");
+		wav.extend_from_slice(&(data.len() as u32).to_le_bytes());
+		wav.extend_from_slice(&data);
+		let clip = crate::audio::decode_clip(wav, 48_000).unwrap();
+		assert_eq!(clip.len(), 48_000);
 		assert!(crate::audio::decode_clip(vec![0x42; 4096], MAX_CLIP_SAMPLES).is_err());
 	}
 }

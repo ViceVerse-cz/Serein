@@ -29,6 +29,8 @@ pub struct View {
 	pub emojis: Option<Emojis>,
 	pub stickers: Option<Stickers>,
 	pub sounds: Option<Sounds>,
+	/// Another client changed this server's sounds since `sounds` was read.
+	pub sounds_stale: bool,
 	pub members: Option<Members>,
 	pub query: Query,
 	pub pending: bool,
@@ -482,6 +484,9 @@ impl State {
 		if self.server_admin.guild != Some(guild) {
 			self.server_admin.reset();
 		}
+		if matches!(action, Action::LoadSounds) {
+			self.server_admin.sounds_stale = false;
+		}
 		if let Action::AuditLog(query) = &action {
 			if query.before.is_none() {
 				self.server_admin.audit_log = None;
@@ -847,6 +852,7 @@ impl State {
 				// The call panel's copy of this server's sounds reloads when next shown.
 				self.apply_soundboard(crate::soundboard::Event::Changed(event.guild));
 				self.server_admin.sounds = Some(page);
+				self.server_admin.sounds_stale = false;
 			}
 			Outcome::Members(page) => {
 				if let Some(enabled) = page.show_in_channel_list {
@@ -1512,6 +1518,28 @@ mod sound_tests {
 			})
 			.unwrap();
 		assert!(state.server_admin.error.is_none() && !state.server_admin.needs_refresh);
+
+		// A change made by another client marks the open catalog stale until it is read again.
+		state.apply_soundboard(crate::soundboard::Event::Changed(Id(2)));
+		assert!(state.server_admin.sounds_stale);
+		let Command::ServerAdmin { request, .. } = state
+			.request_server_admin(Id(2), Action::LoadSounds)
+			.unwrap()
+		else {
+			panic!()
+		};
+		assert!(!state.server_admin.sounds_stale);
+		state
+			.apply_server_admin(Event {
+				guild: Id(2),
+				request,
+				result: Ok(Outcome::Sounds(Sounds {
+					items: vec![row(4, "Mine", 1), row(6, "Air horn", 1)],
+					limit: Some(8),
+				})),
+			})
+			.unwrap();
+		assert!(!state.server_admin.sounds_stale);
 
 		// The call panel's copy of this server's sounds is marked stale by a management reload.
 		state.soundboard.guild = Some((

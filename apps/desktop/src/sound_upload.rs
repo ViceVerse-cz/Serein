@@ -103,6 +103,17 @@ impl SoundUpload {
 		self.player.stop();
 	}
 
+	/// Release the decoded audio once its review is gone, however the review ended.
+	pub fn retain(&mut self, review: Option<Scope>) {
+		if self
+			.session
+			.as_ref()
+			.is_some_and(|(scope, _)| Some(*scope) != review)
+		{
+			self.clear();
+		}
+	}
+
 	pub fn poll(
 		&mut self,
 		generation: u64,
@@ -344,6 +355,21 @@ mod tests {
 		assert!(read(damaged, &idle).is_err());
 		assert!(read(PathBuf::from("relative.mp3"), &idle).is_err());
 		std::fs::remove_dir_all(root).unwrap();
+	}
+
+	#[test]
+	fn decoded_audio_is_released_once_its_review_is_gone() {
+		let scope = (1, Id(2), 3);
+		let mut upload = SoundUpload::default();
+		upload.session = Some((scope, vec![0.0; 480].into()));
+		upload.retain(Some(scope));
+		assert!(upload.session.is_some());
+		// A reset editor, another review or a new session no longer owns the audio.
+		upload.retain(Some((2, Id(2), 3)));
+		assert!(upload.session.is_none());
+		upload.session = Some((scope, vec![0.0; 480].into()));
+		upload.retain(None);
+		assert!(upload.session.is_none());
 	}
 
 	#[test]

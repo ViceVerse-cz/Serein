@@ -16,6 +16,22 @@ use std::{
 use tokio::{runtime::Runtime, sync::watch, task::JoinHandle};
 use zeroize::Zeroizing;
 
+/// Listener gain for a soundboard sound played by `user`: the session soundboard volume and,
+/// for other participants, their local volume or mute. Blocked participants are silent.
+fn soundboard_gain(state: &State, ui: &ui::MessagingUi, me: Id, user: Id) -> f32 {
+	let listener = if user == me {
+		100
+	} else if state.user_blocked(user) == Some(true) {
+		0
+	} else {
+		ui.voice_user_volumes()
+			.iter()
+			.find(|(id, _)| *id == user.0)
+			.map_or(100, |(_, percent)| (*percent).min(200))
+	};
+	f32::from(ui.voice_soundboard_volume()) / 100.0 * f32::from(listener) / 100.0
+}
+
 fn permission_mutes_microphone(
 	state: &State,
 	channel: Id,
@@ -448,18 +464,9 @@ impl Voice {
 		{
 			return;
 		}
-		// A locally muted or quieter participant keeps that level for their sounds too.
-		let listener = if user == live.user {
-			100
-		} else {
-			ui.voice_user_volumes()
-				.iter()
-				.find(|(id, _)| *id == user.0)
-				.map_or(100, |(_, percent)| (*percent).min(200))
-		};
-		let gain =
-			volume * f32::from(ui.voice_soundboard_volume()) / 100.0 * f32::from(listener) / 100.0;
-		self.soundboard.play(runtime, &live.effects, sound, gain);
+		let gain = soundboard_gain(state, ui, live.user, user);
+		self.soundboard
+			.play(runtime, &live.effects, sound, user, volume, gain);
 	}
 	/// Take negotiation secrets before reducing the UI event. Nothing is persisted.
 	pub fn observe(&mut self, state: &State, event: &mut Event) -> Option<&'static str> {
@@ -821,6 +828,11 @@ impl Voice {
 				.effective()
 				.sensitivity_db
 				.unwrap_or(-70);
+			// Sounds already playing or still downloading follow later mutes, blocks and
+			// volume changes; transport clears them on deafen.
+			let me = live.user;
+			live.effects
+				.retune(|source| soundboard_gain(state, ui, me, Id(source)));
 			live.controls.send_if_modified(|control| {
 				if control.muted == muted
 					&& control.deafened == deafened

@@ -134,7 +134,8 @@ impl SoundsUi {
 	pub fn load(&mut self, state: &mut State, guild: Id) -> Option<Command> {
 		if state.server_admin.pending
 			|| (state.server_admin.guild == Some(guild)
-				&& (state.server_admin.error.is_some() || state.server_admin.sounds.is_some()))
+				&& (state.server_admin.error.is_some()
+					|| (state.server_admin.sounds.is_some() && !state.server_admin.sounds_stale)))
 		{
 			return None;
 		}
@@ -232,6 +233,11 @@ impl SoundsUi {
 	/// A request to play (`Some`) or stop (`None`) the selection on this device.
 	pub fn take_preview(&mut self) -> Option<Option<(u32, u32, u8)>> {
 		self.upload.as_mut()?.preview.take()
+	}
+
+	/// A file is being chosen or its upload review is open.
+	pub fn reviewing(&self) -> bool {
+		self.choosing || self.upload.is_some()
 	}
 
 	/// True once after the review closed, so the desktop can release the decoded audio.

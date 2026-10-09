@@ -2354,6 +2354,7 @@ impl Desktop {
 		self.emoji_upload.cancel();
 		self.sticker_upload.cancel();
 		self.sound_upload.cancel();
+		self.sound_upload.clear();
 		if let Some(store) = &mut self.store {
 			store.cancel_load();
 		}
@@ -2434,6 +2435,7 @@ impl Desktop {
 		self.emoji_upload.cancel();
 		self.sticker_upload.cancel();
 		self.sound_upload.cancel();
+		self.sound_upload.clear();
 		self.notifications.clear();
 		self.uploads.cancel();
 		if let Some(store) = &mut self.store {
@@ -7155,6 +7157,16 @@ impl eframe::App for Desktop {
 			if self.messaging.take_server_sound_closed() {
 				self.sound_upload.clear();
 			}
+			// A review reset by a permission change, a scope change or sign-out never reports
+			// closing; its decoded audio is released here instead.
+			let review = self
+				.messaging
+				.server_sound_review()
+				.filter(|(generation, guild, _)| {
+					*generation == self.state.generation
+						&& self.state.can_create_guild_sound(*guild)
+				});
+			self.sound_upload.retain(review);
 			for key in self.messaging.take_avatar_requests() {
 				if !self
 					.avatars

@@ -10,14 +10,19 @@ pub const MAX_CLIP_SAMPLES: usize = 48_000 * 6;
 struct Clip {
 	pcm: Arc<[f32]>,
 	position: usize,
+	/// The participant who played the sound and the sound's own volume (0 to 1).
+	source: u64,
+	volume: f32,
 	gain: f32,
 }
 #[derive(Clone, Default)]
 pub struct Effects(Arc<Mutex<Vec<Clip>>>);
 impl Effects {
-	/// Queue 48 kHz mono PCM at `gain` (0 to 2). A full mixer replaces its oldest clip.
-	pub fn play(&self, pcm: Arc<[f32]>, gain: f32) -> bool {
-		if pcm.is_empty() || pcm.len() > MAX_CLIP_SAMPLES || !gain.is_finite() || gain <= 0.0 {
+	/// Queue 48 kHz mono PCM from `source` at `volume * gain`, capped at 2. A full mixer
+	/// replaces its oldest clip.
+	pub fn play(&self, pcm: Arc<[f32]>, source: u64, volume: f32, gain: f32) -> bool {
+		let level = volume * gain;
+		if pcm.is_empty() || pcm.len() > MAX_CLIP_SAMPLES || !level.is_finite() || level <= 0.0 {
 			return false;
 		}
 		let Ok(mut clips) = self.0.lock() else {
@@ -29,9 +34,23 @@ impl Effects {
 		clips.push(Clip {
 			pcm,
 			position: 0,
-			gain: gain.min(2.0),
+			source,
+			volume,
+			gain: level.min(2.0),
 		});
 		true
+	}
+	/// Re-apply the listener's current gain for each clip's source, so muting, blocking or
+	/// turning a participant down also affects sounds that are already playing. A zero gain
+	/// drops the clip.
+	pub fn retune(&self, gain: impl Fn(u64) -> f32) {
+		let Ok(mut clips) = self.0.lock() else {
+			return;
+		};
+		for clip in clips.iter_mut() {
+			clip.gain = (clip.volume * gain(clip.source)).min(2.0);
+		}
+		clips.retain(|clip| clip.gain.is_finite() && clip.gain > 0.0);
 	}
 	pub fn clear(&self) {
 		if let Ok(mut clips) = self.0.lock() {
@@ -74,17 +93,17 @@ mod tests {
 		effects.mix(&mut frame);
 		assert!(frame.is_none(), "an idle mixer never invents playback");
 
-		assert!(!effects.play(Arc::from([]), 1.0));
-		assert!(!effects.play(vec![0.1; MAX_CLIP_SAMPLES + 1].into(), 1.0));
-		assert!(!effects.play(vec![0.1; 10].into(), 0.0));
-		assert!(!effects.play(vec![0.1; 10].into(), f32::NAN));
+		assert!(!effects.play(Arc::from([]), 1, 1.0, 1.0));
+		assert!(!effects.play(vec![0.1; MAX_CLIP_SAMPLES + 1].into(), 1, 1.0, 1.0));
+		assert!(!effects.play(vec![0.1; 10].into(), 1, 1.0, 0.0));
+		assert!(!effects.play(vec![0.1; 10].into(), 1, f32::NAN, 1.0));
 
 		// 1.5 frames at half gain over existing voice, then a clamped loud clip.
-		assert!(effects.play(vec![0.5; 1440].into(), 0.5));
+		assert!(effects.play(vec![0.5; 1440].into(), 1, 1.0, 0.5));
 		let mut frame = Some([0.25; 960]);
 		effects.mix(&mut frame);
 		assert!(frame.unwrap().iter().all(|sample| *sample == 0.5));
-		assert!(effects.play(vec![f32::NAN, 1.0, 1.0].into(), 9.0));
+		assert!(effects.play(vec![f32::NAN, 1.0, 1.0].into(), 1, 1.0, 9.0));
 		let mut frame = None;
 		effects.mix(&mut frame);
 		let mixed = frame.unwrap();
@@ -96,7 +115,7 @@ mod tests {
 		assert!(frame.is_none(), "finished clips are released");
 
 		for index in 0..=MAX_CLIPS {
-			assert!(effects.play(vec![index as f32 / 100.0; 960].into(), 1.0));
+			assert!(effects.play(vec![index as f32 / 100.0; 960].into(), 1, 1.0, 1.0));
 		}
 		assert_eq!(effects.0.lock().unwrap().len(), MAX_CLIPS);
 		assert_eq!(effects.0.lock().unwrap()[0].pcm[0], 0.01);
@@ -104,5 +123,21 @@ mod tests {
 		let mut frame = None;
 		effects.mix(&mut frame);
 		assert!(frame.is_none());
+	}
+	#[test]
+	fn retuning_applies_current_listener_gain_to_playing_clips() {
+		let effects = Effects::default();
+		assert!(effects.play(vec![0.5; 1920].into(), 7, 0.5, 1.0));
+		assert!(effects.play(vec![0.5; 1920].into(), 9, 1.0, 1.0));
+		// Participant 7 turned up, participant 9 muted or blocked mid-sound.
+		effects.retune(|source| if source == 7 { 2.0 } else { 0.0 });
+		let mut frame = None;
+		effects.mix(&mut frame);
+		assert!(frame.unwrap().iter().all(|sample| *sample == 0.5));
+		assert_eq!(effects.0.lock().unwrap().len(), 1);
+		effects.retune(|_| 0.0);
+		let mut frame = None;
+		effects.mix(&mut frame);
+		assert!(frame.is_none(), "silenced clips are released");
 	}
 }

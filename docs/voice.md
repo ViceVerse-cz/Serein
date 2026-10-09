@@ -176,12 +176,15 @@ decryption and before the speaker volume, so the selected output device, **Speak
 deafen and the echo-cancellation reference all apply. The panel's **Soundboard volume**
 (0% to 100%, session-only, initially 100%) scales every sound together with the level the
 server configured for it. A participant's **User volume** and local mute also apply to the
-sounds they play, and sounds from blocked users are skipped. Sounds also play while waiting
-alone in a channel.
+sounds they play, and sounds from blocked users are skipped. These controls are re-applied
+while a sound plays, so muting, blocking or turning someone down also affects a sound that is
+already playing or still downloading. Sounds also play while waiting alone in a channel.
 
 Limits: catalogs are session-only and bounded to 256 sounds and 128 KiB per catalog (one
 server's catalog plus the defaults; responses over 256 KiB are rejected). A server sound
-change marks that catalog stale and it reloads the next time the panel is shown. Sound files
+change marks that catalog stale and it reloads the next time the panel is shown; a change
+that arrives while the catalog is loading triggers one more read. An open **Server Settings >
+Soundboard** page reloads its list the same way. Sound files
 are fetched without credentials from `cdn.discordapp.com/soundboard-sounds/{id}`, limited to
 1 MiB and a 10-second transfer, decoded off the UI and audio threads (MP3, Ogg Vorbis or Ogg
 Opus) to 48 kHz mono and truncated at six seconds. At most four downloads run at once and
@@ -226,9 +229,12 @@ selection on the default output device at the chosen volume, and a playhead foll
 A short MP3 or Ogg file (at most 5.2 seconds and 512 KB) whose whole length is selected is
 uploaded unchanged. Any trimmed selection, and every WAV file, is re-encoded on a worker
 thread as mono Ogg Opus at 96 kbit/s with a 5 ms fade at each cut, which stays far below
-512 KB. Audio beyond the first five minutes of a file is not shown. While the review is
-open the decoded audio (48 kHz mono, at most 57.6 MB for five minutes) and its waveform
-peaks (one per 10 ms, at most 30 KB) are held in RAM; closing the review releases them.
+512 KB. Audio beyond the first five minutes of a file is not shown; longer files are
+truncated rather than rejected (a high-rate stereo file may end sooner, at the decoder's
+64 MiB sample limit). While the review is open the decoded audio (48 kHz mono, at most
+57.6 MB for five minutes) and its waveform peaks (one per 10 ms, at most 30 KB) are held in
+RAM; closing the review, or anything else that ends it, such as a permission change or
+signing out, releases them.
 Nothing is written to disk. The related emoji is a text field for one Unicode emoji: there
 is no emoji picker, and a sound's existing custom emoji is kept on edit but cannot be
 chosen. Sounds cannot be previewed from the list.

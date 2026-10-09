@@ -55,6 +55,8 @@ pub struct Catalog {
 	pub sounds: Vec<Sound>,
 	pub loading: bool,
 	pub loaded: bool,
+	/// The sounds changed while a read was outstanding; its response is shown but reloaded.
+	pub stale: bool,
 	pub error: Option<&'static str>,
 }
 impl Catalog {
@@ -64,6 +66,7 @@ impl Catalog {
 			return false;
 		}
 		self.loading = true;
+		self.stale = false;
 		self.error = None;
 		true
 	}
@@ -78,7 +81,7 @@ impl Catalog {
 					&& sounds.iter().all(|sound| sound.guild == guild) =>
 			{
 				self.sounds = sounds;
-				self.loaded = true;
+				self.loaded = !std::mem::take(&mut self.stale);
 				self.error = None;
 			}
 			Ok(_) => self.error = Some(Failure::Capacity.label()),
@@ -251,9 +254,15 @@ impl State {
 			}
 			Event::Changed(guild) => {
 				if let Some((id, catalog)) = &mut self.soundboard.guild
-					&& *id == guild && !catalog.loading
+					&& *id == guild
 				{
+					// A read already in flight may predate the change; it is repeated.
+					catalog.stale = catalog.loading;
 					catalog.loaded = false;
+				}
+				// The open management page reloads too, once its current request settles.
+				if self.server_admin.guild == Some(guild) && self.server_admin.sounds.is_some() {
+					self.server_admin.sounds_stale = true;
 				}
 			}
 			Event::Effect { .. } => {}
@@ -409,6 +418,22 @@ mod tests {
 			state.request_soundboard(),
 			[None, Some(Command::Soundboard(Request::Guild(Id(9))))]
 		));
+		// A change during that read keeps its response but schedules another read.
+		state.apply_soundboard(Event::Changed(Id(9)));
+		state.apply_soundboard(Event::Guild {
+			guild: Id(9),
+			result: Ok(vec![sound(4, Some(9))]),
+		});
+		assert!(state.soundboard.sound(Id(4)).is_some());
+		assert!(matches!(
+			state.request_soundboard(),
+			[None, Some(Command::Soundboard(Request::Guild(Id(9))))]
+		));
+		state.apply_soundboard(Event::Guild {
+			guild: Id(9),
+			result: Ok(vec![sound(4, Some(9))]),
+		});
+		assert!(state.request_soundboard().iter().all(Option::is_none));
 
 		state.voice.active.as_mut().unwrap().guild = None;
 		assert!(state.request_soundboard().iter().all(Option::is_none));
