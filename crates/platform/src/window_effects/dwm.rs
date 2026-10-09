@@ -8,9 +8,10 @@ use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
-	GWL_STYLE, GetPropW, GetWindowLongPtrW, RemovePropW, STYLESTRUCT, SWP_FRAMECHANGED,
-	SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetPropW, SetWindowLongPtrW,
-	SetWindowPos, WM_NCDESTROY, WM_STYLECHANGING, WS_SYSMENU,
+	GWL_STYLE, GetPropW, GetWindowLongPtrW, HTCAPTION, RemovePropW, SC_MOVE, STYLESTRUCT,
+	SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetPropW,
+	SetWindowLongPtrW, SetWindowPos, WM_NCDESTROY, WM_NCLBUTTONDOWN, WM_STYLECHANGING,
+	WM_SYSCOMMAND, WS_SYSMENU,
 };
 use windows::core::{PCWSTR, w};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -34,6 +35,17 @@ unsafe extern "system" fn custom_caption(
 		if message == WM_NCDESTROY {
 			let _ = RemoveWindowSubclass(hwnd, Some(custom_caption), id);
 			let _ = RemovePropW(hwnd, REQUESTED_MENU);
+		}
+		if (message == WM_NCLBUTTONDOWN && wparam.0 == HTCAPTION as usize)
+			|| (message == WM_SYSCOMMAND && (wparam.0 & 0xFFF0) == SC_MOVE as usize)
+		{
+			let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+			if style & WS_SYSMENU.0 as isize == 0 {
+				SetWindowLongPtrW(hwnd, GWL_STYLE, style | WS_SYSMENU.0 as isize);
+				let result = DefSubclassProc(hwnd, message, wparam, lparam);
+				SetWindowLongPtrW(hwnd, GWL_STYLE, style);
+				return result;
+			}
 		}
 		let result = DefSubclassProc(hwnd, message, wparam, lparam);
 		if message == WM_STYLECHANGING && wparam.0 as i32 == GWL_STYLE.0 {
@@ -179,6 +191,56 @@ mod tests {
 			set_custom_caption(hwnd, false).unwrap();
 			assert_eq!(GetWindowLongPtrW(hwnd, GWL_STYLE), style);
 			set_custom_caption(hwnd, true).unwrap();
+			DestroyWindow(hwnd).unwrap();
+		}
+	}
+
+	#[test]
+	fn custom_caption_allows_drag_without_leaking_menu() {
+		// SAFETY: this hidden test window is created, used and destroyed on this thread.
+		unsafe {
+			let hwnd = CreateWindowExW(
+				WINDOW_EX_STYLE::default(),
+				w!("STATIC"),
+				w!("drag test"),
+				WS_OVERLAPPEDWINDOW,
+				0,
+				0,
+				100,
+				100,
+				None,
+				None,
+				None,
+				None,
+			)
+			.unwrap();
+			let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+			set_custom_caption(hwnd, true).unwrap();
+			assert_eq!(
+				GetWindowLongPtrW(hwnd, GWL_STYLE),
+				style & !(WS_SYSMENU.0 as isize)
+			);
+			use windows::Win32::UI::WindowsAndMessaging::SendMessageW;
+			let _ = SendMessageW(
+				hwnd,
+				WM_NCLBUTTONDOWN,
+				Some(WPARAM(HTCAPTION as usize)),
+				Some(LPARAM(0)),
+			);
+			assert_eq!(
+				GetWindowLongPtrW(hwnd, GWL_STYLE),
+				style & !(WS_SYSMENU.0 as isize)
+			);
+			let _ = SendMessageW(
+				hwnd,
+				WM_SYSCOMMAND,
+				Some(WPARAM(SC_MOVE as usize)),
+				Some(LPARAM(0)),
+			);
+			assert_eq!(
+				GetWindowLongPtrW(hwnd, GWL_STYLE),
+				style & !(WS_SYSMENU.0 as isize)
+			);
 			DestroyWindow(hwnd).unwrap();
 		}
 	}
