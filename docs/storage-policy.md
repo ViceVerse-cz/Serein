@@ -565,7 +565,9 @@ processing has no downloaded model, recording, or persistent audio data.
 Recently visited conversations now keep at most two dormant RAM timelines in the current
 account session, moved rather than cloned. Only readable Fresh ordinary text windows are parked;
 search-target ranges and transient archived threads are excluded. Promotion rechecks identity
-and read permission, shows a Loading preview, and always requests a fresh recent service page.
+and read permission. Ordinary selection shows a Loading preview and requests a fresh recent
+service page. An exact message-link hit in an eligible resident window instead scrolls locally,
+without starting recent-history or saved-cursor REST. An offline miss is checked before promotion.
 This is a preview cache, not saved historical scroll position. It avoids a SQLite read on a hit.
 Unknown/deleted-only row handling retains the same guards as the active window.
 
@@ -576,7 +578,9 @@ B-tree slack allowance; it is not an allocator or RSS measurement. Each individu
 its existing 500-row / 4 MiB payload limit. Oldest whole dormant windows are evicted when needed,
 without touching drafts or pending sends. Incoming mutations evict the affected dormant channel;
 permission/identity changes prune it, and session replacement/resync/logout removes all dormant
-history. Clear cached history removes dormant RAM and disk history while preserving the active
+history. One fixed-size, session-only `(channel, request, target)` tuple tracks an exact history
+navigation independently of the UI's consumed scroll cue; it is not a message/metadata cache.
+Clear cached history removes dormant RAM and disk history while preserving the active
 displayed conversation. No new disk data, database schema, worker or service request is added.
 
 Loaded messages deleted by the service leave only their ID as a session-local reading row.
