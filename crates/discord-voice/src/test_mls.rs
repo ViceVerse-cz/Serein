@@ -370,13 +370,13 @@ fn protocol_transitions_execute_independently_of_mls_and_do_not_clobber_pending(
 	assert_eq!(charlie.pending, Some(11));
 	assert!(!charlie.ready);
 
-	// Executing MLS transition first validates the group, but ready waits for protocol transition.
+	// A protocol transition keeps the keys, so an executed MLS transition is enough for media.
 	charlie.execute(11).unwrap();
 	assert_eq!(charlie.pending, None);
 	assert_eq!(charlie.pending_protocol, Some(10));
-	assert!(!charlie.ready);
+	assert!(charlie.ready);
 
-	// Executing protocol transition completes readiness.
+	// The later protocol execute is still accepted.
 	charlie.execute(10).unwrap();
 	assert_eq!(charlie.pending_protocol, None);
 	assert!(charlie.ready);

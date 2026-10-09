@@ -49,8 +49,7 @@ fn negotiation_timeout(
 		"Discord voice Ready timed out; rejoin the call"
 	} else if !key {
 		"Discord voice protocol selection timed out; no transport key was received"
-	} else if dave.session.is_ready() && (dave.pending.is_some() || dave.pending_protocol.is_some())
-	{
+	} else if dave.session.is_ready() && dave.transitioning() {
 		"Discord DAVE transition execution timed out; no audio was enabled"
 	} else {
 		"Discord DAVE group negotiation timed out; no accepted commit or welcome was received"
@@ -1127,7 +1126,7 @@ async fn run_stream_inner(
 		// epoch before any further packet is sent, including between paced batches.
 		if !announced
 			|| !dave.ready
-			|| dave.pending.is_some()
+			|| dave.transitioning()
 			|| !dave.session.is_ready()
 			|| video
 				.as_ref()
@@ -1186,13 +1185,13 @@ async fn run_stream_inner(
 					awaiting_ack=Some(heartbeat_nonce); heartbeat_at=now+Duration::from_millis(interval);
 				}
 				if secured_at.is_some_and(|at| now>=at+PEER_GRACE) && !discovering && dave.should_wait_for_peer() {dave.enter_sole_member_waiting()?;}
-				let waiting=dave.waiting && dave.pending.is_none() && dave.pending_protocol.is_none() && encryption.is_some() && !discovering;
+				let waiting=dave.waiting && !dave.transitioning() && encryption.is_some() && !discovering;
 				if waiting {deadline=None;}
 				if waiting!=waiting_announced {
 					emit(if waiting {Status::WaitingForPeer} else {Status::Securing}).map_err(|_|"Stream interface closed")?;
 					waiting_announced=waiting;
 				}
-				let secure=dave.ready&&dave.session.is_ready()&&dave.pending.is_none()&&dave.pending_protocol.is_none()&&encryption.is_some()&&!discovering;
+				let secure=dave.ready&&dave.session.is_ready()&&!dave.transitioning()&&encryption.is_some()&&!discovering;
 				// A rekey can begin after initial readiness cleared the allocation deadline.
 				if !secure && !waiting {deadline.get_or_insert(now+Duration::from_secs(30));}
 				if secure && let Some(video)=&video && let Some(target)=rate.tick(now) {
@@ -1218,7 +1217,7 @@ async fn run_stream_inner(
 				if !secure && announced {announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);emit(Status::Securing).map_err(|_|"Stream interface closed")?;}
 				metrics.stream_state([
 					encryption.is_some() && !discovering, dave.ready, dave.session.is_ready(),
-					dave.pending.is_some() || dave.pending_protocol.is_some(), waiting, announced,
+					dave.transitioning(), waiting, announced,
 					video.as_ref().is_some_and(|video|video.ready.load(Ordering::Acquire)),
 					share_audio.is_some() || audio.is_some(),
 				], video.as_ref().and_then(|video|video.audio.as_ref()).map_or(0,|source|source.len()));
@@ -1274,7 +1273,7 @@ async fn run_stream_inner(
 			frame=async {match video.as_mut() {Some(video)=>video.frames.recv().await,None=>std::future::pending().await}}, if outgoing.is_empty()=>{
 				let Some(frame)=frame else {return Ok(());};
 				if frame.data.len()>2*1024*1024 {return Err("Encoded stream frame exceeds the sharing limit");}
-				let secure=announced&&dave.ready&&dave.session.is_ready()&&dave.pending.is_none()&&encryption.is_some()&&!discovering&&video.as_ref().is_some_and(|video|video.ready.load(Ordering::Acquire));
+				let secure=announced&&dave.ready&&dave.session.is_ready()&&!dave.transitioning()&&encryption.is_some()&&!discovering&&video.as_ref().is_some_and(|video|video.ready.load(Ordering::Acquire));
 				if !secure {awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);continue;}
 				if awaiting_keyframe && !frame.keyframe {continue;}
 				let start=metrics.start();
@@ -1296,7 +1295,7 @@ async fn run_stream_inner(
 				if length>MAX_PACKET {continue;}
 				let Some(crypto)=&encryption else {continue;};
 				if let Some(video)=&video && let Some(feedback)=crypto.feedback(&packet[..length],video_ssrc) {
-					if announced && dave.ready && dave.pending.is_none() && video.ready.load(Ordering::Acquire) {
+					if announced && dave.ready && !dave.transitioning() && video.ready.load(Ordering::Acquire) {
 						let now=Instant::now();
 						rate.observe(feedback.loss,feedback.bitrate);
 						let missing=if rtx_ssrc!=0 {history.request(&feedback.nacks,now)} else {!feedback.nacks.is_empty()};

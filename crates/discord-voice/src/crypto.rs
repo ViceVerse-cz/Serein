@@ -359,8 +359,7 @@ impl Dave {
 	pub fn should_wait_for_peer(&self) -> bool {
 		!self.ready
 			&& !self.waiting
-			&& self.pending.is_none()
-			&& self.pending_protocol.is_none()
+			&& !self.transitioning()
 			&& self.alone()
 			&& self.session.group().is_some()
 	}
@@ -629,6 +628,12 @@ impl Dave {
 		}
 		Ok(())
 	}
+	/// A transition Discord has prepared but not yet executed.
+	pub fn transitioning(&self) -> bool {
+		self.pending.is_some() || self.pending_protocol.is_some()
+	}
+	/// Unverified: Discord can prepare protocol version 1 before the MLS group exists.
+	/// Only version 1 is accepted, so a protocol transition never changes the media keys.
 	pub fn prepare_protocol(&mut self, id: u16) {
 		self.pending_protocol = Some(id);
 	}
@@ -641,22 +646,19 @@ impl Dave {
 		if is_protocol {
 			self.pending_protocol = None;
 		}
-		if is_mls {
-			if !self.session.is_ready() {
-				if is_protocol {
-					return Ok(());
-				}
-				return Err("Unexpected DAVE encryption transition");
-			}
-			self.validate_group()?;
-			self.pending = None;
-			if self.pending_protocol.is_none() {
-				self.ready = true;
-			}
-		} else if self.pending.is_none() && self.session.is_ready() && self.validate_group().is_ok()
-		{
-			self.ready = true;
+		if !self.session.is_ready() {
+			return if is_protocol {
+				Ok(())
+			} else {
+				Err("Unexpected DAVE encryption transition")
+			};
 		}
+		if !is_mls && self.pending.is_some() {
+			return Ok(());
+		}
+		self.validate_group()?;
+		self.pending = None;
+		self.ready = true;
 		Ok(())
 	}
 }
