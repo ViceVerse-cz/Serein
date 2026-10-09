@@ -1,5 +1,18 @@
 # Local storage policy and audit
 
+## Off-screen inline image retention (October 9, 2026)
+
+Inline media renditions now release their still and playback textures after 60 seconds
+without painting. Painting or accepting a still refreshes its deadline; viewer resources
+keep their existing immediate-close cleanup. The existing host maintenance wakeup also
+covers this expiry, so an idle window can release previously viewed images. The five-second
+unplayed-animation frame expiry remains separate. Existing item/byte ceilings, account
+isolation, request admission and encoded disk caching are unchanged. Returning to expired
+artwork uses the normal image worker; a disk miss may require another fetch. No history,
+credentials, preferences or disk files are removed. GPU/allocator reclamation is controlled
+by the renderer and OS, so released texture accounting is not an equal whole-process RAM
+reduction guarantee.
+
 ## Profile board games (October 7, 2026)
 
 Board metadata uses the existing on-demand profile worker and RAM profile cache,

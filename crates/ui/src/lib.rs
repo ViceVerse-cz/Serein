@@ -975,7 +975,7 @@ impl MessagingUi {
 	pub fn take_avatar_requests(&mut self) -> Vec<String> {
 		self.avatars.take_requests()
 	}
-	/// When unplayed animation frames can next be released; see `take_avatar_requests`.
+	/// Next idle animation/inline texture release; see `take_avatar_requests`.
 	pub fn avatar_release_at(&self) -> Option<std::time::Instant> {
 		self.avatars.next_release()
 	}

@@ -4,6 +4,77 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Long-session live memory inspection — October 9, 2026
+
+Read-only `vmmap -summary`, `footprint` and `heap -s` inspected the owner's already-running
+macOS process after 11 hours 33 minutes. No messages, calls, microphone use, UI interaction,
+restart, payload dump or credential access occurred. Host: Apple M1 Pro, 16 GiB RAM,
+macOS 27.0.1 (26A434). The installed executable's timestamp was October 7;
+its source commit and enabled features were unavailable. It therefore appears to predate
+main's October 8 idle-animation cleanup (`1b3e4a7b`), but this is not verified build provenance.
+
+Physical footprint was 382.0 MiB, with a lifetime peak of 528.6 MiB. Ordinary `ps` RSS was
+about 70.5 MiB; compressed/swapped private pages explain much of the discrepancy. The
+697.2 MiB resident-region sum includes shared code/library pages and is not the app's
+private footprint. The roughly 390 GiB virtual total is mostly reserved guard address
+space, not RAM consumption.
+
+| Allocation/category | Live snapshot | Interpretation |
+| --- | ---: | --- |
+| Allocated heap across malloc zones | 215.3 MiB | Includes Rust buffers and native objects; not all message state |
+| Heap dirty/swapped space beyond allocated bytes | 42.7 MiB | Allocator fragmentation/free space, as reported by `vmmap` |
+| Owned graphics backing | 84.4 MiB | Driver/GPU resources charged to the process |
+| IOSurface | 26.9 MiB | Shared graphics surfaces |
+| IOAccelerator graphics | 1.6 MiB | Additional mapped graphics resources |
+
+These categories leave roughly 11 MiB for other footprint charges. Heap inspection found
+205.7 MiB of untyped allocations, including hundreds of blocks around 208–800 KiB; this
+is consistent with decoded image/frame sizes, not proof of their owner. Allocation stack
+logging was not enabled, so exact attribution to Rust types/functions is unavailable.
+One snapshot and a lifetime peak do not demonstrate a leak or a growth rate. Aggregate
+sizes only are recorded here; no account data or heap payloads are published.
+A second `footprint` sample at 11 hours 54 minutes reported 362 MiB (about 20 MiB less),
+with graphics categories unchanged. The original production executable was still running;
+no fix had been installed. Host builds were active, and app interaction was not controlled,
+so this is an observation of ordinary variation, not an improvement from this PR.
+
+Current main additionally keeps inline still textures in a 96-MiB / 384-item pool until
+capacity eviction. The change expires renditions not painted for 60 seconds, using the
+existing maintenance wakeup. Visible renditions refresh their deadline, while viewer-close
+and five-second unplayed-frame cleanup retain their existing behavior. The pool's byte
+accounting describes retained texture/frame resources, not whole-process memory.
+
+Compared baseline `481a0c41` with this change on the same host, pinned Rust 1.98.1,
+locked dependencies and release profile (fat LTO). The ignored `ui` library workload
+`still_memory_workload` admits 160 synthetic 512×288 stills through the media library,
+consumes upload deltas, then advances the maintenance clock by 61 seconds without painting.
+It has no window, GPU, network or account. One warmup and three direct test-binary runs per
+revision produced identical retained-byte counts:
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Peak retained inline texture bytes | 94,371,840 (90 MiB) | 94,371,840 (90 MiB) | 0 |
+| Retained inline texture bytes after expiry | 94,371,840 (90 MiB) | 0 | −94,371,840 (−100%) |
+
+These are texture-size accounting values, not measured GPU allocations or process RSS.
+Regression tests additionally verify a renderer free delta, the exact expiry boundary,
+painting renewal, reload eligibility and viewer-close cleanup. Native desktop automation
+was not exposed in this session, so a scripted native populated-cache comparison was not
+obtained. Native GPU reclamation, before/after process footprint, day-long soak, frame
+latency and other platforms remain unmeasured. The production app was not replaced.
+
+Both revisions passed standard `cargo xtask package` with voice included, no default
+features and the locked release profile. Each app was saved separately; installed bytes
+sum all app files, and distribution ZIPs use `ditto -c -k --sequesterRsrc --keepParent`.
+
+| Package metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 68,657,520 B | 68,657,536 B | +16 B (+0.000023%) |
+| Installed app | 74,695,855 B | 74,695,871 B | +16 B (+0.000021%) |
+| Distribution ZIP | 48,255,410 B | 48,255,390 B | -20 B (-0.000041%) |
+
+These package deltas are negligible. Both packages were locally ad-hoc signed, not notarized.
+
 ## Gateway resume fallback — October 8, 2026
 
 Compared baseline `2164f52e` with implementation `2ebc48a7` on Windows 11 x64,

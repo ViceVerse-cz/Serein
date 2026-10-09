@@ -313,8 +313,7 @@ impl Avatars {
 		}
 		self.media.release_idle(now);
 	}
-	/// When the next unplayed frame set becomes releasable; the host wakes then so an idle window
-	/// does not keep frames it stopped playing.
+	/// Next idle frame/inline texture release; the host wakes then to trim an idle window.
 	pub fn next_release(&self) -> Option<Instant> {
 		self.animations
 			.values()
@@ -1876,7 +1875,10 @@ mod tests {
 		assert!(images.media.animation(&rendition).is_none());
 		assert!(images.media.bytes() < playing);
 		assert!(images.texture_id(&key).is_some(), "The still is kept");
-		assert!(images.next_release().is_none());
+		assert!(
+			images.next_release().is_some(),
+			"The still has its own expiry"
+		);
 		paint(&mut images, false);
 		assert!(
 			images.take_requests().is_empty(),
