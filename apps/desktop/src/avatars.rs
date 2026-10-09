@@ -110,6 +110,7 @@ struct FrameBudget {
 }
 
 impl Budget {
+	/// Allocates decode and canvas memory bounds for unrenditioned avatars and embeds.
 	fn legacy(edge: u32) -> Self {
 		let embed = edge >= ui::EMBED_EDGE;
 		Self {
@@ -127,6 +128,7 @@ impl Budget {
 }
 
 impl FrameBudget {
+	/// Bounded frame and memory budget for animated avatars and previews.
 	fn legacy(edge: u32) -> Self {
 		Self {
 			fit: edge.min(ui::EMBED_EDGE),
@@ -137,6 +139,7 @@ impl FrameBudget {
 	}
 }
 
+/// Determines the memory and dimension bounds for decoding the image identified by `key`.
 fn budget(key: &str) -> Budget {
 	let Some(rendition) = Rendition::parse(key) else {
 		let edge = decode_edge(key);
