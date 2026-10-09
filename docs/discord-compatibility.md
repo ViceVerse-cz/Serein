@@ -246,9 +246,10 @@ its normal permission and metadata-budget guards. Unloaded archives, unknown cha
 and unsupported channel kinds remain unavailable; navigation does not discover
 arbitrary channels, join servers, open unknown DMs, unarchive threads or join calls.
 
-Fresh loaded messages, including an eligible dormant resident window, scroll and
-highlight locally without recent-history or saved-cursor revalidation. Other message
-targets reuse the bounded 50-message before-window request. One request-scoped target
+Fresh loaded messages, including an eligible dormant resident window that holds the
+live target, scroll and highlight locally without recent-history or saved-cursor
+revalidation; a restored window without it is not presented as loaded. Other message
+targets reuse the bounded 50-message request for the window before the target. One request-scoped target
 survives consumption of the UI scroll cue; completion verifies the exact message ID,
 not just a neighboring result. Repeated pending clicks share the request. Superseded,
 wrong-channel and old-session responses cannot settle the current target. Known

@@ -636,7 +636,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|channel-links|profile-card|member-tags|dm-tags|account|appearance|general|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--scroll=PIXELS] [--light] [--compact] [--transparency=0..100]".into());
+		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|channel-links|channel-link-replies|profile-card|member-tags|dm-tags|account|appearance|general|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--scroll=PIXELS] [--light] [--compact] [--transparency=0..100]".into());
 	}
 	let smoke = args.iter().any(|arg| arg == "--smoke");
 	let interactive = args.iter().any(|arg| arg == "--interactive");
@@ -679,7 +679,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "forum-settings"
 			| "friends"
 	) {
-		return Err("Page must be profile, markdown, channel-links, profile-card, member-tags, dm-tags, account, appearance, general, keybinds, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement, server-safety, server-emoji, server-stickers, server-members, server-roles, server-invites, server-integrations or server-audit-log".into());
+		return Err("Page must be profile, markdown, channel-links, channel-link-replies, profile-card, member-tags, dm-tags, account, appearance, general, keybinds, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement, server-safety, server-emoji, server-stickers, server-members, server-roles, server-invites, server-integrations or server-audit-log".into());
 	}
 	let slash_command = value("--command=").unwrap_or("help").to_owned();
 	if !matches!(slash_command.as_str(), "help" | "weather") {

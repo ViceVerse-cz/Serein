@@ -160,9 +160,13 @@ impl State {
 		}
 		// Restore the resident window without first starting a recent-history or
 		// saved-reading-cursor request. Selection alone never sends or joins voice.
-		self.select_chat_link_channel(channel)?;
+		self.select_chat_link_channel(channel, message)?;
 		if self.timeline.is_deleted(message) {
 			self.status = "This message was deleted";
+			// A window that could not be restored as loaded still needs its recent page.
+			if self.freshness != Freshness::Fresh && self.gateway_connected {
+				return Ok(Some(self.history(None)));
+			}
 			return Err("This message was deleted");
 		}
 		if self.freshness == Freshness::Fresh
@@ -340,16 +344,12 @@ impl State {
 }
 
 #[cfg(test)]
-#[path = "message_link_tests.rs"]
-mod navigation_tests;
-
-#[cfg(test)]
 mod tests {
 	use super::*;
 	use crate::{Envelope, Event, Pending, auth::Failure};
 	use model::{Channel, Delivery, Message, User};
 
-	pub(super) fn message(id: u64) -> Message {
+	fn message(id: u64) -> Message {
 		Message {
 			poll: None,
 			sticker_items: Vec::new(),
@@ -392,7 +392,7 @@ mod tests {
 			embeds_suppressed: false,
 		}
 	}
-	pub(super) fn state() -> State {
+	fn state() -> State {
 		let mut state = State {
 			user: Some(message(1).author),
 			auth: AuthState::Authenticated,
@@ -422,7 +422,7 @@ mod tests {
 		state.timeline.insert(source, false, false).unwrap();
 		state
 	}
-	pub(super) fn apply(state: &mut State, event: Event) {
+	fn apply(state: &mut State, event: Event) {
 		state.apply(Envelope {
 			generation: state.generation,
 			event,
@@ -472,7 +472,7 @@ mod tests {
 		);
 		assert_eq!(state.pending.len(), 1);
 	}
-	pub(super) fn deleted_source(id: u64, target: u64, channel: u64) -> Message {
+	fn deleted_source(id: u64, target: u64, channel: u64) -> Message {
 		let mut source = message(id);
 		source.kind = 19;
 		source.channel = Id(channel);
@@ -480,7 +480,7 @@ mod tests {
 		source.reply_deleted = true;
 		source
 	}
-	pub(super) fn chat_link_state() -> State {
+	fn chat_link_state() -> State {
 		let mut state = state();
 		let mut dm = state.channels[0].clone();
 		dm.id = Id(4);
@@ -633,6 +633,48 @@ mod tests {
 				state.history_pending,
 				"keep the unrelated selected-channel request"
 			);
+		}
+	}
+
+	#[test]
+	fn a_resident_without_the_live_target_is_not_presented_as_loaded() {
+		for delete_live in [false, true] {
+			let parked = || {
+				let mut state = chat_link_state();
+				state.timeline.delete(Id(50)).unwrap();
+				if delete_live {
+					// Only deletion placeholders remain in the parked window.
+					state.timeline.delete(Id(100)).unwrap();
+				}
+				state.select(Id(2));
+				assert_eq!(state.resident_window_count(), 1);
+				state
+			};
+			// The restore step alone must not claim a window without the target is loaded.
+			let mut state = parked();
+			state.select_chat_link_channel(Id(1), Id(60)).unwrap();
+			assert_eq!(state.selected, Some(Id(1)));
+			assert_ne!(state.freshness, Freshness::Fresh, "case {delete_live}");
+			let mut state = parked();
+			state.select_chat_link_channel(Id(1), Id(100)).unwrap();
+			assert_eq!(
+				state.freshness == Freshness::Fresh,
+				!delete_live,
+				"only a live target restores locally (case {delete_live})"
+			);
+			// The full link then requests the target's page.
+			let mut state = parked();
+			let command = state
+				.open_chat_link(Some(Id(10)), Id(1), Some(Id(60)))
+				.unwrap();
+			assert!(matches!(
+				command,
+				Some(Command::History {
+					channel: Id(1),
+					before: Some(Id(61)),
+					..
+				})
+			));
 		}
 	}
 

@@ -1212,9 +1212,9 @@ impl State {
 		}
 	}
 
-	fn select_chat_link_channel(&mut self, channel: Id) -> Result<(), &'static str> {
+	fn select_chat_link_channel(&mut self, channel: Id, target: Id) -> Result<(), &'static str> {
 		self.cancel_invite_navigation(channel);
-		match self.apply_channel_with_target(channel, true) {
+		match self.apply_channel_with_target(channel, Some(target)) {
 			Apply::Opened(_) => {
 				self.record(Place::Channel(channel));
 				Ok(())
@@ -1232,10 +1232,10 @@ impl State {
 	}
 
 	fn apply_channel(&mut self, channel: Id) -> Apply {
-		self.apply_channel_with_target(channel, false)
+		self.apply_channel_with_target(channel, None)
 	}
 
-	fn apply_channel_with_target(&mut self, channel: Id, target: bool) -> Apply {
+	fn apply_channel_with_target(&mut self, channel: Id, target: Option<Id>) -> Apply {
 		if self.selected == Some(channel) && self.freshness != Freshness::Unavailable {
 			return Apply::AlreadyHere;
 		}
@@ -1284,13 +1284,19 @@ impl State {
 			self.freshness = Freshness::Fresh;
 			return Apply::Opened(None);
 		}
-		if target {
+		if let Some(target) = target {
 			self.cancel_history();
 			self.history_before = None;
 			// A restored resident is a session-local, previously fresh window;
-			// live mutations and permission/identity changes already evict it.
-			// An empty selection must not be presented as freshly loaded.
-			self.freshness = if self.timeline.row_count() != 0 {
+			// live mutations and permission/identity changes already evict it. Only a
+			// window holding the live target is presented as loaded: a deletion-only or
+			// unrelated window stays Stale, and the caller requests the target's page.
+			self.freshness = if self
+				.timeline
+				.get(target)
+				.is_some_and(|message| message.channel == channel)
+				&& !self.timeline.is_deleted(target)
+			{
 				Freshness::Fresh
 			} else {
 				Freshness::Stale
