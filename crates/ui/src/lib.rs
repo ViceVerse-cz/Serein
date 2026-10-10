@@ -4030,6 +4030,10 @@ impl MessagingUi {
 		if self.timeline.show_fullscreen_video(ui.ctx(), state) {
 			ui.painter()
 				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
+			self.timeline
+				.download
+				.open_report_handoff(ui.ctx(), state, &mut self.toasts);
+			self.toasts.show(ui.ctx(), 20.0);
 			return commands;
 		}
 		self.profile.disarm();
@@ -4055,6 +4059,9 @@ impl MessagingUi {
 		}
 		self.keybinds_shortcut(&ctx);
 		self.theme_preview_navigation(ui);
+		if !self.settings.open {
+			self.settings.reaction_picker.dismiss(state, &mut commands);
+		}
 		let settings_open =
 			self.settings.open || self.server_settings.is_open() || self.channel_menu.is_open();
 		self.extensions.begin_theme_editor_frame();
@@ -4666,7 +4673,7 @@ impl MessagingUi {
 						self.timeline.double_click_reaction = self
 							.reading_preferences
 							.double_click_reaction_enabled
-							.then_some(self.reading_preferences.double_click_emoji());
+							.then_some(self.reading_preferences.double_click_choice());
 						self.timeline.instant_scrolling =
 							!self.reading_preferences.smooth_scrolling;
 						self.timeline.extension_actions = self.extensions.message_actions();
@@ -5034,7 +5041,7 @@ impl MessagingUi {
 			self.timeline.components.forget_message(id);
 		}
 		if let Some(text) = self.timeline.quick_reaction_used.take() {
-			self.reaction_picker.record(text);
+			self.reaction_picker.record(&text);
 		}
 		if let Some((message, emoji)) = self.timeline.reaction.take() {
 			if let Some(emoji) = emoji {
@@ -5250,6 +5257,7 @@ impl MessagingUi {
 					&mut self.timeline.download,
 					&mut self.timeline.opening,
 					state.demo,
+					None,
 				)
 				.is_none())
 		{
@@ -5301,6 +5309,9 @@ impl MessagingUi {
 		self.onboarding.show(&ctx, state, &mut commands);
 		self.scroll.clear_if_unbound(&ctx);
 		self.scroll.paint(&ctx);
+		self.timeline
+			.download
+			.open_report_handoff(&ctx, state, &mut self.toasts);
 		// Clear the title bar and channel header so a notice never sits on the chrome.
 		self.toasts
 			.show(&ctx, if self.shows_title_bar() { 96.0 } else { 60.0 });
