@@ -153,6 +153,102 @@ controls, including simultaneous speech, additions/removals, ringing/decline/joi
 sharing/viewing, last-peer departure/rejoin, and removal of this account. This local `!fast`
 implementation pass does not establish production readiness or physical media behavior.
 
+## Soundboard
+
+In a connected server voice channel, the call bar's **Soundboard** button opens a panel with
+that server's sounds and Discord's default sounds. Selecting a sound sends one explicit play
+request; nothing plays or loads until the panel is opened. Sounds played by other participants
+are audible: the service announces each one, and Serein downloads that sound and mixes it into
+the call's playback. Your own sound is heard locally once the service accepts the request, so a
+rejected request stays silent and shows its reason in the panel.
+
+Playing requires SPEAK and USE_SOUNDBOARD in the channel and is unavailable while deafened or
+server muted/deafened, matching the documented service rules. A sound owned by another server
+additionally needs USE_EXTERNAL_SOUNDS and names its source server; the panel currently lists
+only the connected server's sounds and the defaults, so there is no cross-server picker and no
+favorites. One play request is outstanding at a time. Private and group DM calls show the
+button disabled. Entrance sounds, emoji-only voice effects and animations are not
+implemented. Server sounds are managed in [Server Settings](#managing-server-sounds).
+
+Sound audio is local playback only: it is never encoded into the microphone stream, and the
+service does not relay it as voice. Clips enter the same mix as participant voices, after
+decryption and before the speaker volume, so the selected output device, **Speaker volume**,
+deafen and the echo-cancellation reference all apply. The panel's **Soundboard volume**
+(0% to 100%, session-only, initially 100%) scales every sound together with the level the
+server configured for it. A participant's **User volume** and local mute also apply to the
+sounds they play, and sounds from blocked users are skipped. These controls are re-applied
+while a sound plays, so muting, blocking or turning someone down also affects a sound that is
+already playing or still downloading. Sounds also play while waiting alone in a channel.
+
+Limits: catalogs are session-only and bounded to 256 sounds and 128 KiB per catalog (one
+server's catalog plus the defaults; responses over 256 KiB are rejected). A server sound
+change marks that catalog stale and it reloads the next time the panel is shown; a change
+that arrives while the catalog is loading triggers one more read. An open **Server Settings >
+Soundboard** page reloads its list the same way. Sound files
+are fetched without credentials from `cdn.discordapp.com/soundboard-sounds/{id}`, limited to
+1 MiB and a 10-second transfer, decoded off the UI and audio threads (MP3, Ogg Vorbis or Ogg
+Opus) to 48 kHz mono and truncated at six seconds. At most four downloads run at once and
+sixteen decoded clips (at most ten full-length ones, about 11.5 MiB) are kept in RAM for the
+session; nothing is written to disk. Eight clips can overlap; a ninth replaces the oldest. A
+sound that takes more than three seconds to arrive is cached but not played late. Download or
+decode failures of another participant's sound are silent.
+
+The routes and events are [documented by Discord](https://docs.discord.com/developers/resources/soundboard)
+for bots; acceptance from a normal account is unofficial and **live-unverified**. Offline
+tests cover wire decoding, permission and call-state gates, the HTTP requests against a local
+server, Gateway dispatch, the clip mixer, cache bounds, decoding of bundled fixtures and the
+panel's click path. They do not establish that Discord accepts the request, that the effect
+event reaches this client, or that any sound is audible on a physical device. For the
+owner-controlled live gate: join a private server voice channel with a second client you
+control, play a default and a server sound from each side, and confirm each is heard once on
+both; then check deafen, server mute, a denied USE_SOUNDBOARD role, Soundboard volume at 0%
+and 100%, a locally muted participant, and that leaving the call stops playback.
+`cargo run --locked -p serein --features demo -- --demo --demo-voice` shows the panel with a
+synthetic catalog; the preview never downloads or plays audio.
+
+### Managing server sounds
+
+**Server Settings > Soundboard** lists the server's sounds with their emoji, name and
+uploader, and shows the free slots for the server's boost level (8, 24, 36 or 48; 96 with
+the `MORE_SOUNDBOARD` feature) when that metadata is available. The page is offered to
+members with CREATE_GUILD_EXPRESSIONS or MANAGE_GUILD_EXPRESSIONS. Uploading needs
+CREATE_GUILD_EXPRESSIONS; editing or deleting needs MANAGE_GUILD_EXPRESSIONS, or
+CREATE_GUILD_EXPRESSIONS for a sound you uploaded. **Upload Sound** is disabled when every
+slot is used. Each write is one explicit request followed by a reload of the list; an
+unexpected or uncertain outcome is shown and asks for a reload instead of retrying.
+
+**Upload Sound** opens a file picker (MP3, Ogg or WAV up to 16 MB) and then a review with a
+waveform, a name (2 to 32 characters), an optional related emoji and a volume. Choosing a
+file uploads nothing. The two handles select the part to upload, between 0.2 and 5.2
+seconds; dragging an edge past 5.2 seconds carries the other edge along, and dragging the
+selected span moves it. On files longer than 20 seconds, holding a handle for one second
+with at most 4 points of pointer movement zooms the waveform to a 15-second span around
+that handle for fine adjustment; releasing zooms back out. The play button previews the
+selection on the default output device at the chosen volume, and a playhead follows it.
+
+A short MP3 or Ogg file (at most 5.2 seconds and 512 KB) whose whole length is selected is
+uploaded unchanged. Any trimmed selection, and every WAV file, is re-encoded on a worker
+thread as mono Ogg Opus at 96 kbit/s with a 5 ms fade at each cut, which stays far below
+512 KB. Audio beyond the first five minutes of a file is not shown; longer files are
+truncated rather than rejected (a high-rate stereo file may end sooner, at the decoder's
+64 MiB sample limit). While the review is open the decoded audio (48 kHz mono, at most
+57.6 MB for five minutes) and its waveform peaks (one per 10 ms, at most 30 KB) are held in
+RAM; closing the review, or anything else that ends it, such as a permission change or
+signing out, releases them.
+Nothing is written to disk. The related emoji is a text field for one Unicode emoji: there
+is no emoji picker, and a sound's existing custom emoji is kept on edit but cannot be
+chosen. Sounds cannot be previewed from the list.
+
+The routes are Discord's documented Create, Modify and Delete Guild Soundboard Sound;
+acceptance from a normal account, and of an Ogg Opus upload in particular, is
+**live-unverified**. Offline tests cover the wire shapes against a local server,
+permission and reconciliation rules, selection limits, pointer-driven dragging and
+hold-to-zoom, file preparation, and an encode/decode round trip of the trimmed clip. The
+preview's audible output and the native file picker have not been exercised.
+`cargo run --locked -p serein --features demo -- --demo --demo-server-settings
+--demo-server-page=soundboard` shows the page with synthetic sounds; adding
+`--demo-sound-upload` opens the review with a synthetic 77.8-second waveform and no audio.
+
 ## Protocol classification
 
 | Area | Evidence / classification | Verification here |
@@ -160,6 +256,7 @@ implementation pass does not establish production readiness or physical media be
 | DM entry, incoming call events and ringing | [discord.py-self Gateway](https://github.com/dolfies/discord.py-self/blob/master/discord/gateway.py), [dispatch](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py), [HTTP](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py): unofficial normal-user behavior | Real local WebSocket op13/op4 join/leave and local HTTP ring/decline tests; no Discord call |
 | Voice WebSocket, UDP discovery, RTP and codec negotiation | [Discord voice documentation](https://docs.discord.com/developers/topics/voice-connections): documented transport, not an approval of normal-user clients | Synthetic loopback voice event loop, authenticated RTP and Opus tests |
 | Required end-to-end encryption | [Discord DAVE protocol](https://daveprotocol.com/): documented; [Davey](https://github.com/Snazzah/davey): unofficial implementation, not an independent security-audit claim | Synthetic two-party MLS/DAVE exchange, tamper/replay rejection and encrypted audio across local sockets |
+| Soundboard catalog, play request and effect event | [Soundboard resource](https://docs.discord.com/developers/resources/soundboard), [Voice Channel Effect Send](https://docs.discord.com/developers/events/gateway-events#voice-channel-effect-send): documented for bots; normal-account acceptance unofficial | Local HTTP server, synthetic Gateway dispatch and device-free mixer/decoder tests; no Discord request or audible check |
 | Microphone, playback, resampling and devices | CPAL/native platform APIs | Device-free capture/resampling tests only; physical audio and permission dialogs unverified |
 
 The [compatibility matrix](discord-compatibility.md) distinguishes this from restricted OAuth/RPC capabilities. No OAuth voice grant or bot connection substitutes for the user's session.

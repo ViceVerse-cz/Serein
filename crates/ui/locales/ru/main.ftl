@@ -3213,6 +3213,8 @@ server-settings-page-profile = Профиль сервера
 server-settings-page-roles = Роли
 # Context: label
 server-settings-page-stickers = Наклейки
+# Context: label
+server-settings-page-soundboard = Звуковая панель
 # Context: preview
 server-settings-preview-established = Учредил
 # Context: preview
@@ -3268,6 +3270,84 @@ server-settings-show-people = ЛЮДИ
 # Context: timeout_picker
 server-settings-timeout-picker-minutes = минуты
 
+# Context: server_sounds
+server-sounds-title = Звуковая панель
+# Context: server_sounds
+server-sounds-upload-title = Загрузить звук
+# Context: server_sounds
+server-sounds-preview = Предпросмотр
+# Context: server_sounds
+server-sounds-trim-hint = Перетащите маркеры, чтобы выбрать до 5,2 секунды. Удерживайте маркер неподвижно, чтобы приблизить.
+# Context: server_sounds
+server-sounds-never-mind = Не нужно
+# Context: server_sounds
+server-sounds-play-preview = Воспроизвести выделенное
+# Context: server_sounds
+server-sounds-stop-preview = Остановить предпросмотр
+# Context: server_sounds
+server-sounds-description = Загружайте собственные звуковые реакции, которые может использовать любой участник этого сервера.
+# Context: server_sounds
+server-sounds-upload-sound = Загрузить звук
+# Context: server_sounds
+server-sounds-reload = Обновить
+# Context: server_sounds
+server-sounds-saving = Сохранение изменений…
+# Context: server_sounds
+server-sounds-loading = Загрузка звуков…
+# Context: server_sounds
+server-sounds-hint = Аудио MP3, Ogg или WAV. Звуки не длиннее 5,2 секунды и не больше 512 КБ; длинные файлы можно обрезать.
+# Context: server_sounds
+server-sounds-preparing = Подготовка звука…
+# Context: server_sounds
+server-sounds-name = Название
+# Context: server_sounds
+server-sounds-emoji = Связанный эмодзи (необязательно)
+# Context: server_sounds
+server-sounds-volume = Громкость
+# Context: server_sounds
+server-sounds-upload = Загрузить
+# Context: server_sounds
+server-sounds-cancel = Отмена
+# Context: server_sounds
+server-sounds-invalid = Используйте название из 2–32 символов и не более одного эмодзи.
+# Context: server_sounds
+server-sounds-section = Звуки
+# Context: server_sounds
+server-sounds-count = Звуков: { $count }
+# Context: server_sounds
+server-sounds-slots = Свободно слотов: { $count } из { $limit }
+# Context: server_sounds
+server-sounds-empty = Собственных звуков пока нет
+# Context: server_sounds
+server-sounds-empty-detail = Загрузите звук, чтобы начать.
+# Context: server_sounds
+server-sounds-column-emoji = Эмодзи
+# Context: server_sounds
+server-sounds-column-name = Название
+# Context: server_sounds
+server-sounds-column-uploaded-by = Загрузил
+# Context: server_sounds
+server-sounds-unknown = Неизвестно
+# Context: server_sounds
+server-sounds-unavailable = Недоступен
+# Context: server_sounds
+server-sounds-actions = Действия со звуком
+# Context: server_sounds
+server-sounds-edit = Изменить
+# Context: server_sounds
+server-sounds-delete = Удалить звук
+# Context: server_sounds
+server-sounds-edit-title = Изменить звук
+# Context: server_sounds
+server-sounds-edit-subtitle = Измените название, эмодзи и громкость звука.
+# Context: server_sounds
+server-sounds-delete-title = Удалить звук?
+# Context: server_sounds
+server-sounds-delete-subtitle = Удаление { $name } нельзя отменить.
+# Context: server_sounds
+server-sounds-save = Сохранить
+# Context: server_sounds
+server-sounds-custom-emoji-kept = Этот звук использует собственный эмодзи. Оставьте поле пустым, чтобы сохранить его.
 ## crates/ui/src/server_stickers.rs
 # Context: dialog
 server-stickers-dialog-cancel = Отмена
@@ -4088,6 +4168,26 @@ voice-mute-toggle-unmute = Включить звук
 voice-mute-toggle-with-settings-input-settings = Настройки ввода
 # Context: mute_toggle_with_settings
 voice-mute-toggle-with-settings-output-settings = Настройки вывода
+# Context: soundboard_panel
+voice-soundboard-title = Звуковая панель
+# Context: soundboard_panel
+voice-soundboard-open = Воспроизвести звук в этом голосовом канале
+# Context: soundboard_panel
+voice-soundboard-server-only = Звуковая панель доступна в голосовых каналах серверов
+# Context: soundboard_panel
+voice-soundboard-server-sounds = Звуки сервера
+# Context: soundboard_panel
+voice-soundboard-default-sounds = Стандартные звуки
+# Context: soundboard_panel
+voice-soundboard-loading = Загрузка звуков…
+# Context: soundboard_panel
+voice-soundboard-empty = Здесь нет доступных звуков.
+# Context: soundboard_panel
+voice-soundboard-retry = Повторить
+# Context: soundboard_panel
+voice-soundboard-volume = Громкость звуковой панели
+# Context: soundboard_panel
+voice-soundboard-sound-unavailable = Этот звук недоступен
 # Context: stream_audio_controls
 voice-stream-audio-controls-mute-stream-audio = Отключить звук потока
 # Context: stream_audio_controls

@@ -1231,6 +1231,67 @@ impl DiscordApi {
 					Err(f) => Event::Failure(f),
 				}
 			}
+			Command::Soundboard(command) => {
+				use client_core::soundboard::{Event as E, MAX_WIRE_BYTES, Request as R};
+				Event::Soundboard(match command {
+					R::Default => E::Default(
+						self.request_limited(
+							Method::GET,
+							"/soundboard-default-sounds",
+							None,
+							MAX_WIRE_BYTES,
+						)
+						.await
+						.and_then(|bytes| {
+							discord_protocol::soundboard::default_sounds(&bytes)
+								.map_err(|_| Failure::Protocol)
+						}),
+					),
+					R::Guild(guild) => E::Guild {
+						guild,
+						result: if guild.0 == 0 {
+							Err(Failure::Protocol)
+						} else {
+							self.request_limited(
+								Method::GET,
+								&format!("/guilds/{guild}/soundboard-sounds"),
+								None,
+								MAX_WIRE_BYTES,
+							)
+							.await
+							.and_then(|bytes| {
+								discord_protocol::soundboard::guild_sounds(&bytes, guild)
+									.map_err(|_| Failure::Protocol)
+							})
+						},
+					},
+					R::Send {
+						channel,
+						sound,
+						source_guild,
+					} => E::Sent {
+						channel,
+						sound,
+						result: if channel.0 == 0
+							|| sound.0 == 0 || source_guild.is_some_and(|id| id.0 == 0)
+						{
+							Err(Failure::Protocol)
+						} else {
+							let mut body = serde_json::json!({"sound_id": sound});
+							if let Some(guild) = source_guild {
+								body["source_guild_id"] = serde_json::json!(guild);
+							}
+							self.request(
+								Method::POST,
+								&format!("/channels/{channel}/send-soundboard-sound"),
+								Some(body),
+							)
+							.await
+							.map(|_| ())
+						},
+					},
+				})
+			}
 			Command::StickerPacks => Event::StickerPacks(
 				self.request_limited(
 					Method::GET,
@@ -2736,6 +2797,142 @@ mod tests {
             assert!(matches!(result,Event::SendResult{result:Ok(message),..} if message.sticker_items.len()==1));
             server.await.unwrap();
         }).await.unwrap();
+	}
+	#[tokio::test]
+	async fn soundboard_reads_bounded_catalogs_and_sends_one_documented_request() {
+		use client_core::soundboard::{Event as E, Request as R};
+		tokio::time::timeout(Duration::from_secs(5), async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_SOUNDBOARD_TOKEN".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{}", listener.local_addr().unwrap());
+			let server = tokio::spawn(async move {
+				for (line, expected, reply) in [
+					(
+						"GET /soundboard-default-sounds HTTP/1.1",
+						None,
+						r#"[{"name":"quack","sound_id":"1","volume":1.0,"guild_id":"0"}]"#,
+					),
+					(
+						"GET /guilds/9/soundboard-sounds HTTP/1.1",
+						None,
+						r#"{"items":[{"name":"Yay","sound_id":"30","volume":0.5,"guild_id":"9"}]}"#,
+					),
+					(
+						"POST /channels/2/send-soundboard-sound HTTP/1.1",
+						Some(serde_json::json!({"sound_id":"30","source_guild_id":"8"})),
+						"",
+					),
+				] {
+					let (mut socket, _) = listener.accept().await.unwrap();
+					let mut request = Vec::new();
+					loop {
+						let mut bytes = [0; 1024];
+						let n = socket.read(&mut bytes).await.unwrap();
+						assert!(n > 0);
+						request.extend_from_slice(&bytes[..n]);
+						assert!(request.len() < 4096);
+						let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") else {
+							continue;
+						};
+						let headers = String::from_utf8_lossy(&request[..end]).into_owned();
+						assert!(headers.starts_with(line), "{headers}");
+						let Some(expected) = &expected else {
+							break;
+						};
+						let length: usize = headers
+							.lines()
+							.find_map(|line| {
+								line.to_ascii_lowercase()
+									.strip_prefix("content-length: ")
+									.map(str::to_owned)
+							})
+							.unwrap()
+							.parse()
+							.unwrap();
+						if request.len() >= end + 4 + length {
+							let body: serde_json::Value =
+								serde_json::from_slice(&request[end + 4..]).unwrap();
+							assert_eq!(&body, expected);
+							break;
+						}
+					}
+					let status = if reply.is_empty() {
+						"204 No Content"
+					} else {
+						"200 OK"
+					};
+					socket
+						.write_all(
+							format!(
+								"HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+								reply.len()
+							)
+							.as_bytes(),
+						)
+						.await
+						.unwrap();
+				}
+			});
+			let Event::Soundboard(E::Default(Ok(sounds))) =
+				api.execute(Command::Soundboard(R::Default)).await
+			else {
+				panic!("default sounds must decode");
+			};
+			assert_eq!((sounds[0].id, sounds[0].guild), (model::Id(1), None));
+			let Event::Soundboard(E::Guild {
+				guild,
+				result: Ok(sounds),
+			}) = api.execute(Command::Soundboard(R::Guild(model::Id(9))))
+				.await
+			else {
+				panic!("server sounds must decode");
+			};
+			assert_eq!(guild, model::Id(9));
+			assert_eq!(
+				(sounds[0].id, sounds[0].guild, sounds[0].volume),
+				(model::Id(30), Some(model::Id(9)), 0.5)
+			);
+			assert!(matches!(
+				api.execute(Command::Soundboard(R::Send {
+					channel: model::Id(2),
+					sound: model::Id(30),
+					source_guild: Some(model::Id(8)),
+				}))
+				.await,
+				Event::Soundboard(E::Sent {
+					channel: model::Id(2),
+					sound: model::Id(30),
+					result: Ok(()),
+				})
+			));
+			server.await.unwrap();
+			// Zero identifiers never reach the network.
+			assert!(matches!(
+				api.execute(Command::Soundboard(R::Send {
+					channel: model::Id(0),
+					sound: model::Id(30),
+					source_guild: None,
+				}))
+				.await,
+				Event::Soundboard(E::Sent {
+					result: Err(Failure::Protocol),
+					..
+				})
+			));
+			assert!(matches!(
+				api.execute(Command::Soundboard(R::Guild(model::Id(0))))
+					.await,
+				Event::Soundboard(E::Guild {
+					result: Err(Failure::Protocol),
+					..
+				})
+			));
+		})
+		.await
+		.unwrap();
 	}
 	#[tokio::test]
 	async fn profiles_are_scoped_capped_and_do_not_block_message_writes() {

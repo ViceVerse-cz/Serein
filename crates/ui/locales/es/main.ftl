@@ -3212,6 +3212,8 @@ server-settings-page-profile = Perfil del servidor
 server-settings-page-roles = Roles
 # Context: label
 server-settings-page-stickers = Pegatinas
+# Context: label
+server-settings-page-soundboard = Panel de sonidos
 # Context: preview
 server-settings-preview-established = Establecido
 # Context: preview
@@ -3267,6 +3269,84 @@ server-settings-show-people = GENTE
 # Context: timeout_picker
 server-settings-timeout-picker-minutes = minutos
 
+# Context: server_sounds
+server-sounds-title = Panel de sonidos
+# Context: server_sounds
+server-sounds-upload-title = Subir un sonido
+# Context: server_sounds
+server-sounds-preview = Vista previa
+# Context: server_sounds
+server-sounds-trim-hint = Arrastra los tiradores para elegir hasta 5,2 segundos. Mantén un tirador quieto para acercar.
+# Context: server_sounds
+server-sounds-never-mind = Olvídalo
+# Context: server_sounds
+server-sounds-play-preview = Reproducir selección
+# Context: server_sounds
+server-sounds-stop-preview = Detener vista previa
+# Context: server_sounds
+server-sounds-description = Sube reacciones de sonido personalizadas que cualquiera en este servidor puede usar.
+# Context: server_sounds
+server-sounds-upload-sound = Subir sonido
+# Context: server_sounds
+server-sounds-reload = Recargar
+# Context: server_sounds
+server-sounds-saving = Guardando cambios…
+# Context: server_sounds
+server-sounds-loading = Cargando sonidos…
+# Context: server_sounds
+server-sounds-hint = Audio MP3, Ogg o WAV. Los sonidos duran como máximo 5,2 segundos y 512 KB; los archivos más largos se pueden recortar.
+# Context: server_sounds
+server-sounds-preparing = Preparando sonido…
+# Context: server_sounds
+server-sounds-name = Nombre
+# Context: server_sounds
+server-sounds-emoji = Emoji relacionado (opcional)
+# Context: server_sounds
+server-sounds-volume = Volumen
+# Context: server_sounds
+server-sounds-upload = Subir
+# Context: server_sounds
+server-sounds-cancel = Cancelar
+# Context: server_sounds
+server-sounds-invalid = Usa un nombre de 2 a 32 caracteres y como máximo un emoji.
+# Context: server_sounds
+server-sounds-section = Sonidos
+# Context: server_sounds
+server-sounds-count = { $count } sonidos
+# Context: server_sounds
+server-sounds-slots = { $count } de { $limit } espacios disponibles
+# Context: server_sounds
+server-sounds-empty = Aún no hay sonidos personalizados
+# Context: server_sounds
+server-sounds-empty-detail = Sube un sonido para empezar.
+# Context: server_sounds
+server-sounds-column-emoji = Emoji
+# Context: server_sounds
+server-sounds-column-name = Nombre
+# Context: server_sounds
+server-sounds-column-uploaded-by = Subido por
+# Context: server_sounds
+server-sounds-unknown = Desconocido
+# Context: server_sounds
+server-sounds-unavailable = No disponible
+# Context: server_sounds
+server-sounds-actions = Acciones del sonido
+# Context: server_sounds
+server-sounds-edit = Editar
+# Context: server_sounds
+server-sounds-delete = Eliminar sonido
+# Context: server_sounds
+server-sounds-edit-title = Editar sonido
+# Context: server_sounds
+server-sounds-edit-subtitle = Actualiza el nombre, el emoji y el volumen del sonido.
+# Context: server_sounds
+server-sounds-delete-title = ¿Eliminar sonido?
+# Context: server_sounds
+server-sounds-delete-subtitle = Quitar { $name } no se puede deshacer.
+# Context: server_sounds
+server-sounds-save = Guardar
+# Context: server_sounds
+server-sounds-custom-emoji-kept = Este sonido usa un emoji personalizado. Deja el campo vacío para conservarlo.
 ## crates/ui/src/server_stickers.rs
 # Context: dialog
 server-stickers-dialog-cancel = Cancelar
@@ -4086,6 +4166,26 @@ voice-mute-toggle-unmute = Dejar de silenciar
 voice-mute-toggle-with-settings-input-settings = Configuración de entrada
 # Context: mute_toggle_with_settings
 voice-mute-toggle-with-settings-output-settings = Configuración de salida
+# Context: soundboard_panel
+voice-soundboard-title = Panel de sonidos
+# Context: soundboard_panel
+voice-soundboard-open = Reproducir un sonido en este canal de voz
+# Context: soundboard_panel
+voice-soundboard-server-only = El panel de sonidos está disponible en los canales de voz de servidores
+# Context: soundboard_panel
+voice-soundboard-server-sounds = Sonidos del servidor
+# Context: soundboard_panel
+voice-soundboard-default-sounds = Sonidos predeterminados
+# Context: soundboard_panel
+voice-soundboard-loading = Cargando sonidos…
+# Context: soundboard_panel
+voice-soundboard-empty = No hay sonidos disponibles aquí.
+# Context: soundboard_panel
+voice-soundboard-retry = Reintentar
+# Context: soundboard_panel
+voice-soundboard-volume = Volumen del panel de sonidos
+# Context: soundboard_panel
+voice-soundboard-sound-unavailable = Este sonido no está disponible
 # Context: stream_audio_controls
 voice-stream-audio-controls-mute-stream-audio = Silenciar la transmisión de audio
 # Context: stream_audio_controls

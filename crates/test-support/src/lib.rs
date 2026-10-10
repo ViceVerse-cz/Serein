@@ -803,10 +803,58 @@ pub fn voice_demo_state() -> State {
 			.collect(),
 		error: None,
 	});
+	seed_soundboard(&mut state, Id(10));
 	state.select(Id(25));
 	load_page(&mut state, None);
 	state.status = "Offline voice fixture · no microphone or network access";
 	state
+}
+/// Synthetic soundboard catalogs; no sound file exists for these IDs and none is fetched.
+pub fn seed_soundboard(state: &mut State, guild: Id) {
+	use client_core::soundboard::Catalog;
+	let catalog = |first: u64, guild: Option<Id>, names: &[(&str, Option<&str>, bool)]| Catalog {
+		sounds: names
+			.iter()
+			.zip(first..)
+			.map(|((name, emoji, available), id)| model::soundboard::Sound {
+				id: Id(id),
+				name: (*name).into(),
+				volume: 1.0,
+				emoji_id: None,
+				emoji_name: emoji.map(str::to_owned),
+				guild,
+				available: *available,
+			})
+			.collect(),
+		loading: false,
+		loaded: true,
+		stale: false,
+		error: None,
+	};
+	state.soundboard.guild = Some((
+		guild,
+		catalog(
+			9100,
+			Some(guild),
+			&[
+				("Synthetic fanfare", Some("\u{1f3ba}"), true),
+				("A deliberately long sound name that elides", None, true),
+				("Unavailable sound", Some("\u{1f507}"), false),
+			],
+		),
+	));
+	state.soundboard.default = catalog(
+		9200,
+		None,
+		&[
+			("quack", Some("\u{1f986}"), true),
+			("airhorn", Some("\u{1f4e2}"), true),
+			("cricket", Some("\u{1f997}"), true),
+			("golf clap", Some("\u{1f44f}"), true),
+			("sad horn", Some("\u{1f3b7}"), true),
+			("ba dum tss", Some("\u{1f941}"), true),
+		],
+	);
 }
 /// Synthetic direct-message call: two participants, connected for a while. Never live audio.
 pub fn call_demo_state() -> State {
@@ -1216,6 +1264,7 @@ pub fn permission_snapshot(state: &State) -> model::permissions::Snapshot {
 		| p::CONNECT
 		| p::SPEAK
 		| p::USE_VAD
+		| p::USE_SOUNDBOARD
 		| p::MANAGE_THREADS
 		| p::CREATE_PUBLIC_THREADS
 		| p::MANAGE_CHANNELS;

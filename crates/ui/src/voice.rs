@@ -3047,8 +3047,8 @@ impl MessagingUi {
 		};
 		let bar = ui.max_rect();
 		// A narrow stage sheds secondary controls (view toggles, device chevrons, then
-		// share/more) before anything overlaps; mute, camera and hang-up always stay.
-		let actions = 2.0 * 48.0;
+		// share/soundboard/more) before anything overlaps; mute, camera and hang-up always stay.
+		let actions = 3.0 * 48.0;
 		let essential = 2.0 * 48.0 + BAR_GAP + HANG_UP;
 		let side = [watched.is_some(), focused, screen_focused]
 			.iter()
@@ -3171,6 +3171,29 @@ impl MessagingUi {
 		if actions_shown {
 			pill(&mut row, actions, |ui| {
 				self.screen_share_control(ui, state);
+				let soundboard = state.soundboard_channel().is_some();
+				let board = control(
+					ui,
+					crate::icons::Icon::Soundboard,
+					48.0,
+					soundboard,
+					STAGE_TEXT,
+					"voice-soundboard-title",
+					if soundboard {
+						"voice-soundboard-open"
+					} else {
+						"voice-soundboard-server-only"
+					},
+				);
+				egui::Popup::menu(&board)
+					.width(332.0)
+					.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+					.frame(
+						egui::Frame::popup(&board.ctx.style_of(board.ctx.theme()))
+							.inner_margin(16)
+							.corner_radius(12),
+					)
+					.show(|ui| self.soundboard_panel(ui, state, commands));
 				let more = control(
 					ui,
 					crate::icons::Icon::More,
@@ -3325,6 +3348,112 @@ impl MessagingUi {
 			}
 		}
 		if leave && let Some(command) = state.leave_call() {
+			commands.push(command);
+		}
+	}
+
+	/// Session-only soundboard playback level; unset is 100%.
+	pub fn voice_soundboard_volume(&self) -> u16 {
+		self.voice_soundboard_volume.unwrap_or(100).min(100)
+	}
+
+	/// Sounds of the connected server voice channel plus Discord's defaults. Loading starts
+	/// only once this panel is shown; playing sends one explicit request per click.
+	fn soundboard_panel(
+		&mut self,
+		ui: &mut egui::Ui,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+	) {
+		let colors = design::palette(ui);
+		ui.set_width(300.0);
+		ui.spacing_mut().item_spacing.y = 8.0;
+		commands.extend(state.request_soundboard().into_iter().flatten());
+		ui.label(
+			design::semibold(ui, crate::i18n::translate("voice-soundboard-title"), 15.0)
+				.color(colors.text_strong),
+		);
+		if let Some(reason) = state.soundboard_unavailable() {
+			design::hint(ui, &crate::i18n::translate_if_key(reason));
+		}
+		let board = &state.soundboard;
+		let guild = board.guild.as_ref().map(|(_, catalog)| catalog);
+		let loading = board.default.loading || guild.is_some_and(|catalog| catalog.loading);
+		let error = board
+			.error
+			.or(board.default.error)
+			.or(guild.and_then(|catalog| catalog.error));
+		let groups = [
+			(
+				"voice-soundboard-server-sounds",
+				guild.map_or(&[][..], |catalog| &catalog.sounds[..]),
+			),
+			("voice-soundboard-default-sounds", &board.default.sounds[..]),
+		];
+		let mut play = None;
+		egui::ScrollArea::vertical()
+			.max_height(264.0)
+			.auto_shrink([false, true])
+			.show(ui, |ui| {
+				for (title, sounds) in groups {
+					if sounds.is_empty() {
+						continue;
+					}
+					ui.label(
+						RichText::new(crate::i18n::translate(title))
+							.size(12.0)
+							.color(colors.muted),
+					);
+					ui.horizontal_wrapped(|ui| {
+						ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
+						for sound in sounds {
+							let sending = board.sending.is_some_and(|(_, id)| id == sound.id);
+							if sound_button(ui, sound, state.can_play_sound(sound), sending)
+								.clicked()
+							{
+								play = Some(sound.clone());
+							}
+						}
+					});
+				}
+			});
+		if loading {
+			design::hint(ui, &crate::i18n::translate("voice-soundboard-loading"));
+		} else if error.is_none() && groups.iter().all(|(_, sounds)| sounds.is_empty()) {
+			design::hint(ui, &crate::i18n::translate("voice-soundboard-empty"));
+		}
+		let mut retry = false;
+		if let Some(error) = error {
+			ui.label(
+				RichText::new(crate::i18n::translate_if_key(error))
+					.size(13.0)
+					.color(colors.danger),
+			);
+			retry = design::secondary_button(ui, &crate::i18n::translate("voice-soundboard-retry"))
+				.clicked();
+		}
+		ui.separator();
+		ui.scope(|ui| {
+			ui.spacing_mut().item_spacing.y = 4.0;
+			let label = ui.label(
+				RichText::new(crate::i18n::translate("voice-soundboard-volume"))
+					.size(13.0)
+					.color(colors.muted),
+			);
+			design::slider(
+				ui,
+				self.voice_soundboard_volume.get_or_insert(100),
+				0..=100,
+				"%",
+			)
+			.labelled_by(label.id);
+		});
+		if retry {
+			state.retry_soundboard();
+		}
+		if let Some(sound) = play
+			&& let Some(command) = state.play_sound(&sound)
+		{
 			commands.push(command);
 		}
 	}
@@ -4269,6 +4398,71 @@ fn pill<R>(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui) -> R) 
 	);
 	inner.spacing_mut().item_spacing.x = 0.0;
 	add(&mut inner)
+}
+
+/// One soundboard entry: its Unicode emoji (or a generic glyph) and an elided name.
+fn sound_button(
+	ui: &mut egui::Ui,
+	sound: &model::soundboard::Sound,
+	enabled: bool,
+	sending: bool,
+) -> egui::Response {
+	let colors = design::palette(ui);
+	let (rect, response) = ui.allocate_exact_size(
+		egui::vec2(146.0, 36.0),
+		if enabled {
+			egui::Sense::click()
+		} else {
+			egui::Sense::hover()
+		},
+	);
+	let fill = if sending {
+		colors.accent.gamma_multiply(0.45)
+	} else if enabled && (response.hovered() || response.has_focus()) {
+		colors.muted.gamma_multiply(0.4)
+	} else {
+		colors.muted.gamma_multiply(0.18)
+	};
+	ui.painter().rect_filled(rect, 8, fill);
+	let glyph = egui::Rect::from_center_size(
+		egui::pos2(rect.left() + 19.0, rect.center().y),
+		egui::Vec2::splat(18.0),
+	);
+	let text = if enabled || sending {
+		colors.text_strong
+	} else {
+		colors.muted
+	};
+	// Custom emoji artwork is not loaded here; those sounds use the generic glyph.
+	match sound
+		.emoji_name
+		.as_deref()
+		.filter(|_| sound.emoji_id.is_none())
+		.and_then(|name| crate::emoji::image(ui.ctx(), name, glyph.width()))
+	{
+		Some(image) => {
+			image.paint_at(ui, glyph);
+		}
+		None => crate::icons::paint(ui.painter(), crate::icons::Icon::Soundboard, glyph, text),
+	}
+	let mut job = egui::text::LayoutJob::simple_singleline(
+		sound.name.clone(),
+		egui::FontId::proportional(13.0),
+		text,
+	);
+	job.wrap = egui::text::TextWrapping::truncate_at_width(rect.width() - 46.0);
+	let galley = ui.painter().layout_job(job);
+	ui.painter().galley(
+		egui::pos2(rect.left() + 36.0, rect.center().y - galley.size().y / 2.0),
+		galley,
+		text,
+	);
+	response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &sound.name));
+	if sound.available {
+		response.on_hover_text(&sound.name)
+	} else {
+		response.on_hover_text(crate::i18n::translate("voice-soundboard-sound-unavailable"))
+	}
 }
 
 /// One control inside a pill; disabled controls stay visible but inert, like Discord's.
@@ -5796,5 +5990,152 @@ mod tests {
 		);
 		messaging.voice_available = true;
 		assert!(messaging.call_unavailable(&state, Id(1)).is_none());
+	}
+	#[test]
+	fn soundboard_panel_plays_one_available_sound_per_click_and_respects_gates() {
+		fn labels(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+			match shape {
+				egui::Shape::Text(text) => out.push((
+					text.galley.job.text.clone(),
+					text.galley.rect.translate(text.pos.to_vec2()),
+				)),
+				egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| labels(shape, out)),
+				_ => {}
+			}
+		}
+		fn frame(
+			ctx: &egui::Context,
+			messaging: &mut MessagingUi,
+			state: &mut State,
+			commands: &mut Vec<Command>,
+			events: Vec<egui::Event>,
+		) -> Vec<(String, egui::Rect)> {
+			let mut output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(800.0, 800.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| messaging.soundboard_panel(ui, state, commands),
+			);
+			output.textures_delta.clear();
+			let mut text = vec![];
+			for shape in output.shapes {
+				labels(&shape.shape, &mut text);
+			}
+			text
+		}
+		fn click(
+			ctx: &egui::Context,
+			messaging: &mut MessagingUi,
+			state: &mut State,
+			commands: &mut Vec<Command>,
+			label: &str,
+		) {
+			let text = frame(ctx, messaging, state, commands, vec![]);
+			let pos = text
+				.iter()
+				.find(|(value, _)| value == label)
+				.unwrap_or_else(|| panic!("Missing visible sound: {label}"))
+				.1
+				.center();
+			for pressed in [true, false] {
+				frame(
+					ctx,
+					messaging,
+					state,
+					commands,
+					vec![
+						egui::Event::PointerMoved(pos),
+						egui::Event::PointerButton {
+							pos,
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					],
+				);
+			}
+		}
+		use client_core::soundboard::{Event, Request};
+		let mut state = test_support::voice_demo_state();
+		assert!(state.soundboard_unavailable().is_none());
+		let ctx = egui::Context::default();
+		let mut messaging = MessagingUi::default();
+		let mut commands = vec![];
+		let text = frame(&ctx, &mut messaging, &mut state, &mut commands, vec![]);
+		for label in ["Soundboard", "Server sounds", "Default sounds", "quack"] {
+			assert!(
+				text.iter().any(|(value, _)| value == label),
+				"Missing {label}"
+			);
+		}
+		// The seeded preview catalogs are already loaded: showing the panel reads nothing.
+		assert!(commands.is_empty());
+
+		click(
+			&ctx,
+			&mut messaging,
+			&mut state,
+			&mut commands,
+			"Unavailable sound",
+		);
+		assert!(commands.is_empty());
+		click(&ctx, &mut messaging, &mut state, &mut commands, "quack");
+		assert!(matches!(
+			commands.as_slice(),
+			[Command::Soundboard(Request::Send {
+				channel: Id(25),
+				sound: Id(9200),
+				source_guild: None,
+			})]
+		));
+		// One request at a time: another click waits for the outcome.
+		click(&ctx, &mut messaging, &mut state, &mut commands, "airhorn");
+		assert_eq!(commands.len(), 1);
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Soundboard(Event::Sent {
+				channel: Id(25),
+				sound: Id(9200),
+				result: Err(client_core::auth::Failure::Forbidden),
+			}),
+		});
+		let text = frame(&ctx, &mut messaging, &mut state, &mut commands, vec![]);
+		assert!(
+			text.iter()
+				.any(|(value, _)| value.contains("did not allow this sound")),
+			"A rejected sound must be reported"
+		);
+		click(
+			&ctx,
+			&mut messaging,
+			&mut state,
+			&mut commands,
+			"Synthetic fanfare",
+		);
+		assert!(matches!(
+			commands.as_slice(),
+			[
+				_,
+				Command::Soundboard(Request::Send {
+					sound: Id(9100),
+					source_guild: None,
+					..
+				})
+			]
+		));
+
+		// Deafened listeners cannot play, and the panel says why.
+		state.soundboard.sending = None;
+		state.voice.active.as_mut().unwrap().deafened = true;
+		click(&ctx, &mut messaging, &mut state, &mut commands, "airhorn");
+		assert_eq!(commands.len(), 2);
+		let text = frame(&ctx, &mut messaging, &mut state, &mut commands, vec![]);
+		assert!(text.iter().any(|(value, _)| value.contains("Undeafen")));
+		assert_eq!(messaging.voice_soundboard_volume(), 100);
 	}
 }

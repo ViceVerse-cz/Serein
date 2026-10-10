@@ -6,6 +6,8 @@ pub const MAX_BYTES: usize = 1024 * 1024;
 pub const MAX_IMAGE_BYTES: usize = 256 * 1024;
 pub const MAX_IMAGE_URI: usize = 24 + 4 * MAX_IMAGE_BYTES.div_ceil(3);
 pub const MAX_STICKER_FILE_BYTES: usize = 512 * 1024;
+/// Discord accepts MP3 or Ogg sounds up to 512 KiB and 5.2 seconds.
+pub const MAX_SOUND_FILE_BYTES: usize = 512 * 1024;
 pub const MEMBER_CHANNEL_FEATURE: &str = "ENABLED_MODERATION_EXPERIENCE_FOR_NON_COMMUNITY";
 #[derive(Clone)]
 pub struct Emoji {
@@ -26,6 +28,17 @@ pub struct Sticker {
 #[derive(Clone, Default)]
 pub struct Stickers {
 	pub items: Vec<Sticker>,
+	pub limit: Option<usize>,
+}
+#[derive(Clone)]
+pub struct Sound {
+	pub sound: crate::soundboard::Sound,
+	pub uploader: Option<User>,
+}
+#[derive(Clone, Default)]
+pub struct Sounds {
+	pub items: Vec<Sound>,
+	/// Slots for the server's boost level; `None` when that metadata is unavailable.
 	pub limit: Option<usize>,
 }
 #[derive(Clone)]
@@ -123,6 +136,26 @@ pub enum Action {
 	DeleteSticker {
 		id: Id,
 	},
+	LoadSounds,
+	CreateSound {
+		name: String,
+		/// One Unicode emoji shown beside the sound; empty for none.
+		emoji: String,
+		/// Playback level, 0 to 100 percent.
+		volume: u8,
+		content_type: String,
+		file: Vec<u8>,
+	},
+	EditSound {
+		id: Id,
+		name: String,
+		/// Absent keeps the current emoji, including a custom one; null removes it.
+		emoji: crate::Patch<String>,
+		volume: u8,
+	},
+	DeleteSound {
+		id: Id,
+	},
 	LoadMembers(Query),
 	SetRole {
 		user: Id,
@@ -160,6 +193,7 @@ impl Action {
 			Self::AuditLog(_)
 				| Self::LoadEmojis
 				| Self::LoadStickers
+				| Self::LoadSounds
 				| Self::LoadMembers(_)
 				| Self::Prune { execute: false, .. }
 		)
@@ -171,6 +205,15 @@ impl Action {
 				| Self::CreateSticker { .. }
 				| Self::EditSticker { .. }
 				| Self::DeleteSticker { .. }
+		)
+	}
+	pub fn sound(&self) -> bool {
+		matches!(
+			self,
+			Self::LoadSounds
+				| Self::CreateSound { .. }
+				| Self::EditSound { .. }
+				| Self::DeleteSound { .. }
 		)
 	}
 	pub fn emoji(&self) -> bool {
@@ -238,6 +281,42 @@ impl Action {
 					&& valid_sticker_fields(name, description, tags)
 			}
 			Self::DeleteSticker { id } => id.0 != 0,
+			Self::CreateSound {
+				name,
+				emoji,
+				volume,
+				content_type,
+				file,
+			} => {
+				name.capacity() <= 128
+					&& valid_sound_fields(name, emoji)
+					&& emoji.capacity() <= 64
+					&& *volume <= 100
+					&& content_type.capacity() <= 32
+					&& matches!(content_type.as_str(), "audio/mpeg" | "audio/ogg")
+					&& !file.is_empty()
+					&& file.len() <= MAX_SOUND_FILE_BYTES
+					&& file.capacity() <= MAX_SOUND_FILE_BYTES
+			}
+			Self::EditSound {
+				id,
+				name,
+				emoji,
+				volume,
+			} => {
+				id.0 != 0
+					&& name.capacity() <= 128
+					&& *volume <= 100
+					&& match emoji {
+						crate::Patch::Value(emoji) => {
+							!emoji.is_empty()
+								&& emoji.capacity() <= 64
+								&& valid_sound_fields(name, emoji)
+						}
+						_ => valid_sound_fields(name, ""),
+					}
+			}
+			Self::DeleteSound { id } => id.0 != 0,
 			Self::LoadMembers(query) => query.valid(),
 			Self::SetRole { user, role, .. } => user.0 != 0 && role.0 != 0,
 			Self::SetNickname { user, nick } => {
@@ -260,6 +339,7 @@ pub enum Result {
 	Roles(crate::server_roles::Result),
 	Emojis(Emojis),
 	Stickers(Stickers),
+	Sounds(Sounds),
 	Members(Members),
 	Member(Member),
 	Kicked(Id),
@@ -279,6 +359,14 @@ pub fn valid_sticker_fields(name: &str, description: &str, tags: &str) -> bool {
 		&& !description.chars().any(char::is_control)
 		&& (1..=200).contains(&tags.chars().count())
 		&& !tags.chars().any(char::is_control)
+}
+/// A 2 to 32 character name and an optional short emoji, without control characters.
+pub fn valid_sound_fields(name: &str, emoji: &str) -> bool {
+	(2..=32).contains(&name.chars().count())
+		&& name.trim() == name
+		&& !name.chars().any(char::is_control)
+		&& emoji.len() <= 64
+		&& !emoji.chars().any(|c| c.is_control() || c.is_whitespace())
 }
 impl Member {
 	pub fn bytes(&self) -> usize {
@@ -335,6 +423,17 @@ impl Result {
 							})
 							.sum::<usize>()
 				}
+				Self::Sounds(page) => {
+					page.items.capacity() * size_of::<Sound>()
+						+ page
+							.items
+							.iter()
+							.map(|row| {
+								row.sound.heap_bytes()
+									+ row.uploader.as_ref().map_or(0, User::heap_bytes)
+							})
+							.sum::<usize>()
+				}
 				Self::Members(page) => page.bytes(),
 				Self::Member(member) => member.bytes(),
 				_ => 0,
@@ -381,6 +480,23 @@ impl Result {
 								&& !page.items[..index]
 									.iter()
 									.any(|other| other.sticker.id == row.sticker.id)
+								&& row
+									.uploader
+									.as_ref()
+									.is_none_or(|user| user.id.0 != 0 && user.heap_bytes() <= 1024)
+						})
+				}
+				Self::Sounds(page) => {
+					page.items.len() <= crate::soundboard::MAX_SOUNDS
+						&& page
+							.limit
+							.is_none_or(|limit| limit <= crate::soundboard::MAX_SOUNDS)
+						&& page.items.iter().enumerate().all(|(index, row)| {
+							row.sound.valid()
+								&& row.sound.guild.is_some()
+								&& !page.items[..index]
+									.iter()
+									.any(|other| other.sound.id == row.sound.id)
 								&& row
 									.uploader
 									.as_ref()

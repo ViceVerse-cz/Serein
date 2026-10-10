@@ -15,9 +15,16 @@ use std::{
 pub const RING_INTERVAL: Duration = Duration::from_secs(6);
 pub const OUTGOING_RING_INTERVAL: Duration = Duration::from_secs(3);
 
+/// A bundled cue, or a slice of already decoded 48 kHz mono PCM (a local preview).
+#[derive(Clone)]
+pub enum Source {
+	Cue(Sound),
+	Clip(Arc<[f32]>, std::ops::Range<usize>),
+}
+
 #[derive(Default)]
 pub struct Sounds {
-	send: Option<SyncSender<(u64, Sound, u8)>>,
+	send: Option<SyncSender<(u64, Source, u8)>>,
 	generation: Arc<AtomicU64>,
 	status: Arc<AtomicU8>,
 }
@@ -34,8 +41,12 @@ impl Sounds {
 		self.status.store(0, Ordering::Release);
 	}
 	pub fn play(&mut self, sound: Sound, volume: u8, ctx: &eframe::egui::Context) {
+		self.play_source(Source::Cue(sound), volume, ctx);
+	}
+	/// Replace playback with one source; a newer request or `stop` ends it.
+	pub fn play_source(&mut self, sound: Source, volume: u8, ctx: &eframe::egui::Context) {
 		if self.send.is_none() {
-			let (send, receive) = mpsc::sync_channel::<(u64, Sound, u8)>(1);
+			let (send, receive) = mpsc::sync_channel::<(u64, Source, u8)>(1);
 			let generation = self.generation.clone();
 			let status = self.status.clone();
 			let context = ctx.clone();
@@ -178,8 +189,32 @@ fn samples(sound: Sound, rate: u32, current: &impl Fn() -> bool) -> Result<Vec<[
 		})
 		.collect())
 }
+/// Convert a bounded slice of 48 kHz mono PCM to stereo frames at the device rate.
+fn clip(pcm: &[f32], range: std::ops::Range<usize>, rate: u32) -> Result<Vec<[f32; 2]>, ()> {
+	let source = pcm.get(range).ok_or(())?;
+	// Ten seconds: previews are at most a 5.2-second selection.
+	if source.is_empty() || source.len() > 480_000 || !(8000..=192000).contains(&rate) {
+		return Err(());
+	}
+	let frames = source.len();
+	Ok((0..(frames * rate as usize).div_ceil(48_000))
+		.map(|frame| {
+			let position = frame as f64 * 48_000.0 / f64::from(rate);
+			let index = (position as usize).min(frames - 1);
+			let next = (index + 1).min(frames - 1);
+			let value =
+				source[index] + (source[next] - source[index]) * (position - index as f64) as f32;
+			let value = if value.is_finite() {
+				value.clamp(-1.0, 1.0)
+			} else {
+				0.0
+			};
+			[value, value]
+		})
+		.collect())
+}
 fn open(
-	sound: Sound,
+	sound: Source,
 	volume: u8,
 	generation: Arc<AtomicU64>,
 	request: u64,
@@ -192,9 +227,12 @@ fn open(
 	if !(8000..=192000).contains(&config.sample_rate) || !(1..=8).contains(&config.channels) {
 		return Err(());
 	}
-	let samples = samples(sound, config.sample_rate, &|| {
-		generation.load(Ordering::Acquire) == request
-	})?;
+	let samples = match sound {
+		Source::Cue(sound) => samples(sound, config.sample_rate, &|| {
+			generation.load(Ordering::Acquire) == request
+		})?,
+		Source::Clip(pcm, range) => clip(&pcm, range, config.sample_rate)?,
+	};
 	let duration = Duration::from_secs_f64(samples.len() as f64 / f64::from(config.sample_rate));
 	let stream = match supported.sample_format() {
 		cpal::SampleFormat::F32 => output::<f32>(
@@ -366,6 +404,20 @@ mod tests {
 		assert!(!next_finished.load(Ordering::Acquire));
 		next(&mut data[..2], &info(2000, 3000));
 		assert_eq!(&data[..2], &[0.3, 0.3]);
+	}
+
+	#[test]
+	fn clips_resample_a_bounded_slice_and_reject_invalid_ranges() {
+		let pcm: Arc<[f32]> = (0..96_000).map(|n| n as f32 / 96_000.0).collect();
+		let same = clip(&pcm, 48_000..96_000, 48_000).unwrap();
+		assert_eq!(same.len(), 48_000);
+		assert_eq!(same[0], [0.5, 0.5]);
+		assert_eq!(clip(&pcm, 0..48_000, 24_000).unwrap().len(), 24_000);
+		assert_eq!(clip(&pcm, 0..48_000, 96_000).unwrap().len(), 96_000);
+		assert!(clip(&pcm, 0..0, 48_000).is_err());
+		assert!(clip(&pcm, 90_000..100_000, 48_000).is_err());
+		assert!(clip(&vec![0.0; 480_001], 0..480_001, 48_000).is_err());
+		assert!(clip(&[f32::NAN; 4], 0..4, 48_000).unwrap()[0][0] == 0.0);
 	}
 
 	#[test]

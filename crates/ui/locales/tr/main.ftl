@@ -3213,6 +3213,8 @@ server-settings-page-profile = Sunucu Profili
 server-settings-page-roles = Roller
 # Context: label
 server-settings-page-stickers = Çıkartmalar
+# Context: label
+server-settings-page-soundboard = Ses Paneli
 # Context: preview
 server-settings-preview-established = Kurulmuş
 # Context: preview
@@ -3268,6 +3270,84 @@ server-settings-show-people = İNSANLAR
 # Context: timeout_picker
 server-settings-timeout-picker-minutes = dakika
 
+# Context: server_sounds
+server-sounds-title = Ses Paneli
+# Context: server_sounds
+server-sounds-upload-title = Ses Yükle
+# Context: server_sounds
+server-sounds-preview = Önizleme
+# Context: server_sounds
+server-sounds-trim-hint = En fazla 5,2 saniye seçmek için tutamaçları sürükleyin. Yakınlaştırmak için bir tutamacı sabit tutun.
+# Context: server_sounds
+server-sounds-never-mind = Boş ver
+# Context: server_sounds
+server-sounds-play-preview = Seçimi oynat
+# Context: server_sounds
+server-sounds-stop-preview = Önizlemeyi durdur
+# Context: server_sounds
+server-sounds-description = Bu sunucudaki herkesin kullanabileceği özel ses tepkileri yükleyin.
+# Context: server_sounds
+server-sounds-upload-sound = Ses Yükle
+# Context: server_sounds
+server-sounds-reload = Yeniden yükle
+# Context: server_sounds
+server-sounds-saving = Değişiklikler kaydediliyor…
+# Context: server_sounds
+server-sounds-loading = Sesler yükleniyor…
+# Context: server_sounds
+server-sounds-hint = MP3, Ogg veya WAV ses. Sesler en fazla 5,2 saniye ve 512 KB olabilir; daha uzun dosyalar kırpılabilir.
+# Context: server_sounds
+server-sounds-preparing = Ses hazırlanıyor…
+# Context: server_sounds
+server-sounds-name = Ad
+# Context: server_sounds
+server-sounds-emoji = İlgili emoji (isteğe bağlı)
+# Context: server_sounds
+server-sounds-volume = Ses düzeyi
+# Context: server_sounds
+server-sounds-upload = Yükle
+# Context: server_sounds
+server-sounds-cancel = İptal
+# Context: server_sounds
+server-sounds-invalid = 2–32 karakterlik bir ad ve en fazla bir emoji kullanın.
+# Context: server_sounds
+server-sounds-section = Sesler
+# Context: server_sounds
+server-sounds-count = { $count } ses
+# Context: server_sounds
+server-sounds-slots = { $limit } yuvadan { $count } tanesi boş
+# Context: server_sounds
+server-sounds-empty = Henüz özel ses yok
+# Context: server_sounds
+server-sounds-empty-detail = Başlamak için bir ses yükleyin.
+# Context: server_sounds
+server-sounds-column-emoji = Emoji
+# Context: server_sounds
+server-sounds-column-name = Ad
+# Context: server_sounds
+server-sounds-column-uploaded-by = Yükleyen
+# Context: server_sounds
+server-sounds-unknown = Bilinmiyor
+# Context: server_sounds
+server-sounds-unavailable = Kullanılamıyor
+# Context: server_sounds
+server-sounds-actions = Ses işlemleri
+# Context: server_sounds
+server-sounds-edit = Düzenle
+# Context: server_sounds
+server-sounds-delete = Sesi sil
+# Context: server_sounds
+server-sounds-edit-title = Sesi düzenle
+# Context: server_sounds
+server-sounds-edit-subtitle = Sesin adını, emojisini ve ses düzeyini güncelleyin.
+# Context: server_sounds
+server-sounds-delete-title = Ses silinsin mi?
+# Context: server_sounds
+server-sounds-delete-subtitle = { $name } kaldırıldıktan sonra geri alınamaz.
+# Context: server_sounds
+server-sounds-save = Kaydet
+# Context: server_sounds
+server-sounds-custom-emoji-kept = Bu ses özel bir emoji kullanıyor. Korumak için alanı boş bırakın.
 ## crates/ui/src/server_stickers.rs
 # Context: dialog
 server-stickers-dialog-cancel = İptal etmek
@@ -4083,6 +4163,26 @@ voice-mute-toggle-unmute = Sesini açmak
 voice-mute-toggle-with-settings-input-settings = Giriş ayarları
 # Context: mute_toggle_with_settings
 voice-mute-toggle-with-settings-output-settings = Çıkış ayarları
+# Context: soundboard_panel
+voice-soundboard-title = Ses Paneli
+# Context: soundboard_panel
+voice-soundboard-open = Bu ses kanalında bir ses çal
+# Context: soundboard_panel
+voice-soundboard-server-only = Ses paneli sunucu ses kanallarında kullanılabilir
+# Context: soundboard_panel
+voice-soundboard-server-sounds = Sunucu sesleri
+# Context: soundboard_panel
+voice-soundboard-default-sounds = Varsayılan sesler
+# Context: soundboard_panel
+voice-soundboard-loading = Sesler yükleniyor…
+# Context: soundboard_panel
+voice-soundboard-empty = Burada kullanılabilir ses yok.
+# Context: soundboard_panel
+voice-soundboard-retry = Tekrar dene
+# Context: soundboard_panel
+voice-soundboard-volume = Ses paneli ses düzeyi
+# Context: soundboard_panel
+voice-soundboard-sound-unavailable = Bu ses kullanılamıyor
 # Context: stream_audio_controls
 voice-stream-audio-controls-mute-stream-audio = Akış sesini kapat
 # Context: stream_audio_controls

@@ -35,6 +35,7 @@ pub mod server_invites;
 pub mod server_roles;
 pub mod server_settings;
 pub mod settings_update;
+pub mod soundboard;
 pub mod spotify;
 pub mod stickers;
 pub mod stream;

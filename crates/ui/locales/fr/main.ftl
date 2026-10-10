@@ -3212,6 +3212,8 @@ server-settings-page-profile = Profil de serveur
 server-settings-page-roles = Rôles
 # Context: label
 server-settings-page-stickers = Autocollants
+# Context: label
+server-settings-page-soundboard = Soundboard
 # Context: preview
 server-settings-preview-established = Établi
 # Context: preview
@@ -3267,6 +3269,84 @@ server-settings-show-people = PERSONNES
 # Context: timeout_picker
 server-settings-timeout-picker-minutes = minutes
 
+# Context: server_sounds
+server-sounds-title = Soundboard
+# Context: server_sounds
+server-sounds-upload-title = Importer un son
+# Context: server_sounds
+server-sounds-preview = Aperçu
+# Context: server_sounds
+server-sounds-trim-hint = Faites glisser les poignées pour choisir jusqu'à 5,2 secondes. Maintenez une poignée immobile pour zoomer.
+# Context: server_sounds
+server-sounds-never-mind = Laisser tomber
+# Context: server_sounds
+server-sounds-play-preview = Lire la sélection
+# Context: server_sounds
+server-sounds-stop-preview = Arrêter l'aperçu
+# Context: server_sounds
+server-sounds-description = Importez des réactions sonores personnalisées que tout le monde sur ce serveur peut utiliser.
+# Context: server_sounds
+server-sounds-upload-sound = Importer un son
+# Context: server_sounds
+server-sounds-reload = Recharger
+# Context: server_sounds
+server-sounds-saving = Enregistrement des modifications…
+# Context: server_sounds
+server-sounds-loading = Chargement des sons…
+# Context: server_sounds
+server-sounds-hint = Audio MP3, Ogg ou WAV. Les sons durent au plus 5,2 secondes et 512 Ko ; les fichiers plus longs peuvent être rognés.
+# Context: server_sounds
+server-sounds-preparing = Préparation du son…
+# Context: server_sounds
+server-sounds-name = Nom
+# Context: server_sounds
+server-sounds-emoji = Emoji associé (facultatif)
+# Context: server_sounds
+server-sounds-volume = Volume
+# Context: server_sounds
+server-sounds-upload = Importer
+# Context: server_sounds
+server-sounds-cancel = Annuler
+# Context: server_sounds
+server-sounds-invalid = Utilisez un nom de 2 à 32 caractères et au plus un emoji.
+# Context: server_sounds
+server-sounds-section = Sons
+# Context: server_sounds
+server-sounds-count = { $count } sons
+# Context: server_sounds
+server-sounds-slots = { $count } emplacements disponibles sur { $limit }
+# Context: server_sounds
+server-sounds-empty = Aucun son personnalisé pour l'instant
+# Context: server_sounds
+server-sounds-empty-detail = Importez un son pour commencer.
+# Context: server_sounds
+server-sounds-column-emoji = Emoji
+# Context: server_sounds
+server-sounds-column-name = Nom
+# Context: server_sounds
+server-sounds-column-uploaded-by = Importé par
+# Context: server_sounds
+server-sounds-unknown = Inconnu
+# Context: server_sounds
+server-sounds-unavailable = Indisponible
+# Context: server_sounds
+server-sounds-actions = Actions du son
+# Context: server_sounds
+server-sounds-edit = Modifier
+# Context: server_sounds
+server-sounds-delete = Supprimer le son
+# Context: server_sounds
+server-sounds-edit-title = Modifier le son
+# Context: server_sounds
+server-sounds-edit-subtitle = Modifiez le nom, l'emoji et le volume du son.
+# Context: server_sounds
+server-sounds-delete-title = Supprimer le son ?
+# Context: server_sounds
+server-sounds-delete-subtitle = La suppression de { $name } est définitive.
+# Context: server_sounds
+server-sounds-save = Enregistrer
+# Context: server_sounds
+server-sounds-custom-emoji-kept = Ce son utilise un emoji personnalisé. Laissez le champ vide pour le conserver.
 ## crates/ui/src/server_stickers.rs
 # Context: dialog
 server-stickers-dialog-cancel = Annuler
@@ -4086,6 +4166,26 @@ voice-mute-toggle-unmute = Activer le son
 voice-mute-toggle-with-settings-input-settings = Paramètres d'entrée
 # Context: mute_toggle_with_settings
 voice-mute-toggle-with-settings-output-settings = Paramètres de sortie
+# Context: soundboard_panel
+voice-soundboard-title = Soundboard
+# Context: soundboard_panel
+voice-soundboard-open = Jouer un son dans ce salon vocal
+# Context: soundboard_panel
+voice-soundboard-server-only = Le soundboard est disponible dans les salons vocaux de serveur
+# Context: soundboard_panel
+voice-soundboard-server-sounds = Sons du serveur
+# Context: soundboard_panel
+voice-soundboard-default-sounds = Sons par défaut
+# Context: soundboard_panel
+voice-soundboard-loading = Chargement des sons…
+# Context: soundboard_panel
+voice-soundboard-empty = Aucun son n'est disponible ici.
+# Context: soundboard_panel
+voice-soundboard-retry = Réessayer
+# Context: soundboard_panel
+voice-soundboard-volume = Volume du soundboard
+# Context: soundboard_panel
+voice-soundboard-sound-unavailable = Ce son est indisponible
 # Context: stream_audio_controls
 voice-stream-audio-controls-mute-stream-audio = Couper le son du flux
 # Context: stream_audio_controls

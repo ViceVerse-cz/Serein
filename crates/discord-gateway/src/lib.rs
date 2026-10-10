@@ -1897,6 +1897,17 @@ async fn run_recoverable(
 										let update: GuildEmojisUpdate = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;
 										emit(Event::GuildEmojis { guild: update.guild_id, emojis: update.emojis.0 })?;
 									}
+									// Best-effort playback metadata: an unsupported effect never ends the session.
+									"VOICE_CHANNEL_EFFECT_SEND" => {
+										if let Ok(Some(effect)) = discord_protocol::soundboard::effect(packet.d.get().as_bytes()) {
+											emit(Event::Soundboard(client_core::soundboard::Event::Effect { channel: effect.channel, user: effect.user, sound: effect.sound, volume: effect.volume }))?;
+										}
+									}
+									"GUILD_SOUNDBOARD_SOUND_CREATE" | "GUILD_SOUNDBOARD_SOUND_UPDATE" | "GUILD_SOUNDBOARD_SOUND_DELETE" | "GUILD_SOUNDBOARD_SOUNDS_UPDATE" => {
+										if let Ok(guild) = discord_protocol::soundboard::changed_guild(packet.d.get().as_bytes()) {
+											emit(Event::Soundboard(client_core::soundboard::Event::Changed(guild)))?;
+										}
+									}
 									"GUILD_CREATE" => {
 										member_diagnostics.record("guild refresh received");
 										let permissions=owner_id.map(|owner|permissions::guild(packet.d.get().as_bytes(),owner)).transpose().map_err(|_|Failure::ProtocolAt("Gateway guild refresh: invalid permission metadata"))?;
@@ -2586,10 +2597,15 @@ mod tests {
                     (31,"READY_SUPPLEMENTAL",json!({"guilds":[{"id":"2"}],"merged_members":[[{"user_id":"1","roles":[]}]]})),
                     (32,"GUILD_DELETE",json!({"id":"2"})),
                     (33,"GUILD_CREATE",json!({"id":"2","owner_id":"7","roles":[{"id":"2","permissions":"68608"}],"members":[{"user":{"id":"1","username":"Synthetic"},"roles":[]}],"channels":[{"id":"4","type":0,"name":"Synthetic channel","position":0,"parent_id":null,"last_message_id":"9","permission_overwrites":[]}]})),
+                    (34,"VOICE_CHANNEL_EFFECT_SEND",json!({"channel_id":"4","guild_id":"2","user_id":"8","sound_id":"40","sound_volume":0.5,"emoji":{"id":null,"name":"x"}})),
+                    // Emoji-only and malformed effects are dropped without ending the session.
+                    (35,"VOICE_CHANNEL_EFFECT_SEND",json!({"channel_id":"4","guild_id":"2","user_id":"8","emoji":{"id":null,"name":"x"}})),
+                    (36,"VOICE_CHANNEL_EFFECT_SEND",json!({"channel_id":"not-an-id","sound_id":[]})),
+                    (37,"GUILD_SOUNDBOARD_SOUND_DELETE",json!({"guild_id":"2","sound_id":"40"})),
                 ] {send(&mut socket,json!({"op":0,"t":name,"s":sequence,"d":data})).await;}
                 // A stale replay must neither change counts nor regress the heartbeat cursor.
                 send(&mut socket,json!({"op":0,"t":"MESSAGE_REACTION_ADD","s":7,"d":{"channel_id":"4","message_id":"9","user_id":"1","emoji":{"id":null,"name":"x"}}})).await;
-                acknowledge(&mut socket,33).await;
+                acknowledge(&mut socket,37).await;
                 // Force a heartbeat reply to race the following terminal close.
                 send(&mut socket,json!({"op":1,"d":null})).await;
                 socket.send(Frame::Close(Some(CloseFrame {code:CloseCode::from(4004),reason:"synthetic expiration".into()}))).await.unwrap();
@@ -2602,6 +2618,7 @@ mod tests {
             let reaction_changes=std::sync::atomic::AtomicUsize::new(0);
             let thread_events=std::sync::atomic::AtomicUsize::new(0);
             let emoji_changes=std::sync::atomic::AtomicUsize::new(0);
+            let sound_events=std::sync::atomic::AtomicUsize::new(0);
             let client=run_inner(
                 Arc::new(SessionSecret::from_owner_input("synthetic-owner-session".into()).unwrap()),
                 "wss://gateway.discord.gg/".into(),watch::channel(None).1,mpsc::channel(1).1,None,
@@ -2651,6 +2668,13 @@ mod tests {
                             _ => panic!("unexpected emoji update"),
                         }
                     }
+                    if let Event::Soundboard(sound)=&event {
+                        match (sound_events.fetch_add(1,std::sync::atomic::Ordering::Relaxed),sound) {
+                            (0,client_core::soundboard::Event::Effect{channel,user,sound,volume}) => assert_eq!((*channel,*user,*sound,*volume),(Id(4),Id(8),Id(40),0.5)),
+                            (1,client_core::soundboard::Event::Changed(guild)) => assert_eq!(*guild,Id(2)),
+                            _ => panic!("unexpected soundboard event"),
+                        }
+                    }
                     let mut state=state.lock().unwrap();
                     let thread_change=matches!(&event, Event::ThreadChanged{..}|Event::ThreadsSync{..}|Event::ThreadRemoved{..})
                         || matches!(&event,Event::ChannelCreated(c) if matches!(c.kind,10..=12));
@@ -2688,6 +2712,7 @@ mod tests {
             assert_eq!(permission_changes.load(std::sync::atomic::Ordering::Relaxed),11);
             assert_eq!(emoji_changes.load(std::sync::atomic::Ordering::Relaxed),3);
             assert!(state.guilds[0].emojis.as_ref().unwrap().is_empty());
+            assert_eq!(sound_events.load(std::sync::atomic::Ordering::Relaxed),2);
             assert_eq!(reaction_changes.load(std::sync::atomic::Ordering::Relaxed),4);
             assert_eq!(thread_events.load(std::sync::atomic::Ordering::Relaxed),8);
         }).await.unwrap();

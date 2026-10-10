@@ -3223,6 +3223,8 @@ server-settings-page-profile = Profil serveru
 server-settings-page-roles = Role
 # Context: label
 server-settings-page-stickers = Samolepky
+# Context: label
+server-settings-page-soundboard = Soundboard
 # Context: preview
 server-settings-preview-established = Založeno
 # Context: preview
@@ -3278,6 +3280,84 @@ server-settings-show-people = LIDÉ
 # Context: timeout_picker
 server-settings-timeout-picker-minutes = zápis
 
+# Context: server_sounds
+server-sounds-title = Soundboard
+# Context: server_sounds
+server-sounds-upload-title = Nahrát zvuk
+# Context: server_sounds
+server-sounds-preview = Náhled
+# Context: server_sounds
+server-sounds-trim-hint = Tažením úchytů vyberte až 5,2 sekundy. Podržením úchytu na místě zobrazení přiblížíte.
+# Context: server_sounds
+server-sounds-never-mind = To je jedno
+# Context: server_sounds
+server-sounds-play-preview = Přehrát výběr
+# Context: server_sounds
+server-sounds-stop-preview = Zastavit náhled
+# Context: server_sounds
+server-sounds-description = Nahrajte vlastní zvukové reakce, které může použít kdokoli na tomto serveru.
+# Context: server_sounds
+server-sounds-upload-sound = Nahrát zvuk
+# Context: server_sounds
+server-sounds-reload = Načíst znovu
+# Context: server_sounds
+server-sounds-saving = Ukládání změn…
+# Context: server_sounds
+server-sounds-loading = Načítání zvuků…
+# Context: server_sounds
+server-sounds-hint = Zvuk MP3, Ogg nebo WAV. Zvuky mají nejvýše 5,2 sekundy a 512 KB; delší soubory lze oříznout.
+# Context: server_sounds
+server-sounds-preparing = Příprava zvuku…
+# Context: server_sounds
+server-sounds-name = Název
+# Context: server_sounds
+server-sounds-emoji = Související emoji (volitelné)
+# Context: server_sounds
+server-sounds-volume = Hlasitost
+# Context: server_sounds
+server-sounds-upload = Nahrát
+# Context: server_sounds
+server-sounds-cancel = Zrušit
+# Context: server_sounds
+server-sounds-invalid = Použijte název o 2–32 znacích a nejvýše jedno emoji.
+# Context: server_sounds
+server-sounds-section = Zvuky
+# Context: server_sounds
+server-sounds-count = Zvuky: { $count }
+# Context: server_sounds
+server-sounds-slots = Volné sloty: { $count } z { $limit }
+# Context: server_sounds
+server-sounds-empty = Zatím žádné vlastní zvuky
+# Context: server_sounds
+server-sounds-empty-detail = Začněte nahráním zvuku.
+# Context: server_sounds
+server-sounds-column-emoji = Emoji
+# Context: server_sounds
+server-sounds-column-name = Název
+# Context: server_sounds
+server-sounds-column-uploaded-by = Nahrál
+# Context: server_sounds
+server-sounds-unknown = Neznámý
+# Context: server_sounds
+server-sounds-unavailable = Nedostupný
+# Context: server_sounds
+server-sounds-actions = Akce zvuku
+# Context: server_sounds
+server-sounds-edit = Upravit
+# Context: server_sounds
+server-sounds-delete = Smazat zvuk
+# Context: server_sounds
+server-sounds-edit-title = Upravit zvuk
+# Context: server_sounds
+server-sounds-edit-subtitle = Upravte název, emoji a hlasitost zvuku.
+# Context: server_sounds
+server-sounds-delete-title = Smazat zvuk?
+# Context: server_sounds
+server-sounds-delete-subtitle = Odebrání zvuku { $name } nelze vrátit zpět.
+# Context: server_sounds
+server-sounds-save = Uložit
+# Context: server_sounds
+server-sounds-custom-emoji-kept = Tento zvuk používá vlastní emoji. Pole nechte prázdné, chcete-li ho zachovat.
 ## crates/ui/src/server_stickers.rs
 # Context: dialog
 server-stickers-dialog-cancel = Zrušit
@@ -4098,6 +4178,26 @@ voice-mute-toggle-unmute = Zrušit ztlumení
 voice-mute-toggle-with-settings-input-settings = Nastavení vstupu
 # Context: mute_toggle_with_settings
 voice-mute-toggle-with-settings-output-settings = Nastavení výstupu
+# Context: soundboard_panel
+voice-soundboard-title = Soundboard
+# Context: soundboard_panel
+voice-soundboard-open = Přehrát zvuk v tomto hlasovém kanálu
+# Context: soundboard_panel
+voice-soundboard-server-only = Soundboard je dostupný v hlasových kanálech serveru
+# Context: soundboard_panel
+voice-soundboard-server-sounds = Zvuky serveru
+# Context: soundboard_panel
+voice-soundboard-default-sounds = Výchozí zvuky
+# Context: soundboard_panel
+voice-soundboard-loading = Načítání zvuků…
+# Context: soundboard_panel
+voice-soundboard-empty = Nejsou zde dostupné žádné zvuky.
+# Context: soundboard_panel
+voice-soundboard-retry = Zkusit znovu
+# Context: soundboard_panel
+voice-soundboard-volume = Hlasitost soundboardu
+# Context: soundboard_panel
+voice-soundboard-sound-unavailable = Tento zvuk není dostupný
 # Context: stream_audio_controls
 voice-stream-audio-controls-mute-stream-audio = Ztlumit streamovaný zvuk
 # Context: stream_audio_controls
