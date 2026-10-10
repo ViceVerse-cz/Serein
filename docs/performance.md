@@ -143,7 +143,7 @@ fresh package build. Both use the pinned release profile and lockfile.
 | --- | ---: | ---: | ---: | --- |
 | Executable | 68,657,536 B | 68,657,536 B | 0 B | Mach-O file length |
 | Installed bundle | 74,695,871 B | 74,695,871 B | 0 B | Sum of bundle file lengths |
-| ZIP | 48,255,390 B | 48,253,260 B | -2,130 B / -0.0044% | ditto -c -k --keepParent |
+| ZIP | 48,255,390 B | 48,260,122 B | +4,732 B / +0.0098% | ditto -c -k --sequesterRsrc --keepParent |
 
 The ZIP difference is small compression/signing noise, not a meaningful package
 improvement. The local package is ad-hoc signed, not notarized. Full workspace
