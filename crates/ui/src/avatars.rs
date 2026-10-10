@@ -35,6 +35,7 @@ const EMOJI_TEXTURES: usize = 1024;
 const EMOJI_TEXTURE_BYTES: usize = 16 * 1024 * 1024;
 const TEXTURES: usize = 512;
 const TEXTURE_BYTES: usize = 64 * 1024 * 1024;
+const IDLE_TEXTURES: Duration = Duration::from_secs(60);
 /// Longest edge for string-keyed artwork: stickers, picker previews, banners and activity art.
 pub const EMBED_EDGE: u32 = 512;
 const REQUESTS: usize = 128;
@@ -58,8 +59,8 @@ pub(crate) struct Avatars {
 	released: HashSet<String>,
 	/// Hover-only artwork that wanted to play while its frames were missing.
 	wanted: HashSet<String>,
-	textures: HashMap<String, (u64, TextureHandle)>,
-	emoji_textures: HashMap<String, (u64, TextureHandle)>,
+	textures: HashMap<String, (Instant, TextureHandle)>,
+	emoji_textures: HashMap<String, (Instant, TextureHandle)>,
 	emoji_bytes: usize,
 	avatar_keys: HashMap<model::Id, AvatarKey>,
 	clock: u64,
@@ -296,7 +297,7 @@ impl Avatars {
 		self.release_idle(Instant::now());
 		std::mem::take(&mut self.requests)
 	}
-	/// Drops decoded frames that have not played for `IDLE_FRAMES`, keeping each still texture.
+	/// Releases idle decoded frames and artwork textures; visible artwork refreshes its deadline.
 	fn release_idle(&mut self, now: Instant) {
 		let idle: Vec<String> = self
 			.animations
@@ -311,14 +312,36 @@ impl Avatars {
 		if self.wanted.len() > REQUESTS {
 			self.wanted.clear();
 		}
+		for (textures, bytes) in [
+			(&mut self.textures, &mut self.bytes),
+			(&mut self.emoji_textures, &mut self.emoji_bytes),
+		] {
+			textures.retain(|key, (used, texture)| {
+				if now.saturating_duration_since(*used) < IDLE_TEXTURES {
+					return true;
+				}
+				*bytes -= texture.byte_size();
+				self.revision += 1;
+				self.animations.remove(key);
+				self.released.remove(key);
+				self.wanted.remove(key);
+				false
+			});
+		}
 		self.media.release_idle(now);
 	}
-	/// Next idle frame/inline texture release; the host wakes then to trim an idle window.
+	/// Next idle frame/artwork release; the host wakes then to trim an idle window.
 	pub fn next_release(&self) -> Option<Instant> {
 		self.animations
 			.values()
 			.map(|animation| animation.played + IDLE_FRAMES)
 			.chain(self.media.next_release())
+			.chain(
+				self.textures
+					.values()
+					.chain(self.emoji_textures.values())
+					.map(|(used, _)| *used + IDLE_TEXTURES),
+			)
 			.min()
 	}
 	fn request(&mut self, key: String) {
@@ -407,9 +430,8 @@ impl Avatars {
 		}
 		let texture = ctx.load_texture("service-image", image, egui::TextureOptions::LINEAR);
 		*bytes += texture.byte_size();
-		self.clock += 1;
 		self.revision += 1;
-		textures.insert(key, (self.clock, texture));
+		textures.insert(key, (Instant::now(), texture));
 	}
 	pub(crate) fn unicode_image(
 		&mut self,
@@ -430,8 +452,7 @@ impl Avatars {
 		};
 		let key = format!("emoji-unicode-{cell}-{edge}");
 		if let Some(entry) = self.emoji_textures.get_mut(&key) {
-			self.clock += 1;
-			entry.0 = self.clock;
+			entry.0 = Instant::now();
 			Some(egui::Image::new(&entry.1).fit_to_exact_size(egui::Vec2::splat(size)))
 		} else {
 			self.request(key);
@@ -464,8 +485,7 @@ impl Avatars {
 			self.accept(_ctx, key.clone(), Some(image));
 		}
 		if let Some(entry) = self.emoji_textures.get_mut(&key) {
-			self.clock += 1;
-			entry.0 = self.clock;
+			entry.0 = Instant::now();
 			let image = egui::Image::new(&entry.1).fit_to_exact_size(egui::Vec2::splat(size));
 			Some(image)
 		} else {
@@ -533,8 +553,7 @@ impl Avatars {
 				let key = self.sticker_key(ctx, id, format_type, demo);
 				let animated = self.advance_animation(ctx, &key, false);
 				if let Some(entry) = self.textures.get_mut(&key) {
-					self.clock += 1;
-					entry.0 = self.clock;
+					entry.0 = Instant::now();
 					Some(
 						egui::Image::new(animated.as_ref().unwrap_or(&entry.1))
 							.fit_to_exact_size(egui::Vec2::splat(size)),
@@ -555,6 +574,22 @@ impl Avatars {
 			}
 		}
 	}
+	/// Cached composer layouts keep the artwork they actually paint warm too.
+	pub(crate) fn touch_share_image(&mut self, ctx: &egui::Context, asset: model::ImageShare) {
+		let entry = match asset {
+			model::ImageShare::Emoji { id, .. } => {
+				self.emoji_textures.get_mut(&format!("emoji-{id}"))
+			}
+			model::ImageShare::Sticker { id, format_type } => {
+				let key = self.sticker_key(ctx, id, format_type, false);
+				self.textures.get_mut(&key)
+			}
+		};
+		if let Some((used, _)) = entry {
+			*used = Instant::now();
+		}
+	}
+
 	/// Transparent, clickable sticker artwork using the shared bounded media working set.
 	pub(crate) fn sticker_image(
 		&mut self,
@@ -634,8 +669,7 @@ impl Avatars {
 		let key = self.preview_key(preview);
 		let animated_texture = self.advance_animation(ctx, &key, false);
 		if let Some(entry) = self.textures.get_mut(&key) {
-			self.clock += 1;
-			entry.0 = self.clock;
+			entry.0 = Instant::now();
 			let texture = animated_texture.as_ref().unwrap_or(&entry.1);
 			let texture = (texture.id(), texture.size());
 			Some(texture)
@@ -690,8 +724,7 @@ impl Avatars {
 				self.accept(ui.ctx(), key.clone(), Some(image));
 			}
 			if let Some(entry) = self.textures.get_mut(&key) {
-				self.clock += 1;
-				entry.0 = self.clock;
+				entry.0 = Instant::now();
 				let texture = animated_texture.as_ref().unwrap_or(&entry.1);
 				let source = texture.size_vec2();
 				let scale = (rect.width() / source.x).max(rect.height() / source.y);
@@ -949,8 +982,9 @@ impl Avatars {
 		let Some(entry) = self.textures.get_mut(key) else {
 			return false;
 		};
-		self.clock += 1;
-		entry.0 = self.clock;
+		if ui.is_rect_visible(rect) {
+			entry.0 = Instant::now();
+		}
 		let texture = animated_texture.as_ref().unwrap_or(&entry.1);
 		paint_texture(ui, texture, rect, radius, cover, egui::Color32::WHITE);
 		true
@@ -1466,6 +1500,127 @@ fn synthetic_gif(gif: &model::Gif) -> ColorImage {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn idle_artwork_expires_without_evicting_visible_images_and_reloads() {
+		let ctx = egui::Context::default();
+		let mut avatars = Avatars::default();
+		for key in ["visible", "hidden", "emoji-1", "emoji-2"] {
+			avatars.request(key.into());
+			avatars.take_requests();
+			avatars.accept(
+				&ctx,
+				key.into(),
+				Some(ColorImage::filled([64, 64], egui::Color32::WHITE)),
+			);
+		}
+		let now = Instant::now();
+		for (used, _) in avatars
+			.textures
+			.values_mut()
+			.chain(avatars.emoji_textures.values_mut())
+		{
+			*used = now - IDLE_TEXTURES;
+		}
+		assert_eq!(avatars.next_release(), Some(now));
+		avatars.release_idle(now - Duration::from_millis(1));
+		assert_eq!(avatars.textures.len() + avatars.emoji_textures.len(), 4);
+		ctx.run_ui(Default::default(), |ui| {
+			let visible = egui::Rect::from_min_size(ui.min_rect().min, egui::vec2(64.0, 64.0));
+			assert!(avatars.paint(ui, "visible", visible, 0));
+			let hidden = visible.translate(egui::vec2(100_000.0, 100_000.0));
+			assert!(avatars.paint(ui, "hidden", hidden, 0));
+		})
+		.drop_without_applying_deltas();
+		assert!(
+			avatars
+				.custom_image(&ctx, model::Id(1), 20.0, false)
+				.is_some()
+		);
+		avatars.release_idle(now);
+		assert!(avatars.texture_id("visible").is_some());
+		assert!(avatars.texture_id("emoji-1").is_some());
+		assert!(avatars.texture_id("hidden").is_none());
+		assert!(avatars.texture_id("emoji-2").is_none());
+		assert_eq!(avatars.bytes, 64 * 64 * 4);
+		assert_eq!(avatars.emoji_bytes, 64 * 64 * 4);
+		assert!(avatars.next_release().unwrap() > now);
+		avatars.request("hidden".into());
+		assert_eq!(avatars.take_requests(), vec!["hidden"]);
+		avatars.accept(
+			&ctx,
+			"hidden".into(),
+			Some(ColorImage::filled([64, 64], egui::Color32::WHITE)),
+		);
+		assert!(avatars.texture_id("hidden").is_some());
+	}
+
+	#[test]
+	fn cached_composer_artwork_refreshes_when_painted() {
+		let ctx = egui::Context::default();
+		let mut avatars = Avatars::default();
+		avatars.request("emoji-1".into());
+		avatars.accept(
+			&ctx,
+			"emoji-1".into(),
+			Some(ColorImage::filled([64, 64], egui::Color32::WHITE)),
+		);
+		let mut layout = crate::composer_text::Layout::default();
+		let mut text = "<:synthetic:1>".to_owned();
+		let now = Instant::now();
+		ctx.run_ui(Default::default(), |ui| {
+			let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width| {
+				layout.galley(
+					ui,
+					buffer.as_str(),
+					width,
+					&[],
+					&[],
+					&[],
+					false,
+					&mut avatars,
+					false,
+				)
+			};
+			let edit = egui::TextEdit::multiline(&mut text)
+				.layouter(&mut layouter)
+				.show(ui);
+			avatars.emoji_textures.get_mut("emoji-1").unwrap().0 = now - IDLE_TEXTURES;
+			layout.paint(ui, &edit, &mut avatars);
+		})
+		.drop_without_applying_deltas();
+		avatars.release_idle(now);
+		assert!(avatars.texture_id("emoji-1").is_some());
+	}
+
+	#[test]
+	#[ignore = "release idle-artwork workload; synthetic textures, no network or window"]
+	fn idle_artwork_workload() {
+		let ctx = egui::Context::default();
+		let mut avatars = Avatars::default();
+		for index in 0..932 {
+			let key = if index < 512 {
+				format!("avatar-{index}")
+			} else {
+				format!("emoji-{index}")
+			};
+			avatars.request(key.clone());
+			avatars.accept(
+				&ctx,
+				key,
+				Some(ColorImage::filled([64, 64], egui::Color32::WHITE)),
+			);
+		}
+		assert_eq!(avatars.textures.len(), REQUESTS);
+		assert_eq!(avatars.emoji_textures.len(), 0);
+		let peak = avatars.bytes + avatars.emoji_bytes;
+		avatars.release_idle(Instant::now() + Duration::from_secs(61));
+		println!(
+			"idle-artwork: peak_bytes={peak} settled_bytes={} textures={}",
+			avatars.bytes + avatars.emoji_bytes,
+			avatars.textures.len() + avatars.emoji_textures.len()
+		);
+	}
+
 	#[test]
 	fn stickers_obey_animation_preferences_and_demo_stays_offline() {
 		let ctx = egui::Context::default();

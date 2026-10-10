@@ -1,5 +1,18 @@
 # Local storage policy and audit
 
+## Off-screen artwork retention (October 10, 2026)
+
+Avatar, banner, activity, sticker, GIF-picker and custom/high-resolution emoji
+textures now expire after 60 seconds without access. Visible painting refreshes
+its deadline; a clipped paint does not. Accepted worker results get a fresh
+minute. The existing maintenance deadline includes both artwork pools, so an
+idle window can trim them. Expiry updates byte accounting and removes associated
+animation/playback state. Existing 512-item / 64-MiB artwork and 1,024-item /
+16-MiB emoji ceilings remain. Unicode's shared low-resolution atlas is unchanged.
+Returning to expired artwork uses the existing bounded worker and disk cache;
+a disk miss may fetch again. GPU resources may stay reserved in the driver after
+the handle is released. No persisted data, credentials or preferences are removed.
+
 ## Off-screen inline image retention (October 9, 2026)
 
 Inline media renditions now release their still and playback textures after 60 seconds

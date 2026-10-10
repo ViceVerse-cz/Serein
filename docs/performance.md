@@ -75,6 +75,82 @@ sum all app files, and distribution ZIPs use `ditto -c -k --sequesterRsrc --keep
 
 These package deltas are negligible. Both packages were locally ad-hoc signed, not notarized.
 
+## Allocation-stack follow-up and idle artwork — October 10, 2026
+
+The owner's restarted current-main build (`0d9c6772`, optimized release with
+matching Rust symbols and `MallocStackLogging=lite`) was inspected after normal
+server, image, profile, call and streaming activity. No agent-driven messages,
+calls or microphone capture were performed. At roughly four minutes the process
+footprint was 290.4 MiB (503.3 MiB peak), with 67.0 MiB live malloc allocations.
+Graphics regions included 150.6 MiB owned unmapped backing, about 27 MiB IOSurface
+and 1.6 MiB IOAccelerator. The malloc-zone report also included 69.6 MiB dirty
+fragmentation/slack and 16.2 MiB profiling-tool data. These categories use
+different accounting rules; they must not be added to derive footprint.
+
+Allocation stacks identified 18.6 MiB for `ui::fonts::install_cjk` and 16.0 MiB
+for epaint's CPU glyph atlas. The two large worker groups from the earlier
+October 7 binary were absent. The previous 501.3-MiB and current 290.4-MiB live
+captures had different activity and duration: they are diagnostic snapshots,
+not a controlled improvement benchmark. Stack logging adds observer overhead.
+Only addresses/stacks and summaries were captured, never allocation contents;
+the sorted allocation report was capped at 16 MiB.
+
+The leak scanner flagged 40,016 bytes in 440 blocks. Most belonged to macOS
+AppIntents/XPC cycles; about 13 KiB traced to RNNoise's easyfft/generic_singleton
+thread-local FFT planner cache. Its dependency deliberately uses `Box::leak`;
+this small per-worker retention remains and is not fixed by artwork expiry.
+
+Avatar/banner/activity/sticker/picker textures and custom/high-resolution emoji
+textures previously stayed until their item/byte pools filled. They now expire
+after 60 seconds without use, using the existing host maintenance deadline.
+Visible and cached composer artwork refreshes the deadline, clipped painting
+does not, and expired artwork uses the normal bounded worker/disk-cache path.
+Existing 64-MiB artwork and 16-MiB emoji ceilings are unchanged.
+
+The ignored `avatars::tests::idle_artwork_workload` compares optimized release
+unit-test builds with the pinned Rust 1.98.1 toolchain and lockfile on macOS
+27.0.1 / Apple M1 Pro / 16 GiB RAM. The new harness was first run on unmodified baseline source before applying
+the runtime change. The same workload submits 932 synthetic
+64×64 RGBA textures without draining the existing 128-request batch, so only
+128 avatar textures are admitted. It advances the maintenance clock by 61
+seconds, with one warmup and three measured runs per build. All runs agree.
+This measures retained texture payload accounting without a window or network,
+not GPU allocation, process RSS, peak decoding memory or latency. Separate UI
+regressions cover both cache pools, clipped/visible artwork, reloads and cached
+composer image painting. Native before/after process and GPU measurements are
+unmeasured; attempted standard-package `--demo` processes exited before a valid
+native sample could be captured. Their exit cause was not established and no
+zero-RSS result is used as evidence.
+
+| Texture payload metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Peak admitted payload | 2,097,152 B | 2,097,152 B | 0 B |
+| Payload after idle maintenance | 2,097,152 B | 0 B | -2,097,152 B / -100% |
+| Retained cache entries after idle maintenance | 128 | 0 | -128 |
+
+GPU drivers and allocators may reserve freed resources; these payload reductions
+are not an equal whole-process RAM reduction guarantee. Returning after expiry
+can re-decode cached artwork or fetch it again after a disk-cache miss. Font
+storage and the shared Unicode emoji atlas retain their existing lifetimes.
+
+The standard voice-inclusive package was rebuilt without demo/developer features.
+The preserved baseline is the verified PR #618 package at `c16cb2df`, whose source
+tree matches starting main `0d9c6772`; its executable hash was checked against
+the baseline copy before comparison. This is a reused baseline, not a simultaneous
+fresh package build. Both use the pinned release profile and lockfile.
+
+| Package metric | Baseline | After | Delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| Executable | 68,657,536 B | 68,657,536 B | 0 B | Mach-O file length |
+| Installed bundle | 74,695,871 B | 74,695,871 B | 0 B | Sum of bundle file lengths |
+| ZIP | 48,255,390 B | 48,253,260 B | -2,130 B / -0.0044% | ditto -c -k --keepParent |
+
+The ZIP difference is small compression/signing noise, not a meaningful package
+improvement. The local package is ad-hoc signed, not notarized. Full workspace
+checking passes (1,232 tests, zero failures), including formatting, strict Clippy
+and policy checks. Linux/Windows runtime behavior and a controlled live-account
+soak after this new artwork change remain unmeasured.
+
 ## Gateway resume fallback — October 8, 2026
 
 Compared baseline `2164f52e` with implementation `2ebc48a7` on Windows 11 x64,

@@ -16,6 +16,7 @@ struct Inline {
 	label: Option<Arc<egui::Galley>>,
 	background: Color32,
 	image: Option<Image<'static>>,
+	asset: Option<model::ImageShare>,
 	icon: Option<crate::icons::Icon>,
 }
 
@@ -104,6 +105,7 @@ impl Layout {
 			let mut label = None;
 			let mut background = colors.accent.gamma_multiply(0.12);
 			let mut image = None;
+			let mut asset = None;
 			let mut icon = None;
 			let mut artwork = false;
 			let length = if let Some((id, len)) = model::user_mention_prefix(tail) {
@@ -136,13 +138,18 @@ impl Layout {
 				label = Some((tail[..len].to_owned(), colors.mention_text));
 				background = colors.mention_bg;
 				len
-			} else if let Some((asset, name, len)) = model::ImageShare::markdown_prefix(tail) {
-				image = avatars.share_image(ui.ctx(), asset, size, demo);
+			} else if let Some((share, name, len)) = model::ImageShare::markdown_prefix(tail) {
+				asset = Some(share);
+				image = avatars.share_image(ui.ctx(), share, size, demo);
 				if image.is_none() {
 					label = Some((name, colors.muted));
 				}
 				len
 			} else if let Some((id, len)) = emoji::custom_prefix(tail) {
+				asset = Some(model::ImageShare::Emoji {
+					id,
+					animated: false,
+				});
 				image = avatars.custom_image(ui.ctx(), id, size, demo);
 				// A useful name remains visible while artwork is unavailable/loading.
 				if image.is_none() {
@@ -184,6 +191,7 @@ impl Layout {
 					label,
 					background,
 					image,
+					asset,
 					icon,
 				});
 				projected += 1;
@@ -232,7 +240,12 @@ impl Layout {
 		galley
 	}
 
-	pub fn paint(&self, ui: &mut egui::Ui, output: &egui::text_edit::TextEditOutput) {
+	pub fn paint(
+		&self,
+		ui: &mut egui::Ui,
+		output: &egui::text_edit::TextEditOutput,
+		avatars: &mut Avatars,
+	) {
 		// TextEdit keeps the empty hint galley on the first keystroke.
 		if self
 			.cache
@@ -284,6 +297,9 @@ impl Layout {
 					Color32::PLACEHOLDER,
 				);
 			} else if let Some(image) = &inline.image {
+				if let Some(asset) = inline.asset {
+					avatars.touch_share_image(ui.ctx(), asset);
+				}
 				let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
 				child.set_clip_rect(clip);
 				image.paint_at(
@@ -468,7 +484,7 @@ mod tests {
 					let edit = egui::TextEdit::multiline(&mut text)
 						.layouter(&mut layouter)
 						.show(ui);
-					layout.paint(ui, &edit);
+					layout.paint(ui, &edit, &mut avatars);
 					assert_eq!(edit.galley.job.text, text);
 					assert_eq!(layout.inlines.len(), 5);
 					for (inline, label) in layout.inlines.iter().zip([
@@ -593,7 +609,7 @@ mod tests {
 						.hint_text("Message")
 						.layouter(&mut layouter)
 						.show(ui);
-					layout.paint(ui, &edit);
+					layout.paint(ui, &edit, &mut avatars);
 				},
 			);
 			let images = output
@@ -663,7 +679,7 @@ mod tests {
 					.layouter(&mut layouter)
 					.show(ui);
 				layout.inlines[0].image = Some(image.clone());
-				layout.paint(ui, &edit);
+				layout.paint(ui, &edit, &mut avatars);
 			});
 			output.textures_delta.clear();
 			let sizes: Vec<_> = output
@@ -773,7 +789,7 @@ mod tests {
 					let edit = egui::TextEdit::multiline(&mut text)
 						.layouter(&mut layouter)
 						.show(ui);
-					layout.paint(ui, &edit);
+					layout.paint(ui, &edit, &mut avatars);
 					assert!(edit.text_clip_rect.height() > 40.0);
 					ui.clip_rect()
 				})
@@ -857,7 +873,7 @@ mod tests {
 					if !composing {
 						layout.snap_cursor(&mut edit, &ctx);
 					}
-					layout.paint(ui, &edit);
+					layout.paint(ui, &edit, &mut avatars);
 				},
 			);
 			if copying {

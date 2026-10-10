@@ -3597,7 +3597,7 @@ impl MessagingUi {
                                     .frame(egui::Frame::NONE)
                                     .hint_text(hint)
                                     .show(ui);
-                                rich_layout.paint(ui, &output);
+                                rich_layout.paint(ui, &output, &mut self.avatars);
                                 output
                             }).inner;
                         if !self.ime_active && !ime_this_frame {
