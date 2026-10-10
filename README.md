@@ -49,12 +49,12 @@ Pre-compiled releases for macOS, Linux, and Windows are published on GitHub [Rel
 |---|---|---|---|
 | **Windows** | `-Setup.exe`, `.zip` | `x86_64`, `aarch64` | Per-user NSIS installer (recommended) or standalone portable archive |
 | **macOS** | Homebrew Cask, `.zip`, Nix flake | Apple Silicon (`aarch64`) | Signed and notarized `.app` bundle; the Nix build is unsigned |
-| **Linux** | Flatpak (recommended), Repositories (`apt`, `dnf`, `zypper`, `pacman`), Gentoo ebuild, Nix flake, `.AppImage` | `x86_64` | Flatpak with automatic updates; signed package repositories; portable AppImage |
+| **Linux** | Flatpak (recommended), AUR (source), Repositories (`apt`, `dnf`, `zypper`), Gentoo ebuild, Nix flake, `.AppImage` | `x86_64` | Flatpak with automatic updates; community Arch source package; signed package repositories; portable AppImage |
 
 ---
 
 <details open>
-<summary><h3>🐧 Linux (Flatpak, Repositories, Gentoo, Nix, AppImage)</h3></summary>
+<summary><h3>🐧 Linux (Flatpak, AUR, Repositories, Gentoo, Nix, AppImage)</h3></summary>
 
 #### 1. Flatpak (Recommended)
 
@@ -75,24 +75,47 @@ Flatpak is the recommended distribution format for Linux, featuring sandbox isol
 
 See [Flatpak guide](packaging/flatpak/README.md) for sandbox permissions and source build details.
 
-#### 2. Native Package Repositories (apt, dnf, zypper, pacman)
+#### 2. Arch Linux (AUR)
 
-Configure the signed package repository for your distribution with one command:
+The community-maintained [`serein`](https://aur.archlinux.org/packages/serein)
+AUR package builds Serein from source for `x86_64`. It needs no additional pacman
+repository or changes to `/etc/pacman.conf`.
+
+On an up-to-date Arch system, install the build prerequisites and clone the recipe:
+
+```sh
+sudo pacman -S --needed base-devel git
+git clone https://aur.archlinux.org/serein.git
+cd serein
+```
+
+Review `PKGBUILD` and `.SRCINFO`, then build and install as a regular user:
+
+```sh
+makepkg -si
+```
+
+For updates, pull and review the AUR recipe changes, then run `makepkg -si` again.
+The [`serein-bin` recipe in this repository](packaging/aur/README.md) is a separate,
+unpublished binary-package recipe.
+
+#### 3. Native Package Repositories (apt, dnf, zypper)
+
+For Ubuntu/Debian, Fedora and openSUSE, configure the signed package repository:
 ```sh
 curl -fsSL https://viceverse-cz.github.io/Serein/setup.sh | sh
 ```
-The script detects your distribution (Ubuntu/Debian, Fedora, openSUSE, Arch Linux), cryptographically verifies the GPG signing key, and configures the repository with an option to install immediately.
+The script detects your distribution, cryptographically verifies the GPG signing key, and configures the repository with an option to install immediately.
 
 After setup, manage Serein with your native package manager:
 ```sh
 # Ubuntu / Debian: sudo apt install serein
 # Fedora:          sudo dnf install serein
 # openSUSE:        sudo zypper install serein
-# Arch Linux:      sudo pacman -S serein
 ```
-Your normal system updates (`apt upgrade`, `dnf upgrade`, `zypper update`, `pacman -Syu`) will keep Serein updated. See [Signed package repositories](packaging/repositories/README.md) for manual GPG verification steps.
+Your normal system updates (`apt upgrade`, `dnf upgrade`, `zypper update`) will keep Serein updated. See [Signed package repositories](packaging/repositories/README.md) for manual GPG verification and the optional prebuilt Arch repository setup.
 
-#### 3. Gentoo (source or binary)
+#### 4. Gentoo (source or binary)
 
 Gentoo users can install Serein from the [vitaly-zdanevich-overlay](https://github.com/vitaly-zdanevich/gentoo-overlay) overlay. It provides a source ebuild ([net-im/serein](https://github.com/vitaly-zdanevich/gentoo-overlay/tree/main/net-im/serein)) and a prebuilt amd64 ebuild ([net-im/serein-bin](https://github.com/vitaly-zdanevich/gentoo-overlay/tree/main/net-im/serein-bin)).
 
@@ -105,7 +128,7 @@ sudo emerge --ask net-im/serein
 
 Use `net-im/serein-bin` in the keyword file and emerge command to install the prebuilt binary instead. The source ebuild requires Rust 1.98.1 or newer. The binary ebuild targets amd64 systems with glibc 2.43 or newer. The two ebuilds install the same files, so choose one.
 
-#### 4. Nix (flake)
+#### 5. Nix (flake)
 
 The repository flake builds Serein from source for `x86_64-linux` and `aarch64-darwin`:
 
@@ -116,7 +139,7 @@ nix profile install github:ViceVerse-cz/Serein#serein
 
 Nix installs are updated through Nix, not the in-app updater. On macOS the build produces an unsigned, non-notarized `Serein.app`. See the [Nix package guide](nix/README.md) for the development shell and details.
 
-#### 5. Standalone AppImage (Portable)
+#### 6. Standalone AppImage (Portable)
 
 Download `serein-<version>-Linux-X64.AppImage` from [Releases](https://github.com/ViceVerse-cz/rustcord/releases), make it executable, and run:
 ```sh
