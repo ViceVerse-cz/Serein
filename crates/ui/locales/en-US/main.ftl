@@ -4488,6 +4488,8 @@ gif-favorites-sync-refresh = Refresh from Discord
 gif-favorites-sync-failed = Sync failed; local favorites are kept. Refresh before trying another synced change.
 gif-favorites-sync-unsupported = Discord favorites are unsupported or exceed the safe limit.
 gif-favorites-sync-unconfirmed = Favorite change was not confirmed. Refresh before retrying.
+gif-favorites-sync-pending = GIF favorites are syncing. Wait for sync to finish, then try again.
+gif-favorites-toggle-failed = This GIF could not be saved as a favorite.
 
 server-settings-page-safety = Safety Setup
 

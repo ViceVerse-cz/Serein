@@ -1,0 +1,269 @@
+{
+  "baseline_commit": "11abe5a3700cfe0ec734808931d3791922d98b12",
+  "merged_upstream_commit": "20230cb91b0117fe4c888d70867fa600704dcad4",
+  "after_revision": "Merged working tree; after_source_blobs identify every tracked reducer/dependency source file and the lockfile. Later evidence/documentation changes do not affect the binary.",
+  "after_source_blobs": {
+    "Cargo.lock": "7b01358c3d53d232064a6c74a85ff1808fc0d7d5",
+    "Cargo.toml": "a4292aa3429b97521309b382b159df6ea26c286f",
+    "crates/client-core/Cargo.toml": "faa8b9b6b7798f709511dad81637be6f9c27e94f",
+    "crates/client-core/src/application_commands.rs": "e056c502ff9c6406eb2a34896e9c8c9eb4d38376",
+    "crates/client-core/src/archives.rs": "ca3f7c86d3b54d1e32f80a82f829e321fa6234df",
+    "crates/client-core/src/auth.rs": "d5bb6141b02cb1b651146f00e77d116d837e70b9",
+    "crates/client-core/src/captcha.rs": "fe92c1b008b5d814a602202e8740ec491a8e2d05",
+    "crates/client-core/src/channel_actions.rs": "541aa730c47fd76399bc67dfccaca45464ff0865",
+    "crates/client-core/src/fingerprint.rs": "c502078ebe6ec638b6fe0c85fdf8e9bebe113493",
+    "crates/client-core/src/forum.rs": "5be6706a4e30951853aa2ce885be37408e4e47cf",
+    "crates/client-core/src/forwarding.rs": "1ccc40d074a69d82d3ba40336d3f428324b503bf",
+    "crates/client-core/src/gifs.rs": "c59e6e58066d9eb52549c6c55102ecdc182f75bd",
+    "crates/client-core/src/group_actions.rs": "16e00c1d903c271393a2cb97cdcbd607d10ea5a3",
+    "crates/client-core/src/guild_creation.rs": "44ce8a72c512c749b038155448d35b616bcb2f7a",
+    "crates/client-core/src/guild_folders.rs": "eb029c41c146bfad795faf62bb97dc9e689dd00e",
+    "crates/client-core/src/interactions.rs": "87b68d424cd2b330dcce6a197cf20353573e054a",
+    "crates/client-core/src/invites.rs": "b3778aaa4b2c5ae4b7cd58d99f1643648770699a",
+    "crates/client-core/src/lib.rs": "2fa923880e78ad48c00fbaa3899750c900d4318b",
+    "crates/client-core/src/member_search.rs": "9a5f7f2875e7a003c292db3b0020fa706403414c",
+    "crates/client-core/src/message_actions.rs": "9d06a2bd08bb492648f201f9f732b7a9dbf27398",
+    "crates/client-core/src/messaging_permissions.rs": "c4eb1c67353a97a101a98bd89b3988ca298ef2d9",
+    "crates/client-core/src/notifications.rs": "7400cd4a3637f9254be7b30681ce94d37bd4d12d",
+    "crates/client-core/src/onboarding.rs": "ad62f2c330d229d10cd86d92a93554f196194526",
+    "crates/client-core/src/permissions.rs": "01b58e6b0e15f3b1c41f44a08f1250d420ff4043",
+    "crates/client-core/src/permissions_tests.rs": "1c49d892a04f74fa5ff5be5e68a769d4e4c3c417",
+    "crates/client-core/src/polls.rs": "de79ace9930009e804ec85a41277e85baf250b24",
+    "crates/client-core/src/presence.rs": "894bb832d435f8b223ae7d7784795ee91caa5797",
+    "crates/client-core/src/profile.rs": "1acaf2305dba21097500d71213ecf2eb9971ced7",
+    "crates/client-core/src/reactions.rs": "d04bfe5e607aa60dabb377843c3520a1fde9728e",
+    "crates/client-core/src/read_state.rs": "b439902919ccd16c29db7004fac6be6d718e7573",
+    "crates/client-core/src/replies.rs": "796636cc1f5fd819224634386588a09878082097",
+    "crates/client-core/src/resident.rs": "e14bad89ff43951c5f748c9ce09aa5629b79acfe",
+    "crates/client-core/src/screen.rs": "54ff523017c7ace1e23714906245b378be88a542",
+    "crates/client-core/src/search.rs": "ddb2df7eeed6083a775c2272965d63b54dcf9057",
+    "crates/client-core/src/server_actions.rs": "af5bc3bbd3ed5c734baa3e87bd4e6ebafeccd239",
+    "crates/client-core/src/server_admin.rs": "384ee57757b61bea2e8a1f5bb6928039fbdd5cbf",
+    "crates/client-core/src/server_audit_log.rs": "ca4ae6df8c522742cafbd4fde221a6abdead668d",
+    "crates/client-core/src/server_integrations.rs": "359318c3bb8004d58ed2ff0d59d2cfe08895e4a9",
+    "crates/client-core/src/server_roles.rs": "d10d231da9920f1fd0d37ba92157083e96f600f1",
+    "crates/client-core/src/server_settings.rs": "98ae736eeafbdba5110357e6ee65abc9a56a6151",
+    "crates/client-core/src/stickers.rs": "f31694b0a4c08c12fd2bd3ef6725f988054be67b",
+    "crates/client-core/src/thread_starter.rs": "fedfeedc67842b6a6f6fd64bba06310fc7c719d0",
+    "crates/client-core/src/threads.rs": "dd9f0c23f0bb4ebe6c13415471d80868ecb58851",
+    "crates/client-core/src/trail.rs": "ad0c00a2cb07d9cf8776163605d3ce7c3363e52a",
+    "crates/client-core/src/typing.rs": "c23dd3289420f5bef109b87be9002c8de69203d8",
+    "crates/client-core/src/user_actions.rs": "148fe654c12625d047840da2908deee23fd5980e",
+    "crates/client-core/src/verification.rs": "6807eba5f2c9a3b293ec92e50709ac277f8aec39",
+    "crates/client-core/src/view_revisions.rs": "fa9997193c84f56af863318aa094debe15eedb28",
+    "crates/client-core/src/voice.rs": "3d6dc229320266136ef9850ebffcb9bf3decf792",
+    "crates/model/Cargo.toml": "b2a6bd03cb74cc0503206d13aa6a92469ad1c40f",
+    "crates/model/src/account.rs": "0e7fe230b7b2cb018fe7f97fce67a13671e97ba9",
+    "crates/model/src/application_commands.rs": "80298d32dbc5e2cee094124611a80c69a41bf9a3",
+    "crates/model/src/archives.rs": "39478fb2b2f5f9063764e31b5e7063c602330606",
+    "crates/model/src/attachments.rs": "b43fac9ba1b3b19b7e2627442dfff054817ddbb6",
+    "crates/model/src/channel_preferences.rs": "69ab52c3301a5f913121a20b524ec3f0dbc31a65",
+    "crates/model/src/components.rs": "92f6cfcbc4f67afbf0fb1ceacf1aa8ce5f9a6e32",
+    "crates/model/src/embeds.rs": "2a93c845f302aae6230474f3c5eee81c2fcf2961",
+    "crates/model/src/extra_content.rs": "38aca9fbecf12eb4357f1573c2b15550bffbb494",
+    "crates/model/src/forum.rs": "4e0c05b757c36d859f37e219250b45f28e892411",
+    "crates/model/src/gifs.rs": "405b80dbda834c3be621fdf144250863aaf0b4ea",
+    "crates/model/src/graphics.rs": "2302329b1b4f618ff079bc6b7f3a382976cfcde8",
+    "crates/model/src/guild_folders.rs": "76436861d1e0b30f7c7357a3b2d0dcf8fe063d13",
+    "crates/model/src/image_sharing.rs": "e65bec26de72b3b6ca79630e5194b00c7882d887",
+    "crates/model/src/keybinds.rs": "429bc3eafc155a86cd2f79a0c24ec943325c570c",
+    "crates/model/src/lib.rs": "b1641e12382cf652dc2e3d30f47d6eb220514578",
+    "crates/model/src/mentions.rs": "06af0efa8aef1966b7a535ff6ca82b62f8dc5247",
+    "crates/model/src/message_options.rs": "90c9a62cafa17aaf4243e8d91d8640f2fa50c99f",
+    "crates/model/src/messaging_permissions.rs": "5dcf286eabca9bf594cc2eea49c7913ef80f58e8",
+    "crates/model/src/notification_preferences.rs": "60c5588a3583258efa09ddd6fa14060bcca56463",
+    "crates/model/src/onboarding.rs": "89a95b2e6f4255558c8b3c4f54b70dcb4d86877c",
+    "crates/model/src/permissions.rs": "db1a58a33b282447fa4bb8c55a62ffb895ef1651",
+    "crates/model/src/polls.rs": "4f921f8aef6391af63e42f237f65b79faa1b7153",
+    "crates/model/src/profile.rs": "f4a5eacf469523a49e523928d915f08ea809171f",
+    "crates/model/src/public_upload.rs": "dc9a8b21729bb03812f0c45eaab962f7e97e0701",
+    "crates/model/src/reactions.rs": "be9c896571cd454d1a234eaf64d4f535bbf034af",
+    "crates/model/src/reading_preferences.rs": "df60c423d498ef3c71ac9e63b3a1a182285b4e2c",
+    "crates/model/src/registered_games.rs": "a7f050bb9e2feaae31a21dbe99f82c4bd55528cc",
+    "crates/model/src/search.rs": "36bc70ee5e376727efaeadf3c023047717ef4c7f",
+    "crates/model/src/server_admin.rs": "0c17ff3ec0d0458af5b324d3ffe9081d0f45fe3d",
+    "crates/model/src/server_audit_log.rs": "7a4e1a7a9df15aa16fad33fdd259430d1d4da79d",
+    "crates/model/src/server_integrations.rs": "1f9197dc0bc2142008f083c6ea93a2d704d2ac5a",
+    "crates/model/src/server_invites.rs": "4d291af6f0178c09eb8eb59b1755a31ad6310061",
+    "crates/model/src/server_roles.rs": "6eb818044f3886ef121fa3a5c41917f78a80e34a",
+    "crates/model/src/server_settings.rs": "1dd36c51e306a542be1fdb2b0204c0653746be26",
+    "crates/model/src/stickers.rs": "a562be30cd4f0d2064eb85408bd98dac0fb5a6f3",
+    "crates/model/src/system_messages.rs": "94a0ad5886b2c29b447b90e643345722b98b77b3",
+    "crates/model/src/voice_settings.rs": "cb2413f7092655c65010576b0fc06402aaa303a9",
+    "crates/test-support/Cargo.toml": "c3543940429aad415b1e2aba9c9112c4a7b2f3e9",
+    "crates/test-support/src/lib.rs": "811282e72d243fabe87514161648c488ee08694d",
+    "tools/replay-bench/Cargo.toml": "a257af57136656ecf72d1f57093e071857e2c65c",
+    "tools/replay-bench/src/main.rs": "ec48f8e2954d4bac2cb8fd99f7ee7df18678aa13",
+    "tools/replay-bench/src/soak.rs": "d6b09c5f2a4621fd8e593ed09e717166ab5dbd41"
+  },
+  "host": {
+    "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+    "cpu": "Intel Xeon Platinum 8573C, 5 exposed logical CPUs",
+    "ram": "17 GiB exposed",
+    "rust": "rustc 1.98.1 (48a229cea 2026-09-01)"
+  },
+  "build": "cargo build -p replay-bench --release --locked --offline; normal fat LTO; no optional features; Rust 1.98.1 in both. Baseline verified binary retained from prior build of 11abe5a (runtime source and executable hashes recorded in runtime-bug-hunt evidence). Merged binary built using the new upstream-pinned lockfile; separate binary output paths.",
+  "sampling": "One warmup per binary, five measured runs per binary, counterbalanced pair order; no task compiler or native fixture process active during samples; shared-host noise remains.",
+  "order": [
+    "before",
+    "after",
+    "after",
+    "before",
+    "before",
+    "after",
+    "after",
+    "before",
+    "before",
+    "after"
+  ],
+  "warmups": {
+    "before": {
+      "output": "Synthetic reducer replay: 100000 events in 144.419739ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "elapsed_ms": 144.419739,
+      "retained_bytes": [
+        331992,
+        332477
+      ],
+      "records": 500
+    },
+    "after": {
+      "output": "Synthetic reducer replay: 100000 events in 103.760283ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "elapsed_ms": 103.760283,
+      "retained_bytes": [
+        331992,
+        332477
+      ],
+      "records": 500
+    }
+  },
+  "samples": {
+    "before": [
+      {
+        "output": "Synthetic reducer replay: 100000 events in 130.489937ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 130.489937,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      },
+      {
+        "output": "Synthetic reducer replay: 100000 events in 158.76055ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 158.76055,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      },
+      {
+        "output": "Synthetic reducer replay: 100000 events in 125.050355ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 125.050355,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      },
+      {
+        "output": "Synthetic reducer replay: 100000 events in 112.079642ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 112.079642,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      },
+      {
+        "output": "Synthetic reducer replay: 100000 events in 83.038196ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 83.038196,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      }
+    ],
+    "after": [
+      {
+        "output": "Synthetic reducer replay: 100000 events in 129.384653ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 129.384653,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      },
+      {
+        "output": "Synthetic reducer replay: 100000 events in 156.680759ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 156.680759,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      },
+      {
+        "output": "Synthetic reducer replay: 100000 events in 168.732948ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 168.732948,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      },
+      {
+        "output": "Synthetic reducer replay: 100000 events in 144.784515ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 144.784515,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      },
+      {
+        "output": "Synthetic reducer replay: 100000 events in 122.432188ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 122.432188,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      }
+    ]
+  },
+  "summary": {
+    "before": {
+      "median_ms": 125.050355,
+      "range_ms": [
+        83.038196,
+        158.76055
+      ],
+      "retained_bytes": [
+        331992,
+        332477
+      ],
+      "binary_bytes": 1516760,
+      "binary_sha256": "988bb9e96c00242b1a3cad4a6590b44659dcded8c953980bd0268f7fd9855e98"
+    },
+    "after": {
+      "median_ms": 144.784515,
+      "range_ms": [
+        122.432188,
+        168.732948
+      ],
+      "retained_bytes": [
+        331992,
+        332477
+      ],
+      "binary_bytes": 1527472,
+      "binary_sha256": "a81ddb0c6f5a9cebd8535ed22215bab43e514847d6800eef5f90f1a9b470ed46"
+    }
+  },
+  "unmeasured": [
+    "Standard voice-enabled application executable, installed package and compressed package (GLib development metadata unavailable)",
+    "Native process CPU/RSS, UI/search latency and startup",
+    "Hardware driver encodes, live interoperability and application-wide leak detection"
+  ],
+  "documentation_followup_commit": "a76e030d749ef558e687bbff6dc592a7dddec244"
+}

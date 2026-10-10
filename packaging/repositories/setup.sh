@@ -68,6 +68,24 @@ error() {
     exit 1
 }
 
+case "$CHANNEL" in
+    nightly|production) ;;
+    *) error "SEREIN_CHANNEL must be nightly or production." ;;
+esac
+# These values enter apt/RPM/pacman configuration, not just download arguments.
+# Accept an ASCII HTTPS root without whitespace, credentials, query or fragment.
+case "$BASE_URL" in
+    https://?*) ;;
+    *) error "SEREIN_REPO_BASE_URL must be an HTTPS repository root." ;;
+esac
+case "$BASE_URL" in
+    *[!A-Za-z0-9:/._~%+-]*) error "SEREIN_REPO_BASE_URL contains unsupported URL characters." ;;
+esac
+authority=${BASE_URL#https://}
+authority=${authority%%/*}
+[ -n "$authority" ] || error "SEREIN_REPO_BASE_URL must include a host."
+BASE_URL=${BASE_URL%/}
+
 # Ensure required download tools exist
 if command -v curl >/dev/null 2>&1; then
     download() { curl --fail --silent --show-error --location "$1" -o "$2"; }
@@ -83,10 +101,21 @@ verify_key() {
     if ! command -v gpg >/dev/null 2>&1; then
         error "gpg is required to verify the signing key."
     fi
-    fingerprint=$(gpg --batch --show-keys --with-colons "$keyfile" 2>/dev/null | awk -F: '$1 == "fpr" {print $10; exit}')
-    if [ -z "$fingerprint" ]; then
-        error "Could not extract fingerprint from downloaded signing key."
+    # The whole file is installed as a keyring. Checking only its first key would
+    # also trust any additional primary key appended to the download. Check GPG's
+    # status separately: POSIX sh pipelines otherwise hide a failed decoder.
+    if ! key_records=$(gpg --batch --show-keys --with-colons "$keyfile" 2>/dev/null); then
+        error "Could not read downloaded signing key."
     fi
+    fingerprint=$(printf '%s\n' "$key_records" | awk -F: '
+        $1 == "pub" { primary_count++; primary_fingerprint = 1; next }
+        $1 == "sub" { primary_fingerprint = 0; next }
+        $1 == "fpr" && primary_fingerprint { fingerprint = $10; primary_fingerprint = 0 }
+        END {
+            if (primary_count != 1 || fingerprint == "") exit 1
+            print fingerprint
+        }
+    ') || error "Downloaded signing key must contain exactly one primary key with a fingerprint."
     # Normalize uppercase
     fingerprint=$(echo "$fingerprint" | tr '[:lower:]' '[:upper:]')
     expected=$(echo "$EXPECTED_FINGERPRINT" | tr '[:lower:]' '[:upper:]')
@@ -94,6 +123,17 @@ verify_key() {
         error "GPG fingerprint mismatch! Expected: $expected, Got: $fingerprint. Refusing to install untrusted key."
     fi
     success "Cryptographic key verified (${DIM}$fingerprint${NC})"
+}
+
+configure_rpm() {
+    # Generate signature policy locally rather than importing arbitrary settings
+    # from an unsigned .repo response. Point only at the verified installed key.
+    $SUDO install -Dm644 "$KEY_FILE" /etc/pki/rpm-gpg/serein.asc
+    $SUDO rpm --import "$KEY_FILE"
+    REPO_FILE="$TEMP_DIR/serein.repo"
+    printf '[serein-%s]\nname=Serein %s\nbaseurl=%s\nenabled=1\ngpgcheck=1\nrepo_gpgcheck=1\ngpgkey=file:///etc/pki/rpm-gpg/serein.asc\n' \
+        "$CHANNEL" "$CHANNEL" "$REPO_URL" > "$REPO_FILE"
+    $SUDO install -m644 "$REPO_FILE" "$1"
 }
 
 banner
@@ -160,21 +200,14 @@ case "$DISTRO_ID" in
     fedora)
         log "Importing RPM key and configuring DNF repository..."
 
-        REPO_FILE="$TEMP_DIR/serein.repo"
-        download "$REPO_URL/serein.repo" "$REPO_FILE"
-        $SUDO rpm --import "$KEY_FILE"
-        $SUDO install -m644 "$REPO_FILE" /etc/yum.repos.d/serein.repo
+        configure_rpm /etc/yum.repos.d/serein.repo
 
         INSTALL_CMD="$SUDO dnf install serein"
         ;;
 
     opensuse-tumbleweed)
         log "Importing RPM key and configuring Zypper repository..."
-        $SUDO rpm --import "$KEY_FILE"
-
-        REPO_FILE="$TEMP_DIR/serein.repo"
-        download "$REPO_URL/serein.repo" "$REPO_FILE"
-        $SUDO install -m644 "$REPO_FILE" /etc/zypp/repos.d/serein.repo
+        configure_rpm /etc/zypp/repos.d/serein.repo
         $SUDO zypper --non-interactive refresh serein-$CHANNEL >/dev/null 2>&1 || true
 
         INSTALL_CMD="$SUDO zypper install serein"
@@ -187,12 +220,26 @@ case "$DISTRO_ID" in
 
         PACMAN_CONF="/etc/pacman.conf"
 
-        if grep -q "\[serein\]" "$PACMAN_CONF"; then
-            log "Repository [serein] already present in $PACMAN_CONF."
-        else
-            printf '\n[serein]\nSigLevel = Required\nServer = %s\n' "$REPO_URL" | \
-                $SUDO tee -a "$PACMAN_CONF" >/dev/null
-        fi
+        # Replace only Serein's Server directives. Preserve unrelated sections,
+        # comments and settings, and support an existing stanza without a Server.
+        awk -v server="$REPO_URL" '
+            /^[[:space:]]*\[[^]]+\]/ {
+                if (serein && !has_server) print "Server = " server
+                serein = ($0 ~ /^[[:space:]]*\[serein\][[:space:]]*(#.*)?$/)
+                if (serein) { found = 1; has_server = 0 }
+            }
+            serein && /^[[:space:]]*Server[[:space:]]*=/ {
+                print "Server = " server
+                has_server = 1
+                next
+            }
+            { print }
+            END {
+                if (serein && !has_server) print "Server = " server
+                if (!found) print "\n[serein]\nSigLevel = Required\nServer = " server
+            }
+        ' "$PACMAN_CONF" > "$TEMP_DIR/pacman.conf"
+        $SUDO install -m644 "$TEMP_DIR/pacman.conf" "$PACMAN_CONF"
 
         INSTALL_CMD="$SUDO pacman -Syu serein"
         ;;

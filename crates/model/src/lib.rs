@@ -187,13 +187,23 @@ pub struct SavedAccount {
 /// Bounded roster: enough for people juggling alternates, small enough to stay readable.
 pub const MAX_SAVED_ACCOUNTS: usize = 8;
 impl SavedAccount {
+	pub const MAX_LABEL_BYTES: usize = 64;
+	/// Preserve a readable identity within the existing switcher/storage budget.
+	/// Account IDs and credential ownership are independent of this display projection.
+	pub fn label_projection(value: &str) -> &str {
+		let mut end = value.len().min(Self::MAX_LABEL_BYTES);
+		while !value.is_char_boundary(end) {
+			end -= 1;
+		}
+		&value[..end]
+	}
 	pub fn is_valid(&self) -> bool {
 		self.id.0 != 0
-			&& (1..=64).contains(&self.name.len())
+			&& (1..=Self::MAX_LABEL_BYTES).contains(&self.name.len())
 			&& self
 				.display
 				.as_ref()
-				.is_none_or(|display| (1..=64).contains(&display.len()))
+				.is_none_or(|display| (1..=Self::MAX_LABEL_BYTES).contains(&display.len()))
 			&& self.avatar.as_deref().is_none_or(valid_avatar_hash)
 			&& self.discriminator <= 9999
 	}
@@ -958,5 +968,38 @@ mod notification_metadata_tests {
 		assert!(!valid_mention_roles(&vec![Id(1), Id(1)]));
 		assert!(!valid_mention_roles(&(1..=101).map(Id).collect()));
 		assert!(!valid_mention_roles(&Vec::with_capacity(101)));
+	}
+}
+
+#[cfg(test)]
+mod saved_account_tests {
+	use super::*;
+
+	#[test]
+	fn switcher_labels_preserve_unicode_within_the_existing_storage_bound() {
+		for name in ["Synthetic".into(), "界".repeat(22), "🦀".repeat(32)] {
+			let projected = SavedAccount::label_projection(&name);
+			assert!(name.starts_with(projected));
+			assert!(!projected.is_empty());
+			assert!(projected.len() <= SavedAccount::MAX_LABEL_BYTES);
+			assert_eq!(SavedAccount::label_projection(projected), projected);
+			let account = SavedAccount {
+				id: Id(9),
+				name: projected.to_owned(),
+				display: Some(projected.to_owned()),
+				avatar: None,
+				discriminator: 0,
+				has_token: true,
+			};
+			assert!(account.is_valid());
+			assert_eq!(account.user().id, Id(9));
+			assert!(account.has_token);
+		}
+		let split_scalar = format!("{}é", "x".repeat(63));
+		assert_eq!(
+			SavedAccount::label_projection(&split_scalar),
+			"x".repeat(63)
+		);
+		assert_eq!(SavedAccount::label_projection(""), "");
 	}
 }

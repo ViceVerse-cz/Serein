@@ -1941,12 +1941,22 @@ async fn run_recoverable(
 										if let Some(gate)=owner_id.and_then(|owner|onboarding::member(packet.d.get().as_bytes(),owner)) {emit(Event::Onboarding(client_core::onboarding::Event::Gates { snapshot: false, gates: vec![gate] }))?;}
 									}
 									"GUILD_DELETE" => {
-										let guild: GuildDto = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;
+										#[derive(serde::Deserialize)]
+										struct DeletedGuild {
+											id: Id,
+											#[serde(default)]
+											unavailable: Option<bool>,
+										}
+										let guild: DeletedGuild = decode(packet.d.get().as_bytes()).map_err(|_| Failure::Protocol)?;
 										let removed: Vec<_> = calls.allowed.iter().filter_map(|(channel, id)| (*id == Some(guild.id)).then_some(*channel)).collect();
 										for channel in removed { calls.invalidate(channel); emit(Event::Unavailable(channel))?; }
 										emit(Event::GuildStickers { guild: guild.id, stickers: Vec::new() })?;
 										emit(Event::GuildEmojis { guild: guild.id, emojis: Vec::new() })?;
 										emit(Event::Permissions(client_core::permissions::Event::UnavailableGuild(guild.id)))?;
+										if guild.unavailable != Some(true) {
+											known_guilds.remove(&guild.id);
+											emit(Event::GuildRemoved(guild.id))?;
+										}
 									}
 									"GUILD_ROLE_CREATE" | "GUILD_ROLE_UPDATE" => {
 										let (guild,role)=permissions::role(packet.d.get().as_bytes()).map_err(|_|Failure::Protocol)?;
@@ -2135,6 +2145,83 @@ mod tests {
 			"user":{"id":"1","username":"synthetic"}, "session_id":session,
 			"resume_gateway_url":"wss://gateway.discord.gg/", "guilds":[], "private_channels":[]
 		}})
+	}
+
+	#[tokio::test]
+	async fn permanent_guild_departure_allows_same_guild_to_join_again() {
+		timeout(Duration::from_secs(10), async {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let endpoint = format!("ws://{}/", listener.local_addr().unwrap());
+			let joined = std::sync::Mutex::new(Vec::new());
+			let removed = std::sync::Mutex::new(Vec::new());
+			let (client_finished, terminal_observed) = tokio::sync::oneshot::channel();
+			let server = async {
+				let (stream, _) = listener.accept().await.unwrap();
+				let mut socket = accept_async(stream).await.unwrap();
+				send(
+					&mut socket,
+					json!({"op":10,"d":{"heartbeat_interval":1000}}),
+				)
+				.await;
+				assert_eq!(packet(&mut socket).await["op"], 2);
+				let mut initial = ready(1, "synthetic-guild-rejoin");
+				initial["d"]["guilds"] = json!([{"id":"2","name":"Original"}]);
+				send(&mut socket, initial).await;
+				for (sequence, name, data) in [
+					(2, "GUILD_DELETE", json!({"id":"2","unavailable":true})),
+					(
+						3,
+						"GUILD_CREATE",
+						json!({"id":"2","name":"Available again"}),
+					),
+					(4, "GUILD_DELETE", json!({"id":"2"})),
+					(5, "GUILD_CREATE", json!({"id":"2","name":"Rejoined"})),
+				] {
+					send(&mut socket, json!({"op":0,"t":name,"s":sequence,"d":data})).await;
+				}
+				acknowledge(&mut socket, 5).await;
+				socket
+					.send(Frame::Close(Some(CloseFrame {
+						code: CloseCode::from(4004),
+						reason: "synthetic expiration".into(),
+					})))
+					.await
+					.unwrap();
+				terminal_observed.await.unwrap();
+			};
+			let client = run_inner(
+				Arc::new(SessionSecret::from_owner_input("SYNTHETIC_GUILD_TOKEN".into()).unwrap()),
+				"wss://gateway.discord.gg/".into(),
+				watch::channel(None).1,
+				mpsc::channel(1).1,
+				None,
+				|event| {
+					match event {
+						Event::GuildJoined(guild) => {
+							joined.lock().unwrap().push((guild.id, guild.name))
+						}
+						Event::GuildRemoved(guild) => removed.lock().unwrap().push(guild),
+						_ => {}
+					}
+					Ok(())
+				},
+				Some(&endpoint),
+			);
+			let client = async {
+				let result = client.await;
+				let _ = client_finished.send(());
+				result
+			};
+			let (result, ()) = tokio::join!(client, server);
+			assert_eq!(result, Err(Failure::Expired));
+			assert_eq!(
+				joined.into_inner().unwrap(),
+				vec![(Id(2), "Rejoined".into())]
+			);
+			assert_eq!(removed.into_inner().unwrap(), vec![Id(2)]);
+		})
+		.await
+		.unwrap();
 	}
 
 	#[tokio::test]
@@ -2584,7 +2671,8 @@ mod tests {
                     (29,"GUILD_UPDATE",json!({"id":"2","owner_id":"7"})),
                     (30,"PASSIVE_UPDATE_V2",json!({"guild_id":"2","updated_members":[{"user":{"id":"1","username":"Synthetic"},"roles":[],"communication_disabled_until":null}]})),
                     (31,"READY_SUPPLEMENTAL",json!({"guilds":[{"id":"2"}],"merged_members":[[{"user_id":"1","roles":[]}]]})),
-                    (32,"GUILD_DELETE",json!({"id":"2"})),
+                    // A temporary outage preserves the acknowledged read marker on restoration.
+                    (32,"GUILD_DELETE",json!({"id":"2","unavailable":true})),
                     (33,"GUILD_CREATE",json!({"id":"2","owner_id":"7","roles":[{"id":"2","permissions":"68608"}],"members":[{"user":{"id":"1","username":"Synthetic"},"roles":[]}],"channels":[{"id":"4","type":0,"name":"Synthetic channel","position":0,"parent_id":null,"last_message_id":"9","permission_overwrites":[]}]})),
                 ] {send(&mut socket,json!({"op":0,"t":name,"s":sequence,"d":data})).await;}
                 // A stale replay must neither change counts nor regress the heartbeat cursor.

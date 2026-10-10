@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-08",
+  "baseline_commit": "98158b4106588df7a14bcc1d9ecc90d71ac1f931",
+  "parent_base_at_start": "a76e030d749ef558e687bbff6dc592a7dddec244",
+  "branch": "fix/pr567-upstream-conflicts",
+  "environment": {
+    "os": "Debian 13 Linux x86_64",
+    "rust": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "incremental": false,
+    "rust_unit_debug_info": false,
+    "physical_hardware_tested": false,
+    "live_discord_used": false
+  },
+  "unmeasured": [
+    "full executable/installed/compressed package size",
+    "native idle CPU and process RSS",
+    "frame/startup latency",
+    "hardware split throughput/quality",
+    "Windows/macOS runtime and full desktop/transport integration"
+  ],
+  "split_provenance": "Historical evidence from the original combined PR, separated by scope. The recorded revision labels, hashes and measurements are unchanged; these results do not validate the new branch heads.",
+  "resource_checks": [
+    {
+      "metric": "queued staged directories remaining after updater closure",
+      "before": 1,
+      "after": 0,
+      "samples_each": 1
+    },
+    {
+      "metric": "queued synthetic helper exits within three seconds",
+      "before": false,
+      "after": true,
+      "samples_each": 1,
+      "baseline_fixture_manually_killed_after_timeout": true
+    },
+    {
+      "metric": "maximum accepted normalized executable bytes",
+      "before": "can exceed 256 after Unicode expansion",
+      "after": 256,
+      "valid_boundary_fixture_bytes": 255
+    }
+  ],
+  "source_hashes": {
+    "apps/desktop/src/updater.rs": {
+      "before_sha256": "141dd2bcfe0ad3da1330e2162412d2dcaba51a33ddb56c4ddc9ff58e7c49b0bf",
+      "after_sha256": "358994cfe1cf0c88b5288a77a6898ee19ad67c19f4b5de814556acfcadbe7683"
+    },
+    "apps/desktop/src/updater_install.rs": {
+      "before_sha256": "830d12e0f9eeb279ea7a165d12b6ad04a25e1eaf1b20d030039189fe88359871",
+      "after_sha256": "062d8cc6ef9da76963230e3ad84a97b973c088bf22daa4e0400c1924b515cac9"
+    },
+    "crates/model/src/registered_games.rs": {
+      "before_sha256": "a821fab0a28a63c8811a2af85cf4e0363e12e17de5d8067e0e5d0494422d7a76",
+      "after_sha256": "6287f78363fa93241472608a45f0d35dd524a494a6df5e3bb4701a93e58f00b0"
+    },
+    "tests/xtask-package.cjs": {
+      "before_sha256": "95dfbc5ee32bddad34a5e75f4cdb68da58970ad5eb206c2ecc4958685caa978e",
+      "after_sha256": "0f4a8beb124cee6924a23ec10ab4c6a6e52814ce958b6c7c609ef9b3dc880df8"
+    }
+  },
+  "verification": {
+    "six_crate_unit_tests_passed": 779,
+    "six_crate_tests_ignored": 11,
+    "scoped_updater_tests_passed": 8,
+    "scoped_strict_clippy": "passed",
+    "xtask_workspace_fixture": "passed",
+    "xtask_package_fixture": "passed",
+    "persistence_policy": "passed",
+    "format_and_syntax": "passed",
+    "xtask_check": "blocked: GLib >=2.70 development metadata missing",
+    "xtask_package": "blocked: GLib >=2.70 development metadata missing",
+    "licenses": "blocked: cargo-deny 0.20.2 unavailable"
+  }
+}

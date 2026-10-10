@@ -1,0 +1,207 @@
+{
+  "baseline_commit": "be644d9064e0b53caf6db103037c8a48a5c7baa8",
+  "environment": {
+    "os": "Debian 13 x86_64",
+    "cpu": "Intel Xeon Platinum 8573C",
+    "visible_cpus": 5,
+    "ram_gib": 17,
+    "rust": "1.98.1",
+    "profile": "dev, opt-level=1, debug=0; separate synthetic preview, not a standard release package",
+    "renderer": "eframe/wgpu, WGPU_BACKEND=gl, Xvfb :93, Mesa software output",
+    "viewport_pixels": [
+      1120,
+      760
+    ],
+    "zoom": 1.0,
+    "appearance": "dark",
+    "warmup_s": 3,
+    "sample_interval_s": 1,
+    "sample_count_per_revision": 15,
+    "runs_per_revision": 1,
+    "compiler_running_during_samples": false,
+    "limitations": "One short idle sample per revision; no frame latency, startup peak, stress/leak soak, physical GPU encoding or release package measurements."
+  },
+  "baseline_source_sha256": {
+    "crates/ui/src/design.rs": "1f66b1c7dfc6a50d6be46b3629c6a9a1c1110bca97a8ee60ee24d3f696e5b8df",
+    "crates/ui/src/dialog.rs": "4ff5b9b29d38dcb111971d1e137e7c121ca7b76d2853e6613d28df3946ce6db9",
+    "crates/ui/src/friends.rs": "7a60d0f553803d72c400a84a9ad19ef073eacb8b024f4170b1ef1c15ce174a91",
+    "crates/ui/src/lib.rs": "1003c5e9fc73ca42f58384229d70738a24f9883d7ae73c1f961a88837e755139",
+    "crates/ui/src/settings.rs": "6e68b851f5ae8dae95b2ad1660f9c3bf16b116f54cd5b96b5f9894931f0c6fe1",
+    "crates/ui/src/timeline.rs": "9945dd6cfbc15c5a3c0f885a5ea703a3abe490009d48bf0b3816850732dbc6f8"
+  },
+  "after_source_sha256": {
+    "crates/ui/src/design.rs": "6c7427aef895551743949c41407224c14ca87982654bc20d2b352cbc0c131605",
+    "crates/ui/src/dialog.rs": "d021f64dedf170dc114787443f541cfaf671dda69399b7bffd019163f504bec1",
+    "crates/ui/src/friends.rs": "ac51c08f6e9395afb13efd6f1466383f78f7c1f6dce9a1771e1eb56bb51a3c35",
+    "crates/ui/src/lib.rs": "4b8ea46efadcd9d6a4a915add4a454a52165b50da9aaa2918e9d2967ee5a87e5",
+    "crates/ui/src/settings.rs": "a7ee22f2150946ed93a1e5d30998194d5cb6d7dacfa0bcd3789ce5b9838cc0f8",
+    "crates/ui/src/timeline.rs": "a16693453c2564114faf940c4f61531ca423d76954d942447441bc09d314e85d"
+  },
+  "preview_helper_sha256": "30704b35223882d3ba6defa6075a5488f0a7c424596c067f620b210c32d7d26c",
+  "preview_changes": "Uses original native framebuffer preview source and actual ui crate; tray/startup availability false, adds --zoom and synthetic --reply flags, no service/capture adapters.",
+  "before": {
+    "revision": "be644d9064e0b53caf6db103037c8a48a5c7baa8",
+    "command": [
+      "/workspace/scratch/serein-ui-preview/baseline-preview",
+      "--demo",
+      "--page=markdown",
+      "--reply",
+      "--interactive",
+      "--width=1120",
+      "--height=760"
+    ],
+    "warmup_s": 3,
+    "duration_s": 15.00838921898685,
+    "interval_s": 1,
+    "process_cpu_one_core_percent": 0.0,
+    "peak_rss_bytes": 192663552,
+    "settled_rss_bytes": 192663552,
+    "children": [],
+    "samples": [
+      {
+        "elapsed_s": 1.0001818199962145,
+        "rss_bytes": 192663552
+      },
+      {
+        "elapsed_s": 2.000706076985807,
+        "rss_bytes": 192663552
+      },
+      {
+        "elapsed_s": 3.001125549999415,
+        "rss_bytes": 192663552
+      },
+      {
+        "elapsed_s": 4.002662397993845,
+        "rss_bytes": 192663552
+      },
+      {
+        "elapsed_s": 5.00362834999396,
+        "rss_bytes": 192663552
+      },
+      {
+        "elapsed_s": 6.004382259998238,
+        "rss_bytes": 192663552
+      },
+      {
+        "elapsed_s": 7.004698912991444,
+        "rss_bytes": 192663552
+      },
+      {
+        "elapsed_s": 8.005096849999973,
+        "rss_bytes": 192663552
+      },
+      {
+        "elapsed_s": 9.005721826993977,
+        "rss_bytes": 192663552
+      },
+      {
+        "elapsed_s": 10.006044610985555,
+        "rss_bytes": 192663552
+      },
+      {
+        "elapsed_s": 11.006402564991731,
+        "rss_bytes": 192663552
+      },
+      {
+        "elapsed_s": 12.006773165994673,
+        "rss_bytes": 192663552
+      },
+      {
+        "elapsed_s": 13.007158021995565,
+        "rss_bytes": 192663552
+      },
+      {
+        "elapsed_s": 14.007489216994145,
+        "rss_bytes": 192663552
+      },
+      {
+        "elapsed_s": 15.008006623989786,
+        "rss_bytes": 192663552
+      }
+    ],
+    "executable_bytes": 83176272
+  },
+  "after": {
+    "revision": "amd-quality-ui-final-worktree",
+    "command": [
+      "/workspace/scratch/serein-ui-preview/target/debug/serein-ui-task-preview",
+      "--demo",
+      "--page=markdown",
+      "--reply",
+      "--interactive",
+      "--width=1120",
+      "--height=760"
+    ],
+    "warmup_s": 3,
+    "duration_s": 15.00638237199746,
+    "interval_s": 1,
+    "process_cpu_one_core_percent": 0.0,
+    "peak_rss_bytes": 191758336,
+    "settled_rss_bytes": 191758336,
+    "children": [],
+    "samples": [
+      {
+        "elapsed_s": 1.0002775749890134,
+        "rss_bytes": 191758336
+      },
+      {
+        "elapsed_s": 2.000950750996708,
+        "rss_bytes": 191758336
+      },
+      {
+        "elapsed_s": 3.0014021120005054,
+        "rss_bytes": 191758336
+      },
+      {
+        "elapsed_s": 4.001724151996314,
+        "rss_bytes": 191758336
+      },
+      {
+        "elapsed_s": 5.002015794991166,
+        "rss_bytes": 191758336
+      },
+      {
+        "elapsed_s": 6.002357498990023,
+        "rss_bytes": 191758336
+      },
+      {
+        "elapsed_s": 7.002667875000043,
+        "rss_bytes": 191758336
+      },
+      {
+        "elapsed_s": 8.00298594099877,
+        "rss_bytes": 191758336
+      },
+      {
+        "elapsed_s": 9.003444397996645,
+        "rss_bytes": 191758336
+      },
+      {
+        "elapsed_s": 10.00387840399344,
+        "rss_bytes": 191758336
+      },
+      {
+        "elapsed_s": 11.004270238991012,
+        "rss_bytes": 191758336
+      },
+      {
+        "elapsed_s": 12.004608234987245,
+        "rss_bytes": 191758336
+      },
+      {
+        "elapsed_s": 13.005299922995619,
+        "rss_bytes": 191758336
+      },
+      {
+        "elapsed_s": 14.005624614990666,
+        "rss_bytes": 191758336
+      },
+      {
+        "elapsed_s": 15.006045420988812,
+        "rss_bytes": 191758336
+      }
+    ],
+    "executable_bytes": 83183560
+  },
+  "split_provenance": "Historical evidence from the original combined PR, separated by scope. The recorded revision labels, hashes and measurements are unchanged; these results do not validate the new branch heads."
+}

@@ -39,6 +39,14 @@ fn wait_for_authorization(
 	revision: u64,
 	result: mpsc::Receiver<bool>,
 ) -> Result<(), &'static str> {
+	wait_for_authorization_with(gate, revision, |delay| result.recv_timeout(delay))
+}
+
+fn wait_for_authorization_with(
+	gate: &Gate,
+	revision: u64,
+	mut receive: impl FnMut(Duration) -> Result<bool, mpsc::RecvTimeoutError>,
+) -> Result<(), &'static str> {
 	let deadline = Instant::now() + Duration::from_secs(20);
 	loop {
 		if gate.stopped.load(Ordering::Acquire)
@@ -47,8 +55,16 @@ fn wait_for_authorization(
 		{
 			return Err("Call changed while waiting for microphone permission");
 		}
-		match result.recv_timeout(Duration::from_millis(100)) {
-			Ok(true) => return Ok(()),
+		match receive(Duration::from_millis(100)) {
+			Ok(true) => {
+				if gate.stopped.load(Ordering::Acquire)
+					|| !gate.ready.load(Ordering::Acquire)
+					|| gate.revision.load(Ordering::Acquire) != revision
+				{
+					return Err("Call changed while waiting for microphone permission");
+				}
+				return Ok(());
+			}
 			Ok(false) => return Err(DENIED),
 			Err(mpsc::RecvTimeoutError::Disconnected) => {
 				return Err("macOS microphone permission request did not complete");
@@ -66,6 +82,25 @@ fn wait_for_authorization(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn permission_granted_during_cancellation_rejects_the_obsolete_open() {
+		for change in 0..3 {
+			let gate = Gate::default();
+			gate.ready.store(true, Ordering::Release);
+			let revision = gate.revision.load(Ordering::Acquire);
+			let result = wait_for_authorization_with(&gate, revision, |_| {
+				// Inject a call change after the pre-wait check, before the grant arrives.
+				match change {
+					0 => gate.stopped.store(true, Ordering::Release),
+					1 => gate.ready.store(false, Ordering::Release),
+					_ => gate.revision.store(revision + 1, Ordering::Release),
+				}
+				Ok(true)
+			});
+			assert!(result.is_err());
+		}
+	}
 
 	#[test]
 	fn permission_result_and_cancellation_never_open_devices() {

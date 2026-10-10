@@ -98,6 +98,65 @@ impl Drop for AbortTask {
 		self.0.abort();
 	}
 }
+
+// Separate revisions retain interruptions even when a fast Resume coalesces the online watch.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+struct VoiceLifecycle {
+	interruption: u64,
+	session: u64,
+}
+impl VoiceLifecycle {
+	fn observe(&mut self, event: &Event) -> bool {
+		let reset = event.ready_navigation().is_some() || matches!(event, Event::Resync);
+		if reset || matches!(event, Event::Disconnected) {
+			self.interruption = self.interruption.wrapping_add(1);
+			if reset {
+				self.session = self.session.wrapping_add(1);
+			}
+			true
+		} else {
+			false
+		}
+	}
+}
+
+fn apply_voice_lifecycle(
+	previous: &mut VoiceLifecycle,
+	current: VoiceLifecycle,
+	active: &mut Option<(model::Id, u64, bool)>,
+	calls: &RecipientCalls,
+	channels: &BTreeMap<model::Id, Vec<model::Id>>,
+) -> bool {
+	if *previous == current {
+		return false;
+	}
+	let reset = previous.session != current.session;
+	*previous = current;
+	if reset
+		|| active.is_some_and(|(channel, request, _)| {
+			channels.contains_key(&channel)
+				&& calls.as_ref().is_none_or(|call| {
+					(call.channel, call.request, call.confirmed) != (channel, Some(request), true)
+				})
+		}) {
+		*active = None;
+	}
+	true
+}
+
+async fn wait_for_voice_interruption(
+	mut lifecycle: watch::Receiver<VoiceLifecycle>,
+	revision: u64,
+) {
+	loop {
+		if lifecycle.borrow_and_update().interruption != revision {
+			return;
+		}
+		if lifecycle.changed().await.is_err() {
+			return;
+		}
+	}
+}
 impl Connection {
 	/// Coalesce explicit recovery requests without restarting REST writes or authentication.
 	pub fn reconnect(&self) {
@@ -203,6 +262,7 @@ impl Connection {
                 let gateway_recipient_call=recipient_call.clone();
                 let gateway_channels=dm_channels.clone();
                 let (voice_online,mut voice_availability)=watch::channel(false);
+                let (voice_lifecycle,mut lifecycle_changed)=watch::channel(VoiceLifecycle::default());
                 let (takeover_send,mut takeover_receive)=watch::channel(None);
                 let gateway_takeover=takeover_send.clone();
                 let gateway_api=api.clone();let gateway_emit=emit.clone();let terminal_send=finished.clone();
@@ -236,7 +296,9 @@ impl Connection {
                         let invalidates_recipient = {
                             let channels=gateway_channels.lock().map_err(|_|Failure::Protocol)?;
                             let mut calls=gateway_recipient_call.lock().map_err(|_|Failure::Protocol)?;
-                            calls.observe(&event,user.id,&channels)
+                            let (invalidates,released)=calls.observe_scoped(&event,user.id,&channels);
+                            if let Some(scope)=released {let _=gateway_takeover.send_replace(Some(scope));}
+                            invalidates
                         };
                         if invalidates_recipient {
                             recipient_scope.send_modify(|revision|*revision=revision.wrapping_add(1));
@@ -245,6 +307,7 @@ impl Connection {
 
                         if event.ready_navigation().is_some() || matches!(&event,Event::Resumed) {let _=voice_online.send(true);}
                         if matches!(&event,Event::Disconnected|Event::Resync) {let _=voice_online.send(false);}
+                        voice_lifecycle.send_if_modified(|lifecycle|lifecycle.observe(&event));
                         if let Event::Voice(client_core::voice::Event::TakenOver{channel,request})=&event {let _=gateway_takeover.send_replace(Some((*channel,*request)));}
                         gateway_emit(event)
                     }).await.err().unwrap_or(Failure::Network).protocol_at("Gateway connection: unsupported handshake or event");
@@ -278,6 +341,7 @@ impl Connection {
                 let mut upload:Option<AbortTask>=None;
                 let mut upload_cancel:Option<watch::Sender<bool>>=None;
                 let mut voice_request=None;
+                let mut current_lifecycle=VoiceLifecycle::default();
                 // One local release may wait for queue space; later joins cannot overtake it.
                 let mut pending_abandonment=None;
                 loop {
@@ -304,8 +368,15 @@ impl Connection {
                             if release_taken_over(&mut voice_request,*takeover_receive.borrow_and_update()) {drop(ringing.take());drop(recipient_ringing.take());recipient_call.lock().map_err(|_|Failure::Protocol)?.active=None;}
                         }
                         changed=voice_availability.changed()=> {
-							if changed.is_err() {break;}
-							if !*voice_availability.borrow_and_update() {drop(ringing.take());drop(recipient_ringing.take());drop(profile.take());drop(stream_preview.take());drop(search.take());voice_request=None;recipient_call.lock().map_err(|_|Failure::Protocol)?.active=None;if let Some(cancel)=&upload_cancel {let _=cancel.send(true);}}
+								if changed.is_err() {break;}
+								if !*voice_availability.borrow_and_update() {drop(ringing.take());drop(recipient_ringing.take());drop(profile.take());drop(stream_preview.take());drop(search.take());if let Some(cancel)=&upload_cancel {let _=cancel.send(true);}}
+                        }
+                        changed=lifecycle_changed.changed()=> {
+                            if changed.is_err() {break;}
+                            let latest=*lifecycle_changed.borrow_and_update();
+                            let channels=dm_channels.lock().map_err(|_|Failure::Protocol)?;
+                            let calls=recipient_call.lock().map_err(|_|Failure::Protocol)?;
+                            if apply_voice_lifecycle(&mut current_lifecycle,latest,&mut voice_request,&calls,&channels) {drop(ringing.take());drop(recipient_ringing.take());drop(profile.take());drop(stream_preview.take());drop(search.take());if let Some(cancel)=&upload_cancel {let _=cancel.send(true);}}
                         }
                         request=upload_receive.recv()=>{
                             let Some(request)=request else {break;};
@@ -341,6 +412,12 @@ impl Connection {
                         command=receive.recv()=>{
                             // Select can admit a queued command before the changed-watch branch.
                             if release_taken_over(&mut voice_request,*takeover_receive.borrow()) {drop(ringing.take());drop(recipient_ringing.take());recipient_call.lock().map_err(|_|Failure::Protocol)?.active=None;}
+                            {
+                                let latest=*lifecycle_changed.borrow_and_update();
+                                let channels=dm_channels.lock().map_err(|_|Failure::Protocol)?;
+                                let calls=recipient_call.lock().map_err(|_|Failure::Protocol)?;
+                                if apply_voice_lifecycle(&mut current_lifecycle,latest,&mut voice_request,&calls,&channels) {drop(ringing.take());drop(recipient_ringing.take());drop(profile.take());drop(stream_preview.take());drop(search.take());if let Some(cancel)=&upload_cancel {let _=cancel.send(true);}}
+                            }
                             let Some(command)=command else {break;};
                             if matches!(command,Command::CancelSearch) {drop(search.take());continue;}
                             if matches!(command,Command::CancelGifs) {drop(gifs.take());continue;}
@@ -476,12 +553,14 @@ impl Connection {
                                 let takeover=takeover_receive.clone();
                                 let members=recipient_scope_changed.clone();
                                 let available=voice_availability.clone();
+                                let lifecycle=lifecycle_changed.clone();let revision=current_lifecycle.interruption;
                                 let call_metadata=recipient_call.clone();let call_members=dm_channels.clone();
                                 let control=client_core::voice::Command::RingRecipient{channel,request,recipient,stop};
                                 recipient_ringing=Some((control,AbortTask(tokio::spawn(async move {
                                     let result=tokio::select! {
                                         biased;
                                         _=wait_for_takeover(takeover,(channel,request))=>return,
+                                        _=wait_for_voice_interruption(lifecycle,revision)=>return,
                                         _=wait_for_recipient_invalidation(members,available,control,call_metadata,call_members)=>return,
                                         result=api.ring_call(channel,Some(recipient),stop)=>result,
                                     };
@@ -541,10 +620,12 @@ impl Connection {
                                     drop(ringing.take());
                                     let api=api.clone();let emit=emit.clone();let voice_send=voice_send.clone();let finished=finished.clone();let ring_wake=wake.clone();
                                     let takeover=takeover_receive.clone();
+                                    let lifecycle=lifecycle_changed.clone();let revision=current_lifecycle.interruption;
                                     ringing=Some(AbortTask(tokio::spawn(async move {
                                         let result=tokio::select! {
                                             biased;
                                             _=wait_for_takeover(takeover,(channel,request))=>return,
+                                            _=wait_for_voice_interruption(lifecycle,revision)=>return,
                                             result=api.ring_call(channel,recipient,stop)=>result,
                                         };
                                         if let Err(failure)=result {
@@ -1032,6 +1113,21 @@ impl RecipientCalls {
 	fn as_ref(&self) -> Option<&RecipientCall> {
 		self.active.as_ref()
 	}
+	fn observe_scoped(
+		&mut self,
+		event: &Event,
+		owner: model::Id,
+		channels: &BTreeMap<model::Id, Vec<model::Id>>,
+	) -> (bool, Option<(model::Id, u64)>) {
+		let previous = self
+			.as_ref()
+			.and_then(|call| call.request.map(|request| (call.channel, request)));
+		let invalidates = self.observe(event, owner, channels);
+		let released = (self.active.is_none() && !matches!(event, Event::Disconnected))
+			.then_some(previous)
+			.flatten();
+		(invalidates, released)
+	}
 	fn join(&mut self, channel: model::Id, request: u64, private: bool) {
 		if self
 			.active
@@ -1085,10 +1181,15 @@ impl RecipientCalls {
 					_ => false,
 				}
 		});
-		if event.ready_navigation().is_some()
-			|| matches!(event, Event::Disconnected | Event::Resync)
-		{
+		if event.ready_navigation().is_some() || matches!(event, Event::Resync) {
 			self.active = None;
+			self.observed.clear();
+			return invalidates;
+		}
+		if matches!(event, Event::Disconnected) {
+			// Resume retains the confirmed local call. Discovery and unconfirmed
+			// attempts are discarded; pending HTTP is invalidated independently.
+			self.active = self.active.take().filter(|call| call.confirmed);
 			self.observed.clear();
 			return invalidates;
 		}
@@ -1198,10 +1299,12 @@ impl RecipientCall {
 		channels: &BTreeMap<model::Id, Vec<model::Id>>,
 	) {
 		use client_core::voice::Event as V;
-		if event.ready_navigation().is_some()
-			|| matches!(event, Event::Disconnected | Event::Resync)
-		{
+		if event.ready_navigation().is_some() || matches!(event, Event::Resync) {
 			*active = None;
+			return;
+		}
+		if matches!(event, Event::Disconnected) {
+			*active = active.take().filter(|call| call.confirmed);
 			return;
 		}
 		// Preserve one validated pre-join observation for the existing-call flow.
@@ -1661,6 +1764,191 @@ fn scope_history_failure(event: Event, channel: model::Id, request: u64) -> Even
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn confirmed_dm_ownership_survives_resume_without_repeating_initial_ring() {
+		use client_core::voice::Command as V;
+		use model::Id;
+		let (control, mut calls, channels) = recipient_worker_fixture(false);
+		calls
+			.observed
+			.push(calls.as_ref().map(RecipientCall::snapshot));
+		let mut active = Some((Id(2), 7, true));
+		let mut lifecycle = VoiceLifecycle::default();
+		let mut applied = lifecycle;
+		assert_eq!(
+			calls.observe_scoped(&Event::Disconnected, Id(1), &channels),
+			(true, None)
+		);
+		assert!(calls.as_ref().unwrap().confirmed);
+		assert!(calls.observed.is_empty());
+		assert!(lifecycle.observe(&Event::Disconnected));
+		assert!(apply_voice_lifecycle(
+			&mut applied,
+			lifecycle,
+			&mut active,
+			&calls,
+			&channels
+		));
+		assert_eq!(active, Some((Id(2), 7, true)));
+		assert_eq!(
+			calls.observe_scoped(&Event::Resumed, Id(1), &channels),
+			(false, None)
+		);
+		assert!(!lifecycle.observe(&Event::Resumed));
+		assert!(recipient_action(
+			Id(2),
+			7,
+			Id(3),
+			Id(1),
+			active,
+			channels.get(&Id(2)).map(Vec::as_slice)
+		));
+		assert!(recipient_write_allowed(control, &calls, &channels));
+		assert_eq!(
+			ring_action(
+				V::Ring {
+					channel: Id(2),
+					request: 7
+				},
+				Id(1),
+				&mut active,
+				true
+			),
+			Err(())
+		);
+		assert_eq!(
+			ring_action(
+				V::Leave {
+					channel: Id(2),
+					request: 7
+				},
+				Id(1),
+				&mut active,
+				true
+			),
+			Ok(Some((None, true)))
+		);
+		assert!(active.is_none());
+	}
+
+	#[test]
+	fn dm_ownership_is_retired_on_fresh_session_departure_and_access_loss() {
+		use client_core::voice::Event as V;
+		use model::Id;
+		let ready = || Event::Ready {
+			permissions: model::permissions::Snapshot::default(),
+			user: model::User {
+				id: Id(1),
+				name: "Synthetic".into(),
+				avatar: None,
+				webhook: false,
+				kind: Default::default(),
+				discriminator: 0,
+				primary_guild: None,
+			},
+			guilds: vec![],
+			channels: vec![],
+		};
+		for event in [
+			Event::Resync,
+			ready(),
+			Event::Voice(V::Departed {
+				channel: Id(2),
+				request: 7,
+			}),
+			Event::Unavailable(Id(2)),
+			Event::RecipientRemoved {
+				channel: Id(2),
+				user: Id(1),
+			},
+		] {
+			let (_, mut calls, channels) = recipient_worker_fixture(false);
+			let mut active = Some((Id(2), 7, true));
+			let (invalidates, released) = calls.observe_scoped(&event, Id(1), &channels);
+			assert!(invalidates);
+			assert_eq!(released, Some((Id(2), 7)));
+			assert!(calls.active.is_none());
+			assert!(release_taken_over(&mut active, released));
+			assert!(active.is_none());
+			let mut lifecycle = VoiceLifecycle::default();
+			let mut applied = lifecycle;
+			if lifecycle.observe(&event) {
+				active = Some((Id(2), 7, true));
+				assert!(apply_voice_lifecycle(
+					&mut applied,
+					lifecycle,
+					&mut active,
+					&calls,
+					&channels
+				));
+				assert!(active.is_none());
+			}
+		}
+		let (_, mut calls, channels) = recipient_worker_fixture(false);
+		calls.active.as_mut().unwrap().confirmed = false;
+		let mut active = Some((Id(2), 7, false));
+		let mut lifecycle = VoiceLifecycle::default();
+		let mut applied = lifecycle;
+		assert_eq!(
+			calls.observe_scoped(&Event::Disconnected, Id(1), &channels),
+			(true, None)
+		);
+		assert!(lifecycle.observe(&Event::Disconnected));
+		assert!(apply_voice_lifecycle(
+			&mut applied,
+			lifecycle,
+			&mut active,
+			&calls,
+			&channels
+		));
+		assert!(active.is_none());
+	}
+
+	#[tokio::test]
+	async fn ring_http_is_cancelled_even_when_disconnect_and_resume_are_coalesced() {
+		let (lifecycle, updates) = watch::channel(VoiceLifecycle::default());
+		let (online, availability) = watch::channel(true);
+		let pending = wait_for_voice_interruption(updates.clone(), 0);
+		tokio::pin!(pending);
+		assert!(
+			tokio::time::timeout(Duration::from_millis(1), &mut pending)
+				.await
+				.is_err()
+		);
+		lifecycle.send_modify(|state| {
+			assert!(state.observe(&Event::Disconnected));
+		});
+		online.send_replace(false);
+		online.send_replace(true);
+		lifecycle.send_if_modified(|state| state.observe(&Event::Resumed));
+		assert!(
+			*availability.borrow(),
+			"availability alone lost the interruption"
+		);
+		tokio::time::timeout(Duration::from_secs(1), pending)
+			.await
+			.unwrap();
+		let contacted = std::cell::Cell::new(false);
+		tokio::select! {
+			biased;
+			_=wait_for_voice_interruption(updates.clone(),0)=>{},
+			_=async {contacted.set(true);std::future::pending::<()>().await}=>unreachable!(),
+		}
+		assert!(
+			!contacted.get(),
+			"retired work must not dispatch after Resume"
+		);
+		assert!(
+			tokio::time::timeout(
+				Duration::from_millis(1),
+				wait_for_voice_interruption(updates, 1)
+			)
+			.await
+			.is_err(),
+			"a new explicit action uses the resumed revision"
+		);
+	}
+
 	#[test]
 	fn takeover_rejects_queued_initial_ringing_but_preserves_new_call_ownership() {
 		use client_core::voice::Command as V;

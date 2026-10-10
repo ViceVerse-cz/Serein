@@ -11,6 +11,22 @@ rpc = (catalog.ROOT / "plugins/packages/custom-rpc.serein-extension").read_bytes
 assert catalog.validate(rpc)["capabilities"] == ["rich_presence", "storage"]
 proxy = (catalog.ROOT / "plugins/packages/api-proxy.serein-extension").read_bytes()
 assert catalog.validate(proxy)["capabilities"] == ["api_proxy", "storage"]
+# Real SDK fixtures cover reactive surfaces and manifests with more than four grants.
+examples = sorted((catalog.ROOT.parent / "examples/extensions/packages").glob("*.serein-extension"))
+assert examples
+for example in examples:
+    assert catalog.validate(example.read_bytes())["kind"] == "plugin"
+reactive = json.loads((catalog.ROOT.parent / "examples/extensions/packages/message-counter.serein-extension").read_bytes())
+extended = json.loads(plugin)
+extended["manifest"].update(capabilities=["app_events", "data_events", "action_feedback", "data_queries", "messaging_settings", "guild_folders"],
+                            actions=[{"id": "observe", "label": "Observe", "surface": "app_event"}])
+assert catalog.validate(json.dumps(extended).encode())["capabilities"] == extended["manifest"]["capabilities"]
+for field in ("capabilities", "actions"):
+    omitted = json.loads(plugin)
+    if field == "actions":
+        omitted = json.loads(theme)
+    omitted["manifest"].pop(field, None)
+    catalog.validate(json.dumps(omitted).encode())
 for data, mutate in (
     (proxy, lambda p: p["manifest"].update(capabilities=["api_proxy", "composer"])),
     (proxy, lambda p: p["manifest"]["actions"][0].update(surface="message")),
@@ -21,6 +37,28 @@ for data, mutate in (
     (plugin, lambda p: p.update(wasm=[0, 1])),
     (plugin, lambda p: p["manifest"].update(capabilities=["unknown"])),
     (plugin, lambda p: p["manifest"]["actions"][0].update(surface="composer")),
+    (theme, lambda p: p["manifest"].update(api_version=True)),
+    (theme, lambda p: p["manifest"].update(api_version=1.0)),
+    (theme, lambda p: p["manifest"].update(extra_typo="invalid")),
+    (theme, lambda p: p["manifest"].update(kind="unknown")),
+    (theme, lambda p: p["manifest"].update(name=1)),
+    (theme, lambda p: p["manifest"].update(source=1)),
+    (plugin, lambda p: p["manifest"]["actions"][0].update(extra_typo="invalid")),
+    (plugin, lambda p: p["manifest"]["actions"][0].pop("label")),
+    (plugin, lambda p: p["manifest"]["actions"][0].update(surface=[])),
+    (plugin, lambda p: p["manifest"].update(capabilities=None)),
+    (plugin, lambda p: p["manifest"].update(capabilities=[[]])),
+    (plugin, lambda p: p["manifest"].update(actions=None)),
+    (plugin, lambda p: p["manifest"].update(capabilities=["storage", "storage"])),
+    (plugin, lambda p: p["manifest"].update(capabilities=["storage"] * 65)),
+    (plugin, lambda p: p["manifest"].update(capabilities=["data_events"])),
+    (plugin, lambda p: p["manifest"].update(capabilities=["app_events", "action_feedback"])),
+    (plugin, lambda p: p["manifest"].update(capabilities=["app_events", "data_queries"])),
+    (json.dumps(reactive).encode(), lambda p: p["manifest"].update(capabilities=["storage"])),
+    (json.dumps(reactive).encode(), lambda p: p["manifest"]["actions"].append({"id": "duplicate-event", "label": "Duplicate", "surface": "message_event"})),
+    (json.dumps(extended).encode(), lambda p: p["manifest"].update(capabilities=["action_feedback"])),
+    (json.dumps(extended).encode(), lambda p: p["manifest"]["actions"].append({"id": "duplicate-event", "label": "Duplicate", "surface": "app_event"})),
+    (json.dumps(extended).encode(), lambda p: p["manifest"].update(actions=[{"id": "tick", "label": "Tick", "surface": "tick"}])),
 ):
     invalid = json.loads(data)
     mutate(invalid)
@@ -30,6 +68,18 @@ for data, mutate in (
         pass
     else:
         raise AssertionError("invalid extension accepted")
+compact_theme = json.dumps(json.loads(theme), separators=(",", ":")).encode()
+for invalid in (
+    compact_theme.replace(b'"api_version":1', b'"api_version":true,"api_version":1'),
+    compact_theme.replace(b'"api_version":1', b'"api_version":NaN'),
+):
+    assert invalid != compact_theme
+    try:
+        catalog.validate(invalid)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("invalid JSON accepted")
 # Pins are compared by content; a catalog pinned to another repository is always re-pinned.
 pinned = json.loads((catalog.ROOT / "catalog.json").read_bytes())
 for entry in pinned["entries"]:

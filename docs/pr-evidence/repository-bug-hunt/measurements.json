@@ -1,0 +1,78 @@
+{
+  "schema": 1,
+  "baseline_commit": "b6c32b6ddfa3bef63f01bc9b101de5aa20203017",
+  "after_revision": "fix/repository-bug-hunt working tree; final commit is reported in the pull request",
+  "environment": {
+    "os": "Debian 13.7 container on Linux 6.18.44 x86_64",
+    "cpu": "Intel Xeon Platinum 8573C",
+    "logical_cpus": 5,
+    "ram_bytes": 18882699264,
+    "rust": "1.98.1",
+    "dependencies": "locked",
+    "data": "synthetic offline",
+    "accounts_or_devices": false
+  },
+  "standard_package": {
+    "command": "cargo xtask package",
+    "format": "deb",
+    "baseline": {
+      "executable_bytes": 85746216,
+      "executable_sha256": "a3fc2de789c88de7b94b07e2d49834b7bb183e3e37961cd75c578fd1ae4cd9f6",
+      "installed_regular_file_bytes": 120976132,
+      "installed_regular_files": 248,
+      "compressed_bytes": 70795724,
+      "compressed_sha256": "df23ff10f56e4d99a8f2ce07fa2da62572a99ce0bc7a68c13caac1858fe0157c"
+    },
+    "after": {
+      "executable_bytes": 85796648,
+      "executable_sha256": "6b47855167ffe20a122319b69fe76ef0371350426cab2ddbe6de9ab215735058",
+      "installed_regular_file_bytes": 121026564,
+      "installed_regular_files": 248,
+      "compressed_bytes": 70809936,
+      "compressed_sha256": "233dde88a3bd7757f520771644a1337cefb9bfed8cbaab8702876f91e53aa5ed"
+    },
+    "smoke": "passed executable, desktop entry, metadata, ownership, content and host shared-library closure"
+  },
+  "reducer_replay": {
+    "events_per_process": 100000,
+    "warmup_processes_per_revision": 1,
+    "alternating_measured_pairs": 5,
+    "units": "milliseconds",
+    "baseline_binary_sha256": "dca5b5207b09c348cb3605aeb57414d1c60e9910541e384845298c3ca4b06e02",
+    "after_binary_sha256": "fb5d4745dfc5d6ffdb7cf1321b620452f1e4be4f447d4a555ac29759ed1cae18",
+    "baseline_warmup_ms": 100.419730,
+    "after_warmup_ms": 140.051947,
+    "baseline_samples_ms": [111.762456, 76.180561, 103.872130, 79.729081, 73.511961],
+    "after_samples_ms": [79.908353, 81.961205, 94.434004, 75.801499, 80.958011],
+    "baseline_median_ms": 79.729081,
+    "after_median_ms": 80.958011,
+    "retained_timeline_estimate_bytes": [331992, 332477],
+    "retained_records": 500
+  },
+  "native_idle": {
+    "scenario": "profile_preview --demo --interactive --page=appearance --width=1120 --height=760",
+    "build": "--release --locked --no-default-features --features demo; example link -C lto=off",
+    "display": "Xvfb :88, 1280x900x24, scale 1, dark",
+    "renderer": [
+      "/usr/lib/x86_64-linux-gnu/libvulkan.so.1.4.309",
+      "/usr/lib/x86_64-linux-gnu/libvulkan_lvp.so"
+    ],
+    "warmup_seconds": 8,
+    "settle_seconds": 3,
+    "sample_interval_seconds": 1,
+    "samples_per_revision": 20,
+    "baseline_binary_bytes": 55659560,
+    "baseline_binary_sha256": "cd64cc0e5aa388f1dafca781b808bcc7a2d3143c370b7b430d78415f6ae45622",
+    "after_binary_bytes": 55677736,
+    "after_binary_sha256": "78a2584d4a99428145e79c3a35c1c70abcaf0e4dc462ee8d85e24d549009418a",
+    "baseline_cpu_percent_one_core": [358.9, 344.9, 364.0, 351.9, 335.9, 369.9, 372.9, 375.5, 355.0, 373.0, 376.0, 358.0, 358.0, 372.0, 368.9, 359.9, 351.9, 353.6, 345.9, 373.0],
+    "after_cpu_percent_one_core": [341.0, 332.0, 353.0, 334.9, 347.9, 353.9, 349.0, 345.0, 341.6, 345.0, 348.0, 342.9, 354.0, 349.9, 370.9, 348.9, 350.0, 344.9, 348.0, 346.8],
+    "baseline_cpu_mean_percent_one_core": 360.955,
+    "after_cpu_mean_percent_one_core": 347.380,
+    "baseline_sampled_peak_rss_bytes": 201949184,
+    "after_sampled_peak_rss_bytes": 203497472,
+    "baseline_settled_rss_bytes": 201949184,
+    "after_settled_rss_bytes": 203497472,
+    "helper_children": []
+  }
+}

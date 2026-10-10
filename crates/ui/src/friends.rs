@@ -485,7 +485,13 @@ impl MessagingUi {
 				});
 		}
 		if self.friends.tab == Tab::Add {
-			self.add_friend_page(ui, state, commands);
+			self.scroll
+				.attach(
+					ui,
+					"friends-add",
+					egui::ScrollArea::vertical().auto_shrink([false, false]),
+				)
+				.show(ui, |ui| self.add_friend_page(ui, state, commands));
 			return;
 		}
 		if self.friends.tab == Tab::Pending {
@@ -1027,6 +1033,62 @@ mod tests {
 	use super::*;
 	use client_core::{Envelope, Event, user_actions::Event as Relationship};
 	use model::{Id, Patch};
+
+	#[test]
+	fn add_friend_page_scrolls_to_its_last_action_in_a_short_viewport() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::friends_demo_state();
+		let mut view = MessagingUi::default();
+		view.friends.tab = Tab::Add;
+		let label = view.language.text("friends-explore-servers");
+		let mut commands = Vec::new();
+		let mut time = 0.0;
+		let mut frame = |events| {
+			time += 1.0 / 60.0;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(300.0, 260.0),
+					)),
+					time: Some(time),
+					events,
+					..Default::default()
+				},
+				|ui| view.friends_page(ui, &mut state, &mut commands),
+			);
+			let visible = output.shapes.iter().any(|shape| {
+				if let egui::Shape::Text(text) = &shape.shape {
+					text.galley.job.text == label
+						&& shape
+							.clip_rect
+							.contains_rect(egui::Rect::from_min_size(text.pos, text.galley.size()))
+				} else {
+					false
+				}
+			});
+			output.drop_without_applying_deltas();
+			visible
+		};
+		frame(vec![]);
+		assert!(!frame(vec![]), "fixture must require scrolling");
+		frame(vec![
+			egui::Event::PointerMoved(egui::pos2(150.0, 180.0)),
+			egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Point,
+				delta: egui::vec2(0.0, -1000.0),
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+				modifiers: egui::Modifiers::NONE,
+			},
+		]);
+		let mut visible = false;
+		for _ in 0..30 {
+			visible |= frame(vec![]);
+		}
+		assert!(visible, "the final action cannot be reached by scrolling");
+		assert!(commands.is_empty());
+	}
 
 	fn apply(state: &mut State, event: Event) {
 		state.apply(Envelope {

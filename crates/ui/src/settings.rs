@@ -361,22 +361,9 @@ impl MessagingUi {
 						} else {
 							self.settings.page.description(self.language)
 						};
-						ui.horizontal_top(|ui| {
-							ui.vertical(|ui| {
-								ui.spacing_mut().item_spacing.y = 2.0;
-								ui.label(
-									design::semibold(ui, &heading, 20.0).color(colors.text_strong),
-								);
-								ui.label(
-									RichText::new(&description).size(13.0).color(colors.muted),
-								);
-							});
-							ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-								if close_control(ui).clicked() {
-									self.settings.open = false;
-								}
-							});
-						});
+						if page_header(ui, &heading, &description).clicked() {
+							self.settings.open = false;
+						}
 						if !wide {
 							ui.add_space(8.0);
 							self.settings_search(ui);
@@ -1254,6 +1241,32 @@ fn account_row(ui: &mut egui::Ui, label: &str, value: &str) {
 	});
 }
 
+/// Reserve the close column before wrapping a page's title and description.
+fn page_header(ui: &mut egui::Ui, heading: &str, description: &str) -> egui::Response {
+	let colors = design::palette(ui);
+	ui.horizontal_top(|ui| {
+		let text_width = (ui.available_width() - 40.0 - ui.spacing().item_spacing.x).max(1.0);
+		ui.allocate_ui_with_layout(
+			egui::vec2(text_width, 0.0),
+			egui::Layout::top_down(egui::Align::Min),
+			|ui| {
+				ui.set_width(text_width);
+				ui.spacing_mut().item_spacing.y = 2.0;
+				ui.add(
+					egui::Label::new(design::semibold(ui, heading, 20.0).color(colors.text_strong))
+						.wrap(),
+				);
+				ui.add(
+					egui::Label::new(RichText::new(description).size(13.0).color(colors.muted))
+						.wrap(),
+				);
+			},
+		);
+		close_control(ui)
+	})
+	.inner
+}
+
 /// Sidebar entry in the settings modal; the selected page uses the strong surface and text.
 pub(super) fn nav_item(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
 	let label = crate::i18n::translate_if_key(label);
@@ -1585,6 +1598,72 @@ fn theme_preference_cards(ui: &mut egui::Ui) {
 #[cfg(test)]
 mod keybind_tests {
 	use super::*;
+
+	#[test]
+	fn long_page_headers_wrap_without_displacing_the_close_control() {
+		for width in [240.0, 420.0, 640.0] {
+			let ctx = egui::Context::default();
+			let heading = "A long localized settings heading that needs to wrap";
+			let description =
+				"This description deliberately occupies several lines in a narrow settings pane. "
+					.repeat(3);
+			let frame = |events| {
+				let mut close = egui::Rect::NOTHING;
+				let mut clicked = false;
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(width + 32.0, 400.0),
+						)),
+						events,
+						..Default::default()
+					},
+					|ui| {
+						ui.set_width(width);
+						let available = ui.available_rect_before_wrap();
+						let response = page_header(ui, heading, &description);
+						close = response.rect;
+						clicked = response.clicked();
+						assert!(
+							close.right() <= available.right() + 0.1,
+							"width={width} close={close:?}"
+						);
+						assert_eq!(close.width(), 40.0);
+					},
+				);
+				for shape in &output.shapes {
+					if let egui::Shape::Text(text) = &shape.shape {
+						assert!(
+							text.pos.x + text.galley.size().x <= width + 1.0,
+							"text exceeds pane at width={width}"
+						);
+					}
+				}
+				output.drop_without_applying_deltas();
+				(clicked, close)
+			};
+			frame(vec![]);
+			let (_, close) = frame(vec![]);
+			let point = close.center();
+			let pointer = |pressed| {
+				vec![
+					egui::Event::PointerMoved(point),
+					egui::Event::PointerButton {
+						pos: point,
+						button: egui::PointerButton::Primary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					},
+				]
+			};
+			frame(pointer(true));
+			assert!(
+				frame(pointer(false)).0,
+				"close is unreachable at width={width}"
+			);
+		}
+	}
 
 	#[test]
 	fn keybinds_shortcut_opens_page_and_respects_ime() {

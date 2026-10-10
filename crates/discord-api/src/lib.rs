@@ -76,6 +76,19 @@ enum RequestContent {
 	Multipart { content_type: String, body: Vec<u8> },
 }
 
+struct ResponsePolicy<'a> {
+	max_bytes: usize,
+	missing: Option<&'a mut bool>,
+}
+impl ResponsePolicy<'_> {
+	fn required(max_bytes: usize) -> Self {
+		Self {
+			max_bytes,
+			missing: None,
+		}
+	}
+}
+
 fn stream_preview_url(bytes: &[u8], key: &str) -> Result<String, Failure> {
 	#[derive(serde::Deserialize)]
 	struct Preview {
@@ -276,11 +289,33 @@ impl DiscordApi {
 			method,
 			path,
 			body.map(RequestContent::Json),
-			max_bytes,
+			ResponsePolicy::required(max_bytes),
 			None,
 			None,
 		)
 		.await
+	}
+	/// Keep a missing optional GET distinct from malformed responses and other HTTP failures.
+	async fn request_optional_limited(
+		&self,
+		path: &str,
+		max_bytes: usize,
+	) -> Result<Option<Vec<u8>>, Failure> {
+		let mut missing = false;
+		let bytes = self
+			.request_with_content(
+				Method::GET,
+				path,
+				None,
+				ResponsePolicy {
+					max_bytes,
+					missing: Some(&mut missing),
+				},
+				None,
+				None,
+			)
+			.await?;
+		Ok((!missing).then_some(bytes))
 	}
 	async fn request_multipart_limited(
 		&self,
@@ -293,7 +328,7 @@ impl DiscordApi {
 			Method::POST,
 			path,
 			Some(RequestContent::Multipart { content_type, body }),
-			max_bytes,
+			ResponsePolicy::required(max_bytes),
 			None,
 			None,
 		)
@@ -313,7 +348,7 @@ impl DiscordApi {
 			method,
 			path,
 			body.map(RequestContent::Json),
-			max_bytes,
+			ResponsePolicy::required(max_bytes),
 			retry,
 			challenge,
 		)
@@ -324,10 +359,11 @@ impl DiscordApi {
 		method: Method,
 		path: &str,
 		body: Option<RequestContent>,
-		max_bytes: usize,
+		response: ResponsePolicy<'_>,
 		retry: Option<&client_core::captcha::Retry>,
 		mut challenge: Option<&mut Option<client_core::captcha::Challenge>>,
 	) -> Result<Vec<u8>, Failure> {
+		let ResponsePolicy { max_bytes, missing } = response;
 		// Only typed adapter methods construct paths. Never accept a URL or route from UI/content.
 		if !path.starts_with('/')
 			|| path.contains("://")
@@ -341,6 +377,9 @@ impl DiscordApi {
 			.acquire()
 			.await
 			.map_err(|_| Failure::Network)?;
+		// Proxy configuration can pause here. Resolve the credential-free route before
+		// checking admission so a later stop or cooldown still applies when it resumes.
+		let client = self.rest_client().await?;
 		// Four permits bound concurrent REST work. A slow profile body must not hold the
 		// cooldown mutex and delay a message write; only service rate admission is shared.
 		loop {
@@ -361,9 +400,7 @@ impl DiscordApi {
 		#[cfg(test)]
 		let base = &self.base;
 		let write = method != Method::GET;
-		let mut request = self
-			.rest_client()
-			.await?
+		let mut request = client
 			.request(method, format!("{base}{path}"))
 			.header(AUTHORIZATION, authorization);
 		if let Some(retry) = retry {
@@ -403,6 +440,11 @@ impl DiscordApi {
 			}
 		})?;
 		let status = response.status();
+		if status == StatusCode::UNAUTHORIZED {
+			self.stop();
+			return Err(Failure::Expired);
+		}
+		let uncertain_write = write && (status.is_success() || status.is_server_error());
 		let exhausted = response
 			.headers()
 			.get("x-ratelimit-remaining")
@@ -420,17 +462,27 @@ impl DiscordApi {
 			.and_then(|s| s.parse::<f64>().ok());
 		if exhausted || status == StatusCode::TOO_MANY_REQUESTS {
 			let mut next = self.cooldown.lock().await;
-			*next = (*next).max(Instant::now() + safe_delay(reset.or(retry_header))?);
+			let delay = safe_delay(reset.or(retry_header)).map_err(|failure| {
+				if uncertain_write {
+					Failure::Ambiguous
+				} else {
+					failure
+				}
+			})?;
+			*next = (*next).max(Instant::now() + delay);
 		}
-		if status == StatusCode::UNAUTHORIZED {
-			self.stop();
-			return Err(Failure::Expired);
-		}
+		// A successful or server-failed write may already have taken effect. Losing
+		// its response to our body limit cannot establish a definite rejection.
+		let overflow = if uncertain_write {
+			Failure::Ambiguous
+		} else {
+			Failure::Capacity
+		};
 		if response
 			.content_length()
 			.is_some_and(|n| n > max_bytes as u64)
 		{
-			return Err(Failure::Capacity);
+			return Err(overflow);
 		}
 		let mut bytes = zeroize::Zeroizing::new(Vec::with_capacity(
 			response.content_length().unwrap_or(0).min(max_bytes as u64) as usize,
@@ -443,7 +495,7 @@ impl DiscordApi {
 			}
 		})? {
 			if bytes.len() + chunk.len() > max_bytes {
-				return Err(Failure::Capacity);
+				return Err(overflow);
 			}
 			bytes.extend_from_slice(&chunk);
 		}
@@ -482,7 +534,14 @@ impl DiscordApi {
 					(*next).max(Instant::now() + safe_delay(error.retry_after.or(retry_header))?);
 				return Err(Failure::RateLimited);
 			}
-			// A missing private note is empty, not a missing user profile. No other 404 is converted.
+			if !write
+				&& status == StatusCode::NOT_FOUND
+				&& let Some(missing) = missing
+			{
+				*missing = true;
+				return Ok(Vec::new());
+			}
+			// Ordinary requests only convert a missing private note, never a missing user profile.
 			if !write && status == StatusCode::NOT_FOUND && path.starts_with("/users/@me/notes/") {
 				return Ok(br#"{"note":""}"#.to_vec());
 			}
@@ -1799,6 +1858,177 @@ fn safe_delay(seconds: Option<f64>) -> Result<Duration, Failure> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[tokio::test]
+	async fn response_overflow_preserves_write_ambiguity_and_definite_rejections() {
+		for chunked in [false, true] {
+			for (method, status, expected) in [
+				(Method::POST, "200 OK", Failure::Ambiguous),
+				(
+					Method::POST,
+					"500 Internal Server Error",
+					Failure::Ambiguous,
+				),
+				(Method::POST, "400 Bad Request", Failure::Capacity),
+				(Method::POST, "403 Forbidden", Failure::Capacity),
+				(Method::POST, "429 Too Many Requests", Failure::Capacity),
+				(Method::GET, "200 OK", Failure::Capacity),
+			] {
+				let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+				let mut api = DiscordApi::new(Arc::new(
+					SessionSecret::from_owner_input("SYNTHETIC_BODY_LIMIT_TOKEN".into()).unwrap(),
+				))
+				.unwrap();
+				api.base = format!("http://{}", listener.local_addr().unwrap());
+				let server = tokio::spawn(async move {
+					let (mut stream, _) = listener.accept().await.unwrap();
+					let mut headers = Vec::new();
+					while !headers.ends_with(b"\r\n\r\n") {
+						assert!(headers.len() < 4096);
+						headers.push(stream.read_u8().await.unwrap());
+					}
+					let body = if chunked {
+						"Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n5\r\n12345\r\n0\r\n\r\n"
+					} else {
+						"Content-Length: 5\r\nConnection: close\r\n\r\n12345"
+					};
+					stream
+						.write_all(format!("HTTP/1.1 {status}\r\n{body}").as_bytes())
+						.await
+						.unwrap();
+					assert!(
+						tokio::time::timeout(Duration::from_millis(25), listener.accept())
+							.await
+							.is_err(),
+						"writes are never replayed"
+					);
+				});
+				assert_eq!(
+					api.request_limited(method, "/synthetic", None, 4).await,
+					Err(expected)
+				);
+				server.await.unwrap();
+			}
+		}
+	}
+
+	#[tokio::test]
+	async fn accepted_message_with_oversized_response_reports_ambiguous_delivery() {
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let mut api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("SYNTHETIC_MESSAGE_LIMIT_TOKEN".into()).unwrap(),
+		))
+		.unwrap();
+		api.base = format!("http://{}", listener.local_addr().unwrap());
+		let server = tokio::spawn(async move {
+			let (mut stream, _) = listener.accept().await.unwrap();
+			let mut buffer = [0; 4096];
+			let count = stream.read(&mut buffer).await.unwrap();
+			assert!(
+				std::str::from_utf8(&buffer[..count])
+					.unwrap()
+					.starts_with("POST /channels/2/messages HTTP/1.1")
+			);
+			stream
+				.write_all(
+					format!(
+						"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+						MAX_WIRE + 1
+					)
+					.as_bytes(),
+				)
+				.await
+				.unwrap();
+			assert!(
+				tokio::time::timeout(Duration::from_millis(25), listener.accept())
+					.await
+					.is_err()
+			);
+		});
+		assert_eq!(
+			api.send_message(model::Id(2), "Synthetic message", "7", None, None, None)
+				.await
+				.map(|_| ()),
+			Err(Failure::Ambiguous)
+		);
+		server.await.unwrap();
+	}
+
+	#[tokio::test]
+	async fn accepted_message_with_invalid_rate_header_reports_ambiguity_without_retry() {
+		for reset in ["NaN", "-1", "86401"] {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_RATE_HEADER_TOKEN".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{}", listener.local_addr().unwrap());
+			let server = tokio::spawn(async move {
+				let (mut stream, _) = listener.accept().await.unwrap();
+				let mut headers = Vec::new();
+				while !headers.ends_with(b"\r\n\r\n") {
+					assert!(headers.len() < 4096);
+					headers.push(stream.read_u8().await.unwrap());
+				}
+				assert!(
+					std::str::from_utf8(&headers)
+						.unwrap()
+						.starts_with("POST /channels/2/messages HTTP/1.1")
+				);
+				stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nx-ratelimit-remaining: 0\r\nx-ratelimit-reset-after: {reset}\r\nConnection: close\r\n\r\n{{}}").as_bytes()).await.unwrap();
+				assert!(
+					tokio::time::timeout(Duration::from_millis(25), listener.accept())
+						.await
+						.is_err(),
+					"an uncertain send must never be replayed"
+				);
+			});
+			assert_eq!(
+				api.send_message(model::Id(2), "Synthetic message", "7", None, None, None)
+					.await
+					.map(|_| ()),
+				Err(Failure::Ambiguous)
+			);
+			server.await.unwrap();
+		}
+	}
+
+	#[tokio::test]
+	async fn unauthorized_response_stops_traffic_before_invalid_rate_header_parsing() {
+		for method in [Method::GET, Method::POST] {
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_EXPIRED_HEADER_TOKEN".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{}", listener.local_addr().unwrap());
+			let server = tokio::spawn(async move {
+				let (mut stream, _) = listener.accept().await.unwrap();
+				let mut headers = Vec::new();
+				while !headers.ends_with(b"\r\n\r\n") {
+					assert!(headers.len() < 4096);
+					headers.push(stream.read_u8().await.unwrap());
+				}
+				stream.write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 2\r\nx-ratelimit-remaining: 0\r\nx-ratelimit-reset-after: NaN\r\nConnection: close\r\n\r\n{}").await.unwrap();
+				assert!(
+					tokio::time::timeout(Duration::from_millis(25), listener.accept())
+						.await
+						.is_err(),
+					"expired credentials cannot dispatch another request"
+				);
+			});
+			assert_eq!(
+				api.request(method, "/synthetic", None).await,
+				Err(Failure::Expired)
+			);
+			assert!(api.stopped());
+			assert_eq!(
+				api.request(Method::POST, "/synthetic", None).await,
+				Err(Failure::Expired)
+			);
+			server.await.unwrap();
+		}
+	}
+
 	#[test]
 	fn stream_preview_accepts_only_the_requested_discord_cdn_path() {
 		let key = "guild:1:2:3";

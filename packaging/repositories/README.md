@@ -57,7 +57,8 @@ and republish before expiry even when the application version has not changed.
 ## Automatic setup script
 
 Run the automatic repository setup script to detect your distribution, verify the
-GPG signing key fingerprint, and configure the repository. Native setup accepts
+GPG signing key fingerprint, and configure the repository. The downloaded key
+must contain exactly one pinned primary key; its subkeys are allowed. Native setup accepts
 Ubuntu 26.04, Fedora 43/44, openSUSE Tumbleweed, Arch Linux and distributions that
 declare `ID_LIKE=arch`. Ubuntu 26.04 accepts x86_64 and ARM64 (`aarch64`/`arm64`);
 the other native repositories remain x86_64 only. ARM64 requires a new release
@@ -74,6 +75,14 @@ To configure a specific channel or base URL:
 ```sh
 curl -fsSL https://viceverse-cz.github.io/Serein/setup.sh | SEREIN_CHANNEL=production sh
 ```
+
+Only `nightly` and `production` channels are accepted. A custom
+`SEREIN_REPO_BASE_URL` must be an ASCII HTTPS root without credentials, whitespace,
+query or fragment. Fedora/openSUSE repository settings are generated locally with
+package and metadata signature checks enabled and use the verified key installed
+at `/etc/pki/rpm-gpg/serein.asc`; downloaded `.repo` settings are not imported.
+Rerunning setup updates Arch's existing `[serein]` server for the selected
+channel/root while preserving its other settings and unrelated repository sections.
 
 After running the script, update your package lists and install `serein` using your distribution's native package manager (`apt`, `dnf`, `zypper`, or `pacman`). Subsequent system updates will automatically update Serein.
 

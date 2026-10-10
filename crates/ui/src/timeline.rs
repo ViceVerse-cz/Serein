@@ -826,6 +826,24 @@ fn divider(ui: &mut egui::Ui, label: String, unread: bool, compact: bool) {
 	});
 	ui.add_space(if compact { 2.0 } else { 4.0 });
 }
+/// Keep floating actions reachable when the start of a tall row has scrolled away.
+fn clamp_hover_toolbar(rect: egui::Rect, viewport: egui::Rect) -> egui::Rect {
+	if !viewport.is_positive() {
+		return rect;
+	}
+	let position = egui::pos2(
+		rect.left().clamp(
+			viewport.left(),
+			(viewport.right() - rect.width()).max(viewport.left()),
+		),
+		rect.top().clamp(
+			viewport.top(),
+			(viewport.bottom() - rect.height()).max(viewport.top()),
+		),
+	);
+	egui::Rect::from_min_size(position, rect.size())
+}
+
 /// A hover-bar reaction: its emoji, whether the reader already reacted, and whether it toggles now.
 fn quick_reaction(
 	state: &State,
@@ -3501,9 +3519,12 @@ impl TimelineView {
 							.as_ref()
 							.is_some_and(|u| u.id == message.author.id);
 						if deleted {
-							let toolbar_rect = egui::Rect::from_min_size(
-								egui::pos2(rect.right() - 46.0, rect.top() - 10.0),
-								egui::vec2(36.0, 28.0),
+							let toolbar_rect = clamp_hover_toolbar(
+								egui::Rect::from_min_size(
+									egui::pos2(rect.right() - 46.0, rect.top() - 10.0),
+									egui::vec2(36.0, 28.0),
+								),
+								clip,
 							);
 							let mut toolbar = ui.new_child(
 								egui::UiBuilder::new()
@@ -3586,12 +3607,15 @@ impl TimelineView {
 								0
 							};
 							let width = buttons as f32 * 30.0;
-							let toolbar_rect = egui::Rect::from_min_size(
-								egui::pos2(
-									(rect.right() - 16.0 - width).max(rect.left()),
-									rect.top() - 10.0,
+							let toolbar_rect = clamp_hover_toolbar(
+								egui::Rect::from_min_size(
+									egui::pos2(
+										(rect.right() - 16.0 - width).max(rect.left()),
+										rect.top() - 10.0,
+									),
+									egui::vec2(width, 28.0),
 								),
-								egui::vec2(width, 28.0),
+								clip,
 							);
 							// A child overlay keeps hover from changing wrapping or cached row heights.
 							let mut toolbar = ui.new_child(
@@ -4854,13 +4878,15 @@ mod tests {
 				);
 			},
 		);
+		// egui reports settled text selection for the native PRIMARY clipboard.
+		// Explicit clipboard writes and browser actions must remain absent.
 		assert!(
 			output
 				.platform_output
 				.commands
 				.iter()
 				.all(|command| matches!(command, egui::OutputCommand::TextSelectionSettled(_))),
-			"{:?}",
+			"Unexpected platform actions: {:?}",
 			output.platform_output.commands
 		);
 		let mut labels = vec![];
@@ -6806,6 +6832,120 @@ mod tests {
 	}
 
 	#[test]
+	fn partially_scrolled_tall_messages_keep_normal_and_deleted_actions_visible() {
+		for deleted in [false, true] {
+			let ctx = egui::Context::default();
+			crate::design::apply(&ctx);
+			let mut state = test_support::demo_state();
+			state.timeline.clear();
+			state.read_state.reset();
+			let mut message = text_message(42);
+			message.channel = state.selected.unwrap();
+			message.content = "Synthetic tall message with a visible bottom\n".repeat(80);
+			state.user = Some(message.author.clone());
+			state
+				.timeline
+				.insert(message.clone(), false, false)
+				.unwrap();
+			if deleted {
+				state.set_preserve_deleted_messages(true);
+				state.timeline.delete(message.id).unwrap();
+				state.revision += 1;
+			}
+			let mut view = TimelineView {
+				instant_scrolling: true,
+				..Default::default()
+			};
+			let render = |view: &mut TimelineView, state: &mut State, events| {
+				let mut viewport = egui::Rect::NOTHING;
+				let output = ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(360.0, 400.0),
+						)),
+						events,
+						focused: true,
+						..Default::default()
+					},
+					|ui| {
+						viewport = ui.available_rect_before_wrap().intersect(ui.clip_rect());
+						view.show(
+							ui,
+							state,
+							&mut None,
+							&mut None,
+							(
+								&mut crate::avatars::Avatars::default(),
+								&mut crate::profiles::ProfileSession::default(),
+							),
+							None,
+						);
+					},
+				);
+				output.drop_without_applying_deltas();
+				viewport
+			};
+			for _ in 0..5 {
+				render(&mut view, &mut state, vec![]);
+			}
+			assert!(
+				view.scroll_offset > 400.0,
+				"the tall row starts above the viewport"
+			);
+			let heights = view.heights.clone();
+			let viewport = render(
+				&mut view,
+				&mut state,
+				vec![egui::Event::PointerMoved(egui::pos2(180.0, 200.0))],
+			);
+			let toolbar = view
+				.toolbar
+				.expect("visible message body exposes actions")
+				.1;
+			assert!(
+				viewport.contains_rect(toolbar),
+				"toolbar must remain in the timeline viewport: {toolbar:?} in {viewport:?}"
+			);
+			assert_eq!(
+				view.heights, heights,
+				"hover actions do not change cached row heights"
+			);
+			let point = if deleted {
+				toolbar.center()
+			} else {
+				// Reply follows the three quick reactions and the add-reaction button.
+				toolbar.left_top() + egui::vec2(134.0, 14.0)
+			};
+			for pressed in [true, false] {
+				render(
+					&mut view,
+					&mut state,
+					vec![
+						egui::Event::PointerMoved(point),
+						egui::Event::PointerButton {
+							pos: point,
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					],
+				);
+			}
+			if deleted {
+				assert!(
+					egui::Popup::is_any_open(&ctx),
+					"deleted message's More menu must open"
+				);
+				assert!(state.reply.is_none());
+			} else {
+				assert_eq!(state.reply, Some(client_core::Reply::to(message.id)));
+			}
+			assert_eq!(view.heights, heights);
+		}
+	}
+
+	#[test]
 	fn hover_actions_keep_layout_stable_and_support_keyboard_reply() {
 		fn texts(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
 			match shape {
@@ -7392,6 +7532,8 @@ mod tests {
 						)
 					},
 				);
+				// egui reports settled text selection for the native PRIMARY clipboard.
+				// Explicit clipboard writes and browser actions must remain absent.
 				assert!(
 					output
 						.platform_output
@@ -7401,7 +7543,7 @@ mod tests {
 							command,
 							egui::OutputCommand::TextSelectionSettled(_)
 						)),
-					"{:?}",
+					"Unexpected platform actions: {:?}",
 					output.platform_output.commands
 				);
 				let mut labels = vec![];

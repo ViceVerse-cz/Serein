@@ -1,0 +1,234 @@
+{
+  "baseline_commit": "8a369cc3c71c18d97065dde8197c16d90970ed0a",
+  "after_revision": "This evidence directory and its enclosing source commit",
+  "environment": {
+    "os": "Debian 13 x86_64",
+    "kernel": "6.18.44",
+    "visible_cpus": 5,
+    "ram_bytes": 18882699264,
+    "rust": "1.98.1",
+    "native_ui": "eframe/wgpu, Xvfb :96, WGPU_BACKEND=gl, LIBGL_ALWAYS_SOFTWARE=1; exact adapter not instrumented",
+    "ui_profile": "isolated preview, opt-level=1, debuginfo=0, ui/demo",
+    "viewport_pixels": [
+      1120,
+      760
+    ],
+    "zoom": 1.0,
+    "appearance": "dark"
+  },
+  "replay": {
+    "method": "One warmup per binary, five measured runs each, alternating pair order; no concurrent compilation or preview process.",
+    "before": {
+      "sha256": "fb5d4745dfc5d6ffdb7cf1321b620452f1e4be4f447d4a555ac29759ed1cae18",
+      "binary_bytes": 1510296,
+      "elapsed_ms": [
+        80.747949,
+        83.116483,
+        123.178418,
+        81.109071,
+        107.632899
+      ],
+      "median_ms": 83.116483,
+      "outputs": [
+        "Synthetic reducer replay: 100000 events in 80.747949ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.\n",
+        "Synthetic reducer replay: 100000 events in 83.116483ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.\n",
+        "Synthetic reducer replay: 100000 events in 123.178418ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.\n",
+        "Synthetic reducer replay: 100000 events in 81.109071ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.\n",
+        "Synthetic reducer replay: 100000 events in 107.632899ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.\n"
+      ]
+    },
+    "after": {
+      "sha256": "9f63e7394bac4d4e6742ab36ccc74e12740ae51834012190aaba81fbc1648a8d",
+      "binary_bytes": 1509592,
+      "elapsed_ms": [
+        116.877707,
+        83.032618,
+        82.212564,
+        142.908066,
+        88.286294
+      ],
+      "median_ms": 88.286294,
+      "outputs": [
+        "Synthetic reducer replay: 100000 events in 116.877707ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.\n",
+        "Synthetic reducer replay: 100000 events in 83.032618ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.\n",
+        "Synthetic reducer replay: 100000 events in 82.212564ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.\n",
+        "Synthetic reducer replay: 100000 events in 142.908066ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.\n",
+        "Synthetic reducer replay: 100000 events in 88.286294ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.\n"
+      ]
+    }
+  },
+  "ui": {
+    "before": {
+      "revision": "8a369cc3c71c18d97065dde8197c16d90970ed0a",
+      "command": [
+        "font-before-preview",
+        "--demo",
+        "--page=appearance",
+        "--font-session-reset",
+        "--interactive",
+        "--width=1120",
+        "--height=760"
+      ],
+      "warmup_s": 6,
+      "interaction": "100 wheel-down events in settings body, pointer moved out",
+      "duration_s": 15.031479135999689,
+      "interval_s": 1,
+      "process_cpu_one_core_percent": 0.0,
+      "peak_rss_bytes": 161026048,
+      "settled_rss_bytes": 161026048,
+      "children": [],
+      "executable_bytes": 89526776,
+      "samples": [
+        {
+          "elapsed_s": 1.000158423994435,
+          "rss_bytes": 161026048
+        },
+        {
+          "elapsed_s": 2.0005120309942868,
+          "rss_bytes": 161026048
+        },
+        {
+          "elapsed_s": 3.0028456959989853,
+          "rss_bytes": 161026048
+        },
+        {
+          "elapsed_s": 4.008303217997309,
+          "rss_bytes": 161026048
+        },
+        {
+          "elapsed_s": 5.008677341000293,
+          "rss_bytes": 161026048
+        },
+        {
+          "elapsed_s": 6.009039860000485,
+          "rss_bytes": 161026048
+        },
+        {
+          "elapsed_s": 7.009364780999022,
+          "rss_bytes": 161026048
+        },
+        {
+          "elapsed_s": 8.009718093002448,
+          "rss_bytes": 161026048
+        },
+        {
+          "elapsed_s": 9.011731816004612,
+          "rss_bytes": 161026048
+        },
+        {
+          "elapsed_s": 10.012047224998241,
+          "rss_bytes": 161026048
+        },
+        {
+          "elapsed_s": 11.012418439990142,
+          "rss_bytes": 161026048
+        },
+        {
+          "elapsed_s": 12.01382391799416,
+          "rss_bytes": 161026048
+        },
+        {
+          "elapsed_s": 13.020493035990512,
+          "rss_bytes": 161026048
+        },
+        {
+          "elapsed_s": 14.02132304100087,
+          "rss_bytes": 161026048
+        },
+        {
+          "elapsed_s": 15.02499644299678,
+          "rss_bytes": 161026048
+        }
+      ]
+    },
+    "after": {
+      "revision": "bug-hunt-working-source",
+      "command": [
+        "font-after-preview",
+        "--demo",
+        "--page=appearance",
+        "--font-session-reset",
+        "--interactive",
+        "--width=1120",
+        "--height=760"
+      ],
+      "warmup_s": 6,
+      "interaction": "100 wheel-down events in settings body, pointer moved out",
+      "duration_s": 15.00829814800818,
+      "interval_s": 1,
+      "process_cpu_one_core_percent": 0.0,
+      "peak_rss_bytes": 161624064,
+      "settled_rss_bytes": 161624064,
+      "children": [],
+      "executable_bytes": 89530560,
+      "samples": [
+        {
+          "elapsed_s": 1.0002229810052086,
+          "rss_bytes": 161624064
+        },
+        {
+          "elapsed_s": 2.001062676004949,
+          "rss_bytes": 161624064
+        },
+        {
+          "elapsed_s": 3.0014656400016975,
+          "rss_bytes": 161624064
+        },
+        {
+          "elapsed_s": 4.001825386003475,
+          "rss_bytes": 161624064
+        },
+        {
+          "elapsed_s": 5.002159950003261,
+          "rss_bytes": 161624064
+        },
+        {
+          "elapsed_s": 6.00256297600572,
+          "rss_bytes": 161624064
+        },
+        {
+          "elapsed_s": 7.0029007170087425,
+          "rss_bytes": 161624064
+        },
+        {
+          "elapsed_s": 8.003232020011637,
+          "rss_bytes": 161624064
+        },
+        {
+          "elapsed_s": 9.003605015008361,
+          "rss_bytes": 161624064
+        },
+        {
+          "elapsed_s": 10.003974999999627,
+          "rss_bytes": 161624064
+        },
+        {
+          "elapsed_s": 11.004438194009708,
+          "rss_bytes": 161624064
+        },
+        {
+          "elapsed_s": 12.006234522006707,
+          "rss_bytes": 161624064
+        },
+        {
+          "elapsed_s": 13.006613092002226,
+          "rss_bytes": 161624064
+        },
+        {
+          "elapsed_s": 14.006922943997779,
+          "rss_bytes": 161624064
+        },
+        {
+          "elapsed_s": 15.007953503009048,
+          "rss_bytes": 161624064
+        }
+      ]
+    }
+  },
+  "unmeasured": [
+    "Full desktop release executable, installed and compressed package: missing glib-2.0.pc",
+    "Frame/startup latency, GPU memory, sustained-load/leak soak",
+    "Real OS keyring, physical capture/audio devices and GPU drivers",
+    "Windows/macOS native runtime behavior"
+  ]
+}

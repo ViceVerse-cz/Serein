@@ -955,13 +955,14 @@ no live Discord session was used.
 
 ### Custom server emoji, chat picker and copying (September 10, 2026)
 
-Joined servers' catalogs are received from READY and known-guild GUILD_CREATE, updated
+Joined servers' catalogs are received from READY and GUILD_CREATE, updated
 by GUILD_EMOJIS_UPDATE, and cleared on GUILD_DELETE. The documented emoji fields and update
 shape are supported by [Emoji Resource](https://docs.discord.com/developers/resources/emoji)
 and [Gateway Events](https://docs.discord.com/developers/events/gateway-events#guild-emojis-update).
 Normal-user READY remains unofficial/unstable; this change was tested with synthetic events
-and local sockets, not a live account. Joining new guilds' full navigation remains pre-existing
-unsupported behavior. Missing catalogs are displayed as unavailable rather than empty.
+and local sockets, not a live account. A GUILD_CREATE for a new or rejoined server restores
+its bounded navigation and permission metadata. Missing catalogs are displayed as unavailable
+rather than empty.
 
 Formatted message/profile/embed text renders `<:name:id>` and `<a:name:id>` as static CDN
 images, using the documented [custom emoji CDN endpoint](https://docs.discord.com/developers/reference#image-formatting-cdn-endpoints).
@@ -1062,7 +1063,7 @@ Threads use their loaded text/announcement/forum/media parent's overwrites and
 SEND_MESSAGES_IN_THREADS; category overwrites are not recursively applied to children.
 Existing DM/group-DM text access remains service-authoritative without guild metadata.
 
-READY and known-guild GUILD_CREATE install bounded snapshots. Role create/update/delete,
+READY and GUILD_CREATE install bounded snapshots. Role create/update/delete,
 self GUILD_MEMBER_UPDATE, owner and channel overwrite updates replace the relevant metadata;
 READY_SUPPLEMENTAL and PASSIVE_UPDATE_V2 can update already supplied self-member data.
 No full member request or new subscription is added. Normal-user evidence is pinned to
@@ -1087,7 +1088,7 @@ without USE_VAD, focused push-to-talk must be enabled and held. Restoration neve
 
 Discord remains authoritative for action rejection, private-thread membership, account emoji
 entitlements and delivery of permission updates. Role names/colors, role administration,
-moderating other users' messages, new guild joining, and full member-directory synchronization
+moderating other users' messages and full member-directory synchronization
 are outside this slice. Synthetic parser, localhost transport and reducer/UI guard tests do
 not establish live compatibility. Native automation remains paused after owner Escape stops;
 no live account action, microphone capture or new native screenshot was performed.
@@ -1508,6 +1509,12 @@ Leave Server uses documented [Leave Guild](https://docs.discord.com/developers/r
 (`DELETE /users/@me/guilds/{guild.id}`). Known owners cannot leave here; pending
 messages or an active guild call prevent the request. Confirmed success removes
 navigation and access through existing channel cleanup while preserving drafts.
+Permanent GUILD_DELETE dispatches (no `unavailable: true`) use the same cleanup,
+including departures made in another client. Temporary unavailable dispatches preserve
+the joined-server identity while revoking access until GUILD_CREATE restores its snapshot.
+Permanent departures also retire the Gateway's known-server entry, so a later create can
+restore the server's navigation and permission metadata. Synthetic localhost/reducer tests
+cover temporary outages, permanent departure and rejoin; service delivery remains unverified.
 One pending action and one bounded result are retained only in the session. Requests
 never automatically retry; ambiguous results remain visibly uncertain, and stale
 responses cannot change a new session or a subsequently rejoined guild. Malformed

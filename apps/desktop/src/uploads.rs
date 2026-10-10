@@ -4,11 +4,11 @@ use discord_api::upload::{Source, Status};
 use eframe::egui;
 use model::Id;
 use std::sync::{
-	Arc,
+	Arc, LazyLock,
 	atomic::{AtomicBool, AtomicUsize, Ordering},
 	mpsc,
 };
-use tokio::sync::watch;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
 
 pub struct UploadRequest {
 	pub command: Command,
@@ -34,9 +34,53 @@ struct Chosen {
 /// Longest edge of the composer thumbnail; the full decode stays bounded by `image::Limits`.
 const PREVIEW_EDGE: u32 = 320;
 const PREVIEW_ALLOC: u64 = 64 * 1024 * 1024;
-/// Largest file read whole for a composer thumbnail; larger selections keep the generic card
-/// instead of loading up to the upload limit (and a second copy) just to draw 320 px.
-const PREVIEW_SOURCE_BYTES: u64 = PREVIEW_ALLOC;
+const PREVIEW_JOBS: usize = 2;
+const PREVIEW_BYTES: usize = 32 * 1024 * 1024;
+static PREVIEW_BUDGET: LazyLock<PreviewBudget> =
+	LazyLock::new(|| PreviewBudget::new(PREVIEW_JOBS, PREVIEW_BYTES));
+
+struct PreviewBudget {
+	jobs: Arc<Semaphore>,
+	bytes: Arc<Semaphore>,
+	byte_limit: usize,
+}
+struct PreviewPermit {
+	_bytes: OwnedSemaphorePermit,
+	_job: OwnedSemaphorePermit,
+}
+impl PreviewBudget {
+	fn new(jobs: usize, bytes: usize) -> Self {
+		Self {
+			jobs: Arc::new(Semaphore::new(jobs)),
+			bytes: Arc::new(Semaphore::new(bytes)),
+			byte_limit: bytes,
+		}
+	}
+	fn admit(&self, source: &Source) -> Option<PreviewPermit> {
+		if !previewable(source.filename()) || source.size() > self.byte_limit as u64 {
+			return None;
+		}
+		Some(PreviewPermit {
+			_job: self.jobs.clone().try_acquire_owned().ok()?,
+			_bytes: self
+				.bytes
+				.clone()
+				.try_acquire_many_owned(u32::try_from(source.size()).ok()?)
+				.ok()?,
+		})
+	}
+}
+
+struct Previewing {
+	key: u64,
+	result: mpsc::Receiver<Option<egui::ColorImage>>,
+	cancelled: Arc<AtomicBool>,
+}
+impl Drop for Previewing {
+	fn drop(&mut self) {
+		self.cancelled.store(true, Ordering::Release);
+	}
+}
 const SHARE_BYTES: usize = 8 * 1024 * 1024;
 const EMOJI_EDGE: u32 = 48;
 const STICKER_EDGE: u32 = 160;
@@ -304,15 +348,36 @@ fn previewable(filename: &str) -> bool {
 	})
 }
 /// Downscaled pixels for the composer card, decoded on a blocking worker, never in a frame.
-async fn preview(source: &Source) -> Option<egui::ColorImage> {
-	if !previewable(source.filename()) {
+async fn preview(source: &Source, cancelled: Arc<AtomicBool>) -> Option<egui::ColorImage> {
+	let permit = PREVIEW_BUDGET.admit(source)?;
+	preview_admitted(source.clone(), permit, cancelled, decode_preview).await
+}
+
+async fn preview_admitted(
+	source: Source,
+	permit: PreviewPermit,
+	cancelled: Arc<AtomicBool>,
+	decode: impl FnOnce(&[u8]) -> Option<egui::ColorImage> + Send + 'static,
+) -> Option<egui::ColorImage> {
+	if cancelled.load(Ordering::Acquire) {
 		return None;
 	}
-	let bytes = source.preview_bytes(PREVIEW_SOURCE_BYTES).await?;
-	tokio::task::spawn_blocking(move || decode_preview(&bytes))
-		.await
-		.ok()
-		.flatten()
+	let bytes = source.preview_bytes(PREVIEW_BYTES as u64).await?;
+	if cancelled.load(Ordering::Acquire) {
+		return None;
+	}
+	tokio::task::spawn_blocking(move || {
+		// Aborting the async waiter cannot retire a decoder which is already running.
+		let _permit = permit;
+		if cancelled.load(Ordering::Acquire) {
+			None
+		} else {
+			decode(&bytes)
+		}
+	})
+	.await
+	.ok()
+	.flatten()
 }
 fn decode_preview(bytes: &[u8]) -> Option<egui::ColorImage> {
 	if platform::heic::is_heic(bytes) {
@@ -366,7 +431,7 @@ pub struct Uploads {
 	selected: Vec<Chosen>,
 	next_key: u64,
 	/// Thumbnails still decoding for pasted files, by `Chosen::key`; at most `MAX_FILES`.
-	previewing: Vec<(u64, mpsc::Receiver<Option<egui::ColorImage>>)>,
+	previewing: Vec<Previewing>,
 	/// Selections still being inspected and decoded; at most `MAX_FILES`. Later selections
 	/// join the composer while earlier ones (or the previous message's upload) still run.
 	choosing: Vec<Choosing>,
@@ -588,6 +653,24 @@ impl Uploads {
 		runtime: &tokio::runtime::Handle,
 		context: &egui::Context,
 	) -> Result<(), &'static str> {
+		self.select_pasted_with_previews(
+			generation,
+			channel,
+			source,
+			runtime,
+			context,
+			&PREVIEW_BUDGET,
+		)
+	}
+	fn select_pasted_with_previews(
+		&mut self,
+		generation: u64,
+		channel: Id,
+		source: Vec<Source>,
+		runtime: &tokio::runtime::Handle,
+		context: &egui::Context,
+		budget: &PreviewBudget,
+	) -> Result<(), &'static str> {
 		if !self.accepting() {
 			return Err("Wait for the current attachment operation to finish");
 		}
@@ -598,20 +681,30 @@ impl Uploads {
 		self.scope = Some((generation, channel));
 		self.clear_finished_progress();
 		for source in source {
+			// Optional thumbnails skip pressure before another source copy or task is admitted.
+			let permit = budget.admit(&source);
 			let key = self.push(source, None);
-			if previewable(self.selected.last().map_or("", |c| c.source.filename())) {
+			if let Some(permit) = permit {
 				let (send, receive) = mpsc::sync_channel(1);
 				let context = context.clone();
-				let copy = self.selected.last().map(|c| c.source.clone());
+				let copy = self
+					.selected
+					.last()
+					.expect("selected preview source")
+					.source
+					.clone();
+				let cancelled = Arc::new(AtomicBool::new(false));
+				let flag = cancelled.clone();
 				runtime.spawn(async move {
-					let thumbnail = match copy {
-						Some(source) => preview(&source).await,
-						None => None,
-					};
+					let thumbnail = preview_admitted(copy, permit, flag, decode_preview).await;
 					let _ = send.send(thumbnail);
 					context.request_repaint();
 				});
-				self.previewing.push((key, receive));
+				self.previewing.push(Previewing {
+					key,
+					result: receive,
+					cancelled,
+				});
 			}
 		}
 		Ok(())
@@ -625,12 +718,7 @@ impl Uploads {
 		parent: Arc<winit::window::Window>,
 	) -> Result<(), &'static str> {
 		// One native picker at a time; loading selections may continue behind it.
-		if !self.accepting()
-			|| self
-				.choosing
-				.iter()
-				.any(|choosing| choosing.files.load(Ordering::Acquire) == 0)
-		{
+		if !self.accepting() {
 			return Err("Wait for the current attachment operation to finish");
 		}
 		// Construct on the native UI thread; await and inspect outside rendering.
@@ -700,6 +788,9 @@ impl Uploads {
 				let mut selected = Vec::with_capacity(paths.len());
 				let mut total = 0;
 				for path in paths {
+					if flag.load(Ordering::Acquire) {
+						return Ok(None);
+					}
 					let source = Source::inspect(path).await?;
 					total += source.size();
 					if total > discord_api::upload::MAX_TOTAL_BYTES {
@@ -707,7 +798,7 @@ impl Uploads {
 							"Attachments must total at most 500 MB; account limits may be lower",
 						);
 					}
-					let thumbnail = preview(&source).await;
+					let thumbnail = preview(&source, flag.clone()).await;
 					selected.push((source, thumbnail));
 				}
 				Ok(Some(selected))
@@ -755,8 +846,7 @@ impl Uploads {
 						&& let Some(key) = upload.key
 					{
 						self.selected.retain(|chosen| chosen.key != key);
-						self.previewing
-							.retain(|(preview_key, _)| *preview_key != key);
+						self.previewing.retain(|preview| preview.key != key);
 					}
 					self.public_result = Some(result);
 				}
@@ -797,9 +887,9 @@ impl Uploads {
 			}
 		}
 		self.previewing
-			.retain(|(key, receive)| match receive.try_recv() {
+			.retain(|preview| match preview.result.try_recv() {
 				Ok(thumbnail) => {
-					if let Some(chosen) = self.selected.iter_mut().find(|c| c.key == *key) {
+					if let Some(chosen) = self.selected.iter_mut().find(|c| c.key == preview.key) {
 						chosen.preview = thumbnail.map(Arc::new);
 					}
 					false
@@ -878,9 +968,9 @@ impl Uploads {
 			.collect()
 	}
 	pub fn remove_at(&mut self, index: usize) {
-		if !self.busy() && index < self.selected.len() {
+		if self.accepting() && index < self.selected.len() {
 			let removed = self.selected.remove(index);
-			self.previewing.retain(|(key, _)| *key != removed.key);
+			self.previewing.retain(|preview| preview.key != removed.key);
 		}
 	}
 
@@ -896,12 +986,17 @@ impl Uploads {
 	pub fn busy(&self) -> bool {
 		!self.choosing.is_empty() || self.uploading.is_some() || self.external.is_some()
 	}
-	/// Whether another file selection may start. Loading selections and the previous
-	/// message's upload do not block it; sending waits for both through `busy`.
+	/// Whether composer files may be selected or removed. An open native picker reserves
+	/// capacity until its count is known. Known loading selections and the previous
+	/// message's upload do not block edits; sending waits for both through `busy`.
 	pub fn accepting(&self) -> bool {
 		self.external.is_none()
 			&& self.image_draft.is_none()
 			&& self.choosing.len() < discord_api::upload::MAX_FILES
+			&& self
+				.choosing
+				.iter()
+				.all(|choosing| choosing.files.load(Ordering::Acquire) != 0)
 	}
 	/// Files still being inspected or decoded before they join the composer.
 	pub fn loading(&self) -> usize {
@@ -989,9 +1084,437 @@ impl Drop for Uploads {
 	}
 }
 
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub(crate) fn debug_heic_check() {
+	#[cfg(target_os = "windows")]
+	{
+		let fixture = include_bytes!("../tests/fixtures/heic-large.heic");
+		let pixels = decode_preview(fixture)
+			.expect("synthetic HEIC must decode with installed HEIF/HEVC codecs");
+		assert_eq!(pixels.size, [320, 213]);
+		assert!(pixels.pixels.len() * 4 < PREVIEW_ALLOC as usize);
+		println!(
+			"WIC thumbnail first pixel: {:?}",
+			pixels.pixels[0].to_array()
+		);
+		for pixel in pixels.pixels.iter().step_by(1000) {
+			for (actual, expected) in pixel.to_array().into_iter().zip([64, 128, 192, 255]) {
+				assert!(actual.abs_diff(expected) <= 4, "{actual} != {expected}");
+			}
+		}
+		let (width, height, rgba) = platform::heic::decode(fixture, 8192, 128 * 1024 * 1024, 8192)
+			.expect("full-size WIC conversion");
+		assert_eq!((width, height), (6000, 4000));
+		assert_eq!(rgba.len(), 6000 * 4000 * 4);
+		assert_eq!(rgba[3], 255);
+		assert!(platform::heic::decode(fixture, 8192, PREVIEW_ALLOC, 8192).is_none());
+		assert!(platform::heic::decode(fixture, 1024, PREVIEW_ALLOC, 320).is_none());
+		assert!(platform::heic::decode(fixture, 8192, 100, 320).is_none());
+	}
+
+	assert!(previewable("photo.HEIC"));
+	assert!(previewable("photo.heif"));
+	assert!(decode_preview(b"\x00\x00\x00\x10ftypheic\x00\x00\x00\x00").is_none());
+}
+
+/// Device-free check that pasted content cannot steal pending drop reservations.
+#[cfg(all(debug_assertions, feature = "demo"))]
+pub(crate) fn debug_reservation_check(runtime: &tokio::runtime::Handle) {
+	let (_send, result) = mpsc::sync_channel(1);
+	let mut uploads = Uploads::default();
+	uploads.choosing.push(Choosing {
+		result,
+		cancelled: Arc::new(AtomicBool::new(false)),
+		files: Arc::new(AtomicUsize::new(discord_api::upload::MAX_FILES)),
+	});
+	let context = egui::Context::default();
+	assert!(uploads.accepting());
+	assert!(
+		uploads
+			.select_pasted(
+				1,
+				Id(2),
+				vec![Source::pasted_text("synthetic".into()).unwrap()],
+				runtime,
+				&context
+			)
+			.is_err()
+	);
+	assert!(uploads.selected.is_empty());
+	uploads.choosing[0]
+		.files
+		.store(discord_api::upload::MAX_FILES - 1, Ordering::Release);
+	assert!(
+		uploads
+			.select_pasted(
+				1,
+				Id(2),
+				vec![Source::pasted_text("synthetic".into()).unwrap()],
+				runtime,
+				&context
+			)
+			.is_ok()
+	);
+	assert_eq!(
+		uploads.selected.len() + uploads.loading(),
+		discord_api::upload::MAX_FILES
+	);
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+	struct SyntheticDrop(std::path::PathBuf);
+	impl std::fmt::Debug for SyntheticDrop {
+		fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+			f.write_str("SyntheticDrop([REDACTED])")
+		}
+	}
+	impl egui::DroppedFile for SyntheticDrop {
+		fn path(&self) -> &std::path::Path {
+			&self.0
+		}
+		fn bytes(&self) -> Result<Vec<u8>, String> {
+			panic!("Drop admission must never read whole-file bytes")
+		}
+	}
+
+	#[tokio::test]
+	async fn open_picker_blocks_competing_selections_until_its_count_is_known() {
+		let context = egui::Context::default();
+		let runtime = tokio::runtime::Handle::current();
+		let mut uploads = Uploads::default();
+		uploads.scope = Some((1, Id(2)));
+		let (finish_picker, result) = mpsc::sync_channel(1);
+		let count = Arc::new(AtomicUsize::new(0));
+		uploads.choosing.push(Choosing {
+			result,
+			cancelled: Arc::new(AtomicBool::new(false)),
+			files: count.clone(),
+		});
+		assert_eq!(uploads.loading(), 0);
+		let pasted = (0..discord_api::upload::MAX_FILES)
+			.map(|_| Source::pasted_text("competing paste".into()).unwrap())
+			.collect();
+		assert_eq!(
+			uploads.select_pasted(1, Id(2), pasted, &runtime, &context),
+			Err("Wait for the current attachment operation to finish")
+		);
+		assert_eq!(
+			uploads.start_drop(
+				1,
+				Id(2),
+				&runtime,
+				&context,
+				vec![Arc::new(SyntheticDrop(
+					std::env::temp_dir().join("synthetic-picker-race.txt")
+				))],
+			),
+			Err("Wait for the current attachment operation to finish")
+		);
+		assert!(uploads.selected.is_empty());
+		assert!(!uploads.accepting());
+		// The worker publishes the picker count before inspection/thumbnail work.
+		count.store(3, Ordering::Release);
+		assert!(uploads.accepting());
+		uploads
+			.select_pasted(
+				1,
+				Id(2),
+				(0..7)
+					.map(|_| Source::pasted_text("next selection".into()).unwrap())
+					.collect(),
+				&runtime,
+				&context,
+			)
+			.unwrap();
+		assert!(
+			uploads
+				.select_pasted(
+					1,
+					Id(2),
+					vec![Source::pasted_text("over capacity".into()).unwrap()],
+					&runtime,
+					&context,
+				)
+				.is_err()
+		);
+		finish_picker
+			.send(Ok(Some(
+				(0..3)
+					.map(|_| {
+						(
+							Source::pasted_text("picker selection".into()).unwrap(),
+							None,
+						)
+					})
+					.collect(),
+			)))
+			.unwrap();
+		uploads.poll(1, Some(Id(2)), true, &context);
+		assert_eq!(uploads.files().len(), discord_api::upload::MAX_FILES);
+		assert_eq!(uploads.loading(), 0);
+		assert!(!uploads.busy());
+		assert_eq!(uploads.take_notice(), None);
+	}
+
+	#[tokio::test]
+	async fn cancelled_open_picker_blocks_new_selections_until_it_returns() {
+		let context = egui::Context::default();
+		let runtime = tokio::runtime::Handle::current();
+		let mut uploads = Uploads::default();
+		let (finish_picker, picker) = tokio::sync::oneshot::channel();
+		uploads.start_selection(1, Id(2), &runtime, &context, 0, async {
+			picker.await.unwrap()
+		});
+		uploads.poll(1, Some(Id(3)), true, &context);
+		assert!(!uploads.accepting());
+		finish_picker.send(None).unwrap();
+		tokio::task::yield_now().await;
+		uploads.poll(1, Some(Id(3)), true, &context);
+		assert!(uploads.accepting());
+		assert!(!uploads.busy());
+		assert!(uploads.files().is_empty());
+		assert_eq!(uploads.take_notice(), None);
+	}
+
+	#[tokio::test]
+	async fn next_message_removal_cancels_only_its_preview_during_an_upload() {
+		let context = egui::Context::default();
+		let runtime = tokio::runtime::Handle::current();
+		let budget = PreviewBudget::new(2, 16);
+		let mut uploads = Uploads::default();
+		uploads.scope = Some((1, Id(2)));
+		let (_updates, progress) = watch::channel(Status::Uploading {
+			sent: 42,
+			total: 100,
+		});
+		let (cancel, cancellation) = watch::channel(false);
+		uploads.begin_upload(progress, cancel).unwrap();
+		uploads
+			.select_pasted_with_previews(
+				1,
+				Id(2),
+				vec![
+					Source::pasted_png(vec![1; 8]).unwrap(),
+					Source::pasted_png(vec![2; 8]).unwrap(),
+				],
+				&runtime,
+				&context,
+				&budget,
+			)
+			.unwrap();
+		let removed_preview = uploads.previewing[0].cancelled.clone();
+		let kept_preview = uploads.previewing[1].cancelled.clone();
+		let kept_key = uploads.selected[1].key;
+		uploads.remove_at(0);
+		assert_eq!(uploads.files().len(), 1);
+		assert_eq!(uploads.selected[0].key, kept_key);
+		assert_eq!(uploads.previewing.len(), 1);
+		assert!(removed_preview.load(Ordering::Acquire));
+		assert!(!kept_preview.load(Ordering::Acquire));
+		assert!(!*cancellation.borrow());
+		assert_eq!(uploads.transfer_progress(), (Some((42, 100)), false));
+		assert!(uploads.uploading.is_some());
+		assert!(uploads.take_source(1, Id(2)).is_none());
+		uploads
+			.select_pasted(
+				1,
+				Id(2),
+				vec![Source::pasted_text("replacement".into()).unwrap()],
+				&runtime,
+				&context,
+			)
+			.unwrap();
+		assert_eq!(uploads.files().len(), 2);
+		uploads.remove_at(usize::MAX);
+		assert_eq!(uploads.files().len(), 2);
+		uploads.remove_at(0);
+		assert!(kept_preview.load(Ordering::Acquire));
+		tokio::task::yield_now().await;
+		assert_eq!(budget.jobs.available_permits(), 2);
+		assert_eq!(budget.bytes.available_permits(), 16);
+		assert!(!*cancellation.borrow());
+	}
+
+	#[tokio::test]
+	async fn next_message_previews_respect_loading_reservations_and_upload_cancellation() {
+		let context = egui::Context::default();
+		let runtime = tokio::runtime::Handle::current();
+		let budget = PreviewBudget::new(1, 8);
+		let mut uploads = Uploads::default();
+		uploads.scope = Some((1, Id(2)));
+		let (updates, progress) = watch::channel(Status::Uploading {
+			sent: 42,
+			total: 100,
+		});
+		let (cancel, cancellation) = watch::channel(false);
+		uploads.begin_upload(progress, cancel).unwrap();
+		let (finish_choice, result) = mpsc::sync_channel(1);
+		let choice_cancelled = Arc::new(AtomicBool::new(false));
+		uploads.choosing.push(Choosing {
+			result,
+			cancelled: choice_cancelled.clone(),
+			files: Arc::new(AtomicUsize::new(discord_api::upload::MAX_FILES - 2)),
+		});
+		assert!(uploads.accepting() && uploads.busy());
+		// Next-message files may join while the previous upload and another choice run,
+		// but only one thumbnail copy fits the shared job and byte budget.
+		uploads
+			.select_pasted_with_previews(
+				1,
+				Id(2),
+				vec![
+					Source::pasted_png(vec![1; 8]).unwrap(),
+					Source::pasted_png(vec![2; 8]).unwrap(),
+				],
+				&runtime,
+				&context,
+				&budget,
+			)
+			.unwrap();
+		assert_eq!(uploads.files().len(), 2);
+		assert_eq!(uploads.previewing.len(), 1);
+		assert_eq!(uploads.transfer_progress(), (Some((42, 100)), false));
+		assert_eq!(
+			uploads.files().len() + uploads.loading(),
+			discord_api::upload::MAX_FILES
+		);
+		assert!(
+			uploads
+				.select_pasted_with_previews(
+					1,
+					Id(2),
+					vec![Source::pasted_png(vec![3; 8]).unwrap()],
+					&runtime,
+					&context,
+					&budget,
+				)
+				.is_err()
+		);
+		let preview_cancelled = uploads.previewing[0].cancelled.clone();
+		uploads.cancel_transfer();
+		assert!(*cancellation.borrow());
+		assert!(!choice_cancelled.load(Ordering::Acquire));
+		assert!(!preview_cancelled.load(Ordering::Acquire));
+		assert_eq!(uploads.files().len(), 2);
+		// Navigation cancels the next-message work too, retaining the live worker slots
+		// until completion, and an admitted preview releases its budget on cancellation.
+		uploads.poll(1, Some(Id(3)), true, &context);
+		assert!(choice_cancelled.load(Ordering::Acquire));
+		assert!(preview_cancelled.load(Ordering::Acquire));
+		assert!(uploads.files().is_empty());
+		assert!(uploads.previewing.is_empty());
+		assert_eq!(uploads.loading(), 0);
+		assert!(uploads.busy());
+		assert_eq!(budget.jobs.available_permits(), 0);
+		assert_eq!(budget.bytes.available_permits(), 0);
+		tokio::task::yield_now().await;
+		assert_eq!(budget.jobs.available_permits(), 1);
+		assert_eq!(budget.bytes.available_permits(), 8);
+		finish_choice.send(Ok(None)).unwrap();
+		drop(updates);
+		uploads.poll(1, Some(Id(3)), true, &context);
+		assert!(!uploads.busy());
+		assert!(uploads.files().is_empty());
+		assert_eq!(uploads.take_notice(), None);
+	}
+	#[tokio::test]
+	async fn repeated_paste_removal_and_navigation_do_not_queue_thumbnail_workers() {
+		let context = egui::Context::default();
+		let runtime = tokio::runtime::Handle::current();
+		let budget = PreviewBudget::new(2, 16);
+		let mut uploads = Uploads::default();
+		for index in 0..200 {
+			uploads
+				.select_pasted_with_previews(
+					1,
+					Id(1),
+					vec![Source::pasted_png(vec![1; 8]).unwrap()],
+					&runtime,
+					&context,
+					&budget,
+				)
+				.unwrap();
+			assert!(uploads.previewing.len() <= 1);
+			if index % 2 == 0 {
+				uploads.remove_at(0);
+			} else {
+				uploads.revalidate_scope(1, Some(Id(2)), true);
+			}
+			assert!(uploads.files().is_empty());
+			assert!(!uploads.busy());
+		}
+		// No task has been polled yet: only the two admitted source copies survive.
+		assert_eq!(budget.jobs.available_permits(), 0);
+		assert_eq!(budget.bytes.available_permits(), 0);
+		tokio::task::yield_now().await;
+		assert_eq!(budget.jobs.available_permits(), 2);
+		assert_eq!(budget.bytes.available_permits(), 16);
+		assert!(uploads.previews().is_empty());
+	}
+
+	#[tokio::test]
+	async fn thumbnail_budget_survives_an_aborted_waiter_until_the_decoder_returns() {
+		let budget = PreviewBudget::new(1, 8);
+		let source = Source::pasted_png(vec![1; 8]).unwrap();
+		let permit = budget.admit(&source).unwrap();
+		let (started, entered) = tokio::sync::oneshot::channel();
+		let (release, blocked) = mpsc::sync_channel(1);
+		let task = tokio::spawn(preview_admitted(
+			source,
+			permit,
+			Arc::new(AtomicBool::new(false)),
+			move |_| {
+				let _ = started.send(());
+				blocked.recv().unwrap();
+				None
+			},
+		));
+		entered.await.unwrap();
+		task.abort();
+		assert!(task.await.unwrap_err().is_cancelled());
+		let next = Source::pasted_png(vec![2; 8]).unwrap();
+		assert!(budget.admit(&next).is_none());
+		assert_eq!(budget.bytes.available_permits(), 0);
+		release.send(()).unwrap();
+		tokio::time::timeout(std::time::Duration::from_secs(10), async {
+			while budget.jobs.available_permits() == 0 {
+				tokio::task::yield_now().await;
+			}
+		})
+		.await
+		.unwrap();
+		assert_eq!(budget.bytes.available_permits(), 8);
+		assert!(budget.admit(&next).is_some());
+	}
+
+	#[test]
+	fn thumbnail_admission_charges_source_bytes_before_a_job_starts() {
+		let budget = PreviewBudget::new(2, 8);
+		assert!(
+			budget
+				.admit(&Source::pasted_png(vec![1; 9]).unwrap())
+				.is_none()
+		);
+		let permit = budget
+			.admit(&Source::pasted_png(vec![1; 6]).unwrap())
+			.unwrap();
+		assert_eq!(budget.jobs.available_permits(), 1);
+		assert!(
+			budget
+				.admit(&Source::pasted_png(vec![1; 3]).unwrap())
+				.is_none()
+		);
+		assert_eq!(budget.jobs.available_permits(), 1);
+		drop(permit);
+		assert!(
+			budget
+				.admit(&Source::pasted_png(vec![1; 8]).unwrap())
+				.is_some()
+		);
+	}
+
 	#[tokio::test]
 	async fn thumbnails_never_read_selections_larger_than_the_decode_budget() {
 		let dir = std::env::temp_dir().join(format!("serein-preview-cap-{}", std::process::id()));
@@ -999,11 +1522,15 @@ mod tests {
 		let path = dir.join("large.png");
 		// Sparse: no disk is written, and a capped preview must not read it either.
 		let file = std::fs::File::create(&path).unwrap();
-		file.set_len(PREVIEW_SOURCE_BYTES + 1).unwrap();
+		file.set_len(PREVIEW_BYTES as u64 + 1).unwrap();
 		drop(file);
 		let source = Source::inspect(path).await.unwrap();
-		assert!(source.preview_bytes(PREVIEW_SOURCE_BYTES).await.is_none());
-		assert!(preview(&source).await.is_none());
+		assert!(source.preview_bytes(PREVIEW_BYTES as u64).await.is_none());
+		assert!(
+			preview(&source, Arc::new(AtomicBool::new(false)))
+				.await
+				.is_none()
+		);
 		std::fs::remove_dir_all(dir).unwrap();
 	}
 
@@ -1128,6 +1655,8 @@ mod tests {
 			generation: 1,
 			key: Some(key),
 		});
+		uploads.remove_at(0);
+		assert_eq!(uploads.selected[0].key, key);
 		uploads.cancel_public();
 		assert!(*requested.borrow());
 		uploads.poll(1, Some(Id(1)), true, &egui::Context::default());
@@ -1395,20 +1924,6 @@ mod tests {
 	}
 	#[tokio::test]
 	async fn file_drop_is_bounded_scoped_selection_and_never_reads_handle_bytes() {
-		struct SyntheticDrop(std::path::PathBuf);
-		impl std::fmt::Debug for SyntheticDrop {
-			fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-				f.write_str("SyntheticDrop([REDACTED])")
-			}
-		}
-		impl egui::DroppedFile for SyntheticDrop {
-			fn path(&self) -> &std::path::Path {
-				&self.0
-			}
-			fn bytes(&self) -> Result<Vec<u8>, String> {
-				panic!("Drop admission must never read whole-file bytes")
-			}
-		}
 		async fn settle(uploads: &mut Uploads, context: &egui::Context, channel: Id) {
 			tokio::time::timeout(std::time::Duration::from_secs(5), async {
 				while uploads.busy() {
@@ -1570,81 +2085,4 @@ mod tests {
 		assert!(!uploads.busy());
 		assert_eq!(uploads.take_notice(), None);
 	}
-}
-
-#[cfg(all(debug_assertions, feature = "demo"))]
-pub(crate) fn debug_heic_check() {
-	#[cfg(target_os = "windows")]
-	{
-		let fixture = include_bytes!("../tests/fixtures/heic-large.heic");
-		let pixels = decode_preview(fixture)
-			.expect("synthetic HEIC must decode with installed HEIF/HEVC codecs");
-		assert_eq!(pixels.size, [320, 213]);
-		assert!(pixels.pixels.len() * 4 < PREVIEW_ALLOC as usize);
-		println!(
-			"WIC thumbnail first pixel: {:?}",
-			pixels.pixels[0].to_array()
-		);
-		for pixel in pixels.pixels.iter().step_by(1000) {
-			for (actual, expected) in pixel.to_array().into_iter().zip([64, 128, 192, 255]) {
-				assert!(actual.abs_diff(expected) <= 4, "{actual} != {expected}");
-			}
-		}
-		let (width, height, rgba) = platform::heic::decode(fixture, 8192, 128 * 1024 * 1024, 8192)
-			.expect("full-size WIC conversion");
-		assert_eq!((width, height), (6000, 4000));
-		assert_eq!(rgba.len(), 6000 * 4000 * 4);
-		assert_eq!(rgba[3], 255);
-		assert!(platform::heic::decode(fixture, 8192, PREVIEW_ALLOC, 8192).is_none());
-		assert!(platform::heic::decode(fixture, 1024, PREVIEW_ALLOC, 320).is_none());
-		assert!(platform::heic::decode(fixture, 8192, 100, 320).is_none());
-	}
-
-	assert!(previewable("photo.HEIC"));
-	assert!(previewable("photo.heif"));
-	assert!(decode_preview(b"\x00\x00\x00\x10ftypheic\x00\x00\x00\x00").is_none());
-}
-
-/// Device-free check that pasted content cannot steal pending drop reservations.
-#[cfg(all(debug_assertions, feature = "demo"))]
-pub(crate) fn debug_reservation_check(runtime: &tokio::runtime::Handle) {
-	let (_send, result) = mpsc::sync_channel(1);
-	let mut uploads = Uploads::default();
-	uploads.choosing.push(Choosing {
-		result,
-		cancelled: Arc::new(AtomicBool::new(false)),
-		files: Arc::new(AtomicUsize::new(discord_api::upload::MAX_FILES)),
-	});
-	let context = egui::Context::default();
-	assert!(uploads.accepting());
-	assert!(
-		uploads
-			.select_pasted(
-				1,
-				Id(2),
-				vec![Source::pasted_text("synthetic".into()).unwrap()],
-				runtime,
-				&context
-			)
-			.is_err()
-	);
-	assert!(uploads.selected.is_empty());
-	uploads.choosing[0]
-		.files
-		.store(discord_api::upload::MAX_FILES - 1, Ordering::Release);
-	assert!(
-		uploads
-			.select_pasted(
-				1,
-				Id(2),
-				vec![Source::pasted_text("synthetic".into()).unwrap()],
-				runtime,
-				&context
-			)
-			.is_ok()
-	);
-	assert_eq!(
-		uploads.selected.len() + uploads.loading(),
-		discord_api::upload::MAX_FILES
-	);
 }

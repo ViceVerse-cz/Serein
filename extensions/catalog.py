@@ -17,7 +17,21 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parent
 REPOSITORY = "ViceVerse-cz/Serein"
 PACKAGE_DIRS = ("themes", "plugins/packages")
-CAPABILITIES = {"selected_message", "composer", "storage", "deleted_messages", "image_sharing", "appearance", "rich_presence", "api_proxy"}
+# Keep this authoring schema aligned with Manifest::validate in crates/extensions/src/lib.rs.
+CAPABILITIES = {
+    "api_proxy", "rich_presence", "relationship_control", "account_control", "audio_settings",
+    "voice_connect", "camera_control", "message_send", "message_manage", "reactions_control",
+    "read_state_control", "threads_control", "channel_control", "server_control", "role_control",
+    "moderation_control", "media_control", "action_feedback", "data_queries", "messaging_settings",
+    "guild_folders", "message_content", "forum_data", "conversation_activity", "channel_metadata",
+    "member_details", "selected_message", "composer", "storage", "deleted_messages", "image_sharing",
+    "appearance", "message_events", "app_context", "channel_directory", "timeline", "members",
+    "presence", "voice_state", "read_state", "local_settings", "notification_settings", "navigation",
+    "local_notices", "clipboard_write", "voice_control", "app_events", "account_profile",
+    "guild_directory", "channel_details", "data_events", "message_details", "relationships",
+}
+SURFACES = {"message", "composer", "panel", "activation", "message_event", "app_event", "tick"}
+MAX_CAPABILITIES = 64
 RESERVED = {"con", "prn", "aux", "nul"} | {f"{prefix}{n}" for prefix in ("com", "lpt") for n in range(1, 10)}
 MAX_PREVIEW = 256 * 1024
 
@@ -31,29 +45,63 @@ def valid_id(value):
     return isinstance(value, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", value) and value not in RESERVED
 
 
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        require(key not in result, f"duplicate JSON field: {key}")
+        result[key] = value
+    return result
+
+
+def invalid_constant(value):
+    raise ValueError(f"invalid JSON constant: {value}")
+
+
 def validate(data):
     require(0 < len(data) <= 16 * 1024 * 1024, "package exceeds 16 MiB")
-    package = json.loads(data)
+    package = json.loads(data.decode("utf-8"), object_pairs_hook=unique_object, parse_constant=invalid_constant)
+    require(isinstance(package, dict) and "manifest" in package
+            and set(package) <= {"manifest", "theme", "wasm", "background_image", "cover_image"}, "invalid package fields")
     manifest = package["manifest"]
-    require(manifest["api_version"] == 1 and valid_id(manifest["id"]), "invalid API version or ID")
+    required = {"api_version", "id", "name", "version", "author", "license", "source", "kind"}
+    require(isinstance(manifest, dict) and required <= set(manifest)
+            and set(manifest) <= required | {"capabilities", "actions"}, "invalid manifest fields")
+    require(type(manifest["api_version"]) is int and manifest["api_version"] == 1
+            and valid_id(manifest["id"]), "invalid API version or ID")
+    require(manifest["kind"] in ("theme", "plugin"), "invalid extension kind")
     for key in ("name", "version", "author", "license"):
         value = manifest[key]
         require(isinstance(value, str) and 0 < len(value.encode()) <= 128 and not any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in value), f"invalid {key}")
+    require(isinstance(manifest["source"], str), "invalid source")
     source = urlsplit(manifest["source"])
     require(len(manifest["source"].encode()) <= 2048 and source.scheme == "https" and source.hostname and not source.username and source.password is None, "credential-free HTTPS source required")
     capabilities = manifest.get("capabilities", [])
     actions = manifest.get("actions", [])
-    require(isinstance(capabilities, list) and len(capabilities) <= 4 and len(set(capabilities)) == len(capabilities) and set(capabilities) <= CAPABILITIES, "invalid capabilities")
-    require(isinstance(actions, list) and len(actions) <= 16 and len({a["id"] for a in actions}) == len(actions), "invalid action list")
-    require(sum(a["surface"] == "activation" for a in actions) <= 1, "multiple activation actions")
-    if "api_proxy" in capabilities:
-        require(set(capabilities) <= {"api_proxy", "storage"} and all(a["surface"] in ("panel", "activation") for a in actions), "API proxy requires connection-only actions and capabilities")
+    require(isinstance(capabilities, list) and len(capabilities) <= MAX_CAPABILITIES
+            and all(isinstance(capability, str) for capability in capabilities)
+            and len(set(capabilities)) == len(capabilities) and set(capabilities) <= CAPABILITIES, "invalid capabilities")
+    require(isinstance(actions, list) and len(actions) <= 16, "invalid action list")
     for action in actions:
-        require(valid_id(action["id"]) and action["surface"] in ("message", "composer", "panel", "activation"), "invalid action")
+        require(isinstance(action, dict) and set(action) == {"id", "label", "surface"}, "invalid action fields")
+        require(valid_id(action["id"]) and isinstance(action["surface"], str)
+                and action["surface"] in SURFACES, "invalid action")
         label = action["label"]
         require(isinstance(label, str) and 0 < len(label.encode()) <= 128 and not any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in label), "invalid action label")
-        capability = {"message": "selected_message", "composer": "composer"}.get(action["surface"])
+        capability = {"message": "selected_message", "composer": "composer",
+                      "message_event": "message_events", "app_event": "app_events", "tick": "appearance"}.get(action["surface"])
         require(capability is None or capability in capabilities, "action lacks required capability")
+    require(len({action["id"] for action in actions}) == len(actions), "duplicate action ID")
+    for surface in ("activation", "message_event", "app_event", "tick"):
+        require(sum(action["surface"] == surface for action in actions) <= 1, f"multiple {surface} actions")
+    if "data_events" in capabilities:
+        require("app_events" in capabilities, "data events require app events")
+    for capability in ("action_feedback", "data_queries"):
+        if capability in capabilities:
+            require("app_events" in capabilities and any(action["surface"] == "app_event" for action in actions),
+                    f"{capability} requires an app event action")
+    if "api_proxy" in capabilities:
+        require(manifest["kind"] == "plugin" and set(capabilities) <= {"api_proxy", "storage"}
+                and all(a["surface"] in ("panel", "activation") for a in actions), "API proxy requires connection-only actions and capabilities")
     for field, limit in (("wasm", 4 * 1024 * 1024), ("background_image", 2 * 1024 * 1024), ("cover_image", 2 * 1024 * 1024)):
         values = package.get(field, [])
         require(isinstance(values, list) and len(values) <= limit and all(type(b) is int and 0 <= b <= 255 for b in values), f"invalid {field} bytes")

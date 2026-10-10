@@ -2,6 +2,31 @@ use serein_extension_sdk::{
 	Error, Invocation, MAX_IO_BYTES, Output, TickInvocation, dispatch, dispatch_typed, serde_json,
 };
 
+#[test]
+fn typed_manifests_round_trip_all_bundled_plugins() {
+	for (plugin, bytes) in [
+		(
+			"api-proxy",
+			include_bytes!("../../plugins/api-proxy/manifest.json").as_slice(),
+		),
+		(
+			"custom-rpc",
+			include_bytes!("../../plugins/custom-rpc/manifest.json").as_slice(),
+		),
+		(
+			"message-delete-protector",
+			include_bytes!("../../plugins/message-delete-protector/manifest.json").as_slice(),
+		),
+	] {
+		let manifest: serein_extension_sdk::Manifest = serde_json::from_slice(bytes)
+			.unwrap_or_else(|error| panic!("SDK rejected bundled {plugin} manifest: {error}"));
+		assert_eq!(
+			serde_json::to_value(manifest).unwrap(),
+			serde_json::from_slice::<serde_json::Value>(bytes).unwrap()
+		);
+	}
+}
+
 // These names must not affect the exported macro's implementation.
 #[allow(dead_code, unused_macros)]
 mod abi {

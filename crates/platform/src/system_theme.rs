@@ -39,7 +39,7 @@ const PORTAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 /// `gsettings get` prints one short quoted value; anything longer is not a theme name.
 #[cfg(any(target_os = "linux", all(test, unix)))]
-const MAX_OUTPUT: u64 = 256;
+const MAX_OUTPUT: usize = 256;
 
 #[cfg(target_os = "linux")]
 impl SystemTheme {
@@ -183,14 +183,9 @@ fn portal_dark(scheme: ashpd::desktop::settings::ColorScheme) -> bool {
 #[cfg(target_os = "linux")]
 fn gsettings_dark() -> Option<bool> {
 	let get = |key| {
-		bounded_output(
-			std::process::Command::new("gsettings").args([
-				"get",
-				"org.gnome.desktop.interface",
-				key,
-			]),
-			COMMAND_TIMEOUT,
-		)
+		let mut command = std::process::Command::new("gsettings");
+		command.args(["get", "org.gnome.desktop.interface", key]);
+		bounded_output(command, COMMAND_TIMEOUT)
 	};
 	let scheme = get("color-scheme");
 	let scheme = scheme.as_deref().map(unquote);
@@ -220,41 +215,10 @@ fn unquote(output: &str) -> &str {
 
 /// Runs `command` and returns its stdout, or `None` on failure, excess output or `timeout`.
 #[cfg(any(target_os = "linux", all(test, unix)))]
-fn bounded_output(
-	command: &mut std::process::Command,
-	timeout: std::time::Duration,
-) -> Option<String> {
-	use std::{io::Read, process::Stdio};
-	let mut child = command
-		.stdin(Stdio::null())
-		.stdout(Stdio::piped())
-		.stderr(Stdio::null())
-		.spawn()
-		.ok()?;
-	let deadline = std::time::Instant::now() + timeout;
-	loop {
-		match child.try_wait() {
-			Ok(Some(status)) if status.success() => {
-				let mut output = String::new();
-				child
-					.stdout
-					.take()?
-					.take(MAX_OUTPUT + 1)
-					.read_to_string(&mut output)
-					.ok()?;
-				return (output.len() as u64 <= MAX_OUTPUT).then_some(output);
-			}
-			Ok(None) if std::time::Instant::now() < deadline => {
-				std::thread::sleep(std::time::Duration::from_millis(10));
-			}
-			Ok(Some(_)) => return None,
-			_ => {
-				let _ = child.kill();
-				let _ = child.wait();
-				return None;
-			}
-		}
-	}
+fn bounded_output(command: std::process::Command, timeout: std::time::Duration) -> Option<String> {
+	// Bound reading as well as child completion: descendants can inherit stdout
+	// even after the direct child has exited. Reuse the incremental, reaping helper.
+	String::from_utf8(crate::processes::command_output(command, MAX_OUTPUT, timeout).ok()?).ok()
 }
 
 #[cfg(test)]
@@ -340,12 +304,25 @@ mod tests {
 
 	#[cfg(unix)]
 	#[test]
+	fn inherited_stdout_cannot_extend_the_command_deadline() {
+		// The direct child exits promptly, but a descendant keeps stdout open.
+		let mut command = std::process::Command::new("sh");
+		command.args(["-c", "sleep 1 & printf \"'default'\"; exit 0"]);
+		let started = std::time::Instant::now();
+		assert_eq!(
+			bounded_output(command, std::time::Duration::from_millis(50)),
+			None
+		);
+		assert!(started.elapsed() < std::time::Duration::from_millis(750));
+	}
+
+	#[cfg(unix)]
+	#[test]
 	fn commands_are_bounded_by_time_and_output() {
 		let run = |script: &str, timeout| {
-			bounded_output(
-				std::process::Command::new("sh").args(["-c", script]),
-				timeout,
-			)
+			let mut command = std::process::Command::new("sh");
+			command.args(["-c", script]);
+			bounded_output(command, timeout)
 		};
 		let quick = std::time::Duration::from_secs(5);
 		assert_eq!(

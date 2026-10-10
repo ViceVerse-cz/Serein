@@ -1,6 +1,10 @@
 //! Leading composer syntax and bounded admission shared by UI, state and transport.
 /// Seven marker characters plus one separating whitespace scalar.
 pub const PREFIX_ALLOWANCE: usize = 8;
+/// Longest account message, before an optional composer prefix.
+pub const MAX_PREMIUM_CONTENT: usize = 4000;
+/// UTF-8 storage for a full premium draft and its optional composer prefix.
+pub const MAX_DRAFT_CONTENT_BYTES: usize = (MAX_PREMIUM_CONTENT + PREFIX_ALLOWANCE) * 4;
 
 pub fn content(value: &str) -> (&str, bool) {
 	match value.strip_prefix("@silent") {
@@ -35,6 +39,17 @@ pub fn valid(value: &str, maximum: usize, allow_empty: bool) -> bool {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn full_premium_unicode_drafts_fit_the_persistent_byte_budget() {
+		for text in ["界".repeat(3000), "🦀".repeat(MAX_PREMIUM_CONTENT)] {
+			for prefix in ["", "@silent\u{2003}"] {
+				let draft = format!("{prefix}{text}");
+				assert!(valid(&draft, MAX_PREMIUM_CONTENT, false));
+				assert!(draft.len() > 8192);
+				assert!(draft.len() <= MAX_DRAFT_CONTENT_BYTES);
+			}
+		}
+	}
 	#[test]
 	fn quiet_admission_counts_effective_text_and_bounds_marker_overhead() {
 		assert!(!valid("@silent", 2000, false));

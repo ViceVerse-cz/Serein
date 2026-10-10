@@ -938,8 +938,10 @@ client. See the [Custom Rich Presence example](../extensions/plugins/custom-rpc)
 
 ### API proxy (preview)
 
-Declare `api_proxy` and optionally `storage`; other capabilities and surfaces
-beyond `panel`/`activation` are rejected. This special plugin has a device-wide
+Declare `Capability::ApiProxy` in a typed manifest, which serializes as
+`"api_proxy"`, and optionally `Capability::Storage` (`"storage"`). Other
+capabilities and surfaces beyond `panel`/`activation` are rejected by the host.
+This special plugin has a device-wide
 prelogin scope, survives account logout, and cannot access account data.
 
 Return `ApiProxyOutput { api_proxy: Some(ApiProxyConfig::Url { url }), ..Default::default() }`

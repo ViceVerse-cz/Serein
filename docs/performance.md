@@ -1,7 +1,7 @@
 # Performance findings
 
 Recent synthetic/offline measurements are workload-specific. They do not establish live Discord
-performance, universal device results or application-wide memory bounds. The raw PR screenshot,
+performance, universal device results or application-wide memory bounds. The older upstream PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
 ## Long-session live memory inspection — October 9, 2026
@@ -486,3 +486,244 @@ the new measurements and executable hash. NSIS remains unavailable; this is an
 unsigned directory and ZIP. Final serial workspace checking reached 1,158
 passes, eight recorded baseline UI failures and 23 ignored tests. Formatting,
 strict workspace Clippy and the independent policy check passed.
+
+## Attachment picker and draft removal — October 10, 2026
+
+Starting from `b6d608bb`, with upstream `0d9c6772` merged, four offline regressions
+fail before the attachment fixes and pass afterwards. The complete upload module's
+15 tests and one headless tray/card interaction fixture pass. Current upload,
+model/core/session/protocol/API and picker/HEIC source is rebuilt against cached
+external dependencies; the tray fixture extracts current methods and uses cached
+UI helpers. Preview cancellation returns its job/byte permits and preserves the
+previous upload; no queue, resource budget or persistence is added. These are
+scoped correctness/resource checks, not full application or performance evidence.
+Current release package sizes, native screenshots, CPU/RSS and frame latency are
+unmeasured: the shared Cargo build-cache lock is not writable, disk space prevents
+a fresh full cache, and native window capture tools are unavailable.
+
+## Runtime resource cleanup — October 8, 2026
+
+Historical evidence from the original combined PR, separated by scope. The recorded revision labels, hashes and measurements are unchanged; these results do not validate the new branch heads.
+
+Against `98158b4`, queued updater results retained staged directories or inert helpers after app closure. Results now retain cleanup ownership until accepted. The remaining staged-directory count changes from 1 to 0; the helper exits within the fixture’s three-second bound. Registered-game normalization also preserves its 256-byte ceiling. See [the resource evidence](pr-evidence/updater-resource-hunt/README.md). Full executable/package size, CPU/RSS and native integration remain unmeasured.
+## Repository-wide lifecycle and state bug hunt — October 5, 2026
+
+Compare the verified local starting commit `b6c32b6ddfa3bef63f01bc9b101de5aa20203017`
+with the repository-wide bug-hunt fixes. The baseline and after binaries were built
+from isolated worktrees with locked dependencies. Testing used synthetic offline data
+and did not require an account, physical capture device or GPU. Raw samples, artifact
+identities and environment details are in the
+[bug-hunt measurements](pr-evidence/repository-bug-hunt/measurements.json).
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable, bytes | 85,746,216 | 85,796,648 | 50,432 / +0.059% |
+| Installed regular files, bytes | 120,976,132 | 121,026,564 | 50,432 / +0.042% |
+| Compressed DEB, bytes | 70,795,724 | 70,809,936 | 14,212 / +0.020% |
+| Reducer replay median, 100,000 events | 79.729 ms | 80.958 ms | 1.229 ms / +1.54% |
+| Appearance idle mean CPU, one core | 360.955% | 347.380% | -13.575 percentage points / -3.76% |
+| Appearance idle sampled peak RSS | 192.594 MiB | 194.070 MiB | 1.477 MiB / +0.77% |
+
+The environment was Debian 13.7 on Linux 6.18.44 x86_64, Intel Xeon Platinum
+8573C, five visible logical CPUs, 18,882,699,264 bytes RAM and Rust 1.98.1.
+The standard `cargo xtask package` build used the normal release profile and
+passed the 248-file DEB smoke covering its executable, desktop entry, metadata,
+ownership, content and host shared-library closure. Installed size sums regular
+file content and excludes filesystem allocation and symlink overhead.
+
+The reducer benchmark replays 100,000 deterministic gateway events into a fresh
+process. After one warmup per revision, five baseline/after pairs alternated order.
+Baseline samples ranged from 73.512 to 111.762 ms and after samples from 75.801 to
+94.434 ms. Both revisions retained 500 records with an estimated timeline size of
+331,992 to 332,477 bytes. The overlapping ranges and 1.54% median difference are
+consistent with run-to-run noise, so no reducer regression or improvement is
+claimed.
+
+The native idle check used the release `profile_preview` example with demo data on
+the Appearance page at 1120×760 under Xvfb and Mesa lavapipe Vulkan. Each revision
+warmed for eight seconds, settled for three seconds after pointer movement, then
+recorded twenty one-second CPU and RSS samples. Neither process spawned children.
+After mean CPU was 13.575 percentage points lower and sampled RSS was 1,548,288
+bytes higher. This single software-renderer pair does not establish a performance
+change; frame timing, GPU memory and active media workloads remain unmeasured.
+
+`cargo xtask check` passed the full workspace tests, strict all-target Clippy,
+documentation, no-default-feature build and policy checks. Focused GStreamer,
+voice, packaging and repository-script tests also passed, followed by the standard
+package smoke. Native Windows/macOS builds, physical GPU and capture devices, live
+accounts, live Wayland compositor events and extended soak testing remain
+unverified.
+
+## Responsive native controls — October 5, 2026
+
+Historical evidence from the original combined PR, separated by scope. The recorded revision labels, hashes and measurements are unchanged; these results do not validate the new branch heads.
+
+[Raw samples and source hashes](pr-evidence/responsive-ui/measurements.json) and
+[reproduction scripts](pr-evidence/responsive-ui/README.md) record a fresh native
+before/after comparison. Environment: Debian 13 x86-64, Xeon Platinum 8573C,
+five visible CPUs, 17 GiB RAM, Rust 1.98.1, eframe/wgpu under Xvfb with
+`WGPU_BACKEND=gl` and Mesa software output. Both builds use the same isolated
+native preview, `dev` profile with optimization level 1 and no debug info, actual
+UI code, synthetic long-name reply fixture, dark appearance, 1120x760 pixels
+and 100% zoom. Tray/startup availability is fixed to false; the helper contains
+no service or capture adapters. These are development preview measurements,
+not standard release/package measurements.
+
+Compilation stopped before sampling. One run per revision warms up for three
+seconds, then samples process RSS once per second for 15 seconds and computes
+aggregate CPU time over that interval. Neither process had children.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Idle CPU, percentage of one core | 0.00% | 0.00% | Below process-timer resolution |
+| Post-warmup sampled peak/settled RSS | 192,663,552 bytes | 191,758,336 bytes | -905,216 bytes / -0.47% |
+| Isolated development preview executable | 83,176,272 bytes | 83,183,560 bytes | +7,288 bytes / +0.009% |
+
+The small RSS difference is noise from one short paired sample; no memory or
+speed improvement is claimed. Startup peak, frame/startup latency, sustained
+load, leak soaks and GPU memory remain unmeasured. Native screenshots were
+inspected at 1120x760/100% dark and 760x520/150% light/dark, including scrolling
+to the encoding card and the last Add Friend action. The reply/edit regression
+test also verifies that context controls leave the message input inside the
+viewport. All 417 UI library tests pass (five benchmark tests ignored), and
+strict UI Clippy across all targets passes.
+
+The default workspace-check/package commands hit the inherited read-only debug
+cache. Retrying the workspace check and standard release package in an owned
+target directory reaches the native dependency build and fails because
+`glib-sys` cannot find `glib-2.0.pc`.
+The environment also lacks GTK4/WebKit6 development/runtime dependencies.
+Standard release executable, installed-package and compressed-distribution
+sizes remain unavailable; complete workspace/packaging validation is a CI
+requirement. The development preview sizes above must not be treated as shipped
+package sizes.
+
+## Codebase bug hunt — October 5, 2026
+
+Baseline `8a369cc3c71c18d97065dde8197c16d90970ed0a`; see
+[reproduction and raw samples](pr-evidence/codebase-bug-hunt/README.md).
+Debian 13 x86_64, kernel 6.18.44, five visible CPUs, 18,882,699,264 bytes RAM
+and Rust 1.98.1. Standard release `replay-bench` binaries were rebuilt from each
+revision. Each ran once for warmup and five measured times with alternating pair
+order, without concurrent compilation or preview processes. Both replay 100,000
+synthetic events and retain 331,992–332,477 estimated timeline bytes / 500 records.
+
+The isolated native Appearance preview uses actual UI code with `ui/demo`,
+opt-level 1/debug 0, Xvfb, eframe/wgpu and requested GL software rendering
+(`WGPU_BACKEND=gl`, `LIBGL_ALWAYS_SOFTWARE=1`; exact adapter not instrumented).
+Both use 1120 × 760 dark at 100% zoom, a six-second warmup including 100 scroll
+events, then 15 one-second process RSS samples. Aggregate idle CPU is the
+percentage of one core over that interval. Neither preview had children. The
+new synthetic fixture requests Serif after session reset; baseline silently
+retains Inter, while the fixed registry applies Serif.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release reducer median, five runs | 83.116483 ms | 88.286294 ms | +5.169811 ms / +6.22% |
+| Release replay executable | 1,510,296 bytes | 1,509,592 bytes | −704 bytes / −0.047% |
+| Auxiliary UI sampled peak/settled RSS | 161,026,048 bytes | 161,624,064 bytes | +598,016 bytes / +0.37% |
+| Auxiliary UI idle CPU, one core | 0.00% | 0.00% | Below process-timer resolution |
+| Auxiliary UI executable | 89,526,776 bytes | 89,530,560 bytes | +3,784 bytes / +0.0042% |
+| Full desktop release / installed / compressed package | Unavailable | Unavailable | Missing `glib-2.0.pc` |
+
+Reducer ranges overlap widely: 80.75–123.18 ms before and 82.21–142.91 ms after.
+The single short UI pair and five replay samples do not establish a performance
+improvement or a statistically significant regression. Preview binary sizes
+must not be treated as shipped desktop/package sizes. Frame/startup latency,
+GPU memory, sustained-load/leak soaks and physical media-device cost remain
+unmeasured. Actual voice tests pass with two Linux OpenH264 runtime versions;
+those checks measure correctness, not encoding performance.
+
+The thumbnail fix admits at most two jobs and 32 MiB of source bytes before
+copying/spawning, retaining permits through actual decoder completion. Failed
+placeholder attempts cap at 2,048; tracked credential-removal IDs cap at eight. These are resource ceilings, not
+process RSS or proof that all application leaks are absent. Standard workspace
+and package checks were attempted and remain blocked at missing GLib development
+metadata; the license-policy command also lacks `cargo-deny`.
+
+## Runtime bug hunt — October 7, 2026
+
+Compared baseline `8003ae068679fecb67cd02c4bc5e6fbedf37ffee` with this task's
+client-core search corrections. The measured after build uses the working tree
+before adding this documentation; the source blob IDs and binary hashes are in
+[the raw measurements](pr-evidence/runtime-bug-hunt/measurements.json).
+Both actual `replay-bench` binaries use Rust 1.98.1, the pinned lockfile, normal
+release fat LTO and no optional features. The baseline uses a detached worktree;
+both builds share the same writable Cargo cache and target directory, with the
+baseline binary copied aside before building the changed sources.
+
+Host: Linux x86-64, Intel Xeon Platinum 8573C, five exposed logical CPUs and
+17 GiB exposed RAM. After one warmup per binary, five measured runs per binary
+use alternating pair order. No task compiler or native fixture process runs
+during sampling; variation from the shared host remains. The existing workload
+applies 100,000 synthetic message events, checks the 500-record / 4 MiB timeline
+bounds and verifies logout releases retained timeline data.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Reducer elapsed median (five runs) | 99.675228 ms | 95.818134 ms | −3.857094 ms (−3.87%); noisy |
+| Reducer elapsed sample range | 94.165187–106.522434 ms | 87.880852–107.966072 ms | Overlapping ranges |
+| Retained timeline estimate | 331,992–332,477 B / 500 records | 331,992–332,477 B / 500 records | Unchanged |
+| Release replay executable | 1,511,512 B | 1,516,760 B | +5,248 B (+0.3472%) |
+| Standard voice-enabled app, installed and compressed package | Unmeasured | Unmeasured | Missing `glib-2.0.pc` prevents both builds |
+
+This workload does not exercise permission changes with an open search or
+desktop credential/cache failure handling. Its timing is a general reducer
+regression check, with no performance improvement claim. The executable size
+is for the reducer tool, not the installed application. Native UI CPU/RSS,
+startup, search latency and application-wide leak detection are unmeasured.
+The full workspace check and standard package attempt stop at missing GLib
+development metadata. Native before/after screenshots for search retirement
+and account cleanup status are consequently unavailable.
+
+## PR #567 upstream conflict resolution — October 7, 2026
+
+Compared the verified release reducer from feature head
+`11abe5a3700cfe0ec734808931d3791922d98b12` with the merged working tree including
+upstream `20230cb91b0117fe4c888d70867fa600704dcad4`. The subsequent upstream
+documentation cleanup `a76e030d749ef558e687bbff6dc592a7dddec244` changes none of
+the measured runtime sources. Both use Rust 1.98.1, normal
+fat LTO and no optional features; the merged build uses the updated upstream
+lockfile. Separate binary paths preserve the baseline. Complete reducer source
+blob IDs, executable hashes, warmups and samples are in
+`docs/pr-evidence/pr567-conflict-resolution/measurements.json`.
+
+Linux / Intel Xeon Platinum 8573C, five exposed logical CPUs, 17 GiB exposed RAM;
+one warmup and five measured runs per binary, with alternating pair order and no
+active task compiler during sampling. The workload replays 100,000 synthetic
+events and verifies the bounded 500-record timeline and logout release.
+
+| Metric | Baseline | Merged | Delta / method |
+| --- | ---: | ---: | --- |
+| Reducer median | 125.050355 ms | 144.784515 ms | +19.734160 ms (+15.78%); wide, overlapping sample ranges |
+| Reducer sample range | 83.038196–158.760550 ms | 122.432188–168.732948 ms | Five samples each; shared-host scheduling noise |
+| Retained timeline estimate | 331,992–332,477 B / 500 records | 331,992–332,477 B / 500 records | Unchanged; not process RSS |
+| Release reducer executable | 1,516,760 B | 1,527,472 B | +10,712 B (+0.71%); not the application package |
+| Standard voice-enabled app / installed / compressed package | Unmeasured | Unmeasured | Both full check and package attempts stop at missing `glib-2.0.pc` |
+
+The measured median increased; the large timing spread prevents attributing that
+change to the merge. No performance improvement is claimed. This reducer does
+not exercise native audio, upload previews, renderer GPU routing or UI latency.
+Full native GUI screenshots, process CPU/RSS, physical hardware encoding and
+live service compatibility remain unverified. Offline audio and upload regressions
+exercise their actual bounded production helpers without opening devices.
+
+## Theme command deadline regression
+
+The local bug hunt based on `6451d97` fixes Linux theme detection retaining a
+worker when a descendant keeps the helper's stdout open after its parent exits.
+The existing incremental process reader now bounds stdout and helper completion
+together. With the same inert one-second descendant and 50-ms command deadline,
+the original regression fails and the fixed regression passes.
+
+| Metric | Before | After | Method |
+| --- | ---: | ---: | --- |
+| Fixture process elapsed median | 1013.038 ms | 60.032 ms | One warmup and five samples per binary |
+| Sample range | 1008.951–1021.818 ms | 57.558–63.705 ms | Counterbalanced order, shared Linux host |
+
+[Evidence and raw samples](pr-evidence/theme-command-timeout/README.md) record
+the pinned toolchain, current-source checks and limits. Elapsed time includes
+test startup and demonstrates bounded helper completion; it does not measure
+whole-app theme latency, CPU or RSS. Full executable and installed/compressed
+package sizes remain unmeasured because workspace check/package attempts stop
+at the existing build-cache permission error.

@@ -556,7 +556,7 @@ impl State {
 		self.status = status;
 		Ok(())
 	}
-	fn remove_server(&mut self, guild: Id) {
+	pub(crate) fn remove_server(&mut self, guild: Id) {
 		let removed = self
 			.channels
 			.iter()
@@ -946,6 +946,51 @@ mod tests {
 		assert!(state.channel(Id(3)).is_none());
 		assert_eq!(state.selected, None);
 		assert_eq!(state.drafts[&Id(3)], "Keep draft");
+	}
+	#[test]
+	fn permanent_guild_departure_removes_navigation_and_preserves_pending_rejoin_guards() {
+		let mut state = state();
+		let guild = state.guild(Id(2)).unwrap().clone();
+		let channel = state.channel(Id(3)).unwrap().clone();
+		state.apply(Envelope {
+			generation: state.generation.wrapping_add(1),
+			event: CoreEvent::GuildRemoved(Id(2)),
+		});
+		assert!(state.guild(Id(2)).is_some());
+		let leave = state.leave_server(Id(2)).unwrap();
+		state.drafts.insert(Id(3), "Preserved draft".into());
+		let mut message = crate::tests::message(20);
+		message.channel = Id(3);
+		state.timeline.insert(message, false, false).unwrap();
+		state.apply(Envelope {
+			generation: state.generation,
+			event: CoreEvent::GuildRemoved(Id(999)),
+		});
+		assert!(state.guild(Id(2)).is_some());
+		assert_eq!(state.selected, Some(Id(3)));
+		state.apply(Envelope {
+			generation: state.generation,
+			event: CoreEvent::GuildRemoved(Id(2)),
+		});
+		assert!(state.guild(Id(2)).is_none());
+		assert!(state.channel(Id(3)).is_none());
+		assert!(!state.permissions.guilds.contains_key(&Id(2)));
+		assert!(!state.permissions.channels.contains_key(&Id(3)));
+		assert_eq!(state.selected, None);
+		assert!(state.timeline.is_empty());
+		assert_eq!(state.drafts[&Id(3)], "Preserved draft");
+		assert!(state.server_action_pending());
+		state.apply(Envelope {
+			generation: state.generation,
+			event: CoreEvent::GuildJoined(guild),
+		});
+		state.apply(Envelope {
+			generation: state.generation,
+			event: CoreEvent::ChannelCreated(channel),
+		});
+		finish(&mut state, leave, Ok(None));
+		assert!(state.guild(Id(2)).is_some());
+		assert!(state.channel(Id(3)).is_some());
 	}
 	#[test]
 	fn server_actions_reject_stale_sessions_and_keep_rejoined_guilds() {

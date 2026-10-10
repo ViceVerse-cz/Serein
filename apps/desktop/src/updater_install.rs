@@ -775,6 +775,68 @@ pub(super) struct Prepared {
 	pub(super) marker: PathBuf,
 	child: Child,
 }
+
+#[cfg(all(test, unix))]
+mod helper_lifecycle_tests {
+	use super::super::{Job, Outcome, Updater};
+	use super::*;
+	use std::{
+		io::Read,
+		sync::{
+			Arc,
+			atomic::{AtomicBool, AtomicU64},
+			mpsc,
+		},
+		time::Duration,
+	};
+
+	#[test]
+	fn queued_restart_helper_stops_when_updater_closes_before_polling() {
+		// No installer is launched and no handoff marker is written.
+		let mut child = Command::new("sh")
+			.args(["-c", "exec sleep 30"])
+			.stdout(Stdio::piped())
+			.spawn()
+			.unwrap();
+		let id = child.id();
+		let mut output = child.stdout.take().unwrap();
+		let (finished, finish) = mpsc::sync_channel(1);
+		let reader = std::thread::spawn(move || {
+			let mut byte = [0];
+			let _ = finished.send(output.read(&mut byte).unwrap());
+		});
+		let (sender, receiver) = mpsc::sync_channel(1);
+		let mut updater = Updater::new(false);
+		updater.job = Some(Job {
+			receiver,
+			cancel: Arc::new(AtomicBool::new(false)),
+			progress: Arc::new(AtomicU64::new(0)),
+			total: 0,
+		});
+		assert!(
+			sender
+				.send(
+					Ok(Outcome::Prepared(Prepared {
+						marker: PathBuf::from("synthetic-uncommitted-marker"),
+						child,
+					}))
+					.into()
+				)
+				.is_ok()
+		);
+		drop(updater);
+		let result = finish.recv_timeout(Duration::from_secs(3));
+		if result.is_err() {
+			// A failing regression test must not leave its synthetic helper running.
+			let _ = Command::new("kill")
+				.args(["-KILL", &id.to_string()])
+				.status();
+		}
+		reader.join().unwrap();
+		assert_eq!(result.unwrap(), 0, "Unconsumed helper did not exit");
+	}
+}
+
 impl Prepared {
 	pub(super) fn stop(mut self) {
 		let _ = self.child.kill();

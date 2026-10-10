@@ -1323,7 +1323,7 @@ impl LocalStore {
 		Ok(messages)
 	}
 	pub fn save_draft(&mut self, account: Id, channel: Id, content: &str) -> Result<()> {
-		if content.len() > 8192 {
+		if content.len() > model::message_options::MAX_DRAFT_CONTENT_BYTES {
 			return Err(StoreError::Capacity);
 		}
 		let transaction = self.0.transaction()?;
@@ -1360,7 +1360,9 @@ impl LocalStore {
 		for row in rows {
 			let (id, content) = row?;
 			bytes += content.len();
-			if bytes > 2 * 1024 * 1024 || content.len() > 8192 {
+			if bytes > 2 * 1024 * 1024
+				|| content.len() > model::message_options::MAX_DRAFT_CONTENT_BYTES
+			{
 				return Err(StoreError::Capacity);
 			}
 			drafts.insert(id.parse().map_err(|_| StoreError::Incompatible)?, content);
@@ -1820,6 +1822,29 @@ mod tests {
 				samples[2], samples
 			);
 		}
+	}
+
+	#[test]
+	fn projected_unicode_accounts_remain_switchable_without_a_schema_change() {
+		let mut store = LocalStore::initialize(Connection::open_in_memory().unwrap()).unwrap();
+		let name = "界".repeat(22);
+		let display = "🦀".repeat(model::MAX_PROFILE_NAME_CHARS);
+		let account = model::SavedAccount {
+			id: Id(9),
+			name: model::SavedAccount::label_projection(&name).to_owned(),
+			display: Some(model::SavedAccount::label_projection(&display).to_owned()),
+			avatar: None,
+			discriminator: 0,
+			has_token: false,
+		};
+		assert!(store.save_account(&account).unwrap().is_empty());
+		store.set_account_token(account.id, true).unwrap();
+		let restored = store.accounts().unwrap();
+		assert_eq!(restored.len(), 1);
+		assert_eq!(restored[0].id, account.id);
+		assert_eq!(restored[0].name, "界".repeat(21));
+		assert_eq!(restored[0].label(), "🦀".repeat(16));
+		assert!(restored[0].has_token);
 	}
 
 	#[test]
@@ -3304,6 +3329,50 @@ mod tests {
 			Err(StoreError::Capacity)
 		));
 	}
+	#[test]
+	fn premium_unicode_drafts_survive_reopen_and_rejected_replacements() {
+		use model::message_options::{MAX_DRAFT_CONTENT_BYTES, MAX_PREMIUM_CONTENT};
+		let root = std::env::temp_dir().join(format!(
+			"serein-premium-drafts-{}-{}",
+			std::process::id(),
+			std::time::SystemTime::now()
+				.duration_since(std::time::UNIX_EPOCH)
+				.unwrap()
+				.as_nanos()
+		));
+		std::fs::create_dir(&root).unwrap();
+		let path = root.join("client.sqlite3");
+		let drafts = [
+			"界".repeat(3000),
+			format!("@silent\u{2003}{}", "🦀".repeat(MAX_PREMIUM_CONTENT)),
+		];
+		let mut store = LocalStore::open(&path).unwrap();
+		for (index, draft) in drafts.iter().enumerate() {
+			assert!(model::message_options::valid(
+				draft,
+				MAX_PREMIUM_CONTENT,
+				false
+			));
+			store
+				.save_draft(Id(1), Id(index as u64 + 2), draft)
+				.unwrap();
+		}
+		store.save_draft(Id(2), Id(2), "Other account").unwrap();
+		assert_eq!(
+			store.save_draft(Id(1), Id(2), &"x".repeat(MAX_DRAFT_CONTENT_BYTES + 1)),
+			Err(StoreError::Capacity)
+		);
+		drop(store);
+		let store = LocalStore::open(&path).unwrap();
+		let restored = store.load_drafts(Id(1)).unwrap();
+		assert_eq!(restored.len(), drafts.len());
+		assert_eq!(restored[&Id(2)], drafts[0]);
+		assert_eq!(restored[&Id(3)], drafts[1]);
+		assert_eq!(store.load_drafts(Id(2)).unwrap()[&Id(2)], "Other account");
+		drop(store);
+		std::fs::remove_dir_all(root).unwrap();
+	}
+
 	#[test]
 	fn account_isolation_draft_reopen_eviction_and_logout() {
 		let root =

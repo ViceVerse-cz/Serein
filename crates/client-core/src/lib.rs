@@ -58,7 +58,7 @@ use trail::Place;
 pub const MAX_DRAFT_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_CONTENT: usize = 2000;
 /// Nitro and Nitro Classic accounts may send longer messages.
-pub const MAX_PREMIUM_CONTENT: usize = 4000;
+pub const MAX_PREMIUM_CONTENT: usize = model::message_options::MAX_PREMIUM_CONTENT;
 /// Discord accepts at most ten attachments per message.
 pub const MAX_ATTACHMENTS: usize = 10;
 pub const MAX_NAV: usize = model::account::MAX_ENTRIES;
@@ -465,6 +465,8 @@ pub enum Event {
 		result: Result<Id, auth::Failure>,
 	},
 	GuildJoined(Guild),
+	/// Permanent account departure; transient guild outages retain navigation metadata.
+	GuildRemoved(Id),
 	GuildCreated {
 		sequence: u64,
 		result: Result<Id, auth::Failure>,
@@ -1338,6 +1340,7 @@ impl State {
 
 	/// Open Friends / Home. Does not clear the timeline or emit a command.
 	pub fn open_home(&mut self) {
+		self.reset_thread_starter();
 		self.last_viewed_dm = None;
 		self.application_commands.clear();
 		self.selected = None;
@@ -1349,6 +1352,7 @@ impl State {
 
 	/// Land on Home because the open channel is gone.
 	pub fn arrived_home(&mut self) {
+		self.reset_thread_starter();
 		self.application_commands.clear();
 		if let Some(Place::Channel(id)) = self.trail.current()
 			&& self.selected == Some(id)
@@ -2438,6 +2442,9 @@ impl State {
 			self.navigation_index.bytes.set(None);
 		}
 		let access_changed = envelope.event.changes_access();
+		if access_changed && self.search_access_changed(&envelope.event) {
+			self.clear_search();
+		}
 		// Command permissions are evaluated live from `permissions`; member, role and channel
 		// updates keep the index. Only a lost bot conversation invalidates its own index.
 		if let Event::Unavailable(channel) = &envelope.event
@@ -2501,6 +2508,7 @@ impl State {
 		self.timeline
 			.set_preserve_deleted_messages(self.preserve_deleted_messages);
 		self.invalidate_resident_event(&envelope.event);
+		self.observe_thread_starter_event(&envelope.event);
 		self.observe_channel_action(&envelope.event);
 		if let Event::ChannelCreated(channel) = &envelope.event {
 			self.observe_dm_reopened(channel.id);
@@ -2526,9 +2534,14 @@ impl State {
 		}
 		// Search is a snapshot. A mutation can race an in-flight index response; invalidate
 		// its snippets instead of restoring deleted/edited text from an older index.
-		if matches!(&envelope.event,Event::Patch(p) if Some(p.channel)==self.selected)
-			|| matches!(&envelope.event,Event::Delete{channel,..}|Event::DeleteBulk{channel,..} if Some(*channel)==self.selected)
-		{
+		let search_mutation = match &envelope.event {
+			Event::Patch(patch) => Some(patch.channel),
+			Event::Delete { channel, .. } | Event::DeleteBulk { channel, .. } => Some(*channel),
+			_ => None,
+		};
+		if search_mutation.is_some_and(|channel| {
+			self.selected == Some(channel) || self.search_covers_channel(channel)
+		}) {
 			self.clear_search();
 		}
 		let previous_channel = self.selected;
@@ -2786,6 +2799,10 @@ impl State {
 					}
 					self.set_navigation_bytes(bytes);
 				}
+				Ok(())
+			}
+			Event::GuildRemoved(guild) => {
+				self.remove_server(guild);
 				Ok(())
 			}
 			Event::Invite { code, result } => {
@@ -3580,6 +3597,7 @@ impl State {
 						{
 							reconciliation = Err(status);
 						}
+						// A correlated send is a live mutation even before its gateway echo.
 						if reconciliation.is_ok()
 							&& self.selected == Some(m.channel)
 							&& self.can_view(m.channel)
@@ -3587,7 +3605,7 @@ impl State {
 							&& self.timeline.get(m.id).is_none()
 							&& !self.history_targeted
 							&& (!m.reply_deleted || accepted_reference)
-							&& self.timeline.insert(m, false, false).is_err()
+							&& self.timeline.insert(m, correlated, false).is_err()
 						{
 							reconciliation = Err("Message exceeds safe capacity");
 						}
@@ -3751,6 +3769,7 @@ impl State {
 			self.reconcile_notifications();
 			self.prune_resident();
 			self.prune_post_summaries();
+			self.prune_thread_starter();
 		}
 		if self.search.is_some() && !self.can_search() {
 			self.clear_search();
@@ -3820,6 +3839,13 @@ impl State {
 		}
 	}
 	fn remove_channels(&mut self, removed: &BTreeSet<Id>) {
+		// Check scope before removing navigation identity, including sibling search hits.
+		if removed
+			.iter()
+			.any(|channel| self.search_covers_channel(*channel))
+		{
+			self.clear_search();
+		}
 		self.invalidate_navigation();
 		self.last_viewed_threads.retain(|id| !removed.contains(id));
 		for id in removed {
@@ -3880,6 +3906,7 @@ impl State {
 			_ => {}
 		}
 		if failure.ends_session() {
+			self.reset_thread_starter();
 			self.application_commands.clear();
 			self.interrupt_stickers();
 			self.interrupt_gif_favorites();
@@ -3973,6 +4000,7 @@ impl Event {
 				),
 				..
 			}) | Event::Permissions(_)
+				| Event::GuildRemoved(_)
 				| Event::Resync
 				| Event::PermissionsChanged
 				| Event::Unavailable(_)
@@ -5576,6 +5604,79 @@ mod tests {
 			generation: state.generation,
 			event,
 		});
+	}
+
+	#[test]
+	fn confirmed_send_survives_replacing_history_pages_before_gateway_echo() {
+		for echoed in [false, true] {
+			for included_in_page in [false, true] {
+				let mut state = State {
+					user: Some(message(1).author),
+					auth: auth::AuthState::Authenticated,
+					gateway_connected: true,
+					selected: Some(Id(1)),
+					channels: vec![Channel {
+						id: Id(1),
+						guild: None,
+						parent_id: None,
+						kind: 1,
+						name: "Synthetic DM".into(),
+						position: 0,
+						recipients: vec![],
+						last_message: None,
+						icon: None,
+						member_list_id: None,
+						tags: None,
+						message_count: None,
+					}],
+					..State::default()
+				};
+				state.history(None);
+				let request = state.request;
+				state.drafts.insert(Id(1), "Sent response".into());
+				let Some(Command::Send { nonce, .. }) = state.prepare_send() else {
+					panic!("send during recent history load expected");
+				};
+				let mut sent = message(100);
+				sent.nonce = Some(nonce.clone());
+				sent.content = "Sent response".into();
+				if echoed {
+					apply(&mut state, Event::Message(sent.clone()));
+				}
+				apply(
+					&mut state,
+					Event::SendResult {
+						nonce,
+						result: Ok(sent),
+					},
+				);
+				assert!(state.pending.is_empty());
+				assert_eq!(
+					state.timeline.get(Id(100)).unwrap().content,
+					"Sent response"
+				);
+				let mut messages: Vec<_> = (50..99).map(message).collect();
+				if included_in_page {
+					messages.push(message(100));
+				}
+				apply(
+					&mut state,
+					Event::History {
+						channel: Id(1),
+						request,
+						older: false,
+						messages,
+					},
+				);
+				assert_eq!(
+					state.timeline.get(Id(100)).unwrap().content,
+					"Sent response"
+				);
+				assert_eq!(state.freshness, Freshness::Fresh);
+				assert!(state.timeline.row_count() <= session_cache::MAX_MESSAGES);
+				assert!(state.timeline.retained_bytes() <= session_cache::MAX_BYTES);
+			}
+		}
 	}
 	pub(super) fn message(id: u64) -> Message {
 		Message {

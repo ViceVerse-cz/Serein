@@ -60,11 +60,14 @@ impl State {
 		let mut summaries = std::mem::take(&mut self.posts.summaries);
 		summaries.retain(|channel, _| self.can_read_history(*channel));
 		self.posts.summaries = summaries;
+		let mut previews = std::mem::take(&mut self.posts.previews);
+		previews.retain(|channel, _| self.can_read_history(*channel));
+		self.posts.previews = previews;
 	}
 
 	/// The starter message's first image, shown beside the post card.
 	pub fn post_preview(&self, post: Id) -> Option<&model::EmbedMedia> {
-		self.can_view(post)
+		self.can_read_history(post)
 			.then(|| self.posts.previews.get(&post))
 			.flatten()
 			.and_then(|starter| starter.image.as_ref())
@@ -78,7 +81,7 @@ impl State {
 			.and_then(|forum| self.channel(forum))
 			.and_then(|forum| forum.tags.as_deref())
 			.and_then(|tags| tags.reaction.as_ref());
-		self.can_view(post.id)
+		self.can_read_history(post.id)
 			.then(|| {
 				default
 					.and_then(|emoji| reactions.iter().find(|r| r.emoji.same(emoji)))
@@ -653,6 +656,109 @@ mod tests {
 		state.channels[3].last_message = Some(Id(500));
 		crate::tests::grant_permissions(&mut state);
 		state
+	}
+
+	#[test]
+	fn history_access_loss_releases_forum_previews_without_hiding_other_posts() {
+		let mut state = state();
+		state
+			.channels
+			.extend([channel(30, None, 15), channel(31, Some(Id(30)), 11)]);
+		state
+			.permissions
+			.replace(model::permissions::Snapshot {
+				guilds: vec![model::permissions::Guild {
+					id: Id(1),
+					owner: Some(Id(9)),
+					roles: Some(vec![model::permissions::Role {
+						id: Id(1),
+						bits: p::VIEW_CHANNEL | p::READ_MESSAGE_HISTORY,
+						name: "Synthetic everyone".into(),
+						color: 0,
+						secondary_color: None,
+						tertiary_color: None,
+						position: 0,
+						hoist: false,
+					}]),
+					member: Some(model::permissions::Member {
+						roles: vec![],
+						timeout_until: None,
+					}),
+				}],
+				channels: state
+					.channels
+					.iter()
+					.map(|c| model::permissions::Channel {
+						id: c.id,
+						guild: Id(1),
+						overwrites: Some(vec![]),
+					})
+					.collect(),
+			})
+			.unwrap();
+		state.select(Id(20));
+		for post in [Id(21), Id(31)] {
+			state.posts.remember_preview(
+				post,
+				model::forum::Starter {
+					image: Some(model::EmbedMedia {
+						url: Some(
+							"https://cdn.discordapp.com/attachments/1/2/synthetic.png".into(),
+						),
+						width: 64,
+						height: 64,
+						..model::EmbedMedia::default()
+					}),
+					reactions: vec![model::Reaction {
+						emoji: model::ReactionEmoji {
+							id: None,
+							name: Some("x".into()),
+						},
+						count: 1,
+						me: false,
+						me_burst: false,
+					}],
+				},
+			);
+		}
+		assert!(state.post_preview(Id(21)).is_some());
+		assert!(
+			state
+				.post_reaction(state.channel(Id(21)).unwrap())
+				.is_some()
+		);
+		let event = |overwrites| {
+			Event::Permissions(crate::permissions::Event::Channel {
+				channel: Id(20),
+				guild: Some(Id(1)),
+				overwrites: model::Patch::Value(overwrites),
+			})
+		};
+		state.apply(Envelope {
+			generation: state.generation,
+			event: event(vec![p::Overwrite {
+				id: Id(1),
+				kind: 0,
+				allow: 0,
+				deny: p::READ_MESSAGE_HISTORY,
+			}]),
+		});
+		assert!(state.can_view(Id(21)));
+		assert!(!state.can_read_history(Id(21)));
+		assert!(state.post_preview(Id(21)).is_none());
+		assert!(
+			state
+				.post_reaction(state.channel(Id(21)).unwrap())
+				.is_none()
+		);
+		assert_eq!(state.posts.previews.len(), 1);
+		assert!(state.post_preview(Id(31)).is_some());
+		state.apply(Envelope {
+			generation: state.generation,
+			event: event(vec![]),
+		});
+		assert!(state.can_read_history(Id(21)));
+		assert!(state.post_preview(Id(21)).is_none());
 	}
 
 	#[test]

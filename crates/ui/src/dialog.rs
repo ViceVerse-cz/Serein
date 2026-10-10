@@ -473,11 +473,17 @@ pub fn danger_nav_item(ui: &mut egui::Ui, label: &str) -> egui::Response {
 		ui.painter()
 			.rect_filled(rect, 8, colors.danger.gamma_multiply(0.16));
 	}
-	ui.painter().text(
-		egui::pos2(rect.left() + 12.0, rect.center().y),
-		egui::Align2::LEFT_CENTER,
-		&label,
+	let mut job = egui::text::LayoutJob::simple_singleline(
+		label.clone(),
 		egui::FontId::new(15.0, design::medium_family(ui.ctx())),
+		tint,
+	);
+	job.wrap = egui::text::TextWrapping::truncate_at_width((rect.width() - 46.0).max(0.0));
+	let galley = ui.painter().layout_job(job);
+	let elided = galley.elided;
+	ui.painter().galley(
+		egui::pos2(rect.left() + 12.0, rect.center().y - galley.size().y * 0.5),
+		galley,
 		tint,
 	);
 	icons::paint(
@@ -489,7 +495,11 @@ pub fn danger_nav_item(ui: &mut egui::Ui, label: &str) -> egui::Response {
 		),
 		tint,
 	);
-	response
+	if elided {
+		response.on_hover_text(label)
+	} else {
+		response
+	}
 }
 
 /// Lays `add` out at exactly the available width and reports only that width to the parent,

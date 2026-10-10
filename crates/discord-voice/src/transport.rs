@@ -1,5 +1,5 @@
 use crate::{
-	Controls, Frame, Status,
+	CapturedFrame, Controls, Frame, Status,
 	crypto::{Dave, Encryption, Identity, MAX_PACKET, MAX_SIGNAL, MODE},
 	diagnostics::{Signal, Video},
 	video_receive::{
@@ -240,7 +240,7 @@ fn discovery(packet: &[u8], ssrc: u32) -> Result<(IpAddr, u16), &'static str> {
 #[allow(clippy::too_many_arguments)] // Every media input of one call.
 pub async fn run(
 	credentials: VoiceConnection,
-	capture: Receiver<Frame>,
+	capture: Receiver<CapturedFrame>,
 	playback: SyncSender<Frame>,
 	controls: watch::Receiver<Controls>,
 	camera: Option<Receiver<crate::camera_video::Frame>>,
@@ -265,7 +265,7 @@ pub async fn run(
 #[allow(clippy::too_many_arguments)] // Every media input of one call plus its identity.
 pub async fn run_with_identity(
 	credentials: VoiceConnection,
-	capture: Receiver<Frame>,
+	capture: Receiver<CapturedFrame>,
 	playback: SyncSender<Frame>,
 	controls: watch::Receiver<Controls>,
 	camera: Option<Receiver<crate::camera_video::Frame>>,
@@ -295,7 +295,7 @@ pub async fn run_with_identity(
 #[allow(clippy::too_many_arguments)] // Public media inputs plus the loopback-only test endpoint.
 async fn run_inner(
 	credentials: VoiceConnection,
-	capture: Receiver<Frame>,
+	capture: Receiver<CapturedFrame>,
 	playback: SyncSender<Frame>,
 	mut controls: watch::Receiver<Controls>,
 	camera: Option<Receiver<crate::camera_video::Frame>>,
@@ -459,16 +459,22 @@ async fn run_inner(
 				capture_at = now;
 				capture_enabled = enabled;
 				capture_reset = false;
-				let latest=if waiting {
-					capture_pacer.preview(&capture)
+				let mut latest=if waiting {
+					capture_pacer.preview(&capture,control.capture_generation)
 				} else {
-					capture_pacer.next(&capture,enabled && !control.muted && !control.deafened,stalled)
+					capture_pacer.next(&capture,enabled && !control.muted && !control.deafened,stalled,control.capture_generation)
 				};
 				local_activity=if (enabled || waiting) && !control.muted && !control.deafened && !stalled {
 					crate::activity::hold_at(latest.as_ref().map_or(0.0, |frame| frame.iter().filter(|s| s.is_finite()).map(|s| s*s).sum()),local_activity,control.activity_threshold_db)
 				} else {0};
-				let active=enabled && !control.muted && !control.deafened && latest.is_some();
+				let mut active=enabled && !control.muted && !control.deafened && latest.is_some();
 				if active && !speaking {json_send(&mut ws,json!({"op":5,"d":{"speaking":1,"delay":0,"ssrc":ssrc}})).await?;speaking=true;}
+				// Speaking notification can await the websocket: recheck privacy before encoding.
+				let current=*controls.borrow();
+				if current.capture_generation!=control.capture_generation || current.muted || current.deafened {
+					active=false;latest=None;local_activity=0;
+					let _=capture_pacer.next(&capture,false,false,current.capture_generation);
+				}
 				if !active && speaking && silence==0 {silence=5;}
 				if enabled && (active || silence>0) {
 					let start = metrics.start();
@@ -2068,7 +2074,12 @@ mod tests {
 			request: 1,
 		};
 		let (capture_tx, capture) = std::sync::mpsc::sync_channel(8);
-		capture_tx.try_send([0.25; 960]).unwrap();
+		capture_tx
+			.try_send(CapturedFrame {
+				generation: 0,
+				pcm: [0.25; 960],
+			})
+			.unwrap();
 		let (playback, playback_rx) = std::sync::mpsc::sync_channel(8);
 		let (control_tx, control_rx) = watch::channel(Controls::default());
 		let (_camera_tx, camera_rx) = std::sync::mpsc::sync_channel(1);
@@ -2142,7 +2153,7 @@ mod tests {
 					_ = capture_tick.tick(), if ready > 0 => {
 						// Model a bounded continuous microphone, not one frame discarded by a stall.
 						if !captured {
-							match capture_tx.try_send(std::array::from_fn(|i| (i as f32 * 0.06).sin() * 0.3)) {
+							match capture_tx.try_send(CapturedFrame { generation: 0, pcm: std::array::from_fn(|i| (i as f32 * 0.06).sin() * 0.3) }) {
 								Ok(()) | Err(std::sync::mpsc::TrySendError::Full(_)) => {}
 								Err(std::sync::mpsc::TrySendError::Disconnected(_)) => panic!("test capture stopped before peer receipt"),
 							}

@@ -375,11 +375,13 @@ impl State {
 			if let Some(update) = updates.iter().find(|update| update.user == row.user.id)
 				&& (row.status != update.status
 					|| row.custom_status != update.custom_status
-					|| row.activities != update.activities)
+					|| row.activities != update.activities
+					|| row.clients != update.clients)
 			{
 				row.status = update.status.clone();
 				row.custom_status = update.custom_status.clone();
 				row.activities = update.activities.clone();
+				row.clients = update.clients;
 				changed = true;
 			}
 		}
@@ -506,6 +508,45 @@ mod tests {
 
 	fn row(state: &State) -> &Member {
 		person(&state.members.as_ref().unwrap().slots[0])
+	}
+
+	#[test]
+	fn guild_client_platform_changes_reach_live_and_cached_member_rows() {
+		for lazy in [false, true] {
+			let mut state = state();
+			let list = state.members.as_mut().unwrap();
+			list.lazy = lazy;
+			list.ranges = vec![[0, 99]];
+			person_mut(&mut list.slots[0]).clients.mobile = true;
+			if lazy {
+				state.member_chunks.merge(list);
+			}
+			let revision = state.revision;
+			let desktop = ClientPlatforms {
+				desktop: true,
+				..ClientPlatforms::default()
+			};
+			let mut changed = update(2, Some("online"), None);
+			changed.clients = desktop;
+			apply(&mut state, event(vec![changed]));
+			assert_eq!(row(&state).clients, desktop);
+			if lazy {
+				assert_eq!(
+					person(&state.member_chunks.chunks.get(&0).unwrap()[0]).clients,
+					desktop
+				);
+			}
+			apply(&mut state, event(vec![update(2, Some("offline"), None)]));
+			assert!(!row(&state).clients.any());
+			if lazy {
+				assert!(
+					!person(&state.member_chunks.chunks.get(&0).unwrap()[0])
+						.clients
+						.any()
+				);
+			}
+			assert_eq!(state.revision, revision);
+		}
 	}
 
 	#[test]

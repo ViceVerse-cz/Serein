@@ -1735,6 +1735,64 @@ fn contrast(a: Color32, b: Color32) -> f32 {
 mod tests {
 
 	#[test]
+	fn narrow_segmented_controls_keep_each_choice_clickable_inside_the_track() {
+		for width in [120.0, 240.0] {
+			for target in 0..3 {
+				let ctx = egui::Context::default();
+				let selected = (target + 1) % 3;
+				let labels = ["A deliberately long localized choice"; 3];
+				let mut track = egui::Rect::NOTHING;
+				let mut frame = |events| {
+					let mut clicked = None;
+					ctx.run_ui(
+						egui::RawInput {
+							screen_rect: Some(egui::Rect::from_min_size(
+								egui::Pos2::ZERO,
+								egui::vec2(width + 32.0, 100.0),
+							)),
+							events,
+							..Default::default()
+						},
+						|ui| {
+							ui.set_width(width);
+							track = egui::Rect::from_min_size(
+								ui.available_rect_before_wrap().min,
+								egui::vec2(width, 40.0),
+							);
+							clicked = segmented(ui, &labels, selected);
+						},
+					)
+					.drop_without_applying_deltas();
+					(clicked, track)
+				};
+				frame(vec![]);
+				let (_, track) = frame(vec![]);
+				let point = egui::pos2(
+					track.left() + 4.0 + (width - 8.0) * (target as f32 + 0.5) / 3.0,
+					track.center().y,
+				);
+				let pointer = |pressed| {
+					vec![
+						egui::Event::PointerMoved(point),
+						egui::Event::PointerButton {
+							pos: point,
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					]
+				};
+				frame(pointer(true));
+				assert_eq!(
+					frame(pointer(false)).0,
+					Some(target),
+					"width={width} target={target}"
+				);
+			}
+		}
+	}
+
+	#[test]
 	fn clickable_cursor_preserves_disabled_text_and_specialized_controls() {
 		use egui::{CursorIcon, Sense};
 		for theme in [egui::ThemePreference::Dark, egui::ThemePreference::Light] {
@@ -2462,17 +2520,20 @@ pub fn segmented(ui: &mut egui::Ui, labels: &[&str], selected: usize) -> Option<
 		egui::vec2(total.min(ui.available_width()), height + 8.0),
 		egui::Sense::hover(),
 	);
+	// Fit both the paint and hit targets into the track on narrow/localized pages.
+	let inset = 4.0_f32.min(rect.width() * 0.5);
+	let scale = ((rect.width() - inset * 2.0) / (total - 8.0)).min(1.0);
 	// Interact before painting so the whole group can be drawn in one pass.
-	let mut x = rect.left() + 4.0;
+	let mut x = rect.left() + inset;
 	let segments: Vec<(egui::Rect, egui::Response)> = widths
 		.iter()
 		.enumerate()
 		.map(|(index, width)| {
 			let segment = egui::Rect::from_min_size(
 				egui::pos2(x, rect.top() + 4.0),
-				egui::vec2(*width, height),
+				egui::vec2(*width * scale, height),
 			);
-			x += width;
+			x += width * scale;
 			let response = ui.interact(segment, base.id.with(index), egui::Sense::click());
 			(segment, response)
 		})
@@ -2510,14 +2571,16 @@ pub fn segmented(ui: &mut egui::Ui, labels: &[&str], selected: usize) -> Option<
 		} else {
 			p.muted
 		};
-		painter.text(
-			segment.center(),
-			egui::Align2::CENTER_CENTER,
-			&labels[index],
-			font.clone(),
-			color,
-		);
+		let mut job =
+			egui::text::LayoutJob::simple_singleline(labels[index].clone(), font.clone(), color);
+		job.wrap = egui::text::TextWrapping::truncate_at_width((segment.width() - 16.0).max(0.0));
+		let galley = painter.layout_job(job);
+		let elided = galley.elided;
+		painter.galley(segment.center() - galley.size() * 0.5, galley, color);
 		let label = labels[index].to_owned();
+		if elided {
+			response.clone().on_hover_text(&label);
+		}
 		response.widget_info(|| {
 			egui::WidgetInfo::selected(egui::Role::RadioButton, enabled, active, &label)
 		});

@@ -1,0 +1,168 @@
+{
+  "baseline_commit": "6451d97c49ddc6d69203fe20e3d1a28708b4da6e",
+  "after_revision": "Local uncommitted working tree; earlier AMF diagnostics changes preserved.",
+  "baseline_fixture": "Original platform production code with only the deadline regression backported.",
+  "metric": "Fixture process elapsed time, including test startup; not whole-app theme latency or RSS.",
+  "workload": "A shell exits immediately after launching an inert one-second sleep that inherits stdout; helper deadline is 50 ms.",
+  "build": "Pinned Rust 1.98.1, Linux x86_64, actual complete processes/system_theme modules, exact cached dependencies, no production stubs, debuginfo=0.",
+  "sampling": "One warmup and five samples per binary, counterbalanced order, no task compiler active; shared host noise remains.",
+  "host": {
+    "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+    "cpu_count": 5,
+    "rust": "rustc 1.98.1 (48a229cea 2026-09-01)"
+  },
+  "order": [
+    "before",
+    "after",
+    "after",
+    "before",
+    "before",
+    "after",
+    "after",
+    "before",
+    "before",
+    "after"
+  ],
+  "warmups": {
+    "before": {
+      "elapsed_ms": 1048.3742329961387,
+      "exit_code": 101
+    },
+    "after": {
+      "elapsed_ms": 74.14417900145054,
+      "exit_code": 0
+    }
+  },
+  "samples": {
+    "before": [
+      {
+        "elapsed_ms": 1015.207903998089,
+        "exit_code": 101
+      },
+      {
+        "elapsed_ms": 1013.0380200134823,
+        "exit_code": 101
+      },
+      {
+        "elapsed_ms": 1021.8175320042064,
+        "exit_code": 101
+      },
+      {
+        "elapsed_ms": 1008.9507759985281,
+        "exit_code": 101
+      },
+      {
+        "elapsed_ms": 1009.3937100027688,
+        "exit_code": 101
+      }
+    ],
+    "after": [
+      {
+        "elapsed_ms": 57.55784499342553,
+        "exit_code": 0
+      },
+      {
+        "elapsed_ms": 60.03214399970602,
+        "exit_code": 0
+      },
+      {
+        "elapsed_ms": 63.705149994348176,
+        "exit_code": 0
+      },
+      {
+        "elapsed_ms": 61.77126299007796,
+        "exit_code": 0
+      },
+      {
+        "elapsed_ms": 59.09214100393001,
+        "exit_code": 0
+      }
+    ]
+  },
+  "summary": {
+    "before": {
+      "median_ms": 1013.0380200134823,
+      "range_ms": [
+        1008.9507759985281,
+        1021.8175320042064
+      ],
+      "fixture_result": "expected failure",
+      "test_binary_sha256": "06a14d52730e23ce5000529d48fa5d6f5fc996f51a40ed431d8bac1bc3bd572b"
+    },
+    "after": {
+      "median_ms": 60.03214399970602,
+      "range_ms": [
+        57.55784499342553,
+        63.705149994348176
+      ],
+      "fixture_result": "pass",
+      "test_binary_sha256": "09775fdeb94183388aca5a623573a83ff1a3846d391efd6aadc1e4760f939118"
+    }
+  },
+  "after_sources_sha256": {
+    "crates/platform/src/processes.rs": "d15b1230c23accec7b029214df5c223bfc01e5a7a88c57d84c1dbd6877fa0411",
+    "crates/platform/src/system_theme.rs": "239471568a935faa69df1d1e15d7ec542037cfdeface75aea2f9f5bdef174ffa"
+  },
+  "unmeasured": [
+    "Whole-app CPU/RSS, startup, executable and installed/compressed package sizes",
+    "Physical encoder performance and native Windows/macOS execution"
+  ],
+  "checks": {
+    "test_suites": {
+      "model": {
+        "passed": 32,
+        "ignored": 0
+      },
+      "session-cache": {
+        "passed": 11,
+        "ignored": 2
+      },
+      "client-core": {
+        "passed": 170,
+        "ignored": 2
+      },
+      "local-store": {
+        "passed": 33,
+        "ignored": 2
+      },
+      "discord-protocol": {
+        "passed": 86,
+        "ignored": 0
+      },
+      "platform-modules": {
+        "passed": 11,
+        "ignored": 0
+      },
+      "discord-voice": {
+        "passed": 144,
+        "ignored": 4
+      }
+    },
+    "full_platform_source": "Current model/session-cache/client-core metadata rebuilt; complete platform source metadata and strict Clippy pass with exact cached external dependencies.",
+    "formatting": "cargo fmt --all --check passed",
+    "workspace_check": "error: failed to open: /workspace/Serein/target/debug/.cargo-build-lock\n\nCaused by:\n  Permission denied (os error 13)",
+    "package": "error: failed to open: /workspace/Serein/target/debug/.cargo-build-lock\n\nCaused by:\n  Permission denied (os error 13)",
+    "voice_source_verification": "All 14 changed-source hashes in preceding AMF diagnostics evidence still match; existing complete current-source test executable rerun.",
+    "full_platform_features": [
+      "default",
+      "development-data"
+    ],
+    "platform_test_clippy": "Strict -D warnings passed after final source formatting; dead_code allowed only for the isolated module harness."
+  },
+  "post_sync_validation": {
+    "pr_head_before_commit": "82bbbd0b790673711001d35cc12eb9cc95a3b06d",
+    "patch_unchanged_across_rebase": true,
+    "client_core_tests": {
+      "passed": 172,
+      "ignored": 2,
+      "failed": 0
+    },
+    "full_platform_source": "Complete current source metadata checking and strict Clippy passed again, with freshly checked current model/session-cache/client-core dependencies.",
+    "platform_features": [
+      "default",
+      "development-data"
+    ],
+    "workspace_format": "cargo fmt --all --check passed again",
+    "scope": "Existing upstream changes preserved; original bug-hunt counts remain above, recorded before sync."
+  }
+}

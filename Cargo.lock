@@ -6373,6 +6373,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.4.3",
  "image",
+ "libc",
  "local-store",
  "log",
  "md4",

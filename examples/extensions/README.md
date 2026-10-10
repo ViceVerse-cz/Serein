@@ -112,7 +112,7 @@ Replace the example author and source URL before publishing.
 | `license` | string | License label; include the actual license in your source too. |
 | `source` | string | Public HTTPS source link, at most 2,048 UTF-8 bytes, without embedded credentials. It is metadata, not code to execute. |
 | `kind` | string | `plugin` for Wasm; declarative themes use `theme`. |
-| `capabilities` | string array | Only the permissions needed. Each requires consent; names must be known and unique. At most 64 declarations, with 52 supported today; see the [capability reference](../../docs/extensions.md#capability-reference) for their scopes. |
+| `capabilities` | string array | Only the permissions needed. Each requires consent; names must be known and unique. At most 64 declarations, with 53 supported today; see the [capability reference](../../docs/extensions.md#capability-reference) for their scopes. |
 | `actions` | object array | Entry points invoked by users or the host. Plugins need 1–16 actions with unique IDs. |
 
 Plugins that use `data_queries` or `action_feedback` also declare `app_events` and
@@ -196,6 +196,12 @@ These types serialize and deserialize the host's manifest shape. Unknown fields
 and enum names are rejected; omitted `capabilities` and `actions` decode as empty
 vectors. Typed construction or successful JSON decoding does **not** validate
 IDs, limits, duplicate declarations or capability/surface combinations.
+
+The API proxy plugin uses `Capability::ApiProxy`, serialized as `"api_proxy"`.
+It may additionally request `Capability::Storage`; the host rejects other
+capabilities and action surfaces beyond `panel` and `activation` for that plugin.
+See [API proxy](../../docs/extension-sdk-actions.md#api-proxy-preview) for its
+device-wide scope, consent and output behavior.
 
 From the repository root, check a standalone manifest with the host's authoritative
 `Manifest::validate` rules:
