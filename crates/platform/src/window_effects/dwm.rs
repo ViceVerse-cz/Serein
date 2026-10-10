@@ -8,16 +8,23 @@ use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
-	GWL_STYLE, GetPropW, GetWindowLongPtrW, RemovePropW, STYLESTRUCT, SWP_FRAMECHANGED,
-	SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetPropW, SetWindowLongPtrW,
-	SetWindowPos, WM_NCDESTROY, WM_STYLECHANGING, WS_SYSMENU,
+	GWL_STYLE, GetPropW, GetWindowLongPtrW, HTCAPTION, RemovePropW, SC_MOVE, STYLESTRUCT,
+	SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetPropW,
+	SetWindowLongPtrW, SetWindowPos, WM_NCDESTROY, WM_NCLBUTTONDOWN, WM_STYLECHANGING,
+	WM_SYSCOMMAND, WS_SYSMENU,
 };
 use windows::core::{PCWSTR, w};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
 
+use std::cell::Cell;
+
 // A nonzero scalar, not a pointer: WS_SYSMENU plus a presence bit, even in fullscreen.
 const REQUESTED_MENU: PCWSTR = w!("Serein.CustomCaption.RequestedMenu");
+
+thread_local! {
+	static TEMPORARY_DRAG: Cell<bool> = const { Cell::new(false) };
+}
 
 // winit retains WS_SYSMENU even for undecorated windows and restores it on style changes.
 // With a full-client DWM frame this paints native buttons underneath our custom buttons.
@@ -35,8 +42,22 @@ unsafe extern "system" fn custom_caption(
 			let _ = RemoveWindowSubclass(hwnd, Some(custom_caption), id);
 			let _ = RemovePropW(hwnd, REQUESTED_MENU);
 		}
+		if (message == WM_NCLBUTTONDOWN && wparam.0 == HTCAPTION as usize)
+			|| (message == WM_SYSCOMMAND && (wparam.0 & 0xFFF0) == SC_MOVE as usize)
+		{
+			let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+			if style & WS_SYSMENU.0 as isize == 0 {
+				TEMPORARY_DRAG.set(true);
+				SetWindowLongPtrW(hwnd, GWL_STYLE, style | WS_SYSMENU.0 as isize);
+				let result = DefSubclassProc(hwnd, message, wparam, lparam);
+				let current_style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+				SetWindowLongPtrW(hwnd, GWL_STYLE, current_style & !(WS_SYSMENU.0 as isize));
+				TEMPORARY_DRAG.set(false);
+				return result;
+			}
+		}
 		let result = DefSubclassProc(hwnd, message, wparam, lparam);
-		if message == WM_STYLECHANGING && wparam.0 as i32 == GWL_STYLE.0 {
+		if message == WM_STYLECHANGING && wparam.0 as i32 == GWL_STYLE.0 && !TEMPORARY_DRAG.get() {
 			// WM_STYLECHANGING supplies a writable STYLESTRUCT for this synchronous call.
 			let style = &mut *(lparam.0 as *mut STYLESTRUCT);
 			let menu = (style.styleNew & WS_SYSMENU.0) as usize | 1;
@@ -119,7 +140,7 @@ pub fn extend_frame(window: &Window, extended: bool) -> Result<(), String> {
 mod tests {
 	use super::*;
 	use windows::Win32::UI::WindowsAndMessaging::{
-		CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW,
+		CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WS_MAXIMIZE, WS_OVERLAPPEDWINDOW,
 	};
 	use windows::core::w;
 
@@ -179,6 +200,100 @@ mod tests {
 			set_custom_caption(hwnd, false).unwrap();
 			assert_eq!(GetWindowLongPtrW(hwnd, GWL_STYLE), style);
 			set_custom_caption(hwnd, true).unwrap();
+			DestroyWindow(hwnd).unwrap();
+		}
+	}
+
+	thread_local! {
+		static PROBE_SEEN_SYSMENU: Cell<u32> = const { Cell::new(0) };
+	}
+
+	unsafe extern "system" fn probe_subclass(
+		hwnd: HWND,
+		message: u32,
+		wparam: WPARAM,
+		lparam: LPARAM,
+		_id: usize,
+		_data: usize,
+	) -> LRESULT {
+		unsafe {
+			if (message == WM_NCLBUTTONDOWN && wparam.0 == HTCAPTION as usize)
+				|| (message == WM_SYSCOMMAND && (wparam.0 & 0xFFF0) == SC_MOVE as usize)
+			{
+				let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+				if style & WS_SYSMENU.0 as isize != 0 {
+					PROBE_SEEN_SYSMENU.set(PROBE_SEEN_SYSMENU.get() + 1);
+				}
+				if message == WM_SYSCOMMAND {
+					let _ = SetWindowLongPtrW(hwnd, GWL_STYLE, style | WS_MAXIMIZE.0 as isize);
+					return LRESULT(0);
+				}
+			}
+			DefSubclassProc(hwnd, message, wparam, lparam)
+		}
+	}
+
+	#[test]
+	fn custom_caption_allows_drag_without_leaking_menu() {
+		// SAFETY: this hidden test window is created, used and destroyed on this thread.
+		unsafe {
+			let hwnd = CreateWindowExW(
+				WINDOW_EX_STYLE::default(),
+				w!("STATIC"),
+				w!("drag test"),
+				WS_OVERLAPPEDWINDOW,
+				0,
+				0,
+				100,
+				100,
+				None,
+				None,
+				None,
+				None,
+			)
+			.unwrap();
+			let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+			assert!(SetWindowSubclass(hwnd, Some(probe_subclass), 1, 0).as_bool());
+			set_custom_caption(hwnd, true).unwrap();
+			assert_eq!(
+				GetWindowLongPtrW(hwnd, GWL_STYLE),
+				style & !(WS_SYSMENU.0 as isize)
+			);
+			let initial_menu = GetPropW(hwnd, REQUESTED_MENU);
+			PROBE_SEEN_SYSMENU.set(0);
+
+			use windows::Win32::UI::WindowsAndMessaging::SendMessageW;
+			let _ = SendMessageW(
+				hwnd,
+				WM_NCLBUTTONDOWN,
+				Some(WPARAM(HTCAPTION as usize)),
+				Some(LPARAM(0)),
+			);
+			assert_eq!(PROBE_SEEN_SYSMENU.get(), 1);
+			assert_eq!(GetPropW(hwnd, REQUESTED_MENU), initial_menu);
+			assert_eq!(
+				GetWindowLongPtrW(hwnd, GWL_STYLE),
+				style & !(WS_SYSMENU.0 as isize)
+			);
+
+			let _ = SendMessageW(
+				hwnd,
+				WM_SYSCOMMAND,
+				Some(WPARAM(SC_MOVE as usize)),
+				Some(LPARAM(0)),
+			);
+			assert_eq!(PROBE_SEEN_SYSMENU.get(), 2);
+			assert_eq!(GetPropW(hwnd, REQUESTED_MENU), initial_menu);
+			let expected_moved_style = (style | WS_MAXIMIZE.0 as isize) & !(WS_SYSMENU.0 as isize);
+			assert_eq!(GetWindowLongPtrW(hwnd, GWL_STYLE), expected_moved_style);
+
+			set_custom_caption(hwnd, false).unwrap();
+			assert_eq!(
+				GetWindowLongPtrW(hwnd, GWL_STYLE),
+				style | WS_MAXIMIZE.0 as isize
+			);
+
+			let _ = RemoveWindowSubclass(hwnd, Some(probe_subclass), 1);
 			DestroyWindow(hwnd).unwrap();
 		}
 	}
