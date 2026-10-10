@@ -574,19 +574,61 @@ impl Avatars {
 			}
 		}
 	}
-	/// Cached composer layouts keep the artwork they actually paint warm too.
-	pub(crate) fn touch_share_image(&mut self, ctx: &egui::Context, asset: model::ImageShare) {
-		let entry = match asset {
-			model::ImageShare::Emoji { id, .. } => {
-				self.emoji_textures.get_mut(&format!("emoji-{id}"))
-			}
+	/// Layout reads cached artwork without refreshing expiry or requesting clipped assets.
+	pub(crate) fn lookup_share_image(
+		&mut self,
+		ctx: &egui::Context,
+		asset: model::ImageShare,
+		size: f32,
+		demo: bool,
+	) -> Option<egui::Image<'static>> {
+		// Demo artwork is generated locally, with no network or worker requests.
+		if demo {
+			return self.share_image(ctx, asset, size, true);
+		}
+		let texture = match asset {
+			model::ImageShare::Emoji { id, .. } => self.emoji_textures.get(&format!("emoji-{id}")),
 			model::ImageShare::Sticker { id, format_type } => {
 				let key = self.sticker_key(ctx, id, format_type, false);
-				self.textures.get_mut(&key)
+				self.textures.get(&key)
 			}
 		};
-		if let Some((used, _)) = entry {
+		texture.map(|(_, texture)| {
+			egui::Image::new(texture).fit_to_exact_size(egui::Vec2::splat(size))
+		})
+	}
+
+	/// Visible composer artwork stays warm without advancing unused animation frames.
+	pub(crate) fn touch_share_image(
+		&mut self,
+		ctx: &egui::Context,
+		asset: model::ImageShare,
+		demo: bool,
+	) {
+		let (key, emoji) = match asset {
+			model::ImageShare::Emoji { id, .. } => (format!("emoji-{id}"), true),
+			model::ImageShare::Sticker { id, format_type } => {
+				(self.sticker_key(ctx, id, format_type, false), false)
+			}
+		};
+		let textures = if emoji {
+			&mut self.emoji_textures
+		} else {
+			&mut self.textures
+		};
+		if let Some((used, _)) = textures.get_mut(&key) {
 			*used = Instant::now();
+		} else if !demo {
+			if let Some((attempted, failed)) = self.attempts.get(&key)
+				&& *failed
+			{
+				ctx.request_repaint_after(
+					RETRY
+						.saturating_sub(attempted.elapsed())
+						.max(Duration::from_secs(1)),
+				);
+			}
+			self.request(key);
 		}
 	}
 
@@ -1565,8 +1607,36 @@ mod tests {
 			Some(ColorImage::filled([64, 64], egui::Color32::WHITE)),
 		);
 		let mut layout = crate::composer_text::Layout::default();
-		let mut text = "<:synthetic:1>".to_owned();
+		let mut text =
+			"<:synthetic:1> [sticker](https://media.discordapp.net/stickers/2.gif)".to_owned();
+		avatars.set_animation(true);
+		avatars.request("anim:sticker-2-4".into());
+		avatars.accept(
+			&ctx,
+			"anim:sticker-2-4".into(),
+			Some(ColorImage::filled([64, 64], egui::Color32::WHITE)),
+		);
+		avatars.accept_animation(
+			"anim:sticker-2-4".into(),
+			vec![
+				(
+					Duration::from_millis(100),
+					std::sync::Arc::new(ColorImage::filled([64, 64], egui::Color32::WHITE)),
+				),
+				(
+					Duration::from_millis(100),
+					std::sync::Arc::new(ColorImage::filled([64, 64], egui::Color32::BLACK)),
+				),
+			],
+		);
+		avatars.take_requests();
 		let now = Instant::now();
+		let played = now - IDLE_FRAMES;
+		avatars
+			.animations
+			.get_mut("anim:sticker-2-4")
+			.unwrap()
+			.played = played;
 		ctx.run_ui(Default::default(), |ui| {
 			let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width| {
 				layout.galley(
@@ -1585,11 +1655,152 @@ mod tests {
 				.layouter(&mut layouter)
 				.show(ui);
 			avatars.emoji_textures.get_mut("emoji-1").unwrap().0 = now - IDLE_TEXTURES;
+			avatars.textures.get_mut("anim:sticker-2-4").unwrap().0 = now - IDLE_TEXTURES;
 			layout.paint(ui, &edit, &mut avatars);
 		})
 		.drop_without_applying_deltas();
+		assert_eq!(avatars.animations["anim:sticker-2-4"].played, played);
 		avatars.release_idle(now);
 		assert!(avatars.texture_id("emoji-1").is_some());
+		assert!(avatars.texture_id("anim:sticker-2-4").is_some());
+		assert!(!avatars.animations.contains_key("anim:sticker-2-4"));
+		assert!(avatars.take_requests().is_empty());
+	}
+
+	#[test]
+	fn clipped_composer_rebuilds_neither_refresh_nor_reload_artwork() {
+		let ctx = egui::Context::default();
+		let mut avatars = Avatars::default();
+		for key in ["emoji-1", "embed:sticker-2-1"] {
+			avatars.request(key.into());
+			avatars.take_requests();
+			avatars.accept(
+				&ctx,
+				key.into(),
+				Some(ColorImage::filled([64, 64], egui::Color32::WHITE)),
+			);
+		}
+		let now = Instant::now();
+		for (used, _) in avatars
+			.textures
+			.values_mut()
+			.chain(avatars.emoji_textures.values_mut())
+		{
+			*used = now - IDLE_TEXTURES;
+		}
+		let mut layout = crate::composer_text::Layout::default();
+		let mut text =
+			"<:synthetic:1> [sticker](https://cdn.discordapp.com/stickers/2.png)".to_owned();
+		for _ in 0..3 {
+			avatars.revision += 1; // Unrelated arrivals force the long draft to relayout.
+			ctx.run_ui(Default::default(), |ui| {
+				ui.set_clip_rect(egui::Rect::NOTHING);
+				let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width| {
+					layout.galley(
+						ui,
+						buffer.as_str(),
+						width,
+						&[],
+						&[],
+						&[],
+						false,
+						&mut avatars,
+						false,
+					)
+				};
+				let edit = egui::TextEdit::multiline(&mut text)
+					.layouter(&mut layouter)
+					.show(ui);
+				layout.paint(ui, &edit, &mut avatars);
+			})
+			.drop_without_applying_deltas();
+			avatars.release_idle(now);
+			assert_eq!(avatars.bytes + avatars.emoji_bytes, 0);
+			assert!(
+				avatars.take_requests().is_empty(),
+				"clipped layout must not reload expired artwork"
+			);
+		}
+		// A cached layout returning to the viewport must request the missing artwork.
+		ctx.run_ui(Default::default(), |ui| {
+			let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width| {
+				layout.galley(
+					ui,
+					buffer.as_str(),
+					width,
+					&[],
+					&[],
+					&[],
+					false,
+					&mut avatars,
+					false,
+				)
+			};
+			let edit = egui::TextEdit::multiline(&mut text)
+				.layouter(&mut layouter)
+				.show(ui);
+			layout.paint(ui, &edit, &mut avatars);
+		})
+		.drop_without_applying_deltas();
+		let mut requests = avatars.take_requests();
+		requests.sort();
+		assert_eq!(requests, ["embed:sticker-2-1", "emoji-1"]);
+	}
+
+	#[test]
+	fn clipped_timeline_artwork_expires_without_reloading() {
+		for (text, key) in [
+			("<:synthetic:1>", "emoji-1".to_owned()),
+			(
+				"[sticker](https://cdn.discordapp.com/stickers/2.png)",
+				"embed:sticker-2-1".to_owned(),
+			),
+			(
+				"🙂",
+				format!("emoji-unicode-{}-64", crate::emoji::lookup("🙂").unwrap()),
+			),
+		] {
+			let ctx = egui::Context::default();
+			let mut avatars = Avatars::default();
+			avatars.request(key.clone());
+			avatars.take_requests();
+			avatars.accept(
+				&ctx,
+				key.clone(),
+				Some(ColorImage::filled([64, 64], egui::Color32::WHITE)),
+			);
+			let now = Instant::now();
+			for (used, _) in avatars
+				.textures
+				.values_mut()
+				.chain(avatars.emoji_textures.values_mut())
+			{
+				*used = now - IDLE_TEXTURES;
+			}
+			for _ in 0..2 {
+				ctx.run_ui(Default::default(), |ui| {
+					crate::design::jumbo_emoji(ui);
+					ui.set_clip_rect(egui::Rect::from_min_size(
+						ui.min_rect().min,
+						egui::vec2(100.0, 0.0),
+					));
+					ui.add_space(100.0);
+					crate::markdown::Formatted::parse(text).show_with_images(
+						ui,
+						&mut None,
+						&[],
+						None,
+						&mut crate::profiles::ProfileSession::default(),
+						(&mut avatars, false, &[]),
+						crate::design::MessageCardSurface::Opaque,
+					);
+				})
+				.drop_without_applying_deltas();
+				avatars.release_idle(now);
+				assert_eq!(avatars.bytes + avatars.emoji_bytes, 0);
+				assert!(avatars.take_requests().is_empty());
+			}
+		}
 	}
 
 	#[test]

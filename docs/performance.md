@@ -103,8 +103,11 @@ this small per-worker retention remains and is not fixed by artwork expiry.
 Avatar/banner/activity/sticker/picker textures and custom/high-resolution emoji
 textures previously stayed until their item/byte pools filled. They now expire
 after 60 seconds without use, using the existing host maintenance deadline.
-Visible and cached composer artwork refreshes the deadline, clipped painting
-does not, and expired artwork uses the normal bounded worker/disk-cache path.
+Visible and cached composer artwork refreshes the deadline. Composer layout only
+reads cached still textures; it neither refreshes nor requests clipped assets.
+Timeline custom/shared artwork and jumbo Unicode emoji resolve only for visible
+slots, so leading overscan rows cannot retain or repeatedly reload them. Expired
+artwork uses the normal bounded worker/disk-cache path when painted again.
 Existing 64-MiB artwork and 16-MiB emoji ceilings are unchanged.
 
 The ignored `avatars::tests::idle_artwork_workload` compares optimized release
@@ -115,7 +118,12 @@ the runtime change. The same workload submits 932 synthetic
 128 avatar textures are admitted. It advances the maintenance clock by 61
 seconds, with one warmup and three measured runs per build. All runs agree.
 This measures retained texture payload accounting without a window or network,
-not GPU allocation, process RSS, peak decoding memory or latency. Separate UI
+not GPU allocation, process RSS, peak decoding memory or latency. Release samples
+are reused from initial implementation `2b60dd8c`; the review follow-up changes
+layout/paint access, not expiry accounting. One run of the final debug test binary
+confirmed the same 2,097,152 B peak and zero settled payload. A redundant optimized
+UI-test rebuild was stopped during compilation; it produced no new release sample.
+Separate UI
 regressions cover both cache pools, clipped/visible artwork, reloads and cached
 composer image painting. Native before/after process and GPU measurements are
 unmeasured; attempted standard-package `--demo` processes exited before a valid
@@ -141,13 +149,13 @@ fresh package build. Both use the pinned release profile and lockfile.
 
 | Package metric | Baseline | After | Delta | Method |
 | --- | ---: | ---: | ---: | --- |
-| Executable | 68,657,536 B | 68,657,536 B | 0 B | Mach-O file length |
-| Installed bundle | 74,695,871 B | 74,695,871 B | 0 B | Sum of bundle file lengths |
-| ZIP | 48,255,390 B | 48,260,122 B | +4,732 B / +0.0098% | ditto -c -k --sequesterRsrc --keepParent |
+| Executable | 68,657,536 B | 68,657,536 B | +0 B | Mach-O file length |
+| Installed bundle | 74,695,871 B | 74,695,871 B | +0 B | Sum of bundle file lengths |
+| ZIP | 48,255,390 B | 48,261,871 B | +6,481 B / +0.0134% | ditto -c -k --sequesterRsrc --keepParent |
 
 The ZIP difference is small compression/signing noise, not a meaningful package
 improvement. The local package is ad-hoc signed, not notarized. Full workspace
-checking passes (1,232 tests, zero failures), including formatting, strict Clippy
+checking passes (1,234 tests, zero failures), including formatting, strict Clippy
 and policy checks. Linux/Windows runtime behavior and a controlled live-account
 soak after this new artwork change remain unmeasured.
 

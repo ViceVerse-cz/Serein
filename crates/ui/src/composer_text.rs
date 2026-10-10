@@ -24,6 +24,7 @@ struct Inline {
 pub(crate) struct Layout {
 	inlines: Vec<Inline>,
 	cache: Option<(u64, Arc<egui::Galley>)>,
+	demo: bool,
 }
 
 impl Layout {
@@ -40,6 +41,7 @@ impl Layout {
 		avatars: &mut Avatars,
 		demo: bool,
 	) -> Arc<egui::Galley> {
+		self.demo = demo;
 		let mut key = DefaultHasher::new();
 		text.hash(&mut key);
 		width.to_bits().hash(&mut key);
@@ -140,7 +142,7 @@ impl Layout {
 				len
 			} else if let Some((share, name, len)) = model::ImageShare::markdown_prefix(tail) {
 				asset = Some(share);
-				image = avatars.share_image(ui.ctx(), share, size, demo);
+				image = avatars.lookup_share_image(ui.ctx(), share, size, demo);
 				if image.is_none() {
 					label = Some((name, colors.muted));
 				}
@@ -150,7 +152,7 @@ impl Layout {
 					id,
 					animated: false,
 				});
-				image = avatars.custom_image(ui.ctx(), id, size, demo);
+				image = avatars.lookup_share_image(ui.ctx(), asset.unwrap(), size, demo);
 				// A useful name remains visible while artwork is unavailable/loading.
 				if image.is_none() {
 					let name = tail[..len]
@@ -268,8 +270,12 @@ impl Layout {
 				position.min,
 				egui::vec2(inline.width, position.height()),
 			);
-			if !rect.intersects(clip) {
+			if !rect.intersect(clip).is_positive() {
 				continue;
+			}
+			if let Some(asset) = inline.asset {
+				// Only visible slots may request or refresh artwork, even on a cache hit.
+				avatars.touch_share_image(ui.ctx(), asset, self.demo);
 			}
 			if let Some(label) = &inline.label {
 				painter.rect_filled(rect, 3, inline.background);
@@ -297,9 +303,6 @@ impl Layout {
 					Color32::PLACEHOLDER,
 				);
 			} else if let Some(image) = &inline.image {
-				if let Some(asset) = inline.asset {
-					avatars.touch_share_image(ui.ctx(), asset);
-				}
 				let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
 				child.set_clip_rect(clip);
 				image.paint_at(

@@ -2006,6 +2006,7 @@ impl Formatted {
 		struct Inline {
 			text: String,
 			custom: Option<model::Id>,
+			cell: Option<usize>,
 			image: Option<egui::Image<'static>>,
 		}
 		let size = crate::emoji::inline_size(ui);
@@ -2071,22 +2072,8 @@ impl Formatted {
 				inlines.push(Inline {
 					text: cluster.to_owned(),
 					custom: custom.map(|(id, _)| id),
-					image: shared
-						.and_then(|asset| images.share_image(ui.ctx(), asset, size, demo))
-						.or_else(|| {
-							cell.and_then(|cell| {
-								if jumbo
-									&& let Some(image) = images.unicode_image(ui.ctx(), cell, size)
-								{
-									return Some(image.alt_text(cluster));
-								}
-								atlas
-									.get_or_insert_with(|| crate::emoji::atlas(ui.ctx()))
-									.map(|atlas| {
-										crate::emoji::image_cell(atlas, cluster, cell, size)
-									})
-							})
-						}),
+					cell,
+					image: None,
 				});
 				offset += len;
 				start = offset;
@@ -2198,17 +2185,36 @@ impl Formatted {
 				wrap,
 			));
 		}
+		// Resolve artwork only after its slot is positioned inside the viewport.
+		for (index, rect) in &slots {
+			if !ui.is_rect_visible(*rect) || !rect.intersect(ui.clip_rect()).is_positive() {
+				continue;
+			}
+			let inline = &mut inlines[*index];
+			inline.image = match inline.custom {
+				Some(id) => images.custom_image(ui.ctx(), id, size, demo),
+				None => shared
+					.and_then(|asset| images.share_image(ui.ctx(), asset, size, demo))
+					.or_else(|| {
+						inline.cell.and_then(|cell| {
+							if jumbo && let Some(image) = images.unicode_image(ui.ctx(), cell, size)
+							{
+								return Some(image.alt_text(&inline.text));
+							}
+							atlas
+								.get_or_insert_with(|| crate::emoji::atlas(ui.ctx()))
+								.map(|atlas| {
+									crate::emoji::image_cell(atlas, &inline.text, cell, size)
+								})
+						})
+					}),
+			};
+		}
 		let artwork = slots
 			.iter()
-			.map(|(index, rect)| {
-				let inline = &inlines[*index];
-				crate::select::Artwork {
-					rect: *rect,
-					image: match inline.custom {
-						Some(id) => images.custom_image(ui.ctx(), id, size, demo),
-						None => inline.image.clone(),
-					},
-				}
+			.map(|(index, rect)| crate::select::Artwork {
+				rect: *rect,
+				image: inlines[*index].image.clone(),
 			})
 			.collect();
 		// Labels in wrapping layouts encode preceding widgets as leading space in their first
@@ -2267,10 +2273,7 @@ impl Formatted {
 					continue;
 				}
 				let inline = &inlines[*index];
-				let image = match inline.custom {
-					Some(id) => images.custom_image(ui.ctx(), id, size, demo),
-					None => inline.image.clone(),
-				};
+				let image = inline.image.clone();
 				if !link {
 					let hit = ui
 						.interact(

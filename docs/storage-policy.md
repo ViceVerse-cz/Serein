@@ -4,7 +4,9 @@
 
 Avatar, banner, activity, sticker, GIF-picker and custom/high-resolution emoji
 textures now expire after 60 seconds without access. Visible painting refreshes
-its deadline; a clipped paint does not. Accepted worker results get a fresh
+its deadline; layout-only reads and clipped painting neither refresh nor reload
+composer/timeline artwork. Composer painting keeps still textures warm without
+advancing animation frames. Accepted worker results get a fresh
 minute. The existing maintenance deadline includes both artwork pools, so an
 idle window can trim them. Expiry updates byte accounting and removes associated
 animation/playback state. Existing 512-item / 64-MiB artwork and 1,024-item /
