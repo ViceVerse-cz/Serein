@@ -14,6 +14,10 @@ const MAX_FILES: usize = 8192;
 const MAX_UNPACKED: u64 = 1024 * 1024 * 1024;
 const WINDOWS_FILES: &[&str] = &[
 	"serein.exe",
+	"avcodec-serein-61.dll",
+	"avutil-serein-59.dll",
+	"openh264.dll",
+	"ffmpeg-source",
 	"README.md",
 	"LICENSE-MIT",
 	"LICENSE-APACHE",
@@ -708,11 +712,21 @@ pub(super) fn unpack(
 			return Err("The update does not contain Serein.app.".into());
 		}
 		verify_mac(&destination.join("Serein.app"), installed)?;
-	} else if !destination.join("serein.exe").is_file()
+	} else if ![
+		"serein.exe",
+		"avcodec-serein-61.dll",
+		"avutil-serein-59.dll",
+		"openh264.dll",
+	]
+	.iter()
+	.all(|name| destination.join(name).is_file())
+		|| !destination.join("ffmpeg-source").is_dir()
 		|| !destination.join("licenses").is_dir()
 		|| !destination.join("THIRD_PARTY_NOTICES.md").is_file()
 	{
-		return Err("The update is missing its executable or bundled notices.".into());
+		return Err(
+			"The update is missing its executable, video libraries or bundled notices.".into(),
+		);
 	}
 	fs::remove_file(directory.join("package.zip"))
 		.map_err(|_| "Cannot clean the verified update archive.".to_owned())?;
@@ -1133,4 +1147,66 @@ pub(super) fn debug_check() -> Result<(), String> {
 		}
 	}
 	Ok(())
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod ffmpeg_update_tests {
+	use super::*;
+
+	#[test]
+	fn windows_update_extracts_complete_codecs_and_rejects_missing_or_unexpected_dlls() {
+		let mut nonce = [0; 8];
+		getrandom::fill(&mut nonce).unwrap();
+		let root = std::env::temp_dir().join(format!(
+			"serein-ffmpeg-update-{:016x}",
+			u64::from_ne_bytes(nonce)
+		));
+		fs::create_dir(&root).unwrap();
+		for (case, omit, extra, valid) in [
+			("complete", None, None, true),
+			("missing", Some("avutil-serein-59.dll"), None, false),
+			("unexpected", None, Some("unexpected.dll"), false),
+		] {
+			let stage = root.join(case);
+			fs::create_dir(&stage).unwrap();
+			let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+			for name in [
+				"serein.exe",
+				"avcodec-serein-61.dll",
+				"avutil-serein-59.dll",
+				"openh264.dll",
+				"THIRD_PARTY_NOTICES.md",
+				"licenses/fixture.txt",
+				"ffmpeg-source/source/ffmpeg-7.1.5.tar.xz",
+			]
+			.into_iter()
+			.chain(extra)
+			{
+				if Some(name) == omit {
+					continue;
+				}
+				zip.start_file(name, zip::write::SimpleFileOptions::default())
+					.unwrap();
+				zip.write_all(b"offline fixture; never executed").unwrap();
+			}
+			fs::write(
+				stage.join("package.zip"),
+				zip.finish().unwrap().into_inner(),
+			)
+			.unwrap();
+			assert_eq!(
+				unpack(&stage, &root, &AtomicBool::new(false)).is_ok(),
+				valid,
+				"{case}"
+			);
+			if valid {
+				assert_eq!(
+					fs::read(stage.join("package/avcodec-serein-61.dll")).unwrap(),
+					b"offline fixture; never executed"
+				);
+				assert!(!stage.join("package.zip").exists());
+			}
+		}
+		fs::remove_dir_all(root).unwrap();
+	}
 }

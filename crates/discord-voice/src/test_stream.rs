@@ -106,6 +106,89 @@ async fn established_streams_bound_missing_rekey_execution_and_welcome() {
 		.expect("Stream rekey must time out while signaling remains healthy");
 }
 
+#[tokio::test]
+async fn experimental_stream_rejects_h264_selection_for_h265_or_av1() {
+	for codec in [VideoCodec::H265, VideoCodec::Av1] {
+		timeout(Duration::from_secs(10), reject_h264_selection(codec))
+			.await
+			.expect("Codec rejection handshake timed out");
+	}
+}
+
+async fn reject_h264_selection(codec: VideoCodec) {
+	let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+	let url = format!("ws://{}", listener.local_addr().unwrap());
+	let (_frames_tx, frames) = tokio::sync::mpsc::channel(1);
+	let video = Video {
+		video_settings: VideoSettings {
+			backend: model::voice_settings::VideoBackend::Experimental,
+			codec,
+			..Default::default()
+		},
+		settings: Settings {
+			source: SourceId::Display(1),
+			width: 320,
+			height: 240,
+			fps: 30,
+			cursor: false,
+			audio: false,
+		},
+		frames,
+		ready: Arc::new(AtomicBool::new(false)),
+		keyframe: Arc::new(AtomicBool::new(true)),
+		bitrate: Arc::new(std::sync::atomic::AtomicU32::new(4_000_000)),
+		audio: None,
+		audio_epoch: Arc::new(AtomicU64::new(0)),
+	};
+	let sender = tokio::spawn(run_stream_inner(
+		credentials(1),
+		Identity::generate(),
+		Some(video),
+		None,
+		None,
+		|_| Ok(()),
+		url,
+		true,
+	));
+	let (tcp, _) = listener.accept().await.unwrap();
+	let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+	let identify: Value = serde_json::from_str(message(&mut ws).await.to_text().unwrap()).unwrap();
+	assert_eq!(identify["op"], 0);
+	let udp = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+	event(&mut ws, json!({"op":8,"d":{"heartbeat_interval":5000}})).await;
+	event(&mut ws, json!({"op":2,"d":{"ssrc":41,"ip":"127.0.0.1","port":udp.local_addr().unwrap().port(),"modes":[MODE],"streams":[{"ssrc":51,"rtx_ssrc":61}]}})).await;
+	let mut packet = [0; MAX_PACKET + 1];
+	let (length, client) = udp.recv_from(&mut packet).await.unwrap();
+	assert_eq!(length, 74);
+	packet[..4].copy_from_slice(&[0, 2, 0, 70]);
+	packet[8..17].copy_from_slice(b"127.0.0.1");
+	packet[72..74].copy_from_slice(&client.port().to_be_bytes());
+	udp.send_to(&packet[..74], client).await.unwrap();
+	let selection: Value = serde_json::from_str(message(&mut ws).await.to_text().unwrap()).unwrap();
+	assert_eq!(selection["op"], 1);
+	let codecs = selection["d"]["codecs"].as_array().unwrap();
+	assert_eq!(codecs.len(), 2);
+	assert_eq!(codecs[1]["name"], crate::video::codec_name(codec));
+	assert_eq!(codecs[1]["payload_type"], crate::video::payload_type(codec));
+	assert_eq!(codecs[1]["encode"], true);
+	assert_eq!(codecs[1]["decode"], false);
+	event(&mut ws, json!({"op":4,"d":{"mode":MODE,"secret_key":vec![7;32],"dave_protocol_version":1,"video_codec":"H264"}})).await;
+	assert_eq!(sender.await.unwrap(), Err(codec_negotiation_error(codec)));
+	// The only remaining datagram may be an idle keepalive, never mislabeled RTP.
+	for _ in 0..8 {
+		match udp.try_recv_from(&mut packet) {
+			Ok((length, _)) => {
+				assert_eq!(length, 8);
+				assert_eq!(&packet[..4], &[0x13, 0x37, 0xca, 0xfe]);
+			}
+			Err(error) => {
+				assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+				break;
+			}
+		}
+	}
+}
+
 async fn exchange(rekey_timeout: bool) {
 	let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 	let url = format!("ws://{}", listener.local_addr().unwrap());
@@ -115,6 +198,7 @@ async fn exchange(rekey_timeout: bool) {
 	let keyframe = Arc::new(AtomicBool::new(true));
 	let epoch = Arc::new(AtomicU64::new(0));
 	let video = Video {
+		video_settings: VideoSettings::default(),
 		settings: Settings {
 			source: SourceId::Display(1),
 			width: 320,
@@ -300,7 +384,7 @@ async fn exchange(rekey_timeout: bool) {
 				assert!(ready.load(Ordering::Acquire));
 				let samples = (0..STREAM_AUDIO_FRAME).map(|i| ((i/2) as f32 * if i%2 == 0 {0.06} else {0.1}).sin() * 0.3).collect();
 				let _ = audio_tx.try_send(AudioChunk { samples, epoch: epoch.load(Ordering::Acquire) });
-				let _ = frames_tx.try_send(EncodedFrame { data: encoded.clone(), timestamp, keyframe: true });
+				let _ = frames_tx.try_send(EncodedFrame { data: encoded.clone(), timestamp, keyframe: true, codec: VideoCodec::H264, epoch: epoch.load(Ordering::Acquire), reset_generation: epoch.load(Ordering::Acquire) });
 				timestamp += 1800;
 				while let Ok(frame) = playback_rx.try_recv() { heard |= frame.iter().any(|sample| sample.abs() > 0.01); }
 				if let Ok(frame) = picture_rx.try_recv() { picture = Some(frame); }

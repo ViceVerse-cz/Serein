@@ -4,13 +4,15 @@
 #![cfg(not(test))]
 #![allow(dead_code)]
 #![allow(clippy::duplicate_mod)] // Crate-root shims and screen.rs share production modules.
+// Retain the package's native C linkage when this harness includes its Rust modules.
+use discord_voice as _;
 #[cfg(target_os = "linux")]
 #[path = "../src/screen.rs"]
 mod screen;
 #[cfg(target_os = "linux")]
 use screen::{
-	AudioChunk, EncodedFrame, MAX_AUDIO_SAMPLES, MAX_ENCODED_BYTES, MAX_RAW_BYTES, RawFrame,
-	Settings, SourceId, encode_pixels, encoder, preview_frame,
+	AudioChunk, EncodedFrame, MAX_AUDIO_SAMPLES, MAX_RAW_BYTES, RawFrame, ScreenEncoder, Settings,
+	SourceId, preview_frame, retain_screen_frame,
 };
 #[cfg(target_os = "linux")]
 #[path = "../src/screen/audio_linux.rs"]
@@ -29,11 +31,20 @@ mod portal_linux;
 mod video;
 // The shared screen module reaches the platform encoders' keyframe check through this path.
 #[cfg(target_os = "linux")]
+#[path = "../src/video_backend.rs"]
+mod video_backend;
+#[cfg(target_os = "linux")]
 #[path = "../src/video_encode.rs"]
 mod video_encode;
 #[cfg(target_os = "linux")]
+#[path = "../src/video_gpu.rs"]
+mod video_gpu;
+#[cfg(target_os = "linux")]
 #[path = "../src/video_receive.rs"]
 mod video_receive;
+#[cfg(target_os = "linux")]
+#[path = "../src/video_sps.rs"]
+mod video_sps;
 // The application-audio worker reports its capture counters through the shared reporter.
 #[cfg(target_os = "linux")]
 #[path = "../src/diagnostics.rs"]
@@ -46,18 +57,13 @@ mod timer;
 fn main() {
 	use ::gstreamer as gst;
 	use gst::prelude::*;
-	use gstreamer::{Capture, Mode};
+	use gstreamer::Capture;
 	use std::{
 		sync::{
 			Arc,
 			atomic::{AtomicBool, AtomicU64, Ordering},
 		},
 		time::{Duration, Instant},
-	};
-	let mode = if std::env::args().any(|arg| arg == "--legacy-vaapi") {
-		Mode::VaLegacy
-	} else {
-		Mode::Software
 	};
 	let runtime = tokio::runtime::Builder::new_current_thread()
 		.enable_all()
@@ -88,7 +94,7 @@ fn main() {
 			});
 			linux::timestamp_niri_frames(&source).unwrap();
 		}
-		let pipeline = Capture::new(settings, mode, settings.bit_rate(), source, stop.clone(), ready.clone(), keyframe.clone(), || true).unwrap();
+		let pipeline = Capture::new(settings, source, stop.clone(), ready.clone(), keyframe.clone(), || true).unwrap();
 		let deadline = Instant::now() + Duration::from_secs(5);
 		let mut previews = 0;
 		let mut last_preview_pts = None;
@@ -111,35 +117,19 @@ fn main() {
 		let deadline = Instant::now() + Duration::from_secs(5);
 		let mut encoded = 0;
 		let mut last_pts = None;
-		let mut decoder = openh264::decoder::Decoder::new().unwrap();
+		let mut encoder = ScreenEncoder::new_on_adapter(settings, settings.bit_rate(), model::voice_settings::VideoSettings::default(), None, 0, 0).unwrap();
 		while Instant::now() < deadline && encoded < 5 {
 			assert!(!pipeline.failed());
 			if let Some(sample) = pipeline.frames.try_pull_sample(gst::ClockTime::ZERO) {
 				let pts = sample.buffer().unwrap().pts().expect("frame timestamp");
 				assert!(last_pts.is_none_or(|last| pts > last), "frames must keep advancing");
 				last_pts = Some(pts);
-				if mode == Mode::VaLegacy {
-					let buffer = sample.buffer().unwrap();
-					let data = buffer.map_readable().unwrap();
-					video::validate_source(&data).unwrap();
-					if encoded == 0 {
-						assert!(!buffer.flags().contains(gst::BufferFlags::DELTA_UNIT));
-						assert!(video_receive::is_keyframe(&data));
-						assert!(video_receive::has_parameter_sets(&data));
-					}
-					let picture = decoder.decode(&data).unwrap().expect("decodable legacy H.264");
-					use openh264::formats::YUVSource;
-					assert_eq!(picture.dimensions(), (1280, 720));
-					encoded += 1;
-					continue;
-				}
 				let raw = gstreamer::raw(&sample).unwrap();
 				assert_eq!((raw.width, raw.height), (1280, 720));
-				let mut encoder = encoder(settings, settings.bit_rate()).unwrap();
-				let mut yuv = openh264::formats::YUVBuffer::new(1280, 720);
-				let (data, keyframe) = encode_pixels(&mut encoder, &mut yuv, &raw.data, (1280, 720), true).unwrap();
-				assert!(keyframe);
-				video::validate_source(&data).unwrap();
+				let packet = encoder.encode_at(&raw, true, 0).unwrap();
+				if packet.data.is_empty() { continue; }
+				assert!(packet.keyframe);
+				video::validate_source(&packet.data).unwrap();
 				encoded += 1;
 			}
 			pipeline.changed().await;
@@ -158,7 +148,7 @@ fn main() {
 			assert!(Instant::now() < deadline, "cancelled audio worker must retire without opening a device");
 			tokio::time::sleep(Duration::from_millis(10)).await;
 		}
-		println!("Linux screen pipeline: synthetic preview, secure-readiness gates, application audio exclusion/bounded stereo mixing, {} and portal pre-cancellation passed. Native screen capture and Discord delivery remain unverified.", mode.label());
+		println!("Linux screen pipeline: synthetic preview, secure-readiness gates, application audio exclusion/bounded stereo mixing, Stable H.264 encoding and portal pre-cancellation passed. Native screen capture and Discord delivery remain unverified.");
 	});
 }
 #[cfg(not(target_os = "linux"))]

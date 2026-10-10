@@ -4,7 +4,7 @@ use client_core::{
 	screen::{Settings, Source, SourceId},
 	voice::Phase,
 };
-use model::Id;
+use model::{Id, voice_settings::VideoResolution};
 
 pub enum Request {
 	Start(Settings),
@@ -91,14 +91,14 @@ impl ScreenUi {
 		let source = self
 			.selected
 			.filter(|id| self.sources.iter().any(|s| s.id == *id))?;
+		let (width, height) = VideoResolution::ALL
+			.iter()
+			.map(|resolution| resolution.dimensions())
+			.find(|(_, height)| *height == self.height)?;
 		let settings = Settings {
 			source,
-			width: match self.height {
-				480 => 854,
-				1080 => 1920,
-				_ => 1280,
-			},
-			height: self.height,
+			width,
+			height,
 			fps: self.fps,
 			cursor: self.cursor,
 			audio: self.audio,
@@ -165,7 +165,7 @@ impl ScreenUi {
 		}
 	}
 
-	/// Source list, then the capture options Discord exposes without an entitlement.
+	/// Source list, then local output presets and capture options.
 	fn body(&mut self, ui: &mut egui::Ui, state: &State) {
 		let colors = crate::design::palette(ui);
 		ui.horizontal(|ui| {
@@ -206,8 +206,9 @@ impl ScreenUi {
 		ui.add_space(6.0);
 		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
-			for height in [480, 720, 1080] {
-				if segment(ui, &format!("{height}p"), self.height == height).clicked() {
+			for resolution in VideoResolution::ALL {
+				let height = resolution.dimensions().1;
+				if segment(ui, resolution.label(), self.height == height).clicked() {
 					self.height = height;
 				}
 			}
@@ -239,6 +240,14 @@ impl ScreenUi {
 			.wrap(),
 		);
 		ui.add_space(10.0);
+		ui.add(
+			egui::Label::new(
+				egui::RichText::new(crate::i18n::translate("screen-body-resolution-description"))
+					.size(12.0)
+					.color(colors.muted),
+			)
+			.wrap(),
+		);
 		crate::design::switch(
 			ui,
 			"screen-body-show-cursor",
@@ -466,6 +475,15 @@ mod tests {
 			(1920, 1080, 60)
 		);
 		assert_eq!(settings.bit_rate(), 16_000_000);
+		for resolution in VideoResolution::ALL {
+			picker.height = resolution.dimensions().1;
+			let settings = picker.settings().unwrap();
+			assert_eq!((settings.width, settings.height), resolution.dimensions());
+		}
+		assert_eq!(picker.settings().unwrap().bit_rate(), 50_000_000);
+		picker.height = 4321;
+		assert!(picker.settings().is_none());
+		picker.height = 4320;
 		picker.audio = true;
 		assert!(picker.settings().unwrap().audio);
 		picker.audio = false;

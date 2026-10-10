@@ -268,6 +268,7 @@ Section "Uninstall"
 
   ; Remove installed files
   Delete "$INSTDIR\${APP_EXE}"
+  Delete "$INSTDIR\serein.pdb"
   Delete "$INSTDIR\README.md"
   Delete "$INSTDIR\LICENSE-MIT"
   Delete "$INSTDIR\LICENSE-APACHE"
@@ -275,10 +276,15 @@ Section "Uninstall"
   Delete "$INSTDIR\install-notifications.ps1"
   Delete "$INSTDIR\setup.ps1"
   Delete "$INSTDIR\uninstall.exe"
+  Delete "$INSTDIR\avcodec-serein-61.dll"
+  Delete "$INSTDIR\avutil-serein-59.dll"
+  Delete "$INSTDIR\openh264.dll"
   RMDir /r "$INSTDIR\docs"
   RMDir /r "$INSTDIR\licenses"
   RMDir /r "$INSTDIR\source"
+  RMDir /r "$INSTDIR\ffmpeg-source"
 
-  ; Remove installation directory if empty or leftover update staging
-  RMDir /r "$INSTDIR"
+  ; Setup permits existing custom folders. Preserve unrelated files and update
+  ; backups; remove the installation directory only when our payload left it empty.
+  RMDir "$INSTDIR"
 SectionEnd

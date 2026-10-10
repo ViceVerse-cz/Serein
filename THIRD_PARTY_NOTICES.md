@@ -178,9 +178,48 @@ strength_reduce 0.2.4 and transpose 0.2.3. Their license declarations and retain
 texts/notices are recorded in docs/dependency-versions.md and
 assets/licenses/voice/PROVENANCE.md and staged by the existing voice packager.
 
-Optional screen sharing adds **screencapturekit 10.0.3** (MIT OR Apache-2.0) on macOS, **windows-capture 2.0.1** (MIT) on Windows and **openh264 / openh264-sys2 0.9.8** (BSD-2-Clause) for source-built Cisco OpenH264 encoding. It reuses **image 0.25.10** (MIT OR Apache-2.0) for bounded scaling. Native frameworks are supplied by the OS. These dependencies stay behind the existing voice feature. Unmodified available license texts and source provenance are retained in `assets/licenses/voice/PROVENANCE.md`; the noted missing binding license text and existing full per-artifact redistribution review remain outstanding.
+Native screen capture uses **screencapturekit 10.0.3** (MIT OR Apache-2.0) on macOS and **windows-capture 2.0.1** (MIT) on Windows. Incoming software decoding uses **openh264 / openh264-sys2 0.9.8** (BSD-2-Clause). Media reuses **image 0.25.10** (MIT OR Apache-2.0) for bounded scaling. Native frameworks are supplied by the OS. Voice and video ship in the standard build. Unmodified available license texts and source provenance are retained in `assets/licenses/voice/PROVENANCE.md`; the noted missing binding license text and existing full per-artifact redistribution review remain outstanding.
 
-Camera sending in the macOS build uses **openh264 0.9.8** and
+Experimental camera and screen sharing use **FFmpeg 7.1.5** libavcodec/libavutil,
+source-built **Cisco OpenH264 2.6.0**, and **nv-codec-headers 12.2.72.0** on
+supported NVIDIA platforms. AMD AMF uses **AMF 1.4.36** MIT-licensed public headers;
+the unchanged AMD license includes its standards/patent notice. Intel Quick Sync
+uses the **oneVPL 2.14.0** MIT-licensed dispatcher, compiled as a PIC static library
+into FFmpeg; its license and third-party-programs notice are retained. GPU
+runtime drivers are supplied by the OS/vendor, not bundled. Linux QSV uses
+distribution-provided libva/libdrm for its driver device interface.
+Exact AMD GPU selection on Linux additionally compiles against pinned
+**Vulkan-Headers 1.3.290** (MIT OR Apache-2.0); packages retain its full source
+archive, upstream license summary and both license texts. The Vulkan loader is
+provided by the system. Its DRM-derived Vulkan context binds AMF to the selected
+renderer device; Vulkan video encoders/decoders remain disabled.
+The bundled FFmpeg build is **LGPL-2.1-or-later**;
+GPL, nonfree, Media Foundation and H264/HEVC/AV1 VA-API encoders are disabled
+in this FFmpeg build. Its hardware wrappers support H264, HEVC and AV1 where
+the platform/backend supplies them; software encoding remains OpenH264/H264.
+Stable retains original H264 platform encoders, including OS Media Foundation,
+VideoToolbox and distribution-provided GStreamer VA-API/NVENC, with Rust OpenH264
+fallback. These platform frameworks/plugins are not newly bundled codec source.
+NVIDIA headers retain their MIT notices; VideoToolbox is an OS framework. FFmpeg is dynamically
+linked through replaceable shared libraries. Packages retain its complete
+corresponding source archive, exact checksum/source URLs, configure arguments, source patch,
+LGPL text and build recipe under `ffmpeg-source` (Linux:
+`share/doc/serein/ffmpeg-source`). The OpenH264 source subset omits only upstream
+root `res/` test media, preserving all source/build files and nested Android
+resources; its original and subset hashes are recorded separately. oneVPL source and the exact
+AMF public-header subset accompany the recipe for offline rebuilds; the AMF
+subset is identified separately from its original SDK archive. See `packaging/ffmpeg/README.md` and
+`assets/licenses/voice/PROVENANCE.md`. Serein's application code remains
+MIT OR Apache-2.0. No separately installed GPL FFmpeg library is linked into
+official packages.
+
+Linux shared OpenH264 uses a private SONAME and prefixed, versioned API symbols
+to avoid incompatible host GStreamer bindings. Its source modifications are
+retained as `ffmpeg-source/serein-openh264.patch` beside the original source
+subset; the supplied build recipe applies them automatically. The Cisco license
+text remains unchanged.
+
+Incoming software H.264 decoding retains **openh264 0.9.8** and
 **openh264-sys2 0.9.8** (BSD-2-Clause, Ralf Biedert), built locally with the
 `source` feature. The sys crate bundles **Cisco OpenH264 2.6.0**, as identified
 by `upstream/codec/api/wels/codec_ver.h`; its BSD-2-Clause notice is reproduced

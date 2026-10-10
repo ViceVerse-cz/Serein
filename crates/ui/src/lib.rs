@@ -438,6 +438,17 @@ pub struct MessagingUi {
 	pub voice_muted: bool,
 	pub voice_deafened: bool,
 	pub voice_processing: model::voice_settings::VoiceProcessing,
+	pub video_settings: model::voice_settings::VideoSettings,
+	/// Session-local driver reports; the host queries outside the render thread.
+	pub video_capabilities: Option<model::voice_settings::DriverCapabilities>,
+	pub video_capabilities_loading: bool,
+	pub video_capabilities_refresh: bool,
+	/// Explicit synthetic encode results, kept separate from driver codec support.
+	pub video_encoder_tests: Option<model::voice_settings::VideoCapabilities>,
+	pub video_encoder_tests_loading: bool,
+	pub video_encoder_tests_request: Option<model::voice_settings::VideoCodec>,
+	/// Codec of the active or last test, independent of changes to the selected codec.
+	pub video_encoder_tests_codec: Option<model::voice_settings::VideoCodec>,
 	pub voice_preview_requested: bool,
 	pub voice_preview_level: Option<f32>,
 	pub voice_preview_status: &'static str,

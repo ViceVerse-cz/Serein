@@ -516,7 +516,7 @@ fn parse_avcc(avcc: &[u8]) -> Result<VideoCodec, &'static str> {
 	let nal_length = (avcc.get(4).ok_or(INVALID)? & 3) + 1;
 	let mut parameter_sets = Vec::new();
 	let mut at = 6;
-	let sps_count = usize::from(avcc[5] & 0x1f);
+	let sps_count = usize::from(avcc.get(5).ok_or(INVALID)? & 0x1f);
 	at = read_parameter_sets(avcc, at, sps_count, &mut parameter_sets)?;
 	let pps_count = usize::from(*avcc.get(at).ok_or(INVALID)?);
 	read_parameter_sets(avcc, at + 1, pps_count, &mut parameter_sets)?;
@@ -780,6 +780,14 @@ fn read_u64(bytes: &[u8], at: usize) -> Result<u64, &'static str> {
 mod tests {
 	use super::*;
 	const FIXTURE: &[u8] = include_bytes!("../../../../apps/desktop/tests/fixtures/video.mov");
+
+	#[test]
+	fn truncated_avcc_header_is_rejected() {
+		let header = [1, 0x64, 0, 0x1f, 0xff];
+		for length in 0..=header.len() {
+			assert!(parse_avcc(&header[..length]).is_err());
+		}
+	}
 
 	#[test]
 	fn fixture_tables_are_complete_and_bounded() {

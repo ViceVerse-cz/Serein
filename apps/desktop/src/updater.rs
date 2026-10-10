@@ -548,7 +548,13 @@ fn asset_name(tag: &str) -> Option<String> {
 	} else {
 		return None;
 	};
-	Some(format!("serein-{tag}-{os}-{arch}.zip"))
+	Some(zip_asset_name(tag, os, arch))
+}
+fn zip_asset_name(tag: &str, os: &str, arch: &str) -> String {
+	// Pre-FFmpeg Windows clients only accept their original package allowlist.
+	// Preserve that asset namespace so they cannot download an incompatible ZIP.
+	let format = if os == "Windows" { "-media-v2" } else { "" };
+	format!("serein-{tag}-{os}-{arch}{format}.zip")
 }
 fn on_channel(release: &Release, version: &semver::Version, nightly: bool) -> bool {
 	let is_nightly = version.pre.as_str().starts_with("nightly.");
@@ -644,6 +650,14 @@ fn select_release(
 	nightly: bool,
 	current: &semver::Version,
 ) -> Result<Option<Package>, String> {
+	select_release_with_asset(releases, nightly, current, asset_name)
+}
+fn select_release_with_asset(
+	releases: Vec<Release>,
+	nightly: bool,
+	current: &semver::Version,
+	archive_name: fn(&str) -> Option<String>,
+) -> Result<Option<Package>, String> {
 	if releases.len() > 100 {
 		return Err("The release list exceeds its limit.".into());
 	}
@@ -666,7 +680,7 @@ fn select_release(
 	}
 	// No in-app installer for this installation: still report the newer version so the
 	// UI can show it, but there is no asset to look up or download.
-	let Some(wanted) = asset_name(&release.tag_name) else {
+	let Some(wanted) = archive_name(&release.tag_name) else {
 		return Ok(Some(Package {
 			version: version.to_string(),
 			archive: None,
@@ -712,6 +726,7 @@ fn select_release(
 		zsync,
 	}))
 }
+
 async fn check_release(
 	nightly: bool,
 	cancel: Arc<AtomicBool>,
@@ -960,4 +975,125 @@ pub fn debug_check() -> Result<(), String> {
 		return Err(format!("Release notes parsed as {notes:?}."));
 	}
 	install::debug_check()
+}
+
+#[cfg(test)]
+mod windows_asset_tests {
+	use super::*;
+
+	fn release(tag: &str, names: &[&str]) -> Release {
+		Release {
+			tag_name: tag.into(),
+			draft: false,
+			prerelease: tag.contains("nightly"),
+			assets: names
+				.iter()
+				.map(|name| Asset {
+					name: (*name).into(),
+					browser_download_url: format!(
+						"https://github.com/ViceVerse-cz/Serein/releases/download/{tag}/{name}"
+					),
+					size: 1,
+				})
+				.collect(),
+			published_at: None,
+			body: None,
+		}
+	}
+
+	#[test]
+	fn windows_media_packages_use_a_separate_namespace_from_legacy_updates() {
+		for tag in ["v1.2.3", "v1.2.3-nightly.20261005.1"] {
+			for arch in ["X64", "ARM64"] {
+				let media = zip_asset_name(tag, "Windows", arch);
+				let legacy = format!("serein-{tag}-Windows-{arch}.zip");
+				assert_eq!(media, format!("serein-{tag}-Windows-{arch}-media-v2.zip"));
+				assert_ne!(media, legacy);
+				assert_eq!(
+					zip_asset_name(tag, "macOS", arch),
+					format!("serein-{tag}-macOS-{arch}.zip")
+				);
+			}
+		}
+	}
+
+	#[test]
+	fn current_windows_updater_selects_media_zip_and_legacy_updater_cannot_select_it() {
+		let current = semver::Version::parse("1.0.0").unwrap();
+		for tag in ["v1.2.3", "v1.2.3-nightly.20261005.1"] {
+			let nightly = tag.contains("nightly");
+			for archive_name in [
+				(|tag: &str| Some(zip_asset_name(tag, "Windows", "X64"))) as fn(&str) -> _,
+				(|tag: &str| Some(zip_asset_name(tag, "Windows", "ARM64"))) as fn(&str) -> _,
+			] {
+				let name = archive_name(tag).unwrap();
+				let fixture = release(tag, &[&name, "SHA256SUMS.txt"]);
+				let package = select_release_with_asset(
+					vec![fixture.clone()],
+					nightly,
+					&current,
+					archive_name,
+				)
+				.unwrap()
+				.unwrap();
+				assert_eq!(package.archive.unwrap().name, name);
+				// The baseline updater's filename policy must find no matching asset.
+				for legacy in [
+					(|tag: &str| Some(format!("serein-{tag}-Windows-X64.zip"))) as fn(&str) -> _,
+					(|tag: &str| Some(format!("serein-{tag}-Windows-ARM64.zip"))) as fn(&str) -> _,
+				] {
+					assert!(
+						select_release_with_asset(vec![fixture.clone()], nightly, &current, legacy)
+							.is_err()
+					);
+				}
+			}
+		}
+	}
+
+	#[test]
+	fn legacy_updater_cannot_reach_an_older_bridge_once_a_media_release_is_latest() {
+		let current = semver::Version::parse("1.0.0").unwrap();
+		let archive_name: fn(&str) -> Option<String> =
+			|tag| Some(format!("serein-{tag}-Windows-X64.zip"));
+		let older = release(
+			"v1.1.0",
+			&["serein-v1.1.0-Windows-X64.zip", "SHA256SUMS.txt"],
+		);
+		let newer = release(
+			"v1.2.3",
+			&["serein-v1.2.3-Windows-X64-media-v2.zip", "SHA256SUMS.txt"],
+		);
+		let error = select_release_with_asset(vec![older, newer], false, &current, archive_name)
+			.err()
+			.unwrap();
+		assert!(error.contains("serein-v1.2.3-Windows-X64.zip"));
+	}
+
+	#[test]
+	fn media_namespace_preserves_asset_identity_and_checksum_checks() {
+		let tag = "v1.2.3";
+		let current = semver::Version::parse("1.0.0").unwrap();
+		let archive_name: fn(&str) -> Option<String> =
+			|tag| Some(zip_asset_name(tag, "Windows", "X64"));
+		let name = archive_name(tag).unwrap();
+		let legacy = format!("serein-{tag}-Windows-X64.zip");
+		let fixture = release(tag, &[&legacy, &name, "SHA256SUMS.txt"]);
+		let package = select_release_with_asset(vec![fixture], false, &current, archive_name)
+			.unwrap()
+			.unwrap();
+		assert_eq!(package.archive.unwrap().name, name);
+		for fixture in [
+			release(tag, &[&legacy, "SHA256SUMS.txt"]),
+			release(tag, &[&name]),
+			release(tag, &[&name, &name, "SHA256SUMS.txt"]),
+		] {
+			assert!(
+				select_release_with_asset(vec![fixture], false, &current, archive_name).is_err()
+			);
+		}
+		let mut fixture = release(tag, &[&name, "SHA256SUMS.txt"]);
+		fixture.assets[0].browser_download_url = "https://example.invalid/package.zip".into();
+		assert!(select_release_with_asset(vec![fixture], false, &current, archive_name).is_err());
+	}
 }

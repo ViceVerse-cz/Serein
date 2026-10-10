@@ -6,16 +6,6 @@
 //! input buffer. Coefficients match openh264's converter, so both encoders look the same.
 use super::{RawFrame, validate_frame};
 
-/// Destination chroma layout after the full-size luma plane.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Chroma {
-	/// NV12: one interleaved UV plane (Media Foundation input).
-	#[cfg_attr(target_os = "macos", allow(dead_code))]
-	Interleaved,
-	/// I420: separate U then V planes (openh264 input).
-	Planar,
-}
-
 /// Bilinear source tap: byte offsets of the two neighbours and the 8-bit blend weight.
 #[derive(Clone, Copy)]
 struct Tap {
@@ -61,16 +51,17 @@ impl Axis {
 }
 
 /// Fit `frame` into `width`x`height` 4:2:0 `output` (exactly `width * height * 3 / 2` bytes).
-pub(crate) fn bgra_to_yuv420(
+pub(crate) fn bgra_to_i420(
 	frame: &RawFrame,
 	width: usize,
 	height: usize,
-	chroma: Chroma,
 	output: &mut [u8],
 ) -> Result<(), &'static str> {
 	validate_frame(frame)?;
 	if width == 0
 		|| height == 0
+		|| width > model::voice_settings::VideoResolution::MAX_WIDTH as usize
+		|| height > model::voice_settings::VideoResolution::MAX_HEIGHT as usize
 		|| !width.is_multiple_of(2)
 		|| !height.is_multiple_of(2)
 		|| output.len() != width * height * 3 / 2
@@ -92,10 +83,7 @@ pub(crate) fn bgra_to_yuv420(
 		.max(1);
 	// Even row counts keep every chroma row inside one band.
 	let band_rows = height.div_ceil(bands).next_multiple_of(2);
-	let (mut u, mut v): (&mut [u8], &mut [u8]) = match chroma {
-		Chroma::Interleaved => (chroma_planes, &mut []),
-		Chroma::Planar => chroma_planes.split_at_mut(width * height / 4),
-	};
+	let (mut u, mut v) = chroma_planes.split_at_mut(width * height / 4);
 	std::thread::scope(|scope| {
 		let mut luma = luma;
 		let mut first = 0;
@@ -104,19 +92,9 @@ pub(crate) fn bgra_to_yuv420(
 			let (band_luma, rest) = luma.split_at_mut(count * width);
 			luma = rest;
 			let chroma_bytes = count / 2 * width / 2;
-			let band_chroma = match chroma {
-				Chroma::Interleaved => {
-					let (band, rest) = std::mem::take(&mut u).split_at_mut(chroma_bytes * 2);
-					u = rest;
-					Out::Interleaved(band)
-				}
-				Chroma::Planar => {
-					let (band_u, rest_u) = std::mem::take(&mut u).split_at_mut(chroma_bytes);
-					let (band_v, rest_v) = std::mem::take(&mut v).split_at_mut(chroma_bytes);
-					(u, v) = (rest_u, rest_v);
-					Out::Planar(band_u, band_v)
-				}
-			};
+			let (band_u, rest_u) = std::mem::take(&mut u).split_at_mut(chroma_bytes);
+			let (band_v, rest_v) = std::mem::take(&mut v).split_at_mut(chroma_bytes);
+			(u, v) = (rest_u, rest_v);
 			let job = Band {
 				source: &frame.data,
 				columns: &columns,
@@ -124,7 +102,8 @@ pub(crate) fn bgra_to_yuv420(
 				width,
 				first,
 				luma: band_luma,
-				chroma: band_chroma,
+				u: band_u,
+				v: band_v,
 			};
 			if first + count >= height {
 				job.run();
@@ -137,11 +116,6 @@ pub(crate) fn bgra_to_yuv420(
 	Ok(())
 }
 
-enum Out<'a> {
-	Interleaved(&'a mut [u8]),
-	Planar(&'a mut [u8], &'a mut [u8]),
-}
-
 struct Band<'a> {
 	source: &'a [u8],
 	columns: &'a Axis,
@@ -149,11 +123,12 @@ struct Band<'a> {
 	width: usize,
 	first: usize,
 	luma: &'a mut [u8],
-	chroma: Out<'a>,
+	u: &'a mut [u8],
+	v: &'a mut [u8],
 }
 
 impl Band<'_> {
-	fn run(mut self) {
+	fn run(self) {
 		let width = self.width;
 		let mut top = vec![[0u32; 3]; width];
 		let mut bottom = vec![[0u32; 3]; width];
@@ -177,16 +152,8 @@ impl Band<'_> {
 					}
 				}
 				let (u, v) = chroma(sum.map(|total| (total + 2) / 4));
-				match &mut self.chroma {
-					Out::Interleaved(uv) => {
-						uv[2 * (chroma_row + x)] = u;
-						uv[2 * (chroma_row + x) + 1] = v;
-					}
-					Out::Planar(plane_u, plane_v) => {
-						plane_u[chroma_row + x] = u;
-						plane_v[chroma_row + x] = v;
-					}
-				}
+				self.u[chroma_row + x] = u;
+				self.v[chroma_row + x] = v;
 			}
 		}
 	}
@@ -256,34 +223,27 @@ mod tests {
 
 	#[test]
 	fn scales_letterboxes_and_matches_bt601_limited_range() {
-		// Padded 4:3 red source into 16:9: red picture with black pillars, both layouts.
+		// Padded 4:3 red source into 16:9: red picture with black pillars.
 		let frame = solid(64, 48, 64 * 4 + 12, [0, 0, 255, 255]);
-		for chroma in [Chroma::Interleaved, Chroma::Planar] {
-			let (width, height) = (128, 72);
-			let mut out = vec![0; width * height * 3 / 2];
-			bgra_to_yuv420(&frame, width, height, chroma, &mut out).unwrap();
-			let (y, uv) = out.split_at(width * height);
-			assert_eq!(y[36 * width + 64], 82);
-			assert_eq!(y[36 * width], 16);
-			let (u, v) = match chroma {
-				Chroma::Interleaved => (uv[18 * width + 64], uv[18 * width + 65]),
-				Chroma::Planar => (uv[18 * 64 + 32], uv[width * height / 4 + 18 * 64 + 32]),
-			};
-			assert_eq!((u, v), (90, 240));
-			let black = match chroma {
-				Chroma::Interleaved => (uv[18 * width], uv[18 * width + 1]),
-				Chroma::Planar => (uv[18 * 64], uv[width * height / 4 + 18 * 64]),
-			};
-			assert_eq!(black, (128, 128));
-		}
+		let (width, height) = (128, 72);
+		let mut out = vec![0; width * height * 3 / 2];
+		bgra_to_i420(&frame, width, height, &mut out).unwrap();
+		let (y, uv) = out.split_at(width * height);
+		assert_eq!(y[36 * width + 64], 82);
+		assert_eq!(y[36 * width], 16);
+		assert_eq!(
+			(uv[18 * 64 + 32], uv[width * height / 4 + 18 * 64 + 32]),
+			(90, 240)
+		);
+		assert_eq!((uv[18 * 64], uv[width * height / 4 + 18 * 64]), (128, 128));
 		// Identity size keeps a sharp one-pixel edge.
 		let mut frame = solid(4, 2, 16, [0, 0, 0, 255]);
 		frame.data[4..8].copy_from_slice(&[255, 255, 255, 255]);
 		let mut out = vec![0; 12];
-		bgra_to_yuv420(&frame, 4, 2, Chroma::Planar, &mut out).unwrap();
+		bgra_to_i420(&frame, 4, 2, &mut out).unwrap();
 		assert_eq!(&out[..4], &[16, 235, 16, 16]);
-		assert!(bgra_to_yuv420(&frame, 3, 2, Chroma::Planar, &mut out).is_err());
-		assert!(bgra_to_yuv420(&frame, 4, 2, Chroma::Planar, &mut out[..11]).is_err());
+		assert!(bgra_to_i420(&frame, 3, 2, &mut out).is_err());
+		assert!(bgra_to_i420(&frame, 4, 2, &mut out[..11]).is_err());
 
 		{
 			let (width, height) = (320, 180);
@@ -292,11 +252,12 @@ mod tests {
 				*byte = (index * 31 % 251) as u8;
 			}
 			let mut banded = vec![0; width * height * 3 / 2];
-			bgra_to_yuv420(&frame, width, height, Chroma::Interleaved, &mut banded).unwrap();
+			bgra_to_i420(&frame, width, height, &mut banded).unwrap();
 			let columns = Axis::new(333, 240, width, 4);
 			let rows = Axis::new(250, 180, height, frame.stride);
 			let mut single = vec![0; width * height * 3 / 2];
 			let (luma, uv) = single.split_at_mut(width * height);
+			let (u, v) = uv.split_at_mut(width * height / 4);
 			Band {
 				source: &frame.data,
 				columns: &columns,
@@ -304,7 +265,8 @@ mod tests {
 				width,
 				first: 0,
 				luma,
-				chroma: Out::Interleaved(uv),
+				u,
+				v,
 			}
 			.run();
 			assert!(banded == single);

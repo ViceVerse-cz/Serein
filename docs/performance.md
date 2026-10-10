@@ -1,8 +1,69 @@
 # Performance findings
 
 Recent synthetic/offline measurements are workload-specific. They do not establish live Discord
-performance, universal device results or application-wide memory bounds. The raw PR screenshot,
+performance, universal device results or application-wide memory bounds. The older upstream PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
+
+## Video encoding evidence for #567
+
+The [compact evidence record](pr-evidence/video-encoding/README.md) retains
+matched synthetic native captures, narrow/light camera and screen layouts, and
+[unchanged historical samples](pr-evidence/video-encoding/measurements.json).
+Older helpers, logs and detailed build records remain in the
+[immutable archive](https://github.com/MCShotty/Serein/tree/faa9660761a2099cf2e6f5b748cf48bfa6871b63/docs/pr-evidence).
+The archive commit identifies storage; each record retains its measured revision,
+working-tree source hashes, environment, method and limitations. None of these
+historical results validates the latest extracted PR head.
+
+### Windows release package — October 8, 2026
+
+Matched voice-inclusive releases compare `1b3e4a7b` with `eefa0fe5`, using Rust
+1.98.1 on Windows 11 build 26200, Ryzen 7 7800X3D and 32 GiB RAM, without demo.
+Installed size sums every file in `dist`; ZIPs use .NET's Optimal compression.
+
+| Metric | Baseline | FFmpeg integration | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable | 86,008,832 B | 86,554,112 B | +545,280 B |
+| Installed package | 90,199,948 B | 124,070,028 B | +33,870,080 B |
+| Complete ZIP | 50,001,798 B | 78,054,030 B | +28,052,232 B |
+
+The historical package reused a stale xtask that omitted FFmpeg staging. Its
+output was repaired by replaying `packaging/ffmpeg/bundle.py`; all 241
+non-executable files then matched their expected staging sources, including
+DLLs, corresponding source, recipes and notices. The complete archive passed
+integrity checks. **No clean end-to-end package rerun is claimed.** These are
+portable directory/ZIP sizes, not NSIS installer sizes. The
+[original method](https://github.com/MCShotty/Serein/blob/faa9660761a2099cf2e6f5b748cf48bfa6871b63/docs/performance.md#windows-ffmpeg-integration-package---october-8-2026)
+retains the exact executable identity and checks.
+
+### Linux synthetic component and UI results — October 5–9, 2026
+
+These are separate additions and workloads, not one whole-PR comparison.
+Original record names in the consolidated JSON identify the source of each row.
+
+| Historical workload | Baseline | After | Interpretation |
+| --- | ---: | ---: | --- |
+| Software FFmpeg camera, 300 frames | 993.070 ms | 1,024.365 ms | Five measured alternating pairs; overlapping ranges |
+| Driver detection, fresh processes | 262.167 ms | 265.354 ms | Five measured pairs; no GPU drivers available |
+| 8K controls, sampled peak/settled helper RSS | 162,140,160 B | 163,909,632 B | One helper pair, +1,769,472 B; no encoding/capture |
+| Split-option setup, 60,000 contexts | 1,301.148 ms | 1,371.227 ms | Five measured pairs; codecs/drivers never opened |
+
+The camera fixture warms 30 frames before timing 300 deterministic 640×480 RGB
+frames; one process warmup precedes five measured pairs. Driver detection uses
+one warmup and five alternating processes against real detector/native code;
+all nine NVENC/AMF/QSV codec paths are unavailable on the recorded host. The 8K
+helper warms six seconds, receives 100 wheel events and records fifteen
+one-second CPU/RSS samples. Split setup uses matched optimized diagnostic
+FFmpeg builds that differ from the standard distribution recipe. Full OS,
+CPU/RAM, renderer, compiler, source identities, commands, samples and noise
+limits are retained in the linked records and stage methods.
+
+These workloads do not establish general speed/quality improvements. Helper
+sizes are not package sizes; sampled RSS is not a memory ceiling. Physical
+8K/60 fps, frame/startup p95, GPU memory, active hardware throughput and fresh
+whole-app/package comparisons remain unmeasured. Full native desktop/package
+checks and fresh captures remain outstanding; local xtask attempts were blocked
+by missing GLib development metadata and native CI requires maintainer approval.
 
 ## Long-session live memory inspection — October 9, 2026
 

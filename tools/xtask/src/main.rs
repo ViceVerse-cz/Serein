@@ -314,6 +314,14 @@ fn package() -> Result<(), String> {
 	} else {
 		root.clone()
 	};
+	let status = std::process::Command::new(if cfg!(windows) { "python" } else { "python3" })
+		.arg("packaging/ffmpeg/bundle.py")
+		.arg(&root)
+		.status()
+		.map_err(|e| e.to_string())?;
+	if !status.success() {
+		return Err("FFmpeg shared-library staging failed; build scripts/build-ffmpeg.py and set FFMPEG_DIR".into());
+	}
 	if cfg!(target_os = "macos") {
 		let status = std::process::Command::new("sh")
 			.arg("packaging/macos/compile-icon.sh")
@@ -410,6 +418,22 @@ fn package() -> Result<(), String> {
 		} else {
 			identity
 		};
+		for name in [
+			"libavcodec-serein.61.dylib",
+			"libavutil-serein.59.dylib",
+			"libopenh264.8.dylib",
+		] {
+			let library = root.join("Serein.app/Contents/Frameworks").join(name);
+			run_tool(
+				"codesign",
+				&[
+					"--force",
+					"--sign",
+					&identity,
+					library.to_str().ok_or("Invalid library path")?,
+				],
+			)?;
+		}
 		run_tool("codesign", &["--force", "--sign", &identity, bundle])?;
 		run_tool("codesign", &["--verify", "--strict", bundle])?;
 	}

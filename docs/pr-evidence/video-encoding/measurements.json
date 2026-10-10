@@ -1,0 +1,2108 @@
+{
+  "schema_version": 1,
+  "archive_commit": "faa9660761a2099cf2e6f5b748cf48bfa6871b63",
+  "scope": "Historical records only. Original revision labels, working-tree identities, hashes, environments, samples and limitations are unchanged. Archive commit identifies storage, not the measured software revision. Relative paths inside records resolve in their archived original directories.",
+  "records": {
+    "video-backend-settings": {
+      "original_path": "docs/pr-evidence/video-backend-settings/measurements.json",
+      "original_file_sha256": "dc45b490a9b3425449ceb86f6f121049e95d4882763c1b21f061acd3a0bb6bf4",
+      "archive_url": "https://github.com/MCShotty/Serein/blob/faa9660761a2099cf2e6f5b748cf48bfa6871b63/docs/pr-evidence/video-backend-settings/measurements.json",
+      "archive_directory": "https://github.com/MCShotty/Serein/tree/faa9660761a2099cf2e6f5b748cf48bfa6871b63/docs/pr-evidence/video-backend-settings",
+      "record": {
+        "recorded_at_utc": "2026-10-05T00:25:30.932440+00:00",
+        "baseline": {
+          "commit": "65811f20a7dea160ba4c78459c63dd339a794a5a",
+          "branch": "feat/ffmpeg-video-encoding",
+          "remote_base": "6313e27",
+          "artifacts": {
+            "serein_0.1.0-1_amd64.deb": {
+              "bytes": 70674624,
+              "sha256": "0d89da6c980fb0bd00a41d9848d023db2ef9f9d11a898a9a70297150c876722c"
+            },
+            "profile_preview": {
+              "bytes": 55650856,
+              "sha256": "a0b8166446419b7048feb087289f9506ac89bcb99be52c89613107a4397e0974"
+            },
+            "discord_voice-56b79be92354d8f2": {
+              "bytes": 7789728,
+              "sha256": "39a258e01c80488971592e551cf8893fcb2e48e8639a7a911183e73a7404f57b"
+            },
+            "serein": {
+              "bytes": 85704880,
+              "sha256": "cd428f541d5d3a2b0ca58833179bba74541be0801b3b09b5cf9b43a0f83847f5"
+            }
+          },
+          "installed": {
+            "path": "/workspace/scratch/serein-vendors-installed",
+            "regular_file_bytes": 120678267,
+            "regular_files": 248
+          }
+        },
+        "after_package": {
+          "executable": {
+            "bytes": 85746216,
+            "sha256": "a3fc2de789c88de7b94b07e2d49834b7bb183e3e37961cd75c578fd1ae4cd9f6"
+          },
+          "distribution": {
+            "bytes": 70795724,
+            "sha256": "df23ff10f56e4d99a8f2ce07fa2da62572a99ce0bc7a68c13caac1858fe0157c"
+          },
+          "installed": {
+            "regular_file_bytes": 120976132,
+            "regular_files": 248
+          },
+          "source_provenance": {
+            "recipe_sha256": "3e6f390ecf333833313c7aaee760cd53ade18d741f535b17bdc32ee1d7538c59",
+            "source_files_verified": 15,
+            "libraries": {
+              "libavutil-serein.so.59": {
+                "bytes": 1489977,
+                "sha256": "81e1a18b89ceee964d87de1953b674b323039151d43a3abc6a5d842c5194a025"
+              },
+              "libopenh264.so.8": {
+                "bytes": 1953481,
+                "sha256": "491c0d1ad1944c39c549258e6f5bd8ee09d31aa35e02a75c7a3b3cb0009a4098"
+              },
+              "libavcodec-serein.so.61": {
+                "bytes": 1217889,
+                "sha256": "d219c818f2696610b07c81da50e8df2e5035b6539a113b35389513be929f3bfc"
+              }
+            },
+            "notices_and_voice_provenance": "match current repository"
+          }
+        },
+        "environment": {
+          "os": "Linux-6.18.44-x86_64-with-glibc2.41",
+          "distribution": "PRETTY_NAME=\"Debian GNU/Linux 13 (trixie)\"\nNAME=\"Debian GNU/Linux\"\nVERSION_ID=\"13\"\nVERSION=\"13 (trixie)\"\nVERSION_CODENAME=trixie\nDEBIAN_VERSION_FULL=13.7\nID=debian\nHOME_URL=\"https://www.debian.org/\"\nSUPPORT_URL=\"https://www.debian.org/support\"\nBUG_REPORT_URL=\"https://bugs.debian.org/\"\n",
+          "cpu_model": "INTEL(R) XEON(R) PLATINUM 8573C",
+          "logical_cpus_visible": 5,
+          "ram_bytes": 18882699264,
+          "cpu_quota": "max 100000",
+          "cpuset": "0-4",
+          "rust": "rustc 1.98.1 (48a229cea 2026-09-01)",
+          "preview_binary": {
+            "bytes": 55659560,
+            "sha256": "cd64cc0e5aa388f1dafca781b808bcc7a2d3143c370b7b430d78415f6ae45622"
+          },
+          "renderer": "Mesa lavapipe Vulkan, verified per idle run",
+          "display": {
+            "server": "Xvfb :88",
+            "scale": 1,
+            "viewport": [
+              1120,
+              760
+            ]
+          },
+          "release": "fat LTO, codegen-units=1, strip=symbols, voice enabled; preview example link only uses -C lto=off",
+          "media_devices": "No /dev/dri or NVIDIA devices; no camera, microphone or desktop capture opened"
+        },
+        "after_source_sha256": {
+          "Cargo.lock": "e95b6bdac4af6f0439019d8f87a1ef00b552ed51e708d5056f400c15a11dce79",
+          "crates/model/src/voice_settings.rs": "536d08375f328028ebce3f0bc6b5ea8bf9bc72491e314531898676bcb588b1ee",
+          "crates/local-store/src/lib.rs": "104fe37002af0c85d72e284bd700f61899245837456225bd43abdc98cb96d4c5",
+          "apps/desktop/src/voice.rs": "c55d5236df0dd51894b3eb729fc0d79eb5f13bcf28410c25c4669690a9d51ed0",
+          "apps/desktop/src/screen.rs": "0401c988b758220e808283e53a458346e200da6210566acd04a41a480c495152",
+          "crates/discord-voice/src/video_backend.rs": "1861a94eff66a889f9a5ee5ec237f28cc88c6586ed7e69ceedfffee001f2de08",
+          "crates/discord-voice/src/video_encode.rs": "99a281061144bf5df1e0c5a591d8e345c49907d5895f322939562dc61f6bdebd",
+          "crates/discord-voice/src/video_encode_ffmpeg.c": "43b5af7e7f144a8fd13bb1e6d570df5302a1774801b04ec51f7ff16b6e82401c",
+          "crates/discord-voice/src/video_encode_ffmpeg.h": "5d0b4ef2a9e9cef9e8970c0c70ea3a0c4fd92337e3478db0cc33be97e6b2034c",
+          "crates/discord-voice/src/video_bitstream.rs": "7854ca75db9ec36f03e853f473e8ce9eb9684c1f3775e7bfca5e0c2ec18d4523",
+          "crates/discord-voice/src/video.rs": "9ee97fe6ebf20712ec13e23032141a6595e89d5ef5787cb28773c3a625deee5f",
+          "crates/discord-voice/src/transport.rs": "464be898834b30eb6c1fe7a2d10912bbeecc143f3691fe3b426b3b36a734626a",
+          "crates/ui/src/voice.rs": "312e8025df813bc71fb1dd212a193a479237cde442d98e4b28ab3a12592d4672",
+          "scripts/build-ffmpeg.py": "3e6f390ecf333833313c7aaee760cd53ade18d741f535b17bdc32ee1d7538c59"
+        },
+        "camera_ffmpeg": {
+          "baseline_binary": {
+            "path": "/workspace/scratch/serein-video-settings-baseline/discord_voice-56b79be92354d8f2",
+            "bytes": 7789728,
+            "sha256": "39a258e01c80488971592e551cf8893fcb2e48e8639a7a911183e73a7404f57b"
+          },
+          "after_binary": {
+            "path": "target/release/deps/discord_voice-56b79be92354d8f2",
+            "bytes": 8040304,
+            "sha256": "1bdf2b9ba066e59709801ad809a366d7663f8bca41fe6e30a787334cf156e646"
+          },
+          "after_test": "camera::synthetic_camera_encode_workload",
+          "warmups": {
+            "baseline": {
+              "encode_300_frames_ms": 1285.959,
+              "packets": 300,
+              "encoded_bytes": 5831668,
+              "sampled_peak_rss_bytes": 20754432,
+              "rss_samples": 133
+            },
+            "after": {
+              "encode_300_frames_ms": 1059.524,
+              "packets": 300,
+              "encoded_bytes": 5831668,
+              "sampled_peak_rss_bytes": 21311488,
+              "rss_samples": 119
+            }
+          },
+          "baseline_samples": [
+            {
+              "encode_300_frames_ms": 981.882,
+              "packets": 300,
+              "encoded_bytes": 5831668,
+              "sampled_peak_rss_bytes": 20791296,
+              "rss_samples": 109
+            },
+            {
+              "encode_300_frames_ms": 1120.076,
+              "packets": 300,
+              "encoded_bytes": 5831668,
+              "sampled_peak_rss_bytes": 20905984,
+              "rss_samples": 125
+            },
+            {
+              "encode_300_frames_ms": 991.179,
+              "packets": 300,
+              "encoded_bytes": 5831668,
+              "sampled_peak_rss_bytes": 20819968,
+              "rss_samples": 111
+            },
+            {
+              "encode_300_frames_ms": 1011.017,
+              "packets": 300,
+              "encoded_bytes": 5831668,
+              "sampled_peak_rss_bytes": 20680704,
+              "rss_samples": 114
+            },
+            {
+              "encode_300_frames_ms": 993.07,
+              "packets": 300,
+              "encoded_bytes": 5831668,
+              "sampled_peak_rss_bytes": 21147648,
+              "rss_samples": 117
+            }
+          ],
+          "after_samples": [
+            {
+              "encode_300_frames_ms": 1000.103,
+              "packets": 300,
+              "encoded_bytes": 5831668,
+              "sampled_peak_rss_bytes": 21045248,
+              "rss_samples": 112
+            },
+            {
+              "encode_300_frames_ms": 1024.365,
+              "packets": 300,
+              "encoded_bytes": 5831668,
+              "sampled_peak_rss_bytes": 21495808,
+              "rss_samples": 115
+            },
+            {
+              "encode_300_frames_ms": 1013.713,
+              "packets": 300,
+              "encoded_bytes": 5831668,
+              "sampled_peak_rss_bytes": 21491712,
+              "rss_samples": 112
+            },
+            {
+              "encode_300_frames_ms": 1058.073,
+              "packets": 300,
+              "encoded_bytes": 5831668,
+              "sampled_peak_rss_bytes": 21213184,
+              "rss_samples": 118
+            },
+            {
+              "encode_300_frames_ms": 1079.431,
+              "packets": 300,
+              "encoded_bytes": 5831668,
+              "sampled_peak_rss_bytes": 21381120,
+              "rss_samples": 122
+            }
+          ],
+          "baseline_median_ms": 993.07,
+          "after_median_ms": 1024.365
+        },
+        "camera_default_stable": {
+          "baseline_binary": {
+            "path": "/workspace/scratch/serein-video-settings-baseline/discord_voice-56b79be92354d8f2",
+            "bytes": 7789728,
+            "sha256": "39a258e01c80488971592e551cf8893fcb2e48e8639a7a911183e73a7404f57b"
+          },
+          "after_binary": {
+            "path": "target/release/deps/discord_voice-56b79be92354d8f2",
+            "bytes": 8040304,
+            "sha256": "1bdf2b9ba066e59709801ad809a366d7663f8bca41fe6e30a787334cf156e646"
+          },
+          "after_test": "camera::synthetic_stable_camera_encode_workload",
+          "warmups": {
+            "baseline": {
+              "encode_300_frames_ms": 972.038,
+              "packets": 300,
+              "encoded_bytes": 5831668,
+              "sampled_peak_rss_bytes": 20848640,
+              "rss_samples": 110
+            },
+            "after": {
+              "encode_300_frames_ms": 971.229,
+              "packets": 300,
+              "encoded_bytes": 5830468,
+              "sampled_peak_rss_bytes": 23183360,
+              "rss_samples": 160
+            }
+          },
+          "baseline_samples": [
+            {
+              "encode_300_frames_ms": 1053.206,
+              "packets": 300,
+              "encoded_bytes": 5831668,
+              "sampled_peak_rss_bytes": 21094400,
+              "rss_samples": 119
+            },
+            {
+              "encode_300_frames_ms": 978.513,
+              "packets": 300,
+              "encoded_bytes": 5831668,
+              "sampled_peak_rss_bytes": 20815872,
+              "rss_samples": 109
+            },
+            {
+              "encode_300_frames_ms": 1070.348,
+              "packets": 300,
+              "encoded_bytes": 5831668,
+              "sampled_peak_rss_bytes": 21114880,
+              "rss_samples": 120
+            },
+            {
+              "encode_300_frames_ms": 1289.284,
+              "packets": 300,
+              "encoded_bytes": 5831668,
+              "sampled_peak_rss_bytes": 20926464,
+              "rss_samples": 120
+            },
+            {
+              "encode_300_frames_ms": 1074.87,
+              "packets": 300,
+              "encoded_bytes": 5831668,
+              "sampled_peak_rss_bytes": 20856832,
+              "rss_samples": 118
+            }
+          ],
+          "after_samples": [
+            {
+              "encode_300_frames_ms": 971.887,
+              "packets": 300,
+              "encoded_bytes": 5830468,
+              "sampled_peak_rss_bytes": 23150592,
+              "rss_samples": 129
+            },
+            {
+              "encode_300_frames_ms": 961.377,
+              "packets": 300,
+              "encoded_bytes": 5830468,
+              "sampled_peak_rss_bytes": 23609344,
+              "rss_samples": 129
+            },
+            {
+              "encode_300_frames_ms": 988.283,
+              "packets": 300,
+              "encoded_bytes": 5830468,
+              "sampled_peak_rss_bytes": 23404544,
+              "rss_samples": 130
+            },
+            {
+              "encode_300_frames_ms": 951.95,
+              "packets": 300,
+              "encoded_bytes": 5830468,
+              "sampled_peak_rss_bytes": 23220224,
+              "rss_samples": 129
+            },
+            {
+              "encode_300_frames_ms": 948.913,
+              "packets": 300,
+              "encoded_bytes": 5830468,
+              "sampled_peak_rss_bytes": 23162880,
+              "rss_samples": 124
+            }
+          ],
+          "baseline_median_ms": 1070.348,
+          "after_median_ms": 961.377
+        },
+        "native_voice_settings_idle": {
+          "baseline_binary": {
+            "path": "/workspace/scratch/serein-video-settings-baseline/profile_preview",
+            "bytes": 55650856,
+            "sha256": "a0b8166446419b7048feb087289f9506ac89bcb99be52c89613107a4397e0974"
+          },
+          "after_binary": {
+            "path": "target/release/examples/profile_preview",
+            "bytes": 55659560,
+            "sha256": "cd64cc0e5aa388f1dafca781b808bcc7a2d3143c370b7b430d78415f6ae45622"
+          },
+          "baseline_runs": [
+            {
+              "command": [
+                "/workspace/scratch/serein-video-settings-baseline/profile_preview",
+                "--demo",
+                "--interactive",
+                "--page=appearance",
+                "--width=1120",
+                "--height=760"
+              ],
+              "interaction": "Open Voice & Video via sidebar at (100, 412), then pointer (1100, 740)",
+              "warmup_seconds": 8,
+              "settle_seconds": 3,
+              "sample_interval_seconds": 1,
+              "renderer_libraries": [
+                "/usr/lib/x86_64-linux-gnu/libvulkan.so.1.4.309",
+                "/usr/lib/x86_64-linux-gnu/libvulkan_lvp.so"
+              ],
+              "samples": [
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203436032,
+                  "children": []
+                }
+              ],
+              "cpu_mean_percent_one_core": 0.0,
+              "cpu_median_percent_one_core": 0.0,
+              "sampled_peak_rss_bytes": 203436032,
+              "settled_rss_bytes": 203436032
+            },
+            {
+              "command": [
+                "/workspace/scratch/serein-video-settings-baseline/profile_preview",
+                "--demo",
+                "--interactive",
+                "--page=appearance",
+                "--width=1120",
+                "--height=760"
+              ],
+              "interaction": "Open Voice & Video via sidebar at (100, 412), then pointer (1100, 740)",
+              "warmup_seconds": 8,
+              "settle_seconds": 3,
+              "sample_interval_seconds": 1,
+              "renderer_libraries": [
+                "/usr/lib/x86_64-linux-gnu/libvulkan.so.1.4.309",
+                "/usr/lib/x86_64-linux-gnu/libvulkan_lvp.so"
+              ],
+              "samples": [
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 202526720,
+                  "children": []
+                }
+              ],
+              "cpu_mean_percent_one_core": 0.0,
+              "cpu_median_percent_one_core": 0.0,
+              "sampled_peak_rss_bytes": 202526720,
+              "settled_rss_bytes": 202526720
+            }
+          ],
+          "after_runs": [
+            {
+              "command": [
+                "target/release/examples/profile_preview",
+                "--demo",
+                "--interactive",
+                "--page=appearance",
+                "--width=1120",
+                "--height=760"
+              ],
+              "interaction": "Open Voice & Video via sidebar at (100, 412), then pointer (1100, 740)",
+              "warmup_seconds": 8,
+              "settle_seconds": 3,
+              "sample_interval_seconds": 1,
+              "renderer_libraries": [
+                "/usr/lib/x86_64-linux-gnu/libvulkan.so.1.4.309",
+                "/usr/lib/x86_64-linux-gnu/libvulkan_lvp.so"
+              ],
+              "samples": [
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 201850880,
+                  "children": []
+                }
+              ],
+              "cpu_mean_percent_one_core": 0.0,
+              "cpu_median_percent_one_core": 0.0,
+              "sampled_peak_rss_bytes": 201850880,
+              "settled_rss_bytes": 201850880
+            },
+            {
+              "command": [
+                "target/release/examples/profile_preview",
+                "--demo",
+                "--interactive",
+                "--page=appearance",
+                "--width=1120",
+                "--height=760"
+              ],
+              "interaction": "Open Voice & Video via sidebar at (100, 412), then pointer (1100, 740)",
+              "warmup_seconds": 8,
+              "settle_seconds": 3,
+              "sample_interval_seconds": 1,
+              "renderer_libraries": [
+                "/usr/lib/x86_64-linux-gnu/libvulkan.so.1.4.309",
+                "/usr/lib/x86_64-linux-gnu/libvulkan_lvp.so"
+              ],
+              "samples": [
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                },
+                {
+                  "cpu_percent_one_core": 0.0,
+                  "rss_bytes": 203071488,
+                  "children": []
+                }
+              ],
+              "cpu_mean_percent_one_core": 0.0,
+              "cpu_median_percent_one_core": 0.0,
+              "sampled_peak_rss_bytes": 203071488,
+              "settled_rss_bytes": 203071488
+            }
+          ],
+          "baseline": {
+            "cpu_mean_percent_one_core": 0.0,
+            "sampled_peak_rss_bytes": 203436032,
+            "settled_rss_bytes": 202981376
+          },
+          "after": {
+            "cpu_mean_percent_one_core": 0.0,
+            "sampled_peak_rss_bytes": 203071488,
+            "settled_rss_bytes": 202461184
+          }
+        },
+        "excluded_run": "An initial camera set overlapped the synthetic Linux screen workload; it was excluded and repeated after checks/compilers stopped. Preliminary data retained only in task scratch.",
+        "checks": {
+          "workspace": "cargo xtask check passed",
+          "passed_test_executions": 1183,
+          "ignored": 27,
+          "failed": 0,
+          "test_suites": 42,
+          "native_bundle": {
+            "passed": 11,
+            "windows_only_skipped": 1
+          },
+          "native_codec_options": "18 profile/backend combinations without opening devices",
+          "linux_screen": "Both ordinary and --niri-timestamps synthetic pipelines passed, using Stable/H264; no desktop capture",
+          "final_example": "Strict Clippy and workspace formatting passed after correcting diagnostic wording",
+          "standard_package": "248-file DEB smoke passed, source/notices/library hashes verified",
+          "license_coverage": "Dedicated CI only; not run locally"
+        },
+        "limits": "Software camera workloads only. No physical GPU/camera/desktop/microphone or live Discord session. Incoming remains H264. Other native platforms, actual Nix/Flatpak packages and remote CI unverified."
+      }
+    },
+    "video-driver-detection": {
+      "original_path": "docs/pr-evidence/video-driver-detection/measurements.json",
+      "original_file_sha256": "9d332b42cd0b7c9d3d8cb6c78c9b80b7b81819060d1f5a166e4fbdd14197602d",
+      "archive_url": "https://github.com/MCShotty/Serein/blob/faa9660761a2099cf2e6f5b748cf48bfa6871b63/docs/pr-evidence/video-driver-detection/measurements.json",
+      "archive_directory": "https://github.com/MCShotty/Serein/tree/faa9660761a2099cf2e6f5b748cf48bfa6871b63/docs/pr-evidence/video-driver-detection",
+      "record": {
+        "baseline_revision": "16a09a986b73c7bf6abc3a80559ecdefb919c84a",
+        "baseline_source_tree": "e42149b656c474eb2fd9def8be5c0559dcf84d2f",
+        "after_revision": "working-tree driver detection changes atop 16a09a986b73c7bf6abc3a80559ecdefb919c84a",
+        "capture_date_client_timezone": "2026-10-06 Asia/Riyadh",
+        "fixture": "Explicit synthetic driver support and optional encoder test reports in an offline native UI helper; no GPU query, encoding, account or capture",
+        "environment": {
+          "os": "Debian GNU/Linux 13 (trixie)",
+          "architecture": "x86_64",
+          "cpu": "Intel Xeon Platinum 8573C, 5 exposed logical CPUs",
+          "memory_total_kib": 18440136,
+          "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+          "renderer": "eframe/wgpu OpenGL on owned Xvfb :96, LIBGL_ALWAYS_SOFTWARE=1; mapped Mesa 25.0.7 libgallium and LLVM 19.1 verified",
+          "viewport_pixels": [
+            1120,
+            760
+          ],
+          "display_scale": 1.0,
+          "features": "actual UI demo/default; isolated helper without service adapters",
+          "profile": "auxiliary opt-level 1, debuginfo 0, 16 codegen units; exact unchanged cached Cargo graph",
+          "task_compilation_during_samples": false
+        },
+        "method": {
+          "warmup_seconds": 6,
+          "samples_per_revision": 15,
+          "sample_interval_seconds": 1,
+          "runs_per_revision": 1,
+          "memory_metric": "per-process RSS; maximum and last sample",
+          "cpu_metric": "process user+system CPU / elapsed wall time, one-core percent",
+          "interaction": "100 settings body wheel-down events, pointer moved outside the window; no encoder test",
+          "children": "reported separately; none in either run"
+        },
+        "images": {
+          "after.png": {
+            "dimensions": [
+              1120,
+              760
+            ],
+            "bytes": 204905,
+            "sha256": "6f18b01adf4d99a00c1c38879761233468ab593147d8fdd16662caa08800deef",
+            "visually_inspected": true
+          },
+          "before.png": {
+            "dimensions": [
+              1120,
+              760
+            ],
+            "bytes": 181702,
+            "sha256": "f7033847b3ae2e94fa05310b8737f7ca32cc1f4663c8a588d7748175d52de695",
+            "visually_inspected": true
+          },
+          "encoder-test-after.png": {
+            "dimensions": [
+              1120,
+              760
+            ],
+            "bytes": 206954,
+            "sha256": "f7ba21cc5fdb6db08b9b1aa100df1e64ff0fd8d01756292330fe7c1e14c0d09f",
+            "visually_inspected": true
+          },
+          "narrow-light-after.png": {
+            "dimensions": [
+              760,
+              900
+            ],
+            "bytes": 183024,
+            "sha256": "caf77a4525a82ea95b42af60c7a2eb36dc23f01bf7156bf3843496e79003f995",
+            "visually_inspected": true
+          },
+          "narrow-light-before.png": {
+            "dimensions": [
+              760,
+              900
+            ],
+            "bytes": 169380,
+            "sha256": "4d6ba863b7c150377a9192246d6160bb98181a6691eb19de4bdd4e89374d327d",
+            "visually_inspected": true
+          },
+          "unknown-after.png": {
+            "dimensions": [
+              1120,
+              760
+            ],
+            "bytes": 205687,
+            "sha256": "51488fee7e47f4b4e213cd3adedfac1ae8d59030bb96347e37d78a897259dfce",
+            "visually_inspected": true
+          }
+        },
+        "native_ui": {
+          "before": {
+            "revision": "before",
+            "command": [
+              "/tmp/video-driver-detection-evidence-artifacts/before/native-ui-preview",
+              "--demo",
+              "--page=voice",
+              "--video-backend=experimental",
+              "--video-codec=h265",
+              "--capabilities=hardware",
+              "--interactive",
+              "--width=1120",
+              "--height=760"
+            ],
+            "warmup_s": 6,
+            "interaction": "100 wheel-down events in settings body, pointer moved out",
+            "duration_s": 15.015786179996212,
+            "interval_s": 1,
+            "process_cpu_one_core_percent": 0.0,
+            "peak_rss_bytes": 152633344,
+            "settled_rss_bytes": 152633344,
+            "children": [],
+            "executable_bytes": 88546592,
+            "executable_sha256": "6f22ddb75010c6e9529b9975bb0755299607033055209d5913a478fc32e5cf6e",
+            "renderer_libraries": [
+              "/usr/lib/x86_64-linux-gnu/libEGL.so.1.1.0",
+              "/usr/lib/x86_64-linux-gnu/libEGL_mesa.so.0.0.0",
+              "/usr/lib/x86_64-linux-gnu/libLLVM.so.19.1",
+              "/usr/lib/x86_64-linux-gnu/libgallium-25.0.7-2+deb13u1.so"
+            ],
+            "samples": [
+              {
+                "elapsed_s": 1.0001589190069353,
+                "rss_bytes": 152633344
+              },
+              {
+                "elapsed_s": 2.0005163370078662,
+                "rss_bytes": 152633344
+              },
+              {
+                "elapsed_s": 3.00202809899929,
+                "rss_bytes": 152633344
+              },
+              {
+                "elapsed_s": 4.00630339300551,
+                "rss_bytes": 152633344
+              },
+              {
+                "elapsed_s": 5.011410250997869,
+                "rss_bytes": 152633344
+              },
+              {
+                "elapsed_s": 6.011772350000683,
+                "rss_bytes": 152633344
+              },
+              {
+                "elapsed_s": 7.012085116002709,
+                "rss_bytes": 152633344
+              },
+              {
+                "elapsed_s": 8.012432472998626,
+                "rss_bytes": 152633344
+              },
+              {
+                "elapsed_s": 9.012754734008922,
+                "rss_bytes": 152633344
+              },
+              {
+                "elapsed_s": 10.013223643996753,
+                "rss_bytes": 152633344
+              },
+              {
+                "elapsed_s": 11.013563348009484,
+                "rss_bytes": 152633344
+              },
+              {
+                "elapsed_s": 12.013892664996092,
+                "rss_bytes": 152633344
+              },
+              {
+                "elapsed_s": 13.01431670600141,
+                "rss_bytes": 152633344
+              },
+              {
+                "elapsed_s": 14.014654209997389,
+                "rss_bytes": 152633344
+              },
+              {
+                "elapsed_s": 15.014996516008978,
+                "rss_bytes": 152633344
+              }
+            ]
+          },
+          "after": {
+            "revision": "after",
+            "command": [
+              "/tmp/video-driver-detection-evidence-artifacts/after/native-ui-preview",
+              "--demo",
+              "--page=voice",
+              "--video-backend=experimental",
+              "--video-codec=h265",
+              "--capabilities=hardware",
+              "--interactive",
+              "--width=1120",
+              "--height=760"
+            ],
+            "warmup_s": 6,
+            "interaction": "100 wheel-down events in settings body, pointer moved out",
+            "duration_s": 15.028888721994008,
+            "interval_s": 1,
+            "process_cpu_one_core_percent": 0.06653851914789481,
+            "peak_rss_bytes": 152551424,
+            "settled_rss_bytes": 152551424,
+            "children": [],
+            "executable_bytes": 88564208,
+            "executable_sha256": "772dd1f61fba706c7ef2246f7e0369e5f691d24a3ade4cfc46dfbee4e2c46c1c",
+            "renderer_libraries": [
+              "/usr/lib/x86_64-linux-gnu/libEGL.so.1.1.0",
+              "/usr/lib/x86_64-linux-gnu/libEGL_mesa.so.0.0.0",
+              "/usr/lib/x86_64-linux-gnu/libLLVM.so.19.1",
+              "/usr/lib/x86_64-linux-gnu/libgallium-25.0.7-2+deb13u1.so"
+            ],
+            "samples": [
+              {
+                "elapsed_s": 1.0002087100001518,
+                "rss_bytes": 152551424
+              },
+              {
+                "elapsed_s": 2.0006101750041125,
+                "rss_bytes": 152551424
+              },
+              {
+                "elapsed_s": 3.0026132269995287,
+                "rss_bytes": 152551424
+              },
+              {
+                "elapsed_s": 4.010382811000454,
+                "rss_bytes": 152551424
+              },
+              {
+                "elapsed_s": 5.024675381006091,
+                "rss_bytes": 152551424
+              },
+              {
+                "elapsed_s": 6.0252254200022435,
+                "rss_bytes": 152551424
+              },
+              {
+                "elapsed_s": 7.025610488999519,
+                "rss_bytes": 152551424
+              },
+              {
+                "elapsed_s": 8.025997491000453,
+                "rss_bytes": 152551424
+              },
+              {
+                "elapsed_s": 9.026310209999792,
+                "rss_bytes": 152551424
+              },
+              {
+                "elapsed_s": 10.0267857430008,
+                "rss_bytes": 152551424
+              },
+              {
+                "elapsed_s": 11.027123677995405,
+                "rss_bytes": 152551424
+              },
+              {
+                "elapsed_s": 12.027420105994679,
+                "rss_bytes": 152551424
+              },
+              {
+                "elapsed_s": 13.027785426995251,
+                "rss_bytes": 152551424
+              },
+              {
+                "elapsed_s": 14.028147201999673,
+                "rss_bytes": 152551424
+              },
+              {
+                "elapsed_s": 15.028457576001529,
+                "rss_bytes": 152551424
+              }
+            ]
+          },
+          "comparison": {
+            "peak_rss_bytes": {
+              "before": 152633344,
+              "after": 152551424,
+              "absolute_delta": -81920,
+              "percent_delta": -0.053671103477887505
+            },
+            "settled_rss_bytes": {
+              "before": 152633344,
+              "after": 152551424,
+              "absolute_delta": -81920,
+              "percent_delta": -0.053671103477887505
+            },
+            "executable_bytes": {
+              "before": 88546592,
+              "after": 88564208,
+              "absolute_delta": 17616,
+              "percent_delta": 0.01989461096368339
+            },
+            "process_cpu_one_core_percent": {
+              "before": 0.0,
+              "after": 0.06653851914789481,
+              "percentage_point_delta": 0.06653851914789481
+            }
+          },
+          "interpretation": "One short auxiliary UI helper pair. No statistically established performance improvement/regression, encoder throughput or shipped package size claim."
+        },
+        "standard_release_package_comparison": {
+          "available_in_this_ui_evidence": false,
+          "reason": "cargo xtask package stopped at missing glib-2.0.pc development metadata. A fresh standard release package remains unmeasured; the auxiliary helper executable bytes are not package measurements."
+        },
+        "build_identities_file": "build-identities.json",
+        "driver_scan": {
+          "before": {
+            "executable_sha256": "2189c0d17b8a8afd0d68e038f6d12b06b6c0c5379b9583f80ae1ed7973ebfddd",
+            "runs": [
+              {
+                "run": 0,
+                "warmup": true,
+                "elapsed_s": 0.2630548769957386,
+                "parent_peak_rss_bytes": 8613888,
+                "child_peak_rss_bytes": 5107712,
+                "maximum_simultaneous_children": 1,
+                "children_observed": 9,
+                "observed_children_remaining_after_exit": [],
+                "output": "Elapsed: 251.402026ms\nnvenc h264 HardwareSupport { camera: Unavailable, screen: Unavailable }\namf h264 HardwareSupport { camera: Unavailable, screen: Unavailable }\nqsv h264 HardwareSupport { camera: Unavailable, screen: Unavailable }\nnvenc h265 HardwareSupport { camera: Unavailable, screen: Unavailable }\namf h265 HardwareSupport { camera: Unavailable, screen: Unavailable }\nqsv h265 HardwareSupport { camera: Unavailable, screen: Unavailable }\nnvenc av1 HardwareSupport { camera: Unavailable, screen: Unavailable }\namf av1 HardwareSupport { camera: Unavailable, screen: Unavailable }\nqsv av1 HardwareSupport { camera: Unavailable, screen: Unavailable }\n"
+              },
+              {
+                "run": 1,
+                "warmup": false,
+                "elapsed_s": 0.26216148599633016,
+                "parent_peak_rss_bytes": 8790016,
+                "child_peak_rss_bytes": 5533696,
+                "maximum_simultaneous_children": 1,
+                "children_observed": 9,
+                "observed_children_remaining_after_exit": [],
+                "output": "Elapsed: 251.160108ms\nnvenc h264 HardwareSupport { camera: Unavailable, screen: Unavailable }\namf h264 HardwareSupport { camera: Unavailable, screen: Unavailable }\nqsv h264 HardwareSupport { camera: Unavailable, screen: Unavailable }\nnvenc h265 HardwareSupport { camera: Unavailable, screen: Unavailable }\namf h265 HardwareSupport { camera: Unavailable, screen: Unavailable }\nqsv h265 HardwareSupport { camera: Unavailable, screen: Unavailable }\nnvenc av1 HardwareSupport { camera: Unavailable, screen: Unavailable }\namf av1 HardwareSupport { camera: Unavailable, screen: Unavailable }\nqsv av1 HardwareSupport { camera: Unavailable, screen: Unavailable }\n"
+              },
+              {
+                "run": 2,
+                "warmup": false,
+                "elapsed_s": 0.26216657999611925,
+                "parent_peak_rss_bytes": 8704000,
+                "child_peak_rss_bytes": 5267456,
+                "maximum_simultaneous_children": 1,
+                "children_observed": 9,
+                "observed_children_remaining_after_exit": [],
+                "output": "Elapsed: 253.645979ms\nnvenc h264 HardwareSupport { camera: Unavailable, screen: Unavailable }\namf h264 HardwareSupport { camera: Unavailable, screen: Unavailable }\nqsv h264 HardwareSupport { camera: Unavailable, screen: Unavailable }\nnvenc h265 HardwareSupport { camera: Unavailable, screen: Unavailable }\namf h265 HardwareSupport { camera: Unavailable, screen: Unavailable }\nqsv h265 HardwareSupport { camera: Unavailable, screen: Unavailable }\nnvenc av1 HardwareSupport { camera: Unavailable, screen: Unavailable }\namf av1 HardwareSupport { camera: Unavailable, screen: Unavailable }\nqsv av1 HardwareSupport { camera: Unavailable, screen: Unavailable }\n"
+              },
+              {
+                "run": 3,
+                "warmup": false,
+                "elapsed_s": 0.2625072489900049,
+                "parent_peak_rss_bytes": 8667136,
+                "child_peak_rss_bytes": 4550656,
+                "maximum_simultaneous_children": 1,
+                "children_observed": 9,
+                "observed_children_remaining_after_exit": [],
+                "output": "Elapsed: 251.173511ms\nnvenc h264 HardwareSupport { camera: Unavailable, screen: Unavailable }\namf h264 HardwareSupport { camera: Unavailable, screen: Unavailable }\nqsv h264 HardwareSupport { camera: Unavailable, screen: Unavailable }\nnvenc h265 HardwareSupport { camera: Unavailable, screen: Unavailable }\namf h265 HardwareSupport { camera: Unavailable, screen: Unavailable }\nqsv h265 HardwareSupport { camera: Unavailable, screen: Unavailable }\nnvenc av1 HardwareSupport { camera: Unavailable, screen: Unavailable }\namf av1 HardwareSupport { camera: Unavailable, screen: Unavailable }\nqsv av1 HardwareSupport { camera: Unavailable, screen: Unavailable }\n"
+              },
+              {
+                "run": 4,
+                "warmup": false,
+                "elapsed_s": 0.26210779100074433,
+                "parent_peak_rss_bytes": 8736768,
+                "child_peak_rss_bytes": 5533696,
+                "maximum_simultaneous_children": 1,
+                "children_observed": 9,
+                "observed_children_remaining_after_exit": [],
+                "output": "Elapsed: 251.702853ms\nnvenc h264 HardwareSupport { camera: Unavailable, screen: Unavailable }\namf h264 HardwareSupport { camera: Unavailable, screen: Unavailable }\nqsv h264 HardwareSupport { camera: Unavailable, screen: Unavailable }\nnvenc h265 HardwareSupport { camera: Unavailable, screen: Unavailable }\namf h265 HardwareSupport { camera: Unavailable, screen: Unavailable }\nqsv h265 HardwareSupport { camera: Unavailable, screen: Unavailable }\nnvenc av1 HardwareSupport { camera: Unavailable, screen: Unavailable }\namf av1 HardwareSupport { camera: Unavailable, screen: Unavailable }\nqsv av1 HardwareSupport { camera: Unavailable, screen: Unavailable }\n"
+              },
+              {
+                "run": 5,
+                "warmup": false,
+                "elapsed_s": 0.32103425699460786,
+                "parent_peak_rss_bytes": 8781824,
+                "child_peak_rss_bytes": 5357568,
+                "maximum_simultaneous_children": 1,
+                "children_observed": 9,
+                "observed_children_remaining_after_exit": [],
+                "output": "Elapsed: 301.943095ms\nnvenc h264 HardwareSupport { camera: Unavailable, screen: Unavailable }\namf h264 HardwareSupport { camera: Unavailable, screen: Unavailable }\nqsv h264 HardwareSupport { camera: Unavailable, screen: Unavailable }\nnvenc h265 HardwareSupport { camera: Unavailable, screen: Unavailable }\namf h265 HardwareSupport { camera: Unavailable, screen: Unavailable }\nqsv h265 HardwareSupport { camera: Unavailable, screen: Unavailable }\nnvenc av1 HardwareSupport { camera: Unavailable, screen: Unavailable }\namf av1 HardwareSupport { camera: Unavailable, screen: Unavailable }\nqsv av1 HardwareSupport { camera: Unavailable, screen: Unavailable }\n"
+              }
+            ],
+            "median_elapsed_s": 0.26216657999611925,
+            "median_parent_peak_rss_bytes": 8736768,
+            "median_child_peak_rss_bytes": 5357568,
+            "maximum_simultaneous_children_observed": 1,
+            "children_observed_range": [
+              9,
+              9
+            ],
+            "observed_helpers_remaining_after_all_runs": 0
+          },
+          "after": {
+            "executable_sha256": "aeae39d489813e183727801e3d1f2f1143e0aec3266e20549eada783d6a62e6d",
+            "runs": [
+              {
+                "run": 0,
+                "warmup": true,
+                "elapsed_s": 0.26198049599770457,
+                "parent_peak_rss_bytes": 8839168,
+                "child_peak_rss_bytes": 5361664,
+                "maximum_simultaneous_children": 1,
+                "children_observed": 9,
+                "observed_children_remaining_after_exit": [],
+                "output": "Elapsed: 251.231582ms\nnvenc h264 Unavailable\namf h264 Unavailable\nqsv h264 Unavailable\nnvenc h265 Unavailable\namf h265 Unavailable\nqsv h265 Unavailable\nnvenc av1 Unavailable\namf av1 Unavailable\nqsv av1 Unavailable\n"
+              },
+              {
+                "run": 1,
+                "warmup": false,
+                "elapsed_s": 0.2625150750100147,
+                "parent_peak_rss_bytes": 8847360,
+                "child_peak_rss_bytes": 4890624,
+                "maximum_simultaneous_children": 1,
+                "children_observed": 9,
+                "observed_children_remaining_after_exit": [],
+                "output": "Elapsed: 251.196783ms\nnvenc h264 Unavailable\namf h264 Unavailable\nqsv h264 Unavailable\nnvenc h265 Unavailable\namf h265 Unavailable\nqsv h265 Unavailable\nnvenc av1 Unavailable\namf av1 Unavailable\nqsv av1 Unavailable\n"
+              },
+              {
+                "run": 2,
+                "warmup": false,
+                "elapsed_s": 0.26535393700760324,
+                "parent_peak_rss_bytes": 8974336,
+                "child_peak_rss_bytes": 5165056,
+                "maximum_simultaneous_children": 1,
+                "children_observed": 9,
+                "observed_children_remaining_after_exit": [],
+                "output": "Elapsed: 252.041854ms\nnvenc h264 Unavailable\namf h264 Unavailable\nqsv h264 Unavailable\nnvenc h265 Unavailable\namf h265 Unavailable\nqsv h265 Unavailable\nnvenc av1 Unavailable\namf av1 Unavailable\nqsv av1 Unavailable\n"
+              },
+              {
+                "run": 3,
+                "warmup": false,
+                "elapsed_s": 0.2677689910051413,
+                "parent_peak_rss_bytes": 8892416,
+                "child_peak_rss_bytes": 5537792,
+                "maximum_simultaneous_children": 1,
+                "children_observed": 9,
+                "observed_children_remaining_after_exit": [],
+                "output": "Elapsed: 251.399067ms\nnvenc h264 Unavailable\namf h264 Unavailable\nqsv h264 Unavailable\nnvenc h265 Unavailable\namf h265 Unavailable\nqsv h265 Unavailable\nnvenc av1 Unavailable\namf av1 Unavailable\nqsv av1 Unavailable\n"
+              },
+              {
+                "run": 4,
+                "warmup": false,
+                "elapsed_s": 0.26369082799647003,
+                "parent_peak_rss_bytes": 8867840,
+                "child_peak_rss_bytes": 4444160,
+                "maximum_simultaneous_children": 1,
+                "children_observed": 9,
+                "observed_children_remaining_after_exit": [],
+                "output": "Elapsed: 252.558942ms\nnvenc h264 Unavailable\namf h264 Unavailable\nqsv h264 Unavailable\nnvenc h265 Unavailable\namf h265 Unavailable\nqsv h265 Unavailable\nnvenc av1 Unavailable\namf av1 Unavailable\nqsv av1 Unavailable\n"
+              },
+              {
+                "run": 5,
+                "warmup": false,
+                "elapsed_s": 0.2714727709972067,
+                "parent_peak_rss_bytes": 8970240,
+                "child_peak_rss_bytes": 4784128,
+                "maximum_simultaneous_children": 1,
+                "children_observed": 9,
+                "observed_children_remaining_after_exit": [],
+                "output": "Elapsed: 252.197502ms\nnvenc h264 Unavailable\namf h264 Unavailable\nqsv h264 Unavailable\nnvenc h265 Unavailable\namf h265 Unavailable\nqsv h265 Unavailable\nnvenc av1 Unavailable\namf av1 Unavailable\nqsv av1 Unavailable\n"
+              }
+            ],
+            "median_elapsed_s": 0.26535393700760324,
+            "median_parent_peak_rss_bytes": 8892416,
+            "median_child_peak_rss_bytes": 4890624,
+            "maximum_simultaneous_children_observed": 1,
+            "children_observed_range": [
+              9,
+              9
+            ],
+            "observed_helpers_remaining_after_all_runs": 0
+          },
+          "method": "One warmup and five measured fresh processes per revision, sequential alternating before/after. Actual Detector and fresh actual Rust/native voice libraries; baseline synthetic encoder probes versus driver queries after. RSS/child observations polled every 1 ms; short allocations/helpers may be missed. No GPU device nodes or vendor drivers. Each scan starts nine serial helpers. Wrapper asserts all pairs Unavailable, and after asserts no encoder-test report was started. Elapsed includes process launch and polling. This measures fast failure/negative discovery, not successful hardware throughput, live call behavior, or production scan performance.",
+          "environment": {
+            "os": "Debian GNU/Linux 13 (trixie)",
+            "device_nodes": {
+              "dri_exists": false,
+              "nvidia_device_nodes": [],
+              "nvidia_driver_proc_exists": false
+            },
+            "discoverable_vendor_driver_libraries": {
+              "cuda": null,
+              "amfrt64": null,
+              "mfx-gen": null
+            },
+            "ffmpeg_version_queried_from_prefix": "7.1.5",
+            "openh264_prefix_runtime": "libopenh264.so.2.6.0",
+            "rustc": "1.98.1",
+            "profile": "actual native C shims OPT_LEVEL=3; fresh Rust voice libraries opt-level3 with assertions/overflowchecks; actual detector wrapper opt-level1/debug0, real cached third-party deps",
+            "wrapper_egui_context": "real matching egui Context re-exported under the eframe crate alias; no driver/codec behavior mocked",
+            "task_compilation_during_samples": false,
+            "helper_poll_interval_ms": 25,
+            "memory_observation_interval_ms": 1,
+            "scan_build_identities_file": "scan-build-identities.json"
+          },
+          "comparison": {
+            "median_elapsed_s": {
+              "before": 0.26216657999611925,
+              "after": 0.26535393700760324,
+              "absolute_delta": 0.003187357011483982,
+              "percent_delta": 1.2157754857736496
+            },
+            "median_parent_peak_rss_bytes": {
+              "before": 8736768,
+              "after": 8892416,
+              "absolute_delta": 155648,
+              "percent_delta": 1.7815283638068449
+            },
+            "median_child_peak_rss_bytes": {
+              "before": 5357568,
+              "after": 4890624,
+              "absolute_delta": -466944,
+              "percent_delta": -8.715596330275229
+            }
+          }
+        }
+      }
+    },
+    "video-8k-resolution": {
+      "original_path": "docs/pr-evidence/video-8k-resolution/measurements.json",
+      "original_file_sha256": "46c245879634d46605a98b9096faf26db2c24b625f59c86d3524495d4252447f",
+      "archive_url": "https://github.com/MCShotty/Serein/blob/faa9660761a2099cf2e6f5b748cf48bfa6871b63/docs/pr-evidence/video-8k-resolution/measurements.json",
+      "archive_directory": "https://github.com/MCShotty/Serein/tree/faa9660761a2099cf2e6f5b748cf48bfa6871b63/docs/pr-evidence/video-8k-resolution",
+      "record": {
+        "baseline_commit": "623ef63514c1b68c516bc4b047503cead6b23511",
+        "after_source": "8K output presets and 15/30/60 fps camera controls, task working tree",
+        "environment": {
+          "os": "Debian GNU/Linux 13 (trixie)",
+          "kernel": "Linux 6.18.44",
+          "cpu": "Intel Xeon Platinum 8573C, 5 exposed logical CPUs",
+          "ram_kib": 18440136,
+          "rust": "1.98.1",
+          "profile": "opt-level 1, debug 0, CARGO_INCREMENTAL=0",
+          "features": "actual UI demo; eframe wgpu/default_fonts/system_fonts/accesskit/wayland/x11/links",
+          "renderer": "Mesa Gallium 25.0.7 / LLVM 19 software OpenGL",
+          "viewport": "1120x760 pixels, 100% scale, dark, default Inter",
+          "sample_count_per_revision": 15,
+          "sample_pair_count": 1,
+          "encoding_or_capture": false,
+          "compiler_during_samples": false
+        },
+        "scope": "Auxiliary real native UI helper excluding the production GTK/native desktop adapters. Not a standard release/package or active-media benchmark.",
+        "before": {
+          "revision": "before",
+          "command": [
+            "/tmp/serein-8k-preview-before/native-preview",
+            "--demo",
+            "--page=voice",
+            "--video-backend=experimental",
+            "--video-codec=h265",
+            "--capabilities=hardware",
+            "--interactive",
+            "--width=1120",
+            "--height=760"
+          ],
+          "warmup_s": 6,
+          "interaction": "100 wheel-down events in settings body, pointer moved out",
+          "duration_s": 15.059615878999466,
+          "interval_s": 1,
+          "process_cpu_one_core_percent": 0.0,
+          "peak_rss_bytes": 162140160,
+          "settled_rss_bytes": 162140160,
+          "children": [],
+          "executable_bytes": 84238472,
+          "executable_sha256": "959588360865ca1d6b44ac9eaa936395122cf276ef3f2abe6312c380d66ec198",
+          "renderer_libraries": [
+            "/usr/lib/x86_64-linux-gnu/libEGL.so.1.1.0",
+            "/usr/lib/x86_64-linux-gnu/libEGL_mesa.so.0.0.0",
+            "/usr/lib/x86_64-linux-gnu/libLLVM.so.19.1",
+            "/usr/lib/x86_64-linux-gnu/libgallium-25.0.7-2+deb13u1.so"
+          ],
+          "samples": [
+            {
+              "elapsed_s": 1.0009655920002842,
+              "rss_bytes": 162140160
+            },
+            {
+              "elapsed_s": 2.0041252719965996,
+              "rss_bytes": 162140160
+            },
+            {
+              "elapsed_s": 3.0052267010032665,
+              "rss_bytes": 162140160
+            },
+            {
+              "elapsed_s": 4.009744490002049,
+              "rss_bytes": 162140160
+            },
+            {
+              "elapsed_s": 5.010395267003332,
+              "rss_bytes": 162140160
+            },
+            {
+              "elapsed_s": 6.010960589002934,
+              "rss_bytes": 162140160
+            },
+            {
+              "elapsed_s": 7.0121407989936415,
+              "rss_bytes": 162140160
+            },
+            {
+              "elapsed_s": 8.013592731993413,
+              "rss_bytes": 162140160
+            },
+            {
+              "elapsed_s": 9.017615153992665,
+              "rss_bytes": 162140160
+            },
+            {
+              "elapsed_s": 10.047096206995775,
+              "rss_bytes": 162140160
+            },
+            {
+              "elapsed_s": 11.049061904006521,
+              "rss_bytes": 162140160
+            },
+            {
+              "elapsed_s": 12.050895348002086,
+              "rss_bytes": 162140160
+            },
+            {
+              "elapsed_s": 13.05422047599859,
+              "rss_bytes": 162140160
+            },
+            {
+              "elapsed_s": 14.056442832006724,
+              "rss_bytes": 162140160
+            },
+            {
+              "elapsed_s": 15.05795009600115,
+              "rss_bytes": 162140160
+            }
+          ]
+        },
+        "after": {
+          "revision": "after",
+          "command": [
+            "/tmp/serein-8k-preview-after/native-preview",
+            "--demo",
+            "--page=voice",
+            "--video-backend=experimental",
+            "--video-codec=h265",
+            "--capabilities=hardware",
+            "--interactive",
+            "--width=1120",
+            "--height=760"
+          ],
+          "warmup_s": 6,
+          "interaction": "100 wheel-down events in settings body, pointer moved out",
+          "duration_s": 15.012724657004583,
+          "interval_s": 1,
+          "process_cpu_one_core_percent": 0.0,
+          "peak_rss_bytes": 163909632,
+          "settled_rss_bytes": 163909632,
+          "children": [],
+          "executable_bytes": 84296376,
+          "executable_sha256": "058e457e494f16af5698174dd04d2e5643ae91a9a2a4e1aa590c37c73d916f87",
+          "renderer_libraries": [
+            "/usr/lib/x86_64-linux-gnu/libEGL.so.1.1.0",
+            "/usr/lib/x86_64-linux-gnu/libEGL_mesa.so.0.0.0",
+            "/usr/lib/x86_64-linux-gnu/libLLVM.so.19.1",
+            "/usr/lib/x86_64-linux-gnu/libgallium-25.0.7-2+deb13u1.so"
+          ],
+          "samples": [
+            {
+              "elapsed_s": 1.0007961130031617,
+              "rss_bytes": 163909632
+            },
+            {
+              "elapsed_s": 2.0062510069983546,
+              "rss_bytes": 163909632
+            },
+            {
+              "elapsed_s": 3.0066611799993552,
+              "rss_bytes": 163909632
+            },
+            {
+              "elapsed_s": 4.006978310004342,
+              "rss_bytes": 163909632
+            },
+            {
+              "elapsed_s": 5.0073332309984835,
+              "rss_bytes": 163909632
+            },
+            {
+              "elapsed_s": 6.008886633004295,
+              "rss_bytes": 163909632
+            },
+            {
+              "elapsed_s": 7.009286405009334,
+              "rss_bytes": 163909632
+            },
+            {
+              "elapsed_s": 8.009608281005058,
+              "rss_bytes": 163909632
+            },
+            {
+              "elapsed_s": 9.009899648997816,
+              "rss_bytes": 163909632
+            },
+            {
+              "elapsed_s": 10.01022637799906,
+              "rss_bytes": 163909632
+            },
+            {
+              "elapsed_s": 11.010565539996605,
+              "rss_bytes": 163909632
+            },
+            {
+              "elapsed_s": 12.010906680996413,
+              "rss_bytes": 163909632
+            },
+            {
+              "elapsed_s": 13.011246014997596,
+              "rss_bytes": 163909632
+            },
+            {
+              "elapsed_s": 14.011569964000955,
+              "rss_bytes": 163909632
+            },
+            {
+              "elapsed_s": 15.012119311999413,
+              "rss_bytes": 163909632
+            }
+          ]
+        },
+        "unmeasured": [
+          "standard desktop executable/installed package/compressed distribution deltas (missing glib-2.0.pc)",
+          "active 8K/60 fps CPU/RSS/throughput",
+          "physical GPU/capture behavior",
+          "GPU memory",
+          "startup/full-frame p95",
+          "sustained leak behavior"
+        ]
+      }
+    },
+    "video-gpu-routing": {
+      "original_path": "docs/pr-evidence/video-gpu-routing/measurements.json",
+      "original_file_sha256": "47dfe03201a75c8ffd2dd877dd3c53c0c25b4e09ba0fdb8e9faa7f93e30c219f",
+      "archive_url": "https://github.com/MCShotty/Serein/blob/faa9660761a2099cf2e6f5b748cf48bfa6871b63/docs/pr-evidence/video-gpu-routing/measurements.json",
+      "archive_directory": "https://github.com/MCShotty/Serein/tree/faa9660761a2099cf2e6f5b748cf48bfa6871b63/docs/pr-evidence/video-gpu-routing",
+      "record": {
+        "baseline": "79e336066beff5ea6c414268308f1f817c50c2f4",
+        "current_base": "79e336066beff5ea6c414268308f1f817c50c2f4",
+        "source_sha256": "eaba593e8bef4ba70ff27ab1ee46db44266104cca520703e7b0fd4cc2c7eb3a3",
+        "baseline_source_sha256": "baf82060f102c6eb73c9d33dc29d6c96d7826724439b5d23ecf554de22724f12",
+        "benchmark_sha256": "cab3b2fc60fbe242111caaa3c4818b3ad915eda7c3589c4b1f1c3ac4e7e4c266",
+        "ffmpeg_prefix": "/workspace/scratch/serein-gpu-binding/prefix",
+        "compiler": "cc (Debian 14.2.0-19) 14.2.0",
+        "environment": {
+          "kernel": "6.18.44",
+          "cpus": 5,
+          "visible_cpu_affinity": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "cpu_model": "INTEL(R) XEON(R) PLATINUM 8573C",
+          "memory.max": "17179869184",
+          "cpu.max": "400000 100000"
+        },
+        "sampling_interval_ms": 10,
+        "warmup_pictures": 30,
+        "measured_pictures": 300,
+        "warmup_runs_discarded": 1,
+        "measured_runs": 5,
+        "commands": [
+          [
+            "cc",
+            "-std=c11",
+            "-O2",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-DSHIM=\"/workspace/Serein/target/gpu-routing-performance-final/serein-gop-bench-_1mrlhz0/before.c\"",
+            "-I/workspace/Serein/crates/discord-voice/src",
+            "-I/workspace/scratch/serein-gpu-binding/prefix/include",
+            "/workspace/Serein/docs/pr-evidence/video-gpu-routing/encoder-bench.c",
+            "-L/workspace/scratch/serein-gpu-binding/prefix/lib",
+            "-Wl,-rpath,/workspace/scratch/serein-gpu-binding/prefix/lib",
+            "-lavcodec-serein",
+            "-lavutil-serein",
+            "-o",
+            "/workspace/Serein/target/gpu-routing-performance-final/serein-gop-bench-_1mrlhz0/before"
+          ],
+          [
+            "cc",
+            "-std=c11",
+            "-O2",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-DSHIM=\"/workspace/Serein/crates/discord-voice/src/video_encode_ffmpeg.c\"",
+            "-I/workspace/Serein/crates/discord-voice/src",
+            "-I/workspace/scratch/serein-gpu-binding/prefix/include",
+            "/workspace/Serein/docs/pr-evidence/video-gpu-routing/encoder-bench.c",
+            "-L/workspace/scratch/serein-gpu-binding/prefix/lib",
+            "-Wl,-rpath,/workspace/scratch/serein-gpu-binding/prefix/lib",
+            "-lavcodec-serein",
+            "-lavutil-serein",
+            "-o",
+            "/workspace/Serein/target/gpu-routing-performance-final/serein-gop-bench-_1mrlhz0/after"
+          ]
+        ],
+        "runs": [
+          {
+            "elapsed_ms": 1204.11144,
+            "encoded_bytes": 4537700,
+            "keyframes": 300,
+            "name": "before",
+            "run": 0,
+            "sampled_peak_rss_bytes": 8679424,
+            "rss_samples": 131
+          },
+          {
+            "elapsed_ms": 712.952847,
+            "encoded_bytes": 225825,
+            "keyframes": 10,
+            "name": "after",
+            "run": 0,
+            "sampled_peak_rss_bytes": 8863744,
+            "rss_samples": 67
+          },
+          {
+            "elapsed_ms": 1086.958787,
+            "encoded_bytes": 4537700,
+            "keyframes": 300,
+            "name": "before",
+            "run": 1,
+            "sampled_peak_rss_bytes": 8679424,
+            "rss_samples": 117
+          },
+          {
+            "elapsed_ms": 466.036549,
+            "encoded_bytes": 225825,
+            "keyframes": 10,
+            "name": "after",
+            "run": 1,
+            "sampled_peak_rss_bytes": 8908800,
+            "rss_samples": 53
+          },
+          {
+            "elapsed_ms": 1106.519592,
+            "encoded_bytes": 4537700,
+            "keyframes": 300,
+            "name": "before",
+            "run": 2,
+            "sampled_peak_rss_bytes": 8658944,
+            "rss_samples": 120
+          },
+          {
+            "elapsed_ms": 546.520309,
+            "encoded_bytes": 225825,
+            "keyframes": 10,
+            "name": "after",
+            "run": 2,
+            "sampled_peak_rss_bytes": 8740864,
+            "rss_samples": 61
+          },
+          {
+            "elapsed_ms": 1159.25197,
+            "encoded_bytes": 4537700,
+            "keyframes": 300,
+            "name": "before",
+            "run": 3,
+            "sampled_peak_rss_bytes": 8773632,
+            "rss_samples": 126
+          },
+          {
+            "elapsed_ms": 632.129747,
+            "encoded_bytes": 225825,
+            "keyframes": 10,
+            "name": "after",
+            "run": 3,
+            "sampled_peak_rss_bytes": 8839168,
+            "rss_samples": 66
+          },
+          {
+            "elapsed_ms": 1185.47804,
+            "encoded_bytes": 4537700,
+            "keyframes": 300,
+            "name": "before",
+            "run": 4,
+            "sampled_peak_rss_bytes": 8753152,
+            "rss_samples": 132
+          },
+          {
+            "elapsed_ms": 581.267896,
+            "encoded_bytes": 225825,
+            "keyframes": 10,
+            "name": "after",
+            "run": 4,
+            "sampled_peak_rss_bytes": 8720384,
+            "rss_samples": 65
+          },
+          {
+            "elapsed_ms": 1115.032916,
+            "encoded_bytes": 4537700,
+            "keyframes": 300,
+            "name": "before",
+            "run": 5,
+            "sampled_peak_rss_bytes": 8773632,
+            "rss_samples": 128
+          },
+          {
+            "elapsed_ms": 471.589237,
+            "encoded_bytes": 225825,
+            "keyframes": 10,
+            "name": "after",
+            "run": 5,
+            "sampled_peak_rss_bytes": 8699904,
+            "rss_samples": 53
+          }
+        ],
+        "medians": {
+          "before": {
+            "elapsed_ms": 1115.032916,
+            "encoded_bytes": 4537700,
+            "keyframes": 300,
+            "sampled_peak_rss_bytes": 8753152
+          },
+          "after": {
+            "elapsed_ms": 546.520309,
+            "encoded_bytes": 225825,
+            "keyframes": 10,
+            "sampled_peak_rss_bytes": 8740864
+          }
+        },
+        "bitstream_sha256": {
+          "before": "ca76a9e9dc55a82f3dc437681ae124d0000662c30e8b61cf572f3c48773f5ecd",
+          "after": "c768ade5a29df2de4104f811ebe6298e44ba1faaf0c0c3345343eaf16424fb85"
+        },
+        "validation": "Both final 330-picture H264 streams decoded successfully with system ffmpeg -v error -xerror -i STREAM -f null -.",
+        "measurement_scope": "Software-only C shim baseline GOP1 versus Experimental camera Main GOP30, using the same patched FFmpeg7.1.5/OpenH2642.6.0 dependency libraries; includes input generation and bitstream writes. No Cargo/native builds ran during this final sample. Full desktop/package/GPU cost unmeasured."
+      }
+    },
+    "video-split-encoding": {
+      "original_path": "docs/pr-evidence/video-split-encoding/measurements.json",
+      "original_file_sha256": "92a86d7611bc90fb08f092a12bf013524ab8e12e1c8772325ef58bff7e7cb1b5",
+      "archive_url": "https://github.com/MCShotty/Serein/blob/faa9660761a2099cf2e6f5b748cf48bfa6871b63/docs/pr-evidence/video-split-encoding/measurements.json",
+      "archive_directory": "https://github.com/MCShotty/Serein/tree/faa9660761a2099cf2e6f5b748cf48bfa6871b63/docs/pr-evidence/video-split-encoding",
+      "record": {
+        "baseline_source_commit": "00e39d6d6ed90b313a1c98a7daadb2cdd2f9d49e",
+        "scope": "60000 allocate/configure/free contexts: HEVC/AV1 NVENC/AMF/QSV, 2560x1440. No codec initialization, drivers, frames, capture or network. This measures setup only.",
+        "build": "FFmpeg 7.1.5, nv-codec-headers 12.2.72.0, AMF 1.4.36, oneVPL 2.14.0; same optimized diagnostic build. System OpenH264 2.6.0 and VPL 2.14.0; assembly, Vulkan/VA disabled. Not the standard distribution recipe.",
+        "environment": {
+          "os": "Linux-6.18.44-x86_64-with-glibc2.41",
+          "compiler": "cc (Debian 14.2.0-19) 14.2.0"
+        },
+        "configure": [
+          "bash",
+          "configure",
+          "--prefix=/tmp/serein-split-source/baseline-prefix",
+          "--build-suffix=-serein",
+          "--disable-autodetect",
+          "--disable-everything",
+          "--disable-programs",
+          "--disable-doc",
+          "--disable-network",
+          "--disable-static",
+          "--enable-shared",
+          "--disable-gpl",
+          "--disable-nonfree",
+          "--disable-version3",
+          "--disable-avdevice",
+          "--disable-avformat",
+          "--disable-avfilter",
+          "--disable-swscale",
+          "--disable-swresample",
+          "--disable-postproc",
+          "--disable-x86asm",
+          "--disable-vdpau",
+          "--disable-cuvid",
+          "--disable-nvdec",
+          "--disable-cuda-llvm",
+          "--disable-vulkan",
+          "--disable-vaapi",
+          "--disable-libdrm",
+          "--enable-avcodec",
+          "--enable-avutil",
+          "--enable-libopenh264",
+          "--enable-ffnvcodec",
+          "--enable-nvenc",
+          "--enable-amf",
+          "--enable-libvpl",
+          "--enable-encoder=libopenh264,h264_nvenc,hevc_nvenc,av1_nvenc,h264_amf,hevc_amf,av1_amf,h264_qsv,hevc_qsv,av1_qsv",
+          "--extra-cflags=-I/tmp/serein-split-source/prefix/include",
+          "--extra-ldflags=-L/tmp/serein-split-source/prefix/lib -Wl,-z,defs -Wl,-rpath,/tmp/serein-split-source/prefix/lib"
+        ],
+        "warmups_per_binary": 1,
+        "samples_per_binary": 5,
+        "order": [
+          "baseline",
+          "after",
+          "after",
+          "baseline",
+          "baseline",
+          "after",
+          "after",
+          "baseline",
+          "baseline",
+          "after"
+        ],
+        "samples": {
+          "baseline": [
+            {
+              "contexts": 60000,
+              "elapsed_ms": 1388.280412
+            },
+            {
+              "contexts": 60000,
+              "elapsed_ms": 1301.14767
+            },
+            {
+              "contexts": 60000,
+              "elapsed_ms": 1228.122202
+            },
+            {
+              "contexts": 60000,
+              "elapsed_ms": 1341.32505
+            },
+            {
+              "contexts": 60000,
+              "elapsed_ms": 1181.36898
+            }
+          ],
+          "after": [
+            {
+              "contexts": 60000,
+              "elapsed_ms": 1277.640056
+            },
+            {
+              "contexts": 60000,
+              "elapsed_ms": 1375.958745
+            },
+            {
+              "contexts": 60000,
+              "elapsed_ms": 1481.352089
+            },
+            {
+              "contexts": 60000,
+              "elapsed_ms": 1246.890464
+            },
+            {
+              "contexts": 60000,
+              "elapsed_ms": 1371.226939
+            }
+          ]
+        },
+        "medians_ms": {
+          "baseline": 1301.14767,
+          "after": 1371.226939
+        },
+        "setup_delta_percent": 5.385958151852188,
+        "libraries": {
+          "baseline": {
+            "libavcodec-serein.so.61.19.101": {
+              "bytes": 757600,
+              "sha256": "1333ea8c72abdcb316a28dd9fcb75967ce64c49fb7ea71b03917e0fb7db92d10"
+            },
+            "libavutil-serein.so.59.39.100": {
+              "bytes": 846680,
+              "sha256": "5e187ac9742b82cb365156486f1adc9dcc36bc3f3992a9b54cd7e9346fad5cd6"
+            }
+          },
+          "after": {
+            "libavcodec-serein.so.61.19.101": {
+              "bytes": 761696,
+              "sha256": "dfcf63fad7f0b0bb2489b032f2a74f098d9257bfeee4efd7cad01843d79ddc61"
+            },
+            "libavutil-serein.so.59.39.100": {
+              "bytes": 846680,
+              "sha256": "8904d6522f5fa883cd799a94319c62042fe0f010a59958b44b6e20732d16f5f7"
+            }
+          }
+        },
+        "source_sha256": {
+          "scripts/build-ffmpeg.py": "ea7bd8065ab55f79fd5e78b82e8dd769e74e02a02e383e9f9f2e25a7b2e9a250",
+          "crates/discord-voice/src/video_encode_ffmpeg.c": "8a4eb2d77d3b88dcc0dc21c2782963165cfb9703435fbea09117225ed9d8ce80",
+          "docs/pr-evidence/video-split-encoding/presets.c": "edfec089a4f62664864ab515bb46f50c97f23684682f7b5e5619f135dbb56276"
+        },
+        "unmeasured": [
+          "GPU encode throughput/latency/quality/engine activity",
+          "Native demo idle CPU/RSS",
+          "Standard executable/installed/compressed package sizes; missing GLib development metadata"
+        ],
+        "benchmark_executables": {
+          "baseline": {
+            "bytes": 22584,
+            "sha256": "1ad7a386e50a0ca5fdf52c5c9471acc94af6d0ed010fd32a21152bde05ace47c"
+          },
+          "after": {
+            "bytes": 26712,
+            "sha256": "fc9984bb8fdb01ec996f56a1f7a427e2cf828a9a105de0ba297da7f3acb0b91c"
+          }
+        }
+      }
+    },
+    "amf-split-diagnostics": {
+      "original_path": "docs/pr-evidence/amf-split-diagnostics/measurements.json",
+      "original_file_sha256": "2ef4ebfc660e85ba16d61d269de0e90836aab7093b4cb7facc5f1d8ec951a313",
+      "archive_url": "https://github.com/MCShotty/Serein/blob/faa9660761a2099cf2e6f5b748cf48bfa6871b63/docs/pr-evidence/amf-split-diagnostics/measurements.json",
+      "archive_directory": "https://github.com/MCShotty/Serein/tree/faa9660761a2099cf2e6f5b748cf48bfa6871b63/docs/pr-evidence/amf-split-diagnostics",
+      "record": {
+        "baseline_commit": "6451d97c49ddc6d69203fe20e3d1a28708b4da6e",
+        "delivery": "local uncommitted working tree",
+        "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+        "platform": "Debian Linux x86_64; no physical GPU/capture/account used",
+        "before": {
+          "report_bytes": 776,
+          "eight_reports_bytes": 6208,
+          "registration_bytes": 16,
+          "encoder_counter_bytes": 32,
+          "native_shim_bytes": 80,
+          "diagnostic_libavcodec_bytes": 761696,
+          "diagnostic_libavutil_bytes": 846680
+        },
+        "after": {
+          "report_bytes": 792,
+          "eight_reports_bytes": 6336,
+          "registration_bytes": 24,
+          "encoder_counter_bytes": 64,
+          "native_shim_bytes": 88,
+          "diagnostic_libavcodec_bytes": 761696,
+          "diagnostic_libavutil_bytes": 846680
+        },
+        "libraries_before": [
+          {
+            "path": "/tmp/serein-split-source/after-prefix/lib/libavcodec-serein.so.61.19.101",
+            "bytes": 761696,
+            "sha256": "b2d1d77b915eb6d53781529663e03d58f983a475b32e07786c13ddd30b866788"
+          },
+          {
+            "path": "/tmp/serein-split-source/after-prefix/lib/libavutil-serein.so.59.39.100",
+            "bytes": 846680,
+            "sha256": "8904d6522f5fa883cd799a94319c62042fe0f010a59958b44b6e20732d16f5f7"
+          }
+        ],
+        "libraries_after": [
+          {
+            "path": "/tmp/serein-split-diagnostics/prefix/lib/libavcodec-serein.so.61.19.101",
+            "bytes": 761696,
+            "sha256": "6177a642f7ec3150f4183db09ee38f8dda3968d2ede7cabfae6c77c1b9638c2a"
+          },
+          {
+            "path": "/tmp/serein-split-diagnostics/prefix/lib/libavutil-serein.so.59.39.100",
+            "bytes": 846680,
+            "sha256": "f3a0f847a2269ed37d7f88631d7b656762706b48990fa68f7dab3782967da9bd"
+          }
+        ],
+        "diagnostic_ffmpeg_configuration": [
+          "bash",
+          "configure",
+          "--prefix=/tmp/serein-split-diagnostics/prefix",
+          "--build-suffix=-serein",
+          "--disable-autodetect",
+          "--disable-everything",
+          "--disable-programs",
+          "--disable-doc",
+          "--disable-network",
+          "--disable-static",
+          "--enable-shared",
+          "--disable-gpl",
+          "--disable-nonfree",
+          "--disable-version3",
+          "--disable-avdevice",
+          "--disable-avformat",
+          "--disable-avfilter",
+          "--disable-swscale",
+          "--disable-swresample",
+          "--disable-postproc",
+          "--disable-x86asm",
+          "--disable-vdpau",
+          "--disable-cuvid",
+          "--disable-nvdec",
+          "--disable-cuda-llvm",
+          "--disable-vulkan",
+          "--disable-vaapi",
+          "--disable-libdrm",
+          "--enable-avcodec",
+          "--enable-avutil",
+          "--enable-libopenh264",
+          "--enable-ffnvcodec",
+          "--enable-nvenc",
+          "--enable-amf",
+          "--enable-libvpl",
+          "--enable-encoder=libopenh264,h264_nvenc,hevc_nvenc,av1_nvenc,h264_amf,hevc_amf,av1_amf,h264_qsv,hevc_qsv,av1_qsv",
+          "--extra-cflags=-I/tmp/serein-split-source/prefix/include",
+          "--extra-ldflags=-L/tmp/serein-split-source/prefix/lib -Wl,-z,defs -Wl,-rpath,/tmp/serein-split-source/prefix/lib"
+        ],
+        "patched_ffmpeg_sources": {
+          "configure": "67e00b5958c782693ef34df957bc1242d20581a796ff715baa0609accbb02de7",
+          "libavcodec/libavcodec.v": "ac4baf7af0f1a6b84f6156aaeaf21ea77b24d6b27e3d4921e2ce8e3b9bda5593",
+          "libavutil/libavutil.v": "2c395d31fa5947ce82ac1d373051e70985bcba1fb81aae5abc5f62664774ef77",
+          "libavcodec/qsvenc.c": "4c4f06839165b48d9f47eeb078a0c4be61da57843d7efe35defe0f4364b5c93f",
+          "libavcodec/amfenc.c": "59b532741f5a234e7d97fc8b9107fa9027fa8ed00486557a8afc4cf0761d6b4c",
+          "libavcodec/amfenc.h": "95154957b8b50b205008be955b26e8efd21424182606b68ca8747d0d33c22207",
+          "libavcodec/amfenc_hevc.c": "5ac2469ab80541b8537e6845a2cfa48198c79dc15dcac049506a5692f85a7a6b",
+          "libavcodec/amfenc_av1.c": "4574f853ad89e1578a96cd07fd671edd943a8e154b7ca8ef498ce9a98090f2f2",
+          "libavcodec/videotoolboxenc.c": "014e47090a37c31915d51878c231ed1a6f871b95e7536c633686757d146b95aa",
+          "libavutil/hwcontext_vulkan.c": "054b71c243cfdc31b96549d4281ceebd349958b93a7bfde2cea29f60f460304c",
+          "libavcodec/serein_amf_split_encoding.h": "7bc9c8eaa9d7c1813bd4d4c3e1b781a4aaa6451fecb54c2b21190d553318d59f",
+          "libavcodec/serein_qsv_feature_validation.h": "cdaf562cf75abb4909d0591430d7c52939c555fee34244bffd8dec239c54a689"
+        },
+        "sources_sha256": {
+          "crates/discord-voice/README.md": "568f72e86e72d0e1fd33e883ffdf92af79b168a7cd36d30b5e620db0355c912c",
+          "crates/discord-voice/examples/voice_diagnostics.rs": "bea456656029ac40b1e122583bda86b3df9924d5389d7f04ce4f1ed070a6c1e8",
+          "crates/discord-voice/src/camera.rs": "ceeb288153b4c1a3d6ea3a4e7f95e488919cd874a897a5766fbeccb908a8b458",
+          "crates/discord-voice/src/diagnostics.rs": "1e4c85452408106532c421a55f53544b6d2fc47e2faed5fe0a3ec2ff992b2450",
+          "crates/discord-voice/src/screen.rs": "5784a7691daef153fc3c8f1a71103bda4390f499d7d3100f7b0659694aa6e74b",
+          "crates/discord-voice/src/video_backend.rs": "b92d60105576106ce91c7cece7be3c9fdcd0cce2cf23ddeeae5e66317e8b1fb3",
+          "crates/discord-voice/src/video_encode.rs": "a7aad3f9f2e8657d23bf71f5d2bcb127223a970e16a93a5d9cd0901ed2e107a9",
+          "crates/discord-voice/src/video_encode_ffmpeg.c": "6b120d8a0d48ad6d27b2be7bc9e135671b7deaaa9371d4a584fad16f41ce37ee",
+          "crates/discord-voice/src/video_encode_ffmpeg.h": "636852d9457d65507ef1729f17300511438beb16bd931472d28a214e2831b0d9",
+          "crates/discord-voice/tests/native/video_amf_split_test.c": "9e8972e613089d33044f6ad9425838fd1ea072df3f8b33f6c827bcdd86a578cf",
+          "crates/discord-voice/tests/native/video_encode_timing_test.c": "2bbd2e0f24899f9a75fe9a9a3827abdb3a17160ce649e757d2743ac1a7083236",
+          "docs/storage-policy.md": "64356c5e6ed5afe7bb08c3c31576bb2357226cdee06a0a433b0da999a782207a",
+          "docs/voice.md": "0bf3081c77b9fd69a36cda5a0fccc80b8286bdbabd35a154e9f809d52cad48d6",
+          "scripts/build-ffmpeg.py": "de73347030deeccf1c6cb3773cd73b1195f43ab3c3abd502f90bf9335fd93783"
+        },
+        "validation": {
+          "voice_tests": "144 passed; 4 ignored; freshly compiled full voice source with recorded cached model/client-core/external dependencies and a fresh native bridge",
+          "voice_clippy": "strict -D warnings, full current voice source/test cfg; cached dependencies",
+          "diagnostic_fixture": "passed; accepted/declined/off, lifecycle, queued snapshots, disabled mode, output/queue budgets",
+          "native_queries": "passed; fake drivers only",
+          "native_encoding": "passed; real AMF read-only option tables and synthetic delayed packets",
+          "changed_path_sanitizers": "AMF split request helper and encoding shim passed Address/UndefinedBehavior/LeakSanitizer",
+          "patch_roundtrip": "passed against pinned FFmpeg 7.1.5 archive",
+          "workspace_format": "passed",
+          "full_workspace_check": "blocked: local scratch filesystem exhausted while building xtask prerequisites",
+          "package": "blocked: cached workspace target build lock is not writable",
+          "other_query_sanitizers": "full C++ query fixture reports an invalid vptr for the existing C-built AMFFactory mock; not a changed production source"
+        },
+        "unmeasured": [
+          "native Windows compilation and actual AMF driver acceptance on a physical GPU",
+          "whole application/package size, CPU and process RSS"
+        ]
+      }
+    }
+  }
+}

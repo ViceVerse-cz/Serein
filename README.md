@@ -135,10 +135,17 @@ Download the `Windows-X64-Setup.exe` or `Windows-ARM64-Setup.exe` asset for your
 - Installs per-user to `%LOCALAPPDATA%\Programs\Serein` without requiring administrator/UAC elevation.
 - Automatically registers Start Menu shortcuts and configures AppUserModelID (`cz.viceverse.serein`) for native Windows toast notifications.
 - Registers in Windows Settings (Installed Apps / Add or Remove Programs) with full uninstall support.
-- Fully compatible with in-app self-updates: updates automatically synchronize the registered version.
+- After installing this version, in-app self-updates automatically synchronize the registered version.
+
+**Upgrading a Windows build from before the FFmpeg migration:** close Serein and
+run the new matching `-Setup.exe` once over the existing installation. Its old
+in-app updater cannot install the new codec DLLs. Portable users should extract
+the complete new archive into a new folder and launch it there. Settings and
+credentials remain in their existing per-user storage. See the
+[Windows migration guide](packaging/windows/README.md) for details.
 
 #### 2. Standalone PowerShell Setup
-Extract the `Windows-X64.zip` or `Windows-ARM64.zip` asset for your system and run:
+Extract the `Windows-X64-media-v2.zip` or `Windows-ARM64-media-v2.zip` asset for your system and run:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ```
@@ -148,7 +155,7 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Uninstall
 ```
 
 #### 3. Portable Archive
-Extract the `Windows-X64.zip` or `Windows-ARM64.zip` asset for your system anywhere and launch `serein.exe`. To enable native desktop notifications:
+Extract the `Windows-X64-media-v2.zip` or `Windows-ARM64-media-v2.zip` asset for your system anywhere and launch `serein.exe`. To enable native desktop notifications:
 ```powershell
 powershell -File .\install-notifications.ps1
 ```
@@ -180,7 +187,7 @@ Download `serein-<version>-macOS-ARM64.zip` from [Releases](https://github.com/V
 - 🔒 **Secure OS Credential Storage:** Session tokens are stored exclusively in your operating system's secure vault (macOS Keychain, Windows Credential Manager, or Linux Secret Service). Never saved in plaintext.
 - 🛡️ **Ephemeral Authentication Webview:** Sign-in uses Discord's official hosted login page inside a temporary native webview (WKWebView, WebView2, or WebKitGTK) supporting email/password, QR login, and MFA. An origin-checked handoff secures the session credential and immediately terminates the webview.
 - 💾 **Bounded Local Persistence:** Recent chat history, drafts, image previews, settings, and diagnostics are stored in an account-isolated, bounded local SQLite database. All local data is strictly cleared upon explicit logout.
-- 🎙️ **Voice Calls, Video & Screen Sharing:** Complete native voice engine with 1-to-1 and group DM calls, server voice channels, push-to-talk, Sonora AEC3 acoustic echo cancellation, RNNoise noise suppression, Opus codec, and DAVE v1 end-to-end encryption. Includes native screen capture (macOS ScreenCaptureKit, Windows Graphics Capture, Linux portal/PipeWire with VA-API/NVENC hardware encoding and software fallback; Linux native capture remains unverified) and incoming stream & camera video playback with hardware-accelerated decoding (VideoToolbox, VA-API, DirectX).
+- 🎙️ **Voice Calls, Video & Screen Sharing:** Complete native voice engine with 1-to-1 and group DM calls, server voice channels, push-to-talk, Sonora AEC3 acoustic echo cancellation, RNNoise noise suppression, Opus codec, and DAVE v1 end-to-end encryption. Includes native screen capture (macOS ScreenCaptureKit, Windows Graphics Capture, Linux portal/PipeWire; Stable platform encoding or Experimental FFmpeg NVENC/AMD AMF/Intel Quick Sync/VideoToolbox; H.264 software fallback and hardware H.265/AV1 choices; hardware/live codec compatibility remains unverified) and incoming stream & camera video playback with hardware-accelerated decoding (VideoToolbox, VA-API, DirectX).
 - 🧵 **Forum Channels & Active Threads:** Browse forum channels, view posts sorted by recent activity, read message threads with unread indicators, and create new forum posts directly in-app.
 - ⚙️ **Server Administration Suite:** Full server management interface including Server Profiles (banners, icons, traits, descriptions), custom sticker management, role editor with fine-grained permission matrix, paginated audit logs with action filters, invite manager with revocation, integrations and webhooks, and member moderation.
 - ✨ **GIF & Twemoji Picker:** Instant KLIPY GIF search with favorites and one-click sending, full Twemoji picker with search and quick-reactions, plus custom guild emojis.
@@ -208,6 +215,8 @@ Download `serein-<version>-macOS-ARM64.zip` from [Releases](https://github.com/V
 ## Measured Performance vs. Official Discord
 
 > **Testing Scenario:** Browsing channels while joined in a Voice Channel (VC) and streaming screen at 60 FPS on macOS.
+> These historical measurements predate the FFmpeg encoder migration; current hardware
+> capture/encoding CPU and memory remain unmeasured.
 
 | Metric | Official Discord Client (Electron) | Serein (Native Rust + egui/wgpu) | Advantage |
 |---|:---:|:---:|:---:|
@@ -230,6 +239,20 @@ Rust **1.98.1** is pinned. Ensure you have the standard C/C++ toolchain and CMak
 - **macOS:** Xcode command-line tools (`xcode-select --install`)
 - **Linux:** GCC/Clang, ALSA development headers, `pkg-config`, GTK 4, WebKitGTK 6.0, fontconfig, and Vulkan drivers (see [Platform Support](docs/platform-support.md))
 - **Windows:** Visual Studio C++ build tools and WebView2 Runtime
+
+Standard builds include the pinned shared FFmpeg build for the Experimental camera
+and screen backend; Voice & Video defaults to Stable platform encoding with H.264. Install Python
+3.12+, Make, CMake, pkg-config and NASM (plus `patchelf`, libva and libdrm
+development packages on Linux), then build it once:
+
+```sh
+python3 scripts/build-ffmpeg.py
+export FFMPEG_DIR="$PWD/target/ffmpeg/prefix"
+```
+
+Windows uses an MSVC developer environment with MSYS2 build tools; set
+`FFMPEG_DIR` in PowerShell and add its `bin` directory to PATH for source runs.
+See [FFmpeg build and packaging](packaging/ffmpeg/README.md) for details.
 
 ### Running Locally
 
@@ -279,7 +302,7 @@ cargo xtask package
 | **File & Attachment Uploads** | Implemented | Multi-attachment batch staging with file-type badges (PDF, ZIP, STL, images), thumbnail previews, individual file removal, upload progress bar, and drag-and-drop |
 | **Voice Engine & Calls** | Implemented | 1-to-1/group DM calls & server channels, Opus codec, DAVE v1 E2EE, Sonora AEC3 acoustic echo cancellation, RNNoise suppression, push-to-talk (`V`), audio device selector |
 | **Voice Messages** | Implemented | Inline voice message playback with interactive waveforms and bounded streaming audio buffering |
-| **Screen Sharing & Video** | Implemented | Native screen capture (macOS ScreenCaptureKit, Windows Graphics Capture, Linux portal/PipeWire with VA-API/NVENC hardware encoding and software fallback; Linux native capture remains unverified), quality presets (720p/1080p, up to 60fps), and local camera/screen previews |
+| **Screen Sharing & Video** | Implemented | Native screen capture (macOS ScreenCaptureKit, Windows Graphics Capture, Linux portal/PipeWire; Stable platform encoding or Experimental FFmpeg NVENC/AMD AMF/Intel Quick Sync/VideoToolbox; H.264 software fallback and hardware H.265/AV1 choices; hardware/live codec compatibility remains unverified), quality presets (480p through 8K, up to 60fps), and local camera/screen previews |
 | **Camera Video & Stream Viewing** | Implemented | Hardware-accelerated decoding (macOS VideoToolbox, Linux VA-API, Windows DXVA/D3D11) for incoming screen streams and camera video feeds |
 | **Threads & Forum Channels** | Implemented | Forum post listing, recent activity sorting, active thread browsing, and new forum post / thread creation |
 | **Server Administration** | Implemented | Server profile editor (banners, icons, traits), custom sticker upload/edit/delete, role management with permissions matrix, audit log viewer, invite tracking and revocation, integrations/webhooks, and member moderation |

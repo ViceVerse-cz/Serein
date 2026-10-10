@@ -1,5 +1,51 @@
 # Voice dependency license provenance
 
+## FFmpeg outgoing video encoders — October 4, 2026
+
+`scripts/build-ffmpeg.py` builds shared FFmpeg 7.1.5 avcodec/avutil with GPL,
+nonfree, Media Foundation and VA-API encoders disabled. It enables libopenh264 2.6.0,
+supported NVENC, AMD AMF, Intel Quick Sync and macOS VideoToolbox backends. The Linux
+VA interface remains enabled for Quick Sync. OpenH264 2.6.0 matches the existing
+openh264-sys2 0.9.8 bundled codec version. The LGPL FFmpeg corresponding source
+archive, exact recipe/source metadata, namespace patch and configure arguments are staged from
+the built prefix into every package's `ffmpeg-source` directory. Nix uses the
+same source pins and recipe. No compiler or downloaded Cisco binary is bundled.
+
+| Source archive | URL | SHA-256 |
+|---|---|---|
+| FFmpeg 7.1.5 | https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz | `de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f` |
+| OpenH264 2.6.0 | https://codeload.github.com/cisco/openh264/tar.gz/refs/tags/v2.6.0 | `558544ad358283a7ab2930d69a9ceddf913f4a51ee9bf1bfb9e377322af81a69` |
+| nv-codec-headers 12.2.72.0 | https://codeload.github.com/FFmpeg/nv-codec-headers/tar.gz/refs/tags/n12.2.72.0 | `dbeaec433d93b850714760282f1d0992b1254fc3b5a6cb7d76fc1340a1e47563` |
+
+`ffmpeg-COPYING.LGPLv2.1.txt` is copied unmodified from the FFmpeg archive's
+`COPYING.LGPLv2.1`; SHA-256
+`246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30`.
+`nv-codec-headers-LICENSE.txt` retains verbatim the MIT notice from
+`include/ffnvcodec/nvEncodeAPI.h`; SHA-256
+`72b60be67644d841bfd54a042875b5846294d357040dd7ac8e38bde20d9e8f97`.
+That notice applies to that header; the complete NVENC headers archive is also
+bundled on NVENC builds to retain every header's own notice and copyright.
+The two FFmpeg version scripts use Serein's private ELF symbol namespaces;
+the library names have a `-serein` suffix. The source changes are preserved in
+`ffmpeg-source/serein-ffmpeg.patch` beside the pristine source archive and are
+applied by the retained build recipe. They prevent collision with host FFmpeg
+libraries used by GStreamer's incoming decoding plugins.
+The existing `openh264-sys2-upstream-LICENSE` preserves the Cisco codec notice;
+the separately compiled shared library also carries its upstream LICENSE in
+`ffmpeg-source/OpenH264-LICENSE`.
+
+On Linux, the shared OpenH264 recipe prefixes the seven public APIs, hides
+internal exports and sets `libopenh264-serein.so.8` as its private SONAME.
+`ffmpeg-source/serein-openh264.patch` records those modifications alongside the
+unchanged source subset and license; the shipped recipe reapplies the patch.
+The Rust static codec sources remain unchanged, with their native archive
+symbols hidden when linking desktop and voice-test executables.
+
+Shared libraries remain replaceable. The OpenH264 source build does not inherit
+the patent-license terms of separately downloaded Cisco binaries. This change
+does not change the application's MIT/Apache source license or claim to finish
+the repository's previously documented distribution review.
+
 September 15, 2026 stream-audio exclusion addition: `libpulse-sys 1.23.0`,
 registry archive SHA-256 `d74371848b22e989f829cc1621d2ebd74960711557d8b45cfe740f60d0a05e61`.
 `libpulse-sys-1.23.0-LICENSE-MIT` is copied unmodified from the release's
@@ -130,3 +176,75 @@ no PulseAudio server is bundled.
 | enum-primitive-derive-0.3.0-LICENSE | [registry source](https://docs.rs/crate/enum-primitive-derive/0.3.0/source/LICENSE) | `819e0555b295079201b0670bb3302855303bdbbcc739f3819b13e1b3d2ec03bb` |
 | futures-0.3.34-LICENSE-MIT | [registry source](https://docs.rs/crate/futures/0.3.34/source/LICENSE-MIT) | `6652c868f35dfe5e8ef636810a4e576b9d663f3a17fb0f5613ad73583e1b88fd` |
 | futures-0.3.34-LICENSE-APACHE | [registry source](https://docs.rs/crate/futures/0.3.34/source/LICENSE-APACHE) | `275c491d6d1160553c32fd6127061d7f9606c3ea25abfad6ca3f6ed088785427` |
+
+## FFmpeg vendor encoders — October 5, 2026
+
+Outgoing OpenH264 uses the checked 2.6.0 archive
+`https://codeload.github.com/cisco/openh264/tar.gz/refs/tags/v2.6.0`
+(SHA-256 `558544ad358283a7ab2930d69a9ceddf913f4a51ee9bf1bfb9e377322af81a69`).
+The build and package use `openh264-2.6.0-source.tar.bz2`, a deterministic
+source subset that omits only root `openh264-2.6.0/res/` test media. All other
+source/build/test/docs entries, license text, executable file modes and nested
+Android resources remain unchanged. Its 858 USTAR entries have fixed ownership
+and timestamps and use bzip2 compression level 9. Size is 1,198,914 bytes;
+SHA-256 `783c8cdede353f0b0c77784a505438a32454917e9a95338b3b8d30a01f8ce0e5`.
+The shared-library build requires no omitted test media. Tests relying on those
+fixtures require the original upstream archive; the package's codec rebuild
+does not. Incoming Rust OpenH264 provenance remains recorded separately above.
+
+AMF uses the public headers of AMD AMF 1.4.36 from the checked upstream archive
+`https://codeload.github.com/GPUOpen-LibrariesAndSDKs/AMF/tar.gz/refs/tags/v1.4.36`
+(SHA-256 `240a42033babc7920e5476506d5ac0c5628f67908833168e746406808d0ef146`).
+The unchanged `AMF-1.4.36/LICENSE.txt` is retained as
+`AMF-1.4.36-LICENSE.txt` (SHA-256
+`eb297397aaa455b5668ab67d216b83828466152dab123fa92384c6ec16b74170`).
+It is MIT with AMD's standards/patent notice. No AMD GPU driver is bundled.
+The installed recipe ships only this license and all 57 regular files from
+`AMF-1.4.36/amf/public/include/`, renamed under `AMF-1.4.36-headers/AMF/`.
+The deterministic uncompressed USTAR archive is 634,880 bytes with SHA-256
+`eb1a8cf31da12bcc4613f188809e7cc74d2582387f1c3346c0f541fb0e1dd21e`.
+The complete 171 MiB SDK archive is pinned for initial source acquisition but
+is not part of the redistributed subset or required for its offline rebuild.
+
+Intel oneVPL 2.14.0 is pinned at
+`https://codeload.github.com/intel/libvpl/tar.gz/refs/tags/v2.14.0`
+(SHA-256 `7c6bff1c1708d910032c2e6c44998ffff3f5fdbf06b00972bc48bf2dd9e5ac06`).
+Its dispatcher is built as PIC static code and linked into the replaceable
+FFmpeg shared libraries. The complete unchanged source archive is shipped with
+those libraries; compatible Intel GPU runtime drivers remain system-provided.
+Unchanged license texts are:
+
+| File | Exact archive path | SHA-256 |
+|---|---|---|
+| oneVPL-2.14.0-LICENSE.txt | `libvpl-2.14.0/LICENSE` | `bf1cfac2e2792b6e1e995ce103d70796aecaf2ec7e4c5fe5474f7acec7b4a677` |
+| oneVPL-2.14.0-third-party-programs.txt | `libvpl-2.14.0/third-party-programs.txt` | `8c4e3adbbe715ef6160983cd862a4052bf8285a3ef925f957070606ed5a9003e` |
+
+Tests/examples are disabled and CMake's automatic MSVC-runtime copying is
+skipped. The Windows dispatcher uses its static CRT option to match OpenH264's
+`-MT` and FFmpeg's explicit `-MT`; the SDK's matching release APIs retain
+ownership of dispatcher/driver allocations. Native Windows DLL import-table
+validation remains a CI check, not local Linux evidence. Linux QSV's libva/libdrm libraries come from the distribution or Flatpak
+runtime; their licenses and GPU-driver packaging terms still apply. The exact
+FFmpeg source patch also routes QSV packet requests through the capped native
+allocation callback and selects missing internal HEVC SEI helpers for the
+pinned HEVC-QSV encoder; no decoder is enabled. Its unmodified source archive
+and applied patch ship together. The same LGPL-only hardware wrappers supply
+HEVC/AV1 when supported; software encoding stays OpenH264/H264. Stable uses
+OS/distribution H264 encoders and Rust OpenH264 separately, with no newly bundled
+framework/plugin sources.
+
+## Exact GPU binding — October 6, 2026
+
+Linux AMF builds additionally use Vulkan-Headers 1.3.290 from
+`https://codeload.github.com/KhronosGroup/Vulkan-Headers/tar.gz/refs/tags/v1.3.290`,
+SHA-256 `f38a653bf93cab7a2a229a53d2d53b1cba9a2819e4c0a7de13c54085bde9bcf5`.
+The complete pristine header archive and upstream `LICENSE.md`/`LICENSES` travel
+with the Linux recipe. The loader and AMD runtime remain system dependencies.
+Its modified LGPL FFmpeg sources retain the original archive and a reproducible
+patch enabling external AMF Vulkan-device handles, exact DRM device selection,
+VideoToolbox registry-ID specification and QSV quality-negotiation checks.
+No Vulkan video encoder/decoder or AMD VA-API encoder is enabled.
+
+The three Vulkan license files in this directory are copied unchanged from
+`Vulkan-Headers-1.3.290/`: `LICENSE.md`, `LICENSES/Apache-2.0.txt` and
+`LICENSES/MIT.txt`; headers use MIT OR Apache-2.0. No Vulkan driver is bundled.

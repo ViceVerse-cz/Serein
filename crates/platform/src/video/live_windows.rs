@@ -303,16 +303,21 @@ fn sample_bytes(sample: &IMFSample) -> Result<Vec<u8>, &'static str> {
 		buffer
 			.Lock(&mut data, Some(&mut capacity), Some(&mut length))
 			.map_err(|_| INVALID)?;
-		let result = if length > capacity
-			|| length as usize > MAX_OUTPUT_BYTES
-			|| (length != 0 && data.is_null())
-		{
-			Err(INVALID)
-		} else {
-			Ok(std::slice::from_raw_parts(data, length as usize).to_vec())
+		let result = match sample_length(length, capacity, data.is_null()) {
+			Err(error) => Err(error),
+			Ok(0) => Ok(Vec::new()),
+			Ok(length) => Ok(std::slice::from_raw_parts(data, length).to_vec()),
 		};
 		buffer.Unlock().map_err(|_| INVALID)?;
 		result
+	}
+}
+
+fn sample_length(length: u32, capacity: u32, null: bool) -> Result<usize, &'static str> {
+	if length > capacity || length as usize > MAX_OUTPUT_BYTES || (length != 0 && null) {
+		Err(INVALID)
+	} else {
+		Ok(length as usize)
 	}
 }
 
@@ -365,6 +370,19 @@ fn nv12_to_rgba(bytes: &[u8], format: OutputFormat) -> Result<Frame, &'static st
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn native_sample_length_accepts_empty_storage_and_rejects_invalid_bounds() {
+		assert_eq!(sample_length(0, 0, true), Ok(0));
+		assert_eq!(sample_length(0, 16, true), Ok(0));
+		assert_eq!(sample_length(0, 0, false), Ok(0));
+		assert_eq!(sample_length(1, 1, true), Err(INVALID));
+		assert_eq!(sample_length(2, 1, false), Err(INVALID));
+		assert_eq!(sample_length(1, 1, false), Ok(1));
+		assert_eq!(
+			sample_length(MAX_OUTPUT_BYTES as u32 + 1, u32::MAX, false),
+			Err(INVALID)
+		);
+	}
 	#[test]
 	fn nv12_conversion_crops_and_bounds() {
 		let format = OutputFormat {

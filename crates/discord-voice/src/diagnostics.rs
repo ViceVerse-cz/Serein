@@ -131,33 +131,77 @@ pub(crate) enum Signal {
 const SIGNAL_SLOTS: usize = 17;
 static SCREEN_ENCODERS: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
 static CAMERA_ENCODERS: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
+// Declined and accepted sessions occupy separate slots. Summing the snapshot
+// gives requested sessions without claiming more accepted than requested.
+static SCREEN_AMF_SPLIT: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
+static CAMERA_AMF_SPLIT: [AtomicU64; 2] = [const { AtomicU64::new(0) }; 2];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AmfSplit {
+	Off,
+	Declined,
+	Accepted,
+}
+
+impl AmfSplit {
+	pub(crate) fn from_native(status: i32) -> Self {
+		match status {
+			1 => Self::Declined,
+			2 => Self::Accepted,
+			_ => Self::Off,
+		}
+	}
+
+	fn slot(self) -> Option<usize> {
+		match self {
+			Self::Off => None,
+			Self::Declined => Some(0),
+			Self::Accepted => Some(1),
+		}
+	}
+}
 
 /// Counts only currently live encoders, separately for screen sharing and camera video.
 pub(crate) struct EncoderRegistration {
 	counts: &'static [AtomicU64; 2],
-	hardware: Option<bool>,
+	split_counts: &'static [AtomicU64; 2],
+	hardware: Option<(bool, AmfSplit)>,
 }
 
 impl EncoderRegistration {
-	pub(crate) fn new(screen: bool, hardware: bool) -> Self {
+	pub(crate) fn new(screen: bool, hardware: bool, split: AmfSplit) -> Self {
 		let mut registration = Self {
 			counts: if screen {
 				&SCREEN_ENCODERS
 			} else {
 				&CAMERA_ENCODERS
 			},
+			split_counts: if screen {
+				&SCREEN_AMF_SPLIT
+			} else {
+				&CAMERA_AMF_SPLIT
+			},
 			hardware: None,
 		};
-		registration.set(Some(hardware));
+		registration.set(Some((hardware, split)));
 		registration
 	}
 
-	pub(crate) fn set(&mut self, hardware: Option<bool>) {
-		if let Some(previous) = self.hardware {
-			self.counts[usize::from(!previous)].fetch_sub(1, Ordering::Relaxed);
+	pub(crate) fn set(&mut self, hardware: Option<(bool, AmfSplit)>) {
+		if self.hardware == hardware {
+			return;
 		}
-		if let Some(current) = hardware {
+		if let Some((previous, split)) = self.hardware {
+			self.counts[usize::from(!previous)].fetch_sub(1, Ordering::Relaxed);
+			if let Some(slot) = split.slot() {
+				self.split_counts[slot].fetch_sub(1, Ordering::Relaxed);
+			}
+		}
+		if let Some((current, split)) = hardware {
 			self.counts[usize::from(!current)].fetch_add(1, Ordering::Relaxed);
+			if let Some(slot) = split.slot() {
+				self.split_counts[slot].fetch_add(1, Ordering::Relaxed);
+			}
 		}
 		self.hardware = hardware;
 	}
@@ -200,6 +244,7 @@ pub(crate) enum Capture {
 struct Report {
 	scope: Scope,
 	encoder_counts: [u64; 2],
+	amf_split_counts: [u64; 2],
 	decoder_counts: [u64; 2],
 	at_ms: u64,
 	window_ms: u64,
@@ -262,6 +307,7 @@ impl Metrics {
 			report: Report {
 				scope,
 				encoder_counts: [0; 2],
+				amf_split_counts: [0; 2],
 				decoder_counts: [0; 2],
 				at_ms: 0,
 				window_ms: 0,
@@ -382,14 +428,16 @@ impl Metrics {
 
 	fn flush(&mut self) {
 		let Some(send) = self.send else { return };
-		self.report.encoder_counts = match self.report.scope {
-			Scope::StreamSend | Scope::ScreenVideo => Some(&SCREEN_ENCODERS),
-			Scope::Transport => Some(&CAMERA_ENCODERS),
+		let encoder_counts = match self.report.scope {
+			Scope::StreamSend | Scope::ScreenVideo => Some((&SCREEN_ENCODERS, &SCREEN_AMF_SPLIT)),
+			Scope::Transport => Some((&CAMERA_ENCODERS, &CAMERA_AMF_SPLIT)),
 			_ => None,
-		}
-		.map_or([0; 2], |counts| {
-			counts.each_ref().map(|count| count.load(Ordering::Relaxed))
-		});
+		};
+		let snapshot =
+			|counts: &[AtomicU64; 2]| counts.each_ref().map(|count| count.load(Ordering::Relaxed));
+		self.report.encoder_counts = encoder_counts.map_or([0; 2], |(counts, _)| snapshot(counts));
+		self.report.amf_split_counts =
+			encoder_counts.map_or([0; 2], |(_, counts)| snapshot(counts));
 		self.report.at_ms = started().elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
 		self.report.window_ms = self.since.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
 		if let Err(mpsc::TrySendError::Disconnected(_)) = send.try_send(self.report) {
@@ -439,7 +487,12 @@ fn write_report(report: Report, bytes: &mut usize, writer: &mut impl Write) -> b
 		report.scope,
 		Scope::Transport | Scope::StreamSend | Scope::ScreenVideo
 	) {
-		line.push_str(&format!(" encoder={}", codec_label(report.encoder_counts)));
+		line.push_str(&format!(
+			" encoder={} amf_split_requested={} amf_split_accepted={}",
+			codec_label(report.encoder_counts),
+			report.amf_split_counts[0].saturating_add(report.amf_split_counts[1]),
+			report.amf_split_counts[1],
+		));
 	}
 	if matches!(report.scope, Scope::Transport | Scope::StreamReceive) {
 		line.push_str(&format!(" decoder={}", codec_label(report.decoder_counts)));

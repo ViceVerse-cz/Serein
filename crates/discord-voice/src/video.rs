@@ -1,6 +1,12 @@
-//! Small Annex-B H.264 packetizer for a single Go Live video stream.
+//! Bounded outgoing video packetization, pacing and encrypted repair history.
+//! H264 follows RFC 6184, H265 RFC 7798, and AV1 the AV1 RTP payload specification.
+//! Discord's codec negotiation and AV1 DAVE framing remain live-unverified.
+use model::voice_settings::VideoCodec;
 use std::{collections::VecDeque, time::Duration};
 use tokio::time::Instant;
+
+#[path = "video_bitstream.rs"]
+mod bitstream;
 
 const MTU: usize = 1200;
 const RTP_HEADER: usize = 12;
@@ -298,7 +304,13 @@ impl History {
 			sent.retries += 1;
 			sent.last_retry = Some(now);
 			let mut header = sent.packet.header;
-			header[1] = (header[1] & 0x80) | 102;
+			let repair_type = match header[1] & 127 {
+				101 => 102,
+				103 => 104,
+				109 => 110,
+				_ => continue,
+			};
+			header[1] = (header[1] & 0x80) | repair_type;
 			header[2..4].copy_from_slice(&sequence.to_be_bytes());
 			header[8..12].copy_from_slice(&ssrc.to_be_bytes());
 			*sequence = sequence.wrapping_add(1);
@@ -336,6 +348,7 @@ pub(crate) fn packetize(
 				ssrc,
 				nalu.to_vec(),
 				last_nalu,
+				VideoCodec::H264,
 			)?;
 			continue;
 		}
@@ -355,7 +368,15 @@ pub(crate) fn packetize(
 			);
 			payload.extend_from_slice(&nalu[offset..offset + take]);
 			let last = last_nalu && offset + take == nalu.len();
-			push(&mut packets, sequence, timestamp, ssrc, payload, last)?;
+			push(
+				&mut packets,
+				sequence,
+				timestamp,
+				ssrc,
+				payload,
+				last,
+				VideoCodec::H264,
+			)?;
 			offset += take;
 		}
 	}
@@ -366,10 +387,164 @@ pub(crate) fn packetize(
 }
 
 pub(crate) fn validate_source(frame: &[u8]) -> Result<(), &'static str> {
-	if frame.len() > 2 * 1024 * 1024 {
-		return Err("H264 frame exceeds the sharing limit");
+	validate_source_for_codec(frame, VideoCodec::H264)
+}
+
+pub(crate) fn validate_source_for_codec(
+	frame: &[u8],
+	codec: VideoCodec,
+) -> Result<(), &'static str> {
+	bitstream::validate(frame, codec)
+}
+pub(crate) fn has_parameter_sets_for_codec(frame: &[u8], codec: VideoCodec) -> bool {
+	bitstream::has_parameters(frame, codec)
+}
+pub(crate) fn is_keyframe_for_codec(frame: &[u8], codec: VideoCodec) -> bool {
+	bitstream::is_keyframe(frame, codec)
+}
+pub(crate) fn prepare_source(
+	frame: &[u8],
+	codec: VideoCodec,
+) -> Result<std::borrow::Cow<'_, [u8]>, &'static str> {
+	bitstream::prepare(frame, codec)
+}
+pub(crate) fn codec_name(codec: VideoCodec) -> &'static str {
+	match codec {
+		VideoCodec::H264 => "H264",
+		VideoCodec::H265 => "H265",
+		VideoCodec::Av1 => "AV1",
 	}
-	nalus(frame).map(|_| ())
+}
+pub(crate) fn payload_type(codec: VideoCodec) -> u8 {
+	match codec {
+		VideoCodec::H264 => 101,
+		VideoCodec::H265 => 103,
+		VideoCodec::Av1 => 109,
+	}
+}
+pub(crate) fn dave_codec(codec: VideoCodec) -> davey::Codec {
+	match codec {
+		VideoCodec::H264 => davey::Codec::H264,
+		VideoCodec::H265 => davey::Codec::H265,
+		VideoCodec::Av1 => davey::Codec::AV1,
+	}
+}
+
+/// Packetize a DAVE encrypted access unit. `keyframe` comes from the validated
+/// encoder result; AV1's N bit additionally requires an initial sequence header.
+pub(crate) fn packetize_for_codec(
+	frame: &[u8],
+	codec: VideoCodec,
+	sequence: &mut u16,
+	timestamp: u32,
+	ssrc: u32,
+	keyframe: bool,
+) -> Result<Vec<Packet>, &'static str> {
+	if frame.len() > MAX_DAVE_FRAME {
+		return Err("DAVE video frame exceeds the sharing limit");
+	}
+	match codec {
+		VideoCodec::H264 => packetize(frame, sequence, timestamp, ssrc),
+		VideoCodec::H265 => packetize_h265(frame, sequence, timestamp, ssrc),
+		VideoCodec::Av1 => packetize_av1(frame, sequence, timestamp, ssrc, keyframe),
+	}
+}
+
+fn packetize_h265(
+	frame: &[u8],
+	sequence: &mut u16,
+	timestamp: u32,
+	ssrc: u32,
+) -> Result<Vec<Packet>, &'static str> {
+	let units = bitstream::nalus(frame, VideoCodec::H265)?;
+	let mut packets = Vec::new();
+	for (index, unit) in units.iter().enumerate() {
+		let last = index + 1 == units.len();
+		if unit.len() <= MAX_PAYLOAD {
+			push(
+				&mut packets,
+				sequence,
+				timestamp,
+				ssrc,
+				unit.to_vec(),
+				last,
+				VideoCodec::H265,
+			)?;
+			continue;
+		}
+		let chunks = unit[2..].chunks(MAX_PAYLOAD - 3);
+		let count = chunks.len();
+		for (index, chunk) in chunks.enumerate() {
+			let mut payload = Vec::with_capacity(chunk.len() + 3);
+			// FU payload header retains F, layer_id and temporal_id_plus1.
+			payload.extend([(unit[0] & 0x81) | (49 << 1), unit[1]]);
+			payload.push(
+				(unit[0] >> 1 & 63)
+					| if index == 0 { 128 } else { 0 }
+					| if index + 1 == count { 64 } else { 0 },
+			);
+			payload.extend_from_slice(chunk);
+			push(
+				&mut packets,
+				sequence,
+				timestamp,
+				ssrc,
+				payload,
+				last && index + 1 == count,
+				VideoCodec::H265,
+			)?;
+		}
+	}
+	Ok(packets)
+}
+
+fn packetize_av1(
+	frame: &[u8],
+	sequence: &mut u16,
+	timestamp: u32,
+	ssrc: u32,
+	keyframe: bool,
+) -> Result<Vec<Packet>, &'static str> {
+	let units = bitstream::obus(frame, false)?;
+	if units.iter().any(bitstream::Obu::discarded) {
+		return Err("DAVE AV1 frame contains discarded OBUs");
+	}
+	let mut packets = Vec::new();
+	for (unit_index, unit) in units.iter().enumerate() {
+		// One OBU element per packet: W=1 omits its redundant element length.
+		// RTP removes OBU size fields; the authenticated final DAVE trailer stays
+		// inside the final size-less OBU, including when it is fragmented.
+		let mut element = Vec::with_capacity(2 + unit.payload.len());
+		element.push(unit.header & !2);
+		if let Some(extension) = unit.extension {
+			element.push(extension);
+		}
+		element.extend_from_slice(unit.payload);
+		let chunks = element.chunks(MAX_PAYLOAD - 1);
+		let count = chunks.len();
+		for (index, chunk) in chunks.enumerate() {
+			let mut payload = Vec::with_capacity(1 + chunk.len());
+			let continues = index > 0;
+			let remaining = index + 1 < count;
+			let new_sequence = packets.is_empty() && unit.kind() == 1 && keyframe;
+			payload.push(
+				0x10 | if continues { 0x80 } else { 0 }
+					| if remaining { 0x40 } else { 0 }
+					| if new_sequence { 8 } else { 0 },
+			);
+			payload.extend_from_slice(chunk);
+			push(
+				&mut packets,
+				sequence,
+				timestamp,
+				ssrc,
+				payload,
+				unit_index + 1 == units.len() && !remaining,
+				VideoCodec::Av1,
+			)?;
+		}
+	}
+	Ok(packets)
 }
 
 fn push(
@@ -379,13 +554,14 @@ fn push(
 	ssrc: u32,
 	payload: Vec<u8>,
 	marker: bool,
+	codec: VideoCodec,
 ) -> Result<(), &'static str> {
 	if packets.len() == MAX_FRAGMENTS {
-		return Err("H264 frame exceeds fragment limit");
+		return Err("Video frame exceeds fragment limit");
 	}
 	let mut header = [0; RTP_HEADER];
 	header[0] = 0x80;
-	header[1] = 101 | u8::from(marker) << 7;
+	header[1] = payload_type(codec) | u8::from(marker) << 7;
 	header[2..4].copy_from_slice(&sequence.to_be_bytes());
 	header[4..8].copy_from_slice(&timestamp.to_be_bytes());
 	header[8..12].copy_from_slice(&ssrc.to_be_bytes());
@@ -529,5 +705,252 @@ mod tests {
 				.unwrap(),
 			original
 		);
+	}
+
+	fn peers() -> (Dave, Dave) {
+		let server = Delivery::new();
+		let mut alice = Dave::new(1, Some(2), 3).unwrap();
+		let mut bob = Dave::new(2, Some(1), 3).unwrap();
+		alice.session.set_external_sender(&server.external).unwrap();
+		bob.session.set_external_sender(&server.external).unwrap();
+		let (commit, welcome) = server.add(&mut alice, &bob.key_package().unwrap());
+		alice
+			.group_changed(29, &[&[0, 5], commit.as_slice()].concat())
+			.unwrap();
+		bob.group_changed(30, &[&[0, 5], welcome.as_slice()].concat())
+			.unwrap();
+		alice.execute(5).unwrap();
+		bob.execute(5).unwrap();
+		(alice, bob)
+	}
+
+	fn av1_unit(kind: u8, payload: &[u8], bytes: &mut Vec<u8>) {
+		bytes.push(kind << 3 | 2);
+		let mut size = payload.len();
+		while size >= 128 {
+			bytes.push((size as u8 & 127) | 128);
+			size >>= 7;
+		}
+		bytes.push(size as u8);
+		bytes.extend_from_slice(payload);
+	}
+
+	/// Synthetic wire reconstruction, including DAVE's size-less final AV1 OBU.
+	/// This fixture does not represent an incoming H265/AV1 decoder or live Discord.
+	fn rebuild(packets: &[Packet], codec: VideoCodec) -> Vec<u8> {
+		if codec == VideoCodec::H264 {
+			return depacketize(packets);
+		}
+		let mut output = Vec::new();
+		if codec == VideoCodec::H265 {
+			let mut fragmented = false;
+			for packet in packets {
+				let payload = &packet.payload;
+				if payload[0] >> 1 & 63 == 49 {
+					if payload[2] & 128 != 0 {
+						assert!(!fragmented);
+						output.extend([
+							0,
+							0,
+							0,
+							1,
+							(payload[0] & 0x81) | (payload[2] & 63) << 1,
+							payload[1],
+						]);
+						fragmented = true;
+					} else {
+						assert!(fragmented);
+					}
+					output.extend_from_slice(&payload[3..]);
+					if payload[2] & 64 != 0 {
+						fragmented = false;
+					}
+				} else {
+					assert!(!fragmented);
+					output.extend([0, 0, 0, 1]);
+					output.extend_from_slice(payload);
+				}
+			}
+			assert!(!fragmented);
+			return output;
+		}
+		let mut elements: Vec<Vec<u8>> = Vec::new();
+		let mut continuation = false;
+		for packet in packets {
+			let flags = packet.payload[0];
+			assert_eq!(flags & 0x30, 0x10); // W=1: one element without length.
+			assert_eq!(flags & 0x80 != 0, continuation);
+			if !continuation {
+				elements.push(Vec::new());
+			}
+			elements
+				.last_mut()
+				.unwrap()
+				.extend_from_slice(&packet.payload[1..]);
+			continuation = flags & 0x40 != 0;
+		}
+		assert!(!continuation);
+		for (index, element) in elements.iter().enumerate() {
+			let prefix = 1 + usize::from(element[0] & 4 != 0);
+			if index + 1 == elements.len() {
+				output.extend_from_slice(element);
+			} else {
+				let start = output.len();
+				av1_unit(element[0] >> 3 & 15, &element[prefix..], &mut output);
+				if prefix == 2 {
+					output[start] |= 4;
+					output.insert(start + 1, element[1]);
+				}
+			}
+		}
+		output
+	}
+
+	#[test]
+	fn h265_and_av1_survive_fragmentation_dave_and_transport_encryption() {
+		for codec in [VideoCodec::H265, VideoCodec::Av1] {
+			let (mut alice, mut bob) = peers();
+			let mut original = Vec::new();
+			if codec == VideoCodec::H265 {
+				for kind in [32, 33, 34] {
+					original.extend([0, 0, 1, kind << 1, 1, 0x80]);
+				}
+				original.extend([0, 0, 1, 19 << 1, 1, 0x88]);
+				original.resize(original.len() + MAX_PAYLOAD * 3, 7);
+			} else {
+				av1_unit(2, &[], &mut original);
+				// Padded size is canonicalized before it becomes authenticated.
+				original.extend([0x0e, 0x20, 0x81, 0, 0]);
+				let mut picture = vec![7; MAX_PAYLOAD * 3];
+				picture[0] = 0x10; // show_existing=0, KEY_FRAME, show_frame=1.
+				av1_unit(6, &picture, &mut original);
+				av1_unit(15, &[0; 8], &mut original);
+			}
+			validate_source_for_codec(&original, codec).unwrap();
+			assert!(has_parameter_sets_for_codec(&original, codec));
+			assert!(is_keyframe_for_codec(&original, codec));
+			let prepared = prepare_source(&original, codec).unwrap();
+			let encrypted = alice
+				.session
+				.encrypt(davey::MediaType::VIDEO, dave_codec(codec), &prepared)
+				.unwrap();
+			let mut sequence = u16::MAX;
+			let packets =
+				packetize_for_codec(&encrypted, codec, &mut sequence, 9000, 11, true).unwrap();
+			assert!(packets.len() > 3 && packets.len() < MAX_FRAGMENTS);
+			let mut encryption = crate::crypto::Encryption::new(&[7; 32]);
+			for (index, packet) in packets.iter().enumerate() {
+				assert_eq!(packet.header[1] & 127, payload_type(codec));
+				assert_eq!(packet.header[1] & 128 != 0, index + 1 == packets.len());
+				assert_eq!(
+					u16::from_be_bytes(packet.header[2..4].try_into().unwrap()),
+					u16::MAX.wrapping_add(index as u16)
+				);
+				let wire = encryption.seal(&packet.header, &packet.payload).unwrap();
+				assert!(wire.len() <= MTU);
+				let opened = encryption.open(&wire).unwrap();
+				assert_eq!(opened.payload_type, payload_type(codec));
+				assert_eq!(opened.payload, packet.payload);
+			}
+			if codec == VideoCodec::Av1 {
+				assert_eq!(packets[0].payload[0] & 8, 8);
+				assert!(packets[1..].iter().all(|packet| packet.payload[0] & 8 == 0));
+			}
+			let restored = rebuild(&packets, codec);
+			assert_eq!(restored, encrypted.as_ref());
+			let decrypted = bob
+				.session
+				.decrypt(1, davey::MediaType::VIDEO, &restored)
+				.unwrap();
+			if codec == VideoCodec::H265 {
+				assert_eq!(decrypted.as_slice(), prepared.as_ref());
+			} else {
+				let units = bitstream::obus(&decrypted, false).unwrap();
+				assert_eq!(units.len(), 2);
+				assert_eq!(units[0].payload, &[0]);
+				assert_eq!(
+					units[1].payload,
+					&prepared[prepared.len() - MAX_PAYLOAD * 3..]
+				);
+			}
+		}
+	}
+
+	#[test]
+	fn malformed_headers_sizes_and_unit_budgets_are_rejected() {
+		for bytes in [
+			vec![0, 0, 1, 38, 0, 7],
+			vec![0, 0, 1, 38],
+			vec![0, 0, 1, 0x80, 1, 7],
+		] {
+			assert!(validate_source_for_codec(&bytes, VideoCodec::H265).is_err());
+		}
+		for bytes in [
+			vec![0x32, 9, 1],
+			vec![0x34],
+			vec![0xb2, 1, 7],
+			vec![0x32, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80],
+			vec![0x30, 7],
+		] {
+			assert!(validate_source_for_codec(&bytes, VideoCodec::Av1).is_err());
+		}
+		let mut headers = Vec::new();
+		for _ in 0..2049 {
+			av1_unit(6, &[7], &mut headers);
+		}
+		assert!(validate_source_for_codec(&headers, VideoCodec::Av1).is_err());
+		let mut frame = vec![0, 0, 0, 1, 0x65];
+		frame.resize(MAX_PAYLOAD + 10, 7);
+		for _ in 0..MAX_FRAGMENTS - 1 {
+			frame.extend([0, 0, 1, 0x41, 7]);
+		}
+		assert!(packetize(&frame, &mut 0, 0, 1).is_err());
+		let oversized = vec![0; MAX_DAVE_FRAME + 1];
+		for codec in [VideoCodec::H264, VideoCodec::H265, VideoCodec::Av1] {
+			assert!(packetize_for_codec(&oversized, codec, &mut 0, 0, 1, false).is_err());
+		}
+	}
+
+	#[test]
+	fn av1_sequence_headers_alone_do_not_claim_a_keyframe() {
+		let sequence_only = [0x0a, 1, 0];
+		assert!(!is_keyframe_for_codec(&sequence_only, VideoCodec::Av1));
+		for header in [0x20, 0x80] {
+			let bytes = [0x0a, 1, 0, 0x32, 1, header];
+			assert!(has_parameter_sets_for_codec(&bytes, VideoCodec::Av1));
+			assert!(!is_keyframe_for_codec(&bytes, VideoCodec::Av1));
+		}
+		let reduced = [0x0a, 1, 0x18, 0x32, 1, 0x80];
+		assert!(is_keyframe_for_codec(&reduced, VideoCodec::Av1));
+		let regular = [0x0a, 1, 0, 0x32, 1, 0x10];
+		let encrypted_style = [0x0a, 1, 7, 0x30, 8, 9];
+		let packets =
+			packetize_for_codec(&encrypted_style, VideoCodec::Av1, &mut 0, 0, 1, false).unwrap();
+		assert!(packets.iter().all(|packet| packet.payload[0] & 8 == 0));
+		assert!(is_keyframe_for_codec(&regular, VideoCodec::Av1));
+	}
+
+	#[test]
+	fn repairs_use_each_negotiated_codecs_rtx_payload_type() {
+		for codec in [VideoCodec::H264, VideoCodec::H265, VideoCodec::Av1] {
+			let now = Instant::now();
+			let mut history = History::default();
+			let mut packets = Vec::new();
+			push(&mut packets, &mut 9, 3000, 7, vec![42, 43], true, codec).unwrap();
+			history.remember(packets.pop().unwrap(), now);
+			assert!(!history.request(&[9], now));
+			let mut repair_sequence = u16::MAX;
+			let repair = history.repair(8, &mut repair_sequence, now).unwrap();
+			assert_eq!(repair.header[1], (payload_type(codec) + 1) | 128);
+			assert_eq!(&repair.header[8..], &8u32.to_be_bytes());
+			assert_eq!(repair_sequence, 0);
+			assert_eq!(repair.payload, [0, 9, 42, 43]);
+			let mut encryption = crate::crypto::Encryption::new(&[7; 32]);
+			let wire = encryption.seal(&repair.header, &repair.payload).unwrap();
+			assert_eq!(
+				encryption.open(&wire).unwrap().payload_type,
+				payload_type(codec) + 1
+			);
+		}
 	}
 }

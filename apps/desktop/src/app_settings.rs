@@ -63,6 +63,7 @@ impl Settings {
 			voice_noise_suppression: ui.voice_processing.effective().suppression
 				!= model::voice_settings::NoiseSuppression::Off,
 			voice_processing: Some(ui.voice_processing),
+			video_settings: ui.video_settings,
 			voice_push_to_talk: ui.voice_push_to_talk,
 			voice_muted: ui.voice_muted,
 			voice_deafened: ui.voice_deafened,
@@ -106,6 +107,7 @@ impl Settings {
 		ui.voice_processing = value.voice_processing.unwrap_or_else(|| {
 			model::voice_settings::VoiceProcessing::from_legacy(value.voice_noise_suppression)
 		});
+		ui.video_settings = value.video_settings;
 		ui.voice_push_to_talk = value.voice_push_to_talk;
 		ui.voice_muted = value.voice_muted;
 		ui.voice_deafened = value.voice_deafened;
@@ -396,10 +398,35 @@ mod tests {
 	}
 
 	#[test]
+	fn video_settings_are_observed_and_restored() {
+		use model::voice_settings::{
+			VideoBackend, VideoCodec, VideoFrameRate, VideoResolution, VideoSettings,
+		};
+		let mut settings = Settings::default();
+		let mut ui = ui::MessagingUi::default();
+		ui.video_settings = VideoSettings {
+			backend: VideoBackend::Experimental,
+			codec: VideoCodec::H265,
+			camera_resolution: VideoResolution::P4320,
+			camera_frame_rate: VideoFrameRate::Fps60,
+		};
+		settings.observe(&ui);
+		assert_eq!(settings.current.video_settings, ui.video_settings);
+		assert!(settings.state.dirty);
+		ui.video_settings = VideoSettings::default();
+		settings.apply(&mut ui);
+		assert_eq!(ui.video_settings, settings.current.video_settings);
+	}
+
+	#[test]
 	fn legacy_preferences_without_voice_settings_keep_suppression_disabled() {
 		let current: AppPreferences = serde_json::from_str("{}").unwrap();
 		assert!(!current.voice_noise_suppression);
 		assert!(current.voice_processing.is_none());
+		assert_eq!(
+			current.video_settings,
+			model::voice_settings::VideoSettings::default()
+		);
 		let settings = Settings {
 			current,
 			..Default::default()

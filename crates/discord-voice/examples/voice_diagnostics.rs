@@ -4,19 +4,76 @@ include!("../src/diagnostics.rs");
 
 fn main() {
 	// Registration follows current lifetime and fallback state, independently per source.
-	let mut screen = EncoderRegistration::new(true, true);
-	let camera = EncoderRegistration::new(false, false);
+	let mut screen = EncoderRegistration::new(true, true, AmfSplit::Accepted);
+	let camera = EncoderRegistration::new(false, true, AmfSplit::Declined);
 	let counts = |values: &[AtomicU64; 2]| values.each_ref().map(|v| v.load(Ordering::Relaxed));
 	assert_eq!(codec_label(counts(&SCREEN_ENCODERS)), "hardware");
-	assert_eq!(codec_label(counts(&CAMERA_ENCODERS)), "software");
+	assert_eq!(codec_label(counts(&CAMERA_ENCODERS)), "hardware");
+	assert_eq!(counts(&SCREEN_AMF_SPLIT), [0, 1]);
+	assert_eq!(counts(&CAMERA_AMF_SPLIT), [1, 0]);
+	// A queued snapshot must keep the acceptance state even after fallback/restart.
+	let (split_send, split_receive) = mpsc::sync_channel(8);
+	let mut split_metrics = Metrics::new(Scope::StreamSend);
+	split_metrics.send = Some(Box::leak(Box::new(split_send)));
+	split_metrics.flush();
+	let accepted = split_receive.try_recv().unwrap();
+	assert_eq!(accepted.amf_split_counts, [0, 1]);
+	let mut acceptance_output = Vec::new();
+	let mut acceptance_budget = MAX_REPORT_BYTES;
+	assert!(write_report(
+		accepted,
+		&mut acceptance_budget,
+		&mut acceptance_output
+	));
+	assert!(
+		std::str::from_utf8(&acceptance_output)
+			.unwrap()
+			.contains("amf_split_requested=1 amf_split_accepted=1")
+	);
+	screen.set(Some((true, AmfSplit::Declined)));
+	split_metrics.flush();
+	let declined = split_receive.try_recv().unwrap();
+	assert_eq!(declined.amf_split_counts, [1, 0]);
+	acceptance_output.clear();
+	assert!(write_report(
+		declined,
+		&mut acceptance_budget,
+		&mut acceptance_output
+	));
+	assert!(
+		std::str::from_utf8(&acceptance_output)
+			.unwrap()
+			.contains("amf_split_requested=1 amf_split_accepted=0")
+	);
+	assert_eq!(accepted.amf_split_counts, [0, 1]);
+	assert_eq!(counts(&CAMERA_AMF_SPLIT), [1, 0]);
+	// Repeated frames with unchanged state do not duplicate registrations.
+	for _ in 0..100 {
+		screen.set(Some((true, AmfSplit::Accepted)));
+	}
+	assert_eq!(counts(&SCREEN_ENCODERS), [1, 0]);
+	assert_eq!(counts(&SCREEN_AMF_SPLIT), [0, 1]);
+	split_metrics.report.scope = Scope::Transport;
+	split_metrics.flush();
+	assert_eq!(split_receive.try_recv().unwrap().amf_split_counts, [1, 0]);
+	assert_eq!(AmfSplit::from_native(1), AmfSplit::Declined);
+	assert_eq!(AmfSplit::from_native(2), AmfSplit::Accepted);
+	for status in [0, -1, 3, i32::MAX] {
+		assert_eq!(AmfSplit::from_native(status), AmfSplit::Off);
+	}
 	screen.set(None);
 	assert_eq!(codec_label(counts(&SCREEN_ENCODERS)), "unknown");
-	screen.set(Some(false));
+	assert_eq!(counts(&SCREEN_AMF_SPLIT), [0, 0]);
+	screen.set(Some((false, AmfSplit::Off)));
 	assert_eq!(codec_label(counts(&SCREEN_ENCODERS)), "software");
+	assert_eq!(counts(&SCREEN_AMF_SPLIT), [0, 0]);
 	drop(screen);
 	drop(camera);
 	assert_eq!(counts(&SCREEN_ENCODERS), [0, 0]);
 	assert_eq!(counts(&CAMERA_ENCODERS), [0, 0]);
+	assert_eq!(counts(&CAMERA_AMF_SPLIT), [0, 0]);
+	drop(split_receive);
+	drop(split_metrics);
 	let (send, receive) = mpsc::sync_channel(8);
 	let mut metrics = Metrics::new(Scope::Audio);
 	metrics.send = None;
@@ -174,6 +231,7 @@ fn main() {
 		Scope::StreamSend,
 		Scope::StreamReceive,
 		Scope::ScreenAudio,
+		Scope::ScreenVideo,
 	] {
 		let mut transport = report;
 		transport.scope = scope;
@@ -183,6 +241,14 @@ fn main() {
 		assert_eq!(before - bytes, output.len());
 		let text = std::str::from_utf8(&output).unwrap();
 		let stream = matches!(scope, Scope::StreamSend | Scope::StreamReceive);
+		let encoding = matches!(
+			scope,
+			Scope::Transport | Scope::StreamSend | Scope::ScreenVideo
+		);
+		assert_eq!(
+			text.contains("amf_split_requested=0 amf_split_accepted=0"),
+			encoding
+		);
 		assert_eq!(text.contains("video_send="), stream);
 		assert_eq!(text.contains("video_receive="), stream);
 		for label in ["capture_read=", "capture_queue=", "capture_restart="] {
@@ -247,6 +313,6 @@ fn main() {
 		assert_eq!(slot as usize, index);
 	}
 	println!(
-		"Offline voice diagnostics check passed: timing, stream-state, video and signaling aggregation, disabled mode, periodic reset/flush, bounded nonblocking queue, byte budget and closed output."
+		"Offline voice diagnostics check passed: split acceptance, lifetime/fallback snapshots, timing, stream-state, video and signaling aggregation, disabled mode, periodic reset/flush, bounded nonblocking queue, byte budget and closed output."
 	);
 }

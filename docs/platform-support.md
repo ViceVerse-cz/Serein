@@ -83,6 +83,26 @@ requests are honored; native X11/Wayland verification of this toggle remains pen
 
 Debian/Ubuntu development packages typically include `build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev libfontconfig1-dev libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libxrandr-dev libxcursor-dev libvulkan-dev`. Package names vary by distribution. SQLite is bundled through rusqlite; it is an embedded client cache, with no database service.
 
+The Experimental camera/screen backend requires the pinned shared FFmpeg libraries;
+standard packages include them alongside the Stable platform encoders.
+Build them before Cargo:
+
+```sh
+python3 scripts/build-ffmpeg.py
+export FFMPEG_DIR="$PWD/target/ffmpeg/prefix"
+cargo xtask package
+```
+
+The source builder needs Python 3.12+, Make, CMake, a C/C++ compiler, pkg-config
+and NASM (x86_64); Linux also needs `patchelf`, libva and libdrm development
+packages for Quick Sync's device interface. Windows uses an MSVC developer shell with
+MSYS2 Bash/Make/pkgconf/NASM and places `FFMPEG_DIR/bin` on PATH for source runs.
+macOS uses Xcode tools and `install_name_tool`. Official packages bundle the three
+replaceable shared libraries, LGPL corresponding source and the AMD/Intel
+interface/dispatcher source and notices. GPU runtimes remain system provided. Native builds can also
+find the private `libavcodec-serein`/`libavutil-serein` pkg-config files. System
+FFmpeg executables used for attachment playback are independent.
+
 Linux packaging uses the target distribution's native tools: `dpkg-dev` for Debian,
 `rpm-build` for Fedora/openSUSE, or `makepkg` for Arch, plus Python 3 and
 `desktop-file-utils`. See [Linux packaging](../packaging/linux/README.md) for build
@@ -102,6 +122,12 @@ the initial fast local pass.
 Windows/Linux local staging artifacts remain unsigned. These are not certified installers. Use `ditto -c -k --keepParent dist/Serein.app dist/Serein-macos.zip` on macOS; normal archive tools may package Windows staging output. Do not modify bundle resources after sealing; rerun packaging when source documentation changes. Linux additionally supports `--format rpm`, `--format arch` and `--format dir`; release jobs target Ubuntu 26.04 (x86_64 and ARM64), Fedora 43/44, openSUSE Tumbleweed and Arch independently. Fedora 43 packaging was added in a local fast pass; its build and installation remain unverified until Linux CI and desktop validation. [Flatpak](../packaging/flatpak/README.md) builds offline against GNOME SDK 49 with the pinned Rust compiler and locked vendored sources. Its sandbox currently excludes direct V4L2 camera access, and host game IPC needs the documented socket link; desktop login/keyring/audio still need Linux runtime validation. [Signed repository preparation](../packaging/repositories/README.md) supports apt, dnf/zypper and pacman, but requires configured signing credentials and an HTTPS host; preparing artifacts does not publish repositories. Windows installer/signing and release reproducibility remain open work.
 
 The webview lives only during login: WKWebView on macOS, WebView2 on Windows, GTK/WebKitGTK on Linux. Linux uses a separate GTK authentication window and pumps it only while login is active. Voice is built in. Audio devices open only for explicit playback, device testing, or a call reaching required encrypted readiness. Popup-dependent authentication and third-party embedded challenges may not work; do not claim all Discord login methods without live tests.
+
+The first Windows upgrade from a build whose updater predates the FFmpeg library
+allowlist requires the installer or manual extraction: that old updater rejects
+new root DLL names. Once upgraded, the updater stages/replaces all three codec
+DLLs and the source/license directory together with the executable. Restart Serein
+after installing or replacing its shared libraries.
 
 ## Linux system appearance
 
@@ -157,9 +183,10 @@ Apple Color Emoji was visually checked with a synthetic moon status on September
 
 Outgoing in-call capture uses AVFoundation on macOS, Media Foundation and DirectShow on Windows,
 and V4L2 on Linux. The existing camera button becomes available after the voice
-server negotiates H264; capture starts only after an explicit click in a connected
-call. All adapters send 640×480 video at most 15 encoded frames/s. Native capture now
-selects the closest supported dimensions/rate within a 1280×720 input ceiling
+server negotiates the selected codec; capture starts only after an explicit click in a connected
+call. The default is 640×480 at 15 encoded frames/s; saved camera presets select
+up to 8K and 60 fps where the native device and encoder support them. Native capture
+selects supported dimensions/rate within the selected preset's input ceiling
 (DirectShow preserves its existing 1920×1080 fallback) and
 converts to the existing encoder size; hardware negotiation remains unverified.
 Windows needs desktop camera permission; Linux needs an accessible streaming
@@ -312,25 +339,25 @@ available with a visible recovery path on the next update attempt.
 
 The system screen-sharing picker requires PipeWire, a ScreenCast-capable portal backend for the current
 desktop (GNOME, KDE or the compositor-specific backend), and GStreamer Base/Good plus
-the PipeWire source plugin. GStreamer 1.24+ is recommended; GPU scaling/encoding also
-needs the applicable VA, NVCodec and OpenGL plugins and working driver support.
-Native packages declare the PipeWire and Base runtime plugins; hardware codec availability
-still depends on distribution packaging and drivers. The software fallback reuses bundled
-OpenH264. Flatpak needs compatible plugins/GPU access inside its runtime; no extra sandbox
-permission or host socket access is added. Native Linux validation remains pending.
+the PipeWire source plugin. GStreamer supplies bounded raw capture, CPU scaling
+and preview. Stable uses GStreamer VA/NV encoders with direct OpenH264 fallback;
+the optional Bad/VA/NVCodec plugins enable those hardware paths. Experimental uses
+the shared FFmpeg NVENC, AMD AMF or Intel Quick Sync encoders. H.264 has software
+fallback; H.265/AV1 require compatible hardware. Incoming playback remains H.264-only
+and may use its existing VA-API decoder. NVENC requires the NVIDIA runtime; AMF
+requires AMD's AMF runtime (Vulkan on Linux); Quick Sync requires an Intel GPU
+runtime and iHD VA driver. Experimental excludes VA-API encoders while permitting
+Quick Sync's Linux VA device interface. Device permissions and matching runtimes
+must be available, including inside Flatpak's sandbox. Experimental on Windows ARM64 is H.264
+software-only. macOS Experimental supports H.264/H.265 VideoToolbox and H.264
+software fallback; this pinned build has no macOS AV1 encoder. Hardware and live
+codec compatibility remain unverified. See [video settings](voice.md#video-backend-and-codec-settings).
 
 Niri portal capture normalizes frame timestamps at arrival before frame-rate filtering,
 including on Niri 26.04 where presentation timestamps remain constant. This preserves
-the existing VA-API/NVENC/OpenH264 selection and bounded buffers. Other desktops and
+the raw capture buffers and is independent of FFmpeg encoding. Other desktops and
 native X11 retain their existing timestamp handling. The offline `linux_screen --niri-timestamps` regression is synthetic; native capture and Discord delivery remain
 unverified. See [the screen-sharing checks](voice.md) for build/run commands.
-
-Screen sharing also tries the legacy `vaapih264enc` element when modern VA encoding
-fails. This optional system plugin uses CPU scaling and hardware H.264 encoding;
-it does not require `vaapipostproc`. Check availability with
-`gst-inspect-1.0 vaapih264enc` in the same runtime as Serein. Installing the modern
-`va` plugin alone does not provide this legacy element. Driver compatibility still
-requires an actual encode test; `vainfo` only advertises capabilities.
 
 Native X11 sessions can instead explicitly select “Entire X11 desktop · all monitors ·
 no portal”. This uses `ximagesrc` from GStreamer Good, already a native package

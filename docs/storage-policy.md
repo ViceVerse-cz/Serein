@@ -15,6 +15,44 @@ Returning to expired artwork uses the existing bounded worker and disk cache;
 a disk miss may fetch again. GPU resources may stay reserved in the driver after
 the handle is released. No persisted data, credentials or preferences are removed.
 
+## Experimental FFmpeg outgoing video (October 5, 2026)
+
+With Experimental selected, each camera/screen worker owns one FFmpeg codec context, frame and packet. The
+context cannot move between threads. Allowed backends are NVENC, AMD AMF, Intel
+Quick Sync, VideoToolbox and OpenH264; no capture, network or CLI process is opened
+by encoding. Hardware failure closes the old context before advancing to the next
+backend or H.264 software; H.265/AV1 have no bundled software fallback. Reconfiguration retains the active backend and excludes
+earlier failed GPUs. Secure-readiness loss
+closes the screen encoder and discards pending native output.
+
+Default camera I420 input is 460,800 bytes; selected camera/screen I420 input is
+at most 49,766,400 bytes (7680×4320). Each encoder retains one reusable output
+buffer capped at 128 KiB–2 MiB by camera preset, or 2 MiB for screens, plus the
+actual current packet and returned bounded
+access unit. The native packet allocator rejects payloads exceeding the same cap
+before copying. The pinned Quick Sync wrapper is patched to use that allocator
+instead of allocating its driver-advised packet size directly. Returned packets
+must also fit their actual backing allocation before inspection/copy.
+Quick Sync packs chroma into the allocated NV12 frame; it retains no extra
+conversion vector. At most 48 submitted pictures can lack output; the timestamp
+timeline is bounded to the same count. Supported hardware enables lookahead and
+H.265/AV1 reordering; H.264 B-frames remain disabled for receiver compatibility.
+Software uses at most two camera/four screen threads. NVENC requests 24 surfaces
+with lookahead, 12 with reordering alone, or four otherwise. Codec/driver reference
+and scratch storage is additional and is not a whole-process memory cap. The
+encoders do not request explicit low-latency modes. A rejected optional feature
+retries on the same GPU/codec before fallback; each old context is released first.
+AMF reopens its context for requested IDRs after output has started.
+SDK startup/polling/shutdown can still block, retaining the worker retirement
+barrier. Queue bounds do not imply bounded driver-call time.
+
+Linux raw capture and preview each use one-item/byte-bounded appsinks; its worker
+retains at most one validated latest BGRA picture for static-desktop IDR recovery
+and a one-second keepalive. CPU readback, scaling and I420 conversion replace
+outgoing GPU-only GStreamer encoding. Transport queues, encryption gates, camera
+capture ceilings and persistent storage are unchanged. FFmpeg libraries, source
+and build recipes are installed package material; media is never recorded.
+
 ## Off-screen inline image retention (October 9, 2026)
 
 Inline media renditions now release their still and playback textures after 60 seconds
@@ -880,13 +918,17 @@ Schema 7 adds one checked integer `message_kind` (0..255) per cached message, wi
 ### Opt-in synchronization and compatibility diagnostics
 
 Voice performance diagnostics (`SEREIN_VOICE_DIAGNOSTICS=1`) are also off by default.
-They retain at most eight fixed-size numeric reports in a worker queue (under 2 KiB),
+They retain at most eight fixed-size numeric reports in a worker queue (under 8 KiB),
 plus one report per producer and one being written. One background writer formats
 reports and caps attempted stderr output at 8,192 reports AND 8 MiB per process,
 across calls (about eleven hours of three concurrent five-second reporters). Queue overflow drops diagnostics without delaying media. A blocked
 stderr can stall only that single diagnostic writer. No files, identifiers, device
 names, payloads, audio, keys or telemetry are produced. Explicit shell redirection
 is owner-managed; unrelated output and appended runs are outside these limits.
+AMF split acceptance adds two numeric counts per report and four process-wide
+atomic counters. Registrations track only live camera/screen sessions, replace
+their state after fallback/reconfiguration and release it when the encoder stops.
+Acceptance is read once at encoder initialization; frames never poll the driver.
 See [voice CPU diagnostics](voice.md#investigating-high-cpu-during-a-call) for usage.
 
 `SEREIN_MEMBER_DIAGNOSTICS=1` enables fixed-label member synchronization diagnostics;
@@ -1026,7 +1068,7 @@ seeking replays decoding from the start instead of retaining the file.
 
 ## Screen sharing
 
-Screen/window labels, selected source identifiers, settings, raw pixels and encoded video exist only in session memory. They are not written to SQLite, diagnostics, previews or video files. Sources and video queues use the limits in [screen-sharing compatibility](discord-compatibility.md#outgoing-screen-sharing--september-11-2026). Stream credentials and DAVE identities are ephemeral and redacted; the signing key is shared with the active voice call and zeroized when its final owner drops. Native OS/driver capture surfaces are distinct from application-owned frame buffers. Synthetic PR screenshots are development evidence, excluded from runtime assets.
+Screen/window labels, selected source identifiers, per-share quality settings, raw pixels and encoded video exist only in session memory. They are not written to SQLite, diagnostics, previews or video files. Sources and video queues use the limits in [screen-sharing compatibility](discord-compatibility.md#outgoing-screen-sharing--september-11-2026). Stream credentials and DAVE identities are ephemeral and redacted; the signing key is shared with the active voice call and zeroized when its final owner drops. Native OS/driver capture surfaces are distinct from application-owned frame buffers. Synthetic PR screenshots are development evidence, excluded from runtime assets.
 
 An opened live-stream preview retains one URL of at most 2,048 bytes and one bounded still in
 the existing 512-pixel media working set. Preview responses are capped at 4 KiB, and a newer
@@ -1708,6 +1750,19 @@ GIF stars in attachment and gallery widgets retain a per-frame copy of at most
 action in the account UI. Account reset clears both. Wire URL metadata is bounded
 by its enclosing 4-KiB entry rather than an additional 1-KiB string restriction;
 the native projection retains its existing URL and allocated-byte limits.
+
+## Video backend preferences — October 5, 2026
+
+The bounded 16 KiB device-wide `app_preferences` row stores backend, codec,
+camera resolution and frame-rate enums in `video_settings`. Missing fields default
+to Stable/H264 and 480p/15 fps without a schema migration. Camera selections run
+through 8K and 60 fps. Stable with a non-H264 codec is rejected;
+the UI resets to H264 when Stable is selected. These choices survive logout and
+restart. The call and screen worker each retain one immutable settings snapshot;
+changing settings does not allocate another encoder or renegotiate an active stream.
+Camera previews stop on a settings change and require another explicit start.
+The existing camera/screen pixel, encoded-byte and packet/queue limits remain.
+No new capture files, media cache, driver installer or secrets are persisted.
 
 Schema 28 adds the device-wide double-click reaction preset to the reading settings singleton. The bounded index selects one of six Unicode emoji, defaults to ❤️, and persists independently of session emoji recommendations.
 

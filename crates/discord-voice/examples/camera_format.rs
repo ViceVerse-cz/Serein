@@ -1,5 +1,6 @@
 //! Offline capture-selection debug check; never opens a camera.
 use discord_voice::camera::{HEIGHT, WIDTH};
+use std::time::{Duration, Instant};
 #[path = "../src/camera/format.rs"]
 mod format;
 
@@ -31,6 +32,48 @@ fn main() {
 	assert_eq!(format::nearest_fps(5.0, 30.0), Some(15.0));
 	assert_eq!(format::nearest_fps(24.0, 60.0), Some(24.0));
 	assert_eq!(format::nearest_fps(1.0, 10.0), Some(10.0));
+	for resolution in model::voice_settings::VideoResolution::ALL {
+		let (width, height) = resolution.camera_dimensions();
+		let dimensions = (width as usize, height as usize);
+		assert!(format::rank_for_output(dimensions.0, dimensions.1, 15.0, dimensions).is_some());
+		assert!(format::raw_budget(dimensions.0, dimensions.1).unwrap() <= format::MAX_RAW_BYTES);
+		if dimensions != (WIDTH, HEIGHT) {
+			assert!(format::rank_for_output(WIDTH, HEIGHT, 15.0, dimensions).is_none());
+		}
+		for rate in model::voice_settings::VideoFrameRate::ALL {
+			let fps = rate.fps();
+			assert_eq!(
+				format::nearest_fps_for(1.0, 60.0, fps),
+				Some(f64::from(fps))
+			);
+			assert!(
+				format::rank_for_output_at_rate(
+					dimensions.0,
+					dimensions.1,
+					f64::from(fps),
+					dimensions,
+					fps
+				)
+				.is_some()
+			);
+			assert!(
+				format::rank_for_output_with_ceiling_at_rate(
+					dimensions.0,
+					dimensions.1,
+					f64::from(fps),
+					dimensions,
+					(7680, 4320),
+					fps
+				)
+				.is_some()
+			);
+			let start = Instant::now();
+			let mut cadence = format::Cadence::new(fps, start).unwrap();
+			assert!(cadence.accept(start));
+			assert!(!cadence.accept(start + Duration::from_millis(1)));
+			assert!(cadence.accept(start + format::frame_interval(fps).unwrap()));
+		}
+	}
 	for (min, max) in [
 		(0.0, 30.0),
 		(30.0, 15.0),
@@ -40,6 +83,6 @@ fn main() {
 		assert!(format::nearest_fps(min, max).is_none());
 	}
 	println!(
-		"Camera selection: closest stream dimensions/rate, 720p ceiling, invalid modes rejected."
+		"Camera selection: default compatibility, native modes through 8K at up to 60 fps, bounded buffers and cadence, invalid modes rejected."
 	);
 }

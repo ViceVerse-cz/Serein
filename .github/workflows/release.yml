@@ -89,6 +89,7 @@ jobs:
       TAG: ${{ needs.prepare.outputs.tag }}
       VERSION: ${{ needs.prepare.outputs.version }}
       PACKAGE_ROOT: dist
+      FFMPEG_DIR: ${{ github.workspace }}/target/ffmpeg/prefix
     defaults:
       run:
         shell: bash
@@ -106,8 +107,34 @@ jobs:
       - name: Install NSIS
         if: runner.os == 'Windows'
         run: choco install nsis --no-progress -y
+      - name: macOS encoder build tools
+        if: runner.os == 'macOS'
+        run: brew install nasm pkg-config
+      - uses: ilammy/msvc-dev-cmd@v1.13.0
+        if: runner.os == 'Windows'
+        with:
+          arch: ${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
+      - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
+        with:
+          msystem: MSYS
+          path-type: inherit
+          install: make pkgconf nasm diffutils
+      - name: Build LGPL-only FFmpeg encoders
+        if: runner.os != 'Windows'
+        run: python3 scripts/build-ffmpeg.py
+      - name: Build LGPL-only FFmpeg encoders (MSVC)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: python scripts/build-ffmpeg.py
+      - name: Make encoder DLLs available to offline tests
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '"$env:FFMPEG_DIR/bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append'
       - name: Offline checks
         run: cargo xtask check
+      - name: FFmpeg native libraries and packaging regression (offline)
+        run: python packaging/ffmpeg/test_bundle.py
       - uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: 1.4.2
@@ -134,11 +161,15 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Compress-Archive -Path "$env:PACKAGE_ROOT/*" -DestinationPath "release-assets/$env:ASSET.zip"
-          $installer = Get-ChildItem -Path "dist-installer/*-setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($installer) {
-            Copy-Item -LiteralPath $installer.FullName -Destination "release-assets/$env:ASSET-Setup.exe"
-          }
+          python packaging/windows/test_update_archive.py
+          if ($LASTEXITCODE -ne 0) { throw "Windows update archive tests failed" }
+          $archive = "release-assets/${env:ASSET}-media-v2.zip"
+          Compress-Archive -Path "$env:PACKAGE_ROOT/*" -DestinationPath $archive
+          python packaging/windows/check_update_archive.py $archive
+          if ($LASTEXITCODE -ne 0) { throw "Windows media update archive is incomplete or incorrectly named" }
+          $installers = @(Get-ChildItem -Path "dist-installer/*-setup.exe" -File -ErrorAction SilentlyContinue)
+          if ($installers.Count -ne 1) { throw "The Windows migration requires exactly one Setup.exe" }
+          Copy-Item -LiteralPath $installers[0].FullName -Destination "release-assets/${env:ASSET}-Setup.exe"
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: ${{ env.ASSET }}

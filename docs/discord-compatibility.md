@@ -530,7 +530,8 @@ The existing camera sender now accepts native capture on Windows (Media Foundati
 and Linux (V4L2), alongside macOS (AVFoundation). Both new adapters feed the existing
 H264 negotiation, opcode 12 video announcement, DAVE encryption and bounded RTP
 sender. These normal-user video extensions remain unofficial and live-unverified.
-The button requires a connected call, channel video permission and negotiated H264;
+The button requires a connected call, channel video permission and the negotiated
+outgoing codec (H.264 for Stable);
 capture requires an explicit click. No camera opens in the synthetic demo.
 September 13: Windows settings and call controls now enumerate/select cameras,
 including DirectShow-only virtual sources. A read-only native enumeration test
@@ -540,9 +541,14 @@ October 2: camera capture now selects formats near the existing 640×480,
 15 fps stream, with a 1280×720 native input ceiling and the existing bounded
 1920×1080 DirectShow fallback. Device-format/rate
 selection does not change Discord signaling or establish live interoperability.
+October 6: outgoing camera presets now extend through 7680×4320, with 15/30/60 fps
+selection and a preserved 640×480/15 fps default. Higher resolution requires a
+sufficient native capture mode; the selected frame rate requests the closest
+supported native interval and caps encoding, without guaranteeing sustained fps.
+Existing incoming H.264 playback remains capped at 1080p. Physical 8K/60 fps capture
+and official-client viewing remain unverified.
 Native limits, platform requirements and the owner-operated validation gate are in
-[Camera in calls](voice.md#camera-in-calls-macos-windows-and-linux). Receiving video
-and recording remain unsupported. This section supersedes older camera-exclusion
+[Camera in calls](voice.md#camera-in-calls-macos-windows-and-linux). Camera recording remains unsupported. This section supersedes older camera-exclusion
 statements in the historical voice/screen-sharing notes below.
 
 ## Outgoing screen sharing — September 11, 2026
@@ -658,11 +664,16 @@ Synthetic tests cover these paths, not native capture or live Discord acceptance
 The standard build adds macOS 14+ ScreenCaptureKit and Windows Graphics Capture senders for an existing connected DM/server voice call. Share opens a native egui source/settings dialog first. It exposes 720p/1080p and 15/30/60 fps to all accounts, plus cursor visibility; only the explicit Share screen action creates a stream. No subscription fields are changed. This paragraph describes the original video sender; subsequent audio and receive extensions supersede its original limits.
 
 Linux extension (September 15, 2026): the existing H.264/DAVE sender now accepts
-portal-approved PipeWire screen/window capture. It uses the system picker, an ephemeral
-portal session and VA-API/NVENC with OpenH264 fallback. The pipeline has one source
+portal-approved PipeWire screen/window capture. It uses the system picker and an ephemeral
+portal session. Experimental camera/screen encoding uses native FFmpeg with
+NVENC/AMD AMF/Intel Quick Sync and H.264 OpenH264 fallback. Stable uses
+the original platform encoders. Experimental excludes Media Foundation and VA-API
+encoders. Quick Sync on Linux uses the iHD
+VA driver interface for its device. These hardware paths and actual runtime
+availability remain unverified locally. The pipeline has one source
 queue (at most 7680×4320 / 132,710,400 bytes per buffer; PipeWire negotiates 2–4 buffers), one raw frame per encode/preview
-branch (at most 33,177,600 bytes each), one appsink frame per branch (encoded ≤2 MiB;
-software raw ≤33,177,600 bytes; preview ≤925,696 bytes including padding), and the existing
+branch (screen at most 132,710,400 bytes), one raw appsink frame per branch
+(screen ≤132,710,400 bytes; preview ≤925,696 bytes including padding), and the existing
 three-frame / 6-MiB encoded transport queue. Each processing stage can additionally hold
 its current buffer. Driver, compositor and codec surface pools are separate native
 allocations. Raw queues discard old frames before encoding; encoded pressure blocks
@@ -671,13 +682,18 @@ failure flag. Portal responses are admitted at ≤64 KiB; signal queues hold one
 and the connection queue holds two, with zbus's separate 128-MiB wire-message ceiling.
 Cancellation is checked during portal waits every 50 ms and media waits within 100 ms;
 native driver startup/shutdown can still block, retaining the existing retirement barrier.
-Each of at most four encoder attempts gets a fresh PipeWire remote under the same
-approved session. No source, restore token, pixel buffer or stream is persisted.
+One PipeWire remote remains under the approved session across FFmpeg backend or
+bitrate changes. Raw BGRA CPU conversion/cropping/scaling precedes encoding;
+source buffers and each current conversion stage can additionally retain a
+132,710,400-byte source picture. The worker retains one latest validated raw
+picture for idle keyframe recovery; a security pause clears it. No source, restore
+token, pixel buffer or stream is persisted.
 Native X11 now offers an explicitly selected whole-desktop source through GStreamer
 `ximagesrc`, reusing the bounded encoder/preview pipeline without a portal. It requires
 GStreamer Good and never activates after portal cancellation or failure. Individual
-X11 window selection and native/live validation remain outstanding. AV1/H.265 sending
-remains unsupported.
+X11 window selection and native/live validation remain outstanding. H.265/AV1
+sending requires Experimental, compatible hardware and explicit codec negotiation;
+Stable supports H.264.
 The offline debug example does not establish native Linux capture, hardware acceleration,
 measured performance, packaging or live Discord interoperability.
 
@@ -706,9 +722,9 @@ pacing and teardown; native output selection, sound quality, echo and live inter
 remain unverified. Linux adds the native `libpulse-sys 1.23.0` bindings; no new Flatpak
 permission, virtual device, output rerouting or recording file is added.
 
-Gateway opcodes 18/19 and STREAM_CREATE/STREAM_SERVER_UPDATE/STREAM_DELETE are unofficial normal-user behavior, checked against [discord.py-self](https://github.com/dolfies/discord.py-self/blob/master/discord/gateway.py). A separate RTC connection uses the stream RTC server/channel IDs and the parent call session, sharing one ephemeral DAVE signing identity. The `rtc_server_id - 1` MLS group mapping comes from [discord-native-voice](https://github.com/dolfies/discord-native-voice/blob/master/discord/ext/native_voice/stream_client.py); it is not an official protocol guarantee. H264 negotiation and UDP transport are required; mismatches fail visibly. Video is DAVE-encrypted before RFC 6184 packetization and per-packet transport AEAD. There is no plaintext fallback. [DAVE protocol](https://github.com/discord/dave-protocol/blob/main/protocol.md) supplies the encryption requirement.
+Gateway opcodes 18/19 and STREAM_CREATE/STREAM_SERVER_UPDATE/STREAM_DELETE are unofficial normal-user behavior, checked against [discord.py-self](https://github.com/dolfies/discord.py-self/blob/master/discord/gateway.py). A separate RTC connection uses the stream RTC server/channel IDs and the parent call session, sharing one ephemeral DAVE signing identity. The `rtc_server_id - 1` MLS group mapping comes from [discord-native-voice](https://github.com/dolfies/discord-native-voice/blob/master/discord/ext/native_voice/stream_client.py); it is not an official protocol guarantee. Explicit selected-codec negotiation and UDP transport are required; mismatches fail visibly. Video is DAVE-encrypted before matching H.264 RFC 6184, H.265 RFC 7798 or AV1 RTP packetization and per-packet transport AEAD. There is no plaintext fallback. [DAVE protocol](https://github.com/discord/dave-protocol/blob/main/protocol.md) supplies the encryption requirement.
 
-Screen source discovery and capture occur off the UI/audio threads. Application-owned source lists are capped at 64 labels of 256 bytes. Raw BGRA frames are capped at 3840×2160/33,177,600 bytes; macOS requests the selected output dimensions. Windows prechecks source size and stops on oversized callback frames, but its upstream driver adapter can resize its native GPU pool before that callback. One raw frame and three encoded frames can be queued; H264 frames are capped at 2 MiB, encrypted packetization at 2,048 fragments of at most 1,200 transport bytes. Quality presets target 4–16 Mbps, with frame dropping under load. They are limits/targets, not measured delivery guarantees.
+Screen source discovery and capture occur off the UI/audio threads. Application-owned source lists are capped at 64 labels of 256 bytes. Raw BGRA frames are capped at 7680×4320/132,710,400 bytes; macOS requests the selected output dimensions. Windows prechecks source size and stops on oversized callback frames, but its upstream driver adapter can resize its native GPU pool before that callback. One raw frame and three encoded frames can be queued; encoded frames are capped at 2 MiB, encrypted packetization at 2,048 fragments of at most 1,200 transport bytes. Quality presets run through 1440p, 4K and 8K and target 2–50 Mbps, with frame dropping under load. They are limits/targets, not measured delivery guarantees. Camera has separate saved resolution and 15/30/60 fps choices through 8K, requiring a supported native camera mode; local previews remain bounded. Existing incoming playback remains capped at 1080p, and high-resolution transmission to the official client requires owner-operated validation.
 
 Call and stream transports send an eight-byte native UDP ping after discovery and every
 five seconds, including receive-only streams and muted calls. The packet uses the
@@ -2333,6 +2349,22 @@ whose original compression request is not implemented. Synthetic localhost tests
 `--features demo -- --demo --demo-chat --demo-attachment=file --demo-external-upload`
 verify local behavior without any real hosted upload or Discord session. Live service
 acceptance, link embedding and other-platform native interaction remain unverified.
+
+## Video backend and codec selection — October 5, 2026
+
+Voice & Video defaults to Stable/H.264 using the original platform encoders.
+Experimental uses FFmpeg and offers H.264, H.265 and AV1. H.264 has software fallback;
+H.265/AV1 require compatible hardware (AV1 is unavailable on macOS with this recipe).
+The outgoing codec is fixed for each call/share and must match the server's explicit
+selection. H264/PT101/RTX102, H265/PT103/RTX104 and AV1/PT109/RTX110 follow the
+public interoperability implementation; video signaling remains unofficial.
+Camera mismatch disables video while audio continues; screen mismatch fails the share.
+Receiving remains H.264-only, advertised separately, so these settings concern outgoing
+encoding rather than additional incoming decoder support. DAVE codec selection and
+bounded packetization have synthetic roundtrip fixtures, which do not prove live
+Discord playback. Physical AMD/Intel/NVIDIA/Apple encoders and official-client
+H.265/AV1/DAVE interoperability remain unverified; AV1 final-OBU size handling
+especially requires a paired live check. See [voice settings](voice.md#video-backend-and-codec-settings).
 
 ## GIF favorites admission — October 6, 2026
 

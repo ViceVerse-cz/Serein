@@ -1,7 +1,10 @@
 //! Compatibility path for virtual cameras registered only with DirectShow.
 #![allow(non_snake_case)] // Custom COM interfaces preserve the Qedit.h method names.
 use super::super::format;
-use super::{FRAME_INTERVAL, HEIGHT, INVALID, Shared, TIMEOUT, UNAVAILABLE, WIDTH};
+#[cfg(test)]
+use super::{HEIGHT, WIDTH};
+use super::{INVALID, Shared, TIMEOUT, UNAVAILABLE};
+use model::voice_settings::{VideoFrameRate, VideoResolution};
 use std::{
 	ffi::c_void,
 	mem::ManuallyDrop,
@@ -23,8 +26,8 @@ use windows::{
 
 const SAMPLE_GRABBER: GUID = GUID::from_u128(0xc1f400a0_3f08_11d3_9f0b_006008039e37);
 const NULL_RENDERER: GUID = GUID::from_u128(0xc1f400a4_3f08_11d3_9f0b_006008039e37);
-const MAX_WIDTH: usize = 1920;
-const MAX_HEIGHT: usize = 1080;
+const MAX_WIDTH: usize = format::MAX_CAPTURE_WIDTH;
+const MAX_HEIGHT: usize = format::MAX_CAPTURE_HEIGHT;
 const MAX_BYTES: usize = MAX_WIDTH * MAX_HEIGHT * 4;
 
 // Qedit.h interfaces are absent from windows-rs metadata. Keep the SDK ABI order.
@@ -48,7 +51,7 @@ unsafe trait ISampleGrabberCB: IUnknown {
 #[implement(ISampleGrabberCB)]
 struct Callback {
 	send: mpsc::SyncSender<Result<Vec<u8>, &'static str>>,
-	last: Mutex<(Instant, bool)>,
+	last: Mutex<(format::Cadence, bool)>,
 	bytes: usize,
 	dimensions: (usize, usize, bool),
 }
@@ -81,10 +84,9 @@ impl ISampleGrabberCB_Impl for Callback_Impl {
 						return Err("Camera changed its video format; restart the camera");
 					}
 				}
-				if last.0.elapsed() < FRAME_INTERVAL {
+				if !last.0.accept(Instant::now()) {
 					return Ok(None);
 				}
-				last.0 = Instant::now();
 				let pointer = sample.GetPointer().map_err(|_| INVALID)?;
 				if pointer.is_null() {
 					return Err(INVALID);
@@ -264,7 +266,45 @@ fn rgb_dimensions(media: &AM_MEDIA_TYPE) -> Result<(usize, usize, bool), &'stati
 	Ok(dimensions)
 }
 
-fn configure(builder: &ICaptureGraphBuilder2, source: &IBaseFilter) -> Result<(), &'static str> {
+fn validate_allocator(
+	width: usize,
+	height: usize,
+	count: i32,
+	capacity: i32,
+	prefix: i32,
+) -> Result<(), &'static str> {
+	let budget = format::raw_budget(width, height).ok_or(INVALID)?;
+	let required = (width * 3).next_multiple_of(4) * height;
+	if !(1..=8).contains(&count)
+		|| capacity < required as i32
+		|| capacity as usize > budget
+		|| !(0..=format::MAX_STRIDE_PADDING as i32).contains(&prefix)
+	{
+		return Err(INVALID);
+	}
+	// Retain the default driver's eight-buffer compatibility, while both per-buffer
+	// and aggregate bytes follow its actual native geometry. The global ceiling
+	// additionally prevents eight large 8K allocations from accumulating.
+	let aggregate = budget
+		.checked_mul(8)
+		.ok_or(INVALID)?
+		.min(2 * format::MAX_RAW_BYTES);
+	let retained = (capacity as usize)
+		.checked_add(prefix as usize)
+		.and_then(|bytes| bytes.checked_mul(count as usize))
+		.ok_or(INVALID)?;
+	if retained > aggregate {
+		return Err(INVALID);
+	}
+	Ok(())
+}
+
+fn configure(
+	builder: &ICaptureGraphBuilder2,
+	source: &IBaseFilter,
+	output: (usize, usize),
+	target_fps: u32,
+) -> Result<(), &'static str> {
 	// SAFETY: Owned worker graph, only bounded native formats may be selected.
 	unsafe {
 		let mut pointer = std::ptr::null_mut();
@@ -317,9 +357,10 @@ fn configure(builder: &ICaptureGraphBuilder2, source: &IBaseFilter) -> Result<()
 						.as_ptr()
 						.cast::<VIDEO_STREAM_CONFIG_CAPS>()
 						.read_unaligned();
-					if let Some(fps) = format::nearest_fps(
+					if let Some(fps) = format::nearest_fps_for(
 						10_000_000.0 / caps.MaxFrameInterval as f64,
 						10_000_000.0 / caps.MinFrameInterval as f64,
+						target_fps,
 					) {
 						interval.write_unaligned(
 							((10_000_000.0 / fps).round() as i64)
@@ -329,12 +370,17 @@ fn configure(builder: &ICaptureGraphBuilder2, source: &IBaseFilter) -> Result<()
 				}
 				let duration = interval.read_unaligned();
 				let fps = (duration > 0).then(|| 10_000_000.0 / duration as f64);
-				if let Some(mut rank) = format::rank_with_ceiling(
+				if let Some(mut rank) = format::rank_for_output_with_ceiling_at_rate(
 					width,
 					height,
-					fps.unwrap_or(f64::from(format::FPS)),
-					MAX_WIDTH,
-					MAX_HEIGHT,
+					fps.unwrap_or(f64::from(target_fps)),
+					output,
+					if output == (super::super::WIDTH, super::super::HEIGHT) {
+						(1920, 1080)
+					} else {
+						(MAX_WIDTH, MAX_HEIGHT)
+					},
+					target_fps,
 				) {
 					// Preserve the existing bounded fallback when the driver omits timing.
 					// Unknown rates follow measured ones at the same native resolution.
@@ -351,7 +397,7 @@ fn configure(builder: &ICaptureGraphBuilder2, source: &IBaseFilter) -> Result<()
 				return Ok(());
 			}
 		}
-		Err("Camera does not offer a supported capture mode up to 1920×1080")
+		Err("Camera does not support the selected resolution")
 	}
 }
 
@@ -374,11 +420,18 @@ impl Drop for Capture {
 pub(super) fn run(
 	shared: &Shared,
 	device: Option<&str>,
+	resolution: VideoResolution,
+	frame_rate: VideoFrameRate,
 	emit: &mut dyn FnMut(Vec<u8>) -> Result<(), &'static str>,
 ) -> Result<(), &'static str> {
 	if shared.stopped.load(Ordering::Acquire) {
 		return Ok(());
 	}
+	let (output_width, output_height) = resolution.camera_dimensions();
+	let output = (output_width as usize, output_height as usize);
+	let target_fps = frame_rate.fps();
+	let cadence =
+		format::Cadence::new(target_fps, Instant::now()).ok_or("Invalid camera frame rate")?;
 	let (_, _, moniker) = monikers()?
 		.into_iter()
 		.find(|(id, _, _)| device.is_none_or(|selected| selected == id))
@@ -396,7 +449,7 @@ pub(super) fn run(
 		graph
 			.AddFilter(&source, w!("Camera"))
 			.map_err(|_| UNAVAILABLE)?;
-		configure(&builder, &source)?;
+		configure(&builder, &source, output, target_fps)?;
 		let filter: IBaseFilter = CoCreateInstance(&SAMPLE_GRABBER, None, CLSCTX_INPROC_SERVER)
 			.map_err(|_| UNAVAILABLE)?;
 		let grabber: ISampleGrabber = filter.cast().map_err(|_| UNAVAILABLE)?;
@@ -445,6 +498,14 @@ pub(super) fn run(
 			.ok()
 			.map_err(|_| INVALID)?;
 		let (width, height, bottom_up) = rgb_dimensions(&media.0)?;
+		format::rank_for_output_with_ceiling(
+			width,
+			height,
+			f64::from(format::FPS),
+			output,
+			(MAX_WIDTH, MAX_HEIGHT),
+		)
+		.ok_or("Camera does not support the selected resolution")?;
 		let bytes = (width * 3).next_multiple_of(4) * height;
 		// Check the actual negotiated allocator before any filter starts delivering.
 		let pins = filter.EnumPins().map_err(|_| INVALID)?;
@@ -460,13 +521,13 @@ pub(super) fn run(
 					.GetAllocator()
 					.and_then(|allocator| allocator.GetProperties())
 					.map_err(|_| INVALID)?;
-				if !(1..=8).contains(&properties.cBuffers)
-					|| properties.cbBuffer < bytes as i32
-					|| properties.cbBuffer as usize > MAX_BYTES
-					|| !(0..=4096).contains(&properties.cbPrefix)
-				{
-					return Err(INVALID);
-				}
+				validate_allocator(
+					width,
+					height,
+					properties.cBuffers,
+					properties.cbBuffer,
+					properties.cbPrefix,
+				)?;
 				bounded_allocator = true;
 			}
 		}
@@ -476,7 +537,7 @@ pub(super) fn run(
 		let (send, receive) = mpsc::sync_channel(1);
 		let callback: ISampleGrabberCB = Callback {
 			send,
-			last: Mutex::new((Instant::now() - FRAME_INTERVAL, false)),
+			last: Mutex::new((cadence, false)),
 			bytes,
 			dimensions: (width, height, bottom_up),
 		}
@@ -496,7 +557,7 @@ pub(super) fn run(
 	while !shared.stopped.load(Ordering::Acquire) {
 		match receive.recv_timeout(Duration::from_millis(50)) {
 			Ok(bytes) => {
-				let rgb = rgb_frame(&bytes?, width, height, bottom_up)?;
+				let rgb = rgb_frame_for_output(&bytes?, width, height, bottom_up, output)?;
 				last = Instant::now();
 				if !shared.stopped.load(Ordering::Acquire) {
 					emit(rgb)?;
@@ -510,12 +571,32 @@ pub(super) fn run(
 	Ok(())
 }
 
+#[cfg(test)]
 fn rgb_frame(
 	bytes: &[u8],
 	width: usize,
 	height: usize,
 	bottom_up: bool,
 ) -> Result<Vec<u8>, &'static str> {
+	rgb_frame_for_output(bytes, width, height, bottom_up, (WIDTH, HEIGHT))
+}
+
+fn rgb_frame_for_output(
+	bytes: &[u8],
+	width: usize,
+	height: usize,
+	bottom_up: bool,
+	output: (usize, usize),
+) -> Result<Vec<u8>, &'static str> {
+	format::rank_for_output_with_ceiling(
+		width,
+		height,
+		f64::from(format::FPS),
+		output,
+		(MAX_WIDTH, MAX_HEIGHT),
+	)
+	.ok_or("Camera does not support the selected resolution")?;
+	let (output_width, output_height) = output;
 	if !(1..=MAX_WIDTH).contains(&width) || !(1..=MAX_HEIGHT).contains(&height) {
 		return Err(INVALID);
 	}
@@ -523,16 +604,16 @@ fn rgb_frame(
 	if bytes.len() != pitch * height || bytes.len() > MAX_BYTES {
 		return Err(INVALID);
 	}
-	let mut rgb = vec![0; WIDTH * HEIGHT * 3];
+	let mut rgb = vec![0; output_width * output_height * 3];
 	// ponytail: bounded nearest-neighbor resize; replace with filtered scaling if
 	// virtual-camera quality measurements justify additional processing.
-	let (draw_width, draw_height) = if width * HEIGHT > height * WIDTH {
-		(WIDTH, (height * WIDTH / width).max(1))
+	let (draw_width, draw_height) = if width * output_height > height * output_width {
+		(output_width, (height * output_width / width).max(1))
 	} else {
-		((width * HEIGHT / height).max(1), HEIGHT)
+		((width * output_height / height).max(1), output_height)
 	};
-	let left = (WIDTH - draw_width) / 2;
-	let top = (HEIGHT - draw_height) / 2;
+	let left = (output_width - draw_width) / 2;
+	let top = (output_height - draw_height) / 2;
 	for y in 0..draw_height {
 		let source_y = y * height / draw_height;
 		let source_y = if bottom_up {
@@ -542,7 +623,7 @@ fn rgb_frame(
 		};
 		for x in 0..draw_width {
 			let source = source_y * pitch + (x * width / draw_width) * 3;
-			let dest = ((top + y) * WIDTH + left + x) * 3;
+			let dest = ((top + y) * output_width + left + x) * 3;
 			rgb[dest..dest + 3].copy_from_slice(&[
 				bytes[source + 2],
 				bytes[source + 1],
@@ -556,6 +637,22 @@ fn rgb_frame(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn camera_allocator_budget_follows_native_geometry() {
+		let required: i32 = 640 * 480 * 3;
+		let budget = format::raw_budget(640, 480).unwrap() as i32;
+		assert!(validate_allocator(640, 480, 8, required, 4096).is_ok());
+		assert!(validate_allocator(640, 480, 8, budget, 0).is_ok());
+		assert!(validate_allocator(640, 480, 1, budget + 1, 0).is_err());
+		assert!(validate_allocator(640, 480, 1, MAX_BYTES as i32, 0).is_err());
+		assert!(validate_allocator(640, 480, 1, required - 1, 0).is_err());
+		assert!(validate_allocator(640, 480, 9, required, 0).is_err());
+		assert!(validate_allocator(640, 480, 1, required, 4097).is_err());
+		assert!(validate_allocator(640, 480, 8, budget, 4096).is_err());
+		assert!(validate_allocator(7680, 4320, 2, 7680 * 4320 * 3, 0).is_ok());
+		assert!(validate_allocator(7680, 4320, 8, 7680 * 4320 * 3, 0).is_err());
+		assert!(validate_allocator(usize::MAX, 1, 1, required, 0).is_err());
+	}
 	#[test]
 	fn rgb_conversion_bounds_padding_orientation_and_resize() {
 		let mut header = VIDEOINFOHEADER::default();
@@ -592,10 +689,19 @@ mod tests {
 			&wide[WIDTH * 60 * 3..WIDTH * 420 * 3],
 			&vec![255; WIDTH * 360 * 3]
 		);
-		for (width, height) in [(0, 2), (1, 0), (1921, 1), (1, 1081), (usize::MAX, 1)] {
+		for (width, height) in [(0, 2), (1, 0), (7681, 1), (1, 4321), (usize::MAX, 1)] {
 			assert!(rgb_frame(&bytes, width, height, false).is_err());
 		}
 		assert!(rgb_frame(&bytes[..7], 1, 2, false).is_err());
 		assert!(rgb_frame(&bytes, 1, 1, false).is_err());
+	}
+
+	#[test]
+	fn higher_directshow_output_requires_matching_native_resolution() {
+		let bytes = vec![255; 1280 * 720 * 3];
+		let rgb = rgb_frame_for_output(&bytes, 1280, 720, false, (1280, 720)).unwrap();
+		assert_eq!(rgb.len(), 1280 * 720 * 3);
+		assert!(rgb_frame_for_output(&bytes, 1280, 720, false, (1920, 1080)).is_err());
+		assert!(rgb_frame_for_output(&bytes, 1280, 720, false, (7680, 4320)).is_err());
 	}
 }

@@ -394,6 +394,19 @@ pub(crate) struct Capture {
 }
 
 impl Capture {
+	pub(crate) fn request_frame(
+		&mut self,
+		frames: &std::sync::mpsc::Receiver<RawFrame>,
+	) -> Result<(), &'static str> {
+		self.stream
+			.stop_capture()
+			.map_err(|_| "Screen capture could not be refreshed")?;
+		while frames.try_recv().is_ok() {}
+		self.stream
+			.start_capture()
+			.map_err(|_| "Screen capture could not be refreshed")
+	}
+
 	pub(crate) fn start(
 		settings: Settings,
 		frames: SyncSender<RawFrame>,
@@ -404,12 +417,7 @@ impl Capture {
 		teardown: Arc<AtomicBool>,
 	) -> Result<Self, &'static str> {
 		initialize();
-		if settings.width == 0
-			|| settings.height == 0
-			|| settings.width > MAX_FRAME_WIDTH
-			|| settings.height > MAX_FRAME_HEIGHT
-			|| settings.fps == 0
-		{
+		if !settings.valid() {
 			return Err("Invalid screen capture settings");
 		}
 		// Own the picker before selection so every later error/cancellation deactivates it.

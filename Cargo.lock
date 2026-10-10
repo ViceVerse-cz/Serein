@@ -1547,6 +1547,7 @@ name = "discord-voice"
 version = "0.1.0"
 dependencies = [
  "block2 0.6.2",
+ "cc",
  "chacha20poly1305",
  "client-core",
  "cpal",
@@ -1574,6 +1575,7 @@ dependencies = [
  "openmls_basic_credential",
  "openmls_rust_crypto",
  "opus2",
+ "pkg-config",
  "platform",
  "rtrb",
  "screencapturekit",
@@ -6360,6 +6362,7 @@ name = "serein"
 version = "0.1.0"
 dependencies = [
  "arboard",
+ "ash",
  "client-core",
  "cpal",
  "discord-api",
@@ -6377,6 +6380,7 @@ dependencies = [
  "log",
  "md4",
  "model",
+ "objc2-metal 0.3.2",
  "opus2",
  "platform",
  "png",

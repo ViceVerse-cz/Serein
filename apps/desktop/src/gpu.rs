@@ -9,7 +9,7 @@
 //! device the window cannot use.
 
 use eframe::wgpu;
-use model::GpuPreference;
+use model::{GpuPreference, VideoAdapter, VideoAdapterIdentity};
 
 /// Keep eframe's adapter-specific requirements while reducing DX12 allocation reserves.
 pub fn setup() -> eframe::egui_wgpu::WgpuSetupCreateNew {
@@ -60,6 +60,143 @@ pub fn describe(info: &wgpu::AdapterInfo) -> String {
 	format!("{} ({:?})", info.name, info.backend)
 }
 
+/// Capture the adapter actually selected by eframe, rather than re-evaluating a
+/// saved preference or assuming that the first encoder of its vendor is the same GPU.
+pub fn video_adapter(adapter: &wgpu::Adapter) -> VideoAdapter {
+	let info = adapter.get_info();
+	VideoAdapter {
+		vendor_id: info.vendor,
+		device_id: info.device,
+		identity: physical_identity(adapter, &info),
+	}
+}
+
+#[cfg(target_os = "linux")]
+fn physical_identity(_: &wgpu::Adapter, info: &wgpu::AdapterInfo) -> VideoAdapterIdentity {
+	// wgpu's Vulkan backend obtains this from VK_EXT_pci_bus_info on the selected
+	// physical device. A GL/name/vendor fallback cannot distinguish identical cards.
+	if info.backend == wgpu::Backend::Vulkan {
+		pci_identity(&info.device_pci_bus_id).unwrap_or_default()
+	} else {
+		VideoAdapterIdentity::Unidentified
+	}
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn pci_identity(value: &str) -> Option<VideoAdapterIdentity> {
+	if !(12..=16).contains(&value.len()) || !value.is_ascii() {
+		return None;
+	}
+	let (domain, remaining) = value.split_once(':')?;
+	let (bus, remaining) = remaining.split_once(':')?;
+	let (device, function) = remaining.split_once('.')?;
+	if !(4..=8).contains(&domain.len())
+		|| bus.len() != 2
+		|| device.len() != 2
+		|| function.len() != 1
+	{
+		return None;
+	}
+	if ![domain, bus, device, function]
+		.into_iter()
+		.all(|part| part.bytes().all(|byte| byte.is_ascii_hexdigit()))
+	{
+		return None;
+	}
+	let domain = u32::from_str_radix(domain, 16).ok()?;
+	let bus = u8::from_str_radix(bus, 16).ok()?;
+	let device = u8::from_str_radix(device, 16).ok()?;
+	let function = u8::from_str_radix(function, 16).ok()?;
+	(device <= 31 && function <= 7).then_some(VideoAdapterIdentity::Pci {
+		domain,
+		bus,
+		device,
+		function,
+	})
+}
+
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+fn physical_identity(adapter: &wgpu::Adapter, _: &wgpu::AdapterInfo) -> VideoAdapterIdentity {
+	// SAFETY: HAL guards keep the selected native adapter and Vulkan instance alive.
+	// Only identity properties are read; no native object is mutated or retained.
+	unsafe {
+		if let Some(native) = adapter.as_hal::<wgpu::hal::api::Dx12>() {
+			return native.raw_adapter().GetDesc2().map_or(
+				VideoAdapterIdentity::Unidentified,
+				|desc| {
+					VideoAdapterIdentity::WindowsLuid(
+						(u64::from(desc.AdapterLuid.HighPart as u32) << 32)
+							| u64::from(desc.AdapterLuid.LowPart),
+					)
+				},
+			);
+		}
+		let Some(native) = adapter.as_hal::<wgpu::hal::api::Vulkan>() else {
+			return VideoAdapterIdentity::Unidentified;
+		};
+		let shared = native.shared_instance();
+		let instance = shared.raw_instance();
+		let device = native.raw_physical_device();
+		let device_version = instance.get_physical_device_properties(device).api_version;
+		let mut identity = ash::vk::PhysicalDeviceIDProperties::default();
+		let mut properties = ash::vk::PhysicalDeviceProperties2::default().push_next(&mut identity);
+		if shared.instance_api_version() >= ash::vk::API_VERSION_1_1
+			&& device_version >= ash::vk::API_VERSION_1_1
+		{
+			instance.get_physical_device_properties2(device, &mut properties);
+		} else if shared
+			.extensions()
+			.contains(&ash::khr::get_physical_device_properties2::NAME)
+			&& shared
+				.extensions()
+				.contains(&ash::khr::external_memory_capabilities::NAME)
+		{
+			// Vulkan 1.0 requires both enabled instance extensions for the ID chain.
+			let query =
+				ash::khr::get_physical_device_properties2::Instance::new(shared.entry(), instance);
+			query.get_physical_device_properties2(device, &mut properties);
+		} else {
+			// Diagnostic OpenGL/older Vulkan renderers cannot safely identify a DXGI
+			// adapter. Leave hardware encoding unavailable instead of guessing a GPU.
+			return VideoAdapterIdentity::Unidentified;
+		}
+		luid_identity(identity.device_luid, identity.device_luid_valid != 0)
+	}
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn luid_identity(bytes: [u8; 8], valid: bool) -> VideoAdapterIdentity {
+	if valid {
+		// Vulkan returns the native Windows LUID bytes, including the signed high
+		// word's bit pattern. Both supported Windows architectures are little endian.
+		VideoAdapterIdentity::WindowsLuid(u64::from_le_bytes(bytes))
+	} else {
+		VideoAdapterIdentity::Unidentified
+	}
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+fn physical_identity(adapter: &wgpu::Adapter, _: &wgpu::AdapterInfo) -> VideoAdapterIdentity {
+	use objc2_metal::MTLDevice;
+
+	// SAFETY: The guard owns the HAL borrow; registryID reads the selected live
+	// Metal device and no Objective-C/native handle escapes this function.
+	unsafe {
+		adapter
+			.as_hal::<wgpu::hal::api::Metal>()
+			.map_or(VideoAdapterIdentity::Unidentified, |native| {
+				VideoAdapterIdentity::MetalRegistry(native.raw_device().registryID())
+			})
+	}
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+fn physical_identity(_: &wgpu::Adapter, _: &wgpu::AdapterInfo) -> VideoAdapterIdentity {
+	VideoAdapterIdentity::Unidentified
+}
+
 /// Picks the adapter used for the window surface, or explains why none of them works.
 pub fn select(
 	preference: GpuPreference,
@@ -94,6 +231,49 @@ pub fn select(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn vulkan_luid_preserves_exact_windows_identity_and_requires_driver_validity() {
+		let bytes = [0x78, 0x56, 0x34, 0x12, 0xef, 0xcd, 0xab, 0x90];
+		assert_eq!(
+			luid_identity(bytes, true),
+			VideoAdapterIdentity::WindowsLuid(0x90ab_cdef_1234_5678)
+		);
+		assert_eq!(
+			luid_identity(bytes, false),
+			VideoAdapterIdentity::Unidentified
+		);
+		assert_eq!(
+			luid_identity([0; 8], false),
+			VideoAdapterIdentity::Unidentified
+		);
+	}
+
+	#[test]
+	fn pci_identity_never_collapses_two_matching_gpu_models() {
+		let first = pci_identity("0000:01:00.0").unwrap();
+		let second = pci_identity("0000:02:00.0").unwrap();
+		assert_ne!(first, second);
+		assert_eq!(
+			pci_identity("00010000:ff:1f.7"),
+			Some(VideoAdapterIdentity::Pci {
+				domain: 0x10000,
+				bus: 0xff,
+				device: 31,
+				function: 7,
+			})
+		);
+		for invalid in [
+			"",
+			"01:00.0",
+			"0000:1:00.0",
+			"0000:01:20.0",
+			"0000:01:00.8",
+			"0000:01:00.0/extra",
+		] {
+			assert_eq!(pci_identity(invalid), None);
+		}
+	}
 
 	#[test]
 	fn memory_policy_preserves_device_requirements_and_other_backends() {

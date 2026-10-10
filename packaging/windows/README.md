@@ -15,6 +15,40 @@ Serein supports both portable zip extraction and a per-user Windows installer:
 - **PowerShell Setup**: `packaging/windows/setup.ps1` provides a zero-dependency installer/uninstaller script (`powershell -File .\setup.ps1` to install, `powershell -File .\setup.ps1 -Uninstall` to remove).
 - **Autoupdate Compatibility**: Both installers register Serein in `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Serein`. When Serein autoupdates, the update helper automatically synchronizes `DisplayVersion` in the registry upon file replacement, keeping Windows Settings and Installed Apps accurate. The release zip packages remain strictly decoupled from the installer executable, preventing allowlist check failures during in-app update extraction.
 
+## Moving an existing Windows install to the FFmpeg build
+
+Windows releases with the FFmpeg runtime use
+`serein-<tag>-Windows-<arch>-media-v2.zip` (`X64` or `ARM64`). The installer name
+remains `serein-<tag>-Windows-<arch>-Setup.exe`. The updated client selects the
+media-v2 ZIP for subsequent in-app updates.
+
+Clients released before FFmpeg accept only the original payload and cannot
+install the new DLLs or their corresponding source. They look for the original
+ZIP filename and will report a missing package on a media-v2 release. Updating
+the allowlist in the new binary cannot repair the old running updater, and users
+can skip an intermediate release, so publishing a bridge release alone is
+insufficient.
+
+The first migration requires one manual install:
+
+1. Close Serein completely, then download the matching architecture's Setup.exe
+   from the project's trusted release page. Run it over the existing per-user
+   installation. The installer replaces application files; it does not remove
+   account settings, local data or credentials.
+2. For a portable installation, extract the complete media-v2 ZIP into a new
+   folder and start `serein.exe` from that folder. Keep the adjacent DLLs,
+   `licenses` and `ffmpeg-source`; copying just the executable is insufficient.
+   If you registered a portable notification shortcut, remove the old shortcut
+   using its `install-notifications.ps1 -Remove` and register it again from the
+   new folder.
+
+Do not rename a media-v2 ZIP to the legacy filename when publishing a release.
+The release workflow checks the actual archive's name, required DLLs, notices
+and corresponding source before upload. Run the offline checks with
+`python packaging/windows/test_update_archive.py`; they use synthetic ZIPs and
+never start the client. Manual migration on physical Windows installations
+still needs native verification before release.
+
 Run `python packaging/windows/test_installer.py` in a disposable Windows user with Rust and NSIS installed. It uses an offline fixture executable to check the running-process guard, Unicode install paths, shortcut target/working directory/AppUserModelID, upgrades, registry entries and uninstall cleanup. It never launches the real client. CI runs this check on Windows x64 and ARM64, including draft PRs.
 
 Removing script-driven setup behavior addresses the installer heuristics reported in [issue #546](https://github.com/ViceVerse-cz/Serein/issues/546). Windows signing is not configured in the release workflow; a rebuilt installer still needs vendor scanning and can receive reputation or antivirus warnings. Portable notification setup and the app's existing update helper remain separate PowerShell flows.

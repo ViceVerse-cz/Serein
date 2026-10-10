@@ -4,6 +4,25 @@ Build on native Linux with Python 3.11+, Git, rustup and the repository's pinned
 Rust 1.98.1 toolchain installed. GNOME SDK/Platform 49 supplies GTK4/WebKit6 and
 native media/build libraries. The toolchain is copied into build-only sources;
 no moving Rust SDK extension or compiler is shipped in the application.
+The build first compiles checksum-pinned patchelf 0.18.0 inside the sandbox so
+FFmpeg can set sibling-library RPATHs. This build tool is removed during cleanup;
+it is not shipped in the application. The following FFmpeg module builds
+checksum-pinned LGPL-only avcodec/avutil and
+OpenH264 sources without network access; shared libraries, the build recipe and
+complete FFmpeg corresponding source ship with the application. The module also
+uses pinned AMF public headers and a static oneVPL dispatcher for x64 Quick Sync.
+GNOME SDK 49 must provide CMake and the libva/libva-drm/libdrm development files;
+the module checks the latter before its offline build. Target-specific oneVPL
+source downloads remain restricted to x86_64 in the prepared manifest.
+Experimental hardware encoding requires accessible compatible NVIDIA/AMD/Intel
+GPU runtimes. H264 software uses OpenH264; HEVC/AV1 require suitable hardware.
+Quick Sync uses VA-API only for Intel's low-level driver device interface; the
+H264/HEVC/AV1 VA-API encoders stay disabled in FFmpeg. Stable uses the runtime's
+original GStreamer VA-API/NVENC H264 path when its vendor elements are present,
+with source-built Rust OpenH264 fallback. The GNOME runtime's Base/Good/Bad
+plugins are not additional source modules; vendor availability depends on the
+runtime build, compatible GPU driver extensions and existing device permissions.
+See [the encoder recipe](../ffmpeg/README.md).
 
 ```sh
 flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo

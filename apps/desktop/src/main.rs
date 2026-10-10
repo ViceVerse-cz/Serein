@@ -57,6 +57,7 @@ mod tray_window;
 mod updater;
 mod uploads;
 mod video;
+mod video_capabilities;
 mod voice;
 mod watch;
 use client_core::{
@@ -77,6 +78,9 @@ const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 
 /// Run explicit offline checks before native startup, or launch the configured desktop client.
 fn main() -> eframe::Result {
+	if let Some(status) = video_capabilities::probe_command() {
+		std::process::exit(status);
+	}
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-pr565")
@@ -1708,6 +1712,11 @@ impl Desktop {
 		if let Some(render_state) = cc.wgpu_render_state.as_ref() {
 			messaging.gpu_adapter = gpu::describe(&render_state.adapter.get_info());
 		}
+		let video_adapter = cc
+			.wgpu_render_state
+			.as_ref()
+			.map(|render_state| gpu::video_adapter(&render_state.adapter))
+			.unwrap_or_default();
 		let startup = startup::Startup::new(&cc.egui_ctx, &runtime, &mut messaging, demo);
 		// `--demo-update`: a pending release without any network check. The system title bar
 		// comes with it, since that is when the sidebar prompt stands in for the title strip.
@@ -2250,7 +2259,7 @@ impl Desktop {
 			avatar_cleanup: None,
 			avatar_start_failed: false,
 			avatar_clear_account: None,
-			voice: voice::Voice::default(),
+			voice: voice::Voice::for_adapter(video_adapter),
 			runtime,
 			store,
 			cache,
@@ -3451,7 +3460,9 @@ impl Desktop {
 				..
 			} = control
 			{
-				let result = self.voice.begin(&self.state, *ring);
+				let result =
+					self.voice
+						.begin_with_video(&self.state, *ring, self.messaging.video_settings);
 				if let Err(message) = result {
 					self.state.apply_voice(client_core::voice::Event::Failed {
 						channel: *channel,

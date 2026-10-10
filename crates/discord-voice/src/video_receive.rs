@@ -23,6 +23,8 @@ const MAX_DECODERS: usize = 8;
 const QUEUE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_WIDTH: u32 = 1920;
 const MAX_PIXELS: u64 = 1920 * 1080;
+// A normal 1080p SPS stores 1088 coded rows and crops the final eight.
+const MAX_CODED_PIXELS: u64 = 1920 * 1088;
 const START_CODE: [u8; 4] = [0, 0, 0, 1];
 const MAX_DECODE_AGE: Duration = Duration::from_millis(150);
 
@@ -35,6 +37,25 @@ pub struct RemoteFrame<'a> {
 }
 pub type VideoSink = Arc<dyn Fn(RemoteFrame<'_>) + Send + Sync>;
 
+pub(crate) struct SourceLifetime {
+	active: AtomicBool,
+	pub pictures: AtomicU64,
+}
+
+impl SourceLifetime {
+	fn new() -> Self {
+		Self {
+			active: AtomicBool::new(true),
+			pictures: AtomicU64::new(0),
+		}
+	}
+}
+
+struct DecodeSource {
+	lifetime: Arc<SourceLifetime>,
+	ssrcs: Vec<u32>,
+}
+
 pub(crate) struct DecoderQueue {
 	send: SyncSender<Decode>,
 	#[cfg(test)]
@@ -43,9 +64,19 @@ pub(crate) struct DecoderQueue {
 	// One cancellable lifetime per user; queued frames keep the old lifetime on restart.
 	// This table has at most MAX_SOURCES entries. Old tokens survive only in the
 	// bounded frame queue/worker and decoder callbacks, never an accumulating tombstone list.
-	active: Mutex<HashMap<u64, Arc<AtomicBool>>>,
-	/// Decoded pictures delivered to the sink and decoder failures, for diagnostics only.
+	active: Mutex<HashMap<u64, DecodeSource>>,
+	/// Aggregate delivery and decoder outcomes for diagnostics; lifetimes track each sender.
 	pub counters: Arc<DecoderCounters>,
+}
+
+impl DecoderQueue {
+	pub fn source_lifetime(&self, user: u64) -> Option<Arc<SourceLifetime>> {
+		self.active
+			.lock()
+			.ok()?
+			.get(&user)
+			.map(|source| source.lifetime.clone())
+	}
 }
 
 #[cfg(test)]
@@ -89,7 +120,7 @@ enum Decode {
 		Encoded,
 		tokio::sync::OwnedSemaphorePermit,
 		Instant,
-		Arc<AtomicBool>,
+		Arc<SourceLifetime>,
 	),
 	Wake,
 	#[cfg(test)]
@@ -346,9 +377,14 @@ impl Receivers {
 		}
 		if let Some(entry) = self.sources.iter_mut().find(|(s, _, _)| *s == ssrc) {
 			if entry.1 != user {
+				let previous = entry.1;
 				entry.1 = user;
 				entry.2 = Assembler::default();
 				self.rtx.retain(|(_, media)| *media != ssrc);
+				if !self.sources.iter().any(|(_, owner, _)| *owner == previous) {
+					self.awaiting_keyframe.retain(|owner| *owner != previous);
+				}
+				self.require_keyframe(user);
 			}
 			return Ok(());
 		}
@@ -405,7 +441,10 @@ impl Receivers {
 	}
 	/// A dropped or undecodable picture invalidates every later prediction until an IDR.
 	pub fn require_keyframe(&mut self, user: u64) {
-		if !self.awaiting_keyframe.contains(&user) {
+		if self.sources.iter().any(|(_, owner, _)| *owner == user)
+			&& !self.awaiting_keyframe.contains(&user)
+			&& self.awaiting_keyframe.len() < MAX_SOURCES
+		{
 			self.awaiting_keyframe.push(user);
 		}
 	}
@@ -434,12 +473,8 @@ impl Receivers {
 	pub fn has_sources(&self) -> bool {
 		!self.sources.is_empty()
 	}
-	/// Ask every announced sender for a keyframe. Used when video stops without the
-	/// depacketizer seeing loss, which no per-picture signal would ever reveal.
-	pub fn require_all_keyframes(&mut self) {
-		for index in 0..self.sources.len() {
-			self.require_keyframe(self.sources[index].1);
-		}
+	pub fn users(&self) -> impl Iterator<Item = u64> + '_ {
+		self.sources.iter().map(|(_, user, _)| *user)
 	}
 	/// Drains the depacketizer counters.
 	pub fn take_stats(&mut self) -> ReceiveStats {
@@ -525,7 +560,17 @@ pub(crate) fn pli(sender: u32, media: u32) -> ([u8; 8], [u8; 4]) {
 /// Queue a frame without blocking the transport. `Ok(false)` means the queue was full and
 /// the frame dropped, so the caller must wait for the next keyframe.
 pub(crate) fn offer(sender: &DecoderQueue, frame: Encoded) -> Result<bool, &'static str> {
-	if frame.data.len() > MAX_FRAME_BYTES || frame.data.capacity() > QUEUE_BYTES {
+	if frame.data.len() > MAX_FRAME_BYTES
+		|| frame.data.capacity() > QUEUE_BYTES
+		|| crate::video_sps::validate_dimensions(&frame.data, |dimensions| {
+			let (width, height) = dimensions.coded;
+			width <= MAX_WIDTH as usize
+				&& height <= MAX_WIDTH as usize
+				&& width as u64 * height as u64 <= MAX_CODED_PIXELS
+				&& bounded(dimensions.visible.0, dimensions.visible.1).is_ok()
+		})
+		.is_err()
+	{
 		return Ok(false);
 	}
 	let Ok(permit) = sender
@@ -545,7 +590,11 @@ pub(crate) fn offer(sender: &DecoderQueue, frame: Encoded) -> Result<bool, &'sta
 		}
 		users
 			.entry(frame.user)
-			.or_insert_with(|| Arc::new(AtomicBool::new(true)))
+			.or_insert_with(|| DecodeSource {
+				lifetime: Arc::new(SourceLifetime::new()),
+				ssrcs: Vec::new(),
+			})
+			.lifetime
 			.clone()
 	};
 	match sender
@@ -563,7 +612,7 @@ pub(crate) fn remove(sender: &DecoderQueue, user: u64) {
 	if let Ok(mut users) = sender.active.lock()
 		&& let Some(active) = users.remove(&user)
 	{
-		active.store(false, Ordering::Release);
+		active.lifetime.active.store(false, Ordering::Release);
 	}
 	// A full queue already wakes the worker; cancellation lives outside that queue.
 	let _ = sender.send.try_send(Decode::Wake);
@@ -573,14 +622,41 @@ pub(crate) fn remove(sender: &DecoderQueue, user: u64) {
 pub(crate) fn retain_sources(sender: &DecoderQueue, receivers: &Receivers) {
 	let mut cancelled = false;
 	if let Ok(mut users) = sender.active.lock() {
-		users.retain(|user, active| {
-			let retained = receivers.sources.iter().any(|(_, owner, _)| owner == user);
-			if !retained {
-				active.store(false, Ordering::Release);
+		users.retain(|user, source| {
+			let ssrcs: Vec<_> = receivers
+				.sources
+				.iter()
+				.filter(|(_, owner, _)| owner == user)
+				.map(|(ssrc, _, _)| *ssrc)
+				.collect();
+			if ssrcs.is_empty() {
+				source.lifetime.active.store(false, Ordering::Release);
+				cancelled = true;
+				return false;
+			}
+			if !source.ssrcs.is_empty() && !source.ssrcs.iter().any(|ssrc| ssrcs.contains(ssrc)) {
+				// A replacement SSRC cannot inherit old callbacks, predictions or progress.
+				source.lifetime.active.store(false, Ordering::Release);
+				source.lifetime = Arc::new(SourceLifetime::new());
 				cancelled = true;
 			}
-			retained
+			source.ssrcs = ssrcs;
+			true
 		});
+		for user in receivers.users() {
+			if users.len() >= MAX_SOURCES {
+				break;
+			}
+			users.entry(user).or_insert_with(|| DecodeSource {
+				lifetime: Arc::new(SourceLifetime::new()),
+				ssrcs: receivers
+					.sources
+					.iter()
+					.filter(|(_, owner, _)| *owner == user)
+					.map(|(ssrc, _, _)| *ssrc)
+					.collect(),
+			});
+		}
 	}
 	if cancelled {
 		let _ = sender.send.try_send(Decode::Wake);
@@ -620,16 +696,17 @@ impl Backend {
 		user: u64,
 		sink: &VideoSink,
 		counters: &Arc<DecoderCounters>,
-		lifetime: &Arc<AtomicBool>,
+		lifetime: &Arc<SourceLifetime>,
 	) -> Option<Self> {
 		if prefer_hardware {
 			let sink = sink.clone();
 			let counters = counters.clone();
 			let lifetime = lifetime.clone();
 			let deliver: platform::video::LiveSink = Box::new(move |frame| {
-				if lifetime.load(Ordering::Acquire)
+				if lifetime.active.load(Ordering::Acquire)
 					&& bounded(frame.width as usize, frame.height as usize).is_ok()
 				{
+					lifetime.pictures.fetch_add(1, Ordering::Relaxed);
 					counters.pictures.fetch_add(1, Ordering::Relaxed);
 					sink(RemoteFrame {
 						user,
@@ -695,7 +772,7 @@ fn decode_loop(
 	prefer_hardware: bool,
 ) {
 	let mut decoders: HashMap<u64, Backend> = HashMap::new();
-	let mut active: HashMap<u64, Arc<AtomicBool>> = HashMap::new();
+	let mut active: HashMap<u64, Arc<SourceLifetime>> = HashMap::new();
 	// Users whose hardware decoder rejected the stream fall back to software.
 	let mut software_only: Vec<u64> = Vec::new();
 	// After a decode error, predictions are skipped until a keyframe rebuilds the references.
@@ -704,7 +781,7 @@ fn decode_loop(
 	while let Ok(message) = receive.recv() {
 		let had_active = !active.is_empty();
 		active.retain(|user, lifetime| {
-			let retained = lifetime.load(Ordering::Acquire);
+			let retained = lifetime.active.load(Ordering::Acquire);
 			if !retained {
 				decoders.remove(user);
 				software_only.retain(|known| known != user);
@@ -726,7 +803,7 @@ fn decode_loop(
 				continue;
 			}
 		};
-		if !lifetime.load(Ordering::Acquire) || frame.data.len() > MAX_FRAME_BYTES {
+		if !lifetime.active.load(Ordering::Acquire) || frame.data.len() > MAX_FRAME_BYTES {
 			continue;
 		}
 		active.insert(frame.user, lifetime.clone());
@@ -794,9 +871,10 @@ fn decode_loop(
 		};
 		decoder_counts(&decoders, &counters);
 		let (width, height) = decoded;
-		if !lifetime.load(Ordering::Acquire) {
+		if !lifetime.active.load(Ordering::Acquire) {
 			continue;
 		}
+		lifetime.pictures.fetch_add(1, Ordering::Relaxed);
 		counters.pictures.fetch_add(1, Ordering::Relaxed);
 		sink(RemoteFrame {
 			user: frame.user,
@@ -843,6 +921,40 @@ fn bounded(width: usize, height: usize) -> Result<(u32, u32), ()> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn removed_source_ignores_late_decoder_losses() {
+		let mut receivers = Receivers::default();
+		let lost: Lost = Arc::default();
+		for user in 1..=MAX_SOURCES as u64 + 4 {
+			receivers.announce(user, 700).unwrap();
+			receivers.remove(user);
+			// A decode already running when cancellation occurred can report failure afterward.
+			lost.lock().unwrap().push(user);
+			receivers.absorb(&lost);
+			assert!(!receivers.awaiting());
+			assert_eq!(receivers.keyframe_requests().count(), 0);
+		}
+	}
+
+	#[test]
+	fn reassigned_ssrc_requests_new_owner_keyframe_and_forgets_departed_owner() {
+		let mut receivers = Receivers::default();
+		receivers.announce(7, 700).unwrap();
+		receivers.announce(8, 800).unwrap();
+		assert!(receivers.accept(8, true));
+		receivers.announce(8, 700).unwrap();
+		assert!(!receivers.accept(8, false));
+		assert_eq!(receivers.awaiting_keyframe, vec![8]);
+		assert_eq!(receivers.keyframe_requests().collect::<Vec<_>>(), vec![700]);
+		// An owner who still has another SSRC keeps its independent recovery request.
+		receivers.announce(9, 700).unwrap();
+		assert_eq!(receivers.awaiting_keyframe, vec![8, 9]);
+		assert_eq!(
+			receivers.keyframe_requests().collect::<Vec<_>>(),
+			vec![800, 700]
+		);
+	}
 
 	fn decoder_cleanup_queue(capacity: usize) -> (DecoderQueue, Receiver<Decode>) {
 		let (send, receive) = sync_channel(capacity);
@@ -905,6 +1017,97 @@ mod tests {
 	}
 
 	#[test]
+	fn receiver_admission_rejects_oversized_sps_before_native_decode() {
+		let data = decoder_cleanup_keyframe(2048, 1152);
+		assert!(data.len() < MAX_FRAME_BYTES);
+		assert!(has_parameter_sets(&data) && is_keyframe(&data));
+		// Verify this is a decodable frame, rather than malformed bytes rejected incidentally.
+		let mut decoder = openh264::decoder::Decoder::new().unwrap();
+		let decoded = decoder.decode(&data).unwrap().unwrap();
+		assert_eq!(
+			openh264::formats::YUVSource::dimensions(&decoded),
+			(2048, 1152)
+		);
+		let (queue, receive) = decoder_cleanup_queue(1);
+		assert!(
+			!offer(
+				&queue,
+				Encoded {
+					user: 7,
+					data,
+					keyframe: true,
+				},
+			)
+			.unwrap()
+		);
+		assert!(receive.try_recv().is_err());
+		assert!(queue.active.lock().unwrap().is_empty());
+		assert_eq!(queue.bytes.available_permits(), QUEUE_BYTES);
+	}
+
+	#[test]
+	fn receiver_admission_accepts_1080p_and_rejects_parameter_replacement() {
+		let (queue, receive) = decoder_cleanup_queue(1);
+		for (width, height) in [(1920, 1080), (1080, 1920)] {
+			let data = decoder_cleanup_keyframe(width, height);
+			assert!(
+				offer(
+					&queue,
+					Encoded {
+						user: 7,
+						data,
+						keyframe: true
+					}
+				)
+				.unwrap()
+			);
+			assert!(matches!(receive.try_recv(), Ok(Decode::Frame(..))));
+		}
+		let lifetime = queue.source_lifetime(7).unwrap();
+		let data = decoder_cleanup_keyframe(2048, 1152);
+		assert!(
+			!offer(
+				&queue,
+				Encoded {
+					user: 7,
+					data,
+					keyframe: true
+				}
+			)
+			.unwrap()
+		);
+		assert!(lifetime.active.load(Ordering::Acquire));
+		assert!(receive.try_recv().is_err());
+		assert_eq!(queue.bytes.available_permits(), QUEUE_BYTES);
+		// Malformed SPS and SPS without its body must also stay outside the queue.
+		for data in [vec![0, 0, 1, 0x67], vec![0, 0, 1, 0x67, 66, 0, 52, 0x80]] {
+			assert!(
+				!offer(
+					&queue,
+					Encoded {
+						user: 7,
+						data,
+						keyframe: true
+					}
+				)
+				.unwrap()
+			);
+		}
+		let data = decoder_cleanup_keyframe(32, 32);
+		assert!(
+			offer(
+				&queue,
+				Encoded {
+					user: 7,
+					data,
+					keyframe: true
+				}
+			)
+			.unwrap()
+		);
+	}
+
+	#[test]
 	fn decoder_cleanup_invalidates_full_queue_and_allows_restart() {
 		let data = decoder_cleanup_keyframe(32, 32);
 		for full in [true, false] {
@@ -922,6 +1125,7 @@ mod tests {
 					.unwrap()
 				);
 			}
+			let retired = queue.source_lifetime(7).unwrap();
 			remove(&queue, 7);
 			if !full {
 				assert!(
@@ -936,6 +1140,7 @@ mod tests {
 					.unwrap()
 				);
 			}
+			let current = queue.source_lifetime(7);
 			let bytes = queue.bytes.clone();
 			let counters = queue.counters.clone();
 			drop(queue);
@@ -949,6 +1154,10 @@ mod tests {
 				false,
 			);
 			assert_eq!(*seen.lock().unwrap(), if full { vec![] } else { vec![7] });
+			assert_eq!(retired.pictures.load(Ordering::Relaxed), 0);
+			if let Some(current) = current {
+				assert_eq!(current.pictures.load(Ordering::Relaxed), 1);
+			}
 			assert_eq!(counters.errors.load(Ordering::Relaxed), 0);
 			assert_eq!(counters.software.load(Ordering::Relaxed), u64::from(!full));
 			assert_eq!(bytes.available_permits(), QUEUE_BYTES);
@@ -1053,13 +1262,13 @@ mod tests {
 				&queue,
 				Encoded {
 					user: 7,
-					data: vec![0],
+					data: vec![0, 0, 1, 0x41, 0x80],
 					keyframe: true
 				}
 			)
 			.unwrap()
 		);
-		let original = queue.active.lock().unwrap()[&7].clone();
+		let original = queue.source_lifetime(7).unwrap();
 		assert!(matches!(receive.try_recv(), Ok(Decode::Frame(..))));
 		retain_sources(&queue, &receivers);
 		assert!(matches!(
@@ -1069,7 +1278,7 @@ mod tests {
 		// Reassigning one of a user's sources must not cancel their remaining source.
 		receivers.announce(8, 700).unwrap();
 		retain_sources(&queue, &receivers);
-		assert!(original.load(Ordering::Acquire));
+		assert!(original.active.load(Ordering::Acquire));
 		assert!(matches!(
 			receive.try_recv(),
 			Err(std::sync::mpsc::TryRecvError::Empty)
@@ -1077,7 +1286,7 @@ mod tests {
 		// Reassigning the final SSRC must also release its previous owner's decoder.
 		receivers.announce(8, 710).unwrap();
 		retain_sources(&queue, &receivers);
-		assert!(!original.load(Ordering::Acquire));
+		assert!(!original.active.load(Ordering::Acquire));
 		assert!(!queue.active.lock().unwrap().contains_key(&7));
 		assert!(matches!(receive.try_recv(), Ok(Decode::Wake)));
 		assert!(
@@ -1085,16 +1294,50 @@ mod tests {
 				&queue,
 				Encoded {
 					user: 8,
-					data: vec![0],
+					data: vec![0, 0, 1, 0x41, 0x80],
 					keyframe: true
 				}
 			)
 			.unwrap()
 		);
-		let current = queue.active.lock().unwrap()[&8].clone();
+		let current = queue.source_lifetime(8).unwrap();
 		receivers.announce(8, 0).unwrap();
 		retain_sources(&queue, &receivers);
-		assert!(!current.load(Ordering::Acquire));
+		assert!(!current.active.load(Ordering::Acquire));
+	}
+
+	#[test]
+	fn announced_picture_lifetimes_are_bounded_and_replacement_starts_fresh() {
+		let (queue, _receive) = decoder_cleanup_queue(1);
+		let mut receivers = Receivers::default();
+		for user in 1..=MAX_SOURCES as u64 {
+			receivers.announce(user, user as u32).unwrap();
+		}
+		retain_sources(&queue, &receivers);
+		assert_eq!(queue.active.lock().unwrap().len(), MAX_SOURCES);
+		let mut original = queue.source_lifetime(1).unwrap();
+		for ssrc in 100..132 {
+			original.pictures.store(20, Ordering::Relaxed);
+			receivers.retain_user_sources(1, &[]);
+			receivers.announce(1, ssrc).unwrap();
+			retain_sources(&queue, &receivers);
+			let current = queue.source_lifetime(1).unwrap();
+			assert!(!original.active.load(Ordering::Acquire));
+			assert!(!Arc::ptr_eq(&original, &current));
+			assert_eq!(current.pictures.load(Ordering::Relaxed), 0);
+			assert_eq!(queue.active.lock().unwrap().len(), MAX_SOURCES);
+			// Repeating the same SSRC announcement preserves its current progress.
+			current.pictures.store(3, Ordering::Relaxed);
+			retain_sources(&queue, &receivers);
+			assert!(Arc::ptr_eq(&current, &queue.source_lifetime(1).unwrap()));
+			assert_eq!(current.pictures.load(Ordering::Relaxed), 3);
+			original = current;
+		}
+		receivers.remove(1);
+		retain_sources(&queue, &receivers);
+		assert!(!original.active.load(Ordering::Acquire));
+		assert!(queue.source_lifetime(1).is_none());
+		assert_eq!(queue.active.lock().unwrap().len(), MAX_SOURCES - 1);
 	}
 
 	#[test]
@@ -1415,7 +1658,7 @@ mod tests {
 				.push((frame.user, frame.width, frame.height, frame.rgba.to_vec()));
 		});
 		let counters = Arc::new(DecoderCounters::default());
-		let lifetime = Arc::new(AtomicBool::new(true));
+		let lifetime = Arc::new(SourceLifetime::new());
 		let mut decoder =
 			Backend::new(true, 9, &sink, &counters, &lifetime).expect("hardware backend");
 		assert!(matches!(decoder, Backend::Hardware(_)));
@@ -1437,8 +1680,9 @@ mod tests {
 			assert!(frame.3.as_chunks::<4>().0.iter().all(|px| px[3] == 255));
 			pictures.len() as u64
 		};
+		assert_eq!(lifetime.pictures.load(Ordering::Relaxed), delivered);
 		assert_eq!(counters.pictures.load(Ordering::Relaxed), delivered);
-		lifetime.store(false, Ordering::Release);
+		lifetime.active.store(false, Ordering::Release);
 		let mut data = Vec::new();
 		encoder.encode(&yuv).unwrap().write_vec(&mut data);
 		decoder.decode(&data, &mut scratch).unwrap();
@@ -1491,7 +1735,7 @@ mod tests {
 				1,
 				&sink,
 				&Arc::default(),
-				&Arc::new(AtomicBool::new(true)),
+				&Arc::new(SourceLifetime::new()),
 			)
 			.unwrap();
 			let mut scratch = Vec::new();

@@ -1,53 +1,18 @@
-//! Bounded capture/scale/encode pipeline; also exercised with an offline video source.
-use super::{MAX_ENCODED_BYTES, MAX_RAW_BYTES, RawFrame, Settings};
+//! Bounded raw capture/scale pipeline; also exercised with an offline video source.
+use super::{MAX_RAW_BYTES, RawFrame, Settings};
 use ::gstreamer as gst;
 use gst::prelude::*;
 use gstreamer_app as app;
 use gstreamer_video::{self as video, VideoFrameExt};
+use model::voice_settings::VideoResolution;
 use std::sync::{
 	Arc,
 	atomic::{AtomicBool, Ordering},
 };
 
 const INVALID: &str = "Screen capture returned an unsupported frame";
-const UNAVAILABLE: &str = "Screen capture or encoder is unavailable";
-const MAX_SOURCE_BYTES: usize = 7680 * 4320 * 4;
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Mode {
-	Va,
-	VaLegacy,
-	Nvidia,
-	NvidiaCopy,
-	Software,
-}
-impl Mode {
-	pub(super) const ALL: [Self; 5] = [
-		Self::Va,
-		Self::VaLegacy,
-		Self::Nvidia,
-		Self::NvidiaCopy,
-		Self::Software,
-	];
-	pub(super) fn label(self) -> &'static str {
-		match self {
-			Self::Va => "H.264 · VA-API hardware encoding",
-			Self::VaLegacy => "H.264 · VA-API hardware encoding · CPU scaling",
-			Self::Nvidia => "H.264 · NVENC hardware encoding",
-			Self::NvidiaCopy => "H.264 · NVENC hardware encoding · CPU scaling",
-			Self::Software => "H.264 · software encoding (higher CPU use)",
-		}
-	}
-	/// Whether the scaler applies PipeWire's crop rectangle: vapostproc always does,
-	/// videoconvertscale only after GStreamer 1.29.2, and the GL mixer never does.
-	fn applies_crop(self) -> bool {
-		match self {
-			Self::Va => true,
-			Self::Nvidia => false,
-			Self::VaLegacy | Self::NvidiaCopy | Self::Software => gst::version() >= (1, 29, 3, 0),
-		}
-	}
-}
+const UNAVAILABLE: &str = "Screen capture is unavailable";
+const MAX_SOURCE_BYTES: usize = MAX_RAW_BYTES;
 
 pub(super) struct Capture {
 	pipeline: gst::Pipeline,
@@ -64,11 +29,8 @@ impl Drop for Capture {
 }
 impl Capture {
 	/// `source` is either the approved PipeWire node or the offline example's test source.
-	#[allow(clippy::too_many_arguments)] // One pipeline and its existing media gates.
 	pub(super) fn new(
 		settings: Settings,
-		mode: Mode,
-		bitrate: u32,
 		source: gst::Element,
 		stop: Arc<AtomicBool>,
 		ready: Arc<AtomicBool>,
@@ -78,72 +40,24 @@ impl Capture {
 		if !settings.valid() {
 			return Err(INVALID);
 		}
-		let bitrate = bitrate.clamp(250_000, settings.bit_rate());
 		let size = format!(
 			"width={},height={},pixel-aspect-ratio=1/1",
 			settings.width, settings.height
 		);
-		let (scale, preview_scale) = match mode {
-			Mode::Va => (
-				format!(
-					"vapostproc add-borders=true ! video/x-raw(memory:VAMemory),format=NV12,{size}"
-				),
-				"vapostproc add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
-			),
-			Mode::Nvidia => (
-				format!(
-					"glupload ! glcolorconvert ! glvideomixer name=fit background=black sink_0::sizing-policy=keep-aspect-ratio sink_0::width={width} sink_0::height={height} ! video/x-raw(memory:GLMemory),format=RGBA,{size}",
-					width = settings.width,
-					height = settings.height
-				),
-				"glcolorscale ! video/x-raw(memory:GLMemory),format=RGBA,width=640,height=360 ! gldownload ! videoconvert ! video/x-raw,format=BGRA",
-			),
-			// ponytail: CPU scaling avoids mixing VAMemory and legacy VASurface buffers;
-			// add legacy GPU postprocessing only if measured scaling cost warrants it.
-			Mode::VaLegacy => (
-				format!("videoconvertscale add-borders=true ! video/x-raw,format=NV12,{size}"),
-				"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
-			),
-			Mode::NvidiaCopy | Mode::Software => (
-				format!("videoconvertscale add-borders=true ! video/x-raw,format=BGRA,{size}"),
-				"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
-			),
-		};
-		let encoder = match mode {
-			Mode::Va => format!(
-				"vah264enc name=encoder rate-control=cbr bitrate={} key-int-max={} b-frames=0",
-				bitrate / 1000,
-				settings.fps * 2
-			),
-			Mode::VaLegacy => format!(
-				"vaapih264enc name=encoder rate-control=cbr bitrate={} keyframe-period={} max-bframes=0 cabac=false dct8x8=false",
-				bitrate / 1000,
-				settings.fps * 2
-			),
-			Mode::Nvidia | Mode::NvidiaCopy => format!(
-				"nvh264enc name=encoder rc-mode=cbr bitrate={} gop-size={} bframes=0 rc-lookahead=0 zerolatency=true",
-				bitrate / 1000,
-				settings.fps * 2
-			),
-			Mode::Software => String::new(),
-		};
-		let encode = if mode == Mode::Software {
-			String::new()
-		} else {
-			format!(
-				"{encoder} ! h264parse config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au,profile=constrained-baseline !"
-			)
-		};
-		// Raw queues discard stale pictures. The encoded sink blocks upstream instead of
-		// discarding reference pictures; pressure then reaches the raw queue.
+		// FFmpeg owns encoding after capture. Queues discard stale raw pictures, and the
+		// frame sink blocks upstream when the worker waits for transport capacity.
+		let (max_width, max_height) = (VideoResolution::MAX_WIDTH, VideoResolution::MAX_HEIGHT);
 		let description = format!(
-			"capsfilter caps=\"video/x-raw(ANY),width=[1,7680],height=[1,4320]\" ! \
+			"capsfilter caps=\"video/x-raw(ANY),width=[1,{max_width}],height=[1,{max_height}]\" ! \
 			queue max-size-buffers=1 max-size-bytes={MAX_SOURCE_BYTES} max-size-time=0 leaky=downstream ! \
-			videorate drop-only=true ! video/x-raw(ANY),framerate={}/1 ! {scale} ! tee name=split \
+			videorate drop-only=true ! video/x-raw(ANY),framerate={}/1 ! \
+			videoconvert name=crop-input ! video/x-raw,format=BGRA ! videocrop name=crop ! \
+			videoconvertscale add-borders=true ! video/x-raw,format=BGRA,{size} ! tee name=split \
 			split. ! queue max-size-buffers=1 max-size-bytes={MAX_RAW_BYTES} max-size-time=0 leaky=downstream ! \
-			identity name=gate ! {encode} appsink name=frames sync=false async=false max-buffers=1 enable-last-sample=false wait-on-eos=false \
+			identity name=gate ! appsink name=frames sync=false async=false max-buffers=1 enable-last-sample=false wait-on-eos=false \
 			split. ! queue max-size-buffers=1 max-size-bytes={MAX_RAW_BYTES} max-size-time=0 leaky=downstream ! \
-			valve name=preview-gate drop-mode=forward-sticky-events ! videorate drop-only=true ! video/x-raw(ANY),framerate=10/1 ! {preview_scale} ! \
+			valve name=preview-gate drop-mode=forward-sticky-events ! videorate drop-only=true ! video/x-raw,framerate=10/1 ! \
+			videoconvertscale add-borders=true ! video/x-raw,format=BGRA,width=640,height=360 ! \
 			appsink name=preview sync=false async=false max-buffers=1 drop=true enable-last-sample=false wait-on-eos=false",
 			settings.fps
 		);
@@ -171,9 +85,17 @@ impl Capture {
 			.add_many([&source, bin.upcast_ref()])
 			.map_err(|_| UNAVAILABLE)?;
 		source.link(&bin).map_err(|_| UNAVAILABLE)?;
-		if mode.applies_crop() {
-			match_crop_aspect(&source.static_pad("src").ok_or(UNAVAILABLE)?);
-		}
+		let cropper = bin.by_name("crop").ok_or(UNAVAILABLE)?;
+		apply_crop(
+			&bin.by_name("crop-input").ok_or(UNAVAILABLE)?,
+			&cropper,
+			failed.clone(),
+		)?;
+		bound(
+			&cropper.static_pad("sink").ok_or(UNAVAILABLE)?,
+			MAX_SOURCE_BYTES,
+			failed.clone(),
+		);
 		let frames = sink(&bin, "frames")?;
 		let preview = sink(&bin, "preview")?;
 		let preview_gate = bin.by_name("preview-gate").ok_or(UNAVAILABLE)?;
@@ -184,11 +106,7 @@ impl Capture {
 		);
 		bound(
 			&frames.static_pad("sink").ok_or(UNAVAILABLE)?,
-			if mode == Mode::Software {
-				MAX_RAW_BYTES
-			} else {
-				MAX_ENCODED_BYTES
-			},
+			MAX_RAW_BYTES,
 			failed.clone(),
 		);
 		bound(
@@ -210,22 +128,13 @@ impl Capture {
 		bin.by_name("gate")
 			.and_then(|gate| gate.static_pad("src"))
 			.ok_or(UNAVAILABLE)?
-			.add_probe(gst::PadProbeType::BUFFER, move |pad, _| {
+			.add_probe(gst::PadProbeType::BUFFER, move |_, _| {
 				if stop.load(Ordering::Acquire) || !ready.load(Ordering::Acquire) {
 					keyframe.store(true, Ordering::Release);
 					return gst::PadProbeReturn::Drop;
 				}
 				if !has_capacity() {
 					return gst::PadProbeReturn::Drop;
-				}
-				if mode != Mode::Software
-					&& keyframe.swap(false, Ordering::AcqRel)
-					&& !pad.push_event(
-						video::DownstreamForceKeyUnitEvent::builder()
-							.all_headers(true)
-							.build(),
-					) {
-					keyframe.store(true, Ordering::Release);
 				}
 				gst::PadProbeReturn::Ok
 			});
@@ -243,22 +152,18 @@ impl Capture {
 			.map_err(|_| UNAVAILABLE)?;
 		Ok(capture)
 	}
-	pub(super) fn set_bitrate(&self, bitrate: u32) -> bool {
-		let Some(encoder) = self.pipeline.by_name("encoder") else {
-			return false;
-		};
-		if !encoder
-			.find_property("bitrate")
-			.is_some_and(|property| property.flags().contains(gst::PARAM_FLAG_MUTABLE_PLAYING))
-		{
-			return false;
-		}
-		encoder.set_property("bitrate", bitrate / 1000);
-		true
-	}
-
 	pub(super) fn set_preview_visible(&self, visible: bool) {
 		self.preview_gate.set_property("drop", !visible);
+	}
+	pub(super) fn request_frame(&self) -> Result<(), &'static str> {
+		// READY flushes queued raw samples and restarts the same approved source.
+		self.pipeline
+			.set_state(gst::State::Ready)
+			.map_err(|_| UNAVAILABLE)?;
+		self.pipeline
+			.set_state(gst::State::Playing)
+			.map_err(|_| UNAVAILABLE)?;
+		Ok(())
 	}
 	pub(super) async fn changed(&self) {
 		let _ = tokio::time::timeout(
@@ -276,52 +181,100 @@ fn sink(bin: &gst::Bin, name: &str) -> Result<app::AppSink, &'static str> {
 		.and_then(|element| element.downcast().ok())
 		.ok_or(UNAVAILABLE)
 }
-/// Window casts may keep the stream size and mark the window with a crop rectangle. Scalers
-/// that apply it still place borders by the caps' aspect ratio, stretching the window, so
-/// declare the (square) source pixels in a shape that gives the caps the crop's aspect ratio.
-fn match_crop_aspect(pad: &gst::Pad) {
-	pad.add_probe(gst::PadProbeType::BUFFER, |pad, info| {
-		let (Some(buffer), Some(caps)) = (info.buffer(), pad.current_caps()) else {
-			return gst::PadProbeReturn::Ok;
-		};
-		let Some((width, height)) = caps.structure(0).and_then(|structure| {
-			Some((
-				structure.get::<i32>("width").ok()?,
-				structure.get::<i32>("height").ok()?,
-			))
-		}) else {
-			return gst::PadProbeReturn::Ok;
-		};
-		let aspect = buffer
-			.meta::<video::VideoCropMeta>()
-			.and_then(|crop| {
-				let (x, y, crop_width, crop_height) = crop.rect();
-				let (crop_width, crop_height) = (
-					i32::try_from(crop_width).ok()?,
-					i32::try_from(crop_height).ok()?,
+/// Portal windows can arrive as a larger stream with a crop rectangle. Apply it before
+/// scaling on every supported GStreamer version, rather than exposing pixels outside the
+/// selected window when an older CPU scaler ignores VideoCropMeta.
+fn apply_crop(
+	input: &gst::Element,
+	cropper: &gst::Element,
+	failed: Arc<AtomicBool>,
+) -> Result<(), &'static str> {
+	let weak = cropper.downgrade();
+	// Strip crop metadata before conversion too: newer converters may consume it,
+	// while older ones retain it. Both must reach the same explicit pixel crop.
+	input.static_pad("sink").ok_or(UNAVAILABLE)?.add_probe(
+		gst::PadProbeType::BUFFER,
+		move |pad, info| {
+			let result = (|| {
+				let caps = pad.current_caps().ok_or(INVALID)?;
+				let structure = caps.structure(0).ok_or(INVALID)?;
+				let size = (
+					u32::try_from(structure.get::<i32>("width").map_err(|_| INVALID)?)
+						.map_err(|_| INVALID)?,
+					u32::try_from(structure.get::<i32>("height").map_err(|_| INVALID)?)
+						.map_err(|_| INVALID)?,
 				);
-				(crop_width > 0
-					&& crop_height > 0
-					&& i64::from(x) + i64::from(crop_width) <= i64::from(width)
-					&& i64::from(y) + i64::from(crop_height) <= i64::from(height))
-				.then_some(())?;
-				Some(gst::Fraction::new(
-					i32::try_from(i64::from(crop_width) * i64::from(height)).ok()?,
-					i32::try_from(i64::from(crop_height) * i64::from(width)).ok()?,
-				))
-			})
-			.unwrap_or(gst::Fraction::new(1, 1));
-		let current = caps
-			.structure(0)
-			.and_then(|structure| structure.get::<gst::Fraction>("pixel-aspect-ratio").ok())
-			.unwrap_or(gst::Fraction::new(1, 1));
-		if current != aspect {
-			let mut caps = caps.copy();
-			caps.make_mut().set("pixel-aspect-ratio", aspect);
-			pad.push_event(gst::event::Caps::new(&caps));
-		}
-		gst::PadProbeReturn::Ok
-	});
+				let Some(gst::PadProbeData::Buffer(buffer)) = &mut info.data else {
+					return Err(INVALID);
+				};
+				if buffer.size() > MAX_SOURCE_BYTES {
+					return Err(INVALID);
+				}
+				let rect = buffer
+					.meta::<video::VideoCropMeta>()
+					.map(|crop| crop.rect());
+				let [left, right, top, bottom] = crop_edges(rect, size)?;
+				if rect.is_some() {
+					buffer
+						.make_mut()
+						.meta_mut::<video::VideoCropMeta>()
+						.ok_or(INVALID)?
+						.remove()
+						.map_err(|_| INVALID)?;
+				}
+				let cropper = weak.upgrade().ok_or(UNAVAILABLE)?;
+				// Conversion and cropping share this stream thread. Update only on geometry
+				// changes so unchanged rectangles do not trigger caps renegotiation per frame.
+				for (name, value) in [
+					("left", left),
+					("right", right),
+					("top", top),
+					("bottom", bottom),
+				] {
+					if cropper.property::<i32>(name) != value {
+						cropper.set_property(name, value);
+					}
+				}
+				Ok(())
+			})();
+			if result.is_err() {
+				failed.store(true, Ordering::Release);
+				gst::PadProbeReturn::Drop
+			} else {
+				gst::PadProbeReturn::Ok
+			}
+		},
+	);
+	Ok(())
+}
+
+fn crop_edges(
+	rect: Option<(u32, u32, u32, u32)>,
+	(width, height): (u32, u32),
+) -> Result<[i32; 4], &'static str> {
+	if width == 0
+		|| height == 0
+		|| width > VideoResolution::MAX_WIDTH
+		|| height > VideoResolution::MAX_HEIGHT
+	{
+		return Err(INVALID);
+	}
+	let Some((x, y, crop_width, crop_height)) = rect else {
+		return Ok([0; 4]);
+	};
+	let right = x.checked_add(crop_width).filter(|right| *right <= width);
+	let bottom = y
+		.checked_add(crop_height)
+		.filter(|bottom| *bottom <= height);
+	if crop_width == 0 || crop_height == 0 {
+		return Err(INVALID);
+	}
+	Ok([
+		x as i32,
+		(width - right.ok_or(INVALID)?) as i32,
+		y as i32,
+		(height - bottom.ok_or(INVALID)?) as i32,
+	])
 }
 fn bound(pad: &gst::Pad, bytes: usize, failed: Arc<AtomicBool>) {
 	pad.add_probe(gst::PadProbeType::BUFFER, move |_, info| {
@@ -339,8 +292,8 @@ pub(super) fn raw(sample: &gst::Sample) -> Result<RawFrame, &'static str> {
 	if info.format() != video::VideoFormat::Bgra
 		|| info.width() == 0
 		|| info.height() == 0
-		|| info.width() > 1920
-		|| info.height() > 1080
+		|| info.width() > VideoResolution::MAX_WIDTH
+		|| info.height() > VideoResolution::MAX_HEIGHT
 	{
 		return Err(INVALID);
 	}
@@ -360,7 +313,11 @@ pub(super) fn raw(sample: &gst::Sample) -> Result<RawFrame, &'static str> {
 	if stride < row || data.len() < required {
 		return Err(INVALID);
 	}
-	let mut pixels = vec![0; row * info.height() as usize];
+	let bytes = row.checked_mul(info.height() as usize).ok_or(INVALID)?;
+	if required > MAX_RAW_BYTES || bytes > MAX_RAW_BYTES {
+		return Err(INVALID);
+	}
+	let mut pixels = vec![0; bytes];
 	for (source, target) in data.chunks(stride).zip(pixels.chunks_exact_mut(row)) {
 		target.copy_from_slice(&source[..row]);
 	}
@@ -370,4 +327,235 @@ pub(super) fn raw(sample: &gst::Sample) -> Result<RawFrame, &'static str> {
 		stride: row,
 		data: pixels,
 	})
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn refresh_recaptures_an_idle_source_for_the_pending_keyframe() {
+		gst::init().unwrap();
+		let source = gst::parse::bin_from_description(
+			"videotestsrc name=fixture is-live=true pattern=red ! \
+			capsfilter caps=\"video/x-raw,format=BGRA,width=854,height=480,framerate=30/1\"",
+			true,
+		)
+		.unwrap();
+		let fixture = source.by_name("fixture").unwrap();
+		let source = source.upcast::<gst::Element>();
+		// Emit only the first picture of each capture session, then simulate a
+		// damage-driven desktop with no updates or keepalive buffers.
+		let delivered = Arc::new(AtomicBool::new(false));
+		source.static_pad("src").unwrap().add_probe(
+			gst::PadProbeType::BUFFER | gst::PadProbeType::EVENT_DOWNSTREAM,
+			move |_, info| {
+				match &info.data {
+					Some(gst::PadProbeData::Event(event))
+						if matches!(event.view(), gst::EventView::StreamStart(_)) =>
+					{
+						delivered.store(false, Ordering::Release);
+					}
+					Some(gst::PadProbeData::Buffer(_))
+						if delivered.swap(true, Ordering::AcqRel) =>
+					{
+						return gst::PadProbeReturn::Drop;
+					}
+					_ => {}
+				}
+				gst::PadProbeReturn::Ok
+			},
+		);
+		let settings = Settings {
+			source: super::super::SourceId::Portal,
+			width: 854,
+			height: 480,
+			fps: 30,
+			cursor: false,
+			audio: false,
+		};
+		let capture = Capture::new(
+			settings,
+			source.clone(),
+			Arc::new(AtomicBool::new(false)),
+			Arc::new(AtomicBool::new(true)),
+			Arc::new(AtomicBool::new(true)),
+			|| true,
+		)
+		.unwrap();
+		let old = raw(&capture
+			.frames
+			.try_pull_sample(gst::ClockTime::from_seconds(5))
+			.unwrap())
+		.unwrap();
+		assert!(
+			capture
+				.frames
+				.try_pull_sample(gst::ClockTime::from_mseconds(100))
+				.is_none()
+		);
+		fixture.set_property_from_str("pattern", "blue");
+		capture.request_frame().unwrap();
+		let fresh = raw(&capture
+			.frames
+			.try_pull_sample(gst::ClockTime::from_seconds(5))
+			.unwrap())
+		.unwrap();
+		assert_ne!(fresh.data, old.data);
+		assert!(
+			fresh
+				.data
+				.as_chunks::<4>()
+				.0
+				.iter()
+				.all(|pixel| *pixel == [255, 0, 0, 255])
+		);
+		let mut latest = None;
+		assert!(super::super::retain_screen_frame(&mut latest, Some(fresh), true, true).unwrap());
+		assert!(super::super::retain_screen_frame(&mut latest, None, true, true).unwrap());
+		assert!(!capture.failed());
+	}
+
+	#[test]
+	fn source_crop_rejects_invalid_rectangles_and_resets_for_uncropped_frames() {
+		assert_eq!(
+			crop_edges(Some((160, 90, 320, 180)), (640, 360)),
+			Ok([160, 160, 90, 90])
+		);
+		assert_eq!(crop_edges(Some((0, 0, 640, 360)), (640, 360)), Ok([0; 4]));
+		assert_eq!(crop_edges(None, (640, 360)), Ok([0; 4]));
+		for rect in [
+			(0, 0, 0, 360),
+			(0, 0, 640, 0),
+			(320, 0, 640, 360),
+			(0, 180, 640, 360),
+			(u32::MAX, 0, 2, 360),
+		] {
+			assert!(crop_edges(Some(rect), (640, 360)).is_err());
+		}
+		assert!(crop_edges(None, (7681, 4320)).is_err());
+		assert!(crop_edges(None, (7680, 4321)).is_err());
+		assert_eq!(crop_edges(None, (7680, 4320)), Ok([0; 4]));
+	}
+
+	#[test]
+	fn raw_capture_accepts_both_8k_axes_and_rejects_oversized_dimensions() {
+		gst::init().unwrap();
+		// Exercise the mapping/copy path at each maximum axis without retaining a
+		// full 126.6 MiB picture in the default test harness.
+		for (width, height) in [(7680, 2), (2, 4320)] {
+			let info = video::VideoInfo::builder(video::VideoFormat::Bgra, width, height)
+				.build()
+				.unwrap();
+			let caps = info.to_caps().unwrap();
+			let buffer = gst::Buffer::from_mut_slice(vec![19u8; info.size()]);
+			let sample = gst::Sample::builder().caps(&caps).buffer(&buffer).build();
+			let frame = raw(&sample).expect("bounded native 8K geometry");
+			assert_eq!((frame.width, frame.height), (width, height));
+			assert_eq!(frame.stride, width as usize * 4);
+			assert_eq!(frame.data.len(), width as usize * height as usize * 4);
+			assert!(frame.data.iter().all(|byte| *byte == 19));
+		}
+		for (width, height) in [(7681, 2), (2, 4321)] {
+			let info = video::VideoInfo::builder(video::VideoFormat::Bgra, width, height)
+				.build()
+				.unwrap();
+			let caps = info.to_caps().unwrap();
+			let buffer = gst::Buffer::from_mut_slice(vec![19u8; info.size()]);
+			let sample = gst::Sample::builder().caps(&caps).buffer(&buffer).build();
+			assert!(raw(&sample).is_err());
+		}
+	}
+
+	#[test]
+	fn portal_crop_excludes_surrounding_pixels_from_preview_and_raw_frames() {
+		gst::init().unwrap();
+		let source = gst::parse::bin_from_description(
+			"videotestsrc is-live=true ! capsfilter caps=\"video/x-raw,format=BGRA,width=640,height=360\"",
+			true,
+		)
+		.unwrap()
+		.upcast::<gst::Element>();
+		source
+			.static_pad("src")
+			.unwrap()
+			.add_probe(gst::PadProbeType::BUFFER, |_, info| {
+				let Some(gst::PadProbeData::Buffer(buffer)) = &mut info.data else {
+					return gst::PadProbeReturn::Drop;
+				};
+				let buffer = buffer.make_mut();
+				{
+					let mut map = buffer.map_writable().unwrap();
+					assert_eq!(map.len(), 640 * 360 * 4);
+					for (y, row) in map.as_chunks_mut::<{ 640 * 4 }>().0.iter_mut().enumerate() {
+						for (x, pixel) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+							pixel.copy_from_slice(
+								if (160..480).contains(&x) && (90..270).contains(&y) {
+									&[0, 255, 0, 255]
+								} else {
+									&[0, 0, 255, 255]
+								},
+							);
+						}
+					}
+				}
+				video::VideoCropMeta::add(buffer, (160, 90, 320, 180));
+				gst::PadProbeReturn::Ok
+			});
+		let settings = Settings {
+			source: super::super::SourceId::Display(1),
+			width: 1280,
+			height: 720,
+			fps: 30,
+			cursor: true,
+			audio: false,
+		};
+		let ready = Arc::new(AtomicBool::new(false));
+		let capture = Capture::new(
+			settings,
+			source,
+			Arc::new(AtomicBool::new(false)),
+			ready.clone(),
+			Arc::new(AtomicBool::new(true)),
+			|| true,
+		)
+		.unwrap();
+		let preview = capture
+			.preview
+			.try_pull_sample(gst::ClockTime::from_seconds(5))
+			.expect("cropped preview");
+		assert!(!capture.failed());
+		assert!(
+			capture
+				.frames
+				.try_pull_sample(gst::ClockTime::ZERO)
+				.is_none()
+		);
+		let preview = raw(&preview).unwrap();
+		assert_eq!((preview.width, preview.height), (640, 360));
+		assert!(
+			preview
+				.data
+				.as_chunks::<4>()
+				.0
+				.iter()
+				.all(|pixel| *pixel == [0, 255, 0, 255])
+		);
+		ready.store(true, Ordering::Release);
+		let frame = capture
+			.frames
+			.try_pull_sample(gst::ClockTime::from_seconds(5))
+			.expect("cropped raw frame");
+		assert!(!capture.failed());
+		let frame = raw(&frame).unwrap();
+		assert_eq!((frame.width, frame.height), (1280, 720));
+		assert!(
+			frame
+				.data
+				.as_chunks::<4>()
+				.0
+				.iter()
+				.all(|pixel| *pixel == [0, 255, 0, 255])
+		);
+	}
 }

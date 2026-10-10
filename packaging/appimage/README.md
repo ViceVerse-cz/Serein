@@ -21,7 +21,7 @@ On Ubuntu 24.04, install the runtime dependencies once:
 ```sh
 sudo apt update
 sudo apt install libgtk-4-1 libwebkitgtk-6.0-4 libasound2t64 libfontconfig1 \
-  libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 \
+  libgstreamer1.0-0 libgstreamer-plugins-base1.0-0 libva2 libva-drm2 libdrm2 \
   libvulkan1 libegl1 libxkbcommon0 libxkbcommon-x11-0 \
   libwayland-client0 libx11-6 libx11-xcb1 libxcursor1 libxi6 libxrandr2 \
   dbus-user-session xdg-desktop-portal xdg-desktop-portal-gnome gnome-keyring \
@@ -35,6 +35,14 @@ or override the host library search path. A graphical session, graphics driver,
 portal backend and unlocked Secret Service provider are still required. A KDE
 portal/keyring provider can replace the GNOME choices above. No library or desktop
 service is installed by launching the AppImage.
+The Experimental engine's replaceable FFmpeg/OpenH264 libraries and their pinned source recipe are
+included. libva/libva-drm/libdrm are host dependencies for the Quick Sync device
+interface; compatible Intel/NVIDIA/AMD GPU runtimes enable hardware encoders.
+FFmpeg's H264/HEVC/AV1 VA-API encoders are disabled. Experimental HEVC/AV1 require
+compatible hardware; H264 provides OpenH264 software fallback. Stable uses
+the original system GStreamer VA-API/NVENC H264 encoders, requiring optional Bad
+plugins and compatible drivers; the Ubuntu command above includes those plugins.
+The Base/Good plugins support raw capture and media playback. See [the encoder recipe](../ffmpeg/README.md).
 
 The embedded runtime includes FUSE support without requiring the old `libfuse2`
 package. Systems that cannot mount AppImages can run:
@@ -74,6 +82,8 @@ On the Ubuntu 24.04 x86_64 build host, first install the existing
 ```sh
 sudo apt install zsync
 bash packaging/appimage/install-tools.sh
+python3 scripts/build-ffmpeg.py
+export FFMPEG_DIR="$PWD/target/ffmpeg/prefix"
 cargo xtask package --format appimage
 ```
 

@@ -8,15 +8,15 @@ pub(super) const MAX_SOURCES: usize = 64;
 #[cfg(any(test, target_os = "macos", target_os = "windows"))]
 pub(super) const MAX_NAME_BYTES: usize = 256;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-pub(super) const MAX_SOURCE_WIDTH: u32 = 7680;
+pub(super) const MAX_SOURCE_WIDTH: u32 = model::voice_settings::VideoResolution::MAX_WIDTH;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-pub(super) const MAX_SOURCE_HEIGHT: u32 = 4320;
+pub(super) const MAX_SOURCE_HEIGHT: u32 = model::voice_settings::VideoResolution::MAX_HEIGHT;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-pub(super) const MAX_FRAME_WIDTH: u32 = 3840;
+pub(super) const MAX_FRAME_WIDTH: u32 = MAX_SOURCE_WIDTH;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-pub(super) const MAX_FRAME_HEIGHT: u32 = 2160;
+pub(super) const MAX_FRAME_HEIGHT: u32 = MAX_SOURCE_HEIGHT;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-pub(super) const MAX_RAW_BYTES: usize = MAX_FRAME_WIDTH as usize * MAX_FRAME_HEIGHT as usize * 4;
+pub(super) const MAX_RAW_BYTES: usize = super::MAX_RAW_BYTES;
 
 #[cfg(any(test, target_os = "macos", target_os = "windows"))]
 pub(super) fn bounded_name(mut name: String) -> String {
@@ -51,6 +51,13 @@ pub(crate) struct Capture;
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 impl Capture {
+	pub(crate) fn request_frame(
+		&mut self,
+		_frames: &std::sync::mpsc::Receiver<RawFrame>,
+	) -> Result<(), &'static str> {
+		Err("Screen sharing is supported only on macOS and Windows")
+	}
+
 	pub(crate) fn start(
 		_settings: Settings,
 		_frames: SyncSender<RawFrame>,

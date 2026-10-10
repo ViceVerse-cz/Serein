@@ -34,6 +34,7 @@ impl H264Decoder {
 	pub fn new(sink: Sink) -> Result<Self, &'static str> {
 		gst::init().map_err(|_| UNSUPPORTED)?;
 		let pipeline = gst::Pipeline::new();
+		let guard = super::gst::PipelineGuard::new(&pipeline);
 		let appsrc = gst_app::AppSrc::builder()
 			.caps(
 				&gst::Caps::builder("video/x-h264")
@@ -98,10 +99,13 @@ impl H264Decoder {
 				.build(),
 		);
 		decodebin.connect_pad_added({
-			let pipeline = pipeline.clone();
+			let pipeline = pipeline.downgrade();
 			let appsink = appsink.clone();
 			let failed = failed.clone();
 			move |_, pad| {
+				let Some(pipeline) = pipeline.upgrade() else {
+					return;
+				};
 				let is_video = pad
 					.current_caps()
 					.and_then(|caps| caps.structure(0).map(|s| s.name().starts_with("video/")))
@@ -129,13 +133,15 @@ impl H264Decoder {
 		pipeline
 			.set_state(gst::State::Playing)
 			.map_err(|_| UNSUPPORTED)?;
-		Ok(Self {
+		let decoder = Self {
 			pipeline,
 			appsrc,
 			failed,
 			delivered,
 			pictures: 0,
-		})
+		};
+		guard.release();
+		Ok(decoder)
 	}
 
 	/// Queue one Annex-B access unit. Errors from the pipeline surface on the next call.
@@ -226,6 +232,27 @@ fn picture(sample: &gst::Sample) -> Result<Frame, &'static str> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn live_pipeline_and_sink_retire_on_drop() {
+		let sink_owner = Arc::new(());
+		let sink_lifetime = Arc::downgrade(&sink_owner);
+		let decoder = H264Decoder::new(Box::new(move |_| {
+			let _ = Arc::strong_count(&sink_owner);
+		}))
+		.unwrap();
+		let pipeline = decoder.pipeline.downgrade();
+		drop(decoder);
+		assert_eq!(
+			(
+				pipeline.upgrade().is_none(),
+				sink_lifetime.upgrade().is_none()
+			),
+			(true, true),
+			"dropping a live receiver must release its native pipeline and output callback"
+		);
+	}
+
 	#[test]
 	fn stalled_native_queue_rejects_pressure_at_item_and_byte_limits() {
 		gst::init().expect("GStreamer runtime");

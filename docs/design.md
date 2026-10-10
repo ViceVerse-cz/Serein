@@ -126,6 +126,9 @@ rasterized once into `assets/icons/atlas.png` (37 white glyphs in 64px cells) an
 draw time by `crates/ui/src/icons.rs`; there is no icon font. Provenance and the regeneration
 command are in `assets/icons/README.md`. The profile popout keeps its 300px Discord-style card.
 
+Voice & Video places video backend and codec controls after audio, keybinds and
+camera controls, at the bottom of the page.
+
 Shortcut capture also accepts egui's browser, media and system keys, including Caps Lock,
 Pause and the macOS Fn key, when the OS delivers them to the focused window. These bindings
 persist through the existing device settings. Global availability remains limited by the
@@ -135,8 +138,9 @@ Voice follows Discord's call screens: a black stage with 80px participant avatar
 above the conversation) or 16:9 tiles with name badges (guild channels), a bottom control bar
 of dark pills (mute with settings chevron, camera, screen share, activities, soundboard, more)
 and a red hang-up button, a green "In a call" badge in the header, mute/deafen toggles in the
-account card, and a "Voice Connected" panel above it while connected. Camera, screen share,
-activities and soundboard are shown disabled: Serein has no such features.
+account card, and a "Voice Connected" panel above it while connected. Camera and screen
+sharing depend on native capture and negotiated codec support; offline previews keep
+capture inert. Activities and soundboard remain disabled where unsupported.
 
 ## Verification notes
 

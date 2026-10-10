@@ -58,6 +58,12 @@ fi
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION%%-*}" "$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT" "$app/Contents/Info.plist"
 sign_options=(--force --timestamp --options runtime --keychain "$keychain" --sign "${signing_hashes[0]}")
+if [[ -d "$app/Contents/Frameworks" ]]; then
+  for library in "$app/Contents/Frameworks/"*.dylib; do
+    [[ -f "$library" ]] || continue
+    codesign "${sign_options[@]}" "$library"
+  done
+fi
 sign_options+=(--entitlements packaging/macos/voice.entitlements)
 codesign "${sign_options[@]}" "$app"
 codesign --verify --deep --strict --verbose=2 "$app"

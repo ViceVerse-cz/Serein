@@ -1,8 +1,8 @@
 //! Bounded Media Foundation hardware H.264 encoder for Windows screen sharing and camera video.
 #![allow(unsafe_code)]
 
+use super::i420_to_nv12;
 use super::{Config, Profile};
-use crate::screen::i420_to_nv12;
 use std::{
 	marker::PhantomData,
 	rc::Rc,
@@ -58,6 +58,7 @@ pub(crate) struct Encoder {
 	duration: i64,
 	need_input: usize,
 	have_output: usize,
+	force_keyframe_pending: bool,
 	provides_samples: bool,
 	max_bytes: usize,
 	max_buffer_bytes: usize,
@@ -75,12 +76,20 @@ impl Drop for Activated {
 }
 
 impl Encoder {
+	#[allow(dead_code)] // Legacy standalone/native fixture entry point.
 	pub(crate) fn new(config: Config) -> Result<Self, &'static str> {
+		Self::new_on_adapter(config, None)
+	}
+
+	pub(crate) fn new_on_adapter(
+		config: Config,
+		adapter: Option<model::VideoAdapter>,
+	) -> Result<Self, &'static str> {
 		let runtime = Runtime::open()?;
 		// SAFETY: Media Foundation owns returned COM objects; the activation array is cleared
 		// before its CoTaskMem allocation is released.
 		unsafe {
-			let activate = Activated(hardware_encoder()?);
+			let activate = Activated(hardware_encoder(adapter)?);
 			let transform: IMFTransform = activate.0.ActivateObject().map_err(|_| UNAVAILABLE)?;
 			let attributes = transform.GetAttributes().map_err(|_| UNAVAILABLE)?;
 			if attributes.GetUINT32(&MF_TRANSFORM_ASYNC).unwrap_or(0) == 0 {
@@ -89,9 +98,7 @@ impl Encoder {
 			attributes
 				.SetUINT32(&MF_TRANSFORM_ASYNC_UNLOCK, 1)
 				.map_err(|_| UNAVAILABLE)?;
-			let _ = attributes.SetUINT32(&MF_LOW_LATENCY, 1);
 			let codec: ICodecAPI = transform.cast().map_err(|_| UNAVAILABLE)?;
-			let _ = codec.SetValue(&CODECAPI_AVLowLatencyMode, &VARIANT::from(true));
 			let _ = codec.SetValue(
 				&CODECAPI_AVEncCommonRateControlMode,
 				&VARIANT::from(eAVEncCommonRateControlMode_CBR.0 as u32),
@@ -166,11 +173,17 @@ impl Encoder {
 				max_buffer_bytes,
 				need_input: 0,
 				have_output: 0,
+				force_keyframe_pending: false,
 				provides_samples,
 			})
 		}
 	}
 
+	pub(crate) fn submitted_frames(&self) -> i64 {
+		self.frame
+	}
+
+	#[allow(dead_code)] // Retained native API; stream owners now restart atomically.
 	pub(crate) fn set_bitrate(&mut self, bitrate: u32) -> Result<(), &'static str> {
 		// SAFETY: Dynamic codec control stays on the encoder's owning worker.
 		unsafe {
@@ -205,8 +218,14 @@ impl Encoder {
 		force_keyframe: bool,
 		fill: impl FnOnce(&mut [u8]) -> Result<(), &'static str>,
 	) -> Result<(Vec<u8>, bool), &'static str> {
-		self.wait_for_input()?;
-		if force_keyframe {
+		self.force_keyframe_pending |= force_keyframe;
+		if !self.wait_for_events(false)? {
+			// Some async MFTs withhold NeedInput until ready output is drained.
+			// Return that frame now; preserve the keyframe request for the next input.
+			self.wait_for_events(true)?;
+			return self.take_output();
+		}
+		if self.force_keyframe_pending {
 			// SAFETY: Codec control is called on the owning worker before this input sample.
 			unsafe {
 				self.codec
@@ -244,30 +263,23 @@ impl Encoder {
 			sample
 				.SetSampleDuration(self.duration)
 				.map_err(|_| FAILED)?;
-			self.frame += 1;
 			self.transform
 				.ProcessInput(0, &sample, 0)
 				.map_err(|_| FAILED)?;
 		}
-		self.wait_for_output()?;
-		self.take_output()
+		self.frame += 1;
+		self.force_keyframe_pending = false;
+		if self.wait_for_events(true)? {
+			self.take_output()
+		} else {
+			// Normal-mode MFTs may need more pictures before producing output.
+			// Preserve the input credit and let the bounded caller submit the next one.
+			Ok((Vec::new(), false))
+		}
 	}
 
-	fn wait_for_input(&mut self) -> Result<(), &'static str> {
-		self.wait_until(|encoder| encoder.need_input != 0)?;
-		self.need_input -= 1;
-		Ok(())
-	}
-
-	fn wait_for_output(&mut self) -> Result<(), &'static str> {
-		self.wait_until(|encoder| encoder.have_output != 0)?;
-		self.have_output -= 1;
-		Ok(())
-	}
-
-	fn wait_until(&mut self, ready: impl Fn(&Self) -> bool) -> Result<(), &'static str> {
-		let deadline = Instant::now() + Duration::from_millis(250);
-		while !ready(self) {
+	fn wait_for_events(&mut self, output: bool) -> Result<bool, &'static str> {
+		wait_for_events(&mut self.need_input, &mut self.have_output, output, || {
 			// SAFETY: Event polling stays on the worker that owns this MFT.
 			let event = unsafe { self.events.GetEvent(MF_EVENT_FLAG_NO_WAIT) };
 			match event {
@@ -275,23 +287,12 @@ impl Encoder {
 					if event.GetStatus().map_err(|_| FAILED)?.is_err() {
 						return Err(FAILED);
 					}
-					match event.GetType().map_err(|_| FAILED)? as i32 {
-						kind if kind == METransformNeedInput.0 => self.need_input += 1,
-						kind if kind == METransformHaveOutput.0 => self.have_output += 1,
-						kind if kind == MEError.0 => return Err(FAILED),
-						_ => {}
-					}
+					Ok(Some(event.GetType().map_err(|_| FAILED)? as i32))
 				},
-				Err(error) if error.code() == MF_E_NO_EVENTS_AVAILABLE => {
-					if Instant::now() >= deadline {
-						return Err(FAILED);
-					}
-					std::thread::sleep(Duration::from_millis(1));
-				}
-				Err(_) => return Err(FAILED),
+				Err(error) if error.code() == MF_E_NO_EVENTS_AVAILABLE => Ok(None),
+				Err(_) => Err(FAILED),
 			}
-		}
-		Ok(())
+		})
 	}
 
 	fn take_output(&self) -> Result<(Vec<u8>, bool), &'static str> {
@@ -330,6 +331,43 @@ impl Encoder {
 	}
 }
 
+fn wait_for_events(
+	need_input: &mut usize,
+	have_output: &mut usize,
+	output: bool,
+	mut poll: impl FnMut() -> Result<Option<i32>, &'static str>,
+) -> Result<bool, &'static str> {
+	let deadline = Instant::now() + Duration::from_millis(250);
+	while if output {
+		*have_output == 0
+	} else {
+		*need_input == 0 && *have_output == 0
+	} {
+		if Instant::now() >= deadline {
+			return Err(FAILED);
+		}
+		match poll()? {
+			Some(kind) if kind == METransformNeedInput.0 => *need_input += 1,
+			Some(kind) if kind == METransformHaveOutput.0 => *have_output += 1,
+			Some(kind) if kind == MEError.0 => return Err(FAILED),
+			Some(_) => {}
+			None if output && *need_input != 0 => return Ok(false),
+			None => {
+				std::thread::sleep(Duration::from_millis(1));
+			}
+		}
+	}
+	if output {
+		*have_output -= 1;
+	} else if *have_output != 0 {
+		// Leave both credits untouched: the caller must drain output first.
+		return Ok(false);
+	} else {
+		*need_input -= 1;
+	}
+	Ok(true)
+}
+
 fn force_keyframe_value() -> VARIANT {
 	VARIANT::from(1_u32)
 }
@@ -353,7 +391,9 @@ impl Drop for Encoder {
 	}
 }
 
-unsafe fn hardware_encoder() -> Result<IMFActivate, &'static str> {
+unsafe fn hardware_encoder(
+	adapter: Option<model::VideoAdapter>,
+) -> Result<IMFActivate, &'static str> {
 	unsafe {
 		let input = MFT_REGISTER_TYPE_INFO {
 			guidMajorType: MFMediaType_Video,
@@ -365,14 +405,41 @@ unsafe fn hardware_encoder() -> Result<IMFActivate, &'static str> {
 		};
 		let mut entries = std::ptr::null_mut();
 		let mut count = 0;
-		MFTEnumEx(
-			MFT_CATEGORY_VIDEO_ENCODER,
-			MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_ASYNCMFT | MFT_ENUM_FLAG_SORTANDFILTER,
-			Some(&input),
-			Some(&output),
-			&mut entries,
-			&mut count,
-		)
+		let flags = MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_ASYNCMFT | MFT_ENUM_FLAG_SORTANDFILTER;
+		if let Some(adapter) = adapter {
+			let model::VideoAdapterIdentity::WindowsLuid(luid) = adapter.identity else {
+				return Err(UNAVAILABLE);
+			};
+			if luid == 0 {
+				return Err(UNAVAILABLE);
+			}
+			let mut attributes = None;
+			MFCreateAttributes(&mut attributes, 1).map_err(|_| UNAVAILABLE)?;
+			let attributes = attributes.ok_or(UNAVAILABLE)?;
+			attributes
+				.SetUINT64(&MFT_ENUM_ADAPTER_LUID, luid)
+				.map_err(|_| UNAVAILABLE)?;
+			// MFTEnum2 filters hardware activations by this exact DXGI adapter.
+			// An absent hardware encoder falls back to software in the caller.
+			MFTEnum2(
+				MFT_CATEGORY_VIDEO_ENCODER,
+				flags,
+				Some(&input),
+				Some(&output),
+				&attributes,
+				&mut entries,
+				&mut count,
+			)
+		} else {
+			MFTEnumEx(
+				MFT_CATEGORY_VIDEO_ENCODER,
+				flags,
+				Some(&input),
+				Some(&output),
+				&mut entries,
+				&mut count,
+			)
+		}
 		.map_err(|_| UNAVAILABLE)?;
 		if entries.is_null() {
 			return Err(UNAVAILABLE);
@@ -448,10 +515,70 @@ fn sample_bytes(sample: &IMFSample, max_bytes: usize) -> Result<Vec<u8>, &'stati
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn ready_output_does_not_wait_for_an_input_request() {
+		for queued_input in [0, 1] {
+			let (mut input, mut output) = (queued_input, 1);
+			assert!(!wait_for_events(&mut input, &mut output, false, || unreachable!()).unwrap());
+			assert_eq!((input, output), (queued_input, 1));
+			assert!(wait_for_events(&mut input, &mut output, true, || unreachable!()).unwrap());
+			assert_eq!((input, output), (queued_input, 0));
+		}
+		let (mut input, mut output) = (0, 0);
+		assert!(
+			!wait_for_events(&mut input, &mut output, false, || Ok(Some(
+				METransformHaveOutput.0
+			)))
+			.unwrap()
+		);
+		assert_eq!((input, output), (0, 1));
+		assert!(wait_for_events(&mut input, &mut output, true, || unreachable!()).unwrap());
+		// A driver may issue its next input request only after ProcessOutput.
+		assert!(
+			wait_for_events(&mut input, &mut output, false, || Ok(Some(
+				METransformNeedInput.0
+			)))
+			.unwrap()
+		);
+		assert_eq!((input, output), (0, 0));
+	}
+
+	#[test]
+	fn delayed_mft_output_preserves_input_credit_and_drains_output_first() {
+		let (mut input, mut output) = (0, 0);
+		let mut events = std::collections::VecDeque::from([METransformNeedInput.0]);
+		// A normal-mode encoder asks for its second input before its first output.
+		assert!(
+			!wait_for_events(&mut input, &mut output, true, || { Ok(events.pop_front()) }).unwrap()
+		);
+		assert_eq!((input, output), (1, 0));
+		assert!(wait_for_events(&mut input, &mut output, false, || unreachable!()).unwrap());
+		assert_eq!((input, output), (0, 0));
+		assert!(
+			wait_for_events(&mut input, &mut output, true, || Ok(Some(
+				METransformHaveOutput.0
+			)))
+			.unwrap()
+		);
+		assert_eq!((input, output), (0, 0));
+		// Drain already queued output even when a new input credit arrives first.
+		let mut events =
+			std::collections::VecDeque::from([METransformNeedInput.0, METransformHaveOutput.0]);
+		assert!(wait_for_events(&mut input, &mut output, true, || Ok(events.pop_front())).unwrap());
+		assert_eq!((input, output), (1, 0));
+		(input, output) = (1, 1);
+		assert!(wait_for_events(&mut input, &mut output, true, || unreachable!()).unwrap());
+		assert_eq!((input, output), (1, 0));
+		for event in [Ok(Some(MEError.0)), Err("poll failed")] {
+			assert!(wait_for_events(&mut input, &mut output, true, || event).is_err());
+		}
+	}
+
 	#[test]
 	fn larger_native_buffer_does_not_relax_encoded_sample_limit() {
 		let _runtime = Runtime::open().unwrap();
-		let limit = crate::camera::MAX_ENCODED_BYTES;
+		let limit = crate::camera::encoded_limit(model::voice_settings::VideoResolution::P480);
 		// Synthetic memory only: no transform, GPU, capture device or transport.
 		unsafe {
 			let capacity = 640 * 480 * 3 / 2;
@@ -474,12 +601,12 @@ mod tests {
 		{
 			let mut info = MFT_OUTPUT_STREAM_INFO {
 				dwFlags: 0,
-				cbSize: 1280 * 720 * 3 / 2,
+				cbSize: 1920 * 1080 * 3 / 2,
 				cbAlignment: 0,
 			};
 			assert!(info.cbSize as usize > crate::camera::MAX_ENCODED_BYTES);
 			assert_eq!(
-				output_buffer_size(&info, 1280 * 720 * 4).unwrap(),
+				output_buffer_size(&info, 1920 * 1080 * 4).unwrap(),
 				info.cbSize
 			);
 			assert!(output_buffer_size(&info, 1024).is_err());

@@ -26,8 +26,11 @@ jobs:
             run: choco install nsis --no-progress -y
       - name: Install, upgrade and uninstall (synthetic/offline)
         run: python packaging/windows/test_installer.py
+      - name: Validate Windows update archive migration (offline)
+        run: python packaging/windows/test_update_archive.py
   native:
-    if: github.event_name == 'push' || github.event.pull_request.draft == false
+    # Drafts need real native builds too; synthetic installer fixtures cannot
+    # validate the compiler, codec DLLs or platform-specific Rust paths.
     strategy:
       fail-fast: false
       matrix:
@@ -42,7 +45,10 @@ jobs:
             run: bash packaging/macos/test_sign_release.sh
           - name: Linux native dependencies
             if: runner.os == 'Linux'
-            run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libxrandr-dev libxcursor-dev libvulkan-dev libasound2-dev libpulse-dev cmake python3 dpkg-dev desktop-file-utils xvfb xauth
+            run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-tools libxkbcommon-dev libwayland-dev libx11-dev libxi-dev libxrandr-dev libxcursor-dev libvulkan-dev libasound2-dev libpulse-dev cmake nasm patchelf libva-dev libdrm-dev python3 dpkg-dev desktop-file-utils xvfb xauth
+          - name: macOS encoder build tools
+            if: runner.os == 'macOS'
+            run: brew install nasm pkg-config
           - uses: dtolnay/rust-toolchain@1.98.1
             with:
               components: rustfmt, clippy
@@ -50,10 +56,64 @@ jobs:
       - uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: 1.4.2
+      - name: Verify Linux native H.264 plugins
+        if: runner.os == 'Linux'
+        run: |
+          # h264parse belongs to Bad; the software decoder belongs to libav.
+          gst-inspect-1.0 --exists h264parse
+          gst-inspect-1.0 --exists avdec_h264
+      - uses: ilammy/msvc-dev-cmd@v1.13.0
+        if: runner.os == 'Windows'
+        with:
+          arch: ${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
+      - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
+        with:
+          msystem: MSYS
+          path-type: inherit
+          install: make pkgconf nasm diffutils
+      # Cache restoration cleans target paths, including a freshly built FFmpeg
+      # prefix. Restore Cargo artifacts before generating the native libraries.
       - uses: Swatinem/rust-cache@v2.9.2
         with:
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Prepare native build paths
+        shell: bash
+        run: |
+          # Cargo cache restoration prunes native headers/build trees under target.
+          # Keep the native build entirely in fresh job-owned scratch paths.
+          ffmpeg_root="${{ runner.temp }}/serein-ffmpeg"
+          echo "FFMPEG_DIR=$ffmpeg_root/prefix" >> "$GITHUB_ENV"
+          echo "FFMPEG_WORK=$ffmpeg_root/build" >> "$GITHUB_ENV"
+          echo "FFMPEG_CACHE=$ffmpeg_root/sources" >> "$GITHUB_ENV"
+      - name: Build LGPL-only FFmpeg encoders
+        if: runner.os != 'Windows'
+        run: python3 scripts/build-ffmpeg.py --prefix "$FFMPEG_DIR" --work-dir "$FFMPEG_WORK" --cache-dir "$FFMPEG_CACHE"
+      - name: Build LGPL-only FFmpeg encoders (MSVC)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: python scripts/build-ffmpeg.py --prefix "$FFMPEG_DIR" --work-dir "$FFMPEG_WORK" --cache-dir "$FFMPEG_CACHE"
+      - name: Preserve FFmpeg configure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ffmpeg-configure-${{ runner.os }}-${{ runner.arch }}
+          path: ${{ env.FFMPEG_WORK }}/**/ffbuild/config.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Driver capability query regression fixtures (offline)
+        if: runner.os == 'Linux'
+        run: python3 crates/discord-voice/tests/native/test_video_queries.py --prefix "$FFMPEG_DIR"
+      - name: Encoder buffering and ordering fixtures (offline)
+        if: runner.os == 'Linux'
+        run: |
+          python3 crates/discord-voice/tests/native/test_video_encoding.py --prefix "$FFMPEG_DIR"
+          python3 crates/discord-voice/tests/native/test_ffmpeg_gpu_patch.py --archive "$FFMPEG_DIR/share/serein-ffmpeg/source/ffmpeg-7.1.5.tar.xz"
+      - name: Make encoder DLLs available to offline tests
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '"$env:FFMPEG_DIR/bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append'
       - name: Check production build without development fixtures
         run: cargo check --locked -p serein --bin serein --no-default-features
       - run: cargo xtask check
@@ -63,6 +123,8 @@ jobs:
             run: xvfb-run -a cargo test --locked -p platform --features winit/x11,winit/wayland --lib flatpak_locale_tests::post_gtk_flatpak_encoding_preflight -- --exact --ignored
           - run: bun tests/login-handoff.cjs
           - run: bun tests/xtask-workspace.cjs
+          - name: FFmpeg native libraries and packaging regression (offline)
+            run: python packaging/ffmpeg/test_bundle.py
           - name: Linux package regression
             if: runner.os == 'Linux'
             run: PYTHONDONTWRITEBYTECODE=1 python3 packaging/linux/test_package.py
@@ -70,6 +132,14 @@ jobs:
       - run: cargo replay --soak 5
       - name: Package app without demo or developer features
         run: cargo xtask package
+      - name: Validate the real Windows update ZIP (offline)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "serein-v0.0.0-Windows-${env:RUNNER_ARCH}-media-v2.zip"
+          Compress-Archive -Path "dist/*" -DestinationPath $archive
+          python packaging/windows/check_update_archive.py $archive
+          if ($LASTEXITCODE -ne 0) { throw "Windows media update archive validation failed" }
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: serein-${{ runner.os }}-${{ runner.arch }}-unsigned

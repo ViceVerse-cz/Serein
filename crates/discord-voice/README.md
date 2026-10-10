@@ -103,8 +103,49 @@ Processing and state reset run on the audio worker, never render/audio callbacks
 ## Optional outgoing screen video
 
 `screen::Worker` owns native capture and encoding outside rendering. Linux uses the
-ScreenCast portal/PipeWire/GStreamer path with hardware H.264 attempts and OpenH264
-fallback. `run_stream` owns a separate Discord RTC connection, shares the parent
+ScreenCast portal/PipeWire/GStreamer capture path. With Experimental selected,
+platforms use the shared native FFmpeg encoder: NVENC, AMD AMF or Intel Quick Sync on Windows/Linux,
+VideoToolbox on macOS, and FFmpeg OpenH264 software fallback. Media Foundation and
+VA-API encoders are excluded from Experimental; Stable retains the original platform
+encoders. Quick Sync uses Linux's VA driver interface for its Intel device.
+Native current-head validation remains pending. Build the pinned LGPL libraries using
+`python3 scripts/build-ffmpeg.py`, then set `FFMPEG_DIR` to `target/ffmpeg/prefix`
+before Cargo; see [platform requirements](../../docs/platform-support.md).
+
+Experimental camera/screen streams request split-frame encoding for H.265/AV1
+from 1440p on NVENC/QSV and from 4K (3840×2160 or portrait 2160×3840) on AMF.
+NVENC/QSV require both dimensions to be at least 1440 pixels; AMF requires a
+short edge of at least 2160 pixels and a long edge of at least 3840 pixels.
+The limit is **two encoder engines per stream on the selected physical GPU**;
+H.264, software and VideoToolbox do not request split mode.
+
+| Backend | Request and limits |
+| --- | --- |
+| NVENC | Explicit two-strip mode, retaining P5/look-ahead/reordering. Single-engine hardware uses one; a rejected initialization retries with split mode disabled. Below 1440p split mode is explicitly disabled. |
+| AMF | Windows/DX11 only, from 4K. At 1440p the ordinary configuration retains supported pre-analysis/16-frame lookahead and HEVC quality / AV1 balanced presets. The bundled wrapper checks the selected codec's advertised engine count and optional property before setting the split hint. Exactly two engines are required because AMF has no numeric limit. Eligible requests disable incompatible pre-analysis, pre-encode, filler and high-motion boost, retaining the quality preset. |
+| QSV | Two tile columns permit driver-controlled parallel encoding on this GPU. Negotiated counts are checked before and after initialization; a driver may reduce the count to one but cannot increase it beyond the request. AV1 adds tile rows when required by its maximum tile area at 8K. Hyper Encode across GPUs stays disabled. |
+
+AMF may ignore its hint even at 4K because of driver-dependent restrictions.
+With `SEREIN_VOICE_DIAGNOSTICS=1`, the existing stderr summaries include
+`amf_split_requested` and `amf_split_accepted` for live camera/screen sessions.
+Acceptance means AMF accepted the split property and encoder initialization
+succeeded; retrying without split clears acceptance. This remains internal
+diagnostic metadata, with no additional user control or indicator.
+RX 7000 AV1 has one capable VCN, so its ordinary
+configuration is retained. QSV tiling enables parallelism where supported but does
+not certify active engine use. AV1's mandatory tiling can also require two columns
+on very wide pictures below 1440p. A failed optional request releases all native
+resources before one retry with ordinary settings on the same GPU/codec. No extra
+capture worker or persistent encoder session is created. This split path still
+needs physical GPU/interoperability validation; the owner's earlier vendor tests
+cover the preceding implementation.
+
+References: [NVENC SDK split modes](https://github.com/FFmpeg/nv-codec-headers/blob/n12.2.72.0/include/ffnvcodec/nvEncodeAPI.h),
+[AMD's codec/driver restrictions](https://github.com/GPUOpen-LibrariesAndSDKs/AMF/issues/585#issuecomment-3755732553),
+[additional AMF restrictions](https://github.com/GPUOpen-LibrariesAndSDKs/AMF/issues/585#issuecomment-4165598416),
+and [Intel's tile-column pipe selection](https://github.com/intel/media-driver/blob/master/media_softlet/agnostic/common/codec/hal/enc/shared/scalability/encode_scalability_option.cpp).
+
+`run_stream` owns a separate Discord RTC connection, shares the parent
 call's ephemeral `Identity`, and enables outgoing media only after DAVE is ready.
 `video` handles bounded Annex-B/FU-A RTP packetization after DAVE frame encryption.
 

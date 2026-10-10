@@ -49,6 +49,26 @@ def stage_payload(root, stage, prefix="usr"):
         raise ValueError("Installation prefix must be usr or app")
     doc = stage / prefix / "share/doc/serein"
     copy(root / "serein", stage / prefix / "bin/serein")
+    # The three replaceable LGPL/BSD libraries are independent of host FFmpeg.
+    for name in ("libavcodec-serein.so.61", "libavutil-serein.so.59", "libopenh264-serein.so.8"):
+        copy(root / "lib" / name, stage / prefix / "lib/serein" / name)
+    for name in ("build.json", "configure.json", "build-ffmpeg.py", "serein-ffmpeg.patch", "serein-openh264.patch", "COPYING.LGPLv2.1", "OpenH264-LICENSE"):
+        copy(root / "ffmpeg-source" / name, doc / "ffmpeg-source" / name)
+    copy(root / "ffmpeg-source/source/ffmpeg-7.1.5.tar.xz", doc / "ffmpeg-source/source/ffmpeg-7.1.5.tar.xz")
+    copy(root / "ffmpeg-source/source/openh264-2.6.0-source.tar.bz2", doc / "ffmpeg-source/source/openh264-2.6.0-source.tar.bz2")
+    if (root / "ffmpeg-source/nv-codec-headers-README").is_file():
+        copy(root / "ffmpeg-source/nv-codec-headers-README", doc / "ffmpeg-source/nv-codec-headers-README")
+        copy(root / "ffmpeg-source/source/nv-codec-headers-12.2.72.0.tar.gz",
+             doc / "ffmpeg-source/source/nv-codec-headers-12.2.72.0.tar.gz")
+    if (root / "ffmpeg-source/AMF-LICENSE").is_file():
+        copy(root / "ffmpeg-source/AMF-LICENSE", doc / "ffmpeg-source/AMF-LICENSE")
+        copy(root / "ffmpeg-source/source/AMF-1.4.36-headers.tar", doc / "ffmpeg-source/source/AMF-1.4.36-headers.tar")
+        for name in ("Vulkan-Headers-LICENSE.md", "Vulkan-Headers-LICENSES/Apache-2.0.txt",
+                     "Vulkan-Headers-LICENSES/MIT.txt", "source/Vulkan-Headers-1.3.290.tar.gz"):
+            copy(root / "ffmpeg-source" / name, doc / "ffmpeg-source" / name)
+    if (root / "ffmpeg-source/oneVPL-LICENSE").is_file():
+        for name in ("oneVPL-LICENSE", "oneVPL-third-party-programs.txt", "source/libvpl-2.14.0.tar.gz"):
+            copy(root / "ffmpeg-source" / name, doc / "ffmpeg-source" / name)
     desktop = stage / prefix / "share/applications/cz.viceverse.serein.desktop"
     desktop.parent.mkdir(parents=True)
     desktop.write_text(Path("packaging/linux/serein.desktop").read_text(), encoding="utf-8")
@@ -135,7 +155,12 @@ def package(root, application_version):
             "Package: serein\nArchitecture: any\nDescription: Unofficial native Discord client\n",
             encoding="utf-8")
         (stage / "DEBIAN").mkdir()
-        dependencies = output("dpkg-shlibdeps", "-O", "debian/serein/usr/bin/serein", cwd=temporary)
+        (debian / "shlibs.local").write_text(
+            "libavcodec-serein 61 serein\nlibavutil-serein 59 serein\nlibopenh264-serein 8 serein\n", encoding="utf-8")
+        # Ignore our private SONAMEs; scan their native dependency closure too.
+        dependencies = output("dpkg-shlibdeps", "-O", "-l" + str(stage / "usr/lib/serein"),
+                              "-x" + "serein", "debian/serein/usr/bin/serein",
+                              *[str(path) for path in sorted((stage / "usr/lib/serein").iterdir())], cwd=temporary)
         depends = next(line.removeprefix("shlibs:Depends=") for line in dependencies.splitlines()
                        if line.startswith("shlibs:Depends="))
         # dlopen libraries and desktop services are invisible to ELF DT_NEEDED.
@@ -244,20 +269,22 @@ def rpm_package(temporary, stage, application_version, distro):
             "gstreamer1-plugins-good" if distro == "fedora" else "gstreamer-plugins-good",
             "gstreamer1-plugins-base" if distro == "fedora" else "gstreamer-plugins-base",
             "pipewire-gstreamer" if distro == "fedora" else "gstreamer-plugin-pipewire"]
-    plugins = "gstreamer1-plugins-base" if distro == "fedora" else "gstreamer-plugins-base"
+    hardware_plugins = "gstreamer1-plugins-bad-free" if distro == "fedora" else "gstreamer-plugins-bad"
     spec = temporary / "serein.spec"
     spec.write_text(
         "%global debug_package %{nil}\n%global __os_install_post %{nil}\n"
         "%global _build_id_links none\n"
+        "%global __provides_exclude_from ^/usr/lib/serein/.*$\n"
+        "%global __requires_exclude ^(libavcodec-serein\\.so\\.61|libavutil-serein\\.so\\.59|libopenh264-serein\\.so\\.8).*\n"
         f"Name: serein\nVersion: {version}\nRelease: {release}\n"
-        "Summary: Unofficial native Discord client\nLicense: MIT OR Apache-2.0\n"
+        "Summary: Unofficial native Discord client\nLicense: (MIT OR Apache-2.0) AND LGPL-2.1-or-later AND BSD-2-Clause\n"
         "URL: https://github.com/ViceVerse-cz/Serein\n"
         + "\n".join(f"Requires: {item}" for item in requires)
-        + f"\nRecommends: gnome-keyring, {plugins}\n"
+        + f"\nRecommends: gnome-keyring, {hardware_plugins}\n"
         "\n%description\nNative Rust client for existing Discord accounts, including voice.\n"
         "Unofficial, experimental, and not endorsed by Discord.\n"
         "\n%install\nmkdir -p %{buildroot}\ncp -a %{_serein_payload}/. %{buildroot}/\n"
-        "\n%files\n%defattr(-,root,root,-)\n/usr/bin/serein\n"
+        "\n%files\n%defattr(-,root,root,-)\n/usr/bin/serein\n/usr/lib/serein\n"
         "/usr/share/applications/cz.viceverse.serein.desktop\n/usr/share/doc/serein\n"
         + "".join(f"/{name}\n" for name in payload_files(stage) if name.startswith("usr/share/icons/")),
         encoding="utf-8")
@@ -303,6 +330,8 @@ def arch_package(temporary, stage, application_version, libraries):
                "gst-plugins-good", "gst-plugins-base", "gst-plugin-pipewire"}
     # Resolve linked libraries to the native pacman package/version (ABI floor).
     for path in re.findall(r"(?:=>\s+|^\s*)(/\S+)", libraries, re.MULTILINE):
+        if Path(path).name in {"libavcodec-serein.so.61", "libavutil-serein.so.59", "libopenh264-serein.so.8"}:
+            continue
         owner = output("pacman", "-Qqo", path)
         name, installed_version = output("pacman", "-Q", owner).split()
         if name in {"zlib", "zlib-ng-compat"} or Path(path).name.startswith("libz.so"):
@@ -315,10 +344,11 @@ def arch_package(temporary, stage, application_version, libraries):
         f"pkgname=serein\npkgver='{version}'\npkgrel=1\n"
         "pkgdesc='Unofficial native Discord client'\n"
         f"arch=('{platform.machine()}')\nurl='https://github.com/ViceVerse-cz/Serein'\n"
-        "license=('MIT' 'Apache-2.0')\noptions=('!strip' '!debug' '!lto')\n"
+        "license=('MIT' 'Apache-2.0' 'LGPL-2.1-or-later' 'BSD-2-Clause')\noptions=('!strip' '!debug' '!lto')\n"
         + "depends=(" + " ".join(f"'{item}'" for item in sorted(depends)) + ")\n"
         "optdepends=('gnome-keyring: Secret Service credential provider' "
-        "'gst-plugins-bad: hardware screen encoding' 'gst-libav: inline video')\n"
+        "'gst-plugins-bad-libs: Stable H264 parser and NVENC plugin' "
+        "'gst-plugin-va: Stable VA-API H264 hardware encoder' 'gst-libav: inline video')\n"
         "package() { cp -a \"$startdir/payload/.\" \"$pkgdir/\"; }\n", encoding="utf-8")
     checked("makepkg", "--nodeps", "--noconfirm", cwd=temporary)
     artifact, = temporary.glob("serein-*.pkg.tar.*")

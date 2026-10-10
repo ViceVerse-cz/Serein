@@ -27,6 +27,10 @@ nnnoiseless = { version = "=0.5.2", default-features = false }
 openh264 = "=0.9.8"
 image = { version = "=0.25.10", default-features = false }
 
+[build-dependencies]
+cc = "=1.4.6"
+pkg-config = "=0.3.34"
+
 [dev-dependencies]
 sha3 = { version = "=0.10.9", default-features = false }
 openmls_rust_crypto = "=0.5.1"

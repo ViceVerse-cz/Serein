@@ -5,6 +5,8 @@
 mod stream_playout;
 #[path = "../src/video_receive.rs"]
 pub(crate) mod video_receive;
+#[path = "../src/video_sps.rs"]
+pub(crate) mod video_sps;
 type Frame = [f32; 960];
 
 pub(crate) fn main() {

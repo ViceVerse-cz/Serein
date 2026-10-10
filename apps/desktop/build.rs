@@ -1,4 +1,25 @@
 fn main() {
+	println!("cargo:rerun-if-env-changed=FFMPEG_DIR");
+	let target = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
+	if matches!(target.as_str(), "linux" | "macos") {
+		if target == "linux" {
+			// Rust bundles static OpenH264 into hashed rlibs. Keep native archive
+			// symbols private so host GStreamer uses its own OpenH264 ABI.
+			println!("cargo:rustc-link-arg=-Wl,--exclude-libs,ALL");
+			println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/lib");
+			println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/../lib/serein");
+		} else {
+			println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../Frameworks");
+		}
+		if std::env::var("PROFILE").as_deref() != Ok("release")
+			&& let Some(prefix) = std::env::var_os("FFMPEG_DIR")
+		{
+			println!(
+				"cargo:rustc-link-arg=-Wl,-rpath,{}",
+				std::path::PathBuf::from(prefix).join("lib").display()
+			);
+		}
+	}
 	if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
 		windows_icon();
 	}
