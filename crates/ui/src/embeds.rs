@@ -337,6 +337,121 @@ pub(crate) fn gif_for_media(
 	gif.valid().then_some(gif)
 }
 
+/// Discord shows a sizable landscape link preview thumbnail as the card's large image.
+/// Bot (`rich`) embeds keep their explicit side thumbnail.
+fn large_thumbnail(embed: &Embed) -> Option<&model::EmbedMedia> {
+	embed.thumbnail.as_ref().filter(|thumbnail| {
+		embed.image.is_none()
+			&& matches!(embed.kind.as_str(), "article" | "link" | "video")
+			&& thumbnail.width >= 300
+			&& thumbnail.width as f32 >= thumbnail.height as f32 * 1.2
+	})
+}
+
+/// Discord's closed-poll card: the winning answer and a jump back to the poll.
+/// Returns whether "View Poll" was clicked; `can_open` reflects whether the poll is reachable.
+pub fn poll_result(ui: &mut egui::Ui, message: &Message, can_open: bool) -> bool {
+	let Some(embed) = message.embeds.iter().find(|e| e.kind == "poll_result") else {
+		return false;
+	};
+	let number = |name| {
+		embed
+			.field(name)
+			.and_then(|value| value.trim().parse::<u64>().ok())
+	};
+	let total = number("total_votes").unwrap_or(0);
+	let winner = embed
+		.field("victor_answer_text")
+		.map(str::trim)
+		.filter(|text| !text.is_empty());
+	let (title, detail) = match winner {
+		Some(text) => {
+			let votes = number("victor_answer_votes").unwrap_or(0).min(total);
+			let percent = (votes * 100 + total / 2).checked_div(total).unwrap_or(0);
+			// Custom emoji images are not resolved here; Unicode emoji carry no id.
+			let emoji = embed
+				.field("victor_answer_emoji_name")
+				.filter(|_| embed.field("victor_answer_emoji_id").is_none());
+			(
+				emoji.map_or_else(|| text.to_owned(), |emoji| format!("{emoji} {text}")),
+				Some(format!(
+					"{} • {percent}%",
+					crate::i18n::translate("embeds-poll-result-winning-answer")
+				)),
+			)
+		}
+		None if total > 0 => (crate::i18n::translate("embeds-poll-result-tie"), None),
+		None => (crate::i18n::translate("embeds-poll-result-no-votes"), None),
+	};
+	let colors = crate::design::palette(ui);
+	let width = ui.available_width().min(440.0);
+	let mut clicked = false;
+	egui::Frame::new()
+		.fill(crate::design::message_card_fill(ui, colors.raised))
+		.stroke(crate::design::message_card_stroke(ui))
+		.corner_radius(8)
+		.inner_margin(egui::Margin::symmetric(16, 10))
+		.show(ui, |ui| {
+			ui.set_width((width - 34.0).max(1.0));
+			ui.allocate_ui_with_layout(
+				egui::vec2(ui.available_width(), crate::design::BUTTON_HEIGHT + 4.0),
+				egui::Layout::right_to_left(egui::Align::Center),
+				|ui| {
+					clicked = ui
+						.add_enabled_ui(can_open, |ui| {
+							crate::design::button(
+								ui,
+								"embeds-poll-result-view-poll",
+								crate::design::ButtonKind::Outline,
+							)
+						})
+						.inner
+						.clicked();
+					ui.add_space(8.0);
+					ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+						ui.spacing_mut().item_spacing.y = 2.0;
+						if detail.is_none() {
+							ui.add_space(10.0);
+						}
+						ui.horizontal(|ui| {
+							ui.spacing_mut().item_spacing.x = 6.0;
+							let badge = if winner.is_some() { 24.0 } else { 0.0 };
+							ui.scope(|ui| {
+								ui.set_max_width((ui.available_width() - badge).max(1.0));
+								ui.add(
+									egui::Label::new(
+										crate::design::medium(ui, &title, 15.0)
+											.color(colors.text_strong),
+									)
+									.truncate(),
+								);
+							});
+							if winner.is_some() {
+								let (rect, _) = ui.allocate_exact_size(
+									egui::Vec2::splat(18.0),
+									egui::Sense::hover(),
+								);
+								ui.painter()
+									.circle_filled(rect.center(), 9.0, colors.positive);
+								crate::icons::paint(
+									ui.painter(),
+									crate::icons::Icon::Check,
+									rect.shrink(4.0),
+									egui::Color32::WHITE,
+								);
+							}
+						});
+						if let Some(detail) = &detail {
+							ui.label(RichText::new(detail).size(13.0).color(colors.muted));
+						}
+					});
+				},
+			);
+		});
+	ui.add_space(6.0);
+	clicked && can_open
+}
+
 fn image_preview(
 	ui: &mut egui::Ui,
 	message: model::Id,
@@ -389,6 +504,11 @@ pub fn show(
 		let count = gallery_len(&message.embeds[index..]);
 		let group = &message.embeds[index..index + count];
 		let embed = &group[0];
+		// Poll results render as a dedicated card next to their system row.
+		if embed.kind == "poll_result" {
+			index += count;
+			continue;
+		}
 		ui.push_id(("embed", index), |ui| {
 			if count > 1 && inline_image(embed).is_some() {
 				gallery(ui, group, images, message.id, download, demo);
@@ -448,6 +568,7 @@ pub fn show(
 			let width = ui.available_width().min(480.0);
 			let frame = egui::Frame::new()
 				.fill(card_surface.fill(ui, colors.raised))
+				.stroke(crate::design::message_card_stroke(ui))
 				.corner_radius(5)
 				.inner_margin(12)
 				.show(ui, |ui| {
@@ -461,10 +582,11 @@ pub fn show(
 						.auto_shrink([false, true])
 						.show(ui, |ui| {
 							let part = 1 + index as u16 * 64;
+							let large = large_thumbnail(embed).filter(|_| count == 1);
 							let thumbnail = embed
 								.thumbnail
 								.as_ref()
-								.filter(|_| ui.available_width() >= 300.0);
+								.filter(|_| large.is_none() && ui.available_width() >= 300.0);
 							let body_width = (ui.available_width()
 								- if thumbnail.is_some() { 96.0 } else { 0.0 })
 							.max(1.0);
@@ -577,7 +699,7 @@ pub fn show(
 							}
 							if count > 1 {
 								gallery(ui, group, images, message.id, download, demo);
-							} else if let Some(image) = &embed.image {
+							} else if let Some(image) = embed.image.as_ref().or(large) {
 								image_preview(
 									ui,
 									message.id,
@@ -592,7 +714,7 @@ pub fn show(
 								);
 							}
 							if thumbnail.is_none()
-								&& let Some(image) = &embed.thumbnail
+								&& large.is_none() && let Some(image) = &embed.thumbnail
 							{
 								image_preview(
 									ui,
@@ -683,12 +805,14 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 		let e = &embeds[index];
 		let image_height = if count > 1 {
 			gallery_rect(count, count - 1, 456.0).bottom()
-		} else if e.image.is_some() {
+		} else if e.image.is_some() || large_thumbnail(e).is_some() {
 			200.0
 		} else {
 			0.0
 		};
-		height += if inline_image(e).is_some() {
+		height += if e.kind == "poll_result" {
+			72.0
+		} else if inline_image(e).is_some() {
 			if count > 1 { image_height + 6.0 } else { 206.0 }
 		} else {
 			let mut lines = 0.0;
@@ -721,7 +845,11 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 				lines = 1.0;
 			}
 			let text = 24.0 + lines * 20.0 + 6.0;
-			let thumb = if e.thumbnail.is_some() { 114.0 } else { 0.0 };
+			let thumb = if e.thumbnail.is_some() && large_thumbnail(e).is_none() {
+				114.0
+			} else {
+				0.0
+			};
 			(text.max(thumb) + e.fields.len() as f32 * 44.0 + image_height).min(664.0)
 		};
 		index += count;

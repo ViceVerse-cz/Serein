@@ -5084,6 +5084,226 @@ mod tests {
 	}
 
 	#[test]
+	fn voice_move_controls_dispatch_and_reject_denied_destinations() {
+		use model::{permissions as p, server_admin::Action};
+		for dragging in [false, true] {
+			for denied in [false, true] {
+				let mut state = test_support::voice_demo_state();
+				let guild = Id(10);
+				let metadata = state.permissions.guilds.get_mut(&guild).unwrap();
+				metadata.owner = Some(Id(99));
+				metadata
+					.roles
+					.as_mut()
+					.unwrap()
+					.iter_mut()
+					.find(|role| role.id == guild)
+					.unwrap()
+					.bits = p::VIEW_CHANNEL | p::CONNECT | p::MOVE_MEMBERS;
+				for id in [Id(25), Id(26)] {
+					state.permissions.channels.insert(
+						id,
+						p::Channel {
+							id,
+							guild,
+							overwrites: Some(vec![]),
+						},
+					);
+				}
+				if denied {
+					state
+						.permissions
+						.channels
+						.get_mut(&Id(26))
+						.unwrap()
+						.overwrites = Some(vec![p::Overwrite {
+						id: guild,
+						kind: 0,
+						allow: 0,
+						deny: p::CONNECT,
+					}]);
+				}
+				state.permissions.clear_cache();
+				let entry = state
+					.voice
+					.roster
+					.iter()
+					.find(|e| e.participant.user == Id(2))
+					.unwrap()
+					.clone();
+				let ctx = egui::Context::default();
+				crate::design::apply(&ctx);
+				let mut view = MessagingUi {
+					guild: Some(guild),
+					..Default::default()
+				};
+				let frame = |view: &mut MessagingUi, state: &mut State, events| {
+					let output = ctx.run_ui(
+						egui::RawInput {
+							screen_rect: Some(egui::Rect::from_min_size(
+								egui::Pos2::ZERO,
+								egui::vec2(600.0, 900.0),
+							)),
+							events,
+							..Default::default()
+						},
+						|ui| {
+							if dragging {
+								view.channel_list(ui, state);
+							} else {
+								view.voice_participant(ui, state, &entry);
+							}
+						},
+					);
+					let text: Vec<_> = output
+						.shapes
+						.iter()
+						.filter_map(|shape| match &shape.shape {
+							egui::Shape::Text(t) => Some((
+								t.galley.job.text.clone(),
+								t.galley.rect.translate(t.pos.to_vec2()).center(),
+							)),
+							_ => None,
+						})
+						.collect();
+					output.drop_without_applying_deltas();
+					text
+				};
+				let click = |pos, button, pressed| {
+					vec![
+						egui::Event::PointerMoved(pos),
+						egui::Event::PointerButton {
+							pos,
+							button,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					]
+				};
+				let text = frame(&mut view, &mut state, vec![]);
+				if dragging {
+					let source = text
+						.iter()
+						.find(|(text, _)| text.starts_with("Robin"))
+						.expect("participant row")
+						.1;
+					let target = text
+						.iter()
+						.find(|(text, _)| text == "Quiet room")
+						.expect("destination channel")
+						.1;
+					frame(
+						&mut view,
+						&mut state,
+						click(source, egui::PointerButton::Primary, true),
+					);
+					frame(
+						&mut view,
+						&mut state,
+						vec![egui::Event::PointerMoved(source + egui::vec2(16.0, 0.0))],
+					);
+					assert!(
+						egui::DragAndDrop::has_payload_of_type::<super::VoiceDrag>(&ctx),
+						"participant begins voice drag"
+					);
+					frame(
+						&mut view,
+						&mut state,
+						vec![egui::Event::PointerMoved(target)],
+					);
+					frame(
+						&mut view,
+						&mut state,
+						click(target, egui::PointerButton::Primary, false),
+					);
+				} else {
+					for pressed in [true, false] {
+						frame(
+							&mut view,
+							&mut state,
+							click(
+								egui::pos2(100.0, 17.0),
+								egui::PointerButton::Secondary,
+								pressed,
+							),
+						);
+					}
+					let text = frame(&mut view, &mut state, vec![]);
+					let submenu = text
+						.iter()
+						.find(|(text, _)| text == "Move to")
+						.expect("move submenu")
+						.1;
+					for pressed in [true, false] {
+						frame(
+							&mut view,
+							&mut state,
+							click(submenu, egui::PointerButton::Primary, pressed),
+						);
+					}
+					let text = frame(&mut view, &mut state, vec![]);
+					let destination = text.iter().find(|(text, _)| text == "Quiet room");
+					if denied {
+						assert!(destination.is_none(), "denied destination is excluded");
+					} else {
+						for pressed in [true, false] {
+							frame(
+								&mut view,
+								&mut state,
+								click(
+									destination.unwrap().1,
+									egui::PointerButton::Primary,
+									pressed,
+								),
+							);
+						}
+					}
+				}
+				let expected =
+					(!denied).then_some((guild, Id(25), Id(2), VoiceChange::Move(Some(Id(26)))));
+				assert_eq!(
+					view.voice_moderation, expected,
+					"dragging={dragging}, denied={denied}"
+				);
+				let mut commands = Vec::new();
+				ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(1000.0, 900.0),
+						)),
+						..Default::default()
+					},
+					|ui| commands = view.show(ui, &mut state),
+				)
+				.drop_without_applying_deltas();
+				let actions: Vec<_> = commands
+					.into_iter()
+					.filter_map(|command| match command {
+						client_core::Command::ServerAdmin { action, .. } => match *action {
+							Action::Voice {
+								user,
+								channel,
+								change,
+							} => Some((user, channel, change)),
+							_ => None,
+						},
+						_ => None,
+					})
+					.collect();
+				assert_eq!(
+					actions,
+					if denied {
+						vec![]
+					} else {
+						vec![(Id(2), Id(25), VoiceChange::Move(Some(Id(26))))]
+					}
+				);
+			}
+		}
+	}
+
+	#[test]
 	fn voice_toggle_cues_follow_the_resulting_state_and_preferences() {
 		use model::notification_preferences::Sound;
 

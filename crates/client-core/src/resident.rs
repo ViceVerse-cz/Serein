@@ -1,5 +1,6 @@
 //! Two dormant, account-session-local conversation windows. Entries are moved,
-//! never cloned, and are only previews until a fresh recent page arrives.
+//! never cloned. Ordinary selection revalidates previews; exact loaded message
+//! links may use an eligible, previously fresh window without another page.
 use crate::{Event, State, reactions};
 use model::{Channel, Freshness, Id};
 use session_cache::Timeline;
@@ -68,6 +69,21 @@ impl State {
 	/// Number of dormant windows, excluding the active timeline.
 	pub fn resident_window_count(&self) -> usize {
 		self.resident.entries.len()
+	}
+	/// Inspect an eligible dormant window without changing the active conversation.
+	pub(crate) fn resident_timeline(&self, channel: Id) -> Option<&Timeline> {
+		let current = self
+			.channels
+			.iter()
+			.find(|entry| entry.id == channel && entry.supports_text())?;
+		if self.archived_thread == Some(channel) || !self.can_read_history(channel) {
+			return None;
+		}
+		self.resident
+			.entries
+			.iter()
+			.find(|entry| entry.identity == Identity::from(current))
+			.map(|entry| &entry.timeline)
 	}
 	/// Active plus dormant reading rows, including deletion placeholders.
 	pub fn resident_history_rows(&self) -> usize {

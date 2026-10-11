@@ -129,7 +129,19 @@ pub(super) fn describe(message: &Message) -> Option<SystemMessage> {
 		38 => vec![plain("A server raid was reported.")],
 		39 => vec![plain("A server incident was reported as a false alarm.")],
 		44 => vec![plain("Purchase notification.")],
-		46 => vec![plain("Poll results.")],
+		46 => match poll_question(message) {
+			Some(question) => vec![
+				actor(),
+				plain("'s poll "),
+				Segment {
+					text: question,
+					strong: true,
+					user: None,
+				},
+				plain(" has closed."),
+			],
+			None => vec![plain("Poll results.")],
+		},
 		55 => vec![actor(), plain(" upgraded the stream to HD.")],
 		58 => vec![actor(), plain(" deleted a reported message.")],
 		59 => vec![actor(), plain(" timed out "), target(), plain(".")],
@@ -144,6 +156,25 @@ pub(super) fn describe(message: &Message) -> Option<SystemMessage> {
 		segments,
 		content_shown,
 	})
+}
+
+/// The closed poll's question from the `poll_result` embed, shortened like Discord's row.
+fn poll_question(message: &Message) -> Option<String> {
+	let question = message
+		.embeds
+		.iter()
+		.find(|embed| embed.kind == "poll_result")?
+		.field("poll_question_text")?
+		.trim();
+	if question.is_empty() {
+		return None;
+	}
+	let mut chars = question.chars();
+	let mut text: String = chars.by_ref().take(48).collect();
+	if chars.next().is_some() {
+		text.push('…');
+	}
+	Some(text)
 }
 
 #[cfg(test)]

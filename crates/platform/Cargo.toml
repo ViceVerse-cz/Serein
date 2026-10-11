@@ -16,7 +16,7 @@ tokio.workspace = true
 notify-rust = { version = "=4.18.0", features = ["preview-macos-un"] }
 winit.workspace = true
 global-hotkey.workspace = true
-keyring.workspace = true
+keyring-core.workspace = true
 url.workspace = true
 zeroize.workspace = true
 getrandom.workspace = true
@@ -32,7 +32,9 @@ wayland-client = "=0.31.15"
 wayland-protocols = { version = "=0.32.13", features = ["client", "staging"] }
 x11-dl = "=2.21.0"
 ksni = "=0.3.6"
-zbus = { version = "=5.19.0", default-features = false, features = ["tokio"] }
+zbus = { version = "=5.19.0", default-features = false, features = ["tokio", "blocking-api"] }
+# Owned directly so a missing Secret Service can be retried after activating KWallet.
+zbus-secret-service-keyring-store = { version = "=1.0.1", features = ["crypto-rust"] }
 ashpd = { version = "=0.13.13", default-features = false, features = ["tokio", "global_shortcuts", "settings"] }
 futures-util.workspace = true
 gtk4 = { version = "=0.11.4", features = ["v4_10"] }
@@ -68,6 +70,7 @@ version = "=0.25.3"
 
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 wry.workspace = true
+keyring.workspace = true
 
 [dev-dependencies]
 futures-util.workspace = true

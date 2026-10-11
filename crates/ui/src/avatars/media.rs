@@ -30,6 +30,8 @@ const HELD: usize = 4;
 const ATTEMPTS: usize = 8;
 const FADE: Duration = Duration::from_millis(150);
 const DIM: f32 = 48.0;
+// Keep recent scroll-back cheap without retaining a day's inline image textures.
+const IDLE_TEXTURES: Duration = Duration::from_secs(60);
 
 /// Scale `width`×`height` so the longer side is at most `edge`, never upscaling.
 pub fn fit_edge(width: u32, height: u32, edge: u32) -> (u32, u32) {
@@ -307,6 +309,7 @@ struct Held {
 	lane: Lane,
 	pixels: Pixels,
 	arrived: Instant,
+	painted: Instant,
 	used: u64,
 	painted_pass: u64,
 }
@@ -530,6 +533,7 @@ impl MediaLibrary {
 		self.clock += 1;
 		let held = self.slots.get_mut(source)?.held.get_mut(index)?;
 		held.used = self.clock;
+		held.painted = Instant::now();
 		held.painted_pass = pass;
 		if lane == Lane::Inline {
 			held.lane = Lane::Inline;
@@ -602,6 +606,7 @@ impl MediaLibrary {
 					Pixels::Still(still) | Pixels::Playing { still, .. } => *still = texture,
 				}
 				held.used = used;
+				held.painted = Instant::now();
 				held.pool()
 			}
 			None => {
@@ -621,6 +626,7 @@ impl MediaLibrary {
 					lane,
 					pixels: Pixels::Still(texture),
 					arrived: Instant::now(),
+					painted: Instant::now(),
 					used,
 					painted_pass: self.swept_pass,
 				};
@@ -750,15 +756,24 @@ impl MediaLibrary {
 
 	/// Inline animations not played for `IDLE_FRAMES` (scrolled away, or shown in an unfocused
 	/// window) fall back to their still, freeing the decoded frames and playback texture. The
-	/// frames are requested again once the rendition can play.
+	/// frames are requested again once the rendition can play. Entire inline renditions expire
+	/// after a minute without painting, even when the still pool has not filled.
 	pub(super) fn release_idle(&mut self, now: Instant) {
-		for held in self.slots.values_mut().flat_map(|slot| &mut slot.held) {
-			if held.lane == Lane::Inline
-				&& let Pixels::Playing { still, animation } = &held.pixels
-				&& now.saturating_duration_since(animation.played) >= super::IDLE_FRAMES
-			{
-				held.pixels = Pixels::Still(still.clone());
-			}
+		for slot in self.slots.values_mut() {
+			slot.held.retain_mut(|held| {
+				if held.lane != Lane::Inline {
+					return true;
+				}
+				if now.saturating_duration_since(held.painted) >= IDLE_TEXTURES {
+					return false;
+				}
+				if let Pixels::Playing { still, animation } = &held.pixels
+					&& now.saturating_duration_since(animation.played) >= super::IDLE_FRAMES
+				{
+					held.pixels = Pixels::Still(still.clone());
+				}
+				true
+			});
 		}
 	}
 	pub(super) fn next_release(&self) -> Option<Instant> {
@@ -766,9 +781,11 @@ impl MediaLibrary {
 			.values()
 			.flat_map(|slot| &slot.held)
 			.filter(|held| held.lane == Lane::Inline)
-			.filter_map(|held| match &held.pixels {
-				Pixels::Playing { animation, .. } => Some(animation.played + super::IDLE_FRAMES),
-				Pixels::Still(_) => None,
+			.map(|held| match &held.pixels {
+				Pixels::Playing { animation, .. } => {
+					(animation.played + super::IDLE_FRAMES).min(held.painted + IDLE_TEXTURES)
+				}
+				Pixels::Still(_) => held.painted + IDLE_TEXTURES,
 			})
 			.min()
 	}
@@ -889,6 +906,121 @@ fn pick(media: &model::EmbedMedia, animate: bool) -> Option<(&str, bool)> {
 			extension.eq_ignore_ascii_case("gif") || extension.eq_ignore_ascii_case("webp")
 		});
 	Some((raw, may_animate))
+}
+
+#[cfg(test)]
+mod retention_tests {
+	use super::*;
+
+	fn load(library: &mut MediaLibrary, ctx: &egui::Context, index: usize) -> Rendition {
+		let source = library
+			.source(&format!(
+				"https://cdn.discordapp.com/attachments/1/{index}/photo.png"
+			))
+			.unwrap();
+		let (rendition, _) = library.want(
+			&source,
+			false,
+			Size::Exact {
+				width: 512,
+				height: 288,
+			},
+			Lane::Inline,
+			Instant::now(),
+		);
+		library
+			.slot(&source)
+			.record(rendition.motion, rendition.size, Attempt::Pending);
+		assert!(library.accept_still(
+			ctx,
+			rendition.clone(),
+			Some(ColorImage::filled([512, 288], Color32::WHITE))
+		));
+		rendition
+	}
+
+	#[test]
+	fn offscreen_still_expires_and_can_be_requested_again() {
+		let ctx = egui::Context::default();
+		let mut library = MediaLibrary::default();
+		let rendition = load(&mut library, &ctx, 1);
+		ctx.tex_manager().write().take_delta().clear();
+		let painted = library.find(&rendition).unwrap().painted;
+		assert_eq!(library.next_release(), Some(painted + IDLE_TEXTURES));
+		library.release_idle(painted + IDLE_TEXTURES - Duration::from_millis(1));
+		assert!(library.texture_id(&rendition).is_some());
+		library.release_idle(painted + IDLE_TEXTURES);
+		assert_eq!(library.bytes(), 0);
+		assert!(library.next_release().is_none());
+		let mut delta = ctx.tex_manager().write().take_delta();
+		assert_eq!(delta.free.len(), 1);
+		delta.clear();
+		let (_, choice) = library.want(
+			&rendition.source,
+			false,
+			rendition.size,
+			Lane::Inline,
+			Instant::now(),
+		);
+		assert!(choice.request);
+		assert!(choice.base.is_none());
+		load(&mut library, &ctx, 1);
+		assert!(library.texture_id(&rendition).is_some());
+	}
+
+	#[test]
+	fn painting_refreshes_the_still_deadline_and_viewer_is_exempt() {
+		let ctx = egui::Context::default();
+		let mut library = MediaLibrary::default();
+		let visible = load(&mut library, &ctx, 1);
+		let hidden = load(&mut library, &ctx, 2);
+		let viewer = load(&mut library, &ctx, 3);
+		let now = Instant::now();
+		for slot in library.slots.values_mut() {
+			for held in &mut slot.held {
+				held.painted = now - IDLE_TEXTURES;
+			}
+		}
+		library.slots.get_mut(&viewer.source).unwrap().held[0].lane = Lane::Viewer;
+		drop(library.texture(&visible.source, 0, &ctx, false, Lane::Inline, 1));
+		library.release_idle(Instant::now());
+		assert!(library.texture_id(&visible).is_some());
+		assert!(library.texture_id(&hidden).is_none());
+		assert!(library.texture_id(&viewer).is_some());
+		assert_eq!(
+			library.next_release(),
+			Some(library.find(&visible).unwrap().painted + IDLE_TEXTURES)
+		);
+		library.release_idle(Instant::now() + IDLE_TEXTURES);
+		assert!(library.texture_id(&visible).is_none());
+		assert!(library.texture_id(&viewer).is_some());
+		assert!(library.next_release().is_none());
+		library.end_frame();
+		assert_eq!(
+			library.bytes(),
+			0,
+			"Closed viewers still release immediately"
+		);
+	}
+
+	#[test]
+	#[ignore = "release retained-texture workload; no window, network or account"]
+	fn still_memory_workload() {
+		let ctx = egui::Context::default();
+		let mut library = MediaLibrary::default();
+		for index in 0..160 {
+			load(&mut library, &ctx, index);
+			// Consume uploads as a renderer would; pending upload pixels are a separate cost.
+			ctx.tex_manager().write().take_delta().clear();
+		}
+		let peak = library.bytes();
+		// Navigate to a text-only view, then advance the maintenance clock by a minute.
+		library.release_idle(Instant::now() + Duration::from_secs(61));
+		println!(
+			"still memory workload: peak_bytes={peak} settled_bytes={}",
+			library.bytes()
+		);
+	}
 }
 
 impl Avatars {

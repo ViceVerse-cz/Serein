@@ -316,13 +316,13 @@ impl Decoder {
 			let mut channels = 0;
 			if let Some(index) = audio_index {
 				let audio = reader.GetNativeMediaType(index, 0).map_err(|_| INVALID)?;
-				sample_rate = audio
+				let native_rate = audio
 					.GetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND)
 					.map_err(|_| UNSUPPORTED)?;
-				channels = audio
+				let native_channels = audio
 					.GetUINT32(&MF_MT_AUDIO_NUM_CHANNELS)
 					.map_err(|_| UNSUPPORTED)?;
-				if !(1..=96_000).contains(&sample_rate) || !(1..=2).contains(&channels) {
+				if !(1..=96_000).contains(&native_rate) || !(1..=2).contains(&native_channels) {
 					return Err(UNSUPPORTED);
 				}
 				let audio = MFCreateMediaType().map_err(|_| INVALID)?;
@@ -339,13 +339,19 @@ impl Decoder {
 					.SetStreamSelection(index, true)
 					.map_err(|_| INVALID)?;
 				let audio = reader.GetCurrentMediaType(index).map_err(|_| INVALID)?;
-				if audio
+				// The decoder may legitimately widen the stream: HE-AAC spectral-band
+				// replication doubles the sample rate and parametric stereo widens
+				// mono to stereo. Trust the negotiated float output, still bounded.
+				sample_rate = audio
 					.GetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND)
-					.map_err(|_| INVALID)?
-					!= sample_rate || audio
+					.map_err(|_| INVALID)?;
+				channels = audio
 					.GetUINT32(&MF_MT_AUDIO_NUM_CHANNELS)
-					.map_err(|_| INVALID)?
-					!= channels || audio
+					.map_err(|_| INVALID)?;
+				if !(1..=96_000).contains(&sample_rate) || !(1..=2).contains(&channels) {
+					return Err(UNSUPPORTED);
+				}
+				if audio
 					.GetUINT32(&MF_MT_AUDIO_BITS_PER_SAMPLE)
 					.map_err(|_| INVALID)?
 					!= 32

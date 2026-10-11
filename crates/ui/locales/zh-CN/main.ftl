@@ -87,6 +87,11 @@ search-conversation = 搜索这个对话
 show-member-list = 显示成员清单
 pinned-messages = 置顶的消息
 threads = 帖子
+
+channel-pill-thread = 帖子
+channel-pill-forum = 论坛
+channel-pill-post = 贴文
+channel-pill-message = 消息
 reload-history = 重新加载记录
 in-a-call = 通话中
 members-description = 所有能进入这个对话的人。
@@ -299,6 +304,8 @@ attachments-media-menu-unavailable-for-synthetic-attachments = 合成附件无�
 attachments-open-original-open-original = 打开原始文件…
 # Context: pending_card
 attachments-pending-card-remove-attachment = 移除附件
+attachments-loading-card-preparing = 准备中…
+
 # Context: show_status
 attachments-show-status-cancel-download = 取消下载
 # Context: show_status
@@ -775,6 +782,14 @@ embeds-image-preview-image-actions = 图片操作
 embeds-link-open-link = 开启链接…
 # Context: show
 embeds-show-additional-embed-content-is-not-supported = 不支持其他嵌入内容
+# Context: poll_result
+embeds-poll-result-winning-answer = 获胜答案
+# Context: poll_result
+embeds-poll-result-tie = 没有获胜答案
+# Context: poll_result
+embeds-poll-result-no-votes = 尚无人投票
+# Context: poll_result
+embeds-poll-result-view-poll = 查看投票
 # Context: show
 embeds-show-embed-display-limited = 嵌入内容显示受限
 # Context: show
@@ -822,6 +837,12 @@ emoji-picker-gif-body-searching-klipy = 正在搜索 KLIPY…
 # Context: gif_body
 emoji-picker-gif-body-trending-gifs = 热门 GIF
 # Context: gif_body
+emoji-picker-gif-body-retry = 重试
+
+# Context: gif_body
+emoji-picker-gif-body-no-trending-gifs-right-now = 请搜索 GIF，或稍后再试。
+
+# Context: gif_body
 emoji-picker-gif-body-try-a-different-search-term = 试试别的搜索词。
 # Context: gif_grid
 emoji-picker-gif-grid-favorite = 收藏
@@ -847,6 +868,9 @@ emoji-picker-popup-hover-an-emoji-to-preview-it = 滑过表情符号即可预览
 emoji-picker-popup-no-matching-emoji = 没有相符的表情符号。
 # Context: popup
 emoji-picker-popup-retry-sticker-packs = 重试贴纸包
+# Context: popup
+emoji-picker-popup-requires-nitro = 需要 Nitro 才能在此使用
+
 # Context: popup
 emoji-picker-popup-search-results = 搜索结果
 # Context: popup
@@ -1683,7 +1707,6 @@ markdown-show-run-open-user-profile = 开启用户个人资料
 # Context: show_run
 markdown-show-run-reveal-spoiler = 显示剧透内容
 # Context: show_run
-markdown-show-run-unknown-channel-load-channel = 未知频道，加载频道
 
 ## crates/ui/src/mentions.rs
 # Context: show
@@ -2066,6 +2089,34 @@ profiles-more-menu-add-friend-nickname = 新增朋友昵称
 profiles-more-menu-add-note = 新增笔记
 # Context: more_menu
 profiles-more-menu-block = 屏蔽
+profiles-view-full-profile = 查看完整个人资料
+
+profiles-copy-username = 复制用户名
+
+profiles-username-unavailable = 打开此个人资料以加载用户名
+
+profiles-ignore = 忽略
+
+profiles-unignore = 取消忽略
+
+profiles-ignore-hint = 使用 Discord 的“忽略”设置而非屏蔽。对方不会收到通知。
+
+profiles-report-user-profile = 举报个人资料
+
+profiles-report-hint = 在浏览器打开 Discord 的支持表单，并复制对方的用户 ID
+
+profiles-show-activity = 活动
+
+profiles-show-connections = 连接
+
+profiles-show-friends-since = 成为好友于
+
+profiles-show-note = 笔记
+
+profiles-show-note-hint = 点击添加笔记
+
+profiles-show-note-only-you = 仅自己可见
+
 # Context: more_menu
 profiles-more-menu-copy-webhook-id = 复制 Webhook ID
 # Context: more_menu
@@ -2134,6 +2185,9 @@ profiles-show-view-profile-picture = 查看头像
 ## crates/ui/src/reactions.rs
 # Context: add_button
 reactions-add-button-add-reaction = 添加反应
+# Context: quick_button
+reactions-quick-react = 用 { $emoji } 回应
+
 # Context: show
 reactions-show-reactions-unavailable = 反应不可用
 # Context: show
@@ -3455,6 +3509,15 @@ settings-chat-settings-channel-list = 频道列表
 settings-chat-settings-show-channels-you-cannot-currently-access = 显示你目前无法访问的频道。
 # Context: chat_settings
 settings-chat-settings-show-hidden-channels = 显示隐藏的频道
+# Context: chat_settings
+settings-chat-settings-emoji = 表情符号
+
+# Context: chat_settings
+settings-chat-settings-suggest-nitro-emojis = 建议需要 Nitro 的表情符号
+
+# Context: chat_settings
+settings-chat-settings-suggest-nitro-emojis-description = 即使没有 Nitro，也在建议与选择器中提供动态及其他服务器的表情符号。关闭时会从建议中隐藏，并在选择器中显示为锁定。
+
 # Context: close_control
 settings-close-control-close-settings-esc = 关闭设置（Esc）
 # Context: colour_preset_settings
@@ -3753,6 +3816,12 @@ timeline-loading-messages-loading-messages = 正在加载消息
 # Context: message_actions
 timeline-message-actions-copy = 复制
 # Context: message_actions
+timeline-message-actions-copy-message-id = 复制消息 ID
+
+# Context: message_actions
+timeline-message-actions-copy-message-link = 复制消息链接
+
+# Context: message_actions
 timeline-message-actions-create-thread = 创建帖子…
 # Context: message_actions
 timeline-message-actions-delete-message = 删除消息…
@@ -3802,7 +3871,6 @@ timeline-show-with-scroll-edited = （已编辑）
 # Context: show_with_scroll
 timeline-show-with-scroll-forwarded = ↪ 已转发
 # Context: show_with_scroll
-timeline-show-with-scroll-hide-spoilers = 隐藏剧透
 # Context: show_with_scroll
 timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = 消息历史尚不可用。请使用重新加载重试。
 # Context: show_with_scroll
@@ -4526,12 +4594,18 @@ screen-macos-system-picker-kind = 系统内容选择器
 
 member-in-voice = 在语音中
 
-profiles-board = Board
-profiles-board-unavailable = This profile’s board is unavailable.
-profiles-board-empty = No games on this board yet.
-profiles-board-show-more = Show more
-profiles-board-show-less = Show less
-profiles-activity-empty = 暂无共享活动。
-profiles-mutuals-empty = Nothing to show here.
+settings-chat-box = 聊天框
 
-reading-double-click-reaction = Double-click reaction
+settings-convert-emoticons = 自动把消息中的颜文字转成表情符号
+
+settings-convert-emoticons-description = 发送或编辑消息时，把 :) 这类独立颜文字转成 🙂。代码和链接不变。
+
+profiles-board = 看板
+profiles-board-unavailable = 这个个人资料的看板无法使用。
+profiles-board-empty = 这个看板目前还没有游戏。
+profiles-board-show-more = 查看更多
+profiles-board-show-less = 收起
+profiles-activity-empty = 暂无共享活动。
+profiles-mutuals-empty = 这里没有可显示的内容。
+
+reading-double-click-reaction = 双击回应

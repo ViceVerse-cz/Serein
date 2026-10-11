@@ -1802,7 +1802,8 @@ fn role_chips(
 				ui,
 				&role.name,
 				egui::FontId::proportional(12.0),
-				Some(role.colors()),
+				// Only the dot carries the role color.
+				None,
 				theme.chip,
 				theme.text,
 				(*width - 21.0).max(0.0),
@@ -3027,9 +3028,6 @@ pub fn show_with_session(
 							})
 							.unwrap_or_else(|| state.user_display_name(user));
 						let display = display.split_whitespace().collect::<Vec<_>>().join(" ");
-						let role_colors = data
-							.and_then(|data| data.guild.as_ref())
-							.and_then(|member| state.profile_name_colors(user, member));
 						// Ordinary user payloads already carry the server identity. Keep it visible
 						// while the extended profile loads or when that optional request fails.
 						let clan = data
@@ -3062,7 +3060,8 @@ pub fn show_with_session(
 												if full { 26.0 } else { 20.0 },
 												design::semibold_family(ui.ctx()),
 											),
-											role_colors,
+											// Like Discord, the profile name stays neutral; roles show as chips.
+											None,
 											if full { theme.card } else { theme.panel },
 											theme.text,
 											ui.available_width(),
@@ -3963,6 +3962,58 @@ mod tests {
 		session.hide();
 		assert!(session.message_draft.is_empty());
 		assert!(!session.message_pending);
+	}
+
+	#[test]
+	fn biography_message_pill_uses_known_server_and_keeps_original_destination() {
+		let state = test_support::demo_state();
+		let ctx = egui::Context::default();
+		crate::icons::install(&ctx);
+		let mut avatars = Avatars::default();
+		let mut session = ProfileSession::default();
+		let mut formatted = FormatCache::default();
+		let url = "https://discord.com/channels/10/20/100";
+		let mut frame = |events| {
+			let mut opening = None;
+			let output = ctx.run_ui(input(vec2(500.0, 850.0), events), |ui| {
+				biography(
+					ui,
+					Id(1),
+					url,
+					&state,
+					&mut avatars,
+					&mut opening,
+					&mut formatted,
+					&mut session,
+				);
+			});
+			let mut painted = String::new();
+			for shape in &output.shapes {
+				text(&shape.shape, &mut painted);
+			}
+			assert!(painted.contains(&state.guilds[0].name));
+			assert!(!painted.contains("unknown-channel"));
+			assert!(
+				output
+					.platform_output
+					.commands
+					.iter()
+					.all(|command| !matches!(command, egui::OutputCommand::OpenUrl(_)))
+			);
+			output.drop_without_applying_deltas();
+			opening
+		};
+		assert_eq!(frame(vec![]), None);
+		for key in [egui::Key::Tab, egui::Key::Enter] {
+			let opening = frame(vec![egui::Event::Key {
+				key,
+				physical_key: None,
+				pressed: true,
+				repeat: false,
+				modifiers: egui::Modifiers::NONE,
+			}]);
+			assert_eq!(opening, (key == egui::Key::Enter).then(|| url.to_owned()));
+		}
 	}
 
 	#[test]

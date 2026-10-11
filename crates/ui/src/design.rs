@@ -548,15 +548,45 @@ pub fn chat_alpha(ui: &egui::Ui) -> u8 {
 	section_surface(ui, window_palette(ui).chat, ImageSection::MessageList).a()
 }
 
-/// Message cards sit on an already-painted chat surface. Use only a thin tint on
-/// translucent chat so nested cards and answer rows do not cover the background again.
+/// Message cards sit on an already-painted chat surface. Opaque chat lifts the card a step
+/// away from the conversation. Translucent chat gets a thin frosted coat instead, so nested
+/// cards and answer rows stay distinguishable without covering the background again.
 pub fn message_card_fill(ui: &egui::Ui, color: Color32) -> Color32 {
 	let alpha = chat_alpha(ui);
-	color.gamma_multiply(if alpha == 255 {
-		1.0
+	let dark = ui.visuals().dark_mode;
+	if alpha == 255 {
+		return card_lift(dark, color);
+	}
+	let [r, g, b, _] = color.to_srgba_unmultiplied();
+	let tone = if dark {
+		mix(Color32::from_rgb(r, g, b), Color32::WHITE, 0.55)
 	} else {
-		f32::from(alpha) / (255.0 * 8.0)
-	})
+		Color32::from_rgb(r, g, b)
+	};
+	tone.gamma_multiply(f32::from(16 + u16::from(alpha) * 8 / 255) / 255.0)
+}
+
+/// Moves an opaque card fill slightly away from the conversation colour.
+fn card_lift(dark: bool, color: Color32) -> Color32 {
+	if dark {
+		mix(color, Color32::WHITE, 0.03)
+	} else {
+		mix(color, Color32::BLACK, 0.015)
+	}
+}
+
+/// Opaque card fill for containers that must not let translucent chat show through.
+pub fn opaque_card_fill(ui: &egui::Ui, color: Color32) -> Color32 {
+	card_lift(ui.visuals().dark_mode, color)
+}
+
+/// Edge for message cards: the palette border on opaque chat, a hairline on glass.
+pub fn message_card_stroke(ui: &egui::Ui) -> Stroke {
+	if chat_alpha(ui) == 255 {
+		Stroke::new(1.0, palette(ui).border)
+	} else {
+		hairline(ui)
+	}
 }
 
 /// Surface underneath a message card or fenced code block.
