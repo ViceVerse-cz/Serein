@@ -1040,7 +1040,7 @@ mod tests {
 		// The decoded answer is cached and painted without further requests.
 		assert!(video.accept_poster(&ctx, Id(3), 2, 1, &[9, 9, 9, 255, 1, 1, 1, 255]));
 		assert_eq!(video.posters.len(), 1);
-		assert_eq!(video.poster_bytes, 2 * 1 * 4);
+		assert_eq!(video.poster_bytes, 8);
 		show(&mut video);
 		assert!(video.command.is_none());
 		assert_eq!(video.posters.len(), 1);

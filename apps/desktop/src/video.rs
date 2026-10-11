@@ -764,7 +764,7 @@ mod poster_tests {
 	fn downscale_shrinks_and_averages() {
 		// 4x2 gradient: left half black, right half white.
 		let mut rgba = vec![0; 4 * 2 * 4];
-		for pixel in rgba.chunks_exact_mut(4).skip(4) {
+		for pixel in rgba.as_chunks_mut::<4>().0.iter_mut().skip(4) {
 			pixel.copy_from_slice(&[255, 255, 255, 255]);
 		}
 		let (width, height, small) = downscale_poster(4, 2, rgba);
