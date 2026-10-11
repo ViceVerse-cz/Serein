@@ -315,7 +315,6 @@ impl Voice {
 	pub fn stop(&mut self) {
 		self.camera_test = None;
 		self.mic_preview = None;
-		self.remote_textures.clear();
 		self.screen.stop();
 		self.watch.stop();
 		self.pending = None;
@@ -662,6 +661,10 @@ impl Voice {
 			ui.voice_camera_preview = None;
 			ui.voice_camera_status = "";
 			ui.voice_privacy_code = None;
+		}
+		// Remote camera textures exist only for live media and are always dropped together
+		// with the ids the view borrows, so no tile can draw a freed texture.
+		if expected.is_none() || self.live.is_none() {
 			ui.voice_remote_video.clear();
 			self.remote_textures.clear();
 		}
@@ -687,6 +690,8 @@ impl Voice {
 			}
 			let command = current.map(|(_, channel, request)| self.end_control(channel, request));
 			self.stop();
+			ui.voice_remote_video.clear();
+			self.remote_textures.clear();
 			// Permission/removal failures must leave the service too; never target a new account.
 			return current
 				.filter(|(generation, _, _)| *generation == state.generation)

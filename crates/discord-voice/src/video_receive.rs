@@ -674,7 +674,8 @@ impl Backend {
 				let bytes = platform::video::Layout::I420
 					.len(w, h)
 					.ok_or(DecodeError::Failed)?;
-				scratch.reserve_exact(bytes.saturating_sub(scratch.capacity()));
+				// After `clear`, the exact reservation covers the whole picture.
+				scratch.reserve_exact(bytes);
 				platform::video::pack_plane(scratch, decoded.y(), luma_stride, width, height)
 					.and_then(|()| {
 						platform::video::pack_plane(
@@ -1353,6 +1354,15 @@ mod tests {
 				(decoder, data, (width as u32, height as u32))
 			})
 			.collect();
+		// Growing from the smaller picture reserves the larger one exactly, without a
+		// second doubling reallocation while the planes are copied.
+		let mut grown = Vec::new();
+		for index in [1, 0] {
+			let (decoder, data, _) = &mut streams[index];
+			assert!(decoder.decode(data, &mut grown).is_ok());
+		}
+		let bytes = platform::video::Layout::I420.len(64, 64).unwrap();
+		assert!(grown.capacity() >= bytes && grown.capacity() < bytes * 5 / 4);
 		let mut scratch = Vec::new();
 		let mut allocation = None;
 		for _ in 0..4 {

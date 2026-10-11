@@ -1639,7 +1639,8 @@ frames and playback-state changes request immediate repaint.
   colorimetry) with orientation tags applied.
 
 VideoToolbox (attachments and live) and GStreamer hand over their native 4:2:0 planes;
-the renderer converts them to RGB on the GPU with the tagged BT.601/BT.709 matrix and range
+the renderer converts them to RGB on the GPU with the tagged BT.601/BT.709/BT.2020/SMPTE 240M
+matrix and range (BT.2020 gets its matrix only, no HDR tone mapping)
 (untagged HD is treated as BT.709, SD as BT.601, matching VideoToolbox's own conversion).
 Windows attachments still use the RGB32 reader; Windows live pictures stay NV12.
 

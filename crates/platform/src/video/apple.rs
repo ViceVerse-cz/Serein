@@ -19,8 +19,10 @@ use objc2_core_video::{
 	CVPixelBufferGetHeight, CVPixelBufferGetHeightOfPlane, CVPixelBufferGetPixelFormatType,
 	CVPixelBufferGetPlaneCount, CVPixelBufferGetWidth, CVPixelBufferGetWidthOfPlane,
 	CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress,
-	kCVImageBufferYCbCrMatrix_ITU_R_709_2, kCVImageBufferYCbCrMatrixKey,
-	kCVPixelBufferPixelFormatTypeKey, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+	kCVImageBufferYCbCrMatrix_ITU_R_601_4, kCVImageBufferYCbCrMatrix_ITU_R_709_2,
+	kCVImageBufferYCbCrMatrix_ITU_R_2020, kCVImageBufferYCbCrMatrix_SMPTE_240M_1995,
+	kCVImageBufferYCbCrMatrixKey, kCVPixelBufferPixelFormatTypeKey,
+	kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
 	kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
 };
 use objc2_video_toolbox::{
@@ -548,25 +550,24 @@ pub(super) unsafe fn copy_nv12(pixels: &CVImageBuffer) -> Result<Picture, &'stat
 	{
 		return Err(INVALID);
 	}
-	// SAFETY: The static key is a valid CFString and the attachment is a retained copy.
+	// SAFETY: The static keys are valid CFStrings and the attachment is a retained copy.
 	let matrix = unsafe {
 		pixels
 			.attachment(kCVImageBufferYCbCrMatrixKey, null_mut())
 			.and_then(|value| {
-				value
-					.downcast_ref::<CFString>()
-					.map(|value| value == kCVImageBufferYCbCrMatrix_ITU_R_709_2)
+				let value = value.downcast_ref::<CFString>()?;
+				[
+					(kCVImageBufferYCbCrMatrix_ITU_R_709_2, Matrix::Bt709),
+					(kCVImageBufferYCbCrMatrix_ITU_R_601_4, Matrix::Bt601),
+					(kCVImageBufferYCbCrMatrix_ITU_R_2020, Matrix::Bt2020),
+					(kCVImageBufferYCbCrMatrix_SMPTE_240M_1995, Matrix::Smpte240m),
+				]
+				.into_iter()
+				.find_map(|(tag, matrix)| (value == tag).then_some(matrix))
 			})
 	};
 	let color = match matrix {
-		Some(true) => Color {
-			matrix: Matrix::Bt709,
-			full_range,
-		},
-		Some(false) => Color {
-			matrix: Matrix::Bt601,
-			full_range,
-		},
+		Some(matrix) => Color { matrix, full_range },
 		None => Color::untagged(h, full_range),
 	};
 	let len = Layout::Nv12.len(w, h).ok_or(INVALID)?;

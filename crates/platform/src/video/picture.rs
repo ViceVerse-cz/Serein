@@ -19,6 +19,9 @@ pub enum Layout {
 pub enum Matrix {
 	Bt601,
 	Bt709,
+	/// HEVC/H.264 wide-gamut tag; only the matrix is applied (no HDR tone mapping).
+	Bt2020,
+	Smpte240m,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -52,6 +55,8 @@ impl Color {
 		let (kr, kb) = match self.matrix {
 			Matrix::Bt601 => (0.299, 0.114),
 			Matrix::Bt709 => (0.2126, 0.0722),
+			Matrix::Bt2020 => (0.2627, 0.0593),
+			Matrix::Smpte240m => (0.212, 0.087),
 		};
 		let kg = 1.0 - kr - kb;
 		let (luma_scale, luma_offset, chroma_scale, chroma_offset) = if self.full_range {
@@ -174,18 +179,35 @@ impl<D: AsRef<[u8]>> Picture<D> {
 				let (chroma_width, chroma_height) = (width.div_ceil(2), height.div_ceil(2));
 				let (luma, chroma) = data.split_at(width * height);
 				let (first, second) = chroma.split_at(chroma_width * chroma_height);
+				let fetch = |x: usize, y: usize| {
+					let at = y * chroma_width + x;
+					match self.layout {
+						Layout::Nv12 => [chroma[at * 2], chroma[at * 2 + 1]],
+						_ => [first[at], second[at]],
+					}
+					.map(f32::from)
+				};
+				// The GPU samples chroma bilinearly at each pixel centre with clamped edges;
+				// the same taps here keep posters and fallback frames identical up to rounding.
+				let columns = chroma_taps(width, chroma_width);
+				let lines = chroma_taps(height, chroma_height);
 				let mut rgba = vec![0; width * height * 4];
 				for (y, row) in rgba.chunks_exact_mut(width * 4).enumerate() {
+					let (top, bottom, down) = lines[y];
 					for (x, pixel) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
-						let chroma_at = (y / 2) * chroma_width + x / 2;
-						let (cb, cr) = match self.layout {
-							Layout::Nv12 => (chroma[chroma_at * 2], chroma[chroma_at * 2 + 1]),
-							_ => (first[chroma_at], second[chroma_at]),
+						let (left, right, across) = columns[x];
+						let blend = |a: [f32; 2], b: [f32; 2], t: f32| {
+							[a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
 						};
+						let [cb, cr] = blend(
+							blend(fetch(left, top), fetch(right, top), across),
+							blend(fetch(left, bottom), fetch(right, bottom), across),
+							down,
+						);
 						let sample = [
 							f32::from(luma[y * width + x]) / 255.0,
-							f32::from(cb) / 255.0,
-							f32::from(cr) / 255.0,
+							cb / 255.0,
+							cr / 255.0,
 						];
 						let channel = |row: [f32; 4]| {
 							let value = row[0] * sample[0]
@@ -206,6 +228,19 @@ impl<D: AsRef<[u8]>> Picture<D> {
 			u32::from(self.rotation),
 		))
 	}
+}
+
+/// Bilinear taps (low, high, weight of high) mapping each of `output` pixel centres onto a
+/// `source`-texel plane, clamped to its edges like a GPU sampler.
+fn chroma_taps(output: usize, source: usize) -> Vec<(usize, usize, f32)> {
+	(0..output)
+		.map(|index| {
+			let position = (index as f32 + 0.5) * source as f32 / output as f32 - 0.5;
+			let base = position.floor();
+			let clamp = |value: f32| (value.max(0.0) as usize).min(source - 1);
+			(clamp(base), clamp(base + 1.0), position - base)
+		})
+		.collect()
 }
 
 /// Copies one plane out of a strided buffer into `out`, `row_bytes` per row.
@@ -311,6 +346,54 @@ mod tests {
 			.is_valid()
 		);
 		assert_eq!(Layout::Rgba.len(u32::MAX, u32::MAX), None);
+	}
+
+	#[test]
+	fn chroma_is_interpolated_like_the_gpu_sampler() {
+		// 4x1 luma at mid-grey over two chroma columns: Cb 64, then 192. Pixel centres map
+		// to chroma positions -0.25, 0.25, 0.75 and 1.25, so the edges clamp and the middle
+		// pixels blend 3:1 and 1:3.
+		let picture = Picture {
+			width: 4,
+			height: 1,
+			layout: Layout::I420,
+			color: Color {
+				matrix: Matrix::Bt709,
+				full_range: true,
+			},
+			rotation: 0,
+			data: vec![128, 128, 128, 128, 64, 192, 128, 128],
+		};
+		assert_eq!(
+			chroma_taps(4, 2),
+			vec![(0, 0, 0.75), (0, 1, 0.25), (0, 1, 0.75), (1, 1, 0.25)]
+		);
+		let (_, _, rgba) = picture.to_rgba().unwrap();
+		let blue: Vec<u8> = rgba
+			.as_chunks::<4>()
+			.0
+			.iter()
+			.map(|pixel| pixel[2])
+			.collect();
+		assert!(
+			blue[0] < blue[1] && blue[1] < blue[2] && blue[2] < blue[3],
+			"{blue:?}"
+		);
+		let rows = picture.color.coefficients();
+		let expected = |cb: f32| {
+			((rows[2][0] * 128.0 / 255.0 + rows[2][1] * cb / 255.0 + rows[2][3]) * 255.0)
+				.round()
+				.clamp(0.0, 255.0) as u8
+		};
+		assert_eq!(
+			blue,
+			[
+				expected(64.0),
+				expected(96.0),
+				expected(160.0),
+				expected(192.0)
+			]
+		);
 	}
 
 	#[test]

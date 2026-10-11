@@ -464,16 +464,18 @@ pub(super) fn picture(sample: &gst::Sample) -> Result<Picture, &'static str> {
 	};
 	let colorimetry = info.colorimetry();
 	let full_range = colorimetry.range() == gst_video::VideoColorRange::Range0_255;
-	let color = match colorimetry.matrix() {
-		gst_video::VideoColorMatrix::Bt709 => Color {
-			matrix: Matrix::Bt709,
-			full_range,
-		},
-		gst_video::VideoColorMatrix::Bt601 => Color {
-			matrix: Matrix::Bt601,
-			full_range,
-		},
-		_ => Color::untagged(height, full_range),
+	let matrix = match colorimetry.matrix() {
+		gst_video::VideoColorMatrix::Bt709 => Some(Matrix::Bt709),
+		gst_video::VideoColorMatrix::Bt601 | gst_video::VideoColorMatrix::Fcc => {
+			Some(Matrix::Bt601)
+		}
+		gst_video::VideoColorMatrix::Bt2020 => Some(Matrix::Bt2020),
+		gst_video::VideoColorMatrix::Smpte240m => Some(Matrix::Smpte240m),
+		_ => None,
+	};
+	let color = match matrix {
+		Some(matrix) => Color { matrix, full_range },
+		None => Color::untagged(height, full_range),
 	};
 	let len = layout.len(width, height).ok_or(INVALID)?;
 	if len > MAX_BYTES {
