@@ -2420,6 +2420,7 @@ impl Desktop {
 		self.downloads.cancel();
 		self.audio.stop();
 		self.video.stop();
+		self.video.cancel_posters();
 		self.voice.stop();
 		self.messaging.camera_test_requested = false;
 		self.messaging.camera_test_texture = None;

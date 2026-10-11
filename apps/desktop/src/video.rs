@@ -48,11 +48,14 @@ struct PosterJob {
 	id: model::Id,
 	url: Option<url::Url>,
 	size: usize,
+	/// Set when the session ends; skips the job and aborts its range reads.
+	cancelled: Arc<AtomicBool>,
 }
 /// Decoded poster answer waiting for UI delivery through `poll`.
 struct PosterDone {
 	id: model::Id,
 	frame: Option<(u32, u32, Vec<u8>)>,
+	cancelled: Arc<AtomicBool>,
 }
 #[derive(Default)]
 pub struct Video {
@@ -63,6 +66,8 @@ pub struct Video {
 	/// Attachments with a queued or decoding poster; dedupes the per-frame UI
 	/// queue and bounds it so a scroll storm cannot pile up stale downloads.
 	poster_pending: std::collections::HashSet<model::Id>,
+	/// Shared by every job of the current session; replaced by [`Video::cancel_posters`].
+	poster_cancelled: Arc<AtomicBool>,
 }
 
 /// In-flight poster ceiling; excess requests retry while still visible.
@@ -76,10 +81,23 @@ impl Video {
 			requests.send_replace(None);
 		}
 	}
+	/// Session boundary: abandons queued and in-flight posters so none of their downloads
+	/// continue or land in the next session's cache. Channel switches keep posters.
+	pub fn cancel_posters(&mut self) {
+		self.poster_cancelled.store(true, Ordering::Release);
+		self.poster_cancelled = Arc::new(AtomicBool::new(false));
+		self.poster_pending.clear();
+		if let Ok(mut results) = self.poster_results.lock() {
+			results.clear();
+		}
+	}
 	pub fn poll(&mut self, player: &mut VideoUi, ctx: &eframe::egui::Context) {
 		// Posters belong to idle stages, so they drain even with no active session.
 		if let Ok(mut results) = self.poster_results.try_lock() {
 			for done in results.drain(..) {
+				if done.cancelled.load(Ordering::Acquire) {
+					continue;
+				}
 				self.poster_pending.remove(&done.id);
 				match done.frame {
 					Some((width, height, rgba)) => {
@@ -265,9 +283,16 @@ impl Video {
 						let Some(job) = stack.pop() else {
 							continue;
 						};
+						if job.cancelled.load(Ordering::Acquire) {
+							continue;
+						}
 						let frame = decode_poster(&job, &runtime);
 						if let Ok(mut results) = results.lock() {
-							results.push(PosterDone { id: job.id, frame });
+							results.push(PosterDone {
+								id: job.id,
+								frame,
+								cancelled: job.cancelled,
+							});
 						}
 						ctx.request_repaint();
 					}
@@ -284,6 +309,7 @@ impl Video {
 				id,
 				url,
 				size: attachment.size as usize,
+				cancelled: self.poster_cancelled.clone(),
 			})
 			.is_ok()
 		}) {
@@ -305,7 +331,7 @@ fn decode_poster(job: &PosterJob, runtime: &tokio::runtime::Handle) -> Option<(u
 	let source = source::source(
 		job.url.clone(),
 		job.size,
-		Arc::new(AtomicBool::new(false)),
+		job.cancelled.clone(),
 		runtime.clone(),
 	)
 	.ok()?;
@@ -314,7 +340,7 @@ fn decode_poster(job: &PosterJob, runtime: &tokio::runtime::Handle) -> Option<(u
 	// count: give the first frame a bounded ten seconds, then mark it failed.
 	let deadline = Instant::now() + Duration::from_secs(10);
 	loop {
-		if Instant::now() >= deadline {
+		if Instant::now() >= deadline || job.cancelled.load(Ordering::Acquire) {
 			return None;
 		}
 		match decoder.poll_video().ok()? {
