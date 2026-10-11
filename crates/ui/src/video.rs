@@ -6,6 +6,17 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// Poster pixel budget: 8 MiB RGBA, about three dozen 320px posters. Oldest goes
 /// first; evicted attachments may request again, cached ones never re-download.
 const POSTER_BUDGET: usize = 8 * 1024 * 1024;
+/// Poster count ceiling, so tiny clips cannot pile up textures under the byte budget.
+const POSTER_MAX: usize = 128;
+/// Remembered undecodable posters; past this the failures are forgotten and may retry.
+const POSTER_SEEN_MAX: usize = 1024;
+
+/// Reinterprets decoded RGBA as texels without a per-pixel pass. Every backend emits
+/// opaque frames, where premultiplied and straight alpha are the same bytes; a per-pixel
+/// `from_rgba_unmultiplied` cost a full core at 1080p30 in debug builds.
+fn video_pixels(rgba: &[u8]) -> &[egui::Color32] {
+	bytemuck::cast_slice(rgba)
+}
 
 const CORNER: u8 = 8;
 const MAX_WIDTH: f32 = crate::avatars::media::MEDIA_MAX_WIDTH;
@@ -179,12 +190,7 @@ impl VideoUi {
 		image.size = [width, height];
 		image.source_size = egui::vec2(width as f32, height as f32);
 		image.pixels.clear();
-		image.pixels.extend(
-			rgba.as_chunks::<4>()
-				.0
-				.iter()
-				.map(|&[r, g, b, a]| egui::Color32::from_rgba_unmultiplied(r, g, b, a)),
-		);
+		image.pixels.extend_from_slice(video_pixels(rgba));
 		let image = std::sync::Arc::clone(frame);
 		if let Some(texture) = &mut self.texture {
 			texture.set(image, egui::TextureOptions::LINEAR);
@@ -253,7 +259,7 @@ impl VideoUi {
 		let bytes = rgba.len();
 		// Reinserting refreshes recency; eviction below drops textures (GPU freed).
 		self.evict_poster(&id);
-		while self.poster_bytes + bytes > POSTER_BUDGET {
+		while self.poster_bytes + bytes > POSTER_BUDGET || self.posters.len() >= POSTER_MAX {
 			let Some(oldest) = self.poster_order.pop_front() else {
 				break;
 			};
@@ -262,12 +268,7 @@ impl VideoUi {
 		let image = egui::ColorImage {
 			size: [width, height],
 			source_size: egui::vec2(width as f32, height as f32),
-			pixels: rgba
-				.as_chunks::<4>()
-				.0
-				.iter()
-				.map(|&[r, g, b, a]| egui::Color32::from_rgba_unmultiplied(r, g, b, a))
-				.collect(),
+			pixels: video_pixels(rgba).to_vec(),
 		};
 		self.posters.insert(
 			id,
@@ -291,13 +292,17 @@ impl VideoUi {
 	}
 	/// Marks one cached poster as recently used so repeat views keep it.
 	fn touch_poster(&mut self, id: &Id) {
-		if self.posters.contains_key(id) {
+		if self.poster_order.back() != Some(id) && self.posters.contains_key(id) {
 			self.poster_order.retain(|queued| queued != id);
 			self.poster_order.push_back(*id);
 		}
 	}
 	/// Records an undecodable poster so the stage is not requested again until eviction.
 	pub fn poster_failed(&mut self, id: Id) {
+		if self.poster_seen.len() >= POSTER_SEEN_MAX {
+			let posters = &self.posters;
+			self.poster_seen.retain(|seen| posters.contains_key(seen));
+		}
 		self.poster_seen.insert(id);
 	}
 	pub fn show(

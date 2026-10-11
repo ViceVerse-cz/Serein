@@ -6767,7 +6767,10 @@ impl eframe::App for Desktop {
 					self.fixture_only || self.state.demo,
 				);
 			}
-			if !player.poster_queue.is_empty() {
+			// Posters download attachments too, so they follow the playback session gate.
+			if !self.state.demo && self.state.auth != AuthState::Authenticated {
+				player.poster_queue.clear();
+			} else if !player.poster_queue.is_empty() {
 				let queue = std::mem::take(&mut player.poster_queue);
 				self.video.posters(
 					queue,

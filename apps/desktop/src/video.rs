@@ -251,7 +251,20 @@ impl Video {
 			if std::thread::Builder::new()
 				.name("serein-video-poster".into())
 				.spawn(move || {
-					while let Ok(job) = receiver.recv() {
+					// Newest first: after a scroll or channel switch the visible stages
+					// decode before posters requested for stages already scrolled past.
+					let mut stack = Vec::new();
+					loop {
+						if stack.is_empty() {
+							let Ok(job) = receiver.recv() else {
+								break;
+							};
+							stack.push(job);
+						}
+						stack.extend(receiver.try_iter());
+						let Some(job) = stack.pop() else {
+							continue;
+						};
 						let frame = decode_poster(&job, &runtime);
 						if let Ok(mut results) = results.lock() {
 							results.push(PosterDone { id: job.id, frame });
@@ -312,7 +325,17 @@ fn decode_poster(job: &PosterJob, runtime: &tokio::runtime::Handle) -> Option<(u
 				..
 			})) => return Some(downscale_poster(width, height, rgba)),
 			Ready(None) => return None,
-			_ => std::thread::sleep(Duration::from_millis(5)),
+			Ready(Some(_)) => {}
+			std::task::Poll::Pending => {
+				// Unsynchronised GStreamer sinks do not drop: drain queued audio
+				// so a full audio branch cannot stall the first video sample.
+				for _ in 0..64 {
+					if !matches!(decoder.poll_audio(), Ok(Ready(Some(_)))) {
+						break;
+					}
+				}
+				std::thread::sleep(Duration::from_millis(5));
+			}
 		}
 	}
 }
