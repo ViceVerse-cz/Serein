@@ -1366,7 +1366,8 @@ impl SearchUi {
 	}
 	/// Bounded message shell that lets the chat attachment and embed renderers draw a hit.
 	fn shell(&mut self, hit: &model::SearchHit) {
-		self.previews
+		let shell = self
+			.previews
 			.entry(hit.id)
 			.or_insert_with(|| model::Message {
 				poll: None,
@@ -1401,6 +1402,13 @@ impl SearchUi {
 				embeds_suppressed: false,
 				attachments: hit.attachments.clone(),
 			});
+		shell.channel = hit.channel;
+		if shell.embeds != hit.embeds {
+			shell.embeds.clone_from(&hit.embeds);
+		}
+		if shell.attachments != hit.attachments {
+			shell.attachments.clone_from(&hit.attachments);
+		}
 	}
 	#[allow(clippy::too_many_arguments)]
 	fn result_card(
@@ -1574,6 +1582,7 @@ impl SearchUi {
 									media.download.gif_favorite_request = Some(gif);
 								}
 								if !preview.attachments.is_empty() {
+									let previous_pdf = media.download.pdf.serial();
 									crate::attachments::show(
 										ui,
 										preview,
@@ -1587,6 +1596,19 @@ impl SearchUi {
 										&mut surface,
 										crate::design::MessageCardSurface::Opaque,
 									);
+									if media.download.pdf.serial() != previous_pdf {
+										media.download.pdf.set_source(crate::pdf::Source::Search {
+											request: state
+												.search
+												.as_ref()
+												.map_or(0, |view| view.request),
+											fingerprint: crate::pdf::hit_fingerprint(hit),
+											timeline: state
+												.timeline
+												.get(hit.id)
+												.map(crate::pdf::fingerprint),
+										});
+									}
 								}
 							}
 						}

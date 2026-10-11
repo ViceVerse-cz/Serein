@@ -138,6 +138,30 @@ and a red hang-up button, a green "In a call" badge in the header, mute/deafen t
 account card, and a "Voice Connected" panel above it while connected. Camera, screen share,
 activities and soundboard are shown disabled: Serein has no such features.
 
+## Native PDF attachment preview
+
+Received PDF file cards offer an explicit **Preview** action alongside Download.
+Filename suffix matching is case-insensitive; exact `application/pdf` MIME metadata
+also selects the card. Opening it uses the shared native modal, not a webview or
+external reader. One page is displayed at a time with Previous/Next (also Left/Right
+arrows), Fit page, bounded fit-relative zoom, and two-axis scrolling. Escape, the
+close icon and backdrop dismissal close it. Long filenames truncate with a tooltip;
+controls wrap on narrow windows.
+
+Loading, malformed/password-protected documents, resource limits, timeout and
+unavailable-renderer errors have localized states. Retry starts only on request;
+Download retains its existing explicit save flow. Over-16-MiB/empty attachment
+metadata disables Preview. Pages are raster images, not selectable/searchable text;
+PDF links, actions, JavaScript, forms and embedded media are not interactive.
+hayro's experimental renderer may fail or differ from a dedicated reader.
+
+Account/conversation changes, logout, permission loss, edits/deletion/eviction,
+closing search/pins, hiding the window and revoked spoiler reveal retire the preview.
+Component and ephemeral attachments use the same bounds and source revalidation.
+`--features demo -- --demo --demo-pdf` supplies a tiny generated two-page document
+offline; `--demo-light` selects the light appearance. Synthetic fixtures do not
+establish live Discord compatibility. See [PDF implementation and checks](pdf-preview.md).
+
 ## Verification notes
 
 Native macOS captures at 1120×760 in Serein dark, Eclipse, Slate, Nightfall and light were

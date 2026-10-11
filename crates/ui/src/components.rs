@@ -35,6 +35,12 @@ pub(crate) struct Components {
 }
 
 impl Components {
+	pub(crate) fn pdf_reveals_valid(&self, state: &State, keys: &[u64]) -> bool {
+		self.generation == state.generation
+			&& self.channel == state.selected
+			&& keys.len() <= 256
+			&& keys.iter().all(|key| self.revealed.contains(key))
+	}
 	pub(crate) fn forget_message(&mut self, id: Id) {
 		self.formatted.retain(|message| message != id);
 		self.revealed.clear();
@@ -1134,7 +1140,14 @@ fn show_media(
 			attachment.id,
 		))
 		.value();
-		if attachment.spoiler && !revealed.contains(&reveal_id) {
+		if (attachment.spoiler
+			|| attachment.filename.starts_with("SPOILER_")
+			|| attachment
+				.description
+				.as_deref()
+				.is_some_and(|text| text.contains("||")))
+			&& !revealed.contains(&reveal_id)
+		{
 			if ui
 				.button(crate::i18n::translate(
 					"components-show-media-reveal-spoiler-attachment",
@@ -1148,6 +1161,7 @@ fn show_media(
 			}
 			return;
 		}
+		let previous_pdf = media_ui.download.pdf.serial();
 		let previous_view = *media_ui.viewing;
 		let mut surface = crate::select::Surface::new(ui, ("component-attachment", attachment.id));
 		crate::attachments::show_subset(
@@ -1165,6 +1179,14 @@ fn show_media(
 			card_surface,
 		);
 		surface.finish(ui);
+		if media_ui.download.pdf.serial() != previous_pdf {
+			media_ui
+				.download
+				.pdf
+				.set_source(crate::pdf::Source::Component(
+					revealed.iter().copied().collect(),
+				));
+		}
 		if *media_ui.viewing != previous_view
 			|| media_ui
 				.video
@@ -1271,5 +1293,35 @@ mod tests {
 			components[0].component.as_ref().unwrap().checked,
 			Some(false)
 		);
+	}
+}
+
+#[cfg(test)]
+mod pdf_reveal_tests {
+	use super::*;
+	#[test]
+	fn component_pdf_scope_and_reveal_revocation_invalidate_the_modal() {
+		let state = test_support::pdf_demo_state();
+		let message = state.timeline.get(Id(501)).unwrap().clone();
+		let mut timeline = crate::timeline::TimelineView::default();
+		timeline.components.generation = state.generation;
+		timeline.components.channel = state.selected;
+		timeline.components.revealed.insert(42);
+		let mut pdf = crate::PdfUi::default();
+		pdf.bind(&state);
+		pdf.open(&message, &message.attachments[0]);
+		pdf.set_source(crate::pdf::Source::Component(vec![42]));
+		pdf.revalidate(&state, false, &timeline);
+		assert!(pdf.is_open());
+		timeline.components.revealed.clear();
+		pdf.revalidate(&state, false, &timeline);
+		assert!(!pdf.is_open());
+		assert!(
+			!timeline
+				.components
+				.pdf_reveals_valid(&state, &vec![42; 257])
+		);
+		timeline.components.channel = Some(Id(999));
+		assert!(!timeline.components.pdf_reveals_valid(&state, &[]));
 	}
 }

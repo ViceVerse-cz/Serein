@@ -1,8 +1,75 @@
 # Performance findings
 
 Recent synthetic/offline measurements are workload-specific. They do not establish live Discord
-performance, universal device results or application-wide memory bounds. The raw PR screenshot,
-log and per-run evidence archive has been removed; the summaries below retain the useful results.
+performance, universal device results or application-wide memory bounds. Older raw evidence
+archives have been removed; retained evidence is linked from the relevant measurement.
+
+## Native PDF attachment preview — October 11, 2026
+
+Compared upstream `134e556fb469f3fa72425adf24acb7df56811a59` with the native PDF
+feature on Fedora 43, Intel Core i5-1035G1 (eight logical CPUs), 23 GiB RAM,
+pinned Rust/Cargo 1.98.1 and locked dependencies. The owner's existing checkout
+was not used or changed. A separate baseline worktree and separate package
+directories prevent either build from overwriting the other.
+
+Both standard `cargo xtask package --format dir` builds passed: release fat LTO,
+no default features, voice included. These are unsigned Linux directory packages,
+not locally tested DEB/RPM installers. Installed bytes sum `linux-root` file
+lengths. The full staged distribution includes the executable twice (portable
+copy and installed tree); its compressed size uses sorted, zero-timestamp tar
+and `gzip -n -9`.
+
+| Package metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 87,338,088 B | 92,696,008 B | +5,357,920 B / +6.13% |
+| Installed Linux tree | 91,870,032 B | 97,435,353 B | +5,565,321 B / +6.06% |
+| Full staged distribution | 183,385,083 B | 194,515,725 B | +11,130,642 B / +6.07% |
+| Full staged tar.gz | 106,078,659 B | 111,018,749 B | +4,940,090 B / +4.66% |
+
+The roughly 5.36-MB executable increase is a real cost of bundling the
+experimental hayro CPU renderer, fonts and CMaps, not compression noise.
+The installed tree adds 42 notice/provenance files, verified against the source.
+`cargo xtask licenses` and `cargo audit --deny warnings` passed; existing
+unused license-allowance warnings remain. Package hashes, methods, native
+evidence and limitations are retained in
+[`pr-evidence/native-pdf-preview`](pr-evidence/native-pdf-preview/README.md).
+
+Matching release demo binaries use the additive offline PDF fixture, thin LTO
+on the final executable, an 1120×760 Xvfb window at 96 dpi / 100% scale and
+software Vulkan llvmpipe (LLVM 21.1.8, 256 bits). After 12 seconds of startup
+warmup and one second of pointer clearing/repaint settling, `/proc` was sampled
+50 times every 100 ms (~4.93 seconds), once per revision, with no build active.
+RSS is process resident memory, not private/GPU memory or lifetime peak.
+
+| Matched closed-card native metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Settled / peak sampled RSS | 248,544 KiB | 250,776 KiB | +2,232 KiB / +0.90% |
+| Idle CPU, percent of one core | 0.00% | 0.20% | +0.20 percentage points |
+
+The idle CPU delta is one clock tick in a noisy single-run sample, not a
+meaningful regression/improvement. The first-page modal in the same changed
+process settled at 267,536 KiB (+16,760 KiB / +6.68% over its closed card),
+with 0.20% idle CPU. This changed-only workload has no baseline viewer.
+No helper remained after the page finished rendering.
+
+The changed **standard release package** helper was also measured separately
+with cleared environment, `posix_spawn`, bounded pipe validation and `wait4`:
+one warmup and five measured runs per page of the 2,116-byte synthetic fixture.
+Median wall times were 67.83 ms / 66.60 ms, user CPU 39.89 ms / 43.25 ms,
+system CPU 26.31 ms / 21.66 ms, and peak RSS 64,468 KiB / 64,520 KiB for pages
+1 / 2. Wall time includes process startup, parsing, rasterization and pipe
+transfer, not UI latency. There is no baseline helper or arbitrary-PDF claim.
+
+Only explicit Preview starts PDF work. One latest-value worker retains one
+original up to 16 MiB and one current raster up to 6 MiB, with no page prefetch
+or disk persistence. Page changes reuse the original; zoom/Fit/scroll reuse
+the current texture. Superseded page requests are cancelled/coalesced instead
+of queued, covered by synthetic cache/release regressions.
+Up to 256 pages are admitted. One short-lived helper
+renders at a time with eight CPU seconds and a ten-second wall watchdog;
+Linux/Windows apply a 768-MiB helper ceiling, while macOS resident polling can
+overshoot. These are component limits, not measured whole-process bounds or
+an OS sandbox. See [PDF implementation](pdf-preview.md).
 
 ## Long-session live memory inspection — October 9, 2026
 

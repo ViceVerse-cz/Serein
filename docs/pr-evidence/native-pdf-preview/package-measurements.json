@@ -1,0 +1,24 @@
+{
+  "baseline": {
+    "revision": "134e556fb469f3fa72425adf24acb7df56811a59",
+    "flags": "--release --locked --no-default-features (voice included)",
+    "executable_bytes": 87338088,
+    "archive_bytes": 106078659,
+    "sha256": "6b469f9295142a59fe794b9227b1f6c2fe68d689055b4582659b0c5895902495",
+    "full_staged_distribution_bytes": 183385083,
+    "installed_linux_tree_bytes": 91870032,
+    "full_staged_file_count": 443,
+    "installed_linux_tree_file_count": 228
+  },
+  "after": {
+    "revision": "uncommitted feature tree on 134e556fb469f3fa72425adf24acb7df56811a59",
+    "flags": "--release --locked --no-default-features (voice included)",
+    "executable_bytes": 92696008,
+    "archive_bytes": 111018749,
+    "sha256": "4f01ded674c1319887b2ec95e1be9cceff30850cb7ad5e5c627bacec3e2f75f8",
+    "full_staged_distribution_bytes": 194515725,
+    "installed_linux_tree_bytes": 97435353,
+    "full_staged_file_count": 527,
+    "installed_linux_tree_file_count": 270
+  }
+}

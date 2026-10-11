@@ -390,3 +390,27 @@ macOS and Linux have no local HEIC decoder in this implementation; proxy-provide
 PNG/JPEG/WebP renditions can still display. The offline Windows check decodes an
 original synthetic 6000x4000 HEIC both at source size and as a 320px thumbnail,
 checking dimensions and pixel conversion. Owner photos and live Discord remain unverified.
+
+## Native PDF attachments
+
+All normal builds include the pure-Rust hayro CPU renderer and its font/CMap data;
+no optional system PDF reader/library or browser viewer is required. Rendering
+starts in a short-lived instance of Serein using an internal pre-GUI entrypoint,
+with only bounded stdin/stdout data, cleared environment and no authentication,
+display or audio initialization. Packaged font/CMap/code notices live in `licenses/pdf`.
+
+Linux applies 768-MiB address-space/data limits, eight CPU seconds, disabled core
+dumps and a parent-death signal. Windows applies process memory/CPU limits through
+a Job Object; nested-job compatibility depends on the host. macOS applies CPU/core
+limits and the desktop polls helper resident memory every 20 ms; memory may overshoot
+and is not a hard allocation ceiling. Every helper also has an independent ten-second
+wall watchdog; unsupported platforms or failed limit setup report unavailable
+instead of rendering without the boundary. The worker kills/reaps on cancellation
+or timeout before admitting another helper.
+
+These are resource limits, not a filesystem/network/syscall sandbox. The renderer
+contains upstream unsafe code and remains experimental. PDFs may fail or render
+imperfectly; Download remains the dedicated-reader fallback. Synthetic Linux
+coverage is recorded with [the PDF evidence](pr-evidence/native-pdf-preview/README.md).
+Windows/macOS execution, accessibility, live CDN/auth and arbitrary-document
+compatibility are not established by these offline checks.

@@ -76,7 +76,20 @@ impl Decoder {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use std::io::Write;
+
+	/// Complete Sync in one call with enough output space. The high-level writer's
+	/// 32 KiB flush buffer can leave the marker pending with the PDF-enabled zlib-rs
+	/// backend. This fixture must model a complete Gateway packet on either backend.
+	fn packet(encoder: &mut flate2::Compress, text: &str) -> Vec<u8> {
+		let mut output = Vec::with_capacity(text.len() * 2 + 1024);
+		let before = encoder.total_in();
+		encoder
+			.compress_vec(text.as_bytes(), &mut output, flate2::FlushCompress::Sync)
+			.unwrap();
+		assert_eq!(encoder.total_in() - before, text.len() as u64);
+		assert!(output.ends_with(&[0, 0, 255, 255]));
+		output
+	}
 
 	#[test]
 	fn large_fragmented_payload_releases_capacity_but_keeps_stream_dictionary() {
@@ -89,13 +102,10 @@ mod tests {
 				char::from(b' ' + (seed % 95) as u8)
 			})
 			.collect();
-		let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+		let mut encoder = flate2::Compress::new(flate2::Compression::fast(), true);
 		let mut decoder = Decoder::default();
-		let mut offset = 0;
 		for text in [&large[..], &large[large.len() - 1024..]] {
-			encoder.write_all(text.as_bytes()).unwrap();
-			encoder.flush().unwrap();
-			let bytes = &encoder.get_ref()[offset..];
+			let bytes = packet(&mut encoder, text);
 			let split = bytes.len() - 2;
 			assert!(
 				decoder
@@ -103,7 +113,7 @@ mod tests {
 					.unwrap()
 					.is_none()
 			);
-			if offset == 0 {
+			if text.len() == large.len() {
 				assert!(decoder.pending.capacity() > RETAINED_PENDING_BYTES);
 			}
 			assert_eq!(
@@ -114,7 +124,6 @@ mod tests {
 			);
 			assert!(decoder.pending.is_empty());
 			assert!(decoder.pending.capacity() <= RETAINED_PENDING_BYTES);
-			offset = encoder.get_ref().len();
 		}
 		assert!(
 			decoder.pending.capacity() > 0,
@@ -124,16 +133,13 @@ mod tests {
 
 	#[test]
 	fn split_payloads_share_the_dictionary_and_enforce_both_byte_limits() {
-		let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+		let mut encoder = flate2::Compress::new(flate2::Compression::fast(), true);
 		let mut decoder = Decoder::default();
-		let mut offset = 0;
 		for text in [
 			r#"{"op":10,"d":{"heartbeat_interval":1000}}"#,
 			r#"{"op":11,"d":null}"#,
 		] {
-			encoder.write_all(text.as_bytes()).unwrap();
-			encoder.flush().unwrap();
-			let bytes = &encoder.get_ref()[offset..];
+			let bytes = packet(&mut encoder, text);
 			let split = bytes.len() - 2;
 			assert!(
 				decoder
@@ -147,7 +153,6 @@ mod tests {
 					.unwrap(),
 				Some(Frame::Text(text.into()))
 			);
-			offset = encoder.get_ref().len();
 		}
 		assert_eq!(
 			Decoder::default().frame(Frame::Binary(vec![0; MAX_GATEWAY_WIRE + 1].into())),

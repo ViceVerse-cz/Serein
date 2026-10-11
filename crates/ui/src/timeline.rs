@@ -1556,6 +1556,13 @@ fn show_system(
 	}
 }
 impl TimelineView {
+	pub(crate) fn pdf_media_visible(&self, message: &Message) -> bool {
+		!crate::embeds::has_media_spoilers(message)
+			|| self
+				.revealed
+				.get(&message.id)
+				.is_some_and(|reveal| reveal.media && reveal.matches(message))
+	}
 	pub(super) fn show_fullscreen_video(&mut self, ctx: &egui::Context, state: &State) -> bool {
 		if self.video.is_fullscreen() {
 			let current = self
@@ -10338,5 +10345,36 @@ impl crate::MessagingUi {
 		);
 		println!("Immediate message labels and Shift menu checks passed.");
 		println!("Double-click uses the saved reaction independently of recommendations");
+	}
+}
+
+#[cfg(test)]
+mod pdf_spoiler_tests {
+	use super::*;
+	#[test]
+	fn pdf_reveal_survives_only_while_the_original_message_is_revealed() {
+		let mut state = test_support::pdf_demo_state();
+		let mut message = state.timeline.get(Id(501)).unwrap().clone();
+		message.attachments[0].spoiler = true;
+		state
+			.timeline
+			.insert(message.clone(), false, false)
+			.unwrap();
+		message = state.timeline.get(message.id).unwrap().clone();
+		let mut timeline = TimelineView::default();
+		let mut pdf = crate::PdfUi::default();
+		pdf.bind(&state);
+		pdf.open(&message, &message.attachments[0]);
+		pdf.revalidate(&state, false, &timeline);
+		assert!(!pdf.is_open());
+		timeline
+			.revealed
+			.insert(message.id, Revealed::new(&message, 0, true));
+		pdf.open(&message, &message.attachments[0]);
+		pdf.revalidate(&state, false, &timeline);
+		assert!(pdf.is_open());
+		timeline.revealed.clear();
+		pdf.revalidate(&state, false, &timeline);
+		assert!(!pdf.is_open());
 	}
 }

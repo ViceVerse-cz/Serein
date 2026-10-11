@@ -3,6 +3,44 @@ use client_core::{Envelope, Event, State};
 use model::*;
 mod message_links;
 pub use message_links::{load_message_link_page, message_links_demo_state};
+/// Offline PDF attachment scenario; the desktop supplies embedded synthetic bytes only.
+pub fn pdf_demo_state() -> State {
+	let mut state = chat_demo_state();
+	state.timeline.clear();
+	for (id, filename) in [
+		(501, "synthetic-preview.pdf"),
+		(
+			502,
+			"a-long-synthetic-document-filename-for-native-preview-layout-checks.PDF",
+		),
+	] {
+		let mut message = message(id, Id(20));
+		message.content =
+			"Synthetic PDF attachment · preview locally without leaving the conversation.".into();
+		message.embeds.clear();
+		message.attachments = vec![Attachment {
+			id: Id(id + 200),
+			filename: filename.into(),
+			description: None,
+			content_type: Some("application/pdf".into()),
+			size: 2116,
+			spoiler: false,
+			duration_ms: None,
+			waveform: Vec::new(),
+			media: EmbedMedia {
+				url: Some(format!(
+					"https://cdn.discordapp.com/attachments/20/{}/{filename}",
+					id + 200
+				)),
+				..Default::default()
+			},
+		}];
+		state.timeline.insert(message, false, false).unwrap();
+	}
+	state.revision += 1;
+	state
+}
+
 /// Synthetic Tenor-shaped results. Previews under `/synthetic/` are painted locally; no request.
 pub fn gif_page(query: Option<&str>) -> model::GifPage {
 	const TITLES: [&str; 12] = [

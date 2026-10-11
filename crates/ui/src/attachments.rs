@@ -36,6 +36,9 @@ pub fn file_kind(filename: &str, content_type: Option<&str>) -> FileKind {
 				.to_ascii_lowercase()
 		})
 		.unwrap_or_default();
+	if mime == "application/pdf" {
+		return FileKind::Pdf;
+	}
 	match extension.as_str() {
 		"png" | "jpg" | "jpeg" | "gif" | "webp" | "avif" | "bmp" | "tiff" | "heic" | "heif"
 		| "svg" => {
@@ -256,9 +259,11 @@ pub fn pending_card(
 	.inner
 }
 
-/// Discord-style row for a received file without an inline preview.
+/// Received file card; PDF rendering starts only after an explicit Preview click.
+#[allow(clippy::too_many_arguments)]
 fn file_card(
 	ui: &mut egui::Ui,
+	message: &Message,
 	attachment: &Attachment,
 	download: &mut DownloadUi,
 	demo: bool,
@@ -279,7 +284,20 @@ fn file_card(
 				icons::inline(ui, kind.icon(), 32.0, kind.tint(&colors));
 				ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 					ui.spacing_mut().item_spacing.x = 6.0;
-					let download = download_button(ui, attachment, download, demo);
+					let downloaded = download_button(ui, attachment, download, demo);
+					if attachment.is_pdf() {
+						let preview = ui
+							.add_enabled(
+								attachment.size > 0
+									&& attachment.size <= crate::pdf::MAX_PDF_BYTES as u64,
+								egui::Button::new(crate::i18n::translate("pdf-preview")),
+							)
+							.on_disabled_hover_text(crate::i18n::translate("pdf-error-limit"));
+						if preview.clicked() {
+							download.pdf.open(message, attachment);
+						}
+						surface.keep(&preview);
+					}
 					ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
 						ui.vertical(|ui| {
 							ui.spacing_mut().item_spacing.y = 0.0;
@@ -301,7 +319,7 @@ fn file_card(
 							);
 						});
 					});
-					surface.keep(&download);
+					surface.keep(&downloaded);
 				});
 			});
 		});
@@ -451,7 +469,15 @@ pub(crate) fn show_subset(
 							});
 						}
 					} else {
-						file_card(ui, attachment, download, demo, surface, card_surface);
+						file_card(
+							ui,
+							message,
+							attachment,
+							download,
+							demo,
+							surface,
+							card_surface,
+						);
 					}
 					ui.add_space(6.0);
 				});
@@ -525,6 +551,7 @@ fn open_original(
 }
 #[derive(Default)]
 pub struct DownloadUi {
+	pub(crate) pdf: crate::pdf::PdfUi,
 	pub(crate) gif_favorites: Vec<String>,
 	pub(crate) gif_favorite_request: Option<model::Gif>,
 	pub request: Option<Attachment>,
@@ -702,7 +729,7 @@ impl DownloadUi {
 		}
 	}
 }
-fn download_button(
+pub(crate) fn download_button(
 	ui: &mut egui::Ui,
 	attachment: &Attachment,
 	download: &mut DownloadUi,
