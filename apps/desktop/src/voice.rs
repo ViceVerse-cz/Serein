@@ -315,6 +315,9 @@ impl Voice {
 	pub fn stop(&mut self) {
 		self.camera_test = None;
 		self.mic_preview = None;
+		// Logout stops polling; the next poll (or `MessagingUi::clear`) drops the borrowed
+		// ids before a frame paints, and disposal waits for the current frame.
+		self.remote_textures.clear();
 		self.screen.stop();
 		self.watch.stop();
 		self.pending = None;

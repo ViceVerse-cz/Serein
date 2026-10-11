@@ -88,6 +88,8 @@ impl Watch {
 		if let Some(live) = self.live.take() {
 			live.task.abort();
 		}
+		// Logout stops polling, so release the GPU picture here; disposal waits a frame.
+		self.texture = Default::default();
 	}
 	fn context(&self) -> Option<Context> {
 		self.pending

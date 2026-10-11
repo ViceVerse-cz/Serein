@@ -334,13 +334,44 @@ fn crop_nv12(bytes: &[u8], format: OutputFormat) -> Result<Frame, &'static str> 
 	{
 		return Err(INVALID);
 	}
+	let (odd_x, odd_y) = (x0 % 2, y0 % 2);
+	if odd_x + odd_y > 0 {
+		// H.264 4:2:0 crops in two-sample units, so decoders should not report this. Packed
+		// NV12 cannot start between chroma pairs: convert the enclosing even aperture on the
+		// CPU and trim the extra leading column/row instead of misaligning chroma.
+		let aligned = crop_nv12(
+			bytes,
+			OutputFormat {
+				crop: (
+					format.crop.0 - odd_x as u32,
+					format.crop.1 - odd_y as u32,
+					format.crop.2 + odd_x as u32,
+					format.crop.3 + odd_y as u32,
+				),
+				..format
+			},
+		)?;
+		let (aligned_width, _, rgba) = aligned.to_rgba().ok_or(INVALID)?;
+		let mut data = Vec::with_capacity(width * out_height * 4);
+		for row in rgba.chunks_exact(aligned_width as usize * 4).skip(odd_y) {
+			data.extend_from_slice(&row[odd_x * 4..]);
+		}
+		let picture = Picture {
+			width: format.crop.2,
+			height: format.crop.3,
+			layout: Layout::Rgba,
+			color: Color::WEBRTC,
+			rotation: 0,
+			data,
+		};
+		return picture.is_valid().then_some(picture).ok_or(INVALID);
+	}
 	let (luma, chroma) = bytes.split_at(luma_len);
 	let len = Layout::Nv12
 		.len(format.crop.2, format.crop.3)
 		.ok_or(INVALID)?;
 	let mut data = Vec::with_capacity(len);
-	// Chroma pairs start on even columns and rows; an odd aperture origin rounds down.
-	let (chroma_x, chroma_y) = (x0 / 2 * 2, y0 / 2);
+	let (chroma_x, chroma_y) = (x0, y0 / 2);
 	pack_plane(
 		&mut data,
 		&luma[y0 * stride + x0..],
@@ -398,5 +429,27 @@ mod tests {
 			..format
 		};
 		assert_eq!(&crop_nv12(&bytes, shifted).unwrap().data[4..], &[7, 7]);
+		// An odd origin keeps chroma aligned through the RGBA fallback.
+		let odd = OutputFormat {
+			crop: (1, 0, 2, 2),
+			..format
+		};
+		let picture = crop_nv12(&bytes, odd).unwrap();
+		assert_eq!(
+			(picture.layout, picture.width, picture.height),
+			(Layout::Rgba, 2, 2)
+		);
+		let (_, _, aligned) = crop_nv12(
+			&bytes,
+			OutputFormat {
+				crop: (0, 0, 3, 2),
+				..format
+			},
+		)
+		.unwrap()
+		.to_rgba()
+		.unwrap();
+		assert_eq!(&picture.data[..8], &aligned[4..12]);
+		assert_eq!(&picture.data[8..], &aligned[16..24]);
 	}
 }

@@ -6091,6 +6091,8 @@ impl eframe::App for Desktop {
 	}
 	/// One UI frame: pumps workers, expires challenges, renders and drains commands.
 	fn logic(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
+		// Last frame's shapes are painted; video textures retired since then can go.
+		gpu_video::collect();
 		let search_focused = {
 			#[cfg(feature = "demo")]
 			{

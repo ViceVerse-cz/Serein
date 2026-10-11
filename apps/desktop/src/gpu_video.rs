@@ -15,6 +15,21 @@ pub fn install(state: &egui_wgpu::RenderState) {
 	CONVERTER.get_or_init(|| Converter::new(state));
 }
 
+/// Frees textures retired since the last call. Call once at the start of each frame: a
+/// texture dropped during a frame may still be referenced by that frame's queued shapes,
+/// so its egui registration outlives the paint and is removed one frame later.
+pub fn collect() {
+	if let Some(converter) = CONVERTER.get() {
+		let retired = std::mem::take(&mut *converter.retired.lock());
+		if !retired.is_empty() {
+			let mut renderer = converter.renderer.write();
+			for id in retired {
+				renderer.free_texture(&id);
+			}
+		}
+	}
+}
+
 const SHADER: &str = r"
 struct Params {
 	rows: array<vec4<f32>, 3>,
@@ -82,6 +97,8 @@ pub struct Converter {
 	nv12: wgpu::RenderPipeline,
 	i420: wgpu::RenderPipeline,
 	sampler: wgpu::Sampler,
+	/// Dropped textures awaiting [`collect`]; at most one frame's worth.
+	retired: egui::mutex::Mutex<Vec<egui::TextureId>>,
 }
 
 impl Converter {
@@ -171,6 +188,7 @@ impl Converter {
 			i420: pipeline("fs_i420"),
 			layout,
 			sampler,
+			retired: Default::default(),
 		})
 	}
 
@@ -245,7 +263,8 @@ struct Gpu {
 
 impl Drop for Gpu {
 	fn drop(&mut self) {
-		self.converter.renderer.write().free_texture(&self.id);
+		// egui's bind group keeps the wgpu texture alive until `collect` frees the id.
+		self.converter.retired.lock().push(self.id);
 	}
 }
 
