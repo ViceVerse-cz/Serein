@@ -1067,7 +1067,7 @@ impl MessagingUi {
 		})
 	}
 
-	fn remote_texture(&self, user: Id) -> Option<&egui::TextureHandle> {
+	fn remote_texture(&self, user: Id) -> Option<&egui::load::SizedTexture> {
 		self.voice_remote_video
 			.iter()
 			.find(|(id, _)| *id == user)
@@ -1229,10 +1229,10 @@ impl MessagingUi {
 			.map_or_else(|| "Participant".to_owned(), |user| user.name.clone());
 		let content = match &self.voice_stream_view {
 			Some(texture) => {
-				let content = fit_rect(rect, texture.size_vec2());
+				let content = fit_rect(rect, texture.size);
 				ui.put(
 					content,
-					egui::Image::from_texture((texture.id(), content.size())).corner_radius(8),
+					egui::Image::from_texture((texture.id, content.size())).corner_radius(8),
 				);
 				content
 			}
@@ -1501,7 +1501,7 @@ impl MessagingUi {
 				.map(|texture| (texture.id(), texture.size_vec2(), true))
 		} else if entry.participant.video {
 			self.remote_texture(entry.participant.user)
-				.map(|texture| (texture.id(), texture.size_vec2(), false))
+				.map(|texture| (texture.id, texture.size, false))
 		} else {
 			None
 		};

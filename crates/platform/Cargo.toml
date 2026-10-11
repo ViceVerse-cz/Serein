@@ -59,7 +59,7 @@ mac-usernotifications = "=0.3.1"
 objc2-video-toolbox = { version = "=0.3.2", default-features = false, features = ["std", "bitflags", "objc2", "objc2-core-media", "objc2-core-video", "VTBase", "VTErrors", "VTSession", "VTDecompressionSession", "VTDecompressionProperties"] }
 objc2-core-media = { version = "=0.3.2", default-features = false, features = ["std", "bitflags", "objc2", "objc2-core-video", "CMBase", "CMTime", "CMAttachment", "CMBlockBuffer", "CMFormatDescription", "CMSampleBuffer"] }
 objc2-core-video = { version = "=0.3.2", default-features = false, features = ["std", "bitflags", "objc2", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
-objc2-core-foundation = { version = "=0.3.2", default-features = false, features = ["std", "CFBase", "CFDictionary", "CFNumber", "CFString"] }
+objc2-core-foundation = { version = "=0.3.2", default-features = false, features = ["std", "CFBase", "CFArray", "CFDictionary", "CFNumber", "CFString"] }
 
 [target.'cfg(target_os = "linux")'.dependencies.gstreamer]
 version = "=0.25.3"

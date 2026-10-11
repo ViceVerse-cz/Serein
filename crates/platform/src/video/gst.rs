@@ -1,8 +1,11 @@
 //! Linux attachment decoding through GStreamer. `appsrc` pulls bounded byte ranges from the
 //! caller's anonymous stream (never a URL), `decodebin` picks the installed codecs, and two
-//! unsynchronised `appsink`s hand back RGBA pictures and 48 kHz stereo float PCM on demand.
+//! unsynchronised `appsink`s hand back NV12/I420 pictures and 48 kHz stereo float PCM on demand.
 //! The same distributions that ship WebKitGTK for the login page also ship these plugins.
-use super::{INVALID, Info, MAX_BYTES, MAX_SECONDS, ReadSeek, Sample, TOO_LONG, UNSUPPORTED};
+use super::{
+	Color, INVALID, Info, Layout, MAX_BYTES, MAX_SECONDS, Matrix, Picture, ReadSeek, Sample,
+	TOO_LONG, UNSUPPORTED, picture::pack_plane,
+};
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
@@ -101,11 +104,7 @@ impl Decoder {
 		appsrc.link(&decodebin).map_err(|_| UNSUPPORTED)?;
 
 		let video = gst_app::AppSink::builder().build();
-		video.set_caps(Some(
-			&gst::Caps::builder("video/x-raw")
-				.field("format", "RGBA")
-				.build(),
-		));
+		video.set_caps(Some(&planar_caps()));
 		video.set_sync(false);
 		video.set_max_buffers(4);
 		video.set_drop(false);
@@ -253,29 +252,9 @@ impl Decoder {
 			return Ok(Poll::Pending);
 		}
 		self.last_video_pts = pts;
-		let (width, height) = frame_dimensions(&sample)?;
-		let buffer = sample.buffer().ok_or(INVALID)?;
-		let caps = sample.caps().ok_or(INVALID)?;
-		let info = gst_video::VideoInfo::from_caps(caps).map_err(|_| INVALID)?;
-		let frame = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info)
-			.map_err(|_| INVALID)?;
-		let stride = usize::try_from(frame.plane_stride().first().copied().ok_or(INVALID)?)
-			.map_err(|_| INVALID)?;
-		let data = frame.plane_data(0).map_err(|_| INVALID)?;
-		let (w, h) = (width as usize, height as usize);
-		let row = w * 4;
-		if stride < row || data.len() < stride * (h - 1) + row || row * h > MAX_BYTES {
-			return Err(INVALID);
-		}
-		let mut rgba = vec![0; row * h];
-		for (source, target) in data.chunks(stride).zip(rgba.chunks_exact_mut(row)) {
-			target.copy_from_slice(&source[..row]);
-		}
 		Ok(Poll::Ready(Some(Sample::Video {
 			pts: self.last_video_pts,
-			width,
-			height,
-			rgba,
+			picture: picture(&sample)?,
 		})))
 	}
 
@@ -456,11 +435,78 @@ fn check_bus(pipeline: &gst::Pipeline) -> Result<(), &'static str> {
 fn frame_dimensions(sample: &gst::Sample) -> Result<(u32, u32), &'static str> {
 	let caps = sample.caps().ok_or(INVALID)?;
 	let info = gst_video::VideoInfo::from_caps(caps).map_err(|_| INVALID)?;
-	if info.format() != gst_video::VideoFormat::Rgba {
+	if !matches!(
+		info.format(),
+		gst_video::VideoFormat::Nv12 | gst_video::VideoFormat::I420
+	) {
 		return Err(INVALID);
 	}
 	super::check_dimensions(info.width(), info.height())?;
 	Ok((info.width(), info.height()))
+}
+
+/// Decoders' own 4:2:0 layouts, so `videoconvert` passes through and the renderer converts
+/// colour on the GPU.
+pub(super) fn planar_caps() -> gst::Caps {
+	gst::Caps::builder("video/x-raw")
+		.field("format", gst::List::new(["NV12", "I420"]))
+		.build()
+}
+
+/// Copies one NV12 or I420 sample into a tightly packed [`Picture`] with its colorimetry.
+pub(super) fn picture(sample: &gst::Sample) -> Result<Picture, &'static str> {
+	let (width, height) = frame_dimensions(sample)?;
+	let caps = sample.caps().ok_or(INVALID)?;
+	let info = gst_video::VideoInfo::from_caps(caps).map_err(|_| INVALID)?;
+	let layout = match info.format() {
+		gst_video::VideoFormat::Nv12 => Layout::Nv12,
+		_ => Layout::I420,
+	};
+	let colorimetry = info.colorimetry();
+	let full_range = colorimetry.range() == gst_video::VideoColorRange::Range0_255;
+	let color = match colorimetry.matrix() {
+		gst_video::VideoColorMatrix::Bt709 => Color {
+			matrix: Matrix::Bt709,
+			full_range,
+		},
+		gst_video::VideoColorMatrix::Bt601 => Color {
+			matrix: Matrix::Bt601,
+			full_range,
+		},
+		_ => Color::untagged(height, full_range),
+	};
+	let len = layout.len(width, height).ok_or(INVALID)?;
+	if len > MAX_BYTES {
+		return Err(INVALID);
+	}
+	let buffer = sample.buffer().ok_or(INVALID)?;
+	let frame =
+		gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info).map_err(|_| INVALID)?;
+	let (w, h) = (width as usize, height as usize);
+	let (chroma_w, chroma_h) = (w.div_ceil(2), h.div_ceil(2));
+	let planes: &[(usize, usize)] = match layout {
+		Layout::Nv12 => &[(w, h), (chroma_w * 2, chroma_h)],
+		_ => &[(w, h), (chroma_w, chroma_h), (chroma_w, chroma_h)],
+	};
+	let mut data = Vec::with_capacity(len);
+	for (plane, &(row_bytes, rows)) in planes.iter().enumerate() {
+		let stride = frame
+			.plane_stride()
+			.get(plane)
+			.and_then(|stride| usize::try_from(*stride).ok())
+			.ok_or(INVALID)?;
+		let source = frame.plane_data(plane as u32).map_err(|_| INVALID)?;
+		pack_plane(&mut data, source, stride, row_bytes, rows).ok_or(INVALID)?;
+	}
+	let picture = Picture {
+		width,
+		height,
+		layout,
+		color,
+		rotation: 0,
+		data,
+	};
+	picture.is_valid().then_some(picture).ok_or(INVALID)
 }
 
 /// Buffer timestamps are segment-relative; convert them to positions in the attachment.
@@ -528,14 +574,10 @@ mod tests {
 			}
 			for sample in samples {
 				match sample {
-					Sample::Video {
-						pts,
-						rgba,
-						width,
-						height,
-					} => {
-						assert_eq!((width, height), (320, 180));
-						assert_eq!(rgba.len(), (width * height * 4) as usize);
+					Sample::Video { pts, picture } => {
+						assert_eq!((picture.width, picture.height), (320, 180));
+						assert!(picture.is_valid());
+						let (_, _, rgba) = picture.to_rgba().unwrap();
 						assert!(rgba.windows(4).any(|pixel| pixel[0] != pixel[1]));
 						assert!(pts > last_pts, "{pts} after {last_pts}");
 						last_pts = pts;

@@ -1436,10 +1436,10 @@ fn decode_motion_video(
 				}
 				Ok(std::task::Poll::Ready(Some(platform::video::Sample::Video {
 					pts,
-					width,
-					height,
-					rgba,
+					picture,
 				}))) => {
+					// Clip frames are resized and cached once, so the CPU conversion stays.
+					let (width, height, rgba) = picture.to_rgba()?;
 					let pixels = (width as usize).checked_mul(height as usize)?;
 					if width == 0 || height == 0 || rgba.len() != pixels.checked_mul(4)? {
 						return None;

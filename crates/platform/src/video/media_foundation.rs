@@ -36,7 +36,7 @@ const ALL: u32 = MF_SOURCE_READER_ALL_STREAMS.0 as u32;
 const UNSUPPORTED: &str = "This video format or codec is not supported by Windows.";
 const INVALID: &str = "The video could not be decoded safely.";
 
-use super::{Info, ReadSeek, Sample};
+use super::{Color, Info, Layout, Picture, ReadSeek, Sample};
 
 // Keep the reader and byte stream ahead of Runtime: COM objects must be released
 // before MFShutdown/CoUninitialize. Rc also makes this actor thread-affine.
@@ -516,12 +516,18 @@ impl Decoder {
 				return Err(INVALID);
 			}
 			if index == self.video_index {
+				// The RGB32 reader already converted colour and applied rotation.
 				let rgba = self.video_frame(&sample)?;
 				return Ok(Some(Sample::Video {
 					pts,
-					width: self.info.width,
-					height: self.info.height,
-					rgba,
+					picture: Picture {
+						width: self.info.width,
+						height: self.info.height,
+						layout: Layout::Rgba,
+						color: Color::WEBRTC,
+						rotation: 0,
+						data: rgba,
+					},
 				}));
 			}
 			if Some(index) == self.audio_index {
@@ -937,14 +943,9 @@ mod tests {
 			}
 			for sample in [video, audio].into_iter().flatten() {
 				match sample {
-					Sample::Video {
-						pts,
-						rgba,
-						width,
-						height,
-					} => {
-						assert_eq!(rgba.len(), (width * height * 4) as usize);
-						assert!(rgba.windows(4).any(|pixel| pixel[0] != pixel[1]));
+					Sample::Video { pts, picture } => {
+						assert!(picture.is_valid());
+						assert!(picture.data.windows(4).any(|pixel| pixel[0] != pixel[1]));
 						assert!(pts >= last_pts);
 						last_pts = pts;
 						videos += 1;
@@ -1002,16 +1003,13 @@ mod tests {
 		}
 		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(portrait))).unwrap();
 		assert_eq!((decoder.info().width, decoder.info().height), (180, 320));
-		let Some(Sample::Video {
-			width,
-			height,
-			rgba,
-			..
-		}) = decoder.read_video().unwrap()
-		else {
+		let Some(Sample::Video { picture, .. }) = decoder.read_video().unwrap() else {
 			panic!("Missing portrait frame");
 		};
-		assert_eq!((width, height, rgba.len()), (180, 320, 180 * 320 * 4));
+		assert_eq!(
+			(picture.width, picture.height, picture.data.len()),
+			(180, 320, 180 * 320 * 4)
+		);
 
 		{
 			let stream: IStream = ReadStream {

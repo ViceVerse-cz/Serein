@@ -48,7 +48,10 @@ pub struct VideoUi {
 	pub command: Option<VideoCommand>,
 	pub seen: bool,
 	pub volume: f32,
-	texture: Option<egui::TextureHandle>,
+	/// Latest frame; usually the desktop's GPU-converted texture, else [`Self::managed`].
+	texture: Option<egui::load::SizedTexture>,
+	/// CPU fallback texture behind [`VideoUi::accept_frame`].
+	managed: Option<egui::TextureHandle>,
 	/// Staging pixels for the current frame. The renderer drops its reference after the
 	/// upload, so the same allocation is refilled each frame instead of reallocating up to
 	/// 8 MB per frame (1080p at 60 fps churned ~500 MB/s through the allocator).
@@ -86,6 +89,7 @@ impl Default for VideoUi {
 			seen: false,
 			volume: 1.0,
 			texture: None,
+			managed: None,
 			frame: None,
 			shade: None,
 			posters: HashMap::new(),
@@ -104,6 +108,7 @@ impl VideoUi {
 		self.exit_fullscreen();
 		self.active = None;
 		self.texture = None;
+		self.managed = None;
 		self.frame = None;
 		self.state = VideoState::Idle;
 		self.position = 0.0;
@@ -192,12 +197,26 @@ impl VideoUi {
 		image.pixels.clear();
 		image.pixels.extend_from_slice(video_pixels(rgba));
 		let image = std::sync::Arc::clone(frame);
-		if let Some(texture) = &mut self.texture {
-			texture.set(image, egui::TextureOptions::LINEAR);
-		} else {
-			self.texture =
-				Some(ctx.load_texture("inline-video", image, egui::TextureOptions::LINEAR));
+		let texture = match &mut self.managed {
+			Some(texture) => {
+				texture.set(image, egui::TextureOptions::LINEAR);
+				texture
+			}
+			None => self.managed.insert(ctx.load_texture(
+				"inline-video",
+				image,
+				egui::TextureOptions::LINEAR,
+			)),
+		};
+		self.texture = Some(egui::load::SizedTexture::from_handle(texture));
+		true
+	}
+	/// Shows a frame the desktop already uploaded (and converted) on the GPU.
+	pub fn show_frame(&mut self, texture: egui::load::SizedTexture) -> bool {
+		if self.active.is_none() {
+			return false;
 		}
+		self.texture = Some(texture);
 		true
 	}
 	fn toggle(&mut self, message: &Message, attachment: &Attachment, state: VideoState) {
@@ -211,6 +230,7 @@ impl VideoUi {
 			_ => {
 				self.active = Some((message.channel, message.id, attachment.clone()));
 				self.texture = None;
+				self.managed = None;
 				self.frame = None;
 				self.state = VideoState::Loading;
 				self.position = 0.0;
@@ -380,16 +400,13 @@ impl VideoUi {
 				self.poster_queue.push(attachment.clone());
 			}
 		}
-		if let Some(texture) = self.texture.as_ref().filter(|_| active) {
-			let size = texture.size_vec2();
+		if let Some(texture) = self.texture.filter(|_| active) {
+			let size = texture.size;
 			let scale = (stage.width() / size.x).min(stage.height() / size.y);
 			let image_rect = egui::Rect::from_center_size(stage.center(), size * scale);
-			egui::Image::new(egui::load::SizedTexture::new(
-				texture.id(),
-				image_rect.size(),
-			))
-			.corner_radius(CORNER)
-			.paint_at(ui, image_rect);
+			egui::Image::new(egui::load::SizedTexture::new(texture.id, image_rect.size()))
+				.corner_radius(CORNER)
+				.paint_at(ui, image_rect);
 		}
 		let hovered = response.hovered() || ui.rect_contains_pointer(stage);
 		let show_controls = active

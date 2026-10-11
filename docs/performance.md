@@ -4,6 +4,32 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## GPU colour conversion for decoded video — October 11, 2026
+
+Decoders now hand over native 4:2:0 planes (VideoToolbox NV12, GStreamer NV12/I420,
+openh264 I420, Windows live NV12) and one render pass converts them on the GPU. Baseline
+`178bde35` (main) and the changed tree were compared with Rust 1.98.1 on the same machines.
+Native samples used the synthetic `--demo-video-playing` fixture replaced by a generated
+clip for the run only, release builds with LTO off, 5–6 s warm-up, then 10 s of process CPU
+time and peak RSS, alternating builds three times.
+
+| Workload | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| macOS M1 Pro, 1080p30 H.264 High + AAC, inline playback CPU | 38.9% | 32.5% | −16% |
+| macOS same run, peak RSS | 203.9 MiB | 177.0 MiB | −26.9 MiB |
+| Asahi Linux (M1, Vulkan, labwc), 720p30 H.264 Baseline via openh264dec, CPU | 97.0% | 60.4% | −38% |
+| Asahi same run, peak RSS | 294.9 MiB | 269.7 MiB | −25.2 MiB |
+| openh264 decode + handoff, 120 alternating 1080p/720p frames (release, median) | 473.2 ms | 208.1 ms | −56% |
+| openh264 shared scratch capacity | 8,294,400 B | 3,110,400 B | −62% |
+| macOS standard executable (`cargo xtask package`) | 68,706,864 B | 68,723,648 B | +16,784 B |
+| macOS dist directory / zipped app | 74,814,816 / 48,280,440 B | 74,831,600 / 48,288,340 B | +16,784 / +7,900 B |
+
+Rendered colour bars matched VideoToolbox's own BGRA conversion byte for byte on macOS and
+were identical on Linux. The macOS inline gain is smaller because VideoToolbox already
+converted in hardware; Windows live NV12 previously converted per pixel on the CPU, but
+Windows CPU, GPU memory and frame latency were not measured. Software numbers come from the
+ignored `compare_alternating_software_decode` workload. Live calls and streams were not used.
+
 ## Long-session live memory inspection — October 9, 2026
 
 Read-only `vmmap -summary`, `footprint` and `heap -s` inspected the owner's already-running

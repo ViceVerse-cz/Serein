@@ -396,10 +396,10 @@ pub struct MessagingUi {
 	pub camera_test_available: bool,
 	pub camera_test_status: &'static str,
 	pub camera_test_texture: Option<egui::TextureHandle>,
-	/// Decoded remote cameras by user; the desktop bounds and replaces them.
-	pub voice_remote_video: Vec<(Id, egui::TextureHandle)>,
-	/// Latest picture of the screen share this device chose to watch.
-	pub voice_stream_view: Option<egui::TextureHandle>,
+	/// Decoded remote cameras by user; the desktop owns, bounds and replaces the textures.
+	pub voice_remote_video: Vec<(Id, egui::load::SizedTexture)>,
+	/// Latest picture of the screen share this device chose to watch; desktop-owned texture.
+	pub voice_stream_view: Option<egui::load::SizedTexture>,
 	pub voice_stream_status: &'static str,
 	/// Session-only stream playback level; unset is 100%. Mute preserves the level.
 	voice_stream_volume: Option<u16>,

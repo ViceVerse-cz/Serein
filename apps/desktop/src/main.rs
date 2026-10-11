@@ -28,6 +28,7 @@ mod extensions;
 mod font_import;
 mod game_activity;
 mod gpu;
+mod gpu_video;
 mod group_icon;
 mod interaction_uploads;
 mod notification_runtime;
@@ -954,6 +955,8 @@ struct Desktop {
 	downloads: downloads::Downloads,
 	audio: audio::Audio,
 	video: video::Video,
+	/// Synthetic stream/camera textures the demo view borrows by id.
+	_demo_textures: Vec<egui::TextureHandle>,
 	/// Offline fixture flags start (and optionally pause) the demo attachment without input.
 	demo_video_autoplay: Option<bool>,
 	notifications: platform::notifications::Notifications,
@@ -1668,6 +1671,9 @@ impl Desktop {
 			.last()
 			.map_or(10_000, |m| m.id.0.max(10_000));
 		let mut messaging = ui::MessagingUi::default();
+		// Fixture video textures the view borrows by id; the desktop keeps them alive.
+		#[cfg_attr(not(feature = "demo"), allow(unused_mut))]
+		let mut demo_textures: Vec<egui::TextureHandle> = Vec::new();
 		if !demo {
 			messaging.custom_font.busy = cache.as_ref().is_some_and(|cache| {
 				cache.queue(
@@ -1707,6 +1713,7 @@ impl Desktop {
 		// detail in a graphics bug report.
 		if let Some(render_state) = cc.wgpu_render_state.as_ref() {
 			messaging.gpu_adapter = gpu::describe(&render_state.adapter.get_info());
+			gpu_video::install(render_state);
 		}
 		let startup = startup::Startup::new(&cc.egui_ctx, &runtime, &mut messaging, demo);
 		// `--demo-update`: a pending release without any network check. The system title bar
@@ -1771,11 +1778,11 @@ impl Desktop {
 				source_size: egui::vec2(width as f32, height as f32),
 				pixels,
 			};
-			messaging.voice_stream_view = Some(cc.egui_ctx.load_texture(
-				"synthetic-stream",
-				image,
-				egui::TextureOptions::LINEAR,
-			));
+			let texture =
+				cc.egui_ctx
+					.load_texture("synthetic-stream", image, egui::TextureOptions::LINEAR);
+			messaging.voice_stream_view = Some(egui::load::SizedTexture::from_handle(&texture));
+			demo_textures.push(texture);
 			messaging.voice_stream_status = "Watching the stream";
 			// `--demo-focus` additionally opens the enlarged stage layout.
 			if std::env::args().any(|arg| arg == "--demo-focus") {
@@ -1814,14 +1821,15 @@ impl Desktop {
 				source_size: egui::vec2(width as f32, height as f32),
 				pixels,
 			};
-			messaging.voice_remote_video.push((
-				robin,
-				cc.egui_ctx.load_texture(
-					"synthetic-remote-camera",
-					image,
-					egui::TextureOptions::LINEAR,
-				),
-			));
+			let texture = cc.egui_ctx.load_texture(
+				"synthetic-remote-camera",
+				image,
+				egui::TextureOptions::LINEAR,
+			);
+			messaging
+				.voice_remote_video
+				.push((robin, egui::load::SizedTexture::from_handle(&texture)));
+			demo_textures.push(texture);
 			messaging.voice_focus = Some(ui::StageFocus::Participant(robin));
 		}
 		messaging.build = ui::design::Build {
@@ -2210,6 +2218,7 @@ impl Desktop {
 			downloads: downloads::Downloads::default(),
 			audio: audio::Audio::default(),
 			video: video::Video::default(),
+			_demo_textures: demo_textures,
 			demo_video_autoplay: if std::env::args().any(|arg| arg == "--demo-video-paused") {
 				Some(true)
 			} else if std::env::args().any(|arg| arg == "--demo-video-playing") {

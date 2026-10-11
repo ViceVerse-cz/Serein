@@ -90,14 +90,16 @@ not change download concurrency, decoder byte budgets or the result queue.
 Encoded input, completed results, UI textures and driver memory remain additional.
 Eight slots are an admission ceiling, not a whole-process RAM limit.
 
-Screen watching reuses only the latest undisplayed CPU image. Upload still moves
-that image out of the slot, so no extra CPU frame remains after upload. Resize
-growth requests exact pixel capacity; an allocation over 1 MiB that exceeds four
-times the new pixel count is replaced. Incoming transport frames remain limited
-to 1920 pixels per side and 1920×1080 total pixels. Debug conversion adds at most
-64 KiB scratch; release conversion writes directly into the reused pixel vector.
-The borrowed decoder RGBA input and pending egui uploads are additional. Nothing
-is persisted, and stop/account teardown releases the slot as before.
+Screen watching keeps one reused copy of the latest native picture (NV12/I420,
+at most 3,110,400 bytes at 1080p). The UI uploads it to the GPU under the slot lock, so
+the decoder refills the same allocation. Resize growth requests exact capacity; an
+allocation over 1 MiB that exceeds four times the new picture is replaced. Remote
+cameras keep the same per-user copy within the existing 16-user limit. Incoming
+transport frames remain limited to 1920 pixels per side and 1920×1080 total pixels.
+Each shown stream, camera or attachment owns one RGBA GPU texture plus its source
+planes (about 5.5 bytes per pixel of GPU memory); colour conversion runs in one render
+pass with no CPU scratch. Nothing is persisted, and stop/account teardown releases the
+slot and textures as before.
 
 ## Image decoding and edited-field allocations (September 28, 2026)
 
@@ -235,7 +237,7 @@ The active-token table is capped at the existing 16 source users. Old fixed-size
 tokens can survive only in the 16-item / 16-MiB frame queue, the worker's current
 frame, and the existing at-most-eight decoders; they contain no media or account
 strings. The 1080p picture limit remains unchanged. Stopping the final video
-lifetime also frees the shared RGBA scratch allocation (up to 8,294,400 initialized
+lifetime also frees the shared I420 scratch allocation (up to 3,110,400
 bytes); codec/driver resources are released by dropping their decoders. Allocator
 and driver retention mean this is not an equivalent process-RSS guarantee.
 
@@ -278,9 +280,9 @@ compatibility are unchanged. Index pages count toward the existing 64 MiB databa
 ceiling. Channel loads reuse the connection's bounded prepared-statement cache.
 Full message comparisons and secure deletion remain enabled.
 
-Software video decoders share one initialized RGBA scratch buffer, growing only
-to the largest accepted picture in that worker (at most 8,294,400 bytes of requested
-capacity). Smaller pictures borrow only their exact-size prefix. The high-water
+Software video decoders share one scratch buffer holding the current packed I420
+picture, growing only to the largest accepted picture in that worker (at most 3,110,400
+bytes of requested capacity); smaller pictures reuse it without reallocating. The high-water
 buffer remains until the worker exits, trading retention after a resolution decrease
 for avoiding repeated allocations between differently sized streams. No extra
 per-participant buffer or uninitialized memory is introduced.
@@ -742,8 +744,8 @@ encoded capacity, including the access unit being decoded. Exhaustion uses the e
 frame-drop/keyframe-recovery path. At most 16 reassemblers retain partial access units
 of 2 MiB + 64 KiB each; discarded partials release capacities above 256 KiB. Decoder,
 reference-picture, hardware and displayed-frame memory are additional. The synchronous
-software-video sink borrows the reusable RGBA buffer, avoiding a full-frame clone before
-conversion to UI pixels. No live media was used to establish these implementation bounds.
+software-video sink borrows the reusable I420 buffer, avoiding a full-frame clone before
+the UI copies it for GPU colour conversion. No live media was used to establish these implementation bounds.
 
 Service-confirmed DM ringing retains at most 64 calls × 64 recipient IDs (32 KiB ID storage plus bounded vector metadata), alongside the existing call roster. It is session-only and clears on call deletion, access loss, fresh resync and disconnect. Targeted ringing adds one fixed-size pending UI action and one cancellable HTTP task, with no retries or persisted history. The dispatcher reuses a navigation-limited private-channel map, retaining at most 63 recipient IDs and 512 allocated ID bytes per channel for membership checks; no directory fetch is added. A coalesced revision invalidates pending actions when membership changes.
 
@@ -1156,8 +1158,8 @@ Native video decoding is memory-only. One lazy worker handles the latest request
 with a replaceable pending request and cancellation fencing. The network source retains
 up to eight 256 KiB ranges (2 MiB, including an in-flight range); responses are checked for exact range/total/body lengths and reject
 redirects and content encoding. Encoded attachment size is capped at 100 MiB.
-The application queues at most two 1080p RGBA frames, one replaceable display frame,
-one UI texture, one second of stereo float PCM (at most 768,000 bytes), and one decoded
+The application queues at most two decoded frames (1080p NV12 on macOS and Linux,
+RGBA on Windows), one replaceable display frame, one GPU texture with its planes, one second of stereo float PCM (at most 768,000 bytes), and one decoded
 audio packet plus at most two seconds of timestamp-gap silence. Each native decoded
 sample is rejected above 16 MiB before copying. OS decoder/GPU allocations are additional
 and are released with the player. No file cache or media URL/byte diagnostics are written.

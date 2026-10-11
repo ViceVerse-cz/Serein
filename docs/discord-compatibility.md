@@ -1635,8 +1635,13 @@ frames and playback-state changes request immediate repaint.
   fragmented files, external data references and encrypted tracks are rejected.
 * Linux: GStreamer `decodebin` pulls bounded byte ranges from that reader through
   `appsrc`; the installed plugins (base, good and libav are recommended by the package)
-  decide which codecs play. Output is 48 kHz stereo PCM and RGBA pictures with
-  orientation tags applied.
+  decide which codecs play. Output is 48 kHz stereo PCM and NV12/I420 pictures (caps
+  colorimetry) with orientation tags applied.
+
+VideoToolbox (attachments and live) and GStreamer hand over their native 4:2:0 planes;
+the renderer converts them to RGB on the GPU with the tagged BT.601/BT.709 matrix and range
+(untagged HD is treated as BT.709, SD as BT.601, matching VideoToolbox's own conversion).
+Windows attachments still use the RGB32 reader; Windows live pictures stay NV12.
 
 Unsupported containers/codecs show an error inside the player with the existing
 download/open actions in the context menu. Limits are 100 MiB encoded, two hours, 1920 pixels per side and

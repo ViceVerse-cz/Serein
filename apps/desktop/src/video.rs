@@ -14,7 +14,7 @@ struct Update {
 	state: VideoState,
 	position: f64,
 	duration: f64,
-	frame: Option<(u32, u32, Vec<u8>)>,
+	frame: Option<platform::video::Picture>,
 }
 struct Session {
 	cancelled: Arc<AtomicBool>,
@@ -68,6 +68,8 @@ pub struct Video {
 	poster_pending: std::collections::HashSet<model::Id>,
 	/// Shared by every job of the current session; replaced by [`Video::cancel_posters`].
 	poster_cancelled: Arc<AtomicBool>,
+	/// GPU texture of the playing attachment.
+	texture: crate::gpu_video::VideoTexture,
 }
 
 /// In-flight poster ceiling; excess requests retry while still visible.
@@ -77,6 +79,7 @@ impl Video {
 		if let Some(session) = self.session.take() {
 			session.cancelled.store(true, Ordering::Release);
 		}
+		self.texture = Default::default();
 		if let Some(requests) = &self.requests {
 			requests.send_replace(None);
 		}
@@ -116,8 +119,11 @@ impl Video {
 			player.duration = update.duration;
 			let frame = update.frame.take();
 			drop(update);
-			if let Some((width, height, rgba)) = frame {
-				player.accept_frame(ctx, width as usize, height as usize, &rgba);
+			if let Some(picture) = frame
+				&& player.active.is_some()
+				&& let Some(texture) = self.texture.upload(ctx, "inline-video", picture.borrow())
+			{
+				player.show_frame(texture);
 			}
 		}
 	}
@@ -344,12 +350,11 @@ fn decode_poster(job: &PosterJob, runtime: &tokio::runtime::Handle) -> Option<(u
 			return None;
 		}
 		match decoder.poll_video().ok()? {
-			Ready(Some(Sample::Video {
-				width,
-				height,
-				rgba,
-				..
-			})) => return Some(downscale_poster(width, height, rgba)),
+			// Posters are converted once on the CPU, then cached as ordinary textures.
+			Ready(Some(Sample::Video { picture, .. })) => {
+				let (width, height, rgba) = picture.to_rgba()?;
+				return Some(downscale_poster(width, height, rgba));
+			}
 			Ready(None) => return None,
 			Ready(Some(_)) => {}
 			std::task::Poll::Pending => {
@@ -562,10 +567,10 @@ fn play_decoded(
 			let mut frame = None;
 			while frames
 				.front()
-				.is_some_and(|(pts, _, _, _)| *pts <= current + 0.01 || preview_needed)
+				.is_some_and(|(pts, _)| *pts <= current + 0.01 || preview_needed)
 			{
-				let (_, width, height, rgba) = frames.pop_front().expect("front exists");
-				frame = Some((width, height, rgba));
+				let (_, picture) = frames.pop_front().expect("front exists");
+				frame = Some(picture);
 				preview_needed = false;
 			}
 			let finished = video_ended && audio_drained && frames.is_empty();
@@ -649,23 +654,19 @@ fn play_decoded(
 					_ => return Err("Unexpected video audio track"),
 				}
 			}
-			// Two frames (<=16 MiB) ahead, plus one bounded audio packet and one second of PCM.
+			// Two frames ahead (<=6 MiB as 1080p NV12, 16 MiB as RGBA), plus one bounded
+			// audio packet and one second of PCM.
 			if !video_ended && frames.len() < 2 {
 				let read_started = Instant::now();
 				let sample = decoder.poll_video()?;
 				decoded |= sample.is_ready();
 				match sample {
-					Ready(Some(Sample::Video {
-						pts,
-						width,
-						height,
-						rgba,
-					})) => {
+					Ready(Some(Sample::Video { pts, picture })) => {
 						if pts >= target - 0.01 {
 							seek_preview = None;
-							frames.push_back((pts, width, height, rgba));
+							frames.push_back((pts, picture));
 						} else {
-							seek_preview = Some((target, width, height, rgba));
+							seek_preview = Some((target, picture));
 						}
 					}
 					Ready(None) => {
