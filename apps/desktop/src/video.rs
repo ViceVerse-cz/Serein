@@ -49,6 +49,7 @@ struct PosterJob {
 	url: Option<url::Url>,
 	size: usize,
 }
+/// Decoded poster answer waiting for UI delivery through `poll`.
 struct PosterDone {
 	id: model::Id,
 	frame: Option<(u32, u32, Vec<u8>)>,
@@ -59,7 +60,13 @@ pub struct Video {
 	requests: Option<tokio::sync::watch::Sender<Option<Request>>>,
 	poster_jobs: Option<std::sync::mpsc::Sender<PosterJob>>,
 	poster_results: Arc<Mutex<Vec<PosterDone>>>,
+	/// Attachments with a queued or decoding poster; dedupes the per-frame UI
+	/// queue and bounds it so a scroll storm cannot pile up stale downloads.
+	poster_pending: std::collections::HashSet<model::Id>,
 }
+
+/// In-flight poster ceiling; excess requests retry while still visible.
+const POSTER_JOBS_MAX: usize = 32;
 impl Video {
 	pub fn stop(&mut self) {
 		if let Some(session) = self.session.take() {
@@ -69,10 +76,11 @@ impl Video {
 			requests.send_replace(None);
 		}
 	}
-	pub fn poll(&self, player: &mut VideoUi, ctx: &eframe::egui::Context) {
+	pub fn poll(&mut self, player: &mut VideoUi, ctx: &eframe::egui::Context) {
 		// Posters belong to idle stages, so they drain even with no active session.
 		if let Ok(mut results) = self.poster_results.try_lock() {
 			for done in results.drain(..) {
+				self.poster_pending.remove(&done.id);
 				match done.frame {
 					Some((width, height, rgba)) => {
 						player.accept_poster(ctx, done.id, width as usize, height as usize, &rgba);
@@ -110,9 +118,6 @@ impl Video {
 				if let Err(error) = self.start(attachment, player.volume, runtime, ctx, demo) {
 					player.state = VideoState::Failed(error);
 				}
-			}
-			VideoCommand::Poster(attachment) => {
-				self.poster(attachment, player, runtime, ctx, demo);
 			}
 			VideoCommand::Pause(paused) => {
 				if let Some(s) = &self.session {
@@ -193,6 +198,26 @@ impl Video {
 		self.session = Some(session);
 		Ok(())
 	}
+	/// Queues one batch of idle-stage posters; failures surface through `poll`,
+	/// never playback state. Already-pending attachments are skipped, and past
+	/// the ceiling the rest retry while still visible.
+	pub fn posters(
+		&mut self,
+		queue: Vec<model::Attachment>,
+		player: &mut VideoUi,
+		runtime: &tokio::runtime::Handle,
+		ctx: &eframe::egui::Context,
+		demo: bool,
+	) {
+		for attachment in queue {
+			if self.poster_pending.contains(&attachment.id)
+				|| self.poster_pending.len() >= POSTER_JOBS_MAX
+			{
+				continue;
+			}
+			self.poster(attachment, player, runtime, ctx, demo);
+		}
+	}
 	/// Queues one idle-stage poster; failures surface through `poll`, never playback state.
 	fn poster(
 		&mut self,
@@ -249,6 +274,7 @@ impl Video {
 			})
 			.is_ok()
 		}) {
+			self.poster_pending.insert(id);
 			return;
 		}
 		player.poster_failed(id);
@@ -259,7 +285,10 @@ impl Video {
 /// a light poster; bounded reads only.
 fn decode_poster(job: &PosterJob, runtime: &tokio::runtime::Handle) -> Option<(u32, u32, Vec<u8>)> {
 	use platform::video::Sample;
-	use std::task::Poll::Ready;
+	use std::{
+		task::Poll::Ready,
+		time::{Duration, Instant},
+	};
 	let source = source::source(
 		job.url.clone(),
 		job.size,
@@ -268,7 +297,13 @@ fn decode_poster(job: &PosterJob, runtime: &tokio::runtime::Handle) -> Option<(u
 	)
 	.ok()?;
 	let mut decoder = platform::video::Decoder::open(source).ok()?;
-	for _ in 0..512 {
+	// Backends that signal `Pending` (Linux GStreamer) need waiting, not a poll
+	// count: give the first frame a bounded ten seconds, then mark it failed.
+	let deadline = Instant::now() + Duration::from_secs(10);
+	loop {
+		if Instant::now() >= deadline {
+			return None;
+		}
 		match decoder.poll_video().ok()? {
 			Ready(Some(Sample::Video {
 				width,
@@ -277,10 +312,9 @@ fn decode_poster(job: &PosterJob, runtime: &tokio::runtime::Handle) -> Option<(u
 				..
 			})) => return Some(downscale_poster(width, height, rgba)),
 			Ready(None) => return None,
-			_ => {}
+			_ => std::thread::sleep(Duration::from_millis(5)),
 		}
 	}
-	None
 }
 
 /// Longest poster edge in pixels; a 1080p frame shrinks ~10x before caching.
@@ -725,6 +759,7 @@ mod tests {
 #[cfg(test)]
 mod poster_tests {
 	use super::*;
+	/// Small frames pass through untouched; large ones shrink to the poster edge averaged.
 	#[test]
 	fn downscale_shrinks_and_averages() {
 		// 4x2 gradient: left half black, right half white.

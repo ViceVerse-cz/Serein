@@ -24,8 +24,6 @@ pub enum VideoState {
 }
 pub enum VideoCommand {
 	Play(Attachment),
-	/// Decode one first frame for an idle stage poster; never starts playback.
-	Poster(Attachment),
 	Pause(bool),
 	Seek(f64),
 	Volume(f32),
@@ -55,6 +53,10 @@ pub struct VideoUi {
 	poster_bytes: usize,
 	/// Attachments already asked (or answered) for a poster; no retry until eviction.
 	pub(crate) poster_seen: HashSet<Id>,
+	/// Idle attachments awaiting one decoded poster. Drained by the desktop each
+	/// frame through its own queue so poster work never consumes the single
+	/// playback command slot (and a later click cannot strand a request).
+	pub poster_queue: Vec<Attachment>,
 	/// Keyboard focus rested on an overlay control last frame, so keep the overlay visible.
 	controls_focused: bool,
 	/// Keep the viewport's previous mode so leaving playback restores the window.
@@ -79,6 +81,7 @@ impl Default for VideoUi {
 			poster_order: VecDeque::new(),
 			poster_bytes: 0,
 			poster_seen: HashSet::new(),
+			poster_queue: Vec::new(),
 			controls_focused: false,
 			fullscreen: None,
 			fullscreen_request: None,
@@ -286,6 +289,13 @@ impl VideoUi {
 			self.poster_seen.remove(id);
 		}
 	}
+	/// Marks one cached poster as recently used so repeat views keep it.
+	fn touch_poster(&mut self, id: &Id) {
+		if self.posters.contains_key(id) {
+			self.poster_order.retain(|queued| queued != id);
+			self.poster_order.push_back(*id);
+		}
+	}
 	/// Records an undecodable poster so the stage is not requested again until eviction.
 	pub fn poster_failed(&mut self, id: Id) {
 		self.poster_seen.insert(id);
@@ -341,23 +351,28 @@ impl VideoUi {
 			if let Some((poster, _)) = self.posters.get(&attachment.id) {
 				let size = poster.size_vec2();
 				if size.x > 0.0 && size.y > 0.0 {
-					let scale = (stage.width() / size.x).max(stage.height() / size.y);
+					// Contain, like playback: the decoded aspect can differ
+					// from the attachment metadata, and cover would paint
+					// outside the allocated stage over nearby content.
+					let scale = (stage.width() / size.x).min(stage.height() / size.y);
 					let rect = egui::Rect::from_center_size(stage.center(), size * scale);
 					egui::Image::new(egui::load::SizedTexture::new(poster.id(), rect.size()))
 						.corner_radius(CORNER)
 						.paint_at(ui, rect);
+					self.touch_poster(&attachment.id);
 				}
 			} else if state == VideoState::Idle
 				&& !self.poster_seen.contains(&attachment.id)
-				&& self.command.is_none()
 				&& attachment.size > 0
 				&& attachment.size <= 100 * 1024 * 1024
 				&& ui.is_rect_visible(stage)
+				&& !self
+					.poster_queue
+					.iter()
+					.any(|queued| queued.id == attachment.id)
 			{
-				// One request per attachment; the desktop answers through
-				// `accept_poster`/`poster_failed`, playback still starts on click.
-				self.poster_seen.insert(attachment.id);
-				self.command = Some(VideoCommand::Poster(attachment.clone()));
+				// Queued, not commanded: playback clicks keep the command slot.
+				self.poster_queue.push(attachment.clone());
 			}
 		}
 		if let Some(texture) = self.texture.as_ref().filter(|_| active) {
@@ -909,11 +924,7 @@ mod tests {
 				.drop_without_applying_deltas();
 			};
 			frame(&mut video, None);
-			// An idle poster request is benign; only playback commands matter here.
-			assert!(
-				matches!(video.command, None | Some(VideoCommand::Poster(_)))
-					&& video.active.is_none()
-			);
+			assert!(video.command.is_none() && video.active.is_none());
 			assert!(!video.accept_frame(&ctx, 1, 1, &[0, 0, 0, 255]));
 			for key in [egui::Key::Tab, egui::Key::Enter] {
 				frame(&mut video, Some(key));
@@ -963,6 +974,7 @@ mod tests {
 			assert!(matches!(video.command, Some(VideoCommand::Stop)));
 		}
 	}
+	/// Idle stages queue one poster, cache the decoded answer, and evict oldest-first.
 	#[test]
 	fn idle_stage_requests_and_paints_one_decoded_poster() {
 		let ctx = egui::Context::default();
@@ -1008,14 +1020,16 @@ mod tests {
 			.drop_without_applying_deltas();
 		};
 		show(&mut video);
-		// One poster request, still idle: playback never starts on its own.
-		assert!(
-			matches!(video.command.take(), Some(VideoCommand::Poster(file)) if file == attachment)
-		);
-		assert!(video.active.is_none());
-		// A second frame does not request again while the answer is pending.
+		// One queued poster request, still idle: playback never starts on its own,
+		// and the playback command slot stays free for clicks.
+		assert_eq!(video.poster_queue.len(), 1);
+		assert_eq!(video.poster_queue[0], attachment);
+		assert!(video.command.is_none() && video.active.is_none());
+		// Draining (as the desktop does each frame) retries while unresolved;
+		// the desktop pending set absorbs the duplicates.
+		video.poster_queue.clear();
 		show(&mut video);
-		assert!(video.command.is_none());
+		assert_eq!(video.poster_queue.len(), 1);
 		// Bounds match the playback path; failures never cache a texture.
 		assert!(!video.accept_poster(&ctx, Id(3), 0, 1, &[]));
 		assert!(!video.accept_poster(&ctx, Id(3), 1921, 1, &[]));

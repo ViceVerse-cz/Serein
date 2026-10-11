@@ -5024,6 +5024,7 @@ mod tests {
 		}
 	}
 
+	/// Channel switches keep cached video posters while stopping playback.
 	#[test]
 	fn channel_switch_keeps_video_posters_but_stops_playback() {
 		let ctx = egui::Context::default();

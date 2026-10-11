@@ -6751,12 +6751,9 @@ impl eframe::App for Desktop {
 					self.demo_video_autoplay = None;
 				}
 			}
-			// A queued command (poster request, play, ...) must survive this
-			// frame: synthesizing Stop here would discard it before delivery.
-			if player.command.is_none()
-				&& (!player.seen
-					|| player.active.is_none()
-					|| (!self.state.demo && self.state.auth != AuthState::Authenticated))
+			if !player.seen
+				|| player.active.is_none()
+				|| (!self.state.demo && self.state.auth != AuthState::Authenticated)
 			{
 				self.video.stop();
 				player.stop();
@@ -6764,6 +6761,16 @@ impl eframe::App for Desktop {
 			if let Some(command) = player.command.take() {
 				self.video.command(
 					command,
+					player,
+					self.runtime.handle(),
+					&ctx,
+					self.fixture_only || self.state.demo,
+				);
+			}
+			if !player.poster_queue.is_empty() {
+				let queue = std::mem::take(&mut player.poster_queue);
+				self.video.posters(
+					queue,
 					player,
 					self.runtime.handle(),
 					&ctx,
