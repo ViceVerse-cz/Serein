@@ -1722,7 +1722,12 @@ not FIFO). Its source attachment metadata uses existing model admission bounds.
 It retains only the current page result; previous-page textures are released.
 
 One page has at most 1,572,864 pixels and a 1,536-pixel edge, or 6 MiB RGBA.
-RGBA-to-ColorImage conversion runs on the worker and may temporarily hold both
+The requested envelope matches modal size, display density and 2× zoom headroom;
+small viewports do not always allocate the maximum raster. Targets are sampled
+only for explicit page requests; resize/zoom/scroll reuse the current texture.
+The helper transfers its premultiplied pixel allocation without a second
+page-sized copy. Premultiplied RGBA-to-ColorImage conversion runs on the worker,
+is skipped for already-cancelled work and may temporarily hold both
 representations (12 MiB combined), in addition to the current UI texture/upload,
 dependency/network buffers and fixed worker metadata. There is no page prefetch,
 thumbnail list, background retry or per-document growing cache. Up to 256 pages

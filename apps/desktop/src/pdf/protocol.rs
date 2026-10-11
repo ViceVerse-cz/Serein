@@ -1,7 +1,14 @@
 //! Fixed, bounded stdin/stdout protocol for the short-lived PDF raster helper.
 use std::io::{Read, Write};
-use ui::{MAX_PDF_BYTES, MAX_PDF_PAGES, PdfError, valid_pdf_dimensions};
-const MAGIC: &[u8; 8] = b"SPDF0001";
+use ui::{MAX_PDF_BYTES, MAX_PDF_EDGE, MAX_PDF_PAGES, PdfError, valid_pdf_dimensions};
+const MAGIC: &[u8; 8] = b"SPDF0002";
+/// An envelope, not a raster: its area may exceed the pixel cap. The renderer
+/// fits the page inside it and independently enforces the total-pixel limit.
+pub fn valid_target(target: [u16; 2]) -> bool {
+	target
+		.iter()
+		.all(|&edge| edge > 0 && edge as usize <= MAX_PDF_EDGE)
+}
 pub struct Raster {
 	pub pages: u32,
 	pub page: u32,
@@ -22,19 +29,30 @@ fn eof(reader: &mut impl Read) -> Result<(), PdfError> {
 fn number(bytes: &[u8]) -> u32 {
 	u32::from_le_bytes(bytes.try_into().expect("fixed header field"))
 }
-pub fn write_request(writer: &mut impl Write, page: u32, data: &[u8]) -> Result<(), PdfError> {
-	if data.is_empty() || data.len() > MAX_PDF_BYTES || page >= MAX_PDF_PAGES {
+pub fn write_request(
+	writer: &mut impl Write,
+	page: u32,
+	target: [u16; 2],
+	data: &[u8],
+) -> Result<(), PdfError> {
+	if data.is_empty()
+		|| data.len() > MAX_PDF_BYTES
+		|| page >= MAX_PDF_PAGES
+		|| !valid_target(target)
+	{
 		return Err(PdfError::Limit);
 	}
 	writer
 		.write_all(MAGIC)
 		.and_then(|_| writer.write_all(&page.to_le_bytes()))
 		.and_then(|_| writer.write_all(&(data.len() as u32).to_le_bytes()))
+		.and_then(|_| writer.write_all(&(target[0] as u32).to_le_bytes()))
+		.and_then(|_| writer.write_all(&(target[1] as u32).to_le_bytes()))
 		.and_then(|_| writer.write_all(data))
 		.map_err(|_| PdfError::Renderer)
 }
-pub fn read_request(reader: &mut impl Read) -> Result<(u32, Vec<u8>), PdfError> {
-	let mut header = [0; 16];
+pub fn read_request(reader: &mut impl Read) -> Result<(u32, [u16; 2], Vec<u8>), PdfError> {
+	let mut header = [0; 24];
 	reader
 		.read_exact(&mut header)
 		.map_err(|_| PdfError::Invalid)?;
@@ -43,7 +61,14 @@ pub fn read_request(reader: &mut impl Read) -> Result<(u32, Vec<u8>), PdfError> 
 	}
 	let page = number(&header[8..12]);
 	let len = number(&header[12..16]) as usize;
-	if len == 0 || len > MAX_PDF_BYTES || page >= MAX_PDF_PAGES {
+	let target = [number(&header[16..20]), number(&header[20..24])];
+	if len == 0
+		|| len > MAX_PDF_BYTES
+		|| page >= MAX_PDF_PAGES
+		|| target
+			.iter()
+			.any(|&edge| edge == 0 || edge > MAX_PDF_EDGE as u32)
+	{
 		return Err(PdfError::Limit);
 	}
 	let mut data = vec![0; len];
@@ -51,7 +76,7 @@ pub fn read_request(reader: &mut impl Read) -> Result<(u32, Vec<u8>), PdfError> 
 		.read_exact(&mut data)
 		.map_err(|_| PdfError::Invalid)?;
 	eof(reader)?;
-	Ok((page, data))
+	Ok((page, target.map(|edge| edge as u16), data))
 }
 fn status(error: PdfError) -> u32 {
 	match error {
@@ -153,10 +178,10 @@ mod tests {
 	#[test]
 	fn request_bounds_and_trailing_bytes() {
 		let mut out = Vec::new();
-		write_request(&mut out, 1, b"%PDF-test").unwrap();
+		write_request(&mut out, 1, [1536, 940], b"%PDF-test").unwrap();
 		assert_eq!(
 			read_request(&mut out.as_slice()).unwrap(),
-			(1, b"%PDF-test".to_vec())
+			(1, [1536, 940], b"%PDF-test".to_vec())
 		);
 		out.push(0);
 		assert!(read_request(&mut out.as_slice()).is_err());
@@ -165,7 +190,34 @@ mod tests {
 			read_request(&mut out.as_slice()).err(),
 			Some(PdfError::Limit)
 		);
-		assert!(write_request(&mut Vec::new(), 256, b"x").is_err());
+		assert!(write_request(&mut Vec::new(), 256, [1536, 940], b"x").is_err());
+	}
+	#[test]
+	fn invalid_target_and_old_protocol_fail_before_payload_allocation() {
+		let mut header = Vec::new();
+		write_request(&mut header, 0, [1536, 1536], b"%PDF-test").unwrap();
+		header.truncate(24);
+		for offset in [16, 20] {
+			for edge in [0_u32, 1537, u16::MAX as u32 + 1, u32::MAX] {
+				let mut invalid = header.clone();
+				invalid[offset..offset + 4].copy_from_slice(&edge.to_le_bytes());
+				assert_eq!(
+					read_request(&mut invalid.as_slice()).err(),
+					Some(PdfError::Limit)
+				);
+			}
+		}
+		for target in [[0, 1], [1, 0], [1537, 1], [1, u16::MAX]] {
+			assert_eq!(
+				write_request(&mut Vec::new(), 0, target, b"x").err(),
+				Some(PdfError::Limit)
+			);
+		}
+		header[..8].copy_from_slice(b"SPDF0001");
+		assert_eq!(
+			read_request(&mut header.as_slice()).err(),
+			Some(PdfError::Invalid)
+		);
 	}
 	#[test]
 	fn response_validation_precedes_pixel_allocation() {

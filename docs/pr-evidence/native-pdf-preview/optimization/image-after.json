@@ -1,0 +1,86 @@
+{
+  "method": "posix_spawn, cleared env, bounded nonblocking pipe I/O, wait4",
+  "protocol": 2,
+  "target": [
+    1536,
+    940
+  ],
+  "binary_sha256": "35e2c5dd187c4c4523606389a8255ec24bdb69a1b8faec92786e646db7b99e01",
+  "fixture_sha256": "8cdc392f412a2426e6723b80f9308fb818642e30e47b6940e1f526fcd4f80332",
+  "fixture_bytes": 27015,
+  "warmup": [
+    {
+      "page": 0,
+      "width": 723,
+      "height": 940,
+      "wall_seconds": 0.07836994500394212,
+      "user_cpu_seconds": 0.050358,
+      "system_cpu_seconds": 0.025154,
+      "total_cpu_seconds": 0.075512,
+      "peak_rss_KiB": 63416
+    }
+  ],
+  "samples": [
+    {
+      "page": 0,
+      "width": 723,
+      "height": 940,
+      "wall_seconds": 0.08520352499908768,
+      "user_cpu_seconds": 0.052095999999999996,
+      "system_cpu_seconds": 0.031156999999999997,
+      "total_cpu_seconds": 0.083253,
+      "peak_rss_KiB": 64076
+    },
+    {
+      "page": 0,
+      "width": 723,
+      "height": 940,
+      "wall_seconds": 0.08545598100317875,
+      "user_cpu_seconds": 0.064417,
+      "system_cpu_seconds": 0.019821,
+      "total_cpu_seconds": 0.08423800000000001,
+      "peak_rss_KiB": 63892
+    },
+    {
+      "page": 0,
+      "width": 723,
+      "height": 940,
+      "wall_seconds": 0.08752855000057025,
+      "user_cpu_seconds": 0.061272999999999994,
+      "system_cpu_seconds": 0.025085,
+      "total_cpu_seconds": 0.08635799999999999,
+      "peak_rss_KiB": 63704
+    },
+    {
+      "page": 0,
+      "width": 723,
+      "height": 940,
+      "wall_seconds": 0.563058235005883,
+      "user_cpu_seconds": 0.346315,
+      "system_cpu_seconds": 0.18970099999999998,
+      "total_cpu_seconds": 0.5360159999999999,
+      "peak_rss_KiB": 63996
+    },
+    {
+      "page": 0,
+      "width": 723,
+      "height": 940,
+      "wall_seconds": 1.0447730669984594,
+      "user_cpu_seconds": 0.7488509999999999,
+      "system_cpu_seconds": 0.262192,
+      "total_cpu_seconds": 1.011043,
+      "peak_rss_KiB": 63652
+    }
+  ],
+  "median_by_page": {
+    "0": {
+      "wall_seconds": 0.08752855000057025,
+      "user_cpu_seconds": 0.064417,
+      "system_cpu_seconds": 0.031156999999999997,
+      "total_cpu_seconds": 0.08635799999999999,
+      "peak_rss_KiB": 63892,
+      "width": 723,
+      "height": 940
+    }
+  }
+}

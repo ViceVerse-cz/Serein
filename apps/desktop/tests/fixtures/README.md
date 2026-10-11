@@ -72,3 +72,15 @@ gs -q -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -dCompatibilityLevel=1.7 \
   -sOutputFile=apps/desktop/tests/fixtures/pdf-password.pdf \
   apps/desktop/tests/fixtures/pdf-preview.pdf
 ```
+
+`pdf-images.pdf` is an original, deterministic one-page image-resampling fixture
+under the same MIT OR Apache-2.0 license. It contains generated RGB color
+quadrants/checker detail (1800×1200), a matching grayscale softmask and a
+1200×400 grayscale stripe, all Flate-compressed. It tests downscaling and
+alpha compositing at normal, narrow and maximum-resolution preview targets.
+It has no personal content and is test-only, not a bundled release/demo asset.
+Generate byte-for-byte with Python's standard library:
+
+```sh
+python3 apps/desktop/tests/fixtures/generate_pdf_images.py
+```

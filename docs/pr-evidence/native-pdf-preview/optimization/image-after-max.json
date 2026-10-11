@@ -1,0 +1,86 @@
+{
+  "method": "posix_spawn, cleared env, bounded nonblocking pipe I/O, wait4",
+  "protocol": 2,
+  "target": [
+    1536,
+    1536
+  ],
+  "binary_sha256": "35e2c5dd187c4c4523606389a8255ec24bdb69a1b8faec92786e646db7b99e01",
+  "fixture_sha256": "8cdc392f412a2426e6723b80f9308fb818642e30e47b6940e1f526fcd4f80332",
+  "fixture_bytes": 27015,
+  "warmup": [
+    {
+      "page": 0,
+      "width": 1099,
+      "height": 1429,
+      "wall_seconds": 0.09681616399757331,
+      "user_cpu_seconds": 0.059296999999999996,
+      "system_cpu_seconds": 0.032011,
+      "total_cpu_seconds": 0.091308,
+      "peak_rss_KiB": 66728
+    }
+  ],
+  "samples": [
+    {
+      "page": 0,
+      "width": 1099,
+      "height": 1429,
+      "wall_seconds": 0.09505320700554876,
+      "user_cpu_seconds": 0.058547999999999996,
+      "system_cpu_seconds": 0.030740999999999997,
+      "total_cpu_seconds": 0.089289,
+      "peak_rss_KiB": 66888
+    },
+    {
+      "page": 0,
+      "width": 1099,
+      "height": 1429,
+      "wall_seconds": 0.09948216500197304,
+      "user_cpu_seconds": 0.060626,
+      "system_cpu_seconds": 0.033374,
+      "total_cpu_seconds": 0.094,
+      "peak_rss_KiB": 66708
+    },
+    {
+      "page": 0,
+      "width": 1099,
+      "height": 1429,
+      "wall_seconds": 0.09251568900072016,
+      "user_cpu_seconds": 0.059447999999999994,
+      "system_cpu_seconds": 0.030715,
+      "total_cpu_seconds": 0.090163,
+      "peak_rss_KiB": 66760
+    },
+    {
+      "page": 0,
+      "width": 1099,
+      "height": 1429,
+      "wall_seconds": 0.09441396799957147,
+      "user_cpu_seconds": 0.065735,
+      "system_cpu_seconds": 0.02649,
+      "total_cpu_seconds": 0.092225,
+      "peak_rss_KiB": 66528
+    },
+    {
+      "page": 0,
+      "width": 1099,
+      "height": 1429,
+      "wall_seconds": 0.09917943199980073,
+      "user_cpu_seconds": 0.0674,
+      "system_cpu_seconds": 0.028558,
+      "total_cpu_seconds": 0.095958,
+      "peak_rss_KiB": 66588
+    }
+  ],
+  "median_by_page": {
+    "0": {
+      "wall_seconds": 0.09505320700554876,
+      "user_cpu_seconds": 0.060626,
+      "system_cpu_seconds": 0.030715,
+      "total_cpu_seconds": 0.092225,
+      "peak_rss_KiB": 66708,
+      "width": 1099,
+      "height": 1429
+    }
+  }
+}

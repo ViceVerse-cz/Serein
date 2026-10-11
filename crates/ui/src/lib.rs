@@ -14,7 +14,7 @@ pub use video::{VideoCommand, VideoState, VideoUi};
 mod pdf;
 pub use pdf::{
 	MAX_PDF_BYTES, MAX_PDF_EDGE, MAX_PDF_PAGES, MAX_PDF_PIXELS, PdfCommand, PdfError, PdfRequest,
-	PdfUi, valid_pdf_dimensions,
+	PdfUi, pdf_render_target, valid_pdf_dimensions,
 };
 mod attachments;
 pub mod external_upload;

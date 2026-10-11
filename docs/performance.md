@@ -4,6 +4,83 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. Older raw evidence
 archives have been removed; retained evidence is linked from the relevant measurement.
 
+## PDF-preview-only optimization — October 11, 2026
+
+Compared the initial PDF feature at `72efba34aa2bebb7e827a4705b748801489b30bd`
+with the optimization on the same Fedora 43 / Core i5-1035G1 / 23-GiB host,
+pinned Rust/Cargo 1.98.1 and locked dependencies. This is a before/after PDF
+viewer comparison, not upstream without a renderer. No other media, dependency,
+font/CMap or SIMD configuration changes.
+
+Explicit page requests fit modal size/display density with headroom for 2× zoom;
+zoom/Fit/scroll/resize do not render again. At 1120×760 / 100% scale, page 1
+changes from 1099×1429 to 723×940: 6,281,884 to 2,718,480 RGBA bytes
+(−56.73%). The helper also moves its premultiplied allocation instead of copying
+it, and already-cancelled work skips worker-side conversion. Limits and latest-value
+cancellation remain intact. Dimensions describe raster bytes, not whole-app/GPU RAM.
+
+Separately retained **standard** release executables (fat LTO, no default features,
+voice included) run the same vector/text and generated RGB/grayscale/softmask PDFs.
+Cleared-environment `posix_spawn`, bounded pipes and `wait4` measure one warmup plus
+five runs per page, with no build active. CPU is child user+system time; RSS is
+Linux child peak resident memory. Wall includes startup, parsing, rendering and
+pipe transfer, not UI latency. Independent medians:
+
+| Ordinary viewport / helper metric | Baseline | Optimized | Delta |
+| --- | ---: | ---: | ---: |
+| Vector page 1 total CPU | 78.53 ms | 61.74 ms | −16.79 ms / −21.38% |
+| Vector page 1 peak RSS | 64,152 KiB | 55,980 KiB | −8,172 KiB / −12.74% |
+| Vector page 2 total CPU | 76.90 ms | 60.30 ms | −16.59 ms / −21.58% |
+| Vector page 2 peak RSS | 64,204 KiB | 55,788 KiB | −8,416 KiB / −13.11% |
+| Image page total CPU | 97.37 ms | 86.36 ms | −11.01 ms / −11.30% |
+| Image page peak RSS | 72,596 KiB | 63,892 KiB | −8,704 KiB / −11.99% |
+
+Median wall time falls 22.47% / 21.90% for vector pages and 11.45% for the image
+page. At maximum target 1536×1536, the original dimensions remain: vector total
+CPU falls 16.02% / 15.65% and peak RSS 9.25% / 9.56%; image total CPU falls
+5.28% and peak RSS 8.11%. Short five-sample series include startup, scheduler and
+code-layout variation and cannot attribute every timing delta to a particular
+optimization. They do not establish arbitrary-document or universal HiDPI CPU
+improvements.
+
+Matched native `--demo --demo-pdf` processes use the final demo binaries,
+1120×760 / 100% scale, Xvfb at 96 dpi and software Vulkan llvmpipe LLVM 21.1.8.
+After 12 seconds warmup plus one second pointer-clear settling, sample the
+closed card; then open Preview and settle for three seconds before sampling
+page 1. Each state has 50 samples at 100 ms. RSS is resident pages, not
+private/GPU memory or lifetime peak; CPU is a percentage of one core.
+
+| Native process metric | Baseline | Optimized | Delta |
+| --- | ---: | ---: | ---: |
+| Closed card settled / peak sampled RSS | 268,608 KiB | 269,372 KiB | +764 KiB / +0.28% |
+| Page 1 settled / peak sampled RSS | 281,516 KiB | 275,072 KiB | −6,444 KiB / −2.29% |
+| Closed card CPU | 12.57% | 9.73% | No PDF-improvement claim |
+| Page 1 CPU | 0.00% | 0.00% | Unchanged at tick resolution |
+
+No helper remains after settling. These are single matched runs: the small
+card RSS change and the card CPU difference are noisy, not PDF improvements.
+The modal's idle CPU is unchanged at process-tick resolution. Frame/p95 latency
+and hardware-GPU memory are not measured. Native inputs/OCR/pixel checks pass,
+but direct image inspection is unavailable; human visual review is required.
+
+Both standard `cargo xtask package --format dir` and Linux directory-package
+regressions pass. File-byte sums and deterministic sorted, zero-timestamp tar
+with `gzip -n -9` give:
+
+| Package metric | Baseline | Optimized | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 92,696,008 B | 92,700,104 B | +4,096 B / +0.0044% |
+| Installed Linux tree | 97,435,353 B | 97,439,449 B | +4,096 B / +0.0042% |
+| Full staged distribution | 194,515,725 B | 194,523,917 B | +8,192 B / +0.0042% |
+| Full staged tar.gz | 111,018,749 B | 111,024,243 B | +5,494 B / +0.0049% |
+
+**Disk size is effectively unchanged, not reduced.** The feature's original
+roughly 5.36-MB executable increase versus upstream remains. Staging counts the
+executable twice; no evidence or image-test fixture enters the runtime package.
+Fresh `cargo audit --deny warnings` passes with the October 9 advisory database;
+dependencies/lockfile are unchanged. Raw samples, hashes, methods and limitations
+are in [optimization evidence](pr-evidence/native-pdf-preview/optimization/README.md).
+
 ## Native PDF attachment preview — October 11, 2026
 
 Compared upstream `134e556fb469f3fa72425adf24acb7df56811a59` with the native PDF

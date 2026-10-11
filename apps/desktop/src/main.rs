@@ -6781,6 +6781,10 @@ impl eframe::App for Desktop {
 					self.fixture_only || self.state.demo,
 				);
 			}
+			self.notifications.set_enabled(
+				self.messaging.notifications_enabled
+					&& (!self.fixture_only || self.messaging.notification_test_available),
+			);
 			if let Some(command) = self.messaging.pdf().command.take() {
 				self.pdf.command(
 					command,
@@ -6793,10 +6797,6 @@ impl eframe::App for Desktop {
 			if !self.messaging.pdf().is_open() {
 				self.pdf.stop();
 			}
-			self.notifications.set_enabled(
-				self.messaging.notifications_enabled
-					&& (!self.fixture_only || self.messaging.notification_test_available),
-			);
 			if std::mem::take(&mut self.messaging.notification_test_requested)
 				&& self.messaging.notification_test_available
 			{

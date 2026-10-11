@@ -45,6 +45,7 @@ struct Session {
 struct Request {
 	session: Arc<Session>,
 	job: PdfRequest,
+	target: [u16; 2],
 	demo: bool,
 }
 #[derive(Default)]
@@ -109,10 +110,11 @@ impl Preview {
 						&runtime,
 						&ctx,
 						|r| fetch_runtime.block_on(fetch(r)),
-						|bytes, page, cancel| {
+						|bytes, page, target, cancel| {
 							run_helper(
 								bytes,
 								page,
+								target,
 								cancel,
 								&std::env::current_exe().map_err(|_| PdfError::Unavailable)?,
 								WALL_TIME,
@@ -137,6 +139,7 @@ impl Preview {
 				result: Mutex::new(None),
 			}),
 			job,
+			target: ui::pdf_render_target(ctx),
 			demo,
 		};
 		self.requests
@@ -153,7 +156,12 @@ fn work_requests(
 	runtime: &tokio::runtime::Handle,
 	ctx: &eframe::egui::Context,
 	mut load: impl FnMut(&Request) -> Result<Vec<u8>, PdfError>,
-	mut render: impl FnMut(Arc<Vec<u8>>, u32, &AtomicBool) -> Result<protocol::Raster, HelperFailure>,
+	mut render: impl FnMut(
+		Arc<Vec<u8>>,
+		u32,
+		[u16; 2],
+		&AtomicBool,
+	) -> Result<protocol::Raster, HelperFailure>,
 ) {
 	let mut cache: Option<(u64, Arc<Vec<u8>>)> = None;
 	while runtime.block_on(receiver.changed()).is_ok() {
@@ -183,7 +191,7 @@ fn work_requests(
 				cache = Some((r.job.document, Arc::new(data)));
 			}
 			let bytes = cache.as_ref().expect("loaded current document").1.clone();
-			render(bytes, r.job.page, &r.session.cancelled).map_err(|failure| {
+			render(bytes, r.job.page, r.target, &r.session.cancelled).map_err(|failure| {
 				retire = failure == HelperFailure::Unreaped;
 				failure.public()
 			})
@@ -198,14 +206,6 @@ fn work_requests(
 			ctx.request_repaint();
 			break;
 		}
-		let result = result.map(|raster| Rendered {
-			pages: raster.pages,
-			page: raster.page,
-			image: Arc::new(eframe::egui::ColorImage::from_rgba_unmultiplied(
-				[raster.width, raster.height],
-				&raster.rgba,
-			)),
-		});
 		if cancelled(&r) {
 			if receiver
 				.borrow()
@@ -216,6 +216,14 @@ fn work_requests(
 			}
 			continue;
 		}
+		let result = result.map(|raster| Rendered {
+			pages: raster.pages,
+			page: raster.page,
+			image: Arc::new(eframe::egui::ColorImage::from_rgba_premultiplied(
+				[raster.width, raster.height],
+				&raster.rgba,
+			)),
+		});
 		if let Ok(mut slot) = r.session.result.lock() {
 			*slot = Some(result);
 		}
@@ -340,6 +348,7 @@ async fn read_document(response: reqwest::Response, declared: u64) -> Result<Vec
 fn run_helper(
 	bytes: Arc<Vec<u8>>,
 	page: u32,
+	target: [u16; 2],
 	cancel: &AtomicBool,
 	exe: &std::path::Path,
 	timeout: Duration,
@@ -369,7 +378,7 @@ fn run_helper(
 		.name("serein-pdf-pipe".into())
 		.spawn(move || {
 			let mut stdin = stdin;
-			protocol::write_request(&mut stdin, page, &bytes)?;
+			protocol::write_request(&mut stdin, page, target, &bytes)?;
 			drop(stdin);
 			protocol::read_response(&mut { stdout }, page)
 		}) {
@@ -459,8 +468,8 @@ pub fn helper_main() {
 		.as_ref()
 		.map_err(|_| PdfError::Unavailable)
 		.and_then(|_| {
-			let (page, data) = protocol::read_request(&mut std::io::stdin().lock())?;
-			renderer::render(data, page)
+			let (page, target, data) = protocol::read_request(&mut std::io::stdin().lock())?;
+			renderer::render(data, page, target)
 		});
 	let _ = protocol::write_response(&mut std::io::stdout().lock(), &result);
 }
@@ -522,7 +531,7 @@ mod tests {
 			std::env::temp_dir().join(format!("serein-pdf-helper-test-{}.sh", std::process::id()));
 		let marker = path.with_extension("pid");
 		let script = format!(
-			"#!/bin/sh\necho $$ > '{}'\nexec /usr/bin/sleep 30\n",
+			"#!/bin/sh\necho $$ > '{}'\nexec /bin/sleep 30\n",
 			marker.display()
 		);
 		std::fs::write(&path, script).unwrap();
@@ -533,6 +542,7 @@ mod tests {
 			run_helper(
 				Arc::new(b"%PDF-test".to_vec()),
 				0,
+				[1536, 940],
 				&cancel,
 				&path,
 				Duration::from_millis(100)
@@ -560,6 +570,7 @@ mod tests {
 				run_helper(
 					Arc::new(b"%PDF-test".to_vec()),
 					0,
+					[1536, 940],
 					&cancel,
 					&path,
 					Duration::from_secs(3)
@@ -586,6 +597,7 @@ mod tests {
 			run_helper(
 				Arc::new(b"%PDF-test".to_vec()),
 				0,
+				[1536, 940],
 				&AtomicBool::new(true),
 				std::path::Path::new("missing-executable"),
 				WALL_TIME
@@ -608,6 +620,7 @@ mod tests {
 				page,
 				attachment: state.timeline.get(model::Id(501)).unwrap().attachments[0].clone(),
 			},
+			target: [1536, 940],
 			demo: true,
 		}
 	}
@@ -636,7 +649,8 @@ mod tests {
 					loads.send(r.job.document).unwrap();
 					Ok(b"%PDF-synthetic".to_vec())
 				},
-				|bytes, page, cancel| {
+				|bytes, page, target, cancel| {
+					assert_eq!(target, [1536, 940]);
 					renders.send((page, Arc::downgrade(&bytes))).unwrap();
 					gate.recv_timeout(Duration::from_secs(3)).unwrap();
 					if cancel.load(Ordering::Acquire) {
@@ -728,7 +742,7 @@ mod tests {
 				&handle,
 				&eframe::egui::Context::default(),
 				|_| Ok(b"%PDF-synthetic".to_vec()),
-				|_, _, _| {
+				|_, _, _, _| {
 					started.send(()).unwrap();
 					gate.recv_timeout(Duration::from_secs(3)).unwrap();
 					Err(HelperFailure::Unreaped)
@@ -753,6 +767,79 @@ mod tests {
 		));
 		assert!(first.session.result.lock().unwrap().is_none());
 		assert!(running.try_recv().is_err());
+	}
+	#[test]
+	fn worker_preserves_premultiplied_pixels_and_requested_envelope() {
+		let runtime = tokio::runtime::Runtime::new().unwrap();
+		let (sender, receiver) = tokio::sync::watch::channel(None);
+		let handle = runtime.handle().clone();
+		let worker = std::thread::spawn(move || {
+			work_requests(
+				receiver,
+				&handle,
+				&eframe::egui::Context::default(),
+				|_| Ok(b"%PDF-synthetic".to_vec()),
+				|_, page, target, _| {
+					assert_eq!(target, [816, 220]);
+					Ok(protocol::Raster {
+						pages: 2,
+						page,
+						width: 1,
+						height: 1,
+						rgba: vec![64, 32, 16, 128],
+					})
+				},
+			);
+		});
+		let mut request = request(10, 0);
+		request.target = [816, 220];
+		sender.send_replace(Some(request.clone()));
+		wait_until(|| request.session.result.lock().unwrap().is_some());
+		let result = request
+			.session
+			.result
+			.lock()
+			.unwrap()
+			.take()
+			.unwrap()
+			.unwrap();
+		assert_eq!(result.image.pixels[0].to_array(), [64, 32, 16, 128]);
+		drop(sender);
+		worker.join().unwrap();
+	}
+	#[test]
+	fn cancelled_completed_raster_skips_color_conversion_and_publication() {
+		let runtime = tokio::runtime::Runtime::new().unwrap();
+		let (sender, receiver) = tokio::sync::watch::channel(None);
+		let (finished, completed) = std::sync::mpsc::channel();
+		let handle = runtime.handle().clone();
+		let worker = std::thread::spawn(move || {
+			work_requests(
+				receiver,
+				&handle,
+				&eframe::egui::Context::default(),
+				|_| Ok(b"%PDF-synthetic".to_vec()),
+				|_, page, _, cancel| {
+					cancel.store(true, Ordering::Release);
+					finished.send(()).unwrap();
+					// Only this injected test uses invalid pixels: attempting
+					// conversion after cancellation would panic on the length.
+					Ok(protocol::Raster {
+						pages: 2,
+						page,
+						width: 1,
+						height: 1,
+						rgba: Vec::new(),
+					})
+				},
+			);
+		});
+		let request = request(10, 0);
+		sender.send_replace(Some(request.clone()));
+		completed.recv_timeout(Duration::from_secs(3)).unwrap();
+		drop(sender);
+		worker.join().unwrap();
+		assert!(request.session.result.lock().unwrap().is_none());
 	}
 
 	#[tokio::test]
