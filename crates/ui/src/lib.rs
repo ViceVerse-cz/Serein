@@ -1215,11 +1215,16 @@ impl MessagingUi {
 					},
 				);
 
+				let right_inset = if design::WINDOW_CONTROLS_WIDTH > 0.0 {
+					0.0
+				} else {
+					12.0
+				};
 				ui.scope_builder(
 					egui::UiBuilder::new()
 						.max_rect(egui::Rect::from_min_max(
 							egui::pos2(title_rect.right() + 10.0, rect.top()),
-							rect.right_bottom() - egui::vec2(12.0, 0.0),
+							rect.right_bottom() - egui::vec2(right_inset, 0.0),
 						))
 						.layout(egui::Layout::right_to_left(egui::Align::Center)),
 					|ui| {

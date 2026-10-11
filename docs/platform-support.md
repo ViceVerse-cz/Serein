@@ -61,9 +61,12 @@ driver/DWM presentation on that machine. Windows visual acceptance remains unver
 
 The custom title strip requests a native window move on the initial primary-button press,
 including over its nonselectable context title. It does not wait for egui's text/drag threshold.
-Caption buttons and other clickable title-strip controls keep their own actions; Windows
-double-click maximize/restore remains available. Synthetic egui input tests check command
-dispatch, not native OS window movement, which still requires a desktop interaction check.
+On Windows, the custom title strip paints native-fidelity Windows 11 caption buttons
+(minimize, maximize/restore, close) flush in the top-right corner. Custom resize hit testing
+excludes the caption buttons area so edge/corner resizing does not intercept corner clicks on
+Close. Caption buttons keep their own actions; Windows double-click maximize/restore remains
+available. Synthetic egui input tests check command dispatch, including corner hit testing.
+Native OS window movement still requires a desktop interaction check.
 On Windows and macOS, General settings can hide this 36 px strip and use the native title bar
 and window buttons instead. The device preference defaults to showing the custom strip and
 is saved with other app preferences; older saved settings keep that default. macOS switches

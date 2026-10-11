@@ -1197,11 +1197,22 @@ pub fn apply(ctx: &egui::Context) {
 pub const TITLE_BAR_HEIGHT: f32 = 36.0;
 /// Space reserved at the left of window strips for macOS traffic lights.
 pub const TRAFFIC_LIGHT_INSET: f32 = if cfg!(target_os = "macos") { 72.0 } else { 0.0 };
+
 /// Width of the Windows caption buttons drawn by [`window_controls`]; zero elsewhere.
 pub const WINDOW_CONTROLS_WIDTH: f32 = if cfg!(target_os = "windows") {
 	3.0 * 46.0
 } else {
 	0.0
+};
+
+/// Tallest Windows caption strip that draws [`window_controls`]: the login
+/// header (56 pt) above the sign-in header (44 pt) and the title strip
+/// ([`TITLE_BAR_HEIGHT`]). Resize handles start below it so corner clicks
+/// reach Close on every screen, not just the title strip.
+pub const WINDOW_CAPTION_HEIGHT: f32 = if cfg!(target_os = "windows") {
+	56.0
+} else {
+	TITLE_BAR_HEIGHT
 };
 
 /// Make `rect` behave like a native title bar: drag moves the window and, where the app
@@ -1226,7 +1237,59 @@ pub fn window_drag(ui: &mut egui::Ui, rect: egui::Rect) {
 	}
 }
 
+/// Hit boxes for the native Windows resize handles within `rect`, each paired
+/// with its resize direction and cursor. The top-right caption area is
+/// excluded so corner clicks reach Close; the east handle starts below
+/// [`WINDOW_CAPTION_HEIGHT`], covering the tallest caption strip.
+pub(crate) fn resize_handles(
+	rect: egui::Rect,
+) -> [(egui::Rect, egui::ResizeDirection, egui::CursorIcon); 7] {
+	use egui::{CursorIcon as C, ResizeDirection as D};
+	let (l, r, t, b) = (rect.left(), rect.right(), rect.top(), rect.bottom());
+	let edge = 5.0;
+	let corner = 12.0;
+	let rect_at = |min: [f32; 2], max: [f32; 2]| egui::Rect::from_min_max(min.into(), max.into());
+	[
+		(
+			rect_at([l, t], [l + corner, t + corner]),
+			D::NorthWest,
+			C::ResizeNwSe,
+		),
+		(
+			rect_at([l, b - corner], [l + corner, b]),
+			D::SouthWest,
+			C::ResizeNeSw,
+		),
+		(
+			rect_at([r - corner, b - corner], [r, b]),
+			D::SouthEast,
+			C::ResizeNwSe,
+		),
+		(
+			rect_at([l + corner, t], [r - WINDOW_CONTROLS_WIDTH, t + edge]),
+			D::North,
+			C::ResizeVertical,
+		),
+		(
+			rect_at([l + corner, b - edge], [r - corner, b]),
+			D::South,
+			C::ResizeVertical,
+		),
+		(
+			rect_at([l, t + corner], [l + edge, b - corner]),
+			D::West,
+			C::ResizeHorizontal,
+		),
+		(
+			rect_at([r - edge, t + WINDOW_CAPTION_HEIGHT], [r, b - corner]),
+			D::East,
+			C::ResizeHorizontal,
+		),
+	]
+}
+
 /// Native resize handles for the undecorated Windows viewport, including sign-in.
+/// The top-right caption area is excluded so clicking the corner always reaches Close.
 pub fn window_resize(ctx: &egui::Context) {
 	if !cfg!(target_os = "windows")
 		|| ctx.input(|i| {
@@ -1234,65 +1297,8 @@ pub fn window_resize(ctx: &egui::Context) {
 		}) {
 		return;
 	}
-	use egui::{CursorIcon as C, ResizeDirection as D};
 	let rect = ctx.viewport_rect();
-	let (l, r, t, b) = (rect.left(), rect.right(), rect.top(), rect.bottom());
-	let edge = 5.0;
-	let corner = 12.0;
-	for (index, (min, max, direction, cursor)) in [
-		(
-			[l, t],
-			[l + corner, t + corner],
-			D::NorthWest,
-			C::ResizeNwSe,
-		),
-		(
-			[r - corner, t],
-			[r, t + corner],
-			D::NorthEast,
-			C::ResizeNeSw,
-		),
-		(
-			[l, b - corner],
-			[l + corner, b],
-			D::SouthWest,
-			C::ResizeNeSw,
-		),
-		(
-			[r - corner, b - corner],
-			[r, b],
-			D::SouthEast,
-			C::ResizeNwSe,
-		),
-		(
-			[l + corner, t],
-			[r - corner, t + edge],
-			D::North,
-			C::ResizeVertical,
-		),
-		(
-			[l + corner, b - edge],
-			[r - corner, b],
-			D::South,
-			C::ResizeVertical,
-		),
-		(
-			[l, t + corner],
-			[l + edge, b - corner],
-			D::West,
-			C::ResizeHorizontal,
-		),
-		(
-			[r - edge, t + corner],
-			[r, b - corner],
-			D::East,
-			C::ResizeHorizontal,
-		),
-	]
-	.into_iter()
-	.enumerate()
-	{
-		let handle = egui::Rect::from_min_max(min.into(), max.into());
+	for (index, (handle, direction, cursor)) in resize_handles(rect).into_iter().enumerate() {
 		egui::Area::new(egui::Id::unique(("window-resize", index)))
 			.order(egui::Order::Foreground)
 			.fixed_pos(handle.min)
@@ -1311,15 +1317,16 @@ pub fn window_resize(ctx: &egui::Context) {
 	}
 }
 
-/// Discord-style caption buttons (minimize, maximize/restore, close) for the undecorated
-/// Windows frame. Lay out in a right-to-left `ui`; a no-op on other platforms.
+/// Native-fidelity Windows caption buttons (minimize, maximize/restore, close) for the
+/// undecorated Windows frame. Lay out in a right-to-left `ui`; a no-op on other platforms.
 pub fn window_controls(ui: &mut egui::Ui) {
 	if !cfg!(target_os = "windows") {
 		return;
 	}
 	let p = palette(ui);
 	let maximized = ui.input(|i| i.viewport().maximized.unwrap_or(false));
-	let height = ui.available_height().clamp(28.0, 36.0);
+	let height = ui.available_height().max(TITLE_BAR_HEIGHT);
+	let saved_spacing = ui.spacing().item_spacing.x;
 	ui.spacing_mut().item_spacing.x = 0.0;
 	let caption =
 		|ui: &mut egui::Ui, label: &str, danger: bool| -> (egui::Response, egui::Rect, Color32) {
@@ -1327,19 +1334,26 @@ pub fn window_controls(ui: &mut egui::Ui) {
 				ui.allocate_exact_size(egui::vec2(46.0, height), egui::Sense::click());
 			response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
 			let hovered = response.hovered() || response.has_focus();
-			if hovered {
-				ui.painter()
-					.rect_filled(rect, 0, if danger { rgb(0xc42b1c) } else { p.hover });
-			}
-			let color = if hovered && danger {
-				Color32::WHITE
+			let active = response.is_pointer_button_down_on();
+			if active && danger {
+				ui.painter().rect_filled(rect, 0.0, rgb(0x8b0a14));
+			} else if hovered && danger {
+				ui.painter().rect_filled(rect, 0.0, rgb(0xc42b1c));
+			} else if active {
+				ui.painter().rect_filled(rect, 0.0, p.selected);
 			} else if hovered {
+				ui.painter().rect_filled(rect, 0.0, p.hover);
+			}
+			let color = if (hovered || active) && danger {
+				Color32::WHITE
+			} else if hovered || active {
 				p.text_strong
 			} else {
 				p.text
 			};
 			(response, rect, color)
 		};
+
 	let (close, rect, color) = caption(ui, "Close", true);
 	let c = rect.center();
 	let stroke = Stroke::new(1.0, color);
@@ -1354,27 +1368,52 @@ pub fn window_controls(ui: &mut egui::Ui) {
 	if close.clicked() {
 		ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
 	}
+
 	let (toggle, rect, color) = caption(ui, if maximized { "Restore" } else { "Maximize" }, false);
 	let c = rect.center();
 	let stroke = Stroke::new(1.0, color);
-	let square = egui::Rect::from_center_size(c, egui::Vec2::splat(10.0));
-	ui.painter()
-		.rect_stroke(square, 1, stroke, egui::StrokeKind::Middle);
+	if maximized {
+		// Native Windows 11 restore glyph: two overlapping squares with 1px stroke.
+		let back_top_left = c + egui::vec2(-2.0, -5.0);
+		let back_top_right = c + egui::vec2(5.0, -5.0);
+		let back_bottom_right = c + egui::vec2(5.0, 2.0);
+		ui.painter()
+			.line_segment([back_top_left, back_top_right], stroke);
+		ui.painter()
+			.line_segment([back_top_right, back_bottom_right], stroke);
+		ui.painter()
+			.line_segment([c + egui::vec2(3.0, 2.0), back_bottom_right], stroke);
+		ui.painter()
+			.line_segment([back_top_left, c + egui::vec2(-2.0, -3.0)], stroke);
+
+		let front = egui::Rect::from_min_max(c + egui::vec2(-5.0, -2.0), c + egui::vec2(3.0, 6.0));
+		let base_color = window_palette(ui).base;
+		ui.painter().rect_filled(front, 0.0, base_color);
+		ui.painter()
+			.rect_stroke(front, 0.0, stroke, egui::StrokeKind::Middle);
+	} else {
+		let square = egui::Rect::from_center_size(c, egui::Vec2::splat(10.0));
+		ui.painter()
+			.rect_stroke(square, 0.0, stroke, egui::StrokeKind::Middle);
+	}
 	if toggle.clicked() {
 		ui.ctx()
 			.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
 	}
+
 	let (minimize, rect, color) = caption(ui, "Minimize", false);
 	let c = rect.center();
+	let stroke = Stroke::new(1.0, color);
 	ui.painter().line_segment(
-		[c + egui::vec2(-5.0, 0.5), c + egui::vec2(5.0, 0.5)],
-		Stroke::new(1.0, color),
+		[c + egui::vec2(-5.0, 0.0), c + egui::vec2(5.0, 0.0)],
+		stroke,
 	);
 	if minimize.clicked() {
 		ui.ctx()
 			.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
 	}
-	ui.add_space(6.0);
+	ui.add_space(12.0);
+	ui.spacing_mut().item_spacing.x = saved_spacing;
 }
 
 /// Full-width accent call to action with centred text and an optional leading icon.
