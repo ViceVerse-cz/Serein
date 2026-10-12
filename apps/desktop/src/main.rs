@@ -34,6 +34,7 @@ mod notification_runtime;
 mod notification_sounds;
 #[cfg(feature = "demo")]
 mod onboarding_demo;
+mod pdf;
 mod pointer;
 #[cfg(feature = "demo")]
 mod polls_demo;
@@ -77,6 +78,10 @@ const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 
 /// Run explicit offline checks before native startup, or launch the configured desktop client.
 fn main() -> eframe::Result {
+	if pdf::helper_requested() {
+		pdf::helper_main();
+		return Ok(());
+	}
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-pr565")
@@ -952,6 +957,7 @@ struct Desktop {
 	rpc_invite_seen: u64,
 	pointer: pointer::Pointer,
 	downloads: downloads::Downloads,
+	pdf: pdf::Preview,
 	audio: audio::Audio,
 	video: video::Video,
 	/// Offline fixture flags start (and optionally pause) the demo attachment without input.
@@ -1451,6 +1457,8 @@ impl Desktop {
 					polls_demo::preview()
 				} else if std::env::args().any(|arg| arg == "--demo-components") {
 					components_demo::preview()
+				} else if std::env::args().any(|arg| arg == "--demo-pdf") {
+					test_support::pdf_demo_state()
 				} else if std::env::args().any(|arg| arg == "--demo-forwarded") {
 					test_support::forwarded_demo_state()
 				} else if std::env::args()
@@ -2208,6 +2216,7 @@ impl Desktop {
 			rpc_invite_seen: 0,
 			pointer: pointer::Pointer::default(),
 			downloads: downloads::Downloads::default(),
+			pdf: pdf::Preview::default(),
 			audio: audio::Audio::default(),
 			video: video::Video::default(),
 			demo_video_autoplay: if std::env::args().any(|arg| arg == "--demo-video-paused") {
@@ -2418,6 +2427,8 @@ impl Desktop {
 			store.cancel_load();
 		}
 		self.downloads.cancel();
+		self.pdf.stop();
+		self.messaging.pdf().close();
 		self.audio.stop();
 		self.video.stop();
 		self.video.cancel_posters();
@@ -6255,11 +6266,14 @@ impl eframe::App for Desktop {
 			|| (!self.state.demo && self.state.auth != AuthState::Authenticated)
 			|| hidden_or_closing
 		{
+			self.pdf.stop();
+			self.messaging.pdf().close();
 			self.audio.stop();
 			self.messaging.audio().stop();
 			self.video.stop();
 			self.messaging.video().stop();
 		}
+		self.pdf.poll(self.messaging.pdf(), ctx);
 		self.video.poll(self.messaging.video(), ctx);
 		let audio = self.audio.poll();
 		let player = self.messaging.audio();
@@ -6785,6 +6799,18 @@ impl eframe::App for Desktop {
 				self.messaging.notifications_enabled
 					&& (!self.fixture_only || self.messaging.notification_test_available),
 			);
+			if let Some(command) = self.messaging.pdf().command.take() {
+				self.pdf.command(
+					command,
+					self.messaging.pdf(),
+					self.runtime.handle(),
+					&ctx,
+					self.fixture_only || self.state.demo,
+				);
+			}
+			if !self.messaging.pdf().is_open() {
+				self.pdf.stop();
+			}
 			if std::mem::take(&mut self.messaging.notification_test_requested)
 				&& self.messaging.notification_test_available
 			{

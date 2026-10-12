@@ -1,0 +1,155 @@
+{
+  "method": "posix_spawn, cleared env, bounded nonblocking pipe I/O, wait4",
+  "protocol": 2,
+  "target": [
+    1536,
+    940
+  ],
+  "binary_sha256": "35e2c5dd187c4c4523606389a8255ec24bdb69a1b8faec92786e646db7b99e01",
+  "fixture_sha256": "cb43e1a082d9349d9b59b341e0bea19299c707e679a900bfbe3bf9c52ddea755",
+  "fixture_bytes": 2116,
+  "warmup": [
+    {
+      "page": 0,
+      "width": 723,
+      "height": 940,
+      "wall_seconds": 0.07237851600075373,
+      "user_cpu_seconds": 0.048101,
+      "system_cpu_seconds": 0.021639,
+      "total_cpu_seconds": 0.06974,
+      "peak_rss_KiB": 55872
+    },
+    {
+      "page": 1,
+      "width": 692,
+      "height": 940,
+      "wall_seconds": 0.07059066199872177,
+      "user_cpu_seconds": 0.043754,
+      "system_cpu_seconds": 0.0248,
+      "total_cpu_seconds": 0.068554,
+      "peak_rss_KiB": 55972
+    }
+  ],
+  "samples": [
+    {
+      "page": 0,
+      "width": 723,
+      "height": 940,
+      "wall_seconds": 0.0710931010034983,
+      "user_cpu_seconds": 0.04792,
+      "system_cpu_seconds": 0.021917,
+      "total_cpu_seconds": 0.069837,
+      "peak_rss_KiB": 55980
+    },
+    {
+      "page": 0,
+      "width": 723,
+      "height": 940,
+      "wall_seconds": 0.0705512339991401,
+      "user_cpu_seconds": 0.046234,
+      "system_cpu_seconds": 0.021188,
+      "total_cpu_seconds": 0.067422,
+      "peak_rss_KiB": 56032
+    },
+    {
+      "page": 0,
+      "width": 723,
+      "height": 940,
+      "wall_seconds": 0.06257354599802056,
+      "user_cpu_seconds": 0.040815,
+      "system_cpu_seconds": 0.020926,
+      "total_cpu_seconds": 0.061741,
+      "peak_rss_KiB": 55236
+    },
+    {
+      "page": 0,
+      "width": 723,
+      "height": 940,
+      "wall_seconds": 0.060857704003865365,
+      "user_cpu_seconds": 0.040071999999999997,
+      "system_cpu_seconds": 0.020043,
+      "total_cpu_seconds": 0.060114999999999995,
+      "peak_rss_KiB": 55972
+    },
+    {
+      "page": 0,
+      "width": 723,
+      "height": 940,
+      "wall_seconds": 0.06030559599457774,
+      "user_cpu_seconds": 0.042603999999999996,
+      "system_cpu_seconds": 0.016839,
+      "total_cpu_seconds": 0.059442999999999996,
+      "peak_rss_KiB": 56024
+    },
+    {
+      "page": 1,
+      "width": 692,
+      "height": 940,
+      "wall_seconds": 0.06125218299712287,
+      "user_cpu_seconds": 0.045462999999999996,
+      "system_cpu_seconds": 0.014841,
+      "total_cpu_seconds": 0.060303999999999996,
+      "peak_rss_KiB": 55416
+    },
+    {
+      "page": 1,
+      "width": 692,
+      "height": 940,
+      "wall_seconds": 0.06492139399779262,
+      "user_cpu_seconds": 0.042359,
+      "system_cpu_seconds": 0.021682,
+      "total_cpu_seconds": 0.064041,
+      "peak_rss_KiB": 55304
+    },
+    {
+      "page": 1,
+      "width": 692,
+      "height": 940,
+      "wall_seconds": 0.059272115999192465,
+      "user_cpu_seconds": 0.041704,
+      "system_cpu_seconds": 0.016888,
+      "total_cpu_seconds": 0.058592,
+      "peak_rss_KiB": 55940
+    },
+    {
+      "page": 1,
+      "width": 692,
+      "height": 940,
+      "wall_seconds": 0.06174625399580691,
+      "user_cpu_seconds": 0.04199,
+      "system_cpu_seconds": 0.019028,
+      "total_cpu_seconds": 0.061018,
+      "peak_rss_KiB": 55956
+    },
+    {
+      "page": 1,
+      "width": 692,
+      "height": 940,
+      "wall_seconds": 0.05999626699485816,
+      "user_cpu_seconds": 0.040378,
+      "system_cpu_seconds": 0.018736,
+      "total_cpu_seconds": 0.059114,
+      "peak_rss_KiB": 55788
+    }
+  ],
+  "median_by_page": {
+    "0": {
+      "wall_seconds": 0.06257354599802056,
+      "user_cpu_seconds": 0.042603999999999996,
+      "system_cpu_seconds": 0.020926,
+      "total_cpu_seconds": 0.061741,
+      "peak_rss_KiB": 55980,
+      "width": 723,
+      "height": 940
+    },
+    "1": {
+      "wall_seconds": 0.06125218299712287,
+      "user_cpu_seconds": 0.04199,
+      "system_cpu_seconds": 0.018736,
+      "total_cpu_seconds": 0.060303999999999996,
+      "peak_rss_KiB": 55788,
+      "width": 692,
+      "height": 940
+    }
+  }
+}

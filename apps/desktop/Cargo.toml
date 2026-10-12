@@ -34,6 +34,8 @@ local-store.workspace = true
 winit.workspace = true
 reqwest.workspace = true
 rasterlottie.workspace = true
+# CPU-only renderer, invoked exclusively in the resource-limited helper.
+hayro = "=0.8.0"
 getrandom.workspace = true
 url.workspace = true
 time = { workspace = true, features = ["local-offset"] }

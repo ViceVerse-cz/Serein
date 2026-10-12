@@ -29,7 +29,7 @@ class NativePackageTest(unittest.TestCase):
                          "Twemoji-CC-BY-4.0.txt", "Unicode-LICENSE.txt", "Phosphor-Icons-MIT.txt", "Simple-Icons-CC0.txt"]:
                 (staged / "licenses" / name).write_text("synthetic license\n")
             for name in ["licenses/files", "licenses/notifications", "licenses/login",
-                         "licenses/voice", "licenses/audio", "licenses/dependencies", "source/hpke-rs"]:
+                         "licenses/voice", "licenses/audio", "licenses/pdf", "licenses/dependencies", "source/hpke-rs"]:
                 source = Path("vendor/hpke-rs") if name.startswith("source/") else Path("assets") / name
                 shutil.copytree(source, staged / name)
                 (staged / name / "stale-nested.log").write_text("synthetic private marker\n")
@@ -62,6 +62,14 @@ class NativePackageTest(unittest.TestCase):
                     for excluded in ["debug.log", "stale.log", "stale.deb", "previous.deb", "stale-nested.log"]:
                         self.assertNotIn(excluded, listing)
                     self.assertIn("licenses/voice/", listing)
+                    pdf = staged / "linux-root/usr/share/doc/serein/licenses/pdf"
+                    self.assertEqual(packaging.payload_files(pdf),
+                                     packaging.payload_files(Path("assets/licenses/pdf")))
+                    for notice in ["PROVENANCE.md", "hayro-0.8.0-LICENSE-MIT",
+                                   "hayro-interpret-0.8.0-LICENSE_FOXIT",
+                                   "hayro-cmap-0.1.0-LICENSE.txt"]:
+                        self.assertEqual((pdf / notice).read_bytes(),
+                                         (Path("assets/licenses/pdf") / notice).read_bytes())
                     with self.assertRaisesRegex(ValueError, "already exists"):
                         packaging.native_package(staged, "0.1.0-test", FORMAT)
                 with self.assertRaisesRegex(ValueError, "semantic application version"):
@@ -82,6 +90,9 @@ class NativePackageTest(unittest.TestCase):
             self.assertNotIn("source/hpke-rs/", listing)
             self.assertIn("licenses/dependencies/PROVENANCE.md", listing)
             self.assertIn("licenses/voice/", listing)
+            self.assertIn("licenses/pdf/PROVENANCE.md", listing)
+            self.assertIn("licenses/pdf/hayro-interpret-0.8.0-LICENSE_FOXIT", listing)
+            self.assertIn("licenses/pdf/hayro-cmap-0.1.0-LICENSE.txt", listing)
             # Preserve valid metadata while making the expected payload disagree.
             wrong_stage = root / "wrong-stage"
             wrong_stage.mkdir()

@@ -1,0 +1,83 @@
+{
+  "method": "posix_spawn, cleared env, bounded nonblocking pipe I/O, wait4",
+  "protocol": 1,
+  "target": "v1 always uses maximum",
+  "binary_sha256": "4f01ded674c1319887b2ec95e1be9cceff30850cb7ad5e5c627bacec3e2f75f8",
+  "fixture_sha256": "8cdc392f412a2426e6723b80f9308fb818642e30e47b6940e1f526fcd4f80332",
+  "fixture_bytes": 27015,
+  "warmup": [
+    {
+      "page": 0,
+      "width": 1099,
+      "height": 1429,
+      "wall_seconds": 0.10085444700234802,
+      "user_cpu_seconds": 0.063815,
+      "system_cpu_seconds": 0.032859,
+      "total_cpu_seconds": 0.096674,
+      "peak_rss_KiB": 72904
+    }
+  ],
+  "samples": [
+    {
+      "page": 0,
+      "width": 1099,
+      "height": 1429,
+      "wall_seconds": 0.10806903000047896,
+      "user_cpu_seconds": 0.073805,
+      "system_cpu_seconds": 0.030586,
+      "total_cpu_seconds": 0.104391,
+      "peak_rss_KiB": 72500
+    },
+    {
+      "page": 0,
+      "width": 1099,
+      "height": 1429,
+      "wall_seconds": 0.09943041299993638,
+      "user_cpu_seconds": 0.07099699999999999,
+      "system_cpu_seconds": 0.027013,
+      "total_cpu_seconds": 0.09800999999999999,
+      "peak_rss_KiB": 72948
+    },
+    {
+      "page": 0,
+      "width": 1099,
+      "height": 1429,
+      "wall_seconds": 0.0973719209941919,
+      "user_cpu_seconds": 0.059118,
+      "system_cpu_seconds": 0.036472,
+      "total_cpu_seconds": 0.09559,
+      "peak_rss_KiB": 73168
+    },
+    {
+      "page": 0,
+      "width": 1099,
+      "height": 1429,
+      "wall_seconds": 0.0973081150004873,
+      "user_cpu_seconds": 0.064263,
+      "system_cpu_seconds": 0.031170999999999997,
+      "total_cpu_seconds": 0.09543399999999999,
+      "peak_rss_KiB": 72508
+    },
+    {
+      "page": 0,
+      "width": 1099,
+      "height": 1429,
+      "wall_seconds": 0.09884923900244758,
+      "user_cpu_seconds": 0.063581,
+      "system_cpu_seconds": 0.033784,
+      "total_cpu_seconds": 0.09736500000000001,
+      "peak_rss_KiB": 72596
+    }
+  ],
+  "median_by_page": {
+    "0": {
+      "wall_seconds": 0.09884923900244758,
+      "user_cpu_seconds": 0.064263,
+      "system_cpu_seconds": 0.031170999999999997,
+      "total_cpu_seconds": 0.09736500000000001,
+      "peak_rss_KiB": 72596,
+      "width": 1099,
+      "height": 1429
+    }
+  }
+}

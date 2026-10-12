@@ -1,0 +1,117 @@
+PDF-only optimization verification — October 11, 2026
+Optimization baseline: 72efba34aa2bebb7e827a4705b748801489b30bd
+Original upstream baseline: 134e556fb469f3fa72425adf24acb7df56811a59
+Latest fetched upstream/main: 178bde35620a0eb6594aa22ce33aa4a8ca47ae0f
+Upstream includes unrelated video changes, not included in local builds.
+Only PDF dispatch placement moved to avoid its overlapping upstream insertion.
+Read-only merge-tree inspection of the relocated feature succeeds.
+No merge/rebase or unrelated upstream code/dependency changes.
+Rust/Cargo 1.98.1 (repository-pinned Fedora toolchain), locked dependencies.
+Cargo operations sharing the target were serialized.
+
+Final application diff SHA-256, relative to optimization baseline:
+c806477a527984643ee5f4ea716776df8117d2dc8428548d5b13ffb9b4f92269
+Command:
+git diff 72efba34aa2bebb7e827a4705b748801489b30bd -- apps/desktop/src/main.rs apps/desktop/src/pdf/{mod,protocol,renderer}.rs crates/ui/src/{lib,pdf}.rs | sha256sum
+The earlier gate/builds preceded dispatch relocation. Formatting, focused
+regressions, the workspace gate, demo release build and standard package were
+rerun and passed on the relocated tree. All six helper series were refreshed
+with the separately retained baseline and final standard packages.
+
+cargo fmt --all -- --check — PASS
+cargo test --locked -p ui pdf — PASS: 12 tests
+cargo test --locked -p model -p ui -p serein pdf — PASS: 29 tests
+  model: 1; desktop: 16; UI: 12
+cargo test --locked -p serein --test pdf_helper — PASS: 10 tests
+cargo xtask check — PASS
+  Formatting, strict workspace/all-target Clippy, workspace tests,
+  production no-default-features check and policy.
+  Desktop: 209 passed / 6 ignored; UI: 466 passed / 8 ignored.
+  The gate does not compile the demo feature; demo compilation is separate.
+
+Reaction regression — failed before the fix, passed afterward.
+  Timeline::set_reactions snapshots with counts 1, 2 and removal increment
+  message revision but preserve timeline/search/pin preview identity,
+  texture and absence of a new work request.
+  Existing edit/deletion/spoiler/permission/account invalidation tests pass.
+Unix timeout/cancellation/reap regression — PASS locally with /bin/sleep.
+  This fixes the reviewed macOS path failure; macOS runtime is not tested here.
+Viewport/density/zoom envelope and pathological-target regressions — PASS.
+Resize/zoom/Fit retain texture without render requests — PASS.
+Premultiplied color and already-cancelled conversion regression — PASS.
+RGB/grayscale/softmask fixture colors at ordinary/narrow/maximum targets — PASS.
+Real helper protocol v2, fail-closed old/invalid targets, resource limits,
+  watchdog, password/malformed/page bounds — PASS.
+
+python3 apps/desktop/tests/fixtures/generate_pdf_images.py
+  --output-directory /tmp/serein-pdf-preview/optimization/regenerated-final
+cmp regenerated-final/pdf-images.pdf apps/desktop/tests/fixtures/pdf-images.pdf
+  — PASS: deterministic regeneration is byte-identical (27,015 bytes).
+Python AST parsing of fixture generator and both measurement scripts — PASS.
+git diff --check — PASS.
+
+Dependencies, lockfile, fonts/CMaps, resampling SIMD and shared media unchanged.
+Prior cargo xtask licenses — PASS; existing unused-allowance warnings.
+node tests/license-policy.cjs — PASS.
+node tests/xtask-workspace.cjs — PASS.
+Cached cargo audit --no-fetch --deny warnings — PASS.
+Final cargo audit --deny warnings — PASS, fresh advisory and index fetch:
+  901 dependencies; 1,296 advisories; database
+  7eebec69c352c7191b1f13eb95dd510eeca5d1de
+  (committer date October 9, 2026, 08:12:02 UTC).
+An earlier fresh fetch failed DNS; the final fresh fetch succeeded.
+
+cargo xtask package --format dir — PASS:
+  Standard no-default-features release, fat LTO, voice included.
+python3 packaging/linux/test_package.py --format dir — PASS.
+Final standard package and demo outputs retained separately.
+Portable/installed executable copies match; 527 staged files / 270 installed.
+No evidence assets, measurement scripts or new image fixture bundled.
+Package compression: sorted zero-timestamp tar, numeric owner/group 0;
+  gzip -n -9. See package-measurements.json for exact bytes and hashes.
+  Final standard executable SHA-256:
+  35e2c5dd187c4c4523606389a8255ec24bdb69a1b8faec92786e646db7b99e01
+  Final staged tar.gz SHA-256:
+  2736da28e2ddb90971380abe193d586cbcde2895046df54ef8b26278e0dbfa3a
+
+measure-helper-comparison.py — PASS:
+  Baseline protocol 1 / optimized protocol 2, ordinary vector and image PDFs;
+  optimized maximum-envelope vector and image PDFs.
+  Cleared environment, bounded pipes, wait4; no build active.
+  One warmup + 5 measured runs per page, each scenario.
+  Raw helper-{before,after,after-max}.json and image-{before,after,after-max}.json.
+  All series run again after the final package completed.
+  Raster/helper CPU/RSS improvements are workload-specific.
+  Standard executable grows by 4,096 B: no disk-saving claim.
+
+Native evidence limitations:
+Only isolated synthetic --demo --demo-pdf sessions are used.
+Final matching demo build — PASS:
+  cargo rustc --release --locked -p serein --no-default-features --features demo
+    -- -C lto=thin -C codegen-units=8
+  Existing unrelated components_demo::check dead-code warning.
+  Final executable SHA-256:
+  a2012f6fb643afdfd63c467ad109c1a3decc5be748cb5589a115ef3b9f6a3eb1
+Native input/OCR/pixel/bounds screening — PASS:
+  Left/Right, Previous/Next, last-page bound; zoom 2x, vertical/horizontal
+  scrolling, zoom-out, Fit; Escape/backdrop/header close and reopen.
+  Dark wide/narrow, light wide/narrow long-filename cases.
+  At 760x960 / 2x zoom, matching page words shift -266px horizontally with
+  unchanged vertical positions after Shift-wheel.
+  See native-checks.json for original capture hashes and locator/OCR limitations.
+Matched process evidence — collected with no build active:
+  1120x760 / 100%, 96 dpi, software Vulkan llvmpipe LLVM 21.1.8.
+  12s warmup + 1s pointer-clear; 50 samples/state at 100ms.
+  Page 1 sampled after 3s settling; no helpers remain after settling.
+  Page 1 settled/peak sampled RSS: 281,516 -> 275,072 KiB.
+  Closed card settled/peak sampled RSS: 268,608 -> 269,372 KiB.
+  Page 1 CPU: 0.00% of one core on both builds at process-tick resolution.
+  Card CPU: 12.57% -> 9.73%; noisy, not a PDF-improvement claim.
+  Raw samples are retained as before/after card/page JSON.
+Direct image inspection is unavailable because the image-viewing tool rejected
+image inputs; OCR/pixel/bounds and native input checks are not visual approval.
+Human visual review remains necessary.
+No live Discord/authentication/messages/calls/microphone/network attachment test.
+No local Windows/macOS runtime, screen-reader, hardware-GPU memory or frame/p95
+latency verification. Directory package checks do not test DEB/RPM installation.
+Resource limits are not an OS sandbox or security certification.

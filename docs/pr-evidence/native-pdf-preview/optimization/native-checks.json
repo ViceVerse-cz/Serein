@@ -1,0 +1,563 @@
+{
+  "collected_date": "2026-10-11",
+  "baseline_revision": "72efba34aa2bebb7e827a4705b748801489b30bd",
+  "application_diff_sha256": "c806477a527984643ee5f4ea716776df8117d2dc8428548d5b13ffb9b4f92269",
+  "baseline_demo_sha256": "8fd201ea4394793f038123f0ecf2cdb8e4d66a6e9798682a528900614b761e8f",
+  "optimized_demo_sha256": "a2012f6fb643afdfd63c467ad109c1a3decc5be748cb5589a115ef3b9f6a3eb1",
+  "method": "Owned isolated Xvfb; xdotool native inputs, ImageMagick unscaled window-only captures, Tesseract OCR and PIL pixel/bounds screening",
+  "visual_approval": false,
+  "limitation": "Direct image inspection unavailable: image-viewing tool rejected image inputs. OCR/pixel/input screening is not visual approval; human review is necessary.",
+  "environment": {
+    "OS": "Fedora 43",
+    "CPU": "Intel Core i5-1035G1",
+    "logical_CPUs": 8,
+    "RAM_GiB": 23,
+    "renderer": "software Vulkan llvmpipe LLVM 21.1.8 (256 bits)",
+    "display_dpi": 96,
+    "display_scale_percent": 100,
+    "native_flags": "--demo --demo-pdf; --demo-light only for light checks"
+  },
+  "images": {
+    "before.png": {
+      "scenario": "Initial PDF implementation, dark, page 1",
+      "dimensions": [
+        1120,
+        760
+      ],
+      "bytes": 72482,
+      "sha256": "ec17f3bc99930e814046f8209ec98d550815f8e92f3a4679d5e2d19653230f1b",
+      "source_capture": "before-page.png"
+    },
+    "after.png": {
+      "scenario": "Optimized PDF implementation, dark, page 1",
+      "dimensions": [
+        1120,
+        760
+      ],
+      "bytes": 75406,
+      "sha256": "5cd997f58cd34f8163c2e4425acf77f3f9680b63c5755b6d4eda2d8c95d4d910",
+      "source_capture": "after-page.png"
+    },
+    "after-light.png": {
+      "scenario": "Optimized PDF implementation, light, page 1",
+      "dimensions": [
+        1120,
+        760
+      ],
+      "bytes": 76336,
+      "sha256": "18090a08b0a6ef1d3d9dd442480d9fc0157ccc36da1be0d5adeaaa4cb54a4b8c",
+      "source_capture": "input-checks/after-light-wide.png"
+    },
+    "after-light-narrow.png": {
+      "scenario": "Optimized PDF implementation, light, long filename",
+      "dimensions": [
+        760,
+        520
+      ],
+      "bytes": 48277,
+      "sha256": "06a16e5fc8830fa0ee9506bdce139aa50bce8a33c3ade8a49e0b047edca883a5",
+      "source_capture": "input-checks/after-light-narrow-long-name.png"
+    }
+  },
+  "raw_matched_samples": [
+    {
+      "file": "before-card-samples.json",
+      "sha256": "7c1d8778be95379bd5bb2c3b5e9729bb769208d213ed4e317878b84e9513107b"
+    },
+    {
+      "file": "before-page-samples.json",
+      "sha256": "a780a9815c91284fcae139ce4b14aa059c8a6b38c0474c2ea13f75305a3dcb37"
+    },
+    {
+      "file": "after-card-samples.json",
+      "sha256": "17d6ce28a76e02e9621bd627f522aa62b28473e89a35b9707b937d73a8486e68"
+    },
+    {
+      "file": "after-page-samples.json",
+      "sha256": "5ca5ca7da81f9c5fb4dff45ba0136a9a9b6bc4444bbf4d81b3bab2879445a776"
+    }
+  ],
+  "checks": {
+    "after": [
+      {
+        "check": "page1",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": [
+          "PDF preview",
+          "Page 1 of 2",
+          "synthetic-preview.pdf",
+          "Next",
+          "Fit x1.00",
+          "Serein / PDF preview"
+        ]
+      },
+      {
+        "check": "native-key",
+        "key": "Right"
+      },
+      {
+        "check": "keyboard-next",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": [
+          "Page 2 of 2",
+          "Previous"
+        ]
+      },
+      {
+        "check": "native-key",
+        "key": "Right"
+      },
+      {
+        "check": "last-page-bound",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": [
+          "Page 2 of 2"
+        ]
+      },
+      {
+        "check": "native-key",
+        "key": "Left"
+      },
+      {
+        "check": "keyboard-previous",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": [
+          "Page 1 of 2"
+        ]
+      },
+      {
+        "check": "native-click",
+        "x": 339,
+        "y": 142,
+        "count": 1
+      },
+      {
+        "check": "button-next",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": [
+          "Page 2 of 2",
+          "Previous"
+        ]
+      },
+      {
+        "check": "native-click",
+        "x": 172,
+        "y": 142,
+        "count": 1
+      },
+      {
+        "check": "button-previous",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": [
+          "Page 1 of 2",
+          "Zoom in"
+        ]
+      },
+      {
+        "check": "native-click",
+        "x": 673,
+        "y": 142,
+        "count": 4
+      },
+      {
+        "check": "zoom2",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": [
+          "Page 1 of 2",
+          "Fit *2.00",
+          "Zoom out",
+          "Serein / PDF preview"
+        ]
+      },
+      {
+        "check": "native-wheel",
+        "x": 560,
+        "y": 400,
+        "count": 5,
+        "horizontal": false
+      },
+      {
+        "check": "vertical-scroll",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": [
+          "Page 1 of 2",
+          "Fit *2.00"
+        ]
+      },
+      {
+        "check": "page-region-changed",
+        "region": [
+          220,
+          170,
+          895,
+          620
+        ],
+        "changed_pixels": 201412
+      },
+      {
+        "check": "native-click",
+        "x": 511,
+        "y": 142,
+        "count": 1
+      },
+      {
+        "check": "zoom-out",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": []
+      },
+      {
+        "check": "native-click",
+        "x": 416,
+        "y": 144,
+        "count": 1
+      },
+      {
+        "check": "fit-page",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": [
+          "Page 1 of 2",
+          "Fit x1.00",
+          "Serein / PDF preview"
+        ]
+      },
+      {
+        "check": "native-key",
+        "key": "Escape"
+      },
+      {
+        "check": "escape-close",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": [
+          "Preview"
+        ]
+      },
+      {
+        "check": "closed-before-reopen",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": [
+          "Preview"
+        ]
+      },
+      {
+        "check": "native-click",
+        "x": 670,
+        "y": 496,
+        "count": 1
+      },
+      {
+        "check": "reopened-page1",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": [
+          "Page 1 of 2",
+          "Fit x1.00"
+        ]
+      },
+      {
+        "check": "native-click",
+        "x": 25,
+        "y": 25,
+        "count": 1
+      },
+      {
+        "check": "backdrop-close",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": [
+          "Preview"
+        ]
+      },
+      {
+        "check": "native-click",
+        "x": 670,
+        "y": 496,
+        "count": 1
+      },
+      {
+        "check": "before-header-close",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": [
+          "Page 1 of 2"
+        ]
+      },
+      {
+        "check": "native-click",
+        "x": 963,
+        "y": 62,
+        "count": 1
+      },
+      {
+        "check": "native-click",
+        "x": 979,
+        "y": 65,
+        "count": 1
+      },
+      {
+        "check": "header-close",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": [
+          "Preview"
+        ]
+      },
+      {
+        "check": "native-click",
+        "x": 670,
+        "y": 496,
+        "count": 1
+      },
+      {
+        "check": "before-horizontal-resize",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": [
+          "Page 1 of 2"
+        ]
+      },
+      {
+        "check": "native-resize",
+        "width": 760,
+        "height": 960
+      },
+      {
+        "check": "tall-narrow",
+        "dimensions": [
+          760,
+          960
+        ],
+        "expected_phrases": [
+          "Page 1 of 2",
+          "Zoom in"
+        ]
+      },
+      {
+        "check": "native-click",
+        "x": 579,
+        "y": 167,
+        "count": 4
+      },
+      {
+        "check": "horizontal-before",
+        "dimensions": [
+          760,
+          960
+        ],
+        "expected_phrases": [
+          "Page 1 of 2"
+        ]
+      },
+      {
+        "check": "native-wheel",
+        "x": 390,
+        "y": 340,
+        "count": 5,
+        "horizontal": true
+      },
+      {
+        "check": "horizontal-after",
+        "dimensions": [
+          760,
+          960
+        ],
+        "expected_phrases": [
+          "Page 1 of 2"
+        ]
+      },
+      {
+        "check": "page-region-changed",
+        "region": [
+          50,
+          240,
+          710,
+          825
+        ],
+        "changed_pixels": 67202
+      },
+      {
+        "check": "horizontal-page-text-shift",
+        "matches": [
+          {
+            "word": "preview",
+            "dx": -266,
+            "dy": 0
+          },
+          {
+            "word": "preview",
+            "dx": -266,
+            "dy": 0
+          },
+          {
+            "word": "leaving",
+            "dx": -266,
+            "dy": 0
+          },
+          {
+            "word": "Download",
+            "dx": -266,
+            "dy": 0
+          },
+          {
+            "word": "original",
+            "dx": -266,
+            "dy": 0
+          }
+        ]
+      },
+      {
+        "check": "native-click",
+        "x": 322,
+        "y": 169,
+        "count": 1
+      },
+      {
+        "check": "native-resize",
+        "width": 760,
+        "height": 520
+      },
+      {
+        "check": "dark-narrow",
+        "dimensions": [
+          760,
+          520
+        ],
+        "expected_phrases": [
+          "PDF preview",
+          "Page 1 of 2",
+          "Fit page",
+          "Zoom in"
+        ]
+      }
+    ],
+    "after-light": [
+      {
+        "check": "wide",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": [
+          "PDF preview",
+          "Page 1 of 2",
+          "synthetic-preview.pdf",
+          "Previous",
+          "Next",
+          "Fit page",
+          "Zoom out",
+          "Zoom in",
+          "Serein / PDF preview",
+          "Native attachment preview"
+        ]
+      },
+      {
+        "check": "disabled-download-label",
+        "note": "Download is disabled in synthetic demo; source label retained. Low-contrast OCR recognition is unreliable, not a readability approval."
+      },
+      {
+        "check": "native-key",
+        "key": "Escape"
+      },
+      {
+        "check": "closed",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": [
+          "Preview"
+        ]
+      },
+      {
+        "check": "native-click",
+        "x": 670,
+        "y": 637,
+        "count": 1
+      },
+      {
+        "check": "long-name-wide",
+        "dimensions": [
+          1120,
+          760
+        ],
+        "expected_phrases": [
+          "PDF preview",
+          "a-long-synthetic-document",
+          "Page 1 of 2"
+        ]
+      },
+      {
+        "check": "native-resize",
+        "width": 760,
+        "height": 520
+      },
+      {
+        "check": "narrow-long-name",
+        "dimensions": [
+          760,
+          520
+        ],
+        "expected_phrases": [
+          "PDF preview",
+          "a-long-synthetic-document",
+          "Page 1 of 2",
+          "Next",
+          "Fit page",
+          "Zoom in"
+        ]
+      }
+    ]
+  },
+  "input_notes": [
+    "Zoom-in OCR read Fit *2.00 rather than Fit x2.00; actual four native button clicks and label recorded.",
+    "Zoom-out OCR recorded Fit x1.75; Fit returned to x1.00.",
+    "Initial header-close x963/y62 missed the icon; corrected x979/y65 successfully closed it. This was a test locator correction, not an application fix.",
+    "Disabled Download text in synthetic light demo is poorly recognized by OCR; not a readability approval.",
+    "Intermediate input screenshots and OCR dumps remain local; only the four useful original captures are distributed."
+  ]
+}

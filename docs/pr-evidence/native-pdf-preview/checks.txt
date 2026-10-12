@@ -1,0 +1,84 @@
+Synthetic local verification — October 11, 2026
+Baseline: 134e556fb469f3fa72425adf24acb7df56811a59
+Toolchain: Rust/Cargo 1.98.1 (Fedora); locked dependency graph
+
+cargo xtask check — PASS (fmt, strict workspace Clippy, tests, production check, policy)
+Workspace test-result lines (may include isolated subprocess repetitions; not a unique-test total):
+test result: ok. 153 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.83s
+test result: ok. 62 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.14s
+test result: ok. 55 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.82s
+test result: ok. 85 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.92s
+test result: ok. 67 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 35.53s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.66s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 30 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 1.86s
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 31 filtered out; finished in 0.00s
+test result: ok. 31 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 6.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 205 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 14.09s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.08s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+test result: ok. 11 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 463 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 26.81s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.68s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.75s
+test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Policy checks passed: no eframe persistence, one renderer, no REST cookie jar, ephemeral login requested.
+
+cargo test --locked -p model -p ui -p serein pdf — PASS
+Focused test-result lines:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.00s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 199 filtered out; finished in 0.79s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 462 filtered out; finished in 0.34s
+
+cargo test --locked -p serein --test pdf_helper — PASS
+test protocol::tests::request_bounds_and_trailing_bytes ... ok
+test protocol::tests::response_validation_precedes_pixel_allocation ... ok
+test oversized_header_is_rejected_without_reading_a_payload ... ok
+test truncated_header_exits_cleanly ... ok
+test helper_applies_resource_limits_before_reading_input ... ok
+test real_helper_renders_two_pages_without_a_display_or_account ... ok
+test independent_watchdog_exits_when_parent_leaves_input_open ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.08s
+
+cargo xtask licenses (cargo-deny 0.20.2) — PASS; existing unused-allowance warnings
+cargo audit --deny warnings (cargo-audit 0.22.2) — PASS
+git diff --cached --check — PASS; PDF fixtures are byte-preserving binary
+attributes, and the recorded baseline patch permits its context-prefix tabs.
+Gateway compression tests with miniz_oxide and PDF-unified zlib-rs features — PASS
+Exact-baseline gateway/UI tests — PASS (55 / 454 passed; 8 UI tests ignored)
+node tests/license-policy.cjs — PASS (6 fixtures; pinned cargo-deny on PATH)
+node tests/xtask-workspace.cjs — PASS (correct target directory)
+python3 packaging/linux/test_package.py --format dir — PASS
+
+An earlier full gate failed an unchanged MOV seek test. The focused workspace
+rerun and final full gate passed; baseline flakiness is not established.
+The gateway test fixture was adjusted for complete Sync packets under both
+compression backends; the production decoder is unchanged.
+No live Discord/authentication, credentials, messages, calls or microphone tests.
+Windows/macOS runtime and screen-reader behavior were not exercised.
+Standard release packaging and native checks are recorded separately in README.md.

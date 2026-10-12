@@ -1,0 +1,28 @@
+{
+  "baseline": {
+    "revision": "uncommitted feature tree on 134e556fb469f3fa72425adf24acb7df56811a59",
+    "flags": "--release --locked --no-default-features (voice included)",
+    "executable_bytes": 92696008,
+    "archive_bytes": 111018749,
+    "sha256": "4f01ded674c1319887b2ec95e1be9cceff30850cb7ad5e5c627bacec3e2f75f8",
+    "archive_sha256": "266ae39728edd8d134a8f78f732315452d819d9b6eeb5647276ba1a1fd850761",
+    "full_staged_distribution_bytes": 194515725,
+    "installed_linux_tree_bytes": 97435353,
+    "full_staged_file_count": 527,
+    "installed_linux_tree_file_count": 270
+  },
+  "optimized": {
+    "baseline_revision": "72efba34aa2bebb7e827a4705b748801489b30bd",
+    "application_diff_sha256": "c806477a527984643ee5f4ea716776df8117d2dc8428548d5b13ffb9b4f92269",
+    "flags": "--release --locked --no-default-features; standard fat LTO, voice included",
+    "executable_bytes": 92700104,
+    "archive_bytes": 111024243,
+    "sha256": "35e2c5dd187c4c4523606389a8255ec24bdb69a1b8faec92786e646db7b99e01",
+    "archive_sha256": "2736da28e2ddb90971380abe193d586cbcde2895046df54ef8b26278e0dbfa3a",
+    "full_staged_distribution_bytes": 194523917,
+    "installed_linux_tree_bytes": 97439449,
+    "full_staged_file_count": 527,
+    "installed_linux_tree_file_count": 270
+  },
+  "method": "actual xtask package directory; byte sums; sorted zero-timestamp tar, gzip -n -9"
+}

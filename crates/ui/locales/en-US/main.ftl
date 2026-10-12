@@ -4591,3 +4591,23 @@ profiles-activity-empty = No activity shared.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction
+
+# Native PDF attachment preview; raster content is not selectable or executable.
+pdf-preview = Preview
+pdf-title = PDF preview
+pdf-loading = Loading PDF…
+pdf-page = Page { $current } of { $total }
+pdf-previous = Previous
+pdf-next = Next
+pdf-fit = Fit page
+pdf-zoom-in = Zoom in
+pdf-zoom-out = Zoom out
+pdf-retry = Retry
+pdf-error-unavailable = Could not load this PDF. The attachment may have expired or the preview is unavailable.
+pdf-error-limit = Preview limit exceeded (16 MiB, 256 pages, or renderer resources). Download the original instead.
+pdf-error-invalid = This attachment is not a supported, valid PDF.
+pdf-error-password = This PDF needs a password. Download it to open in a dedicated PDF reader.
+pdf-error-timeout = PDF preview timed out. Try again or download the original.
+pdf-error-renderer = Could not render this page. Download the original to open in a dedicated PDF reader.
+pdf-zoom = Fit ×{ $zoom }
+pdf-image = PDF page { $page } (raster preview)

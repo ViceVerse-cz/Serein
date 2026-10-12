@@ -1,0 +1,152 @@
+{
+  "method": "posix_spawn, cleared env, bounded nonblocking pipe I/O, wait4",
+  "protocol": 1,
+  "target": "v1 always uses maximum",
+  "binary_sha256": "4f01ded674c1319887b2ec95e1be9cceff30850cb7ad5e5c627bacec3e2f75f8",
+  "fixture_sha256": "cb43e1a082d9349d9b59b341e0bea19299c707e679a900bfbe3bf9c52ddea755",
+  "fixture_bytes": 2116,
+  "warmup": [
+    {
+      "page": 0,
+      "width": 1099,
+      "height": 1429,
+      "wall_seconds": 0.9840537940035574,
+      "user_cpu_seconds": 0.08637399999999999,
+      "system_cpu_seconds": 0.114122,
+      "total_cpu_seconds": 0.200496,
+      "peak_rss_KiB": 62060
+    },
+    {
+      "page": 1,
+      "width": 1076,
+      "height": 1461,
+      "wall_seconds": 0.09257782399799908,
+      "user_cpu_seconds": 0.059585,
+      "system_cpu_seconds": 0.029304999999999998,
+      "total_cpu_seconds": 0.08889,
+      "peak_rss_KiB": 64024
+    }
+  ],
+  "samples": [
+    {
+      "page": 0,
+      "width": 1099,
+      "height": 1429,
+      "wall_seconds": 0.0816435079977964,
+      "user_cpu_seconds": 0.054603,
+      "system_cpu_seconds": 0.025263999999999998,
+      "total_cpu_seconds": 0.079867,
+      "peak_rss_KiB": 64056
+    },
+    {
+      "page": 0,
+      "width": 1099,
+      "height": 1429,
+      "wall_seconds": 0.08048564899945632,
+      "user_cpu_seconds": 0.045183999999999995,
+      "system_cpu_seconds": 0.031852,
+      "total_cpu_seconds": 0.077036,
+      "peak_rss_KiB": 64152
+    },
+    {
+      "page": 0,
+      "width": 1099,
+      "height": 1429,
+      "wall_seconds": 0.08304909399885219,
+      "user_cpu_seconds": 0.049509,
+      "system_cpu_seconds": 0.031673,
+      "total_cpu_seconds": 0.081182,
+      "peak_rss_KiB": 64472
+    },
+    {
+      "page": 0,
+      "width": 1099,
+      "height": 1429,
+      "wall_seconds": 0.08024035600101342,
+      "user_cpu_seconds": 0.054030999999999996,
+      "system_cpu_seconds": 0.024498,
+      "total_cpu_seconds": 0.07852899999999999,
+      "peak_rss_KiB": 64252
+    },
+    {
+      "page": 0,
+      "width": 1099,
+      "height": 1429,
+      "wall_seconds": 0.08070991300337482,
+      "user_cpu_seconds": 0.044729,
+      "system_cpu_seconds": 0.031597,
+      "total_cpu_seconds": 0.076326,
+      "peak_rss_KiB": 64096
+    },
+    {
+      "page": 1,
+      "width": 1076,
+      "height": 1461,
+      "wall_seconds": 0.07761044400103856,
+      "user_cpu_seconds": 0.044108,
+      "system_cpu_seconds": 0.029811999999999998,
+      "total_cpu_seconds": 0.07392,
+      "peak_rss_KiB": 63904
+    },
+    {
+      "page": 1,
+      "width": 1076,
+      "height": 1461,
+      "wall_seconds": 0.08276872300484683,
+      "user_cpu_seconds": 0.051847,
+      "system_cpu_seconds": 0.029033999999999997,
+      "total_cpu_seconds": 0.080881,
+      "peak_rss_KiB": 64328
+    },
+    {
+      "page": 1,
+      "width": 1076,
+      "height": 1461,
+      "wall_seconds": 0.07673184599843808,
+      "user_cpu_seconds": 0.046907,
+      "system_cpu_seconds": 0.027978,
+      "total_cpu_seconds": 0.074885,
+      "peak_rss_KiB": 64092
+    },
+    {
+      "page": 1,
+      "width": 1076,
+      "height": 1461,
+      "wall_seconds": 0.08092546300031245,
+      "user_cpu_seconds": 0.053337999999999997,
+      "system_cpu_seconds": 0.026168,
+      "total_cpu_seconds": 0.079506,
+      "peak_rss_KiB": 64220
+    },
+    {
+      "page": 1,
+      "width": 1076,
+      "height": 1461,
+      "wall_seconds": 0.07842374699976062,
+      "user_cpu_seconds": 0.052922,
+      "system_cpu_seconds": 0.023975,
+      "total_cpu_seconds": 0.076897,
+      "peak_rss_KiB": 64204
+    }
+  ],
+  "median_by_page": {
+    "0": {
+      "wall_seconds": 0.08070991300337482,
+      "user_cpu_seconds": 0.049509,
+      "system_cpu_seconds": 0.031597,
+      "total_cpu_seconds": 0.07852899999999999,
+      "peak_rss_KiB": 64152,
+      "width": 1099,
+      "height": 1429
+    },
+    "1": {
+      "wall_seconds": 0.07842374699976062,
+      "user_cpu_seconds": 0.051847,
+      "system_cpu_seconds": 0.027978,
+      "total_cpu_seconds": 0.076897,
+      "peak_rss_KiB": 64204,
+      "width": 1076,
+      "height": 1461
+    }
+  }
+}

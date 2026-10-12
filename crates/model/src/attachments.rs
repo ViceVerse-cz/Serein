@@ -19,7 +19,23 @@ pub struct Attachment {
 	pub waveform: Vec<u8>,
 }
 impl Attachment {
+	/// Metadata selects the preview; the resource-limited renderer validates bytes.
+	pub fn is_pdf(&self) -> bool {
+		self.filename
+			.rsplit_once('.')
+			.is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("pdf"))
+			|| self.content_type.as_deref().is_some_and(|kind| {
+				kind.split(';')
+					.next()
+					.unwrap_or(kind)
+					.trim()
+					.eq_ignore_ascii_case("application/pdf")
+			})
+	}
 	pub fn is_video(&self) -> bool {
+		if self.is_pdf() {
+			return false;
+		}
 		// Metadata selects the player; the native decoder validates the container and codec.
 		self.filename
 			.rsplit_once('.')
@@ -40,6 +56,9 @@ impl Attachment {
 			|| (!self.waveform.is_empty() && self.is_audio())
 	}
 	pub fn is_audio(&self) -> bool {
+		if self.is_pdf() {
+			return false;
+		}
 		// Metadata only selects the preview; playback validates the actual bytes.
 		self.filename
 			.rsplit_once('.')
@@ -73,7 +92,7 @@ impl Attachment {
 			+ self.media.placeholder.capacity()
 	}
 	pub fn is_image(&self) -> bool {
-		if self.is_audio() || self.is_video() {
+		if self.is_pdf() || self.is_audio() || self.is_video() {
 			return false;
 		}
 		// Discord can upload HEIC as a generic file without image dimensions or MIME.
@@ -126,6 +145,46 @@ pub fn valid_attachments(attachments: &[Attachment]) -> bool {
 #[cfg(test)]
 mod audio_tests {
 	use super::*;
+	#[test]
+	fn pdf_metadata_precedes_other_media_and_requires_an_exact_kind() {
+		let mut file = Attachment {
+			id: Id(1),
+			filename: "document.pdf".into(),
+			description: None,
+			content_type: None,
+			size: 32,
+			media: EmbedMedia::default(),
+			spoiler: false,
+			duration_ms: None,
+			waveform: Vec::new(),
+		};
+		for filename in ["document.pdf", "REPORT.PDF", "SPOILER_document.PdF"] {
+			for mime in [
+				None,
+				Some("image/png"),
+				Some("video/mp4"),
+				Some("audio/ogg"),
+			] {
+				file.filename = filename.into();
+				file.content_type = mime.map(str::to_owned);
+				assert!(file.is_pdf());
+				assert!(!file.is_image() && !file.is_audio() && !file.is_video());
+			}
+		}
+		for filename in ["document", "image.png", "clip.mp4", "audio.ogg"] {
+			file.filename = filename.into();
+			file.content_type = Some(" Application/PDF; version=1.7 ".into());
+			assert!(file.is_pdf());
+			assert!(!file.is_image() && !file.is_audio() && !file.is_video());
+		}
+		for filename in ["document.pdf.exe", "notpdf", "document.pdf "] {
+			for mime in [None, Some("application/pdf-evil"), Some("text/html")] {
+				file.filename = filename.into();
+				file.content_type = mime.map(str::to_owned);
+				assert!(!file.is_pdf());
+			}
+		}
+	}
 	#[test]
 	fn video_detection_uses_mime_and_case_insensitive_extension() {
 		{

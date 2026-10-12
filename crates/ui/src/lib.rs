@@ -11,6 +11,11 @@ mod role_names;
 pub use audio::{AudioCommand, AudioState, AudioUi};
 mod video;
 pub use video::{VideoCommand, VideoState, VideoUi};
+mod pdf;
+pub use pdf::{
+	MAX_PDF_BYTES, MAX_PDF_EDGE, MAX_PDF_PAGES, MAX_PDF_PIXELS, PdfCommand, PdfError, PdfRequest,
+	PdfUi, pdf_render_target, valid_pdf_dimensions,
+};
 mod attachments;
 pub mod external_upload;
 pub use attachments::DownloadUi;
@@ -957,6 +962,9 @@ impl MessagingUi {
 	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_search(&mut self, query: &str) {
 		self.search.preview(query);
+	}
+	pub fn pdf(&mut self) -> &mut PdfUi {
+		&mut self.timeline.download.pdf
 	}
 	pub fn downloads(&mut self) -> &mut DownloadUi {
 		&mut self.timeline.download
@@ -3923,6 +3931,8 @@ impl MessagingUi {
 	}
 
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		self.timeline.download.pdf.bind(state);
+		self.timeline.download.pdf.keys(ui.ctx());
 		self.timeline.download.gif_favorites = state
 			.gifs
 			.favorites
@@ -4021,11 +4031,13 @@ impl MessagingUi {
 		}
 		// Fullscreen media owns the whole client surface, including during native resizing.
 		if self.show_fullscreen_voice(ui.ctx(), state) {
+			self.timeline.download.pdf.close();
 			ui.painter()
 				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
 			return commands;
 		}
 		if self.timeline.show_fullscreen_video(ui.ctx(), state) {
+			self.timeline.download.pdf.close();
 			ui.painter()
 				.rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
 			return commands;
@@ -4877,6 +4889,10 @@ impl MessagingUi {
 				self.pins_anchor = None;
 			}
 		}
+		let mut pdf = std::mem::take(&mut self.timeline.download.pdf);
+		pdf.revalidate(state, self.search.open, &self.timeline);
+		pdf.show(&ctx, &mut self.timeline.download, state.demo);
+		self.timeline.download.pdf = pdf;
 		if let Some(link) = self.search.opening.take() {
 			self.timeline.opening = Some(link);
 		}

@@ -1712,3 +1712,40 @@ the native projection retains its existing URL and allocated-byte limits.
 Schema 28 adds the device-wide double-click reaction preset to the reading settings singleton. The bounded index selects one of six Unicode emoji, defaults to ❤️, and persists independently of session emoji recommendations.
 
 Schema 29 adds a bounded boolean opt-in for double-click reactions, disabled for new and migrated settings. The selected Unicode preset is retained while disabled; Reset chat restores the disabled default.
+
+## Native PDF preview (October 11, 2026)
+
+PDF originals and page rasters are RAM-only: no disk cache, temporary PDF, history
+schema, credential, URL log or telemetry is added. One lazy worker retains at most
+one encoded original (16 MiB), one running job and one latest pending job (watch,
+not FIFO). Its source attachment metadata uses existing model admission bounds.
+It retains only the current page result; previous-page textures are released.
+
+One page has at most 1,572,864 pixels and a 1,536-pixel edge, or 6 MiB RGBA.
+The requested envelope matches modal size, display density and 2× zoom headroom;
+small viewports do not always allocate the maximum raster. Targets are sampled
+only for explicit page requests; resize/zoom/scroll reuse the current texture.
+The helper transfers its premultiplied pixel allocation without a second
+page-sized copy. Premultiplied RGBA-to-ColorImage conversion runs on the worker,
+is skipped for already-cancelled work and may temporarily hold both
+representations (12 MiB combined), in addition to the current UI texture/upload,
+dependency/network buffers and fixed worker metadata. There is no page prefetch,
+thumbnail list, background retry or per-document growing cache. Up to 256 pages
+are admitted; renderer allocations are separately resource-limited.
+
+The original is sent through bounded stdin to one short-lived same-executable
+helper. Parsing/rasterization stays out of the desktop/UI process. Fetch and
+helper each have a ten-second wall deadline; helper CPU is limited to eight
+seconds, with a 768-MiB helper memory ceiling on Linux/Windows. macOS resident
+memory is parent-sampled every 20 ms and may overshoot, rather than providing a
+hard allocation ceiling. A helper watchdog independently exits after ten seconds.
+Helpers are killed/reaped and pipe I/O joined before replacement. Failed cleanup
+retires the worker instead of admitting an overlapping helper.
+
+Close, logout, source invalidation and process shutdown cancel work and release
+document/pixel state; worker cancellation/cleanup completes asynchronously without
+joining on a UI callback. Only validated existing original attachment CDN URLs
+are fetched, without account credentials, proxy URLs, redirects or HTTP content
+decompression. Exact declared/streamed size and PDF magic are checked.
+This is resource isolation, not an OS sandbox or a guarantee against renderer
+vulnerabilities. See [PDF implementation](pdf-preview.md) for platform limitations.

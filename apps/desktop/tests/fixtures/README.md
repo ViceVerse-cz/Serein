@@ -45,3 +45,42 @@ pillow_heif.from_pillow(Image.new("RGB", (6000, 4000), (64, 128, 192))).save(
 
 Neither generation dependency is installed by Cargo or bundled with Serein.
 The successful Windows decode check requires the installed HEIF/HEVC codecs.
+
+## Synthetic PDF fixtures
+
+`pdf-preview.pdf` is an original 2,116-byte, two-page PDF under the same
+MIT OR Apache-2.0 license as Serein. It contains only generated text and vector
+shapes: a 600×780-point page, and an 800×600-point page with a 20-point crop
+margin and 90-degree rotation. It has no account or personal data. The desktop
+embeds it only in explicit demo builds; normal releases do not include it.
+
+Reproduce the ordinary fixture byte-for-byte using Python's standard library:
+
+```sh
+python3 apps/desktop/tests/fixtures/generate_pdf.py
+```
+
+`pdf-password.pdf` derives from this document to check rejection of
+password-protected files. Its passwords are synthetic fixture values, not
+credentials. Regenerate with development-only Ghostscript (not bundled);
+timestamps/document IDs may change, so compare behavior rather than bytes:
+
+```sh
+gs -q -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -dCompatibilityLevel=1.7 \
+  -sOwnerPassword=synthetic-owner -sUserPassword=synthetic-reader \
+  -dEncryptionR=3 -dKeyLength=128 \
+  -sOutputFile=apps/desktop/tests/fixtures/pdf-password.pdf \
+  apps/desktop/tests/fixtures/pdf-preview.pdf
+```
+
+`pdf-images.pdf` is an original, deterministic one-page image-resampling fixture
+under the same MIT OR Apache-2.0 license. It contains generated RGB color
+quadrants/checker detail (1800×1200), a matching grayscale softmask and a
+1200×400 grayscale stripe, all Flate-compressed. It tests downscaling and
+alpha compositing at normal, narrow and maximum-resolution preview targets.
+It has no personal content and is test-only, not a bundled release/demo asset.
+Generate byte-for-byte with Python's standard library:
+
+```sh
+python3 apps/desktop/tests/fixtures/generate_pdf_images.py
+```

@@ -1,5 +1,15 @@
 # Third-party notices
 
+Native PDF attachment previews use **hayro 0.8.0** (MIT OR Apache-2.0) and its
+pure-Rust CPU rasterizer in a short-lived resource-limited helper. Newly resolved
+code licenses, the bundled Foxit/PDFium standard-font notice, Adobe CMap notice
+and CC0 CMYK-profile notice ship under `assets/licenses/pdf` / `licenses/pdf`.
+[`PROVENANCE.md`](assets/licenses/pdf/PROVENANCE.md) records unmodified notice
+sources, exact versions and SHA-256 hashes; registry checksums remain in `Cargo.lock`.
+No PDFium/MuPDF binary, external reader, browser viewer or runtime font download is
+bundled. The renderer is experimental; resource isolation is not an OS sandbox.
+Existing dependency-notice evidence gaps below remain unchanged.
+
 Discord Lottie sticker previews use **rasterlottie 0.2.2** (MIT OR Apache-2.0)
 with default features disabled. Serein uses the MIT option; its unmodified MIT
 license is retained in `assets/licenses/files/rasterlottie-0.2.2-LICENSE-MIT`.

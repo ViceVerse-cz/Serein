@@ -384,6 +384,10 @@ fn package() -> Result<(), String> {
 		&resources.join("licenses/audio"),
 	)?;
 	copy_directory(
+		std::path::Path::new("assets/licenses/pdf"),
+		&resources.join("licenses/pdf"),
+	)?;
+	copy_directory(
 		std::path::Path::new("assets/licenses/dependencies"),
 		&resources.join("licenses/dependencies"),
 	)?;

@@ -1,2 +1,7 @@
 # Release packages are hash-addressed artifacts; never rewrite their line endings.
 *.serein-extension -text
+
+# PDF fixture byte offsets depend on exact bytes, including xref whitespace.
+apps/desktop/tests/fixtures/*.pdf binary
+# Unified-diff context prefixes intentionally precede Rust indentation tabs.
+docs/pr-evidence/native-pdf-preview/baseline-fixture.patch -text whitespace=-space-before-tab
