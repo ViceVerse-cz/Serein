@@ -100,6 +100,12 @@ The bundled faces remain upstream's hinted TrueType builds. See `assets/README.m
   Members — N heading including the current account, updated with participant changes. 42px rows with
   presence dots, custom status and hover fill; opens a Members window on narrow layouts.
 
+Chat settings use the shared searchable emoji picker for the optional double-click
+reaction. Unicode and eligible server emoji can be selected; selection changes only
+the saved preference. Existing choices survive migration, and using a saved custom
+emoji still requires current reaction permissions. Disabling the gesture keeps its
+selection; Reset chat restores the disabled default.
+
 Confirmed empty guild text, announcement and thread histories show a welcome above the
 composer: a circular channel-kind icon, a wrapped semibold channel heading and a short
 description, using the active palette. Loading, unavailable, incomplete and historical

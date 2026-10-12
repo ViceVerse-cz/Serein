@@ -189,7 +189,7 @@ fn gallery(
 	ui: &mut egui::Ui,
 	embeds: &[Embed],
 	images: &mut Avatars,
-	message: model::Id,
+	message: &Message,
 	download: &mut DownloadUi,
 	demo: bool,
 ) {
@@ -216,7 +216,13 @@ fn gallery(
 					.response;
 				let response =
 					ui.interact(image.rect, image.id.with("media"), egui::Sense::click());
-				embed_context_menu(&response, media, download, demo);
+				embed_context_menu(
+					&response,
+					media,
+					download,
+					demo,
+					crate::attachments::report_target(message),
+				);
 				let star =
 					gif_for_media(media, embed.url.as_deref(), embed.kind == "gifv").map(|gif| {
 						let favorite = download.gif_favorites.contains(&gif.url);
@@ -259,7 +265,7 @@ fn gallery(
 						.on_hover_text(crate::i18n::translate("embeds-gallery-open-image"))
 						.clicked()
 				{
-					download.view_embed(message, media);
+					download.view_embed(message.id, media);
 				}
 			},
 		);
@@ -454,7 +460,7 @@ pub fn poll_result(ui: &mut egui::Ui, message: &Message, can_open: bool) -> bool
 
 fn image_preview(
 	ui: &mut egui::Ui,
-	message: model::Id,
+	message: &Message,
 	image: &model::EmbedMedia,
 	size: egui::Vec2,
 	images: &mut Avatars,
@@ -472,9 +478,15 @@ fn image_preview(
 			crate::i18n::translate("embeds-image-preview-image-actions"),
 		)
 	});
-	embed_context_menu(&response, image, download, demo);
+	embed_context_menu(
+		&response,
+		image,
+		download,
+		demo,
+		crate::attachments::report_target(message),
+	);
 	if response.clicked() {
-		download.view_embed(message, image);
+		download.view_embed(message.id, image);
 	}
 }
 
@@ -511,7 +523,7 @@ pub fn show(
 		}
 		ui.push_id(("embed", index), |ui| {
 			if count > 1 && inline_image(embed).is_some() {
-				gallery(ui, group, images, message.id, download, demo);
+				gallery(ui, group, images, message, download, demo);
 				if group.iter().any(|e| e.limited) {
 					ui.small(crate::i18n::translate("embeds-show-embed-display-limited"));
 				}
@@ -540,7 +552,13 @@ pub fn show(
 						crate::i18n::translate("embeds-show-open-image"),
 					)
 				});
-				embed_context_menu(&response, image, download, demo);
+				embed_context_menu(
+					&response,
+					image,
+					download,
+					demo,
+					crate::attachments::report_target(message),
+				);
 				let star = gif.map(|gif| {
 					let favorite = state.is_gif_favorite(&gif);
 					let star = favorite_star(ui, &response, favorite);
@@ -641,7 +659,7 @@ pub fn show(
 								if let Some(image) = thumbnail {
 									image_preview(
 										ui,
-										message.id,
+										message,
 										image,
 										egui::vec2(84.0, 84.0),
 										images,
@@ -698,11 +716,11 @@ pub fn show(
 								field += count;
 							}
 							if count > 1 {
-								gallery(ui, group, images, message.id, download, demo);
+								gallery(ui, group, images, message, download, demo);
 							} else if let Some(image) = embed.image.as_ref().or(large) {
 								image_preview(
 									ui,
-									message.id,
+									message,
 									image,
 									egui::vec2(
 										ui.available_width(),
@@ -718,7 +736,7 @@ pub fn show(
 							{
 								image_preview(
 									ui,
-									message.id,
+									message,
 									image,
 									egui::vec2(84.0, 84.0),
 									images,
@@ -862,26 +880,27 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn image_previews_dispatch_copy_and_save_without_opening_links() {
-		for variant in 0..5 {
-			for copy in [true, false] {
+	fn image_previews_dispatch_copy_save_and_report_without_opening_media() {
+		for variant in 0..6 {
+			for copy in [Some(true), Some(false), None] {
 				let mut message = test_support::message(1, model::Id(2));
 				let media = model::EmbedMedia {
 					url: Some("https://cdn.discordapp.com/attachments/2/42/preview.png".into()),
-					width: 160,
-					height: 90,
+					width: if variant == 5 { 640 } else { 160 },
+					height: if variant == 5 { 360 } else { 90 },
 					..Default::default()
 				};
 				message.embeds = vec![Embed {
 					kind: match variant {
 						0 | 4 => "image",
 						1 => "gifv",
+						5 => "article",
 						_ => "rich",
 					}
 					.into(),
 					url: Some("https://example.org/post".into()),
-					image: (variant != 3).then(|| media.clone()),
-					thumbnail: (variant == 3).then(|| media.clone()),
+					image: (!matches!(variant, 3 | 5)).then(|| media.clone()),
+					thumbnail: matches!(variant, 3 | 5).then(|| media.clone()),
 					..Default::default()
 				}];
 				if variant == 4 {
@@ -954,10 +973,10 @@ mod tests {
 					.drop_without_applying_deltas();
 				}
 				let output = frame(vec![]);
-				let label = if copy {
-					"Copy image"
-				} else {
-					"Save image as…"
+				let label = match copy {
+					Some(true) => "Copy image",
+					Some(false) => "Save image as…",
+					None => "Report in Discord…",
 				};
 				let target = output
 					.shapes
@@ -982,7 +1001,12 @@ mod tests {
 					])
 					.drop_without_applying_deltas();
 				}
-				assert_eq!(download.embed_request, Some((media, copy)));
+				assert_eq!(download.embed_request, copy.map(|copy| (media, copy)));
+				assert_eq!(
+					download.report_request,
+					copy.is_none().then_some((message.channel, message.id))
+				);
+				assert!(download.embed_view_request.is_none());
 				assert!(
 					download.request.is_none()
 						&& download.copy_request.is_none()
@@ -1078,7 +1102,7 @@ mod tests {
 									ui,
 									&embeds,
 									&mut images,
-									model::Id(42),
+									&test_support::message(42, model::Id(2)),
 									&mut download,
 									false,
 								);

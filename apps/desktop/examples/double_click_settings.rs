@@ -9,6 +9,7 @@ fn main() {
 		let ctx = eframe::egui::Context::default();
 		ui::design::apply(&ctx);
 		let mut view = ui::MessagingUi::default();
+		let mut state = test_support::demo_state();
 		for enabled in [false, true] {
 			view.reading_preferences.double_click_reaction_enabled = enabled;
 			for _ in 0..2 {
@@ -21,7 +22,7 @@ fn main() {
 						..Default::default()
 					},
 					|ui| {
-						view.chat_reading_settings(ui, true);
+						view.chat_reading_settings(ui, &mut state);
 						assert!(
 							ui.min_rect().right() <= width,
 							"settings fit narrow and wide windows"

@@ -1359,6 +1359,7 @@ impl SearchUi {
 					download,
 					&mut self.opening,
 					state.demo,
+					crate::attachments::report_target(preview),
 				)
 				.map(|id| (message, id))
 			});
@@ -2396,6 +2397,162 @@ mod tests {
 			assert!(state.search.is_none());
 		}
 	}
+	#[test]
+	fn report_search_media_uses_the_hit_channel_in_cards_and_the_viewer() {
+		for (in_viewer, embed) in [(false, false), (false, true), (true, false)] {
+			let ctx = egui::Context::default();
+			let state = test_support::demo_state();
+			let source = test_support::message(123, Id(777));
+			assert_ne!(state.selected, Some(source.channel));
+			let image = model::EmbedMedia {
+				width: 160,
+				height: 90,
+				..Default::default()
+			};
+			let hit = model::SearchHit {
+				id: source.id,
+				channel: source.channel,
+				author: source.author.clone(),
+				mentions: vec![],
+				excerpt: "Synthetic search media".into(),
+				attachments: if embed {
+					vec![]
+				} else {
+					vec![model::Attachment {
+						id: Id(42),
+						filename: "search.png".into(),
+						content_type: Some("image/png".into()),
+						description: None,
+						size: 512,
+						media: image.clone(),
+						spoiler: false,
+						duration_ms: None,
+						waveform: vec![],
+					}]
+				},
+				embeds: if embed {
+					vec![model::Embed {
+						kind: "gifv".into(),
+						image: Some(image),
+						..Default::default()
+					}]
+				} else {
+					vec![]
+				},
+			};
+			let mut view = SearchUi::default();
+			view.shell(&hit);
+			if in_viewer {
+				view.viewing = Some((hit.id, Id(42)));
+			}
+			let mut download = crate::attachments::DownloadUi::default();
+			let mut images = crate::avatars::Avatars::default();
+			let mut audio = crate::audio::AudioUi::default();
+			let mut video = crate::video::VideoUi::default();
+			let mut target = None;
+			let mut frame = |events| {
+				ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(1000.0, 700.0),
+						)),
+						events,
+						..Default::default()
+					},
+					|ui| {
+						if in_viewer {
+							view.viewer(ui, &state, &mut images, &mut download);
+						} else {
+							view.result_card(
+								ui,
+								&state,
+								&hit,
+								"",
+								&mut images,
+								&mut MediaUi {
+									download: &mut download,
+									audio: &mut audio,
+									video: &mut video,
+								},
+								&mut crate::profiles::ProfileSession::default(),
+								&mut target,
+							);
+						}
+					},
+				)
+			};
+			frame(vec![]).drop_without_applying_deltas();
+			let output = frame(vec![]);
+			let pos = if in_viewer {
+				egui::pos2(500.0, 350.0)
+			} else {
+				output
+					.shapes
+					.iter()
+					.filter_map(|shape| match &shape.shape {
+						egui::Shape::Rect(shape)
+							if shape.corner_radius == egui::CornerRadius::same(5)
+								&& shape.rect.width() > 40.0
+								&& shape.rect.height() > 30.0 =>
+						{
+							Some(shape.rect.center())
+						}
+						_ => None,
+					})
+					.next_back()
+					.expect("search media")
+			};
+			output.drop_without_applying_deltas();
+			for pressed in [true, false] {
+				frame(vec![
+					egui::Event::PointerMoved(pos),
+					egui::Event::PointerButton {
+						pos,
+						button: egui::PointerButton::Secondary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					},
+				])
+				.drop_without_applying_deltas();
+			}
+			let output = frame(vec![]);
+			let pos = output
+				.shapes
+				.iter()
+				.find_map(|shape| match &shape.shape {
+					egui::Shape::Text(text) if text.galley.job.text == "Report in Discord…" => {
+						Some(text.pos + text.galley.rect.center().to_vec2())
+					}
+					_ => None,
+				})
+				.expect("search media report action");
+			output.drop_without_applying_deltas();
+			for pressed in [true, false] {
+				frame(vec![
+					egui::Event::PointerMoved(pos),
+					egui::Event::PointerButton {
+						pos,
+						button: egui::PointerButton::Primary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					},
+				])
+				.drop_without_applying_deltas();
+			}
+			assert_eq!(download.report_request, Some((hit.channel, hit.id)));
+			assert!(
+				download.request.is_none()
+					&& download.copy_request.is_none()
+					&& download.embed_request.is_none()
+					&& download.embed_view_request.is_none()
+			);
+			assert!(view.opening.is_none() && target.is_none());
+			assert!(audio.command.is_none() && video.command.is_none());
+			assert!(images.take_requests().is_empty());
+		}
+	}
+
 	#[test]
 	fn search_results_resolve_payload_mentions_and_queue_unknown_channels() {
 		let channel = model::Channel {

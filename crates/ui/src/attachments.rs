@@ -383,7 +383,14 @@ pub(crate) fn show_subset(
 										format!("View image {}", attachment.filename),
 									)
 								});
-								media_context_menu(&response, attachment, download, opening, demo);
+								media_context_menu(
+									&response,
+									attachment,
+									download,
+									opening,
+									demo,
+									report_target(message),
+								);
 								let gif = crate::embeds::gif_for_media(
 									&attachment.media,
 									None,
@@ -431,7 +438,14 @@ pub(crate) fn show_subset(
 					if attachment.is_video() {
 						let response = video.show(ui, message, attachment, download, opening, demo);
 						surface.keep(&response);
-						media_context_menu(&response, attachment, download, opening, demo);
+						media_context_menu(
+							&response,
+							attachment,
+							download,
+							opening,
+							demo,
+							report_target(message),
+						);
 					} else if attachment.is_audio() {
 						let response = audio.show(ui, message, attachment);
 						surface.keep(&response);
@@ -527,6 +541,8 @@ fn open_original(
 pub struct DownloadUi {
 	pub(crate) gif_favorites: Vec<String>,
 	pub(crate) gif_favorite_request: Option<model::Gif>,
+	/// One frame's browser handoff, bounded to the originating channel and message IDs.
+	pub(crate) report_request: Option<(Id, Id)>,
 	pub request: Option<Attachment>,
 	pub copy_request: Option<Attachment>,
 	pub embed_request: Option<(model::EmbedMedia, bool)>,
@@ -542,6 +558,7 @@ pub(super) fn media_context_menu(
 	download: &mut DownloadUi,
 	opening: &mut Option<String>,
 	demo: bool,
+	message: Option<(Id, Id)>,
 ) {
 	if let Some(copy) = media_menu(
 		response,
@@ -550,6 +567,7 @@ pub(super) fn media_context_menu(
 		download,
 		opening,
 		demo,
+		message,
 	) {
 		if copy {
 			download.copy_request = Some(attachment.clone());
@@ -563,6 +581,7 @@ pub(crate) fn embed_context_menu(
 	media: &model::EmbedMedia,
 	download: &mut DownloadUi,
 	demo: bool,
+	message: Option<(Id, Id)>,
 ) {
 	if let Some(copy) = media_menu(
 		response,
@@ -571,6 +590,7 @@ pub(crate) fn embed_context_menu(
 		download,
 		&mut None,
 		demo,
+		message,
 	) {
 		download.embed_request = Some((media.clone(), copy));
 	}
@@ -579,9 +599,10 @@ fn media_menu(
 	response: &egui::Response,
 	video: bool,
 	url: Option<&str>,
-	download: &DownloadUi,
+	download: &mut DownloadUi,
 	opening: &mut Option<String>,
 	demo: bool,
+	message: Option<(Id, Id)>,
 ) -> Option<bool> {
 	if !video && response.has_focus() {
 		response.ctx.layer_painter(response.layer_id).rect_stroke(
@@ -663,10 +684,50 @@ fn media_menu(
 				ui.close();
 			}
 		}
+		if let Some(message) = message {
+			ui.separator();
+			if report_button(ui) {
+				download.report_request = Some(message);
+				ui.close();
+			}
+		}
 	});
 	action
 }
+
+pub(crate) fn report_target(message: &Message) -> Option<(Id, Id)> {
+	(!message.ephemeral && message.channel.0 != 0 && message.id.0 != 0)
+		.then_some((message.channel, message.id))
+}
+
+pub(crate) fn report_button(ui: &mut egui::Ui) -> bool {
+	ui.button(crate::i18n::translate("message-report-in-discord"))
+		.on_hover_text(crate::i18n::translate("message-report-in-discord-hint"))
+		.clicked()
+}
+
 impl DownloadUi {
+	pub(crate) fn open_report_handoff(
+		&mut self,
+		ctx: &egui::Context,
+		state: &client_core::State,
+		toasts: &mut crate::toasts::Toasts,
+	) {
+		let Some((channel, message)) = self.report_request.take() else {
+			return;
+		};
+		if let Some(url) = state
+			.channel(channel)
+			.and_then(|channel| crate::markdown::discord_url(channel, Some(message)))
+		{
+			ctx.open_url(egui::OpenUrl::new_tab(url));
+		} else {
+			toasts.push(
+				design::Level::Warning,
+				crate::i18n::translate("message-report-unavailable"),
+			);
+		}
+	}
 	pub(crate) fn view_embed(&mut self, message: Id, media: &model::EmbedMedia) {
 		if media.valid() && media.bytes() <= 8 * 1024 {
 			self.embed_view_request = Some((message, media.clone()));
@@ -845,6 +906,7 @@ const VIEWER_CLICK_ZOOM: f32 = 2.0;
 
 /// Full-window media viewer. Returns the attachment to keep showing, or `None` once closed by
 /// the close control, Escape, or a click anywhere outside the image and its controls.
+#[allow(clippy::too_many_arguments)]
 pub fn viewer(
 	ui: &mut egui::Ui,
 	attachments: &[Attachment],
@@ -853,6 +915,7 @@ pub fn viewer(
 	download: &mut DownloadUi,
 	opening: &mut Option<String>,
 	demo: bool,
+	message: Option<(Id, Id)>,
 ) -> Option<Id> {
 	let mut current = current;
 	if ui
@@ -991,9 +1054,9 @@ pub fn viewer(
 				}
 				// Zero-ID images are local viewer metadata, not service attachments.
 				if attachment.id == Id(0) {
-					embed_context_menu(&response, &attachment.media, download, demo);
+					embed_context_menu(&response, &attachment.media, download, demo, message);
 				} else {
-					media_context_menu(&response, attachment, download, opening, demo);
+					media_context_menu(&response, attachment, download, opening, demo, message);
 				}
 				shown.quality
 			};
@@ -1541,6 +1604,7 @@ mod tests {
 						&mut download,
 						&mut opening,
 						true,
+						None,
 					);
 				},
 			)

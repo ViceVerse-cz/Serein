@@ -13,6 +13,7 @@ pub(super) struct Settings {
 	pub(super) notifications: crate::notification_settings::Navigation,
 	pub(super) messaging_permissions: crate::messaging_permissions::Navigation,
 	pub(super) games: crate::registered_games::Page,
+	pub(super) reaction_picker: crate::emoji_picker::Picker,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -451,7 +452,7 @@ impl MessagingUi {
 										commands,
 									),
 									Page::Appearance => self.appearance_settings(ui, state.demo),
-									Page::Chat => self.chat_settings(ui, state.demo),
+									Page::Chat => self.chat_settings(ui, state),
 									Page::MessagingPermissions => {
 										self.messaging_permissions_settings(ui, state, commands)
 									}
@@ -498,6 +499,11 @@ impl MessagingUi {
 				)
 			}) {
 			self.settings.open = false;
+		}
+		if !self.settings.open || self.settings.page != Page::Chat {
+			self.settings
+				.reaction_picker
+				.dismiss(state, &mut Vec::new());
 		}
 		if !self.settings.open {
 			self.settings.messaging_permissions.requested = false;
@@ -1043,8 +1049,8 @@ impl MessagingUi {
 	}
 
 	/// Shows device-local reading, composer and channel-list preferences.
-	fn chat_settings(&mut self, ui: &mut egui::Ui, demo: bool) {
-		self.chat_reading_settings(ui, demo);
+	fn chat_settings(&mut self, ui: &mut egui::Ui, state: &mut State) {
+		self.chat_reading_settings(ui, state);
 		design::group(ui, &crate::i18n::translate("settings-chat-box"), |ui| {
 			design::switch(
 				ui,

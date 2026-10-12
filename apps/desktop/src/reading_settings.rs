@@ -155,6 +155,7 @@ mod tests {
 					compact_messages: false,
 					double_click_reaction_enabled: false,
 					double_click_reaction: 0,
+					double_click_reaction_emoji: None,
 					animate_gifs: false,
 					smooth_scrolling: true,
 					scroll_speed_percent: 100,
