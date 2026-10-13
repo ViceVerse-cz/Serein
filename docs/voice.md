@@ -41,6 +41,10 @@ Voice is included in every build without a feature flag. Source builds require C
 
 ## Implemented behavior and limits
 
+Resizing the DM or group call stage keeps a conversation following the newest message
+anchored above its composer on every frame. Reading older messages retains the existing
+scroll position instead of forcing the conversation back to the newest message.
+
 Guild voice channels have a chat icon with a **Show chat / Hide chat** tooltip in the channel header.
 Chat uses the existing message timeline, composer, drafts and permission checks without
 requiring a voice connection. Wide windows place chat beside the stage; narrow windows
@@ -67,6 +71,16 @@ so they carry across calls, device changes, restart and logout. Demo edits remai
 At most 64 custom levels are retained; a full table replaces its first retained entry.
 Nothing is sent to Discord. Boosting may clip; physical listening and
 native slider interaction remain unverified.
+
+Guild voice participant menus also offer **Server mute / Server unmute**, **Move to**,
+and **Disconnect** when the account has the corresponding channel permissions.
+Sidebar participants can be dragged onto another available voice channel; the Move to
+menu provides the same action for keyboard users. Source membership and permissions
+are checked again before dispatch. Moving requires Move Members in the source and
+Connect in the destination; server mute requires Mute Members. These actions use the
+existing single outstanding administration request and bounded REST response. Failures
+remain visible in the status bar. Live participant state continues to come from Gateway
+events; offline fixtures simulate those events locally. Live moderation remains unverified.
 
 Device-free tests cover gain, clipping, invalid PCM, independent live changes and gates. Actual
 gain perception, microphone/speaker hardware, native slider interaction and callback latency
@@ -248,6 +262,12 @@ Device readiness belongs to the current device configuration. A rapid encryption
 devices are opening invalidates old readiness even when both events reach one UI frame;
 late readiness cannot mark the call connected. Once opened, devices stay open across a brief
 rekey while callbacks are silenced and old PCM is discarded.
+
+A watched screen share keeps its separate transport during these call rekeys and voice
+resumption. Another participant leaving no longer sends Stop Watching just because the
+call briefly leaves the connected phase. Explicit Stop Watching, the streamer's departure,
+call failure and a changed call/account still close the view. Synthetic lifecycle coverage
+does not establish live Discord behavior.
 
 Received short Opus packets are combined into the normal 20 ms playback frame. The encoded
 reorder queue remains bounded to eight packets per speaker; a full queue starts playout early

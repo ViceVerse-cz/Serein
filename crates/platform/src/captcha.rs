@@ -179,8 +179,56 @@ pub(crate) fn hcaptcha_origin(value: &str) -> bool {
 	})
 }
 
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn verification_storage_domains(
+	expected: &str,
+	current: Option<&str>,
+	requesting: Option<&str>,
+) -> bool {
+	current == Some(expected)
+		&& requesting
+			.is_some_and(|domain| domain == "hcaptcha.com" || domain.ends_with(".hcaptcha.com"))
+}
+
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn verification_storage_requires_the_expected_page_and_hcaptcha() {
+		for page in ["discord.com", "verification.invalid"] {
+			for domain in ["hcaptcha.com", "newassets.hcaptcha.com"] {
+				assert!(super::verification_storage_domains(
+					page,
+					Some(page),
+					Some(domain)
+				));
+			}
+			for domain in [
+				None,
+				Some("evil.test"),
+				Some("hcaptcha.com.evil.test"),
+				Some("evilhcaptcha.com"),
+			] {
+				assert!(!super::verification_storage_domains(
+					page,
+					Some(page),
+					domain
+				));
+			}
+			for current in [None, Some("evil.test"), Some("discord.com.evil.test")] {
+				assert!(!super::verification_storage_domains(
+					page,
+					current,
+					Some("hcaptcha.com")
+				));
+			}
+		}
+		assert!(!super::verification_storage_domains(
+			"discord.com",
+			Some("verification.invalid"),
+			Some("hcaptcha.com")
+		));
+	}
+
 	#[test]
 	fn ipc_is_restricted_to_the_local_verification_page() {
 		assert!(super::own_origin(

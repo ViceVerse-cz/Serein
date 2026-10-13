@@ -505,7 +505,7 @@ fn clan_chip(
 /// Discord's official support request form. No supported in-app reporting API is used.
 const REPORT_URL: &str = "https://support.discord.com/hc/en-us/requests/new";
 
-/// Best known account username: the loaded profile, then the relationship lists.
+/// Best known account username: a loaded or recently cached profile, then the relationship lists.
 pub(crate) fn known_username(state: &State, user: Id) -> Option<String> {
 	state
 		.profile
@@ -518,6 +518,11 @@ pub(crate) fn known_username(state: &State, user: Id) -> Option<String> {
 				.data
 				.as_ref()
 				.filter(|data| data.user.id == user && !data.username.is_empty())
+		})
+		.or_else(|| {
+			state
+				.known_profile(user)
+				.filter(|data| !data.username.is_empty())
 		})
 		.map(|data| data.username.clone())
 		.or_else(|| state.friend_username(user).map(str::to_owned))
@@ -592,13 +597,13 @@ pub(crate) fn report_button(ui: &mut egui::Ui, user: &User) {
 	}
 }
 
-fn friend_target(state: &State, user: &User) -> bool {
+pub(crate) fn friend_target(state: &State, user: &User) -> bool {
 	!user.webhook
 		&& user.kind == model::AccountKind::Human
 		&& state.user.as_ref().is_some_and(|own| own.id != user.id)
 }
 /// Whether the account may send relationship and moderation requests right now.
-fn actions_enabled(state: &State) -> bool {
+pub(crate) fn actions_enabled(state: &State) -> bool {
 	!state.user_action_pending()
 		&& (state.demo
 			|| (state.gateway_connected
@@ -1802,7 +1807,8 @@ fn role_chips(
 				ui,
 				&role.name,
 				egui::FontId::proportional(12.0),
-				Some(role.colors()),
+				// Only the dot carries the role color.
+				None,
 				theme.chip,
 				theme.text,
 				(*width - 21.0).max(0.0),
@@ -2711,6 +2717,22 @@ pub fn show_with_session(
 	// Height shared by both full-profile columns below the close button.
 	let column = (bounds.height() - 48.0).max(80.0) - 36.0;
 	let data = view.and_then(|v| v.data.as_ref());
+	// Overflow of an equipped frame beyond the card: top, bottom and each side.
+	let frame_overflow = data
+		.and_then(|d| d.frame.as_deref())
+		.filter(|_| avatars.cosmetics.frames)
+		.map(|frame| frame.overflow(width));
+	// The popout keeps an equipped frame's overflow on screen with the card.
+	let bounds = match frame_overflow {
+		Some([top, bottom, side]) if !full => {
+			let framed = Rect::from_min_max(
+				bounds.min + vec2(side, top),
+				bounds.max - vec2(side, bottom),
+			);
+			if framed.is_positive() { framed } else { bounds }
+		}
+		_ => bounds,
+	};
 	let theme = Theme::new(&colors, data.and_then(|d| d.theme_colors));
 	// The board column sits on the modal, not the profile theme, so it keeps app colors.
 	let panel_theme = Theme::new(&colors, None);
@@ -2753,6 +2775,8 @@ pub fn show_with_session(
 		ui.spacing_mut().item_spacing = vec2(8.0, 4.0);
 		// Cross-label drag selection paints stray highlights in this dense card.
 		ui.style_mut().interaction.selectable_labels = false;
+		// Back frame layers sit behind the card; front layers and the effect cover it.
+		let frame_back = ui.painter().add(egui::Shape::Noop);
 		let background = ui.painter().add(egui::Shape::Noop);
 		{
 			// egui resolves strong, button and spinner colors from the widget strokes rather
@@ -3027,9 +3051,6 @@ pub fn show_with_session(
 							})
 							.unwrap_or_else(|| state.user_display_name(user));
 						let display = display.split_whitespace().collect::<Vec<_>>().join(" ");
-						let role_colors = data
-							.and_then(|data| data.guild.as_ref())
-							.and_then(|member| state.profile_name_colors(user, member));
 						// Ordinary user payloads already carry the server identity. Keep it visible
 						// while the extended profile loads or when that optional request fails.
 						let clan = data
@@ -3062,7 +3083,8 @@ pub fn show_with_session(
 												if full { 26.0 } else { 20.0 },
 												design::semibold_family(ui.ctx()),
 											),
-											role_colors,
+											// Like Discord, the profile name stays neutral; roles show as chips.
+											None,
 											if full { theme.card } else { theme.panel },
 											theme.text,
 											ui.available_width(),
@@ -3525,6 +3547,9 @@ pub fn show_with_session(
 			});
 		let rect = ui.min_rect();
 		ui.painter().set(background, theme.background(rect));
+		if let Some(data) = data {
+			paint_collectibles(ui, avatars, data, rect, frame_back, full, state.demo);
+		}
 	};
 	let rect = if full {
 		let id = egui::Id::unique("user-profile-full");
@@ -3560,7 +3585,16 @@ pub fn show_with_session(
 								ui.allocate_ui_with_layout(
 									vec2(width, column),
 									egui::Layout::top_down(egui::Align::Min),
-									|ui| card(ui, avatars),
+									|ui| {
+										if let Some([top, ..]) = frame_overflow {
+											ui.add_space(top);
+										}
+										card(ui, avatars);
+										// Painted overflow does not grow the scroll area.
+										if let Some([_, bottom, _]) = frame_overflow {
+											ui.add_space(bottom);
+										}
+									},
 								);
 								ui.allocate_ui_with_layout(
 									vec2(ui.available_width(), column),
@@ -3580,8 +3614,13 @@ pub fn show_with_session(
 								);
 							});
 						} else {
+							if let Some([top, ..]) = frame_overflow {
+								ui.add_space(top);
+							}
 							card(ui, avatars);
-							ui.add_space(20.0);
+							ui.add_space(
+								frame_overflow.map_or(20.0, |[_, bottom, _]| bottom + 20.0),
+							);
 							panel_action = full_panel(
 								ui,
 								&mut full_tab,
@@ -3694,6 +3733,73 @@ pub fn show_with_session(
 	action
 }
 
+/// Time since this card's effect became ready to play; it restarts whenever the card reopens.
+/// `None` until the layers have loaded, so the timeline does not run ahead of its artwork.
+fn effect_clock(
+	ctx: &egui::Context,
+	user: Id,
+	sku: Id,
+	full: bool,
+	ready: bool,
+) -> Option<std::time::Duration> {
+	// One record per card kind, replaced when another profile or effect shows there.
+	let id = egui::Id::unique(("profile-effect-clock", full));
+	let frame = ctx.cumulative_frame_nr();
+	let now = std::time::Instant::now();
+	let start = ctx
+		.data(|data| data.get_temp::<(Id, Id, Option<std::time::Instant>, u64)>(id))
+		.filter(|(shown, effect, _, last)| *shown == user && *effect == sku && frame <= last + 1)
+		.and_then(|(_, _, start, _)| start)
+		.or(ready.then_some(now));
+	ctx.data_mut(|data| data.insert_temp(id, (user, sku, start, frame)));
+	start.map(|start| now.saturating_duration_since(start))
+}
+
+/// The equipped profile frame and effect around and over a finished card.
+fn paint_collectibles(
+	ui: &mut egui::Ui,
+	avatars: &mut Avatars,
+	data: &model::UserProfile,
+	card: Rect,
+	frame_back: egui::layers::ShapeIdx,
+	full: bool,
+	demo: bool,
+) {
+	if let Some(effect) = data.effect.as_deref().filter(|_| avatars.cosmetics.effects) {
+		let ready = avatars.effect_ready(ui, effect, demo);
+		let elapsed = effect_clock(ui.ctx(), data.user.id, effect.sku, full, ready);
+		// The effect steps back while the pointer is over the card, so its text stays readable.
+		let hovered = ui
+			.ctx()
+			.pointer_hover_pos()
+			.is_some_and(|pointer| card.contains(pointer) && ui.clip_rect().contains(pointer));
+		let fade = ui.ctx().animate_bool_with_time(
+			egui::Id::unique(("profile-effect-hover", full)),
+			hovered,
+			0.2,
+		);
+		avatars.paint_effect(ui, effect, card, elapsed, 1.0 - 0.75 * fade, demo);
+	}
+	let Some(frame) = data.frame.as_deref().filter(|_| avatars.cosmetics.frames) else {
+		return;
+	};
+	// The popout floats over the app; the full profile keeps its frame inside the modal.
+	let clip = if full {
+		let [_, _, side] = frame.overflow(card.width());
+		ui.clip_rect().expand2(vec2(side, 0.0))
+	} else {
+		ui.ctx().content_rect()
+	};
+	// The card's own clip stops at its constrained bounds; the frame overflows them on purpose.
+	let mut painter = ui.painter().clone();
+	painter.set_clip_rect(clip.intersect(ui.ctx().content_rect()));
+	let back = avatars.frame_shapes(ui.ctx(), frame, card, clip, false, demo);
+	painter.set(frame_back, egui::Shape::Vec(back));
+	for shape in avatars.frame_shapes(ui.ctx(), frame, card, clip, true, demo) {
+		painter.add(shape);
+	}
+}
+
 // Explicit offline-only data; never a fallback for a failed service request.
 #[cfg(any(test, feature = "demo"))]
 pub fn synthetic(user: &User, guild: Option<Id>) -> model::UserProfile {
@@ -3749,6 +3855,7 @@ pub fn synthetic(user: &User, guild: Option<Id>) -> model::UserProfile {
 					kind: Default::default(),
 					discriminator: 0,
 					primary_guild: None,
+					cosmetics: None,
 				}]
 			})
 			.unwrap_or_default(),
@@ -3768,13 +3875,92 @@ pub fn synthetic(user: &User, guild: Option<Id>) -> model::UserProfile {
             tag: "SRN".into(),
             badge: Some(hash('b')),
         }),
+        effect_sku: Some(Id(9201)),
+        frame_sku: Some(Id(9202)),
+        effect: Some(Box::new(synthetic_effect())),
+        frame: Some(Box::new(synthetic_frame())),
         limited: false,
     }
+}
+
+/// Locally drawn sparkles on the official 450 x 880 effect canvas; never service artwork.
+#[cfg(any(test, feature = "demo"))]
+fn synthetic_effect() -> model::ProfileEffect {
+	let asset = |c: char| model::EffectAsset {
+		shop: false,
+		hash: c.to_string().repeat(64),
+	};
+	model::ProfileEffect {
+		sku: Id(9201),
+		title: "Synthetic sparkles".into(),
+		label: "Synthetic sparkles drift across the profile".into(),
+		still: Some(asset('e')),
+		layers: vec![model::EffectLayer {
+			asset: asset('f'),
+			looping: true,
+			position: [0, 0],
+			size: model::EFFECT_CANVAS,
+			start_ms: 0,
+			duration_ms: 720,
+			loop_delay_ms: 0,
+			z: 100,
+		}],
+	}
+}
+
+/// Locally drawn vines pinned to the card's top and bottom; never service artwork.
+#[cfg(any(test, feature = "demo"))]
+fn synthetic_frame() -> model::ProfileFrame {
+	let staple = |id: u64, anchor| model::FrameLayer {
+		id: Id(id),
+		kind: model::FrameLayerKind::Staple,
+		front: true,
+		anchor,
+		responsive: false,
+	};
+	model::ProfileFrame {
+		sku: Id(9202),
+		label: "Synthetic vines along the profile edges".into(),
+		inner_width: 1200,
+		overflow_top: 160,
+		overflow_bottom: 160,
+		overflow_horizontal: 48,
+		layers: vec![
+			staple(9203, model::FrameAnchor::Top),
+			staple(9204, model::FrameAnchor::Bottom),
+		],
+	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn effect_timeline_waits_for_its_layers_and_restarts_on_reopen() {
+		let ctx = egui::Context::default();
+		let clock = |ready| {
+			let mut elapsed = None;
+			ctx.run_ui(Default::default(), |ui| {
+				elapsed = effect_clock(ui.ctx(), Id(1), Id(2), false, ready);
+			})
+			.drop_without_applying_deltas();
+			elapsed
+		};
+		assert!(clock(false).is_none() && clock(false).is_none());
+		assert!(clock(true).is_some());
+		// Once started it keeps running while the window loses focus.
+		assert!(clock(false).is_some());
+		// Another profile in the same card restarts from its own readiness.
+		ctx.run_ui(Default::default(), |ui| {
+			assert!(effect_clock(ui.ctx(), Id(3), Id(2), false, false).is_none());
+		})
+		.drop_without_applying_deltas();
+		// A frame without the card closes it; reopening waits for readiness again.
+		ctx.run_ui(Default::default(), |_| {})
+			.drop_without_applying_deltas();
+		assert!(clock(false).is_none());
+	}
 
 	#[test]
 	fn bright_profile_gradient_is_softened_without_flattening_the_body() {
@@ -3963,6 +4149,58 @@ mod tests {
 		session.hide();
 		assert!(session.message_draft.is_empty());
 		assert!(!session.message_pending);
+	}
+
+	#[test]
+	fn biography_message_pill_uses_known_server_and_keeps_original_destination() {
+		let state = test_support::demo_state();
+		let ctx = egui::Context::default();
+		crate::icons::install(&ctx);
+		let mut avatars = Avatars::default();
+		let mut session = ProfileSession::default();
+		let mut formatted = FormatCache::default();
+		let url = "https://discord.com/channels/10/20/100";
+		let mut frame = |events| {
+			let mut opening = None;
+			let output = ctx.run_ui(input(vec2(500.0, 850.0), events), |ui| {
+				biography(
+					ui,
+					Id(1),
+					url,
+					&state,
+					&mut avatars,
+					&mut opening,
+					&mut formatted,
+					&mut session,
+				);
+			});
+			let mut painted = String::new();
+			for shape in &output.shapes {
+				text(&shape.shape, &mut painted);
+			}
+			assert!(painted.contains(&state.guilds[0].name));
+			assert!(!painted.contains("unknown-channel"));
+			assert!(
+				output
+					.platform_output
+					.commands
+					.iter()
+					.all(|command| !matches!(command, egui::OutputCommand::OpenUrl(_)))
+			);
+			output.drop_without_applying_deltas();
+			opening
+		};
+		assert_eq!(frame(vec![]), None);
+		for key in [egui::Key::Tab, egui::Key::Enter] {
+			let opening = frame(vec![egui::Event::Key {
+				key,
+				physical_key: None,
+				pressed: true,
+				repeat: false,
+				modifiers: egui::Modifiers::NONE,
+			}]);
+			assert_eq!(opening, (key == egui::Key::Enter).then(|| url.to_owned()));
+		}
 	}
 
 	#[test]
@@ -4350,6 +4588,7 @@ mod tests {
 			kind: Default::default(),
 			discriminator: 0,
 			primary_guild: None,
+			cosmetics: None,
 		};
 		let profile = ProfileView {
 			user: user.id,
@@ -4533,6 +4772,7 @@ mod tests {
 			kind: Default::default(),
 			discriminator: 0,
 			primary_guild: None,
+			cosmetics: None,
 		};
 		let state = State::default();
 		let ctx = egui::Context::default();

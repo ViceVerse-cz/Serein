@@ -1,6 +1,8 @@
 //! Handcrafted synthetic data. No network imports; never evidence of live compatibility.
 use client_core::{Envelope, Event, State};
 use model::*;
+mod message_links;
+pub use message_links::{load_message_link_page, message_links_demo_state};
 /// Synthetic Tenor-shaped results. Previews under `/synthetic/` are painted locally; no request.
 pub fn gif_page(query: Option<&str>) -> model::GifPage {
 	const TITLES: [&str; 12] = [
@@ -120,6 +122,7 @@ pub fn message(id: u64, channel: Id) -> Message {
 					badge: Some("f".repeat(32)),
 				})
 			}),
+			cosmetics: (!id.is_multiple_of(2)).then(|| Box::new(synthetic_cosmetics())),
 			name: if id.is_multiple_of(2) {
 				"You (synthetic)"
 			} else {
@@ -219,6 +222,7 @@ pub fn message(id: u64, channel: Id) -> Message {
 				kind: Default::default(),
 				discriminator: 0,
 				primary_guild: None,
+				cosmetics: None,
 			}]
 		} else {
 			Vec::new()
@@ -226,6 +230,24 @@ pub fn message(id: u64, channel: Id) -> Message {
 		embeds_suppressed: false,
 	}
 }
+/// Offline cosmetics; the UI draws their artwork locally and never downloads it.
+pub fn synthetic_cosmetics() -> model::Cosmetics {
+	model::Cosmetics {
+		decoration: Some(model::AvatarDecoration {
+			asset: "d".repeat(32),
+			sku: Id(9101),
+			expires_at: None,
+		}),
+		nameplate: Some(model::Nameplate {
+			asset: "nameplates/synthetic/aurora/".into(),
+			sku: Id(9102),
+			label: "Synthetic aurora nameplate".into(),
+			palette: model::NameplatePalette::Violet,
+			expires_at: None,
+		}),
+	}
+}
+
 fn demo_embeds(id: u64) -> Vec<Embed> {
 	if id != 500 {
 		return vec![];
@@ -298,6 +320,7 @@ pub fn demo_state() -> State {
 				kind: Default::default(),
 				discriminator: 0,
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(1),
 				name: "You (synthetic)".into(),
 			},
@@ -398,6 +421,7 @@ pub fn demo_state() -> State {
 						kind: Default::default(),
 						discriminator: 0,
 						primary_guild: None,
+						cosmetics: None,
 					}],
 					last_message: None,
 					icon: None,
@@ -420,6 +444,7 @@ pub fn demo_state() -> State {
 						kind: Default::default(),
 						discriminator: 0,
 						primary_guild: None,
+						cosmetics: None,
 					}],
 					last_message: Some(Id(900)),
 					icon: None,
@@ -444,6 +469,7 @@ pub fn demo_state() -> State {
 							kind: Default::default(),
 							discriminator: 0,
 							primary_guild: None,
+							cosmetics: None,
 						},
 					],
 					last_message: None,
@@ -628,6 +654,7 @@ pub fn demo_state() -> State {
 					avatar: None,
 					discriminator: 0,
 					primary_guild: None,
+					cosmetics: None,
 					webhook: false,
 					kind: Default::default(),
 				},
@@ -641,6 +668,7 @@ pub fn demo_state() -> State {
 					avatar: None,
 					discriminator: 0,
 					primary_guild: None,
+					cosmetics: None,
 					webhook: false,
 					kind: Default::default(),
 				},
@@ -680,6 +708,7 @@ pub fn demo_state() -> State {
 						kind: Default::default(),
 						discriminator: 0,
 						primary_guild: None,
+						cosmetics: None,
 					},
 					format!("{}.synthetic", name.to_lowercase()),
 				)
@@ -769,6 +798,7 @@ pub fn voice_demo_state() -> State {
 				kind: Default::default(),
 				discriminator: 0,
 				primary_guild: None,
+				cosmetics: None,
 			},
 			nick: None,
 			status: None,
@@ -800,6 +830,7 @@ pub fn voice_demo_state() -> State {
 			.map(|entry| entry.participant)
 			.collect(),
 		error: None,
+		reconnecting: None,
 	});
 	state.select(Id(25));
 	load_page(&mut state, None);
@@ -837,6 +868,7 @@ pub fn call_demo_state() -> State {
 		server_deafened: false,
 		participants: vec![participant(1, false), participant(2, true)],
 		error: None,
+		reconnecting: None,
 	});
 	state.status = "Offline call fixture · no microphone or network access";
 	state
@@ -1116,6 +1148,7 @@ pub fn chat_demo_state() -> State {
 				kind: Default::default(),
 				discriminator: 0,
 				primary_guild: None,
+				cosmetics: None,
 			}];
 		}
 		if i == 8 {
@@ -1296,6 +1329,7 @@ pub fn system_demo_state() -> State {
 			kind: Default::default(),
 			discriminator: 0,
 			primary_guild: None,
+			cosmetics: None,
 		}];
 		state.timeline.insert(m, false, false).unwrap();
 	}
@@ -1372,6 +1406,7 @@ pub fn friends_demo_state() -> State {
 					kind: Default::default(),
 					discriminator: 0,
 					primary_guild: None,
+					cosmetics: None,
 				},
 				"blocked.synthetic".into(),
 				false,
@@ -1385,6 +1420,7 @@ pub fn friends_demo_state() -> State {
 					kind: Default::default(),
 					discriminator: 0,
 					primary_guild: None,
+					cosmetics: None,
 				},
 				"ignored.synthetic".into(),
 				true,
@@ -1401,6 +1437,7 @@ pub fn friends_demo_state() -> State {
 					avatar: None,
 					discriminator: 0,
 					primary_guild: None,
+					cosmetics: None,
 					webhook: false,
 					kind: Default::default(),
 				},
@@ -1414,6 +1451,7 @@ pub fn friends_demo_state() -> State {
 					avatar: None,
 					discriminator: 0,
 					primary_guild: None,
+					cosmetics: None,
 					webhook: false,
 					kind: Default::default(),
 				},

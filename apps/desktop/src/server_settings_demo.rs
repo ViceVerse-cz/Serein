@@ -328,6 +328,7 @@ pub fn execute_admin(
 			}
 			Outcome::Member(member)
 		}
+		Action::Voice { user, .. } => Outcome::VoiceUpdated(user),
 		Action::Kick { user } => Outcome::Kicked(user),
 		Action::Prune { .. } => Outcome::Pruned(Some(0)),
 		Action::ShowMembers { enabled } => Outcome::ChannelList(enabled),
