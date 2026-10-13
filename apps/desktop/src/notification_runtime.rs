@@ -128,8 +128,8 @@ impl Runtime {
 		if let Some(sound) = sound {
 			self.sounds.play(sound, options.volume, ctx);
 		}
-		// Counts only change while frames run, so an idle window needs no badge timer: a
-		// throttled frame schedules one follow-up recount, and then the window can sleep.
+		// Counts otherwise only change while frames run: a throttled frame schedules one
+		// follow-up recount, and then the window can sleep until the next mute expiry.
 		let since = self.badge_check.map(|time| time.elapsed());
 		if since.is_none_or(|since| since >= Duration::from_secs(1)) || !badges || !live {
 			self.badge_check = Some(Instant::now());
@@ -141,6 +141,12 @@ impl Runtime {
 			if platform::badge::supported() && self.badge != Some(pings) {
 				self.badge_status = platform::badge::set(window, pings).err().unwrap_or("");
 				self.badge = Some(pings);
+			}
+			// A lapsing timed mute changes the count without any other activity.
+			if live
+				&& badges && let Some(expiry) = state.next_mute_expiry()
+			{
+				ctx.request_repaint_after(expiry);
 			}
 		} else if let Some(since) = since {
 			ctx.request_repaint_after(Duration::from_secs(1).saturating_sub(since));
@@ -238,6 +244,7 @@ pub fn debug_badge_check() {
 			})
 			.unwrap();
 		assert_eq!(badge_count(&state), expected);
+		assert_eq!(state.next_mute_expiry().is_some(), until == i64::MAX);
 	}
 	state.apply(Envelope {
 		generation: state.generation,
