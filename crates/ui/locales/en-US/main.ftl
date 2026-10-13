@@ -87,6 +87,11 @@ search-conversation = Search this conversation
 show-member-list = Show member list
 pinned-messages = Pinned messages
 threads = Threads
+
+channel-pill-thread = Thread
+channel-pill-forum = Forum
+channel-pill-post = Post
+channel-pill-message = message
 reload-history = Reload history
 in-a-call = In a call
 members-description = Everyone with access to this conversation.
@@ -776,6 +781,14 @@ embeds-image-preview-image-actions = Image actions
 embeds-link-open-link = Open link…
 # Context: show
 embeds-show-additional-embed-content-is-not-supported = Additional embed content is not supported
+# Context: poll_result
+embeds-poll-result-winning-answer = Winning answer
+# Context: poll_result
+embeds-poll-result-tie = There was no winner
+# Context: poll_result
+embeds-poll-result-no-votes = No one voted
+# Context: poll_result
+embeds-poll-result-view-poll = View Poll
 # Context: show
 embeds-show-embed-display-limited = Embed display limited
 # Context: show
@@ -1690,7 +1703,8 @@ markdown-show-run-open-user-profile = Open user profile
 # Context: show_run
 markdown-show-run-reveal-spoiler = Reveal spoiler
 # Context: show_run
-markdown-show-run-unknown-channel-load-channel = Unknown channel, load channel
+
+## Native Discord message links: names are resolved only from accessible local metadata.
 
 ## crates/ui/src/mentions.rs
 # Context: show
@@ -3501,6 +3515,54 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein does not collect telemetry or upload diagnostics. Discord retains service-side data according to its own policies.
 # Context: storage_page
 settings-storage-page-your-privacy = Your privacy
+# Context: cosmetic_settings
+settings-cosmetics = Profile cosmetics
+# Context: cosmetic_settings
+settings-cosmetics-decorations = Avatar decorations
+# Context: cosmetic_settings
+settings-cosmetics-decorations-description = Artwork drawn around avatars.
+# Context: cosmetic_settings
+settings-cosmetics-nameplates = Nameplates
+# Context: cosmetic_settings
+settings-cosmetics-nameplates-description = Artwork behind names in member and direct message lists.
+# Context: cosmetic_settings
+settings-cosmetics-effects = Profile effects
+# Context: cosmetic_settings
+settings-cosmetics-effects-description = Animations played over profile cards.
+# Context: cosmetic_settings
+settings-cosmetics-frames = Profile frames
+# Context: cosmetic_settings
+settings-cosmetics-frames-description = Artwork around profile cards.
+# Context: cosmetic_settings
+settings-cosmetics-hidden-are-not-downloaded = Hidden cosmetics are not downloaded. This changes only what this device shows.
+# Context: image_cache_settings
+settings-image-cache = Image cache
+# Context: image_cache_settings
+settings-image-cache-media = Media cache
+# Context: image_cache_settings
+settings-image-cache-media-description = Avatars, banners, previews and stickers.
+# Context: image_cache_settings
+settings-image-cache-artwork = Shared artwork cache
+# Context: image_cache_settings
+settings-image-cache-artwork-description = Emoji, badges, server tags, role icons, avatar decorations and nameplates, kept apart so large media never pushes them out.
+# Context: image_cache_settings
+settings-image-cache-usage = { $used } of { $limit } used.
+# Context: image_cache_settings
+settings-image-cache-usage-unavailable = Usage appears once images load.
+# Context: image_cache_settings
+settings-image-cache-clear = Clear
+# Context: image_cache_settings
+settings-image-cache-clear-description = Removes these downloaded images now. Messages, drafts and your login stay.
+# Context: image_cache_settings
+settings-image-cache-retention = Remove unused images after
+# Context: image_cache_settings
+settings-image-cache-retention-description = Cached images that are not shown again for this long are deleted from disk.
+# Context: image_cache_settings
+settings-image-cache-days =
+    { $count ->
+        [one] { $count } day
+       *[other] { $count } days
+    }
 
 ## crates/ui/src/slash_commands.rs
 # Context: argument
@@ -3836,7 +3898,6 @@ timeline-show-with-scroll-edited = (edited)
 # Context: show_with_scroll
 timeline-show-with-scroll-forwarded = ↪ Forwarded
 # Context: show_with_scroll
-timeline-show-with-scroll-hide-spoilers = Hide spoilers
 # Context: show_with_scroll
 timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = History is not available yet. Use Reload to try again.
 # Context: show_with_scroll
@@ -4112,6 +4173,10 @@ voice-voice-card-section-disconnect = Disconnect
 # Context: voice_card_section
 voice-voice-card-section-dismiss-call = Dismiss call
 # Context: voice_card_section
+voice-voice-card-section-reconnect-attempt = { $reason } · attempt { $attempt } of { $total }
+# Context: voice_card_section
+voice-voice-card-section-reconnecting = Reconnecting…
+# Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = Microphone unavailable · still connected. Choose another input in Audio settings.
 # Context: voice_channel_button
 voice-voice-channel-button-connected = , connected
@@ -4133,6 +4198,10 @@ voice-voice-participant-deafened-by-server = Deafened by server
 voice-voice-participant-menu-mute = Mute
 # Context: voice_participant_menu
 voice-voice-participant-menu-reset-volume = Reset volume
+voice-server-mute = Server mute
+voice-server-unmute = Server unmute
+voice-move-to = Move to
+voice-disconnect-member = Disconnect
 # Context: voice_participant_menu
 voice-voice-participant-menu-silence-this-person-on-this-device-only-nobody-else-is = Silence this person on this device only. Nobody else is affected.
 # Context: voice_participant_menu
@@ -4574,3 +4643,173 @@ profiles-activity-empty = No activity shared.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction
+
+## crates/platform/src/app_menu.rs
+# Context: macos_menu_bar
+app-menu-about = About Serein
+# Context: macos_menu_bar
+app-menu-updates = Check for Updates…
+# Context: macos_menu_bar
+app-menu-settings = Settings…
+# Context: macos_menu_bar
+app-menu-services = Services
+# Context: macos_menu_bar
+app-menu-hide = Hide Serein
+# Context: macos_menu_bar
+app-menu-hide-others = Hide Others
+# Context: macos_menu_bar
+app-menu-show-all = Show All
+# Context: macos_menu_bar
+app-menu-quit = Quit Serein
+# Context: macos_menu_bar
+app-menu-file = File
+# Context: macos_menu_bar
+app-menu-close-window = Close Window
+# Context: macos_menu_bar
+app-menu-edit = Edit
+# Context: macos_menu_bar
+app-menu-undo = Undo
+# Context: macos_menu_bar
+app-menu-redo = Redo
+# Context: macos_menu_bar
+app-menu-cut = Cut
+# Context: macos_menu_bar
+app-menu-copy = Copy
+# Context: macos_menu_bar
+app-menu-paste = Paste
+# Context: macos_menu_bar
+app-menu-select-all = Select All
+# Context: macos_menu_bar
+app-menu-emoji = Emoji & Symbols
+# Context: macos_menu_bar
+app-menu-view = View
+# Context: macos_menu_bar
+app-menu-actual-size = Actual Size
+# Context: macos_menu_bar
+app-menu-zoom-in = Zoom In
+# Context: macos_menu_bar
+app-menu-zoom-out = Zoom Out
+# Context: macos_menu_bar
+app-menu-full-screen = Enter Full Screen
+# Context: macos_menu_bar
+app-menu-window = Window
+# Context: macos_menu_bar
+app-menu-minimize = Minimize
+# Context: macos_menu_bar
+app-menu-zoom = Zoom
+# Context: macos_menu_bar
+app-menu-bring-all-to-front = Bring All to Front
+# Context: macos_menu_bar
+app-menu-help = Help
+# Context: macos_menu_bar
+app-menu-github = Serein on GitHub
+# Context: macos_menu_bar
+app-menu-report-issue = Report an Issue…
+
+## crates/model/src/system_messages.rs
+# Context: system_message
+system-message-a-member = a member
+# Context: system_message
+system-message-added = { $actor } added { $target } to the conversation.
+# Context: system_message
+system-message-left = { $actor } left the conversation.
+# Context: system_message
+system-message-removed = { $actor } removed { $target } from the conversation.
+# Context: system_message
+system-message-call = { $actor } started a call.
+# Context: system_message
+system-message-channel-name = { $actor } changed the channel name.
+# Context: system_message
+system-message-channel-name-value = { $actor } changed the channel name: { $value }
+# Context: system_message
+system-message-channel-icon = { $actor } changed the channel icon.
+# Context: system_message
+system-message-pinned = { $actor } pinned a message to this channel.
+# Context: system_message
+system-message-joined = Welcome, { $actor }! Joined the server.
+# Context: system_message
+system-message-boosted = { $actor } boosted the server!
+# Context: system_message
+system-message-boosted-level = { $actor } boosted the server! The server reached level { $level }.
+# Context: system_message
+system-message-channel-follow = { $actor } added a channel follow.
+# Context: system_message
+system-message-discovery-disqualified = This server is no longer eligible for Server Discovery.
+# Context: system_message
+system-message-discovery-requalified = This server is eligible for Server Discovery again.
+# Context: system_message
+system-message-discovery-warning = Server Discovery eligibility warning.
+# Context: system_message
+system-message-discovery-final-warning = Final Server Discovery eligibility warning.
+# Context: system_message
+system-message-thread = { $actor } started a thread.
+# Context: system_message
+system-message-thread-value = { $actor } started a thread: { $value }
+# Context: system_message
+system-message-thread-starter = Thread started from an earlier message.
+# Context: system_message
+system-message-invite-reminder = Invite reminder · Invite people to this server.
+# Context: system_message
+system-message-automod = AutoMod action.
+# Context: system_message
+system-message-role-subscription = { $actor } purchased or renewed a role subscription.
+# Context: system_message
+system-message-premium-upsell = Premium subscription offer.
+# Context: system_message
+system-message-stage-start = { $actor } started a Stage.
+# Context: system_message
+system-message-stage-end = The Stage ended.
+# Context: system_message
+system-message-stage-speaker = { $actor } became a Stage speaker.
+# Context: system_message
+system-message-stage-raise-hand = { $actor } requested to speak.
+# Context: system_message
+system-message-stage-topic = { $actor } changed the Stage topic.
+# Context: system_message
+system-message-application-subscription = Server application premium subscription.
+# Context: system_message
+system-message-raid-alert-enabled = Server alert mode enabled.
+# Context: system_message
+system-message-raid-alert-disabled = Server alert mode disabled.
+# Context: system_message
+system-message-raid-report = A server raid was reported.
+# Context: system_message
+system-message-false-alarm = A server incident was reported as a false alarm.
+# Context: system_message
+system-message-purchase = Purchase notification.
+# Context: system_message
+system-message-poll-closed = { $actor }'s poll { $question } has closed.
+# Context: system_message
+system-message-poll-result = Poll results.
+# Context: system_message
+system-message-stream-hd = { $actor } upgraded the stream to HD.
+# Context: system_message
+system-message-report-deleted = { $actor } deleted a reported message.
+# Context: system_message
+system-message-timed-out = { $actor } timed out { $target }.
+# Context: system_message
+system-message-kicked = { $actor } kicked { $target }.
+# Context: system_message
+system-message-banned = { $actor } banned { $target }.
+# Context: system_message
+system-message-report-resolved = { $actor } resolved a report.
+# Context: system_message
+system-message-voice-hangout = { $actor } started a voice hangout.
+# Context: system_message
+system-message-friend-accepted = { $actor } accepted your friend request.
+
+## crates/ui/src/lib.rs composer
+# Context: composer_placeholder
+composer-placeholder = Message
+# Context: composer_placeholder
+composer-placeholder-channel = Message #{ $channel }
+# Context: composer_placeholder
+composer-placeholder-direct = Message @{ $name }
+
+# Context: timeline_dm_intro
+timeline-dm-intro = This is the beginning of your direct message history with { $name }.
+
+# Context: timeline_channel_intro
+timeline-channel-intro-title = Welcome to #{ $channel }!
+# Context: timeline_channel_intro
+timeline-channel-intro-start = This is the start of the #{ $channel } channel.

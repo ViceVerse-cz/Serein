@@ -310,6 +310,7 @@ pub(crate) struct Dave {
 	pub waiting: bool,
 	channel: u64,
 	pub pending: Option<u16>,
+	pub pending_protocol: Option<u16>,
 	pub ready: bool,
 	pub resets: u8,
 	epochs: u16,
@@ -337,6 +338,7 @@ impl Dave {
 			waiting: false,
 			channel,
 			pending: None,
+			pending_protocol: None,
 			ready: false,
 			resets: 0,
 			epochs: 0,
@@ -357,7 +359,7 @@ impl Dave {
 	pub fn should_wait_for_peer(&self) -> bool {
 		!self.ready
 			&& !self.waiting
-			&& self.pending.is_none()
+			&& !self.transitioning()
 			&& self.alone()
 			&& self.session.group().is_some()
 	}
@@ -406,7 +408,10 @@ impl Dave {
 			return Err("Discord removed this device from the call");
 		}
 		let before = self.participants.len() + self.announced.len();
-		self.participants.retain(|id| *id != user);
+		// The MLS group keeps them until Discord's removal commit; pruned afterwards.
+		if !self.is_group_member(user) {
+			self.participants.retain(|id| *id != user);
+		}
 		self.announced.retain(|id| *id != user);
 		let changed = before != self.participants.len() + self.announced.len();
 		if changed {
@@ -422,6 +427,7 @@ impl Dave {
 			return Err("Unexpected sole-member DAVE transition");
 		}
 		self.pending = None;
+		self.pending_protocol = None;
 		self.ready = false;
 		self.waiting = true;
 		Ok(())
@@ -451,6 +457,7 @@ impl Dave {
 		self.ready = false;
 		self.waiting = false;
 		self.pending = None;
+		self.pending_protocol = None;
 		self.pending_commit = None;
 		self.session
 			.reinit(
@@ -459,7 +466,9 @@ impl Dave {
 				self.channel,
 				Some(&self.identity.0),
 			)
-			.map_err(|_| "DAVE reset failed")
+			.map_err(|_| "DAVE reset failed")?;
+		self.prune();
+		Ok(())
 	}
 	pub fn key_package(&mut self) -> Result<Vec<u8>, &'static str> {
 		// Match libdave and discord.py-self: opcode followed by the raw TLS KeyPackage.
@@ -546,6 +555,9 @@ impl Dave {
 		if payload.len() < 3 || payload.len() > MAX_SIGNAL {
 			return Err("Truncated DAVE group transition");
 		}
+		// Davey keeps the previous epoch's decryption keys for ten seconds, so an
+		// established call keeps its media flowing through a member change.
+		let was_ready = self.ready;
 		self.ready = false;
 		self.waiting = false;
 		self.transition_budget()?;
@@ -569,11 +581,23 @@ impl Dave {
 		}
 		self.validate_group()?;
 		self.pending_commit = None;
+		self.prune();
 		self.pending = Some(transition);
 		if transition == 0 {
 			self.execute(transition)?;
+		} else {
+			self.ready = was_ready;
 		}
 		Ok(transition)
+	}
+	/// Departed members stay authenticated only while the MLS group still contains them.
+	fn prune(&mut self) {
+		let members = self.session.get_user_ids().unwrap_or_default();
+		let (own, peer) = (self.own, self.peer);
+		let announced = &self.announced;
+		self.participants.retain(|id| {
+			*id == own || Some(*id) == peer || announced.contains(id) || members.contains(id)
+		});
 	}
 	fn transition_budget(&mut self) -> Result<(), &'static str> {
 		self.epochs = self
@@ -604,9 +628,33 @@ impl Dave {
 		}
 		Ok(())
 	}
+	/// A transition Discord has prepared but not yet executed.
+	pub fn transitioning(&self) -> bool {
+		self.pending.is_some() || self.pending_protocol.is_some()
+	}
+	/// Unverified: Discord can prepare protocol version 1 before the MLS group exists.
+	/// Only version 1 is accepted, so a protocol transition never changes the media keys.
+	pub fn prepare_protocol(&mut self, id: u16) {
+		self.pending_protocol = Some(id);
+	}
 	pub fn execute(&mut self, id: u16) -> Result<(), &'static str> {
-		if self.pending != Some(id) || !self.session.is_ready() {
+		let is_protocol = self.pending_protocol == Some(id);
+		let is_mls = self.pending == Some(id);
+		if !is_protocol && !is_mls {
 			return Err("Unexpected DAVE encryption transition");
+		}
+		if is_protocol {
+			self.pending_protocol = None;
+		}
+		if !self.session.is_ready() {
+			return if is_protocol {
+				Ok(())
+			} else {
+				Err("Unexpected DAVE encryption transition")
+			};
+		}
+		if !is_mls && self.pending.is_some() {
+			return Ok(());
 		}
 		self.validate_group()?;
 		self.pending = None;

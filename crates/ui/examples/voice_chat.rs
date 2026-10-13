@@ -91,6 +91,13 @@ fn main() {
 		});
 		assert!(state.can_compose(channel));
 		let ctx = egui::Context::default();
+		// The desktop owns stream textures; the view only borrows their id and size.
+		let stream_texture = ctx.load_texture(
+			"synthetic stream",
+			egui::ColorImage::filled([320, 180], egui::Color32::GRAY),
+			egui::TextureOptions::LINEAR,
+		);
+		let stream_view = egui::load::SizedTexture::from_handle(&stream_texture);
 		ui::design::apply(&ctx);
 		let mut view = ui::MessagingUi::default();
 		// Labels below are English; the default follows the host locale.
@@ -176,11 +183,7 @@ fn main() {
 		);
 		state.voice.active.as_mut().unwrap().watching = Some(model::Id(7));
 		if right_click {
-			view.voice_stream_view = Some(ctx.load_texture(
-				"synthetic stream",
-				egui::ColorImage::filled([320, 180], egui::Color32::GRAY),
-				egui::TextureOptions::LINEAR,
-			));
+			view.voice_stream_view = Some(stream_view);
 		}
 		assert_eq!(view.voice_stream_volume(), 100);
 		for expanded in [true, false] {
@@ -329,11 +332,7 @@ fn main() {
 				view.language = ui::i18n::Language::English;
 				view.voice_focus = Some(ui::StageFocus::Stream(model::Id(7)));
 				if right_click {
-					view.voice_stream_view = Some(ctx.load_texture(
-						"synthetic stream",
-						egui::ColorImage::filled([320, 180], egui::Color32::GRAY),
-						egui::TextureOptions::LINEAR,
-					));
+					view.voice_stream_view = Some(stream_view);
 				}
 			}
 		}

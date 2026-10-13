@@ -14,7 +14,7 @@ struct Update {
 	state: VideoState,
 	position: f64,
 	duration: f64,
-	frame: Option<(u32, u32, Vec<u8>)>,
+	frame: Option<platform::video::Picture>,
 }
 struct Session {
 	cancelled: Arc<AtomicBool>,
@@ -43,21 +43,73 @@ struct Request {
 	url: Option<url::Url>,
 	size: usize,
 }
+/// One idle-stage poster: decode a single first frame, never playback.
+struct PosterJob {
+	id: model::Id,
+	url: Option<url::Url>,
+	size: usize,
+	/// Set when the session ends; skips the job and aborts its range reads.
+	cancelled: Arc<AtomicBool>,
+}
+/// Decoded poster answer waiting for UI delivery through `poll`.
+struct PosterDone {
+	id: model::Id,
+	frame: Option<(u32, u32, Vec<u8>)>,
+	cancelled: Arc<AtomicBool>,
+}
 #[derive(Default)]
 pub struct Video {
 	session: Option<Arc<Session>>,
 	requests: Option<tokio::sync::watch::Sender<Option<Request>>>,
+	poster_jobs: Option<std::sync::mpsc::Sender<PosterJob>>,
+	poster_results: Arc<Mutex<Vec<PosterDone>>>,
+	/// Attachments with a queued or decoding poster; dedupes the per-frame UI
+	/// queue and bounds it so a scroll storm cannot pile up stale downloads.
+	poster_pending: std::collections::HashSet<model::Id>,
+	/// Shared by every job of the current session; replaced by [`Video::cancel_posters`].
+	poster_cancelled: Arc<AtomicBool>,
+	/// GPU texture of the playing attachment.
+	texture: crate::gpu_video::VideoTexture,
 }
+
+/// In-flight poster ceiling; excess requests retry while still visible.
+const POSTER_JOBS_MAX: usize = 32;
 impl Video {
 	pub fn stop(&mut self) {
 		if let Some(session) = self.session.take() {
 			session.cancelled.store(true, Ordering::Release);
 		}
+		self.texture = Default::default();
 		if let Some(requests) = &self.requests {
 			requests.send_replace(None);
 		}
 	}
-	pub fn poll(&self, player: &mut VideoUi, ctx: &eframe::egui::Context) {
+	/// Session boundary: abandons queued and in-flight posters so none of their downloads
+	/// continue or land in the next session's cache. Channel switches keep posters.
+	pub fn cancel_posters(&mut self) {
+		self.poster_cancelled.store(true, Ordering::Release);
+		self.poster_cancelled = Arc::new(AtomicBool::new(false));
+		self.poster_pending.clear();
+		if let Ok(mut results) = self.poster_results.lock() {
+			results.clear();
+		}
+	}
+	pub fn poll(&mut self, player: &mut VideoUi, ctx: &eframe::egui::Context) {
+		// Posters belong to idle stages, so they drain even with no active session.
+		if let Ok(mut results) = self.poster_results.try_lock() {
+			for done in results.drain(..) {
+				if done.cancelled.load(Ordering::Acquire) {
+					continue;
+				}
+				self.poster_pending.remove(&done.id);
+				match done.frame {
+					Some((width, height, rgba)) => {
+						player.accept_poster(ctx, done.id, width as usize, height as usize, &rgba);
+					}
+					None => player.poster_failed(done.id),
+				}
+			}
+		}
 		let Some(session) = &self.session else {
 			return;
 		};
@@ -67,8 +119,11 @@ impl Video {
 			player.duration = update.duration;
 			let frame = update.frame.take();
 			drop(update);
-			if let Some((width, height, rgba)) = frame {
-				player.accept_frame(ctx, width as usize, height as usize, &rgba);
+			if let Some(picture) = frame
+				&& player.active.is_some()
+				&& let Some(texture) = self.texture.upload(ctx, "inline-video", picture.borrow())
+			{
+				player.show_frame(texture);
 			}
 		}
 	}
@@ -141,7 +196,9 @@ impl Video {
 						let Some(request) = receiver.borrow_and_update().clone() else {
 							continue;
 						};
-						if let Err(error) = play(&request, &runtime, &ctx)
+						let result = play(&request, &runtime, &ctx);
+						platform::memory::release_freed_memory();
+						if let Err(error) = result
 							&& !request.session.cancelled.load(Ordering::Acquire)
 						{
 							if let Ok(mut update) = request.session.update.lock() {
@@ -167,6 +224,199 @@ impl Video {
 		self.session = Some(session);
 		Ok(())
 	}
+	/// Queues one batch of idle-stage posters; failures surface through `poll`,
+	/// never playback state. Already-pending attachments are skipped, and past
+	/// the ceiling the rest retry while still visible.
+	pub fn posters(
+		&mut self,
+		queue: Vec<model::Attachment>,
+		player: &mut VideoUi,
+		runtime: &tokio::runtime::Handle,
+		ctx: &eframe::egui::Context,
+		demo: bool,
+	) {
+		for attachment in queue {
+			if self.poster_pending.contains(&attachment.id)
+				|| self.poster_pending.len() >= POSTER_JOBS_MAX
+			{
+				continue;
+			}
+			self.poster(attachment, player, runtime, ctx, demo);
+		}
+	}
+	/// Queues one idle-stage poster; failures surface through `poll`, never playback state.
+	fn poster(
+		&mut self,
+		attachment: model::Attachment,
+		player: &mut VideoUi,
+		runtime: &tokio::runtime::Handle,
+		ctx: &eframe::egui::Context,
+		demo: bool,
+	) {
+		let id = attachment.id;
+		if attachment.size == 0 || attachment.size > 100 * 1024 * 1024 {
+			player.poster_failed(id);
+			return;
+		}
+		let url = if demo {
+			None
+		} else {
+			match crate::downloads::original_url(&attachment) {
+				Some(url) => Some(url),
+				None => {
+					player.poster_failed(id);
+					return;
+				}
+			}
+		};
+		if self.poster_jobs.is_none() {
+			let (sender, receiver) = std::sync::mpsc::channel::<PosterJob>();
+			let runtime = runtime.clone();
+			let ctx = ctx.clone();
+			let results = self.poster_results.clone();
+			if std::thread::Builder::new()
+				.name("serein-video-poster".into())
+				.spawn(move || {
+					// Newest first: after a scroll or channel switch the visible stages
+					// decode before posters requested for stages already scrolled past.
+					let mut stack = Vec::new();
+					loop {
+						if stack.is_empty() {
+							let Ok(job) = receiver.try_recv().or_else(|_| {
+								// The batch is done: return its decoders' memory once.
+								platform::memory::release_freed_memory();
+								receiver.recv()
+							}) else {
+								break;
+							};
+							stack.push(job);
+						}
+						stack.extend(receiver.try_iter());
+						let Some(job) = stack.pop() else {
+							continue;
+						};
+						if job.cancelled.load(Ordering::Acquire) {
+							continue;
+						}
+						let frame = decode_poster(&job, &runtime);
+						if let Ok(mut results) = results.lock() {
+							results.push(PosterDone {
+								id: job.id,
+								frame,
+								cancelled: job.cancelled,
+							});
+						}
+						ctx.request_repaint();
+					}
+				})
+				.is_err()
+			{
+				player.poster_failed(id);
+				return;
+			}
+			self.poster_jobs = Some(sender);
+		}
+		if self.poster_jobs.as_ref().is_some_and(|jobs| {
+			jobs.send(PosterJob {
+				id,
+				url,
+				size: attachment.size as usize,
+				cancelled: self.poster_cancelled.clone(),
+			})
+			.is_ok()
+		}) {
+			self.poster_pending.insert(id);
+			return;
+		}
+		player.poster_failed(id);
+	}
+}
+
+/// Opens the attachment and returns its first decoded video frame, downscaled for
+/// a light poster; bounded reads only.
+fn decode_poster(job: &PosterJob, runtime: &tokio::runtime::Handle) -> Option<(u32, u32, Vec<u8>)> {
+	use platform::video::Sample;
+	use std::{
+		task::Poll::Ready,
+		time::{Duration, Instant},
+	};
+	let source = source::source(
+		job.url.clone(),
+		job.size,
+		job.cancelled.clone(),
+		runtime.clone(),
+	)
+	.ok()?;
+	let mut decoder = platform::video::Decoder::open(source).ok()?;
+	// Backends that signal `Pending` (Linux GStreamer) need waiting, not a poll
+	// count: give the first frame a bounded ten seconds, then mark it failed.
+	let deadline = Instant::now() + Duration::from_secs(10);
+	loop {
+		if Instant::now() >= deadline || job.cancelled.load(Ordering::Acquire) {
+			return None;
+		}
+		match decoder.poll_video().ok()? {
+			// Posters are converted once on the CPU, then cached as ordinary textures.
+			Ready(Some(Sample::Video { picture, .. })) => {
+				let (width, height, rgba) = picture.to_rgba()?;
+				return Some(downscale_poster(width, height, rgba));
+			}
+			Ready(None) => return None,
+			Ready(Some(_)) => {}
+			std::task::Poll::Pending => {
+				// Unsynchronised GStreamer sinks do not drop: drain queued audio
+				// so a full audio branch cannot stall the first video sample.
+				for _ in 0..64 {
+					if !matches!(decoder.poll_audio(), Ok(Ready(Some(_)))) {
+						break;
+					}
+				}
+				std::thread::sleep(Duration::from_millis(5));
+			}
+		}
+	}
+}
+
+/// Longest poster edge in pixels; a 1080p frame shrinks ~10x before caching.
+const POSTER_EDGE: u32 = 320;
+
+/// Area-average downscale to [`POSTER_EDGE`]; small frames pass through untouched.
+fn downscale_poster(width: u32, height: u32, rgba: Vec<u8>) -> (u32, u32, Vec<u8>) {
+	let edge = width.max(height);
+	if edge <= POSTER_EDGE
+		|| width == 0
+		|| height == 0
+		|| rgba.len() != width as usize * height as usize * 4
+	{
+		return (width, height, rgba);
+	}
+	let out_width = (u64::from(width) * u64::from(POSTER_EDGE) / u64::from(edge)).max(1) as u32;
+	let out_height = (u64::from(height) * u64::from(POSTER_EDGE) / u64::from(edge)).max(1) as u32;
+	let mut out = vec![0; out_width as usize * out_height as usize * 4];
+	for y in 0..out_height {
+		let y0 = y * height / out_height;
+		let y1 = ((y + 1) * height / out_height).max(y0 + 1);
+		for x in 0..out_width {
+			let x0 = x * width / out_width;
+			let x1 = ((x + 1) * width / out_width).max(x0 + 1);
+			let mut sum = [0_u64; 4];
+			let mut count = 0_u64;
+			for sy in y0..y1 {
+				for sx in x0..x1 {
+					let pixel = &rgba[(sy as usize * width as usize + sx as usize) * 4..][..4];
+					for (acc, byte) in sum.iter_mut().zip(pixel) {
+						*acc += u64::from(*byte);
+					}
+					count += 1;
+				}
+			}
+			let pixel = &mut out[(y as usize * out_width as usize + x as usize) * 4..][..4];
+			for (slot, acc) in pixel.iter_mut().zip(sum) {
+				*slot = (acc / count) as u8;
+			}
+		}
+	}
+	(out_width, out_height, out)
 }
 impl Drop for Video {
 	fn drop(&mut self) {
@@ -323,10 +573,10 @@ fn play_decoded(
 			let mut frame = None;
 			while frames
 				.front()
-				.is_some_and(|(pts, _, _, _)| *pts <= current + 0.01 || preview_needed)
+				.is_some_and(|(pts, _)| *pts <= current + 0.01 || preview_needed)
 			{
-				let (_, width, height, rgba) = frames.pop_front().expect("front exists");
-				frame = Some((width, height, rgba));
+				let (_, picture) = frames.pop_front().expect("front exists");
+				frame = Some(picture);
 				preview_needed = false;
 			}
 			let finished = video_ended && audio_drained && frames.is_empty();
@@ -410,23 +660,19 @@ fn play_decoded(
 					_ => return Err("Unexpected video audio track"),
 				}
 			}
-			// Two frames (<=16 MiB) ahead, plus one bounded audio packet and one second of PCM.
+			// Two frames ahead (<=6 MiB as 1080p NV12, 16 MiB as RGBA), plus one bounded
+			// audio packet and one second of PCM.
 			if !video_ended && frames.len() < 2 {
 				let read_started = Instant::now();
 				let sample = decoder.poll_video()?;
 				decoded |= sample.is_ready();
 				match sample {
-					Ready(Some(Sample::Video {
-						pts,
-						width,
-						height,
-						rgba,
-					})) => {
+					Ready(Some(Sample::Video { pts, picture })) => {
 						if pts >= target - 0.01 {
 							seek_preview = None;
-							frames.push_back((pts, width, height, rgba));
+							frames.push_back((pts, picture));
 						} else {
-							seek_preview = Some((target, width, height, rgba));
+							seek_preview = Some((target, picture));
 						}
 					}
 					Ready(None) => {
@@ -563,5 +809,31 @@ mod tests {
 			assert_eq!(session.update.lock().unwrap().state, VideoState::Ended);
 			assert!(session.update.lock().unwrap().position > 2.8);
 		}
+	}
+}
+
+#[cfg(test)]
+mod poster_tests {
+	use super::*;
+	/// Small frames pass through untouched; large ones shrink to the poster edge averaged.
+	#[test]
+	fn downscale_shrinks_and_averages() {
+		// 4x2 gradient: left half black, right half white.
+		let mut rgba = vec![0; 4 * 2 * 4];
+		for pixel in rgba.as_chunks_mut::<4>().0.iter_mut().skip(4) {
+			pixel.copy_from_slice(&[255, 255, 255, 255]);
+		}
+		let (width, height, small) = downscale_poster(4, 2, rgba);
+		assert_eq!((width, height, small.len()), (4, 2, 4 * 2 * 4));
+		// A 640x480 frame lands on a 320px edge with averaged texels.
+		let wide = vec![128; 640 * 480 * 4];
+		let (width, height, small) = downscale_poster(640, 480, wide);
+		assert_eq!((width, height), (320, 240));
+		assert_eq!(small.len(), 320 * 240 * 4);
+		assert!(small.iter().all(|&byte| byte == 128));
+		let tall = vec![64; 720 * 1280 * 4];
+		let (width, height, small) = downscale_poster(720, 1280, tall);
+		assert_eq!((width, height), (180, 320));
+		assert_eq!(small.len(), 180 * 320 * 4);
 	}
 }
