@@ -134,20 +134,7 @@ impl Runtime {
 		if since.is_none_or(|since| since >= Duration::from_secs(1)) || !badges || !live {
 			self.badge_check = Some(Instant::now());
 			let pings = if live && badges {
-				state
-					.channels
-					.iter()
-					.try_fold(0u32, |total, channel| {
-						if total >= 100 {
-							return None;
-						}
-						Some(
-							total
-								.saturating_add(state.mention_count(channel.id))
-								.min(100),
-						)
-					})
-					.unwrap_or(100)
+				badge_count(state)
 			} else {
 				0
 			};
@@ -167,9 +154,111 @@ impl Runtime {
 	}
 }
 
+fn badge_count(state: &State) -> u32 {
+	state
+		.channels
+		.iter()
+		.try_fold(0u32, |total, channel| {
+			if total >= 100 {
+				return None;
+			}
+			let count = state.mention_count(channel.id);
+			if count == 0 {
+				return Some(total);
+			}
+			let muted = if channel.guild.is_some() {
+				state.muted_for_guild_rail(channel)
+			} else {
+				state.dm_muted(channel.id) == Some(true)
+			};
+			Some(if muted {
+				total
+			} else {
+				total.saturating_add(count).min(100)
+			})
+		})
+		.unwrap_or(100)
+}
+
+#[cfg(any(test, all(debug_assertions, feature = "demo")))]
+pub fn debug_badge_check() {
+	use client_core::{Envelope, Event, notifications};
+	let mut state = test_support::demo_state();
+	state.read_state.reset();
+	state.apply(Envelope {
+		generation: state.generation,
+		event: Event::ReadState(client_core::read_state::Event::Snapshot {
+			entries: Some(vec![(Id(20), None, 3), (Id(22), None, 4)]),
+			version: Some(1),
+			partial: false,
+		}),
+	});
+	assert_eq!(badge_count(&state), 7);
+	for (guild, channels, muted, expected) in [
+		(None, vec![(Id(22), Some(true), None)], false, 3),
+		(Some(Id(10)), vec![(Id(20), Some(true), None)], false, 0),
+		(None, vec![(Id(22), Some(false), None)], false, 4),
+		(Some(Id(10)), vec![(Id(23), Some(true), None)], false, 4),
+		(Some(Id(10)), vec![], true, 4),
+		(Some(Id(10)), vec![], false, 7),
+	] {
+		state
+			.apply_notification_preferences(notifications::Event::Settings {
+				entries: vec![notifications::Setting {
+					guild,
+					muted: Some(muted),
+					channels,
+					overrides_known: true,
+					..Default::default()
+				}],
+				replace: false,
+			})
+			.unwrap();
+		assert_eq!(badge_count(&state), expected);
+	}
+	assert_eq!(state.mention_count(Id(20)), 3);
+	assert_eq!(state.mention_count(Id(22)), 4);
+	state
+		.channels
+		.iter_mut()
+		.find(|c| c.id == Id(22))
+		.unwrap()
+		.kind = 3;
+	for (until, expected) in [(i64::MAX, 3), (1, 7)] {
+		state
+			.apply_notification_preferences(notifications::Event::Settings {
+				entries: vec![notifications::Setting {
+					guild: None,
+					muted: Some(false),
+					channels: vec![(Id(22), Some(true), None)],
+					channel_mute_until: vec![(Id(22), until)],
+					..Default::default()
+				}],
+				replace: false,
+			})
+			.unwrap();
+		assert_eq!(badge_count(&state), expected);
+	}
+	state.apply(Envelope {
+		generation: state.generation,
+		event: Event::ReadState(client_core::read_state::Event::Snapshot {
+			entries: Some(vec![(Id(20), None, u32::MAX), (Id(22), None, 4)]),
+			version: Some(2),
+			partial: false,
+		}),
+	});
+	assert_eq!(badge_count(&state), 100);
+	println!("Notification badge debug check passed: mutes, expiry, unmute and count cap.");
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn muted_conversations_do_not_count_toward_native_badge() {
+		debug_badge_check();
+	}
 
 	#[test]
 	fn ringtone_timer_repeats_each_cue_and_stops_on_clear() {

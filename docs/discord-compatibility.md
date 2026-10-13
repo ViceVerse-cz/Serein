@@ -1939,6 +1939,10 @@ Live normal-user interoperability remains unverified. Offline demo changes stay 
 Notification settings are device-local only: desktop alerts, message and ring
 sounds, and the Windows unread badge. Per-channel and per-server mute preferences
 still come from the account through the existing Gateway user settings events.
+The native taskbar/Dock badge excludes muted DMs and group DMs, guilds, categories,
+and channels using the existing mute expiry rules. Muting preserves the in-app
+unread counts; unmuting includes them again. The native total remains capped at
+99+ and is separate from the in-app mention badges.
 The user guild settings decoder accepts string and integer `guild_id` values,
 including in legacy and versioned READY snapshots. Missing, null, and zero IDs
 identify private-channel settings; [legacy zero IDs have been observed in READY](https://github.com/bwmarrin/discordgo/issues/624#issuecomment-456934135).
