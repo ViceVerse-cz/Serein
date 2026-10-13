@@ -53,3 +53,15 @@ the package locally. Older clients without this capability cannot install it.
 
 See [API Proxy](api-proxy/README.md) for the native REST-only proxy editor.
 Requires the API proxy SDK capability; Gateway, CDN/media and calls stay direct.
+
+## Voice Messages (preview)
+
+See [Voice Messages](voice-messages/README.md) for the native recorder gate and
+settings editor. Requires explicit `voice_messages` consent and a matching host.
+The sandbox receives no audio or microphone access. From `extensions/`, build
+and package with:
+
+```sh
+cargo build --locked --release --target wasm32-unknown-unknown -p voice-messages
+python pack.py plugins/voice-messages/manifest.json target/wasm32-unknown-unknown/release/voice_messages.wasm plugins/packages/voice-messages.serein-extension
+```

@@ -753,6 +753,11 @@ impl State {
 			&& self.can_send(channel)
 			&& self.permission(channel, p::ATTACH_FILES) == Some(true)
 	}
+	pub fn can_send_voice_message(&self, channel: Id) -> bool {
+		self.can_attach(channel)
+			&& self.freshness == Freshness::Fresh
+			&& self.permission(channel, p::SEND_VOICE_MESSAGES) == Some(true)
+	}
 	pub fn can_speak(&self, channel: Id) -> bool {
 		self.permission(channel, p::VIEW_CHANNEL | p::CONNECT | p::SPEAK) == Some(true)
 	}

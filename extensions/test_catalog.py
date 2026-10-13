@@ -11,6 +11,8 @@ rpc = (catalog.ROOT / "plugins/packages/custom-rpc.serein-extension").read_bytes
 assert catalog.validate(rpc)["capabilities"] == ["rich_presence", "storage"]
 proxy = (catalog.ROOT / "plugins/packages/api-proxy.serein-extension").read_bytes()
 assert catalog.validate(proxy)["capabilities"] == ["api_proxy", "storage"]
+voice = (catalog.ROOT / "plugins/packages/voice-messages.serein-extension").read_bytes()
+assert catalog.validate(voice)["capabilities"] == ["voice_messages", "storage"]
 for data, mutate in (
     (proxy, lambda p: p["manifest"].update(capabilities=["api_proxy", "composer"])),
     (proxy, lambda p: p["manifest"]["actions"][0].update(surface="message")),

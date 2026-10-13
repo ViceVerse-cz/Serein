@@ -1,0 +1,292 @@
+{
+  "environment": {
+    "date": "2026-10-05",
+    "os": "Linux-7.0.0-34-generic-x86_64-with-glibc2.43",
+    "cpu": "AMD Ryzen 5 7535U with Radeon Graphics",
+    "logical_cpus": 12,
+    "ram_bytes": 15369355264,
+    "renderer": "WGPU/Vulkan llvmpipe (LLVM 21.1.8, 256 bits), forced Mesa lavapipe ICD",
+    "display": "Xvfb/X11 1120x760x24, scale 1",
+    "rust": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "standard_features": "--no-default-features; voice included",
+    "sample_features": "--no-default-features --features demo",
+    "baseline_commit": "6313e271e9c34b39069eb20787afb1476741b21c",
+    "runtime_source_commit": "9b44a4dfbe6d1702f36b20b0877bd24610cd9fa8",
+    "microphone_opened": false,
+    "discord_requests_sent": false,
+    "new_rust_dependency_versions": false,
+    "native_limitations": [
+      "One launch per revision; allocator/driver variation not isolated",
+      "Physical microphone/DSP and live upload unmeasured",
+      "Startup peaks, GPU memory and frame latency unmeasured"
+    ],
+    "os_release": "Ubuntu 26.04.1 LTS"
+  },
+  "standard_packages": {
+    "baseline": {
+      "executable_bytes": 85597872,
+      "executable_sha256": "644a4eb57eb61609cdc379f0f8a0da9d1414167548783b4af13914c52ee5872a",
+      "distribution_bytes": 44266736,
+      "distribution_sha256": "458689379282bb23d8c09948b476c227792553d26c3c11a9db03353bf6190689",
+      "installed_regular_bytes": 90111993,
+      "installed_regular_file_count": 225
+    },
+    "after": {
+      "executable_bytes": 86025264,
+      "executable_sha256": "803262b2b40f331bb3ba80e45b1c8c49a99a05ca7e44c3abf2f188d7474cd38d",
+      "distribution_bytes": 44328696,
+      "distribution_sha256": "9c6dcc8d8b562f78fe20930e71b9e6dc08dd798ae1e7804d8e2917750a387937",
+      "installed_regular_bytes": 90539385,
+      "installed_regular_file_count": 225
+    }
+  },
+  "native_idle": {
+    "baseline": {
+      "argv": [
+        "--demo",
+        "--demo-chat",
+        "--demo-recorder"
+      ],
+      "warmup_seconds": 11,
+      "sample_interval_seconds": 1,
+      "samples": [
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 242778112,
+          "children": []
+        }
+      ],
+      "mean_cpu_percent_one_core": 0.0,
+      "peak_rss_bytes": 242778112,
+      "settled_rss_bytes": 242778112,
+      "executable_bytes": 87301040,
+      "executable_sha256": "47632c7b2861d4be1677ad9392085a3cbc68b74764fddca995f24ca12ec0278b"
+    },
+    "after": {
+      "argv": [
+        "--demo",
+        "--demo-chat",
+        "--demo-recorder"
+      ],
+      "warmup_seconds": 11,
+      "sample_interval_seconds": 1,
+      "samples": [
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251494400,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251494400,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251494400,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251494400,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251494400,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251494400,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251494400,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251363328,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251363328,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251363328,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251363328,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251363328,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251363328,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251363328,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251363328,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251363328,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251363328,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251363328,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251363328,
+          "children": []
+        },
+        {
+          "cpu_percent_one_core": 0.0,
+          "rss_bytes": 251363328,
+          "children": []
+        }
+      ],
+      "mean_cpu_percent_one_core": 0.0,
+      "peak_rss_bytes": 251494400,
+      "settled_rss_bytes": 251363328,
+      "executable_bytes": 87725104,
+      "executable_sha256": "0a9ef510ad15855ae0ee3874d1b42ac1a4366b07b7760aaaddd6dbc98f477184"
+    }
+  },
+  "wiki": {
+    "source_commit": "9b44a4dfbe6d1702f36b20b0877bd24610cd9fa8",
+    "published_commit": "b53b6cb1e136e51bc5ec8f4b4f3d60c04a106718",
+    "status": "Preview SDK \u2014 PR #566, not yet released"
+  },
+  "plugin": {
+    "package_bytes": 332270,
+    "package_sha256": "fa1bc929174e9f81617cccd4e5e8ef72d04d0082f9c69083fdf49567630818bb",
+    "encoded_audio_bytes_ceiling": 8388608,
+    "duration_seconds_ceiling": 120,
+    "pcm_queue_frames": 8,
+    "pcm_queue_sample_bytes": 30720,
+    "waveform_live_bins": 64,
+    "waveform_accumulator_bytes_ceiling": 6000
+  }
+}

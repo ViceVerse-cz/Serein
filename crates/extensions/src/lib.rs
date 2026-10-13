@@ -7,6 +7,8 @@ mod runtime;
 pub use runtime::invoke;
 mod rich_presence;
 pub use rich_presence::*;
+mod voice_messages;
+pub use voice_messages::*;
 mod discovery;
 pub use discovery::*;
 mod conversation_activity;
@@ -91,6 +93,7 @@ pub enum ExtensionKind {
 pub enum Capability {
 	ApiProxy,
 	RichPresence,
+	VoiceMessages,
 	RelationshipControl,
 	AccountControl,
 	AudioSettings,
@@ -515,6 +518,8 @@ pub struct Output {
 	pub api_proxy: Option<ApiProxyConfig>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub rich_presence: Option<RichPresenceUpdate>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub voice_messages: Option<VoiceMessagesConfig>,
 	#[serde(default)]
 	pub image_sharing: bool,
 	#[serde(default)]
@@ -1072,6 +1077,7 @@ impl Output {
 			.surface;
 		if surface == Surface::Tick
 			&& (self.rich_presence.is_some()
+				|| self.voice_messages.is_some()
 				|| self.image_sharing
 				|| self.preserve_deleted_messages
 				|| self.replacement.is_some()
@@ -1098,6 +1104,14 @@ impl Output {
 			if let RichPresenceUpdate::Set { presence } = update {
 				presence.validate()?;
 			}
+		}
+		if let Some(config) = &self.voice_messages {
+			if !manifest.capabilities.contains(&Capability::VoiceMessages)
+				|| !matches!(surface, Surface::Activation | Surface::Panel)
+			{
+				return Err(Error::Capability);
+			}
+			config.validate()?;
 		}
 		if !self.panel.is_empty() && matches!(surface, Surface::MessageEvent | Surface::AppEvent) {
 			return Err(Error::Capability);

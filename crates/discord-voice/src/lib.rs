@@ -1,6 +1,7 @@
-//! Discord DM and guild voice media. No bot manager, relay, recording, or key persistence.
+//! Discord DM and guild voice media. No bot manager, relay, or key persistence.
 mod activity;
 pub mod audio;
+pub use audio::recording;
 pub mod camera;
 mod capture;
 mod crypto;

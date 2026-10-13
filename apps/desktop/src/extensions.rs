@@ -117,6 +117,10 @@ pub struct Starter {
 
 pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 	let packages: &[(&'static [u8], &'static str)] = &[
+		(
+			include_bytes!("../../../extensions/plugins/packages/voice-messages.serein-extension"),
+			"Enable the native microphone recorder in the composer + menu. Recording and sending require separate explicit actions; audio stays in memory.",
+		),
 		#[cfg(any(test, feature = "demo"))]
 		(
 			include_bytes!(
@@ -193,13 +197,13 @@ pub(crate) fn starters() -> Result<Vec<Starter>, String> {
 #[cfg(feature = "demo")]
 pub fn demo_check_examples() -> Result<bool, String> {
 	let starters = starters()?;
-	if starters.len() != 10
+	if starters.len() != 11
 		|| starters
 			.iter()
 			.filter(|entry| entry.theme.is_some())
 			.count() != 9
 	{
-		return Err("Expected one starter plugin and nine themes".into());
+		return Err("Expected two starter plugins and nine themes".into());
 	}
 	let gate = Gate {
 		epoch: 0,
@@ -238,6 +242,7 @@ pub fn demo_check_examples() -> Result<bool, String> {
 		if manifest.kind == ExtensionKind::Plugin {
 			let ok = match manifest.id.as_str() {
 				"message-delete-protector" => summary.preserve_deleted_messages,
+				"voice-messages" => summary.voice_messages.is_some(),
 				_ => false,
 			};
 			if !ok {
@@ -246,10 +251,15 @@ pub fn demo_check_examples() -> Result<bool, String> {
 			activated = true;
 			stored.grants.clear();
 			let denied = stored.summary(&gate, None, true);
-			if denied.preserve_deleted_messages || denied.image_sharing || denied.error.is_none() {
+			if denied.preserve_deleted_messages
+				|| denied.image_sharing
+				|| denied.voice_messages.is_some()
+				|| denied.error.is_none()
+			{
 				return Err("Plugin activation must require explicit permission".into());
 			}
-		} else if summary.preserve_deleted_messages
+		} else if summary.voice_messages.is_some()
+			|| summary.preserve_deleted_messages
 			|| summary.image_sharing
 			|| summary.theme.is_none()
 		{
@@ -320,6 +330,7 @@ pub struct InstalledExtension {
 	pub image_sharing: bool,
 	pub rich_presence: Option<Box<extensions::CustomRichPresence>>,
 	pub api_proxy: Option<extensions::ApiProxyConfig>,
+	pub voice_messages: Option<extensions::VoiceMessagesConfig>,
 }
 
 pub enum Event {
@@ -528,6 +539,10 @@ impl Stored {
 			{
 				return Err("Deleted message access was not granted".into());
 			}
+			if output.voice_messages.is_some() && !self.grants.contains(&Capability::VoiceMessages)
+			{
+				return Err("Voice messages access was not granted".into());
+			}
 			if output.image_sharing && !self.grants.contains(&Capability::ImageSharing) {
 				return Err("Image sharing access was not granted".into());
 			}
@@ -571,6 +586,10 @@ impl Stored {
 				.as_ref()
 				.ok()
 				.and_then(|output| output.api_proxy.clone()),
+			voice_messages: result
+				.as_ref()
+				.ok()
+				.and_then(|output| output.voice_messages),
 			rich_presence: result
 				.as_ref()
 				.ok()
@@ -849,6 +868,11 @@ fn run(root: &Path, job: Job, gate: &Gate) -> Result<Event, String> {
 			let mut output =
 				extensions::invoke(&stored.package, &invocation).map_err(|e| e.to_string())?;
 			gate.check()?;
+			if output.voice_messages.is_some()
+				&& !stored.grants.contains(&Capability::VoiceMessages)
+			{
+				return Err("Voice messages access was not granted".into());
+			}
 			if output.api_proxy.is_some() && !stored.grants.contains(&Capability::ApiProxy) {
 				return Err("API proxy access was not granted".into());
 			}
@@ -1185,6 +1209,7 @@ fn load(
 						image_sharing: false,
 						rich_presence: None,
 						api_proxy: None,
+						voice_messages: None,
 					},
 				});
 			}
@@ -2325,7 +2350,7 @@ mod tests {
 	#[test]
 	fn shop_preview_demo_catalog_and_images_are_local_and_hash_pinned() {
 		let starters = starters().unwrap();
-		assert_eq!(starters.len(), 10);
+		assert_eq!(starters.len(), 11);
 		let mut ids = std::collections::BTreeSet::new();
 		for starter in starters {
 			let InstallSource::Bundled {

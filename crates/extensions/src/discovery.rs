@@ -16,6 +16,7 @@ impl HostInfo {
 			capabilities: &[
 				Capability::ApiProxy,
 				Capability::RichPresence,
+				Capability::VoiceMessages,
 				Capability::ActionFeedback,
 				Capability::DataQueries,
 				Capability::MessagingSettings,

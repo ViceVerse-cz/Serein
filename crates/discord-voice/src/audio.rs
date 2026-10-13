@@ -3,6 +3,7 @@
 use crate::Frame;
 use crate::diagnostics::{Metrics, Scope, Stage};
 mod echo;
+pub mod recording;
 use model::voice_settings::{NoiseSuppression, Processing, VoiceProcessing};
 #[cfg(target_os = "macos")]
 mod permission_macos;

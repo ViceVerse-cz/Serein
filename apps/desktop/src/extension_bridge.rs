@@ -225,6 +225,21 @@ impl Bridge {
 			.and_then(|entry| entry.rich_presence.as_deref())
 	}
 
+	pub fn voice_messages(&self) -> Option<extensions::VoiceMessagesConfig> {
+		self.installed
+			.iter()
+			.filter(|entry| entry.error.is_none() && !self.disabled.contains(&entry.manifest.id))
+			.filter(|entry| {
+				entry
+					.manifest
+					.capabilities
+					.contains(&Capability::VoiceMessages)
+			})
+			.filter(|entry| entry.voice_messages.is_some())
+			.min_by_key(|entry| &entry.manifest.id)
+			.and_then(|entry| entry.voice_messages)
+	}
+
 	pub fn api_proxy_ready(&self) -> bool {
 		self.api_proxy_loaded
 	}
@@ -498,6 +513,7 @@ impl Bridge {
 			entry.preserve_deleted_messages = false;
 			entry.image_sharing = false;
 			entry.rich_presence = None;
+			entry.voice_messages = None;
 		}
 		self.picker = None;
 		self.theme_picker = None;
@@ -903,6 +919,15 @@ impl Bridge {
 								}
 								extensions::RichPresenceUpdate::Clear => None,
 							};
+						}
+						if context.is_current(state)
+							&& let Some(config) = &output.voice_messages
+							&& let Some(installed) = self
+								.installed
+								.iter_mut()
+								.find(|entry| entry.manifest.id == id)
+						{
+							installed.voice_messages = Some(*config);
 						}
 						if context.is_current(state)
 							&& let Some(config) = &output.api_proxy
@@ -1824,6 +1849,7 @@ mod tests {
 			image_sharing: false,
 			rich_presence: None,
 			api_proxy: None,
+			voice_messages: None,
 		};
 		let bridge = Bridge {
 			scope: Some((
@@ -1868,6 +1894,27 @@ mod tests {
 		bridge.refresh_api_proxy();
 		assert!(bridge.api_proxy_ready());
 		assert_eq!(bridge.api_proxy(), extensions::ApiProxyConfig::Direct);
+	}
+
+	#[test]
+	fn voice_messages_require_grant_and_retire_on_disable_error_and_logout() {
+		let (mut bridge, _, _) = message_events_fixture();
+		bridge.installed[0].voice_messages = Some(extensions::VoiceMessagesConfig::default());
+		assert!(bridge.voice_messages().is_none());
+		bridge.installed[0]
+			.manifest
+			.capabilities
+			.push(Capability::VoiceMessages);
+		assert!(bridge.voice_messages().is_some());
+		let id = bridge.installed[0].manifest.id.clone();
+		bridge.disabled.insert(id.clone());
+		assert!(bridge.voice_messages().is_none());
+		bridge.disabled.remove(&id);
+		bridge.installed[0].error = Some("Failed activation".into());
+		assert!(bridge.voice_messages().is_none());
+		bridge.installed[0].error = None;
+		let _ = bridge.logout(&egui::Context::default());
+		assert!(bridge.voice_messages().is_none());
 	}
 
 	#[test]

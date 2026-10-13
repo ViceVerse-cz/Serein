@@ -13,6 +13,7 @@ use tokio::sync::watch;
 pub struct UploadRequest {
 	pub command: Command,
 	pub source: Vec<Source>,
+	pub voice_message: Option<discord_api::upload::VoiceMessage>,
 	pub progress: watch::Sender<Status>,
 	pub cancel: watch::Sender<bool>,
 }

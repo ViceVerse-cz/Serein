@@ -505,6 +505,50 @@ fn check_app_actions(package: &Package) {
 	);
 }
 
+fn check_voice_messages(name: &str, package: &Package) {
+	package.validate().expect("voice messages package is valid");
+	let mut input = Invocation {
+		action: "activate".into(),
+		..Default::default()
+	};
+	let activated = invoke(package, &input).expect("activation validates");
+	assert_eq!(
+		activated.voice_messages,
+		Some(extensions::VoiceMessagesConfig::default())
+	);
+	input.action = "open".into();
+	let opened = invoke(package, &input).expect("settings panel validates");
+	assert!(!opened.panel.is_empty());
+	assert!(opened.voice_messages.is_none() && opened.storage.is_none());
+	input.action = "save".into();
+	input.values = [
+		("duration".into(), "30".into()),
+		("waveform".into(), "Line".into()),
+		("suppression".into(), "false".into()),
+	]
+	.into();
+	let saved = invoke(package, &input).expect("settings save validates");
+	assert_eq!(
+		saved.voice_messages,
+		Some(extensions::VoiceMessagesConfig {
+			max_duration_seconds: 30,
+			waveform_style: extensions::WaveformStyle::Line,
+			noise_suppression: false,
+		})
+	);
+	input.action = "activate".into();
+	input.values.clear();
+	input.storage = saved.storage;
+	let restored = invoke(package, &input).expect("settings restore validates");
+	assert_eq!(restored.voice_messages, saved.voice_messages);
+	input.storage = Some("broken".into());
+	assert!(invoke(package, &input).unwrap().voice_messages.is_none());
+	println!(
+		"{name}: wasm_bytes={}, activation, passive panel, save, restore and corrupt-storage checks passed",
+		package.wasm.len()
+	);
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mut args = std::env::args_os().skip(1);
 	let wasm_dir = PathBuf::from(args.next().expect("usage: sdk_check <wasm-directory>"));
@@ -520,6 +564,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		include_str!("../../../examples/extensions/app-actions/manifest.json"),
 		&wasm_dir.join("app_actions.wasm"),
 	)?);
+	check_voice_messages(
+		"voice-messages/committed",
+		&parse_package(include_bytes!(
+			"../../../extensions/plugins/packages/voice-messages.serein-extension"
+		))?,
+	);
+	check_voice_messages(
+		"voice-messages/rebuilt",
+		&rebuilt(
+			include_str!("../../../extensions/plugins/voice-messages/manifest.json"),
+			&catalog_wasm_dir.join("voice_messages.wasm"),
+		)?,
+	);
 	let expected = Output {
 		preserve_deleted_messages: true,
 		..Default::default()

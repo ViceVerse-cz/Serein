@@ -64,6 +64,7 @@ may not be available in a released build.
 | [Message Delete Protector](../../extensions/plugins/message-delete-protector/src/lib.rs) | Opt-in activation enabling host-managed message retention |
 | [RGB Cycle](rgb-cycle/src/lib.rs) | Host-scheduled, smoothly eased appearance updates with saved settings |
 | [Custom Rich Presence](../../extensions/plugins/custom-rpc) | Native activity editor/preview, saved Apply/Stop controls and activation restore through the bounded `rich_presence` capability |
+| [Voice Messages](../../extensions/plugins/voice-messages) | Opt-in native recorder gate and saved duration, waveform style and suppression settings; Wasm never captures or receives audio |
 
 For this tutorial, use `app-toolbox/` in a development copy. Keep its `Cargo.toml`,
 and replace `manifest.json` and `src/lib.rs` with the examples below. The Cargo
@@ -483,12 +484,44 @@ and honors account visibility. The plugin cannot read credentials or perform
 network requests. Read the [full field/lifecycle reference](../../docs/extension-sdk-actions.md#custom-rich-presence)
 before building a different presence editor.
 
+## Voice Messages example (preview)
+
+The [Voice Messages source](../../extensions/plugins/voice-messages/src/lib.rs)
+uses the opt-in `VoiceMessagesOutput` wrapper and requests `voice_messages` plus
+`storage`. Activation contributes valid saved settings or defaults. **Open** is
+passive; **Save voice message settings** validates the complete form, persists
+preferences and applies them to new recordings without starting the microphone.
+Corrupt saved values do not enable a contribution until explicit Save repairs
+them. See the [typed field/interaction reference](../../docs/extension-sdk-actions.md#voice-messages).
+
+Build and package from `extensions/`:
+
+```sh
+cargo test --locked -p voice-messages
+cargo build --locked --release --target wasm32-unknown-unknown -p voice-messages
+python pack.py plugins/voice-messages/manifest.json target/wasm32-unknown-unknown/release/voice_messages.wasm plugins/packages/voice-messages.serein-extension
+```
+
+Import into an offline `--demo` host, or use its bundled opt-in card in Settings >
+Extensions, review grants, and enable it. Normal builds also include this bounded
+starter without automatically enabling it or waiting for catalog publication. In live-capable
+builds native users choose **Record voice message** from the composer's **+** menu,
+then **Record**, **Stop**, review and **Send**. Opening the dialog alone does not
+capture audio. The native host alone owns devices, capture and upload.
+Wasm has no microphone/filesystem/network imports or recording data. Recordings
+remain in session memory, with each encoded Ogg/Opus clip capped at 120 seconds
+and 8 MiB and native capture buffers bounded separately. The host enforces native
+mute/PTT/OS permission handling and capture release on cancel, navigation,
+disable, logout and call teardown. Synthetic tests do not authorize live microphone
+use or prove Discord compatibility.
+
 ## ABI version 1
 
 Existing `Invocation`, `Output`, `dispatch` and `export!` APIs and struct literal
 shapes remain supported. Opt into events with `EventInvocation`, or app data and
 actions with `AppInvocation` / `AppOutput`, custom activity contributions with
-`RichPresenceOutput`, or REST proxy configuration with `ApiProxyOutput`.
+`RichPresenceOutput`, native recorder preferences with `VoiceMessagesOutput`,
+or REST proxy configuration with `ApiProxyOutput`.
 Existing compiled plugins need no rebuild.
 
 Older hosts reject unsupported capabilities/surfaces. `api_version: 1` is not a

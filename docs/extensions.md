@@ -10,8 +10,10 @@ and other app operations; the user reviews and applies each operation in Serein.
 
 Themes and plugins are published together from [`extensions/`](../extensions/README.md)
 in this repository. Opening Settings > Themes or Extensions checks its shared catalog
-on the existing worker. Normal builds embed no package payloads; bundled examples
-remain available only as demo/test fixtures. Demo catalog refresh, previews and
+on the existing worker. Normal builds embed only the bounded Voice Messages
+starter package so its opt-in card is available before catalog publication;
+other bundled examples remain demo/test fixtures. The starter is not enabled
+automatically and still requires explicit capability consent. Demo catalog refresh, previews and
 selected catalog installs use the same public repository downloads as normal builds.
 An identical bundled fixture with the approved ID and hash is reused without a download.
 Catalog packages, plugin source and previews have one canonical copy in `extensions/`;
@@ -127,7 +129,7 @@ Unknown API versions and invalid packages are rejected before installation.
 
 Each capability is independent and requires user consent. An update requests
 renewed consent; adding a read grant does not grant commands. The SDK currently
-supports 53 capabilities, with at most 64 distinct declarations per manifest.
+supports 54 capabilities, with at most 64 distinct declarations per manifest.
 
 > **Preview SDK — PR #411, not yet released.** `channel_control`,
 > `server_control`, `role_control`, `moderation_control` and `media_control`, plus
@@ -143,6 +145,7 @@ supports 53 capabilities, with at most 64 distinct declarations per manifest.
 | `rich_presence` | Contribute one bounded custom activity and restore it during activation | Preview; explicit panel/activation actions only; separate activity-sharing preference; revoked on disable/account change |
 | `deleted_messages` | Enable host retention of already-loaded deleted messages | Activation only; bounded session memory, no deleted text sent to Wasm |
 | `image_sharing` | Legacy compatibility capability | Activation output still validates, but emoji/sticker image fallback is now built in and cannot be controlled by a plugin |
+| `voice_messages` | Enable and configure the native voice-message recorder | Preview; panel/activation settings only; capture and Send require native user actions; no microphone or audio access in Wasm |
 | `appearance` | Return a bounded declarative theme overlay | Native colors/control metrics; no arbitrary drawing |
 | `message_events` | Observe live create/update/delete events | Active accessible conversation; bounded best-effort delivery |
 | `app_context` | Read connection, current user and selected channel | Current session, optional fields |
@@ -213,6 +216,37 @@ documents Set/Clear, bounds, timers and `Element::ActivityPreview`. Existing ABI
 plugins and original SDK output literals stay compatible. Unsupported older hosts
 reject the new capability. This is an unofficial service path: synthetic preview
 and sandbox checks are not proof of cross-client Discord behavior.
+
+### Voice Messages
+
+The preview [Voice Messages plugin](../extensions/plugins/voice-messages) is an
+opt-in gate and settings editor for the host recorder. Import or catalog enable
+requires `voice_messages` consent; saved choices additionally require `storage`.
+Its bundled card is available in normal builds without a catalog download;
+choosing Enable uses the same explicit grants and account-isolated lifecycle.
+It contributes maximum recording duration (5–120 seconds), waveform appearance
+(Bars or Line), and recorder noise suppression. Opening the editor and editing
+controls are passive. **Save voice message settings** saves and applies the
+configuration for new recordings; it never starts capture or sends a message.
+
+Choose **Record voice message** from the composer's **+** menu to open the native
+recorder. Choose **Record**, then **Stop**, review, and choose **Send**. Opening
+the dialog alone does not capture audio. The host owns microphone/device
+and permission handling, bounded capture/encoding and the existing message-send
+queue. The sandbox has no microphone, filesystem or network imports and receives
+no recording bytes or device list. Each encoded Ogg/Opus clip remains session-only,
+with a hard 120-second and 8-MiB bound; native capture buffers are bounded separately.
+Recordings are never written to plugin storage or disk.
+
+Disable, lost consent, account changes and logout revoke the option. Native cancel,
+navigation and call teardown release capture. Enabled, successful contributions
+are chosen in ascending plugin-ID order within the existing eight-plugin limit.
+Missing output preserves a contribution; invalid saved settings do not enable one.
+An explicit Save repairs invalid storage. Re-enabling a removed plugin starts with
+fresh settings. The embedded reviewed package is 332,270 bytes (114,976 bytes of
+Wasm); it adds no running plugin instance until enabled. See the [typed configuration contract](extension-sdk-actions.md#voice-messages)
+for fields, lifecycle and compatibility. Offline sandbox checks establish the
+settings contract only; live Discord voice-message compatibility is unverified.
 
 ### App snapshots and confirmed commands
 
@@ -478,7 +512,7 @@ invocation input/output, panel complexity, queues and plugin storage.
 | Execution fuel | 10,000,000 | Shared by parsing and execution; a valid-sized input can still exhaust it. |
 | Wasm call depth / interpreter stack | 128 calls / 256 KiB | Avoid deep recursion. |
 | Serialized input and output | 256 KiB each | Count UTF-8 and JSON escaping, including nested storage JSON. |
-| Manifest actions / capabilities | 16 / 64 distinct | Only the 53 supported capability names are currently accepted. |
+| Manifest actions / capabilities | 16 / 64 distinct | Only the 54 supported capability names are currently accepted. |
 | Panel | 64 elements / 8 row levels | Includes nested children; text and input values are at most 4 KiB each. |
 | Plugin storage on disk | 1 MiB | Its practical size must also fit the smaller invocation/output budget. |
 | App snapshot | 64 KiB | Individual lists have smaller budgets; see the [data reference](extension-sdk-reference.md#app-data). |
