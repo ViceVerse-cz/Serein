@@ -111,7 +111,7 @@ can be inspected without decoding a newer capability/event enum.
 | --- | --- | --- | --- |
 | `api_version` | `u32` / integer | Current buffer/JSON ABI version, `1`. | `host.api_version` |
 | `sdk_revision` | `u32` / integer | Current discovery schema revision, `1`; not a release or protocol compatibility claim. | `host.sdk_revision` |
-| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (52 currently), not this plugin's granted capabilities. | `host.supports("rich_presence")` |
+| `capabilities` | `Vec<String>` / array of strings | Host-supported capability names (54 currently), not this plugin's granted capabilities. | `host.supports("rich_presence")` |
 | `app_events` | `Vec<String>` / array of strings | Host-supported app-event names (21 currently), not an event subscription or delivery guarantee. | `host.supports_event("typing")` |
 
 A supported capability still needs to be declared and explicitly granted. Older

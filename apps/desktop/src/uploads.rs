@@ -19,6 +19,7 @@ pub struct UploadRequest {
 
 type Selected = (Source, Option<egui::ColorImage>);
 struct Choosing {
+	prepared_bytes: u64,
 	compression: Option<(extensions::ImageCompression, u64)>,
 	result: mpsc::Receiver<Result<Option<Vec<Selected>>, &'static str>>,
 	cancelled: Arc<AtomicBool>,
@@ -226,16 +227,25 @@ mod compression_tests {
 			let (send, result) = mpsc::sync_channel(1);
 			let cancelled = Arc::new(AtomicBool::new(false));
 			let mut uploads = Uploads {
+				external: None,
+				public_result: None,
+				image_draft: None,
 				image_compression: current,
 				compression_limit: 10_000_000,
 				scope: Some((7, Id(3))),
 				choosing: vec![Choosing {
+					prepared_bytes: 0,
 					compression: Some((policy, 10_000_000)),
 					result,
 					cancelled: cancelled.clone(),
 					files: Arc::new(AtomicUsize::new(1)),
 				}],
-				..Default::default()
+				selected: vec![],
+				next_key: 0,
+				previewing: vec![],
+				uploading: None,
+				last: None,
+				notice: None,
 			};
 			let original = Source::pasted_png(photo(255)).unwrap();
 			let transformed = original
@@ -250,6 +260,33 @@ mod compression_tests {
 			assert!(cancelled.load(Ordering::Acquire));
 			assert!(uploads.take_notice().is_some());
 		}
+	}
+	#[test]
+	fn queued_photo_bytes_remain_reserved_until_cancelled_worker_retires() {
+		let (send, result) = mpsc::sync_channel(1);
+		let cancelled = Arc::new(AtomicBool::new(false));
+		let mut uploads = Uploads::default();
+		let source = Source::pasted_png(vec![1]).unwrap();
+		uploads.choosing.push(Choosing {
+			prepared_bytes: discord_api::upload::MAX_TOTAL_BYTES,
+			compression: Some((
+				extensions::ImageCompression {
+					max_edge: 256,
+					jpeg_quality: 80,
+				},
+				10_000_000,
+			)),
+			result,
+			cancelled: cancelled.clone(),
+			files: Arc::new(AtomicUsize::new(1)),
+		});
+		assert!(uploads.admit(std::slice::from_ref(&source)).is_err());
+		uploads.poll(7, Some(Id(3)), true, &egui::Context::default());
+		assert!(cancelled.load(Ordering::Acquire) && uploads.busy());
+		assert!(uploads.admit(std::slice::from_ref(&source)).is_err());
+		send.send(Ok(None)).unwrap();
+		uploads.poll(7, Some(Id(3)), true, &egui::Context::default());
+		assert!(!uploads.busy() && uploads.admit(&[source]).is_ok());
 	}
 	#[test]
 	fn photo_compression_is_smaller_bounded_and_preserves_transparency_or_failures() {
@@ -837,6 +874,7 @@ impl Uploads {
 		self.scope = Some((generation, channel));
 		self.last = None;
 		self.choosing.push(Choosing {
+			prepared_bytes: 0,
 			compression: None,
 			result,
 			cancelled,
@@ -892,6 +930,7 @@ impl Uploads {
 		self.admit(&source)?;
 		if let Some(policy) = self.image_compression {
 			let max_bytes = self.compression_limit;
+			let prepared_bytes = source.iter().map(Source::size).sum();
 			let cancelled = Arc::new(AtomicBool::new(false));
 			let flag = cancelled.clone();
 			let files = Arc::new(AtomicUsize::new(source.len()));
@@ -904,6 +943,7 @@ impl Uploads {
 						compress_source(source, Some(policy), flag.clone(), max_bytes).await;
 					if flag.load(Ordering::Acquire) {
 						let _ = send.send(Ok(None));
+						context.request_repaint();
 						return;
 					}
 					let thumbnail = preview(&source).await;
@@ -915,6 +955,7 @@ impl Uploads {
 			self.scope = Some((generation, channel));
 			self.clear_finished_progress();
 			self.choosing.push(Choosing {
+				prepared_bytes,
 				compression: Some((policy, max_bytes)),
 				result,
 				cancelled,
@@ -1049,6 +1090,7 @@ impl Uploads {
 		self.scope = Some((generation, channel));
 		self.clear_finished_progress();
 		self.choosing.push(Choosing {
+			prepared_bytes: 0,
 			compression: policy.map(|policy| (policy, max_bytes)),
 			result,
 			cancelled,
@@ -1102,12 +1144,9 @@ impl Uploads {
 						.image_compression
 						.map(|policy| (policy, self.compression_limit))
 			}) {
-				self.choosing
-					.remove(index)
-					.cancelled
-					.store(true, Ordering::Release);
-				self.notice = Some("Photo compression changed; select the attachments again");
-				continue;
+				if !choosing.cancelled.swap(true, Ordering::AcqRel) {
+					self.notice = Some("Photo compression changed; select the attachments again");
+				}
 			}
 			let result = match choosing.result.try_recv() {
 				Ok(result) => result,
@@ -1209,6 +1248,11 @@ impl Uploads {
 			.chain(sources)
 			.map(Source::size)
 			.sum::<u64>()
+			+ self
+				.choosing
+				.iter()
+				.map(|choosing| choosing.prepared_bytes)
+				.sum::<u64>()
 			> discord_api::upload::MAX_TOTAL_BYTES
 		{
 			return Err("Attachments must total at most 500 MB; account limits may be lower");
@@ -1866,10 +1910,13 @@ mod tests {
 		let cancelled = Arc::new(AtomicBool::new(false));
 		let mut uploads = Uploads {
 			external: None,
+			image_compression: None,
+			compression_limit: 0,
 			public_result: None,
 			image_draft: None,
 			scope: Some((1, Id(2))),
 			choosing: vec![Choosing {
+				prepared_bytes: 0,
 				compression: None,
 				result,
 				cancelled: cancelled.clone(),
@@ -1956,6 +2003,7 @@ pub(crate) fn debug_reservation_check(runtime: &tokio::runtime::Handle) {
 	let (_send, result) = mpsc::sync_channel(1);
 	let mut uploads = Uploads::default();
 	uploads.choosing.push(Choosing {
+		prepared_bytes: 0,
 		compression: None,
 		result,
 		cancelled: Arc::new(AtomicBool::new(false)),
