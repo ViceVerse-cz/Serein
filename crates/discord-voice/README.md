@@ -118,6 +118,18 @@ stereo Opus sender through four bounded chunks (up to 38,400 PCM bytes each), pl
 the capture generation so a rekey rejects late old audio. Native and wire behavior,
 platform limits and the unverified live gate are in [the compatibility addendum](../../docs/discord-compatibility.md#outgoing-screen-sharing--september-11-2026).
 
+Linux additionally monitors identifiable native PipeWire `Stream/Output/Audio` nodes
+and PipeWire JACK application nodes with playback ports
+through installed `pw-dump` and the existing GStreamer plugin. Graph snapshots are
+limited to 1 MiB / 4,096 objects, two seconds per child, a 128 MiB helper address-space
+limit and one 32-serial result slot.
+Pulse-backed nodes are excluded from this path to avoid double mixing. Combined native
+and Pulse captures remain capped at 32 applications. Native monitor appsinks retain at
+most two buffers / 76,800 bytes, plus the existing 38,400-byte pending PCM per application.
+Enumeration/capture failure counters contain no process identities or graph contents.
+Missing helpers/plugins, direct ALSA, separate JACK servers and unsupported sandbox
+access have no whole-output fallback. Native application capture remains unverified.
+
 `Audio::preview` reuses the native worker for explicitly started, local-only microphone
 loopback. Processed frames go straight to the existing eight-frame output ring; no network,
 recording, extra PCM queue or callback-side processing is added. The meter reports bounded

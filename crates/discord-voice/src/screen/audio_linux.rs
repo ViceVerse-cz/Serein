@@ -3,6 +3,8 @@
 #![allow(unsafe_code)] // Narrow, worker-owned PulseAudio C boundary; no callbacks outlive their owners.
 use super::{AudioChunk, MAX_AUDIO_SAMPLES};
 use libpulse_sys as pulse;
+#[path = "pipewire_audio_linux.rs"]
+mod pipewire;
 use std::{
 	cell::Cell,
 	collections::VecDeque,
@@ -639,6 +641,7 @@ fn run(
 	let own = OwnApplication::current()?;
 	let mut metrics = crate::diagnostics::Metrics::new(crate::diagnostics::Scope::ScreenAudio);
 	let mut native = Native::new()?;
+	let mut pipewire = pipewire::Monitor::new(own.clone());
 	let mut listing: Option<Enumeration> = None;
 	let mut captures: Vec<Capture> = Vec::new();
 	// Applications whose monitor was refused. Their audio is dropped, not the share.
@@ -651,7 +654,9 @@ fn run(
 	while !stop.load(Ordering::Acquire) && !send.is_closed() {
 		// Advance a fixed cadence instead of accumulating scheduler delay. A late tick
 		// catches up one frame per dispatch; >=100 ms stalls discard queued samples.
-		let timeout_ms = if captures.iter().any(|capture| capture.verified) {
+		let timeout_ms = if captures.iter().any(|capture| capture.verified)
+			|| pipewire.as_ref().is_some_and(pipewire::Monitor::active)
+		{
 			TICK.saturating_sub(last_tick.elapsed())
 				.as_micros()
 				.div_ceil(1000) as i32
@@ -679,6 +684,9 @@ fn run(
 				metrics.poll(true, 0, false, 0);
 			}
 			captures.clear();
+			if let Some(monitor) = pipewire.as_mut() {
+				monitor.clear();
+			}
 			listing = None;
 			active_epoch = current_epoch;
 			next_listing = Instant::now();
@@ -697,12 +705,20 @@ fn run(
 		{
 			listing = None;
 			if ready.load(Ordering::Acquire) {
+				if let Some(monitor) = pipewire.as_mut()
+					&& !monitor.refresh(&inputs, active_epoch)
+				{
+					metrics.capture(crate::diagnostics::Capture::NativeUnavailable, 1);
+				}
 				let inputs: Vec<Input> = inputs
 					.into_iter()
 					.filter(|input| !excluded.contains(input))
 					.collect();
 				metrics.add(crate::diagnostics::Stage::CaptureRestart, Duration::ZERO);
-				metrics.capture(crate::diagnostics::Capture::Inputs, inputs.len() as u64);
+				metrics.capture(
+					crate::diagnostics::Capture::Inputs,
+					(inputs.len() + pipewire.as_ref().map_or(0, pipewire::Monitor::inputs)) as u64,
+				);
 				// Applications that stopped, and indices that now belong to someone else.
 				captures.retain(|capture| inputs.contains(&capture.input));
 				// Listed again under the same identity, so the index cannot have been
@@ -756,7 +772,10 @@ fn run(
 			listing = Some(Enumeration::start(&native, &own)?);
 			next_listing = Instant::now() + LISTING;
 		}
-		if !captures.iter().any(|capture| capture.verified) || last_tick.elapsed() < TICK {
+		if (!captures.iter().any(|capture| capture.verified)
+			&& !pipewire.as_ref().is_some_and(pipewire::Monitor::active))
+			|| last_tick.elapsed() < TICK
+		{
 			continue;
 		}
 		let stalled = last_tick.elapsed() >= Duration::from_millis(100);
@@ -767,6 +786,10 @@ fn run(
 			last_tick + TICK
 		};
 		let mut mixed = [0.0; FRAME_SAMPLES];
+		if let Some(monitor) = pipewire.as_mut() {
+			let dropped = monitor.mix(&mut mixed, active_epoch, stalled);
+			metrics.capture(crate::diagnostics::Capture::Dropped, dropped as u64);
+		}
 		captures.retain_mut(|capture| {
 			if !capture.verified || capture.state() != pulse::PA_STREAM_READY {
 				return true;
