@@ -4729,3 +4729,10 @@ timeline-dm-intro = Ceci est le début de votre historique de messages privés a
 timeline-channel-intro-title = Bienvenue dans #{ $channel } !
 # Context: timeline_channel_intro
 timeline-channel-intro-start = Ceci est le début du salon #{ $channel }.
+
+# Default soundboard preview.
+soundboard-menu = Soundboard
+soundboard-offline = Offline preview - synthetic labels, playback disabled
+soundboard-retry = Retry catalog
+soundboard-unavailable = Join a server voice channel with soundboard permission; server mute and deafening prevent playback.
+soundboard-empty = No default sounds available.

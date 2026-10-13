@@ -134,10 +134,13 @@ native shortcut adapter; unsupported global bindings continue to work while Sere
 
 Voice follows Discord's call screens: a black stage with 80px participant avatars (DM calls,
 above the conversation) or 16:9 tiles with name badges (guild channels), a bottom control bar
-of dark pills (mute with settings chevron, camera, screen share, activities, soundboard, more)
+of dark pills (mute with settings chevron, camera, screen share, more)
 and a red hang-up button, a green "In a call" badge in the header, mute/deafen toggles in the
-account card, and a "Voice Connected" panel above it while connected. Camera, screen share,
-activities and soundboard are shown disabled: Serein has no such features.
+account card, and a "Voice Connected" panel above it while connected. Camera and screen
+sharing depend on platform, server capability and current permissions. More contains a
+default-sound Soundboard picker; explicit sends require a joined ordinary guild voice
+channel and the service permissions. Its offline preview has synthetic labels and disabled
+playback. Custom/external sounds, incoming sound-effect playback and activities are not included.
 
 ## Verification notes
 

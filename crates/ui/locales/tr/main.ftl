@@ -4718,3 +4718,10 @@ timeline-dm-intro = { $name } ile doğrudan mesaj geçmişinin başlangıcı.
 timeline-channel-intro-title = #{ $channel } kanalına hoş geldin!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = #{ $channel } kanalının başlangıcı.
+
+# Default soundboard preview.
+soundboard-menu = Soundboard
+soundboard-offline = Offline preview - synthetic labels, playback disabled
+soundboard-retry = Retry catalog
+soundboard-unavailable = Join a server voice channel with soundboard permission; server mute and deafening prevent playback.
+soundboard-empty = No default sounds available.

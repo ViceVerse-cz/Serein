@@ -3277,6 +3277,7 @@ impl MessagingUi {
 							deafen_clicked = true;
 							ui.close();
 						}
+						Self::soundboard_menu(ui, state, channel, commands);
 					});
 			});
 		}
@@ -3411,6 +3412,75 @@ impl MessagingUi {
 		}
 	}
 
+	fn soundboard_menu(
+		ui: &mut egui::Ui,
+		state: &mut State,
+		channel: Id,
+		commands: &mut Vec<Command>,
+	) {
+		ui.menu_button(crate::i18n::translate("soundboard-menu"), |ui| {
+			ui.set_max_width(300.0);
+			if state.demo {
+				ui.label(crate::i18n::translate("soundboard-offline"));
+				ui.add_enabled(false, egui::Button::new("🦆 Preview quack"));
+				ui.add_enabled(false, egui::Button::new("👏 Preview applause"));
+				return;
+			}
+			if state.soundboard.error.is_none()
+				&& let Some(command) = state.request_default_sounds()
+			{
+				commands.push(command);
+			}
+			if state.soundboard.loading.is_some() {
+				ui.spinner();
+			}
+			if let Some(error) = state.soundboard.error {
+				ui.label(error);
+				if !state.soundboard.loaded
+					&& ui
+						.button(crate::i18n::translate("soundboard-retry"))
+						.clicked()
+				{
+					state.soundboard.error = None;
+					if let Some(command) = state.request_default_sounds() {
+						commands.push(command);
+					}
+				}
+			}
+			let enabled = state.can_soundboard(channel) && state.soundboard.playing.is_none();
+			if !state.can_soundboard(channel) {
+				ui.label(crate::i18n::translate("soundboard-unavailable"));
+			}
+			if state.soundboard.playing.is_some() {
+				ui.spinner();
+			}
+			let mut selected = None;
+			egui::ScrollArea::vertical()
+				.max_height(240.0)
+				.show(ui, |ui| {
+					for sound in &state.soundboard.sounds {
+						let label = sound.emoji.as_ref().map_or_else(
+							|| sound.name.clone(),
+							|emoji| format!("{emoji} {}", sound.name),
+						);
+						if ui
+							.add_enabled(enabled && sound.available, egui::Button::new(label))
+							.clicked()
+						{
+							selected = Some(sound.id);
+						}
+					}
+				});
+			if state.soundboard.loaded && state.soundboard.sounds.is_empty() {
+				ui.label(crate::i18n::translate("soundboard-empty"));
+			}
+			if let Some(sound) = selected
+				&& let Some(command) = state.play_default_sound(channel, sound)
+			{
+				commands.push(command);
+			}
+		});
+	}
 	fn screen_share_control(&mut self, ui: &mut egui::Ui, state: &State) {
 		let enabled = self.screen.busy
 			|| state.demo

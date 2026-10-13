@@ -2,6 +2,34 @@
 
 The standard build implements native audio calls in existing one-to-one and group Discord DMs and guild voice channels. It uses the owner's existing account, Discord signaling/voice servers, Opus and DAVE version 1. There is no bot, project relay, separate account, recording service or webview call UI. **Live Discord interoperability and physical microphone/speaker behavior have not been tested; milestone 4 has not passed.**
 
+## Default soundboard sounds (preview)
+
+The call toolbar's More menu contains a default-sound Soundboard picker. It lists the
+service catalog and sends one explicitly selected sound to the currently joined ordinary
+guild voice channel. Current `SPEAK` and `USE_SOUNDBOARD` permissions, an established call
+and no server mute/deafen or self-deafen are required. Self-muting the microphone does not
+prevent a soundboard send. Unknown permissions, stage channels and private calls fail closed.
+
+The [documented service routes](https://docs.discord.com/developers/resources/soundboard)
+are `GET /soundboard-default-sounds` and
+`POST /channels/{channel.id}/send-soundboard-sound`. User-account interoperability and
+audible official-client playback remain unverified. A successful REST response is only
+service acceptance. No live REST request or call was executed during development.
+
+Catalog requests retain at most 32 sounds / 16 KiB, including allocated vector/string
+capacity; HTTP responses are capped at 16 KiB before decoding. One catalog request and
+one sound send can be in flight, using the existing bounded session queues and REST rate
+limits. Replies carry a request sequence; sound-send replies also match the original call
+generation. Reconnect/logout clears catalog and pending state. No sound is automatically
+played or retried after a failure. The offline menu displays synthetic labels with playback
+disabled, without downloads, output devices or microphone access.
+
+This slice does not include custom/external sounds, Nitro entitlement handling, sound
+uploads, incoming `VOICE_CHANNEL_EFFECT_SEND` sound downloads/playback or private/stage
+calls. Those remain separate requirements of #452. No soundboard audio is recorded,
+persisted or mixed into microphone/capture callbacks.
+
+
 ```sh
 cargo run --locked
 cargo run --locked -- --demo  # offline UI; calling/device access disabled

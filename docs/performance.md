@@ -555,3 +555,15 @@ the new measurements and executable hash. NSIS remains unavailable; this is an
 unsigned directory and ZIP. Final serial workspace checking reached 1,158
 passes, eight recorded baseline UI failures and 23 ignored tests. Formatting,
 strict workspace Clippy and the independent policy check passed.
+
+## Default soundboard catalog bounds
+
+The session-only default-sound catalog retains at most 32 sounds / 16 KiB, counting
+allocated vector and string capacity. Catalog HTTP responses are capped at 16 KiB
+before decoding; send responses at 4 KiB. One catalog load and one explicit send
+can be in flight, within the existing bounded command/event queues. Rendering
+does not perform network requests or sound decoding; the REST worker owns requests.
+This slice creates no soundboard audio stream or downloaded-sound cache.
+
+These limits exclude transport, allocator and GUI overhead and do not establish
+process RSS. No current package-size or native CPU/RSS comparison has been measured.

@@ -10,6 +10,7 @@ pub mod gifs;
 pub mod guild_creation;
 pub mod guild_folders;
 pub mod permissions;
+pub mod soundboard;
 pub mod stickers;
 pub use permissions::ChannelAccess;
 #[cfg(test)]
@@ -69,6 +70,7 @@ pub const EVENT_SLOTS: usize = 8; // UI drain batch; reliable events share a 32 
 pub const COMMAND_SLOTS: usize = 16; // ordinary commands <=16 KiB; bulk DM settings <=33 KiB; channel edit <=128 KiB; group icon <=350 KiB
 
 pub enum Command {
+	Soundboard(soundboard::Request),
 	Polls(polls::Request),
 	StickerPacks,
 	Sticker(Id),
@@ -422,6 +424,7 @@ fn prepare_navigation(
 	Ok(permission_state)
 }
 pub enum Event {
+	Soundboard(soundboard::Event),
 	Polls(polls::Event),
 	StickerEntitlement {
 		user: Id,
@@ -678,6 +681,7 @@ pub struct State {
 	/// The signed-in account's Discord `premium_type`; 0 until READY reports one.
 	pub premium_type: u8,
 	pub stickers: stickers::Stickers,
+	pub soundboard: soundboard::Catalog,
 	pub interactions: interactions::Interactions,
 	pub application_commands: application_commands::Catalog,
 	pub messaging_permissions: messaging_permissions::Settings,
@@ -900,6 +904,7 @@ impl Default for State {
 		Self {
 			premium_type: 0,
 			stickers: Default::default(),
+			soundboard: Default::default(),
 			interactions: Default::default(),
 			application_commands: Default::default(),
 			messaging_permissions: Default::default(),
@@ -1876,6 +1881,10 @@ impl State {
 	}
 	/// Reports a command the transport could not accept as a bounded outcome error.
 	pub fn command_rejected(&mut self, command: Command) {
+		if let Command::Soundboard(request) = command {
+			self.reject_soundboard(request);
+			return;
+		}
 		if let Command::Polls(request) = command {
 			let _ = self.apply_poll(polls::Event::Result {
 				channel: request.channel,
@@ -2402,6 +2411,7 @@ impl State {
 				self.set_premium_type(0);
 			}
 			self.interrupt_stickers();
+			self.soundboard.reset();
 			self.posts.clear_summaries();
 			self.interactions.reset();
 			self.application_commands.clear();
@@ -2688,6 +2698,10 @@ impl State {
 			}
 			Event::StickerPacks(result) => {
 				self.apply_sticker_packs(result);
+				Ok(())
+			}
+			Event::Soundboard(event) => {
+				self.apply_soundboard(event);
 				Ok(())
 			}
 			Event::Sticker { id, result } => {
@@ -3885,6 +3899,7 @@ impl State {
 			_ => {}
 		}
 		if failure.ends_session() {
+			self.soundboard.reset();
 			self.application_commands.clear();
 			self.interrupt_stickers();
 			self.interrupt_gif_favorites();
@@ -4180,6 +4195,9 @@ impl Event {
 				Self::GuildEmojis { emojis, .. } => custom_emoji_bytes(emojis),
 				Self::GuildStickers { stickers, .. } => sticker_bytes(stickers),
 				Self::StickerPacks(result) => result.as_ref().map_or(0, stickers::pack_bytes),
+				Self::Soundboard(soundboard::Event::Listed { result, .. }) => {
+					result.as_ref().map_or(0, soundboard::bytes)
+				}
 				Self::Sticker { result, .. } => result.as_ref().map_or(0, Sticker::heap_bytes),
 				Self::GuildChanged(patch) => [&patch.name, &patch.icon]
 					.into_iter()

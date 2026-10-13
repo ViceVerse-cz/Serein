@@ -4816,3 +4816,10 @@ timeline-dm-intro = Toto je začátek vaší historie přímých zpráv s uživa
 timeline-channel-intro-title = Vítejte v #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = Toto je začátek kanálu #{ $channel }.
+
+# Default soundboard preview.
+soundboard-menu = Soundboard
+soundboard-offline = Offline náhled · ukázkové názvy, přehrávání vypnuto
+soundboard-retry = Načíst znovu
+soundboard-unavailable = Připojte se do hlasového kanálu serveru s oprávněním pro soundboard; umlčení serverem a vypnutí zvuku brání přehrávání.
+soundboard-empty = Nejsou dostupné žádné výchozí zvuky.

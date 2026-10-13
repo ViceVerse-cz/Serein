@@ -4259,6 +4259,10 @@ impl Desktop {
 					return;
 				}
 				Command::StickerPacks => Event::StickerPacks(Ok(self.state.stickers.packs.clone())),
+				Command::Soundboard(request) => {
+					self.state.command_rejected(Command::Soundboard(request));
+					return;
+				}
 				Command::Sticker(id) => Event::Sticker {
 					id,
 					result: self

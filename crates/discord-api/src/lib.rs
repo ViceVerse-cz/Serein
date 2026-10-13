@@ -14,6 +14,7 @@ mod message_options;
 mod messaging_permissions;
 mod onboarding;
 mod profile_edit;
+mod soundboard;
 #[cfg(debug_assertions)]
 pub use profile_edit::debug_profile_board_request_check;
 pub mod proxy;
@@ -725,6 +726,7 @@ impl DiscordApi {
 				request,
 				result: self.channel_action(guild, channel, &action).await,
 			}),
+			Command::Soundboard(request) => Event::Soundboard(self.soundboard(request).await),
 			Command::ServerAction { action, request } => {
 				Event::ServerAction(client_core::server_actions::Event::Written {
 					action,

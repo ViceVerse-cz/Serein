@@ -4828,3 +4828,10 @@ timeline-dm-intro = 這是你與 { $name } 的私訊紀錄的開頭。
 timeline-channel-intro-title = 歡迎來到 #{ $channel }！
 # Context: timeline_channel_intro
 timeline-channel-intro-start = 這是 #{ $channel } 頻道的開頭。
+
+# Default soundboard preview.
+soundboard-menu = Soundboard
+soundboard-offline = Offline preview - synthetic labels, playback disabled
+soundboard-retry = Retry catalog
+soundboard-unavailable = Join a server voice channel with soundboard permission; server mute and deafening prevent playback.
+soundboard-empty = No default sounds available.
