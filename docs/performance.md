@@ -4,6 +4,35 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Hover preloading — October 13, 2026
+
+Release builds of baseline `2df8256c` (main) and the hover-preload branch with default features
+(voice included), Rust 1.98.1, Windows 11 (build 26200), Intel Core i9-13900K, 32 GiB RAM. The
+built `replay-bench` ran directly: one warmup and five measured runs, medians shown. These are
+synthetic reducer workloads; they count requests and core selection time, not network latency,
+display latency or RSS.
+
+| Metric / method | Baseline | Hover preload | Delta |
+| --- | ---: | ---: | ---: |
+| Package executable (`xtask package`) | 86,803,968 B | 86,869,504 B | +65,536 B (+0.08%) |
+| Installed tree (`dist/`, 216 files) | 90,997,257 B | 91,062,793 B | +65,536 B (+0.07%) |
+| Installed tree, zip deflate level 9 | 50,161,038 B | 50,183,621 B | +22,583 B (+0.05%) |
+| `replay-bench`: 100,000 events | 58.1 ms | 58.5 ms | noise (+0.6%) |
+| `replay-bench`: retained timeline | 393,492..393,977 B | 393,492..393,977 B | 0 |
+| `--navigation`: revalidation requests, 10,000 reselections of three 50-message conversations | 10,000 | 0 | −10,000 |
+| `--navigation`: select median / p95 | 200 / 300 ns | 200 / 200 ns | at timer resolution |
+| `--navigation`: dormant windows / rows / estimated bytes | 2 / 150 / 328,052 B | 2 / 150 / 328,148 B | +96 B |
+| Hover pass: first visits that opened without waiting | — | 12/12, 12 requests | new pass |
+| Hover pass: requests for a 28-row sweep without clicks | — | 12 | capped at 12/min |
+
+The baseline has no hover pass; there a first visit sends the same one request on click and waits
+for it. In the hover pass synthetic responses arrive before the click, so it shows that a click
+uses the preload without a second request, not how much latency is hidden; that depends on the
+dwell and the network round trip. The three-conversation workload keeps two dormant windows on
+both revisions, so the larger eight-window limit is not exercised here. The profile-extras cap
+(2 s to 600 ms), image connection reuse and off-coordinator disk reads were not measured: they need
+a network or disk-cache fixture this bench does not have.
+
 ## Profile cosmetics — October 11, 2026
 
 Release builds of baseline `178bde35` and the cosmetics branch on Linux 7.2.9 (CachyOS),
