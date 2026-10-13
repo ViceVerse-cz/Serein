@@ -4729,3 +4729,4 @@ timeline-dm-intro = Das ist der Anfang deines Direktnachrichtenverlaufs mit { $n
 timeline-channel-intro-title = Willkommen in #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = Das ist der Anfang des Kanals #{ $channel }.
+screen-body-system-audio-needs-newer-windows = Die Audioübertragung erfordert Windows 11 oder Windows Server 2022. Video kann weiterhin geteilt werden.

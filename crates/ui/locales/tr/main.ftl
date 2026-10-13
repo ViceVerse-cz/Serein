@@ -4718,3 +4718,4 @@ timeline-dm-intro = { $name } ile doğrudan mesaj geçmişinin başlangıcı.
 timeline-channel-intro-title = #{ $channel } kanalına hoş geldin!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = #{ $channel } kanalının başlangıcı.
+screen-body-system-audio-needs-newer-windows = Ses paylaşımı için Windows 11 veya Windows Server 2022 gerekir. Görüntü paylaşmaya devam edebilirsiniz.

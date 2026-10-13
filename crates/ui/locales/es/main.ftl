@@ -4732,3 +4732,4 @@ timeline-dm-intro = Este es el comienzo de tu historial de mensajes directos con
 timeline-channel-intro-title = ¡Te damos la bienvenida a #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = Este es el comienzo del canal #{ $channel }.
+screen-body-system-audio-needs-newer-windows = Compartir audio requiere Windows 11 o Windows Server 2022. Puedes seguir compartiendo vídeo.

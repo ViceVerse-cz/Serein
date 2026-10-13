@@ -4828,3 +4828,4 @@ timeline-dm-intro = 这是你与 { $name } 的私信记录的开头。
 timeline-channel-intro-title = 欢迎来到 #{ $channel }！
 # Context: timeline_channel_intro
 timeline-channel-intro-start = 这是 #{ $channel } 频道的开头。
+screen-body-system-audio-needs-newer-windows = 共享音频需要 Windows 11 或 Windows Server 2022。你仍然可以共享画面。

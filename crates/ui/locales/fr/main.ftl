@@ -4729,3 +4729,4 @@ timeline-dm-intro = Ceci est le début de votre historique de messages privés a
 timeline-channel-intro-title = Bienvenue dans #{ $channel } !
 # Context: timeline_channel_intro
 timeline-channel-intro-start = Ceci est le début du salon #{ $channel }.
+screen-body-system-audio-needs-newer-windows = Le partage audio nécessite Windows 11 ou Windows Server 2022. Vous pouvez toujours partager la vidéo.

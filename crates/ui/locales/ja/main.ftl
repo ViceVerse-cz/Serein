@@ -4715,3 +4715,4 @@ timeline-dm-intro = { $name } とのダイレクトメッセージ履歴の始�
 timeline-channel-intro-title = #{ $channel } へようこそ！
 # Context: timeline_channel_intro
 timeline-channel-intro-start = #{ $channel } チャンネルの始まりです。
+screen-body-system-audio-needs-newer-windows = 音声の共有には Windows 11 または Windows Server 2022 が必要です。映像は引き続き共有できます。

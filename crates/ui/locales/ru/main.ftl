@@ -4735,3 +4735,4 @@ timeline-dm-intro = Это начало истории ваших личных �
 timeline-channel-intro-title = Добро пожаловать в #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = Это начало канала #{ $channel }.
+screen-body-system-audio-needs-newer-windows = Для передачи звука требуется Windows 11 или Windows Server 2022. Видео по-прежнему можно транслировать.

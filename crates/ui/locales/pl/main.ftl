@@ -4734,3 +4734,4 @@ timeline-dm-intro = To początek Twojej historii wiadomości prywatnych z { $nam
 timeline-channel-intro-title = Witaj na #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = To początek kanału #{ $channel }.
+screen-body-system-audio-needs-newer-windows = Udostępnianie dźwięku wymaga Windows 11 lub Windows Server 2022. Nadal możesz udostępniać obraz.

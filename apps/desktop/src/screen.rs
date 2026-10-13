@@ -221,11 +221,13 @@ impl Screen {
 			ui.screen.request = None;
 			ui.screen.busy = false;
 			ui.screen.supported = false;
+			ui.screen.audio_supported = false;
 			ui.screen.preview = None;
 			ui.screen.capture_status = None;
 			return None;
 		}
 		ui.screen.supported = discord_voice::screen::supported();
+		ui.screen.audio_supported = discord_voice::screen::audio_supported();
 		if !ui.screen.open && ui.screen.request.is_none() && self.context().is_none() {
 			ui.screen.sources.clear();
 			ui.screen.selected = None;
