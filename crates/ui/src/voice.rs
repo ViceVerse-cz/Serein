@@ -3421,7 +3421,7 @@ impl MessagingUi {
 		ui.menu_button(crate::i18n::translate("soundboard-menu"), |ui| {
 			ui.set_max_width(300.0);
 			if state.demo {
-				ui.label(crate::i18n::translate("soundboard-offline"));
+				ui.add(egui::Label::new(crate::i18n::translate("soundboard-offline")).wrap());
 				ui.add_enabled(false, egui::Button::new("🦆 Preview quack"));
 				ui.add_enabled(false, egui::Button::new("👏 Preview applause"));
 				return;
@@ -3435,7 +3435,7 @@ impl MessagingUi {
 				ui.spinner();
 			}
 			if let Some(error) = state.soundboard.error {
-				ui.label(error);
+				ui.add(egui::Label::new(error).wrap());
 				if !state.soundboard.loaded
 					&& ui
 						.button(crate::i18n::translate("soundboard-retry"))
@@ -3449,7 +3449,7 @@ impl MessagingUi {
 			}
 			let enabled = state.can_soundboard(channel) && state.soundboard.playing.is_none();
 			if !state.can_soundboard(channel) {
-				ui.label(crate::i18n::translate("soundboard-unavailable"));
+				ui.add(egui::Label::new(crate::i18n::translate("soundboard-unavailable")).wrap());
 			}
 			if state.soundboard.playing.is_some() {
 				ui.spinner();
