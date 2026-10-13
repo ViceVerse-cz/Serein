@@ -555,3 +555,27 @@ the new measurements and executable hash. NSIS remains unavailable; this is an
 unsigned directory and ZIP. Final serial workspace checking reached 1,158
 passes, eight recorded baseline UI failures and 23 ignored tests. Formatting,
 strict workspace Clippy and the independent policy check passed.
+
+### Message dates and emote details (2026-10-14)
+
+Fresh standard Windows x64 voice-inclusive packages compare main
+`9433275fa339a5a609ec8d0ed59c22e0494ec2d4` with runtime
+`4f90d6c4024dbe66144b440fe6dcdbce67330bb3`, using pinned Rust 1.98.1,
+`cargo xtask package`, normal fat LTO, one codegen unit and symbol stripping.
+Neither shipping package enables demo/developer features. NSIS is unavailable;
+the artifacts are unsigned installed directories and matching full ZIPs.
+
+| Metric | Baseline | After | Delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| Executable | 86,899,712 B | 86,934,016 B | +34,304 B / +0.0395% | serein.exe file length |
+| Installed directory | 91,093,001 B | 91,127,305 B | +34,304 B / +0.0377% | Sum of 216 file lengths |
+| ZIP | 50,305,755 B | 50,320,178 B | +14,423 B / +0.0287% | Same .NET Optimal compression over all files |
+
+[Package measurements and hashes](pr-evidence/message-dates-and-emote-details/package.json)
+include the shared ruzstd 0.9.1 patch; the size change is not isolated to the UI.
+[Native evidence](pr-evidence/message-dates-and-emote-details/README.md)
+uses paired offline chat and emoji hover captures at 1120x760. Actual synthetic
+input, animation and light sticker browsing were inspected. Final UI tests with
+the patched decoder passed 482 tests, 8 ignored; full local checking passed.
+Matched release-demo CPU/private-memory measurements are pending. No frame or
+startup latency, affected Linux runtime or live Discord behavior is established.

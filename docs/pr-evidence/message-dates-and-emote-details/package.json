@@ -1,0 +1,22 @@
+{
+  "toolchain": "Rust 1.98.1",
+  "platform": "Windows x64",
+  "command": "cargo xtask package",
+  "zip_method": ".NET CompressionLevel.Optimal; all 216 installed files",
+  "baseline": {
+    "Commit": "9433275fa339a5a609ec8d0ed59c22e0494ec2d4",
+    "Executable": 86899712,
+    "Installed": 91093001,
+    "Zip": 50305755,
+    "FileCount": 216,
+    "ExecutableSha256": "81bcbead0651607d45c96c8708e33d3770d829b957fa89c35aaa87493b701ae0"
+  },
+  "after": {
+    "Commit": "4f90d6c4024dbe66144b440fe6dcdbce67330bb3",
+    "Executable": 86934016,
+    "Installed": 91127305,
+    "Zip": 50320178,
+    "FileCount": 216,
+    "ExecutableSha256": "f5604061c57b53ec0533d290ae3807cbef5937550f88b3ac6eceb5fd35f6a58a"
+  }
+}
