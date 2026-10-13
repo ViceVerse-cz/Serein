@@ -1770,7 +1770,9 @@ One global permit admits at most 32 MiB source data and a bounded decoder (8192
 pixels per axis, 32 million pixels, 128 MiB allocation). Orientation/resizing may
 retain another bounded pixel buffer; output retains at most 8 MiB (up to 16 MiB
 Vec capacity). Only strictly smaller outputs replace their selection, inside the
-existing account/session upload batch. Waiting jobs retain source handles; no
+existing account/session upload batch. Queued pasted sources reserve their bytes
+against the existing 500-MB batch ceiling, including cancelled jobs until their
+worker retires. Waiting jobs retain handles or those existing pasted buffers; no
 paths or bytes enter Wasm, SQLite, logs or diagnostics. Original disk files are
 never rewritten. Cancellation between codec phases cannot interrupt a currently
 running synchronous phase.

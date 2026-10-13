@@ -2370,7 +2370,10 @@ in force. A quiet forwarding note affects only that separately sent note.
 
 Each staged message-composer file has a **Host file…** action. Selecting it shows
 per-file consent before an anonymous upload to Catbox; nothing happens automatically
-when Discord rejects a file. The original bytes are streamed without compression.
+when Discord rejects a file. The currently staged selection is streamed without
+further compression. An enabled photo-compression plugin may already have
+prepared a smaller JPEG; the consent dialog shows that selection's name and size.
+Original disk files stay unchanged.
 Successful links remain in the dialog for **Copy link** or **Add to draft**, followed
 by the user's ordinary Send action. Adding preserves existing text and observes the
 composer's character, item and aggregate byte limits. A link can only be added to
