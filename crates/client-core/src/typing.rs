@@ -136,6 +136,7 @@ mod tests {
 		State {
 			user: Some(User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(1),
 				name: "Owner".into(),
 				avatar: None,
@@ -182,6 +183,7 @@ mod tests {
 			channel: Id(channel),
 			author: User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(user),
 				name: "Synthetic".into(),
 				avatar: None,

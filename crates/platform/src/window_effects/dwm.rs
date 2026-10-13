@@ -17,14 +17,10 @@ use windows::core::{PCWSTR, w};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
 
-use std::cell::Cell;
-
 // A nonzero scalar, not a pointer: WS_SYSMENU plus a presence bit, even in fullscreen.
 const REQUESTED_MENU: PCWSTR = w!("Serein.CustomCaption.RequestedMenu");
-
-thread_local! {
-	static TEMPORARY_DRAG: Cell<bool> = const { Cell::new(false) };
-}
+// Modal move loops dispatch other windows' messages on this same thread.
+const TEMPORARY_DRAG: PCWSTR = w!("Serein.CustomCaption.TemporaryDragDepth");
 
 // winit retains WS_SYSMENU even for undecorated windows and restores it on style changes.
 // With a full-client DWM frame this paints native buttons underneath our custom buttons.
@@ -41,23 +37,41 @@ unsafe extern "system" fn custom_caption(
 		if message == WM_NCDESTROY {
 			let _ = RemoveWindowSubclass(hwnd, Some(custom_caption), id);
 			let _ = RemovePropW(hwnd, REQUESTED_MENU);
+			let _ = RemovePropW(hwnd, TEMPORARY_DRAG);
 		}
 		if (message == WM_NCLBUTTONDOWN && wparam.0 == HTCAPTION as usize)
 			|| (message == WM_SYSCOMMAND && (wparam.0 & 0xFFF0) == SC_MOVE as usize)
 		{
 			let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
-			if style & WS_SYSMENU.0 as isize == 0 {
-				TEMPORARY_DRAG.set(true);
-				SetWindowLongPtrW(hwnd, GWL_STYLE, style | WS_SYSMENU.0 as isize);
+			let depth = GetPropW(hwnd, TEMPORARY_DRAG).0 as usize;
+			if let Some(next) = depth.checked_add(1)
+				&& SetPropW(hwnd, TEMPORARY_DRAG, Some(HANDLE(next as _))).is_ok()
+			{
+				let added_menu = style & WS_SYSMENU.0 as isize == 0;
+				if added_menu {
+					SetWindowLongPtrW(hwnd, GWL_STYLE, style | WS_SYSMENU.0 as isize);
+				}
 				let result = DefSubclassProc(hwnd, message, wparam, lparam);
-				let current_style = GetWindowLongPtrW(hwnd, GWL_STYLE);
-				SetWindowLongPtrW(hwnd, GWL_STYLE, current_style & !(WS_SYSMENU.0 as isize));
-				TEMPORARY_DRAG.set(false);
+				// Suppression may have been disabled while the modal move loop dispatched events.
+				if added_menu && !GetPropW(hwnd, REQUESTED_MENU).0.is_null() {
+					let current_style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+					SetWindowLongPtrW(hwnd, GWL_STYLE, current_style & !(WS_SYSMENU.0 as isize));
+				}
+				if !GetPropW(hwnd, TEMPORARY_DRAG).0.is_null() {
+					if depth == 0 {
+						let _ = RemovePropW(hwnd, TEMPORARY_DRAG);
+					} else {
+						let _ = SetPropW(hwnd, TEMPORARY_DRAG, Some(HANDLE(depth as _)));
+					}
+				}
 				return result;
 			}
 		}
 		let result = DefSubclassProc(hwnd, message, wparam, lparam);
-		if message == WM_STYLECHANGING && wparam.0 as i32 == GWL_STYLE.0 && !TEMPORARY_DRAG.get() {
+		if message == WM_STYLECHANGING
+			&& wparam.0 as i32 == GWL_STYLE.0
+			&& GetPropW(hwnd, TEMPORARY_DRAG).0.is_null()
+		{
 			// WM_STYLECHANGING supplies a writable STYLESTRUCT for this synchronous call.
 			let style = &mut *(lparam.0 as *mut STYLESTRUCT);
 			let menu = (style.styleNew & WS_SYSMENU.0) as usize | 1;
@@ -139,6 +153,7 @@ pub fn extend_frame(window: &Window, extended: bool) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use std::cell::Cell;
 	use windows::Win32::UI::WindowsAndMessaging::{
 		CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WS_MAXIMIZE, WS_OVERLAPPEDWINDOW,
 	};
@@ -206,6 +221,11 @@ mod tests {
 
 	thread_local! {
 		static PROBE_SEEN_SYSMENU: Cell<u32> = const { Cell::new(0) };
+		static PROBE_OTHER_WINDOW: Cell<usize> = const { Cell::new(0) };
+		static PROBE_DISABLE: Cell<bool> = const { Cell::new(false) };
+		static PROBE_DISABLED: Cell<bool> = const { Cell::new(false) };
+		static PROBE_NESTED: Cell<bool> = const { Cell::new(false) };
+		static PROBE_DEPTH: Cell<usize> = const { Cell::new(0) };
 	}
 
 	unsafe extern "system" fn probe_subclass(
@@ -223,6 +243,25 @@ mod tests {
 				let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
 				if style & WS_SYSMENU.0 as isize != 0 {
 					PROBE_SEEN_SYSMENU.set(PROBE_SEEN_SYSMENU.get() + 1);
+				}
+				if PROBE_OTHER_WINDOW.get() != 0 {
+					let other = HWND(PROBE_OTHER_WINDOW.get() as _);
+					let style = GetWindowLongPtrW(other, GWL_STYLE);
+					SetWindowLongPtrW(other, GWL_STYLE, style | WS_SYSMENU.0 as isize);
+				}
+				if PROBE_NESTED.replace(false) {
+					use windows::Win32::UI::WindowsAndMessaging::SendMessageW;
+					let _ = SendMessageW(
+						hwnd,
+						WM_SYSCOMMAND,
+						Some(WPARAM(SC_MOVE as usize)),
+						Some(LPARAM(0)),
+					);
+					PROBE_DEPTH.set(GetPropW(hwnd, TEMPORARY_DRAG).0 as usize);
+				}
+				if PROBE_DISABLE.replace(false) {
+					PROBE_DISABLED.set(set_custom_caption(hwnd, false).is_ok());
+					return LRESULT(0);
 				}
 				if message == WM_SYSCOMMAND {
 					let _ = SetWindowLongPtrW(hwnd, GWL_STYLE, style | WS_MAXIMIZE.0 as isize);
@@ -294,6 +333,95 @@ mod tests {
 			);
 
 			let _ = RemoveWindowSubclass(hwnd, Some(probe_subclass), 1);
+			DestroyWindow(hwnd).unwrap();
+		}
+	}
+
+	#[test]
+	fn drag_guard_is_window_local_and_survives_nested_dispatch() {
+		// SAFETY: both hidden windows and the probe are owned by this test thread.
+		unsafe {
+			let window = || {
+				CreateWindowExW(
+					WINDOW_EX_STYLE::default(),
+					w!("STATIC"),
+					w!("reentrant drag test"),
+					WS_OVERLAPPEDWINDOW,
+					0,
+					0,
+					100,
+					100,
+					None,
+					None,
+					None,
+					None,
+				)
+				.unwrap()
+			};
+			let hwnd = window();
+			let other = window();
+			assert!(SetWindowSubclass(hwnd, Some(probe_subclass), 1, 0).as_bool());
+			set_custom_caption(hwnd, true).unwrap();
+			set_custom_caption(other, true).unwrap();
+			PROBE_OTHER_WINDOW.set(other.0 as usize);
+			PROBE_NESTED.set(true);
+			use windows::Win32::UI::WindowsAndMessaging::SendMessageW;
+			let _ = SendMessageW(
+				hwnd,
+				WM_SYSCOMMAND,
+				Some(WPARAM(SC_MOVE as usize)),
+				Some(LPARAM(0)),
+			);
+			assert_eq!(PROBE_DEPTH.get(), 1);
+			assert!(GetPropW(hwnd, TEMPORARY_DRAG).0.is_null());
+			assert_eq!(
+				GetWindowLongPtrW(other, GWL_STYLE) & WS_SYSMENU.0 as isize,
+				0
+			);
+			assert_eq!(
+				GetPropW(other, REQUESTED_MENU).0 as usize,
+				WS_SYSMENU.0 as usize | 1
+			);
+			PROBE_OTHER_WINDOW.set(0);
+			DestroyWindow(other).unwrap();
+			DestroyWindow(hwnd).unwrap();
+		}
+	}
+
+	#[test]
+	fn disabling_suppression_during_drag_preserves_restored_native_controls() {
+		// SAFETY: this hidden window and its probe are owned by this test thread.
+		unsafe {
+			let hwnd = CreateWindowExW(
+				WINDOW_EX_STYLE::default(),
+				w!("STATIC"),
+				w!("disable during drag test"),
+				WS_OVERLAPPEDWINDOW,
+				0,
+				0,
+				100,
+				100,
+				None,
+				None,
+				None,
+				None,
+			)
+			.unwrap();
+			let original = GetWindowLongPtrW(hwnd, GWL_STYLE);
+			assert!(SetWindowSubclass(hwnd, Some(probe_subclass), 1, 0).as_bool());
+			set_custom_caption(hwnd, true).unwrap();
+			PROBE_DISABLE.set(true);
+			use windows::Win32::UI::WindowsAndMessaging::SendMessageW;
+			let _ = SendMessageW(
+				hwnd,
+				WM_SYSCOMMAND,
+				Some(WPARAM(SC_MOVE as usize)),
+				Some(LPARAM(0)),
+			);
+			assert!(PROBE_DISABLED.get());
+			assert!(GetPropW(hwnd, REQUESTED_MENU).0.is_null());
+			assert!(GetPropW(hwnd, TEMPORARY_DRAG).0.is_null());
+			assert_eq!(GetWindowLongPtrW(hwnd, GWL_STYLE), original);
 			DestroyWindow(hwnd).unwrap();
 		}
 	}

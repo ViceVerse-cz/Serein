@@ -30,6 +30,8 @@ const HELD: usize = 4;
 const ATTEMPTS: usize = 8;
 const FADE: Duration = Duration::from_millis(150);
 const DIM: f32 = 48.0;
+// Keep recent scroll-back cheap without retaining a day's inline image textures.
+const IDLE_TEXTURES: Duration = Duration::from_secs(60);
 
 /// Scale `width`×`height` so the longer side is at most `edge`, never upscaling.
 pub fn fit_edge(width: u32, height: u32, edge: u32) -> (u32, u32) {
@@ -220,26 +222,28 @@ pub(crate) enum Surface {
 	Inline,
 	Banner,
 	Viewer,
+	/// A covering picker tile; its caller paints the loading and failed placeholders.
+	Tile,
 }
 
 impl Surface {
 	fn lane(self) -> Lane {
 		match self {
 			Self::Viewer => Lane::Viewer,
-			Self::Inline | Self::Banner => Lane::Inline,
+			Self::Inline | Self::Banner | Self::Tile => Lane::Inline,
 		}
 	}
 	fn point_limit(self) -> f32 {
 		match self {
 			Self::Viewer => 4096.0,
-			Self::Inline | Self::Banner => 512.0,
+			Self::Inline | Self::Banner | Self::Tile => 512.0,
 		}
 	}
 	fn allows_upscale(self) -> bool {
 		matches!(self, Self::Viewer)
 	}
 	fn covers(self) -> bool {
-		matches!(self, Self::Banner)
+		matches!(self, Self::Banner | Self::Tile)
 	}
 }
 
@@ -274,6 +278,7 @@ enum Learned {
 enum Attempt {
 	Pending,
 	Failed(Instant),
+	Rejected,
 }
 
 enum Pixels {
@@ -307,6 +312,7 @@ struct Held {
 	lane: Lane,
 	pixels: Pixels,
 	arrived: Instant,
+	painted: Instant,
 	used: u64,
 	painted_pass: u64,
 }
@@ -438,6 +444,7 @@ fn choose(slot: &Slot, motion: Motion, size: Size, now: Instant) -> Choice {
 		.map(|(index, _)| index);
 	let (failed, request) = match slot.attempt(motion, size) {
 		Some(Attempt::Pending) => (false, false),
+		Some(Attempt::Rejected) => (true, false),
 		Some(Attempt::Failed(at)) if now.saturating_duration_since(at) < RETRY => (true, false),
 		_ => (false, true),
 	};
@@ -501,12 +508,23 @@ impl MediaLibrary {
 		now: Instant,
 	) -> (Rendition, Choice) {
 		let slot = self.slot(source);
-		let motion = if may_animate && slot.learned == Learned::Unknown {
+		// Temporary failures show a still during backoff, then retry this rendition.
+		let animation_failed = matches!(
+			slot.attempt(Motion::Animated, size),
+			Some(Attempt::Failed(at)) if now.saturating_duration_since(at) < RETRY
+		);
+		let motion = if may_animate && slot.learned == Learned::Unknown && !animation_failed {
 			Motion::Animated
 		} else {
 			Motion::Still
 		};
-		let choice = choose(slot, motion, size, now);
+		let mut choice = choose(slot, motion, size, now);
+		if motion == Motion::Animated && choice.base.is_none() {
+			choice.base = choose(slot, Motion::Still, size, now).base;
+			if choice.base.is_some() {
+				choice.quality = Quality::Upgrading;
+			}
+		}
 		(
 			Rendition {
 				source: source.clone(),
@@ -530,6 +548,7 @@ impl MediaLibrary {
 		self.clock += 1;
 		let held = self.slots.get_mut(source)?.held.get_mut(index)?;
 		held.used = self.clock;
+		held.painted = Instant::now();
 		held.painted_pass = pass;
 		if lane == Lane::Inline {
 			held.lane = Lane::Inline;
@@ -546,6 +565,8 @@ impl MediaLibrary {
 	pub(super) fn set_animation(&mut self, enabled: bool) {
 		for slot in self.slots.values_mut() {
 			slot.learned = Learned::Unknown;
+			slot.attempts
+				.retain(|(.., attempt)| !matches!(attempt, Attempt::Rejected));
 			if !enabled {
 				slot.held.retain(|held| held.motion == Motion::Still);
 				slot.attempts
@@ -584,6 +605,9 @@ impl MediaLibrary {
 				// Retrying cannot help a clip this decoder rejects, and it is not cached on disk.
 				slot.learned = Learned::Unplayable;
 				slot.forget(motion, size);
+			} else if is_motion_video(source.as_str()) {
+				// A rejected clip still must not download and start a decoder on every backoff.
+				slot.record(motion, size, Attempt::Rejected);
 			} else {
 				slot.record(motion, size, Attempt::Failed(Instant::now()));
 			}
@@ -602,6 +626,7 @@ impl MediaLibrary {
 					Pixels::Still(still) | Pixels::Playing { still, .. } => *still = texture,
 				}
 				held.used = used;
+				held.painted = Instant::now();
 				held.pool()
 			}
 			None => {
@@ -621,6 +646,7 @@ impl MediaLibrary {
 					lane,
 					pixels: Pixels::Still(texture),
 					arrived: Instant::now(),
+					painted: Instant::now(),
 					used,
 					painted_pass: self.swept_pass,
 				};
@@ -651,13 +677,13 @@ impl MediaLibrary {
 			return;
 		};
 		let video = is_motion_video(source.as_str());
-		if frames.len() < 2 && video {
-			slot.learned = Learned::Unplayable;
-			slot.held.remove(index);
-			return;
-		}
 		if frames.len() < 2 {
-			slot.learned = Learned::Still;
+			// A clip that cannot play whole still shows its opening frame where nothing else can.
+			slot.learned = if video {
+				Learned::Unplayable
+			} else {
+				Learned::Still
+			};
 			if slot.index(Motion::Still, size).is_some() {
 				slot.held.remove(index);
 			} else {
@@ -750,15 +776,24 @@ impl MediaLibrary {
 
 	/// Inline animations not played for `IDLE_FRAMES` (scrolled away, or shown in an unfocused
 	/// window) fall back to their still, freeing the decoded frames and playback texture. The
-	/// frames are requested again once the rendition can play.
+	/// frames are requested again once the rendition can play. Entire inline renditions expire
+	/// after a minute without painting, even when the still pool has not filled.
 	pub(super) fn release_idle(&mut self, now: Instant) {
-		for held in self.slots.values_mut().flat_map(|slot| &mut slot.held) {
-			if held.lane == Lane::Inline
-				&& let Pixels::Playing { still, animation } = &held.pixels
-				&& now.saturating_duration_since(animation.played) >= super::IDLE_FRAMES
-			{
-				held.pixels = Pixels::Still(still.clone());
-			}
+		for slot in self.slots.values_mut() {
+			slot.held.retain_mut(|held| {
+				if held.lane != Lane::Inline {
+					return true;
+				}
+				if now.saturating_duration_since(held.painted) >= IDLE_TEXTURES {
+					return false;
+				}
+				if let Pixels::Playing { still, animation } = &held.pixels
+					&& now.saturating_duration_since(animation.played) >= super::IDLE_FRAMES
+				{
+					held.pixels = Pixels::Still(still.clone());
+				}
+				true
+			});
 		}
 	}
 	pub(super) fn next_release(&self) -> Option<Instant> {
@@ -766,9 +801,11 @@ impl MediaLibrary {
 			.values()
 			.flat_map(|slot| &slot.held)
 			.filter(|held| held.lane == Lane::Inline)
-			.filter_map(|held| match &held.pixels {
-				Pixels::Playing { animation, .. } => Some(animation.played + super::IDLE_FRAMES),
-				Pixels::Still(_) => None,
+			.map(|held| match &held.pixels {
+				Pixels::Playing { animation, .. } => {
+					(animation.played + super::IDLE_FRAMES).min(held.painted + IDLE_TEXTURES)
+				}
+				Pixels::Still(_) => held.painted + IDLE_TEXTURES,
 			})
 			.min()
 	}
@@ -891,16 +928,162 @@ fn pick(media: &model::EmbedMedia, animate: bool) -> Option<(&str, bool)> {
 	Some((raw, may_animate))
 }
 
+#[cfg(test)]
+mod retention_tests {
+	use super::*;
+
+	fn load(library: &mut MediaLibrary, ctx: &egui::Context, index: usize) -> Rendition {
+		let source = library
+			.source(&format!(
+				"https://cdn.discordapp.com/attachments/1/{index}/photo.png"
+			))
+			.unwrap();
+		let (rendition, _) = library.want(
+			&source,
+			false,
+			Size::Exact {
+				width: 512,
+				height: 288,
+			},
+			Lane::Inline,
+			Instant::now(),
+		);
+		library
+			.slot(&source)
+			.record(rendition.motion, rendition.size, Attempt::Pending);
+		assert!(library.accept_still(
+			ctx,
+			rendition.clone(),
+			Some(ColorImage::filled([512, 288], Color32::WHITE))
+		));
+		rendition
+	}
+
+	#[test]
+	fn a_gif_whose_animation_fails_falls_back_to_its_still() {
+		let ctx = egui::Context::default();
+		let mut library = MediaLibrary::default();
+		let source = library
+			.source("https://cdn.discordapp.com/attachments/1/2/large.gif?ex=1&is=2&hm=3")
+			.unwrap();
+		let size = Size::Exact {
+			width: 435,
+			height: 350,
+		};
+		let (animated, choice) = library.want(&source, true, size, Lane::Inline, Instant::now());
+		assert_eq!(animated.motion, Motion::Animated);
+		assert!(choice.request);
+		library
+			.slot(&source)
+			.record(Motion::Animated, size, Attempt::Pending);
+		assert!(library.accept_still(&ctx, animated, None));
+		let (still, choice) = library.want(&source, true, size, Lane::Inline, Instant::now());
+		assert_eq!(still.motion, Motion::Still);
+		assert!(choice.request, "The still is requested right away");
+	}
+
+	#[test]
+	fn offscreen_still_expires_and_can_be_requested_again() {
+		let ctx = egui::Context::default();
+		let mut library = MediaLibrary::default();
+		let rendition = load(&mut library, &ctx, 1);
+		ctx.tex_manager().write().take_delta().clear();
+		let painted = library.find(&rendition).unwrap().painted;
+		assert_eq!(library.next_release(), Some(painted + IDLE_TEXTURES));
+		library.release_idle(painted + IDLE_TEXTURES - Duration::from_millis(1));
+		assert!(library.texture_id(&rendition).is_some());
+		library.release_idle(painted + IDLE_TEXTURES);
+		assert_eq!(library.bytes(), 0);
+		assert!(library.next_release().is_none());
+		let mut delta = ctx.tex_manager().write().take_delta();
+		assert_eq!(delta.free.len(), 1);
+		delta.clear();
+		let (_, choice) = library.want(
+			&rendition.source,
+			false,
+			rendition.size,
+			Lane::Inline,
+			Instant::now(),
+		);
+		assert!(choice.request);
+		assert!(choice.base.is_none());
+		load(&mut library, &ctx, 1);
+		assert!(library.texture_id(&rendition).is_some());
+	}
+
+	#[test]
+	fn painting_refreshes_the_still_deadline_and_viewer_is_exempt() {
+		let ctx = egui::Context::default();
+		let mut library = MediaLibrary::default();
+		let visible = load(&mut library, &ctx, 1);
+		let hidden = load(&mut library, &ctx, 2);
+		let viewer = load(&mut library, &ctx, 3);
+		let now = Instant::now();
+		for slot in library.slots.values_mut() {
+			for held in &mut slot.held {
+				held.painted = now - IDLE_TEXTURES;
+			}
+		}
+		library.slots.get_mut(&viewer.source).unwrap().held[0].lane = Lane::Viewer;
+		drop(library.texture(&visible.source, 0, &ctx, false, Lane::Inline, 1));
+		library.release_idle(Instant::now());
+		assert!(library.texture_id(&visible).is_some());
+		assert!(library.texture_id(&hidden).is_none());
+		assert!(library.texture_id(&viewer).is_some());
+		assert_eq!(
+			library.next_release(),
+			Some(library.find(&visible).unwrap().painted + IDLE_TEXTURES)
+		);
+		library.release_idle(Instant::now() + IDLE_TEXTURES);
+		assert!(library.texture_id(&visible).is_none());
+		assert!(library.texture_id(&viewer).is_some());
+		assert!(library.next_release().is_none());
+		library.end_frame();
+		assert_eq!(
+			library.bytes(),
+			0,
+			"Closed viewers still release immediately"
+		);
+	}
+
+	#[test]
+	#[ignore = "release retained-texture workload; no window, network or account"]
+	fn still_memory_workload() {
+		let ctx = egui::Context::default();
+		let mut library = MediaLibrary::default();
+		for index in 0..160 {
+			load(&mut library, &ctx, index);
+			// Consume uploads as a renderer would; pending upload pixels are a separate cost.
+			ctx.tex_manager().write().take_delta().clear();
+		}
+		let peak = library.bytes();
+		// Navigate to a text-only view, then advance the maintenance clock by a minute.
+		library.release_idle(Instant::now() + Duration::from_secs(61));
+		println!(
+			"still memory workload: peak_bytes={peak} settled_bytes={}",
+			library.bytes()
+		);
+	}
+}
+
 impl Avatars {
 	/// Synchronized favorite whose media is a clip or a Discord-hosted file: it plays like a
-	/// gifv embed, covering its picker tile.
+	/// gifv embed, covering its picker tile. False while nothing is painted yet.
 	pub(crate) fn paint_gif_media(
 		&mut self,
 		ui: &mut egui::Ui,
 		gif: &model::Gif,
 		rect: egui::Rect,
 		demo: bool,
-	) {
+	) -> bool {
+		if model::valid_discord_media_url(&gif.preview)
+			&& let Ok(url) = url::Url::parse(&gif.preview)
+			&& url.path().starts_with("/attachments/")
+			&& !url.query_pairs().any(|(key, _)| key == "hm")
+		{
+			// Synced attachment favorites lost their signature; requests cannot refresh it.
+			return false;
+		}
 		// Synced favorites without dimensions carry a 1×1 layout placeholder, not a size.
 		let native = (gif.width > 1 || gif.height > 1).then_some([gif.width, gif.height]);
 		let [width, height] = native.unwrap_or_default();
@@ -910,7 +1093,10 @@ impl Avatars {
 			height,
 			..Default::default()
 		};
-		self.paint_media(ui, &media, rect, native, demo, Surface::Banner);
+		!matches!(
+			self.paint_media(ui, &media, rect, native, demo, Surface::Tile),
+			Quality::Placeholder { .. }
+		)
 	}
 
 	/// Service dimensions when present, otherwise the largest decoded rendition.
@@ -999,7 +1185,9 @@ impl Avatars {
 		let Some((source, may_animate)) = pick(media, self.animate_gifs)
 			.and_then(|(raw, may_animate)| Some((self.media.source(raw)?, may_animate)))
 		else {
-			self.paint_stand_in(ui, media, rect, radius, cover, demo, false);
+			if surface != Surface::Tile {
+				self.paint_stand_in(ui, media, rect, radius, cover, demo, false);
+			}
 			return Quality::Placeholder { failed: true };
 		};
 		let now = Instant::now();
@@ -1079,6 +1267,7 @@ impl Avatars {
 				cover,
 				Color32::WHITE,
 			)),
+			None if surface == Surface::Tile => None,
 			None => {
 				let failed = choice.quality == Quality::Placeholder { failed: true };
 				match self.paint_stand_in(ui, media, rect, radius, cover, demo, failed) {

@@ -76,11 +76,12 @@ The bundled faces remain upstream's hinted TrueType builds. See `assets/README.m
 - 36px title strip (`base`): hidden native title bar on macOS with traffic lights inline, centred
   context title, session status text and an OFFLINE PREVIEW / EXPERIMENTAL pill. Eframe centres the
   native macOS buttons in the active title strip every frame, including after resizing or zooming;
-  sign-in and login use their taller headers. Windows and macOS General
-  settings can hide the app strip and use native window decorations instead. Linux always omits
-  the app strip and defaults to system decorations, with the Adwaita Wayland fallback on GNOME.
-  General → Window can hide Linux decorations immediately for tiling window managers; the
-  device preference also applies at startup.
+  sign-in and login use their taller headers. Windows renders native-fidelity caption buttons
+  (minimize, maximize/restore, close) flush in the top-right corner, and resize hit testing excludes
+  the caption area so corner clicks hit Close. Windows and macOS General settings can hide the app strip
+  and use native window decorations instead. Linux always omits the app strip and defaults to system
+  decorations, with the Adwaita Wayland fallback on GNOME. General → Window can hide Linux decorations
+  immediately for tiling window managers; the device preference also applies at startup.
 - 72px server rail (`base`): 48px home button and server icons (circle, rounded square when
   hovered/selected), white edge pill (8px unread, 20px hover, 40px selected), red mention badges.
 - The lists and conversation share one rounded surface beside the rail. Channel sidebar

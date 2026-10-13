@@ -6,15 +6,10 @@ fn main() {
 	let original = include_bytes!("../tests/fixtures/video.mov");
 	let decode = |bytes: Vec<u8>| {
 		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(bytes))).unwrap();
-		let Some(Sample::Video {
-			width,
-			height,
-			rgba,
-			..
-		}) = decoder.read_video().unwrap()
-		else {
+		let Some(Sample::Video { picture, .. }) = decoder.read_video().unwrap() else {
 			panic!("Missing synthetic video frame");
 		};
+		let (width, height, rgba) = picture.to_rgba().expect("Valid synthetic picture");
 		(width as usize, height as usize, rgba)
 	};
 	let (w, h, original_rgba) = decode(original.to_vec());

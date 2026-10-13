@@ -2249,6 +2249,7 @@ mod tests {
 							avatar: None,
 							discriminator: 0,
 							primary_guild: None,
+							cosmetics: None,
 						},
 						mentions: vec![],
 						excerpt: "Synthetic pinned message".into(),
@@ -2420,6 +2421,7 @@ mod tests {
 			avatar: None,
 			discriminator: 0,
 			primary_guild: None,
+			cosmetics: None,
 		};
 		let state = State {
 			demo: true,
