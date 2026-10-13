@@ -931,8 +931,12 @@ impl Voice {
 					true
 				}
 			});
-			if ui.voice_input != live.devices.input || ui.voice_output != live.devices.output {
+			if ui.voice_input != live.devices.input
+				|| ui.voice_output != live.devices.output
+				|| ui.voice_stereo_input != live.devices.stereo_input
+			{
 				let devices = Devices {
+					stereo_input: ui.voice_stereo_input,
 					input: ui.voice_input.clone(),
 					output: ui.voice_output.clone(),
 				};
@@ -1219,6 +1223,7 @@ impl Voice {
 			let wake = ctx.clone();
 			match Audio::preview(
 				Devices {
+					stereo_input: ui.voice_stereo_input,
 					input: ui.voice_input.clone(),
 					output: ui.voice_output.clone(),
 				},
@@ -1233,6 +1238,7 @@ impl Voice {
 					self.mic_preview = Some(MicPreview {
 						audio,
 						devices: Devices {
+							stereo_input: ui.voice_stereo_input,
 							input: ui.voice_input.clone(),
 							output: ui.voice_output.clone(),
 						},
@@ -1249,6 +1255,7 @@ impl Voice {
 		}
 		let preview = self.mic_preview.as_mut().expect("preview started");
 		let devices = Devices {
+			stereo_input: ui.voice_stereo_input,
 			input: ui.voice_input.clone(),
 			output: ui.voice_output.clone(),
 		};
@@ -1542,6 +1549,7 @@ impl Voice {
 		let audio_send = send.clone();
 		let wake = ctx.clone();
 		let devices = Devices {
+			stereo_input: ui.voice_stereo_input,
 			input: ui.voice_input.clone(),
 			output: ui.voice_output.clone(),
 		};
