@@ -555,3 +555,43 @@ the new measurements and executable hash. NSIS remains unavailable; this is an
 unsigned directory and ZIP. Final serial workspace checking reached 1,158
 passes, eight recorded baseline UI failures and 23 ignored tests. Formatting,
 strict workspace Clippy and the independent policy check passed.
+
+
+## Watched-stream quality request — October 8, 2026
+
+Windows 11 Home build 26200, Ryzen 7 7800X3D, 32 GiB RAM, 100% system scale.
+The standard voice-enabled `cargo xtask package` compared `a76e030d` with
+`26bc3c91`; no installer executable was made because `makensis` is absent.
+The compressed size uses .NET `ZipFile.CreateFromDirectory` with optimal compression
+on the same 216 installed files in each build.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 85,932,032 B | 85,934,080 B | +2,048 B (+0.0024%) |
+| Installed package | 90,123,148 B | 90,125,196 B | +2,048 B (+0.0023%) |
+| Compressed distribution | 49,976,600 B | 49,979,377 B | +2,777 B (+0.0056%) |
+| Offline demo idle CPU, mean of one core | 2.4% | 1.5% | −0.9 percentage points; noisy |
+| Offline demo peak private bytes | 166,727,680 B | 166,727,680 B | 0 B |
+| Offline demo settled median private bytes | 166,727,680 B | 166,694,912 B | −32,768 B; noise |
+
+The process sample used matched release `--no-default-features --features demo`
+builds, `--demo --demo-voice`, a hidden native window, DX12 requested through
+`WGPU_BACKEND`, a 15-second warmup and ten one-second samples; neither process
+spawned a child. The synthetic fixture does not receive video or exercise the
+new signaling. No decoded frame rate, stream bandwidth, live quality, GPU memory
+or other operating systems were measured; the idle CPU difference is not an
+improvement claim.
+
+## Watched-stream quality request (PR #589): Windows integration evidence - October 8, 2026
+
+Fresh standard Windows x64 voice-enabled packages compare main `1b3e4a7b` with `3aedbddd` (measured 2026-10-08). Baseline/current file counts: 216/216.
+
+| Metric | Main `1b3e4a7b` | Current integration | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 86,008,832 B | 86,011,392 B | +2,560 B (+0.0030%) |
+| Installed directory | 90,199,948 B | 90,202,508 B | +2,560 B (+0.0028%) |
+| Distribution ZIP | 50,001,798 B | 50,004,569 B | +2,771 B (+0.0055%) |
+
+Method: `cargo xtask package`, Rust 1.98.1, standard release flags without demo; Windows 11 build 26200, Ryzen 7 7800X3D, 32 GiB RAM. Runtime workspace artifacts were invalidated before each feature build. Installed bytes sum every file in `dist`; ZIP uses whole-directory .NET Optimal compression. NSIS was unavailable, so no installer executable was built.
+
+Current native CPU, memory, frame/startup latency and affected-device behavior remain unmeasured because the native automation bridge is unavailable. Package size and synthetic reducer timing do not establish live Discord performance.
