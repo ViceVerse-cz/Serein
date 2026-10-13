@@ -2244,6 +2244,8 @@ pub struct ProfileSession {
 	full_tab: FullTab,
 	/// The one automatic note read made for the open card, so a failure is not retried.
 	note_requested: Option<(u64, Id)>,
+	/// The person under the pointer this frame and whether they are pressed, for preloading.
+	hovered: Option<(Id, bool)>,
 }
 
 pub enum ProfileEffect {
@@ -2318,6 +2320,11 @@ impl ProfileSession {
 		self.trigger = None;
 	}
 
+	/// The person the pointer rested on or pressed this frame; clears it for the next frame.
+	pub(crate) fn take_hovered(&mut self) -> Option<(Id, bool)> {
+		self.hovered.take()
+	}
+
 	pub fn person_click(
 		&mut self,
 		ui: &egui::Ui,
@@ -2332,6 +2339,9 @@ impl ProfileSession {
 		};
 		if let Some(response) = arm {
 			ui.data_mut(|data| data.insert_temp(profile_opener_id(), response.rect));
+			if !user.webhook {
+				self.hovered = Some((user.id, response.is_pointer_button_down_on()));
+			}
 		}
 		let clicked = match nested {
 			Some(nested) if nested.clicked() => true,

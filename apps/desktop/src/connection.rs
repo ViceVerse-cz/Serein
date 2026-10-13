@@ -92,6 +92,8 @@ impl Drop for Connection {
 		self.task.abort();
 	}
 }
+/// Preload tasks kept at once: one per preload kind, plus room for one whose result was lost.
+const PREFETCHES: usize = 4;
 struct AbortTask(JoinHandle<()>);
 impl Drop for AbortTask {
 	fn drop(&mut self) {
@@ -262,7 +264,9 @@ impl Connection {
                     }
                 }));
                 let mut history:Option<AbortTask>=None;
-                let mut prefetch:Option<AbortTask>=None;
+                // Preloads never cancel the open conversation's reads or each other; each kind
+                // keeps at most one in flight, so this list stays tiny.
+                let mut prefetches:Vec<AbortTask>=Vec::new();
                 let mut profile:Option<AbortTask>=None;
                 let mut profile_note:Option<AbortTask>=None;
 				let mut stream_preview:Option<AbortTask>=None;
@@ -622,17 +626,27 @@ impl Connection {
                                 member_send.send(subscription).map_err(|_|Failure::Network)?;
                                 continue;
                             }
-                            if let Command::History { channel, request, .. } | Command::Prefetch { channel, request } = &command {
+                            if let Command::Prefetch(preload) = command {
+                                prefetches.retain(|task| !task.0.is_finished());
+                                if prefetches.len() >= PREFETCHES { prefetches.remove(0); }
+                                let history = match &*preload { Command::History{channel,request,..} => Some((*channel,*request)), _ => None };
+                                let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
+                                prefetches.push(AbortTask(tokio::spawn(async move {
+                                    let event=api.execute(*preload).await;
+                                    let event=match history {Some((channel,request))=>scope_history_failure(event,channel,request),None=>event};
+                                    let failure=match &event {Event::Failure(f)|Event::Profile{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
+                                    if let Some(error)=emit(event).err().or(failure) {api.stop();let _=finished.send(Some(error));}
+                                    wake.request_repaint();
+                                })));
+                                continue;
+                            }
+                            if let Command::History { channel, request, .. } = &command {
+                                drop(search.take());
+                                drop(reaction_read.take());
                                 let (channel, request) = (*channel, *request);
-                                // A preload has its own slot: it never cancels the open conversation's reads.
-                                let slot = if matches!(command, Command::Prefetch{..}) {&mut prefetch} else {
-                                    drop(search.take());
-                                    drop(reaction_read.take());
-                                    &mut history
-                                };
-                                drop(slot.take());
+                                drop(history.take());
                                 let api=api.clone();let emit=emit.clone();let finished=finished.clone();let history_wake=wake.clone();
-                                *slot=Some(AbortTask(tokio::spawn(async move {
+                                history=Some(AbortTask(tokio::spawn(async move {
                                     let event=scope_history_failure(api.execute(command).await,channel,request);
                                     if let Event::Failure(f)=&event&& f.ends_session(){api.stop();let _=finished.send(Some(*f));}
                                     if let Err(f)=emit(event){api.stop();let _=finished.send(Some(f));}

@@ -251,11 +251,9 @@ pub enum Command {
 		after: Option<Id>,
 		request: u64,
 	},
-	/// A conversation's recent page requested on intent; answered as `History`/`HistoryFailed`.
-	Prefetch {
-		channel: Id,
-		request: u64,
-	},
+	/// The command a click would send, sent early on intent and answered by that command's own
+	/// event: a conversation's recent `History` page or a `Profile`.
+	Prefetch(Box<Command>),
 	Forward {
 		source: Id,
 		message: Id,
@@ -1344,11 +1342,10 @@ impl State {
 			return Apply::Opened(self.call_sync(channel));
 		}
 		let command = self.history(None);
-		if let Some(preload) = self.adopt_preload(channel)
-			&& let Command::History { request, .. } = command
+		if let Command::History { request, .. } = command
+			&& self.preload.conversations.adopt(channel, request)
 		{
 			// The page this click needs is already on its way.
-			self.record_adoption(preload, request);
 			return Apply::Opened(self.call_sync(channel));
 		}
 		Apply::Opened(Some(command))
@@ -2321,13 +2318,29 @@ impl State {
 			self.invalidate_members();
 			return;
 		}
-		if let Command::Prefetch { request, .. } = &command {
-			match self.preload_arrived(*request, false) {
-				preload::Arrival::Adopted(own) if own == self.request && self.history_pending => {
-					self.cancel_history();
-					self.status = "Work queue full; action was not sent";
-					self.freshness = Freshness::Stale;
+		if let Command::Prefetch(command) = command {
+			// The click that adopted a rejected preload fails as its own request would.
+			match *command {
+				Command::History {
+					channel, request, ..
+				} => {
+					if let preload::Arrival::Adopted(own) =
+						self.preload.conversations.arrived(request, false)
+					{
+						self.command_rejected(Command::History {
+							channel,
+							before: None,
+							after: None,
+							request: own,
+						});
+					}
 				}
+				Command::Profile {
+					user,
+					guild,
+					request,
+					..
+				} => self.apply_profile(user, guild, request, Err(auth::Failure::Capacity)),
 				_ => {}
 			}
 			return;
@@ -3344,9 +3357,9 @@ impl State {
 				mut messages,
 			} => {
 				if preload::is_preload(request) {
-					match self.preload_arrived(request, true) {
+					match self.preload.conversations.arrived(request, true) {
 						preload::Arrival::Adopted(own) => request = own,
-						preload::Arrival::Park => return self.park_preloaded(channel, messages),
+						preload::Arrival::Keep => return self.park_preloaded(channel, messages),
 						preload::Arrival::Drop => return,
 					}
 				}
@@ -3431,7 +3444,8 @@ impl State {
 				failure,
 			} => {
 				if preload::is_preload(request) {
-					let preload::Arrival::Adopted(own) = self.preload_arrived(request, false)
+					let preload::Arrival::Adopted(own) =
+						self.preload.conversations.arrived(request, false)
 					else {
 						return;
 					};

@@ -280,7 +280,7 @@ impl State {
 			_ => None,
 		};
 		if let Some((channel, ids)) = deletion {
-			self.touch_preload(Some(channel));
+			self.preload.conversations.touch(Some(channel));
 			if let Some(window) = self
 				.resident
 				.entries
@@ -318,13 +318,13 @@ impl State {
 			}
 			Event::Ready { .. } | Event::Resync | Event::PermissionsChanged => {
 				self.clear_cached_history();
-				self.touch_preload(None);
+				self.preload.conversations.touch(None);
 				None
 			}
 			_ => None,
 		};
 		if let Some(channel) = channel {
-			self.touch_preload(Some(channel));
+			self.preload.conversations.touch(Some(channel));
 			if !matches!(event, Event::RecipientRemoved { .. })
 				&& let Some(window) = self
 					.resident

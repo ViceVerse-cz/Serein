@@ -201,6 +201,13 @@ fn hover_navigation() {
 		})
 		.collect();
 	state.invalidate_navigation();
+	let preloaded = |command: Option<Command>| match command? {
+		Command::Prefetch(command) => match *command {
+			Command::History { request, .. } => Some(request),
+			_ => None,
+		},
+		_ => None,
+	};
 	let page = |channel: Id, request| Event::History {
 		channel,
 		request,
@@ -218,8 +225,8 @@ fn hover_navigation() {
 				.preload_conversation(Some(channel), None, at)
 				.is_none()
 		);
-		if let Some(Command::Prefetch { request, .. }) =
-			state.preload_conversation(Some(channel), None, at + CONVERSATION_DWELL)
+		if let Some(request) =
+			preloaded(state.preload_conversation(Some(channel), None, at + CONVERSATION_DWELL))
 		{
 			requests += 1;
 			state.apply(Envelope {
@@ -249,8 +256,8 @@ fn hover_navigation() {
 	for (index, channel) in (112..140).map(Id).enumerate() {
 		let at = later + std::time::Duration::from_millis(index as u64 * 200);
 		state.preload_conversation(Some(channel), None, at);
-		if let Some(Command::Prefetch { request, .. }) =
-			state.preload_conversation(Some(channel), None, at + CONVERSATION_DWELL)
+		if let Some(request) =
+			preloaded(state.preload_conversation(Some(channel), None, at + CONVERSATION_DWELL))
 		{
 			sweep += 1;
 			state.apply(Envelope {

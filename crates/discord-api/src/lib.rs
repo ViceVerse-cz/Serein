@@ -191,6 +191,9 @@ fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
 		.build()
 		.map_err(|_| Failure::ProtocolAt("API proxy connection unavailable"))
 }
+/// How long a profile card waits for its optional board-game names and collectible artwork;
+/// a card without them is still complete, so it opens rather than waiting on a slow read.
+const PROFILE_EXTRAS: Duration = Duration::from_millis(600);
 impl DiscordApi {
 	pub fn new(secret: Arc<SessionSecret>) -> Result<Self, Failure> {
 		Self::with_proxy(
@@ -1190,11 +1193,11 @@ impl DiscordApi {
 					let frame = profile.frame_sku.filter(|_| cosmetics.frames);
 					let (board, catalog) = tokio::join!(
 						tokio::time::timeout(
-							Duration::from_secs(2),
+							PROFILE_EXTRAS,
 							self.load_profile_board_games(&mut profile),
 						),
 						tokio::time::timeout(
-							Duration::from_secs(2),
+							PROFILE_EXTRAS,
 							self.load_profile_collectibles(effect, frame),
 						),
 					);
@@ -1260,10 +1263,8 @@ impl DiscordApi {
 				request,
 			} => self.history(channel, before, after, request).await,
 			// The same request a click sends; it waits for the shared cooldown like one, so a
-			// click that adopted it is never left without its page.
-			Command::Prefetch { channel, request } => {
-				self.history(channel, None, None, request).await
-			}
+			// click that adopted it is never left without its result.
+			Command::Prefetch(command) => Box::pin(self.execute(*command)).await,
 			Command::StickerPacks => Event::StickerPacks(
 				self.request_limited(
 					Method::GET,

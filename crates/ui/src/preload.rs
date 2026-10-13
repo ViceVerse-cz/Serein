@@ -1,4 +1,5 @@
-//! Rows the pointer rests on or presses this frame, handed to the core's intent preloading.
+//! Rows and people the pointer rests on or presses this frame, handed to the core's intent
+//! preloading.
 use client_core::{Command, State};
 use model::Id;
 use std::time::Instant;
@@ -7,6 +8,8 @@ use std::time::Instant;
 pub(crate) struct Preload {
 	conversation: Option<Id>,
 	pressed: Option<Id>,
+	/// A person and whether they are pressed.
+	person: Option<(Id, bool)>,
 }
 impl Preload {
 	/// Notes a conversation row; `channel` is resolved only while the pointer is on the row.
@@ -27,23 +30,35 @@ impl Preload {
 			self.pressed = Some(channel);
 		}
 	}
-	/// Sends at most one preload for this frame and clears the notes for the next one.
+	/// Notes the person a profile card would open for.
+	pub(crate) fn person(&mut self, person: Option<(Id, bool)>) {
+		self.person = person;
+	}
+	/// Sends at most one preload per kind for this frame and clears the notes for the next one.
+	/// `profile_guild` is the server context a card opened now would use.
 	pub(crate) fn finish(
 		&mut self,
 		ctx: &egui::Context,
 		state: &mut State,
 		enabled: bool,
+		profile_guild: Option<Id>,
 		commands: &mut Vec<Command>,
 	) {
 		let Self {
 			conversation,
 			pressed,
+			person,
 		} = std::mem::take(self);
 		if !enabled {
 			return;
 		}
 		let now = Instant::now();
 		if let Some(command) = state.preload_conversation(conversation, pressed, now) {
+			commands.push(command);
+		}
+		let target = person.map(|(user, _)| (user, profile_guild));
+		let pressed = person.filter(|(_, pressed)| *pressed).and(target);
+		if let Some(command) = state.preload_profile(target, pressed, now) {
 			commands.push(command);
 		}
 		// A resting pointer produces no input events, so wake once when its dwell completes.
@@ -85,7 +100,7 @@ mod tests {
 				},
 			);
 			let mut commands = Vec::new();
-			preload.finish(&ctx, state, true, &mut commands);
+			preload.finish(&ctx, state, true, None, &mut commands);
 			let wake = ctx.has_requested_repaint();
 			output.drop_without_applying_deltas();
 			(commands, row.center(), wake)
@@ -111,18 +126,26 @@ mod tests {
 		assert!(
 			matches!(
 				commands.as_slice(),
-				[Command::Prefetch {
-					channel: Id(21),
-					..
-				}]
+				[Command::Prefetch(command)]
+					if matches!(**command, Command::History { channel: Id(21), .. })
 			),
 			"{}",
 			commands.len()
 		);
 		let (commands, _, _) = frame(&mut preload, &mut state, vec![]);
 		assert!(commands.is_empty(), "one preload per target");
+		// A pressed person preloads the card their click opens, in the given server context.
+		preload.person(Some((Id(9), true)));
+		let mut commands = Vec::new();
+		preload.finish(&ctx, &mut state, true, None, &mut commands);
+		assert!(matches!(
+			commands.as_slice(),
+			[Command::Prefetch(command)]
+				if matches!(**command, Command::Profile { user: Id(9), guild: None, .. })
+		));
 		let mut disabled = Vec::new();
-		preload.finish(&ctx, &mut state, false, &mut disabled);
+		preload.person(Some((Id(10), true)));
+		preload.finish(&ctx, &mut state, false, None, &mut disabled);
 		assert!(disabled.is_empty());
 	}
 }

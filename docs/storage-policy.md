@@ -681,6 +681,15 @@ row and byte budget above, again only if no live change arrived while it was in 
 threads, unreadable channels, channels without messages, an already current dormant window, the
 offline fixture and a pending conversation load are never preloaded. No disk data is written.
 
+Resting on a person for 300 ms, or pressing them, requests the profile their card would open,
+with the same server context and query, under the same one-in-flight and twelve-per-minute limits
+(counted separately from conversations). An unopened result goes into the existing 32-entry,
+1 MiB, 15-minute profile cache; a card opened while it is in flight adopts the request. Profiles
+already cached or open, webhooks, and the offline fixture are skipped. Resting on the GIF button
+of a closed picker requests its home page (served from the existing ten-minute page cache when
+fresh) and the favorites sync once, and asks the image worker for the favorite preview, the first
+trending preview and the first eight category previews under the worker's existing bounds.
+
 Loaded messages deleted by the service leave only their ID as a session-local reading row.
 Author, body, attachment and embed metadata are dropped from the timeline and its formatted /
 revealed-content views. An untouched open editor closes; text the user modified remains an
@@ -733,7 +742,7 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 | Voice credentials, DAVE identities/keys and PCM/Opus audio | Session memory only; one call, bounded media queues; no recording or audio cache | Hangup, failure, logout and application teardown; no forensic-erasure claim |
 | Audio devices, input profile/custom processing, push-to-talk and gain | Device-wide `app_preferences` SQLite singleton, bounded to 16 KiB; device names ≤1,024 bytes each | Retained across restart/logout; demo changes remain in memory |
 | Automatic emoticon conversion | Boolean in the existing device-wide `app_preferences` singleton; defaults off, including older saved preferences | Retained across restart/logout; converts standalone emoticons on message send/edit; demo changes remain in memory |
-| Preload on hover | Boolean in the existing device-wide `app_preferences` singleton; defaults on, including older saved preferences | Retained across restart/logout; off stops every hover/press preload; demo never preloads |
+| Preload on hover | Boolean in the existing device-wide `app_preferences` singleton; defaults on, including older saved preferences | Retained across restart/logout; off stops conversation, profile and GIF picker preloads; demo never preloads conversations or profiles |
 | Authentication page | Wry incognito on Windows/macOS; ephemeral WebKit6 NetworkSession on Linux, destroyed on token handoff/cancel/timeout | Platform engine teardown; OS artifacts not promised erased |
 
 Typical packaged-build database directories: macOS `~/Library/Application Support/serein`, Windows `%LOCALAPPDATA%/serein`, Linux `$XDG_DATA_HOME/serein` or `~/.local/share/serein`; default source builds use the sibling `serein-development` directory. An absolute `SEREIN_DATA_DIR` selects the root for SQLite, image caches, extensions and detectable-game metadata; an empty or relative override disables those stores instead of falling back to production data. `cargo xtask package` disables the development feature, so distributed executables use the packaged-build directory and credential namespace. Newly created Unix data directories are private (0700); existing override permissions are preserved. Database contents are **not encrypted by Serein**. OS token protection does not encrypt history, backups or drafts, and the override does not relocate credentials from the OS store.

@@ -3882,7 +3882,7 @@ impl Desktop {
 				Command::Voice(_)
 				| Command::CancelProfile
 				| Command::CancelSearch
-				| Command::Prefetch { .. } => return,
+				| Command::Prefetch(_) => return,
 				Command::ThreadStarter {
 					thread,
 					parent,

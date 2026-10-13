@@ -1,7 +1,8 @@
-//! Intent preloading: the request a click would make, sent while the pointer rests on its target.
-//! A preload never crawls: one is in flight at a time, a per-minute cap bounds a sweep across a
+//! Intent preloading: the command a click would send, sent while the pointer rests on its target.
+//! A preload never crawls: one per kind is in flight, a per-minute cap bounds a sweep across a
 //! list, and an unchanged target is not requested twice. A click on the target adopts the
-//! in-flight request instead of sending another; otherwise the page waits as a dormant window.
+//! in-flight request instead of sending another; otherwise the result is kept (a dormant window
+//! or a cached profile) for the click to use.
 use crate::{Command, State, auth::AuthState, navigable};
 use model::{Freshness, Id};
 use std::{
@@ -11,23 +12,27 @@ use std::{
 
 /// A pointer passing over a list rests on each row for less than this; intent rests longer.
 pub const CONVERSATION_DWELL: Duration = Duration::from_millis(120);
-/// Speculative requests per minute, so sweeping across many rows stays a handful of reads.
+/// Profiles use an unofficial, rate-limit-sensitive route, so they need a longer rest.
+pub const PROFILE_DWELL: Duration = Duration::from_millis(300);
+/// Speculative requests per minute and kind, so sweeping across many rows stays a handful.
 const PER_MINUTE: usize = 12;
 /// Remembered targets, so revisiting an unchanged one does not repeat its request.
 const ATTEMPTS: usize = 64;
 /// Longer than the REST timeout: an in-flight marker this old lost its result to a session change.
 const LOST: Duration = Duration::from_secs(30);
-/// Preload request ids carry this bit, so they never equal a conversation's own request id.
+/// Preload request ids carry this bit, so they never equal a click's own request id.
 const REQUEST_BIT: u64 = 1 << 63;
 
 pub(crate) fn is_preload(request: u64) -> bool {
 	request & REQUEST_BIT != 0
 }
 
-/// Dwell, admission and in-flight tracking for one kind of preload target.
+/// Dwell, admission, in-flight and adoption tracking for one kind of preload target.
 pub struct Intent<K> {
 	hovered: Option<(K, Instant)>,
 	in_flight: Option<InFlight<K>>,
+	/// A click took over this preload: `(preload request, the click's own request)`.
+	adopted: Option<(u64, u64)>,
 	sent: VecDeque<Instant>,
 	/// Each target with the version (latest message) it was last requested at.
 	attempts: VecDeque<(K, Option<Id>)>,
@@ -37,7 +42,7 @@ struct InFlight<K> {
 	target: K,
 	request: u64,
 	since: Instant,
-	/// A live change for the target arrived meanwhile, so its page may already be outdated.
+	/// A live change for the target arrived meanwhile, so its result may already be outdated.
 	stale: bool,
 }
 impl<K> Default for Intent<K> {
@@ -45,6 +50,7 @@ impl<K> Default for Intent<K> {
 		Self {
 			hovered: None,
 			in_flight: None,
+			adopted: None,
 			sent: VecDeque::new(),
 			attempts: VecDeque::new(),
 			next: 0,
@@ -77,6 +83,13 @@ impl<K: Copy + PartialEq> Intent<K> {
 				None
 			}
 		}
+	}
+	/// Time left before the resting target becomes intent.
+	fn remaining(&self, dwell: Duration, now: Instant) -> Option<Duration> {
+		let (_, since) = self.hovered?;
+		dwell
+			.checked_sub(now.saturating_duration_since(since))
+			.filter(|left| !left.is_zero())
 	}
 	/// One request id for `target` at `version`, unless one is in flight, the per-minute cap is
 	/// reached, or this exact version was already requested.
@@ -114,52 +127,60 @@ impl<K: Copy + PartialEq> Intent<K> {
 		});
 		Some(request)
 	}
-	/// Time left before the resting target becomes intent.
-	fn remaining(&self, dwell: Duration, now: Instant) -> Option<Duration> {
-		let (_, since) = self.hovered?;
-		dwell
-			.checked_sub(now.saturating_duration_since(since))
-			.filter(|left| !left.is_zero())
-	}
-	/// The in-flight request for `target`, unless a live change may already be missing from it.
-	fn in_flight(&self, target: K) -> Option<u64> {
-		self.in_flight
+	/// Lets a click take over the in-flight request for `target` as its own `request`, unless a
+	/// live change may already be missing from it.
+	pub(crate) fn adopt(&mut self, target: K, request: u64) -> bool {
+		let Some(preload) = self
+			.in_flight
 			.as_ref()
 			.filter(|flight| flight.target == target && !flight.stale)
 			.map(|flight| flight.request)
+		else {
+			return false;
+		};
+		self.adopted = Some((preload, request));
+		true
 	}
-	/// Marks an in-flight page outdated when its target changes, or any page for `None`.
-	fn touch(&mut self, target: Option<K>) {
+	/// Marks an in-flight result outdated when its target changes, or any result for `None`.
+	pub(crate) fn touch(&mut self, target: Option<K>) {
 		if let Some(flight) = &mut self.in_flight
 			&& target.is_none_or(|target| flight.target == target)
 		{
 			flight.stale = true;
 		}
 	}
-	/// Clears the in-flight marker for `request`. Returns its target when the result is usable;
-	/// a failed target is forgotten so a later rest may try again.
-	fn settle(&mut self, request: u64, ok: bool) -> Option<K> {
-		let flight = self.in_flight.take_if(|flight| flight.request == request)?;
-		if !ok {
+	/// Routes a preload's result. A failed target is forgotten so a later rest may try again.
+	pub(crate) fn arrived(&mut self, request: u64, ok: bool) -> Arrival {
+		let flight = self.in_flight.take_if(|flight| flight.request == request);
+		if let Some(flight) = &flight
+			&& !ok
+		{
 			self.attempts.retain(|(known, _)| *known != flight.target);
 		}
-		(ok && !flight.stale).then_some(flight.target)
+		match self.adopted {
+			Some((preload, own)) if preload == request => {
+				self.adopted = None;
+				Arrival::Adopted(own)
+			}
+			_ if ok && flight.is_some_and(|flight| !flight.stale) => Arrival::Keep,
+			_ => Arrival::Drop,
+		}
 	}
 }
 
 #[derive(Default)]
 pub struct Preload {
-	conversations: Intent<Id>,
-	/// A click adopted this preload: `(preload request, the conversation's own request)`.
-	adopted: Option<(u64, u64)>,
+	pub(crate) conversations: Intent<Id>,
+	/// Profiles by `(user, guild)`, as a card would request them.
+	pub(crate) profiles: Intent<(Id, Option<Id>)>,
 }
 
 /// Where a preload's result goes.
 pub(crate) enum Arrival {
-	/// A click adopted it; apply it as this conversation request.
+	/// A click adopted it; apply it as the click's own request.
 	Adopted(u64),
-	/// Keep the page as a dormant window.
-	Park,
+	/// Keep it for a later click: a dormant window or a cached profile.
+	Keep,
 	Drop,
 }
 
@@ -180,18 +201,58 @@ impl State {
 		}
 		let version = self.channel(channel)?.last_message;
 		let request = self.preload.conversations.admit(channel, version, now)?;
-		Some(Command::Prefetch { channel, request })
+		Some(Command::Prefetch(Box::new(Command::History {
+			channel,
+			before: None,
+			after: None,
+			request,
+		})))
+	}
+	/// Call once per frame with the person under the pointer and the one pressed, if any, each
+	/// with the server context their card would open in.
+	pub fn preload_profile(
+		&mut self,
+		hovered: Option<(Id, Option<Id>)>,
+		pressed: Option<(Id, Option<Id>)>,
+		now: Instant,
+	) -> Option<Command> {
+		let target = self
+			.preload
+			.profiles
+			.intent(hovered, pressed, PROFILE_DWELL, now)?;
+		let (user, guild) = target;
+		if !self.can_preload()
+			|| user.0 == 0
+			|| guild.is_some_and(|id| !self.guilds.iter().any(|g| g.id == id))
+			|| self
+				.profile
+				.as_ref()
+				.is_some_and(|view| view.user == user && view.guild == guild)
+			|| self.profile_cached(user, guild, now)
+		{
+			return None;
+		}
+		// ponytail: profiles carry no version, so a person tried among the last 64 targets is not
+		// preloaded again after their cached card expires; their click still loads it normally.
+		let request = self.preload.profiles.admit(target, None, now)?;
+		Some(Command::Prefetch(Box::new(
+			self.profile_command(user, guild, request),
+		)))
 	}
 	/// How long until a resting pointer becomes intent, so the UI can wake without input.
 	pub fn preload_wake(&self, now: Instant) -> Option<Duration> {
-		self.preload
+		let conversation = self
+			.preload
 			.conversations
-			.remaining(CONVERSATION_DWELL, now)
+			.remaining(CONVERSATION_DWELL, now);
+		let profile = self.preload.profiles.remaining(PROFILE_DWELL, now);
+		conversation.into_iter().chain(profile).min()
+	}
+	fn can_preload(&self) -> bool {
+		!self.demo && self.auth == AuthState::Authenticated && self.gateway_connected
 	}
 	fn preloadable(&self, channel: Id) -> bool {
-		!self.demo
-			&& self.auth == AuthState::Authenticated
-			&& self.gateway_connected
+		self.can_preload()
 			&& self.selected != Some(channel)
 			// A conversation the user is already waiting for keeps the connection to itself.
 			&& !(self.history_pending && self.freshness == Freshness::Loading)
@@ -202,27 +263,6 @@ impl State {
 			&& self.archived_thread != Some(channel)
 			&& self.can_read_history(channel)
 			&& !self.resident_current(channel)
-	}
-	/// The in-flight preload for `channel`, adopted by a click as its own page request.
-	pub(crate) fn adopt_preload(&mut self, channel: Id) -> Option<u64> {
-		self.preload.conversations.in_flight(channel)
-	}
-	pub(crate) fn record_adoption(&mut self, preload: u64, request: u64) {
-		self.preload.adopted = Some((preload, request));
-	}
-	pub(crate) fn touch_preload(&mut self, channel: Option<Id>) {
-		self.preload.conversations.touch(channel);
-	}
-	pub(crate) fn preload_arrived(&mut self, request: u64, ok: bool) -> Arrival {
-		let usable = self.preload.conversations.settle(request, ok).is_some();
-		match self.preload.adopted {
-			Some((preload, own)) if preload == request => {
-				self.preload.adopted = None;
-				Arrival::Adopted(own)
-			}
-			_ if usable => Arrival::Park,
-			_ => Arrival::Drop,
-		}
 	}
 }
 
@@ -322,6 +362,21 @@ mod tests {
 				.collect(),
 		}
 	}
+	/// The conversation and request of a preloaded recent page.
+	fn preloaded(command: Option<Command>) -> Option<(Id, u64)> {
+		match command? {
+			Command::Prefetch(command) => match *command {
+				Command::History {
+					channel,
+					before: None,
+					after: None,
+					request,
+				} => Some((channel, request)),
+				_ => None,
+			},
+			_ => None,
+		}
+	}
 	fn rest(state: &mut State, channel: u64, now: Instant) -> Option<Command> {
 		assert!(
 			state
@@ -343,8 +398,8 @@ mod tests {
 				.preload_conversation(Some(Id(1)), None, now + CONVERSATION_DWELL)
 				.is_none()
 		);
-		let Some(Command::Prefetch { channel, request }) =
-			state.preload_conversation(Some(Id(1)), None, now + CONVERSATION_DWELL * 2)
+		let Some((channel, request)) =
+			preloaded(state.preload_conversation(Some(Id(1)), None, now + CONVERSATION_DWELL * 2))
 		else {
 			panic!("rested preload");
 		};
@@ -373,8 +428,7 @@ mod tests {
 	fn a_click_adopts_the_in_flight_preload_instead_of_requesting_again() {
 		let now = Instant::now();
 		let mut state = state();
-		let Some(Command::Prefetch { request, .. }) =
-			state.preload_conversation(None, Some(Id(3)), now)
+		let Some((_, request)) = preloaded(state.preload_conversation(None, Some(Id(3)), now))
 		else {
 			panic!("pressing skips the dwell");
 		};
@@ -386,8 +440,7 @@ mod tests {
 		assert_eq!(state.timeline.row_count(), 50);
 		assert!(!state.history_pending);
 		// A failed adopted preload reports like the conversation's own request.
-		let Some(Command::Prefetch { request, .. }) =
-			state.preload_conversation(None, Some(Id(4)), now)
+		let Some((_, request)) = preloaded(state.preload_conversation(None, Some(Id(4)), now))
 		else {
 			panic!("second preload");
 		};
@@ -402,8 +455,7 @@ mod tests {
 		);
 		assert_eq!(state.freshness, Freshness::Unavailable);
 		// A message that arrived after the preload was sent may be missing from its page.
-		let Some(Command::Prefetch { request, .. }) =
-			state.preload_conversation(None, Some(Id(9)), now)
+		let Some((_, request)) = preloaded(state.preload_conversation(None, Some(Id(9)), now))
 		else {
 			panic!("third preload");
 		};
@@ -427,7 +479,7 @@ mod tests {
 		let now = Instant::now();
 		{
 			let mut state = state();
-			let Some(Command::Prefetch { request, .. }) = rest(&mut state, 5, now) else {
+			let Some((_, request)) = preloaded(rest(&mut state, 5, now)) else {
 				panic!("preload");
 			};
 			// An edit while the page was in flight may be missing from it.
@@ -456,7 +508,7 @@ mod tests {
 		}
 		{
 			let mut state = state();
-			let Some(Command::Prefetch { request, .. }) = rest(&mut state, 6, now) else {
+			let Some((_, request)) = preloaded(rest(&mut state, 6, now)) else {
 				panic!("preload");
 			};
 			apply(
@@ -477,7 +529,7 @@ mod tests {
 		{
 			// A click elsewhere before the page arrives leaves the page as a dormant window.
 			let mut state = state();
-			let Some(Command::Prefetch { request, .. }) = rest(&mut state, 7, now) else {
+			let Some((_, request)) = preloaded(rest(&mut state, 7, now)) else {
 				panic!("preload");
 			};
 			state.select(Id(8)).unwrap();
@@ -494,7 +546,7 @@ mod tests {
 		let mut state = state();
 		let mut sent = 0;
 		for channel in 1..=20 {
-			if let Some(Command::Prefetch { request, .. }) = rest(&mut state, channel, now) {
+			if let Some((_, request)) = preloaded(rest(&mut state, channel, now)) {
 				sent += 1;
 				apply(
 					&mut state,
@@ -508,7 +560,7 @@ mod tests {
 		}
 		assert_eq!(sent, PER_MINUTE);
 		let later = now + Duration::from_secs(61);
-		let Some(Command::Prefetch { request, .. }) = rest(&mut state, 1, later) else {
+		let Some((_, request)) = preloaded(rest(&mut state, 1, later)) else {
 			panic!("the cap refills");
 		};
 		apply(&mut state, page(1, request));

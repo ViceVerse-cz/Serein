@@ -97,7 +97,7 @@ Want to Play display service-supplied entries, comments and tags. Missing or
 restricted boards remain unavailable; failed metadata lookups retain the game ID
 without substituting another game's title or artwork. Application-provided stats
 widgets and board editing are not supported. The Activity tab uses current
-presence, including while profile metadata is loading; an empty presence snapshot shows “No activity shared.” Selected-user historical activity is not yet loaded. Optional board enrichment has a two-second total deadline so it cannot add two full HTTP timeouts before the profile appears.
+presence, including while profile metadata is loading; an empty presence snapshot shows “No activity shared.” Selected-user historical activity is not yet loaded. Optional board and collectible enrichment run together, each with a 600 ms deadline, so a slow read cannot hold the card; without it the card still opens complete, just without those names or artwork.
 
 The primary reverse-engineering references are the Userdoccers
 [profile response](https://docs.discord.food/resources/user#get-user-profile),
@@ -356,7 +356,11 @@ a click would send, earlier, for a conversation the pointer rests on for 120 ms 
 It is not a crawl: one request in flight, at most twelve per minute, no repeat for an unchanged
 conversation, no pagination, and it honors the shared REST cooldown. Hovers that never become
 clicks still cost requests, which the official client may not make; the owner can turn it off
-in Settings › Chat › Channel list.
+in Settings › Chat › Channel list. Resting on a person for 300 ms requests the same
+**unofficial** extended-profile route a card opens, with the same query and server context,
+under its own one-in-flight and twelve-per-minute limits; that route is rate-limit sensitive,
+so this is the preload most likely to meet a cooldown. Resting on the GIF button requests the
+picker's existing home and favorites reads once.
 
 The wire history route and permission requirements are documented in Discord's
 [Message resource](https://docs.discord.com/developers/resources/message); forum/thread
