@@ -55,8 +55,8 @@ All five declare **MIT OR Apache-2.0** in their corresponding registry release
 manifests; their versions and archive checksums are recorded in `Cargo.lock`.
 
 The bundled Noto Sans CJK collection is embedded as a zstd archive and inflated in memory by
-**ruzstd 0.9.0** (MIT), a pure-Rust decoder with no further dependencies. Its license is
-copied unmodified from the registry release to `assets/licenses/files/ruzstd-0.9.0-LICENSE`;
+**ruzstd 0.9.1** (MIT), a pure-Rust decoder with no further dependencies. Its license is
+copied unmodified from the registry release to `assets/licenses/files/ruzstd-0.9.1-LICENSE`;
 `Cargo.lock` records the archive checksum.
 
 External browser opening enables eframe's `links` feature and adds **webbrowser 1.2.4**
