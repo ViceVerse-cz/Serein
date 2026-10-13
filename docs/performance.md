@@ -334,7 +334,7 @@ Not measured: playback mixing cost in a live call, download and decode time of a
 sound, waveform rendering frame time and trim encoding time. None of those paths run in the
 idle demo; the mixer and the Ogg Opus encoder have device-free tests but no timing
 workload. Bounded additions: up to eight overlapping clips of at most six seconds in the
-call mixer, a session cache of at most sixteen decoded clips (about 11.5 MiB), and, only
+call mixer, a session cache of at most sixteen decoded clips (about 11.5 MB), and, only
 while the upload review is open, up to 57.6 MB of decoded audio plus 30 KB of peaks.
 
 ## Voice default-device polling — October 7, 2026

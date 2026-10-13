@@ -5822,7 +5822,7 @@ impl Desktop {
 				&& let Event::Soundboard(effect) = &event.event
 			{
 				self.voice
-					.soundboard(&self.runtime, &self.state, &self.messaging, effect);
+					.soundboard(&self.runtime, &self.state, &self.messaging, ctx, effect);
 			}
 			let ready = event.event.ready_navigation().is_some();
 			let resumed = matches!(event.event, Event::Resumed);

@@ -229,6 +229,16 @@ impl State {
 			}
 		}
 	}
+	/// Mark the call panel's copy of a server's sounds for another read.
+	pub(crate) fn call_sounds_changed(&mut self, guild: Id) {
+		if let Some((id, catalog)) = &mut self.soundboard.guild
+			&& *id == guild
+		{
+			// A read already in flight may predate the change; it is repeated.
+			catalog.stale = catalog.loading;
+			catalog.loaded = false;
+		}
+	}
 	pub(crate) fn apply_soundboard(&mut self, event: Event) {
 		match event {
 			Event::Default(result) => self.soundboard.default.finish(result, None),
@@ -253,15 +263,10 @@ impl State {
 				}
 			}
 			Event::Changed(guild) => {
-				if let Some((id, catalog)) = &mut self.soundboard.guild
-					&& *id == guild
-				{
-					// A read already in flight may predate the change; it is repeated.
-					catalog.stale = catalog.loading;
-					catalog.loaded = false;
-				}
-				// The open management page reloads too, once its current request settles.
-				if self.server_admin.guild == Some(guild) && self.server_admin.sounds.is_some() {
+				self.call_sounds_changed(guild);
+				// The open management page reloads too, once its current request settles. A
+				// read in flight may predate the change, so its response keeps this marker.
+				if self.server_admin.guild == Some(guild) {
 					self.server_admin.sounds_stale = true;
 				}
 			}

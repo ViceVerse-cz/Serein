@@ -1,6 +1,7 @@
 //! Soundboard playback: credential-free CDN download, bounded decode and a session-only
 //! PCM cache. Clips are mixed into the connected call's playback; nothing is written to disk.
 use discord_voice::{Effects, MAX_CLIP_SAMPLES};
+use eframe::egui;
 use model::Id;
 use std::{
 	sync::{Arc, Mutex},
@@ -10,18 +11,30 @@ use std::{
 /// Discord caps an uploaded sound at 512 KiB; the margin covers its bundled defaults.
 const MAX_SOUND_BYTES: usize = 1024 * 1024;
 const MAX_CACHED: usize = 16;
-/// Ten full-length clips: at most 11.5 MiB of retained PCM.
+/// Ten full-length clips: at most 11.5 MB of retained PCM.
 const MAX_CACHED_SAMPLES: usize = MAX_CLIP_SAMPLES * 10;
 const MAX_LOADS: usize = 4;
+/// Plays waiting for a download; further plays of an uncached sound are dropped.
+const MAX_WAITING: usize = 16;
 /// A sound that finishes loading later than this is kept for next time, not played.
 const MAX_LATENESS: Duration = Duration::from_secs(3);
 
 type Clip = Arc<[f32]>;
+/// One accepted play whose sound is still downloading. It keeps its own call's mixer, so a
+/// play in a new call is not lost to a download started in the previous one.
+struct Waiting {
+	sound: Id,
+	source: Id,
+	volume: f32,
+	effects: Effects,
+	requested: Instant,
+}
 #[derive(Default)]
 struct Shared {
 	/// Least recently played first.
 	clips: Vec<(Id, Clip)>,
 	loading: Vec<Id>,
+	waiting: Vec<Waiting>,
 }
 impl Shared {
 	fn insert(&mut self, sound: Id, clip: Clip) {
@@ -33,6 +46,23 @@ impl Shared {
 			self.clips.remove(0);
 		}
 	}
+	/// Queue every waiting play whose sound has arrived, at the listener's gain right now, so
+	/// a participant muted, blocked or turned down during the download stays that way. Late
+	/// plays and plays whose download failed are dropped.
+	fn flush(&mut self, now: Instant, gain: impl Fn(Id) -> f32) {
+		let waiting = std::mem::take(&mut self.waiting);
+		for play in waiting {
+			if now.duration_since(play.requested) > MAX_LATENESS {
+				continue;
+			}
+			if let Some((_, clip)) = self.clips.iter().find(|(id, _)| *id == play.sound) {
+				play.effects
+					.play(clip.clone(), play.source.0, play.volume, gain(play.source));
+			} else if self.loading.contains(&play.sound) {
+				self.waiting.push(play);
+			}
+		}
+	}
 }
 #[derive(Default)]
 pub struct Soundboard {
@@ -41,10 +71,13 @@ pub struct Soundboard {
 }
 impl Soundboard {
 	/// Mix `sound` played by `source` into `effects` at `volume * gain`, downloading it first
-	/// when it is not cached. Best effort: a failed or slow download plays nothing.
+	/// when it is not cached. A downloaded sound is queued by the next `flush`, which
+	/// `context` is woken for. Best effort: a failed or slow download plays nothing.
+	#[allow(clippy::too_many_arguments)] // One play: where, what, by whom and how loud.
 	pub fn play(
 		&mut self,
 		runtime: &tokio::runtime::Runtime,
+		context: &egui::Context,
 		effects: &Effects,
 		sound: Id,
 		source: Id,
@@ -63,7 +96,19 @@ impl Soundboard {
 			shared.clips.push(entry);
 			return;
 		}
-		if shared.loading.contains(&sound) || shared.loading.len() >= MAX_LOADS {
+		let loading = shared.loading.contains(&sound);
+		if shared.waiting.len() >= MAX_WAITING || (!loading && shared.loading.len() >= MAX_LOADS) {
+			return;
+		}
+		// Each accepted play waits on its own; repeated plays share one download.
+		shared.waiting.push(Waiting {
+			sound,
+			source,
+			volume,
+			effects: effects.clone(),
+			requested: Instant::now(),
+		});
+		if loading {
 			return;
 		}
 		if self.client.is_none() {
@@ -78,26 +123,35 @@ impl Soundboard {
 				.ok();
 		}
 		let Some(client) = self.client.clone() else {
+			shared.waiting.retain(|play| play.sound != sound);
 			return;
 		};
 		shared.loading.push(sound);
 		drop(shared);
 		let shared = self.shared.clone();
-		let effects = effects.clone();
-		let requested = Instant::now();
+		let context = context.clone();
 		runtime.spawn(async move {
 			let clip = load(&client, sound).await;
-			let Ok(mut shared) = shared.lock() else {
-				return;
-			};
-			shared.loading.retain(|id| *id != sound);
-			if let Ok(clip) = clip {
-				shared.insert(sound, clip.clone());
-				if requested.elapsed() <= MAX_LATENESS {
-					effects.play(clip, source.0, volume, gain);
+			if let Ok(mut shared) = shared.lock() {
+				shared.loading.retain(|id| *id != sound);
+				match clip {
+					Ok(clip) => shared.insert(sound, clip),
+					Err(_) => shared.waiting.retain(|play| play.sound != sound),
 				}
 			}
+			// The interface thread queues the clip with the listener's current levels.
+			context.request_repaint();
 		});
+	}
+
+	/// Queue downloaded sounds for their waiting plays, using the listener gain for each
+	/// sender as it is now. Called from the interface thread on every voice update.
+	pub fn flush(&mut self, gain: impl Fn(Id) -> f32) {
+		if let Ok(mut shared) = self.shared.lock()
+			&& !shared.waiting.is_empty()
+		{
+			shared.flush(Instant::now(), gain);
+		}
 	}
 }
 async fn load(client: &reqwest::Client, sound: Id) -> Result<Clip, &'static str> {
@@ -154,6 +208,55 @@ mod tests {
 		}
 		assert_eq!(shared.clips.len(), 10);
 		assert!(shared.clips.iter().all(|(id, _)| id.0 >= 102));
+	}
+	#[test]
+	fn waiting_plays_use_current_gain_keep_repeats_and_drop_late_or_failed_downloads() {
+		let now = Instant::now();
+		let (first, second) = (Effects::default(), Effects::default());
+		let waiting = |sound: u64, source: u64, effects: &Effects, age: Duration| Waiting {
+			sound: Id(sound),
+			source: Id(source),
+			volume: 1.0,
+			effects: effects.clone(),
+			requested: now - age,
+		};
+		let mut shared = Shared {
+			loading: vec![Id(7), Id(8)],
+			..Default::default()
+		};
+		// Two plays of one sound by different people, one in a newer call, plus another
+		// sound that is still downloading.
+		shared.waiting = vec![
+			waiting(7, 2, &first, Duration::ZERO),
+			waiting(7, 3, &first, Duration::ZERO),
+			waiting(7, 2, &second, Duration::ZERO),
+			waiting(8, 2, &first, Duration::ZERO),
+		];
+		shared.flush(now, |_| 1.0);
+		assert_eq!(shared.waiting.len(), 4, "nothing plays before its download");
+		assert_eq!((first.queued(), second.queued()), (0, 0));
+
+		// Sender 3 was muted while the download ran: only the other plays are queued.
+		shared.loading.retain(|id| *id != Id(7));
+		shared.insert(Id(7), vec![0.25; 960].into());
+		shared.flush(now, |source| if source == Id(3) { 0.0 } else { 0.5 });
+		assert_eq!((first.queued(), second.queued()), (1, 1));
+		assert_eq!(shared.waiting.len(), 1);
+		assert_eq!(shared.waiting[0].sound, Id(8));
+
+		// A failed download leaves nothing loading, and a late arrival is not played.
+		shared.loading.clear();
+		shared.flush(now, |_| 1.0);
+		assert!(shared.waiting.is_empty());
+		shared.waiting = vec![waiting(
+			7,
+			2,
+			&first,
+			MAX_LATENESS + Duration::from_millis(1),
+		)];
+		shared.flush(now, |_| 1.0);
+		assert!(shared.waiting.is_empty());
+		assert_eq!(first.queued(), 1);
 	}
 	#[test]
 	fn clips_decode_to_bounded_48khz_mono_and_reject_damaged_audio() {

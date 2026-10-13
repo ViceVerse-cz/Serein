@@ -175,6 +175,7 @@ impl SoundUpload {
 			let _ = send.send(Err("Choose the sound again before uploading"));
 			return;
 		};
+		let wake = context.clone();
 		let context = context.clone();
 		if std::thread::Builder::new()
 			.name("serein-sound-trim".into())
@@ -184,7 +185,9 @@ impl SoundUpload {
 			})
 			.is_err()
 		{
-			self.trimming = None;
+			// The sender was dropped with the closure: `poll_trim` reports the closed channel
+			// as a failure on the next frame, so the review leaves its encoding state.
+			wake.request_repaint();
 		}
 	}
 

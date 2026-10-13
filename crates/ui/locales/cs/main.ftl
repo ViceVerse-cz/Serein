@@ -3289,7 +3289,7 @@ server-sounds-preview = Náhled
 # Context: server_sounds
 server-sounds-trim-hint = Tažením úchytů vyberte až 5,2 sekundy. Podržením úchytu na místě zobrazení přiblížíte.
 # Context: server_sounds
-server-sounds-never-mind = To je jedno
+server-sounds-never-mind = Zrušit
 # Context: server_sounds
 server-sounds-play-preview = Přehrát výběr
 # Context: server_sounds

@@ -3312,7 +3312,11 @@ server-sounds-invalid = Usa un nome di 2–32 caratteri e al massimo un'emoji.
 # Context: server_sounds
 server-sounds-section = Suoni
 # Context: server_sounds
-server-sounds-count = { $count } suoni
+server-sounds-count =
+    { $count ->
+        [one] { $count } suono
+       *[other] { $count } suoni
+    }
 # Context: server_sounds
 server-sounds-slots = { $count } slot disponibili su { $limit }
 # Context: server_sounds

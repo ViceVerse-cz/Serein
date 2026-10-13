@@ -198,10 +198,13 @@ Soundboard** page reloads its list the same way. Sound files
 are fetched without credentials from `cdn.discordapp.com/soundboard-sounds/{id}`, limited to
 1 MiB and a 10-second transfer, decoded off the UI and audio threads (MP3, Ogg Vorbis or Ogg
 Opus) to 48 kHz mono and truncated at six seconds. At most four downloads run at once and
-sixteen decoded clips (at most ten full-length ones, about 11.5 MiB) are kept in RAM for the
+sixteen decoded clips (at most ten full-length ones, about 11.5 MB) are kept in RAM for the
 session; nothing is written to disk. Eight clips can overlap; a ninth replaces the oldest. A
-sound that takes more than three seconds to arrive is cached but not played late. Download or
-decode failures of another participant's sound are silent.
+sound that takes more than three seconds to arrive is cached but not played late. Plays of a
+sound that is still downloading share that download and each still play when it arrives, up
+to sixteen waiting plays; they are queued with the listener's mute, block and volume state at
+that moment, not the state when the sound was played. Download or decode failures of another
+participant's sound are silent.
 
 The routes and events are [documented by Discord](https://docs.discord.com/developers/resources/soundboard)
 for bots; acceptance from a normal account is unofficial and **live-unverified**. Offline

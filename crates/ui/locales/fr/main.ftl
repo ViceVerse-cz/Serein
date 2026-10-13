@@ -3312,7 +3312,11 @@ server-sounds-invalid = Utilisez un nom de 2 à 32 caractères et au plus un emo
 # Context: server_sounds
 server-sounds-section = Sons
 # Context: server_sounds
-server-sounds-count = { $count } sons
+server-sounds-count =
+    { $count ->
+        [one] { $count } son
+       *[other] { $count } sons
+    }
 # Context: server_sounds
 server-sounds-slots = { $count } emplacements disponibles sur { $limit }
 # Context: server_sounds

@@ -424,6 +424,7 @@ impl Voice {
 		runtime: &Runtime,
 		state: &State,
 		ui: &ui::MessagingUi,
+		context: &egui::Context,
 		event: &client_core::soundboard::Event,
 	) {
 		use client_core::soundboard::Event as E;
@@ -466,7 +467,7 @@ impl Voice {
 		}
 		let gain = soundboard_gain(state, ui, live.user, user);
 		self.soundboard
-			.play(runtime, &live.effects, sound, user, volume, gain);
+			.play(runtime, context, &live.effects, sound, user, volume, gain);
 	}
 	/// Take negotiation secrets before reducing the UI event. Nothing is persisted.
 	pub fn observe(&mut self, state: &State, event: &mut Event) -> Option<&'static str> {
@@ -840,6 +841,8 @@ impl Voice {
 			let me = live.user;
 			live.effects
 				.retune(|source| soundboard_gain(state, ui, me, Id(source)));
+			self.soundboard
+				.flush(|source| soundboard_gain(state, ui, me, source));
 			live.controls.send_if_modified(|control| {
 				if control.muted == muted
 					&& control.deafened == deafened

@@ -363,6 +363,8 @@ impl SoundsUi {
 					) {
 						self.submitted_upload = true;
 						commands.push(command);
+					} else {
+						self.error = Some("This sound can no longer be uploaded here");
 					}
 				}
 				_ => upload.trim = Trim::Requested,
@@ -472,7 +474,7 @@ impl SoundsUi {
 		};
 		let count = catalog.items.len();
 		let usage = catalog.limit.map_or_else(
-			|| crate::i18n::translate_args("server-sounds-count", &[("count", &count.to_string())]),
+			|| crate::i18n::translate_count("server-sounds-count", count, &[]),
 			|limit| {
 				crate::i18n::translate_args(
 					"server-sounds-slots",

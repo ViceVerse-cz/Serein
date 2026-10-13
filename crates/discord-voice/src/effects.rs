@@ -52,6 +52,10 @@ impl Effects {
 		}
 		clips.retain(|clip| clip.gain.is_finite() && clip.gain > 0.0);
 	}
+	/// Clips currently queued or playing.
+	pub fn queued(&self) -> usize {
+		self.0.lock().map_or(0, |clips| clips.len())
+	}
 	pub fn clear(&self) {
 		if let Ok(mut clips) = self.0.lock() {
 			clips.clear();

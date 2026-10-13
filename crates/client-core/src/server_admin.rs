@@ -900,9 +900,10 @@ impl State {
 			}
 			Outcome::Sounds(page) => {
 				// The call panel's copy of this server's sounds reloads when next shown.
-				self.apply_soundboard(crate::soundboard::Event::Changed(event.guild));
+				// Only the load request clears the management marker: a change that arrived
+				// while this list was being read still needs another read.
+				self.call_sounds_changed(event.guild);
 				self.server_admin.sounds = Some(page);
-				self.server_admin.sounds_stale = false;
 			}
 			Outcome::Members(page) => {
 				if let Some(enabled) = page.show_in_channel_list {
@@ -1623,6 +1624,44 @@ mod sound_tests {
 			panic!()
 		};
 		assert!(!state.server_admin.sounds_stale);
+		state
+			.apply_server_admin(Event {
+				guild: Id(2),
+				request,
+				result: Ok(Outcome::Sounds(Sounds {
+					items: vec![row(4, "Mine", 1), row(6, "Air horn", 1)],
+					limit: Some(8),
+				})),
+			})
+			.unwrap();
+		assert!(!state.server_admin.sounds_stale);
+
+		// A change that arrives while the list is being read survives that response, so the
+		// possibly older list is read again.
+		let Command::ServerAdmin { request, .. } = state
+			.request_server_admin(Id(2), Action::LoadSounds)
+			.unwrap()
+		else {
+			panic!()
+		};
+		state.apply_soundboard(crate::soundboard::Event::Changed(Id(2)));
+		state
+			.apply_server_admin(Event {
+				guild: Id(2),
+				request,
+				result: Ok(Outcome::Sounds(Sounds {
+					items: vec![row(4, "Mine", 1), row(6, "Air horn", 1)],
+					limit: Some(8),
+				})),
+			})
+			.unwrap();
+		assert!(state.server_admin.sounds_stale);
+		let Command::ServerAdmin { request, .. } = state
+			.request_server_admin(Id(2), Action::LoadSounds)
+			.unwrap()
+		else {
+			panic!()
+		};
 		state
 			.apply_server_admin(Event {
 				guild: Id(2),
