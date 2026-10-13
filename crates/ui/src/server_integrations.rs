@@ -991,6 +991,7 @@ fn webhook_identity(ui: &mut egui::Ui, state: &State, webhook: &Webhook, avatars
 			avatar: webhook.avatar.clone(),
 			discriminator: 0,
 			primary_guild: None,
+			cosmetics: None,
 		};
 		avatars.show_plain(ui, &user, 40.0, state.demo);
 		ui.vertical(|ui| {

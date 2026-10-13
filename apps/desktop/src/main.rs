@@ -28,6 +28,7 @@ mod extensions;
 mod font_import;
 mod game_activity;
 mod gpu;
+mod gpu_video;
 mod group_icon;
 mod interaction_uploads;
 mod notification_runtime;
@@ -78,6 +79,7 @@ const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
 
 /// Run explicit offline checks before native startup, or launch the configured desktop client.
 fn main() -> eframe::Result {
+	platform::memory::tune_allocator();
 	#[cfg(all(debug_assertions, feature = "demo"))]
 	if std::env::args().any(|arg| arg == "--demo")
 		&& std::env::args().any(|arg| arg == "--demo-check-pr565")
@@ -495,7 +497,7 @@ fn main() -> eframe::Result {
 				.with_inner_size(window_geometry.map_or([1120.0, 760.0], |geometry| {
 					geometry.size.map(|value| value as f32)
 				}))
-				.with_min_inner_size([760.0, 520.0])
+				.with_min_inner_size(app_settings::MIN_WINDOW_SIZE.map(|size| size as f32))
 				.with_active(!start_minimized)
 				.with_app_id("cz.viceverse.serein");
 			#[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -955,6 +957,8 @@ struct Desktop {
 	downloads: downloads::Downloads,
 	audio: audio::Audio,
 	video: video::Video,
+	/// Synthetic stream/camera textures the demo view borrows by id.
+	_demo_textures: Vec<egui::TextureHandle>,
 	/// Offline fixture flags start (and optionally pause) the demo attachment without input.
 	demo_video_autoplay: Option<bool>,
 	notifications: platform::notifications::Notifications,
@@ -973,7 +977,7 @@ struct Desktop {
 	clipboard: Option<clipboard::Paste>,
 	download_close_pending: bool,
 	window: Arc<winit::window::Window>,
-	monitor_geometry: Option<(Option<egui::Rect>, Option<f32>)>,
+	monitor_geometry: Option<(Option<egui::Rect>, Option<f32>, Option<egui::Vec2>)>,
 	monitor_period: Option<Duration>,
 	frame_metrics: FrameMetrics,
 	#[cfg(feature = "demo")]
@@ -1010,6 +1014,9 @@ struct Desktop {
 	system_theme: platform::system_theme::SystemTheme,
 	tray_error: Option<&'static str>,
 	tray_window: tray_window::State,
+	/// Native menu bar, retitled whenever the interface language changes.
+	#[cfg(target_os = "macos")]
+	app_menu: Option<(platform::app_menu::AppMenu, ui::i18n::Language)>,
 	/// Show requests from later launches and macOS Dock reopens.
 	instance: platform::single_instance::Instance,
 	/// `--demo-reply`: keeps two synthetic typists active on the selected fixture channel.
@@ -1472,6 +1479,8 @@ impl Desktop {
 					test_support::system_demo_state()
 				} else if std::env::args().any(|arg| arg == "--demo-code") {
 					test_support::code_demo_state()
+				} else if std::env::args().any(|arg| arg == "--demo-message-links") {
+					test_support::message_links_demo_state()
 				} else if std::env::args().any(|arg| arg == "--demo-notifications") {
 					test_support::notification_demo_state()
 				} else if std::env::args().any(|arg| {
@@ -1668,6 +1677,9 @@ impl Desktop {
 			.last()
 			.map_or(10_000, |m| m.id.0.max(10_000));
 		let mut messaging = ui::MessagingUi::default();
+		// Fixture video textures the view borrows by id; the desktop keeps them alive.
+		#[cfg_attr(not(feature = "demo"), allow(unused_mut))]
+		let mut demo_textures: Vec<egui::TextureHandle> = Vec::new();
 		if !demo {
 			messaging.custom_font.busy = cache.as_ref().is_some_and(|cache| {
 				cache.queue(
@@ -1707,6 +1719,7 @@ impl Desktop {
 		// detail in a graphics bug report.
 		if let Some(render_state) = cc.wgpu_render_state.as_ref() {
 			messaging.gpu_adapter = gpu::describe(&render_state.adapter.get_info());
+			gpu_video::install(render_state);
 		}
 		let startup = startup::Startup::new(&cc.egui_ctx, &runtime, &mut messaging, demo);
 		// `--demo-update`: a pending release without any network check. The system title bar
@@ -1771,11 +1784,11 @@ impl Desktop {
 				source_size: egui::vec2(width as f32, height as f32),
 				pixels,
 			};
-			messaging.voice_stream_view = Some(cc.egui_ctx.load_texture(
-				"synthetic-stream",
-				image,
-				egui::TextureOptions::LINEAR,
-			));
+			let texture =
+				cc.egui_ctx
+					.load_texture("synthetic-stream", image, egui::TextureOptions::LINEAR);
+			messaging.voice_stream_view = Some(egui::load::SizedTexture::from_handle(&texture));
+			demo_textures.push(texture);
 			messaging.voice_stream_status = "Watching the stream";
 			// `--demo-focus` additionally opens the enlarged stage layout.
 			if std::env::args().any(|arg| arg == "--demo-focus") {
@@ -1814,14 +1827,15 @@ impl Desktop {
 				source_size: egui::vec2(width as f32, height as f32),
 				pixels,
 			};
-			messaging.voice_remote_video.push((
-				robin,
-				cc.egui_ctx.load_texture(
-					"synthetic-remote-camera",
-					image,
-					egui::TextureOptions::LINEAR,
-				),
-			));
+			let texture = cc.egui_ctx.load_texture(
+				"synthetic-remote-camera",
+				image,
+				egui::TextureOptions::LINEAR,
+			);
+			messaging
+				.voice_remote_video
+				.push((robin, egui::load::SizedTexture::from_handle(&texture)));
+			demo_textures.push(texture);
 			messaging.voice_focus = Some(ui::StageFocus::Participant(robin));
 		}
 		messaging.build = ui::design::Build {
@@ -2195,6 +2209,17 @@ impl Desktop {
 			let _runtime = runtime.enter();
 			tray_window::State::default()
 		};
+		#[cfg(target_os = "macos")]
+		let app_menu = {
+			let wake = cc.egui_ctx.clone();
+			platform::app_menu::AppMenu::new(
+				window.clone(),
+				move || wake.request_repaint(),
+				ui::i18n::translate,
+			)
+			.ok()
+			.map(|menu| (menu, ui::i18n::Language::System))
+		};
 		Ok(Self {
 			proxy_auth: proxy_auth::Authentication::default(),
 			api_proxy: tokio::sync::watch::channel(None).0,
@@ -2210,6 +2235,7 @@ impl Desktop {
 			downloads: downloads::Downloads::default(),
 			audio: audio::Audio::default(),
 			video: video::Video::default(),
+			_demo_textures: demo_textures,
 			demo_video_autoplay: if std::env::args().any(|arg| arg == "--demo-video-paused") {
 				Some(true)
 			} else if std::env::args().any(|arg| arg == "--demo-video-playing") {
@@ -2278,6 +2304,8 @@ impl Desktop {
 			startup,
 			tray: None,
 			tray_window,
+			#[cfg(target_os = "macos")]
+			app_menu,
 			instance: Default::default(),
 			hotkeys,
 			system_theme,
@@ -2423,6 +2451,7 @@ impl Desktop {
 		self.audio.stop();
 		self.video.stop();
 		self.voice_messages.cancel();
+		self.video.cancel_posters();
 		self.voice.stop();
 		self.messaging.camera_test_requested = false;
 		self.messaging.camera_test_texture = None;
@@ -2837,6 +2866,93 @@ impl Desktop {
 			.unwrap_or_else(|| self.tray_setting.status());
 		if previous_status != self.messaging.tray_status {
 			ctx.request_repaint();
+		}
+	}
+	/// Native menu bar commands. Editing commands arrive as the events their shortcuts send.
+	#[cfg(target_os = "macos")]
+	fn app_menu(&mut self, ctx: &egui::Context) {
+		use platform::app_menu::Command;
+		let Some((menu, language)) = &mut self.app_menu else {
+			return;
+		};
+		if *language != self.messaging.language {
+			*language = self.messaging.language;
+			let language = *language;
+			menu.translate(|key| language.text(key));
+		}
+		let key = |key, modifiers, pressed| egui::Event::Key {
+			key,
+			physical_key: Some(key),
+			pressed,
+			repeat: false,
+			modifiers: egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND | modifiers,
+		};
+		while let Some(command) = menu.take_command() {
+			let event = match command {
+				Command::Settings | Command::Updates => {
+					self.tray_window.show(ctx);
+					if self.state.user.is_some() {
+						if command == Command::Settings {
+							self.messaging.open_settings();
+						} else {
+							self.messaging.open_update_settings();
+						}
+					}
+					None
+				}
+				Command::Quit => {
+					self.tray_window.quit(ctx);
+					None
+				}
+				// Never quits, tray or not; that is Quit's job.
+				Command::CloseWindow => {
+					self.tray_window.hide(ctx);
+					None
+				}
+				Command::Undo => Some(key(egui::Key::Z, egui::Modifiers::NONE, true)),
+				Command::Redo => Some(key(egui::Key::Z, egui::Modifiers::SHIFT, true)),
+				Command::SelectAll => Some(key(egui::Key::A, egui::Modifiers::NONE, true)),
+				Command::Cut => Some(egui::Event::Cut),
+				Command::Copy => Some(egui::Event::Copy),
+				Command::Paste => {
+					// Like eframe's Cmd+V: the text, then the key release the composer also
+					// reads to paste files and images.
+					if let Ok(text) = arboard::Clipboard::new().and_then(|mut c| c.get_text())
+						&& !text.is_empty()
+					{
+						let text = text.replace("\r\n", "\n");
+						ctx.input_mut(|input| input.events.push(egui::Event::Paste(text)));
+					}
+					Some(key(egui::Key::V, egui::Modifiers::NONE, false))
+				}
+				Command::ZoomIn => {
+					egui::gui_zoom::zoom_in(ctx);
+					None
+				}
+				Command::ZoomOut => {
+					egui::gui_zoom::zoom_out(ctx);
+					None
+				}
+				Command::ActualSize => {
+					ctx.set_zoom_factor(1.0);
+					None
+				}
+				Command::Website => {
+					ctx.open_url(egui::OpenUrl::new_tab(
+						"https://github.com/ViceVerse-cz/Serein",
+					));
+					None
+				}
+				Command::ReportIssue => {
+					ctx.open_url(egui::OpenUrl::new_tab(
+						"https://github.com/ViceVerse-cz/Serein/issues/new/choose",
+					));
+					None
+				}
+			};
+			if let Some(event) = event {
+				ctx.input_mut(|input| input.events.push(event));
+			}
 		}
 	}
 	/// Whether closing may keep Serein running without a window. macOS apps stay in the Dock
@@ -4134,8 +4250,23 @@ impl Desktop {
 					Event::Members(demo_members(&self.state, guild, channel, request))
 				}
 				Command::ForumPosts { .. } | Command::ForumSummaries { .. } => return,
-				Command::History { before, after, .. } => {
-					test_support::load_page_with_cursors(&mut self.state, before, after);
+				Command::History {
+					channel,
+					request,
+					before,
+					after,
+				} => {
+					if std::env::args().any(|arg| arg == "--demo-message-links") {
+						test_support::load_message_link_page(
+							&mut self.state,
+							channel,
+							request,
+							before,
+							after,
+						);
+					} else {
+						test_support::load_page_with_cursors(&mut self.state, before, after);
+					}
 					return;
 				}
 				Command::StickerPacks => Event::StickerPacks(Ok(self.state.stickers.packs.clone())),
@@ -5151,7 +5282,12 @@ impl Desktop {
 			&& !self.state.demo
 			&& let Some(user) = &self.state.user
 		{
-			match avatars::AvatarWorker::start(&self.runtime, user.id, ctx.clone()) {
+			match avatars::AvatarWorker::start(
+				&self.runtime,
+				user.id,
+				ctx.clone(),
+				self.messaging.image_cache,
+			) {
 				Ok(worker) => self.avatars = Some(worker),
 				Err(error) => {
 					self.cache_error = true;
@@ -5186,7 +5322,12 @@ impl Desktop {
 		if self.avatar_cleanup.is_none()
 			&& let Some(account) = self.avatar_clear_account.take()
 		{
-			match avatars::AvatarWorker::start(&self.runtime, account, ctx.clone()) {
+			match avatars::AvatarWorker::start(
+				&self.runtime,
+				account,
+				ctx.clone(),
+				self.messaging.image_cache,
+			) {
 				Ok(worker) => self.avatar_cleanup = Some(worker.shutdown_and_clear()),
 				Err(error) => {
 					self.cache_error = true;
@@ -5208,7 +5349,12 @@ impl Desktop {
 			match if self.fixture_only || self.state.demo {
 				avatars::AvatarWorker::start_bundled(&self.runtime, ctx.clone())
 			} else {
-				avatars::AvatarWorker::start(&self.runtime, user.id, ctx.clone())
+				avatars::AvatarWorker::start(
+					&self.runtime,
+					user.id,
+					ctx.clone(),
+					self.messaging.image_cache,
+				)
 			} {
 				Ok(worker) => {
 					self.messaging.clear_avatars();
@@ -5222,6 +5368,15 @@ impl Desktop {
 			}
 		}
 		if let Some(worker) = &mut self.avatars {
+			worker.set_limits(self.messaging.image_cache);
+			if let Some(partition) = self.messaging.clear_image_cache.take()
+				&& !worker.clear_partition(partition)
+			{
+				// The worker's queue is full; keep the request for the next frame.
+				self.messaging.clear_image_cache = Some(partition);
+				ctx.request_repaint();
+			}
+			self.messaging.image_cache_usage = worker.usage();
 			for _ in 0..32 {
 				let Some(result) = worker.poll() else {
 					break;
@@ -5787,7 +5942,7 @@ impl Desktop {
 				}
 			}
 			if let Some(error) = voice_failure
-				&& let Some(command) = self.voice.fail(&mut self.state, error)
+				&& let Some(command) = self.voice.fail_or_rejoin(&mut self.state, error)
 			{
 				self.command(command);
 			}
@@ -6003,8 +6158,10 @@ impl Desktop {
 	fn frame_period(&self) -> Option<Duration> {
 		self.monitor_period
 	}
-	fn refresh_frame_period(&mut self) -> Option<Duration> {
-		let millihertz = self.window.current_monitor()?.refresh_rate_millihertz()?;
+	fn refresh_monitor(&mut self) -> Option<Duration> {
+		let monitor = self.window.current_monitor()?;
+		app_settings::update_window_minimum(&self.window, &monitor);
+		let millihertz = monitor.refresh_rate_millihertz()?;
 		(1_000..=1_000_000)
 			.contains(&millihertz)
 			.then(|| Duration::from_secs_f64(1000.0 / f64::from(millihertz)))
@@ -6034,6 +6191,7 @@ impl eframe::App for Desktop {
 			&& viewport.minimized != Some(true)
 			&& viewport.maximized != Some(true)
 			&& viewport.fullscreen != Some(true)
+			&& !viewport.close_requested()
 			&& self.window.is_visible() != Some(false)
 		{
 			let size = self
@@ -6053,12 +6211,16 @@ impl eframe::App for Desktop {
 				self.app_settings.state.dirty = true;
 			}
 		}
-		// Viewport position/scale comes from native events; avoid an OS monitor query on paints.
+		// Monitor size also detects Wayland moves without a global window position.
 		if let Some(viewport) = raw_input.viewports.get(&raw_input.viewport_id) {
-			let geometry = (viewport.outer_rect, viewport.native_pixels_per_point);
+			let geometry = (
+				viewport.outer_rect,
+				viewport.native_pixels_per_point,
+				viewport.monitor_size,
+			);
 			if self.monitor_geometry != Some(geometry) {
 				self.monitor_geometry = Some(geometry);
-				self.monitor_period = self.refresh_frame_period();
+				self.monitor_period = self.refresh_monitor();
 			}
 		}
 		if let Some(period) = self.frame_period() {
@@ -6090,6 +6252,8 @@ impl eframe::App for Desktop {
 	}
 	/// One UI frame: pumps workers, expires challenges, renders and drains commands.
 	fn logic(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
+		// Last frame's shapes are painted; video textures retired since then can go.
+		gpu_video::collect();
 		let search_focused = {
 			#[cfg(feature = "demo")]
 			{
@@ -6247,6 +6411,8 @@ impl eframe::App for Desktop {
 		if self.instance.take_show_request() {
 			self.tray_window.show(ctx);
 		}
+		#[cfg(target_os = "macos")]
+		self.app_menu(ctx);
 		self.tray_window.logic(
 			ctx,
 			self.background_available(),
@@ -6777,6 +6943,19 @@ impl eframe::App for Desktop {
 			if let Some(command) = player.command.take() {
 				self.video.command(
 					command,
+					player,
+					self.runtime.handle(),
+					&ctx,
+					self.fixture_only || self.state.demo,
+				);
+			}
+			// Posters download attachments too, so they follow the playback session gate.
+			if !self.state.demo && self.state.auth != AuthState::Authenticated {
+				player.poster_queue.clear();
+			} else if !player.poster_queue.is_empty() {
+				let queue = std::mem::take(&mut player.poster_queue);
+				self.video.posters(
+					queue,
 					player,
 					self.runtime.handle(),
 					&ctx,

@@ -1,5 +1,80 @@
 # Local storage policy and audit
 
+## GIF preview recovery (October 13, 2026)
+
+Failed GIF animation downloads show a still during the existing five-second backoff,
+then retry the same rendition. Failure at one size does not suppress other sizes.
+Clip still downloads use the existing 16-MiB encoded clip limit. Failed clip stills
+settle without repeated downloads until their slot is evicted or the animation setting
+changes; temporary clip download failures share this behavior. Unsigned attachment
+favorites keep their picker placeholder without a request. Cached clips that provide
+an opening frame are not downloaded again merely because full animation decoding failed.
+Video animation decoding retains one temporary opening-frame copy for fallback instead
+of reopening the decoder when the remaining clip fails. This copy is bounded by the
+requested output edge and released with the decode job. Linux GIF preview startup and
+preroll waits share the three-second decode deadline; timeout stops the pipeline through
+the existing cleanup guard. Synchronous codec calls, conversion and teardown can exceed
+that deadline, so it is not a hard wall-clock limit. Shared decode permits remain held
+until the actual worker finishes. No detached decoder or new persistent data is added.
+
+## Image cache settings and shared artwork (October 12, 2026)
+
+Each account's image disk cache now has two partitions. Media stays in
+`avatars/<account>`. Shared artwork lives in `avatars/<account>/artwork`. Shared artwork is
+custom emoji, profile badges, server tags, role icons, server icons, default avatars, avatar
+decorations and still nameplates. Because it has its own budget, a burst of large previews
+cannot evict it. The worker loads queued artwork before other inline images and after
+pictures opened in the viewer. On the first start after upgrading, already-cached
+artwork files that can be identified by name are moved into the new partition. Hashed names
+stay in media and age out normally.
+
+Settings › Storage › Image cache picks each budget from fixed presets:
+
+- Media: 256 MiB to 4 GiB, default 1 GiB. Files are capped at budget / 256 KiB, so the
+  default keeps 4,096.
+- Shared artwork: 64 to 512 MiB, default 128 MiB. Files are capped at budget / 32 KiB.
+- Retention of images not shown again: 7, 30, 90, 180 or 365 days, default 90.
+
+Values outside the presets are rejected when saved. A smaller budget or shorter retention
+evicts immediately, oldest first. The page shows the measured bytes of each partition and
+can clear either one without stopping image loading. The existing Clear cache still removes
+both partitions with history. Logout still removes the whole account directory.
+
+Settings › Appearance › Profile cosmetics turns on avatar decorations, nameplates, profile
+effects and profile frames for this device. All four are opt-in and off by default. Hidden
+cosmetics are not drawn and their artwork is not requested. Hidden effects and frames also
+skip the optional catalog read for new profile loads. Turning them on drops the RAM profile
+cache so details reload. Both preferences live in the bounded `app_preferences` row; older
+rows load with every cosmetic hidden and the historical budgets.
+
+## Off-screen artwork retention (October 10, 2026)
+
+Avatar, banner, activity, sticker, GIF-picker and custom/high-resolution emoji
+textures now expire after 60 seconds without access. Visible painting refreshes
+its deadline; layout-only reads and clipped painting neither refresh nor reload
+composer/timeline artwork. Composer painting keeps still textures warm without
+advancing animation frames. Accepted worker results get a fresh
+minute. The existing maintenance deadline includes both artwork pools, so an
+idle window can trim them. Expiry updates byte accounting and removes associated
+animation/playback state. Existing 512-item / 64-MiB artwork and 1,024-item /
+16-MiB emoji ceilings remain. Unicode's shared low-resolution atlas is unchanged.
+Returning to expired artwork uses the existing bounded worker and disk cache;
+a disk miss may fetch again. GPU resources may stay reserved in the driver after
+the handle is released. No persisted data, credentials or preferences are removed.
+
+## Off-screen inline image retention (October 9, 2026)
+
+Inline media renditions now release their still and playback textures after 60 seconds
+without painting. Painting or accepting a still refreshes its deadline; viewer resources
+keep their existing immediate-close cleanup. The existing host maintenance wakeup also
+covers this expiry, so an idle window can release previously viewed images. The five-second
+unplayed-animation frame expiry remains separate. Existing item/byte ceilings, account
+isolation, request admission and encoded disk caching are unchanged. Returning to expired
+artwork uses the normal image worker; a disk miss may require another fetch. No history,
+credentials, preferences or disk files are removed. GPU/allocator reclamation is controlled
+by the renderer and OS, so released texture accounting is not an equal whole-process RAM
+reduction guarantee.
+
 ## Profile board games (October 7, 2026)
 
 Board metadata uses the existing on-demand profile worker and RAM profile cache,
@@ -62,14 +137,16 @@ not change download concurrency, decoder byte budgets or the result queue.
 Encoded input, completed results, UI textures and driver memory remain additional.
 Eight slots are an admission ceiling, not a whole-process RAM limit.
 
-Screen watching reuses only the latest undisplayed CPU image. Upload still moves
-that image out of the slot, so no extra CPU frame remains after upload. Resize
-growth requests exact pixel capacity; an allocation over 1 MiB that exceeds four
-times the new pixel count is replaced. Incoming transport frames remain limited
-to 1920 pixels per side and 1920×1080 total pixels. Debug conversion adds at most
-64 KiB scratch; release conversion writes directly into the reused pixel vector.
-The borrowed decoder RGBA input and pending egui uploads are additional. Nothing
-is persisted, and stop/account teardown releases the slot as before.
+Screen watching keeps one reused copy of the latest native picture (NV12/I420,
+at most 3,110,400 bytes at 1080p). The UI uploads it to the GPU under the slot lock, so
+the decoder refills the same allocation. Resize growth requests exact capacity; an
+allocation over 1 MiB that exceeds four times the new picture is replaced. Remote
+cameras keep the same per-user copy within the existing 16-user limit. Incoming
+transport frames remain limited to 1920 pixels per side and 1920×1080 total pixels.
+Each shown stream, camera or attachment owns one RGBA GPU texture plus its source
+planes (about 5.5 bytes per pixel of GPU memory); colour conversion runs in one render
+pass with no CPU scratch. Nothing is persisted, and stop/account teardown releases the
+slot and textures as before.
 
 ## Image decoding and edited-field allocations (September 28, 2026)
 
@@ -207,7 +284,7 @@ The active-token table is capped at the existing 16 source users. Old fixed-size
 tokens can survive only in the 16-item / 16-MiB frame queue, the worker's current
 frame, and the existing at-most-eight decoders; they contain no media or account
 strings. The 1080p picture limit remains unchanged. Stopping the final video
-lifetime also frees the shared RGBA scratch allocation (up to 8,294,400 initialized
+lifetime also frees the shared I420 scratch allocation (up to 3,110,400
 bytes); codec/driver resources are released by dropping their decoders. Allocator
 and driver retention mean this is not an equivalent process-RSS guarantee.
 
@@ -250,9 +327,9 @@ compatibility are unchanged. Index pages count toward the existing 64 MiB databa
 ceiling. Channel loads reuse the connection's bounded prepared-statement cache.
 Full message comparisons and secure deletion remain enabled.
 
-Software video decoders share one initialized RGBA scratch buffer, growing only
-to the largest accepted picture in that worker (at most 8,294,400 bytes of requested
-capacity). Smaller pictures borrow only their exact-size prefix. The high-water
+Software video decoders share one scratch buffer holding the current packed I420
+picture, growing only to the largest accepted picture in that worker (at most 3,110,400
+bytes of requested capacity); smaller pictures reuse it without reallocating. The high-water
 buffer remains until the worker exits, trading retention after a resolution decrease
 for avoiding repeated allocations between differently sized streams. No extra
 per-participant buffer or uninitialized memory is introduced.
@@ -567,7 +644,9 @@ and microphone preview do not retain recordings.
 Recently visited conversations now keep at most two dormant RAM timelines in the current
 account session, moved rather than cloned. Only readable Fresh ordinary text windows are parked;
 search-target ranges and transient archived threads are excluded. Promotion rechecks identity
-and read permission, shows a Loading preview, and always requests a fresh recent service page.
+and read permission. Ordinary selection shows a Loading preview and requests a fresh recent
+service page. An exact message-link hit in an eligible resident window instead scrolls locally,
+without starting recent-history or saved-cursor REST. An offline miss is checked before promotion.
 This is a preview cache, not saved historical scroll position. It avoids a SQLite read on a hit.
 Unknown/deleted-only row handling retains the same guards as the active window.
 
@@ -578,7 +657,9 @@ B-tree slack allowance; it is not an allocator or RSS measurement. Each individu
 its existing 500-row / 4 MiB payload limit. Oldest whole dormant windows are evicted when needed,
 without touching drafts or pending sends. Incoming mutations evict the affected dormant channel;
 permission/identity changes prune it, and session replacement/resync/logout removes all dormant
-history. Clear cached history removes dormant RAM and disk history while preserving the active
+history. One fixed-size, session-only `(channel, request, target)` tuple tracks an exact history
+navigation independently of the UI's consumed scroll cue; it is not a message/metadata cache.
+Clear cached history removes dormant RAM and disk history while preserving the active
 displayed conversation. No new disk data, database schema, worker or service request is added.
 
 Loaded messages deleted by the service leave only their ID as a session-local reading row.
@@ -621,7 +702,7 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 | Remembered accounts (switcher) | `accounts` table in `client.sqlite3`: at most 8 rows of account ID, username, display name (64 bytes each), avatar hash, last-use timestamp and a flag recording whether the credential store holds that account's entry; no token | Logging out of, or forgetting, that account; the least recently used row is pruned past 8, taking its token and cached data with it |
 | History and drafts | `SEREIN_DATA_DIR/client.sqlite3` when an absolute override is set; otherwise `dirs::data_local_dir()/serein-development/client.sqlite3` for default source builds and `dirs::data_local_dir()/serein/client.sqlite3` for packaged builds | Clear cached history also clears service images and keeps drafts; logout clears the authenticated account’s history and drafts |
 | Messages | 500 per window, at most 20 stored channel windows globally, 48 MiB estimated text/metadata; SQLite main database capped at 64 MiB | Oldest touched channel evicted transactionally |
-| Avatar, server-icon, profile-banner and message-preview PNGs | Account subdirectory beneath the selected application-data root's `avatars`; 1 GiB / 4096 files per account, 90 days since last use, at most 2 MiB per preview (512 KiB for icons/avatars) | Clear cache or account logout; versioned avatar/icon/banner keys and hashed media-source keys separate changed images |
+| Avatar, server-icon, profile-banner and message-preview PNGs | Account subdirectory beneath the selected application-data root's `avatars`; media defaults to 1 GiB / 4096 files per account (owner presets 256 MiB–4 GiB), shared artwork (emoji, badges, server tags and icons, role icons, decorations, nameplates) to 128 MiB / 4096 files in `artwork/` (presets 64–512 MiB), 90 days since last use by default (presets 7–365), at most 2 MiB per preview (512 KiB for icons/avatars) | Clear cache, per-partition clear in Settings › Storage, or account logout; versioned avatar/icon/banner keys and hashed media-source keys separate changed images |
 | Selected profile metadata | One session-memory record, at most 64 KiB; profile response body at most 256 KiB | Closing/changing the profile, session reset or logout; no SQLite profile table |
 | Explicit attachment downloads | User-selected destination, 1 byte through 100 MiB per original file; one active dialog/transfer; randomized sibling partial while writing | Cancel/error removes the partial when possible; completed downloads remain user-owned outside cache cleanup |
 | Selected upload source | Up to ten session-only paths (4096 encoded bytes each), filenames (256 UTF-8 bytes each) and size/modified metadata; 500,000,000 bytes total, read in 64 KiB chunks | Removal, send completion/failure, cancellation or session teardown; sources are never copied to recovery/cache files or deleted |
@@ -713,8 +794,8 @@ encoded capacity, including the access unit being decoded. Exhaustion uses the e
 frame-drop/keyframe-recovery path. At most 16 reassemblers retain partial access units
 of 2 MiB + 64 KiB each; discarded partials release capacities above 256 KiB. Decoder,
 reference-picture, hardware and displayed-frame memory are additional. The synchronous
-software-video sink borrows the reusable RGBA buffer, avoiding a full-frame clone before
-conversion to UI pixels. No live media was used to establish these implementation bounds.
+software-video sink borrows the reusable I420 buffer, avoiding a full-frame clone before
+the UI copies it for GPU colour conversion. No live media was used to establish these implementation bounds.
 
 Service-confirmed DM ringing retains at most 64 calls × 64 recipient IDs (32 KiB ID storage plus bounded vector metadata), alongside the existing call roster. It is session-only and clears on call deletion, access loss, fresh resync and disconnect. Targeted ringing adds one fixed-size pending UI action and one cancellable HTTP task, with no retries or persisted history. The dispatcher reuses a navigation-limited private-channel map, retaining at most 63 recipient IDs and 512 allocated ID bytes per channel for membership checks; no directory fetch is added. A coalesced revision invalidates pending actions when membership changes.
 
@@ -729,7 +810,7 @@ disconnect or session reset; member lookups are temporary. Disconnected states a
 admitted for voice do not consume the actual roster's count budget. The 4 MiB wire bound and
 the actual roster's 4,096-entry / 1 MiB bounds are unchanged; no new disk storage is introduced.
 
-Image attachment metadata remains bounded by 10 attachments / 64 KiB retained metadata and 256 KiB JSON per message, including original/proxy signed URLs. It counts toward existing window, pending-patch and database budgets. Decoded pixels reuse the shared media worker/cache; spoiler attachments are not requested before explicit reveal. Profile metadata (bio, pronouns, badges, connections and mutual-server summaries) stays in the single bounded RAM view. Profile and server-specific banner/avatar pixels may remain in the shared account image cache after closing the profile; cache clear/logout removes them under the same policy.
+Image attachment metadata remains bounded by 10 attachments / 64 KiB retained metadata and 256 KiB JSON per message, including original/proxy signed URLs. It counts toward existing window, pending-patch and database budgets. Decoded pixels reuse the shared media worker/cache; spoiler attachments are not requested before explicit reveal. Profile metadata (bio, pronouns, badges, connections and mutual-server summaries) stays in the single bounded RAM view. Profile and server-specific banner/avatar pixels may remain in the shared account image cache after closing the profile; cache clear/logout removes them under the same policy. Equipped cosmetics (decoration, nameplate, effect and frame details) are display-only RAM values that are never written to SQLite. Decoration and still-nameplate artwork use the shared-artwork partition; effect layers, frame layers and animated nameplates use the media partition. Cosmetics hidden in Settings are not requested. Profile effect and frame catalog details are kept in a session-only cache of at most 64 SKUs.
 
 Explicit Download creates an original attachment file only at the user-selected location. Suggested filenames are sanitized; downloads never reinterpret message filenames as destination paths, follow redirects, or send credentials to the CDN. Existing regular files are replaced only after native Save confirmation and a complete, flushed transfer. A new destination is published without overwriting a file created meanwhile. The one worker closes/removes its sibling partial on cancellation or failure; cleanup failures are visible. Forced termination or a filesystem error can leave a `.serein-*.partial` sibling, and macOS, Linux and Windows publish new files with exclusive native moves so hard-link support is not required. Normal close waits for the active worker; a cancelled native dialog must still be dismissed. Downloads are explicit user files, not account cache entries, and survive logout/cache clearing. Limits and transfer bounds are strictly enforced.
 
@@ -1159,8 +1240,8 @@ Native video decoding is memory-only. One lazy worker handles the latest request
 with a replaceable pending request and cancellation fencing. The network source retains
 up to eight 256 KiB ranges (2 MiB, including an in-flight range); responses are checked for exact range/total/body lengths and reject
 redirects and content encoding. Encoded attachment size is capped at 100 MiB.
-The application queues at most two 1080p RGBA frames, one replaceable display frame,
-one UI texture, one second of stereo float PCM (at most 768,000 bytes), and one decoded
+The application queues at most two decoded frames (1080p NV12 on macOS and Linux,
+RGBA on Windows), one replaceable display frame, one GPU texture with its planes, one second of stereo float PCM (at most 768,000 bytes), and one decoded
 audio packet plus at most two seconds of timestamp-gap silence. Each native decoded
 sample is rejected above 16 MiB before copying. OS decoder/GPU allocations are additional
 and are released with the player. No file cache or media URL/byte diagnostics are written.
