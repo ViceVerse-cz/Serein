@@ -1,11 +1,15 @@
 //! Inline attachment decoding on every desktop platform. The caller owns validated, bounded
 //! network I/O and hands over an anonymous read-only stream: decoders never see a URL or an
-//! account token. Every backend yields the same bounded RGBA frames and stereo PCM samples.
+//! account token. Every backend yields bounded [`Picture`]s in the decoder's native layout
+//! (planar YUV where available, so colour conversion can run on the GPU) and stereo PCM.
 //!
 //! * Windows: Media Foundation (`media_foundation`).
 //! * macOS: a bounded MPEG-4/MOV demuxer (`mp4`) feeding VideoToolbox and Symphonia's AAC decoder.
 //! * Linux: GStreamer's `decodebin` pulling bytes from the same stream through `appsrc`.
 use std::io::{Read, Seek};
+
+mod picture;
+pub use picture::{Color, Layout, Matrix, Picture, pack_plane};
 
 #[cfg(target_os = "windows")]
 mod media_foundation;
@@ -35,12 +39,8 @@ pub mod live;
 /// Largest live access unit any backend accepts.
 pub const MAX_ACCESS_UNIT: usize = 2 * 1024 * 1024 + 64 * 1024;
 
-/// One decoded live picture, tightly packed RGBA.
-pub struct LiveFrame {
-	pub width: u32,
-	pub height: u32,
-	pub rgba: Vec<u8>,
-}
+/// One decoded live picture.
+pub type LiveFrame = Picture;
 
 /// Receives live pictures from the decoder's own thread, in decode order.
 pub type LiveSink = Box<dyn Fn(LiveFrame) + Send + Sync>;
@@ -60,6 +60,9 @@ pub const INVALID: &str = "The video could not be decoded safely.";
 pub const BUSY: &str = "The video decoder is falling behind.";
 pub const TOO_LARGE: &str = "Inline playback supports videos up to 1080p.";
 pub const TOO_LONG: &str = "Videos longer than two hours are not supported.";
+/// The system has no decoder for the video track; installing one fixes playback.
+pub const MISSING_HEVC: &str = "This video uses H.265 (HEVC), and no H.265 decoder is installed. Install one for GStreamer (for example gst-libav with a full FFmpeg) to play it here.";
+pub const MISSING_DECODER: &str = "No decoder for this video's codec is installed. Install the matching GStreamer plugin to play it here.";
 
 pub trait ReadSeek: Read + Seek + Send {}
 impl<T: Read + Seek + Send> ReadSeek for T {}
@@ -75,16 +78,8 @@ pub struct Info {
 }
 
 pub enum Sample {
-	Video {
-		pts: f64,
-		width: u32,
-		height: u32,
-		rgba: Vec<u8>,
-	},
-	Audio {
-		pts: f64,
-		frames: Vec<[f32; 2]>,
-	},
+	Video { pts: f64, picture: Picture },
+	Audio { pts: f64, frames: Vec<[f32; 2]> },
 }
 
 // These backends read tracks independently. Linux must yield when a sibling pipeline
@@ -112,7 +107,6 @@ pub fn check_dimensions(width: u32, height: u32) -> Result<(), &'static str> {
 }
 
 /// Rotate a packed RGBA frame clockwise by a quarter-turn multiple; returns the new dimensions.
-#[cfg(any(target_os = "macos", all(test, target_os = "linux")))]
 pub(crate) fn rotate_rgba(
 	rgba: &[u8],
 	width: u32,

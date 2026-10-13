@@ -2339,9 +2339,9 @@ fn gif_grid(
 				};
 				match avatars.gif_texture(ui.ctx(), gif, demo) {
 					Some(texture) => paint_cover(ui, rect, texture, 8),
-					None if !model::valid_gif_preview(&gif.preview) => {
-						avatars.paint_gif_media(ui, gif, rect, demo);
-					}
+					// Clips and Discord-hosted favorites keep the tile placeholder until painted.
+					None if !model::valid_gif_preview(&gif.preview)
+						&& avatars.paint_gif_media(ui, gif, rect, demo) => {}
 					None => {
 						ui.painter().rect_filled(rect, 8, colors.raised);
 						crate::icons::paint(
@@ -2535,6 +2535,33 @@ mod tests {
 		assert!(state.is_gif_favorite(&video));
 		assert!(avatars.gif_texture(&ctx, &video, false).is_none());
 		assert!(avatars.take_requests().is_empty());
+	}
+
+	#[test]
+	fn loading_clip_tiles_leave_the_picker_placeholder_without_embed_labels() {
+		let ctx = egui::Context::default();
+		let mut avatars = Avatars::default();
+		let clip = model::Gif {
+			id: "clip".into(),
+			title: "Synthetic clip".into(),
+			url: "https://klipy.com/gifs/synthetic-clip".into(),
+			preview: "https://static.klipy.com/ii/synthetic/clip.mp4".into(),
+			width: 300,
+			height: 200,
+		};
+		let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+			let rect = egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(200.0, 140.0));
+			assert!(!avatars.paint_gif_media(ui, &clip, rect, false));
+		});
+		assert!(
+			!output
+				.shapes
+				.iter()
+				.any(|shape| matches!(shape.shape, egui::Shape::Text(_)))
+		);
+		output.drop_without_applying_deltas();
+		// The tile still asks for its media: a still from the clip once it arrives.
+		assert_eq!(avatars.take_requests().len(), 1);
 	}
 
 	#[test]
