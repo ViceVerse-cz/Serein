@@ -39,6 +39,8 @@ pub const CREATE_PRIVATE_THREADS: u128 = 1 << 36;
 pub const USE_EXTERNAL_STICKERS: u128 = 1 << 37;
 pub const SEND_MESSAGES_IN_THREADS: u128 = 1 << 38;
 pub const MODERATE_MEMBERS: u128 = 1 << 40;
+pub const USE_SOUNDBOARD: u128 = 1 << 42;
+pub const USE_EXTERNAL_SOUNDS: u128 = 1 << 45;
 pub const PIN_MESSAGES: u128 = 1 << 51;
 
 pub const MAX_ROLES: usize = 512;

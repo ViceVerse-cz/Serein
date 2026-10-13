@@ -272,6 +272,8 @@ impl Connection {
                 let mut application_commands:Option<AbortTask>=None;
                 let mut sticker_packs:Option<AbortTask>=None;
                 let mut sticker_detail:Option<AbortTask>=None;
+                // Default catalog, server catalog and the one unanswered play request.
+                let mut soundboard:[Option<AbortTask>;3]=[None,None,None];
                 let mut reaction_read:Option<AbortTask>=None;
                 let mut ringing:Option<AbortTask>=None;
                 let mut recipient_ringing:Option<(client_core::voice::Command,AbortTask)>=None;
@@ -375,6 +377,20 @@ impl Connection {
                                 *task=Some(AbortTask(tokio::spawn(async move {
                                     let event=api.execute(command).await;
                                     let failure=match &event {Event::StickerPacks(Err(f))|Event::Sticker{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
+                                    let error=emit(event).err().or(failure);
+                                    if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
+                                    wake.request_repaint();
+                                })));
+                                continue;
+                            }
+                            if let Command::Soundboard(request)=&command {
+                                use client_core::soundboard::{Event as E,Request as R};
+                                let task=&mut soundboard[match request {R::Default=>0,R::Guild(_)=>1,R::Send{..}=>2}];
+                                drop(task.take());
+                                let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
+                                *task=Some(AbortTask(tokio::spawn(async move {
+                                    let event=api.execute(command).await;
+                                    let failure=match &event {Event::Soundboard(E::Default(Err(f))|E::Guild{result:Err(f),..}|E::Sent{result:Err(f),..}) if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
                                     let error=emit(event).err().or(failure);
                                     if let Some(error)=error {api.stop();let _=finished.send(Some(error));}
                                     wake.request_repaint();

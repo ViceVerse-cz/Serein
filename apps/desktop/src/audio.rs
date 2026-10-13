@@ -420,6 +420,17 @@ pub(super) fn decode_stream(
 	current: &impl Fn() -> bool,
 	emit: &mut impl FnMut(&[f32], usize, u32, Option<Duration>) -> Result<(), &'static str>,
 ) -> Result<(), &'static str> {
+	decode_packets(source, current, emit, false)
+}
+
+/// `decode_stream`, except that with `truncate` a stream longer than the limits ends at
+/// them instead of being rejected, so a clip can be taken from the start of a long file.
+fn decode_packets(
+	source: Box<dyn MediaSource>,
+	current: &impl Fn() -> bool,
+	emit: &mut impl FnMut(&[f32], usize, u32, Option<Duration>) -> Result<(), &'static str>,
+	truncate: bool,
+) -> Result<(), &'static str> {
 	let source = MediaSourceStream::new(source, Default::default());
 	let metadata = MetadataOptions::default()
 		.limit_tag_bytes(Limit::Maximum(0))
@@ -447,9 +458,10 @@ pub(super) fn decode_stream(
 		return Err(INVALID);
 	}
 	let max_samples = MAX_SAMPLES.min(rate as usize * channels * MAX_SECONDS as usize);
-	if track
-		.num_frames
-		.is_some_and(|frames| frames > (max_samples / channels) as u64)
+	if !truncate
+		&& track
+			.num_frames
+			.is_some_and(|frames| frames > (max_samples / channels) as u64)
 	{
 		return Err(TOO_LARGE);
 	}
@@ -552,7 +564,15 @@ pub(super) fn decode_stream(
 		};
 		let count = decoded.len();
 		if count > max_samples - total_samples {
-			return Err(TOO_LARGE);
+			if !truncate {
+				return Err(TOO_LARGE);
+			}
+			let keep = (max_samples - total_samples) / channels * channels;
+			if keep > 0 {
+				total_samples += keep;
+				emit(&decoded[..keep], channels, rate, duration)?;
+			}
+			break;
 		}
 		total_samples += count;
 		if !decoded.is_empty() {
@@ -563,6 +583,59 @@ pub(super) fn decode_stream(
 		return Err(INVALID);
 	}
 	Ok(())
+}
+
+/// Decode a small, complete download to 48 kHz mono, keeping at most `max_samples`.
+pub(super) fn decode_clip(bytes: Vec<u8>, max_samples: usize) -> Result<Vec<f32>, &'static str> {
+	let mut mono = Vec::new();
+	let mut source_rate = 0u32;
+	let full = std::cell::Cell::new(false);
+	let result = decode_packets(
+		source::memory(bytes)?,
+		&|| !full.get(),
+		&mut |chunk, channels, rate, _| {
+			source_rate = rate;
+			// Source frames that fill the 48 kHz budget.
+			let limit = (max_samples as u64 * u64::from(rate)).div_ceil(48_000) as usize;
+			for frame in chunk.chunks_exact(channels) {
+				if mono.len() >= limit {
+					full.set(true);
+					break;
+				}
+				let sample = frame.iter().sum::<f32>() / channels as f32;
+				mono.push(if sample.is_finite() {
+					sample.clamp(-1.0, 1.0)
+				} else {
+					0.0
+				});
+			}
+			Ok(())
+		},
+		true,
+	);
+	// A clip longer than the budget is truncated rather than rejected.
+	if !full.get() {
+		result?;
+	}
+	if mono.is_empty() || source_rate == 0 {
+		return Err(INVALID);
+	}
+	if source_rate == 48_000 {
+		mono.truncate(max_samples);
+		return Ok(mono);
+	}
+	let frames = mono.len();
+	// ponytail: linear rate conversion; use a band-limited resampler if quality measurements require it.
+	Ok(
+		(0..(frames * 48_000 / source_rate as usize).min(max_samples))
+			.map(|frame| {
+				let position = frame as f64 * f64::from(source_rate) / 48_000.0;
+				let index = (position as usize).min(frames - 1);
+				let next = (index + 1).min(frames - 1);
+				mono[index] + (mono[next] - mono[index]) * (position - index as f64) as f32
+			})
+			.collect(),
+	)
 }
 
 // Skip metadata without decoding attacker-provided tag lengths/artwork. Compact in-place:

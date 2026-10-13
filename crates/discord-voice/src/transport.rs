@@ -246,6 +246,7 @@ pub async fn run(
 	camera: Option<Receiver<crate::camera_video::Frame>>,
 	remote_video: Option<VideoSink>,
 	stream_audio: Option<Receiver<Frame>>,
+	effects: Option<crate::Effects>,
 	emit: impl Fn(Status) -> Result<(), ()> + Send + 'static,
 ) -> Result<(), &'static str> {
 	run_with_identity(
@@ -256,6 +257,7 @@ pub async fn run(
 		camera,
 		remote_video,
 		stream_audio,
+		effects,
 		emit,
 		Identity::generate(),
 	)
@@ -271,6 +273,7 @@ pub async fn run_with_identity(
 	camera: Option<Receiver<crate::camera_video::Frame>>,
 	remote_video: Option<VideoSink>,
 	stream_audio: Option<Receiver<Frame>>,
+	effects: Option<crate::Effects>,
 	emit: impl Fn(Status) -> Result<(), ()> + Send + 'static,
 	identity: Arc<Identity>,
 ) -> Result<(), &'static str> {
@@ -284,6 +287,7 @@ pub async fn run_with_identity(
 			camera,
 			remote_video,
 			stream_audio,
+			effects,
 			emit,
 			identity,
 			url,
@@ -301,6 +305,7 @@ async fn run_inner(
 	camera: Option<Receiver<crate::camera_video::Frame>>,
 	remote_video: Option<VideoSink>,
 	stream_audio: Option<Receiver<Frame>>,
+	effects: Option<crate::Effects>,
 	emit: impl Fn(Status) -> Result<(), ()>,
 	identity: Arc<Identity>,
 	url: String,
@@ -499,10 +504,20 @@ async fn run_inner(
 							None=>frame=Some(extra),
 						}
 					}
+					if let Some(effects)=&effects {effects.mix(&mut frame);}
 					metrics.finish(crate::diagnostics::Stage::Mix, start);
 					if let Some(frame)=frame {drops = u64::from(playback.try_send(frame).is_err());}
 					if !heard && remote_audio {heard=true;emit(Status::RemoteAudio).map_err(|_|"Call interface closed")?;}
-				} else {mixer.clear();if let Some(aux)=&stream_audio {let _=stream_playout.next(aux,0,false,false);}}
+				} else {
+					mixer.clear();if let Some(aux)=&stream_audio {let _=stream_playout.next(aux,0,false,false);}
+					// Local clips need no encrypted peer audio; deafen still silences them.
+					if let Some(effects)=&effects {
+						if control.deafened {effects.clear();} else {
+							let mut frame=None;effects.mix(&mut frame);
+							if let Some(frame)=frame {drops = u64::from(playback.try_send(frame).is_err());}
+						}
+					}
+				}
 				metrics.poll(false, drops, stalled, 0);
 				if now >= speakers_at {
 					let mut users=[0;64];
@@ -2081,6 +2096,7 @@ mod tests {
 			Some(camera_rx),
 			None,
 			None,
+			None,
 			move |status| status_tx.try_send(status).map_err(|_| ()),
 			Identity::generate(),
 			format!("ws://{address}"),
@@ -2336,6 +2352,7 @@ mod tests {
 			playback,
 			control_rx,
 			Some(camera_rx),
+			None,
 			None,
 			None,
 			move |status| status_tx.try_send(status).map_err(|_| ()),

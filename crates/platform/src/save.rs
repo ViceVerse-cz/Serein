@@ -33,6 +33,21 @@ pub fn icon_source(
 	}
 }
 
+pub fn sound_source(
+	parent: Arc<winit::window::Window>,
+) -> impl std::future::Future<Output = Option<PathBuf>> + Send + 'static {
+	let dialog = rfd::AsyncFileDialog::new()
+		.set_parent(parent.as_ref())
+		.set_title("Choose a sound")
+		.add_filter("Audio", &["mp3", "ogg", "wav"])
+		.pick_file();
+	async move {
+		let file = dialog.await?;
+		drop(parent);
+		Some(file.path().to_owned())
+	}
+}
+
 pub fn theme_background_source(
 	parent: Arc<winit::window::Window>,
 ) -> impl std::future::Future<Output = Option<PathBuf>> + Send + 'static {
