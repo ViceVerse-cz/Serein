@@ -262,6 +262,7 @@ impl Connection {
                     }
                 }));
                 let mut history:Option<AbortTask>=None;
+                let mut prefetch:Option<AbortTask>=None;
                 let mut profile:Option<AbortTask>=None;
                 let mut profile_note:Option<AbortTask>=None;
 				let mut stream_preview:Option<AbortTask>=None;
@@ -621,13 +622,17 @@ impl Connection {
                                 member_send.send(subscription).map_err(|_|Failure::Network)?;
                                 continue;
                             }
-                            if let Command::History { channel, request, .. } = &command {
-                                drop(search.take());
-                                drop(reaction_read.take());
+                            if let Command::History { channel, request, .. } | Command::Prefetch { channel, request } = &command {
                                 let (channel, request) = (*channel, *request);
-                                drop(history.take());
+                                // A preload has its own slot: it never cancels the open conversation's reads.
+                                let slot = if matches!(command, Command::Prefetch{..}) {&mut prefetch} else {
+                                    drop(search.take());
+                                    drop(reaction_read.take());
+                                    &mut history
+                                };
+                                drop(slot.take());
                                 let api=api.clone();let emit=emit.clone();let finished=finished.clone();let history_wake=wake.clone();
-                                history=Some(AbortTask(tokio::spawn(async move {
+                                *slot=Some(AbortTask(tokio::spawn(async move {
                                     let event=scope_history_failure(api.execute(command).await,channel,request);
                                     if let Event::Failure(f)=&event&& f.ends_session(){api.stop();let _=finished.send(Some(*f));}
                                     if let Err(f)=emit(event){api.stop();let _=finished.send(Some(f));}

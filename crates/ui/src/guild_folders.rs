@@ -491,6 +491,8 @@ impl MessagingUi {
 							}
 							rail_badge(ui, response.id, response.rect, count, colors.base);
 							self.guild_rail_name(&response, state, guild);
+							self.preload
+								.conversation(&response, || state.guild_target(id));
 							if response.clicked() {
 								self.guild = Some(id);
 								if let Some(command) = state.select_guild(id) {

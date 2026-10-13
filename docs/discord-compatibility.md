@@ -351,6 +351,13 @@ every message, edit and reaction for that channel meanwhile, which may not hold 
 very large servers; the age cap bounds the window. A direct conversation still sends
 its existing call-state synchronization on open.
 
+Hover/press preloading is **unofficial** behavior: it sends the same recent-history request
+a click would send, earlier, for a conversation the pointer rests on for 120 ms or presses.
+It is not a crawl: one request in flight, at most twelve per minute, no repeat for an unchanged
+conversation, no pagination, and it honors the shared REST cooldown. Hovers that never become
+clicks still cost requests, which the official client may not make; the owner can turn it off
+in Settings › Chat › Channel list.
+
 The wire history route and permission requirements are documented in Discord's
 [Message resource](https://docs.discord.com/developers/resources/message); forum/thread
 relationships are documented in [Threads](https://docs.discord.com/developers/topics/threads).

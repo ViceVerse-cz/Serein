@@ -793,6 +793,7 @@ impl MessagingUi {
 										shortcuts_available,
 									),
 								);
+								self.preload.conversation(&response, || Some(channel.id));
 								if response.clicked() {
 									selected = Some(channel.id);
 								}
@@ -960,6 +961,9 @@ impl MessagingUi {
 											shortcuts_available,
 										),
 									);
+									if enabled {
+										self.preload.conversation(&avatar, || Some(channel.id));
+									}
 									if enabled && avatar.clicked() {
 										selected = Some(channel.id);
 									}
@@ -994,6 +998,9 @@ impl MessagingUi {
 									}
 									// The avatar is part of the row: clicking it opens the conversation,
 									// the profile stays behind the context menu and the header avatar.
+									if enabled {
+										self.preload.conversation(&avatar, || Some(channel.id));
+									}
 									if enabled && avatar.clicked() {
 										selected = Some(channel.id);
 									}
@@ -1259,6 +1266,9 @@ impl MessagingUi {
 							}
 							if channel.guild.is_some() {
 								self.channel_menu.context(&response, state, channel, view);
+							}
+							if enabled {
+								self.preload.conversation(&response, || Some(channel.id));
 							}
 							if enabled && response.clicked() {
 								selected = Some(channel.id);

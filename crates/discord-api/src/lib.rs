@@ -642,6 +642,40 @@ impl DiscordApi {
 			.then_some(guild.id)
 			.ok_or(Failure::Ambiguous)
 	}
+	/// One bounded 50-message history page, before or after a cursor or at the latest message.
+	async fn history(
+		&self,
+		channel: Id,
+		before: Option<Id>,
+		after: Option<Id>,
+		request: u64,
+	) -> Event {
+		if before.is_some() && after.is_some() {
+			return Event::Failure(Failure::Protocol);
+		}
+		let mut path = format!("/channels/{channel}/messages?limit=50");
+		if let Some(before) = before {
+			path.push_str(&format!("&before={before}"));
+		}
+		if let Some(after) = after {
+			path.push_str(&format!("&after={after}"));
+		}
+		match self
+			.request(Method::GET, &path, None)
+			.await
+			.and_then(|bytes| decode::<Vec<MessageDto>>(&bytes).map_err(|_| Failure::Protocol))
+		{
+			Ok(messages) if messages.len() <= 50 => Event::History {
+				channel,
+				request,
+				older: before.is_some(),
+				messages: messages.into_iter().map(MessageDto::into_model).collect(),
+			},
+			Ok(_) => Event::Failure(Failure::Capacity),
+			Err(Failure::Forbidden) => Event::Unavailable(channel),
+			Err(f) => Event::Failure(f),
+		}
+	}
 	/// Runs one typed command and returns its typed event.
 	pub async fn execute(&self, command: Command) -> Event {
 		match command {
@@ -1224,33 +1258,11 @@ impl DiscordApi {
 				before,
 				after,
 				request,
-			} => {
-				if before.is_some() && after.is_some() {
-					return Event::Failure(Failure::Protocol);
-				}
-				let mut path = format!("/channels/{channel}/messages?limit=50");
-				if let Some(before) = before {
-					path.push_str(&format!("&before={before}"));
-				}
-				if let Some(after) = after {
-					path.push_str(&format!("&after={after}"));
-				}
-				match self
-					.request(Method::GET, &path, None)
-					.await
-					.and_then(|bytes| {
-						decode::<Vec<MessageDto>>(&bytes).map_err(|_| Failure::Protocol)
-					}) {
-					Ok(messages) if messages.len() <= 50 => Event::History {
-						channel,
-						request,
-						older: before.is_some(),
-						messages: messages.into_iter().map(MessageDto::into_model).collect(),
-					},
-					Ok(_) => Event::Failure(Failure::Capacity),
-					Err(Failure::Forbidden) => Event::Unavailable(channel),
-					Err(f) => Event::Failure(f),
-				}
+			} => self.history(channel, before, after, request).await,
+			// The same request a click sends; it waits for the shared cooldown like one, so a
+			// click that adopted it is never left without its page.
+			Command::Prefetch { channel, request } => {
+				self.history(channel, None, None, request).await
 			}
 			Command::StickerPacks => Event::StickerPacks(
 				self.request_limited(

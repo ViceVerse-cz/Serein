@@ -380,6 +380,7 @@ impl MessagingUi {
 								)
 							});
 							design::rail_name(&response, &channel.name);
+							self.preload.conversation(&response, || Some(channel.id));
 							if response.clicked() {
 								self.guild = None;
 								selected = Some(channel.id);

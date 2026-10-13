@@ -3878,7 +3878,11 @@ impl Desktop {
 						}
 					})
 				}
-				Command::Voice(_) | Command::CancelProfile | Command::CancelSearch => return,
+				// The offline fixture has nothing to preload.
+				Command::Voice(_)
+				| Command::CancelProfile
+				| Command::CancelSearch
+				| Command::Prefetch { .. } => return,
 				Command::ThreadStarter {
 					thread,
 					parent,

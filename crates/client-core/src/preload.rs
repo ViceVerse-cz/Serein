@@ -1,0 +1,527 @@
+//! Intent preloading: the request a click would make, sent while the pointer rests on its target.
+//! A preload never crawls: one is in flight at a time, a per-minute cap bounds a sweep across a
+//! list, and an unchanged target is not requested twice. A click on the target adopts the
+//! in-flight request instead of sending another; otherwise the page waits as a dormant window.
+use crate::{Command, State, auth::AuthState, navigable};
+use model::{Freshness, Id};
+use std::{
+	collections::VecDeque,
+	time::{Duration, Instant},
+};
+
+/// A pointer passing over a list rests on each row for less than this; intent rests longer.
+pub const CONVERSATION_DWELL: Duration = Duration::from_millis(120);
+/// Speculative requests per minute, so sweeping across many rows stays a handful of reads.
+const PER_MINUTE: usize = 12;
+/// Remembered targets, so revisiting an unchanged one does not repeat its request.
+const ATTEMPTS: usize = 64;
+/// Longer than the REST timeout: an in-flight marker this old lost its result to a session change.
+const LOST: Duration = Duration::from_secs(30);
+/// Preload request ids carry this bit, so they never equal a conversation's own request id.
+const REQUEST_BIT: u64 = 1 << 63;
+
+pub(crate) fn is_preload(request: u64) -> bool {
+	request & REQUEST_BIT != 0
+}
+
+/// Dwell, admission and in-flight tracking for one kind of preload target.
+pub struct Intent<K> {
+	hovered: Option<(K, Instant)>,
+	in_flight: Option<InFlight<K>>,
+	sent: VecDeque<Instant>,
+	/// Each target with the version (latest message) it was last requested at.
+	attempts: VecDeque<(K, Option<Id>)>,
+	next: u64,
+}
+struct InFlight<K> {
+	target: K,
+	request: u64,
+	since: Instant,
+	/// A live change for the target arrived meanwhile, so its page may already be outdated.
+	stale: bool,
+}
+impl<K> Default for Intent<K> {
+	fn default() -> Self {
+		Self {
+			hovered: None,
+			in_flight: None,
+			sent: VecDeque::new(),
+			attempts: VecDeque::new(),
+			next: 0,
+		}
+	}
+}
+impl<K: Copy + PartialEq> Intent<K> {
+	/// The target once the pointer has rested on it for `dwell`, or at once while pressed.
+	fn intent(
+		&mut self,
+		hovered: Option<K>,
+		pressed: Option<K>,
+		dwell: Duration,
+		now: Instant,
+	) -> Option<K> {
+		if let Some(target) = pressed {
+			self.hovered = Some((target, now));
+			return Some(target);
+		}
+		let Some(target) = hovered else {
+			self.hovered = None;
+			return None;
+		};
+		match self.hovered {
+			Some((current, since)) if current == target => {
+				(now.saturating_duration_since(since) >= dwell).then_some(target)
+			}
+			_ => {
+				self.hovered = Some((target, now));
+				None
+			}
+		}
+	}
+	/// One request id for `target` at `version`, unless one is in flight, the per-minute cap is
+	/// reached, or this exact version was already requested.
+	fn admit(&mut self, target: K, version: Option<Id>, now: Instant) -> Option<u64> {
+		if self
+			.in_flight
+			.as_ref()
+			.is_some_and(|flight| now.saturating_duration_since(flight.since) < LOST)
+		{
+			return None;
+		}
+		while self
+			.sent
+			.front()
+			.is_some_and(|at| now.saturating_duration_since(*at) >= Duration::from_secs(60))
+		{
+			self.sent.pop_front();
+		}
+		if self.sent.len() >= PER_MINUTE || self.attempts.contains(&(target, version)) {
+			return None;
+		}
+		self.attempts.retain(|(known, _)| *known != target);
+		if self.attempts.len() == ATTEMPTS {
+			self.attempts.pop_front();
+		}
+		self.attempts.push_back((target, version));
+		self.sent.push_back(now);
+		self.next = self.next.wrapping_add(1) & !REQUEST_BIT;
+		let request = REQUEST_BIT | self.next;
+		self.in_flight = Some(InFlight {
+			target,
+			request,
+			since: now,
+			stale: false,
+		});
+		Some(request)
+	}
+	/// Time left before the resting target becomes intent.
+	fn remaining(&self, dwell: Duration, now: Instant) -> Option<Duration> {
+		let (_, since) = self.hovered?;
+		dwell
+			.checked_sub(now.saturating_duration_since(since))
+			.filter(|left| !left.is_zero())
+	}
+	/// The in-flight request for `target`, unless a live change may already be missing from it.
+	fn in_flight(&self, target: K) -> Option<u64> {
+		self.in_flight
+			.as_ref()
+			.filter(|flight| flight.target == target && !flight.stale)
+			.map(|flight| flight.request)
+	}
+	/// Marks an in-flight page outdated when its target changes, or any page for `None`.
+	fn touch(&mut self, target: Option<K>) {
+		if let Some(flight) = &mut self.in_flight
+			&& target.is_none_or(|target| flight.target == target)
+		{
+			flight.stale = true;
+		}
+	}
+	/// Clears the in-flight marker for `request`. Returns its target when the result is usable;
+	/// a failed target is forgotten so a later rest may try again.
+	fn settle(&mut self, request: u64, ok: bool) -> Option<K> {
+		let flight = self.in_flight.take_if(|flight| flight.request == request)?;
+		if !ok {
+			self.attempts.retain(|(known, _)| *known != flight.target);
+		}
+		(ok && !flight.stale).then_some(flight.target)
+	}
+}
+
+#[derive(Default)]
+pub struct Preload {
+	conversations: Intent<Id>,
+	/// A click adopted this preload: `(preload request, the conversation's own request)`.
+	adopted: Option<(u64, u64)>,
+}
+
+/// Where a preload's result goes.
+pub(crate) enum Arrival {
+	/// A click adopted it; apply it as this conversation request.
+	Adopted(u64),
+	/// Keep the page as a dormant window.
+	Park,
+	Drop,
+}
+
+impl State {
+	/// Call once per frame with the conversation under the pointer and the one pressed, if any.
+	pub fn preload_conversation(
+		&mut self,
+		hovered: Option<Id>,
+		pressed: Option<Id>,
+		now: Instant,
+	) -> Option<Command> {
+		let channel =
+			self.preload
+				.conversations
+				.intent(hovered, pressed, CONVERSATION_DWELL, now)?;
+		if !self.preloadable(channel) {
+			return None;
+		}
+		let version = self.channel(channel)?.last_message;
+		let request = self.preload.conversations.admit(channel, version, now)?;
+		Some(Command::Prefetch { channel, request })
+	}
+	/// How long until a resting pointer becomes intent, so the UI can wake without input.
+	pub fn preload_wake(&self, now: Instant) -> Option<Duration> {
+		self.preload
+			.conversations
+			.remaining(CONVERSATION_DWELL, now)
+	}
+	fn preloadable(&self, channel: Id) -> bool {
+		!self.demo
+			&& self.auth == AuthState::Authenticated
+			&& self.gateway_connected
+			&& self.selected != Some(channel)
+			// A conversation the user is already waiting for keeps the connection to itself.
+			&& !(self.history_pending && self.freshness == Freshness::Loading)
+			&& self.channel(channel).is_some_and(|entry| {
+				navigable(entry) && entry.supports_text() && entry.last_message.is_some()
+			})
+			&& !self.is_forum(channel)
+			&& self.archived_thread != Some(channel)
+			&& self.can_read_history(channel)
+			&& !self.resident_current(channel)
+	}
+	/// The in-flight preload for `channel`, adopted by a click as its own page request.
+	pub(crate) fn adopt_preload(&mut self, channel: Id) -> Option<u64> {
+		self.preload.conversations.in_flight(channel)
+	}
+	pub(crate) fn record_adoption(&mut self, preload: u64, request: u64) {
+		self.preload.adopted = Some((preload, request));
+	}
+	pub(crate) fn touch_preload(&mut self, channel: Option<Id>) {
+		self.preload.conversations.touch(channel);
+	}
+	pub(crate) fn preload_arrived(&mut self, request: u64, ok: bool) -> Arrival {
+		let usable = self.preload.conversations.settle(request, ok).is_some();
+		match self.preload.adopted {
+			Some((preload, own)) if preload == request => {
+				self.preload.adopted = None;
+				Arrival::Adopted(own)
+			}
+			_ if usable => Arrival::Park,
+			_ => Arrival::Drop,
+		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::{Envelope, Event};
+	use model::{Channel, Message, User};
+
+	fn message(channel: u64, id: u64) -> Message {
+		let mut message = test_message();
+		message.id = Id(id);
+		message.channel = Id(channel);
+		message
+	}
+	fn test_message() -> Message {
+		Message {
+			poll: None,
+			sticker_items: Vec::new(),
+			id: Id(1),
+			channel: Id(1),
+			kind: 0,
+			author: User {
+				primary_guild: None,
+				cosmetics: None,
+				id: Id(9),
+				name: "Synthetic".into(),
+				avatar: None,
+				webhook: false,
+				kind: Default::default(),
+				discriminator: 0,
+			},
+			content: "Synthetic preload".into(),
+			reactions: Some(vec![]),
+			author_nick: None,
+			author_roles: vec![],
+			mention_roles: vec![],
+			mention_everyone: false,
+			suppress_notifications: false,
+			mentions: vec![],
+			edited: false,
+			edited_at: None,
+			revision: 0,
+			nonce: None,
+			reply_to: None,
+			reply_deleted: false,
+			interaction: None,
+			forwarded: false,
+			unsupported: false,
+			components: vec![],
+			application_id: None,
+			flags: 0,
+			ephemeral: false,
+			extra_content: Default::default(),
+			embeds: vec![],
+			attachments: vec![],
+			embeds_suppressed: false,
+		}
+	}
+	fn state() -> State {
+		State {
+			user: Some(test_message().author),
+			auth: AuthState::Authenticated,
+			gateway_connected: true,
+			channels: (1..=20)
+				.map(|id| Channel {
+					id: Id(id),
+					guild: None,
+					parent_id: None,
+					kind: 1,
+					position: 0,
+					name: "Synthetic DM".into(),
+					recipients: vec![],
+					last_message: Some(Id(id * 1000 + 50)),
+					icon: None,
+					member_list_id: None,
+					tags: None,
+					message_count: None,
+				})
+				.collect(),
+			..State::default()
+		}
+	}
+	fn apply(state: &mut State, event: Event) {
+		state.apply(Envelope {
+			generation: state.generation,
+			event,
+		});
+	}
+	fn page(channel: u64, request: u64) -> Event {
+		Event::History {
+			channel: Id(channel),
+			request,
+			older: false,
+			messages: (1..=50)
+				.map(|id| message(channel, channel * 1000 + id))
+				.collect(),
+		}
+	}
+	fn rest(state: &mut State, channel: u64, now: Instant) -> Option<Command> {
+		assert!(
+			state
+				.preload_conversation(Some(Id(channel)), None, now)
+				.is_none()
+		);
+		state.preload_conversation(Some(Id(channel)), None, now + CONVERSATION_DWELL)
+	}
+
+	#[test]
+	fn resting_preloads_once_and_a_click_opens_the_parked_page_without_a_request() {
+		let now = Instant::now();
+		let mut state = state();
+		// Passing over a row is not intent; leaving it resets the dwell.
+		assert!(state.preload_conversation(Some(Id(1)), None, now).is_none());
+		assert!(state.preload_conversation(None, None, now).is_none());
+		assert!(
+			state
+				.preload_conversation(Some(Id(1)), None, now + CONVERSATION_DWELL)
+				.is_none()
+		);
+		let Some(Command::Prefetch { channel, request }) =
+			state.preload_conversation(Some(Id(1)), None, now + CONVERSATION_DWELL * 2)
+		else {
+			panic!("rested preload");
+		};
+		assert_eq!(channel, Id(1));
+		assert!(is_preload(request) && state.request & REQUEST_BIT == 0);
+		// One in flight, and resting longer repeats nothing.
+		assert!(
+			state
+				.preload_conversation(Some(Id(1)), None, now + CONVERSATION_DWELL * 3)
+				.is_none()
+		);
+		assert!(rest(&mut state, 2, now).is_none());
+		apply(&mut state, page(1, request));
+		assert_eq!(state.resident_window_count(), 1);
+		assert!(state.selected.is_none(), "a preload never navigates");
+		assert!(state.select(Id(1)).is_none(), "the parked page is current");
+		assert_eq!(state.freshness, Freshness::Fresh);
+		assert_eq!(state.timeline.row_count(), 50);
+		// A current dormant window or the open conversation is not requested again.
+		assert!(rest(&mut state, 1, now).is_none());
+		state.select(Id(2)).unwrap();
+		assert!(rest(&mut state, 1, now).is_none());
+	}
+
+	#[test]
+	fn a_click_adopts_the_in_flight_preload_instead_of_requesting_again() {
+		let now = Instant::now();
+		let mut state = state();
+		let Some(Command::Prefetch { request, .. }) =
+			state.preload_conversation(None, Some(Id(3)), now)
+		else {
+			panic!("pressing skips the dwell");
+		};
+		assert!(state.select(Id(3)).is_none(), "adopted, not repeated");
+		assert!(state.history_pending);
+		assert_eq!(state.freshness, Freshness::Loading);
+		apply(&mut state, page(3, request));
+		assert_eq!(state.freshness, Freshness::Fresh);
+		assert_eq!(state.timeline.row_count(), 50);
+		assert!(!state.history_pending);
+		// A failed adopted preload reports like the conversation's own request.
+		let Some(Command::Prefetch { request, .. }) =
+			state.preload_conversation(None, Some(Id(4)), now)
+		else {
+			panic!("second preload");
+		};
+		assert!(state.select(Id(4)).is_none());
+		apply(
+			&mut state,
+			Event::HistoryFailed {
+				channel: Id(4),
+				request,
+				failure: crate::auth::Failure::Forbidden,
+			},
+		);
+		assert_eq!(state.freshness, Freshness::Unavailable);
+		// A message that arrived after the preload was sent may be missing from its page.
+		let Some(Command::Prefetch { request, .. }) =
+			state.preload_conversation(None, Some(Id(9)), now)
+		else {
+			panic!("third preload");
+		};
+		apply(&mut state, Event::Message(message(9, 9051)));
+		let Some(Command::History { request: own, .. }) = state.select(Id(9)) else {
+			panic!("an outdated preload is not adopted");
+		};
+		apply(&mut state, page(9, request));
+		assert!(state.history_pending, "the outdated page is dropped");
+		let mut fresh = page(9, own);
+		if let Event::History { messages, .. } = &mut fresh {
+			messages.remove(0);
+			messages.push(message(9, 9051));
+		}
+		apply(&mut state, fresh);
+		assert!(state.timeline.get(Id(9051)).is_some());
+	}
+
+	#[test]
+	fn outdated_failed_and_superseded_preloads_are_not_kept() {
+		let now = Instant::now();
+		{
+			let mut state = state();
+			let Some(Command::Prefetch { request, .. }) = rest(&mut state, 5, now) else {
+				panic!("preload");
+			};
+			// An edit while the page was in flight may be missing from it.
+			apply(
+				&mut state,
+				Event::Patch(model::MessagePatch {
+					poll: model::Patch::Absent,
+					sticker_items: model::Patch::Absent,
+					channel: Id(5),
+					id: Id(5001),
+					content: model::Patch::Value("Edited".into()),
+					components: model::Patch::Absent,
+					flags: model::Patch::Absent,
+					application_id: model::Patch::Absent,
+					extra_content: Default::default(),
+					reactions: model::Patch::Absent,
+					mentions: model::Patch::Absent,
+					edited: model::Patch::Absent,
+					embeds: model::Patch::Absent,
+					attachments: model::Patch::Absent,
+					embeds_suppressed: model::Patch::Absent,
+				}),
+			);
+			apply(&mut state, page(5, request));
+			assert_eq!(state.resident_window_count(), 0);
+		}
+		{
+			let mut state = state();
+			let Some(Command::Prefetch { request, .. }) = rest(&mut state, 6, now) else {
+				panic!("preload");
+			};
+			apply(
+				&mut state,
+				Event::HistoryFailed {
+					channel: Id(6),
+					request,
+					failure: crate::auth::Failure::RateLimited,
+				},
+			);
+			assert_eq!(state.resident_window_count(), 0);
+			assert_eq!(state.freshness, Freshness::Stale, "nothing was selected");
+			assert!(
+				rest(&mut state, 6, now).is_some(),
+				"a failure may be tried again"
+			);
+		}
+		{
+			// A click elsewhere before the page arrives leaves the page as a dormant window.
+			let mut state = state();
+			let Some(Command::Prefetch { request, .. }) = rest(&mut state, 7, now) else {
+				panic!("preload");
+			};
+			state.select(Id(8)).unwrap();
+			apply(&mut state, page(7, request));
+			assert_eq!(state.selected, Some(Id(8)));
+			assert_eq!(state.freshness, Freshness::Loading);
+			assert_eq!(state.resident_window_count(), 1);
+		}
+	}
+
+	#[test]
+	fn sweeping_a_list_is_capped_and_unchanged_targets_are_not_repeated() {
+		let now = Instant::now();
+		let mut state = state();
+		let mut sent = 0;
+		for channel in 1..=20 {
+			if let Some(Command::Prefetch { request, .. }) = rest(&mut state, channel, now) {
+				sent += 1;
+				apply(
+					&mut state,
+					Event::HistoryFailed {
+						channel: Id(channel),
+						request,
+						failure: crate::auth::Failure::Network,
+					},
+				);
+			}
+		}
+		assert_eq!(sent, PER_MINUTE);
+		let later = now + Duration::from_secs(61);
+		let Some(Command::Prefetch { request, .. }) = rest(&mut state, 1, later) else {
+			panic!("the cap refills");
+		};
+		apply(&mut state, page(1, request));
+		let Some(Command::History { request, .. }) = state.select(Id(2)) else {
+			panic!("unloaded conversation");
+		};
+		apply(&mut state, page(2, request));
+		state.observe_last_message(Id(1), Id(1999));
+		assert!(
+			rest(&mut state, 1, later).is_some(),
+			"a newer message is a new version"
+		);
+		state.demo = true;
+		assert!(rest(&mut state, 9, later + Duration::from_secs(61)).is_none());
+	}
+}

@@ -668,6 +668,19 @@ navigation independently of the UI's consumed scroll cue; it is not a message/me
 Clear cached history removes dormant RAM and disk history while preserving the active
 displayed conversation. No new disk data, database schema, worker or service request is added.
 
+Resting the pointer on a conversation row, a rail DM or a server icon for 120 ms, or pressing it,
+requests that conversation's recent page early (a server icon uses the channel its click opens).
+It is the same bounded 50-message request a click sends, on its own connection slot so it never
+cancels the open conversation's reads, and it waits for the shared REST cooldown like any request.
+At most one preload is in flight and at most twelve are sent per minute; a target is not requested
+again until its latest message changes, and only a failure forgets the attempt. A click on the
+target while its page is in flight adopts that request instead of sending another, unless a live
+change to the channel arrived meanwhile; then the click sends its own request and the preloaded
+page is discarded. Otherwise the page is kept as one dormant window under the same eight-window,
+row and byte budget above, again only if no live change arrived while it was in flight. The open conversation, forums, archived
+threads, unreadable channels, channels without messages, an already current dormant window, the
+offline fixture and a pending conversation load are never preloaded. No disk data is written.
+
 Loaded messages deleted by the service leave only their ID as a session-local reading row.
 Author, body, attachment and embed metadata are dropped from the timeline and its formatted /
 revealed-content views. An untouched open editor closes; text the user modified remains an
@@ -720,6 +733,7 @@ The owner explicitly withdrew the no-storage policy on 2026-09-09. Local files, 
 | Voice credentials, DAVE identities/keys and PCM/Opus audio | Session memory only; one call, bounded media queues; no recording or audio cache | Hangup, failure, logout and application teardown; no forensic-erasure claim |
 | Audio devices, input profile/custom processing, push-to-talk and gain | Device-wide `app_preferences` SQLite singleton, bounded to 16 KiB; device names ≤1,024 bytes each | Retained across restart/logout; demo changes remain in memory |
 | Automatic emoticon conversion | Boolean in the existing device-wide `app_preferences` singleton; defaults off, including older saved preferences | Retained across restart/logout; converts standalone emoticons on message send/edit; demo changes remain in memory |
+| Preload on hover | Boolean in the existing device-wide `app_preferences` singleton; defaults on, including older saved preferences | Retained across restart/logout; off stops every hover/press preload; demo never preloads |
 | Authentication page | Wry incognito on Windows/macOS; ephemeral WebKit6 NetworkSession on Linux, destroyed on token handoff/cancel/timeout | Platform engine teardown; OS artifacts not promised erased |
 
 Typical packaged-build database directories: macOS `~/Library/Application Support/serein`, Windows `%LOCALAPPDATA%/serein`, Linux `$XDG_DATA_HOME/serein` or `~/.local/share/serein`; default source builds use the sibling `serein-development` directory. An absolute `SEREIN_DATA_DIR` selects the root for SQLite, image caches, extensions and detectable-game metadata; an empty or relative override disables those stores instead of falling back to production data. `cargo xtask package` disables the development feature, so distributed executables use the packaged-build directory and credential namespace. Newly created Unix data directories are private (0700); existing override permissions are preserved. Database contents are **not encrypted by Serein**. OS token protection does not encrypt history, backups or drafts, and the override does not relocate credentials from the OS store.

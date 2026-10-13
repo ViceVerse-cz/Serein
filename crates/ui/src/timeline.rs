@@ -8086,13 +8086,15 @@ mod tests {
 		settle_banner(&ctx, &mut view, &mut state);
 		expect_read_on_open(&mut view, 201, "channel switch");
 
+		// An untouched return reopens without a request; new activity makes it unread again.
+		live_message(&mut state, Id(10), 102);
 		assert!(matches!(
 			state.select(Id(10)),
 			Some(client_core::Command::History { .. })
 		));
-		deliver_unread(&mut state, Id(10), 101);
+		deliver_unread(&mut state, Id(10), 103);
 		settle_banner(&ctx, &mut view, &mut state);
-		expect_read_on_open(&mut view, 101, "channel return");
+		expect_read_on_open(&mut view, 103, "channel return");
 
 		assert!(matches!(
 			state.select_guild(Id(2)),
@@ -8105,6 +8107,7 @@ mod tests {
 		settle_banner(&ctx, &mut view, &mut state);
 		expect_read_on_open(&mut view, 301, "server open");
 
+		live_message(&mut state, Id(10), 104);
 		assert!(matches!(
 			state.select_guild(Id(1)),
 			Some(client_core::Command::History {
@@ -8112,9 +8115,16 @@ mod tests {
 				..
 			})
 		));
-		deliver_unread(&mut state, Id(10), 101);
+		deliver_unread(&mut state, Id(10), 105);
 		settle_banner(&ctx, &mut view, &mut state);
-		expect_read_on_open(&mut view, 101, "server return");
+		expect_read_on_open(&mut view, 105, "server return");
+	}
+
+	fn live_message(state: &mut State, channel: Id, id: u64) {
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Message(test_support::message(id, channel)),
+		});
 	}
 
 	#[test]
@@ -9138,6 +9148,8 @@ mod tests {
 				}
 			}
 			for channel in [Id(20), Id(21), Id(20)] {
+				// A newer message known from channel metadata makes the cached window revalidate.
+				state.observe_last_message(channel, Id(1000 * channel.0 + count));
 				assert!(matches!(
 					state.select(channel),
 					Some(client_core::Command::History { .. })
@@ -9389,6 +9401,8 @@ mod tests {
 					view.rows.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
 					vec![INTRO, Id(900)]
 				);
+				// A newer message known from channel metadata makes the window a preview to revalidate.
+				state.observe_last_message(Id(20), Id(600));
 				assert!(matches!(
 					state.select(Id(20)),
 					Some(client_core::Command::History {

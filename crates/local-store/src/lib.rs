@@ -48,6 +48,8 @@ pub struct AppPreferences {
 	pub hide_nitro_emojis: bool,
 	/// Device-local opt-in; older saved preferences deserialize with conversion off.
 	pub convert_emoticons: bool,
+	/// Request a conversation's page while the pointer rests on it; older preferences enable it.
+	pub preload_on_hover: bool,
 	/// Hide the in-app title strip. macOS and Windows then show the system title bar.
 	pub hide_title_bar: bool,
 	pub hide_window_decorations: bool,
@@ -94,6 +96,7 @@ impl Default for AppPreferences {
 			show_hidden_channels: false,
 			hide_nitro_emojis: false,
 			convert_emoticons: false,
+			preload_on_hover: true,
 			hide_title_bar: false,
 			hide_window_decorations: false,
 			primary_color: None,

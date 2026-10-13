@@ -23,6 +23,7 @@ pub mod message_actions;
 pub mod messaging_permissions;
 pub mod notifications;
 pub mod polls;
+pub mod preload;
 pub mod presence;
 pub mod profile;
 pub mod reactions;
@@ -248,6 +249,11 @@ pub enum Command {
 		channel: Id,
 		before: Option<Id>,
 		after: Option<Id>,
+		request: u64,
+	},
+	/// A conversation's recent page requested on intent; answered as `History`/`HistoryFailed`.
+	Prefetch {
+		channel: Id,
 		request: u64,
 	},
 	Forward {
@@ -764,6 +770,7 @@ pub struct State {
 	pub timeline: Timeline,
 	pub preserve_deleted_messages: bool,
 	pub resident: resident::Windows,
+	pub preload: preload::Preload,
 	pub freshness: Freshness,
 	pub status: &'static str,
 	/// User-copyable cause of the last session failure, cleared by the next READY.
@@ -969,6 +976,7 @@ impl Default for State {
 			timeline: Timeline::default(),
 			preserve_deleted_messages: false,
 			resident: resident::Windows::default(),
+			preload: Default::default(),
 			freshness: Freshness::Stale,
 			status: "Disconnected",
 			failure_detail: None,
@@ -1162,14 +1170,18 @@ impl State {
 		self.last_viewed_channels.splice(0..0, fresh);
 	}
 	pub fn select_guild(&mut self, guild: Id) -> Option<Command> {
+		let channel = self.guild_target(guild)?;
+		self.select(channel)
+	}
+	/// The channel a server icon opens: the current one, the last viewed, or the first text one.
+	pub fn guild_target(&self, guild: Id) -> Option<Id> {
 		self.guild(guild)?;
 		let available = |id| {
 			self.channel(id).is_some_and(|channel| {
 				channel.guild == Some(guild) && navigable(channel) && self.can_view(id)
 			})
 		};
-		let channel = self
-			.selected
+		self.selected
 			.filter(|id| available(*id))
 			.or_else(|| {
 				self.last_viewed_channels
@@ -1184,8 +1196,7 @@ impl State {
 					// Prefer ordinary text/forum channels over threads or voice on first visit.
 					.min_by_key(|c| (matches!(c.kind, 2 | 10..=12), c.position, c.id))
 					.map(|c| c.id)
-			})?;
-		self.select(channel)
+			})
 	}
 	pub fn select(&mut self, channel: Id) -> Option<Command> {
 		self.cancel_invite_navigation(channel);
@@ -1330,13 +1341,23 @@ impl State {
 			self.history_before = None;
 			self.older_exhausted = trusted.older_exhausted;
 			self.freshness = Freshness::Fresh;
-			// The page needs no request, but a direct call's state still synchronizes on open,
-			// as the host does alongside a revalidating page request.
-			let call =
-				self.channel(channel).is_some_and(|c| c.guild.is_none()) && self.can_call(channel);
-			return Apply::Opened(call.then_some(Command::Voice(voice::Command::Sync { channel })));
+			return Apply::Opened(self.call_sync(channel));
 		}
-		Apply::Opened(Some(self.history(None)))
+		let command = self.history(None);
+		if let Some(preload) = self.adopt_preload(channel)
+			&& let Command::History { request, .. } = command
+		{
+			// The page this click needs is already on its way.
+			self.record_adoption(preload, request);
+			return Apply::Opened(self.call_sync(channel));
+		}
+		Apply::Opened(Some(command))
+	}
+	/// Opening without a page request still synchronizes a direct call's state, as the host
+	/// does alongside a recent-page request.
+	fn call_sync(&self, channel: Id) -> Option<Command> {
+		(self.channel(channel).is_some_and(|c| c.guild.is_none()) && self.can_call(channel))
+			.then_some(Command::Voice(voice::Command::Sync { channel }))
 	}
 
 	/// Return to the last available direct message, or Friends when none remains.
@@ -2298,6 +2319,17 @@ impl State {
 		}
 		if matches!(&command, Command::Members { .. }) {
 			self.invalidate_members();
+			return;
+		}
+		if let Command::Prefetch { request, .. } = &command {
+			match self.preload_arrived(*request, false) {
+				preload::Arrival::Adopted(own) if own == self.request && self.history_pending => {
+					self.cancel_history();
+					self.status = "Work queue full; action was not sent";
+					self.freshness = Freshness::Stale;
+				}
+				_ => {}
+			}
 			return;
 		}
 		if let Command::History {
@@ -3307,10 +3339,17 @@ impl State {
 			}
 			Event::History {
 				channel,
-				request,
+				mut request,
 				older,
 				mut messages,
 			} => {
+				if preload::is_preload(request) {
+					match self.preload_arrived(request, true) {
+						preload::Arrival::Adopted(own) => request = own,
+						preload::Arrival::Park => return self.park_preloaded(channel, messages),
+						preload::Arrival::Drop => return,
+					}
+				}
 				if self.selected != Some(channel)
 					|| request != self.request
 					|| !self.history_pending
@@ -3388,9 +3427,16 @@ impl State {
 			}
 			Event::HistoryFailed {
 				channel,
-				request,
+				mut request,
 				failure,
 			} => {
+				if preload::is_preload(request) {
+					let preload::Arrival::Adopted(own) = self.preload_arrived(request, false)
+					else {
+						return;
+					};
+					request = own;
+				}
 				if self.selected != Some(channel)
 					|| request != self.request
 					|| !self.history_pending

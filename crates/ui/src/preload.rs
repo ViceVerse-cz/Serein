@@ -1,0 +1,128 @@
+//! Rows the pointer rests on or presses this frame, handed to the core's intent preloading.
+use client_core::{Command, State};
+use model::Id;
+use std::time::Instant;
+
+#[derive(Default)]
+pub(crate) struct Preload {
+	conversation: Option<Id>,
+	pressed: Option<Id>,
+}
+impl Preload {
+	/// Notes a conversation row; `channel` is resolved only while the pointer is on the row.
+	pub(crate) fn conversation(
+		&mut self,
+		response: &egui::Response,
+		channel: impl FnOnce() -> Option<Id>,
+	) {
+		let pressed = response.is_pointer_button_down_on();
+		if !pressed && !response.contains_pointer() {
+			return;
+		}
+		let Some(channel) = channel() else {
+			return;
+		};
+		self.conversation = Some(channel);
+		if pressed {
+			self.pressed = Some(channel);
+		}
+	}
+	/// Sends at most one preload for this frame and clears the notes for the next one.
+	pub(crate) fn finish(
+		&mut self,
+		ctx: &egui::Context,
+		state: &mut State,
+		enabled: bool,
+		commands: &mut Vec<Command>,
+	) {
+		let Self {
+			conversation,
+			pressed,
+		} = std::mem::take(self);
+		if !enabled {
+			return;
+		}
+		let now = Instant::now();
+		if let Some(command) = state.preload_conversation(conversation, pressed, now) {
+			commands.push(command);
+		}
+		// A resting pointer produces no input events, so wake once when its dwell completes.
+		if let Some(wait) = state.preload_wake(now) {
+			ctx.request_repaint_after(wait);
+		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn a_pressed_row_preloads_at_once_and_a_resting_one_wakes_without_input() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		// Preloads are online-only; the synthetic fixture stands in for a connected session.
+		state.demo = false;
+		state.auth = client_core::auth::AuthState::Authenticated;
+		state.gateway_connected = true;
+		state.observe_last_message(Id(21), Id(2_000));
+		let mut preload = Preload::default();
+		let frame = |preload: &mut Preload, state: &mut State, events| {
+			let mut row = egui::Rect::NOTHING;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(200.0, 100.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					let response = ui.button("Synthetic row");
+					row = response.rect;
+					preload.conversation(&response, || Some(Id(21)));
+				},
+			);
+			let mut commands = Vec::new();
+			preload.finish(&ctx, state, true, &mut commands);
+			let wake = ctx.has_requested_repaint();
+			output.drop_without_applying_deltas();
+			(commands, row.center(), wake)
+		};
+		let (_, row, _) = frame(&mut preload, &mut state, vec![]);
+		let (commands, _, wake) = frame(
+			&mut preload,
+			&mut state,
+			vec![egui::Event::PointerMoved(row)],
+		);
+		assert!(commands.is_empty(), "passing over a row is not intent");
+		assert!(
+			wake,
+			"a resting pointer needs one wake to complete its dwell"
+		);
+		let press = egui::Event::PointerButton {
+			pos: row,
+			button: egui::PointerButton::Primary,
+			pressed: true,
+			modifiers: egui::Modifiers::NONE,
+		};
+		let (commands, _, _) = frame(&mut preload, &mut state, vec![press]);
+		assert!(
+			matches!(
+				commands.as_slice(),
+				[Command::Prefetch {
+					channel: Id(21),
+					..
+				}]
+			),
+			"{}",
+			commands.len()
+		);
+		let (commands, _, _) = frame(&mut preload, &mut state, vec![]);
+		assert!(commands.is_empty(), "one preload per target");
+		let mut disabled = Vec::new();
+		preload.finish(&ctx, &mut state, false, &mut disabled);
+		assert!(disabled.is_empty());
+	}
+}

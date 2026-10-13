@@ -1110,6 +1110,12 @@ impl MessagingUi {
 					Some("settings-chat-settings-show-channels-you-cannot-currently-access"),
 					&mut self.show_hidden_channels,
 				);
+				design::switch(
+					ui,
+					"settings-preload-on-hover",
+					Some("settings-preload-on-hover-description"),
+					&mut self.preload_on_hover,
+				);
 			},
 		);
 		design::group(

@@ -77,6 +77,7 @@ mod notification_settings;
 mod notifications;
 mod pending;
 mod post_menu;
+mod preload;
 mod profiles;
 mod slash_builtin;
 mod slash_commands;
@@ -225,6 +226,9 @@ pub struct MessagingUi {
 	pub language: i18n::Language,
 	forwarding: forwarding::ForwardDialog,
 	pub convert_emoticons: bool,
+	/// Device preference: request a conversation's page while the pointer rests on it.
+	pub preload_on_hover: bool,
+	preload: preload::Preload,
 	pub image_share_requested: Option<(u64, Id, Vec<model::ImageShare>, String)>,
 	pub interaction_file_request: Option<String>,
 	interaction_components: components::Components,
@@ -5350,6 +5354,8 @@ impl MessagingUi {
 		// Clear the title bar and channel header so a notice never sits on the chrome.
 		self.toasts
 			.show(&ctx, if self.shows_title_bar() { 96.0 } else { 60.0 });
+		self.preload
+			.finish(&ctx, state, self.preload_on_hover, &mut commands);
 		if !commands.is_empty() {
 			ctx.request_repaint();
 		}

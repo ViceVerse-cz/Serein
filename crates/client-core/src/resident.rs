@@ -3,7 +3,7 @@
 //! reopens without a request; anything older or changed revalidates. Exact loaded message links
 //! may use an eligible, previously fresh window without another page.
 use crate::{Event, State, reactions};
-use model::{Channel, Freshness, Id};
+use model::{Channel, Freshness, Id, Message};
 use session_cache::Timeline;
 use std::{
 	collections::VecDeque,
@@ -146,6 +146,70 @@ impl State {
 		});
 		self.resident.entries = entries;
 	}
+	/// A window that may be shown as the latest page: recent, untouched since it was fresh,
+	/// and ending at the channel's latest known message.
+	fn current(&self, entry: &Window) -> bool {
+		let latest = self
+			.channel(entry.identity.id)
+			.and_then(|channel| channel.last_message);
+		self.gateway_connected
+			&& entry.parked.elapsed() < TRUST_AGE
+			&& latest.is_some()
+			&& entry.timeline.iter().next_back().map(|message| message.id) == latest
+	}
+	/// Whether `channel` already has a dormant window that would reopen without a request.
+	pub(crate) fn resident_current(&self, channel: Id) -> bool {
+		self.resident
+			.entries
+			.iter()
+			.any(|entry| entry.identity.id == channel && self.current(entry))
+	}
+	/// Keeps a preloaded recent page as `channel`'s dormant window, replacing an older one.
+	/// The page is speculative, so anything unexpected drops it rather than failing the session.
+	pub(crate) fn park_preloaded(&mut self, channel: Id, mut messages: Vec<Message>) {
+		let Some(identity) = self
+			.channels
+			.iter()
+			.find(|entry| entry.id == channel && entry.supports_text())
+			.map(Identity::from)
+		else {
+			return;
+		};
+		messages.retain(|message| !message.ephemeral);
+		let mut ids = std::collections::BTreeSet::new();
+		if self.selected == Some(channel)
+			|| self.archived_thread == Some(channel)
+			|| !self.can_read_history(channel)
+			|| messages.len() > 50
+			|| messages
+				.iter()
+				.any(|message| message.channel != channel || !ids.insert(message.id))
+		{
+			return;
+		}
+		let Some(latest) = ids.last().copied() else {
+			return;
+		};
+		self.observe_last_message(channel, latest);
+		let older_exhausted = messages.len() < 50;
+		let mut timeline = Timeline::default();
+		timeline.set_preserve_deleted_messages(self.preserve_deleted_messages);
+		timeline.begin_page(false);
+		if timeline.finish_page(messages, false).is_err() {
+			return;
+		}
+		self.resident.remove(channel);
+		if self.resident.entries.len() == MAX_WINDOWS {
+			self.resident.entries.pop_front();
+		}
+		self.resident.entries.push_back(Window {
+			identity,
+			timeline,
+			parked: Instant::now(),
+			older_exhausted,
+		});
+		self.enforce_resident_budget();
+	}
 	/// Swap the active timeline for `channel`'s dormant window. Returns `Some` when the restored
 	/// window is recent, untouched and ends at the channel's latest known message.
 	pub(crate) fn select_resident(&mut self, channel: Id) -> Option<Trusted> {
@@ -157,15 +221,9 @@ impl State {
 			.iter()
 			.position(|entry| entry.identity.id == channel)
 			.and_then(|index| self.resident.entries.remove(index));
-		let latest = self.channel(channel).and_then(|entry| entry.last_message);
 		let trusted = restored
 			.as_ref()
-			.filter(|entry| {
-				self.gateway_connected
-					&& entry.parked.elapsed() < TRUST_AGE
-					&& latest.is_some()
-					&& entry.timeline.iter().next_back().map(|message| message.id) == latest
-			})
+			.filter(|entry| self.current(entry))
 			.map(|entry| Trusted {
 				older_exhausted: entry.older_exhausted,
 			});
@@ -222,6 +280,7 @@ impl State {
 			_ => None,
 		};
 		if let Some((channel, ids)) = deletion {
+			self.touch_preload(Some(channel));
 			if let Some(window) = self
 				.resident
 				.entries
@@ -259,11 +318,13 @@ impl State {
 			}
 			Event::Ready { .. } | Event::Resync | Event::PermissionsChanged => {
 				self.clear_cached_history();
+				self.touch_preload(None);
 				None
 			}
 			_ => None,
 		};
 		if let Some(channel) = channel {
+			self.touch_preload(Some(channel));
 			if !matches!(event, Event::RecipientRemoved { .. })
 				&& let Some(window) = self
 					.resident

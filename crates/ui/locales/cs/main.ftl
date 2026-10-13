@@ -4630,6 +4630,8 @@ member-in-voice = V hlasovém chatu
 settings-chat-box = Psaní zpráv
 settings-convert-emoticons = Automaticky převádět emotikony ve zprávách na emoji
 settings-convert-emoticons-description = Při odesílání nebo úpravě zpráv převést samostatné emotikony jako :) na 🙂. Kód a odkazy zůstanou beze změny.
+settings-preload-on-hover = Předem načítat konverzace po najetí myší
+settings-preload-on-hover-description = Načíst nejnovější zprávy konverzace, když na ní spočine ukazatel, aby se otevřela okamžitě. Používá stejný požadavek jako otevření, nejvýše 12 za minutu.
 
 profiles-board = Board
 profiles-board-unavailable = This profile’s board is unavailable.

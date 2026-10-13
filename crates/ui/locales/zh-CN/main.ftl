@@ -4644,6 +4644,8 @@ settings-chat-box = 聊天框
 settings-convert-emoticons = 自动把消息中的颜文字转成表情符号
 
 settings-convert-emoticons-description = 发送或编辑消息时，把 :) 这类独立颜文字转成 🙂。代码和链接不变。
+settings-preload-on-hover = 悬停时预加载对话
+settings-preload-on-hover-description = 指针停留在对话上时加载其最新消息，打开时即刻显示。使用与打开对话相同的请求，每分钟最多 12 次。
 
 profiles-board = 看板
 profiles-board-unavailable = 这个个人资料的看板无法使用。
