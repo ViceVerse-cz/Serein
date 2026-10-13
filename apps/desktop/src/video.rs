@@ -1,7 +1,7 @@
 //! One explicit inline player; native decoding and network reads stay on one lazy worker.
 #[cfg(target_os = "macos")]
 mod fallback;
-mod output;
+pub(crate) mod output;
 mod source;
 use std::sync::{
 	Arc, Mutex,
@@ -39,6 +39,7 @@ impl Session {
 }
 #[derive(Clone)]
 struct Request {
+	output: Option<String>,
 	session: Arc<Session>,
 	url: Option<url::Url>,
 	size: usize,
@@ -59,6 +60,7 @@ struct PosterDone {
 }
 #[derive(Default)]
 pub struct Video {
+	pub output: Option<String>,
 	session: Option<Arc<Session>>,
 	requests: Option<tokio::sync::watch::Sender<Option<Request>>>,
 	poster_jobs: Option<std::sync::mpsc::Sender<PosterJob>>,
@@ -217,6 +219,7 @@ impl Video {
 		}
 		let session = Arc::new(Session::new(volume));
 		requests.send_replace(Some(Request {
+			output: self.output.clone(),
 			session: session.clone(),
 			url,
 			size: attachment.size as usize,
@@ -437,7 +440,8 @@ fn play(
 		session.cancelled.clone(),
 		runtime.clone(),
 	)?;
-	let result = Decoder::open(source).and_then(|decoder| play_decoded(decoder, session, ctx));
+	let result = Decoder::open(source)
+		.and_then(|decoder| play_decoded(decoder, session, request.output.as_deref(), ctx));
 	#[cfg(target_os = "macos")]
 	let result = match result {
 		Err(error) if fallback::eligible(error) && !session.cancelled.load(Ordering::Acquire) => {
@@ -465,7 +469,7 @@ fn play(
 				Ordering::AcqRel,
 				Ordering::Acquire,
 			);
-			play_decoded(decoder, session, ctx)
+			play_decoded(decoder, session, request.output.as_deref(), ctx)
 		}
 		result => result,
 	};
@@ -479,6 +483,7 @@ fn play(
 fn play_decoded(
 	mut decoder: platform::video::Decoder,
 	session: &Session,
+	selected_output: Option<&str>,
 	ctx: &eframe::egui::Context,
 ) -> Result<(), &'static str> {
 	use platform::video::Sample;
@@ -503,6 +508,8 @@ fn play_decoded(
 		let mut output = if info.sample_rate > 0 {
 			Some(output::open(
 				info.sample_rate,
+				selected_output,
+				info.sample_rate as usize,
 				output::Controls {
 					cancelled: session.cancelled.clone(),
 					paused: session.paused.clone(),
@@ -714,7 +721,12 @@ mod tests {
 		let started = Instant::now();
 		let thread = std::thread::spawn(move || {
 			let decoder = platform::video::Decoder::open(Box::new(std::io::Cursor::new(bytes)))?;
-			play_decoded(decoder, &worker_session, &eframe::egui::Context::default())
+			play_decoded(
+				decoder,
+				&worker_session,
+				None,
+				&eframe::egui::Context::default(),
+			)
 		});
 		while !thread.is_finished() {
 			let update = session.update.lock().unwrap();
@@ -744,6 +756,7 @@ mod tests {
 		let runtime = tokio::runtime::Runtime::new().unwrap();
 		let session = Arc::new(Session::new(0.));
 		let request = Request {
+			output: None,
 			session: session.clone(),
 			url: None,
 			size: 120000,
@@ -795,7 +808,12 @@ mod tests {
 			let thread = std::thread::spawn(move || {
 				let decoder =
 					platform::video::Decoder::open(Box::new(std::io::Cursor::new(bytes))).unwrap();
-				play_decoded(decoder, &worker_session, &eframe::egui::Context::default())
+				play_decoded(
+					decoder,
+					&worker_session,
+					None,
+					&eframe::egui::Context::default(),
+				)
 			});
 			let start = Instant::now();
 			while !thread.is_finished() {

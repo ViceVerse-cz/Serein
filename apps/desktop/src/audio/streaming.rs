@@ -1,6 +1,6 @@
 //! One second of PCM ahead of playback; decoder reads drive bounded HTTP ranges.
 use super::*;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, StreamTrait};
 use rtrb::{Consumer, RingBuffer};
 
 struct Playback {
@@ -87,11 +87,10 @@ fn open_output(
 	playback: Playback,
 	gate: Arc<Gate>,
 	generation: u64,
+	selected: Option<&str>,
 ) -> Result<cpal::Stream, &'static str> {
 	let host = cpal::default_host();
-	let device = host
-		.default_output_device()
-		.ok_or("No audio output device")?;
+	let device = crate::media_output::choose(&host, selected)?;
 	let supported = device
 		.default_output_config()
 		.map_err(|_| "Audio output unavailable")?;
@@ -201,6 +200,7 @@ pub(super) fn play(
 								},
 								gate.clone(),
 								request.generation,
+								request.output.as_deref(),
 							)?);
 							producer = Some(sender);
 							publish(Status {

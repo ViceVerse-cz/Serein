@@ -1,0 +1,763 @@
+{
+  "issue": 388,
+  "historical_feature_source": "f6cd7384f0180aba40e18340762b2826163d8247",
+  "current_integration_source": "805879bb3453912b01a982a27dae4b961891285a",
+  "scope": "Isolated feature measurements before later main integration and confirmation-failure watch correction 5ecd; not current aggregate package/native evidence",
+  "baseline": {
+    "optimized_application_source": "9cdad91c86139543a370f3658e5f92257a9064fe",
+    "standard_application_source": "5724cf5be34f17a62ee1b5fc07f2cd2653be3d79",
+    "production_identity": "9cd adds cfg(test)-only coverage to5724; production code unchanged",
+    "package": {
+      "executable_bytes": 62154064,
+      "installed_bytes": 68164493,
+      "regular_files": 206,
+      "distribution_zip_bytes": 43321986,
+      "method": "standard cargo xtask package, including voice and notices; sum regular files; ditto -c -k --sequesterRsrc"
+    }
+  },
+  "after_package": {
+    "executable_bytes": 62186960,
+    "installed_bytes": 68197389,
+    "regular_files": 206,
+    "distribution_zip_bytes": 43334962,
+    "method": "standard cargo xtask package, including voice and notices; sum regular files; ditto -c -k --sequesterRsrc"
+  },
+  "package_comparison": {
+    "source": "f6cd7384f0180aba40e18340762b2826163d8247",
+    "baseline_application_source": "5724cf5be34f17a62ee1b5fc07f2cd2653be3d79",
+    "baseline_dependency_source": "9cdad91c86139543a370f3658e5f92257a9064fe",
+    "same_paths": true,
+    "files": 206,
+    "unchanged_hashes": 203,
+    "changed_paths": [
+      "Serein.app/Contents/_CodeSignature/CodeResources",
+      "Serein.app/Contents/MacOS/serein",
+      "Serein.app/Contents/Resources/Assets.car"
+    ],
+    "license_notice_files_identical": 199,
+    "executable_sha256": "0dfe692aa412fc5b3273118bf8fecba0d5d1166267bbb649d972411296ae0dbf",
+    "build_seconds": 820,
+    "verification": "All 12 runtime workspace crates freshly compiled from unchanged f6 worktree following reviewed all-worktree-ID release invalidation. cargo xtask package and deep/strict ad-hoc signature verification passed."
+  },
+  "optimized_build": {
+    "source": "f6cd7384f0180aba40e18340762b2826163d8247",
+    "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein-target-voice-delivery CARGO_BUILD_JOBS=2 cargo build --release --locked -p serein --features demo",
+    "profile": "Unchanged repository release; FAT LTO, codegen-units=1, default+demo; voice included",
+    "build_seconds": 621,
+    "binary": "/Users/claw/Code/Serein/target/issue-sweep/separate-media-output/f6cd7384/serein-release-demo",
+    "bytes": 64087408,
+    "sha256": "8a306cbff3fe2e518e22cf1b986d92c5efa192d6db4e2901359a0f2bc77f0669",
+    "provenance": "Immediately follows successful standard build from the same unchanged f6 worktree, without intervening release source switch. All 12 runtime workspace crates freshly compiled after inspected all-worktree-ID release invalidation. No capture hooks.",
+    "log_sha256": "59c41e9bc7771c45f9e2cfe5f4a0acc8d841928dde3db3528035182336f35eea"
+  },
+  "standard_build_provenance": {
+    "source": "f6cd7384f0180aba40e18340762b2826163d8247",
+    "all_12_runtime_workspace_crates_fresh": true,
+    "same_unchanged_worktree_before_demo": true,
+    "no_capture_hooks": true,
+    "standard_log_sha256": "cc0049409b78ecbfd25855f191d6061d9c537dd13084ee68abb439053f5104ce",
+    "full_check_log_sha256": "9a43a2fffafc2ae76ff8a286ee08cb376ed193364207edda9bb8471d054f25de",
+    "full_check": "PASS 173 desktop/352 UI, strict workspace lint/format/policy",
+    "signing": "deep/strict ad-hoc signature verifies; not notarized",
+    "command": "cargo xtask package; internally --no-default-features, voice included; default FAT-LTO, jobs2"
+  },
+  "native_capture": {
+    "source": "f6cd7384f0180aba40e18340762b2826163d8247",
+    "command": "CARGO_TARGET_DIR=/Users/claw/Code/Serein-target-voice-delivery CARGO_BUILD_JOBS=2 cargo build --locked -p serein --features demo",
+    "profile": "Debug default+demo; screenshots only, not performance sample",
+    "binary_sha256": "0a6baac213f6f81ab5a36d61acf571e3501c9d1eb72e4a1efea9e1db0051b8e2",
+    "helper_sha256": "05b2ac7f519ca42d1114a8352a1e8d1a2b5489765e233d630bfa1dfcef35514e",
+    "restored_main_sha256": "46a9408dfc2bddf2aa5bc51e3fea097069c45e23e56ae9e34772cd0b8264f6a8",
+    "source_round_trip": "Apply/reapply/remove is byte-exact; reapplied only for debug capture build, then removed byte-exactly; worktree clean.",
+    "renderer": "Native Metal, Apple M1, 2\u00d7 scale",
+    "images": [
+      {
+        "path": "after.png",
+        "bytes": 1930489,
+        "sha256": "48814cff23a6adf9e09a1312db05f0e5af3d5ea662ba19779009c43aa9e29760",
+        "pixels": [
+          2240,
+          1520
+        ],
+        "logical_viewport": [
+          1120,
+          760
+        ],
+        "flags": [
+          "--demo",
+          "--demo-settings=voice"
+        ],
+        "synthetic_environment": {},
+        "native_app_stopped": true
+      },
+      {
+        "path": "narrow.png",
+        "bytes": 1355673,
+        "sha256": "1839bae82afc53a3d9421512fc6e904e4e216b3ae18dccf2261a685d161a120c",
+        "pixels": [
+          1520,
+          1520
+        ],
+        "logical_viewport": [
+          760,
+          760
+        ],
+        "flags": [
+          "--demo",
+          "--demo-settings=voice"
+        ],
+        "synthetic_environment": {
+          "SEREIN_SYNTHETIC_NARROW": "1"
+        },
+        "native_app_stopped": true
+      }
+    ],
+    "inspection": "Added Media output label, selector and explanatory hint are readable in wide and narrow viewports without overlap or clipping. The page scrolls for lower settings. Offline demo controls remain disabled.",
+    "limitations": "No account, physical output-device discovery/opening, playback or watched stream was exercised; these images verify native layout only."
+  },
+  "native_process_samples": {
+    "environment": {
+      "os": "macOS 27.0 (26A428)",
+      "cpu": "Apple M1, 8 logical CPUs",
+      "ram_gib": 16,
+      "rust": "1.98.1",
+      "renderer": "native Metal",
+      "display_scale": 2,
+      "profile": "unchanged repository release FAT-LTO,default plus demo,locked dependencies"
+    },
+    "before": {
+      "flags": [
+        "--demo",
+        "--demo-chat"
+      ],
+      "warmup_seconds": 5,
+      "interval_seconds": 1,
+      "samples": [
+        {
+          "seconds": 5.03,
+          "cpu_percent": 0.0,
+          "rss_kib": 123696
+        },
+        {
+          "seconds": 6.052,
+          "cpu_percent": 0.0,
+          "rss_kib": 123696
+        },
+        {
+          "seconds": 7.068,
+          "cpu_percent": 0.0,
+          "rss_kib": 123648
+        },
+        {
+          "seconds": 8.084,
+          "cpu_percent": 0.0,
+          "rss_kib": 123648
+        },
+        {
+          "seconds": 9.103,
+          "cpu_percent": 0.0,
+          "rss_kib": 123648
+        },
+        {
+          "seconds": 10.129,
+          "cpu_percent": 0.0,
+          "rss_kib": 123648
+        },
+        {
+          "seconds": 11.155,
+          "cpu_percent": 0.0,
+          "rss_kib": 123648
+        },
+        {
+          "seconds": 12.176,
+          "cpu_percent": 0.0,
+          "rss_kib": 123648
+        },
+        {
+          "seconds": 13.2,
+          "cpu_percent": 0.0,
+          "rss_kib": 123648
+        },
+        {
+          "seconds": 14.219,
+          "cpu_percent": 0.0,
+          "rss_kib": 123648
+        }
+      ],
+      "cpu_percent_median": 0.0,
+      "rss_peak_kib": 123696,
+      "rss_settled_kib": 123648,
+      "elapsed_seconds": 15.242,
+      "user_cpu_seconds": 0.186392,
+      "system_cpu_seconds": 0.141146,
+      "exit_code": -2,
+      "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo",
+      "binary_sha256": "b8d15907a8b1b2e5f6032764bafadc36e2b53b7b401cc00abbb257286e6378b3"
+    },
+    "after": {
+      "flags": [
+        "--demo",
+        "--demo-chat"
+      ],
+      "warmup_seconds": 5,
+      "interval_seconds": 1,
+      "samples": [
+        {
+          "seconds": 5.029,
+          "cpu_percent": 0.0,
+          "rss_kib": 124480
+        },
+        {
+          "seconds": 6.051,
+          "cpu_percent": 0.0,
+          "rss_kib": 124480
+        },
+        {
+          "seconds": 7.069,
+          "cpu_percent": 0.0,
+          "rss_kib": 124480
+        },
+        {
+          "seconds": 8.093,
+          "cpu_percent": 0.0,
+          "rss_kib": 124432
+        },
+        {
+          "seconds": 9.112,
+          "cpu_percent": 0.0,
+          "rss_kib": 124432
+        },
+        {
+          "seconds": 10.138,
+          "cpu_percent": 0.0,
+          "rss_kib": 124432
+        },
+        {
+          "seconds": 11.154,
+          "cpu_percent": 0.0,
+          "rss_kib": 124432
+        },
+        {
+          "seconds": 12.168,
+          "cpu_percent": 0.0,
+          "rss_kib": 124432
+        },
+        {
+          "seconds": 13.194,
+          "cpu_percent": 0.0,
+          "rss_kib": 124432
+        },
+        {
+          "seconds": 14.211,
+          "cpu_percent": 0.0,
+          "rss_kib": 124432
+        }
+      ],
+      "cpu_percent_median": 0.0,
+      "rss_peak_kib": 124480,
+      "rss_settled_kib": 124432,
+      "elapsed_seconds": 15.227,
+      "user_cpu_seconds": 0.20443899999999998,
+      "system_cpu_seconds": 0.130835,
+      "exit_code": -2,
+      "method": "macOS ps process %CPU and RSS; 5-second warmup plus ten 1-second samples; SIGINT termination; native Metal demo",
+      "binary_sha256": "8a306cbff3fe2e518e22cf1b986d92c5efa192d6db4e2901359a0f2bc77f0669"
+    },
+    "measurement_conditions": "Both other agent compilers/native apps and heavy IO explicitly held; no capture hooks;5-second warmup plus 10 one-second ps CPU/RSS samples; settled median last five; apps stopped SIGINT",
+    "limitation": "Idle synthetic chat does not exercise actual media routing/stereo capture or service transport. Small RSS differences are noise; no improvement claim. GPU memory, UI/startup latency and physical media performance unmeasured."
+  },
+  "reducer_identity_proof": {
+    "scope": "Pure reducer only, not whole application/UI equivalence; complete relevant trees/manifests/configuration unchanged, so no new reducer benchmark warranted",
+    "baseline": "9cdad91c86139543a370f3658e5f92257a9064fe",
+    "feature": "f6cd7384f0180aba40e18340762b2826163d8247",
+    "files": [
+      {
+        "path": ".cargo/audit.toml",
+        "baseline_blob": "3bd0d01fa6e4eaf9b70f15da516be4dc44b5bbcc",
+        "feature_blob": "3bd0d01fa6e4eaf9b70f15da516be4dc44b5bbcc"
+      },
+      {
+        "path": ".cargo/config.toml",
+        "baseline_blob": "348e33f0e31f0e9c034a46253ee1c6c93bb3d4fc",
+        "feature_blob": "348e33f0e31f0e9c034a46253ee1c6c93bb3d4fc"
+      },
+      {
+        "path": "Cargo.lock",
+        "baseline_blob": "b745be611e03fd3d5e1490503cbd749a0d2aae63",
+        "feature_blob": "b745be611e03fd3d5e1490503cbd749a0d2aae63"
+      },
+      {
+        "path": "Cargo.toml",
+        "baseline_blob": "fecd5e6823bb2acdbe33aeaf0a1ca4d293ba252c",
+        "feature_blob": "fecd5e6823bb2acdbe33aeaf0a1ca4d293ba252c"
+      },
+      {
+        "path": "crates/client-core/Cargo.toml",
+        "baseline_blob": "faa8b9b6b7798f709511dad81637be6f9c27e94f",
+        "feature_blob": "faa8b9b6b7798f709511dad81637be6f9c27e94f"
+      },
+      {
+        "path": "crates/client-core/src/application_commands.rs",
+        "baseline_blob": "4ed89718cf9c869c2d420c6798427a8f86bed28a",
+        "feature_blob": "4ed89718cf9c869c2d420c6798427a8f86bed28a"
+      },
+      {
+        "path": "crates/client-core/src/archives.rs",
+        "baseline_blob": "18bc06317a9812f2e28f63db481139e58d12c8af",
+        "feature_blob": "18bc06317a9812f2e28f63db481139e58d12c8af"
+      },
+      {
+        "path": "crates/client-core/src/auth.rs",
+        "baseline_blob": "d5bb6141b02cb1b651146f00e77d116d837e70b9",
+        "feature_blob": "d5bb6141b02cb1b651146f00e77d116d837e70b9"
+      },
+      {
+        "path": "crates/client-core/src/captcha.rs",
+        "baseline_blob": "b9d87276441bc1689e5b5a471706c6ffb29c658c",
+        "feature_blob": "b9d87276441bc1689e5b5a471706c6ffb29c658c"
+      },
+      {
+        "path": "crates/client-core/src/channel_actions.rs",
+        "baseline_blob": "35c76cf569f19fa8db2398b1bcc2ad98f19f8ef3",
+        "feature_blob": "35c76cf569f19fa8db2398b1bcc2ad98f19f8ef3"
+      },
+      {
+        "path": "crates/client-core/src/fingerprint.rs",
+        "baseline_blob": "c502078ebe6ec638b6fe0c85fdf8e9bebe113493",
+        "feature_blob": "c502078ebe6ec638b6fe0c85fdf8e9bebe113493"
+      },
+      {
+        "path": "crates/client-core/src/forum.rs",
+        "baseline_blob": "9fcfbba2eea918c381e7b3c27b3acb02cefd162b",
+        "feature_blob": "9fcfbba2eea918c381e7b3c27b3acb02cefd162b"
+      },
+      {
+        "path": "crates/client-core/src/forwarding.rs",
+        "baseline_blob": "b57f5c69ca01439caf72f7e52bb1d621d8170f5c",
+        "feature_blob": "b57f5c69ca01439caf72f7e52bb1d621d8170f5c"
+      },
+      {
+        "path": "crates/client-core/src/gifs.rs",
+        "baseline_blob": "ca9aa917ececdbb61d717cd88ed94b3ce988acbd",
+        "feature_blob": "ca9aa917ececdbb61d717cd88ed94b3ce988acbd"
+      },
+      {
+        "path": "crates/client-core/src/group_actions.rs",
+        "baseline_blob": "16e00c1d903c271393a2cb97cdcbd607d10ea5a3",
+        "feature_blob": "16e00c1d903c271393a2cb97cdcbd607d10ea5a3"
+      },
+      {
+        "path": "crates/client-core/src/guild_creation.rs",
+        "baseline_blob": "44ce8a72c512c749b038155448d35b616bcb2f7a",
+        "feature_blob": "44ce8a72c512c749b038155448d35b616bcb2f7a"
+      },
+      {
+        "path": "crates/client-core/src/guild_folders.rs",
+        "baseline_blob": "eb029c41c146bfad795faf62bb97dc9e689dd00e",
+        "feature_blob": "eb029c41c146bfad795faf62bb97dc9e689dd00e"
+      },
+      {
+        "path": "crates/client-core/src/interactions.rs",
+        "baseline_blob": "87b68d424cd2b330dcce6a197cf20353573e054a",
+        "feature_blob": "87b68d424cd2b330dcce6a197cf20353573e054a"
+      },
+      {
+        "path": "crates/client-core/src/invites.rs",
+        "baseline_blob": "b3778aaa4b2c5ae4b7cd58d99f1643648770699a",
+        "feature_blob": "b3778aaa4b2c5ae4b7cd58d99f1643648770699a"
+      },
+      {
+        "path": "crates/client-core/src/lib.rs",
+        "baseline_blob": "c26ed53813cc5c268e489de32108c293a4922cb6",
+        "feature_blob": "c26ed53813cc5c268e489de32108c293a4922cb6"
+      },
+      {
+        "path": "crates/client-core/src/member_search.rs",
+        "baseline_blob": "9a5f7f2875e7a003c292db3b0020fa706403414c",
+        "feature_blob": "9a5f7f2875e7a003c292db3b0020fa706403414c"
+      },
+      {
+        "path": "crates/client-core/src/message_actions.rs",
+        "baseline_blob": "9d06a2bd08bb492648f201f9f732b7a9dbf27398",
+        "feature_blob": "9d06a2bd08bb492648f201f9f732b7a9dbf27398"
+      },
+      {
+        "path": "crates/client-core/src/messaging_permissions.rs",
+        "baseline_blob": "c4eb1c67353a97a101a98bd89b3988ca298ef2d9",
+        "feature_blob": "c4eb1c67353a97a101a98bd89b3988ca298ef2d9"
+      },
+      {
+        "path": "crates/client-core/src/notifications.rs",
+        "baseline_blob": "74c306f016ba49fb00203c2259748068869886c5",
+        "feature_blob": "74c306f016ba49fb00203c2259748068869886c5"
+      },
+      {
+        "path": "crates/client-core/src/onboarding.rs",
+        "baseline_blob": "ad62f2c330d229d10cd86d92a93554f196194526",
+        "feature_blob": "ad62f2c330d229d10cd86d92a93554f196194526"
+      },
+      {
+        "path": "crates/client-core/src/permissions.rs",
+        "baseline_blob": "7bf715445ef07cd094308a795d64428990b64a80",
+        "feature_blob": "7bf715445ef07cd094308a795d64428990b64a80"
+      },
+      {
+        "path": "crates/client-core/src/permissions_tests.rs",
+        "baseline_blob": "7b3dcffeaae85f80041ad1698a404dbff24708e0",
+        "feature_blob": "7b3dcffeaae85f80041ad1698a404dbff24708e0"
+      },
+      {
+        "path": "crates/client-core/src/polls.rs",
+        "baseline_blob": "de79ace9930009e804ec85a41277e85baf250b24",
+        "feature_blob": "de79ace9930009e804ec85a41277e85baf250b24"
+      },
+      {
+        "path": "crates/client-core/src/presence.rs",
+        "baseline_blob": "806505804b9ab79bbf5c6c3c70bd5c24d819b63e",
+        "feature_blob": "806505804b9ab79bbf5c6c3c70bd5c24d819b63e"
+      },
+      {
+        "path": "crates/client-core/src/profile.rs",
+        "baseline_blob": "8cbb380ac139023eb0d7dece7756808e398bffc6",
+        "feature_blob": "8cbb380ac139023eb0d7dece7756808e398bffc6"
+      },
+      {
+        "path": "crates/client-core/src/reactions.rs",
+        "baseline_blob": "07a3bb9444c527d4350e3fe8552715091aef3edc",
+        "feature_blob": "07a3bb9444c527d4350e3fe8552715091aef3edc"
+      },
+      {
+        "path": "crates/client-core/src/read_state.rs",
+        "baseline_blob": "3d6b55fb7fc3ebf482707ca77c29e5f16bea7772",
+        "feature_blob": "3d6b55fb7fc3ebf482707ca77c29e5f16bea7772"
+      },
+      {
+        "path": "crates/client-core/src/replies.rs",
+        "baseline_blob": "796636cc1f5fd819224634386588a09878082097",
+        "feature_blob": "796636cc1f5fd819224634386588a09878082097"
+      },
+      {
+        "path": "crates/client-core/src/resident.rs",
+        "baseline_blob": "cc787c151be001ac3d645fee1ab9f89a76d194f7",
+        "feature_blob": "cc787c151be001ac3d645fee1ab9f89a76d194f7"
+      },
+      {
+        "path": "crates/client-core/src/screen.rs",
+        "baseline_blob": "51fd7a75fdd67778e013b04a3033a440f9d8709c",
+        "feature_blob": "51fd7a75fdd67778e013b04a3033a440f9d8709c"
+      },
+      {
+        "path": "crates/client-core/src/search.rs",
+        "baseline_blob": "7a95f326bc287433d842658a870085b9c3402953",
+        "feature_blob": "7a95f326bc287433d842658a870085b9c3402953"
+      },
+      {
+        "path": "crates/client-core/src/server_actions.rs",
+        "baseline_blob": "4b18e6a024694521d2cc5f5857bb259099dd715c",
+        "feature_blob": "4b18e6a024694521d2cc5f5857bb259099dd715c"
+      },
+      {
+        "path": "crates/client-core/src/server_admin.rs",
+        "baseline_blob": "6381973ee36325213134a39bb732aff38b492de3",
+        "feature_blob": "6381973ee36325213134a39bb732aff38b492de3"
+      },
+      {
+        "path": "crates/client-core/src/server_audit_log.rs",
+        "baseline_blob": "55208a9c53cd7cc7bbc22960d0cfbd2587ba619a",
+        "feature_blob": "55208a9c53cd7cc7bbc22960d0cfbd2587ba619a"
+      },
+      {
+        "path": "crates/client-core/src/server_integrations.rs",
+        "baseline_blob": "8211212087fd39673030176b96011cb604f28bf7",
+        "feature_blob": "8211212087fd39673030176b96011cb604f28bf7"
+      },
+      {
+        "path": "crates/client-core/src/server_roles.rs",
+        "baseline_blob": "481d162b4c6c77f5bee2948b2145449cd19f6c80",
+        "feature_blob": "481d162b4c6c77f5bee2948b2145449cd19f6c80"
+      },
+      {
+        "path": "crates/client-core/src/server_settings.rs",
+        "baseline_blob": "fb32f5f25c20db47c97cff75ff3c3988aa049d11",
+        "feature_blob": "fb32f5f25c20db47c97cff75ff3c3988aa049d11"
+      },
+      {
+        "path": "crates/client-core/src/stickers.rs",
+        "baseline_blob": "f31694b0a4c08c12fd2bd3ef6725f988054be67b",
+        "feature_blob": "f31694b0a4c08c12fd2bd3ef6725f988054be67b"
+      },
+      {
+        "path": "crates/client-core/src/thread_starter.rs",
+        "baseline_blob": "ba25437173707a65dc35e9c120c3f08534974b8f",
+        "feature_blob": "ba25437173707a65dc35e9c120c3f08534974b8f"
+      },
+      {
+        "path": "crates/client-core/src/threads.rs",
+        "baseline_blob": "5822a746ba1be66a11c7936eb74ff48f7c6c753d",
+        "feature_blob": "5822a746ba1be66a11c7936eb74ff48f7c6c753d"
+      },
+      {
+        "path": "crates/client-core/src/trail.rs",
+        "baseline_blob": "ad0c00a2cb07d9cf8776163605d3ce7c3363e52a",
+        "feature_blob": "ad0c00a2cb07d9cf8776163605d3ce7c3363e52a"
+      },
+      {
+        "path": "crates/client-core/src/typing.rs",
+        "baseline_blob": "c23dd3289420f5bef109b87be9002c8de69203d8",
+        "feature_blob": "c23dd3289420f5bef109b87be9002c8de69203d8"
+      },
+      {
+        "path": "crates/client-core/src/user_actions.rs",
+        "baseline_blob": "ccc0d383715a76bf91d8e1853e28f803498d22c0",
+        "feature_blob": "ccc0d383715a76bf91d8e1853e28f803498d22c0"
+      },
+      {
+        "path": "crates/client-core/src/verification.rs",
+        "baseline_blob": "d37a35e1e72360c5cd94d18c92070f831724534f",
+        "feature_blob": "d37a35e1e72360c5cd94d18c92070f831724534f"
+      },
+      {
+        "path": "crates/client-core/src/view_revisions.rs",
+        "baseline_blob": "fa9997193c84f56af863318aa094debe15eedb28",
+        "feature_blob": "fa9997193c84f56af863318aa094debe15eedb28"
+      },
+      {
+        "path": "crates/client-core/src/voice.rs",
+        "baseline_blob": "5d4b3afe933d39854f5b1092bc939088ebb1f2d5",
+        "feature_blob": "5d4b3afe933d39854f5b1092bc939088ebb1f2d5"
+      },
+      {
+        "path": "crates/model/Cargo.toml",
+        "baseline_blob": "b2a6bd03cb74cc0503206d13aa6a92469ad1c40f",
+        "feature_blob": "b2a6bd03cb74cc0503206d13aa6a92469ad1c40f"
+      },
+      {
+        "path": "crates/model/src/account.rs",
+        "baseline_blob": "0e7fe230b7b2cb018fe7f97fce67a13671e97ba9",
+        "feature_blob": "0e7fe230b7b2cb018fe7f97fce67a13671e97ba9"
+      },
+      {
+        "path": "crates/model/src/application_commands.rs",
+        "baseline_blob": "80298d32dbc5e2cee094124611a80c69a41bf9a3",
+        "feature_blob": "80298d32dbc5e2cee094124611a80c69a41bf9a3"
+      },
+      {
+        "path": "crates/model/src/archives.rs",
+        "baseline_blob": "39478fb2b2f5f9063764e31b5e7063c602330606",
+        "feature_blob": "39478fb2b2f5f9063764e31b5e7063c602330606"
+      },
+      {
+        "path": "crates/model/src/attachments.rs",
+        "baseline_blob": "fbefbddaffbd3dc630032bad9e6e91871f636ca2",
+        "feature_blob": "fbefbddaffbd3dc630032bad9e6e91871f636ca2"
+      },
+      {
+        "path": "crates/model/src/channel_preferences.rs",
+        "baseline_blob": "69ab52c3301a5f913121a20b524ec3f0dbc31a65",
+        "feature_blob": "69ab52c3301a5f913121a20b524ec3f0dbc31a65"
+      },
+      {
+        "path": "crates/model/src/components.rs",
+        "baseline_blob": "92f6cfcbc4f67afbf0fb1ceacf1aa8ce5f9a6e32",
+        "feature_blob": "92f6cfcbc4f67afbf0fb1ceacf1aa8ce5f9a6e32"
+      },
+      {
+        "path": "crates/model/src/embeds.rs",
+        "baseline_blob": "2a93c845f302aae6230474f3c5eee81c2fcf2961",
+        "feature_blob": "2a93c845f302aae6230474f3c5eee81c2fcf2961"
+      },
+      {
+        "path": "crates/model/src/extra_content.rs",
+        "baseline_blob": "38aca9fbecf12eb4357f1573c2b15550bffbb494",
+        "feature_blob": "38aca9fbecf12eb4357f1573c2b15550bffbb494"
+      },
+      {
+        "path": "crates/model/src/forum.rs",
+        "baseline_blob": "4e0c05b757c36d859f37e219250b45f28e892411",
+        "feature_blob": "4e0c05b757c36d859f37e219250b45f28e892411"
+      },
+      {
+        "path": "crates/model/src/gifs.rs",
+        "baseline_blob": "d29d3e74bde964eef466ac19f135972aca1b7d1b",
+        "feature_blob": "d29d3e74bde964eef466ac19f135972aca1b7d1b"
+      },
+      {
+        "path": "crates/model/src/graphics.rs",
+        "baseline_blob": "a49f0788447890e3c75d37feda04d6f4e56bfcc1",
+        "feature_blob": "a49f0788447890e3c75d37feda04d6f4e56bfcc1"
+      },
+      {
+        "path": "crates/model/src/guild_folders.rs",
+        "baseline_blob": "76436861d1e0b30f7c7357a3b2d0dcf8fe063d13",
+        "feature_blob": "76436861d1e0b30f7c7357a3b2d0dcf8fe063d13"
+      },
+      {
+        "path": "crates/model/src/image_sharing.rs",
+        "baseline_blob": "fa8eccc2d486ad02ca5480b0cb345ec5ee04ea5a",
+        "feature_blob": "fa8eccc2d486ad02ca5480b0cb345ec5ee04ea5a"
+      },
+      {
+        "path": "crates/model/src/keybinds.rs",
+        "baseline_blob": "8445b2bf9e45451a343601ff444c9d061f847c2c",
+        "feature_blob": "8445b2bf9e45451a343601ff444c9d061f847c2c"
+      },
+      {
+        "path": "crates/model/src/lib.rs",
+        "baseline_blob": "6402de8dbb85544d9bdf3bdfb98f7f8aa3b41c56",
+        "feature_blob": "6402de8dbb85544d9bdf3bdfb98f7f8aa3b41c56"
+      },
+      {
+        "path": "crates/model/src/mentions.rs",
+        "baseline_blob": "06af0efa8aef1966b7a535ff6ca82b62f8dc5247",
+        "feature_blob": "06af0efa8aef1966b7a535ff6ca82b62f8dc5247"
+      },
+      {
+        "path": "crates/model/src/messaging_permissions.rs",
+        "baseline_blob": "5dcf286eabca9bf594cc2eea49c7913ef80f58e8",
+        "feature_blob": "5dcf286eabca9bf594cc2eea49c7913ef80f58e8"
+      },
+      {
+        "path": "crates/model/src/notification_preferences.rs",
+        "baseline_blob": "60c5588a3583258efa09ddd6fa14060bcca56463",
+        "feature_blob": "60c5588a3583258efa09ddd6fa14060bcca56463"
+      },
+      {
+        "path": "crates/model/src/onboarding.rs",
+        "baseline_blob": "89a95b2e6f4255558c8b3c4f54b70dcb4d86877c",
+        "feature_blob": "89a95b2e6f4255558c8b3c4f54b70dcb4d86877c"
+      },
+      {
+        "path": "crates/model/src/permissions.rs",
+        "baseline_blob": "8e326dcaa970077d94af1a902f2946dcc6cf24b7",
+        "feature_blob": "8e326dcaa970077d94af1a902f2946dcc6cf24b7"
+      },
+      {
+        "path": "crates/model/src/polls.rs",
+        "baseline_blob": "4f921f8aef6391af63e42f237f65b79faa1b7153",
+        "feature_blob": "4f921f8aef6391af63e42f237f65b79faa1b7153"
+      },
+      {
+        "path": "crates/model/src/profile.rs",
+        "baseline_blob": "965e5064eeff6783a0331a2b781d36bbbf1487bc",
+        "feature_blob": "965e5064eeff6783a0331a2b781d36bbbf1487bc"
+      },
+      {
+        "path": "crates/model/src/public_upload.rs",
+        "baseline_blob": "ef5c5964061f0ed1e933f77f3958bb96cd452336",
+        "feature_blob": "ef5c5964061f0ed1e933f77f3958bb96cd452336"
+      },
+      {
+        "path": "crates/model/src/reactions.rs",
+        "baseline_blob": "be9c896571cd454d1a234eaf64d4f535bbf034af",
+        "feature_blob": "be9c896571cd454d1a234eaf64d4f535bbf034af"
+      },
+      {
+        "path": "crates/model/src/reading_preferences.rs",
+        "baseline_blob": "8e58cdf0864f72de1856cac30fff5add6b0abb83",
+        "feature_blob": "8e58cdf0864f72de1856cac30fff5add6b0abb83"
+      },
+      {
+        "path": "crates/model/src/registered_games.rs",
+        "baseline_blob": "a7f050bb9e2feaae31a21dbe99f82c4bd55528cc",
+        "feature_blob": "a7f050bb9e2feaae31a21dbe99f82c4bd55528cc"
+      },
+      {
+        "path": "crates/model/src/search.rs",
+        "baseline_blob": "36bc70ee5e376727efaeadf3c023047717ef4c7f",
+        "feature_blob": "36bc70ee5e376727efaeadf3c023047717ef4c7f"
+      },
+      {
+        "path": "crates/model/src/server_admin.rs",
+        "baseline_blob": "0c17ff3ec0d0458af5b324d3ffe9081d0f45fe3d",
+        "feature_blob": "0c17ff3ec0d0458af5b324d3ffe9081d0f45fe3d"
+      },
+      {
+        "path": "crates/model/src/server_audit_log.rs",
+        "baseline_blob": "7a4e1a7a9df15aa16fad33fdd259430d1d4da79d",
+        "feature_blob": "7a4e1a7a9df15aa16fad33fdd259430d1d4da79d"
+      },
+      {
+        "path": "crates/model/src/server_integrations.rs",
+        "baseline_blob": "1f9197dc0bc2142008f083c6ea93a2d704d2ac5a",
+        "feature_blob": "1f9197dc0bc2142008f083c6ea93a2d704d2ac5a"
+      },
+      {
+        "path": "crates/model/src/server_invites.rs",
+        "baseline_blob": "4d291af6f0178c09eb8eb59b1755a31ad6310061",
+        "feature_blob": "4d291af6f0178c09eb8eb59b1755a31ad6310061"
+      },
+      {
+        "path": "crates/model/src/server_roles.rs",
+        "baseline_blob": "9dabdc4dcc1abe0d5bc418df270c1f4dccab5120",
+        "feature_blob": "9dabdc4dcc1abe0d5bc418df270c1f4dccab5120"
+      },
+      {
+        "path": "crates/model/src/server_settings.rs",
+        "baseline_blob": "c7a169b215d1e35c825a46028bde0cbc3a385faf",
+        "feature_blob": "c7a169b215d1e35c825a46028bde0cbc3a385faf"
+      },
+      {
+        "path": "crates/model/src/stickers.rs",
+        "baseline_blob": "a562be30cd4f0d2064eb85408bd98dac0fb5a6f3",
+        "feature_blob": "a562be30cd4f0d2064eb85408bd98dac0fb5a6f3"
+      },
+      {
+        "path": "crates/model/src/system_messages.rs",
+        "baseline_blob": "94a0ad5886b2c29b447b90e643345722b98b77b3",
+        "feature_blob": "94a0ad5886b2c29b447b90e643345722b98b77b3"
+      },
+      {
+        "path": "crates/model/src/voice_settings.rs",
+        "baseline_blob": "ff9ba2cc8c669d7d9af472118b7d39dbd90d8b74",
+        "feature_blob": "ff9ba2cc8c669d7d9af472118b7d39dbd90d8b74"
+      },
+      {
+        "path": "crates/session-cache/Cargo.toml",
+        "baseline_blob": "76a213a3ee7d1e1472e7995326105a6c9d3bebf3",
+        "feature_blob": "76a213a3ee7d1e1472e7995326105a6c9d3bebf3"
+      },
+      {
+        "path": "crates/session-cache/src/lib.rs",
+        "baseline_blob": "9520c22295867a9ac5963c71131b39eefaa08557",
+        "feature_blob": "9520c22295867a9ac5963c71131b39eefaa08557"
+      },
+      {
+        "path": "crates/test-support/Cargo.toml",
+        "baseline_blob": "c3543940429aad415b1e2aba9c9112c4a7b2f3e9",
+        "feature_blob": "c3543940429aad415b1e2aba9c9112c4a7b2f3e9"
+      },
+      {
+        "path": "crates/test-support/src/lib.rs",
+        "baseline_blob": "12229d0b68aea44eb45f3044b20be4a7b13842ae",
+        "feature_blob": "12229d0b68aea44eb45f3044b20be4a7b13842ae"
+      },
+      {
+        "path": "rust-toolchain.toml",
+        "baseline_blob": "c3f67b6771b777215340531caf051bc25cef066c",
+        "feature_blob": "c3f67b6771b777215340531caf051bc25cef066c"
+      },
+      {
+        "path": "rustfmt.toml",
+        "baseline_blob": "218e203215e949dd53a7fef74c0bc306914d9e39",
+        "feature_blob": "218e203215e949dd53a7fef74c0bc306914d9e39"
+      },
+      {
+        "path": "tools/replay-bench/Cargo.toml",
+        "baseline_blob": "a257af57136656ecf72d1f57093e071857e2c65c",
+        "feature_blob": "a257af57136656ecf72d1f57093e071857e2c65c"
+      },
+      {
+        "path": "tools/replay-bench/src/main.rs",
+        "baseline_blob": "ec48f8e2954d4bac2cb8fd99f7ee7df18678aa13",
+        "feature_blob": "ec48f8e2954d4bac2cb8fd99f7ee7df18678aa13"
+      },
+      {
+        "path": "tools/replay-bench/src/soak.rs",
+        "baseline_blob": "d6b09c5f2a4621fd8e593ed09e717166ab5dbd41",
+        "feature_blob": "d6b09c5f2a4621fd8e593ed09e717166ab5dbd41"
+      }
+    ]
+  },
+  "resource_limits": "8 mono 960-sample frames, 30,720 B, plus 60 ms native stereo ring, 23,040 B; one active + one retiring worker; device ID <=1,024 bytes; no explicit fallback; no schema bump",
+  "physical_media": "Unverified;no account or physical device was used"
+}

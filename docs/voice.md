@@ -2,6 +2,27 @@
 
 The standard build implements native audio calls in existing one-to-one and group Discord DMs and guild voice channels. It uses the owner's existing account, Discord signaling/voice servers, Opus and DAVE version 1. There is no bot, project relay, separate account, recording service or webview call UI. **Live Discord interoperability and physical microphone/speaker behavior have not been tested; milestone 4 has not passed.**
 
+### Independent media output
+
+Settings → Voice & Video offers a saved **Media output** device independently of
+the voice speaker device. New attachment audio/video playback uses that selection;
+already playing attachments keep their current output until restarted. Watched
+screen-share audio switches on its worker when the selection changes, without
+rejoining the call. Stream volume/mute and deafen still apply; voice speaker gain
+does not affect a separately routed stream. The existing received-stream mono
+decode remains unchanged; attachment stereo is preserved.
+
+**Default** keeps the existing routing: attachments use the system output and
+watched streams mix into the voice speaker output. A missing or unusable selected
+device stops media audio with a visible error and retains the preference; choose
+another device to retry. An explicit selection never falls back to another output.
+Discovery does not open
+devices or capture a microphone. Separate stream playout starts only after the
+owner explicitly watches a stream, retains eight 20 ms mono frames (30,720 bytes)
+plus at most 60 ms stereo output PCM (23,040 bytes), and discards queued audio on
+mute, deafen, device change and stop. Hardware routing and live stream compatibility
+remain unverified by the offline tests.
+
 ```sh
 cargo run --locked
 cargo run --locked -- --demo  # offline UI; calling/device access disabled

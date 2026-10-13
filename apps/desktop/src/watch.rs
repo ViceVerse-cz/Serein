@@ -70,19 +70,25 @@ struct Live {
 
 #[derive(Default)]
 pub(super) struct Watch {
+	output: Option<crate::media_output::StreamRoute>,
+	retiring_output: Option<crate::media_output::StreamRoute>,
 	pending: Option<Pending>,
 	live: Option<Live>,
 	/// The streamer stopped or Discord failed the view; the state choice is cleared next poll.
 	ended: Option<&'static str>,
 	sequence: u64,
 	status: &'static str,
-	/// Why the last view stopped; shown as a stage notice until the next request or hang-up.
+	/// Playback failure; visible even while video continues, until recovery or the next request.
 	notice: &'static str,
 	/// GPU texture behind `ui.voice_stream_view`.
 	texture: crate::gpu_video::VideoTexture,
 }
 impl Watch {
 	pub fn stop(&mut self) {
+		if let Some(output) = self.output.take() {
+			output.cancel();
+			self.retiring_output = Some(output);
+		}
 		self.pending = None;
 		self.ended = None;
 		if let Some(live) = self.live.take() {
@@ -90,6 +96,15 @@ impl Watch {
 		}
 		// Logout stops polling, so release the GPU picture here; disposal waits a frame.
 		self.texture = Default::default();
+	}
+	fn stage_status(&self, watching: bool) -> &'static str {
+		if !self.notice.is_empty() {
+			self.notice
+		} else if watching {
+			self.status
+		} else {
+			""
+		}
 	}
 	fn context(&self) -> Option<Context> {
 		self.pending
@@ -168,6 +183,31 @@ impl Watch {
 				streamer,
 			))
 		});
+		if self
+			.retiring_output
+			.as_ref()
+			.is_some_and(|output| output.finished())
+		{
+			self.retiring_output = None;
+		}
+		if self.retiring_output.is_some() && wanted.is_some() {
+			self.status = "Waiting for previous stream audio to stop";
+			ctx.request_repaint_after(Duration::from_millis(200));
+		}
+		let deafened = ui.voice_deafened
+			|| state
+				.voice
+				.active
+				.as_ref()
+				.is_some_and(|call| call.deafened || call.server_deafened);
+		if let Some(output) = &self.output {
+			output.configure(&ui.media_output, ui.voice_stream_volume(), deafened);
+			if output.failed() {
+				self.notice = "Stream media output unavailable; choose another device";
+			} else if self.notice == "Stream media output unavailable; choose another device" {
+				self.notice = "";
+			}
+		}
 		let current = self.context();
 		let mut command = None;
 		if let Some(context) = current
@@ -220,6 +260,7 @@ impl Watch {
 		}
 		if let Some((generation, channel, request, streamer)) = wanted
 			&& self.context().is_none()
+			&& self.retiring_output.is_none()
 			&& command.is_none()
 		{
 			let Some(call) = call.filter(|call| {
@@ -236,6 +277,22 @@ impl Watch {
 				stream_request: self.sequence,
 				streamer,
 			};
+			self.notice = "";
+			let audio = match audio {
+				Some(fallback) => match crate::media_output::StreamRoute::new(fallback) {
+					Ok(route) => {
+						route.configure(&ui.media_output, ui.voice_stream_volume(), deafened);
+						let sender = route.sender.clone();
+						self.output = Some(route);
+						Some(sender)
+					}
+					Err(error) => {
+						self.notice = error;
+						None
+					}
+				},
+				None => None,
+			};
 			self.pending = Some(Pending {
 				context,
 				user: call.user,
@@ -248,7 +305,6 @@ impl Watch {
 				started: Instant::now(),
 			});
 			self.status = "Requesting the stream…";
-			self.notice = "";
 			command = Some(Command::Voice(voice::Command::WatchStream {
 				channel,
 				request,
@@ -297,11 +353,7 @@ impl Watch {
 			ui.voice_stream_view = None;
 			self.texture = Default::default();
 		}
-		ui.voice_stream_status = if wanted.is_some() {
-			self.status
-		} else {
-			self.notice
-		};
+		ui.voice_stream_status = self.stage_status(wanted.is_some());
 		command
 	}
 	fn start(
@@ -468,6 +520,18 @@ mod tests {
 		}
 	}
 
+	#[test]
+	fn media_output_failure_remains_visible_while_stream_video_continues() {
+		let mut view = Watch::default();
+		view.status = "Watching the stream";
+		view.notice = "Stream media output unavailable; choose another device";
+		assert_eq!(view.stage_status(true), view.notice);
+		view.status = "Connecting to the stream…";
+		assert_eq!(view.stage_status(true), view.notice);
+		view.notice = ""; // Worker recovery after an explicit output selection change.
+		assert_eq!(view.stage_status(true), view.status);
+		assert_eq!(view.stage_status(false), "");
+	}
 	fn i420(width: u32, height: u32, value: u8) -> Vec<u8> {
 		vec![value; platform::video::Layout::I420.len(width, height).unwrap()]
 	}
