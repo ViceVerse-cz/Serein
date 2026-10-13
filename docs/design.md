@@ -76,11 +76,12 @@ The bundled faces remain upstream's hinted TrueType builds. See `assets/README.m
 - 36px title strip (`base`): hidden native title bar on macOS with traffic lights inline, centred
   context title, session status text and an OFFLINE PREVIEW / EXPERIMENTAL pill. Eframe centres the
   native macOS buttons in the active title strip every frame, including after resizing or zooming;
-  sign-in and login use their taller headers. Windows and macOS General
-  settings can hide the app strip and use native window decorations instead. Linux always omits
-  the app strip and defaults to system decorations, with the Adwaita Wayland fallback on GNOME.
-  General → Window can hide Linux decorations immediately for tiling window managers; the
-  device preference also applies at startup.
+  sign-in and login use their taller headers. Windows renders native-fidelity caption buttons
+  (minimize, maximize/restore, close) flush in the top-right corner, and resize hit testing excludes
+  the caption area so corner clicks hit Close. Windows and macOS General settings can hide the app strip
+  and use native window decorations instead. Linux always omits the app strip and defaults to system
+  decorations, with the Adwaita Wayland fallback on GNOME. General → Window can hide Linux decorations
+  immediately for tiling window managers; the device preference also applies at startup.
 - 72px server rail (`base`): 48px home button and server icons (circle, rounded square when
   hovered/selected), white edge pill (8px unread, 20px hover, 40px selected), red mention badges.
 - The lists and conversation share one rounded surface beside the rail. Channel sidebar
@@ -106,6 +107,20 @@ description, using the active palette. Loading, unavailable, incomplete and hist
 pages keep their existing status treatment; pending messages suppress the welcome.
 `--features demo -- --demo --demo-empty-channel` previews this state offline;
 `--demo-empty-channel-long` exercises a long Unicode name and `--demo-light` selects light mode.
+
+Channel references and bare Discord message links share one inline pill. The leading icon
+distinguishes text, announcement, voice, thread, forum, forum post, direct and group
+conversations; message links append a chevron and message glyph, or the post name for forum
+posts, and links to another joined server lead with its icon and name. Pills wrap like text,
+keep one hit region per row and one keyboard stop, and expose a localized accessible label.
+Destination names come only from metadata the session may view and read; hidden or unknown
+targets show `unknown-channel` or `unknown-conversation`. Untrusted names are sanitized and
+bounded before layout. Masked links retain their text, inline/fenced code stays literal, and
+hidden spoilers remain concealed. Drag selection copies a link pill's original URL, and two
+adjacent copies of the same URL stay separate. Click, Enter and Space activate native
+navigation; the timeline centers and briefly highlights the exact target.
+`--features demo -- --demo --demo-message-links` exercises these states with an offline
+fixture; `--demo-light` selects the light appearance.
 
 Icons are [Phosphor Icons](https://phosphoricons.com) 2.1.1 (MIT) in the fill/bold weights,
 rasterized once into `assets/icons/atlas.png` (37 white glyphs in 64px cells) and tinted at
