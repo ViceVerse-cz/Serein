@@ -2218,7 +2218,7 @@ mod tests {
 					.await
 					.unwrap()
 					.unwrap(),
-				Err("Discord voice connection closed; rejoin the call")
+				Err(DISCONNECTED_BY_DISCORD)
 			);
 			drop(control_tx);
 		} else {
