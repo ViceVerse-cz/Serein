@@ -1143,10 +1143,9 @@ impl Uploads {
 					!= self
 						.image_compression
 						.map(|policy| (policy, self.compression_limit))
-			}) {
-				if !choosing.cancelled.swap(true, Ordering::AcqRel) {
-					self.notice = Some("Photo compression changed; select the attachments again");
-				}
+			}) && !choosing.cancelled.swap(true, Ordering::AcqRel)
+			{
+				self.notice = Some("Photo compression changed; select the attachments again");
 			}
 			let result = match choosing.result.try_recv() {
 				Ok(result) => result,

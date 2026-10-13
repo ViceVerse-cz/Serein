@@ -86,7 +86,7 @@ fn photo_policy_requires_explicit_capability_and_foreground_configuration() {
 	));
 	manifest.capabilities.push(Capability::ImageCompression);
 	assert!(output.validate(&manifest, &input).is_ok());
-	let sdk = serein_extension_sdk::Output {
+	let sdk = serein_extension_sdk::ImageCompressionOutput {
 		image_compression: Some(serein_extension_sdk::ImageCompression {
 			max_edge: 1280,
 			jpeg_quality: 80,

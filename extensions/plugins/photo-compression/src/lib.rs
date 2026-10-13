@@ -1,10 +1,10 @@
-use serein_extension_sdk::{Element, ImageCompression, Invocation, Output};
+use serein_extension_sdk::{Element, ImageCompression, ImageCompressionOutput, Invocation};
 
 fn valid(policy: ImageCompression) -> bool {
 	(256..=2048).contains(&policy.max_edge) && (40..=95).contains(&policy.jpeg_quality)
 }
 
-fn handle(input: Invocation) -> Output {
+fn handle(input: Invocation) -> ImageCompressionOutput {
 	let saved = input
 		.storage_json::<ImageCompression>()
 		.ok()
@@ -15,15 +15,15 @@ fn handle(input: Invocation) -> Output {
 			jpeg_quality: 80,
 		});
 	if input.action == "enable" {
-		return Output {
+		return ImageCompressionOutput {
 			image_compression: Some(saved),
 			..Default::default()
 		};
 	}
 	if !matches!(input.action.as_str(), "configure" | "apply") {
-		return Output::default();
+		return ImageCompressionOutput::default();
 	}
-	let mut output = Output::default();
+	let mut output = ImageCompressionOutput::default();
 	let mut policy = saved;
 	let notice = if input.action == "apply" {
 		let changed = input
@@ -36,7 +36,7 @@ fn handle(input: Invocation) -> Output {
 			})
 			.filter(|policy| valid(*policy));
 		if let Some(changed) = changed {
-			if output.set_storage_json(&changed).is_ok() {
+			if output.output.set_storage_json(&changed).is_ok() {
 				policy = changed;
 				output.image_compression = Some(changed);
 				"Applied to photos selected next."
@@ -49,7 +49,7 @@ fn handle(input: Invocation) -> Output {
 	} else {
 		"Disable this plugin to keep newly selected originals."
 	};
-	output.panel = vec![
+	output.output.panel = vec![
         Element::Heading { text: "Photo compression".into() },
         Element::Text { text: "Selected JPEGs and opaque static PNGs may become smaller JPEGs. Files on disk stay unchanged. Transparent, animated, unsupported or large files keep their original. Videos are not compressed.".into() },
         Element::TextInput { id: "edge".into(), label: "Longest edge (256–2048 pixels)".into(), value: policy.max_edge.to_string() },

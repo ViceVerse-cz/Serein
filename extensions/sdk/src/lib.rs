@@ -128,9 +128,16 @@ pub struct ImageCompression {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct Output {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+pub struct ImageCompressionOutput {
+	#[serde(flatten)]
+	pub output: Output,
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub image_compression: Option<ImageCompression>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Output {
 	#[serde(skip_serializing_if = "is_false")]
 	pub image_sharing: bool,
 	#[serde(skip_serializing_if = "is_false")]

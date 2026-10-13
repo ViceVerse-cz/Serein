@@ -1,5 +1,13 @@
 # Community extensions
 
+> **Photo compression: Preview PR #641, not yet released.**
+> **Voice Messages is a separate, unmerged preview: PR #566.** Its
+> `voice_messages` capability, types, snippets and recorder behavior below apply
+> only to [that host/SDK source](https://github.com/ViceVerse-cz/Serein/tree/97d419515e427a885af41683857bb247a0abed7e),
+> not this photo-compression host. They are retained here for creator-reference
+> continuity. Current-host discovery does not advertise `voice_messages`.
+
+
 Serein extensions are local, opt-in tools for the native client. The Extensions
 and Themes pages in Settings contain packages, links to their source, their
 requested capabilities and their review status. A plugin cannot directly call Discord, read credentials, open files or make
@@ -144,6 +152,7 @@ supports 54 capabilities, with at most 64 distinct declarations per manifest.
 | `deleted_messages` | Enable host retention of already-loaded deleted messages | Activation only; bounded session memory, no deleted text sent to Wasm |
 | `image_compression` | Configure host-owned photo compression | Explicit grant; activation/panel output only. No file paths or bytes enter Wasm. New selected JPEG/opaque static PNG photos may become smaller JPEGs. |
 | `image_sharing` | Legacy compatibility capability | Activation output still validates, but emoji/sticker image fallback is now built in and cannot be controlled by a plugin |
+| `voice_messages` | Separate PR #566 preview; unavailable in this host | On that preview host, panel/activation settings only; capture and Send require native user actions; no microphone or audio access in Wasm |
 | `appearance` | Return a bounded declarative theme overlay | Native colors/control metrics; no arbitrary drawing |
 | `message_events` | Observe live create/update/delete events | Active accessible conversation; bounded best-effort delivery |
 | `app_context` | Read connection, current user and selected channel | Current session, optional fields |
@@ -214,6 +223,37 @@ documents Set/Clear, bounds, timers and `Element::ActivityPreview`. Existing ABI
 plugins and original SDK output literals stay compatible. Unsupported older hosts
 reject the new capability. This is an unofficial service path: synthetic preview
 and sandbox checks are not proof of cross-client Discord behavior.
+
+### Voice Messages
+
+The preview [Voice Messages plugin](https://github.com/ViceVerse-cz/Serein/tree/97d419515e427a885af41683857bb247a0abed7e/extensions/plugins/voice-messages) is an
+opt-in gate and settings editor for the host recorder. Import or catalog enable
+requires `voice_messages` consent; saved choices additionally require `storage`.
+Its bundled card is available in normal builds without a catalog download;
+choosing Enable uses the same explicit grants and account-isolated lifecycle.
+It contributes maximum recording duration (5–120 seconds), waveform appearance
+(Bars or Line), and recorder noise suppression. Opening the editor and editing
+controls are passive. **Save voice message settings** saves and applies the
+configuration for new recordings; it never starts capture or sends a message.
+
+Choose **Record voice message** from the composer's **+** menu to open the native
+recorder. Choose **Record**, then **Stop**, review, and choose **Send**. Opening
+the dialog alone does not capture audio. The host owns microphone/device
+and permission handling, bounded capture/encoding and the existing message-send
+queue. The sandbox has no microphone, filesystem or network imports and receives
+no recording bytes or device list. Each encoded Ogg/Opus clip remains session-only,
+with a hard 120-second and 8-MiB bound; native capture buffers are bounded separately.
+Recordings are never written to plugin storage or disk.
+
+Disable, lost consent, account changes and logout revoke the option. Native cancel,
+navigation and call teardown release capture. Enabled, successful contributions
+are chosen in ascending plugin-ID order within the existing eight-plugin limit.
+Missing output preserves a contribution; invalid saved settings do not enable one.
+An explicit Save repairs invalid storage. Re-enabling a removed plugin starts with
+fresh settings. The embedded reviewed package is 332,270 bytes (114,976 bytes of
+Wasm); it adds no running plugin instance until enabled. See the [typed configuration contract](extension-sdk-actions.md#voice-messages)
+for fields, lifecycle and compatibility. Offline sandbox checks establish the
+settings contract only; live Discord voice-message compatibility is unverified.
 
 ### App snapshots and confirmed commands
 

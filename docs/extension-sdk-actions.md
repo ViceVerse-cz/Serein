@@ -1,5 +1,13 @@
 # Extension SDK actions and panels
 
+> **Photo compression: Preview PR #641, not yet released.**
+> **Voice Messages is a separate, unmerged preview: PR #566.** Its
+> `voice_messages` capability, types, snippets and recorder behavior below apply
+> only to [that host/SDK source](https://github.com/ViceVerse-cz/Serein/tree/97d419515e427a885af41683857bb247a0abed7e),
+> not this photo-compression host. They are retained here for creator-reference
+> continuity. Current-host discovery does not advertise `voice_messages`.
+
+
 > **Preview SDK — PR #411, not yet released.** The message, channel, server,
 > role, moderation and host-mediated media actions called out as preview below
 > require a host built from this branch.
@@ -70,11 +78,12 @@ The Rust paths below are relative to `AppOutput`. When using the original
 | --- | --- | --- |
 | `replacement` / `output.replacement` | Optional string; `composer`. The invocation must actually contain composer text. | **Apply to Draft** replaces the original, still-unchanged draft. It never sends a message. |
 | `rich_presence` / `RichPresenceOutput.rich_presence` | Optional `RichPresenceUpdate`; `rich_presence` grant. | Explicit panel/activation Set or Clear updates the contribution; omission leaves it unchanged. See [Custom Rich Presence](#custom-rich-presence). |
+| `voice_messages` / `VoiceMessagesOutput.voice_messages` | Optional `VoiceMessagesConfig`; `voice_messages` grant. | Panel/activation config enables/configures the native recorder; omission preserves the contribution. No capture or sending occurs. See [Voice Messages](#voice-messages). |
 | `panel` / `output.panel` | Array of native `Element` values; no separate panel capability. | A foreground result displays it. Message/app event handlers must return no elements. Activation does not display returned panels. |
 | `storage` / `output.storage` | Optional opaque UTF-8 string; `storage`. | A valid foreground or event result replaces the plugin's saved value before result approval. Activation can read storage but this build does not persist its returned storage. |
 | `appearance` / `output.appearance` | Optional `Theme` object; `appearance`. | An accepted result updates the plugin's appearance overlay immediately, including activation and event results. Preview `tick` results are eased from the currently displayed colors. No Apply button is involved. |
 | `preserve_deleted_messages` / `output.preserve_deleted_messages` | Boolean, default `false`; `deleted_messages` is required for `true`. | Only an `activation` action may enable host retention of already-loaded deleted messages. |
-| `image_compression` / `output.image_compression` | Optional `ImageCompression` (`max_edge: u32`, 256–2048; `jpeg_quality: u8`, 40–95); requires `image_compression`. Absent retains the policy. | Activation/panel output updates this enabled plugin's policy after capability consent, without a second Apply dialog. Disable/remove/revoke to stop new selections using it. |
+| `image_compression` / `ImageCompressionOutput.image_compression` | Optional `ImageCompression` (`max_edge: u32`, 256–2048; `jpeg_quality: u8`, 40–95); requires `image_compression`. Absent retains the policy. | Activation/panel output updates this enabled plugin's policy after capability consent, without a second Apply dialog. Disable/remove/revoke to stop new selections using it. |
 | `image_sharing` / `output.image_sharing` | Boolean, default `false`; `image_sharing` is required for `true`. | Legacy compatibility field, validated only for an `activation` action with the grant. It no longer changes host behavior: emoji/sticker image fallback is built in. |
 | `effects` / `effects` | Array containing at most one `HostEffect`; its capability is checked separately. | The native result describes the action. It runs only after its **Apply** button is clicked and current access is rechecked. |
 
@@ -91,6 +100,7 @@ own button runs another handler; it is different from the host's Apply button.
 | `appearance` | Leave this plugin's current overlay unchanged. | `{}` removes this plugin's overrides, exposing the underlying theme and other overlays. |
 | `panel` | Omitted means `[]`; `null` is invalid. | `[]` supplies no panel elements; it is not a command to close a foreground result. |
 | `effects` | Omitted means `[]`; `null` is invalid. | `[]` makes no app proposal. |
+| `voice_messages` | Leave this plugin's recorder contribution unchanged. | `{}` is invalid; all three typed config fields are required. Disable revokes the option. |
 | Activation booleans | Omitted means `false`; `null` is invalid. | `false` does not enable the feature in an activation result. These are not runtime toggle commands for other surfaces. |
 
 Every returned appearance object replaces the previous object from that plugin;
@@ -100,7 +110,7 @@ a normal action and restore the overlay from activation's storage input. See the
 [theme API](theme-api.md) for palette and style fields.
 
 The preview `tick` surface accepts only `appearance`; panels, storage writes,
-replacements, activation booleans, rich presence and host effects are rejected.
+replacements, activation booleans, rich presence, voice-message config and host effects are rejected.
 
 A complete immediate appearance result with the `appearance` grant is:
 
@@ -937,6 +947,107 @@ custom activity and report an error; users can revise and reapply. Button/text/
 image links and other rich fields depend on Discord's handling of this unofficial
 client. See the [Custom Rich Presence example](../extensions/plugins/custom-rpc).
 
+### Voice Messages
+
+> **Preview SDK — PR #566, not yet released.** Live Discord interoperability is
+> unverified. Use a host built from this source revision.
+
+Declare `voice_messages` and obtain explicit consent. The opt-in wrapper
+`VoiceMessagesOutput { output: Output, voice_messages: Option<VoiceMessagesConfig> }`
+flattens into ABI v1 JSON. It preserves original SDK `Output` literals and compiled
+plugins, and adds no Wasm imports. Only `panel` and `activation` actions can
+return a configuration; message, composer, event and tick actions are rejected.
+Older hosts reject the unknown required capability at import/enable.
+
+| Configuration field | Rust / JSON type | Meaning and bound |
+| --- | --- | --- |
+| `max_duration_seconds` | `u16` / integer | Required ceiling for a new recording, 5 through 120 inclusive; default 120 |
+| `waveform_style` | `WaveformStyle` / string | Required `Bars` / `"bars"` or `Line` / `"line"`; default Bars; changes native visualization only |
+| `noise_suppression` | `bool` / boolean | Required recorder suppression preference; default true; does not change ordinary call settings |
+
+`VoiceMessagesConfig::validate()` reports duration errors. The host revalidates
+the result's range, grant and action surface. Unknown config fields, missing
+fields and invalid types/style names are rejected. Omitted or null `voice_messages`
+means preserve the contribution; it is not a recorder-disable command. Successful
+activation restores preferences but does not persist activation output storage.
+Panel Save can save preferences with the independent `storage` capability and
+immediately apply them to **new** recordings. There is no additional host Apply
+for this settings contribution. It never starts the microphone or sends a clip.
+
+The host exposes **Record voice message** in the composer's **+** menu only while
+the account has an enabled, granted, successful contribution. If several plugins
+contribute, the first in ascending plugin-ID order wins, within the existing
+eight-plugin limit. Disable, lost consent, account changes and logout revoke the
+option. Native recording/review/send obey current conversation access, mute,
+push-to-talk and OS device permission gates. Cancel, navigation, disable, logout
+and call teardown release capture. Each encoded Ogg/Opus clip remains in session
+memory, capped at 120 seconds and 8 MiB; native capture buffers are bounded
+separately. Neither bytes nor device lists enter Wasm or plugin storage. The
+composer menu opens an idle recorder dialog; native **Record** starts capture,
+**Stop** finishes it, and **Send** after review authorizes the ordinary upload
+path. No background or generic `HostEffect` can start recording or send audio.
+
+#### Complete configuration interaction
+
+Declare panel action `save`, activation action `activate`, and capabilities
+`voice_messages` and `storage`. For this synthetic input:
+
+```json
+{"action":"save","values":{"duration":"30","waveform":"Line","suppression":"false"}}
+```
+
+The following complete handler validates Save values and restores saved valid
+settings on activation. Invalid input returns no configuration or storage write.
+
+```rust
+use serein_extension_sdk::{Invocation, VoiceMessagesConfig, VoiceMessagesOutput, WaveformStyle};
+
+fn handle(input: Invocation) -> VoiceMessagesOutput {
+    if input.action == "activate" {
+        let config = match input.storage_json::<VoiceMessagesConfig>() {
+            Ok(None) => VoiceMessagesConfig::default(),
+            Ok(Some(config)) if config.validate().is_ok() => config,
+            _ => return VoiceMessagesOutput::default(),
+        };
+        return VoiceMessagesOutput { voice_messages: Some(config), ..Default::default() };
+    }
+    if input.action != "save" { return VoiceMessagesOutput::default(); }
+    let (Ok(Some(duration)), Ok(Some(suppression))) = (
+        input.parse_value::<u16>("duration"), input.parse_value::<bool>("suppression")
+    ) else { return VoiceMessagesOutput::default(); };
+    let style = match input.value("waveform") {
+        Some("Bars") => WaveformStyle::Bars,
+        Some("Line") => WaveformStyle::Line,
+        _ => return VoiceMessagesOutput::default(),
+    };
+    let config = VoiceMessagesConfig {
+        max_duration_seconds: duration, waveform_style: style, noise_suppression: suppression,
+    };
+    if config.validate().is_err() { return VoiceMessagesOutput::default(); }
+    let mut output = VoiceMessagesOutput::default();
+    if output.output.set_storage_json(&config).is_ok() { output.voice_messages = Some(config); }
+    output
+}
+serein_extension_sdk::export!(handle);
+```
+
+It returns this complete output, applied as a preference contribution after host
+validation without capturing audio:
+
+```json
+{
+  "replacement": null,
+  "panel": [],
+  "storage": "{\"max_duration_seconds\":30,\"waveform_style\":\"line\",\"noise_suppression\":false}",
+  "voice_messages": {"max_duration_seconds":30,"waveform_style":"line","noise_suppression":false}
+}
+```
+
+The [Voice Messages catalog plugin](https://github.com/ViceVerse-cz/Serein/blob/97d419515e427a885af41683857bb247a0abed7e/extensions/plugins/voice-messages/src/lib.rs)
+adds the full native form, passive Open, diagnostics and explicit Save repair for
+corrupt storage. Synthetic native/sandbox tests verify config and bounds, not
+OS microphone behavior or cross-client Discord acceptance.
+
 ### API proxy (preview)
 
 Declare `api_proxy` and optionally `storage`; other capabilities and surfaces
@@ -982,10 +1093,10 @@ Declare `image_compression` and an activation action `enable`. JSON input
 `{"image_compression":{"max_edge":1280,"jpeg_quality":80}}`:
 
 ```rust
-use serein_extension_sdk::{ImageCompression, Invocation, Output};
-fn handle(input: Invocation) -> Output {
-    if input.action != "enable" { return Output::default(); }
-    Output {
+use serein_extension_sdk::{ImageCompression, ImageCompressionOutput, Invocation};
+fn handle(input: Invocation) -> ImageCompressionOutput {
+    if input.action != "enable" { return ImageCompressionOutput::default(); }
+    ImageCompressionOutput {
         image_compression: Some(ImageCompression { max_edge: 1280, jpeg_quality: 80 }),
         ..Default::default()
     }
@@ -999,7 +1110,8 @@ then press **Apply to next photo selections**. Invalid values leave the policy
 and storage unchanged. Storage uses ordinary bounded plugin persistence. Failed,
 disabled or revoked plugins supply no policy; among enabled providers the lowest
 manifest ID wins. Older hosts reject this capability; check
-`host_info.supports("image_compression")` for support. The ABI stays at version 1.
+`host_info.supports("image_compression")` for support. The ABI stays at version 1. The flattened `ImageCompressionOutput` wrapper
+preserves existing author `Output` struct literals and compiled plugins.
 
 One global codec slot admits at most 32 MiB source data, 8192 pixels per axis,
 32 million pixels and 128 MiB decoder allocation. Output stops before the original

@@ -1,5 +1,13 @@
 # Extension SDK inputs and app data
 
+> **Photo compression: Preview PR #641, not yet released.**
+> **Voice Messages is a separate, unmerged preview: PR #566.** Its
+> `voice_messages` capability, types, snippets and recorder behavior below apply
+> only to [that host/SDK source](https://github.com/ViceVerse-cz/Serein/tree/97d419515e427a885af41683857bb247a0abed7e),
+> not this photo-compression host. They are retained here for creator-reference
+> continuity. Current-host discovery does not advertise `voice_messages`.
+
+
 > **Preview SDK — PR #411, not yet released.** Extended query, messaging-settings,
 > guild-folder and action-result fields require a host built from this branch.
 
@@ -76,6 +84,31 @@ fn handle(input: Invocation) -> Output {
 serein_extension_sdk::export!(handle);
 ```
 
+### Voice-message settings input (preview)
+
+The `voice_messages` grant adds no snapshot, microphone/device enumeration,
+recording data, capture command or automatic event surface. Use the ordinary
+`Invocation` input with `VoiceMessagesOutput`. Optional `storage` contains only
+your plugin's saved preference JSON when separately granted; absent storage means
+no saved preference. Form values remain bounded strings. The catalog plugin reads
+`duration` as `u16`, `waveform` as `Bars` or `Line`, and `suppression` as `bool`.
+Missing or malformed Save values are errors and do not overwrite saved data.
+
+This complete synthetic Save input changes preferences only:
+
+```json
+{
+  "action": "save",
+  "values": {"duration": "30", "waveform": "Line", "suppression": "false"}
+}
+```
+
+Read them with `input.parse_value::<u16>("duration")`, `input.value("waveform")`
+and `input.parse_value::<bool>("suppression")`, then validate the complete
+`VoiceMessagesConfig`. See the [full handler and output interaction](extension-sdk-actions.md#voice-messages).
+On the separate PR #566 host, discovery exposes `voice_messages` as support only; older hosts reject
+manifests declaring this grant before the handler can run.
+
 ### Additional wrapper fields
 
 These fields are at the top level of the JSON object too. Absent fields decode
@@ -130,6 +163,7 @@ account snapshot or grant-dependent data:
     "api_version": 1,
     "sdk_revision": 1,
     "capabilities": [
+      "api_proxy",
       "rich_presence",
       "relationship_control",
       "account_control",
