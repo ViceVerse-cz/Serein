@@ -1001,8 +1001,8 @@ disabled or revoked plugins supply no policy; among enabled providers the lowest
 manifest ID wins. Older hosts reject this capability; check
 `host_info.supports("image_compression")` for support. The ABI stays at version 1.
 
-One global codec slot admits at most 8 MiB source data, 4096 pixels per axis,
-8 million pixels and 32 MiB decoder allocation. Output stops before the original
+One global codec slot admits at most 32 MiB source data, 8192 pixels per axis,
+32 million pixels and 128 MiB decoder allocation. Output stops before the original
 byte length and never exceeds 8 MiB. Queued jobs retain source handles rather
 than decoded images. Cancellation is checked between bounded codec phases;
 a synchronous phase cannot be interrupted. No temporary file, FFmpeg process,

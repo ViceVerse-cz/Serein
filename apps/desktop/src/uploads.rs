@@ -41,11 +41,14 @@ const SHARE_BYTES: usize = 8 * 1024 * 1024;
 const EMOJI_EDGE: u32 = 48;
 const STICKER_EDGE: u32 = 160;
 const ARTWORK_FRAMES: usize = 240;
+const COMPRESS_SOURCE_BYTES: usize = 32 * 1024 * 1024;
+const COMPRESS_PIXELS: u64 = 32_000_000;
 
 async fn compress_source(
 	source: Source,
 	policy: Option<extensions::ImageCompression>,
 	cancelled: Arc<AtomicBool>,
+	max_bytes: u64,
 ) -> Source {
 	let Some(policy) = policy else {
 		return source;
@@ -64,13 +67,13 @@ async fn compress_source(
 	if cancelled.load(Ordering::Acquire) {
 		return source;
 	}
-	let Some(bytes) = source.preview_bytes(8 * 1024 * 1024).await else {
+	let Some(bytes) = source.preview_bytes(COMPRESS_SOURCE_BYTES as u64).await else {
 		return source;
 	};
 	let flag = cancelled.clone();
 	let compressed = tokio::task::spawn_blocking(move || {
 		let _permit = permit;
-		compress_photo(&bytes, policy, &flag)
+		compress_photo(&bytes, policy, &flag, max_bytes)
 	})
 	.await
 	.ok()
@@ -87,11 +90,12 @@ fn compress_photo(
 	bytes: &[u8],
 	policy: extensions::ImageCompression,
 	cancelled: &AtomicBool,
+	max_bytes: u64,
 ) -> Option<Vec<u8>> {
 	use image::ImageDecoder;
 	use std::io::{Cursor, Write};
 	if bytes.is_empty()
-		|| bytes.len() > 8 * 1024 * 1024
+		|| bytes.len() > COMPRESS_SOURCE_BYTES
 		|| cancelled.load(Ordering::Acquire)
 		|| !(256..=2048).contains(&policy.max_edge)
 		|| !(40..=95).contains(&policy.jpeg_quality)
@@ -103,9 +107,9 @@ fn compress_photo(
 		return None;
 	}
 	let mut limits = image::Limits::default();
-	limits.max_image_width = Some(4096);
-	limits.max_image_height = Some(4096);
-	limits.max_alloc = Some(32 * 1024 * 1024);
+	limits.max_image_width = Some(8192);
+	limits.max_image_height = Some(8192);
+	limits.max_alloc = Some(128 * 1024 * 1024);
 	if format == image::ImageFormat::Png {
 		let decoder =
 			image::codecs::png::PngDecoder::with_limits(Cursor::new(bytes), limits.clone()).ok()?;
@@ -113,7 +117,7 @@ fn compress_photo(
 			return None;
 		}
 		let (width, height) = decoder.dimensions();
-		if u64::from(width) * u64::from(height) > 8 * 1024 * 1024 {
+		if u64::from(width) * u64::from(height) > COMPRESS_PIXELS {
 			return None;
 		}
 	}
@@ -123,7 +127,7 @@ fn compress_photo(
 	let orientation = decoder.orientation().ok()?;
 	let mut image = image::DynamicImage::from_decoder(decoder).ok()?;
 	image.apply_orientation(orientation);
-	if u64::from(image.width()) * u64::from(image.height()) > 8 * 1024 * 1024
+	if u64::from(image.width()) * u64::from(image.height()) > COMPRESS_PIXELS
 		|| cancelled.load(Ordering::Acquire)
 	{
 		return None;
@@ -172,7 +176,10 @@ fn compress_photo(
 	}
 	let mut output = Bounded {
 		bytes: Vec::new(),
-		limit: bytes.len().min(8 * 1024 * 1024).saturating_sub(1),
+		limit: bytes
+			.len()
+			.saturating_sub(1)
+			.min(max_bytes.min(8 * 1024 * 1024) as usize),
 	};
 	image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, policy.jpeg_quality)
 		.encode_image(&image)
@@ -206,33 +213,78 @@ mod compression_tests {
 			jpeg_quality: 80,
 		};
 		let input = photo(255);
-		let result = compress_photo(&input, policy, &flag).unwrap();
+		let result = compress_photo(&input, policy, &flag, 8 * 1024 * 1024).unwrap();
 		assert!(result.len() < input.len());
 		let decoded = image::load_from_memory(&result).unwrap();
 		assert_eq!((decoded.width(), decoded.height()), (256, 192));
-		assert!(compress_photo(&photo(254), policy, &flag).is_none());
-		assert!(compress_photo(b"not an image", policy, &flag).is_none());
-		assert!(compress_photo(&[0; 8 * 1024 * 1024 + 1], policy, &flag).is_none());
+		assert!(compress_photo(&photo(254), policy, &flag, 8 * 1024 * 1024).is_none());
+		assert!(compress_photo(b"not an image", policy, &flag, 8 * 1024 * 1024).is_none());
+		assert!(compress_photo(&input, policy, &flag, 16).is_none());
+		assert!(
+			compress_photo(
+				&vec![0; COMPRESS_SOURCE_BYTES + 1],
+				policy,
+				&flag,
+				8 * 1024 * 1024
+			)
+			.is_none()
+		);
 		flag.store(true, Ordering::Release);
-		assert!(compress_photo(&input, policy, &flag).is_none());
+		assert!(compress_photo(&input, policy, &flag, 8 * 1024 * 1024).is_none());
+	}
+	#[test]
+	fn photo_larger_than_default_upload_cap_is_prepared_before_entitlement_check() {
+		let pixels = image::RgbImage::from_fn(3000, 3000, |x, y| {
+			let mut value = x.wrapping_add(y.wrapping_mul(3000)).wrapping_add(1);
+			value ^= value >> 16;
+			value = value.wrapping_mul(0x7feb352d);
+			value ^= value >> 15;
+			value = value.wrapping_mul(0x846ca68b);
+			value ^= value >> 16;
+			image::Rgb([value as u8, (value >> 8) as u8, (value >> 16) as u8])
+		});
+		let mut bytes = std::io::Cursor::new(Vec::new());
+		image::DynamicImage::ImageRgb8(pixels)
+			.write_to(&mut bytes, image::ImageFormat::Png)
+			.unwrap();
+		let bytes = bytes.into_inner();
+		assert!(bytes.len() > 10_000_000 && bytes.len() <= COMPRESS_SOURCE_BYTES);
+		let output = compress_photo(
+			&bytes,
+			extensions::ImageCompression {
+				max_edge: 1280,
+				jpeg_quality: 80,
+			},
+			&AtomicBool::new(false),
+			10_000_000,
+		)
+		.unwrap();
+		assert!(output.len() < 10_000_000 && output.len() < bytes.len());
+		assert_eq!(image::load_from_memory(&output).unwrap().width(), 1280);
 	}
 	#[tokio::test]
 	async fn compression_is_opt_in_and_retains_selected_source_on_failure_or_cancellation() {
 		let source = Source::pasted_png(photo(255)).unwrap();
 		let size = source.size();
 		let flag = Arc::new(AtomicBool::new(false));
-		let original = compress_source(source.clone(), None, flag.clone()).await;
+		let original = compress_source(source.clone(), None, flag.clone(), 8 * 1024 * 1024).await;
 		assert_eq!(original.size(), size);
 		let policy = Some(extensions::ImageCompression {
 			max_edge: 256,
 			jpeg_quality: 80,
 		});
-		let compressed = compress_source(source.clone(), policy, flag.clone()).await;
+		let compressed =
+			compress_source(source.clone(), policy, flag.clone(), 8 * 1024 * 1024).await;
 		assert!(compressed.size() < size);
 		assert!(compressed.filename().ends_with(".jpg"));
 		assert_eq!(source.size(), size);
 		flag.store(true, Ordering::Release);
-		assert_eq!(compress_source(source, policy, flag).await.size(), size);
+		assert_eq!(
+			compress_source(source, policy, flag, 8 * 1024 * 1024)
+				.await
+				.size(),
+			size
+		);
 	}
 }
 
@@ -554,6 +606,7 @@ struct ExternalUploading {
 #[derive(Default)]
 pub struct Uploads {
 	pub image_compression: Option<extensions::ImageCompression>,
+	pub compression_limit: u64,
 	external: Option<ExternalUploading>,
 	public_result: Option<Result<String, model::public_upload::Error>>,
 	image_draft: Option<String>,
@@ -791,6 +844,7 @@ impl Uploads {
 		}
 		self.admit(&source)?;
 		if let Some(policy) = self.image_compression {
+			let max_bytes = self.compression_limit;
 			let cancelled = Arc::new(AtomicBool::new(false));
 			let flag = cancelled.clone();
 			let files = Arc::new(AtomicUsize::new(source.len()));
@@ -799,7 +853,8 @@ impl Uploads {
 			runtime.spawn(async move {
 				let mut selected = Vec::with_capacity(source.len());
 				for source in source {
-					let source = compress_source(source, Some(policy), flag.clone()).await;
+					let source =
+						compress_source(source, Some(policy), flag.clone(), max_bytes).await;
 					if flag.load(Ordering::Acquire) {
 						let _ = send.send(Ok(None));
 						return;
@@ -902,6 +957,7 @@ impl Uploads {
 		selection: impl std::future::Future<Output = Option<Vec<std::path::PathBuf>>> + Send + 'static,
 	) {
 		let policy = self.image_compression;
+		let max_bytes = self.compression_limit;
 		let cancelled = Arc::new(AtomicBool::new(false));
 		let flag = cancelled.clone();
 		let files = Arc::new(AtomicUsize::new(known));
@@ -926,7 +982,7 @@ impl Uploads {
 				let mut total = 0;
 				for path in paths {
 					let source = Source::inspect(path).await?;
-					let source = compress_source(source, policy, flag.clone()).await;
+					let source = compress_source(source, policy, flag.clone(), max_bytes).await;
 					total += source.size();
 					if total > discord_api::upload::MAX_TOTAL_BYTES {
 						return Err(
