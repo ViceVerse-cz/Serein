@@ -4,6 +4,7 @@ pub mod activity_sharing;
 pub mod application_commands;
 pub mod archives;
 mod attachments;
+pub mod collectibles;
 mod diagnostics;
 mod embeds;
 mod extra_content;
@@ -105,6 +106,10 @@ pub struct UserDto {
 	/// Older normal-session payloads duplicated `primary_guild` under this name.
 	#[serde(default)]
 	pub clan: Option<PrimaryGuildDto>,
+	#[serde(default)]
+	pub avatar_decoration_data: collectibles::DecorationField,
+	#[serde(default)]
+	pub collectibles: collectibles::CollectiblesField,
 }
 #[derive(Clone, Deserialize)]
 pub struct PrimaryGuildDto {
@@ -137,6 +142,7 @@ impl UserDto {
 			.and_then(PrimaryGuildDto::into_model)
 			.or_else(|| self.clan.and_then(PrimaryGuildDto::into_model))
 			.map(Box::new);
+		let cosmetics = collectibles::cosmetics(self.avatar_decoration_data, self.collectibles);
 		User {
 			kind: if self.bot && (self.public_flags | self.flags) & (1 << 16) != 0 {
 				model::AccountKind::VerifiedBot
@@ -161,6 +167,7 @@ impl UserDto {
 				.filter(|n| *n <= 9999)
 				.unwrap_or(0),
 			primary_guild,
+			cosmetics,
 		}
 	}
 }
@@ -820,6 +827,10 @@ pub struct MessageDto {
 #[derive(Deserialize)]
 pub struct MessageMemberDto {
 	#[serde(default)]
+	pub avatar_decoration_data: collectibles::DecorationField,
+	#[serde(default)]
+	pub collectibles: collectibles::CollectiblesField,
+	#[serde(default)]
 	pub nick: Option<String>,
 	#[serde(default, deserialize_with = "permissions::member_roles")]
 	pub roles: Vec<Id>,
@@ -939,7 +950,8 @@ impl MessageDto {
 			.message_reference
 			.as_ref()
 			.filter(|reference| {
-				matches!(self.kind, 19 | 23)
+				// Poll results (46) reference the closed poll for "View Poll".
+				matches!(self.kind, 19 | 23 | 46)
 					&& self.flags & (1 << 1) == 0
 					&& reference.kind == 0
 					&& reference.channel_id == Some(self.channel_id)
@@ -960,6 +972,13 @@ impl MessageDto {
 		}
 		.map(Box::new);
 		let mut author = self.author.into_model();
+		if let Some(member) = self.member.as_mut() {
+			collectibles::apply_member(
+				&mut author,
+				member.avatar_decoration_data.take(),
+				member.collectibles.take(),
+			);
+		}
 		author.webhook = self.webhook_id.is_some();
 		if self.application_id.is_some()
 			&& (author.webhook || author.kind == model::AccountKind::Bot)
@@ -1631,6 +1650,10 @@ pub struct MemberDto {
 	pub nick: Option<String>,
 	#[serde(default)]
 	pub presence: Patch<PresenceDto>,
+	#[serde(default)]
+	pub avatar_decoration_data: collectibles::DecorationField,
+	#[serde(default)]
+	pub collectibles: collectibles::CollectiblesField,
 }
 /// Re-parse shape for a member row whose strict decode failed: its presence can no longer
 /// fail the row, only be dropped.
@@ -1643,6 +1666,10 @@ struct LenientMemberDto {
 	nick: Option<String>,
 	#[serde(default, deserialize_with = "lenient_presence")]
 	presence: Patch<PresenceDto>,
+	#[serde(default)]
+	avatar_decoration_data: collectibles::DecorationField,
+	#[serde(default)]
+	collectibles: collectibles::CollectiblesField,
 }
 /// Unrepresentable activities cost the presence its details; an unreadable status drops it.
 pub(crate) fn lenient_presence<'de, D: serde::Deserializer<'de>>(
@@ -1744,6 +1771,8 @@ impl<'de> Deserialize<'de> for MemberItem {
 			user: member.user,
 			nick: member.nick,
 			presence: member.presence,
+			avatar_decoration_data: member.avatar_decoration_data,
+			collectibles: member.collectibles,
 		});
 		Ok(Self::Member { member, presence })
 	}
@@ -1797,9 +1826,11 @@ impl MemberItem {
 					Patch::Value(value) => Some(value),
 					_ => None,
 				};
+				let mut user = m.user.into_model();
+				collectibles::apply_member(&mut user, m.avatar_decoration_data, m.collectibles);
 				let mut member = model::Member {
 					roles: m.roles,
-					user: m.user.into_model(),
+					user,
 					nick: m.nick.map(|n| n.chars().take(128).collect()),
 					custom_status: presence
 						.as_ref()

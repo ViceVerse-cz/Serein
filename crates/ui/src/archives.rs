@@ -572,6 +572,7 @@ mod tests {
 					kind: Default::default(),
 					discriminator: 0,
 					primary_guild: None,
+					cosmetics: None,
 				}),
 				auth: client_core::auth::AuthState::Authenticated,
 				gateway_connected: true,

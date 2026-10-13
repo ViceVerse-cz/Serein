@@ -29,7 +29,7 @@ pub mod profile;
 pub mod reactions;
 pub mod read_state;
 mod replies;
-pub use replies::{Reply, ReplyDeletions};
+pub use replies::{HistoryNavigation, Reply, ReplyDeletions};
 pub mod group_actions;
 pub mod onboarding;
 pub mod resident;
@@ -225,6 +225,8 @@ pub enum Command {
 		guild: Option<Id>,
 		request: u64,
 		with_mutuals: bool,
+		/// Hidden effects and frames skip their optional catalog read.
+		cosmetics: model::CosmeticPreferences,
 	},
 	CancelProfile,
 	StreamPreview {
@@ -722,6 +724,9 @@ pub struct State {
 	pub restore_scroll: bool,
 	/// The active range was fetched around a target, independently of its consumed scroll cue.
 	pub history_targeted: bool,
+	/// One exact target awaiting its history page; never a metadata cache.
+	#[doc(hidden)]
+	pub history_navigation: HistoryNavigation,
 	/// Session reading cursors. Missing means the channel has not been opened yet.
 	pub reading: Vec<(Id, ReadingCursor)>,
 	pub reply_deletions: ReplyDeletions,
@@ -732,6 +737,8 @@ pub struct State {
 	pub profile: Option<profile::ProfileView>,
 	pub profile_request: u64,
 	pub profile_cache: profile::ProfileCache,
+	/// Device preference for which profile cosmetics are shown and loaded.
+	pub profile_cosmetics: model::CosmeticPreferences,
 	pub own_profile: profile::OwnProfile,
 	pub invites: invites::Cache,
 	pub invite_join: invites::Join,
@@ -936,6 +943,7 @@ impl Default for State {
 			search_target: None,
 			restore_scroll: false,
 			history_targeted: false,
+			history_navigation: HistoryNavigation::default(),
 			reading: Vec::new(),
 			reply_deletions: ReplyDeletions::default(),
 			read_state: read_state::ReadState::default(),
@@ -945,6 +953,7 @@ impl Default for State {
 			profile: None,
 			profile_request: 0,
 			profile_cache: Default::default(),
+			profile_cosmetics: Default::default(),
 			own_profile: Default::default(),
 			invites: Default::default(),
 			invite_join: Default::default(),
@@ -1191,14 +1200,7 @@ impl State {
 		self.select(channel)
 	}
 	pub fn select(&mut self, channel: Id) -> Option<Command> {
-		// Choosing another server's channel while a join is pending cancels its navigation.
-		if let Some((_, guild)) = self.invite_join.navigate
-			&& self
-				.channel(channel)
-				.is_some_and(|c| c.guild != Some(guild))
-		{
-			self.invite_join.navigate = None;
-		}
+		self.cancel_invite_navigation(channel);
 		// Keep the current conversation intact, but allow a restored channel to load again.
 		if self.selected == Some(channel) && self.freshness != Freshness::Unavailable {
 			return None;
@@ -1216,6 +1218,29 @@ impl State {
 		}
 	}
 
+	fn cancel_invite_navigation(&mut self, channel: Id) {
+		// Choosing another server's channel while a join is pending cancels its navigation.
+		if let Some((_, guild)) = self.invite_join.navigate
+			&& self
+				.channel(channel)
+				.is_some_and(|c| c.guild != Some(guild))
+		{
+			self.invite_join.navigate = None;
+		}
+	}
+
+	fn select_chat_link_channel(&mut self, channel: Id, target: Id) -> Result<(), &'static str> {
+		self.cancel_invite_navigation(channel);
+		match self.apply_channel_with_target(channel, Some(target)) {
+			Apply::Opened(_) => {
+				self.record(Place::Channel(channel));
+				Ok(())
+			}
+			Apply::AlreadyHere => Ok(()),
+			Apply::Rejected(status) => Err(status),
+		}
+	}
+
 	fn record(&mut self, place: Place) {
 		if self.trail.is_empty() && !matches!(place, Place::Home) {
 			self.trail.visit(Place::Home);
@@ -1224,6 +1249,10 @@ impl State {
 	}
 
 	fn apply_channel(&mut self, channel: Id) -> Apply {
+		self.apply_channel_with_target(channel, None)
+	}
+
+	fn apply_channel_with_target(&mut self, channel: Id, target: Option<Id>) -> Apply {
 		if self.selected == Some(channel) && self.freshness != Freshness::Unavailable {
 			return Apply::AlreadyHere;
 		}
@@ -1249,6 +1278,7 @@ impl State {
 		self.typing.clear();
 		self.select_resident(channel);
 		self.history_targeted = false;
+		self.history_navigation.clear();
 		if self.shared_member_list_id(channel).is_none() {
 			self.members = None;
 		}
@@ -1269,6 +1299,25 @@ impl State {
 		if self.channel(channel).is_some_and(|c| !c.supports_text()) {
 			self.cancel_history();
 			self.freshness = Freshness::Fresh;
+			return Apply::Opened(None);
+		}
+		if let Some(target) = target {
+			self.cancel_history();
+			self.history_before = None;
+			// A restored resident is a session-local, previously fresh window;
+			// live mutations and permission/identity changes already evict it. Only a
+			// window holding the live target is presented as loaded: a deletion-only or
+			// unrelated window stays Stale, and the caller requests the target's page.
+			self.freshness = if self
+				.timeline
+				.get(target)
+				.is_some_and(|message| message.channel == channel)
+				&& !self.timeline.is_deleted(target)
+			{
+				Freshness::Fresh
+			} else {
+				Freshness::Stale
+			};
 			return Apply::Opened(None);
 		}
 		if let Some(message) = self.reading(channel).and_then(|cursor| cursor.message) {
@@ -1309,6 +1358,9 @@ impl State {
 		self.last_viewed_dm = None;
 		self.application_commands.clear();
 		self.selected = None;
+		self.history_navigation.clear();
+		self.search_target = None;
+		self.restore_scroll = false;
 		self.record(Place::Home);
 	}
 
@@ -1321,6 +1373,9 @@ impl State {
 			self.trail.drop_current();
 		}
 		self.selected = None;
+		self.history_navigation.clear();
+		self.search_target = None;
+		self.restore_scroll = false;
 		self.record(Place::Home);
 	}
 
@@ -1349,6 +1404,9 @@ impl State {
 				Place::Home => {
 					self.application_commands.clear();
 					self.selected = None;
+					self.history_navigation.clear();
+					self.search_target = None;
+					self.restore_scroll = false;
 					Apply::Opened(None)
 				}
 				Place::Channel(channel) => self.apply_channel(channel),
@@ -1614,6 +1672,15 @@ impl State {
 		}
 	}
 	fn history_range(&mut self, before: Option<Id>, after: Option<Id>) -> Command {
+		if self.selected.is_some_and(|channel| {
+			self.history_navigation
+				.target(channel, self.request)
+				.is_some()
+		}) {
+			self.search_target = None;
+			self.restore_scroll = false;
+		}
+		self.history_navigation.clear();
 		self.typing.clear();
 		if before.is_none() {
 			self.newer_cursor = None;
@@ -2241,8 +2308,18 @@ impl State {
 			self.invalidate_members();
 			return;
 		}
-		if matches!(&command, Command::History { request, .. } if *request == self.request) {
+		if let Command::History {
+			channel, request, ..
+		} = &command
+		{
+			if self.selected != Some(*channel) || *request != self.request || !self.history_pending
+			{
+				return;
+			}
 			self.cancel_history();
+			self.status = "Work queue full; action was not sent";
+			self.freshness = Freshness::Stale;
+			return;
 		}
 		if let Command::Send { nonce, .. }
 		| Command::VerifiedSend { nonce, .. }
@@ -2279,6 +2356,7 @@ impl State {
 		}
 		if let Event::Startup(startup) = envelope.event {
 			if startup.bytes() > model::account::MAX_BYTES {
+				self.cancel_history();
 				self.auth = auth::AuthState::Failed;
 				self.status = "Account startup exceeds safe capacity";
 				return;
@@ -2487,7 +2565,6 @@ impl State {
 			&envelope.event,
 			Event::Disconnected | Event::Resync | Event::PermissionsChanged | Event::Ready { .. }
 		) || matches!(&envelope.event,Event::Unavailable(id) if Some(*id)==self.selected)
-			|| matches!(&envelope.event,Event::HistoryFailed{channel,failure:auth::Failure::Forbidden,..} if Some(*channel)==self.selected)
 			|| matches!(&envelope.event,Event::RecipientRemoved{channel,user} if Some(*channel)==self.selected && self.user.as_ref().is_some_and(|u|u.id==*user))
 		{
 			self.clear_search();
@@ -3165,6 +3242,7 @@ impl State {
 					.as_ref()
 					.is_some_and(|previous| previous.id != user.id)
 				{
+					self.cancel_history();
 					self.auth = auth::AuthState::Failed;
 					self.status = "Different account rejected; log out before switching accounts";
 					return;
@@ -3176,6 +3254,7 @@ impl State {
 				}) {
 					Ok(permissions) => permissions,
 					Err(status) => {
+						self.cancel_history();
 						self.auth = auth::AuthState::Failed;
 						self.status = status;
 						return;
@@ -3332,6 +3411,7 @@ impl State {
 					}
 				}
 				if r.is_ok() {
+					self.finish_history_navigation(channel, request);
 					self.freshness = if self.gateway_connected {
 						Freshness::Fresh
 					} else {
@@ -3353,6 +3433,7 @@ impl State {
 				}
 				self.cancel_history();
 				if failure == auth::Failure::Forbidden {
+					self.clear_search();
 					self.application_commands.clear();
 					self.invalidate_members();
 					self.timeline.clear();
@@ -3453,6 +3534,7 @@ impl State {
 					channel.last_message = None;
 				}
 				if self.selected == Some(channel) {
+					self.deleted_navigation_target(channel, id);
 					if self.reply_target() == Some(id) {
 						self.reply = None;
 					}
@@ -3497,6 +3579,9 @@ impl State {
 				if ids.len() > 100 {
 					Err("Bulk deletion exceeds safe capacity")
 				} else if self.selected == Some(channel) {
+					for id in &ids {
+						self.deleted_navigation_target(channel, *id);
+					}
 					if self.reply_target().is_some_and(|id| ids.contains(&id)) {
 						self.reply = None;
 					}
@@ -3884,11 +3969,13 @@ impl State {
 		self.freshness = Freshness::Stale;
 	}
 	fn cancel_history(&mut self) {
+		self.history_navigation.clear();
 		self.typing.clear();
 		self.reactions.reset();
 		self.polls.reset();
 		self.interactions.reset();
 		self.search_target = None;
+		self.restore_scroll = false;
 		self.request += 1;
 		self.history_pending = false;
 		self.history_after = None;
@@ -5217,6 +5304,7 @@ mod tests {
 					permissions: model::permissions::Snapshot::default(),
 					user: User {
 						primary_guild: None,
+						cosmetics: None,
 						id: Id(1),
 						name: "Synthetic".into(),
 						avatar: None,
@@ -5560,6 +5648,7 @@ mod tests {
 			channel: Id(1),
 			author: User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(2),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -5637,6 +5726,7 @@ mod tests {
 				channel: Id(1),
 				user: User {
 					primary_guild: None,
+					cosmetics: None,
 					id: Id(3),
 					name: "Other".into(),
 					avatar: None,
@@ -5849,6 +5939,7 @@ mod tests {
 			};
 			let user = || User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(2),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -5979,6 +6070,7 @@ mod tests {
 					permissions: model::permissions::Snapshot::default(),
 					user: User {
 						primary_guild: None,
+						cosmetics: None,
 						id: Id(2),
 						name: "Synthetic".into(),
 						avatar: None,

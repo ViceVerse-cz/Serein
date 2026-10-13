@@ -592,6 +592,7 @@ fn parse_audio_entry(stsd: &[u8]) -> Result<Option<(AudioCodec, u32, u16)>, &'st
 		.or_else(|| find_box(children, b"wave").and_then(|wave| find_box(wave, b"esds")))
 		.ok_or(UNSUPPORTED)?;
 	let config = parse_esds(esds)?;
+	let config = aac_core(&config).unwrap_or(config);
 	if let Some((rate, count)) = audio_specific_config(&config) {
 		sample_rate = rate;
 		channels = count;
@@ -672,8 +673,61 @@ fn descriptor(bytes: &[u8], at: usize) -> Result<(u8, usize, usize), &'static st
 	Err(INVALID)
 }
 
+/// Explicit HE-AAC signalling (object type 5 SBR or 29 PS) wraps an AAC-LC core that the
+/// decoder cannot extend. Rewrite it as that core's config so the track plays at the core
+/// rate, losing only the replicated high band and parametric stereo, like implicit HE-AAC.
+fn aac_core(config: &[u8]) -> Option<Vec<u8>> {
+	let mut bits = Bits::new(config);
+	if !matches!(bits.read(5)?, 5 | 29) {
+		return None;
+	}
+	let index = bits.read(4)?;
+	let explicit_rate = if index == 15 {
+		Some(bits.read(24)?)
+	} else {
+		None
+	};
+	let channels = bits.read(4)?;
+	if bits.read(4)? == 15 {
+		bits.read(24)?;
+	}
+	if bits.read(5)? != 2 {
+		return None;
+	}
+	let mut core = BitWriter::default();
+	core.write(2, 5);
+	core.write(index, 4);
+	if let Some(rate) = explicit_rate {
+		core.write(rate, 24);
+	}
+	core.write(channels, 4);
+	// The core's GASpecificConfig and any trailing fields follow unchanged.
+	while let Some(bit) = bits.read(1) {
+		core.write(bit, 1);
+	}
+	Some(core.bytes)
+}
+
+#[derive(Default)]
+struct BitWriter {
+	bytes: Vec<u8>,
+	length: usize,
+}
+impl BitWriter {
+	fn write(&mut self, value: u32, count: usize) {
+		for shift in (0..count).rev() {
+			if self.length.is_multiple_of(8) {
+				self.bytes.push(0);
+			}
+			let bit = ((value >> shift) & 1) as u8;
+			*self.bytes.last_mut().expect("byte pushed") |= bit << (7 - self.length % 8);
+			self.length += 1;
+		}
+	}
+}
+
 /// Decode the leading AudioSpecificConfig fields: (sample rate, channel count). AAC-LC only;
-/// object types with SBR/PS extensions are rejected because the decoder cannot upsample them.
+/// explicit SBR/PS configs are first reduced to their core by [`aac_core`].
 fn audio_specific_config(config: &[u8]) -> Option<(u32, u16)> {
 	const RATES: [u32; 13] = [
 		96_000, 88_200, 64_000, 48_000, 44_100, 32_000, 24_000, 22_050, 16_000, 12_000, 11_025,
@@ -821,8 +875,16 @@ mod tests {
 		{
 			// AAC-LC, 48 kHz (index 3), mono.
 			assert_eq!(audio_specific_config(&[0x11, 0x88]), Some((48_000, 1)));
-			// HE-AAC (object type 5) is rejected.
+			// HE-AAC (object type 5) is rejected until reduced to its AAC-LC core:
+			// 22.05 kHz stereo core under a 44.1 kHz SBR extension.
 			assert_eq!(audio_specific_config(&[0x2b, 0x92, 0x08, 0x00]), None);
+			let core = aac_core(&[0x2b, 0x92, 0x08, 0x00]).unwrap();
+			assert_eq!(&core[..2], &[0x13, 0x90]);
+			assert_eq!(audio_specific_config(&core), Some((22_050, 2)));
+			// HE-AAC v2 (object type 29) keeps its mono core; plain AAC-LC is untouched.
+			let core = aac_core(&[0xeb, 0x09, 0x88, 0x00]).unwrap();
+			assert_eq!(audio_specific_config(&core), Some((24_000, 1)));
+			assert_eq!(aac_core(&[0x11, 0x88]), None);
 			assert_eq!(
 				descriptor(&[0x03, 0x80, 0x80, 0x80, 0x05], 0),
 				Ok((3, 5, 5))

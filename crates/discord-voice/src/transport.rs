@@ -49,7 +49,7 @@ fn negotiation_timeout(
 		"Discord voice Ready timed out; rejoin the call"
 	} else if !key {
 		"Discord voice protocol selection timed out; no transport key was received"
-	} else if dave.session.is_ready() && dave.pending.is_some() {
+	} else if dave.session.is_ready() && dave.transitioning() {
 		"Discord DAVE transition execution timed out; no audio was enabled"
 	} else {
 		"Discord DAVE group negotiation timed out; no accepted commit or welcome was received"
@@ -357,6 +357,9 @@ async fn run_inner(
 	let mut heartbeat_at = Instant::now();
 	let mut awaiting_ack = None;
 	let mut heartbeat_nonce = 0u64;
+	let mut missed_acks = 0u8;
+	// Set when the signaling socket died or went silent; the next loop turn resumes it.
+	let mut reconnect: Option<&'static str> = None;
 	let mut deadline = Some(Instant::now() + Duration::from_secs(90));
 	let mut ready_announced = false;
 	let mut waiting_announced = false;
@@ -390,6 +393,37 @@ async fn run_inner(
 	let mut last_speakers = [0; 64];
 	let mut speakers_at = Instant::now();
 	loop {
+		if let Some(reason) = reconnect.take() {
+			if encryption.is_none() || resume_attempts >= 2 {
+				return Err(reason);
+			}
+			video.clear();
+			video.announced = false;
+			resume_attempts += 1;
+			resuming = true;
+			ready_announced = false;
+			waiting_announced = false;
+			capture_reset = true;
+			emit(Status::Securing).map_err(|_| "Call interface closed")?;
+			deadline = Some(Instant::now() + Duration::from_secs(30));
+			heartbeat_ms = None;
+			awaiting_ack = None;
+			missed_acks = 0;
+			let config = WebSocketConfig::default()
+				.max_message_size(Some(MAX_SIGNAL))
+				.max_frame_size(Some(MAX_SIGNAL))
+				.write_buffer_size(0)
+				.max_write_buffer_size(MAX_SIGNAL * 2);
+			let (replacement, _) = timeout(
+				Duration::from_secs(15),
+				tokio_tungstenite::connect_async_with_config(&url, Some(config), false),
+			)
+			.await
+			.map_err(|_| "Voice resume timed out; rejoin the call")?
+			.map_err(|_| "Voice resume failed; rejoin the call")?;
+			ws = replacement;
+			json_send(&mut ws,json!({"op":7,"d":{"server_id":credentials.guild.unwrap_or(credentials.channel).to_string(),"session_id":credentials.session.expose(),"token":credentials.token.expose(),"seq_ack":seq_ack}})).await?;
+		}
 		tokio::select! {
 			changed=controls.changed()=>{ if changed.is_err(){return Ok(());} },
 			_=video_tick.tick(), if !video.is_empty()=>{
@@ -408,7 +442,12 @@ async fn run_inner(
 					next_udp_ping=now+Duration::from_secs(5);
 				}
 				if let Some(interval)=heartbeat_ms && now>=heartbeat_at {
-					if awaiting_ack.is_some() {return Err("Discord voice heartbeat was not acknowledged; rejoin the call");}
+					// A delayed wake can find the acknowledgement still unread; only a second
+					// silent interval marks the socket as zombied, and Discord expects a resume.
+					if awaiting_ack.is_some() {
+						missed_acks+=1;
+						if missed_acks>=2 {reconnect=Some("Discord voice heartbeat was not acknowledged; rejoin the call");continue;}
+					}
 					heartbeat_nonce=heartbeat_nonce.wrapping_add(1);
 					json_send(&mut ws,json!({"op":3,"d":{"t":heartbeat_nonce,"seq_ack":seq_ack}})).await?;
 					awaiting_ack=Some(heartbeat_nonce);heartbeat_at=now+Duration::from_millis(interval);
@@ -552,18 +591,7 @@ async fn run_inner(
 				let event=match event {
 					// A server crash preserves the voice session. Other close codes remain terminal.
 					Some(Ok(message)) if !matches!(&message, Message::Close(Some(frame)) if u16::from(frame.code)==4015)=>message,
-					_=>{
-						if encryption.is_none() || resume_attempts>=2 {return Err("Voice socket failed; rejoin the call");}
-						video.clear();video.announced=false;
-						resume_attempts+=1;resuming=true;ready_announced=false;waiting_announced=false;capture_reset=true;
-						emit(Status::Securing).map_err(|_|"Call interface closed")?;
-						deadline=Some(Instant::now()+Duration::from_secs(30));heartbeat_ms=None;awaiting_ack=None;
-						let config=WebSocketConfig::default().max_message_size(Some(MAX_SIGNAL)).max_frame_size(Some(MAX_SIGNAL)).write_buffer_size(0).max_write_buffer_size(MAX_SIGNAL*2);
-						let (replacement,_)=timeout(Duration::from_secs(15),tokio_tungstenite::connect_async_with_config(&url,Some(config),false)).await.map_err(|_|"Voice resume timed out; rejoin the call")?.map_err(|_|"Voice resume failed; rejoin the call")?;
-						ws=replacement;
-						json_send(&mut ws,json!({"op":7,"d":{"server_id":credentials.guild.unwrap_or(credentials.channel).to_string(),"session_id":credentials.session.expose(),"token":credentials.token.expose(),"seq_ack":seq_ack}})).await?;
-						continue;
-					}
+					_=>{reconnect=Some("Voice socket failed; rejoin the call");continue;}
 				};
 				if signal_window.elapsed()>Duration::from_secs(1){signal_window=Instant::now();signal_count=0;}
 				signal_count+=1;if signal_count>256{return Err("Voice signaling exceeded the bounded processing rate");}
@@ -580,7 +608,11 @@ async fn run_inner(
 								if !(100..=120000).contains(&interval) || heartbeat_ms.is_some(){return Err("Invalid voice heartbeat negotiation");}
 								heartbeat_ms=Some(interval.min(5000));heartbeat_at=Instant::now();
 							},
-							6=>{if awaiting_ack.is_none() || data["t"].as_u64()!=awaiting_ack {return Err("Invalid voice heartbeat acknowledgement");}awaiting_ack=None;},
+							6=>if acknowledges(awaiting_ack,missed_acks,data["t"].as_u64()) {
+								awaiting_ack=None;missed_acks=0;
+								// A healthy resumed socket renews the consecutive resume budget.
+								if !resuming {resume_attempts=0;}
+							},
 							2=>{
 								if udp.is_some(){return Err("Unexpected voice transport replacement; rejoin the call");}
 								ssrc=u32::try_from(number(data,"ssrc")?).map_err(|_|"Invalid voice SSRC")?;
@@ -646,22 +678,25 @@ async fn run_inner(
 										waiting_announced=true;
 										ready_announced=false;
 										emit(Status::WaitingForPeer).map_err(|_|"Call interface closed")?;
+									} else if was_ready {
+										// The remaining members still share the current epoch until the removal commit.
+										dave.ready=true;
+										deadline=None;
 									} else if was_group_member {
 										video.clear();
 										deadline=Some(Instant::now()+Duration::from_secs(30));
 										capture_reset=true;
 										mixer.clear();
-									} else if was_ready {
-										dave.ready=true;
-										deadline=None;
 									}
 								}
 							},
 							21=>{
 								video.clear();
 								if number(data,"protocol_version")?!=1 {return Err("Discord requested a voice encryption downgrade; call stopped");}
-								capture_reset=true;dave.pending=Some(transition(data)?);
-								if dave.pending==Some(0) {
+								capture_reset=true;
+								let id = transition(data)?;
+								dave.prepare_protocol(id);
+								if id == 0 {
 									if dave.session.is_ready(){
 										dave.execute(0)?;
 									} else if dave.alone(){
@@ -671,10 +706,10 @@ async fn run_inner(
 										ready_announced=false;
 										emit(Status::WaitingForPeer).map_err(|_|"Call interface closed")?;
 									} else {
-										dave.pending=None;dave.ready=false;
+										dave.pending_protocol=None;dave.ready=false;
 									}
 								} else {
-									json_send(&mut ws,json!({"op":23,"d":{"transition_id":dave.pending}})).await?;
+									json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;
 								}
 							},
 							22=>{video.clear();dave.execute(transition(data)?)?;},
@@ -713,7 +748,7 @@ async fn run_inner(
 							},
 							29|30=>{
 								video.clear();
-								ready_announced=false;waiting_announced=false;capture_reset=true;mixer.clear();
+								ready_announced=false;waiting_announced=false;
 								match dave.group_changed(opcode,data){
 									Ok(id)=>{if id!=0 {json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;}},
 									Err(_)=>{
@@ -723,9 +758,11 @@ async fn run_inner(
 										dave.reset()?;send(&mut ws,Message::Binary(dave.key_package()?.into())).await?;
 									}
 								}
+								// A live call only re-announces Ready with the new privacy code.
 								if dave.ready {
 									deadline=None;
 								} else {
+									capture_reset=true;mixer.clear();
 									deadline=Some(Instant::now()+Duration::from_secs(30));
 									emit(Status::Securing).map_err(|_|"Call interface closed")?;
 								}
@@ -734,6 +771,8 @@ async fn run_inner(
 						}
 					},
 					Message::Ping(data)=>send(&mut ws,Message::Pong(data)).await?,
+					// 4014: kicked, moved or the channel was deleted; Discord says not to reconnect.
+					Message::Close(Some(frame)) if u16::from(frame.code)==4014=>return Err(DISCONNECTED_BY_DISCORD),
 					Message::Close(_)=>return Err("Discord voice connection closed; rejoin the call"),
 					Message::Pong(_)=>{},
 					_=>return Err("Unsupported voice websocket frame"),
@@ -819,6 +858,18 @@ fn soundshare_announcement(audio: &mut Option<StreamAudio>, ssrc: u32) -> Option
 	let audio = audio.as_mut()?;
 	audio.speaking = true;
 	Some(json!({"op":5,"d":{"speaking":2,"delay":0,"ssrc":ssrc}}))
+}
+
+/// The voice server ended this device's session on purpose; rejoining automatically is wrong.
+pub const DISCONNECTED_BY_DISCORD: &str = "Discord disconnected this device from the call";
+
+/// Whether a heartbeat acknowledgement names the latest outstanding nonce or one of the
+/// `missed` heartbeats sent before it; a late acknowledgement still proves liveness.
+/// Others are stale duplicates of an already answered heartbeat and are ignored.
+fn acknowledges(awaiting: Option<u64>, missed: u8, nonce: Option<u64>) -> bool {
+	awaiting
+		.zip(nonce)
+		.is_some_and(|(latest, nonce)| latest.wrapping_sub(nonce) <= u64::from(missed))
 }
 
 /// Maps a voice signaling opcode to its diagnostics slot. Opcodes without a dedicated slot
@@ -1103,6 +1154,7 @@ async fn run_stream_inner(
 	let mut heartbeat_ms = None;
 	let mut heartbeat_at = Instant::now();
 	let mut heartbeat_nonce = 0u64;
+	let mut missed_acks = 0u8;
 	let mut awaiting_ack = None;
 	let mut seq_ack = -1i64;
 	let mut deadline = Some(Instant::now() + Duration::from_secs(90));
@@ -1121,7 +1173,7 @@ async fn run_stream_inner(
 		// epoch before any further packet is sent, including between paced batches.
 		if !announced
 			|| !dave.ready
-			|| dave.pending.is_some()
+			|| dave.transitioning()
 			|| !dave.session.is_ready()
 			|| video
 				.as_ref()
@@ -1174,19 +1226,22 @@ async fn run_stream_inner(
 					next_udp_ping=now+Duration::from_secs(5);
 				}
 				if let Some(interval)=heartbeat_ms && now>=heartbeat_at {
-					if awaiting_ack.is_some() {return Err("Discord stream heartbeat was not acknowledged");}
+					if awaiting_ack.is_some() {
+						missed_acks+=1;
+						if missed_acks>=2 {return Err("Discord stream heartbeat was not acknowledged");}
+					}
 					heartbeat_nonce=heartbeat_nonce.wrapping_add(1);
 					json_send(&mut ws,json!({"op":3,"d":{"t":heartbeat_nonce,"seq_ack":seq_ack}})).await?;
 					awaiting_ack=Some(heartbeat_nonce); heartbeat_at=now+Duration::from_millis(interval);
 				}
 				if secured_at.is_some_and(|at| now>=at+PEER_GRACE) && !discovering && dave.should_wait_for_peer() {dave.enter_sole_member_waiting()?;}
-				let waiting=dave.waiting && dave.pending.is_none() && encryption.is_some() && !discovering;
+				let waiting=dave.waiting && !dave.transitioning() && encryption.is_some() && !discovering;
 				if waiting {deadline=None;}
 				if waiting!=waiting_announced {
 					emit(if waiting {Status::WaitingForPeer} else {Status::Securing}).map_err(|_|"Stream interface closed")?;
 					waiting_announced=waiting;
 				}
-				let secure=dave.ready&&dave.session.is_ready()&&dave.pending.is_none()&&encryption.is_some()&&!discovering;
+				let secure=dave.ready&&dave.session.is_ready()&&!dave.transitioning()&&encryption.is_some()&&!discovering;
 				// A rekey can begin after initial readiness cleared the allocation deadline.
 				if !secure && !waiting {deadline.get_or_insert(now+Duration::from_secs(30));}
 				if secure && let Some(video)=&video && let Some(target)=rate.tick(now) {
@@ -1212,7 +1267,7 @@ async fn run_stream_inner(
 				if !secure && announced {announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);emit(Status::Securing).map_err(|_|"Stream interface closed")?;}
 				metrics.stream_state([
 					encryption.is_some() && !discovering, dave.ready, dave.session.is_ready(),
-					dave.pending.is_some(), waiting, announced,
+					dave.transitioning(), waiting, announced,
 					video.as_ref().is_some_and(|video|video.ready.load(Ordering::Acquire)),
 					share_audio.is_some() || audio.is_some(),
 				], video.as_ref().and_then(|video|video.audio.as_ref()).map_or(0,|source|source.len()));
@@ -1268,7 +1323,7 @@ async fn run_stream_inner(
 			frame=async {match video.as_mut() {Some(video)=>video.frames.recv().await,None=>std::future::pending().await}}, if outgoing.is_empty()=>{
 				let Some(frame)=frame else {return Ok(());};
 				if frame.data.len()>2*1024*1024 {return Err("Encoded stream frame exceeds the sharing limit");}
-				let secure=announced&&dave.ready&&dave.session.is_ready()&&dave.pending.is_none()&&encryption.is_some()&&!discovering&&video.as_ref().is_some_and(|video|video.ready.load(Ordering::Acquire));
+				let secure=announced&&dave.ready&&dave.session.is_ready()&&!dave.transitioning()&&encryption.is_some()&&!discovering&&video.as_ref().is_some_and(|video|video.ready.load(Ordering::Acquire));
 				if !secure {awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);continue;}
 				if awaiting_keyframe && !frame.keyframe {continue;}
 				let start=metrics.start();
@@ -1290,7 +1345,7 @@ async fn run_stream_inner(
 				if length>MAX_PACKET {continue;}
 				let Some(crypto)=&encryption else {continue;};
 				if let Some(video)=&video && let Some(feedback)=crypto.feedback(&packet[..length],video_ssrc) {
-					if announced && dave.ready && dave.pending.is_none() && video.ready.load(Ordering::Acquire) {
+					if announced && dave.ready && !dave.transitioning() && video.ready.load(Ordering::Acquire) {
 						let now=Instant::now();
 						rate.observe(feedback.loss,feedback.bitrate);
 						let missing=if rtx_ssrc!=0 {history.request(&feedback.nacks,now)} else {!feedback.nacks.is_empty()};
@@ -1340,7 +1395,7 @@ async fn run_stream_inner(
 						metrics.signal(signal_of(op),1);
 						match op {
 							8=>{let interval=data["heartbeat_interval"].as_f64().filter(|v|v.is_finite()&&*v>=100.&&*v<=120000.).ok_or("Invalid stream heartbeat")? as u64; heartbeat_ms=Some(interval.min(5000));heartbeat_at=Instant::now();},
-							6=>{if awaiting_ack.is_none()||data["t"].as_u64()!=awaiting_ack{return Err("Invalid stream heartbeat acknowledgement");}awaiting_ack=None;},
+							6=>if acknowledges(awaiting_ack,missed_acks,data["t"].as_u64()) {awaiting_ack=None;missed_acks=0;},
 							2=>{
 								if udp.is_some(){return Err("Unexpected stream transport replacement");}
 								audio_ssrc=u32::try_from(number(data,"ssrc")?).ok().filter(|ssrc|*ssrc!=0).ok_or("Invalid stream SSRC")?;
@@ -1376,7 +1431,7 @@ async fn run_stream_inner(
 								}
 							},
 							13=>{let user=id(data,"user_id")?;receivers.remove(user);if let Some(decoder)=decoder.as_ref(){remove_decoder(decoder,user);}mixer.remove(user);let was_group_member=dave.is_group_member(user);let was_ready=dave.ready;if dave.disconnect(user)?{if dave.alone(){announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);dave.enter_sole_member_waiting()?;deadline=None;}else if was_group_member{deadline=Some(Instant::now()+Duration::from_secs(30));announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);}else if was_ready{dave.ready=true;deadline=None;}}},
-							21=>{if number(data,"protocol_version")?!=1{return Err("Discord requested a stream encryption downgrade");}announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);dave.pending=Some(transition(data)?);if dave.pending==Some(0){if dave.session.is_ready(){dave.execute(0)?;}else if dave.alone(){dave.enter_sole_member_waiting()?;deadline=None;}else{dave.pending=None;dave.ready=false;}}else{json_send(&mut ws,json!({"op":23,"d":{"transition_id":dave.pending}})).await?;}},
+							21=>{if number(data,"protocol_version")?!=1{return Err("Discord requested a stream encryption downgrade");}announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);let id=transition(data)?;dave.prepare_protocol(id);if id==0{if dave.session.is_ready(){dave.execute(0)?;}else if dave.alone(){dave.enter_sole_member_waiting()?;deadline=None;}else{dave.pending_protocol=None;dave.ready=false;}}else{json_send(&mut ws,json!({"op":23,"d":{"transition_id":id}})).await?;}},
 							22=>{dave.execute(transition(data)?)?;},
 							24=>{if number(data,"protocol_version")?!=1{return Err("Unsupported stream DAVE version");}
 							if number(data,"epoch")?==1{announced=false;awaiting_keyframe=true;invalidate_stream(&mut video, &mut share_audio);dave.reinitialize()?;send(&mut ws,Message::Binary(dave.key_package()?.into())).await?;}},

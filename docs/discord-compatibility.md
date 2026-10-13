@@ -13,6 +13,91 @@ current page. Refresh/retry are explicit; there is no background polling or pers
 Opening a result uses the existing permission-checked message-history navigation.
 Closing, account changes, disconnects and relevant content/permission invalidation clear
 the snapshot. Source research and local HTTP/UI fixtures do not prove live acceptance.
+## Profile cosmetics — October 11, 2026
+
+Serein shows equipped avatar decorations, nameplates, profile effects and profile frames.
+All four are unofficial normal-client behavior: none appears in Discord's public bot
+documentation. Shapes come from the Userdoccers [user](https://docs.discord.food/resources/user#avatar-decoration-data-object),
+[collectibles](https://docs.discord.food/resources/collectibles) and
+[CDN](https://docs.discord.food/reference#cdn-endpoints) references. Layout,
+palette and timing rules were checked against the decompiled
+[official mobile client](https://github.com/Wumpus-Central/discord-mobile-datamining)
+(`modules/collectibles`) and a public [catalog snapshot](https://github.com/aamiaa/discord-api-diff)
+on October 11. Live delivery to normal accounts is unverified; offline fixtures do not
+establish it.
+
+- **Avatar decorations:** `avatar_decoration_data` on user objects, with guild member
+  values overriding it in that server (member rows, message members and server profiles).
+  Artwork is `/avatar-decoration-presets/{asset}.png` with `passthrough=true` for `a_`
+  presets. It is drawn at 1.2 times avatars of 30 points or larger, and animates while
+  hovered or on an open profile, like animated avatars.
+- **Nameplates:** `collectibles.nameplate`, also overridable per member. The still is
+  `/assets/collectibles/{asset}static.png`. The animated image comes from the
+  mobile-client route `/media/v1/collectibles-shop/{sku}/animated`, which is fetched only
+  while hovered. The official WebM is not decoded. Rows draw the right-aligned 16:3
+  artwork over a left-to-right gradient of the palette color from 0% to 30% opacity.
+  Dark and light colors are those observed in the client. Offline member rows and muted
+  DMs show only a 10% image until hovered. Nameplates appear in server member lists and
+  the one-to-one DM list.
+- **Profile effects and frames:** profile responses list them in `user_profile` and
+  `guild_member_profile` `collectibles` (type 1 = effect, 3 = frame). The older
+  `profile_effect.id` is accepted as the effect SKU, and a server profile's own values
+  take precedence. Details come from `GET /collectibles-products/{sku}`. This is the
+  same optional read the clients make. It is bounded to 256 KiB, has a two-second
+  deadline shared with board enrichment, and is cached for at most 64 SKUs per session.
+  Only an expired or challenged session fails the profile. Timeouts, oversized or refused
+  products and other errors leave it without that cosmetic. Oversized and refused SKUs are
+  remembered for the session so they are not read again. Effects and frames hidden in
+  Settings skip this read.
+- **Effects** play layers from `/assets/content/{hash}` or
+  `/media/v1/collectibles-shop/{hash}`. They use the official 450 x 880 canvas scaled to
+  the card, z-order, `start`, `duration`, `loop` and `loopDelay`, and a 500 ms intro
+  delay. The timeline starts once every layer has loaded or failed, so a short opening
+  layer is not skipped while it downloads. It restarts when the card reopens, and one
+  shared random index picks among `randomizedSources`. With animation disabled or the
+  window unfocused, the card shows `staticFrameSrc`, falling back to the first frame of `reducedMotionSrc`.
+- **Frames** fetch static layers from `/media/v1/collectibles-shop/{sku}/{layer}/static`
+  and scale them from `inner_width` (default 1200). Staples pin to the top or bottom and
+  overflow by `overflow_top`/`overflow_bottom`/`overflow_horizontal`. Rails align inside
+  the card height and are hidden when responsive and the card is at least 0.625 as wide
+  as it is tall. Borders tile down the card. Back layers sit behind the card and front
+  layers over it. The popout keeps the overflow on screen.
+
+Unknown palettes, layer kinds, anchors, malformed values and expired items are dropped
+without rejecting the user, member row or profile. Display-name styles and cosmetic
+editing are not supported. All four are opt-in: they stay hidden, unrequested and without
+catalog reads until enabled in Settings › Appearance › Profile cosmetics. This is a local
+display choice; nothing is sent to Discord.
+
+## Guild voice moderation — October 8, 2026
+
+Server mute/unmute and voice movement/disconnection use the documented
+[Modify Guild Member](https://docs.discord.com/developers/resources/guild#modify-guild-member)
+PATCH route with only `mute` or `channel_id` (null disconnects). A bounded 64 KiB
+member response must identify the requested user; mute replies must echo the requested
+value. Move completion is reflected by subsequent Gateway voice state, because the
+member response does not identify a voice channel. Source roster membership and
+loaded source/destination permissions are rechecked before dispatch. Existing REST
+deadlines, write ambiguity handling and the single administration request apply.
+Normal-account acceptance and live moderation have not been verified.
+
+## Gateway recovery after failed resumes — October 8, 2026
+
+An established connection first attempts to resume using the service-supplied
+resume address. After three consecutive failed resume attempts, it discards the
+old session, sequence and address, then identifies through the original validated
+gateway URL. Successful READY/RESUMED resets that counter; explicit recovery
+cancellation does not consume it. Existing connection deadlines, capped backoff
+and the six-attempt initial-login limit remain unchanged.
+
+Close codes received before HELLO follow the same policy as established sockets:
+expired credentials stop, invalid or expired sessions require a fresh Identify,
+and resumable closes retain their session within the failure budget. This follows
+Discord's documented [disconnect fallback](https://docs.discord.com/developers/events/gateway#handling-a-disconnect)
+and [Gateway close codes](https://docs.discord.com/developers/topics/opcodes-and-status-codes#gateway-gateway-close-event-codes).
+Normal-account use remains unofficial. Local WebSocket regressions exercise the
+recovery policy; they do not establish the cause of issue #577's macOS Wi-Fi
+failure or prove live Discord recovery.
 
 ## Profile boards — October 7, 2026
 
@@ -231,20 +316,59 @@ demand, debounced by 350 ms, spaced by at least one second, and time out after
 15 seconds. No complete directory is downloaded. Offline debug validation covers
 remote nickname mention insertion, stale replies and response limits.
 
-## Chat links — September 16, 2026
+## Chat links — October 8, 2026
 
 Clicked message and embed links matching HTTPS `/channels/{guild|@me}/{channel}`
 with an optional message ID navigate inside Serein. Exact discord.com and legacy
-discordapp.com hosts, including www, ptb and canary, are recognized. Known channels
-can be in another joined server or an existing DM/group DM. Message links reuse
-the bounded history window and target highlight; loaded messages scroll locally.
+discordapp.com hosts, including www, ptb and canary, are recognized, case-insensitively
+and with the default HTTPS port. Valid query/fragment suffixes do not change the
+target. Raw routing paths are validated before URL normalization; encoded paths,
+dot segments, credentials, non-default ports, spoof hosts and malformed IDs are
+not internal routes. Parsing is capped at 2,048 bytes.
+
+Bare message URLs and angle autolinks render as destination pills: channel-kind icon and
+name, then a message glyph or, for forum posts, the forum and post names. A link to
+another joined server shows that server's icon and name. Channel and conversation names
+come only from local metadata the session may view and read; rendering never fetches
+metadata. Unknown or hidden destinations use a generic label. Masked Markdown links
+retain their author-chosen text, code stays literal, and concealed spoilers do not expose
+or activate a pill. Copying a selected pill copies its original URL. Adjacent copies of
+the same URL stay separate pills, so a selection covering both copies both URLs. Pointer
+and keyboard activation use the same internal route; explicit Open in Discord controls
+still open the browser, and unrelated links retain existing confirmation behavior.
+
+Known channels can be in another joined server, an existing DM/group DM, a thread
+or a forum post (whose destination is the thread channel, not its parent).
 Guild/channel identity and current view/history permissions are checked first.
-Unknown channels (including unloaded archived threads), unsupported channel kinds,
-and unavailable messages retain explicit unavailable/error feedback. Links do not
-join servers, open unknown DMs or join calls. Explicit Open in Discord controls
-still open the browser; unrelated links keep their existing confirmation behavior.
-Parsing is click-triggered and capped at 2,048 bytes, with no new cache or transport.
-Verification uses synthetic data only; live Discord interoperability is unverified.
+An absent thread can be admitted only from the existing bounded archive page through
+its normal permission and metadata-budget guards. Unloaded archives, unknown channels
+and unsupported channel kinds remain unavailable; navigation does not discover
+arbitrary channels, join servers, open unknown DMs, unarchive threads or join calls.
+
+Fresh loaded messages, including an eligible dormant resident window that holds the
+live target, scroll and highlight locally without recent-history or saved-cursor
+revalidation; a restored window without it is not presented as loaded. Other message
+targets reuse the bounded 50-message request for the window before the target. One request-scoped target
+survives consumption of the UI scroll cue; completion verifies the exact message ID,
+not just a neighboring result. Repeated pending clicks share the request. Superseded,
+wrong-channel and old-session responses cannot settle the current target. Known
+deletions report deletion; a successful page without the target reports that it was
+not returned and may have been removed or become unavailable, not proof of deletion.
+Offline misses leave the current conversation, draft and navigation unchanged. An
+active window marked Stale by disconnection is not treated as Fresh; previously
+Fresh dormant windows still use their permission/identity/mutation eligibility guards.
+
+The wire history route and permission requirements are documented in Discord's
+[Message resource](https://docs.discord.com/developers/resources/message); forum/thread
+relationships are documented in [Threads](https://docs.discord.com/developers/topics/threads).
+Compact presentation and normal-account navigation are **unofficial compatibility**,
+not a documented native UI contract. Source comparisons included Discohook's
+[approximation renderer](https://github.com/discohook/discohook/blob/3e339e2f3fbe2c13570d25c1a5a52877c94f4fb2/packages/site/app/components/preview/Markdown.tsx#L432-L505),
+Vencord's [exact returned-ID check](https://github.com/Vendicated/Vencord/blob/718c867256a9d181edc7a534afb296b9bb41ab58/src/plugins/messageLinkEmbeds/index.tsx#L133-L164),
+Dissent's [loaded-row navigation](https://github.com/diamondburned/dissent/blob/6ff6182b1eac30d57e9c9c995942317eb42e3bf6/internal/messages/view.go#L398-L419)
+and Abaddon's [selection-aware generic links](https://github.com/uowuo/abaddon/blob/7b3a4ff97ae6490a15adaa0a792ea9225c4c9e51/src/components/chatmessage.cpp#L881-L912).
+These are pinned source inspections, not live client tests. Verification uses
+synthetic data only; live Discord interoperability remains **unverified**.
 
 ## Forum post context menu — September 15, 2026
 
@@ -958,7 +1082,7 @@ The composer now displays known user mentions as `@name`, Unicode as bundled Twe
 
 Guild voice entry uses the documented [Gateway voice state update and voice allocation flow](https://docs.discord.com/developers/topics/voice-connections): guild-scoped join/mute/leave, matching owner session plus guild server update, and guild ID as voice Identify/Resume server ID. The DAVE group remains identified by channel ID. This protocol documentation is not approval or live evidence for normal-user accounts. Server channel rosters use READY, GUILD_CREATE, VOICE_STATE_UPDATE and unofficial READY_SUPPLEMENTAL/PASSIVE_UPDATE_V2 shapes from the original [discord.py-self dispatcher](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py).
 
-The media engine extends the existing DAVE/Opus path to bounded group membership and simultaneous remote audio mixing. Server mute/deafen gates local media. Empty rooms wait without opening audio devices; microphone capture requires an established encrypted group. Stage channels and group DMs remain visibly unsupported. Main Gateway disconnect, channel/session moves, permission invalidation or voice server migration stop the current media session and require deliberate rejoin. No automatic call or DM ringing is triggered by viewing a roster or joining a guild channel.
+The media engine extends the existing DAVE/Opus path to bounded group membership and simultaneous remote audio mixing. Server mute/deafen gates local media. Empty rooms wait without opening audio devices; microphone capture requires an established encrypted group. Stage channels and group DMs remain visibly unsupported. Main Gateway disconnect, channel/session moves, permission invalidation or voice server migration stop the current media session and require deliberate rejoin. A dropped media session of a joined call (unacknowledged heartbeats, failed resume, negotiation timeout) is rejoined automatically up to three times by re-sending opcode 4 for the same channel; that Discord answers this with fresh voice credentials is unverified. No automatic call or DM ringing is triggered by viewing a roster or joining a guild channel.
 
 The implementation is tested with synthetic protocol/crypto/UI data. The owner-controlled official-client two-way audio, multi-party join/leave, permission, device and network tests in [voice.md](voice.md) remain required before claiming working live interoperability.
 
@@ -1592,8 +1716,14 @@ frames and playback-state changes request immediate repaint.
   fragmented files, external data references and encrypted tracks are rejected.
 * Linux: GStreamer `decodebin` pulls bounded byte ranges from that reader through
   `appsrc`; the installed plugins (base, good and libav are recommended by the package)
-  decide which codecs play. Output is 48 kHz stereo PCM and RGBA pictures with
-  orientation tags applied.
+  decide which codecs play. Output is 48 kHz stereo PCM and NV12/I420 pictures (caps
+  colorimetry) with orientation tags applied.
+
+VideoToolbox (attachments and live) and GStreamer hand over their native 4:2:0 planes;
+the renderer converts them to RGB on the GPU with the tagged BT.601/BT.709/BT.2020/SMPTE 240M
+matrix and range (BT.2020 gets its matrix only, no HDR tone mapping)
+(untagged HD is treated as BT.709, SD as BT.601, matching VideoToolbox's own conversion).
+Windows attachments still use the RGB32 reader; Windows live pictures stay NV12.
 
 Unsupported containers/codecs show an error inside the player with the existing
 download/open actions in the context menu. Limits are 100 MiB encoded, two hours, 1920 pixels per side and

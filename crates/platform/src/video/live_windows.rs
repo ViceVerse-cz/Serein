@@ -1,12 +1,13 @@
 //! Windows live H.264 decoding through the Media Foundation H.264 decoder transform. A DXGI
 //! device manager enables DXVA hardware decoding when the GPU offers it; without one the
 //! decoder runs in software. Output samples are read back through Media Foundation, so both
-//! paths deliver the same NV12 pictures, converted here to RGBA.
+//! paths deliver the same NV12 pictures, cropped here and converted to RGB by the renderer.
 #![allow(unsafe_code)]
 
 use super::{
-	INVALID, UNSUPPORTED,
+	Color, INVALID, Layout, Picture, UNSUPPORTED,
 	media_foundation::{Runtime, dxgi_manager},
+	picture::pack_plane,
 };
 pub use super::{LiveFrame as Frame, LiveSink as Sink, MAX_ACCESS_UNIT};
 use windows::{
@@ -257,7 +258,7 @@ impl H264Decoder {
 				return Ok(());
 			};
 			let bytes = sample_bytes(&sample)?;
-			(self.sink)(nv12_to_rgba(&bytes, format)?);
+			(self.sink)(crop_nv12(&bytes, format)?);
 		}
 	}
 }
@@ -316,8 +317,9 @@ fn sample_bytes(sample: &IMFSample) -> Result<Vec<u8>, &'static str> {
 	}
 }
 
-/// Convert one NV12 picture (limited-range BT.601, the WebRTC default) to packed RGBA.
-fn nv12_to_rgba(bytes: &[u8], format: OutputFormat) -> Result<Frame, &'static str> {
+/// Crop one strided NV12 picture to its display aperture as tightly packed NV12. The
+/// colour stays limited-range BT.601, the WebRTC default.
+fn crop_nv12(bytes: &[u8], format: OutputFormat) -> Result<Frame, &'static str> {
 	let (stride, height) = (format.stride as usize, format.height as usize);
 	let (x0, y0, width, out_height) = (
 		format.crop.0 as usize,
@@ -332,41 +334,77 @@ fn nv12_to_rgba(bytes: &[u8], format: OutputFormat) -> Result<Frame, &'static st
 	{
 		return Err(INVALID);
 	}
-	let (luma, chroma) = bytes.split_at(luma_len);
-	let mut rgba = vec![0; width * out_height * 4];
-	for y in 0..out_height {
-		let luma_row = &luma[(y0 + y) * stride..];
-		let chroma_row = &chroma[((y0 + y) / 2) * stride..];
-		let out = &mut rgba[y * width * 4..(y + 1) * width * 4];
-		for (x, pixel) in out.as_chunks_mut::<4>().0.iter_mut().enumerate() {
-			let sx = x0 + x;
-			let yy = f32::from(luma_row[sx]) - 16.0;
-			let u = f32::from(chroma_row[(sx / 2) * 2]) - 128.0;
-			let v = f32::from(chroma_row[(sx / 2) * 2 + 1]) - 128.0;
-			let r = 1.164 * yy + 1.596 * v;
-			let g = 1.164 * yy - 0.392 * u - 0.813 * v;
-			let b = 1.164 * yy + 2.017 * u;
-			// Round to the nearest channel value: limited-range white is 254.916 here.
-			*pixel = [
-				r.round().clamp(0.0, 255.0) as u8,
-				g.round().clamp(0.0, 255.0) as u8,
-				b.round().clamp(0.0, 255.0) as u8,
-				255,
-			];
+	let (odd_x, odd_y) = (x0 % 2, y0 % 2);
+	if odd_x + odd_y > 0 {
+		// H.264 4:2:0 crops in two-sample units, so decoders should not report this. Packed
+		// NV12 cannot start between chroma pairs: convert the enclosing even aperture on the
+		// CPU and trim the extra leading column/row instead of misaligning chroma.
+		let aligned = crop_nv12(
+			bytes,
+			OutputFormat {
+				crop: (
+					format.crop.0 - odd_x as u32,
+					format.crop.1 - odd_y as u32,
+					format.crop.2 + odd_x as u32,
+					format.crop.3 + odd_y as u32,
+				),
+				..format
+			},
+		)?;
+		let (aligned_width, _, rgba) = aligned.to_rgba().ok_or(INVALID)?;
+		let mut data = Vec::with_capacity(width * out_height * 4);
+		for row in rgba.chunks_exact(aligned_width as usize * 4).skip(odd_y) {
+			data.extend_from_slice(&row[odd_x * 4..]);
 		}
+		let picture = Picture {
+			width: format.crop.2,
+			height: format.crop.3,
+			layout: Layout::Rgba,
+			color: Color::WEBRTC,
+			rotation: 0,
+			data,
+		};
+		return picture.is_valid().then_some(picture).ok_or(INVALID);
 	}
-	Ok(Frame {
+	let (luma, chroma) = bytes.split_at(luma_len);
+	let len = Layout::Nv12
+		.len(format.crop.2, format.crop.3)
+		.ok_or(INVALID)?;
+	let mut data = Vec::with_capacity(len);
+	let (chroma_x, chroma_y) = (x0, y0 / 2);
+	pack_plane(
+		&mut data,
+		&luma[y0 * stride + x0..],
+		stride,
+		width,
+		out_height,
+	)
+	.and_then(|()| {
+		pack_plane(
+			&mut data,
+			&chroma[chroma_y * stride + chroma_x..],
+			stride,
+			width.div_ceil(2) * 2,
+			out_height.div_ceil(2),
+		)
+	})
+	.ok_or(INVALID)?;
+	let picture = Picture {
 		width: format.crop.2,
 		height: format.crop.3,
-		rgba,
-	})
+		layout: Layout::Nv12,
+		color: Color::WEBRTC,
+		rotation: 0,
+		data,
+	};
+	picture.is_valid().then_some(picture).ok_or(INVALID)
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
 	#[test]
-	fn nv12_conversion_crops_and_bounds() {
+	fn nv12_crops_to_the_aperture_and_bounds() {
 		let format = OutputFormat {
 			width: 4,
 			height: 2,
@@ -374,29 +412,44 @@ mod tests {
 			crop: (0, 0, 2, 2),
 		};
 		let mut bytes = vec![235u8; 8];
-		bytes.extend([128u8; 4]);
-		let frame = nv12_to_rgba(&bytes, format).unwrap();
+		bytes.extend([128u8, 128, 7, 7]);
+		let frame = crop_nv12(&bytes, format).unwrap();
 		assert_eq!((frame.width, frame.height), (2, 2));
+		assert_eq!(frame.data, [235, 235, 235, 235, 128, 128]);
+		let (_, _, rgba) = frame.to_rgba().unwrap();
 		assert!(
-			frame
-				.rgba
-				.as_chunks::<4>()
+			rgba.as_chunks::<4>()
 				.0
 				.iter()
 				.all(|px| *px == [255, 255, 255, 255])
 		);
-		assert!(nv12_to_rgba(&bytes[..6], format).is_err());
-		for (luma, expected) in [(16, 0), (126, 128), (0, 0), (255, 255)] {
-			bytes[..8].fill(luma);
-			assert!(
-				nv12_to_rgba(&bytes, format)
-					.unwrap()
-					.rgba
-					.as_chunks::<4>()
-					.0
-					.iter()
-					.all(|px| *px == [expected, expected, expected, 255])
-			);
-		}
+		assert!(crop_nv12(&bytes[..6], format).is_err());
+		let shifted = OutputFormat {
+			crop: (2, 0, 2, 2),
+			..format
+		};
+		assert_eq!(&crop_nv12(&bytes, shifted).unwrap().data[4..], &[7, 7]);
+		// An odd origin keeps chroma aligned through the RGBA fallback.
+		let odd = OutputFormat {
+			crop: (1, 0, 2, 2),
+			..format
+		};
+		let picture = crop_nv12(&bytes, odd).unwrap();
+		assert_eq!(
+			(picture.layout, picture.width, picture.height),
+			(Layout::Rgba, 2, 2)
+		);
+		let (_, _, aligned) = crop_nv12(
+			&bytes,
+			OutputFormat {
+				crop: (0, 0, 3, 2),
+				..format
+			},
+		)
+		.unwrap()
+		.to_rgba()
+		.unwrap();
+		assert_eq!(&picture.data[..8], &aligned[4..12]);
+		assert_eq!(&picture.data[8..], &aligned[16..24]);
 	}
 }

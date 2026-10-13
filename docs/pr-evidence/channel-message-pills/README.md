@@ -1,0 +1,182 @@
+# Channel and message pills — issue #576
+
+Baseline: `38d919d74054b885b992ce607f0bfa93ab449696`; runtime used for the
+screenshots and process comparison: `78de8d15`. The original checkout's
+untracked `community-extensions/` was preserved in a separate checkout. Both
+comparison builds use the new synthetic `channel-links` fixture and the same
+one-edge Cargo.lock repair: gpu-allocator 0.28.0 selects windows 0.62.2, matching
+wgpu-hal 30.0.1. The untouched lockfile cannot build that Windows renderer because
+it selects incompatible windows 0.61.3 types. No other baseline UI code changed.
+
+## Reproduce the render
+
+Use pinned Rust 1.98.1 and separate baseline/changed worktrees. In each worktree:
+
+```powershell
+cargo build --release --locked -p serein --features demo --example profile_preview
+$preview = Join-Path $env:CARGO_TARGET_DIR 'release/examples/profile_preview.exe'
+& $preview --demo --page=channel-links --width=1120 --height=900 --output=target/pills-dark.png
+& $preview --demo --page=channel-links --width=720 --height=900 --light --output=target/pills-light-narrow.png
+```
+
+Set `CARGO_TARGET_DIR` to an absolute build-cache directory first (or use
+`target/release/examples/profile_preview.exe` without that variable). Serialize
+builds that share a target directory, and preserve each comparison executable
+before building the other revision.
+
+The fixture contains all four channel kinds and four message-link variants,
+unknown destinations, a long Czech/Japanese post title, a named link, code and a
+hidden spoiler. It uses no service adapters, credentials or live account data.
+Images are eframe/WGPU framebuffer exports at 125% display scale, not OS window
+captures. The native Computer Use helper failed to connect to its pipe with
+`os error 2`; Orca was not installed. Native pointer/keyboard and screen-reader
+operation remain unverified. Synthetic egui input/accessibility-tree tests are
+separate evidence.
+
+Both dark/wide and light/narrow pairs were inspected. The corrected capture has
+uniform icon/text backgrounds, correct channel-type and message suffix icons,
+the forum/post breadcrumb and a synthetic foreign-server avatar. Long multilingual
+labels wrap inside the message column. Named links and hidden spoilers retain
+their existing behavior.
+
+## Process measurements
+
+Windows 11 Home 10.0.26200, Ryzen 7 7800X3D (16 logical CPUs), 33,410,678,784 bytes
+physical RAM; NVIDIA RTX 5070 Ti and AMD integrated graphics are available. The
+preview uses the existing WGPU renderer; its selected GPU/backend was not logged.
+
+Run `sample-process.ps1 -Executable <absolute-preview-path> -Output <json-path>`
+once per build. It launches only `--demo`, warms up for five seconds, then samples
+21 times at approximately one-second intervals using actual elapsed wall time.
+CPU is the process CPU-seconds delta divided by elapsed seconds (one-core
+percentage); working set and private bytes come from Windows process counters.
+This is a static idle fixture. No scripted scrolling or native input is claimed.
+Compiler activity on the shared machine introduces noise. Frame latency,
+startup latency and live Discord performance are unmeasured.
+
+| Process metric | Baseline | After | Delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| CPU, one-core percentage | 0.00% | 0.31% | +0.31 percentage points | Process CPU delta / elapsed time |
+| Peak / settled working set | 196,276,224 B | 198,307,840 B | +2,031,616 B / +1.04% | WorkingSet64; maximum / mean of last five samples |
+| Settled private bytes | 414,261,248 B | 415,698,944 B | +1,437,696 B / +0.35% | PrivateMemorySize64; mean of last five samples |
+
+Settled means the mean of the last five samples. Baseline elapsed sample time was
+20.536 s; after was 20.252 s. One sample series per build supports no performance
+improvement claim; raw counters and summary are committed alongside this file.
+
+Standard packages use `cargo xtask package`, without demo/developer features and
+with voice included. Baseline and changed `dist` directories are kept separate.
+Package bytes are the sum of files; compressed bytes use PowerShell
+`Compress-Archive -Path dist/* -CompressionLevel Optimal`. No package executable
+is launched with a saved session.
+
+Both standard production packages passed, with voice included and without demo
+or developer features. Package measurements:
+
+| Metric | Baseline | After | Delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| Executable | 85,449,728 B | 85,464,064 B | +14,336 B / +0.017% | serein.exe file length |
+| Installed files | 89,623,341 B | 89,637,677 B | +14,336 B / +0.016% | Sum of dist file lengths |
+| ZIP distribution | 49,775,655 B | 49,781,438 B | +5,783 B / +0.012% | Compress-Archive, Optimal; ZIP file length |
+
+NSIS is unavailable locally, so packaging produces an unsigned directory rather
+than an installer executable. The standard build emitted the existing OpenH264
+duplicate-object debug-info linker warning.
+
+## Verification limits
+
+The unchanged baseline UI suite has eight failures: six tests require empty
+platform output commands, and two emoji tests expect unescaped underscore
+labels. The task suite reproduces those failures. Native OS input/capture,
+macOS/Linux runtime behavior and live Discord compatibility are unverified.
+These prevent treating this change as ready to merge.
+
+`cargo xtask check` reached 1,154 passed, 8 baseline failures, 23 ignored. The
+changed UI suite had 414 passed, 8 baseline failures, 5 ignored. After the final
+background-only correction, all seven focused pill tests and strict workspace
+Clippy passed again. Formatting, production-only checking and policy checks also
+passed. See `checks.json` for the exact baseline failure names.
+
+## Review follow-up
+
+`f9e568c9` fixes biography destination metadata, localizes accessible labels,
+shares the renderer's source limit with metadata fingerprints, and adds table
+methods. `7d9c0d05` distinguishes Chinese thread and post labels. Ten focused
+pill tests pass, including synthetic egui biography rendering/keyboard navigation,
+the source-byte boundary, and distinct thread/post labels in every language.
+Formatting and strict workspace Clippy pass after the final translation fix.
+The full workspace run at `f9e568c9` has 1,157 passes, the same eight baseline
+failures, and 23 ignored tests; production-only and policy checks also pass.
+The historical screenshots and process samples above were not repeated for
+these review fixes; native input and capture remain unavailable.
+
+The standard voice-inclusive package at `7d9c0d05` passed with no demo/developer
+features. [review-package.json](review-package.json) records its sizes and SHA-256;
+the [performance report](../../performance.md#review-follow-up-package) compares
+it with the same baseline. NSIS remains unavailable locally; this is an unsigned
+directory and ZIP, not an installer executable.
+
+[Ubuntu CI at `7d9c0d05`](https://github.com/ViceVerse-cz/Serein/actions/runs/37639466527/job/112854794590)
+also failed on those same eight baseline UI tests (415 passed, 8 failed, 5 ignored).
+CodeRabbit approved the runtime changes and all five review threads were resolved;
+that approval does not waive the test and native-verification blockers.
+
+## Reply message links (2026-10-08)
+
+The reply preview now uses the same channel, forum/post and foreign-server
+destination metadata as the main message. Named links and code remain literal;
+the existing 120-character preview limit includes the semantic icon prefix.
+The icon background is painted at its actual size instead of using the enlarged
+blank font glyph that reserves its width.
+
+The new `channel-link-replies` page contains four synthetic original/reply pairs.
+Baseline `d2299412` was built with only this fixture added, before the runtime
+edit. `reply-before.png` / `reply-after.png` use 1120x900 dark; the
+`reply-*-light-narrow.png` pair uses 720x900 light. All four framebuffer exports
+were inspected, including the long Czech/Japanese post title and narrow reply
+truncation. Build and run with the commands above, replacing `channel-links`
+with `channel-link-replies`. These are eframe/WGPU exports, not OS captures.
+The installed native helper still reports `failed to connect native pipe:
+The system cannot find the file specified. (os error 2)`.
+
+The new regression first failed against the baseline raw URL, then passed for
+both themes, known/unknown destinations, literal/named links and Unicode bounds.
+The final UI suite has 418 passes, the same eight recorded baseline failures,
+and five ignored tests. The final serial `cargo xtask check` reached 1,158 passes,
+eight baseline failures and 23 ignored tests; formatting and strict workspace
+Clippy passed. An earlier parallel run stopped on an unrelated desktop audio
+timeout, which passed both its focused serial retry and this final full run.
+Policy checks also passed. [reply-checks.json](reply-checks.json) records the
+results. No live Discord, native input or screen-reader verification was performed.
+
+The same `sample-process.ps1` was copied locally with its page changed to
+`channel-link-replies`. The matched runs use the same host, renderer, 125% scale,
+five-second warmup and 21 samples as above, with 20.315 s baseline and 20.268 s
+changed sampling windows. The binaries were rebuilt and preserved separately.
+Concurrent compiler activity and OS residency introduce noise; this single idle
+series establishes no CPU or memory improvement. Working set rose 6.58%, while
+private bytes stayed approximately flat. See `reply-*-process.json` and
+`reply-process-summary.json` for the counters.
+
+| Process metric | Baseline | After | Delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| CPU, one-core percentage | 0.692% | 0.000% | -0.692 percentage points | Process CPU delta / elapsed time |
+| Peak working set | 200,089,600 B | 213,258,240 B | +13,168,640 B / +6.58% | WorkingSet64 maximum |
+| Settled working set | 200,089,600 B | 213,257,421 B | +13,167,821 B / +6.58% | WorkingSet64 mean of last five samples |
+| Settled private bytes | 416,260,096 B | 416,219,136 B | -40,960 B / -0.010% | PrivateMemorySize64 mean of last five samples |
+
+The fresh standard voice-inclusive package passed after the final reply painting
+fix, without demo/developer features. Its comparison uses the historical
+`7d9c0d05` package recorded above: the runtime source at that commit is identical
+to pre-fix `d2299412`, with only four documentation files changed in between.
+This is not a fresh simultaneous package baseline. See
+[reply-package.json](reply-package.json) for the new sizes and executable hash.
+
+| Package metric | Historical baseline | Reply fix | Delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| Executable | 85,464,576 B | 85,465,088 B | +512 B / +0.0006% | serein.exe file length |
+| Installed files | 89,638,189 B | 89,638,701 B | +512 B / +0.0006% | Sum of dist file lengths |
+| ZIP distribution | 49,781,661 B | 49,781,875 B | +214 B / +0.0004% | Compress-Archive, Optimal; ZIP file length |
+
+NSIS remains unavailable, so the result is an unsigned directory and ZIP.
+The existing OpenH264 duplicate-object debug-info linker warning remains.
