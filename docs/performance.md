@@ -4,6 +4,214 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Profile cosmetics — October 11, 2026
+
+Release builds of baseline `178bde35` and the cosmetics branch on Linux 7.2.9 (CachyOS),
+AMD Ryzen 7 7800X3D, 30 GiB RAM, under headless gamescope at 1440 x 900 and scale 1.0.
+Default features were used for the package; `--features demo` for the processes. Each run
+had a 5 s warmup followed by 20 s sampled from `/proc/<pid>/status` at 1 s intervals; the
+table shows the median of three runs. Both binaries were freshly copied first, so their
+pages were equally cached. An earlier run against the just-linked branch binary showed
+18 MiB more resident file pages from page-cache warmth. Heap and anonymous mappings were
+identical in that run, so it is a measurement artifact.
+
+| Metric | Baseline | Cosmetics | Delta |
+| --- | ---: | ---: | ---: |
+| Package executable | 87,314,600 B | 87,555,752 B | +241,152 B (+0.28%) |
+| Installed tree (`xtask package --format dir`) | 91,848,634 B | 92,089,786 B | +241,152 B (+0.26%) |
+| Installed tree, `tar` + `zstd -19` | 46,156,864 B | 46,280,238 B | +123,374 B (+0.27%) |
+| `serein --demo` settled / peak RSS | 134 / 149 MiB | 134 / 149 MiB | 0 |
+| `serein --demo` idle CPU (one core) | 0.25% | 0.25% | noise |
+| `profile_preview --page=collectibles` settled / peak RSS | 94 / 110 MiB | 95 / 111 MiB | about +1 MiB |
+| `profile_preview --page=collectibles` CPU | 0.25% | 0.25% | noise |
+
+CPU did not change on the fixture page, which suggests the headless window was not playing
+the effect (playback pauses while unfocused). Playback CPU was therefore not measured. Decoding two real Discord effect layers (450 x 880
+APNG) through the worker's effect budget took 96–138 ms and produced 25–31 frames at
+261 x 512. That is 13–16 MiB of frames per layer, against a 24 MiB layer budget and the
+existing 128 MiB animation pool.
+
+## GPU colour conversion for decoded video — October 11, 2026
+
+Decoders now hand over native 4:2:0 planes (VideoToolbox NV12, GStreamer NV12/I420,
+openh264 I420, Windows live NV12) and one render pass converts them on the GPU. Baseline
+`178bde35` (main) and the changed tree were compared with Rust 1.98.1 on the same machines.
+Native samples used the synthetic `--demo-video-playing` fixture replaced by a generated
+clip for the run only, release builds with LTO off, 5–6 s warm-up, then 10 s of process CPU
+time and peak RSS, alternating builds three times.
+
+| Workload | Before | After | Delta |
+| --- | ---: | ---: | ---: |
+| macOS M1 Pro, 1080p30 H.264 High + AAC, inline playback CPU | 38.9% | 32.5% | −16% |
+| macOS same run, peak RSS | 203.9 MiB | 177.0 MiB | −26.9 MiB |
+| Asahi Linux (M1, Vulkan, labwc), 720p30 H.264 Baseline via openh264dec, CPU | 97.0% | 60.4% | −38% |
+| Asahi same run, peak RSS | 294.9 MiB | 269.7 MiB | −25.2 MiB |
+| openh264 decode + handoff, 120 alternating 1080p/720p frames (release, median) | 473.2 ms | 208.1 ms | −56% |
+| openh264 shared scratch capacity | 8,294,400 B | 3,110,400 B | −62% |
+| macOS standard executable (`cargo xtask package`) | 68,706,864 B | 68,723,648 B | +16,784 B |
+| macOS dist directory / zipped app | 74,814,816 / 48,280,440 B | 74,831,600 / 48,288,340 B | +16,784 / +7,900 B |
+
+Rendered colour bars matched VideoToolbox's own BGRA conversion byte for byte on macOS and
+were identical on Linux. The macOS inline gain is smaller because VideoToolbox already
+converted in hardware; Windows live NV12 previously converted per pixel on the CPU, but
+Windows CPU, GPU memory and frame latency were not measured. Software numbers come from the
+ignored `compare_alternating_software_decode` workload. Live calls and streams were not used.
+
+## Long-session live memory inspection — October 9, 2026
+
+Read-only `vmmap -summary`, `footprint` and `heap -s` inspected the owner's already-running
+macOS process after 11 hours 33 minutes. No messages, calls, microphone use, UI interaction,
+restart, payload dump or credential access occurred. Host: Apple M1 Pro, 16 GiB RAM,
+macOS 27.0.1 (26A434). The installed executable's timestamp was October 7;
+its source commit and enabled features were unavailable. It therefore appears to predate
+main's October 8 idle-animation cleanup (`1b3e4a7b`), but this is not verified build provenance.
+
+Physical footprint was 382.0 MiB, with a lifetime peak of 528.6 MiB. Ordinary `ps` RSS was
+about 70.5 MiB; compressed/swapped private pages explain much of the discrepancy. The
+697.2 MiB resident-region sum includes shared code/library pages and is not the app's
+private footprint. The roughly 390 GiB virtual total is mostly reserved guard address
+space, not RAM consumption.
+
+| Allocation/category | Live snapshot | Interpretation |
+| --- | ---: | --- |
+| Allocated heap across malloc zones | 215.3 MiB | Includes Rust buffers and native objects; not all message state |
+| Heap dirty/swapped space beyond allocated bytes | 42.7 MiB | Allocator fragmentation/free space, as reported by `vmmap` |
+| Owned graphics backing | 84.4 MiB | Driver/GPU resources charged to the process |
+| IOSurface | 26.9 MiB | Shared graphics surfaces |
+| IOAccelerator graphics | 1.6 MiB | Additional mapped graphics resources |
+
+These categories leave roughly 11 MiB for other footprint charges. Heap inspection found
+205.7 MiB of untyped allocations, including hundreds of blocks around 208–800 KiB; this
+is consistent with decoded image/frame sizes, not proof of their owner. Allocation stack
+logging was not enabled, so exact attribution to Rust types/functions is unavailable.
+One snapshot and a lifetime peak do not demonstrate a leak or a growth rate. Aggregate
+sizes only are recorded here; no account data or heap payloads are published.
+A second `footprint` sample at 11 hours 54 minutes reported 362 MiB (about 20 MiB less),
+with graphics categories unchanged. The original production executable was still running;
+no fix had been installed. Host builds were active, and app interaction was not controlled,
+so this is an observation of ordinary variation, not an improvement from this PR.
+
+Current main additionally keeps inline still textures in a 96-MiB / 384-item pool until
+capacity eviction. The change expires renditions not painted for 60 seconds, using the
+existing maintenance wakeup. Visible renditions refresh their deadline, while viewer-close
+and five-second unplayed-frame cleanup retain their existing behavior. The pool's byte
+accounting describes retained texture/frame resources, not whole-process memory.
+
+Compared baseline `481a0c41` with this change on the same host, pinned Rust 1.98.1,
+locked dependencies and release profile (fat LTO). The ignored `ui` library workload
+`still_memory_workload` admits 160 synthetic 512×288 stills through the media library,
+consumes upload deltas, then advances the maintenance clock by 61 seconds without painting.
+It has no window, GPU, network or account. One warmup and three direct test-binary runs per
+revision produced identical retained-byte counts:
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Peak retained inline texture bytes | 94,371,840 (90 MiB) | 94,371,840 (90 MiB) | 0 |
+| Retained inline texture bytes after expiry | 94,371,840 (90 MiB) | 0 | −94,371,840 (−100%) |
+
+These are texture-size accounting values, not measured GPU allocations or process RSS.
+Regression tests additionally verify a renderer free delta, the exact expiry boundary,
+painting renewal, reload eligibility and viewer-close cleanup. Native desktop automation
+was not exposed in this session, so a scripted native populated-cache comparison was not
+obtained. Native GPU reclamation, before/after process footprint, day-long soak, frame
+latency and other platforms remain unmeasured. The production app was not replaced.
+
+Both revisions passed standard `cargo xtask package` with voice included, no default
+features and the locked release profile. Each app was saved separately; installed bytes
+sum all app files, and distribution ZIPs use `ditto -c -k --sequesterRsrc --keepParent`.
+
+| Package metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 68,657,520 B | 68,657,536 B | +16 B (+0.000023%) |
+| Installed app | 74,695,855 B | 74,695,871 B | +16 B (+0.000021%) |
+| Distribution ZIP | 48,255,410 B | 48,255,390 B | -20 B (-0.000041%) |
+
+These package deltas are negligible. Both packages were locally ad-hoc signed, not notarized.
+
+## Allocation-stack follow-up and idle artwork — October 10, 2026
+
+The owner's restarted current-main build (`0d9c6772`, optimized release with
+matching Rust symbols and `MallocStackLogging=lite`) was inspected after normal
+server, image, profile, call and streaming activity. No agent-driven messages,
+calls or microphone capture were performed. At roughly four minutes the process
+footprint was 290.4 MiB (503.3 MiB peak), with 67.0 MiB live malloc allocations.
+Graphics regions included 150.6 MiB owned unmapped backing, about 27 MiB IOSurface
+and 1.6 MiB IOAccelerator. The malloc-zone report also included 69.6 MiB dirty
+fragmentation/slack and 16.2 MiB profiling-tool data. These categories use
+different accounting rules; they must not be added to derive footprint.
+
+Allocation stacks identified 18.6 MiB for `ui::fonts::install_cjk` and 16.0 MiB
+for epaint's CPU glyph atlas. The two large worker groups from the earlier
+October 7 binary were absent. The previous 501.3-MiB and current 290.4-MiB live
+captures had different activity and duration: they are diagnostic snapshots,
+not a controlled improvement benchmark. Stack logging adds observer overhead.
+Only addresses/stacks and summaries were captured, never allocation contents;
+the sorted allocation report was capped at 16 MiB.
+
+The leak scanner flagged 40,016 bytes in 440 blocks. Most belonged to macOS
+AppIntents/XPC cycles; about 13 KiB traced to RNNoise's easyfft/generic_singleton
+thread-local FFT planner cache. Its dependency deliberately uses `Box::leak`;
+this small per-worker retention remains and is not fixed by artwork expiry.
+
+Avatar/banner/activity/sticker/picker textures and custom/high-resolution emoji
+textures previously stayed until their item/byte pools filled. They now expire
+after 60 seconds without use, using the existing host maintenance deadline.
+Visible and cached composer artwork refreshes the deadline. Composer layout only
+reads cached still textures; it neither refreshes nor requests clipped assets.
+Timeline custom/shared artwork and jumbo Unicode emoji resolve only for visible
+slots, so leading overscan rows cannot retain or repeatedly reload them. Expired
+artwork uses the normal bounded worker/disk-cache path when painted again.
+Existing 64-MiB artwork and 16-MiB emoji ceilings are unchanged.
+
+The ignored `avatars::tests::idle_artwork_workload` compares optimized release
+unit-test builds with the pinned Rust 1.98.1 toolchain and lockfile on macOS
+27.0.1 / Apple M1 Pro / 16 GiB RAM. The new harness was first run on unmodified baseline source before applying
+the runtime change. The same workload submits 932 synthetic
+64×64 RGBA textures without draining the existing 128-request batch, so only
+128 avatar textures are admitted. It advances the maintenance clock by 61
+seconds, with one warmup and three measured runs per build. All runs agree.
+This measures retained texture payload accounting without a window or network,
+not GPU allocation, process RSS, peak decoding memory or latency. Release samples
+are reused from initial implementation `2b60dd8c`; the review follow-up changes
+layout/paint access, not expiry accounting. One run of the final debug test binary
+confirmed the same 2,097,152 B peak and zero settled payload. A redundant optimized
+UI-test rebuild was stopped during compilation; it produced no new release sample.
+Separate UI
+regressions cover both cache pools, clipped/visible artwork, reloads and cached
+composer image painting. Native before/after process and GPU measurements are
+unmeasured; attempted standard-package `--demo` processes exited before a valid
+native sample could be captured. Their exit cause was not established and no
+zero-RSS result is used as evidence.
+
+| Texture payload metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Peak admitted payload | 2,097,152 B | 2,097,152 B | 0 B |
+| Payload after idle maintenance | 2,097,152 B | 0 B | -2,097,152 B / -100% |
+| Retained cache entries after idle maintenance | 128 | 0 | -128 |
+
+GPU drivers and allocators may reserve freed resources; these payload reductions
+are not an equal whole-process RAM reduction guarantee. Returning after expiry
+can re-decode cached artwork or fetch it again after a disk-cache miss. Font
+storage and the shared Unicode emoji atlas retain their existing lifetimes.
+
+The standard voice-inclusive package was rebuilt without demo/developer features.
+The preserved baseline is the verified PR #618 package at `c16cb2df`, whose source
+tree matches starting main `0d9c6772`; its executable hash was checked against
+the baseline copy before comparison. This is a reused baseline, not a simultaneous
+fresh package build. Both use the pinned release profile and lockfile.
+
+| Package metric | Baseline | After | Delta | Method |
+| --- | ---: | ---: | ---: | --- |
+| Executable | 68,657,536 B | 68,657,536 B | +0 B | Mach-O file length |
+| Installed bundle | 74,695,871 B | 74,695,871 B | +0 B | Sum of bundle file lengths |
+| ZIP | 48,255,390 B | 48,261,871 B | +6,481 B / +0.0134% | ditto -c -k --sequesterRsrc --keepParent |
+
+The ZIP difference is small compression/signing noise, not a meaningful package
+improvement. The local package is ad-hoc signed, not notarized. Full workspace
+checking passes (1,234 tests, zero failures), including formatting, strict Clippy
+and policy checks. Linux/Windows runtime behavior and a controlled live-account
+soak after this new artwork change remain unmeasured.
+
 ## Gateway resume fallback — October 8, 2026
 
 Compared baseline `2164f52e` with implementation `2ebc48a7` on Windows 11 x64,
@@ -140,6 +348,22 @@ These workloads can be repeated with the pinned toolchain using `cargo replay` f
 the existing ignored client-core, desktop-frame and replay-soak workloads for detailed memory work.
 The delivery skill documents how to compare a task baseline with the changed build. Do not compare
 results from different machines or claim live-client behavior from synthetic fixtures.
+
+## Voice participant controls (#592): Windows integration evidence - October 8, 2026
+
+Fresh standard Windows x64 voice-enabled packages compare main `1b3e4a7b` with `d14edbb4` (measured 2026-10-08). Baseline/current file counts: 216/216.
+
+| Metric | Main `1b3e4a7b` | Current integration | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 86,008,832 B | 86,089,216 B | +80,384 B (+0.0935%) |
+| Installed directory | 90,199,948 B | 90,280,332 B | +80,384 B (+0.0891%) |
+| Distribution ZIP | 50,001,798 B | 50,025,305 B | +23,507 B (+0.0470%) |
+
+Method: `cargo xtask package`, Rust 1.98.1, standard release flags without demo; Windows 11 build 26200, Ryzen 7 7800X3D, 32 GiB RAM. Runtime workspace artifacts were invalidated before each feature build. Installed bytes sum every file in `dist`; ZIP uses whole-directory .NET Optimal compression. NSIS was unavailable, so no installer executable was built.
+
+Alternating synthetic reducer replay (100,000 events): baseline median 76.5049 ms, range 74.0754-79.5180 ms; this change median 79.6071 ms, range 66.3717-83.4725 ms; median delta +3.1022 ms (+4.05%). One warmup each, then five baseline/controls/inbox rounds. All measured runs retained 500 records and 331,992-332,477 estimated timeline bytes (limit 4 MiB). The binaries were retained separately and workspace reducer artifacts rebuilt between variants. Concurrent compilation remained uncontrolled noise; overlapping ranges establish neither a performance improvement nor a regression.
+
+Current native CPU, memory, frame/startup latency and affected-device behavior remain unmeasured because the native automation bridge is unavailable. Package size and synthetic reducer timing do not establish live Discord performance.
 
 ## Window geometry minimum — October 7, 2026
 

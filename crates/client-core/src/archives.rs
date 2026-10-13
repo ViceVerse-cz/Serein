@@ -293,6 +293,7 @@ mod tests {
 			channel,
 			author: model::User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(2),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -331,6 +332,7 @@ mod tests {
 			selected: Some(Id(10)),
 			user: Some(model::User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(2),
 				name: "Synthetic".into(),
 				avatar: None,

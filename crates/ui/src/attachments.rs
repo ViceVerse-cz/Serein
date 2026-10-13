@@ -1637,6 +1637,7 @@ mod tests {
 				kind: Default::default(),
 				discriminator: 0,
 				primary_guild: None,
+				cosmetics: None,
 			},
 			content: String::new(),
 			author_nick: None,

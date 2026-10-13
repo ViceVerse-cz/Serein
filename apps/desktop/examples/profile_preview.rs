@@ -636,7 +636,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let args: Vec<_> = std::env::args().skip(1).collect();
 	let value = |prefix: &str| args.iter().find_map(|arg| arg.strip_prefix(prefix));
 	if !args.iter().any(|arg| arg == "--demo") {
-		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|channel-links|channel-link-replies|profile-card|member-tags|dm-tags|account|appearance|general|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--scroll=PIXELS] [--light] [--compact] [--transparency=0..100]".into());
+		return Err("Usage: profile_preview --demo [--output=PATH.png | --smoke | --interactive] [--page=stickers|slash-commands|slash-command-search|slash-command-options|profile|markdown|channel-links|channel-link-replies|profile-card|collectibles|member-tags|dm-tags|account|appearance|storage|general|keybinds|extensions|server|server-engagement|server-safety|server-emoji|server-stickers|server-members|server-roles|server-invites|server-integrations|server-audit-log] [--command=help|weather] [--themes] [--extension=ID] [--thumbnail] [--width=1120] [--height=760] [--scroll=PIXELS] [--light] [--compact] [--transparency=0..100]".into());
 	}
 	let smoke = args.iter().any(|arg| arg == "--smoke");
 	let interactive = args.iter().any(|arg| arg == "--interactive");
@@ -654,13 +654,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "slash-command-search"
 			| "slash-command-options"
 			| "profile-card"
+			| "collectibles"
 			| "member-tags"
 			| "markdown"
 			| "channel-links"
 			| "channel-link-replies"
 			| "dm-tags"
+			| "dm-intro"
+			| "channel-intro"
+			| "post-intro"
 			| "account"
 			| "appearance"
+			| "storage"
 			| "general"
 			| "keybinds"
 			| "extensions"
@@ -679,7 +684,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			| "forum-settings"
 			| "friends"
 	) {
-		return Err("Page must be profile, markdown, channel-links, channel-link-replies, profile-card, member-tags, dm-tags, account, appearance, general, keybinds, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement, server-safety, server-emoji, server-stickers, server-members, server-roles, server-invites, server-integrations or server-audit-log".into());
+		return Err("Page must be profile, markdown, channel-links, channel-link-replies, profile-card, collectibles, member-tags, dm-tags, account, appearance, storage, general, keybinds, extensions, slash-commands, slash-command-search, slash-command-options, server, server-engagement, server-safety, server-emoji, server-stickers, server-members, server-roles, server-invites, server-integrations or server-audit-log".into());
 	}
 	let slash_command = value("--command=").unwrap_or("help").to_owned();
 	if !matches!(slash_command.as_str(), "help" | "weather") {
@@ -799,6 +804,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				});
 			} else if page == "dm-tags" {
 				let _ = state.select(model::Id(22));
+			} else if let Some(channel) = match page.as_str() {
+				"dm-intro" => Some(model::Id(22)),
+				"channel-intro" => Some(model::Id(21)),
+				"post-intro" => Some(model::Id(27)),
+				_ => None,
+			} {
+				// A short synthetic conversation whose whole history fits one page.
+				state.gateway_connected = true;
+				state.auth = client_core::auth::AuthState::Authenticated;
+				if let Some(client_core::Command::History { request, .. }) = state.select(channel) {
+					let messages = (0..4u64)
+						.rev()
+						.map(|n| {
+							let mut message =
+								test_support::message(1_000_000 + n * 9_000_000_000_000, channel);
+							message.content = [
+								"Hey!",
+								"Synthetic hello",
+								"How was the trip?",
+								"Great, thanks",
+							][n as usize]
+								.into();
+							message.attachments.clear();
+							message.embeds.clear();
+							message.reactions = Some(vec![]);
+							message
+						})
+						.collect();
+					state.apply(client_core::Envelope {
+						generation: state.generation,
+						event: client_core::Event::History {
+							channel,
+							request,
+							older: false,
+							messages,
+						},
+					});
+				}
 			} else if page.starts_with("forum") {
 				state.gateway_connected = true;
 				state.auth = client_core::auth::AuthState::Authenticated;
@@ -837,7 +880,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 				);
 			} else if matches!(
 				page.as_str(),
-				"member-tags" | "dm-tags" | "markdown" | "channel-links" | "channel-link-replies"
+				"member-tags"
+					| "dm-tags" | "dm-intro"
+					| "channel-intro"
+					| "post-intro" | "markdown"
+					| "channel-links"
+					| "channel-link-replies"
 			) {
 				// State is primed above; the normal offline messaging surface renders the list.
 			} else if page == "slash-commands" {
@@ -856,6 +904,47 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 			} else if page == "stickers" {
 				test_support::seed_stickers(&mut state);
 				messaging.preview_sticker_picker();
+			} else if page == "collectibles" {
+				// Synthetic cosmetics: the UI draws their artwork locally, offline. They are
+				// opt-in, so this page turns all four on.
+				messaging.cosmetics = model::CosmeticPreferences::SHOWN;
+				let user = test_support::message(1, model::Id(20)).author;
+				let mut offline = test_support::message(2, model::Id(20)).author;
+				offline.id = model::Id(3);
+				offline.name = "Sky (synthetic)".into();
+				offline.cosmetics = user.cosmetics.clone();
+				let member = |user: model::User, status: &str| {
+					Some(model::MemberSlot::Person(model::Member {
+						user,
+						nick: None,
+						roles: vec![],
+						status: Some(status.into()),
+						custom_status: None,
+						activities: vec![],
+						clients: model::ClientPlatforms::default(),
+					}))
+				};
+				state.members = Some(model::MemberList {
+					channel: model::Id(20),
+					guild: Some(model::Id(10)),
+					request: 0,
+					total: 3,
+					start: 0,
+					lazy: false,
+					groups: vec![],
+					ranges: vec![],
+					freshness: model::Freshness::Fresh,
+					slots: vec![
+						member(user.clone(), "online"),
+						member(test_support::message(2, model::Id(20)).author, "online"),
+						member(offline, "offline"),
+					],
+				});
+				if args.iter().any(|arg| arg == "--full") {
+					messaging.preview_full_profile(user);
+				} else {
+					messaging.preview_profile_popout(user);
+				}
 			} else if page == "profile-card" {
 				state.demo = false;
 				state.gateway_connected = true;
@@ -957,6 +1046,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 						&page
 					},
 				);
+				if page == "storage" {
+					// Synthetic measurements; the demo image worker keeps no disk cache.
+					messaging.image_cache_usage = Some([
+						model::CacheUsage {
+							bytes: 318 * 1024 * 1024,
+							files: 1_204,
+						},
+						model::CacheUsage {
+							bytes: 9 * 1024 * 1024 + 300 * 1024,
+							files: 642,
+						},
+					]);
+				}
 				if page == "extensions" {
 					seed_catalog(
 						&mut messaging.extensions,

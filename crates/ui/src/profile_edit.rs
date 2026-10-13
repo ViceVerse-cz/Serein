@@ -732,6 +732,7 @@ mod tests {
 			kind: Default::default(),
 			discriminator: 0,
 			primary_guild: None,
+			cosmetics: None,
 		};
 		let mut profile = crate::profiles::synthetic(&user, None);
 		profile.global_name = Some("Before".into());

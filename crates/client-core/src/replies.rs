@@ -357,6 +357,7 @@ mod tests {
 			channel: Id(1),
 			author: User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(9),
 				name: "Synthetic".into(),
 				avatar: None,
@@ -1119,6 +1120,7 @@ mod tests {
 							avatar: None,
 							discriminator: 0,
 							primary_guild: None,
+							cosmetics: None,
 						},
 						mentions: vec![],
 						excerpt: "Synthetic".into(),

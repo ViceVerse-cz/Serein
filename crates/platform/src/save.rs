@@ -124,11 +124,23 @@ pub fn attachment_destination(
 	parent: Arc<winit::window::Window>,
 	filename: &str,
 ) -> impl std::future::Future<Output = Option<PathBuf>> + Send + 'static {
+	let filename = safe_filename(filename);
 	let dialog = rfd::AsyncFileDialog::new()
 		.set_parent(parent.as_ref())
-		.set_title("Save attachment")
-		.set_file_name(safe_filename(filename))
-		.save_file();
+		.set_title("Save attachment");
+	// Windows hides known extensions in the name box and only restores them from a
+	// default extension, which rfd derives from the first filter.
+	#[cfg(target_os = "windows")]
+	let dialog = match attachment_extension(&filename) {
+		Some(extension) => dialog
+			.add_filter(
+				format!("{} file", extension.to_ascii_uppercase()),
+				&[extension],
+			)
+			.add_filter("All files", &["*"]),
+		None => dialog,
+	};
+	let dialog = dialog.set_file_name(filename).save_file();
 	async move {
 		let file = dialog.await?;
 		drop(parent);
@@ -204,6 +216,16 @@ pub fn publish_new(source: &std::path::Path, destination: &std::path::Path) -> s
 	}
 }
 
+/// Short alphanumeric extension of a sanitized attachment name, if it has one.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn attachment_extension(filename: &str) -> Option<&str> {
+	let (stem, extension) = filename.rsplit_once('.')?;
+	(!stem.is_empty()
+		&& (1..=16).contains(&extension.len())
+		&& extension.bytes().all(|byte| byte.is_ascii_alphanumeric()))
+	.then_some(extension)
+}
+
 pub fn safe_filename(filename: &str) -> String {
 	let name: String = filename
 		.chars()
@@ -264,6 +286,11 @@ mod tests {
 			assert_eq!(super::safe_filename("report.pdf"), "report.pdf");
 			assert_eq!(super::safe_filename("archive.bin"), "archive.bin");
 			assert_eq!(super::safe_filename("..."), "attachment");
+			assert_eq!(super::attachment_extension("example.mp4"), Some("mp4"));
+			assert_eq!(super::attachment_extension("clip.final.MOV"), Some("MOV"));
+			for name in ["example", ".mp4", "archive.tar gz", "notes."] {
+				assert_eq!(super::attachment_extension(name), None);
+			}
 			for prefix in ["COM", "LPT", "com", "lpt"] {
 				for digit in ["1", "9", "¹", "²", "³"] {
 					let name = format!("{prefix}{digit}.png");

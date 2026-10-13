@@ -233,6 +233,7 @@ mod tests {
 				kind: Default::default(),
 				discriminator: 0,
 				primary_guild: None,
+				cosmetics: None,
 			}),
 			channels: vec![Channel {
 				id: Id(10),
@@ -255,6 +256,7 @@ mod tests {
 						kind: Default::default(),
 						discriminator: 0,
 						primary_guild: None,
+						cosmetics: None,
 					},
 					User {
 						id: Id(2),
@@ -264,6 +266,7 @@ mod tests {
 						kind: Default::default(),
 						discriminator: 0,
 						primary_guild: None,
+						cosmetics: None,
 					},
 					User {
 						id: Id(3),
@@ -273,6 +276,7 @@ mod tests {
 						kind: Default::default(),
 						discriminator: 0,
 						primary_guild: None,
+						cosmetics: None,
 					},
 				],
 			}],

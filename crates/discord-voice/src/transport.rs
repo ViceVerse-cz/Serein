@@ -357,6 +357,9 @@ async fn run_inner(
 	let mut heartbeat_at = Instant::now();
 	let mut awaiting_ack = None;
 	let mut heartbeat_nonce = 0u64;
+	let mut missed_acks = 0u8;
+	// Set when the signaling socket died or went silent; the next loop turn resumes it.
+	let mut reconnect: Option<&'static str> = None;
 	let mut deadline = Some(Instant::now() + Duration::from_secs(90));
 	let mut ready_announced = false;
 	let mut waiting_announced = false;
@@ -390,6 +393,37 @@ async fn run_inner(
 	let mut last_speakers = [0; 64];
 	let mut speakers_at = Instant::now();
 	loop {
+		if let Some(reason) = reconnect.take() {
+			if encryption.is_none() || resume_attempts >= 2 {
+				return Err(reason);
+			}
+			video.clear();
+			video.announced = false;
+			resume_attempts += 1;
+			resuming = true;
+			ready_announced = false;
+			waiting_announced = false;
+			capture_reset = true;
+			emit(Status::Securing).map_err(|_| "Call interface closed")?;
+			deadline = Some(Instant::now() + Duration::from_secs(30));
+			heartbeat_ms = None;
+			awaiting_ack = None;
+			missed_acks = 0;
+			let config = WebSocketConfig::default()
+				.max_message_size(Some(MAX_SIGNAL))
+				.max_frame_size(Some(MAX_SIGNAL))
+				.write_buffer_size(0)
+				.max_write_buffer_size(MAX_SIGNAL * 2);
+			let (replacement, _) = timeout(
+				Duration::from_secs(15),
+				tokio_tungstenite::connect_async_with_config(&url, Some(config), false),
+			)
+			.await
+			.map_err(|_| "Voice resume timed out; rejoin the call")?
+			.map_err(|_| "Voice resume failed; rejoin the call")?;
+			ws = replacement;
+			json_send(&mut ws,json!({"op":7,"d":{"server_id":credentials.guild.unwrap_or(credentials.channel).to_string(),"session_id":credentials.session.expose(),"token":credentials.token.expose(),"seq_ack":seq_ack}})).await?;
+		}
 		tokio::select! {
 			changed=controls.changed()=>{ if changed.is_err(){return Ok(());} },
 			_=video_tick.tick(), if !video.is_empty()=>{
@@ -408,7 +442,12 @@ async fn run_inner(
 					next_udp_ping=now+Duration::from_secs(5);
 				}
 				if let Some(interval)=heartbeat_ms && now>=heartbeat_at {
-					if awaiting_ack.is_some() {return Err("Discord voice heartbeat was not acknowledged; rejoin the call");}
+					// A delayed wake can find the acknowledgement still unread; only a second
+					// silent interval marks the socket as zombied, and Discord expects a resume.
+					if awaiting_ack.is_some() {
+						missed_acks+=1;
+						if missed_acks>=2 {reconnect=Some("Discord voice heartbeat was not acknowledged; rejoin the call");continue;}
+					}
 					heartbeat_nonce=heartbeat_nonce.wrapping_add(1);
 					json_send(&mut ws,json!({"op":3,"d":{"t":heartbeat_nonce,"seq_ack":seq_ack}})).await?;
 					awaiting_ack=Some(heartbeat_nonce);heartbeat_at=now+Duration::from_millis(interval);
@@ -552,18 +591,7 @@ async fn run_inner(
 				let event=match event {
 					// A server crash preserves the voice session. Other close codes remain terminal.
 					Some(Ok(message)) if !matches!(&message, Message::Close(Some(frame)) if u16::from(frame.code)==4015)=>message,
-					_=>{
-						if encryption.is_none() || resume_attempts>=2 {return Err("Voice socket failed; rejoin the call");}
-						video.clear();video.announced=false;
-						resume_attempts+=1;resuming=true;ready_announced=false;waiting_announced=false;capture_reset=true;
-						emit(Status::Securing).map_err(|_|"Call interface closed")?;
-						deadline=Some(Instant::now()+Duration::from_secs(30));heartbeat_ms=None;awaiting_ack=None;
-						let config=WebSocketConfig::default().max_message_size(Some(MAX_SIGNAL)).max_frame_size(Some(MAX_SIGNAL)).write_buffer_size(0).max_write_buffer_size(MAX_SIGNAL*2);
-						let (replacement,_)=timeout(Duration::from_secs(15),tokio_tungstenite::connect_async_with_config(&url,Some(config),false)).await.map_err(|_|"Voice resume timed out; rejoin the call")?.map_err(|_|"Voice resume failed; rejoin the call")?;
-						ws=replacement;
-						json_send(&mut ws,json!({"op":7,"d":{"server_id":credentials.guild.unwrap_or(credentials.channel).to_string(),"session_id":credentials.session.expose(),"token":credentials.token.expose(),"seq_ack":seq_ack}})).await?;
-						continue;
-					}
+					_=>{reconnect=Some("Voice socket failed; rejoin the call");continue;}
 				};
 				if signal_window.elapsed()>Duration::from_secs(1){signal_window=Instant::now();signal_count=0;}
 				signal_count+=1;if signal_count>256{return Err("Voice signaling exceeded the bounded processing rate");}
@@ -580,7 +608,11 @@ async fn run_inner(
 								if !(100..=120000).contains(&interval) || heartbeat_ms.is_some(){return Err("Invalid voice heartbeat negotiation");}
 								heartbeat_ms=Some(interval.min(5000));heartbeat_at=Instant::now();
 							},
-							6=>{if awaiting_ack.is_none() || data["t"].as_u64()!=awaiting_ack {return Err("Invalid voice heartbeat acknowledgement");}awaiting_ack=None;},
+							6=>if acknowledges(awaiting_ack,missed_acks,data["t"].as_u64()) {
+								awaiting_ack=None;missed_acks=0;
+								// A healthy resumed socket renews the consecutive resume budget.
+								if !resuming {resume_attempts=0;}
+							},
 							2=>{
 								if udp.is_some(){return Err("Unexpected voice transport replacement; rejoin the call");}
 								ssrc=u32::try_from(number(data,"ssrc")?).map_err(|_|"Invalid voice SSRC")?;
@@ -739,6 +771,8 @@ async fn run_inner(
 						}
 					},
 					Message::Ping(data)=>send(&mut ws,Message::Pong(data)).await?,
+					// 4014: kicked, moved or the channel was deleted; Discord says not to reconnect.
+					Message::Close(Some(frame)) if u16::from(frame.code)==4014=>return Err(DISCONNECTED_BY_DISCORD),
 					Message::Close(_)=>return Err("Discord voice connection closed; rejoin the call"),
 					Message::Pong(_)=>{},
 					_=>return Err("Unsupported voice websocket frame"),
@@ -824,6 +858,18 @@ fn soundshare_announcement(audio: &mut Option<StreamAudio>, ssrc: u32) -> Option
 	let audio = audio.as_mut()?;
 	audio.speaking = true;
 	Some(json!({"op":5,"d":{"speaking":2,"delay":0,"ssrc":ssrc}}))
+}
+
+/// The voice server ended this device's session on purpose; rejoining automatically is wrong.
+pub const DISCONNECTED_BY_DISCORD: &str = "Discord disconnected this device from the call";
+
+/// Whether a heartbeat acknowledgement names the latest outstanding nonce or one of the
+/// `missed` heartbeats sent before it; a late acknowledgement still proves liveness.
+/// Others are stale duplicates of an already answered heartbeat and are ignored.
+fn acknowledges(awaiting: Option<u64>, missed: u8, nonce: Option<u64>) -> bool {
+	awaiting
+		.zip(nonce)
+		.is_some_and(|(latest, nonce)| latest.wrapping_sub(nonce) <= u64::from(missed))
 }
 
 /// Maps a voice signaling opcode to its diagnostics slot. Opcodes without a dedicated slot
@@ -1108,6 +1154,7 @@ async fn run_stream_inner(
 	let mut heartbeat_ms = None;
 	let mut heartbeat_at = Instant::now();
 	let mut heartbeat_nonce = 0u64;
+	let mut missed_acks = 0u8;
 	let mut awaiting_ack = None;
 	let mut seq_ack = -1i64;
 	let mut deadline = Some(Instant::now() + Duration::from_secs(90));
@@ -1179,7 +1226,10 @@ async fn run_stream_inner(
 					next_udp_ping=now+Duration::from_secs(5);
 				}
 				if let Some(interval)=heartbeat_ms && now>=heartbeat_at {
-					if awaiting_ack.is_some() {return Err("Discord stream heartbeat was not acknowledged");}
+					if awaiting_ack.is_some() {
+						missed_acks+=1;
+						if missed_acks>=2 {return Err("Discord stream heartbeat was not acknowledged");}
+					}
 					heartbeat_nonce=heartbeat_nonce.wrapping_add(1);
 					json_send(&mut ws,json!({"op":3,"d":{"t":heartbeat_nonce,"seq_ack":seq_ack}})).await?;
 					awaiting_ack=Some(heartbeat_nonce); heartbeat_at=now+Duration::from_millis(interval);
@@ -1345,7 +1395,7 @@ async fn run_stream_inner(
 						metrics.signal(signal_of(op),1);
 						match op {
 							8=>{let interval=data["heartbeat_interval"].as_f64().filter(|v|v.is_finite()&&*v>=100.&&*v<=120000.).ok_or("Invalid stream heartbeat")? as u64; heartbeat_ms=Some(interval.min(5000));heartbeat_at=Instant::now();},
-							6=>{if awaiting_ack.is_none()||data["t"].as_u64()!=awaiting_ack{return Err("Invalid stream heartbeat acknowledgement");}awaiting_ack=None;},
+							6=>if acknowledges(awaiting_ack,missed_acks,data["t"].as_u64()) {awaiting_ack=None;missed_acks=0;},
 							2=>{
 								if udp.is_some(){return Err("Unexpected stream transport replacement");}
 								audio_ssrc=u32::try_from(number(data,"ssrc")?).ok().filter(|ssrc|*ssrc!=0).ok_or("Invalid stream SSRC")?;

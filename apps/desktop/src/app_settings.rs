@@ -74,6 +74,8 @@ impl Settings {
 			expanded_folders: ui.expanded_folders.clone(),
 			user_volumes: ui.voice_user_volume_overrides(),
 			muted_users: ui.voice_user_mutes().to_vec(),
+			cosmetics: ui.cosmetics,
+			image_cache: ui.image_cache,
 		};
 		if value != self.current {
 			self.state.touched = true;
@@ -117,6 +119,8 @@ impl Settings {
 		ui.expanded_folders.clone_from(&value.expanded_folders);
 		ui.set_voice_user_volume_overrides(&value.user_volumes);
 		ui.set_voice_user_mutes(&value.muted_users);
+		ui.cosmetics = value.cosmetics;
+		ui.image_cache = value.image_cache;
 	}
 }
 

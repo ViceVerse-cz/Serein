@@ -742,6 +742,7 @@ mod tests {
 					camera: false,
 					watching: None,
 					error: None,
+					reconnecting: None,
 				});
 				assert_eq!(
 					click_menu_action(&state, &user, "Start a Call", light, keyboard, true),

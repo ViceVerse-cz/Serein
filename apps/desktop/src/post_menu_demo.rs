@@ -261,6 +261,7 @@ pub fn check() {
 				avatar: None,
 				discriminator: 0,
 				primary_guild: None,
+				cosmetics: None,
 			},
 			roles: vec![Id(101)],
 			nick: None,

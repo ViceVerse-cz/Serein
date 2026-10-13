@@ -274,6 +274,36 @@ pub fn translate_count(key: &str, count: usize, values: &[(&'static str, &str)])
 	current().text_with_count(key, Some(count), values)
 }
 
+/// Like [`translate_args`], or `None` when the catalog lacks the key.
+pub fn try_translate_args(key: &str, values: &[(&'static str, String)]) -> Option<String> {
+	let mut args = FluentArgs::with_capacity(values.len());
+	for (name, value) in values {
+		args.set(*name, value.as_str());
+	}
+	current().lookup(key, Some(&args))
+}
+
+/// A system message's styled runs in the interface language.
+pub fn system_segments(system: &model::SystemMessage) -> Vec<model::Segment> {
+	system.localized(try_translate_args)
+}
+
+/// [`model::Message::display_text`] with system descriptions in the interface language.
+pub fn message_text(message: &model::Message) -> std::borrow::Cow<'_, str> {
+	let Some(system) = message.system_message() else {
+		return message.content.as_str().into();
+	};
+	let summary: String = system_segments(&system)
+		.iter()
+		.map(|segment| segment.text.as_str())
+		.collect();
+	if system.content_shown || message.content.is_empty() {
+		summary.into()
+	} else {
+		format!("{summary}\n{}", message.content).into()
+	}
+}
+
 /// Translate a semantic key while leaving service- or user-provided text untouched.
 pub fn translate_if_key(value: &str) -> String {
 	current()
@@ -408,6 +438,55 @@ mod tests {
 				&[("name", "General")],
 			),
 			"Delete \u{2068}General\u{2069}? Its channels will remain in the server. This cannot be undone."
+		);
+	}
+
+	#[test]
+	fn system_messages_keep_styled_names_in_every_catalog() {
+		let mut message = test_support::message(1, model::Id(2));
+		message.author.name = "m.artin".into();
+		message.content.clear();
+		let english = (0..=u8::MAX)
+			.filter_map(|kind| {
+				message.kind = kind;
+				message.system_message()
+			})
+			.collect::<Vec<_>>();
+		for language in Language::ALL {
+			set_current(language);
+			for system in &english {
+				let segments = system_segments(system);
+				let names = |segments: &[model::Segment]| {
+					segments.iter().filter(|s| s.user.is_some()).count()
+				};
+				assert_eq!(
+					names(&segments),
+					names(&system.segments),
+					"{language:?} {}",
+					system.key
+				);
+				let text: String = segments.iter().map(|s| s.text.as_str()).collect();
+				assert!(
+					!text.contains(['\u{e000}', '\u{2068}', '\u{2069}'])
+						&& !text.starts_with("Unknown localization key:"),
+					"{language:?} {}: {text}",
+					system.key
+				);
+			}
+		}
+		set_current(Language::Czech);
+		message.kind = 7;
+		let joined = system_segments(&message.system_message().unwrap());
+		assert_eq!(joined[1].text, "m.artin");
+		assert!(joined[1].strong);
+		assert_eq!(
+			joined.iter().map(|s| s.text.as_str()).collect::<String>(),
+			"Vítejte, m.artin! Připojil(a) se k serveru."
+		);
+		set_current(Language::English);
+		assert_eq!(
+			message_text(&message),
+			"Welcome, m.artin! Joined the server."
 		);
 	}
 

@@ -107,6 +107,8 @@ Use `net-im/serein-bin` in the keyword file and emerge command to install the pr
 
 #### 4. Nix (flake)
 
+Nix installs are updated through Nix, not the in-app updater. On macOS the build produces an unsigned, non-notarized `Serein.app`. See the [Nix package guide](nix/README.md) for the development shell and details.
+
 The repository flake builds Serein from source for `x86_64-linux` and `aarch64-darwin`:
 
 ```sh
@@ -114,7 +116,87 @@ nix run github:ViceVerse-cz/Serein#serein
 nix profile install github:ViceVerse-cz/Serein#serein
 ```
 
-Nix installs are updated through Nix, not the in-app updater. On macOS the build produces an unsigned, non-notarized `Serein.app`. See the [Nix package guide](nix/README.md) for the development shell and details.
+Or declaring it in the flake
+
+Both modules below take `inputs` as an argument, so your flake must pass it through `specialArgs` (NixOS) and `extraSpecialArgs` (Home Manager). Without this, importing the modules fails with a missing `inputs` argument.
+
+`flake.nix`
+```nix
+{
+    inputs = {
+        nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+        home-manager = {
+            url = "github:nix-community/home-manager";
+            inputs.nixpkgs.follows = "nixpkgs";
+        };
+        serein = {
+            url = "github:ViceVerse-cz/Serein";
+            inputs.nixpkgs.follows = "nixpkgs";
+        };
+    };
+
+    outputs = { nixpkgs, home-manager, ... }@inputs: {
+        # NixOS
+        nixosConfigurations.hostname = nixpkgs.lib.nixosSystem {
+            system = "x86_64-linux";
+            specialArgs = { inherit inputs; };
+            modules = [ ./configuration.nix ];
+        };
+
+        # Standalone Home Manager
+        homeConfigurations.username = home-manager.lib.homeManagerConfiguration {
+            pkgs = nixpkgs.legacyPackages.x86_64-linux;
+            extraSpecialArgs = { inherit inputs; };
+            modules = [ ./home-manager.nix ];
+        };
+    };
+}
+```
+
+If you use Home Manager as a NixOS module instead, pass `inputs` through its own option:
+
+```nix
+{
+    nixosConfigurations.hostname = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        specialArgs = { inherit inputs; };
+        modules = [
+            ./configuration.nix
+            home-manager.nixosModules.home-manager
+            {
+                home-manager.extraSpecialArgs = { inherit inputs; };
+                home-manager.users.username = import ./home-manager.nix;
+            }
+        ];
+    };
+}
+```
+
+`configuration.nix`
+```nix
+{
+    inputs,
+    pkgs,
+    ...
+}: {
+    environment.systemPackages = [
+        inputs.serein.packages.${pkgs.stdenv.hostPlatform.system}.default
+    ];
+}
+```
+
+`home-manager.nix`
+```nix
+{
+    inputs,
+    pkgs,
+    ...
+}: {
+    home.packages = [
+        inputs.serein.packages.${pkgs.stdenv.hostPlatform.system}.default
+    ];
+}
+```
 
 #### 5. Standalone AppImage (Portable)
 

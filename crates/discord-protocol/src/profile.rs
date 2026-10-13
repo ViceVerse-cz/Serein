@@ -1,5 +1,8 @@
 //! Unofficial normal-user profile response; see docs/discord-compatibility.md for source evidence.
-use crate::{DecodeError, UserDto};
+use crate::{
+	DecodeError, UserDto,
+	collectibles::{self, Equipped, Lenient},
+};
 use model::{
 	GuildProfile, Id, ProfileBadge, ProfileConnection, ProfileGame, ProfileGameWidget,
 	ProfileGameWidgetKind, ProfileGuild, UserProfile,
@@ -198,6 +201,8 @@ struct Metadata {
 	accent_color: Option<u32>,
 	theme_colors: Option<Small<u32, 2>>,
 	guild_id: Option<GuildId>,
+	profile_effect: Option<Lenient<collectibles::LegacyEffectDto>>,
+	collectibles: Option<Lenient<Vec<Lenient<collectibles::EquippedDto>>>>,
 }
 #[derive(Deserialize)]
 #[serde(untagged)]
@@ -224,6 +229,8 @@ struct Member {
 	bio: Option<String>,
 	joined_at: Option<String>,
 	user: Option<UserDto>,
+	avatar_decoration_data: collectibles::DecorationField,
+	collectibles: collectibles::CollectiblesField,
 }
 #[derive(Deserialize)]
 struct Badge {
@@ -395,7 +402,10 @@ pub fn decode_profile(
 		.global_name
 		.as_ref()
 		.map(|s| text(s.clone(), 128, &mut limited));
-	let metadata = dto.user_profile.unwrap_or_default();
+	let mut metadata = dto.user_profile.unwrap_or_default();
+	let mut equipped =
+		Equipped::parse(metadata.collectibles.take(), metadata.profile_effect.take());
+	let mut member_cosmetics = None;
 	let mut badges: Vec<_> = dto
 		.badges
 		.items
@@ -412,7 +422,16 @@ pub fn decode_profile(
 	badges.shrink_to_fit();
 	let guild = match (guild, dto.guild_member) {
 		(Some(guild), Some(mut member)) => {
-			let profile = dto.guild_member_profile.unwrap_or_default();
+			let mut profile = dto.guild_member_profile.unwrap_or_default();
+			// A server profile's own effect or frame replaces the account's in that server.
+			let server =
+				Equipped::parse(profile.collectibles.take(), profile.profile_effect.take());
+			equipped.effect = server.effect.or(equipped.effect);
+			equipped.frame = server.frame.or(equipped.frame);
+			member_cosmetics = Some((
+				member.avatar_decoration_data.take(),
+				member.collectibles.take(),
+			));
 			limited |= member.roles.limited;
 			member.roles.items.sort_unstable();
 			if member.roles.items.iter().any(|id| id.0 == 0)
@@ -449,7 +468,10 @@ pub fn decode_profile(
 			};
 			(top <= 0xff_ffff && bottom <= 0xff_ffff).then_some([top, bottom])
 		});
-	let user = dto.user.user.into_model();
+	let mut user = dto.user.user.into_model();
+	if let Some((decoration, nameplate)) = member_cosmetics {
+		collectibles::apply_member(&mut user, decoration, nameplate);
+	}
 	let clan = user.primary_guild.as_deref().cloned();
 	let mut profile = UserProfile {
 		user,
@@ -497,6 +519,10 @@ pub fn decode_profile(
 		theme_colors,
 		clan,
 		board,
+		effect_sku: equipped.effect,
+		frame_sku: equipped.frame,
+		effect: None,
+		frame: None,
 		limited,
 	};
 	// Discard optional board summaries first; preserve complete editable profile fields.
@@ -560,6 +586,40 @@ mod tests {
 				assert!(decode_profile(value.to_string().as_bytes(), None, true).is_err());
 			}
 		}
+	}
+	#[test]
+	fn equipped_effects_frames_and_server_decorations_are_read_leniently() {
+		let value = json!({"user":{"id":"1","username":"n","avatar_decoration_data":{"asset":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sku_id":"4"}},
+			"user_profile":{"profile_effect":{"id":"10","expires_at":null},"collectibles":[{"sku_id":"11","type":3}]},
+			"guild_member":{"roles":[],"avatar_decoration_data":{"asset":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","sku_id":"5"}},
+			"guild_member_profile":{"guild_id":"2","collectibles":[{"sku_id":"12","type":1}]}});
+		let server = decode_profile(value.to_string().as_bytes(), Some(Id(2)), false).unwrap();
+		assert_eq!(
+			(server.effect_sku, server.frame_sku),
+			(Some(Id(12)), Some(Id(11)))
+		);
+		let decoration = server
+			.user
+			.cosmetics
+			.as_deref()
+			.unwrap()
+			.decoration
+			.as_ref()
+			.unwrap();
+		assert_eq!(decoration.asset, "b".repeat(32));
+		let mut value = value;
+		let object = value.as_object_mut().unwrap();
+		object.remove("guild_member");
+		object.remove("guild_member_profile");
+		let account = decode_profile(value.to_string().as_bytes(), None, false).unwrap();
+		assert_eq!(
+			(account.effect_sku, account.frame_sku),
+			(Some(Id(10)), Some(Id(11)))
+		);
+		assert!(account.valid() && account.effect.is_none());
+		let odd = json!({"user":{"id":"1","username":"n"},"user_profile":{"profile_effect":"x","collectibles":{"a":1}}});
+		let odd = decode_profile(odd.to_string().as_bytes(), None, false).unwrap();
+		assert!(odd.effect_sku.is_none() && odd.frame_sku.is_none() && !odd.limited);
 	}
 	#[test]
 	fn unrequested_null_mutuals_do_not_hide_real_profile_limits() {

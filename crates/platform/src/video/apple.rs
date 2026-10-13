@@ -4,20 +4,26 @@
 #![allow(unsafe_code)]
 
 use super::{
-	INVALID, Info, MAX_BYTES, ReadSeek, Sample, UNSUPPORTED,
+	Color, INVALID, Info, Layout, MAX_BYTES, Matrix, Picture, ReadSeek, Sample, UNSUPPORTED,
 	mp4::{self, AudioCodec, Movie, SampleEntry, VideoCodec},
+	picture::pack_plane,
 };
-use objc2_core_foundation::{CFDictionary, CFNumber, CFRetained};
+use objc2_core_foundation::{CFArray, CFDictionary, CFNumber, CFRetained, CFString};
 use objc2_core_media::{
 	CMBlockBuffer, CMFormatDescription, CMSampleBuffer, CMSampleTimingInfo, CMTime, CMTimeFlags,
 	CMVideoFormatDescriptionCreateFromH264ParameterSets,
 	CMVideoFormatDescriptionCreateFromHEVCParameterSets, kCMBlockBufferAssureMemoryNowFlag,
 };
 use objc2_core_video::{
-	CVImageBuffer, CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow,
-	CVPixelBufferGetDataSize, CVPixelBufferGetHeight, CVPixelBufferGetPixelFormatType,
-	CVPixelBufferGetWidth, CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags,
-	CVPixelBufferUnlockBaseAddress, kCVPixelBufferPixelFormatTypeKey, kCVPixelFormatType_32BGRA,
+	CVImageBuffer, CVPixelBufferGetBaseAddressOfPlane, CVPixelBufferGetBytesPerRowOfPlane,
+	CVPixelBufferGetHeight, CVPixelBufferGetHeightOfPlane, CVPixelBufferGetPixelFormatType,
+	CVPixelBufferGetPlaneCount, CVPixelBufferGetWidth, CVPixelBufferGetWidthOfPlane,
+	CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress,
+	kCVImageBufferYCbCrMatrix_ITU_R_601_4, kCVImageBufferYCbCrMatrix_ITU_R_709_2,
+	kCVImageBufferYCbCrMatrix_ITU_R_2020, kCVImageBufferYCbCrMatrix_SMPTE_240M_1995,
+	kCVImageBufferYCbCrMatrixKey, kCVPixelBufferPixelFormatTypeKey,
+	kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+	kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
 };
 use objc2_video_toolbox::{
 	VTDecodeFrameFlags, VTDecodeInfoFlags, VTDecompressionOutputCallbackRecord,
@@ -47,10 +53,15 @@ const MAX_AUDIO_FRAMES: usize = 4096;
 struct Decoded {
 	/// Presentation time in video track ticks.
 	pts: i64,
-	width: u32,
-	height: u32,
-	rgba: Vec<u8>,
+	picture: Picture,
 }
+
+/// The decoders' native bi-planar 4:2:0 outputs; VideoToolbox picks the stream's own range,
+/// so no pixel transfer runs before the renderer converts colour.
+pub(super) const NV12_FORMATS: [u32; 2] = [
+	kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+	kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+];
 
 /// Shared with the VideoToolbox output callback: decoded frames or the first failure.
 struct Output {
@@ -104,7 +115,7 @@ impl Decoder {
 			&format,
 			Arc::as_ptr(&output).cast_mut().cast::<c_void>(),
 			output_frame,
-			kCVPixelFormatType_32BGRA,
+			&NV12_FORMATS,
 			None,
 		)?;
 		let audio = match &movie.audio {
@@ -183,9 +194,7 @@ impl Decoder {
 				let frame = self.reorder.swap_remove(index);
 				return Ok(Some(Sample::Video {
 					pts: self.movie.video.track.seconds(frame.pts),
-					width: frame.width,
-					height: frame.height,
-					rgba: frame.rgba,
+					picture: frame.picture,
 				}));
 			}
 			if self.video_done {
@@ -426,14 +435,17 @@ pub(super) fn create_session(
 		CMTime,
 		CMTime,
 	),
-	pixel_format: u32,
+	pixel_formats: &[u32],
 	decoder_specification: Option<&CFDictionary>,
 ) -> Result<Session, &'static str> {
-	let pixel_format = CFNumber::new_i32(pixel_format as i32);
+	let numbers: Vec<_> = pixel_formats
+		.iter()
+		.map(|format| CFNumber::new_i32(*format as i32))
+		.collect();
+	let formats = CFArray::from_retained_objects(&numbers);
 	// SAFETY: The static key is a valid CFString; the dictionary is a plain attribute map.
-	let attributes = unsafe {
-		CFDictionary::from_slices(&[kCVPixelBufferPixelFormatTypeKey], &[&*pixel_format])
-	};
+	let attributes =
+		unsafe { CFDictionary::from_slices(&[kCVPixelBufferPixelFormatTypeKey], &[&*formats]) };
 	let record = VTDecompressionOutputCallbackRecord {
 		decompressionOutputCallback: Some(callback),
 		decompressionOutputRefCon: refcon,
@@ -502,75 +514,98 @@ unsafe extern "C-unwind" fn output_frame(
 		(pts.value as f64 / f64::from(pts.timescale) * f64::from(output.timescale)).round() as i64
 	};
 	// SAFETY: VideoToolbox keeps the image buffer alive for the duration of the callback.
-	match unsafe { copy_rgba(&*image) } {
-		Ok((width, height, rgba)) => {
-			let (width, height, rgba) = if output.rotation == 0 {
-				(width, height, rgba)
-			} else {
-				super::rotate_rgba(&rgba, width, height, output.rotation)
-			};
+	match unsafe { copy_nv12(&*image) } {
+		Ok(mut picture) => {
+			// The renderer applies the track rotation; the planes stay in coded orientation.
+			picture.rotation = output.rotation as u16;
 			output.frames.push(Decoded {
 				pts: ticks,
-				width,
-				height,
-				rgba,
+				picture,
 			});
 		}
 		Err(error) => output.error = Some(error),
 	}
 }
 
-/// Copy one BGRA picture into a tightly packed RGBA buffer after checking every bound.
-pub(super) unsafe fn copy_rgba(
-	pixels: &CVImageBuffer,
-) -> Result<(u32, u32, Vec<u8>), &'static str> {
+/// Copy one bi-planar 4:2:0 picture into tightly packed NV12 after checking every bound.
+pub(super) unsafe fn copy_nv12(pixels: &CVImageBuffer) -> Result<Picture, &'static str> {
 	let width = CVPixelBufferGetWidth(pixels);
 	let height = CVPixelBufferGetHeight(pixels);
-	let stride = CVPixelBufferGetBytesPerRow(pixels);
 	let (w, h) = (
 		u32::try_from(width).map_err(|_| INVALID)?,
 		u32::try_from(height).map_err(|_| INVALID)?,
 	);
 	super::check_dimensions(w, h)?;
-	let row_bytes = width * 4;
-	let total = stride.checked_mul(height).ok_or(INVALID)?;
-	if CVPixelBufferGetPixelFormatType(pixels) != kCVPixelFormatType_32BGRA
-		|| stride < row_bytes
-		|| total > MAX_BYTES
-		|| total > CVPixelBufferGetDataSize(pixels)
+	let format = CVPixelBufferGetPixelFormatType(pixels);
+	if !NV12_FORMATS.contains(&format) {
+		return Err(INVALID);
+	}
+	let full_range = format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
+	let (chroma_width, chroma_height) = (width.div_ceil(2), height.div_ceil(2));
+	if CVPixelBufferGetPlaneCount(pixels) != 2
+		|| CVPixelBufferGetWidthOfPlane(pixels, 0) != width
+		|| CVPixelBufferGetHeightOfPlane(pixels, 0) != height
+		|| CVPixelBufferGetWidthOfPlane(pixels, 1) != chroma_width
+		|| CVPixelBufferGetHeightOfPlane(pixels, 1) != chroma_height
 	{
 		return Err(INVALID);
 	}
+	// SAFETY: The static keys are valid CFStrings and the attachment is a retained copy.
+	let matrix = unsafe {
+		pixels
+			.attachment(kCVImageBufferYCbCrMatrixKey, null_mut())
+			.and_then(|value| {
+				let value = value.downcast_ref::<CFString>()?;
+				[
+					(kCVImageBufferYCbCrMatrix_ITU_R_709_2, Matrix::Bt709),
+					(kCVImageBufferYCbCrMatrix_ITU_R_601_4, Matrix::Bt601),
+					(kCVImageBufferYCbCrMatrix_ITU_R_2020, Matrix::Bt2020),
+					(kCVImageBufferYCbCrMatrix_SMPTE_240M_1995, Matrix::Smpte240m),
+				]
+				.into_iter()
+				.find_map(|(tag, matrix)| (value == tag).then_some(matrix))
+			})
+	};
+	let color = match matrix {
+		Some(matrix) => Color { matrix, full_range },
+		None => Color::untagged(h, full_range),
+	};
+	let len = Layout::Nv12.len(w, h).ok_or(INVALID)?;
+	if len > MAX_BYTES {
+		return Err(INVALID);
+	}
 	// SAFETY: The buffer is locked read-only for the copy and always unlocked afterwards;
-	// the byte count was validated against the buffer's own data size.
+	// each plane is read only within its own reported stride and row count.
+	let mut data = Vec::with_capacity(len);
 	unsafe {
 		if CVPixelBufferLockBaseAddress(pixels, CVPixelBufferLockFlags::ReadOnly) != 0 {
 			return Err(INVALID);
 		}
-		let base = CVPixelBufferGetBaseAddress(pixels);
-		let result = if base.is_null() {
-			Err(INVALID)
-		} else {
-			let source = std::slice::from_raw_parts(base.cast::<u8>(), total);
-			let mut rgba = vec![0; width * height * 4];
-			for (row, target) in source
-				.chunks_exact(stride)
-				.zip(rgba.chunks_exact_mut(row_bytes))
-			{
-				for (pixel, out) in row[..row_bytes]
-					.as_chunks::<4>()
-					.0
-					.iter()
-					.zip(target.as_chunks_mut::<4>().0.iter_mut())
-				{
-					*out = [pixel[2], pixel[1], pixel[0], 255];
-				}
-			}
-			Ok((w, h, rgba))
-		};
+		let mut copied = Some(());
+		for (plane, row_bytes, rows) in [(0, width, height), (1, chroma_width * 2, chroma_height)] {
+			let base = CVPixelBufferGetBaseAddressOfPlane(pixels, plane);
+			let stride = CVPixelBufferGetBytesPerRowOfPlane(pixels, plane);
+			copied = copied.and_then(|()| {
+				let total = stride
+					.checked_mul(rows)
+					.filter(|total| *total <= MAX_BYTES)?;
+				(!base.is_null()).then_some(())?;
+				let source = std::slice::from_raw_parts(base.cast::<u8>(), total);
+				pack_plane(&mut data, source, stride, row_bytes, rows)
+			});
+		}
 		CVPixelBufferUnlockBaseAddress(pixels, CVPixelBufferLockFlags::ReadOnly);
-		result
+		copied.ok_or(INVALID)?;
 	}
+	let picture = Picture {
+		width: w,
+		height: h,
+		layout: Layout::Nv12,
+		color,
+		rotation: 0,
+		data,
+	};
+	picture.is_valid().then_some(picture).ok_or(INVALID)
 }
 
 fn audio_decoder(track: &mp4::AudioTrack) -> Result<Box<dyn AudioDecoder>, &'static str> {
@@ -613,14 +648,11 @@ mod tests {
 			}
 			for sample in [video, audio].into_iter().flatten() {
 				match sample {
-					Sample::Video {
-						pts,
-						rgba,
-						width,
-						height,
-					} => {
-						assert_eq!((width, height), (320, 180));
-						assert_eq!(rgba.len(), (width * height * 4) as usize);
+					Sample::Video { pts, picture } => {
+						assert_eq!((picture.width, picture.height), (320, 180));
+						assert_eq!(picture.layout, Layout::Nv12);
+						assert!(picture.is_valid());
+						let (_, _, rgba) = picture.to_rgba().unwrap();
 						assert!(rgba.windows(4).any(|pixel| pixel[0] != pixel[1]));
 						assert!(pts > last_pts, "{pts} after {last_pts}");
 						last_pts = pts;
@@ -680,15 +712,16 @@ mod tests {
 		}
 		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(portrait))).unwrap();
 		assert_eq!((decoder.info().width, decoder.info().height), (180, 320));
-		let Some(Sample::Video {
-			width,
-			height,
-			rgba,
-			..
-		}) = decoder.read_video().unwrap()
-		else {
+		let Some(Sample::Video { picture, .. }) = decoder.read_video().unwrap() else {
 			panic!("Missing portrait frame");
 		};
+		// Planes stay in coded orientation; the display turns them upright.
+		assert_eq!(
+			(picture.width, picture.height, picture.rotation),
+			(320, 180, 90)
+		);
+		assert_eq!(picture.display_size(), (180, 320));
+		let (width, height, rgba) = picture.to_rgba().unwrap();
 		assert_eq!((width, height, rgba.len()), (180, 320, 180 * 320 * 4));
 
 		{

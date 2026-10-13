@@ -107,6 +107,8 @@ pub struct StreamPreview {
 	pub url: Option<String>,
 	pub error: Option<&'static str>,
 }
+/// Automatic rejoins after joined media drops before the call fails.
+pub const MAX_REJOIN_ATTEMPTS: u8 = 3;
 pub struct Call {
 	pub channel: Id,
 	pub guild: Option<Id>,
@@ -123,6 +125,9 @@ pub struct Call {
 	/// Participant whose screen share this device explicitly chose to watch.
 	pub watching: Option<Id>,
 	pub error: Option<&'static str>,
+	/// Automatic rejoin after joined media dropped: the attempt (1-based) and why it dropped.
+	/// Cleared once the replacement session connects.
+	pub reconnecting: Option<(u8, &'static str)>,
 }
 impl Call {
 	/// Discord's microphone indicator: deafening always reads (and is sent) as muted.
@@ -573,6 +578,7 @@ impl ClientState {
 			watching: None,
 			participants,
 			error: None,
+			reconnecting: None,
 		});
 		if self.voice.incoming == Some(channel) {
 			self.voice.incoming = None;
@@ -583,6 +589,44 @@ impl ClientState {
 			ring,
 			mute: muted || deafened,
 			deaf: deafened,
+		}))
+	}
+	/// Joined media for `request` dropped; keep the call (and Discord's voice state) while the
+	/// desktop waits to rejoin. Media-dependent state ends with the old session.
+	pub fn reconnect_call(&mut self, request: u64, attempt: u8, reason: &'static str) {
+		if let Some(call) = &mut self.voice.active
+			&& call.request == request
+			&& call.phase != Phase::Failed
+		{
+			call.phase = Phase::Connecting;
+			call.camera = false;
+			call.watching = None;
+			call.reconnecting = Some((attempt, reason));
+		}
+	}
+	/// Rejoin the reconnecting call with a fresh Discord voice session, as Discord's client
+	/// does after its media connection drops. Never rings and keeps the mute choice.
+	pub fn rejoin_call(&mut self) -> Option<crate::Command> {
+		let call = self.voice.active.as_ref()?;
+		if call.reconnecting.is_none()
+			|| call.phase == Phase::Failed
+			|| !self.gateway_connected
+			|| !self.can_call(call.channel)
+		{
+			return None;
+		}
+		let muted = call.muted || !self.can_speak(call.channel);
+		self.voice.sequence = self.voice.sequence.wrapping_add(1);
+		let request = self.voice.sequence;
+		let call = self.voice.active.as_mut()?;
+		call.request = request;
+		call.muted = muted;
+		Some(crate::Command::Voice(Command::Join {
+			channel: call.channel,
+			request,
+			ring: false,
+			mute: muted || call.deafened,
+			deaf: call.deafened,
 		}))
 	}
 	pub fn leave_call(&mut self) -> Option<crate::Command> {
@@ -998,6 +1042,9 @@ impl ClientState {
 					&& call.phase != Phase::Failed
 				{
 					call.phase = phase;
+					if matches!(phase, Phase::Connected | Phase::Waiting) {
+						call.reconnecting = None;
+					}
 					if matches!(phase, Phase::Connected | Phase::Failed) {
 						self.voice.outgoing = None;
 					}
@@ -1024,6 +1071,7 @@ impl ClientState {
 					call.phase = Phase::Failed;
 					call.camera = false;
 					call.watching = None;
+					call.reconnecting = None;
 					call.error.get_or_insert(message);
 					call.participants.clear();
 				}
@@ -1155,6 +1203,7 @@ impl ClientState {
 			call.phase = Phase::Failed;
 			call.camera = false;
 			call.watching = None;
+			call.reconnecting = None;
 			call.error.get_or_insert(reason);
 			call.participants.clear();
 		}
@@ -1178,6 +1227,7 @@ mod tests {
 				kind: Default::default(),
 				discriminator: 0,
 				primary_guild: None,
+				cosmetics: None,
 			}),
 			guilds: vec![model::Guild {
 				default_message_notifications: None,
@@ -1381,6 +1431,7 @@ mod tests {
 				gateway_connected: true,
 				user: Some(User {
 					primary_guild: None,
+					cosmetics: None,
 					id: Id(1),
 					name: "Owner".into(),
 					avatar: None,
@@ -1541,6 +1592,7 @@ mod tests {
 				roles: vec![],
 				user: User {
 					primary_guild: None,
+					cosmetics: None,
 					id: Id(2),
 					name: "x".repeat(MAX_ROSTER_BYTES),
 					avatar: None,
@@ -1657,6 +1709,7 @@ mod tests {
 				gateway_connected: true,
 				user: Some(User {
 					primary_guild: None,
+					cosmetics: None,
 					id: Id(1),
 					name: "Owner".into(),
 					avatar: None,
@@ -1814,6 +1867,7 @@ mod tests {
 			gateway_connected: true,
 			user: Some(User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(1),
 				name: "Owner".into(),
 				avatar: None,
@@ -1831,6 +1885,7 @@ mod tests {
 				kind: 1,
 				recipients: vec![User {
 					primary_guild: None,
+					cosmetics: None,
 					id: Id(3),
 					name: "Peer".into(),
 					avatar: None,
@@ -2103,6 +2158,7 @@ mod tests {
 				gateway_connected: true,
 				user: Some(User {
 					primary_guild: None,
+					cosmetics: None,
 					id: Id(1),
 					name: "Owner".into(),
 					avatar: None,
@@ -2120,6 +2176,7 @@ mod tests {
 					kind: 1,
 					recipients: vec![User {
 						primary_guild: None,
+						cosmetics: None,
 						id: Id(3),
 						name: "Peer".into(),
 						avatar: None,

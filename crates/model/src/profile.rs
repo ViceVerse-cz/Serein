@@ -135,6 +135,12 @@ pub struct UserProfile {
 	pub clan: Option<ClanTag>,
 	/// Absent when the service withholds the board; never synthesized for live accounts.
 	pub board: Option<Vec<ProfileGameWidget>>,
+	/// Equipped profile effect and frame SKUs. Their artwork comes from a separate optional
+	/// catalog read, so `effect`/`frame` may stay empty while the SKU is known.
+	pub effect_sku: Option<crate::Id>,
+	pub frame_sku: Option<crate::Id>,
+	pub effect: Option<Box<crate::ProfileEffect>>,
+	pub frame: Option<Box<crate::ProfileFrame>>,
 	pub limited: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -274,6 +280,8 @@ fn bytes(value: &Option<String>) -> usize {
 impl UserProfile {
 	pub fn bytes(&self) -> usize {
 		size_of::<Self>()
+			+ self.effect.as_ref().map_or(0, |effect| effect.bytes())
+			+ self.frame.as_ref().map_or(0, |frame| frame.bytes())
 			+ self.board.as_ref().map_or(0, |board| {
 				board.capacity() * size_of::<ProfileGameWidget>()
 					+ board
@@ -330,6 +338,19 @@ impl UserProfile {
 	}
 	pub fn valid(&self) -> bool {
 		self.bytes() <= MAX_PROFILE_BYTES
+			&& self
+				.user
+				.cosmetics
+				.as_deref()
+				.is_none_or(crate::Cosmetics::valid)
+			&& self
+				.effect
+				.as_deref()
+				.is_none_or(|effect| effect.valid() && Some(effect.sku) == self.effect_sku)
+			&& self
+				.frame
+				.as_deref()
+				.is_none_or(|frame| frame.valid() && Some(frame.sku) == self.frame_sku)
 			&& self.board.as_ref().is_none_or(|board| {
 				board.len() <= 4
 					&& board.iter().enumerate().all(|(index, widget)| {
@@ -451,6 +472,7 @@ mod banner_tests {
 			avatar: Some("a_abcdef0123456789abcdef0123456789".into()),
 			discriminator: 0,
 			primary_guild: None,
+			cosmetics: None,
 		};
 		assert_eq!(
 			user.avatar_url(),
@@ -465,6 +487,7 @@ mod banner_tests {
 			avatar: Some("0123456789abcdef0123456789abcdef".into()),
 			discriminator: 0,
 			primary_guild: None,
+			cosmetics: None,
 		};
 		assert_eq!(
 			static_user.avatar_url(),
@@ -487,6 +510,10 @@ mod banner_tests {
 			theme_colors: None,
 			clan: None,
 			board: None,
+			effect_sku: None,
+			frame_sku: None,
+			effect: None,
+			frame: None,
 			limited: false,
 		};
 		assert_eq!(

@@ -146,6 +146,7 @@ mod tests {
 		let mut state = State {
 			user: Some(User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(9),
 				name: "Synthetic member".into(),
 				avatar: None,
@@ -268,6 +269,7 @@ mod tests {
 			channel: Id(100),
 			author: User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(9),
 				name: "Synthetic".into(),
 				avatar: None,

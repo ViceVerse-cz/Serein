@@ -53,6 +53,13 @@ impl State {
 		self.show(ctx);
 		ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
 	}
+	/// macOS Cmd+W: hides the window without the close path, so it never exits the app.
+	#[cfg(target_os = "macos")]
+	#[allow(dead_code)]
+	pub fn hide(&mut self, ctx: &egui::Context) {
+		self.hidden = true;
+		ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+	}
 	pub fn quit(&mut self, ctx: &egui::Context) {
 		self.exiting = true;
 		self.close_after_show = true;

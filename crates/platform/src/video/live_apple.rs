@@ -10,7 +10,7 @@ use objc2_core_media::{
 	CMBlockBuffer, CMFormatDescription, CMSampleBuffer, CMSampleTimingInfo, CMTime, CMTimeFlags,
 	CMVideoFormatDescriptionCreateFromH264ParameterSets, kCMBlockBufferAssureMemoryNowFlag,
 };
-use objc2_core_video::{CVImageBuffer, kCVPixelFormatType_32BGRA};
+use objc2_core_video::CVImageBuffer;
 use objc2_video_toolbox::{
 	VTDecodeFrameFlags, VTDecodeInfoFlags, kVTVideoDecoderBadDataErr,
 	kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder,
@@ -88,8 +88,7 @@ impl H264Decoder {
 			self.active = None;
 			let format = format_description(sps, pps)?;
 			let refcon = Arc::as_ptr(&self.output).cast_mut().cast::<c_void>();
-			// BGRA is the output every VideoToolbox decoder provides; RGBA sessions are created
-			// but fail on the first picture.
+			// Hardware decoders produce bi-planar 4:2:0 natively; the renderer converts colour.
 			// SAFETY: The static key is valid; the dictionary lives through session creation.
 			let specification = unsafe {
 				CFDictionary::from_slices(
@@ -101,7 +100,7 @@ impl H264Decoder {
 				&format,
 				refcon,
 				output_frame,
-				kCVPixelFormatType_32BGRA,
+				&apple::NV12_FORMATS,
 				Some(specification.as_opaque()),
 			)?;
 			self.active = Some(Active {
@@ -298,12 +297,8 @@ unsafe extern "C-unwind" fn output_frame(
 		return;
 	}
 	// SAFETY: VideoToolbox keeps the image buffer alive for the duration of the callback.
-	match unsafe { apple::copy_rgba(&*image) } {
-		Ok((width, height, rgba)) => (output.sink)(Frame {
-			width,
-			height,
-			rgba,
-		}),
+	match unsafe { apple::copy_nv12(&*image) } {
+		Ok(picture) => (output.sink)(picture),
 		Err(error) => output.error = Some(error),
 	}
 }
