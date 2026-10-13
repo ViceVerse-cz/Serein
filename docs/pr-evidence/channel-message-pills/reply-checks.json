@@ -1,0 +1,35 @@
+﻿{
+    "source_base_commit":  "d22994121c818cd7fb5c48a33d670fc624dc8888",
+    "date":  "2026-10-08",
+    "new_reply_regression":  "failed against baseline raw URL, passed after fix",
+    "format":  "passed",
+    "strict_workspace_clippy":  "passed after final painting correction",
+    "policy":  "passed",
+    "ui":  {
+               "ignored":  5,
+               "failed":  8,
+               "passed":  418
+           },
+    "serial_workspace":  {
+                             "passed":  1158,
+                             "failed":  8,
+                             "command":  "cargo xtask check",
+                             "rust_test_threads":  1,
+                             "ignored":  23,
+                             "status":  "stopped at recorded baseline UI failures"
+                         },
+    "baseline_failures":  [
+                              "composer_tests::incoming_custom_status_updates_people_and_open_profile_without_refetch",
+                              "composer_tests::reply_controls_are_inert_when_deleted_loading_stale_or_unavailable",
+                              "composer_tests::reply_original_buttons_navigate_locally_or_request_one_page_without_sending",
+                              "composer_tests::unread_pages_and_return_to_present_preserve_drafts_without_automatic_ack",
+                              "mentions::tests::cross_server_emoji_search_names_sources_bounds_and_account_reset",
+                              "mentions::tests::emoji_shortcodes_need_two_characters_and_include_usable_server_emoji",
+                              "timeline::tests::marking_read_resets_the_banner_and_later_arrivals_stay_read_at_the_bottom",
+                              "timeline::tests::reply_target_browsing_waits_for_success_and_explicit_latest_before_acknowledging"
+                          ],
+    "initial_parallel_workspace_attempt":  "stopped at audio::tests::transfer_limits_and_cancel_stalled_response timeout",
+    "audio_timeout_retry":  "passed focused serial retry and final serial workspace run",
+    "native_input_capture":  "unavailable: native helper pipe OS error 2",
+    "screenshots":  "synthetic eframe/WGPU framebuffer exports; inspected dark/wide and light/narrow before/after"
+}

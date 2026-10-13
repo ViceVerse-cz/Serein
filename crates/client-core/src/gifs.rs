@@ -580,6 +580,7 @@ mod tests {
 							kind: Default::default(),
 							discriminator: 0,
 							primary_guild: None,
+							cosmetics: None,
 						},
 						guilds: vec![],
 						channels: vec![],

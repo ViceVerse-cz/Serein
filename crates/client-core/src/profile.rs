@@ -51,6 +51,17 @@ impl ProfileCache {
 			.map(|entry| size_of::<CachedProfile>() + entry.data.bytes())
 			.sum()
 	}
+	/// A cached, unexpired global profile, without refreshing or evicting anything.
+	fn peek(&self, user: Id, now: Instant) -> Option<&UserProfile> {
+		self.entries
+			.iter()
+			.find(|entry| {
+				entry.user == user
+					&& entry.guild.is_none()
+					&& now.saturating_duration_since(entry.fetched) < CACHE_TTL
+			})
+			.map(|entry| &entry.data)
+	}
 	pub fn len(&self) -> usize {
 		self.entries.len()
 	}
@@ -86,6 +97,14 @@ pub struct OwnProfile {
 }
 
 impl State {
+	/// An already loaded global profile for `user`: the open view or the recent cache.
+	pub fn known_profile(&self, user: Id) -> Option<&UserProfile> {
+		self.profile
+			.as_ref()
+			.filter(|view| view.user == user && view.guild.is_none())
+			.and_then(|view| view.data.as_ref())
+			.or_else(|| self.profile_cache.peek(user, Instant::now()))
+	}
 	pub fn can_save_own_profile(&self) -> bool {
 		(self.demo || (self.auth == AuthState::Authenticated && self.gateway_connected))
 			&& !self.own_profile.loading
@@ -376,7 +395,25 @@ impl State {
 			guild,
 			request: self.profile_request,
 			with_mutuals: self.user.as_ref().is_none_or(|own| own.id != user),
+			cosmetics: self.profile_cosmetics,
 		})
+	}
+	/// Applies the device's cosmetic preference. Profiles loaded while effects or frames were
+	/// hidden lack their catalog details, so showing them drops the cache and requests the open
+	/// profile again; its new request id also makes any in-flight, unenriched response stale.
+	#[must_use]
+	pub fn set_profile_cosmetics(&mut self, value: model::CosmeticPreferences) -> Option<Command> {
+		let previous = std::mem::replace(&mut self.profile_cosmetics, value);
+		if !((value.effects && !previous.effects) || (value.frames && !previous.frames)) {
+			return None;
+		}
+		self.profile_cache.clear();
+		// Offline views keep what they show rather than turning into an error.
+		if self.demo || self.auth != AuthState::Authenticated || !self.gateway_connected {
+			return None;
+		}
+		let (user, guild) = self.profile.as_ref().map(|view| (view.user, view.guild))?;
+		self.request_profile(user, guild)
 	}
 	pub fn clear_profile(&mut self) -> Command {
 		self.cancel_user_note_read();
@@ -440,6 +477,7 @@ mod tests {
 		Box::new(UserProfile {
 			user: model::User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(1),
 				name: name.into(),
 				avatar: None,
@@ -461,6 +499,10 @@ mod tests {
 			theme_colors: None,
 			clan: None,
 			board: None,
+			effect_sku: None,
+			frame_sku: None,
+			effect: None,
+			frame: None,
 			limited: false,
 		})
 	}
@@ -740,6 +782,7 @@ mod tests {
 				guild: None,
 				request: new,
 				with_mutuals: true,
+				cosmetics: Default::default(),
 			});
 			assert!(!state.profile.as_ref().unwrap().loading);
 			assert!(state.profile.as_ref().unwrap().error.is_some());
@@ -762,6 +805,7 @@ mod tests {
 				Box::new(UserProfile {
 					user: model::User {
 						primary_guild: None,
+						cosmetics: None,
 						id: user,
 						name: "Synthetic".into(),
 						avatar: None,
@@ -783,6 +827,10 @@ mod tests {
 					theme_colors: None,
 					clan: None,
 					board: None,
+					effect_sku: None,
+					frame_sku: None,
+					effect: None,
+					frame: None,
 					limited: false,
 				})
 			}
@@ -835,6 +883,59 @@ mod tests {
 			}
 			assert_eq!(state.profile_cache.len(), CACHE_ENTRIES);
 			assert!(state.profile_cache.bytes() <= CACHE_BYTES);
+			// Hiding cosmetics keeps cached profiles; showing effects refetches them.
+			assert!(
+				state
+					.set_profile_cosmetics(model::CosmeticPreferences::default())
+					.is_none()
+			);
+			assert_eq!(state.profile_cache.len(), CACHE_ENTRIES);
+			let Some(Command::Profile { cosmetics, .. }) =
+				state.request_profile_at(Id(999), None, now)
+			else {
+				panic!("missing request")
+			};
+			assert_eq!(cosmetics, model::CosmeticPreferences::default());
+			assert!(
+				state
+					.set_profile_cosmetics(model::CosmeticPreferences {
+						decorations: true,
+						..Default::default()
+					})
+					.is_none()
+			);
+			assert_eq!(state.profile_cache.len(), CACHE_ENTRIES);
+			// The open profile is requested again; the unenriched response in flight is stale.
+			let Some(Command::Profile {
+				request: refreshed,
+				cosmetics,
+				..
+			}) = state.set_profile_cosmetics(model::CosmeticPreferences::SHOWN)
+			else {
+				panic!("open profile is refreshed")
+			};
+			assert!(state.profile_cache.is_empty());
+			assert_eq!(cosmetics, model::CosmeticPreferences::SHOWN);
+			assert!(
+				state
+					.set_profile_cosmetics(model::CosmeticPreferences::SHOWN)
+					.is_none()
+			);
+			state.apply(Envelope {
+				generation: state.generation,
+				event: Event::Profile {
+					user: Id(999),
+					guild: None,
+					request: refreshed - 1,
+					result: Ok(profile(Id(999))),
+				},
+			});
+			assert!(state.profile_cache.is_empty());
+			for id in 1..=4 {
+				state
+					.profile_cache
+					.insert(Id(id), None, *profile(Id(id)), now);
+			}
 			state.apply(Envelope {
 				generation: state.generation,
 				event: Event::PermissionsChanged,
@@ -891,6 +992,7 @@ mod tests {
 				Box::new(UserProfile {
 					user: model::User {
 						primary_guild: None,
+						cosmetics: None,
 						id: user,
 						name: "Synthetic".into(),
 						avatar: None,
@@ -912,6 +1014,10 @@ mod tests {
 					theme_colors: None,
 					clan: None,
 					board: None,
+					effect_sku: None,
+					frame_sku: None,
+					effect: None,
+					frame: None,
 					limited: false,
 				})
 			};

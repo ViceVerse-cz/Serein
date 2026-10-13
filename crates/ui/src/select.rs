@@ -46,6 +46,7 @@ struct Embed {
 struct Overlay {
 	id: egui::Id,
 	rect: Rect,
+	sense: Sense,
 }
 
 /// One text block's runs, in layout order.
@@ -101,6 +102,7 @@ impl Surface {
 			self.overlays.push(Overlay {
 				id: response.id,
 				rect: response.rect,
+				sense: response.sense,
 			});
 		}
 	}
@@ -360,7 +362,7 @@ impl Surface {
 			ui.interact_opt(
 				over.rect,
 				over.id,
-				Sense::click(),
+				over.sense,
 				InteractOptions { move_to_top: true },
 			);
 		}

@@ -1,5 +1,5 @@
+use alloc::{collections::BTreeMap, sync::Arc};
 use emath::Rect;
-use std::{collections::BTreeMap, sync::Arc};
 
 use crate::{
     Color32, ColorImage, TextureAtlas,

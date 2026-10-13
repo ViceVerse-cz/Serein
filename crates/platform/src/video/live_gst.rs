@@ -1,12 +1,11 @@
 //! Linux live H.264 decoding through GStreamer. `decodebin` auto-plugs the highest-ranked
 //! decoder, which is the VA-API or NVDEC plugin when one is installed and `avdec_h264`
 //! otherwise. The caller hands over complete, already decrypted Annex-B access units.
-use super::{BUSY, INVALID, MAX_BYTES, UNSUPPORTED};
+use super::{BUSY, INVALID, UNSUPPORTED};
 pub use super::{LiveFrame as Frame, LiveSink as Sink, MAX_ACCESS_UNIT};
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
-use gstreamer_video::{self as gst_video, VideoFrameExt};
 use std::sync::{
 	Arc,
 	atomic::{AtomicBool, AtomicU64, Ordering},
@@ -64,11 +63,7 @@ impl H264Decoder {
 		let failed = Arc::new(AtomicBool::new(false));
 		let delivered = Arc::new(AtomicU64::new(0));
 		let appsink = gst_app::AppSink::builder()
-			.caps(
-				&gst::Caps::builder("video/x-raw")
-					.field("format", "RGBA")
-					.build(),
-			)
+			.caps(&super::gst::planar_caps())
 			.build();
 		appsink.set_sync(false);
 		appsink.set_max_buffers(2);
@@ -195,32 +190,7 @@ fn make(name: &str) -> Result<gst::Element, &'static str> {
 }
 
 fn picture(sample: &gst::Sample) -> Result<Frame, &'static str> {
-	let caps = sample.caps().ok_or(INVALID)?;
-	let info = gst_video::VideoInfo::from_caps(caps).map_err(|_| INVALID)?;
-	if info.format() != gst_video::VideoFormat::Rgba {
-		return Err(INVALID);
-	}
-	super::check_dimensions(info.width(), info.height())?;
-	let buffer = sample.buffer().ok_or(INVALID)?;
-	let frame =
-		gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info).map_err(|_| INVALID)?;
-	let stride = usize::try_from(frame.plane_stride().first().copied().ok_or(INVALID)?)
-		.map_err(|_| INVALID)?;
-	let data = frame.plane_data(0).map_err(|_| INVALID)?;
-	let (w, h) = (info.width() as usize, info.height() as usize);
-	let row = w * 4;
-	if stride < row || data.len() < stride * (h - 1) + row || row * h > MAX_BYTES {
-		return Err(INVALID);
-	}
-	let mut rgba = vec![0; row * h];
-	for (source, target) in data.chunks(stride).zip(rgba.chunks_exact_mut(row)) {
-		target.copy_from_slice(&source[..row]);
-	}
-	Ok(Frame {
-		width: info.width(),
-		height: info.height(),
-		rgba,
-	})
+	super::gst::picture(sample)
 }
 
 #[cfg(test)]
