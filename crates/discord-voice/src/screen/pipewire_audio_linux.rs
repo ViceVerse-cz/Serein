@@ -522,7 +522,9 @@ mod tests {
 		assert!(output.iter().any(|sample| sample.abs() > 0.01));
 		assert!(
 			output
-				.chunks_exact(2)
+				.as_chunks::<2>()
+				.0
+				.iter()
 				.all(|pair| (pair[0] - pair[1]).abs() < 0.001)
 		);
 		capture.pending.mix(&mut [0.0; FRAME_SAMPLES], 8);
