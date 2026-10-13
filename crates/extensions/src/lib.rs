@@ -122,6 +122,7 @@ pub enum Capability {
 	Storage,
 	DeletedMessages,
 	ImageSharing,
+	ImageCompression,
 	Appearance,
 	MessageEvents,
 	AppContext,
@@ -508,9 +509,18 @@ impl ApiProxyConfig {
 	}
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImageCompression {
+	pub max_edge: u32,
+	pub jpeg_quality: u8,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Output {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub image_compression: Option<ImageCompression>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub api_proxy: Option<ApiProxyConfig>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1073,6 +1083,7 @@ impl Output {
 		if surface == Surface::Tick
 			&& (self.rich_presence.is_some()
 				|| self.image_sharing
+				|| self.image_compression.is_some()
 				|| self.preserve_deleted_messages
 				|| self.replacement.is_some()
 				|| !self.panel.is_empty()
@@ -1117,6 +1128,20 @@ impl Output {
 				return Err(Error::Capability);
 			}
 			appearance.validate()?;
+		}
+		if let Some(policy) = self.image_compression {
+			if manifest.kind != ExtensionKind::Plugin
+				|| !manifest
+					.capabilities
+					.contains(&Capability::ImageCompression)
+				|| !matches!(surface, Surface::Activation | Surface::Panel)
+			{
+				return Err(Error::Capability);
+			}
+			if !(256..=2048).contains(&policy.max_edge) || !(40..=95).contains(&policy.jpeg_quality)
+			{
+				return Err(Error::Invalid);
+			}
 		}
 		if self.image_sharing
 			&& (!manifest.capabilities.contains(&Capability::ImageSharing)

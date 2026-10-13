@@ -160,6 +160,7 @@ account snapshot or grant-dependent data:
       "storage",
       "deleted_messages",
       "image_sharing",
+      "image_compression",
       "appearance",
       "message_events",
       "app_context",

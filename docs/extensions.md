@@ -127,7 +127,7 @@ Unknown API versions and invalid packages are rejected before installation.
 
 Each capability is independent and requires user consent. An update requests
 renewed consent; adding a read grant does not grant commands. The SDK currently
-supports 53 capabilities, with at most 64 distinct declarations per manifest.
+supports 54 capabilities, with at most 64 distinct declarations per manifest.
 
 > **Preview SDK — PR #411, not yet released.** `channel_control`,
 > `server_control`, `role_control`, `moderation_control` and `media_control`, plus
@@ -142,6 +142,7 @@ supports 53 capabilities, with at most 64 distinct declarations per manifest.
 | `api_proxy` | Configure the Discord REST API HTTP/HTTPS proxy | Preview; device-wide, available before login; only `storage` may accompany this grant; no account data, Gateway, CDN or calls |
 | `rich_presence` | Contribute one bounded custom activity and restore it during activation | Preview; explicit panel/activation actions only; separate activity-sharing preference; revoked on disable/account change |
 | `deleted_messages` | Enable host retention of already-loaded deleted messages | Activation only; bounded session memory, no deleted text sent to Wasm |
+| `image_compression` | Configure host-owned photo compression | Explicit grant; activation/panel output only. No file paths or bytes enter Wasm. New selected JPEG/opaque static PNG photos may become smaller JPEGs. |
 | `image_sharing` | Legacy compatibility capability | Activation output still validates, but emoji/sticker image fallback is now built in and cannot be controlled by a plugin |
 | `appearance` | Return a bounded declarative theme overlay | Native colors/control metrics; no arbitrary drawing |
 | `message_events` | Observe live create/update/delete events | Active accessible conversation; bounded best-effort delivery |

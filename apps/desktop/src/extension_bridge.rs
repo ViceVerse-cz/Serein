@@ -225,6 +225,20 @@ impl Bridge {
 			.and_then(|entry| entry.rich_presence.as_deref())
 	}
 
+	pub fn image_compression(&self) -> Option<extensions::ImageCompression> {
+		self.installed
+			.iter()
+			.filter(|entry| entry.error.is_none() && !self.disabled.contains(&entry.manifest.id))
+			.filter(|entry| {
+				entry
+					.manifest
+					.capabilities
+					.contains(&Capability::ImageCompression)
+			})
+			.filter(|entry| entry.image_compression.is_some())
+			.min_by_key(|entry| &entry.manifest.id)
+			.and_then(|entry| entry.image_compression)
+	}
 	pub fn api_proxy_ready(&self) -> bool {
 		self.api_proxy_loaded
 	}
@@ -497,6 +511,7 @@ impl Bridge {
 		for entry in &mut self.installed {
 			entry.preserve_deleted_messages = false;
 			entry.image_sharing = false;
+			entry.image_compression = None;
 			entry.rich_presence = None;
 		}
 		self.picker = None;
@@ -903,6 +918,15 @@ impl Bridge {
 								}
 								extensions::RichPresenceUpdate::Clear => None,
 							};
+						}
+						if context.is_current(state)
+							&& let Some(policy) = output.image_compression
+							&& let Some(installed) = self
+								.installed
+								.iter_mut()
+								.find(|entry| entry.manifest.id == id)
+						{
+							installed.image_compression = Some(policy);
 						}
 						if context.is_current(state)
 							&& let Some(config) = &output.api_proxy
@@ -1822,6 +1846,7 @@ mod tests {
 			error: None,
 			preserve_deleted_messages: false,
 			image_sharing: false,
+			image_compression: None,
 			rich_presence: None,
 			api_proxy: None,
 		};
@@ -1893,6 +1918,31 @@ mod tests {
 		bridge.installed[0].error = None;
 		let _ = bridge.logout(&egui::Context::default());
 		assert!(bridge.rich_presence().is_none());
+	}
+
+	#[test]
+	fn photo_policy_requires_capability_and_clears_with_disable_error_and_logout() {
+		let (mut bridge, _, _) = message_events_fixture();
+		let policy = extensions::ImageCompression {
+			max_edge: 1280,
+			jpeg_quality: 80,
+		};
+		bridge.installed[0].image_compression = Some(policy);
+		assert!(bridge.image_compression().is_none());
+		bridge.installed[0]
+			.manifest
+			.capabilities
+			.push(Capability::ImageCompression);
+		assert_eq!(bridge.image_compression(), Some(policy));
+		let id = bridge.installed[0].manifest.id.clone();
+		bridge.disabled.insert(id.clone());
+		assert!(bridge.image_compression().is_none());
+		bridge.disabled.remove(&id);
+		bridge.installed[0].error = Some("Failed".into());
+		assert!(bridge.image_compression().is_none());
+		bridge.installed[0].error = None;
+		let _ = bridge.logout(&egui::Context::default());
+		assert!(bridge.image_compression().is_none());
 	}
 
 	#[test]

@@ -45,6 +45,7 @@ impl HostInfo {
 				Capability::Storage,
 				Capability::DeletedMessages,
 				Capability::ImageSharing,
+				Capability::ImageCompression,
 				Capability::Appearance,
 				Capability::MessageEvents,
 				Capability::AppContext,

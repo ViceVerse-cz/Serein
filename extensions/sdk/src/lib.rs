@@ -119,9 +119,18 @@ impl Invocation {
 	}
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImageCompression {
+	pub max_edge: u32,
+	pub jpeg_quality: u8,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Output {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub image_compression: Option<ImageCompression>,
 	#[serde(skip_serializing_if = "is_false")]
 	pub image_sharing: bool,
 	#[serde(skip_serializing_if = "is_false")]

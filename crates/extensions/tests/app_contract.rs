@@ -33,6 +33,7 @@ fn sdk_manifests_round_trip_all_capabilities_and_surfaces_through_host_validatio
 		Capability::Storage,
 		Capability::DeletedMessages,
 		Capability::ImageSharing,
+		Capability::ImageCompression,
 		Capability::Appearance,
 		Capability::MessageEvents,
 		Capability::AppContext,
@@ -912,9 +913,10 @@ fn discovery_is_forward_tolerant_and_does_not_change_legacy_input() {
 	supported.validate().unwrap();
 	assert!(host.supports("rich_presence"));
 	assert!(host.supports("api_proxy"));
-	assert_eq!(caps.len(), 53);
+	assert!(host.supports("image_compression"));
+	assert_eq!(caps.len(), 54);
 	assert_eq!(HostInfo::current().app_events.len(), 21);
-	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 53);
+	assert_eq!(std::collections::BTreeSet::from_iter(caps).len(), 54);
 }
 
 #[test]

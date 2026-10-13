@@ -1,0 +1,16 @@
+{
+  "api_version": 1,
+  "id": "photo-compression",
+  "name": "Photo compression",
+  "version": "1.0.0",
+  "author": "Serein contributors",
+  "license": "MIT OR Apache-2.0",
+  "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/photo-compression",
+  "kind": "plugin",
+  "capabilities": ["image_compression", "storage"],
+  "actions": [
+    {"id": "enable", "label": "Enable photo compression", "surface": "activation"},
+    {"id": "configure", "label": "Configure photo compression", "surface": "panel"},
+    {"id": "apply", "label": "Apply photo compression", "surface": "panel"}
+  ]
+}

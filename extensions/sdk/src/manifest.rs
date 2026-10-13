@@ -62,6 +62,7 @@ pub enum Capability {
 	Storage,
 	DeletedMessages,
 	ImageSharing,
+	ImageCompression,
 	Appearance,
 	MessageEvents,
 	AppContext,

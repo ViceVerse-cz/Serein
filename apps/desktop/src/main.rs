@@ -6487,6 +6487,7 @@ impl eframe::App for Desktop {
 			)
 		});
 		ui::design::paint_backdrop(&ctx);
+		self.uploads.image_compression = self.extensions.image_compression();
 		let upload_allowed = self.state.user.is_some()
 			&& self.state.gateway_connected
 			&& self.state.freshness == model::Freshness::Fresh;

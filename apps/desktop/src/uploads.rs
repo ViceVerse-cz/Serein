@@ -42,6 +42,200 @@ const EMOJI_EDGE: u32 = 48;
 const STICKER_EDGE: u32 = 160;
 const ARTWORK_FRAMES: usize = 240;
 
+async fn compress_source(
+	source: Source,
+	policy: Option<extensions::ImageCompression>,
+	cancelled: Arc<AtomicBool>,
+) -> Source {
+	let Some(policy) = policy else {
+		return source;
+	};
+	if cancelled.load(Ordering::Acquire) {
+		return source;
+	}
+	// One bounded codec job across all selection batches; waiting jobs retain no image bytes.
+	static PERMIT: std::sync::OnceLock<Arc<tokio::sync::Semaphore>> = std::sync::OnceLock::new();
+	let semaphore = PERMIT
+		.get_or_init(|| Arc::new(tokio::sync::Semaphore::new(1)))
+		.clone();
+	let Ok(permit) = semaphore.acquire_owned().await else {
+		return source;
+	};
+	if cancelled.load(Ordering::Acquire) {
+		return source;
+	}
+	let Some(bytes) = source.preview_bytes(8 * 1024 * 1024).await else {
+		return source;
+	};
+	let flag = cancelled.clone();
+	let compressed = tokio::task::spawn_blocking(move || {
+		let _permit = permit;
+		compress_photo(&bytes, policy, &flag)
+	})
+	.await
+	.ok()
+	.flatten();
+	if cancelled.load(Ordering::Acquire) {
+		return source;
+	}
+	compressed
+		.and_then(|bytes| source.compressed_jpeg(bytes))
+		.unwrap_or(source)
+}
+
+fn compress_photo(
+	bytes: &[u8],
+	policy: extensions::ImageCompression,
+	cancelled: &AtomicBool,
+) -> Option<Vec<u8>> {
+	use image::ImageDecoder;
+	use std::io::{Cursor, Write};
+	if bytes.is_empty()
+		|| bytes.len() > 8 * 1024 * 1024
+		|| cancelled.load(Ordering::Acquire)
+		|| !(256..=2048).contains(&policy.max_edge)
+		|| !(40..=95).contains(&policy.jpeg_quality)
+	{
+		return None;
+	}
+	let format = image::guess_format(bytes).ok()?;
+	if !matches!(format, image::ImageFormat::Jpeg | image::ImageFormat::Png) {
+		return None;
+	}
+	let mut limits = image::Limits::default();
+	limits.max_image_width = Some(4096);
+	limits.max_image_height = Some(4096);
+	limits.max_alloc = Some(32 * 1024 * 1024);
+	if format == image::ImageFormat::Png {
+		let decoder =
+			image::codecs::png::PngDecoder::with_limits(Cursor::new(bytes), limits.clone()).ok()?;
+		if decoder.is_apng().ok()? {
+			return None;
+		}
+		let (width, height) = decoder.dimensions();
+		if u64::from(width) * u64::from(height) > 8 * 1024 * 1024 {
+			return None;
+		}
+	}
+	let mut reader = image::ImageReader::with_format(Cursor::new(bytes), format);
+	reader.limits(limits);
+	let mut decoder = reader.into_decoder().ok()?;
+	let orientation = decoder.orientation().ok()?;
+	let mut image = image::DynamicImage::from_decoder(decoder).ok()?;
+	image.apply_orientation(orientation);
+	if u64::from(image.width()) * u64::from(image.height()) > 8 * 1024 * 1024
+		|| cancelled.load(Ordering::Acquire)
+	{
+		return None;
+	}
+	if !matches!(
+		image.color(),
+		image::ColorType::Rgb8 | image::ColorType::Rgba8 | image::ColorType::L8
+	) {
+		return None;
+	}
+	if image.color().has_alpha()
+		&& image
+			.as_rgba8()
+			.is_none_or(|rgba| rgba.pixels().any(|pixel| pixel[3] != 255))
+	{
+		return None;
+	}
+	let image = if image.width() > policy.max_edge || image.height() > policy.max_edge {
+		image.resize(
+			policy.max_edge,
+			policy.max_edge,
+			image::imageops::FilterType::Triangle,
+		)
+	} else {
+		image
+	}
+	.to_rgb8();
+	if cancelled.load(Ordering::Acquire) {
+		return None;
+	}
+	struct Bounded {
+		bytes: Vec<u8>,
+		limit: usize,
+	}
+	impl Write for Bounded {
+		fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+			if bytes.len() > self.limit.saturating_sub(self.bytes.len()) {
+				return Err(std::io::ErrorKind::WriteZero.into());
+			}
+			self.bytes.extend_from_slice(bytes);
+			Ok(bytes.len())
+		}
+		fn flush(&mut self) -> std::io::Result<()> {
+			Ok(())
+		}
+	}
+	let mut output = Bounded {
+		bytes: Vec::new(),
+		limit: bytes.len().min(8 * 1024 * 1024).saturating_sub(1),
+	};
+	image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, policy.jpeg_quality)
+		.encode_image(&image)
+		.ok()?;
+	(!cancelled.load(Ordering::Acquire)).then_some(output.bytes)
+}
+
+#[cfg(test)]
+mod compression_tests {
+	use super::*;
+	fn photo(alpha: u8) -> Vec<u8> {
+		let pixels = image::RgbaImage::from_fn(640, 480, |x, y| {
+			image::Rgba([
+				(x.wrapping_mul(37) ^ y.wrapping_mul(19)) as u8,
+				(x.wrapping_mul(11) ^ y.wrapping_mul(43)) as u8,
+				(x.wrapping_mul(17) ^ y.wrapping_mul(29)) as u8,
+				alpha,
+			])
+		});
+		let mut bytes = std::io::Cursor::new(Vec::new());
+		image::DynamicImage::ImageRgba8(pixels)
+			.write_to(&mut bytes, image::ImageFormat::Png)
+			.unwrap();
+		bytes.into_inner()
+	}
+	#[test]
+	fn photo_compression_is_smaller_bounded_and_preserves_transparency_or_failures() {
+		let flag = AtomicBool::new(false);
+		let policy = extensions::ImageCompression {
+			max_edge: 256,
+			jpeg_quality: 80,
+		};
+		let input = photo(255);
+		let result = compress_photo(&input, policy, &flag).unwrap();
+		assert!(result.len() < input.len());
+		let decoded = image::load_from_memory(&result).unwrap();
+		assert_eq!((decoded.width(), decoded.height()), (256, 192));
+		assert!(compress_photo(&photo(254), policy, &flag).is_none());
+		assert!(compress_photo(b"not an image", policy, &flag).is_none());
+		assert!(compress_photo(&[0; 8 * 1024 * 1024 + 1], policy, &flag).is_none());
+		flag.store(true, Ordering::Release);
+		assert!(compress_photo(&input, policy, &flag).is_none());
+	}
+	#[tokio::test]
+	async fn compression_is_opt_in_and_retains_selected_source_on_failure_or_cancellation() {
+		let source = Source::pasted_png(photo(255)).unwrap();
+		let size = source.size();
+		let flag = Arc::new(AtomicBool::new(false));
+		let original = compress_source(source.clone(), None, flag.clone()).await;
+		assert_eq!(original.size(), size);
+		let policy = Some(extensions::ImageCompression {
+			max_edge: 256,
+			jpeg_quality: 80,
+		});
+		let compressed = compress_source(source.clone(), policy, flag.clone()).await;
+		assert!(compressed.size() < size);
+		assert!(compressed.filename().ends_with(".jpg"));
+		assert_eq!(source.size(), size);
+		flag.store(true, Ordering::Release);
+		assert_eq!(compress_source(source, policy, flag).await.size(), size);
+	}
+}
+
 fn apng_delay(delay: image::Delay) -> (u16, u16) {
 	let (numerator, denominator) = delay.numer_denom_ms();
 	let (mut numerator, mut denominator) = (u64::from(numerator), u64::from(denominator) * 1000);
@@ -359,6 +553,7 @@ struct ExternalUploading {
 }
 #[derive(Default)]
 pub struct Uploads {
+	pub image_compression: Option<extensions::ImageCompression>,
 	external: Option<ExternalUploading>,
 	public_result: Option<Result<String, model::public_upload::Error>>,
 	image_draft: Option<String>,
@@ -595,6 +790,35 @@ impl Uploads {
 			return Err("Attach up to 10 files per message");
 		}
 		self.admit(&source)?;
+		if let Some(policy) = self.image_compression {
+			let cancelled = Arc::new(AtomicBool::new(false));
+			let flag = cancelled.clone();
+			let files = Arc::new(AtomicUsize::new(source.len()));
+			let (send, result) = mpsc::sync_channel(1);
+			let context = context.clone();
+			runtime.spawn(async move {
+				let mut selected = Vec::with_capacity(source.len());
+				for source in source {
+					let source = compress_source(source, Some(policy), flag.clone()).await;
+					if flag.load(Ordering::Acquire) {
+						let _ = send.send(Ok(None));
+						return;
+					}
+					let thumbnail = preview(&source).await;
+					selected.push((source, thumbnail));
+				}
+				let _ = send.send(Ok(Some(selected)));
+				context.request_repaint();
+			});
+			self.scope = Some((generation, channel));
+			self.clear_finished_progress();
+			self.choosing.push(Choosing {
+				result,
+				cancelled,
+				files,
+			});
+			return Ok(());
+		}
 		self.scope = Some((generation, channel));
 		self.clear_finished_progress();
 		for source in source {
@@ -677,6 +901,7 @@ impl Uploads {
 		known: usize,
 		selection: impl std::future::Future<Output = Option<Vec<std::path::PathBuf>>> + Send + 'static,
 	) {
+		let policy = self.image_compression;
 		let cancelled = Arc::new(AtomicBool::new(false));
 		let flag = cancelled.clone();
 		let files = Arc::new(AtomicUsize::new(known));
@@ -701,6 +926,7 @@ impl Uploads {
 				let mut total = 0;
 				for path in paths {
 					let source = Source::inspect(path).await?;
+					let source = compress_source(source, policy, flag.clone()).await;
 					total += source.size();
 					if total > discord_api::upload::MAX_TOTAL_BYTES {
 						return Err(

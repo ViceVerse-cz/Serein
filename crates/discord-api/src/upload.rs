@@ -116,6 +116,27 @@ impl Source {
 	pub fn filename(&self) -> &str {
 		&self.filename
 	}
+	/// A host-prepared JPEG keeps the selected name, without changing its original file.
+	pub fn compressed_jpeg(&self, bytes: Vec<u8>) -> Option<Self> {
+		if bytes.is_empty() || bytes.len() > 8 * 1024 * 1024 || bytes.len() as u64 >= self.size {
+			return None;
+		}
+		let stem = self
+			.filename
+			.rsplit_once('.')
+			.map_or(self.filename.as_str(), |(stem, _)| stem);
+		let filename = format!("{stem}.jpg");
+		if filename.len() > 256 {
+			return None;
+		}
+		Some(Self {
+			path: PathBuf::new(),
+			filename,
+			size: bytes.len() as u64,
+			modified: SystemTime::UNIX_EPOCH,
+			bytes: Some(bytes.into()),
+		})
+	}
 	pub fn size(&self) -> u64 {
 		self.size
 	}
@@ -132,8 +153,16 @@ impl Source {
 		if !self.matches(&metadata) {
 			return None;
 		}
-		let bytes = tokio::fs::read(&self.path).await.ok()?;
-		(bytes.len() as u64 == self.size).then(|| bytes.into())
+		let mut bytes = Vec::new();
+		File::open(&self.path)
+			.await
+			.ok()?
+			.take(limit.saturating_add(1))
+			.read_to_end(&mut bytes)
+			.await
+			.ok()?;
+		let metadata = tokio::fs::symlink_metadata(&self.path).await.ok()?;
+		(bytes.len() as u64 == self.size && self.matches(&metadata)).then(|| bytes.into())
 	}
 	fn matches(&self, metadata: &std::fs::Metadata) -> bool {
 		metadata.is_file()

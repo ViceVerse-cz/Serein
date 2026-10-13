@@ -74,6 +74,7 @@ The Rust paths below are relative to `AppOutput`. When using the original
 | `storage` / `output.storage` | Optional opaque UTF-8 string; `storage`. | A valid foreground or event result replaces the plugin's saved value before result approval. Activation can read storage but this build does not persist its returned storage. |
 | `appearance` / `output.appearance` | Optional `Theme` object; `appearance`. | An accepted result updates the plugin's appearance overlay immediately, including activation and event results. Preview `tick` results are eased from the currently displayed colors. No Apply button is involved. |
 | `preserve_deleted_messages` / `output.preserve_deleted_messages` | Boolean, default `false`; `deleted_messages` is required for `true`. | Only an `activation` action may enable host retention of already-loaded deleted messages. |
+| `image_compression` / `output.image_compression` | Optional `ImageCompression` (`max_edge: u32`, 256–2048; `jpeg_quality: u8`, 40–95); requires `image_compression`. Absent retains the policy. | Activation/panel output updates this enabled plugin's policy after capability consent, without a second Apply dialog. Disable/remove/revoke to stop new selections using it. |
 | `image_sharing` / `output.image_sharing` | Boolean, default `false`; `image_sharing` is required for `true`. | Legacy compatibility field, validated only for an `activation` action with the grant. It no longer changes host behavior: emoji/sticker image fallback is built in. |
 | `effects` / `effects` | Array containing at most one `HostEffect`; its capability is checked separately. | The native result describes the action. It runs only after its **Apply** button is clicked and current access is rechecked. |
 
@@ -962,6 +963,51 @@ masked form and OS credential store; it never enters Wasm input or plugin storag
 SOCKS and PAC are unsupported. Saved invalid configuration should trap during
 activation rather than silently return Direct; the host then blocks initial API
 routing and preserves an already configured route during reload.
+
+### Photo compression (preview)
+
+The `photo-compression` plugin partially implements attachment compression:
+JPEG and opaque, nonanimated PNG photos only. Video, GIF/APNG, WebP,
+transparency, HDR, oversized inputs and failed or unhelpful conversions retain
+the original. The host processes picker, drop and pasted files outside rendering.
+File bytes, paths and metadata never enter Wasm. Original disk files are unchanged;
+compressed selections display their new `.jpg` name and size. Remove a selection,
+disable the plugin and reselect to use its original. Disabling affects new
+selections; a selection preparing keeps its policy snapshot. Compression removes
+metadata, applies decoded EXIF orientation, and can lose detail. Sending remains
+explicit and ordinary upload limits apply. Smaller output may still exceed a limit.
+
+Declare `image_compression` and an activation action `enable`. JSON input
+`{"action":"enable"}` returns
+`{"image_compression":{"max_edge":1280,"jpeg_quality":80}}`:
+
+```rust
+use serein_extension_sdk::{ImageCompression, Invocation, Output};
+fn handle(input: Invocation) -> Output {
+    if input.action != "enable" { return Output::default(); }
+    Output {
+        image_compression: Some(ImageCompression { max_edge: 1280, jpeg_quality: 80 }),
+        ..Default::default()
+    }
+}
+serein_extension_sdk::export!(handle);
+```
+
+The [configurable source plugin](../extensions/plugins/photo-compression/src/lib.rs)
+also declares `storage` and `configure`/`apply` panel actions. Edit edge/quality,
+then press **Apply to next photo selections**. Invalid values leave the policy
+and storage unchanged. Storage uses ordinary bounded plugin persistence. Failed,
+disabled or revoked plugins supply no policy; among enabled providers the lowest
+manifest ID wins. Older hosts reject this capability; check
+`host_info.supports("image_compression")` for support. The ABI stays at version 1.
+
+One global codec slot admits at most 8 MiB source data, 4096 pixels per axis,
+8 million pixels and 32 MiB decoder allocation. Output stops before the original
+byte length and never exceeds 8 MiB. Queued jobs retain source handles rather
+than decoded images. Cancellation is checked between bounded codec phases;
+a synchronous phase cannot be interrupted. No temporary file, FFmpeg process,
+network request or persistent image cache is introduced. Existing batch byte/item
+limits and account upload checks still apply.
 
 ## Panels and storage
 

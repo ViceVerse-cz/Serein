@@ -318,6 +318,7 @@ pub struct InstalledExtension {
 	pub error: Option<String>,
 	pub preserve_deleted_messages: bool,
 	pub image_sharing: bool,
+	pub image_compression: Option<extensions::ImageCompression>,
 	pub rich_presence: Option<Box<extensions::CustomRichPresence>>,
 	pub api_proxy: Option<extensions::ApiProxyConfig>,
 }
@@ -531,6 +532,11 @@ impl Stored {
 			if output.image_sharing && !self.grants.contains(&Capability::ImageSharing) {
 				return Err("Image sharing access was not granted".into());
 			}
+			if output.image_compression.is_some()
+				&& !self.grants.contains(&Capability::ImageCompression)
+			{
+				return Err("Image compression access was not granted".into());
+			}
 			Ok(output)
 		});
 		let background_image = if active {
@@ -567,6 +573,10 @@ impl Stored {
 			sha256: self.sha256.clone(),
 			download_bytes: self.download_bytes,
 			image_sharing: result.as_ref().is_ok_and(|output| output.image_sharing),
+			image_compression: result
+				.as_ref()
+				.ok()
+				.and_then(|output| output.image_compression),
 			api_proxy: result
 				.as_ref()
 				.ok()
@@ -1150,6 +1160,7 @@ fn load(
 							summary.theme = None;
 							summary.preserve_deleted_messages = false;
 							summary.image_sharing = false;
+							summary.image_compression = None;
 							summary.rich_presence = None;
 							summary.error = Some(error);
 							summary
@@ -1183,6 +1194,7 @@ fn load(
 						error: Some(error),
 						preserve_deleted_messages: false,
 						image_sharing: false,
+						image_compression: None,
 						rich_presence: None,
 						api_proxy: None,
 					},

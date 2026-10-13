@@ -53,3 +53,10 @@ the package locally. Older clients without this capability cannot install it.
 
 See [API Proxy](api-proxy/README.md) for the native REST-only proxy editor.
 Requires the API proxy SDK capability; Gateway, CDN/media and calls stay direct.
+
+## Photo compression (preview)
+
+[Photo compression](photo-compression/README.md) automatically prepares smaller
+JPEGs for selected JPEG and opaque static PNG photos, after explicit permission.
+It partially implements attachment compression: videos and other image formats
+keep their original. The plugin configures the native host and never reads files.

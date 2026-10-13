@@ -2725,6 +2725,9 @@ fn capability_label(capability: Capability) -> &'static str {
 			"Route the Discord REST API through a proxy across accounts (not calls or media)"
 		}
 		Capability::RichPresence => "Publish custom activity while activity sharing is enabled",
+		Capability::ImageCompression => {
+			"Automatically resize and recompress selected photos; originals on disk stay unchanged"
+		}
 		Capability::ImageSharing => "Enable explicit emoji and sticker image attachment selection",
 		Capability::Appearance => "Customize app colors, typography and control styling",
 		Capability::MessageEvents => "Read live message events and text in the active conversation",

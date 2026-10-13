@@ -1761,3 +1761,16 @@ the native projection retains its existing URL and allocated-byte limits.
 Schema 28 adds the device-wide double-click reaction preset to the reading settings singleton. The bounded index selects one of six Unicode emoji, defaults to ❤️, and persists independently of session emoji recommendations.
 
 Schema 29 adds a bounded boolean opt-in for double-click reactions, disabled for new and migrated settings. The selected Unicode preset is retained while disabled; Reset chat restores the disabled default.
+
+## Optional photo compression
+
+Enabled plugins retain one fixed `ImageCompression` policy each in the existing
+bounded installed set. A selection snapshots it; disabling affects new selections.
+One global permit admits at most 8 MiB source data and a bounded decoder (4096
+pixels per axis, 8 million pixels, 32 MiB allocation). Orientation/resizing may
+retain another bounded pixel buffer; output retains at most 8 MiB (up to 16 MiB
+Vec capacity). Only strictly smaller outputs replace their selection, inside the
+existing account/session upload batch. Waiting jobs retain source handles; no
+paths or bytes enter Wasm, SQLite, logs or diagnostics. Original disk files are
+never rewritten. Cancellation between codec phases cannot interrupt a currently
+running synchronous phase.

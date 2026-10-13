@@ -57,6 +57,7 @@ may not be available in a released build.
 
 | Example | What it demonstrates |
 | --- | --- |
+| [Photo compression](../../extensions/plugins/photo-compression/src/lib.rs) | Granted host-owned photo compression, configurable panel and saved policy |
 | [App Toolbox](app-toolbox/src/lib.rs) | App snapshots and all supported host actions |
 | [Guild Inspector](guild-inspector/src/lib.rs) | Loaded channel/thread permissions, member nicknames, roles and server profiles |
 | [Conversation Inspector](conversation-inspector/src/lib.rs) | Rich summaries, forum flags, typing/pins and host discovery |
