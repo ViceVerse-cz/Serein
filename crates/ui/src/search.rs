@@ -248,7 +248,7 @@ impl SearchUi {
 						// Selecting a filter appends to the query; keep the caret at the end
 						// instead of leaving it at its stale position from before the change.
 						let mut cursor_state = output.state;
-						let end = egui::text::CCursor::new(self.query.chars().count());
+						let end = egui::text::CCursor::end_of_str(&self.query);
 						cursor_state
 							.cursor
 							.set_char_range(Some(egui::text::CCursorRange::one(end)));
@@ -2250,6 +2250,7 @@ mod tests {
 							avatar: None,
 							discriminator: 0,
 							primary_guild: None,
+							cosmetics: None,
 						},
 						mentions: vec![],
 						excerpt: "Synthetic pinned message".into(),
@@ -2421,6 +2422,7 @@ mod tests {
 			avatar: None,
 			discriminator: 0,
 			primary_guild: None,
+			cosmetics: None,
 		};
 		let state = State {
 			demo: true,

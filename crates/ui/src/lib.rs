@@ -18,7 +18,7 @@ mod avatars;
 #[cfg(feature = "demo")]
 pub use avatars::media::debug_heic_layout_check;
 pub use avatars::media::{Lane, MAX_FRAMES, Motion, Rendition, Size, fit_edge, is_motion_video};
-pub use avatars::{EMBED_EDGE, GifFrames};
+pub use avatars::{EMBED_EDGE, FRAME_EDGE, GifFrames};
 mod categories;
 #[cfg(feature = "demo")]
 pub use categories::debug_thread_navigation_check;
@@ -58,6 +58,7 @@ pub mod i18n;
 pub fn debug_channel_creation(state: client_core::State) {
 	channel_menu::debug_creation(state);
 }
+mod channel_pill;
 mod formatting;
 mod forum;
 mod forum_settings;
@@ -295,6 +296,14 @@ pub struct MessagingUi {
 	message_requests_collapsed: bool,
 	/// Custom emoji that need Nitro stay out of `:` suggestions and are locked in pickers.
 	pub hide_nitro_emojis: bool,
+	/// Profile cosmetics shown on this device; hidden ones are not downloaded.
+	pub cosmetics: model::CosmeticPreferences,
+	/// Disk budgets and retention for downloaded images.
+	pub image_cache: model::CachePreferences,
+	/// Latest disk use of the media and shared-artwork caches, once measured.
+	pub image_cache_usage: Option<[model::CacheUsage; 2]>,
+	/// An image cache partition the owner asked to empty; the desktop consumes it.
+	pub clear_image_cache: Option<model::CachePartition>,
 	pub hide_title_bar: bool,
 	pub hide_window_decorations: bool,
 	pub custom_font: fonts::Settings,
@@ -395,10 +404,10 @@ pub struct MessagingUi {
 	pub camera_test_available: bool,
 	pub camera_test_status: &'static str,
 	pub camera_test_texture: Option<egui::TextureHandle>,
-	/// Decoded remote cameras by user; the desktop bounds and replaces them.
-	pub voice_remote_video: Vec<(Id, egui::TextureHandle)>,
-	/// Latest picture of the screen share this device chose to watch.
-	pub voice_stream_view: Option<egui::TextureHandle>,
+	/// Decoded remote cameras by user; the desktop owns, bounds and replaces the textures.
+	pub voice_remote_video: Vec<(Id, egui::load::SizedTexture)>,
+	/// Latest picture of the screen share this device chose to watch; desktop-owned texture.
+	pub voice_stream_view: Option<egui::load::SizedTexture>,
 	pub voice_stream_status: &'static str,
 	/// Session-only stream playback level; unset is 100%. Mute preserves the level.
 	voice_stream_volume: Option<u16>,
@@ -418,6 +427,7 @@ pub struct MessagingUi {
 	/// Tile click to start (`Some(user)`) or stop (`None`) watching, applied by the stage.
 	watch_request: Option<Option<Id>>,
 	ring_request: Option<(Id, u64, Id, bool)>,
+	voice_moderation: Option<(Id, Id, Id, model::server_admin::VoiceChange)>,
 	stream_preview_open: Option<((Id, Id, Id), u64)>,
 	stream_preview_request: Option<(Id, Id, Id)>,
 	stream_preview_watch: Option<(Id, Id)>,
@@ -740,6 +750,11 @@ impl MessagingUi {
 		self.members_narrow_open = true;
 		self.profile.command_open(user);
 	}
+	/// Fixture-only entry point: the profile popout alone, beside a docked member list.
+	#[cfg(any(test, feature = "demo"))]
+	pub fn preview_profile_popout(&mut self, user: model::User) {
+		self.profile.command_open(user);
+	}
 	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_full_profile(&mut self, user: model::User) {
 		self.profile.open_full(user);
@@ -974,7 +989,7 @@ impl MessagingUi {
 	pub fn take_avatar_requests(&mut self) -> Vec<String> {
 		self.avatars.take_requests()
 	}
-	/// When unplayed animation frames can next be released; see `take_avatar_requests`.
+	/// Next idle animation/inline texture release; see `take_avatar_requests`.
 	pub fn avatar_release_at(&self) -> Option<std::time::Instant> {
 		self.avatars.next_release()
 	}
@@ -1214,11 +1229,16 @@ impl MessagingUi {
 					},
 				);
 
+				let right_inset = if design::WINDOW_CONTROLS_WIDTH > 0.0 {
+					0.0
+				} else {
+					12.0
+				};
 				ui.scope_builder(
 					egui::UiBuilder::new()
 						.max_rect(egui::Rect::from_min_max(
 							egui::pos2(title_rect.right() + 10.0, rect.top()),
-							rect.right_bottom() - egui::vec2(12.0, 0.0),
+							rect.right_bottom() - egui::vec2(right_inset, 0.0),
 						))
 						.layout(egui::Layout::right_to_left(egui::Align::Center)),
 					|ui| {
@@ -1536,13 +1556,23 @@ impl MessagingUi {
 								)
 							});
 							let row = rect.shrink2(egui::vec2(0.0, 1.0));
-							if response.hovered() || response.has_focus() {
+							let focused = response.hovered() || response.has_focus();
+							if focused {
 								ui.painter().rect_filled(
 									row,
 									6,
 									design::row_highlight(ui, colors.hover, 1.0),
 								);
 							}
+							self.avatars.paint_nameplate(
+								ui,
+								&member.user,
+								row,
+								6,
+								focused,
+								!online,
+								state.demo,
+							);
 							let mut inner = ui.new_child(
 								egui::UiBuilder::new()
 									.max_rect(row.shrink2(egui::vec2(8.0, 4.0)))
@@ -3010,20 +3040,17 @@ impl MessagingUi {
 		}
 		if focus_edit || (focus_composer && !editing_here) {
 			let mut edit_state = egui::text_edit::TextEditState::default();
-			let count = if editing_here {
+			let text = if editing_here {
 				self.editing
 					.as_ref()
-					.map_or(0, |(_, _, content)| content.chars().count())
+					.map_or("", |(_, _, content)| content.as_str())
 			} else {
-				state
-					.drafts
-					.get(&channel)
-					.map_or(0, |draft| draft.chars().count())
+				state.drafts.get(&channel).map_or("", String::as_str)
 			};
 			edit_state
 				.cursor
 				.set_char_range(Some(egui::text::CCursorRange::one(
-					egui::text::CCursor::new(count),
+					egui::text::CCursor::end_of_str(text),
 				)));
 			edit_state.store(ctx, composer_id);
 		}
@@ -3221,12 +3248,18 @@ impl MessagingUi {
 				)
 			});
 		let placeholder = state.channel(channel).map_or_else(
-			|| "Message".to_owned(),
+			|| crate::i18n::translate("composer-placeholder"),
 			|c| {
 				if c.guild.is_some() {
-					format!("Message #{}", c.name)
+					crate::i18n::translate_args(
+						"composer-placeholder-channel",
+						&[("channel", &c.name)],
+					)
 				} else {
-					format!("Message @{}", state.conversation_name(c))
+					crate::i18n::translate_args(
+						"composer-placeholder-direct",
+						&[("name", state.conversation_name(c))],
+					)
 				}
 			},
 		);
@@ -3596,7 +3629,7 @@ impl MessagingUi {
                                     .frame(egui::Frame::NONE)
                                     .hint_text(hint)
                                     .show(ui);
-                                rich_layout.paint(ui, &output);
+                                rich_layout.paint(ui, &output, &mut self.avatars);
                                 output
                             }).inner;
                         if !self.ime_active && !ime_this_frame {
@@ -3924,6 +3957,8 @@ impl MessagingUi {
 	}
 
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		self.avatars.cosmetics = self.cosmetics;
+		let cosmetics_refresh = state.set_profile_cosmetics(self.cosmetics);
 		self.timeline.download.gif_favorites = state
 			.gifs
 			.favorites
@@ -4007,6 +4042,7 @@ impl MessagingUi {
 		self.timeline.video.seen = false;
 		let side = self.drain_side_press();
 		let mut commands = Vec::new();
+		commands.extend(cosmetics_refresh);
 		// A server joined from an invite opens as soon as the Gateway delivers it.
 		commands.extend(state.navigate_after_join());
 		if let Some(action) = self.poll_creator.show(ui.ctx(), state, &mut self.avatars)
@@ -4906,7 +4942,7 @@ impl MessagingUi {
 			let name = state
 				.timeline
 				.get(message)
-				.map(|m| thread_create::suggested_name(&m.display_text()))
+				.map(|m| thread_create::suggested_name(&crate::i18n::message_text(m)))
 				.unwrap_or_default();
 			self.thread_create.open(channel, Some(message), name);
 		}
@@ -5296,6 +5332,17 @@ impl MessagingUi {
 		}
 		self.show_call_switch(&ctx, state, &mut commands);
 		self.apply_ring_request(state, &mut commands);
+		if let Some((guild, channel, user, change)) = self.voice_moderation.take()
+			&& let Some(command) = state.request_server_admin(
+				guild,
+				model::server_admin::Action::Voice {
+					user,
+					channel,
+					change,
+				},
+			) {
+			commands.push(command);
+		}
 		self.verification.show(&ctx, state);
 		self.onboarding.show(&ctx, state, &mut commands);
 		self.scroll.clear_if_unbound(&ctx);
@@ -5731,6 +5778,7 @@ mod composer_tests {
 			kind: Default::default(),
 			discriminator: 0,
 			primary_guild: None,
+			cosmetics: None,
 		};
 		let mut state = State {
 			selected: Some(Id(10)),
@@ -6148,7 +6196,12 @@ mod composer_tests {
 			),
 			(
 				"https://discord.com/channels/100/11/25",
-				"#Synthetic edit conversation",
+				"Linked server",
+				Some(Id(25)),
+			),
+			(
+				"<HTTPS://DISCORD.COM:443/channels/100/11/25?jump=1#message>",
+				"Linked server",
 				Some(Id(25)),
 			),
 			(
@@ -6211,6 +6264,9 @@ mod composer_tests {
 			for _ in 0..3 {
 				frame(&mut view, &mut state, vec![]);
 			}
+			// The chip's atomic URL selection slot identifies its exact hit geometry.
+			// The resolved name also appears in the channel list/header, so it cannot
+			// reliably identify the message-body link here.
 			let point = frame(&mut view, &mut state, vec![])
 				.0
 				.expect("rendered chat link")
@@ -6235,7 +6291,7 @@ mod composer_tests {
 				);
 			}
 			commands.extend(frame(&mut view, &mut state, vec![]).1);
-			assert_eq!(state.selected, Some(Id(11)));
+			assert_eq!(state.selected, Some(Id(11)), "source: {source}");
 			assert_eq!(view.guild, Some(Id(100)));
 			assert_eq!(state.search_target, target_message);
 			assert_eq!(state.drafts, drafts);
@@ -6244,6 +6300,185 @@ mod composer_tests {
 				command,
 				Command::Send { .. } | Command::Edit { .. } | Command::Delete { .. }
 			)));
+		}
+	}
+
+	#[test]
+	fn malformed_discord_origins_dispatch_externally_without_native_routes_or_metadata() {
+		fn text_rect(shape: &egui::Shape, label: &str) -> Option<egui::Rect> {
+			match shape {
+				egui::Shape::Text(text) if text.galley.text().trim() == label => {
+					Some(text.galley.rect.translate(text.pos.to_vec2()))
+				}
+				egui::Shape::Vec(shapes) => shapes.iter().find_map(|shape| text_rect(shape, label)),
+				_ => None,
+			}
+		}
+		for (raw, external, confirms) in [
+			(
+				"https://discord.com/not/../channels/100/11/25?jump=1#message",
+				"https://discord.com/channels/100/11/25?jump=1#message",
+				false,
+			),
+			(
+				"https://discord.com/not/%2e%2e/channels/100/11/25?jump=1#message",
+				"https://discord.com/channels/100/11/25?jump=1#message",
+				false,
+			),
+			(
+				"https://discord%2Ecom/channels/100/11/25",
+				"https://discord.com/channels/100/11/25",
+				false,
+			),
+			(
+				"HTTPS://DISCORD.COM.EVIL.EXAMPLE:443/not/../channels/100/11/25?jump=1#message",
+				"https://discord.com.evil.example/channels/100/11/25?jump=1#message",
+				true,
+			),
+		] {
+			assert!(markdown::discord_chat_link(raw).is_none());
+			assert_eq!(markdown::external_url(raw).as_deref(), Some(external));
+			for source in [raw.to_owned(), format!("<{raw}>")] {
+				let ctx = egui::Context::default();
+				let mut view = MessagingUi::default();
+				view.reading_preferences.confirm_external_links = true;
+				let mut state = edit_state();
+				let mut target = state.channels[0].clone();
+				target.id = Id(11);
+				target.guild = Some(Id(100));
+				target.kind = 0;
+				target.name = "Malformed-origin cached target".into();
+				state.channels.push(target);
+				state.guilds.push(model::Guild {
+					id: Id(100),
+					name: "Malformed-origin cached server".into(),
+					icon: None,
+					emojis: None,
+					stickers: None,
+					default_message_notifications: None,
+				});
+				state
+					.permissions
+					.replace(test_support::permission_snapshot(&state))
+					.unwrap();
+				let mut message = state.timeline.get(Id(20)).unwrap().clone();
+				message.content = source;
+				state.timeline.insert(message, true, false).unwrap();
+				let drafts = state.drafts.clone();
+				let frame =
+					|view: &mut MessagingUi, state: &mut State, events| {
+						let mut commands = vec![];
+						let output = ctx.run_ui(
+							egui::RawInput {
+								screen_rect: Some(egui::Rect::from_min_size(
+									egui::Pos2::ZERO,
+									egui::vec2(1000.0, 700.0),
+								)),
+								events,
+								..Default::default()
+							},
+							|ui| commands = view.show(ui, state),
+						);
+						assert_eq!(state.selected, Some(Id(10)), "{raw}");
+						assert!(
+							state.search_target.is_none() && view.guild.is_none(),
+							"{raw}"
+						);
+						assert_eq!(state.drafts, drafts);
+						assert!(!commands.iter().any(|command| matches!(
+							command,
+							Command::History {
+								channel: Id(11),
+								..
+							} | Command::Send { .. } | Command::Edit { .. }
+								| Command::Delete { .. } | Command::Voice(_)
+						)));
+						for label in [
+							"Malformed-origin cached target",
+							"Malformed-origin cached server",
+							"Unknown channel",
+						] {
+							assert!(
+								output
+									.shapes
+									.iter()
+									.all(|shape| text_rect(&shape.shape, label).is_none()),
+								"No native destination chip for {raw}"
+							);
+						}
+						assert!(output.platform_output.events.iter().all(|event| {
+							let info = event.widget_info();
+							info.role != egui::Role::Link
+								|| info.label.as_deref().is_none_or(|label| {
+									!label.contains("Jump to message")
+										&& !label.contains("Malformed-origin cached")
+								})
+						}));
+						let find = |label| {
+							output
+								.shapes
+								.iter()
+								.find_map(|shape| text_rect(&shape.shape, label))
+						};
+						let link = find(raw);
+						let confirm = find("Open in Browser");
+						let destination = find(external).is_some();
+						let opened: Vec<_> = output
+							.platform_output
+							.commands
+							.iter()
+							.filter_map(|command| match command {
+								egui::OutputCommand::OpenUrl(url) => Some(url.url.clone()),
+								_ => None,
+							})
+							.collect();
+						output.drop_without_applying_deltas();
+						(link, confirm, destination, opened)
+					};
+				for _ in 0..3 {
+					assert!(frame(&mut view, &mut state, vec![]).3.is_empty());
+				}
+				let point = frame(&mut view, &mut state, vec![])
+					.0
+					.expect("raw link label")
+					.center();
+				let click = |point, pressed| {
+					vec![
+						egui::Event::PointerMoved(point),
+						egui::Event::PointerButton {
+							pos: point,
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					]
+				};
+				let mut opened = vec![];
+				for pressed in [true, false] {
+					opened.extend(frame(&mut view, &mut state, click(point, pressed)).3);
+				}
+				opened.extend(frame(&mut view, &mut state, vec![]).3);
+				if confirms {
+					assert!(opened.is_empty(), "Spoof hosts require confirmation");
+					assert!(view.timeline.opening.is_some());
+					let mut confirm = None;
+					for _ in 0..3 {
+						let (_, button, displayed, emitted) = frame(&mut view, &mut state, vec![]);
+						assert!(emitted.is_empty());
+						assert!(displayed, "Confirmation must show the actual destination");
+						confirm = button;
+					}
+					let point = confirm.expect("external confirmation action").center();
+					for pressed in [true, false] {
+						opened.extend(frame(&mut view, &mut state, click(point, pressed)).3);
+					}
+				}
+				// Genuine Discord origins retain the existing external-open exemption, but
+				// neither raw path attacks nor encoded authorities become native navigation.
+				assert_eq!(opened, [external.to_owned()], "{raw}");
+				assert!(view.timeline.opening.is_none());
+				assert!(frame(&mut view, &mut state, vec![]).3.is_empty());
+			}
 		}
 	}
 
@@ -7569,6 +7804,7 @@ mod composer_tests {
 								kind: Default::default(),
 								discriminator: 0,
 								primary_guild: None,
+								cosmetics: None,
 							},
 							nick: None,
 							roles: vec![],
@@ -8324,6 +8560,7 @@ mod composer_tests {
 				kind: Default::default(),
 				discriminator: 0,
 				primary_guild: None,
+				cosmetics: None,
 			};
 			let mut state = State {
 				demo: true,

@@ -150,7 +150,13 @@ async fn exchange(rekey_timeout: bool) {
 	let (playback_tx, playback_rx) = std::sync::mpsc::sync_channel(8);
 	let (picture_tx, picture_rx) = std::sync::mpsc::sync_channel(1);
 	let sink: VideoSink = Arc::new(move |frame| {
-		let _ = picture_tx.try_send((frame.user, frame.width, frame.height, frame.rgba.len()));
+		let picture = frame.picture;
+		let _ = picture_tx.try_send((
+			frame.user,
+			picture.width,
+			picture.height,
+			picture.data.len(),
+		));
 	});
 	let mut viewer = tokio::spawn(async move {
 		run_stream_inner(
@@ -337,7 +343,7 @@ async fn exchange(rekey_timeout: bool) {
 		}
 	}
 	assert!(audio_packets > 0 && video_packets > 0);
-	assert_eq!(picture.unwrap(), (1, 320, 240, 320 * 240 * 4));
+	assert_eq!(picture.unwrap(), (1, 320, 240, 320 * 240 * 3 / 2));
 	if rekey_timeout {
 		// Both have cleared their initial negotiation deadline. Keep acknowledging
 		// heartbeats, but withhold the sender's Execute and viewer's new Welcome.

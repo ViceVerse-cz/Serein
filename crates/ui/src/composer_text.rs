@@ -16,12 +16,15 @@ struct Inline {
 	label: Option<Arc<egui::Galley>>,
 	background: Color32,
 	image: Option<Image<'static>>,
+	asset: Option<model::ImageShare>,
+	icon: Option<crate::icons::Icon>,
 }
 
 #[derive(Default)]
 pub(crate) struct Layout {
 	inlines: Vec<Inline>,
 	cache: Option<(u64, Arc<egui::Galley>)>,
+	demo: bool,
 }
 
 impl Layout {
@@ -38,6 +41,7 @@ impl Layout {
 		avatars: &mut Avatars,
 		demo: bool,
 	) -> Arc<egui::Galley> {
+		self.demo = demo;
 		let mut key = DefaultHasher::new();
 		text.hash(&mut key);
 		width.to_bits().hash(&mut key);
@@ -74,7 +78,7 @@ impl Layout {
 				channels
 					.iter()
 					.find(|c| c.id == id)
-					.map(|c| &c.name)
+					.map(|c| (&c.name, crate::channel_pill::icon(c, channels) as u8))
 					.hash(&mut key);
 			}
 		}
@@ -103,6 +107,8 @@ impl Layout {
 			let mut label = None;
 			let mut background = colors.accent.gamma_multiply(0.12);
 			let mut image = None;
+			let mut asset = None;
+			let mut icon = None;
 			let mut artwork = false;
 			let length = if let Some((id, len)) = model::user_mention_prefix(tail) {
 				let name = users
@@ -121,25 +127,32 @@ impl Layout {
 				background = colors.mention_bg;
 				len
 			} else if let Some((id, len)) = model::channel_mention_prefix(tail) {
-				let name = channels
-					.iter()
-					.find(|c| c.id == id && c.guild.is_some())
-					.map_or_else(|| format!("unknown-channel ({id})"), |c| c.name.clone());
-				label = Some((format!("#{name}"), colors.mention_text));
+				let channel = channels.iter().find(|c| c.id == id && c.guild.is_some());
+				let name =
+					channel.map_or_else(|| format!("unknown-channel ({id})"), |c| c.name.clone());
+				icon = Some(channel.map_or(crate::icons::Icon::Hash, |c| {
+					crate::channel_pill::icon(c, channels)
+				}));
+				label = Some((name, colors.mention_text));
 				background = colors.mention_bg;
 				len
 			} else if mass_mentions && let Some(len) = model::mass_mention_prefix(tail) {
 				label = Some((tail[..len].to_owned(), colors.mention_text));
 				background = colors.mention_bg;
 				len
-			} else if let Some((asset, name, len)) = model::ImageShare::markdown_prefix(tail) {
-				image = avatars.share_image(ui.ctx(), asset, size, demo);
+			} else if let Some((share, name, len)) = model::ImageShare::markdown_prefix(tail) {
+				asset = Some(share);
+				image = avatars.lookup_share_image(ui.ctx(), share, size, demo);
 				if image.is_none() {
 					label = Some((name, colors.muted));
 				}
 				len
 			} else if let Some((id, len)) = emoji::custom_prefix(tail) {
-				image = avatars.custom_image(ui.ctx(), id, size, demo);
+				asset = Some(model::ImageShare::Emoji {
+					id,
+					animated: false,
+				});
+				image = avatars.lookup_share_image(ui.ctx(), asset.unwrap(), size, demo);
 				// A useful name remains visible while artwork is unavailable/loading.
 				if image.is_none() {
 					let name = tail[..len]
@@ -159,14 +172,17 @@ impl Layout {
 			};
 			let label = label.map(|(text, color)| {
 				let mut job = LayoutJob::simple_singleline(text, font.clone(), color);
-				job.wrap.max_width = (width - 6.0).max(1.0);
+				job.wrap.max_width =
+					(width - 6.0 - if icon.is_some() { size } else { 0.0 }).max(1.0);
 				job.wrap.max_rows = 1;
 				ui.fonts_mut(|f| f.layout_job(job))
 			});
 			let raw = &tail[..length];
 			let count = raw.chars().count();
 			if label.is_some() || image.is_some() || artwork {
-				let slot = label.as_ref().map_or(size, |g| g.size().x + 6.0);
+				let slot = label.as_ref().map_or(size, |g| {
+					g.size().x + 6.0 + if icon.is_some() { size } else { 0.0 }
+				});
 				// One blank glyph forms an unbroken inline object, even at a row break.
 				// Expand its character slots below, so native selection/copy/undo use wire text.
 				job.append(" ", 0.0, emoji::inline_format(ui, slot, size));
@@ -177,6 +193,8 @@ impl Layout {
 					label,
 					background,
 					image,
+					asset,
+					icon,
 				});
 				projected += 1;
 			} else {
@@ -224,7 +242,12 @@ impl Layout {
 		galley
 	}
 
-	pub fn paint(&self, ui: &mut egui::Ui, output: &egui::text_edit::TextEditOutput) {
+	pub fn paint(
+		&self,
+		ui: &mut egui::Ui,
+		output: &egui::text_edit::TextEditOutput,
+		avatars: &mut Avatars,
+	) {
 		// TextEdit keeps the empty hint galley on the first keystroke.
 		if self
 			.cache
@@ -247,13 +270,35 @@ impl Layout {
 				position.min,
 				egui::vec2(inline.width, position.height()),
 			);
-			if !rect.intersects(clip) {
+			if !rect.intersect(clip).is_positive() {
 				continue;
+			}
+			if let Some(asset) = inline.asset {
+				// Only visible slots may request or refresh artwork, even on a cache hit.
+				avatars.touch_share_image(ui.ctx(), asset, self.demo);
 			}
 			if let Some(label) = &inline.label {
 				painter.rect_filled(rect, 3, inline.background);
+				let offset = if let Some(icon) = inline.icon {
+					let size = emoji::inline_size(ui);
+					crate::icons::paint(
+						&painter,
+						icon,
+						egui::Rect::from_center_size(
+							egui::pos2(rect.left() + 3.0 + size / 2.0, rect.center().y),
+							egui::Vec2::splat(size * 0.65),
+						),
+						crate::design::palette(ui).mention_text,
+					);
+					size
+				} else {
+					0.0
+				};
 				painter.galley(
-					egui::pos2(rect.left() + 3.0, rect.center().y - label.size().y / 2.0),
+					egui::pos2(
+						rect.left() + 3.0 + offset,
+						rect.center().y - label.size().y / 2.0,
+					),
 					label.clone(),
 					Color32::PLACEHOLDER,
 				);
@@ -345,6 +390,60 @@ impl Layout {
 mod tests {
 	use super::*;
 
+	#[test]
+	fn channel_icons_preserve_editable_tokens_and_refresh_with_parent_type() {
+		let ctx = egui::Context::default();
+		let mut state = test_support::demo_state();
+		let mut layout = Layout::default();
+		let mut avatars = Avatars::default();
+		let text = "<#20> <#28> <#26> <#27>";
+		for forum in [true, false] {
+			state
+				.channels
+				.iter_mut()
+				.find(|channel| channel.id == model::Id(26))
+				.unwrap()
+				.kind = if forum { 15 } else { 0 };
+			let output = ctx.run_ui(Default::default(), |ui| {
+				let galley = layout.galley(
+					ui,
+					text,
+					180.0,
+					&[],
+					&[],
+					&state.channels,
+					false,
+					&mut avatars,
+					true,
+				);
+				assert_eq!(galley.job.text, text);
+				assert!(galley.size().x <= 180.0);
+				assert_eq!(
+					layout
+						.inlines
+						.iter()
+						.filter_map(|inline| inline.icon)
+						.collect::<Vec<_>>(),
+					[
+						crate::icons::Icon::Hash,
+						crate::icons::Icon::Thread,
+						if forum {
+							crate::icons::Icon::Threads
+						} else {
+							crate::icons::Icon::Hash
+						},
+						if forum {
+							crate::icons::Icon::Forum
+						} else {
+							crate::icons::Icon::Thread
+						},
+					]
+				);
+			});
+			output.drop_without_applying_deltas();
+		}
+	}
+
 	fn users() -> Vec<User> {
 		vec![User {
 			id: model::Id(42),
@@ -354,6 +453,7 @@ mod tests {
 			kind: Default::default(),
 			discriminator: 0,
 			primary_guild: None,
+			cosmetics: None,
 		}]
 	}
 
@@ -388,7 +488,7 @@ mod tests {
 					let edit = egui::TextEdit::multiline(&mut text)
 						.layouter(&mut layouter)
 						.show(ui);
-					layout.paint(ui, &edit);
+					layout.paint(ui, &edit, &mut avatars);
 					assert_eq!(edit.galley.job.text, text);
 					assert_eq!(layout.inlines.len(), 5);
 					for (inline, label) in layout.inlines.iter().zip([
@@ -513,7 +613,7 @@ mod tests {
 						.hint_text("Message")
 						.layouter(&mut layouter)
 						.show(ui);
-					layout.paint(ui, &edit);
+					layout.paint(ui, &edit, &mut avatars);
 				},
 			);
 			let images = output
@@ -583,7 +683,7 @@ mod tests {
 					.layouter(&mut layouter)
 					.show(ui);
 				layout.inlines[0].image = Some(image.clone());
-				layout.paint(ui, &edit);
+				layout.paint(ui, &edit, &mut avatars);
 			});
 			output.textures_delta.clear();
 			let sizes: Vec<_> = output
@@ -693,7 +793,7 @@ mod tests {
 					let edit = egui::TextEdit::multiline(&mut text)
 						.layouter(&mut layouter)
 						.show(ui);
-					layout.paint(ui, &edit);
+					layout.paint(ui, &edit, &mut avatars);
 					assert!(edit.text_clip_rect.height() > 40.0);
 					ui.clip_rect()
 				})
@@ -777,7 +877,7 @@ mod tests {
 					if !composing {
 						layout.snap_cursor(&mut edit, &ctx);
 					}
-					layout.paint(ui, &edit);
+					layout.paint(ui, &edit, &mut avatars);
 				},
 			);
 			if copying {
