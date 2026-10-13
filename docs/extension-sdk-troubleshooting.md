@@ -98,6 +98,10 @@ See [storage semantics](extension-sdk-actions.md#storage-is-one-value-not-a-file
 
 ## Voice-message recorder (preview)
 
+> **Separate PR #566 host/SDK only.** This recorder API is not implemented in
+> the photo-compression branch. Use [the pinned PR #566 source](https://github.com/ViceVerse-cz/Serein/tree/97d419515e427a885af41683857bb247a0abed7e)
+> for the types, snippets, build commands and native recorder behavior in this section.
+
 | Symptom | What to check |
 | --- | --- |
 | No recorder item in the composer + menu | Enable Voice Messages and consent to `voice_messages` on a matching host. Import alone is passive. A failed activation or invalid saved config provides no contribution. |

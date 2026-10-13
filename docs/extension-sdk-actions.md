@@ -78,7 +78,7 @@ The Rust paths below are relative to `AppOutput`. When using the original
 | --- | --- | --- |
 | `replacement` / `output.replacement` | Optional string; `composer`. The invocation must actually contain composer text. | **Apply to Draft** replaces the original, still-unchanged draft. It never sends a message. |
 | `rich_presence` / `RichPresenceOutput.rich_presence` | Optional `RichPresenceUpdate`; `rich_presence` grant. | Explicit panel/activation Set or Clear updates the contribution; omission leaves it unchanged. See [Custom Rich Presence](#custom-rich-presence). |
-| `voice_messages` / `VoiceMessagesOutput.voice_messages` | Optional `VoiceMessagesConfig`; `voice_messages` grant. | Panel/activation config enables/configures the native recorder; omission preserves the contribution. No capture or sending occurs. See [Voice Messages](#voice-messages). |
+| `voice_messages` / `VoiceMessagesOutput.voice_messages` | Separate PR #566 only; optional `VoiceMessagesConfig`; `voice_messages` grant. | Panel/activation config enables/configures the native recorder; omission preserves the contribution. No capture or sending occurs. See [Voice Messages](#voice-messages). |
 | `panel` / `output.panel` | Array of native `Element` values; no separate panel capability. | A foreground result displays it. Message/app event handlers must return no elements. Activation does not display returned panels. |
 | `storage` / `output.storage` | Optional opaque UTF-8 string; `storage`. | A valid foreground or event result replaces the plugin's saved value before result approval. Activation can read storage but this build does not persist its returned storage. |
 | `appearance` / `output.appearance` | Optional `Theme` object; `appearance`. | An accepted result updates the plugin's appearance overlay immediately, including activation and event results. Preview `tick` results are eased from the currently displayed colors. No Apply button is involved. |
@@ -949,8 +949,12 @@ client. See the [Custom Rich Presence example](../extensions/plugins/custom-rpc)
 
 ### Voice Messages
 
+> **Separate PR #566 host/SDK only.** This recorder API is not implemented in
+> the photo-compression branch. Use [the pinned PR #566 source](https://github.com/ViceVerse-cz/Serein/tree/97d419515e427a885af41683857bb247a0abed7e)
+> for the types, snippets, build commands and native recorder behavior in this section.
+
 > **Preview SDK — PR #566, not yet released.** Live Discord interoperability is
-> unverified. Use a host built from this source revision.
+> unverified. Use the separate pinned PR #566 host/SDK above.
 
 Declare `voice_messages` and obtain explicit consent. The opt-in wrapper
 `VoiceMessagesOutput { output: Output, voice_messages: Option<VoiceMessagesConfig> }`

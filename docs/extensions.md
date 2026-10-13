@@ -226,6 +226,10 @@ and sandbox checks are not proof of cross-client Discord behavior.
 
 ### Voice Messages
 
+> **Separate PR #566 host/SDK only.** This recorder API is not implemented in
+> the photo-compression branch. Use [the pinned PR #566 source](https://github.com/ViceVerse-cz/Serein/tree/97d419515e427a885af41683857bb247a0abed7e)
+> for the types, snippets, build commands and native recorder behavior in this section.
+
 The preview [Voice Messages plugin](https://github.com/ViceVerse-cz/Serein/tree/97d419515e427a885af41683857bb247a0abed7e/extensions/plugins/voice-messages) is an
 opt-in gate and settings editor for the host recorder. Import or catalog enable
 requires `voice_messages` consent; saved choices additionally require `storage`.
