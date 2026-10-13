@@ -1264,7 +1264,7 @@ impl State {
 		}
 		self.retire_archived_thread(Some(channel));
 		self.typing.clear();
-		self.select_resident(channel);
+		let trusted = self.select_resident(channel);
 		self.history_targeted = false;
 		self.history_navigation.clear();
 		if self.shared_member_list_id(channel).is_none() {
@@ -1324,6 +1324,17 @@ impl State {
 			if let Some(command) = self.open_scrolled_window(message) {
 				return Apply::Opened(Some(command));
 			}
+		}
+		if let Some(trusted) = trusted {
+			self.cancel_history();
+			self.history_before = None;
+			self.older_exhausted = trusted.older_exhausted;
+			self.freshness = Freshness::Fresh;
+			// The page needs no request, but a direct call's state still synchronizes on open,
+			// as the host does alongside a revalidating page request.
+			let call =
+				self.channel(channel).is_some_and(|c| c.guild.is_none()) && self.can_call(channel);
+			return Apply::Opened(call.then_some(Command::Voice(voice::Command::Sync { channel })));
 		}
 		Apply::Opened(Some(self.history(None)))
 	}

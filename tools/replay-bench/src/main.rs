@@ -117,7 +117,18 @@ fn navigation() {
 			request,
 		}) = command
 		else {
-			panic!("Navigation must revalidate its selected conversation");
+			// An untouched dormant window that ends at the latest message reopens as current.
+			assert!(
+				command.is_none(),
+				"Navigation may only revalidate or reopen"
+			);
+			assert_eq!(state.freshness, model::Freshness::Fresh);
+			assert_eq!(state.timeline.len(), 50);
+			if step >= 3 {
+				samples.push(elapsed);
+				hits += 1;
+			}
+			continue;
 		};
 		assert_eq!(selected, channel);
 		assert_eq!(state.freshness, model::Freshness::Loading);

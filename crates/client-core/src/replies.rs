@@ -1083,7 +1083,7 @@ mod tests {
 			assert!(state.history_targeted);
 			assert!(state.resident_history_rows() <= 1475);
 			assert!(state.resident_history_bytes() <= 16 * 1024 * 1024 - 66 * 1024);
-			state.select(Id(2)).unwrap();
+			assert!(state.select(Id(2)).is_none(), "untouched window");
 			assert!(!state.history_targeted);
 			state.select(Id(1)).unwrap();
 			assert_eq!(state.timeline.row_count(), 0);

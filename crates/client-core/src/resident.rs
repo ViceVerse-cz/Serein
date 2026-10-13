@@ -1,12 +1,20 @@
-//! Two dormant, account-session-local conversation windows. Entries are moved,
-//! never cloned. Ordinary selection revalidates previews; exact loaded message
-//! links may use an eligible, previously fresh window without another page.
+//! Dormant, account-session-local conversation windows. Entries are moved, never cloned.
+//! Live events evict a window, so one that survives untouched still holds the latest page and
+//! reopens without a request; anything older or changed revalidates. Exact loaded message links
+//! may use an eligible, previously fresh window without another page.
 use crate::{Event, State, reactions};
 use model::{Channel, Freshness, Id};
 use session_cache::Timeline;
-use std::collections::VecDeque;
+use std::{
+	collections::VecDeque,
+	time::{Duration, Instant},
+};
 
-const MAX_WINDOWS: usize = 2;
+const MAX_WINDOWS: usize = 8; // The shared row/byte budget below evicts sooner for long windows.
+/// ponytail: trusting an untouched window assumes the gateway delivered every edit, deletion and
+/// reaction for the channel since it was parked (unverified for very large guilds). The age cap
+/// bounds that risk; a per-channel server revision would allow longer trust.
+const TRUST_AGE: Duration = Duration::from_secs(5 * 60);
 const MAX_ROWS: usize = 1500 - 25; // Reserve the one bounded search/pins page.
 const MAX_BYTES: usize = 16 * 1024 * 1024 - 66 * 1024; // Page plus query/view metadata.
 
@@ -31,6 +39,12 @@ impl From<&Channel> for Identity {
 struct Window {
 	identity: Identity,
 	timeline: Timeline,
+	parked: Instant,
+	older_exhausted: bool,
+}
+/// A restored window that may be shown as the current page without revalidation.
+pub(crate) struct Trusted {
+	pub older_exhausted: bool,
 }
 /// Opaque resident state, public so external synthetic State struct updates remain valid.
 #[derive(Default)]
@@ -132,7 +146,9 @@ impl State {
 		});
 		self.resident.entries = entries;
 	}
-	pub(crate) fn select_resident(&mut self, channel: Id) {
+	/// Swap the active timeline for `channel`'s dormant window. Returns `Some` when the restored
+	/// window is recent, untouched and ends at the channel's latest known message.
+	pub(crate) fn select_resident(&mut self, channel: Id) -> Option<Trusted> {
 		self.prune_resident();
 		// Take the destination first, before parking can evict the oldest entry.
 		let restored = self
@@ -141,6 +157,18 @@ impl State {
 			.iter()
 			.position(|entry| entry.identity.id == channel)
 			.and_then(|index| self.resident.entries.remove(index));
+		let latest = self.channel(channel).and_then(|entry| entry.last_message);
+		let trusted = restored
+			.as_ref()
+			.filter(|entry| {
+				self.gateway_connected
+					&& entry.parked.elapsed() < TRUST_AGE
+					&& latest.is_some()
+					&& entry.timeline.iter().next_back().map(|message| message.id) == latest
+			})
+			.map(|entry| Trusted {
+				older_exhausted: entry.older_exhausted,
+			});
 		let previous = self.selected.and_then(|id| {
 			self.channels
 				.iter()
@@ -169,9 +197,12 @@ impl State {
 				if self.resident.entries.len() == MAX_WINDOWS {
 					self.resident.entries.pop_front();
 				}
-				self.resident
-					.entries
-					.push_back(Window { identity, timeline });
+				self.resident.entries.push_back(Window {
+					identity,
+					timeline,
+					parked: Instant::now(),
+					older_exhausted: self.older_exhausted,
+				});
 			}
 		}
 		if let Some(entry) = restored {
@@ -180,6 +211,7 @@ impl State {
 		self.timeline
 			.set_preserve_deleted_messages(self.preserve_deleted_messages);
 		self.enforce_resident_budget();
+		trusted
 	}
 	pub(crate) fn invalidate_resident_event(&mut self, event: &Event) {
 		let deletion = match event {
@@ -304,7 +336,7 @@ mod tests {
 			user: Some(message(1, 1).author),
 			auth: auth::AuthState::Authenticated,
 			gateway_connected: true,
-			channels: (1..=4)
+			channels: (1..=MAX_WINDOWS as u64 + 2)
 				.map(|id| Channel {
 					id: Id(id),
 					guild: None,
@@ -332,11 +364,13 @@ mod tests {
 	fn load(state: &mut State, channel: u64) {
 		if state.selected == Some(Id(channel)) {
 			assert!(state.history_pending && state.history_before.is_none());
+		} else if let Some(command) = state.select(Id(channel)) {
+			assert!(matches!(command, Command::History { before: None, .. }));
 		} else {
-			assert!(matches!(
-				state.select(Id(channel)),
-				Some(Command::History { before: None, .. })
-			));
+			// An untouched dormant window holding the latest page reopens without a request.
+			assert!(!state.history_pending);
+			assert_eq!(state.freshness, Freshness::Fresh);
+			return;
 		}
 		let request = state.request;
 		apply(
@@ -409,6 +443,8 @@ mod tests {
 			load(&mut state, 3);
 			assert_eq!(state.resident_window_count(), 2);
 			assert_eq!(state.resident_history_rows(), 150);
+			// Newer activity than the dormant page (e.g. a read-state update) revalidates it.
+			state.observe_last_message(Id(1), Id(1999));
 			assert!(matches!(
 				state.select(Id(1)),
 				Some(Command::History {
@@ -525,10 +561,10 @@ mod tests {
 	fn lru_and_aggregate_row_budget_evict_whole_windows() {
 		{
 			let mut state = state();
-			for channel in 1..=4 {
+			for channel in 1..=MAX_WINDOWS as u64 + 2 {
 				load(&mut state, channel);
 			}
-			assert_eq!(state.resident_window_count(), 2);
+			assert_eq!(state.resident_window_count(), MAX_WINDOWS);
 			state.select(Id(1)).unwrap();
 			assert_eq!(state.timeline.row_count(), 0); // Least recent was evicted.
 			for channel in 1..=3 {
@@ -628,13 +664,15 @@ mod tests {
 				apply(&mut state, event);
 				if delete {
 					assert_eq!(state.resident_window_count(), 2);
-					state.select(Id(1)).unwrap();
+					// Deletions apply in place, so the window still ends at the latest message.
+					assert!(state.select(Id(1)).is_none());
+					assert_eq!(state.freshness, Freshness::Fresh);
 					assert!(state.timeline.get_display(Id(1001)).is_none());
 					assert!(state.timeline.get(Id(1001)).is_none());
 					assert_eq!(state.timeline.row_count(), 50);
 				} else {
 					assert_eq!(state.resident_window_count(), 1);
-					state.select(Id(2)).unwrap();
+					assert!(state.select(Id(2)).is_none(), "untouched window");
 					assert_eq!(state.timeline.row_count(), 50);
 					state.select(Id(1)).unwrap();
 					assert_eq!(state.timeline.row_count(), 0);
@@ -740,6 +778,48 @@ mod tests {
 	}
 
 	#[test]
+	fn untouched_recent_windows_reopen_without_a_request() {
+		{
+			let mut state = state();
+			load(&mut state, 1);
+			state.older_exhausted = true; // A short conversation already reached its start.
+			load(&mut state, 2);
+			let request = state.request;
+			assert!(state.select(Id(1)).is_none());
+			assert_eq!(state.freshness, Freshness::Fresh);
+			assert!(!state.history_pending && state.older_exhausted);
+			assert_eq!(state.timeline.row_count(), 50);
+			assert_ne!(
+				state.request, request,
+				"an in-flight page for the old channel is stale"
+			);
+		}
+		for revalidate in [
+			|state: &mut State| {
+				let entry = state.resident.entries.back_mut().unwrap();
+				entry.parked = Instant::now().checked_sub(TRUST_AGE).unwrap();
+			},
+			|state: &mut State| state.gateway_connected = false,
+			|state: &mut State| state.observe_last_message(Id(2), Id(2999)),
+		] {
+			let mut state = state();
+			load(&mut state, 2);
+			load(&mut state, 1);
+			revalidate(&mut state);
+			assert!(matches!(
+				state.select(Id(2)),
+				Some(Command::History {
+					channel: Id(2),
+					before: None,
+					..
+				})
+			));
+			assert_eq!(state.timeline.row_count(), 50, "the preview stays visible");
+			assert_eq!(state.freshness, Freshness::Loading);
+		}
+	}
+
+	#[test]
 	fn search_targets_and_transient_archive_windows_are_not_parked() {
 		let mut state = state();
 		load(&mut state, 1);
@@ -751,9 +831,9 @@ mod tests {
 		state.archived_thread = Some(Id(2));
 		load(&mut state, 2);
 		assert_eq!(state.resident_window_count(), 1);
-		state.select(Id(1)).unwrap();
+		assert!(state.select(Id(1)).is_none(), "untouched window");
 		assert_eq!(state.timeline.row_count(), 50);
-		assert_eq!(state.freshness, Freshness::Loading);
+		assert_eq!(state.freshness, Freshness::Fresh);
 		assert_eq!(state.resident_window_count(), 0);
 		assert!(!state.channels.iter().any(|channel| channel.id == Id(2)));
 	}

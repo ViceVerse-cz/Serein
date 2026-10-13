@@ -1208,7 +1208,8 @@ async fn run(
 				.redirect(reqwest::redirect::Policy::none())
 				.timeout(Duration::from_secs(15))
 				.connect_timeout(Duration::from_secs(5))
-				.pool_max_idle_per_host(1)
+				// Keep one warm connection per concurrent job so bursts skip new TLS handshakes.
+				.pool_max_idle_per_host(JOBS)
 				.build()
 				.ok()
 		})
@@ -1260,27 +1261,17 @@ async fn run(
 				continue;
 			};
 			let persistent = disk_key(&key).is_some();
-			let disk = &mut disks[partition(&key) as usize];
-			let mut error = (persistent && disk.is_none()).then_some(CACHE_ERROR);
-			let cached = disk.as_mut().and_then(|disk| {
-				if !persistent {
-					return None;
-				}
-				match disk.read(&key) {
-					Ok(bytes) => bytes,
-					Err(_) => {
-						error = Some(CACHE_ERROR);
-						None
-					}
-				}
-			});
+			let disk = &disks[partition(&key) as usize];
+			let error = (persistent && disk.is_none()).then_some(CACHE_ERROR);
+			// The job reads its cached copy, so a large stored clip never stalls dispatch.
+			let cache = disk.as_ref().filter(|_| persistent).map(Disk::reader);
 			let generation = cleared[partition(&key) as usize];
 			let job = load(Job {
 				budget: budget(&key),
 				key,
 				url: primary,
 				fallback,
-				cached,
+				cache,
 				error,
 				client: client.clone(),
 				cooldown,
@@ -1439,7 +1430,7 @@ struct Job {
 	url: String,
 	fallback: Option<String>,
 	budget: Budget,
-	cached: Option<Vec<u8>>,
+	cache: Option<DiskReader>,
 	error: Option<&'static str>,
 	client: Option<reqwest::Client>,
 	cooldown: Instant,
@@ -1462,12 +1453,25 @@ async fn load(job: Job) -> Loaded {
 		url,
 		fallback,
 		budget,
-		cached,
-		error,
+		cache,
+		mut error,
 		client,
 		cooldown,
 		early,
 	} = job;
+	let cached = match cache {
+		Some(cache) => {
+			let name = key.clone();
+			match tokio::task::spawn_blocking(move || cache.read(&name)).await {
+				Ok(Ok(bytes)) => bytes,
+				_ => {
+					error = Some(CACHE_ERROR);
+					None
+				}
+			}
+		}
+		None => None,
+	};
 	let animated = budget.frames.is_some();
 	let mut until = cooldown;
 	let mut early = animated.then_some(early);
@@ -2055,6 +2059,40 @@ fn animation_frames(bytes: &[u8]) -> Option<image::Frames<'_>> {
 	})
 }
 
+/// What a job needs to read one cached file off the worker loop; the loop keeps the accounting.
+struct DiskReader {
+	root: PathBuf,
+	retention: Duration,
+}
+impl DiskReader {
+	fn read(&self, key: &str) -> io::Result<Option<Vec<u8>>> {
+		let name = disk_key(key).ok_or(io::ErrorKind::InvalidInput)?;
+		let path = self.root.join(format!("{name}.png"));
+		let file = match OpenOptions::new().read(true).write(true).open(&path) {
+			Ok(file) => file,
+			Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+			Err(error) => return Err(error),
+		};
+		let metadata = file.metadata()?;
+		if metadata.len() > encoded_limit(key) as u64
+			|| SystemTime::now()
+				.duration_since(metadata.modified()?)
+				.unwrap_or_default()
+				>= self.retention
+		{
+			return Ok(None);
+		}
+		let mut bytes = Vec::with_capacity(metadata.len() as usize);
+		(&file)
+			.take(encoded_limit(key) as u64 + 1)
+			.read_to_end(&mut bytes)?;
+		if bytes.len() > encoded_limit(key) {
+			return Ok(None);
+		}
+		file.set_modified(SystemTime::now())?;
+		Ok(Some(bytes))
+	}
+}
 struct Disk {
 	root: PathBuf,
 	bytes: u64,
@@ -2117,32 +2155,11 @@ impl Disk {
 		self.files = 0;
 		Ok(())
 	}
-	fn read(&mut self, key: &str) -> io::Result<Option<Vec<u8>>> {
-		let name = disk_key(key).ok_or(io::ErrorKind::InvalidInput)?;
-		let path = self.root.join(format!("{name}.png"));
-		let file = match OpenOptions::new().read(true).write(true).open(&path) {
-			Ok(file) => file,
-			Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-			Err(error) => return Err(error),
-		};
-		let metadata = file.metadata()?;
-		if metadata.len() > encoded_limit(key) as u64
-			|| SystemTime::now()
-				.duration_since(metadata.modified()?)
-				.unwrap_or_default()
-				>= self.retention
-		{
-			return Ok(None);
+	fn reader(&self) -> DiskReader {
+		DiskReader {
+			root: self.root.clone(),
+			retention: self.retention,
 		}
-		let mut bytes = Vec::with_capacity(metadata.len() as usize);
-		(&file)
-			.take(encoded_limit(key) as u64 + 1)
-			.read_to_end(&mut bytes)?;
-		if bytes.len() > encoded_limit(key) {
-			return Ok(None);
-		}
-		file.set_modified(SystemTime::now())?;
-		Ok(Some(bytes))
 	}
 	fn write(&mut self, key: &str, bytes: &[u8]) -> io::Result<()> {
 		if cdn_url(key).is_none() || bytes.len() > encoded_limit(key) {
@@ -3342,13 +3359,17 @@ mod tests {
 		}));
 		drop(disk);
 		let mut disk = Disk::open(account_a.clone()).unwrap();
-		assert_eq!(disk.read("default-0").unwrap().unwrap(), bytes);
-		assert_eq!(disk.read(embed_key).unwrap().unwrap(), bytes);
-		assert_eq!(disk.read("embed:sticker-7-3").unwrap().unwrap(), bytes);
-		assert_eq!(disk.read("app-icon-7").unwrap().unwrap(), bytes);
+		assert_eq!(disk.reader().read("default-0").unwrap().unwrap(), bytes);
+		assert_eq!(disk.reader().read(embed_key).unwrap().unwrap(), bytes);
+		assert_eq!(
+			disk.reader().read("embed:sticker-7-3").unwrap().unwrap(),
+			bytes
+		);
+		assert_eq!(disk.reader().read("app-icon-7").unwrap().unwrap(), bytes);
 		assert!(
 			Disk::open(account_b.clone())
 				.unwrap()
+				.reader()
 				.read("default-0")
 				.unwrap()
 				.is_none()
@@ -3369,7 +3390,7 @@ mod tests {
 			.set_modified(SystemTime::now() - RETENTION - Duration::from_secs(1))
 			.unwrap();
 		disk.prune(0, 0).unwrap();
-		assert!(disk.read("default-0").unwrap().is_none());
+		assert!(disk.reader().read("default-0").unwrap().is_none());
 		fs::remove_file(account_a.join(format!("{}.png", disk_key(embed_key).unwrap()))).unwrap();
 		fs::remove_file(account_a.join(format!("{}.png", disk_key("embed:sticker-7-3").unwrap())))
 			.unwrap();

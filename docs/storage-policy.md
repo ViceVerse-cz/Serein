@@ -136,6 +136,9 @@ This includes Lottie, still, animation and native thumbnail decoding; it does
 not change download concurrency, decoder byte budgets or the result queue.
 Encoded input, completed results, UI textures and driver memory remain additional.
 Eight slots are an admission ceiling, not a whole-process RAM limit.
+Each load reads its own cached file on a blocking thread, so a large stored clip no longer
+holds up dispatch; the worker loop still owns writes, pruning, clears and size accounting. The
+download client keeps up to eight idle connections per host, one per concurrent load.
 
 Screen watching keeps one reused copy of the latest native picture (NV12/I420,
 at most 3,110,400 bytes at 1080p). The UI uploads it to the GPU under the slot lock, so
@@ -639,11 +642,16 @@ is bounded to 0–3 and sensitivity to −80..=0 dBFS or disabled. Active proces
 replace one fixed-size watch snapshot. Existing eight-frame PCM queue limits are unchanged;
 processing has no downloaded model, recording, or persistent audio data.
 
-Recently visited conversations now keep at most two dormant RAM timelines in the current
-account session, moved rather than cloned. Only readable Fresh ordinary text windows are parked;
-search-target ranges and transient archived threads are excluded. Promotion rechecks identity
-and read permission. Ordinary selection shows a Loading preview and requests a fresh recent
-service page. An exact message-link hit in an eligible resident window instead scrolls locally,
+Recently visited conversations now keep at most eight dormant RAM timelines in the current
+account session, moved rather than cloned; the shared row/byte budget below usually evicts sooner.
+Only readable Fresh ordinary text windows are parked; search-target ranges and transient archived
+threads are excluded. Promotion rechecks identity and read permission. A window parked less than
+five minutes ago, while the gateway is connected, whose newest message equals the channel's latest
+known message reopens as Fresh without a service request: any live message, edit or reaction for
+that channel would already have evicted it, and deletions apply to it in place. Trusting it relies
+on the gateway delivering every such event for the channel (unverified for very large servers); the
+five-minute age cap bounds that. Any other selection shows a Loading preview and requests a fresh
+recent service page. An exact message-link hit in an eligible resident window instead scrolls locally,
 without starting recent-history or saved-cursor REST. An offline miss is checked before promotion.
 This is a preview cache, not saved historical scroll position. It avoids a SQLite read on a hit.
 Unknown/deleted-only row handling retains the same guards as the active window.

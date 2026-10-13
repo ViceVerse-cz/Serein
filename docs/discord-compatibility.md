@@ -344,6 +344,12 @@ not returned and may have been removed or become unavailable, not proof of delet
 Offline misses leave the current conversation, draft and navigation unchanged. An
 active window marked Stale by disconnection is not treated as Fresh; previously
 Fresh dormant windows still use their permission/identity/mutation eligibility guards.
+Ordinary reselection of an untouched dormant window that is under five minutes old and
+ends at the channel's latest known message skips the recent-history request (see
+`docs/storage-policy.md`). This is **unverified**: it assumes the gateway dispatched
+every message, edit and reaction for that channel meanwhile, which may not hold for
+very large servers; the age cap bounds the window. A direct conversation still sends
+its existing call-state synchronization on open.
 
 The wire history route and permission requirements are documented in Discord's
 [Message resource](https://docs.discord.com/developers/resources/message); forum/thread
