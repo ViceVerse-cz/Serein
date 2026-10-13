@@ -23,7 +23,7 @@ unicode-bidi = "=0.3.18"
 fluent-templates = { version = "=0.15.1", default-features = false, features = ["macros", "walkdir"] }
 sys-locale = "=0.3.2"
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
-ruzstd = { version = "0.9.0", default-features = false, features = ["std"] }
+ruzstd = { version = "0.9.1", default-features = false, features = ["std"] }
 skrifa = { version = "=0.44.0", default-features = false, features = ["std"] }
 
 [dev-dependencies]

@@ -73,6 +73,11 @@ The bundled faces remain upstream's hinted TrueType builds. See `assets/README.m
 
 ## Layout
 
+The sidebar's Inbox button opens a scrollable mentions dialog with server/channel context,
+author and a short preview. It includes direct, role and everyone mentions, with Refresh,
+Retry, Older mentions and Open message actions. Loading, empty and error states are
+explicit. Escape and the dialog close button dismiss it and clear its session-only page.
+
 - 36px title strip (`base`): hidden native title bar on macOS with traffic lights inline, centred
   context title, session status text and an OFFLINE PREVIEW / EXPERIMENTAL pill. Eframe centres the
   native macOS buttons in the active title strip every frame, including after resizing or zooming;

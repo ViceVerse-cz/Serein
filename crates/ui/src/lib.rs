@@ -67,6 +67,7 @@ mod group_menu;
 mod guild_folders;
 mod highlight;
 pub mod icons;
+mod inbox;
 mod invites;
 mod local_time;
 mod markdown;
@@ -232,6 +233,7 @@ pub struct MessagingUi {
 	onboarding: onboarding::OnboardingUi,
 	pub extensions: ExtensionUi,
 	friends: friends::Friends,
+	inbox_open: bool,
 	account_menu: account_menu::AccountMenu,
 	pub own_presence: model::OwnPresence,
 	/// When the custom status clears itself, in milliseconds since the Unix epoch. The
@@ -1788,6 +1790,19 @@ impl MessagingUi {
 			})
 			.show(ui, |ui| {
 				let ctx = ui.ctx().clone();
+				if ui
+					.add_sized(
+						[ui.available_width(), 30.0],
+						egui::Button::new(language.text("inbox-title")),
+					)
+					.clicked()
+				{
+					self.inbox_open = true;
+					if let Some(command) = state.request_mentions(None) {
+						commands.push(command);
+					}
+				}
+				ui.add_space(6.0);
 				if self.guild.is_none() {
 					// Search and Friends share one row; Friends is the compact glyph beside it.
 					ui.horizontal(|ui| {
@@ -5331,6 +5346,7 @@ impl MessagingUi {
 			}
 		}
 		self.show_call_switch(&ctx, state, &mut commands);
+		self.mentions_inbox(&ctx, state, &mut commands);
 		self.apply_ring_request(state, &mut commands);
 		if let Some((guild, channel, user, change)) = self.voice_moderation.take()
 			&& let Some(command) = state.request_server_admin(
