@@ -117,6 +117,7 @@ mod tests {
 			avatar: None,
 			discriminator: 0,
 			primary_guild: None,
+			cosmetics: None,
 		};
 		let output = context.run_ui(Default::default(), |ui| {
 			ui.set_width(300.0);
@@ -157,6 +158,7 @@ mod tests {
 			avatar: None,
 			discriminator: 0,
 			primary_guild: None,
+			cosmetics: None,
 		};
 		let mut name_rect = egui::Rect::NOTHING;
 		let mut clicked = false;

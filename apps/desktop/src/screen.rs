@@ -661,6 +661,7 @@ mod tests {
 			deafened: false,
 			participants: vec![],
 			error: None,
+			reconnecting: None,
 			camera: false,
 			watching: None,
 		});

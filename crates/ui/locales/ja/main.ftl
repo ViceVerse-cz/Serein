@@ -87,6 +87,11 @@ search-conversation = この会話を検索
 show-member-list = メンバーリストを表示
 pinned-messages = 固定メッセージ
 threads = スレッド
+
+channel-pill-thread = スレッド
+channel-pill-forum = フォーラム
+channel-pill-post = 投稿
+channel-pill-message = メッセージ
 reload-history = 履歴のリロード
 in-a-call = 通話中
 members-description = この会話にアクセスできる全員。
@@ -96,7 +101,7 @@ loading-people = 人を読み込んでいます…
 no-people = この景色を求めて戻ってきた人はいませんでした。
 status-online = オンライン
 status-offline = オフライン
-status-idle = アイドル状態
+status-idle = 退席中
 status-dnd = 邪魔しないでください
 role = 役割
 no-conversations = ここでは会話ができません。
@@ -232,7 +237,7 @@ account-menu-presence-menu-you-will-appear-offline = オフラインで表示さ
 # Context: presence_menu
 account-menu-presence-menu-you-will-not-receive-desktop-notifications = デスクトップ通知は受信されません
 # Context: account_status_row
-account-menu-status-invisible = 見えない
+account-menu-status-invisible = オンライン状態を隠す
 
 ## crates/ui/src/archives.rs
 # Context: show
@@ -244,7 +249,7 @@ archives-show-archives-active-threads = アクティブなスレッドをアー�
 # Context: show
 archives-show-archives-are-unavailable-while-disconnected-or-without-channel-access = 接続されていないとき、またはチャンネルにアクセスできないときは、アーカイブは利用できません。
 # Context: show
-archives-show-close = 近い
+archives-show-close = 閉じる
 # Context: show
 archives-show-create = 作成する
 # Context: show
@@ -303,7 +308,7 @@ attachments-loading-card-preparing = 準備中…
 # Context: show_status
 attachments-show-status-cancel-download = ダウンロードをキャンセルする
 # Context: show_status
-attachments-show-status-dismiss = 却下する
+attachments-show-status-dismiss = 閉じる
 # Context: viewer
 attachments-viewer-a-download-is-already-active = ダウンロードはすでにアクティブです
 # Context: viewer
@@ -491,11 +496,11 @@ channel-menu-show-channel-settings-could-not-be-loaded = チャンネル設定�
 # Context: show
 channel-menu-show-channel-settings-need-to-be-refreshed-before-saving-reloading-replaces = 保存する前にチャンネル設定を更新する必要があります。再ロードすると、このドラフトが置き換えられます。
 # Context: show
-channel-menu-show-close = 近い
+channel-menu-show-close = 閉じる
 # Context: show_feedback
 channel-menu-show-feedback-channel-action = チャネルアクション
 # Context: show_feedback
-channel-menu-show-feedback-dismiss = 却下する
+channel-menu-show-feedback-dismiss = 閉じる
 # Context: show
 channel-menu-show-in-this-channels-category-inherits-category-permissions = このチャンネルのカテゴリでは、カテゴリの権限を継承します
 # Context: show
@@ -972,9 +977,9 @@ extensions-ui-settings-try-a-different-name-or-creator = 別の名前または�
 # Context: show_result
 extensions-ui-show-result-apply-to-draft = ドラフトに適用
 # Context: show_result
-extensions-ui-show-result-close = 近い
+extensions-ui-show-result-close = 閉じる
 # Context: show_result
-extensions-ui-show-result-dismiss = 却下する
+extensions-ui-show-result-dismiss = 閉じる
 # Context: show_result
 extensions-ui-show-result-extension-error = 拡張エラー
 # Context: show_result
@@ -1000,7 +1005,7 @@ extensions-ui-toolbar-checking-for-packages-and-updates = パッケージとア�
 # Context: toolbar
 extensions-ui-toolbar-clear-search = 検索をクリア
 # Context: toolbar
-extensions-ui-toolbar-dismiss = 却下する
+extensions-ui-toolbar-dismiss = 閉じる
 # Context: toolbar
 extensions-ui-toolbar-import-theme = テーマをインポート…
 # Context: toolbar
@@ -1356,7 +1361,7 @@ group-menu-menu-mute-conversation = 会話をミュートする
 # Context: menu
 group-menu-menu-mute-notifications-until-you-unmute-this-conversation = この会話のミュートを解除するまで、通知をミュートします。
 # Context: menu
-group-menu-menu-pin-dm = ピンDM
+group-menu-menu-pin-dm = DMを固定
 # Context: menu
 group-menu-menu-pinned-direct-messages-are-saved-on-this-device = 固定されたダイレクト メッセージはこのデバイスに保存されます。
 # Context: menu
@@ -1687,7 +1692,6 @@ markdown-show-run-open-user-profile = ユーザープロフィールを開く
 # Context: show_run
 markdown-show-run-reveal-spoiler = スポイラーを明らかにする
 # Context: show_run
-markdown-show-run-unknown-channel-load-channel = 不明なチャネル、ロードチャネル
 
 ## crates/ui/src/mentions.rs
 # Context: show
@@ -1801,7 +1805,7 @@ notifications-notification-rail-unread = 、未読
 # Context: show
 pending-show-check-the-conversation-before-sending-again = 再度送信する前に会話を確認してください。
 # Context: show
-pending-show-dismiss = 却下する
+pending-show-dismiss = 閉じる
 # Context: show
 pending-show-restore-to-composer = コンポーザーに復元
 # Context: show
@@ -1941,7 +1945,7 @@ post-menu-context-open-thread = オープンスレッド
 # Context: context
 post-menu-context-pin-post = ピンポスト
 # Context: context
-post-menu-context-pin-thread = ピンネジ
+post-menu-context-pin-thread = スレッドを固定
 # Context: context
 post-menu-context-remove-from-favorites = お気に入りから削除
 # Context: context
@@ -1975,7 +1979,7 @@ post-menu-show-cancel = キャンセル
 # Context: show
 post-menu-show-delete = 消去
 # Context: show
-post-menu-show-dismiss = 却下する
+post-menu-show-dismiss = 閉じる
 # Context: show
 post-menu-show-edit = 編集
 # Context: show
@@ -2159,7 +2163,7 @@ reactions-show-reactions-unavailable = 反応がありません
 # Context: show
 reactions-show-reload-reactions = リロード反応
 # Context: show_users
-reactions-show-users-close = 近い
+reactions-show-users-close = 閉じる
 # Context: show_users
 reactions-show-users-load-more = さらにロードする
 # Context: show_users
@@ -2373,7 +2377,7 @@ search-overlays-no-matching-users-in-this-conversation = この会話には一�
 # Context: overlays
 search-overlays-search-for = 検索する
 # Context: pane
-search-pane-close = 近い
+search-pane-close = 閉じる
 # Context: pane
 search-pane-hide-matching-text-highlight = 一致するテキストのハイライトを非表示にする
 # Context: pane
@@ -2423,7 +2427,7 @@ search-pins-empty-this-channel-doesn-t-have-any-pinned-messages-yet = このチ�
 search-pins-empty-this-direct-message-doesn-t-have-any-pinned-messages-yet = このダイレクトメッセージには、
     固定されたメッセージはまだありません。
 # Context: pins_popout
-search-pins-popout-close = 近い
+search-pins-popout-close = 閉じる
 # Context: pins_popout
 search-pins-popout-pinned-messages = 固定メッセージ
 # Context: pins_popout
@@ -2453,7 +2457,7 @@ server-admin-dialog-emoji-name = 絵文字名
 # Context: dialog
 server-admin-dialog-inactive-for = 非アクティブ期間
 # Context: dialog
-server-admin-dialog-kick-member = キックメンバー
+server-admin-dialog-kick-member = メンバーをキック
 # Context: dialog
 server-admin-dialog-leave-blank-to-use-their-username = ユーザー名を使用する場合は空白のままにします。
 # Context: dialog
@@ -2461,7 +2465,7 @@ server-admin-dialog-nickname = ニックネーム
 # Context: dialog
 server-admin-dialog-preview = プレビュー
 # Context: dialog
-server-admin-dialog-prune-members = プルーンメンバー
+server-admin-dialog-prune-members = 非アクティブメンバーを整理
 # Context: dialog
 server-admin-dialog-save = 保存
 # Context: dialog
@@ -2579,7 +2583,7 @@ server-admin-members-oldest-discord-accounts = 最も古い Discord アカウン
 # Context: members
 server-admin-members-oldest-members = 最年長メンバー
 # Context: members
-server-admin-members-prune = プルーン
+server-admin-members-prune = 非アクティブを整理
 # Context: members
 server-admin-members-recent-members = 最近のメンバー
 # Context: members
@@ -2995,7 +2999,7 @@ server-menu-show-are-you-sure-you-want-to-leave = 本当に退会してもよろ
 # Context: show
 server-menu-show-cancel = キャンセル
 # Context: show
-server-menu-show-close = 近い
+server-menu-show-close = 閉じる
 # Context: show
 server-menu-show-leave-server = サーバーを離れますか?
 # Context: show
@@ -3498,6 +3502,51 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein はテレメトリを収集したり、診断をアップロードしたりしません。 Discord は、独自のポリシーに従ってサービス側のデータを保持します。
 # Context: storage_page
 settings-storage-page-your-privacy = あなたのプライバシー
+# Context: cosmetic_settings
+settings-cosmetics = プロフィールの装飾
+# Context: cosmetic_settings
+settings-cosmetics-decorations = アバターデコレーション
+# Context: cosmetic_settings
+settings-cosmetics-decorations-description = アバターの周りに表示される画像。
+# Context: cosmetic_settings
+settings-cosmetics-nameplates = ネームプレート
+# Context: cosmetic_settings
+settings-cosmetics-nameplates-description = メンバーリストとDMリストの名前の背後に表示される画像。
+# Context: cosmetic_settings
+settings-cosmetics-effects = プロフィールエフェクト
+# Context: cosmetic_settings
+settings-cosmetics-effects-description = プロフィールカード上で再生されるアニメーション。
+# Context: cosmetic_settings
+settings-cosmetics-frames = プロフィールフレーム
+# Context: cosmetic_settings
+settings-cosmetics-frames-description = プロフィールカードの周りに表示される画像。
+# Context: cosmetic_settings
+settings-cosmetics-hidden-are-not-downloaded = 非表示にした装飾はダウンロードされません。変わるのはこのデバイスでの表示だけです。
+# Context: image_cache_settings
+settings-image-cache = 画像キャッシュ
+# Context: image_cache_settings
+settings-image-cache-media = メディアキャッシュ
+# Context: image_cache_settings
+settings-image-cache-media-description = アバター、バナー、プレビュー、スタンプ。
+# Context: image_cache_settings
+settings-image-cache-artwork = 共有画像キャッシュ
+# Context: image_cache_settings
+settings-image-cache-artwork-description = 絵文字、バッジ、サーバータグ、ロールアイコン、アバターデコレーション、ネームプレート。大きなメディアに押し出されないよう別に保存されます。
+# Context: image_cache_settings
+settings-image-cache-usage = { $limit } 中 { $used } を使用中。
+# Context: image_cache_settings
+settings-image-cache-usage-unavailable = 画像を読み込むと使用量が表示されます。
+# Context: image_cache_settings
+settings-image-cache-clear = 消去
+# Context: image_cache_settings
+settings-image-cache-clear-description = ダウンロード済みのこれらの画像を今すぐ削除します。メッセージ、下書き、ログインはそのままです。
+# Context: image_cache_settings
+settings-image-cache-retention = 未使用の画像を削除するまでの期間
+# Context: image_cache_settings
+settings-image-cache-retention-description = この期間表示されなかったキャッシュ画像はディスクから削除されます。
+# Context: image_cache_settings
+settings-image-cache-days =
+    { $count }日
 
 ## crates/ui/src/slash_commands.rs
 # Context: argument
@@ -3549,7 +3598,7 @@ stickers-show-this-sticker-is-unavailable-with-the-current-connection-or-permiss
 
 ## crates/ui/src/switcher.rs
 # Context: show
-switcher-show-close = 近い
+switcher-show-close = 閉じる
 # Context: show
 switcher-show-conversations-and-friends = 会話と友達
 # Context: show
@@ -3791,7 +3840,7 @@ timeline-message-actions-edit-message = メッセージを編集する
 # Context: message_actions
 timeline-message-actions-extensions = 拡張機能
 # Context: message_actions
-timeline-message-actions-forward = フォワード
+timeline-message-actions-forward = 転送
 # Context: message_actions
 timeline-message-actions-mark-read-through-here = マークはここを最後まで読みました
 # Context: message_actions
@@ -3799,7 +3848,7 @@ timeline-message-actions-mark-unread = 未読としてマークする
 # Context: message_actions
 timeline-message-actions-pin-message = ピンメッセージ
 # Context: message_actions
-timeline-message-actions-reply = 返事
+timeline-message-actions-reply = 返信
 # Context: message_actions
 timeline-message-actions-unpin-message = メッセージの固定を解除する
 # Context: message_actions
@@ -3829,7 +3878,6 @@ timeline-show-with-scroll-edited = (編集済み)
 # Context: show_with_scroll
 timeline-show-with-scroll-forwarded = ↪ 転送されました
 # Context: show_with_scroll
-timeline-show-with-scroll-hide-spoilers = ネタバレを隠す
 # Context: show_with_scroll
 timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = 履歴はまだ利用できません。リロードを使用して再試行してください。
 # Context: show_with_scroll
@@ -3863,7 +3911,7 @@ timeline-unread-banner-jump-to-unread = 未読へジャンプ
 
 ## crates/ui/src/toasts.rs
 # Context: show
-toasts-show-dismiss = 却下する
+toasts-show-dismiss = 閉じる
 
 ## crates/ui/src/updates.rs
 # Context: shows_update_banner
@@ -3947,7 +3995,7 @@ user-menu-contents-mute-this-direct-message-s-notifications-until-you-unmute-it 
 # Context: contents
 user-menu-contents-no-open-direct-message-with-this-user = このユーザーとのオープンなダイレクト メッセージはありません。
 # Context: contents
-user-menu-contents-pin-dm = ピンDM
+user-menu-contents-pin-dm = DMを固定
 # Context: contents
 user-menu-contents-pinned-direct-messages-are-saved-on-this-device = 固定されたダイレクト メッセージはこのデバイスに保存されます。
 # Context: contents
@@ -4067,13 +4115,13 @@ voice-mute-toggle-applies-to-your-next-call = 次回の通話に適用されま�
 # Context: mute_toggle
 voice-mute-toggle-controls-are-unavailable-in-this-build-or-preview = このビルドまたはプレビューではコントロールは使用できません。
 # Context: mute_toggle
-voice-mute-toggle-deafen = 聴覚障害者
+voice-mute-toggle-deafen = スピーカーミュート
 # Context: mute_toggle
 voice-mute-toggle-mute = ミュート
 # Context: mute_toggle
 voice-mute-toggle-speaking-is-unavailable-in-this-channel = このチャンネルでは話すことはできません。
 # Context: mute_toggle
-voice-mute-toggle-undeafen = 聴覚障害者
+voice-mute-toggle-undeafen = スピーカーミュート解除
 # Context: mute_toggle
 voice-mute-toggle-unmute = ミュートを解除する
 # Context: mute_toggle_with_settings
@@ -4104,6 +4152,10 @@ voice-voice-card-section-camera-settings = カメラの設定
 voice-voice-card-section-disconnect = 切断する
 # Context: voice_card_section
 voice-voice-card-section-dismiss-call = 通話を終了する
+# Context: voice_card_section
+voice-voice-card-section-reconnect-attempt = { $reason } · 再試行 { $attempt }/{ $total }
+# Context: voice_card_section
+voice-voice-card-section-reconnecting = 再接続中…
 # Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = マイクが使用できません · 接続されたままです。オーディオ設定で別の入力を選択します。
 # Context: voice_channel_button
@@ -4181,7 +4233,7 @@ voice-voice-processing-controls-input-profile = 入力プロファイル
 # Context: voice_processing_controls
 voice-voice-processing-controls-input-threshold = 入力閾値
 # Context: voice_processing_controls
-voice-voice-processing-controls-mute-and-deafen-always-take-priority = ミュートと聴覚障害者が常に優先されます。
+voice-voice-processing-controls-mute-and-deafen-always-take-priority = ミュートとスピーカーミュートが常に優先されます。
 # Context: voice_processing_controls
 voice-voice-processing-controls-noise-suppression = ノイズ抑制
 # Context: voice_processing_controls
@@ -4493,3 +4545,174 @@ profiles-activity-empty = 共有されているアクティビティはありま
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction
+
+## crates/platform/src/app_menu.rs
+# Context: macos_menu_bar
+app-menu-about = Sereinについて
+# Context: macos_menu_bar
+app-menu-updates = アップデートを確認…
+# Context: macos_menu_bar
+app-menu-settings = 設定…
+# Context: macos_menu_bar
+app-menu-services = サービス
+# Context: macos_menu_bar
+app-menu-hide = Sereinを非表示
+# Context: macos_menu_bar
+app-menu-hide-others = ほかを非表示
+# Context: macos_menu_bar
+app-menu-show-all = すべてを表示
+# Context: macos_menu_bar
+app-menu-quit = Sereinを終了
+# Context: macos_menu_bar
+app-menu-file = ファイル
+# Context: macos_menu_bar
+app-menu-close-window = ウインドウを閉じる
+# Context: macos_menu_bar
+app-menu-edit = 編集
+# Context: macos_menu_bar
+app-menu-undo = 取り消す
+# Context: macos_menu_bar
+app-menu-redo = やり直す
+# Context: macos_menu_bar
+app-menu-cut = カット
+# Context: macos_menu_bar
+app-menu-copy = コピー
+# Context: macos_menu_bar
+app-menu-paste = ペースト
+# Context: macos_menu_bar
+app-menu-select-all = すべてを選択
+# Context: macos_menu_bar
+app-menu-emoji = 絵文字と記号
+# Context: macos_menu_bar
+app-menu-view = 表示
+# Context: macos_menu_bar
+app-menu-actual-size = 実際のサイズ
+# Context: macos_menu_bar
+app-menu-zoom-in = 拡大
+# Context: macos_menu_bar
+app-menu-zoom-out = 縮小
+# Context: macos_menu_bar
+app-menu-full-screen = フルスクリーンにする
+# Context: macos_menu_bar
+app-menu-window = ウインドウ
+# Context: macos_menu_bar
+app-menu-minimize = しまう
+# Context: macos_menu_bar
+app-menu-zoom = 拡大/縮小
+# Context: macos_menu_bar
+app-menu-bring-all-to-front = すべてを手前に移動
+# Context: macos_menu_bar
+app-menu-help = ヘルプ
+# Context: macos_menu_bar
+app-menu-github = GitHubのSerein
+# Context: macos_menu_bar
+app-menu-report-issue = 問題を報告…
+
+## crates/model/src/system_messages.rs
+# Context: system_message
+system-message-a-member = メンバー
+# Context: system_message
+system-message-added = { $actor }が{ $target }を会話に追加しました。
+# Context: system_message
+system-message-left = { $actor }が会話から退出しました。
+# Context: system_message
+system-message-removed = { $actor }が{ $target }を会話から削除しました。
+# Context: system_message
+system-message-call = { $actor }が通話を開始しました。
+# Context: system_message
+system-message-channel-name = { $actor }がチャンネル名を変更しました。
+# Context: system_message
+system-message-channel-name-value = { $actor }がチャンネル名を変更しました: { $value }
+# Context: system_message
+system-message-channel-icon = { $actor }がチャンネルアイコンを変更しました。
+# Context: system_message
+system-message-pinned = { $actor }がこのチャンネルにメッセージをピン留めしました。
+# Context: system_message
+system-message-joined = ようこそ、{ $actor }さん！サーバーに参加しました。
+# Context: system_message
+system-message-boosted = { $actor }がサーバーをブーストしました！
+# Context: system_message
+system-message-boosted-level = { $actor }がサーバーをブーストしました！サーバーがレベル{ $level }に到達しました。
+# Context: system_message
+system-message-channel-follow = { $actor }がチャンネルのフォローを追加しました。
+# Context: system_message
+system-message-discovery-disqualified = このサーバーはサーバー発見の対象外になりました。
+# Context: system_message
+system-message-discovery-requalified = このサーバーは再びサーバー発見の対象になりました。
+# Context: system_message
+system-message-discovery-warning = サーバー発見の対象資格に関する警告です。
+# Context: system_message
+system-message-discovery-final-warning = サーバー発見の対象資格に関する最終警告です。
+# Context: system_message
+system-message-thread = { $actor }がスレッドを開始しました。
+# Context: system_message
+system-message-thread-value = { $actor }がスレッドを開始しました: { $value }
+# Context: system_message
+system-message-thread-starter = 以前のメッセージから開始されたスレッドです。
+# Context: system_message
+system-message-invite-reminder = 招待のリマインダー · このサーバーに人を招待しましょう。
+# Context: system_message
+system-message-automod = AutoModのアクションです。
+# Context: system_message
+system-message-role-subscription = { $actor }がロールサブスクリプションを購入または更新しました。
+# Context: system_message
+system-message-premium-upsell = プレミアムサブスクリプションのご案内です。
+# Context: system_message
+system-message-stage-start = { $actor }がステージを開始しました。
+# Context: system_message
+system-message-stage-end = ステージが終了しました。
+# Context: system_message
+system-message-stage-speaker = { $actor }がステージのスピーカーになりました。
+# Context: system_message
+system-message-stage-raise-hand = { $actor }が発言をリクエストしました。
+# Context: system_message
+system-message-stage-topic = { $actor }がステージのトピックを変更しました。
+# Context: system_message
+system-message-application-subscription = サーバーアプリのプレミアムサブスクリプションです。
+# Context: system_message
+system-message-raid-alert-enabled = サーバーの警戒モードが有効になりました。
+# Context: system_message
+system-message-raid-alert-disabled = サーバーの警戒モードが無効になりました。
+# Context: system_message
+system-message-raid-report = サーバーへの荒らし行為が報告されました。
+# Context: system_message
+system-message-false-alarm = サーバーのインシデントは誤報として報告されました。
+# Context: system_message
+system-message-purchase = 購入のお知らせです。
+# Context: system_message
+system-message-poll-closed = { $actor }の投票「{ $question }」が終了しました。
+# Context: system_message
+system-message-poll-result = 投票結果です。
+# Context: system_message
+system-message-stream-hd = { $actor }が配信をHDにアップグレードしました。
+# Context: system_message
+system-message-report-deleted = { $actor }が報告されたメッセージを削除しました。
+# Context: system_message
+system-message-timed-out = { $actor }が{ $target }をタイムアウトしました。
+# Context: system_message
+system-message-kicked = { $actor }が{ $target }をキックしました。
+# Context: system_message
+system-message-banned = { $actor }が{ $target }をBANしました。
+# Context: system_message
+system-message-report-resolved = { $actor }が報告を解決しました。
+# Context: system_message
+system-message-voice-hangout = { $actor }がボイスたまり場を開始しました。
+# Context: system_message
+system-message-friend-accepted = { $actor }がフレンドリクエストを承認しました。
+
+## crates/ui/src/lib.rs composer
+# Context: composer_placeholder
+composer-placeholder = メッセージ
+# Context: composer_placeholder
+composer-placeholder-channel = #{ $channel }へメッセージを送信
+# Context: composer_placeholder
+composer-placeholder-direct = @{ $name }へメッセージを送信
+
+# Context: timeline_dm_intro
+timeline-dm-intro = { $name } とのダイレクトメッセージ履歴の始まりです。
+
+# Context: timeline_channel_intro
+timeline-channel-intro-title = #{ $channel } へようこそ！
+# Context: timeline_channel_intro
+timeline-channel-intro-start = #{ $channel } チャンネルの始まりです。
+screen-body-system-audio-needs-newer-windows = 音声の共有には Windows 11 または Windows Server 2022 が必要です。映像は引き続き共有できます。

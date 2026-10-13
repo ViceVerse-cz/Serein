@@ -159,7 +159,7 @@ impl Components {
 				1 | 9 | 17 => {
 					let frame = if c.kind == 17 {
 						egui::Frame::new()
-							.fill(colors.raised)
+							.fill(design::opaque_card_fill(ui, colors.raised))
 							.stroke(egui::Stroke::new(
 								1.0,
 								c.accent_color

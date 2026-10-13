@@ -87,6 +87,11 @@ search-conversation = Искать этот разговор
 show-member-list = Показать список участников
 pinned-messages = Закрепленные сообщения
 threads = Темы
+
+channel-pill-thread = Ветка
+channel-pill-forum = Форум
+channel-pill-post = Сообщение
+channel-pill-message = сообщение
 reload-history = Обновить историю
 in-a-call = Во время звонка
 members-description = Все, у кого есть доступ к этому разговору.
@@ -96,7 +101,7 @@ loading-people = Загрузка людей…
 no-people = Никто из людей не вернулся ради этого вида.
 status-online = Онлайн
 status-offline = Оффлайн
-status-idle = Праздный
+status-idle = Не активен
 status-dnd = Просьба не беспокоить
 role = Роль
 no-conversations = Здесь нет доступных разговоров.
@@ -200,7 +205,7 @@ account-menu-clears-at-tomorrow = завтра
 # Context: custom_status_actions
 account-menu-custom-status-actions-apply = Применять
 # Context: custom_status_actions
-account-menu-custom-status-actions-clear = Прозрачный
+account-menu-custom-status-actions-clear = Очистить
 # Context: account_custom_status_row
 account-menu-custom-status-edit = Изменить пользовательский статус
 # Context: custom_status_editor
@@ -236,7 +241,7 @@ account-menu-status-invisible = Невидимый
 
 ## crates/ui/src/archives.rs
 # Context: show
-archives-active-threads = АКТИВНЫЕ ТРЕДИ
+archives-active-threads = АКТИВНЫЕ ВЕТКИ
 # Context: show
 archives-show-active-threads-come-from-the-session-older-threads-load-25 = Активные потоки исходят из сеанса; старые потоки загружают 25 одновременно. Открытие загружает сообщения без присоединения.
 # Context: show
@@ -244,7 +249,7 @@ archives-show-archives-active-threads = архивирует активные т
 # Context: show
 archives-show-archives-are-unavailable-while-disconnected-or-without-channel-access = Архивы недоступны при отключении или отсутствии доступа к каналу.
 # Context: show
-archives-show-close = Закрывать
+archives-show-close = Закрыть
 # Context: show
 archives-show-create = Создавать
 # Context: show
@@ -256,7 +261,7 @@ archives-show-no-older-threads-reported-by-the-service = Служба не со�
 # Context: show
 archives-show-no-older-threads-returned = Ни одна старая тема не возвращена.
 # Context: show
-archives-show-older-threads = СТАРЫЕ ТЕМЫ
+archives-show-older-threads = СТАРЫЕ ВЕТКИ
 # Context: show
 archives-show-private-archives-require-permission-from-the-service = Для частных архивов требуется разрешение службы.
 # Context: show
@@ -303,7 +308,7 @@ attachments-loading-card-preparing = Подготовка…
 # Context: show_status
 attachments-show-status-cancel-download = Отменить загрузку
 # Context: show_status
-attachments-show-status-dismiss = Увольнять
+attachments-show-status-dismiss = Закрыть
 # Context: viewer
 attachments-viewer-a-download-is-already-active = Загрузка уже активна
 # Context: viewer
@@ -321,7 +326,7 @@ audio-show-loading-audio = Загрузка аудио…
 # Context: show
 audio-show-seek = Искать
 # Context: show
-audio-show-volume = Объем
+audio-show-volume = Громкость
 # Context: waveform
 audio-waveform-seek-voice-message = Искать голосовое сообщение
 
@@ -363,11 +368,11 @@ categories-paint-shelf-rule-media-loaded-posts = Медиа · загружен�
 # Context: paint_shelf_rule
 categories-paint-shelf-rule-server-voice-channel = Голосовой канал сервера
 # Context: paint_shelf_rule
-categories-paint-shelf-rule-stage-channel-not-implemented = Канал этапа · не реализовано
+categories-paint-shelf-rule-stage-channel-not-implemented = Канал трибуны · не реализовано
 # Context: paint_shelf_rule
 categories-paint-shelf-rule-text-channel = Текстовый канал
 # Context: paint_shelf_rule
-categories-paint-shelf-rule-thread = Нить
+categories-paint-shelf-rule-thread = Ветка
 # Context: paint_shelf_rule
 categories-paint-shelf-rule-unknown-channel-type-not-implemented = Неизвестный тип канала · не реализовано
 
@@ -491,11 +496,11 @@ channel-menu-show-channel-settings-could-not-be-loaded = Не удалось з�
 # Context: show
 channel-menu-show-channel-settings-need-to-be-refreshed-before-saving-reloading-replaces = Перед сохранением необходимо обновить настройки канала. Перезагрузка заменяет этот черновик.
 # Context: show
-channel-menu-show-close = Закрывать
+channel-menu-show-close = Закрыть
 # Context: show_feedback
 channel-menu-show-feedback-channel-action = Действие канала
 # Context: show_feedback
-channel-menu-show-feedback-dismiss = Увольнять
+channel-menu-show-feedback-dismiss = Закрыть
 # Context: show
 channel-menu-show-in-this-channels-category-inherits-category-permissions = В категории этого канала · наследует разрешения категории
 # Context: show
@@ -972,9 +977,9 @@ extensions-ui-settings-try-a-different-name-or-creator = Попробуйте д
 # Context: show_result
 extensions-ui-show-result-apply-to-draft = Подать заявку на черновик
 # Context: show_result
-extensions-ui-show-result-close = Закрывать
+extensions-ui-show-result-close = Закрыть
 # Context: show_result
-extensions-ui-show-result-dismiss = Увольнять
+extensions-ui-show-result-dismiss = Закрыть
 # Context: show_result
 extensions-ui-show-result-extension-error = Ошибка расширения
 # Context: show_result
@@ -1000,7 +1005,7 @@ extensions-ui-toolbar-checking-for-packages-and-updates = Проверка па�
 # Context: toolbar
 extensions-ui-toolbar-clear-search = Очистить поиск
 # Context: toolbar
-extensions-ui-toolbar-dismiss = Увольнять
+extensions-ui-toolbar-dismiss = Закрыть
 # Context: toolbar
 extensions-ui-toolbar-import-theme = Импортировать тему…
 # Context: toolbar
@@ -1356,7 +1361,7 @@ group-menu-menu-mute-conversation = Без звука разговор
 # Context: menu
 group-menu-menu-mute-notifications-until-you-unmute-this-conversation = Отключайте уведомления, пока не включите звук в этом разговоре.
 # Context: menu
-group-menu-menu-pin-dm = Пин DM
+group-menu-menu-pin-dm = Закрепить ЛС
 # Context: menu
 group-menu-menu-pinned-direct-messages-are-saved-on-this-device = Закрепленные личные сообщения сохраняются на этом устройстве.
 # Context: menu
@@ -1687,7 +1692,6 @@ markdown-show-run-open-user-profile = Открыть профиль пользо
 # Context: show_run
 markdown-show-run-reveal-spoiler = Раскрыть спойлер
 # Context: show_run
-markdown-show-run-unknown-channel-load-channel = Неизвестный канал, загрузите канал
 
 ## crates/ui/src/mentions.rs
 # Context: show
@@ -1801,7 +1805,7 @@ notifications-notification-rail-unread = , непрочитанный
 # Context: show
 pending-show-check-the-conversation-before-sending-again = Проверьте разговор перед повторной отправкой.
 # Context: show
-pending-show-dismiss = Увольнять
+pending-show-dismiss = Закрыть
 # Context: show
 pending-show-restore-to-composer = Восстановить в композиторе
 # Context: show
@@ -1925,7 +1929,7 @@ post-menu-context-loading = Загрузка
 # Context: context
 post-menu-context-lock-post = Замок пост
 # Context: context
-post-menu-context-lock-thread = Блокировка резьбы
+post-menu-context-lock-thread = Заблокировать ветку
 # Context: context
 post-menu-context-mark-as-read = Отметить как прочитанное
 # Context: context
@@ -1941,7 +1945,7 @@ post-menu-context-open-thread = Открытая тема
 # Context: context
 post-menu-context-pin-post = Закрепить сообщение
 # Context: context
-post-menu-context-pin-thread = Штифтовая резьба
+post-menu-context-pin-thread = Закрепить ветку
 # Context: context
 post-menu-context-remove-from-favorites = Удалить из избранного
 # Context: context
@@ -1969,13 +1973,13 @@ post-menu-noun-action-post = Почта
 # Context: noun
 post-menu-noun-post = Почта
 # Context: noun
-post-menu-noun-thread = Нить
+post-menu-noun-thread = Ветка
 # Context: show
 post-menu-show-cancel = Отмена
 # Context: show
 post-menu-show-delete = Удалить
 # Context: show
-post-menu-show-dismiss = Увольнять
+post-menu-show-dismiss = Закрыть
 # Context: show
 post-menu-show-edit = Редактировать
 # Context: show
@@ -2089,7 +2093,7 @@ profiles-more-menu-copy-webhook-id = Скопировать идентифика
 # Context: more_menu
 profiles-more-menu-edit-friend-nickname = Изменить псевдоним друга
 # Context: more_menu
-profiles-more-menu-mute = Немой
+profiles-more-menu-mute = Заглушить
 # Context: more_menu
 profiles-more-menu-mute-this-direct-message-s-notifications-until-you-unmute-it = Отключайте уведомления об этом прямом сообщении, пока не включите его.
 # Context: more_menu
@@ -2159,7 +2163,7 @@ reactions-show-reactions-unavailable = Реакции недоступны.
 # Context: show
 reactions-show-reload-reactions = Перезагрузить реакции
 # Context: show_users
-reactions-show-users-close = Закрывать
+reactions-show-users-close = Закрыть
 # Context: show_users
 reactions-show-users-load-more = Загрузить больше
 # Context: show_users
@@ -2373,7 +2377,7 @@ search-overlays-no-matching-users-in-this-conversation = В этом разго�
 # Context: overlays
 search-overlays-search-for = Искать
 # Context: pane
-search-pane-close = Закрывать
+search-pane-close = Закрыть
 # Context: pane
 search-pane-hide-matching-text-highlight = Скрыть выделение совпадающего текста
 # Context: pane
@@ -2397,7 +2401,7 @@ search-pane-order-on-this-page = Заказать на этой странице
 # Context: pane
 search-pane-pinned-messages = Закрепленные сообщения
 # Context: pane
-search-pane-reload-pins = Перезагрузить булавки
+search-pane-reload-pins = Перезагрузить закрепленные сообщения
 # Context: pane
 search-pane-search-this-conversation = Искать этот разговор
 # Context: pane
@@ -2411,7 +2415,7 @@ search-pins-content-loading-pinned-messages = Загрузка закрепле�
 # Context: pins_content
 search-pins-content-more-pins-may-exist-but-this-page-has-no-usable = Могут существовать и другие пины, но эта страница не имеет полезного продолжения.
 # Context: pins_content
-search-pins-content-older-pins = Старые контакты
+search-pins-content-older-pins = Старые закрепленные сообщения
 # Context: pins_content
 search-pins-content-pinned-messages-are-unavailable-while-disconnected-or-without-channel-ac = Закрепленные сообщения недоступны при отключении или отсутствии доступа к каналу.
 # Context: pins_content
@@ -2423,11 +2427,11 @@ search-pins-empty-this-channel-doesn-t-have-any-pinned-messages-yet = На эт�
 search-pins-empty-this-direct-message-doesn-t-have-any-pinned-messages-yet = В этом прямом сообщении нет
     какие-либо закрепленные сообщения… пока.
 # Context: pins_popout
-search-pins-popout-close = Закрывать
+search-pins-popout-close = Закрыть
 # Context: pins_popout
 search-pins-popout-pinned-messages = Закрепленные сообщения
 # Context: pins_popout
-search-pins-popout-reload-pins = Перезагрузить булавки
+search-pins-popout-reload-pins = Перезагрузить закрепленные сообщения
 # Context: result_card
 search-result-card-jump-to-message-from = Перейти к сообщению от
 # Context: result_card
@@ -2461,9 +2465,9 @@ server-admin-dialog-nickname = Псевдоним
 # Context: dialog
 server-admin-dialog-preview = Предварительный просмотр
 # Context: dialog
-server-admin-dialog-prune-members = Обрезать членов
+server-admin-dialog-prune-members = Очистить неактивных участников
 # Context: dialog
-server-admin-dialog-save = Сохранять
+server-admin-dialog-save = Сохранить
 # Context: dialog
 server-admin-dialog-use-their-username = Используйте их имя пользователя
 # Context: emojis
@@ -2549,7 +2553,7 @@ server-admin-member-menu-change-nickname = Изменить псевдоним
 # Context: member_menu
 server-admin-member-menu-copy-user-id = Скопировать идентификатор пользователя
 # Context: member_menu
-server-admin-member-menu-kick = Пинать
+server-admin-member-menu-kick = Выгнать
 # Context: member_menu
 server-admin-member-menu-message = Сообщение
 # Context: member_menu
@@ -2579,7 +2583,7 @@ server-admin-members-oldest-discord-accounts = Самые старые акка�
 # Context: members
 server-admin-members-oldest-members = Самые старые участники
 # Context: members
-server-admin-members-prune = Чернослив
+server-admin-members-prune = Очистить неактивных
 # Context: members
 server-admin-members-recent-members = Недавние участники
 # Context: members
@@ -2641,9 +2645,9 @@ server-audit-log-action-text-created-role = Созданная роль
 # Context: action_text
 server-audit-log-action-text-created-scheduled-event = Запланированное мероприятие создано
 # Context: action_text
-server-audit-log-action-text-created-soundboard-sound = Создан звук деки
+server-audit-log-action-text-created-soundboard-sound = Создан звук панели звуков
 # Context: action_text
-server-audit-log-action-text-created-stage = Созданный этап
+server-audit-log-action-text-created-stage = Создана трибуна
 # Context: action_text
 server-audit-log-action-text-created-sticker = Стикер создан
 # Context: action_text
@@ -2675,9 +2679,9 @@ server-audit-log-action-text-deleted-role = Удаленная роль
 # Context: action_text
 server-audit-log-action-text-deleted-scheduled-event = Удалено запланированное мероприятие
 # Context: action_text
-server-audit-log-action-text-deleted-soundboard-sound = Удален звук деки
+server-audit-log-action-text-deleted-soundboard-sound = Удален звук панели звуков
 # Context: action_text
-server-audit-log-action-text-deleted-stage = Удаленный этап
+server-audit-log-action-text-deleted-stage = Удалена трибуна
 # Context: action_text
 server-audit-log-action-text-deleted-sticker = Удаленная наклейка
 # Context: action_text
@@ -2697,7 +2701,7 @@ server-audit-log-action-text-moved-member = Перемещенный участ�
 # Context: action_text
 server-audit-log-action-text-pinned-message = Закрепленное сообщение
 # Context: action_text
-server-audit-log-action-text-pruned-members = Обрезанные члены
+server-audit-log-action-text-pruned-members = Исключил неактивных участников
 # Context: action_text
 server-audit-log-action-text-quarantined-member-with-automod = Участник на карантине с AutoMod
 # Context: action_text
@@ -2737,9 +2741,9 @@ server-audit-log-action-text-updated-scheduled-event = Обновлено зап
 # Context: action_text
 server-audit-log-action-text-updated-server-settings = Обновлены настройки сервера
 # Context: action_text
-server-audit-log-action-text-updated-soundboard-sound = Обновлен звук деки
+server-audit-log-action-text-updated-soundboard-sound = Обновлен звук панели звуков
 # Context: action_text
-server-audit-log-action-text-updated-stage = Обновленный этап
+server-audit-log-action-text-updated-stage = Обновлена трибуна
 # Context: action_text
 server-audit-log-action-text-updated-sticker = Обновлена ​​наклейка
 # Context: action_text
@@ -2801,7 +2805,7 @@ server-integrations-editor-choose-a-channel = Выберите канал
 # Context: editor
 server-integrations-editor-name = Имя
 # Context: editor
-server-integrations-editor-reset = Перезагрузить
+server-integrations-editor-reset = Сбросить
 # Context: editor
 server-integrations-editor-use-180-characters-without-control-characters-or-the-reserved-names = Используйте символы длиной от 1 до 80 без управляющих символов или зарезервированных имен Discord и Clyde.
 # Context: overview
@@ -2991,11 +2995,11 @@ server-menu-read-item-mark-as-read = Отметить как прочитанн�
 # Context: settings_item
 server-menu-settings-item-server-settings = Настройки сервера
 # Context: show
-server-menu-show-are-you-sure-you-want-to-leave = Вы уверены, что хотите уйти?
+server-menu-show-are-you-sure-you-want-to-leave = Вы уверены, что хотите покинуть
 # Context: show
 server-menu-show-cancel = Отмена
 # Context: show
-server-menu-show-close = Закрывать
+server-menu-show-close = Закрыть
 # Context: show
 server-menu-show-leave-server = Покинуть сервер?
 # Context: show
@@ -3276,7 +3280,7 @@ server-stickers-dialog-name = Имя
 # Context: dialog
 server-stickers-dialog-related-emoji = Похожие смайлы
 # Context: dialog
-server-stickers-dialog-save = Сохранять
+server-stickers-dialog-save = Сохранить
 # Context: show
 server-stickers-show-add-custom-stickers-for-members-to-use-in-this-server = Добавьте специальные наклейки, которые участники смогут использовать на этом сервере. Перед загрузкой изображение обрезается и изменяется его размер до 320 × 320 пикселей.
 # Context: show
@@ -3452,7 +3456,7 @@ settings-appearance-settings-choose-primary-color = Выберите основ�
 # Context: appearance_settings
 settings-appearance-settings-primary-color = Основной цвет
 # Context: appearance_settings
-settings-appearance-settings-reset = Перезагрузить
+settings-appearance-settings-reset = Сбросить
 # Context: appearance_settings
 settings-appearance-settings-restart-serein-after-changing-this-themes-can-customize-effects-while = Перезапустите Sein после изменения. Когда темы включены, можно настраивать эффекты.
 # Context: appearance_settings
@@ -3498,6 +3502,56 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein не собирает телеметрию и не загружает диагностические данные. Discord сохраняет данные на стороне сервиса в соответствии со своей собственной политикой.
 # Context: storage_page
 settings-storage-page-your-privacy = Ваша конфиденциальность
+# Context: cosmetic_settings
+settings-cosmetics = Оформление профиля
+# Context: cosmetic_settings
+settings-cosmetics-decorations = Украшения аватаров
+# Context: cosmetic_settings
+settings-cosmetics-decorations-description = Изображения вокруг аватаров.
+# Context: cosmetic_settings
+settings-cosmetics-nameplates = Таблички с именем
+# Context: cosmetic_settings
+settings-cosmetics-nameplates-description = Изображения за именами в списках участников и личных сообщений.
+# Context: cosmetic_settings
+settings-cosmetics-effects = Эффекты профиля
+# Context: cosmetic_settings
+settings-cosmetics-effects-description = Анимации поверх карточек профиля.
+# Context: cosmetic_settings
+settings-cosmetics-frames = Рамки профиля
+# Context: cosmetic_settings
+settings-cosmetics-frames-description = Изображения вокруг карточек профиля.
+# Context: cosmetic_settings
+settings-cosmetics-hidden-are-not-downloaded = Скрытое оформление не загружается. Меняется только отображение на этом устройстве.
+# Context: image_cache_settings
+settings-image-cache = Кэш изображений
+# Context: image_cache_settings
+settings-image-cache-media = Кэш медиафайлов
+# Context: image_cache_settings
+settings-image-cache-media-description = Аватары, баннеры, превью и стикеры.
+# Context: image_cache_settings
+settings-image-cache-artwork = Кэш общих изображений
+# Context: image_cache_settings
+settings-image-cache-artwork-description = Эмодзи, значки, теги серверов, значки ролей, украшения аватаров и таблички с именем хранятся отдельно, чтобы крупные медиафайлы никогда их не вытесняли.
+# Context: image_cache_settings
+settings-image-cache-usage = Занято { $used } из { $limit }.
+# Context: image_cache_settings
+settings-image-cache-usage-unavailable = Объём появится после загрузки изображений.
+# Context: image_cache_settings
+settings-image-cache-clear = Очистить
+# Context: image_cache_settings
+settings-image-cache-clear-description = Сразу удаляет эти загруженные изображения. Сообщения, черновики и вход сохраняются.
+# Context: image_cache_settings
+settings-image-cache-retention = Удалять неиспользуемые изображения через
+# Context: image_cache_settings
+settings-image-cache-retention-description = Изображения в кэше, которые не показывались столько времени, удаляются с диска.
+# Context: image_cache_settings
+settings-image-cache-days =
+    { $count ->
+        [one] { $count } день
+        [few] { $count } дня
+        [many] { $count } дней
+       *[other] { $count } дня
+    }
 
 ## crates/ui/src/slash_commands.rs
 # Context: argument
@@ -3549,7 +3603,7 @@ stickers-show-this-sticker-is-unavailable-with-the-current-connection-or-permiss
 
 ## crates/ui/src/switcher.rs
 # Context: show
-switcher-show-close = Закрывать
+switcher-show-close = Закрыть
 # Context: show
 switcher-show-conversations-and-friends = Разговоры и друзья
 # Context: show
@@ -3571,11 +3625,11 @@ theme-editor-appearance-switch-dark = Темный
 # Context: appearance_switch
 theme-editor-appearance-switch-editing = Редактирование
 # Context: appearance_switch
-theme-editor-appearance-switch-light = Свет
+theme-editor-appearance-switch-light = Светлая
 # Context: color_input
 theme-editor-color-input-use-rrggbb-or-rrggbbaa = Используйте #RRGGBB или #RRGGBBAA.
 # Context: color_override
-theme-editor-color-override-reset = Перезагрузить
+theme-editor-color-override-reset = Сбросить
 # Context: color_override
 theme-editor-color-override-use-rrggbb-or-rrggbbaa = Используйте #RRGGBB или #RRGGBBAA.
 # Context: color_override
@@ -3631,7 +3685,7 @@ theme-editor-label-server-list = Список серверов
 # Context: label
 theme-editor-label-top-bars = Лучшие бары
 # Context: metric_label
-theme-editor-metric-label-reset = Перезагрузить
+theme-editor-metric-label-reset = Сбросить
 # Context: metric_label
 theme-editor-metric-label-use-the-built-in-value = Используйте встроенное значение
 # Context: section_controls
@@ -3791,7 +3845,7 @@ timeline-message-actions-edit-message = Редактировать сообще�
 # Context: message_actions
 timeline-message-actions-extensions = Расширения
 # Context: message_actions
-timeline-message-actions-forward = Вперед
+timeline-message-actions-forward = Переслать
 # Context: message_actions
 timeline-message-actions-mark-read-through-here = Марк, прочитай здесь
 # Context: message_actions
@@ -3834,7 +3888,6 @@ timeline-show-with-scroll-edited = (отредактировано)
 # Context: show_with_scroll
 timeline-show-with-scroll-forwarded = ↪ Переадресовано
 # Context: show_with_scroll
-timeline-show-with-scroll-hide-spoilers = Скрыть спойлеры
 # Context: show_with_scroll
 timeline-show-with-scroll-history-is-not-available-yet-use-reload-to-try-again = История пока недоступна. Используйте «Обновить», чтобы повторить попытку.
 # Context: show_with_scroll
@@ -3868,7 +3921,7 @@ timeline-unread-banner-jump-to-unread = К непрочитанным
 
 ## crates/ui/src/toasts.rs
 # Context: show
-toasts-show-dismiss = Увольнять
+toasts-show-dismiss = Закрыть
 
 ## crates/ui/src/updates.rs
 # Context: shows_update_banner
@@ -3952,7 +4005,7 @@ user-menu-contents-mute-this-direct-message-s-notifications-until-you-unmute-it 
 # Context: contents
 user-menu-contents-no-open-direct-message-with-this-user = Нет открытого прямого сообщения с этим пользователем.
 # Context: contents
-user-menu-contents-pin-dm = Пин DM
+user-menu-contents-pin-dm = Закрепить ЛС
 # Context: contents
 user-menu-contents-pinned-direct-messages-are-saved-on-this-device = Закрепленные личные сообщения сохраняются на этом устройстве.
 # Context: contents
@@ -4050,9 +4103,9 @@ voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% �
 # Context: labels
 voice-labels-choose-camera = Выберите камеру
 # Context: live_badge
-voice-live-badge-live = ЖИТЬ
+voice-live-badge-live = В ЭФИРЕ
 # Context: live_badge
-voice-live-badge-live-2 = Жить
+voice-live-badge-live-2 = В эфире
 # Context: live_badge
 voice-live-badge-streaming = Потоковое вещание
 # Context: microphone_preview_controls
@@ -4060,7 +4113,7 @@ voice-microphone-preview-controls-hear-yourself-through-your-selected-speakers-u
 # Context: microphone_preview_controls
 voice-microphone-preview-controls-input-level = Входной уровень
 # Context: microphone_preview_controls
-voice-microphone-preview-controls-leave-the-call-to-test-your-microphone-locally = Оставьте вызов, чтобы проверить микрофон локально.
+voice-microphone-preview-controls-leave-the-call-to-test-your-microphone-locally = Покиньте звонок, чтобы проверить микрофон локально.
 # Context: microphone_preview_controls
 voice-microphone-preview-controls-microphone-test = Тест микрофона
 # Context: microphone_preview_controls
@@ -4072,13 +4125,13 @@ voice-mute-toggle-applies-to-your-next-call = относится к вашему
 # Context: mute_toggle
 voice-mute-toggle-controls-are-unavailable-in-this-build-or-preview = Элементы управления недоступны в этой сборке или предварительной версии.
 # Context: mute_toggle
-voice-mute-toggle-deafen = оглушить
+voice-mute-toggle-deafen = Заглушить звук
 # Context: mute_toggle
-voice-mute-toggle-mute = Немой
+voice-mute-toggle-mute = Заглушить микрофон
 # Context: mute_toggle
 voice-mute-toggle-speaking-is-unavailable-in-this-channel = На этом канале речь недоступна.
 # Context: mute_toggle
-voice-mute-toggle-undeafen = Неглухой
+voice-mute-toggle-undeafen = Включить звук
 # Context: mute_toggle
 voice-mute-toggle-unmute = Включить звук
 # Context: mute_toggle_with_settings
@@ -4088,7 +4141,7 @@ voice-mute-toggle-with-settings-output-settings = Настройки вывод�
 # Context: stream_audio_controls
 voice-stream-audio-controls-mute-stream-audio = Отключить звук потока
 # Context: stream_audio_controls
-voice-stream-audio-controls-stream-volume = Объем потока
+voice-stream-audio-controls-stream-volume = Громкость стрима
 # Context: stream_tile
 voice-stream-tile-stream-audio = Потоковое аудио
 # Context: stream_tile
@@ -4110,6 +4163,10 @@ voice-voice-card-section-disconnect = Отключить
 # Context: voice_card_section
 voice-voice-card-section-dismiss-call = Отклонить вызов
 # Context: voice_card_section
+voice-voice-card-section-reconnect-attempt = { $reason } · попытка { $attempt } из { $total }
+# Context: voice_card_section
+voice-voice-card-section-reconnecting = Переподключение…
+# Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = Микрофон недоступен · все еще подключен. Выберите другой вход в настройках звука.
 # Context: voice_channel_button
 voice-voice-channel-button-connected = , подключен
@@ -4128,7 +4185,7 @@ voice-voice-participant-deafened = Оглушенный
 # Context: voice_participant
 voice-voice-participant-deafened-by-server = Оглушен сервером
 # Context: voice_participant_menu
-voice-voice-participant-menu-mute = Немой
+voice-voice-participant-menu-mute = Заглушить
 # Context: voice_participant_menu
 voice-voice-participant-menu-reset-volume = Сбросить громкость
 # Context: voice_participant_menu
@@ -4136,7 +4193,7 @@ voice-voice-participant-menu-silence-this-person-on-this-device-only-nobody-else
 # Context: voice_participant_menu
 voice-voice-participant-menu-unmute = Включить звук
 # Context: voice_participant_menu
-voice-voice-participant-menu-user-volume = Объем пользователя
+voice-voice-participant-menu-user-volume = Громкость пользователя
 # Context: voice_participant
 voice-voice-participant-microphone-muted = Микрофон отключен
 # Context: voice_participant
@@ -4186,7 +4243,7 @@ voice-voice-processing-controls-input-profile = Входной профиль
 # Context: voice_processing_controls
 voice-voice-processing-controls-input-threshold = Входной порог
 # Context: voice_processing_controls
-voice-voice-processing-controls-mute-and-deafen-always-take-priority = Немой и глухой всегда в приоритете.
+voice-voice-processing-controls-mute-and-deafen-always-take-priority = Заглушение микрофона и звука всегда в приоритете.
 # Context: voice_processing_controls
 voice-voice-processing-controls-noise-suppression = Шумоподавление
 # Context: voice_processing_controls
@@ -4508,3 +4565,174 @@ profiles-activity-empty = Нет опубликованной активност
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction
+
+## crates/platform/src/app_menu.rs
+# Context: macos_menu_bar
+app-menu-about = О программе Serein
+# Context: macos_menu_bar
+app-menu-updates = Проверить обновления…
+# Context: macos_menu_bar
+app-menu-settings = Настройки…
+# Context: macos_menu_bar
+app-menu-services = Службы
+# Context: macos_menu_bar
+app-menu-hide = Скрыть Serein
+# Context: macos_menu_bar
+app-menu-hide-others = Скрыть остальные
+# Context: macos_menu_bar
+app-menu-show-all = Показать все
+# Context: macos_menu_bar
+app-menu-quit = Завершить Serein
+# Context: macos_menu_bar
+app-menu-file = Файл
+# Context: macos_menu_bar
+app-menu-close-window = Закрыть окно
+# Context: macos_menu_bar
+app-menu-edit = Правка
+# Context: macos_menu_bar
+app-menu-undo = Отменить
+# Context: macos_menu_bar
+app-menu-redo = Повторить
+# Context: macos_menu_bar
+app-menu-cut = Вырезать
+# Context: macos_menu_bar
+app-menu-copy = Скопировать
+# Context: macos_menu_bar
+app-menu-paste = Вставить
+# Context: macos_menu_bar
+app-menu-select-all = Выбрать все
+# Context: macos_menu_bar
+app-menu-emoji = Эмодзи и символы
+# Context: macos_menu_bar
+app-menu-view = Вид
+# Context: macos_menu_bar
+app-menu-actual-size = Фактический размер
+# Context: macos_menu_bar
+app-menu-zoom-in = Увеличить
+# Context: macos_menu_bar
+app-menu-zoom-out = Уменьшить
+# Context: macos_menu_bar
+app-menu-full-screen = Перейти в полноэкранный режим
+# Context: macos_menu_bar
+app-menu-window = Окно
+# Context: macos_menu_bar
+app-menu-minimize = Свернуть
+# Context: macos_menu_bar
+app-menu-zoom = Изменить масштаб
+# Context: macos_menu_bar
+app-menu-bring-all-to-front = Все окна — на передний план
+# Context: macos_menu_bar
+app-menu-help = Справка
+# Context: macos_menu_bar
+app-menu-github = Serein на GitHub
+# Context: macos_menu_bar
+app-menu-report-issue = Сообщить о проблеме…
+
+## crates/model/src/system_messages.rs
+# Context: system_message
+system-message-a-member = участник
+# Context: system_message
+system-message-added = { $actor } добавил(а) { $target } в беседу.
+# Context: system_message
+system-message-left = { $actor } покинул(а) беседу.
+# Context: system_message
+system-message-removed = { $actor } удалил(а) { $target } из беседы.
+# Context: system_message
+system-message-call = { $actor } начал(а) звонок.
+# Context: system_message
+system-message-channel-name = { $actor } изменил(а) название канала.
+# Context: system_message
+system-message-channel-name-value = { $actor } изменил(а) название канала: { $value }
+# Context: system_message
+system-message-channel-icon = { $actor } изменил(а) значок канала.
+# Context: system_message
+system-message-pinned = { $actor } закрепил(а) сообщение в этом канале.
+# Context: system_message
+system-message-joined = Добро пожаловать, { $actor }! Теперь на сервере.
+# Context: system_message
+system-message-boosted = { $actor } забустил(а) сервер!
+# Context: system_message
+system-message-boosted-level = { $actor } забустил(а) сервер! Сервер достиг уровня { $level }.
+# Context: system_message
+system-message-channel-follow = { $actor } добавил(а) подписку на канал.
+# Context: system_message
+system-message-discovery-disqualified = Этот сервер больше не соответствует требованиям «Обзора серверов».
+# Context: system_message
+system-message-discovery-requalified = Этот сервер снова соответствует требованиям «Обзора серверов».
+# Context: system_message
+system-message-discovery-warning = Предупреждение о соответствии требованиям «Обзора серверов».
+# Context: system_message
+system-message-discovery-final-warning = Последнее предупреждение о соответствии требованиям «Обзора серверов».
+# Context: system_message
+system-message-thread = { $actor } создал(а) ветку.
+# Context: system_message
+system-message-thread-value = { $actor } создал(а) ветку: { $value }
+# Context: system_message
+system-message-thread-starter = Ветка создана из более раннего сообщения.
+# Context: system_message
+system-message-invite-reminder = Напоминание о приглашении · Пригласите людей на этот сервер.
+# Context: system_message
+system-message-automod = Действие AutoMod.
+# Context: system_message
+system-message-role-subscription = { $actor } купил(а) или продлил(а) подписку на роль.
+# Context: system_message
+system-message-premium-upsell = Предложение премиум-подписки.
+# Context: system_message
+system-message-stage-start = { $actor } начал(а) трибуну.
+# Context: system_message
+system-message-stage-end = Трибуна завершена.
+# Context: system_message
+system-message-stage-speaker = { $actor } теперь выступает на трибуне.
+# Context: system_message
+system-message-stage-raise-hand = { $actor } просит слова.
+# Context: system_message
+system-message-stage-topic = { $actor } изменил(а) тему трибуны.
+# Context: system_message
+system-message-application-subscription = Премиум-подписка на приложение сервера.
+# Context: system_message
+system-message-raid-alert-enabled = Режим тревоги сервера включён.
+# Context: system_message
+system-message-raid-alert-disabled = Режим тревоги сервера отключён.
+# Context: system_message
+system-message-raid-report = Поступила жалоба на рейд на сервер.
+# Context: system_message
+system-message-false-alarm = Инцидент на сервере отмечен как ложная тревога.
+# Context: system_message
+system-message-purchase = Уведомление о покупке.
+# Context: system_message
+system-message-poll-closed = Опрос { $question } от { $actor } завершён.
+# Context: system_message
+system-message-poll-result = Результаты опроса.
+# Context: system_message
+system-message-stream-hd = { $actor } повысил(а) качество трансляции до HD.
+# Context: system_message
+system-message-report-deleted = { $actor } удалил(а) сообщение, на которое пожаловались.
+# Context: system_message
+system-message-timed-out = { $actor } отправил(а) { $target } в тайм-аут.
+# Context: system_message
+system-message-kicked = { $actor } выгнал(а) { $target }.
+# Context: system_message
+system-message-banned = { $actor } забанил(а) { $target }.
+# Context: system_message
+system-message-report-resolved = { $actor } рассмотрел(а) жалобу.
+# Context: system_message
+system-message-voice-hangout = { $actor } начал(а) голосовую тусовку.
+# Context: system_message
+system-message-friend-accepted = { $actor } принял(а) ваш запрос дружбы.
+
+## crates/ui/src/lib.rs composer
+# Context: composer_placeholder
+composer-placeholder = Сообщение
+# Context: composer_placeholder
+composer-placeholder-channel = Написать в #{ $channel }
+# Context: composer_placeholder
+composer-placeholder-direct = Написать @{ $name }
+
+# Context: timeline_dm_intro
+timeline-dm-intro = Это начало истории ваших личных сообщений с { $name }.
+
+# Context: timeline_channel_intro
+timeline-channel-intro-title = Добро пожаловать в #{ $channel }!
+# Context: timeline_channel_intro
+timeline-channel-intro-start = Это начало канала #{ $channel }.
+screen-body-system-audio-needs-newer-windows = Для передачи звука требуется Windows 11 или Windows Server 2022. Видео по-прежнему можно транслировать.
