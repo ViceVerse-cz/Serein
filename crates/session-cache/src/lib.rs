@@ -1449,6 +1449,7 @@ mod tests {
 			channel: Id(1),
 			author: model::User {
 				primary_guild: None,
+				cosmetics: None,
 				avatar: None,
 				webhook: false,
 				kind: Default::default(),

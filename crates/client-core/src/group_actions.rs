@@ -434,6 +434,7 @@ mod tests {
 			event: CoreEvent::Ready {
 				user: model::User {
 					primary_guild: None,
+					cosmetics: None,
 					id: Id(1),
 					name: "Synthetic".into(),
 					avatar: None,

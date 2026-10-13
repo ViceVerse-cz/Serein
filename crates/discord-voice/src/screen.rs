@@ -159,6 +159,8 @@ impl Worker {
 		std::thread::Builder::new()
 			.name("screen-encoder".into())
 			.spawn(move || {
+				// The MFT event poll and capture pacing sleep 1 ms at a time.
+				let _resolution = crate::timer::Resolution::acquire();
 				let finished_ready = worker_ready.clone();
 				#[cfg(target_os = "linux")]
 				let result = linux::run(
