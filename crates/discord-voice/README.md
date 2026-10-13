@@ -120,7 +120,8 @@ platform limits and the unverified live gate are in [the compatibility addendum]
 
 Linux additionally monitors identifiable native PipeWire `Stream/Output/Audio` nodes
 and PipeWire JACK application nodes with playback ports
-through installed `pw-dump` and the existing GStreamer plugin. Graph snapshots are
+through installed `pw-dump` and the existing GStreamer plugin. This optional path
+requires GStreamer 1.24+ for the appsink byte limit. Graph snapshots are
 limited to 1 MiB / 4,096 objects, two seconds per child, a 128 MiB helper address-space
 limit and one 32-serial result slot.
 Pulse-backed nodes are excluded from this path to avoid double mixing. Combined native

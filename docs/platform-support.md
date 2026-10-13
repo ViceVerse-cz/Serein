@@ -345,7 +345,9 @@ PulseAudio or PipeWire's PulseAudio server. Source builds need the libpulse deve
 package (`libpulse-dev`, `pulseaudio-libs-devel`, `libpulse-devel` or Arch's `libpulse`).
 Native PipeWire application outputs, including applications using PipeWire's JACK
 compatibility, additionally use installed `pw-dump` and GStreamer's `pipewiresrc`,
-`audioconvert` and `audioresample` elements. `pw-dump` is provided by `pipewire-bin`
+`audioconvert` and `audioresample` elements. This native audio path requires GStreamer
+1.24+ for the appsink byte limit; older runtimes keep the existing Pulse path.
+`pw-dump` is provided by `pipewire-bin`
 on Ubuntu/Debian, `pipewire-utils` on Fedora and `pipewire` on Arch. Nothing is
 installed automatically. Direct ALSA or a separate JACK server is outside this
 PipeWire graph and remains unsupported. Native graph discovery is optional;

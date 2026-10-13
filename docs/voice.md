@@ -531,7 +531,8 @@ are moved between outputs and no virtual device is installed.
 
 Native PipeWire playback and JACK application outputs are additionally discovered
 with the installed `pw-dump` tool and monitored by the existing GStreamer PipeWire
-plugin. This covers application nodes that the Pulse server does not list. Known
+plugin (GStreamer 1.24+ for bounded appsink bytes). This covers application nodes
+that the Pulse server does not list. Known
 process identity is required; Pulse-backed nodes, microphones, hardware sinks,
 unknown identities and Serein remain excluded. Immutable object serials select each
 application without retargeting a recycled node ID. Graph enumeration has a two-second
