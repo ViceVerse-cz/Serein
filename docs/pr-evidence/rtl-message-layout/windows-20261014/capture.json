@@ -15,7 +15,7 @@
     "theme":  "dark",
     "locale":  "English UI, Arabic message auto-detected",
     "fixture":  "Exact UTF-8 message.txt pasted into offline composer and submitted into the synthetic timeline",
-    "method":  "Native application window screenshots supplied and inspected by the coordinating agent; PNG originals copied unchanged",
+    "method":  "@oai/sky get_window_state native capture (Windows.Graphics.Capture): original JPEG data URL saved, converted to PNG using System.Drawing; no layout or image-content edits. PNGs copied unchanged into this record.",
     "observations":  [
                          "After: timeline paragraph starts with مرحبا at the right and wraps السطور والكلمات العربية. onto its second line.",
                          "Before: timeline visual word and line ordering differs.",
@@ -50,5 +50,6 @@
                    "No performance measurement from screenshots.",
                    "Full workspace tests and matching standard release package remain pending.",
                    "No claim about bidirectional TextEdit/IME, application-wide mirroring, other hosts or reporter hardware."
-               ]
+               ],
+    "environment":  "Windows 11 Home 10.0.26200; Ryzen 7800X3D, 32 GiB RAM. Display scaling and selected WGPU backend were not independently measured."
 }
