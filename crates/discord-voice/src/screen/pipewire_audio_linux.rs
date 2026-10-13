@@ -506,7 +506,6 @@ mod tests {
 		let source = gst::ElementFactory::make("audiotestsrc")
 			.property("is-live", true)
 			.property("samplesperbuffer", 480i32)
-			.property("num-buffers", 20i32)
 			.build()
 			.unwrap();
 		let mut capture = Capture::from_source(source, 91, 7).unwrap();
