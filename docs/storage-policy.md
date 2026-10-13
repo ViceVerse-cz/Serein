@@ -1765,7 +1765,7 @@ Schema 29 adds a bounded boolean opt-in for double-click reactions, disabled for
 ## Optional photo compression
 
 Enabled plugins retain one fixed `ImageCompression` policy each in the existing
-bounded installed set. A selection snapshots it; disabling affects new selections.
+bounded installed set. A selection snapshots it; policy changes or revocation cancel pending results.
 One global permit admits at most 32 MiB source data and a bounded decoder (8192
 pixels per axis, 32 million pixels, 128 MiB allocation). Orientation/resizing may
 retain another bounded pixel buffer; output retains at most 8 MiB (up to 16 MiB

@@ -19,6 +19,7 @@ pub struct UploadRequest {
 
 type Selected = (Source, Option<egui::ColorImage>);
 struct Choosing {
+	compression: Option<(extensions::ImageCompression, u64)>,
 	result: mpsc::Receiver<Result<Option<Vec<Selected>>, &'static str>>,
 	cancelled: Arc<AtomicBool>,
 	/// Files this selection is preparing; zero while a native picker is still open.
@@ -124,6 +125,10 @@ fn compress_photo(
 	let mut reader = image::ImageReader::with_format(Cursor::new(bytes), format);
 	reader.limits(limits);
 	let mut decoder = reader.into_decoder().ok()?;
+	let (width, height) = decoder.dimensions();
+	if u64::from(width) * u64::from(height) > COMPRESS_PIXELS {
+		return None;
+	}
 	let orientation = decoder.orientation().ok()?;
 	let mut image = image::DynamicImage::from_decoder(decoder).ok()?;
 	image.apply_orientation(orientation);
@@ -204,6 +209,47 @@ mod compression_tests {
 			.write_to(&mut bytes, image::ImageFormat::Png)
 			.unwrap();
 		bytes.into_inner()
+	}
+	#[test]
+	fn revoked_or_changed_policy_discards_late_compression_results() {
+		let policy = extensions::ImageCompression {
+			max_edge: 256,
+			jpeg_quality: 80,
+		};
+		for current in [
+			None,
+			Some(extensions::ImageCompression {
+				max_edge: 512,
+				jpeg_quality: 70,
+			}),
+		] {
+			let (send, result) = mpsc::sync_channel(1);
+			let cancelled = Arc::new(AtomicBool::new(false));
+			let mut uploads = Uploads {
+				image_compression: current,
+				compression_limit: 10_000_000,
+				scope: Some((7, Id(3))),
+				choosing: vec![Choosing {
+					compression: Some((policy, 10_000_000)),
+					result,
+					cancelled: cancelled.clone(),
+					files: Arc::new(AtomicUsize::new(1)),
+				}],
+				..Default::default()
+			};
+			let original = Source::pasted_png(photo(255)).unwrap();
+			let transformed = original
+				.compressed_jpeg(
+					compress_photo(&photo(255), policy, &AtomicBool::new(false), 10_000_000)
+						.unwrap(),
+				)
+				.unwrap();
+			send.send(Ok(Some(vec![(transformed, None)]))).unwrap();
+			uploads.poll(7, Some(Id(3)), true, &egui::Context::default());
+			assert!(uploads.selected.is_empty() && uploads.choosing.is_empty());
+			assert!(cancelled.load(Ordering::Acquire));
+			assert!(uploads.take_notice().is_some());
+		}
 	}
 	#[test]
 	fn photo_compression_is_smaller_bounded_and_preserves_transparency_or_failures() {
@@ -791,6 +837,7 @@ impl Uploads {
 		self.scope = Some((generation, channel));
 		self.last = None;
 		self.choosing.push(Choosing {
+			compression: None,
 			result,
 			cancelled,
 			files: Arc::new(AtomicUsize::new(count)),
@@ -868,6 +915,7 @@ impl Uploads {
 			self.scope = Some((generation, channel));
 			self.clear_finished_progress();
 			self.choosing.push(Choosing {
+				compression: Some((policy, max_bytes)),
 				result,
 				cancelled,
 				files,
@@ -1001,6 +1049,7 @@ impl Uploads {
 		self.scope = Some((generation, channel));
 		self.clear_finished_progress();
 		self.choosing.push(Choosing {
+			compression: policy.map(|policy| (policy, max_bytes)),
 			result,
 			cancelled,
 			files,
@@ -1047,6 +1096,19 @@ impl Uploads {
 		// Each selection joins the composer as soon as it is ready; admission rechecks bounds.
 		let mut index = 0;
 		while let Some(choosing) = self.choosing.get(index) {
+			if choosing.compression.is_some_and(|expected| {
+				Some(expected)
+					!= self
+						.image_compression
+						.map(|policy| (policy, self.compression_limit))
+			}) {
+				self.choosing
+					.remove(index)
+					.cancelled
+					.store(true, Ordering::Release);
+				self.notice = Some("Photo compression changed; select the attachments again");
+				continue;
+			}
 			let result = match choosing.result.try_recv() {
 				Ok(result) => result,
 				Err(mpsc::TryRecvError::Disconnected) => Err("Attachment selection interrupted"),
@@ -1808,6 +1870,7 @@ mod tests {
 			image_draft: None,
 			scope: Some((1, Id(2))),
 			choosing: vec![Choosing {
+				compression: None,
 				result,
 				cancelled: cancelled.clone(),
 				files: Arc::new(AtomicUsize::new(1)),
@@ -1893,6 +1956,7 @@ pub(crate) fn debug_reservation_check(runtime: &tokio::runtime::Handle) {
 	let (_send, result) = mpsc::sync_channel(1);
 	let mut uploads = Uploads::default();
 	uploads.choosing.push(Choosing {
+		compression: None,
 		result,
 		cancelled: Arc::new(AtomicBool::new(false)),
 		files: Arc::new(AtomicUsize::new(discord_api::upload::MAX_FILES)),

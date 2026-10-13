@@ -8,8 +8,8 @@ to change these values and apply them to the next selection.
 
 The composer shows the resulting name, size and preview. Review before sending.
 Original disk files stay unchanged. To attach an original instead, remove the
-selection, disable the plugin and select it again. Settings affect future
-selections; already preparing selections keep their policy snapshot.
+selection, disable the plugin and select it again. Settings changes or disabling cancel pending photo preparations; completed
+selections remain reviewable in the composer.
 
 Compression can lose detail and removes metadata; decoded EXIF orientation is
 applied. Transparency, animation, HDR, WebP and videos keep the original, as do

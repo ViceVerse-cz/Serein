@@ -972,8 +972,8 @@ transparency, HDR, oversized inputs and failed or unhelpful conversions retain
 the original. The host processes picker, drop and pasted files outside rendering.
 File bytes, paths and metadata never enter Wasm. Original disk files are unchanged;
 compressed selections display their new `.jpg` name and size. Remove a selection,
-disable the plugin and reselect to use its original. Disabling affects new
-selections; a selection preparing keeps its policy snapshot. Compression removes
+disable the plugin and reselect to use its original. Disabling or changing the policy cancels pending compression selections.
+Selections already prepared stay reviewable; remove/reselect to replace them. Compression removes
 metadata, applies decoded EXIF orientation, and can lose detail. Sending remains
 explicit and ordinary upload limits apply. Smaller output may still exceed a limit.
 
