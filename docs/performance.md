@@ -349,6 +349,15 @@ the existing ignored client-core, desktop-frame and replay-soak workloads for de
 The delivery skill documents how to compare a task baseline with the changed build. Do not compare
 results from different machines or claim live-client behavior from synthetic fixtures.
 
+## Embedded web video (PR #439): Windows integration evidence - October 8, 2026
+
+Fresh standard Windows x64 voice-enabled packages compare main `1b3e4a7b` with `1d6d6d99` (measured 2026-10-08). Baseline/current file counts: 216/216.
+
+| Metric | Main `1b3e4a7b` | Current integration | Delta |
+| --- | ---: | ---: | ---: |
+| Standard executable | 86,008,832 B | 86,105,600 B | +96,768 B (+0.1125%) |
+| Installed directory | 90,199,948 B | 90,296,716 B | +96,768 B (+0.1073%) |
+| Distribution ZIP | 50,001,798 B | 50,033,317 B | +31,519 B (+0.0630%) |
 ## Voice participant controls (#592): Windows integration evidence - October 8, 2026
 
 Fresh standard Windows x64 voice-enabled packages compare main `1b3e4a7b` with `d14edbb4` (measured 2026-10-08). Baseline/current file counts: 216/216.

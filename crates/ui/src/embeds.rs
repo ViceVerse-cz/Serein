@@ -109,6 +109,120 @@ pub fn standalone_media_links(message: &Message) -> bool {
 		})
 }
 
+/// A directly proxied MP4/MOV embed video (X, Reddit, Streamable…) for the native player.
+/// Only Discord's media proxy is fetched; the desktop validates the URL again.
+pub(crate) fn native_video(embed: &Embed) -> Option<model::Attachment> {
+	if embed.kind == "gifv" {
+		return None;
+	}
+	let video = embed.video.as_ref()?;
+	let proxy = video.proxy_url.as_deref().filter(|url| {
+		url.starts_with("https://media.discordapp.net/external/")
+			&& crate::avatars::media::is_motion_video(url)
+	})?;
+	let poster = embed.thumbnail.as_ref().or(embed.image.as_ref());
+	let dimension = |video: u32, poster: Option<u32>| {
+		if video > 0 {
+			video
+		} else {
+			poster.unwrap_or(0)
+		}
+	};
+	Some(model::Attachment {
+		id: model::Id(0),
+		filename: embed
+			.provider
+			.as_ref()
+			.map(|provider| provider.name.clone())
+			.filter(|name| !name.is_empty())
+			.unwrap_or_else(|| "Video".into()),
+		description: None,
+		content_type: Some("video/mp4".into()),
+		// Unknown size marks an embed; the desktop probes it with a range request.
+		size: 0,
+		media: model::EmbedMedia {
+			url: Some(proxy.to_owned()),
+			proxy_url: None,
+			width: dimension(video.width, poster.map(|p| p.width)),
+			height: dimension(video.height, poster.map(|p| p.height)),
+			placeholder: Vec::new(),
+		},
+		spoiler: false,
+		duration_ms: None,
+		waveform: Vec::new(),
+	})
+}
+
+/// YouTube/Vimeo embeds, rebuilt as a fixed provider player URL from a validated id.
+pub(crate) fn provider_video(embed: &Embed) -> Option<crate::video::WebVideo> {
+	let video = embed.video.as_ref()?;
+	let source = url::Url::parse(video.url.as_deref()?).ok()?;
+	if source.scheme() != "https" || !source.username().is_empty() || source.password().is_some() {
+		return None;
+	}
+	let mut path = source.path_segments()?;
+	let query = |name: &str| {
+		source
+			.query_pairs()
+			.find(|(key, _)| key == name)
+			.map(|(_, value)| value.into_owned())
+	};
+	let (player, provider) = match source.host_str()? {
+		"www.youtube.com" | "youtube.com" | "www.youtube-nocookie.com" => {
+			let id = (path.next() == Some("embed"))
+				.then(|| path.next())
+				.flatten()
+				.filter(|id| {
+					id.len() == 11
+						&& id
+							.bytes()
+							.all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+				})?;
+			let start = query("start")
+				.and_then(|start| start.parse::<u32>().ok())
+				.map_or(String::new(), |start| format!("&start={start}"));
+			(
+				format!(
+					"https://www.youtube-nocookie.com/embed/{id}?autoplay=1&playsinline=1&rel=0{start}"
+				),
+				"YouTube",
+			)
+		}
+		"player.vimeo.com" => {
+			let id = (path.next() == Some("video"))
+				.then(|| path.next())
+				.flatten()
+				.filter(|id| {
+					(1..=20).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_digit())
+				})?;
+			let hash = query("h")
+				.filter(|h| h.len() <= 32 && h.bytes().all(|b| b.is_ascii_alphanumeric()))
+				.map_or(String::new(), |h| format!("&h={h}"));
+			(
+				format!("https://player.vimeo.com/video/{id}?autoplay=1&dnt=1{hash}"),
+				"Vimeo",
+			)
+		}
+		_ => return None,
+	};
+	let (width, height) = if video.width > 0 && video.height > 0 {
+		(video.width, video.height)
+	} else {
+		embed
+			.thumbnail
+			.as_ref()
+			.map_or((0, 0), |p| (p.width, p.height))
+	};
+	Some(crate::video::WebVideo {
+		player,
+		page: embed.url.as_deref().and_then(external_url),
+		title: embed.title.clone().unwrap_or_default(),
+		provider: provider.into(),
+		width,
+		height,
+	})
+}
+
 fn inline_image(embed: &Embed) -> Option<&model::EmbedMedia> {
 	matches!(embed.kind.as_str(), "image" | "gifv")
 		.then(|| {
@@ -487,6 +601,7 @@ pub fn show(
 	opening: &mut Option<String>,
 	download: &mut DownloadUi,
 	profile: &mut crate::profiles::ProfileSession,
+	video: &mut crate::video::VideoUi,
 	state: &client_core::State,
 	card_surface: crate::design::MessageCardSurface,
 ) -> Option<Gif> {
@@ -582,11 +697,14 @@ pub fn show(
 						.auto_shrink([false, true])
 						.show(ui, |ui| {
 							let part = 1 + index as u16 * 64;
+							let native = native_video(embed);
+							let provider =
+								native.is_none().then(|| provider_video(embed)).flatten();
+							let playable = native.is_some() || provider.is_some();
 							let large = large_thumbnail(embed).filter(|_| count == 1);
-							let thumbnail = embed
-								.thumbnail
-								.as_ref()
-								.filter(|_| large.is_none() && ui.available_width() >= 300.0);
+							let thumbnail = embed.thumbnail.as_ref().filter(|_| {
+								!playable && large.is_none() && ui.available_width() >= 300.0
+							});
 							let body_width = (ui.available_width()
 								- if thumbnail.is_some() { 96.0 } else { 0.0 })
 							.max(1.0);
@@ -697,7 +815,49 @@ pub fn show(
 								});
 								field += count;
 							}
-							if count > 1 {
+							let poster = embed.thumbnail.as_ref().or(embed.image.as_ref());
+							if let Some(attachment) = &native {
+								let size =
+									crate::video::stage_size(attachment, ui.available_width());
+								let stage = egui::Rect::from_min_size(ui.cursor().min, size);
+								if let Some(poster) = poster {
+									ui.scope_builder(
+										egui::UiBuilder::new().max_rect(stage),
+										|ui| {
+											images.show_media(
+												ui,
+												poster,
+												size,
+												demo,
+												Surface::Banner,
+											);
+										},
+									);
+								}
+								ui.scope_builder(egui::UiBuilder::new().max_rect(stage), |ui| {
+									video.show_embedded(
+										ui,
+										message,
+										attachment,
+										embed.url.as_deref(),
+										poster.is_some(),
+										download,
+										opening,
+										demo,
+									);
+								});
+							} else if let Some(web) = &provider {
+								video.show_provider(
+									ui,
+									message,
+									state.selected,
+									web,
+									embed.thumbnail.as_ref(),
+									images,
+									opening,
+									demo,
+								);
+							} else if count > 1 {
 								gallery(ui, group, images, message.id, download, demo);
 							} else if let Some(image) = embed.image.as_ref().or(large) {
 								image_preview(
@@ -714,7 +874,8 @@ pub fn show(
 								);
 							}
 							if thumbnail.is_none()
-								&& large.is_none() && let Some(image) = &embed.thumbnail
+								&& !playable && large.is_none()
+								&& let Some(image) = &embed.thumbnail
 							{
 								image_preview(
 									ui,
@@ -726,7 +887,8 @@ pub fn show(
 									demo,
 								);
 							}
-							if embed.video.is_some()
+							if playable {
+							} else if embed.video.is_some()
 								|| matches!(embed.kind.as_str(), "video" | "gifv")
 							{
 								ui.small(crate::i18n::translate(
@@ -803,7 +965,12 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 	while index < embeds.len() {
 		let count = gallery_len(&embeds[index..]);
 		let e = &embeds[index];
-		let image_height = if count > 1 {
+		let stage = native_video(e)
+			.map(|a| (a.media.width, a.media.height))
+			.or_else(|| provider_video(e).map(|v| (v.width, v.height)));
+		let image_height = if let Some((width, height)) = stage {
+			crate::video::embed_stage_height(width, height, 456.0) + 6.0
+		} else if count > 1 {
 			gallery_rect(count, count - 1, 456.0).bottom()
 		} else if e.image.is_some() || large_thumbnail(e).is_some() {
 			200.0
@@ -845,7 +1012,8 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 				lines = 1.0;
 			}
 			let text = 24.0 + lines * 20.0 + 6.0;
-			let thumb = if e.thumbnail.is_some() && large_thumbnail(e).is_none() {
+			let thumb = if e.thumbnail.is_some() && stage.is_none() && large_thumbnail(e).is_none()
+			{
 				114.0
 			} else {
 				0.0
@@ -863,25 +1031,26 @@ mod tests {
 
 	#[test]
 	fn image_previews_dispatch_copy_and_save_without_opening_links() {
-		for variant in 0..5 {
+		for variant in 0..6 {
 			for copy in [true, false] {
 				let mut message = test_support::message(1, model::Id(2));
 				let media = model::EmbedMedia {
 					url: Some("https://cdn.discordapp.com/attachments/2/42/preview.png".into()),
-					width: 160,
-					height: 90,
+					width: if variant == 5 { 640 } else { 160 },
+					height: if variant == 5 { 360 } else { 90 },
 					..Default::default()
 				};
 				message.embeds = vec![Embed {
 					kind: match variant {
 						0 | 4 => "image",
 						1 => "gifv",
+						5 => "article",
 						_ => "rich",
 					}
 					.into(),
 					url: Some("https://example.org/post".into()),
-					image: (variant != 3).then(|| media.clone()),
-					thumbnail: (variant == 3).then(|| media.clone()),
+					image: (!matches!(variant, 3 | 5)).then(|| media.clone()),
+					thumbnail: matches!(variant, 3 | 5).then(|| media.clone()),
 					..Default::default()
 				}];
 				if variant == 4 {
@@ -915,6 +1084,7 @@ mod tests {
 									&mut opening,
 									&mut download,
 									&mut profile,
+									&mut crate::video::VideoUi::default(),
 									&client_core::State::default(),
 									crate::design::MessageCardSurface::Conversation,
 								)
@@ -934,12 +1104,16 @@ mod tests {
 								&& shape.rect.width() > 40.0
 								&& shape.rect.height() > 30.0 =>
 						{
-							Some(shape.rect.center())
+							Some(shape.rect)
 						}
 						_ => None,
 					})
 					.next_back()
 					.expect("rendered image");
+				if variant == 5 {
+					assert!(pos.width() > 300.0 && pos.height() > 150.0);
+				}
+				let pos = pos.center();
 				output.drop_without_applying_deltas();
 				for pressed in [true, false] {
 					frame(vec![
@@ -987,6 +1161,111 @@ mod tests {
 					download.request.is_none()
 						&& download.copy_request.is_none()
 						&& opening.is_none()
+				);
+			}
+		}
+	}
+
+	#[test]
+	fn provider_and_proxied_videos_play_in_app() {
+		let youtube = Embed {
+			kind: "video".into(),
+			title: Some("Synthetic clip".into()),
+			url: Some("https://www.youtube.com/watch?v=KwRSAfoW5uo".into()),
+			thumbnail: Some(model::EmbedMedia {
+				url: Some("https://i.ytimg.com/vi/KwRSAfoW5uo/hqdefault.jpg".into()),
+				width: 160,
+				height: 160,
+				..Default::default()
+			}),
+			video: Some(model::EmbedMedia {
+				url: Some("https://www.youtube.com/embed/KwRSAfoW5uo?start=5".into()),
+				width: 1280,
+				height: 720,
+				..Default::default()
+			}),
+			..Default::default()
+		};
+		let web = provider_video(&youtube).unwrap();
+		assert_eq!(
+			web.player,
+			"https://www.youtube-nocookie.com/embed/KwRSAfoW5uo?autoplay=1&playsinline=1&rel=0&start=5"
+		);
+		assert!(native_video(&youtube).is_none());
+		let mut hostile = youtube.clone();
+		hostile.video.as_mut().unwrap().url =
+			Some("https://www.youtube.com/embed/x\"><script>".into());
+		assert!(provider_video(&hostile).is_none());
+		let mut x = youtube.clone();
+		x.thumbnail.as_mut().unwrap().width = 480;
+		x.thumbnail.as_mut().unwrap().height = 360;
+		x.video = Some(model::EmbedMedia {
+			url: Some("https://video.twimg.com/ext_tw_video/1/pu/vid/1280x720/a.mp4?tag=12".into()),
+			proxy_url: Some(
+				"https://media.discordapp.net/external/h/https/video.twimg.com/a.mp4".into(),
+			),
+			width: 1280,
+			height: 720,
+			..Default::default()
+		});
+		let clip = native_video(&x).unwrap();
+		assert!(clip.is_video() && crate::video::is_embedded(&clip));
+		assert!(provider_video(&x).is_none());
+		for (embed, web) in [(youtube, true), (x, false)] {
+			let mut without_poster = embed.clone();
+			without_poster.thumbnail = None;
+			assert_eq!(
+				estimated_height(std::slice::from_ref(&embed)),
+				estimated_height(std::slice::from_ref(&without_poster)),
+				"a player poster must not reserve another thumbnail row"
+			);
+			let mut message = test_support::message(1, model::Id(2));
+			message.embeds = vec![embed];
+			let ctx = egui::Context::default();
+			let mut video = crate::video::VideoUi::default();
+			let mut frame = |events| {
+				ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(640.0, 800.0),
+						)),
+						events,
+						..Default::default()
+					},
+					|ui| {
+						show(
+							ui,
+							&message,
+							&mut FormatCache::default(),
+							&mut Avatars::default(),
+							&mut None,
+							&mut DownloadUi::default(),
+							&mut crate::profiles::ProfileSession::default(),
+							&mut video,
+							&client_core::State::default(),
+							crate::design::MessageCardSurface::Conversation,
+						);
+					},
+				)
+				.drop_without_applying_deltas();
+			};
+			frame(vec![]);
+			// Title link, then the player.
+			for key in [egui::Key::Tab, egui::Key::Tab, egui::Key::Enter] {
+				frame(vec![egui::Event::Key {
+					key,
+					physical_key: None,
+					pressed: true,
+					repeat: false,
+					modifiers: egui::Modifiers::NONE,
+				}]);
+			}
+			if web {
+				assert!(video.web.is_some(), "provider player did not open");
+			} else {
+				assert!(
+					matches!(video.command, Some(crate::video::VideoCommand::Play(ref a)) if *a == clip)
 				);
 			}
 		}
@@ -1254,6 +1533,7 @@ mod tests {
 					&mut opening,
 					&mut download,
 					&mut profile,
+					&mut crate::video::VideoUi::default(),
 					&client_core::State::default(),
 					crate::design::MessageCardSurface::Conversation,
 				);

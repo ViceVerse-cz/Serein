@@ -10,7 +10,7 @@ mod forwarding;
 mod role_names;
 pub use audio::{AudioCommand, AudioState, AudioUi};
 mod video;
-pub use video::{VideoCommand, VideoState, VideoUi};
+pub use video::{VideoCommand, VideoState, VideoUi, WebVideo};
 mod attachments;
 pub mod external_upload;
 pub use attachments::DownloadUi;
