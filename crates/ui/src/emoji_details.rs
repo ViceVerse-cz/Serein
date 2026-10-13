@@ -1,7 +1,7 @@
 //! Emoji information uses the already-loaded server catalog and artwork.
 use crate::{design, emoji, emoji_picker};
 
-fn title(text: &str) -> String {
+pub(crate) fn title(text: &str) -> String {
 	if let Some((_, len)) = emoji::custom_prefix(text)
 		&& len == text.len()
 	{
@@ -38,6 +38,12 @@ pub(crate) fn show(
 		egui::Popup::close_id(ui.ctx(), response.id.with("emoji-details"));
 		return;
 	}
+	response.clone().on_hover_ui(|ui| {
+		if let Some(image) = image.clone() {
+			ui.add(image.fit_to_exact_size(egui::Vec2::splat(48.0)));
+		}
+		ui.label(title(text));
+	});
 	let colors = design::palette(ui);
 	let width = 340.0_f32.min((ui.ctx().content_rect().width() - 40.0).max(160.0));
 	egui::Popup::from_toggle_button_response(response)
@@ -129,4 +135,15 @@ pub(crate) fn show(
 			ui.close();
 		}
 	});
+}
+
+#[cfg(test)]
+mod tests {
+	#[test]
+	fn names_are_shortcodes_instead_of_raw_emoji_or_wire_markup() {
+		assert_eq!(super::title("\u{1f9c2}"), ":salt:");
+		assert_eq!(super::title("\u{2764}\u{fe0f}"), super::title("\u{2764}"));
+		assert_eq!(super::title("<a:wave:9001>"), ":wave:");
+		assert_eq!(super::title("<:wave:9001>"), ":wave:");
+	}
 }

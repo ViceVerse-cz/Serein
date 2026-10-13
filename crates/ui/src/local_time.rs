@@ -16,6 +16,16 @@ pub fn now() -> time::OffsetDateTime {
 	local(time::OffsetDateTime::now_utc())
 }
 
+/// Older messages keep their date beside the author, even when the day divider is offscreen.
+pub(crate) fn message_stamp(at: time::OffsetDateTime, today: time::Date) -> String {
+	let clock = format!("{:02}:{:02}", at.hour(), at.minute());
+	if at.date() == today {
+		clock
+	} else {
+		format!("{} {clock}", at.date())
+	}
+}
+
 /// Renders a Discord `<t:seconds:style>` reference the way the official client does: absolute
 /// styles in the viewer's zone, `R` as a coarse relative phrase that refreshes on every frame.
 pub fn discord_timestamp(seconds: i64, style: u8) -> Option<String> {
@@ -93,6 +103,18 @@ fn relative(delta: time::Duration) -> String {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn message_stamps_distinguish_today_and_other_dates_in_the_viewers_zone() {
+		let utc = time::OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
+		assert_eq!(super::message_stamp(utc, utc.date()), "22:13");
+		assert_eq!(
+			super::message_stamp(utc, utc.date().next_day().unwrap()),
+			"2023-11-14 22:13"
+		);
+		let local = utc.to_offset(time::UtcOffset::from_hms(3, 0, 0).unwrap());
+		assert_eq!(super::message_stamp(local, local.date()), "01:13");
+		assert_eq!(super::message_stamp(local, utc.date()), "2023-11-15 01:13");
+	}
 	#[test]
 	fn formats_every_discord_timestamp_style() {
 		let at = 1_700_000_000;

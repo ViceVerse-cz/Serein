@@ -97,6 +97,14 @@ The bundled faces remain upstream's hinted TrueType builds. See `assets/README.m
   divider, floating hover toolbar (react, reply, edit, more) overlapping the row above.
 - Composer: rounded `raised` bar with attach (+), placeholder `Message #channel`, emoji picker
   and send icons; a character counter appears within 200 characters of the limit.
+
+Message author headers include the local ISO date (`YYYY-MM-DD`) before the time
+when the message is from another day. Today's headers and grouped hover gutters
+keep the short clock; timestamp tooltips show the actual UTC offset. This keeps
+old messages identifiable while their day divider is above the viewport.
+Emoji hover cards pair their artwork with a shortcode. Sticker cards keep the
+message's name and artwork when a details request fails, show only known source
+metadata, and scroll long content above the always-visible browsing action.
 - Member list (240px): ONLINE/OFFLINE eyebrows with counts; group DMs show a localized
   Members — N heading including the current account, updated with participant changes. 42px rows with
   presence dots, custom status and hover fill; opens a Members window on narrow layouts.

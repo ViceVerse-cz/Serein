@@ -2193,7 +2193,13 @@ impl Formatted {
 			}
 			let inline = &mut inlines[*index];
 			inline.image = match inline.custom {
-				Some(id) => images.custom_image(ui.ctx(), id, size, demo),
+				Some(id) => images.custom_motion_image(
+					ui.ctx(),
+					id,
+					inline.text.starts_with("<a:"),
+					size,
+					demo,
+				),
 				None => shared
 					.and_then(|asset| images.share_image(ui.ctx(), asset, size, demo))
 					.or_else(|| {
@@ -2282,8 +2288,7 @@ impl Formatted {
 							response.id.with(("emoji", *index, &inline.text)),
 							egui::Sense::click(),
 						)
-						.on_hover_cursor(egui::CursorIcon::PointingHand)
-						.on_hover_text(&inline.text);
+						.on_hover_cursor(egui::CursorIcon::PointingHand);
 					hit.widget_info(|| {
 						egui::WidgetInfo::labeled(
 							egui::Role::Button,
@@ -2305,8 +2310,9 @@ impl Formatted {
 				.find(|(_, rect)| rect.contains(point))
 				.map(|(index, _)| *index)
 		};
-		if let Some(index) = response.hover_pos().and_then(slot_at) {
-			response = response.on_hover_text_at_pointer(&inlines[index].text);
+		if link && let Some(index) = response.hover_pos().and_then(slot_at) {
+			response = response
+				.on_hover_text_at_pointer(crate::emoji_details::title(&inlines[index].text));
 		}
 		let menu = response.id.with("emoji-menu");
 		if response.secondary_clicked() {

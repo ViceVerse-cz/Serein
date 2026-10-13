@@ -1,5 +1,15 @@
 # Local storage policy and audit
 
+## Animated custom emoji (October 14, 2026)
+
+Animated custom emoji in message markup and the picker reuse the existing
+animation worker and shared 128-animation / 128-MiB decoded-frame pool. GIF source
+downloads retain its 16-MiB limit, 200-frame limit and bounded canvas/decoder
+allocations. Only visible artwork requests frames; disabling GIF animation drops
+them and restores still PNG artwork. Unfocused windows do not advance playback.
+The CDN route is constructed from a validated emoji ID, without credentials or
+user-supplied hosts. No new queue, database or resource budget is introduced.
+
 ## GIF preview recovery (October 13, 2026)
 
 Failed GIF animation downloads show a still during the existing five-second backoff,

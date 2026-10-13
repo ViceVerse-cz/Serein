@@ -1508,9 +1508,10 @@ impl Picker {
 																custom_emoji
 															{
 																(
-																	avatars.custom_image(
+																	avatars.custom_motion_image(
 																		ui.ctx(),
 																		emoji.id,
+																		emoji.animated,
 																		32.0,
 																		demo,
 																	),

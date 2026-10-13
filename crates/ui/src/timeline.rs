@@ -609,11 +609,14 @@ fn starter_row(
 							);
 							let time = timestamp(message.id);
 							ui.label(
-								RichText::new(format!("{:02}:{:02}", time.hour(), time.minute()))
-									.size(12.0)
-									.color(colors.muted),
+								RichText::new(crate::local_time::message_stamp(
+									time,
+									crate::local_time::now().date(),
+								))
+								.size(12.0)
+								.color(colors.muted),
 							)
-							.on_hover_text_with(|| format!("{time} UTC"));
+							.on_hover_text_with(|| time.to_string());
 						},
 					);
 					ui.add(
@@ -1841,7 +1844,7 @@ fn show_system(
 						.size(12.0)
 						.color(colors.muted),
 				)
-				.on_hover_text_with(|| format!("{time} UTC"));
+				.on_hover_text_with(|| time.to_string());
 			surface.exclude(stamp.rect);
 		});
 	}
@@ -3091,15 +3094,16 @@ impl TimelineView {
 										|ui| {
 											let time = ui
 												.label(
-													RichText::new(format!(
-														"{:02}:{:02}",
-														time.hour(),
-														time.minute()
-													))
+													RichText::new(
+														crate::local_time::message_stamp(
+															time,
+															crate::local_time::now().date(),
+														),
+													)
 													.size(12.0)
 													.color(colors.muted),
 												)
-												.on_hover_text_with(|| format!("{} UTC", time));
+												.on_hover_text_with(|| time.to_string());
 											surface.exclude(time.rect);
 										},
 									);
@@ -3218,15 +3222,16 @@ impl TimelineView {
 												let time = timestamp(id);
 												let time = ui
 													.label(
-														RichText::new(format!(
-															"{:02}:{:02}",
-															time.hour(),
-															time.minute()
-														))
+														RichText::new(
+															crate::local_time::message_stamp(
+																time,
+																crate::local_time::now().date(),
+															),
+														)
 														.size(12.0)
 														.color(colors.muted),
 													)
-													.on_hover_text_with(|| format!("{} UTC", time));
+													.on_hover_text_with(|| time.to_string());
 												surface.exclude(time.rect);
 											},
 										);
@@ -3834,7 +3839,7 @@ impl TimelineView {
 								ui.scope_id().with("timestamp"),
 								egui::Sense::hover(),
 							)
-							.on_hover_text_with(|| format!("{} UTC", time));
+							.on_hover_text_with(|| time.to_string());
 						}
 						let own = state
 							.user
@@ -5539,7 +5544,11 @@ mod tests {
 				);
 				let time = labels
 					.iter()
-					.find(|(text, _)| text.len() == 5 && text.as_bytes()[2] == b':')
+					.find(|(text, _)| {
+						text.rsplit(' ')
+							.next()
+							.is_some_and(|clock| clock.len() == 5 && clock.as_bytes()[2] == b':')
+					})
 					.unwrap()
 					.1;
 				let body = labels
@@ -6809,7 +6818,7 @@ mod tests {
 			// System rows paint the sentence as styled runs with the member name strong.
 			assert!(painted.iter().any(|s| s == "Welcome, "));
 			assert!(painted.iter().any(|s| s == "! Joined the server."));
-			assert!(painted.iter().any(|s| s == " changed the channel name"));
+			assert!(painted.iter().any(|s| s == " changed the channel name: "));
 			assert!(painted.iter().any(|s| s == "new channel name"));
 			for description in [
 				" accepted your friend request.",

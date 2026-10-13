@@ -701,6 +701,12 @@ fn cdn_url(key: &str) -> Option<String> {
 			"https://cdn.discordapp.com/emojis/{id}.png?size=64"
 		));
 	}
+	if let Some(id) = key.strip_prefix("anim:emoji-") {
+		let id: Id = id.parse().ok()?;
+		return Some(format!(
+			"https://cdn.discordapp.com/emojis/{id}.gif?size=64"
+		));
+	}
 	if let Some(value) = key.strip_prefix("banner-") {
 		let (id, hash) = value.split_once('-')?;
 		let id: Id = id.parse().ok()?;
@@ -2851,6 +2857,18 @@ mod tests {
 				super::cdn_url("emoji-9001").as_deref(),
 				Some("https://cdn.discordapp.com/emojis/9001.png?size=64")
 			);
+			assert_eq!(
+				super::cdn_url("anim:emoji-9002").as_deref(),
+				Some("https://cdn.discordapp.com/emojis/9002.gif?size=64")
+			);
+			for key in [
+				"anim:emoji-0",
+				"anim:emoji-../7",
+				"anim:emoji-7?size=8192",
+				"anim:emoji-7/foo",
+			] {
+				assert!(super::cdn_url(key).is_none());
+			}
 			for key in [
 				"emoji-0",
 				"emoji-../9001",

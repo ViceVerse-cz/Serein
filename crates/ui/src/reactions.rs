@@ -192,7 +192,13 @@ pub fn show(
 							);
 							crate::i18n::translate_args(
 								"reactions-tooltip-reacted-by",
-								&[("emoji", &reaction.emoji.label()), ("reactors", &reactors)],
+								&[
+									(
+										"emoji",
+										&crate::emoji_details::title(&reaction.emoji.label()),
+									),
+									("reactors", &reactors),
+								],
 							)
 						} else if matching.is_some_and(|value| value.error.is_some()) {
 							crate::i18n::translate("reactions-tooltip-unavailable")

@@ -527,6 +527,49 @@ impl Avatars {
 			None
 		}
 	}
+	pub(crate) fn custom_motion_image(
+		&mut self,
+		ctx: &egui::Context,
+		id: model::Id,
+		animated: bool,
+		size: f32,
+		demo: bool,
+	) -> Option<egui::Image<'static>> {
+		if !animated || !self.animate_gifs {
+			return self.custom_image(ctx, id, size, demo);
+		}
+		let key = format!("anim:emoji-{id}");
+		#[cfg(any(test, feature = "demo"))]
+		if demo && id.0 == 9002 && !self.textures.contains_key(&key) {
+			let frames = [
+				egui::Color32::from_rgb(240, 150, 70),
+				egui::Color32::from_rgb(55, 180, 165),
+			]
+			.map(|color| {
+				(
+					Duration::from_millis(250),
+					std::sync::Arc::new(ColorImage::filled([32, 32], color)),
+				)
+			})
+			.to_vec();
+			self.attempts.insert(key.clone(), (Instant::now(), false));
+			self.accept(ctx, key.clone(), Some((*frames[0].1).clone()));
+			self.accept_animation(key.clone(), frames);
+		}
+		let animated_texture = self.advance_animation(ctx, &key, false);
+		if let Some(entry) = self.textures.get_mut(&key) {
+			entry.0 = Instant::now();
+			Some(
+				egui::Image::new(animated_texture.as_ref().unwrap_or(&entry.1))
+					.fit_to_exact_size(egui::Vec2::splat(size)),
+			)
+		} else {
+			if !demo {
+				self.request(key);
+			}
+			self.custom_image(ctx, id, size, demo)
+		}
+	}
 	fn sticker_key(
 		&mut self,
 		_ctx: &egui::Context,
@@ -580,7 +623,9 @@ impl Avatars {
 		demo: bool,
 	) -> Option<egui::Image<'static>> {
 		match asset {
-			model::ImageShare::Emoji { id, .. } => self.custom_image(ctx, id, size, demo),
+			model::ImageShare::Emoji { id, animated } => {
+				self.custom_motion_image(ctx, id, animated, size, demo)
+			}
 			model::ImageShare::Sticker { id, format_type } => {
 				let key = self.sticker_key(ctx, id, format_type, demo);
 				let animated = self.advance_animation(ctx, &key, false);
@@ -2393,6 +2438,29 @@ mod tests {
 		assert!(images.take_requests().is_empty());
 	}
 
+	#[test]
+	fn custom_emoji_animation_uses_the_existing_pool_and_stops_when_disabled() {
+		let ctx = egui::Context::default();
+		let mut images = Avatars::default();
+		images.set_animation(true);
+		assert!(
+			images
+				.custom_motion_image(&ctx, model::Id(9002), true, 48.0, true)
+				.is_some()
+		);
+		assert!(images.animations.contains_key("anim:emoji-9002"));
+		assert!(images.take_requests().is_empty());
+		images.set_animation(false);
+		assert!(images.animations.is_empty());
+		assert!(!images.textures.contains_key("anim:emoji-9002"));
+		assert!(
+			images
+				.custom_motion_image(&ctx, model::Id(9002), true, 48.0, true)
+				.is_some()
+		);
+		assert!(images.animations.is_empty());
+		assert!(images.take_requests().is_empty());
+	}
 	#[test]
 	fn animated_profile_avatar_and_banner_viewer_requests_anim_and_plays() {
 		let ctx = egui::Context::default();

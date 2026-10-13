@@ -276,6 +276,10 @@ pub(crate) fn message(
 ) -> egui::Response {
 	let edge = ui.available_width().min(160.0);
 	let response = avatars.sticker_image(ui, sticker, egui::Vec2::splat(edge), state.demo);
+	response.clone().on_hover_ui(|ui| {
+		avatars.sticker_image(ui, sticker, egui::Vec2::splat(80.0), state.demo);
+		ui.label(&sticker.name);
+	});
 	if response.clicked() {
 		*request = Some(sticker.id);
 	}
@@ -294,82 +298,110 @@ pub(crate) fn message(
 		)
 		.show(|ui| {
 			ui.set_width(width - 32.0);
-			ui.spacing_mut().item_spacing.y = 8.0;
 			let detail = state
 				.stickers
 				.detail
 				.as_ref()
 				.filter(|detail| detail.id == sticker.id)
 				.unwrap_or(sticker);
-			let sections = sections(state);
-			let section = sections
-				.iter()
-				.find(|section| match section.id {
-					Group::Guild(id) => detail.guild_id == Some(id),
-					Group::Pack(id) => detail.pack_id == Some(id),
-					Group::Recent => false,
-				})
-				.or_else(|| {
-					sections.iter().find(|section| {
-						section.id != Group::Recent
-							&& section.stickers.iter().any(|s| s.id == sticker.id)
-					})
-				});
-			ui.add(
-				egui::Label::new(
-					design::semibold(ui, &detail.name, 16.0).color(colors.text_strong),
-				)
-				.wrap(),
-			);
-			if let Some(section) = section {
-				ui.label(format!(
-					"{} {} {}.",
-					crate::i18n::translate("stickers-message-this-is-a"),
-					section.name,
-					crate::i18n::translate("stickers-message-sticker")
-				));
-			} else if state.stickers.detail_loading == Some(sticker.id) {
-				ui.label(crate::i18n::translate(
-					"stickers-message-loading-sticker-details",
-				));
-			} else {
-				ui.label(state.stickers.detail_error.map_or_else(
-					|| crate::i18n::translate("stickers-message-sticker-details-unavailable"),
-					str::to_owned,
-				));
-				if ui
-					.button(crate::i18n::translate(
-						"stickers-message-retry-sticker-details",
-					))
-					.clicked()
-				{
-					*request = Some(sticker.id);
-				}
-			}
-			if !detail.description.is_empty() {
-				egui::ScrollArea::vertical()
-					.max_height(120.0)
-					.show(ui, |ui| {
+			let height = (ui.ctx().content_rect().height() - 112.0).max(80.0);
+			egui::ScrollArea::vertical()
+				.max_height(height)
+				.show(ui, |ui| {
+					ui.spacing_mut().item_spacing.y = 8.0;
+					let sections = sections(state);
+					let section = sections
+						.iter()
+						.find(|section| match section.id {
+							Group::Guild(id) => detail.guild_id == Some(id),
+							Group::Pack(id) => detail.pack_id == Some(id),
+							Group::Recent => false,
+						})
+						.or_else(|| {
+							sections.iter().find(|section| {
+								section.id != Group::Recent
+									&& section.stickers.iter().any(|s| s.id == sticker.id)
+							})
+						});
+					avatars.sticker_image(ui, detail, egui::Vec2::splat(88.0), state.demo);
+					ui.add(
+						egui::Label::new(
+							design::semibold(ui, &detail.name, 16.0).color(colors.text_strong),
+						)
+						.wrap(),
+					);
+					if let Some(source) = section.map(|section| section.name).or_else(|| {
+						detail
+							.guild_id
+							.and_then(|id| state.guild(id))
+							.map(|guild| guild.name.as_str())
+					}) {
+						ui.label(format!(
+							"{} {} {}.",
+							crate::i18n::translate("stickers-message-this-is-a"),
+							source,
+							crate::i18n::translate("stickers-message-sticker")
+						));
+					}
+					if state.stickers.detail_loading == Some(sticker.id) {
+						ui.label(crate::i18n::translate(
+							"stickers-message-loading-sticker-details",
+						));
+					} else if state
+						.stickers
+						.detail
+						.as_ref()
+						.is_none_or(|detail| detail.id != sticker.id)
+					{
+						ui.add(
+							egui::Label::new(state.stickers.detail_error.map_or_else(
+								|| {
+									crate::i18n::translate(
+										"stickers-message-sticker-details-unavailable",
+									)
+								},
+								str::to_owned,
+							))
+							.wrap(),
+						);
+						if crate::icons::button(
+							ui,
+							crate::icons::Icon::Reload,
+							16.0,
+							&crate::i18n::translate("stickers-message-retry-sticker-details"),
+						)
+						.clicked()
+						{
+							*request = Some(sticker.id);
+						}
+					}
+					if !detail.description.is_empty() {
 						ui.label(
 							egui::RichText::new(&detail.description)
 								.size(14.0)
 								.color(colors.muted),
 						);
-					});
-			}
-			if let Some(section) = section {
-				let edge =
-					((ui.available_width() - 2.0 * ui.spacing().item_spacing.x) / 3.0).min(88.0);
-				ui.horizontal(|ui| {
-					for other in section.stickers.iter().take(3) {
-						ui.push_id(other.id, |ui| {
-							avatars
-								.sticker_image(ui, other, egui::Vec2::splat(edge), state.demo)
-								.on_hover_text(&other.name);
+					}
+					if let Some(section) = section {
+						let edge = ((ui.available_width() - 2.0 * ui.spacing().item_spacing.x)
+							/ 3.0)
+							.min(88.0);
+						ui.horizontal(|ui| {
+							for other in section.stickers.iter().take(3) {
+								ui.push_id(other.id, |ui| {
+									avatars
+										.sticker_image(
+											ui,
+											other,
+											egui::Vec2::splat(edge),
+											state.demo,
+										)
+										.on_hover_text(&other.name);
+								});
+							}
 						});
 					}
 				});
-			}
 			ui.separator();
 			if design::secondary_button(
 				ui,
@@ -417,7 +449,9 @@ mod tests {
 			} else {
 				egui::Visuals::light()
 			});
-			let detail = sticker(7, 8);
+			let mut detail = sticker(7, 8);
+			detail.name = "A long synthetic sticker name that wraps onto several lines".repeat(2);
+			detail.description = "A synthetic description that must stay scrollable.".repeat(12);
 			let mut item = detail.clone();
 			item.pack_id = None; // Message items do not carry full catalog metadata.
 			let mut state = State {
@@ -431,7 +465,7 @@ mod tests {
 				stickers: (7..10).map(|id| sticker(id, 8)).collect(),
 			});
 			let mut avatars = Avatars::default();
-			let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(280.0, 600.0));
+			let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(280.0, 520.0));
 			let mut frame = |events| {
 				let (mut request, mut browse, mut rect) = (None, None, egui::Rect::NOTHING);
 				let output = ctx.run_ui(
