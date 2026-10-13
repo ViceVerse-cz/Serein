@@ -408,7 +408,7 @@ impl Metrics {
 		self.report.queued_audio = 0;
 		self.report.video = [0; VIDEO_SLOTS];
 		self.report.signal = [0; SIGNAL_SLOTS];
-		self.report.capture = [0; 6];
+		self.report.capture = [0; 7];
 	}
 }
 
