@@ -1178,6 +1178,7 @@ mod tests {
 				kind: Default::default(),
 				discriminator: 0,
 				primary_guild: None,
+				cosmetics: None,
 			}),
 			guilds: vec![model::Guild {
 				default_message_notifications: None,
@@ -1381,6 +1382,7 @@ mod tests {
 				gateway_connected: true,
 				user: Some(User {
 					primary_guild: None,
+					cosmetics: None,
 					id: Id(1),
 					name: "Owner".into(),
 					avatar: None,
@@ -1541,6 +1543,7 @@ mod tests {
 				roles: vec![],
 				user: User {
 					primary_guild: None,
+					cosmetics: None,
 					id: Id(2),
 					name: "x".repeat(MAX_ROSTER_BYTES),
 					avatar: None,
@@ -1657,6 +1660,7 @@ mod tests {
 				gateway_connected: true,
 				user: Some(User {
 					primary_guild: None,
+					cosmetics: None,
 					id: Id(1),
 					name: "Owner".into(),
 					avatar: None,
@@ -1814,6 +1818,7 @@ mod tests {
 			gateway_connected: true,
 			user: Some(User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(1),
 				name: "Owner".into(),
 				avatar: None,
@@ -1831,6 +1836,7 @@ mod tests {
 				kind: 1,
 				recipients: vec![User {
 					primary_guild: None,
+					cosmetics: None,
 					id: Id(3),
 					name: "Peer".into(),
 					avatar: None,
@@ -2103,6 +2109,7 @@ mod tests {
 				gateway_connected: true,
 				user: Some(User {
 					primary_guild: None,
+					cosmetics: None,
 					id: Id(1),
 					name: "Owner".into(),
 					avatar: None,
@@ -2120,6 +2127,7 @@ mod tests {
 					kind: 1,
 					recipients: vec![User {
 						primary_guild: None,
+						cosmetics: None,
 						id: Id(3),
 						name: "Peer".into(),
 						avatar: None,

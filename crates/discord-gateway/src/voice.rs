@@ -1184,6 +1184,8 @@ mod tests {
 			let user = |id, name: &str| UserDto {
 				premium_type: model::Patch::Absent,
 				primary_guild: None,
+				avatar_decoration_data: None,
+				collectibles: None,
 				clan: None,
 				id: Id(id),
 				username: name.into(),

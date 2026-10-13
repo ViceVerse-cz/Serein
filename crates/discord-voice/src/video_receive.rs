@@ -26,12 +26,11 @@ const MAX_PIXELS: u64 = 1920 * 1080;
 const START_CODE: [u8; 4] = [0, 0, 0, 1];
 const MAX_DECODE_AGE: Duration = Duration::from_millis(150);
 
-/// One decoded remote picture, packed RGBA.
+/// One decoded remote picture in the decoder's native layout (NV12 or I420 on every
+/// current backend); the renderer converts colour.
 pub struct RemoteFrame<'a> {
 	pub user: u64,
-	pub width: u32,
-	pub height: u32,
-	pub rgba: &'a [u8],
+	pub picture: platform::video::Picture<&'a [u8]>,
 }
 pub type VideoSink = Arc<dyn Fn(RemoteFrame<'_>) + Send + Sync>;
 
@@ -633,9 +632,7 @@ impl Backend {
 					counters.pictures.fetch_add(1, Ordering::Relaxed);
 					sink(RemoteFrame {
 						user,
-						width: frame.width,
-						height: frame.height,
-						rgba: &frame.rgba,
+						picture: frame.borrow(),
 					});
 				}
 			});
@@ -666,16 +663,40 @@ impl Backend {
 					Ok(None) => return Ok(None),
 					Err(_) => return Err(DecodeError::Failed),
 				};
-				let (width, height) = openh264::formats::YUVSource::dimensions(&decoded);
-				let (width, height) = bounded(width, height).map_err(|()| DecodeError::Failed)?;
-				let bytes = width as usize * height as usize * 4;
-				// Shared across participants: retain initialized bytes when resolutions alternate.
-				if scratch.len() < bytes {
-					scratch.reserve_exact(bytes - scratch.len());
-					scratch.resize(bytes, 0);
-				}
-				decoded.write_rgba8(&mut scratch[..bytes]);
-				Ok(Some((width, height)))
+				use openh264::formats::YUVSource;
+				let (width, height) = decoded.dimensions();
+				let (w, h) = bounded(width, height).map_err(|()| DecodeError::Failed)?;
+				let (chroma_width, chroma_height) = (width.div_ceil(2), height.div_ceil(2));
+				let (luma_stride, cb_stride, cr_stride) = decoded.strides();
+				// Shared across participants: clearing keeps the capacity when resolutions
+				// alternate, and the planes are copied as-is (I420) for GPU colour conversion.
+				scratch.clear();
+				let bytes = platform::video::Layout::I420
+					.len(w, h)
+					.ok_or(DecodeError::Failed)?;
+				// After `clear`, the exact reservation covers the whole picture.
+				scratch.reserve_exact(bytes);
+				platform::video::pack_plane(scratch, decoded.y(), luma_stride, width, height)
+					.and_then(|()| {
+						platform::video::pack_plane(
+							scratch,
+							decoded.u(),
+							cb_stride,
+							chroma_width,
+							chroma_height,
+						)
+					})
+					.and_then(|()| {
+						platform::video::pack_plane(
+							scratch,
+							decoded.v(),
+							cr_stride,
+							chroma_width,
+							chroma_height,
+						)
+					})
+					.ok_or(DecodeError::Failed)?;
+				Ok(Some((w, h)))
 			}
 		}
 	}
@@ -800,9 +821,14 @@ fn decode_loop(
 		counters.pictures.fetch_add(1, Ordering::Relaxed);
 		sink(RemoteFrame {
 			user: frame.user,
-			width,
-			height,
-			rgba: &scratch[..width as usize * height as usize * 4],
+			picture: platform::video::Picture {
+				width,
+				height,
+				layout: platform::video::Layout::I420,
+				color: platform::video::Color::WEBRTC,
+				rotation: 0,
+				data: &scratch,
+			},
 		});
 	}
 	// Hardware pictures still in flight must land before the sink goes away.
@@ -1328,20 +1354,25 @@ mod tests {
 				(decoder, data, (width as u32, height as u32))
 			})
 			.collect();
+		// Growing from the smaller picture still holds the whole larger one. `reserve_exact`
+		// only promises a lower bound, so the exact capacity is left to the allocator.
+		let mut grown = Vec::new();
+		for index in [1, 0] {
+			let (decoder, data, _) = &mut streams[index];
+			assert!(decoder.decode(data, &mut grown).is_ok());
+		}
+		let bytes = platform::video::Layout::I420.len(64, 64).unwrap();
+		assert!(grown.capacity() >= bytes);
 		let mut scratch = Vec::new();
 		let mut allocation = None;
 		for _ in 0..4 {
 			for (decoder, data, dimensions) in &mut streams {
 				assert_eq!(decoder.decode(data, &mut scratch), Ok(Some(*dimensions)));
-				let bytes = dimensions.0 as usize * dimensions.1 as usize * 4;
-				assert!(
-					scratch[..bytes]
-						.as_chunks::<4>()
-						.0
-						.iter()
-						.all(|px| px[3] == 255)
-				);
-				assert_eq!(scratch.len(), 64 * 64 * 4);
+				// Exactly one packed I420 picture; the larger allocation is kept.
+				let bytes = platform::video::Layout::I420
+					.len(dimensions.0, dimensions.1)
+					.unwrap();
+				assert_eq!(scratch.len(), bytes);
 				let current = (scratch.as_ptr(), scratch.capacity());
 				assert_eq!(*allocation.get_or_insert(current), current);
 			}
@@ -1384,7 +1415,7 @@ mod tests {
 				for (decoder, data) in decoders.iter_mut().zip(&streams) {
 					let previous = scratch.len();
 					let (width, height) = decoder.decode(data, &mut scratch).unwrap().unwrap();
-					std::hint::black_box(&scratch[..width as usize * height as usize * 4]);
+					std::hint::black_box((width, height, &scratch[..]));
 					length_changes += usize::from(previous != scratch.len());
 					peak_capacity = peak_capacity.max(scratch.capacity());
 				}
@@ -1410,9 +1441,12 @@ mod tests {
 		let pictures = Arc::new(std::sync::Mutex::new(Vec::new()));
 		let seen = pictures.clone();
 		let sink: VideoSink = Arc::new(move |frame: RemoteFrame| {
-			seen.lock()
-				.unwrap()
-				.push((frame.user, frame.width, frame.height, frame.rgba.to_vec()));
+			seen.lock().unwrap().push((
+				frame.user,
+				frame.picture.width,
+				frame.picture.height,
+				frame.picture.to_rgba().unwrap().2,
+			));
 		});
 		let counters = Arc::new(DecoderCounters::default());
 		let lifetime = Arc::new(AtomicBool::new(true));

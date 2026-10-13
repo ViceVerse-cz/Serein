@@ -1,5 +1,73 @@
 # Discord compatibility — checked 2026-09-10
 
+## Profile cosmetics — October 11, 2026
+
+Serein shows equipped avatar decorations, nameplates, profile effects and profile frames.
+All four are unofficial normal-client behavior: none appears in Discord's public bot
+documentation. Shapes come from the Userdoccers [user](https://docs.discord.food/resources/user#avatar-decoration-data-object),
+[collectibles](https://docs.discord.food/resources/collectibles) and
+[CDN](https://docs.discord.food/reference#cdn-endpoints) references. Layout,
+palette and timing rules were checked against the decompiled
+[official mobile client](https://github.com/Wumpus-Central/discord-mobile-datamining)
+(`modules/collectibles`) and a public [catalog snapshot](https://github.com/aamiaa/discord-api-diff)
+on October 11. Live delivery to normal accounts is unverified; offline fixtures do not
+establish it.
+
+- **Avatar decorations:** `avatar_decoration_data` on user objects, with guild member
+  values overriding it in that server (member rows, message members and server profiles).
+  Artwork is `/avatar-decoration-presets/{asset}.png` with `passthrough=true` for `a_`
+  presets. It is drawn at 1.2 times avatars of 30 points or larger, and animates while
+  hovered or on an open profile, like animated avatars.
+- **Nameplates:** `collectibles.nameplate`, also overridable per member. The still is
+  `/assets/collectibles/{asset}static.png`. The animated image comes from the
+  mobile-client route `/media/v1/collectibles-shop/{sku}/animated`, which is fetched only
+  while hovered. The official WebM is not decoded. Rows draw the right-aligned 16:3
+  artwork over a left-to-right gradient of the palette color from 0% to 30% opacity.
+  Dark and light colors are those observed in the client. Offline member rows and muted
+  DMs show only a 10% image until hovered. Nameplates appear in server member lists and
+  the one-to-one DM list.
+- **Profile effects and frames:** profile responses list them in `user_profile` and
+  `guild_member_profile` `collectibles` (type 1 = effect, 3 = frame). The older
+  `profile_effect.id` is accepted as the effect SKU, and a server profile's own values
+  take precedence. Details come from `GET /collectibles-products/{sku}`. This is the
+  same optional read the clients make. It is bounded to 256 KiB, has a two-second
+  deadline shared with board enrichment, and is cached for at most 64 SKUs per session.
+  Only an expired or challenged session fails the profile. Timeouts, oversized or refused
+  products and other errors leave it without that cosmetic. Oversized and refused SKUs are
+  remembered for the session so they are not read again. Effects and frames hidden in
+  Settings skip this read.
+- **Effects** play layers from `/assets/content/{hash}` or
+  `/media/v1/collectibles-shop/{hash}`. They use the official 450 x 880 canvas scaled to
+  the card, z-order, `start`, `duration`, `loop` and `loopDelay`, and a 500 ms intro
+  delay. The timeline starts once every layer has loaded or failed, so a short opening
+  layer is not skipped while it downloads. It restarts when the card reopens, and one
+  shared random index picks among `randomizedSources`. With animation disabled or the
+  window unfocused, the card shows `staticFrameSrc`, falling back to the first frame of `reducedMotionSrc`.
+- **Frames** fetch static layers from `/media/v1/collectibles-shop/{sku}/{layer}/static`
+  and scale them from `inner_width` (default 1200). Staples pin to the top or bottom and
+  overflow by `overflow_top`/`overflow_bottom`/`overflow_horizontal`. Rails align inside
+  the card height and are hidden when responsive and the card is at least 0.625 as wide
+  as it is tall. Borders tile down the card. Back layers sit behind the card and front
+  layers over it. The popout keeps the overflow on screen.
+
+Unknown palettes, layer kinds, anchors, malformed values and expired items are dropped
+without rejecting the user, member row or profile. Display-name styles and cosmetic
+editing are not supported. All four are opt-in: they stay hidden, unrequested and without
+catalog reads until enabled in Settings › Appearance › Profile cosmetics. This is a local
+display choice; nothing is sent to Discord.
+
+## Guild voice moderation — October 8, 2026
+
+Server mute/unmute and voice movement/disconnection use the documented
+[Modify Guild Member](https://docs.discord.com/developers/resources/guild#modify-guild-member)
+PATCH route with only `mute` or `channel_id` (null disconnects). A bounded 64 KiB
+member response must identify the requested user; mute replies must echo the requested
+value. Move completion is reflected by subsequent Gateway voice state, because the
+member response does not identify a voice channel. Source roster membership and
+loaded source/destination permissions are rechecked before dispatch. Existing REST
+deadlines, write ambiguity handling and the single administration request apply.
+Normal-account acceptance and live moderation have not been verified.
+
 ## Gateway recovery after failed resumes — October 8, 2026
 
 An established connection first attempts to resume using the service-supplied
@@ -1670,8 +1738,14 @@ frames and playback-state changes request immediate repaint.
   fragmented files, external data references and encrypted tracks are rejected.
 * Linux: GStreamer `decodebin` pulls bounded byte ranges from that reader through
   `appsrc`; the installed plugins (base, good and libav are recommended by the package)
-  decide which codecs play. Output is 48 kHz stereo PCM and RGBA pictures with
-  orientation tags applied.
+  decide which codecs play. Output is 48 kHz stereo PCM and NV12/I420 pictures (caps
+  colorimetry) with orientation tags applied.
+
+VideoToolbox (attachments and live) and GStreamer hand over their native 4:2:0 planes;
+the renderer converts them to RGB on the GPU with the tagged BT.601/BT.709/BT.2020/SMPTE 240M
+matrix and range (BT.2020 gets its matrix only, no HDR tone mapping)
+(untagged HD is treated as BT.709, SD as BT.601, matching VideoToolbox's own conversion).
+Windows attachments still use the RGB32 reader; Windows live pictures stay NV12.
 
 Unsupported containers/codecs show an error inside the player with the existing
 download/open actions in the context menu. Limits are 100 MiB encoded, two hours, 1920 pixels per side and

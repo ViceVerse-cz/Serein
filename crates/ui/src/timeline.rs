@@ -615,9 +615,11 @@ fn starter_row(
 						},
 					);
 					ui.add(
-						egui::Label::new(RichText::new(message.display_text()).color(colors.text))
-							.wrap()
-							.selectable(false),
+						egui::Label::new(
+							RichText::new(crate::i18n::message_text(message)).color(colors.text),
+						)
+						.wrap()
+						.selectable(false),
 					);
 				});
 			});
@@ -1085,7 +1087,8 @@ fn message_actions(
 			.button(crate::i18n::translate("message-menu-copy"))
 			.clicked()
 		{
-			ui.ctx().copy_text(message.display_text().into_owned());
+			ui.ctx()
+				.copy_text(crate::i18n::message_text(message).into_owned());
 			ui.close();
 		}
 		if let Some(link) = link
@@ -1465,7 +1468,7 @@ fn show_system(
 		let colors = crate::design::palette(ui);
 		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(0.0, 2.0);
-			for segment in &system.segments {
+			for segment in &crate::i18n::system_segments(system) {
 				if !segment.strong {
 					let (pos, galley, response) =
 						egui::Label::new(RichText::new(&segment.text).color(colors.muted))
@@ -1775,6 +1778,14 @@ impl TimelineView {
 				following,
 				anchor: restored.and_then(|cursor| cursor.message.map(|id| (id, cursor.inset))),
 				download: std::mem::take(&mut self.download),
+				// Posters survive the switch so idle stages repaint from cache.
+				// Playback still halts: the unseen player hits the idle stop.
+				video: {
+					let mut video = std::mem::take(&mut self.video);
+					video.stop();
+					video.command = None;
+					video
+				},
 				opening: self.opening.take(),
 				browser_opening: self.browser_opening.take(),
 				pending_viewer: self.pending_viewer.take(),
@@ -3736,7 +3747,7 @@ impl TimelineView {
 									"message-menu-copy",
 									egui::Id::unique(("copy-message", state.generation, id)),
 									&mut self.copy_feedback,
-									|| message.display_text().into_owned(),
+									|| crate::i18n::message_text(message).into_owned(),
 								);
 								copy_action_button(
 									&mut toolbar,
@@ -5016,6 +5027,55 @@ mod tests {
 		}
 	}
 
+	/// Channel switches keep cached video posters while stopping playback.
+	#[test]
+	fn channel_switch_keeps_video_posters_but_stops_playback() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut state = loading_unread_channel(false);
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		let mut view = TimelineView::default();
+		banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		let attachment = model::Attachment {
+			id: Id(10),
+			filename: "clip.mp4".into(),
+			description: None,
+			content_type: Some("video/mp4".into()),
+			size: 128,
+			media: model::EmbedMedia {
+				width: 720,
+				height: 1280,
+				..Default::default()
+			},
+			spoiler: false,
+			duration_ms: None,
+			waveform: vec![],
+		};
+		assert!(
+			view.video
+				.accept_poster(&ctx, Id(10), 2, 1, &[1, 1, 1, 255, 2, 2, 2, 255])
+		);
+		view.video.active = Some((Id(20), Id(20), attachment));
+		view.video.state = crate::video::VideoState::Playing;
+		let mut channel = state.channels[0].clone();
+		channel.id = Id(21);
+		state.channels.push(channel);
+		state.selected = Some(Id(21));
+		banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		assert!(
+			view.video.posters.contains_key(&Id(10)),
+			"posters survive channel switches"
+		);
+		assert!(view.video.poster_seen.contains(&Id(10)));
+		assert!(
+			view.video.active.is_none(),
+			"switching channels stops playback"
+		);
+		assert_eq!(view.video.state, crate::video::VideoState::Idle);
+		assert!(view.video.command.is_none());
+	}
+
 	#[test]
 	fn compact_message_text_baselines_align() {
 		fn collect(shape: &egui::Shape, labels: &mut Vec<(String, egui::Pos2)>) {
@@ -5720,6 +5780,7 @@ mod tests {
 				kind: Default::default(),
 				discriminator: 0,
 				primary_guild: None,
+				cosmetics: None,
 			},
 			content: "Synthetic text with enough words to wrap in a narrow viewport.".into(),
 			edited: false,
@@ -7508,6 +7569,7 @@ mod tests {
 				kind: Default::default(),
 				discriminator: 0,
 				primary_guild: None,
+				cosmetics: None,
 			}),
 			guilds: [1, 2]
 				.into_iter()
@@ -9273,6 +9335,7 @@ mod tests {
 				kind: Default::default(),
 				discriminator: 0,
 				primary_guild: None,
+				cosmetics: None,
 			},
 			content: "<#4> ".repeat(12),
 			author_nick: None,
@@ -9334,6 +9397,7 @@ mod tests {
 			kind: Default::default(),
 			discriminator: 0,
 			primary_guild: None,
+			cosmetics: None,
 		});
 		state.guilds.push(model::Guild {
 			id: Id(5),
@@ -9447,6 +9511,7 @@ mod tests {
 				kind: Default::default(),
 				discriminator: 0,
 				primary_guild: None,
+				cosmetics: None,
 			},
 			content: "||old revealed content||".into(),
 			edited: false,
@@ -9548,6 +9613,7 @@ mod tests {
 				kind: Default::default(),
 				discriminator: 0,
 				primary_guild: None,
+				cosmetics: None,
 			},
 			content: "Ordinary text".into(),
 			edited: false,

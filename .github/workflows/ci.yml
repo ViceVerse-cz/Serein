@@ -46,9 +46,10 @@ jobs:
           - uses: dtolnay/rust-toolchain@1.98.1
             with:
               components: rustfmt, clippy
-          - uses: oven-sh/setup-bun@v2.2.0
-            with:
-              bun-version: 1.4.2
+      # Parallel actions both open the runner event file; Windows can fail on the shared lock.
+      - uses: oven-sh/setup-bun@v2.2.0
+        with:
+          bun-version: 1.4.2
       - uses: Swatinem/rust-cache@v2.9.2
         with:
           cache-on-failure: true

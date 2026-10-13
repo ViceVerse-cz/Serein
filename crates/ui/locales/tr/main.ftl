@@ -3582,6 +3582,51 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein telemetri toplamaz veya tanılamayı yüklemez. Discord, hizmet tarafındaki verileri kendi politikalarına göre saklar.
 # Context: storage_page
 settings-storage-page-your-privacy = Gizliliğiniz
+# Context: cosmetic_settings
+settings-cosmetics = Profil kozmetikleri
+# Context: cosmetic_settings
+settings-cosmetics-decorations = Avatar süslemeleri
+# Context: cosmetic_settings
+settings-cosmetics-decorations-description = Avatarların çevresindeki görseller.
+# Context: cosmetic_settings
+settings-cosmetics-nameplates = İsim plakaları
+# Context: cosmetic_settings
+settings-cosmetics-nameplates-description = Üye ve doğrudan mesaj listelerinde isimlerin arkasındaki görseller.
+# Context: cosmetic_settings
+settings-cosmetics-effects = Profil efektleri
+# Context: cosmetic_settings
+settings-cosmetics-effects-description = Profil kartlarının üzerinde oynatılan animasyonlar.
+# Context: cosmetic_settings
+settings-cosmetics-frames = Profil çerçeveleri
+# Context: cosmetic_settings
+settings-cosmetics-frames-description = Profil kartlarının çevresindeki görseller.
+# Context: cosmetic_settings
+settings-cosmetics-hidden-are-not-downloaded = Gizlenen kozmetikler indirilmez. Yalnızca bu cihazda gösterilenler değişir.
+# Context: image_cache_settings
+settings-image-cache = Görsel önbelleği
+# Context: image_cache_settings
+settings-image-cache-media = Medya önbelleği
+# Context: image_cache_settings
+settings-image-cache-media-description = Avatarlar, afişler, önizlemeler ve çıkartmalar.
+# Context: image_cache_settings
+settings-image-cache-artwork = Paylaşılan görsel önbelleği
+# Context: image_cache_settings
+settings-image-cache-artwork-description = Emojiler, rozetler, sunucu etiketleri, rol simgeleri, avatar süslemeleri ve isim plakaları; büyük medya dosyaları onları asla dışarı itmesin diye ayrı tutulur.
+# Context: image_cache_settings
+settings-image-cache-usage = { $limit } alanın { $used } kadarı kullanılıyor.
+# Context: image_cache_settings
+settings-image-cache-usage-unavailable = Kullanım, görseller yüklendiğinde görünür.
+# Context: image_cache_settings
+settings-image-cache-clear = Temizle
+# Context: image_cache_settings
+settings-image-cache-clear-description = İndirilen bu görselleri hemen kaldırır. Mesajlar, taslaklar ve oturumun kalır.
+# Context: image_cache_settings
+settings-image-cache-retention = Kullanılmayan görsellerin saklanma süresi
+# Context: image_cache_settings
+settings-image-cache-retention-description = Bu süre boyunca yeniden gösterilmeyen önbellek görselleri diskten silinir.
+# Context: image_cache_settings
+settings-image-cache-days =
+    { $count } gün
 
 ## crates/ui/src/slash_commands.rs
 # Context: argument
@@ -4599,3 +4644,165 @@ profiles-activity-empty = Paylaşılan etkinlik yok.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction
+
+## crates/platform/src/app_menu.rs
+# Context: macos_menu_bar
+app-menu-about = Serein Hakkında
+# Context: macos_menu_bar
+app-menu-updates = Güncellemeleri Denetle…
+# Context: macos_menu_bar
+app-menu-settings = Ayarlar…
+# Context: macos_menu_bar
+app-menu-services = Servisler
+# Context: macos_menu_bar
+app-menu-hide = Serein'i Gizle
+# Context: macos_menu_bar
+app-menu-hide-others = Diğerlerini Gizle
+# Context: macos_menu_bar
+app-menu-show-all = Tümünü Göster
+# Context: macos_menu_bar
+app-menu-quit = Serein'den Çık
+# Context: macos_menu_bar
+app-menu-file = Dosya
+# Context: macos_menu_bar
+app-menu-close-window = Pencereyi Kapat
+# Context: macos_menu_bar
+app-menu-edit = Düzen
+# Context: macos_menu_bar
+app-menu-undo = Geri Al
+# Context: macos_menu_bar
+app-menu-redo = Yinele
+# Context: macos_menu_bar
+app-menu-cut = Kes
+# Context: macos_menu_bar
+app-menu-copy = Kopyala
+# Context: macos_menu_bar
+app-menu-paste = Yapıştır
+# Context: macos_menu_bar
+app-menu-select-all = Tümünü Seç
+# Context: macos_menu_bar
+app-menu-emoji = Emoji ve Simgeler
+# Context: macos_menu_bar
+app-menu-view = Görüntü
+# Context: macos_menu_bar
+app-menu-actual-size = Gerçek Boyut
+# Context: macos_menu_bar
+app-menu-zoom-in = Yakınlaştır
+# Context: macos_menu_bar
+app-menu-zoom-out = Uzaklaştır
+# Context: macos_menu_bar
+app-menu-full-screen = Tam Ekrana Geç
+# Context: macos_menu_bar
+app-menu-window = Pencere
+# Context: macos_menu_bar
+app-menu-minimize = Simge Durumuna Küçült
+# Context: macos_menu_bar
+app-menu-zoom = Büyüt/Küçült
+# Context: macos_menu_bar
+app-menu-bring-all-to-front = Tümünü Öne Getir
+# Context: macos_menu_bar
+app-menu-help = Yardım
+# Context: macos_menu_bar
+app-menu-github = GitHub'da Serein
+# Context: macos_menu_bar
+app-menu-report-issue = Sorun Bildir…
+
+## crates/model/src/system_messages.rs
+# Context: system_message
+system-message-a-member = bir üye
+# Context: system_message
+system-message-added = { $actor }, { $target } kişisini sohbete ekledi.
+# Context: system_message
+system-message-left = { $actor } sohbetten ayrıldı.
+# Context: system_message
+system-message-removed = { $actor }, { $target } kişisini sohbetten çıkardı.
+# Context: system_message
+system-message-call = { $actor } bir arama başlattı.
+# Context: system_message
+system-message-channel-name = { $actor } kanalın adını değiştirdi.
+# Context: system_message
+system-message-channel-name-value = { $actor } kanalın adını değiştirdi: { $value }
+# Context: system_message
+system-message-channel-icon = { $actor } kanalın simgesini değiştirdi.
+# Context: system_message
+system-message-pinned = { $actor } bu kanala bir mesaj sabitledi.
+# Context: system_message
+system-message-joined = Hoş geldin, { $actor }! Sunucuya katıldı.
+# Context: system_message
+system-message-boosted = { $actor } sunucuya takviye yaptı!
+# Context: system_message
+system-message-boosted-level = { $actor } sunucuya takviye yaptı! Sunucu { $level }. seviyeye ulaştı.
+# Context: system_message
+system-message-channel-follow = { $actor } bir kanal takibi ekledi.
+# Context: system_message
+system-message-discovery-disqualified = Bu sunucu artık Sunucu Keşfi için uygun değil.
+# Context: system_message
+system-message-discovery-requalified = Bu sunucu yeniden Sunucu Keşfi için uygun.
+# Context: system_message
+system-message-discovery-warning = Sunucu Keşfi uygunluk uyarısı.
+# Context: system_message
+system-message-discovery-final-warning = Son Sunucu Keşfi uygunluk uyarısı.
+# Context: system_message
+system-message-thread = { $actor } bir alt başlık başlattı.
+# Context: system_message
+system-message-thread-value = { $actor } bir alt başlık başlattı: { $value }
+# Context: system_message
+system-message-thread-starter = Alt başlık daha önceki bir mesajdan başlatıldı.
+# Context: system_message
+system-message-invite-reminder = Davet hatırlatıcısı · İnsanları bu sunucuya davet et.
+# Context: system_message
+system-message-automod = AutoMod işlemi.
+# Context: system_message
+system-message-role-subscription = { $actor } bir rol aboneliği satın aldı veya yeniledi.
+# Context: system_message
+system-message-premium-upsell = Premium abonelik teklifi.
+# Context: system_message
+system-message-stage-start = { $actor } bir Sahne başlattı.
+# Context: system_message
+system-message-stage-end = Sahne sona erdi.
+# Context: system_message
+system-message-stage-speaker = { $actor } artık Sahnede konuşmacı.
+# Context: system_message
+system-message-stage-raise-hand = { $actor } konuşmak istedi.
+# Context: system_message
+system-message-stage-topic = { $actor } Sahne konusunu değiştirdi.
+# Context: system_message
+system-message-application-subscription = Sunucu uygulaması premium aboneliği.
+# Context: system_message
+system-message-raid-alert-enabled = Sunucu alarm modu etkinleştirildi.
+# Context: system_message
+system-message-raid-alert-disabled = Sunucu alarm modu devre dışı bırakıldı.
+# Context: system_message
+system-message-raid-report = Bir sunucu baskını bildirildi.
+# Context: system_message
+system-message-false-alarm = Bir sunucu olayı yanlış alarm olarak bildirildi.
+# Context: system_message
+system-message-purchase = Satın alma bildirimi.
+# Context: system_message
+system-message-poll-closed = { $actor } tarafından açılan { $question } anketi kapandı.
+# Context: system_message
+system-message-poll-result = Anket sonuçları.
+# Context: system_message
+system-message-stream-hd = { $actor } yayını HD'ye yükseltti.
+# Context: system_message
+system-message-report-deleted = { $actor } bildirilen bir mesajı sildi.
+# Context: system_message
+system-message-timed-out = { $actor }, { $target } kişisine zaman aşımı uyguladı.
+# Context: system_message
+system-message-kicked = { $actor }, { $target } kişisini sunucudan attı.
+# Context: system_message
+system-message-banned = { $actor }, { $target } kişisini yasakladı.
+# Context: system_message
+system-message-report-resolved = { $actor } bir şikayeti çözdü.
+# Context: system_message
+system-message-voice-hangout = { $actor } bir sesli buluşma başlattı.
+# Context: system_message
+system-message-friend-accepted = { $actor } arkadaşlık isteğini kabul etti.
+
+## crates/ui/src/lib.rs composer
+# Context: composer_placeholder
+composer-placeholder = Mesaj
+# Context: composer_placeholder
+composer-placeholder-channel = #{ $channel } kanalına mesaj gönder
+# Context: composer_placeholder
+composer-placeholder-direct = @{ $name } kişisine mesaj gönder

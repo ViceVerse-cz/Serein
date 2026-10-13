@@ -748,6 +748,34 @@ impl MessagingUi {
 								{
 									response.dnd_set_drag_payload(ChannelDrag(channel.id));
 								}
+								if let Some(source) =
+									response.dnd_hover_payload::<crate::voice::VoiceDrag>()
+									&& state.can_moderate_voice(
+										source.0,
+										source.1,
+										source.2,
+										model::server_admin::VoiceChange::Move(Some(channel.id)),
+									) {
+									ui.painter().rect_stroke(
+										response.rect.shrink(1.0),
+										6,
+										(2.0, colors.positive),
+										egui::StrokeKind::Inside,
+									);
+									if response
+										.dnd_release_payload::<crate::voice::VoiceDrag>()
+										.is_some()
+									{
+										self.voice_moderation = Some((
+											source.0,
+											source.1,
+											source.2,
+											model::server_admin::VoiceChange::Move(Some(
+												channel.id,
+											)),
+										));
+									}
+								}
 								if slot == Slot::Tree && !nested {
 									drop_rows.push(DropRow {
 										id: channel.id,
@@ -839,6 +867,19 @@ impl MessagingUi {
 									row,
 									8,
 									crate::design::row_highlight(ui, colors.hover, 1.0),
+								);
+							}
+							if dm_list
+								&& channel.kind == 1 && let Some(user) = channel.recipients.first()
+							{
+								self.avatars.paint_nameplate(
+									ui,
+									user,
+									row,
+									8,
+									hovered,
+									access.muted(),
+									state.demo,
 								);
 							}
 							if unread && !active && !access.muted() {
@@ -2077,6 +2118,7 @@ mod tests {
 				kind: Default::default(),
 				discriminator: 0,
 				primary_guild: None,
+				cosmetics: None,
 			}),
 			guilds: vec![model::Guild {
 				default_message_notifications: None,
@@ -2231,6 +2273,7 @@ mod tests {
 				kind: Default::default(),
 				discriminator: 0,
 				primary_guild: None,
+				cosmetics: None,
 			}),
 			guilds: vec![model::Guild {
 				default_message_notifications: None,

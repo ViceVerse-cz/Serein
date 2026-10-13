@@ -316,6 +316,7 @@ mod tests {
 	fn connected(bits: u128) -> State {
 		let mut state = State {
 			user: Some(model::User {
+				cosmetics: Default::default(),
 				primary_guild: None,
 				id: Id(1),
 				name: "Owner".into(),

@@ -3582,6 +3582,51 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein はテレメトリを収集したり、診断をアップロードしたりしません。 Discord は、独自のポリシーに従ってサービス側のデータを保持します。
 # Context: storage_page
 settings-storage-page-your-privacy = あなたのプライバシー
+# Context: cosmetic_settings
+settings-cosmetics = プロフィールの装飾
+# Context: cosmetic_settings
+settings-cosmetics-decorations = アバターデコレーション
+# Context: cosmetic_settings
+settings-cosmetics-decorations-description = アバターの周りに表示される画像。
+# Context: cosmetic_settings
+settings-cosmetics-nameplates = ネームプレート
+# Context: cosmetic_settings
+settings-cosmetics-nameplates-description = メンバーリストとDMリストの名前の背後に表示される画像。
+# Context: cosmetic_settings
+settings-cosmetics-effects = プロフィールエフェクト
+# Context: cosmetic_settings
+settings-cosmetics-effects-description = プロフィールカード上で再生されるアニメーション。
+# Context: cosmetic_settings
+settings-cosmetics-frames = プロフィールフレーム
+# Context: cosmetic_settings
+settings-cosmetics-frames-description = プロフィールカードの周りに表示される画像。
+# Context: cosmetic_settings
+settings-cosmetics-hidden-are-not-downloaded = 非表示にした装飾はダウンロードされません。変わるのはこのデバイスでの表示だけです。
+# Context: image_cache_settings
+settings-image-cache = 画像キャッシュ
+# Context: image_cache_settings
+settings-image-cache-media = メディアキャッシュ
+# Context: image_cache_settings
+settings-image-cache-media-description = アバター、バナー、プレビュー、スタンプ。
+# Context: image_cache_settings
+settings-image-cache-artwork = 共有画像キャッシュ
+# Context: image_cache_settings
+settings-image-cache-artwork-description = 絵文字、バッジ、サーバータグ、ロールアイコン、アバターデコレーション、ネームプレート。大きなメディアに押し出されないよう別に保存されます。
+# Context: image_cache_settings
+settings-image-cache-usage = { $limit } 中 { $used } を使用中。
+# Context: image_cache_settings
+settings-image-cache-usage-unavailable = 画像を読み込むと使用量が表示されます。
+# Context: image_cache_settings
+settings-image-cache-clear = 消去
+# Context: image_cache_settings
+settings-image-cache-clear-description = ダウンロード済みのこれらの画像を今すぐ削除します。メッセージ、下書き、ログインはそのままです。
+# Context: image_cache_settings
+settings-image-cache-retention = 未使用の画像を削除するまでの期間
+# Context: image_cache_settings
+settings-image-cache-retention-description = この期間表示されなかったキャッシュ画像はディスクから削除されます。
+# Context: image_cache_settings
+settings-image-cache-days =
+    { $count }日
 
 ## crates/ui/src/slash_commands.rs
 # Context: argument
@@ -4596,3 +4641,165 @@ profiles-activity-empty = 共有されているアクティビティはありま
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction
+
+## crates/platform/src/app_menu.rs
+# Context: macos_menu_bar
+app-menu-about = Sereinについて
+# Context: macos_menu_bar
+app-menu-updates = アップデートを確認…
+# Context: macos_menu_bar
+app-menu-settings = 設定…
+# Context: macos_menu_bar
+app-menu-services = サービス
+# Context: macos_menu_bar
+app-menu-hide = Sereinを非表示
+# Context: macos_menu_bar
+app-menu-hide-others = ほかを非表示
+# Context: macos_menu_bar
+app-menu-show-all = すべてを表示
+# Context: macos_menu_bar
+app-menu-quit = Sereinを終了
+# Context: macos_menu_bar
+app-menu-file = ファイル
+# Context: macos_menu_bar
+app-menu-close-window = ウインドウを閉じる
+# Context: macos_menu_bar
+app-menu-edit = 編集
+# Context: macos_menu_bar
+app-menu-undo = 取り消す
+# Context: macos_menu_bar
+app-menu-redo = やり直す
+# Context: macos_menu_bar
+app-menu-cut = カット
+# Context: macos_menu_bar
+app-menu-copy = コピー
+# Context: macos_menu_bar
+app-menu-paste = ペースト
+# Context: macos_menu_bar
+app-menu-select-all = すべてを選択
+# Context: macos_menu_bar
+app-menu-emoji = 絵文字と記号
+# Context: macos_menu_bar
+app-menu-view = 表示
+# Context: macos_menu_bar
+app-menu-actual-size = 実際のサイズ
+# Context: macos_menu_bar
+app-menu-zoom-in = 拡大
+# Context: macos_menu_bar
+app-menu-zoom-out = 縮小
+# Context: macos_menu_bar
+app-menu-full-screen = フルスクリーンにする
+# Context: macos_menu_bar
+app-menu-window = ウインドウ
+# Context: macos_menu_bar
+app-menu-minimize = しまう
+# Context: macos_menu_bar
+app-menu-zoom = 拡大/縮小
+# Context: macos_menu_bar
+app-menu-bring-all-to-front = すべてを手前に移動
+# Context: macos_menu_bar
+app-menu-help = ヘルプ
+# Context: macos_menu_bar
+app-menu-github = GitHubのSerein
+# Context: macos_menu_bar
+app-menu-report-issue = 問題を報告…
+
+## crates/model/src/system_messages.rs
+# Context: system_message
+system-message-a-member = メンバー
+# Context: system_message
+system-message-added = { $actor }が{ $target }を会話に追加しました。
+# Context: system_message
+system-message-left = { $actor }が会話から退出しました。
+# Context: system_message
+system-message-removed = { $actor }が{ $target }を会話から削除しました。
+# Context: system_message
+system-message-call = { $actor }が通話を開始しました。
+# Context: system_message
+system-message-channel-name = { $actor }がチャンネル名を変更しました。
+# Context: system_message
+system-message-channel-name-value = { $actor }がチャンネル名を変更しました: { $value }
+# Context: system_message
+system-message-channel-icon = { $actor }がチャンネルアイコンを変更しました。
+# Context: system_message
+system-message-pinned = { $actor }がこのチャンネルにメッセージをピン留めしました。
+# Context: system_message
+system-message-joined = ようこそ、{ $actor }さん！サーバーに参加しました。
+# Context: system_message
+system-message-boosted = { $actor }がサーバーをブーストしました！
+# Context: system_message
+system-message-boosted-level = { $actor }がサーバーをブーストしました！サーバーがレベル{ $level }に到達しました。
+# Context: system_message
+system-message-channel-follow = { $actor }がチャンネルのフォローを追加しました。
+# Context: system_message
+system-message-discovery-disqualified = このサーバーはサーバー発見の対象外になりました。
+# Context: system_message
+system-message-discovery-requalified = このサーバーは再びサーバー発見の対象になりました。
+# Context: system_message
+system-message-discovery-warning = サーバー発見の対象資格に関する警告です。
+# Context: system_message
+system-message-discovery-final-warning = サーバー発見の対象資格に関する最終警告です。
+# Context: system_message
+system-message-thread = { $actor }がスレッドを開始しました。
+# Context: system_message
+system-message-thread-value = { $actor }がスレッドを開始しました: { $value }
+# Context: system_message
+system-message-thread-starter = 以前のメッセージから開始されたスレッドです。
+# Context: system_message
+system-message-invite-reminder = 招待のリマインダー · このサーバーに人を招待しましょう。
+# Context: system_message
+system-message-automod = AutoModのアクションです。
+# Context: system_message
+system-message-role-subscription = { $actor }がロールサブスクリプションを購入または更新しました。
+# Context: system_message
+system-message-premium-upsell = プレミアムサブスクリプションのご案内です。
+# Context: system_message
+system-message-stage-start = { $actor }がステージを開始しました。
+# Context: system_message
+system-message-stage-end = ステージが終了しました。
+# Context: system_message
+system-message-stage-speaker = { $actor }がステージのスピーカーになりました。
+# Context: system_message
+system-message-stage-raise-hand = { $actor }が発言をリクエストしました。
+# Context: system_message
+system-message-stage-topic = { $actor }がステージのトピックを変更しました。
+# Context: system_message
+system-message-application-subscription = サーバーアプリのプレミアムサブスクリプションです。
+# Context: system_message
+system-message-raid-alert-enabled = サーバーの警戒モードが有効になりました。
+# Context: system_message
+system-message-raid-alert-disabled = サーバーの警戒モードが無効になりました。
+# Context: system_message
+system-message-raid-report = サーバーへの荒らし行為が報告されました。
+# Context: system_message
+system-message-false-alarm = サーバーのインシデントは誤報として報告されました。
+# Context: system_message
+system-message-purchase = 購入のお知らせです。
+# Context: system_message
+system-message-poll-closed = { $actor }の投票「{ $question }」が終了しました。
+# Context: system_message
+system-message-poll-result = 投票結果です。
+# Context: system_message
+system-message-stream-hd = { $actor }が配信をHDにアップグレードしました。
+# Context: system_message
+system-message-report-deleted = { $actor }が報告されたメッセージを削除しました。
+# Context: system_message
+system-message-timed-out = { $actor }が{ $target }をタイムアウトしました。
+# Context: system_message
+system-message-kicked = { $actor }が{ $target }をキックしました。
+# Context: system_message
+system-message-banned = { $actor }が{ $target }をBANしました。
+# Context: system_message
+system-message-report-resolved = { $actor }が報告を解決しました。
+# Context: system_message
+system-message-voice-hangout = { $actor }がボイスたまり場を開始しました。
+# Context: system_message
+system-message-friend-accepted = { $actor }がフレンドリクエストを承認しました。
+
+## crates/ui/src/lib.rs composer
+# Context: composer_placeholder
+composer-placeholder = メッセージ
+# Context: composer_placeholder
+composer-placeholder-channel = #{ $channel }へメッセージを送信
+# Context: composer_placeholder
+composer-placeholder-direct = @{ $name }へメッセージを送信

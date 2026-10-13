@@ -1,8 +1,11 @@
 //! Linux attachment decoding through GStreamer. `appsrc` pulls bounded byte ranges from the
 //! caller's anonymous stream (never a URL), `decodebin` picks the installed codecs, and two
-//! unsynchronised `appsink`s hand back RGBA pictures and 48 kHz stereo float PCM on demand.
+//! unsynchronised `appsink`s hand back NV12/I420 pictures and 48 kHz stereo float PCM on demand.
 //! The same distributions that ship WebKitGTK for the login page also ship these plugins.
-use super::{INVALID, Info, MAX_BYTES, MAX_SECONDS, ReadSeek, Sample, TOO_LONG, UNSUPPORTED};
+use super::{
+	Color, INVALID, Info, Layout, MAX_BYTES, MAX_SECONDS, MISSING_DECODER, MISSING_HEVC, Matrix,
+	Picture, ReadSeek, Sample, TOO_LONG, UNSUPPORTED, picture::pack_plane,
+};
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
@@ -49,6 +52,17 @@ impl Drop for Decoder {
 	}
 }
 
+/// Stops a pipeline that `open` started but could not hand to a [`Decoder`]. Its streaming
+/// threads would otherwise block on full queues forever, holding every buffered frame.
+struct StopOnError(Option<gst::Pipeline>);
+impl Drop for StopOnError {
+	fn drop(&mut self) {
+		if let Some(pipeline) = self.0.take() {
+			let _ = pipeline.set_state(gst::State::Null);
+		}
+	}
+}
+
 impl Decoder {
 	pub fn open(mut source: Box<dyn ReadSeek>) -> Result<Self, &'static str> {
 		let length = source.seek(SeekFrom::End(0)).map_err(|_| INVALID)?;
@@ -71,6 +85,7 @@ impl Decoder {
 			failed: AtomicBool::new(false),
 		});
 		let pipeline = gst::Pipeline::new();
+		let mut started = StopOnError(Some(pipeline.clone()));
 		let appsrc = gst_app::AppSrc::builder().build();
 		appsrc.set_stream_type(gst_app::AppStreamType::RandomAccess);
 		appsrc.set_format(gst::Format::Bytes);
@@ -101,11 +116,7 @@ impl Decoder {
 		appsrc.link(&decodebin).map_err(|_| UNSUPPORTED)?;
 
 		let video = gst_app::AppSink::builder().build();
-		video.set_caps(Some(
-			&gst::Caps::builder("video/x-raw")
-				.field("format", "RGBA")
-				.build(),
-		));
+		video.set_caps(Some(&planar_caps()));
 		video.set_sync(false);
 		video.set_max_buffers(4);
 		video.set_drop(false);
@@ -125,10 +136,15 @@ impl Decoder {
 		let has_video = Arc::new(AtomicBool::new(false));
 		let has_audio = Arc::new(AtomicBool::new(false));
 		decodebin.connect_pad_added({
-			let pipeline = pipeline.clone();
+			// Weak: the pipeline owns decodebin and this handler, so a strong clone would
+			// keep every element alive after the decoder is dropped.
+			let pipeline = pipeline.downgrade();
 			let (video, audio) = (video.clone(), audio.clone());
 			let (has_video, has_audio) = (has_video.clone(), has_audio.clone());
 			move |_, pad| {
+				let Some(pipeline) = pipeline.upgrade() else {
+					return;
+				};
 				let Some(caps) = pad.current_caps() else {
 					return;
 				};
@@ -191,6 +207,8 @@ impl Decoder {
 		pipeline
 			.set_state(gst::State::Playing)
 			.map_err(|_| UNSUPPORTED)?;
+		// From here the decoder's own `Drop` stops the pipeline.
+		started.0 = None;
 		Ok(Self {
 			pipeline,
 			video,
@@ -253,29 +271,9 @@ impl Decoder {
 			return Ok(Poll::Pending);
 		}
 		self.last_video_pts = pts;
-		let (width, height) = frame_dimensions(&sample)?;
-		let buffer = sample.buffer().ok_or(INVALID)?;
-		let caps = sample.caps().ok_or(INVALID)?;
-		let info = gst_video::VideoInfo::from_caps(caps).map_err(|_| INVALID)?;
-		let frame = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info)
-			.map_err(|_| INVALID)?;
-		let stride = usize::try_from(frame.plane_stride().first().copied().ok_or(INVALID)?)
-			.map_err(|_| INVALID)?;
-		let data = frame.plane_data(0).map_err(|_| INVALID)?;
-		let (w, h) = (width as usize, height as usize);
-		let row = w * 4;
-		if stride < row || data.len() < stride * (h - 1) + row || row * h > MAX_BYTES {
-			return Err(INVALID);
-		}
-		let mut rgba = vec![0; row * h];
-		for (source, target) in data.chunks(stride).zip(rgba.chunks_exact_mut(row)) {
-			target.copy_from_slice(&source[..row]);
-		}
 		Ok(Poll::Ready(Some(Sample::Video {
 			pts: self.last_video_pts,
-			width,
-			height,
-			rgba,
+			picture: picture(&sample)?,
 		})))
 	}
 
@@ -427,6 +425,7 @@ fn wait_ready(pipeline: &gst::Pipeline, shared: &Shared) -> Result<(), &'static 
 				gst::MessageType::AsyncDone,
 				gst::MessageType::Error,
 				gst::MessageType::Eos,
+				gst::MessageType::Element,
 			],
 		) else {
 			if started.elapsed().as_secs() > WAIT.seconds() {
@@ -438,9 +437,34 @@ fn wait_ready(pipeline: &gst::Pipeline, shared: &Shared) -> Result<(), &'static 
 			gst::MessageView::AsyncDone(_) => return Ok(()),
 			gst::MessageView::Error(_) => return Err(UNSUPPORTED),
 			gst::MessageView::Eos(_) => return Err(INVALID),
+			gst::MessageView::Element(element) => {
+				if let Some(missing) = missing_video_decoder(element.structure()) {
+					return Err(missing);
+				}
+			}
 			_ => {}
 		}
 	}
+}
+
+/// decodebin reports a codec it cannot decode with a `missing-plugin` message, then waits
+/// for that stream indefinitely. Without a video decoder the picture can never preroll, so
+/// fail at once and name the codec. A missing audio decoder still plays without sound.
+fn missing_video_decoder(structure: Option<&gst::StructureRef>) -> Option<&'static str> {
+	let structure = structure.filter(|structure| structure.name() == "missing-plugin")?;
+	if structure.get::<String>("type").ok()? != "decoder" {
+		return None;
+	}
+	let caps = structure.get::<gst::Caps>("detail").ok()?;
+	let codec = caps.structure(0)?.name();
+	if !codec.starts_with("video/") {
+		return None;
+	}
+	Some(if codec == "video/x-h265" {
+		MISSING_HEVC
+	} else {
+		MISSING_DECODER
+	})
 }
 
 fn check_bus(pipeline: &gst::Pipeline) -> Result<(), &'static str> {
@@ -456,11 +480,80 @@ fn check_bus(pipeline: &gst::Pipeline) -> Result<(), &'static str> {
 fn frame_dimensions(sample: &gst::Sample) -> Result<(u32, u32), &'static str> {
 	let caps = sample.caps().ok_or(INVALID)?;
 	let info = gst_video::VideoInfo::from_caps(caps).map_err(|_| INVALID)?;
-	if info.format() != gst_video::VideoFormat::Rgba {
+	if !matches!(
+		info.format(),
+		gst_video::VideoFormat::Nv12 | gst_video::VideoFormat::I420
+	) {
 		return Err(INVALID);
 	}
 	super::check_dimensions(info.width(), info.height())?;
 	Ok((info.width(), info.height()))
+}
+
+/// Decoders' own 4:2:0 layouts, so `videoconvert` passes through and the renderer converts
+/// colour on the GPU.
+pub(super) fn planar_caps() -> gst::Caps {
+	gst::Caps::builder("video/x-raw")
+		.field("format", gst::List::new(["NV12", "I420"]))
+		.build()
+}
+
+/// Copies one NV12 or I420 sample into a tightly packed [`Picture`] with its colorimetry.
+pub(super) fn picture(sample: &gst::Sample) -> Result<Picture, &'static str> {
+	let (width, height) = frame_dimensions(sample)?;
+	let caps = sample.caps().ok_or(INVALID)?;
+	let info = gst_video::VideoInfo::from_caps(caps).map_err(|_| INVALID)?;
+	let layout = match info.format() {
+		gst_video::VideoFormat::Nv12 => Layout::Nv12,
+		_ => Layout::I420,
+	};
+	let colorimetry = info.colorimetry();
+	let full_range = colorimetry.range() == gst_video::VideoColorRange::Range0_255;
+	let matrix = match colorimetry.matrix() {
+		gst_video::VideoColorMatrix::Bt709 => Some(Matrix::Bt709),
+		gst_video::VideoColorMatrix::Bt601 | gst_video::VideoColorMatrix::Fcc => {
+			Some(Matrix::Bt601)
+		}
+		gst_video::VideoColorMatrix::Bt2020 => Some(Matrix::Bt2020),
+		gst_video::VideoColorMatrix::Smpte240m => Some(Matrix::Smpte240m),
+		_ => None,
+	};
+	let color = match matrix {
+		Some(matrix) => Color { matrix, full_range },
+		None => Color::untagged(height, full_range),
+	};
+	let len = layout.len(width, height).ok_or(INVALID)?;
+	if len > MAX_BYTES {
+		return Err(INVALID);
+	}
+	let buffer = sample.buffer().ok_or(INVALID)?;
+	let frame =
+		gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info).map_err(|_| INVALID)?;
+	let (w, h) = (width as usize, height as usize);
+	let (chroma_w, chroma_h) = (w.div_ceil(2), h.div_ceil(2));
+	let planes: &[(usize, usize)] = match layout {
+		Layout::Nv12 => &[(w, h), (chroma_w * 2, chroma_h)],
+		_ => &[(w, h), (chroma_w, chroma_h), (chroma_w, chroma_h)],
+	};
+	let mut data = Vec::with_capacity(len);
+	for (plane, &(row_bytes, rows)) in planes.iter().enumerate() {
+		let stride = frame
+			.plane_stride()
+			.get(plane)
+			.and_then(|stride| usize::try_from(*stride).ok())
+			.ok_or(INVALID)?;
+		let source = frame.plane_data(plane as u32).map_err(|_| INVALID)?;
+		pack_plane(&mut data, source, stride, row_bytes, rows).ok_or(INVALID)?;
+	}
+	let picture = Picture {
+		width,
+		height,
+		layout,
+		color,
+		rotation: 0,
+		data,
+	};
+	picture.is_valid().then_some(picture).ok_or(INVALID)
 }
 
 /// Buffer timestamps are segment-relative; convert them to positions in the attachment.
@@ -482,6 +575,7 @@ fn stream_time(sample: &gst::Sample) -> Result<f64, &'static str> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use std::io::{Read, Seek};
 	const FIXTURE: &[u8] = include_bytes!("../../../../apps/desktop/tests/fixtures/video.mov");
 
 	fn wait_for_sample(
@@ -496,6 +590,87 @@ mod tests {
 			assert!(started.elapsed().as_secs() < 20, "sample timed out");
 			std::thread::sleep(std::time::Duration::from_millis(1));
 		}
+	}
+
+	/// Reads the fixture, optionally failing after `limit` bytes, and records its release.
+	struct Tracked {
+		inner: std::io::Cursor<&'static [u8]>,
+		limit: Option<u64>,
+		dropped: Arc<AtomicBool>,
+	}
+	impl Read for Tracked {
+		fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+			if self
+				.limit
+				.is_some_and(|limit| self.inner.position() >= limit)
+			{
+				return Err(std::io::ErrorKind::BrokenPipe.into());
+			}
+			self.inner.read(buf)
+		}
+	}
+	impl Seek for Tracked {
+		fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+			self.inner.seek(position)
+		}
+	}
+	impl Drop for Tracked {
+		fn drop(&mut self) {
+			self.dropped.store(true, Ordering::Release);
+		}
+	}
+	fn tracked(limit: Option<u64>) -> (Box<dyn ReadSeek>, Arc<AtomicBool>) {
+		let dropped = Arc::new(AtomicBool::new(false));
+		let source = Tracked {
+			inner: std::io::Cursor::new(FIXTURE),
+			limit,
+			dropped: dropped.clone(),
+		};
+		(Box::new(source), dropped)
+	}
+
+	#[test]
+	fn missing_video_decoders_are_named_and_audio_ones_ignored() {
+		gst::init().unwrap();
+		let missing = |kind: &str, caps: &str| {
+			gst::Structure::builder("missing-plugin")
+				.field("type", kind)
+				.field("detail", gst::Caps::builder(caps).build())
+				.build()
+		};
+		let hevc = missing("decoder", "video/x-h265");
+		assert_eq!(missing_video_decoder(Some(&hevc)), Some(MISSING_HEVC));
+		let vp9 = missing("decoder", "video/x-vp9");
+		assert_eq!(missing_video_decoder(Some(&vp9)), Some(MISSING_DECODER));
+		for ignored in [
+			missing("decoder", "audio/x-opus"),
+			missing("encoder", "video/x-h265"),
+		] {
+			assert_eq!(missing_video_decoder(Some(&ignored)), None);
+		}
+		let other = gst::Structure::builder("progress").build();
+		assert_eq!(missing_video_decoder(Some(&other)), None);
+		assert_eq!(missing_video_decoder(None), None);
+	}
+
+	#[test]
+	fn failed_and_finished_pipelines_release_their_source() {
+		// The source is owned by appsrc callbacks, so it is freed only once the pipeline
+		// has stopped and nothing keeps its elements alive.
+		let (source, dropped) = tracked(Some(FIXTURE.len() as u64 / 3));
+		assert!(Decoder::open(source).is_err());
+		assert!(
+			dropped.load(Ordering::Acquire),
+			"failed open leaked its pipeline"
+		);
+		let (source, dropped) = tracked(None);
+		let mut decoder = Decoder::open(source).unwrap();
+		assert!(wait_for_sample(&mut decoder, Decoder::poll_video).is_some());
+		drop(decoder);
+		assert!(
+			dropped.load(Ordering::Acquire),
+			"dropped decoder leaked its pipeline"
+		);
 	}
 
 	#[test]
@@ -528,14 +703,10 @@ mod tests {
 			}
 			for sample in samples {
 				match sample {
-					Sample::Video {
-						pts,
-						rgba,
-						width,
-						height,
-					} => {
-						assert_eq!((width, height), (320, 180));
-						assert_eq!(rgba.len(), (width * height * 4) as usize);
+					Sample::Video { pts, picture } => {
+						assert_eq!((picture.width, picture.height), (320, 180));
+						assert!(picture.is_valid());
+						let (_, _, rgba) = picture.to_rgba().unwrap();
 						assert!(rgba.windows(4).any(|pixel| pixel[0] != pixel[1]));
 						assert!(pts > last_pts, "{pts} after {last_pts}");
 						last_pts = pts;

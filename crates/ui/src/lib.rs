@@ -18,7 +18,7 @@ mod avatars;
 #[cfg(feature = "demo")]
 pub use avatars::media::debug_heic_layout_check;
 pub use avatars::media::{Lane, MAX_FRAMES, Motion, Rendition, Size, fit_edge, is_motion_video};
-pub use avatars::{EMBED_EDGE, GifFrames};
+pub use avatars::{EMBED_EDGE, FRAME_EDGE, GifFrames};
 mod categories;
 #[cfg(feature = "demo")]
 pub use categories::debug_thread_navigation_check;
@@ -297,6 +297,14 @@ pub struct MessagingUi {
 	message_requests_collapsed: bool,
 	/// Custom emoji that need Nitro stay out of `:` suggestions and are locked in pickers.
 	pub hide_nitro_emojis: bool,
+	/// Profile cosmetics shown on this device; hidden ones are not downloaded.
+	pub cosmetics: model::CosmeticPreferences,
+	/// Disk budgets and retention for downloaded images.
+	pub image_cache: model::CachePreferences,
+	/// Latest disk use of the media and shared-artwork caches, once measured.
+	pub image_cache_usage: Option<[model::CacheUsage; 2]>,
+	/// An image cache partition the owner asked to empty; the desktop consumes it.
+	pub clear_image_cache: Option<model::CachePartition>,
 	pub hide_title_bar: bool,
 	pub hide_window_decorations: bool,
 	pub custom_font: fonts::Settings,
@@ -397,10 +405,10 @@ pub struct MessagingUi {
 	pub camera_test_available: bool,
 	pub camera_test_status: &'static str,
 	pub camera_test_texture: Option<egui::TextureHandle>,
-	/// Decoded remote cameras by user; the desktop bounds and replaces them.
-	pub voice_remote_video: Vec<(Id, egui::TextureHandle)>,
-	/// Latest picture of the screen share this device chose to watch.
-	pub voice_stream_view: Option<egui::TextureHandle>,
+	/// Decoded remote cameras by user; the desktop owns, bounds and replaces the textures.
+	pub voice_remote_video: Vec<(Id, egui::load::SizedTexture)>,
+	/// Latest picture of the screen share this device chose to watch; desktop-owned texture.
+	pub voice_stream_view: Option<egui::load::SizedTexture>,
 	pub voice_stream_status: &'static str,
 	/// Session-only stream playback level; unset is 100%. Mute preserves the level.
 	voice_stream_volume: Option<u16>,
@@ -422,6 +430,7 @@ pub struct MessagingUi {
 	/// Tile click to start (`Some(user)`) or stop (`None`) watching, applied by the stage.
 	watch_request: Option<Option<Id>>,
 	ring_request: Option<(Id, u64, Id, bool)>,
+	voice_moderation: Option<(Id, Id, Id, model::server_admin::VoiceChange)>,
 	stream_preview_open: Option<((Id, Id, Id), u64)>,
 	stream_preview_request: Option<(Id, Id, Id)>,
 	stream_preview_watch: Option<(Id, Id)>,
@@ -744,6 +753,11 @@ impl MessagingUi {
 		self.members_narrow_open = true;
 		self.profile.command_open(user);
 	}
+	/// Fixture-only entry point: the profile popout alone, beside a docked member list.
+	#[cfg(any(test, feature = "demo"))]
+	pub fn preview_profile_popout(&mut self, user: model::User) {
+		self.profile.command_open(user);
+	}
 	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_full_profile(&mut self, user: model::User) {
 		self.profile.open_full(user);
@@ -978,7 +992,7 @@ impl MessagingUi {
 	pub fn take_avatar_requests(&mut self) -> Vec<String> {
 		self.avatars.take_requests()
 	}
-	/// When unplayed animation frames can next be released; see `take_avatar_requests`.
+	/// Next idle animation/inline texture release; see `take_avatar_requests`.
 	pub fn avatar_release_at(&self) -> Option<std::time::Instant> {
 		self.avatars.next_release()
 	}
@@ -1540,13 +1554,23 @@ impl MessagingUi {
 								)
 							});
 							let row = rect.shrink2(egui::vec2(0.0, 1.0));
-							if response.hovered() || response.has_focus() {
+							let focused = response.hovered() || response.has_focus();
+							if focused {
 								ui.painter().rect_filled(
 									row,
 									6,
 									design::row_highlight(ui, colors.hover, 1.0),
 								);
 							}
+							self.avatars.paint_nameplate(
+								ui,
+								&member.user,
+								row,
+								6,
+								focused,
+								!online,
+								state.demo,
+							);
 							let mut inner = ui.new_child(
 								egui::UiBuilder::new()
 									.max_rect(row.shrink2(egui::vec2(8.0, 4.0)))
@@ -3014,20 +3038,17 @@ impl MessagingUi {
 		}
 		if focus_edit || (focus_composer && !editing_here) {
 			let mut edit_state = egui::text_edit::TextEditState::default();
-			let count = if editing_here {
+			let text = if editing_here {
 				self.editing
 					.as_ref()
-					.map_or(0, |(_, _, content)| content.chars().count())
+					.map_or("", |(_, _, content)| content.as_str())
 			} else {
-				state
-					.drafts
-					.get(&channel)
-					.map_or(0, |draft| draft.chars().count())
+				state.drafts.get(&channel).map_or("", String::as_str)
 			};
 			edit_state
 				.cursor
 				.set_char_range(Some(egui::text::CCursorRange::one(
-					egui::text::CCursor::new(count),
+					egui::text::CCursor::end_of_str(text),
 				)));
 			edit_state.store(ctx, composer_id);
 		}
@@ -3225,12 +3246,18 @@ impl MessagingUi {
 				)
 			});
 		let placeholder = state.channel(channel).map_or_else(
-			|| "Message".to_owned(),
+			|| crate::i18n::translate("composer-placeholder"),
 			|c| {
 				if c.guild.is_some() {
-					format!("Message #{}", c.name)
+					crate::i18n::translate_args(
+						"composer-placeholder-channel",
+						&[("channel", &c.name)],
+					)
 				} else {
-					format!("Message @{}", state.conversation_name(c))
+					crate::i18n::translate_args(
+						"composer-placeholder-direct",
+						&[("name", state.conversation_name(c))],
+					)
 				}
 			},
 		);
@@ -3600,7 +3627,7 @@ impl MessagingUi {
                                     .frame(egui::Frame::NONE)
                                     .hint_text(hint)
                                     .show(ui);
-                                rich_layout.paint(ui, &output);
+                                rich_layout.paint(ui, &output, &mut self.avatars);
                                 output
                             }).inner;
                         if !self.ime_active && !ime_this_frame {
@@ -3928,6 +3955,8 @@ impl MessagingUi {
 	}
 
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		self.avatars.cosmetics = self.cosmetics;
+		let cosmetics_refresh = state.set_profile_cosmetics(self.cosmetics);
 		self.timeline.download.gif_favorites = state
 			.gifs
 			.favorites
@@ -4011,6 +4040,7 @@ impl MessagingUi {
 		self.timeline.video.seen = false;
 		let side = self.drain_side_press();
 		let mut commands = Vec::new();
+		commands.extend(cosmetics_refresh);
 		// A server joined from an invite opens as soon as the Gateway delivers it.
 		commands.extend(state.navigate_after_join());
 		if let Some(action) = self.poll_creator.show(ui.ctx(), state, &mut self.avatars)
@@ -4910,7 +4940,7 @@ impl MessagingUi {
 			let name = state
 				.timeline
 				.get(message)
-				.map(|m| thread_create::suggested_name(&m.display_text()))
+				.map(|m| thread_create::suggested_name(&crate::i18n::message_text(m)))
 				.unwrap_or_default();
 			self.thread_create.open(channel, Some(message), name);
 		}
@@ -5300,6 +5330,17 @@ impl MessagingUi {
 		}
 		self.show_call_switch(&ctx, state, &mut commands);
 		self.apply_ring_request(state, &mut commands);
+		if let Some((guild, channel, user, change)) = self.voice_moderation.take()
+			&& let Some(command) = state.request_server_admin(
+				guild,
+				model::server_admin::Action::Voice {
+					user,
+					channel,
+					change,
+				},
+			) {
+			commands.push(command);
+		}
 		self.verification.show(&ctx, state);
 		self.onboarding.show(&ctx, state, &mut commands);
 		self.scroll.clear_if_unbound(&ctx);
@@ -5735,6 +5776,7 @@ mod composer_tests {
 			kind: Default::default(),
 			discriminator: 0,
 			primary_guild: None,
+			cosmetics: None,
 		};
 		let mut state = State {
 			selected: Some(Id(10)),
@@ -7760,6 +7802,7 @@ mod composer_tests {
 								kind: Default::default(),
 								discriminator: 0,
 								primary_guild: None,
+								cosmetics: None,
 							},
 							nick: None,
 							roles: vec![],
@@ -8515,6 +8558,7 @@ mod composer_tests {
 				kind: Default::default(),
 				discriminator: 0,
 				primary_guild: None,
+				cosmetics: None,
 			};
 			let mut state = State {
 				demo: true,

@@ -31,6 +31,10 @@ pub mod server_roles;
 pub mod server_settings;
 pub mod soundboard;
 pub use reading_preferences::ReadingPreferences;
+mod cache_preferences;
+pub use cache_preferences::*;
+mod cosmetics;
+pub use cosmetics::*;
 mod profile;
 mod system_messages;
 pub use profile::*;
@@ -109,6 +113,9 @@ pub struct User {
 	/// Service-supplied server identity displayed beside this user's name.
 	#[serde(default, skip_serializing)]
 	pub primary_guild: Option<Box<ClanTag>>,
+	/// Service-supplied avatar decoration and nameplate; display-only, never persisted.
+	#[serde(default, skip)]
+	pub cosmetics: Option<Box<Cosmetics>>,
 }
 impl User {
 	pub fn account_label(&self) -> Option<&'static str> {
@@ -127,7 +134,9 @@ impl User {
 				std::mem::size_of::<ClanTag>()
 					+ guild.tag.capacity()
 					+ guild.badge.as_ref().map_or(0, String::capacity)
-			})
+			}) + self.cosmetics.as_ref().map_or(0, |cosmetics| {
+			std::mem::size_of::<Cosmetics>() + cosmetics.heap_bytes()
+		})
 	}
 	pub fn avatar_key(&self) -> String {
 		if let Some(hash) = self
@@ -215,6 +224,7 @@ impl SavedAccount {
 			avatar: self.avatar.clone(),
 			discriminator: self.discriminator,
 			primary_guild: None,
+			cosmetics: None,
 		}
 	}
 	pub fn heap_bytes(&self) -> usize {

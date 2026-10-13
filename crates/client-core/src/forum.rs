@@ -627,6 +627,7 @@ mod tests {
 			gateway_connected: true,
 			user: Some(model::User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(2),
 				name: "Synthetic".into(),
 				avatar: None,

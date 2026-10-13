@@ -76,6 +76,10 @@ pub struct AppPreferences {
 	pub user_volumes: Vec<(u64, u16)>,
 	/// Voice participants silenced on this device only, bounded like the volume overrides.
 	pub muted_users: Vec<u64>,
+	/// Profile cosmetics shown on this device; older preferences show all of them.
+	pub cosmetics: model::CosmeticPreferences,
+	/// Disk budgets and retention for downloaded images, from bounded presets.
+	pub image_cache: model::CachePreferences,
 }
 impl Default for AppPreferences {
 	fn default() -> Self {
@@ -109,6 +113,8 @@ impl Default for AppPreferences {
 			expanded_folders: Vec::new(),
 			user_volumes: Vec::new(),
 			muted_users: Vec::new(),
+			cosmetics: Default::default(),
+			image_cache: Default::default(),
 		}
 	}
 }
@@ -133,6 +139,7 @@ impl AppPreferences {
 			&& self.user_volumes.iter().all(|(_, volume)| *volume <= 200)
 			&& self.muted_users.len() <= 64
 			&& self.keybinds.is_valid()
+			&& self.image_cache.is_valid()
 			&& [&self.voice_input, &self.voice_output]
 				.into_iter()
 				.all(|value| value.as_ref().is_none_or(|value| value.len() <= 1024))
@@ -1277,6 +1284,7 @@ impl LocalStore {
 				channel,
 				author: User {
 					primary_guild: None,
+					cosmetics: None,
 					id: parse(row.get(1)?)?,
 					name: row.get(2)?,
 					avatar: row.get(7)?,
@@ -2197,6 +2205,26 @@ mod tests {
 			store.app_preferences().unwrap().gpu_preference,
 			model::GpuPreference::PowerSaving
 		);
+		// Older rows show no cosmetics (they are opt-in) and keep the historical budgets.
+		let legacy: AppPreferences = serde_json::from_str("{}").unwrap();
+		assert_eq!(legacy.cosmetics, model::CosmeticPreferences::default());
+		assert_eq!(legacy.image_cache, model::CachePreferences::default());
+		let partial: AppPreferences = serde_json::from_str(
+			r#"{"cosmetics":{"nameplates":true},"image_cache":{"media_mib":512}}"#,
+		)
+		.unwrap();
+		assert!(partial.cosmetics.nameplates && !partial.cosmetics.decorations);
+		assert_eq!(partial.image_cache.artwork_mib, 128);
+		let mut cache = AppPreferences {
+			cosmetics: model::CosmeticPreferences::SHOWN,
+			..Default::default()
+		};
+		cache.image_cache.media_mib = 2048;
+		store.save_app_preferences(&cache).unwrap();
+		assert_eq!(store.app_preferences().unwrap(), cache);
+		cache.image_cache.media_mib = 3000;
+		assert!(store.save_app_preferences(&cache).is_err());
+		assert_eq!(store.app_preferences().unwrap().image_cache.media_mib, 2048);
 		value.voice_input = None;
 		value.language = Some("../cs".into());
 		assert!(store.save_app_preferences(&value).is_err());
@@ -3163,6 +3191,7 @@ mod tests {
 		assert_eq!(store.load_drafts(Id(1)).unwrap()[&Id(2)], "kept draft");
 		messages[0].mentions = vec![User {
 			primary_guild: None,
+			cosmetics: None,
 			id: Id(5),
 			name: "Mentioned user".into(),
 			avatar: None,
@@ -3368,6 +3397,7 @@ mod tests {
 				channel: Id(channel),
 				author: User {
 					primary_guild: None,
+					cosmetics: None,
 					id: Id(1),
 					name: "Synthetic".into(),
 					avatar: Some("0123456789abcdef0123456789abcdef".into()),

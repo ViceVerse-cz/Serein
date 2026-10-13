@@ -264,6 +264,7 @@ mod tests {
 			kind: 0,
 			author: User {
 				primary_guild: None,
+				cosmetics: None,
 				id: Id(9),
 				name: "Synthetic".into(),
 				avatar: None,

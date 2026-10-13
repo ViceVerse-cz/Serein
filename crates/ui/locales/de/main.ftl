@@ -3581,6 +3581,54 @@ settings-storage-page-removes-cached-messages-and-media-drafts-and-your-login-st
 settings-storage-page-serein-does-not-collect-telemetry-or-upload-diagnostics-discord-retains = Serein erfasst keine Telemetriedaten und lädt keine Diagnosedaten hoch. Discord speichert dienstseitige Daten gemäß seinen eigenen Richtlinien.
 # Context: storage_page
 settings-storage-page-your-privacy = Ihre Privatsphäre
+# Context: cosmetic_settings
+settings-cosmetics = Profil-Kosmetik
+# Context: cosmetic_settings
+settings-cosmetics-decorations = Avatar-Dekorationen
+# Context: cosmetic_settings
+settings-cosmetics-decorations-description = Grafiken rund um Avatare.
+# Context: cosmetic_settings
+settings-cosmetics-nameplates = Namensschilder
+# Context: cosmetic_settings
+settings-cosmetics-nameplates-description = Grafiken hinter Namen in Mitglieder- und Direktnachrichtenlisten.
+# Context: cosmetic_settings
+settings-cosmetics-effects = Profileffekte
+# Context: cosmetic_settings
+settings-cosmetics-effects-description = Animationen über Profilkarten.
+# Context: cosmetic_settings
+settings-cosmetics-frames = Profilrahmen
+# Context: cosmetic_settings
+settings-cosmetics-frames-description = Grafiken rund um Profilkarten.
+# Context: cosmetic_settings
+settings-cosmetics-hidden-are-not-downloaded = Ausgeblendete Kosmetik wird nicht heruntergeladen. Das ändert nur die Anzeige auf diesem Gerät.
+# Context: image_cache_settings
+settings-image-cache = Bild-Cache
+# Context: image_cache_settings
+settings-image-cache-media = Medien-Cache
+# Context: image_cache_settings
+settings-image-cache-media-description = Avatare, Banner, Vorschauen und Sticker.
+# Context: image_cache_settings
+settings-image-cache-artwork = Cache für gemeinsame Grafiken
+# Context: image_cache_settings
+settings-image-cache-artwork-description = Emojis, Abzeichen, Server-Tags, Rollensymbole, Avatar-Dekorationen und Namensschilder – getrennt gespeichert, damit große Medien sie nie verdrängen.
+# Context: image_cache_settings
+settings-image-cache-usage = { $used } von { $limit } belegt.
+# Context: image_cache_settings
+settings-image-cache-usage-unavailable = Die Belegung erscheint, sobald Bilder geladen sind.
+# Context: image_cache_settings
+settings-image-cache-clear = Leeren
+# Context: image_cache_settings
+settings-image-cache-clear-description = Entfernt diese heruntergeladenen Bilder sofort. Nachrichten, Entwürfe und deine Anmeldung bleiben.
+# Context: image_cache_settings
+settings-image-cache-retention = Ungenutzte Bilder entfernen nach
+# Context: image_cache_settings
+settings-image-cache-retention-description = Zwischengespeicherte Bilder, die so lange nicht angezeigt werden, werden von der Festplatte gelöscht.
+# Context: image_cache_settings
+settings-image-cache-days =
+    { $count ->
+        [one] { $count } Tag
+       *[other] { $count } Tagen
+    }
 
 ## crates/ui/src/slash_commands.rs
 # Context: argument
@@ -4607,3 +4655,165 @@ profiles-activity-empty = Keine geteilte Aktivität.
 profiles-mutuals-empty = Nothing to show here.
 
 reading-double-click-reaction = Double-click reaction
+
+## crates/platform/src/app_menu.rs
+# Context: macos_menu_bar
+app-menu-about = Über Serein
+# Context: macos_menu_bar
+app-menu-updates = Nach Updates suchen …
+# Context: macos_menu_bar
+app-menu-settings = Einstellungen …
+# Context: macos_menu_bar
+app-menu-services = Dienste
+# Context: macos_menu_bar
+app-menu-hide = Serein ausblenden
+# Context: macos_menu_bar
+app-menu-hide-others = Andere ausblenden
+# Context: macos_menu_bar
+app-menu-show-all = Alle einblenden
+# Context: macos_menu_bar
+app-menu-quit = Serein beenden
+# Context: macos_menu_bar
+app-menu-file = Ablage
+# Context: macos_menu_bar
+app-menu-close-window = Fenster schließen
+# Context: macos_menu_bar
+app-menu-edit = Bearbeiten
+# Context: macos_menu_bar
+app-menu-undo = Widerrufen
+# Context: macos_menu_bar
+app-menu-redo = Wiederholen
+# Context: macos_menu_bar
+app-menu-cut = Ausschneiden
+# Context: macos_menu_bar
+app-menu-copy = Kopieren
+# Context: macos_menu_bar
+app-menu-paste = Einsetzen
+# Context: macos_menu_bar
+app-menu-select-all = Alles auswählen
+# Context: macos_menu_bar
+app-menu-emoji = Emoji & Symbole
+# Context: macos_menu_bar
+app-menu-view = Darstellung
+# Context: macos_menu_bar
+app-menu-actual-size = Originalgröße
+# Context: macos_menu_bar
+app-menu-zoom-in = Vergrößern
+# Context: macos_menu_bar
+app-menu-zoom-out = Verkleinern
+# Context: macos_menu_bar
+app-menu-full-screen = Vollbildmodus aktivieren
+# Context: macos_menu_bar
+app-menu-window = Fenster
+# Context: macos_menu_bar
+app-menu-minimize = Im Dock ablegen
+# Context: macos_menu_bar
+app-menu-zoom = Zoomen
+# Context: macos_menu_bar
+app-menu-bring-all-to-front = Alle nach vorne bringen
+# Context: macos_menu_bar
+app-menu-help = Hilfe
+# Context: macos_menu_bar
+app-menu-github = Serein auf GitHub
+# Context: macos_menu_bar
+app-menu-report-issue = Problem melden …
+
+## crates/model/src/system_messages.rs
+# Context: system_message
+system-message-a-member = ein Mitglied
+# Context: system_message
+system-message-added = { $actor } hat { $target } zur Unterhaltung hinzugefügt.
+# Context: system_message
+system-message-left = { $actor } hat die Unterhaltung verlassen.
+# Context: system_message
+system-message-removed = { $actor } hat { $target } aus der Unterhaltung entfernt.
+# Context: system_message
+system-message-call = { $actor } hat einen Anruf gestartet.
+# Context: system_message
+system-message-channel-name = { $actor } hat den Kanalnamen geändert.
+# Context: system_message
+system-message-channel-name-value = { $actor } hat den Kanalnamen geändert: { $value }
+# Context: system_message
+system-message-channel-icon = { $actor } hat das Kanalsymbol geändert.
+# Context: system_message
+system-message-pinned = { $actor } hat eine Nachricht in diesem Kanal angepinnt.
+# Context: system_message
+system-message-joined = Willkommen, { $actor }! Ist dem Server beigetreten.
+# Context: system_message
+system-message-boosted = { $actor } hat den Server geboostet!
+# Context: system_message
+system-message-boosted-level = { $actor } hat den Server geboostet! Der Server hat Level { $level } erreicht.
+# Context: system_message
+system-message-channel-follow = { $actor } hat ein Kanal-Abonnement hinzugefügt.
+# Context: system_message
+system-message-discovery-disqualified = Dieser Server ist nicht mehr für die Server-Entdeckung berechtigt.
+# Context: system_message
+system-message-discovery-requalified = Dieser Server ist wieder für die Server-Entdeckung berechtigt.
+# Context: system_message
+system-message-discovery-warning = Warnung zur Berechtigung für die Server-Entdeckung.
+# Context: system_message
+system-message-discovery-final-warning = Letzte Warnung zur Berechtigung für die Server-Entdeckung.
+# Context: system_message
+system-message-thread = { $actor } hat einen Thread gestartet.
+# Context: system_message
+system-message-thread-value = { $actor } hat einen Thread gestartet: { $value }
+# Context: system_message
+system-message-thread-starter = Thread aus einer früheren Nachricht gestartet.
+# Context: system_message
+system-message-invite-reminder = Einladungserinnerung · Laden Sie Leute auf diesen Server ein.
+# Context: system_message
+system-message-automod = AutoMod-Aktion.
+# Context: system_message
+system-message-role-subscription = { $actor } hat ein Rollenabonnement gekauft oder verlängert.
+# Context: system_message
+system-message-premium-upsell = Premium-Abo-Angebot.
+# Context: system_message
+system-message-stage-start = { $actor } hat eine Stage gestartet.
+# Context: system_message
+system-message-stage-end = Die Stage wurde beendet.
+# Context: system_message
+system-message-stage-speaker = { $actor } spricht jetzt auf der Stage.
+# Context: system_message
+system-message-stage-raise-hand = { $actor } möchte sprechen.
+# Context: system_message
+system-message-stage-topic = { $actor } hat das Stage-Thema geändert.
+# Context: system_message
+system-message-application-subscription = Premium-Abo für eine Server-App.
+# Context: system_message
+system-message-raid-alert-enabled = Server-Alarmmodus aktiviert.
+# Context: system_message
+system-message-raid-alert-disabled = Server-Alarmmodus deaktiviert.
+# Context: system_message
+system-message-raid-report = Ein Raid auf den Server wurde gemeldet.
+# Context: system_message
+system-message-false-alarm = Ein Servervorfall wurde als Fehlalarm gemeldet.
+# Context: system_message
+system-message-purchase = Kaufbenachrichtigung.
+# Context: system_message
+system-message-poll-closed = Die Umfrage { $question } von { $actor } ist beendet.
+# Context: system_message
+system-message-poll-result = Umfrageergebnisse.
+# Context: system_message
+system-message-stream-hd = { $actor } hat den Stream auf HD umgestellt.
+# Context: system_message
+system-message-report-deleted = { $actor } hat eine gemeldete Nachricht gelöscht.
+# Context: system_message
+system-message-timed-out = { $actor } hat { $target } in ein Timeout geschickt.
+# Context: system_message
+system-message-kicked = { $actor } hat { $target } gekickt.
+# Context: system_message
+system-message-banned = { $actor } hat { $target } gebannt.
+# Context: system_message
+system-message-report-resolved = { $actor } hat eine Meldung abgeschlossen.
+# Context: system_message
+system-message-voice-hangout = { $actor } hat ein Sprach-Hangout gestartet.
+# Context: system_message
+system-message-friend-accepted = { $actor } hat Ihre Freundschaftsanfrage angenommen.
+
+## crates/ui/src/lib.rs composer
+# Context: composer_placeholder
+composer-placeholder = Nachricht
+# Context: composer_placeholder
+composer-placeholder-channel = Nachricht an #{ $channel }
+# Context: composer_placeholder
+composer-placeholder-direct = Nachricht an @{ $name }

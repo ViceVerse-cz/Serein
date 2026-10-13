@@ -116,6 +116,7 @@ impl Snapshot {
 							avatar: None,
 							discriminator: 0,
 							primary_guild: None,
+							cosmetics: None,
 							webhook: false,
 							kind: Default::default(),
 						},
