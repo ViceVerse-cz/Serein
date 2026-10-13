@@ -6809,7 +6809,7 @@ mod tests {
 			// System rows paint the sentence as styled runs with the member name strong.
 			assert!(painted.iter().any(|s| s == "Welcome, "));
 			assert!(painted.iter().any(|s| s == "! Joined the server."));
-			assert!(painted.iter().any(|s| s == " changed the channel name"));
+			assert!(painted.iter().any(|s| s == " changed the channel name: "));
 			assert!(painted.iter().any(|s| s == "new channel name"));
 			for description in [
 				" accepted your friend request.",
