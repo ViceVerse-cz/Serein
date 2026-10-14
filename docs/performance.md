@@ -685,3 +685,33 @@ a fresh post-details reload and a later conflicting name. Full local
 and owner-controlled live validation remain unavailable/unverified.
 Raw samples, source revisions and executable hashes are in
 [measurements.json](pr-evidence/post-rename-review/measurements.json).
+
+## URL underscore parsing (2026-10-14, issue #656)
+
+[Measurements and source hashes](pr-evidence/url-underscores/measurements.json)
+compare `fbcbbad3` with the URL protection change on Windows 11 x64 build 26200,
+Ryzen 7 7800X3D, 32 GB RAM and pinned Rust 1.98.1. Standard packages include voice
+and use `cargo xtask package`, without demo or developer features. Performance
+notes and development evidence are not included in the installed payload.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 87,366,656 B | 87,381,504 B | +14,848 B / +0.0170% |
+| Installed payload, 216 files | 91,559,945 B | 91,574,793 B | +14,848 B / +0.0162% |
+| ZIP, Optimal compression | 50,470,238 B | 50,479,398 B | +9,160 B / +0.0181% |
+| Plain message, median / 10,000 parses | 25.1799 ms | 26.1144 ms | +0.9345 ms / +3.71% |
+| Underscore URLs, median / 10,000 parses | 28.7708 ms | 41.5100 ms | +12.7392 ms / +44.28% |
+
+The plain-message sample ranges overlap; no speed improvement is claimed.
+Protecting underscore URLs adds about 1.27 microseconds per parse in this workload.
+
+The release component workload is `cargo test --release --locked -p ui --lib
+url_underscore_parse_benchmark -- --ignored --nocapture`. Each built test binary
+is then run directly, with one warmup and five samples of 10,000 parses for each
+synthetic message. This measures parsing, not native frame latency, idle CPU,
+RSS or live Discord behavior. Native desktop automation is unavailable here.
+
+Protection adds temporary passes only for candidate URLs containing underscores;
+messages without underscores use an early return. Source remains capped at
+8 KiB, each pass at 512 events, and stored links at 16. No dependency or retained
+cache is added.

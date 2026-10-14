@@ -40,6 +40,123 @@ fn escaped(source: &str, at: usize) -> bool {
 		% 2 == 1
 }
 
+fn protect_url_underscores(input: &str) -> std::borrow::Cow<'_, str> {
+	if !input.contains('_') {
+		return input.into();
+	}
+	let mut candidates = Vec::new();
+	let mut scanned = 0;
+	for word in input.split_whitespace() {
+		let start = scanned + input[scanned..].find(word).expect("word from source");
+		scanned = start + word.len();
+		if !word.contains('_') {
+			continue;
+		}
+		let candidate = word.trim_start_matches(['(', '[', '{', '*', '_', '~', '|']);
+		let prefix = &word[..word.len() - candidate.len()];
+		let closing: String = prefix
+			.trim_start_matches(['(', '[', '{'])
+			.chars()
+			.rev()
+			.collect();
+		let candidate = candidate.strip_suffix(&closing).unwrap_or(candidate);
+		if candidate.contains('_')
+			&& !candidate.contains('\\')
+			&& let Some(target) = bare_url(candidate)
+		{
+			let start = start + prefix.len();
+			candidates.push((start..start + target.len(), false));
+		}
+	}
+	if candidates.is_empty() {
+		return input.into();
+	}
+	// Keep code, existing links (including masked labels), and HTML inert. Only a URL
+	// beginning in ordinary text is eligible; reference definitions have no text event.
+	for (count, (event, range)) in Parser::new_ext(input, Options::ENABLE_STRIKETHROUGH)
+		.into_offset_iter()
+		.enumerate()
+	{
+		if count >= MAX_EVENTS {
+			return input.into();
+		}
+		match event {
+			Event::Start(Tag::Link { .. } | Tag::Image { .. } | Tag::CodeBlock(_))
+			| Event::Code(_)
+			| Event::Html(_)
+			| Event::InlineHtml(_) => {
+				candidates.retain(|(url, _)| url.end <= range.start || url.start >= range.end);
+			}
+			Event::Text(_) => {
+				for (url, eligible) in &mut candidates {
+					*eligible |= range.contains(&url.start);
+				}
+			}
+			_ => {}
+		}
+	}
+	if !candidates.iter().any(|(_, eligible)| *eligible) {
+		return input.into();
+	}
+	let mut masked = input.as_bytes().to_vec();
+	let mut trailing = false;
+	for (range, eligible) in &candidates {
+		if *eligible {
+			let end = range.start + input[range.clone()].trim_end_matches('_').len();
+			trailing |= end < range.end;
+			for byte in &mut masked[range.start..end] {
+				if *byte == b'_' {
+					*byte = b'x';
+				}
+			}
+		}
+	}
+	if trailing {
+		// A trailing delimiter may close formatting begun before the URL. Keep those
+		// closers, but prevent a URL's own trailing underscores from opening a style.
+		let provisional =
+			String::from_utf8(masked.clone()).expect("ASCII replacement preserves UTF-8");
+		for (count, (event, range)) in Parser::new_ext(&provisional, Options::ENABLE_STRIKETHROUGH)
+			.into_offset_iter()
+			.enumerate()
+		{
+			if count >= MAX_EVENTS {
+				return input.into();
+			}
+			if matches!(event, Event::Start(Tag::Strong | Tag::Emphasis))
+				&& candidates
+					.iter()
+					.any(|(url, eligible)| *eligible && url.contains(&range.start))
+			{
+				for byte in &mut masked[range.start..] {
+					if *byte != b'_' {
+						break;
+					}
+					*byte = b'x';
+				}
+			}
+		}
+	}
+	// ASCII substitutions preserve source offsets; text events are restored before rendering.
+	String::from_utf8(masked)
+		.expect("ASCII replacement preserves UTF-8")
+		.into()
+}
+
+fn bare_url(word: &str) -> Option<&str> {
+	let mut target = word.trim_end_matches(['.', ',', ';', '!', '?', ']', '}']);
+	while target.ends_with(')') && target.matches(')').count() > target.matches('(').count() {
+		target = &target[..target.len() - 1];
+	}
+	(target
+		.get(..8)
+		.is_some_and(|scheme| scheme.eq_ignore_ascii_case("https://"))
+		|| target
+			.get(..7)
+			.is_some_and(|scheme| scheme.eq_ignore_ascii_case("http://")))
+	.then_some(target)
+}
+
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 struct Style {
 	strong: bool,
@@ -747,8 +864,21 @@ impl Formatted {
 					.take_while(|b| *b == b'\\')
 					.count() % 2 == 0
 		};
-		let mut events = Parser::new_ext(input, Options::ENABLE_STRIKETHROUGH)
+		let parser_input = protect_url_underscores(input);
+		let protected = matches!(&parser_input, std::borrow::Cow::Owned(_));
+		let mut events = Parser::new_ext(&parser_input, Options::ENABLE_STRIKETHROUGH)
 			.into_offset_iter()
+			.map(|(event, range)| {
+				let event = match event {
+					Event::Text(text)
+						if protected && text.as_ref() == &parser_input[range.clone()] =>
+					{
+						Event::Text(input[range.clone()].into())
+					}
+					event => event,
+				};
+				(event, range)
+			})
 			.peekable();
 		// Merge only unchanged source text. Entity/escape expansions stay separate and inert,
 		// even when followed by an identical literal reference.
@@ -1174,17 +1304,7 @@ impl Formatted {
 			let start = scanned + text[scanned..].find(word).expect("word from source");
 			scanned = start + word.len();
 			let candidate = word.trim_start_matches(['(', '[', '{']);
-			let mut target = candidate.trim_end_matches(['.', ',', ';', '!', '?', ']', '}']);
-			while target.ends_with(')') && target.matches(')').count() > target.matches('(').count()
-			{
-				target = &target[..target.len() - 1];
-			}
-			if (target
-				.get(..8)
-				.is_some_and(|scheme| scheme.eq_ignore_ascii_case("https://"))
-				|| target
-					.get(..7)
-					.is_some_and(|scheme| scheme.eq_ignore_ascii_case("http://")))
+			if let Some(target) = bare_url(candidate)
 				&& let Some(link) = self.add_link(target)
 			{
 				let link_start = start + word.len() - candidate.len();
@@ -5668,6 +5788,184 @@ mod tests {
 		assert_eq!(profile.open_user().unwrap().name, "Synthetic Robin");
 		assert!(opening.is_none());
 	}
+	#[test]
+	fn bare_url_underscores_do_not_format_or_join_neighboring_links() {
+		for target in [
+			"https://example.com/__first__second",
+			"https://example.com/___first___second",
+			"http://example.com/____?q=__value__#___fragment",
+			"HTTPS://EXAMPLE.COM/a__b__c",
+			"https://example.com/__café__/___end",
+		] {
+			for source in [
+				target.to_owned(),
+				format!("({target})."),
+				format!("https://before.test/__ {target} https://after.test/__"),
+				format!("__ordinary underline__ {target} _ordinary italic_"),
+			] {
+				let parsed = Formatted::parse(&source);
+				let text: String = parsed.spans.iter().map(|(text, _)| text.as_str()).collect();
+				assert!(text.contains(target), "{source}: {text}");
+				assert!(
+					parsed.spans.iter().any(|(text, style)| {
+						text == target && style.link.is_some() && !style.strong && !style.italic
+					}),
+					"URL must be one literal link: {source}"
+				);
+				assert!(
+					parsed
+						.spans
+						.iter()
+						.filter(|(_, style)| style.link.is_none())
+						.all(|(text, style)| {
+							!style.underline || text.contains("ordinary underline")
+						}),
+					"URL delimiters leaked formatting: {source}"
+				);
+			}
+		}
+		let source = "https://example.com/__first https://example.org/second__";
+		let parsed = Formatted::parse(source);
+		assert_eq!(
+			parsed.links,
+			[
+				"https://example.com/__first",
+				"https://example.org/second__"
+			]
+		);
+		assert_eq!(
+			parsed
+				.spans
+				.iter()
+				.map(|(text, _)| text.as_str())
+				.collect::<String>(),
+			source
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.all(|(_, style)| !style.underline && !style.italic)
+		);
+		let parsed = Formatted::parse("https://example.com/__. https://example.org/__.");
+		assert_eq!(
+			parsed.links,
+			["https://example.com/__", "https://example.org/__"]
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.all(|(_, style)| !style.underline && !style.italic)
+		);
+		let source = (0..MAX_LINKS + 8)
+			.map(|id| format!("https://example.com/__{id}__ "))
+			.collect::<String>();
+		assert_eq!(Formatted::parse(&source).links.len(), MAX_LINKS);
+	}
+
+	#[test]
+	fn url_underscore_protection_preserves_code_labels_and_spoilers() {
+		let target = "https://example.com/__first__second";
+		for source in [
+			format!("`{target}`"),
+			format!("```\n{target}\n```"),
+			format!("![{target}](https://image.test/)"),
+		] {
+			let parsed = Formatted::parse(&source);
+			assert!(parsed.links.is_empty(), "{source}");
+			assert!(
+				parsed
+					.spans
+					.iter()
+					.map(|(text, _)| text.as_str())
+					.collect::<String>()
+					.contains(target)
+			);
+		}
+		let parsed = Formatted::parse(&format!("[__label__]({target})"));
+		assert_eq!(parsed.links, [target]);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(text, style)| text == "label" && style.underline && !style.message_link)
+		);
+		for source in [format!("||{target}||"), format!("||<{target}>||")] {
+			let parsed = Formatted::parse(&source);
+			assert_eq!(parsed.links, [target], "{source}");
+			assert!(
+				parsed.spans.iter().any(|(text, style)| text == target
+					&& style.link.is_some()
+					&& style.spoiler.is_some()),
+				"{source}"
+			);
+		}
+		for source in [
+			format!("**{target}**"),
+			format!("__{target}__"),
+			format!("*{target}*"),
+		] {
+			let parsed = Formatted::parse(&source);
+			assert_eq!(parsed.links, [target], "{source}");
+		}
+	}
+
+	#[test]
+	fn url_underscores_keep_the_rendered_click_destination() {
+		let target = "https://example.com/__first__second";
+		for source in [format!("__before {target}__"), format!("_before {target}_")] {
+			let parsed = Formatted::parse(&source);
+			assert_eq!(parsed.links, [target], "{source}");
+			assert!(
+				parsed
+					.spans
+					.iter()
+					.any(|(text, style)| text == target && (style.italic || style.underline))
+			);
+		}
+		let parsed = Formatted::parse(&format!("[__label__][ref]\n\n[ref]: {target}"));
+		assert_eq!(parsed.links, [target]);
+		let mut ui = MessageLinkTestUi::new(target);
+		for events in [vec![], vec![], vec![message_link_key(egui::Key::Tab, true)]] {
+			ui.frame(900.0, events).0.drop_without_applying_deltas();
+		}
+		let (output, opening) = ui.frame(900.0, vec![message_link_key(egui::Key::Enter, true)]);
+		assert_eq!(opening.as_deref(), Some(target));
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	#[ignore = "release-only markdown microbenchmark; run with --ignored --nocapture"]
+	fn url_underscore_parse_benchmark() {
+		for (name, source) in [
+			(
+				"plain",
+				"A typical message with ordinary text and https://example.com/a.",
+			),
+			(
+				"underscores",
+				"https://example.com/__first https://example.org/second__",
+			),
+		] {
+			let mut samples = Vec::new();
+			for run in 0..6 {
+				let start = std::time::Instant::now();
+				for _ in 0..10_000 {
+					std::hint::black_box(Formatted::parse(std::hint::black_box(source)));
+				}
+				if run > 0 {
+					samples.push(start.elapsed());
+				}
+			}
+			samples.sort_unstable();
+			println!(
+				"{name}: 10000 parses, median {:?}, samples {samples:?}",
+				samples[2]
+			);
+		}
+	}
+
 	#[test]
 	fn inline_links_preserve_markdown_and_activate_their_own_destinations() {
 		let source = "Before [**Markdown** *label*](https://example.com/masked) then (https://example.org/a_(b)). `https://code.test` [https://label.test](javascript:bad)";
