@@ -4907,3 +4907,4 @@ time-format-12-hour = 12 小時制
 time-format-24-hour = 24 小時制
 profiles-status-edit = 編輯狀態
 profiles-status-clear = 清除狀態
+audio-playback-speed = 播放速度

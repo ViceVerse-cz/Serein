@@ -4809,3 +4809,4 @@ time-format-12-hour = 12 ore
 time-format-24-hour = 24 ore
 profiles-status-edit = Modifica stato
 profiles-status-clear = Cancella stato
+audio-playback-speed = Velocità di riproduzione

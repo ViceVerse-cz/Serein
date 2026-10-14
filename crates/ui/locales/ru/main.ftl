@@ -4812,3 +4812,4 @@ time-format-12-hour = 12-часовой
 time-format-24-hour = 24-часовой
 profiles-status-edit = Изменить статус
 profiles-status-clear = Очистить статус
+audio-playback-speed = Скорость воспроизведения

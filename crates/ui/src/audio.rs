@@ -16,8 +16,13 @@ pub enum AudioCommand {
 	Pause(bool),
 	Seek(f64),
 	Volume(f32),
+	/// Pitch-preserving playback speed.
+	Speed(f32),
 	Stop,
 }
+
+/// Discord's voice message speeds, in the order its pill cycles through them.
+pub const SPEEDS: [f32; 4] = [1.0, 1.5, 2.0, 0.75];
 pub struct AudioUi {
 	pub active: Option<(Id, Id, Attachment)>,
 	pub state: AudioState,
@@ -26,6 +31,8 @@ pub struct AudioUi {
 	pub command: Option<AudioCommand>,
 	pub seen: bool,
 	pub volume: f32,
+	/// Voice message playback speed, kept for the session like Discord's.
+	pub speed: f32,
 }
 impl Default for AudioUi {
 	fn default() -> Self {
@@ -37,6 +44,7 @@ impl Default for AudioUi {
 			command: None,
 			seen: false,
 			volume: 1.0,
+			speed: 1.0,
 		}
 	}
 }
@@ -262,7 +270,24 @@ impl AudioUi {
 						.size(11.0)
 						.color(colors.muted),
 					);
-					if !voice {
+					if voice {
+						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+							ui.spacing_mut().item_spacing.x = 8.0;
+							if let Some(volume) = volume_popup(
+								ui,
+								("voice-volume", message.id, attachment.id),
+								self.volume,
+								&colors,
+							) {
+								self.volume = volume;
+								self.command = Some(AudioCommand::Volume(volume));
+							}
+							if let Some(speed) = speed_pill(ui, self.speed, &colors) {
+								self.speed = speed;
+								self.command = Some(AudioCommand::Speed(speed));
+							}
+						});
+					} else {
 						ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 							ui.spacing_mut().item_spacing.x = 6.0;
 							ui.spacing_mut().slider_width = 52.0;
@@ -321,6 +346,143 @@ impl AudioUi {
 		card.response
 	}
 }
+/// The "1X" pill; each click moves to the next of Discord's speeds.
+fn speed_pill(ui: &mut egui::Ui, speed: f32, colors: &crate::design::Palette) -> Option<f32> {
+	let label = if speed.fract() == 0.0 {
+		format!("{speed:.0}X")
+	} else {
+		format!("{speed}X")
+	};
+	let galley = ui.painter().layout_no_wrap(
+		label.clone(),
+		egui::FontId::new(11.0, crate::design::semibold_family(ui.ctx())),
+		colors.text_strong,
+	);
+	let size = egui::vec2(galley.size().x + 14.0, 20.0);
+	let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+	let fill = if response.hovered() || response.has_focus() {
+		colors.hover
+	} else {
+		colors.muted.gamma_multiply(0.25)
+	};
+	ui.painter().rect_filled(rect, 5, fill);
+	ui.painter().galley(
+		rect.center() - galley.size() * 0.5,
+		galley,
+		colors.text_strong,
+	);
+	let name = crate::i18n::translate("audio-playback-speed");
+	response.widget_info(|| {
+		egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{name}: {label}"))
+	});
+	response.on_hover_text(name).clicked().then(|| {
+		let index = SPEEDS.iter().position(|value| *value == speed).unwrap_or(0);
+		SPEEDS[(index + 1) % SPEEDS.len()]
+	})
+}
+
+/// The speaker icon; hovering it raises a vertical volume slider above, as on Discord.
+fn volume_popup(
+	ui: &mut egui::Ui,
+	salt: impl std::hash::Hash + std::fmt::Debug,
+	volume: f32,
+	colors: &crate::design::Palette,
+) -> Option<f32> {
+	// Scoped to this card, so a message drawn twice in one frame cannot collide with itself.
+	let id = ui.make_persistent_id(salt);
+	let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(22.0), egui::Sense::click());
+	let tint = if response.hovered() {
+		colors.text_strong
+	} else {
+		colors.muted
+	};
+	crate::icons::paint(
+		ui.painter(),
+		crate::icons::Icon::Speaker,
+		rect.shrink(3.0),
+		tint,
+	);
+	if volume == 0.0 {
+		// Muted: struck through.
+		ui.painter().line_segment(
+			[
+				rect.left_top() + egui::vec2(4.0, 4.0),
+				rect.right_bottom() - egui::vec2(4.0, 4.0),
+			],
+			egui::Stroke::new(2.0, colors.danger),
+		);
+	}
+	let name = crate::i18n::translate("audio-show-volume");
+	response.widget_info(|| egui::WidgetInfo::slider(true, f64::from(volume), &name));
+	let mut changed = None;
+	// A click mutes or restores, like the official control.
+	if response.clicked() {
+		let restore = ui
+			.ctx()
+			.data(|d| d.get_temp::<f32>(id.with("restore")))
+			.unwrap_or(1.0);
+		let next = if volume > 0.0 { 0.0 } else { restore.max(0.05) };
+		if volume > 0.0 {
+			ui.ctx()
+				.data_mut(|d| d.insert_temp(id.with("restore"), volume));
+		}
+		changed = Some(next);
+	}
+	let open_id = id.with("open");
+	let mut open = ui
+		.ctx()
+		.data(|d| d.get_temp::<bool>(open_id))
+		.unwrap_or(false);
+	if response.hovered() || response.has_focus() {
+		open = true;
+	}
+	if open {
+		let mut value = changed.unwrap_or(volume);
+		let mut dragging = false;
+		let area = egui::Area::new(id.with("area"))
+			.order(egui::Order::Foreground)
+			// Sits right on the icon, so moving up from it never crosses a gap.
+			.pivot(egui::Align2::CENTER_BOTTOM)
+			.fixed_pos(rect.center_top())
+			.show(ui.ctx(), |ui| {
+				egui::Frame::new()
+					.fill(colors.raised)
+					.stroke(egui::Stroke::new(1.0, colors.border))
+					.corner_radius(8)
+					.inner_margin(egui::Margin::symmetric(8, 10))
+					.show(ui, |ui| {
+						ui.spacing_mut().slider_width = 84.0;
+						ui.visuals_mut().selection.bg_fill = colors.accent;
+						let slider = ui.add(
+							egui::Slider::new(&mut value, 0.0..=1.0)
+								.vertical()
+								.show_value(false)
+								.trailing_fill(true),
+						);
+						slider.widget_info(|| {
+							egui::WidgetInfo::slider(true, f64::from(value), &name)
+						});
+						dragging = slider.dragged();
+						if slider.changed() {
+							changed = Some(value);
+						}
+					});
+			});
+		// Stays while the pointer is anywhere over the icon and slider, or a drag is under way.
+		let pointer = ui.ctx().pointer_hover_pos();
+		open = dragging
+			|| response.has_focus()
+			|| pointer.is_some_and(|pointer| {
+				rect.union(area.response.rect).expand(6.0).contains(pointer)
+			});
+	}
+	ui.ctx().data_mut(|d| d.insert_temp(open_id, open));
+	if !open {
+		response.on_hover_text(format!("{name}: {:.0}%", volume * 100.0));
+	}
+	changed
+}
+
 fn waveform(
 	ui: &mut egui::Ui,
 	samples: &[u8],
@@ -581,5 +743,142 @@ mod tests {
 		frame(&mut audio, vec![button(at(0.75), false)]);
 		let seconds = seek(&mut audio).expect("release commits the drag");
 		assert!((seconds - 2.25).abs() < 0.15, "{seconds}");
+	}
+
+	#[test]
+	fn voice_messages_cycle_speeds_and_raise_a_volume_slider_on_hover() {
+		let state = test_support::audio_demo_state();
+		let message = state.timeline.iter().next().unwrap().clone();
+		let file = message.attachments[0].clone();
+		assert!(file.is_voice_message());
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut audio = AudioUi::default();
+		let frame = |audio: &mut AudioUi, events: Vec<egui::Event>| {
+			let mut pill = None;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(400.0, 300.0),
+					)),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					ui.add_space(150.0);
+					audio.show(ui, &message, &file);
+				},
+			);
+			for shape in &output.shapes {
+				if let egui::Shape::Text(text) = &shape.shape
+					&& text.galley.job.text.ends_with('X')
+				{
+					pill = Some(text.galley.rect.translate(text.pos.to_vec2()));
+				}
+			}
+			output.drop_without_applying_deltas();
+			pill.expect("speed pill painted")
+		};
+		let click = |pos: egui::Pos2| {
+			let mut events = vec![egui::Event::PointerMoved(pos)];
+			for pressed in [true, false] {
+				events.push(egui::Event::PointerButton {
+					pos,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: egui::Modifiers::NONE,
+				});
+			}
+			events
+		};
+		let mut pill = frame(&mut audio, vec![]);
+		for expected in [1.5, 2.0, 0.75, 1.0] {
+			pill = frame(&mut audio, click(pill.center()));
+			match audio.command.take() {
+				Some(AudioCommand::Speed(speed)) => assert_eq!(speed, expected),
+				_ => panic!("the pill sets speed {expected}"),
+			}
+			frame(&mut audio, vec![]);
+		}
+		assert_eq!(audio.speed, 1.0);
+		// The speaker sits right of the pill; hovering it raises the vertical slider right
+		// above it, and the slider stays while the pointer moves up onto it.
+		let speaker = egui::pos2(pill.right() + 8.0 + 7.0 + 11.0, pill.center().y);
+		let slider = |ctx: &egui::Context| {
+			ctx.memory(|memory| {
+				memory
+					.areas()
+					.visible_layer_ids()
+					.into_iter()
+					.filter(|layer| layer.order == egui::Order::Foreground)
+					.filter_map(|layer| memory.area_rect(layer.id))
+					.find(|rect| rect.bottom() <= speaker.y && rect.height() > 60.0)
+			})
+		};
+		frame(&mut audio, vec![egui::Event::PointerMoved(speaker)]);
+		frame(&mut audio, vec![egui::Event::PointerMoved(speaker)]);
+		let shown = slider(&ctx).expect("slider shown above the speaker");
+		for y in [shown.bottom() + 2.0, shown.center().y, shown.top() + 6.0] {
+			frame(
+				&mut audio,
+				vec![egui::Event::PointerMoved(egui::pos2(shown.center().x, y))],
+			);
+			assert!(slider(&ctx).is_some(), "still open at {y}");
+		}
+		let visible = |ctx: &egui::Context| slider(ctx).is_some();
+		assert!(visible(&ctx));
+		frame(
+			&mut audio,
+			vec![egui::Event::PointerMoved(egui::pos2(5.0, 295.0))],
+		);
+		frame(&mut audio, vec![]);
+		frame(&mut audio, vec![]);
+		assert!(!visible(&ctx), "leaving both closes it");
+	}
+
+	/// The timeline can draw one message twice in a frame; its volume popup must not clash.
+	#[test]
+	fn a_voice_message_drawn_twice_has_no_widget_id_clash() {
+		let state = test_support::audio_demo_state();
+		let message = state.timeline.iter().next().unwrap().clone();
+		let file = message.attachments[0].clone();
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut audio = AudioUi::default();
+		let mut speaker = None;
+		for _ in 0..4 {
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(400.0, 600.0),
+					)),
+					// Hover the first card's speaker so its popup opens.
+					events: speaker
+						.map(|pos| vec![egui::Event::PointerMoved(pos)])
+						.unwrap_or_default(),
+					..Default::default()
+				},
+				|ui| {
+					ui.add_space(150.0);
+					for copy in 0..2 {
+						ui.push_id(copy, |ui| audio.show(ui, &message, &file));
+					}
+				},
+			);
+			for shape in &output.shapes {
+				if let egui::Shape::Text(text) = &shape.shape {
+					let label = &text.galley.job.text;
+					assert!(!label.contains("widget ID"), "{label}");
+					if speaker.is_none() && label.ends_with('X') {
+						let pill = text.galley.rect.translate(text.pos.to_vec2());
+						speaker = Some(egui::pos2(pill.right() + 26.0, pill.center().y));
+					}
+				}
+			}
+			output.drop_without_applying_deltas();
+		}
+		assert!(speaker.is_some());
 	}
 }
