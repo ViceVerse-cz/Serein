@@ -27,6 +27,7 @@ mod extension_message_content;
 mod extensions;
 mod font_import;
 mod game_activity;
+mod game_mentions;
 mod gpu;
 mod gpu_video;
 mod group_icon;
@@ -1004,6 +1005,7 @@ struct Desktop {
 	font_families: Option<std::sync::mpsc::Receiver<Vec<String>>>,
 	updater: updater::Updater,
 	game_activity: toggle_setting::Settings,
+	game_mentions: game_mentions::Loader,
 	registered_games: registered_games::Registered,
 	tray_setting: toggle_setting::Settings,
 	startup: startup::Startup,
@@ -2293,6 +2295,7 @@ impl Desktop {
 			font_families: None,
 			updater: updater::Updater::new(demo),
 			game_activity,
+			game_mentions: Default::default(),
 			registered_games: if demo {
 				registered_games::Registered::default()
 			} else {
@@ -6203,6 +6206,9 @@ impl eframe::App for Desktop {
 		self.save_reading_preferences(&ctx);
 		self.sync_own_presence(&ctx);
 		self.sync_game_activity(&ctx);
+		let offline = self.fixture_only || self.state.demo;
+		self.game_mentions
+			.sync(&mut self.state, &self.runtime, &ctx, offline);
 		self.startup.sync(
 			&ctx,
 			&self.runtime,

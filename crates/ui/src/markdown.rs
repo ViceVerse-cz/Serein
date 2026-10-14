@@ -58,6 +58,7 @@ struct Style {
 	/// Only bare URLs and angle autolinks get native message chips; masked labels stay text.
 	message_link: bool,
 	mention: Option<Id>,
+	game: Option<Id>,
 	role: Option<Id>,
 	role_color: Option<u32>,
 	mass_mention: bool,
@@ -167,6 +168,7 @@ fn only_emoji(spans: &[(String, Style)], blocks: &[CodeBlock], mentions: usize) 
 			|| style.timestamp.is_some()
 			|| style.channel.is_some()
 			|| style.mention.is_some()
+			|| style.game.is_some()
 			|| style.role.is_some()
 			|| style.mass_mention
 			|| style.heading > 0
@@ -1234,6 +1236,7 @@ impl Formatted {
 				continue;
 			}
 			let is_role = reference.starts_with("<@&");
+			let is_game = reference.starts_with("<@$");
 			let (id, len, is_channel, mass_mention) =
 				if let Some(len) = model::mass_mention_prefix(reference) {
 					(None, len, false, true)
@@ -1243,6 +1246,8 @@ impl Formatted {
 						model::channel_mention_prefix(reference)
 					} else if is_role {
 						model::role_mention_prefix(reference)
+					} else if is_game {
+						model::game_mention_prefix(reference)
 					} else {
 						model::user_mention_prefix(reference)
 					}) else {
@@ -1266,7 +1271,8 @@ impl Formatted {
 			self.push(
 				token,
 				Style {
-					mention: id.filter(|_| !is_channel && !is_role),
+					mention: id.filter(|_| !is_channel && !is_role && !is_game),
+					game: id.filter(|_| is_game),
 					role: id.filter(|_| is_role),
 					mass_mention,
 					channel: id.filter(|_| is_channel),
@@ -1594,6 +1600,35 @@ impl Formatted {
 						start += 1;
 						continue;
 					}
+					if let Some(id) = spans[start].1.game {
+						reserve(ui);
+						let catalog = render.source.map(|s| &s.state.game_mentions);
+						let label = catalog.map_or_else(
+							|| format!("Unknown game ({id})"),
+							|games| games.label(id),
+						);
+						let key = catalog
+							.and_then(|games| games.find(id))
+							.map_or_else(|| format!("app-icon-{id}"), model::GameMention::icon_key);
+						let response = crate::channel_pill::game(
+							ui,
+							&label,
+							key,
+							render.images,
+							render.demo,
+							render.line,
+							&mut *render.surface,
+						);
+						response.widget_info(|| {
+							egui::WidgetInfo::labeled(
+								egui::Role::Label,
+								ui.is_enabled(),
+								format!("{label}, game"),
+							)
+						});
+						start += 1;
+						continue;
+					}
 					if let Some(id) = spans[start].1.mention {
 						reserve(ui);
 						let colors = crate::design::palette(ui);
@@ -1699,8 +1734,8 @@ impl Formatted {
 								&& style.message_link == native_message_link
 								&& style.spoiler == spoiler
 								&& style.mention.is_none()
-								&& style.role.is_none() && !style.mass_mention
-								&& style.channel.is_none()
+								&& style.game.is_none() && style.role.is_none()
+								&& !style.mass_mention && style.channel.is_none()
 								&& style.block.is_none() && (quoted || !style.quote)
 						})
 						.count();
@@ -2430,6 +2465,14 @@ impl Formatted {
 					crate::mentions::mention_label(id, users, source),
 					pill.clone(),
 				)
+			} else if let Some(id) = style.game {
+				(
+					source.map_or_else(
+						|| format!("Unknown game ({id})"),
+						|s| s.state.game_mentions.label(id),
+					),
+					pill.clone(),
+				)
 			} else if let Some(id) = style.role {
 				let name = roles
 					.iter()
@@ -2657,6 +2700,31 @@ impl Formatted {
 
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn game_mentions_obey_code_escape_and_spoiler_boundaries() {
+		let parsed = super::Formatted::parse("<@$42> `<@$43>` \\<@$44> ||<@$45>|| <@46> <@&47>");
+		let games: Vec<_> = parsed.spans.iter().filter_map(|(_, s)| s.game).collect();
+		assert_eq!(games, [model::Id(42), model::Id(45)]);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(_, s)| s.game == Some(model::Id(45)) && s.spoiler.is_some())
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(_, s)| s.mention == Some(model::Id(46)))
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(_, s)| s.role == Some(model::Id(47)))
+		);
+		assert!(!parsed.jumbo());
+	}
 	use super::*;
 
 	#[test]

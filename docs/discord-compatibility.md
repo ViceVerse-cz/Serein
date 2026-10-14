@@ -1,5 +1,18 @@
 # Discord compatibility — checked 2026-09-10
 
+## Game mentions (October 14, 2026)
+
+The native composer offers `@game`, a searchable game catalog and application references
+using `<@$APPLICATION_ID>`. This syntax is **unofficial**; service acceptance and rendering
+by another Discord account remain **unverified**. Serein treats these as game references,
+never user or role IDs, and does not add them to the user/role notification allowlists.
+Names and icons come from the existing credential-free `/applications/detectable` route,
+including entries without detectable executables. The request runs lazily on first game
+search or a loaded timeline reference, independently of local activity sharing. Catalog
+failures require an explicit retry and respect the request's rate-limit cooldown. No
+game processes, account settings, credentials, messages or microphone are accessed by
+the catalog loader. Synthetic tests verify insertion, parsing and layout semantics only.
+
 ## Profile badges, badge directory and badge settings — October 12, 2026
 
 Newer badges include Account Age, Streaming, Game Time and Game Variety. They are tiered

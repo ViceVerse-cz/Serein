@@ -6,6 +6,7 @@ pub mod captcha;
 pub mod channel_actions;
 pub mod fingerprint;
 pub mod forum;
+pub mod game_mentions;
 pub mod gifs;
 pub mod guild_creation;
 pub mod guild_folders;
@@ -693,6 +694,7 @@ pub struct State {
 	pub stickers: stickers::Stickers,
 	pub interactions: interactions::Interactions,
 	pub application_commands: application_commands::Catalog,
+	pub game_mentions: game_mentions::Catalog,
 	pub messaging_permissions: messaging_permissions::Settings,
 	pub guild_folders: Option<model::guild_folders::Settings>,
 	pub folders_pending: bool,
@@ -970,6 +972,7 @@ impl Default for State {
 			member_chunks: MemberChunks::default(),
 			member_search: Default::default(),
 			member_search_nonce: 0,
+			game_mentions: Default::default(),
 			direct_presences: vec![],
 			local_game_activity: Default::default(),
 			direct_presence_bytes: None,

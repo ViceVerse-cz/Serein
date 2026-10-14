@@ -1,5 +1,16 @@
 # Local storage policy and audit
 
+## Game mention catalog (October 14, 2026)
+
+Game search retains a process-local catalog capped at 65,536 entries and 16 MiB of
+estimated container/name/icon allocations. The public list download is capped at 24 MiB,
+with one in-flight request and one result slot. JSON decoding runs off the UI and async
+workers. Names are limited to 128 bytes; icon hashes and IDs are validated. Search keeps
+at most 256 results and only paints visible popup rows. Unchanged game queries reuse
+their results rather than rescan the catalog each frame. There is no new catalog file or
+database schema. Icons use the existing bounded artwork worker/cache, and message drafts
+retain the original application-reference text through existing draft storage.
+
 ## GIF preview recovery (October 13, 2026)
 
 Failed GIF animation downloads show a still during the existing five-second backoff,

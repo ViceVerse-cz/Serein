@@ -3234,6 +3234,9 @@ impl MessagingUi {
 			.filter(|r| r.is_empty())
 			.map(|r| r.primary.index.0);
 		self.mention_menu.hide_nitro_emojis = self.hide_nitro_emojis;
+		if std::mem::take(&mut self.mention_menu.retry_games) {
+			state.game_mentions.status = client_core::game_mentions::Status::Idle;
+		}
 		self.mention_menu.refresh(
 			state,
 			channel,
@@ -3241,6 +3244,12 @@ impl MessagingUi {
 			cursor.filter(|_| mention_enabled),
 			&mention_users,
 		);
+		if state.game_mentions.status == client_core::game_mentions::Status::Idle
+			&& (self.mention_menu.needs_games() || composer_content.contains("<@$"))
+		{
+			state.game_mentions.request();
+			ctx.request_repaint();
+		}
 		let mention_pick = if mention_enabled {
 			self.mention_menu.keys(ctx)
 		} else {
@@ -3583,13 +3592,14 @@ impl MessagingUi {
                                 i.key_pressed(egui::Key::Backspace) || i.key_pressed(egui::Key::Delete)
                             })
                         {
-                            rich_layout.galley(
+                            rich_layout.galley_games(
                                 ui,
                                 draft,
                                 ui.available_width(),
                                 &mention_users,
                                 mentions::known_roles(state, channel),
                                 &state.channels,
+                                &state.game_mentions,
                                 mass_mentions,
                                 &mut self.avatars,
                                 demo,
@@ -3603,13 +3613,14 @@ impl MessagingUi {
                             .auto_shrink([false, true])
                             .show(ui, |ui| {
                                 let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, width: f32| {
-                                    rich_layout.galley(
+                                    rich_layout.galley_games(
                                         ui,
                                         buffer.as_str(),
                                         width,
                                         &mention_users,
                                         mentions::known_roles(state, channel),
                                         &state.channels,
+                                        &state.game_mentions,
                                         mass_mentions,
                                         &mut self.avatars,
                                         demo,
