@@ -414,7 +414,8 @@ pub fn decode_profile(
 		.map(|badge| ProfileBadge {
 			id: text(badge.id, 64, &mut limited),
 			description: text(badge.description, 256, &mut limited),
-			icon: hash(badge.icon),
+			icon: badge.icon.filter(|icon| model::valid_badge_icon(icon)),
+			art: None,
 		})
 		.collect();
 	limited |= badges.len() > 16;
@@ -523,6 +524,7 @@ pub fn decode_profile(
 		frame_sku: equipped.frame,
 		effect: None,
 		frame: None,
+		badge_catalog: None,
 		limited,
 	};
 	// Discard optional board summaries first; preserve complete editable profile fields.

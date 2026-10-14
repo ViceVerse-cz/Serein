@@ -446,7 +446,7 @@ fn timestamp(id: Id) -> String {
 	} else {
 		local.date().to_string()
 	};
-	format!("{date} at {:02}:{:02}", local.hour(), local.minute())
+	format!("{date} at {}", crate::local_time::clock(local))
 }
 fn details(ui: &mut egui::Ui, entry: &Entry, state: &State) {
 	let colors = design::palette(ui);

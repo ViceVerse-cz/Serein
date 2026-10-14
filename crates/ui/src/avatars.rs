@@ -398,7 +398,7 @@ impl Avatars {
 		}
 		let limit = if key.starts_with("frame-") {
 			FRAME_EDGE as usize
-		} else if key.starts_with("decoration-") {
+		} else if key.starts_with("decoration-") || key.starts_with("badge-art:") {
 			256
 		} else if key.starts_with("anim:")
 			|| key.starts_with("nameplate-")

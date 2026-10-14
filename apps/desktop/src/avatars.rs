@@ -57,6 +57,8 @@ fn is_animated_key(key: &str) -> bool {
 fn encoded_limit(key: &str) -> usize {
 	if let Some(cosmetic) = Cosmetic::parse(key) {
 		cosmetic.budget().encoded
+	} else if key.starts_with("badge-art:") {
+		badge_art_budget().encoded
 	} else if let Some(rendition) = Rendition::parse(key) {
 		media_encoded(&rendition)
 	} else if is_animated_key(key) {
@@ -93,6 +95,8 @@ fn decode_edge(key: &str) -> u32 {
 		|| key.starts_with("member-banner-")
 	{
 		ui::EMBED_EDGE
+	} else if key.starts_with("badge-art:") {
+		256
 	} else {
 		128
 	}
@@ -263,9 +267,23 @@ impl Cosmetic {
 	}
 }
 
+/// Badge catalog art is often a large PNG; it is decoded within bounds and scaled down.
+fn badge_art_budget() -> Budget {
+	Budget {
+		fit: 256,
+		encoded: 4 * 1024 * 1024,
+		canvas: 4096,
+		alloc: 64 * 1024 * 1024,
+		frames: None,
+	}
+}
+
 fn budget(key: &str) -> Budget {
 	if let Some(cosmetic) = Cosmetic::parse(key) {
 		return cosmetic.budget();
+	}
+	if key.starts_with("badge-art:") {
+		return badge_art_budget();
 	}
 	let Some(rendition) = Rendition::parse(key) else {
 		let edge = decode_edge(key);
@@ -744,10 +762,14 @@ fn cdn_url(key: &str) -> Option<String> {
 	if let Some(source) = key.strip_prefix("gif:") {
 		return model::valid_gif_preview(source).then(|| source.to_owned());
 	}
-	// Profile badge and server-tag artwork hashes arrive only inside a requested profile.
-	if let Some(hash) = key.strip_prefix("badge-") {
-		return model::valid_avatar_hash(hash)
-			.then(|| format!("https://cdn.discordapp.com/badge-icons/{hash}.png?size=64"));
+	// Catalog artwork arrives as full Discord CDN addresses inside a requested badge catalog.
+	if let Some(url) = key.strip_prefix("badge-art:") {
+		return model::badges::valid_badge_url(url).then(|| url.to_owned());
+	}
+	// Profile badge and server-tag artwork names arrive only inside a requested profile.
+	if let Some(icon) = key.strip_prefix("badge-") {
+		return model::valid_badge_icon(icon)
+			.then(|| format!("https://cdn.discordapp.com/badge-icons/{icon}.png?size=64"));
 	}
 	if let Some(value) = key.strip_prefix("clan-") {
 		let (guild, hash) = value.split_once('-')?;
@@ -1075,6 +1097,7 @@ fn disk_key(key: &str) -> Option<String> {
 		|| key.starts_with("gif:")
 		|| key.starts_with("game:")
 		|| key.starts_with("nameplate-")
+		|| key.starts_with("badge-art:")
 	{
 		Some(format!("embed-{:x}", Sha256::digest(url.as_bytes())))
 	} else {
@@ -1095,9 +1118,10 @@ fn partition(key: &str) -> model::CachePartition {
 		"decoration-",
 		"nameplate-",
 	];
-	// Hover-only nameplate animations are large and rarely replayed.
+	// Hover-only nameplate animations and badge catalog art are large and rarely replayed.
 	if ARTWORK.iter().any(|prefix| key.starts_with(prefix))
 		&& !key.starts_with("nameplate-anim-")
+		&& !key.starts_with("badge-art:")
 		&& !key.starts_with("emoji-unicode-")
 	{
 		model::CachePartition::Artwork
@@ -3127,6 +3151,14 @@ mod tests {
 		assert!(!is_animated_key(&format!("effect-still-c-{hash}")));
 		assert!(!is_animated_key("frame-30-31"));
 		assert!(budget(&format!("effect-c-{hash}")).frames.is_some());
+		// Large catalog PNGs are decoded and scaled, not rejected by the icon canvas.
+		let art = budget("badge-art:https://cdn.discordapp.com/assets/content/a.png");
+		assert!(art.canvas >= 2048 && art.fit == 256 && art.frames.is_none());
+		// They use the media partition and lane, not the small-artwork budget.
+		assert_eq!(
+			partition("badge-art:https://cdn.discordapp.com/assets/content/a.png"),
+			model::CachePartition::Media
+		);
 		assert_eq!(budget("frame-30-31").fit, ui::FRAME_EDGE);
 		// Folder names are hashed before they reach the disk cache.
 		assert!(

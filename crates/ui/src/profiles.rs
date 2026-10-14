@@ -65,6 +65,104 @@ pub(crate) fn user_in_voice(state: &State, user: Id) -> bool {
 		}))
 }
 
+/// The custom status as Discord's thought bubble: a small dot off the avatar, then a rounded
+/// bubble of at most three lines, always below the banner. On the account's own card, hovering
+/// it or focusing its controls offers edit and clear. Returns its bounds and any action picked.
+fn status_bubble(
+	ui: &egui::Ui,
+	avatar: Rect,
+	banner: Rect,
+	theme: &Theme,
+	text: &str,
+	(full, own): (bool, bool),
+) -> Option<(Rect, Option<Action>)> {
+	let left = avatar.right() + 10.0;
+	let room = banner.right() - PAD - left;
+	if room < 60.0 {
+		return None;
+	}
+	let width = room.min(if full { 240.0 } else { 190.0 });
+	let mut job = egui::text::LayoutJob::single_section(
+		text.to_owned(),
+		egui::TextFormat::simple(egui::FontId::proportional(13.0), theme.text),
+	);
+	job.wrap = egui::text::TextWrapping {
+		max_width: width - 28.0,
+		max_rows: 3,
+		break_anywhere: false,
+		overflow_character: Some('…'),
+	};
+	let galley = ui.painter().layout_job(job);
+	let size = galley.size() + vec2(28.0, 20.0);
+	let bubble = Rect::from_min_size(
+		pos2(left + 8.0, banner.bottom() + 8.0),
+		vec2(size.x.max(48.0), size.y),
+	);
+	let fill = theme.card.lerp_to_gamma(Color32::BLACK, 0.3);
+	let stroke = Stroke::new(1.0, theme.border);
+	let painter = ui.painter();
+	painter.circle(pos2(left + 1.0, bubble.top() - 1.0), 4.0, fill, stroke);
+	painter.rect(bubble, 14, fill, stroke, egui::StrokeKind::Inside);
+	painter.galley(bubble.min + vec2(14.0, 10.0), galley, theme.text);
+	let id = egui::Id::unique(("profile-status-bubble", full));
+	ui.interact(bubble, id, egui::Sense::hover())
+		.on_hover_text(text);
+	if !own {
+		return Some((bubble, None));
+	}
+	// Discord's tools ride the bubble's top-right corner: pencil, then trash.
+	const TOOL: f32 = 26.0;
+	let tools = Rect::from_min_size(
+		pos2(
+			bubble.right() - 2.0 * TOOL - 10.0,
+			bubble.top() - TOOL * 0.5,
+		),
+		vec2(2.0 * TOOL + 6.0, TOOL),
+	);
+	let pointer = ui.ctx().pointer_hover_pos();
+	let near = pointer.is_some_and(|pos| bubble.contains(pos) || tools.expand(2.0).contains(pos));
+	let controls = [
+		(Icon::Pencil, "profiles-status-edit", Action::EditStatus),
+		(Icon::Trash, "profiles-status-clear", Action::ClearStatus),
+	];
+	let responses: [_; 2] = std::array::from_fn(|index| {
+		let rect = Rect::from_min_size(
+			tools.min + vec2(3.0 + index as f32 * TOOL, 0.0),
+			Vec2::splat(TOOL),
+		);
+		ui.interact(rect, id.with(("tool", index)), egui::Sense::click())
+	});
+	let visible = near || responses.iter().any(egui::Response::has_focus);
+	if visible {
+		painter.rect(tools, 8, fill, stroke, egui::StrokeKind::Inside);
+	}
+	let mut picked = None;
+	for ((icon, label, action), response) in controls.into_iter().zip(responses) {
+		if visible {
+			let color = if response.hovered() || response.has_focus() {
+				theme.text
+			} else {
+				theme.muted
+			};
+			icons::paint(painter, icon, response.rect.shrink(6.0), color);
+			if response.has_focus() {
+				painter.rect_stroke(
+					response.rect.shrink(2.0),
+					4,
+					Stroke::new(1.0, theme.text),
+					egui::StrokeKind::Inside,
+				);
+			}
+		}
+		let label = crate::i18n::translate(label);
+		response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
+		if response.on_hover_text(label).clicked() {
+			picked = Some(action);
+		}
+	}
+	Some((bubble, picked))
+}
+
 /// Prefix a status row with the shared voice badge, reserving room for its existing text.
 pub(crate) fn voice_badge(ui: &mut egui::Ui, in_voice: bool, has_status: bool) {
 	if !in_voice {
@@ -145,6 +243,12 @@ pub enum Action {
 	Banner(model::EmbedMedia),
 	/// Shared user action picked from the card's overflow menu.
 	Menu(crate::user_menu::Action),
+	/// The account's badge order and hidden set, confirmed in the customize menu.
+	SaveBadges(model::badges::BadgeSettings),
+	/// The pencil on the account's own status bubble.
+	EditStatus,
+	/// The trash can on the account's own status bubble.
+	ClearStatus,
 }
 
 /// Shared Rich Presence card for member profiles and the account preview.
@@ -2227,6 +2331,8 @@ pub(crate) fn profile_opener_id() -> egui::Id {
 
 #[derive(Default)]
 pub struct ProfileSession {
+	/// This account's own custom status, which presence updates never carry for itself.
+	pub(crate) own_status: String,
 	open: Option<User>,
 	anchor: Option<(Id, Pos2)>,
 	trigger: Option<Rect>,
@@ -2246,6 +2352,8 @@ pub struct ProfileSession {
 	note_requested: Option<(u64, Id)>,
 	/// The person under the pointer this frame and whether they are pressed, for preloading.
 	hovered: Option<(Id, bool)>,
+	/// Badge customize menu and directory over the open card.
+	badges: crate::badges::BadgePanels,
 }
 
 pub enum ProfileEffect {
@@ -2366,6 +2474,7 @@ impl ProfileSession {
 	pub fn command_open(&mut self, user: User) {
 		self.full = false;
 		if self.open.as_ref().is_none_or(|open| open.id != user.id) {
+			self.badges.close();
 			self.reset_card_input();
 		}
 		if self.open.as_ref().is_some_and(|open| open.id != user.id) {
@@ -2375,6 +2484,7 @@ impl ProfileSession {
 	}
 
 	pub fn navigate(&mut self, user: User) {
+		self.badges.close();
 		self.reset_card_input();
 		self.pending.push(ProfileEffect::ClearCore);
 		self.open = Some(user);
@@ -2383,6 +2493,7 @@ impl ProfileSession {
 
 	/// Drops the card and keeps the loaded profile.
 	pub fn hide(&mut self) {
+		self.badges.close();
 		self.reset_card_input();
 		self.full = false;
 		self.note_requested = None;
@@ -2396,6 +2507,20 @@ impl ProfileSession {
 			self.pending.push(ProfileEffect::ClearCore);
 		}
 		self.hide();
+	}
+
+	/// Fixture-only: opens a badge menu over `user`'s card using the synthetic catalog.
+	#[cfg(any(test, feature = "demo"))]
+	pub fn preview_badges(&mut self, user: Id, directory: Option<u32>, anchor: Pos2) {
+		match directory {
+			Some(selected) => self.badges.open_directory(user, Some(selected)),
+			None => self.badges.open_customize(
+				user,
+				anchor,
+				&crate::badges::synthetic_catalog(),
+				&Default::default(),
+			),
+		}
 	}
 
 	pub fn close_unless_armed(&mut self, ctx: &egui::Context) {
@@ -2773,6 +2898,10 @@ pub fn show_with_session(
 	let mut full_tab = session.full_tab;
 	let mut panel_action = None;
 	let mut close = false;
+	let own_card = state.user.as_ref().is_some_and(|own| own.id == user.id);
+	let catalog = data.and_then(|d| d.badge_catalog.as_deref());
+	// A clicked badge: where to anchor the menu and which badge it was.
+	let mut badge_click: Option<(Pos2, Option<u32>)> = None;
 	let mut card = |ui: &mut egui::Ui, avatars: &mut Avatars| {
 		ui.set_width(width);
 		ui.set_max_width(width);
@@ -2961,15 +3090,40 @@ pub fn show_with_session(
 		if let Some(status) = status {
 			presence_badge(ui, avatar_rect, status, clients, theme.card);
 		}
+		// Discord shows the custom status as a thought bubble beside the avatar.
+		let own = state.user.as_ref().is_some_and(|own| own.id == user.id);
+		let thought = if own {
+			(!session.own_status.trim().is_empty()).then(|| session.own_status.clone())
+		} else {
+			custom
+				.filter(|text| !text.trim().is_empty())
+				.map(str::to_owned)
+		};
 		let mut header_bottom = avatar_rect.bottom();
-		let (icon_badges, text_badges): (Vec<_>, Vec<_>) = data
-			.map(|d| d.badges.iter().partition(|b| b.icon.is_some()))
-			.unwrap_or_default();
+		if let Some(text) = thought.as_deref()
+			&& let Some((bubble, picked)) =
+				status_bubble(ui, avatar_rect, banner, &theme, text, (full, own))
+		{
+			header_bottom = header_bottom.max(bubble.bottom());
+			if picked.is_some() {
+				action = picked;
+			}
+		}
+		let shown = data.map_or_else(Vec::new, |d| {
+			model::badges::displayed_badges(&d.badges, catalog)
+		});
+		let (icon_badges, text_badges): (Vec<_>, Vec<_>) =
+			shown.iter().partition(|b| b.icon_key().is_some());
+		// The account can reach its hidden badges even when none are shown.
+		let manage_badges = own_card
+			&& icon_badges.is_empty()
+			&& catalog.is_some_and(|c| c.owned().next().is_some());
 		// The full profile lists badges inline after the username instead.
-		if !icon_badges.is_empty() && !full {
+		// With a status bubble in its place, the popout lists badges under the name instead.
+		if (!icon_badges.is_empty() || manage_badges) && !full && thought.is_none() {
 			const BADGE: f32 = 22.0;
 			let right = banner.right() - PAD;
-			let count = icon_badges.len() as f32;
+			let count = icon_badges.len().max(1) as f32;
 			let width = (count * BADGE + (count - 1.0) * 4.0 + 12.0)
 				.min(right - avatar_rect.right() - 12.0);
 			let pill = Rect::from_min_max(
@@ -2986,15 +3140,24 @@ pub fn show_with_session(
 						ui.horizontal_wrapped(|ui| {
 							ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
 							for badge in &icon_badges {
-								avatars
-									.show_icon(
-										ui,
-										badge.icon_key(),
-										BADGE,
-										state.demo,
-										&badge.description,
-									)
-									.on_hover_text(&badge.description);
+								let response = crate::badges::badge_icon(
+									ui, avatars, badge, catalog, BADGE, state.demo,
+								);
+								if response.clicked() {
+									badge_click =
+										Some((response.rect.left_bottom(), badge.number()));
+								}
+							}
+							if manage_badges {
+								let response = icons::button(
+									ui,
+									Icon::Sparkle,
+									BADGE,
+									&crate::i18n::translate("badges-manage"),
+								);
+								if response.clicked() {
+									badge_click = Some((response.rect.left_bottom(), None));
+								}
 							}
 						});
 					});
@@ -3152,15 +3315,24 @@ pub fn show_with_session(
 									clan_chip(ui, &theme, avatars, clan, state.demo);
 								}
 								for badge in &icon_badges {
-									avatars
-										.show_icon(
-											ui,
-											badge.icon_key(),
-											22.0,
-											state.demo,
-											&badge.description,
-										)
-										.on_hover_text(&badge.description);
+									let response = crate::badges::badge_icon(
+										ui, avatars, badge, catalog, 22.0, state.demo,
+									);
+									if response.clicked() {
+										badge_click =
+											Some((response.rect.left_bottom(), badge.number()));
+									}
+								}
+								if manage_badges {
+									let response = icons::button(
+										ui,
+										Icon::Sparkle,
+										22.0,
+										&crate::i18n::translate("badges-manage"),
+									);
+									if response.clicked() {
+										badge_click = Some((response.rect.left_bottom(), None));
+									}
 								}
 							});
 						} else {
@@ -3172,6 +3344,31 @@ pub fn show_with_session(
 								)
 								.truncate(),
 							);
+							if thought.is_some() && (!icon_badges.is_empty() || manage_badges) {
+								ui.horizontal_wrapped(|ui| {
+									ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+									for badge in &icon_badges {
+										let response = crate::badges::badge_icon(
+											ui, avatars, badge, catalog, 20.0, state.demo,
+										);
+										if response.clicked() {
+											badge_click =
+												Some((response.rect.left_bottom(), badge.number()));
+										}
+									}
+									if manage_badges {
+										let response = icons::button(
+											ui,
+											Icon::Sparkle,
+											20.0,
+											&crate::i18n::translate("badges-manage"),
+										);
+										if response.clicked() {
+											badge_click = Some((response.rect.left_bottom(), None));
+										}
+									}
+								});
+							}
 						}
 
 						if full {
@@ -3271,16 +3468,11 @@ pub fn show_with_session(
 								}
 							});
 						}
-						if custom.is_some() || in_voice {
+						if in_voice {
 							ui.add_space(4.0);
 							ui.horizontal(|ui| {
 								ui.spacing_mut().item_spacing.x = 4.0;
-								voice_badge(ui, in_voice, custom.is_some());
-								if let Some(custom) = custom {
-									ui.add(
-										egui::Label::new(RichText::new(custom).size(13.0)).wrap(),
-									);
-								}
+								voice_badge(ui, in_voice, false);
 							});
 						}
 						if !user.webhook && view.is_none_or(|v| v.loading) {
@@ -3679,6 +3871,39 @@ pub fn show_with_session(
 	if close {
 		action = Some(Action::Close);
 	}
+	if let (Some((anchor, badge)), Some(catalog)) = (badge_click, catalog) {
+		if own_card && !catalog.limited {
+			// The account's badges open its customize menu, like the official client.
+			session.badges.open_customize(
+				user.id,
+				anchor + vec2(0.0, 6.0),
+				catalog,
+				&state.badge_editor,
+			);
+		} else if own_card {
+			session.badges.open_directory(user.id, badge);
+		} else if let Some(badge) =
+			badge.filter(|id| catalog.get(*id).is_some_and(|entry| entry.owned))
+		{
+			session.badges.open_directory(user.id, Some(badge));
+		}
+	}
+	let badge_panels = session.badges.is_open();
+	let mut badge_rects = Vec::new();
+	if let Some(data) = data {
+		let (rects, picked) = session.badges.show(
+			ui.ctx(),
+			data,
+			own_card,
+			&state.badge_editor,
+			avatars,
+			state.demo,
+		);
+		badge_rects = rects;
+		if let Some(crate::badges::BadgeAction::Save(settings)) = picked {
+			action = action.or(Some(Action::SaveBadges(settings)));
+		}
+	}
 	if expand && !full {
 		// Reopen centred; the side panel belongs to the popout only.
 		session.full = true;
@@ -3709,8 +3934,14 @@ pub fn show_with_session(
 			.flatten()
 	});
 	let in_panel = |pos: Pos2| panel.is_some_and(|panel| panel.contains(pos));
-	let pressed_outside =
-		!menu_open && pressed.is_some_and(|pos| !rect.contains(pos) && !in_panel(pos));
+	let in_badges = |pos: Pos2| badge_rects.iter().any(|r: &Rect| r.contains(pos));
+	// Clicking outside a badge menu closes the menu, not the card beneath it.
+	if badge_panels && pressed.is_some_and(|pos| !in_badges(pos)) {
+		session.badges.close();
+	}
+	let pressed_outside = !menu_open
+		&& !badge_panels
+		&& pressed.is_some_and(|pos| !rect.contains(pos) && !in_panel(pos));
 	if pressed.is_some_and(|pos| {
 		!in_panel(pos) && !mutual_links.iter().any(|link: &Rect| link.contains(pos))
 	}) {
@@ -3730,9 +3961,19 @@ pub fn show_with_session(
 		}
 		None => d.remove::<Mutuals>(mutuals_id),
 	});
+	// Escape closes an open badge menu before the card.
+	let badge_escape = badge_panels
+		&& !panel_escape
+		&& ui
+			.ctx()
+			.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+	if badge_escape {
+		session.badges.close_top();
+	}
 	let escape = opening.is_none()
 		&& !menu_open
 		&& !panel_escape
+		&& !badge_escape
 		&& ui
 			.ctx()
 			.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
@@ -3834,16 +4075,19 @@ pub fn synthetic(user: &User, guild: Option<Id>) -> model::UserProfile {
                 id: "preview_one".into(),
                 description: "Synthetic badge one".into(),
                 icon: Some(hash('c')),
+                art: None,
             },
             model::ProfileBadge {
                 id: "preview_two".into(),
                 description: "Synthetic badge two".into(),
                 icon: Some(hash('d')),
+                art: None,
             },
             model::ProfileBadge {
                 id: "preview_text".into(),
                 description: "Text badge".into(),
                 icon: None,
+                art: None,
             },
         ],
         connections: vec![model::ProfileConnection {
@@ -3889,6 +4133,7 @@ pub fn synthetic(user: &User, guild: Option<Id>) -> model::UserProfile {
         frame_sku: Some(Id(9202)),
         effect: Some(Box::new(synthetic_effect())),
         frame: Some(Box::new(synthetic_frame())),
+        badge_catalog: Some(Box::new(crate::badges::synthetic_catalog())),
         limited: false,
     }
 }
@@ -4383,6 +4628,113 @@ mod tests {
 		}
 	}
 	#[test]
+	fn hidden_badges_remain_manageable_with_status_and_unmapped_badges_do_not_open_directory() {
+		for (own, full) in [(true, false), (true, true), (false, false)] {
+			let ctx = egui::Context::default();
+			ctx.enable_accesskit();
+			let state = test_support::demo_state();
+			let user = if own {
+				state.user.clone().unwrap()
+			} else {
+				test_support::message(1, Id(22)).author
+			};
+			assert_eq!(state.user.as_ref().unwrap().id == user.id, own);
+			let mut data = synthetic(&user, None);
+			data.badges.clear();
+			let catalog = data.badge_catalog.as_deref_mut().unwrap();
+			catalog
+				.badges
+				.retain(|badge| badge.owned && model::badges::hideable(badge.id));
+			for badge in &mut catalog.badges {
+				badge.hidden = true;
+			}
+			let label = if own {
+				crate::i18n::translate("badges-manage")
+			} else {
+				data.badges.push(model::ProfileBadge {
+					id: "unmapped-badge".into(),
+					description: "Synthetic unmapped badge".into(),
+					icon: Some("a".repeat(32)),
+					art: None,
+				});
+				"Synthetic unmapped badge".into()
+			};
+			let view = ProfileView {
+				user: user.id,
+				guild: None,
+				request: 0,
+				loading: false,
+				error: None,
+				data: Some(data),
+			};
+			let mut session = ProfileSession {
+				own_status: "Synthetic badge management status".into(),
+				full,
+				..Default::default()
+			};
+			let mut avatars = Avatars::default();
+			let mut frame = |events| {
+				ctx.run_ui(input(vec2(1200.0, 800.0), events), |ui| {
+					show_with_session(
+						ui,
+						&user,
+						Some(&view),
+						&state,
+						&mut avatars,
+						&mut None,
+						&mut FormatCache::default(),
+						false,
+						pos2(300.0, 100.0),
+						&mut session,
+					);
+				})
+			};
+			for _ in 0..3 {
+				frame(vec![]).drop_without_applying_deltas();
+			}
+			let output = frame(vec![]);
+			if own {
+				let mut painted = String::new();
+				for shape in &output.shapes {
+					text(&shape.shape, &mut painted);
+				}
+				assert!(painted.contains("Synthetic badge management status"));
+			}
+			let bounds = output
+				.platform_output
+				.accesskit_update
+				.as_ref()
+				.unwrap()
+				.nodes
+				.iter()
+				.find_map(|(_, node)| {
+					(node.label() == Some(label.as_str()))
+						.then(|| node.bounds())
+						.flatten()
+				})
+				.expect("The badge action remains reachable");
+			let target = pos2(
+				((bounds.x0 + bounds.x1) * 0.5) as f32,
+				((bounds.y0 + bounds.y1) * 0.5) as f32,
+			);
+			output.drop_without_applying_deltas();
+			for pressed in [true, false] {
+				frame(vec![
+					egui::Event::PointerMoved(target),
+					egui::Event::PointerButton {
+						pos: target,
+						button: egui::PointerButton::Primary,
+						pressed,
+						modifiers: egui::Modifiers::NONE,
+					},
+				])
+				.drop_without_applying_deltas();
+			}
+			assert_eq!(session.badges.is_open(), own, "own={own}, full={full}");
+			assert!(avatars.take_requests().is_empty());
+		}
+	}
+	#[test]
 	fn partial_profile_warning_preserves_identity_and_webhook_behavior() {
 		for webhook in [false, true] {
 			for dark in [false, true] {
@@ -4471,6 +4823,7 @@ mod tests {
 				id: format!("badge-{i}"),
 				description: format!("Synthetic badge {i}"),
 				icon: Some("c".repeat(32)),
+				art: None,
 			})
 			.collect();
 		data.connections = (0..6)
@@ -4857,5 +5210,311 @@ mod tests {
 			activity_timer(Some(1_000), None, 131_000).as_deref(),
 			Some("2:10")
 		);
+	}
+
+	#[test]
+	fn own_card_shows_the_account_custom_status_as_a_bubble() {
+		for full in [false, true] {
+			for (own, live, cached, expected) in [
+				(
+					true,
+					"Live account status",
+					Some("Old guild status"),
+					Some("Live account status"),
+				),
+				(true, "", Some("Old guild status"), None),
+				(true, " \t ", Some("Old guild status"), None),
+				(
+					true,
+					"Live account status",
+					None,
+					Some("Live account status"),
+				),
+				(
+					false,
+					"Unrelated account status",
+					Some("Remote user status"),
+					Some("Remote user status"),
+				),
+			] {
+				let ctx = egui::Context::default();
+				let mut state = test_support::demo_state();
+				let account = state.user.clone().unwrap();
+				let user = if own {
+					account
+				} else {
+					test_support::message(1, Id(22)).author
+				};
+				state.selected = Some(Id(20));
+				state.members = Some(model::MemberList {
+					guild: Some(Id(10)),
+					channel: Id(20),
+					request: 1,
+					total: 1,
+					lazy: false,
+					groups: vec![],
+					ranges: vec![],
+					freshness: model::Freshness::Fresh,
+					start: 0,
+					slots: vec![Some(model::MemberSlot::Person(model::Member {
+						roles: vec![],
+						user: user.clone(),
+						nick: None,
+						status: Some("online".into()),
+						custom_status: cached.map(str::to_owned),
+						activities: vec![],
+						clients: model::ClientPlatforms::default(),
+					}))],
+				});
+				let view = ProfileView {
+					user: user.id,
+					guild: Some(Id(10)),
+					request: 0,
+					loading: false,
+					error: None,
+					data: Some(synthetic(&user, None)),
+				};
+				let mut session = ProfileSession {
+					own_status: live.into(),
+					full,
+					..Default::default()
+				};
+				let mut painted = String::new();
+				for _ in 0..2 {
+					let output = ctx.run_ui(
+						egui::RawInput {
+							screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200.0, 800.0))),
+							..Default::default()
+						},
+						|ui| {
+							show_with_session(
+								ui,
+								&user,
+								Some(&view),
+								&state,
+								&mut Avatars::default(),
+								&mut None,
+								&mut FormatCache::default(),
+								false,
+								pos2(300.0, 100.0),
+								&mut session,
+							);
+						},
+					);
+					painted.clear();
+					output
+						.shapes
+						.iter()
+						.for_each(|shape| text(&shape.shape, &mut painted));
+					output.drop_without_applying_deltas();
+				}
+				if let Some(expected) = expected {
+					assert!(painted.contains(expected), "{painted:?}");
+				}
+				if let Some(cached) = cached.filter(|cached| Some(*cached) != expected) {
+					assert!(!painted.contains(cached), "{painted:?}");
+				}
+			}
+		}
+	}
+
+	#[test]
+	fn own_status_bubble_buttons_support_tab_enter_and_space_without_pointer() {
+		for full in [false, true] {
+			let ctx = egui::Context::default();
+			let id = egui::Id::unique(("profile-status-bubble", full));
+			let frame = |events| {
+				let mut picked = None;
+				let output = ctx.run_ui(input(vec2(600.0, 400.0), events), |ui| {
+					let theme = Theme::new(&design::palette(ui), None);
+					picked = status_bubble(
+						ui,
+						Rect::from_min_size(pos2(10.0, 50.0), Vec2::splat(80.0)),
+						Rect::from_min_size(pos2(10.0, 10.0), vec2(400.0, 100.0)),
+						&theme,
+						"Synthetic account status",
+						(full, true),
+					)
+					.unwrap()
+					.1;
+				});
+				output.drop_without_applying_deltas();
+				picked
+			};
+			frame(vec![]);
+			frame(vec![]);
+			let key = |key| {
+				[true, false]
+					.map(|pressed| egui::Event::Key {
+						key,
+						physical_key: None,
+						pressed,
+						repeat: false,
+						modifiers: egui::Modifiers::NONE,
+					})
+					.to_vec()
+			};
+			assert!(frame(key(egui::Key::Tab)).is_none());
+			assert_eq!(
+				ctx.memory(|memory| memory.focused()),
+				Some(id.with(("tool", 0usize)))
+			);
+			assert!(matches!(
+				frame(key(egui::Key::Enter)),
+				Some(Action::EditStatus)
+			));
+			assert!(frame(key(egui::Key::Tab)).is_none());
+			assert_eq!(
+				ctx.memory(|memory| memory.focused()),
+				Some(id.with(("tool", 1usize)))
+			);
+			assert!(matches!(
+				frame(key(egui::Key::Space)),
+				Some(Action::ClearStatus)
+			));
+		}
+	}
+
+	#[test]
+	fn elided_status_bubble_shows_full_hover_text_for_owner_and_other_users() {
+		const STATUS: &str = "A long synthetic status that wraps beyond three lines and ends with a visible tooltip marker.";
+		for own in [false, true] {
+			let ctx = egui::Context::default();
+			ctx.style_mut_of(ctx.theme(), |style| style.interaction.tooltip_delay = 0.0);
+			let mut bubble = Rect::NOTHING;
+			let mut full_tooltip = false;
+			for frame in 0..5 {
+				let events = if frame >= 2 {
+					vec![egui::Event::PointerMoved(bubble.center())]
+				} else {
+					vec![]
+				};
+				let mut raw = input(vec2(600.0, 400.0), events);
+				raw.time = Some(frame as f64);
+				let output = ctx.run_ui(raw, |ui| {
+					let theme = Theme::new(&design::palette(ui), None);
+					bubble = status_bubble(
+						ui,
+						Rect::from_min_size(pos2(10.0, 50.0), Vec2::splat(80.0)),
+						Rect::from_min_size(pos2(10.0, 10.0), vec2(340.0, 100.0)),
+						&theme,
+						STATUS,
+						(false, own),
+					)
+					.unwrap()
+					.0;
+				});
+				fn has_full_text(shape: &egui::Shape) -> bool {
+					match shape {
+						egui::Shape::Text(text) => {
+							text.galley.job.text == STATUS && !text.galley.elided
+						}
+						egui::Shape::Vec(shapes) => shapes.iter().any(has_full_text),
+						_ => false,
+					}
+				}
+				let shown = output
+					.shapes
+					.iter()
+					.any(|shape| has_full_text(&shape.shape));
+				if frame < 2 {
+					assert!(!shown, "bubble must elide this status");
+				}
+				full_tooltip |= shown;
+				output.drop_without_applying_deltas();
+			}
+			assert!(full_tooltip, "full hover text missing for own={own}");
+		}
+	}
+
+	#[test]
+	fn own_status_bubble_offers_edit_and_clear_on_hover() {
+		let ctx = egui::Context::default();
+		let state = test_support::demo_state();
+		let user = state.user.clone().unwrap();
+		let view = ProfileView {
+			user: user.id,
+			guild: None,
+			request: 0,
+			loading: false,
+			error: None,
+			data: Some(synthetic(&user, None)),
+		};
+		let mut session = ProfileSession {
+			own_status: "thank you for being my mirror".into(),
+			..Default::default()
+		};
+		let mut frame = |events: Vec<egui::Event>| {
+			let mut action = None;
+			let mut text_rect = None;
+			let output = ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200.0, 800.0))),
+					events,
+					..Default::default()
+				},
+				|ui| {
+					action = show_with_session(
+						ui,
+						&user,
+						Some(&view),
+						&state,
+						&mut Avatars::default(),
+						&mut None,
+						&mut FormatCache::default(),
+						false,
+						pos2(300.0, 100.0),
+						&mut session,
+					);
+				},
+			);
+			fn walk(shape: &egui::Shape, out: &mut Option<Rect>) {
+				match shape {
+					egui::Shape::Text(text)
+						if text.galley.job.text == "thank you for being my mirror" =>
+					{
+						*out = Some(text.galley.rect.translate(text.pos.to_vec2()));
+					}
+					egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| walk(shape, out)),
+					_ => {}
+				}
+			}
+			output
+				.shapes
+				.iter()
+				.for_each(|shape| walk(&shape.shape, &mut text_rect));
+			output.drop_without_applying_deltas();
+			(action, text_rect)
+		};
+		let mut text = None;
+		for _ in 0..2 {
+			text = frame(vec![]).1;
+		}
+		let text = text.expect("status bubble painted");
+		// The bubble pads its text by 14 × 10; the tools sit on its top-right corner.
+		let bubble = Rect::from_min_max(text.min - vec2(14.0, 10.0), text.max + vec2(14.0, 10.0));
+		let tools = pos2(bubble.right() - 62.0, bubble.top() - 13.0);
+		let click = |pos: Pos2| {
+			let mut events = vec![egui::Event::PointerMoved(pos)];
+			for pressed in [true, false] {
+				events.push(egui::Event::PointerButton {
+					pos,
+					button: egui::PointerButton::Primary,
+					pressed,
+					modifiers: Default::default(),
+				});
+			}
+			events
+		};
+		for (offset, expected) in [(16.0, "edit"), (42.0, "clear")] {
+			let target = tools + vec2(offset, 13.0);
+			frame(vec![egui::Event::PointerMoved(bubble.center())]);
+			frame(vec![egui::Event::PointerMoved(target)]);
+			let (action, _) = frame(click(target));
+			match (expected, action) {
+				("edit", Some(Action::EditStatus)) | ("clear", Some(Action::ClearStatus)) => {}
+				(expected, other) => panic!("{expected}: {:?}", other.is_some()),
+			}
+		}
 	}
 }

@@ -224,6 +224,11 @@ pub enum Command {
 		cosmetics: model::CosmeticPreferences,
 	},
 	CancelProfile,
+	/// The account's own badge order and hidden set; one explicit write.
+	BadgeSettings {
+		request: u64,
+		settings: model::badges::BadgeSettings,
+	},
 	StreamPreview {
 		guild: Id,
 		channel: Id,
@@ -542,6 +547,10 @@ pub enum Event {
 		request: u64,
 		result: Result<String, auth::Failure>,
 	},
+	BadgeSettings {
+		request: u64,
+		result: Result<model::badges::BadgeSettings, auth::Failure>,
+	},
 	ProfileEdited {
 		user: Id,
 		request: u64,
@@ -733,6 +742,7 @@ pub struct State {
 	/// Device preference for which profile cosmetics are shown and loaded.
 	pub profile_cosmetics: model::CosmeticPreferences,
 	pub own_profile: profile::OwnProfile,
+	pub badge_editor: profile::BadgeEditor,
 	pub invites: invites::Cache,
 	pub invite_join: invites::Join,
 	pub guild_creation: guild_creation::Creation,
@@ -948,6 +958,7 @@ impl Default for State {
 			profile_cache: Default::default(),
 			profile_cosmetics: Default::default(),
 			own_profile: Default::default(),
+			badge_editor: Default::default(),
 			invites: Default::default(),
 			invite_join: Default::default(),
 			guild_creation: Default::default(),
@@ -2004,6 +2015,15 @@ impl State {
 			self.reject_own_profile(user, request);
 			return;
 		}
+		if let Command::BadgeSettings { request, .. } = command {
+			self.apply_badge_settings(
+				request,
+				Err(auth::Failure::ProtocolAt(
+					"Badge settings were not queued; try again",
+				)),
+			);
+			return;
+		}
 		if matches!(command, Command::GuildFolders(_)) {
 			self.apply_guild_folders(Err(auth::Failure::ProtocolAt(
 				"Server organization was not queued; try again",
@@ -2878,6 +2898,10 @@ impl State {
 				result,
 			} => {
 				self.apply_stream_preview(guild, channel, user, request, result);
+				Ok(())
+			}
+			Event::BadgeSettings { request, result } => {
+				self.apply_badge_settings(request, result);
 				Ok(())
 			}
 
@@ -3961,6 +3985,7 @@ impl State {
 			self.interrupt_gif_favorites();
 			self.invalidate_messaging_permissions(Some(failure));
 			self.interrupt_own_profile();
+			self.interrupt_badge_settings();
 			self.local_game_activity = Default::default();
 			self.cancel_message_actions();
 			if self.folders_pending {
@@ -4246,6 +4271,9 @@ impl Event {
 					result.as_ref().map_or(0, |p| p.bytes())
 				}
 				Self::StreamPreview { result, .. } => result.as_ref().map_or(0, String::capacity),
+				Self::BadgeSettings { result, .. } => result
+					.as_ref()
+					.map_or(0, |s| (s.order.capacity() + s.hidden.capacity()) * 4),
 				Self::Voice(event) => event.bytes(),
 				Self::Permissions(event) => event.bytes(),
 				Self::GuildEmojis { emojis, .. } => custom_emoji_bytes(emojis),

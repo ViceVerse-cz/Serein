@@ -307,10 +307,16 @@ impl Calls {
 				..
 			} => {
 				let guild = *self.allowed.get(&channel).ok_or(Failure::Protocol)?;
-				if self.active.is_some() || self.departing.is_some() {
+				// A rejoin replaces this channel's dropped media session in place, so Discord
+				// sends fresh voice credentials without the call ever leaving the channel.
+				if self.active.is_some_and(|(active, _)| active != channel)
+					|| self.departing.is_some()
+				{
 					return Err(Failure::Protocol);
 				}
 				self.active = Some((channel, request));
+				self.stream = None;
+				self.watch = None;
 				self.active_guild = guild;
 				self.active_session = None;
 				self.negotiation_server = None;

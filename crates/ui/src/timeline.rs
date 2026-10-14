@@ -609,7 +609,7 @@ fn starter_row(
 							);
 							let time = timestamp(message.id);
 							ui.label(
-								RichText::new(format!("{:02}:{:02}", time.hour(), time.minute()))
+								RichText::new(crate::local_time::clock(time))
 									.size(12.0)
 									.color(colors.muted),
 							)
@@ -1837,7 +1837,7 @@ fn show_system(
 			ui.add_space(8.0);
 			let stamp = ui
 				.label(
-					RichText::new(format!("{:02}:{:02}", time.hour(), time.minute()))
+					RichText::new(crate::local_time::clock(time))
 						.size(12.0)
 						.color(colors.muted),
 				)
@@ -1942,7 +1942,7 @@ impl TimelineView {
 		let more =
 			read_through.is_none() && first_loaded && !marker_loaded && !state.older_exhausted;
 		let at = timestamp(start);
-		let clock = format!("{:02}:{:02}", at.hour(), at.minute());
+		let clock = crate::local_time::clock(at);
 		let time = if at.date() == crate::local_time::now().date() {
 			clock
 		} else {
@@ -3091,13 +3091,9 @@ impl TimelineView {
 										|ui| {
 											let time = ui
 												.label(
-													RichText::new(format!(
-														"{:02}:{:02}",
-														time.hour(),
-														time.minute()
-													))
-													.size(12.0)
-													.color(colors.muted),
+													RichText::new(crate::local_time::clock(time))
+														.size(12.0)
+														.color(colors.muted),
 												)
 												.on_hover_text_with(|| format!("{} UTC", time));
 											surface.exclude(time.rect);
@@ -3218,10 +3214,8 @@ impl TimelineView {
 												let time = timestamp(id);
 												let time = ui
 													.label(
-														RichText::new(format!(
-															"{:02}:{:02}",
-															time.hour(),
-															time.minute()
+														RichText::new(crate::local_time::clock(
+															time,
 														))
 														.size(12.0)
 														.color(colors.muted),
@@ -3415,6 +3409,7 @@ impl TimelineView {
 													profile,
 													state,
 													crate::design::MessageCardSurface::Conversation,
+													self.hide_media_links,
 												) {
 													self.gif_favorite = Some(gif);
 												}
@@ -3825,7 +3820,7 @@ impl TimelineView {
 							ui.painter().text(
 								rect.center(),
 								egui::Align2::CENTER_CENTER,
-								format!("{:02}:{:02}", time.hour(), time.minute()),
+								crate::local_time::clock(time),
 								egui::FontId::proportional(11.0),
 								colors.muted,
 							);
@@ -6809,7 +6804,7 @@ mod tests {
 			// System rows paint the sentence as styled runs with the member name strong.
 			assert!(painted.iter().any(|s| s == "Welcome, "));
 			assert!(painted.iter().any(|s| s == "! Joined the server."));
-			assert!(painted.iter().any(|s| s == " changed the channel name"));
+			assert!(painted.iter().any(|s| s == " changed the channel name: "));
 			assert!(painted.iter().any(|s| s == "new channel name"));
 			for description in [
 				" accepted your friend request.",
@@ -10110,6 +10105,7 @@ mod tests {
 						..Default::default()
 					},
 					crate::design::MessageCardSurface::Conversation,
+					false,
 				);
 				assert!(
 					ui.min_rect().height() > 120.0,

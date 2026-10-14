@@ -4173,6 +4173,10 @@ voice-voice-card-section-disconnect = Disconnect
 # Context: voice_card_section
 voice-voice-card-section-dismiss-call = Dismiss call
 # Context: voice_card_section
+voice-voice-card-section-reconnect-attempt = { $reason } · attempt { $attempt } of { $total }
+# Context: voice_card_section
+voice-voice-card-section-reconnecting = Reconnecting…
+# Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = Microphone unavailable · still connected. Choose another input in Audio settings.
 # Context: voice_channel_button
 voice-voice-channel-button-connected = , connected
@@ -4811,3 +4815,72 @@ timeline-dm-intro = This is the beginning of your direct message history with { 
 timeline-channel-intro-title = Welcome to #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = This is the start of the #{ $channel } channel.
+post-menu-post-action-failed = Post action failed
+post-menu-thread-action-failed = Thread action failed
+
+# Context: badges
+badges-nitro = Nitro
+# Context: badges
+badges-rarity-common = Common
+# Context: badges
+badges-rarity-rare = Rare
+# Context: badges
+badges-rarity-epic = Epic
+# Context: badges
+badges-rarity-mythic = Mythic
+# Context: badges
+badges-always-visible = Always shown on your profile
+# Context: badges
+badges-click-show = Click to show
+# Context: badges
+badges-click-hide = Click to hide
+# Context: badges
+badges-customize-title = Customize your badges
+# Context: badges
+badges-customize-hint = Drag to reorder, and hide the ones you don't want others to see.
+# Context: badges
+badges-none = No badges to show yet.
+# Context: badges
+badges-reset = Reset
+# Context: badges
+badges-saving = Saving…
+# Context: badges
+badges-save = Save
+# Context: badges
+badges-view = View Badges
+# Context: badges
+badges-your = Your badges
+# Context: badges
+badges-user = { $name }'s badges
+# Context: badges
+badges-browse = Browse your badges and discover new ones you can unlock.
+# Context: badges
+badges-available = Available to unlock
+# Context: badges
+badges-customize-button = Customize Your Badges
+# Context: badges
+badges-close = Close
+# Context: badges
+badges-locked = Not unlocked yet
+# Context: badges
+badges-date-unlocked = Date unlocked
+# Context: badges
+badges-rarity = Rarity
+# Context: badges
+badges-max-level = You've reached the highest level of this badge.
+# Context: badges
+badges-next-level = Next Level: { $tier }
+# Context: badges
+badges-all-levels = View all levels
+# Context: badges
+badges-hide-levels = Hide levels
+# Context: badges
+badges-manage = Manage your badges
+page-language-time = Language & Time
+description-language-time = Display language and how times are shown.
+time-format-group = Time format
+time-format-auto = Auto
+time-format-12-hour = 12-hour
+time-format-24-hour = 24-hour
+profiles-status-edit = Edit status
+profiles-status-clear = Clear status

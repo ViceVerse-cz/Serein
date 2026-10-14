@@ -4191,6 +4191,10 @@ voice-voice-card-section-disconnect = 中斷連線
 # Context: voice_card_section
 voice-voice-card-section-dismiss-call = 關閉通話
 # Context: voice_card_section
+voice-voice-card-section-reconnect-attempt = { $reason } · 第 { $attempt } 次嘗試，共 { $total } 次
+# Context: voice_card_section
+voice-voice-card-section-reconnecting = 正在重新連線…
+# Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = 麥克風無法使用 · 仍連線中。請在音訊設定改選其他輸入。
 # Context: voice_channel_button
 voice-voice-channel-button-connected = ，已連線
@@ -4826,3 +4830,72 @@ timeline-dm-intro = 這是你與 { $name } 的私訊紀錄的開頭。
 timeline-channel-intro-title = 歡迎來到 #{ $channel }！
 # Context: timeline_channel_intro
 timeline-channel-intro-start = 這是 #{ $channel } 頻道的開頭。
+post-menu-post-action-failed = 貼文操作失敗
+post-menu-thread-action-failed = 討論串操作失敗
+
+# Context: badges
+badges-nitro = Nitro
+# Context: badges
+badges-rarity-common = 普通
+# Context: badges
+badges-rarity-rare = 稀有
+# Context: badges
+badges-rarity-epic = 史詩
+# Context: badges
+badges-rarity-mythic = 神話
+# Context: badges
+badges-always-visible = 一律顯示在你的個人資料中
+# Context: badges
+badges-click-show = 點擊顯示
+# Context: badges
+badges-click-hide = 點擊隱藏
+# Context: badges
+badges-customize-title = 自訂你的徽章
+# Context: badges
+badges-customize-hint = 拖曳以重新排序，並隱藏不想讓他人看到的徽章。
+# Context: badges
+badges-none = 尚無可顯示的徽章。
+# Context: badges
+badges-reset = 重設
+# Context: badges
+badges-saving = 正在儲存…
+# Context: badges
+badges-save = 儲存
+# Context: badges
+badges-view = 查看徽章
+# Context: badges
+badges-your = 你的徽章
+# Context: badges
+badges-user = { $name } 的徽章
+# Context: badges
+badges-browse = 瀏覽你的徽章，探索可以解鎖的新徽章。
+# Context: badges
+badges-available = 可解鎖
+# Context: badges
+badges-customize-button = 自訂你的徽章
+# Context: badges
+badges-close = 關閉
+# Context: badges
+badges-locked = 尚未解鎖
+# Context: badges
+badges-date-unlocked = 解鎖日期
+# Context: badges
+badges-rarity = 稀有度
+# Context: badges
+badges-max-level = 你已達到此徽章的最高等級。
+# Context: badges
+badges-next-level = 下一級：{ $tier }
+# Context: badges
+badges-all-levels = 查看所有等級
+# Context: badges
+badges-hide-levels = 隱藏等級
+# Context: badges
+badges-manage = 管理徽章
+page-language-time = 語言與時間
+description-language-time = 顯示語言和時間格式。
+time-format-group = 時間格式
+time-format-auto = 自動
+time-format-12-hour = 12 小時制
+time-format-24-hour = 24 小時制
+profiles-status-edit = 編輯狀態
+profiles-status-clear = 清除狀態

@@ -141,6 +141,8 @@ pub struct UserProfile {
 	pub frame_sku: Option<crate::Id>,
 	pub effect: Option<Box<crate::ProfileEffect>>,
 	pub frame: Option<Box<crate::ProfileFrame>>,
+	/// Owned and earnable badges from the optional catalog read; display order included.
+	pub badge_catalog: Option<Box<crate::badges::BadgeCatalog>>,
 	pub limited: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -226,14 +228,35 @@ pub struct ProfileBadge {
 	pub id: String,
 	pub description: String,
 	pub icon: Option<String>,
+	/// Catalog artwork URL for a badge the profile response did not include.
+	pub art: Option<String>,
 }
 impl ProfileBadge {
 	pub fn icon_key(&self) -> Option<String> {
 		self.icon
 			.as_deref()
-			.filter(|hash| valid_avatar_hash(hash))
+			.filter(|hash| valid_badge_icon(hash))
 			.map(|hash| format!("badge-{hash}"))
+			.or_else(|| {
+				self.art
+					.as_deref()
+					.filter(|url| crate::badges::valid_badge_url(url))
+					.map(|url| format!("badge-art:{url}"))
+			})
 	}
+	/// Numeric catalog identity, when the client knows this badge.
+	pub fn number(&self) -> Option<u32> {
+		crate::badges::badge_number(&self.id)
+	}
+}
+/// A `/badge-icons/` asset name: a 32-hex hash or a short slug.
+pub fn valid_badge_icon(icon: &str) -> bool {
+	valid_avatar_hash(icon)
+		|| (!icon.is_empty()
+			&& icon.len() <= 64
+			&& icon
+				.bytes()
+				.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-')))
 }
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ClanTag {
@@ -278,7 +301,15 @@ fn bytes(value: &Option<String>) -> usize {
 	value.as_ref().map_or(0, String::capacity)
 }
 impl UserProfile {
+	/// Retained memory, including the separately bounded badge catalog.
 	pub fn bytes(&self) -> usize {
+		self.profile_bytes()
+			+ self
+				.badge_catalog
+				.as_ref()
+				.map_or(0, |catalog| catalog.bytes())
+	}
+	fn profile_bytes(&self) -> usize {
 		size_of::<Self>()
 			+ self.effect.as_ref().map_or(0, |effect| effect.bytes())
 			+ self.frame.as_ref().map_or(0, |frame| frame.bytes())
@@ -301,7 +332,9 @@ impl UserProfile {
 			+ self
 				.badges
 				.iter()
-				.map(|b| b.id.capacity() + b.description.capacity() + bytes(&b.icon))
+				.map(|b| {
+					b.id.capacity() + b.description.capacity() + bytes(&b.icon) + bytes(&b.art)
+				})
 				.sum::<usize>()
 			+ self
 				.clan
@@ -337,7 +370,11 @@ impl UserProfile {
 			})
 	}
 	pub fn valid(&self) -> bool {
-		self.bytes() <= MAX_PROFILE_BYTES
+		self.profile_bytes() <= MAX_PROFILE_BYTES
+			&& self
+				.badge_catalog
+				.as_deref()
+				.is_none_or(crate::badges::BadgeCatalog::valid)
 			&& self
 				.user
 				.cosmetics
@@ -385,7 +422,8 @@ impl UserProfile {
 			&& self.badges.iter().all(|b| {
 				b.id.len() <= 64
 					&& b.description.len() <= 1024
-					&& b.icon.as_deref().is_none_or(valid_avatar_hash)
+					&& b.icon.as_deref().is_none_or(valid_badge_icon)
+					&& b.art.as_deref().is_none_or(crate::badges::valid_badge_url)
 			}) && self
 			.connections
 			.iter()
@@ -514,6 +552,7 @@ mod banner_tests {
 			frame_sku: None,
 			effect: None,
 			frame: None,
+			badge_catalog: None,
 			limited: false,
 		};
 		assert_eq!(

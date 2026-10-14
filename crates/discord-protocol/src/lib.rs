@@ -4,6 +4,7 @@ pub mod activity_sharing;
 pub mod application_commands;
 pub mod archives;
 mod attachments;
+pub mod badges;
 pub mod collectibles;
 mod diagnostics;
 mod embeds;

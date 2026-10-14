@@ -205,7 +205,7 @@ account-menu-clears-at-tomorrow = Yarın
 # Context: custom_status_actions
 account-menu-custom-status-actions-apply = Uygula
 # Context: custom_status_actions
-account-menu-custom-status-actions-clear = Temizlemek
+account-menu-custom-status-actions-clear = Temizle
 # Context: account_custom_status_row
 account-menu-custom-status-edit = Özel durumu düzenle
 # Context: custom_status_editor
@@ -249,7 +249,7 @@ archives-show-archives-active-threads = aktif konuları arşivler
 # Context: show
 archives-show-archives-are-unavailable-while-disconnected-or-without-channel-access = Bağlantı kesildiğinde veya kanal erişimi olmadığında arşivler kullanılamaz.
 # Context: show
-archives-show-close = Kapalı
+archives-show-close = Kapat
 # Context: show
 archives-show-create = Yaratmak
 # Context: show
@@ -308,7 +308,7 @@ attachments-loading-card-preparing = Hazırlanıyor…
 # Context: show_status
 attachments-show-status-cancel-download = İndirmeyi iptal et
 # Context: show_status
-attachments-show-status-dismiss = Azletmek
+attachments-show-status-dismiss = Kapat
 # Context: viewer
 attachments-viewer-a-download-is-already-active = Bir indirme zaten etkin
 # Context: viewer
@@ -326,7 +326,7 @@ audio-show-loading-audio = Ses yükleniyor…
 # Context: show
 audio-show-seek = Aramak
 # Context: show
-audio-show-volume = Hacim
+audio-show-volume = Ses Düzeyi
 # Context: waveform
 audio-waveform-seek-voice-message = Sesli mesaj ara
 
@@ -368,7 +368,7 @@ categories-paint-shelf-rule-media-loaded-posts = Medya · yüklenen gönderiler
 # Context: paint_shelf_rule
 categories-paint-shelf-rule-server-voice-channel = Sunucu ses kanalı
 # Context: paint_shelf_rule
-categories-paint-shelf-rule-stage-channel-not-implemented = Aşama kanalı · uygulanmadı
+categories-paint-shelf-rule-stage-channel-not-implemented = Sahne kanalı · uygulanmadı
 # Context: paint_shelf_rule
 categories-paint-shelf-rule-text-channel = Metin kanalı
 # Context: paint_shelf_rule
@@ -496,11 +496,11 @@ channel-menu-show-channel-settings-could-not-be-loaded = Kanal ayarları yüklen
 # Context: show
 channel-menu-show-channel-settings-need-to-be-refreshed-before-saving-reloading-replaces = Kaydetmeden önce kanal ayarlarının yenilenmesi gerekir. Yeniden yükleme bu taslağın yerini alır.
 # Context: show
-channel-menu-show-close = Kapalı
+channel-menu-show-close = Kapat
 # Context: show_feedback
 channel-menu-show-feedback-channel-action = Kanal işlemi
 # Context: show_feedback
-channel-menu-show-feedback-dismiss = Azletmek
+channel-menu-show-feedback-dismiss = Kapat
 # Context: show
 channel-menu-show-in-this-channels-category-inherits-category-permissions = Bu kanalın kategorisinde · kategori izinlerini devralır
 # Context: show
@@ -977,9 +977,9 @@ extensions-ui-settings-try-a-different-name-or-creator = Farklı bir ad veya yar
 # Context: show_result
 extensions-ui-show-result-apply-to-draft = Taslağa Uygula
 # Context: show_result
-extensions-ui-show-result-close = Kapalı
+extensions-ui-show-result-close = Kapat
 # Context: show_result
-extensions-ui-show-result-dismiss = Azletmek
+extensions-ui-show-result-dismiss = Kapat
 # Context: show_result
 extensions-ui-show-result-extension-error = Uzantı hatası
 # Context: show_result
@@ -1005,7 +1005,7 @@ extensions-ui-toolbar-checking-for-packages-and-updates = Paketleri ve güncelle
 # Context: toolbar
 extensions-ui-toolbar-clear-search = Aramayı temizle
 # Context: toolbar
-extensions-ui-toolbar-dismiss = Azletmek
+extensions-ui-toolbar-dismiss = Kapat
 # Context: toolbar
 extensions-ui-toolbar-import-theme = Temayı içe aktar…
 # Context: toolbar
@@ -1771,7 +1771,7 @@ notification-settings-notification-settings-enable-unread-message-badge = Okunma
 # Context: notification_settings
 notification-settings-notification-settings-for-per-channel-or-per-server-notifications-right-click-the = Kanal başına veya sunucu başına bildirimler için kanala veya sunucuya sağ tıklayın ve Bildirim Ayarları'nı seçin.
 # Context: notification_settings
-notification-settings-notification-settings-open = Açık
+notification-settings-notification-settings-open = Aç
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Sesi Önizle
 # Context: notification_settings
@@ -1797,7 +1797,7 @@ notifications-notification-rail-in-a-call = , bir çağrıda
 # Context: notification_rail
 notifications-notification-rail-notifications = bildirimler
 # Context: notification_rail
-notifications-notification-rail-open = Açık
+notifications-notification-rail-open = Aç
 # Context: notification_rail
 notifications-notification-rail-unread = , okunmamış
 
@@ -1805,7 +1805,7 @@ notifications-notification-rail-unread = , okunmamış
 # Context: show
 pending-show-check-the-conversation-before-sending-again = Tekrar göndermeden önce konuşmayı kontrol edin.
 # Context: show
-pending-show-dismiss = Azletmek
+pending-show-dismiss = Kapat
 # Context: show
 pending-show-restore-to-composer = Besteciye geri yükle
 # Context: show
@@ -1979,7 +1979,7 @@ post-menu-show-cancel = İptal etmek
 # Context: show
 post-menu-show-delete = Silmek
 # Context: show
-post-menu-show-dismiss = Azletmek
+post-menu-show-dismiss = Kapat
 # Context: show
 post-menu-show-edit = Düzenlemek
 # Context: show
@@ -2163,7 +2163,7 @@ reactions-show-reactions-unavailable = Tepkiler kullanılamıyor
 # Context: show
 reactions-show-reload-reactions = Reaksiyonları yeniden yükle
 # Context: show_users
-reactions-show-users-close = Kapalı
+reactions-show-users-close = Kapat
 # Context: show_users
 reactions-show-users-load-more = Daha fazlasını yükle
 # Context: show_users
@@ -2377,7 +2377,7 @@ search-overlays-no-matching-users-in-this-conversation = Bu görüşmede eşleş
 # Context: overlays
 search-overlays-search-for = Ara
 # Context: pane
-search-pane-close = Kapalı
+search-pane-close = Kapat
 # Context: pane
 search-pane-hide-matching-text-highlight = Eşleşen metin vurgusunu gizle
 # Context: pane
@@ -2401,7 +2401,7 @@ search-pane-order-on-this-page = Bu sayfada sipariş verin
 # Context: pane
 search-pane-pinned-messages = Sabitlenmiş Mesajlar
 # Context: pane
-search-pane-reload-pins = Pimleri yeniden yükle
+search-pane-reload-pins = Sabitlenenleri yeniden yükle
 # Context: pane
 search-pane-search-this-conversation = Bu görüşmeyi arayın
 # Context: pane
@@ -2427,11 +2427,11 @@ search-pins-empty-this-channel-doesn-t-have-any-pinned-messages-yet = Bu kanalda
 search-pins-empty-this-direct-message-doesn-t-have-any-pinned-messages-yet = Bu doğrudan mesajın özelliği yok
     sabitlenmiş mesaj var mı… henüz.
 # Context: pins_popout
-search-pins-popout-close = Kapalı
+search-pins-popout-close = Kapat
 # Context: pins_popout
 search-pins-popout-pinned-messages = Sabitlenmiş Mesajlar
 # Context: pins_popout
-search-pins-popout-reload-pins = Pimleri yeniden yükle
+search-pins-popout-reload-pins = Sabitlenenleri yeniden yükle
 # Context: result_card
 search-result-card-jump-to-message-from = Gönderen mesaja atla
 # Context: result_card
@@ -2465,7 +2465,7 @@ server-admin-dialog-nickname = Takma ad
 # Context: dialog
 server-admin-dialog-preview = Önizleme
 # Context: dialog
-server-admin-dialog-prune-members = Üyeleri Budama
+server-admin-dialog-prune-members = Hareketsiz üyeleri temizle
 # Context: dialog
 server-admin-dialog-save = Kaydetmek
 # Context: dialog
@@ -2553,7 +2553,7 @@ server-admin-member-menu-change-nickname = Takma Adı Değiştir
 # Context: member_menu
 server-admin-member-menu-copy-user-id = Kullanıcı Kimliğini Kopyala
 # Context: member_menu
-server-admin-member-menu-kick = Tekme atmak
+server-admin-member-menu-kick = At
 # Context: member_menu
 server-admin-member-menu-message = Mesaj
 # Context: member_menu
@@ -2583,7 +2583,7 @@ server-admin-members-oldest-discord-accounts = En eski Discord hesapları
 # Context: members
 server-admin-members-oldest-members = En yaşlı üyeler
 # Context: members
-server-admin-members-prune = Budamak
+server-admin-members-prune = Hareketsizleri temizle
 # Context: members
 server-admin-members-recent-members = Son Üyeler
 # Context: members
@@ -2645,7 +2645,7 @@ server-audit-log-action-text-created-role = Rol oluşturuldu
 # Context: action_text
 server-audit-log-action-text-created-scheduled-event = Planlanmış etkinlik oluşturuldu
 # Context: action_text
-server-audit-log-action-text-created-soundboard-sound = Ses tahtası sesi oluşturuldu
+server-audit-log-action-text-created-soundboard-sound = Ses paneli sesi oluşturuldu
 # Context: action_text
 server-audit-log-action-text-created-stage = Sahne oluşturuldu
 # Context: action_text
@@ -2679,9 +2679,9 @@ server-audit-log-action-text-deleted-role = Silinen rol
 # Context: action_text
 server-audit-log-action-text-deleted-scheduled-event = Planlanan etkinlik silindi
 # Context: action_text
-server-audit-log-action-text-deleted-soundboard-sound = Ses tahtası sesi silindi
+server-audit-log-action-text-deleted-soundboard-sound = Ses paneli sesi silindi
 # Context: action_text
-server-audit-log-action-text-deleted-stage = Silinen aşama
+server-audit-log-action-text-deleted-stage = Sahne silindi
 # Context: action_text
 server-audit-log-action-text-deleted-sticker = Silinen çıkartma
 # Context: action_text
@@ -2741,9 +2741,9 @@ server-audit-log-action-text-updated-scheduled-event = Planlanan etkinlik günce
 # Context: action_text
 server-audit-log-action-text-updated-server-settings = Güncellenen sunucu ayarları
 # Context: action_text
-server-audit-log-action-text-updated-soundboard-sound = Ses tahtası sesi güncellendi
+server-audit-log-action-text-updated-soundboard-sound = Ses paneli sesi güncellendi
 # Context: action_text
-server-audit-log-action-text-updated-stage = Güncellenen aşama
+server-audit-log-action-text-updated-stage = Sahne güncellendi
 # Context: action_text
 server-audit-log-action-text-updated-sticker = Güncellenmiş çıkartma
 # Context: action_text
@@ -2999,7 +2999,7 @@ server-menu-show-are-you-sure-you-want-to-leave = Ayrılmak istediğinden emin m
 # Context: show
 server-menu-show-cancel = İptal etmek
 # Context: show
-server-menu-show-close = Kapalı
+server-menu-show-close = Kapat
 # Context: show
 server-menu-show-leave-server = Sunucudan ayrılmak mı istiyorsunuz?
 # Context: show
@@ -3598,7 +3598,7 @@ stickers-show-this-sticker-is-unavailable-with-the-current-connection-or-permiss
 
 ## crates/ui/src/switcher.rs
 # Context: show
-switcher-show-close = Kapalı
+switcher-show-close = Kapat
 # Context: show
 switcher-show-conversations-and-friends = Konuşmalar ve arkadaşlar
 # Context: show
@@ -3616,11 +3616,11 @@ switcher-show-where-would-you-like-to-go = Nereye gitmek istersin?
 # Context: appearance_switch
 theme-editor-appearance-switch-colors-and-opacity-are-saved-separately-for-dark-and-light = Renkler ve opaklık, koyu ve açık görünüm için ayrı ayrı kaydedilir.
 # Context: appearance_switch
-theme-editor-appearance-switch-dark = Karanlık
+theme-editor-appearance-switch-dark = Koyu
 # Context: appearance_switch
 theme-editor-appearance-switch-editing = Düzenleme
 # Context: appearance_switch
-theme-editor-appearance-switch-light = Işık
+theme-editor-appearance-switch-light = Açık
 # Context: color_input
 theme-editor-color-input-use-rrggbb-or-rrggbbaa = #RRGGBB veya #RRGGBBAA kullanın
 # Context: color_override
@@ -3840,7 +3840,7 @@ timeline-message-actions-edit-message = Mesajı düzenle
 # Context: message_actions
 timeline-message-actions-extensions = Uzantılar
 # Context: message_actions
-timeline-message-actions-forward = İleri
+timeline-message-actions-forward = İlet
 # Context: message_actions
 timeline-message-actions-mark-read-through-here = Burayı sonuna kadar oku
 # Context: message_actions
@@ -3911,7 +3911,7 @@ timeline-unread-banner-jump-to-unread = Okunmamışlara git
 
 ## crates/ui/src/toasts.rs
 # Context: show
-toasts-show-dismiss = Azletmek
+toasts-show-dismiss = Kapat
 
 ## crates/ui/src/updates.rs
 # Context: shows_update_banner
@@ -4055,7 +4055,7 @@ video-show-player-seek-video = Video ara
 # Context: show_player
 video-show-player-video = video
 # Context: show_player
-video-show-player-video-volume = Video hacmi
+video-show-player-video-volume = Video sesi
 
 ## crates/ui/src/voice.rs
 # Context: call_bar
@@ -4099,7 +4099,7 @@ voice-live-badge-live-2 = Canlı
 # Context: live_badge
 voice-live-badge-streaming = Akış
 # Context: microphone_preview_controls
-voice-microphone-preview-controls-hear-yourself-through-your-selected-speakers-use-headphones-to-avoid = Seçtiğiniz konuşmacılar aracılığıyla kendinizi dinleyin. Geri bildirimi önlemek için kulaklık kullanın.
+voice-microphone-preview-controls-hear-yourself-through-your-selected-speakers-use-headphones-to-avoid = Seçtiğiniz hoparlörlerden kendinizi dinleyin. Yankıyı önlemek için kulaklık kullanın.
 # Context: microphone_preview_controls
 voice-microphone-preview-controls-input-level = Giriş seviyesi
 # Context: microphone_preview_controls
@@ -4115,15 +4115,15 @@ voice-mute-toggle-applies-to-your-next-call = bir sonraki aramanız için geçer
 # Context: mute_toggle
 voice-mute-toggle-controls-are-unavailable-in-this-build-or-preview = Bu yapıda veya önizlemede kontroller mevcut değil.
 # Context: mute_toggle
-voice-mute-toggle-deafen = sağır
+voice-mute-toggle-deafen = Sağırlaştır
 # Context: mute_toggle
-voice-mute-toggle-mute = Sesini kapatmak
+voice-mute-toggle-mute = Sustur
 # Context: mute_toggle
 voice-mute-toggle-speaking-is-unavailable-in-this-channel = Bu kanalda konuşma yapılamıyor.
 # Context: mute_toggle
-voice-mute-toggle-undeafen = Sağır olmayan
+voice-mute-toggle-undeafen = Sağırlaştırmayı kaldır
 # Context: mute_toggle
-voice-mute-toggle-unmute = Sesini açmak
+voice-mute-toggle-unmute = Sesi aç
 # Context: mute_toggle_with_settings
 voice-mute-toggle-with-settings-input-settings = Giriş ayarları
 # Context: mute_toggle_with_settings
@@ -4131,7 +4131,7 @@ voice-mute-toggle-with-settings-output-settings = Çıkış ayarları
 # Context: stream_audio_controls
 voice-stream-audio-controls-mute-stream-audio = Akış sesini kapat
 # Context: stream_audio_controls
-voice-stream-audio-controls-stream-volume = Akış hacmi
+voice-stream-audio-controls-stream-volume = Yayın ses düzeyi
 # Context: stream_tile
 voice-stream-tile-stream-audio = Ses akışı
 # Context: stream_tile
@@ -4152,6 +4152,10 @@ voice-voice-card-section-camera-settings = Kamera ayarları
 voice-voice-card-section-disconnect = Bağlantıyı kes
 # Context: voice_card_section
 voice-voice-card-section-dismiss-call = Aramayı reddet
+# Context: voice_card_section
+voice-voice-card-section-reconnect-attempt = { $reason } · deneme { $attempt }/{ $total }
+# Context: voice_card_section
+voice-voice-card-section-reconnecting = Yeniden bağlanılıyor…
 # Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = Mikrofon kullanılamıyor · hala bağlı. Ses ayarlarında başka bir giriş seçin.
 # Context: voice_channel_button
@@ -4179,7 +4183,7 @@ voice-voice-participant-menu-silence-this-person-on-this-device-only-nobody-else
 # Context: voice_participant_menu
 voice-voice-participant-menu-unmute = Sesini açmak
 # Context: voice_participant_menu
-voice-voice-participant-menu-user-volume = Kullanıcı hacmi
+voice-voice-participant-menu-user-volume = Kullanıcı ses düzeyi
 # Context: voice_participant
 voice-voice-participant-microphone-muted = Mikrofonun sesi kapatıldı
 # Context: voice_participant
@@ -4229,7 +4233,7 @@ voice-voice-processing-controls-input-profile = Giriş profili
 # Context: voice_processing_controls
 voice-voice-processing-controls-input-threshold = Giriş eşiği
 # Context: voice_processing_controls
-voice-voice-processing-controls-mute-and-deafen-always-take-priority = Dilsiz ve sağır her zaman önceliklidir.
+voice-voice-processing-controls-mute-and-deafen-always-take-priority = Susturma ve sağırlaştırma her zaman önceliklidir.
 # Context: voice_processing_controls
 voice-voice-processing-controls-noise-suppression = Gürültü bastırma
 # Context: voice_processing_controls
@@ -4714,3 +4718,72 @@ timeline-dm-intro = { $name } ile doğrudan mesaj geçmişinin başlangıcı.
 timeline-channel-intro-title = #{ $channel } kanalına hoş geldin!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = #{ $channel } kanalının başlangıcı.
+post-menu-post-action-failed = Gönderi işlemi başarısız oldu
+post-menu-thread-action-failed = Konu işlemi başarısız oldu
+
+# Context: badges
+badges-nitro = Nitro
+# Context: badges
+badges-rarity-common = Yaygın
+# Context: badges
+badges-rarity-rare = Nadir
+# Context: badges
+badges-rarity-epic = Destansı
+# Context: badges
+badges-rarity-mythic = Efsanevi
+# Context: badges
+badges-always-visible = Profilinde her zaman gösterilir
+# Context: badges
+badges-click-show = Göstermek için tıkla
+# Context: badges
+badges-click-hide = Gizlemek için tıkla
+# Context: badges
+badges-customize-title = Rozetlerini özelleştir
+# Context: badges
+badges-customize-hint = Sıralamak için sürükle, başkalarının görmesini istemediklerini gizle.
+# Context: badges
+badges-none = Henüz gösterilecek rozet yok.
+# Context: badges
+badges-reset = Sıfırla
+# Context: badges
+badges-saving = Kaydediliyor…
+# Context: badges
+badges-save = Kaydet
+# Context: badges
+badges-view = Rozetleri gör
+# Context: badges
+badges-your = Rozetlerin
+# Context: badges
+badges-user = { $name } kullanıcısının rozetleri
+# Context: badges
+badges-browse = Rozetlerine göz at ve açabileceğin yenilerini keşfet.
+# Context: badges
+badges-available = Açılabilir
+# Context: badges
+badges-customize-button = Rozetlerini özelleştir
+# Context: badges
+badges-close = Kapat
+# Context: badges
+badges-locked = Henüz açılmadı
+# Context: badges
+badges-date-unlocked = Açılış tarihi
+# Context: badges
+badges-rarity = Nadirlik
+# Context: badges
+badges-max-level = Bu rozetin en yüksek seviyesine ulaştın.
+# Context: badges
+badges-next-level = Sonraki seviye: { $tier }
+# Context: badges
+badges-all-levels = Tüm seviyeleri gör
+# Context: badges
+badges-hide-levels = Seviyeleri gizle
+# Context: badges
+badges-manage = Rozetleri yönet
+page-language-time = Dil ve Saat
+description-language-time = Arayüz dili ve saatin gösterimi.
+time-format-group = Saat biçimi
+time-format-auto = Otomatik
+time-format-12-hour = 12 saat
+time-format-24-hour = 24 saat
+profiles-status-edit = Durumu düzenle
+profiles-status-clear = Durumu temizle

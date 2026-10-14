@@ -1,5 +1,67 @@
 # Discord compatibility — checked 2026-09-10
 
+## Profile badges, badge directory and badge settings — October 12, 2026
+
+Newer badges include Account Age, Streaming, Game Time and Game Variety. They are tiered
+badges with rarity and progress. The badge directory and badge hiding/reordering come from
+a newer normal-client badge system. All of it is **unofficial** and absent from Discord's
+public documentation and from Userdoccers as of this date. The routes, fields and rules
+below were taken from the decompiled
+[official mobile client](https://github.com/Wumpus-Central/discord-mobile-datamining)
+(`modules/badges`, `BadgeId`, `LegacyBadgeIdMap`, `PendingBadgeSettings`). Live delivery
+to normal accounts is unverified. The client lists the four tiered badges as beta
+(`BETA_BADGE_IDS`). Badge management and directory updates sit behind the
+`2026-08-badge-management` and `2026-10-badge-directory-updates` experiments. On
+October 13, the owner's account showed no tiered badges in the official client either,
+so they appear to be rolled out to some accounts only.
+
+- **Catalog.** `GET /users/{id}/badges` returns `badges[]` with numeric `badge_id`s and
+  these fields:
+  - `owned`, `hidden` and `is_earnable`
+  - `name`, `description` and `info_label`
+  - `simple_icon_url`, `simple_icon_raster_url` and `complex_icon_static_url`
+  - `rarity` (1 common, 2 rare, 3 epic, 5 mythic)
+  - `tiers[]` with keys, names, art, `milestone_text` and `requirements[].threshold`
+  - `current_tier` and `next_tier`
+  - `progress[]` with current, threshold and helper text
+  - `obtained_at` and `tier_obtained_at`
+
+  Serein reads it beside every opened profile, as the official client does for badge
+  art. The account's own catalog uses `/users/@me/badges`, as the clients do.
+  On October 12, a live owner test returned `404 Not Found` (`code` 0) for both
+  routes while Serein identified as web build 328,246. Unauthenticated requests to the
+  same routes return 401, so the routes exist. After the shared client fingerprint was
+  updated to the current web build, 634,304 (from the public `discord.com/app`
+  `GLOBAL_ENV`), the catalog loaded with 22 entries. This suggests a minimum-build gate;
+  Discord does not document one. Catalog PNG art can be large and is decoded within a
+  4 MiB / 4096 px budget, then scaled to 256 px. The read is optional, bounded to 256 KiB and shares the profile's two-second
+  enrichment deadline. Failures leave the profile's own badge list. The retained catalog
+  is capped at 40 badges and 48 KiB, and at 12 tiers per badge, keeping a window around
+  the current and next tiers. Over budget, Serein drops locked badges' other tiers, then
+  tier art, then owned badges' other tiers, then locked badges. Owned badges go last.
+  SVG icons are skipped in favor of raster art. Oversized optional catalog responses leave
+  the loaded profile available; authentication failures still end the session. Limited
+  catalogs remain read-only so a truncated owned list cannot replace account settings.
+- **Profile row.** Profile badges keep their string ids, mapped to catalog numbers with the
+  client's table (for example `premium_tenure_12_month_v2` → 1, `account_age` → 18).
+  Owned, visible catalog badges missing from the profile response are added with catalog
+  art. Badges the catalog marks hidden are removed. The row follows the catalog order and
+  shows at most six badges, like the official client's `MAX_DISPLAYED_PROFILE_BADGES`.
+  This also covers profile responses that omit the new badges, as observed for the
+  owner's own profile.
+  Non-hash `/badge-icons/` names (slugs up to 64 characters) are now accepted.
+  Hovering a badge shows its art, name, tier and `info_label`.
+- **Directory.** It shows owned badges, the account's earnable badges, art, date unlocked,
+  rarity, progress toward the next tier and every tier. Other users' directories show only
+  their owned badges.
+- **Settings.** `PATCH /users/@me/badges/settings` takes `{"display_order": [ids],
+  "hidden_badges": [ids]}`. Staff (22) is pinned first and is never sent; Nitro tenure
+  (1) can be reordered but not hidden. Clicking one's own badges opens the customize menu.
+  There, clicking a badge hides or shows it and dragging reorders it. Nothing is written
+  until Save, a single request without retries. On success the cached catalog and badge
+  row update in place. Demo sessions confirm locally. Viewing another user's progress
+  (`with_progress`) and per-badge summary reads are not used.
+
 ## Profile cosmetics — October 11, 2026
 
 Serein shows equipped avatar decorations, nameplates, profile effects and profile frames.
@@ -385,7 +447,12 @@ Thread mute durations and notification levels use the unofficial
 `PATCH /channels/{id}/thread-members/@me/settings` route for followed posts.
 One bounded, session-only details snapshot is loaded on demand. Archived cards
 reuse the existing single transient channel admission without selecting the post.
-The fast-pass debug check is synthetic; live interoperability remains unverified.
+
+Rename completion accepts an already observed matching name without restoring mutable
+thread details from the REST response. A concurrent update may also change lock/archive
+state, so the next menu opening reloads those details. The single retained owner ID still
+requires current View Channel access before enabling edits. Synthetic regressions cover
+rename echoes, a later conflicting name and revoked access; live behavior remains unverified.
 
 ## Group DM calling — September 15, 2026
 
@@ -1086,7 +1153,7 @@ The composer now displays known user mentions as `@name`, Unicode as bundled Twe
 
 Guild voice entry uses the documented [Gateway voice state update and voice allocation flow](https://docs.discord.com/developers/topics/voice-connections): guild-scoped join/mute/leave, matching owner session plus guild server update, and guild ID as voice Identify/Resume server ID. The DAVE group remains identified by channel ID. This protocol documentation is not approval or live evidence for normal-user accounts. Server channel rosters use READY, GUILD_CREATE, VOICE_STATE_UPDATE and unofficial READY_SUPPLEMENTAL/PASSIVE_UPDATE_V2 shapes from the original [discord.py-self dispatcher](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py).
 
-The media engine extends the existing DAVE/Opus path to bounded group membership and simultaneous remote audio mixing. Server mute/deafen gates local media. Empty rooms wait without opening audio devices; microphone capture requires an established encrypted group. Stage channels and group DMs remain visibly unsupported. Main Gateway disconnect, channel/session moves, permission invalidation or voice server migration stop the current media session and require deliberate rejoin. No automatic call or DM ringing is triggered by viewing a roster or joining a guild channel.
+The media engine extends the existing DAVE/Opus path to bounded group membership and simultaneous remote audio mixing. Server mute/deafen gates local media. Empty rooms wait without opening audio devices; microphone capture requires an established encrypted group. Stage channels and group DMs remain visibly unsupported. Main Gateway disconnect, channel/session moves, permission invalidation or voice server migration stop the current media session and require deliberate rejoin. A dropped media session of a joined call (unacknowledged heartbeats, failed resume, negotiation timeout) is rejoined automatically up to three times by re-sending opcode 4 for the same channel; that Discord answers this with fresh voice credentials is unverified. No automatic call or DM ringing is triggered by viewing a roster or joining a guild channel.
 
 The implementation is tested with synthetic protocol/crypto/UI data. The owner-controlled official-client two-way audio, multi-party join/leave, permission, device and network tests in [voice.md](voice.md) remain required before claiming working live interoperability.
 
@@ -1956,6 +2023,10 @@ Live normal-user interoperability remains unverified. Offline demo changes stay 
 Notification settings are device-local only: desktop alerts, message and ring
 sounds, and the Windows unread badge. Per-channel and per-server mute preferences
 still come from the account through the existing Gateway user settings events.
+The native taskbar/Dock badge excludes muted DMs and group DMs, guilds, categories,
+and channels using the existing mute expiry rules. Muting preserves the in-app
+unread counts; unmuting includes them again. The native total remains capped at
+99+ and is separate from the in-app mention badges.
 The user guild settings decoder accepts string and integer `guild_id` values,
 including in legacy and versioned READY snapshots. Missing, null, and zero IDs
 identify private-channel settings; [legacy zero IDs have been observed in READY](https://github.com/bwmarrin/discordgo/issues/624#issuecomment-456934135).

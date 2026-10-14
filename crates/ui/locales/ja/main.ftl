@@ -101,7 +101,7 @@ loading-people = 人を読み込んでいます…
 no-people = この景色を求めて戻ってきた人はいませんでした。
 status-online = オンライン
 status-offline = オフライン
-status-idle = アイドル状態
+status-idle = 退席中
 status-dnd = 邪魔しないでください
 role = 役割
 no-conversations = ここでは会話ができません。
@@ -237,7 +237,7 @@ account-menu-presence-menu-you-will-appear-offline = オフラインで表示さ
 # Context: presence_menu
 account-menu-presence-menu-you-will-not-receive-desktop-notifications = デスクトップ通知は受信されません
 # Context: account_status_row
-account-menu-status-invisible = 見えない
+account-menu-status-invisible = オンライン状態を隠す
 
 ## crates/ui/src/archives.rs
 # Context: show
@@ -249,7 +249,7 @@ archives-show-archives-active-threads = アクティブなスレッドをアー�
 # Context: show
 archives-show-archives-are-unavailable-while-disconnected-or-without-channel-access = 接続されていないとき、またはチャンネルにアクセスできないときは、アーカイブは利用できません。
 # Context: show
-archives-show-close = 近い
+archives-show-close = 閉じる
 # Context: show
 archives-show-create = 作成する
 # Context: show
@@ -308,7 +308,7 @@ attachments-loading-card-preparing = 準備中…
 # Context: show_status
 attachments-show-status-cancel-download = ダウンロードをキャンセルする
 # Context: show_status
-attachments-show-status-dismiss = 却下する
+attachments-show-status-dismiss = 閉じる
 # Context: viewer
 attachments-viewer-a-download-is-already-active = ダウンロードはすでにアクティブです
 # Context: viewer
@@ -496,11 +496,11 @@ channel-menu-show-channel-settings-could-not-be-loaded = チャンネル設定�
 # Context: show
 channel-menu-show-channel-settings-need-to-be-refreshed-before-saving-reloading-replaces = 保存する前にチャンネル設定を更新する必要があります。再ロードすると、このドラフトが置き換えられます。
 # Context: show
-channel-menu-show-close = 近い
+channel-menu-show-close = 閉じる
 # Context: show_feedback
 channel-menu-show-feedback-channel-action = チャネルアクション
 # Context: show_feedback
-channel-menu-show-feedback-dismiss = 却下する
+channel-menu-show-feedback-dismiss = 閉じる
 # Context: show
 channel-menu-show-in-this-channels-category-inherits-category-permissions = このチャンネルのカテゴリでは、カテゴリの権限を継承します
 # Context: show
@@ -977,9 +977,9 @@ extensions-ui-settings-try-a-different-name-or-creator = 別の名前または�
 # Context: show_result
 extensions-ui-show-result-apply-to-draft = ドラフトに適用
 # Context: show_result
-extensions-ui-show-result-close = 近い
+extensions-ui-show-result-close = 閉じる
 # Context: show_result
-extensions-ui-show-result-dismiss = 却下する
+extensions-ui-show-result-dismiss = 閉じる
 # Context: show_result
 extensions-ui-show-result-extension-error = 拡張エラー
 # Context: show_result
@@ -1005,7 +1005,7 @@ extensions-ui-toolbar-checking-for-packages-and-updates = パッケージとア�
 # Context: toolbar
 extensions-ui-toolbar-clear-search = 検索をクリア
 # Context: toolbar
-extensions-ui-toolbar-dismiss = 却下する
+extensions-ui-toolbar-dismiss = 閉じる
 # Context: toolbar
 extensions-ui-toolbar-import-theme = テーマをインポート…
 # Context: toolbar
@@ -1361,7 +1361,7 @@ group-menu-menu-mute-conversation = 会話をミュートする
 # Context: menu
 group-menu-menu-mute-notifications-until-you-unmute-this-conversation = この会話のミュートを解除するまで、通知をミュートします。
 # Context: menu
-group-menu-menu-pin-dm = ピンDM
+group-menu-menu-pin-dm = DMを固定
 # Context: menu
 group-menu-menu-pinned-direct-messages-are-saved-on-this-device = 固定されたダイレクト メッセージはこのデバイスに保存されます。
 # Context: menu
@@ -1805,7 +1805,7 @@ notifications-notification-rail-unread = 、未読
 # Context: show
 pending-show-check-the-conversation-before-sending-again = 再度送信する前に会話を確認してください。
 # Context: show
-pending-show-dismiss = 却下する
+pending-show-dismiss = 閉じる
 # Context: show
 pending-show-restore-to-composer = コンポーザーに復元
 # Context: show
@@ -1945,7 +1945,7 @@ post-menu-context-open-thread = オープンスレッド
 # Context: context
 post-menu-context-pin-post = ピンポスト
 # Context: context
-post-menu-context-pin-thread = ピンネジ
+post-menu-context-pin-thread = スレッドを固定
 # Context: context
 post-menu-context-remove-from-favorites = お気に入りから削除
 # Context: context
@@ -1979,7 +1979,7 @@ post-menu-show-cancel = キャンセル
 # Context: show
 post-menu-show-delete = 消去
 # Context: show
-post-menu-show-dismiss = 却下する
+post-menu-show-dismiss = 閉じる
 # Context: show
 post-menu-show-edit = 編集
 # Context: show
@@ -2163,7 +2163,7 @@ reactions-show-reactions-unavailable = 反応がありません
 # Context: show
 reactions-show-reload-reactions = リロード反応
 # Context: show_users
-reactions-show-users-close = 近い
+reactions-show-users-close = 閉じる
 # Context: show_users
 reactions-show-users-load-more = さらにロードする
 # Context: show_users
@@ -2377,7 +2377,7 @@ search-overlays-no-matching-users-in-this-conversation = この会話には一�
 # Context: overlays
 search-overlays-search-for = 検索する
 # Context: pane
-search-pane-close = 近い
+search-pane-close = 閉じる
 # Context: pane
 search-pane-hide-matching-text-highlight = 一致するテキストのハイライトを非表示にする
 # Context: pane
@@ -2427,7 +2427,7 @@ search-pins-empty-this-channel-doesn-t-have-any-pinned-messages-yet = このチ�
 search-pins-empty-this-direct-message-doesn-t-have-any-pinned-messages-yet = このダイレクトメッセージには、
     固定されたメッセージはまだありません。
 # Context: pins_popout
-search-pins-popout-close = 近い
+search-pins-popout-close = 閉じる
 # Context: pins_popout
 search-pins-popout-pinned-messages = 固定メッセージ
 # Context: pins_popout
@@ -2457,7 +2457,7 @@ server-admin-dialog-emoji-name = 絵文字名
 # Context: dialog
 server-admin-dialog-inactive-for = 非アクティブ期間
 # Context: dialog
-server-admin-dialog-kick-member = キックメンバー
+server-admin-dialog-kick-member = メンバーをキック
 # Context: dialog
 server-admin-dialog-leave-blank-to-use-their-username = ユーザー名を使用する場合は空白のままにします。
 # Context: dialog
@@ -2465,7 +2465,7 @@ server-admin-dialog-nickname = ニックネーム
 # Context: dialog
 server-admin-dialog-preview = プレビュー
 # Context: dialog
-server-admin-dialog-prune-members = プルーンメンバー
+server-admin-dialog-prune-members = 非アクティブメンバーを整理
 # Context: dialog
 server-admin-dialog-save = 保存
 # Context: dialog
@@ -2583,7 +2583,7 @@ server-admin-members-oldest-discord-accounts = 最も古い Discord アカウン
 # Context: members
 server-admin-members-oldest-members = 最年長メンバー
 # Context: members
-server-admin-members-prune = プルーン
+server-admin-members-prune = 非アクティブを整理
 # Context: members
 server-admin-members-recent-members = 最近のメンバー
 # Context: members
@@ -2999,7 +2999,7 @@ server-menu-show-are-you-sure-you-want-to-leave = 本当に退会してもよろ
 # Context: show
 server-menu-show-cancel = キャンセル
 # Context: show
-server-menu-show-close = 近い
+server-menu-show-close = 閉じる
 # Context: show
 server-menu-show-leave-server = サーバーを離れますか?
 # Context: show
@@ -3598,7 +3598,7 @@ stickers-show-this-sticker-is-unavailable-with-the-current-connection-or-permiss
 
 ## crates/ui/src/switcher.rs
 # Context: show
-switcher-show-close = 近い
+switcher-show-close = 閉じる
 # Context: show
 switcher-show-conversations-and-friends = 会話と友達
 # Context: show
@@ -3840,7 +3840,7 @@ timeline-message-actions-edit-message = メッセージを編集する
 # Context: message_actions
 timeline-message-actions-extensions = 拡張機能
 # Context: message_actions
-timeline-message-actions-forward = フォワード
+timeline-message-actions-forward = 転送
 # Context: message_actions
 timeline-message-actions-mark-read-through-here = マークはここを最後まで読みました
 # Context: message_actions
@@ -3848,7 +3848,7 @@ timeline-message-actions-mark-unread = 未読としてマークする
 # Context: message_actions
 timeline-message-actions-pin-message = ピンメッセージ
 # Context: message_actions
-timeline-message-actions-reply = 返事
+timeline-message-actions-reply = 返信
 # Context: message_actions
 timeline-message-actions-unpin-message = メッセージの固定を解除する
 # Context: message_actions
@@ -3911,7 +3911,7 @@ timeline-unread-banner-jump-to-unread = 未読へジャンプ
 
 ## crates/ui/src/toasts.rs
 # Context: show
-toasts-show-dismiss = 却下する
+toasts-show-dismiss = 閉じる
 
 ## crates/ui/src/updates.rs
 # Context: shows_update_banner
@@ -3995,7 +3995,7 @@ user-menu-contents-mute-this-direct-message-s-notifications-until-you-unmute-it 
 # Context: contents
 user-menu-contents-no-open-direct-message-with-this-user = このユーザーとのオープンなダイレクト メッセージはありません。
 # Context: contents
-user-menu-contents-pin-dm = ピンDM
+user-menu-contents-pin-dm = DMを固定
 # Context: contents
 user-menu-contents-pinned-direct-messages-are-saved-on-this-device = 固定されたダイレクト メッセージはこのデバイスに保存されます。
 # Context: contents
@@ -4115,13 +4115,13 @@ voice-mute-toggle-applies-to-your-next-call = 次回の通話に適用されま�
 # Context: mute_toggle
 voice-mute-toggle-controls-are-unavailable-in-this-build-or-preview = このビルドまたはプレビューではコントロールは使用できません。
 # Context: mute_toggle
-voice-mute-toggle-deafen = 聴覚障害者
+voice-mute-toggle-deafen = スピーカーミュート
 # Context: mute_toggle
 voice-mute-toggle-mute = ミュート
 # Context: mute_toggle
 voice-mute-toggle-speaking-is-unavailable-in-this-channel = このチャンネルでは話すことはできません。
 # Context: mute_toggle
-voice-mute-toggle-undeafen = 聴覚障害者
+voice-mute-toggle-undeafen = スピーカーミュート解除
 # Context: mute_toggle
 voice-mute-toggle-unmute = ミュートを解除する
 # Context: mute_toggle_with_settings
@@ -4152,6 +4152,10 @@ voice-voice-card-section-camera-settings = カメラの設定
 voice-voice-card-section-disconnect = 切断する
 # Context: voice_card_section
 voice-voice-card-section-dismiss-call = 通話を終了する
+# Context: voice_card_section
+voice-voice-card-section-reconnect-attempt = { $reason } · 再試行 { $attempt }/{ $total }
+# Context: voice_card_section
+voice-voice-card-section-reconnecting = 再接続中…
 # Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = マイクが使用できません · 接続されたままです。オーディオ設定で別の入力を選択します。
 # Context: voice_channel_button
@@ -4229,7 +4233,7 @@ voice-voice-processing-controls-input-profile = 入力プロファイル
 # Context: voice_processing_controls
 voice-voice-processing-controls-input-threshold = 入力閾値
 # Context: voice_processing_controls
-voice-voice-processing-controls-mute-and-deafen-always-take-priority = ミュートと聴覚障害者が常に優先されます。
+voice-voice-processing-controls-mute-and-deafen-always-take-priority = ミュートとスピーカーミュートが常に優先されます。
 # Context: voice_processing_controls
 voice-voice-processing-controls-noise-suppression = ノイズ抑制
 # Context: voice_processing_controls
@@ -4711,3 +4715,72 @@ timeline-dm-intro = { $name } とのダイレクトメッセージ履歴の始�
 timeline-channel-intro-title = #{ $channel } へようこそ！
 # Context: timeline_channel_intro
 timeline-channel-intro-start = #{ $channel } チャンネルの始まりです。
+post-menu-post-action-failed = 投稿の操作に失敗しました
+post-menu-thread-action-failed = スレッドの操作に失敗しました
+
+# Context: badges
+badges-nitro = Nitro
+# Context: badges
+badges-rarity-common = コモン
+# Context: badges
+badges-rarity-rare = レア
+# Context: badges
+badges-rarity-epic = エピック
+# Context: badges
+badges-rarity-mythic = ミシック
+# Context: badges
+badges-always-visible = プロフィールに常に表示されます
+# Context: badges
+badges-click-show = クリックで表示
+# Context: badges
+badges-click-hide = クリックで非表示
+# Context: badges
+badges-customize-title = バッジをカスタマイズ
+# Context: badges
+badges-customize-hint = ドラッグで並べ替え、他の人に見せたくないものは非表示にできます。
+# Context: badges
+badges-none = 表示できるバッジはまだありません。
+# Context: badges
+badges-reset = リセット
+# Context: badges
+badges-saving = 保存中…
+# Context: badges
+badges-save = 保存
+# Context: badges
+badges-view = バッジを見る
+# Context: badges
+badges-your = あなたのバッジ
+# Context: badges
+badges-user = { $name } のバッジ
+# Context: badges
+badges-browse = バッジを確認して、獲得できる新しいバッジを見つけましょう。
+# Context: badges
+badges-available = 獲得可能
+# Context: badges
+badges-customize-button = バッジをカスタマイズ
+# Context: badges
+badges-close = 閉じる
+# Context: badges
+badges-locked = 未獲得
+# Context: badges
+badges-date-unlocked = 獲得日
+# Context: badges
+badges-rarity = レア度
+# Context: badges
+badges-max-level = このバッジの最高レベルに到達しました。
+# Context: badges
+badges-next-level = 次のレベル: { $tier }
+# Context: badges
+badges-all-levels = すべてのレベルを表示
+# Context: badges
+badges-hide-levels = レベルを隠す
+# Context: badges
+badges-manage = バッジを管理
+page-language-time = 言語と時刻
+description-language-time = 表示言語と時刻の表示形式。
+time-format-group = 時刻の形式
+time-format-auto = 自動
+time-format-12-hour = 12時間制
+time-format-24-hour = 24時間制
+profiles-status-edit = ステータスを編集
+profiles-status-clear = ステータスを消去

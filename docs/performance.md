@@ -32,6 +32,46 @@ dwell and the network round trip. The three-conversation workload keeps two dorm
 both revisions, so the larger eight-window limit is not exercised here. The profile-extras cap
 (2 s to 600 ms), image connection reuse and off-coordinator disk reads were not measured: they need
 a network or disk-cache fixture this bench does not have.
+## Embed styling review - October 14, 2026
+
+Compared the original PR #650 head `c01461ed` with the review fixes in `9354335e` on
+Windows 11 Home 10.0.26200, Ryzen 7 7800X3D and 33,410,678,784 bytes physical RAM.
+Both standard unsigned portable packages were built with Rust 1.98.1,
+`cargo xtask package` (`--release --locked --no-default-features`), including voice.
+The installed-tree metric sums file lengths; both ZIPs use .NET `ZipFile` with
+`CompressionLevel.Optimal`. Separate worktree `dist` directories were used. Baseline package
+artifacts were later removed during a build-cache cleanup; the figures below were recorded
+before that removal, and the changed portable tree was rechecked afterwards.
+
+| Metric | Original PR head | Review fixes | Delta |
+| --- | ---: | ---: | ---: |
+| Package executable | 86,917,632 B | 86,925,824 B | +8,192 B (+0.0094%) |
+| Installed portable tree | 91,110,921 B | 91,119,113 B | +8,192 B (+0.0090%) |
+| Portable tree, ZIP | 50,316,564 B | 50,320,128 B | +3,564 B (+0.0071%) |
+
+Release `profile_preview --demo --page=embeds --width=1120 --height=900 --interactive`
+used the same synthetic fixture in both revisions, wgpu and 125% display scaling. Each
+run had a five-second warmup and 20 one-second `Get-Process` samples. Memory is the observed
+peak/final sample; CPU is process CPU time divided by elapsed wall time (100% = one core).
+The console helper is separate. Other compilation was active during sampling, and there
+is only one run per revision, so these small differences are not an improvement claim.
+
+| Native process metric | Original PR head | Review fixes | Delta |
+| --- | ---: | ---: | ---: |
+| Preview peak / settled working set | 174,346,240 B | 174,428,160 B | +81,920 B |
+| Preview peak / settled private bytes | 388,874,240 B | 389,730,304 B | +856,064 B |
+| Preview idle CPU, one core | 0.162% | 0.405% | +0.243 percentage points |
+| `conhost` peak / settled working set | 10,629,120 B | 10,670,080 B | +40,960 B |
+| `conhost` peak / settled private bytes | 1,622,016 B | 1,740,800 B | +118,784 B |
+| `conhost` idle CPU, one core | 0% | 0% | 0 percentage points |
+
+Both release builds emit the existing OpenH264 `LNK4255` debug-info warning. NSIS is
+unavailable on this host, so packaging skips the installer executable. These measurements
+do not establish live Discord interoperability, startup latency or frame percentiles.
+The [synthetic native fixture and reproduction procedure](pr-evidence/embed-styling-review/README.md)
+describe the capture environment and package method. Dark/light and narrow native PNGs
+were inspected. Manual native clicks and keyboard interaction were stopped by the user's
+physical Escape key; source destinations and media actions have synthetic interaction tests.
 
 ## Profile cosmetics — October 11, 2026
 
@@ -584,3 +624,34 @@ the new measurements and executable hash. NSIS remains unavailable; this is an
 unsigned directory and ZIP. Final serial workspace checking reached 1,158
 passes, eight recorded baseline UI failures and 23 ignored tests. Formatting,
 strict workspace Clippy and the independent policy check passed.
+
+## Post rename review repair (2026-10-14, PR #655)
+
+Fresh standard voice-inclusive packages compare pre-repair `74ff7038` with
+runtime repair `460d7117`; both include the same main integration (`c84b5998`).
+Environment: Windows 11 x64 build 26200, Ryzen 7 7800X3D, 32 GB RAM, pinned
+Rust 1.98.1. `cargo xtask package` builds without default, demo or developer
+features. NSIS is unavailable, so these are unsigned directory packages and
+ZIP archives, not installer validation.
+
+| Metric / method | Baseline | Repair | Delta |
+| --- | ---: | ---: | ---: |
+| serein.exe file length | 87,251,456 B | 87,251,456 B | 0 B |
+| Installed payload, 216 files | 91,444,745 B | 91,444,745 B | 0 B |
+| ZIP, sorted paths / DEFLATE level 9 | 50,287,594 B | 50,287,599 B | +5 B |
+| 100,000-event reducer replay, median of five | 68.47 ms | 66.50 ms | -1.98 ms / -2.89% |
+
+Each replay executable was built once and verified through `cargo replay`,
+then run directly with one warmup and five measured samples. Both retain
+500 timeline records / 393,492..393,977 estimated bytes. The timing ranges
+overlap (67.82..73.78 ms before, 64.52..70.47 ms after); this is not evidence
+of a speed improvement. The workload measures the general synthetic reducer,
+not rename-specific latency, process RSS, UI frame timing or live compatibility.
+
+The repair retains existing bounded state and adds no dependency or cache.
+Regressions cover revoked access, rename echoes with invalidated mutable details,
+a fresh post-details reload and a later conflicting name. Full local
+`cargo xtask check` and separate fuzz formatting passed. Native GUI capture
+and owner-controlled live validation remain unavailable/unverified.
+Raw samples, source revisions and executable hashes are in
+[measurements.json](pr-evidence/post-rename-review/measurements.json).

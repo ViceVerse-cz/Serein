@@ -204,7 +204,7 @@ account-menu-clears-at-tomorrow = zítra
 # Context: custom_status_actions
 account-menu-custom-status-actions-apply = Použít
 # Context: custom_status_actions
-account-menu-custom-status-actions-clear = Jasný
+account-menu-custom-status-actions-clear = Vymazat
 # Context: account_custom_status_row
 account-menu-custom-status-edit = Upravit vlastní stav
 # Context: custom_status_editor
@@ -240,7 +240,7 @@ account-menu-status-invisible = Neviditelný
 
 ## crates/ui/src/archives.rs
 # Context: show
-archives-active-threads = AKTIVNÍ nitě
+archives-active-threads = AKTIVNÍ VLÁKNA
 # Context: show
 archives-show-active-threads-come-from-the-session-older-threads-load-25 = Aktivní vlákna pocházejí z relace; starší vlákna se načítají 25 najednou. Otevření načte zprávy bez připojení.
 # Context: show
@@ -248,7 +248,7 @@ archives-show-archives-active-threads = archivuje aktivní vlákna
 # Context: show
 archives-show-archives-are-unavailable-while-disconnected-or-without-channel-access = Při odpojení nebo bez přístupu ke kanálu nejsou archivy dostupné.
 # Context: show
-archives-show-close = Blízko
+archives-show-close = Zavřít
 # Context: show
 archives-show-create = Vytvořit
 # Context: show
@@ -260,7 +260,7 @@ archives-show-no-older-threads-reported-by-the-service = Služba nenahlásila ž
 # Context: show
 archives-show-no-older-threads-returned = Nevrátila se žádná starší vlákna.
 # Context: show
-archives-show-older-threads = STARŠÍ NITKY
+archives-show-older-threads = STARŠÍ VLÁKNA
 # Context: show
 archives-show-private-archives-require-permission-from-the-service = Soukromé archivy vyžadují povolení od služby.
 # Context: show
@@ -307,7 +307,7 @@ attachments-loading-card-preparing = Připravuje se…
 # Context: show_status
 attachments-show-status-cancel-download = Zrušit stahování
 # Context: show_status
-attachments-show-status-dismiss = Propustit
+attachments-show-status-dismiss = Zavřít
 # Context: viewer
 attachments-viewer-a-download-is-already-active = Stahování je již aktivní
 # Context: viewer
@@ -325,7 +325,7 @@ audio-show-loading-audio = Načítání zvuku…
 # Context: show
 audio-show-seek = Hledat
 # Context: show
-audio-show-volume = Objem
+audio-show-volume = Hlasitost
 # Context: waveform
 audio-waveform-seek-voice-message = Vyhledejte hlasovou zprávu
 
@@ -495,11 +495,11 @@ channel-menu-show-channel-settings-could-not-be-loaded = Nastavení kanálu nelz
 # Context: show
 channel-menu-show-channel-settings-need-to-be-refreshed-before-saving-reloading-replaces = Před uložením je třeba obnovit nastavení kanálu. Tento koncept nahradí opětovné načtení.
 # Context: show
-channel-menu-show-close = Blízko
+channel-menu-show-close = Zavřít
 # Context: show_feedback
 channel-menu-show-feedback-channel-action = Akce kanálu
 # Context: show_feedback
-channel-menu-show-feedback-dismiss = Propustit
+channel-menu-show-feedback-dismiss = Zavřít
 # Context: show
 channel-menu-show-in-this-channels-category-inherits-category-permissions = V kategorii tohoto kanálu · zdědí oprávnění kategorie
 # Context: show
@@ -687,7 +687,7 @@ components-field-unsupported-form-field-type = Nepodporovaný typ pole formulá�
 # Context: select
 components-select-choose-options = Vyberte možnosti
 # Context: select
-components-select-clear-selection = Jasný výběr
+components-select-clear-selection = Vymazat výběr
 # Context: select
 components-select-no-matching-options-loaded = Nebyly načteny žádné odpovídající možnosti
 # Context: select
@@ -984,9 +984,9 @@ extensions-ui-settings-try-a-different-name-or-creator = Zkuste jiné jméno neb
 # Context: show_result
 extensions-ui-show-result-apply-to-draft = Použít do konceptu
 # Context: show_result
-extensions-ui-show-result-close = Blízko
+extensions-ui-show-result-close = Zavřít
 # Context: show_result
-extensions-ui-show-result-dismiss = Propustit
+extensions-ui-show-result-dismiss = Zavřít
 # Context: show_result
 extensions-ui-show-result-extension-error = Chyba rozšíření
 # Context: show_result
@@ -1012,7 +1012,7 @@ extensions-ui-toolbar-checking-for-packages-and-updates = Kontrola balíčků a 
 # Context: toolbar
 extensions-ui-toolbar-clear-search = Vymazat vyhledávání
 # Context: toolbar
-extensions-ui-toolbar-dismiss = Propustit
+extensions-ui-toolbar-dismiss = Zavřít
 # Context: toolbar
 extensions-ui-toolbar-import-theme = Importovat motiv…
 # Context: toolbar
@@ -1473,7 +1473,7 @@ invites-show-you-ve-been-invited-to-join-a-server = Byli jste pozváni, abyste s
 
 ## crates/ui/src/join_server.rs
 # Context: audience
-join-server-audience-back = Zadní
+join-server-audience-back = Zpět
 # Context: audience
 join-server-audience-for-a-club-or-community = Pro klub nebo komunitu
 # Context: audience
@@ -1513,7 +1513,7 @@ join-server-choose-join-a-server = Připojte se k serveru
 # Context: choose
 join-server-choose-offline-preview-creating-and-joining-servers-are-disabled = Offline náhled – vytváření a připojování k serverům je zakázáno.
 # Context: customize
-join-server-customize-back = Zadní
+join-server-customize-back = Zpět
 # Context: customize
 join-server-customize-change-server-icon = Změnit ikonu serveru
 # Context: customize
@@ -1531,7 +1531,7 @@ join-server-customize-server-name = Název serveru
 # Context: customize
 join-server-customize-upload-server-icon = Nahrát ikonu serveru
 # Context: show_join
-join-server-show-join-back = Zadní
+join-server-show-join-back = Zpět
 # Context: show_join
 join-server-show-join-cancel = Zrušit
 # Context: show_join
@@ -1781,7 +1781,7 @@ notification-settings-notification-settings-enable-unread-message-badge = Povoli
 # Context: notification_settings
 notification-settings-notification-settings-for-per-channel-or-per-server-notifications-right-click-the = Pro upozornění na kanál nebo server klikněte pravým tlačítkem na kanál nebo server a vyberte Nastavení upozornění.
 # Context: notification_settings
-notification-settings-notification-settings-open = OTEVŘENO
+notification-settings-notification-settings-open = Otevřít
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Náhled zvuku
 # Context: notification_settings
@@ -1807,7 +1807,7 @@ notifications-notification-rail-in-a-call = , v hovoru
 # Context: notification_rail
 notifications-notification-rail-notifications = oznámení
 # Context: notification_rail
-notifications-notification-rail-open = OTEVŘENO
+notifications-notification-rail-open = Otevřít
 # Context: notification_rail
 notifications-notification-rail-unread = , nepřečteno
 
@@ -1815,7 +1815,7 @@ notifications-notification-rail-unread = , nepřečteno
 # Context: show
 pending-show-check-the-conversation-before-sending-again = Před dalším odesláním konverzaci zkontrolujte.
 # Context: show
-pending-show-dismiss = Propustit
+pending-show-dismiss = Zavřít
 # Context: show
 pending-show-restore-to-composer = Obnovit do editoru zprávy
 # Context: show
@@ -1989,7 +1989,7 @@ post-menu-show-cancel = Zrušit
 # Context: show
 post-menu-show-delete = Vymazat
 # Context: show
-post-menu-show-dismiss = Propustit
+post-menu-show-dismiss = Zavřít
 # Context: show
 post-menu-show-edit = Upravit
 # Context: show
@@ -2173,7 +2173,7 @@ reactions-show-reactions-unavailable = Reakce nedostupné
 # Context: show
 reactions-show-reload-reactions = Znovu načíst reakce
 # Context: show_users
-reactions-show-users-close = Blízko
+reactions-show-users-close = Zavřít
 # Context: show_users
 reactions-show-users-load-more = Načíst více
 # Context: show_users
@@ -2387,7 +2387,7 @@ search-overlays-no-matching-users-in-this-conversation = V této konverzaci nejs
 # Context: overlays
 search-overlays-search-for = Hledat
 # Context: pane
-search-pane-close = Blízko
+search-pane-close = Zavřít
 # Context: pane
 search-pane-hide-matching-text-highlight = Skrýt zvýraznění shodného textu
 # Context: pane
@@ -2411,7 +2411,7 @@ search-pane-order-on-this-page = Objednávejte na této stránce
 # Context: pane
 search-pane-pinned-messages = Připnuté zprávy
 # Context: pane
-search-pane-reload-pins = Znovu nabijte kolíky
+search-pane-reload-pins = Znovu načíst připnuté zprávy
 # Context: pane
 search-pane-search-this-conversation = Prohledejte tuto konverzaci
 # Context: pane
@@ -2431,17 +2431,19 @@ search-pins-content-pinned-messages-are-unavailable-while-disconnected-or-withou
 # Context: pins_content
 search-pins-content-retry-older-pins = Zkusit znovu načíst starší připnuté zprávy
 # Context: pins_empty
-search-pins-empty-this-channel-doesn-t-have-any-pinned-messages-yet = Tento kanál nemá
-    všechny připnuté zprávy... zatím.
+search-pins-empty-this-channel-doesn-t-have-any-pinned-messages-yet =
+    Tento kanál zatím nemá
+        žádné připnuté zprávy.
 # Context: pins_empty
-search-pins-empty-this-direct-message-doesn-t-have-any-pinned-messages-yet = Tato přímá zpráva nemá
-    všechny připnuté zprávy... zatím.
+search-pins-empty-this-direct-message-doesn-t-have-any-pinned-messages-yet =
+    Tato přímá zpráva zatím nemá
+        žádné připnuté zprávy.
 # Context: pins_popout
-search-pins-popout-close = Blízko
+search-pins-popout-close = Zavřít
 # Context: pins_popout
 search-pins-popout-pinned-messages = Připnuté zprávy
 # Context: pins_popout
-search-pins-popout-reload-pins = Znovu nabijte kolíky
+search-pins-popout-reload-pins = Znovu načíst připnuté zprávy
 # Context: result_card
 search-result-card-jump-to-message-from = Přejít na zprávu od
 # Context: result_card
@@ -2449,7 +2451,7 @@ search-result-card-spoiler-media-open-the-message-to-reveal-it = Spoiler media �
 
 ## crates/ui/src/select.rs
 # Context: on_end_pass
-select-on-end-pass-copy = Kopie
+select-on-end-pass-copy = Kopírovat
 
 ## crates/ui/src/server_admin.rs
 # Context: date
@@ -2467,7 +2469,7 @@ server-admin-dialog-emoji-name = Název emodži
 # Context: dialog
 server-admin-dialog-inactive-for = Neaktivní pro
 # Context: dialog
-server-admin-dialog-kick-member = Kick Member
+server-admin-dialog-kick-member = Vykopnout člena
 # Context: dialog
 server-admin-dialog-leave-blank-to-use-their-username = Chcete-li použít jejich uživatelské jméno, ponechte prázdné.
 # Context: dialog
@@ -2475,7 +2477,7 @@ server-admin-dialog-nickname = Přezdívka
 # Context: dialog
 server-admin-dialog-preview = Náhled
 # Context: dialog
-server-admin-dialog-prune-members = Prune Members
+server-admin-dialog-prune-members = Odebrat neaktivní členy
 # Context: dialog
 server-admin-dialog-save = Uložit
 # Context: dialog
@@ -2563,7 +2565,7 @@ server-admin-member-menu-change-nickname = Změňte přezdívku
 # Context: member_menu
 server-admin-member-menu-copy-user-id = Kopírovat ID uživatele
 # Context: member_menu
-server-admin-member-menu-kick = Kop
+server-admin-member-menu-kick = Vyhodit
 # Context: member_menu
 server-admin-member-menu-message = Zpráva
 # Context: member_menu
@@ -2593,7 +2595,7 @@ server-admin-members-oldest-discord-accounts = Nejstarší účty Discord
 # Context: members
 server-admin-members-oldest-members = Nejdéle přítomní členové
 # Context: members
-server-admin-members-prune = Prořezávat
+server-admin-members-prune = Odebrat neaktivní členy
 # Context: members
 server-admin-members-recent-members = Nedávní členové
 # Context: members
@@ -2657,7 +2659,7 @@ server-audit-log-action-text-created-scheduled-event = Vytvořená naplánovaná
 # Context: action_text
 server-audit-log-action-text-created-soundboard-sound = Vytvořil zvuk soundboard
 # Context: action_text
-server-audit-log-action-text-created-stage = Vytvořená scéna
+server-audit-log-action-text-created-stage = Vytvořil pódium
 # Context: action_text
 server-audit-log-action-text-created-sticker = Vytvořená nálepka
 # Context: action_text
@@ -2689,9 +2691,9 @@ server-audit-log-action-text-deleted-role = Smazaná role
 # Context: action_text
 server-audit-log-action-text-deleted-scheduled-event = Naplánovaná událost byla smazána
 # Context: action_text
-server-audit-log-action-text-deleted-soundboard-sound = Smazaný zvuk zvukové desky
+server-audit-log-action-text-deleted-soundboard-sound = Smazal zvuk soundboardu
 # Context: action_text
-server-audit-log-action-text-deleted-stage = Smazaná fáze
+server-audit-log-action-text-deleted-stage = Smazal pódium
 # Context: action_text
 server-audit-log-action-text-deleted-sticker = Smazaná nálepka
 # Context: action_text
@@ -2705,7 +2707,7 @@ server-audit-log-action-text-disconnected-member = Odpojený člen
 # Context: action_text
 server-audit-log-action-text-flagged-message-with-automod = Zpráva označená pomocí AutoMod
 # Context: action_text
-server-audit-log-action-text-kicked-member = Vykopnutý člen
+server-audit-log-action-text-kicked-member = Vykopl člena
 # Context: action_text
 server-audit-log-action-text-moved-member = Přesunutý člen
 # Context: action_text
@@ -3005,11 +3007,11 @@ server-menu-read-item-mark-as-read = Označit jako přečtené
 # Context: settings_item
 server-menu-settings-item-server-settings = Nastavení serveru
 # Context: show
-server-menu-show-are-you-sure-you-want-to-leave = Jste si jistý, že chcete odejít?
+server-menu-show-are-you-sure-you-want-to-leave = Jste si jistý, že chcete opustit
 # Context: show
 server-menu-show-cancel = Zrušit
 # Context: show
-server-menu-show-close = Blízko
+server-menu-show-close = Zavřít
 # Context: show
 server-menu-show-leave-server = Opustit server?
 # Context: show
@@ -3232,7 +3234,7 @@ server-settings-preview-online = Online
 # Context: profile_form
 server-settings-profile-form-add-up-to-5-traits-to-show-off-your-server = Přidejte až 5 vlastností, abyste ukázali zájmy a osobnost vašeho serveru.
 # Context: profile_form
-server-settings-profile-form-banner = Prapor
+server-settings-profile-form-banner = Banner
 # Context: profile_form
 server-settings-profile-form-change-server-icon = Změnit ikonu serveru
 # Context: profile_form
@@ -3612,7 +3614,7 @@ stickers-show-this-sticker-is-unavailable-with-the-current-connection-or-permiss
 
 ## crates/ui/src/switcher.rs
 # Context: show
-switcher-show-close = Blízko
+switcher-show-close = Zavřít
 # Context: show
 switcher-show-conversations-and-friends = Rozhovory a přátelé
 # Context: show
@@ -3634,7 +3636,7 @@ theme-editor-appearance-switch-dark = Tmavý
 # Context: appearance_switch
 theme-editor-appearance-switch-editing = Editace
 # Context: appearance_switch
-theme-editor-appearance-switch-light = Světlo
+theme-editor-appearance-switch-light = Světlý
 # Context: color_input
 theme-editor-color-input-use-rrggbb-or-rrggbbaa = Použijte #RRGGBB nebo #RRGGBBAA
 # Context: color_override
@@ -3806,7 +3808,7 @@ theme-editor-tab-basics = Základy
 # Context: key
 theme-editor-tab-colors = Barvy
 # Context: toolbar
-theme-editor-toolbar-back = Zadní
+theme-editor-toolbar-back = Zpět
 # Context: toolbar
 theme-editor-toolbar-preview-in-app = Náhled v aplikaci
 # Context: toolbar
@@ -3840,7 +3842,7 @@ timeline-deleted-message-actions-toggle-deleted-highlight = Přepněte Odstraně
 # Context: loading_messages
 timeline-loading-messages-loading-messages = Načítání zpráv
 # Context: message_actions
-timeline-message-actions-copy = Kopie
+timeline-message-actions-copy = Kopírovat
 # Context: message_actions
 timeline-message-actions-copy-message-id = Kopírovat ID zprávy
 # Context: message_actions
@@ -3930,7 +3932,7 @@ timeline-unread-banner-jump-to-unread = Přejít na nepřečtené
 
 ## crates/ui/src/toasts.rs
 # Context: show
-toasts-show-dismiss = Propustit
+toasts-show-dismiss = Zavřít
 
 ## crates/ui/src/updates.rs
 # Context: shows_update_banner
@@ -3950,7 +3952,7 @@ updates-update-settings-check-for-updates = Zkontrolujte aktualizace
 # Context: update_settings
 updates-update-settings-copied = Zkopírováno
 # Context: update_settings
-updates-update-settings-copy = Kopie
+updates-update-settings-copy = Kopírovat
 # Context: update_settings
 updates-update-settings-copy-command = Kopírovat příkaz
 # Context: update_settings
@@ -4112,9 +4114,9 @@ voice-gain-controls-100-is-the-original-level-higher-levels-may-distort = 100% j
 # Context: labels
 voice-labels-choose-camera = Vyberte fotoaparát
 # Context: live_badge
-voice-live-badge-live = ŽÍT
+voice-live-badge-live = ŽIVĚ
 # Context: live_badge
-voice-live-badge-live-2 = Žít
+voice-live-badge-live-2 = Živě
 # Context: live_badge
 voice-live-badge-streaming = Streamuje
 # Context: microphone_preview_controls
@@ -4122,7 +4124,7 @@ voice-microphone-preview-controls-hear-yourself-through-your-selected-speakers-u
 # Context: microphone_preview_controls
 voice-microphone-preview-controls-input-level = Vstupní úroveň
 # Context: microphone_preview_controls
-voice-microphone-preview-controls-leave-the-call-to-test-your-microphone-locally = Nechte hovor a otestujte svůj mikrofon lokálně.
+voice-microphone-preview-controls-leave-the-call-to-test-your-microphone-locally = Opusťte hovor a otestujte svůj mikrofon lokálně.
 # Context: microphone_preview_controls
 voice-microphone-preview-controls-microphone-test = Test mikrofonu
 # Context: microphone_preview_controls
@@ -4140,7 +4142,7 @@ voice-mute-toggle-mute = Ztlumit
 # Context: mute_toggle
 voice-mute-toggle-speaking-is-unavailable-in-this-channel = V tomto kanálu nelze mluvit.
 # Context: mute_toggle
-voice-mute-toggle-undeafen = Nehluchý
+voice-mute-toggle-undeafen = Zapnout zvuk
 # Context: mute_toggle
 voice-mute-toggle-unmute = Zrušit ztlumení
 # Context: mute_toggle_with_settings
@@ -4172,6 +4174,10 @@ voice-voice-card-section-disconnect = Odpojit
 # Context: voice_card_section
 voice-voice-card-section-dismiss-call = Zrušit hovor
 # Context: voice_card_section
+voice-voice-card-section-reconnect-attempt = { $reason } · pokus { $attempt } z { $total }
+# Context: voice_card_section
+voice-voice-card-section-reconnecting = Znovu se připojuji…
+# Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = Mikrofon není k dispozici · stále připojen. V nastavení zvuku vyberte jiný vstup.
 # Context: voice_channel_button
 voice-voice-channel-button-connected = , připojeno
@@ -4202,7 +4208,7 @@ voice-voice-participant-menu-silence-this-person-on-this-device-only-nobody-else
 # Context: voice_participant_menu
 voice-voice-participant-menu-unmute = Zrušit ztlumení
 # Context: voice_participant_menu
-voice-voice-participant-menu-user-volume = Uživatelský objem
+voice-voice-participant-menu-user-volume = Hlasitost uživatele
 # Context: voice_participant
 voice-voice-participant-microphone-muted = Mikrofon ztlumen
 # Context: voice_participant
@@ -4252,7 +4258,7 @@ voice-voice-processing-controls-input-profile = Vstupní profil
 # Context: voice_processing_controls
 voice-voice-processing-controls-input-threshold = Vstupní práh
 # Context: voice_processing_controls
-voice-voice-processing-controls-mute-and-deafen-always-take-priority = Němý a hluchý mají vždy přednost.
+voice-voice-processing-controls-mute-and-deafen-always-take-priority = Ztlumení mikrofonu a zvuku má vždy přednost.
 # Context: voice_processing_controls
 voice-voice-processing-controls-noise-suppression = Potlačení hluku
 # Context: voice_processing_controls
@@ -4812,3 +4818,72 @@ timeline-dm-intro = Toto je začátek vaší historie přímých zpráv s uživa
 timeline-channel-intro-title = Vítejte v #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = Toto je začátek kanálu #{ $channel }.
+post-menu-post-action-failed = Akce s příspěvkem selhala
+post-menu-thread-action-failed = Akce s vláknem selhala
+
+# Context: badges
+badges-nitro = Nitro
+# Context: badges
+badges-rarity-common = Běžný
+# Context: badges
+badges-rarity-rare = Vzácný
+# Context: badges
+badges-rarity-epic = Epický
+# Context: badges
+badges-rarity-mythic = Mýtický
+# Context: badges
+badges-always-visible = Na profilu se zobrazuje vždy
+# Context: badges
+badges-click-show = Kliknutím zobrazíte
+# Context: badges
+badges-click-hide = Kliknutím skryjete
+# Context: badges
+badges-customize-title = Přizpůsobit odznaky
+# Context: badges
+badges-customize-hint = Přetažením změníte pořadí a skryjete ty, které ostatní nemají vidět.
+# Context: badges
+badges-none = Zatím žádné odznaky k zobrazení.
+# Context: badges
+badges-reset = Obnovit
+# Context: badges
+badges-saving = Ukládání…
+# Context: badges
+badges-save = Uložit
+# Context: badges
+badges-view = Zobrazit odznaky
+# Context: badges
+badges-your = Vaše odznaky
+# Context: badges
+badges-user = Odznaky uživatele { $name }
+# Context: badges
+badges-browse = Procházejte své odznaky a objevte nové, které můžete získat.
+# Context: badges
+badges-available = K odemčení
+# Context: badges
+badges-customize-button = Přizpůsobit odznaky
+# Context: badges
+badges-close = Zavřít
+# Context: badges
+badges-locked = Zatím neodemčeno
+# Context: badges
+badges-date-unlocked = Datum odemčení
+# Context: badges
+badges-rarity = Vzácnost
+# Context: badges
+badges-max-level = Dosáhli jste nejvyšší úrovně tohoto odznaku.
+# Context: badges
+badges-next-level = Další úroveň: { $tier }
+# Context: badges
+badges-all-levels = Zobrazit všechny úrovně
+# Context: badges
+badges-hide-levels = Skrýt úrovně
+# Context: badges
+badges-manage = Spravovat odznaky
+page-language-time = Jazyk a čas
+description-language-time = Jazyk rozhraní a zobrazení času.
+time-format-group = Formát času
+time-format-auto = Automaticky
+time-format-12-hour = 12hodinový
+time-format-24-hour = 24hodinový
+profiles-status-edit = Upravit stav
+profiles-status-clear = Vymazat stav

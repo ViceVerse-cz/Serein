@@ -1366,7 +1366,8 @@ impl SearchUi {
 	}
 	/// Bounded message shell that lets the chat attachment and embed renderers draw a hit.
 	fn shell(&mut self, hit: &model::SearchHit) {
-		self.previews
+		let preview = self
+			.previews
 			.entry(hit.id)
 			.or_insert_with(|| model::Message {
 				poll: None,
@@ -1381,7 +1382,7 @@ impl SearchUi {
 				author: hit.author.clone(),
 				author_roles: vec![],
 				author_nick: None,
-				content: String::new(),
+				content: hit.excerpt.clone(),
 				mentions: hit.mentions.clone(),
 				mention_roles: vec![],
 				mention_everyone: false,
@@ -1401,6 +1402,10 @@ impl SearchUi {
 				embeds_suppressed: false,
 				attachments: hit.attachments.clone(),
 			});
+		// Source-link detection shares the displayed excerpt's markdown cache entry.
+		if preview.content != hit.excerpt {
+			preview.content.clone_from(&hit.excerpt);
+		}
 	}
 	#[allow(clippy::too_many_arguments)]
 	fn result_card(
@@ -1570,6 +1575,7 @@ impl SearchUi {
 										profile,
 										state,
 										crate::design::MessageCardSurface::Opaque,
+										false,
 									) {
 									media.download.gif_favorite_request = Some(gif);
 								}
@@ -1604,22 +1610,7 @@ const PAGER_HEIGHT: f32 = 50.0;
 
 /// Discord-style send time: "Today at 14:18", "Yesterday at 23:17", or the full date.
 fn sent_at(utc: time::OffsetDateTime) -> String {
-	let at = crate::local_time::local(utc);
-	let clock = format!("{:02}:{:02}", at.hour(), at.minute());
-	let today = crate::local_time::now().date();
-	if at.date() == today {
-		crate::i18n::translate_args("search-result-today-at", &[("time", &clock)])
-	} else if today.previous_day() == Some(at.date()) {
-		crate::i18n::translate_args("search-result-yesterday-at", &[("time", &clock)])
-	} else {
-		let date = at.date();
-		format!(
-			"{:02}/{:02}/{} {clock}",
-			u8::from(date.month()),
-			date.day(),
-			date.year()
-		)
-	}
+	crate::local_time::calendar(utc)
 }
 
 /// Shared download, audio and video controllers borrowed from the timeline for one frame.
@@ -2428,47 +2419,68 @@ mod tests {
 			channels: vec![channel],
 			..State::default()
 		};
-		let hit = model::SearchHit {
+		let mut hit = model::SearchHit {
 			id: Id(1 << 22),
 			channel: Id(1),
 			author: user.clone(),
 			mentions: vec![user],
-			excerpt: "Hello <@42> in <#99>".into(),
+			excerpt: "Hello <@42> in <#99> https://example.com/source".into(),
 			attachments: vec![],
-			embeds: vec![],
+			embeds: vec![model::Embed {
+				url: Some("https://example.com/source".into()),
+				..model::Embed::default()
+			}],
 		};
 		let ctx = egui::Context::default();
 		let mut view = SearchUi {
 			pins: true,
 			..SearchUi::default()
 		};
-		let mut output = ctx.run_ui(Default::default(), |ui| {
-			view.result_card(
-				ui,
-				&state,
-				&hit,
-				"",
-				&mut crate::avatars::Avatars::default(),
-				&mut MediaUi {
-					download: &mut crate::attachments::DownloadUi::default(),
-					audio: &mut crate::audio::AudioUi::default(),
-					video: &mut crate::video::VideoUi::default(),
-				},
-				&mut crate::profiles::ProfileSession::default(),
-				&mut None,
-			);
-		});
-		let text = output
-			.shapes
-			.iter()
-			.filter_map(|shape| match &shape.shape {
-				egui::Shape::Text(text) => Some(text.galley.text()),
-				_ => None,
-			})
-			.collect::<String>();
-		output.textures_delta.clear();
+		let mut render = |hit: &model::SearchHit| {
+			let mut output = ctx.run_ui(Default::default(), |ui| {
+				view.result_card(
+					ui,
+					&state,
+					hit,
+					"",
+					&mut crate::avatars::Avatars::default(),
+					&mut MediaUi {
+						download: &mut crate::attachments::DownloadUi::default(),
+						audio: &mut crate::audio::AudioUi::default(),
+						video: &mut crate::video::VideoUi::default(),
+					},
+					&mut crate::profiles::ProfileSession::default(),
+					&mut None,
+				);
+			});
+			let text = output
+				.shapes
+				.iter()
+				.filter_map(|shape| match &shape.shape {
+					egui::Shape::Text(text) => Some(text.galley.text()),
+					_ => None,
+				})
+				.collect::<String>();
+			output.textures_delta.clear();
+			text
+		};
+		let text = render(&hit);
 		assert!(text.contains("@Mentioned"), "rendered text: {text}");
 		assert!(!text.contains("@42"), "rendered text: {text}");
+		assert!(
+			text.contains("https://example.com/source"),
+			"rendered text: {text}"
+		);
+		assert!(
+			!text.contains(&crate::i18n::translate("embeds-link-open-link")),
+			"a source already visible in the search excerpt must not gain a duplicate action: {text}"
+		);
+		hit.excerpt = "Hello <@42> in <#99>".into();
+		let text = render(&hit);
+		assert!(
+			text.contains(&crate::i18n::translate("embeds-link-open-link")),
+			"a changed search excerpt without the source must restore its action: {text}"
+		);
 		assert_eq!(view.channel_reference_load, Some(Id(99)));
 	}
 }

@@ -1,6 +1,7 @@
 // Origin-fixed REST adapter. No cookies, redirects, logging, persistence or bot SDK.
 mod activity_sharing;
 mod archives;
+mod badges;
 mod channel_actions;
 mod collectibles;
 pub mod detectable;
@@ -1191,7 +1192,7 @@ impl DiscordApi {
 					// or a shared service cooldown. Dropping these reads is safe: they never write.
 					let effect = profile.effect_sku.filter(|_| cosmetics.effects);
 					let frame = profile.frame_sku.filter(|_| cosmetics.frames);
-					let (board, catalog) = tokio::join!(
+					let (board, catalog, badges) = tokio::join!(
 						tokio::time::timeout(
 							PROFILE_EXTRAS,
 							self.load_profile_board_games(&mut profile),
@@ -1200,9 +1201,20 @@ impl DiscordApi {
 							PROFILE_EXTRAS,
 							self.load_profile_collectibles(effect, frame),
 						),
+						// Only the account's own profile is requested without mutuals.
+						tokio::time::timeout(
+							Duration::from_secs(2),
+							self.load_badge_catalog(user, !with_mutuals)
+						),
 					);
 					if let Ok(result) = board {
 						result?;
+					}
+					if let Ok(result) = badges {
+						profile.badge_catalog = result?.map(Box::new);
+						if !profile.valid() {
+							profile.badge_catalog = None;
+						}
 					}
 					if let Ok(result) = catalog {
 						let (effect, frame) = result?;
@@ -1224,6 +1236,10 @@ impl DiscordApi {
 					result,
 				}
 			}
+			Command::BadgeSettings { request, settings } => Event::BadgeSettings {
+				request,
+				result: self.save_badge_settings(settings).await,
+			},
 			Command::StreamPreview {
 				guild,
 				channel,
@@ -2772,6 +2788,61 @@ mod tests {
         }).await.unwrap();
 	}
 	#[tokio::test]
+	async fn optional_badge_capacity_preserves_profiles_but_expiry_ends_session() {
+		tokio::time::timeout(Duration::from_secs(5), async {
+			for case in 0..3 {
+				let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+				let mut api = DiscordApi::new(Arc::new(
+					SessionSecret::from_owner_input("SYNTHETIC_BADGE_TOKEN".into()).unwrap(),
+				))
+				.unwrap();
+				api.base = format!("http://{}", listener.local_addr().unwrap());
+				let server = tokio::spawn(async move {
+					let (mut stream, _) = listener.accept().await.unwrap();
+					let mut buffer = [0; 4096];
+					let n = stream.read(&mut buffer).await.unwrap();
+					assert!(std::str::from_utf8(&buffer[..n]).unwrap().starts_with("GET /users/5/profile?"));
+					let body = r#"{"user":{"id":"5","username":"Synthetic"},"badges":[{"id":"premium","description":"Subscriber"}]}"#;
+					stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+					let (mut stream, _) = listener.accept().await.unwrap();
+					let n = stream.read(&mut buffer).await.unwrap();
+					assert!(std::str::from_utf8(&buffer[..n]).unwrap().starts_with("GET /users/5/badges HTTP/1.1"));
+					let header = match case {
+						0 => format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", discord_protocol::badges::MAX_CATALOG_WIRE + 1),
+						1 => "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".into(),
+						_ => "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into(),
+					};
+					stream.write_all(header.as_bytes()).await.unwrap();
+					if case == 1 {
+						// The reader may close the socket as soon as the streaming bound is hit.
+						let _ = stream.write_all(&vec![b' '; discord_protocol::badges::MAX_CATALOG_WIRE + 1]).await;
+					}
+				});
+				let event = api.execute(Command::Profile {
+					user: model::Id(5),
+					guild: None,
+					request: 1,
+					with_mutuals: true,
+					cosmetics: Default::default(),
+				}).await;
+				if case == 2 {
+					assert!(matches!(event, Event::Profile { result: Err(Failure::Expired), .. }));
+					assert!(api.stopped());
+				} else {
+					let Event::Profile { result: Ok(profile), .. } = event else {
+						panic!("oversized optional catalog must preserve the profile");
+					};
+					assert!(profile.badge_catalog.is_none());
+					assert_eq!(profile.badges.len(), 1);
+					assert_eq!(profile.badges[0].id, "premium");
+					assert!(!api.stopped());
+				}
+				server.await.unwrap();
+			}
+		}).await.unwrap();
+	}
+
+	#[tokio::test]
 	async fn profiles_are_scoped_capped_and_do_not_block_message_writes() {
 		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 		let mut api = DiscordApi::new(Arc::new(
@@ -2823,6 +2894,25 @@ mod tests {
 				.unwrap();
 			server_release.notified().await;
 			profile.write_all(body.as_bytes()).await.unwrap();
+			// The optional badge catalog follows the profile body.
+			let (mut catalog, _) = listener.accept().await.unwrap();
+			let n = catalog.read(&mut buffer).await.unwrap();
+			assert!(
+				std::str::from_utf8(&buffer[..n])
+					.unwrap()
+					.starts_with("GET /users/5/badges HTTP/1.1")
+			);
+			let badges = r#"{"badges":[{"badge_id":18,"name":"Account Age","owned":true}]}"#;
+			catalog
+				.write_all(
+					format!(
+						"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{badges}",
+						badges.len()
+					)
+					.as_bytes(),
+				)
+				.await
+				.unwrap();
 			for response in [
 				format!(
 					"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -2870,15 +2960,22 @@ mod tests {
 		.unwrap();
 		assert!(matches!(sent, Event::SendResult { result: Ok(_), .. }));
 		release.notify_one();
-		assert!(matches!(
-			pending.await.unwrap(),
-			Event::Profile {
-				user: model::Id(5),
-				guild: Some(model::Id(2)),
-				request: 9,
-				result: Ok(_)
-			}
-		));
+		let Event::Profile {
+			user: model::Id(5),
+			guild: Some(model::Id(2)),
+			request: 9,
+			result: Ok(profile),
+		} = pending.await.unwrap()
+		else {
+			panic!("profile expected");
+		};
+		assert_eq!(
+			profile
+				.badge_catalog
+				.as_ref()
+				.map(|catalog| catalog.badges.len()),
+			Some(1)
+		);
 		assert!(matches!(
 			api.execute(Command::Profile {
 				user: model::Id(5),

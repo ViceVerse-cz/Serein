@@ -6,6 +6,7 @@ mod account_menu;
 mod appearance_transparency_tests;
 mod archives;
 mod audio;
+mod badges;
 mod forwarding;
 mod role_names;
 pub use audio::{AudioCommand, AudioState, AudioUi};
@@ -68,7 +69,7 @@ mod guild_folders;
 mod highlight;
 pub mod icons;
 mod invites;
-mod local_time;
+pub mod local_time;
 mod markdown;
 mod member_search;
 mod mentions;
@@ -304,6 +305,8 @@ pub struct MessagingUi {
 	pub cosmetics: model::CosmeticPreferences,
 	/// Disk budgets and retention for downloaded images.
 	pub image_cache: model::CachePreferences,
+	/// Clock style for message times.
+	pub time_format: model::TimeFormat,
 	/// Latest disk use of the media and shared-artwork caches, once measured.
 	pub image_cache_usage: Option<[model::CacheUsage; 2]>,
 	/// An image cache partition the owner asked to empty; the desktop consumes it.
@@ -758,6 +761,14 @@ impl MessagingUi {
 	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_profile_popout(&mut self, user: model::User) {
 		self.profile.command_open(user);
+	}
+	/// Fixture-only entry point: a profile card with its badge directory (focused on
+	/// `selected`) or, without one, the account's customize menu at `anchor`.
+	#[cfg(any(test, feature = "demo"))]
+	pub fn preview_badges(&mut self, user: model::User, selected: Option<u32>, anchor: egui::Pos2) {
+		let id = user.id;
+		self.profile.command_open(user);
+		self.profile.preview_badges(id, selected, anchor);
 	}
 	#[cfg(any(test, feature = "demo"))]
 	pub fn preview_full_profile(&mut self, user: model::User) {
@@ -5167,6 +5178,9 @@ impl MessagingUi {
 			{
 				commands.push(command);
 			}
+			self.profile
+				.own_status
+				.clone_from(&self.own_presence.custom_status);
 			let anchor = self.profile.anchor_or_place(&ctx, user.id);
 			self.profile.ingest_opener_rect(&ctx);
 			match profiles::show_with_session(
@@ -5258,8 +5272,15 @@ impl MessagingUi {
 						}
 					}
 				}
+				Some(profiles::Action::EditStatus) => self.open_custom_status_editor(),
+				Some(profiles::Action::ClearStatus) => self.clear_custom_status(),
 				Some(profiles::Action::Close) => {
 					self.profile.close_unless_armed(&ctx);
+				}
+				Some(profiles::Action::SaveBadges(settings)) => {
+					if let Some(command) = state.save_badge_settings(settings) {
+						commands.push(command);
+					}
 				}
 				Some(profiles::Action::Retry) => {
 					if let Some(command) = state.request_profile(user.id, profile_guild) {

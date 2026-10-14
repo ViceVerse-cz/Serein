@@ -3759,6 +3759,9 @@ impl MessagingUi {
 		let camera = call.camera;
 		let connected = matches!(phase, Phase::Connected | Phase::Waiting);
 		let error = call.error;
+		let reconnecting = call.reconnecting;
+		let reconnecting_title =
+			reconnecting.map(|_| crate::i18n::translate("voice-voice-card-section-reconnecting"));
 		let channel = state
 			.channel(call.channel)
 			.map_or("Direct message", |c| c.name.as_str())
@@ -3777,6 +3780,8 @@ impl MessagingUi {
 			"Call failed"
 		} else if connected {
 			"Voice Connected"
+		} else if let Some(title) = &reconnecting_title {
+			title.as_str()
 		} else {
 			"Connecting…"
 		};
@@ -3861,6 +3866,17 @@ impl MessagingUi {
 					});
 				});
 				call_failure(ui, error, colors.text_strong);
+				if let Some((attempt, reason)) = reconnecting {
+					ui.add(
+						egui::Label::new(
+							RichText::new(reconnect_detail(reason, attempt))
+								.size(12.0)
+								.color(colors.muted),
+						)
+						.wrap()
+						.selectable(true),
+					);
+				}
 				let controls = self.controls_enabled(state);
 				let can_camera = self.voice_camera_available
 					&& state.can_camera(channel_id)
@@ -4286,6 +4302,22 @@ fn speaking_avatar(ui: &egui::Ui, avatar: &egui::Response, name: &str) {
 	let label = format!("{name} · Speaking");
 	// Callers own the avatar's tooltip; a second one here would stack under it.
 	avatar.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &label));
+}
+
+/// Why media dropped and how far the automatic rejoin is; transport advice to rejoin by
+/// hand does not apply while the client is already doing it.
+fn reconnect_detail(reason: &str, attempt: u8) -> String {
+	crate::i18n::translate_args(
+		"voice-voice-card-section-reconnect-attempt",
+		&[
+			("reason", reason.trim_end_matches("; rejoin the call")),
+			("attempt", &attempt.to_string()),
+			(
+				"total",
+				&client_core::voice::MAX_REJOIN_ATTEMPTS.to_string(),
+			),
+		],
+	)
 }
 
 fn call_failure(ui: &mut egui::Ui, error: Option<&str>, color: egui::Color32) {

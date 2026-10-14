@@ -74,7 +74,7 @@ impl ClearAfter {
 			Self::Hours4 => now + time::Duration::hours(4),
 			Self::Today => now.replace_time(time::Time::MIDNIGHT) + time::Duration::days(1),
 		};
-		let clock = format!("{:02}:{:02}", at.hour(), at.minute());
+		let clock = crate::local_time::clock(at);
 		Some(if at.date() == now.date() {
 			format!(
 				"{} {clock}",
@@ -701,11 +701,26 @@ impl MessagingUi {
 			colors.muted,
 		);
 		if response.clicked() {
-			self.account_menu
-				.draft
-				.clone_from(&self.own_presence.custom_status);
-			self.account_menu.clear_after = ClearAfter::nearest(self.own_presence_expires);
-			self.account_menu.custom_open = true;
+			self.open_custom_status_editor();
+		}
+	}
+	/// Opens the custom status dialog on the current status, as its pencil does.
+	pub(super) fn open_custom_status_editor(&mut self) {
+		self.account_menu
+			.draft
+			.clone_from(&self.own_presence.custom_status);
+		self.account_menu.clear_after = ClearAfter::nearest(self.own_presence_expires);
+		self.account_menu.custom_open = true;
+	}
+	/// Clears the custom status and its deadline; the presence update follows.
+	pub(super) fn clear_custom_status(&mut self) {
+		self.account_menu.draft.clear();
+		self.account_menu.clear_after = ClearAfter::Never;
+		self.own_presence_expires = None;
+		self.own_presence.expires_at_ms = None;
+		if !self.own_presence.custom_status.is_empty() {
+			self.own_presence.custom_status.clear();
+			self.own_presence_changed = true;
 		}
 	}
 	/// "Clear after" dropdown, matching the presence rows: value on the left, chevron right.
@@ -929,14 +944,7 @@ impl MessagingUi {
 			.inner
 			.clicked()
 		{
-			self.account_menu.draft.clear();
-			self.account_menu.clear_after = ClearAfter::Never;
-			self.own_presence_expires = None;
-			self.own_presence.expires_at_ms = None;
-			if !self.own_presence.custom_status.is_empty() {
-				self.own_presence.custom_status.clear();
-				self.own_presence_changed = true;
-			}
+			self.clear_custom_status();
 		}
 	}
 }

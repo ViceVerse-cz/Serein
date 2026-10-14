@@ -62,6 +62,39 @@ fn link(
 		}
 	}
 }
+
+/// A source action is needed only when the card and message have no existing source link.
+fn source_fallback(
+	message: &Message,
+	embed: &Embed,
+	cache: &mut FormatCache,
+	message_links_shown: bool,
+) -> Option<String> {
+	let inline = inline_image(embed).is_some();
+	if (!inline
+		&& embed
+			.title
+			.as_deref()
+			.is_some_and(|title| !title.is_empty()))
+		|| embed.video.is_some()
+		|| matches!(embed.kind.as_str(), "video" | "gifv")
+	{
+		return None;
+	}
+	let url = embed.url.as_deref().and_then(external_url)?;
+	if (message_links_shown && cache.get(message.id, &message.content).links.contains(&url))
+		|| (!inline
+			&& [&embed.author, &embed.provider]
+				.into_iter()
+				.flatten()
+				.any(|author| {
+					!author.name.is_empty()
+						&& author.url.as_deref().and_then(external_url).as_ref() == Some(&url)
+				})) {
+		return None;
+	}
+	Some(url)
+}
 #[allow(clippy::too_many_arguments)]
 fn text(
 	ui: &mut egui::Ui,
@@ -489,6 +522,7 @@ pub fn show(
 	profile: &mut crate::profiles::ProfileSession,
 	state: &client_core::State,
 	card_surface: crate::design::MessageCardSurface,
+	hide_media_links: bool,
 ) -> Option<Gif> {
 	if message.embeds_suppressed {
 		return None;
@@ -509,9 +543,24 @@ pub fn show(
 			index += count;
 			continue;
 		}
+		let source_url = source_fallback(
+			message,
+			embed,
+			cache,
+			!hide_media_links || !standalone_media_links(message),
+		);
 		ui.push_id(("embed", index), |ui| {
 			if count > 1 && inline_image(embed).is_some() {
 				gallery(ui, group, images, message.id, download, demo);
+				if let Some(url) = &source_url {
+					link(
+						ui,
+						&crate::i18n::translate("embeds-link-open-link"),
+						Some(url),
+						opening,
+						false,
+					);
+				}
 				if group.iter().any(|e| e.limited) {
 					ui.small(crate::i18n::translate("embeds-show-embed-display-limited"));
 				}
@@ -558,6 +607,15 @@ pub fn show(
 				{
 					download.view_embed(message.id, image);
 				}
+				if let Some(url) = &source_url {
+					link(
+						ui,
+						&crate::i18n::translate("embeds-link-open-link"),
+						Some(url),
+						opening,
+						false,
+					);
+				}
 				ui.add_space(6.0);
 				return;
 			}
@@ -603,24 +661,22 @@ pub fn show(
 										);
 									}
 									if let Some(author) = &embed.author {
+										// Discord: a 24 px icon and the name in strong text,
+										// a link only on hover.
 										ui.horizontal_wrapped(|ui| {
+											ui.spacing_mut().item_spacing.x = 8.0;
 											if let Some(icon) = &author.icon {
 												images.show_media(
 													ui,
 													icon,
-													egui::vec2(20.0, 20.0),
+													egui::vec2(24.0, 24.0),
 													demo,
 													Surface::Inline,
 												);
 											}
-											link(
-												ui,
-												&author.name,
-												author.url.as_deref(),
-												opening,
-												false,
-											);
+											author_name(ui, author, opening, colors.text_strong);
 										});
+										ui.add_space(2.0);
 									}
 									if let Some(title) = &embed.title {
 										link(ui, title, embed.url.as_deref(), opening, true);
@@ -741,33 +797,82 @@ pub fn show(
 									opening,
 									false,
 								);
-							} else if embed.title.is_none()
-								&& let Some(url) = embed.url.as_deref()
-							{
-								link(ui, "Open source…", Some(url), opening, false);
 							}
-							if let Some(footer) = &embed.footer {
+							// One footer line, as on Discord: icon, text, then " • " and the
+							// embed time in the chosen clock style.
+							let when = embed.timestamp.as_deref().map(|raw| {
+								time::OffsetDateTime::parse(
+									raw,
+									&time::format_description::well_known::Rfc3339,
+								)
+								.map_or_else(|_| raw.to_owned(), crate::local_time::calendar)
+							});
+							let footer_text = embed
+								.footer
+								.as_ref()
+								.map(|footer| footer.text.as_str())
+								.filter(|text| !text.is_empty());
+							if footer_text.is_some() || when.is_some() {
+								ui.add_space(4.0);
 								ui.horizontal_wrapped(|ui| {
-									if let Some(icon) = &footer.icon {
+									ui.spacing_mut().item_spacing.x = 8.0;
+									if let Some(icon) =
+										embed.footer.as_ref().and_then(|f| f.icon.as_ref())
+									{
 										images.show_media(
 											ui,
 											icon,
-											egui::vec2(16.0, 16.0),
+											egui::vec2(20.0, 20.0),
 											demo,
 											Surface::Inline,
 										);
 									}
-									ui.add(
-										egui::Label::new(
-											RichText::new(&footer.text).small().color(colors.muted),
-										)
-										.wrap()
-										.selectable(true),
+									let line = match (footer_text, when.as_deref()) {
+										(Some(text), Some(when)) => format!("{text} • {when}"),
+										(Some(text), None) => text.to_owned(),
+										(None, Some(when)) => when.to_owned(),
+										(None, None) => String::new(),
+									};
+									let mut text =
+										RichText::new(line).size(12.0).color(colors.muted);
+									if source_url.is_some() {
+										text = text.underline();
+									}
+									let response = ui.add(
+										egui::Label::new(text)
+											.wrap()
+											.selectable(source_url.is_none())
+											.sense(if source_url.is_some() {
+												egui::Sense::click()
+											} else {
+												egui::Sense::hover()
+											}),
 									);
+									if let Some(url) = &source_url {
+										response.widget_info(|| {
+											egui::WidgetInfo::labeled(
+												egui::Role::Link,
+												ui.is_enabled(),
+												url,
+											)
+										});
+										if response
+											.on_hover_text(url)
+											.on_hover_cursor(egui::CursorIcon::PointingHand)
+											.clicked()
+										{
+											*opening = Some(url.clone());
+										}
+									}
 								});
-							}
-							if let Some(timestamp) = &embed.timestamp {
-								ui.small(timestamp);
+							} else if let Some(url) = &source_url {
+								link(
+									ui,
+									&crate::i18n::translate("embeds-link-open-link"),
+									Some(url),
+									opening,
+									false,
+								);
 							}
 							if group.iter().any(|e| e.limited) {
 								ui.small(crate::i18n::translate(
@@ -813,7 +918,12 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 		height += if e.kind == "poll_result" {
 			72.0
 		} else if inline_image(e).is_some() {
-			if count > 1 { image_height + 6.0 } else { 206.0 }
+			let source = if e.kind == "image" && e.url.is_some() {
+				20.0
+			} else {
+				0.0
+			};
+			(if count > 1 { image_height + 6.0 } else { 206.0 }) + source
 		} else {
 			let mut lines = 0.0;
 			if e.provider
@@ -838,6 +948,10 @@ pub fn estimated_height(embeds: &[Embed]) -> f32 {
 				.as_ref()
 				.is_some_and(|footer| !footer.text.is_empty())
 				|| e.timestamp.is_some()
+				|| (e.url.is_some()
+					&& e.title.as_deref().is_none_or(str::is_empty)
+					&& e.video.is_none()
+					&& !matches!(e.kind.as_str(), "video" | "gifv"))
 			{
 				lines += 1.0;
 			}
@@ -862,9 +976,168 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn source_fallback_requires_a_safe_url_without_an_existing_source_action() {
+		let mut message = test_support::message(1, model::Id(2));
+		let mut embed = Embed {
+			kind: "rich".into(),
+			url: Some("https://example.org/post/1".into()),
+			..Default::default()
+		};
+		let mut cache = FormatCache::default();
+		assert_eq!(
+			source_fallback(&message, &embed, &mut cache, true),
+			embed.url
+		);
+		for content in [
+			"https://example.org/post/1",
+			"[Read the post](https://example.org/post/1)",
+		] {
+			message.content = content.into();
+			assert_eq!(source_fallback(&message, &embed, &mut cache, true), None);
+		}
+		for content in [
+			"https://example.org/post/12",
+			"`https://example.org/post/1`",
+		] {
+			message.content = content.into();
+			assert_eq!(
+				source_fallback(&message, &embed, &mut cache, true),
+				embed.url
+			);
+		}
+		embed.title = Some("A linked title".into());
+		assert_eq!(source_fallback(&message, &embed, &mut cache, true), None);
+		embed.title = Some(String::new());
+		embed.author = Some(model::EmbedAuthor {
+			name: "Author".into(),
+			url: embed.url.clone(),
+			..Default::default()
+		});
+		assert_eq!(source_fallback(&message, &embed, &mut cache, true), None);
+		embed.provider = embed.author.take();
+		assert_eq!(source_fallback(&message, &embed, &mut cache, true), None);
+		embed.provider = None;
+		embed.kind = "video".into();
+		assert_eq!(source_fallback(&message, &embed, &mut cache, true), None);
+		embed.kind = "rich".into();
+		embed.video = Some(model::EmbedMedia::default());
+		assert_eq!(source_fallback(&message, &embed, &mut cache, true), None);
+		embed.video = None;
+		for url in [
+			None,
+			Some("javascript:alert(1)"),
+			Some("https://user:password@example.org/post/1"),
+		] {
+			embed.url = url.map(str::to_owned);
+			assert_eq!(source_fallback(&message, &embed, &mut cache, true), None);
+		}
+	}
+
+	#[test]
+	fn untitled_card_source_author_and_provider_dispatch_their_own_urls() {
+		fn text_center(shape: &egui::Shape, label: &str) -> Option<egui::Pos2> {
+			match shape {
+				egui::Shape::Text(text) if text.galley.job.text == label => {
+					Some(text.pos + text.galley.rect.center().to_vec2())
+				}
+				egui::Shape::Vec(shapes) => {
+					shapes.iter().find_map(|shape| text_center(shape, label))
+				}
+				_ => None,
+			}
+		}
+		for footer in [true, false] {
+			let source_label = crate::i18n::translate("embeds-link-open-link");
+			for (label, url) in [
+				(
+					if footer { "X" } else { &source_label },
+					"https://example.org/post/1",
+				),
+				("Author", "https://example.org/author"),
+				("Provider", "https://example.org/provider"),
+			] {
+				let mut message = test_support::message(1, model::Id(2));
+				message.content = "A post without its URL in the message".into();
+				message.embeds = vec![Embed {
+					kind: "rich".into(),
+					url: Some("https://example.org/post/1".into()),
+					author: Some(model::EmbedAuthor {
+						name: "Author".into(),
+						url: Some("https://example.org/author".into()),
+						..Default::default()
+					}),
+					provider: Some(model::EmbedAuthor {
+						name: "Provider".into(),
+						url: Some("https://example.org/provider".into()),
+						..Default::default()
+					}),
+					footer: footer.then(|| model::EmbedFooter {
+						text: "X".into(),
+						..Default::default()
+					}),
+					..Default::default()
+				}];
+				let ctx = egui::Context::default();
+				let mut opening = None;
+				let mut cache = FormatCache::default();
+				let mut images = Avatars::default();
+				let mut frame = |events| {
+					ctx.run_ui(
+						egui::RawInput {
+							screen_rect: Some(egui::Rect::from_min_size(
+								egui::Pos2::ZERO,
+								egui::vec2(640.0, 700.0),
+							)),
+							events,
+							..Default::default()
+						},
+						|ui| {
+							show(
+								ui,
+								&message,
+								&mut cache,
+								&mut images,
+								&mut opening,
+								&mut DownloadUi::default(),
+								&mut crate::profiles::ProfileSession::default(),
+								&client_core::State::default(),
+								crate::design::MessageCardSurface::Conversation,
+								false,
+							);
+						},
+					)
+				};
+				frame(vec![]).drop_without_applying_deltas();
+				let output = frame(vec![]);
+				let pos = output
+					.shapes
+					.iter()
+					.find_map(|shape| text_center(&shape.shape, label))
+					.expect(label);
+				output.drop_without_applying_deltas();
+				for pressed in [true, false] {
+					frame(vec![
+						egui::Event::PointerMoved(pos),
+						egui::Event::PointerButton {
+							pos,
+							button: egui::PointerButton::Primary,
+							pressed,
+							modifiers: egui::Modifiers::NONE,
+						},
+					])
+					.drop_without_applying_deltas();
+				}
+				assert_eq!(opening.as_deref(), Some(url), "{label}, footer={footer}");
+			}
+		}
+	}
+
+	#[test]
 	fn image_previews_dispatch_copy_and_save_without_opening_links() {
 		for variant in 0..5 {
-			for copy in [true, false] {
+			for (copy, hide_media_links) in
+				[(true, false), (false, false), (true, true), (false, true)]
+			{
 				let mut message = test_support::message(1, model::Id(2));
 				let media = model::EmbedMedia {
 					url: Some("https://cdn.discordapp.com/attachments/2/42/preview.png".into()),
@@ -884,6 +1157,9 @@ mod tests {
 					thumbnail: (variant == 3).then(|| media.clone()),
 					..Default::default()
 				}];
+				if hide_media_links {
+					message.content = message.embeds[0].url.clone().unwrap();
+				}
 				if variant == 4 {
 					message.embeds.push(message.embeds[0].clone());
 					message.embeds[0].image.as_mut().unwrap().url =
@@ -917,6 +1193,7 @@ mod tests {
 									&mut profile,
 									&client_core::State::default(),
 									crate::design::MessageCardSurface::Conversation,
+									hide_media_links,
 								)
 								.is_none()
 							);
@@ -940,6 +1217,13 @@ mod tests {
 					})
 					.next_back()
 					.expect("rendered image");
+				assert_eq!(
+					output.shapes.iter().any(|shape| matches!(&shape.shape,
+						egui::Shape::Text(text) if text.galley.job.text == crate::i18n::translate("embeds-link-open-link")
+					)),
+					variant != 1 && (!hide_media_links || matches!(variant, 0 | 4)),
+					"source action for media variant {variant}"
+				);
 				output.drop_without_applying_deltas();
 				for pressed in [true, false] {
 					frame(vec![
@@ -1256,6 +1540,7 @@ mod tests {
 					&mut profile,
 					&client_core::State::default(),
 					crate::design::MessageCardSurface::Conversation,
+					false,
 				);
 			},
 		);
@@ -1269,6 +1554,85 @@ mod tests {
 			}
 		}
 		output.drop_without_applying_deltas();
+	}
+
+	/// An X/Twitter link card, shaped like the service's: author, text, footer and time.
+	#[test]
+	fn tweet_card_puts_footer_and_time_on_one_line_without_a_source_link() {
+		let _clock = crate::local_time::pin_now(
+			time::OffsetDateTime::parse(
+				"2026-10-14T12:00:00Z",
+				&time::format_description::well_known::Rfc3339,
+			)
+			.unwrap(),
+		);
+		let mut message = test_support::message(1, model::Id(2));
+		message.content = "https://x.com/synthetic/status/1".into();
+		message.embeds = vec![Embed {
+			kind: "rich".into(),
+			url: Some(message.content.clone()),
+			description: Some("A synthetic post".into()),
+			author: Some(model::EmbedAuthor {
+				name: "Synthetic (@synthetic)".into(),
+				url: Some("https://x.com/synthetic".into()),
+				..Default::default()
+			}),
+			footer: Some(model::EmbedFooter {
+				text: "X".into(),
+				..Default::default()
+			}),
+			timestamp: Some("2026-10-12T17:37:03.721000+00:00".into()),
+			..Default::default()
+		}];
+		let ctx = egui::Context::default();
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(640.0, 700.0),
+				)),
+				..Default::default()
+			},
+			|ui| {
+				show(
+					ui,
+					&message,
+					&mut FormatCache::default(),
+					&mut Avatars::default(),
+					&mut None,
+					&mut DownloadUi::default(),
+					&mut crate::profiles::ProfileSession::default(),
+					&client_core::State::default(),
+					crate::design::MessageCardSurface::Conversation,
+					false,
+				);
+			},
+		);
+		let mut painted = Vec::new();
+		fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+			match shape {
+				egui::Shape::Text(text) => out.push(text.galley.job.text.clone()),
+				egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| walk(shape, out)),
+				_ => {}
+			}
+		}
+		output
+			.shapes
+			.iter()
+			.for_each(|shape| walk(&shape.shape, &mut painted));
+		output.drop_without_applying_deltas();
+		let footer = painted
+			.iter()
+			.find(|text| text.starts_with("X • "))
+			.unwrap_or_else(|| panic!("{painted:?}"));
+		// Tests pin UTC; the clock style is whatever the process last set.
+		assert!(
+			footer == "X • 10/12/26, 17:37" || footer == "X • 10/12/26, 5:37 PM",
+			"{footer}"
+		);
+		assert!(painted.iter().any(|text| text == "Synthetic (@synthetic)"));
+		assert!(!painted.iter().any(|text| text.contains("Open source")));
+		assert!(!painted.iter().any(|text| text.contains("2026-10-12T")));
 	}
 }
 
@@ -1326,4 +1690,41 @@ pub(crate) fn favorite_star(
 			crate::i18n::translate("embeds-show-save-to-gif-favorites")
 		}),
 	))
+}
+
+/// An embed author name: strong text that underlines on hover and opens its page if it has one.
+fn author_name(
+	ui: &mut egui::Ui,
+	author: &model::EmbedAuthor,
+	opening: &mut Option<String>,
+	color: egui::Color32,
+) {
+	let url = author.url.as_deref().and_then(external_url);
+	let response = ui.add(
+		egui::Label::new(RichText::new(&author.name).size(14.0).strong().color(color))
+			.wrap()
+			.sense(if url.is_some() {
+				egui::Sense::click()
+			} else {
+				egui::Sense::hover()
+			}),
+	);
+	if let Some(url) = url {
+		response.widget_info(|| {
+			egui::WidgetInfo::labeled(egui::Role::Link, ui.is_enabled(), &author.name)
+		});
+		if response.hovered() {
+			ui.painter().hline(
+				response.rect.x_range(),
+				response.rect.bottom(),
+				egui::Stroke::new(1.0, color),
+			);
+		}
+		if response
+			.on_hover_cursor(egui::CursorIcon::PointingHand)
+			.clicked()
+		{
+			*opening = Some(url);
+		}
+	}
 }

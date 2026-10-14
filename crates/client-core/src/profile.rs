@@ -71,6 +71,12 @@ impl ProfileCache {
 			})
 			.map(|entry| &entry.data)
 	}
+	/// Updates every cached view of `user` in place.
+	pub(crate) fn update(&mut self, user: Id, change: impl Fn(&mut UserProfile)) {
+		for entry in self.entries.iter_mut().filter(|entry| entry.user == user) {
+			change(&mut entry.data);
+		}
+	}
 	pub fn len(&self) -> usize {
 		self.entries.len()
 	}
@@ -112,6 +118,32 @@ pub struct OwnProfile {
 	generation: u64,
 }
 
+/// The account's pending badge settings write.
+#[derive(Default)]
+pub struct BadgeEditor {
+	pub saving: bool,
+	error: Option<&'static str>,
+	/// Increments with every new error, so a menu can skip ones raised before it opened.
+	errors: u64,
+	/// Increments when a write is confirmed, so open editors can drop their draft.
+	pub saved: u64,
+	request: u64,
+}
+impl BadgeEditor {
+	/// Error count to pass to [`Self::error_since`]; errors up to now count as seen.
+	pub fn errors(&self) -> u64 {
+		self.errors
+	}
+	/// The latest error, unless it was already raised when `seen` was taken.
+	pub fn error_since(&self, seen: u64) -> Option<&'static str> {
+		self.error.filter(|_| self.errors != seen)
+	}
+	fn fail(&mut self, error: &'static str) {
+		self.error = Some(error);
+		self.errors = self.errors.wrapping_add(1);
+	}
+}
+
 impl State {
 	/// An already loaded global profile for `user`: the open view or the recent cache.
 	pub fn known_profile(&self, user: Id) -> Option<&UserProfile> {
@@ -121,6 +153,95 @@ impl State {
 			.and_then(|view| view.data.as_ref())
 			.or_else(|| self.profile_cache.peek(user, Instant::now()))
 	}
+	/// Saves the account's badge order and hidden set. Demo sessions confirm locally.
+	pub fn save_badge_settings(
+		&mut self,
+		settings: model::badges::BadgeSettings,
+	) -> Option<Command> {
+		if self.badge_editor.saving || !settings.valid() || self.user.is_none() {
+			if !settings.valid() {
+				self.badge_editor.fail("Badge settings are invalid");
+			}
+			return None;
+		}
+		if !self.demo && (self.auth != AuthState::Authenticated || !self.gateway_connected) {
+			self.badge_editor
+				.fail("Badge settings need a connected session");
+			return None;
+		}
+		let own = self.user.as_ref().map(|user| user.id)?;
+		let profile = self
+			.profile
+			.as_ref()
+			.filter(|view| view.user == own)
+			.and_then(|view| view.data.as_ref())
+			.or_else(|| {
+				self.own_profile
+					.data
+					.as_ref()
+					.filter(|profile| profile.user.id == own)
+			})
+			.or_else(|| self.known_profile(own));
+		if profile
+			.and_then(|profile| profile.badge_catalog.as_deref())
+			.is_some_and(|catalog| catalog.limited)
+		{
+			self.badge_editor
+				.fail("Reload your profile before editing an incomplete badge catalog");
+			return None;
+		}
+		self.badge_editor.request = self.badge_editor.request.wrapping_add(1);
+		self.badge_editor.saving = true;
+		self.badge_editor.error = None;
+		Some(Command::BadgeSettings {
+			request: self.badge_editor.request,
+			settings,
+		})
+	}
+	pub(crate) fn apply_badge_settings(
+		&mut self,
+		request: u64,
+		result: Result<model::badges::BadgeSettings, Failure>,
+	) {
+		if let Err(failure) = &result
+			&& failure.ends_session()
+			&& *failure != Failure::Capacity
+		{
+			self.fail(*failure);
+			return;
+		}
+		if request != self.badge_editor.request || !self.badge_editor.saving {
+			return;
+		}
+		self.badge_editor.saving = false;
+		let settings = match result {
+			Ok(settings) => settings,
+			Err(failure) => {
+				self.badge_editor.fail(failure.label());
+				return;
+			}
+		};
+		self.badge_editor.error = None;
+		self.badge_editor.saved = self.badge_editor.saved.wrapping_add(1);
+		let Some(own) = self.user.as_ref().map(|user| user.id) else {
+			return;
+		};
+		let apply = |profile: &mut UserProfile| {
+			if profile.user.id == own
+				&& let Some(catalog) = profile.badge_catalog.as_deref_mut()
+			{
+				catalog.apply(&settings);
+			}
+		};
+		if let Some(data) = self.profile.as_mut().and_then(|view| view.data.as_mut()) {
+			apply(data);
+		}
+		if let Some(data) = self.own_profile.data.as_mut() {
+			apply(data);
+		}
+		self.profile_cache.update(own, apply);
+	}
+
 	pub fn can_save_own_profile(&self) -> bool {
 		(self.demo || (self.auth == AuthState::Authenticated && self.gateway_connected))
 			&& !self.own_profile.loading
@@ -198,6 +319,15 @@ impl State {
 			request: self.own_profile.request.wrapping_add(1),
 			..Default::default()
 		};
+	}
+	/// A lost session drops the pending badge write; it may still have applied.
+	pub(crate) fn interrupt_badge_settings(&mut self) {
+		if self.badge_editor.saving {
+			self.badge_editor.saving = false;
+			self.badge_editor.request = self.badge_editor.request.wrapping_add(1);
+			self.badge_editor
+				.fail("Save interrupted; changes may have applied. Reopen the profile to check");
+		}
 	}
 	pub(crate) fn interrupt_own_profile(&mut self) {
 		if self.own_profile.loading || self.own_profile.saving || self.own_profile.data.is_some() {
@@ -554,6 +684,7 @@ mod tests {
 			frame_sku: None,
 			effect: None,
 			frame: None,
+			badge_catalog: None,
 			limited: false,
 		})
 	}
@@ -667,6 +798,61 @@ mod tests {
 			global_name: Some(Some("After".into())),
 			..Default::default()
 		}
+	}
+	#[test]
+	fn incomplete_badge_catalog_cannot_replace_account_settings() {
+		let mut state = own_state();
+		let mut profile = own_data("Before");
+		profile.badge_catalog = Some(Box::new(model::badges::BadgeCatalog {
+			badges: vec![],
+			limited: true,
+		}));
+		state.own_profile.data = Some(*profile);
+		let settings = model::badges::BadgeSettings {
+			order: vec![model::badges::id::ACCOUNT_AGE],
+			hidden: vec![],
+		};
+		let seen = state.badge_editor.errors();
+		assert!(state.save_badge_settings(settings.clone()).is_none());
+		assert!(!state.badge_editor.saving);
+		assert!(state.badge_editor.error_since(seen).is_some());
+		state
+			.own_profile
+			.data
+			.as_mut()
+			.unwrap()
+			.badge_catalog
+			.as_mut()
+			.unwrap()
+			.limited = false;
+		assert!(state.save_badge_settings(settings).is_some());
+	}
+	#[test]
+	fn lost_sessions_release_a_pending_badge_save_with_a_fresh_error() {
+		let mut state = own_state();
+		let settings = model::badges::BadgeSettings {
+			order: vec![model::badges::id::ACCOUNT_AGE],
+			hidden: vec![],
+		};
+		let Some(Command::BadgeSettings { request, .. }) =
+			state.save_badge_settings(settings.clone())
+		else {
+			panic!("badge save expected");
+		};
+		let seen = state.badge_editor.errors();
+		state.apply_badge_settings(request, Err(Failure::Expired));
+		assert!(!state.badge_editor.saving);
+		assert!(state.badge_editor.error_since(seen).is_some());
+		// A menu opened afterwards does not show the old error.
+		assert!(
+			state
+				.badge_editor
+				.error_since(state.badge_editor.errors())
+				.is_none()
+		);
+		// The late answer to the interrupted write is ignored.
+		state.apply_badge_settings(request, Ok(settings));
+		assert_eq!(state.badge_editor.saved, 0);
 	}
 	#[test]
 	fn own_profile_requires_loaded_account_and_confirms_only_current_bounded_responses() {
@@ -969,6 +1155,7 @@ mod tests {
 					frame_sku: None,
 					effect: None,
 					frame: None,
+					badge_catalog: None,
 					limited: false,
 				})
 			}
@@ -1156,6 +1343,7 @@ mod tests {
 					frame_sku: None,
 					effect: None,
 					frame: None,
+					badge_catalog: None,
 					limited: false,
 				})
 			};

@@ -101,7 +101,7 @@ loading-people = Es werden Leute geladen…
 no-people = Für diese Ansicht sind keine Personen zurückgekehrt.
 status-online = Online
 status-offline = Offline
-status-idle = Leerlauf
+status-idle = Abwesend
 status-dnd = Bitte nicht stören
 role = Rolle
 no-conversations = Hier sind keine Gespräche verfügbar.
@@ -204,7 +204,7 @@ account-menu-clears-at-tomorrow = morgen
 # Context: custom_status_actions
 account-menu-custom-status-actions-apply = Anwenden
 # Context: custom_status_actions
-account-menu-custom-status-actions-clear = Klar
+account-menu-custom-status-actions-clear = Löschen
 # Context: account_custom_status_row
 account-menu-custom-status-edit = Benutzerdefinierten Status bearbeiten
 # Context: custom_status_editor
@@ -307,7 +307,7 @@ attachments-loading-card-preparing = Wird vorbereitet…
 # Context: show_status
 attachments-show-status-cancel-download = Download abbrechen
 # Context: show_status
-attachments-show-status-dismiss = Zurückweisen
+attachments-show-status-dismiss = Schließen
 # Context: viewer
 attachments-viewer-a-download-is-already-active = Ein Download ist bereits aktiv
 # Context: viewer
@@ -325,7 +325,7 @@ audio-show-loading-audio = Audio wird geladen…
 # Context: show
 audio-show-seek = Suchen
 # Context: show
-audio-show-volume = Volumen
+audio-show-volume = Lautstärke
 # Context: waveform
 audio-waveform-seek-voice-message = Sprachnachricht suchen
 
@@ -499,7 +499,7 @@ channel-menu-show-close = Schließen
 # Context: show_feedback
 channel-menu-show-feedback-channel-action = Kanalaktion
 # Context: show_feedback
-channel-menu-show-feedback-dismiss = Zurückweisen
+channel-menu-show-feedback-dismiss = Schließen
 # Context: show
 channel-menu-show-in-this-channels-category-inherits-category-permissions = In der Kategorie dieses Kanals erbt · Kategorieberechtigungen
 # Context: show
@@ -687,7 +687,7 @@ components-field-unsupported-form-field-type = Nicht unterstützter Formularfeld
 # Context: select
 components-select-choose-options = Wählen Sie Optionen
 # Context: select
-components-select-clear-selection = Klare Auswahl
+components-select-clear-selection = Auswahl aufheben
 # Context: select
 components-select-no-matching-options-loaded = Keine passenden Optionen geladen
 # Context: select
@@ -978,7 +978,7 @@ extensions-ui-show-result-apply-to-draft = Auf Entwurf bewerben
 # Context: show_result
 extensions-ui-show-result-close = Schließen
 # Context: show_result
-extensions-ui-show-result-dismiss = Zurückweisen
+extensions-ui-show-result-dismiss = Schließen
 # Context: show_result
 extensions-ui-show-result-extension-error = Erweiterungsfehler
 # Context: show_result
@@ -1004,7 +1004,7 @@ extensions-ui-toolbar-checking-for-packages-and-updates = Nach Paketen und Updat
 # Context: toolbar
 extensions-ui-toolbar-clear-search = Suche löschen
 # Context: toolbar
-extensions-ui-toolbar-dismiss = Zurückweisen
+extensions-ui-toolbar-dismiss = Schließen
 # Context: toolbar
 extensions-ui-toolbar-import-theme = Theme importieren…
 # Context: toolbar
@@ -1770,7 +1770,7 @@ notification-settings-notification-settings-enable-unread-message-badge = Aktivi
 # Context: notification_settings
 notification-settings-notification-settings-for-per-channel-or-per-server-notifications-right-click-the = Für Benachrichtigungen pro Kanal oder pro Server klicken Sie mit der rechten Maustaste auf den Kanal oder Server und wählen Sie Benachrichtigungseinstellungen aus.
 # Context: notification_settings
-notification-settings-notification-settings-open = Offen
+notification-settings-notification-settings-open = Öffnen
 # Context: notification_settings
 notification-settings-notification-settings-preview-sound = Vorschau des Tons
 # Context: notification_settings
@@ -1796,7 +1796,7 @@ notifications-notification-rail-in-a-call = , in einem Anruf
 # Context: notification_rail
 notifications-notification-rail-notifications = Benachrichtigungen
 # Context: notification_rail
-notifications-notification-rail-open = Offen
+notifications-notification-rail-open = Öffnen
 # Context: notification_rail
 notifications-notification-rail-unread = , ungelesen
 
@@ -1804,7 +1804,7 @@ notifications-notification-rail-unread = , ungelesen
 # Context: show
 pending-show-check-the-conversation-before-sending-again = Überprüfen Sie das Gespräch, bevor Sie es erneut senden.
 # Context: show
-pending-show-dismiss = Zurückweisen
+pending-show-dismiss = Schließen
 # Context: show
 pending-show-restore-to-composer = Für Composer wiederherstellen
 # Context: show
@@ -1978,7 +1978,7 @@ post-menu-show-cancel = Stornieren
 # Context: show
 post-menu-show-delete = Löschen
 # Context: show
-post-menu-show-dismiss = Zurückweisen
+post-menu-show-dismiss = Schließen
 # Context: show
 post-menu-show-edit = Bearbeiten
 # Context: show
@@ -2438,7 +2438,7 @@ search-result-card-spoiler-media-open-the-message-to-reveal-it = Spoiler-Medien 
 
 ## crates/ui/src/select.rs
 # Context: on_end_pass
-select-on-end-pass-copy = Kopie
+select-on-end-pass-copy = Kopieren
 
 ## crates/ui/src/server_admin.rs
 # Context: date
@@ -2456,7 +2456,7 @@ server-admin-dialog-emoji-name = Emoji-Name
 # Context: dialog
 server-admin-dialog-inactive-for = Inaktiv für
 # Context: dialog
-server-admin-dialog-kick-member = Kick-Mitglied
+server-admin-dialog-kick-member = Mitglied kicken
 # Context: dialog
 server-admin-dialog-leave-blank-to-use-their-username = Lassen Sie das Feld leer, um ihren Benutzernamen zu verwenden.
 # Context: dialog
@@ -2464,7 +2464,7 @@ server-admin-dialog-nickname = Spitzname
 # Context: dialog
 server-admin-dialog-preview = Vorschau
 # Context: dialog
-server-admin-dialog-prune-members = Prune-Mitglieder
+server-admin-dialog-prune-members = Inaktive Mitglieder entfernen
 # Context: dialog
 server-admin-dialog-save = Speichern
 # Context: dialog
@@ -2552,7 +2552,7 @@ server-admin-member-menu-change-nickname = Spitznamen ändern
 # Context: member_menu
 server-admin-member-menu-copy-user-id = Benutzer-ID kopieren
 # Context: member_menu
-server-admin-member-menu-kick = Kick
+server-admin-member-menu-kick = Kicken
 # Context: member_menu
 server-admin-member-menu-message = Nachricht
 # Context: member_menu
@@ -2582,7 +2582,7 @@ server-admin-members-oldest-discord-accounts = Älteste Discord-Konten
 # Context: members
 server-admin-members-oldest-members = Älteste Mitglieder
 # Context: members
-server-admin-members-prune = Prune
+server-admin-members-prune = Inaktive entfernen
 # Context: members
 server-admin-members-recent-members = Aktuelle Mitglieder
 # Context: members
@@ -2644,7 +2644,7 @@ server-audit-log-action-text-created-role = Rolle erstellt
 # Context: action_text
 server-audit-log-action-text-created-scheduled-event = Geplantes Ereignis erstellt
 # Context: action_text
-server-audit-log-action-text-created-soundboard-sound = Resonanzbodensound erstellt
+server-audit-log-action-text-created-soundboard-sound = Soundboard-Sound erstellt
 # Context: action_text
 server-audit-log-action-text-created-stage = Bühne erstellt
 # Context: action_text
@@ -2680,7 +2680,7 @@ server-audit-log-action-text-deleted-scheduled-event = Geplantes Ereignis gelös
 # Context: action_text
 server-audit-log-action-text-deleted-soundboard-sound = Soundboard-Sound gelöscht
 # Context: action_text
-server-audit-log-action-text-deleted-stage = Stufe gelöscht
+server-audit-log-action-text-deleted-stage = Stage gelöscht
 # Context: action_text
 server-audit-log-action-text-deleted-sticker = Aufkleber gelöscht
 # Context: action_text
@@ -3622,7 +3622,7 @@ theme-editor-appearance-switch-dark = Dunkel
 # Context: appearance_switch
 theme-editor-appearance-switch-editing = Bearbeitung
 # Context: appearance_switch
-theme-editor-appearance-switch-light = Licht
+theme-editor-appearance-switch-light = Hell
 # Context: color_input
 theme-editor-color-input-use-rrggbb-or-rrggbbaa = Verwenden Sie #RRGGBB oder #RRGGBBAA
 # Context: color_override
@@ -3828,7 +3828,7 @@ timeline-deleted-message-actions-toggle-deleted-highlight = Gelöschte Hervorheb
 # Context: loading_messages
 timeline-loading-messages-loading-messages = Nachrichten werden geladen
 # Context: message_actions
-timeline-message-actions-copy = Kopie
+timeline-message-actions-copy = Kopieren
 # Context: message_actions
 timeline-message-actions-copy-message-id = Nachrichten-ID kopieren
 # Context: message_actions
@@ -3842,7 +3842,7 @@ timeline-message-actions-edit-message = Nachricht bearbeiten
 # Context: message_actions
 timeline-message-actions-extensions = Erweiterungen
 # Context: message_actions
-timeline-message-actions-forward = Nach vorne
+timeline-message-actions-forward = Weiterleiten
 # Context: message_actions
 timeline-message-actions-mark-read-through-here = Mark hat es hier durchgelesen
 # Context: message_actions
@@ -3850,7 +3850,7 @@ timeline-message-actions-mark-unread = Als ungelesen markieren
 # Context: message_actions
 timeline-message-actions-pin-message = Nachricht anpinnen
 # Context: message_actions
-timeline-message-actions-reply = Antwort
+timeline-message-actions-reply = Antworten
 # Context: message_actions
 timeline-message-actions-unpin-message = Nachricht lösen
 # Context: message_actions
@@ -3917,7 +3917,7 @@ timeline-unread-banner-jump-to-unread = Zu Ungelesenem springen
 
 ## crates/ui/src/toasts.rs
 # Context: show
-toasts-show-dismiss = Zurückweisen
+toasts-show-dismiss = Schließen
 
 ## crates/ui/src/updates.rs
 # Context: shows_update_banner
@@ -3937,7 +3937,7 @@ updates-update-settings-check-for-updates = Suchen Sie nach Updates
 # Context: update_settings
 updates-update-settings-copied = Kopiert
 # Context: update_settings
-updates-update-settings-copy = Kopie
+updates-update-settings-copy = Kopieren
 # Context: update_settings
 updates-update-settings-copy-command = Befehl kopieren
 # Context: update_settings
@@ -4121,13 +4121,13 @@ voice-mute-toggle-applies-to-your-next-call = Gilt für Ihren nächsten Anruf.
 # Context: mute_toggle
 voice-mute-toggle-controls-are-unavailable-in-this-build-or-preview = Steuerelemente sind in diesem Build oder dieser Vorschau nicht verfügbar.
 # Context: mute_toggle
-voice-mute-toggle-deafen = Taub
+voice-mute-toggle-deafen = Taub schalten
 # Context: mute_toggle
-voice-mute-toggle-mute = Stumm
+voice-mute-toggle-mute = Stummschalten
 # Context: mute_toggle
 voice-mute-toggle-speaking-is-unavailable-in-this-channel = Das Sprechen ist in diesem Kanal nicht möglich.
 # Context: mute_toggle
-voice-mute-toggle-undeafen = Untaub
+voice-mute-toggle-undeafen = Taubschalten aufheben
 # Context: mute_toggle
 voice-mute-toggle-unmute = Stummschaltung aufheben
 # Context: mute_toggle_with_settings
@@ -4159,6 +4159,10 @@ voice-voice-card-section-disconnect = Trennen
 # Context: voice_card_section
 voice-voice-card-section-dismiss-call = Anruf ablehnen
 # Context: voice_card_section
+voice-voice-card-section-reconnect-attempt = { $reason } · Versuch { $attempt } von { $total }
+# Context: voice_card_section
+voice-voice-card-section-reconnecting = Verbindung wird wiederhergestellt…
+# Context: voice_card_section
 voice-voice-card-section-microphone-unavailable-a-still-connected-choose-another-input-in-audio = Mikrofon nicht verfügbar · immer noch angeschlossen. Wählen Sie in den Audioeinstellungen einen anderen Eingang.
 # Context: voice_channel_button
 voice-voice-channel-button-connected = , verbunden
@@ -4175,7 +4179,7 @@ voice-voice-channel-participant-list-unavailable-with-the-current-access = Die T
 # Context: voice_participant
 voice-voice-participant-deafened = Betäubt
 # Context: voice_participant
-voice-voice-participant-deafened-by-server = Vom Server taub gemacht
+voice-voice-participant-deafened-by-server = Vom Server taub geschaltet
 # Context: voice_participant_menu
 voice-voice-participant-menu-mute = Stumm
 # Context: voice_participant_menu
@@ -4235,7 +4239,7 @@ voice-voice-processing-controls-input-profile = Eingabeprofil
 # Context: voice_processing_controls
 voice-voice-processing-controls-input-threshold = Eingabeschwelle
 # Context: voice_processing_controls
-voice-voice-processing-controls-mute-and-deafen-always-take-priority = Stumm und taub haben immer Vorrang.
+voice-voice-processing-controls-mute-and-deafen-always-take-priority = Stummschalten und Taubschalten haben immer Vorrang.
 # Context: voice_processing_controls
 voice-voice-processing-controls-noise-suppression = Geräuschunterdrückung
 # Context: voice_processing_controls
@@ -4725,3 +4729,72 @@ timeline-dm-intro = Das ist der Anfang deines Direktnachrichtenverlaufs mit { $n
 timeline-channel-intro-title = Willkommen in #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = Das ist der Anfang des Kanals #{ $channel }.
+post-menu-post-action-failed = Beitragsaktion fehlgeschlagen
+post-menu-thread-action-failed = Thread-Aktion fehlgeschlagen
+
+# Context: badges
+badges-nitro = Nitro
+# Context: badges
+badges-rarity-common = Gewöhnlich
+# Context: badges
+badges-rarity-rare = Selten
+# Context: badges
+badges-rarity-epic = Episch
+# Context: badges
+badges-rarity-mythic = Mythisch
+# Context: badges
+badges-always-visible = Wird immer im Profil angezeigt
+# Context: badges
+badges-click-show = Zum Anzeigen klicken
+# Context: badges
+badges-click-hide = Zum Ausblenden klicken
+# Context: badges
+badges-customize-title = Abzeichen anpassen
+# Context: badges
+badges-customize-hint = Ziehen zum Umsortieren; blende aus, was andere nicht sehen sollen.
+# Context: badges
+badges-none = Noch keine Abzeichen.
+# Context: badges
+badges-reset = Zurücksetzen
+# Context: badges
+badges-saving = Wird gespeichert …
+# Context: badges
+badges-save = Speichern
+# Context: badges
+badges-view = Abzeichen ansehen
+# Context: badges
+badges-your = Deine Abzeichen
+# Context: badges
+badges-user = Abzeichen von { $name }
+# Context: badges
+badges-browse = Sieh dir deine Abzeichen an und entdecke neue, die du freischalten kannst.
+# Context: badges
+badges-available = Freischaltbar
+# Context: badges
+badges-customize-button = Abzeichen anpassen
+# Context: badges
+badges-close = Schließen
+# Context: badges
+badges-locked = Noch nicht freigeschaltet
+# Context: badges
+badges-date-unlocked = Freigeschaltet am
+# Context: badges
+badges-rarity = Seltenheit
+# Context: badges
+badges-max-level = Du hast die höchste Stufe dieses Abzeichens erreicht.
+# Context: badges
+badges-next-level = Nächste Stufe: { $tier }
+# Context: badges
+badges-all-levels = Alle Stufen anzeigen
+# Context: badges
+badges-hide-levels = Stufen ausblenden
+# Context: badges
+badges-manage = Abzeichen verwalten
+page-language-time = Sprache & Zeit
+description-language-time = Anzeigesprache und Darstellung der Uhrzeit.
+time-format-group = Zeitformat
+time-format-auto = Automatisch
+time-format-12-hour = 12-Stunden
+time-format-24-hour = 24-Stunden
+profiles-status-edit = Status bearbeiten
+profiles-status-clear = Status löschen
