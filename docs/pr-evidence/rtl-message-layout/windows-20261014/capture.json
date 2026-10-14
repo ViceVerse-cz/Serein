@@ -1,0 +1,55 @@
+{
+    "baseline_source":  "9433275fa339a5a609ec8d0ed59c22e0494ec2d4",
+    "after_source":  "64ed30827bd06e5602d2a50ba3ac876882f92e27",
+    "platform":  "Windows x64",
+    "application":  "Native eframe Serein, offline synthetic demo",
+    "build":  "cargo build --locked -p serein --features demo; pinned Rust 1.98.1",
+    "flags":  [
+                  "--demo",
+                  "--demo-chat"
+              ],
+    "viewport":  {
+                     "height":  760,
+                     "width":  1120
+                 },
+    "theme":  "dark",
+    "locale":  "English UI, Arabic message auto-detected",
+    "fixture":  "Exact UTF-8 message.txt pasted into offline composer and submitted into the synthetic timeline",
+    "method":  "@oai/sky get_window_state native capture (Windows.Graphics.Capture): original JPEG data URL saved, converted to PNG using System.Drawing; no layout or image-content edits. PNGs copied unchanged into this record.",
+    "observations":  [
+                         "After: timeline paragraph starts with مرحبا at the right and wraps السطور والكلمات العربية. onto its second line.",
+                         "Before: timeline visual word and line ordering differs.",
+                         "Composer preview did not right-align; these screenshots establish timeline message rendering only."
+                     ],
+    "files":  {
+                  "message.txt":  {
+                                      "bytes":  180,
+                                      "sha256":  "b741fd1cef863d039e42f838cd4052ac2538ace30db74a64cdf431eca2c5c5d7"
+                                  },
+                  "after.png":  {
+                                    "bytes":  422303,
+                                    "sha256":  "6013ab6fa47178119ab207f9c26f0ff8504cf64208e503e93a3809f59bbde9fd"
+                                },
+                  "before.png":  {
+                                     "bytes":  424244,
+                                     "sha256":  "fc901731fca6ed33caf0f2be71df8f63520656bbed5f667b8162a82b651911ac"
+                                 }
+              },
+    "binaries":  {
+                     "before":  {
+                                    "bytes":  177755136,
+                                    "sha256":  "d7d9ce1e00013edcdfec7ed4327e1f604883f48f4585d30e8caebf9687ad4ce9"
+                                },
+                     "after":  {
+                                   "bytes":  173902848,
+                                   "sha256":  "aa8494d8123bb055a962d39453b9504fe0a791a631a6acf533d0ed4695576687"
+                               }
+                 },
+    "limits":  [
+                   "No live Discord account, network message, call or microphone use.",
+                   "No performance measurement from screenshots.",
+                   "Full workspace tests and matching standard release package remain pending.",
+                   "No claim about bidirectional TextEdit/IME, application-wide mirroring, other hosts or reporter hardware."
+               ],
+    "environment":  "Windows 11 Home 10.0.26200; Ryzen 7800X3D, 32 GiB RAM. Display scaling and selected WGPU backend were not independently measured."
+}

@@ -4660,6 +4660,7 @@ profiles-activity-empty = 尚無分享的活動。
 profiles-mutuals-empty = 這裡沒有可顯示的內容。
 
 reading-double-click-reaction = 雙擊回應
+message-preview-limit = 此訊息超過原生文字排版的限制。
 
 ## crates/platform/src/app_menu.rs
 # Context: macos_menu_bar

@@ -4462,6 +4462,8 @@ voice-recipient-ringing = Sonnerie…
 voice-recipient-not-in-call = Absent de l’appel
 reconnect-now = Se reconnecter
 
+message-preview-limit = Ce message dépasse la limite de mise en page du texte natif.
+
 voice-call-moved-to-another-client = La session d’appel de cet appareil a été remplacée
 
 server-settings-page-safety = Configuration de la sécurité

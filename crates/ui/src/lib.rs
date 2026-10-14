@@ -80,6 +80,7 @@ mod pending;
 mod post_menu;
 mod preload;
 mod profiles;
+mod rtl;
 mod slash_builtin;
 mod slash_commands;
 mod stickers;
@@ -4006,6 +4007,12 @@ impl MessagingUi {
 	}
 
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
+		rtl::scope(
+			ui.ctx(),
+			state.generation,
+			state.user.as_ref().map(|user| user.id),
+			state.selected,
+		);
 		self.avatars.cosmetics = self.cosmetics;
 		let cosmetics_refresh = state.set_profile_cosmetics(self.cosmetics);
 		self.timeline.download.gif_favorites = state
@@ -5404,6 +5411,7 @@ impl MessagingUi {
 				None => {}
 			}
 		}
+		select::show_menu(&ctx);
 		self.show_call_switch(&ctx, state, &mut commands);
 		self.apply_ring_request(state, &mut commands);
 		if let Some((guild, channel, user, change)) = self.voice_moderation.take()
