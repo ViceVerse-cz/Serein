@@ -708,9 +708,9 @@ impl Menu {
 					if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
 						self.dismissed = true;
 					}
-					let choose = i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
-						|| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab);
-					if choose && self.game_status == client_core::game_mentions::Status::Unavailable
+					if self.game_status == client_core::game_mentions::Status::Unavailable
+						&& (i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+							|| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab))
 					{
 						self.retry_games = true;
 					}
@@ -1046,6 +1046,49 @@ fn row(
 mod tests {
 	use super::*;
 	use model::Channel;
+
+	#[test]
+	fn game_empty_search_keeps_editor_keys_unless_retrying() {
+		use client_core::game_mentions::Status;
+		for status in [
+			Status::Idle,
+			Status::Loading,
+			Status::Ready,
+			Status::Unavailable,
+		] {
+			for key in [egui::Key::Enter, egui::Key::Tab, egui::Key::Escape] {
+				let mut menu = Menu {
+					kind: Some(Kind::Game),
+					game_status: status,
+					..Default::default()
+				};
+				let ctx = egui::Context::default();
+				let output = ctx.run_ui(
+					egui::RawInput {
+						events: vec![egui::Event::Key {
+							key,
+							physical_key: None,
+							pressed: true,
+							repeat: false,
+							modifiers: egui::Modifiers::NONE,
+						}],
+						..Default::default()
+					},
+					|_| {
+						assert!(menu.keys(&ctx).is_none());
+						let retry = key != egui::Key::Escape && status == Status::Unavailable;
+						assert_eq!(menu.retry_games, retry);
+						assert_eq!(menu.dismissed, key == egui::Key::Escape);
+						assert_eq!(
+							ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, key)),
+							key != egui::Key::Escape && !retry
+						);
+					},
+				);
+				output.drop_without_applying_deltas();
+			}
+		}
+	}
 
 	#[test]
 	fn game_pointer_selection_uses_the_composer_without_sending() {

@@ -9,9 +9,11 @@ never user or role IDs, and does not add them to the user/role notification allo
 Names and icons come from the existing credential-free `/applications/detectable` route,
 including entries without detectable executables. The request runs lazily on first game
 search or a loaded timeline reference, independently of local activity sharing. Catalog
-failures require an explicit retry and respect the request's rate-limit cooldown. No
-game processes, account settings, credentials, messages or microphone are accessed by
-the catalog loader. Synthetic tests verify insertion, parsing and layout semantics only.
+failures require an explicit retry and respect the request's rate-limit cooldown. The
+loader scans already-loaded message text in memory to decide when to request the catalog;
+no message text is sent by that lookup. It does not access game processes, account settings,
+credentials or the microphone. Synthetic tests verify insertion, parsing and layout
+semantics only.
 
 ## Profile badges, badge directory and badge settings — October 12, 2026
 

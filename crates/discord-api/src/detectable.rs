@@ -31,9 +31,18 @@ struct WireGame {
 	#[serde(default)]
 	name: Option<String>,
 	#[serde(default)]
-	icon: Option<String>,
-	#[serde(default)]
 	executables: Option<Vec<WireExecutable>>,
+}
+
+/// Game references need presentation metadata, independently of process detection.
+#[derive(Deserialize)]
+struct WireGameMention {
+	#[serde(default)]
+	id: Option<String>,
+	#[serde(default)]
+	name: Option<String>,
+	#[serde(default)]
+	icon: Option<String>,
 }
 #[derive(Deserialize)]
 struct WireExecutable {
@@ -103,7 +112,7 @@ pub fn decode_mentions(bytes: &[u8]) -> Result<Vec<model::GameMention>, &'static
 	if bytes.len() > MAX_LIST {
 		return Err(failure);
 	}
-	let wire: Vec<WireGame> = serde_json::from_slice(bytes).map_err(|_| failure)?;
+	let wire: Vec<WireGameMention> = serde_json::from_slice(bytes).map_err(|_| failure)?;
 	if wire.len() > MAX_GAMES {
 		return Err(failure);
 	}
@@ -135,6 +144,27 @@ pub fn decode_mentions(bytes: &[u8]) -> Result<Vec<model::GameMention>, &'static
 
 #[cfg(test)]
 mod mention_tests {
+	#[test]
+	fn game_mentions_ignore_malformed_executable_metadata() {
+		for executables in [
+			r#"[{"is_launcher":null}]"#,
+			r#"[{"name":42,"is_launcher":"yes"}]"#,
+			r#"{"unexpected":true}"#,
+		] {
+			let list = format!(
+				r#"[{{"id":"42","name":"Deadlock","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","executables":{executables}}},{{"id":"43","name":"Dead Space"}}]"#
+			);
+			let games = super::decode_mentions(list.as_bytes()).unwrap();
+			assert_eq!(games.len(), 2);
+			assert_eq!(games[0].id, model::Id(42));
+			assert_eq!(games[0].name, "Deadlock");
+			assert_eq!(
+				games[0].icon.as_deref(),
+				Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+			);
+		}
+	}
+
 	#[test]
 	fn catalog_keeps_games_without_executables_and_validates_icons() {
 		let games = super::decode_mentions(
