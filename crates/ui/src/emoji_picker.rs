@@ -327,7 +327,7 @@ fn preload_gifs(
 	}
 	// Only from a closed picker's empty view: a failed home waits for the picker's own retry.
 	if state.gifs.view.is_none()
-		&& let Some(command) = state.request_gifs(None)
+		&& let Some(command) = state.preload_gifs(std::time::Instant::now())
 	{
 		commands.push(command);
 	}

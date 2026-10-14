@@ -1354,7 +1354,10 @@ impl State {
 		}
 		let command = self.history(None);
 		if let Command::History { request, .. } = command
-			&& self.preload.conversations.adopt(channel, request)
+			&& self
+				.preload
+				.conversations
+				.adopt(channel, request, std::time::Instant::now())
 		{
 			// The page this click needs is already on its way.
 			return Apply::Opened(self.call_sync(channel));
@@ -2344,7 +2347,7 @@ impl State {
 				Command::History {
 					channel, request, ..
 				} => {
-					if let preload::Arrival::Adopted(own) =
+					if let preload::Arrival::Adopted(own, _) =
 						self.preload.conversations.arrived(request, false)
 					{
 						self.command_rejected(Command::History {
@@ -2477,6 +2480,7 @@ impl State {
 			if matches!(envelope.event, Event::Ready { .. } | Event::Resync) {
 				self.set_premium_type(0);
 			}
+			self.interrupt_preloads();
 			self.interrupt_stickers();
 			self.posts.clear_summaries();
 			self.interactions.reset();
@@ -3382,7 +3386,7 @@ impl State {
 			} => {
 				if preload::is_preload(request) {
 					match self.preload.conversations.arrived(request, true) {
-						preload::Arrival::Adopted(own) => request = own,
+						preload::Arrival::Adopted(own, _) => request = own,
 						preload::Arrival::Keep => return self.park_preloaded(channel, messages),
 						preload::Arrival::Drop => return,
 					}
@@ -3445,6 +3449,9 @@ impl State {
 					self.newer_may_have_more = messages.len() == 50;
 				}
 				let jump = self.history_after.is_some() && self.timeline.is_empty();
+				if self.older_exhausted {
+					self.timeline.mark_start_loaded();
+				}
 				let r = self.timeline.finish_page(messages, older);
 				if r.is_ok() && jump {
 					self.search_target = self.timeline.iter().next().map(|m| m.id);
@@ -3468,7 +3475,7 @@ impl State {
 				failure,
 			} => {
 				if preload::is_preload(request) {
-					let preload::Arrival::Adopted(own) =
+					let preload::Arrival::Adopted(own, _) =
 						self.preload.conversations.arrived(request, false)
 					else {
 						return;
@@ -3479,6 +3486,15 @@ impl State {
 					|| request != self.request
 					|| !self.history_pending
 				{
+					return;
+				}
+				if failure == auth::Failure::Capacity {
+					self.command_rejected(Command::History {
+						channel,
+						request,
+						before: None,
+						after: None,
+					});
 					return;
 				}
 				self.cancel_history();

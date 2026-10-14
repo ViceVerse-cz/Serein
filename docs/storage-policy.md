@@ -665,6 +665,8 @@ without touching drafts or pending sends. Incoming mutations evict the affected 
 permission/identity changes prune it, and session replacement/resync/logout removes all dormant
 history. One fixed-size, session-only `(channel, request, target)` tuple tracks an exact history
 navigation independently of the UI's consumed scroll cue; it is not a message/metadata cache.
+A timeline retains one boolean for oldest-row capacity eviction. A completed short history page
+resets it; subsequent row or byte eviction restores older-page access even on a trusted reopen.
 Clear cached history removes dormant RAM and disk history while preserving the active
 displayed conversation. No new disk data, database schema, worker or service request is added.
 
@@ -673,8 +675,8 @@ requests that conversation's recent page early (a server icon uses the channel i
 It is the same bounded 50-message request a click sends, on its own connection slot so it never
 cancels the open conversation's reads, and it waits for the shared REST cooldown like any request.
 At most one preload is in flight and at most twelve are sent per minute; a target is not requested
-again until its latest message changes, and only a failure forgets the attempt. A click on the
-target while its page is in flight adopts that request instead of sending another, unless a live
+again until its latest message changes, and failure or connection replacement forgets the attempt. A click on the
+target while its page is less than 30 seconds old adopts that request instead of sending another, unless a live
 change to the channel arrived meanwhile; then the click sends its own request and the preloaded
 page is discarded. Otherwise the page is kept as one dormant window under the same eight-window,
 row and byte budget above, again only if no live change arrived while it was in flight. The open conversation, forums, archived
@@ -689,6 +691,14 @@ already cached or open, webhooks, and the offline fixture are skipped. Resting o
 of a closed picker requests its home page (served from the existing ten-minute page cache when
 fresh) and the favorites sync once, and asks the image worker for the favorite preview, the first
 trending preview and the first eight category previews under the worker's existing bounds.
+GIF home hover reads retain at most twelve timestamps and send at most twelve requests per
+minute, including failed/cleared-view retries. Cache hits consume no slot; explicit clicks and
+retries keep their normal behavior. Timestamp allocation is included in the GIF byte estimate.
+Connection replacement, READY, disconnect and resync discard conversation/profile flight and
+adoption markers while preserving the minute caps and request counters. Adopted profile results
+may finish an open card, but invalidated results cannot refill the profile cache. The desktop
+retains at most four speculative tasks; a full pool rejects new work with a correlated error
+instead of silently aborting a read already adopted by a click.
 
 Loaded messages deleted by the service leave only their ID as a session-local reading row.
 Author, body, attachment and embed metadata are dropped from the timeline and its formatted /

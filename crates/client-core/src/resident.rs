@@ -128,6 +128,9 @@ impl State {
 	}
 	/// Also call after direct disk hydration of the public active timeline.
 	pub fn enforce_resident_budget(&mut self) {
+		if self.timeline.older_evicted() {
+			self.older_exhausted = false;
+		}
 		while !self.resident.entries.is_empty()
 			&& (self.resident_history_rows() > MAX_ROWS
 				|| self.resident_history_bytes() > MAX_BYTES)
@@ -255,11 +258,12 @@ impl State {
 				if self.resident.entries.len() == MAX_WINDOWS {
 					self.resident.entries.pop_front();
 				}
+				let older_exhausted = self.older_exhausted && !timeline.older_evicted();
 				self.resident.entries.push_back(Window {
 					identity,
 					timeline,
 					parked: Instant::now(),
-					older_exhausted: self.older_exhausted,
+					older_exhausted,
 				});
 			}
 		}
@@ -464,6 +468,67 @@ mod tests {
 			embeds: Patch::Absent,
 			attachments: Patch::Absent,
 			embeds_suppressed: Patch::Absent,
+		}
+	}
+
+	#[test]
+	fn live_eviction_reopens_older_history_after_a_trusted_return() {
+		for byte_limit in [false, true] {
+			let mut state = state();
+			state.select(Id(1)).unwrap();
+			let request = state.request;
+			apply(
+				&mut state,
+				Event::History {
+					channel: Id(1),
+					request,
+					older: false,
+					messages: vec![message(1, 1)],
+				},
+			);
+			assert!(state.older_exhausted);
+			assert!(!state.can_load_older());
+			let count = if byte_limit { 100 } else { 501 };
+			for id in 2..=count {
+				let mut row = message(1, id);
+				if byte_limit {
+					row.content = "x".repeat(64 * 1024);
+				}
+				apply(&mut state, Event::Message(row));
+			}
+			assert!(state.timeline.get(Id(1)).is_none());
+			assert!(!state.older_exhausted);
+			assert!(state.can_load_older(), "capacity eviction loses the start");
+			load(&mut state, 2);
+			assert!(
+				state.select(Id(1)).is_none(),
+				"trusted return avoids revalidation"
+			);
+			assert!(state.can_load_older());
+			let before = state.timeline.row_ids().next().unwrap();
+			let Some(Command::History {
+				before: Some(cursor),
+				request,
+				..
+			}) = state.older_history()
+			else {
+				panic!()
+			};
+			assert_eq!(cursor, before);
+			apply(
+				&mut state,
+				Event::History {
+					channel: Id(1),
+					request,
+					older: true,
+					messages: vec![message(1, 1)],
+				},
+			);
+			assert!(state.timeline.get(Id(1)).is_some());
+			assert!(
+				!state.can_load_older(),
+				"the short older page establishes the start again"
+			);
 		}
 	}
 

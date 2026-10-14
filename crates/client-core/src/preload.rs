@@ -15,7 +15,7 @@ pub const CONVERSATION_DWELL: Duration = Duration::from_millis(120);
 /// Profiles use an unofficial, rate-limit-sensitive route, so they need a longer rest.
 pub const PROFILE_DWELL: Duration = Duration::from_millis(300);
 /// Speculative requests per minute and kind, so sweeping across many rows stays a handful.
-const PER_MINUTE: usize = 12;
+pub(crate) const PER_MINUTE: usize = 12;
 /// Remembered targets, so revisiting an unchanged one does not repeat its request.
 const ATTEMPTS: usize = 64;
 /// Longer than the REST timeout: an in-flight marker this old lost its result to a session change.
@@ -129,17 +129,26 @@ impl<K: Copy + PartialEq> Intent<K> {
 	}
 	/// Lets a click take over the in-flight request for `target` as its own `request`, unless a
 	/// live change may already be missing from it.
-	pub(crate) fn adopt(&mut self, target: K, request: u64) -> bool {
-		let Some(preload) = self
-			.in_flight
-			.as_ref()
-			.filter(|flight| flight.target == target && !flight.stale)
-			.map(|flight| flight.request)
+	pub(crate) fn adopt(&mut self, target: K, request: u64, now: Instant) -> bool {
+		let Some(preload) =
+			self.in_flight
+				.as_ref()
+				.filter(|flight| {
+					flight.target == target
+						&& !flight.stale && now.saturating_duration_since(flight.since) < LOST
+				})
+				.map(|flight| flight.request)
 		else {
 			return false;
 		};
 		self.adopted = Some((preload, request));
 		true
+	}
+	fn interrupt(&mut self) {
+		self.hovered = None;
+		self.in_flight = None;
+		self.adopted = None;
+		self.attempts.clear();
 	}
 	/// Marks an in-flight result outdated when its target changes, or any result for `None`.
 	pub(crate) fn touch(&mut self, target: Option<K>) {
@@ -160,7 +169,7 @@ impl<K: Copy + PartialEq> Intent<K> {
 		match self.adopted {
 			Some((preload, own)) if preload == request => {
 				self.adopted = None;
-				Arrival::Adopted(own)
+				Arrival::Adopted(own, flight.is_some_and(|flight| !flight.stale))
 			}
 			_ if ok && flight.is_some_and(|flight| !flight.stale) => Arrival::Keep,
 			_ => Arrival::Drop,
@@ -177,14 +186,20 @@ pub struct Preload {
 
 /// Where a preload's result goes.
 pub(crate) enum Arrival {
-	/// A click adopted it; apply it as the click's own request.
-	Adopted(u64),
+	/// A click adopted it: its own request id and whether the result may enter a cache.
+	Adopted(u64, bool),
 	/// Keep it for a later click: a dormant window or a cached profile.
 	Keep,
 	Drop,
 }
 
 impl State {
+	/// Forget work owned by the replaced connection, retaining the minute caps and request ids.
+	pub fn interrupt_preloads(&mut self) {
+		self.preload.conversations.interrupt();
+		self.preload.profiles.interrupt();
+	}
+
 	/// Call once per frame with the conversation under the pointer and the one pressed, if any.
 	pub fn preload_conversation(
 		&mut self,
@@ -384,6 +399,30 @@ mod tests {
 				.is_none()
 		);
 		state.preload_conversation(Some(Id(channel)), None, now + CONVERSATION_DWELL)
+	}
+
+	#[test]
+	fn rejected_adopted_history_clears_loading_without_ending_the_session() {
+		let mut state = state();
+		let Some((_, request)) =
+			preloaded(state.preload_conversation(None, Some(Id(1)), Instant::now()))
+		else {
+			panic!()
+		};
+		assert!(state.select(Id(1)).is_none());
+		apply(
+			&mut state,
+			Event::HistoryFailed {
+				channel: Id(1),
+				request,
+				failure: crate::auth::Failure::Capacity,
+			},
+		);
+		assert!(!state.history_pending);
+		assert_eq!(state.freshness, Freshness::Stale);
+		assert!(state.gateway_connected);
+		assert_eq!(state.auth, AuthState::Authenticated);
+		assert_eq!(state.status, "Work queue full; action was not sent");
 	}
 
 	#[test]

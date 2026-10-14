@@ -54,6 +54,7 @@ pub struct Gifs {
 	sync_restore_ambiguous: bool,
 	cache: VecDeque<CachedPage>,
 	cache_bytes: usize,
+	hover_sent: VecDeque<Instant>,
 }
 impl Gifs {
 	pub fn bytes(&self) -> usize {
@@ -69,6 +70,7 @@ impl Gifs {
 				.and_then(|view| view.page.as_ref())
 				.map_or(0, GifPage::bytes)
 			+ self.cache_bytes
+			+ self.hover_sent.capacity() * size_of::<Instant>()
 			+ self.sync_command.as_ref().map_or(0, |(gif, _)| gif.bytes())
 			+ self.sync_remote.capacity() * size_of::<String>()
 			+ self.sync_remote.iter().map(String::capacity).sum::<usize>()
@@ -111,6 +113,33 @@ impl Gifs {
 	}
 }
 impl State {
+	/// Closed-picker hover reads share the 12/minute bound, including retries after failure.
+	pub fn preload_gifs(&mut self, now: Instant) -> Option<Command> {
+		if self.demo || !self.can_browse_gifs() || self.gifs.view.is_some() {
+			return None;
+		}
+		while self
+			.gifs
+			.hover_sent
+			.front()
+			.is_some_and(|at| now.saturating_duration_since(*at) >= Duration::from_secs(60))
+		{
+			self.gifs.hover_sent.pop_front();
+		}
+		let cached = self
+			.gifs
+			.cache
+			.iter()
+			.any(|entry| entry.query.is_none() && entry.loaded.elapsed() < GIF_CACHE_TTL);
+		if !cached && self.gifs.hover_sent.len() >= crate::preload::PER_MINUTE {
+			return None;
+		}
+		let command = self.request_gifs(None);
+		if command.is_some() {
+			self.gifs.hover_sent.push_back(now);
+		}
+		command
+	}
 	pub fn can_browse_gifs(&self) -> bool {
 		self.auth == AuthState::Authenticated && self.gateway_connected
 	}
@@ -415,6 +444,40 @@ mod tests {
 			width: 300,
 			height: 200,
 		}
+	}
+
+	#[test]
+	fn hover_retries_are_capped_but_cache_hits_and_explicit_clicks_still_work() {
+		let now = Instant::now();
+		let mut state = test_state();
+		for _ in 0..crate::preload::PER_MINUTE {
+			let Some(Command::Gifs { request, .. }) = state.preload_gifs(now) else {
+				panic!()
+			};
+			state.apply_gifs(request, Err(Failure::Network));
+			state.clear_gifs();
+		}
+		assert!(state.preload_gifs(now).is_none());
+		assert!(state.gifs.view.is_none());
+		let Some(Command::Gifs { request, .. }) = state.request_gifs(None) else {
+			panic!("click is not speculative")
+		};
+		state.apply_gifs(request, Ok(GifPage::default()));
+		state.clear_gifs();
+		assert!(
+			state.preload_gifs(now).is_none(),
+			"cache hit needs no request"
+		);
+		assert!(state.gifs.view.as_ref().is_some_and(|view| !view.loading));
+		assert_eq!(state.gifs.hover_sent.len(), crate::preload::PER_MINUTE);
+		state.clear_gifs();
+		state.gifs.cache.clear();
+		state.gifs.cache_bytes = 0;
+		assert!(state.preload_gifs(now + Duration::from_secs(60)).is_some());
+		assert_eq!(state.gifs.hover_sent.len(), 1);
+		state.clear_gifs();
+		state.demo = true;
+		assert!(state.preload_gifs(now + Duration::from_secs(61)).is_none());
 	}
 
 	#[test]

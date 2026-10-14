@@ -39,6 +39,7 @@ impl Desktop {
 		self.uploads.cancel();
 		self.login = None;
 		self.state.interrupt_gif_favorites();
+		self.state.interrupt_preloads();
 		self.connection = None;
 		if let Some(worker) = self.avatars.take() {
 			self.avatar_cleanup = Some(worker.shutdown());

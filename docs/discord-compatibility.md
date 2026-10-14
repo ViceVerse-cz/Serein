@@ -422,7 +422,8 @@ in Settings › Chat › Channel list. Resting on a person for 300 ms requests t
 **unofficial** extended-profile route a card opens, with the same query and server context,
 under its own one-in-flight and twelve-per-minute limits; that route is rate-limit sensitive,
 so this is the preload most likely to meet a cooldown. Resting on the GIF button requests the
-picker's existing home and favorites reads once.
+picker's existing home and favorites reads. Home hover retries are capped at twelve per minute;
+fresh cache hits send no request and explicit picker retries keep their normal behavior.
 
 The wire history route and permission requirements are documented in Discord's
 [Message resource](https://docs.discord.com/developers/resources/message); forum/thread
