@@ -4,6 +4,27 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Game mention catalog and review fixes - October 14, 2026
+
+Compared baseline `7759f5b5` with game mentions and review fixes at `75c4dfe0`.
+Both unsigned Windows portable packages use Rust 1.98.1 and `cargo xtask package`
+(`--release --locked --no-default-features`, voice included). The baseline `dist`
+was preserved in its separate worktree. The after measurement uses a clean copy
+of the generated package, excluding an obsolete `ruzstd-0.9.0-LICENSE` left in the
+reused output directory; that original file was preserved. Both measured packages
+contain 216 files. ZIP uses Python deflate level 9 with sorted relative paths.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable bytes | 87,321,088 | 87,412,736 | +91,648 (+0.105%) |
+| Full portable package bytes | 91,514,377 | 91,605,995 | +91,618 (+0.100%) |
+| ZIP distribution bytes | 50,312,736 | 50,338,891 | +26,155 (+0.052%) |
+
+NSIS was unavailable, so installer size was not measured. Native UI testing was
+left to the owner at their request; CPU, process memory and frame timings were
+not sampled. These package sizes do not measure catalog latency or live Discord
+behavior, and no runtime performance improvement is claimed.
+
 ## Hover preload review repairs - October 14, 2026
 
 Compared the original PR #636 head `08a9ae01` with runtime repair `d4b27dd3`, which also
