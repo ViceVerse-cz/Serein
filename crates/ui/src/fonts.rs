@@ -342,11 +342,24 @@ pub fn revision(ctx: &Context) -> (usize, usize, u32) {
 	})
 }
 
-pub fn apply_custom(ctx: &Context, font: Option<&CustomFont>) {
+/// Clear account widget memory while retaining the application-owned font registry.
+pub fn reset_session_memory(ctx: &Context) {
 	let shared = ctx.data(|data| {
 		data.get_temp::<Arc<Mutex<FontDefinitions>>>(egui::Id::unique(DEFINITIONS_KEY))
 	});
-	let Some(shared) = shared else { return };
+	ctx.memory_mut(|memory| *memory = egui::Memory::default());
+	if let Some(shared) = shared {
+		ctx.data_mut(|data| data.insert_temp(egui::Id::unique(DEFINITIONS_KEY), shared));
+		crate::design::weights_installed(ctx);
+	}
+}
+
+/// Return false when fonts have not been installed, so callers retain the active choice.
+pub fn apply_custom(ctx: &Context, font: Option<&CustomFont>) -> bool {
+	let shared = ctx.data(|data| {
+		data.get_temp::<Arc<Mutex<FontDefinitions>>>(egui::Id::unique(DEFINITIONS_KEY))
+	});
+	let Some(shared) = shared else { return false };
 	let mut definitions = shared.lock().expect("font definitions");
 	for (family, name, weight) in [
 		(FontFamily::Proportional, CUSTOM[0], 400.0),
@@ -381,6 +394,7 @@ pub fn apply_custom(ctx: &Context, font: Option<&CustomFont>) {
 	}
 	ctx.set_fonts(definitions.clone());
 	ctx.request_repaint();
+	true
 }
 
 /// The regional faces share one collection, decoded off-thread on the first CJK text.
@@ -613,6 +627,79 @@ mod tests {
 	use super::*;
 	use egui::FontId;
 	use skrifa::MetadataProvider;
+
+	#[test]
+	fn session_reset_preserves_device_font_state_and_allows_replacement_and_reset() {
+		let ctx = Context::default();
+		install(&ctx);
+		let original = CustomFont::new("Synthetic original".into(), INTER.to_vec()).unwrap();
+		let replacement =
+			CustomFont::new("Synthetic replacement".into(), INTER_SEMIBOLD.to_vec()).unwrap();
+		let mut view = crate::MessagingUi::default();
+		assert!(apply_custom(&ctx, Some(&original)));
+		view.custom_font.name = Some(original.name.clone());
+		view.custom_font.busy = true;
+		view.custom_font.status = "Saving font…";
+		view.custom_font.families = Some(vec![original.name.clone(), replacement.name.clone()]);
+		view.settings.open = true;
+		let account_widget = egui::Id::unique("synthetic-account-widget");
+		ctx.data_mut(|data| data.insert_temp(account_widget, true));
+		ctx.run_ui(Default::default(), |ui| {
+			ui.label("Synthetic font baseline");
+			assert_eq!(
+				ui.fonts(|fonts| fonts.definitions().font_data[CUSTOM[0]].bytes().to_vec()),
+				original.bytes()
+			);
+		})
+		.drop_without_applying_deltas();
+		view.clear();
+		reset_session_memory(&ctx);
+		assert_eq!(
+			view.custom_font.name.as_deref(),
+			Some(original.name.as_str())
+		);
+		assert!(view.custom_font.busy);
+		assert_eq!(view.custom_font.status, "Saving font…");
+		assert_eq!(view.custom_font.families.as_ref().unwrap().len(), 2);
+		assert!(!view.settings.open);
+		assert!(
+			ctx.data(|data| data.get_temp::<bool>(account_widget))
+				.is_none()
+		);
+		assert!(apply_custom(&ctx, Some(&replacement)));
+		view.custom_font.name = Some(replacement.name.clone());
+		ctx.run_ui(Default::default(), |ui| {
+			ui.label("Synthetic font replacement");
+			assert_eq!(
+				ui.fonts(|fonts| fonts.definitions().font_data[CUSTOM[0]].bytes().to_vec()),
+				replacement.bytes()
+			);
+		})
+		.drop_without_applying_deltas();
+		assert_eq!(
+			view.custom_font.name.as_deref(),
+			Some(replacement.name.as_str())
+		);
+		assert!(apply_custom(&ctx, None));
+		view.custom_font.name = None;
+		ctx.run_ui(Default::default(), |ui| {
+			ui.label("Synthetic font reset");
+			ui.fonts(|fonts| {
+				assert_eq!(
+					fonts.definitions().families[&FontFamily::Proportional][0],
+					"Inter"
+				);
+				assert!(
+					CUSTOM
+						.iter()
+						.all(|name| !fonts.definitions().font_data.contains_key(*name))
+				);
+			});
+		})
+		.drop_without_applying_deltas();
+		assert!(view.custom_font.name.is_none());
+		assert!(!apply_custom(&Context::default(), Some(&original)));
+	}
 
 	#[test]
 	fn cjk_scan_reuses_immutable_jobs_without_retaining_their_text() {

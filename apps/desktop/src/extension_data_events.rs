@@ -53,6 +53,7 @@ impl Changes {
 			}
 			Event::GuildJoined(_)
 			| Event::GuildChanged(_)
+			| Event::GuildRemoved(_)
 			| Event::ChannelCreated(_)
 			| Event::ChannelRestored(_)
 			| Event::ChannelChanged(_)
@@ -588,6 +589,24 @@ impl DataKey {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn permanent_guild_departure_invalidates_extension_directory_data() {
+		let state = test_support::demo_state();
+		let changes = Changes::capture(
+			&state,
+			&Envelope {
+				generation: state.generation,
+				event: Event::GuildRemoved(Id(10)),
+			},
+		);
+		assert_eq!(
+			changes
+				.kinds(&[Capability::GuildDirectory])
+				.collect::<Vec<_>>(),
+			vec![AppEventKind::Channels]
+		);
+	}
+
 	#[test]
 	fn data_hints_require_current_generation_context_and_grants() {
 		let state = test_support::demo_state();

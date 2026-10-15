@@ -85,7 +85,7 @@ impl Desktop {
 			ctx.clone(),
 		));
 	}
-	fn logout(&mut self, ctx: &egui::Context) {
+	pub(super) fn logout(&mut self, ctx: &egui::Context) {
 		self.end_session(ctx, SessionEnd::Logout);
 	}
 	/// Ends the current session. Only logging out removes this account's local data and
@@ -125,57 +125,17 @@ impl Desktop {
 		self.switching = None;
 		self.roster_pending = false;
 		self.state.logout();
-		if intent.forgets()
-			&& let (Some(cache), Some(account)) = (&self.cache, old_account)
-		{
-			if cache.queue(self.state.generation, account, cache::Operation::Forget) {
-				self.cache_pending += 1;
-			} else {
-				self.cache_error = true;
-				self.cache_status = "Could not queue local account data removal";
-			}
-		}
-		self.messaging.clear();
-		if intent.forgets() {
-			self.messaging
-				.accounts
-				.retain(|saved| Some(saved.id) != old_account);
-		}
-		if let Err(error) = extension_logout {
-			self.messaging.extensions.status = error;
-			self.cache_error = true;
-			self.cache_status = "Extension account data removal could not be queued";
-		}
-		self.app_settings.apply(&mut self.messaging);
-		self.messaging.share_game_activity = self.game_activity.enabled;
-		ctx.memory_mut(|m| *m = egui::Memory::default());
-		let _ = ui::emoji::install(ctx);
-		ui::design::apply(ctx);
-		ctx.set_theme(self.appearance);
-		self.sync_system_theme(ctx);
-		self.messaging
-			.apply_reading_preferences(ctx, self.reading.current);
-		ctx.clear_animations();
-		self.token_input = Zeroizing::new(String::new());
-		if !was_demo
-			&& intent.forgets()
-			&& let Some(store) = &self.store
-		{
-			self.forgetting = store
-				.send
-				.try_send((
-					self.state.generation,
-					credentials::Request::NONE,
-					credentials::Operation::Forget,
-				))
-				.is_ok();
-			if let Some(account) = old_account {
-				let _ = store.send.try_send((
-					self.state.generation,
-					credentials::Request::NONE,
-					credentials::Operation::ForgetAccount(account),
-				));
-			}
+		if !was_demo && intent.forgets() {
+			self.forgetting = self.store.as_ref().is_some_and(|store| {
+				store
+					.send
+					.try_send((
+						self.state.generation,
+						credentials::Request::NONE,
+						credentials::Operation::Forget(old_account),
+					))
+					.is_ok()
+			});
 			self.credential_status = if self.forgetting {
 				"Removing saved login…"
 			} else {
@@ -184,6 +144,24 @@ impl Desktop {
 		} else if !was_demo {
 			self.credential_status = "Signed out of this account; its saved login is kept";
 		}
+		self.messaging.clear();
+		if let Err(error) = extension_logout {
+			self.messaging.extensions.status = error;
+			self.cache_error = true;
+			self.cache_status = "Extension account data removal could not be queued";
+		}
+		self.app_settings.apply(&mut self.messaging);
+		self.messaging.share_game_activity = self.game_activity.enabled;
+		ui::fonts::reset_session_memory(ctx);
+		let _ = ui::emoji::install(ctx);
+		ui::design::apply(ctx);
+		ctx.set_theme(self.appearance);
+		self.sync_system_theme(ctx);
+		self.messaging
+			.apply_reading_preferences(ctx, self.reading.current);
+		ctx.clear_animations();
+		self.token_input = Zeroizing::new(String::new());
+
 		self.confirming_logout = false;
 		self.end_intent = SessionEnd::Logout;
 	}
@@ -225,6 +203,14 @@ impl Desktop {
 			"Credential lookup unavailable; sign in with Discord again"
 		};
 	}
+	pub(super) fn credential_cleanup_pending(&self) -> bool {
+		self.forgetting
+			|| self
+				.store
+				.as_ref()
+				.is_some_and(credentials::Store::has_pending_removals)
+	}
+
 	/// Removes one saved account: its token, roster entry and cached data.
 	fn forget_saved_account(&mut self, ctx: &egui::Context, account: model::Id) {
 		if self
@@ -236,21 +222,84 @@ impl Desktop {
 			self.request_session_end(ctx, SessionEnd::Logout);
 			return;
 		}
-		self.messaging.accounts.retain(|saved| saved.id != account);
-		if let Some(store) = &self.store {
-			let _ = store.send.try_send((
-				self.state.generation,
-				credentials::Request::NONE,
-				credentials::Operation::ForgetAccount(account),
-			));
+		if self.cache_forgets.contains(account) {
+			self.retry_account_forgets();
+			return;
 		}
-		if self.queue_cache_for(account, cache::Operation::Forget) {
-			self.credential_status = "Saved account removed from this device";
+		let known_accounts = self
+			.state
+			.user
+			.iter()
+			.map(|user| user.id)
+			.chain(self.messaging.accounts.iter().map(|saved| saved.id));
+		let queued = self.store.as_mut().is_some_and(|store| {
+			store.forget_account(self.state.generation, account, known_accounts)
+		});
+		self.credential_status = if queued {
+			"Removing saved account…"
 		} else {
-			self.cache_error = true;
-			self.cache_status = "Could not queue local account data removal";
+			"Credential queue unavailable; the saved account has been kept. Try again."
+		};
+	}
+	pub(super) fn account_forgotten(
+		&mut self,
+		generation: u64,
+		account: model::Id,
+		result: Result<(), platform::CredentialError>,
+		include_missing: bool,
+	) {
+		if result.is_ok() || result == Err(platform::CredentialError::NoStore) {
+			// Pruned entries were already removed and their cache cleanup queued.
+			if !include_missing
+				&& !self
+					.messaging
+					.accounts
+					.iter()
+					.any(|saved| saved.id == account)
+			{
+				return;
+			}
+			if self.cache_forgets.request(generation, account) {
+				self.credential_status =
+					"Saved login removed; waiting to remove local account data…";
+			} else {
+				self.cache_error = true;
+				self.cache_status = "Saved login removed, but too many account cleanups are pending. Wait for local storage and try again.";
+			}
+		} else {
+			self.credential_status = if result == Err(platform::CredentialError::Invalid) {
+				"Launch login ownership could not be verified. Sign into this account again, then forget it, or remove the Serein login in your OS credential manager."
+			} else {
+				"Could not remove the saved login; the account has been kept. Try again."
+			};
+			self.messaging
+				.toasts
+				.push(ui::design::Level::Error, self.credential_status);
 		}
 	}
+	pub(super) fn retry_account_forgets(&mut self) {
+		if self.state.demo || self.fixture_only || self.state.auth == AuthState::Authenticating {
+			return;
+		}
+		let Some(cache) = &self.cache else { return };
+		let active_account = self.state.user.as_ref().map(|user| user.id);
+		for _ in 0..model::MAX_SAVED_ACCOUNTS {
+			let Some(account) = self
+				.cache_forgets
+				.next(self.state.generation, active_account)
+			else {
+				break;
+			};
+			if !cache.queue(self.state.generation, account, cache::Operation::Forget) {
+				break;
+			}
+			self.cache_forgets.queued(account);
+			self.cache_pending += 1;
+			self.messaging.accounts.retain(|saved| saved.id != account);
+			self.credential_status = "Saved login removed; removing local account data…";
+		}
+	}
+
 	/// Keeps the switcher entry for the signed-in account current, without retrying failures.
 	pub(super) fn sync_account_roster(&mut self) {
 		if self.fixture_only || self.state.demo || self.roster_pending || self.roster_failed {
@@ -260,18 +309,20 @@ impl Desktop {
 			return;
 		}
 		let Some(user) = &self.state.user else { return };
+		let name = model::SavedAccount::label_projection(&user.name);
 		let display = self
 			.state
 			.own_profile
 			.data
 			.as_ref()
-			.and_then(|profile| profile.global_name.as_deref());
+			.and_then(|profile| profile.global_name.as_deref())
+			.map(model::SavedAccount::label_projection);
 		// Re-record once per session so the switcher orders by last use, then only on change.
 		let recorded = self.roster_generation == Some(self.state.generation);
 		if recorded
 			&& self.messaging.accounts.iter().any(|saved| {
 				saved.id == user.id
-					&& saved.name == user.name
+					&& saved.name == name
 					&& saved.avatar == user.avatar
 					&& saved.discriminator == user.discriminator
 					&& saved.display.as_deref() == display
@@ -280,7 +331,7 @@ impl Desktop {
 		}
 		let account = model::SavedAccount {
 			id: user.id,
-			name: user.name.clone(),
+			name: name.to_owned(),
 			display: display.map(str::to_owned),
 			avatar: user.avatar.clone(),
 			discriminator: user.discriminator,
@@ -296,9 +347,7 @@ impl Desktop {
 			self.roster_generation = Some(self.state.generation);
 		}
 	}
-}
 
-impl Desktop {
 	/// Boot stage while a saved login is being restored, so launch shows progress
 	/// instead of a welcome card the user cannot act on yet.
 	pub(super) fn restoring(&self) -> Option<String> {
@@ -872,7 +921,8 @@ impl Desktop {
 		let busy = self.state.auth == AuthState::Authenticating
 			|| self.forgetting
 			|| self.cache_pending > 0
-			|| self.cache_clears.pending();
+			|| self.cache_clears.pending()
+			|| self.cache_forgets.pending();
 		let show = attention
 			|| busy || self.state.status != "Disconnected"
 			|| (!self.fixture_only
@@ -1047,7 +1097,7 @@ impl Desktop {
 		ui.add_space(8.0);
 		ui.vertical_centered(|ui| {
 			ui.label(
-				egui::RichText::new(&ui::i18n::translate(
+				egui::RichText::new(ui::i18n::translate(
 					"main-sign-in-preview-sample-conversations-no-discord-connection",
 				))
 				.size(12.0)

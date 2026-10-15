@@ -1,0 +1,177 @@
+{
+  "baseline_commit": "8003ae068679fecb67cd02c4bc5e6fbedf37ffee",
+  "after_revision": "Task working tree based on baseline; only client-core production changes affect this reducer build.",
+  "after_source_blobs": {
+    "crates/client-core/src/lib.rs": "4e377c40ee38982600434d7ab23385a36b318a23",
+    "crates/client-core/src/search.rs": "82f8d4d0b1412aaf4ae61d037ad9fd9c260f09fa"
+  },
+  "host": {
+    "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+    "cpu": "Intel Xeon Platinum 8573C, 5 exposed logical CPUs",
+    "ram": "17 GiB exposed",
+    "rust": "rustc 1.98.1 (48a229cea 2026-09-01)"
+  },
+  "build": "cargo build -p replay-bench --release --locked --offline; normal fat LTO; no optional features; identical toolchain and Cargo.lock; separate baseline worktree; same writable Cargo target/cache",
+  "sampling": "One warmup per binary, five measured runs per binary, counterbalanced pair order; no task compiler or native fixture process active during samples; shared-host noise remains.",
+  "order": [
+    "before",
+    "after",
+    "after",
+    "before",
+    "before",
+    "after",
+    "after",
+    "before",
+    "before",
+    "after"
+  ],
+  "warmups": {
+    "before": {
+      "output": "Synthetic reducer replay: 100000 events in 92.30269ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "elapsed_ms": 92.30269,
+      "retained_bytes": [
+        331992,
+        332477
+      ],
+      "records": 500
+    },
+    "after": {
+      "output": "Synthetic reducer replay: 100000 events in 87.10896ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "elapsed_ms": 87.10896,
+      "retained_bytes": [
+        331992,
+        332477
+      ],
+      "records": 500
+    }
+  },
+  "samples": {
+    "before": [
+      {
+        "output": "Synthetic reducer replay: 100000 events in 100.497988ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 100.497988,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      },
+      {
+        "output": "Synthetic reducer replay: 100000 events in 96.443109ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 96.443109,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      },
+      {
+        "output": "Synthetic reducer replay: 100000 events in 99.675228ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 99.675228,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      },
+      {
+        "output": "Synthetic reducer replay: 100000 events in 106.522434ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 106.522434,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      },
+      {
+        "output": "Synthetic reducer replay: 100000 events in 94.165187ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 94.165187,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      }
+    ],
+    "after": [
+      {
+        "output": "Synthetic reducer replay: 100000 events in 87.880852ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 87.880852,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      },
+      {
+        "output": "Synthetic reducer replay: 100000 events in 106.454611ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 106.454611,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      },
+      {
+        "output": "Synthetic reducer replay: 100000 events in 107.966072ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 107.966072,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      },
+      {
+        "output": "Synthetic reducer replay: 100000 events in 95.162504ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 95.162504,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      },
+      {
+        "output": "Synthetic reducer replay: 100000 events in 95.818134ms; retained timeline 331992..332477 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+        "elapsed_ms": 95.818134,
+        "retained_bytes": [
+          331992,
+          332477
+        ],
+        "records": 500
+      }
+    ]
+  },
+  "summary": {
+    "before": {
+      "median_ms": 99.675228,
+      "range_ms": [
+        94.165187,
+        106.522434
+      ],
+      "retained_bytes": [
+        331992,
+        332477
+      ],
+      "binary_bytes": 1511512,
+      "binary_sha256": "940d340bc158654a62a75e8351431ac9fc3c22fe8fb9151b212056043ecea4d8"
+    },
+    "after": {
+      "median_ms": 95.818134,
+      "range_ms": [
+        87.880852,
+        107.966072
+      ],
+      "retained_bytes": [
+        331992,
+        332477
+      ],
+      "binary_bytes": 1516760,
+      "binary_sha256": "988bb9e96c00242b1a3cad4a6590b44659dcded8c953980bd0268f7fd9855e98"
+    }
+  },
+  "unmeasured": [
+    "Standard voice-enabled application executable, installed package and compressed package (GLib development metadata unavailable)",
+    "Native process CPU/RSS, UI/search latency and startup",
+    "Hardware driver encodes, live interoperability and application-wide leak detection"
+  ]
+}

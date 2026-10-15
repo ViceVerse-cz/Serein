@@ -186,8 +186,98 @@ fn copy_directory(source: &std::path::Path, destination: &std::path::Path) -> Re
 	}
 	Ok(())
 }
+fn package_build() -> Result<(PathBuf, String), String> {
+	// A cached xtask can serve a different checkout/version. Cargo is also the
+	// authority for target directories and triples configured outside this tool.
+	let metadata = Command::new("cargo")
+		.args([
+			"metadata",
+			"--no-deps",
+			"--format-version=1",
+			"--locked",
+			"--offline",
+		])
+		.stderr(Stdio::inherit())
+		.output()
+		.map_err(|error| error.to_string())?;
+	if !metadata.status.success() {
+		return Err("Cannot identify the workspace package for release packaging".into());
+	}
+	let metadata: serde_json::Value =
+		serde_json::from_slice(&metadata.stdout).map_err(|error| error.to_string())?;
+	let members = metadata["workspace_members"]
+		.as_array()
+		.ok_or("Missing Cargo workspace members")?;
+	let mut packages = metadata["packages"]
+		.as_array()
+		.ok_or("Missing Cargo packages")?
+		.iter()
+		.filter(|package| {
+			package["name"] == "serein" && members.iter().any(|id| id == &package["id"])
+		});
+	let package = packages
+		.next()
+		.ok_or("No serein package in this workspace")?;
+	if packages.next().is_some() {
+		return Err("Multiple serein packages in this workspace".into());
+	}
+	let package_id = package["id"].as_str().ok_or("Missing Cargo package ID")?;
+	let version = package["version"]
+		.as_str()
+		.ok_or("Missing Cargo package version")?
+		.to_owned();
+	let build = Command::new("cargo")
+		.args([
+			"build",
+			"--release",
+			"--locked",
+			"-p",
+			"serein",
+			"--bin",
+			"serein",
+			"--no-default-features",
+			"--message-format=json-render-diagnostics",
+		])
+		.stderr(Stdio::inherit())
+		.output()
+		.map_err(|error| error.to_string())?;
+	let mut executable = None;
+	for line in build.stdout.split(|byte| *byte == b'\n') {
+		let Ok(message) = serde_json::from_slice::<serde_json::Value>(line) else {
+			continue;
+		};
+		if message["reason"] == "compiler-message"
+			&& let Some(rendered) = message["message"]["rendered"].as_str()
+		{
+			eprint!("{rendered}");
+		}
+		if message["reason"] == "compiler-artifact"
+			&& message["package_id"].as_str() == Some(package_id)
+			&& message["target"]["name"] == "serein"
+			&& message["target"]["kind"]
+				.as_array()
+				.is_some_and(|kinds| kinds.iter().any(|kind| kind == "bin"))
+			&& message["profile"]["test"].as_bool() == Some(false)
+			&& let Some(path) = message["executable"].as_str()
+			&& executable.replace(PathBuf::from(path)).is_some()
+		{
+			return Err("Cargo reported multiple release executables for serein".into());
+		}
+	}
+	if !build.status.success() {
+		return Err("Cargo release build failed".into());
+	}
+	let executable = executable.ok_or("Cargo did not report the serein release executable")?;
+	if !executable.is_file() {
+		return Err(format!(
+			"Cargo release executable is missing: {}",
+			executable.display()
+		));
+	}
+	Ok((executable, version))
+}
 #[allow(dead_code)]
-fn package_windows(root: &std::path::Path) -> Result<(), String> {
+fn package_windows(root: &std::path::Path, version: &str) -> Result<(), String> {
 	let nsis_candidates = [
 		PathBuf::from("makensis"),
 		PathBuf::from("makensis.exe"),
@@ -207,7 +297,6 @@ fn package_windows(root: &std::path::Path) -> Result<(), String> {
 	if let Some(makensis) = makensis {
 		let installer_dir = PathBuf::from("dist-installer");
 		std::fs::create_dir_all(&installer_dir).map_err(|e| e.to_string())?;
-		let version = env!("CARGO_PKG_VERSION");
 		let status = Command::new(makensis)
 			.args([
 				"-NOCD",
@@ -251,15 +340,7 @@ fn package() -> Result<(), String> {
 			);
 		}
 	};
-	let arguments = [
-		"build",
-		"--release",
-		"--locked",
-		"-p",
-		"serein",
-		"--no-default-features",
-	];
-	run(&arguments)?;
+	let (source, version) = package_build()?;
 	let root = PathBuf::from("dist");
 	std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
 	let exe = if cfg!(windows) {
@@ -283,10 +364,6 @@ fn package() -> Result<(), String> {
 		)
 		.map_err(|e| e.to_string())?;
 	}
-	let source = std::env::var_os("CARGO_TARGET_DIR")
-		.map_or_else(|| PathBuf::from("target"), PathBuf::from)
-		.join("release")
-		.join(exe);
 	if cfg!(target_os = "macos") {
 		// macOS caches code signatures by inode. Replace the executable rather
 		// than overwrite a previously launched, signed file in place.
@@ -411,7 +488,7 @@ fn package() -> Result<(), String> {
 			identity
 		};
 		run_tool("codesign", &["--force", "--sign", &identity, bundle])?;
-		run_tool("codesign", &["--verify", "--strict", bundle])?;
+		run_tool("codesign", &["--verify", "--deep", "--strict", bundle])?;
 	}
 	if cfg!(target_os = "linux") {
 		let mut arguments = vec![
@@ -421,7 +498,7 @@ fn package() -> Result<(), String> {
 				"packaging/linux/package.py"
 			},
 			root.to_str().ok_or("Invalid package path")?,
-			env!("CARGO_PKG_VERSION"),
+			&version,
 		];
 		if format != "appimage" {
 			arguments.extend(["--format", format]);
@@ -429,7 +506,7 @@ fn package() -> Result<(), String> {
 		run_tool("python3", &arguments)?;
 	}
 	if cfg!(windows) {
-		package_windows(&root)?;
+		package_windows(&root, &version)?;
 	}
 	println!(
 		"{} package executable: {} ({} bytes)",

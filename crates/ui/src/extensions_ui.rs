@@ -136,6 +136,62 @@ struct ResultPanel {
 	invocation: Invocation,
 	output: Output,
 	values: BTreeMap<String, String>,
+	inputs: TextInputStates,
+}
+
+/// Owns the editor state of a bounded host form, including inputs in hidden tabs/popups.
+pub(crate) struct TextInputStates {
+	namespace: egui::Id,
+	context: Option<egui::Context>,
+	ids: Vec<egui::Id>,
+	limit: usize,
+}
+
+impl TextInputStates {
+	pub(crate) fn new(namespace: egui::Id, limit: usize) -> Self {
+		Self {
+			namespace,
+			context: None,
+			ids: Vec::new(),
+			limit: limit.max(1),
+		}
+	}
+
+	pub(crate) fn id(&self, field: impl egui::AsIdSalt) -> egui::Id {
+		self.namespace.with(field)
+	}
+
+	pub(crate) fn track(&mut self, response: &egui::Response) {
+		self.context.get_or_insert_with(|| response.ctx.clone());
+		if self.ids.contains(&response.id) {
+			return;
+		}
+		// Validated forms render at most one editor per bounded protocol element.
+		// Retire old state if a caller bypasses those limits instead of leaving it untracked.
+		if self.ids.len() == self.limit {
+			let retired = self.ids.remove(0);
+			response.ctx.memory_mut(|memory| {
+				memory
+					.data
+					.remove::<egui::text_edit::TextEditState>(retired);
+				memory.surrender_focus(retired);
+			});
+		}
+		self.ids.push(response.id);
+	}
+}
+
+impl Drop for TextInputStates {
+	fn drop(&mut self) {
+		if let Some(ctx) = self.context.take() {
+			ctx.memory_mut(|memory| {
+				for id in &self.ids {
+					memory.data.remove::<egui::text_edit::TextEditState>(*id);
+					memory.surrender_focus(*id);
+				}
+			});
+		}
+	}
 }
 
 /// Card chrome under the 16:9 preview: badges, title, blurb and the action row.
@@ -164,6 +220,7 @@ pub struct ExtensionUi {
 	pub requests: Vec<ExtensionRequest>,
 	consent: Option<Consent>,
 	result: Option<ResultPanel>,
+	result_generation: u64,
 	error: Option<String>,
 	message_actions: Arc<Vec<MenuAction>>,
 	themes: bool,
@@ -889,12 +946,18 @@ impl ExtensionUi {
 		invocation.storage = None;
 		invocation.app = None;
 		output.storage = None;
+		self.result_generation = self.result_generation.wrapping_add(1);
+		let inputs = TextInputStates::new(
+			egui::Id::unique(("extension-result-inputs", &id, self.result_generation)),
+			extensions::MAX_PANEL_ELEMENTS,
+		);
 		self.result = Some(ResultPanel {
 			id,
 			invocation,
 			context,
 			output,
 			values: BTreeMap::new(),
+			inputs,
 		});
 	}
 	pub(crate) fn queue(&mut self, ctx: &egui::Context, request: ExtensionRequest) {
@@ -2270,6 +2333,7 @@ impl ExtensionUi {
 								&result.output.panel,
 								&mut result.values,
 								&mut action,
+								&mut result.inputs,
 								avatars,
 								state,
 								activity_status,
@@ -2277,7 +2341,13 @@ impl ExtensionUi {
 						});
 						return;
 					}
-					render_elements(ui, &result.output.panel, &mut result.values, &mut action);
+					render_elements(
+						ui,
+						&result.output.panel,
+						&mut result.values,
+						&mut action,
+						&mut result.inputs,
+					);
 					if proxy {
 						ui.separator();
 						self.proxy_auth.show(
@@ -2821,6 +2891,7 @@ pub(crate) fn render_elements(
 	elements: &[Element],
 	values: &mut BTreeMap<String, String>,
 	action: &mut Option<String>,
+	inputs: &mut TextInputStates,
 ) {
 	for element in elements {
 		match element {
@@ -2837,7 +2908,7 @@ pub(crate) fn render_elements(
 				ui.separator();
 			}
 			Element::Row { children } => {
-				ui.horizontal_wrapped(|ui| render_elements(ui, children, values, action));
+				ui.horizontal_wrapped(|ui| render_elements(ui, children, values, action, inputs));
 			}
 			Element::Button { id, label } => {
 				if ui.push_id(id, |ui| ui.button(label)).inner.clicked() {
@@ -2847,14 +2918,16 @@ pub(crate) fn render_elements(
 			Element::TextInput { id, label, value } => {
 				let value = values.entry(id.clone()).or_insert_with(|| value.clone());
 				let label = ui.label(label);
-				ui.add(
-					egui::TextEdit::singleline(value)
-						.align(egui::Align2::LEFT_CENTER)
-						.id_salt(id)
-						.char_limit(1024)
-						.desired_width(ui.available_width().min(320.0)),
-				)
-				.labelled_by(label.id);
+				let response = ui
+					.add(
+						egui::TextEdit::singleline(value)
+							.align(egui::Align2::LEFT_CENTER)
+							.id(inputs.id(id))
+							.char_limit(1024)
+							.desired_width(ui.available_width().min(320.0)),
+					)
+					.labelled_by(label.id);
+				inputs.track(&response);
 			}
 			Element::Checkbox { id, label, checked } => {
 				let value = values
@@ -2938,6 +3011,167 @@ fn apply_proposal(state: &mut State, context: &ExtensionContext, replacement: &s
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	struct ResultFixture {
+		ctx: egui::Context,
+		shop: ExtensionUi,
+		state: State,
+		avatars: crate::avatars::Avatars,
+	}
+
+	impl ResultFixture {
+		fn new() -> Self {
+			Self {
+				ctx: egui::Context::default(),
+				shop: ExtensionUi::default(),
+				state: State::default(),
+				avatars: crate::avatars::Avatars::default(),
+			}
+		}
+
+		fn open(&mut self, plugin: &str, value: &str) {
+			self.open_field(plugin, "shared", value);
+		}
+
+		fn open_field(&mut self, plugin: &str, field: &str, value: &str) {
+			self.shop.present_output(
+				plugin.into(),
+				Invocation::default(),
+				ExtensionContext::capture(&self.state, false),
+				Output {
+					panel: vec![Element::TextInput {
+						id: field.into(),
+						label: "Shared input".into(),
+						value: value.into(),
+					}],
+					..Default::default()
+				},
+				&self.state,
+			);
+		}
+
+		fn frame(&mut self, events: Vec<egui::Event>) {
+			let ctx = self.ctx.clone();
+			ctx.run_ui(
+				egui::RawInput {
+					screen_rect: Some(egui::Rect::from_min_size(
+						egui::Pos2::ZERO,
+						egui::vec2(900.0, 700.0),
+					)),
+					events,
+					focused: true,
+					..Default::default()
+				},
+				|_| {
+					let _ = self.shop.show_result(
+						&ctx,
+						&mut self.state,
+						&mut vec![],
+						false,
+						&mut self.avatars,
+						("", false),
+					);
+				},
+			)
+			.drop_without_applying_deltas();
+		}
+
+		fn focus_input(&mut self) -> egui::Id {
+			self.frame(vec![]);
+			for _ in 0..12 {
+				if let Some(id) = self.ctx.memory(|memory| memory.focused())
+					&& egui::text_edit::TextEditState::load(&self.ctx, id).is_some()
+				{
+					self.frame(vec![]);
+					return id;
+				}
+				self.frame(vec![result_key(egui::Key::Tab, egui::Modifiers::NONE)]);
+			}
+			panic!("Result panel input never received keyboard focus");
+		}
+	}
+
+	fn result_key(key: egui::Key, modifiers: egui::Modifiers) -> egui::Event {
+		egui::Event::Key {
+			key,
+			physical_key: None,
+			pressed: true,
+			repeat: false,
+			modifiers,
+		}
+	}
+
+	#[test]
+	fn result_panel_replacement_isolates_text_input_undo() {
+		for plugin in ["synthetic.a", "synthetic.b"] {
+			let mut fixture = ResultFixture::new();
+			fixture.open("synthetic.a", "from the previous panel");
+			let previous = fixture.focus_input();
+			fixture.open(plugin, "");
+			let current = fixture.focus_input();
+			fixture.frame(vec![result_key(egui::Key::Z, egui::Modifiers::COMMAND)]);
+			assert_eq!(fixture.shop.result.as_ref().unwrap().values["shared"], "");
+			assert_ne!(previous, current);
+		}
+	}
+
+	#[test]
+	fn discarded_result_panels_release_text_input_states() {
+		for (rich, discard) in [false, true]
+			.into_iter()
+			.flat_map(|rich| ["close", "replace", "remove", "reset"].map(|discard| (rich, discard)))
+		{
+			let mut fixture = ResultFixture::new();
+			if rich {
+				let mut extension = entry();
+				extension.manifest.id = "synthetic.a".into();
+				extension.manifest.capabilities = vec![Capability::RichPresence];
+				fixture.shop.set_entries(vec![extension]);
+			}
+			fixture.open("synthetic.a", "retired panel text");
+			let id = fixture.focus_input();
+			assert!(egui::text_edit::TextEditState::load(&fixture.ctx, id).is_some());
+			match discard {
+				"close" => {
+					fixture.frame(vec![result_key(egui::Key::Escape, egui::Modifiers::NONE)])
+				}
+				"replace" => fixture.open("synthetic.b", ""),
+				"remove" => fixture.shop.remove_runtime("synthetic.a"),
+				"reset" => fixture.shop.reset_runtime(),
+				_ => unreachable!(),
+			}
+			assert!(
+				egui::text_edit::TextEditState::load(&fixture.ctx, id).is_none(),
+				"{discard} retained the discarded result's input state (rich: {rich})"
+			);
+		}
+	}
+
+	#[test]
+	fn repeated_result_panels_bound_retained_text_input_states() {
+		let mut fixture = ResultFixture::new();
+		for index in 0..100 {
+			fixture.open_field(
+				"synthetic.a",
+				&format!("field-{index}"),
+				"private panel value",
+			);
+			fixture.focus_input();
+			assert_eq!(
+				fixture
+					.ctx
+					.data(|data| data.count::<egui::text_edit::TextEditState>()),
+				1
+			);
+		}
+		fixture.shop.reset_runtime();
+		assert_eq!(
+			fixture
+				.ctx
+				.data(|data| data.count::<egui::text_edit::TextEditState>()),
+			0
+		);
+	}
 
 	#[test]
 	fn app_snapshot_payloads_are_bounded_before_ui_queueing() {

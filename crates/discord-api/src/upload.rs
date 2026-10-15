@@ -132,8 +132,17 @@ impl Source {
 		if !self.matches(&metadata) {
 			return None;
 		}
-		let bytes = tokio::fs::read(&self.path).await.ok()?;
-		(bytes.len() as u64 == self.size).then(|| bytes.into())
+		let mut file = File::open(&self.path).await.ok()?;
+		if !self.matches(&file.metadata().await.ok()?) {
+			return None;
+		}
+		let bytes = read_preview(&mut file, self.size).await?;
+		if !self.matches(&file.metadata().await.ok()?)
+			|| !self.matches(&tokio::fs::symlink_metadata(&self.path).await.ok()?)
+		{
+			return None;
+		}
+		Some(bytes.into())
 	}
 	fn matches(&self, metadata: &std::fs::Metadata) -> bool {
 		metadata.is_file()
@@ -154,6 +163,17 @@ impl Source {
 			Err(Failure::ProtocolAt(CHANGED))
 		}
 	}
+}
+
+/// Read no more than the inspected size plus one byte, even if the file keeps growing.
+async fn read_preview(reader: impl tokio::io::AsyncRead + Unpin, size: u64) -> Option<Vec<u8>> {
+	let mut bytes = Vec::new();
+	reader
+		.take(size.checked_add(1)?)
+		.read_to_end(&mut bytes)
+		.await
+		.ok()?;
+	(bytes.len() as u64 == size).then_some(bytes)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -621,6 +641,54 @@ async fn cancelled(cancel: &mut watch::Receiver<bool>) {
 
 #[cfg(test)]
 mod tests {
+	#[tokio::test]
+	async fn preview_reader_stops_when_a_source_grows_past_its_inspected_size() {
+		struct Growing {
+			read: usize,
+		}
+		impl tokio::io::AsyncRead for Growing {
+			fn poll_read(
+				mut self: std::pin::Pin<&mut Self>,
+				_: &mut std::task::Context<'_>,
+				buffer: &mut tokio::io::ReadBuf<'_>,
+			) -> std::task::Poll<std::io::Result<()>> {
+				let count = buffer.remaining();
+				assert!(
+					self.read + count <= 9,
+					"preview read beyond the selection bound"
+				);
+				buffer.initialize_unfilled()[..count].fill(b'x');
+				buffer.advance(count);
+				self.read += count;
+				std::task::Poll::Ready(Ok(()))
+			}
+		}
+		let mut growing = Growing { read: 0 };
+		assert!(super::read_preview(&mut growing, 8).await.is_none());
+		assert_eq!(growing.read, 9);
+		assert_eq!(
+			super::read_preview(std::io::Cursor::new(b"original"), 8).await,
+			Some(b"original".to_vec())
+		);
+		assert!(
+			super::read_preview(std::io::Cursor::new(b"short"), 8)
+				.await
+				.is_none()
+		);
+	}
+
+	#[tokio::test]
+	async fn preview_rejects_changed_files_and_respects_selection_limit() {
+		let fixture = Fixture::new(b"original").await;
+		let source = Source::inspect(fixture.0.clone()).await.unwrap();
+		assert!(source.preview_bytes(7).await.is_none());
+		assert_eq!(source.preview_bytes(8).await.unwrap().as_ref(), b"original");
+		tokio::fs::write(&fixture.0, b"changed and larger")
+			.await
+			.unwrap();
+		assert!(source.preview_bytes(8).await.is_none());
+	}
+
 	#[test]
 	fn image_sources_only_accept_bounded_generated_raster_names() {
 		for name in ["emoji-7.gif", "sticker-8.png"] {

@@ -1,0 +1,218 @@
+updater-baseline-regression.log
+     Locking 1 package to latest Rust 1.98.1 compatible version
+      Adding md4 v0.10.2
+   Compiling md4 v0.10.2
+   Compiling serein-updater-bug-hunt v0.1.0 (/tmp/serein-bug-hunt-oct08/updater-scope)
+    Finished `test` profile [unoptimized] target(s) in 2.92s
+     Running unittests src/lib.rs (/tmp/serein-hunt-replay-target/debug/deps/serein_updater_bug_hunt-72fba7be4d658880)
+
+running 1 test
+
+thread 'updater::lifecycle_tests::queued_download_is_cleaned_when_updater_closes_before_polling' (59867) panicked at /workspace/Serein/apps/desktop/src/updater.rs:1028:9:
+Unconsumed update storage was not removed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test updater::lifecycle_tests::queued_download_is_cleaned_when_updater_closes_before_polling ... FAILED
+
+failures:
+
+failures:
+    updater::lifecycle_tests::queued_download_is_cleaned_when_updater_closes_before_polling
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 3.01s
+
+error: test failed, to rerun pass `--lib`
+
+
+helper-baseline-regression.log
+   Compiling serein-updater-bug-hunt v0.1.0 (/tmp/serein-bug-hunt-oct08/updater-scope)
+    Finished `test` profile [unoptimized] target(s) in 3.24s
+     Running unittests src/lib.rs (/tmp/serein-hunt-replay-target/debug/deps/serein_updater_bug_hunt-72fba7be4d658880)
+
+running 1 test
+
+thread 'updater::install::helper_lifecycle_tests::queued_restart_helper_stops_when_updater_closes_before_polling' (60740) panicked at /tmp/serein-bug-hunt-oct08/updater-baseline-source/updater_install.rs:848:27:
+called `Result::unwrap()` on an `Err` value: Timeout
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test updater::install::helper_lifecycle_tests::queued_restart_helper_stops_when_updater_closes_before_polling ... FAILED
+
+failures:
+
+failures:
+    updater::install::helper_lifecycle_tests::queued_restart_helper_stops_when_updater_closes_before_polling
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 3.01s
+
+error: test failed, to rerun pass `--lib`
+
+
+model-baseline-regression.log
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling syn v3.0.6
+   Compiling serde_derive v1.0.229
+   Compiling serde v1.0.229
+   Compiling model v0.1.0 (/workspace/Serein/crates/model)
+    Finished `test` profile [unoptimized] target(s) in 8.88s
+     Running unittests src/lib.rs (/tmp/serein-hunt-replay-target/debug/deps/model-0655e15632d1ce55)
+
+running 1 test
+
+thread 'registered_games::tests::normalized_unicode_paths_obey_byte_limits_and_remain_valid' (60423) panicked at crates/model/src/registered_games.rs:146:13:
+assertion failed: normalize(&input).is_none()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test registered_games::tests::normalized_unicode_paths_obey_byte_limits_and_remain_valid ... FAILED
+
+failures:
+
+failures:
+    registered_games::tests::normalized_unicode_paths_obey_byte_limits_and_remain_valid
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 31 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p model --lib`
+
+
+xtask-fixture-before.log
+node:assert:152
+  throw new AssertionError(obj);
+  ^
+
+AssertionError [ERR_ASSERTION]: No such file or directory (os error 2)
+
+
+1 !== 0
+
+    at [eval]:76:12
+    at runScriptInThisContext (node:internal/vm:219:10)
+    at node:internal/process/execution:451:12
+    at [eval]-wrapper:6:24
+    at runScriptInContext (node:internal/process/execution:449:60)
+    at evalFunction (node:internal/process/execution:283:30)
+    at evalTypeScript (node:internal/process/execution:295:3)
+    at node:internal/main/eval_string:71:3 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 1,
+  expected: 0,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.19.0
+
+
+rust-unit-after.log
+test result: ok. 170 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 1.86s
+test result: ok. 86 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.29s
+test result: ok. 33 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 1.30s
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 11 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 447 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 24.44s
+
+
+updater-reproduction.log
+   Compiling eframe v0.0.0 (/tmp/serein-updater-scope-0crro6uj/eframe)
+   Compiling serein-updater-bug-hunt v0.1.0 (/tmp/serein-updater-scope-0crro6uj)
+    Finished `test` profile [unoptimized] target(s) in 3.50s
+     Running unittests src/lib.rs (/tmp/serein-hunt-replay-target/debug/deps/serein_updater_bug_hunt-72fba7be4d658880)
+
+running 8 tests
+test updater::install::helper_lifecycle_tests::queued_restart_helper_stops_when_updater_closes_before_polling ... ok
+test updater::windows_asset_tests::current_windows_updater_selects_media_zip_and_legacy_updater_cannot_select_it ... ok
+test updater::windows_asset_tests::legacy_updater_cannot_reach_an_older_bridge_once_a_media_release_is_latest ... ok
+test updater::windows_asset_tests::media_namespace_preserves_asset_identity_and_checksum_checks ... ok
+test updater::windows_asset_tests::windows_media_packages_use_a_separate_namespace_from_legacy_updates ... ok
+test updater::lifecycle_tests::queued_download_is_cleaned_when_updater_closes_before_polling ... ok
+test updater::lifecycle_tests::download_finishing_after_updater_closes_is_cleaned ... ok
+test updater::lifecycle_tests::polled_download_keeps_storage_until_its_updater_owner_closes ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+
+updater-reproduction-clippy.log
+    Checking eframe v0.0.0 (/tmp/serein-updater-scope-asqboq4_/eframe)
+    Checking serein-updater-bug-hunt v0.1.0 (/tmp/serein-updater-scope-asqboq4_)
+    Finished `dev` profile [unoptimized] target(s) in 1.63s
+
+
+rust-clippy-after.log
+    Checking serde_path_to_error v0.1.20
+    Checking local-store v0.1.0 (/workspace/Serein/crates/local-store)
+    Checking discord-protocol v0.1.0 (/workspace/Serein/crates/discord-protocol)
+    Checking egui v0.36.2 (https://github.com/emilk/egui?rev=72bc6574978d87fe0929b1d590c35222e6fd8935#72bc6574)
+    Checking ui v0.1.0 (/workspace/Serein/crates/ui)
+    Finished `dev` profile [unoptimized] target(s) in 23.34s
+
+
+xtask-packaging-fixture.log
+Cached xtask packages the reported artifact and runtime version; missing/ambiguous/failed builds rejected (synthetic).
+
+
+policy.log
+    Finished `dev` profile [unoptimized] target(s) in 0.52s
+     Running `/tmp/serein-hunt-replay-target/debug/xtask policy`
+Policy checks passed: no eframe persistence, one renderer, no REST cookie jar, ephemeral login requested.
+
+
+licenses.log
+   Compiling model v0.1.0 (/workspace/Serein/crates/model)
+   Compiling session-cache v0.1.0 (/workspace/Serein/crates/session-cache)
+   Compiling client-core v0.1.0 (/workspace/Serein/crates/client-core)
+   Compiling test-support v0.1.0 (/workspace/Serein/crates/test-support)
+   Compiling xtask v0.1.0 (/workspace/Serein/tools/xtask)
+    Finished `dev` profile [unoptimized] target(s) in 9.65s
+     Running `/tmp/serein-hunt-replay-target/debug/xtask licenses`
+Install the checker: cargo install cargo-deny --version 0.20.2 --locked
+
+
+xtask-check.log
+  cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR_x86_64-unknown-linux-gnu
+  cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR_x86_64_unknown_linux_gnu
+  cargo:rerun-if-env-changed=HOST_PKG_CONFIG_SYSROOT_DIR
+  cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR
+  cargo:warning=
+  pkg-config exited with status code 1
+  > PKG_CONFIG_PATH= PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1 pkg-config --libs --cflags glib-2.0 'glib-2.0 >= 2.70'
+
+  pkg-config output:
+    Package glib-2.0 was not found in the pkg-config search path.
+    Perhaps you should add the directory containing `glib-2.0.pc'
+    to the PKG_CONFIG_PATH environment variable
+    Package 'glib-2.0', required by 'virtual:world', not found
+    Package 'glib-2.0', required by 'virtual:world', not found
+
+  The system library `glib-2.0` required by crate `glib-sys` was not found.
+  The file `glib-2.0.pc` needs to be installed and the PKG_CONFIG_PATH environment variable must contain its parent directory.
+  PKG_CONFIG_PATH contains the following:
+      -
+
+  HINT: you may need to install a package such as glib-2.0, glib-2.0-dev or glib-2.0-devel.
+
+cargo clippy --workspace --all-targets --locked -- -D warnings failed
+
+
+xtask-package.log
+  cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR_x86_64-unknown-linux-gnu
+  cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR_x86_64_unknown_linux_gnu
+  cargo:rerun-if-env-changed=HOST_PKG_CONFIG_SYSROOT_DIR
+  cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR
+  cargo:warning=
+  pkg-config exited with status code 1
+  > PKG_CONFIG_PATH= PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1 pkg-config --libs --cflags glib-2.0 'glib-2.0 >= 2.70'
+
+  pkg-config output:
+    Package glib-2.0 was not found in the pkg-config search path.
+    Perhaps you should add the directory containing `glib-2.0.pc'
+    to the PKG_CONFIG_PATH environment variable
+    Package 'glib-2.0', required by 'virtual:world', not found
+    Package 'glib-2.0', required by 'virtual:world', not found
+
+  The system library `glib-2.0` required by crate `glib-sys` was not found.
+  The file `glib-2.0.pc` needs to be installed and the PKG_CONFIG_PATH environment variable must contain its parent directory.
+  PKG_CONFIG_PATH contains the following:
+      -
+
+  HINT: you may need to install a package such as glib-2.0, glib-2.0-dev or glib-2.0-devel.
+
+Cargo release build failed

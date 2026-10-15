@@ -66,6 +66,9 @@ jobs:
           - name: Linux package regression
             if: runner.os == 'Linux'
             run: PYTHONDONTWRITEBYTECODE=1 python3 packaging/linux/test_package.py
+      - name: Cached xtask artifact and version regression (synthetic)
+        if: runner.os == 'Linux'
+        run: bun tests/xtask-package.cjs
       - run: cargo replay
       - run: cargo replay --soak 5
       - name: Package app without demo or developer features

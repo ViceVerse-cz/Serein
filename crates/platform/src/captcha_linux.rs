@@ -224,10 +224,11 @@ impl CaptchaView {
 		let _ = parent;
 		view.load_html(&html, Some(PAGE));
 		window.present();
+		let display = gtk4::prelude::WidgetExt::display(&window);
 		Ok(Self {
 			view,
-			display: gtk4::prelude::WidgetExt::display(&window),
 			window,
+			display,
 			manager,
 			state,
 			cancel,

@@ -43,17 +43,14 @@ impl<'de> Deserialize<'de> for Rows {
 				let mut seen = BTreeSet::new();
 				let mut retained = slots.capacity() * size_of::<Option<MemberSlot>>();
 				while slots.len() < 100 {
-					let Some(mut entry) = seq.next_element::<ThreadMember>()? else {
+					let Some(entry) = seq.next_element::<ThreadMember>()? else {
 						break;
 					};
 					if entry.user_id != entry.member.user.id || !seen.insert(entry.user_id) {
 						return Err(serde::de::Error::custom("Invalid thread member identity"));
 					}
-					if let model::Patch::Value(presence) = entry.presence {
-						entry.member.presence = model::Patch::Value(presence);
-					}
 					let member = MemberItem::Member {
-						presence: model::Patch::Absent,
+						presence: entry.presence,
 						member: Box::new(entry.member),
 					}
 					.into_model()
@@ -106,6 +103,35 @@ pub fn members(
 mod tests {
 	use super::*;
 	use serde_json::json;
+
+	#[test]
+	fn explicit_null_presence_clears_nested_member_presence() {
+		let mut entry = json!({
+			"user_id":"3",
+			"member":{
+				"user":{"id":"3","username":"Synthetic"},
+				"presence":{"status":"online","activities":[{"type":0,"name":"Old game"}]}
+			},
+			"presence":null
+		});
+		let parse = |entry| {
+			let snapshot = json!({"guild_id":"1","thread_id":"2","members":[entry]});
+			members(&serde_json::to_vec(&snapshot).unwrap(), Id(1), Id(2), 7).unwrap()
+		};
+		let list = parse(entry.clone());
+		let model::MemberSlot::Person(member) = list.slots[0].as_ref().unwrap() else {
+			panic!("expected person slot");
+		};
+		assert_eq!(member.status, None);
+		assert!(member.activities.is_empty());
+		entry.as_object_mut().unwrap().remove("presence");
+		let list = parse(entry);
+		let model::MemberSlot::Person(member) = list.slots[0].as_ref().unwrap() else {
+			panic!("expected person slot");
+		};
+		assert_eq!(member.status.as_deref(), Some("online"));
+		assert_eq!(member.activities[0].name, "Old game");
+	}
 
 	#[test]
 	fn thread_members_validate_identity_scope_and_bounds() {

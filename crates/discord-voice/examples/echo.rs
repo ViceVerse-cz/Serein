@@ -9,6 +9,13 @@ mod capture;
 #[path = "../src/audio/echo.rs"]
 mod echo;
 type Frame = [f32; 960];
+use discord_voice::CapturedFrame;
+#[cfg(test)]
+use discord_voice::Controls;
+
+fn captured(pcm: Frame) -> CapturedFrame {
+	CapturedFrame { generation: 0, pcm }
+}
 
 fn main() {
 	assert_eq!(activity::level_db(&[0.0; 960]), -100.0);
@@ -31,34 +38,34 @@ fn main() {
 	let (send, receive) = std::sync::mpsc::sync_channel(8);
 	let mut pacer = capture::CapturePacer::default();
 	// Empty-room detection consumes PCM locally, leaving nothing for a later peer.
-	send.try_send([0.2; 960]).unwrap();
-	assert!(pacer.next(&receive, true, false).is_none());
-	send.try_send([0.3; 960]).unwrap();
-	let preview = pacer.preview(&receive).unwrap();
+	send.try_send(captured([0.2; 960])).unwrap();
+	assert!(pacer.next(&receive, true, false, 0).is_none());
+	send.try_send(captured([0.3; 960])).unwrap();
+	let preview = pacer.preview(&receive, 0).unwrap();
 	assert_eq!(preview, [0.3; 960]);
 	assert!(activity::hold(preview.iter().map(|s| s * s).sum(), 0) > 0);
-	assert!(pacer.next(&receive, true, false).is_none());
-	assert!(pacer.preview(&receive).is_none());
+	assert!(pacer.next(&receive, true, false, 0).is_none());
+	assert!(pacer.preview(&receive, 0).is_none());
 	for tick in 0..100 {
 		if tick % 2 == 0 {
-			send.try_send([tick as f32; 960]).unwrap();
-			send.try_send([(tick + 1) as f32; 960]).unwrap();
+			send.try_send(captured([tick as f32; 960])).unwrap();
+			send.try_send(captured([(tick + 1) as f32; 960])).unwrap();
 		}
-		let frame = pacer.next(&receive, true, false);
+		let frame = pacer.next(&receive, true, false, 0);
 		if tick == 0 {
 			assert!(frame.is_none());
 		} else {
 			assert_eq!(frame.unwrap(), [(tick - 1) as f32; 960]);
 		}
 	}
-	assert_eq!(pacer.next(&receive, true, false).unwrap(), [99.0; 960]);
+	assert_eq!(pacer.next(&receive, true, false, 0).unwrap(), [99.0; 960]);
 	for (enabled, stalled) in [(false, false), (true, true)] {
-		send.try_send([0.5; 960]).unwrap();
-		assert!(pacer.next(&receive, true, false).is_none());
-		send.try_send([0.5; 960]).unwrap();
-		assert!(pacer.next(&receive, enabled, stalled).is_none());
-		assert!(pacer.next(&receive, true, false).is_none());
-		assert!(pacer.next(&receive, true, false).is_none());
+		send.try_send(captured([0.5; 960])).unwrap();
+		assert!(pacer.next(&receive, true, false, 0).is_none());
+		send.try_send(captured([0.5; 960])).unwrap();
+		assert!(pacer.next(&receive, enabled, stalled, 0).is_none());
+		assert!(pacer.next(&receive, true, false, 0).is_none());
+		assert!(pacer.next(&receive, true, false, 0).is_none());
 	}
 	// Exercise the real AEC -> RNNoise chain with synthetic hiss and short click bursts.
 	let mut filtered = echo::Echo::new();

@@ -62,8 +62,33 @@ enum Outcome {
 	Prepared(install::Prepared),
 	Cleaned,
 }
+// The worker owns resources until sync accepts them, including while a result is queued.
+struct PendingOutcome(Option<Result<Outcome, String>>);
+impl From<Result<Outcome, String>> for PendingOutcome {
+	fn from(result: Result<Outcome, String>) -> Self {
+		Self(Some(result))
+	}
+}
+impl PendingOutcome {
+	fn into_result(mut self) -> Result<Outcome, String> {
+		self.0.take().expect("pending update result")
+	}
+}
+impl Drop for PendingOutcome {
+	fn drop(&mut self) {
+		match self.0.take() {
+			Some(Ok(Outcome::Downloaded(stage))) => {
+				std::thread::spawn(move || install::cleanup(&stage.directory));
+			}
+			Some(Ok(Outcome::Prepared(helper))) => {
+				std::thread::spawn(move || helper.stop());
+			}
+			_ => {}
+		}
+	}
+}
 struct Job {
-	receiver: mpsc::Receiver<Result<Outcome, String>>,
+	receiver: mpsc::Receiver<PendingOutcome>,
 	cancel: Arc<AtomicBool>,
 	progress: Arc<AtomicU64>,
 	total: u64,
@@ -186,7 +211,8 @@ impl Updater {
 		}
 		if let Some(job) = &self.job {
 			match job.receiver.try_recv() {
-				Ok(result) => {
+				Ok(pending) => {
+					let result = pending.into_result();
 					let cancelled = job.cancel.load(Ordering::Relaxed);
 					self.job = None;
 					if cancelled {
@@ -369,13 +395,7 @@ impl Updater {
 			let result = work(worker_cancel, worker_progress)
 				.await
 				.map_err(|error| format!("Update failed: {error}"));
-			if let Err(mpsc::SendError(result)) = sender.send(result) {
-				tokio::task::spawn_blocking(move || match result {
-					Ok(Outcome::Downloaded(stage)) => install::cleanup(&stage.directory),
-					Ok(Outcome::Prepared(helper)) => helper.stop(),
-					_ => {}
-				});
-			}
+			let _ = sender.send(PendingOutcome::from(result));
 			ctx.request_repaint();
 		});
 		self.job = Some(Job {
@@ -919,6 +939,102 @@ async fn download_full(
 		.map_err(|_| "Could not save the update package.".to_owned())?;
 	drop(file);
 	Ok(())
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+	use super::*;
+
+	struct Storage(PathBuf);
+	impl Storage {
+		fn new() -> Self {
+			let mut nonce = [0; 8];
+			getrandom::fill(&mut nonce).unwrap();
+			let path = std::env::temp_dir().join(format!(
+				"serein-queued-update-{}-{:016x}",
+				std::process::id(),
+				u64::from_le_bytes(nonce)
+			));
+			std::fs::create_dir(&path).unwrap();
+			std::fs::write(path.join("synthetic-payload"), b"offline fixture").unwrap();
+			Self(path)
+		}
+	}
+	impl Drop for Storage {
+		fn drop(&mut self) {
+			let _ = std::fs::remove_dir_all(&self.0);
+		}
+	}
+
+	fn queued_download(path: &std::path::Path) -> Updater {
+		let (sender, receiver) = mpsc::sync_channel(1);
+		let mut updater = Updater::new(false);
+		updater.channel = Some(false);
+		updater.job = Some(Job {
+			receiver,
+			cancel: Arc::new(AtomicBool::new(false)),
+			progress: Arc::new(AtomicU64::new(0)),
+			total: 1,
+		});
+		let result: Result<Outcome, String> = Ok(Outcome::Downloaded(Staged {
+			directory: path.to_owned(),
+			installation: path.join("synthetic-installation"),
+		}));
+		assert!(sender.send(result.into()).is_ok());
+		updater
+	}
+
+	fn await_cleanup(path: &std::path::Path) {
+		let deadline = Instant::now() + Duration::from_secs(3);
+		while path.exists() && Instant::now() < deadline {
+			std::thread::sleep(Duration::from_millis(10));
+		}
+		assert!(!path.exists(), "Unconsumed update storage was not removed");
+	}
+
+	#[test]
+	fn queued_download_is_cleaned_when_updater_closes_before_polling() {
+		let storage = Storage::new();
+		drop(queued_download(&storage.0));
+		await_cleanup(&storage.0);
+	}
+
+	#[test]
+	fn polled_download_keeps_storage_until_its_updater_owner_closes() {
+		let storage = Storage::new();
+		let mut updater = queued_download(&storage.0);
+		let runtime = Runtime::new().unwrap();
+		let mut view = ui::updates::Updates::default();
+		updater.channel = Some(view.nightly);
+		assert!(!updater.sync(&egui::Context::default(), &runtime, &mut view, true));
+		assert!(updater.staged.is_some() && view.ready && storage.0.exists());
+		drop(updater);
+		await_cleanup(&storage.0);
+	}
+
+	#[test]
+	fn download_finishing_after_updater_closes_is_cleaned() {
+		let storage = Storage::new();
+		let path = storage.0.clone();
+		let runtime = Runtime::new().unwrap();
+		let (release, wait) = tokio::sync::oneshot::channel();
+		let mut updater = Updater::new(false);
+		updater.start(
+			&runtime,
+			&egui::Context::default(),
+			1,
+			move |_, _| async move {
+				wait.await.unwrap();
+				Ok(Outcome::Downloaded(Staged {
+					installation: path.join("synthetic-installation"),
+					directory: path,
+				}))
+			},
+		);
+		drop(updater);
+		release.send(()).unwrap();
+		await_cleanup(&storage.0);
+	}
 }
 
 /// Offline checks used by the explicit demo debug path, never by release startup.

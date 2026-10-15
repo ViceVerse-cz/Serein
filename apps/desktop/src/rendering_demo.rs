@@ -3,8 +3,10 @@ use std::sync::{Arc, Mutex};
 
 use eframe::{egui, egui_wgpu, wgpu};
 
+type SurfaceSample = ([u32; 2], f32);
+
 #[derive(Clone, Default)]
-pub struct RenderingDemo(Arc<Mutex<Option<([u32; 2], f32)>>>);
+pub struct RenderingDemo(Arc<Mutex<Option<SurfaceSample>>>);
 
 impl RenderingDemo {
 	pub fn show(&self, ctx: &egui::Context, window: &winit::window::Window) {

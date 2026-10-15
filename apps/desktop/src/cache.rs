@@ -213,6 +213,44 @@ impl HistoryClears {
 		complete
 	}
 }
+
+/// Successful credential removals waiting for storage queue space, bounded by the roster.
+#[derive(Default)]
+pub struct AccountForgets {
+	accounts: BTreeMap<Id, u64>,
+}
+impl AccountForgets {
+	pub fn pending(&self) -> bool {
+		!self.accounts.is_empty()
+	}
+	pub fn contains(&self, account: Id) -> bool {
+		self.accounts.contains_key(&account)
+	}
+	pub fn request(&mut self, generation: u64, account: Id) -> bool {
+		if self.accounts.len() == model::MAX_SAVED_ACCOUNTS && !self.accounts.contains_key(&account)
+		{
+			return false;
+		}
+		self.accounts.insert(account, generation);
+		true
+	}
+	pub fn next(&mut self, generation: u64, active_account: Option<Id>) -> Option<Id> {
+		// An explicit sign-in to the same account supersedes its old deletion. Other
+		// accounts' device-scoped cleanup survives ordinary session switches.
+		self.accounts.retain(|account, requested| {
+			crate::credentials::account_removal_applies(
+				*requested,
+				generation,
+				*account,
+				active_account,
+			)
+		});
+		self.accounts.first_key_value().map(|(account, _)| *account)
+	}
+	pub fn queued(&mut self, account: Id) {
+		self.accounts.remove(&account);
+	}
+}
 impl Cache {
 	pub fn delete_messages(&self, generation: u64, account: Id, channel: Id, ids: Vec<Id>) -> bool {
 		let blocked = !self.history.allows(self.history.epoch());
@@ -247,7 +285,7 @@ impl Cache {
 				message_bytes(messages)
 			}
 			Operation::SaveDraft { content, .. } => {
-				if content.len() > 8192 {
+				if content.len() > model::message_options::MAX_DRAFT_CONTENT_BYTES {
 					return false;
 				}
 				content.capacity()
@@ -722,6 +760,145 @@ pub fn debug_voice_preferences_check() {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn credential_cleanup_retries_full_storage_without_repeating_keyring_deletion() {
+		let (send, commands) = mpsc::sync_channel(1);
+		let (_, receive) = mpsc::sync_channel(1);
+		let cache = Cache {
+			send,
+			receive,
+			budget: Arc::new(Budget::default()),
+			history: Arc::new(HistorySafety::default()),
+		};
+		let active = Id(1);
+		let removed = Id(2);
+		let mut store = Ok(LocalStore::open(std::path::Path::new(":memory:")).unwrap());
+		let saved = model::SavedAccount {
+			id: removed,
+			name: "Synthetic".into(),
+			display: None,
+			avatar: None,
+			discriminator: 0,
+			has_token: true,
+		};
+		store.as_mut().unwrap().save_account(&saved).unwrap();
+		for account in [active, removed] {
+			store
+				.as_mut()
+				.unwrap()
+				.save_draft(account, Id(7), "offline draft")
+				.unwrap();
+		}
+		assert!(cache.queue(1, active, Operation::LoadDrafts));
+		let mut pending = AccountForgets::default();
+		// The OS deletion has already succeeded. A full storage queue retains only
+		// this acknowledgment; retrying must not repeat a credential-store operation.
+		assert!(pending.request(1, removed));
+		assert_eq!(pending.next(2, Some(active)), Some(removed));
+		assert!(!cache.queue(2, removed, Operation::Forget));
+		assert!(pending.contains(removed));
+		assert_eq!(store.as_ref().unwrap().accounts().unwrap()[0].id, removed);
+		let (_, _, _, _, reservation) = commands.try_recv().unwrap();
+		drop(reservation);
+		assert!(cache.queue(2, pending.next(2, Some(active)).unwrap(), Operation::Forget));
+		pending.queued(removed);
+		let (generation, account, epoch, operation, reservation) = commands.try_recv().unwrap();
+		assert_eq!((generation, account), (2, removed));
+		assert!(matches!(
+			execute(&mut store, &cache.history, account, epoch, operation),
+			Outcome::Saved
+		));
+		drop(reservation);
+		assert!(!pending.pending());
+		assert!(store.as_ref().unwrap().accounts().unwrap().is_empty());
+		assert!(
+			store
+				.as_ref()
+				.unwrap()
+				.load_drafts(removed)
+				.unwrap()
+				.is_empty()
+		);
+		assert_eq!(
+			store.as_ref().unwrap().load_drafts(active).unwrap()[&Id(7)],
+			"offline draft"
+		);
+		assert!(commands.try_recv().is_err());
+		assert_eq!(*cache.budget.used.lock().unwrap(), 0);
+	}
+
+	#[test]
+	fn pending_account_cleanup_is_bounded_and_new_signin_supersedes_only_its_account() {
+		let mut pending = AccountForgets::default();
+		for id in 1..=model::MAX_SAVED_ACCOUNTS as u64 {
+			assert!(pending.request(1, Id(id)));
+			assert!(
+				pending.request(1, Id(id)),
+				"repeated acknowledgments coalesce"
+			);
+		}
+		assert!(!pending.request(1, Id(9)));
+		assert_eq!(pending.next(2, Some(Id(1))), Some(Id(2)));
+		assert!(
+			!pending.contains(Id(1)),
+			"new sign-in preserves its account data"
+		);
+		assert!(pending.contains(Id(2)), "switching preserves other cleanup");
+		for id in 2..=model::MAX_SAVED_ACCOUNTS as u64 {
+			assert_eq!(pending.next(3, None), Some(Id(id)));
+			pending.queued(Id(id));
+		}
+		assert!(!pending.pending());
+		assert!(
+			pending.request(3, Id(1)),
+			"a later explicit deletion is independent"
+		);
+		assert_eq!(pending.next(3, Some(Id(1))), Some(Id(1)));
+	}
+
+	#[test]
+	fn premium_unicode_drafts_enter_the_worker_and_reject_only_oversized_content() {
+		use model::message_options::{MAX_DRAFT_CONTENT_BYTES, MAX_PREMIUM_CONTENT};
+		let (send, commands) = mpsc::sync_channel(16);
+		let (_, receive) = mpsc::sync_channel(16);
+		let cache = Cache {
+			send,
+			receive,
+			budget: Arc::new(Budget::default()),
+			history: Arc::new(HistorySafety::default()),
+		};
+		let draft = format!("@silent\u{2003}{}", "🦀".repeat(MAX_PREMIUM_CONTENT));
+		assert!(cache.queue(
+			7,
+			Id(1),
+			Operation::SaveDraft {
+				channel: Id(2),
+				content: draft.clone()
+			}
+		));
+		let (_, _, epoch, operation, reservation) = commands.try_recv().unwrap();
+		let mut store = Ok(LocalStore::open(std::path::Path::new(":memory:")).unwrap());
+		assert!(matches!(
+			execute(&mut store, &cache.history, Id(1), epoch, operation),
+			Outcome::Saved
+		));
+		assert_eq!(
+			store.as_ref().unwrap().load_drafts(Id(1)).unwrap()[&Id(2)],
+			draft
+		);
+		drop(reservation);
+		assert_eq!(*cache.budget.used.lock().unwrap(), 0);
+		assert!(!cache.queue(
+			7,
+			Id(1),
+			Operation::SaveDraft {
+				channel: Id(2),
+				content: "x".repeat(MAX_DRAFT_CONTENT_BYTES + 1)
+			}
+		));
+		assert!(commands.try_recv().is_err());
+	}
 
 	#[test]
 	fn shortcut_restore_waits_for_queue_space_without_losing_or_duplicating_the_request() {
