@@ -1,0 +1,378 @@
+{
+  "schemaVersion": 1,
+  "task": "Serein PR #672: mark server folders as read",
+  "capturedDate": "2026-10-15",
+  "source": {
+    "baseline": {
+      "revision": "104b1aa5a7f3b3d0771e379ae86f1ae69807de55",
+      "demoExecutableBytes": 89273344,
+      "demoExecutableSha256": "CEB3DACC5D63F80574FA07C3F5D4137923C7A8128DD6670160CA8EA95DBCB47B"
+    },
+    "after": {
+      "revision": "2b02b49e537f77b6db937c6bd6bb05e9f69bb2f3",
+      "demoExecutableBytes": 89277952,
+      "demoExecutableSha256": "7E780154808AD9336B3787750493A66485844B7008769F75A7933E9E2610EF8D"
+    }
+  },
+  "environment": {
+    "os": "Windows 11 Pro 10.0.26300",
+    "cpu": "AMD Ryzen 7 7800X3D",
+    "physicalCores": 8,
+    "logicalProcessors": 16,
+    "visibleRamGiB": 31.4,
+    "displayScalePercent": 100,
+    "appWindowPixels": "1120x760",
+    "gpuAdapter": "AMD Radeon RX 7900 GRE (Dx12)",
+    "rust": "1.98.1"
+  },
+  "demoScenario": {
+    "build": "cargo build --release --locked -p serein --no-default-features --features demo",
+    "launch": "target/release/serein.exe --demo",
+    "accountOrNetwork": "Offline synthetic workspace; no Discord account or transport",
+    "state": "Synthetic folder context menu open at the same getting-started channel; no unread guild in the folder, so the new action is disabled in the after capture"
+  },
+  "screenshots": [
+    {
+      "path": "before.png",
+      "width": 1120,
+      "height": 760,
+      "bytes": 364034,
+      "sha256": "E04BBD3DD804DFB3A95F4FA11386F4ADE1D6ADDAF13387328803D15302568FC2",
+      "description": "Baseline folder context menu without Mark As Read"
+    },
+    {
+      "path": "after.png",
+      "width": 1120,
+      "height": 760,
+      "bytes": 360486,
+      "sha256": "785CE86F51C635B6AC3D27A6AEFF9530C074BE4C729E136729B298696F375873",
+      "description": "Updated folder context menu with disabled Mark As Read row"
+    }
+  ],
+  "standardPackage": {
+    "command": "cargo xtask package",
+    "features": "Standard voice-enabled release; demo disabled",
+    "fileCount": 216,
+    "zipMethod": ".NET Compress-Archive",
+    "nsisAvailable": false,
+    "measurements": [
+      {
+        "metric": "serein.exe bytes",
+        "baseline": 87399936,
+        "after": 87405568,
+        "delta": 5632,
+        "deltaPercent": 0.0064
+      },
+      {
+        "metric": "portable dist tree bytes",
+        "baseline": 91593225,
+        "after": 91598857,
+        "delta": 5632,
+        "deltaPercent": 0.00615
+      },
+      {
+        "metric": "ZIP bytes",
+        "baseline": 51350178,
+        "after": 51354785,
+        "delta": 4607,
+        "deltaPercent": 0.00897
+      }
+    ]
+  },
+  "processSampling": {
+    "workload": "Static --demo folder context menu; no input during sample window",
+    "warmupSeconds": 5,
+    "sampleCountPerRevision": 21,
+    "targetIntervalMs": 1000,
+    "cpuFormula": "100 * (last TotalProcessorTime seconds - first TotalProcessorTime seconds) / actual elapsed wall seconds; 100% is one logical core",
+    "memoryFormula": "Peak is the maximum sample; settled is the arithmetic mean of the final five samples",
+    "baseline": {
+      "revision": "104b1aa5a7f3b3d0771e379ae86f1ae69807de55",
+      "pid": 27324,
+      "warmupSeconds": 5,
+      "sampleCount": 21,
+      "targetIntervalMs": 1000,
+      "actualElapsedSeconds": 20.065,
+      "cpuOneCorePercent": 1.4795,
+      "peakWorkingSetBytes": 185057280.0,
+      "settledWorkingSetMeanLast5Bytes": 185057280.0,
+      "peakPrivateBytes": 204038144.0,
+      "settledPrivateMeanLast5Bytes": 204038144.0,
+      "samples": [
+        {
+          "elapsedMs": 2,
+          "cpuSeconds": 2.453125,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 1010,
+          "cpuSeconds": 2.46875,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 2012,
+          "cpuSeconds": 2.484375,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 3015,
+          "cpuSeconds": 2.5,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 4018,
+          "cpuSeconds": 2.5,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 5021,
+          "cpuSeconds": 2.515625,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 6025,
+          "cpuSeconds": 2.53125,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 7027,
+          "cpuSeconds": 2.546875,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 8029,
+          "cpuSeconds": 2.5625,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 9032,
+          "cpuSeconds": 2.578125,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 10034,
+          "cpuSeconds": 2.59375,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 11037,
+          "cpuSeconds": 2.609375,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 12040,
+          "cpuSeconds": 2.625,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 13042,
+          "cpuSeconds": 2.640625,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 14045,
+          "cpuSeconds": 2.65625,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 15048,
+          "cpuSeconds": 2.671875,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 16051,
+          "cpuSeconds": 2.6875,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 17053,
+          "cpuSeconds": 2.703125,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 18056,
+          "cpuSeconds": 2.71875,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 19059,
+          "cpuSeconds": 2.734375,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        },
+        {
+          "elapsedMs": 20061,
+          "cpuSeconds": 2.75,
+          "workingSetBytes": 185057280,
+          "privateBytes": 204038144
+        }
+      ]
+    },
+    "after": {
+      "revision": "2b02b49e537f77b6db937c6bd6bb05e9f69bb2f3",
+      "pid": 22648,
+      "warmupSeconds": 5,
+      "sampleCount": 21,
+      "targetIntervalMs": 1000,
+      "actualElapsedSeconds": 20.07,
+      "cpuOneCorePercent": 0.3893,
+      "peakWorkingSetBytes": 167518208.0,
+      "settledWorkingSetMeanLast5Bytes": 167518208.0,
+      "peakPrivateBytes": 185970688.0,
+      "settledPrivateMeanLast5Bytes": 185970688.0,
+      "samples": [
+        {
+          "elapsedMs": 2,
+          "cpuSeconds": 12.421875,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 1010,
+          "cpuSeconds": 12.421875,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 2013,
+          "cpuSeconds": 12.421875,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 3016,
+          "cpuSeconds": 12.421875,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 4020,
+          "cpuSeconds": 12.4375,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 5022,
+          "cpuSeconds": 12.4375,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 6025,
+          "cpuSeconds": 12.453125,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 7028,
+          "cpuSeconds": 12.453125,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 8032,
+          "cpuSeconds": 12.484375,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 9034,
+          "cpuSeconds": 12.484375,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 10037,
+          "cpuSeconds": 12.484375,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 11040,
+          "cpuSeconds": 12.484375,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 12043,
+          "cpuSeconds": 12.5,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 13046,
+          "cpuSeconds": 12.5,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 14049,
+          "cpuSeconds": 12.5,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 15052,
+          "cpuSeconds": 12.5,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 16055,
+          "cpuSeconds": 12.5,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 17057,
+          "cpuSeconds": 12.5,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 18060,
+          "cpuSeconds": 12.5,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 19064,
+          "cpuSeconds": 12.5,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        },
+        {
+          "elapsedMs": 20067,
+          "cpuSeconds": 12.5,
+          "workingSetBytes": 167518208,
+          "privateBytes": 185970688
+        }
+      ]
+    }
+  },
+  "limits": [
+    "One sample series per revision; measurements are descriptive and do not claim a performance improvement.",
+    "Startup latency and frame timing were not measured.",
+    "The disabled-row fixture does not verify clicking the action for a folder with unread guilds.",
+    "Live Discord behavior was not tested."
+  ]
+}

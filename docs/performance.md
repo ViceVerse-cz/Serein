@@ -4,6 +4,38 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Server folder mark-as-read — October 15, 2026 (PR #672)
+
+Compared base `104b1aa5` with folder mark-as-read `2b02b49e`. Standard unsigned Windows x64
+portable packages use Rust 1.98.1 and `cargo xtask package` (voice included, demo disabled).
+Each installed tree contains 216 files; ZIP output uses .NET `Compress-Archive`. NSIS was
+unavailable, so no installer was measured.
+
+| Package metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| `serein.exe` | 87,399,936 B | 87,405,568 B | +5,632 B (+0.0064%) |
+| Installed tree | 91,593,225 B | 91,598,857 B | +5,632 B (+0.00615%) |
+| ZIP archive | 51,350,178 B | 51,354,785 B | +4,607 B (+0.00897%) |
+
+Release demo builds at both revisions ran the same offline `--demo` workspace with the
+synthetic folder context menu open in a 1120×760 window. The after menu shows the new row disabled
+because this fixture has no unread guild in that folder. On Windows 11 Pro 10.0.26300, Ryzen 7
+7800X3D (8 cores / 16 logical), 31.4 GiB visible RAM and AMD Radeon RX 7900 GRE (DX12),
+process counters were sampled once per revision after a five-second warmup, 21 samples about one
+second apart. CPU is the `Get-Process` CPU-time delta divided by actual elapsed wall time, where
+100% is one logical core. Memory reports peak and mean of the final five samples.
+
+| Native demo metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| CPU, one-core percentage | 1.4795% | 0.3893% | -1.0902 percentage points |
+| Working set, peak / final-five mean | 185,057,280 B | 167,518,208 B | -17,539,072 B |
+| Private bytes, peak / final-five mean | 204,038,144 B | 185,970,688 B | -18,067,456 B |
+
+These single samples are descriptive only; no runtime improvement is claimed. Startup and frame
+latency were not measured. The synthetic screenshots, raw samples and reproduction details are in
+[`docs/pr-evidence/folder-mark-as-read/`](pr-evidence/folder-mark-as-read/). Live Discord behavior
+and clicking the action against a folder containing unread guilds remain outside this offline run.
+
 ## Game mention catalog and review fixes - October 14, 2026
 
 Compared baseline `7759f5b5` with game mentions and review fixes at `75c4dfe0`.
