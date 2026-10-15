@@ -85,7 +85,7 @@ impl Form {
 					self.config.channels.retain(|saved| *saved != id);
 				}
 			}
-			if ui.button("Save and start auto replies").clicked() {
+			if ui.add_enabled(client_core::auto_reply::available(state), egui::Button::new("Save and start auto replies")).clicked() {
 				match self.config.validate() {
 					Ok(()) if self.connected || !self.key.is_empty() => {
 						self.request = Some(Request::Save { config: self.config.clone(), key: std::mem::take(&mut self.key) });
