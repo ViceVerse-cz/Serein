@@ -225,6 +225,18 @@ impl Bridge {
 			.and_then(|entry| entry.rich_presence.as_deref())
 	}
 
+	pub fn openrouter_auto_reply(&self, state: &State) -> bool {
+		self.scope_current(state)
+			&& self.installed.iter().any(|entry| {
+				entry.openrouter_auto_reply
+					&& entry.error.is_none()
+					&& !self.disabled.contains(&entry.manifest.id)
+					&& entry
+						.manifest
+						.capabilities
+						.contains(&Capability::OpenrouterAutoReply)
+			})
+	}
 	pub fn api_proxy_ready(&self) -> bool {
 		self.api_proxy_loaded
 	}
@@ -1824,6 +1836,7 @@ mod tests {
 			image_sharing: false,
 			rich_presence: None,
 			api_proxy: None,
+			openrouter_auto_reply: false,
 		};
 		let bridge = Bridge {
 			scope: Some((

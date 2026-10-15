@@ -3,6 +3,7 @@
 mod access_marks_demo;
 mod app_settings;
 mod audio;
+mod auto_reply;
 mod avatars;
 mod cache;
 mod captcha;
@@ -953,6 +954,7 @@ impl SessionEnd {
 }
 struct Desktop {
 	proxy_auth: proxy_auth::Authentication,
+	auto_reply: auto_reply::Service,
 	api_proxy: tokio::sync::watch::Sender<Option<discord_api::proxy::ApiProxy>>,
 	extensions: extension_bridge::Bridge,
 	extension_close_pending: bool,
@@ -2257,6 +2259,7 @@ impl Desktop {
 		};
 		Ok(Self {
 			proxy_auth: proxy_auth::Authentication::default(),
+			auto_reply: auto_reply::Service::default(),
 			api_proxy: tokio::sync::watch::channel(None).0,
 			extensions: extension_bridge::Bridge::default(),
 			extension_close_pending: false,
@@ -3142,6 +3145,7 @@ impl Desktop {
 	}
 	/// Dispatches one queued command to the demo or live transport.
 	fn command(&mut self, command: Command) {
+		self.auto_reply.sending(&command);
 		if !self.state.gateway_connected
 			&& self.state.auth == AuthState::Authenticated
 			&& matches!(command, Command::Send { .. })
@@ -4784,6 +4788,14 @@ impl Desktop {
 			{
 				self.extensions.access_changed(&mut self.messaging);
 			}
+			self.auto_reply.observe(
+				&self.state,
+				&event,
+				&mut self.messaging.extensions.auto_reply,
+				!self.fixture_only && self.extensions.openrouter_auto_reply(&self.state),
+				&self.runtime,
+				ctx,
+			);
 			self.state.apply(event);
 			if let Some(message) = takeover_notice {
 				self.messaging
@@ -5236,6 +5248,17 @@ impl eframe::App for Desktop {
 			&self.window,
 			self.fixture_only,
 		);
+		let auto_reply_enabled =
+			!self.fixture_only && self.extensions.openrouter_auto_reply(&self.state);
+		if let Some(command) = self.auto_reply.tick(
+			&mut self.state,
+			&mut self.messaging.extensions.auto_reply,
+			auto_reply_enabled,
+			&self.runtime,
+			ctx,
+		) {
+			self.command(command);
+		}
 		if self.extensions.api_proxy_ready() {
 			let route = self.proxy_auth.tick(
 				self.extensions.api_proxy(),

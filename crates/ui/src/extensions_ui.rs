@@ -155,6 +155,7 @@ struct PreviewImage {
 }
 #[derive(Default)]
 pub struct ExtensionUi {
+	pub auto_reply: crate::auto_reply::Form,
 	pub proxy_auth: crate::proxy_auth::Form,
 	pub active_theme: Option<String>,
 	pub entries: Vec<ExtensionEntry>,
@@ -2219,6 +2220,17 @@ impl ExtensionUi {
 					.capabilities
 					.contains(&Capability::RichPresence)
 		});
+		let auto_reply = self.entries.iter().any(|entry| {
+			entry.manifest.id == result.id
+				&& entry.enabled
+				&& entry
+					.manifest
+					.capabilities
+					.contains(&Capability::OpenrouterAutoReply)
+		});
+		if !auto_reply {
+			self.auto_reply.clear_secret();
+		}
 		let proxy = self.entries.iter().any(|entry| {
 			entry.manifest.id == result.id
 				&& entry.manifest.capabilities.contains(&Capability::ApiProxy)
@@ -2278,6 +2290,10 @@ impl ExtensionUi {
 						return;
 					}
 					render_elements(ui, &result.output.panel, &mut result.values, &mut action);
+					if auto_reply {
+						ui.separator();
+						self.auto_reply.show(ui, state);
+					}
 					if proxy {
 						ui.separator();
 						self.proxy_auth.show(
@@ -2360,6 +2376,7 @@ impl ExtensionUi {
 			self.result = Some(result);
 		} else {
 			self.proxy_auth.clear_draft();
+			self.auto_reply.clear_secret();
 		}
 		confirmed
 	}
@@ -2721,6 +2738,9 @@ fn badge(ui: &mut egui::Ui, text: &str, foreground: egui::Color32, background: e
 
 fn capability_label(capability: Capability) -> &'static str {
 	match capability {
+		Capability::OpenrouterAutoReply => {
+			"Use OpenRouter and send automatic replies only in private conversations I choose in host settings"
+		}
 		Capability::ApiProxy => {
 			"Route the Discord REST API through a proxy across accounts (not calls or media)"
 		}

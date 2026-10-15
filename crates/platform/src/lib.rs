@@ -9,6 +9,7 @@ pub mod heic;
 pub mod hotkeys;
 pub mod memory;
 pub mod notifications;
+pub mod openrouter_credentials;
 pub mod pointer;
 pub mod processes;
 pub mod proxy_credentials;

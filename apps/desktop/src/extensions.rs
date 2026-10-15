@@ -306,6 +306,7 @@ pub fn demo_check_examples() -> Result<bool, String> {
 
 #[derive(Clone)]
 pub struct InstalledExtension {
+	pub openrouter_auto_reply: bool,
 	pub background_image: Option<Arc<eframe::egui::ColorImage>>,
 	pub cover_image: Option<Arc<eframe::egui::ColorImage>>,
 	pub local_theme: bool,
@@ -552,6 +553,7 @@ impl Stored {
 			}
 		};
 		InstalledExtension {
+			openrouter_auto_reply: result.as_ref().is_ok_and(|o| o.openrouter_auto_reply),
 			background_image,
 			cover_image,
 			local_theme: self.local_theme,
@@ -1185,6 +1187,7 @@ fn load(
 						image_sharing: false,
 						rich_presence: None,
 						api_proxy: None,
+						openrouter_auto_reply: false,
 					},
 				});
 			}

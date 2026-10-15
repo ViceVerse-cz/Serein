@@ -15,6 +15,7 @@ impl HostInfo {
 			sdk_revision: 1,
 			capabilities: &[
 				Capability::ApiProxy,
+				Capability::OpenrouterAutoReply,
 				Capability::RichPresence,
 				Capability::ActionFeedback,
 				Capability::DataQueries,

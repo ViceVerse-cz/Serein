@@ -89,6 +89,7 @@ pub enum ExtensionKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
+	OpenrouterAutoReply,
 	ApiProxy,
 	RichPresence,
 	RelationshipControl,
@@ -511,6 +512,8 @@ impl ApiProxyConfig {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Output {
+	#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+	pub openrouter_auto_reply: bool,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub api_proxy: Option<ApiProxyConfig>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1078,6 +1081,14 @@ impl Output {
 				|| !self.panel.is_empty()
 				|| self.storage.is_some()
 				|| !self.effects.is_empty())
+		{
+			return Err(Error::Capability);
+		}
+		if self.openrouter_auto_reply
+			&& (surface != Surface::Activation
+				|| !manifest
+					.capabilities
+					.contains(&Capability::OpenrouterAutoReply))
 		{
 			return Err(Error::Capability);
 		}

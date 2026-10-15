@@ -5,6 +5,8 @@ and Themes pages in Settings contain packages, links to their source, their
 requested capabilities and their review status. A plugin cannot directly call Discord, read credentials, open files or make
 network requests. Separately granted foreground actions can propose messages
 and other app operations; the user reviews and applies each operation in Serein.
+The separate preview OpenRouter auto-reply service requires a native private-DM
+allowlist and explicit Start; see its exception and limits below.
 
 ## Install and remove
 
@@ -33,7 +35,9 @@ importing alone does not grant it capabilities or execute it.
 Disable stops accepting results immediately, then removes Serein's downloaded
 package, temporary files and extension data. A failure to remove files is shown
 and cleanup is retried on the next load. Re-enabling requires downloading or
-importing the package again and starts with fresh extension settings. Serein
+importing the package again and starts with fresh extension settings. Host-owned
+OpenRouter credentials/settings are retained until explicitly forgotten; they
+remain paused after reinstallation. Serein
 never deletes the creator's Git repository, the user's imported original, or an
 exported theme/image source.
 
@@ -127,7 +131,7 @@ Unknown API versions and invalid packages are rejected before installation.
 
 Each capability is independent and requires user consent. An update requests
 renewed consent; adding a read grant does not grant commands. The SDK currently
-supports 53 capabilities, with at most 64 distinct declarations per manifest.
+supports 54 capabilities, with at most 64 distinct declarations per manifest.
 
 > **Preview SDK — PR #411, not yet released.** `channel_control`,
 > `server_control`, `role_control`, `moderation_control` and `media_control`, plus
@@ -139,6 +143,7 @@ supports 53 capabilities, with at most 64 distinct declarations per manifest.
 | `selected_message` | Read selected message text | A user-invoked `message` action only |
 | `composer` | Read the current draft and propose replacement | A `composer` action; replacement requires Apply |
 | `storage` | Read/replace one opaque local UTF-8 value | Per-account/plugin; 1 MiB disk limit and 256 KiB invocation budget |
+| `openrouter_auto_reply` | Host-managed OpenRouter replies in selected private conversations | Preview; explicit native DM allowlist, key and Start; no Wasm messages/keys/network; starts paused each session |
 | `api_proxy` | Configure the Discord REST API HTTP/HTTPS proxy | Preview; device-wide, available before login; only `storage` may accompany this grant; no account data, Gateway, CDN or calls |
 | `rich_presence` | Contribute one bounded custom activity and restore it during activation | Preview; explicit panel/activation actions only; separate activity-sharing preference; revoked on disable/account change |
 | `deleted_messages` | Enable host retention of already-loaded deleted messages | Activation only; bounded session memory, no deleted text sent to Wasm |
@@ -478,7 +483,7 @@ invocation input/output, panel complexity, queues and plugin storage.
 | Execution fuel | 10,000,000 | Shared by parsing and execution; a valid-sized input can still exhaust it. |
 | Wasm call depth / interpreter stack | 128 calls / 256 KiB | Avoid deep recursion. |
 | Serialized input and output | 256 KiB each | Count UTF-8 and JSON escaping, including nested storage JSON. |
-| Manifest actions / capabilities | 16 / 64 distinct | Only the 53 supported capability names are currently accepted. |
+| Manifest actions / capabilities | 16 / 64 distinct | Only the 54 supported capability names are currently accepted. |
 | Panel | 64 elements / 8 row levels | Includes nested children; text and input values are at most 4 KiB each. |
 | Plugin storage on disk | 1 MiB | Its practical size must also fit the smaller invocation/output budget. |
 | App snapshot | 64 KiB | Individual lists have smaller budgets; see the [data reference](extension-sdk-reference.md#app-data). |
@@ -533,3 +538,15 @@ until the plugin is repaired or explicitly disabled.
 Automatic reads `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and their lowercase
 equivalents, respecting `NO_PROXY`. With none configured it connects directly.
 OS/browser proxy settings and PAC discovery are unsupported.
+
+## OpenRouter auto replies (preview)
+
+The optional [OpenRouter Auto Reply plugin](../extensions/plugins/openrouter-auto-reply/README.md)
+uses the separate `openrouter_auto_reply` grant and activation flag. The host,
+rather than Wasm, owns the native account-scoped key/settings editor, selection
+of people/group DMs, bounded OpenRouter requests and automatic sends. This is an
+explicit exception to foreground-only sending: its native Start authorizes replies
+only to the chosen private conversations until paused or disconnected. Other
+extension actions still require Apply. Wasm cannot read keys, message text or model
+responses through this grant. See [the output contract](extension-sdk-actions.md#openrouter-auto-replies-preview)
+for data scope, cancellation, rate limits and failure behavior.

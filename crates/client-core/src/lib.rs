@@ -2,6 +2,7 @@
 pub mod application_commands;
 pub mod archives;
 pub mod auth;
+pub mod auto_reply;
 pub mod captcha;
 pub mod channel_actions;
 pub mod fingerprint;
@@ -1844,7 +1845,29 @@ impl State {
 		explicit_reply: Option<Reply>,
 	) -> Option<Command> {
 		let channel = self.selected?;
-		if !self.can_send(channel) || (!filenames.is_empty() && !self.can_attach(channel)) {
+		self.prepare_message_content_for(
+			channel,
+			filenames,
+			sticker,
+			preserve_draft,
+			explicit_content,
+			explicit_reply,
+		)
+	}
+	fn prepare_message_content_for(
+		&mut self,
+		channel: Id,
+		filenames: &[&str],
+		sticker: Option<&Sticker>,
+		preserve_draft: bool,
+		explicit_content: Option<&str>,
+		explicit_reply: Option<Reply>,
+	) -> Option<Command> {
+		if self.auth != auth::AuthState::Authenticated
+			|| self.freshness == Freshness::Unavailable
+			|| !self.can_compose(channel)
+			|| (!filenames.is_empty() && !self.can_attach(channel))
+		{
 			self.status = "Sending is unavailable with the current connection or permissions";
 			return None;
 		}
@@ -1907,7 +1930,9 @@ impl State {
 		if sticker.is_none() && !preserve_draft {
 			self.drafts.remove(&channel);
 		}
-		self.search_target = None;
+		if self.selected == Some(channel) {
+			self.search_target = None;
+		}
 		Some(Command::Send {
 			sticker: sticker.map(|s| s.id),
 			channel,

@@ -53,3 +53,9 @@ the package locally. Older clients without this capability cannot install it.
 
 See [API Proxy](api-proxy/README.md) for the native REST-only proxy editor.
 Requires the API proxy SDK capability; Gateway, CDN/media and calls stay direct.
+
+## OpenRouter Auto Reply (preview)
+
+See [OpenRouter Auto Reply](openrouter-auto-reply/README.md) for account-scoped
+OpenRouter setup, selected people/group DMs, resource limits and pause controls.
+Requires the preview `openrouter_auto_reply` host capability.

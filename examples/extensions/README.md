@@ -63,6 +63,7 @@ may not be available in a released build.
 | [Message Counter](message-counter/src/lib.rs) | Reactive events, saved counters and a reset button |
 | [Message Delete Protector](../../extensions/plugins/message-delete-protector/src/lib.rs) | Opt-in activation enabling host-managed message retention |
 | [RGB Cycle](rgb-cycle/src/lib.rs) | Host-scheduled, smoothly eased appearance updates with saved settings |
+| [OpenRouter Auto Reply](../../extensions/plugins/openrouter-auto-reply) | Opt-in activation wrapper; native host owns the key, private-conversation allowlist, requests and auto replies |
 | [Custom Rich Presence](../../extensions/plugins/custom-rpc) | Native activity editor/preview, saved Apply/Stop controls and activation restore through the bounded `rich_presence` capability |
 
 For this tutorial, use `app-toolbox/` in a development copy. Keep its `Cargo.toml`,
@@ -488,7 +489,8 @@ before building a different presence editor.
 Existing `Invocation`, `Output`, `dispatch` and `export!` APIs and struct literal
 shapes remain supported. Opt into events with `EventInvocation`, or app data and
 actions with `AppInvocation` / `AppOutput`, custom activity contributions with
-`RichPresenceOutput`, or REST proxy configuration with `ApiProxyOutput`.
+`RichPresenceOutput`, REST proxy configuration with `ApiProxyOutput`, or opt-in host auto-reply activation
+with `OpenrouterAutoReplyOutput`.
 Existing compiled plugins need no rebuild.
 
 Older hosts reject unsupported capabilities/surfaces. `api_version: 1` is not a

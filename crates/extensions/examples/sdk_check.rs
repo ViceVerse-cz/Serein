@@ -540,6 +540,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		&serde_json::to_vec(&protector)?,
 		&expected,
 	);
+	let auto_reply = rebuilt(
+		include_str!("../../../extensions/plugins/openrouter-auto-reply/manifest.json"),
+		&catalog_wasm_dir.join("openrouter_auto_reply.wasm"),
+	)?;
+	check(
+		"openrouter-auto-reply/rebuilt",
+		&serde_json::to_vec(&auto_reply)?,
+		&Output {
+			openrouter_auto_reply: true,
+			..Default::default()
+		},
+	);
 	// Editor plugins have no fixed activation output; their rebuilt panel must still validate.
 	for (name, manifest, wasm_file) in [
 		(
