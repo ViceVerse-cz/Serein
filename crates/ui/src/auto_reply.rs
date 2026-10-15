@@ -22,6 +22,7 @@ pub struct Form {
 	pub busy: bool,
 	pub connected: bool,
 	pub running: bool,
+	pub available: bool,
 }
 impl Form {
 	pub fn clear_secret(&mut self) {
@@ -29,6 +30,13 @@ impl Form {
 	}
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &State) {
 		ui.heading("OpenRouter auto replies");
+		if !self.available {
+			self.clear_secret();
+			ui.label(
+				"Auto replies are unavailable in this session. Enable the plugin and sign in before starting.",
+			);
+			return;
+		}
 		ui.label("New messages in the DMs you select are sent to OpenRouter and its model provider. Replies are sent from your account with an [Auto reply] label. Provider charges may apply.");
 		ui.horizontal_wrapped(|ui| {
 			ui.strong(if self.running {
@@ -132,6 +140,63 @@ fn key_input(ui: &mut egui::Ui, key: &mut Zeroizing<String>, connected: bool) ->
 mod tests {
 	use super::*;
 	#[test]
+	fn inactive_service_does_not_offer_start_or_retain_draft_key() {
+		let ctx = egui::Context::default();
+		let mut form = Form {
+			key: Zeroizing::new("synthetic-key".into()),
+			..Default::default()
+		};
+		let state = test_support::demo_state();
+		let mut output = ctx.run_ui(egui::RawInput::default(), |ui| form.show(ui, &state));
+		output.textures_delta.clear();
+		let text: String = output
+			.shapes
+			.iter()
+			.filter_map(|shape| match &shape.shape {
+				egui::epaint::Shape::Text(text) => Some(text.galley.text()),
+				_ => None,
+			})
+			.collect();
+		assert!(text.contains("unavailable") && !text.contains("Save and start"));
+		assert!(form.key.is_empty() && form.request.is_none());
+	}
+	#[test]
+	fn discarded_results_erase_unsaved_keys_immediately() {
+		use crate::extensions_ui::{ExtensionContext, ExtensionUi};
+		for discard in 0..4 {
+			let mut state = test_support::demo_state();
+			let mut shop = ExtensionUi::default();
+			if discard != 2 {
+				shop.present_output(
+					"synthetic".into(),
+					extensions::Invocation::default(),
+					ExtensionContext::panel(&state),
+					extensions::Output::default(),
+					&state,
+				);
+			}
+			shop.auto_reply.key = Zeroizing::new("synthetic-key".into());
+			match discard {
+				0 => shop.reset_runtime(),
+				1 => shop.remove_runtime("synthetic"),
+				_ => {
+					if discard == 3 {
+						state.generation += 1;
+					}
+					shop.show_result(
+						&egui::Context::default(),
+						&mut state,
+						&mut Vec::new(),
+						false,
+						&mut crate::avatars::Avatars::default(),
+						("", false),
+					);
+				}
+			}
+			assert!(shop.auto_reply.key.is_empty());
+		}
+	}
+	#[test]
 	fn secret_widget_clears_undo_and_works_in_narrow_light_and_dark_forms() {
 		for light in [false, true] {
 			let ctx = egui::Context::default();
@@ -140,6 +205,7 @@ mod tests {
 			}
 			let mut form = Form {
 				key: Zeroizing::new("synthetic-key".into()),
+				available: true,
 				..Default::default()
 			};
 			let state = test_support::demo_state();

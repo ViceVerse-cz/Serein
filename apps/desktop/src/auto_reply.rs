@@ -95,6 +95,7 @@ impl Service {
 			self.last_request = None;
 			*form = Form::default();
 		}
+		form.available = scope.is_some();
 		if let Some(job) = &self.credentials {
 			match job.receive.try_recv() {
 				Ok(result) => {
@@ -565,6 +566,7 @@ mod tests {
 				&egui::Context::default(),
 			);
 			assert_eq!(command.is_some(), change == 0);
+			assert_eq!(form.available, change != 3 && change != 4);
 			assert!(service.reply.is_none());
 		}
 	}
