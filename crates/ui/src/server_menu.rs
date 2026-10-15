@@ -22,6 +22,7 @@ impl Dialog {
 pub(super) struct ServerMenu {
 	pub settings_requested: Option<Id>,
 	pub mark_read_requested: Option<Id>,
+	pub mark_read_folder_requested: Option<Vec<Id>>,
 	dialog: Option<Dialog>,
 	generation: u64,
 	invite: InviteDialog,
@@ -64,6 +65,35 @@ impl ServerMenu {
 			.clicked()
 		{
 			self.mark_read_requested = Some(guild);
+			ui.close();
+			return true;
+		}
+		false
+	}
+	pub fn folder_read_item(&mut self, ui: &mut egui::Ui, state: &State, guilds: &[Id]) -> bool {
+		let can_mark_read = guilds
+			.iter()
+			.take(model::guild_folders::MAX_GUILDS)
+			.any(|&guild| state.can_mark_guild_read(guild));
+		if ui
+			.add_enabled_ui(can_mark_read, |ui| {
+				menu_row(
+					ui,
+					icons::Icon::Check,
+					&crate::i18n::translate("server-menu-read-item-mark-as-read"),
+					design::palette(ui).text,
+				)
+			})
+			.inner
+			.clicked()
+		{
+			self.mark_read_folder_requested = Some(
+				guilds
+					.iter()
+					.copied()
+					.take(model::guild_folders::MAX_GUILDS)
+					.collect(),
+			);
 			ui.close();
 			return true;
 		}

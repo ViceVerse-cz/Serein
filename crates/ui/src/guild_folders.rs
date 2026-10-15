@@ -9,7 +9,7 @@ use model::{
 	Id,
 	guild_folders::{Folder, Settings},
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 
 #[derive(Default)]
 pub(super) struct FolderUi {
@@ -20,6 +20,8 @@ pub(super) struct FolderUi {
 	generation: u64,
 	key: Option<(u64, u64)>,
 	rows: Box<[Row]>,
+	mark_read_queue: VecDeque<Id>,
+	mark_read_in_flight: Option<(Id, u64)>,
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Item {
@@ -94,6 +96,37 @@ impl FolderUi {
 			self.closing.remove(&id);
 		}
 		self.key = None;
+	}
+	fn queue_mark_read(&mut self, guilds: impl IntoIterator<Item = Id>) {
+		self.mark_read_queue.clear();
+		self.mark_read_in_flight = None;
+		let mut seen = BTreeSet::new();
+		self.mark_read_queue.extend(
+			guilds
+				.into_iter()
+				.take(model::guild_folders::MAX_GUILDS)
+				.filter(|guild| seen.insert(*guild)),
+		);
+	}
+	fn advance_mark_read(&mut self, state: &mut State, commands: &mut Vec<Command>) {
+		if let Some((guild, request)) = self.mark_read_in_flight {
+			if state.pending_guild_ack(guild, request) {
+				return;
+			}
+			self.mark_read_in_flight = None;
+		}
+		if state.has_pending_read() {
+			return;
+		}
+		while let Some(guild) = self.mark_read_queue.pop_front() {
+			if let Some(Command::MarkGuildRead { guild, request }) =
+				state.prepare_mark_guild_read(guild)
+			{
+				self.mark_read_in_flight = Some((guild, request));
+				commands.push(Command::MarkGuildRead { guild, request });
+				return;
+			}
+		}
 	}
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -634,6 +667,18 @@ impl MessagingUi {
 							}
 							ui.separator();
 						}
+						if let Item::Folder(id) = item {
+							ui.set_width(232.0);
+							let guilds = state
+								.guild_folders
+								.as_ref()
+								.and_then(|settings| {
+									settings.folders.iter().find(|folder| folder.id == Some(id))
+								})
+								.map_or(&[][..], |folder| folder.guild_ids.as_slice());
+							self.server_menu.folder_read_item(ui, state, guilds);
+							ui.separator();
+						}
 						if ui
 							.add_enabled(
 								!state.folders_pending,
@@ -949,12 +994,62 @@ impl MessagingUi {
 				commands.push(command);
 			}
 		}
+		if let Some(guilds) = self.server_menu.mark_read_folder_requested.take() {
+			self.folder_ui.queue_mark_read(guilds);
+		}
+		self.folder_ui.advance_mark_read(state, commands);
 	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use client_core::read_state::Event as ReadEvent;
+	use model::{Channel, permissions as perms};
+
+	fn readable_guild_state() -> State {
+		let mut state = test_support::demo_state();
+		test_support::seed_demo_folder_mosaic(&mut state);
+		state.channels.push(Channel {
+			id: Id(111),
+			guild: Some(Id(11)),
+			parent_id: None,
+			kind: 0,
+			position: 0,
+			name: "synthetic-unread".into(),
+			recipients: vec![],
+			last_message: Some(Id(500)),
+			icon: None,
+			member_list_id: None,
+			message_count: None,
+			tags: None,
+		});
+		state.permissions.guilds.insert(
+			Id(11),
+			perms::Guild {
+				id: Id(11),
+				owner: Some(Id(1)),
+				roles: None,
+				member: None,
+			},
+		);
+		state.permissions.channels.insert(
+			Id(111),
+			perms::Channel {
+				id: Id(111),
+				guild: Id(11),
+				overwrites: Some(vec![]),
+			},
+		);
+		state
+			.apply_read_state(ReadEvent::Snapshot {
+				entries: Some(vec![(Id(20), Some(Id(495)), 0), (Id(111), Some(Id(1)), 0)]),
+				version: None,
+				partial: false,
+			})
+			.unwrap();
+		state
+	}
 
 	#[test]
 	fn server_icon_restores_channel_once_in_standalone_and_expanded_folder() {
@@ -1112,6 +1207,91 @@ mod tests {
 					.any(|(item, _)| *item == Item::Folder(9))
 			);
 		}
+	}
+
+	#[test]
+	fn folder_mark_read_waits_for_each_guild_ack_and_skips_unreadable_entries() {
+		let mut state = readable_guild_state();
+		assert!(state.can_mark_guild_read(Id(10)));
+		assert!(state.can_mark_guild_read(Id(11)));
+		let mut folders = FolderUi::default();
+		folders.queue_mark_read([Id(10), Id(10), Id(999), Id(11)]);
+		let mut commands = Vec::new();
+
+		folders.advance_mark_read(&mut state, &mut commands);
+		let Command::MarkGuildRead { guild, request } = commands.pop().unwrap() else {
+			panic!("folder should start with the first unread guild");
+		};
+		assert_eq!(guild, Id(10));
+		assert_eq!(folders.mark_read_queue.len(), 2);
+		folders.advance_mark_read(&mut state, &mut commands);
+		assert!(commands.is_empty(), "a second guild waits for the ack");
+
+		state
+			.apply_read_state(ReadEvent::GuildAck {
+				guild,
+				request,
+				result: Ok(()),
+			})
+			.unwrap();
+		folders.advance_mark_read(&mut state, &mut commands);
+		assert!(matches!(
+			commands.as_slice(),
+			[Command::MarkGuildRead { guild: Id(11), .. }]
+		));
+		let Command::MarkGuildRead { guild, request } = commands.pop().unwrap() else {
+			unreachable!();
+		};
+		state
+			.apply_read_state(ReadEvent::GuildAck {
+				guild,
+				request,
+				result: Ok(()),
+			})
+			.unwrap();
+		folders.advance_mark_read(&mut state, &mut commands);
+		assert!(commands.is_empty());
+		assert!(folders.mark_read_queue.is_empty());
+	}
+
+	#[test]
+	fn folder_mark_read_keeps_its_queue_while_another_read_is_pending() {
+		let mut state = readable_guild_state();
+		let Command::MarkGuildRead { guild, request } =
+			state.prepare_mark_guild_read(Id(10)).unwrap()
+		else {
+			unreachable!();
+		};
+		let mut folders = FolderUi::default();
+		folders.queue_mark_read([Id(11)]);
+		let mut commands = Vec::new();
+
+		folders.advance_mark_read(&mut state, &mut commands);
+		assert!(commands.is_empty());
+		assert_eq!(folders.mark_read_queue.front(), Some(&Id(11)));
+		state
+			.apply_read_state(ReadEvent::GuildAck {
+				guild,
+				request,
+				result: Ok(()),
+			})
+			.unwrap();
+
+		folders.advance_mark_read(&mut state, &mut commands);
+		assert!(matches!(
+			commands.as_slice(),
+			[Command::MarkGuildRead { guild: Id(11), .. }]
+		));
+	}
+
+	#[test]
+	fn folder_mark_read_queue_is_bounded_to_the_guild_limit() {
+		let mut folders = FolderUi::default();
+		folders.queue_mark_read((1..=model::guild_folders::MAX_GUILDS as u64 + 5).map(Id));
+		assert_eq!(
+			folders.mark_read_queue.len(),
+			model::guild_folders::MAX_GUILDS
+		);
 	}
 
 	#[test]

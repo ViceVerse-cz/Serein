@@ -522,6 +522,9 @@ impl State {
 			}) if *pending_guild == guild && *pending_request == request
 		)
 	}
+	pub fn has_pending_read(&self) -> bool {
+		self.read_state.pending.is_some()
+	}
 	fn mark_read_command(
 		&mut self,
 		channel: Id,
