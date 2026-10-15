@@ -25,8 +25,8 @@ cargo build --release --locked -p serein --no-default-features --features demo
 
 Right-click the synthetic server folder in the server rail. At the baseline revision the menu has
 no mark-as-read row. At the PR revision the row appears and is disabled for this fixture's read
-state. The feature-specific command behavior and eligibility are covered by the seven focused
-`guild_folders` tests listed in the PR description.
+state. The feature-specific command behavior, eligibility and disconnect/resume behavior are
+covered by the eight focused `guild_folders` tests listed in the PR description.
 
 ## Runtime and package measurements
 
