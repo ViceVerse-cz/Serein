@@ -1,0 +1,38 @@
+{
+  "baseline_commit": "104b1aa5a7f3b3d0771e379ae86f1ae69807de55",
+  "source_commit": "cd3b95007a428fcebc58cd2306faab93ac6c86e8",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "rust": "1.98.1",
+  "command": "cargo xtask package",
+  "features": "standard voice-inclusive Windows x64 package; --no-default-features",
+  "compression": ".NET System.IO.Compression.ZipFile, Optimal, includeBaseDirectory=false",
+  "samples": 1,
+  "before": {
+    "executable_bytes": 87487488,
+    "executable_sha256": "4166ee50c973554af363df847a8b51fad2da0bb99146f28796d53c709e14f4f3",
+    "installed_bytes": 91680777,
+    "installed_file_count": 216,
+    "compressed_bytes": 50511305,
+    "compressed_sha256": "a523c2e5d56fcecd9da914b5b4027910e408ff45c084a7455351683ec15caa8d"
+  },
+  "after": {
+    "executable_bytes": 87652864,
+    "executable_sha256": "ba95dbccf6a53314458ade41676e32e183420c33f0223d4e02a3214c075feea8",
+    "installed_bytes": 91846153,
+    "installed_file_count": 216,
+    "compressed_bytes": 50586763,
+    "compressed_sha256": "eb329d1b0b86d1006f3ec8e0eab369233919d2ac4537706d347f8ab0c83e96a7"
+  },
+  "plugin": {
+    "package_bytes": 273934,
+    "wasm_bytes": 94800,
+    "sha256": "81eac7b8c03f87f6d93e868a5cb15e4d150877aa7986d11de680043c51c077b8"
+  },
+  "unmeasured": [
+    "native screenshots/interactions",
+    "process RSS/idle CPU",
+    "startup/frame latency",
+    "live Discord interoperability",
+    "authenticated OpenRouter inference/billing"
+  ]
+}
