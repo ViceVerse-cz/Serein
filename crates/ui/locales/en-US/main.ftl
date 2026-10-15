@@ -4815,6 +4815,9 @@ timeline-dm-intro = This is the beginning of your direct message history with { 
 timeline-channel-intro-title = Welcome to #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = This is the start of the #{ $channel } channel.
+show-user-profile = Show User Profile
+hide-user-profile = Hide User Profile
+view-full-profile = View Full Profile
 # Context: text_menu
 text-menu-cut = Cut
 text-menu-copy = Copy

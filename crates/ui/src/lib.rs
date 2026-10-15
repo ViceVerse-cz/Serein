@@ -382,6 +382,8 @@ pub struct MessagingUi {
 	pub attachment_paste_requested: Option<AttachmentPaste>,
 	pub pasted_text: Option<(Id, egui::Id, String)>,
 	paste_key_handled: bool,
+	/// The profile card docked beside a direct message, with its own footer draft.
+	dm_profile: profiles::ProfileSession,
 	/// A text field whose context menu asked to paste.
 	menu_paste: Option<egui::Id>,
 	pasted_text_frame: Option<u64>,
@@ -2449,15 +2451,19 @@ impl MessagingUi {
 						}
 					}
 					ui.add_space(4.0);
-					if icons::toggle(
-						ui,
-						icons::Icon::People,
-						32.0,
-						show_members,
-						&language.text("show-member-list"),
-					)
-					.clicked()
-					{
+					// A one-to-one DM docks the other person's profile instead of a member list.
+					let direct = state
+						.selected
+						.and_then(|id| state.channel(id))
+						.is_some_and(|channel| channel.kind == 1);
+					let (icon, label) = if !direct {
+						(icons::Icon::People, language.text("show-member-list"))
+					} else if show_members {
+						(icons::Icon::Profile, language.text("hide-user-profile"))
+					} else {
+						(icons::Icon::Profile, language.text("show-user-profile"))
+					};
+					if icons::toggle(ui, icon, 32.0, show_members, &label).clicked() {
 						if wide_members {
 							let shown = self.members_preference(state);
 							*shown = !*shown;
@@ -3958,6 +3964,184 @@ impl MessagingUi {
 		cleared
 	}
 
+	/// Discord's user profile panel beside a direct message: the recipient's card, kept loaded
+	/// while no popout needs the single open profile, and drawn from the recent cache otherwise.
+	fn dm_profile_panel(
+		&mut self,
+		ui: &mut egui::Ui,
+		ctx: &egui::Context,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+		recipient: &model::User,
+		fill: egui::Color32,
+	) {
+		if self.profile.open_user().is_none() {
+			self.sync_profile(state, commands, recipient, None);
+		}
+		let cached;
+		let view = match state.profile.as_ref() {
+			Some(view) if view.user == recipient.id && view.guild.is_none() => Some(view),
+			_ => {
+				cached = state.known_profile(recipient.id).map(|data| {
+					client_core::profile::ProfileView {
+						user: recipient.id,
+						guild: None,
+						request: 0,
+						loading: false,
+						error: None,
+						data: Some(data.clone()),
+					}
+				});
+				cached.as_ref()
+			}
+		};
+		let mut action = None;
+		// The panel shares the conversation surface, so the card floats on the chat itself.
+		egui::Panel::right("dm-profile-pane")
+			.resizable(false)
+			.show_separator_line(false)
+			.exact_size(340.0)
+			.frame(
+				egui::Frame::new()
+					.fill(design::section_surface(
+						ui,
+						fill,
+						design::ImageSection::MessageList,
+					))
+					.inner_margin(egui::Margin::same(8)),
+			)
+			.show(ui, |ui| {
+				action = profiles::show_docked(
+					ui,
+					recipient,
+					view,
+					state,
+					&mut self.avatars,
+					&mut self.profile_link,
+					&mut self.profile_formatted,
+					self.reading_preferences.confirm_external_links,
+					&mut self.dm_profile,
+				);
+			});
+		if self.dm_profile.take_full_request() {
+			self.profile.open_full(recipient.clone());
+		}
+		match action {
+			// The panel closes from its header button, not from the card.
+			None | Some(profiles::Action::Close) => {}
+			Some(action) => self.profile_action(ctx, state, commands, recipient, None, action),
+		}
+	}
+
+	/// Applies an action picked on a profile card, the popout's or the one docked beside a DM.
+	fn profile_action(
+		&mut self,
+		ctx: &egui::Context,
+		state: &mut State,
+		commands: &mut Vec<Command>,
+		user: &model::User,
+		profile_guild: Option<Id>,
+		action: profiles::Action,
+	) {
+		match action {
+			profiles::Action::Avatar(media) => {
+				let ext = media
+					.url
+					.as_deref()
+					.and_then(|u| u.split('?').next()?.rsplit_once('.').map(|(_, ext)| ext))
+					.unwrap_or("png");
+				self.profile_image = Some((
+					state.generation,
+					model::Attachment {
+						id: Id(0),
+						filename: format!("avatar.{ext}"),
+						description: Some(format!("{}’s profile picture", user.name)),
+						content_type: Some(format!("image/{ext}")),
+						size: 0,
+						media,
+						spoiler: false,
+						duration_ms: None,
+						waveform: Vec::new(),
+					},
+				));
+				self.profile.close();
+			}
+			profiles::Action::Banner(media) => {
+				let ext = media
+					.url
+					.as_deref()
+					.and_then(|u| u.split('?').next()?.rsplit_once('.').map(|(_, ext)| ext))
+					.unwrap_or("png");
+				self.profile_image = Some((
+					state.generation,
+					model::Attachment {
+						id: Id(0),
+						filename: format!("banner.{ext}"),
+						description: Some(format!("{}’s banner", user.name)),
+						content_type: Some(format!("image/{ext}")),
+						size: 0,
+						media,
+						spoiler: false,
+						duration_ms: None,
+						waveform: Vec::new(),
+					},
+				));
+				self.profile.close();
+			}
+			profiles::Action::AddFriend(id) => {
+				if let Some(command) = state.add_profile_friend(id) {
+					commands.push(command);
+				}
+			}
+			profiles::Action::AcceptFriend(id) => {
+				if let Some(command) = state.resolve_friend_request(id, true) {
+					commands.push(command);
+				}
+			}
+			profiles::Action::RemoveFriend => {
+				self.friend_removal = Some((state.generation, user.clone()));
+			}
+			profiles::Action::Menu(action) => {
+				// Dispatched with the other user menus on the next frame.
+				self.user_action = Some(action);
+			}
+			profiles::Action::Edit => {
+				self.profile.close();
+				self.preview_settings("profile");
+			}
+			profiles::Action::Profile(next) => {
+				self.profile.navigate(next);
+			}
+			profiles::Action::Server(guild) => {
+				self.profile.close();
+				if state.guild(guild).is_some() && self.server_settings.navigate_away(state) {
+					self.guild = Some(guild);
+					if let Some(command) = state.select_guild(guild) {
+						commands.push(command);
+					}
+				}
+			}
+			profiles::Action::EditStatus => self.open_custom_status_editor(),
+			profiles::Action::ClearStatus => self.clear_custom_status(),
+			profiles::Action::Close => {
+				self.profile.close_unless_armed(ctx);
+			}
+			profiles::Action::SaveBadges(settings) => {
+				if let Some(command) = state.save_badge_settings(settings) {
+					commands.push(command);
+				}
+			}
+			profiles::Action::Retry => {
+				if let Some(command) = state.request_profile(user.id, profile_guild) {
+					commands.push(command);
+				}
+			}
+			profiles::Action::SendMessage { user, content } => {
+				self.open_user_direct(state, user, user_direct::Intent::Send(content), commands);
+			}
+		}
+	}
+
 	/// The server a profile card opens in: the one being administered, else the open channel's.
 	fn profile_guild(&self, state: &State) -> Option<model::Id> {
 		self.server_settings.guild().or_else(|| {
@@ -4487,7 +4671,27 @@ impl MessagingUi {
 					);
 				});
 		}
-		if show_members {
+		// A one-to-one DM shows the other person's profile where servers list members.
+		let dm_recipient = (show_members && wide_members)
+			.then(|| state.selected.and_then(|id| state.channel(id)))
+			.flatten()
+			.filter(|channel| channel.kind == 1)
+			.and_then(|channel| channel.recipients.first().cloned());
+		if let Some(recipient) = &dm_recipient {
+			self.channel_header(
+				ui,
+				state,
+				selected_voice,
+				show_members,
+				wide_members,
+				false,
+				&mut commands,
+			);
+			self.dm_profile_panel(ui, &ctx, state, &mut commands, recipient, background.chat);
+			if state.members.is_some() {
+				commands.push(state.close_members());
+			}
+		} else if show_members {
 			if state
 				.members
 				.as_ref()
@@ -4591,7 +4795,7 @@ impl MessagingUi {
 				}
 				// In a DM call the header moves onto the call stage, shown while hovered.
 				let header_in_call = !search_open && self.dm_call_stage(state).is_some();
-				if !search_open && !header_in_call {
+				if !search_open && !header_in_call && dm_recipient.is_none() {
 					self.channel_header(
 						ui,
 						state,
@@ -5236,7 +5440,7 @@ impl MessagingUi {
 				.clone_from(&self.own_presence.custom_status);
 			let anchor = self.profile.anchor_or_place(&ctx, user.id);
 			self.profile.ingest_opener_rect(&ctx);
-			match profiles::show_with_session(
+			let action = profiles::show_with_session(
 				ui,
 				&user,
 				state.profile.as_ref(),
@@ -5247,108 +5451,9 @@ impl MessagingUi {
 				self.reading_preferences.confirm_external_links,
 				anchor,
 				&mut self.profile,
-			) {
-				Some(profiles::Action::Avatar(media)) => {
-					let ext = media
-						.url
-						.as_deref()
-						.and_then(|u| u.split('?').next()?.rsplit_once('.').map(|(_, ext)| ext))
-						.unwrap_or("png");
-					self.profile_image = Some((
-						state.generation,
-						model::Attachment {
-							id: Id(0),
-							filename: format!("avatar.{ext}"),
-							description: Some(format!("{}’s profile picture", user.name)),
-							content_type: Some(format!("image/{ext}")),
-							size: 0,
-							media,
-							spoiler: false,
-							duration_ms: None,
-							waveform: Vec::new(),
-						},
-					));
-					self.profile.close();
-				}
-				Some(profiles::Action::Banner(media)) => {
-					let ext = media
-						.url
-						.as_deref()
-						.and_then(|u| u.split('?').next()?.rsplit_once('.').map(|(_, ext)| ext))
-						.unwrap_or("png");
-					self.profile_image = Some((
-						state.generation,
-						model::Attachment {
-							id: Id(0),
-							filename: format!("banner.{ext}"),
-							description: Some(format!("{}’s banner", user.name)),
-							content_type: Some(format!("image/{ext}")),
-							size: 0,
-							media,
-							spoiler: false,
-							duration_ms: None,
-							waveform: Vec::new(),
-						},
-					));
-					self.profile.close();
-				}
-				Some(profiles::Action::AddFriend(id)) => {
-					if let Some(command) = state.add_profile_friend(id) {
-						commands.push(command);
-					}
-				}
-				Some(profiles::Action::AcceptFriend(id)) => {
-					if let Some(command) = state.resolve_friend_request(id, true) {
-						commands.push(command);
-					}
-				}
-				Some(profiles::Action::RemoveFriend) => {
-					self.friend_removal = Some((state.generation, user.clone()));
-				}
-				Some(profiles::Action::Menu(action)) => {
-					// Dispatched with the other user menus on the next frame.
-					self.user_action = Some(action);
-				}
-				Some(profiles::Action::Edit) => {
-					self.profile.close();
-					self.preview_settings("profile");
-				}
-				Some(profiles::Action::Profile(next)) => {
-					self.profile.navigate(next);
-				}
-				Some(profiles::Action::Server(guild)) => {
-					self.profile.close();
-					if state.guild(guild).is_some() && self.server_settings.navigate_away(state) {
-						self.guild = Some(guild);
-						if let Some(command) = state.select_guild(guild) {
-							commands.push(command);
-						}
-					}
-				}
-				Some(profiles::Action::EditStatus) => self.open_custom_status_editor(),
-				Some(profiles::Action::ClearStatus) => self.clear_custom_status(),
-				Some(profiles::Action::Close) => {
-					self.profile.close_unless_armed(&ctx);
-				}
-				Some(profiles::Action::SaveBadges(settings)) => {
-					if let Some(command) = state.save_badge_settings(settings) {
-						commands.push(command);
-					}
-				}
-				Some(profiles::Action::Retry) => {
-					if let Some(command) = state.request_profile(user.id, profile_guild) {
-						commands.push(command);
-					}
-				}
-				Some(profiles::Action::SendMessage { user, content }) => {
-					self.open_user_direct(
-						state,
-						user,
-						user_direct::Intent::Send(content),
-						&mut commands,
-					);
-				}
-				None => {}
+			);
+			if let Some(action) = action {
+				self.profile_action(&ctx, state, &mut commands, &user, profile_guild, action);
 			}
 			if self.drain_profile(state, &mut commands)
 				&& let Some(user) = self.profile.open_user().cloned()
@@ -8617,17 +8722,24 @@ mod composer_tests {
 					if clear {
 						0
 					} else if dm {
-						3
+						// The DM list and the header; the profile panel replaces the member row.
+						2
 					} else {
 						1
 					},
 					"{painted}"
 				);
+				if dm && !clear {
+					// The docked profile panel and the popout each show the activity card.
+					assert!(painted.contains("View Full Profile"), "{painted}");
+					assert_eq!(painted.matches("\nStardew Valley").count(), 2, "{painted}");
+				}
 				assert_eq!(painted.contains("Tending the farm"), !clear);
 				assert_eq!(painted.contains("Spring Day 12"), !clear);
 				assert_eq!(
 					artwork.len(),
-					usize::from(!clear),
+					// A DM also shows the artwork in its docked profile panel.
+					usize::from(!clear) * if dm { 2 } else { 1 },
 					"Activity image appears and clears with its presence"
 				);
 			}

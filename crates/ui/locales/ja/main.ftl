@@ -4715,6 +4715,9 @@ timeline-dm-intro = { $name } とのダイレクトメッセージ履歴の始�
 timeline-channel-intro-title = #{ $channel } へようこそ！
 # Context: timeline_channel_intro
 timeline-channel-intro-start = #{ $channel } チャンネルの始まりです。
+show-user-profile = ユーザープロフィールを表示
+hide-user-profile = ユーザープロフィールを非表示
+view-full-profile = プロフィール全体を表示
 # Context: text_menu
 text-menu-cut = 切り取り
 text-menu-copy = コピー

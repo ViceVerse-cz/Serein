@@ -4729,6 +4729,9 @@ timeline-dm-intro = Questo è l'inizio della cronologia dei messaggi diretti con
 timeline-channel-intro-title = Benvenuto in #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = Questo è l'inizio del canale #{ $channel }.
+show-user-profile = Mostra profilo utente
+hide-user-profile = Nascondi profilo utente
+view-full-profile = Visualizza profilo completo
 # Context: text_menu
 text-menu-cut = Taglia
 text-menu-copy = Copia

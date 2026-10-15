@@ -4818,6 +4818,9 @@ timeline-dm-intro = Toto je začátek vaší historie přímých zpráv s uživa
 timeline-channel-intro-title = Vítejte v #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = Toto je začátek kanálu #{ $channel }.
+show-user-profile = Zobrazit profil uživatele
+hide-user-profile = Skrýt profil uživatele
+view-full-profile = Zobrazit celý profil
 # Context: text_menu
 text-menu-cut = Vyjmout
 text-menu-copy = Kopírovat

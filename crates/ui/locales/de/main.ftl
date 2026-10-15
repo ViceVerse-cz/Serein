@@ -4729,6 +4729,9 @@ timeline-dm-intro = Das ist der Anfang deines Direktnachrichtenverlaufs mit { $n
 timeline-channel-intro-title = Willkommen in #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = Das ist der Anfang des Kanals #{ $channel }.
+show-user-profile = Benutzerprofil anzeigen
+hide-user-profile = Benutzerprofil ausblenden
+view-full-profile = Vollständiges Profil anzeigen
 # Context: text_menu
 text-menu-cut = Ausschneiden
 text-menu-copy = Kopieren

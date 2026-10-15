@@ -4734,6 +4734,9 @@ timeline-dm-intro = To początek Twojej historii wiadomości prywatnych z { $nam
 timeline-channel-intro-title = Witaj na #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = To początek kanału #{ $channel }.
+show-user-profile = Pokaż profil użytkownika
+hide-user-profile = Ukryj profil użytkownika
+view-full-profile = Wyświetl pełny profil
 # Context: text_menu
 text-menu-cut = Wytnij
 text-menu-copy = Kopiuj
