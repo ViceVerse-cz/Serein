@@ -120,8 +120,7 @@ impl Service {
 							}
 							Err(error) => {
 								form.running = false;
-								self.connection = None;
-								form.connected = false;
+								form.connected = self.connection.is_some();
 								form.status = error.into();
 							}
 						}
@@ -182,7 +181,6 @@ impl Service {
 						} else {
 							key
 						};
-						self.connection = None;
 						if config.validate().is_err() || !openrouter_credentials::valid_key(&key) {
 							form.running = false;
 							form.status = "Invalid settings or API key. Review and retry.".into();
@@ -426,6 +424,39 @@ async fn request(
 mod tests {
 	use super::*;
 	use model::AccountKind;
+	#[test]
+	fn failed_save_keeps_the_last_saved_key_for_a_paused_retry() {
+		let (mut service, mut state, mut form, runtime) = fixture();
+		let saved = Arc::new(Connection {
+			config: Config {
+				model: "provider/model".into(),
+				instructions: "Last saved instructions".into(),
+				channels: vec![Id(900)],
+			},
+			key: zeroize::Zeroizing::new("synthetic-saved-key".into()),
+		});
+		service.connection = Some(saved.clone());
+		let (send, receive) = mpsc::sync_channel(1);
+		service.credentials = Some(CredentialJob {
+			scope: service.scope.unwrap(),
+			receive,
+		});
+		send.send(Err("Synthetic save failure")).unwrap();
+		assert!(
+			service
+				.tick(
+					&mut state,
+					&mut form,
+					true,
+					&runtime,
+					&egui::Context::default()
+				)
+				.is_none()
+		);
+		assert!(!form.running && form.connected && !form.busy);
+		assert!(Arc::ptr_eq(service.connection.as_ref().unwrap(), &saved));
+		assert_eq!(form.status, "Synthetic save failure");
+	}
 	#[test]
 	fn admission_limits_duplicates_cooldown_and_total_attempts() {
 		let mut service = Service::default();
