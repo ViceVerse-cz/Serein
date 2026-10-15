@@ -109,6 +109,12 @@ impl FolderUi {
 		);
 	}
 	fn advance_mark_read(&mut self, state: &mut State, commands: &mut Vec<Command>) {
+		if let Some((guild, request)) = state.read_state.take_interrupted_guild_read()
+			&& self.mark_read_in_flight == Some((guild, request))
+		{
+			self.mark_read_in_flight = None;
+			self.mark_read_queue.push_front(guild);
+		}
 		if !state.gateway_connected {
 			if let Some((guild, _)) = self.mark_read_in_flight.take() {
 				self.mark_read_queue.push_front(guild);
@@ -1323,6 +1329,39 @@ mod tests {
 			event: client_core::Event::Resumed,
 		});
 		folders.advance_mark_read(&mut state, &mut commands);
+		assert!(matches!(
+			commands.as_slice(),
+			[Command::MarkGuildRead { guild: Id(10), .. }]
+		));
+	}
+
+	#[test]
+	fn folder_mark_read_retries_in_flight_after_disconnect_and_resume_before_advance() {
+		let mut state = readable_guild_state();
+		state.demo = false;
+		state.auth = client_core::auth::AuthState::Authenticated;
+		state.gateway_connected = true;
+		let mut folders = FolderUi::default();
+		folders.queue_mark_read([Id(10), Id(11)]);
+		let mut commands = Vec::new();
+
+		folders.advance_mark_read(&mut state, &mut commands);
+		assert!(matches!(
+			commands.as_slice(),
+			[Command::MarkGuildRead { guild: Id(10), .. }]
+		));
+		commands.clear();
+
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Disconnected,
+		});
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Resumed,
+		});
+		folders.advance_mark_read(&mut state, &mut commands);
+
 		assert!(matches!(
 			commands.as_slice(),
 			[Command::MarkGuildRead { guild: Id(10), .. }]

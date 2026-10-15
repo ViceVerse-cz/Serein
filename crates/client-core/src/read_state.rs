@@ -67,6 +67,7 @@ pub struct ReadState {
 	version: Option<u64>,
 	revision: u64,
 	pending: Option<Pending>,
+	interrupted_guild_read: Option<(Id, u64)>,
 	pub(crate) status: Option<(Id, &'static str)>,
 }
 impl ReadState {
@@ -89,6 +90,15 @@ impl ReadState {
 		self.activity.clear_notifications();
 		self.pending = None;
 		self.status = None;
+	}
+	pub fn disconnected(&mut self) {
+		if let Some(Pending::Guild { guild, request, .. }) = &self.pending {
+			self.interrupted_guild_read = Some((*guild, *request));
+		}
+		self.cancel();
+	}
+	pub fn take_interrupted_guild_read(&mut self) -> Option<(Id, u64)> {
+		self.interrupted_guild_read.take()
 	}
 	pub fn forget(&mut self, channel: Id) {
 		self.entries.remove(&channel);
