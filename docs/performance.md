@@ -711,15 +711,15 @@ Raw samples, source revisions and executable hashes are in
 
 Standard Windows x64 voice-inclusive `cargo xtask package`, Rust 1.98.1 and locked
 dependencies, `--no-default-features`. Baseline `104b1aa5a7f3b3d0771e379ae86f1ae69807de55`;
-changed runtime `cd3b95007a428fcebc58cd2306faab93ac6c86e8`. Separate worktrees and installed
+changed runtime `0ca2d2f4c5bdf10124b6bad490d950e7cc0e24a3`. Separate worktrees and installed
 directories, one measurement each; .NET Optimal ZIP over each directory, excluding
 the root directory entry. The same package command produced both executables.
 
 | Metric / method | Baseline | After | Delta |
 | --- | ---: | ---: | ---: |
-| Executable bytes | 87,487,488 | 87,652,864 | +165,376 (+0.189%) |
-| Installed directory bytes | 91,680,777 | 91,846,153 | +165,376 (+0.180%) |
-| Compressed directory bytes (.NET Optimal ZIP) | 50,511,305 | 50,586,763 | +75,458 (+0.149%) |
+| Executable bytes | 87,487,488 | 87,653,888 | +166,400 (+0.190%) |
+| Installed directory bytes | 91,680,777 | 91,847,177 | +166,400 (+0.181%) |
+| Compressed directory bytes (.NET Optimal ZIP) | 50,511,305 | 50,586,609 | +75,304 (+0.149%) |
 
 The installed directories contain 216 / 216 files. The optional catalog plugin is separate
 from these application payloads: 273934 packaged bytes, 94800 Wasm bytes.
