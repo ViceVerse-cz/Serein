@@ -81,8 +81,10 @@ impl ReadState {
 			.map(|(_, text)| text)
 	}
 	pub fn reset(&mut self) {
+		let interrupted_guild_read = self.interrupted_guild_read;
 		*self = Self {
 			revision: self.revision.wrapping_add(1),
+			interrupted_guild_read,
 			..Self::default()
 		};
 	}
@@ -599,8 +601,10 @@ impl State {
 					self.read_state.reset();
 					return Err("Read-state capacity exceeded");
 				}
+				let interrupted_guild_read = self.read_state.interrupted_guild_read;
 				self.read_state = ReadState {
 					revision: self.read_state.revision.wrapping_add(1),
+					interrupted_guild_read,
 					known: entries.is_some() && !partial,
 					version,
 					..ReadState::default()

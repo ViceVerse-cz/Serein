@@ -98,14 +98,18 @@ impl FolderUi {
 		self.key = None;
 	}
 	fn queue_mark_read(&mut self, guilds: impl IntoIterator<Item = Id>) {
-		self.mark_read_queue.clear();
-		self.mark_read_in_flight = None;
-		let mut seen = BTreeSet::new();
+		let mut seen: BTreeSet<_> = self.mark_read_queue.iter().copied().collect();
+		if let Some((guild, _)) = self.mark_read_in_flight {
+			seen.insert(guild);
+		}
+		let remaining = model::guild_folders::MAX_GUILDS.saturating_sub(
+			self.mark_read_queue.len() + usize::from(self.mark_read_in_flight.is_some()),
+		);
 		self.mark_read_queue.extend(
 			guilds
 				.into_iter()
-				.take(model::guild_folders::MAX_GUILDS)
-				.filter(|guild| seen.insert(*guild)),
+				.filter(|guild| seen.insert(*guild))
+				.take(remaining),
 		);
 	}
 	fn advance_mark_read(&mut self, state: &mut State, commands: &mut Vec<Command>) {
@@ -1369,13 +1373,90 @@ mod tests {
 	}
 
 	#[test]
+	fn folder_mark_read_retries_after_resync_and_startup_snapshot() {
+		let mut state = readable_guild_state();
+		state.demo = false;
+		state.auth = client_core::auth::AuthState::Authenticated;
+		state.gateway_connected = true;
+		let mut folders = FolderUi::default();
+		folders.queue_mark_read([Id(10), Id(11)]);
+		let mut commands = Vec::new();
+
+		folders.advance_mark_read(&mut state, &mut commands);
+		let Command::MarkGuildRead { guild, .. } = commands.pop().unwrap() else {
+			panic!("folder should start with its first unread guild");
+		};
+		assert_eq!(guild, Id(10));
+
+		let startup = client_core::Startup {
+			premium_type: 0,
+			user: state.user.clone().unwrap(),
+			guilds: state.guilds.clone(),
+			channels: state.channels.clone(),
+			permissions: model::permissions::Snapshot {
+				guilds: state.permissions.guilds.values().cloned().collect(),
+				channels: state.permissions.channels.values().cloned().collect(),
+			},
+			read_state: ReadEvent::Snapshot {
+				entries: Some(vec![]),
+				version: None,
+				partial: false,
+			},
+			notifications: None,
+			session_dnd: None,
+			warnings: Default::default(),
+		}
+		.prepare()
+		.unwrap();
+
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Disconnected,
+		});
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Resync,
+		});
+		state.apply(client_core::Envelope {
+			generation: state.generation,
+			event: client_core::Event::Startup(Box::new(startup)),
+		});
+
+		folders.advance_mark_read(&mut state, &mut commands);
+
+		assert!(matches!(
+			commands.as_slice(),
+			[Command::MarkGuildRead { guild: Id(10), .. }]
+		));
+	}
+
+	#[test]
+	fn folder_mark_read_additions_preserve_and_deduplicate_existing_work() {
+		let mut folders = FolderUi::default();
+		folders.queue_mark_read([Id(10), Id(11)]);
+		folders.mark_read_in_flight = Some((Id(12), 7));
+
+		folders.queue_mark_read([Id(12), Id(11), Id(13), Id(13)]);
+
+		assert_eq!(folders.mark_read_in_flight, Some((Id(12), 7)));
+		assert_eq!(
+			folders.mark_read_queue.iter().copied().collect::<Vec<_>>(),
+			[Id(10), Id(11), Id(13)]
+		);
+	}
+
+	#[test]
 	fn folder_mark_read_queue_is_bounded_to_the_guild_limit() {
 		let mut folders = FolderUi::default();
-		folders.queue_mark_read((1..=model::guild_folders::MAX_GUILDS as u64 + 5).map(Id));
+		let limit = model::guild_folders::MAX_GUILDS as u64;
+		folders.mark_read_in_flight = Some((Id(1), 7));
+		folders.mark_read_queue.extend((2..limit).map(Id));
+		folders.queue_mark_read([Id(1), Id(2), Id(limit), Id(limit + 1)]);
 		assert_eq!(
-			folders.mark_read_queue.len(),
-			model::guild_folders::MAX_GUILDS
+			folders.mark_read_queue.len() + usize::from(folders.mark_read_in_flight.is_some()),
+			model::guild_folders::MAX_GUILDS,
 		);
+		assert_eq!(folders.mark_read_queue.back(), Some(&Id(limit)));
 	}
 
 	#[test]
