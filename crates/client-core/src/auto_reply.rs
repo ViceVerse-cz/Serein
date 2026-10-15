@@ -1,7 +1,7 @@
 //! Host-owned allowlist and message admission for optional private auto replies.
 use crate::{Command, State, auth::AuthState};
 pub use model::auto_reply::*;
-use model::{AccountKind, Channel, Freshness, Id, Message};
+use model::{AccountKind, Channel, Id, Message};
 
 pub fn private(channel: &Channel) -> bool {
 	channel.guild.is_none() && matches!(channel.kind, 1 | 3)
@@ -11,7 +11,6 @@ pub fn available(state: &State) -> bool {
 	!state.demo
 		&& state.auth == AuthState::Authenticated
 		&& state.gateway_connected
-		&& state.freshness == Freshness::Fresh
 		&& state.user.as_ref().is_some_and(|u| u.id.0 != 0)
 }
 

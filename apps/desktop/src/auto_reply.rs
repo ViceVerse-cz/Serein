@@ -644,6 +644,20 @@ mod tests {
 		));
 		assert_eq!(state.selected, selected);
 		assert_eq!(state.drafts, drafts);
+		for freshness in [
+			model::Freshness::Loading,
+			model::Freshness::Stale,
+			model::Freshness::Unavailable,
+		] {
+			state.selected = None;
+			state.freshness = freshness;
+			assert!(auto_reply::incoming(&state, &config, &message));
+			assert!(
+				state
+					.prepare_auto_reply(Id(900), "reply while Home or another timeline loads")
+					.is_some()
+			);
+		}
 		state.selected = Some(Id(900));
 		state.search_target = Some(Id(500));
 		assert!(state.prepare_auto_reply(Id(900), "reply").is_some());

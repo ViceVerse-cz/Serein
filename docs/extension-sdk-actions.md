@@ -1008,7 +1008,7 @@ The user selects up to 32 loaded individual/group DMs, a model ID and instructio
 and saves an API key to the account-scoped OS credential store before explicitly
 starting. Only the new incoming text and instructions go to OpenRouter and its
 model provider. Requests/sends run only while the host is open and authenticated,
-Gateway connected and state fresh, including when another conversation is selected.
+Gateway connected, including at Home or while another conversation is loading.
 The host rechecks the private destination and permissions before sending, preserves
 navigation/drafts/reply targets, labels replies `[Auto reply]`, and suppresses
 mention pings. No private text, key or provider error body enters Wasm or diagnostics.

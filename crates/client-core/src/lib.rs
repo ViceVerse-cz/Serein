@@ -1845,6 +1845,10 @@ impl State {
 		explicit_reply: Option<Reply>,
 	) -> Option<Command> {
 		let channel = self.selected?;
+		if !self.can_send(channel) {
+			self.status = "Sending is unavailable with the current connection or permissions";
+			return None;
+		}
 		self.prepare_message_content_for(
 			channel,
 			filenames,
@@ -1864,7 +1868,6 @@ impl State {
 		explicit_reply: Option<Reply>,
 	) -> Option<Command> {
 		if self.auth != auth::AuthState::Authenticated
-			|| self.freshness == Freshness::Unavailable
 			|| !self.can_compose(channel)
 			|| (!filenames.is_empty() && !self.can_attach(channel))
 		{
