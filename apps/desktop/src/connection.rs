@@ -92,11 +92,41 @@ impl Drop for Connection {
 		self.task.abort();
 	}
 }
+/// Preload tasks kept at once: one per preload kind, plus room for one whose result was lost.
+const PREFETCHES: usize = 4;
 struct AbortTask(JoinHandle<()>);
 impl Drop for AbortTask {
 	fn drop(&mut self) {
 		self.0.abort();
 	}
+}
+fn reject_prefetch_at_capacity(tasks: &mut Vec<AbortTask>, command: &Command) -> Option<Event> {
+	tasks.retain(|task| !task.0.is_finished());
+	if tasks.len() < PREFETCHES {
+		return None;
+	}
+	// Accepted reads may already belong to a click; reject the newcomer with its own id.
+	Some(match command {
+		Command::History {
+			channel, request, ..
+		} => Event::HistoryFailed {
+			channel: *channel,
+			request: *request,
+			failure: Failure::Capacity,
+		},
+		Command::Profile {
+			user,
+			guild,
+			request,
+			..
+		} => Event::Profile {
+			user: *user,
+			guild: *guild,
+			request: *request,
+			result: Err(Failure::Capacity),
+		},
+		_ => Event::Failure(Failure::Capacity),
+	})
 }
 impl Connection {
 	/// Coalesce explicit recovery requests without restarting REST writes or authentication.
@@ -255,13 +285,16 @@ impl Connection {
                 let write_api=api.clone();let write_emit=emit.clone();let write_finished=finished.clone();let write_wake=wake.clone();
                 let mut writes=AbortTask(tokio::spawn(async move {
                     while let Some(command)=write_receive.recv().await {
-                        let event=write_api.execute(command).await;
+                        let event=write_api.execute_write(command,|nonce|{let _=write_emit(Event::SendThrottled{nonce:nonce.to_owned()});write_wake.request_repaint();}).await;
                         let failure=match &event {Event::Interaction(client_core::interactions::Event::Submitted{result:Err(f),..})=>Some(*f),Event::MessagingPermissions{result:Err(f),..}=>Some(*f),Event::ChannelAction(client_core::channel_actions::Event::Finished{result:Err(f),..})=>Some(*f),Event::ServerAdmin(client_core::server_admin::Event{result:Err(f),..})=>Some(*f),Event::ServerSettings(client_core::server_settings::Event{result:Err(f),..})=>Some(*f),Event::Onboarding(client_core::onboarding::Event::Loaded{result:Err(f),..}|client_core::onboarding::Event::Submitted{result:Err(f),..})=>Some(*f),Event::Failure(f)=>Some(*f),Event::ProfileEdited{result:Err(f),..} if *f != Failure::Capacity =>Some(*f),Event::Edited{result:Err(f),..}|Event::Pinned{result:Err(f),..}=>Some(*f),Event::GuildFolders(Err(f))=>Some(*f),Event::JoinInvite{result:Err(f),..}|Event::GuildCreated{result:Err(f),..}=>Some(*f),Event::SendResult{result:Err(f),..}=>Some(*f),Event::UserAction(client_core::user_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::UserAction(client_core::user_actions::Event::DmOpened{result:Err(f),..})=>Some(*f),Event::ServerAction(client_core::server_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::ServerAction(client_core::server_actions::Event::InviteSent{result:Err(f),..})=>Some(*f),Event::GroupAction(client_core::group_actions::Event::Written{result:Err(f),..})=>Some(*f),Event::Reactions(client_core::reactions::Event::Written{result:Err(f),..})=>Some(*f),Event::ReadState(client_core::read_state::Event::Result{result:Err(f),..})=>Some(*f),_=>None};
                         let error=write_emit(event).err().or(failure.filter(|f|f.ends_session()));
                         if let Some(error)=error {write_api.stop();let _=write_finished.send(Some(error));write_wake.request_repaint();break;}
                     }
                 }));
                 let mut history:Option<AbortTask>=None;
+                // Preloads never cancel the open conversation's reads or each other; each kind
+                // keeps at most one in flight, so this list stays tiny.
+                let mut prefetches:Vec<AbortTask>=Vec::new();
                 let mut profile:Option<AbortTask>=None;
                 let mut profile_note:Option<AbortTask>=None;
 				let mut stream_preview:Option<AbortTask>=None;
@@ -619,6 +652,23 @@ impl Connection {
                                     _=>None
                                 };
                                 member_send.send(subscription).map_err(|_|Failure::Network)?;
+                                continue;
+                            }
+                            if let Command::Prefetch(preload) = command {
+                                if let Some(event) = reject_prefetch_at_capacity(&mut prefetches, &preload) {
+                                    emit(event)?;
+                                    wake.request_repaint();
+                                    continue;
+                                }
+                                let history = match &*preload { Command::History{channel,request,..} => Some((*channel,*request)), _ => None };
+                                let api=api.clone();let emit=emit.clone();let finished=finished.clone();let wake=wake.clone();
+                                prefetches.push(AbortTask(tokio::spawn(async move {
+                                    let event=api.execute(*preload).await;
+                                    let event=match history {Some((channel,request))=>scope_history_failure(event,channel,request),None=>event};
+                                    let failure=match &event {Event::Failure(f)|Event::Profile{result:Err(f),..} if f.ends_session() && *f!=Failure::Capacity=>Some(*f),_=>None};
+                                    if let Some(error)=emit(event).err().or(failure) {api.stop();let _=finished.send(Some(error));}
+                                    wake.request_repaint();
+                                })));
                                 continue;
                             }
                             if let Command::History { channel, request, .. } = &command {
@@ -1661,6 +1711,50 @@ fn scope_history_failure(event: Event, channel: model::Id, request: u64) -> Even
 
 #[cfg(test)]
 mod tests {
+	#[tokio::test]
+	async fn full_prefetch_pool_rejects_new_reads_without_aborting_accepted_work() {
+		let mut tasks: Vec<_> = (0..PREFETCHES)
+			.map(|_| AbortTask(tokio::spawn(std::future::pending())))
+			.collect();
+		let history = Command::History {
+			channel: model::Id(1),
+			before: None,
+			after: None,
+			request: 99,
+		};
+		assert!(matches!(
+			reject_prefetch_at_capacity(&mut tasks, &history),
+			Some(Event::HistoryFailed {
+				channel: model::Id(1),
+				request: 99,
+				failure: Failure::Capacity
+			})
+		));
+		let profile = Command::Profile {
+			user: model::Id(2),
+			guild: None,
+			request: 100,
+			with_mutuals: true,
+			cosmetics: Default::default(),
+		};
+		assert!(matches!(
+			reject_prefetch_at_capacity(&mut tasks, &profile),
+			Some(Event::Profile {
+				user: model::Id(2),
+				request: 100,
+				result: Err(Failure::Capacity),
+				..
+			})
+		));
+		assert_eq!(tasks.len(), PREFETCHES);
+		tokio::task::yield_now().await;
+		assert!(tasks.iter().all(|task| !task.0.is_finished()));
+		tasks[0].0.abort();
+		let _ = (&mut tasks[0].0).await;
+		assert!(reject_prefetch_at_capacity(&mut tasks, &history).is_none());
+		assert_eq!(tasks.len(), PREFETCHES - 1);
+	}
+
 	#[test]
 	fn takeover_rejects_queued_initial_ringing_but_preserves_new_call_ownership() {
 		use client_core::voice::Command as V;

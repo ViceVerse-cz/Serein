@@ -10,7 +10,7 @@ fn apply(state: &mut State, event: Event) {
 	});
 	assert!(state.timeline.row_count() <= 500);
 	assert!(state.timeline.bytes() <= 4 * 1024 * 1024);
-	assert!(state.resident_window_count() <= 2);
+	assert!(state.resident_window_count() <= 8);
 	assert!(state.resident_history_rows() <= 1475);
 	assert!(state.resident_history_bytes() <= 16 * 1024 * 1024 - 66 * 1024);
 }

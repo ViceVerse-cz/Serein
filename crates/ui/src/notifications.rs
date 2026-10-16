@@ -4,7 +4,7 @@ use egui::{Align2, Color32, FontId};
 use model::Id;
 
 /// Fixed width of the server rail column.
-pub(super) const RAIL_WIDTH: f32 = 58.0;
+pub(super) const RAIL_WIDTH: f32 = 64.0;
 /// Home, server and folder tiles on the rail.
 pub(super) const RAIL_TILE: f32 = 40.0;
 /// Direct-message avatars, a touch larger than server tiles like Discord's.
@@ -255,7 +255,8 @@ impl MessagingUi {
 					}),
 			)
 			.show(ui, |ui| {
-				ui.spacing_mut().item_spacing.y = 9.0;
+				// Discord stacks rail tiles 8 points apart.
+				ui.spacing_mut().item_spacing.y = 8.0;
 				let home = self.guild.is_none();
 				let (rect, response) =
 					ui.allocate_exact_size(egui::Vec2::splat(RAIL_TILE), egui::Sense::click());
@@ -294,6 +295,10 @@ impl MessagingUi {
 					egui::WidgetInfo::selected(egui::Role::Button, true, home, label.clone())
 				});
 				design::rail_name(&response, &label);
+				response.context_menu(|ui| {
+					ui.set_width(232.0);
+					self.server_menu.all_read_item(ui, state);
+				});
 				if response.clicked() {
 					self.guild = None;
 					if let Some(command) = state.open_messages() {
@@ -310,7 +315,7 @@ impl MessagingUi {
 						),
 					)
 					.show(ui, |ui| {
-						ui.spacing_mut().item_spacing.y = 10.0;
+						ui.spacing_mut().item_spacing.y = 8.0;
 						// Your own call keeps its conversation on the rail, like Discord's.
 						let call = direct_call(state);
 						// Copy one ID at a time so row actions can borrow the UI without cloning the cache.
@@ -380,6 +385,7 @@ impl MessagingUi {
 								)
 							});
 							design::rail_name(&response, &channel.name);
+							self.preload.conversation(&response, || Some(channel.id));
 							if response.clicked() {
 								self.guild = None;
 								selected = Some(channel.id);

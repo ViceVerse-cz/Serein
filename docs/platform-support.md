@@ -150,6 +150,15 @@ verification on the affected system.
 
 Device choices, voice keybinds and the owner's mute/deafen intent are device-local. Mute and deafen can be changed while idle, survive restart and apply to the first voice-state packet when the next call is joined. Voice bindings use native global registration on supported Windows/macOS/Linux X11 setups and the desktop GlobalShortcuts portal on Wayland when they include a modifier. Unmodified focused Push to Talk (V by default) observes key state without consuming typed text and is never registered as an OS-global shortcut. Missing/denied portal access and unavailable/conflicting registrations fall back to focused input. Use headphones because there is no acoustic echo cancellation. No signing, desktop integration, physical audio or live-compatibility claim follows from compilation alone.
 
+Wayland shortcut requests use the [XDG shortcut specification](https://specifications.freedesktop.org/shortcuts/latest/)
+and XKB keysyms (for example `CTRL+SHIFT+m`, `CTRL+1`, and `CTRL+Down`),
+rather than physical key-code names such as `KeyM` or `Digit1`. To check a portal
+registration without joining voice, enable global keybinds, approve the desktop
+dialog, move focus to another application and use Toggle Mute/Toggle Deafen.
+The mute/deafen intent should change when returning to Serein. Flatpak needs a host
+portal backend implementing GlobalShortcuts; the encoding regression test does not
+verify compositor approval or delivery on a particular desktop.
+
 Native emoji use eframe system-font fallback and installed OS color fonts. macOS
 Apple Color Emoji was visually checked with a synthetic moon status on September
 10, 2026. Windows/Linux emoji coverage is unverified and depends on installed fonts

@@ -86,14 +86,17 @@ pub enum Operation {
 		channel: Id,
 		content: String,
 	},
+	/// `start`: the window reaches the channel's first message.
 	SaveChannel {
 		channel: Id,
 		messages: Vec<Message>,
+		start: bool,
 	},
 	SaveChanges {
 		channel: Id,
 		messages: Vec<Message>,
 		retained: Vec<Id>,
+		start: bool,
 	},
 	DeleteMessages {
 		channel: Id,
@@ -131,6 +134,8 @@ pub enum Outcome {
 		channel: Id,
 		request: u64,
 		messages: Vec<Message>,
+		/// The cached window reaches the channel's first message.
+		start: bool,
 		epoch: u64,
 	},
 	Saved,
@@ -592,14 +597,17 @@ fn execute(
 			Operation::SaveGifFavorites(favorites) => store
 				.save_gif_favorites(account, &favorites)
 				.map(|_| Outcome::Saved),
-			Operation::LoadChannel { channel, request } => store
-				.load_channel(account, channel)
-				.map(|messages| Outcome::Channel {
-					channel,
-					request,
-					messages,
-					epoch,
-				}),
+			Operation::LoadChannel { channel, request } => {
+				store.load_channel(account, channel).and_then(|messages| {
+					Ok(Outcome::Channel {
+						channel,
+						request,
+						start: store.history_start(account, channel, &messages)?,
+						messages,
+						epoch,
+					})
+				})
+			}
 			Operation::SaveDraft { channel, content } => store
 				.save_draft(account, channel, &content)
 				.map(|_| Outcome::Saved),
@@ -607,11 +615,16 @@ fn execute(
 				channel,
 				messages,
 				retained,
+				start,
 			} => store
-				.save_changes(account, channel, &messages, &retained)
+				.save_changes(account, channel, &messages, &retained, start)
 				.map(|_| Outcome::Saved),
-			Operation::SaveChannel { channel, messages } => store
-				.save_channel(account, channel, &messages)
+			Operation::SaveChannel {
+				channel,
+				messages,
+				start,
+			} => store
+				.save_channel(account, channel, &messages, start)
 				.map(|_| Outcome::Saved),
 			Operation::DeleteMessages { channel, ids } => store
 				.delete_messages(account, channel, &ids)
@@ -1082,6 +1095,7 @@ mod tests {
 					Operation::SaveChannel {
 						channel,
 						messages: snapshot.clone(),
+						start: false,
 					}
 				),
 				Outcome::Saved
@@ -1169,6 +1183,7 @@ mod tests {
 			Operation::SaveChannel {
 				channel,
 				messages: snapshot,
+				start: false,
 			},
 		);
 		let current = store
@@ -1221,7 +1236,8 @@ mod tests {
 			account,
 			Operation::SaveChannel {
 				channel,
-				messages: vec![]
+				messages: vec![],
+				start: false,
 			}
 		));
 		for _ in 0..16 {
@@ -1235,7 +1251,7 @@ mod tests {
 			store
 				.as_mut()
 				.unwrap()
-				.save_channel(owner, channel, &[test_support::message(10, channel)])
+				.save_channel(owner, channel, &[test_support::message(10, channel)], false)
 				.unwrap();
 			store
 				.as_mut()

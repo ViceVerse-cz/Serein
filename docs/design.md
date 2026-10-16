@@ -97,6 +97,15 @@ The bundled faces remain upstream's hinted TrueType builds. See `assets/README.m
   divider, floating hover toolbar (react, reply, edit, more) overlapping the row above.
 - Composer: rounded `raised` bar with attach (+), placeholder `Message #channel`, emoji picker
   and send icons; a character counter appears within 200 characters of the limit.
+  Typing `@game` offers a game-search option. Selecting it leaves an `@game` filter chip
+  and opens a scrollable catalog above the composer; names match case-insensitively by
+  prefix and substring, including multiword names. Click, Tab or Enter inserts a game
+  name/icon chip while retaining the application reference in the editor's text model.
+  Arrow keys select results and Escape dismisses the picker. Loading, no matches and an
+  unavailable catalog have explicit states; Retry (or Enter in the failed picker) retries
+  a failed lookup. Empty or loading results leave Enter available to send the draft and
+  Tab available for normal focus navigation. The catalog also resolves game references
+  in messages and reply previews.
 - Member list (240px): ONLINE/OFFLINE eyebrows with counts; group DMs show a localized
   Members — N heading including the current account, updated with participant changes. 42px rows with
   presence dots, custom status and hover fill; opens a Members window on narrow layouts.

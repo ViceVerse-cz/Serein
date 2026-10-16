@@ -117,7 +117,18 @@ fn navigation() {
 			request,
 		}) = command
 		else {
-			panic!("Navigation must revalidate its selected conversation");
+			// An untouched dormant window that ends at the latest message reopens as current.
+			assert!(
+				command.is_none(),
+				"Navigation may only revalidate or reopen"
+			);
+			assert_eq!(state.freshness, model::Freshness::Fresh);
+			assert_eq!(state.timeline.len(), 50);
+			if step >= 3 {
+				samples.push(elapsed);
+				hits += 1;
+			}
+			continue;
 		};
 		assert_eq!(selected, channel);
 		assert_eq!(state.freshness, model::Freshness::Loading);
@@ -160,4 +171,107 @@ fn navigation() {
 	state.logout();
 	assert_eq!(state.timeline.row_count(), 0);
 	assert!(!state.has_unsent());
+	hover_navigation();
+}
+
+/// First visits to conversations, each hovered for the dwell before its click, against a sweep
+/// across rows that are never clicked. Counts requests and opens that need no wait.
+fn hover_navigation() {
+	use client_core::{Command, preload::CONVERSATION_DWELL};
+	let mut state = test_support::demo_state();
+	state.demo = false;
+	state.auth = client_core::auth::AuthState::Authenticated;
+	state.gateway_connected = true;
+	state.selected = None;
+	state.timeline.clear();
+	state.channels = (100..140)
+		.map(|id| model::Channel {
+			id: Id(id),
+			guild: None,
+			parent_id: None,
+			kind: 1,
+			position: 0,
+			name: format!("Synthetic conversation {id}"),
+			recipients: vec![],
+			last_message: Some(Id(id * 1000 + 50)),
+			member_list_id: None,
+			tags: None,
+			message_count: None,
+			icon: None,
+		})
+		.collect();
+	state.invalidate_navigation();
+	let preloaded = |command: Option<Command>| match command? {
+		Command::Prefetch(command) => match *command {
+			Command::History { request, .. } => Some(request),
+			_ => None,
+		},
+		_ => None,
+	};
+	let page = |channel: Id, request| Event::History {
+		channel,
+		request,
+		older: false,
+		messages: (1..=50)
+			.map(|id| test_support::message(channel.0 * 1000 + id, channel))
+			.collect(),
+	};
+	let start = std::time::Instant::now();
+	let (mut requests, mut instant) = (0, 0);
+	for (index, channel) in (100..112).map(Id).enumerate() {
+		let at = start + std::time::Duration::from_secs(index as u64);
+		assert!(
+			state
+				.preload_conversation(Some(channel), None, at)
+				.is_none()
+		);
+		if let Some(request) =
+			preloaded(state.preload_conversation(Some(channel), None, at + CONVERSATION_DWELL))
+		{
+			requests += 1;
+			state.apply(Envelope {
+				generation: state.generation,
+				event: page(channel, request),
+			});
+		}
+		match state.select(channel) {
+			None => {
+				assert_eq!(state.selected, Some(channel));
+				instant += 1;
+			}
+			Some(Command::History { request, .. }) => {
+				requests += 1;
+				state.apply(Envelope {
+					generation: state.generation,
+					event: page(channel, request),
+				});
+			}
+			Some(_) => panic!("first visits only load history"),
+		}
+		assert_eq!(state.freshness, model::Freshness::Fresh);
+	}
+	assert_eq!((requests, instant), (12, 12));
+	let later = start + std::time::Duration::from_secs(120);
+	let mut sweep = 0;
+	for (index, channel) in (112..140).map(Id).enumerate() {
+		let at = later + std::time::Duration::from_millis(index as u64 * 200);
+		state.preload_conversation(Some(channel), None, at);
+		if let Some(request) =
+			preloaded(state.preload_conversation(Some(channel), None, at + CONVERSATION_DWELL))
+		{
+			sweep += 1;
+			state.apply(Envelope {
+				generation: state.generation,
+				event: page(channel, request),
+			});
+		}
+	}
+	println!(
+		"Synthetic hover navigation: 12 first visits rested on for the dwell then clicked: {instant}/12 opened without waiting, {requests} history requests (a click-only first visit sends 1 each); a 28-row sweep without clicks sent {sweep} preloads (cap 12/min). Synthetic responses arrive before the click; excludes network latency and Discord compatibility."
+	);
+	println!(
+		"Hover navigation retained: {} dormant windows; {} estimated retained bytes (not RSS).",
+		state.resident_window_count(),
+		state.resident_history_bytes()
+	);
 }

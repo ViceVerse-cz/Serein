@@ -48,6 +48,8 @@ pub struct AppPreferences {
 	pub hide_nitro_emojis: bool,
 	/// Device-local opt-in; older saved preferences deserialize with conversion off.
 	pub convert_emoticons: bool,
+	/// Request a conversation's page while the pointer rests on it; older preferences enable it.
+	pub preload_on_hover: bool,
 	/// Hide the in-app title strip. macOS and Windows then show the system title bar.
 	pub hide_title_bar: bool,
 	pub hide_window_decorations: bool,
@@ -81,6 +83,8 @@ pub struct AppPreferences {
 	pub cosmetics: model::CosmeticPreferences,
 	/// Disk budgets and retention for downloaded images, from bounded presets.
 	pub image_cache: model::CachePreferences,
+	/// Clock style for message times; older preferences follow the language.
+	pub time_format: model::TimeFormat,
 }
 impl Default for AppPreferences {
 	fn default() -> Self {
@@ -94,6 +98,7 @@ impl Default for AppPreferences {
 			show_hidden_channels: false,
 			hide_nitro_emojis: false,
 			convert_emoticons: false,
+			preload_on_hover: true,
 			hide_title_bar: false,
 			hide_window_decorations: false,
 			primary_color: None,
@@ -116,6 +121,7 @@ impl Default for AppPreferences {
 			muted_users: Vec::new(),
 			cosmetics: Default::default(),
 			image_cache: Default::default(),
+			time_format: Default::default(),
 		}
 	}
 }
@@ -149,10 +155,14 @@ impl AppPreferences {
 
 /// Normal client size in logical pixels; outer position in physical desktop pixels.
 /// Position is absent on Wayland, where the compositor owns window placement.
+/// While maximized, size and position keep the normal geometry the window restores to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct WindowGeometry {
 	pub size: [u32; 2],
 	pub position: Option<[i32; 2]>,
+	/// Absent in older preferences, which were only saved while not maximized.
+	#[serde(default)]
+	pub maximized: bool,
 }
 impl WindowGeometry {
 	pub fn is_valid(self) -> bool {
@@ -287,6 +297,7 @@ impl LocalStore {
             CREATE TABLE IF NOT EXISTS messages(account TEXT NOT NULL,channel TEXT NOT NULL,id TEXT NOT NULL,author TEXT NOT NULL,name TEXT NOT NULL,content TEXT NOT NULL,edited INTEGER NOT NULL,reply TEXT,unsupported INTEGER NOT NULL,PRIMARY KEY(account,channel,id));
             CREATE INDEX IF NOT EXISTS messages_channel_order ON messages(account,channel,length(id),id);
             CREATE TABLE IF NOT EXISTS channels(account TEXT NOT NULL,channel TEXT NOT NULL,touched INTEGER NOT NULL,PRIMARY KEY(account,channel));
+            CREATE TABLE IF NOT EXISTS history_starts(account TEXT NOT NULL,channel TEXT NOT NULL,first TEXT NOT NULL CHECK(length(first) BETWEEN 1 AND 20),PRIMARY KEY(account,channel));
             CREATE TABLE IF NOT EXISTS drafts(account TEXT NOT NULL,channel TEXT NOT NULL,content TEXT NOT NULL,PRIMARY KEY(account,channel));
             CREATE TABLE IF NOT EXISTS appearance(singleton INTEGER PRIMARY KEY CHECK(singleton=1),theme TEXT NOT NULL CHECK(theme IN ('light','dark')));
             CREATE TABLE IF NOT EXISTS theme_variant(singleton INTEGER PRIMARY KEY CHECK(singleton=1),variant TEXT NOT NULL CHECK(length(variant) BETWEEN 1 AND 32));
@@ -850,12 +861,14 @@ impl LocalStore {
 		Ok(())
 	}
 	/// Apply a bounded changed-row batch while retaining exactly the current window IDs.
+	/// `start`: the saved window reaches the channel's first message.
 	pub fn save_changes(
 		&mut self,
 		account: Id,
 		channel: Id,
 		messages: &[Message],
 		retained: &[Id],
+		start: bool,
 	) -> Result<()> {
 		if retained.len() > 500
 			|| messages.len() > 500
@@ -881,9 +894,17 @@ impl LocalStore {
 			channel,
 			&window.into_values().collect::<Vec<_>>(),
 			&existing,
+			start,
 		)
 	}
-	pub fn save_channel(&mut self, account: Id, channel: Id, messages: &[Message]) -> Result<()> {
+	/// `start`: the saved window reaches the channel's first message.
+	pub fn save_channel(
+		&mut self,
+		account: Id,
+		channel: Id,
+		messages: &[Message],
+		start: bool,
+	) -> Result<()> {
 		if messages.len() > 500 {
 			return Err(StoreError::Capacity);
 		}
@@ -893,6 +914,7 @@ impl LocalStore {
 			channel,
 			&messages.iter().collect::<Vec<_>>(),
 			&existing,
+			start,
 		)
 	}
 	fn save_channel_loaded(
@@ -901,6 +923,7 @@ impl LocalStore {
 		channel: Id,
 		messages: &[&Message],
 		existing: &[Message],
+		start: bool,
 	) -> Result<()> {
 		if messages.len() > 500
 			|| messages
@@ -1062,6 +1085,22 @@ impl LocalStore {
 		}
 		drop(insert);
 		transaction.execute("INSERT INTO channels VALUES(?1,?2,unixepoch('subsec')*1000) ON CONFLICT(account,channel) DO UPDATE SET touched=excluded.touched",params![account,channel])?;
+		// The start holds only while the window still begins at the same first message.
+		match messages
+			.iter()
+			.map(|message| message.id)
+			.min()
+			.filter(|_| start)
+		{
+			Some(first) => transaction.execute(
+				"INSERT OR REPLACE INTO history_starts VALUES(?1,?2,?3)",
+				params![account, channel, first.to_string()],
+			)?,
+			None => transaction.execute(
+				"DELETE FROM history_starts WHERE account=?1 AND channel=?2",
+				params![account, channel],
+			)?,
+		};
 		// Global limit: 20 channel windows, 10000 messages AND 48 MiB content, below the 64 MiB database page ceiling.
 		loop {
 			let channels: i64 =
@@ -1093,6 +1132,10 @@ impl LocalStore {
 				"DELETE FROM channels WHERE account=?1 AND channel=?2",
 				params![a, c],
 			)?;
+			transaction.execute(
+				"DELETE FROM history_starts WHERE account=?1 AND channel=?2",
+				params![a, c],
+			)?;
 			deleted = true;
 		}
 		transaction.commit()?;
@@ -1100,6 +1143,21 @@ impl LocalStore {
 			self.0.execute_batch("PRAGMA incremental_vacuum(64);")?;
 		}
 		Ok(())
+	}
+	/// Whether a cached window that begins with `messages` reaches the channel's first message.
+	pub fn history_start(&self, account: Id, channel: Id, messages: &[Message]) -> Result<bool> {
+		let Some(first) = messages.iter().map(|message| message.id).min() else {
+			return Ok(false);
+		};
+		let saved: Option<String> = self
+			.0
+			.query_row(
+				"SELECT first FROM history_starts WHERE account=?1 AND channel=?2",
+				params![account.to_string(), channel.to_string()],
+				|row| row.get(0),
+			)
+			.optional()?;
+		Ok(saved.is_some_and(|saved| saved == first.to_string()))
 	}
 	pub fn load_channel(&self, account: Id, channel: Id) -> Result<Vec<Message>> {
 		let mut query = self.0.prepare_cached("SELECT id,author,name,content,edited,reply,unsupported,avatar,discriminator,embeds,embeds_suppressed,attachments,mentions,extra_content,message_kind,reply_deleted,webhook,account_kind,forwarded,author_roles,author_nick,components,application_id,original_flags,sticker_items,interaction,reactions,verified_bot FROM messages WHERE account=?1 AND channel=?2 ORDER BY length(id),id LIMIT 500")?;
@@ -1386,6 +1444,10 @@ impl LocalStore {
 			"DELETE FROM channels WHERE account=?1",
 			[account.to_string()],
 		)?;
+		transaction.execute(
+			"DELETE FROM history_starts WHERE account=?1",
+			[account.to_string()],
+		)?;
 		transaction.commit()?;
 		self.0
 			.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); PRAGMA incremental_vacuum(64);")?;
@@ -1562,6 +1624,7 @@ impl LocalStore {
 		for table in [
 			"messages",
 			"channels",
+			"history_starts",
 			"drafts",
 			"gif_favorites",
 			"channel_preferences",
@@ -1673,6 +1736,7 @@ mod tests {
 				Id(2),
 				&[superseded, edited.clone(), added.clone()],
 				&retained,
+				false,
 			)
 			.unwrap();
 		let expected = vec![original[0].clone(), edited.clone(), added];
@@ -1688,18 +1752,36 @@ mod tests {
 		// Invalid author metadata is discovered after deletions begin: roll them back too.
 		edited.author_roles = vec![Id(0)];
 		assert_eq!(
-			store.save_changes(Id(1), Id(2), std::slice::from_ref(&edited), &[Id(20)]),
+			store.save_changes(
+				Id(1),
+				Id(2),
+				std::slice::from_ref(&edited),
+				&[Id(20)],
+				false
+			),
 			Err(StoreError::Capacity)
 		);
 		assert!(store.load_channel(Id(1), Id(2)).unwrap() == expected);
 		edited.author_roles.clear();
 		assert_eq!(
-			store.save_changes(Id(1), Id(2), std::slice::from_ref(&edited), &[Id(10)]),
+			store.save_changes(
+				Id(1),
+				Id(2),
+				std::slice::from_ref(&edited),
+				&[Id(10)],
+				false
+			),
 			Err(StoreError::Capacity)
 		);
 		edited.ephemeral = true;
 		assert_eq!(
-			store.save_changes(Id(1), Id(2), std::slice::from_ref(&edited), &retained),
+			store.save_changes(
+				Id(1),
+				Id(2),
+				std::slice::from_ref(&edited),
+				&retained,
+				false
+			),
 			Err(StoreError::Capacity)
 		);
 		edited.ephemeral = false;
@@ -1707,11 +1789,17 @@ mod tests {
 		edited.content = "x".repeat(MAX_WINDOW_BYTES - edited.bytes() + edited.content.capacity());
 		assert_eq!(edited.bytes(), MAX_WINDOW_BYTES);
 		assert_eq!(
-			store.save_changes(Id(1), Id(2), std::slice::from_ref(&edited), &retained),
+			store.save_changes(
+				Id(1),
+				Id(2),
+				std::slice::from_ref(&edited),
+				&retained,
+				false
+			),
 			Err(StoreError::Capacity)
 		);
 		assert!(store.load_channel(Id(1), Id(2)).unwrap() == expected);
-		store.save_changes(Id(1), Id(2), &[], &[]).unwrap();
+		store.save_changes(Id(1), Id(2), &[], &[], false).unwrap();
 		assert!(store.load_channel(Id(1), Id(2)).unwrap().is_empty());
 	}
 
@@ -1742,6 +1830,7 @@ mod tests {
 						Id(2),
 						black_box(std::slice::from_ref(&changed)),
 						black_box(&retained),
+						false,
 					)
 					.unwrap();
 			}
@@ -1984,7 +2073,7 @@ mod tests {
 		let mut messages = store.load_channel(Id(1), Id(2)).unwrap();
 		assert!(!messages[0].forwarded);
 		messages[0].forwarded = true;
-		store.save_channel(Id(1), Id(2), &messages).unwrap();
+		store.save_channel(Id(1), Id(2), &messages, false).unwrap();
 		drop(store);
 		let store = LocalStore::open(&path).unwrap();
 		let restored = store.load_channel(Id(1), Id(2)).unwrap();
@@ -2005,7 +2094,7 @@ mod tests {
 		store.0.execute("INSERT INTO messages(account,channel,id,author,name,content,edited,unsupported) VALUES('1','2','100','3','Synthetic webhook','body',0,0)", []).unwrap();
 		let mut message = store.load_channel(Id(1), Id(2)).unwrap().remove(0);
 		message.author.webhook = true;
-		store.save_channel(Id(1), Id(2), &[message]).unwrap();
+		store.save_channel(Id(1), Id(2), &[message], false).unwrap();
 		assert!(store.load_channel(Id(1), Id(2)).unwrap()[0].author.webhook);
 		store
 			.0
@@ -2041,7 +2130,7 @@ mod tests {
 		] {
 			message.author.kind = kind;
 			store
-				.save_channel(Id(1), Id(2), &[message.clone()])
+				.save_channel(Id(1), Id(2), &[message.clone()], false)
 				.unwrap();
 			assert_eq!(
 				store.load_channel(Id(1), Id(2)).unwrap()[0].author.kind,
@@ -2050,7 +2139,7 @@ mod tests {
 		}
 		message.author.kind = model::AccountKind::Human;
 		store
-			.save_channel(Id(1), Id(2), &[message.clone()])
+			.save_channel(Id(1), Id(2), &[message.clone()], false)
 			.unwrap();
 		store
 			.0
@@ -2210,6 +2299,16 @@ mod tests {
 		let legacy: AppPreferences = serde_json::from_str("{}").unwrap();
 		assert_eq!(legacy.cosmetics, model::CosmeticPreferences::default());
 		assert_eq!(legacy.image_cache, model::CachePreferences::default());
+		assert_eq!(legacy.time_format, model::TimeFormat::Auto);
+		for (key, format) in [
+			("12-hour", model::TimeFormat::TwelveHour),
+			("24-hour", model::TimeFormat::TwentyFourHour),
+			("36-hour", model::TimeFormat::Auto),
+		] {
+			let saved: AppPreferences =
+				serde_json::from_str(&format!(r#"{{"time_format":"{key}"}}"#)).unwrap();
+			assert_eq!(saved.time_format, format);
+		}
 		let partial: AppPreferences = serde_json::from_str(
 			r#"{"cosmetics":{"nameplates":true},"image_cache":{"media_mib":512}}"#,
 		)
@@ -2276,11 +2375,11 @@ mod tests {
 		assert_eq!(store.reading_preferences().unwrap(), prefs);
 		assert_eq!(store.load_drafts(Id(1)).unwrap()[&Id(2)], "preserved draft");
 		messages[0].reply_deleted = true;
-		store.save_channel(Id(1), Id(2), &messages).unwrap();
+		store.save_channel(Id(1), Id(2), &messages, false).unwrap();
 		for target in [None, Some(Id(0)), Some(Id(100)), Some(Id(101))] {
 			messages[0].reply_to = target;
 			assert_eq!(
-				store.save_channel(Id(1), Id(2), &messages),
+				store.save_channel(Id(1), Id(2), &messages, false),
 				Err(StoreError::Capacity)
 			);
 		}
@@ -2393,7 +2492,7 @@ mod tests {
 			assert_eq!(store.load_drafts(Id(1)).unwrap()[&Id(2)], "preserved draft");
 			messages[0].kind = 9;
 			messages[0].extra_content = model::ExtraContent::from_bits(31).unwrap();
-			store.save_channel(Id(1), Id(2), &messages).unwrap();
+			store.save_channel(Id(1), Id(2), &messages, false).unwrap();
 			store
 				.save_reading_preferences(ReadingPreferences::default())
 				.unwrap();
@@ -2462,7 +2561,7 @@ mod tests {
 		assert_eq!(messages[0].kind, 255);
 		assert_eq!(messages[1].kind, 0);
 		messages[0].kind = 7;
-		store.save_channel(Id(1), Id(2), &messages).unwrap();
+		store.save_channel(Id(1), Id(2), &messages, false).unwrap();
 		let store = LocalStore::initialize(store.0).unwrap();
 		assert_eq!(store.load_channel(Id(1), Id(2)).unwrap()[0].kind, 7);
 		for value in ["-1", "256", "1.5", "'invalid'"] {
@@ -3118,7 +3217,7 @@ mod tests {
 				message
 			})
 			.collect();
-		store.save_channel(Id(1), Id(2), &messages).unwrap();
+		store.save_channel(Id(1), Id(2), &messages, false).unwrap();
 		drop(store);
 		let store = LocalStore::open(&path).unwrap();
 		let reopened = store.load_channel(Id(1), Id(2)).unwrap();
@@ -3200,7 +3299,7 @@ mod tests {
 			kind: Default::default(),
 			discriminator: 0,
 		}];
-		store.save_channel(Id(1), Id(2), &messages).unwrap();
+		store.save_channel(Id(1), Id(2), &messages, false).unwrap();
 		assert_eq!(
 			store.load_channel(Id(1), Id(2)).unwrap()[0].mentions[0].name,
 			"Mentioned user"
@@ -3264,7 +3363,7 @@ mod tests {
 				..Default::default()
 			},
 		}];
-		store.save_channel(Id(1), Id(2), &loaded).unwrap();
+		store.save_channel(Id(1), Id(2), &loaded, false).unwrap();
 		drop(store);
 		let store = LocalStore::open(&path).unwrap();
 		assert_eq!(
@@ -3435,7 +3534,9 @@ mod tests {
 			message.mention_roles = vec![Id(77)];
 			message.mention_everyone = true;
 			message.suppress_notifications = true;
-			store.save_channel(Id(1), Id(channel), &[message]).unwrap();
+			store
+				.save_channel(Id(1), Id(channel), &[message], false)
+				.unwrap();
 		}
 		let count: i64 = store
 			.0
@@ -3520,7 +3621,7 @@ mod component_storage_tests {
 			style: Some(1),
 			..Default::default()
 		}];
-		store.save_channel(Id(1), Id(2), &messages).unwrap();
+		store.save_channel(Id(1), Id(2), &messages, false).unwrap();
 		store = LocalStore::initialize(store.0).unwrap();
 		let loaded = store.load_channel(Id(1), Id(2)).unwrap();
 		assert_eq!(loaded[0].components, messages[0].components);
@@ -3529,7 +3630,7 @@ mod component_storage_tests {
 		messages[0].ephemeral = true;
 		messages[0].content = "private synthetic reply".into();
 		assert_eq!(
-			store.save_channel(Id(1), Id(2), &messages),
+			store.save_channel(Id(1), Id(2), &messages, false),
 			Err(StoreError::Capacity)
 		);
 		assert_eq!(store.load_channel(Id(1), Id(2)).unwrap()[0].content, "kept");
@@ -3557,7 +3658,7 @@ mod component_storage_tests {
 			pack_id: None,
 			available: true,
 		});
-		store.save_channel(Id(1), Id(2), &messages).unwrap();
+		store.save_channel(Id(1), Id(2), &messages, false).unwrap();
 		store = LocalStore::initialize(store.0).unwrap();
 		assert_eq!(
 			store.load_channel(Id(1), Id(2)).unwrap()[0].sticker_items,
@@ -3565,7 +3666,7 @@ mod component_storage_tests {
 		);
 		messages[0].sticker_items[0].name = "x".repeat(121);
 		assert_eq!(
-			store.save_channel(Id(1), Id(2), &messages),
+			store.save_channel(Id(1), Id(2), &messages, false),
 			Err(StoreError::Capacity)
 		);
 	}

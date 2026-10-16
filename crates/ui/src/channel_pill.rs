@@ -1,5 +1,5 @@
 //! Channel and message destinations use the same metadata and bundled icons.
-use crate::{icons::Icon, mentions::MentionSource, select::Surface};
+use crate::{avatars::Avatars, icons::Icon, mentions::MentionSource, select::Surface};
 use model::{Channel, Guild, Id};
 use std::{borrow::Cow, sync::Arc};
 
@@ -301,6 +301,43 @@ pub(crate) fn mention(
 	line: Option<f32>,
 	copy: Option<&mut Surface>,
 ) -> egui::Response {
+	mention_art(ui, text, color, background, sense, line, copy, None)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn game(
+	ui: &mut egui::Ui,
+	text: &str,
+	key: String,
+	images: &mut Avatars,
+	demo: bool,
+	line: Option<f32>,
+	copy: &mut Surface,
+) -> egui::Response {
+	let colors = crate::design::palette(ui);
+	mention_art(
+		ui,
+		text,
+		colors.mention_text,
+		colors.mention_bg,
+		egui::Sense::hover(),
+		line,
+		Some(copy),
+		Some((images, key, demo)),
+	)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn mention_art(
+	ui: &mut egui::Ui,
+	text: &str,
+	color: egui::Color32,
+	background: egui::Color32,
+	sense: egui::Sense,
+	line: Option<f32>,
+	copy: Option<&mut Surface>,
+	art: Option<(&mut Avatars, String, bool)>,
+) -> egui::Response {
 	let font_id = egui::TextStyle::Body.resolve(ui.style());
 	let text_height = ui.fonts_mut(|fonts| fonts.row_height(&font_id));
 	let format = egui::TextFormat {
@@ -313,7 +350,13 @@ pub(crate) fn mention(
 	let mut job = egui::text::LayoutJob::default();
 	// Label sets wrap indentation on the first section.
 	job.append("", 0.0, format.clone());
-	job.append(text, PAD, format);
+	if art.is_some() {
+		let space = ui.fonts_mut(|fonts| fonts.glyph_width(&format.font_id, ' '));
+		job.append(" ", PAD, format.clone());
+		job.append(text, (text_height - space).max(0.0) + GAP, format);
+	} else {
+		job.append(text, PAD, format);
+	}
 	let (pos, galley, response) = egui::Label::new(job)
 		.wrap()
 		.selectable(false)
@@ -327,6 +370,17 @@ pub(crate) fn mention(
 		let fill = fill(&response, background, color);
 		for rect in rows {
 			ui.painter().rect_filled(rect, RADIUS, fill);
+		}
+		if let Some((images, key, demo)) = art {
+			let position = galley
+				.pos_from_cursor(egui::text::CCursor::new(0))
+				.translate(pos.to_vec2());
+			let icon = egui::Rect::from_center_size(
+				egui::pos2(position.left() + text_height / 2.0, position.center().y),
+				egui::Vec2::splat(text_height),
+			);
+			let mut child = ui.new_child(egui::UiBuilder::new().max_rect(icon));
+			images.show_icon(&mut child, Some(key), text_height, demo, text);
 		}
 		ui.painter()
 			.add(egui::epaint::TextShape::new(pos, galley, color));

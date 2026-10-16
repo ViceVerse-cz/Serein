@@ -447,6 +447,23 @@ impl State {
 		self.check_notification_capacity()
 	}
 
+	/// Time until the next timed mute lapses, so counts that hide muted conversations can be
+	/// refreshed by an otherwise idle window.
+	pub fn next_mute_expiry(&self) -> Option<std::time::Duration> {
+		let now = Self::permission_time();
+		self.notification_preferences
+			.settings
+			.values()
+			.flat_map(|s| {
+				s.mute_until
+					.into_iter()
+					.chain(s.channel_mute_until.iter().map(|(_, until)| *until))
+			})
+			.filter(|until| *until > now)
+			.min()
+			.map(|until| std::time::Duration::from_secs(until.abs_diff(now)))
+	}
+
 	/// Per-DM notification override; absent settings remain unknown outside the fixture.
 	pub fn dm_muted(&self, channel: Id) -> Option<bool> {
 		if let Some(muted) = self.pending_dm_muted(channel) {

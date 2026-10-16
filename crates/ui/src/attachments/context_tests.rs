@@ -427,6 +427,7 @@ fn search_preview_cards_keep_their_surface_while_chat_cards_use_tint() {
 								&mut crate::profiles::ProfileSession::default(),
 								&client_core::State::default(),
 								card_surface,
+								false,
 							);
 						} else {
 							show(

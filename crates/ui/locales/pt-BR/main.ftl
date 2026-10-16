@@ -798,6 +798,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Pré-visualização d
 embeds-text-text-display-limited = Exibição de texto limitada
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Clique para saber mais
 # Context: show
 emoji-details-show-a-custom-emoji = Um emoji personalizado.
 # Context: show
@@ -2991,6 +2993,8 @@ server-menu-header-server-menu = Menu do servidor
 server-menu-leave-item-leave-server = Sair do servidor
 # Context: read_item
 server-menu-read-item-mark-as-read = Marcar como lido
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = Marcar tudo como lido
 # Context: settings_item
 server-menu-settings-item-server-settings = Configurações do servidor
 # Context: show
@@ -3573,6 +3577,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = Comando in
 slash-commands-footer-refresh-application-commands = Atualizar comandos do aplicativo
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = Este adesivo é de um servidor somente para convidados ou indisponível.
 # Context: message
 stickers-message-loading-sticker-details = Carregando detalhes do adesivo…
 # Context: message
@@ -4729,3 +4735,95 @@ timeline-dm-intro = Este é o começo do seu histórico de mensagens diretas com
 timeline-channel-intro-title = Boas-vindas a #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = Este é o começo do canal #{ $channel }.
+# Context: text_menu
+text-menu-cut = Recortar
+text-menu-copy = Copiar
+text-menu-paste = Colar
+text-menu-select-all = Selecionar tudo
+# Context: media_box
+forum-composer-attached-files = { $count ->
+    [one] { $count } arquivo anexado
+   *[other] { $count } arquivos anexados
+    }
+forum-composer-remove-file = Remover { $file }
+post-menu-post-action-failed = A ação da publicação falhou
+post-menu-thread-action-failed = A ação do tópico falhou
+
+# Context: badges
+badges-nitro = Nitro
+# Context: badges
+badges-rarity-common = Comum
+# Context: badges
+badges-rarity-rare = Rara
+# Context: badges
+badges-rarity-epic = Épica
+# Context: badges
+badges-rarity-mythic = Mítica
+# Context: badges
+badges-always-visible = Sempre exibida no seu perfil
+# Context: badges
+badges-click-show = Clique para mostrar
+# Context: badges
+badges-click-hide = Clique para ocultar
+# Context: badges
+badges-customize-title = Personalize suas insígnias
+# Context: badges
+badges-customize-hint = Arraste para reordenar e oculte as que você não quer que outros vejam.
+# Context: badges
+badges-none = Nenhuma insígnia para mostrar.
+# Context: badges
+badges-reset = Redefinir
+# Context: badges
+badges-saving = Salvando…
+# Context: badges
+badges-save = Salvar
+# Context: badges
+badges-view = Ver insígnias
+# Context: badges
+badges-your = Suas insígnias
+# Context: badges
+badges-user = Insígnias de { $name }
+# Context: badges
+badges-browse = Navegue pelas suas insígnias e descubra novas que você pode desbloquear.
+# Context: badges
+badges-available = Disponíveis para desbloquear
+# Context: badges
+badges-customize-button = Personalizar suas insígnias
+# Context: badges
+badges-close = Fechar
+# Context: badges
+badges-locked = Ainda não desbloqueada
+# Context: badges
+badges-date-unlocked = Data de desbloqueio
+# Context: badges
+badges-rarity = Raridade
+# Context: badges
+badges-max-level = Você alcançou o nível mais alto desta insígnia.
+# Context: badges
+badges-next-level = Próximo nível: { $tier }
+# Context: badges
+badges-all-levels = Ver todos os níveis
+# Context: badges
+badges-hide-levels = Ocultar níveis
+# Context: badges
+badges-manage = Gerenciar insígnias
+page-language-time = Idioma e hora
+description-language-time = Idioma de exibição e formato da hora.
+time-format-group = Formato de hora
+time-format-auto = Automático
+time-format-12-hour = 12 horas
+time-format-24-hour = 24 horas
+profiles-status-edit = Editar status
+profiles-status-clear = Limpar status
+send-throttled-title = Calma aí, apimentado demais
+send-throttled-body = Você está enviando mensagens rápido demais!
+send-throttled-dismiss = Entrar na zona de calma
+profiles-private-profile = Perfil privado
+profiles-private-notice = O perfil de { $name } é privado, então algumas informações estão ocultas. Envie um pedido de amizade para ver mais.
+settings-cosmetics-name-styles = Estilos de nome
+settings-cosmetics-name-styles-description = Fontes, cores e efeitos de nome de exibição do Nitro.
+search-overlays-message-contains = A mensagem contém
+search-overlays-no-matching-content-types = Nenhum tipo de conteúdo correspondente
+search-overlays-history = Histórico
+search-overlays-clear-history = Limpar histórico de pesquisa
+main-sign-in-rate-limited-detail = O Discord está limitando este login. Aguarde antes de tentar novamente. Outra tentativa antes disso pode aumentar a espera.

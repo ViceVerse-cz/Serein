@@ -33,6 +33,17 @@ struct WireGame {
 	#[serde(default)]
 	executables: Option<Vec<WireExecutable>>,
 }
+
+/// Game references need presentation metadata, independently of process detection.
+#[derive(Deserialize)]
+struct WireGameMention {
+	#[serde(default)]
+	id: Option<String>,
+	#[serde(default)]
+	name: Option<String>,
+	#[serde(default)]
+	icon: Option<String>,
+}
 #[derive(Deserialize)]
 struct WireExecutable {
 	#[serde(default)]
@@ -54,7 +65,7 @@ pub async fn download_list(
 	download(
 		client,
 		cooldown,
-		"https://discord.com/api/v10/applications/detectable",
+		&format!("{}/applications/detectable", crate::api_v10_base()),
 		MAX_LIST,
 	)
 	.await
@@ -93,6 +104,87 @@ pub fn decode(bytes: &[u8]) -> Result<Vec<Game>, &'static str> {
 		})
 		.collect();
 	bound(games)
+}
+
+/// The same public list also contains games without local executable detection.
+pub fn decode_mentions(bytes: &[u8]) -> Result<Vec<model::GameMention>, &'static str> {
+	let failure = "The game catalog is unavailable.";
+	if bytes.len() > MAX_LIST {
+		return Err(failure);
+	}
+	let wire: Vec<WireGameMention> = serde_json::from_slice(bytes).map_err(|_| failure)?;
+	if wire.len() > MAX_GAMES {
+		return Err(failure);
+	}
+	let games: Vec<_> = wire
+		.into_iter()
+		.filter_map(|game| {
+			let id = game.id?.parse().ok()?;
+			let name = game.name?.trim().to_owned();
+			if name.is_empty()
+				|| name.len() > MAX_NAME
+				|| name.chars().any(|c| {
+					c.is_control() || matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+				}) {
+				return None;
+			}
+			Some(model::GameMention {
+				id,
+				name,
+				icon: game.icon.filter(|hash| model::valid_avatar_hash(hash)),
+			})
+		})
+		.collect();
+	if games.is_empty() {
+		Err(failure)
+	} else {
+		Ok(games)
+	}
+}
+
+#[cfg(test)]
+mod mention_tests {
+	#[test]
+	fn game_mentions_ignore_malformed_executable_metadata() {
+		for executables in [
+			r#"[{"is_launcher":null}]"#,
+			r#"[{"name":42,"is_launcher":"yes"}]"#,
+			r#"{"unexpected":true}"#,
+		] {
+			let list = format!(
+				r#"[{{"id":"42","name":"Deadlock","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","executables":{executables}}},{{"id":"43","name":"Dead Space"}}]"#
+			);
+			let games = super::decode_mentions(list.as_bytes()).unwrap();
+			assert_eq!(games.len(), 2);
+			assert_eq!(games[0].id, model::Id(42));
+			assert_eq!(games[0].name, "Deadlock");
+			assert_eq!(
+				games[0].icon.as_deref(),
+				Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+			);
+		}
+	}
+
+	#[test]
+	fn catalog_keeps_games_without_executables_and_validates_icons() {
+		let games = super::decode_mentions(
+			br#"[
+			{"id":"42","name":"Deadlock","icon":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			{"id":"43","name":"Dead Space","icon":"../private"},
+			{"id":"44","name":"Bad\nName"},
+			{"id":"0","name":"Zero"}
+		]"#,
+		)
+		.unwrap();
+		assert_eq!(games.len(), 2);
+		assert_eq!(games[0].name, "Deadlock");
+		assert_eq!(
+			games[0].icon.as_deref(),
+			Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+		);
+		assert!(games[1].icon.is_none());
+		assert!(super::decode_mentions(b"[]").is_err());
+	}
 }
 
 /// The reduced form Serein caches on disk. It is re-checked exactly like a fresh download.

@@ -55,7 +55,7 @@ pub async fn metadata(
 	let bytes = download(
 		client,
 		cooldown,
-		&format!("https://discord.com/api/v10/applications/{id}/rpc"),
+		&format!("{}/applications/{id}/rpc", crate::api_v10_base()),
 		MAX_METADATA,
 	)
 	.await?;
@@ -74,7 +74,7 @@ pub async fn assets(
 	let bytes = download(
 		client,
 		cooldown,
-		&format!("https://discord.com/api/v10/oauth2/applications/{id}/assets"),
+		&format!("{}/oauth2/applications/{id}/assets", crate::api_v10_base()),
 		MAX_METADATA,
 	)
 	.await?;

@@ -245,6 +245,7 @@ pub fn synthetic_cosmetics() -> model::Cosmetics {
 			palette: model::NameplatePalette::Violet,
 			expires_at: None,
 		}),
+		name_style: None,
 	}
 }
 
@@ -1655,6 +1656,8 @@ mod tests {
 			assert_eq!(state.timeline.row_ids().last(), Some(Id(last)));
 			assert_eq!(state.search_target, Some(Id(first)));
 			assert_eq!(state.read_marker(Id(20)), Some(marker));
+			// Only a window opened at the very first message has reached the start.
+			assert_eq!(state.older_exhausted, marker.is_none());
 			if last < 500 {
 				let Some(Command::History { before, after, .. }) = state.newer_history() else {
 					panic!()
@@ -1664,6 +1667,8 @@ mod tests {
 				assert_eq!(state.timeline.row_ids().next(), Some(Id(first)));
 				assert_eq!(state.timeline.row_ids().last(), Some(Id(last + 50)));
 				assert!(state.search_target.is_none());
+				// A newer page keeps the start it extends.
+				assert_eq!(state.older_exhausted, marker.is_none());
 			} else {
 				assert!(state.newer_history().is_none());
 			}
@@ -2185,6 +2190,7 @@ mod tests {
 			query: retained_query,
 			before,
 			offset,
+			oldest: false,
 		} = state.request_search_page(2).unwrap()
 		else {
 			panic!()

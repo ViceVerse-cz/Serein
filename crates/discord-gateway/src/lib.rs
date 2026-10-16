@@ -167,6 +167,12 @@ impl ResumeState {
 		Ok(())
 	}
 }
+/// How long a recovery heartbeat may wait for its acknowledgement before the socket is replaced.
+#[cfg(not(test))]
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+/// Short in tests, so the silent-socket case does not spend its deadline waiting.
+#[cfg(test)]
+const PROBE_TIMEOUT: Duration = Duration::from_millis(500);
 #[derive(Default)]
 struct Heartbeat {
 	awaiting_since: Option<Instant>,
@@ -1301,6 +1307,7 @@ async fn run_recoverable(
 		timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 		let mut ready_at: Option<Instant> = None;
 		let ready_deadline = Instant::now() + Duration::from_secs(30);
+		let mut probe_deadline: Option<Instant> = None;
 		let mut active_members: Option<ActiveMembers> = None;
 		let mut direct_presence = presence::Pending::default();
 		let mut sent_members = false;
@@ -1409,6 +1416,18 @@ async fn run_recoverable(
 						skip_backoff = true;
 						break;
 					}
+					// A network change can leave a ready socket silently dead until the next two
+					// heartbeats. Confirm it now with a heartbeat; a healthy socket acknowledges it.
+					if probe_deadline.is_none() {
+						let packet = serde_json::json!({"op":1,"d":state.sequence}).to_string();
+						if !matches!(timeout(Duration::from_secs(5), socket.send(Frame::Text(packet.into()))).await, Ok(Ok(()))) { skip_backoff = true; break; }
+						heartbeat.sent(Instant::now());
+						probe_deadline = Some(Instant::now() + PROBE_TIMEOUT);
+					}
+				}
+				_ = tokio::time::sleep_until(probe_deadline.unwrap_or(ready_deadline)), if probe_deadline.is_some() => {
+					skip_backoff = true;
+					break;
 				}
 				changed = own_presence.changed(), if presence_open => {
 					presence_open = changed.is_ok();
@@ -1580,7 +1599,7 @@ async fn run_recoverable(
 							{ continue; }
 							if let Some(sequence) = packet.s { state.sequence = Some(sequence); }
 							match packet.op {
-								11 => heartbeat.ack(),
+								11 => { heartbeat.ack(); probe_deadline = None; }
 								1 => {
 									let packet = serde_json::json!({"op":1,"d":state.sequence}).to_string();
 									if !matches!(timeout(Duration::from_secs(5), socket.send(Frame::Text(packet.into()))).await, Ok(Ok(()))) { break; }

@@ -22,6 +22,7 @@ impl Dialog {
 pub(super) struct ServerMenu {
 	pub settings_requested: Option<Id>,
 	pub mark_read_requested: Option<Id>,
+	pub mark_all_read_requested: bool,
 	dialog: Option<Dialog>,
 	generation: u64,
 	invite: InviteDialog,
@@ -68,6 +69,24 @@ impl ServerMenu {
 			return true;
 		}
 		false
+	}
+	/// Every server and direct message, from the home tile.
+	pub fn all_read_item(&mut self, ui: &mut egui::Ui, state: &State) {
+		if ui
+			.add_enabled_ui(state.can_mark_all_read(), |ui| {
+				menu_row(
+					ui,
+					icons::Icon::Check,
+					"server-menu-all-read-item-mark-all-as-read",
+					design::palette(ui).text,
+				)
+			})
+			.inner
+			.clicked()
+		{
+			self.mark_all_read_requested = true;
+			ui.close();
+		}
 	}
 	pub fn settings_item(&mut self, ui: &mut egui::Ui, state: &State, guild: Id) -> bool {
 		if (state.can_manage_guild(guild)

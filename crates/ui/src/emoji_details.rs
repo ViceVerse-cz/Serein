@@ -1,7 +1,12 @@
 //! Emoji information uses the already-loaded server catalog and artwork.
 use crate::{design, emoji, emoji_picker};
 
-fn title(text: &str) -> String {
+/// Edge of the artwork in emoji and sticker hover cards.
+pub(crate) const HOVER_ART: f32 = 40.0;
+
+/// Discord-style `:name:` for a default emoji or a `<:name:id>` custom emoji. Text that is
+/// neither is returned unchanged.
+pub(crate) fn shortcode(text: &str) -> String {
 	if let Some((_, len)) = emoji::custom_prefix(text)
 		&& len == text.len()
 	{
@@ -25,6 +30,60 @@ fn title(text: &str) -> String {
 			|| text.to_owned(),
 			|index| emoji_picker::shortcodes()[index].clone(),
 		)
+}
+
+/// The joined server whose catalog holds a custom emoji, with its current catalog entry.
+fn source<'a>(
+	text: &str,
+	guilds: &'a [model::Guild],
+) -> Option<(&'a model::Guild, &'a model::CustomEmoji)> {
+	let (id, _) = emoji::custom_prefix(text)?;
+	guilds.iter().find_map(|guild| {
+		guild
+			.emojis
+			.as_ref()?
+			.iter()
+			.find(|emoji| emoji.id == id)
+			.map(|emoji| (guild, emoji))
+	})
+}
+
+/// Name shown for message emoji: the catalog's current name when its server is joined.
+pub(crate) fn name(text: &str, guilds: &[model::Guild]) -> String {
+	source(text, guilds).map_or_else(|| shortcode(text), |(_, emoji)| format!(":{}:", emoji.name))
+}
+
+/// Hover card shared by message emoji and stickers: artwork beside its name, and a hint when
+/// clicking opens details.
+pub(crate) fn hover_card(
+	response: egui::Response,
+	image: Option<egui::Image<'static>>,
+	name: &str,
+	hint: bool,
+) -> egui::Response {
+	response.on_hover_ui(|ui| {
+		let colors = design::palette(ui);
+		ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+		ui.horizontal(|ui| {
+			ui.spacing_mut().item_spacing.x = 10.0;
+			if let Some(image) = image {
+				ui.add(image.fit_to_exact_size(egui::Vec2::splat(HOVER_ART)));
+			}
+			ui.vertical(|ui| {
+				ui.spacing_mut().item_spacing.y = 2.0;
+				ui.label(design::semibold(ui, name, 14.0).color(colors.text_strong));
+				if hint {
+					ui.label(
+						egui::RichText::new(crate::i18n::translate(
+							"emoji-details-hover-card-click-to-learn-more",
+						))
+						.size(12.0)
+						.color(colors.muted),
+					);
+				}
+			});
+		});
+	})
 }
 
 pub(crate) fn show(
@@ -53,16 +112,7 @@ pub(crate) fn show(
 		)
 		.show(|ui| {
 			let custom = emoji::custom_prefix(text);
-			let source = custom.and_then(|(id, _)| {
-				guilds.iter().find_map(|guild| {
-					guild
-						.emojis
-						.as_ref()?
-						.iter()
-						.find(|emoji| emoji.id == id)
-						.map(|emoji| (guild, emoji))
-				})
-			});
+			let source = source(text, guilds);
 			ui.set_width(width - 32.0);
 			ui.horizontal_top(|ui| {
 				let (rect, _) =
@@ -82,8 +132,7 @@ pub(crate) fn show(
 				ui.add_space(12.0);
 				ui.vertical(|ui| {
 					ui.set_width(ui.available_width().max(52.0));
-					let name = source
-						.map_or_else(|| title(text), |(_, emoji)| format!(":{}:", emoji.name));
+					let name = name(text, guilds);
 					ui.add(
 						egui::Label::new(
 							design::semibold(ui, name, 16.0).color(colors.text_strong),
@@ -129,4 +178,31 @@ pub(crate) fn show(
 			ui.close();
 		}
 	});
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn names_use_shortcodes_and_the_joined_catalog() {
+		assert_eq!(shortcode("😂"), ":joy:");
+		assert_eq!(shortcode("🔥"), ":fire:");
+		assert_eq!(shortcode("👍🏽"), ":thumbsup_tone3:");
+		assert_eq!(shortcode("❤"), ":heart:");
+		assert_eq!(shortcode("<:wave:9001>"), ":wave:");
+		assert_eq!(shortcode("<a:wave_animated:9001>"), ":wave_animated:");
+		// Trailing text and unknown sequences are not emoji; they stay as received.
+		assert_eq!(shortcode("<:wave:9001> hi"), "<:wave:9001> hi");
+		assert_eq!(shortcode("sticker"), "sticker");
+		let guilds = test_support::demo_state().guilds;
+		let (guild, emoji) = source("<a:old_name:9001>", &guilds).expect("synthetic catalog");
+		assert_eq!(
+			name("<a:old_name:9001>", &guilds),
+			format!(":{}:", emoji.name)
+		);
+		assert!(!guild.name.is_empty());
+		assert_eq!(name("<a:wave_animated:999999>", &guilds), ":wave_animated:");
+		assert_eq!(name("😂", &guilds), ":joy:");
+	}
 }

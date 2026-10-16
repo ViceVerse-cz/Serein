@@ -45,6 +45,10 @@ name = "profile_layout"
 required-features = ["demo"]
 
 [[example]]
+name = "language_time"
+required-features = ["demo"]
+
+[[example]]
 name = "gif_hover"
 required-features = ["demo"]
 
