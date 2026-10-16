@@ -1823,18 +1823,3 @@ the native projection retains its existing URL and allocated-byte limits.
 Schema 28 adds the device-wide double-click reaction preset to the reading settings singleton. The bounded index selects one of six Unicode emoji, defaults to ❤️, and persists independently of session emoji recommendations.
 
 Schema 29 adds a bounded boolean opt-in for double-click reactions, disabled for new and migrated settings. The selected Unicode preset is retained while disabled; Reset chat restores the disabled default.
-
-## Optional OpenRouter auto replies (preview)
-
-The host stores the OpenRouter API key and bounded configuration together in a
-separate OS credential-store entry per Discord account (development/production
-namespaces stay separate). No key, prompt, allowlist or generated reply is saved
-in extension storage or SQLite by this service. The record is at most 2,400 bytes;
-active keys use zeroizing buffers and redacted diagnostics. Native secret input
-is masked and its undo history cleared. Credential IO runs on a worker; failure
-pauses the service. Forget deletes the record; disabling/logout drops active
-secrets and work but retains the saved entry. Start is session-only and defaults
-to paused on sign-in/restart or disconnect. Normal sent replies follow existing
-message/pending-message storage rules. Incoming text and the instructions are
-shared with OpenRouter/model providers only after explicit Start for chosen DMs;
-no chat history, attachments, Discord token or other conversations are included.

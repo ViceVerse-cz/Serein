@@ -725,32 +725,3 @@ a fresh post-details reload and a later conflicting name. Full local
 and owner-controlled live validation remain unavailable/unverified.
 Raw samples, source revisions and executable hashes are in
 [measurements.json](pr-evidence/post-rename-review/measurements.json).
-
-## OpenRouter auto-reply preview package (2026-10-15)
-
-Standard Windows x64 voice-inclusive `cargo xtask package`, Rust 1.98.1 and locked
-dependencies, `--no-default-features`. Baseline `104b1aa5a7f3b3d0771e379ae86f1ae69807de55`;
-changed runtime `e01be2355393c2b9632bb0dd3bdf54a95a2124ac`. Separate worktrees and installed
-directories, one measurement each; .NET Optimal ZIP over each directory, excluding
-the root directory entry. The same package command produced both executables.
-
-| Metric / method | Baseline | After | Delta |
-| --- | ---: | ---: | ---: |
-| Executable bytes | 87,487,488 | 87,653,888 | +166,400 (+0.190%) |
-| Installed directory bytes | 91,680,777 | 91,847,177 | +166,400 (+0.181%) |
-| Compressed directory bytes (.NET Optimal ZIP) | 50,511,305 | 50,586,658 | +75,353 (+0.149%) |
-
-The installed directories contain 216 / 216 files. The optional catalog plugin is separate
-from these application payloads: 273934 packaged bytes, 94800 Wasm bytes.
-Hashes and environment are in [the measurement record](pr-evidence/openrouter-auto-reply/measurements.json).
-
-Native app control/capture is unavailable, so no before/after screenshots, process
-RSS/idle CPU or startup/frame-latency measurements were collected. Headless native
-widget tests are synthetic checks, not a native screenshot or interaction record.
-No latency or memory improvement is claimed. The new provider workload has no
-baseline equivalent; no authenticated OpenRouter inference or live Discord sends
-were performed. The service bounds (one request, no queue, 32 targets, six-second
-global/60-second per-DM spacing, 100 attempts per enabled session, 8,000-byte text,
-512 completion tokens, 30-second timeout and 64 KiB decoded responses) are limits,
-not measured performance. NSIS is unavailable; both packages are unsigned app
-directories, with no installer executable.

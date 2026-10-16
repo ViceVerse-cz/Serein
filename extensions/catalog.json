@@ -365,37 +365,6 @@
         "sha256": "729063ad60d977fef21d630e07e09677ce07836b1a6bd18d447c3541af5a938c",
         "download_bytes": 65905
       }
-    },
-    {
-      "manifest": {
-        "api_version": 1,
-        "id": "openrouter-auto-reply",
-        "name": "OpenRouter Auto Reply",
-        "version": "1.0.0",
-        "author": "Serein contributors",
-        "license": "MIT OR Apache-2.0",
-        "source": "https://github.com/ViceVerse-cz/Serein/tree/main/extensions/plugins/openrouter-auto-reply",
-        "kind": "plugin",
-        "capabilities": [
-          "openrouter_auto_reply"
-        ],
-        "actions": [
-          {
-            "id": "open",
-            "label": "Configure OpenRouter auto replies",
-            "surface": "panel"
-          },
-          {
-            "id": "activate",
-            "label": "Enable OpenRouter settings",
-            "surface": "activation"
-          }
-        ]
-      },
-      "release_url": "https://raw.githubusercontent.com/ViceVerse-cz/Serein/e6ea93ffdd02c0cde101db5e6795c230a553a132/extensions/plugins/packages/openrouter-auto-reply.serein-extension",
-      "sha256": "81eac7b8c03f87f6d93e868a5cb15e4d150877aa7986d11de680043c51c077b8",
-      "download_bytes": 273934,
-      "source_commit": "e6ea93ffdd02c0cde101db5e6795c230a553a132"
     }
   ]
 }

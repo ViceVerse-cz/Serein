@@ -68,7 +68,6 @@ The Rust paths below are relative to `AppOutput`. When using the original
 
 | JSON field / Rust field | Value and required capability | When it takes effect |
 | --- | --- | --- |
-| `openrouter_auto_reply` / `OpenrouterAutoReplyOutput.openrouter_auto_reply` | Boolean, default `false`; separate `openrouter_auto_reply` grant. Preview. | Only `activation` may return `true`. Enables the host editor/service; the user must select DMs, save credentials and explicitly start in native settings. Does not itself start requests or sends. |
 | `replacement` / `output.replacement` | Optional string; `composer`. The invocation must actually contain composer text. | **Apply to Draft** replaces the original, still-unchanged draft. It never sends a message. |
 | `rich_presence` / `RichPresenceOutput.rich_presence` | Optional `RichPresenceUpdate`; `rich_presence` grant. | Explicit panel/activation Set or Clear updates the contribution; omission leaves it unchanged. See [Custom Rich Presence](#custom-rich-presence). |
 | `panel` / `output.panel` | Array of native `Element` values; no separate panel capability. | A foreground result displays it. Message/app event handlers must return no elements. Activation does not display returned panels. |
@@ -963,74 +962,6 @@ masked form and OS credential store; it never enters Wasm input or plugin storag
 SOCKS and PAC are unsupported. Saved invalid configuration should trap during
 activation rather than silently return Direct; the host then blocks initial API
 routing and preserves an already configured route during reload.
-
-### OpenRouter auto replies (preview)
-
-Declare `openrouter_auto_reply` and an `activation` action. Return the opt-in
-`OpenrouterAutoReplyOutput` wrapper to preserve the original `Output` Rust
-struct-literal API. This example also declares a panel action `open`:
-
-```rust
-use serein_extension_sdk::{Element, Invocation, OpenrouterAutoReplyOutput, Output};
-
-fn handle(input: Invocation) -> OpenrouterAutoReplyOutput {
-    if input.action == "activate" {
-        return OpenrouterAutoReplyOutput {
-            openrouter_auto_reply: true,
-            ..Default::default()
-        };
-    }
-    OpenrouterAutoReplyOutput {
-        output: Output {
-            panel: vec![Element::Text { text: "Configure the host service below.".into() }],
-            ..Default::default()
-        },
-        ..Default::default()
-    }
-}
-serein_extension_sdk::export!(handle);
-```
-
-Input `{"action":"activate"}` produces the flat output
-`{"openrouter_auto_reply":true,"replacement":null,"panel":[],"storage":null}`.
-The boolean is omitted by the SDK when false; omitted/false on activation leaves
-this plugin's service disabled. Null is invalid. True without the grant or from
-any surface other than activation is rejected. Older hosts reject the unsupported
-capability; API v1 and existing `Invocation`/`Output` remain compatible.
-
-An enabled plugin's panel displays native settings owned by Serein, outside
-`Invocation.values` and plugin storage. The plugin cannot select destinations,
-read/replace the key, obtain incoming text or inspect generated responses through
-this capability. No arbitrary HTTP endpoint, history query or unattended
-`HostEffect` is added. Existing `message_send` proposals still require Apply.
-
-The user selects up to 32 loaded individual/group DMs, a model ID and instructions,
-and saves an API key to the account-scoped OS credential store before explicitly
-starting. Only the new incoming text and instructions go to OpenRouter and its
-model provider. Requests/sends run only while the host is open and authenticated,
-Gateway connected, including at Home or while another conversation is loading.
-The host rechecks the private destination and permissions before sending, preserves
-navigation/drafts/reply targets, labels replies `[Auto reply]`, and suppresses
-mention pings. No private text, key or provider error body enters Wasm or diagnostics.
-
-The service ignores own/bot/webhook/system/history/update/delete events and messages
-older than the latest start. It skips excess arrivals: one in flight, six seconds
-between requests, 60 seconds per destination, 100 attempts per enabled plugin session,
-no queue/retry. Input is at most 8,000 bytes; instructions 1,024 bytes; model ID
-128 ASCII bytes; API key 256 graphic ASCII bytes; credential record 2,400 bytes.
-Requests use only HTTPS OpenRouter chat completions with no redirects/system proxy,
-a 30-second timeout, 512 completion-token limit and 64 KiB decoded response cap.
-Only completed nonblank text fitting 2,000 characters/8,000 bytes including the
-label is sent; rejection, refusal/truncation and connection/provider errors pause.
-
-Pause/disconnect/logout/account change, plugin disable/error or lost access cancels
-pending generation. Editing/deleting its source or a manual send cancels that
-reply. Saved settings never auto-start after sign-in/restart or disconnect. Forget
-removes settings/key; disable retains them but stops the service. See the
-[plugin setup guide](../extensions/plugins/openrouter-auto-reply/README.md).
-Synthetic mocks verify the contract; live OpenRouter billing and unofficial
-Discord behavior remain unverified and require an owner-controlled developer test.
-
 
 ## Panels and storage
 

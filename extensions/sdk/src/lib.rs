@@ -503,12 +503,3 @@ pub struct ApiProxyOutput {
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub api_proxy: Option<ApiProxyConfig>,
 }
-
-/// Opt-in host-managed OpenRouter service; settings and secrets never enter Wasm.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct OpenrouterAutoReplyOutput {
-	#[serde(flatten)]
-	pub output: Output,
-	#[serde(default, skip_serializing_if = "is_false")]
-	pub openrouter_auto_reply: bool,
-}

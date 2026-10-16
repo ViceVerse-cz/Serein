@@ -36,7 +36,6 @@ mod composer_text;
 mod recovery_demo;
 #[cfg(all(debug_assertions, feature = "demo"))]
 pub use recovery_demo::check as debug_resume_send_check;
-pub mod auto_reply;
 pub mod design;
 mod embeds;
 mod extension_account_actions;

@@ -155,7 +155,6 @@ struct PreviewImage {
 }
 #[derive(Default)]
 pub struct ExtensionUi {
-	pub auto_reply: crate::auto_reply::Form,
 	pub proxy_auth: crate::proxy_auth::Form,
 	pub active_theme: Option<String>,
 	pub entries: Vec<ExtensionEntry>,
@@ -862,7 +861,6 @@ impl ExtensionUi {
 		self.gallery_preview = None;
 		self.error = None;
 		self.result = None;
-		self.auto_reply.clear_secret();
 		self.consent = None;
 		self.requests.clear();
 		self.previews.clear();
@@ -871,7 +869,6 @@ impl ExtensionUi {
 	pub fn remove_runtime(&mut self, id: &str) {
 		if self.result.as_ref().is_some_and(|result| result.id == id) {
 			self.result = None;
-			self.auto_reply.clear_secret();
 		}
 		self.requests.retain(
 			|request| !matches!(request, ExtensionRequest::Invoke { id: plugin, .. } if plugin == id),
@@ -2199,12 +2196,10 @@ impl ExtensionUi {
 		}
 		let Some(mut result) = self.result.take() else {
 			self.proxy_auth.clear_draft();
-			self.auto_reply.clear_secret();
 			return None;
 		};
 		if !result.context.is_current(state) {
 			self.proxy_auth.clear_draft();
-			self.auto_reply.clear_secret();
 			self.status = "Result discarded because the conversation or draft changed.".into();
 			return None;
 		}
@@ -2224,17 +2219,6 @@ impl ExtensionUi {
 					.capabilities
 					.contains(&Capability::RichPresence)
 		});
-		let auto_reply = self.entries.iter().any(|entry| {
-			entry.manifest.id == result.id
-				&& entry.enabled
-				&& entry
-					.manifest
-					.capabilities
-					.contains(&Capability::OpenrouterAutoReply)
-		});
-		if !auto_reply {
-			self.auto_reply.clear_secret();
-		}
 		let proxy = self.entries.iter().any(|entry| {
 			entry.manifest.id == result.id
 				&& entry.manifest.capabilities.contains(&Capability::ApiProxy)
@@ -2278,10 +2262,6 @@ impl ExtensionUi {
 								.wrap(),
 						);
 						ui.add_space(10.0);
-					}
-					if auto_reply {
-						ui.separator();
-						self.auto_reply.show(ui, state);
 					}
 					if rich {
 						ui.add_enabled_ui(!self.busy, |ui| {
@@ -2380,7 +2360,6 @@ impl ExtensionUi {
 			self.result = Some(result);
 		} else {
 			self.proxy_auth.clear_draft();
-			self.auto_reply.clear_secret();
 		}
 		confirmed
 	}
@@ -2742,9 +2721,6 @@ fn badge(ui: &mut egui::Ui, text: &str, foreground: egui::Color32, background: e
 
 fn capability_label(capability: Capability) -> &'static str {
 	match capability {
-		Capability::OpenrouterAutoReply => {
-			"Use OpenRouter and send automatic replies only in private conversations I choose in host settings"
-		}
 		Capability::ApiProxy => {
 			"Route the Discord REST API through a proxy across accounts (not calls or media)"
 		}
@@ -2962,55 +2938,6 @@ fn apply_proposal(state: &mut State, context: &ExtensionContext, replacement: &s
 #[cfg(test)]
 mod tests {
 	use super::*;
-	#[test]
-	fn auto_reply_form_remains_visible_with_rich_presence() {
-		let ctx = egui::Context::default();
-		let mut state = test_support::demo_state();
-		let mut shop = ExtensionUi::default();
-		let mut plugin = entry();
-		plugin.enabled = true;
-		plugin.manifest.capabilities =
-			vec![Capability::OpenrouterAutoReply, Capability::RichPresence];
-		let id = plugin.manifest.id.clone();
-		shop.entries.push(plugin);
-		shop.auto_reply.available = true;
-		shop.present_output(
-			id,
-			Invocation::default(),
-			ExtensionContext::panel(&state),
-			Output::default(),
-			&state,
-		);
-		let mut output = ctx.run_ui(
-			egui::RawInput {
-				screen_rect: Some(egui::Rect::from_min_size(
-					egui::Pos2::ZERO,
-					egui::vec2(1400.0, 1000.0),
-				)),
-				..Default::default()
-			},
-			|_| {
-				shop.show_result(
-					&ctx,
-					&mut state,
-					&mut Vec::new(),
-					false,
-					&mut crate::avatars::Avatars::default(),
-					("", false),
-				);
-			},
-		);
-		output.textures_delta.clear();
-		let text: String = output
-			.shapes
-			.iter()
-			.filter_map(|shape| match &shape.shape {
-				egui::epaint::Shape::Text(text) => Some(text.galley.text()),
-				_ => None,
-			})
-			.collect();
-		assert!(text.contains("OpenRouter auto replies"));
-	}
 
 	#[test]
 	fn app_snapshot_payloads_are_bounded_before_ui_queueing() {
