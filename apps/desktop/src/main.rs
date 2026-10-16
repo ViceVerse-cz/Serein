@@ -5518,6 +5518,13 @@ impl eframe::App for Desktop {
 		if !can_attach {
 			self.uploads.cancel();
 		}
+		let state = &self.state;
+		self.uploads.follow_conversation(
+			state.generation,
+			state.selected,
+			state.user.is_some() && state.gateway_connected,
+			|channel| state.can_view(channel),
+		);
 		self.uploads.poll(
 			self.state.generation,
 			self.state.selected,
@@ -5895,11 +5902,13 @@ impl eframe::App for Desktop {
 			{
 				self.notifications.notify();
 			}
-			// Revalidate scope after navigation without polling workers a second time.
-			self.uploads.revalidate_scope(
-				self.state.generation,
-				self.state.selected,
-				self.state.user.is_some() && self.state.gateway_connected,
+			// Park or restore staged files after navigation without polling workers again.
+			let state = &self.state;
+			self.uploads.follow_conversation(
+				state.generation,
+				state.selected,
+				state.user.is_some() && state.gateway_connected,
+				|channel| state.can_view(channel),
 			);
 			if !self.state.selected.is_some_and(|channel| {
 				self.state.can_attach(channel) || self.state.can_attach_post(channel)

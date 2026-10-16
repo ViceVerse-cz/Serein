@@ -1,5 +1,18 @@
 # Local storage policy and audit
 
+## Per-conversation reply and attachment staging (October 16, 2026)
+
+Leaving a conversation keeps its unsent reply target and staged files in session RAM for
+the next visit. Parked reply targets are message IDs only, at most 64, keyed by session
+generation and channel; one is restored only while the conversation still accepts messages
+and its target is not known to be deleted. Parked attachments keep at most 8 conversations
+and 64 MiB of in-memory pasted bytes and thumbnails together; chosen files hold only their
+inspected metadata. The oldest conversation's files are removed first, and a selection
+larger than the whole budget is removed when leaving, each with an error notice. Files
+return only to the generation and channel they were staged in. Disconnect, a session
+change, logout or lost channel access drops them. Selections still loading and uploads in
+flight are still cancelled by navigation. Nothing here is written to disk.
+
 ## Game mention catalog (October 14, 2026)
 
 Game search retains a process-local catalog capped at 65,536 entries and 16 MiB of
