@@ -25,6 +25,8 @@ pub struct ScreenUi {
 	pub capture_status: Option<&'static str>,
 	pub supported: bool,
 	pub preview: Option<egui::TextureHandle>,
+	/// The share is running and the local picture is intentionally not updating.
+	pub preview_paused: bool,
 	resolution: Resolution,
 	/// Selection the current resolution was chosen for. `None` until sources arrive.
 	quality_for: Option<SourceId>,
@@ -46,6 +48,7 @@ impl Default for ScreenUi {
 			capture_status: None,
 			supported: false,
 			preview: None,
+			preview_paused: false,
 			resolution: Resolution::Source,
 			quality_for: None,
 			fps: 30,

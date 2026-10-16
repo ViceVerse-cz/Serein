@@ -498,7 +498,7 @@ target/debug/examples/linux_screen --niri-timestamps
 
 GPU buffers stay native where driver/plugin
 negotiation permits; zero-copy is not guaranteed, especially across GPUs. Local preview
-matches the shared picture size, at most 30 fps, and is suspended when minimized or viewing another channel.
+matches the shared picture size and the chosen frame rate. It pauses when the window is unfocused, minimized, or showing another channel, and the tile then shows a paused-preview message.
 The system picker requires a ScreenCast-capable portal backend. Native X11 sessions
 also offer an explicit “Entire X11 desktop · all monitors · no portal” source using
 GStreamer's `ximagesrc` (Good plugins). This shares the whole desktop, not an individual
@@ -595,7 +595,7 @@ capture and requires another click. Demo mode never requests camera or microphon
 
 An explicitly started screen share also shows a separate local tile while alone.
 The worker retains at most one RGBA preview at the captured size, up to 3840×2160
-(33,177,600 bytes), updated at most thirty times per second, plus the bounded UI
+(33,177,600 bytes), updated at the chosen frame rate while the preview is showing, plus the bounded UI
 texture and upload copy. Color conversion runs on the capture worker and does not
 shrink the picture. Native raw-frame limits still apply; encoding and network
 transmission wait for secure media readiness.

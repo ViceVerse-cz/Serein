@@ -122,7 +122,6 @@ pub struct Worker {
 	done: Option<mpsc::Receiver<Result<(), &'static str>>>,
 	#[cfg(target_os = "linux")]
 	status: Arc<Mutex<&'static str>>,
-	#[cfg(target_os = "linux")]
 	preview_visible: Arc<AtomicBool>,
 }
 
@@ -147,9 +146,7 @@ impl Worker {
 		let status = Arc::new(Mutex::new("Choose a screen or window in the system picker"));
 		#[cfg(target_os = "linux")]
 		let worker_status = status.clone();
-		#[cfg(target_os = "linux")]
 		let preview_visible = Arc::new(AtomicBool::new(true));
-		#[cfg(target_os = "linux")]
 		let worker_preview_visible = preview_visible.clone();
 		// A few frames of slack absorbs send jitter without forcing keyframes on every hiccup.
 		let (send, frames) = tokio::sync::mpsc::channel(3);
@@ -194,6 +191,7 @@ impl Worker {
 					audio_send,
 					worker_audio_epoch,
 					worker_preview,
+					worker_preview_visible,
 					&wake,
 				);
 				finished_ready.store(false, Ordering::Release);
@@ -217,7 +215,6 @@ impl Worker {
 				done: Some(done),
 				#[cfg(target_os = "linux")]
 				status,
-				#[cfg(target_os = "linux")]
 				preview_visible,
 			},
 			Video {
@@ -232,9 +229,8 @@ impl Worker {
 		))
 	}
 
-	pub fn set_preview_visible(&self, _visible: bool) {
-		#[cfg(target_os = "linux")]
-		self.preview_visible.store(_visible, Ordering::Release);
+	pub fn set_preview_visible(&self, visible: bool) {
+		self.preview_visible.store(visible, Ordering::Release);
 	}
 
 	pub fn capture_status(&self) -> Option<&'static str> {
@@ -248,7 +244,7 @@ impl Worker {
 		self.done.as_ref()?.try_recv().ok()
 	}
 
-	/// One local RGBA image at the captured size, replaced at most thirty times a second.
+	/// One local RGBA image at the captured size, replaced at the chosen frame rate while visible.
 	pub fn take_preview(&self) -> Option<image::RgbaImage> {
 		self.preview.try_lock().ok()?.take()
 	}
@@ -277,6 +273,7 @@ fn encode_loop(
 	audio: Option<tokio::sync::mpsc::Sender<AudioChunk>>,
 	audio_epoch: Arc<AtomicU64>,
 	preview: Arc<Mutex<Option<image::RgbaImage>>>,
+	preview_visible: Arc<AtomicBool>,
 	wake: &impl Fn(),
 ) -> Result<(), &'static str> {
 	if stop.load(Ordering::Acquire) || send.is_closed() {
@@ -312,6 +309,7 @@ fn encode_loop(
 	let mut first_frame_deadline = Some(Instant::now() + Duration::from_secs(15));
 	let mut next_frame = Instant::now();
 	let mut next_preview = Instant::now();
+	let preview_interval = Duration::from_secs_f64(1.0 / f64::from(settings.fps));
 	let mut latest_frame = None;
 
 	while !stop.load(Ordering::Acquire) && !send.is_closed() {
@@ -348,12 +346,16 @@ fn encode_loop(
 		let now = Instant::now();
 		if let Some(frame) = &frame {
 			first_frame_deadline = None;
-			if now >= next_preview {
+			if !preview_visible.load(Ordering::Acquire) {
+				if let Ok(mut slot) = preview.try_lock() {
+					slot.take();
+				}
+			} else if now >= next_preview {
 				let image = preview_frame(frame)?;
 				if let Ok(mut slot) = preview.try_lock() {
 					*slot = Some(image);
 				}
-				next_preview = now + Duration::from_millis(33);
+				next_preview = now + preview_interval;
 				wake();
 			}
 		}
@@ -705,14 +707,10 @@ pub(super) fn preview_frame(frame: &RawFrame) -> Result<image::RgbaImage, &'stat
 	let mut image = image::RgbaImage::new(frame.width, frame.height);
 	for (y, row) in image.chunks_mut(frame.width as usize * 4).enumerate() {
 		let start = y * frame.stride;
-		for (dst, src) in row
-			.chunks_exact_mut(4)
-			.zip(frame.data[start..start + row_bytes].chunks_exact(4))
-		{
-			dst[0] = src[2];
-			dst[1] = src[1];
-			dst[2] = src[0];
-			dst[3] = 255;
+		let (dst_pixels, _) = row.as_chunks_mut::<4>();
+		let (src_pixels, _) = frame.data[start..start + row_bytes].as_chunks::<4>();
+		for (dst, src) in dst_pixels.iter_mut().zip(src_pixels) {
+			*dst = [src[2], src[1], src[0], 255];
 		}
 	}
 	Ok(image)
@@ -805,7 +803,6 @@ mod tests {
 			done: None,
 			#[cfg(target_os = "linux")]
 			status: Arc::new(Mutex::new("")),
-			#[cfg(target_os = "linux")]
 			preview_visible: Arc::new(AtomicBool::new(true)),
 		};
 		assert!(worker.take_preview().is_some());

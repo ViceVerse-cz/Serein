@@ -2244,6 +2244,10 @@ screen-body-quality = Qualität
 # Context: body
 screen-body-source = Quelle
 # Context: body
+screen-preview-paused-title = Dein Stream läuft noch!
+# Context: body
+screen-preview-paused-body = Wir haben diese Vorschau pausiert, um Ressourcen zu sparen.
+# Context: body
 screen-body-quality-selection-does-not-require-nitro = Qualitätsauswahl erfordert kein Nitro.
 # Context: body
 screen-body-refresh = Aktualisieren

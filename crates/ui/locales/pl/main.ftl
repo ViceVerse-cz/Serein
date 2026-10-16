@@ -2244,6 +2244,10 @@ screen-body-quality = Jakość
 # Context: body
 screen-body-source = Źródło
 # Context: body
+screen-preview-paused-title = Twoja transmisja nadal działa!
+# Context: body
+screen-preview-paused-body = Wstrzymaliśmy ten podgląd, aby oszczędzać zasoby.
+# Context: body
 screen-body-quality-selection-does-not-require-nitro = Wybór jakości nie wymaga Nitro.
 # Context: body
 screen-body-refresh = Odświeżać

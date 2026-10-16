@@ -2245,6 +2245,10 @@ screen-body-quality = 品質
 # Context: body
 screen-body-source = ソース
 # Context: body
+screen-preview-paused-title = 配信は続行中です！
+# Context: body
+screen-preview-paused-body = リソースを節約するため、このプレビューを一時停止しました。
+# Context: body
 screen-body-quality-selection-does-not-require-nitro = 品質の選択にはニトロは必要ありません。
 # Context: body
 screen-body-refresh = リフレッシュ

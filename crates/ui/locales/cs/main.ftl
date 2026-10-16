@@ -2255,6 +2255,10 @@ screen-body-quality = Kvalitní
 # Context: body
 screen-body-source = Zdroj
 # Context: body
+screen-preview-paused-title = Váš stream stále běží!
+# Context: body
+screen-preview-paused-body = Náhled jsme pozastavili, abychom šetřili prostředky.
+# Context: body
 screen-body-quality-selection-does-not-require-nitro = Výběr kvality nevyžaduje Nitro.
 # Context: body
 screen-body-refresh = Obnovit

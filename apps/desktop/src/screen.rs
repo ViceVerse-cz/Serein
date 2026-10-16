@@ -236,6 +236,7 @@ impl Screen {
 			ui.screen.busy = false;
 			ui.screen.supported = false;
 			ui.screen.preview = None;
+			ui.screen.preview_paused = false;
 			ui.screen.capture_status = None;
 			return None;
 		}
@@ -437,12 +438,15 @@ impl Screen {
 			self.request_stop(error);
 		}
 		if let Some(live) = &self.live {
-			live.worker.set_preview_visible(
-				ui.screen.preview.is_none()
-					|| (state.selected == Some(live.context.channel)
-						&& !ctx.input(|input| input.viewport().minimized.unwrap_or(false))),
-			);
-			if let Some(frame) = live.worker.take_preview() {
+			let on_channel = state.selected == Some(live.context.channel);
+			let shown = on_channel
+				&& ctx.input(|input| input.focused && !input.viewport().minimized.unwrap_or(false));
+			live.worker.set_preview_visible(shown);
+			ui.screen.preview_paused = !shown;
+			if !shown {
+				let _ = live.worker.take_preview();
+				ui.screen.preview = None;
+			} else if let Some(frame) = live.worker.take_preview() {
 				let image = egui::ColorImage::from_rgba_unmultiplied(
 					[frame.width() as usize, frame.height() as usize],
 					frame.as_raw(),
@@ -461,6 +465,7 @@ impl Screen {
 			}
 		} else {
 			ui.screen.preview = None;
+			ui.screen.preview_paused = false;
 		}
 
 		if let Some(closing) = &mut self.closing {
