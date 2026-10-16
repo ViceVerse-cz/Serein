@@ -2030,10 +2030,13 @@ impl State {
 			}
 		}
 	}
-	/// Removes a failed or unconfirmed own row without restoring it.
-	pub fn discard_pending(&mut self, nonce: &str) {
-		self.pending
-			.retain(|p| p.nonce != nonce || p.delivery == Delivery::Sending);
+	/// Removes a failed or unconfirmed own row without restoring it, returning its channel.
+	pub fn discard_pending(&mut self, nonce: &str) -> Option<Id> {
+		let index = self
+			.pending
+			.iter()
+			.position(|p| p.nonce == nonce && p.delivery != Delivery::Sending)?;
+		Some(self.pending.remove(index).channel)
 	}
 	/// Reports a command the transport could not accept as a bounded outcome error.
 	pub fn command_rejected(&mut self, command: Command) {
@@ -4856,7 +4859,7 @@ mod tests {
 		assert_eq!(state.pending[0].reply, Some(Reply::to(Id(10))));
 		// Failed rows can be dismissed; a row still sending cannot.
 		let nonce = state.pending[0].nonce.clone();
-		state.discard_pending(&nonce);
+		assert_eq!(state.discard_pending(&nonce), Some(Id(1)));
 		assert!(state.pending.is_empty());
 		// A reply started meanwhile is never swapped: the row fails and keeps its own target.
 		state.drafts.remove(&Id(1));

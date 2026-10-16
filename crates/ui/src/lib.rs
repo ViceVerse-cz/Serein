@@ -4945,8 +4945,11 @@ impl MessagingUi {
 								self.restore_pending(state, channel, &nonce);
 							}
 						}
-						if let Some(nonce) = self.timeline.dismiss_pending.take() {
-							state.discard_pending(&nonce);
+						if let Some(nonce) = self.timeline.dismiss_pending.take()
+							&& let Some(channel) = state.discard_pending(&nonce)
+						{
+							// The recovery draft may have been the dismissed caption; save it again.
+							self.draft_changes.push(channel);
 						}
 						self.cancel_upload_requested |=
 							std::mem::take(&mut self.timeline.cancel_upload);
