@@ -682,6 +682,8 @@ pub struct Pending {
 	pub nonce: String,
 	pub delivery: Delivery,
 	pub confirmed: Option<Id>,
+	/// The reply this send carried, so a failed row can restore it with the caption.
+	pub reply: Option<Reply>,
 }
 #[derive(Default)]
 pub struct NavigationIndex {
@@ -1929,6 +1931,11 @@ impl State {
 			.unwrap_or_default()
 			.as_millis();
 		let nonce = fingerprint::nonce(epoch, self.send_sequence);
+		let reply = match (explicit_reply, explicit_content) {
+			(Some(reply), _) => Some(reply),
+			(None, None) => self.reply.take(),
+			(None, Some(_)) => None,
+		};
 		self.pending.push(Pending {
 			sticker: sticker.cloned(),
 			channel,
@@ -1937,6 +1944,7 @@ impl State {
 			nonce: nonce.clone(),
 			delivery: Delivery::Sending,
 			confirmed: None,
+			reply,
 		});
 		if sticker.is_none() && !preserve_draft {
 			self.drafts.remove(&channel);
@@ -1947,12 +1955,63 @@ impl State {
 			channel,
 			content,
 			nonce,
-			reply: match (explicit_reply, explicit_content) {
-				(Some(reply), _) => Some(reply),
-				(None, None) => self.reply.take(),
-				(None, Some(_)) => None,
-			},
+			reply,
 		})
+	}
+	/// Hands a send the desktop stopped before any transport back to the composer: the
+	/// caption returns to an empty draft and the reply to an idle reply bar, so a retry
+	/// keeps both. When the composer has moved on, the row fails with `failure` instead
+	/// and keeps both for Restore. Returns whether the draft was restored.
+	pub fn return_unsent(&mut self, command: Command, failure: &'static str) -> bool {
+		let Command::Send {
+			channel,
+			nonce,
+			sticker: None,
+			..
+		} = command
+		else {
+			self.command_rejected(command);
+			return false;
+		};
+		let index = self.pending.iter().position(|p| {
+			p.nonce == nonce
+				&& p.channel == channel
+				&& p.delivery == Delivery::Sending
+				&& p.sticker.is_none()
+		});
+		let composer_idle = self.selected == Some(channel)
+			&& self.drafts.get(&channel).is_none_or(String::is_empty)
+			&& (self.drafts.contains_key(&channel) || self.drafts.len() < 64);
+		let Some(index) = index.filter(|_| composer_idle) else {
+			self.apply(Envelope {
+				generation: self.generation,
+				event: Event::SendResult {
+					nonce,
+					result: Err(auth::Failure::ProtocolAt(failure)),
+				},
+			});
+			return false;
+		};
+		// Moving the caption from the row to the draft never grows the draft budget.
+		let pending = self.pending.remove(index);
+		if !pending.content.is_empty() {
+			self.drafts.insert(channel, pending.content);
+		}
+		if self.reply.is_none() {
+			self.reply = pending
+				.reply
+				.filter(|reply| !self.timeline.is_deleted(reply.target()));
+		}
+		if !self.pending.iter().any(|p| p.delivery == Delivery::Sending) {
+			self.send_throttle_seen = false;
+		}
+		self.status = failure;
+		true
+	}
+	/// Removes a failed or unconfirmed own row without restoring it.
+	pub fn discard_pending(&mut self, nonce: &str) {
+		self.pending
+			.retain(|p| p.nonce != nonce || p.delivery == Delivery::Sending);
 	}
 	/// Reports a command the transport could not accept as a bounded outcome error.
 	pub fn command_rejected(&mut self, command: Command) {
@@ -4696,6 +4755,90 @@ mod tests {
 		assert_eq!(state.auth, auth::AuthState::Expired);
 		assert_eq!(state.freshness, Freshness::Stale);
 		assert!(!state.gateway_connected);
+	}
+	#[test]
+	fn attachment_sends_from_an_older_window_keep_caption_and_reply() {
+		let mut state = State {
+			channels: vec![Channel {
+				id: Id(1),
+				guild: None,
+				parent_id: None,
+				kind: 1,
+				name: "Synthetic DM".into(),
+				position: 0,
+				recipients: vec![],
+				last_message: None,
+				icon: None,
+				member_list_id: None,
+				tags: None,
+				message_count: None,
+			}],
+			selected: Some(Id(1)),
+			auth: auth::AuthState::Authenticated,
+			gateway_connected: true,
+			..State::default()
+		};
+		state.history(None);
+		let request = state.request;
+		apply(
+			&mut state,
+			Event::History {
+				channel: Id(1),
+				request,
+				older: false,
+				messages: (51..101).map(message).collect(),
+			},
+		);
+		state.older_history().unwrap();
+		let request = state.request;
+		apply(
+			&mut state,
+			Event::History {
+				channel: Id(1),
+				request,
+				older: true,
+				messages: (1..51).map(message).collect(),
+			},
+		);
+		assert!(state.history_before.is_some() && state.freshness == Freshness::Fresh);
+		// Reply to an old message with a captioned image.
+		state.reply = Some(Reply::to(Id(10)));
+		state.drafts.insert(Id(1), "Caption".into());
+		let command = state.prepare_send_with_attachments(&["photo.png"]).unwrap();
+		assert!(state.reply.is_none() && !state.drafts.contains_key(&Id(1)));
+		assert_eq!(state.pending[0].reply, Some(Reply::to(Id(10))));
+		// Send jumps to the latest page before the desktop dispatches the upload. That
+		// reload is not a channel state, so the attachment gate stays open.
+		state.history(None);
+		assert_eq!(state.freshness, Freshness::Loading);
+		assert!(state.can_attach(Id(1)));
+		assert!(matches!(
+			&command,
+			Command::Send { reply: Some(reply), .. } if reply.target() == Id(10)
+		));
+		// A send stopped before transport goes back to the composer intact.
+		assert!(state.return_unsent(command, "File not sent"));
+		assert!(state.pending.is_empty());
+		assert_eq!(state.drafts[&Id(1)], "Caption");
+		assert_eq!(state.reply, Some(Reply::to(Id(10))));
+		assert_eq!(state.status, "File not sent");
+		// A composer that moved on keeps its newer draft; the row fails and keeps the reply.
+		let command = state.prepare_send_with_attachments(&["photo.png"]).unwrap();
+		state.drafts.insert(Id(1), "Newer".into());
+		assert!(!state.return_unsent(command, "File not sent"));
+		assert_eq!(state.drafts[&Id(1)], "Newer");
+		assert_eq!(state.pending[0].delivery, Delivery::Rejected);
+		assert_eq!(state.pending[0].content, "Caption");
+		assert_eq!(state.pending[0].reply, Some(Reply::to(Id(10))));
+		// Failed rows can be dismissed; a row still sending cannot.
+		let nonce = state.pending[0].nonce.clone();
+		state.discard_pending(&nonce);
+		assert!(state.pending.is_empty());
+		let Command::Send { nonce, .. } = state.prepare_send().unwrap() else {
+			panic!()
+		};
+		state.discard_pending(&nonce);
+		assert_eq!(state.pending.len(), 1);
 	}
 	#[test]
 	fn attachment_only_sends_are_bounded_and_keep_existing_confirmation() {

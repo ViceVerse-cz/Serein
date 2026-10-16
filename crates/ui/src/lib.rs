@@ -371,6 +371,8 @@ pub struct MessagingUi {
 	pub reconnect_requested: bool,
 	pub draft_changes: Vec<Id>,
 	pub draft_restore_pending: bool,
+	/// The reply target's author, kept while that message leaves the loaded window.
+	reply_author: Option<(Id, String)>,
 	pub attachment: Option<(String, u64)>,
 	pub attachment_files: Vec<(String, u64)>,
 	pub remove_attachment_index: Option<usize>,
@@ -2680,10 +2682,39 @@ impl MessagingUi {
 				}
 				state.drafts.insert(channel, pending.content);
 				self.draft_changes.push(channel);
+				// The reply goes back with its caption unless a newer reply was started.
+				if state.reply.is_none() && state.selected == Some(channel) {
+					state.reply = pending
+						.reply
+						.filter(|reply| !state.timeline.is_deleted(reply.target()));
+				}
 			} else {
 				state.status = "Keep or clear the existing draft before restoring pending text";
 			}
 		}
+	}
+	/// Remembers the author seen while the target was loaded, so jumping to the latest
+	/// page or a send that comes back keeps naming who is being replied to.
+	fn reply_author(&mut self, state: &State, target: Id) -> String {
+		if let Some(message) = state.timeline.get(target) {
+			if self
+				.reply_author
+				.as_ref()
+				.is_none_or(|(id, name)| *id != target || *name != message.author.name)
+			{
+				self.reply_author = Some((target, message.author.name.clone()));
+			}
+		} else if self
+			.reply_author
+			.as_ref()
+			.is_some_and(|(id, _)| *id != target)
+		{
+			self.reply_author = None;
+		}
+		self.reply_author
+			.as_ref()
+			.filter(|(id, _)| *id == target)
+			.map_or_else(|| "an earlier message".to_owned(), |(_, name)| name.clone())
 	}
 	fn submit_composer(
 		&mut self,
@@ -3041,11 +3072,7 @@ impl MessagingUi {
 			});
 			cap_top = Some(cap.top());
 		} else if let Some(reply) = state.reply {
-			let author = state
-				.timeline
-				.get(reply.target())
-				.map_or("an earlier message", |message| message.author.name.as_str())
-				.to_owned();
+			let author = self.reply_author(state, reply.target());
 			let cap = composer_cap(ui, &colors, |ui| {
 				ui.spacing_mut().item_spacing.x = 0.0;
 				ui.label(
@@ -4914,6 +4941,9 @@ impl MessagingUi {
 							} else {
 								self.restore_pending(state, channel, &nonce);
 							}
+						}
+						if let Some(nonce) = self.timeline.dismiss_pending.take() {
+							state.discard_pending(&nonce);
 						}
 						self.cancel_upload_requested |=
 							std::mem::take(&mut self.timeline.cancel_upload);

@@ -365,3 +365,35 @@ fn sending_from_scrolled_history_returns_to_latest_without_resending() {
 		assert!(messaging.timeline.following);
 	}
 }
+
+#[test]
+fn restore_returns_the_reply_and_the_cap_keeps_its_author() {
+	let mut state = test_support::demo_state();
+	let channel = state.selected.unwrap();
+	let target = state.timeline.iter().next().unwrap();
+	let (target, author) = (target.id, target.author.name.clone());
+	let mut messaging = crate::MessagingUi::default();
+	state.reply = Some(client_core::Reply::to(target));
+	assert_eq!(messaging.reply_author(&state, target), author);
+	let nonce = send(&mut state, "Caption to recover");
+	assert!(state.reply.is_none());
+	apply(
+		&mut state,
+		Event::SendResult {
+			nonce: nonce.clone(),
+			result: Err(Failure::ProtocolAt("Synthetic failure")),
+		},
+	);
+	assert_eq!(state.pending[0].delivery, Delivery::Rejected);
+	// The target leaves the loaded window, as after jumping to the latest page.
+	state.timeline.clear();
+	messaging.restore_pending(&mut state, channel, &nonce);
+	assert_eq!(state.drafts[&channel], "Caption to recover");
+	assert_eq!(state.reply_target(), Some(target));
+	assert_eq!(messaging.reply_author(&state, target), author);
+	// Another target without a loaded message falls back to the generic label.
+	assert_eq!(
+		messaging.reply_author(&state, Id(target.0 + 1)),
+		"an earlier message"
+	);
+}

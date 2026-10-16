@@ -1285,6 +1285,16 @@ fn recovery_draft(state: &State, channel: model::Id) -> String {
 		})
 		.unwrap_or_default()
 }
+/// Staged files may upload whenever the channel accepts attachments. The history
+/// window's freshness is not a channel state: Send from older history jumps to the
+/// latest page, so that window is reloading while the upload is dispatched.
+fn attachment_send_allowed(state: &State, channel: model::Id) -> bool {
+	!state.demo
+		&& state.can_attach(channel)
+		&& state.auth == AuthState::Authenticated
+		&& state.gateway_connected
+		&& state.selected == Some(channel)
+}
 fn confirmed_recovery_channel(state: &State, event: &Event) -> Option<model::Id> {
 	let (message, nonce) = match event {
 		Event::SendResult {
@@ -3191,14 +3201,9 @@ impl Desktop {
 				.iter()
 				.any(|p| p.nonce == *nonce && !p.attachments.is_empty())
 		{
-			let (channel, nonce) = (*channel, nonce.clone());
-			let available = !self.state.demo
-				&& self.state.can_attach(channel)
+			let channel = *channel;
+			let available = attachment_send_allowed(&self.state, channel)
 				&& !self.fixture_only
-				&& self.state.auth == AuthState::Authenticated
-				&& self.state.gateway_connected
-				&& self.state.freshness == model::Freshness::Fresh
-				&& self.state.selected == Some(channel)
 				&& self.connection.is_some();
 			if available
 				&& let Some(source) = self.uploads.take_source(self.state.generation, channel)
@@ -3227,15 +3232,14 @@ impl Desktop {
 					return;
 				}
 			}
-			self.state.apply(Envelope {
-				generation: self.state.generation,
-				event: Event::SendResult {
-					nonce,
-					result: Err(Failure::ProtocolAt(
-						"File not sent; reconnect and reselect the attachment",
-					)),
-				},
-			});
+			// Nothing left the client: keep the caption, reply and staged files for a retry.
+			let failure = "File not sent; check the connection and attachment, then send again";
+			if self.state.return_unsent(command, failure) {
+				self.messaging.draft_changes.push(channel);
+			}
+			self.messaging
+				.toasts
+				.push(ui::design::Level::Error, failure);
 			return;
 		}
 		// A forum post with files takes the same staged-upload path as a message.
@@ -5451,9 +5455,10 @@ impl eframe::App for Desktop {
 			)
 		});
 		ui::design::paint_backdrop(&ctx);
+		// A history page loading while browsing must not refuse a paste or drop.
 		let upload_allowed = self.state.user.is_some()
 			&& self.state.gateway_connected
-			&& self.state.freshness == model::Freshness::Fresh;
+			&& self.state.freshness != model::Freshness::Unavailable;
 		// A forum container carries its own attachment permission for a post's first message.
 		let can_attach = self.state.selected.is_some_and(|channel| {
 			self.state.can_attach(channel) || self.state.can_attach_post(channel)
@@ -6783,6 +6788,25 @@ mod tests {
 			false,
 		);
 		assert!(state.timeline.is_empty());
+	}
+	#[test]
+	fn attachment_sends_stay_allowed_while_the_latest_page_reloads() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		let channel = state.selected.unwrap();
+		assert!(attachment_send_allowed(&state, channel));
+		// Send from older history jumps to the latest page before the upload dispatches.
+		state.history(None);
+		assert_eq!(state.freshness, model::Freshness::Loading);
+		assert!(attachment_send_allowed(&state, channel));
+		state.gateway_connected = false;
+		assert!(!attachment_send_allowed(&state, channel));
+		state.gateway_connected = true;
+		state.freshness = model::Freshness::Unavailable;
+		assert!(!attachment_send_allowed(&state, channel));
+		state.freshness = model::Freshness::Fresh;
+		state.selected = None;
+		assert!(!attachment_send_allowed(&state, channel));
 	}
 	#[test]
 	fn correlated_confirmation_preserves_other_pending_text_and_ignores_unrelated_events() {
