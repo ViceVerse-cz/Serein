@@ -438,7 +438,13 @@ impl Screen {
 		if let Some(error) = failure {
 			self.request_stop(error);
 		}
-		if self.live.is_some() && !self.share_cued {
+		// The worker is live while the Linux system picker is still open.
+		if self
+			.live
+			.as_ref()
+			.is_some_and(|live| live.worker.captured())
+			&& !self.share_cued
+		{
 			self.share_cued = true;
 			let cue = model::notification_preferences::Sound::ScreenShareOn;
 			if ui.notification_options.allows(cue) {
@@ -456,8 +462,9 @@ impl Screen {
 			live.worker.set_preview_visible(shown);
 			ui.screen.preview_paused = !shown;
 			if !shown {
+				// The pause message covers the tile. Keeping the texture stops the tile from
+				// unmounting, and the worker republishes its retained frame when preview returns.
 				let _ = live.worker.take_preview();
-				ui.screen.preview = None;
 			} else if let Some(frame) = live.worker.take_preview() {
 				let image = egui::ColorImage::from_rgba_unmultiplied(
 					[frame.width() as usize, frame.height() as usize],

@@ -498,7 +498,7 @@ target/debug/examples/linux_screen --niri-timestamps
 
 GPU buffers stay native where driver/plugin
 negotiation permits; zero-copy is not guaranteed, especially across GPUs. Local preview
-matches the shared picture size and the chosen frame rate. It pauses when the window is unfocused, minimized, or showing another channel, and the tile then shows a paused-preview message.
+matches the shared picture size and the chosen frame rate. It pauses when the window is unfocused, minimized, or showing another channel, and the tile then shows a paused-preview message. Focusing that window again shows the retained frame without waiting for another capture event.
 The system picker requires a ScreenCast-capable portal backend. Native X11 sessions
 also offer an explicit “Entire X11 desktop · all monitors · no portal” source using
 GStreamer's `ximagesrc` (Good plugins). This shares the whole desktop, not an individual

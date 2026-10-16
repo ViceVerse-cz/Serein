@@ -123,6 +123,7 @@ pub struct Worker {
 	#[cfg(target_os = "linux")]
 	status: Arc<Mutex<&'static str>>,
 	preview_visible: Arc<AtomicBool>,
+	captured: Arc<AtomicBool>,
 }
 
 impl Worker {
@@ -148,6 +149,8 @@ impl Worker {
 		let worker_status = status.clone();
 		let preview_visible = Arc::new(AtomicBool::new(true));
 		let worker_preview_visible = preview_visible.clone();
+		let captured = Arc::new(AtomicBool::new(false));
+		let worker_captured = captured.clone();
 		// A few frames of slack absorbs send jitter without forcing keyframes on every hiccup.
 		let (send, frames) = tokio::sync::mpsc::channel(3);
 		let (complete, done) = mpsc::sync_channel(1);
@@ -178,6 +181,7 @@ impl Worker {
 					worker_preview,
 					worker_status,
 					worker_preview_visible,
+					worker_captured,
 					&wake,
 				);
 				#[cfg(not(target_os = "linux"))]
@@ -192,6 +196,7 @@ impl Worker {
 					worker_audio_epoch,
 					worker_preview,
 					worker_preview_visible,
+					worker_captured,
 					&wake,
 				);
 				finished_ready.store(false, Ordering::Release);
@@ -216,6 +221,7 @@ impl Worker {
 				#[cfg(target_os = "linux")]
 				status,
 				preview_visible,
+				captured,
 			},
 			Video {
 				settings,
@@ -231,6 +237,11 @@ impl Worker {
 
 	pub fn set_preview_visible(&self, visible: bool) {
 		self.preview_visible.store(visible, Ordering::Release);
+	}
+
+	/// True after capture has produced one frame. Linux can be waiting on the system picker before that.
+	pub fn captured(&self) -> bool {
+		self.captured.load(Ordering::Acquire)
 	}
 
 	pub fn capture_status(&self) -> Option<&'static str> {
@@ -274,6 +285,7 @@ fn encode_loop(
 	audio_epoch: Arc<AtomicU64>,
 	preview: Arc<Mutex<Option<image::RgbaImage>>>,
 	preview_visible: Arc<AtomicBool>,
+	captured: Arc<AtomicBool>,
 	wake: &impl Fn(),
 ) -> Result<(), &'static str> {
 	if stop.load(Ordering::Acquire) || send.is_closed() {
@@ -309,6 +321,7 @@ fn encode_loop(
 	let mut first_frame_deadline = Some(Instant::now() + Duration::from_secs(15));
 	let mut next_frame = Instant::now();
 	let mut latest_frame = None;
+	let mut preview_shown = preview_visible.load(Ordering::Acquire);
 
 	while !stop.load(Ordering::Acquire) && !send.is_closed() {
 		#[cfg(target_os = "windows")]
@@ -342,9 +355,14 @@ fn encode_loop(
 			break;
 		}
 		let now = Instant::now();
+		let visible = preview_visible.load(Ordering::Acquire);
+		let resumed = visible && !preview_shown;
+		preview_shown = visible;
 		if let Some(frame) = &frame {
-			first_frame_deadline = None;
-			if !preview_visible.load(Ordering::Acquire) {
+			if first_frame_deadline.take().is_some() {
+				captured.store(true, Ordering::Release);
+			}
+			if !visible {
 				if let Ok(mut slot) = preview.try_lock() {
 					slot.take();
 				}
@@ -355,6 +373,14 @@ fn encode_loop(
 				}
 				wake();
 			}
+		} else if resumed && let Some(frame) = &latest_frame {
+			// A change-driven capture does not emit again while the picture is still.
+			// The encode path already kept that frame.
+			let image = preview_frame(frame)?;
+			if let Ok(mut slot) = preview.try_lock() {
+				*slot = Some(image);
+			}
+			wake();
 		}
 		let encode = retain_screen_frame(
 			&mut latest_frame,
@@ -801,6 +827,7 @@ mod tests {
 			#[cfg(target_os = "linux")]
 			status: Arc::new(Mutex::new("")),
 			preview_visible: Arc::new(AtomicBool::new(true)),
+			captured: Arc::new(AtomicBool::new(false)),
 		};
 		assert!(worker.take_preview().is_some());
 		assert!(worker.take_preview().is_none());
