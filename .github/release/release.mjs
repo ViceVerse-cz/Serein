@@ -20,6 +20,25 @@ const caskPath = 'Casks/serein.rb';
 const tapToken = process.env.HOMEBREW_TAP_TOKEN;
 if (plan) assert(tapToken, 'HOMEBREW_TAP_TOKEN is required to publish the Homebrew cask');
 
+function checkTapAccess() {
+  const push = execFileSync('gh', ['api', `repos/${tapRepo}`, '--jq', '.permissions.push'], {
+    encoding: 'utf8', env: { ...process.env, GH_TOKEN: tapToken },
+  }).trim();
+  assert.equal(push, 'true', `HOMEBREW_TAP_TOKEN cannot push to ${tapRepo}`);
+}
+
+// A rerun after a failed cask update must not try to publish the release a second time.
+function releaseExists() {
+  try {
+    execFileSync('gh', ['release', 'view', plan.gitTag], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+const resumed = plan !== null && releaseExists();
+if (plan && !resumed) checkTapAccess();
+
 // The cask lives in its own tap repository so users do not clone this one. The tap file is the
 // single source of truth; releases only rewrite its version and checksum.
 function publishCask() {
@@ -65,7 +84,7 @@ if (plan && channel === 'production') {
   );
 }
 // Nightly assets are published from the immutable plan commit; no branch mutation needs semantic-release.
-const result = mode === 'publish' && channel === 'nightly'
+const result = mode === 'publish' && (channel === 'nightly' || resumed)
   ? { nextRelease: { version: plan.stableVersion, gitHead: plan.gitHead } }
   : await semanticRelease({
     branches: ['main'],
@@ -97,13 +116,15 @@ if (mode === 'plan') {
   assert(result, 'No release published; branch or tags changed after planning');
   if (channel === 'nightly') {
     // Nightlies do not create stable tags or version commits that consume production changes.
-    writeFileSync('target/release-notes.md', plan.notes);
-    const assets = readdirSync('release-assets')
-      .map(name => `release-assets/${name}`);
-    execFileSync('gh', ['release', 'create', plan.gitTag, ...assets,
-      '--target', plan.gitHead, '--title', `Serein ${plan.version}`,
-      '--notes-file', 'target/release-notes.md', '--prerelease', '--latest=false', '--draft'],
-    { stdio: 'inherit' });
+    if (!resumed) {
+      writeFileSync('target/release-notes.md', plan.notes);
+      const assets = readdirSync('release-assets')
+        .map(name => `release-assets/${name}`);
+      execFileSync('gh', ['release', 'create', plan.gitTag, ...assets,
+        '--target', plan.gitHead, '--title', `Serein ${plan.version}`,
+        '--notes-file', 'target/release-notes.md', '--prerelease', '--latest=false', '--draft'],
+      { stdio: 'inherit' });
+    }
     execFileSync('gh', ['release', 'edit', plan.gitTag, '--draft=false', '--prerelease', '--latest=false'],
     { stdio: 'inherit' });
   }
