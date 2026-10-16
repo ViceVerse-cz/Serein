@@ -58,7 +58,7 @@ impl DateOrder {
 		match (language.as_str(), region.as_deref()) {
 			("en", None | Some("US" | "PH")) | ("es", Some("US")) => Self::MonthDayYear,
 			("en" | "fr", Some("CA")) | ("sv" | "lt", _) => Self::YearMonthDayDashes,
-			("ja" | "zh" | "ko" | "hu", _) => Self::YearMonthDay,
+			("en", Some("ZA")) | ("ja" | "zh" | "ko" | "hu", _) => Self::YearMonthDay,
 			(
 				"de" | "ru" | "tr" | "pl" | "cs" | "sk" | "uk" | "fi" | "da" | "nb" | "no" | "ro"
 				| "bg" | "hr" | "sr" | "lv" | "et",
@@ -512,6 +512,8 @@ mod tests {
 			("en-IN", DayMonthYear),
 			("en-NZ", DayMonthYear),
 			("fr_CA.UTF-8", YearMonthDayDashes),
+			("en-ZA", YearMonthDay),
+			("en_ZA.UTF-8", YearMonthDay),
 			("fr-FR", DayMonthYear),
 			("es-US", MonthDayYear),
 			("es-ES", DayMonthYear),
