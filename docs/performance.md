@@ -35,6 +35,8 @@ These single samples are descriptive only; no runtime improvement is claimed. St
 latency were not measured. The synthetic screenshots, raw samples and reproduction details are in
 [`docs/pr-evidence/folder-mark-as-read/`](pr-evidence/folder-mark-as-read/). Live Discord behavior
 and clicking the action against a folder containing unread guilds remain outside this offline run.
+A later revision of the PR replaced the per-guild queue with the home tile's bulk acknowledgement
+scoped to the folder's servers; it was not re-measured.
 
 ## Name styles and bundled name fonts - October 15, 2026
 

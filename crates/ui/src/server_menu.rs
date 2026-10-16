@@ -71,34 +71,23 @@ impl ServerMenu {
 		}
 		false
 	}
-	pub fn folder_read_item(&mut self, ui: &mut egui::Ui, state: &State, guilds: &[Id]) -> bool {
-		let can_mark_read = guilds
-			.iter()
-			.take(model::guild_folders::MAX_GUILDS)
-			.any(|&guild| state.can_mark_guild_read(guild));
+	/// Every server in a folder, as one bulk acknowledgement.
+	pub fn folder_read_item(&mut self, ui: &mut egui::Ui, state: &State, guilds: &[Id]) {
 		if ui
-			.add_enabled_ui(can_mark_read, |ui| {
+			.add_enabled_ui(state.can_mark_guilds_read(guilds), |ui| {
 				menu_row(
 					ui,
 					icons::Icon::Check,
-					&crate::i18n::translate("server-menu-read-item-mark-as-read"),
+					"server-menu-read-item-mark-as-read",
 					design::palette(ui).text,
 				)
 			})
 			.inner
 			.clicked()
 		{
-			self.mark_read_folder_requested = Some(
-				guilds
-					.iter()
-					.copied()
-					.take(model::guild_folders::MAX_GUILDS)
-					.collect(),
-			);
+			self.mark_read_folder_requested = Some(guilds.to_vec());
 			ui.close();
-			return true;
 		}
-		false
 	}
 	/// Every server and direct message, from the home tile.
 	pub fn all_read_item(&mut self, ui: &mut egui::Ui, state: &State) {

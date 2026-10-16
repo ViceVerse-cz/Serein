@@ -9,7 +9,7 @@ use model::{
 	Id,
 	guild_folders::{Folder, Settings},
 };
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::BTreeSet;
 
 #[derive(Default)]
 pub(super) struct FolderUi {
@@ -20,8 +20,6 @@ pub(super) struct FolderUi {
 	generation: u64,
 	key: Option<(u64, u64)>,
 	rows: Box<[Row]>,
-	mark_read_queue: VecDeque<Id>,
-	mark_read_in_flight: Option<(Id, u64)>,
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Item {
@@ -96,53 +94,6 @@ impl FolderUi {
 			self.closing.remove(&id);
 		}
 		self.key = None;
-	}
-	fn queue_mark_read(&mut self, guilds: impl IntoIterator<Item = Id>) {
-		let mut seen: BTreeSet<_> = self.mark_read_queue.iter().copied().collect();
-		if let Some((guild, _)) = self.mark_read_in_flight {
-			seen.insert(guild);
-		}
-		let remaining = model::guild_folders::MAX_GUILDS.saturating_sub(
-			self.mark_read_queue.len() + usize::from(self.mark_read_in_flight.is_some()),
-		);
-		self.mark_read_queue.extend(
-			guilds
-				.into_iter()
-				.filter(|guild| seen.insert(*guild))
-				.take(remaining),
-		);
-	}
-	fn advance_mark_read(&mut self, state: &mut State, commands: &mut Vec<Command>) {
-		if let Some((guild, request)) = state.read_state.take_interrupted_guild_read()
-			&& self.mark_read_in_flight == Some((guild, request))
-		{
-			self.mark_read_in_flight = None;
-			self.mark_read_queue.push_front(guild);
-		}
-		if !state.gateway_connected {
-			if let Some((guild, _)) = self.mark_read_in_flight.take() {
-				self.mark_read_queue.push_front(guild);
-			}
-			return;
-		}
-		if let Some((guild, request)) = self.mark_read_in_flight {
-			if state.pending_guild_ack(guild, request) {
-				return;
-			}
-			self.mark_read_in_flight = None;
-		}
-		if state.has_pending_read() {
-			return;
-		}
-		while let Some(guild) = self.mark_read_queue.pop_front() {
-			if let Some(Command::MarkGuildRead { guild, request }) =
-				state.prepare_mark_guild_read(guild)
-			{
-				self.mark_read_in_flight = Some((guild, request));
-				commands.push(Command::MarkGuildRead { guild, request });
-				return;
-			}
-		}
 	}
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1010,10 +961,11 @@ impl MessagingUi {
 				commands.push(command);
 			}
 		}
-		if let Some(guilds) = self.server_menu.mark_read_folder_requested.take() {
-			self.folder_ui.queue_mark_read(guilds);
+		if let Some(guilds) = self.server_menu.mark_read_folder_requested.take()
+			&& let Some(command) = state.prepare_mark_guilds_read(&guilds)
+		{
+			commands.push(command);
 		}
-		self.folder_ui.advance_mark_read(state, commands);
 	}
 }
 
@@ -1059,11 +1011,22 @@ mod tests {
 		);
 		state
 			.apply_read_state(ReadEvent::Snapshot {
-				entries: Some(vec![(Id(20), Some(Id(495)), 0), (Id(111), Some(Id(1)), 0)]),
+				entries: Some(vec![
+					(Id(20), Some(Id(495)), 0),
+					(Id(22), Some(Id(1)), 0),
+					(Id(111), Some(Id(1)), 0),
+				]),
 				version: None,
 				partial: false,
 			})
 			.unwrap();
+		if let Some(dm) = state
+			.channels
+			.iter_mut()
+			.find(|channel| channel.id == Id(22))
+		{
+			dm.last_message = Some(Id(500));
+		}
 		state
 	}
 
@@ -1226,237 +1189,43 @@ mod tests {
 	}
 
 	#[test]
-	fn folder_mark_read_waits_for_each_guild_ack_and_skips_unreadable_entries() {
+	fn folder_mark_read_acks_only_the_folder_servers_in_one_bulk_request() {
 		let mut state = readable_guild_state();
 		assert!(state.can_mark_guild_read(Id(10)));
 		assert!(state.can_mark_guild_read(Id(11)));
-		let mut folders = FolderUi::default();
-		folders.queue_mark_read([Id(10), Id(10), Id(999), Id(11)]);
-		let mut commands = Vec::new();
+		assert_eq!(state.unread(Id(22)), Some(true));
+		assert!(state.can_mark_guilds_read(&[Id(999), Id(11)]));
+		assert!(!state.can_mark_guilds_read(&[Id(999)]));
 
-		folders.advance_mark_read(&mut state, &mut commands);
-		let Command::MarkGuildRead { guild, request } = commands.pop().unwrap() else {
-			panic!("folder should start with the first unread guild");
-		};
-		assert_eq!(guild, Id(10));
-		assert_eq!(folders.mark_read_queue.len(), 2);
-		folders.advance_mark_read(&mut state, &mut commands);
-		assert!(commands.is_empty(), "a second guild waits for the ack");
-
-		state
-			.apply_read_state(ReadEvent::GuildAck {
-				guild,
-				request,
-				result: Ok(()),
-			})
-			.unwrap();
-		folders.advance_mark_read(&mut state, &mut commands);
-		assert!(matches!(
-			commands.as_slice(),
-			[Command::MarkGuildRead { guild: Id(11), .. }]
-		));
-		let Command::MarkGuildRead { guild, request } = commands.pop().unwrap() else {
-			unreachable!();
-		};
-		state
-			.apply_read_state(ReadEvent::GuildAck {
-				guild,
-				request,
-				result: Ok(()),
-			})
-			.unwrap();
-		folders.advance_mark_read(&mut state, &mut commands);
-		assert!(commands.is_empty());
-		assert!(folders.mark_read_queue.is_empty());
-	}
-
-	#[test]
-	fn folder_mark_read_keeps_its_queue_while_another_read_is_pending() {
-		let mut state = readable_guild_state();
-		let Command::MarkGuildRead { guild, request } =
-			state.prepare_mark_guild_read(Id(10)).unwrap()
+		let Some(Command::MarkAllRead { request, channels }) =
+			state.prepare_mark_guilds_read(&[Id(10), Id(10), Id(999), Id(11)])
 		else {
-			unreachable!();
+			panic!("folder should send one bulk acknowledgement");
 		};
-		let mut folders = FolderUi::default();
-		folders.queue_mark_read([Id(11)]);
-		let mut commands = Vec::new();
+		assert!(!channels.is_empty());
+		assert!(channels.iter().all(|(channel, _)| {
+			state
+				.channel(*channel)
+				.is_some_and(|channel| matches!(channel.guild, Some(Id(10) | Id(11))))
+		}));
+		assert!(channels.iter().any(|(channel, _)| *channel == Id(111)));
+		assert!(!state.can_mark_guilds_read(&[Id(10), Id(11)]));
 
-		folders.advance_mark_read(&mut state, &mut commands);
-		assert!(commands.is_empty());
-		assert_eq!(folders.mark_read_queue.front(), Some(&Id(11)));
+		let acked = channels.len();
 		state
-			.apply_read_state(ReadEvent::GuildAck {
-				guild,
+			.apply_read_state(ReadEvent::AllAck {
 				request,
+				acked,
 				result: Ok(()),
 			})
 			.unwrap();
-
-		folders.advance_mark_read(&mut state, &mut commands);
-		assert!(matches!(
-			commands.as_slice(),
-			[Command::MarkGuildRead { guild: Id(11), .. }]
-		));
-	}
-
-	#[test]
-	fn folder_mark_read_preserves_and_resumes_queue_after_disconnect() {
-		let mut state = readable_guild_state();
-		state.demo = false;
-		state.auth = client_core::auth::AuthState::Authenticated;
-		state.gateway_connected = true;
-		let mut folders = FolderUi::default();
-		folders.queue_mark_read([Id(10), Id(11)]);
-		let mut commands = Vec::new();
-
-		folders.advance_mark_read(&mut state, &mut commands);
-		let Command::MarkGuildRead { guild, .. } = commands.pop().unwrap() else {
-			panic!("folder should start with its first unread guild");
-		};
-		assert_eq!(guild, Id(10));
-		assert_eq!(folders.mark_read_queue.front(), Some(&Id(11)));
-
-		state.apply(client_core::Envelope {
-			generation: state.generation,
-			event: client_core::Event::Disconnected,
-		});
-		folders.advance_mark_read(&mut state, &mut commands);
-		assert!(commands.is_empty());
+		assert!(!state.can_mark_guilds_read(&[Id(10), Id(11)]));
 		assert_eq!(
-			folders.mark_read_queue.iter().copied().collect::<Vec<_>>(),
-			[Id(10), Id(11)]
+			state.unread(Id(22)),
+			Some(true),
+			"direct messages stay unread"
 		);
-
-		state.apply(client_core::Envelope {
-			generation: state.generation,
-			event: client_core::Event::Resumed,
-		});
-		folders.advance_mark_read(&mut state, &mut commands);
-		assert!(matches!(
-			commands.as_slice(),
-			[Command::MarkGuildRead { guild: Id(10), .. }]
-		));
-	}
-
-	#[test]
-	fn folder_mark_read_retries_in_flight_after_disconnect_and_resume_before_advance() {
-		let mut state = readable_guild_state();
-		state.demo = false;
-		state.auth = client_core::auth::AuthState::Authenticated;
-		state.gateway_connected = true;
-		let mut folders = FolderUi::default();
-		folders.queue_mark_read([Id(10), Id(11)]);
-		let mut commands = Vec::new();
-
-		folders.advance_mark_read(&mut state, &mut commands);
-		assert!(matches!(
-			commands.as_slice(),
-			[Command::MarkGuildRead { guild: Id(10), .. }]
-		));
-		commands.clear();
-
-		state.apply(client_core::Envelope {
-			generation: state.generation,
-			event: client_core::Event::Disconnected,
-		});
-		state.apply(client_core::Envelope {
-			generation: state.generation,
-			event: client_core::Event::Resumed,
-		});
-		folders.advance_mark_read(&mut state, &mut commands);
-
-		assert!(matches!(
-			commands.as_slice(),
-			[Command::MarkGuildRead { guild: Id(10), .. }]
-		));
-	}
-
-	#[test]
-	fn folder_mark_read_retries_after_resync_and_startup_snapshot() {
-		let mut state = readable_guild_state();
-		state.demo = false;
-		state.auth = client_core::auth::AuthState::Authenticated;
-		state.gateway_connected = true;
-		let mut folders = FolderUi::default();
-		folders.queue_mark_read([Id(10), Id(11)]);
-		let mut commands = Vec::new();
-
-		folders.advance_mark_read(&mut state, &mut commands);
-		let Command::MarkGuildRead { guild, .. } = commands.pop().unwrap() else {
-			panic!("folder should start with its first unread guild");
-		};
-		assert_eq!(guild, Id(10));
-
-		let startup = client_core::Startup {
-			premium_type: 0,
-			user: state.user.clone().unwrap(),
-			guilds: state.guilds.clone(),
-			channels: state.channels.clone(),
-			permissions: model::permissions::Snapshot {
-				guilds: state.permissions.guilds.values().cloned().collect(),
-				channels: state.permissions.channels.values().cloned().collect(),
-			},
-			read_state: ReadEvent::Snapshot {
-				entries: Some(vec![]),
-				version: None,
-				partial: false,
-			},
-			notifications: None,
-			session_dnd: None,
-			warnings: Default::default(),
-		}
-		.prepare()
-		.unwrap();
-
-		state.apply(client_core::Envelope {
-			generation: state.generation,
-			event: client_core::Event::Disconnected,
-		});
-		state.apply(client_core::Envelope {
-			generation: state.generation,
-			event: client_core::Event::Resync,
-		});
-		state.apply(client_core::Envelope {
-			generation: state.generation,
-			event: client_core::Event::Startup(Box::new(startup)),
-		});
-
-		folders.advance_mark_read(&mut state, &mut commands);
-
-		assert!(matches!(
-			commands.as_slice(),
-			[Command::MarkGuildRead { guild: Id(10), .. }]
-		));
-	}
-
-	#[test]
-	fn folder_mark_read_additions_preserve_and_deduplicate_existing_work() {
-		let mut folders = FolderUi::default();
-		folders.queue_mark_read([Id(10), Id(11)]);
-		folders.mark_read_in_flight = Some((Id(12), 7));
-
-		folders.queue_mark_read([Id(12), Id(11), Id(13), Id(13)]);
-
-		assert_eq!(folders.mark_read_in_flight, Some((Id(12), 7)));
-		assert_eq!(
-			folders.mark_read_queue.iter().copied().collect::<Vec<_>>(),
-			[Id(10), Id(11), Id(13)]
-		);
-	}
-
-	#[test]
-	fn folder_mark_read_queue_is_bounded_to_the_guild_limit() {
-		let mut folders = FolderUi::default();
-		let limit = model::guild_folders::MAX_GUILDS as u64;
-		folders.mark_read_in_flight = Some((Id(1), 7));
-		folders.mark_read_queue.extend((2..limit).map(Id));
-		folders.queue_mark_read([Id(1), Id(2), Id(limit), Id(limit + 1)]);
-		assert_eq!(
-			folders.mark_read_queue.len() + usize::from(folders.mark_read_in_flight.is_some()),
-			model::guild_folders::MAX_GUILDS,
-		);
-		assert_eq!(folders.mark_read_queue.back(), Some(&Id(limit)));
+		assert!(state.continue_mark_all_read().is_none());
 	}
 
 	#[test]

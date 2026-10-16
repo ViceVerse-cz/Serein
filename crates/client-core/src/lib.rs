@@ -3939,7 +3939,7 @@ impl State {
 				self.cancel_group_action();
 				self.cancel_invite_join();
 				self.cancel_guild_creation();
-				self.read_state.disconnected();
+				self.read_state.cancel();
 				self.clear_profile();
 				// The voice socket is independent and a RESUME replays roster changes, so the call,
 				// roster and known DM calls all stay. Only a fresh READY invalidates the voice state.
