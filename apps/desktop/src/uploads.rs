@@ -765,21 +765,22 @@ impl Uploads {
 			self.parked
 				.retain(|parked| allowed && parked.scope.0 == generation && keep(parked.scope.1));
 		}
-		if let Some(scope) = self.scope
-			&& Some(scope) != target
-		{
+		if self.scope == target {
+			return;
+		}
+		// Take the destination's files first so parking the source cannot evict them.
+		let restore = target
+			.and_then(|target| self.parked.iter().position(|parked| parked.scope == target))
+			.map(|index| self.parked.remove(index));
+		if let Some(scope) = self.scope {
 			if allowed && scope.0 == generation && !self.selected.is_empty() {
 				self.park(scope);
 			}
 			self.remove();
 			self.scope = None;
 		}
-		if self.scope.is_none()
-			&& let Some(target) = target
-			&& let Some(index) = self.parked.iter().position(|parked| parked.scope == target)
-		{
-			let parked = self.parked.remove(index);
-			self.scope = Some(target);
+		if let Some(parked) = restore {
+			self.scope = Some(parked.scope);
 			self.selected = parked.selected;
 			self.previewing = parked.previewing;
 		}
@@ -1445,6 +1446,24 @@ mod tests {
 		uploads.forget_parked();
 		uploads.follow_conversation(2, Some(a), true, |_| true);
 		assert!(uploads.files().is_empty() && !uploads.has_unsent());
+	}
+
+	#[test]
+	fn returning_swaps_parked_files_without_evicting_the_destination() {
+		let half = PARKED_BYTES as usize / 2 + 1;
+		let (a, b) = (Id(1), Id(2));
+		let mut uploads = Uploads::default();
+		stage(&mut uploads, 1, a, half);
+		uploads.follow_conversation(1, Some(b), true, |_| true);
+		stage(&mut uploads, 1, b, half);
+		uploads.follow_conversation(1, Some(a), true, |_| true);
+		assert_eq!(uploads.scope, Some((1, a)));
+		assert_eq!(uploads.files(), [("message.txt".to_owned(), half as u64)]);
+		uploads.follow_conversation(1, Some(b), true, |_| true);
+		assert_eq!(uploads.scope, Some((1, b)));
+		assert_eq!(uploads.files(), [("message.txt".to_owned(), half as u64)]);
+		assert_eq!(uploads.parked.len(), 1);
+		assert!(uploads.take_notice().is_none());
 	}
 
 	#[test]

@@ -1308,7 +1308,7 @@ impl State {
 		if let Some(previous) = self.selected {
 			self.remember_channel(previous);
 		}
-		self.park_reply();
+		let parked_reply = self.swap_parked_reply(channel);
 		self.remember_channel(channel);
 		if self
 			.channel(channel)
@@ -1338,7 +1338,7 @@ impl State {
 		let scope = self.application_command_scope(channel);
 		self.application_commands.retain(scope);
 		self.older_exhausted = false;
-		self.restore_reply(channel);
+		self.restore_reply(channel, parked_reply);
 		self.revision += 1;
 		if self.channel(channel).is_some_and(|c| !c.supports_text()) {
 			self.cancel_history();

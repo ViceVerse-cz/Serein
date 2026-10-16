@@ -97,21 +97,26 @@ impl State {
 		}
 	}
 
+	/// Takes `channel`'s parked reply before parking the open conversation's, so parking at
+	/// capacity cannot evict the destination. Reopening the same conversation keeps its reply.
+	pub(crate) fn swap_parked_reply(&mut self, channel: Id) -> Option<Reply> {
+		let destination = self.parked_replies.take(self.generation, channel);
+		self.park_reply();
+		destination.or_else(|| self.parked_replies.take(self.generation, channel))
+	}
+
 	/// Restores `channel`'s parked reply after selection, only while it can still be sent
 	/// there and its target is not known to be deleted.
-	pub(crate) fn restore_reply(&mut self, channel: Id) {
-		self.reply = self
-			.parked_replies
-			.take(self.generation, channel)
-			.filter(|reply| {
-				self.selected == Some(channel)
-					&& self.can_compose(channel)
-					&& !self.timeline.is_deleted(reply.target)
-					&& self
-						.timeline
-						.get(reply.target)
-						.is_none_or(|message| message.channel == channel)
-			});
+	pub(crate) fn restore_reply(&mut self, channel: Id, parked: Option<Reply>) {
+		self.reply = parked.filter(|reply| {
+			self.selected == Some(channel)
+				&& self.can_compose(channel)
+				&& !self.timeline.is_deleted(reply.target)
+				&& self
+					.timeline
+					.get(reply.target)
+					.is_none_or(|message| message.channel == channel)
+		});
 	}
 
 	/// Navigate a Discord chat link without sending messages or joining voice.
@@ -1114,6 +1119,25 @@ mod tests {
 		state.select(Id(1));
 		assert_eq!(state.reply, None);
 		assert_eq!(state.parked_replies.len(), 1);
+	}
+
+	#[test]
+	fn returning_at_capacity_restores_the_oldest_parked_reply() {
+		let mut state = state();
+		state
+			.parked_replies
+			.park(state.generation, Id(2), Reply::to(Id(200)));
+		for channel in 1..ParkedReplies::MAX as u64 {
+			state
+				.parked_replies
+				.park(state.generation, Id(1000 + channel), Reply::to(Id(5)));
+		}
+		state.reply = Some(Reply::to(Id(100)));
+		state.select(Id(2));
+		assert_eq!(state.reply, Some(Reply::to(Id(200))));
+		assert_eq!(state.parked_replies.len(), ParkedReplies::MAX);
+		state.select(Id(1));
+		assert_eq!(state.reply_target(), Some(Id(100)));
 	}
 
 	#[test]
