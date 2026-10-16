@@ -799,6 +799,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Предварите�
 embeds-text-text-display-limited = Отображение текста ограничено
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Нажмите, чтобы узнать больше
 # Context: show
 emoji-details-show-a-custom-emoji = Пользовательский смайлик.
 # Context: show
@@ -2992,6 +2994,8 @@ server-menu-header-server-menu = Меню сервера
 server-menu-leave-item-leave-server = Покинуть сервер
 # Context: read_item
 server-menu-read-item-mark-as-read = Отметить как прочитанное
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = Отметить всё как прочитанное
 # Context: settings_item
 server-menu-settings-item-server-settings = Настройки сервера
 # Context: show
@@ -3576,6 +3580,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = Коман
 slash-commands-footer-refresh-application-commands = Обновить команды приложения
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = Этот стикер с сервера, который доступен только по приглашению или недоступен.
 # Context: message
 stickers-message-loading-sticker-details = Загрузка сведений о стикере…
 # Context: message
@@ -4812,3 +4818,15 @@ time-format-12-hour = 12-часовой
 time-format-24-hour = 24-часовой
 profiles-status-edit = Изменить статус
 profiles-status-clear = Очистить статус
+send-throttled-title = Полегче, слишком остро
+send-throttled-body = Вы отправляете сообщения слишком быстро!
+send-throttled-dismiss = В зону спокойствия
+profiles-private-profile = Закрытый профиль
+profiles-private-notice = Профиль { $name } закрыт, поэтому часть сведений скрыта. Добавьте пользователя в друзья, чтобы увидеть больше.
+settings-cosmetics-name-styles = Стили имён
+settings-cosmetics-name-styles-description = Шрифты, цвета и эффекты отображаемых имён Nitro.
+search-overlays-message-contains = Сообщение содержит
+search-overlays-no-matching-content-types = Нет подходящих типов содержимого
+search-overlays-history = История
+search-overlays-clear-history = Очистить историю поиска
+main-sign-in-rate-limited-detail = Discord ограничивает этот вход. Подождите, прежде чем пытаться снова. Повторная попытка раньше времени может продлить ожидание.

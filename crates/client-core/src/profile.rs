@@ -77,6 +77,14 @@ impl ProfileCache {
 			change(&mut entry.data);
 		}
 	}
+	/// Drops every cached view of `user`, such as after a friendship changes what they share.
+	pub(crate) fn forget(&mut self, user: Id) {
+		self.entries.retain(|entry| entry.user != user);
+	}
+	/// Keeps only cached views of users for whom `keep` holds.
+	pub(crate) fn retain_users(&mut self, mut keep: impl FnMut(Id) -> bool) {
+		self.entries.retain(|entry| keep(entry.user));
+	}
 	pub fn len(&self) -> usize {
 		self.entries.len()
 	}
@@ -577,6 +585,24 @@ impl State {
 		let (user, guild) = self.profile.as_ref().map(|view| (view.user, view.guild))?;
 		self.request_profile(user, guild)
 	}
+	/// Friendship decides what a private profile shows, so an open card of `user` is requested
+	/// again; its new request id also makes an in-flight response for the old friendship stale.
+	pub(crate) fn refresh_open_profile(&mut self, user: Id) {
+		if self.demo || self.auth != AuthState::Authenticated || !self.gateway_connected {
+			return;
+		}
+		let Some(guild) = self
+			.profile
+			.as_ref()
+			.filter(|view| view.user == user)
+			.map(|view| view.guild)
+		else {
+			return;
+		};
+		if let Some(command) = self.request_profile(user, guild) {
+			self.preload.profile_retry = Some(command);
+		}
+	}
 	pub fn clear_profile(&mut self) -> Command {
 		self.cancel_user_note_read();
 		self.profile_request = self.profile_request.wrapping_add(1);
@@ -597,7 +623,6 @@ impl State {
 			self.fail(*failure);
 			return;
 		}
-		let mut cacheable = true;
 		if preload::is_preload(request) {
 			match self.preload.profiles.arrived(request, result.is_ok()) {
 				preload::Arrival::Adopted(own, fresh)
@@ -611,8 +636,13 @@ impl State {
 						self.preload.profile_retry = Some(self.profile_command(user, guild, own));
 						return;
 					}
+					if !fresh {
+						// Something changed since the preload left, such as a friendship that
+						// decides what the profile shows; ask again rather than show it.
+						self.preload.profile_retry = Some(self.profile_command(user, guild, own));
+						return;
+					}
 					request = own;
-					cacheable = fresh;
 				}
 				// Not opened (yet): keep it for the click, like a card that was closed.
 				preload::Arrival::Adopted(_, true) | preload::Arrival::Keep => {
@@ -640,9 +670,7 @@ impl State {
 				view.error = None;
 				view.data = Some(*data);
 				let data = view.data.clone().expect("stored profile");
-				if cacheable {
-					self.profile_cache.insert(user, guild, data, Instant::now());
-				}
+				self.profile_cache.insert(user, guild, data, Instant::now());
 			}
 			Ok(_) => {
 				view.error = Some("Profile response was invalid or too large");
@@ -694,6 +722,7 @@ mod tests {
 			effect: None,
 			frame: None,
 			badge_catalog: None,
+			private: false,
 			limited: false,
 		})
 	}
@@ -775,6 +804,57 @@ mod tests {
 				invalidated
 			);
 		}
+	}
+
+	#[test]
+	fn a_friendship_change_discards_an_adopted_profile_preload() {
+		let now = Instant::now();
+		let mut state = own_state();
+		let mut friend = own_data("Friend").user;
+		friend.id = Id(2);
+		state
+			.apply_user_action(crate::user_actions::Event::Friends(Some(vec![(
+				friend,
+				"friend".into(),
+			)])))
+			.unwrap();
+		let Some(Command::Prefetch(command)) =
+			state.preload_profile(None, Some((Id(2), None)), now)
+		else {
+			panic!()
+		};
+		let Command::Profile { request, .. } = *command else {
+			panic!()
+		};
+		// The click adopts the preload in flight; then the friendship ends.
+		assert!(state.request_profile_at(Id(2), None, now).is_none());
+		state
+			.apply_user_action(crate::user_actions::Event::Friend {
+				user: Id(2),
+				friend: false,
+				profile: None,
+			})
+			.unwrap();
+		let mut retries = state.take_preload_retries().collect::<Vec<_>>();
+		let mut data = own_data("Former friend");
+		data.user.id = Id(2);
+		state.apply_profile(Id(2), None, request, Ok(data));
+		retries.extend(state.take_preload_retries());
+		let view = state.profile.as_ref().unwrap();
+		assert!(view.data.is_none(), "the outdated preload is not shown");
+		// The open card asks again exactly once, under the new friendship.
+		let [
+			Command::Profile {
+				user: Id(2),
+				request,
+				..
+			},
+		] = retries.as_slice()
+		else {
+			panic!("{}", retries.len())
+		};
+		assert_eq!(*request, view.request);
+		assert!(!state.profile_cache.contains(Id(2), None, now));
 	}
 
 	#[test]
@@ -871,6 +951,62 @@ mod tests {
 			gateway_connected: true,
 			..Default::default()
 		}
+	}
+	#[test]
+	fn a_friendship_change_drops_the_cached_profile() {
+		let mut state = State::default();
+		let now = Instant::now();
+		let mut friend = own_data("Synthetic").user;
+		friend.id = Id(1);
+		state
+			.apply_user_action(crate::user_actions::Event::Friends(Some(vec![(
+				friend,
+				"synthetic".into(),
+			)])))
+			.unwrap();
+		let mut private = *own_data("Synthetic");
+		private.private = true;
+		state.profile_cache.insert(Id(1), None, private, now);
+		state
+			.profile_cache
+			.insert(Id(2), None, *own_data("Other"), now);
+		state
+			.apply_user_action(crate::user_actions::Event::Friend {
+				user: Id(1),
+				friend: false,
+				profile: None,
+			})
+			.unwrap();
+		assert!(!state.profile_cache.contains(Id(1), None, now));
+		assert_eq!(state.profile_cache.len(), 1);
+		// A friend snapshot drops only the users it adds or removes.
+		let friend = |id| {
+			let mut user = own_data("Friend").user;
+			user.id = Id(id);
+			(user, "friend".to_owned())
+		};
+		state
+			.apply_user_action(crate::user_actions::Event::Friends(Some(vec![
+				friend(2),
+				friend(3),
+			])))
+			.unwrap();
+		assert!(state.profile_cache.is_empty());
+		state
+			.profile_cache
+			.insert(Id(2), None, *own_data("Two"), now);
+		state
+			.profile_cache
+			.insert(Id(3), None, *own_data("Three"), now);
+		state
+			.apply_user_action(crate::user_actions::Event::Friends(Some(vec![friend(2)])))
+			.unwrap();
+		assert!(state.profile_cache.contains(Id(2), None, now));
+		assert!(!state.profile_cache.contains(Id(3), None, now));
+		state
+			.apply_user_action(crate::user_actions::Event::Friends(None))
+			.unwrap();
+		assert!(state.profile_cache.is_empty());
 	}
 	fn complete_own(state: &mut State, result: Result<Box<UserProfile>, Failure>) {
 		state.apply(Envelope {
@@ -1245,6 +1381,7 @@ mod tests {
 					effect: None,
 					frame: None,
 					badge_catalog: None,
+					private: false,
 					limited: false,
 				})
 			}
@@ -1433,6 +1570,7 @@ mod tests {
 					effect: None,
 					frame: None,
 					badge_catalog: None,
+					private: false,
 					limited: false,
 				})
 			};

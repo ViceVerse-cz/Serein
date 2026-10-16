@@ -191,6 +191,11 @@ pub(crate) fn blank(ctx: &Context, size: f32) -> Image<'static> {
 	Image::new(&texture).fit_to_exact_size(egui::Vec2::splat(size))
 }
 
+/// Whether custom emoji markup is the animated `<a:name:id>` form.
+pub(crate) fn custom_animated(text: &str) -> bool {
+	text.starts_with("<a:") && custom_prefix(text).is_some()
+}
+
 pub(crate) fn custom_prefix(text: &str) -> Option<(model::Id, usize)> {
 	let body = text
 		.strip_prefix("<:")
@@ -208,6 +213,14 @@ pub(crate) fn custom_prefix(text: &str) -> Option<(model::Id, usize)> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn animated_custom_markup_is_recognized() {
+		assert!(custom_animated("<a:wave_animated:1169784511555452928>"));
+		assert!(!custom_animated("<:wave:1169784511555452928>"));
+		assert!(!custom_animated("<a:x:1>"), "names need two characters");
+		assert!(!custom_animated("<a:wave:not-an-id>"));
+		assert!(!custom_animated("\u{1f44b}"));
+	}
 	#[test]
 	fn vector_artwork_keys_and_decompression_are_bounded() {
 		for edge in [64, 128, 256] {

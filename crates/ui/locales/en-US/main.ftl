@@ -807,6 +807,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Video preview · play
 embeds-text-text-display-limited = Text display limited
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Click to learn more
 # Context: show
 emoji-details-show-a-custom-emoji = A custom emoji.
 # Context: show
@@ -3005,6 +3007,8 @@ server-menu-header-server-menu = Server menu
 server-menu-leave-item-leave-server = Leave server
 # Context: read_item
 server-menu-read-item-mark-as-read = Mark As Read
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = Mark All As Read
 # Context: settings_item
 server-menu-settings-item-server-settings = Server Settings
 # Context: show
@@ -3587,6 +3591,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = Command un
 slash-commands-footer-refresh-application-commands = Refresh application commands
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = This sticker is from a server that is either invite-only or unavailable.
 # Context: message
 stickers-message-loading-sticker-details = Loading sticker details…
 # Context: message
@@ -4895,8 +4901,20 @@ time-format-12-hour = 12-hour
 time-format-24-hour = 24-hour
 profiles-status-edit = Edit status
 profiles-status-clear = Clear status
+send-throttled-title = Woah there. Way too spicy
+send-throttled-body = You're sending messages too quickly!
+send-throttled-dismiss = Enter the chill zone
+search-overlays-message-contains = Message Contains
+search-overlays-no-matching-content-types = No matching content types
+search-overlays-history = History
+search-overlays-clear-history = Clear search history
 game-mentions-loading = Loading games…
 game-mentions-header = GAMES MATCHING @{ $query }
 game-mentions-unavailable = Games are unavailable.
 game-mentions-empty = No matching games.
 game-mentions-retry = Retry
+profiles-private-profile = Private Profile
+profiles-private-notice = { $name }’s profile is private, so some info is hidden. Add them as a friend to see more.
+settings-cosmetics-name-styles = Name styles
+settings-cosmetics-name-styles-description = Nitro display name fonts, colours and effects.
+main-sign-in-rate-limited-detail = Discord is rate limiting this sign-in. Wait before trying again. Another attempt before that can make the wait longer.

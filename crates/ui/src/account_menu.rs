@@ -966,29 +966,14 @@ fn presence_dot(
 	status: PresenceStatus,
 	background: egui::Color32,
 ) {
-	painter.circle_filled(center, radius, profiles::presence_color(status.wire()));
-	match status {
-		PresenceStatus::Idle => {
-			painter.circle_filled(
-				center - egui::Vec2::splat(radius * 0.5),
-				radius * 0.8,
-				background,
-			);
-		}
-		PresenceStatus::Invisible => {
-			painter.circle_filled(center, radius * 0.56, background);
-		}
-		PresenceStatus::DoNotDisturb => {
-			painter.line_segment(
-				[
-					center - vec2(radius * 0.62, 0.0),
-					center + vec2(radius * 0.62, 0.0),
-				],
-				egui::Stroke::new(radius * 0.42, background),
-			);
-		}
-		_ => {}
-	}
+	profiles::paint_status(
+		painter,
+		center,
+		radius,
+		status.wire(),
+		false,
+		(background, 0.0),
+	);
 }
 
 #[cfg(test)]

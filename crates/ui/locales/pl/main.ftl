@@ -798,6 +798,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Podgląd wideo · odt
 embeds-text-text-display-limited = Ograniczone wyświetlanie tekstu
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Kliknij, aby dowiedzieć się więcej
 # Context: show
 emoji-details-show-a-custom-emoji = Niestandardowy emoji.
 # Context: show
@@ -2991,6 +2993,8 @@ server-menu-header-server-menu = Menu serwera
 server-menu-leave-item-leave-server = Opuść serwer
 # Context: read_item
 server-menu-read-item-mark-as-read = Oznacz jako przeczytane
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = Oznacz wszystko jako przeczytane
 # Context: settings_item
 server-menu-settings-item-server-settings = Ustawienia serwera
 # Context: show
@@ -3575,6 +3579,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = Polecenie 
 slash-commands-footer-refresh-application-commands = Odśwież polecenia aplikacji
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = Ta naklejka pochodzi z serwera dostępnego tylko na zaproszenie lub niedostępnego.
 # Context: message
 stickers-message-loading-sticker-details = Ładowanie szczegółów naklejki…
 # Context: message
@@ -4811,3 +4817,15 @@ time-format-12-hour = 12-godzinny
 time-format-24-hour = 24-godzinny
 profiles-status-edit = Edytuj status
 profiles-status-clear = Wyczyść status
+send-throttled-title = Hola, za ostro
+send-throttled-body = Wysyłasz wiadomości zbyt szybko!
+send-throttled-dismiss = Wejdź do strefy spokoju
+profiles-private-profile = Profil prywatny
+profiles-private-notice = Profil użytkownika { $name } jest prywatny, więc część informacji jest ukryta. Wyślij zaproszenie do znajomych, aby zobaczyć więcej.
+settings-cosmetics-name-styles = Style nazw
+settings-cosmetics-name-styles-description = Czcionki, kolory i efekty nazw wyświetlanych z Nitro.
+search-overlays-message-contains = Wiadomość zawiera
+search-overlays-no-matching-content-types = Brak pasujących typów treści
+search-overlays-history = Historia
+search-overlays-clear-history = Wyczyść historię wyszukiwania
+main-sign-in-rate-limited-detail = Discord ogranicza to logowanie. Odczekaj, zanim spróbujesz ponownie. Wcześniejsza próba może wydłużyć oczekiwanie.

@@ -1285,6 +1285,16 @@ fn recovery_draft(state: &State, channel: model::Id) -> String {
 		})
 		.unwrap_or_default()
 }
+/// Staged files may upload whenever the channel accepts attachments. The history
+/// window's freshness is not a channel state: Send from older history jumps to the
+/// latest page, so that window is reloading while the upload is dispatched.
+fn attachment_send_allowed(state: &State, channel: model::Id) -> bool {
+	!state.demo
+		&& state.can_attach(channel)
+		&& state.auth == AuthState::Authenticated
+		&& state.gateway_connected
+		&& state.selected == Some(channel)
+}
 fn confirmed_recovery_channel(state: &State, event: &Event) -> Option<model::Id> {
 	let (message, nonce) = match event {
 		Event::SendResult {
@@ -3191,14 +3201,9 @@ impl Desktop {
 				.iter()
 				.any(|p| p.nonce == *nonce && !p.attachments.is_empty())
 		{
-			let (channel, nonce) = (*channel, nonce.clone());
-			let available = !self.state.demo
-				&& self.state.can_attach(channel)
+			let channel = *channel;
+			let available = attachment_send_allowed(&self.state, channel)
 				&& !self.fixture_only
-				&& self.state.auth == AuthState::Authenticated
-				&& self.state.gateway_connected
-				&& self.state.freshness == model::Freshness::Fresh
-				&& self.state.selected == Some(channel)
 				&& self.connection.is_some();
 			if available
 				&& let Some(source) = self.uploads.take_source(self.state.generation, channel)
@@ -3227,15 +3232,14 @@ impl Desktop {
 					return;
 				}
 			}
-			self.state.apply(Envelope {
-				generation: self.state.generation,
-				event: Event::SendResult {
-					nonce,
-					result: Err(Failure::ProtocolAt(
-						"File not sent; reconnect and reselect the attachment",
-					)),
-				},
-			});
+			// Nothing left the client: keep the caption, reply and staged files for a retry.
+			let failure = "File not sent; check the connection and attachment, then send again";
+			if self.state.return_unsent(command, failure) {
+				self.messaging.draft_changes.push(channel);
+			}
+			self.messaging
+				.toasts
+				.push(ui::design::Level::Error, failure);
 			return;
 		}
 		// A forum post with files takes the same staged-upload path as a message.
@@ -3557,6 +3561,13 @@ impl Desktop {
 						result: Ok(()),
 					})
 				}
+				Command::MarkAllRead { request, channels } => {
+					Event::ReadState(client_core::read_state::Event::AllAck {
+						request,
+						acked: channels.len(),
+						result: Ok(()),
+					})
+				}
 				Command::Polls(request) => {
 					polls_demo::respond(&self.state, request, &mut self.synthetic_id)
 				}
@@ -3797,6 +3808,7 @@ impl Desktop {
 					query,
 					before,
 					offset,
+					oldest,
 					request,
 					..
 				} => {
@@ -3814,8 +3826,10 @@ impl Desktop {
 						.map_or(channel, model::Id);
 					for id in (1..=500)
 						.rev()
-						.filter(|id| before.is_none_or(|b| *id < b.0))
-					{
+						// The cursor continues older newest first, newer oldest first.
+						.filter(|id| {
+							before.is_none_or(|b| if oldest { *id > b.0 } else { *id < b.0 })
+						}) {
 						let message = test_support::message(id, source);
 						if message
 							.content
@@ -3870,7 +3884,8 @@ impl Desktop {
 								)
 							}) {
 							total += 1;
-							if total > u64::from(offset) && hits.len() < model::SEARCH_PAGE_SIZE {
+							// The fixture is small: keep every match, then page in the chosen order.
+							{
 								hits.push(model::SearchHit {
 									id: message.id,
 									channel: source,
@@ -3883,6 +3898,15 @@ impl Desktop {
 							}
 						}
 					}
+					hits.sort_unstable_by_key(|hit| std::cmp::Reverse(hit.id));
+					if oldest {
+						hits.reverse();
+					}
+					let hits = hits
+						.into_iter()
+						.skip(offset as usize)
+						.take(model::SEARCH_PAGE_SIZE)
+						.collect();
 					Event::Search {
 						channel,
 						request,
@@ -4745,14 +4769,19 @@ impl Desktop {
 					_ => full_window = true,
 				}
 			}
-			let guild_ack = matches!(
-				&event.event,
+			let guild_ack = match &event.event {
 				Event::ReadState(client_core::read_state::Event::GuildAck {
 					guild,
 					request,
 					result: Ok(()),
-				}) if self.state.pending_guild_ack(*guild, *request)
-			);
+				}) => self.state.pending_guild_ack(*guild, *request),
+				Event::ReadState(client_core::read_state::Event::AllAck {
+					request,
+					result: Ok(()),
+					..
+				}) => self.state.pending_all_ack(*request),
+				_ => false,
+			};
 			if event.generation == self.state.generation
 				&& (invalidate
 					|| event.event.changes_access()
@@ -4953,6 +4982,10 @@ impl Desktop {
 				generation: self.state.generation,
 				event: Event::Failure(failure),
 			});
+			if failure == Failure::RateLimited && self.state.failure_detail.is_none() {
+				self.state.failure_detail =
+					Some(ui::i18n::translate("main-sign-in-rate-limited-detail").into());
+			}
 			if !matches!(self.state.auth, AuthState::Expired | AuthState::Challenged) {
 				self.state.auth = AuthState::Failed;
 			}
@@ -5422,9 +5455,10 @@ impl eframe::App for Desktop {
 			)
 		});
 		ui::design::paint_backdrop(&ctx);
+		// A history page loading while browsing must not refuse a paste or drop.
 		let upload_allowed = self.state.user.is_some()
 			&& self.state.gateway_connected
-			&& self.state.freshness == model::Freshness::Fresh;
+			&& self.state.freshness != model::Freshness::Unavailable;
 		// A forum container carries its own attachment permission for a post's first message.
 		let can_attach = self.state.selected.is_some_and(|channel| {
 			self.state.can_attach(channel) || self.state.can_attach_post(channel)
@@ -5489,6 +5523,13 @@ impl eframe::App for Desktop {
 		if !can_attach {
 			self.uploads.cancel();
 		}
+		let state = &self.state;
+		self.uploads.follow_conversation(
+			state.generation,
+			state.selected,
+			state.user.is_some() && state.gateway_connected,
+			|channel| state.can_view(channel),
+		);
 		self.uploads.poll(
 			self.state.generation,
 			self.state.selected,
@@ -5866,11 +5907,13 @@ impl eframe::App for Desktop {
 			{
 				self.notifications.notify();
 			}
-			// Revalidate scope after navigation without polling workers a second time.
-			self.uploads.revalidate_scope(
-				self.state.generation,
-				self.state.selected,
-				self.state.user.is_some() && self.state.gateway_connected,
+			// Park or restore staged files after navigation without polling workers again.
+			let state = &self.state;
+			self.uploads.follow_conversation(
+				state.generation,
+				state.selected,
+				state.user.is_some() && state.gateway_connected,
+				|channel| state.can_view(channel),
 			);
 			if !self.state.selected.is_some_and(|channel| {
 				self.state.can_attach(channel) || self.state.can_attach_post(channel)
@@ -6754,6 +6797,25 @@ mod tests {
 			false,
 		);
 		assert!(state.timeline.is_empty());
+	}
+	#[test]
+	fn attachment_sends_stay_allowed_while_the_latest_page_reloads() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		let channel = state.selected.unwrap();
+		assert!(attachment_send_allowed(&state, channel));
+		// Send from older history jumps to the latest page before the upload dispatches.
+		state.history(None);
+		assert_eq!(state.freshness, model::Freshness::Loading);
+		assert!(attachment_send_allowed(&state, channel));
+		state.gateway_connected = false;
+		assert!(!attachment_send_allowed(&state, channel));
+		state.gateway_connected = true;
+		state.freshness = model::Freshness::Unavailable;
+		assert!(!attachment_send_allowed(&state, channel));
+		state.freshness = model::Freshness::Fresh;
+		state.selected = None;
+		assert!(!attachment_send_allowed(&state, channel));
 	}
 	#[test]
 	fn correlated_confirmation_preserves_other_pending_text_and_ignores_unrelated_events() {

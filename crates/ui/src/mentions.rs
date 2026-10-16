@@ -451,6 +451,13 @@ fn push_emoji(out: &mut Vec<Ranked>, key: (u8, u8, u64), candidate: impl FnOnce(
 	}
 }
 impl Menu {
+	/// Whether [`Self::keys`] accepts Tab, so the composer must keep it from focus navigation.
+	pub fn claims_tab(&self) -> bool {
+		!self.dismissed
+			&& (!self.candidates.is_empty()
+				|| (self.kind == Some(Kind::Game)
+					&& self.game_status == client_core::game_mentions::Status::Unavailable))
+	}
 	pub fn needs_games(&self) -> bool {
 		self.kind == Some(Kind::Game) && !self.dismissed
 	}

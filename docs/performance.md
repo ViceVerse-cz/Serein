@@ -36,6 +36,25 @@ latency were not measured. The synthetic screenshots, raw samples and reproducti
 [`docs/pr-evidence/folder-mark-as-read/`](pr-evidence/folder-mark-as-read/). Live Discord behavior
 and clicking the action against a folder containing unread guilds remain outside this offline run.
 
+## Name styles and bundled name fonts - October 15, 2026
+
+Compared baseline `5f83077e` (`main`) with the name-styles branch on Linux (CachyOS, x86_64),
+both built with `cargo xtask package` in separate worktrees and target directories. On this
+host the `.deb` stage fails in `dpkg-shlibdeps` for both revisions, so the measurement uses
+the release executable and the staged `dist` payload produced before that stage. Compressed
+size is `zstd -19` of the executable alone.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable bytes | 88,266,920 | 91,822,792 | +3,555,872 (+4.03%) |
+| Staged `dist` payload bytes (no archives) | 92,445,973 | 96,065,437 | +3,619,464 (+3.92%) |
+| Executable, `zstd -19` bytes | 42,744,679 | 44,296,091 | +1,551,412 (+3.63%) |
+
+The growth is the 14 embedded display-name fonts (3,493,132 bytes) and their license texts.
+The faces are embedded but parsed only when a visible styled name first needs one; with name
+styles off (the default) none is parsed. CPU, process memory and frame timings were not
+sampled, and no runtime improvement is claimed.
+
 ## Game mention catalog and review fixes - October 14, 2026
 
 Compared baseline `7759f5b5` with game mentions and review fixes at `75c4dfe0`.
@@ -738,3 +757,37 @@ a fresh post-details reload and a later conflicting name. Full local
 and owner-controlled live validation remain unavailable/unverified.
 Raw samples, source revisions and executable hashes are in
 [measurements.json](pr-evidence/post-rename-review/measurements.json).
+
+## URL markup parsing (2026-10-14, issue #656)
+
+[Measurements and source hashes](pr-evidence/url-underscores/measurements.json)
+compare `fbcbbad3` with the URL protection change on Windows 11 x64 build 26200,
+Ryzen 7 7800X3D, 32 GB RAM and pinned Rust 1.98.1. Standard packages include voice
+and use `cargo xtask package`, without demo or developer features. Performance
+notes and development evidence are not included in the installed payload.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 87,366,656 B | 87,381,504 B | +14,848 B / +0.0170% |
+| Installed payload, 216 files | 91,559,945 B | 91,574,793 B | +14,848 B / +0.0162% |
+| ZIP, Optimal compression | 50,470,238 B | 50,479,398 B | +9,160 B / +0.0181% |
+| Plain message, median / 10,000 parses | 25.1799 ms | 26.1144 ms | +0.9345 ms / +3.71% |
+| Underscore URLs, median / 10,000 parses | 28.7708 ms | 41.5100 ms | +12.7392 ms / +44.28% |
+
+The plain-message sample ranges overlap; no speed improvement is claimed.
+Protecting underscore URLs adds about 1.27 microseconds per parse in this workload.
+
+The release component workload is `cargo test --release --locked -p ui --lib
+url_underscore_parse_benchmark -- --ignored --nocapture`. Each built test binary
+is then run directly, with one warmup and five samples of 10,000 parses for each
+synthetic message. This measures parsing, not native frame latency, idle CPU,
+RSS or live Discord behavior. Native desktop automation is unavailable here.
+
+These numbers were measured on the underscore-only revision `e6f92b0f`. Protection
+was later generalized to `*`, `~` and `&` entities, plus a trailing-opener check of
+at most four passes. That revision was not re-measured.
+
+Protection adds temporary passes only for candidate URLs containing `_`, `*`, `~`
+or `&`; other messages use an early return. Source remains capped at 8 KiB, each
+pass at 512 events (exhaustion falls back to bounded literal text), and stored
+links at 16. No dependency or retained cache is added.

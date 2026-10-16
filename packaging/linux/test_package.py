@@ -26,6 +26,10 @@ class NativePackageTest(unittest.TestCase):
                 (staged / "docs" / source.name).write_text("synthetic documentation\n")
             (staged / "licenses").mkdir()
             for name in ["NotoSansCJK-LICENSE.txt", "NotoSansArabic-OFL.txt", "NotoSansMath-OFL.txt", "NotoSansSymbols2-OFL.txt", "Inter-OFL.txt",
+                         "Bangers-OFL.txt", "BioRhyme-OFL.txt", "CherryBombOne-OFL.txt", "Chicle-OFL.txt",
+                         "Compagnon-OFL.txt", "MuseoModerno-OFL.txt", "PixelifySans-OFL.txt", "Ribes-OFL.txt",
+                         "Sinistre-OFL.txt", "ZillaSlab-OFL.txt", "PlaypenSans-OFL.txt", "Orbitron-OFL.txt",
+                         "NewRocker-OFL.txt", "Kalam-OFL.txt",
                          "Twemoji-CC-BY-4.0.txt", "Unicode-LICENSE.txt", "Phosphor-Icons-MIT.txt", "Simple-Icons-CC0.txt"]:
                 (staged / "licenses" / name).write_text("synthetic license\n")
             for name in ["licenses/files", "licenses/notifications", "licenses/login",

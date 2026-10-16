@@ -37,6 +37,7 @@ impl Desktop {
 		self.state
 			.disconnect_voice("Discord login session changed; start a new call");
 		self.uploads.cancel();
+		self.uploads.forget_parked();
 		self.login = None;
 		self.state.interrupt_gif_favorites();
 		self.state.interrupt_preloads();
@@ -105,6 +106,7 @@ impl Desktop {
 		self.sticker_upload.cancel();
 		self.notifications.clear();
 		self.uploads.cancel();
+		self.uploads.forget_parked();
 		if let Some(store) = &mut self.store {
 			store.cancel_load();
 		}

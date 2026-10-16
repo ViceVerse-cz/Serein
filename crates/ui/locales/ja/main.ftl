@@ -799,6 +799,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = ビデオのプレビ
 embeds-text-text-display-limited = テキスト表示制限あり
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = クリックして詳細を表示
 # Context: show
 emoji-details-show-a-custom-emoji = カスタム絵文字。
 # Context: show
@@ -2992,6 +2994,8 @@ server-menu-header-server-menu = サーバーメニュー
 server-menu-leave-item-leave-server = サーバーから離れる
 # Context: read_item
 server-menu-read-item-mark-as-read = 既読としてマーク
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = すべて既読にする
 # Context: settings_item
 server-menu-settings-item-server-settings = サーバー設定
 # Context: show
@@ -3571,6 +3575,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = コマン�
 slash-commands-footer-refresh-application-commands = アプリケーションコマンドを更新する
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = このステッカーは招待制または利用できないサーバーのものです。
 # Context: message
 stickers-message-loading-sticker-details = ステッカーの詳細を読み込んでいます…
 # Context: message
@@ -4792,3 +4798,15 @@ time-format-12-hour = 12時間制
 time-format-24-hour = 24時間制
 profiles-status-edit = ステータスを編集
 profiles-status-clear = ステータスを消去
+send-throttled-title = ちょっと待って、刺激が強すぎ
+send-throttled-body = メッセージの送信が速すぎます！
+send-throttled-dismiss = チルゾーンへ
+profiles-private-profile = 非公開プロフィール
+profiles-private-notice = { $name } さんのプロフィールは非公開のため、一部の情報が表示されません。フレンドに追加すると詳しく見られます。
+settings-cosmetics-name-styles = 名前のスタイル
+settings-cosmetics-name-styles-description = Nitro の表示名のフォント、色とエフェクト。
+search-overlays-message-contains = メッセージに含まれるもの
+search-overlays-no-matching-content-types = 一致するコンテンツの種類はありません
+search-overlays-history = 履歴
+search-overlays-clear-history = 検索履歴を消去
+main-sign-in-rate-limited-detail = Discord がこのサインインを制限しています。しばらく待ってから再試行してください。早すぎる再試行は待ち時間を延ばすことがあります。

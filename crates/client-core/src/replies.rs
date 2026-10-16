@@ -25,6 +25,44 @@ impl Reply {
 #[derive(Default)]
 pub struct ReplyDeletions(pub(crate) Vec<(Id, Id)>);
 
+/// Unsent reply targets of conversations the user left, by session generation and
+/// channel, oldest first; session RAM only.
+#[derive(Default)]
+pub struct ParkedReplies(Vec<(u64, Id, Reply)>);
+
+impl ParkedReplies {
+	const MAX: usize = 64;
+
+	fn park(&mut self, generation: u64, channel: Id, reply: Reply) {
+		self.0.retain(|(_, id, _)| *id != channel);
+		if self.0.len() >= Self::MAX {
+			self.0.remove(0);
+		}
+		self.0.push((generation, channel, reply));
+	}
+
+	fn take(&mut self, generation: u64, channel: Id) -> Option<Reply> {
+		let index = self.0.iter().position(|(_, id, _)| *id == channel)?;
+		let (parked, _, reply) = self.0.remove(index);
+		(parked == generation).then_some(reply)
+	}
+
+	/// Drops parked replies whose target in `channel` was deleted.
+	pub(crate) fn forget_targets(&mut self, channel: Id, targets: &[Id]) {
+		self.0
+			.retain(|(_, id, reply)| *id != channel || !targets.contains(&reply.target));
+	}
+
+	pub(crate) fn forget_channels(&mut self, removed: &std::collections::BTreeSet<Id>) {
+		self.0.retain(|(_, id, _)| !removed.contains(id));
+	}
+
+	#[cfg(test)]
+	pub(crate) fn len(&self) -> usize {
+		self.0.len()
+	}
+}
+
 /// One bounded, request-scoped target, independent of the UI's one-shot scroll cue.
 #[derive(Default)]
 pub struct HistoryNavigation {
@@ -50,6 +88,38 @@ impl HistoryNavigation {
 impl State {
 	pub fn reply_target(&self) -> Option<Id> {
 		self.reply.map(Reply::target)
+	}
+
+	/// Keeps the open conversation's unsent reply target for its next visit.
+	pub(crate) fn park_reply(&mut self) {
+		if let (Some(channel), Some(reply)) = (self.selected, self.reply.take()) {
+			self.parked_replies.park(self.generation, channel, reply);
+		}
+	}
+
+	/// Takes `channel`'s parked reply before parking the open conversation's, so parking at
+	/// capacity cannot evict the destination. Reopening the same conversation keeps its reply.
+	pub(crate) fn swap_parked_reply(&mut self, channel: Id) -> Option<Reply> {
+		if self.selected == Some(channel) {
+			return self.reply.take();
+		}
+		let destination = self.parked_replies.take(self.generation, channel);
+		self.park_reply();
+		destination.or_else(|| self.parked_replies.take(self.generation, channel))
+	}
+
+	/// Restores `channel`'s parked reply after selection, only while it can still be sent
+	/// there and its target is not known to be deleted.
+	pub(crate) fn restore_reply(&mut self, channel: Id, parked: Option<Reply>) {
+		self.reply = parked.filter(|reply| {
+			self.selected == Some(channel)
+				&& self.can_compose(channel)
+				&& !self.timeline.is_deleted(reply.target)
+				&& self
+					.timeline
+					.get(reply.target)
+					.is_none_or(|message| message.channel == channel)
+		});
 	}
 
 	/// Navigate a Discord chat link without sending messages or joining voice.
@@ -246,11 +316,14 @@ impl State {
 			return;
 		};
 		let deletion = (message.channel, target);
+		self.forget_pending_replies(message.channel, &[target]);
 		// Only one message or an already validated <=50-message history page calls this.
 		if !self.reply_deletions.0.contains(&deletion) && self.reply_deletions.0.len() < 50 {
 			self.reply_deletions.0.push(deletion);
 		}
 		self.resident.remove(message.channel);
+		self.parked_replies
+			.forget_targets(message.channel, &[target]);
 		self.read_state.activity.delete(message.channel, target);
 		if let Some(channel) = self
 			.channels
@@ -765,6 +838,7 @@ mod tests {
 						nonce: "synthetic".into(),
 						delivery: Delivery::Ambiguous,
 						confirmed: None,
+						reply: None,
 					});
 				}
 				let mut source = deleted_source(101, 50, 1);
@@ -791,6 +865,7 @@ mod tests {
 				nonce: "synthetic".into(),
 				delivery: Delivery::Ambiguous,
 				confirmed: None,
+				reply: None,
 			});
 			let mut source = deleted_source(101, 50, 1);
 			source.reply_deleted = false;
@@ -819,6 +894,7 @@ mod tests {
 				nonce: "other".into(),
 				delivery: Delivery::Ambiguous,
 				confirmed: None,
+				reply: None,
 			});
 			apply(
 				&mut state,
@@ -870,6 +946,7 @@ mod tests {
 				nonce: "synthetic".into(),
 				delivery: Delivery::Ambiguous,
 				confirmed: None,
+				reply: None,
 			});
 			let request = state.request;
 			let revision = state.revision;
@@ -1017,6 +1094,140 @@ mod tests {
 	}
 
 	#[test]
+	fn reply_targets_survive_a_round_trip_independently_per_conversation() {
+		let mut state = state();
+		state.reply = Some(Reply {
+			target: Id(100),
+			mention: false,
+		});
+		state.select(Id(2));
+		assert_eq!(state.selected, Some(Id(2)));
+		assert_eq!(state.reply, None);
+		state.reply = Some(Reply::to(Id(200)));
+		state.select(Id(1));
+		assert_eq!(
+			state.reply,
+			Some(Reply {
+				target: Id(100),
+				mention: false,
+			})
+		);
+		state.select(Id(3));
+		assert_eq!(state.reply, None);
+		state.select(Id(2));
+		assert_eq!(state.reply, Some(Reply::to(Id(200))));
+		// Home keeps the reply parked too; only the restored conversation sees it.
+		state.open_home();
+		assert_eq!(state.reply, None);
+		state.select(Id(1));
+		assert_eq!(state.reply_target(), Some(Id(100)));
+		// Cancelling in the composer removes it for good.
+		state.reply = None;
+		state.select(Id(2));
+		state.select(Id(1));
+		assert_eq!(state.reply, None);
+		assert_eq!(state.parked_replies.len(), 1);
+	}
+
+	#[test]
+	fn returning_at_capacity_restores_the_oldest_parked_reply() {
+		let mut state = state();
+		state
+			.parked_replies
+			.park(state.generation, Id(2), Reply::to(Id(200)));
+		for channel in 1..ParkedReplies::MAX as u64 {
+			state
+				.parked_replies
+				.park(state.generation, Id(1000 + channel), Reply::to(Id(5)));
+		}
+		state.reply = Some(Reply::to(Id(100)));
+		state.select(Id(2));
+		assert_eq!(state.reply, Some(Reply::to(Id(200))));
+		assert_eq!(state.parked_replies.len(), ParkedReplies::MAX);
+		state.select(Id(1));
+		assert_eq!(state.reply_target(), Some(Id(100)));
+		// Reselecting the open conversation keeps its reply without parking it at capacity.
+		state.select(Id(1));
+		assert_eq!(state.reply_target(), Some(Id(100)));
+		assert_eq!(state.parked_replies.len(), ParkedReplies::MAX);
+		assert_eq!(
+			state.parked_replies.take(state.generation, Id(1001)),
+			Some(Reply::to(Id(5)))
+		);
+	}
+
+	#[test]
+	fn parked_replies_are_bounded_and_drop_deleted_or_unavailable_targets() {
+		let mut state = state();
+		state.reply = Some(Reply::to(Id(100)));
+		state.select(Id(2));
+		state.reply = Some(Reply::to(Id(200)));
+		state.select(Id(3));
+		apply(
+			&mut state,
+			Event::Delete {
+				channel: Id(1),
+				id: Id(100),
+			},
+		);
+		apply(
+			&mut state,
+			Event::DeleteBulk {
+				channel: Id(2),
+				ids: vec![Id(200)],
+			},
+		);
+		assert_eq!(state.parked_replies.len(), 0);
+		state.select(Id(1));
+		assert_eq!(state.reply, None);
+
+		// A conversation removed from navigation forgets its parked reply.
+		state.reply = Some(Reply::to(Id(100)));
+		state.select(Id(2));
+		state.remove_channels(&[Id(1)].into_iter().collect());
+		assert_eq!(state.parked_replies.len(), 0);
+
+		// Restoring requires the conversation to still accept messages.
+		let mut forum = chat_link_state();
+		forum.reply = Some(Reply::to(Id(100)));
+		forum.select(Id(2));
+		assert_eq!(forum.parked_replies.len(), 1);
+		forum.channels[0].kind = 15;
+		forum.invalidate_navigation();
+		forum.select(Id(1));
+		assert_eq!(forum.selected, Some(Id(1)));
+		assert_eq!(forum.reply, None);
+		assert_eq!(forum.parked_replies.len(), 0);
+
+		let mut parked = ParkedReplies::default();
+		for id in 1..=100 {
+			parked.park(1, Id(id), Reply::to(Id(1000 + id)));
+		}
+		parked.park(1, Id(100), Reply::to(Id(7)));
+		assert_eq!(parked.len(), ParkedReplies::MAX);
+		assert_eq!(parked.take(1, Id(36)), None);
+		assert_eq!(parked.take(1, Id(37)), Some(Reply::to(Id(1037))));
+		assert_eq!(parked.take(1, Id(100)), Some(Reply::to(Id(7))));
+		// Another session generation never receives this one's reply.
+		assert_eq!(parked.take(2, Id(38)), None);
+		assert_eq!(parked.len(), ParkedReplies::MAX - 3);
+
+		// A session change bumps the generation; logout also starts with nothing parked.
+		assert_eq!(state.selected, Some(Id(2)));
+		state.reply = Some(Reply::to(Id(300)));
+		state.select(Id(3));
+		state.reply = Some(Reply::to(Id(301)));
+		state.generation += 1;
+		state.select(Id(2));
+		assert_eq!(state.reply, None);
+		state.select(Id(3));
+		assert_eq!(state.reply_target(), Some(Id(301)));
+		state.select(Id(2));
+		state.logout();
+		assert_eq!(state.parked_replies.len(), 0);
+	}
+
+	#[test]
 	fn explicit_reference_deletion_retires_composer_and_loaded_target() {
 		{
 			for history in [false, true] {
@@ -1102,6 +1313,7 @@ mod tests {
 				guild: None,
 				query: "Synthetic".into(),
 				before: None,
+				oldest: false,
 				offset: 0,
 				total: None,
 				pin_before: None,

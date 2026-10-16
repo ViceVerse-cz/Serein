@@ -75,7 +75,17 @@ pub fn suggestion_row(ui: &mut egui::Ui, key: &str, title: &str, detail: &str) -
 			ui.painter(),
 			match key {
 				"from" => icons::Icon::Profile,
-				"has" => icons::Icon::Link,
+				"has" => icons::Icon::Attach,
+				"has-image" => icons::Icon::Image,
+				"has-video" => icons::Icon::Video,
+				"has-link" => icons::Icon::Link,
+				"has-file" => icons::Icon::File,
+				"has-embed" => icons::Icon::FileText,
+				"has-sound" => icons::Icon::Soundboard,
+				"has-poll" => icons::Icon::ChartBar,
+				"has-sticker" => icons::Icon::Smile,
+				"has-forward" => icons::Icon::Forward,
+				"history" => icons::Icon::Search,
 				"in" => icons::channel(0),
 				_ => icons::Icon::Search,
 			},
@@ -166,7 +176,7 @@ pub fn channels(state: &State) -> Vec<&Channel> {
 
 /// The filter being typed at the end of the query: its start, key and partial value.
 pub fn active_token(query: &str) -> Option<(usize, &'static str, &str)> {
-	for key in ["from", "mentions", "in"] {
+	for key in ["from", "mentions", "in", "has"] {
 		let prefix = format!("{key}:");
 		if let Some(start) = query.rfind(&prefix) {
 			if start > 0 && !query[..start].ends_with(char::is_whitespace) {
@@ -181,6 +191,21 @@ pub fn active_token(query: &str) -> Option<(usize, &'static str, &str)> {
 	}
 	None
 }
+
+/// `query` without a filter still being typed at its end. A finished `has:` value stays: it
+/// needs no suggestion to pick.
+pub fn without_partial(query: &str) -> &str {
+	match active_token(query) {
+		Some((_, "has", typed)) if HAS.contains(&typed) => query.trim(),
+		Some((start, _, _)) => query[..start].trim(),
+		None => query,
+	}
+}
+
+/// `has:` values in Discord's order. `forward` is sent as the service's `snapshot`.
+pub const HAS: [&str; 9] = [
+	"image", "video", "link", "file", "embed", "sound", "poll", "sticker", "forward",
+];
 
 /// One-word form of a name, so a filter label stays a single query token.
 pub fn label(name: &str) -> String {
@@ -352,6 +377,11 @@ pub fn highlight(ui: &egui::Ui, text: &str, wrap_width: f32) -> egui::text::Layo
 	let plain = egui::TextFormat::simple(font.clone(), colors.text_strong);
 	let mut job = egui::text::LayoutJob::default();
 	job.wrap.max_width = wrap_width;
+	if text.is_empty() {
+		// An empty job lays out zero rows tall, so the caret would not line up with the text.
+		job.append("", 0.0, plain);
+		return job;
+	}
 	let mut rest = text;
 	while !rest.is_empty() {
 		let start = rest.len() - rest.trim_start().len();
@@ -667,7 +697,7 @@ fn choices(
 
 impl Draft {
 	pub fn new(query: &str) -> Self {
-		let query = active_token(query).map_or(query, |(start, _, _)| query[..start].trim());
+		let query = without_partial(query);
 		let date = |key| {
 			query
 				.split_whitespace()
@@ -917,5 +947,31 @@ impl Draft {
 			model::search_terms(&query)?;
 		}
 		Ok(query)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	/// The caret in an empty search box is sized by this layout; it must match typed text.
+	#[test]
+	fn empty_query_lays_out_like_typed_text() {
+		let ctx = egui::Context::default();
+		ctx.run_ui(Default::default(), |ui| {
+			let height = |text: &str| {
+				let job = super::highlight(ui, text, 200.0);
+				ui.fonts_mut(|fonts| fonts.layout_job(job)).rows[0].height()
+			};
+			assert_eq!(height(""), height("Search"));
+		})
+		.drop_without_applying_deltas();
+	}
+
+	/// "More filters" keeps a finished trailing `has:` and drops one still being typed.
+	#[test]
+	fn a_finished_has_filter_survives_and_a_partial_one_does_not() {
+		assert_eq!(super::without_partial("cats has:image"), "cats has:image");
+		assert_eq!(super::without_partial("cats has:ima"), "cats");
+		assert_eq!(super::without_partial("cats from:Rob"), "cats");
+		assert_eq!(super::Draft::new("has:image").query, "has:image");
 	}
 }

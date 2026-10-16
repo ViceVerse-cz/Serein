@@ -253,7 +253,8 @@ fn gallery(
 				let star =
 					gif_for_media(media, embed.url.as_deref(), embed.kind == "gifv").map(|gif| {
 						let favorite = download.gif_favorites.contains(&gif.url);
-						let star = favorite_star(ui, &response, favorite);
+						let star =
+							favorite_star(ui, &response, favorite, images.gifs_playing(ui.ctx()));
 						if star.clicked() {
 							download.gif_favorite_request = Some(gif);
 						}
@@ -592,7 +593,8 @@ pub fn show(
 				embed_context_menu(&response, image, download, demo);
 				let star = gif.map(|gif| {
 					let favorite = state.is_gif_favorite(&gif);
-					let star = favorite_star(ui, &response, favorite);
+					let star =
+						favorite_star(ui, &response, favorite, images.gifs_playing(ui.ctx()));
 					if star.clicked() {
 						favorite_action = Some(gif);
 					}
@@ -1556,6 +1558,93 @@ mod tests {
 		output.drop_without_applying_deltas();
 	}
 
+	/// Paused GIFs wear a "GIF" label; the favorite star appears only while hovered.
+	#[test]
+	fn gif_overlay_labels_paused_gifs_and_drops_the_star_in_on_hover() {
+		let ctx = egui::Context::default();
+		let media = egui::Rect::from_min_size(egui::pos2(20.0, 20.0), egui::vec2(200.0, 120.0));
+		let star_size = egui::Vec2::splat(30.0);
+		let gif = egui::Id::unique("gif");
+		let mut tick = 0;
+		// One stable GIF id and 60 Hz frames, so the star's animation is followed frame by frame.
+		let mut frame = |pointer: Option<egui::Pos2>, playing: bool| {
+			tick += 1;
+			let mut sense = egui::Sense::hover();
+			let output = ctx.run_ui(
+				egui::RawInput {
+					time: Some(f64::from(tick) / 60.0),
+					predicted_dt: 1.0 / 60.0,
+					events: pointer
+						.map(|pos| vec![egui::Event::PointerMoved(pos)])
+						.unwrap_or_default(),
+					..Default::default()
+				},
+				|ui| {
+					let response = ui.interact(media, gif, egui::Sense::click());
+					sense = favorite_star(ui, &response, false, playing).sense;
+				},
+			);
+			let mut texts = Vec::new();
+			let mut star_top = None;
+			for shape in &output.shapes {
+				match &shape.shape {
+					egui::Shape::Text(text) => texts.push(text.galley.job.text.clone()),
+					egui::Shape::Rect(rect) if rect.rect.size() == star_size => {
+						star_top = Some(rect.rect.top());
+					}
+					_ => {}
+				}
+			}
+			output.drop_without_applying_deltas();
+			(texts, star_top, sense)
+		};
+		let (texts, star, sense) = frame(None, false);
+		assert!(texts.iter().any(|text| text == "GIF"));
+		assert_eq!(star, None, "no star until the GIF is hovered");
+		assert!(
+			sense.is_focusable(),
+			"the hidden star stays reachable with Tab"
+		);
+		assert!(!sense.senses_click(), "the hidden star takes no clicks");
+		let (texts, _, _) = frame(None, true);
+		assert!(texts.is_empty(), "playing GIFs carry no label");
+
+		let rest = media.top() + 6.0;
+		let mut steps = Vec::new();
+		for _ in 0..20 {
+			let (texts, star, sense) = frame(Some(media.center()), true);
+			assert!(texts.is_empty());
+			steps.push((
+				star.expect("hovering paints the star"),
+				sense.senses_click(),
+			));
+		}
+		let (top, clickable) = *steps.last().unwrap();
+		assert_eq!(top, rest, "the star settles in the corner");
+		assert!(clickable);
+		for &(top, clickable) in &steps {
+			let shown = 1.0 - (rest - top) / 8.0;
+			assert!(
+				(0.0..=1.0).contains(&shown),
+				"the star drops from above: {top}"
+			);
+			// Clicks are only taken once the star is mostly shown.
+			assert_eq!(clickable, shown > 0.5, "click threshold at shown = {shown}");
+		}
+		assert!(
+			steps
+				.iter()
+				.any(|&(top, clickable)| top < rest - 1.0 && !clickable),
+			"the drop-in passes through a partly shown, unclickable star"
+		);
+		assert!(
+			steps
+				.iter()
+				.any(|&(top, clickable)| top < rest && clickable),
+			"the star turns clickable before it settles"
+		);
+	}
+
 	/// An X/Twitter link card, shaped like the service's: author, text, footer and time.
 	#[test]
 	fn tweet_card_puts_footer_and_time_on_one_line_without_a_source_link() {
@@ -1636,44 +1725,89 @@ mod tests {
 	}
 }
 
-/// Shared star overlay for message GIFs and uploaded GIF attachments.
+/// A message GIF's overlay, Discord style. While GIFs are paused (the window is unfocused or
+/// animation is off) a "GIF" label sits in the top-left corner; hovering the GIF drops a
+/// favorite star into that corner instead, yellow under the pointer until it is a favorite.
 pub(crate) fn favorite_star(
 	ui: &mut egui::Ui,
 	response: &egui::Response,
 	favorite: bool,
+	playing: bool,
 ) -> egui::Response {
+	let palette = crate::design::palette(ui);
+	let id = response.id.with("favorite");
 	let star_rect = egui::Rect::from_min_size(
-		response.rect.right_top() + egui::vec2(-34.0, 4.0),
+		response.rect.left_top() + egui::vec2(6.0, 6.0),
 		egui::Vec2::splat(30.0),
 	);
+	let focused = ui.memory(|memory| memory.has_focus(id));
+	let over = ui.rect_contains_pointer(response.rect.expand(2.0));
+	// Drops in from above while the GIF is hovered; it only takes clicks once mostly shown.
+	let shown = ui
+		.ctx()
+		.animate_bool_with_time(id.with("shown"), over || focused, 0.14);
 	let star = ui.interact(
 		star_rect,
-		response.id.with("favorite"),
-		egui::Sense::click(),
-	);
-	ui.painter()
-		.rect_filled(star_rect, 6, egui::Color32::from_black_alpha(190));
-	crate::icons::paint(
-		ui.painter(),
-		if favorite {
-			crate::icons::Icon::StarFill
+		id,
+		if shown > 0.5 {
+			egui::Sense::click()
 		} else {
-			crate::icons::Icon::Star
+			// Hidden, it still takes Tab focus, which reveals it for keyboard users.
+			egui::Sense::focusable_noninteractive()
 		},
-		star_rect.shrink(5.0),
-		if favorite {
-			crate::design::palette(ui).warning
+	);
+	if !playing && shown < 1.0 {
+		let label = ui.painter().layout_no_wrap(
+			"GIF".into(),
+			egui::FontId::new(12.0, crate::design::semibold_family(ui.ctx())),
+			egui::Color32::WHITE.gamma_multiply(1.0 - shown),
+		);
+		let badge = egui::Rect::from_min_size(
+			response.rect.left_top() + egui::vec2(6.0, 6.0),
+			label.size() + egui::vec2(12.0, 6.0),
+		);
+		ui.painter().rect_filled(
+			badge,
+			5,
+			egui::Color32::from_black_alpha((170.0 * (1.0 - shown)) as u8),
+		);
+		ui.painter().galley(
+			badge.min + egui::vec2(6.0, 3.0),
+			label,
+			egui::Color32::WHITE,
+		);
+	}
+	if shown > 0.0 {
+		let rect = star_rect.translate(egui::vec2(0.0, -8.0 * (1.0 - shown)));
+		let hot = star.hovered() || star.has_focus();
+		ui.painter().rect_filled(
+			rect,
+			6,
+			egui::Color32::from_black_alpha((if hot { 215.0 } else { 175.0 } * shown) as u8),
+		);
+		let color = if favorite || hot {
+			palette.warning
 		} else {
 			egui::Color32::WHITE
-		},
-	);
-	if star.has_focus() {
-		ui.painter().rect_stroke(
-			star_rect,
-			6,
-			ui.visuals().selection.stroke,
-			egui::StrokeKind::Inside,
+		};
+		crate::icons::paint(
+			ui.painter(),
+			if favorite {
+				crate::icons::Icon::StarFill
+			} else {
+				crate::icons::Icon::Star
+			},
+			rect.shrink(5.0),
+			color.gamma_multiply(shown),
 		);
+		if star.has_focus() {
+			ui.painter().rect_stroke(
+				rect,
+				6,
+				ui.visuals().selection.stroke,
+				egui::StrokeKind::Inside,
+			);
+		}
 	}
 	star.widget_info(|| {
 		egui::WidgetInfo::selected(
@@ -1683,6 +1817,9 @@ pub(crate) fn favorite_star(
 			crate::i18n::translate("embeds-show-favorite-gif"),
 		)
 	});
+	if shown < 0.5 {
+		return star;
+	}
 	star.on_hover_text(crate::i18n::translate_if_key(
 		&(if favorite {
 			crate::i18n::translate("embeds-show-remove-from-gif-favorites")

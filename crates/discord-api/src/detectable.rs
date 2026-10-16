@@ -65,7 +65,7 @@ pub async fn download_list(
 	download(
 		client,
 		cooldown,
-		"https://discord.com/api/v10/applications/detectable",
+		&format!("{}/applications/detectable", crate::api_v10_base()),
 		MAX_LIST,
 	)
 	.await

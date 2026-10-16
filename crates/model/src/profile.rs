@@ -144,6 +144,8 @@ pub struct UserProfile {
 	/// Owned and earnable badges from the optional catalog read; display order included.
 	pub badge_catalog: Option<Box<crate::badges::BadgeCatalog>>,
 	pub limited: bool,
+	/// The account's Profile Privacy hides details from this viewer; the card says so.
+	pub private: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProfileGameWidgetKind {
@@ -553,6 +555,7 @@ mod banner_tests {
 			effect: None,
 			frame: None,
 			badge_catalog: None,
+			private: false,
 			limited: false,
 		};
 		assert_eq!(

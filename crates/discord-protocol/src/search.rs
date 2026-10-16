@@ -65,7 +65,8 @@ impl Reply {
 	pub fn into_page(
 		self,
 		channel: Option<Id>,
-		before: Option<Id>,
+		cursor: Option<Id>,
+		oldest: bool,
 	) -> Result<SearchPage, &'static str> {
 		let total = self.total_results.ok_or("Search result unavailable")?;
 		let mut hits = Vec::new();
@@ -80,14 +81,20 @@ impl Reply {
 			}
 			hits.push(hit.into_hit());
 		}
-		hits.sort_unstable_by_key(|h| std::cmp::Reverse(h.id));
+		// Keep the order Discord sorted the whole result set in: the first match leads an
+		// oldest-first page, the latest a newest-first one.
+		if oldest {
+			hits.sort_unstable_by_key(|h| h.id);
+		} else {
+			hits.sort_unstable_by_key(|h| std::cmp::Reverse(h.id));
+		}
 		let page = SearchPage {
 			hits,
 			total,
 			partial: self.doing_deep_historical_index,
 			pin_cursor: None,
 		};
-		if !page.valid(channel, before) {
+		if !page.valid(channel, cursor, oldest) {
 			return Err("Invalid search results");
 		}
 		Ok(page)
@@ -136,7 +143,7 @@ mod tests {
 			json!({"total_results":8,"messages":[[context,matched]],"doing_deep_historical_index":true}),
 		)
 		.unwrap()
-		.into_page(Some(Id(1)), Some(Id(4)))
+		.into_page(Some(Id(1)), Some(Id(4)), false)
 		.unwrap();
 		assert_eq!(page.hits.len(), 1);
 		assert_eq!(page.hits[0].id, Id(3));
@@ -152,7 +159,7 @@ mod tests {
 			assert!(
 				decode(value)
 					.unwrap()
-					.into_page(Some(Id(1)), Some(Id(4)))
+					.into_page(Some(Id(1)), Some(Id(4)), false)
 					.is_err()
 			);
 		}
@@ -162,12 +169,36 @@ mod tests {
 		assert!(decode(json!({"total_results":1,"messages":[vec![hit(3,1,"a");6]]})).is_err());
 		let page = decode(json!({"total_results":1,"messages":[[hit(3,1,&"x".repeat(10000))]]}))
 			.unwrap()
-			.into_page(Some(Id(1)), None)
+			.into_page(Some(Id(1)), None, false)
 			.unwrap();
 		assert!(page.hits[0].excerpt.contains("exceeds preview limit"));
 		assert!(page.bytes() < model::MAX_SEARCH_BYTES);
 		assert!(model::valid_search_query("synthetic & ? 日本語"));
 		assert!(!model::valid_search_query("\n"));
 		assert!(!model::valid_search_query(&"a".repeat(257)));
+	}
+
+	/// An oldest-first search keeps Discord's order: the very first message leads page one.
+	#[test]
+	fn oldest_first_pages_keep_the_earliest_message_on_top() {
+		let hit = |id: u64| json!({"id":id.to_string(),"channel_id":"1","author":{"id":"7","username":"Synthetic"},"content":"m"});
+		let reply = || {
+			crate::decode::<Reply>(
+				&serde_json::to_vec(
+					&json!({"total_results":3,"messages":[[hit(5)],[hit(6)],[hit(9)]]}),
+				)
+				.unwrap(),
+			)
+			.unwrap()
+		};
+		let ids = |page: model::SearchPage| page.hits.iter().map(|h| h.id.0).collect::<Vec<_>>();
+		assert_eq!(
+			ids(reply().into_page(Some(Id(1)), None, true).unwrap()),
+			[5, 6, 9]
+		);
+		assert_eq!(
+			ids(reply().into_page(Some(Id(1)), None, false).unwrap()),
+			[9, 6, 5]
+		);
 	}
 }

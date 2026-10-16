@@ -43,6 +43,8 @@ pub struct TimelineView {
 	pub(super) extension_request: Option<(crate::extensions_ui::MenuAction, String)>,
 	pub(super) user_action: Option<crate::user_menu::Action>,
 	pub(super) restore_pending: Option<String>,
+	/// A failed own row the reader dismissed this frame.
+	pub(super) dismiss_pending: Option<String>,
 	pub(super) cancel_upload: bool,
 	pending_heights: BTreeMap<String, f32>,
 	pub(super) hide_media_links: bool,
@@ -72,6 +74,8 @@ pub struct TimelineView {
 	initial_read_checked: bool,
 	pub(super) unread_jump: bool,
 	pub(super) load_newer: bool,
+	/// The loaded window does not fill the view; fetch newer messages without leaving it.
+	pub(super) fill_newer: bool,
 	pub(super) mark_read: Option<Id>,
 	pub(super) mark_unread: Option<Id>,
 	pub(super) auto_read_attempt: Option<Id>,
@@ -108,6 +112,8 @@ pub struct TimelineView {
 	suppressed_deleted_highlight: BTreeSet<Id>,
 	pub(super) remove_preserved: Option<Id>,
 	toolbar: Option<(Id, egui::Rect)>,
+	/// The message row the pointer was over last pass; its author's name style shows.
+	name_hover: Option<Id>,
 	copy_feedback: Option<(egui::Id, f64)>,
 	heights: BTreeMap<Id, (u64, f32)>,
 	// Heights can remain resize estimates; only these bounded active-row IDs were
@@ -609,11 +615,11 @@ fn starter_row(
 							);
 							let time = timestamp(message.id);
 							ui.label(
-								RichText::new(crate::local_time::clock(time))
+								RichText::new(crate::local_time::header(time))
 									.size(12.0)
 									.color(colors.muted),
 							)
-							.on_hover_text_with(|| format!("{time} UTC"));
+							.on_hover_text_with(|| crate::local_time::full(time));
 						},
 					);
 					ui.add(
@@ -673,12 +679,13 @@ enum Intro {
 
 /// The loaded window reaches the first message. Finished older pages keep
 /// `history_before` set, so it does not disqualify the window.
+/// The loaded rows begin at the conversation's first message. Newer messages need not be
+/// loaded: scrolling up through a long history, or opening a search result, still reaches it.
 fn history_complete(state: &State) -> bool {
 	state.freshness == model::Freshness::Fresh
 		&& !state.history_pending
-		&& !state.history_targeted
-		&& state.history_after.is_none()
 		&& state.older_exhausted
+		&& !state.timeline.older_evicted()
 }
 
 /// A cached window shown while its first network page loads, already known to reach the start.
@@ -1847,11 +1854,11 @@ fn show_system(
 			ui.add_space(8.0);
 			let stamp = ui
 				.label(
-					RichText::new(crate::local_time::clock(time))
+					RichText::new(crate::local_time::header(time))
 						.size(12.0)
 						.color(colors.muted),
 				)
-				.on_hover_text_with(|| format!("{time} UTC"));
+				.on_hover_text_with(|| crate::local_time::full(time));
 			surface.exclude(stamp.rect);
 		});
 	}
@@ -2427,6 +2434,11 @@ impl TimelineView {
 		let pending_height = pending_rows.iter().map(|(_, height)| *height).sum::<f32>();
 		let packed = total + pending_height + end_padding;
 		let lead_packed = lead_rows.unwrap_or(total) + pending_height + end_padding;
+		// Short content rests on the composer only at the newest messages. A window opened at a
+		// target or paging towards newer messages starts at the top, like Discord, so the
+		// history's start is not pushed down and loading newer pages does not shift it.
+		let live_edge =
+			!state.history_targeted && state.history_after.is_none() && !state.newer_may_have_more;
 		if state.freshness == model::Freshness::Fresh && !state.history_pending {
 			if let Some(target) = state.search_target.take() {
 				let saved = state
@@ -2586,7 +2598,7 @@ impl TimelineView {
 			if welcome && let Some(channel) = state.selected.and_then(|id| state.channel(id)) {
 				channel_welcome(ui, channel, viewport.height() - end_padding);
 			}
-			let lead = if welcome {
+			let lead = if welcome || !live_edge {
 				0.0
 			} else {
 				(viewport.height() - lead_packed).max(0.0)
@@ -2639,6 +2651,7 @@ impl TimelineView {
 				&& !egui::Popup::is_any_open(ui.ctx())
 				&& !crate::select::has_selection(ui.ctx())
 				&& !ui.input(|input| input.pointer.any_down() || input.pointer.any_released());
+			let name_hover = self.name_hover.take();
 			let mut end = first;
 			for index in first..self.rows.len() {
 				let row_id = ui.make_persistent_id(self.rows[index].0.0);
@@ -3105,7 +3118,9 @@ impl TimelineView {
 														.size(12.0)
 														.color(colors.muted),
 												)
-												.on_hover_text_with(|| format!("{} UTC", time));
+												.on_hover_text_with(|| {
+													crate::local_time::full(time)
+												});
 											surface.exclude(time.rect);
 										},
 									);
@@ -3119,14 +3134,23 @@ impl TimelineView {
 										),
 										|ui| {
 											ui.set_max_width(width);
-											let author = crate::account_badge::name(
-												ui,
-												&message.author,
-												state.message_author_name(message),
-												15.5,
-												(colors.text_strong, author_colors, colors.chat),
-												egui::Sense::click(),
-												0.0,
+											let author = crate::name_styles::in_row(
+												name_hover == Some(message.id),
+												|| {
+													crate::account_badge::name(
+														ui,
+														&message.author,
+														state.message_author_name(message),
+														15.5,
+														(
+															colors.text_strong,
+															author_colors,
+															colors.chat,
+														),
+														egui::Sense::click(),
+														0.0,
+													)
+												},
 											)
 											.on_hover_cursor(egui::CursorIcon::PointingHand);
 											if author.hovered() {
@@ -3185,18 +3209,23 @@ impl TimelineView {
 											egui::Layout::left_to_right(egui::Align::Center),
 											|ui| {
 												ui.spacing_mut().item_spacing.x = 8.0;
-												let author = crate::account_badge::name(
-													ui,
-													&message.author,
-													state.message_author_name(message),
-													15.5,
-													(
-														colors.text_strong,
-														author_colors,
-														colors.chat,
-													),
-													egui::Sense::click(),
-													48.0,
+												let author = crate::name_styles::in_row(
+													name_hover == Some(message.id),
+													|| {
+														crate::account_badge::name(
+															ui,
+															&message.author,
+															state.message_author_name(message),
+															15.5,
+															(
+																colors.text_strong,
+																author_colors,
+																colors.chat,
+															),
+															egui::Sense::click(),
+															48.0,
+														)
+													},
 												)
 												.on_hover_cursor(egui::CursorIcon::PointingHand);
 												if avatar_hot || author.hovered() {
@@ -3224,13 +3253,15 @@ impl TimelineView {
 												let time = timestamp(id);
 												let time = ui
 													.label(
-														RichText::new(crate::local_time::clock(
+														RichText::new(crate::local_time::header(
 															time,
 														))
 														.size(12.0)
 														.color(colors.muted),
 													)
-													.on_hover_text_with(|| format!("{} UTC", time));
+													.on_hover_text_with(|| {
+														crate::local_time::full(time)
+													});
 												surface.exclude(time.rect);
 											},
 										);
@@ -3803,6 +3834,9 @@ impl TimelineView {
 						&& !other_toolbar_hover
 						&& !egui::Popup::is_any_open(ui.ctx())
 						&& retained_toolbar.is_none_or(|(active, _)| active == id);
+					if hovered {
+						self.name_hover = Some(id);
+					}
 					let context_menu = (ui.rect_contains_pointer(rect) || toolbar_hover)
 						&& !other_toolbar_hover
 						&& !reaction_menu && !egui::Popup::is_any_open(ui.ctx())
@@ -3839,7 +3873,7 @@ impl TimelineView {
 								ui.scope_id().with("timestamp"),
 								egui::Sense::hover(),
 							)
-							.on_hover_text_with(|| format!("{} UTC", time));
+							.on_hover_text_with(|| crate::local_time::full(time));
 						}
 						let own = state
 							.user
@@ -4194,6 +4228,10 @@ impl TimelineView {
 					response.response.rect.height(),
 				));
 			}
+			// Names follow the hovered row a pass late; draw that pass even if the pointer stops.
+			if self.name_hover != name_hover {
+				ui.ctx().request_repaint();
+			}
 			let used: f32 = self.rows[..end].iter().map(|(_, height)| *height).sum();
 			ui.add_space((total - used).max(0.0));
 			for (index, (pending, height)) in pending_rows.iter().enumerate() {
@@ -4232,7 +4270,11 @@ impl TimelineView {
 							&mut self.pending_formatted,
 						),
 						upload,
-						(&mut self.restore_pending, &mut self.cancel_upload),
+						(
+							&mut self.restore_pending,
+							&mut self.dismiss_pending,
+							&mut self.cancel_upload,
+						),
 					);
 				});
 				let measured = response.response.rect.height();
@@ -4260,7 +4302,7 @@ impl TimelineView {
 		}
 		// ScrollArea applies wheel input after laying out its contents. Preserve that
 		// movement when new row measurements rebuild the timeline on the next pass.
-		let spare = if welcome {
+		let spare = if welcome || !live_edge {
 			0.0
 		} else {
 			(output.inner_rect.height() - lead_packed).max(0.0)
@@ -4312,9 +4354,14 @@ impl TimelineView {
 						.is_some_and(|pos| output.inner_rect.contains(pos))))
 				|| (input.pointer.any_down() && output.state.clamped_offset().y > output.inner)
 		});
+		// A window that does not fill the view cannot be scrolled, so it fetches newer pages
+		// until it does, like Discord after jumping to an early message.
+		let underfilled = output.content_size.y <= output.inner_rect.height() + 1.0;
 		if at_bottom && (can_load_newer || self.at_current_latest) {
 			if can_load_newer {
-				if scrolled_toward_bottom {
+				if underfilled && !scrolled_toward_bottom {
+					self.fill_newer = true;
+				} else if scrolled_toward_bottom {
 					self.load_newer = true;
 					self.browse_away();
 					if autoscroll_delta == 0.0 {
@@ -5474,6 +5521,7 @@ mod tests {
 					sticker: None,
 					delivery: model::Delivery::Sending,
 					confirmed: None,
+					reply: None,
 				});
 				let mut view = TimelineView {
 					compact_messages: true,
@@ -5862,6 +5910,45 @@ mod tests {
 		}
 	}
 
+	/// Jumped to a conversation's first messages, a window too short to scroll fetches the next
+	/// newer page by itself instead of waiting for a scroll that cannot happen.
+	#[test]
+	fn a_short_window_at_a_target_fetches_newer_messages_by_itself() {
+		let mut state = test_support::demo_state();
+		state.timeline.clear();
+		state.selected = Some(Id(20));
+		state.freshness = model::Freshness::Fresh;
+		state.history_pending = false;
+		state.history_targeted = true;
+		state.history_before = Some(Id(3));
+		state
+			.channels
+			.iter_mut()
+			.find(|channel| channel.id == Id(20))
+			.unwrap()
+			.last_message = Some(Id(100));
+		for id in 1..=2 {
+			state
+				.timeline
+				.insert(text_message(id), false, false)
+				.unwrap();
+		}
+		state.search_target = Some(Id(2));
+		state.revision += 1;
+		assert!(state.can_load_newer());
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut view = TimelineView::default();
+		for _ in 0..4 {
+			banner_frame(&ctx, &mut view, &mut state, vec![], false);
+		}
+		assert!(
+			view.fill_newer,
+			"the next page is requested without a scroll"
+		);
+		assert!(!view.load_newer);
+	}
+
 	#[test]
 	fn downward_wheel_at_pinned_target_loads_next_page() {
 		let mut state = test_support::demo_state();
@@ -6000,6 +6087,7 @@ mod tests {
 				attachments: vec![],
 				delivery: model::Delivery::Sending,
 				confirmed: None,
+				reply: None,
 			})
 			.collect();
 		let mut view = TimelineView {

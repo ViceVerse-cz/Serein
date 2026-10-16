@@ -1,34 +1,102 @@
 //! Converts UTC instants to the user's local zone for display.
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 /// Whether times of day use a 12-hour clock; set from Settings › Language & Time.
 static TWELVE_HOUR: AtomicBool = AtomicBool::new(false);
+/// The [`DateOrder`] of numeric dates; follows the display language or system locale.
+static DATE_ORDER: AtomicU8 = AtomicU8::new(DateOrder::MonthDayYear as u8);
 
-/// Applies the clock style. `Auto` follows the display language, or the system locale when the
-/// language follows the system, as Discord does.
+/// Applies the clock style and date order. `Auto` follows the display language, or the system
+/// locale when the language follows the system, as Discord does.
 pub fn set_format(format: model::TimeFormat, language: crate::i18n::Language) {
+	let system = || sys_locale::get_locale().unwrap_or_else(|| "en-US".to_owned());
+	let tag = language.preference().map_or_else(system, str::to_owned);
 	let twelve = match format {
 		model::TimeFormat::TwelveHour => true,
 		model::TimeFormat::TwentyFourHour => false,
-		model::TimeFormat::Auto => match language {
-			crate::i18n::Language::System => {
-				twelve_hour_locale(sys_locale::get_locale().as_deref().unwrap_or("en-US"))
-			}
-			language => language == crate::i18n::Language::English,
-		},
+		model::TimeFormat::Auto => twelve_hour_locale(&tag),
 	};
 	TWELVE_HOUR.store(twelve, Ordering::Relaxed);
+	DATE_ORDER.store(DateOrder::of_locale(&tag) as u8, Ordering::Relaxed);
 }
 
-/// Locales whose convention is a 12-hour clock with AM/PM.
-fn twelve_hour_locale(tag: &str) -> bool {
+/// How a locale writes a numeric date, as Discord's short date (`L`) does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DateOrder {
+	/// `04/14/2025`
+	MonthDayYear,
+	/// `14/04/2025`
+	DayMonthYear,
+	/// `14.04.2025`
+	DayMonthYearDots,
+	/// `2025/04/14`
+	YearMonthDay,
+	/// `2025-04-14`
+	YearMonthDayDashes,
+}
+
+impl DateOrder {
+	const ALL: [Self; 5] = [
+		Self::MonthDayYear,
+		Self::DayMonthYear,
+		Self::DayMonthYearDots,
+		Self::YearMonthDay,
+		Self::YearMonthDayDashes,
+	];
+
+	fn current() -> Self {
+		let value = DATE_ORDER.load(Ordering::Relaxed);
+		Self::ALL
+			.into_iter()
+			.find(|order| *order as u8 == value)
+			.unwrap_or(Self::MonthDayYear)
+	}
+
+	fn of_locale(tag: &str) -> Self {
+		let (language, region) = locale_parts(tag);
+		// Regional overrides come before the language-wide orders below.
+		match (language.as_str(), region.as_deref()) {
+			("en", None | Some("US" | "PH")) | ("es", Some("US")) => Self::MonthDayYear,
+			("en" | "fr", Some("CA")) | ("sv" | "lt", _) => Self::YearMonthDayDashes,
+			("en", Some("ZA")) | ("ja" | "zh" | "ko" | "hu", _) => Self::YearMonthDay,
+			(
+				"de" | "ru" | "tr" | "pl" | "cs" | "sk" | "uk" | "fi" | "da" | "nb" | "no" | "ro"
+				| "bg" | "hr" | "sr" | "lv" | "et",
+				_,
+			) => Self::DayMonthYearDots,
+			_ => Self::DayMonthYear,
+		}
+	}
+
+	fn date(self, date: time::Date) -> String {
+		let (year, month, day) = (date.year(), u8::from(date.month()), date.day());
+		match self {
+			Self::MonthDayYear => format!("{month:02}/{day:02}/{year}"),
+			Self::DayMonthYear => format!("{day:02}/{month:02}/{year}"),
+			Self::DayMonthYearDots => format!("{day:02}.{month:02}.{year}"),
+			Self::YearMonthDay => format!("{year}/{month:02}/{day:02}"),
+			Self::YearMonthDayDashes => format!("{year}-{month:02}-{day:02}"),
+		}
+	}
+}
+
+/// A locale tag's lowercase language and uppercase two-letter region, ignoring encodings.
+fn locale_parts(tag: &str) -> (String, Option<String>) {
 	let tag = tag.split(['.', '@']).next().unwrap_or_default();
 	let tag = tag.replace('_', "-");
 	let mut parts = tag.split('-');
 	let language = parts.next().unwrap_or_default().to_ascii_lowercase();
+	// Single-letter subtags start extensions (`-u-ca-gregory`), whose keys are not regions.
 	let region = parts
+		.take_while(|part| part.len() > 1)
 		.find(|part| part.len() == 2)
 		.map(str::to_ascii_uppercase);
+	(language, region)
+}
+
+/// Locales whose convention is a 12-hour clock with AM/PM.
+fn twelve_hour_locale(tag: &str) -> bool {
+	let (language, region) = locale_parts(tag);
 	match (language.as_str(), region.as_deref()) {
 		("en", None) => true,
 		("en", Some(region)) => matches!(region, "US" | "CA" | "AU" | "NZ" | "PH" | "IN"),
@@ -135,6 +203,73 @@ pub fn discord_timestamp(seconds: i64, style: u8) -> Option<String> {
 		_ => format!("{} {}, {} {clock}", date.month(), date.day(), date.year()),
 	})
 }
+/// A message header's time as Discord writes it: just the time today, "Yesterday at 11:22", and
+/// older days as the locale's numeric date and time, e.g. `14/04/2025 11:22`.
+pub fn header(utc: time::OffsetDateTime) -> String {
+	format_header(
+		local(utc),
+		now().date(),
+		TWELVE_HOUR.load(Ordering::Relaxed),
+		DateOrder::current(),
+	)
+}
+
+/// [`header`] against an explicit local `today`, so day boundaries are testable.
+fn format_header(
+	at: time::OffsetDateTime,
+	today: time::Date,
+	twelve: bool,
+	order: DateOrder,
+) -> String {
+	let clock = format_clock(at, false, twelve);
+	if at.date() == today {
+		clock
+	} else if today.previous_day() == Some(at.date()) {
+		crate::i18n::translate_args("search-result-yesterday-at", &[("time", &clock)])
+	} else {
+		format!("{} {clock}", order.date(at.date()))
+	}
+}
+
+/// The full date shown when hovering a message time: "Monday, April 14, 2025 at 11:22 AM",
+/// "Monday, 14 April 2025 at 11:22" where the locale writes the day first, or
+/// "Monday, 2025 April 14 at 11:22" where it writes the year first.
+pub fn full(utc: time::OffsetDateTime) -> String {
+	format_full(
+		local(utc),
+		TWELVE_HOUR.load(Ordering::Relaxed),
+		DateOrder::current(),
+	)
+}
+
+fn format_full(at: time::OffsetDateTime, twelve: bool, order: DateOrder) -> String {
+	let date = at.date();
+	let clock = format_clock(at, false, twelve);
+	match order {
+		DateOrder::MonthDayYear => format!(
+			"{}, {} {}, {} at {clock}",
+			date.weekday(),
+			date.month(),
+			date.day(),
+			date.year()
+		),
+		DateOrder::YearMonthDay | DateOrder::YearMonthDayDashes => format!(
+			"{}, {} {} {} at {clock}",
+			date.weekday(),
+			date.year(),
+			date.month(),
+			date.day()
+		),
+		DateOrder::DayMonthYear | DateOrder::DayMonthYearDots => format!(
+			"{}, {} {} {} at {clock}",
+			date.weekday(),
+			date.day(),
+			date.month(),
+			date.year()
+		),
+	}
+}
+
 /// Discord's calendar time: "Today at 2:05 PM", "Yesterday at 14:05", else "10/12/26, 5:37 PM".
 pub fn calendar(utc: time::OffsetDateTime) -> String {
 	let at = local(utc);
@@ -219,6 +354,189 @@ mod tests {
 		}
 		assert_eq!(super::format_clock(at(14, 5), true, true), "2:05:09 PM");
 		assert_eq!(super::format_clock(at(14, 5), true, false), "14:05:09");
+	}
+
+	/// Message headers read like Discord's: today, yesterday, then the short date.
+	#[test]
+	fn calendar_times_name_today_and_yesterday_and_date_older_messages() {
+		// A fixed noon keeps "today" and "yesterday" from crossing midnight mid-test.
+		let now =
+			time::OffsetDateTime::now_utc().replace_time(time::Time::from_hms(12, 0, 0).unwrap());
+		let _clock = super::pin_now(now);
+		assert!(super::calendar(now).starts_with("Today at "));
+		assert_eq!(super::header(now), super::clock(super::local(now)));
+		assert!(super::header(now - time::Duration::days(1)).starts_with("Yesterday at "));
+		assert!(super::calendar(now - time::Duration::days(1)).starts_with("Yesterday at "));
+		let older = time::OffsetDateTime::UNIX_EPOCH
+			.replace_date(time::Date::from_calendar_date(2026, time::Month::April, 29).unwrap())
+			.replace_time(time::Time::from_hms(3, 42, 0).unwrap());
+		let label = super::calendar(older);
+		assert!(
+			label == "4/29/26, 03:42" || label == "4/29/26, 3:42 AM",
+			"{label}"
+		);
+	}
+
+	/// Drops Fluent's bidi isolation marks around placeables.
+	fn plain(text: String) -> String {
+		text.replace(['\u{2068}', '\u{2069}'], "")
+	}
+
+	fn local_at(rfc3339: &str) -> time::OffsetDateTime {
+		time::OffsetDateTime::parse(rfc3339, &time::format_description::well_known::Rfc3339)
+			.unwrap()
+	}
+
+	/// Matches the issue's Discord reference: `14/04/2025 11:22` for a day-first locale.
+	#[test]
+	fn headers_show_the_time_today_yesterday_and_a_locale_date_before() {
+		use super::DateOrder::*;
+		let today = time::Date::from_calendar_date(2026, time::Month::October, 14).unwrap();
+		let header =
+			|at, twelve, order| plain(super::format_header(local_at(at), today, twelve, order));
+		assert_eq!(
+			header("2026-10-14T15:45:00+02:00", true, MonthDayYear),
+			"3:45 PM"
+		);
+		assert_eq!(
+			header("2026-10-14T15:45:00+02:00", false, DayMonthYear),
+			"15:45"
+		);
+		assert_eq!(
+			header("2026-10-13T15:45:00+02:00", true, MonthDayYear),
+			"Yesterday at 3:45 PM"
+		);
+		assert_eq!(
+			header("2026-10-13T15:45:00+02:00", false, DayMonthYearDots),
+			"Yesterday at 15:45"
+		);
+		// Older days in the same year and earlier years both carry the full date.
+		assert_eq!(
+			header("2026-10-12T15:45:00+02:00", true, MonthDayYear),
+			"10/12/2026 3:45 PM"
+		);
+		assert_eq!(
+			header("2025-04-14T11:22:00+01:00", false, DayMonthYear),
+			"14/04/2025 11:22"
+		);
+		assert_eq!(
+			header("2025-04-14T11:22:00+01:00", false, DayMonthYearDots),
+			"14.04.2025 11:22"
+		);
+		assert_eq!(
+			header("2025-04-14T09:05:00+09:00", false, YearMonthDay),
+			"2025/04/14 09:05"
+		);
+		assert_eq!(
+			header("2025-04-14T09:05:00-05:00", true, YearMonthDayDashes),
+			"2025-04-14 9:05 AM"
+		);
+	}
+
+	/// Labels follow the local calendar day, not 24-hour windows from now.
+	#[test]
+	fn header_days_change_at_local_midnight() {
+		let today = time::Date::from_calendar_date(2026, time::Month::October, 14).unwrap();
+		let header = |at| {
+			plain(super::format_header(
+				local_at(at),
+				today,
+				false,
+				super::DateOrder::DayMonthYear,
+			))
+		};
+		assert_eq!(header("2026-10-14T00:00:00+02:00"), "00:00");
+		assert_eq!(header("2026-10-14T23:59:00+02:00"), "23:59");
+		assert_eq!(header("2026-10-13T23:59:00+02:00"), "Yesterday at 23:59");
+		assert_eq!(header("2026-10-13T00:00:00+02:00"), "Yesterday at 00:00");
+		assert_eq!(header("2026-10-12T23:59:00+02:00"), "12/10/2026 23:59");
+		// Year and month boundaries still count as yesterday.
+		let new_year = time::Date::from_calendar_date(2026, time::Month::January, 1).unwrap();
+		assert_eq!(
+			plain(super::format_header(
+				local_at("2025-12-31T23:30:00Z"),
+				new_year,
+				true,
+				super::DateOrder::MonthDayYear
+			)),
+			"Yesterday at 11:30 PM"
+		);
+		// The instant's own offset decides its day: 23:30 UTC is already tomorrow in Prague.
+		let utc = local_at("2026-10-13T23:30:00Z");
+		assert_eq!(
+			super::format_header(
+				utc.to_offset(time::UtcOffset::from_hms(2, 0, 0).unwrap()),
+				today,
+				false,
+				super::DateOrder::DayMonthYear
+			),
+			"01:30"
+		);
+	}
+
+	#[test]
+	fn full_dates_spell_out_the_weekday_and_month() {
+		let at = local_at("2026-10-14T15:45:00+02:00");
+		assert_eq!(
+			super::format_full(at, true, super::DateOrder::MonthDayYear),
+			"Wednesday, October 14, 2026 at 3:45 PM"
+		);
+		assert_eq!(
+			super::format_full(at, false, super::DateOrder::DayMonthYear),
+			"Wednesday, 14 October 2026 at 15:45"
+		);
+		assert_eq!(
+			super::format_full(at, false, super::DateOrder::DayMonthYearDots),
+			"Wednesday, 14 October 2026 at 15:45"
+		);
+		for order in [
+			super::DateOrder::YearMonthDay,
+			super::DateOrder::YearMonthDayDashes,
+		] {
+			assert_eq!(
+				super::format_full(at, false, order),
+				"Wednesday, 2026 October 14 at 15:45"
+			);
+		}
+	}
+
+	#[test]
+	fn date_order_follows_the_locale() {
+		use super::DateOrder::*;
+		for (tag, order) in [
+			("en-US", MonthDayYear),
+			("en", MonthDayYear),
+			("en_US.UTF-8", MonthDayYear),
+			("en-GB", DayMonthYear),
+			("en_GB.UTF-8@euro", DayMonthYear),
+			("en-AU", DayMonthYear),
+			("en-CA", YearMonthDayDashes),
+			("en-IN", DayMonthYear),
+			("en-NZ", DayMonthYear),
+			("fr_CA.UTF-8", YearMonthDayDashes),
+			("en-ZA", YearMonthDay),
+			("en_ZA.UTF-8", YearMonthDay),
+			("en-u-ca-gregory", MonthDayYear),
+			("en-GB-u-ca-gregory", DayMonthYear),
+			("fr-FR", DayMonthYear),
+			("es-US", MonthDayYear),
+			("es-ES", DayMonthYear),
+			("zh-HK", YearMonthDay),
+			("zh_CN.UTF-8", YearMonthDay),
+			("ko-KR", YearMonthDay),
+			("fr", DayMonthYear),
+			("pt-BR", DayMonthYear),
+			("de-DE", DayMonthYearDots),
+			("cs_CZ.UTF-8", DayMonthYearDots),
+			("ja-JP", YearMonthDay),
+			("zh-TW", YearMonthDay),
+			("sv-SE", YearMonthDayDashes),
+		] {
+			assert_eq!(super::DateOrder::of_locale(tag), order, "{tag}");
+		}
+		for order in super::DateOrder::ALL {
+			assert_eq!(super::DateOrder::ALL[order as usize], order);
+		}
 	}
 
 	#[test]

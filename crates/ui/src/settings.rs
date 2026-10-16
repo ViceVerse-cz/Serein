@@ -1106,6 +1106,11 @@ impl MessagingUi {
 					"settings-cosmetics-frames-description",
 					&mut cosmetics.frames,
 				),
+				(
+					"settings-cosmetics-name-styles",
+					"settings-cosmetics-name-styles-description",
+					&mut cosmetics.name_styles,
+				),
 			]
 			.into_iter()
 			.enumerate()

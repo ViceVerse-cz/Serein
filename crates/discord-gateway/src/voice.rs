@@ -1192,6 +1192,7 @@ mod tests {
 				primary_guild: None,
 				avatar_decoration_data: None,
 				collectibles: None,
+				display_name_styles: None,
 				clan: None,
 				id: Id(id),
 				username: name.into(),

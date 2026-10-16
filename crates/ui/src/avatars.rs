@@ -161,6 +161,11 @@ fn paint_texture(
 	}
 }
 
+/// Playback key for an animated custom emoji, or `None` when it should show its still.
+fn animated_emoji_key(id: model::Id, play: bool) -> Option<String> {
+	(play && id.0 != 0).then(|| format!("anim:emoji-{id}"))
+}
+
 fn is_animated_profile_or_avatar_key(key: &str) -> bool {
 	// Decorations and nameplates animate while hovered, like the avatar beside them.
 	if let Some(asset) = key.strip_prefix("decoration-") {
@@ -527,6 +532,48 @@ impl Avatars {
 			None
 		}
 	}
+	/// Custom emoji artwork. Animated emoji (`<a:name:id>`) play their GIF while GIF animation
+	/// is on, using the shared bounded animation pool; otherwise, and after the animated
+	/// artwork fails, they show the still PNG.
+	pub(crate) fn custom_emoji(
+		&mut self,
+		ctx: &egui::Context,
+		id: model::Id,
+		animated: bool,
+		size: f32,
+		demo: bool,
+	) -> Option<egui::Image<'static>> {
+		if let Some(key) = animated_emoji_key(id, animated && self.animate_gifs && !demo)
+			&& !self.no_animations.contains(&key)
+		{
+			let frame = self.advance_animation(ctx, &key, false);
+			// Frames evicted from the shared pool come back while the emoji is visible.
+			if frame.is_none()
+				&& self.textures.contains_key(&key)
+				&& !self.animations.contains_key(&key)
+				&& !self.released.contains(&key)
+			{
+				self.request(key.clone());
+			}
+			if let Some(entry) = self.textures.get_mut(&key) {
+				entry.0 = Instant::now();
+				return Some(
+					egui::Image::new(frame.as_ref().unwrap_or(&entry.1))
+						.fit_to_exact_size(egui::Vec2::splat(size)),
+				);
+			}
+			self.request(key);
+			// A still cached earlier bridges the download without fetching it as well.
+			return self
+				.emoji_textures
+				.get_mut(&format!("emoji-{id}"))
+				.map(|entry| {
+					entry.0 = Instant::now();
+					egui::Image::new(&entry.1).fit_to_exact_size(egui::Vec2::splat(size))
+				});
+		}
+		self.custom_image(ctx, id, size, demo)
+	}
 	fn sticker_key(
 		&mut self,
 		_ctx: &egui::Context,
@@ -580,7 +627,9 @@ impl Avatars {
 		demo: bool,
 	) -> Option<egui::Image<'static>> {
 		match asset {
-			model::ImageShare::Emoji { id, .. } => self.custom_image(ctx, id, size, demo),
+			model::ImageShare::Emoji { id, animated } => {
+				self.custom_emoji(ctx, id, animated, size, demo)
+			}
 			model::ImageShare::Sticker { id, format_type } => {
 				let key = self.sticker_key(ctx, id, format_type, demo);
 				let animated = self.advance_animation(ctx, &key, false);
@@ -705,6 +754,10 @@ impl Avatars {
 		}
 		response
 	}
+	/// Whether GIFs animate right now: animation is on and the window has focus.
+	pub(crate) fn gifs_playing(&self, ctx: &egui::Context) -> bool {
+		self.animate_gifs && ctx.input(|input| input.focused)
+	}
 	/// Picker preview texture; a small GIF preview plays, never the full-size original.
 	/// Synthetic previews are painted locally.
 	pub(crate) fn gif_texture(
@@ -784,10 +837,13 @@ impl Avatars {
 		corner: egui::CornerRadius,
 		demo: bool,
 	) {
+		// A profile theme decides the banner, as on Discord; the legacy accent is a fallback.
 		let color = profile
-			.accent_color
-			.or(profile.theme_colors.map(|c| c[0]))
-			.map(|rgb| egui::Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8))
+			.theme_colors
+			.map(crate::profiles::Theme::banner)
+			.or(profile
+				.accent_color
+				.map(|rgb| egui::Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)))
 			.unwrap_or(crate::design::palette(ui).accent.gamma_multiply(0.4));
 		ui.painter().rect_filled(rect, corner, color);
 		if ui.is_rect_visible(rect)
@@ -1886,6 +1942,112 @@ mod tests {
 			avatars.bytes + avatars.emoji_bytes,
 			avatars.textures.len() + avatars.emoji_textures.len()
 		);
+	}
+
+	#[test]
+	fn animated_custom_emoji_play_with_gifs_and_fall_back_to_the_still() {
+		let ctx = egui::Context::default();
+		let id = model::Id(42);
+		assert_eq!(
+			animated_emoji_key(id, true).as_deref(),
+			Some("anim:emoji-42")
+		);
+		assert_eq!(animated_emoji_key(id, false), None);
+		assert_eq!(animated_emoji_key(model::Id(0), true), None);
+		let mut images = Avatars::default();
+		// Static emoji, and animated ones with GIF animation off, use the still artwork.
+		for (still, animated, enabled) in [(41, false, true), (42, true, false)] {
+			images.set_animation(enabled);
+			let still = model::Id(still);
+			assert!(
+				images
+					.custom_emoji(&ctx, still, animated, 20.0, false)
+					.is_none()
+			);
+			assert_eq!(images.take_requests(), vec![format!("emoji-{still}")]);
+		}
+		images.accept(
+			&ctx,
+			"emoji-42".into(),
+			Some(ColorImage::filled([64, 64], egui::Color32::WHITE)),
+		);
+		images.set_animation(true);
+		// The cached still bridges the animated download without another still request.
+		let still = images.texture_id("emoji-42");
+		let image = images.custom_emoji(&ctx, id, true, 20.0, false).unwrap();
+		let texture = |image: &egui::Image<'_>, ctx: &egui::Context| match image.source(ctx) {
+			egui::ImageSource::Texture(texture) => Some(texture.id),
+			_ => None,
+		};
+		assert_eq!(texture(&image, &ctx), still);
+		assert_eq!(images.take_requests(), vec!["anim:emoji-42"]);
+		images.accept(
+			&ctx,
+			"anim:emoji-42".into(),
+			Some(ColorImage::filled([64, 64], egui::Color32::RED)),
+		);
+		images.accept_animation(
+			"anim:emoji-42".into(),
+			vec![
+				(
+					Duration::from_millis(100),
+					std::sync::Arc::new(ColorImage::filled([64, 64], egui::Color32::RED)),
+				),
+				(
+					Duration::from_millis(100),
+					std::sync::Arc::new(ColorImage::filled([64, 64], egui::Color32::BLUE)),
+				),
+			],
+		);
+		assert!(images.animations.contains_key("anim:emoji-42"));
+		let mut played = None;
+		ctx.run_ui(
+			egui::RawInput {
+				focused: true,
+				..Default::default()
+			},
+			|ui| {
+				played = images
+					.custom_emoji(ui.ctx(), id, true, 20.0, false)
+					.and_then(|image| texture(&image, ui.ctx()));
+			},
+		)
+		.drop_without_applying_deltas();
+		let frames = images.animations["anim:emoji-42"]
+			.texture
+			.as_ref()
+			.map(|t| t.id());
+		assert!(played.is_some() && played == frames);
+		assert!(images.take_requests().is_empty());
+		// Frames evicted by the shared pool are fetched again while the emoji stays visible.
+		images.animations.remove("anim:emoji-42");
+		assert!(images.custom_emoji(&ctx, id, true, 20.0, false).is_some());
+		assert_eq!(images.take_requests(), vec!["anim:emoji-42"]);
+
+		// A failed animated download shows the still instead of retrying the GIF.
+		let other = model::Id(43);
+		assert!(
+			images
+				.custom_emoji(&ctx, other, true, 20.0, false)
+				.is_none()
+		);
+		assert_eq!(images.take_requests(), vec!["anim:emoji-43"]);
+		images.accept(&ctx, "anim:emoji-43".into(), None);
+		assert!(
+			images
+				.custom_emoji(&ctx, other, true, 20.0, false)
+				.is_none()
+		);
+		assert_eq!(images.take_requests(), vec!["emoji-43"]);
+
+		// Demo artwork stays local.
+		let mut demo = Avatars::default();
+		demo.set_animation(true);
+		assert!(
+			demo.custom_emoji(&ctx, model::Id(9001), true, 20.0, true)
+				.is_some()
+		);
+		assert!(demo.take_requests().is_empty());
 	}
 
 	#[test]

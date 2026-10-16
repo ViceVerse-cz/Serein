@@ -972,6 +972,8 @@ impl MessagingUi {
 										self.avatars.show(&mut inner, user, 32.0, state.demo);
 									let (status, _, _, clients) =
 										crate::profiles::presence(state, user.id, None);
+									let status =
+										crate::profiles::shown_status(state, user.id, status);
 									if channel.kind == 1
 										&& let Some(status) = status
 									{
@@ -1069,15 +1071,17 @@ impl MessagingUi {
 											let trailing =
 												crate::profiles::server_tag_width(ui, server_tag)
 													+ if server_tag.is_some() { 5.0 } else { 0.0 };
-											crate::account_badge::name(
-												ui,
-												user,
-												&label,
-												15.0,
-												(name_color, None, colors.sidebar),
-												egui::Sense::hover(),
-												trailing,
-											);
+											crate::name_styles::in_row(hovered, || {
+												crate::account_badge::name(
+													ui,
+													user,
+													&label,
+													15.0,
+													(name_color, None, colors.sidebar),
+													egui::Sense::hover(),
+													trailing,
+												)
+											});
 											if let Some(tag) = server_tag {
 												crate::profiles::server_tag(
 													ui,

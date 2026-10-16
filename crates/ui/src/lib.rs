@@ -92,6 +92,7 @@ mod contact_editor;
 pub mod dialog;
 mod join_server;
 mod keybinds;
+mod name_styles;
 mod onboarding;
 mod polls;
 mod profile_edit;
@@ -370,6 +371,8 @@ pub struct MessagingUi {
 	pub reconnect_requested: bool,
 	pub draft_changes: Vec<Id>,
 	pub draft_restore_pending: bool,
+	/// The reply target's author, kept while that message leaves the loaded window.
+	reply_author: Option<(Id, String)>,
 	pub attachment: Option<(String, u64)>,
 	pub attachment_files: Vec<(String, u64)>,
 	pub remove_attachment_index: Option<usize>,
@@ -490,6 +493,8 @@ pub struct MessagingUi {
 	edit_sent: Option<SubmittedEdit>,
 	deleting: Option<(Id, Id)>,
 	ime_active: bool,
+	/// The composer claimed Tab last frame, so egui left it in the input for a suggestion menu.
+	composer_claims_tab: bool,
 	mention_menu: mentions::Menu,
 	slash_commands: slash_commands::Menu,
 	slash_direct: Option<slash_builtin::PendingMessage>,
@@ -1738,22 +1743,29 @@ impl MessagingUi {
 											let trailing =
 												profiles::server_tag_width(ui, server_tag)
 													+ if server_tag.is_some() { 5.0 } else { 0.0 };
-											account_badge::name(
-												ui,
-												&member.user,
-												name,
-												15.0,
-												(
-													text_color,
-													role_colors,
-													if response.hovered() || response.has_focus() {
-														colors.hover
-													} else {
-														colors.sidebar
-													},
-												),
-												egui::Sense::hover(),
-												trailing,
+											crate::name_styles::in_row(
+												response.contains_pointer() || response.has_focus(),
+												|| {
+													account_badge::name(
+														ui,
+														&member.user,
+														name,
+														15.0,
+														(
+															text_color,
+															role_colors,
+															if response.hovered()
+																|| response.has_focus()
+															{
+																colors.hover
+															} else {
+																colors.sidebar
+															},
+														),
+														egui::Sense::hover(),
+														trailing,
+													)
+												},
 											);
 											if let Some(tag) = server_tag {
 												profiles::server_tag(
@@ -2114,7 +2126,7 @@ impl MessagingUi {
 								design::presence_dot(
 									ui,
 									avatar.rect,
-									profiles::presence_color(self.own_presence.status.wire()),
+									self.own_presence.status.wire(),
 									ring,
 								);
 								anchor =
@@ -2143,23 +2155,26 @@ impl MessagingUi {
 											let identity = ui
 												.vertical(|ui| {
 													ui.spacing_mut().item_spacing.y = 0.0;
-													ui.add(
-														egui::Label::new(
-															design::semibold(
-																ui,
-																state.user.as_ref().map_or_else(
-																	|| {
-																		language
-																			.text("your-account")
-																	},
-																	|u| u.name.clone(),
-																),
-																14.0,
-															)
-															.color(colors.text_strong),
-														)
-														.truncate()
-														.selectable(false),
+													let name = state.user.as_ref().map_or_else(
+														|| language.text("your-account"),
+														|u| u.name.clone(),
+													);
+													name_styles::label(
+														ui,
+														state
+															.user
+															.as_ref()
+															.and_then(name_styles::style),
+														&name,
+														egui::FontId::new(
+															14.0,
+															design::semibold_family(ui.ctx()),
+														),
+														None,
+														card_fill,
+														colors.text_strong,
+														egui::Sense::hover(),
+														true,
 													);
 													ui.add(
 														egui::Label::new(
@@ -2342,6 +2357,7 @@ impl MessagingUi {
 							);
 						}
 						let (status, _, _, clients) = profiles::presence(state, user.id, None);
+						let status = profiles::shown_status(state, user.id, status);
 						if dm && let Some(status) = status {
 							profiles::presence_badge(
 								ui,
@@ -2659,6 +2675,9 @@ impl MessagingUi {
 			if !state.drafts.contains_key(&channel) && state.drafts.len() >= 64 {
 				state.status =
 					"Draft budget full. Clear an existing draft before restoring pending text";
+			} else if state.pending[index].reply_conflicts(state.reply) {
+				// Restoring now would send this text to the newer reply's author.
+				state.status = "Cancel the current reply before restoring this message";
 			} else if state.drafts.get(&channel).is_none_or(String::is_empty) {
 				let pending = state.pending.remove(index);
 				if !pending.attachments.is_empty() {
@@ -2666,10 +2685,39 @@ impl MessagingUi {
 				}
 				state.drafts.insert(channel, pending.content);
 				self.draft_changes.push(channel);
+				// The reply goes back with its caption; a matching active reply is kept as is.
+				if state.reply.is_none() && state.selected == Some(channel) {
+					state.reply = pending
+						.reply
+						.filter(|reply| !state.timeline.is_deleted(reply.target()));
+				}
 			} else {
 				state.status = "Keep or clear the existing draft before restoring pending text";
 			}
 		}
+	}
+	/// Remembers the author seen while the target was loaded, so jumping to the latest
+	/// page or a send that comes back keeps naming who is being replied to.
+	fn reply_author(&mut self, state: &State, target: Id) -> String {
+		if let Some(message) = state.timeline.get(target) {
+			if self
+				.reply_author
+				.as_ref()
+				.is_none_or(|(id, name)| *id != target || *name != message.author.name)
+			{
+				self.reply_author = Some((target, message.author.name.clone()));
+			}
+		} else if self
+			.reply_author
+			.as_ref()
+			.is_some_and(|(id, _)| *id != target)
+		{
+			self.reply_author = None;
+		}
+		self.reply_author
+			.as_ref()
+			.filter(|(id, _)| *id == target)
+			.map_or_else(|| "an earlier message".to_owned(), |(_, name)| name.clone())
 	}
 	fn submit_composer(
 		&mut self,
@@ -3027,11 +3075,7 @@ impl MessagingUi {
 			});
 			cap_top = Some(cap.top());
 		} else if let Some(reply) = state.reply {
-			let author = state
-				.timeline
-				.get(reply.target())
-				.map_or("an earlier message", |message| message.author.name.as_str())
-				.to_owned();
+			let author = self.reply_author(state, reply.target());
 			let cap = composer_cap(ui, &colors, |ui| {
 				ui.spacing_mut().item_spacing.x = 0.0;
 				ui.label(
@@ -3273,6 +3317,11 @@ impl MessagingUi {
 		} else {
 			None
 		};
+		if std::mem::take(&mut self.composer_claims_tab) && ctx.memory(|m| m.has_focus(composer_id))
+		{
+			// A menu that closed this frame must not leave Tab for the editor to indent with.
+			ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
+		}
 		let mut editing = if editing_here {
 			self.editing.take()
 		} else {
@@ -3719,6 +3768,14 @@ impl MessagingUi {
                             output.response.request_focus();
                             mention_changed = true;
                         }
+                        // egui moves focus on unclaimed Tab before any menu can consume it.
+                        self.composer_claims_tab = mention_enabled
+                            && (self.mention_menu.claims_tab() || (!editing_here && self.slash_commands.claims_tab(ctx)));
+                        if self.composer_claims_tab {
+                            ctx.memory_mut(|m| m.set_focus_lock_filter(composer_id, egui::EventFilter {
+                                tab: true, horizontal_arrows: true, vertical_arrows: true, escape: editing_here,
+                            }));
+                        }
                         if text_menu::show(&mut output.response, composer_id, draft, paste_allowed, selection) {
                             self.menu_paste = Some(composer_id);
                         }
@@ -4017,6 +4074,7 @@ impl MessagingUi {
 
 	pub fn show(&mut self, ui: &mut egui::Ui, state: &mut State) -> Vec<Command> {
 		self.avatars.cosmetics = self.cosmetics;
+		name_styles::set_enabled(self.cosmetics.name_styles);
 		let cosmetics_refresh = state.set_profile_cosmetics(self.cosmetics);
 		self.timeline.download.gif_favorites = state
 			.gifs
@@ -4395,6 +4453,14 @@ impl MessagingUi {
 		if let Some(guild) = self.server_menu.mark_read_requested.take()
 			&& let Some(command) = state.prepare_mark_guild_read(guild)
 		{
+			commands.push(command);
+		}
+		if std::mem::take(&mut self.server_menu.mark_all_read_requested)
+			&& let Some(command) = state.prepare_mark_all_read()
+		{
+			commands.push(command);
+		}
+		if let Some(command) = state.continue_mark_all_read() {
 			commands.push(command);
 		}
 		let selected_voice = state
@@ -4879,6 +4945,12 @@ impl MessagingUi {
 								self.restore_pending(state, channel, &nonce);
 							}
 						}
+						if let Some(nonce) = self.timeline.dismiss_pending.take()
+							&& let Some(channel) = state.discard_pending(&nonce)
+						{
+							// The recovery draft may have been the dismissed caption; save it again.
+							self.draft_changes.push(channel);
+						}
 						self.cancel_upload_requested |=
 							std::mem::take(&mut self.timeline.cancel_upload);
 						if let Some(gif) = self.timeline.gif_favorite.take() {
@@ -4929,7 +5001,14 @@ impl MessagingUi {
 								commands.push(command);
 							}
 							ctx.request_repaint();
-						} else if std::mem::take(&mut self.timeline.load_newer) {
+						} else if std::mem::take(&mut self.timeline.load_newer)
+							| (std::mem::take(&mut self.timeline.fill_newer)
+								// A scroll up outranks filling; it asks for older messages.
+								&& !self.timeline.load_older
+								// A history request cancels a loading search; only a scroll may.
+								&& !state.search.as_ref().is_some_and(|s| s.loading)
+								&& !state.archives.as_ref().is_some_and(|a| a.loading))
+						{
 							if let Some(command) = state.newer_history() {
 								commands.push(command);
 							}
@@ -5428,6 +5507,26 @@ impl MessagingUi {
 			commands.push(command);
 		}
 		self.verification.show(&ctx, state);
+		// Discord's notice for a rate-limited send; the messages stay queued and go out on their own.
+		if state.send_throttled {
+			let result = dialog::Dialog::new(
+				"send-throttled",
+				crate::i18n::translate("send-throttled-title"),
+			)
+			.subtitle(crate::i18n::translate("send-throttled-body"))
+			.width(400.0)
+			.show(&ctx, |d| {
+				let mut close = false;
+				d.footer(|ui| {
+					close = dialog::action(ui, "send-throttled-dismiss", dialog::Action::Primary)
+						.clicked();
+				});
+				close
+			});
+			if result.inner || result.close {
+				state.dismiss_send_throttle();
+			}
+		}
 		self.onboarding.show(&ctx, state, &mut commands);
 		self.scroll.clear_if_unbound(&ctx);
 		self.scroll.paint(&ctx);

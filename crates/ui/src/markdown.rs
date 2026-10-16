@@ -40,6 +40,158 @@ fn escaped(source: &str, at: usize) -> bool {
 		% 2 == 1
 }
 
+/// Inline markdown delimiters that are legal URL characters. A bare URL is literal text, so
+/// these must not open emphasis, underline, strikethrough or entities inside it. Backticks are
+/// not legal URL characters (RFC 3986 requires `%60`); URLs overlapping code stay unprotected.
+const URL_MARKUP: [char; 4] = ['_', '*', '~', '&'];
+/// Delimiters a trailing run may use to close formatting begun before the URL.
+const URL_CLOSERS: [char; 3] = ['_', '*', '~'];
+/// Masking one trailing opener can turn a later URL's closer into an opener; re-check this often.
+const URL_PROTECTION_ROUNDS: usize = 4;
+
+/// Mask markup inside bare URLs. `None` means the bounded preliminary parse ran out of budget
+/// and the message must use the literal fallback rather than unprotected Markdown.
+fn protect_url_markup(input: &str) -> Option<std::borrow::Cow<'_, str>> {
+	if !input.contains(URL_MARKUP) {
+		return Some(input.into());
+	}
+	let mut candidates = Vec::new();
+	let mut scanned = 0;
+	for word in input.split_whitespace() {
+		let start = scanned + input[scanned..].find(word).expect("word from source");
+		scanned = start + word.len();
+		if !word.contains(URL_MARKUP) {
+			continue;
+		}
+		let candidate = word.trim_start_matches(['(', '[', '{', '*', '_', '~', '|']);
+		let prefix = &word[..word.len() - candidate.len()];
+		let closing: String = prefix
+			.trim_start_matches(['(', '[', '{'])
+			.chars()
+			.rev()
+			.collect();
+		let candidate = candidate.strip_suffix(&closing).unwrap_or(candidate);
+		if candidate.contains(URL_MARKUP)
+			&& !candidate.contains('\\')
+			&& let Some(target) = bare_url(candidate)
+		{
+			let start = start + prefix.len();
+			candidates.push((start..start + target.len(), false));
+		}
+	}
+	if candidates.is_empty() {
+		return Some(input.into());
+	}
+	// Keep code, existing links (including masked labels), and HTML inert. Only a URL
+	// beginning in ordinary text is eligible; reference definitions have no text event.
+	for (count, (event, range)) in Parser::new_ext(input, Options::ENABLE_STRIKETHROUGH)
+		.into_offset_iter()
+		.enumerate()
+	{
+		if count >= MAX_EVENTS {
+			return None;
+		}
+		match event {
+			Event::Start(Tag::Link { .. } | Tag::Image { .. } | Tag::CodeBlock(_))
+			| Event::Code(_)
+			| Event::Html(_)
+			| Event::InlineHtml(_) => {
+				candidates.retain(|(url, _)| url.end <= range.start || url.start >= range.end);
+			}
+			Event::Text(_) => {
+				for (url, eligible) in &mut candidates {
+					*eligible |= range.contains(&url.start);
+				}
+			}
+			_ => {}
+		}
+	}
+	candidates.retain(|(_, eligible)| *eligible);
+	if candidates.is_empty() {
+		return Some(input.into());
+	}
+	let mut masked = input.as_bytes().to_vec();
+	let mut closers = Vec::new();
+	for (range, _) in &candidates {
+		// Keep only the final delimiter run, plus punctuation after it, for closing
+		// surrounding styles (`__a https://x/b__:`); mask every earlier delimiter.
+		let url = &input[range.clone()];
+		let unpunctuated =
+			url.trim_end_matches(|c: char| c.is_ascii_punctuation() && !URL_MARKUP.contains(&c));
+		let end = range.start + unpunctuated.trim_end_matches(URL_CLOSERS).len();
+		if end < range.start + unpunctuated.len() {
+			closers.push(end..range.start + unpunctuated.len());
+		}
+		for byte in &mut masked[range.start..end] {
+			if URL_MARKUP.contains(&char::from(*byte)) {
+				*byte = b'x';
+			}
+		}
+	}
+	// A kept run may close formatting begun before the URL, but must not open a style.
+	// Masking one opener can re-pair later runs, so repeat; if that does not settle,
+	// mask every kept run and leave the surrounding style unclosed.
+	let mut settled = closers.is_empty();
+	for _ in 0..URL_PROTECTION_ROUNDS {
+		if settled {
+			break;
+		}
+		settled = true;
+		let provisional = std::str::from_utf8(&masked).expect("ASCII replacement preserves UTF-8");
+		let mut openers = Vec::new();
+		for (count, (event, range)) in Parser::new_ext(provisional, Options::ENABLE_STRIKETHROUGH)
+			.into_offset_iter()
+			.enumerate()
+		{
+			if count >= MAX_EVENTS {
+				return None;
+			}
+			if matches!(
+				event,
+				Event::Start(Tag::Strong | Tag::Emphasis | Tag::Strikethrough)
+			) && candidates.iter().any(|(url, _)| url.contains(&range.start))
+			{
+				openers.push(range.start);
+			}
+		}
+		for start in openers {
+			let delimiter = masked[start];
+			for byte in &mut masked[start..] {
+				if *byte != delimiter {
+					break;
+				}
+				*byte = b'x';
+				settled = false;
+			}
+		}
+	}
+	if !settled {
+		for run in closers {
+			masked[run].fill(b'x');
+		}
+	}
+	// ASCII substitutions preserve source offsets; text events are restored before rendering.
+	Some(
+		String::from_utf8(masked)
+			.expect("ASCII replacement preserves UTF-8")
+			.into(),
+	)
+}
+
+fn bare_url(word: &str) -> Option<&str> {
+	let mut target = word.trim_end_matches(['.', ',', ';', '!', '?', ']', '}']);
+	while target.ends_with(')') && target.matches(')').count() > target.matches('(').count() {
+		target = &target[..target.len() - 1];
+	}
+	(target
+		.get(..8)
+		.is_some_and(|scheme| scheme.eq_ignore_ascii_case("https://"))
+		|| target
+			.get(..7)
+			.is_some_and(|scheme| scheme.eq_ignore_ascii_case("http://")))
+	.then_some(target)
+}
+
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 struct Style {
 	strong: bool,
@@ -749,8 +901,23 @@ impl Formatted {
 					.take_while(|b| *b == b'\\')
 					.count() % 2 == 0
 		};
-		let mut events = Parser::new_ext(input, Options::ENABLE_STRIKETHROUGH)
+		let Some(parser_input) = protect_url_markup(input) else {
+			return Self::limited_literal(&source[..end], source.contains("||"));
+		};
+		let protected = matches!(&parser_input, std::borrow::Cow::Owned(_));
+		let mut events = Parser::new_ext(&parser_input, Options::ENABLE_STRIKETHROUGH)
 			.into_offset_iter()
+			.map(|(event, range)| {
+				let event = match event {
+					Event::Text(text)
+						if protected && text.as_ref() == &parser_input[range.clone()] =>
+					{
+						Event::Text(input[range.clone()].into())
+					}
+					event => event,
+				};
+				(event, range)
+			})
 			.peekable();
 		// Merge only unchanged source text. Entity/escape expansions stay separate and inert,
 		// even when followed by an identical literal reference.
@@ -1176,17 +1343,7 @@ impl Formatted {
 			let start = scanned + text[scanned..].find(word).expect("word from source");
 			scanned = start + word.len();
 			let candidate = word.trim_start_matches(['(', '[', '{']);
-			let mut target = candidate.trim_end_matches(['.', ',', ';', '!', '?', ']', '}']);
-			while target.ends_with(')') && target.matches(')').count() > target.matches('(').count()
-			{
-				target = &target[..target.len() - 1];
-			}
-			if (target
-				.get(..8)
-				.is_some_and(|scheme| scheme.eq_ignore_ascii_case("https://"))
-				|| target
-					.get(..7)
-					.is_some_and(|scheme| scheme.eq_ignore_ascii_case("http://")))
+			if let Some(target) = bare_url(candidate)
 				&& let Some(link) = self.add_link(target)
 			{
 				let link_start = start + word.len() - candidate.len();
@@ -2228,7 +2385,13 @@ impl Formatted {
 			}
 			let inline = &mut inlines[*index];
 			inline.image = match inline.custom {
-				Some(id) => images.custom_image(ui.ctx(), id, size, demo),
+				Some(id) => images.custom_emoji(
+					ui.ctx(),
+					id,
+					crate::emoji::custom_animated(&inline.text),
+					size,
+					demo,
+				),
 				None => shared
 					.and_then(|asset| images.share_image(ui.ctx(), asset, size, demo))
 					.or_else(|| {
@@ -2311,14 +2474,33 @@ impl Formatted {
 				let inline = &inlines[*index];
 				let image = inline.image.clone();
 				if !link {
-					let hit = ui
+					let mut hit = ui
 						.interact(
 							*rect,
 							response.id.with(("emoji", *index, &inline.text)),
 							egui::Sense::click(),
 						)
-						.on_hover_cursor(egui::CursorIcon::PointingHand)
-						.on_hover_text(&inline.text);
+						.on_hover_cursor(egui::CursorIcon::PointingHand);
+					if hit.hovered() {
+						// Default emoji use a sharper raster than the inline atlas cell.
+						let art = inline
+							.cell
+							.filter(|_| inline.custom.is_none() && shared.is_none())
+							.and_then(|cell| {
+								images.unicode_image(
+									ui.ctx(),
+									cell,
+									crate::emoji_details::HOVER_ART,
+								)
+							})
+							.or_else(|| image.clone());
+						hit = crate::emoji_details::hover_card(
+							hit,
+							art,
+							&crate::emoji_details::name(&inline.text, guilds),
+							true,
+						);
+					}
 					hit.widget_info(|| {
 						egui::WidgetInfo::labeled(
 							egui::Role::Button,
@@ -2340,8 +2522,10 @@ impl Formatted {
 				.find(|(_, rect)| rect.contains(point))
 				.map(|(index, _)| *index)
 		};
-		if let Some(index) = response.hover_pos().and_then(slot_at) {
-			response = response.on_hover_text_at_pointer(&inlines[index].text);
+		// Emoji outside links have their own hover card; links keep only the name.
+		if link && let Some(index) = response.hover_pos().and_then(slot_at) {
+			response = response
+				.on_hover_text_at_pointer(crate::emoji_details::name(&inlines[index].text, guilds));
 		}
 		let menu = response.id.with("emoji-menu");
 		if response.secondary_clicked() {
@@ -4980,6 +5164,108 @@ mod tests {
 	}
 
 	#[test]
+	fn hovered_emoji_show_artwork_name_and_hint_instead_of_markup() {
+		fn texts(shape: &egui::Shape, found: &mut Vec<String>) {
+			match shape {
+				egui::Shape::Text(text) => found.push(text.galley.text().to_owned()),
+				egui::Shape::Vec(shapes) => {
+					for shape in shapes {
+						texts(shape, found);
+					}
+				}
+				_ => {}
+			}
+		}
+		for (source, title) in [
+			("\u{1f602}", ":joy:"),
+			("<a:old_name:9001>", ":serein_wave:"),
+			("<a:wave_animated:999999>", ":wave_animated:"),
+		] {
+			let ctx = egui::Context::default();
+			crate::emoji::install(&ctx).unwrap();
+			ctx.global_style_mut(|style| style.interaction.tooltip_delay = 0.0);
+			let state = test_support::demo_state();
+			let parsed = Formatted::parse(source);
+			let mut images = crate::avatars::Avatars::default();
+			let mut clock = 0.0;
+			let mut frame = |events| {
+				clock += 0.5;
+				ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(360.0, 300.0),
+						)),
+						events,
+						time: Some(clock),
+						..Default::default()
+					},
+					|ui| {
+						let mut profile = crate::profiles::ProfileSession::default();
+						parsed.show_with_images(
+							ui,
+							&mut None,
+							&[],
+							None,
+							&mut profile,
+							(&mut images, true, &state.guilds),
+							crate::design::MessageCardSurface::Opaque,
+						)
+					},
+				)
+			};
+			let mut output = frame(vec![]);
+			let mut before = vec![];
+			for shape in &output.shapes {
+				texts(&shape.shape, &mut before);
+			}
+			let point = output
+				.shapes
+				.iter()
+				.find_map(|shape| match &shape.shape {
+					egui::Shape::Text(text) if text.galley.text() == source => {
+						let row = &text.galley.rows[0];
+						let glyph = &row.glyphs[0];
+						Some(
+							text.pos
+								+ egui::vec2(
+									glyph.pos.x + glyph.advance_width / 2.0,
+									row.size.y / 2.0,
+								),
+						)
+					}
+					_ => None,
+				})
+				.expect("emoji slot");
+			output.textures_delta.clear();
+			frame(vec![egui::Event::PointerMoved(point)]).drop_without_applying_deltas();
+			let mut found = vec![];
+			for _ in 0..3 {
+				let output = frame(vec![]);
+				found.clear();
+				for shape in &output.shapes {
+					texts(&shape.shape, &mut found);
+				}
+				output.drop_without_applying_deltas();
+			}
+			assert!(
+				found.iter().any(|text| text == title),
+				"{source}: {found:?}"
+			);
+			assert!(
+				found.iter().any(|text| text == "Click to learn more"),
+				"{source}: {found:?}"
+			);
+			// The message itself carries the wire text; no tooltip repeats it.
+			assert_eq!(
+				found.iter().filter(|text| *text == source).count(),
+				before.iter().filter(|text| *text == source).count(),
+				"{source}: {found:?}"
+			);
+		}
+	}
+
+	#[test]
 	fn high_dpi_inline_emoji_keep_the_atlas_while_jumbo_requests_vectors() {
 		for (source, expected_vector) in [("Inline 🙂", false), ("🙂", true)] {
 			let ctx = egui::Context::default();
@@ -5736,6 +6022,333 @@ mod tests {
 		assert_eq!(profile.open_user().unwrap().name, "Synthetic Robin");
 		assert!(opening.is_none());
 	}
+	#[test]
+	fn bare_url_underscores_do_not_format_or_join_neighboring_links() {
+		for target in [
+			"https://example.com/__first__second",
+			"https://example.com/___first___second",
+			"http://example.com/____?q=__value__#___fragment",
+			"HTTPS://EXAMPLE.COM/a__b__c",
+			"https://example.com/__café__/___end",
+		] {
+			for source in [
+				target.to_owned(),
+				format!("({target})."),
+				format!("https://before.test/__ {target} https://after.test/__"),
+				format!("__ordinary underline__ {target} _ordinary italic_"),
+			] {
+				let parsed = Formatted::parse(&source);
+				let text: String = parsed.spans.iter().map(|(text, _)| text.as_str()).collect();
+				assert!(text.contains(target), "{source}: {text}");
+				assert!(
+					parsed.spans.iter().any(|(text, style)| {
+						text == target && style.link.is_some() && !style.strong && !style.italic
+					}),
+					"URL must be one literal link: {source}"
+				);
+				assert!(
+					parsed
+						.spans
+						.iter()
+						.filter(|(_, style)| style.link.is_none())
+						.all(|(text, style)| {
+							!style.underline || text.contains("ordinary underline")
+						}),
+					"URL delimiters leaked formatting: {source}"
+				);
+			}
+		}
+		let source = "https://example.com/__first https://example.org/second__";
+		let parsed = Formatted::parse(source);
+		assert_eq!(
+			parsed.links,
+			[
+				"https://example.com/__first",
+				"https://example.org/second__"
+			]
+		);
+		assert_eq!(
+			parsed
+				.spans
+				.iter()
+				.map(|(text, _)| text.as_str())
+				.collect::<String>(),
+			source
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.all(|(_, style)| !style.underline && !style.italic)
+		);
+		let parsed = Formatted::parse("https://example.com/__. https://example.org/__.");
+		assert_eq!(
+			parsed.links,
+			["https://example.com/__", "https://example.org/__"]
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.all(|(_, style)| !style.underline && !style.italic)
+		);
+		let source = (0..MAX_LINKS + 8)
+			.map(|id| format!("https://example.com/__{id}__ "))
+			.collect::<String>();
+		assert_eq!(Formatted::parse(&source).links.len(), MAX_LINKS);
+	}
+
+	#[test]
+	fn bare_urls_keep_every_inline_delimiter_literal() {
+		for target in [
+			"https://example.com/*first*second",
+			"https://example.com/**first**second",
+			"https://example.com/~first~second",
+			"https://example.com/~~first~~second",
+			"https://example.com/?a=1&amp;b=&lt;2",
+			"https://example.com/_*~mixed~*_/end",
+		] {
+			for source in [
+				target.to_owned(),
+				format!("({target})."),
+				format!("https://before.test/** {target} https://after.test/~~"),
+				format!("**ordinary bold** {target} ~~ordinary strike~~"),
+			] {
+				let parsed = Formatted::parse(&source);
+				assert!(
+					parsed.spans.iter().any(|(text, style)| text == target
+						&& style.link.is_some()
+						&& !style.strong && !style.italic
+						&& !style.strike && !style.code),
+					"URL must be one literal link: {source}"
+				);
+				assert!(
+					parsed
+						.spans
+						.iter()
+						.filter(|(_, style)| style.link.is_none())
+						.all(|(text, style)| {
+							(!style.strong || text.contains("ordinary bold"))
+								&& (!style.strike || text.contains("ordinary strike"))
+								&& !style.italic && !style.code
+						}),
+					"URL delimiters leaked formatting: {source}"
+				);
+			}
+		}
+		for source in [
+			"**before https://example.com/a**",
+			"~~before https://example.com/a~~",
+			"__before https://example.com/a__:",
+			"*before https://example.com/a*'",
+		] {
+			let parsed = Formatted::parse(source);
+			assert_eq!(parsed.links, ["https://example.com/a"], "{source}");
+			assert!(
+				parsed
+					.spans
+					.iter()
+					.any(|(text, style)| text == "https://example.com/a"
+						&& (style.strong || style.strike || style.underline || style.italic)),
+				"{source}"
+			);
+		}
+	}
+
+	#[test]
+	fn url_markup_protection_leaves_closers_before_trailing_punctuation() {
+		let parsed = Formatted::parse("__before https://example.com/a__b__:");
+		assert_eq!(parsed.links, ["https://example.com/a__b"]);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(text, style)| text == "before " && style.underline)
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(text, style)| text == "https://example.com/a__b"
+					&& style.underline
+					&& style.link.is_some())
+		);
+		let parsed = Formatted::parse("https://example.com/a__b__: https://example.org/__c");
+		assert_eq!(
+			parsed
+				.spans
+				.iter()
+				.map(|(text, _)| text.as_str())
+				.collect::<String>(),
+			"https://example.com/a__b__: https://example.org/__c"
+		);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.all(|(_, style)| !style.underline && !style.italic)
+		);
+	}
+
+	#[test]
+	fn url_markup_protection_handles_inner_closers_code_and_budget() {
+		let parsed = Formatted::parse("**before https://example.com/*path*?**");
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(text, style)| text == "https://example.com/*path*"
+					&& style.strong && !style.italic
+					&& style.link.is_some())
+		);
+		assert_eq!(parsed.links, ["https://example.com/*path*"]);
+		assert!(parsed.spans.iter().all(|(_, style)| !style.italic));
+
+		// Backticks are not URL characters; code spans keep precedence and nothing falls back.
+		let parsed = Formatted::parse(
+			"**bold** https://a.test/` https://b.test/` https://c.test/` https://d.test/`",
+		);
+		assert!(!parsed.limited);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(text, style)| text == "bold" && style.strong)
+		);
+		assert!(
+			Formatted::parse("`https://example.com/*a*` https://example.org/b")
+				.spans
+				.iter()
+				.any(|(text, style)| text == "https://example.com/*a*" && style.code)
+		);
+
+		let source = "https://a.test/**: https://b.test/**: word**";
+		let parsed = Formatted::parse(source);
+		assert_eq!(
+			parsed
+				.spans
+				.iter()
+				.map(|(text, _)| text.as_str())
+				.collect::<String>(),
+			source
+		);
+		assert_eq!(parsed.links, ["https://a.test/**:", "https://b.test/**:"]);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.all(|(_, style)| !style.strong && !style.italic)
+		);
+
+		let parsed = Formatted::parse(&format!(
+			"https://example.com/{}*bold*",
+			"_".repeat(MAX_EVENTS + 88)
+		));
+		assert!(parsed.limited || parsed.spans.iter().all(|(_, style)| !style.italic));
+	}
+
+	#[test]
+	fn url_underscore_protection_preserves_code_labels_and_spoilers() {
+		let target = "https://example.com/__first__second";
+		for source in [
+			format!("`{target}`"),
+			format!("```\n{target}\n```"),
+			format!("![{target}](https://image.test/)"),
+		] {
+			let parsed = Formatted::parse(&source);
+			assert!(parsed.links.is_empty(), "{source}");
+			assert!(
+				parsed
+					.spans
+					.iter()
+					.map(|(text, _)| text.as_str())
+					.collect::<String>()
+					.contains(target)
+			);
+		}
+		let parsed = Formatted::parse(&format!("[__label__]({target})"));
+		assert_eq!(parsed.links, [target]);
+		assert!(
+			parsed
+				.spans
+				.iter()
+				.any(|(text, style)| text == "label" && style.underline && !style.message_link)
+		);
+		for source in [format!("||{target}||"), format!("||<{target}>||")] {
+			let parsed = Formatted::parse(&source);
+			assert_eq!(parsed.links, [target], "{source}");
+			assert!(
+				parsed.spans.iter().any(|(text, style)| text == target
+					&& style.link.is_some()
+					&& style.spoiler.is_some()),
+				"{source}"
+			);
+		}
+		for source in [
+			format!("**{target}**"),
+			format!("__{target}__"),
+			format!("*{target}*"),
+		] {
+			let parsed = Formatted::parse(&source);
+			assert_eq!(parsed.links, [target], "{source}");
+		}
+	}
+
+	#[test]
+	fn url_underscores_keep_the_rendered_click_destination() {
+		let target = "https://example.com/__first__second";
+		for source in [format!("__before {target}__"), format!("_before {target}_")] {
+			let parsed = Formatted::parse(&source);
+			assert_eq!(parsed.links, [target], "{source}");
+			assert!(
+				parsed
+					.spans
+					.iter()
+					.any(|(text, style)| text == target && (style.italic || style.underline))
+			);
+		}
+		let parsed = Formatted::parse(&format!("[__label__][ref]\n\n[ref]: {target}"));
+		assert_eq!(parsed.links, [target]);
+		let mut ui = MessageLinkTestUi::new(target);
+		for events in [vec![], vec![], vec![message_link_key(egui::Key::Tab, true)]] {
+			ui.frame(900.0, events).0.drop_without_applying_deltas();
+		}
+		let (output, opening) = ui.frame(900.0, vec![message_link_key(egui::Key::Enter, true)]);
+		assert_eq!(opening.as_deref(), Some(target));
+		output.drop_without_applying_deltas();
+	}
+
+	#[test]
+	#[ignore = "release-only markdown microbenchmark; run with --ignored --nocapture"]
+	fn url_underscore_parse_benchmark() {
+		for (name, source) in [
+			(
+				"plain",
+				"A typical message with ordinary text and https://example.com/a.",
+			),
+			(
+				"underscores",
+				"https://example.com/__first https://example.org/second__",
+			),
+		] {
+			let mut samples = Vec::new();
+			for run in 0..6 {
+				let start = std::time::Instant::now();
+				for _ in 0..10_000 {
+					std::hint::black_box(Formatted::parse(std::hint::black_box(source)));
+				}
+				if run > 0 {
+					samples.push(start.elapsed());
+				}
+			}
+			samples.sort_unstable();
+			println!(
+				"{name}: 10000 parses, median {:?}, samples {samples:?}",
+				samples[2]
+			);
+		}
+	}
+
 	#[test]
 	fn inline_links_preserve_markdown_and_activate_their_own_destinations() {
 		let source = "Before [**Markdown** *label*](https://example.com/masked) then (https://example.org/a_(b)). `https://code.test` [https://label.test](javascript:bad)";

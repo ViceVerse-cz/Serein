@@ -808,6 +808,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = 視訊預覽 · 會�
 embeds-text-text-display-limited = 文字顯示受限
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = 點擊以了解更多
 # Context: show
 emoji-details-show-a-custom-emoji = 自訂表情符號。
 # Context: show
@@ -3022,6 +3024,8 @@ server-menu-header-server-menu = 伺服器選單
 server-menu-leave-item-leave-server = 離開伺服器
 # Context: read_item
 server-menu-read-item-mark-as-read = 標為已讀
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = 全部標為已讀
 # Context: settings_item
 server-menu-settings-item-server-settings = 伺服器設定
 # Context: show
@@ -3604,6 +3608,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = 指令無�
 slash-commands-footer-refresh-application-commands = 重新整理應用指令
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = 此貼圖來自僅限邀請或無法使用的伺服器。
 # Context: message
 stickers-message-loading-sticker-details = 貼圖詳細資料載入中…
 # Context: message
@@ -4907,3 +4913,15 @@ time-format-12-hour = 12 小時制
 time-format-24-hour = 24 小時制
 profiles-status-edit = 編輯狀態
 profiles-status-clear = 清除狀態
+send-throttled-title = 哇，太辣了
+send-throttled-body = 你傳送訊息太快了！
+send-throttled-dismiss = 關閉提示
+profiles-private-profile = 私人個人資料
+profiles-private-notice = { $name } 的個人資料為私人，部分資訊已隱藏。加為好友即可查看更多。
+settings-cosmetics-name-styles = 名稱樣式
+settings-cosmetics-name-styles-description = Nitro 顯示名稱的字型、顏色與特效。
+search-overlays-message-contains = 訊息包含
+search-overlays-no-matching-content-types = 沒有符合的內容類型
+search-overlays-history = 歷史紀錄
+search-overlays-clear-history = 清除搜尋紀錄
+main-sign-in-rate-limited-detail = Discord 正在限制此次登入。請稍候再試。過早重試可能會延長等待時間。

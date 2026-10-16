@@ -1,5 +1,18 @@
 # Local storage policy and audit
 
+## Per-conversation reply and attachment staging (October 16, 2026)
+
+Leaving a conversation keeps its unsent reply target and staged files in session RAM for
+the next visit. Parked reply targets are message IDs only, at most 64, keyed by session
+generation and channel; one is restored only while the conversation still accepts messages
+and its target is not known to be deleted. Parked attachments keep at most 8 conversations
+and 64 MiB of in-memory pasted bytes and thumbnails together; chosen files hold only their
+inspected metadata. The oldest conversation's files are removed first, and a selection
+larger than the whole budget is removed when leaving, each with an error notice. Files
+return only to the generation and channel they were staged in. Disconnect, a session
+change, logout or lost channel access drops them. Selections still loading and uploads in
+flight are still cancelled by navigation. Nothing here is written to disk.
+
 ## Game mention catalog (October 14, 2026)
 
 Game search retains a process-local catalog capped at 65,536 entries and 16 MiB of
@@ -52,8 +65,9 @@ can clear either one without stopping image loading. The existing Clear cache st
 both partitions with history. Logout still removes the whole account directory.
 
 Settings › Appearance › Profile cosmetics turns on avatar decorations, nameplates, profile
-effects and profile frames for this device. All four are opt-in and off by default. Hidden
-cosmetics are not drawn and their artwork is not requested. Hidden effects and frames also
+effects, profile frames and Nitro name styles for this device. All five are opt-in and off by
+default. Hidden cosmetics are not drawn and their artwork is not requested. Name styles need
+no download: their fonts are bundled, and a font is parsed only when a styled name first uses it. Hidden effects and frames also
 skip the optional catalog read for new profile loads. Turning them on drops the RAM profile
 cache so details reload. Both preferences live in the bounded `app_preferences` row; older
 rows load with every cosmetic hidden and the historical budgets.
@@ -868,7 +882,7 @@ disconnect or session reset; member lookups are temporary. Disconnected states a
 admitted for voice do not consume the actual roster's count budget. The 4 MiB wire bound and
 the actual roster's 4,096-entry / 1 MiB bounds are unchanged; no new disk storage is introduced.
 
-Image attachment metadata remains bounded by 10 attachments / 64 KiB retained metadata and 256 KiB JSON per message, including original/proxy signed URLs. It counts toward existing window, pending-patch and database budgets. Decoded pixels reuse the shared media worker/cache; spoiler attachments are not requested before explicit reveal. Profile metadata (bio, pronouns, badges, connections and mutual-server summaries) stays in the single bounded RAM view. Profile and server-specific banner/avatar pixels may remain in the shared account image cache after closing the profile; cache clear/logout removes them under the same policy. Equipped cosmetics (decoration, nameplate, effect and frame details) are display-only RAM values that are never written to SQLite. Decoration and still-nameplate artwork use the shared-artwork partition; effect layers, frame layers and animated nameplates use the media partition. Cosmetics hidden in Settings are not requested. Profile effect and frame catalog details are kept in a session-only cache of at most 64 SKUs. A viewed profile's badge catalog (at most 40 badges and 48 KiB) stays in the same bounded RAM profile view and cache and is never persisted; badge settings are written only to Discord on an explicit Save.
+Image attachment metadata remains bounded by 10 attachments / 64 KiB retained metadata and 256 KiB JSON per message, including original/proxy signed URLs. It counts toward existing window, pending-patch and database budgets. Decoded pixels reuse the shared media worker/cache; spoiler attachments are not requested before explicit reveal. Profile metadata (bio, pronouns, badges, connections and mutual-server summaries) stays in the single bounded RAM view. Profile and server-specific banner/avatar pixels may remain in the shared account image cache after closing the profile; cache clear/logout removes them under the same policy. Equipped cosmetics (decoration, nameplate, name style, effect and frame details) are display-only RAM values that are never written to SQLite. Decoration and still-nameplate artwork use the shared-artwork partition; effect layers, frame layers and animated nameplates use the media partition. Cosmetics hidden in Settings are not requested. Profile effect and frame catalog details are kept in a session-only cache of at most 64 SKUs. A viewed profile's badge catalog (at most 40 badges and 48 KiB) stays in the same bounded RAM profile view and cache and is never persisted; badge settings are written only to Discord on an explicit Save.
 
 Explicit Download creates an original attachment file only at the user-selected location. Suggested filenames are sanitized; downloads never reinterpret message filenames as destination paths, follow redirects, or send credentials to the CDN. Existing regular files are replaced only after native Save confirmation and a complete, flushed transfer. A new destination is published without overwriting a file created meanwhile. The one worker closes/removes its sibling partial on cancellation or failure; cleanup failures are visible. Forced termination or a filesystem error can leave a `.serein-*.partial` sibling, and macOS, Linux and Windows publish new files with exclusive native moves so hard-link support is not required. Normal close waits for the active worker; a cancelled native dialog must still be dismissed. Downloads are explicit user files, not account cache entries, and survive logout/cache clearing. Limits and transfer bounds are strictly enforced.
 

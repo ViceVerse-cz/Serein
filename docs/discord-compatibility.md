@@ -103,6 +103,19 @@ establish it.
   Dark and light colors are those observed in the client. Offline member rows and muted
   DMs show only a 10% image until hovered. Nameplates appear in server member lists and
   the one-to-one DM list.
+- **Name styles (Nitro display-name styles):** `display_name_styles` on user and guild
+  member objects (`font_id`, `effect_id`, `colors`), with a member's value overriding the
+  user's in that server. The shape and the font and effect ids come from the official web
+  client's public JavaScript (October 15, 2026); this is unofficial and live delivery is
+  unverified. One to four 0xRRGGBB colours are accepted; anything else drops the style.
+  Gradient effects spread every colour evenly across the name.
+  Effects 1–8 (solid, gradient, neon, toon, pop, glow, prism, gummy) are drawn as still
+  approximations: gradients across the name, and halo, outline or shadow layers behind it.
+  Discord's animations are not reproduced. Fonts 1–16 except 7 use bundled OFL faces with
+  the same family names (see `assets/README.md`); Néo-Castel (7), Hexagon (17), Default (11)
+  and unknown ids keep the interface font. The bundled files may differ from the builds
+  Discord serves. Chat, member and search rows show the colours and effect while the row is
+  hovered; profile cards and the account panel always show them.
 - **Profile effects and frames:** profile responses list them in `user_profile` and
   `guild_member_profile` `collectibles` (type 1 = effect, 3 = frame). The older
   `profile_effect.id` is accepted as the effect SKU, and a server profile's own values
@@ -128,10 +141,10 @@ establish it.
   layers over it. The popout keeps the overflow on screen.
 
 Unknown palettes, layer kinds, anchors, malformed values and expired items are dropped
-without rejecting the user, member row or profile. Display-name styles and cosmetic
-editing are not supported. All four are opt-in: they stay hidden, unrequested and without
-catalog reads until enabled in Settings › Appearance › Profile cosmetics. This is a local
-display choice; nothing is sent to Discord.
+without rejecting the user, member row or profile. Cosmetic editing is not supported. All
+five are opt-in: they stay hidden, unrequested and without catalog reads until enabled in
+Settings › Appearance › Profile cosmetics. This is a local display choice; nothing is sent
+to Discord.
 
 ## Guild voice moderation — October 8, 2026
 
@@ -340,8 +353,10 @@ for artwork-only drafts when send/attachment permissions allow it. Animated APNG
 attachments are transcoded to GIF to retain animation.
 
 Received `sticker_items` and legacy `stickers` render transparent artwork in chat.
-Clicking opens details and related previews; View More Stickers opens the source
-in the picker. Standard packs and missing metadata load only on demand. Guild
+Clicking opens details (artwork, name, source) and related previews; View More Stickers
+opens the source in the picker. When the loaded sticker names a server this session does
+not know, the card says it is from an invite-only or unavailable server; failed loads
+offer an icon retry. Standard packs and missing metadata load only on demand. Guild
 catalogs hydrate from READY/GUILD_CREATE and GUILD_STICKERS_UPDATE. The official
 [sticker resource](https://docs.discord.com/developers/resources/sticker) and
 [Create Message](https://docs.discord.com/developers/resources/message#create-message)
@@ -1013,7 +1028,7 @@ Server identity tags (September 19): Discord's documented [User object](https://
 | User profile cards | Normal session `/users/{id}/profile`; documented [User object](https://docs.discord.com/developers/resources/user#user-object); [public implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) | Base server identity shape documented; extended route and normal-session delivery unofficial/live-unverified | Anchored popout with banner/avatar/bio/pronouns/badge artwork/server tag/theme colors/connections/mutual servers and retained presence/custom status, cancellable requests and visible failures. Bounded base-user identity supplies compact badge/tag chips in profile, member and direct-message rows while the extended profile is unavailable; badge CDN paths are observed, not documented; evidence |
 | History, send, edit, delete, replies | Normal session; [message resource](https://docs.discord.com/developers/resources/message) and Abaddon | Documented bot-facing resource; user compatibility unofficial | Experimental text adapter; owner permissions remain server-authoritative |
 | Realtime, resume | Normal session; [Gateway](https://docs.discord.com/developers/events/gateway), Abaddon Identify/READY | Documented lifecycle; normal-user Identify and dispatch differences unofficial | Bounded JSON transport; no compression requested; incompatible snapshots fail |
-| Rate limits | Credential-specific response headers/body; [rate limits](https://docs.discord.com/developers/topics/rate-limits) | Documented; do not assume bot quotas | Conservative shared cooldown, no blind write retry |
+| Rate limits | Credential-specific response headers/body; [rate limits](https://docs.discord.com/developers/topics/rate-limits) | Documented; do not assume bot quotas | Conservative shared cooldown; a message send rejected with 429 (documented as not processed) stays pending and is resent with its nonce after the service's wait, at most 30 times, with the official client's "sending too quickly" notice. No other write is retried. Idempotent reads wait out up to two short JSON 429 responses. An HTML or plain-text 429 from `discord.com` (a Cloudflare block, unofficial) moves this process to `ptb.discord.com` and retries one idempotent read there; whether every Cloudflare ban is limited to one hostname is unverified |
 | Nonce correlation | Message nonce; message resource | Documented finite deduplication; user applicability unverified | Correlate confirmations only; no automatic ambiguous resend or indefinite idempotency claim |
 | Native message formatting | Existing message content; [pulldown-cmark source](https://github.com/pulldown-cmark/pulldown-cmark) and [egui LayoutJob](https://docs.rs/egui/0.36.2/egui/text/struct.LayoutJob.html) | Local rendering; no additional service capability | Bounded emphasis/code/quotes/lists/strike, inert HTML, explicit HTTP(S) link confirmation, up to 32 inline text spoilers with separate media reveal; CommonMark differs from Discord Markdown; no automatic previews |
 | Read markers | Normal session; [discord.py-self HTTP](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py) and [dispatch implementation](https://github.com/dolfies/discord.py-self/blob/master/discord/state.py) | Unofficial and unstable | Explicit per-message acknowledgement, optional manual mark-unread (`ack_message(manual=True)` plus the previous snowflake), guild `POST /guilds/{id}/ack`, bounded READY read state, MESSAGE_ACK and PASSIVE_UPDATE_V2; synthetic checks only, actual cross-device behavior unverified |
@@ -1057,7 +1072,7 @@ Image attachments: documented wire metadata and spoiler bit 3 are implemented; a
 Read-state continuation (September 10): channel read cursors and latest-message IDs drive boolean unread badges; absent service read state remains unknown. The guild rail tick ignores muted guilds, muted categories, muted channels, and voice channels. Voice chat stays behind Show chat, so leftover text-in-voice cursors do not light the server icon. Mentions on those channels still add the red count. A live-edge page whose rows sit at or behind the cursor is not unread. The message menu sends one acknowledgement only after an explicit action on a loaded message in a fresh authenticated view. Incoming manual mark-unread updates are honored. A later Gateway update wins over an in-flight HTTP completion. Snapshot/update lists are capped at 4000 entries, retained cursors are limited to known navigation channels, and only one write is pending.
 Outgoing mark-unread and guild acknowledgement (September 16): Mark Unread ACKs the previous snowflake with `manual: true`, matching unofficial [discord.py-self `ack_message`](https://github.com/dolfies/discord.py-self/blob/master/discord/http.py). Server Mark As Read uses `POST /guilds/{guild_id}/ack` from the same source. A manual unread in a DM or group sends `mention_count` for the loaded messages now past the cursor, because Discord does not calculate that badge. Mark Unread in a guild channel sends `mention_count` for loaded pings in that range. Server Mark As Read still omits it. Live Discord acceptance is unverified. A legacy acknowledgement token, if supplied, is capped at 2048 bytes in zeroized session memory; the response body is capped at 4096 bytes. Neither cursors nor acknowledgement tokens are written to SQLite. The linked primary client implementation supplies unofficial wire evidence; local HTTP/WebSocket fixtures do not establish Discord acceptance.
 
-Search continuation (September 10): guild conversations use the guild search route with an exact channel filter; DMs use the channel route. Search content is percent-encoded, with timestamp-descending order and bounded offset pagination. Query date boundaries remain fixed across numbered pages. One replaceable task uses existing REST permits, deadlines and cooldowns. Indexing responses require another deliberate Search action after the service delay; no automatic polling, broad account search, advanced filters, NSFW override or search-result persistence is implemented. Service totals and partial-index status are displayed as supplied, not asserted complete. Opening a result fetches up to 50 history messages ending at that ID and positions the timeline there; unavailable results are reported. Existing reload returns to latest history. Search snapshots are cleared on relevant edits/deletes, navigation, disconnect, permission invalidation and logout. Original-client sources supply wire evidence only; no source-code blocks were copied and no authenticated service request was used as validation.
+Search continuation (September 10): guild conversations use the guild search route with an exact channel filter; DMs use the channel route. Search content is percent-encoded and sorted by timestamp, descending by default or ascending when Oldest is chosen (the service sorts the whole result set, so ascending page one starts at the earliest match), with bounded offset pagination. A message cursor continues with `max_id` when descending and `min_id` when ascending (unverified for ascending). `has:` accepts image, video, link, file, embed, sound, poll and sticker, plus forward sent as the service's unofficial `snapshot` value. Query date boundaries remain fixed across numbered pages. One replaceable task uses existing REST permits, deadlines and cooldowns. Indexing responses require another deliberate Search action after the service delay; no automatic polling, broad account search, advanced filters, NSFW override or search-result persistence is implemented. Service totals and partial-index status are displayed as supplied, not asserted complete. Opening a result fetches up to 50 history messages ending at that ID and positions the timeline there; unavailable results are reported. Existing reload returns to latest history. Search snapshots are cleared on relevant edits/deletes, navigation, disconnect, permission invalidation and logout. Original-client sources supply wire evidence only; no source-code blocks were copied and no authenticated service request was used as validation.
 
 Flatpak locale containment (October 2, 2026): after GTK initialization, Linux login
 and invite-verification webviews reject a non-UTF-8 effective encoding inside
@@ -1132,9 +1147,13 @@ Normal-user READY remains unofficial/unstable; this change was tested with synth
 and local sockets, not a live account. Joining new guilds' full navigation remains pre-existing
 unsupported behavior. Missing catalogs are displayed as unavailable rather than empty.
 
-Formatted message/profile/embed text renders `<:name:id>` and `<a:name:id>` as static CDN
-images, using the documented [custom emoji CDN endpoint](https://docs.discord.com/developers/reference#image-formatting-cdn-endpoints).
-Custom reactions use the same bounded media worker. Deleted/failing previews have a fixed
+Formatted message/profile/embed text renders `<:name:id>` as a static CDN image, using the
+documented [custom emoji CDN endpoint](https://docs.discord.com/developers/reference#image-formatting-cdn-endpoints).
+With GIF animation enabled, `<a:name:id>` (and animated named artwork links) loads the same
+endpoint's documented GIF format at 64px and plays through the existing bounded off-UI decoder
+and animation pool, falling back to the still PNG when animation is off or the GIF fails.
+Reactions do not carry an animated flag in Serein's model and stay static. Custom reactions
+use the same bounded media worker. Deleted/failing previews have a fixed
 placeholder and retain copyable original markup. Standard Unicode and custom image widgets
 participate in text selection: copying a selection retains Unicode sequences/custom markup,
 and right-click Copy emoji copies the entire token. Selection endpoints treat each image as
@@ -1158,6 +1177,8 @@ require attachment permission. Picking never sends fallback artwork immediately.
 Discord remains authoritative for actual sends and reactions, including entitlement rejection.
 Natively eligible animated emoji are inserted with their original animated markup
 and shown as still previews.
+Hovering a rendered emoji or received sticker shows its artwork, `:shortcode:` or catalog/sticker
+name and a click hint; reaction summaries also name default emoji by shortcode.
 Clicking a rendered message, embed or profile emoji opens a native information card. Standard
 emoji show their shortcode and default-emoji explanation; customs use their catalog name and
 source server when the ID is known, otherwise explicitly report unknown provenance. Code and
@@ -2533,3 +2554,16 @@ links may come from any host; this does not authorize fetching arbitrary origins
 Previews still use the existing provider/Discord media admission and bounded
 pipeline. The original share URL, including attachment signatures, is retained.
 The offline debug check is `cargo run --locked -p serein --features demo --example gif_favorites`.
+
+## Private profiles - October 15, 2026
+
+Profile Privacy ([help article](https://support.discord.com/hc/en-us/articles/38859942749463-Profile-Privacy-Setting-on-Discord))
+lets an account hide its bio, custom status, pronouns, badges, connections, widgets and
+wishlists from viewers outside its chosen audience. The profile response carries a
+top-level boolean `private`, which the official web client stores with the profile and
+reads as "private to this viewer"; this field is unofficial, taken from the public client
+bundle, and not documented. When it is true, the card shows a "Private Profile" strip and
+the official notice in place of the withheld details, and omits Member Since and the note,
+matching the official client. Roles, mutuals and the message field stay. The service
+withholds the hidden data itself; Serein never infers privacy from missing fields. No live
+private-profile response has been used as validation.

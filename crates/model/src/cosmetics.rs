@@ -45,6 +45,8 @@ pub struct CosmeticPreferences {
 	pub nameplates: bool,
 	pub effects: bool,
 	pub frames: bool,
+	/// Nitro display name colours and effects; older preferences keep them off.
+	pub name_styles: bool,
 }
 impl CosmeticPreferences {
 	pub const SHOWN: Self = Self {
@@ -52,6 +54,7 @@ impl CosmeticPreferences {
 		nameplates: true,
 		effects: true,
 		frames: true,
+		name_styles: true,
 	};
 }
 
@@ -174,15 +177,62 @@ impl Nameplate {
 	}
 }
 
+/// A Nitro display name style. Unofficial: `display_name_styles` on user and member objects,
+/// as the official web client reads it. Fonts and effects are the client's numeric IDs.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NameStyle {
+	pub font: u32,
+	pub effect: NameEffect,
+	/// 0xRRGGBB colours, at most [`NameStyle::MAX_COLORS`].
+	pub colors: Vec<u32>,
+}
+impl NameStyle {
+	pub const MAX_COLORS: usize = 4;
+	pub fn valid(&self) -> bool {
+		!self.colors.is_empty()
+			&& self.colors.len() <= Self::MAX_COLORS
+			&& self.colors.iter().all(|color| *color <= 0xff_ffff)
+	}
+}
+/// The official client's display name effects.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NameEffect {
+	#[default]
+	Solid,
+	Gradient,
+	Neon,
+	Toon,
+	Pop,
+	Glow,
+	Prism,
+	Gummy,
+}
+impl NameEffect {
+	/// The client's effect ID; unknown and test effects draw as a solid colour.
+	pub fn from_id(id: u32) -> Self {
+		match id {
+			2 => Self::Gradient,
+			3 => Self::Neon,
+			4 => Self::Toon,
+			5 => Self::Pop,
+			6 => Self::Glow,
+			7 => Self::Prism,
+			8 => Self::Gummy,
+			_ => Self::Solid,
+		}
+	}
+}
+
 /// Equipped user or server-member cosmetics shown wherever the user appears.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Cosmetics {
 	pub decoration: Option<AvatarDecoration>,
 	pub nameplate: Option<Nameplate>,
+	pub name_style: Option<NameStyle>,
 }
 impl Cosmetics {
 	pub fn is_empty(&self) -> bool {
-		self.decoration.is_none() && self.nameplate.is_none()
+		self.decoration.is_none() && self.nameplate.is_none() && self.name_style.is_none()
 	}
 	pub fn heap_bytes(&self) -> usize {
 		self.decoration.as_ref().map_or(0, |d| d.asset.capacity())
@@ -190,6 +240,10 @@ impl Cosmetics {
 				.nameplate
 				.as_ref()
 				.map_or(0, |n| n.asset.capacity() + n.label.capacity())
+			+ self
+				.name_style
+				.as_ref()
+				.map_or(0, |s| s.colors.capacity() * size_of::<u32>())
 	}
 	pub fn valid(&self) -> bool {
 		self.decoration.as_ref().is_none_or(AvatarDecoration::valid)

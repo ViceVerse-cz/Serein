@@ -798,6 +798,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Aperçu vidéo · la 
 embeds-text-text-display-limited = Affichage du texte limité
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Cliquez pour en savoir plus
 # Context: show
 emoji-details-show-a-custom-emoji = Un emoji personnalisé.
 # Context: show
@@ -2991,6 +2993,8 @@ server-menu-header-server-menu = Menu du serveur
 server-menu-leave-item-leave-server = Quitter le serveur
 # Context: read_item
 server-menu-read-item-mark-as-read = Marquer comme lu
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = Tout marquer comme lu
 # Context: settings_item
 server-menu-settings-item-server-settings = Paramètres du serveur
 # Context: show
@@ -3573,6 +3577,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = Commande i
 slash-commands-footer-refresh-application-commands = Actualiser les commandes de l'application
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = Cet autocollant provient d'un serveur accessible uniquement sur invitation ou indisponible.
 # Context: message
 stickers-message-loading-sticker-details = Chargement des détails de l'autocollant…
 # Context: message
@@ -4809,3 +4815,15 @@ time-format-12-hour = 12 heures
 time-format-24-hour = 24 heures
 profiles-status-edit = Modifier le statut
 profiles-status-clear = Effacer le statut
+send-throttled-title = Holà, beaucoup trop épicé
+send-throttled-body = Vous envoyez des messages trop rapidement !
+send-throttled-dismiss = Entrer dans la zone zen
+profiles-private-profile = Profil privé
+profiles-private-notice = Le profil de { $name } est privé, certaines infos sont donc masquées. Ajoutez cette personne en ami pour en voir plus.
+settings-cosmetics-name-styles = Styles de nom
+settings-cosmetics-name-styles-description = Polices, couleurs et effets de pseudo Nitro.
+search-overlays-message-contains = Le message contient
+search-overlays-no-matching-content-types = Aucun type de contenu correspondant
+search-overlays-history = Historique
+search-overlays-clear-history = Effacer l'historique de recherche
+main-sign-in-rate-limited-detail = Discord limite cette connexion. Patientez avant de réessayer. Une nouvelle tentative trop tôt peut prolonger l'attente.

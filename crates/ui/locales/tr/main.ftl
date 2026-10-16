@@ -799,6 +799,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Video önizlemesi · 
 embeds-text-text-display-limited = Metin gösterimi sınırlı
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Daha fazla bilgi için tıklayın
 # Context: show
 emoji-details-show-a-custom-emoji = Özel bir emoji.
 # Context: show
@@ -2992,6 +2994,8 @@ server-menu-header-server-menu = Sunucu menüsü
 server-menu-leave-item-leave-server = Sunucudan ayrıl
 # Context: read_item
 server-menu-read-item-mark-as-read = Okundu Olarak İşaretle
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = Tümünü Okundu Olarak İşaretle
 # Context: settings_item
 server-menu-settings-item-server-settings = Sunucu Ayarları
 # Context: show
@@ -3571,6 +3575,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = Komut kull
 slash-commands-footer-refresh-application-commands = Uygulama komutlarını yenile
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = Bu çıkartma, yalnızca davetle katılınabilen veya kullanılamayan bir sunucudan.
 # Context: message
 stickers-message-loading-sticker-details = Çıkartma ayrıntıları yükleniyor…
 # Context: message
@@ -4795,3 +4801,15 @@ time-format-12-hour = 12 saat
 time-format-24-hour = 24 saat
 profiles-status-edit = Durumu düzenle
 profiles-status-clear = Durumu temizle
+send-throttled-title = Hop, biraz yavaş!
+send-throttled-body = Mesajları çok hızlı gönderiyorsun!
+send-throttled-dismiss = Tamam, yavaşlıyorum
+profiles-private-profile = Gizli Profil
+profiles-private-notice = { $name } adlı kullanıcının profili gizli, bu yüzden bazı bilgiler saklı. Daha fazlasını görmek için arkadaş olarak ekle.
+settings-cosmetics-name-styles = Ad stilleri
+settings-cosmetics-name-styles-description = Nitro görünen ad yazı tipleri, renkleri ve efektleri.
+search-overlays-message-contains = Mesaj şunu içerir
+search-overlays-no-matching-content-types = Eşleşen içerik türü yok
+search-overlays-history = Geçmiş
+search-overlays-clear-history = Arama geçmişini temizle
+main-sign-in-rate-limited-detail = Discord bu oturum açmayı sınırlıyor. Tekrar denemeden önce bekle. Daha erken bir deneme bekleme süresini uzatabilir.
