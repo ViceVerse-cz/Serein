@@ -83,12 +83,13 @@ impl Capture {
 			"width={},height={},pixel-aspect-ratio=1/1",
 			settings.width, settings.height
 		);
+		let preview_size = format!("width={},height={}", settings.width, settings.height);
 		let (scale, preview_scale) = match mode {
 			Mode::Va => (
 				format!(
 					"vapostproc add-borders=true ! video/x-raw(memory:VAMemory),format=NV12,{size}"
 				),
-				"vapostproc add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
+				format!("vapostproc add-borders=true ! video/x-raw,format=BGRA,{preview_size}"),
 			),
 			Mode::Nvidia => (
 				format!(
@@ -96,17 +97,23 @@ impl Capture {
 					width = settings.width,
 					height = settings.height
 				),
-				"glcolorscale ! video/x-raw(memory:GLMemory),format=RGBA,width=640,height=360 ! gldownload ! videoconvert ! video/x-raw,format=BGRA",
+				format!(
+					"glcolorscale ! video/x-raw(memory:GLMemory),format=RGBA,{preview_size} ! gldownload ! videoconvert ! video/x-raw,format=BGRA"
+				),
 			),
 			// ponytail: CPU scaling avoids mixing VAMemory and legacy VASurface buffers;
 			// add legacy GPU postprocessing only if measured scaling cost warrants it.
 			Mode::VaLegacy => (
 				format!("videoconvertscale add-borders=true ! video/x-raw,format=NV12,{size}"),
-				"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
+				format!(
+					"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,{preview_size}"
+				),
 			),
 			Mode::NvidiaCopy | Mode::Software => (
 				format!("videoconvertscale add-borders=true ! video/x-raw,format=BGRA,{size}"),
-				"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,width=640,height=360",
+				format!(
+					"videoconvertscale add-borders=true ! video/x-raw,format=BGRA,{preview_size}"
+				),
 			),
 		};
 		let encoder = match mode {
@@ -143,7 +150,7 @@ impl Capture {
 			split. ! queue max-size-buffers=1 max-size-bytes={MAX_RAW_BYTES} max-size-time=0 leaky=downstream ! \
 			identity name=gate ! {encode} appsink name=frames sync=false async=false max-buffers=1 enable-last-sample=false wait-on-eos=false \
 			split. ! queue max-size-buffers=1 max-size-bytes={MAX_RAW_BYTES} max-size-time=0 leaky=downstream ! \
-			valve name=preview-gate drop-mode=forward-sticky-events ! videorate drop-only=true ! video/x-raw(ANY),framerate=10/1 ! {preview_scale} ! \
+			valve name=preview-gate drop-mode=forward-sticky-events ! videorate drop-only=true ! video/x-raw(ANY),framerate=30/1 ! {preview_scale} ! \
 			appsink name=preview sync=false async=false max-buffers=1 drop=true enable-last-sample=false wait-on-eos=false",
 			settings.fps
 		);
@@ -193,7 +200,7 @@ impl Capture {
 		);
 		bound(
 			&preview.static_pad("sink").ok_or(UNAVAILABLE)?,
-			640 * 360 * 4 + 4096,
+			MAX_RAW_BYTES,
 			failed.clone(),
 		);
 		for sink in [&frames, &preview] {
@@ -339,8 +346,8 @@ pub(super) fn raw(sample: &gst::Sample) -> Result<RawFrame, &'static str> {
 	if info.format() != video::VideoFormat::Bgra
 		|| info.width() == 0
 		|| info.height() == 0
-		|| info.width() > 1920
-		|| info.height() > 1080
+		|| info.width() > 3840
+		|| info.height() > 2160
 	{
 		return Err(INVALID);
 	}

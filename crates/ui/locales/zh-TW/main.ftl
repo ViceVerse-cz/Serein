@@ -2273,6 +2273,8 @@ screen-body-include-the-pointer-in-the-shared-video = 分享畫面時包含滑�
 # Context: body
 screen-body-quality = 品質
 # Context: body
+screen-body-source = 來源
+# Context: body
 screen-body-quality-selection-does-not-require-nitro = 選擇品質不需要 Nitro。
 # Context: body
 screen-body-refresh = 重新整理

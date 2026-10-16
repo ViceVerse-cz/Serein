@@ -1,7 +1,9 @@
 //! Screen selection is a local intent; the desktop owns capture and stream credentials.
 use client_core::{
 	State,
-	screen::{Settings, Source, SourceId},
+	screen::{
+		Resolution, Settings, Source, SourceId, offered_frame_rates, offered_resolutions, picture,
+	},
 	voice::Phase,
 };
 use model::Id;
@@ -23,7 +25,9 @@ pub struct ScreenUi {
 	pub capture_status: Option<&'static str>,
 	pub supported: bool,
 	pub preview: Option<egui::TextureHandle>,
-	height: u32,
+	resolution: Resolution,
+	/// Selection the current resolution was chosen for. `None` until sources arrive.
+	quality_for: Option<SourceId>,
 	fps: u32,
 	cursor: bool,
 	audio: bool,
@@ -42,7 +46,8 @@ impl Default for ScreenUi {
 			capture_status: None,
 			supported: false,
 			preview: None,
-			height: if cfg!(target_os = "linux") { 720 } else { 1080 },
+			resolution: Resolution::Source,
+			quality_for: None,
 			fps: 30,
 			cursor: true,
 			audio: cfg!(target_os = "macos"),
@@ -61,22 +66,32 @@ impl ScreenUi {
 		self.context = Some((state.generation, call.channel, call.request));
 		self.open = true;
 		self.selected = None;
+		self.quality_for = None;
 		self.sources.clear();
 		if state.demo {
 			self.sources = if cfg!(target_os = "macos") {
 				vec![Source {
 					id: SourceId::SystemPicker,
 					name: "Choose with the macOS system picker".into(),
+					width: 0,
+					height: 0,
+					refresh_hz: 0,
 				}]
 			} else {
 				vec![
 					Source {
 						id: SourceId::Display(1),
 						name: "Display 1 · Synthetic preview".into(),
+						width: 2560,
+						height: 1440,
+						refresh_hz: 165,
 					},
 					Source {
 						id: SourceId::Window(2),
 						name: "Project notes · Synthetic window".into(),
+						width: 1280,
+						height: 720,
+						refresh_hz: 60,
 					},
 				]
 			};
@@ -87,18 +102,48 @@ impl ScreenUi {
 			self.status = "Looking for screens and windows…";
 		}
 	}
+	fn selected_source(&self) -> Option<&Source> {
+		self.sources
+			.iter()
+			.find(|source| Some(source.id) == self.selected)
+	}
+
+	fn geometry(&self) -> (u32, u32, u32) {
+		self.selected_source().map_or((0, 0, 0), |source| {
+			(source.width, source.height, source.refresh_hz)
+		})
+	}
+
+	fn align_quality(&mut self) {
+		let (width, height, refresh) = self.geometry();
+		let offered: Vec<_> = offered_resolutions(width, height).collect();
+		if offered.is_empty() {
+			return;
+		}
+		if self.quality_for.is_none() && self.quality_for != self.selected {
+			self.resolution = preferred_resolution(&offered);
+		}
+		self.quality_for = self.selected;
+		if !offered.contains(&self.resolution) {
+			self.resolution = preferred_resolution(&offered);
+		}
+		let rates: Vec<_> = offered_frame_rates(refresh).collect();
+		if !rates.contains(&self.fps) {
+			self.fps = rates
+				.into_iter()
+				.rev()
+				.find(|fps| *fps <= self.fps)
+				.unwrap_or(30);
+		}
+	}
+
 	fn settings(&self) -> Option<Settings> {
-		let source = self
-			.selected
-			.filter(|id| self.sources.iter().any(|s| s.id == *id))?;
+		let source = self.selected_source()?;
+		let (width, height) = picture(self.resolution, source.width, source.height)?;
 		let settings = Settings {
-			source,
-			width: match self.height {
-				480 => 854,
-				1080 => 1920,
-				_ => 1280,
-			},
-			height: self.height,
+			source: source.id,
+			width,
+			height,
 			fps: self.fps,
 			cursor: self.cursor,
 			audio: self.audio,
@@ -117,6 +162,7 @@ impl ScreenUi {
 			self.open = false;
 			self.sources.clear();
 			self.selected = None;
+			self.quality_for = None;
 			self.request = None;
 			self.refresh_requested = false;
 		}
@@ -132,7 +178,7 @@ impl ScreenUi {
 		.subtitle(crate::i18n::translate(
 			"screen-show-choose-what-people-in-this-call-can-see",
 		))
-		.width(460.0)
+		.width(520.0)
 		.show(ctx, |d| {
 			d.scroll(260.0, |ui| self.body(ui, state));
 			d.footer(|ui| {
@@ -186,6 +232,7 @@ impl ScreenUi {
 					.clicked()
 				{
 					self.selected = None;
+					self.quality_for = None;
 					self.sources.clear();
 					self.refresh_requested = true;
 					self.status = "Looking for screens and windows…";
@@ -197,6 +244,8 @@ impl ScreenUi {
 			.id_salt("screen-sources")
 			.max_height(196.0)
 			.show(ui, |ui| self.source_list(ui));
+		self.align_quality();
+		let (width, height, refresh) = self.geometry();
 		ui.add_space(14.0);
 		ui.label(crate::design::eyebrow(
 			ui,
@@ -206,9 +255,13 @@ impl ScreenUi {
 		ui.add_space(6.0);
 		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
-			for height in [480, 720, 1080] {
-				if segment(ui, &format!("{height}p"), self.height == height).clicked() {
-					self.height = height;
+			for resolution in offered_resolutions(width, height) {
+				let label = match resolution {
+					Resolution::Source => "screen-body-source".to_owned(),
+					Resolution::Preset { height, .. } => format!("{height}p"),
+				};
+				if segment(ui, &label, self.resolution == resolution).clicked() {
+					self.resolution = resolution;
 				}
 			}
 		});
@@ -221,7 +274,7 @@ impl ScreenUi {
 		ui.add_space(6.0);
 		ui.horizontal_wrapped(|ui| {
 			ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
-			for fps in [15, 30, 60] {
+			for fps in offered_frame_rates(refresh) {
 				if segment(ui, &format!("{fps} fps"), self.fps == fps).clicked() {
 					self.fps = fps;
 				}
@@ -404,6 +457,18 @@ impl ScreenUi {
 	}
 }
 
+fn preferred_resolution(offered: &[Resolution]) -> Resolution {
+	if cfg!(target_os = "linux") {
+		offered
+			.iter()
+			.copied()
+			.find(|item| matches!(item, Resolution::Preset { height: 720, .. }))
+			.unwrap_or(offered[0])
+	} else {
+		offered[0]
+	}
+}
+
 /// Compact segmented choice used by the quality and frame-rate rows.
 fn segment(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
 	let label = crate::i18n::translate_if_key(label);
@@ -457,8 +522,14 @@ mod tests {
 		picker.sources.push(Source {
 			id: SourceId::Window(7),
 			name: "Notes".into(),
+			width: 0,
+			height: 0,
+			refresh_hz: 0,
 		});
-		picker.height = 1080;
+		picker.resolution = Resolution::Preset {
+			width: 1920,
+			height: 1080,
+		};
 		picker.fps = 60;
 		let settings = picker.settings().unwrap();
 		assert_eq!(
@@ -466,6 +537,27 @@ mod tests {
 			(1920, 1080, 60)
 		);
 		assert_eq!(settings.bit_rate(), 16_000_000);
+		let resolutions: Vec<_> = offered_resolutions(2560, 1440).collect();
+		assert!(resolutions.contains(&Resolution::Source));
+		assert!(resolutions.contains(&Resolution::Preset {
+			width: 2560,
+			height: 1440,
+		}));
+		assert!(!offered_resolutions(1920, 1080).any(|item| item
+			== Resolution::Preset {
+				width: 2560,
+				height: 1440,
+			}));
+		assert_eq!(picture(Resolution::Source, 2560, 1440), Some((2560, 1440)));
+		assert_eq!(picture(Resolution::Source, 5120, 1440), Some((3840, 1080)));
+		assert_eq!(
+			offered_frame_rates(165).collect::<Vec<_>>(),
+			vec![15, 30, 60, 90, 120]
+		);
+		assert_eq!(
+			offered_frame_rates(60).collect::<Vec<_>>(),
+			vec![15, 30, 60]
+		);
 		picker.audio = true;
 		assert!(picker.settings().unwrap().audio);
 		picker.audio = false;

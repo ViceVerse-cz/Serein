@@ -2243,6 +2243,8 @@ screen-body-include-the-pointer-in-the-shared-video = 共有ビデオにポイ�
 # Context: body
 screen-body-quality = 品質
 # Context: body
+screen-body-source = ソース
+# Context: body
 screen-body-quality-selection-does-not-require-nitro = 品質の選択にはニトロは必要ありません。
 # Context: body
 screen-body-refresh = リフレッシュ

@@ -48,6 +48,9 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 		sources.push(Source {
 			id: SourceId::Display(monitor_id(&monitor)),
 			name: bounded_name(name),
+			width,
+			height,
+			refresh_hz: monitor.refresh_rate().unwrap_or(0),
 		});
 		if sources.len() == MAX_SOURCES {
 			return Ok(sources);
@@ -75,6 +78,12 @@ pub(crate) fn sources() -> Result<Vec<Source>, &'static str> {
 		sources.push(Source {
 			id: SourceId::Window(window_id(&window)),
 			name: bounded_name(title),
+			width,
+			height,
+			refresh_hz: window
+				.monitor()
+				.and_then(|monitor| monitor.refresh_rate().ok())
+				.unwrap_or(0),
 		});
 		if sources.len() == MAX_SOURCES {
 			break;

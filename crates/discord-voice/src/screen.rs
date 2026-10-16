@@ -96,11 +96,17 @@ pub fn sources() -> Result<Vec<Source>, &'static str> {
 		let mut sources = vec![Source {
 			id: SourceId::Portal,
 			name: "Choose in the system picker".into(),
+			width: 0,
+			height: 0,
+			refresh_hz: 0,
 		}];
 		if linux::x11_session() {
 			sources.push(Source {
 				id: SourceId::X11Desktop,
 				name: "Entire X11 desktop · all monitors · no portal".into(),
+				width: 0,
+				height: 0,
+				refresh_hz: 0,
 			});
 		}
 		Ok(sources)
@@ -242,7 +248,7 @@ impl Worker {
 		self.done.as_ref()?.try_recv().ok()
 	}
 
-	/// One local RGBA image, bounded to 640 by 360 pixels and replaced at most ten times a second.
+	/// One local RGBA image at the captured size, replaced at most thirty times a second.
 	pub fn take_preview(&self) -> Option<image::RgbaImage> {
 		self.preview.try_lock().ok()?.take()
 	}
@@ -347,7 +353,7 @@ fn encode_loop(
 				if let Ok(mut slot) = preview.try_lock() {
 					*slot = Some(image);
 				}
-				next_preview = now + Duration::from_millis(100);
+				next_preview = now + Duration::from_millis(33);
 				wake();
 			}
 		}
@@ -695,24 +701,21 @@ fn validate_frame(frame: &RawFrame) -> Result<(usize, usize), &'static str> {
 }
 
 pub(super) fn preview_frame(frame: &RawFrame) -> Result<image::RgbaImage, &'static str> {
-	validate_frame(frame)?;
-	let scale = (640.0 / f64::from(frame.width))
-		.min(360.0 / f64::from(frame.height))
-		.min(1.0);
-	let width = (f64::from(frame.width) * scale).round().max(1.0) as u32;
-	let height = (f64::from(frame.height) * scale).round().max(1.0) as u32;
-	// ponytail: nearest sampling keeps the ten-fps preview cheap; use filtered scaling if needed.
-	Ok(image::RgbaImage::from_fn(width, height, |x, y| {
-		let source_x = (x * frame.width / width) as usize;
-		let source_y = (y * frame.height / height) as usize;
-		let offset = source_y * frame.stride + source_x * 4;
-		image::Rgba([
-			frame.data[offset + 2],
-			frame.data[offset + 1],
-			frame.data[offset],
-			255,
-		])
-	}))
+	let (row_bytes, _) = validate_frame(frame)?;
+	let mut image = image::RgbaImage::new(frame.width, frame.height);
+	for (y, row) in image.chunks_mut(frame.width as usize * 4).enumerate() {
+		let start = y * frame.stride;
+		for (dst, src) in row
+			.chunks_exact_mut(4)
+			.zip(frame.data[start..start + row_bytes].chunks_exact(4))
+		{
+			dst[0] = src[2];
+			dst[1] = src[1];
+			dst[2] = src[0];
+			dst[3] = 255;
+		}
+	}
+	Ok(image)
 }
 
 #[cfg(any(test, target_os = "macos"))]
@@ -816,9 +819,8 @@ mod tests {
 				data: vec![0; width as usize * height as usize * 4],
 			};
 			let preview = preview_frame(&frame).unwrap();
-			assert!(preview.width() > 0 && preview.width() <= 640);
-			assert!(preview.height() > 0 && preview.height() <= 360);
-			assert!(preview.as_raw().len() <= 640 * 360 * 4);
+			assert_eq!((preview.width(), preview.height()), (width, height));
+			assert_eq!(preview.as_raw().len(), width as usize * height as usize * 4);
 		}
 		assert!(
 			preview_frame(&RawFrame {

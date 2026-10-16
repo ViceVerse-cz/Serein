@@ -2253,6 +2253,8 @@ screen-body-include-the-pointer-in-the-shared-video = Zahrnout ukazatel do sdíl
 # Context: body
 screen-body-quality = Kvalitní
 # Context: body
+screen-body-source = Zdroj
+# Context: body
 screen-body-quality-selection-does-not-require-nitro = Výběr kvality nevyžaduje Nitro.
 # Context: body
 screen-body-refresh = Obnovit

@@ -2243,6 +2243,8 @@ screen-body-include-the-pointer-in-the-shared-video = İşaretçiyi paylaşılan
 # Context: body
 screen-body-quality = Kalite
 # Context: body
+screen-body-source = Kaynak
+# Context: body
 screen-body-quality-selection-does-not-require-nitro = Kaliteli seçim Nitro gerektirmez.
 # Context: body
 screen-body-refresh = Yenile

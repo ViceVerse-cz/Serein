@@ -2273,6 +2273,8 @@ screen-body-include-the-pointer-in-the-shared-video = 分享画面时包含鼠�
 # Context: body
 screen-body-quality = 品质
 # Context: body
+screen-body-source = 源
+# Context: body
 screen-body-quality-selection-does-not-require-nitro = 选择品质不需要 Nitro。
 # Context: body
 screen-body-refresh = 刷新

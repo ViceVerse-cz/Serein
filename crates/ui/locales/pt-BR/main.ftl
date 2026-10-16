@@ -2242,6 +2242,8 @@ screen-body-include-the-pointer-in-the-shared-video = Inclua o ponteiro no víde
 # Context: body
 screen-body-quality = Qualidade
 # Context: body
+screen-body-source = Fonte
+# Context: body
 screen-body-quality-selection-does-not-require-nitro = A seleção de qualidade não requer Nitro.
 # Context: body
 screen-body-refresh = Atualizar

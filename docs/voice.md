@@ -451,9 +451,11 @@ not establish production readiness or superiority over Discord's processing.
 
 ## Screen sharing
 
-In a connected call, select **Share your screen**, choose a display/window, 480p, 720p or 1080p, 15/30/60 fps, cursor visibility and optional **Share system audio**, then select **Share screen**. The screen button changes to **Stop sharing** while starting/sharing; it also remains available in the compact call controls. Call microphone controls remain independent. All presets are selectable without Nitro, but Discord acceptance and sustained frame rate are not guaranteed.
+In a connected call, select **Share your screen**, choose a display/window, then a resolution and frame rate, cursor visibility and optional **Share system audio**, then select **Share screen**. The screen button changes to **Stop sharing** while starting/sharing; it also remains available in the compact call controls. Call microphone controls remain independent. All presets are selectable without Nitro, but Discord acceptance and sustained frame rate are not guaranteed.
 
-480p uses 854×480 pixels and a target video bitrate of 2 Mbps at 15/30 fps or 4 Mbps at 60 fps.
+When the selected display or window reports a pixel size, the quality row offers Source plus every preset that fits inside that size: 1440p (2560×1440), 1080p (1920×1080), 720p (1280×720), and 480p (854×480). Source is the native size, rounded down to even pixels and limited to 3840×2160. A size that has not been reported yet keeps 1080p, 720p, and 480p. Frame rate is 15, 30, or 60. 90 and 120 appear only when that monitor's refresh rate is at least 90 Hz or 120 Hz. Windows reads the refresh rate with the current display mode. macOS and the Linux portal do not report it, so those paths keep 15/30/60.
+
+Target bitrate is 2 Mbps at 480p, 4 Mbps at 720p, and 8 Mbps at 1080p for 15 and 30 fps. 60 fps doubles that, 90 fps triples it, and 120 fps quadruples it, with a ceiling of 16 Mbps. Above 1080p the 8 Mbps base scales with pixel count, up to 12 Mbps before the frame-rate multiplier.
 
 Capture uses macOS 14+ ScreenCaptureKit or Windows Graphics Capture. On macOS,
 Share Screen offers the native `SCContentSharingPicker` to choose one display or
@@ -496,7 +498,7 @@ target/debug/examples/linux_screen --niri-timestamps
 
 GPU buffers stay native where driver/plugin
 negotiation permits; zero-copy is not guaranteed, especially across GPUs. Local preview
-is capped at 640×360/10 fps and suspended when minimized or viewing another channel.
+matches the shared picture size, at most 30 fps, and is suspended when minimized or viewing another channel.
 The system picker requires a ScreenCast-capable portal backend. Native X11 sessions
 also offer an explicit “Entire X11 desktop · all monitors · no portal” source using
 GStreamer's `ximagesrc` (Good plugins). This shares the whole desktop, not an individual
@@ -592,10 +594,11 @@ outgoing media remains disabled until DAVE is ready. A transport reconnection st
 capture and requires another click. Demo mode never requests camera or microphone access.
 
 An explicitly started screen share also shows a separate local tile while alone.
-The worker retains at most one 640×360 RGBA preview (921,600 bytes), updated at
-most ten times per second, plus the bounded UI texture and upload copy. Preview
-resizing and color conversion run on the capture worker. Native raw-frame limits
-still apply; encoding and network transmission wait for secure media readiness.
+The worker retains at most one RGBA preview at the captured size, up to 3840×2160
+(33,177,600 bytes), updated at most thirty times per second, plus the bounded UI
+texture and upload copy. Color conversion runs on the capture worker and does not
+shrink the picture. Native raw-frame limits still apply; encoding and network
+transmission wait for secure media readiness.
 Stop, source failure, permission loss, leaving and logout release the preview.
 These paths have synthetic coverage; native camera/screen capture and live Discord
 viewing still require owner-operated validation.

@@ -97,8 +97,11 @@ fn main() {
 			assert!(pipeline.frames.try_pull_sample(gst::ClockTime::ZERO).is_none(), "must not encode before secure readiness");
 			if let Some(sample) = pipeline.preview.try_pull_sample(gst::ClockTime::ZERO) {
 				let raw = gstreamer::raw(&sample).unwrap();
-				assert_eq!((raw.width, raw.height), (640, 360));
-				assert_eq!(preview_frame(&raw).unwrap().as_raw().len(), 640 * 360 * 4);
+				assert_eq!((raw.width, raw.height), (settings.width, settings.height));
+				assert_eq!(
+					preview_frame(&raw).unwrap().as_raw().len(),
+					settings.width as usize * settings.height as usize * 4
+				);
 				let pts = sample.buffer().unwrap().pts().expect("preview timestamp");
 				assert!(last_preview_pts.is_none_or(|last| pts > last), "preview must keep advancing");
 				last_preview_pts = Some(pts);
