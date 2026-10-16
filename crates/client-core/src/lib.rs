@@ -685,6 +685,14 @@ pub struct Pending {
 	/// The reply this send carried, so a failed row can restore it with the caption.
 	pub reply: Option<Reply>,
 }
+impl Pending {
+	/// Restoring this row would drop its reply target in favour of a different active one.
+	pub fn reply_conflicts(&self, active: Option<Reply>) -> bool {
+		self.reply
+			.zip(active)
+			.is_some_and(|(own, active)| own.target() != active.target())
+	}
+}
 #[derive(Default)]
 pub struct NavigationIndex {
 	view_revisions: view_revisions::Revisions,
@@ -1982,7 +1990,10 @@ impl State {
 		let composer_idle = self.selected == Some(channel)
 			&& self.drafts.get(&channel).is_none_or(String::is_empty)
 			&& (self.drafts.contains_key(&channel) || self.drafts.len() < 64);
-		let Some(index) = index.filter(|_| composer_idle) else {
+		// Never swap a reply target: a newer reply keeps the composer, the row keeps its own.
+		let Some(index) = index
+			.filter(|index| composer_idle && !self.pending[*index].reply_conflicts(self.reply))
+		else {
 			self.apply(Envelope {
 				generation: self.generation,
 				event: Event::SendResult {
@@ -2007,6 +2018,17 @@ impl State {
 		}
 		self.status = failure;
 		true
+	}
+	/// Deleted targets must not come back through Restore or a returned send.
+	pub(crate) fn forget_pending_replies(&mut self, channel: Id, deleted: &[Id]) {
+		for pending in self.pending.iter_mut().filter(|p| p.channel == channel) {
+			if pending
+				.reply
+				.is_some_and(|reply| deleted.contains(&reply.target()))
+			{
+				pending.reply = None;
+			}
+		}
 	}
 	/// Removes a failed or unconfirmed own row without restoring it.
 	pub fn discard_pending(&mut self, nonce: &str) {
@@ -3717,6 +3739,7 @@ impl State {
 			}
 			Event::Delete { channel, id } => {
 				self.read_state.activity.delete(channel, id);
+				self.forget_pending_replies(channel, &[id]);
 				if let Some(channel) = self
 					.channels
 					.iter_mut()
@@ -3759,6 +3782,7 @@ impl State {
 					for id in &ids {
 						self.read_state.activity.delete(channel, *id);
 					}
+					self.forget_pending_replies(channel, &ids);
 				}
 				if let Some(channel) = self
 					.channels
@@ -4834,6 +4858,50 @@ mod tests {
 		let nonce = state.pending[0].nonce.clone();
 		state.discard_pending(&nonce);
 		assert!(state.pending.is_empty());
+		// A reply started meanwhile is never swapped: the row fails and keeps its own target.
+		state.drafts.remove(&Id(1));
+		state.reply = Some(Reply::to(Id(10)));
+		let command = state.prepare_send_with_attachments(&["photo.png"]).unwrap();
+		state.reply = Some(Reply::to(Id(20)));
+		assert!(!state.return_unsent(command, "File not sent"));
+		assert_eq!(state.reply, Some(Reply::to(Id(20))));
+		assert!(!state.drafts.contains_key(&Id(1)));
+		assert_eq!(state.pending[0].delivery, Delivery::Rejected);
+		assert_eq!(state.pending[0].reply, Some(Reply::to(Id(10))));
+		// Deleting a target outside the loaded window still forgets it on failed rows.
+		state.selected = Some(Id(2));
+		apply(
+			&mut state,
+			Event::Delete {
+				channel: Id(1),
+				id: Id(10),
+			},
+		);
+		assert_eq!(state.pending[0].reply, None);
+		state.pending[0].reply = Some(Reply::to(Id(11)));
+		apply(
+			&mut state,
+			Event::DeleteBulk {
+				channel: Id(3),
+				ids: vec![Id(11)],
+			},
+		);
+		assert_eq!(
+			state.pending[0].reply,
+			Some(Reply::to(Id(11))),
+			"other channel"
+		);
+		apply(
+			&mut state,
+			Event::DeleteBulk {
+				channel: Id(1),
+				ids: vec![Id(9), Id(11)],
+			},
+		);
+		assert_eq!(state.pending[0].reply, None);
+		state.selected = Some(Id(1));
+		state.pending.clear();
+		state.drafts.insert(Id(1), "Text".into());
 		let Command::Send { nonce, .. } = state.prepare_send().unwrap() else {
 			panic!()
 		};

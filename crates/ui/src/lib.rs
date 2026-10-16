@@ -2675,6 +2675,9 @@ impl MessagingUi {
 			if !state.drafts.contains_key(&channel) && state.drafts.len() >= 64 {
 				state.status =
 					"Draft budget full. Clear an existing draft before restoring pending text";
+			} else if state.pending[index].reply_conflicts(state.reply) {
+				// Restoring now would send this text to the newer reply's author.
+				state.status = "Cancel the current reply before restoring this message";
 			} else if state.drafts.get(&channel).is_none_or(String::is_empty) {
 				let pending = state.pending.remove(index);
 				if !pending.attachments.is_empty() {
@@ -2682,7 +2685,7 @@ impl MessagingUi {
 				}
 				state.drafts.insert(channel, pending.content);
 				self.draft_changes.push(channel);
-				// The reply goes back with its caption unless a newer reply was started.
+				// The reply goes back with its caption; a matching active reply is kept as is.
 				if state.reply.is_none() && state.selected == Some(channel) {
 					state.reply = pending
 						.reply

@@ -397,3 +397,52 @@ fn restore_returns_the_reply_and_the_cap_keeps_its_author() {
 		"an earlier message"
 	);
 }
+
+#[test]
+fn restore_never_swaps_or_resurrects_a_reply_target() {
+	let mut state = test_support::demo_state();
+	let channel = state.selected.unwrap();
+	let ids: Vec<_> = state.timeline.iter().map(|message| message.id).collect();
+	let (first, second) = (ids[0], ids[1]);
+	let mut messaging = crate::MessagingUi::default();
+	let fail = |state: &mut State, target| {
+		state.reply = Some(client_core::Reply::to(target));
+		let nonce = send(state, "Reply caption");
+		apply(
+			state,
+			Event::SendResult {
+				nonce: nonce.clone(),
+				result: Err(Failure::ProtocolAt("Synthetic failure")),
+			},
+		);
+		nonce
+	};
+	let nonce = fail(&mut state, first);
+	// A newer reply with an empty draft keeps both its target and the failed row.
+	state.reply = Some(client_core::Reply::to(second));
+	messaging.restore_pending(&mut state, channel, &nonce);
+	assert_eq!(state.reply_target(), Some(second));
+	assert!(!state.drafts.contains_key(&channel));
+	assert_eq!(state.pending.len(), 1);
+	assert!(state.status.contains("Cancel the current reply"));
+	state.reply = None;
+	messaging.restore_pending(&mut state, channel, &nonce);
+	assert_eq!(state.reply_target(), Some(first));
+	assert_eq!(state.drafts[&channel], "Reply caption");
+	// A target deleted while its window was not resident is not restored.
+	state.drafts.remove(&channel);
+	let nonce = fail(&mut state, second);
+	state.timeline.clear();
+	state.selected = Some(Id(21));
+	apply(
+		&mut state,
+		Event::Delete {
+			channel,
+			id: second,
+		},
+	);
+	state.selected = Some(channel);
+	messaging.restore_pending(&mut state, channel, &nonce);
+	assert_eq!(state.drafts[&channel], "Reply caption");
+	assert_eq!(state.reply_target(), None);
+}

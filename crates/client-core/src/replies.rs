@@ -246,6 +246,7 @@ impl State {
 			return;
 		};
 		let deletion = (message.channel, target);
+		self.forget_pending_replies(message.channel, &[target]);
 		// Only one message or an already validated <=50-message history page calls this.
 		if !self.reply_deletions.0.contains(&deletion) && self.reply_deletions.0.len() < 50 {
 			self.reply_deletions.0.push(deletion);
