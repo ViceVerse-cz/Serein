@@ -291,6 +291,28 @@ fn provenance<'a>(
 	}
 }
 
+/// A details line followed by the compact retry icon.
+fn retry_row(ui: &mut egui::Ui, text: String, id: Id, request: &mut Option<Id>) {
+	ui.horizontal_top(|ui| {
+		ui.spacing_mut().item_spacing.x = 4.0;
+		let retry = 24.0;
+		let width = (ui.available_width() - retry - 4.0).max(40.0);
+		ui.allocate_ui(egui::vec2(width, retry), |ui| {
+			ui.add(egui::Label::new(text).wrap());
+		});
+		if crate::icons::button(
+			ui,
+			crate::icons::Icon::Reload,
+			retry,
+			"stickers-message-retry-sticker-details",
+		)
+		.clicked()
+		{
+			*request = Some(id);
+		}
+	});
+}
+
 /// Message artwork and an anchored details card. The owner dispatches explicit reads.
 pub(crate) fn message(
 	ui: &mut egui::Ui,
@@ -362,12 +384,10 @@ pub(crate) fn message(
 					.and_then(|id| state.guild(id))
 					.map(|guild| guild.name.as_str())
 			});
-			let provenance = provenance(
-				source,
-				detail,
-				state.stickers.detail_loading == Some(sticker.id),
-				state.stickers.detail_error,
-			);
+			let loading = state.stickers.detail_loading == Some(sticker.id);
+			let provenance = provenance(source, detail, loading, state.stickers.detail_error);
+			// A failed reload keeps the known source but still offers the retry.
+			let failed = !loading && state.stickers.detail_error.is_some();
 			ui.horizontal_top(|ui| {
 				ui.spacing_mut().item_spacing.x = 12.0;
 				avatars.sticker_image(ui, sticker, egui::Vec2::splat(64.0), state.demo);
@@ -395,37 +415,35 @@ pub(crate) fn message(
 								"stickers-message-loading-sticker-details",
 							)));
 						}
+						Provenance::OtherServer if failed => {
+							retry_row(
+								ui,
+								crate::i18n::translate(
+									"stickers-message-from-an-unavailable-server",
+								),
+								sticker.id,
+								request,
+							);
+						}
 						Provenance::OtherServer => {
 							ui.add(line(crate::i18n::translate(
 								"stickers-message-from-an-unavailable-server",
 							)));
 						}
 						Provenance::Unavailable(error) => {
-							ui.horizontal_top(|ui| {
-								ui.spacing_mut().item_spacing.x = 4.0;
-								let retry = 24.0;
-								let text = (ui.available_width() - retry - 4.0).max(40.0);
-								ui.allocate_ui(egui::vec2(text, retry), |ui| {
-									ui.add(line(error.map_or_else(
-										|| {
-											crate::i18n::translate(
-												"stickers-message-sticker-details-unavailable",
-											)
-										},
-										str::to_owned,
-									)));
-								});
-								if crate::icons::button(
-									ui,
-									crate::icons::Icon::Reload,
-									retry,
-									"stickers-message-retry-sticker-details",
-								)
-								.clicked()
-								{
-									*request = Some(sticker.id);
-								}
-							});
+							retry_row(
+								ui,
+								error.map_or_else(
+									|| {
+										crate::i18n::translate(
+											"stickers-message-sticker-details-unavailable",
+										)
+									},
+									str::to_owned,
+								),
+								sticker.id,
+								request,
+							);
 						}
 					}
 				});

@@ -547,6 +547,14 @@ impl Avatars {
 			&& !self.no_animations.contains(&key)
 		{
 			let frame = self.advance_animation(ctx, &key, false);
+			// Frames evicted from the shared pool come back while the emoji is visible.
+			if frame.is_none()
+				&& self.textures.contains_key(&key)
+				&& !self.animations.contains_key(&key)
+				&& !self.released.contains(&key)
+			{
+				self.request(key.clone());
+			}
 			if let Some(entry) = self.textures.get_mut(&key) {
 				entry.0 = Instant::now();
 				return Some(
@@ -2011,6 +2019,10 @@ mod tests {
 			.map(|t| t.id());
 		assert!(played.is_some() && played == frames);
 		assert!(images.take_requests().is_empty());
+		// Frames evicted by the shared pool are fetched again while the emoji stays visible.
+		images.animations.remove("anim:emoji-42");
+		assert!(images.custom_emoji(&ctx, id, true, 20.0, false).is_some());
+		assert_eq!(images.take_requests(), vec!["anim:emoji-42"]);
 
 		// A failed animated download shows the still instead of retrying the GIF.
 		let other = model::Id(43);
