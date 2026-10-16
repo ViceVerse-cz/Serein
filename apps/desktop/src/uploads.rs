@@ -773,7 +773,7 @@ impl Uploads {
 			.and_then(|target| self.parked.iter().position(|parked| parked.scope == target))
 			.map(|index| self.parked.remove(index));
 		if let Some(scope) = self.scope {
-			if allowed && scope.0 == generation && !self.selected.is_empty() {
+			if allowed && scope.0 == generation && keep(scope.1) && !self.selected.is_empty() {
 				self.park(scope);
 			}
 			self.remove();
@@ -1463,6 +1463,29 @@ mod tests {
 		assert_eq!(uploads.scope, Some((1, b)));
 		assert_eq!(uploads.files(), [("message.txt".to_owned(), half as u64)]);
 		assert_eq!(uploads.parked.len(), 1);
+		assert!(uploads.take_notice().is_none());
+	}
+
+	#[test]
+	fn leaving_an_inaccessible_conversation_never_evicts_parked_files() {
+		let mut uploads = Uploads::default();
+		for channel in 1..=PARKED_CONVERSATIONS as u64 {
+			stage(&mut uploads, 1, Id(channel), 1);
+			uploads.follow_conversation(1, Some(Id(channel + 1)), true, |_| true);
+		}
+		let lost = Id(PARKED_CONVERSATIONS as u64 + 1);
+		stage(&mut uploads, 1, lost, 1);
+		assert!(uploads.take_notice().is_none());
+		uploads.follow_conversation(1, None, true, |id| id != lost);
+		assert_eq!(uploads.parked.len(), PARKED_CONVERSATIONS);
+		assert!(
+			uploads
+				.parked
+				.iter()
+				.any(|parked| parked.scope == (1, Id(1)))
+		);
+		assert!(uploads.parked.iter().all(|parked| parked.scope.1 != lost));
+		assert!(uploads.files().is_empty());
 		assert!(uploads.take_notice().is_none());
 	}
 

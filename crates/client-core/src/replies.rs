@@ -100,6 +100,9 @@ impl State {
 	/// Takes `channel`'s parked reply before parking the open conversation's, so parking at
 	/// capacity cannot evict the destination. Reopening the same conversation keeps its reply.
 	pub(crate) fn swap_parked_reply(&mut self, channel: Id) -> Option<Reply> {
+		if self.selected == Some(channel) {
+			return self.reply.take();
+		}
 		let destination = self.parked_replies.take(self.generation, channel);
 		self.park_reply();
 		destination.or_else(|| self.parked_replies.take(self.generation, channel))
@@ -1138,6 +1141,14 @@ mod tests {
 		assert_eq!(state.parked_replies.len(), ParkedReplies::MAX);
 		state.select(Id(1));
 		assert_eq!(state.reply_target(), Some(Id(100)));
+		// Reselecting the open conversation keeps its reply without parking it at capacity.
+		state.select(Id(1));
+		assert_eq!(state.reply_target(), Some(Id(100)));
+		assert_eq!(state.parked_replies.len(), ParkedReplies::MAX);
+		assert_eq!(
+			state.parked_replies.take(state.generation, Id(1001)),
+			Some(Reply::to(Id(5)))
+		);
 	}
 
 	#[test]
