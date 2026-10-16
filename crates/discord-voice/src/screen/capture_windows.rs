@@ -294,13 +294,24 @@ where
 		next_frame: Instant::now(),
 		interval: Duration::from_secs_f64(1.0 / f64::from(settings.fps)),
 	};
-	let native = Settings::new(
-		item,
-		if settings.cursor {
+	let cursor =
+		if settings.cursor && GraphicsCaptureApi::is_cursor_settings_supported().unwrap_or(false) {
+			CursorCaptureSettings::WithCursor
+		} else if settings.cursor {
 			CursorCaptureSettings::Default
 		} else {
 			CursorCaptureSettings::WithoutCursor
-		},
+		};
+	// Leaving the interval unset lets Windows coalesce pointer-only updates to about 10 Hz.
+	let minimum_update =
+		if GraphicsCaptureApi::is_minimum_update_interval_supported().unwrap_or(false) {
+			MinimumUpdateIntervalSettings::Custom(Duration::from_millis(1))
+		} else {
+			MinimumUpdateIntervalSettings::Default
+		};
+	let native = Settings::new(
+		item,
+		cursor,
 		// Hide the border where supported; older Windows must keep the system default.
 		if GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false) {
 			DrawBorderSettings::WithoutBorder
@@ -308,7 +319,7 @@ where
 			DrawBorderSettings::Default
 		},
 		SecondaryWindowSettings::Default,
-		MinimumUpdateIntervalSettings::Default,
+		minimum_update,
 		DirtyRegionSettings::Default,
 		ColorFormat::Bgra8,
 		flags,
