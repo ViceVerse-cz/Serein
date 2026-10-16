@@ -1,0 +1,66 @@
+{
+  "environment": {
+    "os": "Windows 11 x64, build 26200",
+    "cpu": "AMD Ryzen 7 7800X3D",
+    "ram_bytes": 33410678784,
+    "rust": "1.98.1",
+    "package": "cargo xtask package, voice included, no default/developer/demo features",
+    "replay": "cargo replay verification, then one direct warmup and five measured direct runs; 100000 synthetic events per run"
+  },
+  "baseline": {
+    "label": "baseline",
+    "revision": "74ff7038292081ce3e54e4e4045c1a1e8c7fbee0",
+    "executable_bytes": 87251456,
+    "executable_sha256": "b15528e51678b6b52ef7b7573a8d4c5258d360b76e0c269d0a03803f38206ee1",
+    "installed_bytes": 91444745,
+    "installed_files": 216,
+    "zip_bytes": 50287594,
+    "zip_method": "Python zipfile ZIP_DEFLATED, level 9, sorted installed file paths",
+    "replay_ms": [
+      67.8165,
+      68.4733,
+      69.0256,
+      67.8916,
+      73.775
+    ],
+    "replay_median_ms": 68.4733,
+    "replay_outputs": [
+      "Synthetic reducer replay: 100000 events in 67.8165ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 68.4733ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 69.0256ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 67.8916ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 73.775ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+    ]
+  },
+  "after": {
+    "label": "after",
+    "revision": "460d71176b3222648914a529fc922f332bd534ad",
+    "executable_bytes": 87251456,
+    "executable_sha256": "06c6954ef7f543f0bb6acdff1564ce93f0df6ad26eed1431cefb4816d2863395",
+    "installed_bytes": 91444745,
+    "installed_files": 216,
+    "zip_bytes": 50287599,
+    "zip_method": "Python zipfile ZIP_DEFLATED, level 9, sorted installed file paths",
+    "replay_ms": [
+      70.4704,
+      64.5155,
+      66.4441,
+      67.0836,
+      66.4959
+    ],
+    "replay_median_ms": 66.4959,
+    "replay_outputs": [
+      "Synthetic reducer replay: 100000 events in 70.4704ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 64.5155ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 66.4441ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 67.0836ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility.",
+      "Synthetic reducer replay: 100000 events in 66.4959ms; retained timeline 393492..393977 estimated bytes, 500 records. This is not process RSS, UI frame time, or live compatibility."
+    ]
+  },
+  "limitations": [
+    "Synthetic reducer replay excludes rename-specific latency, RSS, UI frame time and live Discord interoperability.",
+    "Before/after timing ranges overlap; no speed improvement is claimed.",
+    "Native screenshot/control is unavailable: orca CLI absent, connected computer-use native app API disabled.",
+    "NSIS is unavailable; artifacts are unsigned package directories and ZIP archives, not installers."
+  ]
+}

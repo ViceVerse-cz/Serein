@@ -202,3 +202,39 @@ async fn invalid_session_before_hello_identifies_at_original_gateway() {
 		})
 		.await;
 }
+
+#[tokio::test]
+async fn recovery_probes_a_ready_socket_and_resumes_only_when_it_is_silent() {
+	let gateway = Gateway::new().await;
+	gateway
+		.run(async {
+			let mut socket = gateway.socket(false, Some(2)).await;
+			let mut ready = ready(41, "synthetic-recovery-session");
+			ready["d"]["resume_gateway_url"] = json!("wss://gateway-resume.discord.gg/");
+			send(&mut socket, ready).await;
+			acknowledge(&mut socket, 41).await;
+			gateway.manual.store(true, Ordering::Relaxed);
+			// A healthy socket acknowledges the probe heartbeat and is kept.
+			gateway.reconnect.notify_one();
+			let probe = packet(&mut socket).await;
+			assert_eq!(
+				(probe["op"].clone(), probe["d"].clone()),
+				(json!(1), json!(41))
+			);
+			send(&mut socket, json!({"op":11,"d":null})).await;
+			// A silently dead socket is replaced by a resume once the probe goes unanswered. A
+			// signal the client sees before that ack joins the outstanding probe, so signal until
+			// a new probe is sent.
+			let probe = loop {
+				gateway.reconnect.notify_one();
+				if let Ok(probe) = timeout(Duration::from_millis(200), packet(&mut socket)).await {
+					break probe;
+				}
+			};
+			assert_eq!(probe["op"], 1);
+			let next = gateway.socket(true, Some(6)).await;
+			drop(socket);
+			gateway.stop(next).await;
+		})
+		.await;
+}

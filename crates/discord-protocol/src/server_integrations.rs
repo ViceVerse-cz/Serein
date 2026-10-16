@@ -115,11 +115,15 @@ pub fn webhooks(bytes: &[u8], guild: Id) -> Result<Snapshot, DecodeError> {
 		return Err(DecodeError);
 	}
 	let values: List<WireWebhook, { m::MAX_WEBHOOKS }> = crate::decode(bytes)?;
+	// Collecting reuses the larger wire buffer; trim it so the snapshot is charged only for
+	// the webhooks it holds.
+	let mut webhooks: Vec<_> = values.0.into_iter().map(WireWebhook::into_model).collect();
+	webhooks.shrink_to_fit();
 	let page = Snapshot {
 		guild,
 		channel: None,
 		integrations: None,
-		webhooks: Some(values.0.into_iter().map(WireWebhook::into_model).collect()),
+		webhooks: Some(webhooks),
 	};
 	if !page.valid() {
 		return Err(DecodeError);

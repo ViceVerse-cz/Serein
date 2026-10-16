@@ -335,6 +335,9 @@ pub struct Voice {
 	/// A joined call failed; the next poll plays the leave cue a hangup would.
 	leave_cue: bool,
 	rejoin: Option<Rejoin>,
+	/// Media dropped and a rejoin is scheduled: the main gateway may have died with it, so the
+	/// app should confirm that socket before the rejoin depends on it.
+	pub gateway_check: bool,
 }
 impl Voice {
 	pub fn stop(&mut self) {
@@ -652,6 +655,7 @@ impl Voice {
 		}
 		self.leave_cue |= joined;
 		self.stop();
+		self.gateway_check = true;
 		self.rejoin = Some(Rejoin {
 			generation: state.generation,
 			channel,
@@ -724,7 +728,11 @@ impl Voice {
 		}
 		let at = rejoin.at?;
 		let now = Instant::now();
-		if now < at || self.retiring.is_some() || !state.gateway_connected {
+		if now >= at && !state.gateway_connected {
+			// The gateway's reconnect event wakes the next frame.
+			return None;
+		}
+		if now < at || self.retiring.is_some() {
 			ctx.request_repaint_after(
 				at.saturating_duration_since(now)
 					.max(Duration::from_millis(50)),
@@ -848,6 +856,17 @@ impl Voice {
 			return current
 				.filter(|(generation, _, _)| *generation == state.generation)
 				.and(command);
+		}
+		// A rejoin hears back over the main gateway, so an outage there loses Discord's answer.
+		// Ask again once the gateway is back instead of spending an attempt on the outage.
+		if !state.gateway_connected
+			&& self.pending.is_some()
+			&& let Some(rejoin) = self.rejoin.as_mut()
+			&& rejoin.at.is_none()
+		{
+			rejoin.at = Some(Instant::now());
+			self.pending = None;
+			return None;
 		}
 		if let Some(pending) = self.pending.as_ref().or_else(|| {
 			self.live
@@ -2196,6 +2215,82 @@ mod tests {
 		));
 		assert!(manager.leave_cue && manager.rejoin.is_none());
 		assert_eq!(state.voice.active.as_ref().unwrap().phase, Phase::Failed);
+	}
+	#[test]
+	fn a_gateway_outage_during_rejoin_asks_again_without_spending_an_attempt() {
+		let runtime = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		state.gateway_connected = true;
+		state.start_call(Id(25), false).unwrap();
+		let request = state.voice.active.as_ref().unwrap().request;
+		state.reconnect_call(request, 1, "Voice socket failed; rejoin the call");
+		let mut manager = Voice::default();
+		manager.rejoin = Some(Rejoin {
+			generation: state.generation,
+			channel: Id(25),
+			attempt: 1,
+			at: Some(Instant::now()),
+			recovered: None,
+			camera: false,
+		});
+		let mut ui = ui::MessagingUi::default();
+		let context = egui::Context::default();
+		let is_join = |command: &Option<Command>| {
+			matches!(
+				command,
+				Some(Command::Voice(voice::Command::Join {
+					channel: Id(25),
+					ring: false,
+					..
+				}))
+			)
+		};
+		assert!(is_join(&manager.poll_rejoin(&mut state, &ui, &context)));
+		manager.begin(&state, false).unwrap();
+		// The gateway drops before Discord answers the join: that answer is lost.
+		state.gateway_connected = false;
+		assert!(
+			manager
+				.poll(&runtime, &mut state, &mut ui, &context)
+				.is_none()
+		);
+		assert!(manager.pending.is_none());
+		let rejoin = manager.rejoin.as_ref().unwrap();
+		assert!(rejoin.attempt == 1 && rejoin.at.is_some());
+		// Nothing is sent while offline.
+		assert!(
+			manager
+				.poll(&runtime, &mut state, &mut ui, &context)
+				.is_none()
+		);
+		// Back online, the same attempt asks again.
+		state.gateway_connected = true;
+		assert!(is_join(
+			&manager.poll(&runtime, &mut state, &mut ui, &context)
+		));
+		assert_eq!(
+			state
+				.voice
+				.active
+				.as_ref()
+				.unwrap()
+				.reconnecting
+				.map(|r| r.0),
+			Some(1)
+		);
+		// An attempt that fails while the gateway looked connected asks the app to check it.
+		manager.begin(&state, false).unwrap();
+		assert!(!manager.gateway_check);
+		assert!(
+			manager
+				.fail_or_rejoin(&mut state, "Rejoin timed out")
+				.is_none()
+		);
+		assert!(manager.gateway_check && manager.rejoin.as_ref().unwrap().attempt == 2);
 	}
 	#[test]
 	fn a_rejoin_budget_renews_only_after_uninterrupted_health() {

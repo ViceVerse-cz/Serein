@@ -1,12 +1,22 @@
-//! Two dormant, account-session-local conversation windows. Entries are moved,
-//! never cloned. Ordinary selection revalidates previews; exact loaded message
-//! links may use an eligible, previously fresh window without another page.
+//! Dormant, account-session-local conversation windows. Entries are moved, never cloned.
+//! Live events evict a window, so one that survives untouched still holds the latest page and
+//! reopens without a request; anything older or changed revalidates. Exact loaded message links
+//! may use an eligible, previously fresh window without another page.
 use crate::{Event, State, reactions};
-use model::{Channel, Freshness, Id};
+use model::{Channel, Freshness, Id, Message};
 use session_cache::Timeline;
-use std::collections::VecDeque;
+use std::{
+	collections::VecDeque,
+	time::{Duration, Instant},
+};
 
-const MAX_WINDOWS: usize = 2;
+const MAX_WINDOWS: usize = 8; // The shared row/byte budget below evicts sooner for long windows.
+/// Hover preloads may hold only a few windows, so a sweep cannot push out visited conversations.
+const MAX_SPECULATIVE: usize = 3;
+/// ponytail: trusting an untouched window assumes the gateway delivered every edit, deletion and
+/// reaction for the channel since it was parked (unverified for very large guilds). The age cap
+/// bounds that risk; a per-channel server revision would allow longer trust.
+const TRUST_AGE: Duration = Duration::from_secs(5 * 60);
 const MAX_ROWS: usize = 1500 - 25; // Reserve the one bounded search/pins page.
 const MAX_BYTES: usize = 16 * 1024 * 1024 - 66 * 1024; // Page plus query/view metadata.
 
@@ -31,6 +41,18 @@ impl From<&Channel> for Identity {
 struct Window {
 	identity: Identity,
 	timeline: Timeline,
+	parked: Instant,
+	older_exhausted: bool,
+	/// Parked by a hover preload and never opened; evicted before visited windows.
+	speculative: bool,
+	/// For a preloaded page, the channel's latest known message when it was parked. The page is
+	/// the service's latest, so it stays current while that is unchanged, even when the
+	/// latest known message was deleted and the page ends earlier.
+	validated: Option<Id>,
+}
+/// A restored window that may be shown as the current page without revalidation.
+pub(crate) struct Trusted {
+	pub older_exhausted: bool,
 }
 /// Opaque resident state, public so external synthetic State struct updates remain valid.
 #[derive(Default)]
@@ -40,6 +62,15 @@ pub struct Windows {
 impl Windows {
 	pub(crate) fn remove(&mut self, channel: Id) {
 		self.entries.retain(|entry| entry.identity.id != channel);
+	}
+	/// Removes the oldest preloaded window, or the oldest window when none was preloaded.
+	fn evict(&mut self, speculative_only: bool) -> Option<Window> {
+		let index = self
+			.entries
+			.iter()
+			.position(|entry| entry.speculative)
+			.or_else(|| (!speculative_only && !self.entries.is_empty()).then_some(0))?;
+		self.entries.remove(index)
 	}
 }
 impl State {
@@ -114,11 +145,22 @@ impl State {
 	}
 	/// Also call after direct disk hydration of the public active timeline.
 	pub fn enforce_resident_budget(&mut self) {
+		if self.timeline.older_evicted() {
+			self.older_exhausted = false;
+		}
 		while !self.resident.entries.is_empty()
 			&& (self.resident_history_rows() > MAX_ROWS
 				|| self.resident_history_bytes() > MAX_BYTES)
 		{
-			self.resident.entries.pop_front();
+			self.evict_resident(false);
+		}
+	}
+	/// Evicts one window, preloaded ones first. An evicted preload may be loaded again later.
+	fn evict_resident(&mut self, speculative_only: bool) {
+		if let Some(window) = self.resident.evict(speculative_only)
+			&& window.speculative
+		{
+			self.preload.conversations.forget(window.identity.id);
 		}
 	}
 	pub(crate) fn prune_resident(&mut self) {
@@ -132,7 +174,85 @@ impl State {
 		});
 		self.resident.entries = entries;
 	}
-	pub(crate) fn select_resident(&mut self, channel: Id) {
+	/// A window that may be shown as the latest page: recent, untouched since it was fresh,
+	/// and ending at the channel's latest known message.
+	fn current(&self, entry: &Window) -> bool {
+		let latest = self
+			.channel(entry.identity.id)
+			.and_then(|channel| channel.last_message);
+		self.gateway_connected
+			&& entry.parked.elapsed() < TRUST_AGE
+			&& latest.is_some()
+			&& (entry.timeline.iter().next_back().map(|message| message.id) == latest
+				|| entry.validated == latest)
+	}
+	/// Whether `channel` already has a dormant window that would reopen without a request.
+	pub(crate) fn resident_current(&self, channel: Id) -> bool {
+		self.resident
+			.entries
+			.iter()
+			.any(|entry| entry.identity.id == channel && self.current(entry))
+	}
+	/// Keeps a preloaded recent page as `channel`'s dormant window, replacing an older one.
+	/// The page is speculative, so anything unexpected drops it rather than failing the session.
+	pub(crate) fn park_preloaded(&mut self, channel: Id, mut messages: Vec<Message>) {
+		let Some(identity) = self
+			.channels
+			.iter()
+			.find(|entry| entry.id == channel && entry.supports_text())
+			.map(Identity::from)
+		else {
+			return;
+		};
+		messages.retain(|message| !message.ephemeral);
+		let mut ids = std::collections::BTreeSet::new();
+		if self.selected == Some(channel)
+			|| self.archived_thread == Some(channel)
+			|| !self.can_read_history(channel)
+			|| messages.len() > 50
+			|| messages
+				.iter()
+				.any(|message| message.channel != channel || !ids.insert(message.id))
+		{
+			return;
+		}
+		let Some(latest) = ids.last().copied() else {
+			return;
+		};
+		self.observe_last_message(channel, latest);
+		let older_exhausted = messages.len() < 50;
+		let mut timeline = Timeline::default();
+		timeline.set_preserve_deleted_messages(self.preserve_deleted_messages);
+		timeline.begin_page(false);
+		if timeline.finish_page(messages, false).is_err() {
+			return;
+		}
+		self.resident.remove(channel);
+		if self
+			.resident
+			.entries
+			.iter()
+			.filter(|entry| entry.speculative)
+			.count() >= MAX_SPECULATIVE
+		{
+			self.evict_resident(true);
+		}
+		if self.resident.entries.len() == MAX_WINDOWS {
+			self.evict_resident(false);
+		}
+		self.resident.entries.push_back(Window {
+			identity,
+			timeline,
+			parked: Instant::now(),
+			older_exhausted,
+			speculative: true,
+			validated: self.channel(channel).and_then(|entry| entry.last_message),
+		});
+		self.enforce_resident_budget();
+	}
+	/// Swap the active timeline for `channel`'s dormant window. Returns `Some` when the restored
+	/// window is recent, untouched and ends at the channel's latest known message.
+	pub(crate) fn select_resident(&mut self, channel: Id) -> Option<Trusted> {
 		self.prune_resident();
 		// Take the destination first, before parking can evict the oldest entry.
 		let restored = self
@@ -141,6 +261,12 @@ impl State {
 			.iter()
 			.position(|entry| entry.identity.id == channel)
 			.and_then(|index| self.resident.entries.remove(index));
+		let trusted = restored
+			.as_ref()
+			.filter(|entry| self.current(entry))
+			.map(|entry| Trusted {
+				older_exhausted: entry.older_exhausted,
+			});
 		let previous = self.selected.and_then(|id| {
 			self.channels
 				.iter()
@@ -167,11 +293,17 @@ impl State {
 			} else {
 				self.resident.remove(identity.id);
 				if self.resident.entries.len() == MAX_WINDOWS {
-					self.resident.entries.pop_front();
+					self.evict_resident(false);
 				}
-				self.resident
-					.entries
-					.push_back(Window { identity, timeline });
+				let older_exhausted = self.older_exhausted && !timeline.older_evicted();
+				self.resident.entries.push_back(Window {
+					identity,
+					timeline,
+					parked: Instant::now(),
+					older_exhausted,
+					speculative: false,
+					validated: None,
+				});
 			}
 		}
 		if let Some(entry) = restored {
@@ -180,6 +312,7 @@ impl State {
 		self.timeline
 			.set_preserve_deleted_messages(self.preserve_deleted_messages);
 		self.enforce_resident_budget();
+		trusted
 	}
 	pub(crate) fn invalidate_resident_event(&mut self, event: &Event) {
 		let deletion = match event {
@@ -190,6 +323,7 @@ impl State {
 			_ => None,
 		};
 		if let Some((channel, ids)) = deletion {
+			self.preload.conversations.touch(Some(channel));
 			if let Some(window) = self
 				.resident
 				.entries
@@ -227,11 +361,13 @@ impl State {
 			}
 			Event::Ready { .. } | Event::Resync | Event::PermissionsChanged => {
 				self.clear_cached_history();
+				self.preload.conversations.touch(None);
 				None
 			}
 			_ => None,
 		};
 		if let Some(channel) = channel {
+			self.preload.conversations.touch(Some(channel));
 			if !matches!(event, Event::RecipientRemoved { .. })
 				&& let Some(window) = self
 					.resident
@@ -304,7 +440,7 @@ mod tests {
 			user: Some(message(1, 1).author),
 			auth: auth::AuthState::Authenticated,
 			gateway_connected: true,
-			channels: (1..=4)
+			channels: (1..=MAX_WINDOWS as u64 + 2)
 				.map(|id| Channel {
 					id: Id(id),
 					guild: None,
@@ -332,11 +468,13 @@ mod tests {
 	fn load(state: &mut State, channel: u64) {
 		if state.selected == Some(Id(channel)) {
 			assert!(state.history_pending && state.history_before.is_none());
+		} else if let Some(command) = state.select(Id(channel)) {
+			assert!(matches!(command, Command::History { before: None, .. }));
 		} else {
-			assert!(matches!(
-				state.select(Id(channel)),
-				Some(Command::History { before: None, .. })
-			));
+			// An untouched dormant window holding the latest page reopens without a request.
+			assert!(!state.history_pending);
+			assert_eq!(state.freshness, Freshness::Fresh);
+			return;
 		}
 		let request = state.request;
 		apply(
@@ -369,6 +507,67 @@ mod tests {
 			embeds: Patch::Absent,
 			attachments: Patch::Absent,
 			embeds_suppressed: Patch::Absent,
+		}
+	}
+
+	#[test]
+	fn live_eviction_reopens_older_history_after_a_trusted_return() {
+		for byte_limit in [false, true] {
+			let mut state = state();
+			state.select(Id(1)).unwrap();
+			let request = state.request;
+			apply(
+				&mut state,
+				Event::History {
+					channel: Id(1),
+					request,
+					older: false,
+					messages: vec![message(1, 1)],
+				},
+			);
+			assert!(state.older_exhausted);
+			assert!(!state.can_load_older());
+			let count = if byte_limit { 100 } else { 501 };
+			for id in 2..=count {
+				let mut row = message(1, id);
+				if byte_limit {
+					row.content = "x".repeat(64 * 1024);
+				}
+				apply(&mut state, Event::Message(row));
+			}
+			assert!(state.timeline.get(Id(1)).is_none());
+			assert!(!state.older_exhausted);
+			assert!(state.can_load_older(), "capacity eviction loses the start");
+			load(&mut state, 2);
+			assert!(
+				state.select(Id(1)).is_none(),
+				"trusted return avoids revalidation"
+			);
+			assert!(state.can_load_older());
+			let before = state.timeline.row_ids().next().unwrap();
+			let Some(Command::History {
+				before: Some(cursor),
+				request,
+				..
+			}) = state.older_history()
+			else {
+				panic!()
+			};
+			assert_eq!(cursor, before);
+			apply(
+				&mut state,
+				Event::History {
+					channel: Id(1),
+					request,
+					older: true,
+					messages: vec![message(1, 1)],
+				},
+			);
+			assert!(state.timeline.get(Id(1)).is_some());
+			assert!(
+				!state.can_load_older(),
+				"the short older page establishes the start again"
+			);
 		}
 	}
 
@@ -409,6 +608,8 @@ mod tests {
 			load(&mut state, 3);
 			assert_eq!(state.resident_window_count(), 2);
 			assert_eq!(state.resident_history_rows(), 150);
+			// Newer activity than the dormant page (e.g. a read-state update) revalidates it.
+			state.observe_last_message(Id(1), Id(1999));
 			assert!(matches!(
 				state.select(Id(1)),
 				Some(Command::History {
@@ -525,10 +726,10 @@ mod tests {
 	fn lru_and_aggregate_row_budget_evict_whole_windows() {
 		{
 			let mut state = state();
-			for channel in 1..=4 {
+			for channel in 1..=MAX_WINDOWS as u64 + 2 {
 				load(&mut state, channel);
 			}
-			assert_eq!(state.resident_window_count(), 2);
+			assert_eq!(state.resident_window_count(), MAX_WINDOWS);
 			state.select(Id(1)).unwrap();
 			assert_eq!(state.timeline.row_count(), 0); // Least recent was evicted.
 			for channel in 1..=3 {
@@ -628,13 +829,15 @@ mod tests {
 				apply(&mut state, event);
 				if delete {
 					assert_eq!(state.resident_window_count(), 2);
-					state.select(Id(1)).unwrap();
+					// Deletions apply in place, so the window still ends at the latest message.
+					assert!(state.select(Id(1)).is_none());
+					assert_eq!(state.freshness, Freshness::Fresh);
 					assert!(state.timeline.get_display(Id(1001)).is_none());
 					assert!(state.timeline.get(Id(1001)).is_none());
 					assert_eq!(state.timeline.row_count(), 50);
 				} else {
 					assert_eq!(state.resident_window_count(), 1);
-					state.select(Id(2)).unwrap();
+					assert!(state.select(Id(2)).is_none(), "untouched window");
 					assert_eq!(state.timeline.row_count(), 50);
 					state.select(Id(1)).unwrap();
 					assert_eq!(state.timeline.row_count(), 0);
@@ -740,6 +943,48 @@ mod tests {
 	}
 
 	#[test]
+	fn untouched_recent_windows_reopen_without_a_request() {
+		{
+			let mut state = state();
+			load(&mut state, 1);
+			state.older_exhausted = true; // A short conversation already reached its start.
+			load(&mut state, 2);
+			let request = state.request;
+			assert!(state.select(Id(1)).is_none());
+			assert_eq!(state.freshness, Freshness::Fresh);
+			assert!(!state.history_pending && state.older_exhausted);
+			assert_eq!(state.timeline.row_count(), 50);
+			assert_ne!(
+				state.request, request,
+				"an in-flight page for the old channel is stale"
+			);
+		}
+		for revalidate in [
+			|state: &mut State| {
+				let entry = state.resident.entries.back_mut().unwrap();
+				entry.parked = Instant::now().checked_sub(TRUST_AGE).unwrap();
+			},
+			|state: &mut State| state.gateway_connected = false,
+			|state: &mut State| state.observe_last_message(Id(2), Id(2999)),
+		] {
+			let mut state = state();
+			load(&mut state, 2);
+			load(&mut state, 1);
+			revalidate(&mut state);
+			assert!(matches!(
+				state.select(Id(2)),
+				Some(Command::History {
+					channel: Id(2),
+					before: None,
+					..
+				})
+			));
+			assert_eq!(state.timeline.row_count(), 50, "the preview stays visible");
+			assert_eq!(state.freshness, Freshness::Loading);
+		}
+	}
+
+	#[test]
 	fn search_targets_and_transient_archive_windows_are_not_parked() {
 		let mut state = state();
 		load(&mut state, 1);
@@ -751,9 +996,9 @@ mod tests {
 		state.archived_thread = Some(Id(2));
 		load(&mut state, 2);
 		assert_eq!(state.resident_window_count(), 1);
-		state.select(Id(1)).unwrap();
+		assert!(state.select(Id(1)).is_none(), "untouched window");
 		assert_eq!(state.timeline.row_count(), 50);
-		assert_eq!(state.freshness, Freshness::Loading);
+		assert_eq!(state.freshness, Freshness::Fresh);
 		assert_eq!(state.resident_window_count(), 0);
 		assert!(!state.channels.iter().any(|channel| channel.id == Id(2)));
 	}

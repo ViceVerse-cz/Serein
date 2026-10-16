@@ -798,6 +798,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Podgląd wideo · odt
 embeds-text-text-display-limited = Ograniczone wyświetlanie tekstu
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Kliknij, aby dowiedzieć się więcej
 # Context: show
 emoji-details-show-a-custom-emoji = Niestandardowy emoji.
 # Context: show
@@ -2991,6 +2993,8 @@ server-menu-header-server-menu = Menu serwera
 server-menu-leave-item-leave-server = Opuść serwer
 # Context: read_item
 server-menu-read-item-mark-as-read = Oznacz jako przeczytane
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = Oznacz wszystko jako przeczytane
 # Context: settings_item
 server-menu-settings-item-server-settings = Ustawienia serwera
 # Context: show
@@ -3575,6 +3579,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = Polecenie 
 slash-commands-footer-refresh-application-commands = Odśwież polecenia aplikacji
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = Ta naklejka pochodzi z serwera dostępnego tylko na zaproszenie lub niedostępnego.
 # Context: message
 stickers-message-loading-sticker-details = Ładowanie szczegółów naklejki…
 # Context: message
@@ -4734,3 +4740,92 @@ timeline-dm-intro = To początek Twojej historii wiadomości prywatnych z { $nam
 timeline-channel-intro-title = Witaj na #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = To początek kanału #{ $channel }.
+# Context: text_menu
+text-menu-cut = Wytnij
+text-menu-copy = Kopiuj
+text-menu-paste = Wklej
+text-menu-select-all = Zaznacz wszystko
+# Context: media_box
+forum-composer-attached-files = Załączone pliki: { $count }
+forum-composer-remove-file = Usuń { $file }
+post-menu-post-action-failed = Działanie na poście nie powiodło się
+post-menu-thread-action-failed = Działanie na wątku nie powiodło się
+
+# Context: badges
+badges-nitro = Nitro
+# Context: badges
+badges-rarity-common = Pospolita
+# Context: badges
+badges-rarity-rare = Rzadka
+# Context: badges
+badges-rarity-epic = Epicka
+# Context: badges
+badges-rarity-mythic = Mityczna
+# Context: badges
+badges-always-visible = Zawsze widoczna na profilu
+# Context: badges
+badges-click-show = Kliknij, aby pokazać
+# Context: badges
+badges-click-hide = Kliknij, aby ukryć
+# Context: badges
+badges-customize-title = Dostosuj swoje odznaki
+# Context: badges
+badges-customize-hint = Przeciągnij, aby zmienić kolejność, i ukryj te, których inni nie powinni widzieć.
+# Context: badges
+badges-none = Brak odznak do wyświetlenia.
+# Context: badges
+badges-reset = Resetuj
+# Context: badges
+badges-saving = Zapisywanie…
+# Context: badges
+badges-save = Zapisz
+# Context: badges
+badges-view = Zobacz odznaki
+# Context: badges
+badges-your = Twoje odznaki
+# Context: badges
+badges-user = Odznaki użytkownika { $name }
+# Context: badges
+badges-browse = Przeglądaj swoje odznaki i odkrywaj nowe do zdobycia.
+# Context: badges
+badges-available = Do odblokowania
+# Context: badges
+badges-customize-button = Dostosuj swoje odznaki
+# Context: badges
+badges-close = Zamknij
+# Context: badges
+badges-locked = Jeszcze nie odblokowano
+# Context: badges
+badges-date-unlocked = Data odblokowania
+# Context: badges
+badges-rarity = Rzadkość
+# Context: badges
+badges-max-level = Osiągnięto najwyższy poziom tej odznaki.
+# Context: badges
+badges-next-level = Następny poziom: { $tier }
+# Context: badges
+badges-all-levels = Pokaż wszystkie poziomy
+# Context: badges
+badges-hide-levels = Ukryj poziomy
+# Context: badges
+badges-manage = Zarządzaj odznakami
+page-language-time = Język i czas
+description-language-time = Język interfejsu i sposób wyświetlania godziny.
+time-format-group = Format czasu
+time-format-auto = Automatycznie
+time-format-12-hour = 12-godzinny
+time-format-24-hour = 24-godzinny
+profiles-status-edit = Edytuj status
+profiles-status-clear = Wyczyść status
+send-throttled-title = Hola, za ostro
+send-throttled-body = Wysyłasz wiadomości zbyt szybko!
+send-throttled-dismiss = Wejdź do strefy spokoju
+profiles-private-profile = Profil prywatny
+profiles-private-notice = Profil użytkownika { $name } jest prywatny, więc część informacji jest ukryta. Wyślij zaproszenie do znajomych, aby zobaczyć więcej.
+settings-cosmetics-name-styles = Style nazw
+settings-cosmetics-name-styles-description = Czcionki, kolory i efekty nazw wyświetlanych z Nitro.
+search-overlays-message-contains = Wiadomość zawiera
+search-overlays-no-matching-content-types = Brak pasujących typów treści
+search-overlays-history = Historia
+search-overlays-clear-history = Wyczyść historię wyszukiwania
+main-sign-in-rate-limited-detail = Discord ogranicza to logowanie. Odczekaj, zanim spróbujesz ponownie. Wcześniejsza próba może wydłużyć oczekiwanie.

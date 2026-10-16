@@ -807,6 +807,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Video preview · play
 embeds-text-text-display-limited = Text display limited
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Click to learn more
 # Context: show
 emoji-details-show-a-custom-emoji = A custom emoji.
 # Context: show
@@ -3005,6 +3007,8 @@ server-menu-header-server-menu = Server menu
 server-menu-leave-item-leave-server = Leave server
 # Context: read_item
 server-menu-read-item-mark-as-read = Mark As Read
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = Mark All As Read
 # Context: settings_item
 server-menu-settings-item-server-settings = Server Settings
 # Context: show
@@ -3587,6 +3591,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = Command un
 slash-commands-footer-refresh-application-commands = Refresh application commands
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = This sticker is from a server that is either invite-only or unavailable.
 # Context: message
 stickers-message-loading-sticker-details = Loading sticker details…
 # Context: message
@@ -4633,6 +4639,8 @@ member-in-voice = In voice
 settings-chat-box = Chat Box
 settings-convert-emoticons = Automatically convert emoticons in your messages to emoji
 settings-convert-emoticons-description = Convert standalone emoticons such as :) to 🙂 when sending or editing messages. Code and links stay unchanged.
+settings-preload-on-hover = Preload on hover
+settings-preload-on-hover-description = Load a conversation, a profile or the GIF picker while the pointer rests on it, so it opens instantly. Uses the same requests as opening it, at most 12 per minute for each kind.
 
 profiles-board = Board
 profiles-board-unavailable = This profile’s board is unavailable.
@@ -4813,3 +4821,100 @@ timeline-dm-intro = This is the beginning of your direct message history with { 
 timeline-channel-intro-title = Welcome to #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = This is the start of the #{ $channel } channel.
+# Context: text_menu
+text-menu-cut = Cut
+text-menu-copy = Copy
+text-menu-paste = Paste
+text-menu-select-all = Select All
+# Context: media_box
+forum-composer-attached-files = { $count ->
+    [one] { $count } attached file
+   *[other] { $count } attached files
+    }
+forum-composer-remove-file = Remove { $file }
+post-menu-post-action-failed = Post action failed
+post-menu-thread-action-failed = Thread action failed
+
+# Context: badges
+badges-nitro = Nitro
+# Context: badges
+badges-rarity-common = Common
+# Context: badges
+badges-rarity-rare = Rare
+# Context: badges
+badges-rarity-epic = Epic
+# Context: badges
+badges-rarity-mythic = Mythic
+# Context: badges
+badges-always-visible = Always shown on your profile
+# Context: badges
+badges-click-show = Click to show
+# Context: badges
+badges-click-hide = Click to hide
+# Context: badges
+badges-customize-title = Customize your badges
+# Context: badges
+badges-customize-hint = Drag to reorder, and hide the ones you don't want others to see.
+# Context: badges
+badges-none = No badges to show yet.
+# Context: badges
+badges-reset = Reset
+# Context: badges
+badges-saving = Saving…
+# Context: badges
+badges-save = Save
+# Context: badges
+badges-view = View Badges
+# Context: badges
+badges-your = Your badges
+# Context: badges
+badges-user = { $name }'s badges
+# Context: badges
+badges-browse = Browse your badges and discover new ones you can unlock.
+# Context: badges
+badges-available = Available to unlock
+# Context: badges
+badges-customize-button = Customize Your Badges
+# Context: badges
+badges-close = Close
+# Context: badges
+badges-locked = Not unlocked yet
+# Context: badges
+badges-date-unlocked = Date unlocked
+# Context: badges
+badges-rarity = Rarity
+# Context: badges
+badges-max-level = You've reached the highest level of this badge.
+# Context: badges
+badges-next-level = Next Level: { $tier }
+# Context: badges
+badges-all-levels = View all levels
+# Context: badges
+badges-hide-levels = Hide levels
+# Context: badges
+badges-manage = Manage your badges
+page-language-time = Language & Time
+description-language-time = Display language and how times are shown.
+time-format-group = Time format
+time-format-auto = Auto
+time-format-12-hour = 12-hour
+time-format-24-hour = 24-hour
+profiles-status-edit = Edit status
+profiles-status-clear = Clear status
+send-throttled-title = Woah there. Way too spicy
+send-throttled-body = You're sending messages too quickly!
+send-throttled-dismiss = Enter the chill zone
+search-overlays-message-contains = Message Contains
+search-overlays-no-matching-content-types = No matching content types
+search-overlays-history = History
+search-overlays-clear-history = Clear search history
+game-mentions-loading = Loading games…
+game-mentions-header = GAMES MATCHING @{ $query }
+game-mentions-unavailable = Games are unavailable.
+game-mentions-empty = No matching games.
+game-mentions-retry = Retry
+profiles-private-profile = Private Profile
+profiles-private-notice = { $name }’s profile is private, so some info is hidden. Add them as a friend to see more.
+settings-cosmetics-name-styles = Name styles
+settings-cosmetics-name-styles-description = Nitro display name fonts, colours and effects.
+main-sign-in-rate-limited-detail = Discord is rate limiting this sign-in. Wait before trying again. Another attempt before that can make the wait longer.

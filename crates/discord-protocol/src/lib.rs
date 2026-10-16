@@ -4,6 +4,7 @@ pub mod activity_sharing;
 pub mod application_commands;
 pub mod archives;
 mod attachments;
+pub mod badges;
 pub mod collectibles;
 mod diagnostics;
 mod embeds;
@@ -110,6 +111,8 @@ pub struct UserDto {
 	pub avatar_decoration_data: collectibles::DecorationField,
 	#[serde(default)]
 	pub collectibles: collectibles::CollectiblesField,
+	#[serde(default)]
+	pub display_name_styles: collectibles::NameStyleField,
 }
 #[derive(Clone, Deserialize)]
 pub struct PrimaryGuildDto {
@@ -142,7 +145,11 @@ impl UserDto {
 			.and_then(PrimaryGuildDto::into_model)
 			.or_else(|| self.clan.and_then(PrimaryGuildDto::into_model))
 			.map(Box::new);
-		let cosmetics = collectibles::cosmetics(self.avatar_decoration_data, self.collectibles);
+		let cosmetics = collectibles::cosmetics(
+			self.avatar_decoration_data,
+			self.collectibles,
+			self.display_name_styles,
+		);
 		User {
 			kind: if self.bot && (self.public_flags | self.flags) & (1 << 16) != 0 {
 				model::AccountKind::VerifiedBot
@@ -827,6 +834,8 @@ pub struct MessageMemberDto {
 	#[serde(default)]
 	pub collectibles: collectibles::CollectiblesField,
 	#[serde(default)]
+	pub display_name_styles: collectibles::NameStyleField,
+	#[serde(default)]
 	pub nick: Option<String>,
 	#[serde(default, deserialize_with = "permissions::member_roles")]
 	pub roles: Vec<Id>,
@@ -974,6 +983,7 @@ impl MessageDto {
 				member.avatar_decoration_data.take(),
 				member.collectibles.take(),
 			);
+			collectibles::apply_member_style(&mut author, member.display_name_styles.take());
 		}
 		author.webhook = self.webhook_id.is_some();
 		if self.application_id.is_some()
@@ -1650,6 +1660,8 @@ pub struct MemberDto {
 	pub avatar_decoration_data: collectibles::DecorationField,
 	#[serde(default)]
 	pub collectibles: collectibles::CollectiblesField,
+	#[serde(default)]
+	pub display_name_styles: collectibles::NameStyleField,
 }
 /// Re-parse shape for a member row whose strict decode failed: its presence can no longer
 /// fail the row, only be dropped.
@@ -1666,6 +1678,8 @@ struct LenientMemberDto {
 	avatar_decoration_data: collectibles::DecorationField,
 	#[serde(default)]
 	collectibles: collectibles::CollectiblesField,
+	#[serde(default)]
+	display_name_styles: collectibles::NameStyleField,
 }
 /// Unrepresentable activities cost the presence its details; an unreadable status drops it.
 pub(crate) fn lenient_presence<'de, D: serde::Deserializer<'de>>(
@@ -1769,6 +1783,7 @@ impl<'de> Deserialize<'de> for MemberItem {
 			presence: member.presence,
 			avatar_decoration_data: member.avatar_decoration_data,
 			collectibles: member.collectibles,
+			display_name_styles: member.display_name_styles,
 		});
 		Ok(Self::Member { member, presence })
 	}
@@ -1824,6 +1839,7 @@ impl MemberItem {
 				};
 				let mut user = m.user.into_model();
 				collectibles::apply_member(&mut user, m.avatar_decoration_data, m.collectibles);
+				collectibles::apply_member_style(&mut user, m.display_name_styles);
 				let mut member = model::Member {
 					roles: m.roles,
 					user,

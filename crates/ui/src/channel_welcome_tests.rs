@@ -263,6 +263,14 @@ fn direct_messages_open_with_an_introduction_once_history_is_complete() {
 	let painted = frame(&ctx, &mut view, &mut state, 900.0);
 	assert!(introduces(&painted));
 	assert!(!welcomes(&painted));
+	// Reached by scrolling up a long history or from a search result, the start still
+	// introduces the conversation even though the newest messages are not loaded.
+	let mut state = test_support::demo_state();
+	dm_history(&mut state, 3);
+	state.history_targeted = true;
+	state.history_after = Some(model::Id(1_000_000));
+	let mut view = TimelineView::default();
+	assert!(introduces(&frame(&ctx, &mut view, &mut state, 900.0)));
 	// A full page may have older messages: no introduction until they are loaded.
 	let mut state = test_support::demo_state();
 	dm_history(&mut state, 50);
@@ -334,4 +342,31 @@ fn direct_message_introduction_shows_a_known_username_only_when_it_differs() {
 	let before = named(&painted);
 	// A username equal to the heading would only repeat it.
 	assert_eq!(named(&painted_with(&mut state, &name)), before);
+}
+
+/// Jumping to a conversation's first message starts the view at the top, like Discord:
+/// the introduction is not pushed down by the padding that rests the live edge on the composer.
+#[test]
+fn a_window_opened_at_the_start_begins_at_the_top_instead_of_resting_on_the_composer() {
+	let ctx = Context::default();
+	let top = |targeted: bool| {
+		let mut state = test_support::demo_state();
+		dm_history(&mut state, 3);
+		state.history_targeted = targeted;
+		let mut view = TimelineView::default();
+		frame(&ctx, &mut view, &mut state, 900.0)
+			.into_iter()
+			.find(|(text, _)| {
+				text.starts_with("This is the beginning of your direct message history")
+			})
+			.map(|(_, rect)| rect.top())
+			.expect("introduction painted")
+	};
+	let live = top(false);
+	let jumped = top(true);
+	assert!(jumped < 300.0, "the start begins at the top: {jumped}");
+	assert!(
+		live > jumped + 50.0,
+		"the live edge still rests on the composer: {live}"
+	);
 }

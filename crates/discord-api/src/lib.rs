@@ -1,6 +1,7 @@
 // Origin-fixed REST adapter. No cookies, redirects, logging, persistence or bot SDK.
 mod activity_sharing;
 mod archives;
+mod badges;
 mod channel_actions;
 mod collectibles;
 pub mod detectable;
@@ -52,6 +53,26 @@ use tokio::{
 	time::{Instant, sleep_until},
 };
 
+tokio::task_local! {
+	/// Set while a hover preload runs.
+	static SPECULATIVE: ();
+}
+/// REST permits a preload must leave free for requests the user is waiting for.
+const FOREGROUND_PERMITS: usize = 2;
+const READ_RATE_LIMIT_RETRIES: u8 = 2;
+/// Longer JSON limits fail the read at once, so sign-in never stalls silently.
+const MAX_READ_RATE_LIMIT_WAIT: Duration = Duration::from_secs(10);
+const API_ORIGINS: [&str; 2] = [
+	"https://discord.com/api/v10",
+	"https://ptb.discord.com/api/v10",
+];
+static API_ON_TEST_HOST: AtomicBool = AtomicBool::new(false);
+
+/// Later lookups in this process follow a Cloudflare block of discord.com.
+pub fn api_v10_base() -> &'static str {
+	API_ORIGINS[usize::from(API_ON_TEST_HOST.load(Ordering::Acquire))]
+}
+
 pub struct DiscordApi {
 	interaction_session: std::sync::Mutex<Option<zeroize::Zeroizing<String>>>,
 	ack_token: Mutex<zeroize::Zeroizing<Option<String>>>,
@@ -65,6 +86,9 @@ pub struct DiscordApi {
 	catalog: std::sync::Mutex<collectibles::Catalog>,
 	#[cfg(test)]
 	base: String,
+	/// Stands in for the public test host; tests keep the process-wide switch untouched.
+	#[cfg(test)]
+	test_host: Option<(String, AtomicBool)>,
 	#[cfg(test)]
 	upload_origin: Option<std::net::SocketAddr>,
 }
@@ -191,6 +215,9 @@ fn api_client(route: &proxy::ApiProxy) -> Result<Client, Failure> {
 		.build()
 		.map_err(|_| Failure::ProtocolAt("API proxy connection unavailable"))
 }
+/// How long a profile card waits for its optional board-game names and collectible artwork;
+/// a card without them is still complete, so it opens rather than waiting on a slow read.
+const PROFILE_EXTRAS: Duration = Duration::from_millis(600);
 impl DiscordApi {
 	pub fn new(secret: Arc<SessionSecret>) -> Result<Self, Failure> {
 		Self::with_proxy(
@@ -220,6 +247,8 @@ impl DiscordApi {
 			catalog: std::sync::Mutex::default(),
 			#[cfg(test)]
 			base: "https://discord.com/api/v10".into(),
+			#[cfg(test)]
+			test_host: None,
 			#[cfg(test)]
 			upload_origin: None,
 		})
@@ -322,6 +351,29 @@ impl DiscordApi {
 		)
 		.await
 	}
+	/// The REST origin for the next attempt and whether it is still discord.com.
+	#[cfg(not(test))]
+	fn api_origin(&self) -> (&'static str, bool) {
+		let base = api_v10_base();
+		(base, base == API_ORIGINS[0])
+	}
+	/// Without a stand-in test host, a test behaves as if the process already moved.
+	#[cfg(test)]
+	fn api_origin(&self) -> (&str, bool) {
+		match &self.test_host {
+			Some((origin, moved)) if moved.load(Ordering::Acquire) => (origin, false),
+			Some(_) => (&self.base, true),
+			None => (&self.base, false),
+		}
+	}
+	fn move_to_test_host(&self) {
+		#[cfg(not(test))]
+		API_ON_TEST_HOST.store(true, Ordering::Release);
+		#[cfg(test)]
+		if let Some((_, moved)) = &self.test_host {
+			moved.store(true, Ordering::Release);
+		}
+	}
 	async fn request_with_content(
 		&self,
 		method: Method,
@@ -339,165 +391,214 @@ impl DiscordApi {
 		{
 			return Err(Failure::Protocol);
 		}
-		let _permit = self
-			.requests
-			.acquire()
-			.await
-			.map_err(|_| Failure::Network)?;
-		// Four permits bound concurrent REST work. A slow profile body must not hold the
-		// cooldown mutex and delay a message write; only service rate admission is shared.
-		loop {
-			let next = *self.cooldown.lock().await;
-			sleep_until(next).await;
-			if Instant::now() >= *self.cooldown.lock().await {
-				break;
-			}
-		}
-		if self.stopped() {
-			return Err(Failure::Expired);
-		}
-		let mut authorization =
-			HeaderValue::from_str(self.secret.expose()).map_err(|_| Failure::InvalidCredential)?;
-		authorization.set_sensitive(true);
-		#[cfg(not(test))]
-		let base = "https://discord.com/api/v10";
-		#[cfg(test)]
-		let base = &self.base;
-		let write = method != Method::GET;
-		let mut request = self
-			.rest_client()
-			.await?
-			.request(method, format!("{base}{path}"))
-			.header(AUTHORIZATION, authorization);
-		if let Some(retry) = retry {
-			if retry.expired() {
-				return Err(Failure::ProtocolAt(
-					"Verification expired; start the check again",
-				));
-			}
-			for (name, value) in [
-				("x-captcha-key", Some(retry.passcode())),
-				("x-captcha-rqtoken", retry.rqtoken()),
-				("x-captcha-session-id", retry.session_id()),
-			] {
-				if let Some(value) = value {
-					let mut value = HeaderValue::from_str(value).map_err(|_| Failure::Protocol)?;
-					value.set_sensitive(true);
-					request = request.header(name, value);
-				}
-			}
-		}
-		if let Some(body) = body {
-			request = match body {
-				RequestContent::Json(body) => request.json(&body),
-				RequestContent::Multipart { content_type, body } => request
-					.header(
-						CONTENT_TYPE,
-						HeaderValue::from_str(&content_type).map_err(|_| Failure::Protocol)?,
-					)
-					.body(body),
-			};
-		}
-		let mut response = request.send().await.map_err(|_| {
-			if write {
-				Failure::Ambiguous
-			} else {
-				Failure::Network
-			}
-		})?;
-		let status = response.status();
-		let exhausted = response
-			.headers()
-			.get("x-ratelimit-remaining")
-			.and_then(|v| v.to_str().ok())
-			== Some("0");
-		let reset = response
-			.headers()
-			.get("x-ratelimit-reset-after")
-			.and_then(|v| v.to_str().ok())
-			.and_then(|s| s.parse::<f64>().ok());
-		let retry_header = response
-			.headers()
-			.get("retry-after")
-			.and_then(|v| v.to_str().ok())
-			.and_then(|s| s.parse::<f64>().ok());
-		if exhausted || status == StatusCode::TOO_MANY_REQUESTS {
-			let mut next = self.cooldown.lock().await;
-			*next = (*next).max(Instant::now() + safe_delay(reset.or(retry_header))?);
-		}
-		if status == StatusCode::UNAUTHORIZED {
-			self.stop();
-			return Err(Failure::Expired);
-		}
-		if response
-			.content_length()
-			.is_some_and(|n| n > max_bytes as u64)
-		{
-			return Err(Failure::Capacity);
-		}
-		let mut bytes = zeroize::Zeroizing::new(Vec::with_capacity(
-			response.content_length().unwrap_or(0).min(max_bytes as u64) as usize,
-		));
-		while let Some(chunk) = response.chunk().await.map_err(|_| {
-			if write {
-				Failure::Ambiguous
-			} else {
-				Failure::Network
-			}
-		})? {
-			if bytes.len() + chunk.len() > max_bytes {
+		let speculative = SPECULATIVE.try_with(|()| ()).is_ok();
+		let _permit = if speculative {
+			// A hover preload takes only spare capacity, so it never delays a click.
+			if self.requests.available_permits() <= FOREGROUND_PERMITS {
 				return Err(Failure::Capacity);
 			}
-			bytes.extend_from_slice(&chunk);
-		}
-		if !status.is_success() {
-			let error = decode::<ErrorBody>(&bytes).unwrap_or_default();
-			if error.captcha_key.is_some() || matches!(error.code, Some(60003 | 50014)) {
-				let auth_challenge = matches!(error.code, Some(60003 | 50014));
-				if !auth_challenge
-					&& error.captcha_key.is_some()
-					&& matches!(status, StatusCode::BAD_REQUEST | StatusCode::FORBIDDEN)
-					&& let Some(output) = challenge.as_mut()
-				{
-					if let Some(parsed) = invite_captcha(&bytes) {
-						**output = Some(parsed);
-						return Err(Failure::Challenged);
+			self.requests.try_acquire().map_err(|_| Failure::Capacity)?
+		} else {
+			self.requests
+				.acquire()
+				.await
+				.map_err(|_| Failure::Network)?
+		};
+		// Four permits bound concurrent REST work. A slow profile body must not hold the
+		// cooldown mutex and delay a message write; only service rate admission is shared.
+		let idempotent = method == Method::GET && body.is_none() && !speculative;
+		let mut body = body;
+		let mut rate_limits = 0u8;
+		loop {
+			loop {
+				let next = *self.cooldown.lock().await;
+				if speculative && Instant::now() < next {
+					return Err(Failure::Capacity);
+				}
+				sleep_until(next).await;
+				if Instant::now() >= *self.cooldown.lock().await {
+					break;
+				}
+			}
+			if self.stopped() {
+				return Err(Failure::Expired);
+			}
+			let mut authorization = HeaderValue::from_str(self.secret.expose())
+				.map_err(|_| Failure::InvalidCredential)?;
+			authorization.set_sensitive(true);
+			let (base, on_stable) = self.api_origin();
+			let write = method != Method::GET;
+			let mut request = self
+				.rest_client()
+				.await?
+				.request(method.clone(), format!("{base}{path}"))
+				.header(AUTHORIZATION, authorization);
+			if let Some(retry) = retry {
+				if retry.expired() {
+					return Err(Failure::ProtocolAt(
+						"Verification expired; start the check again",
+					));
+				}
+				for (name, value) in [
+					("x-captcha-key", Some(retry.passcode())),
+					("x-captcha-rqtoken", retry.rqtoken()),
+					("x-captcha-session-id", retry.session_id()),
+				] {
+					if let Some(value) = value {
+						let mut value =
+							HeaderValue::from_str(value).map_err(|_| Failure::Protocol)?;
+						value.set_sensitive(true);
+						request = request.header(name, value);
 					}
-					return Err(Failure::ProtocolAt(
-						"This verification is unavailable; complete the action in the official client",
-					));
 				}
-				if !auth_challenge && write && challenge.is_none() {
-					// The service can require a captcha for one write (for example a friend
-					// request). No solver is wired for this action, but it is not a session
-					// challenge: keep the connection and report a bounded local reason.
-					return Err(Failure::ProtocolAt(
-						"Discord requires verification for this action; complete it in the official client",
-					));
-				}
-
-				self.stop();
-				return Err(Failure::Challenged);
 			}
-			if status == StatusCode::TOO_MANY_REQUESTS {
+			if let Some(content) = body.take() {
+				request = match content {
+					RequestContent::Json(body) => request.json(&body),
+					RequestContent::Multipart { content_type, body } => request
+						.header(
+							CONTENT_TYPE,
+							HeaderValue::from_str(&content_type).map_err(|_| Failure::Protocol)?,
+						)
+						.body(body),
+				};
+			}
+			let mut response = request.send().await.map_err(|_| {
+				if write {
+					Failure::Ambiguous
+				} else {
+					Failure::Network
+				}
+			})?;
+			let status = response.status();
+			let exhausted = response
+				.headers()
+				.get("x-ratelimit-remaining")
+				.and_then(|v| v.to_str().ok())
+				== Some("0");
+			let reset = response
+				.headers()
+				.get("x-ratelimit-reset-after")
+				.and_then(|v| v.to_str().ok())
+				.and_then(|s| s.parse::<f64>().ok());
+			let retry_header = response
+				.headers()
+				.get("retry-after")
+				.and_then(|v| v.to_str().ok())
+				.and_then(|s| s.parse::<f64>().ok());
+			if exhausted && status != StatusCode::TOO_MANY_REQUESTS {
 				let mut next = self.cooldown.lock().await;
-				*next =
-					(*next).max(Instant::now() + safe_delay(error.retry_after.or(retry_header))?);
-				return Err(Failure::RateLimited);
+				*next = (*next).max(Instant::now() + safe_delay(reset)?);
 			}
-			// A missing private note is empty, not a missing user profile. No other 404 is converted.
-			if !write && status == StatusCode::NOT_FOUND && path.starts_with("/users/@me/notes/") {
-				return Ok(br#"{"note":""}"#.to_vec());
+			if status == StatusCode::UNAUTHORIZED {
+				self.stop();
+				return Err(Failure::Expired);
 			}
-			return Err(if status == StatusCode::FORBIDDEN {
-				Failure::Forbidden
-			} else if status.is_server_error() && write {
-				Failure::Ambiguous
-			} else {
-				Failure::Protocol
-			});
+			let cloudflare_block = response
+				.headers()
+				.get(CONTENT_TYPE)
+				.and_then(|value| value.to_str().ok())
+				.is_some_and(|value| {
+					value.starts_with("text/html") || value.starts_with("text/plain")
+				});
+			if response
+				.content_length()
+				.is_some_and(|n| n > max_bytes as u64)
+			{
+				return Err(Failure::Capacity);
+			}
+			let mut bytes = zeroize::Zeroizing::new(Vec::with_capacity(
+				response.content_length().unwrap_or(0).min(max_bytes as u64) as usize,
+			));
+			while let Some(chunk) = response.chunk().await.map_err(|_| {
+				if write {
+					Failure::Ambiguous
+				} else {
+					Failure::Network
+				}
+			})? {
+				if bytes.len() + chunk.len() > max_bytes {
+					return Err(Failure::Capacity);
+				}
+				bytes.extend_from_slice(&chunk);
+			}
+			if !status.is_success() {
+				let error = decode::<ErrorBody>(&bytes).unwrap_or_default();
+				if error.captcha_key.is_some() || matches!(error.code, Some(60003 | 50014)) {
+					let auth_challenge = matches!(error.code, Some(60003 | 50014));
+					if !auth_challenge
+						&& error.captcha_key.is_some()
+						&& matches!(status, StatusCode::BAD_REQUEST | StatusCode::FORBIDDEN)
+						&& let Some(output) = challenge.as_mut()
+					{
+						if let Some(parsed) = invite_captcha(&bytes) {
+							**output = Some(parsed);
+							return Err(Failure::Challenged);
+						}
+						return Err(Failure::ProtocolAt(
+							"This verification is unavailable; complete the action in the official client",
+						));
+					}
+					if !auth_challenge && write && challenge.is_none() {
+						// The service can require a captcha for one write (for example a friend
+						// request). No solver is wired for this action, but it is not a session
+						// challenge: keep the connection and report a bounded local reason.
+						return Err(Failure::ProtocolAt(
+							"Discord requires verification for this action; complete it in the official client",
+						));
+					}
+
+					self.stop();
+					return Err(Failure::Challenged);
+				}
+				if status == StatusCode::TOO_MANY_REQUESTS && cloudflare_block {
+					if on_stable {
+						self.move_to_test_host();
+						if idempotent {
+							continue;
+						}
+						return Err(Failure::RateLimited);
+					}
+					// A block page has no JSON penalty. The short read retry must not run.
+					let delay = safe_delay(retry_header.or(reset).or(Some(60.0)))?;
+					let mut next = self.cooldown.lock().await;
+					*next = (*next).max(Instant::now() + delay);
+					return Err(Failure::RateLimited);
+				}
+				if status == StatusCode::TOO_MANY_REQUESTS {
+					// The body is the penalty Discord documents. A missing or shorter reset
+					// header must not send the retry early.
+					let delay = safe_delay(error.retry_after.or(retry_header).or(reset))?;
+					{
+						let mut next = self.cooldown.lock().await;
+						*next = (*next).max(Instant::now() + delay);
+					}
+					if idempotent
+						&& delay <= MAX_READ_RATE_LIMIT_WAIT
+						&& rate_limits < READ_RATE_LIMIT_RETRIES
+					{
+						rate_limits += 1;
+						continue;
+					}
+					return Err(Failure::RateLimited);
+				}
+				// A missing private note is empty, not a missing user profile. No other 404 is converted.
+				if !write
+					&& status == StatusCode::NOT_FOUND
+					&& path.starts_with("/users/@me/notes/")
+				{
+					return Ok(br#"{"note":""}"#.to_vec());
+				}
+				return Err(if status == StatusCode::FORBIDDEN {
+					Failure::Forbidden
+				} else if status.is_server_error() && write {
+					Failure::Ambiguous
+				} else {
+					Failure::Protocol
+				});
+			}
+			return Ok(std::mem::take(&mut *bytes));
 		}
-		Ok(std::mem::take(&mut *bytes))
 	}
 	pub async fn gateway_url(&self) -> Result<String, Failure> {
 		let bytes = self
@@ -642,7 +743,87 @@ impl DiscordApi {
 			.then_some(guild.id)
 			.ok_or(Failure::Ambiguous)
 	}
+	/// One bounded 50-message history page, before or after a cursor or at the latest message.
+	async fn history(
+		&self,
+		channel: Id,
+		before: Option<Id>,
+		after: Option<Id>,
+		request: u64,
+	) -> Event {
+		if before.is_some() && after.is_some() {
+			return Event::Failure(Failure::Protocol);
+		}
+		let mut path = format!("/channels/{channel}/messages?limit=50");
+		if let Some(before) = before {
+			path.push_str(&format!("&before={before}"));
+		}
+		if let Some(after) = after {
+			path.push_str(&format!("&after={after}"));
+		}
+		match self
+			.request(Method::GET, &path, None)
+			.await
+			.and_then(|bytes| decode::<Vec<MessageDto>>(&bytes).map_err(|_| Failure::Protocol))
+		{
+			Ok(messages) if messages.len() <= 50 => Event::History {
+				channel,
+				request,
+				older: before.is_some(),
+				messages: messages.into_iter().map(MessageDto::into_model).collect(),
+			},
+			Ok(_) => Event::Failure(Failure::Capacity),
+			Err(Failure::Forbidden) => Event::Unavailable(channel),
+			Err(f) => Event::Failure(f),
+		}
+	}
 	/// Runs one typed command and returns its typed event.
+	/// [`Self::execute`] for the write queue. Like the official client, a message Discord
+	/// rate-limits (documented: a 429 request is not processed, so nothing was created) stays
+	/// pending and is resent with the same nonce once the service's wait has passed; `execute`
+	/// sleeps out that shared cooldown first. `throttled` hears each wait. Ambiguous outcomes are
+	/// never resent.
+	pub async fn execute_write(&self, command: Command, mut throttled: impl FnMut(&str)) -> Event {
+		/// Resends of one message, each after the wait Discord asked for.
+		const MAX_SEND_RETRIES: usize = 30;
+		let resend = match &command {
+			Command::Send {
+				sticker,
+				channel,
+				content,
+				nonce,
+				reply,
+			} => Some((*sticker, *channel, content.clone(), nonce.clone(), *reply)),
+			_ => None,
+		};
+		let mut event = self.execute(command).await;
+		let Some((sticker, channel, content, nonce, reply)) = resend else {
+			return event;
+		};
+		for _ in 0..MAX_SEND_RETRIES {
+			if !matches!(
+				event,
+				Event::SendResult {
+					result: Err(Failure::RateLimited),
+					..
+				}
+			) || self.stopped()
+			{
+				break;
+			}
+			throttled(&nonce);
+			event = self
+				.execute(Command::Send {
+					sticker,
+					channel,
+					content: content.clone(),
+					nonce: nonce.clone(),
+					reply,
+				})
+				.await;
+		}
+		event
+	}
 	pub async fn execute(&self, command: Command) -> Event {
 		match command {
 			Command::ApplicationCommands {
@@ -892,9 +1073,12 @@ impl DiscordApi {
 				query,
 				before,
 				offset,
+				oldest,
 				request,
 			} => {
-				let result = self.search(channel, guild, &query, before, offset).await;
+				let result = self
+					.search(channel, guild, &query, before, offset, oldest)
+					.await;
 				Event::Search {
 					channel,
 					request,
@@ -933,6 +1117,14 @@ impl DiscordApi {
 				Event::ReadState(client_core::read_state::Event::GuildAck {
 					guild,
 					request,
+					result,
+				})
+			}
+			Command::MarkAllRead { request, channels } => {
+				let (acked, result) = self.mark_all_read(&channels).await;
+				Event::ReadState(client_core::read_state::Event::AllAck {
+					request,
+					acked,
 					result,
 				})
 			}
@@ -1154,18 +1346,29 @@ impl DiscordApi {
 					// or a shared service cooldown. Dropping these reads is safe: they never write.
 					let effect = profile.effect_sku.filter(|_| cosmetics.effects);
 					let frame = profile.frame_sku.filter(|_| cosmetics.frames);
-					let (board, catalog) = tokio::join!(
+					let (board, catalog, badges) = tokio::join!(
 						tokio::time::timeout(
-							Duration::from_secs(2),
+							PROFILE_EXTRAS,
 							self.load_profile_board_games(&mut profile),
 						),
 						tokio::time::timeout(
-							Duration::from_secs(2),
+							PROFILE_EXTRAS,
 							self.load_profile_collectibles(effect, frame),
+						),
+						// Only the account's own profile is requested without mutuals.
+						tokio::time::timeout(
+							Duration::from_secs(2),
+							self.load_badge_catalog(user, !with_mutuals)
 						),
 					);
 					if let Ok(result) = board {
 						result?;
+					}
+					if let Ok(result) = badges {
+						profile.badge_catalog = result?.map(Box::new);
+						if !profile.valid() {
+							profile.badge_catalog = None;
+						}
 					}
 					if let Ok(result) = catalog {
 						let (effect, frame) = result?;
@@ -1187,6 +1390,10 @@ impl DiscordApi {
 					result,
 				}
 			}
+			Command::BadgeSettings { request, settings } => Event::BadgeSettings {
+				request,
+				result: self.save_badge_settings(settings).await,
+			},
 			Command::StreamPreview {
 				guild,
 				channel,
@@ -1224,33 +1431,11 @@ impl DiscordApi {
 				before,
 				after,
 				request,
-			} => {
-				if before.is_some() && after.is_some() {
-					return Event::Failure(Failure::Protocol);
-				}
-				let mut path = format!("/channels/{channel}/messages?limit=50");
-				if let Some(before) = before {
-					path.push_str(&format!("&before={before}"));
-				}
-				if let Some(after) = after {
-					path.push_str(&format!("&after={after}"));
-				}
-				match self
-					.request(Method::GET, &path, None)
-					.await
-					.and_then(|bytes| {
-						decode::<Vec<MessageDto>>(&bytes).map_err(|_| Failure::Protocol)
-					}) {
-					Ok(messages) if messages.len() <= 50 => Event::History {
-						channel,
-						request,
-						older: before.is_some(),
-						messages: messages.into_iter().map(MessageDto::into_model).collect(),
-					},
-					Ok(_) => Event::Failure(Failure::Capacity),
-					Err(Failure::Forbidden) => Event::Unavailable(channel),
-					Err(f) => Event::Failure(f),
-				}
+			} => self.history(channel, before, after, request).await,
+			// The same request a click sends, but it gives way: without spare capacity or during
+			// a cooldown it fails with Capacity at once, and a click that adopted it sends its own.
+			Command::Prefetch(command) => {
+				Box::pin(SPECULATIVE.scope((), self.execute(*command))).await
 			}
 			Command::StickerPacks => Event::StickerPacks(
 				self.request_limited(
@@ -1473,6 +1658,42 @@ impl DiscordApi {
 			.await
 			.map(|_| ())
 	}
+	/// Unofficial normal-user bulk acknowledgement in 100-channel requests (unverified limit).
+	/// Returns how many leading channels were confirmed, even when a later request fails.
+	async fn mark_all_read(
+		&self,
+		channels: &[(model::Id, model::Id)],
+	) -> (usize, Result<(), Failure>) {
+		if channels.len() > client_core::MAX_BULK_ACK {
+			return (0, Err(Failure::Protocol));
+		}
+		let mut acked = 0;
+		for chunk in channels.chunks(100) {
+			let read_states = chunk
+				.iter()
+				.map(|(channel, message)| {
+					serde_json::json!({
+						"channel_id": channel.to_string(),
+						"message_id": message.to_string(),
+						"read_state_type": 0,
+					})
+				})
+				.collect::<Vec<_>>();
+			if let Err(failure) = self
+				.request_limited(
+					Method::POST,
+					"/read-states/ack-bulk",
+					Some(serde_json::json!({ "read_states": read_states })),
+					4096,
+				)
+				.await
+			{
+				return (acked, Err(failure));
+			}
+			acked += chunk.len();
+		}
+		(acked, Ok(()))
+	}
 }
 impl DiscordApi {
 	async fn pins(
@@ -1505,6 +1726,7 @@ impl DiscordApi {
 		query: &str,
 		before: Option<model::Id>,
 		offset: u32,
+		oldest: bool,
 	) -> Result<client_core::search::Outcome, Failure> {
 		if !model::valid_search_query(query) || offset > model::MAX_SEARCH_OFFSET {
 			return Err(Failure::Protocol);
@@ -1517,10 +1739,18 @@ impl DiscordApi {
 			Some(guild) => format!("/guilds/{guild}/messages/search?"),
 			None => format!("/channels/{channel}/messages/search?"),
 		};
+		// Discord sorts the whole result set; ascending puts the earliest match on page one.
 		path.push_str(&format!(
-			"content={encoded}&limit=25&sort_by=timestamp&sort_order=desc"
+			"content={encoded}&limit=25&sort_by=timestamp&sort_order={}",
+			if oldest { "asc" } else { "desc" }
 		));
-		let mut maximum = before.map(|id| id.0);
+		// The cursor continues past the previous page's last hit: older for newest-first,
+		// newer for oldest-first.
+		let (mut maximum, mut minimum) = if oldest {
+			(None, before.map(|id| id.0))
+		} else {
+			(before.map(|id| id.0), None)
+		};
 		for (key, value) in filters {
 			if key == "channel_id" && guild.is_none() {
 				return Err(Failure::Protocol);
@@ -1528,6 +1758,9 @@ impl DiscordApi {
 			if key == "max_id" {
 				let id = value.parse::<u64>().map_err(|_| Failure::Protocol)?;
 				maximum = Some(maximum.map_or(id, |current| current.min(id)));
+			} else if key == "min_id" {
+				let id = value.parse::<u64>().map_err(|_| Failure::Protocol)?;
+				minimum = Some(minimum.map_or(id, |current| current.max(id)));
 			} else {
 				let encoded: String = value.bytes().map(|b| format!("%{b:02X}")).collect();
 				path.push_str(&format!("&{key}={encoded}"));
@@ -1535,6 +1768,9 @@ impl DiscordApi {
 		}
 		if let Some(before) = maximum {
 			path.push_str(&format!("&max_id={before}"));
+		}
+		if let Some(after) = minimum {
+			path.push_str(&format!("&min_id={after}"));
 		}
 		if offset != 0 {
 			path.push_str(&format!("&offset={offset}"));
@@ -1552,7 +1788,11 @@ impl DiscordApi {
 			return Ok(client_core::search::Outcome::Indexing);
 		}
 		reply
-			.into_page(guild.is_none().then_some(channel), maximum.map(model::Id))
+			.into_page(
+				guild.is_none().then_some(channel),
+				if oldest { minimum } else { maximum }.map(model::Id),
+				oldest,
+			)
 			.map(client_core::search::Outcome::Page)
 			.map_err(|_| Failure::Protocol)
 	}
@@ -1836,6 +2076,45 @@ mod tests {
 		}
 	}
 
+	#[tokio::test]
+	async fn preloads_give_way_to_clicks_instead_of_waiting() {
+		let api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("SYNTHETIC_PRELOAD_TOKEN".into()).unwrap(),
+		))
+		.unwrap();
+		let preload = || {
+			Command::Prefetch(Box::new(Command::History {
+				channel: model::Id(21),
+				before: None,
+				after: None,
+				request: 1 << 63,
+			}))
+		};
+		let gave_way = |event: Event| {
+			matches!(
+				event,
+				Event::Failure(Failure::Capacity)
+					| Event::HistoryFailed {
+						failure: Failure::Capacity,
+						..
+					}
+			)
+		};
+		// During a service cooldown a preload fails at once instead of waiting it out.
+		*api.cooldown.lock().await = Instant::now() + Duration::from_secs(30);
+		let event = tokio::time::timeout(Duration::from_secs(1), api.execute(preload()))
+			.await
+			.expect("a preload never waits for the cooldown");
+		assert!(gave_way(event));
+		// Without spare permits it leaves the remaining ones to requests the user waits for.
+		*api.cooldown.lock().await = Instant::now();
+		let _held = api.requests.acquire_many(2).await.unwrap();
+		let event = tokio::time::timeout(Duration::from_secs(1), api.execute(preload()))
+			.await
+			.expect("a preload never waits for a permit");
+		assert!(gave_way(event));
+		assert_eq!(api.requests.available_permits(), FOREGROUND_PERMITS);
+	}
 	#[tokio::test]
 	async fn guild_creation_posts_once_and_waits_for_gateway_state() {
 		use tokio::{
@@ -2531,7 +2810,7 @@ mod tests {
             let server=tokio::spawn(async move {
                 for (route,status,body) in [
                     ("/guilds/2/messages/search?content=%78%26%23%3F%2E%2E&limit=25&sort_by=timestamp&sort_order=desc","200 OK",r#"{"messages":[[{"id":"9","channel_id":"1","author":{"id":"3","username":"Synthetic"},"content":"match"}]],"total_results":1}"#),
-                    ("/channels/1/messages/search?content=%78&limit=25&sort_by=timestamp&sort_order=desc&max_id=9","200 OK",r#"{"messages":[],"total_results":0}"#),
+                    ("/channels/1/messages/search?content=%78&limit=25&sort_by=timestamp&sort_order=asc&min_id=9","200 OK",r#"{"messages":[[{"id":"10","channel_id":"1","author":{"id":"3","username":"Synthetic"},"content":"next"}]],"total_results":2}"#),
                     ("/guilds/2/messages/search?content=%78&limit=25&sort_by=timestamp&sort_order=desc&max_id=8&offset=25","200 OK",r#"{"messages":[],"total_results":50}"#),
                     ("/channels/1/messages/search?content=%78&limit=25&sort_by=timestamp&sort_order=desc&offset=9975","200 OK",r#"{"messages":[],"total_results":10000}"#),
                     ("/channels/1/messages/search?content=%78&limit=25&sort_by=timestamp&sort_order=desc&max_id=9&offset=25","200 OK",r#"{"messages":[[{"id":"9","channel_id":"1","author":{"id":"3","username":"Synthetic"},"content":"outside filter"}]],"total_results":50}"#),
@@ -2550,14 +2829,15 @@ mod tests {
                     socket.write_all(format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
                 }
             });
-            let Event::Search {channel:Id(1),request:8,result:Ok(Outcome::Page(page))}=api.execute(Command::Search {channel:Id(1),guild:Some(Id(2)),query:"x&#?..".into(),before:None,offset:0,request:8}).await else {panic!()};
+            let Event::Search {channel:Id(1),request:8,result:Ok(Outcome::Page(page))}=api.execute(Command::Search {channel:Id(1),guild:Some(Id(2)),query:"x&#?..".into(),before:None,offset:0,oldest:false,request:8}).await else {panic!()};
             assert_eq!(page.hits[0].id,Id(9));
-            assert!(matches!(api.search(Id(1),None,"x",Some(Id(9)),0).await,Ok(Outcome::Page(p)) if p.hits.is_empty()));
-            assert!(matches!(api.search(Id(1),Some(Id(2)),"x before_id:8",Some(Id(9)),25).await,Ok(Outcome::Page(p)) if p.total == 50));
-            assert!(matches!(api.search(Id(1),None,"x",None,9975).await,Ok(Outcome::Page(p)) if p.total == 10000));
-            assert!(matches!(api.search(Id(1),None,"x before_id:9",None,25).await,Err(Failure::Protocol)));
-            assert!(matches!(api.search(Id(1),None,"x",None,9976).await,Err(Failure::Protocol)));
-            assert!(matches!(api.search(Id(1),None,"x",None,0).await,Err(Failure::Forbidden)));
+            // Oldest first, the cursor is a lower bound: the next page holds newer IDs.
+            assert!(matches!(api.search(Id(1),None,"x",Some(Id(9)),0,true).await,Ok(Outcome::Page(p)) if p.hits.len()==1 && p.hits[0].id==Id(10)));
+            assert!(matches!(api.search(Id(1),Some(Id(2)),"x before_id:8",Some(Id(9)),25,false).await,Ok(Outcome::Page(p)) if p.total == 50));
+            assert!(matches!(api.search(Id(1),None,"x",None,9975,false).await,Ok(Outcome::Page(p)) if p.total == 10000));
+            assert!(matches!(api.search(Id(1),None,"x before_id:9",None,25,false).await,Err(Failure::Protocol)));
+            assert!(matches!(api.search(Id(1),None,"x",None,9976,false).await,Err(Failure::Protocol)));
+            assert!(matches!(api.search(Id(1),None,"x",None,0,false).await,Err(Failure::Forbidden)));
             let Event::Search { channel:Id(1),request:9,result:Ok(Outcome::Pins(page)) } = api.execute(Command::Pins { channel:Id(1),before:None,request:9 }).await else {panic!()};
             assert!(page.hits[0].id == Id(9) && page.partial);
             let cursor = page.pin_cursor.unwrap();
@@ -2565,7 +2845,7 @@ mod tests {
             assert!(matches!(api.pins(Id(1),Some(cursor)).await,Err(Failure::Protocol)));
             assert!(matches!(api.pins(Id(1),Some(i128::MAX)).await,Err(Failure::Protocol)));
             assert!(matches!(api.pins(Id(1),None).await,Err(Failure::Forbidden)));
-            assert!(matches!(api.search(Id(1),None,"x",None,0).await,Ok(Outcome::Indexing)));
+            assert!(matches!(api.search(Id(1),None,"x",None,0,false).await,Ok(Outcome::Indexing)));
             assert!(*api.cooldown.lock().await>Instant::now());
             server.await.unwrap();
         }).await.unwrap();
@@ -2759,6 +3039,61 @@ mod tests {
         }).await.unwrap();
 	}
 	#[tokio::test]
+	async fn optional_badge_capacity_preserves_profiles_but_expiry_ends_session() {
+		tokio::time::timeout(Duration::from_secs(5), async {
+			for case in 0..3 {
+				let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+				let mut api = DiscordApi::new(Arc::new(
+					SessionSecret::from_owner_input("SYNTHETIC_BADGE_TOKEN".into()).unwrap(),
+				))
+				.unwrap();
+				api.base = format!("http://{}", listener.local_addr().unwrap());
+				let server = tokio::spawn(async move {
+					let (mut stream, _) = listener.accept().await.unwrap();
+					let mut buffer = [0; 4096];
+					let n = stream.read(&mut buffer).await.unwrap();
+					assert!(std::str::from_utf8(&buffer[..n]).unwrap().starts_with("GET /users/5/profile?"));
+					let body = r#"{"user":{"id":"5","username":"Synthetic"},"badges":[{"id":"premium","description":"Subscriber"}]}"#;
+					stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+					let (mut stream, _) = listener.accept().await.unwrap();
+					let n = stream.read(&mut buffer).await.unwrap();
+					assert!(std::str::from_utf8(&buffer[..n]).unwrap().starts_with("GET /users/5/badges HTTP/1.1"));
+					let header = match case {
+						0 => format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", discord_protocol::badges::MAX_CATALOG_WIRE + 1),
+						1 => "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".into(),
+						_ => "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into(),
+					};
+					stream.write_all(header.as_bytes()).await.unwrap();
+					if case == 1 {
+						// The reader may close the socket as soon as the streaming bound is hit.
+						let _ = stream.write_all(&vec![b' '; discord_protocol::badges::MAX_CATALOG_WIRE + 1]).await;
+					}
+				});
+				let event = api.execute(Command::Profile {
+					user: model::Id(5),
+					guild: None,
+					request: 1,
+					with_mutuals: true,
+					cosmetics: Default::default(),
+				}).await;
+				if case == 2 {
+					assert!(matches!(event, Event::Profile { result: Err(Failure::Expired), .. }));
+					assert!(api.stopped());
+				} else {
+					let Event::Profile { result: Ok(profile), .. } = event else {
+						panic!("oversized optional catalog must preserve the profile");
+					};
+					assert!(profile.badge_catalog.is_none());
+					assert_eq!(profile.badges.len(), 1);
+					assert_eq!(profile.badges[0].id, "premium");
+					assert!(!api.stopped());
+				}
+				server.await.unwrap();
+			}
+		}).await.unwrap();
+	}
+
+	#[tokio::test]
 	async fn profiles_are_scoped_capped_and_do_not_block_message_writes() {
 		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
 		let mut api = DiscordApi::new(Arc::new(
@@ -2810,6 +3145,25 @@ mod tests {
 				.unwrap();
 			server_release.notified().await;
 			profile.write_all(body.as_bytes()).await.unwrap();
+			// The optional badge catalog follows the profile body.
+			let (mut catalog, _) = listener.accept().await.unwrap();
+			let n = catalog.read(&mut buffer).await.unwrap();
+			assert!(
+				std::str::from_utf8(&buffer[..n])
+					.unwrap()
+					.starts_with("GET /users/5/badges HTTP/1.1")
+			);
+			let badges = r#"{"badges":[{"badge_id":18,"name":"Account Age","owned":true}]}"#;
+			catalog
+				.write_all(
+					format!(
+						"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{badges}",
+						badges.len()
+					)
+					.as_bytes(),
+				)
+				.await
+				.unwrap();
 			for response in [
 				format!(
 					"HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -2857,15 +3211,22 @@ mod tests {
 		.unwrap();
 		assert!(matches!(sent, Event::SendResult { result: Ok(_), .. }));
 		release.notify_one();
-		assert!(matches!(
-			pending.await.unwrap(),
-			Event::Profile {
-				user: model::Id(5),
-				guild: Some(model::Id(2)),
-				request: 9,
-				result: Ok(_)
-			}
-		));
+		let Event::Profile {
+			user: model::Id(5),
+			guild: Some(model::Id(2)),
+			request: 9,
+			result: Ok(profile),
+		} = pending.await.unwrap()
+		else {
+			panic!("profile expected");
+		};
+		assert_eq!(
+			profile
+				.badge_catalog
+				.as_ref()
+				.map(|catalog| catalog.badges.len()),
+			Some(1)
+		);
 		assert!(matches!(
 			api.execute(Command::Profile {
 				user: model::Id(5),
@@ -2932,6 +3293,100 @@ mod tests {
 		api.ring_call(model::Id(2), None, true).await.unwrap();
 		server.await.unwrap();
 	}
+	/// A message Discord rate-limits is resent with its nonce after the wait, not failed.
+	#[tokio::test]
+	async fn rate_limited_sends_wait_and_resend_with_the_same_nonce() {
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let address = listener.local_addr().unwrap();
+		let server = tokio::spawn(async move {
+			let mut nonces = Vec::new();
+			for response in [
+				(
+					"429 Too Many Requests",
+					r#"{"message":"You are being rate limited.","retry_after":0.05,"global":false}"#,
+				),
+				(
+					"200 OK",
+					r#"{"id":"6","channel_id":"2","author":{"id":"1","username":"Synthetic"},"content":"e","nonce":"spam"}"#,
+				),
+			] {
+				let (mut socket, _) = listener.accept().await.unwrap();
+				let mut request = Vec::new();
+				let payload = loop {
+					let mut bytes = [0; 1024];
+					let n = socket.read(&mut bytes).await.unwrap();
+					assert!(n > 0);
+					request.extend_from_slice(&bytes[..n]);
+					assert!(request.len() < 8192);
+					if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+						let header = std::str::from_utf8(&request[..end]).unwrap();
+						assert!(header.starts_with("POST /channels/2/messages HTTP/1.1\r\n"));
+						let length: usize = header
+							.lines()
+							.find_map(|line| {
+								line.to_ascii_lowercase()
+									.strip_prefix("content-length: ")
+									.map(str::to_owned)
+							})
+							.unwrap()
+							.parse()
+							.unwrap();
+						if request.len() >= end + 4 + length {
+							break serde_json::from_slice::<serde_json::Value>(
+								&request[end + 4..end + 4 + length],
+							)
+							.unwrap();
+						}
+					}
+				};
+				nonces.push(payload["nonce"] == "spam");
+				let (status, body) = response;
+				// An exhausted bucket without wait headers still waits only the body's delay.
+				let exhausted = if status.starts_with("429") {
+					"X-RateLimit-Remaining: 0\r\n"
+				} else {
+					""
+				};
+				socket
+					.write_all(
+						format!(
+							"HTTP/1.1 {status}\r\n{exhausted}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+							body.len()
+						)
+						.as_bytes(),
+					)
+					.await
+					.unwrap();
+			}
+			nonces
+		});
+		let mut api = DiscordApi::new(Arc::new(
+			SessionSecret::from_owner_input("SYNTHETIC_SECRET_MARKER".into()).unwrap(),
+		))
+		.unwrap();
+		api.base = format!("http://{address}");
+		let mut throttled = Vec::new();
+		let started = Instant::now();
+		let event = tokio::time::timeout(
+			Duration::from_secs(5),
+			api.execute_write(
+				Command::Send {
+					sticker: None,
+					channel: model::Id(2),
+					content: "e".into(),
+					nonce: "spam".into(),
+					reply: None,
+				},
+				|nonce| throttled.push(nonce.to_owned()),
+			),
+		)
+		.await
+		.unwrap();
+		assert!(matches!(event, Event::SendResult { result: Ok(_), .. }));
+		assert!(started.elapsed() < Duration::from_millis(900));
+		assert_eq!(throttled, ["spam"]);
+		assert_eq!(server.await.unwrap(), [true, true]);
+	}
 	#[tokio::test]
 	async fn local_http_checks_redirect_expiry_rate_limits_and_response_cap() {
 		for (status, body, expected) in [
@@ -2946,11 +3401,6 @@ mod tests {
 				Failure::ProtocolAt("Account verification: user response format unsupported"),
 			),
 			("401 Unauthorized", "{}", Failure::Expired),
-			(
-				"429 Too Many Requests",
-				"{\"retry_after\":0.1,\"global\":true}",
-				Failure::RateLimited,
-			),
 			(
 				"403 Forbidden",
 				"{\"captcha_key\":[\"challenge\"]}",
@@ -2981,6 +3431,123 @@ mod tests {
 				assert!(api.stopped());
 			}
 			task.await.unwrap();
+		}
+		fn limited(status: &str, body: &str) -> String {
+			format!(
+				"HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+				body.len()
+			)
+		}
+		{
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let address = listener.local_addr().unwrap();
+			let attempts = usize::from(READ_RATE_LIMIT_RETRIES) + 1;
+			let task = tokio::spawn(async move {
+				for _ in 0..attempts {
+					let (mut socket, _) = listener.accept().await.unwrap();
+					let mut buffer = [0; 4096];
+					let _ = socket.read(&mut buffer).await.unwrap();
+					let body = r#"{"retry_after":0.05,"global":true}"#;
+					socket
+						.write_all(limited("429 Too Many Requests", body).as_bytes())
+						.await
+						.unwrap();
+				}
+			});
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_SECRET_MARKER".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{address}");
+			assert_eq!(
+				api.current_user().await.map(|_| ()).unwrap_err(),
+				Failure::RateLimited
+			);
+			assert!(!api.stopped());
+			task.await.unwrap();
+		}
+		{
+			let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let address = listener.local_addr().unwrap();
+			let task = tokio::spawn(async move {
+				for (status, body) in [
+					(
+						"429 Too Many Requests",
+						r#"{"retry_after":0.05,"global":true}"#,
+					),
+					("200 OK", r#"{"id":"42","username":"synthetic"}"#),
+				] {
+					let (mut socket, _) = listener.accept().await.unwrap();
+					let mut buffer = [0; 4096];
+					let _ = socket.read(&mut buffer).await.unwrap();
+					socket
+						.write_all(limited(status, body).as_bytes())
+						.await
+						.unwrap();
+				}
+			});
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_SECRET_MARKER".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{address}");
+			assert_eq!(api.current_user().await.unwrap().id, Id(42));
+			task.await.unwrap();
+		}
+		{
+			// A Cloudflare block page moves reads to the test host for the rest of the process,
+			// and a block page there fails with a cooldown instead of another retry.
+			fn page(status: &str, content_type: &str, body: &str) -> String {
+				format!(
+					"HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+					body.len()
+				)
+			}
+			let blocked = page("429 Too Many Requests", "text/html", "<html>blocked</html>");
+			let user = page(
+				"200 OK",
+				"application/json",
+				r#"{"id":"42","username":"synthetic"}"#,
+			);
+			let serve = |listener: TcpListener, responses: Vec<String>| {
+				tokio::spawn(async move {
+					for response in responses {
+						let (mut socket, _) = listener.accept().await.unwrap();
+						let mut request = Vec::new();
+						while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+							let mut bytes = [0; 1024];
+							let n = socket.read(&mut bytes).await.unwrap();
+							assert!(n > 0 && request.len() < 4096);
+							request.extend_from_slice(&bytes[..n]);
+						}
+						assert!(request.starts_with(b"GET /users/@me HTTP/1.1\r\n"));
+						socket.write_all(response.as_bytes()).await.unwrap();
+					}
+				})
+			};
+			let stable = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let test = TcpListener::bind("127.0.0.1:0").await.unwrap();
+			let mut api = DiscordApi::new(Arc::new(
+				SessionSecret::from_owner_input("SYNTHETIC_SECRET_MARKER".into()).unwrap(),
+			))
+			.unwrap();
+			api.base = format!("http://{}", stable.local_addr().unwrap());
+			api.test_host = Some((
+				format!("http://{}", test.local_addr().unwrap()),
+				AtomicBool::new(false),
+			));
+			let stable = serve(stable, vec![blocked.clone()]);
+			let test = serve(test, vec![user.clone(), user, blocked]);
+			assert_eq!(api.current_user().await.unwrap().id, Id(42));
+			stable.await.unwrap();
+			assert_eq!(api.current_user().await.unwrap().id, Id(42));
+			assert_eq!(
+				api.current_user().await.map(|_| ()).unwrap_err(),
+				Failure::RateLimited
+			);
+			assert!(*api.cooldown.lock().await > Instant::now() + Duration::from_secs(30));
+			assert!(!api.stopped());
+			test.await.unwrap();
 		}
 		assert!(safe_delay(Some(f64::NAN)).is_err());
 		assert!(safe_delay(Some(-1.0)).is_err());

@@ -33,6 +33,8 @@ struct Draft {
 	tags: Vec<Id>,
 	focus: bool,
 	submitted: bool,
+	/// The hover tray showing every chosen file is open.
+	media_open: bool,
 }
 
 #[derive(Default)]
@@ -47,6 +49,20 @@ pub struct ForumUi {
 	match_all: bool,
 	draft: Option<Draft>,
 	emoji: crate::emoji_picker::Picker,
+	/// A field whose context menu asked to paste from the system clipboard.
+	pub(crate) paste: Option<egui::Id>,
+}
+
+const THUMB: f32 = 72.0;
+
+/// The post title field, so a paste can target it before the composer runs.
+pub(crate) fn title_id() -> egui::Id {
+	egui::Id::unique("forum-post-title")
+}
+
+/// The post's first message field.
+pub(crate) fn body_id() -> egui::Id {
+	egui::Id::unique("forum-post-body")
 }
 
 /// Files chosen for the post's first message. The selection itself lives in the messaging
@@ -369,6 +385,7 @@ impl ForumUi {
 				.collect(),
 			focus: true,
 			submitted: false,
+			media_open: false,
 		});
 	}
 
@@ -574,6 +591,7 @@ impl ForumUi {
 		let posting = state.posting.pending.is_some() || staged.busy;
 		let error = state.posting.error;
 		let emoji = &mut self.emoji;
+		let paste = &mut self.paste;
 		let Some(draft) = self.draft.as_mut() else {
 			return;
 		};
@@ -602,13 +620,15 @@ impl ForumUi {
 							{
 								cancel = true;
 							}
-							const THUMB: f32 = 72.0;
 							let fields = (ui.available_width() - THUMB - 10.0).max(160.0);
 							ui.vertical(|ui| {
 								ui.set_width(fields);
 								ui.spacing_mut().item_spacing.y = 4.0;
-								let title = ui.add(
+								let title_selection =
+									crate::text_menu::selection_for_menu(ui.ctx(), title_id());
+								let mut title = ui.add(
 									egui::TextEdit::singleline(&mut draft.title)
+										.id(title_id())
 										.align(egui::Align2::LEFT_CENTER)
 										.char_limit(MAX_TITLE)
 										.frame(egui::Frame::NONE)
@@ -627,6 +647,15 @@ impl ForumUi {
 										)
 										.desired_width(f32::INFINITY),
 								);
+								if crate::text_menu::show(
+									&mut title,
+									title_id(),
+									&mut draft.title,
+									true,
+									title_selection,
+								) {
+									*paste = Some(title_id());
+								}
 								let title = title.accessible_name(crate::i18n::translate(
 									"forum-composer-title",
 								));
@@ -634,8 +663,11 @@ impl ForumUi {
 									title.request_focus();
 									draft.focus = false;
 								}
-								let body = ui.add(
+								let body_selection =
+									crate::text_menu::selection_for_menu(ui.ctx(), body_id());
+								let mut body = ui.add(
 									egui::TextEdit::multiline(&mut draft.body)
+										.id(body_id())
 										.char_limit(
 											MAX_CONTENT + model::message_options::PREFIX_ALLOWANCE,
 										)
@@ -650,6 +682,15 @@ impl ForumUi {
 										.desired_rows(3)
 										.desired_width(f32::INFINITY),
 								);
+								if crate::text_menu::show(
+									&mut body,
+									body_id(),
+									&mut draft.body,
+									true,
+									body_selection,
+								) {
+									*paste = Some(body_id());
+								}
 								body.accessible_name(crate::i18n::translate(
 									"forum-composer-enter-a-message",
 								));
@@ -660,71 +701,15 @@ impl ForumUi {
 								let enabled = files_allowed
 									&& !posting && staged.files.len()
 									< client_core::MAX_ATTACHMENTS;
-								let (rect, response) = ui.allocate_exact_size(
-									egui::Vec2::splat(THUMB),
-									if enabled {
-										egui::Sense::click()
-									} else {
-										egui::Sense::hover()
-									},
+								media_box(
+									ui,
+									staged,
+									enabled,
+									files_allowed,
+									&mut draft.media_open,
 								);
-								let hovered =
-									enabled && (response.hovered() || response.has_focus());
-								ui.painter().rect(
-									rect,
-									10,
-									if hovered {
-										colors.hover
-									} else {
-										colors.sidebar
-									},
-									egui::Stroke::new(1.0, colors.border),
-									egui::StrokeKind::Inside,
-								);
-								icons::paint(
-									ui.painter(),
-									icons::Icon::Image,
-									egui::Rect::from_center_size(
-										rect.center(),
-										egui::Vec2::splat(30.0),
-									),
-									if !enabled {
-										colors.muted.gamma_multiply(0.5)
-									} else if hovered {
-										colors.text_strong
-									} else {
-										colors.text
-									},
-								);
-								response.widget_info(|| {
-									egui::WidgetInfo::labeled(
-										egui::Role::Button,
-										enabled,
-										crate::i18n::translate(
-											"forum-composer-add-images-to-this-post",
-										),
-									)
-								});
-								if response.clicked() {
-									*staged.choose = true;
-								}
-								response.on_hover_text(crate::i18n::translate_if_key(
-									&(if files_allowed {
-										crate::i18n::translate(
-											"forum-composer-add-images-or-files-up-to-10-files-and-500",
-										)
-									} else {
-										crate::i18n::translate(
-											"forum-composer-attaching-files-is-unavailable-in-this-forum",
-										)
-									}),
-								));
 							});
 						});
-						if !staged.files.is_empty() {
-							ui.add_space(10.0);
-							tray(ui, staged);
-						}
 					});
 				let (rule, _) = ui.allocate_exact_size(
 					egui::vec2(ui.available_width(), 1.0),
@@ -824,28 +809,231 @@ impl ForumUi {
 	}
 }
 
-/// Chosen files above the actions, in the same cards the message composer uses.
-fn tray(ui: &mut egui::Ui, staged: &mut Staged<'_>) {
-	egui::ScrollArea::horizontal()
-		.id_salt("forum-post-attachments")
-		.show(ui, |ui| {
-			ui.horizontal(|ui| {
-				ui.spacing_mut().item_spacing.x = 12.0;
-				for (index, (filename, bytes)) in staged.files.iter().enumerate() {
-					ui.push_id(index, |ui| {
-						if crate::attachments::pending_card(
-							ui,
-							filename,
-							*bytes,
-							staged.textures.get(index).and_then(Option::as_ref),
-							!staged.busy,
-						) {
-							*staged.remove = Some(index);
+/// Discord's post media control: an add button, or the first chosen file with the number
+/// chosen; hovering it opens a tray with every file, its remove buttons and another add button.
+fn media_box(
+	ui: &mut egui::Ui,
+	staged: &mut Staged<'_>,
+	enabled: bool,
+	files_allowed: bool,
+	open: &mut bool,
+) {
+	let colors = design::palette(ui);
+	let hint = if files_allowed {
+		crate::i18n::translate("forum-composer-add-images-or-files-up-to-10-files-and-500")
+	} else {
+		crate::i18n::translate("forum-composer-attaching-files-is-unavailable-in-this-forum")
+	};
+	if staged.files.is_empty() {
+		*open = false;
+		let response = add_tile(ui, enabled);
+		if response.clicked() {
+			*staged.choose = true;
+		}
+		response.on_hover_text(hint);
+		return;
+	}
+	let (rect, response) = ui.allocate_exact_size(egui::Vec2::splat(THUMB), egui::Sense::click());
+	media_tile(ui, rect, staged, 0);
+	let count = staged.files.len().to_string();
+	let badge = egui::Rect::from_center_size(
+		rect.right_top() + egui::vec2(-4.0, 4.0),
+		egui::vec2(if count.len() > 1 { 26.0 } else { 20.0 }, 20.0),
+	);
+	ui.painter().rect(
+		badge,
+		10,
+		colors.accent,
+		egui::Stroke::new(2.0, colors.raised),
+		egui::StrokeKind::Outside,
+	);
+	ui.painter().text(
+		badge.center(),
+		egui::Align2::CENTER_CENTER,
+		&count,
+		egui::FontId::new(12.0, design::semibold_family(ui.ctx())),
+		colors.accent_text,
+	);
+	response.widget_info(|| {
+		egui::WidgetInfo::labeled(
+			egui::Role::Button,
+			true,
+			crate::i18n::translate_count("forum-composer-attached-files", staged.files.len(), &[]),
+		)
+	});
+	if response.hovered() || response.has_focus() || response.clicked() {
+		*open = true;
+	}
+	if !*open {
+		return;
+	}
+	const GAP: f32 = 8.0;
+	const PAD: f32 = 8.0;
+	let tiles = staged.files.len() + usize::from(enabled);
+	let width = tiles as f32 * THUMB + (tiles - 1) as f32 * GAP + 2.0 * PAD;
+	let width = width.min(ui.ctx().viewport_rect().width() - 2.0 * PAD);
+	let mut tray_focused = false;
+	let tray_id = ui.scope_id().with("post-media-tray");
+	let shown = egui::Area::new(tray_id)
+		.order(egui::Order::Foreground)
+		.fixed_pos(rect.right_top() + egui::vec2(PAD - width, -PAD))
+		.show(ui.ctx(), |ui| {
+			egui::Frame::new()
+				.fill(colors.raised)
+				.stroke(egui::Stroke::new(1.0, colors.border))
+				.corner_radius(12)
+				.inner_margin(PAD)
+				.shadow(ui.visuals().popup_shadow)
+				.show(ui, |ui| {
+					ui.set_width((width - 2.0 * PAD).max(THUMB));
+					ui.horizontal_wrapped(|ui| {
+						ui.spacing_mut().item_spacing.x = GAP;
+						for index in 0..staged.files.len() {
+							let (tile, hovered) = ui.allocate_exact_size(
+								egui::Vec2::splat(THUMB),
+								egui::Sense::hover(),
+							);
+							media_tile(ui, tile, staged, index);
+							let remove = egui::Rect::from_min_size(
+								tile.right_top() + egui::vec2(-26.0, 4.0),
+								egui::Vec2::splat(22.0),
+							);
+							let button = ui.interact(
+								remove,
+								tray_id.with(("remove", index)),
+								if staged.busy {
+									egui::Sense::hover()
+								} else {
+									egui::Sense::click()
+								},
+							);
+							tray_focused |= button.has_focus();
+							if !staged.busy
+								&& (hovered.hovered() || button.hovered() || button.has_focus())
+							{
+								ui.painter().rect_filled(
+									remove,
+									6,
+									egui::Color32::from_black_alpha(if button.hovered() {
+										220
+									} else {
+										170
+									}),
+								);
+								icons::paint(
+									ui.painter(),
+									icons::Icon::Trash,
+									remove.shrink(4.0),
+									colors.danger,
+								);
+							}
+							let name = &staged.files[index].0;
+							button.widget_info(|| {
+								egui::WidgetInfo::labeled(
+									egui::Role::Button,
+									!staged.busy,
+									crate::i18n::translate_args(
+										"forum-composer-remove-file",
+										&[("file", name)],
+									),
+								)
+							});
+							if button.clicked() {
+								*staged.remove = Some(index);
+							}
+							hovered.on_hover_text(name);
+						}
+						if enabled {
+							let add = add_tile(ui, true);
+							tray_focused |= add.has_focus();
+							if add.clicked() {
+								*staged.choose = true;
+							}
+							add.on_hover_text(hint.clone());
 						}
 					});
-				}
-			});
+				});
 		});
+	// Keep keyboard controls alive even when the pointer is outside the tray.
+	let pointer = ui.ctx().pointer_hover_pos();
+	let kept = pointer.is_some_and(|pointer| {
+		shown.response.rect.expand(4.0).contains(pointer) || rect.contains(pointer)
+	}) || response.has_focus()
+		|| tray_focused;
+	if !kept {
+		*open = false;
+	}
+}
+
+/// The square add-images button.
+fn add_tile(ui: &mut egui::Ui, enabled: bool) -> egui::Response {
+	let colors = design::palette(ui);
+	let (rect, response) = ui.allocate_exact_size(
+		egui::Vec2::splat(THUMB),
+		if enabled {
+			egui::Sense::click()
+		} else {
+			egui::Sense::hover()
+		},
+	);
+	let hovered = enabled && (response.hovered() || response.has_focus());
+	ui.painter().rect(
+		rect,
+		10,
+		if hovered {
+			colors.hover
+		} else {
+			colors.sidebar
+		},
+		egui::Stroke::new(1.0, colors.border),
+		egui::StrokeKind::Inside,
+	);
+	icons::paint(
+		ui.painter(),
+		icons::Icon::Image,
+		egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(30.0)),
+		if !enabled {
+			colors.muted.gamma_multiply(0.5)
+		} else if hovered {
+			colors.text_strong
+		} else {
+			colors.text
+		},
+	);
+	response.widget_info(|| {
+		egui::WidgetInfo::labeled(
+			egui::Role::Button,
+			enabled,
+			crate::i18n::translate("forum-composer-add-images-to-this-post"),
+		)
+	});
+	response
+}
+
+/// One chosen file: its image, or its file-type icon.
+fn media_tile(ui: &egui::Ui, rect: egui::Rect, staged: &Staged<'_>, index: usize) {
+	let colors = design::palette(ui);
+	match staged.textures.get(index).and_then(Option::as_ref) {
+		Some(texture) => {
+			crate::emoji_picker::paint_cover(ui, rect, (texture.id(), texture.size()), 10);
+		}
+		None => {
+			ui.painter().rect(
+				rect,
+				10,
+				colors.sidebar,
+				egui::Stroke::new(1.0, colors.border),
+				egui::StrokeKind::Inside,
+			);
+			let kind = crate::attachments::file_kind(&staged.files[index].0, None);
+			icons::paint(
+				ui.painter(),
+				kind.icon(),
+				egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(30.0)),
+				colors.text,
+			);
+		}
+	}
 }
 
 /// Add or remove one tag, refusing additions past `limit`.
@@ -2168,6 +2356,211 @@ mod tests {
 					.any(|post| post.id == Id(1_549_000_000_000_000_000)),
 				"Fetched posts join the list"
 			);
+		}
+	}
+
+	fn painted_text(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
+		fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+			match shape {
+				egui::Shape::Text(text) => out.push(text.galley.job.text.clone()),
+				egui::Shape::Vec(shapes) => shapes.iter().for_each(|shape| walk(shape, out)),
+				_ => {}
+			}
+		}
+		let mut out = Vec::new();
+		shapes.iter().for_each(|shape| walk(&shape.shape, &mut out));
+		out
+	}
+
+	/// One frame of the media box at the right edge; returns its rect, painted text and any
+	/// removed index.
+	fn media_frame(
+		ctx: &egui::Context,
+		pointer: Option<egui::Pos2>,
+		click: bool,
+		open: &mut bool,
+	) -> (egui::Rect, Vec<String>, Option<usize>) {
+		let files = vec![("a.png".to_owned(), 10), ("a.png".to_owned(), 10)];
+		let textures = vec![None, None];
+		let (mut choose, mut remove, mut clear) = (false, None, false);
+		let mut events = Vec::new();
+		if let Some(pos) = pointer {
+			events.push(egui::Event::PointerMoved(pos));
+			if click {
+				for pressed in [true, false] {
+					events.push(egui::Event::PointerButton {
+						pos,
+						button: egui::PointerButton::Primary,
+						pressed,
+						modifiers: Default::default(),
+					});
+				}
+			}
+		}
+		let mut staged = Staged {
+			files: &files,
+			textures: &textures,
+			choose: &mut choose,
+			remove: &mut remove,
+			clear: &mut clear,
+			busy: false,
+		};
+		let mut rect = egui::Rect::NOTHING;
+		let output = ctx.run_ui(
+			egui::RawInput {
+				screen_rect: Some(egui::Rect::from_min_size(
+					egui::Pos2::ZERO,
+					egui::vec2(800.0, 400.0),
+				)),
+				events,
+				..Default::default()
+			},
+			|ui| {
+				ui.add_space(100.0);
+				ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+					media_box(ui, &mut staged, true, true, open);
+					rect = ui.min_rect();
+				});
+			},
+		);
+		let text = painted_text(&output.shapes);
+		output.drop_without_applying_deltas();
+		(rect, text, remove)
+	}
+
+	#[test]
+	fn post_media_box_counts_files_and_hover_shows_each_with_remove() {
+		let ctx = egui::Context::default();
+		let mut open = false;
+		let (area, text, _) = media_frame(&ctx, None, false, &mut open);
+		assert!(text.iter().any(|text| text == "2"), "count badge: {text:?}");
+		assert!(!open);
+		let center = area.center();
+		for _ in 0..2 {
+			media_frame(&ctx, Some(center), false, &mut open);
+		}
+		assert!(open, "hovering the box opens the tray");
+		// The tray grows leftwards from the box: two files, then the add button.
+		let first = area.right() - 3.0 * THUMB - 2.0 * 8.0;
+		let remove = egui::pos2(first + THUMB - 15.0, area.top() + 15.0);
+		media_frame(&ctx, Some(remove), false, &mut open);
+		let (_, _, removed) = media_frame(&ctx, Some(remove), true, &mut open);
+		assert_eq!(removed, Some(0));
+		assert!(open);
+		media_frame(&ctx, Some(egui::pos2(5.0, 390.0)), false, &mut open);
+		assert!(!open, "leaving both closes the tray");
+	}
+
+	#[test]
+	fn post_media_tray_wraps_and_keeps_focused_controls_reachable() {
+		for width in [320.0, 760.0, 800.0] {
+			for count in [9, 10] {
+				let ctx = egui::Context::default();
+				let files = vec![("file.png".to_owned(), 10); count];
+				let textures = vec![None; count];
+				let mut open = true;
+				let mut tray_id = egui::Id::NULL;
+				let mut choose = false;
+				let mut frame = |events: Vec<egui::Event>, reopen: bool| {
+					if reopen {
+						open = true;
+					}
+					let (mut remove, mut clear) = (None, false);
+					let output = ctx.run_ui(
+						egui::RawInput {
+							screen_rect: Some(egui::Rect::from_min_size(
+								egui::Pos2::ZERO,
+								egui::vec2(width, 400.0),
+							)),
+							events,
+							focused: true,
+							..Default::default()
+						},
+						|ui| {
+							ui.add_space(100.0);
+							ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+								tray_id = ui.scope_id().with("post-media-tray");
+								media_box(
+									ui,
+									&mut Staged {
+										files: &files,
+										textures: &textures,
+										choose: &mut choose,
+										remove: &mut remove,
+										clear: &mut clear,
+										busy: false,
+									},
+									count < 10,
+									true,
+									&mut open,
+								);
+							});
+						},
+					);
+					output.drop_without_applying_deltas();
+					(remove, tray_id, open)
+				};
+				let (_, tray, _) = frame(vec![], true);
+				ctx.memory_mut(|memory| memory.request_focus(tray.with(("remove", 0))));
+				frame(vec![], true);
+				for index in 0..count {
+					let id = tray.with(("remove", index));
+					ctx.memory_mut(|memory| memory.request_focus(id));
+					assert!(
+						frame(vec![], false).2,
+						"focused remove {index} must keep the tray open"
+					);
+					let button = ctx.read_response(id).unwrap();
+					assert!(
+						ctx.viewport_rect().contains_rect(button.rect),
+						"{width}: {index}: {:?}",
+						button.rect
+					);
+					let pos = button.rect.center();
+					let events = vec![
+						egui::Event::PointerMoved(pos),
+						egui::Event::PointerButton {
+							pos,
+							button: egui::PointerButton::Primary,
+							pressed: true,
+							modifiers: Default::default(),
+						},
+						egui::Event::PointerButton {
+							pos,
+							button: egui::PointerButton::Primary,
+							pressed: false,
+							modifiers: Default::default(),
+						},
+					];
+					assert_eq!(frame(events, false).0, Some(index));
+					frame(vec![egui::Event::PointerGone], false);
+				}
+				if count == 9 {
+					assert!(
+						frame(
+							vec![egui::Event::Key {
+								key: egui::Key::Tab,
+								physical_key: None,
+								pressed: true,
+								repeat: false,
+								modifiers: Default::default(),
+							}],
+							false
+						)
+						.2
+					);
+					assert!(
+						frame(vec![], false).2,
+						"focused add must keep the tray open"
+					);
+					let id = ctx.memory(|memory| memory.focused()).unwrap();
+					assert_ne!(id, tray.with(("remove", count - 1)));
+					assert!(
+						ctx.viewport_rect()
+							.contains_rect(ctx.read_response(id).unwrap().rect)
+					);
+				}
+			}
 		}
 	}
 }

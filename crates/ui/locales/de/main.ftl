@@ -798,6 +798,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Videovorschau · Wied
 embeds-text-text-display-limited = Textanzeige eingeschränkt
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Klicken, um mehr zu erfahren
 # Context: show
 emoji-details-show-a-custom-emoji = Ein benutzerdefiniertes Emoji.
 # Context: show
@@ -2991,6 +2993,8 @@ server-menu-header-server-menu = Servermenü
 server-menu-leave-item-leave-server = Verlassen Sie den Server
 # Context: read_item
 server-menu-read-item-mark-as-read = Als gelesen markieren
+# Context: all_read_item
+server-menu-all-read-item-mark-all-as-read = Alles als gelesen markieren
 # Context: settings_item
 server-menu-settings-item-server-settings = Servereinstellungen
 # Context: show
@@ -3573,6 +3577,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = Befehl nic
 slash-commands-footer-refresh-application-commands = Anwendungsbefehle aktualisieren
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = Dieser Aufkleber stammt von einem Server, der nur mit Einladung zugänglich oder nicht verfügbar ist.
 # Context: message
 stickers-message-loading-sticker-details = Aufkleberdetails werden geladen…
 # Context: message
@@ -4729,3 +4735,95 @@ timeline-dm-intro = Das ist der Anfang deines Direktnachrichtenverlaufs mit { $n
 timeline-channel-intro-title = Willkommen in #{ $channel }!
 # Context: timeline_channel_intro
 timeline-channel-intro-start = Das ist der Anfang des Kanals #{ $channel }.
+# Context: text_menu
+text-menu-cut = Ausschneiden
+text-menu-copy = Kopieren
+text-menu-paste = Einfügen
+text-menu-select-all = Alles auswählen
+# Context: media_box
+forum-composer-attached-files = { $count ->
+    [one] { $count } angehängte Datei
+   *[other] { $count } angehängte Dateien
+    }
+forum-composer-remove-file = { $file } entfernen
+post-menu-post-action-failed = Beitragsaktion fehlgeschlagen
+post-menu-thread-action-failed = Thread-Aktion fehlgeschlagen
+
+# Context: badges
+badges-nitro = Nitro
+# Context: badges
+badges-rarity-common = Gewöhnlich
+# Context: badges
+badges-rarity-rare = Selten
+# Context: badges
+badges-rarity-epic = Episch
+# Context: badges
+badges-rarity-mythic = Mythisch
+# Context: badges
+badges-always-visible = Wird immer im Profil angezeigt
+# Context: badges
+badges-click-show = Zum Anzeigen klicken
+# Context: badges
+badges-click-hide = Zum Ausblenden klicken
+# Context: badges
+badges-customize-title = Abzeichen anpassen
+# Context: badges
+badges-customize-hint = Ziehen zum Umsortieren; blende aus, was andere nicht sehen sollen.
+# Context: badges
+badges-none = Noch keine Abzeichen.
+# Context: badges
+badges-reset = Zurücksetzen
+# Context: badges
+badges-saving = Wird gespeichert …
+# Context: badges
+badges-save = Speichern
+# Context: badges
+badges-view = Abzeichen ansehen
+# Context: badges
+badges-your = Deine Abzeichen
+# Context: badges
+badges-user = Abzeichen von { $name }
+# Context: badges
+badges-browse = Sieh dir deine Abzeichen an und entdecke neue, die du freischalten kannst.
+# Context: badges
+badges-available = Freischaltbar
+# Context: badges
+badges-customize-button = Abzeichen anpassen
+# Context: badges
+badges-close = Schließen
+# Context: badges
+badges-locked = Noch nicht freigeschaltet
+# Context: badges
+badges-date-unlocked = Freigeschaltet am
+# Context: badges
+badges-rarity = Seltenheit
+# Context: badges
+badges-max-level = Du hast die höchste Stufe dieses Abzeichens erreicht.
+# Context: badges
+badges-next-level = Nächste Stufe: { $tier }
+# Context: badges
+badges-all-levels = Alle Stufen anzeigen
+# Context: badges
+badges-hide-levels = Stufen ausblenden
+# Context: badges
+badges-manage = Abzeichen verwalten
+page-language-time = Sprache & Zeit
+description-language-time = Anzeigesprache und Darstellung der Uhrzeit.
+time-format-group = Zeitformat
+time-format-auto = Automatisch
+time-format-12-hour = 12-Stunden
+time-format-24-hour = 24-Stunden
+profiles-status-edit = Status bearbeiten
+profiles-status-clear = Status löschen
+send-throttled-title = Hoppla, viel zu scharf
+send-throttled-body = Du sendest Nachrichten zu schnell!
+send-throttled-dismiss = Ab in die Chill-Zone
+profiles-private-profile = Privates Profil
+profiles-private-notice = Das Profil von { $name } ist privat, daher sind manche Infos verborgen. Sende eine Freundschaftsanfrage, um mehr zu sehen.
+settings-cosmetics-name-styles = Namensstile
+settings-cosmetics-name-styles-description = Nitro-Schriftarten, -Farben und -Effekte für Anzeigenamen.
+search-overlays-message-contains = Nachricht enthält
+search-overlays-no-matching-content-types = Keine passenden Inhaltstypen
+search-overlays-history = Verlauf
+search-overlays-clear-history = Suchverlauf löschen
+main-sign-in-rate-limited-detail = Discord begrenzt diese Anmeldung. Warte, bevor du es erneut versuchst. Ein früherer Versuch kann die Wartezeit verlängern.

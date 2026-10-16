@@ -119,6 +119,10 @@ impl Source {
 	pub fn size(&self) -> u64 {
 		self.size
 	}
+	/// Bytes this selection holds in session memory; chosen files hold only their metadata.
+	pub fn resident_bytes(&self) -> u64 {
+		self.bytes.as_ref().map_or(0, |bytes| bytes.len() as u64)
+	}
 	/// Whole selection bytes for a local preview, only while the file is at most `limit` bytes
 	/// and still matches the inspected metadata. Pasted images reuse their in-memory buffer.
 	pub async fn preview_bytes(&self, limit: u64) -> Option<std::sync::Arc<[u8]>> {

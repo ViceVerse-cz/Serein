@@ -38,6 +38,10 @@ const PREVIEW_ALLOC: u64 = 64 * 1024 * 1024;
 /// instead of loading up to the upload limit (and a second copy) just to draw 320 px.
 const PREVIEW_SOURCE_BYTES: u64 = PREVIEW_ALLOC;
 const SHARE_BYTES: usize = 8 * 1024 * 1024;
+/// Conversations left with staged files that keep them for the next visit.
+const PARKED_CONVERSATIONS: usize = 8;
+/// In-memory bytes (pasted data and thumbnails) all parked selections may keep together.
+const PARKED_BYTES: u64 = 64 * 1024 * 1024;
 const EMOJI_EDGE: u32 = 48;
 const STICKER_EDGE: u32 = 160;
 const ARTWORK_FRAMES: usize = 240;
@@ -345,6 +349,25 @@ fn decode_preview(bytes: &[u8]) -> Option<egui::ColorImage> {
 		image.as_raw(),
 	))
 }
+/// Files staged in a conversation the user navigated away from, restored only to its scope.
+struct Parked {
+	scope: (u64, Id),
+	selected: Vec<Chosen>,
+	previewing: Vec<(u64, mpsc::Receiver<Option<egui::ColorImage>>)>,
+}
+impl Parked {
+	/// Session memory this selection keeps; a still-decoding thumbnail counts at its largest.
+	fn bytes(&self) -> u64 {
+		let thumbnail = |image: &egui::ColorImage| image.pixels.len() as u64 * 4;
+		self.selected
+			.iter()
+			.map(|chosen| {
+				chosen.source.resident_bytes() + chosen.preview.as_deref().map_or(0, thumbnail)
+			})
+			.sum::<u64>()
+			+ self.previewing.len() as u64 * u64::from(PREVIEW_EDGE * PREVIEW_EDGE * 4)
+	}
+}
 struct Uploading {
 	progress: watch::Receiver<Status>,
 	cancel: watch::Sender<bool>,
@@ -370,6 +393,8 @@ pub struct Uploads {
 	/// Selections still being inspected and decoded; at most `MAX_FILES`. Later selections
 	/// join the composer while earlier ones (or the previous message's upload) still run.
 	choosing: Vec<Choosing>,
+	/// Oldest first; at most `PARKED_CONVERSATIONS` selections and `PARKED_BYTES` in memory.
+	parked: Vec<Parked>,
 	uploading: Option<Uploading>,
 	/// Progress of the batch in flight, and only ever a running state: terminal failures
 	/// leave through `notice`, so nothing here outlives the work it describes.
@@ -724,6 +749,70 @@ impl Uploads {
 			files,
 		});
 	}
+	/// Composer navigation: parks the files staged in the conversation being left and restores
+	/// the destination's, so a selection only ever returns to the scope it was staged in.
+	/// Work still in flight is cancelled as before. `keep` rejects parked conversations
+	/// that are gone or no longer viewable.
+	pub fn follow_conversation(
+		&mut self,
+		generation: u64,
+		channel: Option<Id>,
+		allowed: bool,
+		keep: impl Fn(Id) -> bool,
+	) {
+		let target = channel.filter(|_| allowed).map(|id| (generation, id));
+		if !self.parked.is_empty() {
+			self.parked
+				.retain(|parked| allowed && parked.scope.0 == generation && keep(parked.scope.1));
+		}
+		if self.scope == target {
+			return;
+		}
+		// Take the destination's files first so parking the source cannot evict them.
+		let restore = target
+			.and_then(|target| self.parked.iter().position(|parked| parked.scope == target))
+			.map(|index| self.parked.remove(index));
+		if let Some(scope) = self.scope {
+			if allowed && scope.0 == generation && keep(scope.1) && !self.selected.is_empty() {
+				self.park(scope);
+			}
+			self.remove();
+			self.scope = None;
+		}
+		if let Some(parked) = restore {
+			self.scope = Some(parked.scope);
+			self.selected = parked.selected;
+			self.previewing = parked.previewing;
+		}
+	}
+	fn park(&mut self, scope: (u64, Id)) {
+		let parked = Parked {
+			scope,
+			selected: std::mem::take(&mut self.selected),
+			previewing: std::mem::take(&mut self.previewing),
+		};
+		if parked.bytes() > PARKED_BYTES {
+			self.notice =
+				Some("Attachments removed: too large to keep after leaving the conversation");
+			return;
+		}
+		self.parked.retain(|other| other.scope != scope);
+		self.parked.push(parked);
+		let mut evicted = false;
+		while self.parked.len() > PARKED_CONVERSATIONS
+			|| self.parked.iter().map(Parked::bytes).sum::<u64>() > PARKED_BYTES
+		{
+			self.parked.remove(0);
+			evicted = true;
+		}
+		if evicted {
+			self.notice = Some("Attachments staged in an earlier conversation were removed");
+		}
+	}
+	/// Drops every parked selection, as when the account session ends.
+	pub fn forget_parked(&mut self) {
+		self.parked.clear();
+	}
 	pub fn revalidate_scope(&mut self, generation: u64, channel: Option<Id>, allowed: bool) {
 		if self
 			.scope
@@ -918,7 +1007,7 @@ impl Uploads {
 		}
 	}
 	pub fn has_unsent(&self) -> bool {
-		!self.selected.is_empty() || self.busy()
+		!self.selected.is_empty() || !self.parked.is_empty() || self.busy()
 	}
 	pub fn transfer_progress(&self) -> (Option<(u64, u64)>, bool) {
 		match self.last {
@@ -1293,6 +1382,168 @@ mod tests {
 				.is_err()
 		);
 	}
+	fn stage(uploads: &mut Uploads, generation: u64, channel: Id, bytes: usize) {
+		uploads.scope = Some((generation, channel));
+		uploads.push(Source::pasted_text("x".repeat(bytes)).unwrap(), None);
+	}
+
+	#[test]
+	fn staged_files_follow_their_conversation_and_never_reach_another() {
+		let (a, b) = (Id(1), Id(2));
+		let mut uploads = Uploads::default();
+		stage(&mut uploads, 1, a, 3);
+		stage(&mut uploads, 1, a, 4);
+		uploads.follow_conversation(1, Some(b), true, |_| true);
+		assert!(uploads.files().is_empty() && uploads.has_unsent());
+		assert!(uploads.take_source(1, a).is_none());
+		assert!(uploads.take_source(1, b).is_none());
+		stage(&mut uploads, 1, b, 5);
+		uploads.follow_conversation(1, Some(a), true, |_| true);
+		assert_eq!(
+			uploads
+				.files()
+				.iter()
+				.map(|(_, size)| *size)
+				.collect::<Vec<_>>(),
+			[3, 4]
+		);
+		assert!(uploads.take_source(1, b).is_none());
+		// Home parks too; returning to either conversation restores only its own files.
+		uploads.follow_conversation(1, None, true, |_| true);
+		assert!(uploads.files().is_empty());
+		uploads.follow_conversation(1, Some(b), true, |_| true);
+		assert_eq!(uploads.files(), [("message.txt".to_owned(), 5)]);
+		uploads.follow_conversation(1, Some(a), true, |_| true);
+		assert_eq!(uploads.take_source(1, a).unwrap().len(), 2);
+		assert!(uploads.take_notice().is_none());
+		uploads.follow_conversation(1, Some(b), true, |_| true);
+		assert_eq!(uploads.take_source(1, b).unwrap().len(), 1);
+		assert!(uploads.parked.is_empty() && !uploads.has_unsent());
+	}
+
+	#[test]
+	fn parked_files_drop_on_session_change_disconnect_or_lost_access() {
+		let (a, b) = (Id(1), Id(2));
+		let mut uploads = Uploads::default();
+		stage(&mut uploads, 1, a, 3);
+		uploads.follow_conversation(1, Some(b), true, |_| true);
+		uploads.follow_conversation(2, Some(a), true, |_| true);
+		assert!(uploads.files().is_empty() && uploads.parked.is_empty());
+		assert!(uploads.take_source(2, a).is_none());
+
+		stage(&mut uploads, 2, a, 3);
+		uploads.follow_conversation(2, Some(b), true, |_| true);
+		uploads.follow_conversation(2, Some(b), false, |_| true);
+		assert!(uploads.parked.is_empty());
+
+		stage(&mut uploads, 2, a, 3);
+		uploads.follow_conversation(2, Some(b), true, |_| true);
+		uploads.follow_conversation(2, Some(a), true, |channel| channel != a);
+		assert!(uploads.files().is_empty() && uploads.parked.is_empty());
+
+		stage(&mut uploads, 2, a, 3);
+		uploads.follow_conversation(2, Some(b), true, |_| true);
+		uploads.forget_parked();
+		uploads.follow_conversation(2, Some(a), true, |_| true);
+		assert!(uploads.files().is_empty() && !uploads.has_unsent());
+	}
+
+	#[test]
+	fn returning_swaps_parked_files_without_evicting_the_destination() {
+		let half = PARKED_BYTES as usize / 2 + 1;
+		let (a, b) = (Id(1), Id(2));
+		let mut uploads = Uploads::default();
+		stage(&mut uploads, 1, a, half);
+		uploads.follow_conversation(1, Some(b), true, |_| true);
+		stage(&mut uploads, 1, b, half);
+		uploads.follow_conversation(1, Some(a), true, |_| true);
+		assert_eq!(uploads.scope, Some((1, a)));
+		assert_eq!(uploads.files(), [("message.txt".to_owned(), half as u64)]);
+		uploads.follow_conversation(1, Some(b), true, |_| true);
+		assert_eq!(uploads.scope, Some((1, b)));
+		assert_eq!(uploads.files(), [("message.txt".to_owned(), half as u64)]);
+		assert_eq!(uploads.parked.len(), 1);
+		assert!(uploads.take_notice().is_none());
+	}
+
+	#[test]
+	fn leaving_an_inaccessible_conversation_never_evicts_parked_files() {
+		let mut uploads = Uploads::default();
+		for channel in 1..=PARKED_CONVERSATIONS as u64 {
+			stage(&mut uploads, 1, Id(channel), 1);
+			uploads.follow_conversation(1, Some(Id(channel + 1)), true, |_| true);
+		}
+		let lost = Id(PARKED_CONVERSATIONS as u64 + 1);
+		stage(&mut uploads, 1, lost, 1);
+		assert!(uploads.take_notice().is_none());
+		uploads.follow_conversation(1, None, true, |id| id != lost);
+		assert_eq!(uploads.parked.len(), PARKED_CONVERSATIONS);
+		assert!(
+			uploads
+				.parked
+				.iter()
+				.any(|parked| parked.scope == (1, Id(1)))
+		);
+		assert!(uploads.parked.iter().all(|parked| parked.scope.1 != lost));
+		assert!(uploads.files().is_empty());
+		assert!(uploads.take_notice().is_none());
+	}
+
+	#[test]
+	fn parked_files_are_bounded_by_conversations_and_memory() {
+		let mut uploads = Uploads::default();
+		for channel in 1..=PARKED_CONVERSATIONS as u64 + 1 {
+			stage(&mut uploads, 1, Id(channel), 1);
+			uploads.follow_conversation(1, Some(Id(channel + 1)), true, |_| true);
+		}
+		assert_eq!(uploads.parked.len(), PARKED_CONVERSATIONS);
+		assert!(
+			uploads
+				.parked
+				.iter()
+				.all(|parked| parked.scope != (1, Id(1)))
+		);
+		assert!(uploads.take_notice().is_some());
+		uploads.forget_parked();
+
+		let half = PARKED_BYTES as usize / 2 + 1;
+		stage(&mut uploads, 1, Id(1), half);
+		uploads.follow_conversation(1, Some(Id(2)), true, |_| true);
+		stage(&mut uploads, 1, Id(2), half);
+		uploads.follow_conversation(1, Some(Id(3)), true, |_| true);
+		assert_eq!(uploads.parked.len(), 1);
+		assert_eq!(uploads.parked[0].scope, (1, Id(2)));
+		assert!(uploads.take_notice().is_some());
+
+		// A selection larger than the whole budget is removed, keeping older parked files.
+		stage(&mut uploads, 1, Id(3), PARKED_BYTES as usize + 1);
+		uploads.follow_conversation(1, Some(Id(4)), true, |_| true);
+		assert_eq!(uploads.parked.len(), 1);
+		assert!(uploads.take_notice().is_some());
+		uploads.follow_conversation(1, Some(Id(3)), true, |_| true);
+		assert!(uploads.files().is_empty());
+
+		// Thumbnails count, and decodes still running count at their largest.
+		let mut parked = Parked {
+			scope: (1, Id(5)),
+			selected: vec![Chosen {
+				key: 0,
+				source: Source::pasted_text("x".into()).unwrap(),
+				preview: Some(Arc::new(egui::ColorImage::filled(
+					[2, 3],
+					egui::Color32::WHITE,
+				))),
+			}],
+			previewing: Vec::new(),
+		};
+		assert_eq!(parked.bytes(), 1 + 24);
+		parked.previewing.push((0, mpsc::sync_channel(1).1));
+		assert_eq!(
+			parked.bytes(),
+			1 + 24 + u64::from(PREVIEW_EDGE * PREVIEW_EDGE * 4)
+		);
+	}
+
 	#[test]
 	fn artwork_uploads_are_resized_without_dropping_animation() {
 		use image::AnimationDecoder;
@@ -1533,6 +1784,7 @@ mod tests {
 			selected: vec![],
 			next_key: 0,
 			previewing: vec![],
+			parked: vec![],
 			uploading: None,
 			last: None,
 			notice: None,

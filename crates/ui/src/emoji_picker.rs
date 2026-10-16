@@ -309,9 +309,64 @@ impl CustomMatches {
 	}
 }
 
+/// Home tiles warmed while the GIF button is hovered: about the rows visible when it opens.
+const GIF_WARM_TILES: usize = 8;
+
+/// Loads the GIF picker's home page (trending and categories, from the ten-minute cache when
+/// possible), the favorites sync, and the home's first tile images before the picker opens.
+fn preload_gifs(
+	ctx: &egui::Context,
+	state: &mut State,
+	avatars: &mut Avatars,
+	commands: &mut Vec<Command>,
+) {
+	if !state.gifs.sync_attempted
+		&& let Some(command) = state.request_gif_favorites()
+	{
+		commands.push(command);
+	}
+	// Only from a closed picker's empty view: a failed home waits for the picker's own retry.
+	if state.gifs.view.is_none()
+		&& let Some(command) = state.preload_gifs(std::time::Instant::now())
+	{
+		commands.push(command);
+	}
+	let demo = state.demo;
+	if let Some(gif) = state
+		.gifs
+		.favorites
+		.iter()
+		.find(|gif| model::valid_gif_preview(&gif.preview))
+	{
+		avatars.warm_gif(ctx, gif, demo);
+	}
+	let Some(page) = state
+		.gifs
+		.view
+		.as_ref()
+		.filter(|view| view.query.is_none())
+		.and_then(|view| view.page.as_ref())
+	else {
+		return;
+	};
+	if let Some(gif) = page.gifs.first() {
+		avatars.warm_gif(ctx, gif, demo);
+	}
+	for preview in page
+		.categories
+		.iter()
+		.filter_map(|category| category.preview.as_deref())
+		.take(GIF_WARM_TILES)
+	{
+		avatars.warm_preview(preview, demo);
+	}
+}
+
 pub(crate) struct Picker {
 	/// Lock custom emoji that need Nitro instead of offering them through image sharing.
 	pub hide_nitro_emojis: bool,
+	/// Device preference: resting on the GIF button loads the picker home before it opens.
+	pub preload: bool,
 	stickers: crate::stickers::Browser,
 	reaction: Option<(Target, egui::Rect, egui::Id)>,
 	// ponytail: session-only Unicode usage; persist if cross-launch favorites are needed.
@@ -340,6 +395,7 @@ impl Default for Picker {
 		// Initialize the static catalog during application creation, outside rendering.
 		Self {
 			hide_nitro_emojis: false,
+			preload: false,
 			stickers: crate::stickers::Browser::default(),
 			reaction: None,
 			frequent: Vec::with_capacity(32),
@@ -879,6 +935,9 @@ impl Picker {
 		if !self.open {
 			if was_open {
 				self.close_gifs(state, commands);
+			}
+			if self.preload && gif_trigger.hovered() {
+				preload_gifs(ui.ctx(), state, avatars, commands);
 			}
 			return None;
 		}
@@ -2044,7 +2103,7 @@ fn cover_uv(texture: [usize; 2], rect: egui::Rect) -> egui::Rect {
 	)
 }
 
-fn paint_cover(
+pub(crate) fn paint_cover(
 	ui: &egui::Ui,
 	rect: egui::Rect,
 	texture: (egui::TextureId, [usize; 2]),

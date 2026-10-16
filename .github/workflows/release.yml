@@ -187,6 +187,7 @@ jobs:
       - name: Commit versions and publish semantic release with notes and assets
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: bun .github/release/release.mjs publish
 
   repositories:

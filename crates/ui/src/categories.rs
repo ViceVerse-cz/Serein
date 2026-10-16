@@ -793,6 +793,7 @@ impl MessagingUi {
 										shortcuts_available,
 									),
 								);
+								self.preload.conversation(&response, || Some(channel.id));
 								if response.clicked() {
 									selected = Some(channel.id);
 								}
@@ -960,6 +961,9 @@ impl MessagingUi {
 											shortcuts_available,
 										),
 									);
+									if enabled {
+										self.preload.conversation(&avatar, || Some(channel.id));
+									}
 									if enabled && avatar.clicked() {
 										selected = Some(channel.id);
 									}
@@ -968,6 +972,8 @@ impl MessagingUi {
 										self.avatars.show(&mut inner, user, 32.0, state.demo);
 									let (status, _, _, clients) =
 										crate::profiles::presence(state, user.id, None);
+									let status =
+										crate::profiles::shown_status(state, user.id, status);
 									if channel.kind == 1
 										&& let Some(status) = status
 									{
@@ -994,6 +1000,9 @@ impl MessagingUi {
 									}
 									// The avatar is part of the row: clicking it opens the conversation,
 									// the profile stays behind the context menu and the header avatar.
+									if enabled {
+										self.preload.conversation(&avatar, || Some(channel.id));
+									}
 									if enabled && avatar.clicked() {
 										selected = Some(channel.id);
 									}
@@ -1062,15 +1071,17 @@ impl MessagingUi {
 											let trailing =
 												crate::profiles::server_tag_width(ui, server_tag)
 													+ if server_tag.is_some() { 5.0 } else { 0.0 };
-											crate::account_badge::name(
-												ui,
-												user,
-												&label,
-												15.0,
-												(name_color, None, colors.sidebar),
-												egui::Sense::hover(),
-												trailing,
-											);
+											crate::name_styles::in_row(hovered, || {
+												crate::account_badge::name(
+													ui,
+													user,
+													&label,
+													15.0,
+													(name_color, None, colors.sidebar),
+													egui::Sense::hover(),
+													trailing,
+												)
+											});
 											if let Some(tag) = server_tag {
 												crate::profiles::server_tag(
 													ui,
@@ -1259,6 +1270,9 @@ impl MessagingUi {
 							}
 							if channel.guild.is_some() {
 								self.channel_menu.context(&response, state, channel, view);
+							}
+							if enabled {
+								self.preload.conversation(&response, || Some(channel.id));
 							}
 							if enabled && response.clicked() {
 								selected = Some(channel.id);

@@ -26,7 +26,7 @@
 
 <p align="center">
   <a href="https://discord.gg/UqTDGCENaN"><img src="https://img.shields.io/badge/Discord-Join%20our%20Discord%20server%20for%20updates-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
-  <a href="https://github.com/ViceVerse-cz/rustcord/releases"><img src="https://img.shields.io/github/v/release/ViceVerse-cz/rustcord?label=release&color=blue" alt="GitHub Release" /></a>
+  <a href="https://github.com/ViceVerse-cz/Serein/releases"><img src="https://img.shields.io/github/v/release/ViceVerse-cz/Serein?label=release&color=blue" alt="GitHub Release" /></a>
   <a href="Cargo.toml"><img src="https://img.shields.io/badge/rust-1.98.1_pinned-blue.svg?logo=rust" alt="Rust 1.98.1 Pinned" /></a>
   <a href="crates/ui"><img src="https://img.shields.io/badge/ui-egui%20%2F%20wgpu-orange.svg" alt="UI egui/wgpu" /></a>
   <a href="docs/platform-support.md"><img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-informational.svg" alt="Platform Support" /></a>
@@ -43,7 +43,7 @@
 
 ## Downloads & Installation
 
-Pre-compiled releases for macOS, Linux, and Windows are published on GitHub [Releases](https://github.com/ViceVerse-cz/rustcord/releases).
+Pre-compiled releases for macOS, Linux, and Windows are published on GitHub [Releases](https://github.com/ViceVerse-cz/Serein/releases).
 
 | Platform | Format | Architectures | Details |
 |---|---|---|---|
@@ -67,7 +67,7 @@ Flatpak is the recommended distribution format for Linux, featuring sandbox isol
   Once installed, your desktop software store (GNOME Software, KDE Discover) or `flatpak update` will automatically discover and install updates.
 
 - **Standalone Offline Bundle**:
-  Download `Serein-linux.flatpak` from [Releases](https://github.com/ViceVerse-cz/rustcord/releases):
+  Download `Serein-linux.flatpak` from [Releases](https://github.com/ViceVerse-cz/Serein/releases):
   ```sh
   flatpak install --user ./Serein-linux.flatpak
   flatpak run cz.viceverse.serein
@@ -200,7 +200,7 @@ If you use Home Manager as a NixOS module instead, pass `inputs` through its own
 
 #### 5. Standalone AppImage (Portable)
 
-Download `serein-<version>-Linux-X64.AppImage` from [Releases](https://github.com/ViceVerse-cz/rustcord/releases), make it executable, and run:
+Download `serein-<version>-Linux-X64.AppImage` from [Releases](https://github.com/ViceVerse-cz/Serein/releases), make it executable, and run:
 ```sh
 chmod +x ./serein-*-Linux-X64.AppImage
 ./serein-*-Linux-X64.AppImage
@@ -213,7 +213,7 @@ Keep the AppImage in a writable directory to receive in-app updates via **Settin
 <summary><h3>🪟 Windows (Installer, PowerShell, Portable)</h3></summary>
 
 #### 1. Setup Installer (Recommended)
-Download the `Windows-X64-Setup.exe` or `Windows-ARM64-Setup.exe` asset for your system from [Releases](https://github.com/ViceVerse-cz/rustcord/releases) and run it:
+Download the `Windows-X64-Setup.exe` or `Windows-ARM64-Setup.exe` asset for your system from [Releases](https://github.com/ViceVerse-cz/Serein/releases) and run it:
 - Installs per-user to `%LOCALAPPDATA%\Programs\Serein` without requiring administrator/UAC elevation.
 - Automatically registers Start Menu shortcuts and configures AppUserModelID (`cz.viceverse.serein`) for native Windows toast notifications.
 - Registers in Windows Settings (Installed Apps / Add or Remove Programs) with full uninstall support.
@@ -243,13 +243,13 @@ Run the script from the extracted folder beside `serein.exe`. If PowerShell's `R
 
 #### Homebrew Cask
 ```sh
-brew tap ViceVerse-cz/serein https://github.com/ViceVerse-cz/Serein.git
+brew tap ViceVerse-cz/serein
 brew install --cask serein
 ```
-The explicit repository URL keeps the cask in this repository; a separate `homebrew-serein` tap is not required.
+The cask lives in the small [`homebrew-serein`](https://github.com/ViceVerse-cz/homebrew-serein) tap, so installing does not clone this repository. If you tapped the old URL, run `brew untap ViceVerse-cz/serein` first and tap again.
 
 #### Standalone Bundle
-Download `serein-<version>-macOS-ARM64.zip` from [Releases](https://github.com/ViceVerse-cz/rustcord/releases), unzip, and drag `Serein.app` to your `/Applications` folder.
+Download `serein-<version>-macOS-ARM64.zip` from [Releases](https://github.com/ViceVerse-cz/Serein/releases), unzip, and drag `Serein.app` to your `/Applications` folder.
 
 </details>
 

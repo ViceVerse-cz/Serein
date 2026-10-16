@@ -27,6 +27,7 @@ mod extension_message_content;
 mod extensions;
 mod font_import;
 mod game_activity;
+mod game_mentions;
 mod gpu;
 mod gpu_video;
 mod group_icon;
@@ -48,6 +49,7 @@ mod rendering_demo;
 mod screen;
 #[cfg(feature = "demo")]
 mod server_settings_demo;
+mod sign_in;
 #[cfg(feature = "demo")]
 mod slash_demo;
 mod spotify;
@@ -68,13 +70,6 @@ use eframe::egui;
 use model::Delivery;
 use std::{sync::Arc, time::Duration};
 use zeroize::Zeroizing;
-
-/// Sign-in header strip: doubles as the window drag region, so it clears the traffic lights.
-const SIGN_IN_HEADER_HEIGHT: f32 = if cfg!(target_os = "windows") {
-	44.0
-} else {
-	60.0
-};
 
 /// Run explicit offline checks before native startup, or launch the configured desktop client.
 fn main() -> eframe::Result {
@@ -191,6 +186,13 @@ fn main() -> eframe::Result {
 		println!(
 			"Forward debug check passed: picker, bounded destinations, optional note, draft preservation and queue rejection."
 		);
+		return Ok(());
+	}
+	#[cfg(all(debug_assertions, feature = "demo"))]
+	if std::env::args().any(|arg| arg == "--demo")
+		&& std::env::args().any(|arg| arg == "--demo-check-notification-badge")
+	{
+		notification_runtime::debug_badge_check();
 		return Ok(());
 	}
 	#[cfg(all(debug_assertions, feature = "demo"))]
@@ -493,9 +495,16 @@ fn main() -> eframe::Result {
 		viewport: {
 			let builder = egui::ViewportBuilder::default()
 				.with_transparent(transparency_available)
-				.with_inner_size(window_geometry.map_or([1120.0, 760.0], |geometry| {
-					geometry.size.map(|value| value as f32)
-				}))
+				.with_inner_size(
+					window_geometry
+						.map_or(app_settings::DEFAULT_WINDOW_SIZE, |geometry| geometry.size)
+						.map(|value| value as f32),
+				)
+				// Maximize before the first configure so the first frame is not painted small.
+				.with_maximized(
+					cfg!(target_os = "linux")
+						&& window_geometry.is_some_and(|geometry| geometry.maximized),
+				)
 				.with_min_inner_size(app_settings::MIN_WINDOW_SIZE.map(|size| size as f32))
 				.with_active(!start_minimized)
 				.with_app_id("cz.viceverse.serein");
@@ -579,6 +588,8 @@ fn main() -> eframe::Result {
 			desktop.instance = instance;
 			if let Some(geometry) = window_geometry {
 				app_settings::restore_window_geometry(&desktop.window, geometry);
+				desktop.maximize_after_show =
+					geometry.maximized && app_settings::maximize_after_show(&desktop.window);
 			}
 			if start_minimized {
 				cc.egui_ctx
@@ -975,6 +986,10 @@ struct Desktop {
 	clipboard: Option<clipboard::Paste>,
 	download_close_pending: bool,
 	window: Arc<winit::window::Window>,
+	/// The recent-page request whose cached window was already asked for.
+	cached_history_request: Option<(model::Id, u64)>,
+	/// The saved maximized state still has to be re-applied once the window is shown.
+	maximize_after_show: bool,
 	monitor_geometry: Option<(Option<egui::Rect>, Option<f32>, Option<egui::Vec2>)>,
 	monitor_period: Option<Duration>,
 	frame_metrics: FrameMetrics,
@@ -1003,6 +1018,7 @@ struct Desktop {
 	font_families: Option<std::sync::mpsc::Receiver<Vec<String>>>,
 	updater: updater::Updater,
 	game_activity: toggle_setting::Settings,
+	game_mentions: game_mentions::Loader,
 	registered_games: registered_games::Registered,
 	tray_setting: toggle_setting::Settings,
 	startup: startup::Startup,
@@ -1181,16 +1197,36 @@ fn wants_cached_history(state: &State, channel: model::Id, request: u64) -> bool
 			.iter()
 			.any(|c| c.id == channel && c.supports_text())
 }
+impl Desktop {
+	/// Shows the selected conversation's cached window while its recent page loads.
+	fn load_cached_history(&mut self) {
+		let (state, request) = (&self.state, self.state.request);
+		if let Some(channel) = state.selected
+			&& self.cached_history_request != Some((channel, request))
+			&& state.history_before.is_none()
+			&& state.history_after.is_none()
+			&& !state.history_targeted
+			&& wants_cached_history(state, channel, request)
+		{
+			self.cached_history_request = Some((channel, request));
+			self.queue_cache(cache::Operation::LoadChannel { channel, request });
+		}
+	}
+}
 fn hydrate_cached_history(
 	state: &mut State,
 	channel: model::Id,
 	request: u64,
 	messages: Vec<model::Message>,
+	start: bool,
 ) {
 	if wants_cached_history(state, channel, request)
 		&& messages.iter().all(|message| message.channel == channel)
 		&& state.timeline.seed_cache(messages).is_ok()
 	{
+		// The channel's introduction can lead the cached window right away; the network page
+		// replaces this once it arrives.
+		state.older_exhausted = start;
 		state.revision += 1;
 	}
 	state.enforce_resident_budget();
@@ -1200,11 +1236,12 @@ fn hydrate_cache_result(state: &mut State, safety: &cache::HistorySafety, outcom
 		channel,
 		request,
 		messages,
+		start,
 		epoch,
 	} = outcome
 		&& safety.allows(epoch)
 	{
-		hydrate_cached_history(state, channel, request, messages);
+		hydrate_cached_history(state, channel, request, messages, start);
 	}
 }
 
@@ -1248,6 +1285,16 @@ fn recovery_draft(state: &State, channel: model::Id) -> String {
 		})
 		.unwrap_or_default()
 }
+/// Staged files may upload whenever the channel accepts attachments. The history
+/// window's freshness is not a channel state: Send from older history jumps to the
+/// latest page, so that window is reloading while the upload is dispatched.
+fn attachment_send_allowed(state: &State, channel: model::Id) -> bool {
+	!state.demo
+		&& state.can_attach(channel)
+		&& state.auth == AuthState::Authenticated
+		&& state.gateway_connected
+		&& state.selected == Some(channel)
+}
 fn confirmed_recovery_channel(state: &State, event: &Event) -> Option<model::Id> {
 	let (message, nonce) = match event {
 		Event::SendResult {
@@ -1270,7 +1317,7 @@ fn changes_active_history(state: &State, event: &Event) -> bool {
 	let channel = match event {
 		Event::History {
 			channel, request, ..
-		} if *request == state.request && state.history_pending => channel,
+		} if state.history_request(*request) == state.request && state.history_pending => channel,
 		Event::Message(message)
 		| Event::SendResult {
 			result: Ok(message),
@@ -2264,6 +2311,8 @@ impl Desktop {
 			window_blur: transparency_available
 				.then(|| platform::window_effects::Blur::new(window.clone())),
 			window,
+			cached_history_request: None,
+			maximize_after_show: false,
 			monitor_geometry: None,
 			monitor_period: None,
 			frame_metrics: FrameMetrics::new(frame_sample),
@@ -2292,6 +2341,7 @@ impl Desktop {
 			font_families: None,
 			updater: updater::Updater::new(demo),
 			game_activity,
+			game_mentions: Default::default(),
 			registered_games: if demo {
 				registered_games::Registered::default()
 			} else {
@@ -2345,292 +2395,9 @@ impl Desktop {
 			token_input: Zeroizing::new(String::new()),
 		})
 	}
-	fn connect(&mut self, secret: SessionSecret, save: bool, ctx: &egui::Context) {
-		if self.presence_load_pending {
-			self.deferred_connect = Some((secret, save));
-			self.credential_status = "Connecting to Discord…";
-			return;
-		}
-		self.role_icon.cancel();
-		self.role_icon_scope = None;
-		self.group_icon.cancel();
-		self.create_server_icon.cancel();
-		self.profile_avatar.cancel();
-		self.server_icon.cancel();
-		self.emoji_upload.cancel();
-		self.sticker_upload.cancel();
-		if let Some(store) = &mut self.store {
-			store.cancel_load();
-		}
-		self.credential_status = if save {
-			"Login will be saved after Discord connects"
-		} else {
-			"Connecting with the supplied session; saved login unchanged"
-		};
-		self.voice.stop();
-		self.messaging.camera_test_requested = false;
-		self.messaging.camera_test_texture = None;
-		self.state
-			.disconnect_voice("Discord login session changed; start a new call");
-		self.uploads.cancel();
-		self.login = None;
-		self.state.interrupt_gif_favorites();
-		self.connection = None;
-		if let Some(worker) = self.avatars.take() {
-			self.avatar_cleanup = Some(worker.shutdown());
-		}
-		self.avatar_start_failed = false;
-		self.messaging.clear_avatars();
-		self.state.generation += 1;
-		self.messaging.channel_preferences = model::ChannelPreferences::default();
-		self.messaging.channel_preferences_changed = false;
-		self.messaging.channel_preferences_loaded = false;
-		self.messaging.channel_preferences_load_pending = false;
-		self.messaging.channel_preferences_reload = false;
-		self.messaging.channel_preferences_save_pending = false;
-		self.messaging.channel_preferences_status = "";
-		self.presence_authoritative = false;
-		self.presence_saved = None;
-		let cached = self
-			.state
-			.user
-			.as_ref()
-			.and_then(|user| self.account_presences.get(&user.id).cloned());
-		if let Some(cached) = cached {
-			self.messaging.adopt_account_presence(cached);
-		} else {
-			self.messaging.own_presence = model::OwnPresence::default();
-			self.messaging.own_presence_expires = None;
-		}
-		self.messaging.own_presence_changed = false;
-		self.messaging.draft_restore_pending = false;
-		self.state.auth = AuthState::Authenticating;
-		self.state.status = "Connecting to Discord…";
-		self.state.failure_detail = None;
-		let secret = Arc::new(secret);
-		self.pending_save = save.then(|| secret.clone());
-		self.pending_account_save = Some(secret.clone());
-		self.connection = Some(connection::Connection::start(
-			self.runtime.handle(),
-			secret,
-			self.state.generation,
-			self.state.user.as_ref().map(|u| u.id),
-			self.account_presences.clone(),
-			self.api_proxy.subscribe(),
-			ctx.clone(),
-		));
-	}
-	fn logout(&mut self, ctx: &egui::Context) {
-		self.end_session(ctx, SessionEnd::Logout);
-	}
-	/// Ends the current session. Only logging out removes this account's local data and
-	/// saved login; switching and adding keep both so the account stays in the switcher.
-	fn end_session(&mut self, ctx: &egui::Context, intent: SessionEnd) {
-		self.captcha.close();
-		self.notification_runtime.clear(&self.window);
-		self.messaging.image_share_requested = None;
-		let extension_logout = self.extensions.logout(ctx);
-		self.role_icon.cancel();
-		self.role_icon_scope = None;
-		self.group_icon.cancel();
-		self.create_server_icon.cancel();
-		self.profile_avatar.cancel();
-		self.server_icon.cancel();
-		self.emoji_upload.cancel();
-		self.sticker_upload.cancel();
-		self.notifications.clear();
-		self.uploads.cancel();
-		if let Some(store) = &mut self.store {
-			store.cancel_load();
-		}
-		self.downloads.cancel();
-		self.audio.stop();
-		self.video.stop();
-		self.video.cancel_posters();
-		self.voice.stop();
-		self.messaging.camera_test_requested = false;
-		self.messaging.camera_test_texture = None;
-		let was_demo = self.state.demo;
-		self.clear_avatars(ctx);
-		self.login = None;
-		self.connection = None;
-		self.pending_save = None;
-		self.pending_account_save = None;
-		let old_account = self.state.user.as_ref().filter(|_| !was_demo).map(|u| u.id);
-		self.switching = None;
-		self.roster_pending = false;
-		self.state.logout();
-		if intent.forgets()
-			&& let (Some(cache), Some(account)) = (&self.cache, old_account)
-		{
-			if cache.queue(self.state.generation, account, cache::Operation::Forget) {
-				self.cache_pending += 1;
-			} else {
-				self.cache_error = true;
-				self.cache_status = "Could not queue local account data removal";
-			}
-		}
-		self.messaging.clear();
-		if intent.forgets() {
-			self.messaging
-				.accounts
-				.retain(|saved| Some(saved.id) != old_account);
-		}
-		if let Err(error) = extension_logout {
-			self.messaging.extensions.status = error;
-			self.cache_error = true;
-			self.cache_status = "Extension account data removal could not be queued";
-		}
-		self.app_settings.apply(&mut self.messaging);
-		self.messaging.share_game_activity = self.game_activity.enabled;
-		ctx.memory_mut(|m| *m = egui::Memory::default());
-		let _ = ui::emoji::install(ctx);
-		ui::design::apply(ctx);
-		ctx.set_theme(self.appearance);
-		self.sync_system_theme(ctx);
-		self.messaging
-			.apply_reading_preferences(ctx, self.reading.current);
-		ctx.clear_animations();
-		self.token_input = Zeroizing::new(String::new());
-		if !was_demo
-			&& intent.forgets()
-			&& let Some(store) = &self.store
-		{
-			self.forgetting = store
-				.send
-				.try_send((
-					self.state.generation,
-					credentials::Request::NONE,
-					credentials::Operation::Forget,
-				))
-				.is_ok();
-			if let Some(account) = old_account {
-				let _ = store.send.try_send((
-					self.state.generation,
-					credentials::Request::NONE,
-					credentials::Operation::ForgetAccount(account),
-				));
-			}
-			self.credential_status = if self.forgetting {
-				"Removing saved login…"
-			} else {
-				"Credential queue unavailable; saved login may remain"
-			};
-		} else if !was_demo {
-			self.credential_status = "Signed out of this account; its saved login is kept";
-		}
-		self.confirming_logout = false;
-		self.end_intent = SessionEnd::Logout;
-	}
-	/// Confirms first when work would be lost, then ends the session for `intent`.
-	fn request_session_end(&mut self, ctx: &egui::Context, intent: SessionEnd) {
-		if self.state.has_unsent()
-			|| self.messaging.has_edit()
-			|| self.messaging.has_server_settings_changes()
-			|| self.messaging.extensions.theme_editor_dirty()
-			|| self.state.server_settings.pending
-			|| self.state.server_admin.pending
-			|| self.uploads.has_unsent()
-			|| self.messaging.external_upload.has_unsent()
-		{
-			self.end_intent = intent;
-			self.confirming_logout = true;
-		} else {
-			self.finish_session_end(ctx, intent);
-		}
-	}
-	fn finish_session_end(&mut self, ctx: &egui::Context, intent: SessionEnd) {
-		self.end_session(ctx, intent);
-		if let SessionEnd::Switch(account) = intent {
-			self.begin_switch(account);
-		}
-	}
-	/// Reads the saved token of an account already signed in on this device.
-	fn begin_switch(&mut self, account: model::Id) {
-		if self.fixture_only || self.state.demo {
-			return;
-		}
-		let started = self.store.as_mut().is_some_and(|store| {
-			store.load_account(self.state.generation, account, std::time::Instant::now())
-		});
-		self.switching = started.then_some(account);
-		self.credential_status = if started {
-			"Reading the saved login for that account…"
-		} else {
-			"Credential lookup unavailable; sign in with Discord again"
-		};
-	}
-	/// Removes one saved account: its token, roster entry and cached data.
-	fn forget_saved_account(&mut self, ctx: &egui::Context, account: model::Id) {
-		if self
-			.state
-			.user
-			.as_ref()
-			.is_some_and(|user| user.id == account)
-		{
-			self.request_session_end(ctx, SessionEnd::Logout);
-			return;
-		}
-		self.messaging.accounts.retain(|saved| saved.id != account);
-		if let Some(store) = &self.store {
-			let _ = store.send.try_send((
-				self.state.generation,
-				credentials::Request::NONE,
-				credentials::Operation::ForgetAccount(account),
-			));
-		}
-		if self.queue_cache_for(account, cache::Operation::Forget) {
-			self.credential_status = "Saved account removed from this device";
-		} else {
-			self.cache_error = true;
-			self.cache_status = "Could not queue local account data removal";
-		}
-	}
-	/// Keeps the switcher entry for the signed-in account current, without retrying failures.
-	fn sync_account_roster(&mut self) {
-		if self.fixture_only || self.state.demo || self.roster_pending || self.roster_failed {
-			return;
-		}
-		if self.state.auth != AuthState::Authenticated {
-			return;
-		}
-		let Some(user) = &self.state.user else { return };
-		let display = self
-			.state
-			.own_profile
-			.data
-			.as_ref()
-			.and_then(|profile| profile.global_name.as_deref());
-		// Re-record once per session so the switcher orders by last use, then only on change.
-		let recorded = self.roster_generation == Some(self.state.generation);
-		if recorded
-			&& self.messaging.accounts.iter().any(|saved| {
-				saved.id == user.id
-					&& saved.name == user.name
-					&& saved.avatar == user.avatar
-					&& saved.discriminator == user.discriminator
-					&& saved.display.as_deref() == display
-			}) {
-			return;
-		}
-		let account = model::SavedAccount {
-			id: user.id,
-			name: user.name.clone(),
-			display: display.map(str::to_owned),
-			avatar: user.avatar.clone(),
-			discriminator: user.discriminator,
-			has_token: false,
-		};
-		if !account.is_valid() {
-			return;
-		}
-		self.roster_pending =
-			self.queue_cache_for(model::Id(0), cache::Operation::SaveAccount(account));
-		self.roster_failed = !self.roster_pending;
-		if self.roster_pending {
-			self.roster_generation = Some(self.state.generation);
-		}
-	}
+}
+
+impl Desktop {
 	fn queue_cache(&mut self, operation: cache::Operation) -> bool {
 		if let Some(user) = &self.state.user {
 			if matches!(operation, cache::Operation::ClearHistory) {
@@ -3434,14 +3201,9 @@ impl Desktop {
 				.iter()
 				.any(|p| p.nonce == *nonce && !p.attachments.is_empty())
 		{
-			let (channel, nonce) = (*channel, nonce.clone());
-			let available = !self.state.demo
-				&& self.state.can_attach(channel)
+			let channel = *channel;
+			let available = attachment_send_allowed(&self.state, channel)
 				&& !self.fixture_only
-				&& self.state.auth == AuthState::Authenticated
-				&& self.state.gateway_connected
-				&& self.state.freshness == model::Freshness::Fresh
-				&& self.state.selected == Some(channel)
 				&& self.connection.is_some();
 			if available
 				&& let Some(source) = self.uploads.take_source(self.state.generation, channel)
@@ -3470,15 +3232,14 @@ impl Desktop {
 					return;
 				}
 			}
-			self.state.apply(Envelope {
-				generation: self.state.generation,
-				event: Event::SendResult {
-					nonce,
-					result: Err(Failure::ProtocolAt(
-						"File not sent; reconnect and reselect the attachment",
-					)),
-				},
-			});
+			// Nothing left the client: keep the caption, reply and staged files for a retry.
+			let failure = "File not sent; check the connection and attachment, then send again";
+			if self.state.return_unsent(command, failure) {
+				self.messaging.draft_changes.push(channel);
+			}
+			self.messaging
+				.toasts
+				.push(ui::design::Level::Error, failure);
 			return;
 		}
 		// A forum post with files takes the same staged-upload path as a message.
@@ -3588,22 +3349,24 @@ impl Desktop {
 				self.messaging.camera_test_texture = None;
 			}
 		}
-		if let Command::History {
-			channel,
-			before: None,
-			after: None,
-			request,
-		} = &command
-			&& wants_cached_history(&self.state, *channel, *request)
-		{
-			self.queue_cache(cache::Operation::LoadChannel {
-				channel: *channel,
-				request: *request,
-			});
+		if matches!(
+			command,
+			Command::History {
+				before: None,
+				after: None,
+				..
+			}
+		) {
+			self.load_cached_history();
 		}
 		#[cfg(feature = "demo")]
 		if self.state.demo {
 			let event = match command {
+				// Offline previews confirm locally; nothing reaches the service.
+				Command::BadgeSettings { request, settings } => Event::BadgeSettings {
+					request,
+					result: Ok(settings),
+				},
 				Command::ApplicationCommands {
 					channel,
 					guild,
@@ -3798,6 +3561,13 @@ impl Desktop {
 						result: Ok(()),
 					})
 				}
+				Command::MarkAllRead { request, channels } => {
+					Event::ReadState(client_core::read_state::Event::AllAck {
+						request,
+						acked: channels.len(),
+						result: Ok(()),
+					})
+				}
 				Command::Polls(request) => {
 					polls_demo::respond(&self.state, request, &mut self.synthetic_id)
 				}
@@ -3878,7 +3648,11 @@ impl Desktop {
 						}
 					})
 				}
-				Command::Voice(_) | Command::CancelProfile | Command::CancelSearch => return,
+				// The offline fixture has nothing to preload.
+				Command::Voice(_)
+				| Command::CancelProfile
+				| Command::CancelSearch
+				| Command::Prefetch(_) => return,
 				Command::ThreadStarter {
 					thread,
 					parent,
@@ -4034,6 +3808,7 @@ impl Desktop {
 					query,
 					before,
 					offset,
+					oldest,
 					request,
 					..
 				} => {
@@ -4051,8 +3826,10 @@ impl Desktop {
 						.map_or(channel, model::Id);
 					for id in (1..=500)
 						.rev()
-						.filter(|id| before.is_none_or(|b| *id < b.0))
-					{
+						// The cursor continues older newest first, newer oldest first.
+						.filter(|id| {
+							before.is_none_or(|b| if oldest { *id > b.0 } else { *id < b.0 })
+						}) {
 						let message = test_support::message(id, source);
 						if message
 							.content
@@ -4107,7 +3884,8 @@ impl Desktop {
 								)
 							}) {
 							total += 1;
-							if total > u64::from(offset) && hits.len() < model::SEARCH_PAGE_SIZE {
+							// The fixture is small: keep every match, then page in the chosen order.
+							{
 								hits.push(model::SearchHit {
 									id: message.id,
 									channel: source,
@@ -4120,6 +3898,15 @@ impl Desktop {
 							}
 						}
 					}
+					hits.sort_unstable_by_key(|hit| std::cmp::Reverse(hit.id));
+					if oldest {
+						hits.reverse();
+					}
+					let hits = hits
+						.into_iter()
+						.skip(offset as usize)
+						.take(model::SEARCH_PAGE_SIZE)
+						.collect();
 					Event::Search {
 						channel,
 						request,
@@ -4397,868 +4184,9 @@ impl Desktop {
 			self.state.command_rejected(command);
 		}
 	}
-	/// Boot stage while a saved login is being restored, so launch shows progress
-	/// instead of a welcome card the user cannot act on yet.
-	fn restoring(&self) -> Option<String> {
-		// Fixture-only preview of the restore screen, e.g. `--demo --demo-restoring`.
-		#[cfg(feature = "demo")]
-		if self.fixture_only && std::env::args().any(|arg| arg == "--demo-restoring") {
-			return Some(ui::i18n::translate(
-				"main-restoring-checking-your-saved-login",
-			));
-		}
-		if self.fixture_only
-			|| self.state.demo
-			|| self.login.is_some()
-			|| self.forgetting
-			|| matches!(
-				self.state.auth,
-				AuthState::Failed | AuthState::Expired | AuthState::Challenged
-			) {
-			return None;
-		}
-		if self
-			.store
-			.as_ref()
-			.is_some_and(|store| store.remaining(std::time::Instant::now()).is_some())
-		{
-			return Some(ui::i18n::translate(
-				"main-restoring-checking-your-saved-login",
-			));
-		}
-		self.connection
-			.is_some()
-			.then(|| ui::i18n::translate("main-restoring-connecting-to-discord"))
-	}
-	/// Restore screen for returning accounts: no sign-in controls, just the stage,
-	/// an indeterminate bar and a way out to the welcome screen.
-	fn restoring_screen(&mut self, ui: &mut egui::Ui, stage: &str) {
-		let p = ui::design::palette(ui);
-		egui::CentralPanel::default()
-			.frame(egui::Frame::NONE.fill(ui::design::window_palette(ui).canvas))
-			.show(ui, |ui| {
-				accent_glow(ui);
-				ui::design::window_drag(ui, ui.max_rect());
-				egui::Frame::NONE
-					.inner_margin(egui::Margin {
-						left: (16.0 + self.traffic_light_inset()) as i8,
-						right: if ui::design::WINDOW_CONTROLS_WIDTH > 0.0 {
-							0
-						} else {
-							16
-						},
-						top: if ui::design::WINDOW_CONTROLS_WIDTH > 0.0 {
-							0
-						} else {
-							16
-						},
-						bottom: 0,
-					})
-					.show(ui, |ui| {
-						ui.horizontal(|ui| {
-							ui.label(
-								ui::design::semibold(
-									ui,
-									ui::i18n::translate("main-restoring-screen-serein"),
-									16.0,
-								)
-								.color(p.muted),
-							);
-							ui.with_layout(
-								egui::Layout::right_to_left(egui::Align::Center),
-								|ui| {
-									if !self.messaging.hide_title_bar {
-										ui::design::window_controls(ui);
-									}
-								},
-							);
-						});
-					});
-				let time = ui.input(|i| i.time) as f32;
-				ui.ctx().request_repaint();
-				ui.vertical_centered(|ui| {
-					ui.add_space((ui.available_height() * 0.5 - 150.0).max(12.0));
-					// App mark with a slow breathing halo; the only motion besides the bar.
-					let (rect, _) =
-						ui.allocate_exact_size(egui::vec2(72.0, 72.0), egui::Sense::hover());
-					let mark = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(56.0));
-					let pulse = 0.5 + 0.5 * (time * 1.6).sin();
-					ui.painter().rect_filled(
-						mark.expand(4.0 + 4.0 * pulse),
-						18,
-						p.accent.gamma_multiply(0.10 + 0.10 * pulse),
-					);
-					ui.painter().rect_filled(mark, 14, p.accent);
-					ui::icons::paint(
-						ui.painter(),
-						ui::icons::Icon::Serein,
-						mark.shrink(13.0),
-						p.accent_text,
-					);
-					ui.add_space(18.0);
-					ui.label(
-						ui::design::semibold(
-							ui,
-							ui::i18n::translate("main-restoring-screen-welcome-back"),
-							24.0,
-						)
-						.color(p.text_strong),
-					);
-					ui.add_space(6.0);
-					ui.label(
-						egui::RichText::new(format!("{stage}…"))
-							.size(15.0)
-							.color(p.muted),
-					);
-					ui.add_space(22.0);
-					// Indeterminate track: progress is unknown, so a sweeping segment.
-					let width = ui.available_width().min(260.0);
-					let (track, _) =
-						ui.allocate_exact_size(egui::vec2(width, 4.0), egui::Sense::hover());
-					ui.painter().rect_filled(track, 2, p.raised);
-					let span = track.width() * 0.35;
-					let travel = (track.width() + span) * ((time * 0.5).fract());
-					let left = (track.left() + travel - span).max(track.left());
-					let right = (track.left() + travel).min(track.right());
-					if right > left {
-						ui.painter().rect_filled(
-							egui::Rect::from_min_max(
-								egui::pos2(left, track.top()),
-								egui::pos2(right, track.bottom()),
-							),
-							2,
-							p.accent,
-						);
-					}
-					ui.add_space(26.0);
-					ui.allocate_ui_with_layout(
-						egui::vec2(220.0, 0.0),
-						egui::Layout::top_down(egui::Align::Center),
-						|ui| {
-							if ui::design::secondary_button(
-								ui,
-								&ui::i18n::translate(
-									"main-restoring-screen-use-a-different-account",
-								),
-							)
-							.clicked()
-							{
-								if let Some(store) = &mut self.store {
-									store.cancel_load();
-								}
-								self.connection = None;
-								self.pending_save = None;
-								self.pending_account_save = None;
-								self.state.auth = AuthState::Unauthenticated;
-								self.state.status = "Disconnected";
-								self.credential_status = "Saved-login restore cancelled";
-							}
-						},
-					);
-				});
-			});
-	}
-	fn traffic_light_inset(&self) -> f32 {
-		if self.messaging.hide_title_bar {
-			0.0
-		} else {
-			ui::design::TRAFFIC_LIGHT_INSET
-		}
-	}
-	fn sign_in_screen(&mut self, ui: &mut egui::Ui) {
-		let p = ui::design::palette(ui);
-		egui::CentralPanel::default()
-			.frame(egui::Frame::NONE.fill(ui::design::window_palette(ui).canvas))
-			.show(ui, |ui| {
-				accent_glow(ui);
-				egui::Panel::top("sign-in-header")
-					.exact_size(SIGN_IN_HEADER_HEIGHT)
-					.show_separator_line(false)
-					.frame(egui::Frame::NONE)
-					.show(ui, |ui| {
-						// Drag first: later widgets win hit testing, so the header buttons stay clickable.
-						ui::design::window_drag(ui, ui.max_rect());
-						ui.horizontal_centered(|ui| {
-							ui.add_space(16.0 + self.traffic_light_inset());
-							// Wordmark lockup: app mark, name, then a quiet outlined stage pill.
-							let (mark, _) = ui
-								.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::hover());
-							ui.painter().rect_filled(mark, 6, p.accent);
-							ui::icons::paint(
-								ui.painter(),
-								ui::icons::Icon::Serein,
-								mark.shrink(5.0),
-								p.accent_text,
-							);
-							ui.add_space(8.0);
-							ui.label(
-								ui::design::semibold(
-									ui,
-									ui::i18n::translate("main-sign-in-screen-serein"),
-									16.0,
-								)
-								.color(p.text_strong),
-							);
-							ui.add_space(8.0);
-							// Painted rather than framed: the pill must hug the text, not the row height.
-							let stage = ui.painter().layout_no_wrap(
-								"Early preview".to_owned(),
-								egui::FontId::new(10.5, ui::design::medium_family(ui.ctx())),
-								p.muted,
-							);
-							let (pill, _) = ui.allocate_exact_size(
-								egui::vec2(stage.size().x + 16.0, 19.0),
-								egui::Sense::hover(),
-							);
-							ui.painter().rect_stroke(
-								pill,
-								9,
-								egui::Stroke::new(1.0, p.border),
-								egui::StrokeKind::Inside,
-							);
-							ui.painter()
-								.galley(pill.center() - stage.size() * 0.5, stage, p.muted);
-							ui.with_layout(
-								egui::Layout::right_to_left(egui::Align::Center),
-								|ui| {
-									if ui::design::WINDOW_CONTROLS_WIDTH > 0.0
-										&& !self.messaging.hide_title_bar
-									{
-										ui::design::window_controls(ui);
-									} else {
-										ui.add_space(24.0);
-									}
-									ui.add_space(12.0);
-									// These popups hold settings controls, so a click inside
-									// must not dismiss them the way a menu command would.
-									let sticky = || {
-										egui::containers::menu::MenuConfig::new().close_behavior(
-											egui::PopupCloseBehavior::CloseOnClickOutside,
-										)
-									};
-									// Quiet header actions: text only until hovered, like the rest of the chrome.
-									let quiet =
-										|ui: &egui::Ui, text: &str, color: egui::Color32| {
-											egui::Button::new(
-												ui::design::medium(ui, text, 13.0).color(color),
-											)
-											.frame_when_inactive(false)
-											.corner_radius(8)
-										};
-									egui::containers::menu::MenuButton::from_button(quiet(
-										ui,
-										&ui::i18n::translate("page-appearance"),
-										p.muted,
-									))
-									.config(sticky())
-									.ui(ui, |ui| self.messaging.appearance_menu(ui));
-									ui.add_space(8.0);
-									let updates = &self.messaging.updates;
-									let (label, color) = if updates.ready {
-										("updates-shows-update-banner-restart-to-update", p.link)
-									} else if updates.busy {
-										("updates-shows-update-banner-updating", p.muted)
-									} else if updates.available {
-										("updates-shows-update-banner-update-available", p.link)
-									} else {
-										("page-updates", p.muted)
-									};
-									let label = ui::i18n::translate(label);
-									let demo = self.fixture_only || self.state.demo;
-									egui::containers::menu::MenuButton::from_button(quiet(
-										ui, &label, color,
-									))
-									.config(sticky())
-									.ui(ui, |ui| self.messaging.updates_menu(ui, demo));
-								},
-							);
-						});
-					});
-				egui::ScrollArea::vertical()
-					.id_salt("sign-in-scroll")
-					.show(ui, |ui| {
-						let card = if self.sign_in_height > 0.0 {
-							self.sign_in_height + 72.0
-						} else {
-							560.0
-						};
-						ui.add_space(((ui.available_height() - card) * 0.4).max(16.0));
-						ui.vertical_centered(|ui| {
-							ui.allocate_ui_with_layout(
-								egui::vec2(ui.available_width().min(460.0), 0.0),
-								egui::Layout::top_down(egui::Align::Min),
-								|ui| {
-									self.sign_in_card(ui);
-									#[cfg(feature = "demo")]
-									if self.fixture_only {
-										self.sign_in_preview(ui);
-									}
-									// Centring needs the height this actually took; it is
-									// stable between frames.
-									self.sign_in_height = ui.min_rect().height();
-								},
-							);
-							ui.add_space(18.0);
-							ui.label(
-								egui::RichText::new(ui::i18n::translate(
-									"main-sign-in-screen-independent-and-open-source-not-affiliated-with-discord",
-								))
-								.size(12.0)
-								.color(p.muted),
-							);
-							ui.add_space(24.0);
-						});
-					});
-			});
-	}
-	/// Sign-in card: saved accounts first for returning owners, one clear primary action,
-	/// explicit consent, and everything else folded away until asked for.
-	fn sign_in_card(&mut self, ui: &mut egui::Ui) {
-		let ctx = ui.ctx().clone();
-		let p = ui::design::palette(ui);
-		let shadow = egui::epaint::Shadow {
-			offset: [0, 16],
-			blur: 40,
-			spread: 0,
-			color: egui::Color32::from_black_alpha(if ui.visuals().dark_mode { 110 } else { 34 }),
-		};
-		egui::Frame::NONE
-			.fill(p.surface)
-			.stroke(egui::Stroke::new(1.0, p.border))
-			.shadow(shadow)
-			.corner_radius(16)
-			.inner_margin(egui::Margin {
-				left: 28,
-				right: 28,
-				top: 24,
-				bottom: 14,
-			})
-			.show(ui, |ui| {
-				let returning = !self.messaging.accounts.is_empty();
-				let waiting = self.state.auth == AuthState::Authenticating;
-				let idle = !waiting && !self.forgetting;
-				// A new sign-in needs explicit authorization; a saved account was already
-				// authorized once and restores unattended on launch, so it only waits for idle.
-				// Fixture builds render the enabled state for captures; the actions stay inert.
-				let ready = self.authorized && idle;
-				self.sign_in_header(ui, returning);
-				ui.add_space(16.0);
-				if returning {
-					self.sign_in_accounts(ui, idle);
-					ui.add_space(10.0);
-				}
-				let label = if waiting {
-					"Waiting for Discord…"
-				} else if returning {
-					"Use another account"
-				} else {
-					"Continue with Discord"
-				};
-				let button = ui
-					.add_enabled_ui(ready, |ui| {
-						if returning {
-							ui::design::secondary_icon_button(ui, ui::icons::Icon::Plus, label)
-						} else {
-							ui::design::primary_icon_button(ui, ui::icons::Icon::Serein, label)
-						}
-					})
-					.inner;
-				if button.clicked() && !self.fixture_only {
-					if let Some(store) = &mut self.store {
-						store.cancel_load();
-					}
-					self.credential_status = "Sign in through Discord; saved-login lookup stopped";
-					let wake = ctx.clone();
-					match platform::LoginView::open(self.window.clone(), move || {
-						wake.request_repaint()
-					}) {
-						Ok(login) => {
-							self.login = Some(login);
-							self.state.auth = AuthState::Authenticating;
-							self.state.status = "Waiting for Discord login";
-						}
-						Err(error) => {
-							self.state.auth = AuthState::Failed;
-							self.state.status = error.label();
-						}
-					}
-				}
-				ui.add_space(10.0);
-				self.sign_in_consent(ui);
-				self.sign_in_status(ui);
-				ui.add_space(12.0);
-				let (line, _) = ui.allocate_exact_size(
-					egui::vec2(ui.available_width(), 1.0),
-					egui::Sense::hover(),
-				);
-				ui.painter().rect_filled(line, 0, p.border);
-				ui.add_space(8.0);
-				self.sign_in_disclosures(ui, &ctx);
-			});
-	}
-	/// App mark over a welcome line that adapts to whether this device already knows an account.
-	fn sign_in_header(&self, ui: &mut egui::Ui, returning: bool) {
-		let p = ui::design::palette(ui);
-		ui.vertical_centered(|ui| {
-			let (mark, _) = ui.allocate_exact_size(egui::vec2(44.0, 44.0), egui::Sense::hover());
-			ui.painter()
-				.rect_filled(mark.expand(6.0), 17, p.accent.gamma_multiply(0.16));
-			ui.painter().rect_filled(mark, 13, p.accent);
-			ui::icons::paint(
-				ui.painter(),
-				ui::icons::Icon::Serein,
-				mark.shrink(11.0),
-				p.accent_text,
-			);
-			ui.add_space(12.0);
-			ui.label(
-				ui::design::semibold(
-					ui,
-					ui::i18n::translate_if_key(if returning {
-						"main-sign-in-header-welcome-back"
-					} else {
-						"main-sign-in-header-welcome-to-serein"
-					}),
-					22.0,
-				)
-				.color(p.text_strong),
-			);
-			ui.add_space(5.0);
-			ui.add(
-				egui::Label::new(
-					egui::RichText::new(ui::i18n::translate_if_key(if returning {
-						"main-sign-in-header-continue-with-a-saved-account-or-sign-in-with-another"
-					} else {
-						"main-sign-in-header-sign-in-with-your-discord-account-to-get-started"
-					}))
-					.size(14.0)
-					.color(p.muted),
-				)
-				.wrap(),
-			);
-		});
-	}
-	/// Accounts already signed in on this device: one tap restores their saved login.
-	fn sign_in_accounts(&mut self, ui: &mut egui::Ui, enabled: bool) {
-		let p = ui::design::palette(ui);
-		ui.label(ui::design::eyebrow(
-			ui,
-			ui::i18n::translate("main-sign-in-accounts-saved-accounts"),
-			p.muted,
-		));
-		ui.add_space(6.0);
-		let saved: Vec<(model::Id, String, String)> = self
-			.messaging
-			.accounts
-			.iter()
-			.map(|account| {
-				(
-					account.id,
-					account.label().to_owned(),
-					format!("@{}", account.name),
-				)
-			})
-			.collect();
-		// Four rows fit without crowding the card; the rest scroll inside the list.
-		let rows = saved.len().min(4) as f32;
-		let height = rows * 54.0 + (rows - 1.0) * 6.0;
-		let mut chosen = None;
-		let mut forget = None;
-		egui::ScrollArea::vertical()
-			.id_salt("saved-accounts")
-			.max_height(height)
-			.min_scrolled_height(height)
-			.show(ui, |ui| {
-				ui.spacing_mut().item_spacing.y = 6.0;
-				for (id, label, handle) in saved {
-					let (row, remove) = ui
-						.add_enabled_ui(enabled, |ui| {
-							ui::design::account_row_with_remove(ui, &label, &handle, true)
-						})
-						.inner;
-					if remove.is_some_and(|remove| remove.clicked()) {
-						forget = Some(id);
-					} else if row.clicked() {
-						chosen = Some(id);
-					}
-				}
-			});
-		if let Some(id) = forget {
-			self.confirming_forget = Some(id);
-		} else if let Some(id) = chosen {
-			self.messaging.switch_account_requested = Some(id);
-		}
-	}
-	/// Forgetting is destructive (token, cached history, drafts), so it always asks first.
-	fn confirm_forget_dialog(&mut self, ctx: &egui::Context) {
-		let Some(account) = self.confirming_forget else {
-			return;
-		};
-		let label = self
-			.messaging
-			.accounts
-			.iter()
-			.find(|saved| saved.id == account)
-			.map(|saved| saved.label().to_owned())
-			.unwrap_or_else(|| "this account".to_owned());
-		let signed_in = self
-			.state
-			.user
-			.as_ref()
-			.is_some_and(|user| user.id == account);
-		let confirm = ui::dialog::Confirm::new(
-			"forget-account",
-			format!("Forget {label}?"),
-			if signed_in {
-				"This is the account you are signed in with: you will be logged out, and its saved login, cached history and drafts on this device are removed."
-			} else {
-				"Its saved login, cached history and drafts on this device are removed. The Discord account itself is untouched; you can sign in again any time."
-			},
-		)
-		.danger()
-		.confirm_label("Forget account")
-		.cancel_label("Keep");
-		match confirm.show(ctx) {
-			Some(ui::dialog::Choice::Confirmed) => {
-				self.confirming_forget = None;
-				self.forget_saved_account(ctx, account);
-			}
-			Some(ui::dialog::Choice::Cancelled) => self.confirming_forget = None,
-			None => {}
-		}
-	}
-	/// Owner authorization, with the token handling spelled out next to the checkbox.
-	fn sign_in_consent(&mut self, ui: &mut egui::Ui) {
-		let p = ui::design::palette(ui);
-		egui::Frame::NONE
-			.fill(p.base)
-			.corner_radius(10)
-			.inner_margin(egui::Margin::symmetric(12, 9))
-			.show(ui, |ui| {
-				ui.set_width(ui.available_width());
-				ui.checkbox(
-					&mut self.authorized,
-					ui::design::medium(
-						ui,
-						ui::i18n::translate(
-							"main-sign-in-consent-i-own-this-account-and-authorize-this-session",
-						),
-						13.0,
-					)
-					.color(p.text_strong),
-				);
-				ui.add_space(4.0);
-				ui.add(
-					egui::Label::new(
-						egui::RichText::new(ui::i18n::translate(
-							"main-sign-in-consent-passwords-and-2fa-stay-on-discord-s-own-login-page",
-						))
-						.size(12.0)
-						.color(p.muted),
-					)
-					.wrap(),
-				);
-			});
-	}
-	/// One banner, only while something is happening or went wrong.
-	fn sign_in_status(&mut self, ui: &mut egui::Ui) {
-		let p = ui::design::palette(ui);
-		let attention = matches!(
-			self.state.auth,
-			AuthState::Failed | AuthState::Expired | AuthState::Challenged
-		);
-		let busy = self.state.auth == AuthState::Authenticating
-			|| self.forgetting
-			|| self.cache_pending > 0
-			|| self.cache_clears.pending();
-		let show = attention
-			|| busy || self.state.status != "Disconnected"
-			|| (!self.fixture_only
-				&& self.credential_status != "Checking saved login…"
-				&& !self.credential_status.is_empty());
-		if !show || (self.fixture_only && self.state.status == "Disconnected") {
-			return;
-		}
-		ui.add_space(14.0);
-		let (fill, stroke, color) = if attention {
-			(
-				p.warning.gamma_multiply(0.13),
-				p.warning.gamma_multiply(0.45),
-				p.warning,
-			)
-		} else {
-			(p.raised, p.border, p.text)
-		};
-		egui::Frame::NONE
-			.fill(fill)
-			.stroke(egui::Stroke::new(1.0, stroke))
-			.corner_radius(10)
-			.inner_margin(egui::Margin::symmetric(12, 10))
-			.show(ui, |ui| {
-				ui.set_width(ui.available_width());
-				ui.horizontal_top(|ui| {
-					ui.spacing_mut().item_spacing.x = 9.0;
-					let (icon, _) =
-						ui.allocate_exact_size(egui::Vec2::splat(16.0), egui::Sense::hover());
-					if attention {
-						ui::icons::paint(
-							ui.painter(),
-							ui::icons::Icon::ShieldWarning,
-							icon,
-							p.warning,
-						);
-					} else if busy {
-						ui.put(icon, egui::Spinner::new().size(14.0).color(p.muted));
-					}
-					ui.vertical(|ui| {
-						ui.spacing_mut().item_spacing.y = 3.0;
-						if self.state.status != "Disconnected" || attention {
-							ui.add(
-								egui::Label::new(
-									egui::RichText::new(self.state.status)
-										.size(13.0)
-										.color(color),
-								)
-								.wrap(),
-							);
-						}
-						if attention {
-							self.sign_in_failure_details(ui, p.muted);
-						}
-						if !self.fixture_only && !self.credential_status.is_empty() {
-							ui.add(
-								egui::Label::new(
-									egui::RichText::new(self.credential_status)
-										.size(12.0)
-										.color(p.muted),
-								)
-								.wrap(),
-							);
-						}
-						if self.cache_error || self.cache_pending > 0 || self.cache_clears.pending()
-						{
-							ui.add(
-								egui::Label::new(
-									egui::RichText::new(self.cache_status)
-										.size(12.0)
-										.color(p.muted),
-								)
-								.wrap(),
-							);
-						}
-					});
-				});
-			});
-	}
-	/// Redacted decode cause plus a copyable report users can attach to a bug report.
-	fn sign_in_failure_details(&mut self, ui: &mut egui::Ui, muted: egui::Color32) {
-		if let Some(detail) = &self.state.failure_detail {
-			ui.add(
-				egui::Label::new(egui::RichText::new(&**detail).size(12.0).color(muted))
-					.wrap()
-					.selectable(true),
-			);
-		}
-		ui.add_space(4.0);
-		let now = ui.input(|i| i.time);
-		let copied = self.sign_in_copied.is_some_and(|until| now < until);
-		if ui::design::button(
-			ui,
-			if copied {
-				"updates-update-settings-copied"
-			} else {
-				"main-sign-in-status-copy-failure-details"
-			},
-			ui::design::ButtonKind::Outline,
-		)
-		.clicked()
-		{
-			let report = format!(
-				"### Sign-in failure\n- **Reason:** {}\n- **Cause:** {}\n{}",
-				self.state.status,
-				self.state
-					.failure_detail
-					.as_deref()
-					.unwrap_or("No decode detail recorded"),
-				self.messaging.diagnostic_info(ui.ctx())
-			);
-			ui.ctx().copy_text(report);
-			self.sign_in_copied = Some(now + 2.5);
-			ui.ctx()
-				.request_repaint_after(std::time::Duration::from_secs(3));
-		}
-	}
-	/// Fixture-only entry into the offline preview, kept visually secondary to signing in.
-	#[cfg(feature = "demo")]
-	fn sign_in_preview(&mut self, ui: &mut egui::Ui) {
-		let p = ui::design::palette(ui);
-		ui.add_space(18.0);
-		ui.horizontal(|ui| {
-			let y = ui.cursor().top() + 8.0;
-			let left = ui.cursor().left();
-			let width = ui.available_width();
-			let galley =
-				ui.painter()
-					.layout_no_wrap("or".into(), egui::FontId::proportional(12.0), p.muted);
-			let text_w = galley.size().x + 20.0;
-			ui.painter().hline(
-				left..=left + (width - text_w) * 0.5,
-				y,
-				egui::Stroke::new(1.0, p.border),
-			);
-			ui.painter().galley(
-				egui::pos2(
-					left + (width - galley.size().x) * 0.5,
-					y - galley.size().y * 0.5,
-				),
-				galley,
-				p.muted,
-			);
-			ui.painter().hline(
-				left + (width + text_w) * 0.5..=left + width,
-				y,
-				egui::Stroke::new(1.0, p.border),
-			);
-			ui.allocate_space(egui::vec2(width, 16.0));
-		});
-		ui.add_space(14.0);
-		if ui::design::secondary_button(
-			ui,
-			&ui::i18n::translate("main-sign-in-preview-explore-the-offline-preview"),
-		)
-		.clicked()
-		{
-			if let Some(store) = &mut self.store {
-				store.cancel_load();
-			}
-			self.connection = None;
-			self.pending_save = None;
-			self.pending_account_save = None;
-			let generation = self.state.generation + 1;
-			self.state = test_support::demo_state();
-			test_support::seed_demo_folder_mosaic(&mut self.state);
-			test_support::seed_access_marks(&mut self.state);
-			self.state.generation = generation;
-			self.messaging.clear();
-			self.messaging.show_hidden_channels = true;
-		}
-		ui.add_space(8.0);
-		ui.vertical_centered(|ui| {
-			ui.label(
-				egui::RichText::new(&ui::i18n::translate(
-					"main-sign-in-preview-sample-conversations-no-discord-connection",
-				))
-				.size(12.0)
-				.color(p.muted),
-			);
-		});
-	}
-	/// Secondary panels: what this client is, and the owner's own session token.
-	fn sign_in_disclosures(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-		let p = ui::design::palette(ui);
-		if ui::design::disclosure(
-			ui,
-			&ui::i18n::translate("main-sign-in-disclosures-about-serein"),
-			self.about_open,
-		)
-		.clicked()
-		{
-			self.about_open = !self.about_open;
-		}
-		if self.about_open {
-			ui.add_space(2.0);
-			egui::Frame::NONE
-				.inner_margin(egui::Margin {
-					left: 30,
-					right: 4,
-					top: 2,
-					bottom: 8,
-				})
-				.show(ui, |ui| {
-					ui.spacing_mut().item_spacing.y = 6.0;
-					for line in [
-						"Messaging, reactions, search and read markers have offline tests. Real Discord interoperability is still unverified; attachment uploads and advanced search remain incomplete.",
-						"Messages and drafts are cached locally. Login tokens use the operating system credential store.",
-						"Unofficial clients may put your Discord account at risk.",
-					] {
-						ui.add(
-							egui::Label::new(
-								egui::RichText::new(line).size(12.0).color(p.muted),
-							)
-							.wrap(),
-						);
-					}
-					if !self.fixture_only {
-						ui.add_space(2.0);
-						if ui::design::button(ui, &ui::i18n::translate("main-sign-in-disclosures-forget-saved-login"), ui::design::ButtonKind::Outline)
-							.clicked()
-						{
-							self.logout(ctx);
-						}
-					}
-				});
-		}
-		if ui::design::disclosure(
-			ui,
-			&ui::i18n::translate("main-sign-in-disclosures-sign-in-with-a-session-token"),
-			self.token_open,
-		)
-		.clicked()
-		{
-			self.token_open = !self.token_open;
-		}
-		if self.token_open {
-			ui.add_space(2.0);
-			egui::Frame::NONE
-				.inner_margin(egui::Margin {
-					left: 30,
-					right: 4,
-					top: 2,
-					bottom: 6,
-				})
-				.show(ui, |ui| {
-					ui.add(
-						egui::Label::new(
-							egui::RichText::new(ui::i18n::translate(
-								"main-sign-in-disclosures-for-owners-who-already-hold-a-valid-discord-session-token",
-							))
-							.size(12.0)
-							.color(p.muted),
-						)
-						.wrap(),
-					);
-					ui.add_space(8.0);
-					ui::design::input(
-						ui,
-						egui::TextEdit::singleline(&mut *self.token_input)
-							.password(true)
-							.char_limit(2048)
-							.hint_text(ui::i18n::translate(
-								"main-sign-in-disclosures-session-token",
-							)),
-					);
-					ui.add_space(8.0);
-					let connect = ui
-						.add_enabled_ui(self.authorized && !self.token_input.is_empty(), |ui| {
-							ui::design::button(
-								ui,
-								&ui::i18n::translate(
-									"main-sign-in-disclosures-connect-with-this-token",
-								),
-								ui::design::ButtonKind::Primary,
-							)
-						})
-						.inner;
-					if connect.clicked() && !self.fixture_only {
-						let input = std::mem::take(&mut *self.token_input);
-						match SessionSecret::from_owner_input(input) {
-							Ok(secret) => self.connect(secret, true, ctx),
-							Err(failure) => self.state.status = failure.label(),
-						}
-					}
-				});
-		}
-	}
+}
+
+impl Desktop {
 	fn clear_avatars(&mut self, ctx: &egui::Context) {
 		self.avatar_start_failed = false;
 		if self.avatar_cleanup.is_some() && !self.fixture_only && !self.state.demo {
@@ -5390,6 +4318,12 @@ impl Desktop {
 				.poll(&self.runtime, &mut self.state, &mut self.messaging, ctx)
 		{
 			self.command(command);
+		}
+		// A heartbeat probe replaces a dead gateway socket in seconds, before the rejoin uses it.
+		if std::mem::take(&mut self.voice.gateway_check)
+			&& let Some(connection) = &self.connection
+		{
+			connection.reconnect();
 		}
 	}
 	fn poll(&mut self, ctx: &egui::Context) {
@@ -5809,7 +4743,7 @@ impl Desktop {
 			) || matches!(&event.event, Event::RecipientRemoved { user, .. } if self.state.user.as_ref().is_some_and(|owner| owner.id == *user))
 				|| matches!(&event.event, Event::Reactions(client_core::reactions::Event::Read {channel,result:Err(Failure::Forbidden),..}) if self.state.selected==Some(*channel))
 				|| matches!(&event.event, Event::HistoryFailed { channel, request, failure: Failure::Forbidden }
-                if self.state.selected == Some(*channel) && self.state.request == *request && self.state.history_pending);
+                if self.state.selected == Some(*channel) && self.state.request == self.state.history_request(*request) && self.state.history_pending);
 			let history_changed = changes_active_history(&self.state, &event.event);
 			if history_changed {
 				match &event.event {
@@ -5835,14 +4769,19 @@ impl Desktop {
 					_ => full_window = true,
 				}
 			}
-			let guild_ack = matches!(
-				&event.event,
+			let guild_ack = match &event.event {
 				Event::ReadState(client_core::read_state::Event::GuildAck {
 					guild,
 					request,
 					result: Ok(()),
-				}) if self.state.pending_guild_ack(*guild, *request)
-			);
+				}) => self.state.pending_guild_ack(*guild, *request),
+				Event::ReadState(client_core::read_state::Event::AllAck {
+					request,
+					result: Ok(()),
+					..
+				}) => self.state.pending_all_ack(*request),
+				_ => false,
+			};
 			if event.generation == self.state.generation
 				&& (invalidate
 					|| event.event.changes_access()
@@ -6000,13 +4939,19 @@ impl Desktop {
 				.filter(|m| full_window || changed_messages.contains(&m.id))
 				.cloned()
 				.collect();
+			let start = self.state.older_exhausted && !self.state.timeline.older_evicted();
 			let operation = if full_window {
-				cache::Operation::SaveChannel { channel, messages }
+				cache::Operation::SaveChannel {
+					channel,
+					messages,
+					start,
+				}
 			} else {
 				cache::Operation::SaveChanges {
 					channel,
 					messages,
 					retained: self.state.timeline.iter().map(|m| m.id).collect(),
+					start,
 				}
 			};
 			self.queue_cache(operation);
@@ -6037,6 +4982,10 @@ impl Desktop {
 				generation: self.state.generation,
 				event: Event::Failure(failure),
 			});
+			if failure == Failure::RateLimited && self.state.failure_detail.is_none() {
+				self.state.failure_detail =
+					Some(ui::i18n::translate("main-sign-in-rate-limited-detail").into());
+			}
 			if !matches!(self.state.auth, AuthState::Expired | AuthState::Challenged) {
 				self.state.auth = AuthState::Failed;
 			}
@@ -6149,29 +5098,48 @@ impl eframe::App for Desktop {
 	fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
 		// Before the pass begins, so the whole frame resolves System to the same theme.
 		self.sync_system_theme(ctx);
+		if self.maximize_after_show && self.window.is_visible() == Some(true) {
+			self.maximize_after_show = false;
+			self.window.set_maximized(true);
+		}
 		// Read native size independently of viewport rectangles: Wayland has no global position,
 		// so egui-winit cannot supply either rectangle there. Native scale excludes egui zoom.
 		if !self.fixture_only
 			&& !self.state.demo
 			&& self.app_settings.loaded
+			&& !self.maximize_after_show
 			&& let Some(viewport) = raw_input.viewports.get(&raw_input.viewport_id)
 			&& viewport.minimized != Some(true)
-			&& viewport.maximized != Some(true)
 			&& viewport.fullscreen != Some(true)
 			&& !viewport.close_requested()
 			&& self.window.is_visible() != Some(false)
 		{
-			let size = self
-				.window
-				.inner_size()
-				.to_logical::<u32>(self.window.scale_factor());
-			let geometry = local_store::WindowGeometry {
-				size: [size.width, size.height],
-				position: self
+			// While maximized, keep the normal geometry so un-maximizing after a restart returns to it.
+			let geometry = if viewport.maximized == Some(true) {
+				local_store::WindowGeometry {
+					maximized: true,
+					..self.app_settings.current.window_geometry.unwrap_or(
+						local_store::WindowGeometry {
+							size: app_settings::DEFAULT_WINDOW_SIZE,
+							position: None,
+							maximized: true,
+						},
+					)
+				}
+			} else {
+				let size = self
 					.window
-					.outer_position()
-					.ok()
-					.map(|position| [position.x, position.y]),
+					.inner_size()
+					.to_logical::<u32>(self.window.scale_factor());
+				local_store::WindowGeometry {
+					size: [size.width, size.height],
+					position: self
+						.window
+						.outer_position()
+						.ok()
+						.map(|position| [position.x, position.y]),
+					maximized: false,
+				}
 			};
 			if geometry.is_valid() && self.app_settings.current.window_geometry != Some(geometry) {
 				self.app_settings.current.window_geometry = Some(geometry);
@@ -6474,7 +5442,7 @@ impl eframe::App for Desktop {
 		} else if self.state.user.is_some() {
 			ui::design::TITLE_BAR_HEIGHT
 		} else {
-			SIGN_IN_HEADER_HEIGHT
+			sign_in::SIGN_IN_HEADER_HEIGHT
 		};
 		self.tray_window.ui(&ctx);
 		// Change native hints before drawing, so the clear color and panel alpha
@@ -6487,9 +5455,10 @@ impl eframe::App for Desktop {
 			)
 		});
 		ui::design::paint_backdrop(&ctx);
+		// A history page loading while browsing must not refuse a paste or drop.
 		let upload_allowed = self.state.user.is_some()
 			&& self.state.gateway_connected
-			&& self.state.freshness == model::Freshness::Fresh;
+			&& self.state.freshness != model::Freshness::Unavailable;
 		// A forum container carries its own attachment permission for a post's first message.
 		let can_attach = self.state.selected.is_some_and(|channel| {
 			self.state.can_attach(channel) || self.state.can_attach_post(channel)
@@ -6554,6 +5523,13 @@ impl eframe::App for Desktop {
 		if !can_attach {
 			self.uploads.cancel();
 		}
+		let state = &self.state;
+		self.uploads.follow_conversation(
+			state.generation,
+			state.selected,
+			state.user.is_some() && state.gateway_connected,
+			|channel| state.can_view(channel),
+		);
 		self.uploads.poll(
 			self.state.generation,
 			self.state.selected,
@@ -6931,11 +5907,13 @@ impl eframe::App for Desktop {
 			{
 				self.notifications.notify();
 			}
-			// Revalidate scope after navigation without polling workers a second time.
-			self.uploads.revalidate_scope(
-				self.state.generation,
-				self.state.selected,
-				self.state.user.is_some() && self.state.gateway_connected,
+			// Park or restore staged files after navigation without polling workers again.
+			let state = &self.state;
+			self.uploads.follow_conversation(
+				state.generation,
+				state.selected,
+				state.user.is_some() && state.gateway_connected,
+				|channel| state.can_view(channel),
 			);
 			if !self.state.selected.is_some_and(|channel| {
 				self.state.can_attach(channel) || self.state.can_attach_post(channel)
@@ -7283,9 +6261,12 @@ impl eframe::App for Desktop {
 			if let Some(command) = self.state.take_gif_favorites_command() {
 				commands.push(command);
 			}
+			commands.extend(self.state.take_preload_retries());
 			for command in commands {
 				self.command(command);
 			}
+			// A click that adopted a hover preload sends no request of its own.
+			self.load_cached_history();
 			if self.messaging.logout_requested {
 				self.messaging.logout_requested = false;
 				self.request_session_end(&ctx, SessionEnd::Logout);
@@ -7335,6 +6316,9 @@ impl eframe::App for Desktop {
 		self.save_reading_preferences(&ctx);
 		self.sync_own_presence(&ctx);
 		self.sync_game_activity(&ctx);
+		let offline = self.fixture_only || self.state.demo;
+		self.game_mentions
+			.sync(&mut self.state, &self.runtime, &ctx, offline);
 		self.startup.sync(
 			&ctx,
 			&self.runtime,
@@ -7629,6 +6613,7 @@ mod tests {
 				alpha,
 				request,
 				vec![test_support::message(1003, alpha)],
+				false,
 			);
 			assert_eq!(
 				state.timeline.row_ids().collect::<Vec<_>>(),
@@ -7662,6 +6647,7 @@ mod tests {
 		let outcome = |epoch| cache::Outcome::Channel {
 			channel,
 			request,
+			start: false,
 			epoch,
 			messages: vec![test_support::message(1000, channel)],
 		};
@@ -7678,6 +6664,35 @@ mod tests {
 	}
 
 	#[test]
+	fn an_adopted_preload_page_is_saved_like_the_clicks_own() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		state.auth = AuthState::Authenticated;
+		state.gateway_connected = true;
+		let channel = model::Id(21);
+		state.observe_last_message(channel, model::Id(2_000));
+		let Some(Command::Prefetch(preload)) =
+			state.preload_conversation(None, Some(channel), std::time::Instant::now())
+		else {
+			panic!("pressed conversation preloads");
+		};
+		let Command::History { request, .. } = *preload else {
+			panic!()
+		};
+		assert!(
+			state.select(channel).is_none(),
+			"the click adopts the preload"
+		);
+		let page = |request| Event::History {
+			channel,
+			request,
+			older: false,
+			messages: vec![],
+		};
+		assert!(changes_active_history(&state, &page(request)));
+		assert!(!changes_active_history(&state, &page(request ^ 1)));
+	}
+	#[test]
 	fn cached_history_requires_current_readable_navigation_and_pending_request() {
 		let mut state = test_support::demo_state();
 		let channel = state.selected.unwrap();
@@ -7689,6 +6704,7 @@ mod tests {
 			channel,
 			request,
 			vec![test_support::message(1000, channel)],
+			false,
 		);
 		assert_eq!(state.timeline.len(), 1);
 		assert_eq!(state.freshness, model::Freshness::Loading);
@@ -7702,6 +6718,7 @@ mod tests {
 			channel,
 			request,
 			vec![test_support::message(1000, channel)],
+			false,
 		);
 		assert!(
 			state.timeline.is_empty(),
@@ -7712,7 +6729,7 @@ mod tests {
 			vec![test_support::message(1001, model::Id(999))],
 			vec![test_support::message(1002, channel)],
 		] {
-			hydrate_cached_history(&mut state, channel, request.wrapping_sub(1), invalid);
+			hydrate_cached_history(&mut state, channel, request.wrapping_sub(1), invalid, false);
 			assert!(state.timeline.is_empty());
 		}
 		hydrate_cached_history(
@@ -7720,6 +6737,7 @@ mod tests {
 			channel,
 			request,
 			vec![test_support::message(1001, model::Id(999))],
+			false,
 		);
 		assert!(state.timeline.is_empty());
 		state.history_pending = false;
@@ -7728,6 +6746,7 @@ mod tests {
 			channel,
 			request,
 			vec![test_support::message(1000, channel)],
+			false,
 		);
 		assert!(state.timeline.is_empty());
 		state.history_pending = true;
@@ -7747,6 +6766,7 @@ mod tests {
 			channel,
 			request,
 			vec![test_support::message(1000, channel)],
+			false,
 		);
 		assert!(state.timeline.is_empty());
 		// Even an inconsistent queued-cache admission state cannot bypass current navigation.
@@ -7759,6 +6779,7 @@ mod tests {
 			channel,
 			request,
 			vec![test_support::message(1000, channel)],
+			false,
 		);
 		assert!(state.timeline.is_empty());
 		let mut restored = test_support::demo_state()
@@ -7773,8 +6794,28 @@ mod tests {
 			channel,
 			request,
 			vec![test_support::message(1000, channel)],
+			false,
 		);
 		assert!(state.timeline.is_empty());
+	}
+	#[test]
+	fn attachment_sends_stay_allowed_while_the_latest_page_reloads() {
+		let mut state = test_support::demo_state();
+		state.demo = false;
+		let channel = state.selected.unwrap();
+		assert!(attachment_send_allowed(&state, channel));
+		// Send from older history jumps to the latest page before the upload dispatches.
+		state.history(None);
+		assert_eq!(state.freshness, model::Freshness::Loading);
+		assert!(attachment_send_allowed(&state, channel));
+		state.gateway_connected = false;
+		assert!(!attachment_send_allowed(&state, channel));
+		state.gateway_connected = true;
+		state.freshness = model::Freshness::Unavailable;
+		assert!(!attachment_send_allowed(&state, channel));
+		state.freshness = model::Freshness::Fresh;
+		state.selected = None;
+		assert!(!attachment_send_allowed(&state, channel));
 	}
 	#[test]
 	fn correlated_confirmation_preserves_other_pending_text_and_ignores_unrelated_events() {

@@ -20,8 +20,9 @@ discord-gateway = { path = "crates/discord-gateway" }
 session-cache = { path = "crates/session-cache" }
 ui = { path = "crates/ui" }
 test-support = { path = "crates/test-support" }
-eframe = { git = "https://github.com/emilk/egui", rev = "bb622334e2f58afd84f6bb61980824f480c7e3d4", default-features = false, features = ["wgpu", "default_fonts", "system_fonts", "accesskit", "wayland", "x11", "links", "clipboard"] }
-egui = { git = "https://github.com/emilk/egui", rev = "bb622334e2f58afd84f6bb61980824f480c7e3d4", default-features = false, features = ["default_fonts"] }
+eframe = { git = "https://github.com/emilk/egui", rev = "4821fc54ae083ac516e137a61e70550330e55169", default-features = false, features = ["wgpu", "default_fonts", "system_fonts", "accesskit", "wayland", "x11", "links", "clipboard"] }
+egui = { git = "https://github.com/emilk/egui", rev = "4821fc54ae083ac516e137a61e70550330e55169", default-features = false, features = ["default_fonts"] }
+egui-winit = { git = "https://github.com/emilk/egui", rev = "4821fc54ae083ac516e137a61e70550330e55169", default-features = false }
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "fs"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }

@@ -1726,7 +1726,7 @@ dependencies = [
 [[package]]
 name = "ecolor"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "bytemuck",
  "emath",
@@ -1760,7 +1760,7 @@ dependencies = [
 [[package]]
 name = "eframe"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1796,7 +1796,7 @@ dependencies = [
 [[package]]
 name = "egui"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "accesskit",
  "ahash",
@@ -1815,7 +1815,7 @@ dependencies = [
 [[package]]
 name = "egui-wgpu"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1834,7 +1834,7 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "accesskit_winit",
  "arboard",
@@ -1858,7 +1858,7 @@ dependencies = [
 [[package]]
 name = "egui_glow"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "bytemuck",
  "egui",
@@ -1871,7 +1871,7 @@ dependencies = [
 [[package]]
 name = "egui_system_fonts"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "epaint",
  "fontique",
@@ -1912,7 +1912,7 @@ dependencies = [
 [[package]]
 name = "emath"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "bytemuck",
 ]
@@ -1958,7 +1958,7 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1983,7 +1983,7 @@ dependencies = [
 [[package]]
 name = "epaint_default_fonts"
 version = "0.36.2"
-source = "git+https://github.com/emilk/egui?rev=bb622334e2f58afd84f6bb61980824f480c7e3d4#bb622334e2f58afd84f6bb61980824f480c7e3d4"
+source = "git+https://github.com/emilk/egui?rev=4821fc54ae083ac516e137a61e70550330e55169#4821fc54ae083ac516e137a61e70550330e55169"
 
 [[package]]
 name = "equivalent"
@@ -4912,7 +4912,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.45.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6011,9 +6011,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "aws-lc-rs",
  "once_cell",
@@ -6367,6 +6367,7 @@ dependencies = [
  "discord-protocol",
  "discord-voice",
  "eframe",
+ "egui-winit",
  "extensions",
  "find-msvc-tools",
  "fontique",
@@ -7080,7 +7081,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.5",
  "windows-sys 0.61.2",

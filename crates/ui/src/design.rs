@@ -1730,12 +1730,11 @@ pub fn disclosure(ui: &mut egui::Ui, label: &str, open: bool) -> egui::Response 
 	response
 }
 
-/// Presence dot with a surface-coloured ring, bottom-right of an avatar `rect`.
-pub fn presence_dot(ui: &egui::Ui, rect: egui::Rect, color: Color32, ring: Color32) {
+/// Discord's status glyph with a surface-coloured ring, bottom-right of an avatar `rect`.
+pub fn presence_dot(ui: &egui::Ui, rect: egui::Rect, status: &str, ring: Color32) {
 	let radius = (rect.width() * 0.16).clamp(4.0, 8.0);
 	let center = rect.right_bottom() - egui::vec2(radius + 0.5, radius + 0.5);
-	ui.painter().circle_filled(center, radius + 2.0, ring);
-	ui.painter().circle_filled(center, radius, color);
+	crate::profiles::paint_status(ui.painter(), center, radius, status, false, (ring, 2.0));
 }
 
 /// Preserve role hue where readable, otherwise move toward the theme's text color.

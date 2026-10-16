@@ -634,6 +634,42 @@ impl State {
 			.map(|(user, _)| user)
 			.filter(|user| self.user_blocked(user.id) == Some(false))
 	}
+	/// Rebuilds the friend map from a snapshot; `None` leaves friends unknown.
+	fn replace_friends(
+		&mut self,
+		entries: Option<Vec<(model::User, String)>>,
+	) -> Result<(), &'static str> {
+		self.user_actions.friends_known = false;
+		if let Some(entries) = entries {
+			if entries.len() > MAX_RELATIONSHIPS
+				|| entries.capacity() * size_of::<(model::User, String)>()
+					+ entries
+						.iter()
+						.map(|(u, n)| u.heap_bytes() + n.capacity() + 64)
+						.sum::<usize>()
+					> MAX_FRIEND_BYTES
+			{
+				return Err("Friends exceed safe capacity");
+			}
+			for (user, name) in entries {
+				if !valid_friend(&user, &name)
+					|| self
+						.user_actions
+						.friends
+						.insert(user.id, (user, name))
+						.is_some()
+				{
+					self.user_actions.friends.clear();
+					return Err("Friends contain invalid or duplicate users");
+				}
+			}
+			self.user_actions.friends_known = true;
+		}
+		Ok(())
+	}
+	pub(crate) fn friend_count(&self) -> usize {
+		self.user_actions.friends.len()
+	}
 	pub fn friends_known(&self) -> bool {
 		self.user_actions.friends_known
 	}
@@ -1184,38 +1220,41 @@ impl State {
 				{
 					*observed = true;
 				}
-				self.user_actions.friends.clear();
-				self.user_actions.friends_known = false;
-				if let Some(entries) = entries {
-					if entries.len() > MAX_RELATIONSHIPS
-						|| entries.capacity() * size_of::<(model::User, String)>()
-							+ entries
-								.iter()
-								.map(|(u, n)| u.heap_bytes() + n.capacity() + 64)
-								.sum::<usize>() > MAX_FRIEND_BYTES
-					{
-						return Err("Friends exceed safe capacity");
-					}
-					for (user, name) in entries {
-						if !valid_friend(&user, &name)
-							|| self
-								.user_actions
-								.friends
-								.insert(user.id, (user, name))
-								.is_some()
-						{
-							self.user_actions.friends.clear();
-							return Err("Friends contain invalid or duplicate users");
-						}
-					}
-					self.user_actions.friends_known = true;
+				// Profile Privacy depends on friendship: drop cached profiles of anyone the
+				// snapshot adds or removes, including when it is rejected or unknown.
+				let previous = std::mem::take(&mut self.user_actions.friends);
+				let result = self.replace_friends(entries);
+				let friends = &self.user_actions.friends;
+				let changed = |user: &Id| previous.contains_key(user) != friends.contains_key(user);
+				if previous.keys().chain(friends.keys()).any(changed) {
+					// A profile preload in flight may carry the old friendship's view.
+					self.preload.profiles.touch(None);
 				}
+				let open = self
+					.profile
+					.as_ref()
+					.map(|view| view.user)
+					.filter(|user| changed(user));
+				self.profile_cache.retain_users(|user| {
+					previous.contains_key(&user) == friends.contains_key(&user)
+				});
+				if let Some(user) = open {
+					self.refresh_open_profile(user);
+				}
+				return result;
 			}
 			Event::Friend {
 				user,
 				friend,
 				profile,
 			} => {
+				// Profile Privacy depends on friendship, so a cached, preloading or open profile may
+				// now be stale.
+				if self.user_actions.friends.contains_key(&user) != friend {
+					self.profile_cache.forget(user);
+					self.preload.profiles.touch(None);
+					self.refresh_open_profile(user);
+				}
 				if let Some((Action::ProfileFriend { user: target, .. }, _, observed)) =
 					&mut self.user_actions.pending
 					&& *target == user

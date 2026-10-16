@@ -4,6 +4,145 @@ Recent synthetic/offline measurements are workload-specific. They do not establi
 performance, universal device results or application-wide memory bounds. The raw PR screenshot,
 log and per-run evidence archive has been removed; the summaries below retain the useful results.
 
+## Name styles and bundled name fonts - October 15, 2026
+
+Compared baseline `5f83077e` (`main`) with the name-styles branch on Linux (CachyOS, x86_64),
+both built with `cargo xtask package` in separate worktrees and target directories. On this
+host the `.deb` stage fails in `dpkg-shlibdeps` for both revisions, so the measurement uses
+the release executable and the staged `dist` payload produced before that stage. Compressed
+size is `zstd -19` of the executable alone.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Release executable bytes | 88,266,920 | 91,822,792 | +3,555,872 (+4.03%) |
+| Staged `dist` payload bytes (no archives) | 92,445,973 | 96,065,437 | +3,619,464 (+3.92%) |
+| Executable, `zstd -19` bytes | 42,744,679 | 44,296,091 | +1,551,412 (+3.63%) |
+
+The growth is the 14 embedded display-name fonts (3,493,132 bytes) and their license texts.
+The faces are embedded but parsed only when a visible styled name first needs one; with name
+styles off (the default) none is parsed. CPU, process memory and frame timings were not
+sampled, and no runtime improvement is claimed.
+
+## Game mention catalog and review fixes - October 14, 2026
+
+Compared baseline `7759f5b5` with game mentions and review fixes at `75c4dfe0`.
+Both unsigned Windows portable packages use Rust 1.98.1 and `cargo xtask package`
+(`--release --locked --no-default-features`, voice included). The baseline `dist`
+was preserved in its separate worktree. The after measurement uses a clean copy
+of the generated package, excluding an obsolete `ruzstd-0.9.0-LICENSE` left in the
+reused output directory; that original file was preserved. Both measured packages
+contain 216 files. ZIP uses Python deflate level 9 with sorted relative paths.
+
+| Metric | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable bytes | 87,321,088 | 87,412,736 | +91,648 (+0.105%) |
+| Full portable package bytes | 91,514,377 | 91,605,995 | +91,618 (+0.100%) |
+| ZIP distribution bytes | 50,312,736 | 50,338,891 | +26,155 (+0.052%) |
+
+NSIS was unavailable, so installer size was not measured. Native UI testing was
+left to the owner at their request; CPU, process memory and frame timings were
+not sampled. These package sizes do not measure catalog latency or live Discord
+behavior, and no runtime performance improvement is claimed.
+
+## Hover preload review repairs - October 14, 2026
+
+Compared the original PR #636 head `08a9ae01` with runtime repair `d4b27dd3`, which also
+integrates `main` at `cf5452cd`. This comparison does not isolate the five fixes from main changes.
+Both fresh unsigned Windows portable packages use Rust 1.98.1 and `cargo xtask package`
+(`--release --locked --no-default-features`, voice included), on Windows 11 Home 10.0.26200,
+Ryzen 7 7800X3D, 33,410,678,784 bytes visible RAM. Separate worktree `dist` outputs were
+preserved. Installed bytes sum all 216 files; ZIP uses Python deflate level 9 with sorted paths.
+The built release replay ran directly: one warmup and five measured runs of 100,000 events.
+
+| Metric / method | Original PR head | Review repair | Delta |
+| --- | ---: | ---: | ---: |
+| Package executable | 86,960,640 B | 87,321,088 B | +360,448 B (+0.41%) |
+| Installed tree (216 files) | 91,153,929 B | 91,514,377 B | +360,448 B (+0.40%) |
+| ZIP, deflate level 9 | 50,180,156 B | 50,312,732 B | +132,576 B (+0.26%) |
+| Reducer replay, median of 5 | 73.1705 ms | 68.7076 ms | -4.4629 ms (-6.1%) |
+| Retained timeline estimate | 393,492..393,977 B | 393,492..393,977 B | 0 |
+| Navigation revalidation requests, 10,000 reselections | 0 | 0 | 0 |
+| Hover first visits opened without waiting / requests | 12/12 / 12 | 12/12 / 12 | 0 |
+| 28-row hover sweep requests | 12 | 12 | 0 |
+
+The replay run ranges overlap (before 69.0651..76.5154 ms, after 66.9713..71.3841 ms); no speedup is claimed. Navigation retains 2 dormant windows / 150 rows / 328,148 estimated bytes on both revisions; the hover pass retains 8 windows / 983,809 estimated bytes. Core selection median/p95 is 300/300 ns on both, near timer resolution. These are bounded allocation estimates, not RSS.
+
+NSIS is unavailable, so no installer was produced. The existing OpenH264 linker debug-info
+warning appears in both builds. Native interaction capture and CPU/RSS sampling were unavailable
+(no native computer-use API, no `orca` executable). No live Discord or microphone test was used.
+The original feature screenshots are synthetic framebuffer exports, not native interaction proof.
+[Per-run outputs and executable hashes](pr-evidence/hover-preload/measurements-review.json)
+and [reproduction scenarios](pr-evidence/hover-preload/README.md) retain the evidence boundaries.
+
+## Hover preloading — October 13, 2026
+
+Release builds of baseline `2df8256c` (main) and the hover-preload branch with default features
+(voice included), Rust 1.98.1, Windows 11 (build 26200), Intel Core i9-13900K, 32 GiB RAM. The
+built `replay-bench` ran directly: one warmup and five measured runs, medians shown. These are
+synthetic reducer workloads; they count requests and core selection time, not network latency,
+display latency or RSS.
+
+| Metric / method | Baseline | Hover preload | Delta |
+| --- | ---: | ---: | ---: |
+| Package executable (`xtask package`) | 86,803,968 B | 86,869,504 B | +65,536 B (+0.08%) |
+| Installed tree (`dist/`, 216 files) | 90,997,257 B | 91,062,793 B | +65,536 B (+0.07%) |
+| Installed tree, zip deflate level 9 | 50,161,038 B | 50,183,621 B | +22,583 B (+0.05%) |
+| `replay-bench`: 100,000 events | 58.1 ms | 58.5 ms | noise (+0.6%) |
+| `replay-bench`: retained timeline | 393,492..393,977 B | 393,492..393,977 B | 0 |
+| `--navigation`: revalidation requests, 10,000 reselections of three 50-message conversations | 10,000 | 0 | −10,000 |
+| `--navigation`: select median / p95 | 200 / 300 ns | 200 / 200 ns | at timer resolution |
+| `--navigation`: dormant windows / rows / estimated bytes | 2 / 150 / 328,052 B | 2 / 150 / 328,148 B | +96 B |
+| Hover pass: first visits that opened without waiting | — | 12/12, 12 requests | new pass |
+| Hover pass: requests for a 28-row sweep without clicks | — | 12 | capped at 12/min |
+
+The baseline has no hover pass; there a first visit sends the same one request on click and waits
+for it. In the hover pass synthetic responses arrive before the click, so it shows that a click
+uses the preload without a second request, not how much latency is hidden; that depends on the
+dwell and the network round trip. The three-conversation workload keeps two dormant windows on
+both revisions, so the larger eight-window limit is not exercised here. The profile-extras cap
+(2 s to 600 ms), image connection reuse and off-coordinator disk reads were not measured: they need
+a network or disk-cache fixture this bench does not have.
+## Embed styling review - October 14, 2026
+
+Compared the original PR #650 head `c01461ed` with the review fixes in `9354335e` on
+Windows 11 Home 10.0.26200, Ryzen 7 7800X3D and 33,410,678,784 bytes physical RAM.
+Both standard unsigned portable packages were built with Rust 1.98.1,
+`cargo xtask package` (`--release --locked --no-default-features`), including voice.
+The installed-tree metric sums file lengths; both ZIPs use .NET `ZipFile` with
+`CompressionLevel.Optimal`. Separate worktree `dist` directories were used. Baseline package
+artifacts were later removed during a build-cache cleanup; the figures below were recorded
+before that removal, and the changed portable tree was rechecked afterwards.
+
+| Metric | Original PR head | Review fixes | Delta |
+| --- | ---: | ---: | ---: |
+| Package executable | 86,917,632 B | 86,925,824 B | +8,192 B (+0.0094%) |
+| Installed portable tree | 91,110,921 B | 91,119,113 B | +8,192 B (+0.0090%) |
+| Portable tree, ZIP | 50,316,564 B | 50,320,128 B | +3,564 B (+0.0071%) |
+
+Release `profile_preview --demo --page=embeds --width=1120 --height=900 --interactive`
+used the same synthetic fixture in both revisions, wgpu and 125% display scaling. Each
+run had a five-second warmup and 20 one-second `Get-Process` samples. Memory is the observed
+peak/final sample; CPU is process CPU time divided by elapsed wall time (100% = one core).
+The console helper is separate. Other compilation was active during sampling, and there
+is only one run per revision, so these small differences are not an improvement claim.
+
+| Native process metric | Original PR head | Review fixes | Delta |
+| --- | ---: | ---: | ---: |
+| Preview peak / settled working set | 174,346,240 B | 174,428,160 B | +81,920 B |
+| Preview peak / settled private bytes | 388,874,240 B | 389,730,304 B | +856,064 B |
+| Preview idle CPU, one core | 0.162% | 0.405% | +0.243 percentage points |
+| `conhost` peak / settled working set | 10,629,120 B | 10,670,080 B | +40,960 B |
+| `conhost` peak / settled private bytes | 1,622,016 B | 1,740,800 B | +118,784 B |
+| `conhost` idle CPU, one core | 0% | 0% | 0 percentage points |
+
+Both release builds emit the existing OpenH264 `LNK4255` debug-info warning. NSIS is
+unavailable on this host, so packaging skips the installer executable. These measurements
+do not establish live Discord interoperability, startup latency or frame percentiles.
+The [synthetic native fixture and reproduction procedure](pr-evidence/embed-styling-review/README.md)
+describe the capture environment and package method. Dark/light and narrow native PNGs
+were inspected. Manual native clicks and keyboard interaction were stopped by the user's
+physical Escape key; source destinations and media actions have synthetic interaction tests.
+
 ## Profile cosmetics — October 11, 2026
 
 Release builds of baseline `178bde35` and the cosmetics branch on Linux 7.2.9 (CachyOS),
@@ -555,3 +694,68 @@ the new measurements and executable hash. NSIS remains unavailable; this is an
 unsigned directory and ZIP. Final serial workspace checking reached 1,158
 passes, eight recorded baseline UI failures and 23 ignored tests. Formatting,
 strict workspace Clippy and the independent policy check passed.
+
+## Post rename review repair (2026-10-14, PR #655)
+
+Fresh standard voice-inclusive packages compare pre-repair `74ff7038` with
+runtime repair `460d7117`; both include the same main integration (`c84b5998`).
+Environment: Windows 11 x64 build 26200, Ryzen 7 7800X3D, 32 GB RAM, pinned
+Rust 1.98.1. `cargo xtask package` builds without default, demo or developer
+features. NSIS is unavailable, so these are unsigned directory packages and
+ZIP archives, not installer validation.
+
+| Metric / method | Baseline | Repair | Delta |
+| --- | ---: | ---: | ---: |
+| serein.exe file length | 87,251,456 B | 87,251,456 B | 0 B |
+| Installed payload, 216 files | 91,444,745 B | 91,444,745 B | 0 B |
+| ZIP, sorted paths / DEFLATE level 9 | 50,287,594 B | 50,287,599 B | +5 B |
+| 100,000-event reducer replay, median of five | 68.47 ms | 66.50 ms | -1.98 ms / -2.89% |
+
+Each replay executable was built once and verified through `cargo replay`,
+then run directly with one warmup and five measured samples. Both retain
+500 timeline records / 393,492..393,977 estimated bytes. The timing ranges
+overlap (67.82..73.78 ms before, 64.52..70.47 ms after); this is not evidence
+of a speed improvement. The workload measures the general synthetic reducer,
+not rename-specific latency, process RSS, UI frame timing or live compatibility.
+
+The repair retains existing bounded state and adds no dependency or cache.
+Regressions cover revoked access, rename echoes with invalidated mutable details,
+a fresh post-details reload and a later conflicting name. Full local
+`cargo xtask check` and separate fuzz formatting passed. Native GUI capture
+and owner-controlled live validation remain unavailable/unverified.
+Raw samples, source revisions and executable hashes are in
+[measurements.json](pr-evidence/post-rename-review/measurements.json).
+
+## URL markup parsing (2026-10-14, issue #656)
+
+[Measurements and source hashes](pr-evidence/url-underscores/measurements.json)
+compare `fbcbbad3` with the URL protection change on Windows 11 x64 build 26200,
+Ryzen 7 7800X3D, 32 GB RAM and pinned Rust 1.98.1. Standard packages include voice
+and use `cargo xtask package`, without demo or developer features. Performance
+notes and development evidence are not included in the installed payload.
+
+| Metric / method | Baseline | After | Delta |
+| --- | ---: | ---: | ---: |
+| Executable | 87,366,656 B | 87,381,504 B | +14,848 B / +0.0170% |
+| Installed payload, 216 files | 91,559,945 B | 91,574,793 B | +14,848 B / +0.0162% |
+| ZIP, Optimal compression | 50,470,238 B | 50,479,398 B | +9,160 B / +0.0181% |
+| Plain message, median / 10,000 parses | 25.1799 ms | 26.1144 ms | +0.9345 ms / +3.71% |
+| Underscore URLs, median / 10,000 parses | 28.7708 ms | 41.5100 ms | +12.7392 ms / +44.28% |
+
+The plain-message sample ranges overlap; no speed improvement is claimed.
+Protecting underscore URLs adds about 1.27 microseconds per parse in this workload.
+
+The release component workload is `cargo test --release --locked -p ui --lib
+url_underscore_parse_benchmark -- --ignored --nocapture`. Each built test binary
+is then run directly, with one warmup and five samples of 10,000 parses for each
+synthetic message. This measures parsing, not native frame latency, idle CPU,
+RSS or live Discord behavior. Native desktop automation is unavailable here.
+
+These numbers were measured on the underscore-only revision `e6f92b0f`. Protection
+was later generalized to `*`, `~` and `&` entities, plus a trailing-opener check of
+at most four passes. That revision was not re-measured.
+
+Protection adds temporary passes only for candidate URLs containing `_`, `*`, `~`
+or `&`; other messages use an early return. Source remains capped at 8 KiB, each
+pass at 512 events (exhaustion falls back to bounded literal text), and stored
+links at 16. No dependency or retained cache is added.

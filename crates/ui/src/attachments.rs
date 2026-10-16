@@ -398,8 +398,12 @@ pub(crate) fn show_subset(
 								);
 								let star = gif.map(|gif| {
 									let favorite = download.gif_favorites.contains(&gif.url);
-									let star =
-										crate::embeds::favorite_star(ui, &response, favorite);
+									let star = crate::embeds::favorite_star(
+										ui,
+										&response,
+										favorite,
+										images.gifs_playing(ui.ctx()),
+									);
 									if star.clicked() {
 										download.gif_favorite_request = Some(gif);
 									}

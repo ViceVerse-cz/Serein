@@ -40,7 +40,7 @@ pub fn show(
 		&mut crate::markdown::FormatCache,
 	),
 	upload: Option<&Upload>,
-	(restore, cancel): (&mut Option<String>, &mut bool),
+	(restore, dismiss, cancel): (&mut Option<String>, &mut Option<String>, &mut bool),
 ) {
 	let colors = design::palette(ui);
 	let (avatars, opening, profile, channel, formats) = media;
@@ -241,18 +241,28 @@ pub fn show(
 								.color(colors.muted),
 							);
 						}
-						if ui
-							.button(crate::i18n::translate_if_key(
-								&(if pending.sticker.is_some() {
-									crate::i18n::translate("pending-show-dismiss")
-								} else {
-									crate::i18n::translate("pending-show-restore-to-composer")
-								}),
-							))
-							.clicked()
-						{
-							*restore = Some(pending.nonce.clone());
-						}
+						ui.horizontal(|ui| {
+							if ui
+								.button(crate::i18n::translate_if_key(
+									&(if pending.sticker.is_some() {
+										crate::i18n::translate("pending-show-dismiss")
+									} else {
+										crate::i18n::translate("pending-show-restore-to-composer")
+									}),
+								))
+								.clicked()
+							{
+								*restore = Some(pending.nonce.clone());
+							}
+							// A sticker row's only action already dismisses it.
+							if pending.sticker.is_none()
+								&& ui
+									.button(crate::i18n::translate("pending-show-dismiss"))
+									.clicked()
+							{
+								*dismiss = Some(pending.nonce.clone());
+							}
+						});
 					}
 					crate::timeline::fill_header_line(ui, compact, text_line);
 				});
@@ -466,6 +476,7 @@ mod tests {
 			nonce: "local".into(),
 			delivery: Delivery::Sending,
 			confirmed: None,
+			reply: None,
 		};
 		let mut upload = Upload {
 			nonce: pending.nonce.clone(),
@@ -530,7 +541,7 @@ mod tests {
 								&mut crate::markdown::FormatCache::default(),
 							),
 							Some(&upload),
-							(&mut None, &mut false),
+							(&mut None, &mut None, &mut false),
 						);
 					},
 				);
@@ -549,6 +560,8 @@ mod tests {
 				painted.contains("Restore to composer"),
 				delivery != Delivery::Sending
 			);
+			// A failed row can also be dropped without touching the composer.
+			assert_eq!(painted.contains("Dismiss"), delivery != Delivery::Sending);
 		}
 	}
 }
