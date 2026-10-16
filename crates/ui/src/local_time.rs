@@ -54,9 +54,10 @@ impl DateOrder {
 
 	fn of_locale(tag: &str) -> Self {
 		let (language, region) = locale_parts(tag);
+		// Regional overrides come before the language-wide orders below.
 		match (language.as_str(), region.as_deref()) {
-			("en", None | Some("US" | "PH")) => Self::MonthDayYear,
-			("en", Some("CA")) | ("sv" | "lt", _) => Self::YearMonthDayDashes,
+			("en", None | Some("US" | "PH")) | ("es", Some("US")) => Self::MonthDayYear,
+			("en" | "fr", Some("CA")) | ("sv" | "lt", _) => Self::YearMonthDayDashes,
 			("ja" | "zh" | "ko" | "hu", _) => Self::YearMonthDay,
 			(
 				"de" | "ru" | "tr" | "pl" | "cs" | "sk" | "uk" | "fi" | "da" | "nb" | "no" | "ro"
@@ -228,8 +229,9 @@ fn format_header(
 	}
 }
 
-/// The full date shown when hovering a message time: "Monday, April 14, 2025 at 11:22 AM", or
-/// "Monday, 14 April 2025 at 11:22" where the locale writes the day first.
+/// The full date shown when hovering a message time: "Monday, April 14, 2025 at 11:22 AM",
+/// "Monday, 14 April 2025 at 11:22" where the locale writes the day first, or
+/// "Monday, 2025 April 14 at 11:22" where it writes the year first.
 pub fn full(utc: time::OffsetDateTime) -> String {
 	format_full(
 		local(utc),
@@ -249,7 +251,14 @@ fn format_full(at: time::OffsetDateTime, twelve: bool, order: DateOrder) -> Stri
 			date.day(),
 			date.year()
 		),
-		_ => format!(
+		DateOrder::YearMonthDay | DateOrder::YearMonthDayDashes => format!(
+			"{}, {} {} {} at {clock}",
+			date.weekday(),
+			date.year(),
+			date.month(),
+			date.day()
+		),
+		DateOrder::DayMonthYear | DateOrder::DayMonthYearDots => format!(
 			"{}, {} {} {} at {clock}",
 			date.weekday(),
 			date.day(),
@@ -474,6 +483,19 @@ mod tests {
 			super::format_full(at, false, super::DateOrder::DayMonthYear),
 			"Wednesday, 14 October 2026 at 15:45"
 		);
+		assert_eq!(
+			super::format_full(at, false, super::DateOrder::DayMonthYearDots),
+			"Wednesday, 14 October 2026 at 15:45"
+		);
+		for order in [
+			super::DateOrder::YearMonthDay,
+			super::DateOrder::YearMonthDayDashes,
+		] {
+			assert_eq!(
+				super::format_full(at, false, order),
+				"Wednesday, 2026 October 14 at 15:45"
+			);
+		}
 	}
 
 	#[test]
@@ -487,6 +509,15 @@ mod tests {
 			("en_GB.UTF-8@euro", DayMonthYear),
 			("en-AU", DayMonthYear),
 			("en-CA", YearMonthDayDashes),
+			("en-IN", DayMonthYear),
+			("en-NZ", DayMonthYear),
+			("fr_CA.UTF-8", YearMonthDayDashes),
+			("fr-FR", DayMonthYear),
+			("es-US", MonthDayYear),
+			("es-ES", DayMonthYear),
+			("zh-HK", YearMonthDay),
+			("zh_CN.UTF-8", YearMonthDay),
+			("ko-KR", YearMonthDay),
 			("fr", DayMonthYear),
 			("pt-BR", DayMonthYear),
 			("de-DE", DayMonthYearDots),
