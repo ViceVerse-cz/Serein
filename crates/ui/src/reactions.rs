@@ -25,6 +25,14 @@ fn reacting_names<'a>(names: impl Iterator<Item = &'a str>, count: u32) -> Strin
 	}
 }
 
+/// Reaction summaries name default emoji by their Discord shortcode, as custom emoji are.
+fn summary_name(emoji: &ReactionEmoji) -> String {
+	match (emoji.id, emoji.name.as_deref()) {
+		(None, Some(name)) => crate::emoji_details::shortcode(name),
+		_ => emoji.label(),
+	}
+}
+
 fn reaction_button(
 	ctx: &egui::Context,
 	avatars: &mut crate::avatars::Avatars,
@@ -172,7 +180,12 @@ pub fn show(
 									.custom_image(ui.ctx(), id, 52.0, media.1)
 									.unwrap_or_else(|| crate::emoji::blank(ui.ctx(), 52.0)),
 							),
-							None => crate::emoji::image(ui.ctx(), &reaction.emoji.label(), 52.0),
+							// The full-size raster matches message artwork; the atlas cell bridges it.
+							None => crate::emoji::lookup(&reaction.emoji.label())
+								.and_then(|cell| media.0.unicode_image(ui.ctx(), cell, 52.0))
+								.or_else(|| {
+									crate::emoji::image(ui.ctx(), &reaction.emoji.label(), 52.0)
+								}),
 						} {
 							ui.add(image);
 						} else {
@@ -192,7 +205,10 @@ pub fn show(
 							);
 							crate::i18n::translate_args(
 								"reactions-tooltip-reacted-by",
-								&[("emoji", &reaction.emoji.label()), ("reactors", &reactors)],
+								&[
+									("emoji", &summary_name(&reaction.emoji)),
+									("reactors", &reactors),
+								],
 							)
 						} else if matching.is_some_and(|value| value.error.is_some()) {
 							crate::i18n::translate("reactions-tooltip-unavailable")
@@ -501,6 +517,26 @@ mod tests {
 			}
 			assert_eq!(action, Some(Action::Inspect(emoji, false)));
 		}
+	}
+
+	#[test]
+	fn reaction_summaries_name_default_emoji_by_shortcode() {
+		let emoji = |id: Option<u64>, name: Option<&str>| ReactionEmoji {
+			id: id.map(model::Id),
+			name: name.map(str::to_owned),
+		};
+		assert_eq!(summary_name(&emoji(None, Some("😂"))), ":joy:");
+		assert_eq!(summary_name(&emoji(None, Some("👍🏽"))), ":thumbsup_tone3:");
+		// Fully qualified and unqualified forms share one shortcode.
+		assert_eq!(summary_name(&emoji(None, Some("❤️"))), ":heart:");
+		assert_eq!(summary_name(&emoji(None, Some("❤"))), ":heart:");
+		assert_eq!(
+			summary_name(&emoji(Some(7), Some("catgirlvibe"))),
+			":catgirlvibe:"
+		);
+		assert_eq!(summary_name(&emoji(Some(7), None)), "Deleted emoji");
+		// Unknown text stays as received rather than borrowing another emoji's name.
+		assert_eq!(summary_name(&emoji(None, Some("🫠🫠"))), "🫠🫠");
 	}
 
 	#[test]

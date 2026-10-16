@@ -806,6 +806,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Náhled videa · pře
 embeds-text-text-display-limited = Omezené zobrazení textu
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Kliknutím zobrazíte více
 # Context: show
 emoji-details-show-a-custom-emoji = Vlastní emotikony.
 # Context: show
@@ -3589,6 +3591,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = Příkaz n
 slash-commands-footer-refresh-application-commands = Obnovit příkazy aplikace
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = Tato nálepka pochází ze serveru, který je jen pro pozvané nebo není dostupný.
 # Context: message
 stickers-message-loading-sticker-details = Načítání podrobností nálepky…
 # Context: message

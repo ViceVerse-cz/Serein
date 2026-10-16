@@ -799,6 +799,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Video önizlemesi · 
 embeds-text-text-display-limited = Metin gösterimi sınırlı
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Daha fazla bilgi için tıklayın
 # Context: show
 emoji-details-show-a-custom-emoji = Özel bir emoji.
 # Context: show
@@ -3573,6 +3575,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = Komut kull
 slash-commands-footer-refresh-application-commands = Uygulama komutlarını yenile
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = Bu çıkartma, yalnızca davetle katılınabilen veya kullanılamayan bir sunucudan.
 # Context: message
 stickers-message-loading-sticker-details = Çıkartma ayrıntıları yükleniyor…
 # Context: message

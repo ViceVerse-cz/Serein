@@ -799,6 +799,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = ビデオのプレビ
 embeds-text-text-display-limited = テキスト表示制限あり
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = クリックして詳細を表示
 # Context: show
 emoji-details-show-a-custom-emoji = カスタム絵文字。
 # Context: show
@@ -3573,6 +3575,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = コマン�
 slash-commands-footer-refresh-application-commands = アプリケーションコマンドを更新する
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = このステッカーは招待制または利用できないサーバーのものです。
 # Context: message
 stickers-message-loading-sticker-details = ステッカーの詳細を読み込んでいます…
 # Context: message

@@ -799,6 +799,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Предварите�
 embeds-text-text-display-limited = Отображение текста ограничено
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Нажмите, чтобы узнать больше
 # Context: show
 emoji-details-show-a-custom-emoji = Пользовательский смайлик.
 # Context: show
@@ -3578,6 +3580,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = Коман
 slash-commands-footer-refresh-application-commands = Обновить команды приложения
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = Этот стикер с сервера, который доступен только по приглашению или недоступен.
 # Context: message
 stickers-message-loading-sticker-details = Загрузка сведений о стикере…
 # Context: message

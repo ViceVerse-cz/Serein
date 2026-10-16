@@ -87,7 +87,8 @@ fn media_encoded(rendition: &Rendition) -> usize {
 	}
 }
 fn decode_edge(key: &str) -> u32 {
-	if key.starts_with("anim:")
+	// Animated emoji fall through to the still emoji edge, which keeps their frames small.
+	if (key.starts_with("anim:") && !key.starts_with("anim:emoji-"))
 		|| key.starts_with("embed:")
 		|| key.starts_with("gif:")
 		|| key.starts_with("spotify-")
@@ -721,6 +722,11 @@ fn cdn_url(key: &str) -> Option<String> {
 		return Some(format!(
 			"https://cdn.discordapp.com/emojis/{id}.png?size=64"
 		));
+	}
+	// Animated custom emoji; GIF is a documented custom emoji format in the CDN reference.
+	if let Some(id) = key.strip_prefix("anim:emoji-") {
+		let id: Id = id.parse().ok()?;
+		return (id.0 != 0).then(|| format!("https://cdn.discordapp.com/emojis/{id}.gif?size=64"));
 	}
 	if let Some(value) = key.strip_prefix("banner-") {
 		let (id, hash) = value.split_once('-')?;
@@ -2903,6 +2909,21 @@ mod tests {
 				"emoji-9001/foo",
 			] {
 				assert!(super::cdn_url(key).is_none());
+			}
+			assert_eq!(
+				super::cdn_url("anim:emoji-9001").as_deref(),
+				Some("https://cdn.discordapp.com/emojis/9001.gif?size=64")
+			);
+			assert!(super::is_animated_key("anim:emoji-9001"));
+			assert_eq!(super::decode_edge("anim:emoji-9001"), 128);
+			assert!(super::budget("anim:emoji-9001").frames.is_some());
+			for key in [
+				"anim:emoji-0",
+				"anim:emoji-../9001",
+				"anim:emoji-9001?size=8192",
+				"anim:emoji-https://example.com/x.gif",
+			] {
+				assert!(super::cdn_url(key).is_none(), "{key}");
 			}
 		}
 

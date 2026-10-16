@@ -798,6 +798,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Podgląd wideo · odt
 embeds-text-text-display-limited = Ograniczone wyświetlanie tekstu
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Kliknij, aby dowiedzieć się więcej
 # Context: show
 emoji-details-show-a-custom-emoji = Niestandardowy emoji.
 # Context: show
@@ -3577,6 +3579,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = Polecenie 
 slash-commands-footer-refresh-application-commands = Odśwież polecenia aplikacji
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = Ta naklejka pochodzi z serwera dostępnego tylko na zaproszenie lub niedostępnego.
 # Context: message
 stickers-message-loading-sticker-details = Ładowanie szczegółów naklejki…
 # Context: message

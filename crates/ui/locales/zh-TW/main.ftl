@@ -808,6 +808,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = 視訊預覽 · 會�
 embeds-text-text-display-limited = 文字顯示受限
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = 點擊以了解更多
 # Context: show
 emoji-details-show-a-custom-emoji = 自訂表情符號。
 # Context: show
@@ -3606,6 +3608,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = 指令無�
 slash-commands-footer-refresh-application-commands = 重新整理應用指令
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = 此貼圖來自僅限邀請或無法使用的伺服器。
 # Context: message
 stickers-message-loading-sticker-details = 貼圖詳細資料載入中…
 # Context: message

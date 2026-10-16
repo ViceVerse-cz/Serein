@@ -798,6 +798,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Aperçu vidéo · la 
 embeds-text-text-display-limited = Affichage du texte limité
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Cliquez pour en savoir plus
 # Context: show
 emoji-details-show-a-custom-emoji = Un emoji personnalisé.
 # Context: show
@@ -3575,6 +3577,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = Commande i
 slash-commands-footer-refresh-application-commands = Actualiser les commandes de l'application
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = Cet autocollant provient d'un serveur accessible uniquement sur invitation ou indisponible.
 # Context: message
 stickers-message-loading-sticker-details = Chargement des détails de l'autocollant…
 # Context: message

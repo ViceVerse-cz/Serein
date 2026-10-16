@@ -798,6 +798,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Vista previa del víd
 embeds-text-text-display-limited = Visualización de texto limitada
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Haz clic para saber más
 # Context: show
 emoji-details-show-a-custom-emoji = Un emoji personalizado.
 # Context: show
@@ -3575,6 +3577,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = Comando no
 slash-commands-footer-refresh-application-commands = Actualizar comandos de la aplicación
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = Esta pegatina es de un servidor que solo admite invitaciones o no está disponible.
 # Context: message
 stickers-message-loading-sticker-details = Cargando detalles de la etiqueta...
 # Context: message

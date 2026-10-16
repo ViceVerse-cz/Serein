@@ -798,6 +798,8 @@ embeds-show-video-preview-playback-opens-in-your-browser = Videovorschau · Wied
 embeds-text-text-display-limited = Textanzeige eingeschränkt
 
 ## crates/ui/src/emoji_details.rs
+# Context: hover_card
+emoji-details-hover-card-click-to-learn-more = Klicken, um mehr zu erfahren
 # Context: show
 emoji-details-show-a-custom-emoji = Ein benutzerdefiniertes Emoji.
 # Context: show
@@ -3575,6 +3577,8 @@ slash-commands-composer-command-unavailable-your-arguments-are-kept = Befehl nic
 slash-commands-footer-refresh-application-commands = Anwendungsbefehle aktualisieren
 
 ## crates/ui/src/stickers.rs
+# Context: message
+stickers-message-from-an-unavailable-server = Dieser Aufkleber stammt von einem Server, der nur mit Einladung zugänglich oder nicht verfügbar ist.
 # Context: message
 stickers-message-loading-sticker-details = Aufkleberdetails werden geladen…
 # Context: message

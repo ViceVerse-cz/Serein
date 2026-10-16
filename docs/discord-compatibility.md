@@ -353,8 +353,10 @@ for artwork-only drafts when send/attachment permissions allow it. Animated APNG
 attachments are transcoded to GIF to retain animation.
 
 Received `sticker_items` and legacy `stickers` render transparent artwork in chat.
-Clicking opens details and related previews; View More Stickers opens the source
-in the picker. Standard packs and missing metadata load only on demand. Guild
+Clicking opens details (artwork, name, source) and related previews; View More Stickers
+opens the source in the picker. When the loaded sticker names a server this session does
+not know, the card says it is from an invite-only or unavailable server; failed loads
+offer an icon retry. Standard packs and missing metadata load only on demand. Guild
 catalogs hydrate from READY/GUILD_CREATE and GUILD_STICKERS_UPDATE. The official
 [sticker resource](https://docs.discord.com/developers/resources/sticker) and
 [Create Message](https://docs.discord.com/developers/resources/message#create-message)
@@ -1145,9 +1147,13 @@ Normal-user READY remains unofficial/unstable; this change was tested with synth
 and local sockets, not a live account. Joining new guilds' full navigation remains pre-existing
 unsupported behavior. Missing catalogs are displayed as unavailable rather than empty.
 
-Formatted message/profile/embed text renders `<:name:id>` and `<a:name:id>` as static CDN
-images, using the documented [custom emoji CDN endpoint](https://docs.discord.com/developers/reference#image-formatting-cdn-endpoints).
-Custom reactions use the same bounded media worker. Deleted/failing previews have a fixed
+Formatted message/profile/embed text renders `<:name:id>` as a static CDN image, using the
+documented [custom emoji CDN endpoint](https://docs.discord.com/developers/reference#image-formatting-cdn-endpoints).
+With GIF animation enabled, `<a:name:id>` (and animated named artwork links) loads the same
+endpoint's documented GIF format at 64px and plays through the existing bounded off-UI decoder
+and animation pool, falling back to the still PNG when animation is off or the GIF fails.
+Reactions do not carry an animated flag in Serein's model and stay static. Custom reactions
+use the same bounded media worker. Deleted/failing previews have a fixed
 placeholder and retain copyable original markup. Standard Unicode and custom image widgets
 participate in text selection: copying a selection retains Unicode sequences/custom markup,
 and right-click Copy emoji copies the entire token. Selection endpoints treat each image as
@@ -1171,6 +1177,8 @@ require attachment permission. Picking never sends fallback artwork immediately.
 Discord remains authoritative for actual sends and reactions, including entitlement rejection.
 Natively eligible animated emoji are inserted with their original animated markup
 and shown as still previews.
+Hovering a rendered emoji or received sticker shows its artwork, `:shortcode:` or catalog/sticker
+name and a click hint; reaction summaries also name default emoji by shortcode.
 Clicking a rendered message, embed or profile emoji opens a native information card. Standard
 emoji show their shortcode and default-emoji explanation; customs use their catalog name and
 source server when the ID is known, otherwise explicitly report unknown provenance. Code and

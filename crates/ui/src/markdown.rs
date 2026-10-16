@@ -2385,7 +2385,13 @@ impl Formatted {
 			}
 			let inline = &mut inlines[*index];
 			inline.image = match inline.custom {
-				Some(id) => images.custom_image(ui.ctx(), id, size, demo),
+				Some(id) => images.custom_emoji(
+					ui.ctx(),
+					id,
+					crate::emoji::custom_animated(&inline.text),
+					size,
+					demo,
+				),
 				None => shared
 					.and_then(|asset| images.share_image(ui.ctx(), asset, size, demo))
 					.or_else(|| {
@@ -2468,14 +2474,33 @@ impl Formatted {
 				let inline = &inlines[*index];
 				let image = inline.image.clone();
 				if !link {
-					let hit = ui
+					let mut hit = ui
 						.interact(
 							*rect,
 							response.id.with(("emoji", *index, &inline.text)),
 							egui::Sense::click(),
 						)
-						.on_hover_cursor(egui::CursorIcon::PointingHand)
-						.on_hover_text(&inline.text);
+						.on_hover_cursor(egui::CursorIcon::PointingHand);
+					if hit.hovered() {
+						// Default emoji use a sharper raster than the inline atlas cell.
+						let art = inline
+							.cell
+							.filter(|_| inline.custom.is_none() && shared.is_none())
+							.and_then(|cell| {
+								images.unicode_image(
+									ui.ctx(),
+									cell,
+									crate::emoji_details::HOVER_ART,
+								)
+							})
+							.or_else(|| image.clone());
+						hit = crate::emoji_details::hover_card(
+							hit,
+							art,
+							&crate::emoji_details::name(&inline.text, guilds),
+							true,
+						);
+					}
 					hit.widget_info(|| {
 						egui::WidgetInfo::labeled(
 							egui::Role::Button,
@@ -2497,8 +2522,10 @@ impl Formatted {
 				.find(|(_, rect)| rect.contains(point))
 				.map(|(index, _)| *index)
 		};
-		if let Some(index) = response.hover_pos().and_then(slot_at) {
-			response = response.on_hover_text_at_pointer(&inlines[index].text);
+		// Emoji outside links have their own hover card; links keep only the name.
+		if link && let Some(index) = response.hover_pos().and_then(slot_at) {
+			response = response
+				.on_hover_text_at_pointer(crate::emoji_details::name(&inlines[index].text, guilds));
 		}
 		let menu = response.id.with("emoji-menu");
 		if response.secondary_clicked() {
@@ -5133,6 +5160,108 @@ mod tests {
 				.drop_without_applying_deltas();
 				assert!(!egui::Popup::is_any_open(&ctx));
 			}
+		}
+	}
+
+	#[test]
+	fn hovered_emoji_show_artwork_name_and_hint_instead_of_markup() {
+		fn texts(shape: &egui::Shape, found: &mut Vec<String>) {
+			match shape {
+				egui::Shape::Text(text) => found.push(text.galley.text().to_owned()),
+				egui::Shape::Vec(shapes) => {
+					for shape in shapes {
+						texts(shape, found);
+					}
+				}
+				_ => {}
+			}
+		}
+		for (source, title) in [
+			("\u{1f602}", ":joy:"),
+			("<a:old_name:9001>", ":serein_wave:"),
+			("<a:wave_animated:999999>", ":wave_animated:"),
+		] {
+			let ctx = egui::Context::default();
+			crate::emoji::install(&ctx).unwrap();
+			ctx.global_style_mut(|style| style.interaction.tooltip_delay = 0.0);
+			let state = test_support::demo_state();
+			let parsed = Formatted::parse(source);
+			let mut images = crate::avatars::Avatars::default();
+			let mut clock = 0.0;
+			let mut frame = |events| {
+				clock += 0.5;
+				ctx.run_ui(
+					egui::RawInput {
+						screen_rect: Some(egui::Rect::from_min_size(
+							egui::Pos2::ZERO,
+							egui::vec2(360.0, 300.0),
+						)),
+						events,
+						time: Some(clock),
+						..Default::default()
+					},
+					|ui| {
+						let mut profile = crate::profiles::ProfileSession::default();
+						parsed.show_with_images(
+							ui,
+							&mut None,
+							&[],
+							None,
+							&mut profile,
+							(&mut images, true, &state.guilds),
+							crate::design::MessageCardSurface::Opaque,
+						)
+					},
+				)
+			};
+			let mut output = frame(vec![]);
+			let mut before = vec![];
+			for shape in &output.shapes {
+				texts(&shape.shape, &mut before);
+			}
+			let point = output
+				.shapes
+				.iter()
+				.find_map(|shape| match &shape.shape {
+					egui::Shape::Text(text) if text.galley.text() == source => {
+						let row = &text.galley.rows[0];
+						let glyph = &row.glyphs[0];
+						Some(
+							text.pos
+								+ egui::vec2(
+									glyph.pos.x + glyph.advance_width / 2.0,
+									row.size.y / 2.0,
+								),
+						)
+					}
+					_ => None,
+				})
+				.expect("emoji slot");
+			output.textures_delta.clear();
+			frame(vec![egui::Event::PointerMoved(point)]).drop_without_applying_deltas();
+			let mut found = vec![];
+			for _ in 0..3 {
+				let output = frame(vec![]);
+				found.clear();
+				for shape in &output.shapes {
+					texts(&shape.shape, &mut found);
+				}
+				output.drop_without_applying_deltas();
+			}
+			assert!(
+				found.iter().any(|text| text == title),
+				"{source}: {found:?}"
+			);
+			assert!(
+				found.iter().any(|text| text == "Click to learn more"),
+				"{source}: {found:?}"
+			);
+			// The message itself carries the wire text; no tooltip repeats it.
+			assert_eq!(
+				found.iter().filter(|text| *text == source).count(),
+				before.iter().filter(|text| *text == source).count(),
+				"{source}: {found:?}"
+			);
 		}
 	}
 
