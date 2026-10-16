@@ -86,7 +86,9 @@ fn locale_parts(tag: &str) -> (String, Option<String>) {
 	let tag = tag.replace('_', "-");
 	let mut parts = tag.split('-');
 	let language = parts.next().unwrap_or_default().to_ascii_lowercase();
+	// Single-letter subtags start extensions (`-u-ca-gregory`), whose keys are not regions.
 	let region = parts
+		.take_while(|part| part.len() > 1)
 		.find(|part| part.len() == 2)
 		.map(str::to_ascii_uppercase);
 	(language, region)
@@ -514,6 +516,8 @@ mod tests {
 			("fr_CA.UTF-8", YearMonthDayDashes),
 			("en-ZA", YearMonthDay),
 			("en_ZA.UTF-8", YearMonthDay),
+			("en-u-ca-gregory", MonthDayYear),
+			("en-GB-u-ca-gregory", DayMonthYear),
 			("fr-FR", DayMonthYear),
 			("es-US", MonthDayYear),
 			("es-ES", DayMonthYear),
