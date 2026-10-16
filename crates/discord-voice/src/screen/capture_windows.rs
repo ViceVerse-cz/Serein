@@ -302,7 +302,7 @@ where
 		} else {
 			CursorCaptureSettings::WithoutCursor
 		};
-	// Leaving the interval unset lets Windows coalesce pointer-only updates to about 10 Hz.
+	// An unset interval lets Windows batch pointer-only updates away from the frame rate.
 	let minimum_update =
 		if GraphicsCaptureApi::is_minimum_update_interval_supported().unwrap_or(false) {
 			MinimumUpdateIntervalSettings::Custom(Duration::from_millis(1))
