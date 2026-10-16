@@ -308,8 +308,6 @@ fn encode_loop(
 	let mut encoding = None;
 	let mut first_frame_deadline = Some(Instant::now() + Duration::from_secs(15));
 	let mut next_frame = Instant::now();
-	let mut next_preview = Instant::now();
-	let preview_interval = Duration::from_secs_f64(1.0 / f64::from(settings.fps));
 	let mut latest_frame = None;
 
 	while !stop.load(Ordering::Acquire) && !send.is_closed() {
@@ -350,12 +348,11 @@ fn encode_loop(
 				if let Ok(mut slot) = preview.try_lock() {
 					slot.take();
 				}
-			} else if now >= next_preview {
+			} else {
 				let image = preview_frame(frame)?;
 				if let Ok(mut slot) = preview.try_lock() {
 					*slot = Some(image);
 				}
-				next_preview = now + preview_interval;
 				wake();
 			}
 		}
