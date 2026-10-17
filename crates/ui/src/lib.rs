@@ -2318,6 +2318,8 @@ impl MessagingUi {
 			.as_ref()
 			.is_some_and(|c| c.kind == 1 && c.guild.is_none());
 		let shortcuts_available = self.shortcuts_available(state);
+		// The name is chrome. A message drag must not continue into it.
+		ui.style_mut().interaction.selectable_labels = false;
 		ui.horizontal_centered(|ui| {
 			ui.spacing_mut().item_spacing.x = 8.0;
 			let voice_chat_label = language.text(if self.voice_chat_open {
@@ -4826,10 +4828,13 @@ impl MessagingUi {
 					egui::Frame::new()
 						.inner_margin(egui::Margin::symmetric(16, 4))
 						.show(ui, |ui| {
-							ui.label(
-								RichText::new(notices.join(" · "))
-									.size(11.0)
-									.color(colors.muted),
+							ui.add(
+								egui::Label::new(
+									RichText::new(notices.join(" · "))
+										.size(11.0)
+										.color(colors.muted),
+								)
+								.selectable(false),
 							);
 						});
 				}

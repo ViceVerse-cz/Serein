@@ -2454,7 +2454,7 @@ search-result-card-spoiler-media-open-the-message-to-reveal-it = Spoiler media -
 
 ## crates/ui/src/select.rs
 # Context: on_end_pass
-select-on-end-pass-copy = Copy
+select-on-end-pass-copy = Copy Selected Text
 
 ## crates/ui/src/server_admin.rs
 # Context: date
@@ -3848,7 +3848,7 @@ timeline-deleted-message-actions-toggle-deleted-highlight = Toggle Deleted Highl
 # Context: loading_messages
 timeline-loading-messages-loading-messages = Loading messages
 # Context: message_actions
-timeline-message-actions-copy = Copy
+timeline-message-actions-copy = Copy Selected Text
 # Context: message_actions
 timeline-message-actions-copy-message-id = Copy Message ID
 # Context: message_actions
