@@ -84,6 +84,7 @@ pub(super) struct Screen {
 	command: Option<Command>,
 	sequence: u64,
 	status: &'static str,
+	share_cued: bool,
 }
 impl Screen {
 	pub fn stop(&mut self) {
@@ -222,6 +223,7 @@ impl Screen {
 			ui.screen.busy = false;
 			ui.screen.supported = false;
 			ui.screen.preview = None;
+			ui.screen.preview_paused = false;
 			ui.screen.capture_status = None;
 			return None;
 		}
@@ -417,13 +419,34 @@ impl Screen {
 		if let Some(error) = failure {
 			self.request_stop(error);
 		}
+		// The worker is live while the Linux system picker is still open.
+		if self
+			.live
+			.as_ref()
+			.is_some_and(|live| live.worker.captured())
+			&& !self.share_cued
+		{
+			self.share_cued = true;
+			let cue = model::notification_preferences::Sound::ScreenShareOn;
+			if ui.notification_options.allows(cue) {
+				ui.notification_preview = Some(cue);
+				ctx.request_repaint();
+			}
+		}
+		if self.live.is_none() {
+			self.share_cued = false;
+		}
 		if let Some(live) = &self.live {
-			live.worker.set_preview_visible(
-				ui.screen.preview.is_none()
-					|| (state.selected == Some(live.context.channel)
-						&& !ctx.input(|input| input.viewport().minimized.unwrap_or(false))),
-			);
-			if let Some(frame) = live.worker.take_preview() {
+			let on_channel = state.selected == Some(live.context.channel);
+			let shown = on_channel
+				&& ctx.input(|input| input.focused && !input.viewport().minimized.unwrap_or(false));
+			live.worker.set_preview_visible(shown);
+			ui.screen.preview_paused = !shown;
+			if !shown {
+				// The pause message covers the tile. Keeping the texture stops the tile from
+				// unmounting, and the worker republishes its retained frame when preview returns.
+				let _ = live.worker.take_preview();
+			} else if let Some(frame) = live.worker.take_preview() {
 				let image = egui::ColorImage::from_rgba_unmultiplied(
 					[frame.width() as usize, frame.height() as usize],
 					frame.as_raw(),
@@ -433,15 +456,11 @@ impl Screen {
 				} else {
 					ui.screen.preview =
 						Some(ctx.load_texture("local-screen", image, egui::TextureOptions::LINEAR));
-					let cue = model::notification_preferences::Sound::ScreenShareOn;
-					if ui.notification_options.allows(cue) {
-						ui.notification_preview = Some(cue);
-						ctx.request_repaint();
-					}
 				}
 			}
 		} else {
 			ui.screen.preview = None;
+			ui.screen.preview_paused = false;
 		}
 
 		if let Some(closing) = &mut self.closing {

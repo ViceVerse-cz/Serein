@@ -2242,6 +2242,12 @@ screen-body-include-the-pointer-in-the-shared-video = Incluez le pointeur dans l
 # Context: body
 screen-body-quality = Qualité
 # Context: body
+screen-body-source = Source
+# Context: body
+screen-preview-paused-title = Votre stream est toujours en cours !
+# Context: body
+screen-preview-paused-body = Nous avons mis cet aperçu en pause pour économiser vos ressources.
+# Context: body
 screen-body-quality-selection-does-not-require-nitro = La sélection de qualité ne nécessite pas de Nitro.
 # Context: body
 screen-body-refresh = Rafraîchir

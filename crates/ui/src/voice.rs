@@ -53,7 +53,8 @@ impl MessagingUi {
 						StageFocus::LocalScreen => {
 							self.screen.context
 								== Some((state.generation, call.channel, call.request))
-								&& self.screen.busy && self.screen.preview.is_some()
+								&& self.screen.busy && (self.screen.preview.is_some()
+								|| self.screen.preview_paused)
 						}
 						StageFocus::Stream(user) => call.watching == Some(*user),
 						StageFocus::Participant(_) => false,
@@ -985,7 +986,7 @@ impl MessagingUi {
 		if call.is_some_and(|call| {
 			self.screen.context == Some((state.generation, channel, call.request))
 				&& self.screen.busy
-				&& self.screen.preview.is_some()
+				&& (self.screen.preview.is_some() || self.screen.preview_paused)
 		}) {
 			tiles.push(Tile::LocalScreen);
 		}
@@ -1158,7 +1159,7 @@ impl MessagingUi {
 
 	fn tile_has_video(&self, state: &State, channel: Id, tile: &Tile<'_>) -> bool {
 		match tile {
-			Tile::LocalScreen => self.screen.preview.is_some(),
+			Tile::LocalScreen => self.screen.preview.is_some() || self.screen.preview_paused,
 			Tile::Stream(streamer) => self.watching(state, channel, *streamer),
 			Tile::Participant(entry) => {
 				let own = state
@@ -1279,6 +1280,10 @@ impl MessagingUi {
 	}
 
 	fn screen_tile(&self, ui: &mut egui::Ui, rect: egui::Rect, compact: bool) {
+		if self.screen.preview_paused {
+			Self::paint_paused_preview(ui, rect);
+			return;
+		}
 		let content = self
 			.screen
 			.preview
@@ -1295,6 +1300,41 @@ impl MessagingUi {
 		if !compact {
 			name_badge(ui, content, "Your screen", None, self.badge_opacity());
 		}
+	}
+
+	fn paint_paused_preview(ui: &egui::Ui, rect: egui::Rect) {
+		ui.painter().rect_filled(rect, 8, egui::Color32::BLACK);
+		let width = (rect.width() - 48.0).max(40.0);
+		let title_size = if rect.height() < 160.0 { 16.0 } else { 22.0 };
+		let body_size = if rect.height() < 160.0 { 13.0 } else { 16.0 };
+		let title = ui.painter().layout(
+			crate::i18n::translate("screen-preview-paused-title"),
+			egui::FontId::new(title_size, design::semibold_family(ui.ctx())),
+			egui::Color32::WHITE,
+			width,
+		);
+		let body = ui.painter().layout(
+			crate::i18n::translate("screen-preview-paused-body"),
+			egui::FontId::proportional(body_size),
+			STAGE_MUTED,
+			width,
+		);
+		let gap = 8.0;
+		let top = rect.center().y - (title.size().y + gap + body.size().y) / 2.0;
+		let title_height = title.size().y;
+		ui.painter().galley(
+			egui::pos2(rect.center().x - title.size().x / 2.0, top),
+			title,
+			egui::Color32::WHITE,
+		);
+		ui.painter().galley(
+			egui::pos2(
+				rect.center().x - body.size().x / 2.0,
+				top + title_height + gap,
+			),
+			body,
+			STAGE_MUTED,
+		);
 	}
 
 	/// The screen share this device chose to watch: the latest decoded picture or a status.
