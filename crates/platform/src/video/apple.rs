@@ -4,7 +4,8 @@
 #![allow(unsafe_code)]
 
 use super::{
-	Color, INVALID, Info, Layout, MAX_BYTES, Matrix, Picture, ReadSeek, Sample, UNSUPPORTED,
+	Color, FramePolicy, INVALID, Info, Layout, MAX_BYTES, Matrix, OutputSize, Picture, ReadSeek,
+	Sample, UNSUPPORTED, Viewport,
 	mp4::{self, AudioCodec, Movie, SampleEntry, VideoCodec},
 	picture::pack_plane,
 };
@@ -15,19 +16,19 @@ use objc2_core_media::{
 	CMVideoFormatDescriptionCreateFromHEVCParameterSets, kCMBlockBufferAssureMemoryNowFlag,
 };
 use objc2_core_video::{
-	CVImageBuffer, CVPixelBufferGetBaseAddressOfPlane, CVPixelBufferGetBytesPerRowOfPlane,
-	CVPixelBufferGetHeight, CVPixelBufferGetHeightOfPlane, CVPixelBufferGetPixelFormatType,
-	CVPixelBufferGetPlaneCount, CVPixelBufferGetWidth, CVPixelBufferGetWidthOfPlane,
-	CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress,
-	kCVImageBufferYCbCrMatrix_ITU_R_601_4, kCVImageBufferYCbCrMatrix_ITU_R_709_2,
-	kCVImageBufferYCbCrMatrix_ITU_R_2020, kCVImageBufferYCbCrMatrix_SMPTE_240M_1995,
-	kCVImageBufferYCbCrMatrixKey, kCVPixelBufferPixelFormatTypeKey,
-	kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+	CVImageBuffer, CVPixelBuffer, CVPixelBufferCreate, CVPixelBufferGetBaseAddressOfPlane,
+	CVPixelBufferGetBytesPerRowOfPlane, CVPixelBufferGetHeight, CVPixelBufferGetHeightOfPlane,
+	CVPixelBufferGetPixelFormatType, CVPixelBufferGetPlaneCount, CVPixelBufferGetWidth,
+	CVPixelBufferGetWidthOfPlane, CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags,
+	CVPixelBufferUnlockBaseAddress, kCVImageBufferYCbCrMatrix_ITU_R_601_4,
+	kCVImageBufferYCbCrMatrix_ITU_R_709_2, kCVImageBufferYCbCrMatrix_ITU_R_2020,
+	kCVImageBufferYCbCrMatrix_SMPTE_240M_1995, kCVImageBufferYCbCrMatrixKey,
+	kCVPixelBufferPixelFormatTypeKey, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
 	kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
 };
 use objc2_video_toolbox::{
 	VTDecodeFrameFlags, VTDecodeInfoFlags, VTDecompressionOutputCallbackRecord,
-	VTDecompressionSession, kVTVideoDecoderBadDataErr,
+	VTDecompressionSession, VTPixelTransferSession, kVTVideoDecoderBadDataErr,
 };
 use std::{
 	ffi::c_void,
@@ -67,8 +68,62 @@ pub(super) const NV12_FORMATS: [u32; 2] = [
 struct Output {
 	timescale: u32,
 	rotation: u32,
+	policy: FramePolicy,
+	size: OutputSize,
+	scaler: Option<Scaler>,
 	frames: Vec<Decoded>,
 	error: Option<&'static str>,
+}
+
+struct Transfer(CFRetained<VTPixelTransferSession>);
+impl Drop for Transfer {
+	fn drop(&mut self) {
+		// SAFETY: The session is not used after this teardown.
+		unsafe { self.0.invalidate() };
+	}
+}
+
+struct Scaler {
+	transfer: Transfer,
+	buffer: CFRetained<CVPixelBuffer>,
+	size: OutputSize,
+	format: u32,
+}
+
+// SAFETY: A transfer session must not be used from two threads at once. `Output`'s mutex
+// is that lock, so the scaler can move between the decoder worker and the VideoToolbox callback.
+unsafe impl Send for Scaler {}
+
+impl Scaler {
+	fn new(size: OutputSize, format: u32) -> Option<Self> {
+		let mut transfer: *mut VTPixelTransferSession = null_mut();
+		let mut buffer: *mut CVPixelBuffer = null_mut();
+		// SAFETY: Out-pointers refer to initialized locals; both create functions return a +1
+		// reference on success.
+		unsafe {
+			if VTPixelTransferSession::create(None, NonNull::from(&mut transfer)) != 0 {
+				return None;
+			}
+			let transfer = Transfer(CFRetained::from_raw(NonNull::new(transfer)?));
+			if CVPixelBufferCreate(
+				None,
+				size.width() as usize,
+				size.height() as usize,
+				format,
+				None,
+				NonNull::from(&mut buffer),
+			) != 0
+			{
+				return None;
+			}
+			Some(Self {
+				transfer,
+				buffer: CFRetained::from_raw(NonNull::new(buffer)?),
+				size,
+				format,
+			})
+		}
+	}
 }
 
 pub(super) struct Session(pub(super) CFRetained<VTDecompressionSession>);
@@ -101,13 +156,19 @@ pub struct Decoder {
 }
 
 impl Decoder {
-	pub fn open(mut source: Box<dyn ReadSeek>) -> Result<Self, &'static str> {
+	pub fn open(mut source: Box<dyn ReadSeek>, viewport: Viewport) -> Result<Self, &'static str> {
 		let length = source.seek(SeekFrom::End(0)).map_err(|_| INVALID)?;
 		let movie = mp4::parse(source.as_mut(), length)?;
 		let format = format_description(&movie.video.track.codec)?;
+		let video = &movie.video;
 		let output = Arc::new(Mutex::new(Output {
-			timescale: movie.video.track.timescale,
-			rotation: movie.video.rotation,
+			timescale: video.track.timescale,
+			rotation: video.rotation,
+			policy: FramePolicy::Attachment {
+				source_height: video.height,
+			},
+			size: OutputSize::fit((video.width, video.height), video.rotation, viewport),
+			scaler: None,
 			frames: Vec::new(),
 			error: None,
 		}));
@@ -155,6 +216,15 @@ impl Decoder {
 
 	pub fn info(&self) -> Info {
 		self.info
+	}
+
+	/// Later pictures fit `viewport`.
+	pub fn resize(&mut self, viewport: Viewport) {
+		let video = &self.movie.video;
+		let size = OutputSize::fit((video.width, video.height), video.rotation, viewport);
+		if let Ok(mut output) = self.output.lock() {
+			output.size = size;
+		}
 	}
 
 	pub fn seek(&mut self, seconds: f64) -> Result<(), &'static str> {
@@ -514,7 +584,7 @@ unsafe extern "C-unwind" fn output_frame(
 		(pts.value as f64 / f64::from(pts.timescale) * f64::from(output.timescale)).round() as i64
 	};
 	// SAFETY: VideoToolbox keeps the image buffer alive for the duration of the callback.
-	match unsafe { copy_nv12(&*image) } {
+	match unsafe { scaled_nv12(&mut output, &*image) } {
 		Ok(mut picture) => {
 			// The renderer applies the track rotation; the planes stay in coded orientation.
 			picture.rotation = output.rotation as u16;
@@ -527,15 +597,84 @@ unsafe extern "C-unwind" fn output_frame(
 	}
 }
 
+unsafe fn scaled_nv12(output: &mut Output, image: &CVImageBuffer) -> Result<Picture, &'static str> {
+	let size = output.size;
+	if (CVPixelBufferGetWidth(image), CVPixelBufferGetHeight(image))
+		== (size.width() as usize, size.height() as usize)
+	{
+		output.scaler = None;
+		return unsafe { copy_nv12(image, output.policy) };
+	}
+	let format = CVPixelBufferGetPixelFormatType(image);
+	let policy = output.policy;
+	let ready = output
+		.scaler
+		.as_ref()
+		.is_some_and(|scaler| scaler.size == size && scaler.format == format);
+	if ready {
+		if let Some(picture) = output
+			.scaler
+			.as_ref()
+			.and_then(|scaler| unsafe { transferred(scaler, image, policy) }.ok())
+		{
+			return Ok(picture);
+		}
+	} else if let Some(next) = Scaler::new(size, format)
+		&& let Ok(picture) = unsafe { transferred(&next, image, policy) }
+	{
+		output.scaler = Some(next);
+		return Ok(picture);
+	}
+	// A refused size must not drop the scaler that is already producing frames.
+	let picture = output.scaler.as_ref().and_then(|scaler| {
+		(scaler.size != size)
+			.then(|| unsafe { transferred(scaler, image, policy) }.ok())
+			.flatten()
+	});
+	let kept = output
+		.scaler
+		.as_ref()
+		.filter(|scaler| scaler.size != size)
+		.map(|scaler| scaler.size);
+	if let (Some(picture), Some(kept)) = (picture, kept) {
+		output.size = kept;
+		return Ok(picture);
+	}
+	unsafe { copy_nv12(image, policy) }
+}
+
+unsafe fn transferred(
+	scaler: &Scaler,
+	image: &CVImageBuffer,
+	policy: FramePolicy,
+) -> Result<Picture, &'static str> {
+	// SAFETY: Both buffers are live; the destination is ours and unshared.
+	if unsafe { scaler.transfer.0.transfer_image(image, &scaler.buffer) } != 0 {
+		return Err(INVALID);
+	}
+	unsafe { copy_planes(&scaler.buffer, image, policy) }
+}
+
 /// Copy one bi-planar 4:2:0 picture into tightly packed NV12 after checking every bound.
-pub(super) unsafe fn copy_nv12(pixels: &CVImageBuffer) -> Result<Picture, &'static str> {
+pub(super) unsafe fn copy_nv12(
+	pixels: &CVImageBuffer,
+	policy: FramePolicy,
+) -> Result<Picture, &'static str> {
+	unsafe { copy_planes(pixels, pixels, policy) }
+}
+
+unsafe fn copy_planes(
+	pixels: &CVImageBuffer,
+	source: &CVImageBuffer,
+	policy: FramePolicy,
+) -> Result<Picture, &'static str> {
 	let width = CVPixelBufferGetWidth(pixels);
 	let height = CVPixelBufferGetHeight(pixels);
 	let (w, h) = (
 		u32::try_from(width).map_err(|_| INVALID)?,
 		u32::try_from(height).map_err(|_| INVALID)?,
 	);
-	super::check_dimensions(w, h)?;
+	policy.check(w, h)?;
 	let format = CVPixelBufferGetPixelFormatType(pixels);
 	if !NV12_FORMATS.contains(&format) {
 		return Err(INVALID);
@@ -552,7 +691,7 @@ pub(super) unsafe fn copy_nv12(pixels: &CVImageBuffer) -> Result<Picture, &'stat
 	}
 	// SAFETY: The static keys are valid CFStrings and the attachment is a retained copy.
 	let matrix = unsafe {
-		pixels
+		source
 			.attachment(kCVImageBufferYCbCrMatrixKey, null_mut())
 			.and_then(|value| {
 				let value = value.downcast_ref::<CFString>()?;
@@ -568,7 +707,7 @@ pub(super) unsafe fn copy_nv12(pixels: &CVImageBuffer) -> Result<Picture, &'stat
 	};
 	let color = match matrix {
 		Some(matrix) => Color { matrix, full_range },
-		None => Color::untagged(h, full_range),
+		None => policy.untagged(h, full_range),
 	};
 	let len = Layout::Nv12.len(w, h).ok_or(INVALID)?;
 	if len > MAX_BYTES {
@@ -629,9 +768,13 @@ mod tests {
 	use super::*;
 	const FIXTURE: &[u8] = include_bytes!("../../../../apps/desktop/tests/fixtures/video.mov");
 
+	fn full() -> Viewport {
+		Viewport::from_pixels(8192.0, 8192.0)
+	}
+
 	#[test]
 	fn native_mov_decodes_audio_video_and_seeks() {
-		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(FIXTURE))).unwrap();
+		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(FIXTURE)), full()).unwrap();
 		let info = decoder.info();
 		assert_eq!(
 			(info.width, info.height, info.sample_rate, info.channels),
@@ -710,7 +853,7 @@ mod tests {
 		{
 			word.copy_from_slice(&value.to_be_bytes());
 		}
-		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(portrait))).unwrap();
+		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(portrait)), full()).unwrap();
 		assert_eq!((decoder.info().width, decoder.info().height), (180, 320));
 		let Some(Sample::Video { picture, .. }) = decoder.read_video().unwrap() else {
 			panic!("Missing portrait frame");
@@ -727,14 +870,14 @@ mod tests {
 		{
 			let silent = include_bytes!("../../../../apps/desktop/tests/fixtures/video-silent.mov");
 			let mut decoder =
-				Decoder::open(Box::new(std::io::Cursor::new(silent.as_slice()))).unwrap();
+				Decoder::open(Box::new(std::io::Cursor::new(silent.as_slice())), full()).unwrap();
 			assert_eq!(decoder.info().sample_rate, 0);
 			assert!(decoder.read_audio().unwrap().is_none());
 			assert!(decoder.read_video().unwrap().is_some());
 			let short =
 				include_bytes!("../../../../apps/desktop/tests/fixtures/video-short-audio.mov");
 			let mut decoder =
-				Decoder::open(Box::new(std::io::Cursor::new(short.as_slice()))).unwrap();
+				Decoder::open(Box::new(std::io::Cursor::new(short.as_slice())), full()).unwrap();
 			let mut frames = 0;
 			while let Some(Sample::Audio { frames: pcm, .. }) = decoder.read_audio().unwrap() {
 				frames += pcm.len();

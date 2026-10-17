@@ -1,4 +1,5 @@
 //! Optional local codec conversion; the helper receives private files, never service URLs.
+use platform::video::Viewport;
 use std::{
 	fs::{self, File, OpenOptions},
 	io::{Read, Write},
@@ -12,11 +13,27 @@ use std::{
 const LIMIT: u64 = 100 * 1024 * 1024;
 const FAILED: &str = "This video could not be converted for playback";
 
+const MAX_EDGE: u32 = 1920;
+const MAX_PIXELS: u32 = 1920 * 1080;
+
 /// Recoverable native format failures, including sources that need bounded downscaling.
 pub(super) fn eligible(error: &str) -> bool {
 	matches!(
 		error,
-		platform::video::UNSUPPORTED | platform::video::INVALID | platform::video::TOO_LARGE
+		platform::video::UNSUPPORTED | platform::video::INVALID | platform::video::SOURCE_TOO_LARGE
+	)
+}
+
+/// FFmpeg autorotates before filters, so the display-oriented box applies directly.
+fn scale_filter(stage: Viewport) -> String {
+	let (width, height) = (f64::from(stage.width()), f64::from(stage.height()));
+	let scale = (f64::from(MAX_EDGE) / width)
+		.min(f64::from(MAX_EDGE) / height)
+		.min((f64::from(MAX_PIXELS) / (width * height)).sqrt())
+		.min(1.0);
+	let (width, height) = ((width * scale) as u32, (height * scale) as u32);
+	format!(
+		"scale=w='max(2,min({width},iw))':h='max(2,min({height},ih))':force_original_aspect_ratio=decrease:force_divisible_by=2"
 	)
 }
 
@@ -30,6 +47,7 @@ impl Drop for Temporary {
 pub(super) fn open(
 	source: Box<dyn platform::video::ReadSeek>,
 	cancelled: &AtomicBool,
+	stage: Viewport,
 ) -> Result<platform::video::Decoder, &'static str> {
 	let executable = [
 		"/opt/homebrew/bin/ffmpeg",
@@ -51,7 +69,7 @@ pub(super) fn open(
 		.create(&directory)
 		.map_err(|_| FAILED)?;
 	let temporary = Temporary(directory);
-	let result = convert(source, cancelled, executable, &temporary);
+	let result = convert(source, cancelled, executable, &temporary, stage);
 	fs::remove_dir_all(&temporary.0).map_err(
 		|_| "Temporary video cleanup failed; remove serein-video files from the system temporary folder",
 	)?;
@@ -63,6 +81,7 @@ fn convert(
 	cancelled: &AtomicBool,
 	executable: &str,
 	temporary: &Temporary,
+	stage: Viewport,
 ) -> Result<platform::video::Decoder, &'static str> {
 	let input = temporary.0.join("input");
 	let output = temporary.0.join("output.mp4");
@@ -93,20 +112,72 @@ fn convert(
 	// The fixed shell applies a hard 128 MiB file ceiling before replacing itself.
 	// FFmpeg's smaller soft ceiling leaves room for the final MP4 sample tables.
 	let mut child = Command::new("/bin/sh")
-		.args(["-c", "ulimit -f 131072 || exit 1; exec \"$@\"", "serein-video", executable])
-		.args(["-nostdin", "-hide_banner", "-loglevel", "error", "-max_alloc", "16777216",
-			"-threads", "2", "-protocol_whitelist", "file", "-format_whitelist", "mov,matroska,webm",
-			"-i"])
+		.args([
+			"-c",
+			"ulimit -f 131072 || exit 1; exec \"$@\"",
+			"serein-video",
+			executable,
+		])
+		.args([
+			"-nostdin",
+			"-hide_banner",
+			"-loglevel",
+			"error",
+			"-max_alloc",
+			"16777216",
+			"-threads",
+			"2",
+			"-protocol_whitelist",
+			"file",
+			"-format_whitelist",
+			"mov,matroska,webm",
+			"-i",
+		])
 		.arg(&input)
-		.args(["-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn", "-map_metadata", "-1",
-			"-filter_threads", "1", "-vf", "scale=w='max(2,min(1920,iw))':h='max(2,min(1080,ih))':force_original_aspect_ratio=decrease:force_divisible_by=2",
-			"-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
-			"-threads", "2", "-c:a", "aac", "-ac", "2", "-ar", "48000", "-fs", "104857600",
-			"-movflags", "+faststart", "-n"])
+		.args([
+			"-map",
+			"0:v:0",
+			"-map",
+			"0:a:0?",
+			"-sn",
+			"-dn",
+			"-map_metadata",
+			"-1",
+			"-filter_threads",
+			"1",
+			"-vf",
+		])
+		.arg(scale_filter(stage))
+		.args([
+			"-c:v",
+			"libx264",
+			"-preset",
+			"veryfast",
+			"-crf",
+			"23",
+			"-pix_fmt",
+			"yuv420p",
+			"-threads",
+			"2",
+			"-c:a",
+			"aac",
+			"-ac",
+			"2",
+			"-ar",
+			"48000",
+			"-fs",
+			"104857600",
+			"-movflags",
+			"+faststart",
+			"-n",
+		])
 		.arg(&output)
-		.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
+		.stdin(Stdio::null())
+		.stdout(Stdio::null())
+		.stderr(Stdio::null())
 		.env_clear()
-		.spawn().map_err(|_| FAILED)?;
+		.spawn()
+		.map_err(|_| FAILED)?;
 	let deadline = Instant::now() + Duration::from_secs(120);
 	let status = loop {
 		if cancelled.load(Ordering::Acquire) || Instant::now() >= deadline {
@@ -133,5 +204,5 @@ fn convert(
 		return Err("Converted video exceeds the 100 MiB preview limit");
 	}
 	// macOS keeps the open descriptor valid after unlink; no playback file is retained.
-	platform::video::Decoder::open(Box::new(file))
+	platform::video::Decoder::open(Box::new(file), stage)
 }

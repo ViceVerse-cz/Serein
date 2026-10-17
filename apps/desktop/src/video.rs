@@ -3,9 +3,13 @@
 mod fallback;
 mod output;
 mod source;
-use std::sync::{
-	Arc, Mutex,
-	atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+use platform::video::Viewport;
+use std::{
+	sync::{
+		Arc, Mutex,
+		atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+	},
+	time::{Duration, Instant},
 };
 use ui::{VideoCommand, VideoState, VideoUi};
 
@@ -21,19 +25,55 @@ struct Session {
 	paused: Arc<AtomicBool>,
 	volume: Arc<AtomicU32>,
 	seek: Arc<AtomicU64>,
+	view: AtomicU64,
 	update: Mutex<Update>,
 }
 impl Session {
-	fn new(volume: f32) -> Self {
+	fn new(volume: f32, view: Viewport) -> Self {
 		Self {
 			cancelled: Arc::new(AtomicBool::new(false)),
 			paused: Arc::new(AtomicBool::new(false)),
 			volume: Arc::new(AtomicU32::new(volume.to_bits())),
 			seek: Arc::new(AtomicU64::new(u64::MAX)),
+			view: AtomicU64::new(view.pack()),
 			update: Mutex::new(Update {
 				state: VideoState::Loading,
 				..Default::default()
 			}),
+		}
+	}
+	fn view(&self) -> Viewport {
+		Viewport::unpack(self.view.load(Ordering::Acquire)).unwrap_or(Viewport::POSTER)
+	}
+	fn set_view(&self, view: Viewport) {
+		self.view.store(view.pack(), Ordering::Release);
+	}
+}
+
+struct Resize {
+	applied: Viewport,
+	pending: Option<(Viewport, Instant)>,
+}
+const SETTLE: Duration = Duration::from_millis(150);
+impl Resize {
+	fn poll(&mut self, wanted: Viewport, now: Instant) -> Option<Viewport> {
+		if wanted == self.applied {
+			self.pending = None;
+			return None;
+		}
+		match self.pending {
+			Some((view, since)) if view == wanted => {
+				if now.duration_since(since) < SETTLE {
+					return None;
+				}
+				self.applied = wanted;
+				self.pending = None;
+				Some(wanted)
+			}
+			_ => {
+				self.pending = Some((wanted, now));
+				None
+			}
 		}
 	}
 }
@@ -113,6 +153,9 @@ impl Video {
 		let Some(session) = &self.session else {
 			return;
 		};
+		if let Some([width, height]) = player.stage_pixels() {
+			session.set_view(Viewport::from_pixels(width, height));
+		}
 		if let Ok(mut update) = session.update.try_lock() {
 			player.state = update.state;
 			player.position = update.position;
@@ -139,7 +182,13 @@ impl Video {
 			VideoCommand::Stop => self.stop(),
 			VideoCommand::Play(attachment) => {
 				self.stop();
-				if let Err(error) = self.start(attachment, player.volume, runtime, ctx, demo) {
+				let view = player
+					.stage_pixels()
+					.map_or(Viewport::POSTER, |[width, height]| {
+						Viewport::from_pixels(width, height)
+					});
+				if let Err(error) = self.start(attachment, player.volume, view, runtime, ctx, demo)
+				{
 					player.state = VideoState::Failed(error);
 				}
 			}
@@ -170,18 +219,19 @@ impl Video {
 		&mut self,
 		attachment: model::Attachment,
 		volume: f32,
+		view: Viewport,
 		runtime: &tokio::runtime::Handle,
 		ctx: &eframe::egui::Context,
 		demo: bool,
 	) -> Result<(), &'static str> {
-		if !attachment.is_video() || attachment.size == 0 || attachment.size > 100 * 1024 * 1024 {
-			return Err("Video preview limit: 100 MiB");
+		if !attachment.is_video() || attachment.size == 0 {
+			return Err("Video attachment unavailable");
 		}
 		let url = if demo {
 			None
 		} else {
 			Some(
-				crate::downloads::original_url(&attachment)
+				crate::downloads::cdn_original(&attachment)
 					.ok_or("Video attachment unavailable")?,
 			)
 		};
@@ -215,7 +265,7 @@ impl Video {
 		if requests.is_closed() {
 			return Err("Video worker stopped; restart Serein");
 		}
-		let session = Arc::new(Session::new(volume));
+		let session = Arc::new(Session::new(volume, view));
 		requests.send_replace(Some(Request {
 			session: session.clone(),
 			url,
@@ -254,14 +304,14 @@ impl Video {
 		demo: bool,
 	) {
 		let id = attachment.id;
-		if attachment.size == 0 || attachment.size > 100 * 1024 * 1024 {
+		if attachment.size == 0 {
 			player.poster_failed(id);
 			return;
 		}
 		let url = if demo {
 			None
 		} else {
-			match crate::downloads::original_url(&attachment) {
+			match crate::downloads::cdn_original(&attachment) {
 				Some(url) => Some(url),
 				None => {
 					player.poster_failed(id);
@@ -332,14 +382,9 @@ impl Video {
 	}
 }
 
-/// Opens the attachment and returns its first decoded video frame, downscaled for
-/// a light poster; bounded reads only.
 fn decode_poster(job: &PosterJob, runtime: &tokio::runtime::Handle) -> Option<(u32, u32, Vec<u8>)> {
 	use platform::video::Sample;
-	use std::{
-		task::Poll::Ready,
-		time::{Duration, Instant},
-	};
+	use std::task::Poll::Ready;
 	let source = source::source(
 		job.url.clone(),
 		job.size,
@@ -347,7 +392,7 @@ fn decode_poster(job: &PosterJob, runtime: &tokio::runtime::Handle) -> Option<(u
 		runtime.clone(),
 	)
 	.ok()?;
-	let mut decoder = platform::video::Decoder::open(source).ok()?;
+	let mut decoder = platform::video::Decoder::open(source, Viewport::POSTER).ok()?;
 	// Backends that signal `Pending` (Linux GStreamer) need waiting, not a poll
 	// count: give the first frame a bounded ten seconds, then mark it failed.
 	let deadline = Instant::now() + Duration::from_secs(10);
@@ -357,10 +402,7 @@ fn decode_poster(job: &PosterJob, runtime: &tokio::runtime::Handle) -> Option<(u
 		}
 		match decoder.poll_video().ok()? {
 			// Posters are converted once on the CPU, then cached as ordinary textures.
-			Ready(Some(Sample::Video { picture, .. })) => {
-				let (width, height, rgba) = picture.to_rgba()?;
-				return Some(downscale_poster(width, height, rgba));
-			}
+			Ready(Some(Sample::Video { picture, .. })) => return picture.to_rgba(),
 			Ready(None) => return None,
 			Ready(Some(_)) => {}
 			std::task::Poll::Pending => {
@@ -377,47 +419,6 @@ fn decode_poster(job: &PosterJob, runtime: &tokio::runtime::Handle) -> Option<(u
 	}
 }
 
-/// Longest poster edge in pixels; a 1080p frame shrinks ~10x before caching.
-const POSTER_EDGE: u32 = 320;
-
-/// Area-average downscale to [`POSTER_EDGE`]; small frames pass through untouched.
-fn downscale_poster(width: u32, height: u32, rgba: Vec<u8>) -> (u32, u32, Vec<u8>) {
-	let edge = width.max(height);
-	if edge <= POSTER_EDGE
-		|| width == 0
-		|| height == 0
-		|| rgba.len() != width as usize * height as usize * 4
-	{
-		return (width, height, rgba);
-	}
-	let out_width = (u64::from(width) * u64::from(POSTER_EDGE) / u64::from(edge)).max(1) as u32;
-	let out_height = (u64::from(height) * u64::from(POSTER_EDGE) / u64::from(edge)).max(1) as u32;
-	let mut out = vec![0; out_width as usize * out_height as usize * 4];
-	for y in 0..out_height {
-		let y0 = y * height / out_height;
-		let y1 = ((y + 1) * height / out_height).max(y0 + 1);
-		for x in 0..out_width {
-			let x0 = x * width / out_width;
-			let x1 = ((x + 1) * width / out_width).max(x0 + 1);
-			let mut sum = [0_u64; 4];
-			let mut count = 0_u64;
-			for sy in y0..y1 {
-				for sx in x0..x1 {
-					let pixel = &rgba[(sy as usize * width as usize + sx as usize) * 4..][..4];
-					for (acc, byte) in sum.iter_mut().zip(pixel) {
-						*acc += u64::from(*byte);
-					}
-					count += 1;
-				}
-			}
-			let pixel = &mut out[(y as usize * out_width as usize + x as usize) * 4..][..4];
-			for (slot, acc) in pixel.iter_mut().zip(sum) {
-				*slot = (acc / count) as u8;
-			}
-		}
-	}
-	(out_width, out_height, out)
-}
 impl Drop for Video {
 	fn drop(&mut self) {
 		self.stop();
@@ -437,7 +438,9 @@ fn play(
 		session.cancelled.clone(),
 		runtime.clone(),
 	)?;
-	let result = Decoder::open(source).and_then(|decoder| play_decoded(decoder, session, ctx));
+	let view = session.view();
+	let result =
+		Decoder::open(source, view).and_then(|decoder| play_decoded(decoder, view, session, ctx));
 	#[cfg(target_os = "macos")]
 	let result = match result {
 		Err(error) if fallback::eligible(error) && !session.cancelled.load(Ordering::Acquire) => {
@@ -457,7 +460,8 @@ fn play(
 				session.cancelled.clone(),
 				runtime.clone(),
 			)?;
-			let decoder = fallback::open(source, &session.cancelled)?;
+			let view = session.view();
+			let decoder = fallback::open(source, &session.cancelled, view)?;
 			// A seek made during conversion takes precedence over automatic resumption.
 			let _ = session.seek.compare_exchange(
 				u64::MAX,
@@ -465,7 +469,7 @@ fn play(
 				Ordering::AcqRel,
 				Ordering::Acquire,
 			);
-			play_decoded(decoder, session, ctx)
+			play_decoded(decoder, view, session, ctx)
 		}
 		result => result,
 	};
@@ -478,6 +482,7 @@ fn play(
 
 fn play_decoded(
 	mut decoder: platform::video::Decoder,
+	opened_view: Viewport,
 	session: &Session,
 	ctx: &eframe::egui::Context,
 ) -> Result<(), &'static str> {
@@ -485,9 +490,12 @@ fn play_decoded(
 	use std::{
 		collections::VecDeque,
 		task::Poll::{Pending, Ready},
-		time::{Duration, Instant},
 	};
 	let info = decoder.info();
+	let mut resize = Resize {
+		applied: opened_view,
+		pending: None,
+	};
 	let mut target = 0.;
 	let mut seeking = false;
 	'seek: loop {
@@ -549,6 +557,9 @@ fn play_decoded(
 				return Err("Video audio output stopped");
 			}
 			let now = Instant::now();
+			if let Some(view) = resize.poll(session.view(), now) {
+				decoder.resize(view);
+			}
 			let elapsed = now.duration_since(last_tick).as_secs_f64();
 			last_tick = now;
 			let paused = session.paused.load(Ordering::Acquire);
@@ -660,8 +671,6 @@ fn play_decoded(
 					_ => return Err("Unexpected video audio track"),
 				}
 			}
-			// Two frames ahead (<=6 MiB as 1080p NV12, 16 MiB as RGBA), plus one bounded
-			// audio packet and one second of PCM.
 			if !video_ended && frames.len() < 2 {
 				let read_started = Instant::now();
 				let sample = decoder.poll_video()?;
@@ -701,20 +710,28 @@ fn play_decoded(
 #[cfg(all(test, feature = "demo"))]
 mod tests {
 	use super::*;
-	use std::time::{Duration, Instant};
+
+	fn full() -> Viewport {
+		Viewport::from_pixels(8192.0, 8192.0)
+	}
 	/// Synthetic local clip only; zero-volume output, no account or microphone access.
 	#[test]
 	#[ignore = "SEREIN_VIDEO_SAMPLE supplies an offline clip; opens muted local output"]
 	fn local_video_keeps_up_with_realtime() {
 		let path = std::env::var("SEREIN_VIDEO_SAMPLE").expect("SEREIN_VIDEO_SAMPLE path");
-		assert!(std::fs::metadata(&path).unwrap().len() <= 100 * 1024 * 1024);
 		let bytes = std::fs::read(path).unwrap();
-		let session = Arc::new(Session::new(0.));
+		let session = Arc::new(Session::new(0., full()));
 		let worker_session = session.clone();
 		let started = Instant::now();
 		let thread = std::thread::spawn(move || {
-			let decoder = platform::video::Decoder::open(Box::new(std::io::Cursor::new(bytes)))?;
-			play_decoded(decoder, &worker_session, &eframe::egui::Context::default())
+			let decoder =
+				platform::video::Decoder::open(Box::new(std::io::Cursor::new(bytes)), full())?;
+			play_decoded(
+				decoder,
+				full(),
+				&worker_session,
+				&eframe::egui::Context::default(),
+			)
 		});
 		while !thread.is_finished() {
 			let update = session.update.lock().unwrap();
@@ -742,7 +759,7 @@ mod tests {
 	#[ignore = "opens the local audio output device at zero volume; explicit offline playback check"]
 	fn inline_video_plays_pauses_seeks_and_cancels() {
 		let runtime = tokio::runtime::Runtime::new().unwrap();
-		let session = Arc::new(Session::new(0.));
+		let session = Arc::new(Session::new(0., full()));
 		let request = Request {
 			session: session.clone(),
 			url: None,
@@ -790,12 +807,18 @@ mod tests {
 			include_bytes!("../tests/fixtures/video-silent.mov").as_slice(),
 			include_bytes!("../tests/fixtures/video-short-audio.mov").as_slice(),
 		] {
-			let session = Arc::new(Session::new(0.));
+			let session = Arc::new(Session::new(0., full()));
 			let worker_session = session.clone();
 			let thread = std::thread::spawn(move || {
 				let decoder =
-					platform::video::Decoder::open(Box::new(std::io::Cursor::new(bytes))).unwrap();
-				play_decoded(decoder, &worker_session, &eframe::egui::Context::default())
+					platform::video::Decoder::open(Box::new(std::io::Cursor::new(bytes)), full())
+						.unwrap();
+				play_decoded(
+					decoder,
+					full(),
+					&worker_session,
+					&eframe::egui::Context::default(),
+				)
 			});
 			let start = Instant::now();
 			while !thread.is_finished() {
@@ -809,31 +832,5 @@ mod tests {
 			assert_eq!(session.update.lock().unwrap().state, VideoState::Ended);
 			assert!(session.update.lock().unwrap().position > 2.8);
 		}
-	}
-}
-
-#[cfg(test)]
-mod poster_tests {
-	use super::*;
-	/// Small frames pass through untouched; large ones shrink to the poster edge averaged.
-	#[test]
-	fn downscale_shrinks_and_averages() {
-		// 4x2 gradient: left half black, right half white.
-		let mut rgba = vec![0; 4 * 2 * 4];
-		for pixel in rgba.as_chunks_mut::<4>().0.iter_mut().skip(4) {
-			pixel.copy_from_slice(&[255, 255, 255, 255]);
-		}
-		let (width, height, small) = downscale_poster(4, 2, rgba);
-		assert_eq!((width, height, small.len()), (4, 2, 4 * 2 * 4));
-		// A 640x480 frame lands on a 320px edge with averaged texels.
-		let wide = vec![128; 640 * 480 * 4];
-		let (width, height, small) = downscale_poster(640, 480, wide);
-		assert_eq!((width, height), (320, 240));
-		assert_eq!(small.len(), 320 * 240 * 4);
-		assert!(small.iter().all(|&byte| byte == 128));
-		let tall = vec![64; 720 * 1280 * 4];
-		let (width, height, small) = downscale_poster(720, 1280, tall);
-		assert_eq!((width, height), (180, 320));
-		assert_eq!(small.len(), 180 * 320 * 4);
 	}
 }

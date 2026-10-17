@@ -300,6 +300,9 @@ impl VideoTexture {
 		match CONVERTER.get() {
 			Some(converter) => self.upload_gpu(converter, name, &picture),
 			None => {
+				if Layout::Rgba.len(width, height)? > platform::video::MAX_BYTES {
+					return None;
+				}
 				let (width, height, rgba) = picture.to_rgba()?;
 				let image = egui::ColorImage::from_rgba_premultiplied(
 					[width as usize, height as usize],

@@ -2,10 +2,14 @@
 //! Run: cargo run --locked -p serein --example video_orientation
 #[cfg(target_os = "windows")]
 fn main() {
-	use platform::video::{Decoder, Sample};
+	use platform::video::{Decoder, Sample, Viewport};
 	let original = include_bytes!("../tests/fixtures/video.mov");
 	let decode = |bytes: Vec<u8>| {
-		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(bytes))).unwrap();
+		let mut decoder = Decoder::open(
+			Box::new(std::io::Cursor::new(bytes)),
+			Viewport::from_pixels(8192.0, 8192.0),
+		)
+		.unwrap();
 		let Some(Sample::Video { picture, .. }) = decoder.read_video().unwrap() else {
 			panic!("Missing synthetic video frame");
 		};

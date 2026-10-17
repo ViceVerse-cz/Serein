@@ -365,9 +365,10 @@ WebM, MOV and MP4 codecs unavailable in the native inline decoder can use an ins
 FFmpeg from `/opt/homebrew/bin`, `/usr/local/bin`, or `/usr/bin`. Nothing is installed
 automatically. The helper must include H.264 (`libx264`) and AAC encoding; converted
 video plays through the existing native controls. Conversion may take up to two
-minutes before playback and is limited to 100 MiB input/output, 1080p and two hours.
+minutes before playback and is limited to 100 MiB input/output, two hours, and output
+scaled into the current stage within 1920 pixels per side and 1920×1080 total pixels.
 Native format failures during opening or playback retry conversion once, resuming at
-the last displayed position. Sources above the native 1080p limit also use this
+the last displayed position. Sources above the native 8K limit also use this
 bounded downscaling path. AAC track timestamps need not use the audio sample rate
 as their timescale. Missing FFmpeg or conversion failures appear in the video card. Linux and Windows
 continue to use their installed native codecs. This optional fallback is not bundled

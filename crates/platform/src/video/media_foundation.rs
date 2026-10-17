@@ -36,7 +36,10 @@ const ALL: u32 = MF_SOURCE_READER_ALL_STREAMS.0 as u32;
 const UNSUPPORTED: &str = "This video format or codec is not supported by Windows.";
 const INVALID: &str = "The video could not be decoded safely.";
 
-use super::{Color, Info, Layout, Picture, ReadSeek, Sample};
+use super::{
+	Color, FramePolicy, Info, Layout, Matrix, OutputSize, Picture, ReadSeek, Sample, Viewport,
+	check_source, picture::pack_plane,
+};
 
 // Keep the reader and byte stream ahead of Runtime: COM objects must be released
 // before MFShutdown/CoUninitialize. Rc also makes this actor thread-affine.
@@ -51,12 +54,12 @@ pub struct Decoder {
 	audio_index: Option<u32>,
 	video_done: bool,
 	audio_done: bool,
-	width: u32,
-	height: u32,
-	stride: i32,
-	buffer_height: u32,
-	crop: (u32, u32),
+	coded: (u32, u32),
 	rotation: u32,
+	policy: FramePolicy,
+	output: OutputSize,
+	color: Color,
+	video: VideoType,
 }
 
 /// A negotiated reader before the decoder takes ownership.
@@ -66,10 +69,20 @@ struct Parts {
 	info: Info,
 	video_index: u32,
 	audio_index: Option<u32>,
-	width: u32,
-	height: u32,
-	stride: i32,
+	coded: (u32, u32),
 	rotation: u32,
+	policy: FramePolicy,
+	output: OutputSize,
+	color: Color,
+	video: VideoType,
+}
+
+#[derive(Clone, Copy)]
+struct VideoType {
+	color: Color,
+	pitch: usize,
+	buffer_height: u32,
+	crop: (u32, u32),
 }
 
 /// A D3D11 video device wrapped in a DXGI device manager, the handle Media Foundation needs
@@ -129,7 +142,7 @@ impl Drop for Runtime {
 }
 
 impl Decoder {
-	pub fn open(mut source: Box<dyn ReadSeek>) -> Result<Self, &'static str> {
+	pub fn open(mut source: Box<dyn ReadSeek>, viewport: Viewport) -> Result<Self, &'static str> {
 		let length = source.seek(SeekFrom::End(0)).map_err(|_| INVALID)?;
 		source.seek(SeekFrom::Start(0)).map_err(|_| INVALID)?;
 		let mut header = [0_u8; 8];
@@ -167,33 +180,33 @@ impl Decoder {
 				.as_ref()
 				.filter(|_| accelerated)
 				.map(|(_, manager)| manager);
-			match Self::configure(&stream, manager) {
-				Ok(parts) => {
-					let (device, manager) = match (accelerated, hardware.take()) {
-						(true, Some((device, manager))) => (Some(device), Some(manager)),
-						_ => (None, None),
-					};
-					return Ok(Self {
-						reader: parts.reader,
-						_stream: parts.stream,
-						_manager: manager,
-						_device: device,
-						_runtime: runtime,
-						info: parts.info,
-						video_index: parts.video_index,
-						audio_index: parts.audio_index,
-						video_done: false,
-						audio_done: parts.audio_index.is_none(),
-						width: parts.width,
-						height: parts.height,
-						stride: parts.stride,
-						buffer_height: parts.height,
-						crop: (0, 0),
-						rotation: parts.rotation,
-					});
+			let parts = match Self::configure(&stream, manager, viewport) {
+				Ok(parts) => parts,
+				Err(failure) => {
+					error = failure;
+					continue;
 				}
-				Err(failure) => error = failure,
-			}
+			};
+			let hardware = if accelerated { hardware.take() } else { None };
+			let (device, manager) = hardware.unzip();
+			return Ok(Self {
+				reader: parts.reader,
+				_stream: parts.stream,
+				_manager: manager,
+				_device: device,
+				_runtime: runtime,
+				info: parts.info,
+				video_index: parts.video_index,
+				audio_index: parts.audio_index,
+				video_done: false,
+				audio_done: parts.audio_index.is_none(),
+				coded: parts.coded,
+				rotation: parts.rotation,
+				policy: parts.policy,
+				output: parts.output,
+				color: parts.color,
+				video: parts.video,
+			});
 		}
 		Err(error)
 	}
@@ -201,6 +214,7 @@ impl Decoder {
 	fn configure(
 		source: &IStream,
 		manager: Option<&IMFDXGIDeviceManager>,
+		viewport: Viewport,
 	) -> Result<Parts, &'static str> {
 		// SAFETY: COM inputs remain live; out parameters are initialized. The OS
 		// wrapper implements asynchronous IMFByteStream reads around our synchronized IStream.
@@ -209,19 +223,17 @@ impl Decoder {
 			let mut attributes = None;
 			MFCreateAttributes(&mut attributes, 3).map_err(|_| UNSUPPORTED)?;
 			let attributes = attributes.ok_or(INVALID)?;
+			// Advanced processing is the documented source-reader mode that resizes; the basic
+			// mode only converts to RGB32.
+			attributes
+				.SetUINT32(&MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, 1)
+				.map_err(|_| UNSUPPORTED)?;
 			if let Some(manager) = manager {
 				attributes
 					.SetUINT32(&MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1)
 					.map_err(|_| UNSUPPORTED)?;
 				attributes
-					.SetUINT32(&MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, 1)
-					.map_err(|_| UNSUPPORTED)?;
-				attributes
 					.SetUnknown(&MF_SOURCE_READER_D3D_MANAGER, manager)
-					.map_err(|_| UNSUPPORTED)?;
-			} else {
-				attributes
-					.SetUINT32(&MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, 1)
 					.map_err(|_| UNSUPPORTED)?;
 			}
 			let reader = MFCreateSourceReaderFromByteStream(&stream, &attributes)
@@ -230,11 +242,20 @@ impl Decoder {
 			let native = reader
 				.GetNativeMediaType(VIDEO, 0)
 				.map_err(|_| UNSUPPORTED)?;
-			let (width, height) = dimensions(&native)?;
+			let (width, height) = frame_size(&native)?;
+			check_source(width, height)?;
 			let rotation = native.GetUINT32(&MF_MT_VIDEO_ROTATION).unwrap_or(0);
 			if !matches!(rotation, 0 | 90 | 180 | 270) {
 				return Err(UNSUPPORTED);
 			}
+			let policy = FramePolicy::Attachment {
+				source_height: height,
+			};
+			let full_range = nominal_range(&native).unwrap_or(false);
+			let color = match matrix_tag(&native) {
+				Some(matrix) => Color { matrix, full_range },
+				None => policy.untagged(height, full_range),
+			};
 			let mut video_index = None;
 			let mut audio_index = None;
 			for index in 0..32 {
@@ -254,64 +275,13 @@ impl Decoder {
 				}
 			}
 			let video_index = video_index.ok_or(UNSUPPORTED)?;
-			let video = MFCreateMediaType().map_err(|_| INVALID)?;
-			video
-				.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)
-				.map_err(|_| INVALID)?;
-			video
-				.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32)
-				.map_err(|_| INVALID)?;
-			video
-				.SetUINT64(
-					&MF_MT_FRAME_SIZE,
-					(u64::from(width) << 32) | u64::from(height),
-				)
-				.map_err(|_| INVALID)?;
-			reader
-				.SetCurrentMediaType(VIDEO, None, &video)
-				.map_err(|_| UNSUPPORTED)?;
-			if manager.is_some() && rotation != 0 {
-				// Apply track rotation once in rgba_frame, without the GPU processor also
-				// correcting it. If its control is unavailable, use the software reader.
-				let extended = reader
-					.cast::<IMFSourceReaderEx>()
-					.map_err(|_| UNSUPPORTED)?;
-				let mut configured = false;
-				for index in 0..8 {
-					let mut transform = None;
-					if extended
-						.GetTransformForStream(VIDEO, index, None, &mut transform)
-						.is_err()
-					{
-						break;
-					}
-					if let Some(transform) = transform
-						&& let Ok(control) = transform.cast::<IMFVideoProcessorControl>()
-					{
-						control
-							.SetRotation(ROTATION_NONE)
-							.map_err(|_| UNSUPPORTED)?;
-						configured = true;
-						break;
-					}
-				}
-				if !configured {
-					return Err(UNSUPPORTED);
-				}
-			}
+			let output = OutputSize::fit((width, height), rotation, viewport);
+			set_output(&reader, output, color, rotation)?;
 			reader
 				.SetStreamSelection(video_index, true)
 				.map_err(|_| INVALID)?;
 			let video = reader.GetCurrentMediaType(VIDEO).map_err(|_| INVALID)?;
-			if dimensions(&video)? != (width, height) {
-				return Err(INVALID);
-			}
-			let stride = video
-				.GetUINT32(&MF_MT_DEFAULT_STRIDE)
-				.map(|x| x as i32)
-				.or_else(|_| MFGetStrideForBitmapInfoHeader(MFVideoFormat_RGB32.data1, width))
-				.map_err(|_| INVALID)?;
-			validate_stride(width, height, stride)?;
+			let video = video_type(&video, output, color)?;
 			let mut sample_rate = 0;
 			let mut channels = 0;
 			if let Some(index) = audio_index {
@@ -383,12 +353,34 @@ impl Decoder {
 				},
 				video_index,
 				audio_index,
-				width,
-				height,
-				stride,
+				coded: (width, height),
 				rotation,
+				policy,
+				output,
+				color,
+				video,
 			})
 		}
+	}
+
+	/// Later pictures fit `viewport`; if the reader refuses, the previous size stays.
+	pub fn resize(&mut self, viewport: Viewport) {
+		let next = OutputSize::fit(self.coded, self.rotation, viewport);
+		if next == self.output {
+			return;
+		}
+		if self.apply_output(next).is_err() {
+			let _ = self.apply_output(self.output);
+		}
+	}
+
+	fn apply_output(&mut self, output: OutputSize) -> Result<(), &'static str> {
+		set_output(&self.reader, output, self.color, self.rotation)?;
+		// SAFETY: Reading the live reader's negotiated type on its owner thread.
+		let media = unsafe { self.reader.GetCurrentMediaType(VIDEO) }.map_err(|_| INVALID)?;
+		self.video = video_type(&media, output, self.color)?;
+		self.output = output;
+		Ok(())
 	}
 
 	pub fn info(&self) -> Info {
@@ -466,26 +458,7 @@ impl Decoder {
 						.GetCurrentMediaType(index)
 						.map_err(|_| INVALID)?;
 					if index == self.video_index {
-						if media.GetGUID(&MF_MT_SUBTYPE).map_err(|_| INVALID)?
-							!= MFVideoFormat_RGB32
-						{
-							return Err(INVALID);
-						}
-						let (buffer_width, buffer_height, crop) =
-							output_aperture(&media, self.width, self.height)?;
-						self.buffer_height = buffer_height;
-						self.crop = crop;
-						self.stride = media
-							.GetUINT32(&MF_MT_DEFAULT_STRIDE)
-							.map(|x| x as i32)
-							.or_else(|_| {
-								MFGetStrideForBitmapInfoHeader(
-									MFVideoFormat_RGB32.data1,
-									buffer_width,
-								)
-							})
-							.map_err(|_| INVALID)?;
-						validate_stride(buffer_width, buffer_height, self.stride)?;
+						self.video = video_type(&media, self.output, self.color)?;
 					} else if Some(index) == self.audio_index
 						&& (media.GetGUID(&MF_MT_SUBTYPE).map_err(|_| INVALID)?
 							!= MFAudioFormat_Float
@@ -516,18 +489,9 @@ impl Decoder {
 				return Err(INVALID);
 			}
 			if index == self.video_index {
-				// The RGB32 reader already converted colour and applied rotation.
-				let rgba = self.video_frame(&sample)?;
 				return Ok(Some(Sample::Video {
 					pts,
-					picture: Picture {
-						width: self.info.width,
-						height: self.info.height,
-						layout: Layout::Rgba,
-						color: Color::WEBRTC,
-						rotation: 0,
-						data: rgba,
-					},
+					picture: self.video_frame(&sample)?,
 				}));
 			}
 			if Some(index) == self.audio_index {
@@ -563,89 +527,201 @@ impl Decoder {
 		Err(INVALID)
 	}
 
-	fn video_frame(&self, sample: &IMFSample) -> Result<Vec<u8>, &'static str> {
-		let convert = |bytes: &[u8], stride| {
-			rgba_frame(
-				bytes,
-				self.width,
-				self.height,
-				stride,
-				self.rotation,
-				self.buffer_height,
-				self.crop,
-			)
-		};
+	fn video_frame(&self, sample: &IMFSample) -> Result<Picture, &'static str> {
+		let size = (self.output.width(), self.output.height());
+		self.policy.check(size.0, size.1)?;
+		let video = self.video;
 		// The media type's default stride describes a linear buffer, not necessarily the
-		// GPU surface. Read the actual top scanline/pitch so DXVA cannot flip the picture.
+		// GPU surface. Read the actual top scanline/pitch so DXVA cannot misplace the planes.
 		// SAFETY: Lock2DSize supplies the accessible allocation; validate every offset and
-		// length before borrowing it, then release the read-only lock after conversion.
-		unsafe {
+		// length before borrowing it, then release the read-only lock after the copy.
+		let data = unsafe {
 			if sample.GetTotalLength().map_err(|_| INVALID)? as usize > MAX_BYTES {
 				return Err(INVALID);
 			}
 			let buffer = sample.ConvertToContiguousBuffer().map_err(|_| INVALID)?;
-			if let Ok(surface) = buffer.cast::<IMF2DBuffer2>() {
-				let mut top = std::ptr::null_mut();
-				let mut start = std::ptr::null_mut();
-				let mut stride = 0;
-				let mut length = 0;
-				surface
-					.Lock2DSize(
-						MF2DBuffer_LockFlags_Read,
-						&mut top,
-						&mut stride,
-						&mut start,
-						&mut length,
-					)
-					.map_err(|_| INVALID)?;
-				let result = (|| {
-					if start.is_null() || top.is_null() || length as usize > MAX_BYTES {
-						return Err(INVALID);
-					}
-					let pitch =
-						validate_stride(self.width + self.crop.0, self.buffer_height, stride)?;
-					let top_offset = (top as usize).checked_sub(start as usize).ok_or(INVALID)?;
-					let bottom_up_offset = if stride < 0 {
-						pitch * (self.buffer_height as usize - 1)
-					} else {
-						0
-					};
-					let first = top_offset.checked_sub(bottom_up_offset).ok_or(INVALID)?;
-					let size = pitch * self.buffer_height as usize;
-					if first
-						.checked_add(size)
-						.is_none_or(|end| end > length as usize)
-					{
-						return Err(INVALID);
-					}
-					convert(std::slice::from_raw_parts(start.add(first), size), stride)
-				})();
-				surface.Unlock2D().map_err(|_| INVALID)?;
-				return result;
+			match buffer.cast::<IMF2DBuffer2>() {
+				Ok(surface) => {
+					let mut top = std::ptr::null_mut();
+					let mut start = std::ptr::null_mut();
+					let mut stride = 0;
+					let mut length = 0;
+					surface
+						.Lock2DSize(
+							MF2DBuffer_LockFlags_Read,
+							&mut top,
+							&mut stride,
+							&mut start,
+							&mut length,
+						)
+						.map_err(|_| INVALID)?;
+					let result = (|| {
+						if start.is_null() || top.is_null() || length as usize > MAX_BYTES {
+							return Err(INVALID);
+						}
+						let pitch =
+							validate_stride(size.0 + video.crop.0, video.buffer_height, stride)?;
+						let first = (top as usize).checked_sub(start as usize).ok_or(INVALID)?;
+						let available = (length as usize).checked_sub(first).ok_or(INVALID)?;
+						let bytes = std::slice::from_raw_parts(start.add(first), available);
+						pack_nv12(bytes, pitch, video.buffer_height, video.crop, size)
+					})();
+					surface.Unlock2D().map_err(|_| INVALID)?;
+					result?
+				}
+				Err(_) => pack_nv12(
+					&sample_bytes(sample)?,
+					video.pitch,
+					video.buffer_height,
+					video.crop,
+					size,
+				)?,
 			}
-		}
-		convert(&sample_bytes(sample)?, self.stride)
+		};
+		let picture = Picture {
+			width: size.0,
+			height: size.1,
+			layout: Layout::Nv12,
+			color: video.color,
+			rotation: self.rotation as u16,
+			data,
+		};
+		picture.is_valid().then_some(picture).ok_or(INVALID)
 	}
 }
 
-fn dimensions(media: &IMFMediaType) -> Result<(u32, u32), &'static str> {
+fn set_output(
+	reader: &IMFSourceReader,
+	output: OutputSize,
+	color: Color,
+	rotation: u32,
+) -> Result<(), &'static str> {
+	let matrix = match color.matrix {
+		Matrix::Bt601 => MFVideoTransferMatrix_BT601,
+		Matrix::Bt709 => MFVideoTransferMatrix_BT709,
+		Matrix::Bt2020 => MFVideoTransferMatrix_BT2020_10,
+		Matrix::Smpte240m => MFVideoTransferMatrix_SMPTE240M,
+	};
+	let range = if color.full_range {
+		MFNominalRange_0_255
+	} else {
+		MFNominalRange_16_235
+	};
+	// SAFETY: COM calls on the reader's owner thread with a media type we own.
+	unsafe {
+		let video = MFCreateMediaType().map_err(|_| INVALID)?;
+		video
+			.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)
+			.map_err(|_| INVALID)?;
+		video
+			.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_NV12)
+			.map_err(|_| INVALID)?;
+		video
+			.SetUINT64(
+				&MF_MT_FRAME_SIZE,
+				(u64::from(output.width()) << 32) | u64::from(output.height()),
+			)
+			.map_err(|_| INVALID)?;
+		video
+			.SetUINT32(&MF_MT_YUV_MATRIX, matrix.0 as u32)
+			.map_err(|_| INVALID)?;
+		video
+			.SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, range.0 as u32)
+			.map_err(|_| INVALID)?;
+		reader
+			.SetCurrentMediaType(VIDEO, None, &video)
+			.map_err(|_| UNSUPPORTED)?;
+		if rotation == 0 {
+			return Ok(());
+		}
+		// A processor inserted for scaling would otherwise also apply the track rotation.
+		// Without one, nothing rotates the planes.
+		let extended = reader
+			.cast::<IMFSourceReaderEx>()
+			.map_err(|_| UNSUPPORTED)?;
+		for index in 0..8 {
+			let mut transform = None;
+			if extended
+				.GetTransformForStream(VIDEO, index, None, &mut transform)
+				.is_err()
+			{
+				break;
+			}
+			if let Some(transform) = transform
+				&& let Ok(control) = transform.cast::<IMFVideoProcessorControl>()
+			{
+				return control.SetRotation(ROTATION_NONE).map_err(|_| UNSUPPORTED);
+			}
+		}
+		Ok(())
+	}
+}
+
+fn video_type(
+	media: &IMFMediaType,
+	output: OutputSize,
+	requested: Color,
+) -> Result<VideoType, &'static str> {
+	// SAFETY: Reading attributes from a live media type.
+	unsafe {
+		if media.GetGUID(&MF_MT_SUBTYPE).map_err(|_| INVALID)? != MFVideoFormat_NV12 {
+			return Err(INVALID);
+		}
+		let (buffer_width, buffer_height, crop) =
+			output_aperture(media, output.width(), output.height())?;
+		let stride = media
+			.GetUINT32(&MF_MT_DEFAULT_STRIDE)
+			.map(|x| x as i32)
+			.or_else(|_| MFGetStrideForBitmapInfoHeader(MFVideoFormat_NV12.data1, buffer_width))
+			.map_err(|_| INVALID)?;
+		Ok(VideoType {
+			color: Color {
+				matrix: matrix_tag(media).unwrap_or(requested.matrix),
+				full_range: nominal_range(media).unwrap_or(requested.full_range),
+			},
+			pitch: validate_stride(buffer_width, buffer_height, stride)?,
+			buffer_height,
+			crop,
+		})
+	}
+}
+
+fn matrix_tag(media: &IMFMediaType) -> Option<Matrix> {
+	// SAFETY: Reading an integer attribute from a live media type.
+	let value = unsafe { media.GetUINT32(&MF_MT_YUV_MATRIX) }.ok()? as i32;
+	[
+		(MFVideoTransferMatrix_BT709, Matrix::Bt709),
+		(MFVideoTransferMatrix_BT601, Matrix::Bt601),
+		(MFVideoTransferMatrix_SMPTE240M, Matrix::Smpte240m),
+		(MFVideoTransferMatrix_BT2020_10, Matrix::Bt2020),
+		(MFVideoTransferMatrix_BT2020_12, Matrix::Bt2020),
+	]
+	.into_iter()
+	.find_map(|(tag, matrix)| (tag.0 == value).then_some(matrix))
+}
+
+fn nominal_range(media: &IMFMediaType) -> Option<bool> {
+	// SAFETY: Reading an integer attribute from a live media type.
+	let value = unsafe { media.GetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE) }.ok()? as i32;
+	if value == MFNominalRange_0_255.0 {
+		Some(true)
+	} else if value == MFNominalRange_16_235.0 {
+		Some(false)
+	} else {
+		None
+	}
+}
+
+fn frame_size(media: &IMFMediaType) -> Result<(u32, u32), &'static str> {
 	// SAFETY: Reading an integer attribute from a live media type.
 	let size = unsafe { media.GetUINT64(&MF_MT_FRAME_SIZE) }.map_err(|_| INVALID)?;
-	let (width, height) = ((size >> 32) as u32, size as u32);
-	if width == 0
-		|| height == 0
-		|| width > 1920
-		|| height > 1920
-		|| u64::from(width) * u64::from(height) > 1920 * 1080
-	{
-		return Err("Inline playback supports videos up to 1080p.");
-	}
-	Ok((width, height))
+	Ok(((size >> 32) as u32, size as u32))
 }
 
 fn validate_stride(width: u32, height: u32, stride: i32) -> Result<usize, &'static str> {
-	let pitch = stride.unsigned_abs() as usize;
-	if pitch < width as usize * 4 || pitch > MAX_BYTES / height as usize {
+	let pitch = usize::try_from(stride).map_err(|_| INVALID)?;
+	let rows = height as usize + (height as usize).div_ceil(2);
+	if pitch < width as usize || rows == 0 || pitch > MAX_BYTES / rows {
 		return Err(INVALID);
 	}
 	Ok(pitch)
@@ -696,50 +772,34 @@ fn output_aperture(
 	}
 }
 
-fn rgba_frame(
+fn pack_nv12(
 	bytes: &[u8],
-	width: u32,
-	height: u32,
-	stride: i32,
-	rotation: u32,
+	pitch: usize,
 	buffer_height: u32,
 	crop: (u32, u32),
+	(width, height): (u32, u32),
 ) -> Result<Vec<u8>, &'static str> {
-	let pitch = validate_stride(width + crop.0, buffer_height, stride)?;
-	if bytes.len() < pitch * buffer_height as usize || crop.1 + height > buffer_height {
+	let (x, y) = (crop.0 as usize, crop.1 as usize);
+	let (w, h, rows) = (width as usize, height as usize, buffer_height as usize);
+	let chroma_row = w.div_ceil(2) * 2;
+	if !x.is_multiple_of(2) || !y.is_multiple_of(2) || x + chroma_row > pitch || y + h > rows {
 		return Err(INVALID);
 	}
-	let (w, h) = (width as usize, height as usize);
-	let out_width = if rotation == 90 || rotation == 270 {
-		h
-	} else {
-		w
-	};
-	let mut rgba = vec![0; w * h * 4];
-	for y in 0..h {
-		let row = if stride < 0 {
-			buffer_height as usize - 1 - y - crop.1 as usize
-		} else {
-			y + crop.1 as usize
-		};
-		for x in 0..w {
-			let (dx, dy) = match rotation {
-				90 => (h - 1 - y, x),
-				180 => (w - 1 - x, h - 1 - y),
-				270 => (y, w - 1 - x),
-				_ => (x, y),
-			};
-			let source = row * pitch + (x + crop.0 as usize) * 4;
-			let target = (dy * out_width + dx) * 4;
-			rgba[target..target + 4].copy_from_slice(&[
-				bytes[source + 2],
-				bytes[source + 1],
-				bytes[source],
-				255,
-			]);
-		}
-	}
-	Ok(rgba)
+	let chroma = pitch.checked_mul(rows).ok_or(INVALID)?;
+	let mut data = Vec::with_capacity(Layout::Nv12.len(width, height).ok_or(INVALID)?);
+	pack_plane(
+		&mut data,
+		bytes.get(y * pitch + x..).ok_or(INVALID)?,
+		pitch,
+		w,
+		h,
+	)
+	.and_then(|()| {
+		let source = bytes.get(chroma + y / 2 * pitch + x..)?;
+		pack_plane(&mut data, source, pitch, chroma_row, h.div_ceil(2))
+	})
+	.ok_or(INVALID)?;
+	Ok(data)
 }
 
 fn sample_bytes(sample: &IMFSample) -> Result<Vec<u8>, &'static str> {
@@ -926,7 +986,8 @@ mod tests {
 		let source = std::io::Cursor::new(
 			include_bytes!("../../../../apps/desktop/tests/fixtures/video.mov").as_slice(),
 		);
-		let mut decoder = Decoder::open(Box::new(source)).unwrap();
+		let mut decoder =
+			Decoder::open(Box::new(source), Viewport::from_pixels(8192.0, 8192.0)).unwrap();
 		let info = decoder.info();
 		assert_eq!(
 			(info.width, info.height, info.sample_rate),
@@ -1001,14 +1062,27 @@ mod tests {
 		{
 			word.copy_from_slice(&value.to_be_bytes());
 		}
-		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(portrait))).unwrap();
+		let mut decoder = Decoder::open(
+			Box::new(std::io::Cursor::new(portrait)),
+			Viewport::from_pixels(128.0, 128.0),
+		)
+		.unwrap();
 		assert_eq!((decoder.info().width, decoder.info().height), (180, 320));
 		let Some(Sample::Video { picture, .. }) = decoder.read_video().unwrap() else {
 			panic!("Missing portrait frame");
 		};
 		assert_eq!(
-			(picture.width, picture.height, picture.data.len()),
-			(180, 320, 180 * 320 * 4)
+			(picture.width, picture.height, picture.rotation),
+			(128, 72, 90)
+		);
+		assert_eq!(picture.layout, Layout::Nv12);
+		decoder.resize(Viewport::from_pixels(8192.0, 8192.0));
+		let Some(Sample::Video { picture, .. }) = decoder.read_video().unwrap() else {
+			panic!("Missing resized portrait frame");
+		};
+		assert_eq!(
+			(picture.width, picture.height, picture.rotation),
+			(320, 180, 90)
 		);
 
 		{
@@ -1039,16 +1113,6 @@ mod tests {
 					E_INVALIDARG
 				);
 			}
-			let input = [1, 2, 3, 0, 4, 5, 6, 0];
-			assert_eq!(
-				rgba_frame(&input, 1, 2, -4, 0, 2, (0, 0)).unwrap(),
-				[6, 5, 4, 255, 3, 2, 1, 255]
-			);
-			assert_eq!(
-				rgba_frame(&input, 1, 2, 4, 90, 2, (0, 0)).unwrap(),
-				[6, 5, 4, 255, 3, 2, 1, 255]
-			);
-			assert!(rgba_frame(&input[..4], 1, 2, 4, 0, 2, (0, 0)).is_err());
 		}
 	}
 }

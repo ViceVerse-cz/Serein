@@ -77,6 +77,7 @@ pub struct VideoUi {
 	fullscreen: Option<(egui::Context, bool, egui::Id)>,
 	/// Native window transition for the desktop to apply after this UI frame.
 	pub(super) fullscreen_request: Option<bool>,
+	stage_pixels: Option<[f32; 2]>,
 }
 impl Default for VideoUi {
 	fn default() -> Self {
@@ -100,16 +101,21 @@ impl Default for VideoUi {
 			controls_focused: false,
 			fullscreen: None,
 			fullscreen_request: None,
+			stage_pixels: None,
 		}
 	}
 }
 impl VideoUi {
+	pub fn stage_pixels(&self) -> Option<[f32; 2]> {
+		self.stage_pixels
+	}
 	pub fn stop(&mut self) {
 		self.exit_fullscreen();
 		self.active = None;
 		self.texture = None;
 		self.managed = None;
 		self.frame = None;
+		self.stage_pixels = None;
 		self.state = VideoState::Idle;
 		self.position = 0.0;
 		self.duration = 0.0;
@@ -219,7 +225,13 @@ impl VideoUi {
 		self.texture = Some(texture);
 		true
 	}
-	fn toggle(&mut self, message: &Message, attachment: &Attachment, state: VideoState) {
+	fn toggle(
+		&mut self,
+		message: &Message,
+		attachment: &Attachment,
+		state: VideoState,
+		stage: [f32; 2],
+	) {
 		self.command = Some(match state {
 			VideoState::Loading => {
 				self.stop();
@@ -232,6 +244,7 @@ impl VideoUi {
 				self.texture = None;
 				self.managed = None;
 				self.frame = None;
+				self.stage_pixels = Some(stage);
 				self.state = VideoState::Loading;
 				self.position = 0.0;
 				self.duration = 0.0;
@@ -362,6 +375,10 @@ impl VideoUi {
 		if active && self.is_fullscreen() && !fullscreen {
 			return response;
 		}
+		let stage_pixels: [f32; 2] = (stage.size() * ui.ctx().pixels_per_point()).into();
+		if active {
+			self.stage_pixels = Some(stage_pixels);
+		}
 		let label = crate::i18n::translate_if_key(match state {
 			VideoState::Loading => "video-show-player-cancel",
 			VideoState::Playing => "video-show-player-pause",
@@ -389,7 +406,6 @@ impl VideoUi {
 			} else if state == VideoState::Idle
 				&& !self.poster_seen.contains(&attachment.id)
 				&& attachment.size > 0
-				&& attachment.size <= 100 * 1024 * 1024
 				&& ui.is_rect_visible(stage)
 				&& !self
 					.poster_queue
@@ -544,7 +560,7 @@ impl VideoUi {
 			painter.galley(badge.min + egui::vec2(6.0, 3.0), galley, white);
 		}
 		if action.clicked() {
-			self.toggle(message, attachment, state);
+			self.toggle(message, attachment, state, stage_pixels);
 		}
 		response = action | response;
 		let mut controls_focused = false;
@@ -666,7 +682,7 @@ impl VideoUi {
 						}
 						response |= glyph.clone();
 						if glyph.on_hover_text(label).clicked() {
-							self.toggle(message, attachment, state);
+							self.toggle(message, attachment, state, stage_pixels);
 						}
 						ui.label(
 							egui::RichText::new(format!(

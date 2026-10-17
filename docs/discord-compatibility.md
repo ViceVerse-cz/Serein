@@ -1797,8 +1797,8 @@ Synthetic tests exercise UI actions, bounds, coalescing, clearing and reconnect.
 ### Inline attachment video (September 12, 2026)
 
 macOS retries native format/decode failures once through the optional installed FFmpeg
-helper, including failures after opening and sources requiring downscaling to the
-1080p preview bound. Playback resumes from its last displayed position. Native AAC
+helper, including failures after opening and sources above the native 8K bound. The
+helper scales into the current stage within 1920×1080. Playback resumes from its last displayed position. Native AAC
 also accepts media timescales distinct from the PCM sample rate. This does not imply
 support for every MOV/MP4 codec or live-service verification.
 
@@ -1818,26 +1818,30 @@ frames and playback-state changes request immediate repaint.
 
 * Windows: Media Foundation. MPEG-4/MOV and EBML-based WebM/Matroska containers are admitted;
   installed Windows codec availability still controls their video/audio coverage (including HEVC).
-  GPU frames use their actual row layout, and track rotation is applied once; an unavailable
-  native rotation control falls back to the software reader.
+  Both the hardware and software readers use advanced video processing to output NV12 at the
+  stage size. GPU frames use their actual row layout, and track rotation is applied once, by the
+  renderer.
 * macOS: a bounded Rust MPEG-4 demuxer feeds VideoToolbox (H.264 and HEVC, including
   B-frame reordering) and Symphonia's pure-Rust AAC-LC decoder. HE-AAC, MP3-in-MP4,
   fragmented files, external data references and encrypted tracks are rejected.
 * Linux: GStreamer `decodebin` pulls bounded byte ranges from that reader through
   `appsrc`; the installed plugins (base, good and libav are recommended by the package)
   decide which codecs play. Output is 48 kHz stereo PCM and NV12/I420 pictures (caps
-  colorimetry) with orientation tags applied.
+  colorimetry), scaled by one `videoscale` before orientation tags are applied.
 
-VideoToolbox (attachments and live) and GStreamer hand over their native 4:2:0 planes;
+Media Foundation, VideoToolbox and GStreamer hand over 4:2:0 planes;
 the renderer converts them to RGB on the GPU with the tagged BT.601/BT.709/BT.2020/SMPTE 240M
 matrix and range (BT.2020 gets its matrix only, no HDR tone mapping)
 (untagged HD is treated as BT.709, SD as BT.601, matching VideoToolbox's own conversion).
-Windows attachments still use the RGB32 reader; Windows live pictures stay NV12.
+For attachments the choice follows the source height, so a scaled picture keeps its matrix.
 
 Unsupported containers/codecs show an error inside the player with the existing
-download/open actions in the context menu. Limits are 100 MiB encoded, two hours, 1920 pixels per side and
-1920x1080 total pixels, and mono/stereo audio up to 96 kHz. Rotated portrait video uses
-the same pixel budget.
+download/open actions in the context menu. Playback has no encoded-size limit beyond a
+nonzero attachment size; Save As and Copy keep their 100 MiB limit. Sources may be up to
+8192 pixels per side and 7680x4320 total pixels, two hours, and mono/stereo audio up to 96 kHz.
+The OS decoder scales each picture to the stage it is shown in (physical pixels, contained,
+never upscaled, at most 3840x2160), and posters to a 320-pixel box. Resizing mid-stream is
+unverified against live Discord media. Rotated portrait video uses the same pixel budget.
 Only an explicit attachment Play starts decoding; leaving its visible message (unless
 fullscreen) or channel, hiding the app, logout, replacement or cancellation stops that player. Embeds with web
 video pages continue using their external link action. No live Discord media was tested.

@@ -1821,7 +1821,7 @@ fn resize_to(image: image::RgbaImage, fit: u32) -> image::RgbaImage {
 fn first_video_frame(bytes: &[u8], fit: u32) -> Option<egui::ColorImage> {
 	let started = Instant::now();
 	let bytes: Arc<[u8]> = bytes.into();
-	let mut decoder = open_preview_decoder(bytes, started)?;
+	let mut decoder = open_preview_decoder(bytes, fit, started)?;
 	while started.elapsed() < Duration::from_secs(3) {
 		match decoder.poll_video() {
 			Ok(std::task::Poll::Pending) => {
@@ -1849,12 +1849,17 @@ fn first_video_frame(bytes: &[u8], fit: u32) -> Option<egui::ColorImage> {
 	None
 }
 
-fn open_preview_decoder(bytes: Arc<[u8]>, started: Instant) -> Option<platform::video::Decoder> {
+fn open_preview_decoder(
+	bytes: Arc<[u8]>,
+	fit: u32,
+	started: Instant,
+) -> Option<platform::video::Decoder> {
 	let source = Box::new(Cursor::new(bytes));
+	let view = platform::video::Viewport::from_pixels(fit as f32, fit as f32);
 	#[cfg(target_os = "linux")]
-	let decoder = platform::video::Decoder::open_until(source, started + Duration::from_secs(3));
+	let decoder = platform::video::Decoder::open_until(source, view, started + Duration::from_secs(3));
 	#[cfg(not(target_os = "linux"))]
-	let decoder = platform::video::Decoder::open(source);
+	let decoder = platform::video::Decoder::open(source, view);
 	decoder
 		.ok()
 		.filter(|_| started.elapsed() < Duration::from_secs(3))
@@ -1872,7 +1877,7 @@ fn decode_motion_video(
 	// One owned copy for the decoder's 'static stream, shared by every shrink pass.
 	let bytes: Arc<[u8]> = bytes.into();
 	'decode: loop {
-		let mut decoder = open_preview_decoder(bytes.clone(), started)?;
+		let mut decoder = open_preview_decoder(bytes.clone(), fit, started)?;
 		let duration = decoder.info().duration;
 		let mut frames: Vec<(f64, Arc<egui::ColorImage>)> = Vec::new();
 		let mut total = 0usize;

@@ -3,7 +3,7 @@
 //! authenticated and decrypted; nothing here touches the network or disk.
 #![allow(unsafe_code)]
 
-use super::{INVALID, UNSUPPORTED, apple};
+use super::{FramePolicy, INVALID, UNSUPPORTED, apple};
 pub use super::{LiveFrame as Frame, LiveSink as Sink, MAX_ACCESS_UNIT};
 use objc2_core_foundation::{CFBoolean, CFDictionary, CFRetained};
 use objc2_core_media::{
@@ -297,7 +297,7 @@ unsafe extern "C-unwind" fn output_frame(
 		return;
 	}
 	// SAFETY: VideoToolbox keeps the image buffer alive for the duration of the callback.
-	match unsafe { apple::copy_nv12(&*image) } {
+	match unsafe { apple::copy_nv12(&*image, FramePolicy::Live) } {
 		Ok(picture) => (output.sink)(picture),
 		Err(error) => output.error = Some(error),
 	}
