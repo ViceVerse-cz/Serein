@@ -5,13 +5,15 @@
 //! `index.tsv` maps upstream icon names to cells. See `assets/icons/README.md` for provenance.
 use crate::design;
 use egui::emath::GuiRounding;
-use egui::{Color32, Rect, Response, Sense, TextureHandle, Vec2};
+use egui::{Color32, ColorImage, Rect, Response, Sense, TextureHandle, Vec2};
 use std::sync::OnceLock;
 
 const ATLAS: &[u8] = include_bytes!("../../../assets/icons/atlas.png");
 const INDEX: &str = include_str!("../../../assets/icons/index.tsv");
 const COLUMNS: usize = 8;
 const CELL: f32 = 64.0;
+const GLYPH: f32 = 56.0;
+const LAYER_CELLS: [u32; 4] = [16, 24, 32, 64];
 const TEXTURE_KEY: &str = "phosphor-icons";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -386,46 +388,66 @@ fn decoded() -> egui::ColorImage {
 
 /// Upload the atlas for `ctx` during application creation, outside the render callback.
 pub fn install(ctx: &egui::Context) {
-	let _ = texture(ctx);
+	let _ = layer(ctx, 64);
+	let _ = layer(ctx, 32);
 }
 
-fn texture(ctx: &egui::Context) -> TextureHandle {
+#[derive(Clone, Default)]
+struct AtlasLayers {
+	cells: Vec<(u32, TextureHandle)>,
+}
+
+fn source_image() -> &'static ColorImage {
+	static SOURCE: OnceLock<ColorImage> = OnceLock::new();
+	SOURCE.get_or_init(decoded)
+}
+
+fn layer(ctx: &egui::Context, cell: u32) -> TextureHandle {
 	let id = egui::Id::unique(TEXTURE_KEY);
-	if let Some(texture) = ctx.data(|data| data.get_temp::<TextureHandle>(id)) {
-		return texture;
+	if let Some(layers) = ctx.data(|data| data.get_temp::<AtlasLayers>(id))
+		&& let Some((_, texture)) = layers.cells.iter().find(|(stored, _)| *stored == cell)
+	{
+		return texture.clone();
 	}
-	let texture = ctx.load_texture(
-		"Phosphor Icons 2.1.1",
-		decoded(),
-		egui::TextureOptions {
-			mipmap_mode: Some(egui::TextureFilter::Linear),
-			..egui::TextureOptions::LINEAR
-		},
+	let source = source_image();
+	let longest = source.size[0].max(source.size[1]) as u32;
+	let edge = (longest / CELL as u32) * cell;
+	let image = crate::resample::downscale_filter(
+		source,
+		edge.max(1),
+		image::imageops::FilterType::Triangle,
 	);
-	ctx.data_mut(|data| data.insert_temp(id, texture.clone()));
+	let texture = ctx.load_texture("Phosphor Icons 2.1.1", image, egui::TextureOptions::LINEAR);
+	ctx.data_mut(|data| {
+		let mut layers = data.get_temp::<AtlasLayers>(id).unwrap_or_default();
+		if !layers.cells.iter().any(|(stored, _)| *stored == cell) {
+			layers.cells.push((cell, texture.clone()));
+		}
+		data.insert_temp(id, layers);
+	});
 	texture
 }
 
 /// Paint `icon` centred in `rect` with `color`.
 pub fn paint(painter: &egui::Painter, icon: Icon, rect: Rect, color: Color32) {
 	let size = rect.width().min(rect.height());
-	let rect = Rect::from_center_size(rect.center(), Vec2::splat(size))
-		.round_to_pixels(painter.pixels_per_point());
-	let texture = texture(painter.ctx());
-	let [width, height] = texture.size();
-	let cell = icon.cell();
-	let x = (cell % COLUMNS) as f32 * CELL;
-	let y = (cell / COLUMNS) as f32 * CELL;
+	let ppp = painter.pixels_per_point();
+	let drawn = size * (CELL / GLYPH);
+	let rect = Rect::from_center_size(rect.center(), Vec2::splat(drawn)).round_to_pixels(ppp);
+	let cell = crate::resample::covering_edge(drawn * ppp, &LAYER_CELLS);
+	let texture = layer(painter.ctx(), cell);
+	let index = icon.cell();
+	let col = (index % COLUMNS) as f32;
+	let row = (index / COLUMNS) as f32;
+	let rows = source_image().size[1] as f32 / CELL;
 	let mut uv = Rect::from_min_max(
-		egui::pos2(x / width as f32, y / height as f32),
-		egui::pos2((x + CELL) / width as f32, (y + CELL) / height as f32),
+		egui::pos2(col / COLUMNS as f32, row / rows),
+		egui::pos2((col + 1.0) / COLUMNS as f32, (row + 1.0) / rows),
 	);
 	if icon == Icon::Forward {
 		std::mem::swap(&mut uv.min.x, &mut uv.max.x);
 	}
-	// Glyphs occupy 56 of every 64 cell pixels; draw the cell slightly larger so the visible
-	// glyph fills `rect` like the previous painted icons did.
-	painter.image(texture.id(), rect.expand(size * 4.0 / 56.0), uv, color);
+	painter.image(texture.id(), rect, uv, color);
 }
 
 /// `icon` as an atom, so widgets built from atoms (buttons, combo boxes) can show it beside text.
@@ -569,8 +591,8 @@ mod tests {
 			}
 		});
 		assert!(
-			output.textures_delta.set.len() <= 2,
-			"fonts plus one atlas upload"
+			output.textures_delta.set.len() <= 1 + LAYER_CELLS.len(),
+			"fonts plus one atlas upload per drawn cell size"
 		);
 		for shape in &output.shapes {
 			let bounds = shape.shape.visual_bounding_rect();
