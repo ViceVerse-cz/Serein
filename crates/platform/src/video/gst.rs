@@ -166,13 +166,47 @@ impl Decoder {
 					if has_video.swap(true, Ordering::AcqRel) {
 						return;
 					}
-					link_branch(
-						&pipeline,
-						pad,
-						&["queue", "videoflip", "videoconvert"],
-						&[("videoflip", "video-direction", "auto")],
-						video.upcast_ref(),
-					)
+					// Larger than the inline bound: scale down before rotating, keeping aspect.
+					let size = caps.structure(0).and_then(|s| {
+						Some((s.get::<i32>("width").ok()?, s.get::<i32>("height").ok()?))
+					});
+					let fitted = size
+						.and_then(|(w, h)| Some((u32::try_from(w).ok()?, u32::try_from(h).ok()?)))
+						.filter(|&(w, h)| super::check_dimensions(w, h) == Err(super::TOO_LARGE))
+						.map(|(w, h)| super::fit_dimensions(w, h));
+					match fitted {
+						Some((width, height)) => {
+							let fitted = format!("video/x-raw,width={width},height={height}");
+							// One thread scales 4K to 1080p at about 40 fps; eight keep up with 60.
+							let threads = std::thread::available_parallelism()
+								.map_or(1, |count| count.get().min(8))
+								.to_string();
+							link_branch(
+								&pipeline,
+								pad,
+								&[
+									"queue",
+									"videoscale",
+									"capsfilter",
+									"videoflip",
+									"videoconvert",
+								],
+								&[
+									("videoscale", "n-threads", &threads),
+									("capsfilter", "caps", &fitted),
+									("videoflip", "video-direction", "auto"),
+								],
+								video.upcast_ref(),
+							)
+						}
+						None => link_branch(
+							&pipeline,
+							pad,
+							&["queue", "videoflip", "videoconvert"],
+							&[("videoflip", "video-direction", "auto")],
+							video.upcast_ref(),
+						),
+					}
 				} else if name.starts_with("audio/x-raw") {
 					if has_audio.swap(true, Ordering::AcqRel) {
 						return;
@@ -649,6 +683,43 @@ mod tests {
 			dropped: dropped.clone(),
 		};
 		(Box::new(source), dropped)
+	}
+
+	/// A synthetic 4K clip encoded by this system's GStreamer plays scaled to the inline bound
+	/// instead of being refused. Skips when no H.264 encoder is installed.
+	#[test]
+	fn larger_than_1080p_videos_play_scaled_to_the_inline_bound() {
+		gst::init().unwrap();
+		let path = std::env::temp_dir().join(format!("serein-4k-{}.mp4", std::process::id()));
+		let Ok(pipeline) = gst::parse::launch(&format!(
+			"videotestsrc num-buffers=5 ! video/x-raw,width=3840,height=2160,framerate=30/1 \
+			 ! x264enc speed-preset=ultrafast ! mp4mux ! filesink location={}",
+			path.display()
+		)) else {
+			eprintln!("skipped: no H.264 encoder");
+			return;
+		};
+		pipeline.set_state(gst::State::Playing).unwrap();
+		let bus = pipeline.bus().unwrap();
+		let done = bus.timed_pop_filtered(
+			gst::ClockTime::from_seconds(60),
+			&[gst::MessageType::Eos, gst::MessageType::Error],
+		);
+		pipeline.set_state(gst::State::Null).unwrap();
+		assert!(matches!(
+			done.map(|m| m.type_()),
+			Some(gst::MessageType::Eos)
+		));
+		let clip = std::fs::read(&path).unwrap();
+		let _ = std::fs::remove_file(&path);
+		let mut decoder = Decoder::open(Box::new(std::io::Cursor::new(clip))).unwrap();
+		assert_eq!((decoder.info().width, decoder.info().height), (1920, 1080));
+		let Some(Sample::Video { picture, .. }) =
+			wait_for_sample(&mut decoder, Decoder::poll_video)
+		else {
+			panic!("a scaled frame");
+		};
+		assert_eq!((picture.width, picture.height), (1920, 1080));
 	}
 
 	#[test]
