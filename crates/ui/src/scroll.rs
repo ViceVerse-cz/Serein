@@ -1,18 +1,130 @@
 use crate::design;
 use egui::{AsIdSalt, IdSalt, Pos2, Rect, ScrollArea, Shape, Stroke, pos2};
 
+const TOUCHPAD_STATE_KEY: &str = "serein-touchpad-scroll-state";
+
+#[derive(Clone, Copy, Default)]
+struct TouchpadState {
+	last_active: Option<f64>,
+	accumulator: egui::Vec2,
+}
+
 /// Apply once before rendering the app's scroll areas. Zoom gestures remain unchanged.
 pub fn apply_preferences(ctx: &egui::Context, preferences: model::ReadingPreferences) {
 	if !preferences.is_valid() {
 		return;
 	}
 	let options = ctx.options(|options| options.input_options);
-	ctx.input_mut(|input| {
-		let delta = if preferences.smooth_scrolling {
-			input.smooth_scroll_delta()
+	let key = egui::Id::unique(TOUCHPAD_STATE_KEY);
+	let (time, page_height, dt) = ctx.input(|i| (i.time, i.viewport_rect().height(), i.stable_dt));
+	let mut state: TouchpadState = ctx.data(|d| d.get_temp(key)).unwrap_or_default();
+
+	let has_high_res_event = ctx.input(|input| {
+		let wheel_events = input
+			.raw
+			.events
+			.iter()
+			.filter(|event| matches!(event, egui::Event::MouseWheel { .. }))
+			.count();
+		wheel_events > 1
+			|| input.raw.events.iter().any(|event| match event {
+				egui::Event::MouseWheel {
+					unit,
+					delta,
+					source,
+					..
+				} => {
+					*source == egui::MouseWheelSource::Trackpad
+						|| *source == egui::MouseWheelSource::Momentum
+						|| *unit == egui::MouseWheelUnit::Point
+						|| delta.x.fract().abs() > 0.0001
+						|| delta.y.fract().abs() > 0.0001
+				}
+				_ => false,
+			})
+	});
+
+	if has_high_res_event {
+		state.last_active = Some(time);
+	} else if let Some(last) = state.last_active {
+		if time - last < 0.35 {
+			let has_any_wheel = ctx.input(|input| {
+				input
+					.raw
+					.events
+					.iter()
+					.any(|event| matches!(event, egui::Event::MouseWheel { .. }))
+			});
+			if has_any_wheel {
+				state.last_active = Some(time);
+			}
 		} else {
-			instant_wheel_delta(&input.raw.events, options, input.viewport_rect().height())
+			state.last_active = None;
+			state.accumulator = egui::Vec2::ZERO;
+		}
+	}
+
+	let touchpad_active = state.last_active.is_some_and(|last| time - last < 0.35)
+		|| state.accumulator.length() > 0.5;
+
+	if ctx.input(|i| i.pointer.any_pressed()) {
+		state.accumulator = egui::Vec2::ZERO;
+	}
+
+	let delta = if touchpad_active {
+		let incoming =
+			ctx.input(|input| instant_wheel_delta(&input.raw.events, options, page_height));
+		if incoming.y != 0.0
+			&& state.accumulator.y != 0.0
+			&& incoming.y.signum() != state.accumulator.y.signum()
+		{
+			state.accumulator.y = 0.0;
+		}
+		if incoming.x != 0.0
+			&& state.accumulator.x != 0.0
+			&& incoming.x.signum() != state.accumulator.x.signum()
+		{
+			state.accumulator.x = 0.0;
+		}
+		state.accumulator += incoming;
+
+		let dt_clamped = dt.clamp(1.0 / 240.0, 0.05);
+		let step = if !preferences.smooth_scrolling {
+			let d = state.accumulator;
+			state.accumulator = egui::Vec2::ZERO;
+			d
+		} else {
+			let frame_ratio = dt_clamped / (1.0 / 60.0);
+			let max_step = (page_height * 0.25).clamp(120.0, 180.0) * frame_ratio;
+			let len = state.accumulator.length();
+			if len <= max_step {
+				let d = state.accumulator;
+				state.accumulator = egui::Vec2::ZERO;
+				d
+			} else {
+				let d = state.accumulator.normalized() * max_step;
+				state.accumulator -= d;
+				d
+			}
 		};
+
+		if state.accumulator.length() > 0.5 {
+			ctx.request_repaint();
+		}
+
+		step
+	} else {
+		state.accumulator = egui::Vec2::ZERO;
+		if preferences.smooth_scrolling {
+			ctx.input(|i| i.smooth_scroll_delta())
+		} else {
+			ctx.input(|input| instant_wheel_delta(&input.raw.events, options, page_height))
+		}
+	};
+
+	ctx.data_mut(|d| d.insert_temp(key, state));
+
+	ctx.input_mut(|input| {
 		input.smooth_scroll_delta = delta * (f32::from(preferences.scroll_speed_percent) / 100.0);
 	});
 }
@@ -321,4 +433,146 @@ impl Session {
 
 fn clamped_away(requested: f32, current: f32, next: f32) -> bool {
 	(requested - current).abs() > 0.5 && (next - current).signum() == (requested - current).signum()
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn notched_mouse_wheel_uses_smooth_scroll_when_enabled() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let mut raw = egui::RawInput {
+			time: Some(0.1),
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(900.0, 600.0),
+			)),
+			events: vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Line,
+				delta: egui::vec2(0.0, 1.0),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			}],
+			..Default::default()
+		};
+		let mut delta = egui::Vec2::ZERO;
+		ctx.run_ui(raw.clone(), |ui| {
+			apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+			delta = ui.input(|i| i.smooth_scroll_delta());
+		})
+		.drop_without_applying_deltas();
+		// For a notched wheel, egui smooths 120px over frames (t ≈ 0.32), so frame 1 delta is ~38px
+		assert!(delta.y > 20.0 && delta.y < 60.0);
+
+		// With smooth_scrolling = false, instant_wheel_delta applies all 120px in frame 1
+		let prefs_instant = model::ReadingPreferences {
+			smooth_scrolling: false,
+			..Default::default()
+		};
+		raw.time = Some(0.2);
+		ctx.run_ui(raw, |ui| {
+			apply_preferences(ui.ctx(), prefs_instant);
+			delta = ui.input(|i| i.smooth_scroll_delta());
+		})
+		.drop_without_applying_deltas();
+		assert_eq!(delta.y, 120.0);
+	}
+
+	#[test]
+	fn touchpad_fractional_delta_bypasses_exponential_delay_queue() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let raw = egui::RawInput {
+			time: Some(0.1),
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(900.0, 600.0),
+			)),
+			events: vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Line,
+				// Fractional delta characteristic of Windows Precision Touchpad
+				delta: egui::vec2(0.0, 0.5),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			}],
+			..Default::default()
+		};
+		let mut delta = egui::Vec2::ZERO;
+		ctx.run_ui(raw, |ui| {
+			apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+			delta = ui.input(|i| i.smooth_scroll_delta());
+		})
+		.drop_without_applying_deltas();
+		// 0.5 lines * 120px/line = 60px instant delta (not 0.32 * 60 ≈ 19px)
+		assert_eq!(delta.y, 60.0);
+
+		// Frame with no events during active touchpad gesture should be 0, not egui's queued lag
+		let raw_idle = egui::RawInput {
+			time: Some(0.15),
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(900.0, 600.0),
+			)),
+			events: vec![],
+			..Default::default()
+		};
+		ctx.run_ui(raw_idle, |ui| {
+			apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+			delta = ui.input(|i| i.smooth_scroll_delta());
+		})
+		.drop_without_applying_deltas();
+		assert_eq!(delta.y, 0.0);
+	}
+
+	#[test]
+	fn touchpad_fast_swipe_is_soft_clamped_per_frame() {
+		let ctx = egui::Context::default();
+		crate::design::apply(&ctx);
+		let raw = egui::RawInput {
+			time: Some(0.1),
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(900.0, 600.0),
+			)),
+			// Rapid swipe delivering 10.25 lines = 1,230px in 1 frame
+			events: vec![egui::Event::MouseWheel {
+				unit: egui::MouseWheelUnit::Line,
+				delta: egui::vec2(0.0, 10.25),
+				modifiers: egui::Modifiers::NONE,
+				phase: egui::TouchPhase::Move,
+				source: egui::MouseWheelSource::Unknown,
+			}],
+			..Default::default()
+		};
+		let mut delta = egui::Vec2::ZERO;
+		ctx.run_ui(raw, |ui| {
+			apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+			delta = ui.input(|i| i.smooth_scroll_delta());
+		})
+		.drop_without_applying_deltas();
+		// Frame 1 is clamped to a smooth per-frame step (around 168px, not 1230px)
+		assert!(delta.y >= 140.0 && delta.y <= 180.0);
+
+		// Frame 2 with no new events continues smoothly from the accumulator, avoiding single-frame stalls
+		let raw_frame2 = egui::RawInput {
+			time: Some(0.116),
+			screen_rect: Some(egui::Rect::from_min_size(
+				egui::Pos2::ZERO,
+				egui::vec2(900.0, 600.0),
+			)),
+			events: vec![],
+			..Default::default()
+		};
+		let mut delta2 = egui::Vec2::ZERO;
+		ctx.run_ui(raw_frame2, |ui| {
+			apply_preferences(ui.ctx(), model::ReadingPreferences::default());
+			delta2 = ui.input(|i| i.smooth_scroll_delta());
+		})
+		.drop_without_applying_deltas();
+		assert!(delta2.y >= 140.0 && delta2.y <= 180.0);
+	}
 }
